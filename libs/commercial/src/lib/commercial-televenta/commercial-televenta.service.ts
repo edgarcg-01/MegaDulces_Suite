@@ -40,6 +40,225 @@ export interface QueueItem {
   total_orders: number;
 }
 
+/** Resultado de `trx.raw` en Postgres: el driver entrega las filas sin tipo. */
+interface RawResult {
+  rows: Array<Record<string, unknown>>;
+}
+
+/** E.4 — la actividad de llamadas del tablero (`commercial.call_logs`). */
+export interface TeleventaActividad {
+  period: { from: string; to: string };
+  today: {
+    calls: number; orders_taken: number; no_answer: number;
+    callbacks: number; not_interested: number; total_minutes: number;
+  };
+  my_stats: { my_calls: number; my_orders: number; my_minutes: number } | null;
+  active_reservations: { total: number; unique_operators: number };
+  conversion_7d: { total_calls: number; orders_taken: number; conversion_pct: number };
+  top_operators: unknown[];
+  outcomes_7d: unknown[];
+  /** `registrada:false` ⇒ nadie ha capturado llamadas: no hay actividad que medir. */
+  actividad: { registrada: boolean; nota: string };
+}
+
+/** E.9 — la facturación del canal en el tablero (`analytics.erp_sales_invoices`). */
+export interface TelemarketingBilling {
+  hoy: { facturas: number; importe: number };
+  mes: { facturas: number; importe: number };
+  d30: {
+    facturas: number; importe: number; clientes: number;
+    saldo: number; saldo_vencido: number; facturas_vencidas: number;
+  };
+  cartera_vencida: { saldo: number; facturas: number };
+  clientes_en_cola: number;
+  ultima_factura: Date | string | null;
+  por_operador: Array<Record<string, unknown>>;
+  ultimas: Array<Record<string, unknown>>;
+  descuentos: DescuentosTelemarketing;
+  atribucion: 'erp_vendedor_code';
+}
+
+/**
+ * `[E.15]` La cascada del descuento del canal en 30 días, con la regla de la Fase TK (TK.13):
+ *
+ *     lista − producto = subtotal − cliente = facturado
+ *
+ *   · `producto` = Σ (precio de lista del renglón `kdm2.c66` − cobrado `c12`) × cantidad, nunca
+ *     negativo y sólo donde la lista existe (`c66 > 0`).
+ *   · `cliente`  = Σ importe de renglones − total del documento: el % negociado del cliente.
+ *     ⛔ NO `kdm1.c13`, que viaja sin impuesto y subdeclara (ERP_KEPLER §2.6).
+ *
+ * Cierra exacto por construcción sobre las facturas CON renglones. Las que la réplica trajo sin
+ * renglones todavía (la cabecera llega antes que el detalle) quedan fuera y se declaran.
+ */
+export interface DescuentosTelemarketing {
+  facturas: number;
+  facturas_sin_renglones: number;
+  total_sin_renglones: number;
+  renglones: number;
+  /** Renglones donde el ERP no guarda precio de lista: ahí el descuento de producto es un piso. */
+  renglones_sin_lista: number;
+  lista: number;
+  producto: number;
+  subtotal: number;
+  cliente: number;
+  facturado: number;
+  /**
+   * Contra el maestro de clientes de HOY (`kdud.c17`, por sucursal + cliente): facturas que
+   * salieron con MENOS % del negociado, y la diferencia en pesos.
+   * `[E.16]` `detalle` trae TODAS (sin tope): el encabezado dice N y la lista llega a N.
+   */
+  negociado_no_aplicado: DiferenciaMaestro;
+  /** Facturas con MÁS % del que el maestro registra hoy, y la diferencia en pesos. */
+  sin_respaldo_maestro: DiferenciaMaestro;
+}
+
+export interface FacturaDiferenciaMaestro {
+  folio_digital: string;
+  fecha: Date | string | null;
+  cliente_code: string | null;
+  cliente_nombre: string | null;
+  vendedor_nombre: string | null;
+  pct_maestro: number;
+  pct_documento: number;
+  subtotal: number;
+  /** subtotal × |% maestro − % documento|, en pesos. */
+  diferencia: number;
+}
+
+export interface DiferenciaMaestro {
+  facturas: number;
+  monto: number;
+  /** Ordenadas por diferencia, de mayor a menor. */
+  detalle: FacturaDiferenciaMaestro[];
+}
+
+const NUM = (col: string): string => `round(coalesce(nullif(regexp_replace(${col}::text, '[^0-9.-]', '', 'g'), '')::numeric, 0), 2)`;
+
+/**
+ * Una fila por FACTURA (`[E.16]`: para poder listar cuáles difieren del maestro; antes agrupaba
+ * por operador × %). Los renglones se leen de `kdm2` por
+ * factura con `ix_kdm2_venta_doc` (LATERAL): medido en prod el 2026-10-21, 150–345 ms. El join
+ * en bloque contra `kdm2` (o contra `analytics.erp_sales_invoice_lines`) tardaba 46 s y más.
+ * La llave del renglón incluye la serie (`c5`): sin ella se pegan renglones de documentos
+ * homónimos de otra serie (VEC.7).
+ */
+const SQL_DESCUENTOS_TELEMARKETING_30D = `
+  WITH f AS MATERIALIZED (
+    SELECT sucursal, doc_prefix, folio, folio_digital, fecha, total, cliente_code, cliente_nombre,
+           vendedor_code, vendedor_nombre, coalesce(descuento_pct, 0) AS pct_documento
+    FROM analytics.erp_sales_invoices
+    WHERE tenant_id = ? AND doc_tipo = 'telemarketing' AND NOT cancelada
+      AND fecha >= current_date - 30),
+  x AS (
+    SELECT f.*, l.renglones, l.sin_lista, l.importe, l.desc_producto,
+           coalesce(nullif(regexp_replace(coalesce(u.c17, ''), '[^0-9.]', '', 'g'), '')::numeric, 0) AS pct_maestro
+    FROM f
+    CROSS JOIN LATERAL (
+      SELECT count(*)::int AS renglones,
+             count(*) FILTER (WHERE ${NUM('d.c66')} <= 0)::int AS sin_lista,
+             sum(${NUM('d.c13')}) AS importe,
+             sum(round(greatest(coalesce(nullif(${NUM('d.c66')}, 0), ${NUM('d.c12')}) - ${NUM('d.c12')}, 0)
+                 * abs(coalesce(d.c9::numeric, 0)), 2)) AS desc_producto
+      FROM kepler_ods.kdm2 d
+      WHERE d.c2 = 'U' AND d.c3 = 'D' AND btrim(d.sucursal) = f.sucursal AND (d.c4)::integer = 8
+        AND (d.c5)::integer = substr(f.doc_prefix, 5, 2)::integer AND btrim(d.c6) = f.folio
+        AND btrim(d.c1) = f.sucursal AND abs(coalesce(d.c9::numeric, 0)) > 0) l
+    LEFT JOIN kepler_ods.kdud u ON btrim(u.sucursal) = f.sucursal AND btrim(u.c2) = f.cliente_code)
+  SELECT folio_digital, fecha, cliente_code, cliente_nombre,
+         vendedor_code, vendedor_nombre, pct_maestro, pct_documento,
+         (renglones > 0)::int                                                AS facturas,
+         (renglones = 0)::int                                                AS facturas_sin_renglones,
+         CASE WHEN renglones = 0 THEN total ELSE 0 END                        AS total_sin_renglones,
+         renglones,
+         sin_lista                                                           AS renglones_sin_lista,
+         CASE WHEN renglones > 0 THEN importe ELSE 0 END                      AS subtotal,
+         CASE WHEN renglones > 0 THEN desc_producto ELSE 0 END                AS producto,
+         CASE WHEN renglones > 0 THEN importe - total ELSE 0 END              AS cliente,
+         CASE WHEN renglones > 0 THEN total ELSE 0 END                        AS facturado
+  FROM x`;
+
+const llaveOperador = (code: unknown, nombre: unknown): string => `${code ?? ''}|${nombre ?? ''}`;
+const centavos = (n: number): number => Math.round(n * 100) / 100;
+
+interface DescuentoOperador { lista: number; producto: number; cliente: number }
+
+/** Suma las filas por (operador, %maestro, %documento) en la cascada y en el reparto por operador. */
+export function armarDescuentos(rows: Array<Record<string, unknown>>): {
+  resumen: DescuentosTelemarketing;
+  porOperador: Map<string, DescuentoOperador>;
+} {
+  const r: DescuentosTelemarketing = {
+    facturas: 0, facturas_sin_renglones: 0, total_sin_renglones: 0, renglones: 0, renglones_sin_lista: 0,
+    lista: 0, producto: 0, subtotal: 0, cliente: 0, facturado: 0,
+    negociado_no_aplicado: { facturas: 0, monto: 0, detalle: [] },
+    sin_respaldo_maestro: { facturas: 0, monto: 0, detalle: [] },
+  };
+  const porOperador = new Map<string, DescuentoOperador>();
+  // Sólo una fila por FACTURA trae folio: en filas agrupadas no hay a qué documento apuntar.
+  const anotar = (destino: DiferenciaMaestro, row: Record<string, unknown>, subtotal: number, pm: number, pd: number): void => {
+    if (!row.folio_digital) return;
+    destino.detalle.push({
+      folio_digital: String(row.folio_digital),
+      fecha: (row.fecha as Date | string | null) ?? null,
+      cliente_code: (row.cliente_code as string | null) ?? null,
+      cliente_nombre: (row.cliente_nombre as string | null) ?? null,
+      vendedor_nombre: (row.vendedor_nombre as string | null) ?? null,
+      pct_maestro: pm,
+      pct_documento: pd,
+      subtotal: centavos(subtotal),
+      diferencia: centavos((subtotal * Math.abs(pm - pd)) / 100),
+    });
+  };
+  for (const row of rows) {
+    const facturas = Number(row.facturas || 0);
+    const subtotal = Number(row.subtotal || 0);
+    const producto = Number(row.producto || 0);
+    const cliente = Number(row.cliente || 0);
+    const pm = Number(row.pct_maestro || 0);
+    const pd = Number(row.pct_documento || 0);
+    r.facturas += facturas;
+    r.facturas_sin_renglones += Number(row.facturas_sin_renglones || 0);
+    r.total_sin_renglones += Number(row.total_sin_renglones || 0);
+    r.renglones += Number(row.renglones || 0);
+    r.renglones_sin_lista += Number(row.renglones_sin_lista || 0);
+    r.subtotal += subtotal;
+    r.producto += producto;
+    r.cliente += cliente;
+    r.facturado += Number(row.facturado || 0);
+    if (facturas > 0 && pm > pd) {
+      r.negociado_no_aplicado.facturas += facturas;
+      r.negociado_no_aplicado.monto += (subtotal * (pm - pd)) / 100;
+      anotar(r.negociado_no_aplicado, row, subtotal, pm, pd);
+    } else if (facturas > 0 && pd > pm) {
+      r.sin_respaldo_maestro.facturas += facturas;
+      r.sin_respaldo_maestro.monto += (subtotal * (pd - pm)) / 100;
+      anotar(r.sin_respaldo_maestro, row, subtotal, pm, pd);
+    }
+    if (facturas > 0) {
+      const k = llaveOperador(row.vendedor_code, row.vendedor_nombre);
+      const o = porOperador.get(k) || { lista: 0, producto: 0, cliente: 0 };
+      o.lista += subtotal + producto;
+      o.producto += producto;
+      o.cliente += cliente;
+      porOperador.set(k, o);
+    }
+  }
+  r.lista = r.subtotal + r.producto;
+  for (const k of ['total_sin_renglones', 'lista', 'producto', 'subtotal', 'cliente', 'facturado'] as const) {
+    r[k] = centavos(r[k]);
+  }
+  r.negociado_no_aplicado.monto = centavos(r.negociado_no_aplicado.monto);
+  r.sin_respaldo_maestro.monto = centavos(r.sin_respaldo_maestro.monto);
+  for (const d of [r.negociado_no_aplicado.detalle, r.sin_respaldo_maestro.detalle]) {
+    d.sort((a, b) => b.diferencia - a.diferencia);
+  }
+  for (const o of porOperador.values()) {
+    o.lista = centavos(o.lista); o.producto = centavos(o.producto); o.cliente = centavos(o.cliente);
+  }
+  return { resumen: r, porOperador };
+}
+
 export interface ReservationRecord {
   id: string;
   customer_id: string;
@@ -456,6 +675,30 @@ export class CommercialTeleventaService {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
 
+    // `[E.16]` El tablero ya no trae la vista previa de la cola: era trabajo del operador (a quién
+    // llamar) dentro del resumen del canal (cuánto factura, descuenta y cobra), y la cola tiene
+    // su pestaña. Se conserva `billing.clientes_en_cola`, que DECLARA el universo de la cola.
+    //
+    // Facturación y actividad van en PARALELO, cada una con su conexión: dentro de una sola
+    // transacción las consultas se encolan en el mismo cliente y el tiempo es la SUMA.
+    // Medido en prod el 2026-10-21: facturación en serie ≈ 670 ms; en paralelo, la más lenta
+    // (el vencido de toda la cartera) ≈ 390 ms.
+    const [billing, actividad] = await Promise.all([
+      // ── E.9: el dinero del canal, medido en el ERP (no en esta plataforma) ──
+      this.facturacion(tenantId),
+      this.actividadLlamadas(tenantId, userId, todayStart, sevenDaysAgo, opts),
+    ]);
+    return { ...actividad, billing };
+  }
+
+  /** E.4 — la actividad de llamadas (`commercial.call_logs`) del tablero. */
+  private async actividadLlamadas(
+    tenantId: string,
+    userId: string,
+    todayStart: string,
+    sevenDaysAgo: string,
+    opts: { from?: string; to?: string },
+  ): Promise<TeleventaActividad> {
     return this.tk.run(async (trx) => {
       // 1. Llamadas hoy (total + por outcome + propio operador)
       const callsToday = await trx('commercial.call_logs')
@@ -533,25 +776,6 @@ export class CommercialTeleventaService {
         .select('outcome', trx.raw('count(*)::int as count'))
         .orderByRaw('count(*) desc');
 
-      // 7. Leads en cola priorizada (top 5 más urgentes — críticos)
-      // Reusa lógica del getQueue pero solo head
-      const queuePreview = await trx('commercial.customers as c')
-        .where('c.tenant_id', tenantId)
-        .where('c.active', true)
-        .whereNull('c.deleted_at')
-        .leftJoin('commercial.lead_reservations as r', function () {
-          this.on('r.tenant_id', '=', 'c.tenant_id')
-            .andOn('r.customer_id', '=', 'c.id')
-            .andOnNull('r.released_at')
-            .andOn('r.expires_at', '>', trx.raw('now()'));
-        })
-        .whereNull('r.id') // no reservados
-        .select(
-          'c.id', 'c.code', 'c.name', 'c.phone',
-          trx.raw(`(select max(o.confirmed_at) from commercial.orders o where o.tenant_id = c.tenant_id and o.customer_id = c.id) as last_order_at`),
-        )
-        .limit(5);
-
       const totalCalls7d = Number(conversion7d?.total_calls || 0);
       const ordersOutcome7d = Number(conversion7d?.orders_outcome || 0);
       const conversionPct = totalCalls7d > 0 ? Number(((ordersOutcome7d / totalCalls7d) * 100).toFixed(1)) : 0;
@@ -582,9 +806,6 @@ export class CommercialTeleventaService {
         },
         top_operators: topOperators,
         outcomes_7d: outcomesBreakdown,
-        queue_preview: queuePreview,
-        // ── E.9: el dinero del canal, medido en el ERP (no en esta plataforma) ──
-        billing: await this.facturacion(trx, tenantId),
         // Lo que este tablero NO puede afirmar, dicho aquí y no en la UI (ADR-056): si la
         // plataforma no tiene una sola llamada registrada, "0 llamadas" no es desempeño,
         // es ausencia de captura — y la pantalla debe decirlo en vez de pintar ceros.
@@ -612,32 +833,52 @@ export class CommercialTeleventaService {
    * esta vista un `ORDER BY … LIMIT` directo dispara un nested loop que re-escanea el CTE de la
    * cartera por fila (medido en prod: 23,856 ms vs 970 ms). Ver `commercial-sales-documents`.
    */
-  private async facturacion(trx: any, tenantId: string): Promise<any> {
+  private async facturacion(tenantId: string): Promise<TelemarketingBilling> {
+    // Cada consulta en su propia transacción (y conexión), para que el Promise.all de abajo
+    // sea paralelo de verdad: sobre un solo `trx` se encolan y el tiempo es la suma.
+    const q = (sql: string, bindings: string[]): Promise<RawResult> =>
+      this.tk.run(tenantId, async (trx) => (await trx.raw(sql, bindings)) as RawResult);
     const W = `WHERE tenant_id = ? AND doc_tipo = 'telemarketing' AND NOT cancelada`;
 
-    const [totales, porOperador, ultimas] = await Promise.all([
-      trx.raw(
+    // ⚠️ `sel` trae la ventana de 30 días **más** toda factura vencida, de cualquier fecha: el
+    // vencido de sólo 30 días dejaba fuera la deuda más vieja (medido el 2026-10-21: $3.73M en
+    // la ventana contra $6.55M del canal). Una sola pasada sobre la vista: 452 ms contra 263 ms
+    // de la consulta anterior, y dos pasadas separadas costaban 263 + 576.
+    // `d30` filtra por fecha explícita en cada agregado; `vencida` vale para las dos.
+    const D30 = `fecha >= current_date - 30`;
+    const VENCIDA = `vencimiento < current_date AND estatus_cobro IN ('pendiente','parcial')`;
+    const [totales, porOperador, ultimas, descuentosRaw] = await Promise.all([
+      q(
         `WITH sel AS MATERIALIZED (
-           SELECT fecha, total, saldo, estatus_cobro, vencimiento, cliente_code
-           FROM analytics.erp_sales_invoices ${W} AND fecha >= current_date - 30)
+           SELECT fecha, total, saldo, estatus_cobro, vencimiento, cliente_code, sucursal,
+                  (${VENCIDA}) AS vencida
+           FROM analytics.erp_sales_invoices ${W} AND (${D30} OR (${VENCIDA})))
          SELECT
            count(*) FILTER (WHERE fecha = current_date)::int                        AS facturas_hoy,
            coalesce(sum(total) FILTER (WHERE fecha = current_date), 0)::numeric     AS importe_hoy,
            count(*) FILTER (WHERE fecha >= date_trunc('month', current_date))::int  AS facturas_mes,
            coalesce(sum(total) FILTER (WHERE fecha >= date_trunc('month', current_date)), 0)::numeric AS importe_mes,
-           count(*)::int                                                            AS facturas_30d,
-           coalesce(sum(total), 0)::numeric                                         AS importe_30d,
-           count(DISTINCT cliente_code)::int                                        AS clientes_30d,
-           coalesce(sum(saldo), 0)::numeric                                         AS saldo_30d,
-           coalesce(sum(saldo) FILTER (WHERE vencimiento < current_date
-             AND estatus_cobro IN ('pendiente','parcial')), 0)::numeric             AS saldo_vencido,
-           count(*) FILTER (WHERE vencimiento < current_date
-             AND estatus_cobro IN ('pendiente','parcial'))::int                     AS facturas_vencidas,
-           max(fecha)                                                               AS ultima_factura
+           count(*) FILTER (WHERE ${D30})::int                                      AS facturas_30d,
+           coalesce(sum(total) FILTER (WHERE ${D30}), 0)::numeric                   AS importe_30d,
+           count(DISTINCT cliente_code) FILTER (WHERE ${D30})::int                  AS clientes_30d,
+           coalesce(sum(saldo) FILTER (WHERE ${D30}), 0)::numeric                   AS saldo_30d,
+           coalesce(sum(saldo) FILTER (WHERE ${D30} AND vencida), 0)::numeric       AS saldo_vencido,
+           count(*) FILTER (WHERE ${D30} AND vencida)::int                          AS facturas_vencidas,
+           coalesce(sum(saldo) FILTER (WHERE vencida), 0)::numeric                  AS saldo_vencido_canal,
+           count(*) FILTER (WHERE vencida)::int                                     AS facturas_vencidas_canal,
+           max(fecha) FILTER (WHERE ${D30})                                         AS ultima_factura,
+           -- Cuántos de los clientes facturados existen en el padrón de la cola. La llave
+           -- (erp_customer_code + erp_source_branch) se verificó por nombre: 11 de 11 iguales.
+           (SELECT count(DISTINCT s.cliente_code) FROM sel s
+             WHERE s.${D30} AND EXISTS (
+               SELECT 1 FROM commercial.customers c
+               WHERE c.tenant_id = ? AND c.active AND c.deleted_at IS NULL
+                 AND c.erp_customer_code = s.cliente_code AND c.erp_source_branch = s.sucursal))::int
+                                                                                    AS clientes_en_cola
          FROM sel`,
-        [tenantId],
+        [tenantId, tenantId],
       ),
-      trx.raw(
+      q(
         `WITH sel AS MATERIALIZED (
            SELECT vendedor_code, vendedor_nombre, total, saldo, cliente_code
            FROM analytics.erp_sales_invoices ${W} AND fecha >= current_date - 30)
@@ -649,7 +890,7 @@ export class CommercialTeleventaService {
          FROM sel GROUP BY 1, 2 ORDER BY 4 DESC`,
         [tenantId],
       ),
-      trx.raw(
+      q(
         `WITH sel AS MATERIALIZED (
            SELECT folio_digital, sucursal, doc_prefix, folio, fecha, cliente_code, cliente_nombre,
                   vendedor_nombre, total, saldo, estatus_cobro,
@@ -658,9 +899,23 @@ export class CommercialTeleventaService {
          SELECT * FROM sel ORDER BY fecha DESC, folio DESC LIMIT 8`,
         [tenantId],
       ),
+      q(SQL_DESCUENTOS_TELEMARKETING_30D, [tenantId]),
     ]);
 
-    const t = totales?.rows?.[0] || {};
+    const t: Record<string, unknown> = totales?.rows?.[0] || {};
+    const descuentos = armarDescuentos(descuentosRaw?.rows || []);
+    // El descuento por operador se pega a su fila de facturación por la MISMA llave con que
+    // las dos consultas agrupan; un operador sin renglones todavía queda sin descuento (null),
+    // no con $0 — cero sería afirmar que no se le descontó nada.
+    const porOperadorConDescuento = (porOperador?.rows || []).map((o) => {
+      const d = descuentos.porOperador.get(llaveOperador(o.vendedor_code, o.vendedor_nombre));
+      return {
+        ...o,
+        descuento_producto: d ? d.producto : null,
+        descuento_cliente: d ? d.cliente : null,
+        importe_lista: d ? d.lista : null,
+      };
+    });
     return {
       hoy: { facturas: Number(t.facturas_hoy || 0), importe: Number(t.importe_hoy || 0) },
       mes: { facturas: Number(t.facturas_mes || 0), importe: Number(t.importe_mes || 0) },
@@ -672,10 +927,22 @@ export class CommercialTeleventaService {
         saldo_vencido: Number(t.saldo_vencido || 0),
         facturas_vencidas: Number(t.facturas_vencidas || 0),
       },
+      /** Vencido de TODA la cartera del canal, sin ventana de fecha de emisión. */
+      cartera_vencida: {
+        saldo: Number(t.saldo_vencido_canal || 0),
+        facturas: Number(t.facturas_vencidas_canal || 0),
+      },
+      /**
+       * La cola sale de `commercial.customers`, no de quien factura por el canal: de los
+       * `d30.clientes` facturados, sólo `clientes_en_cola` están en ella. Se publica para que la
+       * pantalla lo DECLARE en vez de presentar la cola como el universo del canal.
+       */
+      clientes_en_cola: Number(t.clientes_en_cola || 0),
       /** Fecha de NEGOCIO del dato más reciente; null si no hay facturas en la ventana. */
-      ultima_factura: t.ultima_factura || null,
-      por_operador: porOperador?.rows || [],
+      ultima_factura: (t.ultima_factura as Date | string | null) || null,
+      por_operador: porOperadorConDescuento,
       ultimas: ultimas?.rows || [],
+      descuentos: descuentos.resumen,
       /** La atribución es del ERP: no hay forma de cruzarla con los usuarios de la plataforma. */
       atribucion: 'erp_vendedor_code',
     };

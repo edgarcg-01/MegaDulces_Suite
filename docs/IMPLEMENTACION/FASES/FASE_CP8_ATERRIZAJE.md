@@ -681,6 +681,125 @@ provisión sola daba 728; (2) **el camino «REP por factura» no se arma solo**:
 proveedor saldría armada con 2.7 % de error nuestro, y otra cuarta parte como propuesta para confirmar.
 El techo lo ponen el REP (D8) y el RFC de los acreedores en Kepler.
 
+### ⭐ `[CP.8.71]` Lo que no se armaba: el RFC de Kepler está mal capturado
+
+Al abrir los 298 «sin REP y cadena incompleta», **249 tenían el proveedor identificado con otro RFC**:
+el de `kdxd.c10` no existe como emisor de CFDI. No es otra empresa: es captura — dedazos (PCP920**5**23**H**QA
+por PCP920**4**23**K**QA, DC**9** por DC**P**, CF**0** por CF**C**), guiones y cortado («CCO-820507-BV»), o el RFC de
+una persona física en el acreedor de un proveedor grande. Con ese RFC el paso L3 de la cadena no encontraba
+el CFDI: era el grueso de las 1,545 «factura sin CFDI».
+
+**Reparación** (en `cadena-pago-kepler-contpaqi.js`, sólo si el resultado es único): RFC tal cual → sin
+guiones → a ≤ 2 ediciones de un emisor → por el nombre del acreedor. De 795 acreedores: 242 tal cual, 1 por
+formato, 23 por parecido, 160 por nombre, **369 sin resolver** (un dato de catálogo para Compras).
+
+Y dos respaldos en el simulador: el **proveedor por el nombre** que tesorería escribe en el concepto del
+banco («Grupo Confitero de Dulces de Occidente»; acierta 46 de 50 — `contpaqi.supplier_aliases` está
+**vacía**, nadie confirmó alias) y las **facturas por importe** (`[CP.8.61]`) cuando no hay REP ni cadena.
+
+| de punta a punta (1,831) | antes | con `[CP.8.71]` |
+|---|--:|--:|
+| cadena Kepler completa e igual a la contadora | 701 | **855** (errores 12 → 14) |
+| **se arman solas** | 948 (51.8 %) | **1,142 (62.4 %)** |
+| iguales a la contadora | 868 | **1,051** |
+| error del puente | 26 (2.7 %) | **29 (2.5 %)** |
+| a confirmar (parcial / notas juntadas) | 443 | 505 (279 ya correctas) |
+| sin armar | 440 | 184 |
+
+⛔ Probado y descartado: armar el parcial cuando «la nota que propone el REP = la que aplicó Kepler» —
+de 182 así, 107 iguales (59 %). Coincidir en el importe de la nota no asegura el asiento.
+
+**Qué sube el techo ahora:** (1) D8 (el REP en la Suite), (2) **corregir el RFC de 369 acreedores en Kepler**
+— una vez por proveedor —, (3) que Tesorería escriba el nombre del proveedor en el concepto (ya lo hace).
+
+**De los 369, sólo 125 recibieron pagos en 2026 ($69.8 M)**, y no todos son problema de RFC (lista privada
+para Compras, con nombres, fuera del repo):
+
+| grupo | acreedores | pagado 2026 | qué es |
+|---|--:|--:|---|
+| RFC correcto confirmado por las facturas de la contadora | 14 | $29.98 M | capturarlo en Kepler (2 traen el RFC de **otra razón social**) |
+| candidato por nombre (parecido 50–60 %) | 7 | $4.02 M | confirmar; varios parecen otra persona |
+| **sin CFDI, pagados en efectivo desde Caja General** (`c45 = 0011`) | **103** | **$35.67 M** (2,725 pagos) | proveedores de **remisión**: no facturan (confirmado por el PM) |
+| sin CFDI, pagado por banco | 1 | $0.12 M | revisar |
+
+⛔ **Hallazgo para contabilidad:** ninguno de esos 2,725 pagos en efectivo tiene póliza en ContPAQi por su
+importe, y la cuenta `1010000000 CAJA` registra sólo **$471,739** de salidas en todo 2026. Las compras en
+efectivo con remisión **no llegan a la contabilidad**. Si es a propósito o falta registrarlas lo decide
+contabilidad; el puente (bancos) no las toca — son del flujo de Caja General (fase CGA).
+
+### `[CP.8.72]` Lo que se arma hoy, sin D8 — y el armador en `libs/`
+
+Sin nada del ADD (ni REP, ni nota → factura, ni tipo de relación), sólo con Kepler, `fiscal.cfdis` y la
+historia de ContPAQi que ya están en Postgres:
+
+| fuente de las facturas | iguales | distintas | ¿se arma solo? |
+|---|--:|--:|---|
+| cadena Kepler (`kdxf`, RFC reparado) | 770 | 92 | sí |
+| importe, una factura (+ proveedor por nombre) | 107 | 7 (6 %) | sí |
+| importe, combinación | 46 | 27 (**37 %**) | **no**: a confirmar |
+| **total que se arma sin D8** | **877** | **99** | 976 pólizas (53.3 % de 1,831) |
+
+Con D8 serían 1,142 (62.4 %) con 2.5 % de error del puente: el REP aporta las facturas de 940 de ellas y
+la nota → factura de las que llevan nota. **Sin D8 se puede empezar; con D8 se termina.**
+
+**El armador (C1, en código):** `libs/finance/src/lib/contpaqi/pago-proveedor.ts` (el asiento completo: R1/R2,
+notas, redondeo, compuerta «no cuadra → a confirmar», UUID por factura y nota para los renglones `AD`) y
+`rfc-acreedor.ts` (la escalera de `[CP.8.71]`). Puros, como `poliza-egreso.ts`. 23 casos en
+`pago-proveedor.spec.ts`, dos mutados a rojo (provisión, residuo de centavos). ⭐ **Cruzado contra el
+simulador: 1,143 de 1,143 pólizas idénticas renglón por renglón**, todas cuadran.
+
+**Integrado (C1→C3, 2026-10-21):** `pago-proveedor.fuente.ts` resuelve cada movimiento sin el ADD (cruzado
+contra el simulador `SIN_ADD`: 976 de 977 armadas idénticas) y `construirLotes` saca el pago a proveedor del
+lote del día: **una póliza por pago** (`bank_pago_proveedor`, con sus `AD`), y lo que no se arma queda contado
+en su lote con motivo — ya no sale nunca «2120 / banco». Ejercido contra prod con conexión de sólo lectura:
+septiembre **91 pagos completos ($12.76 M)** de 184 (55 a confirmar, 30 no cuadran, 8 sin identificar), enero
+**108 ($18.29 M)**; cero lotes con la forma incompleta, mismo resultado dos veces, `poliza_exports` sin escribir.
+⚠️ Deudas con nombre: la carga del mes tarda 4.4 s (1.5 s con la caché de 10 min) medido desde la laptop, en el
+clúster **NO MEDIDO**; el job `pruebas-db` no ejerce la fuente (sus siembras son `por_categoria`).
+
+### `[CP.8.73]` Confirmar qué facturas paga un pago (2026-10-21)
+
+Los pagos que no se arman solos se confirman en la pantalla («Pagos a proveedor por confirmar»). **Medido
+antes de construirla**, sobre 761 pagos «a confirmar» con la respuesta de la contadora: sus facturas están
+**todas** entre las candidatas en **697 (91.6 %)**; la sugerencia acierta exacta en **297 (39 %)** (Kepler 65 %,
+importe 54 %) y hay **19 candidatas por pago en la mediana** (p90 98). Por eso: lo sugerido primero, la
+sugerencia **no se preselecciona** (botón «usar la sugerencia»), la cuenta *facturas − notas = pagado* a la
+vista, y «Confirmar» sólo se habilita si cuadra; el servidor lo vuelve a exigir (409 con motivo).
+
+Se guarda en `contpaqi.pago_confirmaciones` (migración `20261021181119`, **sin aplicar en prod**: el armado
+degrada con aviso mientras no exista), con autor y el importe al confirmar; el armado usa la vigente y no la
+aplica si el movimiento cambió de importe. ⛔ Una verificación encontró que la sugerencia de Kepler podía
+quedar **fuera** de las candidatas (factura vieja o ya pagada): corregido, lo sugerido siempre se lista y lo
+ya pagado se advierte. Prueba `test-newdb-contpaqi-confirmacion.js`: el modo que escribe corre en `pruebas-db`
+(**NO MEDIDO** aquí); prod sólo lectura, septiembre 93 por confirmar.
+
+### `[CP.8.75]` La pantalla tardaba más de 500 ms — medido en el servidor (2026-10-22)
+
+Reporte del PM: «la pantalla tarda más de 500 ms». **Confirmado, y no por la red.** Al abrir, la pantalla pide
+lotes, proveedores pendientes, reglas, cuadre y pagos a la vez; **cuatro** de esas llamadas leían los egresos
+del mes con `to_char(movement_date) = ?` en el WHERE, que anula el índice. Tiempo de **servidor**
+(`EXPLAIN ANALYZE`, `TIMING OFF`, pg-prod, sólo lectura): **915–1,043 ms cada una** → con rango sargable y el IVA
+hermano por `DISTINCT ON`, **45–87 ms** (mediana 974 → 58, 6 corridas alternadas). Filas idénticas en 12 meses.
+
+| Pieza | Antes | Después | Cómo |
+|---|---|---|---|
+| Egresos del mes (×4 por carga) | 974 ms servidor | 58 ms | rango + `DISTINCT ON` (`f057f2bcf`) |
+| Fuente de pagos (lotes y pagos) | ~1.1 s servidor, ×2 si llegan juntas | 0 al abrir | carga compartida + precalentado cada 9 min por pod (`2ae8f53cb`) |
+| Sugerencias de proveedor | 335–441 ms de JS | una pasada | palabras del padrón calculadas una vez |
+
+⚠️ **Lo que NO se midió: el tiempo dentro del pod.** La lectura dentro del pod no se autorizó. Desde la laptop
+domina el traslado (8,826 filas: 8 ms de servidor, 658 ms en llegar), así que esos tiempos no describen al
+usuario. Se mide en el navegador tras desplegar (pestaña Red, las 5 llamadas de la carga).
+
+### `[CP.8.76]` La pantalla era muy complicada: asistente de cuatro pasos (2026-10-22)
+
+Reporte del PM: «la interfaz es muy complicada de entender». Diagnóstico: **conflación** — contestaba siete
+preguntas en un scroll (diez bloques, seis tablas) — y **ruido**: prosa para quien la programó, códigos internos,
+símbolos de alerta en el texto. El PM eligió un asistente por pasos. Arriba la respuesta (pólizas listas e
+importe, y qué falta en una frase); luego **1 reglas · 2 proveedores · 3 pagos · 4 revisar y entregar**, cada paso
+con lo que le queda; abre en el primero con trabajo. `check:pantalla`: de 2 fallas en deuda (§2, §9) a 0.
+Commit `70ff5b1d7`. **Sin validación visual.**
+
 ### Fuera de este expediente
 
 Los egresos que **no** son pago a proveedor (19 % del dinero) siguen al nivel del catálogo (§3.5):
@@ -766,6 +885,7 @@ Los códigos siguen la numeración de CP.8 (el último usado es `[CP.8.45]`).
 | `CP.8.54` | **«Marcar como entregado»**, separado de «Generar», con confirmación que dice qué arranca (*«a los 5 días la Suite empieza a preguntar por qué no aparece»*) | 🧪 2026-10-20 (§3.3) | medir antes de tocar |
 | `[CP.8.14]` | **Reglas con su evidencia y botón de aprobar** — la pantalla que el 37.6 % necesita | 🧪 2026-10-20 (§3.4) | ídem |
 | `[CP.8.11]` | **Bandeja de divergencias** | ⬜ (existente) | ídem |
+| `[CP.8.76]` | **Asistente de cuatro pasos** (reglas · proveedores · pagos · entregar) | 🧪 2026-10-22 (§3.6) | 2 en deuda → 0 |
 
 ⛔ Skill `diseno` antes del primer archivo. El permiso ya está repartido (§1 de este doc); no hace
 falta uno nuevo.
@@ -836,3 +956,14 @@ falta uno nuevo.
 - **2026-10-21** — `[CP.8.70]` de punta a punta, sin oráculo: del banco a la póliza completa se arman
   solas 948 de 1,831 (51.8 %), 2.7 % de error del puente; 443 a confirmar (246 ya correctas). 2120 =
   regla o provisión; el parcial por REP no se arma solo.
+- **2026-10-21** — `[CP.8.71]` el RFC de 249 proveedores en Kepler estaba mal capturado; reparado por
+  formato, parecido y nombre. De punta a punta se arman solas 1,142 de 1,831 (62.4 %), error del puente
+  2.5 %. Quedan 369 acreedores sin RFC resoluble (dato de catálogo).
+- **2026-10-21** — lista de RFC por corregir para Compras (doc privado): 21 acreedores ($34.0 M). Los 104
+  sin CFDI: 103 son proveedores de remisión pagados en efectivo desde Caja General ($35.67 M), y esas
+  compras no tienen póliza en ContPAQi (CAJA registra $0.47 M en 2026) — hallazgo para contabilidad.
+- **2026-10-22** — `[CP.8.75]` la pantalla pasaba de 500 ms por el servidor, no por la red: los egresos del mes
+  se leían cuatro veces por carga con `to_char` en el WHERE (974 ms de servidor cada una → 58 ms con rango).
+  La fuente de pagos se comparte y se precalienta. Tiempo dentro del pod NO MEDIDO.
+- **2026-10-22** — `[CP.8.76]` la pantalla pasa a un asistente de cuatro pasos (elección del PM): contestaba
+  siete preguntas a la vez. Sin validación visual.

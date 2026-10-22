@@ -157,9 +157,11 @@ import {
     <section class="mx-sec mx-sim">
       <h3 class="mx-h3">Simular un precio</h3>
       <div class="mx-sim-row">
-        <!-- ⚠️ PrimeNG 22 retiro [showButtons] y [min] de p-inputNumber: cualquiera de los dos
-             rompe el build. El piso se valida del lado del servidor, que es donde importa. -->
-        <p-inputNumber [(ngModel)]="precioSim" mode="currency" currency="MXN"
+        <!-- ⚠️ El selector de PrimeNG 22 es p-inputnumber, en MINUSCULAS. Con p-inputNumber el
+             elemento era desconocido: no se pintaba el campo, y cualquier [binding] rompia el
+             build con NG8002 (por eso parecia que [min] y [showButtons] no existian; si existen).
+             Corregido el 2026-10-21. El piso se valida del lado del servidor, que es donde importa. -->
+        <p-inputnumber [(ngModel)]="precioSim" mode="currency" currency="MXN"
                        locale="es-MX"
                        inputStyleClass="comm-num" placeholder="Precio nuevo"
                        (onKeyDown)="alTeclear($event)" />

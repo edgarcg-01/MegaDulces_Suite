@@ -40,6 +40,15 @@ export class AlcanceTenant {
     return trx;
   }
 
+  /**
+   * `[CP.8.75]` Corre `fn` FUERA de la transacción vigente. Para un trabajo de fondo que nace dentro de
+   * un request pero tiene que sobrevivirlo: sin salir, su `run()` reusaría la transacción del request,
+   * que se cierra al responder.
+   */
+  fuera<T>(fn: () => T): T {
+    return this.als.exit(fn);
+  }
+
   run<T>(pool: Knex, tenantId: string, fn: () => Promise<T>): Promise<T> {
     if (this.als.getStore()) return fn();
     if (!UUID.test(tenantId)) throw new Error(`[CP.8.58] tenant inválido: "${tenantId}"`);

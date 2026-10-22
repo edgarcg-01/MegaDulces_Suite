@@ -18,6 +18,7 @@ import { ContextHelpComponent } from '../../../../shared/context-help/context-he
 import {
   veredictoConcluyente,
   type Freshness, type ArqueoDia, type ArqueosResponse, type VeredictoCorte, type ArqueoControlUltimo,
+  type EstadoVerdad, type EstadoTestigo,
 } from '@megadulces/contracts';
 import { CaosService, type CaosSaldo } from '../../caos.service';
 import { catchError, of } from 'rxjs';
@@ -26,6 +27,7 @@ import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { forkJoin } from 'rxjs';
 import { CashLedgerService, type ArqueoMovimientoDia, type CandadoCaja, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
+import type { PosicionCajaDto, EstadoPosicion } from '@megadulces/contracts';
 import { CajaSocketService } from '../../caja-socket.service';
 import { CaosSocketService } from '../../caos-socket.service';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
@@ -161,8 +163,9 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
  * el botón vivía en Captura → «Tu jornada» → Historial plegado, y esta pantalla, que es donde se
  * revisa, contaba «sin la segunda llave» sin dejar hacer nada con eso.
  *
- * **No arbitra entre la Suite y Control** (ADR-059): cuando el segundo testigo discrepa se
- * publica la discrepancia, no un ganador.
+ * **No reescribe lo firmado.** `[CGS.36]` Cuando un testigo (Control, la máquina, el libro de hoy)
+ * contradice una entrada de la cuenta, la diferencia VERDADERA se publica al lado de la sellada, con
+ * el porqué; el conteo que manda es el arqueo físico, como en los reconteos de CC-3 y CC-7.
  */
 @Component({
   selector: 'app-finanzas-caja-arqueos',
@@ -197,12 +200,53 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
            «cuanto hay AHORA». Se compone el cierre anterior + lo de hoy, DECLARADO como provisional. -->
       <section class="cq-ahora" aria-labelledby="cq-h-ahora">
         <div class="cq-ahora-cab">
-          <h2 id="cq-h-ahora" class="cq-h2">¿Cuánto hay ahora en el cajón y en la caja fuerte?</h2>
+          <h2 id="cq-h-ahora" class="cq-h2">¿Qué hay en caja ahora?</h2>
           <app-freshness-pill measures="fetch" [since]="cajonAl()" [staleAfterSec]="180" label="calculado" />
         </div>
         <app-load-state [loading]="cajonCargando() && !cajonSaldo()" [error]="cajonError()" [isEmpty]="false"
                         [skeletonRows]="1" errorTitle="No se pudo calcular el cajón" (retry)="cargarCajon()">
-          <app-metric-strip [items]="cajonKpis()" ariaLabel="El cajón ahora" />
+          <!-- [CGS.35] Todo lo que hay en caja, rubro por rubro: cajon, caja fuerte, dolares, cheques y
+               papeles. Lo que no se puede afirmar se dice; no entra al total como si fuera cero. -->
+          <app-metric-strip [items]="posicionKpis()" ariaLabel="Lo que hay en caja" />
+          @if (posicion(); as p) {
+            <p-table [value]="p.rubros" size="small" dataKey="rubro" class="surf-table surf-table--plain cq-pos">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Rubro</th>
+                  <th scope="col" class="comm-num">Lo último contado</th>
+                  <th scope="col" class="comm-num">Desde entonces</th>
+                  <th scope="col" class="comm-num">Debería haber ahora</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-r>
+                <tr>
+                  <td><b>{{ r.etiqueta }}</b></td>
+                  <td class="comm-num">
+                    @if (r.ultimo) {
+                      @if (r.ultimo.usd != null) { <span class="cq-mono">USD {{ usd(r.ultimo.usd) }}</span> · }
+                      {{ r.ultimo.monto === null ? 'sin medir' : mx(r.ultimo.monto) }}
+                      <span class="cq-pos-sub">{{ r.ultimo.fuente }}{{ r.ultimo.at ? ' · ' + cuando(r.ultimo.at) : '' }}</span>
+                    } @else { <span class="cq-dim">—</span> }
+                  </td>
+                  <td class="comm-num">
+                    @if (r.desde) {
+                      +{{ mx(r.desde.entra) }} · −{{ mx(r.desde.sale) }}
+                      <span class="cq-pos-sub">{{ r.desde.detalle }}</span>
+                    } @else { <span class="cq-dim">la Suite no lleva sus movimientos</span> }
+                  </td>
+                  <td class="comm-num">
+                    @if (r.ahora.monto !== null) {
+                      <b>@if (r.ahora.usd != null) { USD {{ usd(r.ahora.usd) }} · }{{ mx(r.ahora.monto) }}</b>
+                    }
+                    <p-tag [value]="etiquetaPosicion(r.ahora.estado)" [severity]="sevPosicion(r.ahora.estado)" styleClass="cq-tag" />
+                    <span class="cq-pos-sub">{{ r.ahora.nota }}</span>
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          } @else if (posicionError()) {
+            <p class="cq-nota cq-mal" role="alert">{{ posicionError() }}</p>
+          }
           @if (cajonNota(); as nota) { <p class="cq-nota">{{ nota }}</p> }
           <!-- [CGA-A.48] Lo que Control contó y está en la caja fuerte, no en el cajón. -->
           @if (controlUltimo(); as cu) {
@@ -239,6 +283,9 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                     <span class="p-button-label">{{ dmy(a.fecha) }} · {{ a.folio }}</span>
                   </button>
                   <p-tag [value]="tagVeredicto(a).texto" [severity]="tagVeredicto(a).sev" styleClass="cq-tag" />
+                  @if (a.verdad?.estado === 'corregida') {
+                    <p-tag value="Diferencia corregida" severity="danger" styleClass="cq-tag" />
+                  }
                   @if (fallas(a)) { <span class="cq-dim">{{ fallas(a) }} sin cumplir</span> }
                 </li>
               }
@@ -344,10 +391,17 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                 <td role="cell" data-label="Diferencia" class="comm-num">
                   <!-- ⛔ Con el esperado negativo la resta sale positiva SIEMPRE: pintarla como
                        cifra normal afirmaria un sobrante justo donde la cuenta esta mas rota. -->
-                  @if (!f.arqueo || f.arqueo.diferencia === null) { <span class="cq-dim">—</span> }
-                  @else if (f.arqueo.veredicto === 'esperado_imposible') { <span class="cq-dim">no significa nada</span> }
-                  @else if (f.arqueo.diferencia === 0) { <span class="cq-dim">0.00</span> }
-                  @else { <span class="cq-mal">{{ firmado(f.arqueo.diferencia) }}</span> }
+                  <!-- [CGS.36] La que se publica es la VERDADERA cuando un testigo la corrige, con la
+                       sellada al lado: la lista no repite una cifra que Control y la maquina desmienten. -->
+                  @if (!f.arqueo) { <span class="cq-dim">—</span> }
+                  @else {
+                    @let d = difDe(f.arqueo);
+                    @if (d.valor === null) { <span class="cq-dim">—</span> }
+                    @else if (d.sinSentido) { <span class="cq-dim">no significa nada</span> }
+                    @else if (d.valor === 0) { <span class="cq-dim">0.00</span> }
+                    @else { <span class="cq-mal">{{ firmado(d.valor) }}</span> }
+                    @if (d.nota) { <span class="cq-pos-sub">{{ d.nota }}</span> }
+                  }
                 </td>
                 <td role="cell" data-label="Veredicto">
                   @if (f.arqueo) {
@@ -443,6 +497,40 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                 @if (okRevision()) { <p class="cq-nota" role="status">{{ okRevision() }}</p> }
               </section>
 
+              <!-- 0b. [CGS.36] LA VERDAD DE LA DIFERENCIA: antes de firmar, si la cifra es la que es.
+                   Cada entrada de la cuenta contra un testigo que no tecleo la misma persona. -->
+              @if (a.verdad; as v) {
+                <section class="cq-rev" aria-labelledby="cq-h-verdad">
+                  <h3 id="cq-h-verdad" class="cq-h3">La diferencia, contra sus testigos</h3>
+                  <p class="cq-verdad-cab">
+                    <p-tag [value]="etiquetaVerdad(v.estado)" [severity]="sevVerdad(v.estado)" styleClass="cq-tag" />
+                    @if (v.estado === 'corregida' && v.publicada !== null && v.verdadera !== null) {
+                      <span>Se publicó <s>{{ firmado(v.publicada) }}</s>; la verdadera es
+                        <b class="cq-verdad-cifra">{{ firmado(v.verdadera) }}</b></span>
+                    } @else if (v.publicada !== null) {
+                      <b class="cq-verdad-cifra">{{ firmado(v.publicada) }}</b>
+                    }
+                  </p>
+                  <p class="cq-nota">{{ v.resumen }}</p>
+                  <ul class="cq-verif" aria-label="Los testigos de la diferencia">
+                    @for (t of v.testigos; track t.id) {
+                      <li>
+                        <p-tag [value]="etiquetaTestigo(t.estado)" [severity]="sevTestigo(t.estado)" styleClass="cq-tag" />
+                        <span class="cq-verif-q">{{ t.pregunta }}</span>
+                        <span class="cq-verif-d">{{ t.detalle }}</span>
+                      </li>
+                    }
+                  </ul>
+                  @if (v.pistas.length) {
+                    <p class="cq-rev-label">Pistas: lo que pasó con el dinero ese día y el libro no tiene ({{ v.pistas.length }})</p>
+                    <p class="cq-hint">No se suman: Control no dice si cada paquete entró o salió. La caja dice qué fue.</p>
+                    <ul class="cq-pistas">
+                      @for (p of v.pistas; track $index) { <li>{{ p.detalle }}</li> }
+                    </ul>
+                  }
+                </section>
+              }
+
               <!-- 1. LA CUENTA: de donde sale el «deberia haber». Sin esto el total no se puede
                    investigar; con esto la pregunta pasa a ser que pierna esta mal cruzada. -->
               <section aria-labelledby="cq-h-cuenta">
@@ -476,6 +564,14 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                         @else { {{ firmado(a.diferencia) }} }
                       </td>
                     </tr>
+                    @if (a.verdad; as v) {
+                      @if (v.estado === 'corregida' && v.verdadera !== null) {
+                        <tr class="cq-t-total">
+                          <td>Con los testigos <span class="cq-dim">(ver «La diferencia, contra sus testigos»)</span></td>
+                          <td class="comm-num"><b>{{ firmado(v.verdadera) }}</b></td>
+                        </tr>
+                      }
+                    }
                   </tbody>
                 </table>
                 @for (nota of notasArqueo(a); track nota) { <p class="cq-nota">{{ nota }}</p> }
@@ -522,7 +618,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                     <b>{{ t.efectivo === null ? 'sin medir' : mx(t.efectivo) }}</b>.
                     @if (t.diferencia !== null && abs(t.diferencia) > 0.005) {
                       Difiere {{ firmado(t.diferencia) }} del conteo de la Suite: uno de los dos conteos está mal.
-                      Cuál de los dos manda no está decidido, así que acá se publican los dos.
+                      La diferencia verdadera de arriba se arbitra con el arqueo físico, como en los reconteos de CC-3 y CC-7.
                     } @else if (t.diferencia !== null) {
                       Coincide al centavo con el conteo de la Suite.
                     }
@@ -642,11 +738,16 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
     .cq-verif li { display:grid; grid-template-columns:7rem minmax(10rem, 16rem) 1fr; gap:var(--sp-2); align-items:baseline; }
     .cq-verif-q { font-weight:600; color:var(--text-main); }
     .cq-verif-d { color:var(--text-muted); font-size:var(--fs-sm); }
+    .cq-verdad-cab { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); margin:0; }
+    .cq-verdad-cifra { font-size:var(--fs-lg); font-variant-numeric:tabular-nums; }
+    .cq-pistas { margin:0; padding-left:var(--sp-4); font-size:var(--fs-sm); color:var(--text-main); display:flex; flex-direction:column; gap:var(--sp-1); }
     @container (max-width: 40rem) { .cq-verif li { grid-template-columns:1fr; } }
     .cq-llave { display:flex; flex-direction:column; gap:var(--sp-2); margin-top:var(--sp-4); padding-top:var(--sp-3); border-top:1px solid var(--border-color); }
     .cq-rev-ayuda { margin:0; padding-left:var(--sp-4); font-size:var(--fs-sm); color:var(--text-muted); }
 
     .cq-ahora { margin-block:var(--sp-4) var(--sp-2); }
+    .cq-pos { margin-top:var(--sp-3); }
+    .cq-pos-sub { display:block; color:var(--text-muted); font-size:var(--fs-sm); font-weight:400; }
     .cq-ahora-cab { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); margin:0 0 var(--sp-2); }
 
     .cq-veredicto { margin-block:var(--sp-4); padding-block:var(--sp-3); border-block:1px solid var(--border-color); }
@@ -726,6 +827,33 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
    */
   protected tagVeredicto(a: ArqueoDia): { texto: string; sev: 'success' | 'warn' | 'danger' | 'info' } {
     return VEREDICTO[a.veredicto];
+  }
+
+  /**
+   * ⭐ `[CGS.36]` La diferencia que se publica: la VERDADERA cuando un testigo la corrige (con la
+   * sellada al lado), y si sus testigos la confirman. Con el esperado negativo y sin testigos sigue
+   * sin significar nada; con testigos que la respaldan, la brecha entre el libro y el dinero es real.
+   */
+  protected difDe(a: ArqueoDia): { valor: number | null; nota: string | null; sinSentido: boolean } {
+    const v = a.verdad;
+    const atestiguada = v?.estado === 'confirmada' || v?.estado === 'corregida';
+    const sinSentido = a.veredicto === 'esperado_imposible' && !atestiguada;
+    if (v?.estado === 'corregida' && v.verdadera !== null) {
+      return { valor: v.verdadera, nota: v.publicada === null ? 'corregida' : `se publicó ${this.firmado(v.publicada)}`, sinSentido };
+    }
+    return { valor: a.diferencia, nota: v?.estado === 'confirmada' ? 'confirmada por los testigos' : v ? 'sin confirmar' : null, sinSentido };
+  }
+  protected etiquetaVerdad(e: EstadoVerdad): string {
+    return ({ confirmada: 'Confirmada', corregida: 'Corregida por los testigos', sin_confirmar: 'Sin confirmar' } as const)[e];
+  }
+  protected sevVerdad(e: EstadoVerdad): 'success' | 'danger' | 'secondary' {
+    return ({ confirmada: 'success', corregida: 'danger', sin_confirmar: 'secondary' } as const)[e];
+  }
+  protected etiquetaTestigo(e: EstadoTestigo): string {
+    return ({ confirma: 'Confirma', contradice: 'Contradice', sin_testigo: 'Sin testigo' } as const)[e];
+  }
+  protected sevTestigo(e: EstadoTestigo): 'success' | 'danger' | 'secondary' {
+    return ({ confirma: 'success', contradice: 'danger', sin_testigo: 'secondary' } as const)[e];
   }
   protected readonly mx = (v: unknown): string => money(Number(v ?? 0) || 0);
   protected readonly dmy = dmy;
@@ -812,15 +940,17 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
       },
       { label: 'Se contó', value: u.contado === null ? 'sin contar' : money(u.contado), state: 'medido' },
     ];
-    if (u.veredicto === 'esperado_imposible') {
+    const d = this.difDe(u);
+    if (d.sinSentido) {
       items.push({
         label: 'Diferencia', value: 'no significa nada', state: 'no_medido', tone: 'bad',
         stateNote: 'Con el esperado en negativo la resta sale positiva siempre: diría «sobra» justo donde la cuenta está más rota.',
       });
-    } else if (u.diferencia !== null) {
+    } else if (d.valor !== null) {
+      // `[CGS.36]` La verdadera cuando un testigo la corrige; `sub` dice si está confirmada.
       items.push({
-        label: 'Diferencia', value: u.diferencia === 0 ? money(0) : this.firmado(u.diferencia),
-        tone: u.diferencia === 0 ? 'ok' : 'bad',
+        label: 'Diferencia', value: d.valor === 0 ? money(0) : this.firmado(d.valor),
+        tone: d.valor === 0 ? 'ok' : 'bad', sub: d.nota ?? undefined,
       });
     }
     const sinResp = this.arqueos().filter((a) => !veredictoConcluyente(a.veredicto)).length;
@@ -909,6 +1039,7 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   readonly caosSaldo = signal<CaosSaldo | null>(null);
 
   cargarCajon(): void {
+    this.cargarPosicion();
     this.cajonCargando.set(true);
     forkJoin({
       f: this.cajas.fondoSugerido('00'), s: this.cajas.saldo('00'),
@@ -923,60 +1054,46 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
     });
   }
 
-  readonly cajonKpis = computed<MetricStripItem[]>(() => {
-    const f = this.cajonFondo();
-    const s = this.cajonSaldo();
-    const items: MetricStripItem[] = [];
-    const efecto = s && !s.saldo_oculto && s.totales?.esperado != null ? Number(s.totales.esperado) : null;
+  // ── `[CGS.35]` Lo que hay en caja, rubro por rubro ──────────────────────────────────────
+  readonly posicion = signal<PosicionCajaDto | null>(null);
+  readonly posicionError = signal<string | null>(null);
 
-    if (!s) {
-      items.push({ label: 'Cajón de Caja General', value: 'sin medir', state: 'no_medido', stateNote: 'Todavía no se leyó el libro.' });
-    } else if (s.saldo_oculto) {
-      items.push({ label: 'Cajón de Caja General', value: 'oculto', state: 'no_medido',
-        stateNote: 'Arqueo ciego: el esperado sólo lo ve quien autoriza el corte.' });
-    } else if (s.corte_abierto && s.saldo != null) {
-      items.push({ label: 'Cajón de Caja General', value: money(Number(s.saldo)), state: 'derivado',
-        method: `fondo del corte ${s.corte_abierto.folio} + lo capturado; no es un conteo`,
-        sub: `según el corte abierto ${s.corte_abierto.folio}` });
-    } else if (f?.monto != null && efecto != null) {
-      items.push({ label: 'Cajón de Caja General', value: money(Number(f.monto) + efecto), state: 'derivado', tone: 'warn',
-        method: `cierre anterior (${f.procedencia ?? 'su conteo'}) + ${s.totales.movimientos} movimiento(s) de hoy`,
-        sub: 'provisional · nadie ha abierto ni contado el corte de hoy' });
-    } else {
-      items.push({ label: 'Cajón de Caja General', value: 'sin medir', state: 'no_medido',
-        stateNote: 'No hay cierre anterior medido del que partir.' });
-    }
+  cargarPosicion(): void {
+    this.cajas.posicion().subscribe({
+      next: (p) => { this.posicion.set(p); this.posicionError.set(null); },
+      error: () => this.posicionError.set('No se pudo calcular lo que hay en caja.'),
+    });
+  }
 
-    if (efecto != null && s && !s.corte_abierto) {
-      const disp = Number(s.cajero?.dispensado ?? 0);
-      items.push({ label: 'Lo de hoy', value: `${efecto < 0 ? '−' : '+'}${money(Math.abs(efecto))}`,
-        sub: `${s.totales.movimientos} capturado(s)` + (disp ? ` · la caja fuerte dispensó ${money(disp)}` : '') });
-    }
-
-    // ⭐ [CGA-A.48] La caja fuerte, SEPARADA del cajón (Edgar, 2026-10-20). El efectivo de las rutas
-    // entra a CAOS y de CAOS sale a los proveedores: al cajón de Caja General sólo le queda la
-    // morralla, así que su cifra casi no se mueve aunque el día mueva cientos de miles. Lo que se
-    // mueve es la caja fuerte, y sin esta cifra no se veía en ningún lado.
-    const c = this.caosSaldo();
-    const cj = s?.cajero;
-    const flujo = cj ? `${dmy(cj.dia)}: entró ${money(cj.depositado)} · salió ${money(cj.dispensado)}` : undefined;
-    if (c?.estado === 'medido' && c.saldo) {
-      const exacto = c.saldo.origen === 'maquina' && !c.saldo.parcial;
-      items.push({ label: 'Caja fuerte (CAOS)', value: money(c.saldo.total),
-        state: c.saldo.parcial ? 'parcial' : exacto ? 'medido' : 'derivado',
-        method: exacto ? undefined : 'última lectura de la máquina + los movimientos posteriores',
-        stateNote: c.saldo.parcial ? 'Algún movimiento posterior a la lectura no tiene dirección decodificada.' : undefined,
-        sub: flujo });
-    } else {
-      items.push({ label: 'Caja fuerte (CAOS)', value: 'sin medir', state: 'no_medido',
-        stateNote: c
-          ? 'La máquina todavía no publica cuánto tiene adentro: de la caja fuerte sólo se sabe lo que entró y salió.'
-          : 'No se pudo leer la caja fuerte.',
-        sub: flujo });
-    }
+  /** Q.1: la cifra que se puede afirmar, y en la misma línea lo que NO entra. */
+  readonly posicionKpis = computed<MetricStripItem[]>(() => {
+    const p = this.posicion();
+    if (!p) return [{ label: 'Lo que hay en caja', value: 'sin medir', state: 'no_medido', stateNote: 'Todavía no se calculó.' }];
+    const fuera = p.rubros.filter((r) => p.total.fuera.includes(r.rubro)).map((r) => r.etiqueta.toLowerCase());
+    const usd = p.rubros.find((r) => r.rubro === 'dolares')?.ahora.usd ?? null;
+    const items: MetricStripItem[] = [{
+      label: p.total.completo ? 'Lo que hay en caja' : 'Lo que se puede afirmar',
+      value: money(p.total.monto),
+      state: 'derivado',
+      method: 'suma de los rubros de abajo; no es un conteo',
+      sub: p.total.completo ? 'todos los rubros' : `sin ${fuera.join(', ')}`,
+      tone: p.total.completo ? 'default' : 'warn',
+    }];
+    if (usd != null) items.push({ label: 'Dólares', value: `USD ${this.usd(usd)}`, state: 'medido', sub: 'último arqueo de Control' });
     return items;
   });
 
+  etiquetaPosicion(e: EstadoPosicion): string {
+    return ({ medido: 'Contado', derivado: 'Calculado', parcial: 'Calculado, incompleto', imposible: 'No se puede afirmar', no_medido: 'Sin medir' } as const)[e];
+  }
+  sevPosicion(e: EstadoPosicion): 'success' | 'info' | 'warn' | 'danger' | 'secondary' {
+    return ({ medido: 'success', derivado: 'info', parcial: 'warn', imposible: 'danger', no_medido: 'secondary' } as const)[e];
+  }
+  usd(n: number): string { return Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  /** Instante ISO → «20/10/26 18:12» en hora de México. */
+  cuando(iso: string): string {
+    return new Date(iso).toLocaleString('es-MX', { timeZone: 'America/Mexico_City', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+  }
   readonly cajonNota = computed<string | null>(() => {
     const f = this.cajonFondo();
     const s = this.cajonSaldo();

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -9,6 +10,18 @@ import {
 import { TenantKnexService, TenantContextService, ScopeService, applySmartSearch } from '@megadulces/platform-core';
 import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from './catalog-search-terms';
 import { AREA_COTIZACIONES } from './quote-scope';
+import { QuotePricingService, type Rung } from './quote-pricing.service';
+
+/** `[E.21]` Un renglón del alta: qué y cuánto. El precio lo pone el servidor, nunca el body. */
+export interface CreateQuoteLine {
+  sku?: string | null;
+  requested_text?: string | null;
+  quantity: number;
+  rung?: Rung;
+}
+
+/** Tope de renglones por alta: la cotización más grande de prod tiene 55 (medido 2026-10-21). */
+const MAX_LINES_ALTA = 300;
 
 /**
  * `[E.12]` — Cotizaciones de mayoreo.
@@ -148,6 +161,8 @@ export interface CreatedQuote {
   terms_discount_pct: string | null;
   terms_credit_limit: string | null;
   terms_payment_days: number | null;
+  /** `[E.21]` Renglones guardados (regalos incluidos) cuando el alta trajo `lines`. */
+  lines?: number;
 }
 
 export interface CancelledQuote {
@@ -176,6 +191,7 @@ export class CommercialQuotesService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly scope: ScopeService,
+    private readonly pricing: QuotePricingService,
   ) {}
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -507,8 +523,9 @@ export class CommercialQuotesService {
   // ───────────────────────────────────────────────────────────────────────────
 
   /**
-   * Busca clientes de MAYOREO en `analytics.v_erp_wholesale_customers` (vista sobre
-   * `kepler_ods.kdud`, filtrada a `C####`).
+   * Busca clientes en `analytics.v_erp_wholesale_customers` (vista sobre `kepler_ods.kdud`).
+   * `[E.26]` Ya no se filtra a `C####`: el 27.6 % de los pedidos de telemarketing son de clientes
+   * `CR####`, numéricos o `CONTADO`, y la cotización no los encontraba.
    *
    * ⚠️ Devuelve **una fila por (cliente, sucursal)** colapsada a un cliente con el arreglo de
    * sus sucursales, porque las condiciones DIFIEREN entre ellas y quien cotiza tiene que elegir
@@ -758,7 +775,7 @@ export class CommercialQuotesService {
    */
   async create(dto: {
     customer_id?: string | null;
-    /** Cliente de mayoreo del ERP (`C####`). Tercera vía de destinatario. */
+    /** Cliente del ERP (clave de `kdud`, no sólo `C####` desde E.26). Tercera vía de destinatario. */
     erp_customer_code?: string | null;
     /** Sucursal Kepler desde la que se cotiza. Obligatoria si el cliente viene del ERP. */
     source_branch?: string | null;
@@ -774,8 +791,20 @@ export class CommercialQuotesService {
     internal_notes?: string | null;
     salesperson_code?: string | null;
     salesperson_name?: string | null;
+    /**
+     * `[E.21]` Los renglones, en la MISMA transacción que la cabecera: o entra todo o no entra
+     * nada. Opcional: sin `lines` el alta es la de siempre (cabecera sola).
+     */
+    lines?: CreateQuoteLine[];
   }): Promise<CreatedQuote> {
     const userId = this.tenantCtx.get()?.userId;
+    if (dto.lines !== undefined && dto.lines !== null && !Array.isArray(dto.lines)) {
+      throw new BadRequestException('`lines` tiene que ser una lista de renglones.');
+    }
+    const lineas: CreateQuoteLine[] = dto.lines ?? [];
+    if (lineas.length > MAX_LINES_ALTA) {
+      throw new BadRequestException(`Una cotización admite hasta ${MAX_LINES_ALTA} renglones por alta (vienen ${lineas.length}).`);
+    }
     const tenantId = this.tenantCtx.requireTenantId();
     if (!userId) throw new BadRequestException('Sesión sin usuario: no se puede cotizar.');
 
@@ -838,7 +867,7 @@ export class CommercialQuotesService {
             { code: erpCode },
           );
           if (!anyBranch.rows.length) {
-            throw new NotFoundException(`El cliente ${erpCode} no existe en el padrón de mayoreo.`);
+            throw new NotFoundException(`El cliente ${erpCode} no existe en el padrón de clientes de Kepler.`);
           }
           terms = {
             source: 'kepler_kdud',
@@ -948,12 +977,38 @@ export class CommercialQuotesService {
           },
         );
 
-        this.logger.log(`Cotización creada ${code} (origin=${origin})`);
         const row = inserted.rows[0];
         if (dto.salesperson_code) {
           row.salesperson_code = dto.salesperson_code;
           row.salesperson_name = dto.salesperson_name || null;
         }
+
+        // `[E.21]` Los renglones entran en ESTA transacción: si uno falla, se revierte también la
+        // cabecera y el folio (el consecutivo vuelve atrás con ella), y el error dice CUÁL falló.
+        // ⚠️ Costo declarado: el candado del consecutivo (`quote_sequences`) se sostiene mientras
+        // se precian los renglones; otra alta simultánea espera. Con el uso medido (26 altas en un
+        // mes, 7 usuarios) es aceptable; la mejora es preciar ANTES de abrir la transacción.
+        for (const [i, l] of lineas.entries()) {
+          try {
+            await this.pricing.addLineTrx(trx, row.id, l, userId ?? null);
+          } catch (e: unknown) {
+            if (e instanceof HttpException && e.getStatus() < 500) {
+              const que = String(l?.sku || l?.requested_text || '').trim();
+              throw new BadRequestException(
+                `Renglón ${i + 1}${que ? ` (${que})` : ''}: ${e.message} No se creó la cotización: corrige ese renglón y vuelve a intentar.`,
+              );
+            }
+            throw e;
+          }
+        }
+        if (lineas.length) {
+          const cuenta = await trx.raw(
+            `SELECT count(*)::int AS n FROM commercial.quote_lines WHERE quote_id = :id`,
+            { id: row.id },
+          );
+          row.lines = Number(cuenta.rows[0].n);
+        }
+        this.logger.log(`Cotización creada ${code} (origin=${origin}, renglones=${row.lines ?? 0})`);
         return row;
       });
     } catch (err: unknown) {

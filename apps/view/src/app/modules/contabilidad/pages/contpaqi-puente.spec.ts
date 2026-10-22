@@ -10,8 +10,16 @@ import {
   nombreDeRegla,
   contarDeNadie,
   esDeNadie,
+  etiquetaFuente,
+  ordenarCandidatas,
+  cuadreDePago,
   etiquetaMotivo,
   participacion,
+  armarPasos,
+  primerPasoConTrabajo,
+  fraseQueFalta,
+  vecino,
+  motivoNoFirmable,
 } from './contabilidad-contpaqi-puente.component';
 
 /**
@@ -201,5 +209,92 @@ describe('[CP.8.14] reglas de cuenta — lo que la pantalla deriva', () => {
     expect(nombreDeRegla({ evidencia: 'Comisión bancaria. 2,788 movs', categoria_code: 'comision_bancaria' }))
       .toBe('Comisión bancaria');
     expect(nombreDeRegla({ evidencia: null, categoria_code: 'renta' })).toBe('renta');
+  });
+});
+
+describe('[CP.8.72] pago a proveedor armado completo — lo que la pantalla dice', () => {
+  it('cada motivo nuevo de pago a proveedor tiene rótulo humano (no se ve la clave cruda)', () => {
+    for (const m of ['pago_a_confirmar', 'pago_sin_resolver', 'pago_no_cuadra', 'pago_proveedor_sin_cuenta',
+      'pago_sin_facturas', 'pago_importe_invalido', 'pago_error']) {
+      expect(etiquetaMotivo(m)).not.toBe(m);
+    }
+  });
+  it('los pagos que no se arman NO son «de nadie»: tienen dueño (confirmar)', () => {
+    expect(esDeNadie('pago_a_confirmar')).toBe(false);
+  });
+  it('de dónde salen las facturas, en el idioma de quien mira', () => {
+    expect(etiquetaFuente('cadena_kepler')).toBe('lo que aplicó Kepler');
+    expect(etiquetaFuente('importe_una')).toBe('una factura por importe');
+    expect(etiquetaFuente(null)).toBe('—');
+  });
+});
+
+describe('[CP.8.73] confirmar un pago a proveedor — lo que decide el botón', () => {
+  const f = (uuid: string, total: number, fecha: string) => ({ uuid, folio: uuid, fecha, total });
+  const facturas = [f('A', 6960, '2026-09-01'), f('B', 4640, '2026-09-05'), f('C', 1000, '2026-09-20')];
+  const notas = [f('N', 300, '2026-09-10')];
+
+  it('lo sugerido va primero, después lo más reciente', () => {
+    expect(ordenarCandidatas(facturas, ['A']).map((x) => x.uuid)).toEqual(['A', 'C', 'B']);
+    expect(ordenarCandidatas(facturas, []).map((x) => x.uuid)).toEqual(['C', 'B', 'A']);
+    expect(ordenarCandidatas(facturas, ['B']).find((x) => x.uuid === 'B')?.sugerida).toBe(true);
+  });
+  it('⛔ sin ninguna factura marcada NO cuadra, aunque la diferencia fuera cero', () => {
+    expect(cuadreDePago(facturas, notas, new Set(), new Set(), 0).cuadra).toBe(false);
+  });
+  it('facturas − notas = pagado (±$1) cuadra; un peso o más, no', () => {
+    expect(cuadreDePago(facturas, notas, new Set(['A', 'B']), new Set(), 11600).cuadra).toBe(true);
+    expect(cuadreDePago(facturas, notas, new Set(['A', 'B']), new Set(), 11599.40).cuadra).toBe(true);
+    expect(cuadreDePago(facturas, notas, new Set(['A', 'B']), new Set(), 11599).cuadra).toBe(false);
+    const c = cuadreDePago(facturas, notas, new Set(['A', 'B', 'C']), new Set(['N']), 12300);
+    expect(c).toEqual({ facturas: 12600, notas: 300, diferencia: 0, cuadra: true });
+  });
+  it('la fuente «confirmada» tiene rótulo', () => {
+    expect(etiquetaFuente('confirmada')).toBe('lo que confirmó contabilidad');
+  });
+});
+
+describe('[CP.8.76] los cuatro pasos — cargando ≠ listo ≠ no se pudo leer', () => {
+  const base = { reglas: 0, reglasError: false, proveedores: 0, proveedoresError: false, pagos: 0, pagosError: false, polizas: 91 };
+
+  it('abre en el primer paso con trabajo; sin trabajo, en el de entregar', () => {
+    expect(primerPasoConTrabajo(armarPasos({ ...base, proveedores: 51, pagos: 93 }))).toBe('proveedores');
+    expect(primerPasoConTrabajo(armarPasos({ ...base, reglas: 4, pagos: 93 }))).toBe('reglas');
+    expect(primerPasoConTrabajo(armarPasos(base))).toBe('archivo');
+  });
+  it('⛔ mientras una lista carga no elige paso (no abre en uno para saltar a otro)', () => {
+    expect(primerPasoConTrabajo(armarPasos({ ...base, pagos: null }))).toBeNull();
+  });
+  it('⛔ una lista que falló NO se pinta «listo»: abre ahí y lo dice', () => {
+    const p = armarPasos({ ...base, reglas: null, reglasError: true });
+    expect(p[0].estado).toBe('no se pudo leer');
+    expect(p[0].pendientes).toBeNull();
+    expect(primerPasoConTrabajo(p)).toBe('reglas');
+    expect(fraseQueFalta(p)).toContain('no se pudo leer');
+    // Aunque el conteo viniera en cero, el error manda.
+    expect(armarPasos({ ...base, reglasError: true })[0].estado).toBe('no se pudo leer');
+  });
+  it('el estado de cada paso, en palabras', () => {
+    const p = armarPasos({ ...base, reglas: 1, proveedores: 51, pagos: null });
+    expect(p.map((x) => x.estado)).toEqual(['1 por firmar', '51 nombres por confirmar', 'cargando…', '91 pólizas en el archivo']);
+  });
+  it('la frase de arriba nombra lo que falta en el orden de los pasos', () => {
+    expect(fraseQueFalta(armarPasos({ ...base, reglas: 4, proveedores: 51, pagos: 93 })))
+      .toBe('Para que salga el resto falta firmar 4 reglas, confirmar 51 nombres del banco y elegir las facturas de 93 pagos.');
+    expect(fraseQueFalta(armarPasos({ ...base, pagos: 1 }))).toBe('Para que salga el resto falta elegir las facturas de 1 pago.');
+    expect(fraseQueFalta(armarPasos(base))).toContain('No falta nada');
+    expect(fraseQueFalta(armarPasos({ ...base, pagos: null }))).toBe('Revisando qué falta…');
+  });
+  it('anterior y siguiente', () => {
+    const p = armarPasos(base);
+    expect(vecino(p, 'reglas', -1)).toBeNull();
+    expect(vecino(p, 'reglas', 1)?.id).toBe('proveedores');
+    expect(vecino(p, 'archivo', 1)).toBeNull();
+    expect(vecino(p, null, 1)).toBeNull();
+  });
+  it('por qué no se firma, sin el código de la regla', () => {
+    expect(motivoNoFirmable('por_proveedor')).toContain('pasos 2 y 3');
+    expect(motivoNoFirmable('no_aplica')).toBe('no genera póliza');
+    expect(motivoNoFirmable('otra_cosa')).not.toContain('otra_cosa');
   });
 });

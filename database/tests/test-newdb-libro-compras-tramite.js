@@ -67,6 +67,14 @@ const UUIDS = [
   '1C170000-0000-4000-8000-000000000001', '1C170000-0000-4000-8000-000000000002',
   '1C170000-0000-4000-8000-000000000003', '1C170000-0000-4000-8000-000000000004',
 ];
+// [LC.19.6] Otro mes, sin corrida, para «preparar»: un proveedor con UNA cuenta de nombre idéntico
+// (se asigna sola) y uno con DOS cuentas del mismo nombre (no se adivina).
+const MES2 = '2031-04';
+const RFC_AUTO = 'LCA190101AAA';
+const SUF_AUTO = '9990047';
+const RFC_DOBLE = 'LCD190101AAA';
+const SUF_DOBLE = ['9990057', '9990067'];
+const UUIDS2 = ['1C190000-0000-4000-8000-000000000001', '1C190000-0000-4000-8000-000000000002'];
 
 let ok = 0;
 let fail = 0;
@@ -83,7 +91,7 @@ const fin = () => {
 };
 
 /** El servicio REAL, con un `TenantKnex` mínimo: una transacción con el tenant puesto. */
-function servicio(pool) {
+function servicio(pool, satPort) {
   const { PurchaseBookService } = require(path.join(SRC, 'purchase-book.service.ts'));
   const tk = {
     run: async (cb) => pool.transaction(async (trx) => {
@@ -92,7 +100,8 @@ function servicio(pool) {
     }),
   };
   const ctx = { get: () => ({ userId: null, tenantId: MEGA }), requireTenantId: () => MEGA };
-  const svc = new PurchaseBookService(tk, ctx);
+  // [LC.19.1] El 4.º argumento es el port del SAT (@Optional): sin él, el libro no puede verificar.
+  const svc = new PurchaseBookService(tk, ctx, undefined, satPort);
   svc.logger = silencio;
   return svc;
 }
@@ -169,14 +178,28 @@ async function soloLectura(url) {
       const top = sg.candidatas[0];
       check(top && top.cuenta === '2120000562', `sugiere 2120000562 primero para ${sg.nombre} (dio ${top ? `${top.cuenta} ${top.nombre} · ${top.razon}` : 'nada'})`);
     }
-    let e = await rechazo(() => svc.asignarCuenta(nuevoRfc, '2129999999'));
-    check(e && /no existe en ContPAQi/.test(msg(e)), 'asignar una cuenta que no existe en ContPAQi se rechaza');
-    e = await rechazo(() => svc.asignarCuenta(nuevoRfc, '2120000020'));
+    // Los rechazos se prueban con un RFC que NO esté en el mapa (si BOMBONELYZ ya se asignó, su
+    // rechazo sería «ya tiene la cuenta» antes de llegar a los demás frenos).
+    const { rows: libres } = await pool.raw(
+      `SELECT DISTINCT f.emisor_rfc AS rfc FROM fiscal.cfdis f
+        WHERE f.tenant_id = ? AND f.rol = 'recibidas' AND f.fecha >= '2026-09-01'
+          AND f.emisor_rfc ~ '^[A-Z&]{3}[0-9]{6}[A-Z0-9]{3}$'
+          AND NOT EXISTS (SELECT 1 FROM finance.gl_supplier_accounts a WHERE a.tenant_id = f.tenant_id
+                          AND a.deleted_at IS NULL AND upper(a.rfc) = upper(f.emisor_rfc))
+        LIMIT 1`, [MEGA]);
+    const rfcLibre = libres[0] && libres[0].rfc;
+    let e = await rechazo(() => svc.asignarCuenta(rfcLibre, '2129999999'));
+    check(e && /no existe en ContPAQi/.test(msg(e)), `asignar una cuenta que no existe en ContPAQi se rechaza (${rfcLibre})`);
+    e = await rechazo(() => svc.asignarCuenta(rfcLibre, '2120000020'));
     check(e && /ya es del RFC/.test(msg(e)), 'asignar la cuenta de OTRO proveedor se rechaza (2120000020 es de GIS020419575)');
     e = await rechazo(() => svc.asignarCuenta('NO-ES-RFC', '2120000562'));
     check(e && /RFC inválido/.test(msg(e)), 'un RFC mal formado se rechaza');
-    e = await rechazo(() => svc.asignarCuenta(nuevoRfc, '5020000562'));
+    e = await rechazo(() => svc.asignarCuenta(rfcLibre, '5020000562'));
     check(e && /empieza con 212/.test(msg(e)), 'una cuenta que no es de proveedor (502…) se rechaza');
+    if (yaMapeado) {
+      e = await rechazo(() => svc.asignarCuenta(nuevoRfc, '2120000563'));
+      check(e && /ya tiene la cuenta/.test(msg(e)), `${nuevoRfc} ya asignado: cambiarle la cuenta desde aquí se rechaza`);
+    }
 
     console.log('\n[4] LC.18 — octubre-2026, el mes que toca armar');
     const t0 = Date.now();
@@ -190,6 +213,19 @@ async function soloLectura(url) {
     check(oct.facturas.filter((f) => f.incluida).every((f) => r2c(f.base_exenta + f.subtotal16 + f.ieps + f.iva) === r2c(f.total)),
       'cada factura incluida cuadra: 501 + 502 + IEPS + IVA = total');
     check(ms < 1000, `el mes abre en ${ms} ms (< 1 s, medido desde la prueba con red incluida)`);
+    // [LC.19.1] Lo que no consta vigente ante el SAT es BLOQUEANTE, y el conteo viaja a la pantalla.
+    const octSin = oct.facturas.filter((f) => f.incluida && f.estatus_sat !== 'vigente' && f.estatus_sat !== 'cancelado');
+    const bloqSat = oct.bloqueantes.some((b) => /sin verificar ante el SAT/.test(b));
+    check(octSin.length === oct.resumen.sin_verificar_sat && bloqSat === (octSin.length > 0),
+      `LC.19.1: ${octSin.length} de ${oct.resumen.incluidas} marcadas sin verificar ante el SAT → bloqueante ${bloqSat ? 'presente' : 'ausente'}, resumen.sin_verificar_sat = ${oct.resumen.sin_verificar_sat}`);
+    // [LC.19.2] Se exige que esté MEDIDA (con hora), no que esté fresca: una caída real del feed
+    // se ve en la pantalla como bloqueo, y no es un defecto del código.
+    const fr = oct.frescura;
+    check(fr && fr.inputs.length === 2 && fr.inputs.every((i) => !!i.at),
+      `LC.19.2: la frescura de las 2 fuentes está medida (${fr ? fr.inputs.map((i) => `${i.key} ${i.status} hace ${i.age_human}`).join(' · ') : 'sin frescura'})`);
+    const sinPort = await servicio(pool).verificarSat('2026-10', 'complemento');
+    check(sinPort.disponible === false && sinPort.consultados === 0 && sinPort.restantes === 0,
+      `sin el port del SAT no consulta nada y lo DECLARA (disponible=false; ${sinPort.por_verificar} por verificar), no las da por vigentes`);
 
     noMedido('generar · registrar las facturas · entregar · cancelar · aplicar · asignar cuenta: contra prod no se escribe desde una prueba — corre completo en `pruebas-db`');
   } finally {
@@ -204,24 +240,41 @@ async function completo(urlAdmin, urlRuntime) {
   assertSafeTarget('test-newdb-libro-compras-tramite', { url: urlRuntime });
   const admin = knexLib({ client: 'pg', connection: urlAdmin, pool: { min: 0, max: 2 } });
   const runtime = knexLib({ client: 'pg', connection: urlRuntime, pool: { min: 0, max: 3 } });
+  const LATIDOS = ['contpaqi_add_cfdis', 'feed_contpaqi'];
+  let latidosPrevios = null;
+  const restaurarLatidos = async () => {
+    if (!latidosPrevios) return;
+    await admin('analytics.cron_runs').where({ tenant_id: MEGA }).whereIn('job_key', LATIDOS).del();
+    if (latidosPrevios.length) await admin('analytics.cron_runs').insert(latidosPrevios);
+  };
   const limpiar = async () => {
     const ids = (await admin('finance.purchase_book_runs').where({ tenant_id: MEGA, anio_mes: MES }).select('id')).map((r) => r.id);
     if (ids.length) await admin('finance.purchase_book_run_items').whereIn('run_id', ids).del();
     await admin('finance.purchase_book_runs').where({ tenant_id: MEGA, anio_mes: MES }).del();
-    await admin('fiscal.cfdis').where({ tenant_id: MEGA }).whereIn('uuid', UUIDS).del();
-    await admin('finance.gl_supplier_accounts').where({ tenant_id: MEGA }).whereIn('rfc', [RFC, RFC_SIN_HIST, RFC_NUEVO]).del();
+    await admin('fiscal.cfdis').where({ tenant_id: MEGA }).whereIn('uuid', [...UUIDS, ...UUIDS2]).del();
+    await admin('finance.gl_supplier_accounts').where({ tenant_id: MEGA }).whereIn('rfc', [RFC, RFC_SIN_HIST, RFC_NUEVO, RFC_AUTO, RFC_DOBLE]).del();
     await admin('analytics.gl_poliza_lines').where({ tenant_id: MEGA, source: 'contpaqi', anio_mes: '2031-02' })
       .whereIn('cuenta', [`212${SUF}`]).del();
+    // [LC.19.6] La póliza «de ContPAQi» que siembra la prueba del aplicado automático (mes futuro: no hay datos reales).
+    await admin('analytics.gl_poliza_lines').where({ tenant_id: MEGA, source: 'contpaqi', anio_mes: MES }).del();
     await admin('analytics.contpaqi_accounts').where({ tenant_id: MEGA })
-      .whereIn('codigo', [`212${SUF_NUEVO}`, `501${SUF_NUEVO}`, `502${SUF_NUEVO}`]).del();
+      .whereIn('codigo', [`212${SUF_NUEVO}`, `501${SUF_NUEVO}`, `502${SUF_NUEVO}`, `212${SUF_AUTO}`, ...SUF_DOBLE.map((s) => `212${s}`)]).del();
   };
   try {
     for (const t of ['finance.purchase_book_runs', 'finance.purchase_book_run_items', 'fiscal.cfdis', 'finance.gl_supplier_accounts',
-      'analytics.gl_poliza_lines', 'analytics.contpaqi_accounts', 'contpaqi.supplier_accounts']) {
+      'analytics.gl_poliza_lines', 'analytics.contpaqi_accounts', 'contpaqi.supplier_accounts', 'analytics.cron_runs']) {
       const [s, n] = t.split('.');
       if (!(await admin.schema.withSchema(s).hasTable(n))) { noMedido(`${t} no existe en este destino`); return; }
     }
     await limpiar();
+    // [LC.19.2] El libro mide la edad de sus dos fuentes por el latido del carril. En un destino
+    // de pruebas no corre ningún feed: se siembran frescos y al final se deja lo que había.
+    latidosPrevios = await admin('analytics.cron_runs').where({ tenant_id: MEGA }).whereIn('job_key', LATIDOS).select('*');
+    for (const job_key of LATIDOS) {
+      await admin('analytics.cron_runs')
+        .insert({ tenant_id: MEGA, job_key, label: 'candado LC.19.2', status: 'ok', last_start: admin.fn.now(), last_finish: admin.fn.now() })
+        .onConflict(['tenant_id', 'job_key']).merge(['status', 'last_start', 'last_finish']);
+    }
 
     console.log('\n[0] Sembrar un mes de prueba con postgres (salta el RLS: siembra, no prueba)');
     await admin('finance.gl_supplier_accounts').insert({
@@ -282,18 +335,86 @@ async function completo(urlAdmin, urlRuntime) {
     const fNuevo = d.facturas.find((f) => f.uuid === UUIDS[3]);
     check(fNuevo && !fNuevo.account_suffix && !fNuevo.incluida, 'la del proveedor nuevo queda sin cuenta');
 
+    console.log('\n[1b] LC.18 (e2e) — marcar a mano crea la corrida: tiene que nacer CON UUID');
+    // Lo encontró el e2e en prod: la corrida en borrador nacía con incluye_uuid = false (el
+    // default de la columna), la pantalla lo leía y el TXT de oct-2026 salió sin UUID.
+    await svc.setInclusion(MES, [UUIDS[0]], true, undefined, 'complemento');
+    const borr = await corrida();
+    check(borr.estado === 'borrador' && borr.incluye_uuid === true, `la corrida en borrador nace con incluye_uuid = true (dio ${borr.incluye_uuid})`);
+
+    console.log('\n[1c] LC.19.1 — lo que no consta vigente ante el SAT no se postea');
+    d = await svc.getMes(MES, 'complemento');
+    check(d.resumen.sin_verificar_sat === 2 && d.bloqueantes.some((b) => /sin verificar ante el SAT/.test(b)),
+      `recién llegadas (estatus «desconocido»): ${d.resumen.sin_verificar_sat} sin verificar y es BLOQUEANTE, no aviso`);
+    const eSat = await rechazo(() => svc.generar(MES, { impuestos: 'global', uuid: true, ...T }));
+    check(eSat && /sin verificar ante el SAT/.test(msg(eSat)), '⛔ prueba negativa: generar con facturas sin verificar se rechaza en el servidor');
+    check(!(await corrida()).archivo_contenido, 'y no dejó archivo');
+    // La cadena REAL: libro → EstatusService de libs/fiscal (su SQL, como app_runtime, con RLS)
+    // → el WS del SAT, que es lo único falso. A la del proveedor sin historial «no la encuentra».
+    const pedidos = [];
+    const soapFalso = {
+      consulta: async ({ id }) => {
+        pedidos.push(id);
+        return { estado: id === UUIDS[2] ? 'No Encontrado' : 'Vigente', esCancelable: '', estatusCancelacion: '', codigoEstatus: '' };
+      },
+    };
+    const { EstatusService } = require(path.join(ROOT, 'libs', 'fiscal', 'src', 'lib', 'estatus', 'estatus.service.ts'));
+    const tkFiscal = {
+      // EstatusService llama run(tenantId, cb); el libro, run(cb).
+      run: async (a, b) => runtime.transaction(async (trx) => {
+        await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [MEGA]);
+        return (typeof a === 'function' ? a : b)(trx);
+      }),
+    };
+    const estatusReal = new EstatusService(tkFiscal, { requireTenantId: () => MEGA }, soapFalso, undefined);
+    estatusReal.logger = silencio;
+    estatusReal.sleep = async () => {};
+    const svcSat = servicio(runtime, estatusReal);
+    const v1 = await svcSat.verificarSat(MES, 'complemento');
+    check([...pedidos].sort().join() === [UUIDS[0], UUIDS[1], UUIDS[2]].sort().join(),
+      `pide al SAT las marcadas y las que se podrían marcar; NO la que no tiene cuenta (pidió ${pedidos.length})`);
+    check(v1.vigentes === 2 && v1.no_encontrados === 1 && v1.restantes === 0, `una vuelta: 2 vigentes, 1 no encontrada, 0 restantes`);
+    const v2 = await svcSat.verificarSat(MES, 'complemento');
+    check(v2.consultados === 0 && v2.por_verificar === 0, '⭐ no cicla: la «no encontrada» consultada hace menos de 15 min no se vuelve a pedir');
+    d = await svc.getMes(MES, 'complemento');
+    check(d.resumen.sin_verificar_sat === 0 && !d.bloqueantes.some((b) => /SAT/.test(b)), 'con las marcadas vigentes, el bloqueo se levanta');
+    const fNoEnc = d.facturas.find((f) => f.uuid === UUIDS[2]);
+    check(fNoEnc && fNoEnc.estatus_sat === 'desconocido' && !!fNoEnc.estatus_verificado_at, 'la no encontrada sigue «desconocido» (no se da por vigente), con la hora de la consulta');
+
+    console.log('\n[1d] LC.19.2 — con las pólizas sin leer no se genera');
+    check(d.frescura && d.frescura.status === 'fresh' && d.frescura.inputs.length === 2,
+      `la respuesta declara la frescura de sus 2 fuentes (${d.frescura && d.frescura.inputs.map((i) => `${i.key}=${i.status}`).join(', ')})`);
+    await admin('analytics.cron_runs').where({ tenant_id: MEGA, job_key: 'feed_contpaqi' })
+      .update({ last_start: admin.raw(`now() - interval '3 hours'`), last_finish: admin.raw(`now() - interval '3 hours'`) });
+    d = await svc.getMes(MES, 'complemento');
+    check(d.bloqueantes.some((b) => /pólizas de ContPAQi no se leen desde hace/.test(b)),
+      `pólizas de hace 3 h → BLOQUEANTE (${d.frescura.inputs.find((i) => i.key === 'polizas').status})`);
+    const eFresca = await rechazo(() => svc.generar(MES, { impuestos: 'global', uuid: true, ...T }));
+    check(eFresca && /no se leen desde hace/.test(msg(eFresca)), '⛔ prueba negativa: el servidor no genera con las pólizas viejas');
+    await admin('analytics.cron_runs').where({ tenant_id: MEGA, job_key: 'contpaqi_add_cfdis' })
+      .update({ last_start: admin.raw(`now() - interval '3 hours'`), last_finish: admin.raw(`now() - interval '3 hours'`) });
+    await admin('analytics.cron_runs').where({ tenant_id: MEGA, job_key: 'feed_contpaqi' })
+      .update({ last_start: admin.fn.now(), last_finish: admin.fn.now() });
+    d = await svc.getMes(MES, 'complemento');
+    check(!d.bloqueantes.some((b) => /pólizas de ContPAQi|cuándo se leyeron/.test(b)) && d.avisos.some((a) => /CFDIs del ADD no se actualizan/.test(a)),
+      'CFDIs viejos con pólizas al día → AVISO, no bloqueo (lo que falte entra en un complemento)');
+    await admin('analytics.cron_runs').where({ tenant_id: MEGA, job_key: 'contpaqi_add_cfdis' })
+      .update({ last_start: admin.fn.now(), last_finish: admin.fn.now() });
+
     console.log('\n[2] generar, con el payload de la pantalla { impuestos, uuid }');
     const g = await svc.generar(MES, { impuestos: 'global', uuid: true, ...T });
     check(g.facturas === 2 && g.cargos === g.abonos, `2 facturas, cuadra en ${g.cargos}`);
     let it = await items();
-    check(it.length === 2 && it.every((r) => r.origen === 'generado' && r.incluida),
-      `⭐ B1: las 2 incluidas por default quedan registradas (origen generado) — dio ${it.length}`);
+    check(it.length === 2 && it.every((r) => r.incluida) && it.filter((r) => r.origen === 'generado').length === 1,
+      `⭐ B1: las 2 incluidas quedan registradas — la marcada a mano conserva su decisión, la de default queda como generado (dio ${it.map((r) => r.origen).join(',')})`);
     d = await svc.getMes(MES, 'complemento');
     check(d.resumen.incluidas === 2, 'lo registrado por generar NO cuenta como decisión: siguen entrando por default');
     check(d.run.archivo_vigente === true && !('archivo_contenido' in d.run), 'la pantalla ve un archivo entregable, sin el contenido');
     const c0 = await corrida();
     check(c0.folio_poliza === 1 && c0.concepto === 'REGISTRO DE COMPRAS DEL MES DE MARZO 2031',
       `⭐ LC.18: sin libro del mes en ContPAQi la corrida nace como folio 1 «${c0.concepto}» (no complemento en el 2)`);
+    check(c0.archivo_nombre === `poliza-compras-${MES}.txt`, `el libro del mes se llama ${c0.archivo_nombre} (no «complemento-…»)`);
+    check(/1C170000-0000-4000-8000-000000000001/.test(c0.archivo_contenido), 'el TXT lleva el UUID en el concepto del renglón');
     const { parsearTxt } = require(path.join(SRC, 'poliza-txt.ts'));
     const refs212 = parsearTxt(c0.archivo_contenido).movimientos
       .filter((m) => m.cuenta === `212${SUF}`).map((m) => m.referencia).sort();
@@ -316,7 +437,8 @@ async function completo(urlAdmin, urlRuntime) {
     check(e && /ya se entregó/.test(msg(e)), '⭐ B3: generar encima de una entrega se rechaza');
     d = await svc.getMes(MES, 'complemento');
     check(d.facturas.filter((f) => UUIDS.slice(0, 2).includes(f.uuid)).every((f) => f.prueba_certeza === 'exacta' && !f.incluida),
-      '⭐ B1: el mes ya NO vuelve a ofrecer las facturas entregadas (certeza exacta, fuera)');
+      '⭐ B1: el mes ya NO vuelve a ofrecer las facturas entregadas (certeza exacta, fuera) — incluida la marcada a mano');
+    check(d.resumen.incluidas === 0, `con el mes entregado no queda nada «por entrar» (dio ${d.resumen.incluidas}; el e2e vio 1)`);
     e = await rechazo(() => svc.setInclusion(MES, [UUIDS[0]], false, 'x', 'complemento'));
     check(e && /entregado/.test(msg(e)), 'tampoco se cambia qué entra');
 
@@ -337,6 +459,25 @@ async function completo(urlAdmin, urlRuntime) {
     it = await items();
     check(it.length === 2, `sigue habiendo una fila por factura (dio ${it.length}), no se duplicaron`);
 
+    console.log('\n[7b] LC.19.6 — poner el porqué de una exclusión no tira el archivo');
+    await svc.setInclusion(MES, [UUIDS[2]], false, undefined, 'complemento');
+    await svc.generar(MES, { impuestos: 'global', uuid: true, ...T });
+    const sm = await svc.setInclusion(MES, [UUIDS[2]], false, 'gasto o servicio', 'complemento');
+    r = await corrida();
+    const itSm = (await items()).find((x) => x.cfdi_uuid === UUIDS[2]);
+    check(sm.archivo_invalidado === false && r.estado === 'generado' && !!r.archivo_contenido,
+      `⭐ sólo cambió el motivo: el archivo sigue (${r.estado}, archivo_invalidado=${sm.archivo_invalidado})`);
+    const { rows: [mot] } = await admin.raw(
+      `SELECT i.motivo FROM finance.purchase_book_run_items i JOIN finance.purchase_book_runs r ON r.id = i.run_id
+        WHERE r.tenant_id = ? AND r.anio_mes = ? AND i.cfdi_uuid = ?`, [MEGA, MES, UUIDS[2]]);
+    check(itSm && itSm.incluida === false && mot && mot.motivo === 'gasto o servicio', 'y el motivo de la lista cerrada quedó guardado');
+    const camb = await svc.setInclusion(MES, [UUIDS[1]], false, undefined, 'complemento');
+    check(camb.archivo_invalidado === true && (await corrida()).estado === 'borrador',
+      '⛔ prueba negativa: sacar una que estaba DENTRO sí invalida el archivo');
+    await svc.setInclusion(MES, [UUIDS[1]], true, undefined, 'complemento');
+    await svc.generar(MES, { impuestos: 'global', uuid: true, ...T });
+    r = await corrida();
+
     console.log('\n[8] Un archivo legado guardado no se entrega');
     const bueno = r.archivo_contenido;
     const viejo = bueno.split('\r\n').map((l) => (l.startsWith('M1') ? `M ${l.slice(2)}` : l)).join('\r\n');
@@ -349,9 +490,31 @@ async function completo(urlAdmin, urlRuntime) {
     check(d.run.archivo_vigente === false, 'la pantalla lo sabe (archivo_vigente = false)');
     await admin('finance.purchase_book_runs').where({ id: r.id }).update({ archivo_contenido: bueno });
 
+    console.log('\n[8b] LC.19.6 — aplicado SOLO, cuando ContPAQi casa renglón por renglón (sin «entregado»)');
+    const { parsearTxt: parsear } = require(path.join(SRC, 'poliza-txt.ts'));
+    const px = parsear(bueno);
+    const sembrarPoliza = async (alterar) => {
+      await admin('analytics.gl_poliza_lines').where({ tenant_id: MEGA, source: 'contpaqi', anio_mes: MES }).del();
+      await admin('analytics.gl_poliza_lines').insert(px.movimientos.map((m, i) => ({
+        tenant_id: MEGA, source: 'contpaqi', sucursal: '00', ejercicio: 2031, periodo: 3, tipo_pol: '3', folio: String(px.header.folio),
+        num_movto: i + 1, cuenta: m.cuenta, cargo_abono: m.abono ? 'A' : 'C',
+        importe: alterar && i === 0 ? r2c(m.importe + 0.01) : m.importe, anio_mes: MES,
+      })));
+      // El espejo de pólizas tiene que ser más nuevo que la generación (guarda de cuadrarContraContpaqi).
+      await admin('analytics.cron_runs').where({ tenant_id: MEGA, job_key: 'feed_contpaqi' })
+        .update({ last_start: admin.fn.now(), last_finish: admin.fn.now() });
+    };
+    await sembrarPoliza(true);
+    let pr = await svc.preparar(MES);
+    check(!pr.aplicado.hecho && /no casa/.test(String(pr.aplicado.motivo)) && (await corrida()).estado === 'generado',
+      `⛔ prueba negativa: un renglón editado al importar (+$0.01) NO se marca solo — «${String(pr.aplicado.motivo).slice(0, 70)}…»`);
+    await sembrarPoliza(false);
+    pr = await svc.preparar(MES);
+    r = await corrida();
+    check(pr.aplicado.hecho && r.estado === 'aplicado' && /aplicado automático/.test(String(r.notas)),
+      `⭐ casa renglón por renglón → aplicado solo, con su nota (${pr.aplicado.motivo})`);
+
     console.log('\n[9] aplicado es terminal');
-    await svc.marcar(MES, 'entregado', T);
-    await svc.marcar(MES, 'aplicado', T);
     e = await rechazo(() => svc.marcar(MES, 'cancelado', T));
     check(e && /ya está aplicado/.test(msg(e)), '⛔ una aplicada no se cancela (sus facturas volverían a ofrecerse)');
     e = await rechazo(() => svc.marcar(MES, 'entregado', T));
@@ -378,8 +541,33 @@ async function completo(urlAdmin, urlRuntime) {
     const fN = d.facturas.find((f) => f.uuid === UUIDS[3]);
     check(fN && fN.account_suffix === SUF_NUEVO && fN.cuenta_existe && !fN.en_libro_reciente && !fN.incluida,
       'el mes ya la ve con cuenta; como nunca entró al libro, espera revisión (no entra sola)');
+
+    console.log('\n[11] LC.19.6 — preparar asigna sola la cuenta de nombre idéntico, y sólo esa');
+    await admin('analytics.contpaqi_accounts').insert([
+      { tenant_id: MEGA, codigo: `212${SUF_AUTO}`, nombre: 'CANDADO AUTO LC19', computed_at: admin.fn.now() },
+      ...SUF_DOBLE.map((s) => ({ tenant_id: MEGA, codigo: `212${s}`, nombre: 'CANDADO DOBLE LC19', computed_at: admin.fn.now() })),
+    ]);
+    for (const [i, [uuid, rfc, nombre]] of [[UUIDS2[0], RFC_AUTO, 'CANDADO AUTO LC19'], [UUIDS2[1], RFC_DOBLE, 'CANDADO DOBLE LC19']].entries()) {
+      await admin('fiscal.cfdis').insert({
+        tenant_id: MEGA, uuid, tipo_comprobante: 'I', serie: 'LC', folio: `19${i}`, fecha: '2031-04-10',
+        emisor_rfc: rfc, emisor_nombre: nombre, subtotal: 100, descuento: 0, total: 100,
+        impuestos: JSON.stringify({ iva_trasladado: 0, ieps_trasladado: 0 }), rol: 'recibidas', source: 'contpaqi_add', aso_contabilidad: false,
+      });
+    }
+    const svc2 = servicio(runtime); // instancia nueva: el caché de candidatas no conoce las cuentas recién sembradas
+    const p2 = await svc2.preparar(MES2);
+    const auto = await admin('finance.gl_supplier_accounts').where({ tenant_id: MEGA, rfc: RFC_AUTO }).first();
+    check(p2.cuentas_asignadas.some((c) => c.rfc === RFC_AUTO && c.cuenta === `212${SUF_AUTO}`) && auto && auto.source === 'auto_lc',
+      `⭐ nombre idéntico y una sola candidata libre → asignada sola, rotulada auto_lc (${auto ? auto.source : 'sin fila'})`);
+    check(!(await admin('finance.gl_supplier_accounts').where({ tenant_id: MEGA, rfc: RFC_DOBLE }).first())
+      && !p2.cuentas_asignadas.some((c) => c.rfc === RFC_DOBLE),
+      '⛔ prueba negativa: dos cuentas con el mismo nombre → no se adivina, queda para una persona');
+    check(!p2.generado.hecho && /mes que toca/.test(String(p2.generado.motivo)),
+      '⛔ el archivo no se arma solo fuera del mes que toca (2031-04 no es el anterior al actual)');
+    check(p2.sat && p2.sat.disponible === false, 'sin el port del SAT, preparar lo declara (disponible=false) y no da nada por vigente');
   } finally {
     try { await limpiar(); } catch (e) { console.log(`  ⚠ limpieza incompleta: ${e.message}`); }
+    try { await restaurarLatidos(); } catch (e) { console.log(`  ⚠ no se restauraron los latidos: ${e.message}`); }
     await admin.destroy();
     await runtime.destroy();
   }

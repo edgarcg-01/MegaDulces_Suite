@@ -1,4 +1,4 @@
-import { VEREDICTOS_SIN_RESPUESTA, type VeredictoCorte, type VerificacionCorte } from '@megadulces/contracts';
+import { VEREDICTOS_SIN_RESPUESTA, type VerdadDiferencia, type VeredictoCorte, type VerificacionCorte } from '@megadulces/contracts';
 
 /**
  * ⭐⭐ `[CGS.12]` — **Lo que la supervisora revisa cada mañana, calculado y no recordado.**
@@ -44,6 +44,8 @@ export interface EntradaVerificacion {
   sueltos_despues: number;
   /** Movimientos del corte editados después de cerrarlo. */
   editados_despues: number;
+  /** `[CGS.36]` La diferencia contra sus testigos. `undefined`/`null` = no se pudo arbitrar. */
+  verdad?: VerdadDiferencia | null;
 }
 
 const dias = (a: string, b: string): number =>
@@ -101,6 +103,15 @@ export function verificarCorte(e: EntradaVerificacion): VerificacionCorte[] {
   else if (e.explicacion && e.explicacion.trim().length >= 10) {
     add('V5', 'La diferencia está explicada', 'cumple', `Difiere ${mx(e.diferencia)} y la caja lo explicó: «${e.explicacion.trim()}».`);
   } else add('V5', 'La diferencia está explicada', 'no_cumple', `Difiere ${mx(e.diferencia)} y nadie lo explicó.`);
+
+  // V12 — `[CGS.36]` la diferencia sobrevivió a sus testigos (Control y la máquina). Corregida, o
+  // contradicha sin poder corregirse, NO cumple: se firmaría una cifra que no es.
+  const V12 = 'La diferencia es la verdadera';
+  const ver = e.verdad;
+  if (!ver) add('V12', V12, 'no_medido', 'No se pudo arbitrar la diferencia contra sus testigos.');
+  else if (ver.estado === 'confirmada') add('V12', V12, 'cumple', ver.resumen);
+  else if (ver.estado === 'corregida' || ver.testigos.some((t) => t.estado === 'contradice')) add('V12', V12, 'no_cumple', ver.resumen);
+  else add('V12', V12, 'no_medido', ver.resumen);
 
   // V6 — ningún gasto sin respaldo
   if (e.gastos_sin_respaldo === 0) add('V6', 'Todo gasto tiene firma, documento o motivo', 'cumple', 'Cada gasto trae firma, documento, vínculo o motivo.');

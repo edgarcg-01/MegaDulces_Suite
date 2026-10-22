@@ -133,3 +133,31 @@ export function opcionesUnidad(e: QuoteCatalogRow): OpcionUnidad[] {
   }
   return out.sort((a, b) => a.tamano - b.tamano);
 }
+
+/**
+ * `[E.20]` La cantidad tecleada, leída UNA vez para las dos pantallas de cotización.
+ *
+ * Antes: el alta hacía `replace(/\D/g,'')` —«2.5» se volvía **25**, diez veces más kilos— y el
+ * detalle hacía `Math.floor` —«2.5» se volvía 2—, cuando el servidor sí acepta fracciones
+ * (auditoría de cotizaciones, A2).
+ *
+ * La regla es la de Postel de DESIGN.md §10.12: liberal en la FORMA, nunca adivinar el SIGNIFICADO.
+ *   · Fracción sólo donde la unidad se pesa (`admiteFraccion`): en piezas, paquetes o cajas una
+ *     fracción no se convierte en otro número; se devuelve null y la pantalla conserva la anterior.
+ *   · La coma vale como separador de MILES mexicano («1,250» = 1250). «2,5» es ambiguo (¿dos y
+ *     medio, o un separador mal puesto?) y no se adivina: null.
+ *
+ * @returns la cantidad, o null si lo tecleado no es una cantidad válida para esa unidad.
+ */
+export function parseCantidad(valor: unknown, admiteFraccion: boolean): number | null {
+  let t = String(valor ?? '').trim().replace(/\s+/g, '');
+  if (t.includes(',')) {
+    if (!/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) return null;
+    t = t.replace(/,/g, '');
+  }
+  if (!/^\d+(\.\d+)?$/.test(t)) return null;
+  const n = Number(t);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (!admiteFraccion) return Number.isInteger(n) ? n : null;
+  return Math.round(n * 1000) / 1000;
+}

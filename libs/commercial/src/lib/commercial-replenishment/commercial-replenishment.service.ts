@@ -1,5 +1,5 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { TenantKnexService, TenantContextService, ScopeService, TenantCacheService } from '@megadulces/platform-core';
 import {
   compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
   WorkbookSkuSignals,
@@ -18,11 +18,12 @@ const todayMx = (): string =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' })
     .format(new Date());
 import { Knex } from 'knex';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
 import { AVISO_TRANSITO, POLITICA_TRANSITO, type PoliticaTransito, transitoDescontado, transitoMostrado } from './transito';
 import { mensajeFraccion, renglonesConFraccion } from './fraccion-caja';
+import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lote-repetido';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -337,6 +338,21 @@ interface ReceiveLineDto { line_id: string; received_qty: number; }
  * la vez; mientras no se mida contra la base, se declara la union en vez de elegir una y acertarle
  * de casualidad.
  */
+/**
+ * `[RQ.8]` Lo que devuelve un «Armar» en lote: el folio bajo el que entraron todas y el
+ * desglose de lo creado. `batch_folio` es `string | null` porque el folio del lote solo se
+ * emite cuando las columnas del lote ya existen en la base (`loteColsListas`); sin ellas el
+ * lote entra igual y se identifica por `batch_id`.
+ */
+export interface LoteRequisicionesCreado {
+  batch_id: string;
+  batch_folio: string | null;
+  total: number;
+  compras: number;
+  traspasos: number;
+  folios: string[];
+}
+
 export interface RequisitionListRowDto {
   id: string;
   folio: string;
@@ -511,7 +527,22 @@ export class CommercialReplenishmentService {
      * poder apagar sin tocar a quien arma la requisición.
      */
     @Optional() @Inject(KEPLER_REQUISITION_SINK_PORT) private readonly keplerSink?: KeplerRequisitionSinkPort,
+    /**
+     * `[RA-UX.11b]` El caché por tenant (Redis) para la consulta pesada del workbook. **`@Optional()`
+     * a propósito**: sin él la pantalla funciona igual, sólo que sin caché — y un proveedor que falta
+     * no tumba el arranque de la API (lo que pasó en #414 con una firma inyectada).
+     */
+    @Optional() private readonly cache?: TenantCacheService,
   ) {}
+
+  /**
+   * `[RA-UX.11b]` Cuánto vive el cálculo pesado del workbook en caché. Medido el 2026-10-22 con el
+   * servicio real: la consulta principal tarda **2.2–2.9 s** y no baja retocándola (5 variantes, mismo
+   * resultado y mismo tiempo dentro del ruido): recalcula los 5,626 productos en CADA filtro y en CADA
+   * página. 60 s es menos que el ciclo del importer que lo alimenta (15 min), así que el caché no
+   * cambia qué tan viejo es el dato en ningún caso que la píldora de frescura no diga ya.
+   */
+  static readonly WB_CACHE_MS = 60_000;
 
   // RA-PRO.27 — la migración 20260728170000 (settings + columnas de override) puede ir por
   // detrás del deploy del código (o quedar bloqueada por otra migración del batch). Este check
@@ -2234,34 +2265,37 @@ export class CommercialReplenishmentService {
                round(COALESCE(SUM(valor_exis_arbitrado) OVER (), 0)::numeric, 2)         AS _exis_sin_valuar_arbitrado`;
       const innerWin = inner.replace('\n          FROM prod p\n', `${win}\n          FROM prod p\n`);
       if (innerWin === inner) throw new Error('[RA-PERF.4] no se pudo inyectar el bloque de totales en la consulta del workbook');
-      const rows = (await trx.raw(`${innerWin} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`, binds)).rows;
-      // [RA-PRO.67] Margen y venta perdida, SOLO sobre la página que se muestra (≤1000 SKUs; medido
-      // 2026-10-02 con los 76 de GONAC: 225 ms el margen, 13 ms la venta perdida). El export a XLSX
-      // no las necesita y pagaría el costo sobre el catálogo entero, así que se salta.
-      if (!q.export && rows.length) {
-        const sig = await this.skuSignals(trx, tenantId, rows as Array<{ product_id: string; sku: string; uxc?: number | string | null; pack_size?: number | string | null; caja_cost?: number | string | null }>);
-        for (const r of rows as Array<{ product_id: string; signals?: WorkbookSkuSignals | null }>) r.signals = sig.get(r.product_id) ?? null;
-      }
-      // U.2 — el total del inventario declara su propio hueco: `total_exis` es Σ de lo VERIFICADO, y
-      // `exis_sin_valuar_*` dice cuántos SKUs y cuánto valor (según el árbitro) quedaron fuera. Sin
-      // esto el total bajaría en silencio y se leería como "hay menos inventario", que es otra
-      // mentira distinta de la que estamos quitando.
-      //
-      // `[RA-PERF.4]` Los totales ya vienen pegados a las filas (ventanas `OVER ()` de arriba), asi
-      // que acá sólo se leen. El `SELECT SUM(...) FROM (inner)` queda SÓLO como respaldo del único
-      // caso en que no hay dónde leerlos: página vacía con universo no vacío (offset más allá del
-      // final). Si la página está vacía porque el filtro no casa con nada, el respaldo devuelve los
-      // ceros correctos y `total` sale 0, que es lo mismo que publicaba antes.
-      const w0 = rows[0] as Record<string, unknown> | undefined;
-      const tot = w0
-        ? {
-            c: w0._c, total_pedido: w0._total_pedido, total_venta: w0._total_venta,
-            total_exis: w0._total_exis, total_venta_costo: w0._total_venta_costo,
-            exis_sin_valuar_skus: w0._exis_sin_valuar_skus,
-            exis_sin_valuar_celdas: w0._exis_sin_valuar_celdas,
-            exis_sin_valuar_arbitrado: w0._exis_sin_valuar_arbitrado,
-          }
-        : (await trx.raw(`SELECT count(*)::int c,
+      const sqlFilas = `${innerWin} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`;
+      // `[RA-UX.11b]` Lo PESADO —filas, totales y sucursales— va al caché; lo que cambia al armar
+      // (las señales: «ya requisado», margen, venta perdida) y la frescura se calculan SIEMPRE.
+      // La llave es la SQL exacta + sus parámetros: incluye filtros, cobertura, configuración y el
+      // ALCANCE de sucursales de quien pregunta (`whFilter`), así que nadie recibe el universo de
+      // otro. Se guarda como TEXTO JSON: un acierto y un fallo devuelven la misma forma, y nadie
+      // puede mutar una copia compartida (abajo se le pegan las señales a cada renglón).
+      // Sin caché: la exportación (otra forma, se pide poco) y las páginas grandes (la casilla de
+      // «todo», hasta 1,000 renglones por llamada).
+      const pesado = async (): Promise<string> => {
+        const filas = (await trx.raw(sqlFilas, binds)).rows as Array<Record<string, unknown>>;
+        // U.2 — el total del inventario declara su propio hueco: `total_exis` es Σ de lo VERIFICADO, y
+        // `exis_sin_valuar_*` dice cuántos SKUs y cuánto valor (según el árbitro) quedaron fuera. Sin
+        // esto el total bajaría en silencio y se leería como "hay menos inventario", que es otra
+        // mentira distinta de la que estamos quitando.
+        //
+        // `[RA-PERF.4]` Los totales ya vienen pegados a las filas (ventanas `OVER ()` de arriba), asi
+        // que acá sólo se leen. El `SELECT SUM(...) FROM (inner)` queda SÓLO como respaldo del único
+        // caso en que no hay dónde leerlos: página vacía con universo no vacío (offset más allá del
+        // final). Si la página está vacía porque el filtro no casa con nada, el respaldo devuelve los
+        // ceros correctos y `total` sale 0, que es lo mismo que publicaba antes.
+        const w0 = filas[0];
+        const totales = w0
+          ? {
+              c: w0._c, total_pedido: w0._total_pedido, total_venta: w0._total_venta,
+              total_exis: w0._total_exis, total_venta_costo: w0._total_venta_costo,
+              exis_sin_valuar_skus: w0._exis_sin_valuar_skus,
+              exis_sin_valuar_celdas: w0._exis_sin_valuar_celdas,
+              exis_sin_valuar_arbitrado: w0._exis_sin_valuar_arbitrado,
+            }
+          : (await trx.raw(`SELECT count(*)::int c,
           round(SUM(pedido_valor)::numeric,2) total_pedido,
           round(SUM(valor_venta)::numeric,2)  total_venta,
           round(SUM(valor_exis)::numeric,2)   total_exis,
@@ -2270,13 +2304,13 @@ export class CommercialReplenishmentService {
           COALESCE(SUM(almacenes_sin_valuar), 0)::int                    exis_sin_valuar_celdas,
           round(COALESCE(SUM(valor_exis_arbitrado), 0)::numeric, 2)      exis_sin_valuar_arbitrado
         FROM (${inner}) z`, binds)).rows[0];
-      // Los ocho acarreos salen del payload: son del CONJUNTO, no de la fila, y repetirlos en cada
-      // renglón engordaría el export (hasta 100,000 filas) sin decir nada nuevo.
-      for (const r of rows as Array<Record<string, unknown>>) for (const k of TOT_COLS) delete r[k];
-      // Columnas presentes → dinámicas. General = 1 columna; por sucursal = 1 almacén por columna.
-      const territories = general
-        ? [{ code: 'GENERAL', name: 'General (red)' }]
-        : (await trx.raw(`
+        // Los ocho acarreos salen del payload: son del CONJUNTO, no de la fila, y repetirlos en cada
+        // renglón engordaría el export (hasta 100,000 filas) sin decir nada nuevo.
+        for (const r of filas) for (const k of TOT_COLS) delete r[k];
+        // Columnas presentes → dinámicas. General = 1 columna; por sucursal = 1 almacén por columna.
+        const sucursales = general
+          ? [{ code: 'GENERAL', name: 'General (red)' }]
+          : (await trx.raw(`
             SELECT w.code, max(w.name) AS name
               FROM catalog.products pr
               JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
@@ -2290,7 +2324,23 @@ export class CommercialReplenishmentService {
             // compartido con el frontend vía @megadulces/contracts. El ORDER BY de arriba sólo
             // decide qué entra cuando hay tope; la secuencia de columnas la fija el negocio.
             .sort((a: { code: string }, b: { code: string }) => compareWarehouseCodes(a.code, b.code));
-
+        return JSON.stringify({ rows: filas, tot: totales, territories: sucursales });
+      };
+      const cacheable = !q.export && pageSize <= 200 && !!this.cache;
+      const res = JSON.parse(cacheable
+        ? await this.cache!.getOrSet('pedido:wb:v1:' + createHash('sha1').update(sqlFilas).update(JSON.stringify(binds)).digest('hex'),
+            CommercialReplenishmentService.WB_CACHE_MS, pesado)
+        : await pesado()) as { rows: Array<Record<string, unknown>>; tot: Record<string, unknown> | undefined; territories: Array<{ code: string; name: string }> };
+      const rows = res.rows;
+      const tot = res.tot;
+      const territories = res.territories;
+      // [RA-PRO.67] Margen y venta perdida, SOLO sobre la página que se muestra (≤1000 SKUs; medido
+      // 2026-10-02 con los 76 de GONAC: 225 ms el margen, 13 ms la venta perdida). El export a XLSX
+      // no las necesita y pagaría el costo sobre el catálogo entero, así que se salta.
+      if (!q.export && rows.length) {
+        const sig = await this.skuSignals(trx, tenantId, rows as Array<{ product_id: string; sku: string; uxc?: number | string | null; pack_size?: number | string | null; caja_cost?: number | string | null }>);
+        for (const r of rows as Array<{ product_id: string; signals?: WorkbookSkuSignals | null }>) r.signals = sig.get(r.product_id) ?? null;
+      }
       /**
        * `[RA-PERF.8]` **La edad del DATO, no la de la consulta.**
        *
@@ -3504,10 +3554,13 @@ export class CommercialReplenishmentService {
         const t = `%${q.search.trim()}%`;
         base.andWhere((b) => b.whereILike('pr.sku', t).orWhereILike('pr.nombre', t));
       }
-      const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
-      const total = Number(totalRow?.c || 0);
-      const sumRow: any = await base.clone().clearSelect().clearOrder().select(trx.raw(`ROUND(SUM(${valueExpr}), 2) AS total_value`)).first();
-      const rows = await base.clone()
+      // `[RA-UX.11]` UNA pasada, no tres. Acá había un `count(*)` y un `SUM()` sobre la MISMA base,
+      // cada uno pagando entero el cruce producto×almacén y las tres vistas del ODS (existencia,
+      // factor de caja y costo, 0.6 + 1.9 + 1.2 s calculadas completas: ninguna acepta el filtro
+      // por par — un solo par cuesta 15/158/764 ms). Medido en prod el 2026-10-22: 4.1 + 4.2 +
+      // 6.5 s = 14.9 s, y 13.0 s en el navegador. El total y la suma salen ahora de la consulta de
+      // filas con ventanas (`OVER ()`), que ya recorre todo el universo para ordenarlo.
+      const rows: Array<Record<string, unknown>> = await base.clone()
         .select(
           'pr.id as product_id', 'w.id as warehouse_id',
           trx.raw('w.code AS warehouse_code'),
@@ -3532,11 +3585,30 @@ export class CommercialReplenishmentService {
           trx.raw(`${lastActivity} AS last_activity`),
           trx.raw('pr.created_at::date AS created_at'),
           trx.raw('sup.name AS supplier_name'),
+          trx.raw('count(*) OVER () AS _total'),
+          trx.raw(`ROUND(SUM(${valueExpr}) OVER (), 2) AS _total_value`),
         )
-        // capital inmovilizado primero; luego los de 0 existencia por antigüedad en catálogo
-        .orderByRaw(`${valueExpr} DESC, pr.created_at ASC`)
+        // capital inmovilizado primero; luego los de 0 existencia por antigüedad en catálogo.
+        // `[RA-UX.11]` + desempate ESTABLE (pr.id, w.id): `created_at` se repite en las altas por
+        // lote, y sin desempate la página 2 podía repetir o saltarse renglones de la 1.
+        .orderByRaw(`${valueExpr} DESC, pr.created_at ASC, pr.id ASC, w.id ASC`)
         .limit(pageSize).offset((page - 1) * pageSize);
-      return { total, page, pageSize, total_value: Number(sumRow?.total_value || 0), rows };
+      let total: number;
+      let totalValue: number;
+      if (rows.length) {
+        total = Number(rows[0]['_total'] || 0);
+        totalValue = Number(rows[0]['_total_value'] || 0);
+      } else if (page === 1) {
+        total = 0; totalValue = 0;   // sin filas en la primera página: el universo está vacío
+      } else {
+        // Una página más allá del final no trae filas que digan el total: se cuenta aparte (una
+        // sola consulta, no dos), que es el único caso en que hace falta.
+        const agg: { c?: string | number; total_value?: string | number } | undefined = await base.clone().clearSelect().clearOrder()
+          .select(trx.raw('count(*) AS c'), trx.raw(`ROUND(SUM(${valueExpr}), 2) AS total_value`)).first();
+        total = Number(agg?.c || 0); totalValue = Number(agg?.total_value || 0);
+      }
+      for (const r of rows) { delete r['_total']; delete r['_total_value']; }
+      return { total, page, pageSize, total_value: totalValue, rows };
     });
   }
 
@@ -3807,7 +3879,7 @@ export class CommercialReplenishmentService {
    * apuntar. El `link` que manda el front es un índice dentro de este mismo arreglo, no un id:
    * los ids todavía no existen cuando el navegador arma el pedido.
    */
-  async createRequisitionBatch(dto: { requisitions?: CreateRequisitionDto[] }) {
+  async createRequisitionBatch(dto: { requisitions?: CreateRequisitionDto[]; allow_duplicate?: boolean }): Promise<LoteRequisicionesCreado> {
     const tenantId = this.tenantCtx.requireTenantId();
     const entrada = dto?.requisitions || [];
     if (!entrada.length) throw new BadRequestException('El lote no trae requisiciones');
@@ -3816,7 +3888,21 @@ export class CommercialReplenishmentService {
     const orden = entrada.map((r, i) => ({ r, i }))
       .sort((a, b) => (a.r.source_type === 'branch' ? 1 : 0) - (b.r.source_type === 'branch' ? 1 : 0));
     const vigCols = await this.tk.run((trx) => this.loteColsListas(trx));
+    const userId = this.tenantCtx.get()?.userId ?? null;
     return this.tk.run(async (trx) => {
+      // `[RA-UX.1b]` Antes de crear NADA: ¿esta persona ya generó estos mismos renglones de compra
+      // en la última hora? Medido: 9 de 106 lotes eran eso. Se contesta 409 con lo encontrado y la
+      // pantalla ofrece confirmarlo; `allow_duplicate` es esa confirmación. Sin autor (llamada de
+      // sistema) no hay "la misma persona" con qué comparar: no se frena.
+      if (userId && dto?.allow_duplicate !== true) {
+        const rep = await this.loteRepetido(trx, tenantId, userId, entrada);
+        if (rep) {
+          this.logger.warn(`Lote repetido frenado (${rep.renglones}/${rep.de} renglones, ${rep.lotes.join(', ')}) — usuario ${userId}`);
+          throw new ConflictException({ statusCode: 409, code: 'LOTE_REPETIDO', message: mensajeLoteRepetido(rep), repetido: rep });
+        }
+      } else if (userId) {
+        this.logger.warn(`Lote generado con allow_duplicate por ${userId}: la persona confirmó repetir`);
+      }
       const year = new Date().getFullYear();
       const batchId = randomUUID();
       let batchFolio: string | null = null;
@@ -3860,6 +3946,21 @@ export class CommercialReplenishmentService {
         folios: creadas.map((x) => x.folio),
       };
     });
+  }
+
+  /**
+   * `[RA-UX.1b]` La consulta del candado, en un SAVEPOINT: si falla (una columna que todavía no
+   * llegó, un cast raro), la transacción del lote NO queda abortada y el lote se crea como antes.
+   * Se elige fallar abierto a propósito: un candado que tumba «Generar» para todos es peor que
+   * el doble que viene a frenar. La falla se deja en el log, no se traga.
+   */
+  private async loteRepetido(trx: Knex.Transaction, tenantId: string, userId: string, docs: CreateRequisitionDto[]): Promise<LoteRepetido | null> {
+    try {
+      return await trx.transaction((sp) => buscarLoteRepetido(sp, { tenantId, userId, docs }));
+    } catch (e) {
+      this.logger.warn(`[RA-UX.1b] el candado de lote repetido no pudo medir, el lote sigue: ${(e as Error).message}`);
+      return null;
+    }
   }
 
   /**

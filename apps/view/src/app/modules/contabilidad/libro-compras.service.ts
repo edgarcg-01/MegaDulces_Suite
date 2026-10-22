@@ -2,6 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+// `import type`: cero bytes al bundle (ver freshness-pill.component.ts).
+import type { Freshness } from '@megadulces/contracts';
 
 /**
  * Fase LC (ADR-052) — Libro de Compras. El trámite mensual se lleva aquí; a ContPAQi
@@ -48,6 +50,8 @@ export interface FacturaMes {
   /** LC.18: el proveedor entró al libro en los últimos 6 meses. Sin eso no entra por default. */
   en_libro_reciente: boolean;
   origen_mapa: 'libro' | 'contpaqi' | null;
+  /** LC.18: sin cuenta, la 212 libre de ContPAQi con el mismo nombre (≥ 80 %). Sugerencia, no decisión. */
+  cuenta_sugerida?: { cuenta: string; nombre: string; parecido: number } | null;
   account_suffix: string | null;
   supplier_name: string | null;
   cuenta_proveedor: string | null;
@@ -71,11 +75,40 @@ export interface FacturaMes {
   prueba_certeza: 'exacta' | 'por_importe' | null;
   prueba_detalle: string | null;
   /**
-   * `vigente | cancelado | desconocido`. Casi todo es `desconocido` (167,053 de 167,135):
-   * el ADD trae el estatus vacío y nadie valida contra el SAT. "No cancelado" acá significa
-   * "no nos consta", no "vigente" — por eso el aviso del mes lo declara con su monto.
+   * `vigente | cancelado | desconocido`. LC.19.1: sólo `vigente` se postea — `desconocido`
+   * es «no consta», no «no está cancelada». Lo resuelve «Verificar en el SAT».
    */
   estatus_sat: string;
+  /** LC.19.1: cuándo se le preguntó al SAT por última vez (null = nunca). */
+  estatus_verificado_at: string | null;
+}
+
+/** LC.19.6: lo que hizo una vuelta de `preparar`. Cada `motivo` dice por qué un paso NO se hizo solo. */
+export interface PreparacionMes {
+  mes: string;
+  aplicado: { hecho: boolean; motivo: string | null };
+  cuentas_asignadas: { rfc: string; cuenta: string; nombre: string }[];
+  sat: VerificacionSatMes | null;
+  generado: { hecho: boolean; motivo: string | null; facturas?: number; folio?: number };
+  restantes: number;
+}
+
+/** LC.19.6: por qué se excluyó una factura — lista cerrada, para poder aprender una regla después. */
+export const MOTIVOS_EXCLUSION = [
+  'gasto o servicio',
+  'ya contabilizada por otra vía',
+  'devolución o nota',
+  'duplicada',
+  'otro',
+] as const;
+
+/** LC.19.1: una vuelta de «Verificar en el SAT». `restantes` = las que faltan por intentar. */
+export interface VerificacionSatMes {
+  consultados: number; vigentes: number; cancelados: number;
+  no_encontrados: number; fallidos: number;
+  /** false = el servidor no tiene con qué consultar al SAT; no se consultó nada. */
+  disponible: boolean;
+  por_verificar: number; restantes: number;
 }
 
 /** Un renglón del tablero de movimientos no asociados. */
@@ -127,6 +160,8 @@ export interface MesDetalle {
     total: number; subtotal_exento: number; subtotal_gravado: number;
     iva: number; ieps: number; total_todas: number;
     no_asociadas: number; ya_posteadas: number; monto_ya_posteadas: number;
+    /** LC.19.1: marcadas que no constan vigentes ante el SAT (bloquean el TXT). */
+    sin_verificar_sat?: number;
   };
   /** Renglones que ContPAQi rechazaría: apagan el botón de generar. */
   bloqueantes: string[];
@@ -134,6 +169,11 @@ export interface MesDetalle {
   avisos: string[];
   /** LC.18: a qué cuentas van IVA e IEPS — las del último libro (`desde`), no unas fijas. */
   cuentas_impuesto?: CuentasImpuesto;
+  /**
+   * LC.19.2: la edad de las dos fuentes, por el latido de su carril: `cfdis` (feed del ADD) y
+   * `polizas` (feed de ContPAQi). Pólizas viejas ya vienen como bloqueante; CFDIs viejos, como aviso.
+   */
+  frescura?: Freshness;
 }
 
 export interface CuentasImpuesto {
@@ -293,6 +333,16 @@ export class LibroComprasService {
     return this.http.post<GenerarResultado>(`${this.noAso}/${mes}/generar`, {
       impuestos, uuid, ...(forzar ? { forzar_importe: true, motivo: forzar.motivo } : {}),
     });
+  }
+
+  /** LC.19.6: lo que el mes hace solo, al abrirlo (sin cron). Repetir mientras `restantes > 0`. */
+  prepararMes(mes: string): Observable<PreparacionMes> {
+    return this.http.post<PreparacionMes>(`${this.noAso}/${mes}/preparar`, {});
+  }
+
+  /** LC.19.1: verifica ante el SAT un lote de las facturas del mes (~25 s). Repetir mientras `restantes > 0`. */
+  verificarSat(mes: string): Observable<VerificacionSatMes> {
+    return this.http.post<VerificacionSatMes>(`${this.noAso}/${mes}/verificar-sat`, {});
   }
 
   /** LC.18: candidatas a cuenta 212 para un RFC nuevo. */

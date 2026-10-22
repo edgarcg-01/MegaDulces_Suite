@@ -28,7 +28,9 @@ export class EstatusScannerService {
       const tenants = await this.knex('public.tenants').where({ activo: true }).select('id');
       let cancelados = 0;
       for (const t of tenants) {
-        try { cancelados += (await this.estatus.checkForTenant(t.id, 300)).cancelados; }
+        // [LC.19.1] 300 → 2,500: la cola de recibidos sin verificar era de 8,498 (6 meses) y
+        // con 300 por noche no se vaciaba nunca. ~10 min a ~0.25 s por CFDI.
+        try { cancelados += (await this.estatus.checkForTenant(t.id, 2500)).cancelados; }
         catch (e: any) { this.logger.warn(`estatus tenant ${t.id} falló: ${e?.message || e}`); }
       }
       this.logger.log(`scan estatus: ${tenants.length} tenants · ${cancelados} cancelados.`);

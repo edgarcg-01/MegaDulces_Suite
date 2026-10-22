@@ -8,7 +8,7 @@ import { ProgressSpinnerModule } from 'primeng/progressspinner';
 import { TagModule } from 'primeng/tag';
 import { TableModule } from 'primeng/table';
 import { MessageService } from 'primeng/api';
-import { Subject, debounceTime, distinctUntilChanged, switchMap, catchError, of, from, concatMap, toArray, map } from 'rxjs';
+import { Subject, debounceTime, distinctUntilChanged, switchMap, catchError, of, map } from 'rxjs';
 import { STORE_BRANCHES, type StoreBranch } from '../../../core/constants/store-branches';
 import {
   QuotesService,
@@ -23,15 +23,22 @@ import {
   opcionesUnidad,
   paqueteDeCaja,
   desglose,
+  parseCantidad,
   type OpcionUnidad,
   type PasoDesglose,
   type QuoteBranches,
 } from '../quotes.service';
+
+/** [E.20] Un renglón de la bandeja admite fracción sólo si se pesa y va en su unidad base. */
+function esPesable(it: { base_unit: string | null; rung: Rung }): boolean {
+  return it.base_unit === 'KG' && it.rung === 'base';
+}
 import {
   exportQuotePdf,
   exportQuoteXlsx,
   type QuoteDeliverableData,
 } from '../quote-deliverable-export';
+import { totalesCotizacion } from '@megadulces/contracts';
 
 /**
  * Las plazas Kepler donde se puede cotizar: el catálogo compartido `STORE_BRANCHES` menos el
@@ -64,6 +71,9 @@ export interface ItemBandeja {
   pack_size: number | null;
   /** Lo que el cliente pidió y no se encontró (renglón sin casar, sin SKU ni precio). */
   requested_text?: string | null;
+  /** `[E.25]` IVA e IEPS del producto (del motor). null = sin ficha o sin precio. */
+  iva_rate?: number | null;
+  ieps_rate?: number | null;
 }
 
 const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
@@ -244,7 +254,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 <input
                   type="text"
                   class="input"
-                  [(ngModel)]="contactoNombre"
+                  [ngModel]="contactoNombre()" (ngModelChange)="contactoNombre.set($event)"
                   placeholder="Quién solicita la cotización"
                   [disabled]="guardando()"
                 />
@@ -475,7 +485,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     <input
                       #cantidadInput
                       type="text"
-                      inputmode="numeric"
+                      [attr.inputmode]="admiteFraccion() ? 'decimal' : 'numeric'"
                       class="qty-num"
                       [value]="cantidadArticulo()"
                       (input)="onCantidadTecleada($any($event.target).value)"
@@ -691,7 +701,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                           <button type="button" class="btn-table-step" (click)="ajustarCantidadBandeja(item, -1)" [disabled]="item.quantity <= 1 || guardando()" aria-label="Restar uno">−</button>
                           <input
                             type="text"
-                            inputmode="numeric"
+                            [attr.inputmode]="esPesable(item) ? 'decimal' : 'numeric'"
                             class="table-qty-val"
                             [value]="item.quantity"
                             (change)="fijarCantidadBandeja(item, $any($event.target).value)"
@@ -757,7 +767,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         <div class="card rail-card">
           <div class="rail-totales">
             <div class="tot-row">
-              <span>Subtotal lista ({{ bandeja().length }} artículo{{ bandeja().length === 1 ? '' : 's' }})</span>
+              <span>Importe de los artículos ({{ bandeja().length }})</span>
               <b>{{ subtotalBandeja() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
             </div>
             @if (descuentoClienteMonto() > 0) {
@@ -770,6 +780,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               <span>Total</span>
               <b>{{ totalBandeja() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
             </div>
+            <!-- [E.25] Incluidos en el total, con la tasa de cada producto (como el documento de Kepler). -->
+            <div class="tot-row"><span>IVA incluido</span><b>{{ totalesBandeja().iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+            <div class="tot-row"><span>IEPS incluido</span><b>{{ totalesBandeja().ieps | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
           </div>
 
           <div class="rail-cierre">
@@ -1341,7 +1354,12 @@ export class TeleventaQuoteNewComponent implements OnInit {
     return this.vendedores().find((v) => v.code === code) ?? null;
   });
 
-  contactoNombre = '';
+  /**
+   * [E.20] Señal, no campo plano: `puedeCrear` (un computed) lo lee, y un campo que sólo cambia
+   * por `[(ngModel)]` no le avisa. Antes, en «Todavía no es cliente», teclear el nombre no
+   * habilitaba «Crear» (auditoría A1; la compuerta `reactividad` ahora lo caza).
+   */
+  contactoNombre = signal('');
   contactoTel = '';
   contactoMail = '';
   origen: QuoteOrigin = 'telemarketing';
@@ -1356,6 +1374,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
   articuloElegido = signal<QuoteCatalogRow | null>(null);
   rung = signal<Rung>('base');
   cantidadArticulo = signal<number>(1);
+  /** [E.20] La cantidad admite fracción sólo si el artículo se pesa y se cotiza en su unidad base. */
+  protected readonly esPesable = esPesable;
+  readonly admiteFraccion = computed(() => !!this.articuloElegido()?.sold_by_kg && this.rung() === 'base');
   cotizandoArticulo = signal(false);
   previaArticulo = signal<PricedLine | null>(null);
   /** El buscador de artículo: al agregar a la bandeja el cursor vuelve acá para el siguiente. */
@@ -1396,22 +1417,25 @@ export class TeleventaQuoteNewComponent implements OnInit {
     return this.bandeja().reduce((acc, it) => acc + (it.line_total || 0), 0);
   });
 
-  readonly descuentoClienteMonto = computed(() => {
-    const pct = this.descuentoClientePct();
-    if (pct <= 0) return 0;
-    return (this.subtotalBandeja() * pct) / 100;
-  });
+  /** [E.19] La cuenta de la bandeja con la MISMA función que el papel y que el servidor. */
+  readonly totalesBandeja = computed(() =>
+    totalesCotizacion(
+      this.bandeja().map((it) => (it.unit_price === null ? null : it.line_total || 0)),
+      this.descuentoClientePct() || null,
+      this.bandeja().map((it) => ({ iva: it.iva_rate ?? null, ieps: it.ieps_rate ?? null })),
+    ),
+  );
 
-  readonly totalBandeja = computed(() => {
-    return Math.max(0, this.subtotalBandeja() - this.descuentoClienteMonto());
-  });
+  readonly descuentoClienteMonto = computed(() => this.totalesBandeja().descuento);
+
+  readonly totalBandeja = computed(() => this.totalesBandeja().total);
 
   /** Habilitación de guardado */
   readonly puedeCrear = computed(() => {
     if (this.guardando()) return false;
     if (!this.sucursal()) return false;
     if (this.modo() === 'contacto') {
-      return this.contactoNombre.trim().length > 0;
+      return this.contactoNombre().trim().length > 0;
     }
     return !!this.cliente();
   });
@@ -1744,14 +1768,17 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   setCantidad(val: number): void {
-    this.cantidadArticulo.set(Math.max(1, Math.floor(val)));
+    // [E.20] Sin Math.floor en lo que se pesa: «aplicar volumen» con un mínimo de 2.5 kg dejaba 2,
+    // abajo del umbral del precio por volumen.
+    this.cantidadArticulo.set(this.admiteFraccion() ? Math.max(0.001, Math.round(val * 1000) / 1000) : Math.max(1, Math.floor(val)));
     this.previa$.next();
   }
 
   /** Cantidad tecleada en la franja. Vacío o no numérico = se conserva la anterior. */
   onCantidadTecleada(valor: string): void {
-    const n = parseInt(String(valor).replace(/\D/g, ''), 10);
-    if (!Number.isFinite(n) || n < 1) return;
+    // [E.20] Antes `replace(/\D/g,'')`: «2.5» kg se volvía 25 (se borraba el punto).
+    const n = parseCantidad(valor, this.admiteFraccion());
+    if (n === null) return;
     if (n === this.cantidadArticulo()) return;
     this.cantidadArticulo.set(n);
     this.previa$.next();
@@ -1848,6 +1875,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
         quantity: qty,
         unit_price: prev!.unit_price,
         line_total: prev!.line_total ?? (prev!.unit_price! * qty),
+        iva_rate: prev!.iva_rate ?? null,
+        ieps_rate: prev!.ieps_rate ?? null,
         price_source: prev!.price_source,
         free_goods: prev!.free_goods ? { sku: prev!.free_goods.sku, quantity: prev!.free_goods.quantity } : null,
       };
@@ -1929,8 +1958,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
 
   /** Cantidad tecleada en la bandeja ("mejor que sean 12"). */
   fijarCantidadBandeja(item: ItemBandeja, valor: string): void {
-    const n = parseInt(String(valor).replace(/\D/g, ''), 10);
-    if (!Number.isFinite(n) || n < 1) {
+    // [E.20] Fracción sólo si el renglón se pesa (KG en su unidad base); «2.5» ya no es 25.
+    const n = parseCantidad(valor, esPesable(item));
+    if (n === null) {
       // Vacío o inválido: se vuelve a pintar la cantidad que sí tiene el renglón.
       this.bandeja.update((items) => items.map((it) => (it.id === item.id ? { ...it } : it)));
       return;
@@ -1944,7 +1974,11 @@ export class TeleventaQuoteNewComponent implements OnInit {
    * sigue con esa cantidad — si llegan fuera de orden, la de un clic anterior no pisa la última.
    */
   private cambiarCantidadBandeja(id: string, cantidad: number): void {
-    const nuevaQty = Math.max(1, Math.floor(cantidad));
+    const item = this.bandeja().find((it) => it.id === id);
+    // [E.20] El Math.floor también cortaba los kilos: 2.5 kg tecleados bien terminaban en 2.
+    const nuevaQty = item && esPesable(item)
+      ? Math.max(0.001, Math.round(cantidad * 1000) / 1000)
+      : Math.max(1, Math.floor(cantidad));
     const actual = this.bandeja().find((it) => it.id === id);
     if (!actual || nuevaQty === actual.quantity) return;
 
@@ -1966,6 +2000,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
                 ...it,
                 unit_price: p.unit_price,
                 line_total: p.line_total ?? ((p.unit_price || 0) * nuevaQty),
+                iva_rate: p.iva_rate ?? null,
+                ieps_rate: p.ieps_rate ?? null,
                 price_source: p.price_source,
                 free_goods: p.free_goods ? { sku: p.free_goods.sku, quantity: p.free_goods.quantity } : null,
               };
@@ -2011,13 +2047,13 @@ export class TeleventaQuoteNewComponent implements OnInit {
           this.toast.add({
             severity: 'warn',
             summary: 'Falta cliente de mayoreo',
-            detail: 'Por favor busca y selecciona un cliente de mayoreo (C####) o cambia a la pestaña "Todavía no es cliente".',
+            detail: 'Por favor busca y selecciona un cliente de Kepler o cambia a la pestaña "Todavía no es cliente".',
           });
           return;
         }
       }
     } else {
-      if (!this.contactoNombre.trim()) {
+      if (!this.contactoNombre().trim()) {
         this.toast.add({
           severity: 'warn',
           summary: 'Falta destinatario',
@@ -2041,35 +2077,26 @@ export class TeleventaQuoteNewComponent implements OnInit {
     if (esMayoreo) {
       payload.erp_customer_code = this.cliente()!.customer_code;
     } else {
-      payload.contact_name = this.contactoNombre.trim();
+      payload.contact_name = this.contactoNombre().trim();
       payload.contact_phone = this.contactoTel.trim() || undefined;
       payload.contact_email = this.contactoMail.trim() || undefined;
     }
 
-    // 1. Crea la cotización en draft
+    // [E.21] Cabecera y renglones en UNA llamada y una transacción. Antes se creaba la cabecera y
+    // los renglones iban de a uno: si fallaba el k-ésimo quedaba un folio a medias, el aviso decía
+    // «No se pudo crear» y el reintento creaba OTRO folio (auditoría C3). Ahora, si algo falla, no
+    // se crea nada: la bandeja queda intacta y reintentar es seguro.
+    payload.lines = this.bandeja().map((item) =>
+      item.sku
+        ? { sku: item.sku, quantity: item.quantity, rung: item.rung }
+        : // Renglón NO manejado: viaja como demanda (requested_text), sin SKU ni precio.
+          { requested_text: item.requested_text || item.name, quantity: item.quantity },
+    );
     this.svc
       .create(payload)
-      .pipe(
-        switchMap((q) => {
-          const items = this.bandeja();
-          if (items.length === 0) {
-            return of({ quote: q, linesAdded: 0 });
-          }
-          // 2. Agrega secuencialmente los renglones de la bandeja
-          return from(items).pipe(
-            concatMap((item) =>
-              item.sku
-                ? this.svc.addLine(q.id, { sku: item.sku, quantity: item.quantity, rung: item.rung })
-                : // Renglón NO manejado: viaja como demanda (requested_text), sin SKU ni precio.
-                  this.svc.addLine(q.id, { requested_text: item.requested_text || item.name, quantity: item.quantity }),
-            ),
-            toArray(),
-            map((results) => ({ quote: q, linesAdded: results.length })),
-          );
-        }),
-      )
       .subscribe({
-        next: ({ quote, linesAdded }) => {
+        next: (quote) => {
+          const linesAdded = quote.lines ?? 0;
           this.guardando.set(false);
           this.toast.add({
             severity: 'success',
@@ -2079,16 +2106,18 @@ export class TeleventaQuoteNewComponent implements OnInit {
                 ? `Folio asignado exitosamente con ${linesAdded} renglón(es) de la bandeja en estatus Borrador.`
                 : `Folio asignado en borrador (abierta), vigente hasta ${quote.valid_until}.`,
           });
-          this.router.navigate(['/telemarketing/cotizaciones'], {
-            queryParams: { created: quote.code },
-          });
+          // [E.21] Al detalle de lo GUARDADO, con los precios que puso el servidor (antes iba a la
+          // lista y nadie veía si diferían de los de la bandeja).
+          this.router.navigate(['/telemarketing/cotizaciones', quote.id]);
         },
         error: (err) => {
           this.guardando.set(false);
           this.toast.add({
             severity: 'error',
-            summary: 'No se pudo crear la cotización',
-            detail: err?.error?.message || err?.message || 'Error de red.',
+            summary: 'No se creó la cotización',
+            // El servidor dice qué renglón falló; la bandeja sigue intacta y no quedó ningún folio.
+            detail: (err?.error?.message || err?.message || 'Error de red.')
+              + ' La bandeja sigue aquí: puedes corregir y volver a intentar.',
           });
         },
       });
@@ -2131,7 +2160,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     const customerCode = esMayoreo ? (cli?.customer_code || null) : null;
     const customerName = esMayoreo
       ? (cli?.name || 'CLIENTE')
-      : (this.contactoNombre.trim() || 'PROSPECTO');
+      : (this.contactoNombre().trim() || 'PROSPECTO');
 
     const customerPhone = esMayoreo
       ? (cli?.phone || null)
@@ -2158,9 +2187,11 @@ export class TeleventaQuoteNewComponent implements OnInit {
       quantity: it.quantity,
       unit_price: it.unit_price,
       line_total: it.line_total,
+      iva_rate: it.iva_rate ?? null,
+      ieps_rate: it.ieps_rate ?? null,
       price_source: this.fuenteLabel(it.price_source),
       free_goods: it.free_goods,
-      discount_pct: this.descuentoClientePct() || null,
+      // [E.19] Sin descuento por renglón: el único que el papel aplica es el del cliente, una vez.
     }));
 
     return {
@@ -2179,11 +2210,11 @@ export class TeleventaQuoteNewComponent implements OnInit {
       quoteDate: new Date(),
       validUntil: this.vigencia,
       items,
-      subtotal: this.subtotalBandeja(),
-      discountPct: this.descuentoClientePct(),
-      discountAmount: this.descuentoClienteMonto(),
-      total: this.totalBandeja(),
-      notes: this.listaCruda.trim() || null,
+      discountPct: this.descuentoClientePct() || null,
+      estado: 'borrador',
+      // ⛔ [E.19] Ya no se imprime `listaCruda`: es el mensaje crudo del cliente que pegó el
+      // operador (evidencia interna), y salía en el papel que se le manda al mismo cliente.
+      notes: null,
     };
   }
 

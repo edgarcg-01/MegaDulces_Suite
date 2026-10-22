@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
-import { SUCURSAL_CAJA_GENERAL, type CorteCajaDto } from '@megadulces/contracts';
+import { SUCURSAL_CAJA_GENERAL, type CorteCajaDto, type PosicionCajaDto } from '@megadulces/contracts';
 import { CashLedgerService, type CreateMovementInput, type EntidadDeclarada } from './cash-ledger.service';
 import { CajaAutofillService, type AutofillInput } from './caja-autofill.service';
 import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
@@ -524,6 +524,13 @@ export class CashLedgerController {
   @ApiOperation({ summary: 'Autoriza el corte. DOBLE LLAVE: quien lo cerro NO puede autorizarlo (lo frena la DB ademas del servicio). [CGS.16] Tampoco quien lo abrio ni quien capturo o cancelo en el. [CGS.17] Un veredicto sin respuesta no se autoriza (se observa) y con diferencia exige nota de 10+ caracteres.' })
   autorizarCorte(@Param('id') id: string, @Body() body: { nota?: string }, @Req() req: AuthedRequest): Promise<CorteCajaDto> {
     return this.cortes.autorizar(id, this.user(req), body ?? {});
+  }
+
+  @Get('posicion')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[CGS.35] Lo que hay en caja, rubro por rubro (cajon, caja fuerte CAOS, dolares, cheques, papeles): lo ultimo contado, lo movido desde entonces y lo que deberia haber. Lo imposible o no medido se declara. El esperado del cajon solo viaja a quien AUTORIZA (arqueo ciego).' })
+  posicion(@Req() req: AuthedRequest): Promise<PosicionCajaDto> {
+    return this.cortes.posicion(this.revela(req));
   }
 
   @Get('candado')

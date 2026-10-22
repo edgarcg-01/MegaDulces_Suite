@@ -19,21 +19,12 @@ import {
   CustomerSnapshot,
   CallOutcome,
 } from '../televenta.service';
-
-interface OutcomeOption {
-  label: string;
-  value: CallOutcome;
-  severity: 'success' | 'danger' | 'warn' | 'info' | 'secondary';
-}
-
-const OUTCOMES: OutcomeOption[] = [
-  { label: 'Venta confirmada', value: 'sale', severity: 'success' },
-  { label: 'No vendió', value: 'no_sale', severity: 'danger' },
-  { label: 'Llamar después (callback)', value: 'callback_scheduled', severity: 'warn' },
-  { label: 'No contestó', value: 'no_answer', severity: 'info' },
-  { label: 'Contacto equivocado', value: 'wrong_contact', severity: 'secondary' },
-  { label: 'Otro', value: 'other', severity: 'secondary' },
-];
+import {
+  CALL_OUTCOMES,
+  CallOutcomeSeverity,
+  callOutcomeLabel,
+  callOutcomeSeverity,
+} from '../call-outcomes';
 
 @Component({
   selector: 'app-televenta-lead',
@@ -331,7 +322,7 @@ export class TeleventaLeadComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
 
-  readonly outcomes = OUTCOMES;
+  readonly outcomes = CALL_OUTCOMES;
   readonly nowDate = new Date();
 
   readonly snapshot = signal<CustomerSnapshot | null>(null);
@@ -435,10 +426,10 @@ export class TeleventaLeadComponent implements OnInit {
   }
 
   outcomeLabel(o: string): string {
-    return OUTCOMES.find((x) => x.value === o)?.label || o;
+    return callOutcomeLabel(o);
   }
-  outcomeSeverity(o: string): 'success' | 'danger' | 'warn' | 'info' | 'secondary' {
-    return OUTCOMES.find((x) => x.value === o)?.severity || 'secondary';
+  outcomeSeverity(o: string): CallOutcomeSeverity {
+    return callOutcomeSeverity(o);
   }
   orderSeverity(s: string): 'success' | 'danger' | 'warn' | 'info' | 'secondary' {
     if (s === 'fulfilled') return 'success';

@@ -5,7 +5,7 @@ import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
-  ContpaqiArmadoService, EntregaRechazada, FirmaRechazada,
+  ConfirmacionRechazada, ContpaqiArmadoService, EntregaRechazada, FirmaRechazada, type PagoPorConfirmar,
   type PendienteProveedor, type ReglaVista, type ResumenLote, type ResumenMes,
 } from './contpaqi-armado.service';
 import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
@@ -285,6 +285,62 @@ export class ContpaqiBridgeController {
   }
 
   /**
+   * `[CP.8.73]` — **Los pagos a proveedor que no se armaron solos**, con lo que hace falta para confirmarlos:
+   * proveedor, facturas y notas abiertas, y una sugerencia que la pantalla NO preselecciona.
+   */
+  @Get('pagos-por-confirmar')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_VER)
+  @ApiOperation({ summary: 'Pagos a proveedor del mes que esperan confirmar qué facturas pagan.' })
+  async pagosPorConfirmar(@Query('mes') mes?: string): Promise<{ mes: string; pagos: PagoPorConfirmar[] }> {
+    const anioMes = /^\d{4}-\d{2}$/.test(String(mes ?? '')) ? String(mes) : mesPorDefecto();
+    return { mes: anioMes, pagos: await this.armado.pagosPorConfirmar(anioMes) };
+  }
+
+  /**
+   * `[CP.8.73]` — **Confirmar qué facturas y notas paga un pago.** ⛔ `_GESTIONAR`, deja el nombre, y se
+   * guarda sólo si el pago se arma completo con eso; si no, 409 con el motivo (no cuadra, otro proveedor…).
+   */
+  @Post('pagos/:movimiento/confirmar')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR)
+  @ApiOperation({ summary: 'Confirma las facturas y notas que paga un pago a proveedor.' })
+  async confirmarPago(
+    @Param('movimiento') movimiento: string,
+    @Body() body: { facturas?: string[]; notas?: string[] },
+    @Req() req: { user?: { username?: string; sub?: string } },
+  ): Promise<{ movimiento_id: string; renglones: number; total: number; redondeo: number }> {
+    const quien = req?.user?.username || req?.user?.sub;
+    if (!quien) throw new BadRequestException('no se pudo identificar quién confirma');
+    if (!/^[0-9a-f-]{36}$/i.test(movimiento)) throw new BadRequestException('movimiento inválido');
+    if (!Array.isArray(body?.facturas) || !body.facturas.length) throw new BadRequestException('hace falta `facturas` (al menos una)');
+    if (body.notas !== undefined && !Array.isArray(body.notas)) throw new BadRequestException('`notas` tiene que ser una lista');
+    try {
+      return await this.armado.confirmarPago(movimiento, body.facturas.map(String), (body.notas ?? []).map(String), quien);
+    } catch (e) {
+      if (e instanceof ConfirmacionRechazada) throw new ConflictException(e.message);
+      throw new BadRequestException((e as Error).message);
+    }
+  }
+
+  /** `[CP.8.73]` Apaga la confirmación vigente: el pago vuelve a resolverse solo o a «por confirmar». */
+  @Post('pagos/:movimiento/desconfirmar')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR)
+  @ApiOperation({ summary: 'Quita la confirmación de un pago a proveedor.' })
+  async desconfirmarPago(
+    @Param('movimiento') movimiento: string,
+    @Req() req: { user?: { username?: string; sub?: string } },
+  ): Promise<{ movimiento_id: string; apagadas: number }> {
+    const quien = req?.user?.username || req?.user?.sub;
+    if (!quien) throw new BadRequestException('no se pudo identificar quién desconfirma');
+    if (!/^[0-9a-f-]{36}$/i.test(movimiento)) throw new BadRequestException('movimiento inválido');
+    try {
+      return await this.armado.desconfirmarPago(movimiento, quien);
+    } catch (e) {
+      if (e instanceof ConfirmacionRechazada) throw new ConflictException(e.message);
+      throw new BadRequestException((e as Error).message);
+    }
+  }
+
+  /**
    * El estado del cuadre: cuántos eventos entregados aparecieron del otro lado.
    *
    * ⚠️ Hoy devuelve el vacío, y **el vacío es el dato**: nada se ha entregado nunca. Un tablero
@@ -312,6 +368,14 @@ const DUENO: Record<string, string> = {
   importe_invalido: 'sistemas — el movimiento no trae un importe positivo',
   descuadre: 'sistemas — subtotal + IVA no da el total',
   regla_sin_cuenta: 'el contador — la regla está firmada pero sin cuenta',
+  // `[CP.8.72]`/`[CP.8.73]` Pagos a proveedor que no se arman solos.
+  pago_a_confirmar: 'contabilidad — confirmar qué facturas paga (Pagos por confirmar)',
+  pago_no_cuadra: 'contabilidad — las facturas menos las notas no dan lo pagado: confirmar (Pagos por confirmar)',
+  pago_sin_resolver: 'compras — el proveedor no se identifica o no tiene cuenta en ContPAQi',
+  pago_proveedor_sin_cuenta: 'compras — el proveedor no tiene cuenta en ContPAQi',
+  pago_sin_facturas: 'contabilidad — confirmar qué facturas paga (Pagos por confirmar)',
+  pago_importe_invalido: 'sistemas — un CFDI del pago trae importe no positivo',
+  pago_error: 'sistemas — error al armar el pago',
 };
 
 /** El mes cerrado más reciente. ⚠️ No el actual: el mes en curso siempre se ve incompleto. */

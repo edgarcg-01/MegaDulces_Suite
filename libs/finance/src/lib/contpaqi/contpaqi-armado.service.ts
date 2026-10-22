@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
   CONTPAQI_POLIZA_SINK_PORT, type ContpaqiPolizaSinkPort,
@@ -18,6 +18,36 @@ export class EntregaRechazada extends Error {
 /** `[CP.8.53]` Una firma o revocación que no procede, con el motivo para quien firma. */
 export class FirmaRechazada extends Error {
   readonly code = 'firma_rechazada';
+}
+
+/** `[CP.8.73]` Una confirmación de pago que no procede (no cuadra, facturas de otro proveedor…), con su motivo. */
+export class ConfirmacionRechazada extends Error {
+  readonly code = 'confirmacion_rechazada';
+}
+
+/** `[CP.8.73]` Un pago a proveedor que no se armó solo, con lo que hace falta para confirmarlo. */
+export interface PagoPorConfirmar {
+  movimiento_id: string;
+  fecha: string;
+  cuenta_banco: string;
+  banco_label: string | null;
+  importe: number;
+  concepto: string;
+  /** Por qué no se armó solo. */
+  motivo: string;
+  /** `null` = no se sabe de quién es: no se puede confirmar desde aquí. */
+  propuesta: PropuestaPago | null;
+  /** La confirmación vigente, si ya hay una. */
+  confirmacion: { facturas: string[]; notas: string[]; confirmado_por: string; vigente: boolean } | null;
+}
+
+/** Una fila de `contpaqi.pago_confirmaciones` tal como la lee el armado. */
+interface FilaConfirmacion {
+  bank_movement_id: string;
+  facturas: string[];
+  notas: string[];
+  pagado: string | number;
+  confirmado_por: string;
 }
 
 /** Una fila de `contpaqi.account_rules` tal como la lee `reglas()`. */
@@ -58,8 +88,13 @@ import {
   armarAsientoEgreso, armarLoteEgresos, AsientoRechazado, type ReglaCuenta,
 } from './poliza-egreso';
 import { tokenDe } from './token';
+import { armarPagoProveedorCompleto } from './pago-proveedor';
 import {
-  construirIndice, resolverProveedor, normalizarNombre, palabrasEnComun,
+  FuentePagoProveedor, type FuenteFacturas, type MovimientoPago, type PropuestaPago, type ResolucionPago,
+} from './pago-proveedor.fuente';
+import type { EventoArchivo } from './entrega';
+import {
+  construirIndice, resolverProveedor, normalizarNombre, palabrasDe, proporcionComun,
   type AliasProveedor, type CuentaProveedor, type IndiceProveedores,
 } from './proveedor-resolver';
 
@@ -125,6 +160,28 @@ export interface ResumenLote {
   /** `'no_emitido'` = el lote cuadra pero le falta el traspaso de impuesto. Se declara. */
   iva_traspaso: 'no_emitido' | null;
   motivos: Record<string, number>;
+  /**
+   * `[CP.8.72]` `pago_proveedor` = un pago a proveedor armado COMPLETO, una póliza por pago (como la hace la
+   * contadora). Ausente o `lote` = el lote del día. Los pagos que no se arman se cuentan en `motivos` de su
+   * lote (`pago_a_confirmar`, `pago_sin_resolver`, `pago_no_cuadra`…), nunca entran al lote como «2120 / banco».
+   */
+  tipo?: 'lote' | 'pago_proveedor';
+  /** De dónde salieron las facturas del pago: la cadena de Kepler o una factura por importe. */
+  fuente?: FuenteFacturas | null;
+  /** Facturas y notas (UUID) que lleva el pago: van a los renglones `AD` del archivo. */
+  cfdis?: number;
+  /** Identidad de la fila: `cuenta|fecha` del lote o `pago|<id del movimiento>`. Un pago y su día comparten banco y fecha. */
+  clave?: string;
+}
+
+/** Lo que arma `construirLotes`: el resumen para la pantalla y el asiento para el archivo, con su identidad. */
+interface PolizaArmada {
+  resumen: ResumenLote;
+  asiento: ReturnType<typeof armarLoteEgresos>['asiento'];
+  evento_tipo: EventoArchivo;
+  /** `cuenta_banco|fecha` del lote, o el id del movimiento del pago. */
+  clave: string;
+  uuids: string[];
 }
 
 /**
@@ -180,7 +237,7 @@ export interface ResultadoArmado {
 }
 
 @Injectable()
-export class ContpaqiArmadoService {
+export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(ContpaqiArmadoService.name);
 
   constructor(
@@ -286,9 +343,27 @@ export class ContpaqiArmadoService {
    * reproducible el resultado. La alternativa —rechazar los ambiguos— se descartó porque el
    * armador ya rechaza por falta de regla; sumar un segundo motivo para el 1.5% no cambia nada
    * hoy y sí esconde el que importa.
+   *
+   * ⭐ `[CP.8.75]` El mes va por RANGO (`>= día 1 AND < día 1 + 1 mes`), no por
+   * `to_char(...) = ?`: el `to_char` en el WHERE anulaba el índice `(tenant, cuenta, fecha)` y la
+   * consulta recorría la tabla entera una vez por categoría. Y el IVA hermano se calcula UNA vez
+   * por (cuenta, día, importe) con `DISTINCT ON ... ORDER BY id` —el mismo «el de menor id»— en vez
+   * de un `LATERAL` por renglón. Medido en el servidor (`EXPLAIN ANALYZE`, `TIMING OFF`) contra
+   * prod: **974 → 58 ms** (mediana de 6, alternadas), y filas idénticas en 12 meses.
    */
   private async leerEgresos(anioMes: string): Promise<any[]> {
+    const dia1 = `${anioMes}-01`;
     return this.db
+      .with('iva', (q) => q
+        .select(this.db.raw(`DISTINCT ON (h.bank_account_id, h.movement_date, round(h.amount_out, 2))
+            h.bank_account_id, h.movement_date, round(h.amount_out, 2) AS r, h.amount_out`))
+        .from('finance.bank_movements as h')
+        .join('finance.movement_categories as hc', 'hc.id', 'h.category_id')
+        .where('h.tenant_id', MEGA)
+        .whereNull('h.deleted_at')
+        .where('hc.code', 'iva_acreditable')
+        .whereRaw(`h.movement_date >= ?::date AND h.movement_date < (?::date + interval '1 month')`, [dia1, dia1])
+        .orderByRaw('h.bank_account_id, h.movement_date, round(h.amount_out, 2), h.id'))
       .select(
         'm.id', 'm.concept', 'm.amount_out',
         this.db.raw(`to_char(m.movement_date, 'YYYY-MM-DD') as fecha`),
@@ -303,23 +378,15 @@ export class ContpaqiArmadoService {
       .join('finance.movement_categories as c', 'c.id', 'm.category_id')
       .leftJoin('finance.bank_accounts as ba', 'ba.id', 'm.bank_account_id')
       .joinRaw(`
-        LEFT JOIN LATERAL (
-          SELECT h.amount_out
-            FROM finance.bank_movements h
-            JOIN finance.movement_categories hc ON hc.id = h.category_id
-           WHERE h.tenant_id = m.tenant_id AND h.deleted_at IS NULL
-             AND hc.code = 'iva_acreditable'
-             AND h.bank_account_id = m.bank_account_id
-             AND h.movement_date   = m.movement_date
-             AND round(m.amount_out * 0.16, 2) = round(h.amount_out, 2)
-           ORDER BY h.id LIMIT 1
-        ) iva ON true`)
+        LEFT JOIN iva ON iva.bank_account_id = m.bank_account_id
+                     AND iva.movement_date   = m.movement_date
+                     AND iva.r = round(m.amount_out * 0.16, 2)`)
       .where('m.tenant_id', MEGA)
       .whereNull('m.deleted_at')
       .where('m.amount_out', '>', 0)
       // El IVA no se arma solo: es el renglón 2 del asiento de su hermano.
       .whereNot('c.code', 'iva_acreditable')
-      .whereRaw(`to_char(m.movement_date, 'YYYY-MM') = ?`, [anioMes])
+      .whereRaw(`m.movement_date >= ?::date AND m.movement_date < (?::date + interval '1 month')`, [dia1, dia1])
       .orderBy('m.movement_date')
       .orderBy('m.id');
   }
@@ -442,20 +509,22 @@ export class ContpaqiArmadoService {
     }
 
     const filas = [...pend.values()].sort((a, b) => b.importe - a.importe);
+    // `[CP.8.75]` Las palabras de cada cuenta se calculan UNA vez, no una por nombre pendiente: era
+    // normalizar ~3 mil nombres ×2 por cada fila (335–441 ms de JS por carga). Mismo `palabrasEnComun`.
+    const palabras = (padron as { cuenta: string; proveedor_nombre: string | null; cuenta_nombre: string | null; veredicto: string }[])
+      .map((p) => ({ p, prov: palabrasDe(p.proveedor_nombre), nom: palabrasDe(p.cuenta_nombre) }));
     for (const f of filas) {
-      f.sugerencias = padron
-        .filter((p: any) => String(p.cuenta).startsWith(f.rubro))
-        .map((p: any) => ({
+      const pf = palabrasDe(f.concepto_banco);
+      f.sugerencias = palabras
+        .filter(({ p }) => String(p.cuenta).startsWith(f.rubro))
+        .map(({ p, prov, nom }) => ({
           cuenta: p.cuenta,
           nombre: p.proveedor_nombre ?? p.cuenta_nombre ?? '',
           veredicto: p.veredicto,
-          parecido: Math.max(
-            palabrasEnComun(f.concepto_banco, p.proveedor_nombre),
-            palabrasEnComun(f.concepto_banco, p.cuenta_nombre),
-          ),
+          parecido: Math.max(proporcionComun(pf, prov), proporcionComun(pf, nom)),
         }))
-        .filter((s: any) => s.parecido >= 0.5)
-        .sort((a: any, b: any) => b.parecido - a.parecido)
+        .filter((s) => s.parecido >= 0.5)
+        .sort((a, b) => b.parecido - a.parecido)
         .slice(0, 3);
     }
     return filas;
@@ -786,18 +855,20 @@ export class ContpaqiArmadoService {
      * lote entregado cuyo total cambió después no se reenvía y se declara en `cambiados`.
      * (`rechazada` = el cuadre dijo que nunca apareció: ése sí puede volver a mandarse.)
      */
+    // `[CP.8.72]` Lo entregado se reconoce por (tipo, clave): un pago a proveedor y un lote nunca comparten clave.
     const entregados = new Map<string, number>(
       ((await this.db('contpaqi.poliza_exports')
-        .where({ tenant_id: MEGA, evento_tipo: 'bank_lote', periodo: anioMes })
+        .where({ tenant_id: MEGA, periodo: anioMes })
+        .whereIn('evento_tipo', ['bank_lote', 'bank_pago_proveedor'])
         .whereIn('estado', ['armada', 'entregada', 'aplicada'])
-        .select('evento_id', 'total')) as { evento_id: string; total: string | number }[])
-        .map((r) => [r.evento_id, Number(r.total)]),
+        .select('evento_tipo', 'evento_id', 'total')) as { evento_tipo: string; evento_id: string; total: string | number }[])
+        .map((r) => [`${r.evento_tipo}|${r.evento_id}`, Number(r.total)]),
     );
     const cambiados: string[] = [];
     const pendientes = conAsiento.filter((l) => {
-      const clave = `${l.resumen.cuenta_banco}|${l.resumen.fecha}`;
-      if (!entregados.has(clave)) return true;
-      if (Math.round(entregados.get(clave)! * 100) !== Math.round(l.asiento!.total * 100)) cambiados.push(clave);
+      const llave = `${l.evento_tipo}|${l.clave}`;
+      if (!entregados.has(llave)) return true;
+      if (Math.round(entregados.get(llave)! * 100) !== Math.round(l.asiento!.total * 100)) cambiados.push(l.clave);
       return false;
     });
     if (!pendientes.length) {
@@ -814,12 +885,14 @@ export class ContpaqiArmadoService {
     let movimientos = 0;
     let total = 0;
     for (const l of pendientes) {
-      const clave = `${l.resumen.cuenta_banco}|${l.resumen.fecha}`;
+      const clave = l.clave;
       const r = await this.sink.entregar({
-        evento_tipo: 'bank_lote', evento_id: clave,
+        evento_tipo: l.evento_tipo, evento_id: clave,
         tipo_poliza: l.asiento!.tipo_poliza, fecha: l.asiento!.fecha, concepto: l.asiento!.concepto,
         movimientos: l.asiento!.movimientos, total: l.asiento!.total,
-        token: tokenDe('bank_lote', clave),
+        token: tokenDe(l.evento_tipo, clave),
+        // `[CP.8.72]` El pago a proveedor lleva el UUID de cada factura y nota (renglones `AD`).
+        ...(l.uuids.length ? { uuids: l.uuids } : {}),
       });
       if (r.estado !== 'entregada' || !r.archivo) {
         // ⛔ Un lote que el sink rechaza TUMBA el archivo entero. Servir el resto sería entregar
@@ -827,7 +900,7 @@ export class ContpaqiArmadoService {
         throw new Error(`el lote ${clave} no se pudo serializar: ${r.motivo ?? 'sin motivo'}`);
       }
       partes.push(r.archivo.contenido);
-      lotesArchivo.push({ clave, asiento: l.asiento!, movimientos: l.resumen.incluidas });
+      lotesArchivo.push({ clave, evento_tipo: l.evento_tipo, asiento: l.asiento!, movimientos: l.resumen.incluidas });
       movimientos += l.resumen.incluidas;
       total = Math.round((total + l.asiento!.total) * 100) / 100;
     }
@@ -860,8 +933,208 @@ export class ContpaqiArmadoService {
    * El armado de los lotes del mes, con su asiento. ⭐ Lo consumen la pantalla y el archivo:
    * **un solo camino**, para que lo que se ve y lo que se descarga no puedan diferir.
    */
+  /**
+   * `[CP.8.72]` La fuente del pago a proveedor, por mes y por 10 minutos: cargarla cuesta segundos (dos fases
+   * de consultas sobre Kepler, CFDI y la historia de ContPAQi; ver `pago-proveedor.fuente.ts`) y la pantalla,
+   * el archivo y «marcar entregado» la piden seguido. La huella invalida si los movimientos del mes cambian.
+   *
+   * ⭐ `[CP.8.75]` Costo medido en el SERVIDOR (`EXPLAIN ANALYZE TIMING OFF`, pg-prod, sept-2026): ~1.1 s de
+   * consultas, más el traslado. No cabe en los 500 ms de una pantalla, así que no se paga al abrirla:
+   *  · una carga en curso se COMPARTE — la pantalla pide lotes y pagos a la vez y antes cargaban dos;
+   *  · cada pod del api la precalcula cada 9 min para el mes cerrado y el actual (`onModuleInit`), así
+   *    que la visita encuentra una de menos de 10 min. Otro mes se carga al pedirlo, una vez.
+   */
+  private readonly fuentes = new Map<string, { en: number; huella: string; fuente: FuentePagoProveedor }>();
+  private readonly cargandoFuente = new Map<string, Promise<FuentePagoProveedor>>();
+
+  private async fuenteDelMes(anioMes: string, movs: MovimientoPago[], forzar = false): Promise<FuentePagoProveedor> {
+    const huella = movs.map((m) => `${m.cuenta_banco}|${m.fecha}|${m.importe}|${m.concepto}`).join(';');
+    const c = this.fuentes.get(anioMes);
+    if (!forzar && c && c.huella === huella && Date.now() - c.en < 10 * 60_000) return c.fuente;
+    const clave = `${anioMes}|${huella}`;
+    const enCurso = this.cargandoFuente.get(clave);
+    if (enCurso) return enCurso;
+    const [y, m] = anioMes.split('-').map(Number);
+    const hasta = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    const t0 = Date.now();
+    const carga = FuentePagoProveedor.cargar(this.db, movs, `${anioMes}-01`, hasta)
+      .then((fuente) => {
+        this.log.log(`fuente de pago a proveedor ${anioMes}: ${movs.length} movimientos · ${Date.now() - t0} ms`);
+        this.fuentes.set(anioMes, { en: Date.now(), huella, fuente });
+        return fuente;
+      })
+      .finally(() => this.cargandoFuente.delete(clave));
+    this.cargandoFuente.set(clave, carga);
+    return carga;
+  }
+
+  /** `[CP.8.75]` El precalentado: sólo en los pods que atienden la pantalla (no en el worker, que no la sirve). */
+  private reloj: ReturnType<typeof setInterval> | null = null;
+
+  onModuleInit(): void {
+    if (process.env.WORKER === 'true' || process.env.NODE_ENV === 'test') return;
+    const calentar = (): void => { void this.precalentar(); };
+    setTimeout(calentar, 30_000).unref?.();
+    this.reloj = setInterval(calentar, 9 * 60_000);
+    this.reloj.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.reloj) clearInterval(this.reloj);
+  }
+
+  /** Recarga la fuente del mes cerrado y del actual. Un fallo se registra y no tumba nada: la pantalla la carga al pedirla. */
+  async precalentar(hoy = new Date()): Promise<void> {
+    const actual = hoy.toISOString().slice(0, 7);
+    const d = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - 1, 1));
+    for (const mes of [d.toISOString().slice(0, 7), actual]) {
+      try {
+        await this.alcance.fuera(() => this.conTenant(async () => {
+          const movs = await this.movimientosPagoDelMes(mes);
+          if (movs.length) await this.fuenteDelMes(mes, movs, true);
+        }));
+      } catch (e) {
+        this.log.warn(`precalentar la fuente de ${mes} falló: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  /**
+   * `[CP.8.73]` Las confirmaciones vigentes de esos movimientos. ⛔ Lectura OPCIONAL en SAVEPOINT, con las dos
+   * ausencias distinguidas (ADR-056, mismo molde que `supplier_aliases`): sin la migración, el armado sigue
+   * sin confirmaciones; sin permiso, sigue igual pero lo grita.
+   */
+  private async leerConfirmaciones(ids: string[]): Promise<Map<string, FilaConfirmacion>> {
+    if (!ids.length) return new Map();
+    try {
+      const filas = (await this.db.transaction((sp) => sp('contpaqi.pago_confirmaciones')
+        .where({ tenant_id: MEGA, active: true }).whereIn('bank_movement_id', ids)
+        .select('bank_movement_id', 'facturas', 'notas', 'pagado', 'confirmado_por'))) as FilaConfirmacion[];
+      return new Map(filas.map((f) => [String(f.bank_movement_id), f]));
+    } catch (e) {
+      const code = (e as { code?: string })?.code;
+      if (code === '42P01') this.log.warn('contpaqi.pago_confirmaciones no existe en este destino: se arma sin confirmaciones');
+      else this.log.error(`⛔ contpaqi.pago_confirmaciones ilegible (${code ?? 'sin código'}): se arma SIN las confirmaciones. ${(e as Error)?.message ?? e}`);
+      return new Map();
+    }
+  }
+
+  /** `[CP.8.73]` Qué hace el armado con un pago a proveedor: la confirmación humana gana; si no, la fuente. */
+  private resolverPago(fuente: FuentePagoProveedor, m: MovimientoPago, conf: FilaConfirmacion | undefined): ResolucionPago {
+    if (!conf) return fuente.resolver(m);
+    // ⛔ Si el movimiento cambió de importe después de confirmar, la confirmación no se aplica a ciegas.
+    if (Math.round(Number(conf.pagado) * 100) !== Math.round(m.importe * 100)) {
+      return { estado: 'a_confirmar', motivo: `la confirmación era por ${Number(conf.pagado).toFixed(2)} y el movimiento hoy es ${m.importe.toFixed(2)}` };
+    }
+    return fuente.entradaConfirmada(m, conf.facturas ?? [], conf.notas ?? []);
+  }
+
+  /**
+   * `[CP.8.73]` Los pagos a proveedor del mes que NO se armaron solos, con la propuesta para confirmarlos:
+   * el proveedor, sus facturas y notas abiertas y una sugerencia que la pantalla NO preselecciona.
+   */
+  async pagosPorConfirmar(anioMes: string): Promise<PagoPorConfirmar[]> {
+    return this.conTenant(async () => {
+      const egresos = (await this.leerEgresos(anioMes)).filter((e) => e.cuenta_banco);
+      const reglas = await this.leerReglas();
+      const pagos = egresos.filter((e) => reglas.get(e.categoria_code)?.tipo_regla === 'por_proveedor');
+      if (!pagos.length) return [];
+      const movs = pagos.map((e): MovimientoPago => ({ cuenta_banco: e.cuenta_banco, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? '') }));
+      const fuente = await this.fuenteDelMes(anioMes, movs);
+      const confs = await this.leerConfirmaciones(pagos.map((e) => String(e.id)));
+      const out: PagoPorConfirmar[] = [];
+      pagos.forEach((e, i) => {
+        const conf = confs.get(String(e.id));
+        const r = this.resolverPago(fuente, movs[i], conf);
+        let motivo: string | null = null;
+        if (r.estado === 'armable') {
+          try { armarPagoProveedorCompleto({ ...r.entrada, concepto: 'X' }); if (!conf) return; }
+          catch (err) { motivo = err instanceof AsientoRechazado ? err.message : String(err); }
+        } else motivo = r.motivo;
+        // Un pago confirmado que se arma bien también se lista: es donde se puede desconfirmar.
+        out.push({
+          movimiento_id: String(e.id), fecha: e.fecha, cuenta_banco: e.cuenta_banco,
+          banco_label: [e.banco_nombre, e.banco_label].filter(Boolean).join(' ').trim() || null,
+          importe: movs[i].importe, concepto: movs[i].concepto,
+          motivo: motivo ?? 'confirmado: se arma con lo confirmado',
+          propuesta: fuente.proponer(movs[i]),
+          confirmacion: conf ? { facturas: conf.facturas, notas: conf.notas, confirmado_por: conf.confirmado_por, vigente: !motivo } : null,
+        });
+      });
+      return out;
+    });
+  }
+
+  /**
+   * `[CP.8.73]` Una persona confirma qué facturas y notas paga un movimiento. ⛔ Se guarda SÓLO si el pago se
+   * arma completo con eso (facturas − notas = pagado, del mismo proveedor, en la ventana): una confirmación que
+   * no cuadra no se guarda para «arreglarla después». Reemplaza a la vigente (la apaga, no la borra).
+   */
+  async confirmarPago(movimientoId: string, facturas: string[], notas: string[], por: string): Promise<{ movimiento_id: string; renglones: number; total: number; redondeo: number }> {
+    return this.conTenant(async () => {
+      if (!por) throw new ConfirmacionRechazada('no se pudo identificar quién confirma');
+      const m = await this.movimientoDePago(movimientoId);
+      const anioMes = m.fecha.slice(0, 7);
+      const fuente = await this.fuenteDelMes(anioMes, await this.movimientosPagoDelMes(anioMes));
+      const r = fuente.entradaConfirmada(m, facturas ?? [], notas ?? []);
+      if (r.estado !== 'armable') throw new ConfirmacionRechazada(r.motivo);
+      const entrada = r.entrada;
+      const a = ((): ReturnType<typeof armarPagoProveedorCompleto> => {
+        try { return armarPagoProveedorCompleto({ ...entrada, concepto: 'CONFIRMACION' }); }
+        catch (err) { throw new ConfirmacionRechazada(err instanceof Error ? err.message : String(err)); }
+      })();
+      await this.db('contpaqi.pago_confirmaciones').where({ tenant_id: MEGA, bank_movement_id: movimientoId, active: true })
+        .update({ active: false, updated_at: this.db.fn.now(), updated_by: por });
+      await this.db('contpaqi.pago_confirmaciones').insert({
+        tenant_id: MEGA, bank_movement_id: movimientoId,
+        facturas: r.entrada.facturas.map((f) => f.uuid), notas: r.entrada.notas.map((n) => n.uuid),
+        pagado: m.importe, confirmado_por: por, created_by: por, updated_by: por,
+      });
+      this.fuentes.delete(anioMes);
+      this.log.log(`pago ${movimientoId} confirmado por ${por}: ${r.entrada.facturas.length} facturas · ${r.entrada.notas.length} notas`);
+      return { movimiento_id: movimientoId, renglones: a.movimientos.length, total: a.total, redondeo: a.redondeo };
+    });
+  }
+
+  /** `[CP.8.73]` Apaga la confirmación vigente: el pago vuelve a resolverse solo (o a «a confirmar»). */
+  async desconfirmarPago(movimientoId: string, por: string): Promise<{ movimiento_id: string; apagadas: number }> {
+    return this.conTenant(async () => {
+      if (!por) throw new ConfirmacionRechazada('no se pudo identificar quién desconfirma');
+      const n = await this.db('contpaqi.pago_confirmaciones').where({ tenant_id: MEGA, bank_movement_id: movimientoId, active: true })
+        .update({ active: false, updated_at: this.db.fn.now(), updated_by: por });
+      if (!n) throw new ConfirmacionRechazada('ese movimiento no tiene una confirmación vigente');
+      this.fuentes.clear();
+      return { movimiento_id: movimientoId, apagadas: Number(n) };
+    });
+  }
+
+  /** El egreso como lo ve el armado, validando que sea un pago a proveedor con banco. */
+  private async movimientoDePago(movimientoId: string): Promise<MovimientoPago> {
+    const e = (await this.db('finance.bank_movements as m')
+      .join('finance.movement_categories as c', 'c.id', 'm.category_id')
+      .leftJoin('finance.bank_accounts as ba', 'ba.id', 'm.bank_account_id')
+      .where('m.tenant_id', MEGA).where('m.id', movimientoId).whereNull('m.deleted_at')
+      .first('m.concept', 'm.amount_out', 'c.code as categoria_code', 'ba.contpaqi_cuenta as cuenta_banco',
+        this.db.raw(`to_char(m.movement_date, 'YYYY-MM-DD') as fecha`))) as
+      { concept: string | null; amount_out: string | number; categoria_code: string; cuenta_banco: string | null; fecha: string } | undefined;
+    if (!e) throw new ConfirmacionRechazada('el movimiento no existe');
+    if (!e.cuenta_banco) throw new ConfirmacionRechazada('el movimiento no es de una cuenta de banco con cuenta en ContPAQi');
+    const regla = (await this.leerReglas()).get(e.categoria_code);
+    if (regla?.tipo_regla !== 'por_proveedor') throw new ConfirmacionRechazada(`el movimiento es de «${e.categoria_code}», no un pago a proveedor`);
+    if (!(Number(e.amount_out) > 0)) throw new ConfirmacionRechazada('el movimiento no es un egreso');
+    return { cuenta_banco: e.cuenta_banco, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? '') };
+  }
+
+  /** Los pagos a proveedor del mes, como entran a la fuente (misma huella que `construirLotes`). */
+  private async movimientosPagoDelMes(anioMes: string): Promise<MovimientoPago[]> {
+    const reglas = await this.leerReglas();
+    return (await this.leerEgresos(anioMes))
+      .filter((e) => e.cuenta_banco && reglas.get(e.categoria_code)?.tipo_regla === 'por_proveedor')
+      .map((e): MovimientoPago => ({ cuenta_banco: e.cuenta_banco, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? '') }));
+  }
+
   private async construirLotes(anioMes: string): Promise<{
-    lotes: { resumen: ResumenLote; asiento: ReturnType<typeof armarLoteEgresos>['asiento'] }[];
+    lotes: PolizaArmada[];
     fuera_de_lote: ResumenMes['fuera_de_lote'];
   }> {
     const egresos = await this.leerEgresos(anioMes);
@@ -878,9 +1151,52 @@ export class ContpaqiArmadoService {
       grupos.get(k)!.push(e);
     }
 
-    const out: { resumen: ResumenLote; asiento: ReturnType<typeof armarLoteEgresos>["asiento"] }[] = [];
-    for (const [k, filas] of [...grupos.entries()].sort()) {
+    // ⭐ `[CP.8.72]` El pago a proveedor NO va al lote del día: la contadora hace UNA póliza por pago (un solo
+    // renglón de banco) y la forma «2120 / banco» del lote es la real en 1.7 % de los casos (`[CP.8.60]`).
+    // Se resuelve con la fuente (qué facturas y notas paga) y se arma completo; lo que no, se cuenta en el
+    // lote con su motivo — nunca se asienta incompleto.
+    const esPagoProveedor = (e: { categoria_code: string }): boolean => reglas.get(e.categoria_code)?.tipo_regla === 'por_proveedor';
+    const aMovimiento = (e: { cuenta_banco: string; amount_out: string | number; fecha: string; concept: unknown }): MovimientoPago => ({
+      cuenta_banco: e.cuenta_banco, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? ''),
+    });
+    const movsPago = egresos.filter((e) => e.cuenta_banco && esPagoProveedor(e)).map(aMovimiento);
+    const fuente = movsPago.length ? await this.fuenteDelMes(anioMes, movsPago) : null;
+    // `[CP.8.73]` La confirmación humana gana sobre lo que la fuente resuelve sola.
+    const confs = movsPago.length
+      ? await this.leerConfirmaciones(egresos.filter((e) => e.cuenta_banco && esPagoProveedor(e)).map((e) => String(e.id)))
+      : new Map<string, FilaConfirmacion>();
+
+    const out: PolizaArmada[] = [];
+    for (const [k, todas] of [...grupos.entries()].sort()) {
       const [cuenta_banco, fecha] = k.split('|');
+      const banco_label = [todas[0]?.banco_nombre, todas[0]?.banco_label].filter(Boolean).join(' ').trim() || null;
+      const filas = todas.filter((e) => !esPagoProveedor(e));
+      const motivosPago: Record<string, number> = {};
+      for (const e of todas.filter(esPagoProveedor)) {
+        let motivo: string;
+        // `fuente` existe siempre que haya pagos a proveedor: se cargó con todos ellos arriba.
+        const r = fuente ? this.resolverPago(fuente, aMovimiento(e), confs.get(String(e.id))) : { estado: 'sin_resolver' as const, motivo: 'sin fuente' };
+        if (r.estado === 'armable') {
+          try {
+            const concepto = `PAGO ${String(e.concept ?? '').trim() || 'A PROVEEDOR'}`;
+            const a = armarPagoProveedorCompleto({ ...r.entrada, concepto });
+            out.push({
+              evento_tipo: 'bank_pago_proveedor', clave: String(e.id), asiento: a, uuids: a.uuids,
+              resumen: {
+                cuenta_banco, banco_label, fecha, movimientos: 1, incluidas: 1, renglones: a.movimientos.length,
+                total: a.total, iva_traspaso: null, motivos: {}, tipo: 'pago_proveedor', fuente: r.fuente, cfdis: a.uuids.length,
+                clave: `pago|${e.id}`,
+              },
+            });
+            continue;
+          } catch (err) {
+            motivo = err instanceof AsientoRechazado ? `pago_${err.motivo}` : 'pago_error';
+          }
+        } else {
+          motivo = r.estado === 'a_confirmar' ? 'pago_a_confirmar' : 'pago_sin_resolver';
+        }
+        motivosPago[motivo] = (motivosPago[motivo] ?? 0) + 1;
+      }
       const entradas = filas.map((e) => {
         const subtotal = Number(e.amount_out);
         const iva = Number(e.iva_hermano ?? 0);
@@ -910,19 +1226,24 @@ export class ContpaqiArmadoService {
 
       const lote = armarLoteEgresos(cuenta_banco, fecha, entradas,
         `EGRESOS ${fecha} ${cuenta_banco}`);
-      const porMotivo: Record<string, number> = {};
+      const porMotivo: Record<string, number> = { ...motivosPago };
       for (const r of lote.rechazadas) porMotivo[r.motivo] = (porMotivo[r.motivo] ?? 0) + 1;
+      const armadosAparte = todas.length - filas.length - Object.values(motivosPago).reduce((a, n) => a + n, 0);
+      if (todas.length === armadosAparte) continue;   // el día sólo tenía pagos a proveedor, todos armados aparte
 
-      out.push({ asiento: lote.asiento, resumen: {
+      out.push({ evento_tipo: 'bank_lote', clave: k, asiento: lote.asiento, uuids: [], resumen: {
         cuenta_banco,
-        banco_label: [filas[0]?.banco_nombre, filas[0]?.banco_label].filter(Boolean).join(' ').trim() || null,
+        banco_label,
         fecha,
-        movimientos: filas.length,
+        // ⚠️ Los pagos armados aparte son su propia póliza: no se cuentan dos veces en el lote.
+        movimientos: todas.length - armadosAparte,
         incluidas: lote.incluidas,
         renglones: lote.asiento?.movimientos.length ?? 0,
         total: lote.asiento?.total ?? 0,
         iva_traspaso: lote.asiento?.iva_traspaso ?? null,
         motivos: porMotivo,
+        tipo: 'lote',
+        clave: k,
       } });
     }
     // ⭐ `[CP.8.34]` Lo que quedó fuera se AGRUPA y se devuelve, no se registra en un `warn`.
@@ -944,8 +1265,9 @@ export class ContpaqiArmadoService {
     };
 
     const conAsiento = out.filter((l) => l.resumen.incluidas > 0).length;
-    this.log.log(`lotes ${anioMes}: ${out.length} (banco × día) · ${conAsiento} con asiento`
-      + ` · ${fuera.movimientos} fuera de lote (${cuentas.map((c) => c.cuenta).join(', ') || '—'})`);
+    const pagos = out.filter((l) => l.evento_tipo === 'bank_pago_proveedor').length;
+    this.log.log(`lotes ${anioMes}: ${out.length - pagos} (banco × día) + ${pagos} pagos a proveedor completos de ${movsPago.length}`
+      + ` · ${conAsiento} con asiento · ${fuera.movimientos} fuera de lote (${cuentas.map((c) => c.cuenta).join(', ') || '—'})`);
     return { lotes: out, fuera_de_lote: fuera };
   }
 

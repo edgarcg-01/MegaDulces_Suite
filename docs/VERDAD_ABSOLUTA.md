@@ -1,47 +1,48 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 328 KB, 4968 líneas, 35 secciones.
+> **Índice navegable** — 333 KB, 5012 líneas, 36 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 48 | 63 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
-| 64 | 80 | 1 | 0. Qué es este documento, y qué NO es |
-| 81 | 189 | 6 | 1. Las siete reglas |
-| 190 | 223 | 8 | 2. El estado, en una tabla |
-| 224 | 386 | 10 | 3. Existencia |
-| 387 | 611 | 12 | 4. Ventas y unidades |
-| 612 | 643 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
-| 644 | 720 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
-| 721 | 791 | 5 | 6. Las trampas que ya cobraron |
-| 792 | 849 | 30 | 7. Los huecos declarados, con nombre y monto |
-| 850 | 894 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
-| 895 | 1096 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
-| 1097 | 1202 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
-| 1203 | 1403 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
-| 1404 | 1709 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
-| 1710 | 1729 | 2 | 10. Cómo se verifica |
-| 1730 | 1752 | 1 | 11. Lo que este documento no cubre |
-| 1753 | 1828 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
-| 1829 | 1988 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
-| 1989 | 2372 | 23 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
-| 2373 | 2613 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
-| 2614 | 2806 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
-| 2807 | 2849 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
-| 2850 | 2948 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
-| 2949 | 3422 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
-| 3423 | 3530 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
-| 3531 | 3685 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
-| 3686 | 3837 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
-| 3838 | 4043 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
-| 4044 | 4133 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
-| 4134 | 4323 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
-| 4324 | 4392 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
-| 4393 | 4687 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
-| 4688 | 4905 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
-| 4906 | 5015 | 7 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
+| 49 | 64 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
+| 65 | 81 | 1 | 0. Qué es este documento, y qué NO es |
+| 82 | 190 | 6 | 1. Las siete reglas |
+| 191 | 224 | 8 | 2. El estado, en una tabla |
+| 225 | 387 | 10 | 3. Existencia |
+| 388 | 612 | 12 | 4. Ventas y unidades |
+| 613 | 644 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
+| 645 | 721 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
+| 722 | 792 | 5 | 6. Las trampas que ya cobraron |
+| 793 | 850 | 30 | 7. Los huecos declarados, con nombre y monto |
+| 851 | 895 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
+| 896 | 1097 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
+| 1098 | 1203 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
+| 1204 | 1404 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
+| 1405 | 1710 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
+| 1711 | 1730 | 2 | 10. Cómo se verifica |
+| 1731 | 1753 | 1 | 11. Lo que este documento no cubre |
+| 1754 | 1829 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
+| 1830 | 1989 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
+| 1990 | 2373 | 23 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
+| 2374 | 2614 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
+| 2615 | 2807 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
+| 2808 | 2850 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
+| 2851 | 2949 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
+| 2950 | 3423 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
+| 3424 | 3531 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
+| 3532 | 3686 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
+| 3687 | 3838 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
+| 3839 | 4044 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
+| 4045 | 4134 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
+| 4135 | 4324 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
+| 4325 | 4393 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
+| 4394 | 4688 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 4689 | 4906 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
+| 4907 | 5016 | 7 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
+| 5017 | 5060 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -5012,3 +5013,47 @@ quincena olvidada se viera normal.
 
 > ⛔ **Mientras estos seis estén abiertos, «100 % por el motor» describe una meta, no un estado.**
 > El motor puede calcular; lo que todavía no puede es **defender** cada peso contra un testigo.
+
+## 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21)
+
+> **Por qué existe esta sección.** Edgar preguntó *«¿ya tenemos una verdad absoluta, y mostramos
+> toda la información necesaria para decirlo?»* sobre `/contabilidad/movimientos-no-asociados`, el
+> módulo que arma la póliza de compras del mes (Diario folio 1) y la entrega a ContPAQi como TXT. La
+> respuesta medida fue **no**: el asiento sí tiene testigo; el universo, el estatus SAT, la
+> completitud y la frescura no lo tenían. Esta sección dice qué arbitra cada número y qué queda abierto.
+>
+> **Medido contra prod** (`pg-prod`, `system_identifier 7688376744939610156`) el **2026-10-21**, sólo lectura.
+> Detalle y pruebas en [`FASE_LC_LIBRO_DE_COMPRAS.md`](IMPLEMENTACION/FASES/FASE_LC_LIBRO_DE_COMPRAS.md) §LC.18–LC.19.
+
+| número | árbitro | veredicto | hueco declarado |
+|---|---|---|---|
+| **El asiento de cada factura** (212 / 501 / 502, IVA e IEPS globales, referencia) | Los libros **manuales** de jul/ago/sep-2026 en ContPAQi (Diario folio 1): mismo ERP, mismo grano (renglón de póliza) | **1,650 de 1,650 renglones al centavo**, con prueba negativa (el reparto anterior deja de coincidir) | ⚠️ **Reproduce a la contadora, no prueba la regla fiscal.** IEPS por cuota: el libro lo deja en el costo y la Fase RE dice que se acredita — **decisión abierta de contabilidad** |
+| **Qué facturas entran** | **Ninguno.** Ningún campo del CFDI ni de Kepler separa las del libro de las demás | Regla: proveedor con cuenta que salió en el libro de los últimos 6 meses | **46–65 al mes** (jul 65 · ago 46 · sep 56; $0.43–0.74M) entran por la regla y **nunca entraron al libro manual**. **0 de 167** aparecen en ContPAQi por UUID ni por su 212; 9–24 % casan su total en otra cuenta (102, 214, 520, 501), sin testigo. La pantalla lo dice: «N propuestas», no «N sin contabilizar» (LC.19.3) |
+| **¿Ya está contabilizada?** (anti-duplicado) | El UUID en ContPAQi (concepto del renglón y `AsocCFDIs`) + el histórico xlsx (hasta 2026-07) + el importe por 212 / 501 / 502 | Exacto por UUID; **por importe tiene falsos positivos por diseño** | Del libro de ago y sep, **89 y 138** facturas casan sólo por importe (se ven en «Revisar»): el libro manual no lleva UUID. El TXT del módulo sí lo lleva |
+| **¿Vigente ante el SAT?** | WS público **ConsultaCFDIService** del SAT (cron FISCAL.6 + «Verificar en el SAT») | Sólo `vigente` se postea; `desconocido` bloquea (LC.19.1) | ⛔ Hasta el 2026-10-21 **no medía nada**: 100 % de los recibidos de ago/sep/oct en `desconocido`, porque el feed del ADD borraba lo verificado (07:30 vigente → 11:47 desconocido). Corregido en el feed; **hasta que se despliegue la imagen de ingesta, el borrado sigue** |
+| **¿Están todos los CFDI?** | La descarga masiva del SAT (FISCAL.4) | Una sola ventana, 1–17 jul-2026: de tipo I/E, **818 en el ADD de ~821** que reportó el SAT; lo que sólo trajo el SAT eran 176 complementos de pago y 18 traslados ($0) | ⚠️ **Sin testigo continuo: la e.firma cargada venció el 2026-07-27.** Renovarla es cargar una credencial — espera a contabilidad / Edgar |
+| **¿De cuándo es lo que se ve?** | El latido del carril: `contpaqi_add_cfdis` (CFDIs) y `feed_contpaqi` (pólizas), por `v_feed_freshness` | Tolerancia 1 h. Pólizas viejas o sin medir **bloquean**; CFDIs viejos son aviso (LC.19.2) | `feed_contpaqi` corre dos pasos (pólizas + bancos) y cierra `ok` si falla uno solo (GX.19); no tiene bitácora por paso |
+| **¿Existe la cuenta del proveedor?** | `analytics.contpaqi_accounts` ∪ cuentas usadas en `gl_poliza_lines` | Se valida en vivo antes de asignar | El catálogo es **una foto del 2026-10-09**, sin agenda: una 212 recién creada y sin póliza se rechaza como inexistente |
+
+**Candados que vuelven a medir esto:** `test-newdb-libro-compras-replica.js` (el asiento contra los
+libros manuales), `test-newdb-libro-compras-tramite.js` (universo, bloqueos SAT y frescura, trámite),
+`test-newdb-cfdi-estatus-merge.js` (la fusión del estatus en el feed) y el e2e de Playwright
+`e2e/libro-compras/` (lo pintado contra lo que responde la API).
+
+⚠️ **R7 — paridad registrada: deuda.** El libro no publica desde una vista resolvedora (calcula en
+el servicio), así que no entra a la tabla de §5 ni a `test-newdb-truth-parity.js`. La paridad entre lo
+publicado y lo calculado existe, pero en el e2e (chips, pie y carátula contra la API), que corre a
+mano contra prod. Registrarla en la compuerta queda pendiente con nombre: **LC.19.5b**.
+
+**Hipótesis refutadas — no las reconstruyas:**
+- *«Nadie valida el estatus contra el SAT»* — falso. El cron FISCAL.6 sí consulta, y el WS responde
+  (`Vigente` en ~100 ms). Lo que pasaba es que el feed del ADD reescribía el resultado con vacío.
+- *«Las extras se contabilizan por otra vía»* — no se sostiene: 0 de 167 en ContPAQi por UUID o por
+  su 212. Que el total aparezca en otra cuenta (9–24 %) no es testigo: no se probó contra un placebo.
+- *«El ADD está incompleto»* — refutado para I/E en la única ventana medible (1–17 jul): lo que
+  faltaba eran pagos y traslados, que no van al libro.
+
+> ⛔ **Mientras «qué facturas entran» no tenga árbitro, el libro es una propuesta que una persona
+> revisa, no una verdad.** El asiento de lo que entra sí se puede defender, renglón por renglón.
+
+---

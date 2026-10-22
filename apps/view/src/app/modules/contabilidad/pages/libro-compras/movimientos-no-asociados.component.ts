@@ -18,6 +18,10 @@ import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
 import { LibroComprasService, MesNoAsociado, MesDetalle, FacturaMes, ImpuestosModo, FacturaRespaldo, MovimientoRespaldo, CoberturaUuid, SugerenciasCuenta } from '../../libro-compras.service';
 import { exportXlsx } from '../../../../shared/export/xlsx-export';
+import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
+import { SelectModule } from 'primeng/select';
+import { MOTIVOS_EXCLUSION, PreparacionMes } from '../../libro-compras.service';
+import type { Freshness } from '@megadulces/contracts';
 import { LIBRO_COMPRAS_STYLES, NO_ASOCIADOS_STYLES } from './libro-compras.styles';
 
 /**
@@ -44,6 +48,11 @@ const LC18_STYLES = `
 .na-sug li { display: flex; align-items: baseline; gap: .5rem; font-size: var(--fs-sm); }
 .na-sug label { cursor: pointer; }
 .na-sug .mono { font-family: var(--font-mono); }
+.na-link-sutil { margin-left: .35rem; font-size: var(--fs-xs); color: var(--text-muted); }
+.na-fresc { display: inline-flex; gap: .6rem; align-items: center; }
+.na-prep { display: flex; align-items: center; gap: .45rem; margin: -.25rem 0 .75rem; font-size: var(--fs-sm); }
+.na-motivo { margin-top: .2rem; }
+.na-sat { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin: -.25rem 0 .75rem; font-size: var(--fs-sm); }
 `;
 
 /**
@@ -67,6 +76,7 @@ const LC18_STYLES = `
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule,
     SelectButtonModule, CheckboxModule, InputTextModule, ToastModule, TooltipModule, RadioButtonModule,
+    FreshnessPillComponent, SelectModule,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -191,6 +201,10 @@ const LC18_STYLES = `
                      jul-2026 tenía el formato viejo y se descargaba igual; el de jun-2026 tenía
                      la firma sin el contenido y los botones daban 404. -->
                 @if (archivoVigente()) {
+                  <!-- LC.19.6: lo que se sube a ContPAQi son los tres archivos; un clic los baja
+                       todos. Los tres botones sueltos se quedan para cuando sólo hace falta uno. -->
+                  <p-button type="button" label="Descargar todo" icon="pi pi-download"
+                            [loading]="bajandoTodo()" (click)="descargarTodo()" />
                   <p-button type="button" label="Descargar TXT" icon="pi pi-download"
                             styleClass="p-button-outlined p-button-secondary" (click)="descargar()" />
                   <!-- A ContPAQi va el TXT Y su respaldo: nadie sube millones a la
@@ -207,13 +221,15 @@ const LC18_STYLES = `
                             pTooltip="Listado movimiento ↔ UUID para el Asociador de CFDI de ContPAQi"
                             (click)="descargarAsociador()" />
                 }
-                @if (estadoRun() === 'generado' && archivoVigente()) {
-                  <p-button type="button" label="Marcar entregado" icon="pi pi-send"
-                            styleClass="p-button-text p-button-secondary" (click)="dlgEntrega.set(true)" />
-                }
-                @if (estadoRun() === 'entregado') {
+                <!-- LC.19.6: «Marcar entregado» ya no es un paso. Aplicado se marca solo cuando la
+                     poliza de ContPAQi casa renglon por renglon con el archivo; el boton queda
+                     para cuando casa a medias (alguien la edito al importar), y el servidor lo
+                     rechaza si ContPAQi todavia no tiene el folio. -->
+                @if ((estadoRun() === 'generado' && archivoVigente()) || estadoRun() === 'entregado') {
                   <p-button type="button" label="Marcar aplicado" icon="pi pi-check-circle"
                             styleClass="p-button-text p-button-secondary" (click)="marcar('aplicado')" />
+                }
+                @if (estadoRun() === 'entregado') {
                   <!-- La salida cuando ContPAQi rechazó el archivo: sin ella, el error de
                        generar decía "cancélala" y no había dónde. Destructiva: rojo y con
                        confirmación, nunca un clic suelto. -->
@@ -223,6 +239,10 @@ const LC18_STYLES = `
               }
             </div>
           </div>
+          <!-- LC.19.6: lo que el mes esta haciendo solo, en una linea. Sin cron: arranca al abrirlo. -->
+          @if (preparando(); as p) {
+            <p class="na-prep muted"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> {{ p }}</p>
+          }
 
           <!-- La tira de 5 mosaicos vivía acá y se fue al PIE de la tabla (LC.16.3). Cuatro
                de los cinco eran los totales de cuatro columnas de la tabla, y el quinto
@@ -238,6 +258,19 @@ const LC18_STYLES = `
             <ul class="lc-avisos lc-bloq" aria-label="Lo que impide generar">
               @for (a of d.bloqueantes; track a) { <li><i class="pi pi-times-circle"></i>{{ a }}</li> }
             </ul>
+            <!-- LC.19.1: la salida del bloqueo del SAT esta junto al bloqueo, no en otro lado.
+                 No hay override: lo que el SAT no encuentre se desmarca. -->
+            @if (puedeGestionar() && (d.resumen.sin_verificar_sat ?? 0) > 0 && !preparando()) {
+              <div class="na-sat">
+                <p-button type="button" label="Verificar en el SAT" icon="pi pi-shield"
+                          styleClass="p-button-outlined p-button-secondary"
+                          [loading]="verificandoSat()" [disabled]="verificandoSat()" (click)="verificarSat()" />
+                <span class="muted">
+                  @if (progresoSat(); as p) { {{ p }} }
+                  @else { Consulta cada factura en el servicio público del SAT (~4 por segundo). Lo que no aparezca vigente no entra al TXT. }
+                </span>
+              </div>
+            }
           }
 
           <!-- Cobertura + lo que queda fuera + avisos del mes eran cuatro bloques apilados
@@ -313,6 +346,13 @@ const LC18_STYLES = `
             </span>
             <!-- LC.18: las cuentas de impuesto ya no son fijas. Salen del ultimo libro, y en
                  sep-2026 cambiaron: decir de donde salieron es lo que deja revisarlas. -->
+            <!-- LC.19.2: la edad de las dos fuentes, medida por el latido de su carril (dato, no
+                 hora de carga). Sin medicion se declara sin medir, no se esconde. -->
+            <span class="na-fresc">
+              @for (fi of fuentesFrescura(); track fi.label) {
+                <app-freshness-pill measures="data" [freshness]="fi.f" [label]="fi.label" />
+              }
+            </span>
             @if (d.cuentas_impuesto; as ci) {
               <span class="muted na-ctas-imp">
                 IVA a {{ ci.iva.cuenta }} · IEPS a {{ ci.ieps.cuenta }}
@@ -403,6 +443,16 @@ const LC18_STYLES = `
                     }
                     @if (!f.incluida && f.motivo_exclusion) {
                       <small class="muted">Excluida: {{ f.motivo_exclusion }}</small>
+                    } @else if (!f.incluida && puedeGestionar() && f.cuenta_existe && f.en_libro_reciente && !f.prueba_certeza) {
+                      <!-- LC.19.6: la regla de que entra no se puede derivar de los datos (74 % de las
+                           extras son de proveedores con unas facturas dentro y otras fuera). Lo que se
+                           puede es juntar el POR QUE de la contadora en una lista cerrada para medirlo
+                           despues. Opcional: excluir sigue siendo un solo clic. -->
+                      <div class="na-motivo">
+                        <p-select [options]="motivosExclusion" optionLabel="label" optionValue="value" [ngModel]="null" (ngModelChange)="elegirMotivo(f, $event)"
+                                  placeholder="¿Por qué no va?" size="small"
+                                  [ariaLabel]="'Por qué no va la factura de ' + f.emisor_nombre" appendTo="body" />
+                      </div>
                     }
                   </td>
                   <td class="c-num mono">{{ f.folio }}</td>
@@ -454,18 +504,29 @@ const LC18_STYLES = `
                     } @else if (!f.account_suffix) {
                       <!-- LC.18: cada mes llegan proveedores nuevos. Sin esta salida la factura
                            quedaba fuera para siempre: el mapa no se podia tocar desde ningun lado. -->
-                      @if (puedeGestionar()) {
+                      <!-- LC.18 (e2e): en oct-2026 eran 262 sin cuenta, casi todas de GASTO, y todas
+                           ofrecian Asignar igual. Ahora la accion se destaca solo donde ContPAQi
+                           tiene una 212 libre con el mismo nombre; en las demas queda discreta.
+                           Y ya no es rojo: excluida, no impide generar. -->
+                      @if (puedeGestionar() && f.cuenta_sugerida) {
                         <button type="button" class="na-link" (click)="abrirAsignar(f)">
-                          <i class="pi pi-link" aria-hidden="true"></i> Asignar cuenta
+                          <i class="pi pi-link" aria-hidden="true"></i> Asignar {{ f.cuenta_sugerida.cuenta }}
                         </button>
                       } @else {
-                        <p-tag value="RFC sin cuenta" severity="danger" />
+                        <span class="na-cero">Sin cuenta</span>
+                        @if (puedeGestionar()) {
+                          <button type="button" class="na-link na-link-sutil" (click)="abrirAsignar(f)">asignar</button>
+                        }
                       }
                     } @else if (!f.cuenta_existe) {
                       <p-tag value="Cuenta inexistente" severity="danger" />
                     } @else if (!f.en_libro_reciente) {
                       <!-- El porque va en el renglon (motivo de exclusion), no en un tooltip. -->
                       <p-tag value="Sin libro reciente" severity="secondary" />
+                    } @else if (f.incluida && f.estatus_sat !== 'vigente') {
+                      <!-- LC.19.1: tenue, no ambar. El bloqueo ya grita arriba con su monto; si los
+                           275 renglones de octubre fueran ambar, nada en la tabla se leeria. -->
+                      <span class="na-cero">SAT sin verificar</span>
                     } @else {
                       <span class="na-cero">—</span>
                     }
@@ -656,6 +717,16 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   cargandoMeses = signal(false);
   cargandoMes = signal(false);
   generando = signal(false);
+  /** LC.19.1: la verificación ante el SAT corre por lotes; esto dice en cuál va. */
+  verificandoSat = signal(false);
+  progresoSat = signal<string | null>(null);
+  /** LC.19.6: lo que el mes está haciendo solo (null = nada en curso). */
+  preparando = signal<string | null>(null);
+  bajandoTodo = signal(false);
+  readonly motivosExclusion = MOTIVOS_EXCLUSION.map((m) => ({ label: m, value: m }));
+  /** Meses ya preparados en esta visita: reabrir el mes tras prepararlo no lo vuelve a disparar. */
+  private preparados = new Set<string>();
+  private rePreparar: ReturnType<typeof setTimeout> | null = null;
   dlgEntrega = signal(false);
   dlgCaratula = signal(false);
   guardandoCaratula = signal(false);
@@ -751,7 +822,13 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   });
 
   estadoRun = computed(() => (this.detalle()?.run?.['estado'] as string) ?? 'sin_iniciar');
-  folioPoliza = computed(() => Number(this.detalle()?.run?.['folio_poliza'] ?? 2));
+  // LC.18 (e2e): sin corrida, el folio que el servidor va a usar — el del rail (1 si ContPAQi no
+  // tiene el libro del mes). Caer a un 2 fijo decía «Póliza 2» y el archivo salía en folio 1.
+  folioPoliza = computed(() => {
+    const d = this.detalle();
+    const delRail = this.meses().find((m) => m.anio_mes === d?.mes)?.folio_poliza;
+    return Number(d?.run?.['folio_poliza'] ?? delRail ?? 2);
+  });
   /** LC.17 — el servidor dice si el archivo GUARDADO se puede entregar, y si no, por qué. */
   archivoVigente = computed(() => this.detalle()?.run?.['archivo_vigente'] === true);
   archivoMotivo = computed(() => (this.detalle()?.run?.['archivo_motivo'] as string | null) ?? null);
@@ -886,6 +963,20 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   });
 
   /** El veredicto del mes en una línea, antes de la tabla (DESIGN §15 answer-first). */
+  /**
+   * LC.19.2 — Una píldora por fuente (CFDIs, pólizas), cada una con SU veredicto del servidor.
+   * Si el servidor no pudo medir nada (`inputs` vacío) va una sola, que dice «sin medir».
+   */
+  fuentesFrescura = computed((): { label: string; f: Freshness }[] => {
+    const fr = this.detalle()?.frescura;
+    if (!fr) return [];
+    if (!fr.inputs.length) return [{ label: 'fuentes', f: fr }];
+    return fr.inputs.map((i) => ({
+      label: i.key === 'cfdis' ? 'CFDIs' : i.key === 'polizas' ? 'pólizas' : i.label,
+      f: { data_as_of: i.at, status: i.status, stale: i.stale, age_human: i.age_human, inputs: [i] },
+    }));
+  });
+
   veredicto = computed(() => {
     const d = this.detalle();
     if (!d) return { tono: 'neutral', icono: 'pi pi-circle', titulo: '', detalle: '' };
@@ -896,6 +987,15 @@ export class MovimientosNoAsociadosComponent implements OnInit {
         detalle: 'Lo que faltaba de este mes ya está en ContPAQi.' };
     }
     if (!r.cfdis_del_mes) {
+      // LC.19.2: un cero con el feed de CFDIs parado no es «al día», es «sin datos». Con el feed
+      // muerto, este verde era indistinguible de un mes limpio.
+      const fc = d.frescura?.inputs.find((i) => i.key === 'cfdis');
+      if (!fc || fc.status !== 'fresh') {
+        return { tono: 'warn', icono: 'pi pi-exclamation-triangle', titulo: 'Sin facturas por asociar, pero sin datos al día',
+          detalle: fc?.at
+            ? `Los CFDIs del ADD no se actualizan desde hace ${fc.age_human}: el cero puede ser falta de datos.`
+            : 'No se pudo medir cuándo se actualizaron los CFDIs del ADD: el cero no se puede afirmar.' };
+      }
       return { tono: 'ok', icono: 'pi pi-check-circle', titulo: 'Nada pendiente',
         detalle: 'Todas las facturas del mes están ligadas a una póliza.' };
     }
@@ -910,7 +1010,8 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     // LC.17: un "Archivo generado" que ContPAQi rechaza es una afirmación falsa.
     if (estado === 'generado' && !this.archivoVigente()) {
       return { tono: 'bad', icono: 'pi pi-exclamation-circle', titulo: 'El archivo guardado ya no sirve',
-        detalle: `${this.archivoMotivo() ?? 'No se puede entregar'}. Vuelve a generarlo.` };
+        // El motivo del servidor ya termina en «hay que generarlo de nuevo»: no se repite.
+        detalle: this.mayuscula(this.archivoMotivo() ?? 'no se puede entregar: hay que generarlo de nuevo') + '.' };
     }
     if (estado === 'generado') {
       return { tono: 'warn', icono: 'pi pi-file-check', titulo: 'Archivo generado',
@@ -920,9 +1021,21 @@ export class MovimientosNoAsociadosComponent implements OnInit {
       return { tono: 'warn', icono: 'pi pi-info-circle', titulo: 'Nada que entregar',
         detalle: `Las ${r.cfdis_del_mes} sin asociar son de proveedores fuera del catálogo de compras o ya están posteadas.` };
     }
+    // LC.19.3: decía «Faltan N por asociar — $X sin contabilizar», como si las N fueran un hecho.
+    // No lo son: entran por una REGLA (proveedor con cuenta que salió en el libro de los últimos
+    // 6 meses), y medido sobre jul/ago/sep entre 46 y 65 al mes nunca entraron al libro manual.
+    // Se dice qué es (una propuesta), por qué entra, y cuánto quedó fuera esperando revisión.
+    const sh = this.sinHistorial();
     return { tono: 'bad', icono: 'pi pi-exclamation-triangle',
-      titulo: `Faltan ${r.incluidas} movimientos por asociar`,
-      detalle: `${this.money(r.total)} sin contabilizar en este mes.` };
+      titulo: `${r.incluidas} facturas sin asociar propuestas para el TXT · ${this.money(r.total)}`,
+      detalle: 'Entran porque el proveedor tiene cuenta y salió en el libro de los últimos 6 meses: revísalas antes de generar.'
+        + (sh.n ? ` Otras ${sh.n} (${this.money(sh.monto)}) esperan revisión en «Sin libro reciente».` : '') };
+  });
+
+  /** LC.19.3: las que la regla del historial dejó fuera — el banner las nombra con su monto. */
+  sinHistorial = computed(() => {
+    const fs = (this.detalle()?.facturas ?? []).filter((f) => this.grupo(f) === 'sin_historial');
+    return { n: fs.length, monto: fs.reduce((a, f) => a + f.total, 0) };
   });
 
   ngOnInit() {
@@ -948,14 +1061,15 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   }
 
   etiquetaEstado(m: MesNoAsociado) {
-    if (m.estado === 'sin_iniciar') return m.faltan ? 'Pendiente' : 'Al día';
-    return { borrador: 'Borrador', generado: 'Generado', entregado: 'Entregado', aplicado: 'Aplicado', cancelado: 'Cancelado' }[m.estado] ?? m.estado;
+    // LC.18 (e2e): una entrega cancelada deja el mes PENDIENTE otra vez. Decir «Cancelado» en
+    // rojo se leia como un error del mes, cuando lo que hay que hacer es volver a generar.
+    if (m.estado === 'sin_iniciar' || m.estado === 'cancelado') return m.faltan ? 'Pendiente' : 'Al día';
+    return { borrador: 'Borrador', generado: 'Generado', entregado: 'Entregado', aplicado: 'Aplicado' }[m.estado] ?? m.estado;
   }
 
   severidadEstado(m: MesNoAsociado): 'success' | 'warn' | 'danger' | 'info' | 'secondary' {
     if (m.estado === 'aplicado') return 'success';
     if (m.estado === 'entregado' || m.estado === 'generado') return 'warn';
-    if (m.estado === 'cancelado') return 'danger';
     if (!m.faltan) return 'success';
     // Un mes sin póliza de compras no es un pendiente más: es el mes entero sin contabilizar.
     return m.existe_libro ? 'warn' : 'danger';
@@ -988,8 +1102,15 @@ export class MovimientosNoAsociadosComponent implements OnInit {
         if (this.mesSel() !== mes) return;
         this.detalle.set(d);
         this.impuestosModo = (d.run?.['impuestos_modo'] as ImpuestosModo) ?? 'global';
-        this.incluirUuid = d.run?.['incluye_uuid'] !== false;
+        // LC.18 (e2e): la opción de un archivo YA generado se respeta; la de un borrador no —
+        // su valor era el default de la columna (false) y desmarcaba el UUID sin que nadie lo
+        // pidiera. Así salió el TXT de oct-2026 sin UUID.
+        // Una cancelada tampoco cuenta: oct-2026 quedó cancelada con incluye_uuid = false.
+        const conArchivo = ['generado', 'entregado', 'aplicado'].includes(String(d.run?.['estado'] ?? ''));
+        this.incluirUuid = conArchivo ? d.run?.['incluye_uuid'] !== false : true;
         this.cargandoMes.set(false);
+        // LC.19.6: sin cron — abrir el mes ES el evento que lo prepara.
+        this.prepararMes(mes);
       },
       error: (e) => { this.cargandoMes.set(false); this.error('No se pudo abrir el mes', e); },
     });
@@ -1009,10 +1130,18 @@ export class MovimientosNoAsociadosComponent implements OnInit {
         // resto no: con el nombre solo, la decisión es de quien lleva el libro.
         const fuerte = s.candidatas.find((c) => c.fuerte && !c.asignada_a);
         if (fuerte) this.cuentaElegida = fuerte.cuenta;
+        // La del renglón (mismo nombre, ≥ 80 %) también se deja elegida: es la que el botón dijo.
+        else if (f.cuenta_sugerida && s.candidatas.some((c) => c.cuenta === f.cuenta_sugerida!.cuenta && !c.asignada_a)) {
+          this.cuentaElegida = f.cuenta_sugerida.cuenta;
+        }
         this.cargandoSug.set(false);
       },
       error: (e) => { this.cargandoSug.set(false); this.error('No se pudieron buscar cuentas', e); },
     });
+  }
+
+  private mayuscula(s: string) {
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
   }
 
   cuentaValida() {
@@ -1053,8 +1182,84 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     const antes = f.incluida;
     this.aplicarInclusionLocal(f.uuid, incluida);
     this.svc.setInclusionNoAsociados(mes, [f.uuid], incluida).subscribe({
+      // LC.19.6: un cambio invalida el archivo generado; el mes se vuelve a preparar solo cuando
+      // dejas de mover casillas (no uno por clic).
+      next: () => this.programarPreparacion(mes),
       error: (e) => { this.aplicarInclusionLocal(f.uuid, antes); this.error('No se pudo cambiar la factura', e); },
     });
+  }
+
+  /** LC.19.6 — el porqué de una exclusión, de la lista cerrada. Queda en la decisión guardada. */
+  elegirMotivo(f: FacturaMes, motivo: string | null) {
+    const mes = this.mesSel(); if (!mes || !motivo) return;
+    this.svc.setInclusionNoAsociados(mes, [f.uuid], false, motivo).subscribe({
+      next: () => {
+        const d = this.detalle(); if (!d) return;
+        this.detalle.set({ ...d, facturas: d.facturas.map((x) => (x.uuid === f.uuid ? { ...x, motivo_exclusion: motivo } : x)) });
+      },
+      error: (e) => this.error('No se pudo guardar el motivo', e),
+    });
+  }
+
+  private programarPreparacion(mes: string) {
+    if (this.rePreparar) clearTimeout(this.rePreparar);
+    this.rePreparar = setTimeout(() => {
+      this.rePreparar = null;
+      this.preparados.delete(mes);
+      if (this.mesSel() === mes) this.prepararMes(mes);
+    }, 4000);
+  }
+
+  /**
+   * LC.19.6 — Lo que el mes hace solo (POST /preparar), disparado al abrirlo: «aplicado» si ContPAQi
+   * ya casa con el archivo, cuentas de proveedores con nombre idéntico, la verificación ante el SAT
+   * por lotes y, en el mes que toca, el archivo. Sólo con GESTIONAR. Repite mientras el SAT tenga
+   * pendientes; al final reabre el mes una vez y dice qué hizo.
+   */
+  private prepararMes(mes: string) {
+    if (!this.puedeGestionar() || this.preparados.has(mes)) return;
+    this.preparados.add(mes);
+    this.preparando.set('Preparando el mes…');
+    const hecho = { aplicado: null as string | null, cuentas: [] as string[], consultadas: 0, vigentes: 0, otras: 0, generado: null as string | null };
+    const vuelta = (n: number) => this.svc.prepararMes(mes).subscribe({
+      next: (p: PreparacionMes) => {
+        if (p.aplicado.hecho) hecho.aplicado = p.aplicado.motivo;
+        hecho.cuentas.push(...p.cuentas_asignadas.map((c) => `${c.nombre} → ${c.cuenta}`));
+        if (p.sat) {
+          hecho.consultadas += p.sat.consultados; hecho.vigentes += p.sat.vigentes;
+          hecho.otras += p.sat.cancelados + p.sat.no_encontrados + p.sat.fallidos;
+        }
+        if (p.generado.hecho) hecho.generado = `${p.generado.facturas} facturas, póliza ${p.generado.folio}`;
+        if (p.restantes > 0 && (p.sat?.consultados ?? 0) > 0 && n < 30 && this.mesSel() === mes) {
+          this.preparando.set(`Verificando en el SAT… ${hecho.consultadas} consultadas, faltan ${p.restantes}`);
+          vuelta(n + 1);
+          return;
+        }
+        this.preparando.set(null);
+        const partes = [
+          hecho.aplicado ? `aplicado: ${hecho.aplicado}` : '',
+          hecho.cuentas.length ? `cuenta asignada: ${hecho.cuentas.join(', ')}` : '',
+          hecho.consultadas ? `SAT: ${hecho.vigentes} vigentes${hecho.otras ? `, ${hecho.otras} sin confirmar` : ''}` : '',
+          hecho.generado ? `archivo listo: ${hecho.generado}` : '',
+        ].filter(Boolean);
+        if (!partes.length) return;
+        this.toast.add({ severity: hecho.otras ? 'warn' : 'info', summary: 'El mes se preparó solo', detail: partes.join(' · '), life: 9000 });
+        if (this.mesSel() === mes) this.abrirMes(mes);
+        this.cargarMeses();
+      },
+      error: (e) => { this.preparando.set(null); this.error('No se pudo preparar el mes solo', e); },
+    });
+    vuelta(0);
+  }
+
+  /** LC.19.6 — los tres archivos que van a ContPAQi, de un clic (con el código de cada uno). */
+  descargarTodo() {
+    if (this.bajandoTodo()) return;
+    this.bajandoTodo.set(true);
+    this.descargar();
+    this.exportarRespaldo();
+    this.descargarAsociador();
+    setTimeout(() => this.bajandoTodo.set(false), 1500);
   }
 
   private aplicarInclusionLocal(uuid: string, incluida: boolean) {
@@ -1127,6 +1332,42 @@ export class MovimientosNoAsociadosComponent implements OnInit {
       },
       error: (e) => { this.generando.set(false); this.error('No se pudo generar', e); },
     });
+  }
+
+  /**
+   * LC.19.1 — Verifica ante el SAT las facturas del mes, un lote (~100, ~25 s) por llamada, y
+   * repite mientras el servidor diga que quedan. Si cambias de mes se detiene: el resultado de
+   * otro mes no se mezcla con éste. Al final reabre el mes, que es quien decide qué bloquea.
+   */
+  verificarSat() {
+    const mes = this.mesSel(); if (!mes || this.verificandoSat()) return;
+    this.verificandoSat.set(true);
+    const acum = { consultados: 0, vigentes: 0, cancelados: 0, no_encontrados: 0, fallidos: 0 };
+    let total = 0;
+    const terminar = (resumen?: string, sev: 'success' | 'warn' = 'success') => {
+      this.verificandoSat.set(false); this.progresoSat.set(null);
+      if (resumen) this.toast.add({ severity: sev, summary: 'Verificación ante el SAT', detail: resumen, life: 8000 });
+      if (this.mesSel() === mes) this.abrirMes(mes);
+    };
+    const vuelta = () => this.svc.verificarSat(mes).subscribe({
+      next: (r) => {
+        if (!r.disponible) {
+          terminar('El servidor no tiene con qué consultar al SAT: no se verificó nada y nada se dio por vigente.', 'warn');
+          return;
+        }
+        total = total || r.por_verificar;
+        acum.consultados += r.consultados; acum.vigentes += r.vigentes; acum.cancelados += r.cancelados;
+        acum.no_encontrados += r.no_encontrados; acum.fallidos += r.fallidos;
+        this.progresoSat.set(`Verificando… ${acum.consultados} de ${total} consultadas`);
+        if (r.restantes > 0 && r.consultados > 0 && this.mesSel() === mes) { vuelta(); return; }
+        const otros = acum.cancelados + acum.no_encontrados + acum.fallidos;
+        terminar(`${acum.vigentes} vigentes · ${acum.cancelados} canceladas · ${acum.no_encontrados} que el SAT no encontró · `
+          + `${acum.fallidos} sin respuesta${otros ? '. Las que no salieron vigentes siguen sin poder entrar al TXT.' : '.'}`,
+          otros ? 'warn' : 'success');
+      },
+      error: (e) => { this.verificandoSat.set(false); this.progresoSat.set(null); this.error('No se pudo verificar ante el SAT', e); },
+    });
+    vuelta();
   }
 
   /**
@@ -1215,7 +1456,9 @@ export class MovimientosNoAsociadosComponent implements OnInit {
       next: (blob) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url; a.download = `complemento-compras-${mes}.txt`;
+        // LC.19.6: el nombre es el que guardó la corrida (poliza-compras-* para el libro del mes,
+        // complemento-* para lo demás). Antes se fijaba aquí y pisaba al del servidor.
+        a.href = url; a.download = String(this.detalle()?.run?.['archivo_nombre'] ?? `complemento-compras-${mes}.txt`);
         a.click(); URL.revokeObjectURL(url);
       },
       error: (e) => this.error('No se pudo descargar', e),

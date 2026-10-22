@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnav
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import { AREA_COTIZACIONES } from './quote-scope';
 import type { Knex } from 'knex';
+import { totalesCotizacion } from '@megadulces/contracts';
 
 /**
  * `[COT.1]` — El motor de precio de una cotización.
@@ -44,9 +45,10 @@ import type { Knex } from 'knex';
  *   · Los mecanismos por MONTO (`descuento_monto`, `gratis_monto`) **no se aplican**: su umbral
  *     no tiene testigo (cero reglas vigentes con qué cuadrarlo contra una venta). Se REPORTAN
  *     como `no_aplicado` con su motivo, para que la pantalla pueda decirlo.
- *   · El IVA: el precio del ERP **ya trae impuestos** (Σ`kdm2.c13` = `kdm1.c16`, 99.84%), así que
- *     `unit_price` los incluye y el desglose se hace hacia atrás. La tasa es la del renglón, y
- *     `tax_basis` dice si fue asumida — el IEPS por producto todavía no tiene resolvedor.
+ *   · El impuesto: el precio del ERP **ya trae impuestos** (Σ`kdm2.c13` = `kdm1.c16`, 99.84%), así
+ *     que `unit_price` los incluye y el desglose se hace hacia atrás con la tasa de CADA producto
+ *     (`kdii.c18` IVA · `c19` IEPS, `[E.25]`). Sin ficha en `kdii` se ASUME IVA 16 % y `tax_basis`
+ *     lo dice.
  */
 
 /** Peldaño de la escalera de unidades. `base` siempre existe; `pack`/`box` sólo si el ERP los declara. */
@@ -81,6 +83,66 @@ export interface LadderRung {
   size: number | null;
   /** Precio por volumen del ERP para ESTE peldaño (`kdpv_prod_util`), si existe. */
   volume: { min_qty: number; price: number } | null;
+  /**
+   * `[E.22]` La escalera COMPLETA de volumen de esta unidad, sólo si el ERP la publica disjunta
+   * (cada tramo empieza después de que termina el anterior). Ausente = no hay escalera o sus
+   * tramos se enciman (niveles por transacción, ERP_KEPLER §2.7): entonces rige `volume`.
+   */
+  tiers?: VolumeTier[];
+}
+
+/** `[E.22]` Un tramo de `kdpv_prod_util`: desde `c4` hasta `c5` unidades, a `c7`. */
+export interface VolumeTier {
+  desde: number;
+  hasta: number;
+  price: number;
+}
+
+/**
+ * `[E.22]` Los tramos ordenados si NO se enciman; null si se enciman.
+ *
+ * Arbitrado contra lo cobrado (60 d, ventas U-D, 2026-10-21): en las 95,377 escaleras disjuntas,
+ * cuando «el tramo que contiene la cantidad» y «el primer tramo» dan precios distintos, Kepler
+ * cobró el de la cantidad en 4,275 renglones y el primero en 26. En las 7,071 encimadas ninguna
+ * regla gana (1,880 contra 2,294): ahí siguen siendo niveles por transacción y no se derivan.
+ */
+export function escaleraDisjunta(tramos: VolumeTier[]): VolumeTier[] | null {
+  const t = [...tramos].sort((a, b) => a.desde - b.desde || a.hasta - b.hasta);
+  for (let i = 1; i < t.length; i++) if (t[i].desde <= t[i - 1].hasta) return null;
+  return t.length ? t : null;
+}
+
+/** `[E.22]` El tramo que CONTIENE la cantidad; null si cae abajo del primero o en un hueco. */
+export function tramoDeCantidad(tramos: VolumeTier[], qty: number): VolumeTier | null {
+  return tramos.find((t) => qty >= t.desde && qty <= t.hasta) ?? null;
+}
+
+/**
+ * `[E.23]` La unidad MAYOR que cabe entera en la cantidad: Kepler cobra a su precio, prorrateado
+ * a la unidad del renglón. 144 PZA de `02195` (CJA de 144) salen a 2,197.95 / 144 = $15.26, no a
+ * la lista de la pieza ($22.20). Eso es lo que Kepler guarda como precio original (`kdm2.c66`).
+ *
+ * Arbitrado contra lo cobrado (2026-10-21), donde esta regla y «la lista de su propia unidad»
+ * difieren: pedidos de telemarketing 30 d → 7,284 contra 280; mostrador `U-D-10` 3 d → 5,087
+ * contra 218. `factor` = cuántas unidades mayores es UNA unidad del renglón; `n` = cuántas
+ * unidades mayores enteras caben (para buscar su tramo de volumen).
+ */
+export function unidadMayorQueCabe(
+  led: { rungs: Record<Rung, LadderRung> },
+  rung: Rung,
+  quantity: number,
+): { step: LadderRung & { price: number }; factor: number; n: number } | null {
+  const fLinea = rung === 'base' ? 1 : Number(led.rungs[rung]?.size);
+  if (!(fLinea > 0)) return null;
+  const enBase = quantity * fLinea;
+  for (const r of ['box', 'pack'] as Rung[]) {
+    const g = led.rungs[r];
+    const size = Number(g?.size);
+    if (g && g.price !== null && size > fLinea && enBase + 1e-9 >= size) {
+      return { step: g as LadderRung & { price: number }, factor: fLinea / size, n: Math.floor(enBase / size + 1e-9) };
+    }
+  }
+  return null;
 }
 
 /** `[VTK.1]` Fila de `analytics.v_label_presentations` con la unidad mayor (CJA/BTO/CUB) de un SKU. */
@@ -135,8 +197,12 @@ export interface PricedLine {
   unit_price: number | null;
   price_source: PriceSource;
   line_total: number | null;
+  /** iva + ieps del producto (o 0.16 asumido sin ficha en `kdii`: lo dice `tax_basis`). */
   tax_rate: number;
   tax_basis: string;
+  /** `[E.25]` IVA e IEPS del producto (`kdii.c18`/`c19`, como fracción). null = sin ficha / sin precio. */
+  iva_rate: number | null;
+  ieps_rate: number | null;
   availability: string;
   /** El desglose completo: cada paso, con qué fuente y qué le hizo al precio. */
   applied: PriceStep[];
@@ -346,6 +412,28 @@ export class QuotePricingService {
     const kdpvRows = kdpv.rows as KdpvVolumeRow[];
     const kdpvByKey = new Map<string, KdpvVolumeRow>(kdpvRows.map((r) => [r.sku + '|' + r.unidad, r]));
 
+    // `[E.22]` La escalera COMPLETA por (sku, unidad): el motor elige el tramo que CONTIENE la
+    // cantidad. Antes sólo conocía el primero y 38 PAQ del 89008 salían a $55.00 (Kepler: $51.76).
+    const tramosQ = await knex.raw(
+      'SELECT btrim(u.c1) AS sku, upper(btrim(u.c2::text)) AS unidad,'
+        + ' u.c4::numeric AS desde, u.c5::numeric AS hasta, u.c7::numeric AS price'
+        + ' FROM kepler_ods.kdpv_prod_util u'
+        + ' WHERE u.sucursal = ?' + inSkus('btrim(u.c1)')
+        + ' AND u.c7::numeric > 0',
+      [branch, ...args],
+    );
+    const tramosPorClave = new Map<string, VolumeTier[]>();
+    for (const r of tramosQ.rows as Array<{ sku: string; unidad: string; desde: string; hasta: string; price: string }>) {
+      const k = r.sku + '|' + r.unidad;
+      const l = tramosPorClave.get(k) ?? [];
+      l.push({ desde: Number(r.desde), hasta: Number(r.hasta), price: Number(r.price) });
+      tramosPorClave.set(k, l);
+    }
+    const tiersDe = (sku: string, label: string | null): VolumeTier[] | undefined => {
+      const l = label ? tramosPorClave.get(sku + '|' + label.toUpperCase()) : undefined;
+      return (l && escaleraDisjunta(l)) || undefined;
+    };
+
     const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
     const volumeOf = (minQty: unknown, price: unknown) =>
       minQty !== null && minQty !== undefined && price !== null && price !== undefined
@@ -398,6 +486,7 @@ export class QuotePricingService {
             volume: baseIsGrouped
               ? volumeOf(p.wholesale_pack_min_qty, p.wholesale_pack_price)
               : volumeOf(p.wholesale_piece_min_qty, p.wholesale_piece_price),
+            tiers: tiersDe(sku, p.unit_base ?? null),
           },
           pack: {
             rung: 'pack',
@@ -406,6 +495,7 @@ export class QuotePricingService {
             size: num(p.pack_size),
             // El volumen de PAQ sólo está publicado aparte cuando la base es PZA.
             volume: base === 'PZA' ? volumeOf(p.wholesale_pack_min_qty, p.wholesale_pack_price) : null,
+            tiers: base === 'PZA' ? tiersDe(sku, 'PAQ') : undefined,
           },
           box: {
             rung: 'box',
@@ -413,6 +503,7 @@ export class QuotePricingService {
             price: boxPrice,
             size: boxSize,
             volume: boxVolume,
+            tiers: boxPrice !== null ? tiersDe(sku, boxLabel ?? 'CJA') : undefined,
           },
         },
       });
@@ -485,41 +576,95 @@ export class QuotePricingService {
       });
     }
 
-    const listPrice = step.price;
-    let price = listPrice;
     let priceSource: PriceSource = 'list';
     applied.push({
       step: 'lista',
       source: 'analytics.v_label_prices (kdii.c90/c91/c92)',
       detail: `Precio de lista del peldaño ${rung}${step.label ? ` (${step.label})` : ''}`,
       before: null,
-      after: price,
+      after: step.price,
     });
+
+    // `[E.23]` Si la cantidad completa una unidad mayor, Kepler la cobra a ESE precio prorrateado,
+    // y eso es su precio original del renglón (`kdm2.c66`): de ahí parte el descuento.
+    const mayor = unidadMayorQueCabe(led, rung, quantity);
+    const listPrice = mayor ? this.round(mayor.step.price * mayor.factor, 4) : step.price;
+    if (mayor && listPrice !== step.price) {
+      applied.push({
+        step: 'unidad_mayor',
+        source: 'kdii (precio de la unidad mayor, prorrateado como kdm2.c66)',
+        detail: `${quantity} ${step.label ?? 'u'} completan ${mayor.n} ${mayor.step.label ?? 'unidad mayor'}: se cobran a $${mayor.step.price} / ${this.round(1 / mayor.factor, 4)}`,
+        before: step.price,
+        after: listPrice,
+      });
+    }
+    let price = listPrice;
 
     // ── Mecanismo 2a: el precio por VOLUMEN del propio ERP (kdpv_prod_util) ──────────────────
     // No es un descuento porcentual: es OTRO precio del mismo peldaño a partir de N unidades.
-    if (step.volume) {
-      if (quantity >= step.volume.min_qty) {
-        if (step.volume.price < price) {
-          applied.push({
-            step: 'volumen',
-            source: 'kdpv_prod_util (via v_label_prices.wholesale_*)',
-            detail: `Precio por volumen desde ${step.volume.min_qty} ${step.label ?? 'u'}`,
-            before: price,
-            after: step.volume.price,
-          });
-          price = step.volume.price;
-          priceSource = 'volume_qty';
-        } else {
-          // El ERP publica un "mayoreo" más caro que la lista. Pasa, y no se corrige en silencio.
+    // `[E.22]` Con escalera disjunta rige el tramo que CONTIENE la cantidad; abajo del primero se
+    // informa el primero, y en un hueco entre tramos no se aplica ninguno (no se adivina).
+    //
+    // `[E.24]` Y rige por PRECEDENCIA, no por el más barato. Arbitrado contra lo cobrado (pedidos
+    // de telemarketing 30 d, 12,723 renglones sin deriva de precio): donde las dos reglas difieren,
+    // Kepler cobró la precedencia 304 veces y «el mínimo» 4.
+    //   · si la cantidad completa una unidad MAYOR: el tramo de ESA unidad (por las que caben,
+    //     prorrateado) o, sin tramo, su precio prorrateado. El tramo de la unidad propia no cuenta.
+    //   · si no: el tramo de la unidad propia, AUNQUE sea más caro que la lista (Kepler lo cobra).
+    const tramo = step.tiers ? tramoDeCantidad(step.tiers, quantity) : null;
+    const volume = !step.tiers
+      ? step.volume
+      : tramo
+        ? { min_qty: tramo.desde, price: tramo.price }
+        : quantity < step.tiers[0].desde
+          ? { min_qty: step.tiers[0].desde, price: step.tiers[0].price }
+          : null;
+    if (mayor) {
+      const tm = mayor.step.tiers ? tramoDeCantidad(mayor.step.tiers, mayor.n) : null;
+      const vm = mayor.step.tiers
+        ? (tm ? { min_qty: tm.desde, price: tm.price } : null)
+        : (mayor.step.volume && mayor.n >= mayor.step.volume.min_qty ? mayor.step.volume : null);
+      if (vm) {
+        const prorrateado = this.round(vm.price * mayor.factor, 4);
+        applied.push({
+          step: 'volumen_unidad_mayor',
+          source: 'kdpv_prod_util (tramo de la unidad mayor, prorrateado)',
+          detail: `${mayor.n} ${mayor.step.label ?? 'unidad mayor'} a $${vm.price} desde ${vm.min_qty}, prorrateado`,
+          before: price,
+          after: prorrateado,
+        });
+        price = prorrateado;
+        priceSource = 'volume_qty';
+      }
+      if (volume && quantity >= volume.min_qty) {
+        notApplied.push({
+          mechanism: 'volumen',
+          reason: `La cantidad completa ${mayor.n} ${mayor.step.label ?? 'unidad mayor'}: Kepler la cobra como unidad mayor y no aplica el tramo de ${step.label ?? 'la unidad'} ($${volume.price}).`,
+        });
+      }
+    } else if (volume) {
+      if (quantity >= volume.min_qty) {
+        applied.push({
+          step: 'volumen',
+          source: step.tiers ? 'kdpv_prod_util (tramo que contiene la cantidad)' : 'kdpv_prod_util (via v_label_prices.wholesale_*)',
+          detail: tramo
+            ? `Precio por volumen de ${tramo.desde} a ${tramo.hasta >= 999999 ? 'más' : tramo.hasta} ${step.label ?? 'u'}`
+            : `Precio por volumen desde ${volume.min_qty} ${step.label ?? 'u'}`,
+          before: price,
+          after: volume.price,
+        });
+        if (volume.price > step.price) {
+          // Kepler lo cobra así; la cotización no lo "corrige", pero tampoco lo calla.
           warnings.push(
-            `El precio por volumen del ERP (${step.volume.price}) es MAYOR que el de lista (${price}): se conserva el de lista.`,
+            `El precio por volumen del ERP ($${volume.price}) es MAYOR que el de lista ($${step.price}), y es el que Kepler cobra.`,
           );
         }
+        price = volume.price;
+        priceSource = 'volume_qty';
       } else {
         notApplied.push({
           mechanism: 'volumen',
-          reason: `Precio por volumen de $${step.volume.price} disponible a partir de ${step.volume.min_qty} ${step.label ?? 'unidades'}.`,
+          reason: `Precio por volumen de $${volume.price} disponible a partir de ${volume.min_qty} ${step.label ?? 'unidades'}.`,
         });
       }
     }
@@ -531,14 +676,21 @@ export class QuotePricingService {
     // de esas ranuras son PAQ 51, CJA 13, KG 1; la única de `CUB` cuelga de `base`), y la
     // cláusula por rótulo de abajo ya las alcanzaría si aparecieran. Un campo nuevo sin un caso
     // que lo exija es un primitivo inventado (ADR-056).
-    const unitName = rung === 'box' ? (step.label || 'CJA') : (rung === 'pack' ? 'PAQ' : (step.label || 'PZA'));
+    //
+    // `[E.23]` Si la cantidad se cobró como unidad MAYOR, la promo es la de ESA unidad y su umbral se
+    // cuenta en unidades mayores; si esa unidad no tiene promo, no hay promo. Arbitrado contra lo
+    // cobrado (replay de telemarketing, 324 renglones con unidad mayor y promo): 313 la cumplen.
+    const rRung: Rung = mayor ? mayor.step.rung : rung;
+    const rStep = mayor ? mayor.step : step;
+    const rQty = mayor ? mayor.n : quantity;
+    const unitName = rRung === 'box' ? (rStep.label || 'CJA') : (rRung === 'pack' ? 'PAQ' : (rStep.label || 'PZA'));
     const rules = await knex.raw(
       `SELECT mecanismo, umbral_tipo, umbral, pct, free_sku, free_qty, free_unidad,
               umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to
          FROM analytics.v_erp_discount_rules
         WHERE tienda = :branch AND sku = :sku
           AND (aplica_a = :aplica_a OR upper(unidad) = upper(:unitName))`,
-      { branch, sku, aplica_a: RUNG_TO_APLICA_A[rung], unitName },
+      { branch, sku, aplica_a: RUNG_TO_APLICA_A[rRung], unitName },
     );
 
     let freeGoods: PricedLine['free_goods'] = null;
@@ -554,10 +706,10 @@ export class QuotePricingService {
         });
         continue;
       }
-      if (umbral === null || quantity < umbral) {
+      if (umbral === null || rQty < umbral) {
         notApplied.push({
           mechanism: rule.mecanismo,
-          reason: umbral === null ? 'La regla no declara umbral.' : `Requiere ${umbral} y se están cotizando ${quantity}.`,
+          reason: umbral === null ? 'La regla no declara umbral.' : `Requiere ${umbral} ${rStep.label ?? ''} y se están cotizando ${rQty}.`,
         });
         continue;
       }
@@ -576,7 +728,7 @@ export class QuotePricingService {
         applied.push({
           step: 'promo_cantidad',
           source: 'kdpv_descuxq (via v_erp_discount_rules)',
-          detail: `${pct}% desde ${umbral} ${step.label ?? 'u'} · vigente hasta ${String(rule.valid_to).slice(0, 10)}`,
+          detail: `${pct}% desde ${umbral} ${rStep.label ?? 'u'} · vigente hasta ${String(rule.valid_to).slice(0, 10)}`,
           before: price,
           after,
         });
@@ -598,7 +750,7 @@ export class QuotePricingService {
         applied.push({
           step: 'gratis_cantidad',
           source: 'kdpv_gratisxq (via v_erp_discount_rules)',
-          detail: `Desde ${umbral} ${step.label ?? 'u'} se regalan ${freeGoods.quantity} de ${freeGoods.sku}`,
+          detail: `Desde ${umbral} ${rStep.label ?? 'u'} se regalan ${freeGoods.quantity} de ${freeGoods.sku}`,
           before: price,
           after: price,
         });
@@ -608,7 +760,10 @@ export class QuotePricingService {
       }
     }
 
-    const unitPrice = this.round(price, 4);
+    const tasas = await this.tasasDe(knex, branch, sku);
+
+    // `[E.23]` A centavos, como `kdm2.c12`: Kepler cobra cantidad × precio de dos decimales.
+    const unitPrice = this.round(price, 2);
     const lineTotal = this.round(unitPrice * quantity, 2);
 
     return {
@@ -627,14 +782,14 @@ export class QuotePricingService {
       unit_price: unitPrice,
       price_source: priceSource,
       line_total: lineTotal,
-      tax_rate: DEFAULT_TAX_RATE,
-      // El precio del ERP ya trae impuestos; la tasa del renglón todavía no tiene resolvedor por
-      // producto (el IEPS vive en el renglón de VENTA, `kdm2.c18`, no en el catálogo).
-      tax_basis: 'iva_16_asumido_precio_con_impuestos',
+      tax_rate: tasas ? tasas.iva + tasas.ieps : DEFAULT_TAX_RATE,
+      tax_basis: tasas ? 'kdii_c18_c19_precio_con_impuestos' : 'iva_16_asumido_sin_ficha_kdii',
+      iva_rate: tasas?.iva ?? null,
+      ieps_rate: tasas?.ieps ?? null,
       availability: productId ? 'available' : 'unmatched',
       applied,
       not_applied: notApplied,
-      volume_tier: step.volume ? { min_qty: step.volume.min_qty, price: step.volume.price } : null,
+      volume_tier: volume ? { min_qty: volume.min_qty, price: volume.price } : null,
       free_goods: freeGoods,
       unpriced_reason: null,
       warnings,
@@ -663,6 +818,8 @@ export class QuotePricingService {
       line_total: null,
       tax_rate: DEFAULT_TAX_RATE,
       tax_basis: 'no_aplica_sin_precio',
+      iva_rate: null,
+      ieps_rate: null,
       availability: a.availability,
       applied: a.applied,
       not_applied: a.notApplied,
@@ -688,97 +845,7 @@ export class QuotePricingService {
     const userId = this.tenantCtx.get()?.userId ?? null;
 
     try {
-      return await this.tk.run(async (trx) => {
-        const q = await trx.raw(
-          `SELECT id, status, source_branch FROM commercial.quotes
-            WHERE id = :id AND deleted_at IS NULL`,
-          { id: quoteId },
-        );
-        if (!q.rows.length) throw new NotFoundException('Cotización no encontrada.');
-        const quote = q.rows[0];
-        await this.assertEscribe(quote.source_branch);
-        if (quote.status !== 'draft') {
-          throw new BadRequestException(
-            `Sólo se le agregan renglones a una cotización en borrador (ésta está "${quote.status}"). Una cotización enviada que cambia es otra versión, no la misma.`,
-          );
-        }
-
-        const sku = (input.sku || '').trim();
-        let priced: PricedLine | null = null;
-        if (sku) {
-          if (!quote.source_branch) {
-            throw new BadRequestException(
-              'La cotización no dice desde qué sucursal se arma, y el precio no es el mismo en todas.',
-            );
-          }
-          priced = await this.priceLine(trx, {
-            branch: quote.source_branch,
-            sku,
-            quantity: input.quantity,
-            rung: input.rung,
-          });
-        } else if (!input.requested_text || !input.requested_text.trim()) {
-          throw new BadRequestException(
-            'Un renglón necesita un SKU o el texto de lo que pidió el cliente. Lo que no casó con el catálogo es información, no basura: se guarda.',
-          );
-        }
-
-        /**
-         * `[COT.1b]` El `max+1` iba SIN candado: dos `addLine` a la vez sobre la misma cotización
-         * leían el mismo número y el segundo moría contra
-         * `commercial_quote_lines_quote_linenum_unique`. No es teórico — la pantalla nueva agrega
-         * renglones de a uno y rápido.
-         *
-         * El `FOR UPDATE` va sobre la fila de la COTIZACIÓN (que ya está en esta transacción), no
-         * sobre los renglones: bloquear renglones no impide que otro inserte el primero. Serializa
-         * los `addLine` de una misma cotización y no toca a las demás.
-         */
-        await trx.raw(`SELECT id FROM commercial.quotes WHERE id = :id FOR UPDATE`, { id: quoteId });
-        const next = await trx.raw(
-          `SELECT coalesce(max(line_number), 0) + 1 AS n FROM commercial.quote_lines WHERE quote_id = :id`,
-          { id: quoteId },
-        );
-        let lineNumber = Number(next.rows[0].n);
-
-        await this.insertLine(trx, quoteId, lineNumber, priced, input, userId, null);
-
-        // El regalo es un renglón propio, a precio cero LEGÍTIMO, colgado del que se lo ganó.
-        if (priced?.free_goods && priced.free_goods.quantity > 0) {
-          const parent = lineNumber;
-          lineNumber += 1;
-          await trx.raw(
-            // `[COT.1b]` El regalo lleva su rótulo pero NO factor: la regla del ERP dice qué unidad
-            // se regala (`kdpv_gratisxq.c12`) y no cuántas bases trae. Se guarda lo que se sabe y
-            // se declara ausente lo que no — rellenar con 1 sería inventar la conversión.
-            `INSERT INTO commercial.quote_lines
-               (tenant_id, quote_id, line_number, product_id, requested_text, quantity,
-                unit_price, list_price, line_subtotal, line_total, price_source, parent_line_number,
-                availability, notes, qty_unit, created_by, updated_by)
-             VALUES
-               (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :quantity,
-                0, 0, 0, 0, 'free_goods', :parent,
-                :availability, :notes, :qty_unit, :user_id, :user_id)`,
-            {
-              quote_id: quoteId,
-              line_number: lineNumber,
-              product_id: priced.free_goods.product_id,
-              requested_text: priced.free_goods.product_id ? null : priced.free_goods.sku,
-              quantity: priced.free_goods.quantity,
-              parent,
-              availability: priced.free_goods.product_id ? 'available' : 'unmatched',
-              notes: `Producto gratis del ERP por el renglón ${parent}`,
-              qty_unit: priced.free_goods.unit_label ?? null,
-              user_id: userId,
-            },
-          );
-        }
-
-        await this.recalcTotals(trx, quoteId);
-        const count = await trx.raw(`SELECT count(*)::int AS n FROM commercial.quote_lines WHERE quote_id = :id`, {
-          id: quoteId,
-        });
-        return { quote_id: quoteId, lines: Number(count.rows[0].n), priced };
-      });
+      return await this.tk.run((trx) => this.addLineTrx(trx, quoteId, input, userId));
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code;
       if (code === '25006' || code === '42501') {
@@ -788,6 +855,110 @@ export class QuotePricingService {
       }
       throw err;
     }
+  }
+
+  /**
+   * `[E.21]` El cuerpo de `addLine`, dentro de una transacción AJENA. Lo usa el alta
+   * (`CommercialQuotesService.create` con `lines`) para que la cabecera y todos sus renglones
+   * entren juntos o no entre nada: antes la pantalla creaba la cabecera y agregaba los renglones
+   * de a uno por HTTP, y un renglón que fallaba dejaba un folio a medias y el reintento creaba
+   * otro folio (auditoría de cotizaciones, C3).
+   */
+  async addLineTrx(
+    trx: Knex,
+    quoteId: string,
+    input: { sku?: string | null; requested_text?: string | null; quantity: number; rung?: Rung },
+    userId: string | null,
+  ): Promise<AddLineResult> {
+    const q = await trx.raw(
+      `SELECT id, status, source_branch FROM commercial.quotes
+        WHERE id = :id AND deleted_at IS NULL`,
+      { id: quoteId },
+    );
+    if (!q.rows.length) throw new NotFoundException('Cotización no encontrada.');
+    const quote = q.rows[0];
+    await this.assertEscribe(quote.source_branch);
+    if (quote.status !== 'draft') {
+      throw new BadRequestException(
+        `Sólo se le agregan renglones a una cotización en borrador (ésta está "${quote.status}"). Una cotización enviada que cambia es otra versión, no la misma.`,
+      );
+    }
+
+    const sku = (input.sku || '').trim();
+    let priced: PricedLine | null = null;
+    if (sku) {
+      if (!quote.source_branch) {
+        throw new BadRequestException(
+          'La cotización no dice desde qué sucursal se arma, y el precio no es el mismo en todas.',
+        );
+      }
+      priced = await this.priceLine(trx, {
+        branch: quote.source_branch,
+        sku,
+        quantity: input.quantity,
+        rung: input.rung,
+      });
+    } else if (!input.requested_text || !input.requested_text.trim()) {
+      throw new BadRequestException(
+        'Un renglón necesita un SKU o el texto de lo que pidió el cliente. Lo que no casó con el catálogo es información, no basura: se guarda.',
+      );
+    }
+
+    /**
+     * `[COT.1b]` El `max+1` iba SIN candado: dos `addLine` a la vez sobre la misma cotización
+     * leían el mismo número y el segundo moría contra
+     * `commercial_quote_lines_quote_linenum_unique`. No es teórico — la pantalla nueva agrega
+     * renglones de a uno y rápido.
+     *
+     * El `FOR UPDATE` va sobre la fila de la COTIZACIÓN (que ya está en esta transacción), no
+     * sobre los renglones: bloquear renglones no impide que otro inserte el primero. Serializa
+     * los `addLine` de una misma cotización y no toca a las demás.
+     */
+    await trx.raw(`SELECT id FROM commercial.quotes WHERE id = :id FOR UPDATE`, { id: quoteId });
+    const next = await trx.raw(
+      `SELECT coalesce(max(line_number), 0) + 1 AS n FROM commercial.quote_lines WHERE quote_id = :id`,
+      { id: quoteId },
+    );
+    let lineNumber = Number(next.rows[0].n);
+
+    await this.insertLine(trx, quoteId, lineNumber, priced, input, userId, null);
+
+    // El regalo es un renglón propio, a precio cero LEGÍTIMO, colgado del que se lo ganó.
+    if (priced?.free_goods && priced.free_goods.quantity > 0) {
+      const parent = lineNumber;
+      lineNumber += 1;
+      await trx.raw(
+        // `[COT.1b]` El regalo lleva su rótulo pero NO factor: la regla del ERP dice qué unidad
+        // se regala (`kdpv_gratisxq.c12`) y no cuántas bases trae. Se guarda lo que se sabe y
+        // se declara ausente lo que no — rellenar con 1 sería inventar la conversión.
+        `INSERT INTO commercial.quote_lines
+           (tenant_id, quote_id, line_number, product_id, requested_text, quantity,
+            unit_price, list_price, line_subtotal, line_total, price_source, parent_line_number,
+            availability, notes, qty_unit, created_by, updated_by)
+         VALUES
+           (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :quantity,
+            0, 0, 0, 0, 'free_goods', :parent,
+            :availability, :notes, :qty_unit, :user_id, :user_id)`,
+        {
+          quote_id: quoteId,
+          line_number: lineNumber,
+          product_id: priced.free_goods.product_id,
+          requested_text: priced.free_goods.product_id ? null : priced.free_goods.sku,
+          quantity: priced.free_goods.quantity,
+          parent,
+          availability: priced.free_goods.product_id ? 'available' : 'unmatched',
+          notes: `Producto gratis del ERP por el renglón ${parent}`,
+          qty_unit: priced.free_goods.unit_label ?? null,
+          user_id: userId,
+        },
+      );
+    }
+
+    await this.recalcTotals(trx, quoteId);
+    const count = await trx.raw(`SELECT count(*)::int AS n FROM commercial.quote_lines WHERE quote_id = :id`, {
+      id: quoteId,
+    });
+    return { quote_id: quoteId, lines: Number(count.rows[0].n), priced };
   }
 
   private async insertLine(
@@ -802,7 +973,7 @@ export class QuotePricingService {
     const qty = Number(input.quantity);
     const unit = priced?.unit_price ?? null;
     const lineTotal = unit === null ? 0 : this.round(unit * qty, 2);
-    const subtotal = unit === null ? 0 : this.round(lineTotal / (1 + DEFAULT_TAX_RATE), 2);
+    const subtotal = unit === null ? 0 : this.round(lineTotal / this.divisorImpuesto(priced), 2);
 
     await trx.raw(
       // `[COT.1b]` El sello de unidad (`qty_unit`/`qty_factor`/`qty_factor_source`) entra al
@@ -810,11 +981,11 @@ export class QuotePricingService {
       // el 10 eran 10 piezas o 10 cajas. Mismas tres columnas que `commercial.order_lines`.
       `INSERT INTO commercial.quote_lines
          (tenant_id, quote_id, line_number, product_id, requested_text, requested_quantity, quantity,
-          unit_price, list_price, tax_rate, line_subtotal, line_total, price_source, parent_line_number,
+          unit_price, list_price, tax_rate, iva_rate, ieps_rate, line_subtotal, line_total, price_source, parent_line_number,
           availability, notes, qty_unit, qty_factor, qty_factor_source, created_by, updated_by)
        VALUES
          (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :requested_quantity, :quantity,
-          :unit_price, :list_price, :tax_rate, :line_subtotal, :line_total, :price_source, :parent,
+          :unit_price, :list_price, :tax_rate, :iva_rate, :ieps_rate, :line_subtotal, :line_total, :price_source, :parent,
           :availability, :notes, :qty_unit, :qty_factor, :qty_factor_source, :user_id, :user_id)`,
       {
         quote_id: quoteId,
@@ -827,7 +998,9 @@ export class QuotePricingService {
         quantity: qty,
         unit_price: unit,
         list_price: priced?.list_price ?? null,
-        tax_rate: DEFAULT_TAX_RATE,
+        tax_rate: priced?.tax_rate ?? DEFAULT_TAX_RATE,
+        iva_rate: priced?.iva_rate ?? null,
+        ieps_rate: priced?.ieps_rate ?? null,
         line_subtotal: subtotal,
         line_total: lineTotal,
         price_source: priced?.price_source ?? 'unknown',
@@ -944,13 +1117,16 @@ export class QuotePricingService {
 
       const unit = priced?.unit_price ?? null;
       const lineTotal = unit === null ? 0 : this.round(unit * qty, 2);
-      const subtotal = unit === null ? 0 : this.round(lineTotal / (1 + DEFAULT_TAX_RATE), 2);
+      const subtotal = unit === null ? 0 : this.round(lineTotal / this.divisorImpuesto(priced), 2);
 
       await trx.raw(
         `UPDATE commercial.quote_lines
             SET quantity = :quantity,
                 unit_price = :unit_price,
                 list_price = :list_price,
+                tax_rate = :tax_rate,
+                iva_rate = :iva_rate,
+                ieps_rate = :ieps_rate,
                 line_subtotal = :line_subtotal,
                 line_total = :line_total,
                 price_source = :price_source,
@@ -968,6 +1144,9 @@ export class QuotePricingService {
           quantity: qty,
           unit_price: unit,
           list_price: priced?.list_price ?? null,
+          tax_rate: priced?.tax_rate ?? DEFAULT_TAX_RATE,
+          iva_rate: priced?.iva_rate ?? null,
+          ieps_rate: priced?.ieps_rate ?? null,
           line_subtotal: subtotal,
           line_total: lineTotal,
           price_source: priced?.price_source ?? 'unknown',
@@ -1085,13 +1264,15 @@ export class QuotePricingService {
    * que hoy se borra del Excel y nadie vuelve a ver.
    */
   async recalcTotals(trx: Knex, quoteId: string): Promise<{ subtotal: number; tax_total: number; total: number }> {
-    const agg = await trx.raw(
-      `SELECT coalesce(sum(line_total), 0) AS bruto
+    // `[E.25]` La MISMA cuenta que la pantalla y el papel (`totalesCotizacion`, libs/contracts),
+    // con la tasa de cada renglón. Antes era una copia propia con IVA 16 % fijo (deuda de E.19).
+    const renglones = await trx.raw(
+      `SELECT line_total, iva_rate, ieps_rate
          FROM commercial.quote_lines
-        WHERE quote_id = :id`,
+        WHERE quote_id = :id
+        ORDER BY line_number`,
       { id: quoteId },
     );
-    const bruto = Number(agg.rows[0].bruto);
 
     const q = await trx.raw(
       `SELECT terms_discount_pct FROM commercial.quotes WHERE id = :id`,
@@ -1106,9 +1287,16 @@ export class QuotePricingService {
       throw new BadRequestException('El descuento congelado de la cotización no es un número.');
     }
 
-    const total = pct ? this.round(bruto * (1 - pct / 100), 2) : this.round(bruto, 2);
-    const subtotal = this.round(total / (1 + DEFAULT_TAX_RATE), 2);
-    const tax = this.round(total - subtotal, 2);
+    const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+    const rows = renglones.rows as Array<{ line_total: unknown; iva_rate: unknown; ieps_rate: unknown }>;
+    const t = totalesCotizacion(
+      rows.map((r) => Number(r.line_total) || 0),
+      pct,
+      rows.map((r) => ({ iva: num(r.iva_rate), ieps: num(r.ieps_rate) })),
+    );
+    const total = t.total;
+    const subtotal = t.subtotal;
+    const tax = this.round(t.iva + t.ieps, 2);
 
     await trx.raw(
       `UPDATE commercial.quotes
@@ -1117,6 +1305,35 @@ export class QuotePricingService {
       { id: quoteId, subtotal, tax, total },
     );
     return { subtotal, tax_total: tax, total };
+  }
+
+  /**
+   * `[E.25]` IVA e IEPS del producto en esa sucursal, como fracción: `kdii.c18` / `c19` (negativas =
+   * incluidas en el precio, que es el 100 % de las fichas medidas el 2026-10-22). La de la ficha = la
+   * del renglón del pedido en 2,011 de 2,011 renglones de telemarketing. null = sin ficha.
+   */
+  private async tasasDe(knex: Knex, branch: string, sku: string): Promise<{ iva: number; ieps: number } | null> {
+    const r = await knex.raw(
+      `SELECT nullif(regexp_replace(coalesce(c18::text, ''), '[^0-9.-]', '', 'g'), '')::numeric AS iva,
+              nullif(regexp_replace(coalesce(c19::text, ''), '[^0-9.-]', '', 'g'), '')::numeric AS ieps
+         FROM kepler_ods.kdii
+        WHERE sucursal = :branch AND btrim(c1) = :sku
+        LIMIT 1`,
+      { branch, sku },
+    );
+    if (!r.rows.length) return null;
+    const frac = (v: unknown): number => Math.abs(Number(v) || 0) / 100;
+    return { iva: frac(r.rows[0].iva), ieps: frac(r.rows[0].ieps) };
+  }
+
+  /**
+   * `[E.25]` Entre qué se divide el importe con impuestos para dar la base del renglón: cascada
+   * fiscal, IEPS sobre la base e IVA sobre (base + IEPS) — la misma de los tickets (TK.13). Sin tasa
+   * registrada, IVA 16 % ASUMIDO (lo declara `tax_basis`).
+   */
+  private divisorImpuesto(p: PricedLine | null): number {
+    if (!p || (p.iva_rate === null && p.ieps_rate === null)) return 1 + DEFAULT_TAX_RATE;
+    return (1 + (p.ieps_rate ?? 0)) * (1 + (p.iva_rate ?? 0));
   }
 
   private round(n: number, decimals: number): number {

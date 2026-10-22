@@ -19,16 +19,24 @@ import { guidDe, tokenDe } from './token';
  * token y guid derivados del evento (`token.ts`), sin reloj ni azar.
  */
 
+/**
+ * `[CP.8.72]` Qué es cada póliza del archivo: el lote del día (banco × día) o un pago a proveedor armado
+ * completo (una póliza por pago, como la hace la contadora). El cuadre las busca por `(evento_tipo, evento_id)`.
+ */
+export type EventoArchivo = 'bank_lote' | 'bank_pago_proveedor';
+
 export interface LoteArchivo {
-  /** `cuenta_banco|fecha` — el `evento_id` del lote, el mismo que usa el sink. */
+  /** `cuenta_banco|fecha` del lote, o el id del movimiento del pago — el `evento_id`, el mismo que usa el sink. */
   clave: string;
+  /** Ausente = `bank_lote` (como antes de `[CP.8.72]`). */
+  evento_tipo?: EventoArchivo;
   asiento: Asiento;
   movimientos: number;
 }
 
 export interface FilaEntrega {
   tenant_id: string;
-  evento_tipo: 'bank_lote';
+  evento_tipo: EventoArchivo;
   evento_id: string;
   periodo: string;
   asiento: string;
@@ -76,22 +84,25 @@ export function filasDeEntrega(p: {
 }): FilaEntrega[] {
   if (!p.por) throw new Error('una entrega sin autor no es una afirmación');
   if (!/^\d{4}-\d{2}$/.test(p.mes)) throw new Error(`mes inválido: "${p.mes}"`);
-  return p.lotes.map((l) => ({
-    tenant_id: p.tenantId,
-    evento_tipo: 'bank_lote',
-    evento_id: l.clave,
-    periodo: p.mes,
-    asiento: JSON.stringify({
-      ...l.asiento,
-      token: tokenDe('bank_lote', l.clave),
-      guid: guidDe('bank_lote', l.clave),
-      // `[CP.8.50]` Quién lo afirmó y sobre qué archivo. Viaja en el JSON y no en una columna
-      // para no pedir una migración por esto; deuda con nombre en el tracker.
-      entrega: { por: p.por, archivo_sha256: p.huella, movimientos: l.movimientos },
-    }),
-    total: l.asiento.total,
-    estado: 'entregada',
-    sink: 'txt',
-    motivo: `cargada en ContPAQi según ${p.por}`,
-  }));
+  return p.lotes.map((l): FilaEntrega => {
+    const tipo: EventoArchivo = l.evento_tipo ?? 'bank_lote';
+    return {
+      tenant_id: p.tenantId,
+      evento_tipo: tipo,
+      evento_id: l.clave,
+      periodo: p.mes,
+      asiento: JSON.stringify({
+        ...l.asiento,
+        token: tokenDe(tipo, l.clave),
+        guid: guidDe(tipo, l.clave),
+        // `[CP.8.50]` Quién lo afirmó y sobre qué archivo. Viaja en el JSON y no en una columna
+        // para no pedir una migración por esto; deuda con nombre en el tracker.
+        entrega: { por: p.por, archivo_sha256: p.huella, movimientos: l.movimientos },
+      }),
+      total: l.asiento.total,
+      estado: 'entregada',
+      sink: 'txt',
+      motivo: `cargada en ContPAQi según ${p.por}`,
+    };
+  });
 }

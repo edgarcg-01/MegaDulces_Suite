@@ -1,6 +1,7 @@
 <!-- INDICE-AUTO:INICIO -->
 
 > **Índice navegable** — 1864 KB, 12101 líneas, 72 secciones.
+> **Índice navegable** — 1895 KB, 12333 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -8,7 +9,7 @@
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
 | 85 | 92 | 15 | Tracker de Progreso |
-| 93 | 159 | 168 | 📊 Estado global de fases |
+| 93 | 159 | 171 | 📊 Estado global de fases |
 | 160 | 186 | 1 | 🚦 Estado por item (granular) |
 | 187 | 3119 | 398 | 🎯 EN PROGRESO |
 | 3136 | 3173 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
@@ -79,6 +80,75 @@
 | 11809 | 11861 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
 | 11862 | 12164 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
 | 12165 | 12185 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 187 | 3114 | 397 | 🎯 EN PROGRESO |
+| 3131 | 3168 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 3169 | 3202 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 3203 | 3287 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 3288 | 3391 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 3392 | 3458 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 3459 | 3562 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 3563 | 3646 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 3647 | 3816 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 3817 | 3879 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 3880 | 3952 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 3953 | 4004 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 4005 | 4570 | 49 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 4571 | 4584 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 4585 | 4609 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 4610 | 4632 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 4633 | 4671 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 4672 | 5300 | 56 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 5301 | 5485 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 5486 | 5528 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 5529 | 5606 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 5607 | 5700 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 5701 | 5836 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 5837 | 5853 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 5854 | 5901 | 85 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 5902 | 5969 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 5970 | 6222 | 20 | Fase CH — Checadores / Control de asistencia |
+| 6223 | 6288 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 6289 | 6316 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6317 | 6483 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 6484 | 6831 | 119 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 6832 | 6894 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 6895 | 7002 | 31 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7003 | 7065 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 7066 | 7226 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7227 | 7297 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7298 | 7346 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 7347 | 7379 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 7380 | 7769 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 7770 | 7901 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 7902 | 7948 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 7949 | 7988 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 7989 | 8041 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8042 | 8108 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8109 | 8271 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8272 | 8555 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8556 | 8723 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8724 | 10747 | 151 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 10748 | 10756 | 1 | Fase RR — Ventas por ruta |
+| 10757 | 11052 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11053 | 11063 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11064 | 11084 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11085 | 11095 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11096 | 11107 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11108 | 11167 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11168 | 11595 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 11596 | 11610 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 11611 | 11652 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 11653 | 11798 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 11799 | 11829 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 11830 | 11877 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 11878 | 11894 | 13 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 11895 | 11924 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 11931 | 11940 | 1 | 📝 Convenciones |
+| 11941 | 11977 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 11978 | 11996 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 11997 | 12049 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12050 | 12396 | 36 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12397 | 12417 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -98,7 +168,7 @@
 | B — Core Comercial | 🟢 **CERRADA formalmente (beta)** | B.0+B.1+B.2+B.3 ✅ — cierre verificado 2026-06-02 con regression 19/19 verde tras ADR-013 (`pending_approval` state) + fix ability.factory (28 mappings COMMERCIAL/LOGISTICS) | 100% (PaymentsService deferred post-beta) |
 | C — Sales Intelligence | 🟢 **CERRADA formalmente (beta)** | C.0+C.1+C.3 MVP+C.4+C.5 ✅ — cierre verificado 2026-06-02 | 100% (C.0bis exhibition normalization + C.3.8-9 mapa/drill-down deferred) |
 | D — Catálogo + B2B Portal | 🟢 **CERRADA formalmente (beta)** | D.0+D.1+D.2+D.3+D.4+D.5 ✅ — cierre verificado 2026-06-02 | 100% (D.2.3 offline sync queue + D.3.1 app separada deferred post-beta) |
-| **E — Telemarketing** (antes "Remote Manager / Televenta") | 🟢 **CERRADA formalmente (beta)** | E.0+E.1+E.2 ✅ — cierre verificado 2026-06-02 con regression 19/19. Schema (lead_reservations + call_logs + rol tele_operator) + backend 7 endpoints + cron @5min + frontend `/televenta/*`. **E.9 ✅ local 2026-09-07 — el tablero ve la facturación del canal, y el módulo se llama Telemarketing.** Auditoría antes de tocar: **`commercial.call_logs` está VACÍA en prod (0 llamadas)** → el tablero publicaba **ceros** en llamadas/minutos/conversión/top operadores; **la cola apunta al universo equivocado** (412 clientes `V-…` de campo, **0 de 412** empatan con los 206 que telemarketing factura); y **la operación real sólo vive en el ERP**: 4 operadores, **732 facturas y $8,243,050/30d**, **$2,340,863 vencidos**. Se agregó `billing` a `GET /commercial/televenta/dashboard` (hoy/mes/30d + cobrado + **vencido por cobrar** + por operador del ERP + últimas 8 facturas con su estado de cobro), leyendo `analytics.erp_sales_invoices` — la MISMA vista de `/comercial/documentos`, sin copiar nada, y el smoke exige que **cuadren al peso**. Va **primero** en la pantalla (es lo que existe a diario) y **la actividad se declara**: sin captura, el tablero dice "no hay llamadas capturadas" en vez de pintar 0% de conversión como resultado (ADR-056). **Nombre unificado a Telemarketing** en lo visible (encabezado, shell, nav "Dashboard"→"Resumen" + "Facturación", los 2 labels de permiso y su categoría, `authz-tree`, preset de rol, selector de proyectos); los nombres de clase/archivo se quedan — moverlos es churn sin nada visible. **E.9.1 ✅ 2026-09-07 — la ruta también:** la canónica es **`/telemarketing/*`** y `/televenta/*` queda como **redirect sin componente** (dos componentes en dos URLs serían dos copias, no un redirect); el `**` reconserva los segmentos, así que un marcador de `/televenta/lead/123/take-order` aterriza completo. Se movieron las 8 navegaciones internas + `authz-tree` + selector de proyectos; **NO** se tocaron las claves de permiso ni la clave de área (viven en `role_permissions`/`area_role_presets` de la DB: renombrarlas silencia accesos) ni el endpoint `/api/commercial/televenta/*` (nadie lo ve y renombrarlo abre una ventana de 404 entre el deploy de api y el de view). Gate nuevo `apps/view/src/app/telemarketing-route.spec.ts` **11/11** con Router real **y su prueba negativa** (sin el bloque legacy la URL vieja no resuelve). Encontró dos cosas invisibles a ojo: **(a)** un `redirectTo` **funcional** que devuelve string **tira los query params** (el estático sí los conserva — asimetría no documentada) → devuelve `UrlTree` con `createUrlTree({queryParams, fragment})`; **(b)** **el entorno de jest de `apps/view` nunca se inicializaba** — `test-setup.ts` importaba `jest-preset-angular/setup-env/zone` pero ese módulo **exporta** `setupZoneTestEnv` en vez de ejecutarlo, así que cualquier spec con TestBed moría en "Need to call TestBed.initTestEnvironment() first"; nadie lo vio porque ningún spec de la app usaba TestBed. Arreglado en 2 líneas → suite de view **6 suites / 66 tests verde**. El rol en prod **ya se llamaba `telemarketing`** y los 3 roles con acceso **ya tienen `COMMERCIAL_SALES_DOCS_VER`** → el enlace funciona **sin repartir permisos ni re-login**; aun así va gateado por su permiso. ⚠️ Cada consulta del bloque va **materializada antes de ordenar/recortar** (el nested loop de AX.9: 23,856 ms vs 970 ms). Smoke `test-newdb-telemarketing-billing.js` **9/9 contra prod** (1,096 ms) + builds api/view verdes. **Abierto (decisión Edgar):** ⬜ **E.10** re-apuntar la cola a los 206 clientes reales del ERP (es lo que hace que el módulo sirva para operar, no sólo para mirar) · ⬜ **E.11** puente operador↔usuario (`identity.users` no tiene `vendedor_code`, sólo `route_id`, así que hoy hay dos atribuciones distintas y se dice). **Pendiente prod: redeploy api+view.** Validación visual pendiente (E.3.2). **E.12.0 🧪 EN CÓDIGO 2026-09-21 — submódulo Cotizaciones de mayoreo** (`/telemarketing/cotizaciones`): la oferta de precio con vigencia que todavía NO es venta — entra por ahí la lista que el cliente manda por correo/WhatsApp y la venta que se levanta en la visita de ruta. **Tabla propia, NO un 5º status de `commercial.orders`, y se descartó con medición:** confirmar un pedido RESERVA stock (Fase B.2) y una cotización no debe tocar inventario, y `orders` tiene **163 referencias en 30 archivos** con **21 filtros por `status=draft`** que un status nuevo contaminaría en silencio. Se convierte creando un pedido y apuntándolo (`quotes.order_id`, con CHECK de que sólo cuelgue de una `accepted`). **Investigación del ERP que cambió el diseño (verificada, no supuesta):** (a) ⭐ **el padrón `kepler_ods.kdud` es POR SUCURSAL y las condiciones NO coinciden** — de 1,574 clientes, **204 (13%) tienen distinto límite de crédito**, 118 distinto plazo y 57 distinto descuento según quién los atienda (el caso C1086: $60,000 y 3% en La Piedad, $30,000 y **cero** descuento en CEDIS) → la cotización **congela** las condiciones que usó (`terms_*` + `source_branch`) y un CHECK impide decir "viene de Kepler" sin decir de qué sucursal; (b) ⭐ **el precio de mayoreo es una escalera que YA existe** — los 4 mecanismos del menú Descuentos están en el ODS (`kdpv_descuxq` 56,995 / `descuxm` 3,549 / `gratisxq` 35 / `gratisxm` 7) y **el módulo los deriva, no inventa un esquema nuevo** (`price_source` declara cuál se aplicó). Cuatro trampas medidas: **sólo 396 de 56,995 reglas están vigentes** (0.7%; centinelas 1800 y 2106), **3 de los 4 mecanismos están hoy en cero** (se declara, no se interpreta), el descuento es **por UNIDAD** no por producto (66 SKU con regla distinta en PAQ y CJA — ADR-055/057), y el aviso "No debe Traslapar" es instrucción a la persona, no restricción: hay 1 combo con **3 filas idénticas** vigentes que un JOIN sin deduplicar triplicaría; (c) el renglón que **no casa** con el catálogo es el punto, no el borde (`product_id` NULL-able + `requested_text`): es demanda que estamos rechazando, el mismo hecho que `floor_stockouts`; (d) el **regalo** trae un cero REAL (`gratisxq` regala OTRO SKU) y se separa del cero que significa "no supe" —que va NULL, ADR-056— vía `price_source=free_goods` + `parent_line_number`. Entregado: 1 migración (3 tablas, RLS forzado, 21 CHECK), backend `commercial-quotes` (list/summary/getOne/create/cancel), permisos **propios** `COMMERCIAL_QUOTES_VER/_GESTIONAR` (par aparte de `TELEVENTA_*`: cotizar es mover precio) con los 5 touch-points, y la mesa en `/telemarketing/cotizaciones` que **declara arriba lo que todavía no hace**. Smoke `test-newdb-quotes.js` **22/22** con prueba negativa por candado, en la regresión. ⚠️ **Lección del propio smoke:** 6 aserciones salieron rojas **por la razón equivocada** (el folio de prueba excedía `varchar(30)` y el INSERT moría por longitud antes de llegar al CHECK) — si hubieran afirmado "falló" en vez de "falló por ESTE candado", salían **verdes sin probar nada**. ⚠️ **El sprint se construyó DOS VECES en paralelo** (commit `ec391b33` de otra sesión); al reconciliar aparecieron **ruta duplicada** cuyo segundo bloque usaba `anyPermissionGuard(QUOTES_VER, TELEVENTA_OPERATE)` —que vuelve decorativo el permiso nuevo— y un **enlace de nav sin gatear con la señal `verCotizaciones` declarada y nunca usada** (un gate muerto). Ambos corregidos. **Pendiente: permisos SIN migración que los reparta** (en `platform_test` están en 5 roles por UPDATE a mano; **en prod no están** — lección [LC.6.2]), verificación HTTP (ADR-044), validación visual, y E.12.1-E.12.5 (editor de renglones + motor de precio, pegar la lista del cliente, enviar/PDF, convertir en pedido, cron de vencimiento). Plan en [`FASE_E12`](FASES/FASE_E12_COTIZACIONES.md). Deferred: E.5 telefonía Twilio, E.6 asignación inteligente, E.7 handoff WhatsApp, E.8 recordatorios callback. | 100% beta-ready |
+| **E — Telemarketing** (antes "Remote Manager / Televenta") | 🟢 **CERRADA formalmente (beta)** | E.0+E.1+E.2 ✅ — cierre verificado 2026-06-02 con regression 19/19. Schema (lead_reservations + call_logs + rol tele_operator) + backend 7 endpoints + cron @5min + frontend `/televenta/*`. **E.9 ✅ local 2026-09-07 — el tablero ve la facturación del canal, y el módulo se llama Telemarketing.** Auditoría antes de tocar: **`commercial.call_logs` está VACÍA en prod (0 llamadas)** → el tablero publicaba **ceros** en llamadas/minutos/conversión/top operadores; **la cola apunta al universo equivocado** (412 clientes `V-…` de campo, **0 de 412** empatan con los 206 que telemarketing factura); y **la operación real sólo vive en el ERP**: 4 operadores, **732 facturas y $8,243,050/30d**, **$2,340,863 vencidos**. Se agregó `billing` a `GET /commercial/televenta/dashboard` (hoy/mes/30d + cobrado + **vencido por cobrar** + por operador del ERP + últimas 8 facturas con su estado de cobro), leyendo `analytics.erp_sales_invoices` — la MISMA vista de `/comercial/documentos`, sin copiar nada, y el smoke exige que **cuadren al peso**. Va **primero** en la pantalla (es lo que existe a diario) y **la actividad se declara**: sin captura, el tablero dice "no hay llamadas capturadas" en vez de pintar 0% de conversión como resultado (ADR-056). **Nombre unificado a Telemarketing** en lo visible (encabezado, shell, nav "Dashboard"→"Resumen" + "Facturación", los 2 labels de permiso y su categoría, `authz-tree`, preset de rol, selector de proyectos); los nombres de clase/archivo se quedan — moverlos es churn sin nada visible. **E.9.1 ✅ 2026-09-07 — la ruta también:** la canónica es **`/telemarketing/*`** y `/televenta/*` queda como **redirect sin componente** (dos componentes en dos URLs serían dos copias, no un redirect); el `**` reconserva los segmentos, así que un marcador de `/televenta/lead/123/take-order` aterriza completo. Se movieron las 8 navegaciones internas + `authz-tree` + selector de proyectos; **NO** se tocaron las claves de permiso ni la clave de área (viven en `role_permissions`/`area_role_presets` de la DB: renombrarlas silencia accesos) ni el endpoint `/api/commercial/televenta/*` (nadie lo ve y renombrarlo abre una ventana de 404 entre el deploy de api y el de view). Gate nuevo `apps/view/src/app/telemarketing-route.spec.ts` **11/11** con Router real **y su prueba negativa** (sin el bloque legacy la URL vieja no resuelve). Encontró dos cosas invisibles a ojo: **(a)** un `redirectTo` **funcional** que devuelve string **tira los query params** (el estático sí los conserva — asimetría no documentada) → devuelve `UrlTree` con `createUrlTree({queryParams, fragment})`; **(b)** **el entorno de jest de `apps/view` nunca se inicializaba** — `test-setup.ts` importaba `jest-preset-angular/setup-env/zone` pero ese módulo **exporta** `setupZoneTestEnv` en vez de ejecutarlo, así que cualquier spec con TestBed moría en "Need to call TestBed.initTestEnvironment() first"; nadie lo vio porque ningún spec de la app usaba TestBed. Arreglado en 2 líneas → suite de view **6 suites / 66 tests verde**. El rol en prod **ya se llamaba `telemarketing`** y los 3 roles con acceso **ya tienen `COMMERCIAL_SALES_DOCS_VER`** → el enlace funciona **sin repartir permisos ni re-login**; aun así va gateado por su permiso. ⚠️ Cada consulta del bloque va **materializada antes de ordenar/recortar** (el nested loop de AX.9: 23,856 ms vs 970 ms). Smoke `test-newdb-telemarketing-billing.js` **9/9 contra prod** (1,096 ms) + builds api/view verdes. **Abierto (decisión Edgar):** ⬜ **E.10** re-apuntar la cola a los 206 clientes reales del ERP (es lo que hace que el módulo sirva para operar, no sólo para mirar) · ⬜ **E.11** puente operador↔usuario (`identity.users` no tiene `vendedor_code`, sólo `route_id`, así que hoy hay dos atribuciones distintas y se dice). **Pendiente prod: redeploy api+view.** Validación visual pendiente (E.3.2). **E.12.0 🧪 EN CÓDIGO 2026-09-21 — submódulo Cotizaciones de mayoreo** (`/telemarketing/cotizaciones`): la oferta de precio con vigencia que todavía NO es venta — entra por ahí la lista que el cliente manda por correo/WhatsApp y la venta que se levanta en la visita de ruta. **Tabla propia, NO un 5º status de `commercial.orders`, y se descartó con medición:** confirmar un pedido RESERVA stock (Fase B.2) y una cotización no debe tocar inventario, y `orders` tiene **163 referencias en 30 archivos** con **21 filtros por `status=draft`** que un status nuevo contaminaría en silencio. Se convierte creando un pedido y apuntándolo (`quotes.order_id`, con CHECK de que sólo cuelgue de una `accepted`). **Investigación del ERP que cambió el diseño (verificada, no supuesta):** (a) ⭐ **el padrón `kepler_ods.kdud` es POR SUCURSAL y las condiciones NO coinciden** — de 1,574 clientes, **204 (13%) tienen distinto límite de crédito**, 118 distinto plazo y 57 distinto descuento según quién los atienda (el caso C1086: $60,000 y 3% en La Piedad, $30,000 y **cero** descuento en CEDIS) → la cotización **congela** las condiciones que usó (`terms_*` + `source_branch`) y un CHECK impide decir "viene de Kepler" sin decir de qué sucursal; (b) ⭐ **el precio de mayoreo es una escalera que YA existe** — los 4 mecanismos del menú Descuentos están en el ODS (`kdpv_descuxq` 56,995 / `descuxm` 3,549 / `gratisxq` 35 / `gratisxm` 7) y **el módulo los deriva, no inventa un esquema nuevo** (`price_source` declara cuál se aplicó). Cuatro trampas medidas: **sólo 396 de 56,995 reglas están vigentes** (0.7%; centinelas 1800 y 2106), **3 de los 4 mecanismos están hoy en cero** (se declara, no se interpreta), el descuento es **por UNIDAD** no por producto (66 SKU con regla distinta en PAQ y CJA — ADR-055/057), y el aviso "No debe Traslapar" es instrucción a la persona, no restricción: hay 1 combo con **3 filas idénticas** vigentes que un JOIN sin deduplicar triplicaría; (c) el renglón que **no casa** con el catálogo es el punto, no el borde (`product_id` NULL-able + `requested_text`): es demanda que estamos rechazando, el mismo hecho que `floor_stockouts`; (d) el **regalo** trae un cero REAL (`gratisxq` regala OTRO SKU) y se separa del cero que significa "no supe" —que va NULL, ADR-056— vía `price_source=free_goods` + `parent_line_number`. Entregado: 1 migración (3 tablas, RLS forzado, 21 CHECK), backend `commercial-quotes` (list/summary/getOne/create/cancel), permisos **propios** `COMMERCIAL_QUOTES_VER/_GESTIONAR` (par aparte de `TELEVENTA_*`: cotizar es mover precio) con los 5 touch-points, y la mesa en `/telemarketing/cotizaciones` que **declara arriba lo que todavía no hace**. Smoke `test-newdb-quotes.js` **22/22** con prueba negativa por candado, en la regresión. ⚠️ **Lección del propio smoke:** 6 aserciones salieron rojas **por la razón equivocada** (el folio de prueba excedía `varchar(30)` y el INSERT moría por longitud antes de llegar al CHECK) — si hubieran afirmado "falló" en vez de "falló por ESTE candado", salían **verdes sin probar nada**. ⚠️ **El sprint se construyó DOS VECES en paralelo** (commit `ec391b33` de otra sesión); al reconciliar aparecieron **ruta duplicada** cuyo segundo bloque usaba `anyPermissionGuard(QUOTES_VER, TELEVENTA_OPERATE)` —que vuelve decorativo el permiso nuevo— y un **enlace de nav sin gatear con la señal `verCotizaciones` declarada y nunca usada** (un gate muerto). Ambos corregidos. **Pendiente: permisos SIN migración que los reparta** (en `platform_test` están en 5 roles por UPDATE a mano; **en prod no están** — lección [LC.6.2]), verificación HTTP (ADR-044), validación visual, y E.12.1-E.12.5 (editor de renglones + motor de precio, pegar la lista del cliente, enviar/PDF, convertir en pedido, cron de vencimiento). Plan en [`FASE_E12`](FASES/FASE_E12_COTIZACIONES.md). **E.14 🧪 2026-10-21 — auditoría de `/telemarketing/dashboard`, 6 hallazgos resueltos** ([§E.14](FASES/FASE_E_REMOTE_MANAGER.md)): la «cola priorizada» no tenía `ORDER BY` (ahora es `getQueue(5)`) · la cola declara que cubre **11 de 317** clientes facturados · sin llamadas (0 en la historia) no se dibuja actividad · un solo mapa de resultados de llamada · vencido de toda la cartera **$6.55M** (antes $3.73M, el 57 %) · `LoadState` + frescura. Smoke 14/14 en prod con RLS + prueba negativa. Pendiente: push + despliegue + validación visual. **E.10 ⬜ sigue abierto** (re-medido: 11 de 317). **E.15 🧪 2026-10-21 — el descuento desglosado** ([§E.15](FASES/FASE_E_REMOTE_MANAGER.md)): lista − producto − cliente = facturado, cierre 0.00 contra la vista (regla TK.13; `c13` como descuento queda de prueba negativa) · negociado contra aplicado (57 / 39 facturas) · «Por operador» → «Por vendedor del ERP» (7 de 17 filas no eran operadores). Smoke 19/19. **E.16 🧪 2026-10-21** — cada conteo de negociado contra aplicado abre sus facturas (58 + 39, sin tope; cada folio abre el documento) y la cola sale del Resumen (queda el enlace y «11 de 317»). **E.17–E.23 🧪 2026-10-21 — cotizaciones contra Kepler** ([AUDITORIA_COTIZACIONES §7–§11](FASES/AUDITORIA_COTIZACIONES_2026-10-21.md)): E.17 diseño (componentes fuera de PrimeNG) · E.19 el entregable cierra (22/22 cotizaciones) · E.20 uso diario · E.21 alta atómica (⛔ sin ejercer contra la API) · E.22 el tramo de volumen que contiene la cantidad · **E.23 replay con el motor real contra los pedidos de telemarketing de Kepler (`scripts/kepler/replay-cotizacion/`): Kepler cobra la UNIDAD MAYOR que cabe, prorrateada (`kdm2.c66`, 7,284 contra 280), y baja al más barato con los tramos → renglones al centavo 55.0 % → 90.0 %, pedidos completos exactos 14 → 63.** **E.24 🧪 2026-10-22 — las verdades que faltaban** ([§12](FASES/AUDITORIA_COTIZACIONES_2026-10-21.md)): la promo `descuxq` es la de la unidad que se cobró (313/324) y el precio va por PRECEDENCIA, no por el mínimo (304 contra 4) → mismo universo: renglones al centavo 90.0 % → **96.2 %**, importe **97.4 %**, cotizado de menos −$5,197 → −$68, pedidos exactos 63 → 79; controles con prueba negativa. **E.25 🧪 2026-10-22 — IVA e IEPS de cada producto** (una sola cuenta para servidor, pantalla y papel): IVA 25 → **79/79**, IEPS 27 → **79/79** al centavo contra Kepler. **E.26 🧪 — el padrón sin filtro `C####`** (el 27.6 % de los pedidos de telemarketing no se podía cotizar). ⛔ Dos migraciones sin aplicar (`20261022085703`, `20261022091046`): van antes que el código, después del push. Abierto: ⬜ SKUs de promoción a $0.01 (la vista de etiquetas los excluye) · ⬜ folio de la captura del 89008 × 36 · ⬜ push + despliegue + ejercer contra la API. Deferred: E.5 telefonía Twilio, E.6 asignación inteligente, E.7 handoff WhatsApp, E.8 recordatorios callback. | 100% beta-ready |
 | **F — Comercio Conversacional (WhatsApp)** | 🧪 **F.0–F.3 EN CÓDIGO 2026-07-24 (builds api+view verdes, 4 commits) — camino comercial CERRADO** | Cliente pide por WhatsApp con chat conversacional → **bot arma / humano confirma** → cae en la cadena de Reparto YA construida. **F.0** `libs/whatsapp` (puerto + simulador + Meta Cloud adapter HMAC + cola BullMQ degradable + estado `whatsapp.conversation_threads`/`messages` RLS + permisos `WHATSAPP_BOT_*`). **F.1** webhook `@Public()` (verify + HMAC + dedup) + ingesta a cola con scope CLS sintético + `/sim`. **F.2** `ConversationOrchestratorService` (Claude Haiku tool-use, 7 tools; precio del motor NO del LLM, ADR-016; degrada a handoff sin API key) vía `COMMERCE_CONVERSATION_PORT` (frontera limpia). **F.3** bandeja `/reparto/pedidos-whatsapp` (confirmar → `createIntake` → `/reparto/asignar` → COD → liquidación; avisa al cliente por WA). Smoke `http-whatsapp-webhook-test.js` en runner. **F.4 (handoff explícito + panel de conversaciones) DIFERIDO — nice-to-have; el camino comercial está cerrado.** **Pendiente operacional (Edgar): `migrate:new` + smoke + validación en vivo/visual con `ANTHROPIC_API_KEY`; para prod real: app Meta + número + `WHATSAPP_*` env + `REDIS_URL`.** Plan en [`FASE_F`](FASES/FASE_F_WHATSAPP_BOT.md). | ~80% (F.0–F.3 en código; F.4 diferido; falta migrate+validación) |
 | G — Growth | ⏸️ Bloqueada por D | — | 0% |
 | H — Fintech | ⏸️ Bloqueada por D | — | 0% |
@@ -4207,6 +4277,110 @@ cerrados con `validated_by = 'Claude Vision'`.
   siguen en el repo **sin ruta** (1,988 líneas), y `compras-hallazgos.component.ts` cita una regla
   que vive en uno de ellos. Y `workbookDetail()` del front es **código muerto**: transporta
   `last_purchase` y `order_days` que ninguna pantalla pinta.
+
+### `[RA-UX]` — Auditoría de interacción de `/compras/pedido` (2026-10-21)
+
+> Auditoría con la skill `auditoria-diseno`, **nivel B (prod, sólo lectura) + C (fuente)**. ⛔ **Nivel
+> A no se hizo: nada de lo de abajo tiene validación visual** — lo más probable de ajustar al verlo:
+> el ancho de la barra global con el aviso nuevo (`RA-UX.3`) y el peso del botón primario (`RA-UX.4`).
+
+- [x] **[RA-UX.1]** 🧪 **Tras «Generar», la pantalla quedaba lista para generar OTRA VEZ lo mismo.**
+  `confirmarPlan()` sólo borraba la llave del borrador: cantidades, marcas y `dirty` seguían iguales,
+  así que «Requisiciones (N)» quedaba armado con la misma selección; y al salir, `borradorCleanup`
+  **reescribía** el borrador, así que la siguiente visita ofrecía «recuperar» un pedido ya armado.
+  **Medido en prod (`system_identifier 7688376744939610156`):** **9 de 106 lotes** repiten a otro de
+  la misma persona —mismo producto, sucursal destino y cantidad— a **1.2 min de mediana** (0.1–16.3);
+  control a +7 días con la misma ventana: **0**. En **5 pares las dos copias siguen vivas: 93 renglones,
+  $264,619**; dos de ellos ya con OC las dos veces (`RQ-LOTE-2026-00003/04` y `-00013/14`, $108,708).
+  Otros 4 se cancelaron a mano (uno el 21-oct 14:33 por $249,653). Fix: `limpiarArmado()` saca de la
+  pantalla SÓLO los productos del lote (cantidad, unidad, entrega, marca), recalcula `dirty` y reescribe
+  el borrador con el resto. Pruebas: 3 casos en `compras-pedido-real.component.spec.ts`, rojos con el
+  arreglo saboteado. La red del servidor es `[RA-UX.1b]`, abajo. ⚠️ **Los 5 pares vivos no se tocaron**:
+  los decide Compras (lotes 03/04 · 13/14 · 17/18 · 28/29 · 38/40).
+- [x] **[RA-UX.1b]** 🧪 **El servidor frena el lote de compra repetido.** `createRequisitionBatch` busca,
+  antes de crear nada, renglones de COMPRA idénticos (producto, sucursal destino, cantidad) que la MISMA
+  persona generó en los últimos 60 min y no están cancelados; si hay, **409 `LOTE_REPETIDO`** con cuántos
+  de cuántos, qué lotes y hace cuánto, y el plan de `/compras/pedido` ofrece «Generar de todos modos»
+  (`allow_duplicate`). SQL en el módulo puro `lote-repetido.ts`, en SAVEPOINT y **fallando abierto** (si la
+  consulta truena, el lote se crea como antes y queda en el log). Sin autor no se consulta; traspasos fuera.
+  **Verificado contra prod, sólo lectura** (`test-newdb-lote-repetido.js`, el SQL real vía ts-node): los
+  106 lotes reproducidos en su instante → **candado 7 = testigo independiente 7**, placebo +7 d **0 = 0**;
+  sabotaje (sin filtro de cancelados) → 9 vs 7, rojo. Spec del servicio 10/10 con sabotaje en rojo;
+  componente 65/65. ⚠️ **NO MEDIDO aquí:** los casos sintéticos que escriben (sólo base local → job
+  `pruebas-db` del CI, que nace informativo) y el camino HTTP real (controlador → 409 → diálogo).
+- [x] **[RA-UX.2]** 🧪 **El «XLSX» de la barra global exportaba otro pedido.** Bajaba el sugerido del
+  servidor para todo el filtro, sin cantidades capturadas; el de cada producto sí las llevaba. Medido:
+  **80.1 %** de los renglones de compra armados (2,081 de 2,597) no son el sugerido (control: los
+  traspasos, que se escriben sin editar, dan 0 %). Ahora con algo marcado es **«XLSX (N)»** y exporta lo
+  marcado con lo escrito (el universo de la requisición); sin marcas se rotula **«XLSX sugerido»**.
+- [x] **[RA-UX.3]** 🧪 **Editar una cantidad no marcaba el producto**, y la requisición y el PDF globales
+  sólo arman lo marcado: lo escrito en un producto sin marcar quedaba fuera sin aviso. Ahora escribir
+  marca (compra y traspaso) y la barra avisa lo escrito-sin-marcar con «marcarlos». No medido cuánto
+  se perdió así: el borrador no vive en la base.
+- [x] **[RA-UX.4]** 🧪 **Jerarquía invertida en la barra global:** XLSX era la primaria (sunset) y
+  Requisiciones —la única que escribe— un botón de texto. Se invirtió (DESIGN §Operations 9).
+- [x] **[RA-UX.5]** 🧪 **«Descartar y empezar de cero» borraba todo de un clic** (190 renglones el
+  mayor pedido medido). Ahora `p-confirmdialog` con foco en «Seguir con el pedido», y el enlace en
+  `--bad-fg` (DESIGN §10 poka-yoke / Von Restorff).
+- [x] **[RA-UX.6]** 🧪 **Filtros que no reaccionaban:** la búsqueda sólo con Enter (las cinco vistas) y la
+  cobertura sólo al perder el foco (con − / + el campo decía 31 d y la tabla seguía en 30). Ahora se
+  aplican al detenerse (500 ms); Enter/salir aplican ya; la cobertura no recarga si no cambió ni con
+  un valor fuera de 1–120 a medio teclear. ⚠️ Lo de − / + sin blur es de lectura del fuente, sin verlo.
+- [x] **[RA-UX.7]** 🧪 **La ayuda «?» contradecía la pantalla:** decía que el tránsito «se resta del
+  pedido para no pedir de más» —falso desde el 2026-10-09 (`ignorar`), y es justo lo que hace pedir
+  dos veces— y describía Desglosar/Englobar, retirados en RA-PRO.47. Reescrita con lo que dicen los
+  rótulos y el código vigentes; el subtítulo (~70 palabras) y el pie (~130) se bajan a una línea.
+  ⚠️ La compuerta `TBL` (definición en `title`) sigue avisando: los `title` se dejaron como refuerzo.
+- [x] **[RA-UX.8]** 🧪 **Teclado y acordeón:** Enter sobre «En camino» o la unidad abría su diálogo **y**
+  además abría/cerraba la fila por burbujeo; la fila no respondía a Espacio; las flechas de las
+  pestañas del desglose movían el tab stop de la barra de filtros; y cada recarga (página, filtro,
+  generar) cerraba todos los desgloses abiertos. Corregidos. ⚠️ Las pestañas siguen sin `tabpanel`
+  (ya declarado en el fuente).
+- [x] **[RA-UX.9]** 🧪 **La requisición se arma como carrito** (pedido del PM, 2026-10-21). El botón
+  «Requisición» de cada producto GENERABA al instante una requisición sólo de ese producto, y aparte la
+  casilla de la fila alimentaba «Requisiciones (N)»: dos caminos para lo mismo, y el obvio partía el
+  pedido en lotes sueltos. Ahora: «Agregar a la requisición» → «En la requisición · quitar»; la barra de
+  abajo es la requisición en armado (productos · proveedores · $ · «Ver») con «Generar requisición (N)»
+  como única primaria; el cajón (`app-side-peek`) la muestra por proveedor con subtotal y pedido típico,
+  con «quitar» por producto y «Vaciar» con confirmación (no borra lo escrito). Quitar a propósito ya no
+  dispara el aviso de escrito-sin-agregar (queda para el borrador recuperado). El carrito ES `selected`
+  + `rowCache`: sin estructura nueva. Componente 70/70, sabotaje en rojo, `ngc` con control. ⚠️ **Sin
+  validación visual.** ⚠️ **No persiste tras F5:** el borrador guarda cantidades, no la requisición en
+  armado (las filas de otras páginas no se pueden reconstruir sin reconsultar); lo escrito vuelve con el
+  aviso «no están en la requisición · agregarlos». Deuda con nombre: `[RA-UX.9b]` ⬜ persistirla.
+- [x] **[RA-UX.10]** 🧪 **La interacción general, medida EN VIVO** (Playwright contra prod, 1600×900 · 1366×768 ·
+  390×844, sólo lectura: 0 escrituras, 0 errores de consola). En una laptop la primera fila caía en y=767 de 768
+  (**0 productos visibles**); `$ Pedido` y `Σ Ped.` quedaban fuera de la pantalla; abrir un producto mostraba
+  **60 px de 355**; en celular título y pestañas se enciman (subtítulo de 63 × 888 px); al cerrar un diálogo el
+  foco caía en `<body>`; **81 de 175** objetivos < 24 px. Hecho: columnas en orden de decisión (Σ Ped., $ Pedido,
+  Exist. red junto a Producto); filtros en una fila + «Más filtros (n)» (nace abierta si hay algo puesto ahí);
+  aviso de «sin valuar» en una línea; abrir un producto lo desplaza para que entre entero; el foco vuelve a quien
+  abrió; encabezado que se envuelve; objetivos ≥ 24 px. **Dos defectos de nivel C de paso:** la lista de columnas
+  que se esconden en celular era por POSICIÓN y quedó vieja con «Surt.» (escondía justo Σ Ped. y $ Pedido → ahora
+  por clase `.pr-c-m`), y `filtrosActivos` era un `computed` sobre campos planos que no se recalculaba («Limpiar»
+  mudo). Componente 76/76, sabotaje en rojo. ⚠️ **NO verificado en vivo**: prod no tiene este código (sin push) —
+  re-correr la auditoría tras desplegar. ⚠️ El desplazamiento al abrir no tiene prueba (jsdom no desplaza).
+- [x] **[RA-UX.11]** 🧪 **Stock muerto en UNA consulta, no tres** (2026-10-22). Medido con el servicio REAL
+  (ts-node, transacción READ ONLY contra prod): `deadStock()` hacía conteo + suma + filas sobre la misma base,
+  cada una pagando entero el cruce producto×almacén y las tres vistas del ODS — **4.1 + 4.2 + 6.5 = 14.9 s**
+  (13.0 s en el navegador). Ninguna vista acepta el filtro por par (un par: 15 / 158 / 764 ms), así que el piso
+  es calcularlas UNA vez: total y suma salen ahora de la consulta de filas con `OVER ()`, + desempate estable.
+  **20.1/14.9 s → 6.8/9.0 s**. Antes/después págs. 1 y 2: mismo total (53,233), misma suma ($1,399,720.61),
+  mismo conjunto y contenido; el orden sólo cambia dentro de empates. Suite `test-newdb-dead-stock-una-pasada.js`
+  7/7, roja con la versión anterior. ⚠️ Sigue arriba de los 500 ms de la regla: el resto es el costo de las vistas.
+- [ ] **[RA-UX.11b]** ⬜ **`workbook` y el enriquecimiento por filtro — necesita su propia fase.** Medido el
+  2026-10-22 con el servicio real: `workbook` **2.2–2.9 s** (14 consultas; la principal calcula los **5,626**
+  productos completos en CADA página para ordenar y totalizar); el tiempo se reparte entre factor de caja,
+  escalera de costos, moda de precios y el cruce del plan — ninguna pieza domina, y `vbf NOT MATERIALIZED`
+  no ganó nada (mismo resultado, mismo tiempo: descartado). `purchase-suggestion` (1,000 renglones, para
+  etiquetas y desglose) **3.4 s** en cada cambio de filtro. Bajar de 500 ms exige precalcular un resumen por
+  producto (§19, materializar por costo desde la primaria) o rediseñar la consulta. Espera decisión: Fase 0
+  en curso, no se abre fase sin autorización.
+- Verificación: `vitest` del componente **61/61** (13 nuevos); sabotaje de `limpiarArmado` + auto-marca →
+  **5 rojos**; `ngc --noEmit` de `apps/view` con un control (`controlQueNoExiste()`) → **sólo el
+  control** como error; `check:pantalla -- compras-pedido-real` 0 nuevas y ya **tipa** (el TS2345 de
+  `monthlyBars` era un arreglo sin tipo); `check:templates`, `estilos`, `tokens`, `teclado`,
+  `busqueda`, `cifra` en verde.
 
 ### `[RQ]` — Lo que pasa DESPUÉS de generar una requisición en `/compras/pedido`
 
@@ -8854,6 +9028,95 @@ TP.6-TP.8+TP.10".
 >   dos comandos míos**, y commitear la etiqueta exigió `git apply --cached` de un solo hunk para no
 >   llevarse 5 hunks ajenos. ⛔ **No se abre como fase** (Fase 0 en curso, §7 del método).
 
+> ### 🔨 2026-10-20 — **CGS · El supervisor ve el arqueo, y puede autorizarlo**
+>
+> Edgar pidió tres cosas: *«que todas las mañanas le llegue una notificación a María Gutiérrez (a
+> su puesto) que tiene que revisar el arqueo de caja general, autorizar y permitir usar la caja»* ·
+> *«una pestaña extra que diga Arqueos … que muestre más desglosados los cortes»* · *«la caja no se
+> puede usar si el puesto de María Gutiérrez no autorizó»*.
+>
+> - [x] **[CGS.1]** 🚀 **La bandeja de arqueos por autorizar, y el permiso que la hace servir.**
+>       ⛔ **No era desidia: el puesto no podía.** Medido en prod el 2026-10-20: `tesoreria` —el de
+>       `maria_gutierrez`, ya responsable **principal** de `finanzas.caja`— tenía `FINANCE_CAJA_VER`
+>       y `GESTIONAR`, y **`AUTORIZAR` en `null`**. Autorizar sólo podían `direccion` (2 personas) y
+>       `superadmin` (8), **ninguno supervisor de caja**. Resultado: **7 cortes cerrados, CERO
+>       autorizados**, del 12 al 19-oct, con diferencias de hasta **−$208,594.59** que nadie miró.
+>       *Una responsabilidad sin el permiso que la ejerce es un reclamo, no un proceso.*
+>       Bandeja `caja-por-autorizar` en `me-work.ts` (`umbral_dias: 1` — lo fijó el «todas las
+>       mañanas», no yo) con `closed_by <> userId`: la doble llave vive en la base
+>       (`cut_doble_llave_chk`), y una bandeja que pida trabajo que el servidor va a rechazar con
+>       403 se deja de mirar. Migración batch **974**, aplicada. Hoy María vería **7 por autorizar**.
+> - [x] **[CGS.2]** 🧪 **Pestaña «Arqueos»: el mismo cajón, contado dos veces, lado a lado.**
+>       `GET /finance/caja-control/cruce` + `/finanzas/caja-general/arqueos`.
+>       ⛔ **Ninguna pantalla cruzaba los dos conteos**: el Expediente lee sólo Control, Captura
+>       sólo la Suite. Por eso **$19,811.50** de desfase vivieron ocho días sin que nadie los viera.
+>       ⭐ **El total solo no alcanza:** el 19-oct son $500 que parecen descuadre y son **un billete
+>       mal clasificado** (la Suite anotó un $1,000 donde Control anotó un $500, las otras ocho
+>       denominaciones idénticas). Por eso publica el desglose pieza por pieza, no el delta.
+>       **Dos defectos que encontró el ensayo contra prod, no el compilador:**
+>       (1) la reja tenía **dos piezas con el mismo rótulo** — $20 es billete (`b20`) y moneda
+>       (`m20`), $100 igual — y como clave de lista las fundía; ahora viajan `clave` y `tipo`;
+>       (2) el cruce arrancaba desde Control, así que **un corte de la Suite en un día que Control
+>       no cerró era invisible**: el 12 y el 13-oct, **$61,224.50**, dos de los siete. Ahora son
+>       **cuatro estados** (`cuadran · difieren · sin_corte · sin_arqueo`) y los dos huecos van
+>       declarados, nunca en cero.
+>       ⛔ **No decide quién arbitra** (ADR-059): publica las dos cifras y su diferencia. Tipos en
+>       `libs/contracts/src/finance/cruce-arqueos.contract.ts` — el frontend tenía su propia copia,
+>       que es cómo los dos lados se separan sin que nada se ponga rojo (ADR-052).
+>       Ensayo contra prod en lectura, con control de instrumento (19-oct = +$500 explicado por una
+>       pieza): **PASA**. `check:pantalla` 0 fallas · boundary gate sin violaciones propias.
+> - ⬜ **[CGS.3]** **El candado**: que no se pueda abrir jornada nueva si la anterior cerró sin
+>       autorizar. Aprobado por Edgar, sin escribir.
+>       ⭐ **2026-10-21 — D2 de Edgar lo precisa**: suplente (Dirección) a las 12:00 y, con dos
+>       jornadas cerradas sin revisar, la caja no puede *cerrar* la tercera (sí capturar). Plan:
+>       [`FASE_CGS_SUPERVISION_DE_CAJA.md`](FASES/FASE_CGS_SUPERVISION_DE_CAJA.md) §2.2.
+>
+> **2026-10-21 — Plan por capas de la supervisión** ([`FASE_CGS_SUPERVISION_DE_CAJA.md`](FASES/FASE_CGS_SUPERVISION_DE_CAJA.md)).
+> Línea base medida en prod (`dev_ro`): **7 cortes cerrados, 0 autorizados**, los 7 abiertos y
+> cerrados por la misma persona; **3 de 7** cerrados el mismo día; el **20-oct sin corte** (30
+> movimientos, $494,128.13) y el 21-oct ya con 5 gastos ($145,906.50) encima; la supervisora
+> capturó **29 de 30** movimientos del 20-oct; **20 personas** con `GESTIONAR` (capturaron 3);
+> **28** ediciones post-cierre sin autor; `CI-2026-00063` cambió de ingreso a gasto dentro de un
+> corte firmado; **0** conteos físicos de CAOS. Decisiones de Edgar el mismo día: **D1** candado
+> duro + llave de emergencia · **D2** suplente + 12:00 · **D3** la supervisora captura pero no
+> firma lo suyo · **D4** `GESTIONAR` sólo al equipo de caja.
+>
+> - [x] **[CGS.10]** 🚀 **Bitácora del libro y del corte** — reusa `analytics.master_data_history` (VP.3.1), sin
+>       tabla nueva. Migración `20261021110252` aplicada en prod (batch 983). Medido: 30 cambios del libro y 2
+>       del corte registrados al 21-oct 16:45.
+> - [x] **[CGS.11]** 🚀 **Candado de base sobre lo firmado** (`cash_ledger_en_corte_firmado_chk`). Misma migración.
+> - [x] **[CGS.16]** 🚀 **Quien autoriza es ajeno al corte** (D3): base (`cut_autoriza_lo_ajeno_chk`, aplicada) +
+>       servicio con 403 y frase (en `main`; despliegue del código NO verificado).
+> - [x] **[CGS.23]** 🧪 Frases de las reglas nuevas en `caja-errores.ts`.
+> - [x] **[CGS.12]** 🧪 **La lista V1…V11** de la revisión de la mañana. ⚠️ Motor puro y no vista (desvío declarado:
+>       la usan `arqueos()` y `autorizar()`). Sus hechos corrieron en prod en lectura: V1 3/7, V3 roto en CC-4,
+>       28 ediciones post-cierre. V9 (CAOS) se declara NO MEDIDO hasta `[CGA-A.33]`.
+> - [x] **[CGS.13]** ✅ No se hace: V3 declara el eslabón roto CC-3 → CC-4 ($10,831.50) cada vez que se lee.
+> - [x] **[CGS.14]** 🧪 Candado 1 (D1): sin corte de ayer no se captura, 423 con frase. PRENDIDO por omisión;
+>       interruptor `CAJA_CANDADO_CAPTURA=off`. **[CGS.15]** 🚀 llave de emergencia: tabla aplicada (batch 986),
+>       0 llaves dadas.
+> - [x] **[CGS.3]** 🧪 Candado 2 (D2): con 2 cortes cerrados sin revisar no se cierra el tercero. APAGADO hasta
+>       fijar `CAJA_CANDADO_REVISION_DESDE`. **[CGS.3b]** 🧪 a las 12:00 del día siguiente escala por persona a
+>       tesorería y Dirección.
+> - [x] **[CGS.17]** 🧪 Autorizar exige respuesta y nota (D5: sin tolerancia, Edgar 2026-10-21). **[CGS.18]** 🚀
+>       estado `observado` (migración aplicada, batch 985).
+> - [x] **[CGS.19]**–**[CGS.22]** 🧪 API: lista dentro de `arqueos`, observar/responder/autorizar con nota,
+>       candado y llaves, conteo físico de CAOS (tabla `finance.caos_conteos_fisicos` aplicada, batch 989; 0 conteos).
+> - [x] **[CGS.24]**–**[CGS.28]** 🧪 Pantallas: Arqueos como mesa de la supervisora, candado y respuesta en Captura,
+>       conteo de la caja fuerte. SIN validación visual. Dos builds rotos por plantilla corregidos el mismo día
+>       (`e7d0714b7`, `d6eb3d5ab`).
+> - [x] **[CGS.29]**/**[CGS.30]** 🧪 Horario (8:30–12:00, suplente Dirección) y runbook reescrito.
+>       **[CGS.31]** ⬜ primera semana acompañada (Edgar + supervisora). **[CGS.32]** ⬜ ligar operadores de CAOS
+>       003/006/002 a personas (Tesorería).
+> - [x] **[CGS.33]** 🚀 D4: a la caja entran Carmen, Mayra y María Gutiérrez, Dirección de suplente (batch 987).
+>       **[CGS.34]** ✅ los superadmins (14 cuentas) conservan el acceso (Edgar, 2026-10-21).
+> - [x] **[CGS.35]** 🧪 «¿Qué hay en caja ahora?» en Arqueos, rubro por rubro (cajón, caja fuerte, dólares, cheques,
+>       papeles); lo imposible o no medido se declara y no entra al total. SIN validación visual.
+> - [x] **[CGS.36]** 🧪 **La verdad de cada diferencia**: conteo, fondo, libro y caja fuerte contra testigos que no
+>       tecleó la misma persona; publica la verdadera al lado de la sellada, con pistas, y V12. Prod (dev_ro): 3 de 8
+>       corregidas (CC-4 +$136,602.36, CC-5 +$49,079.30, CC-7 −$188,884.59), 2 confirmadas, 3 sin testigo.
+> - ⚠️ Medido el 21-oct a las 16:45: CC-2026-00008 (20-oct) ya cerrado; **8 cortes esperan revisión, 0 revisados**.
+
 > ### 🔨 2026-10-19 — **EL `INSERT` A MANO NO DEBÍA EXISTIR**: el concepto se deriva, y lo que no, se declara desde la app
 >
 > Edgar: *«te pedí que nunca ningún movimiento tuviera llenado manual **o que no se lograra
@@ -12034,7 +12297,7 @@ contra `pg-prod` (namespace `prod`, k3s).
 
 ### E3 — El mapa firmado *(dependencia: el contador)*
 
-- [ ] **[CP.8.14]** UI de reglas con confianza + aprobación (`derivada` → `aprobada`).
+- [x] 🧪 **[CP.8.14]** UI de reglas con confianza + aprobación — hecho 2026-10-20, ver «📍 Aterrizaje» (`[CP.8.51]`/`[CP.8.53]`/`[CP.8.14]`).
 - [ ] **[CP.8.15]** Proveedor → su subcuenta por RFC (`analytics.contpaqi_suppliers`, 99.6 % con RFC).
 - [ ] **[CP.8.16]** Las categorías que no concentran (`imss_sua` 10.2 %): medir o declarar.
 
@@ -12159,6 +12422,50 @@ contra `pg-prod` (namespace `prod`, k3s).
 > ⚠️ **Tres de los cuatro bloqueos de esta lista llevaban días hechos.** Una lista de bloqueos que
 > enumera trabajo terminado **esconde el que sí bloquea**: acá quedaban dos (el clic y la firma)
 > entre cuatro renglones. *Un bloqueo se tacha el día que se cierra, no cuando alguien lo relee.*
+
+
+### 📍 Aterrizaje — de «arma» a «entrega» (plan 2026-10-20)
+
+Plan: [`FASE_CP8_ATERRIZAJE.md`](FASES/FASE_CP8_ATERRIZAJE.md). Encabeza Contabilidad. Re-medido
+hoy en prod: `poliza_exports` **0** · `supplier_aliases` **0** · reglas aprobadas **0 de 21** ·
+cuadre `ok` sobre cero eventos. ⛔ **Ningún endpoint escribe `poliza_exports`**: sin «marcar
+entregada» el cuadre nunca tiene qué buscar. Firmas pendientes **D1–D5** (§4 del plan).
+
+- [x] ✅ `[CP.8.46]` C0 — ⛔⛔ **Los 581 «pagos de crédito sin pareo» no eran eso.** 532 son la **comisión de BBVA por venta con tarjeta en terminal** ($129,821) mal clasificada como `pago_credito` (y repartida en 3 categorías), más 10 renglones de su IVA. Los 38 pagos de crédito reales ($1.69M) **sí están en ContPAQi** los 9 meses (cargo `2140…` / abono `1020080000`, placebo 0). No pareaban por la **fecha**: contabilidad los mete en una póliza **mensual** por banco («PAGO COMISIONES BANORTE 7744») fechada a fin de mes. No es tesorería (en desuso desde 2019). → **D6** (lote cuenta × mes). Plan §3.1. 2026-10-20
+- [x] ✅ `[CP.8.47]` C0 — Unión ene–sep: **324 nombres · 760 movs · $95,553,856**; **14 nombres = 50 %**, 74 = 80 %. Control `--mes=2026-01` reproduce 53 / $6,758,575. 7 `ambiguo` ($7.8M) se arreglan en ContPAQi (cuenta duplicada); 2 `sin_concepto` ($4.5M, uno con concepto literal `"null"`) son defecto de ingesta bancaria. `alias-proveedor-pendientes.js` ganó `--desde/--hasta`. 2026-10-20
+- [x] ✅ `[CP.8.48]` C0 — Línea base ene–sep: **18,193 egresos · arma solo 1,069 (5.9 %, $244.6M)** · `sin_regla` 39.1 % · fuera 32.4 %. Script versionado `database/scripts/techo-puente-contpaqi.js` (mismo `simularLotes` que la bandeja). ⚠️ El control ene–ago da 16,097 contra 15,599 de §39.1: «fuera» idéntico (5,281), la diferencia es casi toda `sin_regla`, y coincide con 893 egresos capturados después del 12-oct; no atribuido uno por uno. Cruce: arma solo y `proveedor_sin_cuenta` idénticos al script de alias. 2026-10-20
+- [ ] ⬜ `[CP.8.49]` C0 — Confirmar que la póliza cargada «sin afectar» vuelve por `feed_contpaqi` con su `Guid`.
+- [x] 🧪 `[CP.8.58]` ⛔⛔ **Visto como lo ve la API, el puente estaba vacío.** Las 7 tablas que lee tienen RLS forzado; la API corre como `app_runtime`, que **no** trae `app.tenant_id` por default (los roles personales sí — por eso todo lo medido como `edgar` vio datos). `ContpaqiArmadoService` y `ContpaqiCuadreService` inyectaban `KNEX_NEW_DB` pelado → bandeja con **0 lotes**, alias rechazado por la política y **cuadre ciego para siempre** latiendo `ok`. Reproducido en rojo con `test-newdb-contpaqi-tenant.js` (3 ✓ / 3 ✗) → arreglado con `alcance-tenant.ts` (transacción + `set_config`, y `db` **lanza** fuera del alcance) → **6 ✓ / 0 ✗**; sin regresión en bandeja 34 · proveedor 30 · puente 43 · lote 38 · cuadre 35. Constructores intactos. No ejercido en prod (10 días de logs sin una apertura de la bandeja). ⚠️ **Clase, sin medir:** otros 20 servicios inyectan `KNEX_NEW_DB` sin mecanismo de tenant en el archivo (candidatos, no defectos: `customer-360-refresh`, `purchase-adjustments-findings-bridge`, `contact-trust-cron`, `sellout-rollup`, `finance-feed-scanner`, `goods-receipt-twins`, `goods-receipts-watcher`, `maat-scanner`, `poliza-type-findings-bridge`, `pagos-autopilot`, `fiscal-conciliacion-scanner`, `estatus-scanner`, `fiscal-listas-scanner`, `fleet-poller`, `reconciliation-scanner`, `whatsapp-ingest`, `auth-mt`, `catalogo-interno`, `kp/sucursales`, `tenants-admin`) → Plataforma. Deuda: `AlcanceTenant` a `platform-core` si aparece un 3er consumidor. 2026-10-20
+- [x] 🧪 `[CP.8.50]` C1 — `entrega.ts`: huella SHA-256 de los bytes, comparación byte a byte con motivo, filas con token/guid/autor/huella. 2026-10-20
+- [x] 🧪 `[CP.8.51]` C1 — `firma-regla.ts`: sólo `por_categoria` se firma; cuenta gasto `52*`, afectable, viva y del catálogo (173); banco/proveedor/mayor/baja/inexistente/sin autor rechazados con motivo. 19 casos puros. 2026-10-20
+- [x] 🧪 `[CP.8.59]` ⛔⛔ **El archivo habría reenviado lo ya entregado.** Firmar cambia meses que quizá ya se cargaron; el archivo traía todos los lotes → importarlo los duplicaba en ContPAQi y «marcar» los contaba como «ya registradas». Ahora `armarArchivo` sólo lleva lo no entregado (`rechazada` sí puede volver) y un lote entregado que cambió se declara (`cambiados`, `X-Cambiados-Tras-Entrega`). Defecto propio de F1b, cazado con cero entregas. Ejercido sólo en el modo local del candado — NO MEDIDO hasta `pruebas-db`. 2026-10-20
+- [x] 🧪 `[CP.8.52]` C2 — `POST /finance/contpaqi/entregas` `{ mes, archivo_base64 }`, `_GESTIONAR`: el archivo tiene que ser idéntico al que genera hoy (si no, 409); `ON CONFLICT DO NOTHING` (no duplica, no toca `updated_at`, no degrada `aplicada`). Contra prod (sólo lectura): enero **idéntico** generado dos veces (88 pólizas, 80,024 bytes) y el alterado rechazado sin escribir. ⛔ **La escritura: NO MEDIDA** — `test-newdb-contpaqi-entrega.js` la ejerce como `app_runtime` con el payload de la pantalla sólo en el job `pruebas-db`; **no pasa a ✅ sin ese verde**. 2026-10-20
+- [x] 🧪 `[CP.8.53]` C2 — `GET /reglas?mes` · `GET /cuentas-gasto` (`_VER`) · `POST /reglas/:categoria/firma` y `/revocar` (`_GESTIONAR`, 409 con motivo), sin migración (columnas `aprobada_por/en` ya existían). Prod sólo lectura como `app_runtime`: 21 reglas, 6 firmables que traban **9,757 movs ene–sep ($16.6M)**, indicio sin preselección. ⛔ Escritura NO MEDIDA hasta `pruebas-db` (`test-newdb-contpaqi-firma.js` [C]). Deuda: revocar no guarda quién revocó. Decisión abierta **D7** (¿firma sólo contabilidad?). 2026-10-20
+- [x] 🧪 `[CP.8.14]` C3 — «Reglas de cuenta» en `/contabilidad/contpaqi-puente`: respuesta primero, firmables con evidencia + selector filtrable sin preselección + «usar el indicio» sólo si está en el catálogo; no firmables con su motivo; el error de lectura se pinta. `check:pantalla` 2 → 2, 0 nuevas; spec 19 ✓, mutado a rojo. Sin validación visual. 2026-10-20
+- [x] 🧪 `[CP.8.54]` C3 — «¿Ya lo cargaste en ContPAQi?» → elegir el archivo → nuevas / ya registradas o el motivo del 409; separado de «Generar». `check:pantalla` 2 → 2, 0 nuevas; `aBase64` con 2 pruebas, mutada a rojo. Sin validación visual. 2026-10-20
+- [ ] ⬜ `[CP.8.55]` Sesión con contabilidad — prueba A/B (necesita D1).
+- [ ] ⬜ `[CP.8.56]` Sesión con contabilidad — enero real (88 pólizas, $36,718,975.48) en `aplicada` (necesita D1 + D5).
+- [ ] ⬜ `[CP.8.57]` Contabilidad confirma la lista de alias de `[CP.8.47]`.
+
+**C0 del pago a proveedor (2026-10-21) — qué hace falta para armarlo completo, medido.** Plan §3.5–§3.6.
+
+- [x] ✅ `[CP.8.60]` C0 — Catálogo de asientos de egresos (4,813 pólizas, pareo 87.6 %, placebo 2.2 %): el puente arma «2120 / banco» y la forma real es así en **1.7 %**. R1 2120 + traspaso IEPS/IVA si ≥ $20 mil con impuestos y de mes anterior; R2 5010/5020 por tasa; R3 notas; R4 UUID por renglón. Respuestas de contabilidad incorporadas. 2026-10-21
+- [x] ✅ `[CP.8.61]` C0 — Factura por importe (RFC + total ±$1, −180/+30 días): una factura 82.8 % / error 0.1 %; varias 48.4 % / 1.7 %. Placebo 0. `liga-pago-factura-contpaqi.js`. 2026-10-21
+- [x] ❌ `[CP.8.62]` ~~«Ningún sistema guarda qué facturas paga cada pago»~~ — refutado el mismo día por `[CP.8.63]`. 2026-10-21
+- [x] ✅ `[CP.8.63]` C0 — Cadena banco → pago Kepler (c45) → `kdxf` → `kdxe` → CFDI: L1 89.5 % (placebo 0), L2 89.0 %. `cadena-pago-kepler-contpaqi.js`. 2026-10-21
+- [x] ✅ `[CP.8.64]` C0 — El ADD de ContPAQi trae el REP del proveedor (`Pagos_Doc_Rel`, 3,293 pagos) y nota → factura (`CfdiRelacionados`): facturas = contadora 97.1 %; notas en la misma póliza 98.5 %. `rep-add-pago-factura-contpaqi.js`. Abre **D8**. 2026-10-21
+- [x] ✅ `[CP.8.65]` C0 — Expediente: el simulador reproduce 1,435 de 1,907 pólizas renglón por renglón (75.2 %). `reproduce-asiento-proveedor-contpaqi.js`. 2026-10-21
+- [x] ✅ `[CP.8.66]` C0 — Descuento vs devolución = `TipoRelacion` 03 (91.7 %); sin efecto fiscal. `nota-familia-contpaqi.js`. 2026-10-21
+- [x] ✅ `[CP.8.67]` C0 — Histórico: la cuenta del proveedor = la ya usada con ese RFC (99.7 %, mapa 98.4 %); para lo demás no mejora la regla. `patrones-historicos-contpaqi.js`. 2026-10-21
+- [x] ✅ `[CP.8.68]` C0 — ⛔ Hallazgo para contabilidad: 54 facturas ($8.2 M) provisionadas y vueltas a registrar como compra directa sin cancelar el 2120. `doble-registro-provision-contpaqi.js`. 2026-10-21
+- [x] ✅ `[CP.8.69]` C0 — Cuatro de las cinco preguntas para contabilidad contestadas con el dato; queda «parcial con notas». 2026-10-21
+- [x] ✅ `[CP.8.70]` C0 — De punta a punta sin oráculo (banco → póliza): 948 de 1,831 (51.8 %). `punta-a-punta-proveedor-contpaqi.js`. 2026-10-21
+- [x] ✅ `[CP.8.71]` C0 — El RFC del acreedor en Kepler estaba mal capturado (249 casos); reparado → **1,142 de 1,831 (62.4 %), error del puente 2.5 %**. De 125 acreedores sin RFC pagados en 2026: 21 se corrigen ($34.0 M, lista privada para Compras), 103 son de remisión en efectivo ($35.67 M) y **no tienen póliza en ContPAQi** (hallazgo para contabilidad). 2026-10-21
+- [x] 🧪 `[CP.8.72]` C1/C2/C3 — **El puente arma cada pago a proveedor completo, una póliza por pago**: `pago-proveedor.ts` (asiento) + `rfc-acreedor.ts` + `pago-proveedor.fuente.ts` (qué facturas y notas paga, sin el ADD) integrados en `construirLotes`; ya no entra al lote como «2120 / banco». Lo que no se arma se cuenta en su lote con motivo. Archivo y entrega llevan el tipo (`bank_lote` | `bank_pago_proveedor`) y los UUID (`AD`). Fuente cruzada contra el simulador: 976/977 idénticas. Ejercido contra prod en sólo lectura: sep 91 pagos ($12.76 M), ene 108 ($18.29 M), cero escrituras. Pantalla: fila y panel del pago; `check:pantalla` 0 nuevas. ⚠️ Carga del mes 4.4 s (1.5 s con caché) desde la laptop, en el clúster NO MEDIDO; el CI (`pruebas-db`) no ejerce la fuente (sus siembras son `por_categoria`). Sin validación visual. 2026-10-21
+- [x] 🧪 `[CP.8.73]` C1/C2/C3 — **Confirmar qué facturas paga un pago a proveedor**: `proponer()` + `entradaConfirmada()` en la fuente; `pagosPorConfirmar` / `confirmarPago` / `desconfirmarPago` (`GET pagos-por-confirmar`, `POST pagos/:id/confirmar|desconfirmar`, `_GESTIONAR`, 409 con motivo); tabla `contpaqi.pago_confirmaciones` (RLS forzado) — ⚠️ **migración `20261021181119` SIN aplicar en prod**. Pantalla: candidatas con lo sugerido primero, sugerencia sin preselección, cuadre a la vista, «Confirmar» sólo si cuadra. Medido: las facturas de la contadora están entre las candidatas en 697/761 (91.6 %). Spec 26 ✓ (mutado a rojo), `check:pantalla` 0 nuevas. Escritura **NO MEDIDA** hasta `pruebas-db` (`test-newdb-contpaqi-confirmacion.js`). Sin validación visual. 2026-10-21
+- [ ] ⚠️ `[CP.8.74]` D8 — traer `Pagos_Doc_Rel` y `CfdiRelacionados` del ADD sin importer nuevo. Bloquea la mayor parte de lo armado (940 de 1,142 salen del REP).
+- [x] 🧪 `[CP.8.75]` C2 — **La bandeja deja de leer el mes cuatro veces con el índice anulado**: egresos por rango sargable + IVA hermano por `DISTINCT ON` (servidor 974 → 58 ms, mediana de 6; filas idénticas en 12 meses); la fuente de pagos se comparte entre peticiones simultáneas y se precalienta cada 9 min por pod (~1.1 s de servidor que ya no se paga al abrir); sugerencias de proveedor sin re-normalizar el padrón (335–441 ms de JS). `f057f2bcf`, `2ae8f53cb`. ⚠️ Tiempo dentro del pod **NO MEDIDO** (lectura en el pod no autorizada): medir en el navegador al desplegar.
+- [x] 🧪 `[CP.8.76]` C3 — **La pantalla pasa a un asistente de cuatro pasos** (reglas · proveedores · pagos · revisar y entregar), elegido por el PM: contestaba siete preguntas en un scroll. Respuesta arriba, cada paso con lo que le queda, `app-load-state` por paso, error de proveedores ya no se traga. `check:pantalla` 2 en deuda → 0; 33 pruebas (7 nuevas, una mutada a rojo). `70ff5b1d7`. **Sin validación visual.**
 
 ---
 

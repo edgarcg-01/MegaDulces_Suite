@@ -84,7 +84,10 @@ const dijo = (err) => (err ? `${err.code} ${err.constraint ?? '(sin nombre)'}` :
       }).returning('*');
       const [m1] = await trx('finance.cash_ledger').insert(mov(c.id)).returning('*');
       await trx('finance.cash_ledger').insert(mov(c.id, {
-        created_by: CAJERA, estado: 'cancelado', cancelled_by: CANCELA, cancelled_at: trx.fn.now(),
+        // ⚠️ Lo crea CAPTURA y no CAJERA: si CAJERA (quien cierra) también lo hubiera creado, la
+        // prueba de la doble llave de abajo dispararía primero la regla de «capturó en el corte»
+        // y no mediría la doble llave. Eso pasó el 2026-10-21 (21 ok / 1 rojo en caja-db).
+        created_by: CAPTURA, estado: 'cancelado', cancelled_by: CANCELA, cancelled_at: trx.fn.now(),
         cancel_reason: 'Prueba de cancelacion CGS',
       }));
       const e1 = await intento(trx, () => trx('finance.cash_ledger').where({ id: m1.id }).update({ monto: 150 }));
@@ -144,18 +147,15 @@ const dijo = (err) => (err ? `${err.code} ${err.constraint ?? '(sin nombre)'}` :
       const e4c = await intento(trx, () => autorizar(CANCELA));
       ok(es(e4c, '23514', 'cut_autoriza_lo_ajeno_chk'),
         `[negativa] autoriza quien canceló un movimiento del corte → cut_autoriza_lo_ajeno_chk (${dijo(e4c)})`);
-      // ⚠️ DOS mecanismos del MISMO día implementan esta regla, y los dos están vivos en prod:
-      //   · `cgs10` — trigger `trg_cash_cut_autoriza_ajeno` → levanta `cut_autoriza_lo_ajeno_chk`
-      //   · `cgs18` — `CHECK cut_doble_llave_chk` → `authorized_by <> closed_by`
-      // El trigger es más amplio (cubre quien capturó, abrió, canceló **y cerró**) y por eso
-      // dispara primero. Exigir UN nombre concreto ponía el job en rojo por una regla que SÍ se
-      // cumple — medir el mecanismo en vez del efecto. Acá se exige el efecto: que quien cerró
-      // NO pueda autorizar, por cualquiera de las dos vías.
-      // ⛔ Esto NO decide con cuál quedarse: esa decisión está abierta y es de autorización de
-      // dinero, no de implementación. Cuando se resuelva, este `||` vuelve a un nombre único.
+      // ⭐ Las dos reglas NO compiten, se reparten el trabajo (corregido el 2026-10-21):
+      //   · `cut_doble_llave_chk` (CHECK, 2026-09-18) — quien CERRÓ no autoriza.
+      //   · `cut_autoriza_lo_ajeno_chk` (trigger de cgs10) — quien ABRIÓ, CAPTURÓ o CANCELÓ no autoriza.
+      //   El trigger NO mira `closed_by`. El rojo del 21-oct no era un empate de mecanismos: CAJERA
+      //   había creado el movimiento cancelado, así que caía en la segunda regla antes de llegar
+      //   al CHECK. Con CAJERA sólo cerrando, cada caso mide su regla por su nombre.
       const e4d = await intento(trx, () => autorizar(CAJERA));
-      ok(es(e4d, '23514', 'cut_doble_llave_chk') || es(e4d, '23514', 'cut_autoriza_lo_ajeno_chk'),
-        `[negativa] autoriza quien cerró → cut_doble_llave_chk o cut_autoriza_lo_ajeno_chk (${dijo(e4d)})`);
+      ok(es(e4d, '23514', 'cut_doble_llave_chk'),
+        `[negativa] autoriza quien cerró (y no capturó nada) → cut_doble_llave_chk (${dijo(e4d)})`);
       const antesCorte = await cuenta('finance.cash_ledger_cuts', c.id);
       const e4e = await intento(trx, async () => {
         await autorizar(AUTORIZA);

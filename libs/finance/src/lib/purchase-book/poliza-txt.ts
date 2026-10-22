@@ -512,10 +512,19 @@ const esLegado = (lineas: readonly string[]) => lineas.some((l) => l.slice(0, 2)
  * (los cuadres de LC lo necesitan) y esta función es la que dice si el archivo sirve.
  */
 export function vigenciaArchivo(contenido: string | null | undefined): { vigente: boolean; motivo: string | null } {
-  if (!contenido) {
+  return vigenciaPorBanderas(!!contenido, !!contenido && esLegado(contenido.split(/\r?\n/)));
+}
+
+/**
+ * La misma decisión, a partir de las dos banderas — para quien no quiere bajar el archivo.
+ * `[LC.18 · e2e]`: la pantalla bajaba los 161 KB del TXT de oct-2026 sólo para preguntar esto, y
+ * eran 150 de los ~480 ms de abrir el mes. `REGEX_LINEA_LEGADA` es la versión SQL de `esLegado`.
+ */
+export function vigenciaPorBanderas(tieneArchivo: boolean, legado: boolean): { vigente: boolean; motivo: string | null } {
+  if (!tieneArchivo) {
     return { vigente: false, motivo: 'la corrida guardó la firma pero no el archivo: hay que generarlo de nuevo' };
   }
-  if (esLegado(contenido.split(/\r?\n/))) {
+  if (legado) {
     return {
       vigente: false,
       motivo: 'el archivo se generó con el formato anterior al 8-oct-2026 (CP.8.13) y ContPAQi lo rechaza: hay que generarlo de nuevo',
@@ -523,3 +532,6 @@ export function vigenciaArchivo(contenido: string | null | undefined): { vigente
   }
   return { vigente: true, motivo: null };
 }
+
+/** `esLegado` en SQL (operador `~` de Postgres): alguna línea arranca con «M » (con espacio). */
+export const REGEX_LINEA_LEGADA = '(^|\\n)M ';
