@@ -5,6 +5,7 @@ import type {
   SetVendorTargetRequest,
   SetVendorTargetResponse,
   SupervisorBoardResponse,
+  VendorSummaryResponse,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -16,6 +17,13 @@ export class SupervisorBoardService {
 
   board(date: string): Observable<SupervisorBoardResponse> {
     return this.http.get<SupervisorBoardResponse>(`${this.base}/board`, { params: new HttpParams().set('date', date) });
+  }
+
+  /** `[MCP.3.10]` Resumen de un vendedor de tu equipo: meta, sus días de la catorcena, ruta y sucursal. */
+  vendorSummary(userId: string, date: string): Observable<VendorSummaryResponse> {
+    return this.http.get<VendorSummaryResponse>(`${this.base}/vendor-summary`, {
+      params: new HttpParams().set('user_id', userId).set('date', date),
+    });
   }
 
   setTarget(body: SetVendorTargetRequest): Observable<SetVendorTargetResponse> {

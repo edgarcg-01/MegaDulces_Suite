@@ -1,4 +1,9 @@
-import type { SetVendorTargetRequest, SetVendorTargetResponse, SupervisorBoardResponse } from '@megadulces/contracts';
+import type {
+  SetVendorTargetRequest,
+  SetVendorTargetResponse,
+  SupervisorBoardResponse,
+  VendorSummaryResponse,
+} from '@megadulces/contracts';
 import { Body, Controller, Get, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequirePermissions, RolesGuard, isPlatformAdminRole } from '@megadulces/platform-core';
@@ -37,6 +42,22 @@ export class SupervisorBoardController {
     const canSetTargets =
       req?.user?.permissions?.[Permission.USUARIOS_ASIGNAR_RUTA] === true || isPlatformAdminRole(req?.user?.role_name);
     return this.board.board(date, canSetTargets);
+  }
+
+  @Get('supervisor/vendor-summary')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({
+    summary:
+      'MCP.3.10: resumen de un vendedor de tu equipo (?user_id=&date=YYYY-MM-DD): meta de la catorcena contra lo cobrado en Kepler, sus días de la catorcena y su ruta/sucursal',
+  })
+  getVendorSummary(
+    @Query('user_id') userId: string,
+    @Query('date') date?: string,
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<VendorSummaryResponse> {
+    const canSetTargets =
+      req?.user?.permissions?.[Permission.USUARIOS_ASIGNAR_RUTA] === true || isPlatformAdminRole(req?.user?.role_name);
+    return this.board.vendorSummary(userId, date, canSetTargets);
   }
 
   @Put('supervisor/targets')

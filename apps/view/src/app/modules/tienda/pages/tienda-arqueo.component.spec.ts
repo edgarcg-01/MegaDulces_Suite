@@ -777,3 +777,159 @@ describe('TiendaArqueoComponent · [SM.45] rutas por sucursal', () => {
     expect(cmp.canSubmit()).toBe(false);
   });
 });
+
+/**
+ * `[SM.47]` Dos mejoras pedidas por la operación:
+ *
+ *  1. **Total billetes y Total monedas** al cerrar cada familia en la tabla de captura (en
+ *     todas las pestañas) y en el detalle de un arqueo guardado. No son casillas: Enter y las
+ *     flechas los saltan.
+ *  2. **«Conteo de efectivo»**: un arqueo SIN caja (sucursal + quién cuenta + motivo
+ *     obligatorio) con permiso propio, para encargada, Finanzas y jefe de zona.
+ */
+describe('TiendaArqueoComponent · [SM.47] totales por familia y conteo de efectivo sin caja', () => {
+  let fix: ComponentFixture<TiendaArqueoComponent>;
+  let cmp: TiendaArqueoComponent;
+  let svc: ArqueoStub & { turnosPedidos: number; sinCaja: any; submitSinCaja: (dto: any) => any };
+
+  const el = (): HTMLElement => fix.nativeElement as HTMLElement;
+  const tick = async (): Promise<void> => {
+    await fix.whenStable();
+    await new Promise((r) => setTimeout(r, 0));
+    fix.detectChanges();
+  };
+
+  const montar = async (username: string, permissions: Record<string, boolean>, sucursales = [{ value: '04', label: 'PADRE HIDALGO' }]) => {
+    const base = new ArqueoStub();
+    svc = Object.assign(base, {
+      turnosPedidos: 0,
+      sinCaja: null as any,
+      turnos(this: any) { this.turnosPedidos++; return of(this.resp); },
+      submitSinCaja(this: any, dto: any) { this.sinCaja = dto; return of({ tipo: 'sin_caja', secuencia: 1, total_contado: 2000, medible: false, motivo_no_medible: 'sin_esperado' }); },
+    });
+    await TestBed.configureTestingModule({
+      imports: [TiendaArqueoComponent],
+      providers: [
+        provideRouter([]), provideHttpClient(), provideHttpClientTesting(), MessageService,
+        { provide: ArqueoService, useValue: svc },
+        { provide: AuthService, useValue: { user: () => ({ username, warehouse_code: null, role_name: 'x', permissions }), token: () => null } },
+        { provide: PermissionsService, useValue: { isAdmin: () => false, has: () => false } },
+        { provide: DataScopeService, useValue: { warehouses: () => of(sucursales) } },
+      ],
+    }).compileComponents();
+    fix = TestBed.createComponent(TiendaArqueoComponent);
+    cmp = fix.componentInstance;
+    fix.detectChanges();
+    await tick();
+  };
+
+  const etiquetasHead = () => Array.from(el().querySelectorAll('.arq-head .arq-lbl'))
+    .map((l) => (l.textContent || '').trim());
+
+  describe('totales de billetes y de monedas', () => {
+    beforeEach(async () => {
+      await montar('10c02', { STORE_ARQUEO_CAPTURAR: true, STORE_ARQUEO_VER: true });
+      cmp.manual.set(true);
+      await tick();
+    });
+
+    const filas = () => Array.from(el().querySelectorAll('.arq-lista > .arq-lista-row'));
+
+    it('⭐ «Total billetes» cierra los billetes y «Total monedas» cierra las monedas', async () => {
+      cmp.denomCount['1000'] = 2; cmp.denomCount['20'] = 1; cmp.denomCount['20m'] = 3; cmp.denomCount['0.5'] = 4;
+      cmp.recalc();
+      await tick();
+      const r = filas();
+      const iBil = r.findIndex((x) => x.getAttribute('data-sub') === 'billetes');
+      const iMon = r.findIndex((x) => x.getAttribute('data-sub') === 'monedas');
+      // Justo después del billete de $20 y justo antes del pie.
+      expect(r[iBil - 1].textContent).toContain('billete');
+      expect(r[iBil + 1].textContent).toContain('moneda');
+      expect(r[iMon + 1].classList.contains('arq-lista-foot')).toBe(true);
+      // El billete y la moneda de $20 caen cada uno en SU familia (SM.39).
+      expect(r[iBil].textContent).toContain('3 pzas');
+      expect(r[iBil].textContent).toContain('$2,020.00');
+      expect(r[iMon].textContent).toContain('7 pzas');
+      expect(r[iMon].textContent).toContain('$62.00');
+      expect(el().querySelector('.arq-lista-foot')?.textContent).toContain('$2,082.00');
+    });
+
+    it('sin captura los totales dicen $0.00, no NaN', async () => {
+      const t = el().querySelector('[data-sub="billetes"]')?.textContent ?? '';
+      expect(t).toContain('$0.00');
+      expect(t).not.toContain('NaN');
+    });
+
+    it('⭐ NO son casillas: siguen siendo 12 entradas y Enter del billete de $20 baja a la moneda de $20', async () => {
+      const inputs = Array.from(el().querySelectorAll<HTMLInputElement>('.arq-lista input.arq-num'));
+      expect(inputs.length).toBe(12);
+      expect(el().querySelectorAll('.arq-lista-sub input').length).toBe(0);
+      inputs[5].focus();
+      cmp.onCellKey(new KeyboardEvent('keydown', { key: 'Enter' }), 0, 5);
+      expect(document.activeElement).toBe(inputs[6]);
+      expect(inputs[6].getAttribute('aria-label')).toContain('monedas de $20');
+    });
+
+    it('aparecen también en Retiro y Relevo', async () => {
+      for (const t of ['retiro', 'relevo']) {
+        cmp.elegirTipo(t);
+        await tick();
+        expect(el().querySelector('[data-sub="billetes"]')).not.toBeNull();
+        expect(el().querySelector('[data-sub="monedas"]')).not.toBeNull();
+      }
+    });
+  });
+
+  describe('«Conteo de efectivo» (sin caja)', () => {
+    it('⭐ Finanzas (solo el permiso nuevo) abre directo en su pestaña: sin turnos, sin Caja, firma propia', async () => {
+      await montar('ana_fin', { STORE_ARQUEO_SIN_CAJA_CAPTURAR: true });
+      expect(cmp.aTipo()).toBe('sin_caja');
+      expect(cmp.tipoOptions().map((o) => o.value)).toEqual(['sin_caja']);
+      expect(cmp.tipoOptions()[0].label).toBe('Conteo de efectivo');
+      // No pide turnos de Kepler: no tiene permiso para eso y le daria 403.
+      expect(svc.turnosPedidos).toBe(0);
+      const lbls = etiquetasHead();
+      expect(lbls.some((l) => l.startsWith('Caja'))).toBe(false);
+      expect(lbls.some((l) => l.startsWith('Quién hace el arqueo'))).toBe(true);
+      const quien = el().querySelector<HTMLInputElement>('input.arq-fld-cajero');
+      expect(quien?.value).toBe('ANA_FIN');
+      expect(quien?.readOnly).toBe(true);
+      expect(el().textContent).toContain('Motivo del conteo');
+    });
+
+    it('⭐ sin motivo no se guarda; con motivo sale por SU endpoint con sucursal y motivo', async () => {
+      await montar('ana_fin', { STORE_ARQUEO_SIN_CAJA_CAPTURAR: true });
+      cmp.denomCount['1000'] = 2; cmp.recalc();
+      cmp.aMotivo = '   ';
+      expect(cmp.canSubmit()).toBe(false);
+      cmp.aMotivo = 'Caja fuerte';
+      expect(cmp.canSubmit()).toBe(true);
+      cmp.submit();
+      expect(svc.sinCaja).toMatchObject({ warehouse_code: '04', motivo: 'Caja fuerte', denominations: { 1000: 2 } });
+      expect(svc.sinCaja.caja).toBeUndefined();
+      // NEGATIVA: no se fue por la puerta de la cajera.
+      expect(svc.enviado).toBeNull();
+    });
+
+    it('con varias sucursales hay que elegir una antes de guardar', async () => {
+      await montar('ana_fin', { STORE_ARQUEO_SIN_CAJA_CAPTURAR: true },
+        [{ value: '01', label: 'MATRIZ' }, { value: '04', label: 'PADRE HIDALGO' }]);
+      cmp.denomCount['1000'] = 1; cmp.recalc(); cmp.aMotivo = 'fondo';
+      expect(cmp.canSubmit()).toBe(false);
+      cmp.aSuc.set('01');
+      expect(cmp.canSubmit()).toBe(true);
+    });
+
+    it('la encargada la ve AL FINAL, junto a las pestañas de siempre', async () => {
+      await montar('enc', { STORE_ARQUEO_CAPTURAR: true, STORE_ARQUEO_VER: true, STORE_ARQUEO_SIN_CAJA_CAPTURAR: true });
+      expect(cmp.tipoOptions().map((o) => o.value)).toEqual(['retiro', 'cierre', 'relevo', 'sin_caja']);
+      // CONTROL: sigue pidiendo sus turnos.
+      expect(svc.turnosPedidos).toBeGreaterThan(0);
+    });
+
+    it('NEGATIVA: la cajera sin el permiso NO ve la pestaña', async () => {
+      await montar('10c02', { STORE_ARQUEO_CAPTURAR: true, STORE_ARQUEO_VER: true });
+      expect(cmp.tipoOptions().map((o) => o.value)).not.toContain('sin_caja');
+    });
+  });
+});

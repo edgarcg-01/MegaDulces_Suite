@@ -44,6 +44,8 @@ interface Opciones {
   fallaEtiqueta?: boolean;
   /** `[MOS.1]` La lectura aparte de proveedores del lote del snapshot. */
   proveedores?: Fila[];
+  /** `[ETQ-PROMO.2]` La lectura del $0.01 en todas las plazas (una fila por código). */
+  centavo?: Fila[];
 }
 
 const MENSAJE_PG = 'relation "kepler_ods.kdii" does not exist (host 10.20.30.40:5434)';
@@ -54,6 +56,8 @@ function dbFalso(o: Opciones = {}) {
     llamadas.push({ sql, bindings });
     if (o.falla) throw new Error(MENSAJE_PG);
     if (sql.includes('SET LOCAL')) return { rows: [] };
+    // `[ETQ-PROMO.2]` El agregado del $0.01 va ANTES que la lectura de fichas: comparten tabla.
+    if (sql.includes('bool_and')) return { rows: o.centavo ?? [] };
     if (sql.includes('FROM kepler_ods.kdii')) return { rows: o.kdii ?? [] };
     if (sql.includes('catalog.suppliers') && !sql.includes('product_label_prices')) {
       return { rows: o.proveedores ?? [] };
@@ -437,5 +441,81 @@ describe('[MOS.1] KpService.getPrecio publica el proveedor', () => {
     const { svc } = servicio({ kdii: [kdii()], etiqueta: [] });
     const r: any = await svc.getPrecio('00610', '03');
     expect(r.proveedor).toBeNull();
+  });
+});
+
+/**
+ * `[ETQ-PROMO.2]` El verificador avisa cuando el código es una PROMOCIÓN de Kepler. Hasta hoy mostraba el
+ * centavo simbólico ($0.01) como si fuera el precio de un producto. Lógica con base simulada: el SQL del
+ * agregado se ejerció aparte contra producción en solo lectura (ver el PR).
+ */
+describe('[ETQ-PROMO.2] KpService avisa que un código es una promoción', () => {
+  beforeEach(() => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  const promo = (o: Fila = {}) => kdii({ codigo: '09089', nombre: '10 CJS OREO BASE 9 KG = GRATIS 1 CJ MAS', pv1: 0.01, bc1: '', ...o });
+
+  it('⭐ en vivo: el 09089 (= GRATIS, $0.01 en todas las plazas) llega con es_promocion', async () => {
+    const { svc } = servicio({ kdii: [promo({ sucursal: '01' }), promo({ sucursal: '02' })], etiqueta: [] });
+    const r: any = await svc.getPrecio('09089', '02');
+    expect(r.ok).toBe(true);
+    expect(r.es_promocion).toBe(true);
+  });
+
+  it('⭐ «3X2 EN CAJAS DE POOSH» (sin «= GRATIS») también: $0.01 en TODAS las plazas basta', async () => {
+    const f = (s: string) => promo({ codigo: '91041', nombre: '3X2 EN CAJAS DE POOSH', sucursal: s });
+    const { svc } = servicio({ kdii: [f('01'), f('02'), f('03')], etiqueta: [] });
+    expect(((await svc.getPrecio('91041', '03')) as any).es_promocion).toBe(true);
+  });
+
+  it('⛔ [negativa] un producto real NO es promoción', async () => {
+    const { svc } = servicio({ kdii: [kdii({ sucursal: '03' })], etiqueta: [etiqueta()] });
+    expect(((await svc.getPrecio('00610', '03')) as any).es_promocion).toBe(false);
+  });
+
+  it('⛔ [negativa] $0.01 en UNA plaza y precio real en otra NO lo vuelve promoción (si el nombre no lo dice)', async () => {
+    const nombre = 'GALLETA X';
+    const { svc } = servicio({
+      kdii: [kdii({ codigo: '50001', nombre, pv1: 0.01, sucursal: '01' }), kdii({ codigo: '50001', nombre, pv1: 12.5, sucursal: '02' })],
+      etiqueta: [etiqueta()],
+    });
+    expect(((await svc.getPrecio('50001', '02')) as any).es_promocion).toBe(false);
+  });
+
+  it('⛔ [negativa] un precio en 0 (producto nuevo sin precio) NO es promoción', async () => {
+    const { svc } = servicio({ kdii: [kdii({ codigo: '50002', nombre: 'DULCE NUEVO', pv1: 0, sucursal: '03' })], etiqueta: [etiqueta()] });
+    expect(((await svc.getPrecio('50002', '03')) as any).es_promocion).toBe(false);
+  });
+
+  it('snapshot: marca pm:1 sólo a las promociones, y OMITE el campo en los productos (no ~9,000 pm:0)', async () => {
+    const { svc } = servicio({
+      kdii: [promo({ sucursal: '03' }), kdii({ codigo: '00610', sucursal: '03' })],
+      centavo: [{ codigo: '09089', centavo_en_todas: true }, { codigo: '00610', centavo_en_todas: false }],
+      etiqueta: [],
+    });
+    const r: any = await svc.getPreciosTodos('03');
+    const por = (c: string) => r.productos.find((x: any) => x.c === c);
+    expect(por('09089').pm).toBe(1);
+    expect('pm' in por('00610')).toBe(false);
+    expect(r.v).toBe(VERIFICADOR_SNAPSHOT_FORMATO);
+  });
+
+  it('snapshot: una promoción por nombre se marca aunque el agregado no la conozca (no se pudo medir)', async () => {
+    const { svc } = servicio({ kdii: [promo({ sucursal: '03' })], centavo: [], etiqueta: [] });
+    expect(((await svc.getPreciosTodos('03')) as any).productos[0].pm).toBe(1);
+  });
+
+  it('el agregado del $0.01 mira pieza y paquete/caja y exactamente 0.01 sobre TODAS las plazas', async () => {
+    const { svc, llamadas } = servicio({ kdii: [promo({ sucursal: '03' })], etiqueta: [] });
+    await svc.getPreciosTodos('03');
+    const q = llamadas.find((l) => l.sql.includes('bool_and'))?.sql ?? '';
+    expect(q).toContain('= 0.01');
+    expect(q).toContain('<= 0.01');
+    // sin acotar a una plaza: un producto real puede tener un precio de paso en UNA tienda
+    expect(q).not.toMatch(/sucursal\s*=/);
   });
 });

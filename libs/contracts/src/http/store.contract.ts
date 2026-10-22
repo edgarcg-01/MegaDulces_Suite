@@ -238,6 +238,13 @@ export interface VerificadorPrecioOk {
   origen_precio: 'kepler' | 'override_manual';
   /** `[MOS.1]` El proveedor de la ficha. `null` = sin proveedor o no se pudo leer. */
   proveedor?: string | null;
+  /**
+   * `[ETQ-PROMO.2]` El código es una PROMOCIÓN, bonificación o ajuste de Kepler (a $0.01), no un
+   * producto: `precio_con_iva` y `unidades` son el centavo simbólico y NO un precio de venta. La
+   * pantalla avisa en vez de cobrarlo. Regla única: `esCodigoSimbolico` (`codigo-simbolico.contract`).
+   * Ausente = servidor anterior a esta marca (se lee como «no sé», no como «no lo es»).
+   */
+  es_promocion?: boolean;
 }
 
 /** `GET /kp/precio` cuando NO está (200 con `ok:false`: es una respuesta, no un error). */
@@ -266,6 +273,8 @@ export interface VerificadorSnapshotItem {
   m?: MayoreoTierCompacto[];
   /** Gramaje. */
   g?: string;
+  /** `[ETQ-PROMO.2]` `1` = promoción/ajuste de Kepler (no un producto). Se OMITE si no lo es (formato ≥ 4). */
+  pm?: 1;
   /**
    * `[MOS.1]` El proveedor, como ÍNDICE en `VerificadorSnapshot.pr`. Índice y no texto: el mismo
    * nombre se repite en cientos de productos y el snapshot es una descarga por kiosco. Ausente =
@@ -289,9 +298,12 @@ export interface VerificadorSnapshotItem {
  *  · 3 = `[MOS.1]` además el factor de cada presentación (`u[].f`) y el proveedor (`pv` + `pr`),
  *        para que el buscador del mostrador encuentre por proveedor y cuente la caja en paquetes.
  *
+ *  · 4 = `[ETQ-PROMO.2]` además la marca de promoción (`pm`): sin ella un respaldo de formato 3 mostraría
+ *        el $0.01 de una promoción como si fuera su precio. El kiosco lo declara y se re-descarga.
+ *
  * Se sube al CAMBIAR la forma del snapshot, no en cada release.
  */
-export const VERIFICADOR_SNAPSHOT_FORMATO = 3;
+export const VERIFICADOR_SNAPSHOT_FORMATO = 4;
 
 /** `GET /kp/precios-todos`. */
 export interface VerificadorSnapshot {

@@ -125,6 +125,34 @@ describe('cuerpoTicket — el papel dice QUÉ es', () => {
   it('el original NO lleva la marca de reimpresión', () => {
     expect(lineas({ tipo: 'retiro' }).join('\n')).not.toContain('REIMPRESION');
   });
+
+  // [SM.47] El conteo sin caja no es «de caja»: el papel lo dice y lleva el motivo.
+  it('el conteo sin caja se titula CONTEO DE EFECTIVO, dice "sin caja" y lleva el motivo', () => {
+    const motivo = 'Arqueo sorpresa de supervision a la caja fuerte de la sucursal por cambio de encargada';
+    const L = lineas({ tipo: 'sin_caja', caja: 'SIN_CAJA', motivo });
+    expect(L[1]).toBe('CONTEO DE EFECTIVO');
+    const t = L.join('\n');
+    expect(t).toMatch(/Caja\s+sin caja/);
+    expect(t).not.toContain('SIN_CAJA');
+    expect(t.replace(/\s+/g, ' ')).toContain('Motivo: ' + motivo);
+    // Un motivo largo se parte, no rompe la grilla.
+    expect(L.every((l) => l.length <= 32)).toBe(true);
+  });
+
+  it('NEGATIVA: el motivo NO sale en un arqueo de caja', () => {
+    expect(lineas({ tipo: 'cierre', motivo: 'no deberia salir' }).join('\n')).not.toContain('no deberia salir');
+  });
+});
+
+describe('cuerpoTicket — [SM.47] billetes y monedas se SUMAN', () => {
+  it('las monedas son la suma de las monedas, no el total menos los billetes', () => {
+    // Un total que no cuadra con las piezas: con la resta, «monedas» mentiria.
+    const L = lineas({ total_contado: 99999 });
+    const mon = L.find((l) => l.trimStart().startsWith('monedas')) ?? '';
+    const bil = L.find((l) => l.trimStart().startsWith('billetes')) ?? '';
+    expect(mon.trim().endsWith('12.00')).toBe(true);
+    expect(bil.trim().endsWith('9,000.00') || bil.trim().endsWith('9000.00')).toBe(true);
+  });
 });
 
 describe('cuerpoTicket — el arqueo sigue siendo ciego en el papel', () => {
