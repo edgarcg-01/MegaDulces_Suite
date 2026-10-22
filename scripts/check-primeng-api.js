@@ -31,8 +31,23 @@ const path = require('node:path');
 const RAICES = ['apps', 'libs'];
 const IGNORAR = /(node_modules|dist|\.angular|\.nx|coverage)/;
 
-/** Componentes a los que PrimeNG 22 les QUITÓ `styleClass`. */
-const SIN_STYLECLASS = ['p-select', 'p-message', 'p-table', 'p-autocomplete', 'p-inputnumber', 'p-multiselect'];
+/**
+ * Componentes a los que PrimeNG 22 les QUITÓ `styleClass`.
+ *
+ * `p-inputicon` y `p-iconfield` [CSU.15, 2026-10-21]: no tienen esa entrada (verificado en
+ * `primeng-inputicon.mjs` / `primeng-iconfield.mjs` 22.0.6 — su única entrada es `hostName`).
+ * En `p-inputicon` el costo es el peor de la familia: el ícono ES la clase, así que
+ * `<p-inputicon styleClass="pi pi-search" />` dibuja una lupa de **0 px**. Medido en el navegador:
+ * con `class="pi pi-search"` estático la lupa mide 14 px y tiene su glifo. Había 36 lupas
+ * invisibles y 28 `p-iconfield` cuyo `min-width` nunca llegó al buscador.
+ */
+const SIN_STYLECLASS = ['p-select', 'p-message', 'p-table', 'p-autocomplete', 'p-inputnumber', 'p-multiselect', 'p-inputicon', 'p-iconfield'];
+
+/** El arreglo que corresponde a cada uno: en los íconos basta con la clase estática. */
+const ARREGLO_STYLECLASS = {
+  'p-inputicon': 'usar class="pi pi-..." (estático: Angular lo conserva junto a la clase del host)',
+  'p-iconfield': 'usar class="..." (estático: Angular lo conserva junto a la clase del host)',
+};
 
 /** Nombres de componente retirados en v22 -> su reemplazo. */
 const RENOMBRADOS = [
@@ -152,7 +167,7 @@ function revisar(archivo, src) {
       //    prohíbe: ésta empuja a convertir, convertir pide explicar, y el lugar natural de esa
       //    explicación es justo donde los acentos graves matan. Se corta en el origen diciéndolo
       //    en el mismo renglón que manda a convertir.
-      anotar(m.index, `styleClass en <${comp}> (v22 lo retiró)`, 'clase en el host + regla propia, o inputStyleClass. ⚠️ Si explicás el cambio en un comentario DENTRO del template: SIN acentos graves — parten el literal y el build muere en otra línea');
+      anotar(m.index, `styleClass en <${comp}> (v22 lo retiró)`, (ARREGLO_STYLECLASS[comp] ? ARREGLO_STYLECLASS[comp] + '. ' : 'clase en el host + regla propia, o inputStyleClass. ') + '⚠️ Si explicás el cambio en un comentario DENTRO del template: SIN acentos graves — parten el literal y el build muere en otra línea');
     }
   }
 
@@ -274,6 +289,10 @@ const TECHO = {
   'styleClass p-inputnumber': 13,
   'styleClass p-autocomplete': 6,
   'styleClass p-message': 1,
+  // [CSU.15] 2026-10-21: barridas a CERO (36 lupas de 0 px y 28 iconfield sin su min-width).
+  //    Tolerancia cero: la conversión es mecánica (styleClass -> class) y no deja deuda.
+  'styleClass p-inputicon': 0,
+  'styleClass p-iconfield': 0,
   // [CGP-V.5] 1 -> 0: la única era un falso positivo (p-message con severity="error", que es válido).
   'severity retirado': 0,
 };

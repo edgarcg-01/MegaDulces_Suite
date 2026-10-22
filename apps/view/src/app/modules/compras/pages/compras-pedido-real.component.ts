@@ -229,8 +229,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                     optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                     [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body"
                     styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
-          <p-iconfield styleClass="pr-search">
-            <p-inputicon styleClass="pi pi-search" />
+          <p-iconfield class="pr-search">
+            <p-inputicon class="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU o producto…" aria-label="Buscar producto" />
           </p-iconfield>
           <label class="pr-cov">
@@ -1090,8 +1090,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         <div class="pr-filters">
           <app-segmented [options]="viaOpts" [value]="wlVia()" ariaLabel="Canal"
                          (valueChange)="setWlVia($any($event))"></app-segmented>
-          <p-iconfield styleClass="pr-search">
-            <p-inputicon styleClass="pi pi-search" />
+          <p-iconfield class="pr-search">
+            <p-inputicon class="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="wlSearch" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="Proveedor…" aria-label="Buscar proveedor" />
           </p-iconfield>
           <div class="pr-toolbar" role="toolbar" aria-label="Filtros del ciclo">
@@ -1193,8 +1193,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               }
             </div>
             <div class="pr-filters">
-              <p-iconfield styleClass="pr-search">
-                <p-inputicon styleClass="pi pi-search" />
+              <p-iconfield class="pr-search">
+                <p-inputicon class="pi pi-search" />
                 <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU, producto o proveedor…" aria-label="Buscar" />
               </p-iconfield>
               <span class="pr-count">
@@ -1266,8 +1266,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             }
           </div>
           <div class="pr-filters">
-            <p-iconfield styleClass="pr-search">
-              <p-inputicon styleClass="pi pi-search" />
+            <p-iconfield class="pr-search">
+              <p-inputicon class="pi pi-search" />
               <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU o producto…" aria-label="Buscar producto" />
             </p-iconfield>
             <button type="button" class="pr-uu-b" [class.pr-uu-on]="sobSoloQuedado()"
@@ -1333,8 +1333,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
              el motivo en la lista DEUDA de scripts/check-dense-tables.js. -->
         <div class="dt-scope">
         <div class="pr-filters">
-          <p-iconfield styleClass="pr-search">
-            <p-inputicon styleClass="pi pi-search" />
+          <p-iconfield class="pr-search">
+            <p-inputicon class="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU o producto…" aria-label="Buscar producto" />
           </p-iconfield>
           @if (deadValue() > 0) { <span class="pr-count">{{ money(deadValue()) }} inmovilizado</span> }

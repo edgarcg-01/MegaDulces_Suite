@@ -50,8 +50,8 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
       }
 
       <div class="cf-filters">
-        <p-iconfield iconPosition="left" styleClass="cf-search">
-          <p-inputicon styleClass="pi pi-search" />
+        <p-iconfield iconPosition="left" class="cf-search">
+          <p-inputicon class="pi pi-search" />
           <input type="text" pInputText placeholder="Buscar RFC, nombre, folio, UUID…" [(ngModel)]="search" (keyup.enter)="applyFilters()" aria-label="Buscar CFDI" />
         </p-iconfield>
         <label class="cf-field"><span>Desde</span>

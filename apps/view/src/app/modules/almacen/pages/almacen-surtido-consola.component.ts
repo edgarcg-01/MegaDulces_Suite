@@ -92,7 +92,7 @@ const dmy = (v: string): string => {
         <div class="gp-note gp-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>No tienes un almacén a tu cargo, así que no hay fila que mostrarte. Pídele a Sistemas que te asigne tu sucursal.</span></div>
       }
 
-      @if (loading() && !data() && !sinAlmacen()) { <div class="gp-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="gp-skel-row"></div> }</div> }
+      @if (loading() && !data() && !sinAlmacen()) { <div class="gp-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="gp-skel-row"></div> }</div> }
 
       @if (data(); as d) {
         <section class="gp-kpis" aria-label="Resumen de hoy">
