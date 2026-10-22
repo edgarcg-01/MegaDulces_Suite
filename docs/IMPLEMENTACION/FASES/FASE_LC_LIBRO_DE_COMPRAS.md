@@ -1243,6 +1243,64 @@ proveedores). e2e: «el folio abre la factura, la de esa fila» (lectura) — `-
   un proveedor externo — decisión aparte (punto 33 del protocolo).
 - Se despliega con la imagen de ingesta: `ops/vl/deploy.sh feeds-cron` (junto con lo de LC.19.1).
 
+## LC.21 — todo número de movimientos se puede desglosar (Contabilidad, 2026-10-22)
+
+Edgar: *«necesito que todo lugar donde diga movimientos me permita desglosarlos»*. Alcance
+decidido: **Contabilidad**; desglosar = clic → **los renglones** que forman la cifra.
+
+**Inventario (18 pantallas, leídas completas):** ~110 números que NO se abren, 16 a medias, ~20 sí.
+⛔ La causa común: **`app-metric-strip` no tenía cómo abrirse** — sólo `input()`s, ningún `output()`
+(verificado en el código) — y lo usan **131 pantallas** de la app. Todas sus tarjetas eran texto.
+
+| Pantalla | NO | a medias | sí |
+|---|---:|---:|---:|
+| contpaqi-puente | 16 | 5 | 11 |
+| pólizas | 13 | 0 | 2 |
+| contpaqi (balanza, bancos, CFDI vs contab.) | 11 | 0 | 2 |
+| materialidad | 10 | 4 | 3 |
+| conciliación | 8 | 0 | 0 |
+| libro-compras | 8 → **0** | 0 | 1 → **7** |
+| movimientos-no-asociados | 6 → **2** | 4 → **1** | 7 → **14** |
+| listas-sat 6 · diot 6 · impuestos 5 · cierre 5 · cfdi 4 · mi-cierre 4 (+2) · diagnóstico 3 · e-contab 2 · descarga 1 (+1) · facturar 1 | | | |
+
+### Oleada 1 (esta)
+- **`MetricStrip`** (compartido): `drill?: string` por tarjeta + `(drill)` de salida; la tarjeta se
+  vuelve botón accesible (rol, foco, Enter/Espacio, `aria-label`). **Aditivo:** sin `drill` es la de
+  siempre — spec con la negativa primero (sin `drill` no es botón ni emite). 15/15.
+- **Movimientos no asociados:**
+  - ⛔ **Defecto:** el chip «Entran al TXT N» contaba las MARCADAS de cualquier grupo y su lista
+    mostraba el grupo elegible — una «sin libro reciente» marcada a mano contaba y no salía. Ahora la
+    lista trae las marcadas de todos los grupos **más** las elegibles desmarcadas (en gris, para volver
+    a marcarlas), y **el pie suma sólo las marcadas** (dice cuántas desmarcadas hay a la vista y que no
+    suman): chip = lista contada = pie = `resumen.incluidas`.
+  - ⛔ **Defecto:** la tarjeta del rail decía «N entran al TXT» por pura elegibilidad, sin las decisiones
+    a mano ni las canceladas en el SAT. Ahora el SQL (`dec`, las marcas de la corrida) decide igual que
+    `getMes`. **Cruce de las dos implementaciones** en la prueba de trámite (prod, sólo lectura): 6 de 6
+    meses iguales — y discrimina: oct-2026 tiene 2 desmarcadas a mano (fórmula vieja: 277 vs 275).
+    Costo: con y sin el CTE, 630–800 ms los dos (sin diferencia medible). ⚠️ El rail ya estaba arriba
+    de 500 ms desde esta máquina (488 ms en LC.18.2): deuda que ya existía, no la agrega esto.
+  - Se abren: «Otras N esperan revisión» del veredicto, las tres notas de «Queda fuera del TXT», y
+    «Póliza N del Diario · **N facturas**».
+- **Libro de compras:** las 5 tarjetas abren su desglose (las facturas que ENTRAN y aportan a esa cifra:
+  «Compras al 0 %» = incluidas con base exenta…), con una barra «Mostrando X: N facturas que suman $Y ·
+  Ver el mes completo» (la suma = la tarjeta); el veredicto abre sus N facturas.
+
+**Quedan a medias aquí, declarado:** la nota de la tarjeta del rail «N ya posteadas · N de gasto» (la
+tarjeta es un botón y no admite otro adentro: abre el mes y los chips muestran esos grupos), y
+«ContPAQi: N renglones · casan M» del libro (el cuadre trae sólo una muestra de 10; listar los
+renglones de ContPAQi pide un endpoint).
+
+### Oleadas siguientes (⬜)
+- **2 — los movimientos contables:** pólizas (KPIs → filtros que ya existen: «No cuadran», tipo),
+  ContPAQi (bancos «Movs», balanza cargos/abonos → renglones), puente (pasos 1/3/4 abren un superconjunto;
+  el peek del lote cuenta y no lista), cierre / mi-cierre (los «N renglones» por familia nunca se
+  listan; el enlace va al puente sin mes ni familia). Varios piden **endpoint** de renglones.
+- **3 — los fiscales:** DIOT, impuestos (IVA trasladado/acreditable → los CFDI), CFDI, conciliación,
+  listas SAT, materialidad, diagnóstico, e-contab, descarga, facturar.
+
+**Pruebas:** MetricStrip 15/15 (vitest), trámite prod **24 ✓** (incluye el cruce rail = mes),
+`check:pantalla` 0 nuevas, e2e: la tarjeta del rail = el chip (`--list` 13).
+
 ## Estado
 
 🔨 **EN CURSO 2026-09-03.** LC.0 → LC.12, LC.14, LC.15 y LC.16 cerrados. El módulo ya hace

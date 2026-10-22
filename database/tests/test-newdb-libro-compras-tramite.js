@@ -223,6 +223,18 @@ async function soloLectura(url) {
     const fr = oct.frescura;
     check(fr && fr.inputs.length === 2 && fr.inputs.every((i) => !!i.at),
       `LC.19.2: la frescura de las 2 fuentes está medida (${fr ? fr.inputs.map((i) => `${i.key} ${i.status} hace ${i.age_human}`).join(' · ') : 'sin frescura'})`);
+    // [LC.21] Dos implementaciones de «qué entra»: el SQL del rail y el getMes del detalle. Tienen
+    // que dar lo mismo en cada mes, con las decisiones a mano incluidas (oct-2026 tiene 2
+    // desmarcadas a mano: con la fórmula vieja la tarjeta decía 277 y el mes 275).
+    const rail = await svc.listNoAsociados();
+    const dif = [];
+    for (const m of rail.slice(0, 6)) {
+      const dm = await svc.getMes(m.anio_mes, 'complemento');
+      if (dm.resumen.incluidas !== m.entran || Math.abs(dm.resumen.total - m.monto_entran) >= 0.01) {
+        dif.push(`${m.anio_mes}: tarjeta ${m.entran} vs mes ${dm.resumen.incluidas}`);
+      }
+    }
+    check(dif.length === 0, `⭐ LC.21: la tarjeta del rail = el chip del mes en los ${Math.min(6, rail.length)} meses más nuevos${dif.length ? ` — ${dif.join(' · ')}` : ''}`);
     const sinPort = await servicio(pool).verificarSat('2026-10', 'complemento');
     check(sinPort.disponible === false && sinPort.consultados === 0 && sinPort.restantes === 0,
       `sin el port del SAT no consulta nada y lo DECLARA (disponible=false; ${sinPort.por_verificar} por verificar), no las da por vigentes`);

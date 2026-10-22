@@ -776,8 +776,26 @@ export class PurchaseBookService {
             -- LC.18.2: solo los meses que pueden tocar al tablero (su ventana + 12, la misma
             -- holgura medida en getMes). El filtro baja a las dos ramas de la vista.
             WHERE anio_mes >= to_char(date_trunc('month', now()) - make_interval(months => ?), 'YYYY-MM')
+         ), dec AS (
+           -- LC.21: lo que la contadora marco o desmarco A MANO en la corrida del mes. Sin esto la
+           -- tarjeta decia «N entran al TXT» por pura elegibilidad y, en cuanto alguien revisaba,
+           -- dejaba de coincidir con el mes abierto. Una fila por (corrida, factura): la tabla
+           -- tiene UNIQUE por eso, y hay una corrida complemento por mes.
+           SELECT r.anio_mes, i.cfdi_uuid, i.incluida
+             FROM finance.purchase_book_run_items i
+             JOIN finance.purchase_book_runs r ON r.id = i.run_id
+            WHERE r.tenant_id = current_tenant_id() AND r.tipo = 'complemento' AND r.deleted_at IS NULL
+              AND i.origen = 'manual'
+              AND r.anio_mes >= to_char(date_trunc('month', now()) - make_interval(months => ?), 'YYYY-MM')
          ), base AS (
            SELECT to_char(f.fecha, 'YYYY-MM') AS anio_mes, f.total,
+                  -- LC.21: lo mismo que decide getMes para incluida: la prueba exacta manda, luego
+                  -- la decision guardada, y si no hay, el default (cuenta, sin postear, con
+                  -- historial, no cancelada). Es la cifra de la tarjeta, y la del chip al abrir el mes.
+                  CASE WHEN lu.cfdi_uuid IS NOT NULL THEN false
+                       WHEN d.incluida IS NOT NULL THEN d.incluida
+                       ELSE (p.importe IS NULL AND g.importe IS NULL AND c.rfc IS NOT NULL AND lh.cuenta IS NOT NULL
+                             AND f.estatus_sat IS DISTINCT FROM 'cancelado') END AS entra,
                   (f.aso_contabilidad IS NOT TRUE) AS sin_asociar,
                   (p.importe IS NOT NULL OR g.importe IS NOT NULL OR lu.cfdi_uuid IS NOT NULL) AS ya_en_poliza,
                   (lu.cfdi_uuid IS NOT NULL) AS por_uuid,
@@ -794,6 +812,7 @@ export class PurchaseBookService {
                     - coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0), 2)
              LEFT JOIN ctas c ON c.rfc = f.emisor_rfc
              LEFT JOIN libros_hist lh ON lh.cuenta = c.cuenta_proveedor AND lh.anio_mes = to_char(f.fecha, 'YYYY-MM')
+             LEFT JOIN dec d ON d.anio_mes = to_char(f.fecha, 'YYYY-MM') AND d.cfdi_uuid = upper(f.uuid)
             WHERE f.tenant_id = current_tenant_id()
               AND f.source = 'contpaqi_add' AND f.tipo_comprobante = 'I'
               -- (IG.14) FILTRO DE ROL EXPLICITO. La tabla fiscal.cfdis fue, hasta 2026-10-05, solo CFDI
@@ -833,8 +852,9 @@ export class PurchaseBookService {
                   count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza)   AS faltan,
                   sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza) AS monto_faltan,
                   -- Lo que de verdad entra al TXT: sin asociar, sin postear y con cuenta.
-                  count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND con_cuenta AND con_historial)       AS entran,
-                  sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND con_cuenta AND con_historial)     AS monto_entran,
+                  -- LC.21: con las decisiones a mano (ver «entra» en base), no por pura elegibilidad.
+                  count(*) FILTER (WHERE sin_asociar AND entra)       AS entran,
+                  sum(total) FILTER (WHERE sin_asociar AND entra)     AS monto_entran,
                   count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND con_cuenta AND NOT con_historial)   AS sin_historial,
                   sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND con_cuenta AND NOT con_historial) AS monto_sin_historial,
                   count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND NOT con_cuenta)   AS fuera_catalogo,
@@ -860,7 +880,7 @@ export class PurchaseBookService {
           LIMIT ?`,
         [TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit,
           TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit + MESES_HISTORIAL,
-          limit + VENTANA_PRUEBA_MESES, limit, limit,
+          limit + VENTANA_PRUEBA_MESES, limit /* dec */, limit, limit,
           TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit],
       );
       return rows.map((r: Record<string, unknown>) => ({

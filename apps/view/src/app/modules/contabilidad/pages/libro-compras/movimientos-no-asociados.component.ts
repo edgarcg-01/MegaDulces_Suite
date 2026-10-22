@@ -40,6 +40,8 @@ import { LIBRO_COMPRAS_STYLES, NO_ASOCIADOS_STYLES } from './libro-compras.style
  * nada en el CFDI las distingue — por eso no entran solas y se juzgan acá.
  */
 type Grupo = 'entran' | 'sin_historial' | 'sin_cuenta' | 'revisar' | 'ya_libro';
+/** LC.21: el veredicto del mes; `accion` abre el grupo de facturas que nombra. */
+interface Veredicto { tono: string; icono: string; titulo: string; detalle: string; accion?: { label: string; filtro: Grupo } }
 
 /** LC.18 — lo que agrega esta fase. Vive aca y no en libro-compras.styles para no tocar la hoja
  *  compartida con la pantalla del libro completo. (Sin acentos graves: es un template literal.) */
@@ -200,6 +202,10 @@ const LC18_STYLES = `
             <div>
               <strong>{{ veredicto().titulo }}</strong>
               <span class="muted">{{ veredicto().detalle }}</span>
+              <!-- LC.21: el numero que nombra el veredicto se abre: lleva al grupo de facturas. -->
+              @if (veredicto().accion; as a) {
+                <button type="button" class="na-link" (click)="verGrupo(a.filtro)">{{ a.label }}</button>
+              }
             </div>
             <div class="lc-acciones">
               @if (puedeGestionar()) {
@@ -315,9 +321,16 @@ const LC18_STYLES = `
                   <p class="na-contexto">
                     <span class="muted">Queda fuera del TXT:</span>
                     @for (c of contexto(); track c.texto; let last = $last) {
-                      <span [class.warn]="c.tono === 'warn'">
-                        {{ c.texto }}@if (c.monto) { <span class="mono"> ({{ c.monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
-                      </span>@if (!last) { <span class="muted"> · </span> }
+                      <!-- LC.21: cada nota abre su grupo de facturas. -->
+                      @if (c.grupo; as g) {
+                        <button type="button" class="na-link" [class.warn]="c.tono === 'warn'" (click)="verGrupo(g)">
+                          {{ c.texto }}@if (c.monto) { <span class="mono"> ({{ c.monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
+                        </button>
+                      } @else {
+                        <span [class.warn]="c.tono === 'warn'">
+                          {{ c.texto }}@if (c.monto) { <span class="mono"> ({{ c.monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
+                        </span>
+                      }@if (!last) { <span class="muted"> · </span> }
                     }
                   </p>
                 }
@@ -351,7 +364,8 @@ const LC18_STYLES = `
               } @else {
                 <span>Póliza {{ folioPoliza() }} del Diario</span>
               }
-              · {{ d.resumen.incluidas }} facturas
+              · <button type="button" class="na-link" (click)="verGrupo('entran')"
+                        [attr.aria-label]="'Ver las ' + d.resumen.incluidas + ' facturas de la póliza'">{{ d.resumen.incluidas }} facturas</button>
             </span>
             <!-- LC.18: las cuentas de impuesto ya no son fijas. Salen del ultimo libro, y en
                  sep-2026 cambiaron: decir de donde salieron es lo que deja revisarlas. -->
@@ -555,7 +569,8 @@ const LC18_STYLES = `
               <ng-template #footer>
                 <tr class="na-tot">
                   <td class="c-chk"></td>
-                  <td>{{ etiquetaFiltro() }} <span class="muted">· {{ totales().n }} facturas</span></td>
+                  <td>{{ etiquetaFiltro() }} <span class="muted">· {{ totales().n }} facturas</span>
+                    @if (desmarcadasVistas()) { <span class="muted"> · {{ desmarcadasVistas() }} desmarcadas a la vista, no suman</span> }</td>
                   <td class="c-num"></td>
                   <td class="c-num"></td>
                   <td class="c-num mono">{{ totales().exento | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
@@ -862,8 +877,13 @@ export class MovimientosNoAsociadosComponent implements OnInit {
    * y "Ya en el libro" cuánto no hay que volver a mandar. Cuál está puesto lo dice la
    * primera celda del pie — un total sin su alcance es una cifra que miente.
    */
+  /** LC.21: en «Entran al TXT», las elegibles que alguien desmarcó y siguen a la vista (no suman). */
+  desmarcadasVistas = computed(() => this.filtro() === 'entran' ? this.filtradas().filter((f) => !f.incluida).length : 0);
+
   totales = computed(() => {
-    const fs = this.filtradas();
+    // LC.21: el pie de «Entran al TXT» suma lo que entra al archivo, no lo que se ve: las
+    // desmarcadas a la vista no cuentan. Así el pie = el chip = resumen.incluidas.
+    const fs = this.filtro() === 'entran' ? this.filtradas().filter((f) => f.incluida) : this.filtradas();
     const r2 = (n: number) => Math.round(n * 100) / 100;
     const suma = (get: (f: FacturaMes) => number) => r2(fs.reduce((a, f) => a + get(f), 0));
     return {
@@ -915,7 +935,12 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     const g = this.filtro();
     const q = this.norm(this.busqueda().trim());
     return d.facturas.filter((f) => {
-      if (g !== 'todas' && this.grupo(f) !== g) return false;
+      // LC.21: «Entran al TXT» cuenta las MARCADAS de cualquier grupo, así que su lista tiene que
+      // traerlas todas (antes una «sin libro reciente» marcada a mano contaba en el chip y no salía
+      // en la lista). Y además las elegibles DESMARCADAS: se ven en gris para poder volver a
+      // marcarlas, y el pie no las suma.
+      if (g === 'entran') { if (!f.incluida && this.grupo(f) !== 'entran') return false; }
+      else if (g !== 'todas' && this.grupo(f) !== g) return false;
       if (!q) return true;
       return this.norm(`${f.emisor_nombre} ${f.emisor_rfc} ${f.serie ?? ''} ${f.folio ?? ''}`).includes(q);
     });
@@ -964,9 +989,9 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     const d = this.detalle();
     if (!d) return [];
     const r = d.resumen;
-    const out: { texto: string; monto: number; tono: string }[] = [];
+    const out: { texto: string; monto: number; tono: string; grupo?: Grupo }[] = [];
     if (r.ya_posteadas) {
-      out.push({ texto: `${r.ya_posteadas} ya están en la póliza del mes`, monto: r.monto_ya_posteadas, tono: 'warn' });
+      out.push({ texto: `${r.ya_posteadas} ya están en la póliza del mes`, monto: r.monto_ya_posteadas, tono: 'warn', grupo: 'revisar' });
     }
     // LC.18: se cuentan por grupo y no por resta. Antes «lo que no entra» = todo lo demás, y
     // con el grupo «sin libro reciente» la resta llamaba «gasto o servicio» a facturas de
@@ -974,11 +999,11 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     const suma = (fs: FacturaMes[]) => fs.reduce((a, f) => a + f.total, 0);
     const sinHist = d.facturas.filter((f) => this.grupo(f) === 'sin_historial' && !f.incluida);
     if (sinHist.length) {
-      out.push({ texto: `${sinHist.length} de proveedores sin libro reciente, por revisar`, monto: suma(sinHist), tono: 'warn' });
+      out.push({ texto: `${sinHist.length} de proveedores sin libro reciente, por revisar`, monto: suma(sinHist), tono: 'warn', grupo: 'sin_historial' });
     }
     const sinCta = d.facturas.filter((f) => this.grupo(f) === 'sin_cuenta');
     if (sinCta.length) {
-      out.push({ texto: `${sinCta.length} sin cuenta de proveedor (gasto o servicio, o proveedor nuevo)`, monto: suma(sinCta), tono: 'muted' });
+      out.push({ texto: `${sinCta.length} sin cuenta de proveedor (gasto o servicio, o proveedor nuevo)`, monto: suma(sinCta), tono: 'muted', grupo: 'sin_cuenta' });
     }
     return out;
   });
@@ -998,7 +1023,7 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     }));
   });
 
-  veredicto = computed(() => {
+  veredicto = computed((): Veredicto => {
     const d = this.detalle();
     if (!d) return { tono: 'neutral', icono: 'pi pi-circle', titulo: '', detalle: '' };
     const estado = this.estadoRun();
@@ -1050,8 +1075,15 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     return { tono: 'bad', icono: 'pi pi-exclamation-triangle',
       titulo: `${r.incluidas} facturas sin asociar propuestas para el TXT · ${this.money(r.total)}`,
       detalle: 'Entran porque el proveedor tiene cuenta y salió en el libro de los últimos 6 meses: revísalas antes de generar.'
-        + (sh.n ? ` Otras ${sh.n} (${this.money(sh.monto)}) esperan revisión en «Sin libro reciente».` : '') };
+        + (sh.n ? ` Otras ${sh.n} (${this.money(sh.monto)}) esperan revisión.` : ''),
+      accion: sh.n ? { label: `Ver las ${sh.n} en «Sin libro reciente»`, filtro: 'sin_historial' } : undefined };
   });
+
+  /** LC.21: abre un grupo desde un número del texto (veredicto, notas, carátula) — sin búsqueda pegada. */
+  verGrupo(g: Grupo) {
+    this.filtro.set(g);
+    this.busqueda.set('');
+  }
 
   /** LC.19.3: las que la regla del historial dejó fuera — el banner las nombra con su monto. */
   sinHistorial = computed(() => {

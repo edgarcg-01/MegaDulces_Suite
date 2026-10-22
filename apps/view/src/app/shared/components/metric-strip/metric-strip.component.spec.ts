@@ -142,3 +142,44 @@ describe('MetricStripComponent · densidad compacta (ETQ-CAMBIOS.10)', () => {
     expect(t).toContain('el ERP se lo quitó');
   });
 });
+
+/**
+ * [LC.21] El desglose: una tarjeta con `drill` se abre; una sin `drill` es la de siempre.
+ * La negativa va primero: 131 pantallas montan el strip y ninguna pidió que sus tarjetas se abran.
+ */
+describe('MetricStripComponent · desglose (LC.21)', () => {
+  const montar = (items: MetricStripItem[]) => {
+    TestBed.configureTestingModule({});
+    const fix = TestBed.createComponent(MetricStripComponent);
+    fix.componentRef.setInput('items', items);
+    const emitidas: string[] = [];
+    fix.componentInstance.drill.subscribe((k: string) => emitidas.push(k));
+    fix.detectChanges();
+    return { el: fix.nativeElement as HTMLElement, emitidas };
+  };
+
+  it('⛔ sin `drill` la tarjeta no es botón, no se enfoca y el clic no emite nada', () => {
+    const { el, emitidas } = montar([{ label: 'Pólizas', value: 10, format: 'number' }]);
+    const t = el.querySelector('.ms-item') as HTMLElement;
+    expect(t.getAttribute('role')).toBeNull();
+    expect(t.getAttribute('tabindex')).toBeNull();
+    expect(t.classList.contains('is-drill')).toBe(false);
+    t.click();
+    expect(emitidas).toEqual([]);
+  });
+
+  it('con `drill` es un botón accesible y emite su llave con clic y con Enter', () => {
+    const { el, emitidas } = montar([
+      { label: 'Pólizas', value: 10, format: 'number' },
+      { label: 'No cuadran', value: 3, format: 'number', drill: 'descuadre' },
+    ]);
+    const [sin, con] = Array.from(el.querySelectorAll('.ms-item')) as HTMLElement[];
+    expect(sin.getAttribute('role')).toBeNull();
+    expect(con.getAttribute('role')).toBe('button');
+    expect(con.getAttribute('tabindex')).toBe('0');
+    expect(con.getAttribute('aria-label')).toBe('Ver el detalle de No cuadran');
+    con.click();
+    con.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(emitidas).toEqual(['descuadre', 'descuadre']);
+  });
+});

@@ -36,7 +36,12 @@ import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [LIBRO_COMPRAS_STYLES],
+  // LC.21: el estilo del desglose va aparte — libro-compras.styles.ts tiene cambios ajenos sin commitear.
+  styles: [LIBRO_COMPRAS_STYLES, `
+    .lc-desglose { display:flex; align-items:baseline; flex-wrap:wrap; gap:.45rem; margin:.25rem 0 .6rem; font-size:var(--fs-sm); }
+    .lc-desglose-x { font:inherit; color:var(--action); background:none; border:0; padding:0; cursor:pointer; text-decoration:underline; }
+    .lc-ver { font:inherit; color:var(--action); background:none; border:0; padding:0; margin-left:.35rem; cursor:pointer; text-decoration:underline; }
+  `],
   template: `
     <p-toast />
 
@@ -102,6 +107,10 @@ import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
             <div>
               <strong>{{ veredicto().titulo }}</strong>
               <span class="muted">{{ veredicto().detalle }}</span>
+              <!-- LC.21: las facturas que nombra el veredicto, a un clic. -->
+              @if (d.resumen.incluidas && desglose() !== 'incluidas') {
+                <button type="button" class="lc-ver" (click)="desglose.set('incluidas')">Ver las {{ d.resumen.incluidas }}</button>
+              }
             </div>
             <div class="lc-acciones">
               @if (estadoRun() === 'generado' || estadoRun() === 'entregado') {
@@ -126,7 +135,7 @@ import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
             único que se puede entregar sin duplicar asientos.
           </p>
 
-          <app-metric-strip [items]="kpis()" ariaLabel="Totales del mes" />
+          <app-metric-strip [items]="kpis()" ariaLabel="Totales del mes" (drill)="abrirDesglose($event)" />
 
           @if (d.bloqueantes.length) {
             <ul class="lc-avisos lc-bloq" aria-label="Lo que impide generar">
@@ -147,9 +156,18 @@ import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
             }
           </div>
 
+          <!-- LC.21: el desglose de una tarjeta. Dice que se esta viendo y cuanto suma (la cifra de la
+               tarjeta), y como volver al mes completo. -->
+          @if (resumenDesglose(); as rd) {
+            <p class="lc-desglose">
+              Mostrando <strong>{{ rd.etiqueta }}</strong>: {{ rd.n }} facturas que suman
+              <span class="mono">{{ rd.suma | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+              <button type="button" class="lc-desglose-x" (click)="desglose.set('todas')">Ver el mes completo</button>
+            </p>
+          }
           <div class="lc-tablewrap">
-            <p-table [value]="d.facturas" styleClass="p-datatable-sm" [rowHover]="true"
-                     [scrollable]="true" scrollHeight="52vh" [paginator]="d.facturas.length > 100"
+            <p-table [value]="filas()" styleClass="p-datatable-sm" [rowHover]="true"
+                     [scrollable]="true" scrollHeight="52vh" [paginator]="filas().length > 100"
                      [rows]="100" dataKey="uuid">
               <ng-template #header>
                 <tr>
@@ -245,16 +263,49 @@ export class LibroComprasComponent implements OnInit {
     const d = this.detalle();
     if (!d) return [];
     const r = d.resumen;
+    // LC.21: cada tarjeta abre las facturas que la suman (drill → filtro de la tabla).
     return [
       { label: 'Total del asiento', value: r.total, format: 'currency', tone: 'brand',
-        sub: `${r.incluidas} de ${r.cfdis_del_mes} facturas` },
-      { label: 'Compras al 0%', value: r.subtotal_exento, format: 'currency' },
-      { label: 'Compras c/IVA', value: r.subtotal_gravado, format: 'currency' },
+        sub: `${r.incluidas} de ${r.cfdis_del_mes} facturas`, drill: 'incluidas' },
+      { label: 'Compras al 0%', value: r.subtotal_exento, format: 'currency', drill: 'exento' },
+      { label: 'Compras c/IVA', value: r.subtotal_gravado, format: 'currency', drill: 'gravado' },
       { label: 'IEPS acreditable', value: r.ieps, format: 'currency',
-        tone: r.ieps > 0 ? 'ok' : 'default' },
-      { label: 'IVA acreditable', value: r.iva, format: 'currency' },
+        tone: r.ieps > 0 ? 'ok' : 'default', drill: 'ieps' },
+      { label: 'IVA acreditable', value: r.iva, format: 'currency', drill: 'iva' },
     ];
   });
+
+  /**
+   * LC.21 — Qué renglones muestra la tabla. 'todas' = el mes completo (como siempre). Los demás
+   * son el desglose de una tarjeta: las facturas que ENTRAN y aportan a esa cifra — así la suma de
+   * lo que se ve es la tarjeta, al centavo.
+   */
+  desglose = signal<'todas' | 'incluidas' | 'exento' | 'gravado' | 'ieps' | 'iva'>('todas');
+  private readonly ETIQUETAS_DESGLOSE: Record<string, string> = {
+    incluidas: 'Total del asiento', exento: 'Compras al 0%', gravado: 'Compras c/IVA',
+    ieps: 'IEPS acreditable', iva: 'IVA acreditable',
+  };
+  filas = computed(() => {
+    const fs = this.detalle()?.facturas ?? [];
+    const g = this.desglose();
+    if (g === 'todas') return fs;
+    const dentro = fs.filter((f) => f.incluida);
+    if (g === 'exento') return dentro.filter((f) => f.base_exenta > 0.004);
+    if (g === 'gravado') return dentro.filter((f) => f.subtotal16 > 0.004);
+    if (g === 'ieps') return dentro.filter((f) => f.ieps > 0.004);
+    if (g === 'iva') return dentro.filter((f) => f.iva > 0.004);
+    return dentro;
+  });
+  /** La barra del desglose: qué se muestra y cuánto suma (la misma cifra de la tarjeta). */
+  resumenDesglose = computed(() => {
+    const g = this.desglose(); if (g === 'todas') return null;
+    const campo = { incluidas: 'total', exento: 'base_exenta', gravado: 'subtotal16', ieps: 'ieps', iva: 'iva' }[g] as 'total' | 'base_exenta' | 'subtotal16' | 'ieps' | 'iva';
+    const suma = Math.round(this.filas().reduce((a, f) => a + Number(f[campo] ?? 0), 0) * 100) / 100;
+    return { etiqueta: this.ETIQUETAS_DESGLOSE[g], n: this.filas().length, suma };
+  });
+  abrirDesglose(k: string) {
+    if (k in this.ETIQUETAS_DESGLOSE) this.desglose.set(k as 'incluidas' | 'exento' | 'gravado' | 'ieps' | 'iva');
+  }
 
   /** El veredicto del mes en una línea, antes de la tabla (DESIGN §15 answer-first). */
   veredicto = computed(() => {
@@ -328,6 +379,7 @@ export class LibroComprasComponent implements OnInit {
     this.mesSel.set(mes);
     this.cargandoMes.set(true);
     this.cuadre.set(null);
+    this.desglose.set('todas'); // LC.21: el desglose de un mes no se arrastra al otro
     // El mes queda en la URL para poder compartir la vista (DESIGN §10).
     this.router.navigate([], { relativeTo: this.route, queryParams: { mes }, replaceUrl: true });
     this.svc.getMes(mes).subscribe({

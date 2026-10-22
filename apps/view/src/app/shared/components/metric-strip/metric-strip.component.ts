@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, signal, AfterViewInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal, AfterViewInit } from '@angular/core';
 
 import { CountUpDirective } from '../../directives/count-up.directive';
 import { SparklineComponent } from '../charts/sparkline.component';
@@ -73,6 +73,15 @@ export interface MetricStripItem {
   pct?: number;
   /** 0..100 marca de objetivo para bullet. */
   target?: number;
+  /**
+   * [LC.21] La llave del DESGLOSE: si viene, la tarjeta se puede abrir (clic, Enter o Espacio) y
+   * emite `(drill)` con esta llave para que la pantalla muestre los renglones que forman la cifra.
+   * Aditivo: sin `drill` la tarjeta es exactamente la de siempre (las 131 pantallas no cambian).
+   * Pedido de Edgar (2026-10-22): «todo lugar donde diga movimientos, que me permita desglosarlos».
+   */
+  drill?: string;
+  /** Lo que dice el lector de pantalla al enfocarla. Default: «Ver el detalle de <label>». */
+  drillLabel?: string;
 }
 
 /**
@@ -112,7 +121,10 @@ export interface MetricStripItem {
         </div>
       } @else {
         @for (it of items(); track it.label) {
-          <div class="ms-item" [class]="'tone-' + effTone(it)">
+          <div class="ms-item" [class]="'tone-' + effTone(it)" [class.is-drill]="!!it.drill"
+               [attr.role]="it.drill ? 'button' : null" [attr.tabindex]="it.drill ? 0 : null"
+               [attr.aria-label]="it.drill ? (it.drillLabel || 'Ver el detalle de ' + it.label) : null"
+               (click)="abrir(it)" (keydown.enter)="abrir(it)" (keydown.space)="abrir(it, $event)">
             <span class="ms-l">{{ it.label }}@if (it.live) {
               <span class="ms-live" title="En vivo" aria-hidden="true"></span>
             }@if (it.state) {
@@ -193,6 +205,10 @@ export interface MetricStripItem {
     .ms { display:flex; flex-wrap:wrap; }
     .ms-item { display:flex; flex-direction:column; justify-content:center; gap:.2rem; padding:.15rem 1.4rem; position:relative; }
     .ms-item:first-child { padding-left:.15rem; }
+    /* [LC.21] Tarjeta con desglose: se nota que se abre (subrayado al pasar) sin pintarla como botón. */
+    .ms-item.is-drill { cursor:pointer; border-radius:var(--r-sm, 4px); }
+    .ms-item.is-drill:hover .ms-v { text-decoration:underline; text-underline-offset:3px; }
+    .ms-item.is-drill:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
     .ms-item:not(:first-child)::before { content:''; position:absolute; left:0; top:.3rem; bottom:.3rem; width:1px; background:var(--border-color); }
     /* ⛔⛔ [CGA-LEG.1] ACA DECIA ".68rem", Y ESO NO EXISTE EN LA ESCALA. Medido el 2026-10-19
        en Caja General: 10.88px, el rotulo de un KPI de encabezado. Un valor en rem clavado no
@@ -309,6 +325,14 @@ export class MetricStripComponent implements AfterViewInit {
   readonly density = input<'normal' | 'compact'>('normal');
   /** total para composición (default = suma de valores). */
   readonly total = input<number | null>(null);
+  /** [LC.21] La llave de la tarjeta que se abrió (sólo las que traen `drill`). */
+  readonly drill = output<string>();
+
+  abrir(it: MetricStripItem, ev?: Event) {
+    if (!it.drill) return;
+    ev?.preventDefault(); // Espacio no debe hacer scroll
+    this.drill.emit(it.drill);
+  }
 
   /** dispara la animación de anchos (barra/bullet) tras montar. */
   readonly mounted = signal(false);
