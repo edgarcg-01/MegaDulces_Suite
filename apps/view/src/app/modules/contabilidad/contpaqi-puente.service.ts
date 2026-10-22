@@ -87,6 +87,14 @@ export class ContpaqiPuenteService {
     return this.http.post<{ movimiento_id: string; apagadas: number }>(`${this.base}/pagos/${encodeURIComponent(movimiento)}/desconfirmar`, {});
   }
 
+  /** `[CP.8.77]` Los movimientos detrás de una cifra: los de un tipo de gasto o los de un nombre del banco. `_VER`. */
+  movimientos(mes: string, filtro: { categoria?: string; nombre?: string }): Observable<MovimientosResp> {
+    const qs = new URLSearchParams({ mes });
+    if (filtro.categoria) qs.set('categoria', filtro.categoria);
+    if (filtro.nombre) qs.set('nombre', filtro.nombre);
+    return this.http.get<MovimientosResp>(`${this.base}/movimientos?${qs.toString()}`);
+  }
+
   cuadre(): Observable<CuadreResp> {
     return this.http.get<CuadreResp>(`${this.base}/cuadre`);
   }
@@ -212,6 +220,22 @@ export interface EntregaResp {
   ya_registradas: number;
   total: number;
   archivo_sha256: string;
+}
+
+/** `[CP.8.77]` Espejo de `MovimientoVista` del backend. */
+export interface MovimientoBanco {
+  id: string;
+  fecha: string;
+  banco: string | null;
+  concepto: string;
+  importe: number;
+  iva: number | null;
+}
+
+export interface MovimientosResp {
+  mes: string;
+  filas: MovimientoBanco[];
+  total: number;
 }
 
 export interface CuadreResp {

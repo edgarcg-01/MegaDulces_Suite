@@ -216,6 +216,18 @@ export interface ResumenMes {
 }
 
 /** `[CP.8.37]` Un nombre del banco que todavía no llega a una cuenta, con sus pistas. */
+/** `[CP.8.77]` Un movimiento de banco, como lo lista la pantalla al abrir una cifra. */
+export interface MovimientoVista {
+  id: string;
+  fecha: string;
+  /** Como lo nombra finanzas (`BBAJIO 4166`); la cuenta contable si no hay rótulo. */
+  banco: string | null;
+  concepto: string;
+  importe: number;
+  /** El IVA que va en el mismo asiento (renglón hermano), si lo hay. */
+  iva: number | null;
+}
+
 export interface PendienteProveedor {
   alias_normalizado: string;
   concepto_banco: string;
@@ -485,12 +497,9 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
 
     const pend = new Map<string, PendienteProveedor>();
     for (const e of egresos) {
-      const regla = reglas.get(e.categoria_code);
-      if (!regla || regla.tipo_regla !== 'por_proveedor' || !e.cuenta_banco) continue;
-      const idx = regla.cuenta_prefijo ? indices.get(regla.cuenta_prefijo) : undefined;
-      if (!idx) continue;
-      const r = resolverProveedor(idx, e.concept);
-      if (r.veredicto === 'resuelto') continue;
+      const p = this.proveedorSinResolver(e, reglas, indices);
+      if (!p) continue;
+      const { regla, r } = p;
 
       const clave = normalizarNombre(e.concept) || '(sin concepto)';
       const y = pend.get(clave) ?? {
@@ -1027,6 +1036,49 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
       return { estado: 'a_confirmar', motivo: `la confirmación era por ${Number(conf.pagado).toFixed(2)} y el movimiento hoy es ${m.importe.toFixed(2)}` };
     }
     return fuente.entradaConfirmada(m, conf.facturas ?? [], conf.notas ?? []);
+  }
+
+  /**
+   * `[CP.8.77]` Los movimientos detrás de una cifra de la pantalla: los de un tipo de gasto (paso 1) o los de
+   * un nombre del banco (paso 2, misma llave que `proveedoresPendientes`). ⭐ Sin tope: la pantalla dice «437
+   * movimientos» y la lista tiene que poder llegar a 437 (el mes más grande medido trae ~2.4 mil egresos).
+   */
+  async movimientosDe(anioMes: string, filtro: { categoria?: string; nombre?: string }): Promise<MovimientoVista[]> {
+    return this.conTenant(async () => {
+      const egresos = await this.leerEgresos(anioMes);
+      // El nombre filtra con LA MISMA condición que lo contó en proveedores pendientes: si no, «TELMEX · 1»
+      // abriría 4 (los otros 3 son servicios, no pagos a proveedor) y la lista no diría lo que la cifra.
+      let delNombre: ((e: { concept: unknown; categoria_code: string; cuenta_banco: string | null }) => boolean) | null = null;
+      if (filtro.nombre) {
+        const reglas = await this.leerReglas();
+        const indices = await this.leerIndicesProveedor(reglas);
+        delNombre = (e) => (normalizarNombre(e.concept) || '(sin concepto)') === filtro.nombre
+          && this.proveedorSinResolver(e, reglas, indices) !== null;
+      }
+      return egresos
+      .filter((e) => (filtro.categoria ? e.categoria_code === filtro.categoria : true) && (delNombre ? delNombre(e) : true))
+      .map((e): MovimientoVista => ({
+        id: String(e.id),
+        fecha: e.fecha,
+        banco: [e.banco_nombre, e.banco_label].filter(Boolean).join(' ').trim() || e.cuenta_banco || null,
+        concepto: String(e.concept ?? ''),
+        importe: Number(e.amount_out),
+        iva: e.iva_hermano == null ? null : Number(e.iva_hermano),
+      }));
+    });
+  }
+
+  /** Un pago a proveedor cuyo nombre no llega a una cuenta. Lo usan la cifra (pendientes) y su lista (movimientos). */
+  private proveedorSinResolver(
+    e: { categoria_code: string; cuenta_banco: string | null; concept: unknown },
+    reglas: Map<string, ReglaCuenta>, indices: Map<string, IndiceProveedores>,
+  ): { regla: ReglaCuenta; r: ReturnType<typeof resolverProveedor> } | null {
+    const regla = reglas.get(e.categoria_code);
+    if (!regla || regla.tipo_regla !== 'por_proveedor' || !e.cuenta_banco) return null;
+    const idx = regla.cuenta_prefijo ? indices.get(regla.cuenta_prefijo) : undefined;
+    if (!idx) return null;
+    const r = resolverProveedor(idx, e.concept);
+    return r.veredicto === 'resuelto' ? null : { regla, r };
   }
 
   /**
