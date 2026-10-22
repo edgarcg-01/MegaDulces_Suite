@@ -485,3 +485,41 @@ $51.76) — **pendiente el folio**.
 
 ⚠️ Igual que E.23: cambia también el precio de los pedidos del vendedor (`commercial-orders`), y
 nada de esto está ejercido contra la API ni desplegado.
+
+## 13. `[E.25]` El impuesto de cada producto · `[E.26]` el padrón entero (2026-10-22)
+
+**E.25 — IVA e IEPS como Kepler.** Cada renglón guarda la tasa de SU producto (`kdii.c18`/`c19`,
+columnas nuevas `quote_lines.iva_rate`/`ieps_rate`), y la cuenta —**una sola**, `totalesCotizacion`
+de `libs/contracts`, que ahora usan el servidor (`recalcTotals`), el detalle, el alta y el papel—
+va en cascada (IEPS sobre la base, IVA sobre base + IEPS, la regla de los tickets TK.13).
+
+| mismos 79 pedidos completos, contra Kepler al centavo | antes (16 % fijo) | E.25 |
+|---|---:|---:|
+| IVA (`c14`) | 25 | **79** |
+| IEPS (`c15`) | 27 | **79** |
+| total (`c16`) | 79 (±5 ¢) | **78** al centavo |
+
+El que falta es real y está explicado: con cantidades en KG Kepler suma la cabecera **sin redondear
+cada renglón** (702.15 contra nuestros 702.14). 1 centavo, sólo fraccionarios: declarado, no
+cambiado. La medición C del replay usa **las tasas que devolvió el motor y la función real**; su
+prueba negativa (el universo de E.24, sin tasas) da 24/79 y 595 renglones asumidos.
+
+- Los renglones viejos quedan con tasa NULL ("no se registró", criterio COT.1b): la cuenta les ASUME
+  IVA 16 % y **lo dice** («Impuesto estimado en N artículo(s)» en el papel y en el detalle).
+- El papel imprime «Subtotal sin impuestos / IVA / IEPS»; antes, «incluye IVA $X» al 16 % sobre todo,
+  falso en el 86 % de lo cotizado. En el alta, «Subtotal lista» sumaba precios COTIZADOS (ya con
+  volumen y promo): era un rótulo que mentía → «Importe de los artículos».
+- ⛔ **Orden de despliegue: la migración antes que el código** (el INSERT escribe las columnas).
+
+**E.26 — el padrón sin el filtro `C####`.** `v_erp_wholesale_customers` deja de filtrar (sólo
+excluye fichas sin clave): 21,486 filas, 2,792 clientes, y aparecen los `CR####`, numéricos y
+`CONTADO` que hacen el **27.6 % de los pedidos de telemarketing** y que el alta rechazaba con «no
+existe en el padrón de mayoreo». El filtro lo había confirmado Dirección en E.12.1 (207 `C####` ≈
+206 facturados en E.9); la medición de lo que telemarketing PIDE lo refutó, y se decidió el
+2026-10-22. Es el `DC.0` de `FASE_DC` para el flujo de cotizaciones; los otros cuatro flujos siguen
+sin aplicar el descuento del cliente. Las pruebas que tomaban «el primer cliente por clave» fijan
+ahora `C####` en su propia consulta; `test-newdb-quotes` bloque 9 exige lo contrario de antes (que
+la vista **sí** traiga claves que no son `C####`: si vuelve a 0, regresó el filtro).
+
+⛔ **Nada de esto está aplicado en prod**: dos migraciones (`20261022085703`, `20261022091046`) que
+van una por una, antes del código, y después de que haya push. Sin ejercer contra la API.

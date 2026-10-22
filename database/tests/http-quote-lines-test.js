@@ -113,7 +113,7 @@ async function login(username) {
     // Un cliente de mayoreo real de esa sucursal: las condiciones se congelan al crear.
     const cli = await knex.raw(
       `SELECT customer_code FROM analytics.v_erp_wholesale_customers
-        WHERE sucursal = ? ORDER BY customer_code LIMIT 1`, [BRANCH],
+        WHERE sucursal = ? AND customer_code ~ '^C[0-9]{4}$' ORDER BY customer_code LIMIT 1`, [BRANCH],
     );
     if (!cli.rows.length) {
       declarar('todo el resto', `no hay clientes de mayoreo en la sucursal ${BRANCH}`);

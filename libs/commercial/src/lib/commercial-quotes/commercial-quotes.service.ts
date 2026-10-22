@@ -523,8 +523,9 @@ export class CommercialQuotesService {
   // ───────────────────────────────────────────────────────────────────────────
 
   /**
-   * Busca clientes de MAYOREO en `analytics.v_erp_wholesale_customers` (vista sobre
-   * `kepler_ods.kdud`, filtrada a `C####`).
+   * Busca clientes en `analytics.v_erp_wholesale_customers` (vista sobre `kepler_ods.kdud`).
+   * `[E.26]` Ya no se filtra a `C####`: el 27.6 % de los pedidos de telemarketing son de clientes
+   * `CR####`, numéricos o `CONTADO`, y la cotización no los encontraba.
    *
    * ⚠️ Devuelve **una fila por (cliente, sucursal)** colapsada a un cliente con el arreglo de
    * sus sucursales, porque las condiciones DIFIEREN entre ellas y quien cotiza tiene que elegir
@@ -774,7 +775,7 @@ export class CommercialQuotesService {
    */
   async create(dto: {
     customer_id?: string | null;
-    /** Cliente de mayoreo del ERP (`C####`). Tercera vía de destinatario. */
+    /** Cliente del ERP (clave de `kdud`, no sólo `C####` desde E.26). Tercera vía de destinatario. */
     erp_customer_code?: string | null;
     /** Sucursal Kepler desde la que se cotiza. Obligatoria si el cliente viene del ERP. */
     source_branch?: string | null;
@@ -866,7 +867,7 @@ export class CommercialQuotesService {
             { code: erpCode },
           );
           if (!anyBranch.rows.length) {
-            throw new NotFoundException(`El cliente ${erpCode} no existe en el padrón de mayoreo.`);
+            throw new NotFoundException(`El cliente ${erpCode} no existe en el padrón de clientes de Kepler.`);
           }
           terms = {
             source: 'kepler_kdud',

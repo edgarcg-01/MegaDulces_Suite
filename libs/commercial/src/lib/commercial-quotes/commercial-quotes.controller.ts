@@ -66,7 +66,7 @@ export class CommercialQuotesController {
   @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
   @ApiOperation({
     summary:
-      'Padrón de clientes de MAYOREO (C####) derivado de kepler_ods.kdud, con sus condiciones POR SUCURSAL.',
+      'Padrón de clientes del ERP derivado de kepler_ods.kdud (todas las claves desde E.26), con sus condiciones POR SUCURSAL.',
   })
   @ApiQuery({ name: 'search', required: false, description: 'Código o nombre. Vacío = primeros N.' })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -168,7 +168,7 @@ export class CommercialQuotesController {
     @Body()
     body: {
       customer_id?: string;
-      /** Cliente de mayoreo del ERP (`C####`). Exige `source_branch`. */
+      /** Cliente del ERP (clave de `kdud`). Exige `source_branch`. */
       erp_customer_code?: string;
       source_branch?: string;
       contact_name?: string;

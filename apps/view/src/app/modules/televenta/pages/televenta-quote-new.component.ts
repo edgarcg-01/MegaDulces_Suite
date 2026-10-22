@@ -2047,7 +2047,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
           this.toast.add({
             severity: 'warn',
             summary: 'Falta cliente de mayoreo',
-            detail: 'Por favor busca y selecciona un cliente de mayoreo (C####) o cambia a la pestaña "Todavía no es cliente".',
+            detail: 'Por favor busca y selecciona un cliente de Kepler o cambia a la pestaña "Todavía no es cliente".',
           });
           return;
         }
