@@ -20,6 +20,8 @@ import { LibroComprasService, MesNoAsociado, MesDetalle, FacturaMes, ImpuestosMo
 import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { SelectModule } from 'primeng/select';
+import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
+import { CfdiVisorComponent } from '../../../../shared/components/cfdi-visor/cfdi-visor.component';
 import { MOTIVOS_EXCLUSION, PreparacionMes } from '../../libro-compras.service';
 import type { Freshness } from '@megadulces/contracts';
 import { LIBRO_COMPRAS_STYLES, NO_ASOCIADOS_STYLES } from './libro-compras.styles';
@@ -52,6 +54,8 @@ const LC18_STYLES = `
 .na-fresc { display: inline-flex; gap: .6rem; align-items: center; }
 .na-prep { display: flex; align-items: center; gap: .45rem; margin: -.25rem 0 .75rem; font-size: var(--fs-sm); }
 .na-motivo { margin-top: .2rem; }
+.na-folio { font: inherit; color: var(--action); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline dotted; }
+.na-folio:hover { text-decoration: underline; }
 .na-sat { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin: -.25rem 0 .75rem; font-size: var(--fs-sm); }
 `;
 
@@ -76,7 +80,7 @@ const LC18_STYLES = `
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule,
     SelectButtonModule, CheckboxModule, InputTextModule, ToastModule, TooltipModule, RadioButtonModule,
-    FreshnessPillComponent, SelectModule,
+    FreshnessPillComponent, SelectModule, SidePeekComponent, CfdiVisorComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -84,6 +88,11 @@ const LC18_STYLES = `
   styles: [LIBRO_COMPRAS_STYLES, NO_ASOCIADOS_STYLES, LC18_STYLES],
   template: `
     <p-toast />
+    <!-- LC.20: la factura, sin salir del libro. -->
+    <app-side-peek [open]="!!facturaVista()" (openChange)="cerrarFactura($event)" [width]="720"
+                   title="Factura" [subtitle]="subtituloFactura()">
+      <app-cfdi-visor [uuid]="facturaVista()?.uuid ?? null" />
+    </app-side-peek>
 
     <header class="lc-head">
       <div>
@@ -455,7 +464,11 @@ const LC18_STYLES = `
                       </div>
                     }
                   </td>
-                  <td class="c-num mono">{{ f.folio }}</td>
+                  <!-- LC.20: el folio abre la factura (su XML, copiado del ADD de ContPAQi). -->
+                  <td class="c-num mono">
+                    <button type="button" class="na-folio" (click)="verFactura(f)"
+                            [attr.aria-label]="'Ver la factura ' + (f.folio ?? '') + ' de ' + f.emisor_nombre">{{ f.folio ?? '—' }}</button>
+                  </td>
                   <!-- El backend manda 'YYYY-MM-DD' pelado. Angular parsea las fechas ISO
                        SIN marca de zona con setFullYear local, o sea no corre el dia. Si
                        alguna vez el backend manda un timestamp completo, el pipe pasa a
@@ -720,6 +733,14 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   /** LC.19.1: la verificación ante el SAT corre por lotes; esto dice en cuál va. */
   verificandoSat = signal(false);
   progresoSat = signal<string | null>(null);
+  /** LC.20: la factura abierta en el panel lateral (null = cerrado). */
+  facturaVista = signal<FacturaMes | null>(null);
+  verFactura(f: FacturaMes) { this.facturaVista.set(f); }
+  cerrarFactura(abierto: boolean) { if (!abierto) this.facturaVista.set(null); }
+  subtituloFactura = computed(() => {
+    const f = this.facturaVista();
+    return f ? `${f.emisor_nombre} · ${[f.serie, f.folio].filter(Boolean).join(' ')}` : null;
+  });
   /** LC.19.6: lo que el mes está haciendo solo (null = nada en curso). */
   preparando = signal<string | null>(null);
   bajandoTodo = signal(false);
