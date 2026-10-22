@@ -7,7 +7,18 @@ import { ToastModule } from 'primeng/toast';
 import { ProgressSpinnerModule } from 'primeng/progressspinner';
 import { TagModule } from 'primeng/tag';
 import { TableModule } from 'primeng/table';
+import { SelectModule } from 'primeng/select';
+import { SelectButtonModule } from 'primeng/selectbutton';
+import { AutoCompleteModule } from 'primeng/autocomplete';
+import { DatePickerModule } from 'primeng/datepicker';
+import { InputTextModule } from 'primeng/inputtext';
+import { TextareaModule } from 'primeng/textarea';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
+import { InputGroupModule } from 'primeng/inputgroup';
+import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
 import { MessageService } from 'primeng/api';
+import { isoLocalDate } from '../../../shared/util/date-presets.util';
 import { Subject, debounceTime, distinctUntilChanged, switchMap, catchError, of, map } from 'rxjs';
 import { STORE_BRANCHES, type StoreBranch } from '../../../core/constants/store-branches';
 import {
@@ -94,6 +105,16 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
     ProgressSpinnerModule,
     TagModule,
     TableModule,
+    SelectModule,
+    SelectButtonModule,
+    AutoCompleteModule,
+    DatePickerModule,
+    InputTextModule,
+    TextareaModule,
+    IconFieldModule,
+    InputIconModule,
+    InputGroupModule,
+    InputGroupAddonModule,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -120,24 +141,17 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
           <div class="card-head-left">
             <span class="step-num">1</span>
             <h2>Destinatario</h2>
-            <div class="pills" role="group" aria-label="Tipo de destinatario">
-              <button
-                type="button"
-                class="pill"
-                [class.pill-active]="modo() === 'mayoreo'"
-                (click)="setModo('mayoreo')"
-              >
-                Mayoreo ERP
-              </button>
-              <button
-                type="button"
-                class="pill"
-                [class.pill-active]="modo() === 'contacto'"
-                (click)="setModo('contacto')"
-              >
-                Todavía no es cliente
-              </button>
-            </div>
+            <p-selectbutton
+              [options]="modos"
+              [ngModel]="modo()"
+              (ngModelChange)="setModo($event)"
+              optionLabel="label"
+              optionValue="value"
+              [allowEmpty]="false"
+              [disabled]="guardando()"
+              styleClass="sb-liquid sb-liquid-sm"
+              ariaLabel="Tipo de destinatario"
+            />
           </div>
 
           <!-- COT.19: SÓLO las sucursales del usuario (ADR-050). Una → fija; varias → selector;
@@ -152,31 +166,35 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               </span>
             } @else if (sucursalesPermitidas().length === 1) {
               <span class="suc-label"><i class="pi pi-building" aria-hidden="true"></i> Sucursal:</span>
-              <span class="suc-fija">Sucursal {{ sucursalesPermitidas()[0].code }} — {{ sucursalesPermitidas()[0].name }}</span>
+              <span class="suc-fija">{{ sucursalesPermitidas()[0].name }}</span>
             } @else {
               <label for="sucursalSelect" class="suc-label">
                 <i class="pi pi-building" aria-hidden="true"></i> Sucursal:
               </label>
-              <select
-                id="sucursalSelect"
-                class="input-select"
-                [class.input-select-falta]="!sucursal()"
-                [ngModel]="sucursal()"
+              <!-- La sucursal por NOMBRE, nunca por su código. Las plazas donde el cliente ya tiene
+                   condiciones se dicen en el renglón (antes era un «*» sin leyenda). -->
+              <p-select
+                inputId="sucursalSelect"
+                class="suc-select"
+                [options]="sucursalesPermitidas()"
+                optionLabel="name"
+                optionValue="code"
+                [ngModel]="sucursal() || null"
                 (ngModelChange)="onSucursalChange($event)"
+                placeholder="Elige la sucursal…"
+                [invalid]="!sucursal()"
                 [disabled]="guardando()"
+                appendTo="body"
               >
-                @if (!sucursal()) {
-                  <option value="" disabled>Elige la sucursal…</option>
-                }
-                @for (s of sucursalesPermitidas(); track s.code) {
-                  <option [value]="s.code">
-                    Sucursal {{ s.code }} — {{ s.name }}
-                    @if (cliente() && clienteTieneSucursal(s.code)) {
-                      *
+                <ng-template #item let-s>
+                  <span class="suc-opt">
+                    {{ s.name }}
+                    @if (clienteTieneSucursal(s.code)) {
+                      <span class="suc-opt-hint">condiciones del cliente</span>
                     }
-                  </option>
-                }
-              </select>
+                  </span>
+                </ng-template>
+              </p-select>
             }
           </div>
         </div>
@@ -186,45 +204,42 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
           <div class="dest-main">
           @if (modo() === 'mayoreo') {
             @if (!cliente()) {
-              <div class="search-container">
-                <div class="search-box">
-                  <i class="pi pi-search search-icon" aria-hidden="true"></i>
-                  <input
-                    type="search"
-                    class="input search-input"
-                    [(ngModel)]="terminoCliente"
-                    (ngModelChange)="onBuscarCliente($event)"
-                    (keyup.enter)="onEnterCliente()"
-                    placeholder="Buscar cliente de mayoreo: código (C1086), nombre o RFC, palabras en cualquier orden..."
-                    aria-label="Buscar cliente de mayoreo"
-                    autocapitalize="characters"
-                    autocorrect="off"
-                    spellcheck="false"
-                  />
-                  @if (buscandoCliente()) {
-                    <i class="pi pi-spin pi-spinner search-spinner" aria-hidden="true"></i>
-                  }
-                </div>
-
-                @if (resultadosClientes().length > 0) {
-                  <ul class="results-dropdown" role="listbox" aria-label="Clientes de mayoreo">
-                    @for (c of resultadosClientes(); track c.customer_code) {
-                      <li>
-                        <button type="button" class="result-row" (click)="elegirCliente(c)">
-                          <span class="r-code">{{ c.customer_code }}</span>
-                          <span class="r-name">{{ c.name }}</span>
-                          <span class="r-state">{{ c.state || c.phone || '' }}</span>
-                          @if (c.terms_vary_by_branch) {
-                            <span class="r-badge-warn">multi-plaza</span>
-                          }
-                        </button>
-                      </li>
-                    }
-                  </ul>
-                } @else if (terminoCliente.trim().length > 0 && !buscandoCliente()) {
-                  <p class="search-empty">Ningún cliente de mayoreo coincide con "{{ terminoCliente }}".</p>
-                }
-              </div>
+              <!-- La lista se abre al teclear y se cierra al elegir, con Esc o al salir del campo.
+                   Antes era una lista propia que quedaba ABIERTA con los primeros 20 del padrón
+                   aunque no se hubiera tecleado nada, tapando el artículo y la bandeja. Enter
+                   elige el primero (autoOptionFocus), como antes. -->
+              <p-iconfield class="cli-buscar">
+                <p-inputicon class="pi pi-search" />
+                <p-autocomplete
+                  inputId="clienteBuscar"
+                  [ngModel]="terminoCliente"
+                  (ngModelChange)="onTerminoClienteModel($event)"
+                  [suggestions]="resultadosClientes()"
+                  (completeMethod)="onBuscarCliente($event.query)"
+                  (onSelect)="elegirCliente($event.value)"
+                  optionLabel="name"
+                  [delay]="250"
+                  [minQueryLength]="1"
+                  [autoOptionFocus]="true"
+                  [showEmptyMessage]="true"
+                  [fluid]="true"
+                  appendTo="body"
+                  placeholder="Buscar cliente de mayoreo: código, nombre o RFC, palabras en cualquier orden…"
+                  ariaLabel="Buscar cliente de mayoreo"
+                >
+                  <ng-template #item let-c>
+                    <span class="r-row">
+                      <span class="r-code">{{ c.customer_code }}</span>
+                      <span class="r-name">{{ c.name }}</span>
+                      <span class="r-state">{{ c.state || c.phone || '' }}</span>
+                      @if (c.terms_vary_by_branch) {
+                        <p-tag severity="warn" value="condiciones cambian por sucursal" />
+                      }
+                    </span>
+                  </ng-template>
+                  <ng-template #empty>Ningún cliente de mayoreo coincide con «{{ terminoCliente }}».</ng-template>
+                </p-autocomplete>
+              </p-iconfield>
             } @else {
               <!-- Cliente seleccionado: una sola fila, junto al vendedor -->
               <div class="chosen-row">
@@ -235,15 +250,15 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     <span class="chosen-meta">{{ cliente()!.state || '' }}{{ cliente()!.state && cliente()!.phone ? ' · ' : '' }}{{ cliente()!.phone || '' }}</span>
                   }
                 </div>
-                <button
-                  type="button"
-                  class="btn-change"
-                  (click)="limpiarCliente()"
+                <p-button
+                  label="Cambiar"
+                  icon="pi pi-pencil"
+                  size="small"
+                  [text]="true"
+                  (onClick)="limpiarCliente()"
                   [disabled]="guardando()"
-                  aria-label="Cambiar cliente"
-                >
-                  <i class="pi pi-pencil" aria-hidden="true"></i> Cambiar
-                </button>
+                  ariaLabel="Cambiar cliente"
+                />
               </div>
             }
           } @else {
@@ -252,8 +267,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               <label class="field-item field-name">
                 <span>Nombre o razón social <b>*</b></span>
                 <input
+                  pInputText
                   type="text"
-                  class="input"
+                  [fluid]="true"
                   [ngModel]="contactoNombre()" (ngModelChange)="contactoNombre.set($event)"
                   placeholder="Quién solicita la cotización"
                   [disabled]="guardando()"
@@ -262,8 +278,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               <label class="field-item">
                 <span>Teléfono / WhatsApp</span>
                 <input
+                  pInputText
                   type="tel"
-                  class="input"
+                  [fluid]="true"
                   [(ngModel)]="contactoTel"
                   inputmode="tel"
                   placeholder="Ej. 352 123 4567"
@@ -273,8 +290,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               <label class="field-item">
                 <span>Correo electrónico</span>
                 <input
+                  pInputText
                   type="email"
-                  class="input"
+                  [fluid]="true"
                   [(ngModel)]="contactoMail"
                   inputmode="email"
                   placeholder="cliente@dominio.com"
@@ -290,26 +308,23 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
             <label for="vendedorSelect" class="vendedor-label">
               <i class="pi pi-user" aria-hidden="true"></i> Vendedor
             </label>
-            <div class="vendedor-control">
-              <select
-                id="vendedorSelect"
-                class="input-select vendedor-select"
-                [ngModel]="vendedorSeleccionado() || ''"
-                (ngModelChange)="onVendedorChange($event)"
-                [disabled]="guardando() || cargandoVendedores()"
-                [attr.title]="vendedorSeleccionadoObj() ? 'Asignado: ' + vendedorSeleccionadoObj()!.name + ' (Sucursal ' + sucursal() + ')' : null"
-              >
-                <option value="">-- Seleccionar vendedor que da seguimiento --</option>
-                @for (v of vendedores(); track v.code) {
-                  <option [value]="v.code">
-                    {{ v.code }} — {{ v.name }}
-                  </option>
-                }
-              </select>
-              @if (cargandoVendedores()) {
-                <i class="pi pi-spin pi-spinner v-spinner" aria-hidden="true"></i>
-              }
-            </div>
+            <p-select
+              inputId="vendedorSelect"
+              class="vendedor-select"
+              [options]="opcionesVendedor()"
+              optionLabel="label"
+              optionValue="value"
+              [ngModel]="vendedorSeleccionado()"
+              (ngModelChange)="onVendedorChange($event)"
+              placeholder="Vendedor que da seguimiento"
+              [filter]="true"
+              filterBy="label"
+              [showClear]="true"
+              [loading]="cargandoVendedores()"
+              [disabled]="guardando() || cargandoVendedores()"
+              emptyMessage="Sin vendedores que mostrar"
+              appendTo="body"
+            />
           </div>
           </div>
         </div>
@@ -345,7 +360,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
           </div>
         } @else if (cliente()) {
           <div class="terms-bar terms-bar-generic">
-            <span class="t-muted">Condiciones base del ERP para la sucursal {{ sucursal() }} (sin descuento de mayoreo registrado en esta plaza).</span>
+            <span class="t-muted">Condiciones base del ERP en {{ branchName(sucursal()) }} (sin descuento de mayoreo registrado en esta plaza).</span>
           </div>
         }
       </div>
@@ -361,13 +376,17 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
           </div>
           <div class="search-step">
             <label class="sr-only" for="prodSearchInput">Buscar artículo por código de barras, SKU o nombre</label>
-            <div class="search-input-wrap" [attr.title]="'Sucursal activa: ' + sucursal() + ' — ' + branchName(sucursal())">
-              <i class="pi pi-search search-ico" aria-hidden="true"></i>
+            <!-- La lista de abajo NO es p-autocomplete a propósito: Enter antes de que llegue la
+                 respuesta elige el primer renglón de ESA respuesta y el escaneo exacto se elige
+                 solo (COT.16); p-autocomplete atiende Enter sobre la lista que tiene a la vista. -->
+            <p-iconfield class="search-input-wrap" [attr.title]="sucursal() ? 'Sucursal activa: ' + branchName(sucursal()) : null">
+              <p-inputicon class="pi pi-search" />
               <input
+                pInputText
+                [fluid]="true"
                 id="prodSearchInput"
                 #buscadorArticulo
                 type="search"
-                class="input search-prod-input"
                 [(ngModel)]="terminoArticulo"
                 (ngModelChange)="onTerminoArticulo($event)"
                 (focus)="onFocoArticulo()"
@@ -380,9 +399,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 [disabled]="guardando() || !sucursal()"
               />
               @if (buscandoArticulo()) {
-                <i class="pi pi-spin pi-spinner search-spinner" aria-hidden="true"></i>
+                <p-inputicon class="pi pi-spin pi-spinner" />
               }
-            </div>
+            </p-iconfield>
 
             <!-- Desplegable: primero los aciertos exactos y después lo MÁS VENDIDO en la sucursal
                  (el servidor ordena). ↑↓ mueven el resaltado y Enter elige, sin mouse. -->
@@ -420,10 +439,16 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               <!-- Lo que no manejamos NO se pierde: queda en la bandeja como renglón sin casar
                    (requested_text) y viaja con la cotización como demanda (COT.16). -->
               <div class="search-hint">
-                <span>Ningún artículo en Sucursal {{ sucursal() }} coincide con <strong>"{{ terminoArticulo }}"</strong>.</span>
-                <button type="button" class="btn-no-casado" (click)="agregarNoManejado()" [disabled]="guardando()">
-                  <i class="pi pi-plus" aria-hidden="true"></i> Anotar como no manejado
-                </button>
+                <span>Ningún artículo en {{ branchName(sucursal()) }} coincide con <strong>«{{ terminoArticulo }}»</strong>.</span>
+                <p-button
+                  label="Anotar como no manejado"
+                  icon="pi pi-plus"
+                  size="small"
+                  severity="secondary"
+                  [outlined]="true"
+                  (onClick)="agregarNoManejado()"
+                  [disabled]="guardando()"
+                />
               </div>
             }
           </div>
@@ -440,9 +465,15 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 @if (e.barcode) { <span class="pill-meta">EAN {{ e.barcode }}</span> }
                 @if (e.content) { <span class="pill-meta">Contenido {{ e.content }}</span> }
                 <span class="pill-meta">Base <b>{{ e.sold_by_kg ? 'Kilogramo' : (e.unit_base || 'Pieza') }}</b></span>
-                <button type="button" class="btn-change-prod" (click)="limpiarArticulo()" [disabled]="guardando()">
-                  <i class="pi pi-pencil" aria-hidden="true"></i> Cambiar artículo
-                </button>
+                <p-button
+                  class="btn-change-prod"
+                  label="Cambiar artículo"
+                  icon="pi pi-pencil"
+                  size="small"
+                  [text]="true"
+                  (onClick)="limpiarArticulo()"
+                  [disabled]="guardando()"
+                />
               </div>
 
               <!-- Fila 2: unidad · cantidad · presets · precio · agregar (una sola franja). Sin
@@ -452,70 +483,68 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 <!-- Unidades de MENOR a MAYOR (izq → der): KINDER DELICE = Pieza 1 · Paquete 10 ·
                      Caja 140. Sólo las que el ERP declara; el nombre de la base es el real
                      (Paquete, Kilo, Pieza…), no "Pieza" fijo (COT.16). -->
-                <div class="unit-toggle-group" role="group" aria-label="Unidad de venta del artículo">
-                  @for (o of opcionesUnidad(e); track o.rung) {
-                    <button
-                      type="button"
-                      class="unit-toggle-btn"
-                      [class.unit-toggle-active]="rung() === o.rung"
-                      (click)="setRung(o.rung)"
-                      [disabled]="guardando()"
-                    >
-                      <i class="pi {{ o.icono }}" aria-hidden="true"></i>
-                      <span class="unit-title">{{ o.titulo }}</span>
-                      <span class="unit-sub">· {{ o.detalle }}</span>
-                    </button>
-                  }
-                </div>
+                <p-selectbutton
+                  class="unit-toggle-group"
+                  [options]="opcionesUnidadElegido()"
+                  [ngModel]="rung()"
+                  (ngModelChange)="setRung($event)"
+                  optionLabel="titulo"
+                  optionValue="rung"
+                  [allowEmpty]="false"
+                  [disabled]="guardando()"
+                  ariaLabel="Unidad de venta del artículo"
+                >
+                  <ng-template #item let-o>
+                    <i class="pi {{ o.icono }}" aria-hidden="true"></i>
+                    <span class="unit-title">{{ o.titulo }}</span>
+                    <span class="unit-sub">· {{ o.detalle }}</span>
+                  </ng-template>
+                </p-selectbutton>
 
                 <!-- CANTIDAD: se TECLEA (dictado: "48 cajas" = 2 teclas, antes 8 clics) y Enter
                      agrega; los botones + / − / presets siguen para captura táctil (COT.16). -->
-                <div class="touch-stepper">
-                  <button
-                    type="button"
-                    class="btn-touch-step btn-minus"
-                    (click)="ajustarCantidad(-1)"
+                <!-- El campo es texto con pInputText, NO p-inputnumber: p-inputnumber lee la coma como
+                     separador de miles y «2,5» kg entraría como 25. parseCantidad la rechaza por
+                     ambigua (E.20), y eso no se negocia por cambiar de componente. -->
+                <p-inputgroup class="touch-stepper">
+                  <p-button
+                    icon="pi pi-minus"
+                    severity="secondary"
+                    [outlined]="true"
+                    (onClick)="ajustarCantidad(-1)"
                     [disabled]="cantidadArticulo() <= 1 || guardando()"
-                    aria-label="Restar una unidad"
-                  >
-                    <i class="pi pi-minus" aria-hidden="true"></i>
-                  </button>
-
-                  <label class="touch-qty-readout">
-                    <input
-                      #cantidadInput
-                      type="text"
-                      [attr.inputmode]="admiteFraccion() ? 'decimal' : 'numeric'"
-                      class="qty-num"
-                      [value]="cantidadArticulo()"
-                      (input)="onCantidadTecleada($any($event.target).value)"
-                      (keydown.enter)="$event.preventDefault(); agregarABandeja()"
-                      (focus)="$any($event.target).select()"
-                      [disabled]="guardando()"
-                      [attr.aria-label]="'Cantidad en ' + labelUnidadActiva()"
-                    />
-                    <span class="qty-lbl">{{ labelUnidadActiva() }}</span>
-                  </label>
-
-                  <button
-                    type="button"
-                    class="btn-touch-step btn-plus"
-                    (click)="ajustarCantidad(1)"
+                    ariaLabel="Restar una unidad"
+                  />
+                  <input
+                    pInputText
+                    #cantidadInput
+                    type="text"
+                    [attr.inputmode]="admiteFraccion() ? 'decimal' : 'numeric'"
+                    class="qty-num"
+                    [value]="cantidadArticulo()"
+                    (input)="onCantidadTecleada($any($event.target).value)"
+                    (keydown.enter)="$event.preventDefault(); agregarABandeja()"
+                    (focus)="$any($event.target).select()"
                     [disabled]="guardando()"
-                    aria-label="Sumar una unidad"
-                  >
-                    <i class="pi pi-plus" aria-hidden="true"></i>
-                  </button>
-                </div>
+                    [attr.aria-label]="'Cantidad en ' + labelUnidadActiva()"
+                  />
+                  <p-inputgroup-addon class="qty-lbl">{{ labelUnidadActiva() }}</p-inputgroup-addon>
+                  <p-button
+                    icon="pi pi-plus"
+                    severity="secondary"
+                    [outlined]="true"
+                    (onClick)="ajustarCantidad(1)"
+                    [disabled]="guardando()"
+                    ariaLabel="Sumar una unidad"
+                  />
+                </p-inputgroup>
 
                 <!-- Presets táctiles para no desplegar teclado en pantalla -->
                 <div class="touch-presets" role="group" aria-label="Incrementos rápidos de cantidad">
-                  <button type="button" class="preset-btn" (click)="setCantidad(1)" [class.preset-active]="cantidadArticulo() === 1" [disabled]="guardando()">1</button>
-                  <button type="button" class="preset-btn" (click)="ajustarCantidad(5)" [disabled]="guardando()">+5</button>
-                  <button type="button" class="preset-btn" (click)="ajustarCantidad(10)" [disabled]="guardando()">+10</button>
-                  <button type="button" class="preset-btn" (click)="ajustarCantidad(25)" [disabled]="guardando()">+25</button>
-                  <button type="button" class="preset-btn" (click)="ajustarCantidad(50)" [disabled]="guardando()">+50</button>
-                  <button type="button" class="preset-btn" (click)="ajustarCantidad(100)" [disabled]="guardando()">+100</button>
+                  <p-button label="1" size="small" severity="secondary" [outlined]="cantidadArticulo() !== 1" (onClick)="setCantidad(1)" [disabled]="guardando()" ariaLabel="Cantidad 1" />
+                  @for (n of incrementos; track n) {
+                    <p-button [label]="'+' + n" size="small" severity="secondary" [outlined]="true" (onClick)="ajustarCantidad(n)" [disabled]="guardando()" [ariaLabel]="'Sumar ' + n" />
+                  }
                 </div>
 
                 <!-- PREVIA DEL PRECIO EN VIVO: al final de la franja, junto al botón de agregar -->
@@ -534,7 +563,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                           <span class="previa-menor-sub">{{ p.unit_factor }} {{ abrevBase(e) }} {{ (p.unit_price / p.unit_factor) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
                         }
                       } @else {
-                        <span class="previa-none">Sin precio en Sucursal {{ sucursal() }}</span>
+                        <span class="previa-none">Sin precio en {{ branchName(sucursal()) }}</span>
                       }
                     </div>
 
@@ -571,14 +600,13 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                         <span class="strikethrough">{{ dinero(p.list_price) }}</span> a <b>{{ dinero(vt.price) }}</b>
                         (ahorro {{ dinero((p.list_price || 0) - vt.price) }} c/u)
                       </span>
-                      <button
-                        type="button"
-                        class="btn-aplicar-volumen"
-                        (click)="setCantidad(vt.min_qty)"
+                      <p-button
+                        [label]="'Aplicar ' + vt.min_qty"
+                        icon="pi pi-check"
+                        size="small"
+                        (onClick)="setCantidad(vt.min_qty)"
                         [disabled]="guardando()"
-                      >
-                        <i class="pi pi-check" aria-hidden="true"></i> Aplicar {{ vt.min_qty }}
-                      </button>
+                      />
                     </div>
                   } @else {
                     <div class="banner-volumen-exito">
@@ -642,7 +670,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
           <div class="card-head-left">
             <span class="step-num">3</span>
             <h2>Bandeja</h2>
-            <span class="badge-count">{{ bandeja().length }} artículo(s)</span>
+            <p-tag severity="secondary" [rounded]="true" [value]="bandeja().length + (bandeja().length === 1 ? ' artículo' : ' artículos')" />
           </div>
         </div>
 
@@ -654,105 +682,118 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               <p class="empty-hint">Busca productos en el paso 2 y agrégalos uno a uno.</p>
             </div>
           } @else {
-            <div class="table-wrap">
-              <table class="bandeja-table">
-                <thead>
-                  <tr>
-                    <th class="num">#</th>
-                    <th>Artículo</th>
-                    <th>Presentación</th>
-                    <th class="num">Cantidad</th>
-                    <th class="num">P. Unitario</th>
-                    <th>Fuente precio</th>
-                    <th class="num">Importe</th>
-                    <th><span class="sr-only">Acciones</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <!-- UNA línea por renglón (COT.16): con 15 partidas cabían 7 sin scroll porque
-                       cada renglón ocupaba dos (SKU abajo y el desglose abajo del precio). -->
-                  @for (item of bandeja(); track item.id; let idx = $index) {
-                    <tr [class.row-no-casado]="!item.sku">
-                      <td class="num mono">{{ idx + 1 }}</td>
-                      <td class="item-cell" [attr.title]="item.barcode ? 'EAN ' + item.barcode : null">
-                        @if (item.sku) {
-                          <strong class="item-name">{{ item.name }}</strong>
-                          <span class="item-sku">{{ item.sku }}</span>
-                        } @else {
-                          <span class="tag-no-casado">No manejado</span>
-                          <strong class="item-name">{{ item.requested_text }}</strong>
-                        }
-                        @if (item.free_goods) {
-                          <span class="gift-tag"><i class="pi pi-gift"></i> Regalo: {{ item.free_goods.quantity }} de {{ item.free_goods.sku }}</span>
-                        }
-                      </td>
-                      <td>
-                        @if (item.sku) {
-                          <span class="pres-badge">{{ item.unit_label }}</span>
-                          @if (item.factor && item.factor > 1) {
-                            <span class="pres-factor">x{{ item.factor }}</span>
-                          }
-                        } @else {
-                          <span class="pres-factor">—</span>
-                        }
-                      </td>
-                      <td class="num">
-                        <div class="table-qty-control">
-                          <button type="button" class="btn-table-step" (click)="ajustarCantidadBandeja(item, -1)" [disabled]="item.quantity <= 1 || guardando()" aria-label="Restar uno">−</button>
-                          <input
-                            type="text"
-                            [attr.inputmode]="esPesable(item) ? 'decimal' : 'numeric'"
-                            class="table-qty-val"
-                            [value]="item.quantity"
-                            (change)="fijarCantidadBandeja(item, $any($event.target).value)"
-                            (keydown.enter)="$any($event.target).blur()"
-                            (focus)="$any($event.target).select()"
-                            [disabled]="guardando()"
-                            aria-label="Cantidad del renglón"
-                          />
-                          <button type="button" class="btn-table-step" (click)="ajustarCantidadBandeja(item, 1)" [disabled]="guardando()" aria-label="Sumar uno">+</button>
-                        </div>
-                      </td>
-                      <td class="num font-num">
-                        <span class="p-unit-main">{{ item.unit_price !== null ? (item.unit_price | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</span>
-                        @if (item.unit_price !== null) {
-                          @for (p of desgloseDe(item); track p.unidad; let ultimo = $last) {
-                            <span class="p-unit-sub-breakdown">{{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}/{{ p.unidad }}@if (!ultimo) { ·}</span>
-                          }
-                        }
-                      </td>
-                      <td>
-                        @if (item.sku) {
-                          <span class="source-tag" [class.source-tag-volumen]="item.price_source === 'volume_qty'">
-                            @if (item.price_source === 'volume_qty') {
-                              <i class="pi pi-bolt" aria-hidden="true"></i>
-                            }
-                            {{ fuenteLabel(item.price_source) }}
-                          </span>
-                        } @else {
-                          <span class="source-tag">Sin precio</span>
-                        }
-                      </td>
-                      <td class="num font-num bold-num">
-                        {{ item.sku ? (item.line_total | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}
-                      </td>
-                      <td class="num">
-                        <button
-                          type="button"
-                          class="btn-quitar"
-                          (click)="quitarDeBandeja(item.id)"
-                          [disabled]="guardando()"
-                          title="Eliminar de la bandeja"
-                          aria-label="Eliminar producto"
-                        >
-                          <i class="pi pi-trash" aria-hidden="true"></i>
-                        </button>
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
+            <!-- UNA línea por renglón (COT.16): con 15 partidas cabían 7 sin scroll porque cada
+                 renglón ocupaba dos (SKU abajo y el desglose abajo del precio). rowTrackBy por id:
+                 sin él, cambiar la cantidad rehace la fila y el campo pierde el foco al teclear. -->
+            <p-table class="bandeja-table" [value]="bandeja()" dataKey="id" [rowTrackBy]="porId" [scrollable]="true">
+              <ng-template #header>
+                <tr>
+                  <th class="num">#</th>
+                  <th>Artículo</th>
+                  <th>Presentación</th>
+                  <th class="num">Cantidad</th>
+                  <th class="num">P. Unitario</th>
+                  <th>Fuente precio</th>
+                  <th class="num">Importe</th>
+                  <th><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-item let-idx="rowIndex">
+                <tr [class.row-no-casado]="!item.sku">
+                  <td class="num mono">{{ idx + 1 }}</td>
+                  <td class="item-cell" [attr.title]="item.barcode ? 'EAN ' + item.barcode : null">
+                    @if (item.sku) {
+                      <strong class="item-name">{{ item.name }}</strong>
+                      <span class="item-sku">{{ item.sku }}</span>
+                    } @else {
+                      <p-tag severity="warn" value="No manejado" class="tag-no-casado" />
+                      <strong class="item-name">{{ item.requested_text }}</strong>
+                    }
+                    @if (item.free_goods) {
+                      <span class="gift-tag"><i class="pi pi-gift" aria-hidden="true"></i> Regalo: {{ item.free_goods.quantity }} de {{ item.free_goods.sku }}</span>
+                    }
+                  </td>
+                  <td>
+                    @if (item.sku) {
+                      <span class="pres-badge">{{ item.unit_label }}</span>
+                      @if (item.factor && item.factor > 1) {
+                        <span class="pres-factor">x{{ item.factor }}</span>
+                      }
+                    } @else {
+                      <span class="pres-factor">—</span>
+                    }
+                  </td>
+                  <td class="num">
+                    <p-inputgroup class="table-qty-control">
+                      <p-button
+                        icon="pi pi-minus"
+                        size="small"
+                        severity="secondary"
+                        [text]="true"
+                        (onClick)="ajustarCantidadBandeja(item, -1)"
+                        [disabled]="item.quantity <= 1 || guardando()"
+                        ariaLabel="Restar uno"
+                      />
+                      <input
+                        pInputText
+                        pSize="small"
+                        type="text"
+                        [attr.inputmode]="esPesable(item) ? 'decimal' : 'numeric'"
+                        class="table-qty-val"
+                        [value]="item.quantity"
+                        (change)="fijarCantidadBandeja(item, $any($event.target).value)"
+                        (keydown.enter)="$any($event.target).blur()"
+                        (focus)="$any($event.target).select()"
+                        [disabled]="guardando()"
+                        aria-label="Cantidad del renglón"
+                      />
+                      <p-button
+                        icon="pi pi-plus"
+                        size="small"
+                        severity="secondary"
+                        [text]="true"
+                        (onClick)="ajustarCantidadBandeja(item, 1)"
+                        [disabled]="guardando()"
+                        ariaLabel="Sumar uno"
+                      />
+                    </p-inputgroup>
+                  </td>
+                  <td class="num font-num">
+                    <span class="p-unit-main">{{ item.unit_price !== null ? (item.unit_price | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</span>
+                    @if (item.unit_price !== null) {
+                      @for (p of desgloseDe(item); track p.unidad; let ultimo = $last) {
+                        <span class="p-unit-sub-breakdown">{{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}/{{ p.unidad }}@if (!ultimo) { ·}</span>
+                      }
+                    }
+                  </td>
+                  <td>
+                    @if (item.sku) {
+                      <p-tag
+                        [severity]="item.price_source === 'volume_qty' ? 'success' : 'secondary'"
+                        [icon]="item.price_source === 'volume_qty' ? 'pi pi-bolt' : ''"
+                        [value]="fuenteLabel(item.price_source)"
+                      />
+                    } @else {
+                      <p-tag severity="secondary" value="Sin precio" />
+                    }
+                  </td>
+                  <td class="num font-num bold-num">
+                    {{ item.sku ? (item.line_total | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}
+                  </td>
+                  <td class="num">
+                    <p-button
+                      icon="pi pi-trash"
+                      size="small"
+                      severity="danger"
+                      [text]="true"
+                      (onClick)="quitarDeBandeja(item.id)"
+                      [disabled]="guardando()"
+                      ariaLabel="Quitar de la bandeja"
+                    />
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
 
           }
         </div>
@@ -787,25 +828,50 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
 
           <div class="rail-cierre">
             <div class="detail-row">
-              <label class="field-item">
-                <span>Origen</span>
-                <select class="input" [(ngModel)]="origen" [disabled]="guardando()" title="¿De dónde salió la cotización?">
-                  @for (o of origenes; track o.value) {
-                    <option [value]="o.value">{{ o.label }}</option>
-                  }
-                </select>
-              </label>
-              <label class="field-item">
-                <span>Vigencia hasta</span>
-                <input type="date" class="input" [(ngModel)]="vigencia" [min]="hoy" [disabled]="guardando()" />
-              </label>
+              <div class="field-item">
+                <label for="origenSelect">Origen</label>
+                <!-- El «¿de dónde salió?» vivía en un title; ahora cada opción lo dice. -->
+                <p-select
+                  inputId="origenSelect"
+                  [options]="origenes"
+                  optionLabel="label"
+                  optionValue="value"
+                  [(ngModel)]="origen"
+                  [disabled]="guardando()"
+                  [fluid]="true"
+                  appendTo="body"
+                >
+                  <ng-template #item let-o>
+                    <span class="origen-opt">
+                      <span>{{ o.label }}</span>
+                      <span class="origen-hint">{{ o.hint }}</span>
+                    </span>
+                  </ng-template>
+                </p-select>
+              </div>
+              <div class="field-item">
+                <label for="vigenciaFecha">Vigencia hasta</label>
+                <p-datepicker
+                  inputId="vigenciaFecha"
+                  [(ngModel)]="vigencia"
+                  [minDate]="hoy"
+                  dateFormat="dd/mm/yy"
+                  [showIcon]="true"
+                  [disabled]="guardando()"
+                  [fluid]="true"
+                  appendTo="body"
+                />
+              </div>
             </div>
 
-            <!-- Opcional y de varias líneas: plegado, se abre solo si ya trae texto -->
+            <!-- Opcional y de varias líneas: plegado, se abre solo si ya trae texto. <details> es
+                 nativo a propósito (DESIGN regla 3: plataforma antes que JS). -->
             <details class="mensaje-details" [attr.open]="listaCruda ? '' : null">
               <summary>Mensaje original o lista del cliente <em>(opcional)</em></summary>
               <textarea
-                class="input textarea"
+                pTextarea
+                [fluid]="true"
+                [autoResize]="true"
                 rows="3"
                 [(ngModel)]="listaCruda"
                 placeholder="Pega acá el correo o WhatsApp recibido. Se guarda como evidencia..."
@@ -920,27 +986,15 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         display: inline-flex; align-items: center; justify-content: center;
         font-size: var(--fs-xs); font-weight: 700;
       }
-      .badge-count { font-size: var(--fs-xs); background: var(--neutral-100, #f1f5f9); padding: 2px 6px; border-radius: 9999px; font-weight: 600; color: var(--text-muted); }
-
-      .pills { display: inline-flex; gap: 0.25rem; background: var(--neutral-100, #f1f5f9); padding: 2px; border-radius: 9999px; }
-      .pill {
-        border: 0; background: none; border-radius: 9999px; padding: 0.2rem 0.65rem;
-        font-size: var(--fs-xs); cursor: pointer; color: var(--text-muted); font-weight: 500;
-      }
-      .pill-active { background: #fff; color: var(--text-main); font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
-
       /* Sucursal desplegable pegada arriba a la derecha */
       .sucursal-dropdown-box { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; }
       .suc-label { font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
       /* COT.19: una sola sucursal = dato, no control (no se ofrece elegir lo que no se puede). */
       .suc-fija { font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); white-space: nowrap; }
       .suc-sin { font-size: var(--fs-xs); font-weight: 600; color: var(--bad-fg); display: inline-flex; align-items: center; gap: 0.3rem; }
-      .input-select-falta { border-color: var(--action) !important; }
-      .input-select {
-        padding: 0.3rem 0.6rem; font-size: var(--fs-sm); border: 1px solid var(--border-color);
-        border-radius: 6px; background: var(--card-bg); color: var(--text-main); font-weight: 700; min-height: 32px;
-      }
-      .input-select:focus-visible { outline: 2px solid var(--primary-color, var(--action)); outline-offset: 1px; }
+      .suc-select { min-width: 14rem; }
+      .suc-opt { display: flex; align-items: baseline; gap: 0.5rem; }
+      .suc-opt-hint { font-size: var(--fs-xs); color: var(--text-muted); }
 
       /* Tira compacta de condiciones comerciales */
       .terms-bar {
@@ -962,31 +1016,12 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .dest-main { flex: 1 1 360px; min-width: 0; }
       .p-0 { padding: 0; }
 
-      .search-container { position: relative; width: 100%; }
-      .search-box { position: relative; display: flex; align-items: center; }
-      .search-icon { position: absolute; left: 0.65rem; color: var(--text-muted); font-size: var(--fs-sm); pointer-events: none; }
-      .search-spinner { position: absolute; right: 0.65rem; color: var(--text-muted); font-size: var(--fs-sm); }
-      /* .input. sube la especificidad: la regla .input { padding } va DESPUÉS y le borraba
-         el padding-left, así la lupa quedaba encima del primer carácter. */
-      .input.search-input { padding-left: 2rem; width: 100%; }
-
-      .results-dropdown {
-        position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 40;
-        background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 6px;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.12); list-style: none; margin: 0; padding: 0;
-        max-height: 200px; overflow-y: auto;
-      }
-      .results-dropdown li + li { border-top: 1px solid var(--border-color); }
-      .result-row {
-        width: 100%; text-align: left; background: none; border: 0; cursor: pointer;
-        padding: 0.45rem 0.7rem; display: flex; align-items: baseline; gap: 0.6rem; font-size: var(--fs-sm);
-      }
-      .result-row:hover { background: var(--neutral-100, #f1f5f9); }
-      .r-code { font-family: var(--font-mono, monospace); font-weight: 700; color: var(--text-main); width: 60px; flex: none; }
-      .r-name { flex: 1; font-weight: 600; }
-      .r-state { font-size: 0.7rem; color: var(--text-muted); flex: none; }
-      .r-badge-warn { font-size: 0.65rem; background: var(--yellow-100, #fef08a); color: var(--yellow-800, #854d0e); padding: 1px 4px; border-radius: 4px; }
-      .search-empty { font-size: var(--fs-xs); color: var(--text-muted); margin: 0.35rem 0 0; }
+      .cli-buscar { display: block; width: 100%; }
+      /* Renglón del autocompletado de clientes (va en el overlay, dentro de la plantilla #item). */
+      .r-row { display: flex; align-items: baseline; gap: 0.6rem; width: 100%; font-size: var(--fs-sm); }
+      .r-code { font-family: var(--font-mono, monospace); font-weight: 700; width: 4.5rem; flex: none; }
+      .r-name { flex: 1; font-weight: 600; min-width: 0; }
+      .r-state { font-size: var(--fs-xs); color: var(--text-muted); flex: none; }
 
       .chosen-row {
         display: flex; align-items: center; gap: 0.75rem;
@@ -995,19 +1030,12 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .chosen-code { font-family: var(--font-mono, monospace); font-weight: 700; color: var(--primary-color, var(--action)); }
       .chosen-name { font-size: var(--fs-body); font-weight: 600; }
       .chosen-meta { font-size: var(--fs-xs); color: var(--text-muted); }
-      .btn-change {
-        background: none; border: 0; color: var(--primary-color, var(--action));
-        cursor: pointer; font-size: var(--fs-xs); font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;
-      }
-      .btn-change:hover { text-decoration: underline; }
 
       .contact-fields { display: grid; grid-template-columns: 2fr 1.2fr 1.2fr; gap: 0.6rem; }
       @media (max-width: 40rem) { .contact-fields { grid-template-columns: 1fr; } }
       .field-item { display: flex; flex-direction: column; gap: 0.2rem; font-size: var(--fs-xs); }
-      .field-item span { color: var(--text-muted); font-weight: 500; }
-      .field-item span b { color: var(--red-600, #dc2626); }
-      .full-width { width: 100%; }
-      .mt-field { margin-top: 0.6rem; }
+      .field-item > span, .field-item > label { color: var(--text-muted); font-weight: 500; }
+      .field-item span b { color: var(--bad-fg); }
 
       .vendedor-inner { display: flex; align-items: center; gap: 0.5rem; flex: 1 1 300px; }
       .vendedor-label {
@@ -1015,18 +1043,16 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;
       }
       .vendedor-label i { color: var(--primary-color, var(--action)); }
-      .vendedor-control { position: relative; display: inline-flex; align-items: center; flex: 1; min-width: 0; }
-      .vendedor-select { width: 100%; cursor: pointer; font-weight: 600; min-height: 32px; }
-      .v-spinner { position: absolute; right: 0.65rem; font-size: var(--fs-xs); color: var(--primary-color, var(--action)); }
+      .vendedor-select { flex: 1; min-width: 0; }
+      .origen-opt { display: flex; flex-direction: column; }
+      .origen-hint { font-size: var(--fs-xs); color: var(--text-muted); }
 
       .detail-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
       @media (max-width: 40rem) { .detail-row { grid-template-columns: 1fr; } }
 
       /* Captura manual de artículos */
       .search-step { position: relative; margin-bottom: 0.5rem; }
-      .search-input-wrap { position: relative; display: flex; align-items: center; }
-      .search-ico { position: absolute; left: 0.65rem; color: var(--text-muted); font-size: var(--fs-sm); pointer-events: none; }
-      .input.search-prod-input { padding-left: 2rem; font-size: var(--fs-sm); min-height: 32px; border-radius: 6px; width: 100%; }
+      .search-input-wrap { display: block; width: 100%; }
 
       /* Desplegable ordenado alfabéticamente */
       .cat-dropdown {
@@ -1059,22 +1085,12 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.75rem;
         box-shadow: 0 8px 24px rgba(0,0,0,0.12);
       }
-      .btn-no-casado {
-        border: 1px dashed var(--border-color); background: var(--card-bg); color: var(--text-main);
-        border-radius: 6px; padding: 0.25rem 0.6rem; font-size: var(--fs-xs); font-weight: 600; cursor: pointer;
-        display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap;
-      }
-      .btn-no-casado:hover { border-color: var(--action); color: var(--action); }
 
       /* Tarjeta de producto descargado */
       .descargado-box {
         display: flex; flex-direction: column; gap: 0.45rem;
       }
-      .btn-change-prod {
-        background: none; border: 0; color: var(--primary-color, var(--action)); cursor: pointer; font-size: var(--fs-xs);
-        font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: auto; white-space: nowrap;
-      }
-      .btn-change-prod:hover { text-decoration: underline; }
+      .btn-change-prod { margin-left: auto; }
 
       .descargado-info { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
       .descargado-name { font-size: 0.9375rem; font-weight: 700; color: var(--text-main); }
@@ -1084,53 +1100,17 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       /* Pregunta: Caja o Pieza */
       /* Fila de configuración: unidad · cantidad · presets · precio + agregar */
       .config-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-      .unit-toggle-group { display: flex; gap: 0.35rem; }
-      .unit-toggle-btn {
-        flex: none; display: inline-flex; align-items: center; gap: 0.35rem;
-        padding: 0 0.65rem; border-radius: 7px; border: 2px solid var(--border-color);
-        background: var(--card-bg); cursor: pointer; height: 40px; white-space: nowrap;
-        transition: border-color 0.15s, background-color 0.15s;
-      }
-      .unit-toggle-btn i { font-size: 0.95rem; color: var(--text-muted); }
-      .unit-toggle-btn:hover { border-color: var(--primary-color, var(--action)); }
-      .unit-toggle-active { border-color: var(--primary-color, var(--action)); background: var(--action-soft, rgba(240, 90, 40, 0.06)); }
-      .unit-toggle-active i { color: var(--primary-color, var(--action)); }
-      .unit-title { font-weight: 700; font-size: var(--fs-sm); color: var(--text-main); }
-      .unit-sub { font-size: 0.7rem; color: var(--text-muted); }
+      /* Unidad (p-selectbutton con plantilla): ícono · nombre · contenido */
+      .unit-toggle-group { flex: none; }
+      .unit-title { font-weight: 700; font-size: var(--fs-sm); }
+      .unit-sub { font-size: var(--fs-xs); color: var(--text-muted); }
 
-      /* Stepper táctil para móvil 16:9 */
-      .touch-stepper { display: flex; align-items: center; gap: 0.25rem; }
-      .btn-touch-step {
-        width: 34px; height: 40px; flex: none; border-radius: 6px; border: 1px solid var(--border-color);
-        background: var(--card-bg); font-size: 1.15rem; font-weight: 700; color: var(--text-main);
-        cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
-        user-select: none;
-      }
-      .btn-touch-step:active { background: var(--neutral-100, #f1f5f9); transform: scale(0.96); }
-      .btn-touch-step:disabled { opacity: 0.4; cursor: not-allowed; }
-      .touch-qty-readout {
-        width: 68px; height: 40px; border-radius: 6px; border: 1px solid var(--border-color);
-        background: var(--card-bg); display: flex; flex-direction: column; align-items: center;
-        justify-content: center; font-variant-numeric: tabular-nums;
-      }
-      /* La cantidad es un campo: se teclea (dictado) y Enter agrega */
-      .qty-num {
-        width: 100%; border: 0; background: transparent; text-align: center; padding: 0;
-        font: inherit; font-size: 1.05rem; font-weight: 800; line-height: 1.05; color: var(--text-main);
-        font-variant-numeric: tabular-nums;
-      }
-      .qty-num:focus { outline: none; }
-      .qty-num:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-      .touch-qty-readout:focus-within { border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring, rgba(240, 90, 40, 0.3)); }
-      .qty-lbl { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
+      /* Cantidad: − [campo][unidad] + — se teclea (dictado) y Enter agrega */
+      .touch-stepper { width: auto; flex: none; }
+      .qty-num { width: 4.5rem; text-align: center; font-size: var(--fs-body); font-weight: 800; font-variant-numeric: tabular-nums; }
+      .qty-lbl { font-size: var(--fs-xs); text-transform: uppercase; font-weight: 600; }
 
       .touch-presets { display: flex; gap: 0.25rem; }
-      .preset-btn {
-        height: 30px; min-width: 34px; padding: 0 0.45rem; border-radius: 5px; border: 1px solid var(--border-color);
-        background: var(--card-bg); font-size: var(--fs-sm); font-weight: 600; cursor: pointer; color: var(--text-muted);
-      }
-      .preset-btn:hover, .preset-btn:active { background: var(--neutral-100, #f1f5f9); color: var(--text-main); }
-      .preset-active { background: var(--primary-color, var(--action)); color: #fff; border-color: var(--primary-color, var(--action)); }
 
       /* Previa del precio y volumen */
       .previa-loading { font-size: var(--fs-xs); color: var(--text-muted); }
@@ -1159,20 +1139,10 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         border: 1px solid var(--ember-border, rgba(240, 90, 40, 0.3));
         border-radius: 6px; font-size: var(--fs-xs); color: var(--text-main);
       }
-      .b-vol-left { display: flex; align-items: center; gap: 0.5rem; flex: 1 1 280px; }
       .b-vol-icon { font-size: var(--fs-body); color: var(--action); flex-shrink: 0; }
       .b-vol-icon-ok { font-size: var(--fs-body); color: #059669; flex-shrink: 0; }
-      .b-vol-text { display: flex; flex-direction: column; gap: 0.15rem; }
-      .b-vol-title { font-weight: 700; color: #1e3a8a; }
       .b-vol-desc { font-size: var(--fs-xs); flex: 1; }
       .strikethrough { text-decoration: line-through; opacity: 0.65; margin: 0 0.2rem; }
-      .btn-aplicar-volumen {
-        background: var(--action); color: #fff; border: 0; border-radius: 5px;
-        padding: 0.25rem 0.7rem; font-size: var(--fs-xs); font-weight: 700;
-        cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.08);
-      }
-      .btn-aplicar-volumen:hover { background: var(--action-hover); }
 
       .banner-volumen-exito {
         display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.6rem;
@@ -1204,7 +1174,6 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
 
       .p-unit-main { font-weight: 700; }
       .p-unit-sub-breakdown { font-size: var(--fs-micro); color: var(--text-muted); font-weight: 500; margin-left: 0.35rem; }
-      .source-tag-volumen { background: #dcfce7 !important; color: #15803d !important; font-weight: 700; }
 
       /* Bandeja de productos agregados */
       .empty-bandeja { padding: 1rem; text-align: center; color: var(--text-muted); }
@@ -1212,14 +1181,10 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .empty-title { font-weight: 600; font-size: 0.95rem; margin: 0 0 0.2rem; color: var(--text-main); }
       .empty-hint { font-size: var(--fs-sm); margin: 0; }
 
-      .table-wrap { overflow-x: auto; width: 100%; }
-      .bandeja-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
-      .bandeja-table th {
-        background: var(--neutral-50, #f8fafc); padding: 0.35rem 0.6rem; text-align: left;
-        border-bottom: 1px solid var(--border-color); font-size: var(--fs-xs); color: var(--text-muted);
-        font-weight: 600; white-space: nowrap;
-      }
-      .bandeja-table td { padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+      /* p-table: densidad compacta (el theming pone bordes y fondo; acá sólo el aire) */
+      .bandeja-table { display: block; font-size: var(--fs-sm); }
+      .bandeja-table th { padding: 0.35rem 0.6rem; font-size: var(--fs-xs); white-space: nowrap; }
+      .bandeja-table td { padding: 0.3rem 0.6rem; vertical-align: middle; }
       .num { text-align: right; }
       .mono { font-family: var(--font-mono, monospace); font-size: var(--fs-xs); color: var(--text-muted); }
       .font-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1229,34 +1194,15 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .item-cell { white-space: nowrap; max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; }
       .item-name { font-size: var(--fs-sm); }
       .item-sku { font-family: var(--font-mono, monospace); font-weight: 600; font-size: 0.7rem; color: var(--text-muted); margin-left: 0.4rem; }
-      .tag-no-casado {
-        font-size: var(--fs-nano); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-        color: #a16207; background: #fef3c7; border-radius: 4px; padding: 1px 5px; margin-right: 0.4rem;
-      }
-      .row-no-casado td { background: #fffbeb; }
+      .tag-no-casado { margin-right: 0.4rem; }
+      .row-no-casado td { background: var(--warn-soft-bg); }
       .gift-tag { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; color: #1d4ed8; margin-left: 0.4rem; font-weight: 600; }
 
       .pres-badge { font-weight: 700; background: var(--neutral-100, #f1f5f9); padding: 1px 5px; border-radius: 4px; font-size: var(--fs-xs); }
       .pres-factor { font-size: 0.7rem; color: var(--text-muted); margin-left: 0.25rem; }
 
-      .table-qty-control { display: inline-flex; align-items: center; gap: 0.25rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 1px 3px; }
-      .btn-table-step {
-        border: 0; background: none; width: 22px; height: 22px; cursor: pointer;
-        display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--fs-body);
-      }
-      .btn-table-step:hover { background: var(--neutral-100, #f1f5f9); border-radius: 4px; }
-      .table-qty-val {
-        width: 3rem; border: 0; background: transparent; text-align: center; padding: 0;
-        font: inherit; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-main);
-      }
-      .table-qty-val:focus { outline: 2px solid var(--action-ring, rgba(240, 90, 40, 0.3)); border-radius: 3px; }
-
-      .source-tag { font-size: 0.7rem; background: var(--neutral-100, #f1f5f9); padding: 2px 6px; border-radius: 4px; color: var(--text-muted); white-space: nowrap; }
-      .btn-quitar {
-        border: 0; background: none; color: var(--red-600, #dc2626); cursor: pointer;
-        padding: 0.3rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center;
-      }
-      .btn-quitar:hover { background: rgba(220, 38, 38, 0.1); }
+      .table-qty-control { width: auto; display: inline-flex; }
+      .table-qty-val { width: 3.5rem; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
 
       /* Resumen totales bandeja */
       .rail-card { display: flex; flex-direction: column; }
@@ -1292,12 +1238,6 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         text-transform: uppercase; color: var(--action); background: var(--card-bg); border-radius: 9999px; padding: 1px 8px;
       }
 
-      .input {
-        width: 100%; padding: 0.35rem 0.6rem; box-sizing: border-box; border: 1px solid var(--border-color);
-        border-radius: 6px; font-size: var(--fs-sm); background: var(--card-bg); color: var(--text-main); min-height: 32px;
-      }
-      .input:focus-visible { outline: 2px solid var(--primary-color, var(--action)); outline-offset: 1px; }
-      .textarea { min-height: 52px; resize: vertical; font-family: inherit; }
 
       .btn-export { font-weight: 600; }
       .btn-export-xlsx { border-color: #16a34a !important; color: #16a34a !important; }
@@ -1317,13 +1257,19 @@ export class TeleventaQuoteNewComponent implements OnInit {
 
   readonly TOTAL_MAYOREO = 207;
   readonly origenes = ORIGENES;
-  readonly hoy = new Date().toISOString().slice(0, 10);
+  /** Hoy en la hora LOCAL: el ISO en UTC ya era mañana después de las 18:00 en México. */
+  readonly hoy = new Date(new Date().setHours(0, 0, 0, 0));
+  readonly modos: Array<{ label: string; value: 'mayoreo' | 'contacto' }> = [
+    { label: 'Mayoreo ERP', value: 'mayoreo' },
+    { label: 'Todavía no es cliente', value: 'contacto' },
+  ];
+  readonly incrementos = [5, 10, 25, 50, 100];
+  readonly porId = (_: number, it: ItemBandeja): string => it.id;
   readonly sucursales8: StoreBranch[] = SUCURSALES_8;
 
   // Estado del Destinatario
   modo = signal<'mayoreo' | 'contacto'>('mayoreo');
   terminoCliente = '';
-  buscandoCliente = signal(false);
   resultadosClientes = signal<WholesaleCustomer[]>([]);
   cliente = signal<WholesaleCustomer | null>(null);
 
@@ -1353,6 +1299,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     if (!code) return null;
     return this.vendedores().find((v) => v.code === code) ?? null;
   });
+  readonly opcionesVendedor = computed(() => this.vendedores().map((v) => ({ value: v.code, label: `${v.code} — ${v.name}` })));
 
   /**
    * [E.20] Señal, no campo plano: `puedeCrear` (un computed) lo lee, y un campo que sólo cambia
@@ -1363,7 +1310,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
   contactoTel = '';
   contactoMail = '';
   origen: QuoteOrigin = 'telemarketing';
-  vigencia = new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10);
+  vigencia: Date | null = new Date(Date.now() + 15 * 86400000);
   listaCruda = '';
 
   // ── Estado de Captura Manual de Artículos ───────────────────────────────────
@@ -1377,6 +1324,11 @@ export class TeleventaQuoteNewComponent implements OnInit {
   /** [E.20] La cantidad admite fracción sólo si el artículo se pesa y se cotiza en su unidad base. */
   protected readonly esPesable = esPesable;
   readonly admiteFraccion = computed(() => !!this.articuloElegido()?.sold_by_kg && this.rung() === 'base');
+  /** Unidades del artículo elegido, de MENOR a MAYOR (Pieza 1 · Paquete 10 · Caja 140). */
+  readonly opcionesUnidadElegido = computed<OpcionUnidad[]>(() => {
+    const e = this.articuloElegido();
+    return e ? opcionesUnidad(e) : [];
+  });
   cotizandoArticulo = signal(false);
   previaArticulo = signal<PricedLine | null>(null);
   /** El buscador de artículo: al agregar a la bandeja el cursor vuelve acá para el siguiente. */
@@ -1446,13 +1398,11 @@ export class TeleventaQuoteNewComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    // 1. Búsqueda reactiva de clientes
+    // 1. Búsqueda reactiva de clientes. La espera entre teclas la pone p-autocomplete ([delay]);
+    //    sin distinctUntilChanged: repetir el mismo término tiene que volver a traer la lista.
     this.busquedaCliente$
       .pipe(
-        debounceTime(250),
-        distinctUntilChanged(),
         switchMap((t) => {
-          this.buscandoCliente.set(true);
           return this.svc.searchWholesaleCustomers(t, 20).pipe(
             catchError((err) => {
               this.toast.add({
@@ -1467,10 +1417,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       )
       .subscribe((rows) => {
         this.resultadosClientes.set(rows);
-        this.buscandoCliente.set(false);
       });
-
-    this.busquedaCliente$.next('');
 
     // 2. Búsqueda de artículos en catálogo de la sucursal (ordenados alfabéticamente)
     this.busquedaArticulo$
@@ -1597,11 +1544,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.busquedaCliente$.next((t || '').trim());
   }
 
-  onEnterCliente(): void {
-    const r = this.resultadosClientes();
-    if (r.length > 0) {
-      this.elegirCliente(r[0]);
-    }
+  /** p-autocomplete pone en el modelo el texto tecleado o, al elegir, el cliente: sólo se guarda el texto. */
+  onTerminoClienteModel(v: unknown): void {
+    this.terminoCliente = typeof v === 'string' ? v : '';
   }
 
   elegirCliente(c: WholesaleCustomer): void {
@@ -1636,7 +1581,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     return !!this.cliente()?.branches.some((b) => b.sucursal === code);
   }
 
-  onSucursalChange(val: string): void {
+  onSucursalChange(val: string | null): void {
     const s = val || '';
     this.sucursal.set(s);
     this.cargarVendedores(s);
@@ -1677,7 +1622,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     }
   }
 
-  onVendedorChange(val: string): void {
+  onVendedorChange(val: string | null): void {
     this.vendedorSeleccionado.set(val ? val.trim() : null);
   }
 
@@ -1782,11 +1727,6 @@ export class TeleventaQuoteNewComponent implements OnInit {
     if (n === this.cantidadArticulo()) return;
     this.cantidadArticulo.set(n);
     this.previa$.next();
-  }
-
-  /** Unidades del artículo de MENOR a MAYOR (Pieza 1 · Paquete 10 · Caja 140). */
-  opcionesUnidad(e: QuoteCatalogRow): OpcionUnidad[] {
-    return opcionesUnidad(e);
   }
 
   /** Abreviatura de la unidad base para el desglose ("12 PAQ $41.82"), nunca "PZS" fijo. */
@@ -2068,7 +2008,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     const esMayoreo = this.modo() === 'mayoreo';
     const payload: Parameters<QuotesService['create']>[0] = {
       origin: this.origen,
-      valid_until: this.vigencia || undefined,
+      valid_until: this.vigencia ? isoLocalDate(this.vigencia) : undefined,
       customer_request: this.listaCruda.trim() || undefined,
       source_branch: this.sucursal(),
       salesperson_code: this.vendedorSeleccionado() || undefined,
@@ -2208,7 +2148,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       salespersonCode: this.vendedorSeleccionado() || null,
       salespersonName: this.vendedorSeleccionadoObj()?.name || null,
       quoteDate: new Date(),
-      validUntil: this.vigencia,
+      validUntil: this.vigencia ? isoLocalDate(this.vigencia) : '',
       items,
       discountPct: this.descuentoClientePct() || null,
       estado: 'borrador',
