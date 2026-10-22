@@ -71,6 +71,9 @@ export interface ItemBandeja {
   pack_size: number | null;
   /** Lo que el cliente pidió y no se encontró (renglón sin casar, sin SKU ni precio). */
   requested_text?: string | null;
+  /** `[E.25]` IVA e IEPS del producto (del motor). null = sin ficha o sin precio. */
+  iva_rate?: number | null;
+  ieps_rate?: number | null;
 }
 
 const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
@@ -764,7 +767,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         <div class="card rail-card">
           <div class="rail-totales">
             <div class="tot-row">
-              <span>Subtotal lista ({{ bandeja().length }} artículo{{ bandeja().length === 1 ? '' : 's' }})</span>
+              <span>Importe de los artículos ({{ bandeja().length }})</span>
               <b>{{ subtotalBandeja() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
             </div>
             @if (descuentoClienteMonto() > 0) {
@@ -777,6 +780,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               <span>Total</span>
               <b>{{ totalBandeja() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
             </div>
+            <!-- [E.25] Incluidos en el total, con la tasa de cada producto (como el documento de Kepler). -->
+            <div class="tot-row"><span>IVA incluido</span><b>{{ totalesBandeja().iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+            <div class="tot-row"><span>IEPS incluido</span><b>{{ totalesBandeja().ieps | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
           </div>
 
           <div class="rail-cierre">
@@ -1416,6 +1422,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     totalesCotizacion(
       this.bandeja().map((it) => (it.unit_price === null ? null : it.line_total || 0)),
       this.descuentoClientePct() || null,
+      this.bandeja().map((it) => ({ iva: it.iva_rate ?? null, ieps: it.ieps_rate ?? null })),
     ),
   );
 
@@ -1868,6 +1875,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
         quantity: qty,
         unit_price: prev!.unit_price,
         line_total: prev!.line_total ?? (prev!.unit_price! * qty),
+        iva_rate: prev!.iva_rate ?? null,
+        ieps_rate: prev!.ieps_rate ?? null,
         price_source: prev!.price_source,
         free_goods: prev!.free_goods ? { sku: prev!.free_goods.sku, quantity: prev!.free_goods.quantity } : null,
       };
@@ -1991,6 +2000,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
                 ...it,
                 unit_price: p.unit_price,
                 line_total: p.line_total ?? ((p.unit_price || 0) * nuevaQty),
+                iva_rate: p.iva_rate ?? null,
+                ieps_rate: p.ieps_rate ?? null,
                 price_source: p.price_source,
                 free_goods: p.free_goods ? { sku: p.free_goods.sku, quantity: p.free_goods.quantity } : null,
               };
@@ -2176,6 +2187,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
       quantity: it.quantity,
       unit_price: it.unit_price,
       line_total: it.line_total,
+      iva_rate: it.iva_rate ?? null,
+      ieps_rate: it.ieps_rate ?? null,
       price_source: this.fuenteLabel(it.price_source),
       free_goods: it.free_goods,
       // [E.19] Sin descuento por renglón: el único que el papel aplica es el del cliente, una vez.

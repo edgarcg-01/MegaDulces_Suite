@@ -69,7 +69,7 @@ const UNIVERSO = `
     FROM kepler_ods.kdii i WHERE btrim(i.c1) IN (SELECT sku FROM l)),
   w AS (SELECT DISTINCT ON (customer_code, sucursal) customer_code, sucursal, discount_1_pct pct_padron
     FROM analytics.v_erp_wholesale_customers WHERE customer_code IN (SELECT cliente FROM l))
-  SELECT l.*, kd.kdii_iva, kd.kdii_ieps, w.pct_padron
+  SELECT l.*, kd.kdii_iva, kd.kdii_ieps, w.pct_padron, w.customer_code AS padron_codigo
   FROM l LEFT JOIN kd ON kd.suc = l.suc AND kd.sku = l.sku LEFT JOIN w ON w.customer_code = l.cliente AND w.sucursal = l.suc`;
 
 // Renglones reales de pedidos de Kepler. Si el motor no los reproduce, no se mide nada.

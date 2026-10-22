@@ -47,6 +47,12 @@ export interface QuoteDeliverableItem {
   free_goods?: { sku: string; quantity: number } | null;
   /** Renglón de regalo del ERP (precio cero REAL): se imprime «Regalo», no $0.00. */
   regalo?: boolean;
+  /**
+   * `[E.25]` IVA e IEPS del producto (fracción, `kdii.c18`/`c19`). Ausentes o null = cotización
+   * anterior a E.25: la cuenta ASUME IVA 16 % y las condiciones lo dicen.
+   */
+  iva_rate?: number | null;
+  ieps_rate?: number | null;
   // ⛔ `[E.19]` Ya no hay `discount_pct` por renglón. El único descuento que el papel aplica es
   // el del CLIENTE (`QuoteDeliverableData.discountPct`, capa de documento). El de volumen/promo
   // ya está dentro de `unit_price`: pasarlo acá lo aplicaba DOS veces (auditoría C2).
@@ -125,7 +131,11 @@ export function modeloEntregable(data: QuoteDeliverableData): ModeloEntregable {
     const t = tipoDe(it);
     return t === 'sin_precio' ? null : t === 'regalo' ? 0 : Number(it.line_total) || 0;
   });
-  const totales = totalesCotizacion(importes, data.discountPct);
+  const totales = totalesCotizacion(
+    importes,
+    data.discountPct,
+    data.items.map((it) => ({ iva: it.iva_rate ?? null, ieps: it.ieps_rate ?? null })),
+  );
   if (data.totalGuardado !== undefined && data.totalGuardado !== null
       && Math.abs(totales.total - Number(data.totalGuardado)) > 0.005) {
     throw new Error(
@@ -173,7 +183,7 @@ function fechaCorta(d: Date): string {
 }
 
 /** Las condiciones que se imprimen al pie, en orden. */
-function condiciones(data: QuoteDeliverableData, m: ModeloEntregable): string[] {
+export function condiciones(data: QuoteDeliverableData, m: ModeloEntregable): string[] {
   const out = [
     'Precios expresados en Moneda Nacional (MXN) con impuestos incluidos.',
     'ESTO ES UNA COTIZACIÓN, NO UNA VENTA. Efectos informativos para el cliente que solicitó la información.',
@@ -182,6 +192,9 @@ function condiciones(data: QuoteDeliverableData, m: ModeloEntregable): string[] 
   ];
   if (m.totales.sin_precio > 0) {
     out.push(`${m.totales.sin_precio} artículo(s) sin precio: se cotizan aparte y no están en el total.`);
+  }
+  if (m.totales.impuesto_asumido > 0) {
+    out.push(`Impuesto estimado en ${m.totales.impuesto_asumido} artículo(s): IVA 16 % asumido, sin la tasa del producto.`);
   }
   if (data.notes) out.push(`Nota: ${data.notes.slice(0, 90)}`);
   return out;
@@ -613,7 +626,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
 
   // Recuadro de términos y condiciones (crece si hay renglones sin precio o nota)
   const lineasCond = condiciones(data, m);
-  const boxH = Math.max(76, 12 + lineasCond.length * 11 + 9);
+  const boxH = Math.max(86, 12 + lineasCond.length * 11 + 9);
   const notesW = contentWidth - 190;
   doc.setFillColor(...cCardBg);
   doc.setDrawColor(...cRule);
@@ -636,7 +649,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   const totBoxX = pageWidth - M - totBoxW;
   doc.setFillColor(255, 255, 255);
   doc.setDrawColor(...cRule);
-  doc.roundedRect(totBoxX, summaryY, totBoxW, 76, 4, 4, 'FD');
+  doc.roundedRect(totBoxX, summaryY, totBoxW, 86, 4, 4, 'FD');
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
@@ -672,8 +685,12 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.5);
   doc.setTextColor(...cMuted);
-  const mxnStr = `MXN · incluye IVA ${moneyFormat(m.totales.iva)}`;
-  doc.text(mxnStr, totBoxX + totBoxW - 10 - doc.getTextWidth(mxnStr), summaryY + 68);
+  // `[E.25]` El desglose como el documento de Kepler: subtotal sin impuestos, IVA e IEPS, con la
+  // tasa de cada producto (antes: «incluye IVA» calculado al 16 % sobre todo, falso en el 86 %).
+  const subStrSin = `Subtotal sin impuestos ${moneyFormat(m.totales.subtotal)}`;
+  doc.text(subStrSin, totBoxX + totBoxW - 10 - doc.getTextWidth(subStrSin), summaryY + 68);
+  const mxnStr = `IVA ${moneyFormat(m.totales.iva)} · IEPS ${moneyFormat(m.totales.ieps)} · MXN`;
+  doc.text(mxnStr, totBoxX + totBoxW - 10 - doc.getTextWidth(mxnStr), summaryY + 78);
 
   // Descarga del PDF
   const filename = generateQuoteFilename(data, 'pdf');
@@ -972,13 +989,21 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   ws.getCell(`${valCol}${rowIdx}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF05A28' } };
   ws.getCell(`${valCol}${rowIdx}`).alignment = { horizontal: 'right', vertical: 'middle' };
   rowIdx++;
-  ws.getCell(`${labelCol}${rowIdx}`).value = 'IVA incluido:';
-  ws.getCell(`${labelCol}${rowIdx}`).font = { size: 8, color: { argb: 'FF64748B' } };
-  ws.getCell(`${labelCol}${rowIdx}`).alignment = { horizontal: 'right' };
-  ws.getCell(`${valCol}${rowIdx}`).value = m.totales.iva;
-  ws.getCell(`${valCol}${rowIdx}`).numFmt = '$#,##0.00';
-  ws.getCell(`${valCol}${rowIdx}`).font = { size: 8, color: { argb: 'FF64748B' } };
-  rowIdx += 2;
+  // `[E.25]` Subtotal sin impuestos, IVA e IEPS con la tasa de cada producto (como Kepler).
+  for (const [rotulo, valor] of [
+    ['Subtotal sin impuestos:', m.totales.subtotal],
+    ['IVA:', m.totales.iva],
+    ['IEPS:', m.totales.ieps],
+  ] as const) {
+    ws.getCell(`${labelCol}${rowIdx}`).value = rotulo;
+    ws.getCell(`${labelCol}${rowIdx}`).font = { size: 8, color: { argb: 'FF64748B' } };
+    ws.getCell(`${labelCol}${rowIdx}`).alignment = { horizontal: 'right' };
+    ws.getCell(`${valCol}${rowIdx}`).value = valor;
+    ws.getCell(`${valCol}${rowIdx}`).numFmt = '$#,##0.00';
+    ws.getCell(`${valCol}${rowIdx}`).font = { size: 8, color: { argb: 'FF64748B' } };
+    rowIdx++;
+  }
+  rowIdx++;
 
   // 7. Leyenda y condiciones finales
   ws.getCell(`A${rowIdx}`).value = 'Aviso:';

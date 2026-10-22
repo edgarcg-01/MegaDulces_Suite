@@ -31,6 +31,7 @@ import {
   exportQuoteXlsx,
   type QuoteDeliverableData,
 } from '../quote-deliverable-export';
+import { totalesCotizacion } from '@megadulces/contracts';
 import { branchName } from '../../../core/constants/store-branches';
 
 /**
@@ -603,13 +604,22 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
         <aside class="rail" aria-label="Resumen de la cotización">
           <div class="card rail-card">
             <div class="rail-totales">
-              <div class="tot-row"><span>Subtotal ({{ q.lines.length }} renglones)</span><b>{{ num(q.subtotal) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
-              <div class="tot-row"><span>Impuestos</span><b>{{ num(q.tax_total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+              @if (impuestos(); as t) {
+                <div class="tot-row"><span>Subtotal sin impuestos ({{ q.lines.length }} renglones)</span><b>{{ t.subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                <div class="tot-row"><span>IVA</span><b>{{ t.iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                <div class="tot-row"><span>IEPS</span><b>{{ t.ieps | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+              }
               <div class="tot-row tot-final"><span>Total</span><b>{{ num(q.total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
               @if (num(q.terms_discount_pct)) {
                 <p class="tot-nota">
                   Incluye el {{ num(q.terms_discount_pct) }}% del cliente, aplicado sobre el subtotal —
                   no sobre el precio de cada renglón.
+                </p>
+              }
+              @if (impuestos()?.impuesto_asumido) {
+                <p class="tot-nota">
+                  Impuesto estimado en {{ impuestos()?.impuesto_asumido }} renglón(es): IVA 16 % asumido,
+                  porque se cotizaron antes de que se guardara la tasa de cada producto.
                 </p>
               }
             </div>
@@ -995,6 +1005,20 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   readonly peldanos = PELDANOS;
 
   readonly cot = signal<QuoteDetail | null>(null);
+
+  /**
+   * `[E.25]` Subtotal, IVA e IEPS con la tasa de CADA renglón: la misma función del servidor
+   * (`recalcTotals`) y del papel. Antes el riel mostraba «Impuestos» calculados al 16 % sobre todo.
+   */
+  readonly impuestos = computed(() => {
+    const q = this.cot();
+    if (!q) return null;
+    return totalesCotizacion(
+      q.lines.map((l) => (this.num(l.unit_price) === null ? null : Number(l.line_total) || 0)),
+      this.num(q.terms_discount_pct),
+      q.lines.map((l) => ({ iva: this.num(l.iva_rate), ieps: this.num(l.ieps_rate) })),
+    );
+  });
   readonly cargando = signal(true);
   readonly error = signal<string | null>(null);
   readonly guardando = signal(false);
@@ -1441,6 +1465,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       quantity: Number(l.quantity) || 1,
       unit_price: this.num(l.unit_price),
       line_total: Number(l.line_total) || 0,
+      iva_rate: this.num(l.iva_rate),
+      ieps_rate: this.num(l.ieps_rate),
       price_source: this.fuenteLabel(l.price_source),
       free_goods: null,
       // [E.19] El regalo del ERP se imprime «Regalo», no $0.00. Y ya no viaja un descuento por
