@@ -969,3 +969,6 @@ falta uno nuevo.
   siete preguntas a la vez. Sin validación visual.
 - **2026-10-22** — `[CP.8.77]` auditoría del PM en prod: cada «Movs» abre sus movimientos (144 cifras cruzadas
   contra prod, idénticas) y el texto de los pasos se va a la ayuda; sólo queda el foco de cada paso.
+- **2026-10-22** — `[CP.8.78]`/`[CP.8.79]` buscador y desglose de toda cifra de movimientos. Buscando «Oscar
+  Hernandez» apareció que **457 egresos de septiembre ($8.70 M) sin categoría desaparecían del puente** por un
+  JOIN obligatorio; ahora se ven con motivo propio. Las pólizas armadas no cambian.
