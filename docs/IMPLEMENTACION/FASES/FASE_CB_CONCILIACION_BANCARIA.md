@@ -262,7 +262,7 @@ carril de pólizas `kdc2*` (`[CG.198]`). En la práctica se tapa solo porque cad
 re-evalúa el periodo entero — un estado de cuenta cargado a las 10:00 lo recoge el primer aviso
 de Kepler posterior — pero **no está garantizado por construcción**.
 
-## 7. `[CB.54]` 🧪 Egresos que el motor de reglas dejaba sin categoría (2026-10-22)
+## 7. `[CB.54]` 🚀 Egresos que el motor de reglas dejaba sin categoría (2026-10-22)
 
 Lo encontró la búsqueda de «Oscar Hernandez» en el puente ContPAQi (`[CP.8.78]`): su pago no aparecía porque
 no tenía categoría. Medido en prod (sólo lectura), ene–oct 2026: **5,686 egresos sin categoría, $53.2 M**
@@ -278,5 +278,13 @@ motor corrió y devolvió `sin_clasificar`. **Sólo 234 categorizaciones manuale
 
 Simulado con el motor real (control 30,915/30,915): **213 de 2026 categorizados ($21.7 M), 0 cambios** a lo ya
 categorizado. Descartado: usar el código como concepto cuando viene vacío (mandaba 71 «Comision» bancarias a
-`comisiones_venta`). Prueba `bank-rules-cb54.spec.ts`. ⚠️ **NO aplicada en prod** al cerrar esta sección.
+`comisiones_venta`). Prueba `bank-rules-cb54.spec.ts`.
+
+✅ **Efecto aplicado en prod el 2026-10-22** (por el PM, en `md`, dentro del pod de api) **SIN registrar la
+migración en `knex_migrations`**: el archivo aún no está en `origin/main` y una fila en el ledger que la imagen
+no tiene traba la siguiente migración de cualquiera. Salida: 9 reglas · sin categoría 5,724 → 5,500 · **224
+categorizados**, idéntico por categoría a la simulación (crédito 7, comisión bancaria 71, nómina 90, gasto
+admin 2, traspaso 20, traslado de valores 22, IMSS/SUA 12). Los 29 de diferencia con el conteo de la migración
+(5,695) son los marcados a mano sin categoría, que no se tocan. ⚠️ **Cuando el archivo llegue por el carril
+normal correrá y no hará nada** (`ON CONFLICT` + sólo lo sin categoría) — no saltarlo ni borrarlo.
 Pendientes: memoria por beneficiario + aviso «N sin categoría» en Bancos; Caja General (4,504) es de la fase CGA.
