@@ -18,6 +18,7 @@ import { ButtonModule } from 'primeng/button';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, debounceTime, switchMap, of, catchError, map } from 'rxjs';
 import { VendorService, VendorCustomer } from '../vendor.service';
+import type { SimilarCustomer } from '@megadulces/contracts';
 import { OfflineSyncService } from '../../../core/services/offline-sync.service';
 import { AuthService } from '../../../core/services/auth.service';
 
@@ -53,6 +54,7 @@ import { AuthService } from '../../../core/services/auth.service';
     <!-- Alta de cliente nuevo -->
     @if (showForm()) {
       <form class="new-form" (ngSubmit)="submit(true)">
+        <h2 class="form-title">Alta de cliente nuevo</h2>
         @if (formError()) {
           <div class="form-err">
             <i class="pi pi-exclamation-circle"></i> {{ formError() }}
@@ -60,21 +62,34 @@ import { AuthService } from '../../../core/services/auth.service';
         }
         <label class="fld">
           <span>Nombre del negocio *</span>
-          <input pInputText type="text" name="name" [(ngModel)]="form.name"
+          <input pInputText type="text" name="name" [ngModel]="form.name" (ngModelChange)="onNameChange($event)"
             placeholder="Ej. Abarrotes La Esquina" autocapitalize="words"
             enterkeyhint="next" required />
           </label>
+          <!-- [MCP.3.8] Frenar duplicados: antes de crear, los de la sucursal con nombre parecido. -->
+          @if (parecidos().length) {
+            <div class="dup" role="alert">
+              <p class="dup-q"><i class="pi pi-question-circle"></i> ¿Es este?</p>
+              @for (p of parecidos(); track p.id) {
+                <div class="dup-row">
+                  <span class="dup-body">
+                    <span class="dup-nm">{{ p.name }}</span>
+                    @if (p.address) { <span class="dup-meta">{{ p.address }}</span> }
+                    @if (p.phone || p.sales_route) {
+                      <span class="dup-meta">{{ p.phone || '' }}{{ p.phone && p.sales_route ? ' · ' : '' }}{{ p.sales_route ? 'Ruta ' + p.sales_route : '' }}</span>
+                    }
+                  </span>
+                  <button type="button" class="dup-yes" [disabled]="saving()" (click)="useExisting(p)">Es este</button>
+                </div>
+              }
+              <button type="button" class="dup-no" [disabled]="saving()" (click)="createAnyway()">No, es otro: darlo de alta</button>
+            </div>
+          }
           <label class="fld">
             <span>Teléfono / WhatsApp</span>
             <input pInputText type="tel" name="phone" [(ngModel)]="form.phone"
               placeholder="10 dígitos" inputmode="tel" autocomplete="off" />
             </label>
-            <label class="fld">
-              <span>RFC <em>(opcional)</em></span>
-              <input pInputText type="text" name="rfc" [(ngModel)]="form.rfc"
-                placeholder="XAXX010101000" autocapitalize="characters"
-                autocorrect="off" spellcheck="false" />
-              </label>
               <label class="fld">
                 <span>Dirección / referencia</span>
                 <input pInputText type="text" name="notes" [(ngModel)]="form.notes"
@@ -84,14 +99,16 @@ import { AuthService } from '../../../core/services/auth.service';
                   <i class="pi" [ngClass]="locating() ? 'pi-spin pi-spinner' : (hasGeo() ? 'pi-check-circle' : (geoFailed() ? 'pi-refresh' : 'pi-map-marker'))"></i>
                   {{ locating() ? 'Obteniendo ubicación…' : (hasGeo() ? 'Ubicación capturada ✓' : (geoFailed() ? 'Reintentar ubicación' : 'Capturar ubicación')) }}
                 </button>
+                @if (!parecidos().length) {
                 <div class="form-actions">
                   <p-button type="submit" styleClass="submit-btn"
-                    [disabled]="saving() || !form.name.trim()"
-                  [label]="saving() ? 'Guardando…' : 'Crear y tomar pedido'"></p-button>
+                    [disabled]="saving() || checking() || !form.name.trim()"
+                  [label]="saving() || checking() ? 'Guardando…' : 'Crear y tomar pedido'"></p-button>
                   <button pButton type="button" severity="secondary" [outlined]="true"
-                    [disabled]="saving() || !form.name.trim()"
+                    [disabled]="saving() || checking() || !form.name.trim()"
                   (click)="submit(false)"><span class="p-button-label">Solo registrar (sin pedido)</span></button>
                 </div>
+                }
               </form>
             }
     
@@ -248,6 +265,16 @@ import { AuthService } from '../../../core/services/auth.service';
       @media (prefers-reduced-motion: reduce) { .new-btn { transition: none; } }
 
       .new-form { display: flex; flex-direction: column; gap: 0.85rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg, 16px); padding: 1rem; box-shadow: 0 1px 2px rgba(16,13,9,0.05); animation: list-in 0.18s var(--ease-out, cubic-bezier(0.23,1,0.32,1)); }
+      .form-title { margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--text-main); }
+      .dup { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem; border-radius: var(--r-md, 12px); border: 1px solid var(--warn-border); background: var(--warn-soft-bg); }
+      .dup-q { margin: 0; display: flex; align-items: center; gap: 0.4rem; font-weight: 800; color: var(--warn-soft-fg); }
+      .dup-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.6rem; border-radius: var(--r-md, 12px); background: var(--card-bg); border: 1px solid var(--border-color); }
+      .dup-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+      .dup-nm { font-weight: 700; color: var(--text-main); }
+      .dup-meta { font-size: 0.8rem; color: var(--text-muted); overflow-wrap: anywhere; }
+      .dup-yes { flex-shrink: 0; min-height: 44px; padding: 0 0.9rem; border-radius: var(--r-pill, 999px); border: none; background: var(--action); color: var(--action-ink); font-weight: 700; cursor: pointer; }
+      .dup-no { min-height: 44px; border-radius: var(--r-md, 12px); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); font-weight: 700; cursor: pointer; }
+      .dup-yes:focus-visible, .dup-no:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
       .form-err { display: flex; align-items: center; gap: 0.45rem; padding: 0.55rem 0.7rem; border-radius: var(--r-md, 12px); background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-size: 0.8rem; font-weight: 600; }
       .fld { display: flex; flex-direction: column; gap: 0.3rem; flex: 1; }
       .fld > span { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); font-weight: 700; }
@@ -406,7 +433,15 @@ export class VendorCustomersComponent implements OnInit {
   readonly locating = signal(false);
   readonly geoFailed = signal(false);
   readonly geo = signal<{ lat: number; lng: number } | null>(null);
-  form = { name: '', phone: '', rfc: '', notes: '' };
+  form = { name: '', phone: '', notes: '' };
+  /** [MCP.3.8] Clientes de la sucursal con nombre parecido («¿Es este?»). */
+  readonly parecidos = signal<SimilarCustomer[]>([]);
+  /** Revisando parecidos antes de crear. */
+  readonly checking = signal(false);
+  /** El vendedor ya vio los parecidos de ESTE nombre y dijo «es otro». */
+  private dupDismissedFor: string | null = null;
+  /** Qué pidió al crear: tomar pedido o sólo registrar (se recuerda mientras ve los parecidos). */
+  private pendingTakeOrder = true;
 
   search = '';
   private first = true;
@@ -571,7 +606,9 @@ export class VendorCustomersComponent implements OnInit {
     this.showForm.set(next);
     if (next) {
       // Pre-llena el nombre con lo que venía buscando (atajo de campo).
-      this.form = { name: this.search.trim(), phone: '', rfc: '', notes: '' };
+      this.form = { name: this.search.trim(), phone: '', notes: '' };
+      this.parecidos.set([]);
+      this.dupDismissedFor = null;
       this.geo.set(null);
       this.geoFailed.set(false);
       this.formError.set(null);
@@ -602,12 +639,74 @@ export class VendorCustomersComponent implements OnInit {
     );
   }
 
+  /** Cambiar el nombre invalida los parecidos que se mostraron para el anterior. */
+  onNameChange(v: string): void {
+    this.form.name = v;
+    if (this.parecidos().length) this.parecidos.set([]);
+  }
+
+  /**
+   * [MCP.3.8] Antes de crear: ¿ya existe en la sucursal un cliente con nombre parecido? Si sí,
+   * se muestran («¿Es este?») y no se crea hasta que el vendedor elija. Sin conexión, o si la
+   * revisión falla, se sigue con el alta (no se le frena en campo por una revisión que no se pudo
+   * hacer; el duplicado lo caza la bandeja de la sucursal al ligar con Kepler).
+   */
   submit(takeOrder: boolean): void {
     const name = this.form.name.trim();
     if (!name) {
       this.formError.set('El nombre del negocio es obligatorio.');
       return;
     }
+    if (this.saving() || this.checking()) return;
+    this.pendingTakeOrder = takeOrder;
+    if (navigator.onLine && this.dupDismissedFor !== name.toLowerCase()) {
+      this.checking.set(true);
+      this.formError.set(null);
+      this.api
+        .similarCustomers(name)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (r) => {
+            this.checking.set(false);
+            if (r.matches.length) this.parecidos.set(r.matches);
+            else this.create(takeOrder);
+          },
+          error: () => {
+            this.checking.set(false);
+            this.create(takeOrder);
+          },
+        });
+      return;
+    }
+    this.create(takeOrder);
+  }
+
+  /** «No, es otro»: se da de alta con el nombre tal cual. */
+  createAnyway(): void {
+    this.dupDismissedFor = this.form.name.trim().toLowerCase();
+    this.parecidos.set([]);
+    this.create(this.pendingTakeOrder);
+  }
+
+  /** «Es este»: no se crea nada; se sigue con el cliente que ya existía. */
+  useExisting(p: SimilarCustomer): void {
+    this.parecidos.set([]);
+    this.showForm.set(false);
+    if (this.pendingTakeOrder) {
+      this.router.navigate(['/vendor/take-order', p.id]);
+      return;
+    }
+    this.api
+      .getCustomer(p.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (c) => this.openSheet(c),
+        error: () => this.router.navigate(['/vendor/take-order', p.id]),
+      });
+  }
+
+  private create(takeOrder: boolean): void {
+    const name = this.form.name.trim();
     if (this.saving()) return;
     this.saving.set(true);
     this.formError.set(null);
@@ -619,7 +718,6 @@ export class VendorCustomersComponent implements OnInit {
       // Teléfono y WhatsApp son el mismo número: poblamos ambos campos.
       phone,
       whatsapp: phone,
-      rfc: this.form.rfc.trim() || undefined,
       notes: this.form.notes.trim() || undefined,
       latitude: g?.lat,
       longitude: g?.lng,

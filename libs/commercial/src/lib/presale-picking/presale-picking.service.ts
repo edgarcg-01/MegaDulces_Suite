@@ -36,6 +36,7 @@ import {
   planearCierre,
   sumarDias,
 } from './presale-picking.engine';
+import { PEDIDO_EN_RUTA_SQL } from './presale-route.engine';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Ventana de la bandeja: lo atrasado de más de 30 días ya no es surtido, es limpieza de la mesa. */
@@ -167,36 +168,7 @@ export class PresalePickingService {
       if (pick.started_by !== userId) {
         throw new ForbiddenException(`Lo está surtiendo ${pick.started_by_name}: sólo esa persona lo puede cerrar.`);
       }
-      const lineas = await trx('commercial.order_lines as l')
-        .leftJoin('catalog.products as p', 'p.id', 'l.product_id')
-        .where('l.order_id', orderId)
-        .select('l.id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'l.line_total', 'p.nombre as product_name');
-      let plan: PlanCierre;
-      try {
-        plan = planearCierre(
-          (lineas as FilaRenglon[]).map((l) => ({
-            line_id: l.id, product_name: l.product_name ?? 'Producto', quantity: Number(l.quantity),
-            qty_unit: l.qty_unit, qty_factor: l.qty_factor == null ? null : Number(l.qty_factor), line_total: Number(l.line_total),
-          })),
-          dto?.lines ?? [],
-        );
-      } catch (e) {
-        if (e instanceof CierreInvalido) throw new BadRequestException(e.message);
-        throw e;
-      }
-      let totales = { total_before: Number(fila['total']), total_after: Number(fila['total']) };
-      if (plan.outcome === 'con_faltantes') {
-        totales = await this.orders.recortarTrasSurtido(trx, orderId, plan, `surtido: ${nombre} quitó lo que no hubo`);
-      }
-      const report = armarReporte(plan, totales.total_before, totales.total_after);
-      await trx('commercial.presale_picks').where({ id: pick.id }).update({
-        finished_by: userId,
-        finished_by_name: nombre,
-        finished_at: trx.fn.now(),
-        outcome: plan.outcome,
-        report: report ? JSON.stringify(report) : null,
-        updated_at: trx.fn.now(),
-      });
+      const { outcome, report } = await this.cerrarPedido(trx, fila, pick.id, dto?.lines ?? [], { userId, nombre });
       const cliente = (fila['customer_name'] as string) ?? (fila['code'] as string);
       if (report) {
         const n = report.removed.length + report.adjusted.length;
@@ -204,8 +176,57 @@ export class PresalePickingService {
       } else {
         this.avisarVendedora(fila, 'Tu pedido se surtió completo', `${cliente} · listo para cobrar`);
       }
-      return { order_id: orderId, outcome: plan.outcome, report };
+      return { order_id: orderId, outcome, report };
     });
+  }
+
+  /**
+   * El cierre de UN pedido, dentro de la transacción del llamador: planea con lo marcado, quita del
+   * pedido lo que no hubo y guarda el reporte en su `presale_picks`. Lo comparten el surtido por
+   * pedido (`finish`) y el de la ruta (`PresaleRouteService.routeFinish`), para que un pedido se
+   * cierre igual venga por donde venga. No valida quién ni avisa: eso es de cada llamador.
+   *
+   * `fila` = una fila de `leer` (usa `id` y `total`). Un marcado inválido es un 400.
+   */
+  async cerrarPedido(
+    trx: Knex.Transaction,
+    fila: Record<string, unknown>,
+    pickId: string,
+    marcados: Array<{ line_id: string; picked: number }>,
+    quien: { userId: string; nombre: string },
+  ): Promise<{ outcome: PlanCierre['outcome']; report: PresalePickReport | null; plan: PlanCierre }> {
+    const orderId = fila['id'] as string;
+    const lineas = await trx('commercial.order_lines as l')
+      .leftJoin('catalog.products as p', 'p.id', 'l.product_id')
+      .where('l.order_id', orderId)
+      .select('l.id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'l.line_total', 'p.nombre as product_name');
+    let plan: PlanCierre;
+    try {
+      plan = planearCierre(
+        (lineas as FilaRenglon[]).map((l) => ({
+          line_id: l.id, product_name: l.product_name ?? 'Producto', quantity: Number(l.quantity),
+          qty_unit: l.qty_unit, qty_factor: l.qty_factor == null ? null : Number(l.qty_factor), line_total: Number(l.line_total),
+        })),
+        marcados,
+      );
+    } catch (e) {
+      if (e instanceof CierreInvalido) throw new BadRequestException(e.message);
+      throw e;
+    }
+    let totales = { total_before: Number(fila['total']), total_after: Number(fila['total']) };
+    if (plan.outcome === 'con_faltantes') {
+      totales = await this.orders.recortarTrasSurtido(trx, orderId, plan, `surtido: ${quien.nombre} quitó lo que no hubo`);
+    }
+    const report = armarReporte(plan, totales.total_before, totales.total_after);
+    await trx('commercial.presale_picks').where({ id: pickId }).update({
+      finished_by: quien.userId,
+      finished_by_name: quien.nombre,
+      finished_at: trx.fn.now(),
+      outcome: plan.outcome,
+      report: report ? JSON.stringify(report) : null,
+      updated_at: trx.fn.now(),
+    });
+    return { outcome: plan.outcome, report, plan };
   }
 
   // ───────────────────────────── Vendedora ─────────────────────────────
@@ -307,7 +328,8 @@ export class PresalePickingService {
 
   // ───────────────────────────── Interno ─────────────────────────────
 
-  private async quien(): Promise<{ userId: string; nombre: string }> {
+  /** Quién firma (persona en sesión) con su nombre de la ficha. También lo usa la ruta. */
+  async quien(): Promise<{ userId: string; nombre: string }> {
     const ctx = this.tenantCtx.get();
     const userId = ctx?.userId;
     if (!userId) throw new UnauthorizedException('Sin usuario en la sesión: surtir necesita a alguien que firme.');
@@ -323,9 +345,14 @@ export class PresalePickingService {
     return fila;
   }
 
-  private async leer(
+  /**
+   * Los pedidos de preventa por surtir. `[MCP.3.6]` Lo que es de una ruta del vendedor
+   * (`seller_route_days`) NO sale suelto: se surte como el pedido global de la ruta. Sólo la ruta
+   * lo lee con `incluirRutas` para cerrar sus pedidos.
+   */
+  async leer(
     trx: Knex.Transaction,
-    f: { almacenes: string[] | null; desde?: string; orderId?: string },
+    f: { almacenes: string[] | null; desde?: string; orderId?: string; incluirRutas?: boolean },
   ): Promise<Array<Record<string, unknown>>> {
     const qb = trx('commercial.orders as o')
       .join('commercial.warehouses as w', function () {
@@ -343,6 +370,10 @@ export class PresalePickingService {
       .where('o.delivery_type', 'route');
     if (f.almacenes !== null) qb.whereIn('o.warehouse_id', f.almacenes);
     if (f.orderId) qb.where('o.id', f.orderId);
+    // Lo confirmado sin ruta, o después de finalizarla, sigue llegando suelto como siempre.
+    if (!f.incluirRutas) {
+      qb.whereRaw(`NOT EXISTS (SELECT 1 FROM commercial.seller_route_days rd WHERE ${PEDIDO_EN_RUTA_SQL})`);
+    }
     if (f.desde) {
       qb.where('o.requested_delivery_date', '>=', f.desde)
         .where(function () {

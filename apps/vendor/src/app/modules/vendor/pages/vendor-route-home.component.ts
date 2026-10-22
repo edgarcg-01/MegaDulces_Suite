@@ -21,10 +21,26 @@ import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, of, catchError } from 'rxjs';
+import { forkJoin, of, catchError, timeout } from 'rxjs';
+import type { SellerRouteDay } from '@megadulces/contracts';
 import { VendorService, HomeCustomer, NearbyCustomer, DayPickState } from '../vendor.service';
+import { RouteDayService, horaMx } from '../route-day.service';
 import { Order } from '../../portal/portal.service';
 import { GeolocationService } from '../../../core/services/geolocation.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { MX_TZ } from '../../../core/utils/mx-date';
+import { VendorArrivalCardComponent } from '../components/vendor-arrival-card.component';
+import { VendorNoSaleSheetComponent } from '../components/vendor-no-sale-sheet.component';
+import { ArrivalResult, NoSaleKey, RecentFix, VisitProtocolService } from '../visit-protocol';
+
+/** [MCP.3.7] Lo que se dice junto a «Visita registrada»: a cuántos metros, o por qué no se sabe. */
+export function arrivalDetail(res: ArrivalResult | null | undefined): string {
+  const loc = res?.location;
+  if (loc?.conflict) return ` · ubicación no guardada: se encima con ${loc.conflict.name}`;
+  if (loc?.location_set) return ' · se guardó la ubicación del cliente';
+  if (res?.distance_m != null) return ` · a ${res.distance_m} m`;
+  return ' · sin ubicación para medir la distancia';
+}
 
 /**
  * Home "Mi ruta" — única pantalla del vendedor (rediseño Mercado mobile-first).
@@ -43,8 +59,36 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
     SkeletonModule,
     InputTextModule,
     ButtonModule,
+    VendorArrivalCardComponent,
+    VendorNoSaleSheetComponent,
   ],
   template: `
+    <!-- [MCP.3.6] Primero se sabe si la ruta de hoy está iniciada; un error NUNCA se lee como sin iniciar. -->
+    @if (routeDayStatus() === 'loading') {
+      <div class="rd-loading" role="status" aria-live="polite">
+        <span class="sr-only">Cargando tu ruta</span>
+        <p-skeleton height="500px"></p-skeleton>
+      </div>
+    } @else if (showStart()) {
+      <section class="start" aria-labelledby="start-title">
+        <h1 id="start-title">{{ greeting() }}</h1>
+        <p class="start-date">{{ todayLong }}</p>
+        <button
+          type="button"
+          class="start-btn"
+          [disabled]="starting()"
+          (click)="startRoute()"
+          >
+          <i class="pi" [ngClass]="starting() ? 'pi-spin pi-spinner' : 'pi-play'" aria-hidden="true"></i>
+          {{ starting() ? 'Iniciando…' : 'Iniciar ruta' }}
+        </button>
+        <p class="start-note">Al iniciar se registra la hora. Al finalizar, al surtidor le llega un solo pedido con todo lo que vendiste.</p>
+        @if (startFailed()) {
+          <p class="start-err" role="alert">No se pudo iniciar la ruta. Revisa tu conexión e intenta de nuevo.</p>
+          <button type="button" class="start-skip" (click)="skipStart.set(true)">Seguir sin iniciar</button>
+        }
+      </section>
+    } @else {
     <!-- Hero full-bleed -->
     @if (!loading() && !showError()) {
       <section class="hero">
@@ -85,31 +129,34 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
     }
     
     <div class="body-pad">
-      <!-- Banner de llegada: autodetección GPS del cliente más cercano de la cartera -->
+      <!-- [MCP.3.6] Estado de la ruta del día -->
+      @if (routeDayStatus() === 'error') {
+        <div class="rd-line rd-warn" role="status">
+          <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+          <span class="rd-text">No pudimos saber si tu ruta está iniciada.</span>
+          <button type="button" class="rd-act" (click)="loadRouteDay(true)">Reintentar</button>
+        </div>
+      } @else if (routeDay()?.state === 'en_ruta') {
+        <div class="rd-line rd-live">
+          <span class="rd-dot" aria-hidden="true"></span>
+          <span class="rd-text">En curso desde <b>{{ startedAt() }}</b></span>
+        </div>
+      } @else if (routeDay()?.state === 'finalizada') {
+        <div class="rd-line">
+          <i class="pi pi-check-circle" aria-hidden="true"></i>
+          <span class="rd-text">Ruta finalizada a las <b>{{ finishedAt() }}</b>. Si levantas otro pedido, le llega al surtidor como pedido fuera de la ruta.</span>
+        </div>
+      } @else if (routeDay()?.state === 'sin_iniciar') {
+        <div class="rd-line">
+          <i class="pi pi-clock" aria-hidden="true"></i>
+          <span class="rd-text">Ruta sin iniciar.</span>
+          <button type="button" class="rd-act" [disabled]="starting()" (click)="startRoute()">Iniciar ruta</button>
+        </div>
+      }
+
+      <!-- [MCP.3.7] Llegada: cliente de la ruta a menos de 80 m. «Abrir cliente» registra la visita. -->
       @if (!loading() && detected(); as d) {
-        <button
-          type="button"
-          class="arrival"
-          [class.has-pending]="arrivalCustomer()?.pending_count"
-          (click)="openSheetById(d.id)"
-          >
-          <span class="pin"><i class="pi pi-map-marker"></i></span>
-          <span class="a-body">
-            <span class="a-top">Estás en <b>{{ d.name }}</b> · {{ d.distance_m }} m</span>
-            @if (arrivalCustomer(); as ac) {
-              <span class="a-sub">
-                @if (ac.pending_count > 0) {
-                  <i class="pi" [ngClass]="ac.has_preventa_pending ? 'pi-inbox' : 'pi-clock'"></i>
-                  {{ ac.has_preventa_pending ? 'Ya tiene preventa' : 'Ya tiene pedido' }}
-                  {{ fmtMoney(ac.pending_total) }} — entregar / ver
-                } @else {
-                  <span class="muted"><i class="pi pi-bolt"></i> Toca para tomar pedido</span>
-                }
-              </span>
-            }
-          </span>
-          <i class="pi pi-chevron-right go-chev"></i>
-        </button>
+        <app-vendor-arrival-card [customer]="d" [pendingLabel]="arrivalPending()" (open)="openSheetById($event.id)" />
       }
     
       @if (!loading() && geoStatus() === 'locating') {
@@ -226,10 +273,26 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
             }
           </div>
         }
+        <!-- Reserva el alto del dock fijo para que no tape el último cliente -->
+        @if (enRuta()) {
+          <div class="dock-spacer" aria-hidden="true"></div>
+        }
       </div>
-    
-      <!-- FAB: tomar pedido del próximo cliente (zona del pulgar) -->
-      @if (!loading() && customers().length > 0) {
+
+      @if (enRuta()) {
+        <!-- [MCP.3.6] Finalizar ruta + Pedido, fijos ARRIBA de la barra de abajo (5rem, z-index 10) -->
+        <div class="dock">
+          <button type="button" class="finish-btn" (click)="goFinish()">
+            <i class="pi pi-flag" aria-hidden="true"></i> Finalizar ruta
+          </button>
+          @if (!loading() && customers().length > 0) {
+            <button class="fab docked" (click)="fabOrder()">
+              <i class="pi pi-plus"></i> Pedido
+            </button>
+          }
+        </div>
+      } @else if (!loading() && customers().length > 0) {
+        <!-- FAB: tomar pedido del próximo cliente (zona del pulgar) -->
         <button class="fab" (click)="fabOrder()">
           <i class="pi pi-plus"></i> Pedido
         </button>
@@ -268,12 +331,25 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
               <span class="badge">{{ fmtMoney(c.pending_total) }}</span>
             </button>
           }
-          @if (!c.visited_today) {
-            <button class="action" [disabled]="checking()" (click)="markVisit(c)">
-              <i class="pi pi-map-marker"></i>
-              <span class="lbl">Marcar visita</span>
-            </button>
-          }
+          <!-- [MCP.3.7] Abrir al cliente ya registró la llegada; aquí se ve si quedó y se cierra sin pedido. -->
+          <div class="visit-line" role="status" aria-live="polite">
+            @switch (arrival().state) {
+              @case ('saving') { <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Registrando visita… }
+              @case ('ok') {
+                <i class="pi pi-check-circle ok" aria-hidden="true"></i>
+                Visita registrada {{ arrival().at }}{{ arrival().detail }}
+              }
+              @case ('error') {
+                <i class="pi pi-exclamation-circle bad" aria-hidden="true"></i>
+                No se pudo registrar la visita.
+                <button type="button" class="visit-retry" (click)="registerArrival(c)">Reintentar</button>
+              }
+            }
+          </div>
+          <button class="action" [disabled]="arrival().state === 'saving'" (click)="openNoSale(c)">
+            <i class="pi pi-ban"></i>
+            <span class="lbl">El cliente no pidió nada</span>
+          </button>
           <button class="action" (click)="goCapture(c)">
             <i class="pi pi-camera"></i>
             <span class="lbl">Capturar exhibición</span>
@@ -292,6 +368,16 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
           }
         </div>
       }
+
+      <!-- [MCP.3.7] «El cliente no pidió nada»: motivo y se cierra la visita sin pedido -->
+      @if (noSaleFor(); as ns) {
+        <app-vendor-no-sale-sheet
+          [customerName]="ns.name"
+          [busy]="closingNoSale()"
+          (confirm)="confirmNoSale(ns, $event)"
+          (cancel)="noSaleFor.set(null)" />
+      }
+    }
     `,
   styles: [
     `
@@ -367,25 +453,74 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
 
       .body-pad { padding-top: 0.875rem; }
 
-      /* Banner de llegada (autodetección GPS) */
-      .arrival {
-        display: flex; align-items: center; gap: 0.7rem; width: 100%; text-align: left;
-        margin-bottom: 0.875rem; padding: 0.75rem 0.85rem; border-radius: var(--r-lg, 16px);
-        background: var(--card-bg); border: 1px solid var(--action); cursor: pointer;
-        box-shadow: 0 6px 18px -8px rgba(240,90,40,0.5);
-        animation: client-in 0.3s var(--ease-out, cubic-bezier(0.23,1,0.32,1)) backwards;
+      /* [MCP.3.6] Iniciar ruta */
+      .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+      .start {
+        min-height: 60vh; display: flex; flex-direction: column; justify-content: center; align-items: stretch;
+        gap: var(--sp-3); padding: var(--sp-8) var(--sp-2); text-align: center;
+      }
+      .start h1 { margin: 0; font-size: var(--fs-h1); font-weight: 800; letter-spacing: -0.02em; color: var(--text-main); }
+      .start-date { margin: 0 0 var(--sp-4); font-size: var(--fs-body); color: var(--text-muted); }
+      .start-date::first-letter { text-transform: uppercase; }
+      .start-btn {
+        min-height: 3.75rem; border: none; border-radius: var(--r-lg); cursor: pointer;
+        background: var(--action); color: var(--action-ink);
+        font-family: var(--font-body); font-size: var(--fs-lg); font-weight: 700;
+        display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
         transition: transform 0.08s var(--ease, ease);
       }
-      .arrival:active { transform: scale(0.99); }
-      .arrival .pin { width: 36px; height: 36px; border-radius: 14px; background: var(--action); color: #fff; display: grid; place-items: center; font-size: 1rem; flex-shrink: 0; }
-      .arrival.has-pending .pin { background: var(--warn-fg); }
-      .arrival .a-body { flex: 1; min-width: 0; }
-      .arrival .a-top { display: block; font-size: 0.9rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .arrival .a-top b { font-weight: 800; }
-      .arrival .a-sub { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.76rem; font-weight: 700; color: var(--warn-soft-fg); margin-top: 1px; }
-      .arrival .a-sub i { font-size: 0.7rem; }
-      .arrival .a-sub .muted { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--text-muted); font-weight: 500; }
-      .arrival .go-chev { color: var(--text-faint); flex-shrink: 0; }
+      .start-btn:active:not(:disabled) { transform: scale(0.98); }
+      .start-btn:disabled { opacity: 0.7; }
+      .start-btn:focus-visible, .start-skip:focus-visible, .rd-act:focus-visible, .finish-btn:focus-visible {
+        outline: 2px solid var(--action-ring, var(--action)); outline-offset: 2px;
+      }
+      .start-note { margin: var(--sp-2) 0 0; font-size: var(--fs-sm); line-height: 1.45; color: var(--text-muted); }
+      .start-err { margin: var(--sp-2) 0 0; font-size: var(--fs-sm); color: var(--bad-fg); }
+      .start-skip {
+        align-self: center; min-height: 2.75rem; padding: 0 var(--sp-4); border: none; background: none; cursor: pointer;
+        font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 700; color: var(--text-muted); text-decoration: underline;
+      }
+
+      /* [MCP.3.6] Línea del estado de la ruta */
+      .rd-line {
+        display: flex; align-items: center; gap: var(--sp-2); margin-bottom: 0.875rem;
+        padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md);
+        background: var(--surface-ground); border: 1px solid var(--border-color);
+        font-size: var(--fs-sm); line-height: 1.35; color: var(--text-main);
+      }
+      .rd-line > .pi { flex-shrink: 0; color: var(--text-muted); }
+      .rd-line b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+      .rd-text { flex: 1; min-width: 0; }
+      .rd-live { background: var(--ok-soft-bg); border-color: var(--ok-border); color: var(--ok-soft-fg); }
+      .rd-dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--ok-fg); flex-shrink: 0; }
+      .rd-warn { background: var(--warn-soft-bg); border-color: var(--warn-border); color: var(--warn-soft-fg); }
+      .rd-warn > .pi { color: var(--warn-soft-fg); }
+      .rd-act {
+        flex-shrink: 0; min-height: 2.75rem; padding: 0 var(--sp-3); border-radius: var(--r-pill);
+        border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer;
+        font-family: var(--font-body); font-size: var(--fs-xs); font-weight: 700;
+      }
+      .rd-act:disabled { opacity: 0.6; }
+
+      /* [MCP.3.6] Dock: Finalizar ruta + Pedido. ARRIBA de la barra de abajo de la app (fija, 5rem,
+         z-index 10), mismo arreglo que .acts de vendor-order-success. */
+      .dock {
+        position: fixed; left: 1rem; right: 1rem; z-index: 40;
+        bottom: calc(5rem + 0.75rem + env(safe-area-inset-bottom));
+        display: flex; gap: var(--sp-2); align-items: center;
+      }
+      .finish-btn {
+        flex: 1; min-width: 0; height: 3.25rem; border-radius: var(--r-pill); cursor: pointer;
+        border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main);
+        font-family: var(--font-body); font-size: var(--fs-body); font-weight: 700;
+        display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
+        box-shadow: 0 6px 18px -8px rgba(16,13,9,0.35);
+        transition: transform 0.08s var(--ease, ease);
+      }
+      .finish-btn:active { transform: scale(0.97); }
+      .fab.docked { position: static; flex-shrink: 0; }
+      .dock-spacer { height: 4.5rem; }
+
 
       .geo-hint {
         display: flex; align-items: center; gap: 0.45rem; width: 100%;
@@ -487,6 +622,10 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .action .lbl { display: flex; flex-direction: column; font-weight: 600; }
       .action .lbl small { font-size: 0.72rem; color: var(--text-muted); font-weight: 400; }
       .action .badge { margin-left: auto; font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: var(--warn-soft-fg); background: var(--warn-soft-bg); padding: 0.1rem 0.5rem; border-radius: var(--r-pill, 999px); }
+      .visit-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; min-height: 2.2rem; padding: 0.35rem 0.25rem 0; font-size: var(--fs-sm); color: var(--text-muted); }
+      .visit-line .ok { color: var(--ok-fg); }
+      .visit-line .bad { color: var(--bad-fg); }
+      .visit-retry { border: none; background: none; padding: 0.4rem 0.2rem; color: var(--action); font-weight: 700; font-size: var(--fs-sm); cursor: pointer; }
       .contact { display: flex; gap: 0.5rem; margin-top: 0.875rem; }
       .contact-btn { flex: 1; height: 2.9rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: var(--r-md, 12px); text-decoration: none; font-weight: 700; font-size: var(--fs-body); border: 1px solid var(--border-color); color: var(--text-main); background: var(--surface-ground); }
       .contact-btn.wa { background: #25d366; color: #fff; border-color: #25d366; }
@@ -501,7 +640,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
         .sheet, .sheet.closing, .sheet-backdrop, .sheet-backdrop.closing, .client { animation: none; }
         .hero::before { animation: none; }
         .ring { transition: none; }
-        .client, .fab, .sheet-primary, .contact-btn { transition: none; }
+        .client, .fab, .sheet-primary, .contact-btn, .start-btn, .finish-btn { transition: none; }
         .hero-refresh.spinning i { animation: none; }
       }
     `,
@@ -515,6 +654,8 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
   private readonly toast = inject(MessageService);
   private readonly geo = inject(GeolocationService);
   private readonly doc = inject(DOCUMENT);
+  private readonly routeDays = inject(RouteDayService);
+  private readonly auth = inject(AuthService);
 
   @ViewChild('sheetEl') private sheetEl?: ElementRef<HTMLElement>;
 
@@ -526,7 +667,6 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
   readonly ordersToday = signal<Order[]>([]);
   readonly sheet = signal<HomeCustomer | null>(null);
   readonly sheetClosing = signal(false);
-  readonly checking = signal(false);
   /** [VR.SUP.1] Estado de la ruta del día (supervisor). null = no cargó / no aplica. */
   readonly dayPick = signal<DayPickState | null>(null);
 
@@ -554,6 +694,27 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     if (!d) return null;
     return this.customers().find((c) => c.id === d.id) || null;
   });
+  /** [MCP.3.7] El pedido pendiente del cliente detectado, para la tarjeta de llegada. */
+  readonly arrivalPending = computed(() => {
+    const ac = this.arrivalCustomer();
+    if (!ac || !ac.pending_count) return null;
+    return `${ac.has_preventa_pending ? 'Ya tiene preventa' : 'Ya tiene pedido'} ${this.fmtMoney(ac.pending_total)}`;
+  });
+
+  // ── [MCP.3.7] Protocolo de visitas ───────────────────────────────────────────────────────
+  private readonly visits = inject(VisitProtocolService);
+  /** La llegada al cliente abierto: abrirlo la registra. `error` se dice, nunca se da por hecha. */
+  readonly arrival = signal<{ state: 'idle' | 'saving' | 'ok' | 'error'; at: string; detail: string }>({
+    state: 'idle', at: '', detail: '',
+  });
+  /** Cliente al que se le está cerrando la visita sin pedido (abre la hoja de motivos). */
+  readonly noSaleFor = signal<HomeCustomer | null>(null);
+  readonly closingNoSale = signal(false);
+  /** Última toma de GPS (la de la detección): se reusa al abrir para no esperar otra vez al GPS. */
+  private lastFix: RecentFix | null = null;
+  /** Re-detección de llegada mientras la pantalla está abierta. */
+  private arrivalTimer: ReturnType<typeof setInterval> | null = null;
+  private static readonly ARRIVAL_EVERY_MS = 60_000;
 
   /** Signal (no propiedad plana): un computed() solo reacciona a signals. */
   readonly search = signal('');
@@ -586,11 +747,106 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     );
   });
 
+  // ── [MCP.3.6] Iniciar / finalizar ruta ─────────────────────────────────────────────────────
+  /** La ruta de hoy; `null` mientras no se sabe. */
+  readonly routeDay = signal<SellerRouteDay | null>(null);
+  /** `error` ≠ `sin_iniciar`: si no se pudo leer, se dice y se deja vender. */
+  readonly routeDayStatus = signal<'loading' | 'ok' | 'error'>('loading');
+  readonly starting = signal(false);
+  readonly startFailed = signal(false);
+  /** El vendedor eligió seguir sin iniciar después de que iniciar falló. */
+  readonly skipStart = signal(false);
+
+  readonly showStart = computed(() => {
+    const st = this.routeDayStatus();
+    const state = this.routeDay()?.state;
+    const skip = this.skipStart();
+    return st === 'ok' && state === 'sin_iniciar' && !skip;
+  });
+  readonly enRuta = computed(() => {
+    const st = this.routeDayStatus();
+    const state = this.routeDay()?.state;
+    return st === 'ok' && state === 'en_ruta';
+  });
+  readonly startedAt = computed(() => horaMx(this.routeDay()?.started_at));
+  readonly finishedAt = computed(() => horaMx(this.routeDay()?.finished_at));
+  readonly greeting = computed(() => {
+    const name = this.auth.user()?.username?.trim();
+    return name ? `Hola, ${name}` : 'Hola';
+  });
+  readonly todayLong = new Intl.DateTimeFormat('es-MX', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: MX_TZ,
+  }).format(new Date());
+
   ngOnInit(): void {
+    this.loadRouteDay();
     this.load();
+    // [MCP.3.7] Mientras Mi ruta está abierta se vuelve a buscar al cliente cercano cada minuto:
+    // así aparece la tarjeta de llegada al llegar, sin tocar nada. Sin GPS no se programa.
+    if (this.geo.supported) {
+      this.arrivalTimer = setInterval(() => {
+        if (!this.loading() && this.customers().length && this.doc.visibilityState !== 'hidden') void this.detectArrival(true);
+      }, VendorRouteHomeComponent.ARRIVAL_EVERY_MS);
+    }
+  }
+
+  /**
+   * Lee el estado de la ruta de hoy. `silent` no vuelve a poner la pantalla en carga. Con red
+   * lenta (>6 s) o error queda `error`: Mi ruta se ve con un aviso, nunca la vista de Iniciar.
+   */
+  loadRouteDay(silent = false): void {
+    if (!silent) this.routeDayStatus.set('loading');
+    this.routeDays
+      .today()
+      .pipe(timeout(6000), takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (rd) => {
+          this.routeDay.set(rd);
+          this.routeDayStatus.set('ok');
+        },
+        error: () => {
+          this.routeDay.set(null);
+          this.routeDayStatus.set('error');
+        },
+      });
+  }
+
+  startRoute(): void {
+    if (this.starting()) return;
+    this.starting.set(true);
+    this.startFailed.set(false);
+    this.routeDays
+      .start()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (rd) => {
+          this.routeDay.set(rd);
+          this.routeDayStatus.set('ok');
+          this.starting.set(false);
+        },
+        error: (e) => {
+          this.starting.set(false);
+          this.startFailed.set(true);
+          this.toast.add({
+            severity: 'error',
+            summary: 'No se pudo iniciar la ruta',
+            detail: e?.error?.message || 'Intenta de nuevo.',
+          });
+          // Puede que sí se haya iniciado (p. ej. otro intento): se vuelve a preguntar.
+          this.loadRouteDay(true);
+        },
+      });
+  }
+
+  goFinish(): void {
+    this.router.navigate(['/vendor/route-finish']);
   }
 
   ngOnDestroy(): void {
+    if (this.arrivalTimer) clearInterval(this.arrivalTimer);
     // Si el componente muere con el sheet abierto, no dejar el body bloqueado.
     this.doc.body.style.removeProperty('overflow');
   }
@@ -638,6 +894,7 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
   refresh(): void {
     if (this.refreshing()) return;
     this.load(true);
+    this.loadRouteDay(true);
   }
 
   openSheet(c: HomeCustomer): void {
@@ -646,6 +903,8 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     this.doc.body.style.setProperty('overflow', 'hidden');
     // Mover el foco al sheet una vez renderizado.
     setTimeout(() => this.sheetEl?.nativeElement?.focus(), 0);
+    // [MCP.3.7] Abrir al cliente registra la llegada (hora y desde dónde). No espera: la hoja ya se ve.
+    void this.registerArrival(c);
   }
   openSheetById(id: string): void {
     const c = this.customers().find((x) => x.id === id);
@@ -692,15 +951,19 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** Pide GPS y resuelve el cliente de la cartera más cercano (best-effort). */
-  async detectArrival(): Promise<void> {
+  /**
+   * Pide GPS y resuelve el cliente de la cartera más cercano (best-effort). `silent` (la
+   * re-detección de cada minuto) no muestra «Buscando…» ni borra la tarjeta si el GPS falla.
+   */
+  async detectArrival(silent = false): Promise<void> {
     if (!this.geo.supported) {
       this.geoStatus.set('none');
       return;
     }
-    this.geoStatus.set('locating');
+    if (!silent) this.geoStatus.set('locating');
     try {
       const fix = await this.geo.getCurrentPosition();
+      this.lastFix = { lat: fix.lat, lng: fix.lng, at: Date.now() };
       this.api
         .nearbyCustomers(fix.lat, fix.lng)
         .pipe(takeUntilDestroyed(this.destroyRef))
@@ -709,9 +972,12 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
             this.detected.set(list[0] ?? null);
             this.geoStatus.set('found');
           },
-          error: () => this.geoStatus.set('none'),
+          error: () => {
+            if (!silent) this.geoStatus.set('none');
+          },
         });
     } catch {
+      if (silent) return;
       this.detected.set(null);
       this.geoStatus.set('denied');
     }
@@ -750,47 +1016,61 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     });
   }
 
-  async markVisit(c: HomeCustomer): Promise<void> {
-    this.checking.set(true);
-    // Capture-on-visit: adjuntamos el GPS al check-in (best-effort; sin permiso
-    // igual se registra la visita, solo no backfillea coords).
-    let coords: { latitude?: number; longitude?: number } = {};
-    try {
-      if (this.geo.supported) {
-        const fix = await this.geo.getCurrentPosition();
-        coords = { latitude: fix.lat, longitude: fix.lng };
-      }
-    } catch {
-      /* sin GPS: check-in sin coords */
+  /**
+   * [MCP.3.7] Registra la llegada al cliente abierto. Si el cliente no tenía ubicación, el servidor
+   * se la fija con esta toma (con su guarda contra encimar dos clientes). Abrirlo otra vez el mismo
+   * día con la visita abierta no crea otra. Un fallo se DICE en la hoja, con Reintentar.
+   */
+  async registerArrival(c: HomeCustomer): Promise<void> {
+    // Ya visitado hoy: la llegada ya está registrada; abrirlo de nuevo no crea otra visita.
+    if (c.visited_today) {
+      this.arrival.set({ state: 'ok', at: c.last_visit_at ? horaMx(c.last_visit_at) : '', detail: c.last_visit_at ? '' : 'hoy' });
+      return;
     }
-    this.api
-      .checkIn(c.id, coords)
+    this.arrival.set({ state: 'saving', at: '', detail: '' });
+    try {
+      const res = await this.visits.registerArrival(c.id, this.lastFix);
+      if (this.sheet()?.id !== c.id && this.noSaleFor()?.id !== c.id) return; // ya cambió de cliente
+      this.arrival.set({ state: 'ok', at: horaMx(new Date().toISOString()), detail: arrivalDetail(res) });
+      this.customers.set(
+        this.customers().map((x) =>
+          x.id === c.id ? { ...x, visited_today: true, last_visit_at: new Date().toISOString() } : x,
+        ),
+      );
+    } catch {
+      if (this.sheet()?.id !== c.id) return;
+      this.arrival.set({ state: 'error', at: '', detail: '' });
+    }
+  }
+
+  /** «El cliente no pidió nada»: cierra la hoja del cliente y abre la de motivos. */
+  openNoSale(c: HomeCustomer): void {
+    this.noSaleFor.set(c);
+    this.closeSheet();
+  }
+
+  /** Cierra la visita sin pedido. El botón se deshabilita en el primer toque (sin doble envío). */
+  confirmNoSale(c: HomeCustomer, e: { reason: NoSaleKey; notes: string }): void {
+    if (this.closingNoSale()) return;
+    this.closingNoSale.set(true);
+    this.visits
+      .closeWithoutOrder(c.id, e.reason, e.notes)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (res) => {
-          this.customers.set(
-            this.customers().map((x) =>
-              x.id === c.id ? { ...x, visited_today: true, last_visit_at: new Date().toISOString() } : x,
-            ),
-          );
-          this.checking.set(false);
-          this.closeSheet();
-          const loc = res?.location;
-          if (loc && loc.conflict) {
-            this.toast.add({
-              severity: 'warn',
-              summary: 'Visita registrada',
-              detail: `Ubicación se traslapa con ${loc.conflict.name} (${loc.conflict.distance_m} m) — no se guardó`,
-            });
-          } else if (loc?.location_set) {
-            this.toast.add({ severity: 'success', summary: 'Visita registrada', detail: `${c.name} · ubicación guardada` });
-          } else {
-            this.toast.add({ severity: 'success', summary: 'Visita registrada', detail: c.name });
-          }
+        next: () => {
+          this.closingNoSale.set(false);
+          this.noSaleFor.set(null);
+          this.customers.set(this.customers().map((x) => (x.id === c.id ? { ...x, visited_today: true } : x)));
+          if (this.detected()?.id === c.id) this.detected.set(null);
+          this.toast.add({ severity: 'success', summary: 'Visita cerrada sin pedido', detail: c.name });
         },
-        error: (e) => {
-          this.checking.set(false);
-          this.toast.add({ severity: 'error', summary: 'No se pudo registrar', detail: e?.error?.message || 'Intenta de nuevo.' });
+        error: (err) => {
+          this.closingNoSale.set(false);
+          this.toast.add({
+            severity: 'error',
+            summary: 'No se pudo cerrar la visita',
+            detail: err?.error?.message || 'Revisa tu conexión e intenta de nuevo.',
+          });
         },
       });
   }

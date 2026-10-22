@@ -2209,4 +2209,67 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // `[MCP.3.7]` Visitas del día (supervisor de ventas). Antes esto era un párrafo fijo de tres
+  // renglones en el cuerpo de la pantalla; se mudó acá para que la tabla quede arriba. Anclado a
+  // `visit-protocol.engine.ts` (radio de 80 m = VISIT_RADIUS_M; búsqueda de GPS acotada a ~2 km).
+  'visitas-del-dia': {
+    title: 'Visitas del día — qué es una falta',
+    intro: 'Por cada cliente de la ruta del día se dice qué pasó: si el vendedor lo abrió en la app, con qué resultado, y si no lo abrió, si pasó cerca. Nada se captura aparte: sale de las visitas, los pedidos y el GPS que la app ya manda.',
+    groups: [
+      {
+        heading: 'Faltas',
+        entries: [
+          { term: 'Falta', def: 'Un cliente de la ruta que el vendedor no abrió, cuando sí se puede saber que no lo atendió. Hay dos: se fue sin abrir y no pasó. Se calcula cuando el vendedor finaliza su ruta, o al día siguiente.' },
+          { term: 'Se fue sin abrir', def: 'Según su GPS estuvo a menos de 80 m del cliente y no lo abrió en la app.' },
+          { term: 'No pasó', def: 'Tuvo GPS durante la jornada y nunca entró a 80 m del cliente.' },
+        ],
+      },
+      {
+        heading: 'Lo que no se puede saber (nunca cuenta como falta)',
+        entries: [
+          { term: 'Sin ubicación', def: 'El cliente no tiene coordenadas capturadas: no hay contra qué medir si el vendedor pasó. Los que además no se visitaron se agrupan al final de cada vendedor en una sola línea.' },
+          { term: 'Sin GPS del vendedor', def: 'El celular no mandó ubicación ese día. Sin GPS no se puede decir si pasó o no.' },
+          { term: 'Sin GPS suficiente', def: 'El celular mandó menos de dos puntos, o todos al mismo minuto: no alcanza para saber por dónde anduvo.' },
+          { term: 'Pendiente', def: 'La ruta sigue abierta: el cliente todavía puede visitarse. Su falta, si la hay, se calcula al finalizar.' },
+        ],
+      },
+      {
+        heading: 'Otras marcas',
+        entries: [
+          { term: 'Lejos', def: 'Abrió al cliente a más de 80 m de donde está registrado. La visita cuenta, pero conviene revisar si la ubicación del cliente está bien o si la abrió desde otro lado.' },
+          { term: 'Agenda vigente', def: 'Para un día pasado, la ruta sale de la agenda semanal de HOY (no se guarda la historia de la agenda). Si el vendedor escogió su ruta ese día, manda la que escogió.' },
+          { term: 'Rutas vecinales', def: 'Un puesto de Ruta Vecinal sólo ve rutas declaradas como vecinales, y a los vendedores que ese día tienen alguna.' },
+        ],
+      },
+    ],
+  },
+  // `[MCP.3.9]` Tablero del supervisor de ventas (Cartera de ventas › Mis vendedores).
+  'tablero-supervisor': {
+    title: 'Mis vendedores — de dónde sale cada cifra',
+    intro: 'Una fila por vendedor de tu equipo y de tu tipo de ruta. Nada se captura aparte, salvo la meta.',
+    groups: [
+      {
+        heading: 'Venta',
+        entries: [
+          { term: 'Venta cobrada', def: 'Sólo lo que Kepler registra como cobrado (con impuestos). Un pedido levantado que todavía no se cobra no suma.' },
+          { term: 'Catorcena', def: 'Dos semanas de nómina seguidas, de sábado a viernes. La venta de la catorcena va del sábado de inicio al día consultado.' },
+          { term: 'Sin medir', def: 'No se pudo leer la venta de ese vendedor; el motivo se muestra al pasar el cursor o en su detalle. No es cero: es que no se sabe.' },
+        ],
+      },
+      {
+        heading: 'Meta y avance',
+        entries: [
+          { term: 'Meta', def: 'Pesos que el vendedor debe cobrar en la catorcena. La captura el supervisor; si nadie la ha capturado se dice «Sin meta».' },
+          { term: 'Avance', def: 'Venta cobrada de la catorcena entre la meta. Sólo existe si hay las dos cosas.' },
+        ],
+      },
+      {
+        heading: 'Ruta y clientes',
+        entries: [
+          { term: 'Inicio y fin', def: 'La hora en que el vendedor inició y finalizó su ruta en la app.' },
+          { term: 'Visitados', def: 'Clientes de su ruta del día que abrió en la app, con o sin pedido.' },
+        ],
+      },
+    ],
+  },
 };

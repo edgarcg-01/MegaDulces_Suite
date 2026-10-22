@@ -11,7 +11,7 @@ const SUGGESTIONS = [
   '¿A quién visito hoy?',
   '¿Quién no me ha comprado?',
   '¿Qué le ofrezco a...?',
-  '¿Hay stock de Bubaloo?',
+  '¿Hay existencias de Bubaloo?',
   '¿Cómo va mi día?',
 ];
 

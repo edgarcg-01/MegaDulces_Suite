@@ -17,6 +17,8 @@ import { coincideBusqueda } from '@megadulces/ui-web';
 import { PickingService } from '../../reparto/picking.service';
 import { PresalePickingService } from '../presale-picking.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { AlmacenRutasHoyComponent } from '../surtir-ruta/almacen-rutas-hoy.component';
+import { ClientesNuevosAvisoComponent } from '../clientes-nuevos-aviso.component';
 
 /**
  * Preferencias guardadas en el dispositivo (almacén y origen elegidos): el surtidor no tiene por
@@ -24,7 +26,6 @@ import { AuthService } from '../../../core/services/auth.service';
  * clave de API y bloqueaba el PR (falso positivo en #316).
  */
 const PREF_ALMACEN = 'gp.surtir.almacen.v1';
-const PREF_ORIGEN = 'gp.surtir.origen.v1';
 
 /**
  * `[MCP.3.1]` Dos orígenes y no se mezclan (decisión de David, 2026-10-19):
@@ -77,7 +78,7 @@ function plural(n: number, uno: string, varios: string): string {
 @Component({
   selector: 'app-almacen-surtir',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule, AlmacenRutasHoyComponent, ClientesNuevosAvisoComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -128,6 +129,8 @@ function plural(n: number, uno: string, varios: string): string {
 
       <!-- ─────────── ELEGIR ALMACÉN / LISTO PARA TOMAR ─────────── -->
       @if (fase() === 'listo') {
+        <!-- [MCP.3.8] Clientes nuevos sin clave de Kepler: se nota aquí y lleva a la bandeja para ligarlos. -->
+        <app-clientes-nuevos-aviso (sinClave)="sinClave.set($event)"></app-clientes-nuevos-aviso>
         <section class="sr-card">
           <label class="sr-l" for="sr-alm">Almacén donde surtes</label>
           <select id="sr-alm" class="sr-select" [ngModel]="almacenId()" (ngModelChange)="elegirAlmacen($event)">
@@ -170,6 +173,9 @@ function plural(n: number, uno: string, varios: string): string {
 
         <!-- [MCP.3.1] Pedidos de Sucursal: por día de entrega, el surtidor elige cuál. -->
         @if (origen() === 'SUCURSAL' && almacenId()) {
+          <!-- [MCP.3.6] Las rutas de hoy van arriba; los pedidos sueltos de siempre, debajo. -->
+          <app-almacen-rutas-hoy (hayRutas)="rutasHoy.set($event)"></app-almacen-rutas-hoy>
+          @if (rutasHoy() > 0) { <h3 class="sr-h3">Pedidos sueltos</h3> }
           @if (sucursalError()) {
             <div class="sr-banda sr-banda-bad" role="alert">
               <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -201,6 +207,7 @@ function plural(n: number, uno: string, varios: string): string {
                   @else if (dia() === 'proximos') { <span class="sr-tip">Entrega {{ fechaCorta(p.requested_delivery_date) }}</span> }
                 </div>
                 <strong class="sr-ped-cli">{{ p.customer_name || 'Cliente sin nombre' }}</strong>
+                @if (sinClave().has(p.order_id)) { <span class="sr-tag-nuevo">Cliente nuevo · sin clave de Kepler</span> }
                 <div class="sr-datos">
                   <span class="sr-dato"><i class="pi pi-user" aria-hidden="true"></i>{{ p.seller_name || 'Sin vendedor' }}</span>
                   <span class="sr-dato">{{ plural(p.lines, 'producto', 'productos') }}</span>
@@ -587,6 +594,7 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-ped-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
     .sr-ped-cli { font-size: var(--fs-lg); line-height: 1.2; }
     .sr-tag-tarde { font-size: var(--fs-xs); font-weight: 700; color: var(--warn-fg); }
+    .sr-tag-nuevo { font-size: var(--fs-xs); font-weight: 700; color: var(--info-fg); }
     .sr-btn-ped { min-height: 3.25rem; font-size: var(--fs-lg); flex-direction: row; gap: .5rem; margin-top: .2rem; }
     .sr-btn-ped i { font-size: var(--fs-lg); }
     .sr-ver-lista { align-self: flex-start; }
@@ -623,7 +631,7 @@ export class AlmacenSurtirComponent implements OnInit {
   readonly enLinea = signal(typeof navigator === 'undefined' ? true : navigator.onLine !== false);
   readonly almacenes = signal<Array<{ id: string; code: string; name: string }>>([]);
   readonly almacenId = signal<string>('');
-  readonly origen = signal<Origen>('TELEMARK');
+  readonly origen = signal<Origen>('SUCURSAL');
 
   // ── [MCP.3.1] Sucursal ──
   readonly sucursal = signal<PresalePickInboxResponse | null>(null);
@@ -636,6 +644,10 @@ export class AlmacenSurtirComponent implements OnInit {
   readonly pedidoSucursal = signal<PresalePickInboxRow | null>(null);
   /** Lo que el cierre de un pedido de Sucursal quitó o ajustó. */
   readonly reporte = signal<PresalePickReport | null>(null);
+  /** [MCP.3.6] Cuántas rutas hay hoy (las pinta su propia pieza): rotula «Pedidos sueltos». */
+  readonly rutasHoy = signal(0);
+  /** [MCP.3.8] Pedidos de clientes nuevos sin clave de Kepler (los avisa su propia pieza). */
+  readonly sinClave = signal<Set<string>>(new Set());
 
   /** Pendientes de surtir del almacén elegido (el alcance ya lo recortó el servidor). */
   private readonly pendientesSucursal = computed(() =>
@@ -910,8 +922,12 @@ export class AlmacenSurtirComponent implements OnInit {
     this.fase.set('cargando');
     // Lo guardado puede ser '' (el viejo "Todos"): cae en Telemarketing, que era lo que le daba.
     // El aviso de la campana trae ?pedido=<id>: es de Sucursal y se abre directo.
+    // [MCP.3.6] Siempre abre en SUCURSAL (David, 2026-10-21): ahí llegan las rutas de los vendedores.
+    // Antes abría en Telemarketing salvo que el celular recordara Sucursal, y con eso el surtidor no
+    // veía la ruta que el vendedor acababa de cerrar. Telemarketing se elige a mano cada vez.
+    // El aviso de la campana trae ?pedido=<id>: es de Sucursal y se abre directo.
     const pedido = this.ruta.snapshot.queryParamMap.get('pedido');
-    this.origen.set(pedido || this.leer(PREF_ORIGEN) === 'SUCURSAL' ? 'SUCURSAL' : 'TELEMARK');
+    this.origen.set('SUCURSAL');
     // Sólo sucursales Kepler (código de 2 dígitos, ya filtradas por el servidor según el alcance):
     // los pedidos U-D-40 salen de ahí. Con el permiso de SURTIR, no el de almacenes.
     this.api.almacenesSurtido().subscribe({
@@ -977,7 +993,6 @@ export class AlmacenSurtirComponent implements OnInit {
 
   elegirOrigen(v: Origen): void {
     this.origen.set(v);
-    this.guardar(PREF_ORIGEN, v);
     this.sinTrabajo.set(null);
     if (v === 'SUCURSAL') this.cargarSucursal();
   }
