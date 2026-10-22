@@ -67,7 +67,7 @@ const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
 
       @if (err(); as e) { <div class="ec-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="ec-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()"><span class="p-button-label">Reintentar</span></button></div> }
 
-      @if (loading() && !data()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
+      @if (loading() && !data()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="fb-skel-row"></div> }</div> }
       @else if (data(); as d) {
         <div class="ec-seg" role="group" aria-label="Tipo de acreedor">
           @for (t of tiposVisibles(); track t.tipo) {

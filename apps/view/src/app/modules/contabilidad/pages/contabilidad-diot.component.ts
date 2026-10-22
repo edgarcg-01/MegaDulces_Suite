@@ -54,8 +54,8 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
         <div class="di-card-head">
           <h3 class="di-card-title">DIOT — operaciones con terceros @if (diot(); as d) { <span class="muted">· {{ d.totales.proveedores | number }} proveedores · IVA {{ money(d.totales.iva16) }}</span> }</h3>
           <div class="di-card-filters">
-            <p-iconfield iconPosition="left" styleClass="di-search">
-              <p-inputicon styleClass="pi pi-search" />
+            <p-iconfield iconPosition="left" class="di-search">
+              <p-inputicon class="pi pi-search" />
               <input type="text" pInputText placeholder="Buscar proveedor / RFC…" [ngModel]="search()" (ngModelChange)="search.set($event)" aria-label="Buscar proveedor" />
             </p-iconfield>
             <p-select [options]="terceroOpts" [ngModel]="tercero()" (ngModelChange)="tercero.set($event)" optionLabel="label" optionValue="value" styleClass="di-sel sel-liquid" ariaLabel="Tipo de tercero" />

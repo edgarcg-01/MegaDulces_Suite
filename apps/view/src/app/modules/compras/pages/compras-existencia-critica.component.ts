@@ -119,11 +119,11 @@ interface DraftLine {
                   optionLabel="label" optionValue="value" placeholder="ABC" [showClear]="true" styleClass="ec-sel-sm" appendTo="body"></p-select>
         <p-select [options]="xyzOpts" [(ngModel)]="fXyz" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="XYZ" [showClear]="true" styleClass="ec-sel-sm" appendTo="body"></p-select>
-        <p-iconfield styleClass="ec-search">
-          <p-inputicon styleClass="pi pi-search" />
+        <p-iconfield class="ec-search">
+          <p-inputicon class="pi pi-search" />
           <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="onSearchChange($event)" (keyup.enter)="reload()"
                  placeholder="SKU o nombre…" aria-label="Buscar por SKU o nombre" />
-          @if (fSearch) { <p-inputicon styleClass="pi pi-times ec-search-clear" (click)="clearSearch()" role="button" ariaLabel="Limpiar búsqueda" /> }
+          @if (fSearch) { <p-inputicon class="pi pi-times ec-search-clear" (click)="clearSearch()" role="button" ariaLabel="Limpiar búsqueda" /> }
         </p-iconfield>
         <!-- [EC.U] En qué unidad se lee la tabla. Segmentado y a la vista: las nueve columnas de
              cantidad estaban TODAS en cajas y eso sólo se decía en los tooltips. Mismo control y
