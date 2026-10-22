@@ -61,6 +61,31 @@ const rel = (f) => path.relative(RAIZ, f).replace(/\\/g, '/');
  */
 const SENALES = /has_more|hasMore|truncad|total_filas|\btopad/i;
 
+/**
+ * ⭐ **La OTRA forma de declararlo: comparar el universo contra lo pintado.**
+ *
+ * Medido el 2026-10-22. `contabilidad-contpaqi.component.ts` hace exactamente lo que esta
+ * compuerta pide, y la compuerta lo marcaba igual:
+ *
+ *     @if ((b.total_grupos ?? 0) > b.rows.length) {
+ *       · mostrando {{ b.rows.length }} de {{ b.total_grupos | number }}
+ *       <button (click)="masBalanza()">Cargar más</button>
+ *     }
+ *
+ * ⛔ Y el comentario de esa misma línea dice: «LC.21: antes mostraba los 30 grupos más grandes
+ * SIN decirlo (por cuenta son ~990)». O sea que la compuerta estaba **frenando el commit que
+ * arregla su propio caso**, porque `SENALES` sólo conocía el nombre `has_more` y ese contrato
+ * llama `total_grupos` a lo mismo.
+ *
+ * Se reconoce la FORMA, no el nombre: un campo `total…` **comparado** contra `rows.length`. Eso
+ * es declarar el tope — se ve el universo y se ve lo pintado.
+ *
+ * ⛔⛔ Y sigue SIN contar `totalRecords` de un paginador suelto, que es el token de «lo ya
+ * traído» y fue el arreglo más importante que tuvo esta compuerta: acá hace falta la
+ * comparación contra `rows.length`, no la mención.
+ */
+const SENAL_COMPARADA = /\btotal[_a-zA-Z]*\s*(?:\?\?\s*\d+\s*\)?\s*)?>[^\n]{0,60}?rows\.length|rows\.length\s*<[^\n]{0,60}?\btotal[_a-zA-Z]*/;
+
 function archivos(filtro) {
   const out = [];
   for (const base of APPS) {
@@ -198,6 +223,9 @@ function auditar(file, metodos) {
       if (/\blimit\s*:/.test(args)) continue;   // manda el tope a sabiendas
       // ¿Mira la señal al recibir? Se busca desde la llamada hasta el final de su `subscribe`.
       if (SENALES.test(src.slice(m.index, m.index + VECINDAD))) continue;
+      // La otra forma de declararlo: el universo comparado contra lo pintado. Se busca en TODO
+      // el archivo porque esa comparación vive en la plantilla, no al lado del `subscribe`.
+      if (SENAL_COMPARADA.test(src)) continue;
       const linea = src.slice(0, m.index).split('\n').length;
       hallazgos.push({ metodo: nombre, linea });
     }
@@ -231,6 +259,18 @@ if (process.argv.includes('--self-test')) {
     `import { Otro } from './otro.service';\nclass X { f() { this.otro.libro({ from: 'a' }).subscribe(); } }`);
   const elDueno = escribir('el-dueno.ts',
     `import { Caos } from './caos.service';\nclass X { f() { this.caos.libro({ from: 'a' }).subscribe(); } }`);
+  /**
+   * ⭐ El caso de 2026-10-22: la pantalla declara el tope comparando el universo contra lo
+   * pintado («mostrando 30 de 990»), que es lo que la regla pide — sólo que el contrato lo
+   * llama `total_grupos` y no `has_more`.
+   */
+  const universoComparado = escribir('universo.ts',
+    `class X { t = \`@if ((b.total_grupos ?? 0) > b.rows.length) { mostrando {{b.rows.length}} de {{b.total_grupos}} }\`;\n`
+    + `  f() { this.svc.libro({ from: 'a' }).subscribe(); } }`);
+  /** ⛔ Y el control que NO debe pasar: un paginador que sólo nombra `totalRecords`. */
+  const soloPaginador = escribir('paginador.ts',
+    `class X { t = \`currentPageReportTemplate="{first}–{last} de {totalRecords}"\`;\n`
+    + `  f() { this.svc.libro({ from: 'a' }).subscribe(); } }`);
 
   const metodos = new Map([['libro', new Set(['caos.service'])]]);
   const r = {
@@ -241,11 +281,14 @@ if (process.argv.includes('--self-test')) {
     signal: auditar(signal, metodos),
     otroServicio: auditar(otroServicio, metodos),
     elDueno: auditar(elDueno, metodos),
+    universoComparado: auditar(universoComparado, new Map([['libro', new Set([])]])),
+    soloPaginador: auditar(soloPaginador, new Map([['libro', new Set([])]])),
   };
   fs.rmSync(tmp, { recursive: true, force: true });
 
   const ok = r.malo && r.malo.length === 1 && !r.conLimite && !r.conSenal && !r.sinLlamada
-    && !r.signal && !r.otroServicio && r.elDueno && r.elDueno.length === 1;
+    && !r.signal && !r.otroServicio && r.elDueno && r.elDueno.length === 1
+    && !r.universoComparado && r.soloPaginador && r.soloPaginador.length === 1;
   console.log(`  topada en silencio       -> ${r.malo ? 'CAZADA' : 'se escapo'}`);
   console.log(`  manda limit a sabiendas  -> ${r.conLimite ? 'FALSO POSITIVO' : 'pasa'}`);
   console.log(`  mira has_more            -> ${r.conSenal ? 'FALSO POSITIVO' : 'pasa'}`);
@@ -253,6 +296,8 @@ if (process.argv.includes('--self-test')) {
   console.log(`  lectura de signal        -> ${r.signal ? 'FALSO POSITIVO' : 'pasa'}`);
   console.log(`  mismo nombre, otro svc   -> ${r.otroServicio ? 'FALSO POSITIVO' : 'pasa'}`);
   console.log(`  el servicio que SI tiene -> ${r.elDueno ? 'CAZADA' : 'se escapo'}`);
+  console.log(`  «mostrando N de TOTAL»   -> ${r.universoComparado ? 'FALSO POSITIVO' : 'pasa'}`);
+  console.log(`  solo totalRecords        -> ${r.soloPaginador ? 'CAZADA' : 'se escapo'}`);
   console.log(ok ? '\n  ✔ la compuerta ve el rojo y no inventa' : '\n  ✖ CONTROL fallido');
   process.exit(ok ? 0 : 1);
 }
