@@ -8,6 +8,7 @@ describe('verificarCorte — V1…V12', () => {
     fondo_inicial: 500, contado_anterior: 500, folio_anterior: 'CC-2026-00006',
     veredicto: 'cuadra', diferencia: 0, explicacion: null,
     gastos_sin_respaldo: 0, manuales_otra_fecha: 0, sueltos_despues: 0, editados_despues: 0,
+    fuera_del_corte: 0, fuera_del_corte_monto: 0,
   };
   const de = (e: EntradaVerificacion, id: string) => verificarCorte(e).find((x) => x.id === id)!;
 
@@ -15,7 +16,7 @@ describe('verificarCorte — V1…V12', () => {
     const v = verificarCorte(limpio);
     expect(fallasDe(v)).toEqual([]);
     expect(de(limpio, 'V9').estado).toBe('no_medido');
-    expect(v.map((x) => x.id)).toEqual(['V1', 'V2', 'V3', 'V4', 'V5', 'V12', 'V6', 'V7', 'V8', 'V9', 'V11']);
+    expect(v.map((x) => x.id)).toEqual(['V1', 'V2', 'V3', 'V4', 'V5', 'V12', 'V6', 'V7', 'V8', 'V13', 'V9', 'V11']);
   });
 
   it('[negativa] CC-2026-00001: cerrado 3 días después', () => {
@@ -51,6 +52,10 @@ describe('verificarCorte — V1…V12', () => {
     expect(de({ ...limpio, gastos_sin_respaldo: 2 }, 'V6').estado).toBe('no_cumple');
     expect(de({ ...limpio, manuales_otra_fecha: 1 }, 'V7').estado).toBe('no_cumple');
     expect(de({ ...limpio, sueltos_despues: 3 }, 'V8').estado).toBe('no_cumple');
+    // [CGS.50] CC-2026-00002: 5 ingresos del 13-oct ($121,130.53) capturados antes de cerrar y fuera de todo corte.
+    expect(de({ ...limpio, fuera_del_corte: 5, fuera_del_corte_monto: 121130.53 }, 'V13'))
+      .toMatchObject({ estado: 'no_cumple', detalle: '5 movimiento(s) de la jornada ($121,130.53) no entraron a ningún corte: nadie los revisa ni los firma.' });
+    expect(de({ ...limpio, cerrado_dia: null }, 'V13').estado).toBe('no_medido');
     expect(de({ ...limpio, editados_despues: 28 }, 'V11').detalle).toContain('28');
   });
 

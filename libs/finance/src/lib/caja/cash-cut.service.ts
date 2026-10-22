@@ -1148,6 +1148,7 @@ export class CashCutService {
       out.set(id, {
         cerrado_dia: null, contado_anterior: undefined, folio_anterior: null,
         gastos_sin_respaldo: 0, manuales_otra_fecha: 0, sueltos_despues: 0, editados_despues: 0,
+        fuera_del_corte: 0, fuera_del_corte_monto: 0,
       });
     }
     // El corte anterior de la MISMA caja, por fecha: de él sale el fondo con que debió abrir.
@@ -1186,21 +1187,29 @@ export class CashCutService {
       h.manuales_otra_fecha = Number(r.manuales_otra_fecha);
       h.editados_despues = Number(r.editados_despues);
     }
-    // Lo que se capturó ESE día después de cerrar: quedó suelto, fuera del corte.
+    // Lo que se capturó ESE día y no quedó en ningún corte: después de cerrar (V8) o antes (V13,
+    // `[CGS.50]`). El cajón de la Caja General cubre todo el libro; otra sucursal, sólo la suya.
     const sueltos = await trx.raw(`
-      SELECT c.id, count(l.id)::int AS n
+      SELECT c.id,
+             count(l.id) FILTER (WHERE l.created_at > c.closed_at)::int AS n,
+             count(l.id) FILTER (WHERE l.created_at <= c.closed_at)::int AS fuera,
+             coalesce(sum(l.monto) FILTER (WHERE l.created_at <= c.closed_at), 0)::numeric AS fuera_monto
         FROM finance.cash_ledger_cuts c
         JOIN finance.cash_ledger l
           ON l.tenant_id = c.tenant_id AND l.corte_id IS NULL AND l.deleted_at IS NULL
          AND l.estado <> 'cancelado'
          AND l.created_at >= (c.fecha::timestamp AT TIME ZONE 'America/Mexico_City')
          AND l.created_at <  ((c.fecha + 1)::timestamp AT TIME ZONE 'America/Mexico_City')
-         AND c.closed_at IS NOT NULL AND l.created_at > c.closed_at
+         AND c.closed_at IS NOT NULL
+         AND (c.sucursal = ? OR l.sucursal = c.sucursal)
        WHERE c.tenant_id = ? AND c.id = ANY(?::uuid[])
-       GROUP BY c.id`, [tenantId, ids]);
-    for (const r of sueltos.rows as Array<{ id: string; n: number }>) {
+       GROUP BY c.id`, [SUCURSAL_CAJA_GENERAL, tenantId, ids]);
+    for (const r of sueltos.rows as Array<{ id: string; n: number; fuera: number; fuera_monto: string }>) {
       const h = out.get(r.id);
-      if (h) h.sueltos_despues = Number(r.n);
+      if (!h) continue;
+      h.sueltos_despues = Number(r.n);
+      h.fuera_del_corte = Number(r.fuera);
+      h.fuera_del_corte_monto = Number(r.fuera_monto);
     }
     return out;
   }
@@ -1236,6 +1245,7 @@ export class CashCutService {
     const hh: HechosVerificacion = h ?? {
       cerrado_dia: null, contado_anterior: undefined, folio_anterior: null,
       gastos_sin_respaldo: 0, manuales_otra_fecha: 0, sueltos_despues: 0, editados_despues: 0,
+      fuera_del_corte: 0, fuera_del_corte_monto: 0,
     };
     const explicacion = [c['nota'], c['respuesta']].filter((x) => x != null && String(x).trim()).map(String).join(' · ') || null;
     return verificarCorte({
