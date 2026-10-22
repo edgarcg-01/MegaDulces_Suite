@@ -42,6 +42,13 @@ export interface EntradaVerificacion {
   manuales_otra_fecha: number;
   /** Movimientos capturados ESE día después de que el corte ya estaba cerrado: quedaron sueltos. */
   sueltos_despues: number;
+  /**
+   * `[CGS.50]` Movimientos de la jornada capturados ANTES de cerrar que no quedaron en ningún corte.
+   * Medido el 2026-10-22: el 12 y el 13-oct, 6 movimientos ($126,130.53) — V8 no los ve porque no
+   * se capturaron después del cierre.
+   */
+  fuera_del_corte: number;
+  fuera_del_corte_monto: number;
   /** Movimientos del corte editados después de cerrarlo. */
   editados_despues: number;
   /** `[CGS.36]` La diferencia contra sus testigos. `undefined`/`null` = no se pudo arbitrar. */
@@ -125,6 +132,12 @@ export function verificarCorte(e: EntradaVerificacion): VerificacionCorte[] {
   if (e.sueltos_despues === 0) add('V8', 'Nada se capturó después de cerrar', 'cumple', 'Ningún movimiento de ese día quedó fuera del corte.');
   else add('V8', 'Nada se capturó después de cerrar', 'no_cumple', `${e.sueltos_despues} movimiento(s) de ese día se capturaron después del cierre y quedaron fuera del corte.`);
 
+  // V13 — `[CGS.50]` todo lo de la jornada entró al corte. Un movimiento fuera de todo corte nadie lo revisa ni lo firma.
+  const V13 = 'Todo lo de la jornada entró al corte';
+  if (!e.cerrado_dia) add('V13', V13, 'no_medido', 'El corte todavía no está cerrado.');
+  else if (e.fuera_del_corte === 0) add('V13', V13, 'cumple', 'Todo lo capturado en la jornada quedó dentro del corte.');
+  else add('V13', V13, 'no_cumple', `${e.fuera_del_corte} movimiento(s) de la jornada (${mx(e.fuera_del_corte_monto)}) no entraron a ningún corte: nadie los revisa ni los firma.`);
+
   // V9 — CAOS: declarado
   add('V9', 'Lo de la caja fuerte llegó al libro', 'no_medido',
     'Todavía no hay regla para decidir qué movimiento de la caja fuerte debió capturarse (CGA-A.33). Las dos piernas ya entran a la cuenta.');
@@ -145,4 +158,4 @@ export function fallasDe(v: VerificacionCorte[]): VerificacionCorte[] {
 /** Lo que la lista necesita y no está en la fila del corte: lo lee el servicio de la base. */
 export type HechosVerificacion = Pick<EntradaVerificacion,
   'cerrado_dia' | 'contado_anterior' | 'folio_anterior' | 'gastos_sin_respaldo'
-  | 'manuales_otra_fecha' | 'sueltos_despues' | 'editados_despues'>;
+  | 'manuales_otra_fecha' | 'sueltos_despues' | 'fuera_del_corte' | 'fuera_del_corte_monto' | 'editados_despues'>;

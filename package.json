@@ -34,6 +34,8 @@
     "check:throttle-names": "node scripts/check-throttle-names.js",
     "check:throttle-names:self": "node scripts/check-throttle-names.js --self-test",
     "check:spec-vivo:self": "node scripts/check-spec-vivo.js --self-test",
+    "check:caja-sin-control": "node scripts/check-caja-sin-control.js",
+    "check:caja-sin-control:self": "node scripts/check-caja-sin-control.js --self-test",
     "check:estilos:self": "node scripts/check-estilos.js --self-test",
     "check:tokens:self": "node scripts/check-css-tokens.js --self-test",
     "check:tables:self": "node scripts/check-dense-tables.js --self-test",
