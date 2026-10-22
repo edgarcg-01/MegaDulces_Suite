@@ -55,6 +55,12 @@ export interface ComprobanteCfdi {
   ieps: number;
   /** Σ (importe − descuento) de los conceptos al 16 % (`subtotal_iva_16`). Ausente → `iva / 0.16`. */
   base16?: number | null;
+  /**
+   * `[CP.8.82]` Trae conceptos al 0 % Y al 16 %. En esas la contadora saca la base al 16 % del IVA (`iva / 0.16`),
+   * no de los conceptos: medido en 2026, donde las dos difieren, 55 de 66 mixtas van por el IVA y 326 de 328 no
+   * mixtas por la base del CFDI.
+   */
+  mixta?: boolean;
   /** `YYYY-MM-DD`. */
   fecha: string;
 }
@@ -69,6 +75,11 @@ export interface FacturaPagada extends ComprobanteCfdi {
 export interface NotaAplicada extends ComprobanteCfdi {
   /** `CfdiRelacionados.TipoRelacion`. `'03'` = devolución de mercancía; lo demás, descuento. */
   tipoRelacion?: string | null;
+  /**
+   * `[CP.8.82]` Respaldo cuando no hay `tipoRelacion` (el XML no llegó): ¿la contadora asentó como devolución la
+   * mayoría de las notas de este proveedor en los meses anteriores? `null` = sin historia.
+   */
+  devolucionHistorial?: boolean | null;
 }
 
 export interface EntradaPagoProveedor {
@@ -115,12 +126,16 @@ export function esPagoDeTarjeta(concepto: unknown): boolean {
 
 /** `[CP.8.66]` Descuento o devolución: el tipo de relación del CFDI de la nota (91.7 % contra la contadora). */
 export function esDevolucion(n: NotaAplicada): boolean {
-  return n.tipoRelacion === '03';
+  // `[CP.8.82]` En producción la relación llegaba SIEMPRE en null (la fuente no la tenía): toda nota salía como
+  // descuento. Ahora viene del XML; sin XML, de la historia del proveedor; sin ninguna, descuento.
+  if (n.tipoRelacion) return n.tipoRelacion === '03';
+  return n.devolucionHistorial === true;
 }
 
 /** La base al 16 % en centavos: la del CFDI; si no viene, la que implica el IVA. Sin IVA, cero. */
 function base16Cent(c: ComprobanteCfdi): number {
   if (cent(c.iva) <= 0) return 0;
+  if (c.mixta) return Math.round(cent(c.iva) / 0.16);
   return c.base16 && c.base16 > 0 ? cent(c.base16) : Math.round(cent(c.iva) / 0.16);
 }
 

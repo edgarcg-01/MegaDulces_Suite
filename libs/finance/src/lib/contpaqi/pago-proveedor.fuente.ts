@@ -65,7 +65,8 @@ export interface PropuestaPago {
 interface PagoKepler { acr: string; t: number; s: number; folio: string; f: string; monto: number; c45: string }
 interface Aplicacion { acr: string; pt: number; ps: number; pf: string; dt: number; ds: number; df: string }
 interface DocKepler { acr: string; t: number; s: number; folio: string; f: string; imp: number; ref: string | null }
-interface Cfdi { u: string; rfc: string; nom: string | null; tc: 'I' | 'E'; folio: string | null; tot: number; iva: number; ieps: number; s16: number; f: string }
+/** `tr`: `TipoRelacion` del XML del CFDI (sólo notas), o null si el XML no llegó todavía (`[LC.20]`). */
+interface Cfdi { u: string; rfc: string; nom: string | null; tc: 'I' | 'E'; folio: string | null; tot: number; iva: number; ieps: number; s16: number; f: string; tr?: string | null; mixta?: boolean }
 
 /** Agrega a una lista dentro de un mapa. */
 function meter<K, V>(m: Map<K, V[]>, k: K, v: V): void {
@@ -91,6 +92,8 @@ export class FuentePagoProveedor {
     private readonly prov: Map<string, string> = new Map(),
     private readonly usoRfc: Map<string, { f: string; suf: string }[]> = new Map(),
     private readonly pagadaAntes: Map<string, string> = new Map(),
+    /** `[CP.8.82]` sufijo del proveedor → sus notas en egresos por mes: `{ mes, dev }` (devolución 5060/5080 o descuento 5050/5070). */
+    private readonly notasHist: Map<string, { mes: string; dev: boolean }[]> = new Map(),
   ) {}
 
   /**
@@ -174,7 +177,13 @@ export class FuentePagoProveedor {
     const cfdis = listaRfc.length ? (await db.raw(`
       SELECT upper(uuid) u, emisor_rfc rfc, emisor_nombre nom, tipo_comprobante tc, folio, total::float8 tot,
              coalesce((impuestos->>'iva_trasladado')::float8,0) iva, coalesce((impuestos->>'ieps_trasladado')::float8,0) ieps,
-             coalesce((impuestos->>'subtotal_iva_16')::float8,0) s16, fecha::date::text f
+             coalesce((impuestos->>'subtotal_iva_16')::float8,0) s16, fecha::date::text f,
+             -- [CP.8.82] La relación de la nota (01 nota de crédito · 03 devolución) sólo viene en el XML.
+             CASE WHEN tipo_comprobante = 'E' THEN substring(xml from 'TipoRelacion="([0-9]+)"') END tr,
+             -- [CP.8.82] Mixta: trae conceptos al 0 % Y al 16 %. Ahí la contadora saca la base al 16 % del IVA.
+             (jsonb_typeof(impuestos->'traslados') = 'array' AND EXISTS (
+                SELECT 1 FROM jsonb_array_elements(impuestos->'traslados') t
+                 WHERE t->>'nombre' = 'IVA' AND (t->>'tasa')::numeric = 0 AND (t->>'base')::numeric > 0)) mixta
         FROM fiscal.cfdis
        WHERE tenant_id = ? AND rol='recibidas' AND tipo_comprobante IN ('I','E')
          AND fecha >= ?::date AND emisor_rfc = ANY(?)`, [MEGA, inicioCfdi, listaRfc])).rows as Cfdi[] : [];
@@ -217,13 +226,24 @@ export class FuentePagoProveedor {
          AND l.cargo_abono='A' AND l.cuenta = ANY(?)
        GROUP BY 1, 2`, [MEGA, anio - 1, anio, [...cuentas]])).rows as { cuenta: string; imp: number; f: string }[] : [];
 
+    // `[CP.8.82]` Lo que ella usó con las notas de esos proveedores: el respaldo cuando el XML no trae la relación.
+    const sufijos = [...cuentas].map((c) => c.slice(4));
+    const notasRows = sufijos.length ? (await db.raw(`
+      SELECT substr(l.cuenta, 5) suf, l.anio_mes mes, l.cuenta ~ '^50[68]0' dev
+        FROM analytics.gl_poliza_lines l
+       WHERE l.tenant_id = ? AND l.source='contpaqi' AND l.ejercicio IN (?, ?) AND l.tipo_pol='2'
+         AND l.cargo_abono='A' AND l.cuenta ~ '^50[5-8]0' AND substr(l.cuenta, 5) = ANY(?)`,
+    [MEGA, anio - 1, anio, sufijos])).rows as { suf: string; mes: string; dev: boolean }[] : [];
+    const notasHist = new Map<string, { mes: string; dev: boolean }[]>();
+    for (const r of notasRows) meter(notasHist, r.suf, { mes: r.mes, dev: r.dev });
+
     const aplicaciones = new Map<string, Aplicacion[]>(); const notasDe = new Map<string, Aplicacion[]>();
     for (const a of aps) meter(aplicaciones, `${a.acr}|${a.pt}|${a.ps}|${a.pf}`, a);
     for (const a of apsNotas) meter(notasDe, `${a.acr}|${a.dt}|${a.ds}|${a.df}`, a);
     const docs = new Map(docsRows.map((d) => [`${d.acr}|${d.t}|${d.s}|${d.folio}`, d]));
     const cfdiPorRfc = new Map<string, Cfdi[]>(); for (const x of cfdis) meter(cfdiPorRfc, `${x.rfc}|${x.tc}`, x);
     const prov = new Map(provRows.map((x) => [`${x.cuenta}|${x.imp.toFixed(2)}`, x.f]));
-    return new FuentePagoProveedor(etiquetas, pagos, padron, mapa, rfcDe, aplicaciones, notasDe, docs, cfdiPorRfc, prov, usoRfc, pagadaAntes);
+    return new FuentePagoProveedor(etiquetas, pagos, padron, mapa, rfcDe, aplicaciones, notasDe, docs, cfdiPorRfc, prov, usoRfc, pagadaAntes, notasHist);
   }
 
   /** L1: los pagos de Kepler que pueden ser este movimiento. Uno = proveedor identificado. */
@@ -253,6 +273,17 @@ export class FuentePagoProveedor {
   private cuentaDe(rfc: string, fecha: string): string | null {
     const h = (this.usoRfc.get(rfc) ?? []).filter((x) => x.f < fecha);
     return h.length ? h[h.length - 1].suf : this.mapa.get(rfc) ?? null;
+  }
+
+  /**
+   * `[CP.8.82]` La nota como la ve el armador: la relación del XML y, de respaldo, lo que la contadora usó con ese
+   * proveedor en los meses ANTERIORES al pago (sin el mes del pago: no se califica con lo que se está calificando).
+   */
+  private nota(suf: string, x: Cfdi, fechaPago: string): NotaAplicada {
+    const previas = (this.notasHist.get(suf) ?? []).filter((h) => h.mes < fechaPago.slice(0, 7));
+    const dev = previas.filter((h) => h.dev).length;
+    return { uuid: x.u, total: x.tot, iva: x.iva, ieps: x.ieps, base16: x.s16, mixta: !!x.mixta, fecha: x.f, tipoRelacion: x.tr ?? null,
+      devolucionHistorial: previas.length ? dev * 2 > previas.length : null };
   }
 
   private enProvision(suf: string, x: Cfdi, fechaPago: string): boolean {
@@ -334,8 +365,8 @@ export class FuentePagoProveedor {
     }
     return { estado: 'armable', fuente: 'confirmada', proveedor_por_nombre: p.proveedor_por_nombre,
       entrada: { fecha: m.fecha, cuenta_banco: m.cuenta_banco, pagado: r2(m.importe), sufijo: suf,
-        facturas: F.map((x) => ({ uuid: x.u, total: x.tot, iva: x.iva, ieps: x.ieps, base16: x.s16, fecha: x.f, enProvision: this.enProvision(suf, x, m.fecha) })),
-        notas: N.map((x) => ({ uuid: x.u, total: x.tot, iva: x.iva, ieps: x.ieps, base16: x.s16, fecha: x.f, tipoRelacion: null })) } };
+        facturas: F.map((x) => ({ uuid: x.u, total: x.tot, iva: x.iva, ieps: x.ieps, base16: x.s16, mixta: !!x.mixta, fecha: x.f, enProvision: this.enProvision(suf, x, m.fecha) })),
+        notas: N.map((x) => this.nota(suf, x, m.fecha)) } };
   }
 
   resolver(m: MovimientoPago): ResolucionPago {
@@ -377,8 +408,8 @@ export class FuentePagoProveedor {
     const sumF = F.reduce((a, x) => a + x.tot, 0);
     // Sin la relación del ADD, las notas sólo salen de la cadena; si las facturas solas ya dan lo pagado, no van.
     const notas = Math.abs(sumF - B) <= TOL + 0.01 * F.length ? [] : (fuente === 'cadena_kepler' ? N : []);
-    const facturas: FacturaPagada[] = F.map((x) => ({ uuid: x.u, total: x.tot, iva: x.iva, ieps: x.ieps, base16: x.s16, fecha: x.f, enProvision: this.enProvision(suf, x, m.fecha) }));
-    const notasAp: NotaAplicada[] = notas.map((x) => ({ uuid: x.u, total: x.tot, iva: x.iva, ieps: x.ieps, base16: x.s16, fecha: x.f, tipoRelacion: null }));
+    const facturas: FacturaPagada[] = F.map((x) => ({ uuid: x.u, total: x.tot, iva: x.iva, ieps: x.ieps, base16: x.s16, mixta: !!x.mixta, fecha: x.f, enProvision: this.enProvision(suf, x, m.fecha) }));
+    const notasAp: NotaAplicada[] = notas.map((x) => this.nota(suf, x, m.fecha));
     return { estado: 'armable', fuente: fuente ?? 'importe_una', proveedor_por_nombre: porNombre,
       entrada: { fecha: m.fecha, cuenta_banco: m.cuenta_banco, pagado: B, sufijo: suf, facturas, notas: notasAp } };
   }

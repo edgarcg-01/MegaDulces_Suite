@@ -97,6 +97,16 @@ describe('R2 · compra directa → 5020 base 16 % + IVA + IEPS + 5010 el resto',
     expect(renglones(a)).toContain(`C ${CUENTA.NO_DEDUCIBLES} 0.03`);
     expect(asientoCuadra(a)).toBe(true);
   });
+  it('[CP.8.82] factura MIXTA: la base al 16 % sale del IVA (iva / 0.16), no de los conceptos — como la contadora', () => {
+    const f = { total: 21600.05, iva: 1600.05, base16: 10000.4 };
+    const mixta = armarPagoProveedorCompleto(entrada({ pagado: 21600.05, facturas: [factura({ ...f, mixta: true })] }));
+    expect(renglones(mixta)).toContain(`C 5020${SUF} 10000.31`);          // 1600.05 / 0.16 = 10000.3125
+    expect(renglones(mixta)).toContain(`C 5010${SUF} 9999.69`);
+    expect(asientoCuadra(mixta)).toBe(true);
+    // ⛔ Sin la marca (todo al 16 %) se queda la base del CFDI: 326 de 328 así en 2026.
+    const no = armarPagoProveedorCompleto(entrada({ pagado: 21600.05, facturas: [factura(f)] }));
+    expect(renglones(no)).toContain(`C 5020${SUF} 10000.40`);
+  });
   it('sin base16 en el CFDI se usa la que implica el IVA', () => {
     const a = armarPagoProveedorCompleto(entrada({ facturas: [factura({ base16: null })] }));
     expect(renglones(a)[0]).toBe(`C 5020${SUF} 10000.00`);
@@ -121,6 +131,20 @@ describe('Notas de crédito', () => {
     }));
     expect(renglones(a)).toContain(`A 5080${SUF} 1000.00`);
     expect(renglones(a)).toContain('A 1060000000 160.00');
+  });
+  it('[CP.8.82] sin relación (el XML no llegó): manda lo que la contadora hizo antes con ese proveedor', () => {
+    const nota = { uuid: 'N-3', total: 1160, iva: 160, ieps: 0, base16: 1000, fecha: '2026-10-10', tipoRelacion: null };
+    const dev = armarPagoProveedorCompleto(entrada({ pagado: 11600 - 1160, notas: [{ ...nota, devolucionHistorial: true }] }));
+    expect(renglones(dev)).toContain(`A 5080${SUF} 1000.00`);
+    const sinHist = armarPagoProveedorCompleto(entrada({ pagado: 11600 - 1160, notas: [{ ...nota, devolucionHistorial: null }] }));
+    expect(renglones(sinHist)).toContain(`A 5070${SUF} 1000.00`);
+  });
+  it('⛔ [CP.8.82] la relación del CFDI GANA sobre la historia: 01 es descuento aunque antes fueran devoluciones', () => {
+    const a = armarPagoProveedorCompleto(entrada({
+      pagado: 11600 - 1160,
+      notas: [{ uuid: 'N-4', total: 1160, iva: 160, ieps: 0, base16: 1000, fecha: '2026-10-10', tipoRelacion: '01', devolucionHistorial: true }],
+    }));
+    expect(renglones(a)).toContain(`A 5070${SUF} 1000.00`);
   });
 });
 
