@@ -28,7 +28,7 @@ const t = (status: SdStatus, over: Partial<SdRequestDetail> = {}): SdRequestDeta
     { id: 'm1', kind: 'system', visibility: 'public', author_id: 'u1', author_label: 'Ana', body: 'Solicitud creada', meta: {}, created_at: '2026-10-02T15:00:00.000Z' },
     { id: 'm2', kind: 'internal_note', visibility: 'internal', author_id: 'u2', author_label: 'Jorge', body: 'Parece el usuario bloqueado', meta: {}, created_at: '2026-10-02T15:05:00.000Z' },
   ],
-  attachments: [], time_logged_minutes: 0, time_entries: [], ...over,
+  attachments: [], links: [], time_logged_minutes: 0, time_entries: [], ...over,
 });
 
 function makeApi(initial: SdRequestDetail) {
@@ -317,7 +317,9 @@ describe('[MS.3.3] SdRequestDetailComponent', () => {
       input.dispatchEvent(new Event('change'));
       await vi.waitFor(() => expect(c.optimizando()).toBe(false));
       expect(c.archivos()).toHaveLength(5);
-      expect(c.error()).toContain('Máximo 5');
+      fix.detectChanges();
+      // `[MS.ADJ.3.3]` el aviso ahora lo pinta la pieza compartida de adjuntos (role=alert), no el `error()` del padre.
+      expect(el().querySelector('app-sd-adjuntos [role=alert]')?.textContent).toContain('Máximo 5');
     });
     it('⭐ el 409 del servidor se muestra con SU razón, no con un mensaje genérico', async () => {
       await render('nuevo', true);

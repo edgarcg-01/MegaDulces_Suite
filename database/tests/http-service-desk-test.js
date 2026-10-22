@@ -37,7 +37,8 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), qu
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 const bcrypt = require('bcryptjs');
 
-const BASE = 'http://localhost:3334/api';
+// `SD_API_BASE` y no `API_BASE`: el `.env` ya define `API_BASE` SIN el `/api` (lo usan otros tests) y al leerla todo daba 404.
+const BASE = process.env.SD_API_BASE || 'http://localhost:3334/api';
 const T = process.env.TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const SUF = String(Date.now()).slice(-8);
 const PASS_PLANO = `Smoke!${SUF}`;
@@ -246,6 +247,44 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     check('el agente ve la nota interna', vAg.body?.messages?.some((m) => m.kind === 'internal_note'));
     check('⭐ el solicitante ve MENOS mensajes que el agente (el filtro es del servidor)', vSol.body.messages.length < vAg.body.messages.length);
     check('⭐ el hilo lleva el NOMBRE de quien escribió, no su usuario (el JWT sólo trae el usuario: lo destapó la revisión visual)', vAg.body.messages.some((m) => m.kind === 'comment' && m.author_label === 'SMOKE agente') && !vAg.body.messages.some((m) => m.author_label === agente.username), JSON.stringify(vAg.body.messages.map((m) => m.author_label)));
+
+    // ── 5-bis. [MS.ADJ] Enlaces de Google y nombre honesto, con el payload de la pantalla ───────
+    console.log('\n5-bis — enlaces de Google, nombre del adjunto y tope del envío');
+    const URL_HOJA = 'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrSt/edit?usp=sharing#gid=0';
+    const rEnl = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE ADJ enlace', links: [{ url: URL_HOJA }] });
+    check('⭐ un enlace de Hojas de Google se acepta al levantar (201)', rEnl.status === 201 || rEnl.status === 200, dump(rEnl));
+    check('el enlace queda NORMALIZADO (sin usp ni #gid) y con su tipo', rEnl.body?.links?.length === 1 && rEnl.body.links[0].url === 'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrSt/edit' && rEnl.body.links[0].kind === 'hoja', JSON.stringify(rEnl.body?.links));
+    check('⛔ el host de otro dominio → 400', (await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'x', links: [{ url: 'https://evil.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrSt/edit' }] })).status === 400);
+    check('⛔ docs.google.com.evil.com (host por sufijo) → 400', (await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'x', links: [{ url: 'https://docs.google.com.evil.com/document/d/1AbCdEfGhIjKlMnOpQrSt/edit' }] })).status === 400);
+    check('⛔ http (sin TLS) → 400', (await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'x', links: [{ url: 'http://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrSt/edit' }] })).status === 400);
+    const cuatro = [1, 2, 3, 4].map((n) => ({ url: `https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQr0${n}/edit` }));
+    check('⛔ más de 3 enlaces por envío → 400', (await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'x', links: cuatro })).status === 400);
+    const antesE = Number((await knex('servicedesk.request_links').where({ tenant_id: T }).count({ n: '*' }).first()).n);
+    await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'x', links: [{ url: URL_HOJA }, { url: 'https://evil.com/x' }] });
+    const despuesE = Number((await knex('servicedesk.request_links').where({ tenant_id: T }).count({ n: '*' }).first()).n);
+    check('⭐ un envío con un enlace malo NO deja el bueno guardado a medias', despuesE === antesE, `antes=${antesE} después=${despuesE}`);
+
+    const rExe = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE ADJ nombre', attachments: [{ file_base64: dataUri('image/png', PNG_1X1), file_name: 'foto.exe' }] });
+    if (rExe.status === 200 || rExe.status === 201) {
+      check('⭐ un PNG llamado «foto.exe» se guarda y se muestra como «foto.png»', rExe.body?.attachments?.[0]?.file_name === 'foto.png', dump(rExe));
+    } else {
+      noMedido.push(`nombre honesto del adjunto (el alta con adjunto no respondió OK: ${dump(rExe)})`);
+    }
+
+    // Tope del ENVÍO: 3 × 7.5 MB = 22.5 MB (cada uno cabe en los 8 MB por archivo, juntos pasan de 22 MB; en base64 ~30 MB: cabe en el cuerpo de 32 MB).
+    const pdfGrande = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(7.5 * 1048576 - 9, 7)]);
+    const rTope = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'x', attachments: [1, 2, 3].map((n) => ({ file_base64: dataUri('application/pdf', pdfGrande), file_name: `g${n}.pdf` })) });
+    check('⛔ 3 PDF de 7.5 MB (22.5 MB juntos) → 400 con el mensaje del tope, no un 413 genérico', rTope.status === 400 && /22 MB/.test(JSON.stringify(rTope.body)), dump(rTope));
+
+    // Por el camino de RESPONDER (el otro que escribe): el enlace de una nota interna no le llega a quien reportó.
+    const nEnl = await req('POST', `${SD}/requests/${T1.id}/messages`, agente.token, { body: 'Evidencia en el Drive', visibility: 'internal', links: [{ url: 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrSt/view?usp=sharing' }] });
+    check('el agente deja una nota interna CON enlace', nEnl.status < 300, dump(nEnl));
+    const pEnl = await req('POST', `${SD}/requests/${T1.id}/messages`, agente.token, { body: 'Aquí está la hoja', links: [{ url: URL_HOJA }] });
+    check('el agente comenta en público CON enlace', pEnl.status < 300, dump(pEnl));
+    const lSol = (await req('GET', `${SD}/requests/${T1.id}`, sol.token)).body?.links ?? [];
+    const lAg = (await req('GET', `${SD}/requests/${T1.id}`, agente.token)).body?.links ?? [];
+    check('⭐ el solicitante NO ve el enlace de la nota interna, SÍ el del comentario público', lSol.length === 1 && lSol[0].kind === 'hoja', JSON.stringify(lSol));
+    check('el agente ve los dos', lAg.length === 2, JSON.stringify(lAg));
 
     // ── 6. Tiempo trabajado ─────────────────────────────────────────────────────
     console.log('\n6 — tiempo trabajado');
@@ -2289,6 +2328,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
         await knex('servicedesk.notification_log').whereIn('request_id', reqs).del();
         await knex('servicedesk.work_log').whereIn('request_id', reqs).del();
         await knex('servicedesk.request_attachments').whereIn('request_id', reqs).del();
+        await knex('servicedesk.request_links').whereIn('request_id', reqs).del(); // [MS.ADJ.2.1] referencia los mensajes: sin esto el DELETE de abajo revienta y deja basura
         await knex('servicedesk.request_messages').whereIn('request_id', reqs).del();
         await knex('servicedesk.requests').whereIn('id', reqs).del();
       }

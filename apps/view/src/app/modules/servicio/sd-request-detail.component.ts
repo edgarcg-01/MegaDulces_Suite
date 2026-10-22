@@ -13,11 +13,12 @@ import { SD_PRIORITIES } from '@megadulces/contracts';
 import { PAUSE_REASONS, PAUSE_REASON_LABEL, PRIORITY_LABEL, STATUS_LABEL, IMPACT_LABEL, ServiceDeskService, sdError } from './service-desk.service';
 import { TEXTO_VISTA_LIMITADA, TITULO_VISTA_LIMITADA, esVistaLimitada, etiquetaPrioridad, plazoDeFila } from './confidencial';
 
-/** Máximo de archivos por envío: el mismo tope que el servidor (`MAX_ADJUNTOS_POR_ENVIO`). */
-export const MAX_ARCHIVOS = 5;
-import { optimizarImagenes } from './image-compress';
+import { SdAdjuntosComponent } from './sd-adjuntos.component';
+import { ETIQUETA_ENLACE, ICONO_ENLACE } from './adjuntos';
 
-const TIPOS_OK = /^(image\/(jpeg|png|webp|gif|heic|heif)|application\/pdf)$/i;
+/** `[MS.ADJ.3]` El tope vive en `adjuntos.ts`; se re-exporta para quien ya lo importaba de aquí. */
+export { MAX_ARCHIVOS } from './adjuntos';
+
 
 /**
  * Qué estados le OFRECE la pantalla a quien atiende desde cada estado. Es sólo la oferta del menú:
@@ -57,7 +58,7 @@ function leerComoDataUri(f: File): Promise<string> {
 @Component({
   selector: 'app-sd-request-detail',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, TextareaModule],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, TextareaModule, SdAdjuntosComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loading() && !r()) { <p class="sd-hint">Cargando…</p> }
@@ -145,6 +146,20 @@ function leerComoDataUri(f: File): Promise<string> {
                 <span class="sd-file-meta">
                   @if (a.url) { <a [href]="a.url" target="_blank" rel="noopener">{{ a.file_name }}</a> } @else { <span>{{ a.file_name }}</span> }
                   <small>{{ tam(a.size_bytes) }}</small>
+                </span>
+              </li>
+            }
+          </ul>
+        }
+
+        @if (t.links.length) {
+          <ul class="sd-files" aria-label="Enlaces de Google">
+            @for (l of t.links; track l.id) {
+              <li>
+                <i class="sd-thumb sd-thumb-i" [ngClass]="iconoEnlace[l.kind]" aria-hidden="true"></i>
+                <span class="sd-file-meta">
+                  <a [href]="l.url" target="_blank" rel="noopener noreferrer">{{ etiquetaEnlace[l.kind] }}</a>
+                  <small>{{ hostDe(l.url) }}</small>
                 </span>
               </li>
             }
@@ -298,19 +313,8 @@ function leerComoDataUri(f: File): Promise<string> {
           @if (!esFinal()) {
             <div class="sd-comp">
               <textarea pTextarea rows="3" [ngModel]="texto()" (ngModelChange)="texto.set($event)" [placeholder]="agent() ? 'Escribe una respuesta o una nota…' : 'Escribe un mensaje…'" aria-label="Mensaje"></textarea>
-              @if (archivos().length) {
-                <ul class="sd-pend">
-                  @for (f of archivos(); track f.name + f.size) {
-                    <li><i class="pi pi-paperclip" aria-hidden="true"></i> {{ f.name }} <small>{{ tam(f.size) }}</small>
-                      <p-button icon="pi pi-times" [text]="true" size="small" severity="secondary" [ariaLabel]="'Quitar ' + f.name" (onClick)="quitarArchivo(f)" /></li>
-                  }
-                </ul>
-              }
+              <app-sd-adjuntos [(archivos)]="archivos" [(enlaces)]="enlaces" [(optimizando)]="optimizando" />
               <div class="sd-comp-foot">
-                <p-button icon="pi pi-camera" label="Cámara" size="small" severity="secondary" [outlined]="true" (onClick)="camara.click()" />
-                <input #camara type="file" hidden accept="image/*" capture="environment" (change)="elegir($event)" />
-                <p-button icon="pi pi-paperclip" label="Adjuntar" size="small" severity="secondary" [outlined]="true" (onClick)="selector.click()" />
-                <input #selector type="file" hidden multiple accept="image/*,application/pdf" (change)="elegir($event)" />
                 @if (agent()) {
                   <label class="sd-chk"><input type="checkbox" [ngModel]="interna()" (ngModelChange)="interna.set($event)" /> Nota interna (no la ve quien reportó)</label>
                 }
@@ -318,8 +322,7 @@ function leerComoDataUri(f: File): Promise<string> {
                 <p-button [label]="interna() ? 'Guardar nota' : 'Enviar'" size="small" [loading]="busy()"
                           [disabled]="!texto().trim() || optimizando()" (onClick)="enviar()" />
               </div>
-              @if (optimizando()) { <small class="sd-hint" role="status">Optimizando las fotos para subirlas más rápido…</small> }
-              @if (interna() && archivos().length) { <small class="sd-hint">Los archivos de una nota interna tampoco los ve quien reportó.</small> }
+              @if (interna() && (archivos().length || enlaces().length)) { <small class="sd-hint">Los archivos y enlaces de una nota interna tampoco los ve quien reportó.</small> }
             </div>
           }
         </section>
@@ -400,8 +403,6 @@ function leerComoDataUri(f: File): Promise<string> {
     .sd-comp-foot { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
     .sd-sp { flex: 1; }
     .sd-chk { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
-    .sd-pend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-xs); color: var(--text-muted); }
-    .sd-pend li { display: flex; align-items: center; gap: var(--sp-1); }
     @media (max-width: 40rem) {
       .sd-meta { grid-template-columns: 1fr; }
       .sd-actions p-button ::ng-deep button, .sd-comp-foot p-button ::ng-deep button { min-height: 40px; }
@@ -439,6 +440,14 @@ export class SdRequestDetailComponent {
   readonly texto = signal('');
   readonly interna = signal(false);
   readonly archivos = signal<File[]>([]);
+  /** `[MS.ADJ.3.5]` Enlaces de Google pendientes de enviar con el mensaje. */
+  readonly enlaces = signal<string[]>([]);
+  readonly etiquetaEnlace = ETIQUETA_ENLACE;
+  readonly iconoEnlace = ICONO_ENLACE;
+  /** Sólo el servidor del enlace (nunca la ruta, que puede llevar el id del documento): «docs.google.com». */
+  hostDe(url: string): string {
+    try { return new URL(url).hostname; } catch { return ''; }
+  }
 
   readonly modo = signal<'reabrir' | 'cancelar' | 'resolver' | 'espera' | 'transferir' | 'prueba' | null>(null);
   readonly notaModo = signal('');
@@ -615,14 +624,15 @@ export class SdRequestDetailComponent {
     const body = this.texto().trim();
     if (!body) return;
     const files = this.archivos();
+    const links = this.enlaces().map((url) => ({ url }));
     this.busy.set(true);
     this.error.set(null);
     Promise.all(files.map(async (f): Promise<SdAttachmentInput> => ({ file_base64: await leerComoDataUri(f), file_name: f.name })))
       .then((attachments) => {
         this.ejecutar(
-          this.api.message(this.id(), { body, visibility: this.interna() ? 'internal' : 'public', attachments: attachments.length ? attachments : undefined }),
+          this.api.message(this.id(), { body, visibility: this.interna() ? 'internal' : 'public', attachments: attachments.length ? attachments : undefined, links: links.length ? links : undefined }),
           this.interna() ? 'Nota guardada.' : 'Mensaje enviado.',
-          () => { this.texto.set(''); this.archivos.set([]); },
+          () => { this.texto.set(''); this.archivos.set([]); this.enlaces.set([]); },
         );
       })
       .catch((e) => { this.busy.set(false); this.error.set(sdError(e, 'No se pudo leer un archivo.')); });
@@ -630,24 +640,6 @@ export class SdRequestDetailComponent {
 
   /** `[MS.3.12]` Mientras se achican las fotos de la cámara no se deja enviar (se mandaría el archivo sin achicar). */
   readonly optimizando = signal(false);
-
-  elegir(ev: Event): void {
-    const input = ev.target as HTMLInputElement;
-    const nuevos = Array.from(input.files ?? []);
-    input.value = '';
-    const malos = nuevos.filter((f) => !TIPOS_OK.test(f.type));
-    if (malos.length) { this.error.set(`Sólo se aceptan fotos y PDF: ${malos.map((f) => f.name).join(', ')}.`); }
-    const buenos = nuevos.filter((f) => TIPOS_OK.test(f.type));
-    this.optimizando.set(true);
-    // Las fotos de teléfono (3–15 MB) se achican ANTES de subir: ver `image-compress.ts`. Lo que no se pueda, sube original.
-    void optimizarImagenes(buenos).then((listos) => {
-      const todos = [...this.archivos(), ...listos];
-      if (todos.length > MAX_ARCHIVOS) this.error.set(`Máximo ${MAX_ARCHIVOS} archivos por envío.`);
-      this.archivos.set(todos.slice(0, MAX_ARCHIVOS));
-      this.optimizando.set(false);
-    });
-  }
-  quitarArchivo(f: File): void { this.archivos.update((a) => a.filter((x) => x !== f)); }
 
   // ── presentación ──
   /** El texto de cada renglón del hilo. Los cambios de estado/asignación/prioridad se leen como frase. */
