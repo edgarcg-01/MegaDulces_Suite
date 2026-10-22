@@ -15,6 +15,11 @@ import {
   cuadreDePago,
   etiquetaMotivo,
   participacion,
+  armarPasos,
+  primerPasoConTrabajo,
+  fraseQueFalta,
+  vecino,
+  motivoNoFirmable,
 } from './contabilidad-contpaqi-puente.component';
 
 /**
@@ -246,5 +251,50 @@ describe('[CP.8.73] confirmar un pago a proveedor — lo que decide el botón', 
   });
   it('la fuente «confirmada» tiene rótulo', () => {
     expect(etiquetaFuente('confirmada')).toBe('lo que confirmó contabilidad');
+  });
+});
+
+describe('[CP.8.76] los cuatro pasos — cargando ≠ listo ≠ no se pudo leer', () => {
+  const base = { reglas: 0, reglasError: false, proveedores: 0, proveedoresError: false, pagos: 0, pagosError: false, polizas: 91 };
+
+  it('abre en el primer paso con trabajo; sin trabajo, en el de entregar', () => {
+    expect(primerPasoConTrabajo(armarPasos({ ...base, proveedores: 51, pagos: 93 }))).toBe('proveedores');
+    expect(primerPasoConTrabajo(armarPasos({ ...base, reglas: 4, pagos: 93 }))).toBe('reglas');
+    expect(primerPasoConTrabajo(armarPasos(base))).toBe('archivo');
+  });
+  it('⛔ mientras una lista carga no elige paso (no abre en uno para saltar a otro)', () => {
+    expect(primerPasoConTrabajo(armarPasos({ ...base, pagos: null }))).toBeNull();
+  });
+  it('⛔ una lista que falló NO se pinta «listo»: abre ahí y lo dice', () => {
+    const p = armarPasos({ ...base, reglas: null, reglasError: true });
+    expect(p[0].estado).toBe('no se pudo leer');
+    expect(p[0].pendientes).toBeNull();
+    expect(primerPasoConTrabajo(p)).toBe('reglas');
+    expect(fraseQueFalta(p)).toContain('no se pudo leer');
+    // Aunque el conteo viniera en cero, el error manda.
+    expect(armarPasos({ ...base, reglasError: true })[0].estado).toBe('no se pudo leer');
+  });
+  it('el estado de cada paso, en palabras', () => {
+    const p = armarPasos({ ...base, reglas: 1, proveedores: 51, pagos: null });
+    expect(p.map((x) => x.estado)).toEqual(['1 por firmar', '51 nombres por confirmar', 'cargando…', '91 pólizas en el archivo']);
+  });
+  it('la frase de arriba nombra lo que falta en el orden de los pasos', () => {
+    expect(fraseQueFalta(armarPasos({ ...base, reglas: 4, proveedores: 51, pagos: 93 })))
+      .toBe('Para que salga el resto falta firmar 4 reglas, confirmar 51 nombres del banco y elegir las facturas de 93 pagos.');
+    expect(fraseQueFalta(armarPasos({ ...base, pagos: 1 }))).toBe('Para que salga el resto falta elegir las facturas de 1 pago.');
+    expect(fraseQueFalta(armarPasos(base))).toContain('No falta nada');
+    expect(fraseQueFalta(armarPasos({ ...base, pagos: null }))).toBe('Revisando qué falta…');
+  });
+  it('anterior y siguiente', () => {
+    const p = armarPasos(base);
+    expect(vecino(p, 'reglas', -1)).toBeNull();
+    expect(vecino(p, 'reglas', 1)?.id).toBe('proveedores');
+    expect(vecino(p, 'archivo', 1)).toBeNull();
+    expect(vecino(p, null, 1)).toBeNull();
+  });
+  it('por qué no se firma, sin el código de la regla', () => {
+    expect(motivoNoFirmable('por_proveedor')).toContain('pasos 2 y 3');
+    expect(motivoNoFirmable('no_aplica')).toBe('no genera póliza');
+    expect(motivoNoFirmable('otra_cosa')).not.toContain('otra_cosa');
   });
 });
