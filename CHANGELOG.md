@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Added — Arqueo: total de billetes, total de monedas y «Conteo de efectivo» sin caja (SM.47, 2026-10-22)
+- `/tienda/arqueo`: la tabla de conteo muestra **Total billetes** al terminar los billetes y **Total monedas** al terminar las monedas, en todas las pestañas; también el detalle de un arqueo guardado. El ticket suma las monedas en vez de restarlas del total.
+- Pestaña nueva **«Conteo de efectivo»** para encargada, Finanzas (y jefe de zona cuando se defina su rol): sucursal, quién cuenta y **motivo obligatorio**, sin caja. Se guarda como constancia, sin diferencia. Permiso `STORE_ARQUEO_SIN_CAJA_CAPTURAR`, endpoint `POST /store/arqueo/sin-caja`, 2 migraciones (aplicar antes del código).
+
 ### Fixed — Etiquetas: una promoción de Kepler ya no se dice «precio 0, ponle precio» (ETQ-PROMO.1, 2026-10-22)
 - Escanear el **09089** («10 CJS OREO BASE 9 KG = GRATIS 1 CJ MAS») decía *«está en Kepler pero con precio 0 en la tienda 02: hay que ponerle precio en Kepler»*. **Falso en las dos mitades:** el precio no es 0 (es **$0.01**) y nadie debe ponérselo, porque **no es un producto**: Kepler no permite una línea de venta sin precio y guarda sus promociones, bonificaciones y ajustes como un código más a $0.01.
 - Ahora dice *«es un código de promoción o ajuste de Kepler (a $0.01), no un producto: no lleva etiqueta y no hay que ponerle precio»*, y en la carga masiva los separa de «sin precio» con sus códigos («promociones de Kepler, no llevan etiqueta 1 (09089)»). Estado nuevo `erp_estado: 'codigo_simbolico'` (aditivo).

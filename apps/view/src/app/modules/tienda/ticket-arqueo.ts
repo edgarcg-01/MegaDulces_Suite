@@ -76,6 +76,8 @@ export interface TicketArqueo {
   /** Motivo tipificado y texto libre — lo que EXPLICA un descuadre. */
   incidencia_tipo?: string | null;
   nota?: string | null;
+  /** [SM.47] Conteo de efectivo sin caja: por que se conto ese dinero. */
+  motivo?: string | null;
   validado_nota?: string | null;
   capturado_at?: string | null;
   /** Solo se imprimen si quien imprime puede verlos (la cajera no). */
@@ -161,7 +163,9 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
   // del corte del dia.
   const retiro = a.tipo === 'retiro';
   L.push('MEGA DULCES');
-  L.push(relevo ? 'RELEVO DE CAJA' : retiro ? 'RETIRO DE CAJA' : 'ARQUEO DE CAJA');
+  // [SM.47] El conteo sin caja no es de una caja: el titulo no lo dice.
+  const sinCaja = a.tipo === 'sin_caja';
+  L.push(sinCaja ? 'CONTEO DE EFECTIVO' : relevo ? 'RELEVO DE CAJA' : retiro ? 'RETIRO DE CAJA' : 'ARQUEO DE CAJA');
   // [SM.43] La copia se marca arriba, donde se lee primero: el original ya está en el sobre.
   if (a.reimpresion) {
     L.push('*** REIMPRESION ***');
@@ -174,7 +178,9 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
   // `Cajera` y `Entrega a` ya lo usaban; este era el unico que faltaba.
   L.push(...etiquetado('Sucursal', a.sucursal));
   if (a.ruta) L.push(...etiquetado('Ruta', a.ruta));
+  else if (sinCaja) L.push(fila('Caja', 'sin caja'));
   else L.push(fila('Caja', a.caja));
+  if (sinCaja && a.motivo) L.push(...envolver('Motivo: ' + a.motivo));
   L.push(fila('Fecha', a.fecha));
   if (a.folio) L.push(fila('Turno Kepler', '#' + a.folio));
   if (a.turno) L.push(fila('Turno', a.turno));
@@ -233,7 +239,9 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
     // Billetes y monedas por separado: es la única forma de comparar nuestro
     // conteo contra lo que Kepler declara, que solo trae esos dos totales.
     const bil = a.denominaciones.filter((d) => d.familia === 'billete').reduce((t, d) => t + d.subtotal, 0);
-    const mon = a.total_contado - bil;
+    // [SM.47] Las monedas se SUMAN, no se deducen del total: si el total trajera
+    // otra cosa, la resta la pintaria como monedas sin avisar.
+    const mon = a.denominaciones.filter((d) => d.familia === 'moneda').reduce((t, d) => t + d.subtotal, 0);
     L.push(fila('  billetes', money(bil)));
     L.push(fila('  monedas', money(mon)));
     L.push(fila('TOTAL CONTADO', money(a.total_contado)));
