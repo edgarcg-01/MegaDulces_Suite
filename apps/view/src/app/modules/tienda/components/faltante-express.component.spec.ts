@@ -1,4 +1,6 @@
 import { TestBed } from '@angular/core/testing';
+import { registerLocaleData } from '@angular/common';
+import localeEsMx from '@angular/common/locales/es-MX';
 import { Subject, of } from 'rxjs';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { FaltanteExpressComponent } from './faltante-express.component';
@@ -16,6 +18,9 @@ import { VerificadorService, type ResultadoBusqueda } from '../verificador.servi
  *   · números + Enter sin flechas → va contra Kepler, no toma el primer parecido de la lista.
  */
 
+// La lista pinta precios con el pipe `currency` en es-MX; la app registra el locale en `app.config.ts`, el test no.
+registerLocaleData(localeEsMx);
+
 const PRODUCTO = {
   codigo: '70001', nombre: 'PAL CHIQUI HUESO', proveedor: 'DULCES ALVHER',
   unidades: [
@@ -28,6 +33,8 @@ const PRODUCTO = {
 
 describe('FaltanteExpressComponent · lo que hace con cada respuesta del catálogo', () => {
   let reportes: ReportarPayload[];
+  let consultas: number;
+  let busquedas: number;
   let respuesta: Subject<ResultadoBusqueda>;
   let buscarEnCatalogo: ReturnType<typeof vi.fn>;
 
@@ -43,6 +50,8 @@ describe('FaltanteExpressComponent · lo que hace con cada respuesta del catálo
 
   beforeEach(() => {
     reportes = [];
+    consultas = 0;
+    busquedas = 0;
     respuesta = new Subject<ResultadoBusqueda>();
     buscarEnCatalogo = vi.fn(async () => []);
     TestBed.configureTestingModule({
@@ -50,7 +59,7 @@ describe('FaltanteExpressComponent · lo que hace con cada respuesta del catálo
       providers: [
         {
           provide: VerificadorService,
-          useValue: { buscar: () => respuesta, buscarEnCatalogo, descargarSnapshot: () => of(null) },
+          useValue: { buscar: () => { busquedas++; return respuesta; }, buscarEnCatalogo, descargarSnapshot: () => of(null) },
         },
         {
           provide: FaltantesService,
@@ -60,7 +69,7 @@ describe('FaltanteExpressComponent · lo que hace con cada respuesta del catálo
               return of({ id: 'r1', kind: p.kind, destino: 'catalogo', times_reported: 1, product_name: null,
                 on_hand_at_report: null, est_lost_revenue: null, est_source: 'sin_dato', contradice_al_erp: false });
             },
-            consultar: () => of({ encontrado: true, termino: '70001', warehouse_code: '03', warehouse_name: null, existencia: 5, veredicto: 'hay_en_tienda' }),
+            consultar: () => { consultas++; return of({ encontrado: true, termino: '70001', warehouse_code: '03', warehouse_name: null, existencia: 5, veredicto: 'hay_en_tienda' }); },
             deshacer: () => of({ id: 'r1', eliminado: true, times_reported: 0 }),
             describir: (_id: string, texto: string) => of({ id: 'r1', product_name: texto }),
           },
@@ -144,5 +153,67 @@ describe('FaltanteExpressComponent · lo que hace con cada respuesta del catálo
     c.guardarDescripcion();
     expect(c.noReg()?.descrito).toBe('gomita roja');
     expect(reportes).toHaveLength(1);             // describir no suma un reporte
+  });
+  /**
+   * `[ETQ-PROMO.2]` Una promoción de Kepler en «¿Te pidieron algo?». Elegirla CONSULTABA la existencia (que en un
+   * código simbólico es 0 por construcción) y la ANOTABA SOLA como faltante: Compras recibía «se perdió una venta»
+   * de algo que no es mercancía. Medido en prod el 2026-10-22: 0 faltantes de promociones todavía (37 SKU, 79
+   * reportes) — el riesgo era latente, no un daño ya hecho.
+   */
+  describe('promociones de Kepler', () => {
+    const PROMO = {
+      codigo: '09089', nombre: '10 CJS OREO BASE 9 KG = GRATIS 1 CJ MAS', proveedor: null,
+      unidades: [{ u: 'PZA', precio_con_iva: 0.01, precio_sin_iva: 0.01, factor: 1 }],
+      iva_pct: 16, ieps_pct: 0, mayoreo: [], contenido: null, product_id: null,
+    };
+
+    it('⭐ escanear una promoción abre la ventana con el aviso y NO consulta existencia ni anota faltante', () => {
+      const c = montar();
+      c.alEscribir('09089');
+      teclearEnter(c);
+      respuesta.next({ estado: 'encontrado', origen: 'live', producto: PROMO, snapshotAl: null, plazaSinDato: false, esPromocion: true });
+
+      expect(c.ventana()).toBe(true);
+      expect(c.elegido()?.esPromocion).toBe(true);
+      expect(consultas).toBe(0);
+      expect(reportes).toEqual([]);
+      expect(c.consulta()).toBeNull();
+    });
+
+    it('⭐ elegir una promoción de la lista tampoco consulta ni anota (y no refresca precios en vivo)', () => {
+      const c = montar();
+      c.elegir({ ...PROMO, esPromocion: true }, 'respaldo');
+      expect(consultas).toBe(0);
+      expect(reportes).toEqual([]);
+      expect(busquedas).toBe(0);   // no pide precios en vivo: no tiene precio que refrescar
+    });
+
+    it('⛔ [negativa] un producto real SIGUE consultando la existencia (el aviso no se vuelve la regla)', () => {
+      const c = montar();
+      c.alEscribir('70001');
+      teclearEnter(c);
+      respuesta.next({ estado: 'encontrado', origen: 'live', producto: PRODUCTO, snapshotAl: null, plazaSinDato: false, esPromocion: false });
+      expect(consultas).toBe(1);
+      expect(c.elegido()?.esPromocion).toBe(false);
+    });
+
+    it('⭐ la lista marca la promoción con «Promoción» y no pinta sus chips de precio', () => {
+      const f = TestBed.createComponent(FaltanteExpressComponent);
+      f.componentRef.setInput('sucursal', '03');
+      f.detectChanges();
+      const base = { proveedor: null, por: 'nombre' as const, exacto: false, mayoreo: [] };
+      f.componentInstance.resultados.set([
+        { ...base, codigo: '10245', nombre: 'OREO GALLETA 36 G', unidades: [{ u: 'PZA', precio_con_iva: 18.5, precio_sin_iva: 15.95, factor: 1 }], esPromocion: false },
+        { ...base, codigo: '09089', nombre: PROMO.nombre, unidades: PROMO.unidades, esPromocion: true },
+      ]);
+      f.detectChanges();
+      const filas = Array.from((f.nativeElement as HTMLElement).querySelectorAll('li'));
+      expect(filas).toHaveLength(2);
+      expect(filas[0].querySelector('.fx-promo-tag')).toBeNull();
+      expect(filas[0].querySelector('.fx-pres')).not.toBeNull();
+      expect(filas[1].querySelector('.fx-promo-tag')?.textContent?.trim()).toBe('Promoción');
+      expect(filas[1].querySelector('.fx-pres')).toBeNull();
+      expect(filas[1].textContent).not.toContain('0.01');
+    });
   });
 });

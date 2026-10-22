@@ -137,4 +137,31 @@ describe('buscarEnCatalogo — nombre, proveedor, SKU o código de barras', () =
     expect(sinProv.proveedor).toBeNull();
     expect(buscarEnCatalogo([sinProv], 'rosa')).toEqual([]);
   });
+
+  /** `[ETQ-PROMO.2]` Una promoción de Kepler SÍ sale, marcada y después de los productos (igual que en la etiquetera). */
+  describe('promociones de Kepler (pm:1)', () => {
+    // El nombre de la promoción EMPIEZA con lo buscado y el del producto no: sin el orden por promoción, la promoción saldría
+    // primero (por «empieza con»). Así la prueba distingue de verdad el orden y no se pasa por casualidad.
+    const promo = { ...item('09089', 'OREO BASE 9 KG = GRATIS 1 CJ MAS', []), pm: 1 as const };
+    const real = item('10245', 'GALLETA OREO 36 G', []);
+    const base = [promo, real].map((x) => aBuscable(x, PROV));
+    const lista = (q: string) => buscarEnCatalogo(base, q).map((r) => [r.b.codigo, r.esPromocion]);
+
+    it('⭐ buscar por nombre devuelve LOS DOS: el producto primero y la promoción marcada al final', () => {
+      expect(lista('oreo')).toEqual([['10245', false], ['09089', true]]);
+    });
+
+    it('⭐ la promoción va al final aunque venga primera en el catálogo (base = [promo, real])', () => {
+      expect(buscarEnCatalogo(base, 'oreo')[0].b.codigo).toBe('10245');
+    });
+
+    it('⭐ si se teclea su clave EXACTA (con o sin ceros) la promoción va primero', () => {
+      expect(lista('09089')[0]).toEqual(['09089', true]);
+      expect(lista('9089')[0]).toEqual(['09089', true]);
+    });
+
+    it('⛔ [negativa] un producto real nunca se marca como promoción', () => {
+      expect(buscarEnCatalogo(base, 'galleta').every((r) => r.esPromocion === false)).toBe(true);
+    });
+  });
 });

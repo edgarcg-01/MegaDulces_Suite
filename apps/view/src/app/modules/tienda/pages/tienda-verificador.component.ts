@@ -170,6 +170,27 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
           }
           @case ('encontrado') {
             @if (producto(); as p) {
+             @if (esPromocion()) {
+              <!-- [ETQ-PROMO.2] Una promoción de Kepler NO es un producto: su precio es el centavo con el que Kepler
+                   permite registrarla. Se avisa en vez de pintar $0.01 como si se pudiera cobrar. -->
+              <div #card class="vf-card vf-promo" role="status" [class.is-pase-b]="pase() % 2 === 1">
+                @if (!kiosco()) {
+                  <div class="vf-card-top">
+                    <span class="vf-cod">{{ p.codigo }}</span>
+                    <span class="vf-tag is-warn"><i class="pi pi-gift" aria-hidden="true"></i> Promoción</span>
+                  </div>
+                }
+                <div class="vf-nombre">{{ p.nombre || 'Sin nombre en el catálogo' }}</div>
+                <p class="vf-promo-txt">
+                  <strong>Esto es una promoción, no un producto.</strong>
+                  No tiene precio de venta ni lleva etiqueta: el centavo que trae en Kepler sólo permite registrarla.
+                  Pregunta en caja cómo se aplica.
+                </p>
+                @if (origen() === 'respaldo') {
+                  <p class="vf-nota">Tomado del respaldo del {{ snapshotAl() | date:'dd/MM/yy HH:mm' }}.</p>
+                }
+              </div>
+             } @else {
               <!-- [TDA.6] is-pase-b alterna en cada consulta para reiniciar la animación
                    "pop" sobre el MISMO nodo del DOM (ver comentario histórico más abajo). -->
               <div #card class="vf-card" [class.is-respaldo]="origen() === 'respaldo'"
@@ -286,6 +307,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                   @if (plazaSinDato()) { Tu sucursal no tiene este producto cargado; el precio es de otra plaza. }
                 </p>
               </div>
+             }
             }
           }
           @case ('no_encontrado') {
@@ -556,6 +578,10 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-u-f { font-size: var(--fs-micro); color: var(--text-muted); }
 
     .vf-nota { margin: 10px auto 0; font-size: var(--fs-xs); color: var(--text-muted); max-width: 60ch; }
+    /* [ETQ-PROMO.2] Promoción de Kepler: aviso en lugar de precio. El borde lleva el tono (token semántico),
+       sin sombra y sin color de marca: no es un precio ni una acción. */
+    .vf-promo { border-color: var(--warn-border); }
+    .vf-promo-txt { margin: 10px auto 0; max-width: 60ch; font-size: var(--fs-sm); line-height: 1.45; color: var(--text-main); }
 
     /* Error / no-encontrado: la severidad se distingue (no existe = aviso; sin conexion =
        grave) por borde, texto y copia, no solo por color. */
@@ -681,6 +707,8 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
   readonly precioAmbiguo = signal(false);
   /** `[TDA.9]` El código matchea más de un producto: la pantalla PREGUNTA, no elige. */
   readonly codigoAmbiguo = signal(false);
+  /** `[ETQ-PROMO.2]` El código es una promoción/ajuste de Kepler: se AVISA, no se pinta su centavo como precio. */
+  readonly esPromocion = signal(false);
   readonly candidatos = signal<{ codigo: string; nombre: string; precio_con_iva: number | null }[]>([]);
   readonly plazasDistintas = signal(1);
   readonly plazaSinDato = signal(false);
@@ -1001,6 +1029,9 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
       this.origenPrecio.set(r.origenPrecio ?? 'kepler');
       this.precioAmbiguo.set(r.precioAmbiguo === true);
       this.codigoAmbiguo.set(r.codigoAmbiguo === true);
+      // Se resetea en CADA resultado, como la ambigüedad: pegada del escaneo anterior avisaría «promoción» sobre
+      // un producto real (o al revés, mostraría $0.01 de una promoción).
+      this.esPromocion.set(r.esPromocion === true);
       this.candidatos.set(Array.isArray(r.candidatos) ? r.candidatos : []);
       this.plazasDistintas.set(r.plazasDistintas ?? 1);
       this.plazaSinDato.set(r.plazaSinDato === true);

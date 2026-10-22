@@ -4,7 +4,11 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { LabelModel } from './components/label.component';
 
-export interface SearchHit { product_id: string; sku: string | null; name: string; barcode: string | null; }
+export interface SearchHit {
+  product_id: string; sku: string | null; name: string; barcode: string | null;
+  /** `[ETQ-PROMO.2]` Es una promoción/ajuste de Kepler, no un producto: se marca en la lista y no lleva etiqueta. */
+  es_promocion?: boolean;
+}
 
 /**
  * `[ETQ-CAMBIOS.2]` Un cambio de precio, con su ANTES y su DESPUÉS. Sale de la bitácora nativa de

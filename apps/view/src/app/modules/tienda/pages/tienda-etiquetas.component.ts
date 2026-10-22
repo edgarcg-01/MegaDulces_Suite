@@ -106,6 +106,9 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
     .etqp-msg{ display:flex; align-items:center; gap:.6rem; padding:.6rem .75rem; border-radius: var(--r-sm);
       font-size: var(--fs-sm,.85rem); border:1px solid var(--info-soft-bg); background: var(--info-soft-bg); color: var(--info-soft-fg); }
     .etqp-msg.is-ok{ border-color: var(--ok-soft-bg); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+    /* [ETQ-PROMO.2] La marca de una promoción en la lista del buscador: token semántico, sin color de marca. */
+    .etqp-promo{ margin-left:.5rem; margin-right:auto; padding:.05rem .4rem; border-radius:var(--r-sm); font-size:var(--fs-micro); font-weight:var(--fw-bold);
+      background:var(--warn-soft-bg); color:var(--warn-soft-fg); white-space:nowrap; }
     .etqp-msg.is-warn{ border-color: var(--warn-soft-bg); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .etqp-msg.is-error{ border-color: var(--bad-soft-bg); background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .etqp-msg > span{ flex:1; }
@@ -451,7 +454,13 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
           optionLabel="name" [delay]="250" [minQueryLength]="2" [showClear]="true" appendTo="body"
           ariaLabelledBy="etqp-searchlbl" placeholder="Nombre, SKU o código de barras…">
           <ng-template let-h #item>
-            <div class="etqp-hit"><span class="nm">{{ h.name }}</span><span class="sku">{{ h.sku }}</span></div>
+            <div class="etqp-hit">
+              <span class="nm">{{ h.name }}</span>
+              @if (h.es_promocion) {
+                <span class="etqp-promo">Promoción</span>
+              }
+              <span class="sku">{{ h.sku }}</span>
+            </div>
           </ng-template>
           <ng-template #empty><div class="etqp-empty-hit">Sin coincidencias</div></ng-template>
         </p-autocomplete>
