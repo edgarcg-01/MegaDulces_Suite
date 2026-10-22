@@ -93,6 +93,64 @@ export function consultaDeCortes(q: string | null | undefined): string {
   return (q ?? '').split(/\s+/).map((t) => t.replace(/^([a-z]{2}\d{1,4})-0*(\d+)$/i, '$1-$2#')).join(' ');
 }
 
+/**
+ * `[CSU.15]` Un día de una sucursal, con sus cortes adentro. Es la fila de la lista principal.
+ *
+ * El grano es **(fecha, sucursal)** y no sólo la fecha: el total que hoy se suma a mano es el de
+ * una plaza en un día, y un renglón que mezclara ocho sucursales no se podría cuadrar contra nada.
+ */
+export interface DiaDeCortes {
+  /** Llave de la fila para `dataKey`/expansión: `<fecha>|<sucursal>`. */
+  clave: string;
+  fecha: string;
+  sucursal: string;
+  sucursal_nombre: string;
+  cortes: CorteRow[];
+  monto: number;
+  cobrado: number;
+  saldo: number;
+  /** Cortes del día que todavía no se cobraron completos. */
+  pendientes: number;
+  /** Cortes del día cuyo arqueo no cuadra (faltante, sobrante o corte distinto). */
+  descuadrados: number;
+}
+
+const CUADRE_MALO: readonly CorteCuadre[] = ['faltante_arqueo', 'sobrante_arqueo', 'corte_distinto'];
+
+/**
+ * `[CSU.15]` Englobar los cortes por día de sucursal — **el único cambio al proceso de hoy**.
+ *
+ * ⭐ Agrupa lo que ya se está viendo, no lo que trajo el servidor: recibe la lista **ya filtrada**
+ * (sucursal elegida, «sólo con saldo», búsqueda). Si agrupara el universo completo, el total del
+ * renglón no sería el de los cortes que se despliegan debajo — un número que no cuadra con su
+ * propio detalle, que es peor que no tenerlo.
+ *
+ * Orden: el día más reciente primero y, dentro del día, por nombre de sucursal. Los cortes de cada
+ * día conservan el orden en que venían.
+ */
+export function agruparCortesPorDia(cortes: readonly CorteRow[]): DiaDeCortes[] {
+  const grupos = new Map<string, DiaDeCortes>();
+  for (const c of cortes) {
+    const clave = `${c.fecha}|${c.sucursal}`;
+    let g = grupos.get(clave);
+    if (!g) {
+      g = {
+        clave, fecha: c.fecha, sucursal: c.sucursal, sucursal_nombre: c.sucursal_nombre,
+        cortes: [], monto: 0, cobrado: 0, saldo: 0, pendientes: 0, descuadrados: 0,
+      };
+      grupos.set(clave, g);
+    }
+    g.cortes.push(c);
+    g.monto += c.monto;
+    g.cobrado += c.cobrado;
+    g.saldo += c.saldo;
+    if (c.saldo > 0.005) g.pendientes++;
+    if (CUADRE_MALO.includes(c.cuadre)) g.descuadrados++;
+  }
+  return [...grupos.values()].sort((a, b) =>
+    a.fecha === b.fecha ? a.sucursal_nombre.localeCompare(b.sucursal_nombre, 'es') : b.fecha.localeCompare(a.fecha));
+}
+
 /** El corte de caja POS (U-D-23) arrancó en Kepler con el cambio del 1-oct-2026. */
 const INICIO_CORTES = '2026-10-01';
 
@@ -197,24 +255,51 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
         <div class="cs-split">
           <section class="cs-block dt-scope" aria-labelledby="cs-h-cortes">
             <div class="cs-bh"><h2 id="cs-h-cortes">Cortes @if (selSuc(); as s) { · {{ s.sucursal_nombre }} }</h2>
-              <span class="cs-hint" aria-live="polite">@if (q().trim()) { {{ cortes().length }} de {{ cortesBase().length }} corte(s) con «{{ q().trim() }}» · <button type="button" class="cs-link" (click)="limpiarBusqueda()">limpiar</button> · } @else { {{ cortes().length }} corte(s) · } pendiente {{ money(pendienteVisible()) }}</span></div>
-            <p-table [value]="cortes()" size="small" class="surf-table dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" selectionMode="single" [selection]="selCorte()" (selectionChange)="selCorte.set($event)" dataKey="clave" [paginator]="cortes().length > 200" [rows]="200">
-              <ng-template #header><tr><th>Corte</th><th>Fecha</th>@if (!selSuc()) { <th>Suc</th> }<th>Caja</th><th class="ta-r">Monto</th><th class="ta-r">Cobrado</th><th class="ta-r">Saldo</th><th>Cobro</th><th>Cuadre</th></tr></ng-template>
-              <ng-template #body let-c>
-                <tr [pSelectableRow]="c">
-                  <td class="cs-mono" role="cell" data-label="Corte">{{ c.documento }}</td>
-                  <td class="cs-mono" role="cell" data-label="Fecha">{{ dmy(c.fecha) }}</td>
-                  @if (!selSuc()) { <td class="cs-mono muted" role="cell" data-label="Suc">{{ c.sucursal | sucursal }}</td> }
-                  <td class="cs-mono" role="cell" data-label="Caja">{{ c.caja && c.turno ? c.caja + '-' + c.turno : c.referencia }}</td>
-                  <td class="ta-r num" role="cell" data-label="Monto">{{ money(c.monto) }}</td>
-                  <td class="ta-r num" role="cell" data-label="Cobrado" [class.muted]="!c.cobrado">{{ c.cobrado ? money(c.cobrado) : '—' }}</td>
-                  <td class="ta-r num cs-strong" role="cell" data-label="Saldo">{{ money(c.saldo) }}</td>
-                  <td role="cell" data-label="Cobro"><p-tag [value]="cobroLabel(c.estado_cobro)" [severity]="cobroSev(c.estado_cobro)" styleClass="cs-tag" />
-                    @if (c.cobros_cancelados.length) { <p-tag [value]="c.cobros_cancelados.length + ' cancelado' + (c.cobros_cancelados.length > 1 ? 's' : '')" severity="secondary" styleClass="cs-tag" [attr.title]="'Cobros cancelados en Kepler: no suman'" /> }</td>
-                  <td role="cell" data-label="Cuadre"><p-tag [value]="cuadreLabel(c)" [severity]="cuadreSev(c.cuadre)" styleClass="cs-tag" /></td>
+              <span class="cs-hint" aria-live="polite">@if (q().trim()) { {{ cortes().length }} de {{ cortesBase().length }} corte(s) con «{{ q().trim() }}» · <button type="button" class="cs-link" (click)="limpiarBusqueda()">limpiar</button> · } @else { {{ diasDeCortes().length }} día(s) · {{ cortes().length }} corte(s) · } pendiente {{ money(pendienteVisible()) }}
+                @if (!plegadoBloqueado() && diasDeCortes().length > 1) { · <button type="button" class="cs-link" (click)="todosLosDias(!algunDiaAbierto())">{{ algunDiaAbierto() ? 'plegar todos' : 'desplegar todos' }}</button> }</span></div>
+            <p-table [value]="diasDeCortes()" size="small" class="surf-table dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" dataKey="clave" [expandedRowKeys]="diasAbiertos()" [paginator]="diasDeCortes().length > 100" [rows]="100">
+              <ng-template #header><tr><th class="cs-togcol"><span class="sr-only">Desplegar</span></th><th>Día</th>@if (!selSuc()) { <th>Sucursal</th> }<th class="ta-r">Cortes</th><th class="ta-r">Monto</th><th class="ta-r">Cobrado</th><th class="ta-r">Saldo</th><th>Estado</th></tr></ng-template>
+              <ng-template #body let-d let-expanded="expanded">
+                <tr class="cs-dia" [class.cs-dia-abierta]="expanded">
+                  <td role="cell" data-label="Desplegar"><button type="button" class="cs-tog" (click)="toggleDia(d)" [disabled]="plegadoBloqueado()"
+                      [attr.aria-expanded]="expanded" [attr.aria-label]="(expanded ? 'Plegar ' : 'Desplegar ') + d.cortes.length + ' cortes de ' + (d.sucursal | sucursal) + ' del ' + dmy(d.fecha)">
+                      <i class="pi" [class.pi-chevron-down]="expanded" [class.pi-chevron-right]="!expanded" aria-hidden="true"></i></button></td>
+                  <td class="cs-mono cs-strong" role="cell" data-label="Día">{{ dmy(d.fecha) }}</td>
+                  @if (!selSuc()) { <td role="cell" data-label="Sucursal">{{ d.sucursal | sucursal }}</td> }
+                  <td class="ta-r num muted" role="cell" data-label="Cortes">{{ d.cortes.length }}</td>
+                  <td class="ta-r num cs-strong" role="cell" data-label="Monto">{{ money(d.monto) }}</td>
+                  <td class="ta-r num" role="cell" data-label="Cobrado" [class.muted]="!d.cobrado">{{ d.cobrado ? money(d.cobrado) : '—' }}</td>
+                  <td class="ta-r num cs-strong" role="cell" data-label="Saldo" [class.cs-bad]="d.saldo > 0.005">{{ money(d.saldo) }}</td>
+                  <td role="cell" data-label="Estado">
+                    @if (d.pendientes) { <p-tag [value]="d.pendientes + ' por cobrar'" severity="warn" styleClass="cs-tag" /> } @else { <p-tag value="Todo cobrado" severity="success" styleClass="cs-tag" /> }
+                    @if (d.descuadrados) { <p-tag [value]="d.descuadrados + ' sin cuadrar'" severity="danger" styleClass="cs-tag" /> }
+                  </td>
                 </tr>
               </ng-template>
-              <ng-template #emptymessage><tr><td [attr.colspan]="selSuc() ? 8 : 9">
+              <ng-template #expandedrow let-d>
+                <tr class="cs-dia-det"><td [attr.colspan]="selSuc() ? 7 : 8">
+                  <table class="cs-cortes">
+                    <thead><tr><th>Corte</th><th>Caja</th><th class="ta-r">Monto</th><th class="ta-r">Cobrado</th><th class="ta-r">Saldo</th><th>Cobro</th><th>Cuadre</th></tr></thead>
+                    <tbody>
+                      @for (c of d.cortes; track c.clave) {
+                        <tr class="cs-corte" [class.cs-corte-sel]="selCorte()?.clave === c.clave" (click)="selCorte.set(c)" tabindex="0"
+                            (keydown.enter)="selCorte.set(c)" (keydown.space)="selCorte.set(c); $event.preventDefault()"
+                            [attr.aria-label]="'Ver el corte ' + c.documento">
+                          <td class="cs-mono">{{ c.documento }}</td>
+                          <td class="cs-mono">{{ c.caja && c.turno ? c.caja + '-' + c.turno : c.referencia }}</td>
+                          <td class="ta-r num">{{ money(c.monto) }}</td>
+                          <td class="ta-r num" [class.muted]="!c.cobrado">{{ c.cobrado ? money(c.cobrado) : '—' }}</td>
+                          <td class="ta-r num cs-strong">{{ money(c.saldo) }}</td>
+                          <td><p-tag [value]="cobroLabel(c.estado_cobro)" [severity]="cobroSev(c.estado_cobro)" styleClass="cs-tag" />
+                            @if (c.cobros_cancelados.length) { <p-tag [value]="c.cobros_cancelados.length + ' cancelado' + (c.cobros_cancelados.length > 1 ? 's' : '')" severity="secondary" styleClass="cs-tag" [attr.title]="'Cobros cancelados en Kepler: no suman'" /> }</td>
+                          <td><p-tag [value]="cuadreLabel(c)" [severity]="cuadreSev(c.cuadre)" styleClass="cs-tag" /></td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </td></tr>
+              </ng-template>
+              <ng-template #emptymessage><tr><td [attr.colspan]="selSuc() ? 7 : 8">
                 @if (q().trim()) {
                   <div class="cs-empty"><i class="pi pi-search" aria-hidden="true"></i><span>Ningún corte coincide con «{{ q().trim() }}»{{ soloSaldo() ? ' entre los que tienen saldo' : '' }}.</span>
                     @if (enOtrasSucursales()) { <span>Hay {{ enOtrasSucursales() }} en otras sucursales · <button type="button" class="cs-link" (click)="pickSuc(null)">ver todas</button></span> }
@@ -229,7 +314,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
           <section class="cs-block cs-detail" aria-labelledby="cs-h-det" aria-live="polite">
             @if (selCorte(); as c) {
               <div class="cs-bh"><h2 id="cs-h-det">{{ c.documento }} · {{ c.referencia }}</h2><p-tag [value]="cobroLabel(c.estado_cobro)" [severity]="cobroSev(c.estado_cobro)" styleClass="cs-tag" /></div>
-              <p class="cs-hint cs-pad">{{ c.sucursal }} {{ c.sucursal_nombre }} · {{ dmy(c.fecha) }}@if (c.arqueo?.cajero) { · cerró {{ c.arqueo?.cajero }} }</p>
+              <p class="cs-hint cs-pad">{{ c.sucursal | sucursal }} · {{ dmy(c.fecha) }}@if (c.arqueo?.cajero) { · cerró {{ c.arqueo?.cajero }} }</p>
 
               <div class="cs-step">
                 <h3><span class="cs-n">1</span> Corte contra el arqueo del turno</h3>
@@ -365,6 +450,25 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-nota { margin-top:.35rem; }
     /* [CSU.9] El conteo por denominacion: el unico efectivo que alguien conto de verdad. */
     .cs-fis { font-weight:600; }
+    /* [CSU.15] La fila de día: el renglón que antes se sumaba a mano. El grupo se forma con
+       espaciado y con el peso del total, no con cajas ni con zebra. */
+    .cs-togcol { width:2.25rem; }
+    .cs-tog { display:inline-grid; place-items:center; width:1.75rem; height:1.75rem; padding:0; border:0; border-radius:var(--r-sm); background:none; color:var(--text-muted); cursor:pointer; }
+    .cs-tog:hover:not(:disabled) { background:var(--overlay-hover); color:var(--text-main); }
+    .cs-tog:disabled { cursor:default; opacity:.45; }
+    .cs-tog .pi { font-size:var(--fs-xs); }
+    .cs-dia-abierta > td { font-weight:600; }
+    /* El detalle cuelga del día: sin borde propio, sangrado y con un filete a la izquierda que
+       dice de quién es. El borde de 1px es lo que lleva la profundidad en dark. */
+    .cs-dia-det > td { padding:0 0 var(--sp-2) 2.25rem; background:var(--hover-bg); }
+    .cs-cortes { width:100%; border-collapse:collapse; font-size:var(--fs-sm); border-left:2px solid var(--border-color); }
+    .cs-cortes th { font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); font-weight:600; text-align:left; padding:var(--sp-2) var(--sp-2) var(--sp-1); }
+    .cs-cortes th.ta-r { text-align:right; }
+    .cs-cortes td { padding:var(--sp-1) var(--sp-2); border-top:1px solid var(--border-color); }
+    .cs-corte { cursor:pointer; }
+    .cs-corte:hover { background:var(--overlay-hover); }
+    .cs-corte:focus-visible { outline:2px solid var(--action); outline-offset:-2px; }
+    .cs-corte-sel { background:var(--overlay-selected); }
     .ta-r { text-align:right !important; }
     .num, .cs-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .cs-strong { font-weight:600; }
@@ -434,6 +538,49 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
    * campo, sin acentos — la misma semántica que `applySmartSearch` del servidor.
    */
   readonly cortes = computed<CorteRow[]>(() => filtrarPorBusqueda(this.cortesBase(), consultaDeCortes(this.q()), (c) => this.camposBuscables(c)));
+
+  /**
+   * `[CSU.15]` La lista principal: **un renglón por día de sucursal**, con el total que antes se
+   * sumaba a mano. Se deriva de `cortes()` —la lista ya filtrada— para que el total del renglón
+   * sea exactamente la suma de lo que se despliega debajo.
+   */
+  readonly diasDeCortes = computed<DiaDeCortes[]>(() => agruparCortesPorDia(this.cortes()));
+
+  /** Qué días abrió la persona. La llave es `<fecha>|<sucursal>`. */
+  private readonly abiertosManual = signal<Record<string, boolean>>({});
+
+  /**
+   * Lo que de verdad se ve abierto.
+   *
+   * ⛔ Con una búsqueda activa se abren **todos**: plegar lo que alguien acaba de buscar lo
+   * obligaría a un clic por día para encontrar el folio que ya escribió, y esconder lo vital
+   * detrás de un acordeón es justo lo que la ley de Tesler prohíbe. Igual cuando hay un solo día:
+   * no hay nada que elegir.
+   */
+  readonly diasAbiertos = computed<Record<string, boolean>>(() => {
+    const dias = this.diasDeCortes();
+    if (this.q().trim() || dias.length === 1) return Object.fromEntries(dias.map((d) => [d.clave, true]));
+    return this.abiertosManual();
+  });
+
+  /** ¿La persona puede plegar/desplegar, o están abiertos por la búsqueda? */
+  readonly plegadoBloqueado = computed<boolean>(() => !!this.q().trim() || this.diasDeCortes().length === 1);
+
+  /** Para que el botón diga lo que va a hacer, no un rótulo fijo. */
+  readonly algunDiaAbierto = computed<boolean>(() => Object.keys(this.abiertosManual()).length > 0);
+
+  toggleDia(d: DiaDeCortes): void {
+    if (this.plegadoBloqueado()) return;
+    this.abiertosManual.update((e) => {
+      const n = { ...e };
+      if (n[d.clave]) delete n[d.clave]; else n[d.clave] = true;
+      return n;
+    });
+  }
+
+  todosLosDias(abrir: boolean): void {
+    this.abiertosManual.set(abrir ? Object.fromEntries(this.diasDeCortes().map((d) => [d.clave, true])) : {});
+  }
 
   /** Con una sucursal elegida y la búsqueda sin resultados ahí: cuántos casan en las demás. */
   readonly enOtrasSucursales = computed<number>(() => {
