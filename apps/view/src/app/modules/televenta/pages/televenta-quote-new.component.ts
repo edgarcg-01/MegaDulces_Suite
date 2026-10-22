@@ -8,7 +8,7 @@ import { ProgressSpinnerModule } from 'primeng/progressspinner';
 import { TagModule } from 'primeng/tag';
 import { TableModule } from 'primeng/table';
 import { MessageService } from 'primeng/api';
-import { Subject, debounceTime, distinctUntilChanged, switchMap, catchError, of, from, concatMap, toArray, map } from 'rxjs';
+import { Subject, debounceTime, distinctUntilChanged, switchMap, catchError, of, map } from 'rxjs';
 import { STORE_BRANCHES, type StoreBranch } from '../../../core/constants/store-branches';
 import {
   QuotesService,
@@ -2071,30 +2071,21 @@ export class TeleventaQuoteNewComponent implements OnInit {
       payload.contact_email = this.contactoMail.trim() || undefined;
     }
 
-    // 1. Crea la cotización en draft
+    // [E.21] Cabecera y renglones en UNA llamada y una transacción. Antes se creaba la cabecera y
+    // los renglones iban de a uno: si fallaba el k-ésimo quedaba un folio a medias, el aviso decía
+    // «No se pudo crear» y el reintento creaba OTRO folio (auditoría C3). Ahora, si algo falla, no
+    // se crea nada: la bandeja queda intacta y reintentar es seguro.
+    payload.lines = this.bandeja().map((item) =>
+      item.sku
+        ? { sku: item.sku, quantity: item.quantity, rung: item.rung }
+        : // Renglón NO manejado: viaja como demanda (requested_text), sin SKU ni precio.
+          { requested_text: item.requested_text || item.name, quantity: item.quantity },
+    );
     this.svc
       .create(payload)
-      .pipe(
-        switchMap((q) => {
-          const items = this.bandeja();
-          if (items.length === 0) {
-            return of({ quote: q, linesAdded: 0 });
-          }
-          // 2. Agrega secuencialmente los renglones de la bandeja
-          return from(items).pipe(
-            concatMap((item) =>
-              item.sku
-                ? this.svc.addLine(q.id, { sku: item.sku, quantity: item.quantity, rung: item.rung })
-                : // Renglón NO manejado: viaja como demanda (requested_text), sin SKU ni precio.
-                  this.svc.addLine(q.id, { requested_text: item.requested_text || item.name, quantity: item.quantity }),
-            ),
-            toArray(),
-            map((results) => ({ quote: q, linesAdded: results.length })),
-          );
-        }),
-      )
       .subscribe({
-        next: ({ quote, linesAdded }) => {
+        next: (quote) => {
+          const linesAdded = quote.lines ?? 0;
           this.guardando.set(false);
           this.toast.add({
             severity: 'success',
@@ -2104,16 +2095,18 @@ export class TeleventaQuoteNewComponent implements OnInit {
                 ? `Folio asignado exitosamente con ${linesAdded} renglón(es) de la bandeja en estatus Borrador.`
                 : `Folio asignado en borrador (abierta), vigente hasta ${quote.valid_until}.`,
           });
-          this.router.navigate(['/telemarketing/cotizaciones'], {
-            queryParams: { created: quote.code },
-          });
+          // [E.21] Al detalle de lo GUARDADO, con los precios que puso el servidor (antes iba a la
+          // lista y nadie veía si diferían de los de la bandeja).
+          this.router.navigate(['/telemarketing/cotizaciones', quote.id]);
         },
         error: (err) => {
           this.guardando.set(false);
           this.toast.add({
             severity: 'error',
-            summary: 'No se pudo crear la cotización',
-            detail: err?.error?.message || err?.message || 'Error de red.',
+            summary: 'No se creó la cotización',
+            // El servidor dice qué renglón falló; la bandeja sigue intacta y no quedó ningún folio.
+            detail: (err?.error?.message || err?.message || 'Error de red.')
+              + ' La bandeja sigue aquí: puedes corregir y volver a intentar.',
           });
         },
       });

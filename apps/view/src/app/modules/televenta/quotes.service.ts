@@ -340,8 +340,13 @@ export class QuotesService {
     notes?: string;
     salesperson_code?: string;
     salesperson_name?: string;
-  }): Observable<{ id: string; code: string; status: QuoteStatus; valid_until: string }> {
-    return this.http.post<{ id: string; code: string; status: QuoteStatus; valid_until: string }>(
+    /**
+     * `[E.21]` Los renglones viajan CON la cabecera y entran en la misma transacción: si uno
+     * falla no se crea nada (ni folio) y el error dice cuál. Qué y cuánto; nunca a cuánto.
+     */
+    lines?: Array<{ sku?: string; requested_text?: string; quantity: number; rung?: Rung }>;
+  }): Observable<{ id: string; code: string; status: QuoteStatus; valid_until: string; lines?: number }> {
+    return this.http.post<{ id: string; code: string; status: QuoteStatus; valid_until: string; lines?: number }>(
       this.base,
       payload,
     );
