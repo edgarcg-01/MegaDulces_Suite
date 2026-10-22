@@ -90,6 +90,8 @@ export * from './http/cortes-sucursales.contract';
 export * from './http/creditor-statements.contract';
 // [PGP.1] A quién le falta cuenta de pago — la llave que destraba el Calendario de Pagos.
 export * from './http/cuentas-pago-faltantes.contract';
+// [PGP.6] La deuda viva que todavía no está programada, y cómo se programa un documento.
+export * from './http/deuda-programable.contract';
 export * from './http/warehouse-orders.contract';
 export * from './http/autoabasto-pedido.contract';
 export * from './http/warehouse-locations.contract';

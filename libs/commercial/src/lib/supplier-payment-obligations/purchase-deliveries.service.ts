@@ -453,6 +453,16 @@ export class PurchaseDeliveriesService {
          AND round(doc.pendiente, 2) > 0
          AND NOT EXISTS (SELECT 1 FROM commercial.supplier_payment_obligations o
                           WHERE o.tenant_id = l.tenant_id AND o.purchase_delivery_line_id = l.id)
+         /* [PGP.5] El MISMO documento de Kepler puede haber llegado ya por el otro camino
+            (PGP.6: elegirlo del pendiente vivo), y ese no tiene renglon de entrega, asi que el
+            NOT EXISTS de arriba no lo ve. Desde que existe el indice ux_spo_kepler_doc, un choque
+            asi NO seria un DO NOTHING: el ON CONFLICT de abajo nombra el otro indice, y la
+            insercion entera reventaria con una violacion de unicidad. Si el documento ya tiene
+            obligacion viva, no se crea una segunda, venga del camino que venga. */
+         AND NOT EXISTS (SELECT 1 FROM commercial.supplier_payment_obligations o2
+                          WHERE o2.tenant_id = l.tenant_id AND o2.status <> 'cancelled'
+                            AND o2.kepler_sucursal = doc.sucursal AND o2.kepler_folio = doc.folio
+                            AND o2.kepler_doc_tipo = doc.doc_tipo AND o2.kepler_doc_sub = doc.doc_sub)
       ON CONFLICT (tenant_id, purchase_delivery_line_id) WHERE purchase_delivery_line_id IS NOT NULL DO NOTHING`,
       { tenantId, deliveryId });
 
