@@ -16,6 +16,7 @@
 import type jsPDFType from 'jspdf';
 import { totalesCotizacion, type QuoteTotals } from '@megadulces/contracts';
 import { desglose } from './quote-units';
+import { PALETA_DOCUMENTO as P, rgb, argb } from '../../shared/util/paleta-documento';
 
 export type JsPDFCtor = typeof jsPDFType;
 export type AutoTableFn = (doc: jsPDFType, options: Record<string, unknown>) => void;
@@ -413,7 +414,7 @@ function drawPdfWatermark(doc: jsPDFType, pageWidth: number, pageHeight: number)
       (doc as any).saveGraphicsState();
     }
     // Color grisáceo translúcido no invasivo para marca de agua de fondo
-    doc.setTextColor(228, 232, 238);
+    doc.setTextColor(...rgb(P.regla));
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(15);
     const cx = pageWidth / 2;
@@ -442,12 +443,16 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   const M = 36;
   const contentWidth = pageWidth - M * 2;
 
-  // Paleta formal
-  const cInk: [number, number, number] = [28, 25, 23];         // stone-900
-  const cAccent: [number, number, number] = [240, 90, 40];     // Sunset #F05A28
-  const cMuted: [number, number, number] = [100, 116, 139];    // slate-500
-  const cRule: [number, number, number] = [226, 232, 240];     // slate-200
-  const cCardBg: [number, number, number] = [248, 250, 252];   // slate-50
+  // [E.29] La paleta de documentos (espejo de tokens.css en claro). Antes: neutros slate (gris
+  // azulado; el sistema es zinc) y el naranja como TEXTO chico, 3.39:1. Ahora el naranja es trazo
+  // (cMarca) y el texto de marca usa --action-press (cAccent, 5.68:1).
+  const cInk = rgb(P.tinta);
+  const cAccent = rgb(P.marcaTexto);
+  const cMarca = rgb(P.marca);
+  const cMuted = rgb(P.tintaSecundaria);
+  const cRule = rgb(P.regla);
+  const cCardBg = rgb(P.fondoSuave);
+  const cError = rgb(P.estado.error.fg);
 
   // 1. Marca de agua en la página 1
   drawPdfWatermark(doc, pageWidth, pageHeight);
@@ -496,7 +501,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
-  if (m.alerta) doc.setTextColor(185, 28, 28); // Rose-700: vencida o cancelada se avisa
+  if (m.alerta) doc.setTextColor(...cError); // vencida o cancelada: estado de error, con su texto
   else doc.setTextColor(...cAccent);
   doc.text(m.titulo, metaBoxX + 8, currentY + 10);
 
@@ -513,7 +518,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
     doc.setFont('helvetica', 'normal');
   } else {
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(185, 28, 28); // Rose-700
+    doc.setTextColor(...cError);
     doc.text('Folio: SIN ASIGNAR (borrador)', metaBoxX + 8, currentY + 22);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...cInk);
@@ -524,13 +529,14 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
 
   // 5. Banner de Aviso / Marca de agua visible
   currentY += 67;
-  doc.setFillColor(254, 242, 242); // Rose-50
-  doc.setDrawColor(252, 165, 165); // Rose-300
+  // La leyenda no es un error: va neutra y en negrita; el rojo queda para lo que de verdad falla.
+  doc.setFillColor(...rgb(P.encabezado));
+  doc.setDrawColor(...cRule);
   doc.setLineWidth(0.75);
   doc.roundedRect(M, currentY, contentWidth, 16, 3, 3, 'FD');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7);
-  doc.setTextColor(185, 28, 28); // Rose-700
+  doc.setTextColor(...cInk);
   doc.text(
     'ESTO ES UNA COTIZACIÓN, NO UNA VENTA · EFECTOS INFORMATIVOS PARA EL CLIENTE QUE SOLICITÓ LA INFORMACIÓN',
     pageWidth / 2,
@@ -538,9 +544,9 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
     { align: 'center' }
   );
 
-  // Línea divisoria de acento
+  // Línea divisoria de acento: la marca como TRAZO.
   currentY += 22;
-  doc.setDrawColor(...cAccent);
+  doc.setDrawColor(...cMarca);
   doc.setLineWidth(1.5);
   doc.line(M, currentY, pageWidth - M, currentY);
 
@@ -617,9 +623,9 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
         2: { cellWidth: 'auto' as const },
         3: { halign: 'center' as const, cellWidth: 46 },
         4: { halign: 'right' as const, fontStyle: 'bold' as const, cellWidth: 28 },
-        5: { halign: 'center' as const, fontStyle: 'bold' as const, textColor: [22, 163, 74] as [number, number, number], cellWidth: 42 },
+        5: { halign: 'center' as const, fontStyle: 'bold' as const, textColor: cInk, cellWidth: 42 },
         6: { halign: 'right' as const, fontStyle: 'bold' as const, cellWidth: 92 },
-        7: { halign: 'right' as const, fontStyle: 'bold' as const, textColor: [15, 118, 110] as [number, number, number], cellWidth: 62 },
+        7: { halign: 'right' as const, fontStyle: 'bold' as const, textColor: cInk, cellWidth: 62 },
       }
     : {
         0: { halign: 'center' as const, cellWidth: 22 },
@@ -628,7 +634,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
         3: { halign: 'center' as const, cellWidth: 55 },
         4: { halign: 'right' as const, fontStyle: 'bold' as const, cellWidth: 35 },
         5: { halign: 'right' as const, fontStyle: 'bold' as const, cellWidth: 92 },
-        6: { halign: 'right' as const, fontStyle: 'bold' as const, textColor: [15, 118, 110] as [number, number, number], cellWidth: 68 },
+        6: { halign: 'right' as const, fontStyle: 'bold' as const, textColor: cInk, cellWidth: 68 },
       };
 
   // `[E.19]` Las filas salen del modelo: el descuento de la columna es el del CLIENTE (el único
@@ -653,8 +659,9 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
     body: tableBody,
     theme: 'grid',
     headStyles: {
-      fillColor: [30, 41, 59], // Slate 800
-      textColor: [255, 255, 255],
+      // Encabezado claro: un relleno oscuro gasta tinta y no se imprime mejor.
+      fillColor: rgb(P.encabezado),
+      textColor: cInk,
       fontSize: 7.5,
       fontStyle: 'bold',
       halign: 'left',
@@ -662,10 +669,10 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
     },
     styles: {
       fontSize: 7,
-      textColor: [30, 41, 59],
+      textColor: cInk,
       cellPadding: 4,
       valign: 'middle',
-      lineColor: [226, 232, 240],
+      lineColor: cRule,
       lineWidth: 0.5,
     },
     // Sin renglones cebra (DESIGN.md §tablas): el divisor de 1px separa las filas.
@@ -713,8 +720,9 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   // el servidor. Antes decía «Subtotal Lista» sobre una base que ya traía el descuento y no el IVA.
   const totBoxW = 180;
   const totBoxX = pageWidth - M - totBoxW;
-  doc.setFillColor(255, 255, 255);
-  doc.setDrawColor(...cRule);
+  // El total enmarcado en la marca: el acento va donde está la respuesta.
+  doc.setFillColor(...rgb(P.blanco));
+  doc.setDrawColor(...cMarca);
   doc.roundedRect(totBoxX, summaryY, totBoxW, 86, 4, 4, 'FD');
 
   doc.setFont('helvetica', 'normal');
@@ -728,7 +736,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
 
   if (hasDiscount) {
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(21, 128, 61); // Green 700
+    doc.setTextColor(...rgb(P.estado.ok.fg));
     doc.text(`Descuento cliente (${m.totales.descuento_pct}%):`, totBoxX + 10, summaryY + 32);
     const dtoStr = `- ${moneyFormat(m.totales.descuento)}`;
     doc.text(dtoStr, totBoxX + totBoxW - 10 - doc.getTextWidth(dtoStr), summaryY + 32);
@@ -827,16 +835,17 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   ws.mergeCells(`A1:${lastColLetter}1`);
   const titleCell = ws.getCell('A1');
   titleCell.value = EMPRESA_NOMBRE;
-  titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
-  titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+  // [E.29] Paleta de documentos: fondo blanco, tinta, y la marca como filete (no como relleno).
+  titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: argb(P.tinta) } };
+  titleCell.border = { bottom: { style: 'medium', color: { argb: argb(P.marca) } } };
   titleCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   ws.getRow(1).height = 26;
 
   ws.mergeCells(`A2:${lastColLetter}2`);
   const subCell = ws.getCell('A2');
   subCell.value = m.alerta ? `COTIZACIÓN COMERCIAL DE MAYOREO · ${m.titulo}` : 'COTIZACIÓN COMERCIAL DE MAYOREO';
-  subCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
-  subCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: m.alerta ? 'FFB91C1C' : 'FFF05A28' } };
+  // Blanco sobre naranja daba 3.39:1. El estado (vencida/cancelada) va en su color Y en el texto.
+  subCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: argb(m.alerta ? P.estado.error.fg : P.marcaTexto) } };
   subCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   ws.getRow(2).height = 19;
 
@@ -844,12 +853,13 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   ws.mergeCells(`A3:${lastColLetter}3`);
   const watermarkCell = ws.getCell('A3');
   watermarkCell.value = LEYENDA_MARCA_AGUA;
-  watermarkCell.font = { name: 'Arial', size: 8.5, bold: true, color: { argb: 'FF991B1B' } };
-  watermarkCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF2F2' } };
+  // La leyenda no es un error: neutra y en negrita.
+  watermarkCell.font = { name: 'Arial', size: 8.5, bold: true, color: { argb: argb(P.tinta) } };
+  watermarkCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(P.encabezado) } };
   watermarkCell.alignment = { vertical: 'middle', horizontal: 'center' };
   watermarkCell.border = {
-    top: { style: 'thin', color: { argb: 'FFFCA5A5' } },
-    bottom: { style: 'thin', color: { argb: 'FFFCA5A5' } },
+    top: { style: 'thin', color: { argb: argb(P.regla) } },
+    bottom: { style: 'thin', color: { argb: argb(P.regla) } },
   };
   ws.getRow(3).height = 20;
 
@@ -868,7 +878,7 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   ws.getCell('B4').value = data.quoteCode || 'SIN ASIGNAR (borrador)';
   ws.getCell('B4').font = data.quoteCode
     ? { bold: true, size: 9 }
-    : { bold: true, size: 9, color: { argb: 'FFB91C1C' } };
+    : { bold: true, size: 9, color: { argb: argb(P.estado.error.fg) } };
 
   ws.getCell(`${rightMetaCol}5`).value = 'Fecha Emisión:';
   ws.getCell(`${rightMetaCol}5`).font = { bold: true, size: 9 };
@@ -941,14 +951,14 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
 
   headRow.height = 22;
   headRow.eachCell((cell: any) => {
-    cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
+    cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: argb(P.tinta) } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(P.encabezado) } };
     cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
     cell.border = {
-      top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
-      bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
-      left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
-      right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      top: { style: 'thin', color: { argb: argb(P.regla) } },
+      bottom: { style: 'medium', color: { argb: argb(P.marca) } },
+      left: { style: 'thin', color: { argb: argb(P.regla) } },
+      right: { style: 'thin', color: { argb: argb(P.regla) } },
     };
   });
 
@@ -999,14 +1009,14 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
     celda('price').alignment = { horizontal: 'right' };
     celda('price').numFmt = '$#,##0.00';
     celda('price').font = { bold: true };
-    celda('desglose').font = { size: 8, color: { argb: 'FF64748B' } };
+    celda('desglose').font = { size: 8, color: { argb: argb(P.tintaSecundaria) } };
     celda('total').alignment = { horizontal: 'right' };
     celda('total').numFmt = '$#,##0.00';
     celda('total').font = { bold: true };
 
     row.eachCell({ includeEmpty: true }, (cell: any) => {
       cell.border = {
-        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin', color: { argb: argb(P.regla) } },
       };
     });
 
@@ -1032,11 +1042,11 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   // Descuento si aplica
   if (hasDiscount) {
     ws.getCell(`${labelCol}${rowIdx}`).value = `Descuento cliente (${m.totales.descuento_pct}%):`;
-    ws.getCell(`${labelCol}${rowIdx}`).font = { bold: true, size: 9, color: { argb: 'FF15803D' } };
+    ws.getCell(`${labelCol}${rowIdx}`).font = { bold: true, size: 9, color: { argb: argb(P.estado.ok.fg) } };
     ws.getCell(`${labelCol}${rowIdx}`).alignment = { horizontal: 'right' };
     ws.getCell(`${valCol}${rowIdx}`).value = -m.totales.descuento;
     ws.getCell(`${valCol}${rowIdx}`).numFmt = '$#,##0.00';
-    ws.getCell(`${valCol}${rowIdx}`).font = { bold: true, size: 9, color: { argb: 'FF15803D' } };
+    ws.getCell(`${valCol}${rowIdx}`).font = { bold: true, size: 9, color: { argb: argb(P.estado.ok.fg) } };
     rowIdx++;
   }
 
@@ -1044,14 +1054,17 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   const totalRow = ws.getRow(rowIdx);
   totalRow.height = 24;
   ws.getCell(`${labelCol}${rowIdx}`).value = hasDiscount ? 'TOTAL NETO COTIZADO:' : 'TOTAL COTIZACIÓN:';
-  ws.getCell(`${labelCol}${rowIdx}`).font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
-  ws.getCell(`${labelCol}${rowIdx}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+  ws.getCell(`${labelCol}${rowIdx}`).font = { name: 'Arial', size: 10, bold: true, color: { argb: argb(P.tinta) } };
   ws.getCell(`${labelCol}${rowIdx}`).alignment = { horizontal: 'right', vertical: 'middle' };
 
   ws.getCell(`${valCol}${rowIdx}`).value = m.totales.total;
   ws.getCell(`${valCol}${rowIdx}`).numFmt = '$#,##0.00';
-  ws.getCell(`${valCol}${rowIdx}`).font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-  ws.getCell(`${valCol}${rowIdx}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF05A28' } };
+  // El total: texto de marca (5.68:1) entre filetes de marca. Antes, blanco sobre naranja (3.39:1).
+  ws.getCell(`${valCol}${rowIdx}`).font = { name: 'Arial', size: 11, bold: true, color: { argb: argb(P.marcaTexto) } };
+  ws.getCell(`${valCol}${rowIdx}`).border = {
+    top: { style: 'medium', color: { argb: argb(P.marca) } },
+    bottom: { style: 'medium', color: { argb: argb(P.marca) } },
+  };
   ws.getCell(`${valCol}${rowIdx}`).alignment = { horizontal: 'right', vertical: 'middle' };
   rowIdx++;
   // `[E.25]` Subtotal sin impuestos, IVA e IEPS con la tasa de cada producto (como Kepler).
@@ -1061,20 +1074,20 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
     ['IEPS:', m.totales.ieps],
   ] as const) {
     ws.getCell(`${labelCol}${rowIdx}`).value = rotulo;
-    ws.getCell(`${labelCol}${rowIdx}`).font = { size: 8, color: { argb: 'FF64748B' } };
+    ws.getCell(`${labelCol}${rowIdx}`).font = { size: 8, color: { argb: argb(P.tintaSecundaria) } };
     ws.getCell(`${labelCol}${rowIdx}`).alignment = { horizontal: 'right' };
     ws.getCell(`${valCol}${rowIdx}`).value = valor;
     ws.getCell(`${valCol}${rowIdx}`).numFmt = '$#,##0.00';
-    ws.getCell(`${valCol}${rowIdx}`).font = { size: 8, color: { argb: 'FF64748B' } };
+    ws.getCell(`${valCol}${rowIdx}`).font = { size: 8, color: { argb: argb(P.tintaSecundaria) } };
     rowIdx++;
   }
   rowIdx++;
 
   // 7. Leyenda y condiciones finales
   ws.getCell(`A${rowIdx}`).value = 'Aviso:';
-  ws.getCell(`A${rowIdx}`).font = { bold: true, size: 8, color: { argb: 'FF991B1B' } };
+  ws.getCell(`A${rowIdx}`).font = { bold: true, size: 8, color: { argb: argb(P.tinta) } };
   ws.getCell(`B${rowIdx}`).value = LEYENDA_MARCA_AGUA;
-  ws.getCell(`B${rowIdx}`).font = { bold: true, size: 8, color: { argb: 'FF991B1B' } };
+  ws.getCell(`B${rowIdx}`).font = { bold: true, size: 8, color: { argb: argb(P.tinta) } };
   rowIdx++;
 
   // Las mismas condiciones que el PDF (incluye «N artículos sin precio» y la nota al cliente).
@@ -1082,7 +1095,7 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   ws.getCell(`A${rowIdx}`).font = { bold: true, size: 8 };
   for (const t of condiciones(data, m)) {
     ws.getCell(`B${rowIdx}`).value = t;
-    ws.getCell(`B${rowIdx}`).font = { size: 8, color: { argb: 'FF64748B' } };
+    ws.getCell(`B${rowIdx}`).font = { size: 8, color: { argb: argb(P.tintaSecundaria) } };
     rowIdx++;
   }
 
