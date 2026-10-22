@@ -3505,10 +3505,13 @@ export class CommercialReplenishmentService {
         const t = `%${q.search.trim()}%`;
         base.andWhere((b) => b.whereILike('pr.sku', t).orWhereILike('pr.nombre', t));
       }
-      const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
-      const total = Number(totalRow?.c || 0);
-      const sumRow: any = await base.clone().clearSelect().clearOrder().select(trx.raw(`ROUND(SUM(${valueExpr}), 2) AS total_value`)).first();
-      const rows = await base.clone()
+      // `[RA-UX.11]` UNA pasada, no tres. Acá había un `count(*)` y un `SUM()` sobre la MISMA base,
+      // cada uno pagando entero el cruce producto×almacén y las tres vistas del ODS (existencia,
+      // factor de caja y costo, 0.6 + 1.9 + 1.2 s calculadas completas: ninguna acepta el filtro
+      // por par — un solo par cuesta 15/158/764 ms). Medido en prod el 2026-10-22: 4.1 + 4.2 +
+      // 6.5 s = 14.9 s, y 13.0 s en el navegador. El total y la suma salen ahora de la consulta de
+      // filas con ventanas (`OVER ()`), que ya recorre todo el universo para ordenarlo.
+      const rows: Array<Record<string, unknown>> = await base.clone()
         .select(
           'pr.id as product_id', 'w.id as warehouse_id',
           trx.raw('w.code AS warehouse_code'),
@@ -3533,11 +3536,30 @@ export class CommercialReplenishmentService {
           trx.raw(`${lastActivity} AS last_activity`),
           trx.raw('pr.created_at::date AS created_at'),
           trx.raw('sup.name AS supplier_name'),
+          trx.raw('count(*) OVER () AS _total'),
+          trx.raw(`ROUND(SUM(${valueExpr}) OVER (), 2) AS _total_value`),
         )
-        // capital inmovilizado primero; luego los de 0 existencia por antigüedad en catálogo
-        .orderByRaw(`${valueExpr} DESC, pr.created_at ASC`)
+        // capital inmovilizado primero; luego los de 0 existencia por antigüedad en catálogo.
+        // `[RA-UX.11]` + desempate ESTABLE (pr.id, w.id): `created_at` se repite en las altas por
+        // lote, y sin desempate la página 2 podía repetir o saltarse renglones de la 1.
+        .orderByRaw(`${valueExpr} DESC, pr.created_at ASC, pr.id ASC, w.id ASC`)
         .limit(pageSize).offset((page - 1) * pageSize);
-      return { total, page, pageSize, total_value: Number(sumRow?.total_value || 0), rows };
+      let total: number;
+      let totalValue: number;
+      if (rows.length) {
+        total = Number(rows[0]['_total'] || 0);
+        totalValue = Number(rows[0]['_total_value'] || 0);
+      } else if (page === 1) {
+        total = 0; totalValue = 0;   // sin filas en la primera página: el universo está vacío
+      } else {
+        // Una página más allá del final no trae filas que digan el total: se cuenta aparte (una
+        // sola consulta, no dos), que es el único caso en que hace falta.
+        const agg: { c?: string | number; total_value?: string | number } | undefined = await base.clone().clearSelect().clearOrder()
+          .select(trx.raw('count(*) AS c'), trx.raw(`ROUND(SUM(${valueExpr}), 2) AS total_value`)).first();
+        total = Number(agg?.c || 0); totalValue = Number(agg?.total_value || 0);
+      }
+      for (const r of rows) { delete r['_total']; delete r['_total_value']; }
+      return { total, page, pageSize, total_value: totalValue, rows };
     });
   }
 
