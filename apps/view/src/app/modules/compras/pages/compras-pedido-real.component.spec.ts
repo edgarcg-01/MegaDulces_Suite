@@ -762,3 +762,57 @@ describe('[RA-UX] auditoría de interacción 2026-10-21: lo que la persona hace,
     expect(todo).toMatch(/NO se restan del sugerido/);
   });
 });
+
+describe('[RA-UX.1b] el servidor frena el lote repetido y la pantalla deja confirmarlo', () => {
+  beforeEach(() => { try { localStorage.clear(); } catch { /* jsdom */ } });
+  const fila = { product_id: 'p-1', sku: 'p-1', nombre: 'p-1', supplier_id: 's-1', supplier_name: 'DEMO', uxc: 16, caja_cost: 1, cells: {}, signals: null };
+  const suc = { code: '01', name: '01', cc: 1, exis: 0, seed: 0, seedUnit: 'caja', rung: null, vta: 0, nat: 0, natu: '', natuRaw: '', hub: false, mx: null, rop: null, added: false };
+  const plan = [{ warehouse_id: 'w-01', supplier_id: 's-1', source_type: 'supplier', lines: [{ product_id: 'p-1', supplier_id: 's-1', source_type: 'supplier', final_qty: 3, unit_cost: 1 }] }];
+  const conflicto = { status: 409, error: { code: 'LOTE_REPETIDO', message: 'Los 1 renglones ya los generaste hace 1 minuto (RQ-LOTE-2026-00103).' } };
+
+  it('⛔ el 409 NO limpia nada ni cierra el plan: lo dice junto al botón, que pasa a ser la confirmación', () => {
+    const c = montar(VACIO).componentInstance;
+    const api = TestBed.inject(ComprasService);
+    const spy = vi.spyOn(api, 'createRequisitionBatch').mockReturnValueOnce(throwError(() => conflicto));
+    c.setDispOf(fila as never, suc as never, 3);
+    c.plan.set(plan as never); c.planVisible = true;
+    c.confirmarPlan();
+    expect(spy).toHaveBeenLastCalledWith(plan, false);
+    expect(c.repetido()).toMatch(/RQ-LOTE-2026-00103/);
+    expect(c.planVisible).toBe(true);
+    expect(c.qtyOf(fila as never, suc as never)).toBe(3);   // nada se armó: nada se quita
+    expect(c.selected().has('p-1')).toBe(true);
+  });
+
+  it('el segundo clic manda allow_duplicate y, al entrar, limpia como siempre', () => {
+    const c = montar(VACIO).componentInstance;
+    const api = TestBed.inject(ComprasService);
+    const spy = vi.spyOn(api, 'createRequisitionBatch').mockReturnValueOnce(throwError(() => conflicto));
+    c.setDispOf(fila as never, suc as never, 3);
+    c.plan.set(plan as never);
+    c.confirmarPlan();
+    c.confirmarPlan();
+    expect(spy).toHaveBeenLastCalledWith(plan, true);
+    expect(c.repetido()).toBeNull();
+    expect(c.selected().has('p-1')).toBe(false);
+  });
+
+  it('cancelar el plan olvida el aviso: el próximo plan no nace confirmado', () => {
+    const c = montar(VACIO).componentInstance;
+    vi.spyOn(TestBed.inject(ComprasService), 'createRequisitionBatch').mockReturnValueOnce(throwError(() => conflicto));
+    c.plan.set(plan as never);
+    c.confirmarPlan();
+    expect(c.repetido()).not.toBeNull();
+    c.cancelarPlan();
+    expect(c.repetido()).toBeNull();
+  });
+
+  it('otro error sigue siendo un error: toast, sin convertirse en «confirmar»', () => {
+    const c = montar(VACIO).componentInstance;
+    vi.spyOn(TestBed.inject(ComprasService), 'createRequisitionBatch')
+      .mockReturnValueOnce(throwError(() => ({ status: 400, error: { message: 'warehouse_id inválido' } })));
+    c.plan.set(plan as never);
+    c.confirmarPlan();
+    expect(c.repetido()).toBeNull();
+  });
+});

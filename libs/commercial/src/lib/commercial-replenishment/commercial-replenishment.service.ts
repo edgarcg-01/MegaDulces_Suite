@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import {
   compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
@@ -23,6 +23,7 @@ import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
 import { AVISO_TRANSITO, POLITICA_TRANSITO, type PoliticaTransito, transitoDescontado, transitoMostrado } from './transito';
 import { mensajeFraccion, renglonesConFraccion } from './fraccion-caja';
+import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lote-repetido';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -3807,7 +3808,7 @@ export class CommercialReplenishmentService {
    * apuntar. El `link` que manda el front es un índice dentro de este mismo arreglo, no un id:
    * los ids todavía no existen cuando el navegador arma el pedido.
    */
-  async createRequisitionBatch(dto: { requisitions?: CreateRequisitionDto[] }) {
+  async createRequisitionBatch(dto: { requisitions?: CreateRequisitionDto[]; allow_duplicate?: boolean }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const entrada = dto?.requisitions || [];
     if (!entrada.length) throw new BadRequestException('El lote no trae requisiciones');
@@ -3816,7 +3817,21 @@ export class CommercialReplenishmentService {
     const orden = entrada.map((r, i) => ({ r, i }))
       .sort((a, b) => (a.r.source_type === 'branch' ? 1 : 0) - (b.r.source_type === 'branch' ? 1 : 0));
     const vigCols = await this.tk.run((trx) => this.loteColsListas(trx));
+    const userId = this.tenantCtx.get()?.userId ?? null;
     return this.tk.run(async (trx) => {
+      // `[RA-UX.1b]` Antes de crear NADA: ¿esta persona ya generó estos mismos renglones de compra
+      // en la última hora? Medido: 9 de 106 lotes eran eso. Se contesta 409 con lo encontrado y la
+      // pantalla ofrece confirmarlo; `allow_duplicate` es esa confirmación. Sin autor (llamada de
+      // sistema) no hay "la misma persona" con qué comparar: no se frena.
+      if (userId && dto?.allow_duplicate !== true) {
+        const rep = await this.loteRepetido(trx, tenantId, userId, entrada);
+        if (rep) {
+          this.logger.warn(`Lote repetido frenado (${rep.renglones}/${rep.de} renglones, ${rep.lotes.join(', ')}) — usuario ${userId}`);
+          throw new ConflictException({ statusCode: 409, code: 'LOTE_REPETIDO', message: mensajeLoteRepetido(rep), repetido: rep });
+        }
+      } else if (userId) {
+        this.logger.warn(`Lote generado con allow_duplicate por ${userId}: la persona confirmó repetir`);
+      }
       const year = new Date().getFullYear();
       const batchId = randomUUID();
       let batchFolio: string | null = null;
@@ -3860,6 +3875,21 @@ export class CommercialReplenishmentService {
         folios: creadas.map((x) => x.folio),
       };
     });
+  }
+
+  /**
+   * `[RA-UX.1b]` La consulta del candado, en un SAVEPOINT: si falla (una columna que todavía no
+   * llegó, un cast raro), la transacción del lote NO queda abortada y el lote se crea como antes.
+   * Se elige fallar abierto a propósito: un candado que tumba «Generar» para todos es peor que
+   * el doble que viene a frenar. La falla se deja en el log, no se traga.
+   */
+  private async loteRepetido(trx: Knex.Transaction, tenantId: string, userId: string, docs: CreateRequisitionDto[]): Promise<LoteRepetido | null> {
+    try {
+      return await trx.transaction((sp) => buscarLoteRepetido(sp, { tenantId, userId, docs }));
+    } catch (e) {
+      this.logger.warn(`[RA-UX.1b] el candado de lote repetido no pudo medir, el lote sigue: ${(e as Error).message}`);
+      return null;
+    }
   }
 
   /**

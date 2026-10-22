@@ -928,13 +928,20 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   </div>
                 }
               }
+              <!-- [RA-UX.1b] El servidor frenó el lote por repetido. Va ARRIBA del botón, que es donde
+                   se decide; el botón pasa a ser la confirmación. -->
+              @if (repetido(); as rep) {
+                <div class="pr-plan-stop" role="alert">
+                  <p><i class="pi pi-copy" aria-hidden="true"></i> <strong>Esto ya lo generaste.</strong> {{ rep }}</p>
+                </div>
+              }
               <p class="pr-plan-hint">
                 Se crean bajo <strong>un folio de lote</strong> y en una sola operación: o entran todos o no entra ninguno.
                 Quedan <strong>esperando aprobación</strong> en Compras › Requisiciones.
               </p>
               <div class="pr-uov-actions">
                 <p-button type="button" label="Cancelar" styleClass="p-button-sm p-button-text" (click)="cancelarPlan()" [disabled]="saving()"></p-button>
-                <p-button type="button" [label]="saving() ? 'Generando…' : 'Generar los ' + p.total" icon="pi pi-check" styleClass="p-button-sm" (click)="confirmarPlan()" [disabled]="saving() || planBloqueos().length > 0"></p-button>
+                <p-button type="button" [label]="saving() ? 'Generando…' : (repetido() ? 'Generar de todos modos' : 'Generar los ' + p.total)" icon="pi pi-check" [styleClass]="repetido() ? 'p-button-sm p-button-danger' : 'p-button-sm'" (click)="confirmarPlan()" [disabled]="saving() || planBloqueos().length > 0"></p-button>
               </div>
             </div>
           }
@@ -4794,6 +4801,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     // Medido en prod sobre 82 generaciones reales: promedio 8.2 documentos por «Armar», mediana 6
     // y **117 en el peor**. El botón decía «Requisiciones (50)» y ese 50 eran PRODUCTOS marcados,
     // no documentos — nadie podía saber si ese clic iba a crear 6 o 117. Acá se para y se enseña.
+    this.repetido.set(null);   // `[RA-UX.1b]` plan nuevo: el aviso del anterior no aplica
     this.plan.set(dtos);
     this.planVisible = true;
   }
@@ -4900,7 +4908,14 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return m;
   });
 
-  cancelarPlan(): void { this.planVisible = false; this.plan.set([]); }
+  cancelarPlan(): void { this.planVisible = false; this.plan.set([]); this.repetido.set(null); }
+
+  /**
+   * `[RA-UX.1b]` Lo que contestó el servidor cuando el lote repite renglones de compra que la misma
+   * persona ya generó en la última hora (409 `LOTE_REPETIDO`). Mientras tenga valor, el diálogo lo
+   * dice ARRIBA del botón y el botón cambia a «Generar de todos modos». `null` = no se frenó nada.
+   */
+  readonly repetido = signal<string | null>(null);
 
   /**
    * `[RQ.8]` Manda el lote COMPLETO en una sola llamada.
@@ -4912,11 +4927,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   confirmarPlan(): void {
     const dtos = this.plan();
     if (!dtos.length) return;
+    // `[RA-UX.1b]` Si el servidor ya avisó que es repetido, este clic ES la confirmación.
+    const aSabiendas = this.repetido() !== null;
     this.saving.set(true);
-    this.api.createRequisitionBatch(dtos).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.api.createRequisitionBatch(dtos, aSabiendas).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.saving.set(false);
-        this.planVisible = false; this.plan.set([]);
+        this.planVisible = false; this.plan.set([]); this.repetido.set(null);
         // `[RA-UX.1]` Lo que se acaba de armar SALE de la pantalla: cantidades, unidades, entregas y
         // marcas de esos productos. Antes todo quedaba igual y el botón seguía armado con la misma
         // selección. Medido en prod el 2026-10-21: 9 de 106 lotes repetían a otro de la misma
@@ -4934,6 +4951,12 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       },
       error: (e) => {
         this.saving.set(false);
+        // `[RA-UX.1b]` No es una falla: es el servidor preguntando. Se dice en el diálogo, junto al
+        // botón, y no en un toast que se va solo.
+        if (e?.status === 409 && e?.error?.code === 'LOTE_REPETIDO') {
+          this.repetido.set(String(e.error.message || 'Este lote repite lo que ya generaste hace poco.'));
+          return;
+        }
         // No se cierra el diálogo: lo que se intentó sigue a la vista para poder reintentar.
         this.toast.add({
           severity: 'error', life: 15000, summary: 'No se creó NINGUNA requisición',
