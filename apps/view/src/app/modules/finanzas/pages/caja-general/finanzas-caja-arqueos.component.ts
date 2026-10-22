@@ -18,6 +18,7 @@ import { ContextHelpComponent } from '../../../../shared/context-help/context-he
 import {
   veredictoConcluyente,
   type Freshness, type ArqueoDia, type ArqueosResponse, type VeredictoCorte, type ArqueoControlUltimo,
+  type EstadoVerdad, type EstadoTestigo,
 } from '@megadulces/contracts';
 import { CaosService, type CaosSaldo } from '../../caos.service';
 import { catchError, of } from 'rxjs';
@@ -281,6 +282,9 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                     <span class="p-button-label">{{ dmy(a.fecha) }} · {{ a.folio }}</span>
                   </button>
                   <p-tag [value]="tagVeredicto(a).texto" [severity]="tagVeredicto(a).sev" styleClass="cq-tag" />
+                  @if (a.verdad?.estado === 'corregida') {
+                    <p-tag value="Diferencia corregida" severity="danger" styleClass="cq-tag" />
+                  }
                   @if (fallas(a)) { <span class="cq-dim">{{ fallas(a) }} sin cumplir</span> }
                 </li>
               }
@@ -386,10 +390,17 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                 <td role="cell" data-label="Diferencia" class="comm-num">
                   <!-- ⛔ Con el esperado negativo la resta sale positiva SIEMPRE: pintarla como
                        cifra normal afirmaria un sobrante justo donde la cuenta esta mas rota. -->
-                  @if (!f.arqueo || f.arqueo.diferencia === null) { <span class="cq-dim">—</span> }
-                  @else if (f.arqueo.veredicto === 'esperado_imposible') { <span class="cq-dim">no significa nada</span> }
-                  @else if (f.arqueo.diferencia === 0) { <span class="cq-dim">0.00</span> }
-                  @else { <span class="cq-mal">{{ firmado(f.arqueo.diferencia) }}</span> }
+                  <!-- [CGS.36] La que se publica es la VERDADERA cuando un testigo la corrige, con la
+                       sellada al lado: la lista no repite una cifra que Control y la maquina desmienten. -->
+                  @if (!f.arqueo) { <span class="cq-dim">—</span> }
+                  @else {
+                    @let d = difDe(f.arqueo);
+                    @if (d.valor === null) { <span class="cq-dim">—</span> }
+                    @else if (d.sinSentido) { <span class="cq-dim">no significa nada</span> }
+                    @else if (d.valor === 0) { <span class="cq-dim">0.00</span> }
+                    @else { <span class="cq-mal">{{ firmado(d.valor) }}</span> }
+                    @if (d.nota) { <span class="cq-pos-sub">{{ d.nota }}</span> }
+                  }
                 </td>
                 <td role="cell" data-label="Veredicto">
                   @if (f.arqueo) {
@@ -485,6 +496,40 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                 @if (okRevision()) { <p class="cq-nota" role="status">{{ okRevision() }}</p> }
               </section>
 
+              <!-- 0b. [CGS.36] LA VERDAD DE LA DIFERENCIA: antes de firmar, si la cifra es la que es.
+                   Cada entrada de la cuenta contra un testigo que no tecleo la misma persona. -->
+              @if (a.verdad; as v) {
+                <section class="cq-rev" aria-labelledby="cq-h-verdad">
+                  <h3 id="cq-h-verdad" class="cq-h3">La diferencia, contra sus testigos</h3>
+                  <p class="cq-verdad-cab">
+                    <p-tag [value]="etiquetaVerdad(v.estado)" [severity]="sevVerdad(v.estado)" styleClass="cq-tag" />
+                    @if (v.estado === 'corregida' && v.publicada !== null && v.verdadera !== null) {
+                      <span>Se publicó <s>{{ firmado(v.publicada) }}</s>; la verdadera es
+                        <b class="cq-verdad-cifra">{{ firmado(v.verdadera) }}</b></span>
+                    } @else if (v.publicada !== null) {
+                      <b class="cq-verdad-cifra">{{ firmado(v.publicada) }}</b>
+                    }
+                  </p>
+                  <p class="cq-nota">{{ v.resumen }}</p>
+                  <ul class="cq-verif" aria-label="Los testigos de la diferencia">
+                    @for (t of v.testigos; track t.id) {
+                      <li>
+                        <p-tag [value]="etiquetaTestigo(t.estado)" [severity]="sevTestigo(t.estado)" styleClass="cq-tag" />
+                        <span class="cq-verif-q">{{ t.pregunta }}</span>
+                        <span class="cq-verif-d">{{ t.detalle }}</span>
+                      </li>
+                    }
+                  </ul>
+                  @if (v.pistas.length) {
+                    <p class="cq-rev-label">Pistas: lo que pasó con el dinero ese día y el libro no tiene ({{ v.pistas.length }})</p>
+                    <p class="cq-hint">No se suman: Control no dice si cada paquete entró o salió. La caja dice qué fue.</p>
+                    <ul class="cq-pistas">
+                      @for (p of v.pistas; track $index) { <li>{{ p.detalle }}</li> }
+                    </ul>
+                  }
+                </section>
+              }
+
               <!-- 1. LA CUENTA: de donde sale el «deberia haber». Sin esto el total no se puede
                    investigar; con esto la pregunta pasa a ser que pierna esta mal cruzada. -->
               <section aria-labelledby="cq-h-cuenta">
@@ -518,6 +563,14 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                         @else { {{ firmado(a.diferencia) }} }
                       </td>
                     </tr>
+                    @if (a.verdad; as v) {
+                      @if (v.estado === 'corregida' && v.verdadera !== null) {
+                        <tr class="cq-t-total">
+                          <td>Con los testigos <span class="cq-dim">(ver «La diferencia, contra sus testigos»)</span></td>
+                          <td class="comm-num"><b>{{ firmado(v.verdadera) }}</b></td>
+                        </tr>
+                      }
+                    }
                   </tbody>
                 </table>
                 @for (nota of notasArqueo(a); track nota) { <p class="cq-nota">{{ nota }}</p> }
@@ -564,7 +617,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                     <b>{{ t.efectivo === null ? 'sin medir' : mx(t.efectivo) }}</b>.
                     @if (t.diferencia !== null && abs(t.diferencia) > 0.005) {
                       Difiere {{ firmado(t.diferencia) }} del conteo de la Suite: uno de los dos conteos está mal.
-                      Cuál de los dos manda no está decidido, así que acá se publican los dos.
+                      La diferencia verdadera de arriba se arbitra con el arqueo físico, como en los reconteos de CC-3 y CC-7.
                     } @else if (t.diferencia !== null) {
                       Coincide al centavo con el conteo de la Suite.
                     }
@@ -684,6 +737,9 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
     .cq-verif li { display:grid; grid-template-columns:7rem minmax(10rem, 16rem) 1fr; gap:var(--sp-2); align-items:baseline; }
     .cq-verif-q { font-weight:600; color:var(--text-main); }
     .cq-verif-d { color:var(--text-muted); font-size:var(--fs-sm); }
+    .cq-verdad-cab { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); margin:0; }
+    .cq-verdad-cifra { font-size:var(--fs-lg); font-variant-numeric:tabular-nums; }
+    .cq-pistas { margin:0; padding-left:var(--sp-4); font-size:var(--fs-sm); color:var(--text-main); display:flex; flex-direction:column; gap:var(--sp-1); }
     @container (max-width: 40rem) { .cq-verif li { grid-template-columns:1fr; } }
     .cq-llave { display:flex; flex-direction:column; gap:var(--sp-2); margin-top:var(--sp-4); padding-top:var(--sp-3); border-top:1px solid var(--border-color); }
     .cq-rev-ayuda { margin:0; padding-left:var(--sp-4); font-size:var(--fs-sm); color:var(--text-muted); }
@@ -771,6 +827,33 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   protected tagVeredicto(a: ArqueoDia): { texto: string; sev: 'success' | 'warn' | 'danger' | 'info' } {
     return VEREDICTO[a.veredicto];
   }
+
+  /**
+   * ⭐ `[CGS.36]` La diferencia que se publica: la VERDADERA cuando un testigo la corrige (con la
+   * sellada al lado), y si sus testigos la confirman. Con el esperado negativo y sin testigos sigue
+   * sin significar nada; con testigos que la respaldan, la brecha entre el libro y el dinero es real.
+   */
+  protected difDe(a: ArqueoDia): { valor: number | null; nota: string | null; sinSentido: boolean } {
+    const v = a.verdad;
+    const atestiguada = v?.estado === 'confirmada' || v?.estado === 'corregida';
+    const sinSentido = a.veredicto === 'esperado_imposible' && !atestiguada;
+    if (v?.estado === 'corregida' && v.verdadera !== null) {
+      return { valor: v.verdadera, nota: v.publicada === null ? 'corregida' : `se publicó ${this.firmado(v.publicada)}`, sinSentido };
+    }
+    return { valor: a.diferencia, nota: v?.estado === 'confirmada' ? 'confirmada por los testigos' : v ? 'sin confirmar' : null, sinSentido };
+  }
+  protected etiquetaVerdad(e: EstadoVerdad): string {
+    return ({ confirmada: 'Confirmada', corregida: 'Corregida por los testigos', sin_confirmar: 'Sin confirmar' } as const)[e];
+  }
+  protected sevVerdad(e: EstadoVerdad): 'success' | 'danger' | 'secondary' {
+    return ({ confirmada: 'success', corregida: 'danger', sin_confirmar: 'secondary' } as const)[e];
+  }
+  protected etiquetaTestigo(e: EstadoTestigo): string {
+    return ({ confirma: 'Confirma', contradice: 'Contradice', sin_testigo: 'Sin testigo' } as const)[e];
+  }
+  protected sevTestigo(e: EstadoTestigo): 'success' | 'danger' | 'secondary' {
+    return ({ confirma: 'success', contradice: 'danger', sin_testigo: 'secondary' } as const)[e];
+  }
   protected readonly mx = (v: unknown): string => money(Number(v ?? 0) || 0);
   protected readonly dmy = dmy;
   protected readonly abs = Math.abs;
@@ -856,15 +939,17 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
       },
       { label: 'Se contó', value: u.contado === null ? 'sin contar' : money(u.contado), state: 'medido' },
     ];
-    if (u.veredicto === 'esperado_imposible') {
+    const d = this.difDe(u);
+    if (d.sinSentido) {
       items.push({
         label: 'Diferencia', value: 'no significa nada', state: 'no_medido', tone: 'bad',
         stateNote: 'Con el esperado en negativo la resta sale positiva siempre: diría «sobra» justo donde la cuenta está más rota.',
       });
-    } else if (u.diferencia !== null) {
+    } else if (d.valor !== null) {
+      // `[CGS.36]` La verdadera cuando un testigo la corrige; `sub` dice si está confirmada.
       items.push({
-        label: 'Diferencia', value: u.diferencia === 0 ? money(0) : this.firmado(u.diferencia),
-        tone: u.diferencia === 0 ? 'ok' : 'bad',
+        label: 'Diferencia', value: d.valor === 0 ? money(0) : this.firmado(d.valor),
+        tone: d.valor === 0 ? 'ok' : 'bad', sub: d.nota ?? undefined,
       });
     }
     const sinResp = this.arqueos().filter((a) => !veredictoConcluyente(a.veredicto)).length;

@@ -1,5 +1,6 @@
 import type { Freshness } from '../http/provenance.contract';
 import type { VeredictoCorte } from '../work/caja-corte.contract';
+import type { VerdadDiferencia } from './verdad-diferencia.contract';
 
 /**
  * ⭐⭐ `[CGS.2]` — **El arqueo desglosado: contra qué se compara lo contado.**
@@ -161,6 +162,11 @@ export interface ArqueoDia {
   /** Lo que se contó, pieza por pieza. Vacío = el conteo no guardó desglose. */
   piezas: ArqueoPieza[];
   testigo_control: ArqueoTestigoControl | null;
+  /**
+   * ⭐ `[CGS.36]` La diferencia contra sus testigos: si es la verdadera, cuál es si no, y las pistas.
+   * `null` = el corte no tiene diferencia que arbitrar (sin conteo sellado).
+   */
+  verdad: VerdadDiferencia | null;
 }
 
 /** `[CGA-A.48]` Un depósito a la caja fuerte que coincide con billetes que Control contó de más. */
