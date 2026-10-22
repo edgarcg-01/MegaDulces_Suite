@@ -172,6 +172,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_VENDOR_SALES_VER]: { label: 'Ver Ventas de vendedor', description: 'Solo el reporte de ventas de vendedor (parte comercial del ticket OCR: por tienda/captura/ruta).', category: 'Comercial' },
   [Permission.COMMERCIAL_CARTERA_VER]: { label: 'Ver Cartera', description: 'Consultar la cartera de ventas y la asignación de rutas a vendedores.', category: 'Comercial · Cartera' },
   [Permission.COMMERCIAL_CARTERA_GESTIONAR]: { label: 'Gestionar Cartera', description: 'Asignar rutas y orden de visita a los vendedores.', category: 'Comercial · Cartera' },
+  [Permission.COMMERCIAL_ROUTE_WAREHOUSE_GESTIONAR]: { label: 'Cambiar sucursal de surtido de ruta', description: 'Elegir de qué sucursal se surte una ruta de su tipo (vecinal o directa). Mueve la existencia que ve el vendedor, la tienda a la que reporta su arqueo y la sucursal del alta de sus clientes nuevos.', category: 'Comercial · Cartera' },
   [Permission.COMMERCIAL_PRODUCTS_VER]: { label: 'Ver Productos', description: 'Consultar el catálogo comercial de productos.', category: 'Comercial' },
   [Permission.COMMERCIAL_PRODUCTS_GESTIONAR]: { label: 'Gestionar Productos', description: 'Alta y edición del catálogo comercial de productos.', category: 'Comercial' },
   [Permission.COMMERCIAL_THOT_VER]: { label: 'Ver Thot / IA', description: 'Chat comercial e inteligencia de recomendación (Thot).', category: 'Comercial · Thot' },

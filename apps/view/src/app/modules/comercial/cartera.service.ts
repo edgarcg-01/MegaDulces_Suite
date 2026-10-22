@@ -7,10 +7,20 @@ export interface SalesRouteRow {
   customer_count: number;
   assigned_to: { id: string; user_id: string; username: string }[];
 }
+/** Un renglón de la agenda semanal (`GET /daily-assignments`). */
+export interface TeamAgendaRow {
+  id: string;
+  user_id: string;
+  route_id: string;
+  day_of_week: number;
+  route_name: string;
+}
 export interface VendorOption {
   id: string;
   username: string;
   role_name: string;
+  /** Nombre de la persona (`public.users.nombre`); puede faltar. */
+  nombre?: string | null;
 }
 export interface RouteCustomer {
   id: string;
@@ -86,5 +96,22 @@ export class CarteraService {
   /** Renombra una sucursal (warehouse). Gateado COMMERCIAL_WAREHOUSES_GESTIONAR. */
   renameWarehouse(id: string, name: string) {
     return this.http.patch(`${environment.apiUrl}/commercial/warehouses/${id}`, { name });
+  }
+
+  // ── [MCP.3.10] Agenda semanal (public.daily_assignments) ──
+  // Es la ruta que MANDA: la app del vendedor arma su lista de clientes con ella (si ese día no
+  // eligió otra) y el tablero la lee igual. Se escribe con el endpoint de agenda que ya existe,
+  // que valida equipo y zona (TRADE_ROUTE_PLAN_GESTIONAR, que supervisor_ventas SÍ tiene).
+  /** La agenda de tu equipo (el servidor la recorta al equipo de quien consulta). */
+  teamAgenda() {
+    return this.http.get<TeamAgendaRow[]>(`${environment.apiUrl}/daily-assignments`);
+  }
+  /** Pone (o cambia) la ruta de UN día de la semana. Idempotente: es un upsert por (vendedor, día). */
+  setAgendaDay(user_id: string, route_id: string, day_of_week: number) {
+    return this.http.post(`${environment.apiUrl}/daily-assignments`, { user_id, route_id, day_of_week });
+  }
+  /** Quita la ruta de un día de la agenda. */
+  deleteAgendaDay(id: string) {
+    return this.http.delete(`${environment.apiUrl}/daily-assignments/${id}`);
   }
 }

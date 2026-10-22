@@ -31,6 +31,12 @@ interface Mundo {
   /** Venta Kepler por código y día. */
   sales?: { code: string; day: string; amount: string; tickets: number }[];
   targets?: { user_id: string; amount: string }[];
+  /** Sucursal de surtido de cada ruta (trade.catalogs ⋈ route_warehouses ⋈ warehouses). */
+  routeWh?: { route: string; warehouse_name: string | null }[];
+  /** La vista de venta Kepler revienta (no existe en la base local, o no responde). */
+  keplerFalla?: boolean;
+  /** Agenda del vendedor consultado (public.daily_assignments ⋈ catalogs). */
+  agendaRows?: { assignment_id: string; day_of_week: number | string; route_id: string; route: string }[];
 }
 
 const todaSemana = (user_id: string, route: string) => [1, 2, 3, 4, 5, 6, 7].map((day_of_week) => ({ user_id, day_of_week, route }));
@@ -42,9 +48,11 @@ function armar(m: Mundo) {
     const q: any = {};
     const wheres: unknown[] = [];
     let ids: string[] | null = null;
+    let agrupado = false;
     q.whereIn = (_c: string, v: string[]) => { if (nombre.startsWith('identity.users')) ids = v; return q; };
     q.where = (...a: unknown[]) => { wheres.push(a.length === 1 ? a[0] : a); return q; };
     for (const k of ['join', 'leftJoin', 'whereNull', 'whereNot', 'whereRaw', 'orderBy', 'select', 'distinct']) q[k] = () => q;
+    q.groupBy = () => { agrupado = true; return q; };
     const data = (): unknown[] => {
       if (nombre.startsWith('public.users')) {
         // `where({ id, activo })` + (si no es god-mode) `where('supervisor_id', yo)`.
@@ -60,8 +68,19 @@ function armar(m: Mundo) {
       }
       if (nombre.startsWith('commercial.vendor_route_day_picks')) return m.picks ?? [];
       if (nombre.startsWith('public.daily_assignments')) return m.agenda ?? [];
-      if (nombre.startsWith('commercial.customers')) return m.customers ?? [];
-      if (nombre.startsWith('commercial.vendor_visits')) return m.visits ?? [];
+      if (nombre.startsWith('commercial.customers')) {
+        if (!agrupado) return m.customers ?? [];
+        const n = new Map<string, number>();
+        for (const c of (m.customers ?? []) as { sales_route: string }[]) n.set(c.sales_route, (n.get(c.sales_route) ?? 0) + 1);
+        return [...n].map(([sales_route, k]) => ({ sales_route, n: k }));
+      }
+      if (nombre.startsWith('trade.catalogs')) return m.routeWh ?? [];
+      if (nombre.startsWith('commercial.vendor_visits')) {
+        // Respeta la ventana del día ("visited_at >= inicio" y "< fin"): el resumen arma varios días.
+        const lim = (op: string) => (wheres.find((w: any) => Array.isArray(w) && w[1] === op) as any)?.[2] as string | undefined;
+        const [desde, hasta] = [lim('>='), lim('<')];
+        return (m.visits ?? []).filter((x: any) => (!desde || x.visited_at >= desde) && (!hasta || x.visited_at < hasta));
+      }
       if (nombre.startsWith('commercial.orders')) return m.orders ?? [];
       if (nombre.startsWith('commercial.seller_route_days')) return m.days ?? [];
       if (nombre.startsWith('commercial.vendor_targets')) return m.targets ?? [];
@@ -77,11 +96,19 @@ function armar(m: Mundo) {
     raw: vi.fn(async (sql: string, b: unknown[] = []) => {
       raws.push({ sql, b });
       if (sql.includes('AS today')) {
-        return { rows: [{ today: HOY, day_start: '2026-10-21T06:00:00Z', day_end: '2026-10-22T06:00:00Z', my_department: m.department ?? null }] };
+        // El día pedido (o hoy) en hora de México = 06:00Z → 06:00Z del día siguiente.
+        const d = (b[0] as string | null) ?? HOY;
+        const sig = new Date(d + 'T00:00:00Z'); sig.setUTCDate(sig.getUTCDate() + 1);
+        return { rows: [{ today: HOY, day_start: d + 'T06:00:00Z', day_end: sig.toISOString().slice(0, 10) + 'T06:00:00Z', my_department: m.department ?? null }] };
       }
       if (sql.includes('FROM trade.catalogs')) return { rows: m.catalog ?? CATALOGO };
+      if (sql.includes('AS assignment_id')) return { rows: m.agendaRows ?? [] };
+      if (sql.includes('FROM public.catalogs cat')) {
+        return { rows: (m.catalog ?? CATALOGO).map((c) => ({ id: 'id-' + c.value, route: c.value })) };
+      }
       if (sql.includes('identity.positions')) return { rows: [{ department_code: m.department ?? null }] };
       if (sql.includes('v_kepler_vecinal_sales_docs')) {
+        if (m.keplerFalla) throw new Error('relation "analytics.v_kepler_vecinal_sales_docs" does not exist');
         const [codes, from, to] = b as [string[], string, string];
         return { rows: (m.sales ?? []).filter((s) => codes.includes(s.code) && s.day >= from && s.day <= to) };
       }
@@ -89,6 +116,8 @@ function armar(m: Mundo) {
       return { rows: [] };
     }),
   });
+  // SAVEPOINT = transacción anidada sobre la misma conexión.
+  trx.transaction = async (fn: (t: unknown) => unknown) => fn(trx);
   const tk = { run: vi.fn(async (fn: (t: unknown) => unknown) => fn(trx)) };
   const tenantCtx = { get: () => ({ tenantId: 't', userId: YO, roleName: m.role ?? 'supervisor_ventas' }) };
   const monitor = new VisitMonitorService(tk as any, tenantCtx as any);
@@ -300,5 +329,117 @@ describe('SupervisorBoardService.setTarget', () => {
   it('user_id mal formado = 400', async () => {
     const { svc } = armar(mundo());
     await expect(svc.setTarget({ ...ok, user_id: 'x' })).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('SupervisorBoardService.vendorSummary', () => {
+  it('user_id mal formado o fecha mal formada = 400', async () => {
+    const { svc } = armar(mundo());
+    await expect(svc.vendorSummary('x')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.vendorSummary(VEC, '21/10/2026')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('⛔ quien no es de tu equipo = 403', async () => {
+    const { svc } = armar(mundo());
+    await expect(svc.vendorSummary(AJENO, HOY)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('⭐ un día por cada día de la catorcena (del más reciente al más viejo), con visitados, pedidos y cobrado de ESE día', async () => {
+    const { svc } = armar(mundo({
+      department: 'ruta_vecinal',
+      routeWh: [{ route: R_VEC, warehouse_name: 'Sucursal Centro' }],
+      // Una visita del lunes: no debe contarse hoy ni el lunes contar las de hoy.
+      visits: [
+        visita(VEC, 'v1', '2026-10-19T16:00:00Z'),
+        visita(VEC, 'v3', '2026-10-21T15:00:00Z', { had_order: true, no_sale_reason: null }),
+        visita(VEC, 'v2', '2026-10-21T17:00:00Z'),
+      ],
+    }));
+    const r = await svc.vendorSummary(VEC, HOY, true);
+    expect(r.period).toEqual({ start: '2026-10-17', end: '2026-10-30', day: 5 });
+    expect(r.name).toBe('Vecinal Uno');
+    expect(r.days.map((d) => d.date)).toEqual(['2026-10-21', '2026-10-20', '2026-10-19', '2026-10-18', '2026-10-17']);
+    const [hoy, , lunes, sabado] = r.days;
+    expect(hoy).toMatchObject({ routes: ['1V003'], customers_total: 3, customers_visited: 2, orders: 1 });
+    expect(hoy.sales).toEqual({ amount: 1000.5, tickets: 3, unmeasured_reason: null });
+    expect(lunes).toMatchObject({ customers_visited: 1, orders: 0 });
+    expect(sabado.sales.amount).toBe(2000);
+    // Un día con ruta vecinal y sin documentos es un $0 MEDIDO, no un hueco.
+    expect(r.days[1].sales).toEqual({ amount: 0, tickets: 0, unmeasured_reason: null });
+    expect(r.sales_period).toEqual({ amount: 3000.5, tickets: 7, unmeasured_reason: null });
+    expect(r.target).toBe(10000);
+    expect(r.progress_pct).toBe(30);
+    expect(r.can_set_targets).toBe(true);
+    expect(r.routes).toEqual([{ route: R_VEC, code: '1V003', warehouse_name: 'Sucursal Centro', customers: 3 }]);
+    expect(r.freshness).toBeDefined();
+  });
+
+  it('sin meta: target y avance null (no 0 %); ruta sin sucursal = null', async () => {
+    const { svc } = armar(mundo({ department: 'ruta_vecinal', targets: [] }));
+    const r = await svc.vendorSummary(VEC, HOY);
+    expect(r.target).toBeNull();
+    expect(r.progress_pct).toBeNull();
+    expect(r.can_set_targets).toBe(false);
+    expect(r.routes[0].warehouse_name).toBeNull();
+  });
+
+  it('camión: la venta no se mide (null + motivo, nunca $0) y no se consulta Kepler', async () => {
+    const { svc, raws } = armar(mundo({ department: 'ruta_directa' }));
+    const r = await svc.vendorSummary(CAM, HOY);
+    expect(r.days[0].sales).toEqual({ amount: null, tickets: null, unmeasured_reason: SIN_MEDIR.directa });
+    expect(r.sales_period.amount).toBeNull();
+    expect(r.progress_pct).toBeNull();
+    expect(r.routes).toEqual([{ route: R_CAM, code: null, warehouse_name: null, customers: 1 }]);
+    expect(raws.some((x) => x.sql.includes('v_kepler_vecinal_sales_docs'))).toBe(false);
+  });
+
+  it('sin ruta en toda la catorcena: días vacíos y venta declarada sin ruta', async () => {
+    const { svc } = armar(mundo({ department: 'ruta_vecinal', team: [VEC, VEC2] }));
+    const r = await svc.vendorSummary(VEC2, HOY);
+    expect(r.routes).toEqual([]);
+    expect(r.days.every((d) => d.routes.length === 0 && d.customers_total === 0)).toBe(true);
+    expect(r.sales_period).toEqual({ amount: null, tickets: null, unmeasured_reason: SIN_MEDIR.sinRutaPeriodo });
+    expect(r.name).toBe('Vecinal Dos');
+  });
+
+  it('⛔ si la venta Kepler no se puede leer, el resumen la declara sin medir y no revienta', async () => {
+    const { svc } = armar(mundo({ department: 'ruta_vecinal', keplerFalla: true }));
+    const r = await svc.vendorSummary(VEC, HOY);
+    expect(r.days[0].sales).toEqual({ amount: null, tickets: null, unmeasured_reason: SIN_MEDIR.sinFuente });
+    expect(r.sales_period.amount).toBeNull();
+    expect(r.progress_pct).toBeNull();
+    expect(r.days[0].customers_visited).toBe(2);
+  });
+
+  it('⭐ trae su AGENDA (la ruta que usa la app del vendedor) y sólo ofrece rutas del tipo de quien consulta', async () => {
+    const { svc } = armar(mundo({
+      department: 'ruta_vecinal',
+      agendaRows: [1, 2, 3].map((d) => ({ assignment_id: 'a' + d, day_of_week: String(d), route_id: 'id-' + R_VEC, route: R_VEC })),
+    }));
+    const r = await svc.vendorSummary(VEC, HOY);
+    expect(r.agenda.map((a) => a.day_of_week)).toEqual([1, 2, 3]);
+    expect(r.agenda[0]).toEqual({ assignment_id: 'a1', day_of_week: 1, route_id: 'id-' + R_VEC, route: R_VEC });
+    // RV: la ruta de camión no se ofrece.
+    expect(r.route_options).toEqual([{ id: 'id-' + R_VEC, route: R_VEC, code: '1V003' }]);
+  });
+
+  it('god-mode ofrece todas las rutas del catálogo', async () => {
+    const { svc } = armar(mundo({ role: 'superadmin' }));
+    const r = await svc.vendorSummary(VEC, HOY);
+    expect(r.route_options.map((o) => o.route).sort()).toEqual([R_CAM, R_VEC].sort());
+    expect(r.agenda).toEqual([]);
+  });
+});
+
+describe('SupervisorBoardService.board · fuente caída', () => {
+  it('⛔ la vista Kepler revienta: el tablero responde igual, con la venta «sin medir» y el total sin afirmar (antes era un 500)', async () => {
+    const { svc } = armar(mundo({ department: 'ruta_vecinal', keplerFalla: true }));
+    const r = await svc.board(HOY);
+    const v = r.vendors[0];
+    expect(v.customers_visited).toBe(2);
+    expect(v.sales_day).toEqual({ amount: null, tickets: null, unmeasured_reason: SIN_MEDIR.sinFuente });
+    expect(v.sales_period.amount).toBeNull();
+    expect(r.totals.sales_day).toBeNull();
+    expect(r.totals.sales_period).toBeNull();
   });
 });

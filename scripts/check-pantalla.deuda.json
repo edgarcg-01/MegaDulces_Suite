@@ -148,8 +148,7 @@
   ],
   "apps/view/src/app/modules/comercial/pages/comercial-cartera.component.ts": [
     "Q.1",
-    "§2",
-    "§9"
+    "§2"
   ],
   "apps/view/src/app/modules/comercial/pages/comercial-comisiones-objetivo.component.ts": [
     "Q.1"
@@ -331,6 +330,10 @@
     "§9",
     "O.4"
   ],
+  "apps/view/src/app/modules/comercial/pages/comercial-supervisor-board.component.ts": [
+    "Q.1",
+    "§9"
+  ],
   "apps/view/src/app/modules/comercial/pages/comercial-thot-chat.component.ts": [
     "Q.1",
     "§2",
@@ -352,6 +355,9 @@
     "§2",
     "§9",
     "O.4"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-vendor-menu.component.ts": [
+    "Q.1"
   ],
   "apps/view/src/app/modules/comercial/pages/comercial-vendor-sales.component.ts": [
     "§2",

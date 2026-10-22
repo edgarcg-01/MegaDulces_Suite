@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Changed — Cartera de ventas: «Asignar rutas» es un menú de vendedores y el tablero se simplifica (MCP.3.10–3.11, 2026-10-22)
+- **Mis vendedores:** sólo Vendedor · Ruta de hoy («En ruta · desde 9:32», «Terminó · 8:12 – 14:37», «Sin iniciar») · Visitados · Venta hoy. Pestañas, «Ordenar», fecha y la frescura «Venta Kepler» van en una sola barra. Fuera los totales, la meta, el avance y el detalle por cliente.
+- **Asignar rutas:** menú de vendedores; al elegir uno, **Resumen** (meta de la catorcena contra lo cobrado y sus días) y **Configurar** (ruta de la semana, sucursal de surtido, meta y clientes a visitar). Se quitaron «Sucursal por ruta» y el orden de visita.
+- La ruta se asigna en la **agenda semanal** (la que usa la app del vendedor); antes se leía otra tabla y decía «Sin ruta» de quien sí tenía.
+- Permiso nuevo **«Cambiar sucursal de surtido de ruta»**; la migración se lo da a `supervisor_ventas`. ⚠️ Requiere volver a entrar y avisar a Edgar antes de aplicarla en prod.
+- Fixed: si la venta de Kepler no se puede leer, el tablero ya no responde 500: la venta se declara «Sin medir».
 ### Added — Arqueo: total de billetes, total de monedas y «Conteo de efectivo» sin caja (SM.47, 2026-10-22)
 - `/tienda/arqueo`: la tabla de conteo muestra **Total billetes** al terminar los billetes y **Total monedas** al terminar las monedas, en todas las pestañas; también el detalle de un arqueo guardado. El ticket suma las monedas en vez de restarlas del total.
 - Pestaña nueva **«Conteo de efectivo»** para encargada, Finanzas (y jefe de zona cuando se defina su rol): sucursal, quién cuenta y **motivo obligatorio**, sin caja. Se guarda como constancia, sin diferencia. Permiso `STORE_ARQUEO_SIN_CAJA_CAPTURAR`, endpoint `POST /store/arqueo/sin-caja`, 2 migraciones (aplicar antes del código).
