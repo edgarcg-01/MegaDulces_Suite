@@ -197,6 +197,26 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     expect(aut).toMatchObject({ estado: 'autorizado', authorization_note: 'Flete de 500 explicado, ajuste en la jornada siguiente' });
   });
 
+  it('⭐ `[CGS.36]` el arqueo trae la diferencia contra sus testigos y V12 en la lista; sin Control se DECLARA sin testigo', async () => {
+    const f = dia('03-15');
+    const s = suc('S36');
+    const c = await svc.abrir({ fecha: f, sucursal: s, fondo_inicial: 500 }, CAJERA);
+    await movimiento(f, s, 'ingreso', 1000);
+    await svc.contar(c.id, { conteo: conteo(['1000', 1000, 1]), morralla: 0 }, CAJERA);
+    await svc.cerrar(c.id, { conteo: [], morralla: 0 }, CAJERA);
+
+    const r = await svc.arqueos({ sucursal: s, desde: f, hasta: f });
+    const a = r.rows.find((x) => x.corte_id === c.id);
+    // ⛔ `verdad: null` sería que la lectura de testigos FALLÓ y el SAVEPOINT la escondió como «sin
+    // medir». Esta prueba es la que obliga a que su SQL corra de verdad contra Postgres.
+    expect(r.limites.join(' ')).not.toContain('No se pudo arbitrar');
+    expect(a?.verdad).toMatchObject({ estado: 'sin_confirmar', publicada: -500, verdadera: -500 });
+    expect(a?.verdad?.testigos.map((t) => [t.id, t.estado])).toEqual([
+      ['conteo', 'sin_testigo'], ['fondo', 'sin_testigo'], ['libro', 'confirma'], ['caja_fuerte', 'sin_testigo'],
+    ]);
+    expect(a?.verificacion.find((v) => v.id === 'V12')).toMatchObject({ estado: 'no_medido' });
+  });
+
   it('⛔ `[CGS.3]` (D2) con dos cortes cerrados sin revisar no se cierra el tercero; revisado uno, sí', async () => {
     const antes = process.env['CAJA_CANDADO_REVISION_DESDE'];
     process.env['CAJA_CANDADO_REVISION_DESDE'] = dia('04-01');

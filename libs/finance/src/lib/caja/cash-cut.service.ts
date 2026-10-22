@@ -7,6 +7,7 @@ import {
   denomKeyDeValor, denomDe, SUCURSAL_CAJA_GENERAL, diaDeFecha, aCorteCajaDto,
   type JornadasPendientes, type CorteCajaDto, type VeredictoCorte, type PosicionCajaDto,
   type ArqueosResponse, type ArqueoDia, type ArqueoCaos, type ArqueoPieza, type ArqueoControlUltimo, type VerificacionCorte,
+  type VerdadDiferencia,
 } from '@megadulces/contracts';
 import { depositosEnElExceso, excesoDeBilletes, type BilletesPorDenominacion, type DepositoCaos } from './caja-cajon-caos.engine';
 import { fondoSugerido } from './cash-opening.engine';
@@ -16,6 +17,8 @@ import { leerCandado, type CandadoCaja } from './caja-candado.query';
 import { leerPosicion } from './caja-posicion.query';
 import { candadoDeCierre, puedeDarLlave, TEXTO_NO_LLAVE } from './caja-candado.engine';
 import { verificarCorte, fallasDe, type HechosVerificacion } from './caja-verificacion.engine';
+import { verdadDeLaDiferencia } from './caja-verdad-diferencia.engine';
+import { leerHechosVerdad } from './caja-verdad-diferencia.query';
 import { cobrosVecinalesPendientes, type CobroVecinalPendiente } from './caja-vecinal.query';
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
@@ -1202,9 +1205,32 @@ export class CashCutService {
     return out;
   }
 
-  /** `[CGS.12]` La lista V1…V11 de UN corte, con sus hechos. La usan `arqueos()` y `autorizar()`. */
+  /**
+   * ⭐ `[CGS.36]` La diferencia de cada corte contra sus testigos (Control y la máquina). Lectura
+   * OPCIONAL en SAVEPOINT: si falla, el arqueo se publica igual y V12 sale «no medido», nunca verde.
+   * La usan `arqueos()` y `autorizar()`: dos copias del mismo juicio divergen.
+   */
+  private async verdades(
+    trx: Knex.Transaction, tenantId: string, sucursal: string, cortes: Array<Record<string, unknown>>,
+  ): Promise<Map<string, VerdadDiferencia> | null> {
+    await trx.raw('SAVEPOINT cgs36_verdad');
+    try {
+      const hechos = await leerHechosVerdad(trx, tenantId, sucursal, cortes);
+      await trx.raw('RELEASE SAVEPOINT cgs36_verdad');
+      const out = new Map<string, VerdadDiferencia>();
+      for (const [id, h] of hechos) out.set(id, verdadDeLaDiferencia(h));
+      return out;
+    } catch (e) {
+      await trx.raw('ROLLBACK TO SAVEPOINT cgs36_verdad').catch(() => undefined);
+      this.logger.warn(`[CGS.36] no se pudo arbitrar la diferencia: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
+  /** `[CGS.12]` La lista V1…V12 de UN corte, con sus hechos. La usan `arqueos()` y `autorizar()`. */
   private verificacionDeFila(
     c: Record<string, unknown>, h: HechosVerificacion | undefined, sumaPiezas: number | null,
+    verdad: VerdadDiferencia | null = null,
   ): VerificacionCorte[] {
     const num = (v: unknown): number | null => (v == null ? null : Number(v));
     const hh: HechosVerificacion = h ?? {
@@ -1222,6 +1248,7 @@ export class CashCutService {
       veredicto: this.veredictoFirmado(c),
       diferencia: num(c['diferencia']),
       explicacion,
+      verdad,
     });
   }
 
@@ -1338,8 +1365,10 @@ export class CashCutService {
       const hechos = await this.hechosDeVerificacion(trx, tenantId, String(c.sucursal), [id]);
       const dens: Array<{ denominacion: string | number; piezas: string | number }> = await trx('finance.cash_ledger_cut_denominations')
         .where({ tenant_id: tenantId, cut_id: id, momento: 'cierre' }).select('denominacion', 'piezas');
+      // `[CGS.36]` Y la diferencia contra sus testigos: si la publicada no es la verdadera, V12 falla.
+      const verdad = (await this.verdades(trx, tenantId, String(c.sucursal), [c]))?.get(id) ?? null;
       const fallas = fallasDe(this.verificacionDeFila(c, hechos.get(id),
-        sumaDePiezas(dens.map((d) => ({ importe: Number(d.denominacion) * Number(d.piezas) })))));
+        sumaDePiezas(dens.map((d) => ({ importe: Number(d.denominacion) * Number(d.piezas) }))), verdad));
       if (fallas.length && nota.length < MINIMO_TEXTO_REVISION) {
         throw new BadRequestException(
           `El corte no cumple ${fallas.map((f) => `${f.id} (${f.pregunta.toLowerCase()})`).join(', ')}: `
@@ -1514,6 +1543,9 @@ export class CashCutService {
       }
       // `[CGS.12]` Los hechos de la lista de verificación, para todos los cortes a la vez.
       const hechos = await this.hechosDeVerificacion(trx, tenantId, sucursal, cortes.map((c: { id: string }) => c.id));
+      // `[CGS.36]` Cada diferencia contra sus testigos, para todos los cortes a la vez.
+      const verdades = await this.verdades(trx, tenantId, sucursal, cortes);
+      if (!verdades) limites.push('No se pudo arbitrar la diferencia contra Control y la máquina: la verificación V12 sale sin medir.');
 
       /**
        * ⚠️ El **segundo testigo**, y va declarado como tal. No decide: cuál de los dos arbitra el
@@ -1598,7 +1630,9 @@ export class CashCutService {
           respuesta: (c['respuesta'] ?? null) as string | null,
           respondio: (c['responded_by_username'] ?? null) as string | null,
           nota_autorizacion: (c['authorization_note'] ?? null) as string | null,
-          verificacion: this.verificacionDeFila(c, hechos.get(String(c['id'])), sumaDePiezas(porCorte.get(String(c['id'])))),
+          verificacion: this.verificacionDeFila(c, hechos.get(String(c['id'])), sumaDePiezas(porCorte.get(String(c['id']))),
+            verdades?.get(String(c['id'])) ?? null),
+          verdad: verdades?.get(String(c['id'])) ?? null,
           piezas: porCorte.get(String(c['id'])) ?? [],
           testigo_control: ctl
             ? {

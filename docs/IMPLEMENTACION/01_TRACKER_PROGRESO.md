@@ -8986,6 +8986,11 @@ TP.6-TP.8+TP.10".
 >       003/006/002 a personas (Tesorería).
 > - [x] **[CGS.33]** 🚀 D4: a la caja entran Carmen, Mayra y María Gutiérrez, Dirección de suplente (batch 987).
 >       **[CGS.34]** ✅ los superadmins (14 cuentas) conservan el acceso (Edgar, 2026-10-21).
+> - [x] **[CGS.35]** 🧪 «¿Qué hay en caja ahora?» en Arqueos, rubro por rubro (cajón, caja fuerte, dólares, cheques,
+>       papeles); lo imposible o no medido se declara y no entra al total. SIN validación visual.
+> - [x] **[CGS.36]** 🧪 **La verdad de cada diferencia**: conteo, fondo, libro y caja fuerte contra testigos que no
+>       tecleó la misma persona; publica la verdadera al lado de la sellada, con pistas, y V12. Prod (dev_ro): 3 de 8
+>       corregidas (CC-4 +$136,602.36, CC-5 +$49,079.30, CC-7 −$188,884.59), 2 confirmadas, 3 sin testigo.
 > - ⚠️ Medido el 21-oct a las 16:45: CC-2026-00008 (20-oct) ya cerrado; **8 cortes esperan revisión, 0 revisados**.
 
 > ### 🔨 2026-10-19 — **EL `INSERT` A MANO NO DEBÍA EXISTIR**: el concepto se deriva, y lo que no, se declara desde la app
