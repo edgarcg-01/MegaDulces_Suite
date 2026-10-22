@@ -261,3 +261,22 @@ entre sí, ninguno es un `return` mudo). 29/29 verde en el área, **mutado a roj
 carril de pólizas `kdc2*` (`[CG.198]`). En la práctica se tapa solo porque cada corrida
 re-evalúa el periodo entero — un estado de cuenta cargado a las 10:00 lo recoge el primer aviso
 de Kepler posterior — pero **no está garantizado por construcción**.
+
+## 7. `[CB.54]` 🧪 Egresos que el motor de reglas dejaba sin categoría (2026-10-22)
+
+Lo encontró la búsqueda de «Oscar Hernandez» en el puente ContPAQi (`[CP.8.78]`): su pago no aparecía porque
+no tenía categoría. Medido en prod (sólo lectura), ene–oct 2026: **5,686 egresos sin categoría, $53.2 M**
+(banco 1,182 / $40.6 M · Caja General 4,504 / $12.5 M), 12–26 % cada mes. Todos `classified_by='rule'`: el
+motor corrió y devolvió `sin_clasificar`. **Sólo 234 categorizaciones manuales en el año.**
+
+| Hueco | Ejemplo | Arreglo (migración `20261022125305`) |
+|---|---|---|
+| Texto en la columna de **código**, concepto vacío (BANORTE 7744, SANTANDER 2169) | «Comision», «Nomina 06», «PAGO DE CAPITAL…» | reglas por `match_code` (880–883) |
+| Nómina / traslado de valores / SUA con un código que su regla no espera | «Servicio Panamericano» en 613 | reglas por concepto, cualquier código (900–903) |
+| Línea de crédito revolvente LC/PLEM/PL/TL con código «/» | «CREDITO LIQUIDO DISP… COBRO» | `traspaso_entre_cuentas`, como los 9 ya categorizados (890) |
+| **Beneficiario con nombre propio** en 612/613 | «Oscar Hernandez», «Valentin Oyanguren» | ⛔ **no lo resuelve ninguna regla**: memoria por beneficiario (pendiente) |
+
+Simulado con el motor real (control 30,915/30,915): **213 de 2026 categorizados ($21.7 M), 0 cambios** a lo ya
+categorizado. Descartado: usar el código como concepto cuando viene vacío (mandaba 71 «Comision» bancarias a
+`comisiones_venta`). Prueba `bank-rules-cb54.spec.ts`. ⚠️ **NO aplicada en prod** al cerrar esta sección.
+Pendientes: memoria por beneficiario + aviso «N sin categoría» en Bancos; Caja General (4,504) es de la fase CGA.
