@@ -1031,8 +1031,8 @@ solas también las facturas canceladas.
 | Item | Qué | Estado |
 |---|---|---|
 | **LC.19.1** | Estatus SAT real: el feed no borra lo verificado, sólo `vigente` se postea, «Verificar en el SAT» | 🧪 |
-| LC.19.2 | Frescura visible (CFDIs / pólizas) y «Nada pendiente» sólo con el feed al día | ⬜ |
-| LC.19.3 | Banner honesto: «N propuestas por regla de historial», no «$X sin contabilizar» | ⬜ |
+| LC.19.2 | Frescura visible (CFDIs / pólizas) y «Nada pendiente» sólo con el feed al día | 🧪 |
+| LC.19.3 | Banner honesto: «N propuestas por regla de historial», no «$X sin contabilizar» | 🧪 |
 | LC.19.4 | Testigo de completitud de los CFDI (descarga masiva SAT vs ADD) | ⬜ |
 | LC.19.5 | Sección LC en `VERDAD_ABSOLUTA.md` con su paridad registrada (R7) | ⬜ |
 | LC.19.6+ | Automatizar: ascender las «Importe ya posteado» que casan 212+referencia+total en el folio 1, aplicado automático, PUE y $0 fuera, catálogo de cuentas en el feed de ContPAQi, generación el día 1 | ⬜ |
@@ -1081,6 +1081,39 @@ noche, mezclando emitidos, contra **8,498 recibidos de los últimos 6 meses sin 
   Mismo caso que `invoice-issuer.binding.module.ts` y los 13 imports de `app.module.ts`. No se tocó la
   config de lint sin autorización.
 - e2e: se agregó «verificar en el SAT» antes de generar (negativa en UI y API, luego verifica de verdad).
+
+### LC.19.2 — la frescura de las dos fuentes, y el cero que no es «al día»
+
+La pantalla no decía de cuándo era lo que mostraba (deuda §9 de `check:pantalla`), y con **cero
+CFDIs** pintaba en verde «Nada pendiente — todas las facturas están ligadas»: con el feed del ADD
+muerto se habría visto igual que un mes limpio.
+
+- `getMes` devuelve `frescura` (el `Freshness` ternario de `platform-core`, `evalInput` +
+  `composeFreshness`, no uno nuevo) con dos eslabones por el latido de su carril (`laneAt` →
+  `v_feed_freshness`): **`cfdis`** ← `contpaqi_add_cfdis` y **`polizas`** ← `feed_contpaqi`, tolerancia 1 h.
+  Leído en SAVEPOINT: si falla, `unknown`, nunca «fresco».
+- **Pólizas viejas o sin medir = BLOQUEANTE** (pantalla y `generar`): las cuatro puertas del
+  anti-duplicado mirarían una foto vieja y el TXT duplicaría lo posteado después. **CFDIs viejos =
+  aviso**: lo que falte entra después en un complemento, no se duplica nada.
+- La pantalla pinta una `<app-freshness-pill measures="data">` por fuente (la compartida). Con cero
+  CFDIs y el feed no fresco, el veredicto pasa a «Sin facturas por asociar, pero sin datos al día».
+- ⚠️ **Declarado:** `feed_contpaqi` corre dos pasos (pólizas + bancos) y cierra `ok` aunque falle uno
+  (GX.19); no tiene bitácora por paso. Es el testigo más fuerte que hay hoy para las pólizas.
+- Medido en prod: `app_runtime` lee `v_feed_freshness` y `cron_runs` (sin eso, todo saldría «sin
+  medir» y bloquearía cada mes); octubre abre en 329 ms con la frescura incluida.
+- Pruebas: trámite contra prod **23 ✓** (la frescura de las 2 fuentes medida, con hora). En `pruebas-db`:
+  latidos sembrados y restaurados; pólizas de hace 3 h → bloqueante y `generar` rechazado (prueba
+  negativa en el servidor); CFDIs de hace 3 h con pólizas al día → aviso, no bloqueo.
+- `check:pantalla`: la pantalla paga su deuda §9 (36 → 35 fallas), 0 nuevas.
+
+### LC.19.3 — el banner dice qué es: una propuesta
+
+Decía «**Faltan 275 movimientos por asociar — $31,829,626 sin contabilizar**», como si las 275
+fueran un hecho. Entran por una **regla** (proveedor con cuenta que salió en el libro de los últimos 6
+meses), y en jul/ago/sep **entre 46 y 65 al mes nunca entraron al libro manual** — ninguna aparece en
+ninguna póliza de ContPAQi, por UUID ni por su 212. Ahora: «**275 facturas sin asociar propuestas para
+el TXT · $X**. Entran porque el proveedor tiene cuenta y salió en el libro de los últimos 6 meses:
+revísalas antes de generar. Otras 64 ($1.58M) esperan revisión en «Sin libro reciente».»
 
 ## Estado
 

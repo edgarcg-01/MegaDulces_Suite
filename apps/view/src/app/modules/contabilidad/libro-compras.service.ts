@@ -2,6 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+// `import type`: cero bytes al bundle (ver freshness-pill.component.ts).
+import type { Freshness } from '@megadulces/contracts';
 
 /**
  * Fase LC (ADR-052) — Libro de Compras. El trámite mensual se lleva aquí; a ContPAQi
@@ -148,6 +150,11 @@ export interface MesDetalle {
   avisos: string[];
   /** LC.18: a qué cuentas van IVA e IEPS — las del último libro (`desde`), no unas fijas. */
   cuentas_impuesto?: CuentasImpuesto;
+  /**
+   * LC.19.2: la edad de las dos fuentes, por el latido de su carril: `cfdis` (feed del ADD) y
+   * `polizas` (feed de ContPAQi). Pólizas viejas ya vienen como bloqueante; CFDIs viejos, como aviso.
+   */
+  frescura?: Freshness;
 }
 
 export interface CuentasImpuesto {

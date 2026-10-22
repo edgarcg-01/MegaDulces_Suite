@@ -1,7 +1,9 @@
 import { Injectable, BadRequestException, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
 import { createHash } from 'crypto';
 import type { Knex } from 'knex';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import {
+  TenantKnexService, TenantContextService, laneAt, evalInput, composeFreshness, FRESHNESS_UNKNOWN, type Freshness,
+} from '@megadulces/platform-core';
 import {
   FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput,
 } from '@megadulces/contracts';
@@ -410,6 +412,31 @@ export class PurchaseBookService {
   ) {}
 
   /**
+   * `[LC.19.2]` La edad de las dos fuentes del mes, por el latido de su carril:
+   *   · `cfdis`   ← `contpaqi_add_cfdis` (feed del ADD, cada 5 min)
+   *   · `polizas` ← `feed_contpaqi` (pólizas + bancos, cada minuto)
+   * Tolerancia 1 h para las dos: con el carril cada 1–5 min, una hora sin latido es una caída.
+   * ⚠️ `feed_contpaqi` corre DOS pasos y cierra `ok` si falla uno solo (GX.19); ese carril no
+   * tiene bitácora por paso. Es el testigo más fuerte que hay hoy, y queda declarado.
+   * En SAVEPOINT: si la lectura falla no aborta la transacción del mes, y se declara `unknown`.
+   */
+  private async frescuraFuentes(knex: Knex): Promise<Freshness> {
+    try {
+      return await knex.transaction(async (sp) => {
+        const cfdis = await laneAt(sp, 'contpaqi_add_cfdis');
+        const polizas = await laneAt(sp, 'feed_contpaqi');
+        return composeFreshness([
+          evalInput('cfdis', 'CFDIs del ADD', cfdis, 1),
+          evalInput('polizas', 'Pólizas de ContPAQi', polizas, 1),
+        ]);
+      });
+    } catch (e: unknown) {
+      this.logger.warn(`frescura del libro: no se pudo medir (${e instanceof Error ? e.message : String(e)})`);
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
+  /**
    * `[LC.19.1]` Verifica ante el SAT, en el momento, las facturas del mes que podrían entrar al
    * TXT: las marcadas, y las que tienen cuenta y no están ya en el libro (se pueden marcar). Un
    * lote por llamada; la pantalla repite mientras `restantes > 0`. Lo que se verificó hace menos
@@ -802,7 +829,7 @@ export class PurchaseBookService {
    * DB-direct con `$1` tampoco, porque no pasa por el formateador de knex. Vivido acá el
    * 2026-09-02: la pantalla dio 500 en prod por un `-- ¿...?` de tres palabras.
    */
-  async getMes(anioMes: string, tipo: TipoCorrida = 'libro'): Promise<{ mes: string; tipo: TipoCorrida; run: Record<string, unknown> | null; facturas: FacturaMes[]; resumen: Record<string, number>; bloqueantes: string[]; avisos: string[]; cuentas_impuesto: CuentasImpuesto }> {
+  async getMes(anioMes: string, tipo: TipoCorrida = 'libro'): Promise<{ mes: string; tipo: TipoCorrida; run: Record<string, unknown> | null; facturas: FacturaMes[]; resumen: Record<string, number>; bloqueantes: string[]; avisos: string[]; cuentas_impuesto: CuentasImpuesto; frescura: Freshness }> {
     this.mesValido(anioMes);
     return this.tk.run(async (knex) => {
       // [LC.18 · e2e] Sin `archivo_contenido`: son ~160 KB que la pantalla no usa, y bajarlos
@@ -1125,8 +1152,24 @@ export class PurchaseBookService {
         }
       }
 
+      // [LC.19.2] De qué tan viejo es lo que estamos viendo. Las pólizas viejas BLOQUEAN: el
+      // anti-duplicado no vería lo que se posteó después y el TXT lo duplicaría. Los CFDIs viejos
+      // son aviso: lo que falte entra después en un complemento, no se duplica nada.
+      const frescura = await this.frescuraFuentes(knex);
+      const polizas = frescura.inputs.find((i) => i.key === 'polizas');
+      const cfdisF = frescura.inputs.find((i) => i.key === 'cfdis');
+      if (!polizas || polizas.status !== 'fresh') {
+        bloqueantes.push(polizas?.at
+          ? `las pólizas de ContPAQi no se leen desde hace ${polizas.age_human}: el anti-duplicado no vería lo posteado después`
+          : 'no se pudo medir cuándo se leyeron las pólizas de ContPAQi: sin eso el anti-duplicado no es confiable');
+      }
+      if (!cfdisF || cfdisF.status !== 'fresh') {
+        avisos.push(cfdisF?.at
+          ? `los CFDIs del ADD no se actualizan desde hace ${cfdisF.age_human}: pueden faltar facturas recientes`
+          : 'no se pudo medir cuándo se actualizaron los CFDIs del ADD');
+      }
       const cuentasImpuesto = await this.cuentasImpuesto(knex, anioMes);
-      return { mes: anioMes, tipo, run: this.runParaPantalla(run), facturas, resumen, bloqueantes, avisos, cuentas_impuesto: cuentasImpuesto };
+      return { mes: anioMes, tipo, run: this.runParaPantalla(run), facturas, resumen, bloqueantes, avisos, cuentas_impuesto: cuentasImpuesto, frescura };
     });
   }
 
@@ -1668,9 +1711,16 @@ export class PurchaseBookService {
         + 'Usa "Movimientos no asociados"; si el mes no tiene póliza, cámbiale el folio a 1 en la carátula.',
       );
     }
-    const { facturas, resumen, bloqueantes, cuentas_impuesto: ctasImp } = await this.getMes(anioMes, tipo);
+    const { facturas, resumen, bloqueantes, cuentas_impuesto: ctasImp, frescura } = await this.getMes(anioMes, tipo);
     const dentro = facturas.filter((f) => f.incluida);
     if (!dentro.length) throw new BadRequestException('no hay movimientos sin asociar por entregar en este mes');
+    // [LC.19.2] Con las pólizas sin leer, las cuatro puertas del anti-duplicado miran una foto vieja.
+    const fPolizas = frescura.inputs.find((i) => i.key === 'polizas');
+    if (!fPolizas || fPolizas.status !== 'fresh') {
+      throw new BadRequestException(fPolizas?.at
+        ? `las pólizas de ContPAQi no se leen desde hace ${fPolizas.age_human}: generar ahora podría duplicar lo que se posteó después. Revisa el feed de ContPAQi.`
+        : 'no se pudo medir cuándo se leyeron las pólizas de ContPAQi: sin eso el anti-duplicado no es confiable.');
+    }
 
     // Si alguna de las incluidas ya está posteada, el archivo duplicaría un asiento. No es
     // un aviso, es un bloqueo — el daño es irreversible del lado de ContPAQi y nadie lo

@@ -210,6 +210,11 @@ async function soloLectura(url) {
     const bloqSat = oct.bloqueantes.some((b) => /sin verificar ante el SAT/.test(b));
     check(octSin.length === oct.resumen.sin_verificar_sat && bloqSat === (octSin.length > 0),
       `LC.19.1: ${octSin.length} de ${oct.resumen.incluidas} marcadas sin verificar ante el SAT → bloqueante ${bloqSat ? 'presente' : 'ausente'}, resumen.sin_verificar_sat = ${oct.resumen.sin_verificar_sat}`);
+    // [LC.19.2] Se exige que esté MEDIDA (con hora), no que esté fresca: una caída real del feed
+    // se ve en la pantalla como bloqueo, y no es un defecto del código.
+    const fr = oct.frescura;
+    check(fr && fr.inputs.length === 2 && fr.inputs.every((i) => !!i.at),
+      `LC.19.2: la frescura de las 2 fuentes está medida (${fr ? fr.inputs.map((i) => `${i.key} ${i.status} hace ${i.age_human}`).join(' · ') : 'sin frescura'})`);
     const sinPort = await servicio(pool).verificarSat('2026-10', 'complemento');
     check(sinPort.disponible === false && sinPort.consultados === 0 && sinPort.restantes === 0,
       `sin el port del SAT no consulta nada y lo DECLARA (disponible=false; ${sinPort.por_verificar} por verificar), no las da por vigentes`);
@@ -227,6 +232,13 @@ async function completo(urlAdmin, urlRuntime) {
   assertSafeTarget('test-newdb-libro-compras-tramite', { url: urlRuntime });
   const admin = knexLib({ client: 'pg', connection: urlAdmin, pool: { min: 0, max: 2 } });
   const runtime = knexLib({ client: 'pg', connection: urlRuntime, pool: { min: 0, max: 3 } });
+  const LATIDOS = ['contpaqi_add_cfdis', 'feed_contpaqi'];
+  let latidosPrevios = null;
+  const restaurarLatidos = async () => {
+    if (!latidosPrevios) return;
+    await admin('analytics.cron_runs').where({ tenant_id: MEGA }).whereIn('job_key', LATIDOS).del();
+    if (latidosPrevios.length) await admin('analytics.cron_runs').insert(latidosPrevios);
+  };
   const limpiar = async () => {
     const ids = (await admin('finance.purchase_book_runs').where({ tenant_id: MEGA, anio_mes: MES }).select('id')).map((r) => r.id);
     if (ids.length) await admin('finance.purchase_book_run_items').whereIn('run_id', ids).del();
@@ -240,11 +252,19 @@ async function completo(urlAdmin, urlRuntime) {
   };
   try {
     for (const t of ['finance.purchase_book_runs', 'finance.purchase_book_run_items', 'fiscal.cfdis', 'finance.gl_supplier_accounts',
-      'analytics.gl_poliza_lines', 'analytics.contpaqi_accounts', 'contpaqi.supplier_accounts']) {
+      'analytics.gl_poliza_lines', 'analytics.contpaqi_accounts', 'contpaqi.supplier_accounts', 'analytics.cron_runs']) {
       const [s, n] = t.split('.');
       if (!(await admin.schema.withSchema(s).hasTable(n))) { noMedido(`${t} no existe en este destino`); return; }
     }
     await limpiar();
+    // [LC.19.2] El libro mide la edad de sus dos fuentes por el latido del carril. En un destino
+    // de pruebas no corre ningún feed: se siembran frescos y al final se deja lo que había.
+    latidosPrevios = await admin('analytics.cron_runs').where({ tenant_id: MEGA }).whereIn('job_key', LATIDOS).select('*');
+    for (const job_key of LATIDOS) {
+      await admin('analytics.cron_runs')
+        .insert({ tenant_id: MEGA, job_key, label: 'candado LC.19.2', status: 'ok', last_start: admin.fn.now(), last_finish: admin.fn.now() })
+        .onConflict(['tenant_id', 'job_key']).merge(['status', 'last_start', 'last_finish']);
+    }
 
     console.log('\n[0] Sembrar un mes de prueba con postgres (salta el RLS: siembra, no prueba)');
     await admin('finance.gl_supplier_accounts').insert({
@@ -351,6 +371,26 @@ async function completo(urlAdmin, urlRuntime) {
     const fNoEnc = d.facturas.find((f) => f.uuid === UUIDS[2]);
     check(fNoEnc && fNoEnc.estatus_sat === 'desconocido' && !!fNoEnc.estatus_verificado_at, 'la no encontrada sigue «desconocido» (no se da por vigente), con la hora de la consulta');
 
+    console.log('\n[1d] LC.19.2 — con las pólizas sin leer no se genera');
+    check(d.frescura && d.frescura.status === 'fresh' && d.frescura.inputs.length === 2,
+      `la respuesta declara la frescura de sus 2 fuentes (${d.frescura && d.frescura.inputs.map((i) => `${i.key}=${i.status}`).join(', ')})`);
+    await admin('analytics.cron_runs').where({ tenant_id: MEGA, job_key: 'feed_contpaqi' })
+      .update({ last_start: admin.raw(`now() - interval '3 hours'`), last_finish: admin.raw(`now() - interval '3 hours'`) });
+    d = await svc.getMes(MES, 'complemento');
+    check(d.bloqueantes.some((b) => /pólizas de ContPAQi no se leen desde hace/.test(b)),
+      `pólizas de hace 3 h → BLOQUEANTE (${d.frescura.inputs.find((i) => i.key === 'polizas').status})`);
+    const eFresca = await rechazo(() => svc.generar(MES, { impuestos: 'global', uuid: true, ...T }));
+    check(eFresca && /no se leen desde hace/.test(msg(eFresca)), '⛔ prueba negativa: el servidor no genera con las pólizas viejas');
+    await admin('analytics.cron_runs').where({ tenant_id: MEGA, job_key: 'contpaqi_add_cfdis' })
+      .update({ last_start: admin.raw(`now() - interval '3 hours'`), last_finish: admin.raw(`now() - interval '3 hours'`) });
+    await admin('analytics.cron_runs').where({ tenant_id: MEGA, job_key: 'feed_contpaqi' })
+      .update({ last_start: admin.fn.now(), last_finish: admin.fn.now() });
+    d = await svc.getMes(MES, 'complemento');
+    check(!d.bloqueantes.some((b) => /pólizas de ContPAQi|cuándo se leyeron/.test(b)) && d.avisos.some((a) => /CFDIs del ADD no se actualizan/.test(a)),
+      'CFDIs viejos con pólizas al día → AVISO, no bloqueo (lo que falte entra en un complemento)');
+    await admin('analytics.cron_runs').where({ tenant_id: MEGA, job_key: 'contpaqi_add_cfdis' })
+      .update({ last_start: admin.fn.now(), last_finish: admin.fn.now() });
+
     console.log('\n[2] generar, con el payload de la pantalla { impuestos, uuid }');
     const g = await svc.generar(MES, { impuestos: 'global', uuid: true, ...T });
     check(g.facturas === 2 && g.cargos === g.abonos, `2 facturas, cuadra en ${g.cargos}`);
@@ -452,6 +492,7 @@ async function completo(urlAdmin, urlRuntime) {
       'el mes ya la ve con cuenta; como nunca entró al libro, espera revisión (no entra sola)');
   } finally {
     try { await limpiar(); } catch (e) { console.log(`  ⚠ limpieza incompleta: ${e.message}`); }
+    try { await restaurarLatidos(); } catch (e) { console.log(`  ⚠ no se restauraron los latidos: ${e.message}`); }
     await admin.destroy();
     await runtime.destroy();
   }
