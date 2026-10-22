@@ -321,7 +321,7 @@ export class QuotesService {
   }
 
   /**
-   * Padrón de MAYOREO (`C####`) derivado de `kepler_ods.kdud`.
+   * Padrón de clientes del ERP derivado de `kepler_ods.kdud` (todas las claves desde E.26, no sólo `C####`).
    * Cada cliente trae el arreglo de sus sucursales porque sus condiciones difieren entre ellas.
    */
   searchWholesaleCustomers(search: string, limit = 20): Observable<WholesaleCustomer[]> {

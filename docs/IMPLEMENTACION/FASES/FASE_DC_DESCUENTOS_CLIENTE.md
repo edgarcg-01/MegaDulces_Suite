@@ -229,6 +229,12 @@ se le hizo a `c17` antes de usarse en código.
 
 ## 9. Qué construir, si la respuesta a (1) es sí
 
+- 🧪 **`[E.26]` 2026-10-22 — hecho para COTIZACIONES, por el camino corto:** `v_erp_wholesale_customers`
+  dejó de filtrar `C####` (mig `20261022091046`, sin aplicar en prod todavía). Medido: el **27.6 %
+  de los pedidos de telemarketing** (439 de 1,590 en 30 d, $1.3 M) son de clientes `CR####`,
+  numéricos o `CONTADO`, y `kdud.c17` = el % del pedido en 432 de ellos. No se creó la vista nueva
+  de abajo: la existente tiene un solo consumidor (cotizaciones) y bastaba con quitar el filtro.
+  Los otros cuatro flujos siguen como dice §5 (decisión 1 sin tomar).
 - **DC.0** — resolvedor único `analytics.v_customer_discount` (tenant × sucursal × cliente) sobre
   `kdud`, **sin el filtro `C####`**, con `metodo` y `NULL` declarado cuando no hay dato. Vista
   `derive-no-copy`: cero importers. `v_erp_wholesale_customers` pasa a leerlo en vez de
