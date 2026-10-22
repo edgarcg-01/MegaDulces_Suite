@@ -6,8 +6,7 @@ import {
 // `[ETQ-PRES.2]` La forma la define el contrato, no este archivo (ADR-056: un primitivo vive en
 // `libs/` o no existe). `PresentacionPrecio` extiende al `QtyUnitLabel` de VU.0 al PRECIO.
 import type { Knex } from 'knex';
-import { elegirAnterior } from '@megadulces/contracts';
-import { esCodigoSimbolico } from './codigo-simbolico';
+import { elegirAnterior, esCodigoSimbolico, marcarCodigosSimbolicos } from '@megadulces/contracts';
 import type {
   CostoPresentacion, FichaCompras, HistorialCosto, PresentacionPrecio, PriceChangeRow,
 } from '@megadulces/contracts';
@@ -675,29 +674,61 @@ export class CommercialLabelsService {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
-  /** Búsqueda de catálogo para el buscador de la etiquetera (nombre / sku / barcode de CUALQUIER unidad). */
+  /**
+   * Búsqueda de catálogo para el buscador de la etiquetera (nombre / sku / barcode de CUALQUIER unidad).
+   *
+   * `[ETQ-PROMO.2]` Los códigos SIMBÓLICOS de Kepler (promociones, bonificaciones, ajustes a $0.01) SÍ salen
+   * al buscar por nombre, pero **marcados** (`es_promocion`) y **después** de los productos: quien busca
+   * «OREO BASE 9 KG» quiere ver qué es, y el aviso de «no lleva etiqueta» lo explica al agregarlo. (Una
+   * primera versión los ocultaba; se probó en local y se pidió que el buscador sí los encuentre.)
+   * Se trae de más (40) y se recorta a 20 DESPUÉS de ordenar, para que las promociones no desplacen a los productos.
+   */
   async search(q: string): Promise<{ product_id: string; sku: string | null; name: string; barcode: string | null }[]> {
     const term = String(q ?? '').trim();
     if (term.length < 2) return [];
     return this.tk.run(async (trx) => {
-      const like = `%${term}%`;
-      const hasBc = await this.hasUnitBarcodes(trx);
-      return trx('products as p')
-        .whereNull('p.deleted_at')
-        .andWhere((b) => {
-          b.where('p.nombre', 'ilike', like).orWhere('p.sku', 'ilike', like).orWhere('p.barcode', 'ilike', like);
-          // Además: cualquier producto cuyo barcode de OTRA unidad (caja/paquete) matchee el término.
-          if (hasBc) {
-            b.orWhereExists(function () {
-              this.select(trx.raw('1')).from('catalog.product_barcodes as pb')
-                .whereRaw('pb.sku = p.sku').andWhere('pb.barcode', 'ilike', like).whereNull('pb.deleted_at');
-            });
-          }
-        })
-        .select('p.id as product_id', 'p.sku', 'p.nombre as name', 'p.barcode')
-        .orderBy('p.nombre', 'asc')
-        .limit(20);
+      const hits = await this.buscarProductos(trx, term, 40);
+      const centavo = await this.centavoEnTodasLasPlazas(
+        trx, hits.map((h) => String(h.sku ?? '').trim()).filter(Boolean));
+      return marcarCodigosSimbolicos(hits, centavo).slice(0, 20);
     });
+  }
+
+  /** `[ETQ-PROMO.2]` Por SKU: ¿el precio es exactamente $0.01 en TODAS las plazas (pieza y paquete/caja)? */
+  private async centavoEnTodasLasPlazas(trx: Knex.Transaction, skus: string[]): Promise<Map<string, boolean>> {
+    const mapa = new Map<string, boolean>();
+    if (!skus.length) return mapa;
+    const r = await trx.raw(
+      `SELECT btrim(c1::text) AS sku, bool_and(c90 = 0.01 AND coalesce(c91, 0) <= 0.01) AS centavo_en_todas
+         FROM kepler_ods.kdii WHERE btrim(c1::text) = ANY(?) GROUP BY btrim(c1::text)`,
+      [Array.from(new Set(skus))],
+    );
+    for (const x of (r?.rows ?? []) as Array<{ sku: unknown; centavo_en_todas: unknown }>) {
+      if (typeof x.centavo_en_todas === 'boolean') mapa.set(String(x.sku), x.centavo_en_todas);
+    }
+    return mapa;
+  }
+
+  private async buscarProductos(
+    trx: Knex.Transaction, term: string, limite: number,
+  ): Promise<{ product_id: string; sku: string | null; name: string; barcode: string | null }[]> {
+    const like = `%${term}%`;
+    const hasBc = await this.hasUnitBarcodes(trx);
+    return trx('products as p')
+      .whereNull('p.deleted_at')
+      .andWhere((b) => {
+        b.where('p.nombre', 'ilike', like).orWhere('p.sku', 'ilike', like).orWhere('p.barcode', 'ilike', like);
+        // Además: cualquier producto cuyo barcode de OTRA unidad (caja/paquete) matchee el término.
+        if (hasBc) {
+          b.orWhereExists(function () {
+            this.select(trx.raw('1')).from('catalog.product_barcodes as pb')
+              .whereRaw('pb.sku = p.sku').andWhere('pb.barcode', 'ilike', like).whereNull('pb.deleted_at');
+          });
+        }
+      })
+      .select('p.id as product_id', 'p.sku', 'p.nombre as name', 'p.barcode')
+      .orderBy('p.nombre', 'asc')
+      .limit(limite);
   }
 
   /**

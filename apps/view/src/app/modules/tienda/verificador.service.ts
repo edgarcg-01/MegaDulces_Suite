@@ -55,6 +55,8 @@ export interface HalladoCatalogo {
   exacto: boolean;
   unidades: UnidadPrecio[];
   mayoreo: MayoreoTier[];
+  /** `[ETQ-PROMO.2]` Promoción/ajuste de Kepler, no un producto: no tiene precio de venta y NO se anota como faltante. */
+  esPromocion: boolean;
 }
 
 /**
@@ -132,6 +134,11 @@ export interface ProcedenciaPrecio {
   plazaSinDato?: boolean;
   /** `override_manual` = alguien lo corrigió a mano; es el que se imprime en el anaquel. */
   origenPrecio?: 'kepler' | 'override_manual';
+  /**
+   * `[ETQ-PROMO.2]` El código es una PROMOCIÓN/ajuste de Kepler, no un producto: el precio que trae es el
+   * centavo simbólico. La pantalla AVISA en vez de pintar un precio. `false`/ausente = producto.
+   */
+  esPromocion?: boolean;
 }
 
 export type ResultadoBusqueda =
@@ -321,6 +328,7 @@ export class VerificadorService {
           plazasDistintas: Number(r.plazas_con_precio_distinto) || 1,
           plazaSinDato: r.plaza_pedida_sin_dato === true,
           origenPrecio: r.origen_precio === 'override_manual' ? 'override_manual' : 'kepler',
+          esPromocion: r.es_promocion === true,
           // `[TDA.3]` De qué unidad es el código escaneado. Lo resuelve el backend contra la misma
           // fila de la que sale el precio, así que unidad y precio no pueden discrepar.
           unidadEscaneada: r.unidad_escaneada ?? null,
@@ -383,6 +391,9 @@ export class VerificadorService {
       // y no poder mostrar el precio de CJA sería peor que no decir nada.
       unidadEscaneada: uEsc && unidades.some((x) => x.u === uEsc) ? uEsc : null,
       unidadBase: unidades[0]?.u ?? null,
+      // `[ETQ-PROMO.2]` Formato 4. Un respaldo anterior no trae `pm`: ahí un código de promoción se ve como
+      // siempre (por eso el formato anterior se DECLARA y se re-descarga en cuanto hay red).
+      esPromocion: item.pm === 1,
     };
   }
 
@@ -468,7 +479,7 @@ export class VerificadorService {
     const hay = await this.cargarIndice(sucursal);
     if (!hay) return null; // no hay respaldo: "no puedo buscar" ≠ "no hay resultados"
 
-    return buscarEnCatalogo(this.buscables, texto, limite).map(({ b, por, exacto }) => ({
+    return buscarEnCatalogo(this.buscables, texto, limite).map(({ b, por, exacto, esPromocion }) => ({
       codigo: b.codigo,
       nombre: b.item.n || '',
       proveedor: b.proveedor,
@@ -476,6 +487,7 @@ export class VerificadorService {
       exacto,
       unidades: unidadesDeItem(b.item),
       mayoreo: (b.item.m || []).map(expandirTier),
+      esPromocion,
     }));
   }
 

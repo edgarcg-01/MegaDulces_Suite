@@ -159,6 +159,59 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     expect(fix.nativeElement.querySelector('input.vf-input')).toBeTruthy();
   });
 
+  /** `[ETQ-PROMO.2]` Una promoción de Kepler se AVISA; su centavo simbólico no se pinta como precio. */
+  describe('promoción de Kepler', () => {
+    const PROMO = {
+      codigo: '09089', nombre: '10 CJS OREO BASE 9 KG = GRATIS 1 CJ MAS',
+      unidades: [{ u: 'PZA', precio_con_iva: 0.01, precio_sin_iva: 0.01, factor: 1 }],
+      iva_pct: 16, ieps_pct: 0, mayoreo: [], contenido: null, product_id: null,
+    };
+
+    it('⭐ en lugar del precio dice «promoción, no un producto»: no hay $0.01 en pantalla', () => {
+      svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: PROMO, esPromocion: true };
+      fix.componentInstance.consultar('09089');
+      fix.detectChanges();
+      const el = fix.nativeElement as HTMLElement;
+      expect(el.querySelector('.vf-promo')).not.toBeNull();
+      expect(el.textContent).toContain('Esto es una promoción, no un producto');
+      expect(el.textContent).toContain('OREO BASE 9 KG');
+      // lo que NO debe haber: la cifra grande ni el centavo como si se pudiera cobrar
+      expect(el.querySelector('.vf-precio')).toBeNull();
+      expect(el.textContent).not.toContain('0.01');
+    });
+
+    it('⛔ [negativa] un producto real sigue mostrando su precio y NO el aviso', () => {
+      svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: PRODUCTO, esPromocion: false };
+      fix.componentInstance.consultar('17083');
+      fix.detectChanges();
+      const el = fix.nativeElement as HTMLElement;
+      expect(el.querySelector('.vf-promo')).toBeNull();
+      expect(el.querySelector('.vf-precio')?.textContent?.replace(/\s/g, '')).toBe('$62.99');
+    });
+
+    it('⛔ el aviso NO se queda pegado: promoción y luego producto real → vuelve a pintar el precio', () => {
+      const c = fix.componentInstance;
+      svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: PROMO, esPromocion: true };
+      c.consultar('09089');
+      fix.detectChanges();
+      svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: PRODUCTO };
+      c.consultar('17083');
+      fix.detectChanges();
+      const el = fix.nativeElement as HTMLElement;
+      expect(el.querySelector('.vf-promo')).toBeNull();
+      expect(el.querySelector('.vf-precio')).not.toBeNull();
+    });
+
+    it('desde el respaldo avisa igual y dice de dónde salió', () => {
+      svc.proximo = { estado: 'encontrado', origen: 'respaldo', snapshotAl: '2026-10-20T10:00:00.000Z', producto: PROMO, esPromocion: true };
+      fix.componentInstance.consultar('09089');
+      fix.detectChanges();
+      const el = fix.nativeElement as HTMLElement;
+      expect(el.querySelector('.vf-promo')).not.toBeNull();
+      expect(el.textContent).toContain('Tomado del respaldo');
+    });
+  });
+
   it('el entero va grande y los centavos chicos aparte: el punto no se lee como otro numero', () => {
     svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: PRODUCTO };
     fix.componentInstance.consultar('17083');
