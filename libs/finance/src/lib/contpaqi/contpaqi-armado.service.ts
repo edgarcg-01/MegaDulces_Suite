@@ -88,6 +88,7 @@ import {
   armarAsientoEgreso, armarLoteEgresos, AsientoRechazado, type ReglaCuenta,
 } from './poliza-egreso';
 import { tokenDe } from './token';
+import { coincide, palabrasDeBusqueda } from './busqueda';
 import { armarPagoProveedorCompleto } from './pago-proveedor';
 import {
   FuentePagoProveedor, type FuenteFacturas, type MovimientoPago, type PropuestaPago, type ResolucionPago,
@@ -216,7 +217,7 @@ export interface ResumenMes {
 }
 
 /** `[CP.8.37]` Un nombre del banco que todavía no llega a una cuenta, con sus pistas. */
-/** `[CP.8.77]` Un movimiento de banco, como lo lista la pantalla al abrir una cifra. */
+/** `[CP.8.77]` Un movimiento de banco, como lo lista la pantalla al abrir una cifra o al buscar. */
 export interface MovimientoVista {
   id: string;
   fecha: string;
@@ -226,6 +227,32 @@ export interface MovimientoVista {
   importe: number;
   /** El IVA que va en el mismo asiento (renglón hermano), si lo hay. */
   iva: number | null;
+  /** `[CP.8.78]` El tipo de gasto (código y nombre) y la llave del nombre del banco (la de proveedores pendientes). */
+  categoria: string | null;
+  categoria_nombre: string | null;
+  nombre: string;
+  /** Sólo en pagos a proveedor identificados; `null` = no se sabe (no se adivina). */
+  razon_social: string | null;
+  rfc: string | null;
+  /** Por qué no entra al archivo; `null` = entra. `fuera_de_banco` = cuenta que no es banco. */
+  motivo: string | null;
+  /** La póliza donde entra o donde se cuenta (`clave` del lote o del pago); `null` fuera de banco. */
+  poliza: string | null;
+}
+
+/** `[CP.8.78]` El estado de un movimiento en el armado: por qué no entra (`null` = entra) y en qué póliza. */
+export interface EstadoMovimiento { motivo: string | null; clave: string | null }
+
+/** `[CP.8.78]` Lo leído del mes, para reusarlo en vez de traerlo otra vez. */
+interface BaseDelMes {
+  egresos: unknown[];
+  reglas: Map<string, ReglaCuenta>;
+  indices: Map<string, IndiceProveedores>;
+}
+
+/** `[CP.8.78]` Los filtros del desglose y del buscador; se suman (Y). */
+export interface FiltroMovimientos {
+  categoria?: string; nombre?: string; motivo?: string; poliza?: string; entra?: boolean; espera?: boolean; q?: string;
 }
 
 export interface PendienteProveedor {
@@ -387,7 +414,8 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
         this.db.raw('iva.amount_out as iva_hermano'),
       )
       .from('finance.bank_movements as m')
-      .join('finance.movement_categories as c', 'c.id', 'm.category_id')
+      // ⛔ `[CP.8.79]` LEFT: un egreso sin categoría desaparecía de TODO el puente (sept-2026: 457 por $8.70 M).
+      .leftJoin('finance.movement_categories as c', 'c.id', 'm.category_id')
       .leftJoin('finance.bank_accounts as ba', 'ba.id', 'm.bank_account_id')
       .joinRaw(`
         LEFT JOIN iva ON iva.bank_account_id = m.bank_account_id
@@ -397,7 +425,8 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
       .whereNull('m.deleted_at')
       .where('m.amount_out', '>', 0)
       // El IVA no se arma solo: es el renglón 2 del asiento de su hermano.
-      .whereNot('c.code', 'iva_acreditable')
+      // `c.code <> 'iva'` con c.code NULL da NULL y tiraba los sin categoría: se pregunta explícito.
+      .where((q) => q.whereNull('c.code').orWhereNot('c.code', 'iva_acreditable'))
       .whereRaw(`m.movement_date >= ?::date AND m.movement_date < (?::date + interval '1 month')`, [dia1, dia1])
       .orderBy('m.movement_date')
       .orderBy('m.id');
@@ -608,6 +637,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
       const egresos = await this.leerEgresos(anioMes);
       const vol = new Map<string, { n: number; imp: number }>();
       for (const e of egresos) {
+        if (!e.categoria_code) continue;   // `[CP.8.79]` sin categoría no es un tipo de gasto que firmar
         const v = vol.get(e.categoria_code) ?? { n: 0, imp: 0 };
         v.n += 1;
         v.imp = Math.round((v.imp + Number(e.amount_out)) * 100) / 100;
@@ -1039,32 +1069,122 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * `[CP.8.77]` Los movimientos detrás de una cifra de la pantalla: los de un tipo de gasto (paso 1) o los de
-   * un nombre del banco (paso 2, misma llave que `proveedoresPendientes`). ⭐ Sin tope: la pantalla dice «437
-   * movimientos» y la lista tiene que poder llegar a 437 (el mes más grande medido trae ~2.4 mil egresos).
+   * `[CP.8.77]`/`[CP.8.78]` **Los movimientos detrás de cualquier cifra de la pantalla, y el buscador.** Los filtros
+   * se suman (Y): tipo de gasto (`categoria`), nombre del banco (`nombre`, misma llave y condición que proveedores
+   * pendientes), por qué no entra (`motivo`), póliza (`poliza` = la `clave` del lote o del pago), si entra al
+   * archivo (`entra`), si espera un paso de alguien (`espera`) y texto libre (`q`: concepto, razón social, RFC,
+   * banco). Cada fila dice dónde quedó: en qué póliza entra o por qué no.
+   *
+   * ⭐ Sin tope: si la pantalla dice «437 movimientos», la lista llega a 437. El estado sale del MISMO
+   * `construirLotes` que arma la pantalla y el archivo — no hay un segundo cálculo que pueda discrepar.
    */
-  async movimientosDe(anioMes: string, filtro: { categoria?: string; nombre?: string }): Promise<MovimientoVista[]> {
+  async movimientosDe(anioMes: string, filtro: FiltroMovimientos): Promise<MovimientoVista[]> {
     return this.conTenant(async () => {
       const egresos = await this.leerEgresos(anioMes);
+      const reglas = await this.leerReglas();
+      const indices = await this.leerIndicesProveedor(reglas);
       // El nombre filtra con LA MISMA condición que lo contó en proveedores pendientes: si no, «TELMEX · 1»
       // abriría 4 (los otros 3 son servicios, no pagos a proveedor) y la lista no diría lo que la cifra.
       let delNombre: ((e: { concept: unknown; categoria_code: string; cuenta_banco: string | null }) => boolean) | null = null;
       if (filtro.nombre) {
-        const reglas = await this.leerReglas();
-        const indices = await this.leerIndicesProveedor(reglas);
         delNombre = (e) => (normalizarNombre(e.concept) || '(sin concepto)') === filtro.nombre
           && this.proveedorSinResolver(e, reglas, indices) !== null;
       }
-      return egresos
-      .filter((e) => (filtro.categoria ? e.categoria_code === filtro.categoria : true) && (delNombre ? delNombre(e) : true))
-      .map((e): MovimientoVista => ({
-        id: String(e.id),
-        fecha: e.fecha,
-        banco: [e.banco_nombre, e.banco_label].filter(Boolean).join(' ').trim() || e.cuenta_banco || null,
-        concepto: String(e.concept ?? ''),
-        importe: Number(e.amount_out),
-        iva: e.iva_hermano == null ? null : Number(e.iva_hermano),
-      }));
+      const estados = new Map<string, EstadoMovimiento>();
+      await this.construirLotes(anioMes, estados, { egresos, reglas, indices });
+      const razon = await this.razonesSociales(anioMes, egresos, reglas, filtro.q !== undefined);
+      const palabras = palabrasDeBusqueda(filtro.q);
+      const out: MovimientoVista[] = [];
+      for (const e of egresos) {
+        if (filtro.categoria && e.categoria_code !== filtro.categoria) continue;
+        if (delNombre && !delNombre(e)) continue;
+        const st = estados.get(String(e.id)) ?? { motivo: null, clave: null };
+        if (filtro.motivo && st.motivo !== filtro.motivo) continue;
+        if (filtro.poliza && st.clave !== filtro.poliza) continue;
+        if (filtro.entra !== undefined && (st.motivo === null) !== filtro.entra) continue;
+        if (filtro.espera && (st.motivo === null || st.motivo === 'no_aplica' || st.motivo === 'fuera_de_banco')) continue;
+        const rz = razon.get(String(e.id));
+        const m: MovimientoVista = {
+          id: String(e.id),
+          fecha: e.fecha,
+          banco: [e.banco_nombre, e.banco_label].filter(Boolean).join(' ').trim() || e.cuenta_banco || null,
+          concepto: String(e.concept ?? ''),
+          importe: Number(e.amount_out),
+          iva: e.iva_hermano == null ? null : Number(e.iva_hermano),
+          categoria: e.categoria_code,
+          categoria_nombre: e.categoria_nombre ?? null,
+          nombre: normalizarNombre(e.concept) || '(sin concepto)',
+          razon_social: rz?.nombre ?? null,
+          rfc: rz?.rfc ?? null,
+          motivo: st.motivo,
+          poliza: st.clave,
+        };
+        if (filtro.q !== undefined && !coincide(palabras, [m.concepto, m.razon_social, m.rfc, m.banco, m.categoria_nombre])) continue;
+        out.push(m);
+      }
+      return out;
+    });
+  }
+
+  /**
+   * `[CP.8.78]` La razón social y el RFC de cada pago a proveedor del mes: el RFC sale de la fuente (Kepler, o el
+   * nombre del acreedor contra los emisores de CFDI) y el nombre, del CFDI más reciente de ese RFC. Con `todos`
+   * (sólo al buscar: cuesta recorrer el padrón por movimiento) también los demás egresos, por su concepto con la
+   * misma regla de un solo emisor — así un pago sin categoría («Oscar Hernandez») se encuentra por su RFC. Lo que
+   * no se identifica queda sin razón social: no se adivina.
+   */
+  private async razonesSociales(
+    anioMes: string,
+    egresos: { id: unknown; categoria_code: string; cuenta_banco: string | null; amount_out: unknown; fecha: string; concept: unknown }[],
+    reglas: Map<string, ReglaCuenta>,
+    todos = false,
+  ): Promise<Map<string, { rfc: string; nombre: string | null }>> {
+    const pagos = egresos.filter((e) => e.cuenta_banco && reglas.get(e.categoria_code)?.tipo_regla === 'por_proveedor');
+    const out = new Map<string, { rfc: string; nombre: string | null }>();
+    if (!pagos.length) return out;
+    const movs = pagos.map((e): MovimientoPago => ({
+      cuenta_banco: e.cuenta_banco as string, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? ''),
+    }));
+    const fuente = await this.fuenteDelMes(anioMes, movs);
+    pagos.forEach((e, i) => { const p = fuente.proponer(movs[i]); if (p?.rfc) out.set(String(e.id), { rfc: p.rfc, nombre: null }); });
+    if (todos) {
+      for (const e of egresos) {
+        if (out.has(String(e.id))) continue;
+        const rfc = fuente.rfcPorConcepto(String(e.concept ?? ''));
+        if (rfc) out.set(String(e.id), { rfc, nombre: null });
+      }
+    }
+    const rfcs = [...new Set([...out.values()].map((x) => x.rfc))];
+    if (!rfcs.length) return out;
+    const filas = (await this.db.raw(`
+      SELECT DISTINCT ON (emisor_rfc) emisor_rfc AS rfc, emisor_nombre AS nombre
+        FROM fiscal.cfdis
+       WHERE tenant_id = ? AND rol = 'recibidas' AND emisor_rfc = ANY(?)
+       ORDER BY emisor_rfc, fecha DESC`, [MEGA, rfcs])).rows as { rfc: string; nombre: string | null }[];
+    const nom = new Map(filas.map((f) => [f.rfc, f.nombre]));
+    for (const x of out.values()) x.nombre = nom.get(x.rfc) ?? null;
+    return out;
+  }
+
+  /**
+   * `[CP.8.78]` En qué otros meses (12 atrás y 12 adelante) aparece una búsqueda, por el TEXTO del banco. ⚠️ Sólo el
+   * concepto: la razón social de otro mes necesitaría armar ese mes, y eso no cabe en una búsqueda.
+   */
+  async otrosMeses(anioMes: string, q: string): Promise<{ mes: string; movimientos: number }[]> {
+    const palabras = palabrasDeBusqueda(q);
+    if (!palabras.length) return [];
+    const dia1 = `${anioMes}-01`;
+    return this.conTenant(async () => {
+      const cond = palabras.map(() => `translate(upper(m.concept), 'ÁÉÍÓÚÜÑ', 'AEIOUUN') LIKE ?`).join(' AND ');
+      const filas = (await this.db.raw(`
+        SELECT to_char(m.movement_date, 'YYYY-MM') AS mes, count(*)::int AS movimientos
+          FROM finance.bank_movements m
+          LEFT JOIN finance.movement_categories c ON c.id = m.category_id
+         WHERE m.tenant_id = ? AND m.deleted_at IS NULL AND m.amount_out > 0 AND (c.code IS NULL OR c.code <> 'iva_acreditable')
+           AND m.movement_date >= (?::date - interval '12 months') AND m.movement_date < (?::date + interval '13 months')
+           AND ${cond}
+         GROUP BY 1 ORDER BY 1 DESC`, [MEGA, dia1, dia1, ...palabras.map((w) => `%${w}%`)])).rows as { mes: string; movimientos: number }[];
+      return filas.filter((x) => x.mes !== anioMes);
     });
   }
 
@@ -1185,13 +1305,18 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
       .map((e): MovimientoPago => ({ cuenta_banco: e.cuenta_banco, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? '') }));
   }
 
-  private async construirLotes(anioMes: string): Promise<{
+  /**
+   * `estados` (opcional, `[CP.8.78]`): si se pasa, se llena con el estado de CADA movimiento — en qué póliza
+   * entra o por qué no. Lo usa el buscador; el armado no cambia por pasarlo.
+   */
+  private async construirLotes(anioMes: string, estados?: Map<string, EstadoMovimiento>, base?: BaseDelMes): Promise<{
     lotes: PolizaArmada[];
     fuera_de_lote: ResumenMes['fuera_de_lote'];
   }> {
-    const egresos = await this.leerEgresos(anioMes);
-    const reglas = await this.leerReglas();
-    const indices = await this.leerIndicesProveedor(reglas);
+    // `base`: lo ya leído por quien llama (el buscador), para no traer el mes dos veces.
+    const egresos = base?.egresos ?? await this.leerEgresos(anioMes);
+    const reglas = base?.reglas ?? await this.leerReglas();
+    const indices = base?.indices ?? await this.leerIndicesProveedor(reglas);
 
     // (cuenta de banco × día) — exactamente el grano de la póliza real.
     const grupos = new Map<string, any[]>();
@@ -1222,8 +1347,13 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     for (const [k, todas] of [...grupos.entries()].sort()) {
       const [cuenta_banco, fecha] = k.split('|');
       const banco_label = [todas[0]?.banco_nombre, todas[0]?.banco_label].filter(Boolean).join(' ').trim() || null;
-      const filas = todas.filter((e) => !esPagoProveedor(e));
+      // `[CP.8.79]` Sin categoría no hay regla que aplicar: se cuenta con su motivo, nunca se arma.
+      const filas = todas.filter((e) => e.categoria_code && !esPagoProveedor(e));
       const motivosPago: Record<string, number> = {};
+      for (const e of todas.filter((x) => !x.categoria_code)) {
+        motivosPago.sin_categoria = (motivosPago.sin_categoria ?? 0) + 1;
+        estados?.set(String(e.id), { motivo: 'sin_categoria', clave: k });
+      }
       for (const e of todas.filter(esPagoProveedor)) {
         let motivo: string;
         // `fuente` existe siempre que haya pagos a proveedor: se cargó con todos ellos arriba.
@@ -1232,6 +1362,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
           try {
             const concepto = `PAGO ${String(e.concept ?? '').trim() || 'A PROVEEDOR'}`;
             const a = armarPagoProveedorCompleto({ ...r.entrada, concepto });
+            estados?.set(String(e.id), { motivo: null, clave: `pago|${e.id}` });
             out.push({
               evento_tipo: 'bank_pago_proveedor', clave: String(e.id), asiento: a, uuids: a.uuids,
               resumen: {
@@ -1248,6 +1379,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
           motivo = r.estado === 'a_confirmar' ? 'pago_a_confirmar' : 'pago_sin_resolver';
         }
         motivosPago[motivo] = (motivosPago[motivo] ?? 0) + 1;
+        estados?.set(String(e.id), { motivo, clave: k });
       }
       const entradas = filas.map((e) => {
         const subtotal = Number(e.amount_out);
@@ -1280,6 +1412,10 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
         `EGRESOS ${fecha} ${cuenta_banco}`);
       const porMotivo: Record<string, number> = { ...motivosPago };
       for (const r of lote.rechazadas) porMotivo[r.motivo] = (porMotivo[r.motivo] ?? 0) + 1;
+      if (estados) {
+        const rech = new Map(lote.rechazadas.map((r) => [r.indice, r.motivo] as const));
+        filas.forEach((e, i) => estados.set(String(e.id), { motivo: rech.get(i) ?? null, clave: k }));
+      }
       const armadosAparte = todas.length - filas.length - Object.values(motivosPago).reduce((a, n) => a + n, 0);
       if (todas.length === armadosAparte) continue;   // el día sólo tenía pagos a proveedor, todos armados aparte
 
@@ -1303,6 +1439,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     // quien necesita saber que el denominador no es el universo del mes.
     const porCuenta = new Map<string, CuentaFueraDeLote>();
     for (const e of sinBanco) {
+      estados?.set(String(e.id), { motivo: 'fuera_de_banco', clave: null });
       const cuenta = [e.banco_nombre, e.banco_label].filter(Boolean).join(' ').trim() || '(sin cuenta)';
       const acc = porCuenta.get(cuenta) ?? { cuenta, movimientos: 0, importe: 0 };
       acc.movimientos += 1;

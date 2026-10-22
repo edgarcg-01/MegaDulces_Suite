@@ -297,21 +297,37 @@ export class ContpaqiBridgeController {
   }
 
   /**
-   * `[CP.8.77]` — **Los movimientos detrás de una cifra**: los de un tipo de gasto (`categoria`) o los de un
-   * nombre del banco (`nombre`, el `alias_normalizado` de proveedores pendientes). Sólo lectura, `_VER`.
-   * ⛔ Sin uno de los dos filtros se rechaza: el mes entero ya está en los lotes, y esto es para recorrer UNA cifra.
+   * `[CP.8.77]`/`[CP.8.78]` — **Los movimientos detrás de cualquier cifra, y el buscador.** Filtros que se suman:
+   * `categoria`, `nombre` (el `alias_normalizado` de proveedores pendientes), `motivo`, `poliza` (la `clave` del
+   * lote o del pago), `entra` (`1`/`0`), `espera` (`1`) y `q` (texto: concepto, razón social, RFC, banco). Con `q`
+   * dice además en qué otros meses aparece. Sólo lectura, `_VER`.
+   * ⛔ Sin ningún filtro se rechaza: el mes entero ya está en los lotes; esto es para recorrer UNA cifra o buscar.
    */
   @Get('movimientos')
   @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_VER)
-  @ApiOperation({ summary: 'Movimientos de banco del mes de un tipo de gasto o de un nombre del banco.' })
+  @ApiOperation({ summary: 'Movimientos de banco del mes detrás de una cifra, o los que coinciden con una búsqueda.' })
   async movimientos(
     @Query('mes') mes?: string, @Query('categoria') categoria?: string, @Query('nombre') nombre?: string,
-  ): Promise<{ mes: string; filas: MovimientoVista[]; total: number }> {
+    @Query('motivo') motivo?: string, @Query('poliza') poliza?: string, @Query('entra') entra?: string,
+    @Query('espera') espera?: string, @Query('q') q?: string,
+  ): Promise<{ mes: string; filas: MovimientoVista[]; total: number; otros_meses: { mes: string; movimientos: number }[] }> {
     const anioMes = /^\d{4}-\d{2}$/.test(String(mes ?? '')) ? String(mes) : mesPorDefecto();
-    const cat = String(categoria ?? '').trim(); const nom = String(nombre ?? '').trim();
-    if (!cat && !nom) throw new BadRequestException('falta categoria o nombre');
-    const filas = await this.armado.movimientosDe(anioMes, { categoria: cat || undefined, nombre: nom || undefined });
-    return { mes: anioMes, filas, total: Math.round(filas.reduce((a, f) => a + f.importe, 0) * 100) / 100 };
+    const t = (v?: string): string | undefined => String(v ?? '').trim() || undefined;
+    const filtro = {
+      categoria: t(categoria), nombre: t(nombre), motivo: t(motivo), poliza: t(poliza),
+      entra: entra === '1' ? true : entra === '0' ? false : undefined,
+      espera: espera === '1' ? true : undefined,
+      q: t(q),
+    };
+    if (!Object.values(filtro).some((v) => v !== undefined)) {
+      throw new BadRequestException('falta un filtro: categoria, nombre, motivo, poliza, entra, espera o q');
+    }
+    if (filtro.q !== undefined && filtro.q.replace(/\s/g, '').length < 2) throw new BadRequestException('la búsqueda necesita al menos 2 letras');
+    const [filas, otros] = await Promise.all([
+      this.armado.movimientosDe(anioMes, filtro),
+      filtro.q ? this.armado.otrosMeses(anioMes, filtro.q) : Promise.resolve([]),
+    ]);
+    return { mes: anioMes, filas, total: Math.round(filas.reduce((a, f) => a + f.importe, 0) * 100) / 100, otros_meses: otros };
   }
 
   /**
@@ -394,6 +410,8 @@ const DUENO: Record<string, string> = {
   pago_sin_facturas: 'contabilidad — confirmar qué facturas paga (Pagos por confirmar)',
   pago_importe_invalido: 'sistemas — un CFDI del pago trae importe no positivo',
   pago_error: 'sistemas — error al armar el pago',
+  // `[CP.8.79]` Antes estos desaparecían del puente sin aviso.
+  sin_categoria: 'finanzas — categorizar el movimiento en Conciliación bancaria',
 };
 
 /** El mes cerrado más reciente. ⚠️ No el actual: el mes en curso siempre se ve incompleto. */

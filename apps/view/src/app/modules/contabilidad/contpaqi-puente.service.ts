@@ -87,11 +87,16 @@ export class ContpaqiPuenteService {
     return this.http.post<{ movimiento_id: string; apagadas: number }>(`${this.base}/pagos/${encodeURIComponent(movimiento)}/desconfirmar`, {});
   }
 
-  /** `[CP.8.77]` Los movimientos detrás de una cifra: los de un tipo de gasto o los de un nombre del banco. `_VER`. */
-  movimientos(mes: string, filtro: { categoria?: string; nombre?: string }): Observable<MovimientosResp> {
+  /**
+   * `[CP.8.77]`/`[CP.8.78]` Los movimientos detrás de cualquier cifra, o los que coinciden con una búsqueda
+   * (`q`: concepto, razón social, RFC, banco). Los filtros se suman. `_VER`.
+   */
+  movimientos(mes: string, filtro: FiltroMovimientos): Observable<MovimientosResp> {
     const qs = new URLSearchParams({ mes });
-    if (filtro.categoria) qs.set('categoria', filtro.categoria);
-    if (filtro.nombre) qs.set('nombre', filtro.nombre);
+    for (const [k, v] of Object.entries(filtro)) {
+      if (v === undefined || v === null || v === '') continue;
+      qs.set(k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v));
+    }
     return this.http.get<MovimientosResp>(`${this.base}/movimientos?${qs.toString()}`);
   }
 
@@ -230,12 +235,30 @@ export interface MovimientoBanco {
   concepto: string;
   importe: number;
   iva: number | null;
+  categoria: string | null;
+  categoria_nombre: string | null;
+  /** La llave del nombre del banco (la de proveedores pendientes). */
+  nombre: string;
+  /** Sólo si se identificó; `null` = no se sabe. */
+  razon_social: string | null;
+  rfc: string | null;
+  /** Por qué no entra al archivo; `null` = entra. */
+  motivo: string | null;
+  /** La póliza donde entra o se cuenta (la `clave` del lote o del pago). */
+  poliza: string | null;
+}
+
+/** `[CP.8.78]` Los filtros del desglose y del buscador; se suman. */
+export interface FiltroMovimientos {
+  categoria?: string; nombre?: string; motivo?: string; poliza?: string; entra?: boolean; espera?: boolean; q?: string;
 }
 
 export interface MovimientosResp {
   mes: string;
   filas: MovimientoBanco[];
   total: number;
+  /** Con `q`: en qué otros meses aparece, por el texto del banco. */
+  otros_meses: { mes: string; movimientos: number }[];
 }
 
 export interface CuadreResp {

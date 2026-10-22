@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
@@ -15,6 +16,7 @@ import { Permission } from '../../../core/constants/permissions';
 import {
   ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp,
   PendienteProveedor, PendientesResp, ReglaVista, PagoPorConfirmar, CfdiPropuesto, MovimientosResp,
+  FiltroMovimientos, MovimientoBanco,
 } from '../contpaqi-puente.service';
 
 /**
@@ -47,7 +49,7 @@ import {
 @Component({
   selector: 'app-contabilidad-contpaqi-puente',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, TagModule, MetricStripComponent,
+  imports: [CommonModule, FormsModule, RouterLink, TableModule, SelectModule, TagModule, MetricStripComponent,
     LoadStateComponent, FreshnessPillComponent, SidePeekComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -58,6 +60,12 @@ import {
           <h1>P&oacute;lizas de egresos para ContPAQi <app-context-help topic="contpaqi-puente" /></h1>
         </div>
         <div class="surf-page-head-actions">
+          <span class="cpp-buscar">
+            <i class="pi pi-search" aria-hidden="true"></i>
+            <input type="search" class="cpp-buscar-in" placeholder="Buscar proveedor, RFC o concepto"
+                   aria-label="Buscar movimientos del mes por proveedor, razón social, RFC o concepto"
+                   [ngModel]="busqueda()" (ngModelChange)="escribirBusqueda($event)" (keydown.enter)="buscarYa()" />
+          </span>
           @if (cargadoEn(); as t) { <app-freshness-pill measures="fetch" [since]="t" [staleAfterSec]="600" /> }
           <p-select [options]="mesOpts" [ngModel]="mes()" (ngModelChange)="setMes($event)"
                     appendTo="body" class="cpp-sel" [style]="{ minWidth: '10rem' }"
@@ -109,6 +117,10 @@ import {
                 } @else if (reglas() === null) {
                   <app-load-state [loading]="true" [skeletonRows]="5" />
                 } @else {
+                  @if (soloCategoria(); as sc) {
+                    <div class="cpp-solo"><span>Mostrando sólo: <strong>{{ nombreDeCategoria(sc) }}</strong></span>
+                      <button type="button" class="cpp-link" (click)="soloCategoria.set(null)">Ver todos</button></div>
+                  }
                   <div class="card-premium card-flat cpp-tablewrap">
                     <p-table [value]="reglasVisibles()" size="small" class="surf-table" [rowHover]="true" dataKey="categoria_code">
                       <ng-template #header>
@@ -176,7 +188,7 @@ import {
                       <ul class="cpp-lista-simple">
                         @for (r of noFirmables(); track r.categoria_code) {
                           <li><span>{{ nombreRegla(r) }}</span> <span class="muted">&middot; {{ porQueNoSeFirma(r) }}</span>
-                            @if (r.movimientos_mes > 0) { <span class="mono muted"> &middot; {{ r.movimientos_mes | number }} movs</span> }</li>
+                            @if (r.movimientos_mes > 0) { &middot; <button type="button" class="cpp-cifra mono" (click)="verMovimientos({ categoria: r.categoria_code }, nombreRegla(r))">{{ r.movimientos_mes | number }}</button> movs }</li>
                         }
                       </ul>
                     </details>
@@ -191,8 +203,12 @@ import {
                 } @else if (porConfirmar(); as p) {
                   <app-load-state [isEmpty]="!p.filas.length" emptyIcon="pi-check-circle"
                                   emptyTitle="Todos los nombres de este mes ya tienen cuenta">
+                    @if (soloNombre(); as sn) {
+                      <div class="cpp-solo"><span>Mostrando sólo un nombre del banco</span>
+                        <button type="button" class="cpp-link" (click)="soloNombre.set(null)">Ver todos</button></div>
+                    }
                     <div class="card-premium card-flat cpp-tablewrap">
-                      <p-table [value]="p.filas" size="small" class="surf-table" [rowHover]="true"
+                      <p-table [value]="provVisibles()" size="small" class="surf-table" [rowHover]="true"
                                [scrollable]="true" scrollHeight="480px">
                         <ng-template #header>
                           <tr><th>Nombre en el banco</th><th class="ta-r">Movs</th><th class="ta-r">Importe</th>
@@ -363,7 +379,7 @@ import {
               @case ('archivo') {
                 <h3>Descarga el archivo y m&aacute;rcalo como cargado</h3>
 
-                <app-metric-strip [items]="kpis()" ariaLabel="Resumen del mes" />
+                <app-metric-strip [items]="kpis()" ariaLabel="Resumen del mes" (drill)="abrirKpi($event)" />
 
                 @if (puedeGestionar()) {
                   <div class="cpp-entrega">
@@ -397,7 +413,7 @@ import {
 
                 <h4 class="cpp-h4">Lo que no entra, y a qui&eacute;n le toca</h4>
                 @if (d.fuera_de_lote.movimientos > 0) {
-                  <p class="cpp-sub-p">Aparte: <span class="mono">{{ d.fuera_de_lote.movimientos | number }}</span> de {{ cuentasFuera() }} (no son banco).</p>
+                  <p class="cpp-sub-p">Aparte: <button type="button" class="cpp-cifra mono" (click)="verMovimientos({ motivo: 'fuera_de_banco' }, 'Fuera de banco')">{{ d.fuera_de_lote.movimientos | number }}</button> de {{ cuentasFuera() }} (no son banco).</p>
                 }
                 <div class="card-premium card-flat cpp-tablewrap">
                   <p-table [value]="motivosConTrabajo()" size="small" class="surf-table">
@@ -407,7 +423,8 @@ import {
                     <ng-template #body let-m>
                       <tr>
                         <td>{{ etiqueta(m.motivo) }}</td>
-                        <td class="ta-r mono" [class.muted]="esDeNadie(m.motivo)">{{ m.movimientos | number }}</td>
+                        <td class="ta-r"><button type="button" class="cpp-cifra mono" [class.muted]="esDeNadie(m.motivo)"
+                              (click)="verMovimientos({ motivo: m.motivo }, etiqueta(m.motivo))">{{ m.movimientos | number }}</button></td>
                         <td [class.muted]="esDeNadie(m.motivo)">{{ duenoCorto(m.dueno) }}</td>
                       </tr>
                     </ng-template>
@@ -447,8 +464,12 @@ import {
                             @if (l.tipo === 'pago_proveedor') { <span class="cpp-sub">pago a proveedor &middot; {{ l.cfdis | number }} facturas y notas</span> }
                           </td>
                           <td class="muted mono">{{ l.fecha }}</td>
-                          <td class="ta-r mono">{{ l.movimientos | number }}</td>
-                          <td class="ta-r mono" [class.muted]="l.incluidas === 0">{{ l.incluidas | number }}</td>
+                          <td class="ta-r"><button type="button" class="cpp-cifra mono" (click)="verMovimientos({ poliza: l.k }, banco(l) + ' · ' + l.fecha)">{{ l.movimientos | number }}</button></td>
+                          <td class="ta-r">
+                            @if (l.incluidas > 0) {
+                              <button type="button" class="cpp-cifra mono" (click)="verMovimientos({ poliza: l.k, entra: true }, banco(l) + ' · ' + l.fecha + ' · entran')">{{ l.incluidas | number }}</button>
+                            } @else { <span class="mono muted">0</span> }
+                          </td>
                         </tr>
                       </ng-template>
                       <ng-template #emptymessage>
@@ -468,9 +489,11 @@ import {
                           <div class="cpp-kv"><span>Facturas y notas</span><span class="mono">{{ l.cfdis | number }}</span></div>
                           <div class="cpp-kv"><span>Qu&eacute; facturas paga lo dice</span><span>{{ fuente(l) }}</span></div>
                         } @else {
-                          <div class="cpp-kv"><span>Movimientos</span><span class="mono">{{ l.movimientos | number }}</span></div>
+                          <div class="cpp-kv"><span>Movimientos</span><button type="button" class="cpp-cifra mono" (click)="verMovimientos({ poliza: l.k }, banco(l) + ' · ' + l.fecha)">{{ l.movimientos | number }}</button></div>
                           <div class="cpp-kv"><span>Entran a la p&oacute;liza</span>
-                            <span class="mono" [class.muted]="l.incluidas === 0">{{ l.incluidas | number }}</span></div>
+                            @if (l.incluidas > 0) {
+                              <button type="button" class="cpp-cifra mono" (click)="verMovimientos({ poliza: l.k, entra: true }, banco(l) + ' · ' + l.fecha + ' · entran')">{{ l.incluidas | number }}</button>
+                            } @else { <span class="mono muted">0</span> }</div>
                           @if (l.incluidas > 0) {
                             <div class="cpp-kv"><span>Renglones</span><span class="mono">{{ l.renglones | number }}</span></div>
                             <div class="cpp-kv"><span>Total</span><span class="mono">{{ l.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
@@ -481,7 +504,7 @@ import {
                         <div class="cpp-eyebrow mt">No entran</div>
                         <div class="cpp-kvs">
                           @for (m of motivosDe(l); track m.k) {
-                            <div class="cpp-kv"><span [class.muted]="esDeNadie(m.k)">{{ etiqueta(m.k) }}</span><span class="mono">{{ m.n | number }}</span></div>
+                            <div class="cpp-kv"><span [class.muted]="esDeNadie(m.k)">{{ etiqueta(m.k) }}</span><button type="button" class="cpp-cifra mono" (click)="verMovimientos({ poliza: l.k, motivo: m.k }, banco(l) + ' · ' + etiqueta(m.k))">{{ m.n | number }}</button></div>
                           }
                         </div>
                       }
@@ -521,21 +544,40 @@ import {
                         errorTitle="No se pudieron leer los movimientos" (retry)="recargarMovimientos()"
                         [isEmpty]="(movs()?.filas?.length ?? 0) === 0" emptyTitle="Sin movimientos">
           @if (movs(); as m) {
+            @if (m.otros_meses.length) {
+              <div class="cpp-otros">También en
+                @for (o of m.otros_meses; track o.mes) {
+                  <button type="button" class="cpp-chip" (click)="irAMes(o.mes)">{{ o.mes }} <span class="mono">{{ o.movimientos | number }}</span></button>
+                }
+              </div>
+            }
             <p-table [value]="m.filas" size="small" class="surf-table" dataKey="id">
               <ng-template #header>
-                <tr><th>Fecha</th><th>Banco</th><th>Concepto</th><th class="ta-r">Importe</th></tr>
+                <tr><th>Fecha</th><th>Movimiento</th><th class="ta-r">Importe</th><th>D&oacute;nde est&aacute;</th></tr>
               </ng-template>
               <ng-template #body let-x>
                 <tr>
                   <td class="mono muted">{{ x.fecha }}</td>
-                  <td>{{ x.banco }}</td>
-                  <td>{{ x.concepto }}</td>
+                  <td>
+                    <span class="cpp-bank">{{ x.razon_social || x.concepto }}</span>
+                    @if (x.razon_social && x.razon_social !== x.concepto) { <span class="cpp-sub">banco: {{ x.concepto }}</span> }
+                    <span class="cpp-sub">{{ x.banco }}@if (x.rfc) { &middot; <span class="mono">{{ x.rfc }}</span> }</span>
+                  </td>
                   <td class="ta-r mono">{{ x.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}
                     @if (x.iva !== null) { <span class="cpp-sub">+ IVA {{ x.iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> }</td>
+                  <td>
+                    @if (x.motivo === null) { <p-tag severity="success" value="Entra al archivo" /> }
+                    @else { <p-tag [severity]="esDeNadie(x.motivo) || x.motivo === 'fuera_de_banco' ? 'secondary' : 'warn'" [value]="etiqueta(x.motivo)" /> }
+                    @if (x.motivo === 'sin_categoria') {
+                      <a class="cpp-ir" routerLink="/finanzas/bancos">Categorizar en Bancos <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
+                    } @else if (pasoDe(x.motivo); as ps) {
+                      <button type="button" class="cpp-ir" (click)="irAMovimiento(x)">Ir <i class="pi pi-arrow-right" aria-hidden="true"></i></button>
+                    }
+                  </td>
                 </tr>
               </ng-template>
               <ng-template #footer>
-                <tr><td colspan="3">Total</td><td class="ta-r mono">{{ m.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr>
+                <tr><td colspan="2">Total</td><td class="ta-r mono">{{ m.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td></td></tr>
               </ng-template>
             </p-table>
           }
@@ -627,6 +669,20 @@ import {
     .cpp-cifra { border: 0; background: transparent; padding: 0; font: inherit; color: var(--c-text-1, var(--text-main));
       cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
     .cpp-cifra:hover { color: var(--action); text-decoration-style: solid; }
+    .cpp-cifra.muted { color: var(--c-text-3); }
+    /* [CP.8.78] El buscador y lo que lo rodea. */
+    .cpp-buscar { position: relative; display: inline-flex; align-items: center; }
+    .cpp-buscar .pi { position: absolute; left: .6rem; color: var(--c-text-3); font-size: var(--fs-xs); pointer-events: none; }
+    .cpp-buscar-in { width: 18rem; max-width: 60vw; padding: 6px 10px 6px 1.9rem; border: 1px solid var(--c-divider);
+      border-radius: var(--radius-sm); background: var(--c-surface-1); color: var(--c-text-1, var(--text-main));
+      font: inherit; font-size: var(--fs-sm); }
+    .cpp-buscar-in:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+    .cpp-solo { display: flex; align-items: center; gap: .75rem; margin-bottom: .6rem; font-size: var(--fs-sm); color: var(--c-text-2); }
+    .cpp-otros { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-bottom: .75rem; font-size: var(--fs-xs); color: var(--c-text-3); }
+    .cpp-ir { display: inline-flex; align-items: center; gap: .3rem; margin-left: .5rem; border: 0; background: transparent;
+      padding: 0; color: var(--action); font: inherit; font-size: var(--fs-xs); cursor: pointer; text-decoration: none; }
+    .cpp-ir:hover { text-decoration: underline; }
+    .cpp-ir:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .cpp-link { border: 0; background: transparent; color: var(--action); padding: 2px 0; font: inherit;
       font-size: var(--fs-xs); cursor: pointer; text-decoration: underline; }
     .cpp-link.mt { margin-top: .5rem; }
@@ -743,10 +799,13 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
       { label: 'Pólizas listas', value: d.resumen.con_asiento, format: 'number', state: 'medido',
         tone: d.resumen.con_asiento === 0 ? 'muted' : 'ok', sub: 'van en el archivo' },
       { label: 'Importe', value: this.importeListo(), format: 'currency', state: 'medido', sub: 'de esas pólizas' },
+      // `[CP.8.78]` Todo conteo de movimientos se abre (`drill` de MetricStrip, `[LC.21]`).
       { label: 'Movimientos que entran', value: d.resumen.incluidas, format: 'number', state: 'medido',
-        sub: `de ${d.resumen.movimientos.toLocaleString('es-MX')} de banco` },
+        sub: 'van en esas pólizas', drill: 'entran', drillLabel: 'Ver los movimientos que entran al archivo' },
       { label: 'Esperan un paso', value: this.pendientes(), format: 'number', state: 'medido',
-        tone: this.pendientes() > 0 ? 'warn' : 'muted', sub: 'reglas, proveedores, pagos u otros' },
+        tone: this.pendientes() > 0 ? 'warn' : 'muted', sub: 'de alguien', drill: 'espera', drillLabel: 'Ver los movimientos que esperan un paso' },
+      { label: 'No generan póliza', value: this.deNadie(), format: 'number', state: 'medido', tone: 'muted',
+        sub: 'ya decidido', drill: 'no_aplica', drillLabel: 'Ver los movimientos que no generan póliza' },
     ];
   });
 
@@ -779,8 +838,75 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   readonly queFalta = computed(() => fraseQueFalta(this.pasos()));
 
   /** Las reglas de este mes (con movimientos o ya firmadas); las demás, a un clic y contadas. */
-  readonly reglasVisibles = computed(() => this.todasLasReglas()
-    ? this.firmables() : this.firmables().filter((r) => r.movimientos_mes > 0 || r.estado === 'aprobada'));
+  readonly reglasVisibles = computed(() => {
+    const sc = this.soloCategoria();
+    if (sc) return this.firmables().filter((r) => r.categoria_code === sc);
+    return this.todasLasReglas()
+      ? this.firmables() : this.firmables().filter((r) => r.movimientos_mes > 0 || r.estado === 'aprobada');
+  });
+
+  // ── `[CP.8.78]` El buscador y «Ir»: llegar a la fila donde se resuelve ────────────────────
+  /** Al llegar desde el buscador: el paso muestra sólo esa fila, con «Ver todos» al lado. */
+  readonly soloCategoria = signal<string | null>(null);
+  readonly soloNombre = signal<string | null>(null);
+  readonly provVisibles = computed(() => {
+    const filas = this.porConfirmar()?.filas ?? [];
+    const sn = this.soloNombre();
+    return sn ? filas.filter((f) => f.alias_normalizado === sn) : filas;
+  });
+  readonly busqueda = signal('');
+  private esperaBusqueda: ReturnType<typeof setTimeout> | null = null;
+
+  /** Busca al dejar de escribir (450 ms) o con Enter. Menos de 2 letras no busca: traería todo. */
+  escribirBusqueda(v: string): void {
+    this.busqueda.set(v ?? '');
+    if (this.esperaBusqueda) clearTimeout(this.esperaBusqueda);
+    this.esperaBusqueda = setTimeout(() => this.buscarYa(), 450);
+  }
+
+  buscarYa(): void {
+    if (this.esperaBusqueda) { clearTimeout(this.esperaBusqueda); this.esperaBusqueda = null; }
+    const q = this.busqueda().trim();
+    if (q.replace(/\s/g, '').length < 2) return;
+    this.verMovimientos({ q }, `«${q}»`);
+  }
+
+  /** Otro mes desde «También en»: cambia el mes de la pantalla y repite la misma búsqueda. */
+  irAMes(mes: string): void {
+    const filtro = this.movsFiltro;
+    const titulo = this.movsTitulo();
+    this.setMes(mes);
+    this.verMovimientos(filtro, titulo);
+  }
+
+  pasoDe(motivo: string | null): Paso | null { return pasoDeMotivo(motivo); }
+
+  /** Las tarjetas de la tira del paso 4 abren sus movimientos. */
+  abrirKpi(llave: string): void {
+    if (llave === 'entran') this.verMovimientos({ entra: true }, 'Entran al archivo');
+    else if (llave === 'espera') this.verMovimientos({ espera: true }, 'Esperan un paso');
+    else if (llave === 'no_aplica') this.verMovimientos({ motivo: 'no_aplica' }, 'No generan póliza');
+  }
+
+  nombreDeCategoria(code: string): string {
+    const r = (this.reglas() ?? []).find((x) => x.categoria_code === code);
+    return r ? this.nombreRegla(r) : code;
+  }
+
+  /** Lleva al paso donde se resuelve ese movimiento, con su fila a la vista. */
+  irAMovimiento(m: MovimientoBanco): void {
+    const p = pasoDeMotivo(m.motivo);
+    if (!p) return;
+    this.movsAbierto.set(false);
+    this.soloCategoria.set(p === 'reglas' ? m.categoria : null);
+    this.soloNombre.set(p === 'proveedores' ? m.nombre : null);
+    if (p === 'pagos') this.elegirPago((this.pagos() ?? []).find((x) => x.movimiento_id === m.id) ?? null);
+    if (p === 'archivo') {
+      this.filtro.set(null);
+      this.sel.set(this.visibles().find((l) => l.k === m.poliza) ?? this.sel());
+    }
+    this.irA(p);
+  }
   readonly reglasOcultas = computed(() =>
     this.firmables().filter((r) => !(r.movimientos_mes > 0 || r.estado === 'aprobada')).length);
 
@@ -973,7 +1099,7 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   readonly movs = signal<MovimientosResp | null>(null);
   readonly movsError = signal<string | null>(null);
   readonly movsTitulo = signal('');
-  private movsFiltro: { categoria?: string; nombre?: string } = {};
+  private movsFiltro: FiltroMovimientos = {};
   readonly movsSubtitulo = computed(() => {
     const m = this.movs();
     if (!m) return this.mes();
@@ -981,7 +1107,7 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     return `${n.toLocaleString('es-MX')} ${n === 1 ? 'movimiento' : 'movimientos'} · ${this.mes()}`;
   });
 
-  verMovimientos(filtro: { categoria?: string; nombre?: string }, titulo: string): void {
+  verMovimientos(filtro: FiltroMovimientos, titulo: string): void {
     this.movsFiltro = filtro;
     this.movsTitulo.set(titulo);
     this.movsAbierto.set(true);
@@ -1157,7 +1283,10 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
       });
   }
 
-  setMes(m: string): void { this.mes.set(m); this.filtro.set(null); this.sel.set(null); this.pasoElegido.set(null); this.cargar(); }
+  setMes(m: string): void {
+    this.mes.set(m); this.filtro.set(null); this.sel.set(null); this.pasoElegido.set(null);
+    this.soloCategoria.set(null); this.soloNombre.set(null); this.cargar();
+  }
 
   toggleMotivo(motivo: string | null): void {
     this.filtro.set(motivo !== null && this.filtro() === motivo ? null : motivo);
@@ -1261,6 +1390,19 @@ export function fraseQueFalta(pasos: PasoVista[]): string {
 }
 
 /** Por qué un tipo de gasto no se firma aquí, en palabras de contabilidad (no el código de la regla). */
+/**
+ * `[CP.8.78]` A qué paso lleva «Ir» desde un movimiento, según por qué no entra. `null` = no se resuelve en esta
+ * pantalla: sin categoría se categoriza en Bancos, y fuera de banco no es de este puente.
+ */
+export function pasoDeMotivo(motivo: string | null): Paso | null {
+  if (motivo === null) return 'archivo';
+  if (motivo === 'sin_categoria' || motivo === 'fuera_de_banco') return null;
+  if (motivo === 'sin_regla' || motivo === 'regla_sin_cuenta' || motivo === 'sin_medir') return 'reglas';
+  if (motivo === 'proveedor_sin_cuenta') return 'proveedores';
+  if (motivo.startsWith('pago_')) return 'pagos';
+  return 'archivo';
+}
+
 export function motivoNoFirmable(tipoRegla: string): string {
   return tipoRegla === 'por_proveedor' ? 'va a la cuenta del proveedor (pasos 2 y 3)'
     : tipoRegla === 'no_aplica' ? 'no genera póliza'
@@ -1291,6 +1433,9 @@ const ETIQUETA_MOTIVO: Record<string, string> = {
   pago_sin_facturas: 'Pago a proveedor sin facturas',
   pago_importe_invalido: 'Pago a proveedor con un CFDI en cero',
   pago_error: 'Pago a proveedor: error al armar',
+  // `[CP.8.79]` Antes estos dos desaparecían o no tenían rótulo.
+  sin_categoria: 'Sin categoría',
+  fuera_de_banco: 'Fuera de banco',
 };
 
 /** `[CP.8.72]` De dónde salieron las facturas de un pago armado. */
