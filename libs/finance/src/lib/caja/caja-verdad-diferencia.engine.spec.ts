@@ -116,6 +116,38 @@ describe('verdadDeLaDiferencia', () => {
     expect(v).toMatchObject({ estado: 'sin_confirmar', publicada: null, verdadera: null });
   });
 
+  // ⭐ `[CGS.44]` Control jubilado (2026-10-22): el testigo es el recuento de María en la Suite.
+  const recuento = (efectivo: number): ArqueoControlHecho => ({
+    folio: 'recuento 1a2b3c4d', dia: '2026-10-23', hora: '08:40', efectivo,
+    caja_fuerte: NaN, documentos: NaN, origen: 'suite', quien: 'maria_gutierrez',
+  });
+  const SIN_CONTROL: HechosVerdad = {
+    fecha: '2026-10-22', cerrado_dia: '2026-10-22', contado: 25787, fondo_inicial: 23756.5, diferencia: 1201.63,
+    ...igual(223695.5, 270432.63), dia_anterior: '2026-10-21', control_dia: recuento(25787), control_fondo: null,
+    caja_fuerte: null, control_sin_libro: [],
+  };
+
+  it('[CGS.44] el recuento de María confirma el conteo y lo dice con su nombre', () => {
+    const v = verdadDeLaDiferencia(SIN_CONTROL);
+    expect(t(v, 'conteo')).toMatchObject({ estado: 'confirma' });
+    expect(t(v, 'conteo').detalle).toContain('El recuento de maria_gutierrez contó lo mismo');
+  });
+
+  it('[negativa][CGS.44] si el recuento no coincide, manda el recuento y la diferencia se corrige', () => {
+    const v = verdadDeLaDiferencia({ ...SIN_CONTROL, control_dia: recuento(25287) });
+    expect(v).toMatchObject({ estado: 'corregida', verdadera: 701.63 });
+    expect(t(v, 'conteo').detalle).toContain('Manda el recuento');
+  });
+
+  it('[CGS.44] un recuento sin cheques ni vales contados no inventa una pista de documentos', () => {
+    const v = verdadDeLaDiferencia({
+      ...SIN_CONTROL,
+      caja_fuerte: { desde: A23683, hasta: { ...recuento(25787), caja_fuerte: 376470 }, depositado: 0, dispensado: 0, vaciado: 0, dotado: 0 },
+    });
+    expect(t(v, 'caja_fuerte').estado).toBe('confirma');
+    expect(v.pistas.filter((p) => p.fuente === 'control_cheques')).toEqual([]);
+  });
+
   it('difTexto dice el signo en palabras', () => {
     expect(difTexto(1201.63)).toBe('+$1,201.63 (sobra)');
     expect(difTexto(-188884.59)).toBe('−$188,884.59 (falta)');

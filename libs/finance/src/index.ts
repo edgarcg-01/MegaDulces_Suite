@@ -59,6 +59,7 @@ export * from './lib/caja/caja-autofill.service';
 export * from './lib/caja/caja-autofill.engine';
 export * from './lib/caja/cash-cut.service';
 export * from './lib/caja/cash-cut.engine';
+export * from './lib/caja/caja-arqueo.service';
 // [CG.58] El conciliador de ingresos de CAOS. El MOTOR no se reexporta (patron de la casa).
 export * from './lib/caos/caos-ingreso-recon.service';
 export * from './lib/caos/caos-ingreso-cron.service';

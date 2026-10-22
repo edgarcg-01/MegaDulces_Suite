@@ -68,7 +68,9 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
   // `[CGS.15]` La llave de emergencia y `[CGS.22]` el conteo físico de la caja fuerte. No tocan el
   // núcleo por nombre, así que no entraban solas: el 2026-10-21 sus pruebas salían NO MEDIDO en
   // `caja-db` («la migración no está aplicada en esta base») aunque en prod ya estaban vivas.
-  'finance.cash_ledger_llaves', 'finance.caos_conteos_fisicos'];
+  'finance.cash_ledger_llaves', 'finance.caos_conteos_fisicos',
+  // `[CGS.41]` El arqueo completo de la caja (lo que contaba Control, jubilado el 2026-10-22).
+  'finance.cash_arqueos'];
 const MAX_REMEDIOS = 200;
 
 // ── utilidades ──────────────────────────────────────────────────────────────────────────────
