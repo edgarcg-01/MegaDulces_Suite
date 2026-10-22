@@ -6,6 +6,35 @@ vendedoras y preventa en la app) y **Telemarketing** (lo que llega de Kepler). L
 
 ---
 
+## La ruta del vendedor llega como UN pedido global (MCP.3.6, 2026-10-22)
+
+### El problema
+
+El surtidor surtía pedido por pedido conforme llegaban: muchas vueltas al anaquel por el mismo producto y la
+lista se mezclaba con lo que el vendedor seguía levantando.
+
+### La solución
+
+Cuando el vendedor finaliza su ruta, al surtidor le llega **un pedido global**: el total de cada producto y
+cuánto va para cada cliente. Lo **recolecta** en una vuelta (por marca, «3 CJA = 90 piezas», «Lo tomé» / «Hay
+menos») y lo **reparte** en un pedido por cliente. Lo levantado después de finalizar llega como «Fuera de la
+ruta», también global.
+
+### Cómo se implementó
+
+- `commercial.seller_route_days` (ventana inicio → fin de la ruta; `kind` ruta / fuera_de_ruta). Los pedidos
+  no se copian: se derivan por la ventana (`PEDIDO_EN_RUTA_SQL`), la misma que los saca de la bandeja suelta.
+- Cerrar reparte con `repartirProducto` (`allocation.ts`, regla fija) y cierra cada pedido con
+  `cerrarPedido`, igual que el surtido por pedido: lo que no hubo se quita y se avisa a la vendedora.
+- Surtir abre siempre en **Sucursal** (antes recordaba Telemarketing y el surtidor no veía las rutas).
+
+### Por qué se hizo así
+
+Una vuelta por producto en vez de una por pedido, y nada se mezcla con lo que ya se está surtiendo: la tanda
+«fuera de la ruta» se cierra cuando el surtidor empieza a recolectarla.
+
+---
+
 ## La lista de pedidos del surtidor: sólo folio y cliente (MCP.3.2, 2026-10-19)
 
 ### El problema

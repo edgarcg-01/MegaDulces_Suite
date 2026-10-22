@@ -467,6 +467,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Ruta y vendedores',
       items: [
         { label: 'Cartera de ventas',  icon: 'pi pi-sitemap',    route: '/comercial/cartera',       permission: Permission.USUARIOS_ASIGNAR_RUTA },
+        // [MCP.3.7] «Visitas del día» es la primera pestaña de Cartera de ventas, no otra entrada.
         { label: 'Cierre de ruta',     icon: 'pi pi-receipt',    route: '/comercial/route-tickets', permission: Permission.ROUTE_CONTROL_VER },
         { label: 'Ventas de vendedor', icon: 'pi pi-money-bill', route: '/comercial/vendor-sales',  permission: Permission.COMMERCIAL_VENDOR_SALES_VER },
         // ⭐ UNA entrada para las SIETE pantallas de Ruta Directa, con el patrón de `[GX.80]`:

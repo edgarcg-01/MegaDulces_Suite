@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Added — Ruta del vendedor, surtido global y tablero del supervisor (MCP.3.5–3.9, 2026-10-22)
+- **Vendedor:** «Iniciar ruta» / «Finalizar ruta» (con confirmación y clientes visitados), tarjeta «Llegaste» que registra la visita al abrir al cliente, «El cliente no pidió nada» con motivo, alta de cliente con aviso de parecidos, precio normal y de mayoreo (3+) visibles, y la cantidad ya no se traba al sumar.
+- **Surtidor:** al cerrar la ruta le llega UN pedido global (Recolectar → Repartir por pedido); lo levantado después llega como «Fuera de la ruta», también global. Surtir abre en Sucursal y es responsivo. Bandeja «Clientes nuevos (Kepler)».
+- **Supervisor:** Cartera de ventas → «Mis vendedores»: inicio/fin de ruta, visitados, venta cobrada en Kepler, meta catorcenal y avance; cada supervisor sólo ve su tipo de ruta (RV / RD).
+- Migraciones: `20261021114018`, `20261021164903`, `20261022085457` (aplicar antes del código).
+
 ### Internal — Protocolo previo al PR: puntos 56–57 (CSU.14, 2026-10-21)
 - `ONBOARDING.md` §8.0b: en una pantalla resumen → detalle, elegir deja sólo lo elegido (con «N ocultas · ver todas»); dos PR que tocan el mismo bloque de docs se resuelven con fusión ordenada y `npm run docs:indices`, sin renumerar lo que entró primero.
 ### Added — Cortes / Sucursales: buscador, y los cobros cancelados se ven marcados sin sumar (CSU.13, 2026-10-21)

@@ -32,7 +32,7 @@ interface LineStatus {
 }
 
 const NOT_LOADED_REASONS: { key: string; label: string }[] = [
-  { key: 'sin_stock', label: 'Sin stock' },
+  { key: 'sin_stock', label: 'Sin existencias' },
   { key: 'danado', label: 'Dañado' },
   { key: 'no_cabe', label: 'No cabe' },
   { key: 'otro', label: 'Otro' },
