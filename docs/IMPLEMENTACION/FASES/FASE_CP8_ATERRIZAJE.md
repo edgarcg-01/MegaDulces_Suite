@@ -1028,3 +1028,25 @@ falta uno nuevo.
     - redondeo 6, tasa 4, otro 3.
   - **Costo de servidor de la fuente:** CFDI 255 → 331 ms, más 42 ms del historial de notas. Lo absorben la caché
     de 10 minutos y el precalentado; dentro del pod NO MEDIDO.
+- **2026-10-22** — `[CP.8.83]` **El universo, desde el lado de la contadora**
+  (`database/scripts/universo-egresos-contpaqi.js`, solo lectura).
+  - ⛔ **Por qué se escapó la póliza de Oscar Hernández** (Mant. de equipo de reparto, 21/sep): `[CP.8.81]`
+    midió desde nuestro lado (lo que arma el puente, ¿sale igual?). El 91 % era precisión sobre ~100 pagos al mes,
+    no cobertura. La póliza de Oscar no estaba porque el puente no la arma.
+  - **El universo, ene–sep 2026:** **4,625** pólizas de egreso de la contadora. El puente cubre **899 (19.4 %)**,
+    $134.1 M.
+
+    | Lo que pasa con el resto | Pólizas | Importe |
+    |---|---:|---:|
+    | Sin centro de costo | 1,050 | $21.7 M |
+    | Sin movimiento de banco que case | 717 | $76.1 M |
+    | Sin categoría | 548 | $12.0 M |
+    | Pago a confirmar | 461 | $121.0 M |
+    | Sin regla | 459 | $7.7 M |
+    | Pago que no cuadra | 281 | $67.2 M |
+
+  - **Por rubro:** proveedor 1,747 · **gasto 52xx 1,594** · pasivo 976 · tarjeta 162 · traspaso 73.
+  - ⭐ **El gasto se asienta con CFDI:** 1,292 de 1,594 pólizas de 52xx llevan el UUID de las facturas. Es la forma
+    de la de Oscar: una póliza por pago, sus facturas y su complemento de pago. El lote «banco × día» sin CFDI que
+    arma hoy el puente para los gastos no es esa forma. Hay que rediseñarlo antes de firmar reglas de gasto.
+  - **Regla que deja:** toda cifra de acierto del puente se publica con su cobertura del universo al lado.
