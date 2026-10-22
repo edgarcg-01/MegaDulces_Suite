@@ -24,16 +24,21 @@ export class PolizasService {
         trx.raw('COUNT(*)::int AS total'),
         trx.raw('COUNT(*) FILTER (WHERE abs(neto) >= 0.01)::int AS descuadradas'),
         trx.raw('ROUND(COALESCE(SUM(abs(neto)) FILTER (WHERE abs(neto) >= 0.01),0)::numeric,2) AS monto_descuadre'),
+        trx.raw('MAX(anio_mes) AS ultimo_mes'),
+      ).first();
+      // [LC.21] Los conteos POR FUENTE van sin el filtro de fuente: la tarjeta «ContPAQi / Kepler»
+      // los muestra juntos, y filtrados decía «19,689 / 0» con ContPAQi elegido — Kepler tiene
+      // 118,173 (medido el 2026-10-22).
+      const porFuente = await trx('analytics.gl_polizas').where('tenant_id', tid).select(
         trx.raw("COUNT(*) FILTER (WHERE source='contpaqi')::int AS contpaqi"),
         trx.raw("COUNT(*) FILTER (WHERE source='kepler')::int AS kepler"),
-        trx.raw('MAX(anio_mes) AS ultimo_mes'),
       ).first();
       return {
         total: Number(r?.total || 0),
         descuadradas: Number(r?.descuadradas || 0),
         monto_descuadre: Number(r?.monto_descuadre || 0),
-        contpaqi: Number(r?.contpaqi || 0),
-        kepler: Number(r?.kepler || 0),
+        contpaqi: Number(porFuente?.contpaqi || 0),
+        kepler: Number(porFuente?.kepler || 0),
         ultimo_mes: r?.ultimo_mes || null,
       };
     });

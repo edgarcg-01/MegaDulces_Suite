@@ -3,7 +3,7 @@ import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, SkipTenantTx } from '@megadulces/platform-core';
 import { PolizasService } from './polizas.service';
-import { PolizaTypeAuditService } from './poliza-type-audit.service';
+import { PolizaTypeAuditService, type DocumentosDoctype } from './poliza-type-audit.service';
 import { PolizaTypeFindingsBridgeService } from './poliza-type-findings-bridge.service';
 import { MaatDetectorService } from '../maat/maat-detector.service';
 import { FinanceJobsService } from '../jobs/finance-jobs.service';
@@ -74,6 +74,17 @@ export class PolizasController {
   @ApiOperation({ summary: 'Doctypes de Kepler cuyo tipo de poliza no concuerda con las cuentas que mueve, con su volumen del ano (separa incongruencia viva de catalogo dormido).' })
   tiposCatalogo(@Query('anio') anio?: string) {
     return this.tipos.catalogAudit(anio ? Number(anio) : undefined);
+  }
+
+  // [LC.21] El desglose de una fila del catálogo: los documentos detrás de «Docs» / «Importe».
+  @Get('tipos/documentos')
+  @RequirePermissions(Permission.FISCAL_CONTAB_VER)
+  @ApiQuery({ name: 'doc', required: true, description: 'Doctype G-N-GRUPO-TIPO, p. ej. X-A-20-1' })
+  @ApiQuery({ name: 'anio', required: false })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiOperation({ summary: 'Los documentos de Kepler de un doctype en el año, distintos (sin la réplica), con los renglones crudos que cuenta «Docs».' })
+  tiposDocumentos(@Query('doc') doc: string, @Query('anio') anio?: string, @Query('page') page?: string): Promise<DocumentosDoctype> {
+    return this.tipos.documentosDoctype(doc, anio ? Number(anio) : undefined, page ? Number(page) : 1);
   }
 
   @Get('tipos/cruce')

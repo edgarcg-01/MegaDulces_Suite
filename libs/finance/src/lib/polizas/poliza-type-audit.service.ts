@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
@@ -42,6 +42,16 @@ export interface MeasuredBlock<T> {
   /** Por que no se pudo medir. Null cuando el estado es measured. */
   reason: string | null;
   data: T;
+}
+
+/** [LC.21] Los documentos de Kepler detrás de una fila del catálogo (renglones = lo que cuenta «Docs»). */
+export interface DocumentosDoctype {
+  doc: string; anio: number; page: number; page_size: number;
+  /** Renglones de kdm1 (con la réplica): el número de la columna «Docs». */
+  renglones: number; importe_renglones: number;
+  /** Documentos distintos (sin la réplica): lo que se lista. */
+  documentos: number; importe_documentos: number;
+  filas: { sucursal: string; c1: string; folio: string; fecha: string | null; importe: number }[];
 }
 
 export interface DoctypeVerdict {
@@ -98,7 +108,10 @@ const CATALOG_SQL = `
   )
   SELECT v.c1 || '-' || v.c2 || '-' || v.c3 || '-' || v.c4 AS doc,
          v.descripcion, v.tipo, v.cargo, v.abono,
-         coalesce(v.tipo_esperado, '?') AS tipo_esperado,
+         -- [LC.21] El signo de interrogacion va ESCAPADO: knex toma cualquiera como parametro, tambien
+         -- dentro de comillas (y en estos comentarios), y con el literal pelado esta consulta tronaba
+         -- SIEMPRE. La pantalla se tragaba el error y pintaba «Sin incongruencias vivas» en verde.
+         coalesce(v.tipo_esperado, '\\?') AS tipo_esperado,
          CASE WHEN v.sin_cuentas THEN 'no_juzgable'
               WHEN (v.entra_efectivo OR v.sale_efectivo) AND v.tipo = 'D'
                    THEN 'mueve efectivo pero esta declarado Diario'
@@ -227,6 +240,57 @@ export class PolizaTypeAuditService {
           ok,
           total: rows.length,
         },
+      };
+    });
+  }
+
+  /**
+   * [LC.21] El desglose de una fila del catálogo: los documentos de Kepler de ese doctype en el
+   * año — los mismos que cuenta «Docs» (`kdm1` por los cuatro ejes y `c9` en la ventana).
+   *
+   * ⚠️ Medido el 2026-10-22: `kdm1` trae el MISMO documento repetido con otra `sucursal` (réplica):
+   * ~0.5 % (p. ej. U-A-5-1 = 31,261 renglones para 31,159 documentos). La columna «Docs» cuenta
+   * renglones; aquí se listan documentos DISTINTOS (`c1` + folio `c6`, prefiriendo la fila cuya
+   * sucursal es la suya) y se devuelven los dos números, para que la diferencia se vea.
+   */
+  async documentosDoctype(doc: string, anio?: number, page = 1, pageSize = 100): Promise<DocumentosDoctype> {
+    const m = /^([A-Z])-([A-Z])-(\d{1,4})-(\d{1,4})$/.exec(String(doc || '').trim().toUpperCase());
+    if (!m) throw new BadRequestException('doctype inválido: se espera G-N-GRUPO-TIPO, p. ej. X-A-20-1');
+    const y = anio && anio > 2000 ? anio : new Date().getFullYear();
+    const size = Math.min(200, Math.max(10, Number(pageSize) || 100));
+    const pg = Math.max(1, Number(page) || 1);
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `WITH crudo AS (
+           SELECT sucursal, btrim(c1) AS c1, btrim(c6) AS folio, c9, coalesce(c16, 0) AS importe,
+                  (btrim(c1) = btrim(sucursal) OR btrim(c1) LIKE btrim(sucursal) || '-%') AS propia
+             FROM kepler_ods.kdm1
+            WHERE c2 = ? AND c3 = ? AND c4 = ?::numeric AND c5 = ?::numeric
+              AND c9 >= ?::date AND c9 < ?::date
+         ), docs AS (
+           SELECT DISTINCT ON (c1, folio) * FROM crudo ORDER BY c1, folio, propia DESC, sucursal
+         ), tot AS (
+           SELECT (SELECT count(*) FROM crudo)::int AS renglones,
+                  (SELECT round(sum(importe))::bigint FROM crudo) AS importe_renglones,
+                  (SELECT count(*) FROM docs)::int AS documentos,
+                  (SELECT round(sum(importe), 2) FROM docs) AS importe_documentos
+         )
+         SELECT tot.*, d.sucursal, d.c1, d.folio, to_char(d.c9, 'YYYY-MM-DD') AS fecha, round(d.importe, 2) AS importe
+           FROM tot LEFT JOIN LATERAL (
+             SELECT * FROM docs ORDER BY importe DESC, c9 DESC LIMIT ? OFFSET ?
+           ) d ON true`,
+        [m[1], m[2], Number(m[3]), Number(m[4]), `${y}-01-01`, `${y + 1}-01-01`, size, (pg - 1) * size]);
+      const t = rows[0] ?? {};
+      return {
+        doc: `${m[1]}-${m[2]}-${m[3]}-${m[4]}`, anio: y, page: pg, page_size: size,
+        renglones: Number(t.renglones ?? 0),
+        importe_renglones: Number(t.importe_renglones ?? 0),
+        documentos: Number(t.documentos ?? 0),
+        importe_documentos: Number(t.importe_documentos ?? 0),
+        filas: rows.filter((r: Record<string, unknown>) => r['folio'] != null).map((r: Record<string, unknown>) => ({
+          sucursal: String(r['sucursal'] ?? '').trim(), c1: String(r['c1'] ?? ''), folio: String(r['folio'] ?? ''),
+          fecha: (r['fecha'] as string) ?? null, importe: Number(r['importe'] ?? 0),
+        })),
       };
     });
   }

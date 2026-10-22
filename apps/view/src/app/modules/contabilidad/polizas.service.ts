@@ -61,6 +61,16 @@ export interface TiposSummary {
   cruce: { state: MeasureState; reason: string | null; periodos: number; brecha_total: number };
 }
 
+/** LC.21: los documentos de Kepler detrás de una fila del catálogo de tipos. */
+export interface DocumentosDoctype {
+  doc: string; anio: number; page: number; page_size: number;
+  /** Renglones de kdm1 (con la réplica): el número de la columna «Docs». */
+  renglones: number; importe_renglones: number;
+  /** Documentos distintos (sin la réplica): lo que se lista. */
+  documentos: number; importe_documentos: number;
+  filas: { sucursal: string; c1: string; folio: string; fecha: string | null; importe: number }[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class PolizasService {
   private readonly http = inject(HttpClient);
@@ -98,6 +108,11 @@ export class PolizasService {
   tiposCatalogo(anio?: number): Observable<TipoCatalogoBlock> {
     const p = new URLSearchParams(); if (anio) p.set('anio', String(anio));
     return this.http.get<TipoCatalogoBlock>(`${this.base}/tipos/catalogo?${p.toString()}`);
+  }
+  /** LC.21: el desglose de una fila del catálogo (100 por página, de mayor a menor importe). */
+  tiposDocumentos(doc: string, page = 1, anio?: number): Observable<DocumentosDoctype> {
+    const p = new URLSearchParams({ doc, page: String(page) }); if (anio) p.set('anio', String(anio));
+    return this.http.get<DocumentosDoctype>(`${this.base}/tipos/documentos?${p.toString()}`);
   }
   tiposCruce(meses = 6): Observable<TipoCruceBlock> {
     return this.http.get<TipoCruceBlock>(`${this.base}/tipos/cruce?meses=${meses}`);
