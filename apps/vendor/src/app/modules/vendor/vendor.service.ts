@@ -84,6 +84,7 @@ export interface HomePendingOrder {
 // [VR.SUP.1] La forma vive en libs/contracts: la comparten el backend y esta app.
 export type { DayPickOption, DayPickState } from '@megadulces/contracts';
 import type { DayPickCleared, DayPickChoice, DayPickState } from '@megadulces/contracts';
+import type { SimilarCustomersResponse } from '@megadulces/contracts';
 
 /**
  * Cliente de la cartera anotado para el home "Mi ruta": cobertura + actividad
@@ -134,6 +135,8 @@ export interface NearbyCustomer {
   whatsapp?: string | null;
   latitude: number | string;
   longitude: number | string;
+  /** [MCP.3.7] Calle y colonia de la ficha (null si no hay). */
+  address?: string | null;
   distance_m: number;
 }
 
@@ -365,6 +368,16 @@ export class VendorService {
       `${this.base}/vendor-routes/customers`,
       dto,
     );
+  }
+
+  /**
+   * [MCP.3.8] «¿Es este?» antes del alta: clientes de la sucursal del vendedor con nombre
+   * parecido, para no dar de alta un duplicado. Mismo permiso que el alta.
+   */
+  similarCustomers(name: string): Observable<SimilarCustomersResponse> {
+    return this.http.get<SimilarCustomersResponse>(`${this.base}/new-customers/similar`, {
+      params: new HttpParams().set('name', name),
+    });
   }
 
   /**
