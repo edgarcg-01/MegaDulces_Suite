@@ -1,4 +1,4 @@
-import type { EstadoVerdad, PistaDiferencia, TestigoDiferencia, VerdadDiferencia } from '@megadulces/contracts';
+import type { CajaEnteraDto, EstadoVerdad, PistaDiferencia, TestigoDiferencia, VerdadDiferencia } from '@megadulces/contracts';
 
 /**
  * ⭐⭐ `[CGS.36]` — **La verdad de cada diferencia, antes de que la firme la supervisora.**
@@ -97,6 +97,24 @@ export interface HechosVerdad {
   } | null;
   /** Movimientos que Control registró ese día y no casan con nada del libro ni de la máquina. */
   control_sin_libro: MovimientoControlHecho[];
+  /**
+   * `[CGS.51]` El tramo entre dos arqueos COMPLETOS (los cinco rubros) que acota la jornada, y lo
+   * que el libro registró entre ellos. `null`/ausente = no hay dos arqueos completos.
+   */
+  caja_entera?: { desde: ArqueoCompletoHecho; hasta: ArqueoCompletoHecho; libro_neto: number } | null;
+}
+
+/** `[CGS.51]` Un arqueo con los cinco rubros, en pesos. */
+export interface ArqueoCompletoHecho {
+  folio: string;
+  dia: string;
+  hora: string | null;
+  efectivo: number;
+  caja_fuerte: number;
+  /** Cheques más vales y papeles. */
+  documentos: number;
+  /** Dólares convertidos al tipo de cambio de ESE arqueo. */
+  dolares: number;
 }
 
 function testigoConteo(h: HechosVerdad): TestigoDiferencia {
@@ -210,6 +228,34 @@ function pistasDe(h: HechosVerdad): PistaDiferencia[] {
   return out;
 }
 
+/**
+ * ⭐ `[CGS.51]` La caja entera entre dos arqueos completos contra el libro del mismo tramo.
+ *
+ * El vaciado y la dotación de la máquina son dinero que se mueve DENTRO de la caja: no cambian la
+ * caja entera y no se ajustan. Si en vez de quedarse se fueron al banco sin depósito en el libro,
+ * aparecen aquí como faltante, que es justo lo que tiene que pasar.
+ */
+export function cajaEntera(h: HechosVerdad): CajaEnteraDto | null {
+  const t = h.caja_entera;
+  if (!t) return null;
+  const etq = (a: ArqueoCompletoHecho) => `${a.folio} · ${a.dia.slice(8, 10)}/${a.dia.slice(5, 7)}${a.hora ? ` ${a.hora}` : ''}`;
+  const total = (a: ArqueoCompletoHecho) => a.efectivo + a.caja_fuerte + a.documentos + a.dolares;
+  const cambio = r2(total(t.hasta) - total(t.desde));
+  const libro = r2(t.libro_neto);
+  const diferencia = r2(cambio - libro);
+  const rubros: CajaEnteraDto['rubros'] = [
+    { rubro: 'cajon' as const, etiqueta: 'Cajón', cambio: r2(t.hasta.efectivo - t.desde.efectivo) },
+    { rubro: 'caja_fuerte' as const, etiqueta: 'Caja fuerte', cambio: r2(t.hasta.caja_fuerte - t.desde.caja_fuerte) },
+    { rubro: 'documentos' as const, etiqueta: 'Cheques y vales', cambio: r2(t.hasta.documentos - t.desde.documentos) },
+    { rubro: 'dolares' as const, etiqueta: 'Dólares', cambio: r2(t.hasta.dolares - t.desde.dolares) },
+  ].filter((x) => Math.abs(x.cambio) > EPS);
+  const mov = rubros.map((x) => `${x.etiqueta.toLowerCase()} ${x.cambio > 0 ? '+' : '−'}${mx(x.cambio)}`).join(', ');
+  const detalle = Math.abs(diferencia) <= EPS
+    ? `Entre ${etq(t.desde)} y ${etq(t.hasta)} la caja entera cambió lo mismo que registró el libro (${cambio >= 0 ? '+' : '−'}${mx(cambio)}).${mov ? ` Se movió: ${mov}.` : ''}`
+    : `Entre ${etq(t.desde)} y ${etq(t.hasta)} la caja entera cambió ${cambio >= 0 ? '+' : '−'}${mx(cambio)} y el libro registró ${libro >= 0 ? '+' : '−'}${mx(libro)}: ${difTexto(diferencia)} sin registro.${mov ? ` Se movió: ${mov}.` : ''}`;
+  return { desde: etq(t.desde), hasta: etq(t.hasta), cambio, libro, diferencia, rubros, detalle };
+}
+
 export function verdadDeLaDiferencia(h: HechosVerdad): VerdadDiferencia {
   const testigos = [testigoConteo(h), testigoFondo(h), testigoLibro(h), testigoCajaFuerte(h)];
   const pistas = pistasDe(h);
@@ -236,5 +282,12 @@ export function verdadDeLaDiferencia(h: HechosVerdad): VerdadDiferencia {
     const faltan = testigos.filter((t) => t.estado !== 'confirma').map((t) => t.pregunta.toLowerCase());
     resumen = `No se puede afirmar que ${difTexto(publicada)} sea la diferencia real: no se confirmó que ${faltan.join('; ni que ')}.`;
   }
-  return { estado, publicada, verdadera, testigos, pistas, resumen };
+  // `[CGS.51]` La caja entera dice si el cajón engaña por un cambio de rubro.
+  const caja_entera = cajaEntera(h);
+  if (caja_entera && verdadera != null) {
+    resumen += Math.abs(caja_entera.diferencia - verdadera) <= EPS
+      ? ` La caja entera da lo mismo: no es dinero que cambió de rubro.`
+      : ` En la caja entera (cajón, caja fuerte, vales y dólares) es ${difTexto(caja_entera.diferencia)}. Lo que las separa es dinero que cambió de rubro o que se capturó otro día.`;
+  }
+  return { estado, publicada, verdadera, testigos, pistas, resumen, caja_entera };
 }

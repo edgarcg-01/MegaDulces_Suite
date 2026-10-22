@@ -148,6 +148,33 @@ describe('verdadDeLaDiferencia', () => {
     expect(v.pistas.filter((p) => p.fuente === 'control_cheques')).toEqual([]);
   });
 
+  // ⭐ `[CGS.51]` La caja entera (cajón + caja fuerte + vales + dólares) entre dos arqueos completos.
+  const completo = (c: ArqueoControlHecho, usd = 12059 * 19.101) => ({
+    folio: c.folio, dia: c.dia, hora: c.hora, efectivo: c.efectivo, caja_fuerte: c.caja_fuerte, documentos: c.documentos, dolares: usd,
+  });
+
+  it('[CGS.51] CC-4: el cajón dice +$136,602.36 y la caja entera +$80,485.16 — el resto se movió de rubro', () => {
+    const v = verdadDeLaDiferencia({ ...CC4, caja_entera: { desde: completo(A23648), hasta: completo(A23655), libro_neto: -541649.86 } });
+    expect(v.caja_entera).toMatchObject({ cambio: -461164.7, libro: -541649.86, diferencia: 80485.16, desde: 'A23648 · 14/10 17:51', hasta: 'A23655 · 15/10 17:55' });
+    expect(v.caja_entera!.rubros.map((r) => [r.rubro, r.cambio])).toEqual([['cajon', 43442.5], ['caja_fuerte', -713740], ['documentos', 209132.8]]);
+    expect(v.resumen).toContain('En la caja entera (cajón, caja fuerte, vales y dólares) es +$80,485.16 (sobra)');
+  });
+
+  it('[CGS.51] cuando la caja entera da lo mismo que el cajón, lo dice', () => {
+    const v = verdadDeLaDiferencia({
+      ...SIN_CONTROL, control_dia: recuento(25787),
+      // El tramo real 19-oct 18:16 → 20-oct 18:12 (panorama de la caja entera, prod 2026-10-22).
+      caja_entera: { desde: completo(A23677), hasta: completo(A23683), libro_neto: -46737.13 },
+    });
+    expect(v.caja_entera!.diferencia).toBe(1201.63);
+    expect(v.resumen).toContain('La caja entera da lo mismo');
+  });
+
+  it('[negativa][CGS.51] sin dos arqueos completos no se inventa la caja entera', () => {
+    expect(verdadDeLaDiferencia({ ...CC4, caja_entera: null }).caja_entera).toBeNull();
+    expect(verdadDeLaDiferencia(CC4).caja_entera).toBeNull();
+  });
+
   it('difTexto dice el signo en palabras', () => {
     expect(difTexto(1201.63)).toBe('+$1,201.63 (sobra)');
     expect(difTexto(-188884.59)).toBe('−$188,884.59 (falta)');
