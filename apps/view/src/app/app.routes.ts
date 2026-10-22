@@ -226,6 +226,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_CARTERA_VER)]
       },
       {
+        // [MCP.3.7] Visitas del día: el supervisor ve qué clientes abrió cada vendedor de su equipo y
+        // dónde faltó. Mismo permiso que Cartera (es su lente); el equipo lo acota el servidor.
+        // Ahora es la pestaña de Cartera de ventas (abre ahí por default); la URL se conserva.
+        path: 'cartera/visitas',
+        redirectTo: 'cartera',
+        pathMatch: 'full'
+      },
+      {
         path: 'orders',
         loadComponent: () => import('./modules/comercial/pages/comercial-orders.component').then(m => m.ComercialOrdersComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)],
@@ -1556,12 +1564,32 @@ export const routes: Routes = [
       },
       {
         /**
+         * `[MCP.3.6]` **Surtir la ruta de un vendedor como un pedido global** (Recolectar → Repartir).
+         * Se entra desde la tarjeta de la ruta en Surtir › Sucursal. Ruta propia para que una recarga
+         * del celular regrese aquí. Mismo permiso que Surtir: arrancar y cerrar escriben.
+         */
+        path: 'surtir/ruta/:id',
+        loadComponent: () => import('./modules/almacen/pages/almacen-surtir-ruta.component').then(m => m.AlmacenSurtirRutaComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PICKING_GESTIONAR)]
+      },
+      {
+        /**
          * `[MCP.3]` **Pedidos de preventa por surtir** de la sucursal, por día (Hoy / Mañana /
          * Próximos), y su surtido pedido por pedido. Foco, como Surtir. Ver es `COMMERCIAL_PICKING_VER`;
          * empezar y cerrar exige `GESTIONAR` en el servidor. El aviso de la campana trae `?pedido=`.
          */
         path: 'surtir-preventa',
         loadComponent: () => import('./modules/almacen/pages/almacen-surtir-preventa.component').then(m => m.AlmacenSurtirPreventaComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_PICKING_VER, Permission.COMMERCIAL_PICKING_GESTIONAR)]
+      },
+      {
+        /**
+         * `[MCP.3.8]` **Clientes nuevos por dar de alta en Kepler**: los que dio de alta el vendedor,
+         * con sus pedidos, para teclear su clave de Kepler y ligarlos. Mismos permisos del surtido:
+         * ver = `_VER`, ligar = `_GESTIONAR` (lo exige el servidor). Se llega desde el aviso de Surtir.
+         */
+        path: 'clientes-nuevos',
+        loadComponent: () => import('./modules/almacen/pages/almacen-clientes-nuevos.component').then(m => m.AlmacenClientesNuevosComponent),
         canActivate: [anyPermissionGuard(Permission.COMMERCIAL_PICKING_VER, Permission.COMMERCIAL_PICKING_GESTIONAR)]
       },
       {

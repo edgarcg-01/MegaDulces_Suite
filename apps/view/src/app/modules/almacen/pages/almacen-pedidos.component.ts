@@ -92,7 +92,7 @@ const dmy = (v: string | null | undefined): string => {
 
       @if (err(); as e) { <div class="gp-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="gp-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()"><span class="p-button-label">Reintentar</span></button></div> }
 
-      @if (loading() && !data()) { <div class="gp-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="gp-skel-row"></div> }</div> }
+      @if (loading() && !data()) { <div class="gp-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="gp-skel-row"></div> }</div> }
       @else if (data(); as d) {
         @if (!d.alcance.todas) {
           @if (d.alcance.sucursales.length && !soloSurtidor()) {
@@ -187,7 +187,7 @@ const dmy = (v: string | null | undefined): string => {
                   [style]="{ width: 'min(560px, 100vw)' }" [header]="sel()?.documento || 'Pedido'">
           <section class="gp-detail" aria-labelledby="gp-h-det" aria-live="polite">
             @if (detLoading()) {
-              <div class="gp-skeleton gp-pad" aria-busy="true">@for (i of skelDet; track i) { <div class="gp-skel-row"></div> }</div>
+              <div class="gp-skeleton gp-pad" aria-busy="true">@for (i of skelDet; track $index) { <div class="gp-skel-row"></div> }</div>
             } @else if (det(); as x) {
               <div class="gp-det-head">
                 <h2 id="gp-h-det" class="sr-only">Detalle del pedido {{ x.pedido.documento }}</h2>

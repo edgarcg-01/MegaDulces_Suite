@@ -76,7 +76,7 @@ let seq = 0;
   template: `
     <div class="tmf card-premium card-flat">
       <p-iconfield class="f-search">
-        <p-inputicon styleClass="pi pi-search" />
+        <p-inputicon class="pi pi-search" />
         <input pInputText type="text" [ngModel]="value.search"
                (ngModelChange)="escribir($event)" (keyup.enter)="ya()"
                placeholder="Cliente, RFC, folio o monto" aria-label="Buscar facturas" />

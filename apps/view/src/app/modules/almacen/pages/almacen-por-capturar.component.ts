@@ -65,7 +65,7 @@ const ORDEN: Record<CapturaKeplerEstado, number> = {
         <div class="gp-note gp-note-warn" role="status"><i class="pi pi-wifi" aria-hidden="true"></i><span>No se pudo actualizar desde las {{ desde }}. Lo que ves puede estar atrasado; se vuelve a intentar solo.</span></div>
       }
 
-      @if (loading() && !data()) { <div class="gp-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="gp-skel-row"></div> }</div> }
+      @if (loading() && !data()) { <div class="gp-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="gp-skel-row"></div> }</div> }
 
       @if (data(); as d) {
         @if (d.sin_alcance) {

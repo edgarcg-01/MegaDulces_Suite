@@ -45,7 +45,7 @@ import { BANCOS_STYLES } from './bancos.styles';
         <label for="fColor">Color por grupo</label>
       </span>
       <p-iconfield iconPosition="left" class="fb-search">
-        <p-inputicon styleClass="pi pi-search" />
+        <p-inputicon class="pi pi-search" />
         <input pInputText type="text" [ngModel]="fSearch()" (ngModelChange)="searchChange.emit($event)"
                placeholder="Buscar concepto / código…" aria-label="Buscar" />
       </p-iconfield>

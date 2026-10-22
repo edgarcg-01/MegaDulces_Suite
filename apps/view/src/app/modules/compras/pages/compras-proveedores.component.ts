@@ -55,8 +55,8 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
       }
 
       <div class="cp-filters">
-        <p-iconfield styleClass="cp-search">
-          <p-inputicon styleClass="pi pi-search" />
+        <p-iconfield class="cp-search">
+          <p-inputicon class="pi pi-search" />
           <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" placeholder="Buscar proveedor…" aria-label="Buscar proveedor" />
         </p-iconfield>
         <span class="cp-count">{{ rows().length | number }} proveedores</span>

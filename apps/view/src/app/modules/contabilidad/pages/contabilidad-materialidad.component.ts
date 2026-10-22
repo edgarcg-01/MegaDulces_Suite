@@ -43,8 +43,8 @@ import { Permission } from '../../../core/constants/permissions';
       </header>
 
       <div class="mt-search">
-        <p-iconfield iconPosition="left" styleClass="mt-rfc-search">
-          <p-inputicon styleClass="pi pi-search" />
+        <p-iconfield iconPosition="left" class="mt-rfc-search">
+          <p-inputicon class="pi pi-search" />
           <input type="text" pInputText placeholder="RFC del proveedor (p.ej. DRO020122GZ9)" [(ngModel)]="rfc" (keyup.enter)="buscar()" maxlength="13" style="text-transform:uppercase;min-width:280px" aria-label="RFC del proveedor" />
         </p-iconfield>
         <button pButton type="button" class="p-button-sm" [loading]="loading()" [disabled]="!rfcValid()" (click)="buscar()"><span class="p-button-icon p-button-icon-left pi pi-folder-open" aria-hidden="true"></span><span class="p-button-label">Armar expediente</span></button>
@@ -114,8 +114,8 @@ import { Permission } from '../../../core/constants/permissions';
               <p class="mt-disc-sub">Explora por riesgo (lista negra → baja recepción → monto) o busca por nombre. Clic en uno arma su expediente — no necesitas teclear el RFC.</p>
             </div>
             <div class="mt-disc-filters">
-              <p-iconfield iconPosition="left" styleClass="mt-disc-search">
-                <p-inputicon styleClass="pi pi-search" />
+              <p-iconfield iconPosition="left" class="mt-disc-search">
+                <p-inputicon class="pi pi-search" />
                 <input type="text" pInputText placeholder="Buscar RFC o proveedor…" [ngModel]="provSearch()" (ngModelChange)="onProvSearch($event)" aria-label="Buscar proveedor" />
               </p-iconfield>
               <p-selectbutton styleClass="sb-liquid" [options]="riesgoOpts" [ngModel]="provRiesgo()" (ngModelChange)="setProvRiesgo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por riesgo" />

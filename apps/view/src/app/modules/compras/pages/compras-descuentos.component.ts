@@ -66,7 +66,7 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
 
         @if (loading()) {
           <div class="dx-skel">
-            @for (i of skelRows; track i) { <p-skeleton height="1.9rem" styleClass="dx-skel-row" /> }
+            @for (i of skelRows; track $index) { <p-skeleton height="1.9rem" styleClass="dx-skel-row" /> }
           </div>
         } @else {
         <div class="dx-grid">
@@ -123,7 +123,7 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
           <span class="dx-dup-txt">en riesgo · <strong>{{ dupGroups() | number }}</strong> proveedores facturaron el <strong>mismo monto exacto ≥2 veces</strong> dentro de {{ dupWindow() }} días. Revisar: posible captura doble del comprobante.</span>
         </div>
         @if (dupsLoading()) {
-          <div class="dx-skel">@for (i of skelRows; track i) { <p-skeleton height="1.9rem" styleClass="dx-skel-row" /> }</div>
+          <div class="dx-skel">@for (i of skelRows; track $index) { <p-skeleton height="1.9rem" styleClass="dx-skel-row" /> }</div>
         } @else {
         <p-table [value]="dups()" [loading]="false" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm dx-table">
           <ng-template #header>
@@ -158,7 +158,7 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
           <span class="dx-count">{{ (recon()?.rows?.length || 0) | number }} proveedor(es)</span>
         </div>
         @if (reconLoading()) {
-          <div class="dx-skel">@for (i of skelRows; track i) { <p-skeleton height="1.9rem" styleClass="dx-skel-row" /> }</div>
+          <div class="dx-skel">@for (i of skelRows; track $index) { <p-skeleton height="1.9rem" styleClass="dx-skel-row" /> }</div>
         } @else {
         <p-table [value]="recon()?.rows || []" [loading]="false" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm dx-table">
           <ng-template #header>
@@ -194,7 +194,7 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
           <span class="dx-count">{{ (leak()?.rows?.length || 0) | number }} proveedor(es)</span>
         </div>
         @if (leakLoading()) {
-          <div class="dx-skel">@for (i of skelRows; track i) { <p-skeleton height="1.9rem" styleClass="dx-skel-row" /> }</div>
+          <div class="dx-skel">@for (i of skelRows; track $index) { <p-skeleton height="1.9rem" styleClass="dx-skel-row" /> }</div>
         } @else {
         <p-table [value]="leak()?.rows || []" [loading]="false" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm dx-table">
           <ng-template #header>

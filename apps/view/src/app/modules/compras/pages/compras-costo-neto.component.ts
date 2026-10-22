@@ -45,8 +45,8 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
       </header>
 
       <div class="cn-filters">
-        <p-iconfield styleClass="cn-search">
-          <p-inputicon styleClass="pi pi-search" />
+        <p-iconfield class="cn-search">
+          <p-inputicon class="pi pi-search" />
           <input pInputText type="text" placeholder="Proveedor…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar proveedor" />
         </p-iconfield>
         <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)" optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true" styleClass="cn-sel" ariaLabel="Rango de fecha rápido" appendTo="body" />
@@ -70,7 +70,7 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
 
       @if (loading()) {
         <div class="cn-skel">
-          @for (i of skelRows; track i) { <p-skeleton height="2rem" styleClass="cn-skel-row" /> }
+          @for (i of skelRows; track $index) { <p-skeleton height="2rem" styleClass="cn-skel-row" /> }
         </div>
       } @else if (data(); as d) {
         <p-table [value]="d.rows" [loading]="false" styleClass="p-datatable-sm surf-table surf-table--sticky cn-table"
