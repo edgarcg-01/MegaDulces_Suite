@@ -10,6 +10,7 @@ import {
   nombreDeRegla,
   contarDeNadie,
   esDeNadie,
+  etiquetaFuente,
   etiquetaMotivo,
   participacion,
 } from './contabilidad-contpaqi-puente.component';
@@ -201,5 +202,22 @@ describe('[CP.8.14] reglas de cuenta — lo que la pantalla deriva', () => {
     expect(nombreDeRegla({ evidencia: 'Comisión bancaria. 2,788 movs', categoria_code: 'comision_bancaria' }))
       .toBe('Comisión bancaria');
     expect(nombreDeRegla({ evidencia: null, categoria_code: 'renta' })).toBe('renta');
+  });
+});
+
+describe('[CP.8.72] pago a proveedor armado completo — lo que la pantalla dice', () => {
+  it('cada motivo nuevo de pago a proveedor tiene rótulo humano (no se ve la clave cruda)', () => {
+    for (const m of ['pago_a_confirmar', 'pago_sin_resolver', 'pago_no_cuadra', 'pago_proveedor_sin_cuenta',
+      'pago_sin_facturas', 'pago_importe_invalido', 'pago_error']) {
+      expect(etiquetaMotivo(m)).not.toBe(m);
+    }
+  });
+  it('los pagos que no se arman NO son «de nadie»: tienen dueño (confirmar)', () => {
+    expect(esDeNadie('pago_a_confirmar')).toBe(false);
+  });
+  it('de dónde salen las facturas, en el idioma de quien mira', () => {
+    expect(etiquetaFuente('cadena_kepler')).toBe('lo que aplicó Kepler');
+    expect(etiquetaFuente('importe_una')).toBe('una factura por importe');
+    expect(etiquetaFuente(null)).toBe('—');
   });
 });

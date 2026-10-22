@@ -58,6 +58,9 @@ import {
   armarAsientoEgreso, armarLoteEgresos, AsientoRechazado, type ReglaCuenta,
 } from './poliza-egreso';
 import { tokenDe } from './token';
+import { armarPagoProveedorCompleto } from './pago-proveedor';
+import { FuentePagoProveedor, type FuenteFacturas, type MovimientoPago } from './pago-proveedor.fuente';
+import type { EventoArchivo } from './entrega';
 import {
   construirIndice, resolverProveedor, normalizarNombre, palabrasEnComun,
   type AliasProveedor, type CuentaProveedor, type IndiceProveedores,
@@ -125,6 +128,28 @@ export interface ResumenLote {
   /** `'no_emitido'` = el lote cuadra pero le falta el traspaso de impuesto. Se declara. */
   iva_traspaso: 'no_emitido' | null;
   motivos: Record<string, number>;
+  /**
+   * `[CP.8.72]` `pago_proveedor` = un pago a proveedor armado COMPLETO, una póliza por pago (como la hace la
+   * contadora). Ausente o `lote` = el lote del día. Los pagos que no se arman se cuentan en `motivos` de su
+   * lote (`pago_a_confirmar`, `pago_sin_resolver`, `pago_no_cuadra`…), nunca entran al lote como «2120 / banco».
+   */
+  tipo?: 'lote' | 'pago_proveedor';
+  /** De dónde salieron las facturas del pago: la cadena de Kepler o una factura por importe. */
+  fuente?: FuenteFacturas | null;
+  /** Facturas y notas (UUID) que lleva el pago: van a los renglones `AD` del archivo. */
+  cfdis?: number;
+  /** Identidad de la fila: `cuenta|fecha` del lote o `pago|<id del movimiento>`. Un pago y su día comparten banco y fecha. */
+  clave?: string;
+}
+
+/** Lo que arma `construirLotes`: el resumen para la pantalla y el asiento para el archivo, con su identidad. */
+interface PolizaArmada {
+  resumen: ResumenLote;
+  asiento: ReturnType<typeof armarLoteEgresos>['asiento'];
+  evento_tipo: EventoArchivo;
+  /** `cuenta_banco|fecha` del lote, o el id del movimiento del pago. */
+  clave: string;
+  uuids: string[];
 }
 
 /**
@@ -786,18 +811,20 @@ export class ContpaqiArmadoService {
      * lote entregado cuyo total cambió después no se reenvía y se declara en `cambiados`.
      * (`rechazada` = el cuadre dijo que nunca apareció: ése sí puede volver a mandarse.)
      */
+    // `[CP.8.72]` Lo entregado se reconoce por (tipo, clave): un pago a proveedor y un lote nunca comparten clave.
     const entregados = new Map<string, number>(
       ((await this.db('contpaqi.poliza_exports')
-        .where({ tenant_id: MEGA, evento_tipo: 'bank_lote', periodo: anioMes })
+        .where({ tenant_id: MEGA, periodo: anioMes })
+        .whereIn('evento_tipo', ['bank_lote', 'bank_pago_proveedor'])
         .whereIn('estado', ['armada', 'entregada', 'aplicada'])
-        .select('evento_id', 'total')) as { evento_id: string; total: string | number }[])
-        .map((r) => [r.evento_id, Number(r.total)]),
+        .select('evento_tipo', 'evento_id', 'total')) as { evento_tipo: string; evento_id: string; total: string | number }[])
+        .map((r) => [`${r.evento_tipo}|${r.evento_id}`, Number(r.total)]),
     );
     const cambiados: string[] = [];
     const pendientes = conAsiento.filter((l) => {
-      const clave = `${l.resumen.cuenta_banco}|${l.resumen.fecha}`;
-      if (!entregados.has(clave)) return true;
-      if (Math.round(entregados.get(clave)! * 100) !== Math.round(l.asiento!.total * 100)) cambiados.push(clave);
+      const llave = `${l.evento_tipo}|${l.clave}`;
+      if (!entregados.has(llave)) return true;
+      if (Math.round(entregados.get(llave)! * 100) !== Math.round(l.asiento!.total * 100)) cambiados.push(l.clave);
       return false;
     });
     if (!pendientes.length) {
@@ -814,12 +841,14 @@ export class ContpaqiArmadoService {
     let movimientos = 0;
     let total = 0;
     for (const l of pendientes) {
-      const clave = `${l.resumen.cuenta_banco}|${l.resumen.fecha}`;
+      const clave = l.clave;
       const r = await this.sink.entregar({
-        evento_tipo: 'bank_lote', evento_id: clave,
+        evento_tipo: l.evento_tipo, evento_id: clave,
         tipo_poliza: l.asiento!.tipo_poliza, fecha: l.asiento!.fecha, concepto: l.asiento!.concepto,
         movimientos: l.asiento!.movimientos, total: l.asiento!.total,
-        token: tokenDe('bank_lote', clave),
+        token: tokenDe(l.evento_tipo, clave),
+        // `[CP.8.72]` El pago a proveedor lleva el UUID de cada factura y nota (renglones `AD`).
+        ...(l.uuids.length ? { uuids: l.uuids } : {}),
       });
       if (r.estado !== 'entregada' || !r.archivo) {
         // ⛔ Un lote que el sink rechaza TUMBA el archivo entero. Servir el resto sería entregar
@@ -827,7 +856,7 @@ export class ContpaqiArmadoService {
         throw new Error(`el lote ${clave} no se pudo serializar: ${r.motivo ?? 'sin motivo'}`);
       }
       partes.push(r.archivo.contenido);
-      lotesArchivo.push({ clave, asiento: l.asiento!, movimientos: l.resumen.incluidas });
+      lotesArchivo.push({ clave, evento_tipo: l.evento_tipo, asiento: l.asiento!, movimientos: l.resumen.incluidas });
       movimientos += l.resumen.incluidas;
       total = Math.round((total + l.asiento!.total) * 100) / 100;
     }
@@ -860,8 +889,29 @@ export class ContpaqiArmadoService {
    * El armado de los lotes del mes, con su asiento. ⭐ Lo consumen la pantalla y el archivo:
    * **un solo camino**, para que lo que se ve y lo que se descarga no puedan diferir.
    */
+  /**
+   * `[CP.8.72]` La fuente del pago a proveedor, por mes y por 10 minutos: cargarla cuesta segundos (dos fases
+   * de consultas sobre Kepler, CFDI y la historia de ContPAQi; ver `pago-proveedor.fuente.ts`) y la pantalla,
+   * el archivo y «marcar entregado» la piden seguido. La huella invalida si los movimientos del mes cambian.
+   * ⚠️ Deuda con nombre: medido 2.5–3 s por mes desde la laptop; en el clúster NO MEDIDO.
+   */
+  private readonly fuentes = new Map<string, { en: number; huella: string; fuente: FuentePagoProveedor }>();
+
+  private async fuenteDelMes(anioMes: string, movs: MovimientoPago[]): Promise<FuentePagoProveedor> {
+    const huella = movs.map((m) => `${m.cuenta_banco}|${m.fecha}|${m.importe}|${m.concepto}`).join(';');
+    const c = this.fuentes.get(anioMes);
+    if (c && c.huella === huella && Date.now() - c.en < 10 * 60_000) return c.fuente;
+    const [y, m] = anioMes.split('-').map(Number);
+    const hasta = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    const t0 = Date.now();
+    const fuente = await FuentePagoProveedor.cargar(this.db, movs, `${anioMes}-01`, hasta);
+    this.log.log(`fuente de pago a proveedor ${anioMes}: ${movs.length} movimientos · ${Date.now() - t0} ms`);
+    this.fuentes.set(anioMes, { en: Date.now(), huella, fuente });
+    return fuente;
+  }
+
   private async construirLotes(anioMes: string): Promise<{
-    lotes: { resumen: ResumenLote; asiento: ReturnType<typeof armarLoteEgresos>['asiento'] }[];
+    lotes: PolizaArmada[];
     fuera_de_lote: ResumenMes['fuera_de_lote'];
   }> {
     const egresos = await this.leerEgresos(anioMes);
@@ -878,9 +928,48 @@ export class ContpaqiArmadoService {
       grupos.get(k)!.push(e);
     }
 
-    const out: { resumen: ResumenLote; asiento: ReturnType<typeof armarLoteEgresos>["asiento"] }[] = [];
-    for (const [k, filas] of [...grupos.entries()].sort()) {
+    // ⭐ `[CP.8.72]` El pago a proveedor NO va al lote del día: la contadora hace UNA póliza por pago (un solo
+    // renglón de banco) y la forma «2120 / banco» del lote es la real en 1.7 % de los casos (`[CP.8.60]`).
+    // Se resuelve con la fuente (qué facturas y notas paga) y se arma completo; lo que no, se cuenta en el
+    // lote con su motivo — nunca se asienta incompleto.
+    const esPagoProveedor = (e: { categoria_code: string }): boolean => reglas.get(e.categoria_code)?.tipo_regla === 'por_proveedor';
+    const aMovimiento = (e: { cuenta_banco: string; amount_out: string | number; fecha: string; concept: unknown }): MovimientoPago => ({
+      cuenta_banco: e.cuenta_banco, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? ''),
+    });
+    const movsPago = egresos.filter((e) => e.cuenta_banco && esPagoProveedor(e)).map(aMovimiento);
+    const fuente = movsPago.length ? await this.fuenteDelMes(anioMes, movsPago) : null;
+
+    const out: PolizaArmada[] = [];
+    for (const [k, todas] of [...grupos.entries()].sort()) {
       const [cuenta_banco, fecha] = k.split('|');
+      const banco_label = [todas[0]?.banco_nombre, todas[0]?.banco_label].filter(Boolean).join(' ').trim() || null;
+      const filas = todas.filter((e) => !esPagoProveedor(e));
+      const motivosPago: Record<string, number> = {};
+      for (const e of todas.filter(esPagoProveedor)) {
+        let motivo: string;
+        // `fuente` existe siempre que haya pagos a proveedor: se cargó con todos ellos arriba.
+        const r = fuente ? fuente.resolver(aMovimiento(e)) : { estado: 'sin_resolver' as const, motivo: 'sin fuente' };
+        if (r.estado === 'armable') {
+          try {
+            const concepto = `PAGO ${String(e.concept ?? '').trim() || 'A PROVEEDOR'}`;
+            const a = armarPagoProveedorCompleto({ ...r.entrada, concepto });
+            out.push({
+              evento_tipo: 'bank_pago_proveedor', clave: String(e.id), asiento: a, uuids: a.uuids,
+              resumen: {
+                cuenta_banco, banco_label, fecha, movimientos: 1, incluidas: 1, renglones: a.movimientos.length,
+                total: a.total, iva_traspaso: null, motivos: {}, tipo: 'pago_proveedor', fuente: r.fuente, cfdis: a.uuids.length,
+                clave: `pago|${e.id}`,
+              },
+            });
+            continue;
+          } catch (err) {
+            motivo = err instanceof AsientoRechazado ? `pago_${err.motivo}` : 'pago_error';
+          }
+        } else {
+          motivo = r.estado === 'a_confirmar' ? 'pago_a_confirmar' : 'pago_sin_resolver';
+        }
+        motivosPago[motivo] = (motivosPago[motivo] ?? 0) + 1;
+      }
       const entradas = filas.map((e) => {
         const subtotal = Number(e.amount_out);
         const iva = Number(e.iva_hermano ?? 0);
@@ -910,19 +999,24 @@ export class ContpaqiArmadoService {
 
       const lote = armarLoteEgresos(cuenta_banco, fecha, entradas,
         `EGRESOS ${fecha} ${cuenta_banco}`);
-      const porMotivo: Record<string, number> = {};
+      const porMotivo: Record<string, number> = { ...motivosPago };
       for (const r of lote.rechazadas) porMotivo[r.motivo] = (porMotivo[r.motivo] ?? 0) + 1;
+      const armadosAparte = todas.length - filas.length - Object.values(motivosPago).reduce((a, n) => a + n, 0);
+      if (todas.length === armadosAparte) continue;   // el día sólo tenía pagos a proveedor, todos armados aparte
 
-      out.push({ asiento: lote.asiento, resumen: {
+      out.push({ evento_tipo: 'bank_lote', clave: k, asiento: lote.asiento, uuids: [], resumen: {
         cuenta_banco,
-        banco_label: [filas[0]?.banco_nombre, filas[0]?.banco_label].filter(Boolean).join(' ').trim() || null,
+        banco_label,
         fecha,
-        movimientos: filas.length,
+        // ⚠️ Los pagos armados aparte son su propia póliza: no se cuentan dos veces en el lote.
+        movimientos: todas.length - armadosAparte,
         incluidas: lote.incluidas,
         renglones: lote.asiento?.movimientos.length ?? 0,
         total: lote.asiento?.total ?? 0,
         iva_traspaso: lote.asiento?.iva_traspaso ?? null,
         motivos: porMotivo,
+        tipo: 'lote',
+        clave: k,
       } });
     }
     // ⭐ `[CP.8.34]` Lo que quedó fuera se AGRUPA y se devuelve, no se registra en un `warn`.
@@ -944,8 +1038,9 @@ export class ContpaqiArmadoService {
     };
 
     const conAsiento = out.filter((l) => l.resumen.incluidas > 0).length;
-    this.log.log(`lotes ${anioMes}: ${out.length} (banco × día) · ${conAsiento} con asiento`
-      + ` · ${fuera.movimientos} fuera de lote (${cuentas.map((c) => c.cuenta).join(', ') || '—'})`);
+    const pagos = out.filter((l) => l.evento_tipo === 'bank_pago_proveedor').length;
+    this.log.log(`lotes ${anioMes}: ${out.length - pagos} (banco × día) + ${pagos} pagos a proveedor completos de ${movsPago.length}`
+      + ` · ${conAsiento} con asiento · ${fuera.movimientos} fuera de lote (${cuentas.map((c) => c.cuenta).join(', ') || '—'})`);
     return { lotes: out, fuera_de_lote: fuera };
   }
 
