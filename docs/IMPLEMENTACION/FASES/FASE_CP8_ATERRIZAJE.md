@@ -977,3 +977,27 @@ falta uno nuevo.
   superadmin), y opcionalmente queda la regla por beneficiario («empieza con», palabra completa, atada al tipo).
   Solo llena lo vacío. Escritura NO MEDIDA hasta el CI (`pruebas-db`); permiso sin repartir hasta aplicar la
   migración `20261022131931`.
+- **2026-10-22** — `[CP.8.81]` **Prueba A/B del armado sobre ene–sep 2026**
+  (`database/scripts/comparar-armado-contpaqi.js`, solo lectura). El script arma cada mes por el mismo camino
+  que el archivo (`construirLotes`) y empareja cada póliza con la de la contadora (`analytics.gl_poliza_lines`,
+  tipo 2) por la pata de banco: cuenta, importe y día, o ±3 días. Lo que hoy se arma son solo pagos a
+  proveedor: ninguna regla de gasto tiene cuenta, así que los lotes de gasto **no se pudieron probar**.
+  - **Antes:** 932 armadas, 914 calificadas, **798 iguales (87.3 %)**. Placebo: 8 de 932 (el mismo importe en
+    otra cuenta de banco), así que el cruce discrimina. UUID del `AD`: 855 de 901 iguales a los que ella asoció.
+  - **Cambio:** «TDC» es pago de tarjeta de crédito; ella lo asienta contra 2140800000. Antes los 18 se armaban
+    como pago a proveedor y **0 salían iguales**. Ahora no se arman: motivo `pago_tarjeta`. Tampoco se pueden
+    confirmar.
+  - **Después:** 914 armadas, 897 calificadas, **798 iguales (89.0 %)**, 99 difieren.
+  - **Experimentos descartados**, medidos antes de tocar código:
+
+    | Hipótesis | Ganan | Pierden |
+    |---|---:|---:|
+    | Base al 16 % por IVA/0.16 | 13 | 44 |
+    | 2120 solo por provisión | 3 | 14 |
+
+  - **Opción sin adoptar:** descuento o devolución según lo que ella usó antes con ese proveedor gana 10 y
+    pierde 3.
+  - **Diferencias que quedan** (99): nota descuento↔devolución 25, frontera 2120 23, redondeo de centavos
+    entre 5010/5020 19, anticipo 1050 13, impuesto 13, tasa 4, otro 2.
+  - **NO MEDIDO:** los lotes de gasto (sin reglas con cuenta) y los pagos que no se arman solos (a confirmar,
+    no cuadran: ~90 al mes).

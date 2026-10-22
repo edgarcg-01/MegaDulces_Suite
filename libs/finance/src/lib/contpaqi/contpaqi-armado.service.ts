@@ -89,7 +89,7 @@ import {
 } from './poliza-egreso';
 import { tokenDe } from './token';
 import { coincide, palabrasDeBusqueda } from './busqueda';
-import { armarPagoProveedorCompleto } from './pago-proveedor';
+import { armarPagoProveedorCompleto, esPagoDeTarjeta } from './pago-proveedor';
 import {
   FuentePagoProveedor, type FuenteFacturas, type MovimientoPago, type PropuestaPago, type ResolucionPago,
 } from './pago-proveedor.fuente';
@@ -1209,7 +1209,8 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     return this.conTenant(async () => {
       const egresos = (await this.leerEgresos(anioMes)).filter((e) => e.cuenta_banco);
       const reglas = await this.leerReglas();
-      const pagos = egresos.filter((e) => reglas.get(e.categoria_code)?.tipo_regla === 'por_proveedor');
+      // `[CP.8.81]` El pago de tarjeta no se confirma como pago a proveedor: confirmarlo lo armaría mal.
+      const pagos = egresos.filter((e) => reglas.get(e.categoria_code)?.tipo_regla === 'por_proveedor' && !esPagoDeTarjeta(e.concept));
       if (!pagos.length) return [];
       const movs = pagos.map((e): MovimientoPago => ({ cuenta_banco: e.cuenta_banco, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? '') }));
       const fuente = await this.fuenteDelMes(anioMes, movs);
@@ -1246,6 +1247,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     return this.conTenant(async () => {
       if (!por) throw new ConfirmacionRechazada('no se pudo identificar quién confirma');
       const m = await this.movimientoDePago(movimientoId);
+      if (esPagoDeTarjeta(m.concepto)) throw new ConfirmacionRechazada('es pago de tarjeta de crédito, no a proveedor: no se arma con facturas');
       const anioMes = m.fecha.slice(0, 7);
       const fuente = await this.fuenteDelMes(anioMes, await this.movimientosPagoDelMes(anioMes));
       const r = fuente.entradaConfirmada(m, facturas ?? [], notas ?? []);
@@ -1356,6 +1358,12 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
       }
       for (const e of todas.filter(esPagoProveedor)) {
         let motivo: string;
+        // `[CP.8.81]` El pago de la tarjeta de crédito no se arma como pago a proveedor (0 de 18 salían iguales).
+        if (esPagoDeTarjeta(e.concept)) {
+          motivosPago.pago_tarjeta = (motivosPago.pago_tarjeta ?? 0) + 1;
+          estados?.set(String(e.id), { motivo: 'pago_tarjeta', clave: k });
+          continue;
+        }
         // `fuente` existe siempre que haya pagos a proveedor: se cargó con todos ellos arriba.
         const r = fuente ? this.resolverPago(fuente, aMovimiento(e), confs.get(String(e.id))) : { estado: 'sin_resolver' as const, motivo: 'sin fuente' };
         if (r.estado === 'armable') {

@@ -333,6 +333,12 @@ describe('[CP.8.80] categorizar desde el puente', () => {
     expect(sugerenciaBeneficiario(null)).toBe('');
   });
 
+  it('[CP.8.81] el pago de tarjeta tiene rótulo y no manda a ningún paso (no hay paso que lo resuelva)', () => {
+    expect(etiquetaMotivo('pago_tarjeta')).toBe('Pago de tarjeta de crédito');
+    expect(pasoDeMotivo('pago_tarjeta')).toBeNull();
+    expect(pasoDeMotivo('pago_a_confirmar')).toBe('pagos');
+  });
+
   it('el permiso de categorizar cuelga del nodo del puente (asignable en /admin/roles)', () => {
     const nodo = buscarNodo(AUTHZ_TREE as unknown as Nodo[], 'contpaqi-puente') as (Nodo & { manage?: string[] }) | null;
     expect(nodo?.manage).toContain('FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR');

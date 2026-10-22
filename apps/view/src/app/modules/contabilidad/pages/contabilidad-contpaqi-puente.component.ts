@@ -1560,7 +1560,8 @@ export function sugerenciaBeneficiario(concepto: string | null | undefined): str
 
 export function pasoDeMotivo(motivo: string | null): Paso | null {
   if (motivo === null) return 'archivo';
-  if (motivo === 'sin_categoria' || motivo === 'fuera_de_banco') return null;
+  // `[CP.8.81]` El pago de tarjeta tampoco se resuelve en un paso del puente: lo asienta contabilidad aparte.
+  if (motivo === 'sin_categoria' || motivo === 'fuera_de_banco' || motivo === 'pago_tarjeta') return null;
   if (motivo === 'sin_regla' || motivo === 'regla_sin_cuenta' || motivo === 'sin_medir') return 'reglas';
   if (motivo === 'proveedor_sin_cuenta') return 'proveedores';
   if (motivo.startsWith('pago_')) return 'pagos';
@@ -1592,6 +1593,7 @@ const ETIQUETA_MOTIVO: Record<string, string> = {
   // `[CP.8.72]` Pagos a proveedor que no se arman solos: se cuentan en su lote, nunca entran incompletos.
   pago_a_confirmar: 'Pago a proveedor: confirmar qué facturas paga',
   pago_sin_resolver: 'Pago a proveedor sin identificar',
+  pago_tarjeta: 'Pago de tarjeta de crédito',
   pago_no_cuadra: 'Pago a proveedor: facturas − notas ≠ pagado',
   pago_proveedor_sin_cuenta: 'Pago a proveedor sin cuenta',
   pago_sin_facturas: 'Pago a proveedor sin facturas',

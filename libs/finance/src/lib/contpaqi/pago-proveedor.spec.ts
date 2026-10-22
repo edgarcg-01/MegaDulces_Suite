@@ -1,7 +1,20 @@
 import { asientoCuadra, AsientoRechazado } from './poliza-egreso';
 import {
-  armarPagoProveedorCompleto, CUENTA, esProvisionada, type EntradaPagoProveedor, type FacturaPagada,
+  armarPagoProveedorCompleto, CUENTA, esPagoDeTarjeta, esProvisionada, type EntradaPagoProveedor, type FacturaPagada,
 } from './pago-proveedor';
+
+describe('[CP.8.81] el pago de la tarjeta de crédito no es pago a proveedor', () => {
+  it('los conceptos medidos en ene–sep 2026 se reconocen', () => {
+    for (const c of ['PAGO TDC AMEX -SAMS', 'TDC BTE- SAMS', 'TDC -Nueva Walmart', 'Pago tdc Banorte - Abarrotes El Zorro']) {
+      expect(esPagoDeTarjeta(c)).toBe(true);
+    }
+  });
+  it('⛔ palabra completa: un proveedor con «TDC» dentro de otra palabra sigue siendo proveedor', () => {
+    expect(esPagoDeTarjeta('PAGO STDCOMERCIAL')).toBe(false);
+    expect(esPagoDeTarjeta('Comercializadora Pepsico')).toBe(false);
+    expect(esPagoDeTarjeta(null)).toBe(false);
+  });
+});
 import { construirPadron, distanciaEdicion, normalizarNombre, resolverRfcAcreedor, rfcPorTexto, type PadronEmisores } from './rfc-acreedor';
 
 /**

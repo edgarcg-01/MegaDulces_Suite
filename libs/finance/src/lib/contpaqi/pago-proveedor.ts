@@ -103,6 +103,16 @@ export function esProvisionada(f: FacturaPagada, fechaPago: string): boolean {
   return (f.total >= UMBRAL_PROVISION && mes(f.fecha) < mes(fechaPago)) || f.enProvision;
 }
 
+/**
+ * `[CP.8.81]` **Un pago de tarjeta de crédito no es un pago a proveedor**, aunque traiga la categoría de compra y el
+ * nombre de la tienda («PAGO TDC AMEX - SAMS»): lo que sale del banco liquida la tarjeta, y la contadora lo asienta
+ * contra la tarjeta (2140800000). Medido sobre ene–sep 2026 con `comparar-armado-contpaqi.js`: de 18 pagos «TDC»
+ * que el puente armaba como proveedor, **0 salían iguales** a los suyos. No se arma: se declara con su motivo.
+ */
+export function esPagoDeTarjeta(concepto: unknown): boolean {
+  return /\bTDC\b/i.test(String(concepto ?? ''));
+}
+
 /** `[CP.8.66]` Descuento o devolución: el tipo de relación del CFDI de la nota (91.7 % contra la contadora). */
 export function esDevolucion(n: NotaAplicada): boolean {
   return n.tipoRelacion === '03';

@@ -466,6 +466,8 @@ const DUENO: Record<string, string> = {
   pago_sin_facturas: 'contabilidad — confirmar qué facturas paga (Pagos por confirmar)',
   pago_importe_invalido: 'sistemas — un CFDI del pago trae importe no positivo',
   pago_error: 'sistemas — error al armar el pago',
+  // `[CP.8.81]` Medido contra ContPAQi: 0 de 18 salían iguales armados como pago a proveedor.
+  pago_tarjeta: 'contabilidad — es pago de la tarjeta de crédito (se asienta contra 2140800000), no a proveedor',
   // `[CP.8.79]` Antes estos desaparecían del puente sin aviso.
   sin_categoria: 'contabilidad — categorizarlo aquí; con «todos los de este beneficiario» queda la regla',
 };
