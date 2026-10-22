@@ -968,6 +968,25 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       </aside>
       </div>
       <!-- /layout -->
+
+      <!-- [E.29] Con poco ancho el riel baja debajo de la bandeja y, con una bandeja larga, el total
+           y «Crear» quedaban fuera de vista (lo que COT.16 arregló en pantalla ancha). Esta barra
+           sólo existe en angosto (CSS por contenedor) y se queda pegada abajo mientras se baja. -->
+      @if (bandeja().length > 0) {
+        <div class="barra-cierre" role="region" aria-label="Total y crear cotización">
+          <span class="barra-total">
+            <span class="barra-n">{{ bandeja().length }} {{ bandeja().length === 1 ? 'artículo' : 'artículos' }}</span>
+            <b>{{ totalBandeja() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+          </span>
+          <p-button
+            label="Crear cotización"
+            icon="pi pi-check"
+            [loading]="guardando()"
+            [disabled]="!puedeCrear() || guardando()"
+            (onClick)="crear()"
+          />
+        </div>
+      }
     </section>
   `,
   styles: [
@@ -989,7 +1008,16 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 0.75rem; align-items: start; }
       .work { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
       .rail { position: sticky; top: 0.6rem; display: flex; flex-direction: column; gap: 0.6rem; }
+      .barra-cierre { display: none; }
       @container cot (max-width: 62.75rem) {
+        .barra-cierre {
+          display: flex; position: sticky; bottom: 0; z-index: 5; margin-top: 0.6rem;
+          align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0.75rem;
+          background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;
+        }
+        .barra-total { display: flex; align-items: baseline; gap: 0.6rem; font-variant-numeric: tabular-nums; }
+        .barra-n { font-size: var(--fs-xs); color: var(--text-muted); }
+        .barra-total b { font-size: var(--fs-body); font-weight: 800; }
         .layout { grid-template-columns: 1fr; }
         .rail { position: static; }
       }
@@ -1007,7 +1035,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .card-head-search .search-step { flex: 1; margin: 0; min-width: 0; }
       .step-num {
         width: 20px; height: 20px; flex: none; border-radius: 50%;
-        background: var(--primary-color, var(--action)); color: #fff;
+        background: var(--action); color: var(--action-ink);
         display: inline-flex; align-items: center; justify-content: center;
         font-size: var(--fs-xs); font-weight: 700;
       }
@@ -1031,10 +1059,12 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .term-item { display: inline-flex; align-items: baseline; gap: 0.35rem; }
       .t-k { color: var(--text-muted); }
       .t-v { font-weight: 700; font-variant-numeric: tabular-nums; }
-      .t-accent { color: var(--primary-color, var(--action)); font-weight: 800; }
+      /* Cifras en --text-main: --action como texto sobre blanco da 3.39:1 (AA pide 4.5) y el color de
+         marca es para acción, no para datos. El peso marca la jerarquía. */
+      .t-accent { color: var(--text-main); font-weight: 800; }
       .t-muted { font-style: italic; color: var(--text-muted); font-weight: 400; }
       .term-sep { width: 1px; height: 12px; background: var(--border-color); }
-      .term-warn { margin-left: auto; color: var(--yellow-700, #a16207); font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; }
+      .term-warn { margin-left: auto; color: var(--warn-soft-fg); font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; }
 
       .card-body { padding: 0.5rem 0.65rem; }
       .dest-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
@@ -1052,7 +1082,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         display: flex; align-items: center; gap: 0.75rem;
       }
       .chosen-details { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
-      .chosen-code { font-family: var(--font-mono, monospace); font-weight: 700; color: var(--primary-color, var(--action)); }
+      .chosen-code { font-family: var(--font-mono, monospace); font-weight: 700; color: var(--text-main); }
       .chosen-name { font-size: var(--fs-body); font-weight: 600; }
       .chosen-meta { font-size: var(--fs-xs); color: var(--text-muted); }
 
@@ -1067,7 +1097,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted);
         display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;
       }
-      .vendedor-label i { color: var(--primary-color, var(--action)); }
+      .vendedor-label i { color: var(--action); }
       .vendedor-select { flex: 1; min-width: 0; }
       .vendedor-fijo { font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
       .vendedor-origen { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
@@ -1094,14 +1124,14 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         padding: 0.55rem 0.8rem; background: none; border: 0; cursor: pointer; text-align: left;
         color: var(--text-main); font-size: var(--fs-sm);
       }
-      .cat-row:hover, .cat-row-active { background: var(--neutral-100, #f1f5f9); }
+      .cat-row:hover, .cat-row-active { background: var(--hover-bg); }
       .cat-col-nom { flex: 1 1 auto; min-width: 0; }
       .cat-nom { font-size: var(--fs-body); display: inline-block; font-weight: 600; }
       .cat-cont { color: var(--text-muted); font-size: var(--fs-xs); margin-left: 0.35rem; }
       .cat-col-meta { display: flex; gap: 0.5rem; font-size: var(--fs-xs); color: var(--text-muted); flex: 0 0 auto; }
       .cat-sku { font-family: var(--font-mono, monospace); font-weight: 600; }
       .cat-bc { font-variant-numeric: tabular-nums; }
-      .cat-un { font-weight: 600; background: var(--neutral-100, #f1f5f9); padding: 1px 4px; border-radius: 4px; }
+      .cat-un { font-weight: 600; background: var(--surface-ground); padding: 1px 4px; border-radius: 4px; }
       .cat-col-precio { text-align: right; flex: 0 0 5.5rem; display: flex; flex-direction: column; }
       .cat-precio-val { font-weight: 700; font-size: var(--fs-body); font-variant-numeric: tabular-nums; }
       .cat-precio-lbl { font-size: 0.65rem; color: var(--text-muted); }
@@ -1157,8 +1187,8 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .previa-amount { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); }
       .previa-unit-sub { font-size: var(--fs-xs); color: var(--text-muted); }
       .previa-menor-sub { font-size: var(--fs-micro); color: var(--text-muted); font-weight: 600; display: block; }
-      .previa-total-amount { font-size: 1.05rem; font-weight: 800; color: var(--primary-color, var(--action)); font-variant-numeric: tabular-nums; }
-      .previa-none { font-size: var(--fs-body); font-style: italic; color: var(--red-600, #dc2626); }
+      .previa-total-amount { font-size: 1.05rem; font-weight: 800; color: var(--text-main); font-variant-numeric: tabular-nums; }
+      .previa-none { font-size: var(--fs-body); font-style: italic; color: var(--bad-fg); }
 
       .banner-oportunidad-volumen {
         display: flex; align-items: center; gap: 0.5rem;
@@ -1167,34 +1197,31 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         border-radius: 6px; font-size: var(--fs-xs); color: var(--text-main);
       }
       .b-vol-icon { font-size: var(--fs-body); color: var(--action); flex-shrink: 0; }
-      .b-vol-icon-ok { font-size: var(--fs-body); color: #059669; flex-shrink: 0; }
+      .b-vol-icon-ok { font-size: var(--fs-body); color: var(--ok-fg); flex-shrink: 0; }
       .b-vol-desc { font-size: var(--fs-xs); flex: 1; }
       .strikethrough { text-decoration: line-through; opacity: 0.65; margin: 0 0.2rem; }
 
       .banner-volumen-exito {
         display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.6rem;
-        background: #ecfdf5; border: 1px solid #10b981; border-radius: 6px;
-        font-size: var(--fs-xs); color: #065f46;
+        background: var(--ok-soft-bg); border: 1px solid var(--ok-border); border-radius: 6px;
+        font-size: var(--fs-xs); color: var(--ok-soft-fg);
       }
-      .banner-volumen-exito .b-vol-title { color: #065f46; }
-      .banner-volumen-exito .b-vol-desc { color: #047857; }
-
 
       .banner-volumen {
         display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.6rem;
-        background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);
-        border-radius: 6px; font-size: var(--fs-xs); color: var(--green-700, #15803d);
+        background: var(--ok-soft-bg); border: 1px solid var(--ok-border);
+        border-radius: 6px; font-size: var(--fs-xs); color: var(--ok-soft-fg);
       }
       .banner-regalo {
         display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.6rem;
-        background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3);
-        border-radius: 6px; font-size: var(--fs-xs); color: #1d4ed8;
+        background: var(--info-soft-bg); border: 1px solid var(--info-border);
+        border-radius: 6px; font-size: var(--fs-xs); color: var(--info-soft-fg);
       }
       .p-step-row { display: flex; align-items: center; gap: 0.5rem; font-size: var(--fs-xs); margin-top: 0.2rem; flex-wrap: wrap; }
       .step-tag { font-weight: 700; color: var(--text-main); }
       .step-detail { color: var(--text-muted); }
-      .step-delta { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--green-700, #15803d); }
-      .p-why-bad { color: var(--red-600, #dc2626); font-size: var(--fs-xs); margin: 0; }
+      .step-delta { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ok-soft-fg); }
+      .p-why-bad { color: var(--bad-fg); font-size: var(--fs-xs); margin: 0; }
       .calc-details { font-size: var(--fs-xs); }
       .calc-details summary { cursor: pointer; color: var(--text-muted); font-weight: 600; width: fit-content; }
       .calc-details summary:hover { color: var(--text-main); }
@@ -1215,7 +1242,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .num { text-align: right; }
       .mono { font-family: var(--font-mono, monospace); font-size: var(--fs-xs); color: var(--text-muted); }
       .font-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
-      .bold-num { font-weight: 700; color: var(--primary-color, var(--action)); }
+      .bold-num { font-weight: 700; color: var(--text-main); }
 
       /* Bandeja de UNA línea por renglón: nombre y SKU juntos; el EAN va en el title */
       /* min-width: sin piso, el nombre es la PRIMERA columna que cede y queda en «…» antes de que
@@ -1225,9 +1252,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .item-sku { font-family: var(--font-mono, monospace); font-weight: 600; font-size: 0.7rem; color: var(--text-muted); margin-left: 0.4rem; }
       .tag-no-casado { margin-right: 0.4rem; }
       .row-no-casado td { background: var(--warn-soft-bg); }
-      .gift-tag { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; color: #1d4ed8; margin-left: 0.4rem; font-weight: 600; }
+      .gift-tag { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; color: var(--info-soft-fg); margin-left: 0.4rem; font-weight: 600; }
 
-      .pres-badge { font-weight: 700; background: var(--neutral-100, #f1f5f9); padding: 1px 5px; border-radius: 4px; font-size: var(--fs-xs); }
+      .pres-badge { font-weight: 700; background: var(--surface-ground); padding: 1px 5px; border-radius: 4px; font-size: var(--fs-xs); }
       .pres-factor { font-size: 0.7rem; color: var(--text-muted); margin-left: 0.25rem; }
 
       .table-qty-control { width: auto; display: inline-flex; }
@@ -1238,10 +1265,10 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .rail-totales { padding: 0.65rem 0.75rem 0.5rem; display: flex; flex-direction: column; gap: 0.15rem; }
       .tot-row { display: flex; justify-content: space-between; gap: 1rem; font-size: var(--fs-sm); color: var(--text-muted); }
       .tot-row b { color: var(--text-main); font-variant-numeric: tabular-nums; text-align: right; }
-      .tot-dto { color: var(--green-700, #15803d); }
-      .tot-dto b { color: var(--green-700, #15803d); }
+      .tot-dto { color: var(--ok-soft-fg); }
+      .tot-dto b { color: var(--ok-soft-fg); }
       .tot-final { font-size: var(--fs-body); font-weight: 700; color: var(--text-main); border-top: 1px solid var(--border-color); padding-top: 0.35rem; margin-top: 0.2rem; align-items: baseline; }
-      .tot-final b { font-weight: 800; font-size: 1.3rem; color: var(--primary-color, var(--action)); }
+      .tot-final b { font-weight: 800; font-size: 1.3rem; color: var(--action); }
       .rail-cierre { padding: 0 0.75rem 0.5rem; display: flex; flex-direction: column; gap: 0.4rem; }
       .mensaje-details { font-size: var(--fs-xs); }
       .mensaje-details summary { cursor: pointer; color: var(--text-muted); }
@@ -1269,10 +1296,6 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
 
 
       .btn-export { font-weight: 600; }
-      .btn-export-xlsx { border-color: #16a34a !important; color: #16a34a !important; }
-      .btn-export-xlsx:hover:not(:disabled) { background: rgba(22, 163, 74, 0.08) !important; }
-      .btn-export-pdf { border-color: #dc2626 !important; color: #dc2626 !important; }
-      .btn-export-pdf:hover:not(:disabled) { background: rgba(220, 38, 38, 0.08) !important; }
       .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
     `,
   ],

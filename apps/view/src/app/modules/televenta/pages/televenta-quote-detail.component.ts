@@ -783,12 +783,10 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
         border-bottom: 1px solid var(--border-color); background: var(--surface-ground, #fafafa);
       }
       .card-head h2 { font-size: var(--fs-body); font-weight: 700; margin: 0; }
-      .badge-count { font-size: var(--fs-xs); background: var(--neutral-100, #f1f5f9); padding: 2px 6px; border-radius: 9999px; font-weight: 600; color: var(--text-muted); }
+      .badge-count { font-size: var(--fs-xs); background: var(--surface-ground); padding: 2px 6px; border-radius: 9999px; font-weight: 600; color: var(--text-muted); }
 
-      .btn-export-xlsx { border-color: #16a34a !important; color: #16a34a !important; font-weight: 600; justify-content: center; }
-      .btn-export-xlsx:hover:not(:disabled) { background: rgba(22, 163, 74, 0.08) !important; }
-      .btn-export-pdf { border-color: #dc2626 !important; color: #dc2626 !important; font-weight: 600; justify-content: center; }
-      .btn-export-pdf:hover:not(:disabled) { background: rgba(220, 38, 38, 0.08) !important; }
+      /* Excel/PDF son p-button severity success/danger: el tema de PrimeNG los colorea en claro y oscuro. */
+      .btn-export-xlsx, .btn-export-pdf { font-weight: 600; justify-content: center; }
 
       /* Riel: totales (del servidor), entregables, lista del cliente y asistente IA */
       .rail-card { display: flex; flex-direction: column; }
@@ -835,7 +833,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .tl-lbl { color: var(--text-muted); }
       .tl-ico { color: var(--text-muted); font-size: 0.7rem; align-self: center; }
       .tl-sep { width: 1px; height: 0.85rem; background: var(--border-color); }
-      .t-strong { font-weight: 700; color: var(--action); }
+      .t-strong { font-weight: 700; color: var(--text-main); }
       .t-none { font-style: italic; color: var(--text-muted); }
       .t-sub { font-size: 0.7rem; color: var(--text-muted); }
       .vencida { color: var(--bad-fg); font-weight: 600; }
@@ -879,7 +877,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .cat-col-meta { display: flex; gap: 0.5rem; font-size: var(--fs-xs); color: var(--text-muted); flex: 0 0 auto; }
       .cat-sku { font-family: var(--font-mono, monospace); font-weight: 600; }
       .cat-bc { font-variant-numeric: tabular-nums; }
-      .cat-un { font-weight: 600; background: var(--neutral-100, #f1f5f9); padding: 1px 4px; border-radius: 4px; }
+      .cat-un { font-weight: 600; background: var(--surface-ground); padding: 1px 4px; border-radius: 4px; }
       .cat-col-precio { text-align: right; flex: 0 0 5.5rem; display: flex; flex-direction: column; }
       .cat-precio-val { font-weight: 700; font-size: var(--fs-body); font-variant-numeric: tabular-nums; }
       .cat-precio-lbl { font-size: 0.65rem; color: var(--text-muted); }
@@ -930,7 +928,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       }
       .unit-toggle-btn i { font-size: var(--fs-sm); color: var(--text-muted); }
       .unit-toggle-btn:hover { border-color: var(--action); }
-      .unit-toggle-active { border-color: var(--action); background: rgba(var(--action-rgb, 14, 116, 144), 0.06); }
+      .unit-toggle-active { border-color: var(--action); background: color-mix(in srgb, var(--action) 8%, transparent); }
       .unit-toggle-active i { color: var(--action); }
       .unit-title { font-weight: 700; font-size: var(--fs-sm); color: var(--text-main); }
       .unit-sub { font-size: var(--fs-micro); color: var(--text-muted); }
@@ -987,7 +985,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .previa-amount { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); }
       .previa-unit-sub { font-size: var(--fs-xs); color: var(--text-muted); }
       .previa-menor-sub { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 600; margin-left: 0.25rem; }
-      .previa-total-amount { font-size: 1.05rem; font-weight: 800; color: var(--action); font-variant-numeric: tabular-nums; }
+      .previa-total-amount { font-size: 1.05rem; font-weight: 800; color: var(--text-main); font-variant-numeric: tabular-nums; }
       .previa-none { font-size: var(--fs-body); font-style: italic; color: var(--bad-fg); }
 
       /* Oportunidad de volumen. Sin azul (DESIGN.md): tokens de acción, como el alta (COT.16). */
@@ -1013,26 +1011,24 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
 
       .banner-volumen-exito {
         display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.6rem;
-        background: #ecfdf5; border: 1px solid #10b981; border-radius: 6px;
-        font-size: var(--fs-xs); color: #065f46; margin: 0.4rem 0 0;
+        background: var(--ok-soft-bg); border: 1px solid var(--ok-border); border-radius: 6px;
+        font-size: var(--fs-xs); color: var(--ok-soft-fg); margin: 0.4rem 0 0;
       }
-      .banner-volumen-exito .b-vol-title { color: #065f46; }
-      .banner-volumen-exito .b-vol-desc { color: #047857; }
 
       .unit-badge-mayoreo {
-        font-size: var(--fs-micro); font-weight: 700; color: #047857; background: #d1fae5;
+        font-size: var(--fs-micro); font-weight: 700; color: var(--ok-soft-fg); background: var(--ok-soft-bg);
         padding: 2px 6px; border-radius: 4px; display: inline-block; margin-top: 0.2rem;
       }
 
       .banner-volumen {
         display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.65rem;
-        background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);
-        border-radius: 6px; font-size: var(--fs-sm); color: var(--ok-fg, #15803d); margin: 0.5rem 0;
+        background: var(--ok-soft-bg); border: 1px solid var(--ok-border);
+        border-radius: 6px; font-size: var(--fs-sm); color: var(--ok-soft-fg); margin: 0.5rem 0;
       }
       .banner-regalo {
         display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.65rem;
-        background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3);
-        border-radius: 6px; font-size: var(--fs-sm); color: #1d4ed8; margin: 0.5rem 0;
+        background: var(--info-soft-bg); border: 1px solid var(--info-border);
+        border-radius: 6px; font-size: var(--fs-sm); color: var(--info-soft-fg); margin: 0.5rem 0;
       }
       .p-step-row { display: flex; align-items: center; gap: 0.5rem; font-size: var(--fs-xs); margin-top: 0.25rem; flex-wrap: wrap; }
       .step-tag { font-weight: 700; color: var(--text-main); }
