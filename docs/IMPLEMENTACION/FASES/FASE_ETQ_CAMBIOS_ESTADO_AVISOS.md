@@ -18,6 +18,7 @@ Documentos hermanos: [`FASE_ETIQUETAS_ANAQUEL`](FASE_ETIQUETAS_ANAQUEL.md) (la e
 | **Cambios de precio gana ~170 px de alto**: el selector de día pasa a la fila de las pestañas, las 4 tarjetas a una línea y se quita el título repetido (no se pierde ninguna información) | Quien reimprime | #407 | 🧪 PR abierto, sin validación visual |
 | **Cambios de precio trae las columnas del PDF de Compras**: proveedor, UXC, costo anterior/actual con impuesto, mayoreo (precio de la caja) y tipo N/S. El «anterior» sale de una **foto diaria** del costo (Kepler no guarda la historia) | Compras y quien usa etiquetas | #417 | 🧪 en código · migración antes del código · SQL sin ejecutar · sin validación visual |
 | **Un código de promoción de Kepler («= GRATIS», «1 EN 10»…) ya no se dice «precio 0: ponle precio»**: es un código simbólico a $0.01, no un producto, y no lleva etiqueta (`ETQ-PROMO.1`) | Quien carga códigos | #446 | 🧪 en código · sin validación visual · sin migración |
+| **El verificador de precios avisa «Promoción» en vez de pintar $0.01**, y el buscador de la etiquetera las muestra marcadas «Promoción» y al final; el del mostrador las oculta salvo clave exacta (`ETQ-PROMO.2`) | Mostrador y quien carga códigos | #446 | 🧪 en código · probado en local con datos sintéticos · formato del respaldo 3→4 · sin migración |
 | **La etiquetera dice POR QUÉ un producto no tiene precio**: no existe en Kepler / existe pero no en esa tienda / precio 0 | Quien carga códigos | #351 | ✅ en `main` (2026-10-12) |
 | **Aviso en la campana** a cada sucursal cuando hay cambios de precio (07:30 resume ayer, 14:00 lo de hoy); al tocarlo entra a Cambios de precio de su tienda | Encargados y quien usa la etiquetera | #350 | ✅ en `main` (2026-10-12) · migraciones por confirmar en prod |
 | **Compras puede avisar a una o varias sucursales** con una nota (permiso propio) | Compras | #350 | ✅ en `main` · el permiso necesita su migración y re-login |
@@ -169,7 +170,9 @@ Este PR traía «Descargar CSV». **Edgar pidió quitarlo: no se acepta ningún 
 | 13 | `ETQ-CAMBIOS.11` — **no se midió la coherencia de la escalera de precios** (punto 18 del protocolo): si el precio de caja por unidad es peor que el de pieza/paquete. El «mayoreo» ya dice su unidad, pero no se comprobó que convenga | Precios / Comercial |
 | 12 | `ETQ-CAMBIOS.11` — el «costo anterior» aparece desde el día 2 de la foto; de un cambio previo a la primera foto no hay dato. Si Compras necesita el pasado, hay que reconstruirlo de las compras (`X-A-40`), que es otra medición | Compras |
 | 14 | `ETQ-PROMO.1` — **validación visual** del mensaje nuevo al escanear un código de promoción (p. ej. 09089) y del resumen de la carga masiva | Edgar |
-| 15 | `ETQ-PROMO.1` — ¿los códigos simbólicos deben **salir de la búsqueda** del catálogo de etiquetas? (hoy aparecen si se escriben) | Edgar |
+| 15 | ~~`ETQ-PROMO.1` — ¿salen de la búsqueda?~~ **Decidido por Edgar: sí, y que el verificador avise** → hecho en `ETQ-PROMO.2` | — |
+| 16 | `ETQ-PROMO.2` — **validación visual** de la tarjeta «Promoción» del verificador (en línea y con el respaldo) y de que buscar «oreo» muestra la galleta y, después, la promoción marcada | Edgar |
+| 17 | `ETQ-PROMO.2` — el aviso dice «Pregunta en caja cómo se aplica»: **no se verificó cómo se aplica una promoción en caja**; confirmar el texto con Operaciones | Operaciones |
 | 9 | Borrar las ramas remotas que ya cumplieron (el proyecto pide borrarlas al fusionar): `feat/etq-estado-1-v2` (#351), `docs/protocolo-pr-lecciones-etq` (#361) y `feat/etq-estado-1-motivo-sin-precio` (obsoleta, la reemplazó #351). La de #349 ya no existe | Cualquiera, con visto bueno |
 
 ---
@@ -221,4 +224,5 @@ Llevar los tres PR a verde dejó seis lecciones, ya en el protocolo previo a env
 | 2026-10-13 | Prod sirve `a5223868` (tip de `main`); migraciones de #350 sin poder confirmarse desde aquí | `/api/health` |
 | 2026-10-14 | Barra superior compacta de Cambios de precio (`ETQ-CAMBIOS.10`); `app-metric-strip` gana densidad compacta | #407 |
 | 2026-10-22 | Un código de promoción de Kepler ya no se dice «precio 0» (`ETQ-PROMO.1`) | #446 |
+| 2026-10-22 | El verificador avisa «Promoción»; el buscador de la etiquetera las marca; la regla pasa a `libs/contracts`; respaldo formato 4 (`ETQ-PROMO.2`) | #446 |
 | 2026-10-15 | Columnas del PDF de Compras en Cambios de precio y foto diaria del costo (`ETQ-CAMBIOS.11`) | #417 |
