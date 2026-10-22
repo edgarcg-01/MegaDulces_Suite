@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, Injector, OnInit, afterNextRender, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 import { CommonModule } from '@angular/common';
@@ -229,17 +229,6 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                     optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                     [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body"
                     styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
-          <p-select [options]="brandOpts()" [(ngModel)]="fBrand" (onChange)="loadWorkbook()"
-                    optionLabel="label" optionValue="value" placeholder="Todas las marcas" [showClear]="true"
-                    [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body"
-                    styleClass="pr-sel-wide" ariaLabel="Filtrar por marca"></p-select>
-          <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="loadWorkbook()"
-                    optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
-                    [filter]="true" filterBy="label" appendTo="body" styleClass="pr-sel" ariaLabel="Filtrar por categoría"></p-select>
-          <p-multiselect [options]="warehouseOpts()" [(ngModel)]="wbWarehouses" (onChange)="loadWorkbook()"
-                         optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
-                         [filter]="true" filterBy="label" [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales"
-                         appendTo="body" styleClass="pr-sel" ariaLabel="Sucursales que entran al pedido y al desglose"></p-multiselect>
           <p-iconfield styleClass="pr-search">
             <p-inputicon styleClass="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU o producto…" aria-label="Buscar producto" />
@@ -268,11 +257,13 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           <div class="pr-toolbar" role="toolbar" aria-label="Filtros y acciones"
                (keydown)="onToolbarKey($event)">
             <button type="button" class="pr-chip" [tabindex]="toolbarIdx() === 0 ? 0 : -1" [attr.aria-pressed]="wbScopeNeeded()" [class.pr-chip-on]="wbScopeNeeded()" (click)="wbScopeNeeded.set(!wbScopeNeeded()); loadWorkbook()">Solo con pedido</button>
-            <button type="button" class="pr-chip" [tabindex]="toolbarIdx() === 1 ? 0 : -1" [attr.aria-pressed]="wbOnlyOver()" [class.pr-chip-on]="wbOnlyOver()" (click)="toggleOnlyOver()" title="Ver solo productos con sobrestock (capital inmovilizado)">Con sobrestock</button>
-            <button type="button" class="pr-chip" [tabindex]="toolbarIdx() === 2 ? 0 : -1" [attr.aria-pressed]="fIad()==='accel'" [class.pr-chip-on]="fIad()==='accel'" (click)="toggleIad('accel')" title="Solo productos con demanda acelerando (IAD ≥ +0.25)">▲ Acelerando</button>
-            <button type="button" class="pr-chip" [tabindex]="toolbarIdx() === 3 ? 0 : -1" [attr.aria-pressed]="fIad()==='decel'" [class.pr-chip-on]="fIad()==='decel'" (click)="toggleIad('decel')" title="Solo productos con demanda desacelerando (IAD ≤ −0.25)">▼ Desacelerando</button>
+            <button type="button" class="pr-chip pr-mas" [tabindex]="toolbarIdx() === 1 ? 0 : -1" [class.pr-chip-on]="mostrarMas()"
+                    [attr.aria-expanded]="mostrarMas()" aria-controls="pr-mas-filtros" (click)="masFiltrosAbierto.set(!mostrarMas())"
+                    title="Marca, categoría, sucursales, sobrestock y tendencia">
+              <i class="pi pi-sliders-h" aria-hidden="true"></i> Más filtros @if (masActivos() > 0) { <span class="pr-clear-n">{{ masActivos() }}</span> }
+            </button>
             @if (filtrosActivos() > 0) {
-              <button type="button" class="pr-clear" [tabindex]="toolbarIdx() === 4 ? 0 : -1"
+              <button type="button" class="pr-clear" [tabindex]="toolbarIdx() === 2 ? 0 : -1"
                       (click)="limpiarFiltros()"
                       [attr.aria-label]="'Limpiar ' + filtrosActivos() + (filtrosActivos() === 1 ? ' filtro activo' : ' filtros activos')">
                 <i class="pi pi-times" aria-hidden="true"></i> Limpiar <span class="pr-clear-n">{{ filtrosActivos() }}</span>
@@ -280,6 +271,28 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             }
           </div>
         </div>
+        <!-- [RA-UX.10] Lo que no se toca todos los días, en una segunda fila que se abre a pedido.
+             Nunca esconde un filtro PUESTO: con alguno activo, la fila nace abierta y el botón dice
+             cuántos hay. Medido en vivo: 11 controles y 2 filas de filtros dejaban la primera fila
+             de la tabla en y=767 de 768 en una laptop. -->
+        @if (mostrarMas()) {
+          <div class="pr-filters pr-filters-mas" id="pr-mas-filtros" role="group" aria-label="Más filtros">
+            <p-select [options]="brandOpts()" [(ngModel)]="fBrand" (onChange)="loadWorkbook()"
+                      optionLabel="label" optionValue="value" placeholder="Todas las marcas" [showClear]="true"
+                      [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body"
+                      styleClass="pr-sel-wide" ariaLabel="Filtrar por marca"></p-select>
+            <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="loadWorkbook()"
+                      optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
+                      [filter]="true" filterBy="label" appendTo="body" styleClass="pr-sel" ariaLabel="Filtrar por categoría"></p-select>
+            <p-multiselect [options]="warehouseOpts()" [(ngModel)]="wbWarehouses" (onChange)="loadWorkbook()"
+                           optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
+                           [filter]="true" filterBy="label" [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales"
+                           appendTo="body" styleClass="pr-sel" ariaLabel="Sucursales que entran al pedido y al desglose"></p-multiselect>
+              <button type="button" class="pr-chip" [attr.aria-pressed]="wbOnlyOver()" [class.pr-chip-on]="wbOnlyOver()" (click)="toggleOnlyOver()" title="Ver solo productos con sobrestock (capital inmovilizado)">Con sobrestock</button>
+              <button type="button" class="pr-chip" [attr.aria-pressed]="fIad()==='accel'" [class.pr-chip-on]="fIad()==='accel'" (click)="toggleIad('accel')" title="Solo productos con demanda acelerando (IAD ≥ +0.25)">▲ Acelerando</button>
+              <button type="button" class="pr-chip" [attr.aria-pressed]="fIad()==='decel'" [class.pr-chip-on]="fIad()==='decel'" (click)="toggleIad('decel')" title="Solo productos con demanda desacelerando (IAD ≤ −0.25)">▼ Desacelerando</button>
+          </div>
+        }
 
         @if (error()) {
           <div class="pr-state pr-error">
@@ -292,8 +305,16 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                silencio al dejar de sumar lo no verificado, y eso se lee como "hay menos
                inventario" — otra mentira distinta de la que estamos quitando. -->
           @if (rungGap(); as g) {
+            <!-- [RA-UX.10] Eran 5 líneas fijas encima de la tabla. La cifra y lo que significa quedan a
+                 la vista; el porqué, a un clic. -->
             <div class="pr-rung-banner">
               <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              <div>
+              <p class="pr-rung-1"><strong>{{ g.skus | number }} {{ g.skus === 1 ? 'producto' : 'productos' }}</strong>
+                ({{ g.celdas | number }} {{ g.celdas === 1 ? 'almacén' : 'almacenes' }}) <strong>sin valuar</strong>:
+                no valen cero, no se están midiendo.
+                <button type="button" class="pr-zlink" (click)="rungAbierto.set(!rungAbierto())" [attr.aria-expanded]="rungAbierto()">{{ rungAbierto() ? 'ocultar' : 'por qué' }}</button></p>
+              @if (rungAbierto()) {
               <p>
                 <strong>{{ g.skus | number }} {{ g.skus === 1 ? 'producto' : 'productos' }}</strong>
                 ({{ g.celdas | number }} {{ g.celdas === 1 ? 'almacén' : 'almacenes' }})
@@ -307,6 +328,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 En esos renglones la celda muestra la cantidad en la unidad que el ERP realmente
                 guarda (kg, paquete, cubeta), que sí es verdad.
               </p>
+              }
+              </div>
             </div>
           }
           <div class="pr-wb-scroll">
@@ -314,6 +337,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                      styleClass="p-datatable-sm pr-table pr-wb" tableStyleClass="pr-wb-tbl">
               <ng-template #header>
                 <tr>
+                  <!-- [RA-UX.10] Columnas en orden de DECISIÓN: lo que se va a pedir y cuánto cuesta pegado al
+                       producto (antes eran la 12 y la 14 y en 1366 px quedaban fuera de la pantalla). Las
+                       que se esconden en celular llevan .pr-c-m: por CLASE, no por posición — la lista por
+                       posición quedó vieja cuando entró «Surt.» y escondía justo Σ Ped. y $ Pedido. -->
                   <th class="pr-prod-h">
                     <!-- [RA-PRO.54] Marca TODOS los productos de la consulta (todas las páginas) que tienen pedido. -->
                     <!-- Sin <label> a propósito: con el título adentro, un clic en "Producto" traería el catálogo entero. -->
@@ -326,21 +353,21 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                       Producto
                     </span>
                   </th>
-                  <th class="pr-r" title="Unidades del artículo según Kepler (1, 2 o 3): cuánto trae la unidad mayor en la base, y el paquete del medio si existe.">Unidad</th>
-                  <th class="pr-r">Costo/Cja</th>
-                  <th class="pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
-                  <th class="pr-r" title="Estacionalidad (RA-PRO.41): cuánto vende el horizonte (próximos 30 días) vs los últimos 30, según la historia del SKU/categoría/red. El Pedido YA la incluye. — = mes plano.">Est.</th>
-                  <th class="pr-r" title="Cumplimiento del proveedor medido en Kepler (orden de compra vs vale de entrada), ponderado por dinero. El Pedido YA viene dividido por él, topado en +30%. — = no se midió (menos de 25 renglones, o nombre repetido en el catálogo): en ese caso el pedido NO se tocó.">Surt.</th>
-                  <th class="pr-r" title="Existencia de toda la red, en CAJAS (suma de las sucursales). El desglose por sucursal está al abrir la fila.">Exist.<br/>red</th>
-                  <th class="pr-r" title="Clase XYZ de red (X estable · Y variable · Z errático) — peor caso entre sucursales">XYZ</th>
-                  <th class="pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. ⛔ El Pedido NO la descuenta: muchas OC llevan meses abiertas porque en Kepler la orden se captura al RECIBIR, así que restarlas taparía compras que sí hacen falta. Mira esta columna antes de pedir: lo de acá se SUMA a lo que pidas.">En camino</th>
-                  <th class="pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
-                  <th class="pr-r" title="Máximo de red (cajas)">Máx</th>
                   <th class="pr-r" title="Total de lo que se va a pedir, en CAJAS. Es la suma de las sucursales del desglose y SE MUEVE al editarlas.">Σ Ped.<br/>cajas</th>
-                  <th class="pr-r pr-muted-h" title="El mismo total, en la unidad BASE de cada artículo (pz, paq, kg…): cajas × unidades por caja.">Σ Base</th>
                   <th class="pr-r pr-val" title="Lo que cuesta ese pedido, valuado con el costo de caja de CADA sucursal.">$ Pedido</th>
-                  <th class="pr-r">Valor<br/>venta</th>
-                  <th class="pr-r">Valor<br/>exist.</th>
+                  <th class="pr-r" title="Existencia de toda la red, en CAJAS (suma de las sucursales). El desglose por sucursal está al abrir la fila.">Exist.<br/>red</th>
+                  <th class="pr-c-m pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. ⛔ El Pedido NO la descuenta: muchas OC llevan meses abiertas porque en Kepler la orden se captura al RECIBIR, así que restarlas taparía compras que sí hacen falta. Mira esta columna antes de pedir: lo de acá se SUMA a lo que pidas.">En camino</th>
+                  <th class="pr-c-m pr-r" title="Unidades del artículo según Kepler (1, 2 o 3): cuánto trae la unidad mayor en la base, y el paquete del medio si existe.">Unidad</th>
+                  <th class="pr-c-m pr-r">Costo/Cja</th>
+                  <th class="pr-c-m pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
+                  <th class="pr-c-m pr-r" title="Estacionalidad (RA-PRO.41): cuánto vende el horizonte (próximos 30 días) vs los últimos 30, según la historia del SKU/categoría/red. El Pedido YA la incluye. — = mes plano.">Est.</th>
+                  <th class="pr-c-m pr-r" title="Cumplimiento del proveedor medido en Kepler (orden de compra vs vale de entrada), ponderado por dinero. El Pedido YA viene dividido por él, topado en +30%. — = no se midió (menos de 25 renglones, o nombre repetido en el catálogo): en ese caso el pedido NO se tocó.">Surt.</th>
+                  <th class="pr-c-m pr-r" title="Clase XYZ de red (X estable · Y variable · Z errático) — peor caso entre sucursales">XYZ</th>
+                  <th class="pr-c-m pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
+                  <th class="pr-c-m pr-r" title="Máximo de red (cajas)">Máx</th>
+                  <th class="pr-c-m pr-r pr-muted-h" title="El mismo total, en la unidad BASE de cada artículo (pz, paq, kg…): cajas × unidades por caja.">Σ Base</th>
+                  <th class="pr-c-m pr-r">Valor<br/>venta</th>
+                  <th class="pr-c-m pr-r">Valor<br/>exist.</th>
                 </tr>
               </ng-template>
               <ng-template #body let-r>
@@ -350,7 +377,30 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                            (click)="$event.stopPropagation()" (change)="toggleSel(r)"
                            [title]="sumCajas(r) > 0 ? 'En la requisición en armado (la barra de abajo)' : 'Sin pedido al proveedor: no hay nada que requerir'"
                            [attr.aria-label]="'Agregar ' + r.sku + ' a la requisición'" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} cj@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
-                  <td class="pr-r pr-muted pr-uxc">
+                  <!-- Los totales son la SUMA VIVA del desglose de abajo: al editar una sucursal
+                       se mueven acá. Arrancan en el sugerido del motor, que es lo mismo que
+                       publicaba antes la columna por sucursal. -->
+                  <td class="pr-r pr-strong" [title]="pedidoTitle(r)">
+                    {{ sumCajas(r) | number:'1.0-1' }} <span class="pr-unit">{{ etOf(r).mayor }}</span>@if (r.almacenes_sin_pedido) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
+                  </td>
+                  <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="sumCajas(r) > 0">{{ money(sumValor(r)) }}</td>
+                  <!-- U.2 — la existencia de red suma SOLO los almacenes con el peldano verificado.
+                       Si alguno quedo fuera se declara con el triangulo y el conteo en el tooltip,
+                       porque un total mas chico se lee como "hay menos inventario". -->
+                  <td class="pr-r pr-muted" [title]="exisRedTitle(r)">
+                    @if (r.almacenes_sin_valuar) {
+                      <span class="pr-rung">{{ exisRed(r) | number:'1.0-1' }} <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span>
+                    } @else { {{ exisRed(r) | number:'1.0-1' }} }
+                  </td>
+                  <td class="pr-c-m pr-r">
+                    @if (r.transito_cajas && r.transito_cajas > 0) {
+                      <button type="button" class="pr-tran-btn" (click)="openTransit(r); $event.stopPropagation()"
+                              [title]="'OC abiertas de ' + r.sku + ' — NO se descuentan del sugerido. Clic para ver los folios.'">
+                        <i class="pi pi-truck" aria-hidden="true"></i> {{ r.transito_cajas | number:'1.0-1' }}
+                      </button>
+                    } @else { <span class="pr-muted">—</span> }
+                  </td>
+                  <td class="pr-c-m pr-r pr-muted pr-uxc">
                     <!-- [RA-PRO.70] La escalera real del artículo: 1, 2 o 3 unidades, con sus rótulos de Kepler. -->
                     <div [title]="unidadFilaTitle(r)">{{ unidadFilaTxt(r) }}</div>
                     @if (escOf(r); as e) {
@@ -363,13 +413,13 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                       }
                     }
                   </td>
-                  <td class="pr-r pr-muted">{{ money(r.caja_cost) }}</td>
-                  <td class="pr-r">
+                  <td class="pr-c-m pr-r pr-muted">{{ money(r.caja_cost) }}</td>
+                  <td class="pr-c-m pr-r">
                     @if (r.iad != null) {
                       <p-tag [value]="iadLabel(r)" [severity]="iadSev(r)" styleClass="pr-cov-tag" [title]="iadTitle(r)"></p-tag>
                     } @else { <span class="pr-muted" [title]="iadTitle(r)">—</span> }
                   </td>
-                  <td class="pr-r">
+                  <td class="pr-c-m pr-r">
                     @if (seasonOn(r)) {
                       <p-tag [value]="seasonLabel(r)" [severity]="seasonSev(r)" styleClass="pr-cov-tag" [title]="seasonTitle(r)"></p-tag>
                     } @else { <span class="pr-muted" title="Mes plano — la estacionalidad no mueve el pedido">—</span> }
@@ -377,43 +427,20 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <!-- [RA-DYN.U7] El inflado por cumplimiento se VE. Sin este chip el pedido
                        crecia hasta +30% sin que el comprador supiera de donde salio.
                        SIN ACENTOS GRAVES ACA: el template es un template literal de JS. -->
-                  <td class="pr-r">
+                  <td class="pr-c-m pr-r">
                     @if (fillOn(r)) {
                       <p-tag [value]="fillLabel(r)" [severity]="fillSev(r)" styleClass="pr-cov-tag" [title]="fillTitle(r)"></p-tag>
                     } @else { <span class="pr-muted" [title]="fillTitle(r)">—</span> }
                   </td>
-                  <!-- U.2 — la existencia de red suma SOLO los almacenes con el peldano verificado.
-                       Si alguno quedo fuera se declara con el triangulo y el conteo en el tooltip,
-                       porque un total mas chico se lee como "hay menos inventario". -->
-                  <td class="pr-r pr-muted" [title]="exisRedTitle(r)">
-                    @if (r.almacenes_sin_valuar) {
-                      <span class="pr-rung">{{ exisRed(r) | number:'1.0-1' }} <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span>
-                    } @else { {{ exisRed(r) | number:'1.0-1' }} }
-                  </td>
-                  <td class="pr-r">@if (r.xyz_class) { <span class="pr-mono">{{ r.xyz_class }}</span> } @else { <span class="pr-muted">—</span> }</td>
-                  <td class="pr-r">
-                    @if (r.transito_cajas && r.transito_cajas > 0) {
-                      <button type="button" class="pr-tran-btn" (click)="openTransit(r); $event.stopPropagation()"
-                              [title]="'OC abiertas de ' + r.sku + ' — NO se descuentan del sugerido. Clic para ver los folios.'">
-                        <i class="pi pi-truck" aria-hidden="true"></i> {{ r.transito_cajas | number:'1.0-1' }}
-                      </button>
-                    } @else { <span class="pr-muted">—</span> }
-                  </td>
-                  <td class="pr-r pr-muted">{{ r.reorder_cajas != null ? (r.reorder_cajas | number:'1.0-1') : '—' }}</td>
-                  <td class="pr-r pr-muted">{{ r.max_cajas != null ? (r.max_cajas | number:'1.0-1') : '—' }}</td>
-                  <!-- Los totales son la SUMA VIVA del desglose de abajo: al editar una sucursal
-                       se mueven acá. Arrancan en el sugerido del motor, que es lo mismo que
-                       publicaba antes la columna por sucursal. -->
-                  <td class="pr-r pr-strong" [title]="pedidoTitle(r)">
-                    {{ sumCajas(r) | number:'1.0-1' }} <span class="pr-unit">{{ etOf(r).mayor }}</span>@if (r.almacenes_sin_pedido) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
-                  </td>
-                  <td class="pr-r pr-muted-h">{{ sumPiezas(r) | number:'1.0-0' }} <span class="pr-unit">{{ escOf(r)[0].abr }}</span></td>
-                  <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="sumCajas(r) > 0">{{ money(sumValor(r)) }}</td>
-                  <td class="pr-r pr-muted">{{ money(r.valor_venta) }}</td>
+                  <td class="pr-c-m pr-r">@if (r.xyz_class) { <span class="pr-mono">{{ r.xyz_class }}</span> } @else { <span class="pr-muted">—</span> }</td>
+                  <td class="pr-c-m pr-r pr-muted">{{ r.reorder_cajas != null ? (r.reorder_cajas | number:'1.0-1') : '—' }}</td>
+                  <td class="pr-c-m pr-r pr-muted">{{ r.max_cajas != null ? (r.max_cajas | number:'1.0-1') : '—' }}</td>
+                  <td class="pr-c-m pr-r pr-muted-h">{{ sumPiezas(r) | number:'1.0-0' }} <span class="pr-unit">{{ escOf(r)[0].abr }}</span></td>
+                  <td class="pr-c-m pr-r pr-muted">{{ money(r.valor_venta) }}</td>
                   <!-- U.2 — el valuado no se dibuja si algún almacén tiene el peldaño sin verificar:
                        un cero o un parcial silencioso se lee como "hay poco inventario", que es otra
                        mentira. Se declara con el conteo de almacenes y el motivo en el tooltip. -->
-                  <td class="pr-r pr-muted" [title]="valorExisTitle(r)">
+                  <td class="pr-c-m pr-r pr-muted" [title]="valorExisTitle(r)">
                     @if (r.almacenes_sin_valuar) {
                       <span class="pr-rung">
                         @if (r.valor_exis) { {{ money(r.valor_exis) }} } @else { sin valuar }
@@ -423,7 +450,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   </td>
                 </tr>
                 @if (isOpen(r)) {
-                  <tr class="pr-wb-exp">
+                  <tr class="pr-wb-exp" [attr.id]="'pr-exp-' + r.product_id">
                     <td [attr.colspan]="wbColCount">
                       <div class="pr-exp-in">
                         <div class="pr-det-head">
@@ -769,7 +796,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             } @else if (carrito().productos > 0) {
               <!-- [RA-UX.9] La barra ES la requisición en armado: qué lleva, de cuántos proveedores y
                    cuánto, con la puerta al detalle. Antes decía «N seleccionados», que no dice para qué. -->
-              <button type="button" class="pr-cart-btn" (click)="carritoAbierto.set(true)" aria-haspopup="dialog"
+              <button type="button" class="pr-cart-btn" (click)="abrirCarrito()" aria-haspopup="dialog"
                       title="Ver y ajustar lo que va en la requisición, por proveedor">
                 <i class="pi pi-shopping-cart" aria-hidden="true"></i>
                 <span><strong>{{ carrito().productos }}</strong> producto{{ carrito().productos === 1 ? '' : 's' }}
@@ -827,7 +854,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         <!-- [RA-UX.9] LA REQUISICIÓN EN ARMADO, completa: por proveedor, con su subtotal y su pedido
              típico, y cada producto con lo que lleva. Cajón y no diálogo: se ve sin perder la lista
              (DESIGN §datos densos 8). -->
-        <app-side-peek [open]="carritoAbierto()" (openChange)="carritoAbierto.set($event)" [width]="560"
+        <app-side-peek [open]="carritoAbierto()" (openChange)="cerrarCarrito($event)" [width]="560"
                        title="Requisición en armado" [subtitle]="carritoSub()">
           @if (!carrito().productos) {
             <div class="pr-cart-vacio">
@@ -880,7 +907,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
              politica 'curva', que dejo de estar vigente el 2026-10-09. Con 'ignorar' el motor NO
              descuenta nada, y este dialogo es la UNICA via por la que el comprador se entera de
              que ademas viene mercancia. -->
-        <p-dialog [(visible)]="tranVisible" [modal]="true" [style]="{ width: '46rem' }" [dismissableMask]="true"
+        <p-dialog [(visible)]="tranVisible" [modal]="true" [style]="{ width: '46rem' }" [dismissableMask]="true" (onHide)="volverFoco()"
                   [header]="'En camino — ' + (tranProduct()?.nombre || '')">
           @if (tranLoading()) {
             <div class="pr-peek-loading"><i class="pi pi-spin pi-spinner"></i> Consultando órdenes de compra…</div>
@@ -945,7 +972,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         <!-- [RQ.8] Lo que el clic va a crear, ANTES de crearlo. El botón decía
              «Requisiciones (50)» contando PRODUCTOS marcados, no documentos: nadie podía saber
              si iban a salir 6 o 117. Medido: promedio 8.2, mediana 6, peor 117. -->
-        <p-dialog [(visible)]="planVisible" [modal]="true" [style]="{ width: '40rem' }" [dismissableMask]="!saving()"
+        <p-dialog [(visible)]="planVisible" [modal]="true" [style]="{ width: '40rem' }" [dismissableMask]="!saving()" (onHide)="volverFoco()"
                   header="Revisa lo que se va a generar">
           @if (planResumen(); as p) {
             <div class="pr-plan">
@@ -1017,7 +1044,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           }
         </p-dialog>
 
-        <p-dialog [(visible)]="unitVisible" [modal]="true" [style]="{ width: '32rem' }" [dismissableMask]="true" header="Unidad de venta">
+        <p-dialog [(visible)]="unitVisible" [modal]="true" [style]="{ width: '32rem' }" [dismissableMask]="true" header="Unidad de venta" (onHide)="volverFoco()">
           @if (unitRow(); as u) {
             <div class="pr-uov">
               <p class="pr-uov-prod"><strong>{{ u.nombre }}</strong> <span class="pr-sku">{{ u.sku }}</span></p>
@@ -1801,6 +1828,22 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-zlink:hover { background: var(--card-bg); text-decoration: underline; }
     /* [RA-UX.5] Destructiva: nunca en --action (Von Restorff, DESIGN §10). */
     .pr-zlink.pr-zlink-bad { color: var(--bad-fg); }
+    /* [RA-UX.10] La interaccion general: segunda fila de filtros, aviso en una linea, desglose que
+       se deja ver entero y objetivos de al menos 24px (medido: 81 de 175 eran menores). */
+    .pr-filters-mas { margin-top: -.25rem; padding: .5rem .6rem; border: 1px dashed var(--border-color); border-radius: var(--r-sm, 8px); }
+    .pr-mas .pi { font-size: var(--fs-xs); }
+    .pr-rung-banner .pr-rung-1 { margin: 0; }
+    .pr-rung-banner p + p { margin-top: .4rem; }
+    :host ::ng-deep .pr-wb tr.pr-wb-exp { scroll-margin-top: 1rem; scroll-margin-bottom: 6rem; }
+    .pr-zlink, .pr-vmx, .pr-uu-b, .pr-tran-btn, .pr-unit-btn { min-height: 1.5rem; }
+    .pr-uu-b { min-width: 1.5rem; }
+    .pr-chk { width: 1.125rem; height: 1.125rem; }
+    /* El encabezado en pantalla angosta: las pestañas bajan debajo del titulo. Medido en vivo a 390px:
+       se montaban sobre el titulo y el subtitulo quedaba de 63px de ancho por 888 de alto. */
+    @media (max-width: 48rem) {
+      .surf-page-head { flex-wrap: wrap; }
+      .surf-page-head .surf-page-head-text { flex: 1 1 100%; min-width: 0; }
+    }
     /* [RA-UX.9] La requisición en armado: el estado del producto, la barra y el cajón.
        Jerarquía: primario = el total del carrito y de cada proveedor (peso + tabular);
        secundario = nombre del producto; terciario = sku, sucursales y cajas (muted). */
@@ -1875,13 +1918,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
        corte y no cambian. Mismo corte que la senal compacto() del componente. ────────────── */
     @container (max-width: 40rem) {
       /* B — Tabla principal: sin scroll horizontal. Quedan Producto, Exist. red, Suma Ped. cajas y
-         $ Pedido (lo que decide). Se ocultan por posicion: 2 Ud/caja, 3 Costo, 4 Tend., 5 Est.,
-         7 XYZ, 8 En camino, 9 Reorden, 10 Max, 12 Piezas, 14 Valor venta, 15 Valor exist.
-         Si se agrega o mueve una columna arriba, actualizar esta lista. */
+         $ Pedido (lo que decide). [RA-UX.10] Las demas llevan la clase .pr-c-m en su th y su td. */
       :host ::ng-deep .pr-wb-tbl { min-width: 0; width: 100%; }
       :host ::ng-deep .pr-wb th.pr-prod-h { min-width: 0; }
-      :host ::ng-deep .pr-wb thead tr:first-child > th:is(:nth-child(2), :nth-child(3), :nth-child(4), :nth-child(5), :nth-child(7), :nth-child(8), :nth-child(9), :nth-child(10), :nth-child(12), :nth-child(14), :nth-child(15)),
-      :host ::ng-deep .pr-wb tbody tr.pr-wb-row > td:is(:nth-child(2), :nth-child(3), :nth-child(4), :nth-child(5), :nth-child(7), :nth-child(8), :nth-child(9), :nth-child(10), :nth-child(12), :nth-child(14), :nth-child(15)) { display: none; }
+      :host ::ng-deep .pr-wb .pr-c-m { display: none; }   /* [RA-UX.10] por clase: ver el comentario del encabezado */
       .pr-supp { display: none; }   /* el proveedor ya se lee dentro del desglose */
       :host ::ng-deep .pr-wb tbody tr.pr-wb-row > td { padding-top: .6rem; padding-bottom: .6rem; }   /* renglon de 56px (DESIGN tabla densa) */
 
@@ -1942,6 +1982,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private readonly route = inject(ActivatedRoute); // Q.4 — deep-link desde Existencia
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly auth = inject(AuthService);
   // `[RA-PERF.6]` El canal por el que SÍ sale un crash de render (ver `reportarIncidente`).
@@ -2579,8 +2620,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   readonly monthly = signal<{ key: string; title: string; mx: number | null; vta: number | null; loading: boolean; error: boolean; data: MonthlySalesResponse | null } | null>(null);
   private readonly monthlyCache = new Map<string, MonthlySalesResponse>();
   private monthlyKey: string | null = null;
-  onMonthlyHide(): void { this.monthlyKey = null; }
+  onMonthlyHide(): void { this.monthlyKey = null; this.volverFoco(); }
   openMonthly(ev: Event, r: WorkbookRow, b: BranchBuy | null, op: Popover): void {
+    this.recordarFoco();
     const code = b?.code ?? null;
     const key = r.product_id + '|' + (code ?? 'RED');
     const target = ev.currentTarget as HTMLElement;
@@ -3628,6 +3670,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const s = new Set(this.wbOpen());
     if (s.has(r.product_id)) s.delete(r.product_id); else s.add(r.product_id);
     this.wbOpen.set(s);
+    if (s.has(r.product_id)) this.mostrarDesglose(r.product_id);
   }
   /**
    * `[RA-UX.8]` Enter y Espacio abren la fila, como un botón. Sólo si la tecla nació en la FILA:
@@ -3731,6 +3774,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   tranGap = computed(() => Math.max(0, this.tranTotalCajas() - this.tranDescuenta()));
 
   openTransit(r: WorkbookRow): void {
+    this.recordarFoco();
     this.tranProduct.set({ sku: r.sku, nombre: r.nombre });
     this.tranRows.set([]); this.tranError.set(false); this.tranLoading.set(true); this.tranVisible = true;
     this.api.inTransit(r.product_id)
@@ -3905,6 +3949,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   // Persistencia de filtros en localStorage → se mantienen al recargar / navegar / cambiar de pestaña.
   private readonly FKEY = 'compras-pedido-filters:v1';
   private saveFilters(): void {
+    this.filtrosRev.update((n) => n + 1);
     try {
       localStorage.setItem(this.FKEY, JSON.stringify({
         mode: this.mode(), fSupplier: this.fSupplier, fBrand: this.fBrand, fCategory: this.fCategory, fWarehouse: this.fWarehouse,
@@ -4145,7 +4190,15 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * el botón no aparece (un "Limpiar" permanentemente deshabilitado es ruido, no información).
    * La cobertura cuenta sólo si NO está en su valor por default.
    */
+  /**
+   * `[RA-UX.10]` Revisión de los filtros. ⛔ `filtrosActivos` es un `computed` que lee campos que NO
+   * son signals (`fSupplier`, `search`, `coverage`…): sin una dependencia que cambie, se quedaba con el
+   * primer valor y «Limpiar (n)» no aparecía al elegir un proveedor. Se sube en `saveFilters()`, que
+   * corre en cada consulta — o sea, cada vez que un filtro cambia de verdad.
+   */
+  private readonly filtrosRev = signal(0);
   readonly filtrosActivos = computed(() => {
+    this.filtrosRev();
     let n = 0;
     if (this.fSupplier) n++;
     if (this.fBrand) n++;
@@ -4159,6 +4212,56 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return n;
   });
 
+  // ── `[RA-UX.10]` La segunda fila de filtros ──────────────────────────────────────────────
+  /** Los filtros que viven en «Más filtros». Con alguno puesto, la fila no se esconde. */
+  readonly masActivos = computed(() => {
+    this.filtrosRev();
+    let n = 0;
+    if (this.fBrand) n++;
+    if (this.fCategory) n++;
+    if (this.wbWarehouses.length) n++;
+    if (this.wbOnlyOver()) n++;
+    if (this.fIad() !== 'all') n++;
+    return n;
+  });
+  /** `null` = la persona no la tocó: se abre sola si hay algo puesto ahí. */
+  readonly masFiltrosAbierto = signal<boolean | null>(null);
+  readonly mostrarMas = computed(() => this.masFiltrosAbierto() ?? this.masActivos() > 0);
+  /** El porqué del aviso de «sin valuar», a un clic. */
+  readonly rungAbierto = signal(false);
+
+  // ── `[RA-UX.10]` El foco vuelve a quien abrió ──────────────────────────────────────────
+  // Medido en vivo: al cerrar «En camino» con Escape el foco caía en <body> — quien navega con
+  // teclado perdía su lugar en la tabla y tenía que volver a tabular desde arriba (43 Tabs).
+  private focoPrevio: HTMLElement | null = null;
+  private recordarFoco(): void {
+    const el = (typeof document !== 'undefined' ? document.activeElement : null) as HTMLElement | null;
+    // Desde dentro del cajón de la requisición, el que vuelve es el botón que lo abrió.
+    const enCajon = el?.closest?.('.sp-panel');
+    this.focoPrevio = enCajon ? (document.querySelector('.pr-cart-btn') as HTMLElement | null) : (el && el !== document.body ? el : null);
+  }
+  volverFoco(): void {
+    const el = this.focoPrevio;
+    this.focoPrevio = null;
+    if (el && el.isConnected) setTimeout(() => el.focus(), 0);
+  }
+  abrirCarrito(): void { this.recordarFoco(); this.carritoAbierto.set(true); }
+  cerrarCarrito(abierto: boolean): void { this.carritoAbierto.set(abierto); if (!abierto) this.volverFoco(); }
+
+  /**
+   * `[RA-UX.10]` Abrir un producto lo MUESTRA. Medido en vivo: el desglose nacía debajo del borde y
+   * detrás de la barra — se veían 60 px de 355, y el clic parecía no haber hecho nada. Se desplaza
+   * lo mínimo para que entre entero (`scroll-margin` le deja lugar a la barra fija).
+   */
+  private mostrarDesglose(pid: string): void {
+    afterNextRender(() => {
+      const el = typeof document !== 'undefined' ? document.getElementById('pr-exp-' + pid) : null;
+      if (!el || typeof el.scrollIntoView !== 'function') return;
+      const quieto = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({ block: 'nearest', behavior: quieto ? 'auto' : 'smooth' });
+    }, { injector: this.injector });
+  }
+
   /** Deja la pantalla como recién abierta y recarga una sola vez. */
   limpiarFiltros(): void {
     this.fSupplier = null; this.fBrand = null; this.fCategory = null;
@@ -4168,6 +4271,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.wbOnlyOver.set(false);
     this.fIad.set('all');
     this.toolbarIdx.set(0);
+    this.masFiltrosAbierto.set(null);
     this.loadWorkbook();
   }
 
@@ -4824,6 +4928,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   ovSuf: number | null = null;
   ovBf: number | null = null;
   openUnit(r: PurchaseSuggestionRow): void {
+    this.recordarFoco();
     this.unitRow.set(r);
     this.ovSuf = r.unit_source === 'manual' && r.stock_unit_factor && r.stock_unit_factor > 1 ? Number(r.stock_unit_factor) : null;
     this.ovBf = r.unit_source === 'manual' ? Number(r.uxc) || null : null;
@@ -4991,6 +5096,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     // y **117 en el peor**. El botón decía «Requisiciones (50)» y ese 50 eran PRODUCTOS marcados,
     // no documentos — nadie podía saber si ese clic iba a crear 6 o 117. Acá se para y se enseña.
     this.repetido.set(null);   // `[RA-UX.1b]` plan nuevo: el aviso del anterior no aplica
+    this.recordarFoco();
     this.plan.set(dtos);
     this.planVisible = true;
   }

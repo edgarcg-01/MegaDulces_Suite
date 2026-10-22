@@ -883,3 +883,64 @@ describe('[RA-UX.9] la requisición en armado (el carrito)', () => {
     expect(build).toHaveBeenCalledWith();
   });
 });
+
+describe('[RA-UX.10] la interacción general: lo que decide, a la vista', () => {
+  beforeEach(() => { try { localStorage.clear(); } catch { /* jsdom */ } });
+
+  it('⛔ las columnas van en orden de decisión: Σ Ped., $ Pedido y Exist. red pegadas a Producto', () => {
+    const f = montar(VACIO);
+    const ths = [...(f.nativeElement as HTMLElement).querySelectorAll('.pr-wb-scroll table thead th')].map((t) => (t.textContent || '').replace(/\s+/g, ' ').trim());
+    expect(ths.length).toBe(16);
+    expect(ths[1]).toMatch(/Σ Ped/);
+    expect(ths[2]).toMatch(/\$ Pedido/);
+    expect(ths[3]).toMatch(/Exist/);
+  });
+
+  it('⛔ en celular se esconden por CLASE y quedan justo las que deciden (la lista por posición escondía Σ Ped. y $ Pedido)', () => {
+    const f = montar(VACIO);
+    const ths = [...(f.nativeElement as HTMLElement).querySelectorAll('.pr-wb-scroll table thead th')];
+    const quedan = ths.filter((t) => !t.classList.contains('pr-c-m')).map((t) => (t.textContent || '').replace(/\s+/g, ' ').trim());
+    expect(quedan).toHaveLength(4);
+    expect(quedan.join(' | ')).toMatch(/Producto.*Σ Ped.*\$ Pedido.*Exist/);
+  });
+
+  it('⛔ «Limpiar (n)» se entera de un filtro que NO es signal (antes se quedaba en el primer valor)', () => {
+    const c = montar(VACIO).componentInstance;
+    expect(c.filtrosActivos()).toBe(0);
+    c.fSupplier = 's-1';
+    c.loadWorkbook();
+    expect(c.filtrosActivos()).toBe(1);
+  });
+
+  it('«Más filtros» nace cerrada, se abre sola si hay algo puesto ahí, y respeta si la cierras', () => {
+    const c = montar(VACIO).componentInstance;
+    expect(c.mostrarMas()).toBe(false);
+    c.fBrand = 'b-1'; c.loadWorkbook();
+    expect(c.masActivos()).toBe(1);
+    expect(c.mostrarMas()).toBe(true);
+    c.masFiltrosAbierto.set(false);
+    expect(c.mostrarMas()).toBe(false);
+    c.limpiarFiltros();
+    expect(c.masActivos()).toBe(0);
+    expect(c.masFiltrosAbierto()).toBeNull();
+  });
+
+  it('el foco vuelve a quien abrió el diálogo', async () => {
+    const c = montar(VACIO).componentInstance;
+    const btn = document.createElement('button'); document.body.appendChild(btn); btn.focus();
+    c.openTransit({ product_id: 'p-1', sku: 'X', nombre: 'X' } as never);
+    (document.activeElement as HTMLElement | null)?.blur();
+    c.volverFoco();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(document.activeElement).toBe(btn);
+    btn.remove();
+  });
+
+  it('⭐ NEGATIVA: si quien abrió ya no existe, no se intenta enfocar nada (ni revienta)', async () => {
+    const c = montar(VACIO).componentInstance;
+    const btn = document.createElement('button'); document.body.appendChild(btn); btn.focus();
+    c.openTransit({ product_id: 'p-1', sku: 'X', nombre: 'X' } as never);
+    btn.remove();
+    expect(() => c.volverFoco()).not.toThrow();
+  });
+});
