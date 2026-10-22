@@ -123,6 +123,9 @@ test.describe('lectura — lo que pinta la pantalla = lo que dice la API', () =>
     expect(c['Revisar']).toBe(esperado.revisar);
     expect(c['Ya en el libro']).toBe(esperado.ya_libro);
     expect(c['Todas']).toBe(d.facturas.length);
+    // LC.21: la tarjeta del rail cuenta con las decisiones a mano, como el chip (antes: por elegibilidad).
+    const card = (await tarjeta(page, MES).innerText()).replace(/\s+/g, ' ');
+    if (d.resumen.incluidas) expect(card, 'LC.21: tarjeta del rail = chip «Entran al TXT»').toContain(`${d.resumen.incluidas} entran al TXT`);
 
     // El pie: 0% + c/IVA + IEPS + IVA = total, y el total = lo que entra según la API.
     const pie = (await page.locator('.na-tot td').allInnerTexts()).map((t) => t.trim()).filter((t) => t.startsWith('$'));
