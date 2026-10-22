@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Documentos de compra — propuesta</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Documento impreso = PALETA_DOCUMENTO (apps/view/src/app/shared/util/paleta-documento.ts, [E.29]),
+     la misma de todos los documentos de la suite. Reglas: la marca es el logo y UN filete; la jerarquía
+     la dan tamaño y peso; el color de estado sólo aparece cuando HAY estado, y siempre con su texto
+     (se imprime en blanco y negro: el color nunca es el único portador). */
+  :root {
+    --ink: #09090B; --head: #52525B; --muted: #52525B; --faint: #71717A; --rule: #E4E4E7; --zebra: #FAFAFA; --th: #F4F4F5;
+    --action: #F05A28;
+    --bad-fg: #991B1B; --bad-bg: #FEE2E2; --bad-bd: #FECACA;
+    --warn-fg: #92400E; --warn-bg: #FEF3C7; --warn-bd: #FDE68A;
+    --font: 'Hanken Grotesk', Helvetica, Arial, sans-serif; --mono: 'Geist Mono', ui-monospace, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #D4D4D8; color: var(--ink); font: 400 9.5pt/1.35 var(--font); }
+  .nota { max-width: 8.5in; margin: 16px auto 0; padding: 10px 14px; background: #FAFAFA; border: 1px dashed #A1A1AA; border-radius: 6px; font-size: 10pt; }
+  .nota b { color: var(--ink); }
+  .hoja { width: 8.5in; min-height: 11in; margin: 16px auto; background: #fff; padding: 0.45in 0.5in 0.4in; position: relative;
+    box-shadow: 0 1px 3px rgba(0,0,0,.15); display: flex; flex-direction: column; }
+  @page { size: letter; margin: 0; }
+  @media print { body { background: #fff; } .nota { display: none; } .hoja { margin: 0; box-shadow: none; page-break-after: always; } }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .r { text-align: right; } .muted { color: var(--muted); } .faint { color: var(--faint); }
+
+  /* Encabezado: quién emite (con su identidad fiscal) | qué documento es */
+  .enc { display: grid; grid-template-columns: 52px 1fr auto; gap: 12px; align-items: start; }
+  .enc img { width: 52px; height: 52px; }
+  .emp b { display: block; font-size: 13pt; letter-spacing: .01em; }
+  .emp span { display: block; font-size: 8pt; color: var(--muted); }
+  /* La caja del documento: el único recuadro del encabezado. Sin relleno; el folio en TINTA (el naranja
+     como texto chico da 3.39:1 y además competía con las alertas). */
+  .caja { min-width: 2.7in; border: 1px solid var(--rule); border-radius: 5px; padding: 7px 10px; }
+  .caja .tipo { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+  .caja .titulo { font-size: 14pt; font-weight: 700; line-height: 1.15; }
+  .caja .folio { font-size: 12pt; font-weight: 700; color: var(--ink); }
+  .caja dl { margin: 4px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; font-size: 8pt; }
+  .caja dt { color: var(--muted); } .caja dd { margin: 0; text-align: right; }
+  .raya { height: 1.33px; background: var(--action); margin: 10px 0 8px; }   /* 1 pt: el ÚNICO acento de marca */
+
+  /* La cadena: dónde está este documento entre los cuatro. «Aquí» por peso y un trazo, no por un bloque de tinta. */
+  .cadena { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin-bottom: 10px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+  .paso { padding: 5px 8px; font-size: 7.5pt; }
+  .paso + .paso { border-left: 1px solid var(--rule); }
+  .paso .k { text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; font-size: 6.5pt; }
+  .paso .v { font-weight: 500; font-size: 8.5pt; color: var(--head); }
+  .paso.aqui { background: var(--th); box-shadow: inset 0 -2px 0 var(--ink); }
+  .paso.aqui .v { font-weight: 700; color: var(--ink); }
+  .paso.aqui .k::after { content: ' · este documento'; text-transform: none; letter-spacing: 0; }
+  .paso.falta .v { color: var(--faint); font-weight: 400; font-style: italic; }
+
+  /* Las partes: agrupadas por espacio, sin recuadros (el borde es el último recurso). */
+  .partes { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 16px; margin-bottom: 12px; }
+  .parte .k { font-size: 6.5pt; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  .parte .v { font-weight: 600; font-size: 9.5pt; }
+  .parte .s { font-size: 8pt; color: var(--head); }
+  .falta-dato { color: var(--muted); font-style: italic; }   /* un dato que falta se DICE; no es un estado del documento */
+
+  /* Renglones: encabezado claro (no gasta tinta) con raya de tinta debajo. */
+  table { width: 100%; border-collapse: collapse; }
+  th { background: var(--th); color: var(--ink); font-size: 7pt; text-transform: uppercase; letter-spacing: .05em; font-weight: 700;
+    padding: 5px 6px; text-align: left; border-bottom: 1px solid var(--ink); }
+  th.r { text-align: right; }
+  td { padding: 5px 6px; border-bottom: 1px solid var(--rule); vertical-align: top; font-size: 8.5pt; }
+  td.r { text-align: right; }
+  tr.dif td { background: var(--bad-bg); }
+  .marca { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .marca.bad { color: var(--bad-fg); }
+
+  /* Cierre: observaciones | totales. Un estado lleva su RÓTULO escrito; el color sólo lo acompaña. */
+  .cierre { display: grid; grid-template-columns: 1fr 2.6in; gap: 12px; margin-top: 10px; align-items: start; }
+  .obs { font-size: 8pt; color: var(--head); margin: 0 0 6px; }
+  .obs b { color: var(--ink); }
+  .obs.error, .obs.aviso { border: 1px solid; border-radius: 4px; padding: 5px 8px; }
+  .obs.error { background: var(--bad-bg); border-color: var(--bad-bd); color: var(--bad-fg); }
+  .obs.aviso { background: var(--warn-bg); border-color: var(--warn-bd); color: var(--warn-fg); }
+  .obs.error b, .obs.aviso b { color: inherit; }
+  .obs .rot { display: block; font-size: 6.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+  .tot div { display: flex; justify-content: space-between; padding: 3px 0; font-size: 9pt; }
+  .tot .gran { font-weight: 700; font-size: 12pt; border-top: 1px solid var(--ink); border-bottom: 3px double var(--ink); margin-top: 3px; padding: 4px 0; }
+  .tot .sub { color: var(--muted); font-size: 8pt; }
+
+  /* Vale: espacio para lo que se anota a mano al recibir (el chofer, el sello, lo que llegó dañado). */
+  .anota { margin-top: 14px; }
+  .anota .k { font-size: 6.5pt; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  .anota i { display: block; height: 22px; border-bottom: 1px solid var(--rule); }
+
+  .firmas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin-top: auto; padding-top: 34px; }
+  .firma { border-top: 1px solid var(--ink); padding-top: 4px; font-size: 8pt; text-align: center; }
+  .firma b { display: block; font-size: 8.5pt; }
+  .firma span { color: var(--muted); }
+
+  .pie span:last-child, .pie span:nth-child(2) { white-space: nowrap; }
+  .pie { margin-top: 14px; padding-top: 6px; border-top: 1px solid var(--rule); display: flex; justify-content: space-between; gap: 12px; font-size: 7pt; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="nota"><b>Maqueta</b> de los cuatro documentos de la cadena de compra, con <b>datos reales de prod (22-oct-2026)</b>.
+  La requisición es <b>RQ-2026-01250</b> de la Suite; la orden de compra, el vale y la orden de entrada son de Kepler (Morelia Abastos,
+  La Granja Orgánica), elegidos porque muestran un <b>faltante</b> y una <b>bonificación</b>. Mismo encabezado, misma franja de cadena,
+  mismas firmas y mismo pie en los cuatro. Se imprime en carta (Ctrl+P).</div>
+
+<div id="docs"></div>
+
+<script>
+// ── Datos reales (prod, solo lectura, 22-oct-2026) ──────────────────────────────────────────────
+const EMISOR = { nombre: 'MEGA DULCES DE LOS ALTOS', razon: 'LUIS FRANCISCO LOPEZ GUTIERREZ', rfc: 'LOGL851014AQ5', regimen: '612', cp: '36910' };
+const GENERADO = '22 oct 2026, 14:40 (hora de México)';
+const SUC = { '08': 'Morelia Abastos' };
+const PROV_KEPLER = { codigo: 'CL012', nombre: 'LA GRANJA ORGANICA', rfc: '' };
+
+const peso = (v) => '$' + Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// El costo unitario con la precisión de Kepler (hasta 4 decimales): redondeado a 2, cantidad × costo no da el importe impreso.
+const pesoU = (v) => '$' + Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+const cant = (v) => Number(v).toLocaleString('es-MX', { maximumFractionDigits: 3 });
+const dia = (iso) => { const m = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']; const [y, mm, d] = iso.split('-'); return `${+d} ${m[+mm - 1]} ${y}`; };
+
+const DOCS = [
+  {
+    clave: 'requisicion', tipo: 'Suite · Requisición de compra', titulo: 'REQUISICIÓN DE COMPRA', folio: 'RQ-2026-01250',
+    meta: [['Fecha', dia('2026-10-21')], ['Lote', 'RQ-LOTE-2026-00104'], ['Estado', 'Ordenada'], ['Sucursal', SUC['08']]],
+    cadena: { requisicion: 'RQ-2026-01250 · 21 oct', orden_compra: null, vale: null, entrada: null }, aqui: 'requisicion',
+    cadenaFalta: { orden_compra: 'sin OC ligada en la Suite', vale: '—', entrada: '—' },
+    partes: [
+      ['Proveedor', 'TECNICA MEXICANA DE ALIMENTACION SA DE CV', 'Código CT001 · RFC: <span class="falta-dato">el catálogo no guarda RFC</span>'],
+      ['Entregar en', SUC['08'], 'Entrega directa a la sucursal'],
+      ['Origen', 'Pedido sugerido', 'Venta × cobertura 30 días, por sucursal'],
+    ],
+    columnas: [['#', ''], ['Código', ''], ['Producto', ''], ['Existencia', 'r'], ['Sugerido', 'r'], ['Pide', 'r'], ['Costo / caja', 'r'], ['Importe', 'r']],
+    filas: [
+      ['29010', 'CHOCOFRESKY BLS /33', 3.8, 13, 15, 1141.50], ['29014', 'CHOCOFRESKY BLS 500 GR / GOMEZ', 0, 18, 22, 600.86],
+      ['59030', 'VIT TAMBORINES 900GR/ 200', 0, 2, 2, 575.71], ['89109', 'CAR TAMBORINES C/CHILE / 100', 0, 10, 14, 927.16],
+      ['89168', 'CAR TAMBORINES C/CHILE / 30', 0, 3, 5, 541.60], ['89182', 'ZANDITAS C/CHILE /100', 0, 1, 2, 899.34],
+      ['95100', 'CAR TIRA CHAMOY /60 KOMIRU', 0.3, 3, 3, 765.60], ['95830', 'CAR TIRA MIX /60 KOMIRU', 0, 2, 3, 765.60],
+    ].map((f, i) => [i + 1, f[0], f[1], cant(f[2]) + ' cj', cant(f[3]) + ' cj', '<b>' + cant(f[4]) + ' cj</b>', peso(f[5]), peso(f[4] * f[5])]),
+    obs: [['', 'Cantidades en <b>cajas</b>. Importes a costo de caja <b>sin impuestos</b>: la orden de compra trae el IVA y el IEPS de cada producto.'],
+          ['aviso', '<b>Elaboró y autorizó la misma persona</b> (arizbeth_gonzalez, 21 oct). Está marcada como ordenada, pero no tiene orden de compra ligada.', 'Control interno']],
+    totales: [['Renglones', '8'], ['Cajas', '66 cj'], ['Total a costo', peso(53573.36), 'gran']],
+    firmas: [['Elaboró', 'arizbeth_gonzalez', '21 oct 2026'], ['Autorizó', 'arizbeth_gonzalez', '21 oct 2026'], ['Compras', '', 'nombre y firma']],
+    fuente: 'Suite · requisición RQ-2026-01250',
+  },
+  {
+    clave: 'orden_compra', tipo: 'Kepler X-A-35-1 · Orden de compra', titulo: 'ORDEN DE COMPRA', folio: 'OC 0000081',
+    meta: [['Fecha', dia('2026-10-05')], ['Vence (Kepler)', dia('2026-10-08')], ['Referencia', '30-SUG'], ['Sucursal', SUC['08']]],
+    cadena: { requisicion: null, orden_compra: 'OC 0000081 · 5 oct', vale: 'Vale 0000227 · 10 oct', entrada: 'Entrada 0000240 · 12 oct' }, aqui: 'orden_compra',
+    cadenaFalta: { requisicion: 'sin requisición en Kepler' },
+    partes: [
+      ['Proveedor', PROV_KEPLER.nombre, 'Código CL012 · RFC: <span class="falta-dato">sin RFC en Kepler</span>'],
+      ['Entregar en', SUC['08'], 'Almacén de la sucursal'],
+      ['Capturó', '30BRC', 'Usuario de Kepler · 5 oct 2026'],
+    ],
+    columnas: [['#', ''], ['Código', ''], ['Descripción', ''], ['Unidad', ''], ['Cantidad', 'r'], ['Costo unit.', 'r'], ['IEPS', 'r'], ['Importe', 'r']],
+    filas: [
+      [1, '10416', 'PALOMITA QUESO 850GR POPCORNER', 'PAQ', '35', pesoU(93.518), '8 %', peso(3273.13)],
+      [2, '10419', 'PALOMITA MANTEQ. 850GR POPCORNER', 'PAQ', '25', pesoU(85.186), '8 %', peso(2129.65)],
+    ],
+    obs: [['', 'Precios <b>sin impuestos</b>; el IEPS e IVA del documento son los que guarda Kepler (no se recalculan).']],
+    totales: [['Subtotal', peso(5402.78)], ['IEPS', peso(432.22)], ['IVA', peso(0)], ['Total', peso(5835.00), 'gran']],
+    firmas: [['Elaboró', '30BRC', 'Compras'], ['Autorizó', '', 'nombre y firma'], ['Acepta el proveedor', '', 'nombre, firma y fecha']],
+    fuente: 'Kepler · sucursal 08 · X-A-35-1 0000081',
+  },
+  {
+    clave: 'vale', tipo: 'Kepler X-A-37-1 · Vale de entrada', titulo: 'VALE DE ENTRADA', folio: 'Vale 0000227',
+    meta: [['Recibido', dia('2026-10-10')], ['Contra OC', '0000081'], ['Referencia', '30-SUG'], ['Sucursal', SUC['08']]],
+    cadena: { requisicion: null, orden_compra: 'OC 0000081 · 5 oct', vale: 'Vale 0000227 · 10 oct', entrada: 'Entrada 0000240 · 12 oct' }, aqui: 'vale',
+    cadenaFalta: { requisicion: 'sin requisición en Kepler' },
+    partes: [
+      ['Proveedor', PROV_KEPLER.nombre, 'Código CL012'],
+      ['Recibió en', SUC['08'], 'Almacén de la sucursal'],
+      ['Capturó', '30JG', 'Usuario de Kepler · 10 oct 2026'],
+    ],
+    columnas: [['#', ''], ['Código', ''], ['Descripción', ''], ['Unidad', ''], ['Pedido (OC)', 'r'], ['Recibido', 'r'], ['Diferencia', 'r'], ['Importe', 'r']],
+    filas: [
+      { cls: 'dif', v: [1, '10416', 'PALOMITA QUESO 850GR POPCORNER<br><span class="marca bad">No llegó</span>', 'PAQ', '35', '<b>0</b>', '<b style="color:var(--bad-fg)">−35</b>', peso(0)] },
+      { v: [2, '10419', 'PALOMITA MANTEQ. 850GR POPCORNER', 'PAQ', '25', '25', '0', peso(2129.65)] },
+      { v: [3, '10419', 'PALOMITA MANTEQ. 850GR POPCORNER<br><span class="marca">Bonificación · sin costo</span>', 'PAQ', '—', '1', '+1', peso(0)] },
+    ],
+    obs: [['error', '<b>Faltaron 35 PAQ</b> de 10416 PALOMITA QUESO: <b>' + peso(3273.13) + '</b> sin IEPS de lo pedido no llegó. Reclamarlo al proveedor o cancelar ese renglón de la OC.', 'Faltante'],
+          ['', 'El vale es el comprobante de lo recibido: <b>todavía no mueve el inventario</b>; eso lo hace la orden de entrada.']],
+    totales: [['Subtotal recibido', peso(2129.65)], ['IEPS', peso(170.37)], ['IVA', peso(0)], ['Total recibido', peso(2300.02), 'gran'], ['La OC era por', peso(5835.00), 'sub']],
+    anota: 3,
+    firmas: [['Entregó', '', 'proveedor o chofer'], ['Recibió', '30JG', 'almacén ' + SUC['08']], ['Revisó', '', 'nombre y firma']],
+    fuente: 'Kepler · sucursal 08 · X-A-37-1 0000227',
+  },
+  {
+    clave: 'entrada', tipo: 'Kepler X-A-40-1 · Orden de entrada', titulo: 'ORDEN DE ENTRADA', folio: 'Entrada 0000240',
+    meta: [['Fecha', dia('2026-10-12')], ['Del vale', '0000227'], ['Factura / ref.', '30-0527'], ['Sucursal', SUC['08']]],
+    cadena: { requisicion: null, orden_compra: 'OC 0000081 · 5 oct', vale: 'Vale 0000227 · 10 oct', entrada: 'Entrada 0000240 · 12 oct' }, aqui: 'entrada',
+    cadenaFalta: { requisicion: 'sin requisición en Kepler' },
+    partes: [
+      ['Proveedor', PROV_KEPLER.nombre, 'Código CL012 · RFC: <span class="falta-dato">sin RFC en Kepler</span>'],
+      ['Entra al inventario de', SUC['08'], 'Desde el 12 oct 2026'],
+      ['Capturó', '30JG', 'Usuario de Kepler · 12 oct 2026'],
+    ],
+    columnas: [['#', ''], ['Código', ''], ['Descripción', ''], ['Unidad', ''], ['Cantidad', 'r'], ['Costo unit.', 'r'], ['IEPS', 'r'], ['Importe', 'r']],
+    filas: [
+      [1, '10419', 'PALOMITA MANTEQ. 850GR POPCORNER', 'PAQ', '25', pesoU(85.186), '8 %', peso(2129.65)],
+      { v: [2, '10419', 'PALOMITA MANTEQ. 850GR POPCORNER<br><span class="marca">Bonificación · sin costo</span>', 'PAQ', '1', peso(0), '8 %', peso(0)] },
+    ],
+    obs: [['', '<b>Aquí entra el inventario.</b> Con esta orden nace la cuenta por pagar al aplicarla (X-A-20).'],
+          ['aviso', 'De la OC 0000081 quedó sin entrar: 35 PAQ de 10416 (' + peso(3273.13) + ' sin IEPS).', 'Pendiente de la orden de compra']],
+    totales: [['Subtotal', peso(2129.65)], ['IEPS', peso(170.37)], ['IVA', peso(0)], ['Total', peso(2300.02), 'gran']],
+    firmas: [['Capturó', '30JG', 'almacén ' + SUC['08']], ['Revisó', '', 'Compras'], ['Recibe para pago', '', 'Finanzas']],
+    fuente: 'Kepler · sucursal 08 · X-A-40-1 0000240',
+  },
+];
+
+const PASOS = [['requisicion', 'Requisición'], ['orden_compra', 'Orden de compra'], ['vale', 'Vale de entrada'], ['entrada', 'Orden de entrada']];
+const cont = document.getElementById('docs');
+for (const d of DOCS) {
+  const fila = (f) => { const x = Array.isArray(f) ? { v: f } : f; return '<tr' + (x.cls ? ' class="' + x.cls + '"' : '') + '>' + x.v.map((c, i) => '<td class="' + (d.columnas[i][1] || '') + (i >= 3 && d.columnas[i][1] ? ' num' : '') + '">' + c + '</td>').join('') + '</tr>'; };
+  cont.insertAdjacentHTML('beforeend', `
+  <section class="hoja" aria-label="${d.titulo}">
+    <header class="enc">
+      <img src="../../../../apps/view/src/assets/logos/mega-dulces-logo-print.png" alt="">
+      <div class="emp"><b>${EMISOR.nombre}</b>
+        <span>${EMISOR.razon}</span>
+        <span>RFC ${EMISOR.rfc} · Régimen ${EMISOR.regimen} · CP ${EMISOR.cp}</span></div>
+      <div class="caja"><div class="tipo">${d.tipo}</div><div class="titulo">${d.titulo}</div><div class="folio num">${d.folio}</div>
+        <dl>${d.meta.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div>
+    </header>
+    <div class="raya"></div>
+    <div class="cadena" aria-label="Cadena del documento">
+      ${PASOS.map(([k, n]) => {
+        const v = d.cadena[k], cls = k === d.aqui ? 'aqui' : v ? '' : 'falta';
+        return `<div class="paso ${cls}"><div class="k">${n}</div><div class="v">${v || (d.cadenaFalta?.[k] ?? '—')}</div></div>`;
+      }).join('')}
+    </div>
+    <div class="partes">${d.partes.map(([k, v, s]) => `<div class="parte"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('')}</div>
+    <table><thead><tr>${d.columnas.map(([c, a]) => `<th class="${a}">${c}</th>`).join('')}</tr></thead>
+      <tbody>${d.filas.map(fila).join('')}</tbody></table>
+    <div class="cierre">
+      <div>${d.obs.map(([c, t, r]) => `<p class="obs ${c}">${r ? `<span class="rot">${r}</span>` : ''}${t}</p>`).join('')}</div>
+      <div class="tot">${d.totales.map(([k, v, c]) => `<div class="${c || ''}"><span>${k}</span><span class="num">${v}</span></div>`).join('')}</div>
+    </div>
+    ${d.anota ? `<div class="anota"><div class="k">Observaciones de recepción (a mano)</div>${'<i></i>'.repeat(d.anota)}</div>` : ''}
+    <div class="firmas">${d.firmas.map(([k, n, s]) => `<div class="firma"><b>${k}${n ? ': ' + n : ''}</b><span>${s}</span></div>`).join('')}</div>
+    <footer class="pie"><span>Megadulces Suite · fuente: ${d.fuente}</span><span>Generado ${GENERADO} · plantilla DOC-COM v1</span><span>Página 1 de 1</span></footer>
+  </section>`);
+}
+</script>
+</body>
+</html>

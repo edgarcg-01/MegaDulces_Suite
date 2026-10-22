@@ -1,5 +1,5 @@
 import {
-  ACTION, HEAD, INK, M, MUTED, RULE, ZEBRA,
+  HEAD, INK, M, MUTED, RULE, TH, ZEBRA,
   dibujarEncabezado, fecha, fechaHoraArchivo, lastY, loadLibs, loadLogo, money, num1, textoParaArchivo,
 } from './compras-pdf-comun';
 
@@ -111,7 +111,7 @@ export async function generarOrdenProveedorPdf(data: OcProvData): Promise<void> 
   autoTable(doc, {
     startY: y, margin: { left: M, right: M }, theme: 'grid',
     head: [cab],
-    headStyles: { fillColor: HEAD, textColor: [255, 255, 255], fontSize: 8.5, halign: 'left' },
+    headStyles: { fillColor: TH, textColor: INK, fontSize: 8.5, halign: 'left' },
     styles: { fontSize: 8.5, cellPadding: 3, textColor: INK, lineColor: RULE, lineWidth: 0.5 },
     alternateRowStyles: { fillColor: ZEBRA },
     columnStyles: {
@@ -135,7 +135,7 @@ export async function generarOrdenProveedorPdf(data: OcProvData): Promise<void> 
   // ── Totales ───────────────────────────────────────────────────────────────────────────────
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...INK);
   doc.text(`${data.filas.length} renglón(es) · ${num1(data.totales.cantidad)} unidades`, M, y);
-  doc.setTextColor(...ACTION);
+  doc.setFontSize(12);   // el total se distingue por tamaño, no por el naranja (3.39:1 como texto)
   doc.text(`TOTAL ${money(data.totales.importe)}`, W - M, y, { align: 'right' });
   y += 16;
 

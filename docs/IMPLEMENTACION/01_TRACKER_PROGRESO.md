@@ -4437,6 +4437,15 @@ cerrados con `validated_by = 'Claude Vision'`.
   salir** (`[RA-UX.9b]` cerrado): el borrador guarda lo agregado, lo quitado y la copia de cada renglón. Pruebas:
   vitest 106 (pedido 89 · panel 12 · detalle 5) + contrato 9 + lógica 14; `test-newdb-pedido-negociacion.js` 12/12
   (entradas en orden, NEGATIVA de permiso: sin él `null`, con él 14 pagos). `ngc` y `tsc` limpios.
+- [x] **[RA-DOC.1]** 🧪 **Los PDF de Compras pasan a la paleta única de documentos** (`PALETA_DOCUMENTO`, `[E.29]`).
+  Revisión de colorimetría de la requisición (PM, 2026-10-22). Medido: `compras-pdf-comun.ts` tenía hex Stone a mano
+  (familia retirada el 2026-09-14) y el naranja `--action` como TEXTO en el título de la caja y en el total de la orden
+  al proveedor, donde da 3.39:1. Ahora: tinta zinc, encabezado de tabla claro con texto en tinta (no gasta tóner),
+  marca sólo en el filete de 1 pt. Los cinco PDF que importan de ahí (requisición, OC Kepler, orden al proveedor,
+  entregas, lista de precios) cambian juntos. La maqueta `prototipos/documentos-compra.html` aplica lo mismo y
+  separa marca de estado: cada estado lleva su rótulo escrito (FALTANTE, CONTROL INTERNO) porque se imprime en
+  blanco y negro. Pruebas: vitest 24 (requisición, orden al proveedor, paleta AA); `tsc` limpio. **Sin validación
+  visual del PDF real** (la maqueta sí se vio en Chrome headless).
 - [ ] **[RA-NEG.5]** ⬜ **Aplicar `20261022125024_ix_kdm2_compra_sku`** (índice de los renglones de COMPRA
   por producto, gemelo de `ix_kdm2_sku_venta`). Sin él, lo pagado barre ~514 mil renglones `X/A`
   (300–1,680 ms). `CONCURRENTLY`, **ventana nocturna**, una por una con `apply-one-migration-prod.js`.
