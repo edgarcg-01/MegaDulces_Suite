@@ -1218,8 +1218,11 @@ export class TiendaEtiquetasComponent {
           // [ETQ-ESTADO.1] Lo que no existe en el ERP se separa de lo que existe sin precio: se
           // arreglan en lugares distintos y la lista dice cuales son, no solo cuantos.
           const noExiste = skippedModels.filter((m) => m.erp_estado === 'no_existe_en_erp' || m.erp_estado === 'no_existe_en_plaza');
-          const resto = skippedModels.length - noExiste.length;
+          // [ETQ-PROMO.1] Las promociones de Kepler no son un producto sin precio: no hay nada que arreglar.
+          const promos = skippedModels.filter((m) => m.erp_estado === 'codigo_simbolico');
+          const resto = skippedModels.length - noExiste.length - promos.length;
           if (noExiste.length) text += ` · no existen en Kepler ${noExiste.length} (${noExiste.map((m) => m.sku || m.name).join(', ')})`;
+          if (promos.length) text += ` · promociones de Kepler, no llevan etiqueta ${promos.length} (${promos.map((m) => m.sku || m.name).join(', ')})`;
           if (resto) text += ` · sin precio ${resto}`;
         }
         if (nf) text += ` · no encontrados ${nf}`;
@@ -1281,6 +1284,8 @@ export class TiendaEtiquetasComponent {
         return `existe en Kepler pero no en la tienda ${suc}: hay que darlo de alta ahí → no se puede etiquetar.`;
       case 'sin_precio':
         return `está en Kepler pero con precio 0 en la tienda ${suc}: hay que ponerle precio en Kepler → no se puede etiquetar.`;
+      case 'codigo_simbolico':
+        return 'es un código de promoción o ajuste de Kepler (a $0.01), no un producto: no lleva etiqueta y no hay que ponerle precio.';
       default:
         return 'sin precio en Kepler → no se puede etiquetar.';
     }

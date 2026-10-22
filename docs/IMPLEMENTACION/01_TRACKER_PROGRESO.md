@@ -10,6 +10,74 @@
 | 85 | 92 | 15 | Tracker de Progreso |
 | 93 | 159 | 171 | 📊 Estado global de fases |
 | 160 | 186 | 1 | 🚦 Estado por item (granular) |
+| 187 | 3124 | 399 | 🎯 EN PROGRESO |
+| 3141 | 3178 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 3179 | 3212 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 3213 | 3297 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 3298 | 3401 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 3402 | 3468 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 3469 | 3572 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 3573 | 3656 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 3657 | 3826 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 3827 | 3889 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 3890 | 3962 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 3963 | 4014 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 4015 | 4580 | 49 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 4581 | 4594 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 4595 | 4619 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 4620 | 4642 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 4643 | 4681 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 4682 | 5310 | 56 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 5311 | 5495 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 5496 | 5538 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 5539 | 5616 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 5617 | 5710 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 5711 | 5846 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 5847 | 5863 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 5864 | 5911 | 85 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 5912 | 5979 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 5980 | 6232 | 20 | Fase CH — Checadores / Control de asistencia |
+| 6233 | 6298 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 6299 | 6326 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6327 | 6493 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 6494 | 6841 | 119 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 6842 | 6904 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 6905 | 7012 | 31 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7013 | 7075 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 7076 | 7236 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7237 | 7307 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7308 | 7356 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 7357 | 7389 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 7390 | 7779 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 7780 | 7911 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 7912 | 7958 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 7959 | 7998 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 7999 | 8051 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8052 | 8118 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8119 | 8281 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8282 | 8565 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8566 | 8733 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8734 | 10757 | 151 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 10758 | 10766 | 1 | Fase RR — Ventas por ruta |
+| 10767 | 11062 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11063 | 11073 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11074 | 11094 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11095 | 11105 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11106 | 11117 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11118 | 11177 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11178 | 11605 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 11606 | 11620 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 11621 | 11662 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 11663 | 11808 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 11809 | 11839 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 11840 | 11887 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 11888 | 11909 | 15 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 11910 | 11939 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 11946 | 11955 | 1 | 📝 Convenciones |
+| 11956 | 11992 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 11993 | 12011 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12012 | 12064 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12065 | 12411 | 36 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
 | 187 | 3123 | 398 | 🎯 EN PROGRESO |
 | 3140 | 3177 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
 | 3178 | 3211 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
@@ -272,7 +340,8 @@ Y se actualiza el símbolo al avanzar:
 - [x] **[ETQ-ESTADO.1]** (hermano, PR #351, **fusionado en `main` el 2026-10-12**) La etiquetera dice **por qué** un producto no tiene precio: no existe en Kepler / existe pero no en esa tienda / precio 0. 2 consultas a `kdii` (la de la plaza usa `ix_kdii_suc_sku`). Caso real: SKU 78180, que no existe en ninguna plaza. Sin migraciones ni re-login. 🧪 falta validación visual
 - [x] **[ETQ.DOC]** Documento consolidado de punta a punta de los tres PR (qué cambió para el usuario, por qué, decisiones, archivos, despliegue, pendientes con dueño): [`FASE_ETQ_CAMBIOS_ESTADO_AVISOS`](FASES/FASE_ETQ_CAMBIOS_ESTADO_AVISOS.md). 2026-10-12
 - [x] **[ETQ-CAMBIOS.10]** *(PR #407, abierto)* Cambios de precio, barra superior compacta: el selector de día (Día · Ayer · Actualizar · Compartir) a la fila de las pestañas, las 4 tarjetas a UNA línea (misma información, `app-metric-strip density="compact"`, aditivo) y el título repetido sólo para lector de pantalla. ~170 px de alto ganados; sin quitar ningún número. 6 pruebas nuevas, 2 mutaciones atrapadas; el auditor `check:pantalla` queda igual que `main` (0 fallas nuevas). 🧪 2026-10-14 · falta validación visual
-- [x] **[ETQ-CAMBIOS.11]** *(PR #417, abierto)* Cambios de precio trae las columnas del PDF de Compras (proveedor, UXC, costo anterior/actual con impuesto, mayoreo = precio de la CAJA, tipo N/S). Decisiones de Edgar: costos visibles a todo el que usa etiquetas; «anterior» por **foto diaria** del costo (Kepler no guarda la historia). Mig `20261015131321` (`analytics.product_cost_history`, RLS forzado, una fila sólo cuando el costo cambia) + `ProductCostHistoryService` (worker 04:30 MX, latido `product_cost_history` + umbral en `CRON_JOBS`) + `fichas` aditivas en `GET /store/labels/price-changes` (la historia en SAVEPOINT: sin la tabla degrada, no se cae) + contrato `price-change-compras` en `libs/contracts` (elegir anterior · casar por rótulo · costo con impuesto · tipo). 34 pruebas nuevas (15 del contrato · 9 del servicio · 10 de la pantalla), 2 mutaciones atrapadas; **aplica las observaciones del PM (ONBOARDING §8.0b, puntos 19, 20 y 23):** el mayoreo dice su unidad («caja de 12»), `anterior_desde` se pinta, y **error ≠ vacío** (`costo_historial_error`: «no se pudo leer la historia» no se hace pasar por «todavía no hay foto»); `check:pantalla` idéntico a `main`; **la tabla ahora se apila en estrecho** (`dt-scope`/`dt-stack` + `data-label`/`role="cell"`, exigido por la compuerta `check:tables` del `pre-push` al pasar a 11 columnas). ⚠️ **SQL sin ejecutar contra una base** (sin acceso): `database/scripts/verificar-cambios-compras.js`. Sin validación visual. 🧪 2026-10-15
+- [x] **[ETQ-CAMBIOS.11]** *(PR #417, fusionado el 2026-10-16)* Cambios de precio trae las columnas del PDF de Compras (proveedor, UXC, costo anterior/actual con impuesto, mayoreo = precio de la CAJA, tipo N/S). Decisiones de Edgar: costos visibles a todo el que usa etiquetas; «anterior» por **foto diaria** del costo (Kepler no guarda la historia). Mig `20261015131321` (`analytics.product_cost_history`, RLS forzado, una fila sólo cuando el costo cambia) + `ProductCostHistoryService` (worker 04:30 MX, latido `product_cost_history` + umbral en `CRON_JOBS`) + `fichas` aditivas en `GET /store/labels/price-changes` (la historia en SAVEPOINT: sin la tabla degrada, no se cae) + contrato `price-change-compras` en `libs/contracts` (elegir anterior · casar por rótulo · costo con impuesto · tipo). 34 pruebas nuevas (15 del contrato · 9 del servicio · 10 de la pantalla), 2 mutaciones atrapadas; **aplica las observaciones del PM (ONBOARDING §8.0b, puntos 19, 20 y 23):** el mayoreo dice su unidad («caja de 12»), `anterior_desde` se pinta, y **error ≠ vacío** (`costo_historial_error`: «no se pudo leer la historia» no se hace pasar por «todavía no hay foto»); `check:pantalla` idéntico a `main`; **la tabla ahora se apila en estrecho** (`dt-scope`/`dt-stack` + `data-label`/`role="cell"`, exigido por la compuerta `check:tables` del `pre-push` al pasar a 11 columnas). ⚠️ **SQL sin ejecutar contra una base** (sin acceso): `database/scripts/verificar-cambios-compras.js`. Sin validación visual. 🧪 2026-10-15
+- [x] **[ETQ-PROMO.1]** *(PR #446, abierto)* Etiquetas: un **código simbólico de Kepler** (promoción «= GRATIS», bonificación «1 EN 10», ajuste «PACA DE CARTON») ya no se dice «precio 0: ponle precio» (era falso: el precio es $0.01 y no es un producto). Estado nuevo `erp_estado: codigo_simbolico` en `estadosSinPrecio` (refactor del bloque en línea de `resolveForLabels` a un método probable) + `codigo-simbolico.ts` (dos señales: nombre «= GRATIS» **o** $0.01 en TODAS las plazas; 0.00 NO cuenta) + mensaje y resumen de carga masiva separados. Medido en prod (solo lectura): 206 códigos a $0.01 en las 9 plazas, 188 con «= GRATIS», 186 de 318 sin precio son promoción. **El SQL exacto del servicio se corrió contra prod con 7 SKU conocidos** (2 ms): 09089/00153/91041/00040 simbólicos, 99807/99130 reales siguen `sin_precio`. 25 pruebas nuevas (14 de la regla · 9 de la clasificación · 2 de la pantalla), 2 mutaciones atrapadas (7 rojas). Sin migraciones → sin re-login. **Sin validación visual.** 🧪 2026-10-22
 - [ ] **[ETQ.Q]** Dos decisiones de Edgar: (1) ¿el clic en un producto debe **imprimir directo** sin pasar por la etiquetera? (hoy no, a propósito: ahí se ve la frescura del precio antes de gastar papel); (2) ¿hace falta un **PDF** de la lista? (no se construyó; si se pide, por el Chromium de Finanzas/AX)
 - [x] **[ETQ.GATE]** El `pre-push` corre el `Boundary type gate` (antes sólo el CI; #350 y #351 llegaron con 12 y 4 violaciones). **PR #390**, con prueba negativa sobre el runner real (antes `exit=0`, después `exit=1`) y medición de la pared (+0.2 s sin archivos de frontera, +1.9 s con 5). 🧪 2026-10-13 · falta fusionar
 - [ ] **[ETQ-AVISOS.0]** Mediciones contra prod (`dev_ro`): destinatarios por plaza (¿cuáles quedan «sin nadie con tienda asignada»? esperable 04 y 08), volumen real de cambios por plaza y día, **a qué hora llega la bitácora al ODS** (si es después de las 07:30 hay que mover el corte), y la lista de roles que recibiría el reparto. **No se corrió: la sesión no alcanzó prod.**
