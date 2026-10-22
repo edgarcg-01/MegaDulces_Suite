@@ -18,6 +18,8 @@ import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
 import { LibroComprasService, MesNoAsociado, MesDetalle, FacturaMes, ImpuestosModo, FacturaRespaldo, MovimientoRespaldo, CoberturaUuid, SugerenciasCuenta } from '../../libro-compras.service';
 import { exportXlsx } from '../../../../shared/export/xlsx-export';
+import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
+import type { Freshness } from '@megadulces/contracts';
 import { LIBRO_COMPRAS_STYLES, NO_ASOCIADOS_STYLES } from './libro-compras.styles';
 
 /**
@@ -45,6 +47,7 @@ const LC18_STYLES = `
 .na-sug label { cursor: pointer; }
 .na-sug .mono { font-family: var(--font-mono); }
 .na-link-sutil { margin-left: .35rem; font-size: var(--fs-xs); color: var(--text-muted); }
+.na-fresc { display: inline-flex; gap: .6rem; align-items: center; }
 .na-sat { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin: -.25rem 0 .75rem; font-size: var(--fs-sm); }
 `;
 
@@ -69,6 +72,7 @@ const LC18_STYLES = `
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule,
     SelectButtonModule, CheckboxModule, InputTextModule, ToastModule, TooltipModule, RadioButtonModule,
+    FreshnessPillComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -328,6 +332,13 @@ const LC18_STYLES = `
             </span>
             <!-- LC.18: las cuentas de impuesto ya no son fijas. Salen del ultimo libro, y en
                  sep-2026 cambiaron: decir de donde salieron es lo que deja revisarlas. -->
+            <!-- LC.19.2: la edad de las dos fuentes, medida por el latido de su carril (dato, no
+                 hora de carga). Sin medicion se declara sin medir, no se esconde. -->
+            <span class="na-fresc">
+              @for (fi of fuentesFrescura(); track fi.label) {
+                <app-freshness-pill measures="data" [freshness]="fi.f" [label]="fi.label" />
+              }
+            </span>
             @if (d.cuentas_impuesto; as ci) {
               <span class="muted na-ctas-imp">
                 IVA a {{ ci.iva.cuenta }} · IEPS a {{ ci.ieps.cuenta }}
@@ -921,6 +932,20 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   });
 
   /** El veredicto del mes en una línea, antes de la tabla (DESIGN §15 answer-first). */
+  /**
+   * LC.19.2 — Una píldora por fuente (CFDIs, pólizas), cada una con SU veredicto del servidor.
+   * Si el servidor no pudo medir nada (`inputs` vacío) va una sola, que dice «sin medir».
+   */
+  fuentesFrescura = computed((): { label: string; f: Freshness }[] => {
+    const fr = this.detalle()?.frescura;
+    if (!fr) return [];
+    if (!fr.inputs.length) return [{ label: 'fuentes', f: fr }];
+    return fr.inputs.map((i) => ({
+      label: i.key === 'cfdis' ? 'CFDIs' : i.key === 'polizas' ? 'pólizas' : i.label,
+      f: { data_as_of: i.at, status: i.status, stale: i.stale, age_human: i.age_human, inputs: [i] },
+    }));
+  });
+
   veredicto = computed(() => {
     const d = this.detalle();
     if (!d) return { tono: 'neutral', icono: 'pi pi-circle', titulo: '', detalle: '' };
@@ -931,6 +956,15 @@ export class MovimientosNoAsociadosComponent implements OnInit {
         detalle: 'Lo que faltaba de este mes ya está en ContPAQi.' };
     }
     if (!r.cfdis_del_mes) {
+      // LC.19.2: un cero con el feed de CFDIs parado no es «al día», es «sin datos». Con el feed
+      // muerto, este verde era indistinguible de un mes limpio.
+      const fc = d.frescura?.inputs.find((i) => i.key === 'cfdis');
+      if (!fc || fc.status !== 'fresh') {
+        return { tono: 'warn', icono: 'pi pi-exclamation-triangle', titulo: 'Sin facturas por asociar, pero sin datos al día',
+          detalle: fc?.at
+            ? `Los CFDIs del ADD no se actualizan desde hace ${fc.age_human}: el cero puede ser falta de datos.`
+            : 'No se pudo medir cuándo se actualizaron los CFDIs del ADD: el cero no se puede afirmar.' };
+      }
       return { tono: 'ok', icono: 'pi pi-check-circle', titulo: 'Nada pendiente',
         detalle: 'Todas las facturas del mes están ligadas a una póliza.' };
     }
@@ -956,9 +990,21 @@ export class MovimientosNoAsociadosComponent implements OnInit {
       return { tono: 'warn', icono: 'pi pi-info-circle', titulo: 'Nada que entregar',
         detalle: `Las ${r.cfdis_del_mes} sin asociar son de proveedores fuera del catálogo de compras o ya están posteadas.` };
     }
+    // LC.19.3: decía «Faltan N por asociar — $X sin contabilizar», como si las N fueran un hecho.
+    // No lo son: entran por una REGLA (proveedor con cuenta que salió en el libro de los últimos
+    // 6 meses), y medido sobre jul/ago/sep entre 46 y 65 al mes nunca entraron al libro manual.
+    // Se dice qué es (una propuesta), por qué entra, y cuánto quedó fuera esperando revisión.
+    const sh = this.sinHistorial();
     return { tono: 'bad', icono: 'pi pi-exclamation-triangle',
-      titulo: `Faltan ${r.incluidas} movimientos por asociar`,
-      detalle: `${this.money(r.total)} sin contabilizar en este mes.` };
+      titulo: `${r.incluidas} facturas sin asociar propuestas para el TXT · ${this.money(r.total)}`,
+      detalle: 'Entran porque el proveedor tiene cuenta y salió en el libro de los últimos 6 meses: revísalas antes de generar.'
+        + (sh.n ? ` Otras ${sh.n} (${this.money(sh.monto)}) esperan revisión en «Sin libro reciente».` : '') };
+  });
+
+  /** LC.19.3: las que la regla del historial dejó fuera — el banner las nombra con su monto. */
+  sinHistorial = computed(() => {
+    const fs = (this.detalle()?.facturas ?? []).filter((f) => this.grupo(f) === 'sin_historial');
+    return { n: fs.length, monto: fs.reduce((a, f) => a + f.total, 0) };
   });
 
   ngOnInit() {
