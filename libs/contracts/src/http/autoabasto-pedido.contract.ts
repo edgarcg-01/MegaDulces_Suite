@@ -361,7 +361,22 @@ export interface AutoabastoPedidoLinea {
   atorado: number;
   /** Lo que la matriz no surtió en los últimos 30 días (pedido − embarcado). Sólo informa. */
   negado_30d: number;
-  /** `falta − ya_pedido`, sin redondear. */
+  /**
+   * `[AB.23]` Lo EMBARCADO a esta sucursal (U-D-41) que todavía no se recibe (U-A-50), de
+   * `ventana_en_camino_dias` o menos. **Se resta.** Antes no lo veía nadie: al embarcarse el pedido
+   * dejaba de contar como «ya pedido» y la existencia no sube hasta la recepción, así que en ese
+   * lapso (mediana 1 día, p90 4) el encargado volvía a pedirlo. Medido 2026-10-22: 88 embarques,
+   * $1.54 M en camino. `0` = nada en camino.
+   */
+  en_camino: number;
+  /**
+   * `[AB.24]` Lo que Compras ya decidió mandarle (traspaso del pedido general, aprobado o por aprobar,
+   * de 7 días o menos) y **todavía no está en Kepler**. NO se resta: mientras no exista el pedido de
+   * traspaso en Kepler, la matriz no lo surte. Cuando la Suite lo mande a Kepler (Fase KR) aparece
+   * como «ya pedido» y se resta solo. En cajas, la unidad en que captura `/compras/pedido`.
+   */
+  planeado_compras: number;
+  /** `falta − ya_pedido − en_camino`, sin redondear. */
   falta_neta: number;
   /** La cantidad a capturar, ya redondeada con la regla de §15.2. */
   a_pedir: RedondeoPedido;
@@ -405,6 +420,34 @@ export interface AutoabastoPedidoGrupo {
   minimo_valor: number | null;
 }
 
+/**
+ * `[AB.23]` Un documento de lo que le va a llegar a la sucursal: un pedido de traspaso abierto
+ * (U-D-40: autorizado, surtido o checado) o un embarque todavía sin recibir (U-D-41).
+ */
+export interface AutoabastoVieneDoc {
+  /** `plan` = traspaso que decidió Compras y todavía no está en Kepler (`[AB.24]`): nunca se resta. */
+  tipo: 'pedido' | 'embarque' | 'plan';
+  /** Código de la sucursal que manda. La pantalla la NOMBRA. */
+  origen: string;
+  serie: number;
+  folio: string;
+  /** `AUTORIZADO` · `SURTIDO` · `CHECADO` (pedido) · `EMBARCADO` (embarque sin recibir) · `PLANEADO` (plan). */
+  estado: string;
+  fecha: string;
+  dias: number;
+  renglones: number;
+  /** Importe del documento en Kepler. `null` = sin importe capturado. */
+  monto: number | null;
+  /** ¿Se resta del pedido? Lo de más días que su ventana se muestra para reclamarlo, no se resta. */
+  se_resta: boolean;
+}
+
+export interface AutoabastoViene {
+  documentos: AutoabastoVieneDoc[];
+  /** Renglones de esos documentos en una unidad que la escalera del producto no conoce: no se suman. */
+  renglones_sin_unidad: number;
+}
+
 export interface AutoabastoPedidoResponse {
   almacen: { id: string; code: string; name: string };
   /** AAAA-MM-DD y HH:mm en hora de México, del servidor. */
@@ -415,6 +458,10 @@ export interface AutoabastoPedidoResponse {
   /** Ventana de «ya pedido»: abiertos de esta antigüedad o menos se restan. */
   ventana_ya_pedido_dias: number;
   ventana_negado_dias: number;
+  /** `[AB.23]` Ventana de «en camino»: embarques sin recibir de esta antigüedad o menos se restan. */
+  ventana_en_camino_dias: number;
+  /** `[AB.23]` Lo que le va a llegar. `null` = no se midió (la sucursal no tiene cliente de traspaso). */
+  viene: AutoabastoViene | null;
   grupos: AutoabastoPedidoGrupo[];
   /** `false` = el almacén no es una sucursal de Kepler con cliente de traspaso (`TI`): ya pedido,
    *  atorado y negado NO se midieron (no es lo mismo que «cero»). */

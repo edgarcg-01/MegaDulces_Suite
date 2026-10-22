@@ -1192,6 +1192,39 @@ tienen venta diaria 0 y existencia 0 en el 100% de sus renglones, y **ninguna** 
 configurada y aplica sola cuando el plan traiga la venta y la carga de cada ruta — **deuda con
 nombre: demanda y existencia por ruta en el plan de reabasto** (no se resuelve con un importer).
 
+### 15.14 🧪 [AB.23]–[AB.24] «Mi pedido» resta lo que ya viene y muestra lo que planeó Compras — EN CÓDIGO 2026-10-22
+
+**El pedido del PM:** «el objetivo de esta interfaz es que los encargados sepan qué mercancía les va a
+llegar para que no hagan pedido». No hacía falta una pantalla nueva: la decisión de pedir se toma en
+«Mi pedido», y ahí faltaban dos cosas.
+
+**[AB.23] Lo embarcado sin recibir se resta.** Al pasar a `EMBARCADO` el pedido `U-D-40` dejaba de
+contar como «ya pedido», y la existencia no sube hasta la recepción `U-A-50`. Medido el 2026-10-22: 1,169
+embarques en 30 días, 1,081 recibidos (del embarque a la recepción: mediana 1 día, p90 4, máximo 11) y
+**88 en camino por $1.54 M** (Canindo 21 · $624,765; Padre Hidalgo 14 · $281,573). Regla: se resta lo
+de 7 días o menos (la misma ventana que «ya pedido»); lo más viejo se muestra para reclamarlo.
+Emparejamiento embarque → recepción: el mismo del Andén (`c37=41`, `c38`/`c39`).
+
+**Unidades.** Lo pedido se asumía en unidad base (`kdm2.c9`): 44 renglones de pedidos en 30 días (y 44
+de embarques en 15) venían en CAJAS, y restaban 1 paquete por caja. Ahora cada renglón se convierte con
+la escalera (`factorBaseDe`). El testigo cazó un segundo caso: la base con rótulo de gramaje (`500`)
+llega a `v_product_unit_ladder` con `unit_base` vacío; se probó con el precio (02972 OREO GRANEL, $47.79
+por «500» = costo base) y cuenta como base. Una unidad que la escalera no conoce no se adivina: se cuenta.
+
+**[AB.24] Lo que planeó Compras.** Decisión del PM (opción A, 2026-10-22): **manda el pedido general**.
+Hoy sus traspasos no llegan a Kepler (0 de 788; error `KEPLER_PUSH_URL sin configurar`) y sólo el 11.8 %
+de sus renglones aparece después como pedido en Kepler (placebo a −60 días: 8.1 %). Se MUESTRA en «Mi
+pedido» lo planeado de 7 días o menos y **no se resta**: sin el `U-D-40` la matriz no surte. Al encender
+la Fase KR se vuelve «ya pedido» y se resta solo.
+
+**Antes/después (servicio real, solo lectura, 8 sucursales):** valor a pedir $17,279,163 → $16,866,725
+(−$412,438). ⚠️ La base se tomó ~2 h antes: parte de la diferencia es movimiento del día (La Piedad bajó
+$12.5 mil con 0.2 cajas en camino).
+
+**Abierto:** encender KR (runbook `RUNBOOKS/KEPLER_PUSH_DESPLIEGUE.md`: prueba de baja en Kepler,
+`pg_hba`, variables) · decidir qué hacer con los **306 traspasos aprobados de más de 7 días** antes de
+encenderlo · la prueba negativa (sucursal sin nada en camino) quedó NO MEDIDA: hoy todas tienen algo.
+
 ### 15.10 🧪 [AB.17] Freno de fin de pico en el motor común — EN CÓDIGO 2026-10-12
 
 **Disparador (Francisco, 2026-10-12):** el bombón La Rosa 70012 en La Piedad salía primero en «Mi
