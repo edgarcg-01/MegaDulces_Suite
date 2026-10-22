@@ -454,7 +454,10 @@ export class CommercialQuotesService {
           -- list() ya lo resolvía bien: eran dos reglas distintas para el mismo dato.
           COALESCE(c.name, q.erp_customer_name, q.contact_name) AS recipient_name,
           o.code AS order_code,
-          u.username AS created_by_username
+          u.username AS created_by_username,
+          -- [E.29] El papel dice quién la elaboró con su NOMBRE: el usuario (cinthia_valle) no le
+          -- dice nada al cliente.
+          u.nombre AS created_by_name
         FROM commercial.quotes q
         LEFT JOIN commercial.customers c ON c.tenant_id = q.tenant_id AND c.id = q.customer_id
         LEFT JOIN commercial.orders    o ON o.tenant_id = q.tenant_id AND o.id = q.order_id

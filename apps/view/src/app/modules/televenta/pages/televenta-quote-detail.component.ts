@@ -1692,6 +1692,11 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       estado,
       // Notas PARA EL CLIENTE. ⛔ No `customer_request`: es el mensaje crudo que pegó el operador.
       notes: q.notes || null,
+      // [E.29] Control: versión (última modificación), quién la elaboró (el nombre; el usuario si el
+      // API todavía no lo manda) y el pedido en que se convirtió.
+      actualizada: q.updated_at ?? null,
+      elaboro: q.created_by_name || q.created_by_username || null,
+      orderCode: q.order_code || null,
     };
   }
 
