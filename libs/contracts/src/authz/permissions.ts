@@ -477,6 +477,10 @@ export enum Permission {
   COMMERCIAL_VENDOR_SALES_VER = 'COMMERCIAL_VENDOR_SALES_VER', // /comercial/vendor-sales (ventas de vendedor)
   COMMERCIAL_CARTERA_VER = 'COMMERCIAL_CARTERA_VER',
   COMMERCIAL_CARTERA_GESTIONAR = 'COMMERCIAL_CARTERA_GESTIONAR',
+  // `[MCP.3.11]` Cambiar la sucursal de surtido de una ruta (commercial.route_warehouses), SIN el resto
+  // de administrar cartera. Es lo que el supervisor de ventas necesita en «Asignar rutas». El servidor
+  // sigue recortando por tipo de ruta (el vecinal sólo toca vecinales).
+  COMMERCIAL_ROUTE_WAREHOUSE_GESTIONAR = 'COMMERCIAL_ROUTE_WAREHOUSE_GESTIONAR',
   COMMERCIAL_PRODUCTS_VER = 'COMMERCIAL_PRODUCTS_VER',
   COMMERCIAL_PRODUCTS_GESTIONAR = 'COMMERCIAL_PRODUCTS_GESTIONAR',
   COMMERCIAL_THOT_VER = 'COMMERCIAL_THOT_VER',

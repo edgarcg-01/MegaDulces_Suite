@@ -58,6 +58,9 @@ export const SIN_MEDIR = {
     `La ruta «${ruta}» no tiene código de Kepler declarado (trade.catalogs.erp_vendor_code): no se puede ligar a su venta.`,
   sinRuta: 'Sin ruta ese día: la venta se atribuye a la ruta, y no tuvo ninguna.',
   sinRutaPeriodo: 'Sin ruta en la catorcena: la venta se atribuye a la ruta, y no tuvo ninguna.',
+  /** `[MCP.3.10]` La vista de venta Kepler no respondió (o no existe en esta base): no hay cifra. */
+  sinFuente:
+    'No se pudo leer la venta cobrada en Kepler (analytics.v_kepler_vecinal_sales_docs): no se publica cifra hasta que vuelva.',
 } as const;
 
 /** Venta Kepler de una ruta en un día. La llave es `CÓDIGO|YYYY-MM-DD`. */
@@ -91,7 +94,8 @@ export interface AttributedSales {
 export function attributeSales(
   routeDays: readonly { date: string; route: string }[],
   catalog: RouteCatalog,
-  sales: ReadonlyMap<string, RouteDaySale>,
+  /** `null` = no se pudo leer la fuente: toda ruta-día vecinal queda sin medir. */
+  sales: ReadonlyMap<string, RouteDaySale> | null,
   sinRutaReason: string = SIN_MEDIR.sinRuta,
 ): AttributedSales {
   if (!routeDays.length) return { sales: { amount: null, tickets: null, unmeasured_reason: sinRutaReason }, keys: [], blocks: false };
@@ -108,6 +112,7 @@ export function attributeSales(
     }
     const code = catalog.keplerCode(rd.route);
     if (!code) { reason ??= SIN_MEDIR.sinCodigo(rd.route); continue; }
+    if (!sales) { reason ??= SIN_MEDIR.sinFuente; continue; }
     const k = saleKey(code, rd.date);
     if (keys.includes(k)) continue;
     keys.push(k);
@@ -120,12 +125,12 @@ export function attributeSales(
 }
 
 /** Total del equipo: cada ruta-día una vez. `null` si alguien no se pudo medir o nada se midió. */
-export function teamSales(parts: readonly AttributedSales[], sales: ReadonlyMap<string, RouteDaySale>): number | null {
+export function teamSales(parts: readonly AttributedSales[], sales: ReadonlyMap<string, RouteDaySale> | null): number | null {
   if (parts.some((p) => p.blocks)) return null;
   const keys = new Set(parts.flatMap((p) => p.keys));
   if (!keys.size) return null;
   let t = 0;
-  for (const k of keys) t += sales.get(k)?.amount ?? 0;
+  for (const k of keys) t += sales?.get(k)?.amount ?? 0;
   return round2(t);
 }
 

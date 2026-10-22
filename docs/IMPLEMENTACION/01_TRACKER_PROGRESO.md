@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1902 KB, 12350 líneas, 72 secciones.
+> **Índice navegable** — 1906 KB, 12353 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -34,51 +34,51 @@
 | 5618 | 5711 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
 | 5712 | 5847 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
 | 5848 | 5864 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 5865 | 5912 | 85 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 5913 | 5980 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 5981 | 6233 | 20 | Fase CH — Checadores / Control de asistencia |
-| 6234 | 6299 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 6300 | 6327 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 6328 | 6494 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 6495 | 6842 | 119 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 6843 | 6905 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 6906 | 7013 | 31 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 7014 | 7076 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 7077 | 7237 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 7238 | 7308 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 7309 | 7357 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 7358 | 7390 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 7391 | 7780 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 7781 | 7912 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 7913 | 7959 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 7960 | 7999 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 8000 | 8052 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 8053 | 8119 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 8120 | 8282 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 8283 | 8566 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 8567 | 8734 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8735 | 10758 | 151 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 10759 | 10767 | 1 | Fase RR — Ventas por ruta |
-| 10768 | 11063 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11064 | 11074 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11075 | 11095 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11096 | 11106 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11107 | 11118 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11119 | 11178 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11179 | 11606 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 11607 | 11621 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 11622 | 11663 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 11664 | 11809 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 11810 | 11840 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 11841 | 11888 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 11889 | 11910 | 15 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 11911 | 11940 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 11947 | 11956 | 1 | 📝 Convenciones |
-| 11957 | 11993 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 11994 | 12012 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12013 | 12065 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12066 | 12413 | 36 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12414 | 12434 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 5865 | 5913 | 87 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 5914 | 5981 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 5982 | 6234 | 20 | Fase CH — Checadores / Control de asistencia |
+| 6235 | 6300 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 6301 | 6328 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6329 | 6495 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 6496 | 6843 | 119 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 6844 | 6906 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 6907 | 7014 | 31 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7015 | 7077 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 7078 | 7238 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7239 | 7309 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7310 | 7358 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 7359 | 7391 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 7392 | 7781 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 7782 | 7913 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 7914 | 7960 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 7961 | 8000 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 8001 | 8053 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8054 | 8120 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8121 | 8283 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8284 | 8567 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8568 | 8735 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8736 | 10759 | 151 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 10760 | 10768 | 1 | Fase RR — Ventas por ruta |
+| 10769 | 11064 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11065 | 11075 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11076 | 11096 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11097 | 11107 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11108 | 11119 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11120 | 11179 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11180 | 11607 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 11608 | 11622 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 11623 | 11664 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 11665 | 11810 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 11811 | 11841 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 11842 | 11889 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 11890 | 11913 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 11914 | 11943 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 11950 | 11959 | 1 | 📝 Convenciones |
+| 11960 | 11996 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 11997 | 12015 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12016 | 12068 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12069 | 12416 | 36 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12417 | 12437 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -11903,6 +11903,8 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[MCP.3.7]** 🧪 Protocolo de visitas (2026-10-21): tarjeta «Llegaste · a N m» (radio 80 m), abrir el cliente registra la visita (reusa la abierta), «El cliente no pidió nada» con motivo, faltas calculadas en el servidor (se fue sin abrir / no pasó); sin ubicación o sin GPS se **declara**, no es falta. Monitoreo del supervisor (`GET commercial/vendor-routes/visits/monitor`). Sin migración.
 - [ ] **[MCP.3.8]** 🧪 Cliente nuevo (2026-10-21): alta con «¿Es este?» contra parecidos de la sucursal; bandeja `/almacen/clientes-nuevos` para ligar con la clave de Kepler (lee `analytics.v_customer_master`, se queda con los datos de Kepler, misma fila). Sin migración. ⚠️ VK.4 (alta bloqueada en rutas de Kepler) intacto; el cajero no ve la bandeja (no tiene `COMMERCIAL_PICKING_*`).
 - [ ] **[MCP.3.9]** 🧪 Cartera de ventas = tablero del supervisor (2026-10-22): «Mis vendedores» por vendedor (inicio–fin de ruta, visitados / sin visitar, **venta cobrada en Kepler** del día y de la catorcena, meta catorcenal capturada por el supervisor, avance). Alcance por puesto: `supervisor_rv` (depto `ruta_vecinal`) sólo rutas `route_kind='vecinal'`; `supervisor_rd` sólo las demás; también en «Asignar rutas» y «Sucursal por ruta» (escrituras fuera de alcance = 403). Mig `20261022085457_vendor_targets`. ⚠️ Ruta Directa no tiene venta en Kepler → «Sin medir»; ancla de catorcena `2026-10-17` **por confirmar con David**; promociones fuera (información pendiente).
+- [ ] **[MCP.3.10]** 🧪 «Asignar rutas» como menú de vendedores + tablero reducido (2026-10-22, pedido de David sobre la maqueta). «Mis vendedores» queda en Vendedor · Ruta de hoy · Visitados · Venta hoy (fuera totales, meta, avance, venta de la catorcena y el detalle por cliente); pestañas + «Ordenar» (Venta · Nombre) + fecha + frescura «Venta Kepler» en UNA barra; fuera «Sucursal por ruta» y el orden de visita. «Asignar rutas»: menú de vendedores → **Resumen** (meta de la catorcena contra lo cobrado, «Sus últimos días») y **Configurar** (ruta = **agenda semanal** `daily_assignments` de lunes a domingo vía `POST /daily-assignments`; sucursal; meta; clientes a visitar = los de su ruta, derivado sin migración). Nuevo `GET supervisor/vendor-summary` (arma cada día con el mismo `buildDay` del tablero; 403 si no es de tu equipo). ⛔ Dos hallazgos corregidos: (1) la ruta se leía de `vendor_sales_routes`, que la app del vendedor NO usa (`vendor-cartera.sql.ts`) → «Sin ruta asignada» de una vendedora con agenda los 7 días; (2) sin la vista de venta Kepler (base local) el tablero respondía **500** → lectura opcional en SAVEPOINT, se declara «Sin medir» (`SIN_MEDIR.sinFuente`). Formato: la base `surf-table--plain` iba en el `<p-table>` y no aplicaba → `tableStyleClass`. Pruebas: comercial (servidor) 110, contratos 374, pantallas de comercial 253. Sin validación en prod.
+- [ ] **[MCP.3.11]** 🧪 Permiso `COMMERCIAL_ROUTE_WAREHOUSE_GESTIONAR` («Cambiar sucursal de surtido de ruta», 2026-10-22): módulo PROPIO «Sucursal de surtido por ruta» en el editor de perfiles (dentro de «Cartera» el G daría las dos llaves); `GET routes-warehouses` y `PUT routes/:id/warehouse` aceptan esa O `COMMERCIAL_CARTERA_GESTIONAR` (`@RequireAnyPermission`); el recorte por tipo de ruta (`routeScope().assert`) queda igual. Migración `20261022131601_grant_sucursal_de_ruta_supervisor` → `supervisor_ventas` (aplicada SÓLO en la base local). ⚠️ Antes de prod: **avisar a Edgar** (esa sucursal decide a qué tienda reporta el arqueo de la ruta y la sucursal del alta de sus clientes nuevos), aplicarla a mano (sólo UPDATE → NO_MEDIDO en la compuerta) y regenerar `docs/MATRIZ_ACCESOS.md`.
 - [ ] **[MCP.4.1]** 🧪 Morelia Madero cobra en Kepler como 07 (confirmado por Francisco, 2026-10-08): la mesa busca tickets en la sucursal Kepler del almacén (`warehouses.kepler_code`) y recorta el alcance por sucursal, no por almacén vivo (`MD-32` se dio de baja el 2026-09-11 y escondía 7 pedidos). Mig `20261008040859` (no escribe si MD-32 sigue vivo y otro almacén ya es 07). Simulado en prod: PD-00028 con 3 posibles, PD-00032 con 2.
 - [ ] **[MCP.5]** 🧪 Pescar pedidos + guía de carga (2026-10-08): celular `/rider/llevar` y `/vendor/llevar` (repartidor por alcance; vendedor sólo lo que levantó: 13 de 19 vendedores no tienen sucursal); una guía abierta por (repartidor, sucursal, ruta, día); caja `/almacen/pedidos/guias` imprime el PDF y lo congela (reimpresión marcada). Permiso nuevo `PREVENTA_GUIAS_GESTIONAR` repartido a quien cuenta la caja. Mesa con etapa **En ruta**. Migs `20261008041458` (tablas, RLS, prueba negativa) y `041459` (permiso). Probado: up() real + rollback en Docker e integración de punta a punta contra Postgres (pescar, doble pesca, quitar, imprimir, reimprimir, mesa). **Falta:** migs a prod ANTES del código, redeploy api+view+vendor, re-login (permiso nuevo), validación visual.
 - [x] **[MCP.6]** ✅ Entrega de conformidad en el celular (2026-10-08; **en prod 2026-10-09**: PR #335 fusionado y mig `20261008141401` aplicada; arreglo de la mesa `p.nombre` en PR #333; prueba visual local completa): en una guía impresa, **Entregar** abre el pedido con los documentos de Kepler del cliente (el ligado o el de más productos en común, preseleccionado); se registra completo / con diferencia (+nota) y lo cobrado en efectivo y transferencia (+referencia) en el renglón de la guía (`status 'entregado'`). **No se pudo entregar** (+motivo) = `no_entregado`, el pedido vuelve a "Para llevar". La liga se hace con origen `celular`; si el pedido ya trae otro documento ligado, 409. ⛔ **No toca `orders.status`** (fulfilled dispararía el CFDI de FE.5 y descontaría stock): la mesa deriva **Entregado** del renglón. Caja y mesa ven lo cobrado. Endpoints `GET field/presale/orders/:id`, `POST field/presale/deliver`, `POST field/presale/not-delivered`. Mig `20261008141401` (columnas + `delivered_folio_digital` + 5 CHECK + índice único de entregado + prueba negativa; `down()` reversible con datos). Revisión independiente: 15 hallazgos, 14 atendidos (candado pedido→guía, no se entrega un cancelado, liga y `cancel()` congelados tras la entrega, guías impresas de días anteriores visibles, sin preselección a ciegas, reintento seguro, topes, lo no entregado visible). Probado: commercial 594/594, contracts 440/440, builds api+view+vendor, compuertas. Probado contra Postgres de Docker (transacción deshecha): up() + idempotencia + down()/up() de la mig, e integración de punta a punta (sin imprimir no se entrega, validaciones y topes, entrega sin tocar orders.status, reintento, no entregado libera, guía de ayer visible, cancelado no se entrega, mesa y caja). Encontró que la comparación de la mesa leía p.name (no existe; es nombre): bug de MCP.4 ya en prod, corregido en commit aparte. **Falta:** mig a prod ANTES del código, redeploy api+view+vendor, validación visual. **Declarado:** "Por entregar" de `apps/vendor` sigue listando los entregados en guía (lee `confirmed`); sin firma del cliente; se aceptan importes en cero.
