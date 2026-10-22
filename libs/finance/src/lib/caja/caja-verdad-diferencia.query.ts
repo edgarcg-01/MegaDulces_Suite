@@ -1,6 +1,6 @@
 import type { Knex } from 'knex';
 import { SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
-import type { ArqueoControlHecho, HechosVerdad, MovimientoControlHecho, TotalesLibro } from './caja-verdad-diferencia.engine';
+import type { ArqueoCompletoHecho, ArqueoControlHecho, HechosVerdad, MovimientoControlHecho, TotalesLibro } from './caja-verdad-diferencia.engine';
 
 /**
  * `[CGS.36]` Lee los hechos con que se arbitra la diferencia de varios cortes, en SEIS consultas
@@ -72,8 +72,10 @@ export async function leerHechosVerdad(
   // ── 3. Control: arqueos y movimientos, una sola lectura ─────────────────────────────────
   const hayControl = sucursal === SUCURSAL_CAJA_GENERAL
     && (await trx.raw(`SELECT to_regclass('analytics.v_caja_control_movimientos') IS NOT NULL AS t`)).rows[0]?.t === true;
-  type FilaControl = { folio: string; dia: string; hora: string | null; at: string; conteo: boolean; efectivo: string; tarjeta: string; cheques: string; papeles: string; nota: string | null };
+  type FilaControl = { folio: string; dia: string; hora: string | null; at: string; conteo: boolean; efectivo: string; tarjeta: string; cheques: string; papeles: string; usd: string | null; tc: string | null; nota: string | null };
   const conteos: Array<ArqueoControlHecho & { at: number }> = [];
+  // `[CGS.51]` Los arqueos con los cinco rubros, de Control y de la Suite: acotan la caja entera.
+  const completos: Array<ArqueoCompletoHecho & { at: number }> = [];
   const movsPorDia = new Map<string, MovimientoControlHecho[]>();
   if (hayControl) {
     const desde = [...cadena.map((r) => r.dia_anterior ?? r.dia), ...dias].sort()[0];
@@ -82,7 +84,7 @@ export async function leerHechosVerdad(
       SELECT folio, to_char(fecha, 'YYYY-MM-DD') AS dia, substr(hora, 1, 5) AS hora, naturaleza = 'conteo' AS conteo,
              ((fecha + coalesce(nullif(hora, '')::time, '23:59:59'::time)) AT TIME ZONE 'America/Mexico_City') AS at,
              total_efectivo AS efectivo, total_tarjeta AS tarjeta, total_cheques AS cheques, total_papeles AS papeles,
-             observaciones AS nota
+             dolares_usd AS usd, tipo_cambio AS tc, observaciones AS nota
         FROM analytics.v_caja_control_movimientos
        WHERE NOT cancelado AND fecha BETWEEN (?::date - 10) AND ?::date
        ORDER BY fecha, hora`, [desde, hasta])).rows as FilaControl[];
@@ -91,6 +93,11 @@ export async function leerHechosVerdad(
         conteos.push({
           folio: f.folio, dia: f.dia, hora: f.hora, at: new Date(f.at).getTime(),
           efectivo: n(f.efectivo), caja_fuerte: n(f.tarjeta), documentos: n(f.cheques) + n(f.papeles),
+        });
+        completos.push({
+          folio: f.folio, dia: f.dia, hora: f.hora, at: new Date(f.at).getTime(),
+          efectivo: n(f.efectivo), caja_fuerte: n(f.tarjeta), documentos: n(f.cheques) + n(f.papeles),
+          dolares: n(f.usd) * n(f.tc),
         });
       } else {
         const l = movsPorDia.get(f.dia) ?? [];
@@ -103,16 +110,17 @@ export async function leerHechosVerdad(
   // Control está jubilado desde el 2026-10-22 (Edgar). El testigo del conteo de un corte es el
   // RECUENTO que otra persona hizo de ese corte; Control queda para los días anteriores.
   const recuentoDe = new Map<string, ArqueoControlHecho & { at: number }>();
+  const recuentoCompletoDe = new Map<string, ArqueoCompletoHecho & { at: number }>();
   const conteosCF: Array<ArqueoControlHecho & { at: number }> = [...conteos];
   const haySuite = (await trx.raw(`SELECT to_regclass('finance.cash_arqueos') IS NOT NULL AS t`)).rows[0]?.t === true;
   if (haySuite) {
     const corteIds = [...new Set([...ids, ...cadena.map((r) => r.id_anterior).filter((x): x is string => !!x)])];
-    type FilaSuite = { id: string; tipo: string; corte_id: string | null; at: string; dia: string; hora: string; efectivo: string; caja_fuerte: string | null; cheques: string | null; papeles: string | null; quien: string | null };
+    type FilaSuite = { id: string; tipo: string; corte_id: string | null; at: string; dia: string; hora: string; efectivo: string; caja_fuerte: string | null; cheques: string | null; papeles: string | null; usd: string | null; tipo_cambio: string | null; quien: string | null };
     const filas = (await trx.raw(`
       SELECT id, tipo, corte_id, counted_at AS at, created_by_username AS quien,
              to_char(counted_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS dia,
              to_char(counted_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI') AS hora,
-             efectivo, caja_fuerte, cheques, papeles
+             efectivo, caja_fuerte, cheques, papeles, usd, tipo_cambio
         FROM finance.cash_arqueos
        WHERE tenant_id = ? AND (corte_id = ANY(?::uuid[]) OR (caja_fuerte IS NOT NULL AND counted_at >= ((?::date - 10)::timestamp AT TIME ZONE 'America/Mexico_City')))
        ORDER BY counted_at`, [tenantId, corteIds, [...dias].sort()[0]])).rows as FilaSuite[];
@@ -125,6 +133,14 @@ export async function leerHechosVerdad(
       };
       if (f.tipo === 'recuento' && f.corte_id) recuentoDe.set(f.corte_id, a);
       if (f.caja_fuerte != null) conteosCF.push(a);
+      if (f.caja_fuerte != null && f.cheques != null && f.papeles != null && f.usd != null) {
+        const c = {
+          folio: a.folio, dia: f.dia, hora: f.hora, at: a.at, efectivo: n(f.efectivo), caja_fuerte: n(f.caja_fuerte),
+          documentos: n(f.cheques) + n(f.papeles), dolares: n(f.usd) > 0 ? n(f.usd) * n(f.tipo_cambio) : 0,
+        };
+        completos.push(c);
+        if (f.tipo === 'recuento' && f.corte_id) recuentoCompletoDe.set(f.corte_id, c);
+      }
     }
     conteosCF.sort((x, y) => x.at - y.at);
   }
@@ -141,6 +157,29 @@ export async function leerHechosVerdad(
     const prev = conteosCF.filter((x) => x.at < c.at);
     return prev.length ? prev[prev.length - 1] : null;
   };
+
+  completos.sort((x, y) => x.at - y.at);
+  const completoDe = (id: string, dia: string) => {
+    const hasta = recuentoCompletoDe.get(id) ?? [...completos].reverse().find((c) => c.dia === dia) ?? null;
+    if (!hasta) return null;
+    const desde = [...completos].reverse().find((c) => c.at < hasta.at) ?? null;
+    return desde ? { desde, hasta } : null;
+  };
+  // ── 3c. `[CGS.51]` El libro de los tramos de caja entera (sólo la Caja General: es la caja de Control) ──
+  let libroFilas: Array<{ at: number; neto: number }> = [];
+  if (sucursal === SUCURSAL_CAJA_GENERAL && completos.length >= 2) {
+    const tramos = cadena.map((ch) => completoDe(ch.id, ch.dia)).filter((x): x is NonNullable<typeof x> => !!x);
+    if (tramos.length) {
+      const ini = Math.min(...tramos.map((t) => t.desde.at));
+      const fin = Math.max(...tramos.map((t) => t.hasta.at));
+      libroFilas = ((await trx.raw(`
+        SELECT created_at AS at, CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END AS neto
+          FROM finance.cash_ledger
+         WHERE tenant_id = ? AND deleted_at IS NULL AND estado <> 'cancelado'
+           AND created_at > ? AND created_at <= ?`, [tenantId, new Date(ini).toISOString(), new Date(fin).toISOString()])).rows as Array<{ at: string; neto: string }>)
+        .map((r) => ({ at: new Date(r.at).getTime(), neto: n(r.neto) }));
+    }
+  }
 
   // ── 4. La máquina, entre el primer arqueo que haga falta y el último ───────────────────
   const hayCaos = (await trx.raw(`SELECT to_regclass('analytics.caos_cash_movements') IS NOT NULL AS t`)).rows[0]?.t === true;
@@ -188,6 +227,13 @@ export async function leerHechosVerdad(
       control_fondo: controlFondo,
       caja_fuerte,
       control_sin_libro: (movsPorDia.get(ch.dia) ?? []).filter((m) => m.monto > 0 && !casan.has(Math.round(m.monto * 100))),
+      caja_entera: (() => {
+        if (sucursal !== SUCURSAL_CAJA_GENERAL) return null;
+        const t = completoDe(id, ch.dia);
+        if (!t) return null;
+        const libro_neto = libroFilas.filter((r) => r.at > t.desde.at && r.at <= t.hasta.at).reduce((a, r) => a + r.neto, 0);
+        return { desde: t.desde, hasta: t.hasta, libro_neto };
+      })(),
     });
   }
   return out;

@@ -559,6 +559,16 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                     }
                   </p>
                   <p class="cq-nota">{{ v.resumen }}</p>
+                  <!-- [CGS.51] La caja entera entre dos arqueos completos: separa el dinero que cambio de
+                       rubro (vaciado de la caja fuerte, vales) del que aparecio o se fue sin registro. -->
+                  @if (v.caja_entera; as ce) {
+                    <p class="cq-rev-label">La caja entera: cajón, caja fuerte, cheques y vales, y dólares</p>
+                    <p class="cq-verdad-cab">
+                      <b class="cq-verdad-cifra" [class.cq-mal]="abs(ce.diferencia) > 0.005">{{ abs(ce.diferencia) <= 0.005 ? 'Cuadra' : firmado(ce.diferencia) }}</b>
+                      <span class="cq-dim">{{ ce.desde }} → {{ ce.hasta }}</span>
+                    </p>
+                    <p class="cq-nota">{{ ce.detalle }}</p>
+                  }
                   <ul class="cq-verif" aria-label="Los testigos de la diferencia">
                     @for (t of v.testigos; track t.id) {
                       <li>

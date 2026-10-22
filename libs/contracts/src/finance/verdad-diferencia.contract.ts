@@ -48,8 +48,32 @@ export interface PistaDiferencia {
  */
 export type EstadoVerdad = 'confirmada' | 'corregida' | 'sin_confirmar';
 
+/**
+ * ⭐ `[CGS.51]` **La caja entera entre dos arqueos completos.** El cajón solo engaña cuando el
+ * dinero cambia de rubro: el 15-oct se vació la caja fuerte y el pago de tarjetas quedó como vale,
+ * y el cajón publicó +$136,602.36 cuando la caja entera tenía +$80,485.16. Esto mide lo que cambió
+ * TODO (cajón + caja fuerte + cheques y vales + dólares) contra lo que el libro registró en el
+ * mismo tramo. Lo que queda es dinero que apareció o se fue sin registro, no un cambio de rubro.
+ */
+export interface CajaEnteraDto {
+  /** Los dos arqueos completos que acotan el tramo: «A23648 · 14-oct 17:51». */
+  desde: string;
+  hasta: string;
+  /** Lo que cambió la caja entera según los dos arqueos. */
+  cambio: number;
+  /** Lo que el libro dice que entró menos lo que salió en ese tramo. */
+  libro: number;
+  /** `cambio − libro`: positivo sobra, negativo falta. */
+  diferencia: number;
+  /** Cuánto cambió cada rubro: dice a dónde se movió el dinero. */
+  rubros: Array<{ rubro: 'cajon' | 'caja_fuerte' | 'documentos' | 'dolares'; etiqueta: string; cambio: number }>;
+  detalle: string;
+}
+
 export interface VerdadDiferencia {
   estado: EstadoVerdad;
+  /** `[CGS.51]` La caja entera en el tramo del corte. `null` = no hay dos arqueos completos que lo acoten. */
+  caja_entera: CajaEnteraDto | null;
   /** La diferencia sellada en el corte. */
   publicada: number | null;
   /** La que sale con los testigos. Igual a `publicada` si nada la mueve. */
