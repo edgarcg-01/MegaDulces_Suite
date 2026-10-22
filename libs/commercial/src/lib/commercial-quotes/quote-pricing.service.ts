@@ -115,6 +115,34 @@ export function tramoDeCantidad(tramos: VolumeTier[], qty: number): VolumeTier |
   return tramos.find((t) => qty >= t.desde && qty <= t.hasta) ?? null;
 }
 
+/**
+ * `[E.23]` La unidad MAYOR que cabe entera en la cantidad: Kepler cobra a su precio, prorrateado
+ * a la unidad del renglón. 144 PZA de `02195` (CJA de 144) salen a 2,197.95 / 144 = $15.26, no a
+ * la lista de la pieza ($22.20). Eso es lo que Kepler guarda como precio original (`kdm2.c66`).
+ *
+ * Arbitrado contra lo cobrado (2026-10-21), donde esta regla y «la lista de su propia unidad»
+ * difieren: pedidos de telemarketing 30 d → 7,284 contra 280; mostrador `U-D-10` 3 d → 5,087
+ * contra 218. `factor` = cuántas unidades mayores es UNA unidad del renglón; `n` = cuántas
+ * unidades mayores enteras caben (para buscar su tramo de volumen).
+ */
+export function unidadMayorQueCabe(
+  led: { rungs: Record<Rung, LadderRung> },
+  rung: Rung,
+  quantity: number,
+): { step: LadderRung & { price: number }; factor: number; n: number } | null {
+  const fLinea = rung === 'base' ? 1 : Number(led.rungs[rung]?.size);
+  if (!(fLinea > 0)) return null;
+  const enBase = quantity * fLinea;
+  for (const r of ['box', 'pack'] as Rung[]) {
+    const g = led.rungs[r];
+    const size = Number(g?.size);
+    if (g && g.price !== null && size > fLinea && enBase + 1e-9 >= size) {
+      return { step: g as LadderRung & { price: number }, factor: fLinea / size, n: Math.floor(enBase / size + 1e-9) };
+    }
+  }
+  return null;
+}
+
 /** `[VTK.1]` Fila de `analytics.v_label_presentations` con la unidad mayor (CJA/BTO/CUB) de un SKU. */
 interface MayorRow {
   sku: string;
@@ -542,16 +570,29 @@ export class QuotePricingService {
       });
     }
 
-    const listPrice = step.price;
-    let price = listPrice;
     let priceSource: PriceSource = 'list';
     applied.push({
       step: 'lista',
       source: 'analytics.v_label_prices (kdii.c90/c91/c92)',
       detail: `Precio de lista del peldaño ${rung}${step.label ? ` (${step.label})` : ''}`,
       before: null,
-      after: price,
+      after: step.price,
     });
+
+    // `[E.23]` Si la cantidad completa una unidad mayor, Kepler la cobra a ESE precio prorrateado,
+    // y eso es su precio original del renglón (`kdm2.c66`): de ahí parte el descuento.
+    const mayor = unidadMayorQueCabe(led, rung, quantity);
+    const listPrice = mayor ? this.round(mayor.step.price * mayor.factor, 4) : step.price;
+    if (mayor && listPrice !== step.price) {
+      applied.push({
+        step: 'unidad_mayor',
+        source: 'kdii (precio de la unidad mayor, prorrateado como kdm2.c66)',
+        detail: `${quantity} ${step.label ?? 'u'} completan ${mayor.n} ${mayor.step.label ?? 'unidad mayor'}: se cobran a $${mayor.step.price} / ${this.round(1 / mayor.factor, 4)}`,
+        before: step.price,
+        after: listPrice,
+      });
+    }
+    let price = listPrice;
 
     // ── Mecanismo 2a: el precio por VOLUMEN del propio ERP (kdpv_prod_util) ──────────────────
     // No es un descuento porcentual: es OTRO precio del mismo peldaño a partir de N unidades.
@@ -579,10 +620,10 @@ export class QuotePricingService {
           });
           price = volume.price;
           priceSource = 'volume_qty';
-        } else {
+        } else if (volume.price > step.price) {
           // El ERP publica un "mayoreo" más caro que la lista. Pasa, y no se corrige en silencio.
           warnings.push(
-            `El precio por volumen del ERP (${volume.price}) es MAYOR que el de lista (${price}): se conserva el de lista.`,
+            `El precio por volumen del ERP (${volume.price}) es MAYOR que el de lista (${step.price}): se conserva el de lista.`,
           );
         }
       } else {
@@ -590,6 +631,28 @@ export class QuotePricingService {
           mechanism: 'volumen',
           reason: `Precio por volumen de $${volume.price} disponible a partir de ${volume.min_qty} ${step.label ?? 'unidades'}.`,
         });
+      }
+    }
+
+    // `[E.23]` El tramo de volumen de la unidad MAYOR, por las que caben enteras, prorrateado. Kepler
+    // cobra el más barato de los tres (unidad mayor, tramo propio, tramo mayor): con esa regla, el
+    // replay de 30 d de telemarketing acierta 11,486 de 13,116 renglones; sólo con la lista, 6,323.
+    if (mayor) {
+      const tm = mayor.step.tiers ? tramoDeCantidad(mayor.step.tiers, mayor.n) : null;
+      const vm = mayor.step.tiers
+        ? (tm ? { min_qty: tm.desde, price: tm.price } : null)
+        : (mayor.step.volume && mayor.n >= mayor.step.volume.min_qty ? mayor.step.volume : null);
+      const prorrateado = vm ? this.round(vm.price * mayor.factor, 4) : null;
+      if (vm && prorrateado !== null && prorrateado < price) {
+        applied.push({
+          step: 'volumen_unidad_mayor',
+          source: 'kdpv_prod_util (tramo de la unidad mayor, prorrateado)',
+          detail: `${mayor.n} ${mayor.step.label ?? 'unidad mayor'} a $${vm.price} desde ${vm.min_qty}, prorrateado`,
+          before: price,
+          after: prorrateado,
+        });
+        price = prorrateado;
+        priceSource = 'volume_qty';
       }
     }
 
@@ -677,7 +740,8 @@ export class QuotePricingService {
       }
     }
 
-    const unitPrice = this.round(price, 4);
+    // `[E.23]` A centavos, como `kdm2.c12`: Kepler cobra cantidad × precio de dos decimales.
+    const unitPrice = this.round(price, 2);
     const lineTotal = this.round(unitPrice * quantity, 2);
 
     return {
