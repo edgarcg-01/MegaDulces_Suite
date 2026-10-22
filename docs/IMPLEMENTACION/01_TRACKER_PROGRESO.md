@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1910 KB, 12405 líneas, 72 secciones.
+> **Índice navegable** — 1911 KB, 12406 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -77,8 +77,8 @@
 | 12007 | 12043 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
 | 12044 | 12062 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
 | 12063 | 12115 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12116 | 12468 | 39 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12469 | 12489 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 12116 | 12469 | 39 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12470 | 12490 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -12463,6 +12463,7 @@ entregada» el cuadre nunca tiene qué buscar. Firmas pendientes **D1–D5** (§
 - [ ] 🔨 `[CP.8.80]` C1–C3 — **Categorizar un egreso desde el puente, y recordarlo por beneficiario**: «Categorizar en Bancos» llevaba a una pantalla de sólo lectura (`[CB.14]`) y sin filtro. Ahora `POST movimientos/:id/categoria` con permiso propio `FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR` (decisión del PM; migración `20261022131931` → contabilidad, finanzas, superadmin) + vista previa `_VER`. La regla «empieza con, palabra completa» va al motor de bancos (prioridad ≥ 1000, atada al tipo). Sólo llena lo vacío. Medido en prod: «OSCAR HERNANDEZ» toma 3 de 4 ($136,705.03). 9 unitarias (mutación a rojo) + `test-newdb-contpaqi-categorizar.js`: lectura 5 ✓ contra prod; ⚠️ **escritura NO MEDIDA** hasta `pruebas-db` (sin Postgres local). Falta: aplicar la migración y validación visual.
 - [x] 🧪 `[CP.8.81]` C1 — **Prueba A/B del armado contra ContPAQi, ene–sep 2026** (`database/scripts/comparar-armado-contpaqi.js`, sólo lectura, con placebo 8/932): pagos a proveedor **798/914 iguales (87.3 %) → 798/897 (89.0 %)** al dejar de armar los pagos «TDC» (tarjeta de crédito, 0 de 18 iguales; motivo `pago_tarjeta`, tampoco se confirman). Experimentos descartados: base por IVA (+13/−44), 2120 sólo por provisión (+3/−14); opción: nota por historial del proveedor (+10/−3). Quedan 99: nota descuento↔devolución 25, frontera 2120 23, centavos 5010/5020 19, anticipo 13, impuesto 13. NO MEDIDO: lotes de gasto (sin reglas con cuenta).
 - [x] 🧪 `[CP.8.82]` C0/C1 — **Por qué difería el armado y dos correcciones**: 89.0 % → **91.1 % (817/897)**. (1) Notas: la fuente pasaba `tipoRelacion: null` siempre (nunca devolución); ahora `TipoRelacion` del XML del CFDI (`[LC.20]`) y, sin XML, lo que ella usó antes con el proveedor (+8/−2). (2) Factura mixta 0 %/16 %: base al 16 % = IVA / 0.16, como ella (55/66 mixtas; 326/328 no mixtas) (+15/−2). Pruebas negativas a rojo (2). **Para contabilidad:** 39 facturas por **$6,455,514.30** provisionadas Y pagadas como compra directa (doble registro, 33 en abril) + 4 pagos a 2120 sin provisión. Costo servidor de la fuente +118 ms (caché 10 min); pod NO MEDIDO.
+- [ ] 🔨 `[CP.8.83]` C0 — **El universo desde el lado de la contadora** (`database/scripts/universo-egresos-contpaqi.js`): de 4,625 pólizas de egreso ene–sep 2026 el puente cubre **899 (19.4 %)**; el 91 % de `[CP.8.81]` era precisión, no cobertura — por eso se escapó la de Oscar Hernández (Mant. eq. de reparto, sin categoría). Resto: sin centro de costo 1,050 · sin movimiento de banco 717 ($76.1 M) · sin categoría 548 · a confirmar 461 ($121.0 M) · sin regla 459 · no cuadra 281 ($67.2 M). ⭐ Gasto 52xx: 1,292/1,594 con CFDI, una póliza por pago → el lote «banco × día» de gastos no es su forma; rediseñar antes de firmar reglas de gasto.
 
 ---
 
