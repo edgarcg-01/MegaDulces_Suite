@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { SupplierPaymentObligationsService, CreateSupplierObligationDto } from './supplier-payment-obligations.service';
 import type { ProgramarDocumentoDto } from '@megadulces/contracts';
+import type { DeudaProgramableResponse, ProgramarDocumentoResultado } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -40,7 +41,7 @@ export class SupplierPaymentObligationsController {
   @Get('pendiente-vivo')
   @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_VER)
   @ApiOperation({ summary: 'PGP.6 — documentos de Kepler con saldo vivo que todavía no son obligación del Calendario.' })
-  pendienteVivo(@Query('limit') limit?: string) {
+  pendienteVivo(@Query('limit') limit?: string): Promise<DeudaProgramableResponse> {
     return this.svc.listDeudaProgramable({ limit: limit ? Number(limit) : undefined });
   }
 
@@ -53,7 +54,7 @@ export class SupplierPaymentObligationsController {
   @Post('desde-documento')
   @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_GESTIONAR)
   @ApiOperation({ summary: 'PGP.6 — crea la obligación de un documento del pendiente vivo. El importe lo pone el ODS, no el cliente.' })
-  programarDocumento(@Body() dto: ProgramarDocumentoDto, @Req() req: AuthedRequest) {
+  programarDocumento(@Body() dto: ProgramarDocumentoDto, @Req() req: AuthedRequest): Promise<ProgramarDocumentoResultado> {
     return this.svc.programarDocumento(dto, req.user?.username || 'sistema');
   }
 

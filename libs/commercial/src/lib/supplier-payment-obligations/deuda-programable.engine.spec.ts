@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { armarDeudaProgramable, nombreDocumento, type FilaDeudaCruda } from './deuda-programable.engine';
 
 const AL = '2026-10-22';

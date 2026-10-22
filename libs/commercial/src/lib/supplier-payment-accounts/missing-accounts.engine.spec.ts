@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { repartirFaltantes, type FilaPagoPorBanco } from './missing-accounts.engine';
 
 const RANGO = { dias: 120, desde: '2026-06-24', hasta: '2026-10-22' };

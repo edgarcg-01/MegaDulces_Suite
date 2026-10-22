@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { aBuscable, coincide, palabrasDeBusqueda } from './busqueda';
 
 describe('[CP.8.78] el buscador del puente — como escribe una persona, sin adivinar', () => {
