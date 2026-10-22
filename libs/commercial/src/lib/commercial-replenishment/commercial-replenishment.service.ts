@@ -338,6 +338,21 @@ interface ReceiveLineDto { line_id: string; received_qty: number; }
  * la vez; mientras no se mida contra la base, se declara la union en vez de elegir una y acertarle
  * de casualidad.
  */
+/**
+ * `[RQ.8]` Lo que devuelve un «Armar» en lote: el folio bajo el que entraron todas y el
+ * desglose de lo creado. `batch_folio` es `string | null` porque el folio del lote solo se
+ * emite cuando las columnas del lote ya existen en la base (`loteColsListas`); sin ellas el
+ * lote entra igual y se identifica por `batch_id`.
+ */
+export interface LoteRequisicionesCreado {
+  batch_id: string;
+  batch_folio: string | null;
+  total: number;
+  compras: number;
+  traspasos: number;
+  folios: string[];
+}
+
 export interface RequisitionListRowDto {
   id: string;
   folio: string;
@@ -3864,7 +3879,7 @@ export class CommercialReplenishmentService {
    * apuntar. El `link` que manda el front es un índice dentro de este mismo arreglo, no un id:
    * los ids todavía no existen cuando el navegador arma el pedido.
    */
-  async createRequisitionBatch(dto: { requisitions?: CreateRequisitionDto[]; allow_duplicate?: boolean }) {
+  async createRequisitionBatch(dto: { requisitions?: CreateRequisitionDto[]; allow_duplicate?: boolean }): Promise<LoteRequisicionesCreado> {
     const tenantId = this.tenantCtx.requireTenantId();
     const entrada = dto?.requisitions || [];
     if (!entrada.length) throw new BadRequestException('El lote no trae requisiciones');
