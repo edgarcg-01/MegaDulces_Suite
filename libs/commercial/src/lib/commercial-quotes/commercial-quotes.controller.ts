@@ -16,6 +16,7 @@ import {
   Rung,
   AddLineResult,
   RemoveLineResult,
+  QuoteCheck,
 } from './quote-pricing.service';
 
 /**
@@ -156,6 +157,29 @@ export class CommercialQuotesController {
   @ApiOperation({ summary: 'Cabecera + renglones de una cotización (descuento derivado por renglón).' })
   getOne(@Param('id') id: string) {
     return this.service.getOne(id);
+  }
+
+  @Get(':id/check')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
+  @ApiOperation({
+    summary:
+      '[E.27] La cotización contra el ERP de HOY, sin escribir: cada renglón re-cotizado (precio, pasos del '
+      + 'descuento, IVA/IEPS) y la existencia de la sucursal en la unidad del renglón. Dice cuántos '
+      + 'renglones cambiaron de precio en Kepler desde que se cotizó y si se puede re-cotizar.',
+  })
+  check(@Param('id') id: string): Promise<QuoteCheck> {
+    return this.pricing.checkQuote(id);
+  }
+
+  @Post(':id/reprice')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_GESTIONAR)
+  @ApiOperation({
+    summary:
+      '[E.27] Re-cotiza TODOS los renglones de un borrador vigente a precios de hoy y guarda su IVA/IEPS. '
+      + 'Una cotización enviada, vencida o cancelada no se toca: sus precios son los de su fecha.',
+  })
+  reprice(@Param('id') id: string): Promise<{ quote_id: string; lines: number; changed: number }> {
+    return this.pricing.repriceQuote(id);
   }
 
   @Post()

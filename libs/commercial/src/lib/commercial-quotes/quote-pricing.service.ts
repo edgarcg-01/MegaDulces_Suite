@@ -215,6 +215,70 @@ export interface PricedLine {
   warnings: string[];
 }
 
+/** `[E.27]` Una regla de descuento de producto tal como la publica `analytics.v_erp_discount_rules`. */
+export interface ReglaDescuento {
+  sku: string;
+  unidad: string | null;
+  mecanismo: string;
+  umbral_tipo: string | null;
+  umbral: string | number | null;
+  pct: string | number | null;
+  free_sku: string | null;
+  free_qty: string | number | null;
+  free_unidad: string | null;
+  umbral_verificado: boolean;
+  aplica_a: string | null;
+  saldo_estado: string | null;
+  reglas_duplicadas: string | number;
+  valid_to: string | Date | null;
+}
+
+/**
+ * `[E.27]` Escalera y reglas de MUCHOS SKUs de una sucursal, leídas en lote. Cotizar renglón por
+ * renglón relee `v_label_presentations` cada vez (medido en prod: 222 ms por SKU, 839 ms para 55
+ * en lote): con esto una cotización de 55 renglones se re-cotiza en ~1 s en vez de ~12 s.
+ */
+export interface PrecargaPrecios {
+  ladders: Map<string, Ladder>;
+  reglas: Map<string, ReglaDescuento[]>;
+}
+
+/** `[E.27]` Un renglón de la cotización comparado contra el ERP de HOY. */
+export interface QuoteCheckLine {
+  line_id: string;
+  line_number: number;
+  sku: string | null;
+  quantity: number;
+  saved_unit_price: number | null;
+  saved_list_price: number | null;
+  /** El motor de hoy sobre el mismo SKU, cantidad y unidad. null = no casó con el catálogo. */
+  now: PricedLine | null;
+  /** El precio de hoy (a centavos) difiere del guardado. */
+  price_changed: boolean;
+  /** El renglón guardó su IVA/IEPS (E.25). false = su impuesto se ASUME. */
+  tax_recorded: boolean;
+  /** Existencia de la sucursal (`v_erp_stock_on_hand`, unidad BASE de Kepler) y en la unidad del renglón. */
+  stock: { base_qty: number; base_unit: string | null; in_line_unit: number | null; line_unit: string | null } | null;
+}
+
+export interface QuoteCheck {
+  quote_id: string;
+  branch: string;
+  checked_at: string;
+  /** De cuándo es la existencia (`v_feed_freshness`, feed `kdil`). null = no se supo. */
+  stock_as_of: string | null;
+  /** Vencida, cancelada, aceptada o rechazada: sus precios son los de su fecha y así se quedan. */
+  historical: boolean;
+  /** Borrador vigente: se puede re-cotizar a precios de hoy. */
+  repriceable: boolean;
+  lines: QuoteCheckLine[];
+  price_changed: number;
+  tax_missing: number;
+  total_saved: number;
+  /** Lo que sumaría hoy, con el % congelado del cliente. */
+  total_now: number;
+}
+
 /** Lo que devuelve agregar un renglón: el conteo y el desglose de cómo se precificó. */
 export interface AddLineResult {
   quote_id: string;
@@ -524,7 +588,7 @@ export class QuotePricingService {
     return this.tk.run((knex) => this.priceLine(knex, input));
   }
 
-  async priceLine(knex: Knex, input: PriceLineInput): Promise<PricedLine> {
+  async priceLine(knex: Knex, input: PriceLineInput, pre?: PrecargaPrecios): Promise<PricedLine> {
     const branch = (input.branch || '').trim();
     const sku = (input.sku || '').trim();
     const quantity = Number(input.quantity);
@@ -549,7 +613,8 @@ export class QuotePricingService {
     );
     const productId: string | null = prod.rows.length ? prod.rows[0].id : null;
 
-    const led = await this.ladder(knex, branch, sku);
+    // `[E.27]` Con precarga, la escalera ya está leída en lote (ausente = el ERP no la publica).
+    const led = pre ? (pre.ladders.get(sku) ?? null) : await this.ladder(knex, branch, sku);
     if (!led) {
       return this.unpriced({
         sku, productId, name: prod.rows[0]?.name ?? null, branch, quantity,
@@ -684,14 +749,21 @@ export class QuotePricingService {
     const rStep = mayor ? mayor.step : step;
     const rQty = mayor ? mayor.n : quantity;
     const unitName = rRung === 'box' ? (rStep.label || 'CJA') : (rRung === 'pack' ? 'PAQ' : (rStep.label || 'PZA'));
-    const rules = await knex.raw(
-      `SELECT mecanismo, umbral_tipo, umbral, pct, free_sku, free_qty, free_unidad,
-              umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to
-         FROM analytics.v_erp_discount_rules
-        WHERE tienda = :branch AND sku = :sku
-          AND (aplica_a = :aplica_a OR upper(unidad) = upper(:unitName))`,
-      { branch, sku, aplica_a: RUNG_TO_APLICA_A[rRung], unitName },
-    );
+    // `[E.27]` Con precarga se filtra en memoria con la MISMA condición que el SQL de abajo.
+    const rules: { rows: ReglaDescuento[] } = pre
+      ? {
+          rows: (pre.reglas.get(sku) ?? []).filter(
+            (r) => r.aplica_a === RUNG_TO_APLICA_A[rRung] || (r.unidad ?? '').toUpperCase() === unitName.toUpperCase(),
+          ),
+        }
+      : await knex.raw(
+          `SELECT mecanismo, umbral_tipo, umbral, pct, free_sku, free_qty, free_unidad,
+                  umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to
+             FROM analytics.v_erp_discount_rules
+            WHERE tienda = :branch AND sku = :sku
+              AND (aplica_a = :aplica_a OR upper(unidad) = upper(:unitName))`,
+          { branch, sku, aplica_a: RUNG_TO_APLICA_A[rRung], unitName },
+        );
 
     let freeGoods: PricedLine['free_goods'] = null;
 
@@ -1087,115 +1159,319 @@ export class QuotePricingService {
         throw new BadRequestException('La cantidad tiene que ser mayor que cero. Para quitarlo, usa borrar el renglón.');
       }
 
-      // El SKU sale del renglón, no del request: editar una cantidad no puede cambiar el producto.
-      const sku = await this.skuDelRenglon(trx, line);
-      let priced: PricedLine | null = null;
-      if (sku) {
-        if (!quote.source_branch) {
-          throw new BadRequestException(
-            'La cotización no dice desde qué sucursal se arma, y el precio no es el mismo en todas.',
-          );
-        }
-        priced = await this.priceLine(trx, {
-          branch: quote.source_branch,
-          sku,
-          quantity: qty,
-          // Sin peldaño explícito se conserva el que ya tenía el renglón: una edición de cantidad
-          // no debe mover la unidad en silencio. El rótulo se resuelve DENTRO de `priceLine`,
-          // que es donde está la escalera de este sku (el rótulo solo no alcanza para decidir).
-          rung: input.rung,
-          rung_label: line.qty_unit,
-        });
-      }
-
-      const n = Number(line.line_number);
-      // Los regalos viejos se van: la regla se vuelve a evaluar con la cantidad nueva.
-      await trx.raw(`DELETE FROM commercial.quote_lines WHERE quote_id = :qid AND parent_line_number = :n`, {
-        qid: quoteId,
-        n,
-      });
-
-      const unit = priced?.unit_price ?? null;
-      const lineTotal = unit === null ? 0 : this.round(unit * qty, 2);
-      const subtotal = unit === null ? 0 : this.round(lineTotal / this.divisorImpuesto(priced), 2);
-
-      await trx.raw(
-        `UPDATE commercial.quote_lines
-            SET quantity = :quantity,
-                unit_price = :unit_price,
-                list_price = :list_price,
-                tax_rate = :tax_rate,
-                iva_rate = :iva_rate,
-                ieps_rate = :ieps_rate,
-                line_subtotal = :line_subtotal,
-                line_total = :line_total,
-                price_source = :price_source,
-                availability = :availability,
-                notes = :notes,
-                qty_unit = :qty_unit,
-                qty_factor = :qty_factor,
-                qty_factor_source = :qty_factor_source,
-                updated_at = now(),
-                updated_by = :user_id
-          WHERE id = :lid AND quote_id = :qid`,
-        {
-          lid: lineId,
-          qid: quoteId,
-          quantity: qty,
-          unit_price: unit,
-          list_price: priced?.list_price ?? null,
-          tax_rate: priced?.tax_rate ?? DEFAULT_TAX_RATE,
-          iva_rate: priced?.iva_rate ?? null,
-          ieps_rate: priced?.ieps_rate ?? null,
-          line_subtotal: subtotal,
-          line_total: lineTotal,
-          price_source: priced?.price_source ?? 'unknown',
-          availability: priced?.availability ?? 'unmatched',
-          notes: priced?.unpriced_reason ?? null,
-          qty_unit: priced?.unit_label ?? null,
-          qty_factor: priced?.unit_factor ?? null,
-          qty_factor_source: priced?.unit_factor != null ? 'kepler_ladder' : null,
-          user_id: userId,
-        },
-      );
-
-      // ⚠️ `requested_quantity` NO se toca: es lo que el cliente PIDIÓ, y la corrección del
-      // operador no reescribe el pedido original. Es la misma distinción que `order_lines`.
-
-      if (priced?.free_goods && priced.free_goods.quantity > 0) {
-        const nextN = await trx.raw(
-          `SELECT coalesce(max(line_number), 0) + 1 AS n FROM commercial.quote_lines WHERE quote_id = :id`,
-          { id: quoteId },
-        );
-        await trx.raw(
-          `INSERT INTO commercial.quote_lines
-             (tenant_id, quote_id, line_number, product_id, requested_text, quantity,
-              unit_price, list_price, line_subtotal, line_total, price_source, parent_line_number,
-              availability, notes, qty_unit, created_by, updated_by)
-           VALUES
-             (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :quantity,
-              0, 0, 0, 0, 'free_goods', :parent,
-              :availability, :notes, :qty_unit, :user_id, :user_id)`,
-          {
-            quote_id: quoteId,
-            line_number: Number(nextN.rows[0].n),
-            product_id: priced.free_goods.product_id,
-            requested_text: priced.free_goods.product_id ? null : priced.free_goods.sku,
-            quantity: priced.free_goods.quantity,
-            parent: n,
-            availability: priced.free_goods.product_id ? 'available' : 'unmatched',
-            notes: `Producto gratis del ERP por el renglón ${n}`,
-            qty_unit: priced.free_goods.unit_label ?? null,
-            user_id: userId,
-          },
-        );
-      }
+      const priced = await this.retarificarRenglonTrx(trx, quoteId, quote.source_branch, line, qty, input.rung, userId);
 
       await this.recalcTotals(trx, quoteId);
       const count = await trx.raw(`SELECT count(*)::int AS n FROM commercial.quote_lines WHERE quote_id = :id`, {
         id: quoteId,
       });
       return { quote_id: quoteId, lines: Number(count.rows[0].n), priced };
+    });
+  }
+
+  /**
+   * `[E.27]` Vuelve a correr el motor sobre UN renglón guardado y lo reescribe: precio, impuesto,
+   * sello de unidad y sus regalos (que se borran y se re-evalúan). Es el cuerpo que tenía
+   * `updateLine`, sacado tal cual para que `repriceQuote` haga exactamente lo mismo por renglón.
+   * No recalcula la cabecera: eso lo hace quien llama, una vez.
+   */
+  private async retarificarRenglonTrx(
+    trx: Knex,
+    quoteId: string,
+    branch: string | null,
+    line: { id: string; line_number: number | string; product_id: string | null; requested_text: string | null; qty_unit: string | null },
+    qty: number,
+    rung: Rung | undefined,
+    userId: string | null,
+    pre?: PrecargaPrecios,
+  ): Promise<PricedLine | null> {
+    // El SKU sale del renglón, no del request: editar una cantidad no puede cambiar el producto.
+    const sku = await this.skuDelRenglon(trx, line);
+    let priced: PricedLine | null = null;
+    if (sku) {
+      if (!branch) {
+        throw new BadRequestException(
+          'La cotización no dice desde qué sucursal se arma, y el precio no es el mismo en todas.',
+        );
+      }
+      priced = await this.priceLine(trx, {
+        branch: branch,
+        sku,
+        quantity: qty,
+        // Sin peldaño explícito se conserva el que ya tenía el renglón: una edición de cantidad
+        // no debe mover la unidad en silencio. El rótulo se resuelve DENTRO de `priceLine`,
+        // que es donde está la escalera de este sku (el rótulo solo no alcanza para decidir).
+        rung,
+        rung_label: line.qty_unit,
+      }, pre);
+    }
+
+    const n = Number(line.line_number);
+    // Los regalos viejos se van: la regla se vuelve a evaluar con la cantidad nueva.
+    await trx.raw(`DELETE FROM commercial.quote_lines WHERE quote_id = :qid AND parent_line_number = :n`, {
+      qid: quoteId,
+      n,
+    });
+
+    const unit = priced?.unit_price ?? null;
+    const lineTotal = unit === null ? 0 : this.round(unit * qty, 2);
+    const subtotal = unit === null ? 0 : this.round(lineTotal / this.divisorImpuesto(priced), 2);
+
+    await trx.raw(
+      `UPDATE commercial.quote_lines
+          SET quantity = :quantity,
+              unit_price = :unit_price,
+              list_price = :list_price,
+              tax_rate = :tax_rate,
+              iva_rate = :iva_rate,
+              ieps_rate = :ieps_rate,
+              line_subtotal = :line_subtotal,
+              line_total = :line_total,
+              price_source = :price_source,
+              availability = :availability,
+              notes = :notes,
+              qty_unit = :qty_unit,
+              qty_factor = :qty_factor,
+              qty_factor_source = :qty_factor_source,
+              updated_at = now(),
+              updated_by = :user_id
+        WHERE id = :lid AND quote_id = :qid`,
+      {
+        lid: line.id,
+        qid: quoteId,
+        quantity: qty,
+        unit_price: unit,
+        list_price: priced?.list_price ?? null,
+        tax_rate: priced?.tax_rate ?? DEFAULT_TAX_RATE,
+        iva_rate: priced?.iva_rate ?? null,
+        ieps_rate: priced?.ieps_rate ?? null,
+        line_subtotal: subtotal,
+        line_total: lineTotal,
+        price_source: priced?.price_source ?? 'unknown',
+        availability: priced?.availability ?? 'unmatched',
+        notes: priced?.unpriced_reason ?? null,
+        qty_unit: priced?.unit_label ?? null,
+        qty_factor: priced?.unit_factor ?? null,
+        qty_factor_source: priced?.unit_factor != null ? 'kepler_ladder' : null,
+        user_id: userId,
+      },
+    );
+
+    // ⚠️ `requested_quantity` NO se toca: es lo que el cliente PIDIÓ, y la corrección del
+    // operador no reescribe el pedido original. Es la misma distinción que `order_lines`.
+
+    if (priced?.free_goods && priced.free_goods.quantity > 0) {
+      const nextN = await trx.raw(
+        `SELECT coalesce(max(line_number), 0) + 1 AS n FROM commercial.quote_lines WHERE quote_id = :id`,
+        { id: quoteId },
+      );
+      await trx.raw(
+        `INSERT INTO commercial.quote_lines
+           (tenant_id, quote_id, line_number, product_id, requested_text, quantity,
+            unit_price, list_price, line_subtotal, line_total, price_source, parent_line_number,
+            availability, notes, qty_unit, created_by, updated_by)
+         VALUES
+           (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :quantity,
+            0, 0, 0, 0, 'free_goods', :parent,
+            :availability, :notes, :qty_unit, :user_id, :user_id)`,
+        {
+          quote_id: quoteId,
+          line_number: Number(nextN.rows[0].n),
+          product_id: priced.free_goods.product_id,
+          requested_text: priced.free_goods.product_id ? null : priced.free_goods.sku,
+          quantity: priced.free_goods.quantity,
+          parent: n,
+          availability: priced.free_goods.product_id ? 'available' : 'unmatched',
+          notes: `Producto gratis del ERP por el renglón ${n}`,
+          qty_unit: priced.free_goods.unit_label ?? null,
+          user_id: userId,
+        },
+      );
+    }
+    return priced;
+  }
+
+  /** `[E.27]` Escalera y reglas de varios SKUs de una sucursal, en lote (ver `PrecargaPrecios`). */
+  async precargarPrecios(knex: Knex, branch: string, skus: string[]): Promise<PrecargaPrecios> {
+    const lista = [...new Set(skus.map((x) => String(x).trim()).filter(Boolean))];
+    const reglas = new Map<string, ReglaDescuento[]>();
+    if (!lista.length) return { ladders: new Map(), reglas };
+    const ladders = await this.ladders(knex, branch, lista);
+    const r = await knex.raw(
+      `SELECT sku, unidad, mecanismo, umbral_tipo, umbral, pct, free_sku, free_qty, free_unidad,
+              umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to
+         FROM analytics.v_erp_discount_rules
+        WHERE tienda = ? AND sku IN (${lista.map(() => '?').join(', ')})`,
+      [branch, ...lista],
+    );
+    for (const row of r.rows as ReglaDescuento[]) {
+      const l = reglas.get(row.sku) ?? [];
+      l.push(row);
+      reglas.set(row.sku, l);
+    }
+    return { ladders, reglas };
+  }
+
+  /**
+   * `[E.27]` Re-cotiza TODOS los renglones de un borrador vigente a precios de hoy (y guarda su
+   * IVA/IEPS). Una cotización vencida, cancelada o ya enviada NO se toca: sus precios son los de
+   * su fecha y son lo que se le prometió al cliente.
+   */
+  async repriceQuote(quoteId: string): Promise<{ quote_id: string; lines: number; changed: number }> {
+    const userId = this.tenantCtx.get()?.userId ?? null;
+    return this.tk.run(async (trx) => {
+      const q = await trx.raw(
+        `SELECT id, status, source_branch, (valid_until < CURRENT_DATE) AS vencida
+           FROM commercial.quotes
+          WHERE id = :id AND deleted_at IS NULL
+          FOR UPDATE`,
+        { id: quoteId },
+      );
+      if (!q.rows.length) throw new NotFoundException('Cotización no encontrada.');
+      const quote = q.rows[0];
+      await this.assertEscribe(quote.source_branch);
+      if (quote.status !== 'draft') {
+        throw new BadRequestException(
+          `Sólo se re-cotiza un borrador (ésta está "${quote.status}"): lo enviado es lo que se le prometió al cliente.`,
+        );
+      }
+      if (quote.vencida) {
+        throw new BadRequestException('La cotización está vencida: queda como documento de su fecha. Para cotizar de nuevo, crea otra.');
+      }
+      const lines = await trx.raw(
+        `SELECT ql.id, ql.line_number, ql.product_id, ql.requested_text, ql.qty_unit, ql.quantity, ql.unit_price,
+                btrim(p.sku) AS sku
+           FROM commercial.quote_lines ql
+           LEFT JOIN catalog.products p ON p.id = ql.product_id
+          WHERE ql.quote_id = :qid AND ql.parent_line_number IS NULL
+          ORDER BY ql.line_number`,
+        { qid: quoteId },
+      );
+      const filas = lines.rows as Array<{
+        id: string; line_number: number; product_id: string | null; requested_text: string | null;
+        qty_unit: string | null; quantity: string; unit_price: string | null; sku: string | null;
+      }>;
+      const pre = await this.precargarPrecios(trx, quote.source_branch, filas.map((l) => l.sku ?? l.requested_text ?? ''));
+      let changed = 0;
+      for (const l of filas) {
+        const priced = await this.retarificarRenglonTrx(trx, quoteId, quote.source_branch, l, Number(l.quantity), undefined, userId, pre);
+        const antes = l.unit_price === null ? null : this.round(Number(l.unit_price), 2);
+        if (antes !== (priced?.unit_price ?? null)) changed++;
+      }
+      await this.recalcTotals(trx, quoteId);
+      return { quote_id: quoteId, lines: filas.length, changed };
+    });
+  }
+
+  /**
+   * `[E.27]` La cotización contra el ERP de HOY, sin escribir nada: cada renglón re-cotizado con el
+   * motor (precio, pasos del descuento, impuesto) y la existencia de la sucursal en la unidad del
+   * renglón. Es lo que la pantalla usa para avisar que Kepler movió un precio, desglosar el
+   * descuento y mostrar la existencia.
+   */
+  async checkQuote(quoteId: string): Promise<QuoteCheck> {
+    return this.tk.run(async (trx) => {
+      const q = await trx.raw(
+        `SELECT id, status, source_branch, terms_discount_pct, total,
+                (status IN ('draft', 'sent') AND valid_until >= CURRENT_DATE) AS vigente
+           FROM commercial.quotes
+          WHERE id = :id AND deleted_at IS NULL`,
+        { id: quoteId },
+      );
+      if (!q.rows.length) throw new NotFoundException('Cotización no encontrada.');
+      const quote = q.rows[0];
+      const branch = String(quote.source_branch ?? '').trim();
+      if (!branch) throw new BadRequestException('La cotización no tiene sucursal: no hay contra qué compararla.');
+      await this.scope.assertCanRead('warehouse', branch, AREA_COTIZACIONES);
+
+      const lines = await trx.raw(
+        `SELECT ql.id, ql.line_number, ql.qty_unit, ql.qty_factor, ql.quantity, ql.unit_price, ql.list_price,
+                ql.iva_rate, ql.ieps_rate, btrim(p.sku) AS sku
+           FROM commercial.quote_lines ql
+           LEFT JOIN catalog.products p ON p.id = ql.product_id
+          WHERE ql.quote_id = :qid AND ql.parent_line_number IS NULL
+          ORDER BY ql.line_number`,
+        { qid: quoteId },
+      );
+      const filas = lines.rows as Array<{
+        id: string; line_number: number; qty_unit: string | null; qty_factor: string | null; quantity: string;
+        unit_price: string | null; list_price: string | null; iva_rate: string | null; ieps_rate: string | null;
+        sku: string | null;
+      }>;
+      const skus = [...new Set(filas.map((l) => l.sku).filter((x): x is string => !!x))];
+      const pre = await this.precargarPrecios(trx, branch, skus);
+
+      // Existencia: la vista sin filtro tarda más de un minuto; por sucursal y SKU, ~75 ms (medido).
+      const stock = new Map<string, number>();
+      if (skus.length) {
+        const st = await trx.raw(
+          `SELECT sku, qty_stock_units FROM analytics.v_erp_stock_on_hand
+            WHERE warehouse_code = ? AND sku IN (${skus.map(() => '?').join(', ')})`,
+          [branch, ...skus],
+        );
+        for (const r of st.rows as Array<{ sku: string; qty_stock_units: string | number | null }>) {
+          if (r.qty_stock_units !== null) stock.set(r.sku, Number(r.qty_stock_units));
+        }
+      }
+      const fresco = await trx.raw(`SELECT dato_al FROM analytics.v_feed_freshness WHERE feed = 'kdil' LIMIT 1`);
+      const al = (fresco.rows as Array<{ dato_al: string | Date | null }>)[0]?.dato_al ?? null;
+
+      const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+      const out: QuoteCheckLine[] = [];
+      for (const l of filas) {
+        let now: PricedLine | null = null;
+        if (l.sku) {
+          try {
+            now = await this.priceLine(trx, { branch, sku: l.sku, quantity: Number(l.quantity), rung_label: l.qty_unit }, pre);
+          } catch (e) {
+            this.logger.warn(`checkQuote ${quoteId} renglón ${l.line_number}: ${(e as Error).message}`);
+          }
+        }
+        const guardado = num(l.unit_price);
+        const hoy = now?.unit_price ?? null;
+        const base = l.sku ? stock.get(l.sku) : undefined;
+        const factor = now?.unit_factor ?? num(l.qty_factor);
+        out.push({
+          line_id: l.id,
+          line_number: Number(l.line_number),
+          sku: l.sku,
+          quantity: Number(l.quantity),
+          saved_unit_price: guardado,
+          saved_list_price: num(l.list_price),
+          now,
+          price_changed: l.sku !== null
+            && (guardado === null ? hoy !== null : hoy === null || Math.round(guardado * 100) !== Math.round(hoy * 100)),
+          tax_recorded: l.iva_rate !== null || l.ieps_rate !== null,
+          stock: base === undefined || !l.sku
+            ? null
+            : {
+                base_qty: base,
+                base_unit: pre.ladders.get(l.sku)?.unit_base ?? null,
+                // La existencia viene en la unidad BASE de Kepler; el renglón puede ser caja.
+                in_line_unit: factor && factor > 0 ? this.round(base / factor, 2) : base,
+                line_unit: l.qty_unit,
+              },
+        });
+      }
+      const pct = num(quote.terms_discount_pct);
+      const ahora = totalesCotizacion(
+        out.map((x) => (x.now ? x.now.line_total : null)),
+        pct,
+        out.map((x) => ({ iva: x.now?.iva_rate ?? null, ieps: x.now?.ieps_rate ?? null })),
+      );
+      return {
+        quote_id: quoteId,
+        branch,
+        checked_at: new Date().toISOString(),
+        stock_as_of: al ? new Date(al).toISOString() : null,
+        historical: !quote.vigente,
+        repriceable: !!quote.vigente && quote.status === 'draft',
+        lines: out,
+        price_changed: out.filter((x) => x.price_changed).length,
+        tax_missing: out.filter((x) => !x.tax_recorded && x.saved_unit_price !== null).length,
+        total_saved: Number(quote.total) || 0,
+        total_now: ahora.total,
+      };
     });
   }
 
