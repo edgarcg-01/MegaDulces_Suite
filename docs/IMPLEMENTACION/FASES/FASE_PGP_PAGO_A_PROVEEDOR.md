@@ -154,13 +154,48 @@ línea. Sin esa persona asignada, O1 no arranca y el resto no existe.
 > **Métrica:** pagos del mes que nacen en el calendario — **HOY: 13 armados contra 154 pagos
 > reales de octubre (8.4%), de los cuales 0 ejecutados** → **META: 60% de los pagos por
 > transferencia, 2026-12-15.**
+> **Segunda métrica, medida el 2026-10-22:** la deuda viva de mercancía con obligación en el
+> Calendario — **HOY: 33 de 1,740 documentos (1.9 %) · $2,714,042 de $92,846,437 (2.9 %)**.
 > **Dinero en juego:** Alto · **Esfuerzo:** M · **Prioridad: 1**
 
 **Entregables:**
 
+⚠️ **E2.1 cambió de forma al medirlo, y el cambio importa.** Decía «precargar las obligaciones
+desde la deuda viva». Medido el 2026-10-22, el mecanismo **ya existe y está bien hecho**:
+`[TP.15]` crea la obligación al aceptar un renglón de entrega de compra, y la crea **por el
+pendiente vivo de Kepler** (`v_supplier_payables`), no por el importe de la entrega — una decisión
+que ya evitó ofrecer para pago 21 de 38 documentos que no debían nada.
+
+Lo que falta no es el mecanismo: es que **cubre el 2.9 % del dinero**.
+
+| | Documentos | Pendiente |
+|---|---:|---:|
+| Deuda viva de mercancía (`C*`) | **1,740** | **$92,846,437** |
+| …con obligación en el Calendario | **33 (1.9 %)** | **$2,714,042 (2.9 %)** |
+
+Y el embudo dice por qué: de **481** renglones de entrega, **66 aceptados** y **414 en
+«entregado»** —esperando que alguien los decida—; el camino **arrancó en octubre de 2026**, hace
+tres semanas.
+
+⭐⭐ **Eso destapa que son DOS poblaciones, no una, y sólo la primera tiene camino:**
+
+1. **La compra nueva.** Entra por entregas y se vuelve obligación al aceptarla. Su cuello es
+   humano: 414 renglones sin decidir.
+2. **La deuda preexistente — $90.1 M en 1,707 documentos — no tiene NINGÚN camino.** Nunca pasó
+   por una entrega y nunca va a pasar. Incluye los **539 documentos con más de 90 días vencidos**
+   ($10.3 M) y los 432 de 1 a 30 días ($30.1 M).
+
+⛔ **Y no se arregla con un importer** (regla principal): copiar 1,707 filas del ODS a
+`supplier_payment_obligations` crearía una segunda materialización de una deuda que ya vive en
+`kdxe`. Lo que corresponde es **elegirla de la deuda viva**: ofrecer los documentos pendientes
+que todavía no tienen obligación y crearla **a demanda, con su procedencia** (`kepler_sucursal`,
+`kepler_doc_tipo`, `kepler_doc_sub`, `kepler_folio` — columnas que la tabla **ya tiene** y que
+`[TP.15]` ya llena). Es una obligación por documento elegido, no un volcado.
+
 | # | Entregable | Quién lo usa |
 |---|---|---|
-| E2.1 | Las obligaciones de proveedor se precargan desde la deuda viva del ODS (hoy 37 filas cargadas a mano contra 1,724 documentos de mercancía pendientes) | Compras |
+| E2.1 | **Elegir del pendiente vivo lo que se va a programar**: la deuda sin obligación, por antigüedad y monto, y crear la obligación con su procedencia al elegirla. Reusa el `INSERT` de `[TP.15]`, no inventa otro | Tesorería · Compras |
+| E2.1b | Destrabar los **414 renglones de entrega sin decidir** — es trabajo de personas, no de código: va a la bandeja de `[PGP.3]` | Compras |
 | E2.2 | **Tope de firma por monto** (D2): Tesorería autoriza ≤ $100,000, Dirección arriba | Tesorería · Dirección |
 | E2.3 | El pronto pago entra al armado del día: lo que vence primero se propone primero | Tesorería |
 | E2.4 | `finance.financial_commitments` alimentado (hoy 0 filas) | Finanzas |
@@ -228,7 +263,7 @@ independiente del circuito nuevo, y se conserva a propósito.
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
 | PGP.0.1 | Decode del documento de pago `X-D-26`: qué tablas escribe y con qué llave | 🧪 **medido 2026-10-22** | Ver cuadro abajo |
-| PGP.0.2 | Columnas `NOT NULL` de `md.kdm1`, `md.kdxe` y `md.kdxf` en el Kepler vivo | ⬜ | `information_schema` de `md_00` (`192.168.9.95`) |
+| PGP.0.2 | Columnas `NOT NULL` de `md.kdm1`, `md.kdxe` y `md.kdxf` + **qué puede tocar `kepler_push`** | 🧪 **medido 2026-10-22** | Catálogo de `md_00` (`192.168.9.95`). Ver «el bloqueo de O3» abajo |
 | PGP.0.3 | Documento plantilla de `X-D-26` para clonar, por sucursal | ⬜ | Un pago real reciente del `00`, leído entero |
 | PGP.0.4 | Precedente de `c45` (cuenta de tesorería) por banco de origen | ⬜ | El decode de `c45` + estado de cuenta CB |
 
@@ -247,6 +282,46 @@ gratis: un pago escrito a medias se detecta al instante comparando los dos conte
 
 ⛔ Sin importer: todo sale del ODS por vista. La unidad acá es el peso y se prueba de los dos lados
 (importe de `kdxe.c11` contra la suma de `kdxf.c10` aplicado).
+
+#### ⛔⛔ El bloqueo de O3: hoy NO se puede escribir el pago, y no es por el código
+
+Medido el 2026-10-22 contra el Kepler vivo (`md_00`, `192.168.9.95`), con el usuario
+`kepler_push` que la Fase KR dejó configurado. Sólo lectura del catálogo del sistema:
+
+| Tabla | Existe | Filas | Columnas | `NOT NULL` | `kepler_push` puede |
+|---|---|---:|---:|---:|---|
+| `md.kdm1` | sí | 130,544 | 200 | **200** | SELECT · **INSERT** |
+| `md.kdm2` | sí | 263,870 | 70 | **70** | SELECT · **INSERT** |
+| `md.kdxe` | sí | 45,574 | 31 | **31** | ⛔ **nada** |
+| `md.kdxf` | sí | 29,932 | 11 | **11** | ⛔ **nada** |
+| `md.kdxd` | sí | 769 | 36 | 36 | ⛔ **nada** |
+| `md.kdmm` | sí | 167 | 61 | 61 | ⛔ **nada** |
+| `md.kdfolio` | sí | 2 | 3 | 3 | SELECT · UPDATE |
+
+⭐ **`kepler_push` puede tocar 3 de las 360 tablas de `md`.** El acceso se acotó a lo que la
+requisición `X-A-30` necesitaba, y el pago necesita otra cosa: medido en C0, un `X-D-26` escribe
+en **tres** tablas (`kdm1` + `kdxe` + `kdxf`) y tenemos privilegio sobre **una**.
+
+⛔ **La hipótesis que lo habría salvado está refutada:** no hay **ningún** trigger ni regla sobre
+`kdm1`, y `kdxe`/`kdxf` son tablas reales, no vistas. **El ERP no deriva solo** el documento de
+cuentas por pagar a partir del movimiento: lo escribe su propia aplicación. Insertar sólo en
+`kdm1` dejaría un pago que mueve el inventario de documentos y **no baja la deuda del proveedor**
+— peor que no escribirlo.
+
+⚠️ **Y tampoco se puede deshacer una prueba:** `kepler_push` no tiene `DELETE` sobre ninguna de las
+tres. El protocolo que usó KR —escribir, verificar en pantalla, borrar— lo cerró alguien con otra
+cuenta; conviene saberlo antes de planear la prueba, no durante.
+
+**Qué lo destraba** (lo ejecuta el dueño de las tablas, que es `sa`):
+
+```sql
+GRANT SELECT, INSERT ON md.kdxe, md.kdxf TO kepler_push;  -- el pago y sus aplicaciones
+GRANT SELECT          ON md.kdxd, md.kdmm TO kepler_push;  -- validar acreedor y tipo de documento
+```
+
+⭐ **`DELETE` no se pide, a propósito.** Darle a un usuario de aplicación permiso de borrar en el
+ERP es un riesgo permanente a cambio de una comodidad de un día. El borrado de los documentos de
+prueba lo hace quien administra Kepler, que es el mismo patrón que ya se siguió en KR.
 
 ### C1 · Dominio
 
@@ -335,6 +410,7 @@ de control interno, no técnica: Dirección lo confirma antes de codificarlo.
 | Si alguien da de baja el documento plantilla, la escritura deja de funcionar | dueño de la fase | El clon depende de una fila real | Lo dice con todas sus letras en vez de fallar con `undefined` (igual que KR) |
 | Kepler está en uso activo mientras se escribe | dueño de la fase | Folio denso compartido | `MAX+1` y dejar que la llave primaria rebote el choque; ⛔ nunca `LOCK TABLE` |
 | 89 pagos en efectivo > $100k al año, con 15% de RFC capturado | **Contabilidad** | Art. 27 fr. III LISR | Dictamen de Contabilidad **antes** de automatizar el carril de efectivo |
+| ⛔ **O3 no puede escribir el pago**: `kepler_push` no tiene privilegio sobre `md.kdxe` ni `md.kdxf`, y el ERP **no las deriva solo** (no hay trigger: medido) | quien administra Kepler (dueño `sa`) | El acceso se acotó a lo que necesitaba la requisición de KR | Dos `GRANT` (§4 · C0). Sin ellos, O3 **no arranca** y el código que se escriba no se puede probar |
 
 ---
 
@@ -426,3 +502,5 @@ Se copian a `01_TRACKER_PROGRESO.md` **el día que la fase pase a 🔨**, no ant
 |---|---|---|
 | 2026-10-22 | Investigación y medición del circuito completo contra prod. 8 pantallas inventariadas, motor TP medido con 0% de cobertura, decode del `X-D-26` (3 tablas, sin renglones), tope de firma calculado. D1–D3 firmadas por Edgar. | Claude |
 | 2026-10-22 | **Corrección al diagnóstico de la misma sesión**: el tapón no era la firma de Dirección sino el paso anterior — 0 de 10 pagos preparados, y no se pueden preparar porque no hay ninguna cuenta de proveedor sembrada. Se midió que 37 proveedores cubren el 80% del dinero por banco, y que la CLABE no se puede derivar del estado de cuenta (24 de 14,456). Objetivos O1–O5, entregables e items de arranque. | Claude |
+| 2026-10-22 | **C0 de O3 medido, y destapa un bloqueo**: `kepler_push` puede tocar 3 de las 360 tablas de `md_00` — tiene INSERT en `kdm1`/`kdm2` y **nada** en `kdxe`/`kdxf`, que son dos de las tres que el pago escribe. La hipótesis que lo salvaba (que un trigger las derivara) está **refutada**: no hay ninguno. O3 necesita dos `GRANT` del dueño antes de escribir una línea de código. | Claude |
+| 2026-10-22 | **O2 corregido al medirlo**: el mecanismo que crea obligaciones ya existe (`[TP.15]`, por el pendiente vivo de Kepler) y cubre el **2.9 % del dinero**. El hueco no es el mecanismo: son **dos poblaciones**, y la deuda preexistente ($90.1 M en 1,707 documentos) no tiene ningún camino. | Claude |
