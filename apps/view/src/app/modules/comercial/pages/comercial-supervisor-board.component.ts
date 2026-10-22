@@ -122,7 +122,7 @@ function progressOf(sales: number | null, target: number | null): number | null 
           <p-datepicker [ngModel]="dateObj()" (ngModelChange)="setDate($event)" dateFormat="yy-mm-dd"
             [maxDate]="maxDate" [showIcon]="true" appendTo="body" inputId="sb-fecha"
             ariaLabel="Fecha" styleClass="sb-date"></p-datepicker>
-          <app-freshness-pill measures="fetch" [since]="data()?.generated_at ?? null" [staleAfterSec]="300" />
+          <app-freshness-pill measures="data" [freshness]="data()?.freshness ?? null" label="Venta Kepler" />
           <button pButton type="button" [text]="true" severity="secondary" size="small" (click)="load()"
             [disabled]="loading()" aria-label="Actualizar"><span class="p-button-icon pi pi-refresh" aria-hidden="true"></span></button>
         </div>

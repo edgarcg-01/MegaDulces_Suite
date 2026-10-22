@@ -82,7 +82,7 @@ function archivos(filtro) {
  * dentro del método es su propio default, no algo que la pantalla pueda mandar.
  */
 function metodosConLimite() {
-  const nombres = new Set();
+  const nombres = new Map();   // nombre -> Set<basename del .service.ts que lo declara con `limit`>
   for (const f of archivos((n) => n.endsWith('.service.ts'))) {
     const src = fs.readFileSync(f, 'utf8');
     // `nombre(args): Observable<…>` en una o varias líneas, hasta el primer `{` del cuerpo.
@@ -90,10 +90,43 @@ function metodosConLimite() {
     let m;
     while ((m = re.exec(src))) {
       const [, nombre, args] = m;
-      if (/\blimit\s*\??\s*:/.test(args)) nombres.add(nombre);
+      if (!/\blimit\s*\??\s*:/.test(args)) continue;
+      if (!nombres.has(nombre)) nombres.set(nombre, new Set());
+      nombres.get(nombre).add(path.basename(f, '.ts'));
     }
   }
   return nombres;
+}
+
+/**
+ * ⛔⛔ **El nombre del método NO alcanza: hay colisiones entre servicios, y una costó un push.**
+ *
+ * Medido el 2026-10-22. `caos.service.ts` declara `movimientos({ …, limit? })`, así que
+ * `movimientos` entraba a la lista de «métodos con tope». Desde entonces la compuerta marcaba
+ * **cualquier** `.movimientos(` de cualquier pantalla — y marcó
+ * `contabilidad-contpaqi-puente.component.ts:905`, que llama al `movimientos()` de
+ * `contpaqi-puente.service.ts`: **otro servicio, otra firma, SIN `limit`**, y cuyo backend es
+ * explícitamente sin tope con el motivo escrito al lado («la pantalla dice 437 movimientos y la
+ * lista tiene que poder llegar a 437»).
+ *
+ * O sea: pedía mandar un `limit` que el método no acepta, para evitar un truncamiento que no
+ * existe. ⭐ Y eso es peor que no tener la compuerta: un rojo imposible de satisfacer enseña a
+ * empujar con `--no-verify`, que es justamente la puerta que esta familia de candados cierra.
+ *
+ * El arreglo: se exige que la pantalla **importe** alguno de los servicios que de verdad
+ * declaran ese método con `limit`. Si la pantalla no importa ningún `.service` por ruta relativa
+ * —no se pudo resolver—, se marca igual: no medir no es permiso (ADR-056).
+ */
+function importaElServicio(src, duenos) {
+  const re = /from\s+['"]([^'"]+)['"]/g;
+  let m; let vioAlgunServicio = false;
+  while ((m = re.exec(src))) {
+    const base = path.basename(m[1]);
+    if (!base.endsWith('.service')) continue;
+    vioAlgunServicio = true;
+    if (duenos.has(base)) return true;
+  }
+  return !vioAlgunServicio;   // sin servicios importados: no se pudo resolver -> se marca
 }
 
 /** El texto de los argumentos de `.metodo(` que arranca en `desde`, emparejando paréntesis. */
@@ -141,7 +174,10 @@ function auditar(file, metodos) {
   const bruto = fs.readFileSync(file, 'utf8');
   const src = sinComentarios(bruto);
   const hallazgos = [];
-  for (const nombre of metodos) {
+  for (const [nombre, duenos] of metodos) {
+    // El método se llama igual en varios servicios: sólo cuenta si ESTA pantalla usa uno que
+    // de verdad acepta `limit`. Ver `importaElServicio`.
+    if (!importaElServicio(bruto, duenos)) continue;
     /**
      * ⛔⛔ **DOS SEGMENTOS, NO UNO: `this.svc.metodo(` y NUNCA `this.metodo(`.**
      *
@@ -186,23 +222,37 @@ if (process.argv.includes('--self-test')) {
    * no estuviera, la compuerta marcaría medio repo y se apagaría en la primera corrida.
    */
   const signal = escribir('signal.ts', `class X { libro = signal([]); f() { return this.libro(); } }`);
+  /**
+   * ⭐ El caso de 2026-10-22: DOS servicios declaran `libro`, y sólo uno acepta `limit`. La
+   * pantalla que usa el OTRO no puede mandar un tope que su método no tiene. Sin este control
+   * la compuerta pedía lo imposible — y un rojo imposible se evade con `--no-verify`.
+   */
+  const otroServicio = escribir('otro-servicio.ts',
+    `import { Otro } from './otro.service';\nclass X { f() { this.otro.libro({ from: 'a' }).subscribe(); } }`);
+  const elDueno = escribir('el-dueno.ts',
+    `import { Caos } from './caos.service';\nclass X { f() { this.caos.libro({ from: 'a' }).subscribe(); } }`);
 
-  const metodos = new Set(['libro']);
+  const metodos = new Map([['libro', new Set(['caos.service'])]]);
   const r = {
     malo: auditar(malo, metodos),
     conLimite: auditar(conLimite, metodos),
     conSenal: auditar(conSenal, metodos),
     sinLlamada: auditar(sinLlamada, metodos),
     signal: auditar(signal, metodos),
+    otroServicio: auditar(otroServicio, metodos),
+    elDueno: auditar(elDueno, metodos),
   };
   fs.rmSync(tmp, { recursive: true, force: true });
 
-  const ok = r.malo && r.malo.length === 1 && !r.conLimite && !r.conSenal && !r.sinLlamada && !r.signal;
-  console.log(`  topada en silencio      -> ${r.malo ? 'CAZADA' : 'se escapo'}`);
-  console.log(`  manda limit a sabiendas -> ${r.conLimite ? 'FALSO POSITIVO' : 'pasa'}`);
-  console.log(`  mira has_more           -> ${r.conSenal ? 'FALSO POSITIVO' : 'pasa'}`);
-  console.log(`  sin llamada             -> ${r.sinLlamada ? 'FALSO POSITIVO' : 'pasa'}`);
-  console.log(`  lectura de signal       -> ${r.signal ? 'FALSO POSITIVO' : 'pasa'}`);
+  const ok = r.malo && r.malo.length === 1 && !r.conLimite && !r.conSenal && !r.sinLlamada
+    && !r.signal && !r.otroServicio && r.elDueno && r.elDueno.length === 1;
+  console.log(`  topada en silencio       -> ${r.malo ? 'CAZADA' : 'se escapo'}`);
+  console.log(`  manda limit a sabiendas  -> ${r.conLimite ? 'FALSO POSITIVO' : 'pasa'}`);
+  console.log(`  mira has_more            -> ${r.conSenal ? 'FALSO POSITIVO' : 'pasa'}`);
+  console.log(`  sin llamada              -> ${r.sinLlamada ? 'FALSO POSITIVO' : 'pasa'}`);
+  console.log(`  lectura de signal        -> ${r.signal ? 'FALSO POSITIVO' : 'pasa'}`);
+  console.log(`  mismo nombre, otro svc   -> ${r.otroServicio ? 'FALSO POSITIVO' : 'pasa'}`);
+  console.log(`  el servicio que SI tiene -> ${r.elDueno ? 'CAZADA' : 'se escapo'}`);
   console.log(ok ? '\n  ✔ la compuerta ve el rojo y no inventa' : '\n  ✖ CONTROL fallido');
   process.exit(ok ? 0 : 1);
 }

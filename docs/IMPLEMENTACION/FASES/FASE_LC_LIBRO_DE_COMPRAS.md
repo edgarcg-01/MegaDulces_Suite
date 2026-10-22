@@ -1189,6 +1189,60 @@ el TXT y correr el Asociador en ContPAQi (ADR-040: no escribimos en el SoR), y l
   aplicado de verdad (terminal). `--list`: 12 pruebas. **Correrlo espera el despliegue.**
 - `check:pantalla`: 0 fallas nuevas.
 
+## LC.20 — la factura, guardada y a un clic del folio (2026-10-22)
+
+Edgar: *«¿en folio puedo ver la factura?»* → *«hay que guardarlas»*. Medido: de **965** recibidos de
+octubre, **0 con XML y 0 con PDF** en `fiscal.cfdis` — el feed del ADD sólo copiaba el encabezado.
+
+**Dónde está, medido en el ADD (sólo lectura, `platform_ro`):** `DatabaseDirectory` da, además de
+`document_<guid>_metadata` (lo que el feed ya leía), **`document_<guid>_content.DocumentContent`**:
+`Content` nvarchar con el XML, **627,239 filas = las de `Comprobante`**, ligadas por `GuidDocument` =
+nuestro `stored_ref`. ⛔ **El PDF no existe en el ADD** (`other_<guid>_content`: 500,916 resultados de
+validación y 743 «OTHER» sin contenido). ⚠️ **Y del 2017 a mediados de 2022 el ADD archivó el XML a
+disco**: la fila existe con `SubDirectory = 'Z'` y `Content` vacío.
+
+| Año | Comprobantes en el ADD | Con XML en la base del ADD |
+|---|---:|---:|
+| 2017–2021 | 157,363 | **0** (archivados a disco del servidor de ContPAQi) |
+| 2022 | 56,623 | 18,862 |
+| 2023–2026 | 217,521 | **217,521 (100 %)** |
+
+**Lo que cambia:**
+- **Feed** (`import-contpaqi-cfdis.js` + `add-xml.js`): después del encabezado, completa
+  `fiscal.cfdis.xml` —la columna que YA existía, la que leen `/fiscal/cfdi/:id/xml` y el ZIP del
+  auditor— **sólo donde falta**: lo reciente (45 días) en cada pasada y el histórico con un **cursor que
+  sólo baja** (`feed_watermarks` · `contpaqi_add_cfdis_xml`), 1,000 por pasada. Sin cursor, al acabar lo
+  reciente cada pasada volvería a pedir para siempre los mismos archivados sin contenido. Cada XML se
+  **valida**: el UUID del timbre tiene que ser el de la fila. Por default sólo recibidos (`--xml` para
+  emitidos, `--sin-xml` lo apaga). Sin cron nuevo: va en el carril del ADD que ya corre cada 5 min.
+- **Pantalla:** el **folio es un enlace** → panel lateral (`app-side-peek`) con **`app-cfdi-visor`**
+  (nuevo, compartido en `shared/components/cfdi-visor`): emisor, receptor, serie y folio, fecha, uso,
+  método y forma, UUID y timbre, **conceptos** con su IVA/IEPS, totales por impuesto y tasa, **«Descargar
+  XML»** y **«Verificar en el SAT»** (el enlace del QR: id, re, rr, tt y los últimos 8 del sello). Lee el
+  XML tal cual —no recalcula— y lo que falta sale «—», nunca 0. Distingue «todavía no se copia» (404)
+  de «falló la red».
+
+**Medido:** pasada real de 1,000 en dry-run: **1,000 de 1,000** con documento y mismo UUID, en 12.5 s.
+Por completar: **168,567** recibidos I/E (los ~77 mil con contenido en el ADD tardan unas 77 pasadas,
+~6.5 h; el cursor recorre después los archivados una sola vez). El lector contra **XML reales** (300 al
+azar, no guardados en el repo): de los que tenían contenido, UUID, total y número de conceptos
+**idénticos** a nuestra fila en el 100 %, enlace del SAT armado en todos, 52 con IEPS.
+
+**Pruebas:** `test-newdb-cfdi-xml-add.js` contra ADD + prod (sólo lectura) **5 ✓** — incluye la negativa
+(el XML de una factura no valida contra otra). Modo `pruebas-db` (**no corrido aquí**, sin Postgres
+local): dos pasadas reales, el cursor baja, el archivado se pide una vez y no vuelve (negativa).
+`cfdi-xml.spec.ts` (vitest) **5 ✓** con XML sintético (el repo es público: nada de datos de
+proveedores). e2e: «el folio abre la factura, la de esa fila» (lectura) — `--list` 13.
+
+**NO MEDIDO / declarado:**
+- **Peso en `pg-prod`:** ~77 mil XML de ~8.5 mil caracteres ≈ 650 MB de texto antes de la compresión
+  TOAST, que no se midió.
+- **Los XML de 2017–2022 archivados a disco** quedan sin traer: viven en una carpeta del servidor de
+  ContPAQi (`CompanyPath`), no en SQL. Traerlos es otro acceso (SMB), y no se pidió.
+- **PDF:** no existe en el ADD. Generarlo con el PAC (como las emitidas) mandaría facturas de terceros a
+  un proveedor externo — decisión aparte (punto 33 del protocolo).
+- Se despliega con la imagen de ingesta: `ops/vl/deploy.sh feeds-cron` (junto con lo de LC.19.1).
+
 ## Estado
 
 🔨 **EN CURSO 2026-09-03.** LC.0 → LC.12, LC.14, LC.15 y LC.16 cerrados. El módulo ya hace

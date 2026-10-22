@@ -7,7 +7,7 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { ProgressSpinnerModule } from 'primeng/progressspinner';
-import { MessageService } from 'primeng/api';
+import { ConfirmationService, MessageService } from 'primeng/api';
 import { Subject, debounceTime, distinctUntilChanged, switchMap, catchError, of } from 'rxjs';
 import { escalera, factorDe, type Presentacion } from '@megadulces/ui-web';
 import {
@@ -25,6 +25,8 @@ import {
   parseCantidad,
   type OpcionUnidad,
   type PasoDesglose,
+  type QuoteCheck,
+  type QuoteCheckLine,
 } from '../quotes.service';
 import {
   exportQuotePdf,
@@ -32,6 +34,8 @@ import {
   type QuoteDeliverableData,
 } from '../quote-deliverable-export';
 import { totalesCotizacion } from '@megadulces/contracts';
+import { desgloseDescuento, ETIQUETA_PASO } from '../quote-discount-breakdown';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { branchName } from '../../../core/constants/store-branches';
 
 /**
@@ -99,6 +103,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
     TagModule,
     ToastModule,
     ProgressSpinnerModule,
+    FreshnessPillComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -133,6 +138,37 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
         <!-- Zona de trabajo (izquierda) + riel fijo (derecha: totales, entregables, asistente IA) -->
         <div class="layout">
         <div class="work">
+
+        <!-- [E.27] La cotización contra Kepler HOY: si un precio cambió desde que se cotizó, se dice
+             con el total de hoy; un borrador vigente se puede re-cotizar, lo demás es de su fecha. -->
+        @if (revision(); as r) {
+          @if (r.price_changed || (r.repriceable && r.tax_missing)) {
+            <div class="aviso" [class.aviso-bad]="r.repriceable && r.price_changed > 0" role="status">
+              <i class="pi pi-sync" aria-hidden="true"></i>
+              <span>
+                @if (r.price_changed) {
+                  <b>{{ r.price_changed }} renglón(es) cambiaron de precio en Kepler</b> desde que se cotizó:
+                  hoy el total sería {{ r.total_now | currency:'MXN':'symbol-narrow':'1.2-2' }} (guardado {{ r.total_saved | currency:'MXN':'symbol-narrow':'1.2-2' }}).
+                }
+                @if (r.tax_missing) {
+                  {{ r.tax_missing }} renglón(es) con impuesto estimado: se cotizaron antes de guardar el IVA/IEPS de cada producto.
+                }
+                @if (r.historical) { Es un documento de su fecha: sus precios no se cambian. }
+              </span>
+              @if (r.repriceable && editable()) {
+                <button pButton size="small" class="aviso-accion" [disabled]="guardando()" (click)="pedirRecotizar(r)">
+                  <span class="p-button-icon pi pi-refresh" aria-hidden="true"></span>
+                  <span class="p-button-label">Re-cotizar a precios de hoy</span>
+                </button>
+              }
+            </div>
+          }
+        } @else if (revisionError(); as e) {
+          <div class="aviso aviso-bad" role="alert">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <span>No se pudo comparar con Kepler: {{ e }} Se muestra lo guardado.</span>
+          </div>
+        }
 
         <!-- Las condiciones CONGELADAS, en una tira. Un precio tiene que ser explicable, y estas
              son la mitad de la explicacion: el descuento del cliente entra sobre el subtotal. -->
@@ -497,6 +533,9 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
           <div class="card-head">
             <h2>Renglones</h2>
             <span class="badge-count">{{ q.lines.length }}</span>
+            @if (revision()?.stock_as_of; as al) {
+              <app-freshness-pill measures="data" [since]="al" label="Existencia"></app-freshness-pill>
+            }
           </div>
           @if (!q.lines.length) {
             <div class="empty">
@@ -504,13 +543,14 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
               <p class="empty-hint">Busca artículos arriba, en "Agregar artículo", y agrégalos uno a uno.</p>
             </div>
           } @else {
-            <p-table [value]="q.lines" styleClass="p-datatable-sm dt-stack" [tableStyle]="{ 'min-width': '64rem' }">
+            <p-table [value]="q.lines" styleClass="p-datatable-sm dt-stack" [tableStyle]="{ 'min-width': '70rem' }">
               <ng-template #header>
                 <tr>
                   <th class="num">#</th>
                   <th>Producto</th>
                   <th>Presentación</th>
                   <th class="num">Cantidad</th>
+                  <th class="num">Existencia hoy</th>
                   <th class="num">Lista</th>
                   <th class="num">Precio</th>
                   <th>De dónde sale</th>
@@ -560,6 +600,20 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                       {{ num(l.quantity) }}
                     }
                   </td>
+                  <td class="num dt-num" role="cell" data-label="Existencia hoy">
+                    @if (l.parent_line_number === null) {
+                      @if (revisionDe(l); as rv) {
+                        @if (rv.stock; as st) {
+                          <span [class.falta]="faltante(rv) > 0">{{ st.in_line_unit | number:'1.0-2' }} {{ st.line_unit || st.base_unit }}</span>
+                          @if (faltante(rv) > 0) { <span class="falta-nota">faltan {{ faltante(rv) | number:'1.0-2' }}</span> }
+                        } @else {
+                          <span class="t-none">sin dato</span>
+                        }
+                      } @else if (revisando()) {
+                        <span class="t-none">…</span>
+                      }
+                    }
+                  </td>
                   <td class="num muted dt-num" role="cell" data-label="Lista">{{ dinero(l.list_price) }}</td>
                   <td class="num dt-num" role="cell" data-label="Precio">
                     @if (num(l.unit_price) !== null) {
@@ -578,6 +632,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                   <td role="cell" data-label="De dónde sale">
                     <p-tag [value]="fuenteLabel(l.price_source)" [severity]="fuenteTono(l.price_source)"></p-tag>
                     @if (num(l.discount_pct)) { <span class="dto">−{{ num(l.discount_pct) }}%</span> }
+                    @if (pasosDe(l); as pasos) { <span class="pasos">{{ pasos }}</span> }
                   </td>
                   <td class="num dt-num" role="cell" data-label="Importe">{{ num(l.line_total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="num dt-actions" role="cell">
@@ -623,6 +678,39 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                 </p>
               }
             </div>
+            <!-- [E.27] De dónde sale el descuento, mecanismo por mecanismo. Cierra exacto contra el importe. -->
+            @if (desglose(); as d) {
+              <div class="rail-totales rail-desglose" aria-label="Desglose del descuento">
+                <div class="tot-row"><span><b>Desglose del descuento</b></span></div>
+                <div class="tot-row"><span>Precio de lista</span><b>{{ d.lista | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                @if (d.unidad_mayor) {
+                  <div class="tot-row"><span>Por unidad mayor (caja prorrateada)</span><b>− {{ d.unidad_mayor | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                }
+                @if (d.volumen > 0) {
+                  <div class="tot-row"><span>Por volumen</span><b>− {{ d.volumen | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                } @else if (d.volumen < 0) {
+                  <div class="tot-row"><span>Tramo de volumen más caro que la lista</span><b>+ {{ -d.volumen | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                }
+                @if (d.promocion) {
+                  <div class="tot-row"><span>Por promoción</span><b>− {{ d.promocion | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                }
+                @if (d.sin_desglose) {
+                  <div class="tot-row"><span>Sin desglose ({{ d.renglones_sin_desglose }} renglón(es))</span><b>− {{ d.sin_desglose | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                }
+                @if (d.redondeo) {
+                  <div class="tot-row"><span>Redondeo a centavos</span><b>{{ d.redondeo | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                }
+                <div class="tot-row"><span>Importe de los artículos</span><b>{{ d.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                @if (impuestos(); as t) {
+                  @if (t.descuento) {
+                    <div class="tot-row"><span>Descuento del cliente ({{ t.descuento_pct }}%)</span><b>− {{ t.descuento | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                  }
+                }
+                @if (d.renglones_sin_desglose) {
+                  <p class="tot-nota">Los renglones sin desglose cambiaron de precio en Kepler desde que se cotizaron: re-cotiza para ver de dónde sale cada descuento.</p>
+                }
+              </div>
+            }
             <div class="rail-actions">
               <div class="rail-export">
                 <button
@@ -733,6 +821,12 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .aviso i { color: var(--action); margin-top: 0.1rem; }
       .aviso-bad { border-left-color: var(--bad-fg); }
       .aviso-bad i { color: var(--bad-fg); }
+      .aviso-accion { margin-left: auto; flex-shrink: 0; }
+      /* [E.27] existencia que no alcanza, y los pasos del precio bajo la etiqueta */
+      .falta { color: var(--bad-fg); font-weight: 600; }
+      .falta-nota { display: block; font-size: var(--fs-xs); color: var(--bad-fg); }
+      .pasos { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
+      .rail-desglose { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border-color); }
 
       /* Condiciones congeladas en UNA tira (antes 5–6 tarjetas de ~75 px de alto) */
       .terms-line {
@@ -1000,6 +1094,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   private readonly svc = inject(QuotesService);
   private readonly injector = inject(Injector);
   private readonly toast = inject(MessageService);
+  private readonly confirm = inject(ConfirmationService);
   private readonly route = inject(ActivatedRoute);
 
   readonly peldanos = PELDANOS;
@@ -1045,6 +1140,35 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   // COT.19: editable = borrador Y el usuario puede escribir en su sucursal. `branch_writable`
   // ausente (API vieja) se trata como `true`: el servidor valida igual y responde 403.
   readonly editable = computed(() => this.cot()?.status === 'draft' && this.cot()?.branch_writable !== false);
+
+  /** [E.27] La cotización contra Kepler HOY (precio, pasos del descuento, existencia). No escribe. */
+  readonly revision = signal<QuoteCheck | null>(null);
+  readonly revisando = signal(false);
+  readonly revisionError = signal<string | null>(null);
+  readonly revisionPorRenglon = computed(() => new Map((this.revision()?.lines ?? []).map((x) => [x.line_id, x])));
+
+  /**
+   * [E.27] El descuento por mecanismo. Los pasos de un renglón sólo cuentan si el motor de hoy
+   * reproduce su precio guardado; si Kepler lo movió, va a «sin desglose» con lo guardado.
+   */
+  readonly desglose = computed(() => {
+    const q = this.cot();
+    const rev = this.revision();
+    const porRenglon = this.revisionPorRenglon();
+    if (!q || !rev) return null;
+    return desgloseDescuento(
+      q.lines.filter((l) => l.parent_line_number === null).map((l) => {
+        const rv = porRenglon.get(l.id);
+        return {
+          quantity: Number(l.quantity) || 0,
+          unit_price: this.num(l.unit_price),
+          list_price: this.num(l.list_price),
+          line_total: this.num(l.unit_price) === null ? null : Number(l.line_total) || 0,
+          pasos: rv?.now && !rv.price_changed ? rv.now.applied : null,
+        };
+      }),
+    );
+  });
   readonly puedeAgregar = computed(() => !!this.previa() && this.previa()!.unit_price !== null);
 
   ngOnInit(): void {
@@ -1134,6 +1258,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       next: (q) => {
         this.cot.set(q);
         this.error.set(null);
+        this.revisar();
         this.cargando.set(false);
       },
       error: (err) => {
@@ -1396,6 +1521,76 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     return Number.isFinite(n) ? n : null;
   }
   private numOr0(v: number | string | null | undefined): number { return this.num(v) ?? 0; }
+
+  /** [E.27] Compara la cotización contra Kepler HOY. Si falla, la pantalla lo dice y muestra lo guardado. */
+  revisar(): void {
+    this.revisando.set(true);
+    this.svc.check(this.id).subscribe({
+      next: (r) => {
+        this.revision.set(r);
+        this.revisionError.set(null);
+        this.revisando.set(false);
+      },
+      error: (err) => {
+        this.revision.set(null);
+        this.revisionError.set(err?.error?.message || 'el servidor no respondió.');
+        this.revisando.set(false);
+      },
+    });
+  }
+
+  revisionDe(l: QuoteLine): QuoteCheckLine | null {
+    return this.revisionPorRenglon().get(l.id) ?? null;
+  }
+
+  /** [E.27] Cuánto falta de existencia para surtir el renglón (en su unidad); 0 = alcanza o no se sabe. */
+  faltante(rv: QuoteCheckLine): number {
+    const hay = rv.stock?.in_line_unit;
+    return hay === null || hay === undefined ? 0 : Math.max(0, Math.round((rv.quantity - hay) * 100) / 100);
+  }
+
+  /** [E.27] Los pasos del precio de hoy, sólo si reproducen el precio guardado (si no, no lo explican). */
+  pasosDe(l: QuoteLine): string {
+    const rv = this.revisionDe(l);
+    if (!rv?.now || rv.price_changed) return '';
+    const pasos = rv.now.applied.filter((p) => p.after !== null);
+    return pasos.length > 1 ? pasos.map((p) => (ETIQUETA_PASO[p.step] ?? p.step) + ' ' + this.dinero(p.after)).join(' → ') : '';
+  }
+
+  pedirRecotizar(r: QuoteCheck): void {
+    this.confirm.confirm({
+      header: 'Re-cotizar a precios de hoy',
+      message:
+        'Los ' + r.lines.length + ' renglones se vuelven a cotizar con los precios, volúmenes y promociones de Kepler de hoy, '
+        + 'y se guarda el IVA/IEPS de cada producto. El total pasa de ' + this.dinero(r.total_saved) + ' a '
+        + this.dinero(r.total_now) + '.',
+      icon: 'pi pi-refresh',
+      acceptLabel: 'Sí, re-cotizar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-sm',
+      rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => this.recotizar(),
+    });
+  }
+
+  private recotizar(): void {
+    this.guardando.set(true);
+    this.svc.reprice(this.id).subscribe({
+      next: (res) => {
+        this.guardando.set(false);
+        this.toast.add({
+          severity: 'success',
+          summary: 'Re-cotizada a precios de hoy',
+          detail: res.changed + ' de ' + res.lines + ' renglones cambiaron de precio.',
+        });
+        this.recargar(true);
+      },
+      error: (err) => {
+        this.guardando.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se re-cotizó', detail: err?.error?.message || 'El servidor no respondió.' });
+      },
+    });
+  }
 
   dinero(v: number | string | null | undefined): string {
     const n = this.num(v);

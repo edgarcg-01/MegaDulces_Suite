@@ -45,11 +45,27 @@ export async function leerPosicion(trx: Knex.Transaction, tenantId: string, reve
     caosCajon = { depositado: Number(k.rows[0].depositado), dispensado: Number(k.rows[0].dispensado) };
   }
 
-  // ── El último arqueo de Control (dólares, cheques, papeles y la caja fuerte) ─────────
+  // ── El último arqueo completo (dólares, cheques, papeles y la caja fuerte) ───────────
+  // ⭐ `[CGS.44]` Control está jubilado desde el 2026-10-22: se lee la vista única
+  // (`analytics.v_caja_arqueos`, Control congelado + Suite). Sin ella en el entorno (la migración
+  // `[CGS.41]` todavía no aplicada), la lectura anterior directa de Control.
   let control: HechosPosicion['control'] = null;
   let caosDesdeControl: HechosPosicion['caosDesdeControl'] = null;
-  const hayControl = (await trx.raw(`SELECT to_regclass('analytics.v_caja_control_cortes') IS NOT NULL AS t`)).rows[0]?.t === true;
-  if (hayControl) {
+  const hayUnica = (await trx.raw(`SELECT to_regclass('analytics.v_caja_arqueos') IS NOT NULL AS t`)).rows[0]?.t === true;
+  const hayControl = !hayUnica && (await trx.raw(`SELECT to_regclass('analytics.v_caja_control_cortes') IS NOT NULL AS t`)).rows[0]?.t === true;
+  if (hayUnica) {
+    const x = (await trx.raw(`
+      SELECT origen, folio, at, efectivo, caja_fuerte, usd, tipo_cambio, cheques, papeles, quien
+        FROM analytics.v_caja_arqueos WHERE completo ORDER BY at DESC LIMIT 1`)).rows[0];
+    if (x) {
+      control = {
+        folio: String(x.folio), at: new Date(x.at).toISOString(),
+        caja_fuerte: n(x.caja_fuerte), efectivo: n(x.efectivo), usd: n(x.usd),
+        tipo_cambio: n(x.tipo_cambio), cheques: n(x.cheques), papeles: n(x.papeles),
+        origen: x.origen === 'suite' ? 'suite' : 'control', quien: x.quien ?? null,
+      };
+    }
+  } else if (hayControl) {
     const r = await trx.raw(`
       SELECT corte_folio, total_tarjeta, total_efectivo, dolares_usd, tipo_cambio, total_cheques, total_papeles,
              ((fecha::date + corte_hora::time) AT TIME ZONE 'America/Mexico_City') AS at
@@ -64,17 +80,20 @@ export async function leerPosicion(trx: Knex.Transaction, tenantId: string, reve
         caja_fuerte: n(x.total_tarjeta), efectivo: n(x.total_efectivo), usd: n(x.dolares_usd),
         tipo_cambio: n(x.tipo_cambio), cheques: n(x.total_cheques), papeles: n(x.total_papeles),
       };
-      const m = await trx.raw(`
-        SELECT coalesce(sum(total) FILTER (WHERE type_label = 'Deposito'), 0)::numeric AS depositado,
-               coalesce(sum(total) FILTER (WHERE type_label = 'Dispensar'), 0)::numeric AS dispensado,
-               coalesce(array_agg(DISTINCT type_label) FILTER (WHERE type_label NOT IN ('Deposito', 'Dispensar')), '{}') AS otros
-          FROM analytics.caos_cash_movements
-         WHERE tenant_id = ? AND occurred_at > ?`, [tenantId, control.at]);
-      caosDesdeControl = {
-        depositado: Number(m.rows[0].depositado), dispensado: Number(m.rows[0].dispensado),
-        otros: (m.rows[0].otros ?? []) as string[],
-      };
     }
+  }
+  // Lo que se movió en la máquina después de ese arqueo, venga de donde venga.
+  if (control) {
+    const m = await trx.raw(`
+      SELECT coalesce(sum(total) FILTER (WHERE type_label = 'Deposito'), 0)::numeric AS depositado,
+             coalesce(sum(total) FILTER (WHERE type_label = 'Dispensar'), 0)::numeric AS dispensado,
+             coalesce(array_agg(DISTINCT type_label) FILTER (WHERE type_label NOT IN ('Deposito', 'Dispensar')), '{}') AS otros
+        FROM analytics.caos_cash_movements
+       WHERE tenant_id = ? AND occurred_at > ?`, [tenantId, control.at]);
+    caosDesdeControl = {
+      depositado: Number(m.rows[0].depositado), dispensado: Number(m.rows[0].dispensado),
+      otros: (m.rows[0].otros ?? []) as string[],
+    };
   }
 
   const p = posicionDeCaja({

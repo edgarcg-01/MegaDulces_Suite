@@ -42,7 +42,18 @@ export interface ArqueoControlHecho {
   caja_fuerte: number;
   /** Cheques más papeles (vales, comprobantes) que Control cuenta en caja. */
   documentos: number;
+  /**
+   * `[CGS.44]` Quién contó: el Access de Control (histórico, jubilado el 2026-10-22) o el recuento
+   * de la Suite. Ausente = Control (la forma anterior).
+   */
+  origen?: 'control' | 'suite';
+  quien?: string | null;
 }
+
+/** «Control» o «el recuento de maria_gutierrez», para las frases. */
+const quienContó = (c: ArqueoControlHecho): string =>
+  c.origen === 'suite' ? `el recuento de ${c.quien ?? 'otra persona'}` : 'Control';
+const Mayus = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
 
 export interface MovimientoControlHecho {
   folio: string;
@@ -79,7 +90,11 @@ export interface HechosVerdad {
    * Lo que pasó en la caja fuerte entre el arqueo de Control anterior y el del día, según la
    * MÁQUINA. `null` = falta alguno de los dos arqueos.
    */
-  caja_fuerte: { desde: ArqueoControlHecho; depositado: number; dispensado: number; vaciado: number; dotado: number } | null;
+  caja_fuerte: {
+    desde: ArqueoControlHecho; depositado: number; dispensado: number; vaciado: number; dotado: number;
+    /** `[CGS.44]` El arqueo con caja fuerte que cierra el tramo. Ausente = `control_dia`. */
+    hasta?: ArqueoControlHecho;
+  } | null;
   /** Movimientos que Control registró ese día y no casan con nada del libro ni de la máquina. */
   control_sin_libro: MovimientoControlHecho[];
 }
@@ -90,17 +105,17 @@ function testigoConteo(h: HechosVerdad): TestigoDiferencia {
   const c = h.control_dia;
   if (!c) {
     return { id: 'conteo', pregunta, estado: 'sin_testigo', ajuste: 0,
-      detalle: `Control no arqueó el ${h.fecha}: el conteo de ${mx(h.contado)} no tiene segundo testigo.` };
+      detalle: `Nadie más contó el cajón del ${h.fecha} (ni Control ni un recuento): el conteo de ${mx(h.contado)} no tiene segundo testigo.` };
   }
   const dif = r2(c.efectivo - h.contado);
   const donde = `${c.folio}, ${c.dia}${c.hora ? ` ${c.hora}` : ''}`;
   if (Math.abs(dif) <= EPS) {
-    return { id: 'conteo', pregunta, estado: 'confirma', ajuste: 0, detalle: `Control contó lo mismo: ${mx(c.efectivo)} (${donde}).` };
+    return { id: 'conteo', pregunta, estado: 'confirma', ajuste: 0, detalle: `${Mayus(quienContó(c))} contó lo mismo: ${mx(c.efectivo)} (${donde}).` };
   }
   const tarde = h.cerrado_dia && h.cerrado_dia > h.fecha ? ` tecleado el ${h.cerrado_dia}` : '';
   return {
     id: 'conteo', pregunta, estado: 'contradice', ajuste: dif,
-    detalle: `La Suite selló ${mx(h.contado)}${tarde}; el arqueo físico de Control contó ${mx(c.efectivo)} (${donde}). Manda el arqueo físico: la diferencia se mueve ${dif > 0 ? '+' : '−'}${mx(dif)}.`,
+    detalle: `La Suite selló ${mx(h.contado)}${tarde}; ${c.origen === 'suite' ? quienContó(c) : 'el arqueo físico de Control'} contó ${mx(c.efectivo)} (${donde}). Manda ${c.origen === 'suite' ? 'el recuento' : 'el arqueo físico'}: la diferencia se mueve ${dif > 0 ? '+' : '−'}${mx(dif)}.`,
   };
 }
 
@@ -113,16 +128,16 @@ function testigoFondo(h: HechosVerdad): TestigoDiferencia {
   const c = h.control_fondo;
   if (!c) {
     return { id: 'fondo', pregunta, estado: 'sin_testigo', ajuste: 0,
-      detalle: `Control no arqueó el ${h.dia_anterior} (el día del corte anterior): el fondo de ${mx(h.fondo_inicial)} no tiene testigo.` };
+      detalle: `Nadie volvió a contar el cajón del ${h.dia_anterior} (el día del corte anterior): el fondo de ${mx(h.fondo_inicial)} no tiene testigo.` };
   }
   const dif = r2(c.efectivo - h.fondo_inicial);
   if (Math.abs(dif) <= EPS) {
-    return { id: 'fondo', pregunta, estado: 'confirma', ajuste: 0, detalle: `Abrió con ${mx(h.fondo_inicial)}, lo que Control contó al cerrar el ${c.dia} (${c.folio}).` };
+    return { id: 'fondo', pregunta, estado: 'confirma', ajuste: 0, detalle: `Abrió con ${mx(h.fondo_inicial)}, lo que ${quienContó(c)} contó al cerrar el ${c.dia} (${c.folio}).` };
   }
   // Un fondo más alto que lo que había infla el esperado: la diferencia baja en lo mismo, y al revés.
   return {
     id: 'fondo', pregunta, estado: 'contradice', ajuste: r2(-dif),
-    detalle: `Abrió con ${mx(h.fondo_inicial)} y al cerrar el ${c.dia} Control contó ${mx(c.efectivo)} (${c.folio}): el esperado arrastra ${mx(dif)} que no estaban.`,
+    detalle: `Abrió con ${mx(h.fondo_inicial)} y al cerrar el ${c.dia} ${quienContó(c)} contó ${mx(c.efectivo)} (${c.folio}): el esperado arrastra ${mx(dif)} que no estaban.`,
   };
 }
 
@@ -150,10 +165,10 @@ function testigoLibro(h: HechosVerdad): TestigoDiferencia {
 function testigoCajaFuerte(h: HechosVerdad): TestigoDiferencia {
   const pregunta = 'La máquina registró todo lo que se movió en la caja fuerte';
   const k = h.caja_fuerte;
-  const c = h.control_dia;
+  const c = k?.hasta ?? h.control_dia;
   if (!k || !c) {
     return { id: 'caja_fuerte', pregunta, estado: 'sin_testigo', ajuste: 0,
-      detalle: 'Falta el arqueo de Control del día o uno anterior: no hay contra qué comparar a la máquina.' };
+      detalle: 'Falta un arqueo con la caja fuerte del día o uno anterior: no hay contra qué comparar a la máquina.' };
   }
   const vioControl = r2(c.caja_fuerte - k.desde.caja_fuerte);
   const maquina = r2(k.depositado - k.dispensado - k.vaciado + k.dotado);
@@ -161,11 +176,11 @@ function testigoCajaFuerte(h: HechosVerdad): TestigoDiferencia {
   const tramo = `entre ${k.desde.folio} (${k.desde.dia}) y ${c.folio}`;
   if (Math.abs(resto) <= EPS) {
     return { id: 'caja_fuerte', pregunta, estado: 'confirma', ajuste: 0,
-      detalle: `${tramo} la caja fuerte cambió ${vioControl >= 0 ? '+' : '−'}${mx(vioControl)} en los arqueos de Control, lo mismo que registró la máquina.` };
+      detalle: `${tramo} la caja fuerte cambió ${vioControl >= 0 ? '+' : '−'}${mx(vioControl)} en los arqueos, lo mismo que registró la máquina.` };
   }
   return {
     id: 'caja_fuerte', pregunta, estado: 'contradice', ajuste: 0,
-    detalle: `${tramo} la caja fuerte cambió ${vioControl >= 0 ? '+' : '−'}${mx(vioControl)} según Control y la máquina registró ${maquina >= 0 ? '+' : '−'}${mx(maquina)}: ${mx(resto)} sin registro de un lado.`,
+    detalle: `${tramo} la caja fuerte cambió ${vioControl >= 0 ? '+' : '−'}${mx(vioControl)} según los arqueos y la máquina registró ${maquina >= 0 ? '+' : '−'}${mx(maquina)}: ${mx(resto)} sin registro de un lado.`,
   };
 }
 
@@ -175,12 +190,13 @@ function pistasDe(h: HechosVerdad): PistaDiferencia[] {
     detalle: `Control registró ${m.nota ? `«${m.nota}»` : 'un paquete sin nota'} por ${mx(m.monto)}${m.hora ? ` a las ${m.hora}` : ''} y el libro no tiene un movimiento de ese importe ese día.`,
   }));
   const k = h.caja_fuerte;
-  const c = h.control_dia;
+  const c = k?.hasta ?? h.control_dia;
   if (k && c) {
     const docs = r2(c.documentos - k.desde.documentos);
-    if (Math.abs(docs) > EPS) {
+    // Un arqueo de la Suite sin cheques o vales contados no dice nada de ese rubro (NaN).
+    if (Number.isFinite(docs) && Math.abs(docs) > EPS) {
       out.push({ fuente: 'control_cheques', folio: c.folio, hora: c.hora, monto: docs,
-        detalle: `Los cheques y vales que Control cuenta en caja ${docs > 0 ? 'subieron' : 'bajaron'} ${mx(docs)} desde ${k.desde.folio}; el libro no lleva cheques ni vales.` });
+        detalle: `Los cheques y vales contados en caja ${docs > 0 ? 'subieron' : 'bajaron'} ${mx(docs)} desde ${k.desde.folio}; el libro no lleva cheques ni vales.` });
     }
     if (k.vaciado > EPS) {
       out.push({ fuente: 'caja_fuerte_fuera', folio: null, hora: null, monto: r2(k.vaciado),
@@ -214,7 +230,7 @@ export function verdadDeLaDiferencia(h: HechosVerdad): VerdadDiferencia {
     estado = 'confirmada';
     resumen = Math.abs(publicada) <= EPS
       ? 'Cuadra, y los testigos lo confirman.'
-      : `La diferencia de ${difTexto(publicada)} es real: Control confirma el conteo y nada la mueve. Falta saber qué la causó.`;
+      : `La diferencia de ${difTexto(publicada)} es real: ${quienContó(h.control_dia!)} confirma el conteo y nada la mueve. Falta saber qué la causó.`;
   } else {
     estado = 'sin_confirmar';
     const faltan = testigos.filter((t) => t.estado !== 'confirma').map((t) => t.pregunta.toLowerCase());

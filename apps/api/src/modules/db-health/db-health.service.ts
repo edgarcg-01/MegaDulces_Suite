@@ -1333,13 +1333,13 @@ export const CRON_JOBS: CronCfg[] = [
   // y esta fase nace justo de eso: `analytics.caja_*` estuvo congelada del 11 al 15 de septiembre
   // con el tablero en `ok`, porque el importer se quedó sin agenda y nadie lo vigilaba.
   //
-  // `caja_general_replica_all`: TODO va por hash-delta (nada incremental, y está medido: la PK de
-  // `Doctos` tiene dos ejes), así que hay un solo carril y el sufijo es `all`. Una pasada completa
-  // de las dos ramas mide ~192 s; a @30 min, warn al saltarse tres corridas.
-  { key: 'caja_general_replica_all', label: 'Caja general réplica cruda (.mdb → :5433)', cadence: 'continuo ~30 min', warnH: 1.5, critH: 4 },
-  // `caja_general_ship`: Postgres→Postgres, barato (2ª pasada medida: 127 filas leídas, 0 escritas).
-  // Es el que de verdad decide si la pantalla está fresca, así que va con umbral corto.
-  { key: 'caja_general_ship',   label: 'Caja general ship (:5433 → caja_general_ods)', cadence: 'continuo ~5 min', warnH: 0.5, critH: 2 },
+  // ⛔ `[CGS.48]` RETIRADOS el 2026-10-22: `caja_general_replica_all` (.mdb → :5433) y
+  // `caja_general_ship` (:5433 → caja_general_ods). Edgar jubiló el Access de Control «de por
+  // vida»: el libro (`Doctos`) dejó de capturarse el 10-oct (CG.126) y los arqueos
+  // (`0 T Movimientos`) el 22-oct; desde ahí los cuenta la Suite (`finance.cash_arqueos`, CGS.41).
+  // El histórico (30,268 arqueos, 2013 → 2026-10-22) se queda CONGELADO en `caja_general_ods` y se
+  // lee por `analytics.v_caja_arqueos`. Se sacan de esta lista como manda la nota de `CronCfg`
+  // (`[NORM.3]`): si alguien vuelve a prender un carril, su latido cae en `unknown` y se ve.
   // [CG.22.3] `mv_caja_refresh`: el corte de caja materializado que lee la bandeja de
   // /finanzas/caja-general. Va con umbral CORTO porque su modo de falla es el peor de todos —
   // un matview que dejó de refrescarse **no da error**: sirve la foto vieja, y una bandeja de caja

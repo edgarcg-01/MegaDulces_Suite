@@ -195,8 +195,8 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
       <!-- DESIGN D.4(b): la barra dice cuántos filtros hay puestos y se limpia de un gesto.
            El botón EXISTE sólo si hay algo que limpiar — uno deshabilitado para siempre es ruido. -->
       <div class="ce-filtros">
-        <p-iconfield styleClass="ce-buscar">
-          <p-inputicon styleClass="pi pi-search" />
+        <p-iconfield class="ce-buscar">
+          <p-inputicon class="pi pi-search" />
           <!-- [KBD.1] El salto buscador -> lista. Existia en 1 de 153 pantallas y es el gesto que
                separa "tiene teclado" de "se siente rapido": escribis, mirás, y con una flecha ya
                estás en la primera fila. La vuelta es Escape, abajo. -->

@@ -2,6 +2,7 @@ import knexFactory, { Knex } from 'knex';
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { CashCutService } from './cash-cut.service';
+import { CajaArqueoService } from './caja-arqueo.service';
 
 /**
  * `[CGP-L.0]` El SERVICIO REAL del corte —el mismo código que corre en prod— contra una base REAL.
@@ -215,6 +216,42 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
       ['conteo', 'sin_testigo'], ['fondo', 'sin_testigo'], ['libro', 'confirma'], ['caja_fuerte', 'sin_testigo'],
     ]);
     expect(a?.verificacion.find((v) => v.id === 'V12')).toMatchObject({ estado: 'no_medido' });
+  });
+
+  it('⭐ `[CGS.45]` el arqueo completo: la supervisora recuenta a ciegas el corte cerrado; quien lo cerró, no', async () => {
+    const arqueos = new CajaArqueoService(tk, { requireTenantId: () => T } as unknown as TenantContextService);
+    const SUPERVISORA = { id: '00000000-0000-0000-0000-0000000000c7', username: 'supervisora_recuenta' };
+    const f = dia('03-16');
+    const s = suc('S45');
+    const c = await svc.abrir({ fecha: f, sucursal: s, fondo_inicial: 0 }, CAJERA);
+    await movimiento(f, s, 'ingreso', 1000);
+    await svc.contar(c.id, { conteo: conteo(['1000', 1000, 1]), morralla: 0 }, CAJERA);
+    await svc.cerrar(c.id, { conteo: [], morralla: 0 }, CAJERA);
+
+    // El payload que manda la pantalla del recuento: piezas + los otros cuatro rubros.
+    const payload = {
+      tipo: 'recuento' as const, corte_id: c.id,
+      piezas: [{ denom_key: '500', piezas: 1 }], morralla: 500,
+      caja_fuerte: 502640, caja_fuerte_fuente: 'pantalla de la máquina',
+      cheques: 10121, papeles: 20782, usd: 12059, tipo_cambio: 19.101, tipo_cambio_fuente: 'DOF 2026-03-16',
+    };
+    // ⛔ Quien cerró el corte no lo recuenta: 403 con su frase.
+    await expect(arqueos.registrar(payload, CAJERA)).rejects.toBeInstanceOf(ForbiddenException);
+    // ⛔ Dólares sin fuente del tipo de cambio: 400.
+    await expect(arqueos.registrar({ ...payload, tipo_cambio_fuente: '' }, SUPERVISORA)).rejects.toBeInstanceOf(BadRequestException);
+
+    const g = await arqueos.registrar(payload, SUPERVISORA);
+    expect(g.contra_corte).toEqual({ folio: c.folio, contado: 1000, diferencia: 0 });
+    expect(g.arqueo).toMatchObject({ origen: 'suite', tipo: 'recuento', completo: true, efectivo: 1000, usd: 12059, tipo_cambio: 19.101 });
+    expect(g.arqueo.total_mxn).toBe(Math.round((1000 + 502640 + 10121 + 20782 + 12059 * 19.101) * 100) / 100);
+
+    // Sale por la vista única, que es lo que leen Arqueos y la posición.
+    const l = await arqueos.listar({ limit: 200 });
+    expect(l.rows.find((x) => x.folio === g.arqueo.folio)).toMatchObject({ origen: 'suite', corte_id: c.id });
+
+    // ⛔ Un arqueo no se corrige: app_runtime no tiene UPDATE.
+    await expect(tk.run((trx) => trx('finance.cash_arqueos').where({ id: g.arqueo.folio }).update({ efectivo: 1 })))
+      .rejects.toThrow(/permission denied/);
   });
 
   it('⛔ `[CGS.3]` (D2) con dos cortes cerrados sin revisar no se cierra el tercero; revisado uno, sí', async () => {

@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { uuidV4 } from '../../core/utils/uuid';
-import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto } from '@megadulces/contracts';
+import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, NuevoArqueoCajaInput } from '@megadulces/contracts';
 import { reintentarSi429 } from '../../core/utils/reintentar-429';
 // `Freshness` se IMPORTA, no se redeclara: es el contrato de procedencia de ADR-056 y es el mismo
 // objeto que consume `app-freshness-pill`. De los 26 tipos de este archivo, 24 están escritos a
@@ -449,6 +449,16 @@ export class CashLedgerService {
   /** `[CGS.35]` Lo que hay en caja, rubro por rubro: lo último contado, lo movido y lo que debería haber. */
   posicion(): Observable<PosicionCajaDto> {
     return this.http.get<PosicionCajaDto>(`${this.base}/posicion`);
+  }
+
+  /** `[CGS.46]` Los arqueos completos de la caja: los de la Suite y el histórico de Control. */
+  arqueosCaja(limit = 8): Observable<{ rows: ArqueoCajaDto[]; limit: number; fuente: string }> {
+    return this.http.get<{ rows: ArqueoCajaDto[]; limit: number; fuente: string }>(`${this.base}/arqueos-caja`, { params: { limit } });
+  }
+
+  /** `[CGS.46]` Guarda un arqueo completo. En el recuento, lo que selló el corte se revela al guardar. */
+  registrarArqueoCaja(body: NuevoArqueoCajaInput): Observable<ArqueoGuardadoDto> {
+    return this.http.post<ArqueoGuardadoDto>(`${this.base}/arqueos-caja`, body);
   }
 
   /** `[CGS.14]` ¿La caja está bloqueada para mí? Por qué, qué la destraba, y si hay llave. */

@@ -5,7 +5,7 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
-import { compareWarehouseCodes, type Freshness, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
+import { compareWarehouseCodes, type Freshness, WAREHOUSE_DISPLAY_ORDER, warehouseName } from '@megadulces/contracts';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { diasInventario, dineroCorto, EtiquetaUnidades, escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, piezasDeCajas, textoUnidades, UnidadEscalera } from '../pedido-redondeo';
 import { MotivoTope, roundSeedConTope, textoTope, TOPE_COBERTURA_DIAS } from '../pedido-tope';
@@ -229,8 +229,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                     optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                     [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body"
                     styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
-          <p-iconfield styleClass="pr-search">
-            <p-inputicon styleClass="pi pi-search" />
+          <p-iconfield class="pr-search">
+            <p-inputicon class="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU o producto…" aria-label="Buscar producto" />
           </p-iconfield>
           <label class="pr-cov">
@@ -531,13 +531,13 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                     <td colspan="8">
                                       <span class="pr-zname">Zona {{ z.zone }}</span>
                                       @if (z.hubCode) {
-                                        <span class="pr-zhub">consolida en <span class="pr-mono">{{ z.hubCode }}</span> {{ z.hubName }}</span>
+                                        <span class="pr-zhub">consolida en {{ sucNom(z.hubCode) }}</span>
                                         <span class="pr-bulk-sp"></span>
                                         <button type="button" class="pr-zlink" (click)="zoneAllDirect(r, z)">todo directo</button>
-                                        <button type="button" class="pr-zlink" (click)="zoneAllToHub(r, z)">todo a {{ z.hubCode }}</button>
+                                        <button type="button" class="pr-zlink" (click)="zoneAllToHub(r, z)">todo a {{ sucNom(z.hubCode) }}</button>
                                         @if (showZoneToMain(z)) {
                                           <button type="button" class="pr-zlink" (click)="zoneAllToMain(r, z)"
-                                                  [title]="'Toda la zona se entrega en el CEDIS principal ' + mainCedis()!.code + ' ' + mainCedis()!.name + ', y de ahí baja por traspaso a cada sucursal.'">todo a {{ mainCedis()!.code }}</button>
+                                                  [title]="'Toda la zona se entrega en ' + sucNom(mainCedis()!.code) + ', y de ahí baja por traspaso a cada sucursal.'">todo a {{ sucNom(mainCedis()!.code) }}</button>
                                         }
                                       } @else {
                                         <span class="pr-zhub pr-rung">sin CEDIS asignado — configúralo en el almacén</span>
@@ -548,18 +548,18 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                   @for (b of z.rows; track b.code) {
                                     <tr>
                                       <td>
-                                        <span class="pr-mono">{{ b.code }}</span> <span class="pr-peek-terr">{{ b.name }}</span>
+                                        <span class="pr-suc">{{ sucNom(b.code) }}</span>
                                         <!-- [RA-PRO.64] Lo que le falta a la sucursal, dicho en palabras. -->
                                         @for (fl of branchFlags(b); track fl) { <span class="pr-bflag">{{ fl }}</span> }
                                         @for (sf of branchSignalFlags(r, b); track sf.txt) { <span class="pr-bflag" [ngClass]="sf.cls" [title]="sf.title">{{ sf.txt }}</span> }
                                         @if (b.added) {
                                           <span class="pr-bflag pr-bflag-add" title="La agregaste a mano: el sistema no la sugería porque no tiene existencia, venta ni nada en camino.">agregada</span>
-                                          <button type="button" class="pr-zlink" (click)="removeBranch(r, b.code)" [attr.aria-label]="'Quitar ' + b.code + ' del desglose'">quitar</button>
+                                          <button type="button" class="pr-zlink" (click)="removeBranch(r, b.code)" [attr.aria-label]="'Quitar ' + sucNom(b.code) + ' del desglose'">quitar</button>
                                         }
                                       </td>
                                       <td class="pr-r">
                                         <button type="button" class="pr-vmx" (click)="openMonthly($event, r, b, mop)" [title]="vtaMaxTitle(b)"
-                                                [attr.aria-label]="'Venta por mes de ' + r.sku + ' en ' + b.code">
+                                                [attr.aria-label]="'Venta por mes de ' + r.sku + ' en ' + sucNom(b.code)">
                                           {{ b.vta | number:'1.0-1' }} <span class="pr-vmx-sep">/</span> @if (b.mx != null) { {{ b.mx | number:'1.0-1' }} } @else { — }
                                         </button>
                                       </td>
@@ -592,7 +592,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                                    aria-keyshortcuts="ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown"
                                                    [ngModel]="dispOf(r, b)" (ngModelChange)="setDispOf(r, b, $event)"
                                                    (keydown)="onQtyKey($event)"
-                                                   [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + b.code + ' en ' + unitLabelBranch(r, b)" [title]="qtyTxt(r, b)" />
+                                                   [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + sucNom(b.code) + ' en ' + unitLabelBranch(r, b)" [title]="qtyTxt(r, b)" />
                                             <button type="button" class="pr-step-b" tabindex="-1" aria-hidden="true"
                                                     (pointerdown)="stepStart(r, b, 1, $event)" (pointerup)="stepStop()" (pointerleave)="stepStop()"
                                                     (pointercancel)="stepStop()" (contextmenu)="$event.preventDefault()">+</button>
@@ -602,7 +602,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                           <!-- [RA-PRO.70] Un botón por cada unidad REAL del artículo, de mayor a menor (3 en
                                                KINDER, 2 en la bolsa camiseta, 1 en la cubeta: ahí sólo el rótulo). -->
                                           @if (escOf(r).length > 1) {
-                                            <div class="pr-uu" role="group" [attr.aria-label]="'Unidad de captura en ' + b.code">
+                                            <div class="pr-uu" role="group" [attr.aria-label]="'Unidad de captura en ' + sucNom(b.code)">
                                               @for (u of escMayorAMenor(r); track u.factor) {
                                                 <button type="button" class="pr-uu-b" [class.pr-uu-on]="unitOfBranch(r, b) === u.factor"
                                                         [attr.aria-pressed]="unitOfBranch(r, b) === u.factor" (click)="setUnitBranch(r, b, u.factor)"
@@ -624,7 +624,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                              una casilla pelada nunca dice si marcada es "directo" o
                                              "consolidado". Acá el renglón lo declara: "→ 01". -->
                                         <td class="pr-ent">
-                                          <div class="pr-uu" role="group" [attr.aria-label]="'Entrega de ' + b.code">
+                                          <div class="pr-uu" role="group" [attr.aria-label]="'Entrega de ' + sucNom(b.code)">
                                             <button type="button" class="pr-uu-b" [class.pr-uu-on]="!isConsolidated(r, b)"
                                                     [attr.aria-pressed]="!isConsolidated(r, b)" (click)="setDirect(r, b)"
                                                     title="El proveedor entrega en esta sucursal">Sucursal</button>
@@ -645,7 +645,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                                       optionLabel="label" optionValue="value" appendTo="body"
                                                       [ngModel]="deliverOf(r, b)" (ngModelChange)="setDeliverTo(r, b, $event)"
                                                       [title]="deliverTitle(r, b)"
-                                                      [ariaLabel]="'CEDIS donde se entrega lo de ' + b.code"></p-select>
+                                                      [ariaLabel]="'CEDIS donde se entrega lo de ' + sucNom(b.code)"></p-select>
                                           }
                                         </td>
                                         <td class="pr-r pr-val" [class.pr-strong]="qtyOf(r, b) > 0">{{ money(qtyOf(r, b) * b.cc) }}</td>
@@ -666,7 +666,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                 @for (e of entregas(r); track e.code) {
                                   <span class="pr-ent-chip" [class.pr-ent-dir]="e.direct">
                                     @if (!e.direct) { <i class="pi pi-building" aria-hidden="true"></i> }
-                                    <span class="pr-mono">{{ e.code }}</span> {{ e.name }}
+                                    <span class="pr-suc">{{ sucNom(e.code) }}</span>
                                     <b [title]="(e.cajas | number:'1.0-2') + ' cajas en total'">{{ entregaQty(r, e) }}</b> {{ money(e.valor) }}
                                     @if (e.direct) { <em>directo</em> }
                                   </span>
@@ -710,14 +710,14 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                 <tbody>
                                   @for (u of trasRows(r.product_id); track u.warehouse_code) {
                                     <tr>
-                                      <td><span class="pr-mono">{{ u.warehouse_code }}</span> <span class="pr-peek-terr">{{ nameOf(u.warehouse_code) }}</span></td>
+                                      <td><span class="pr-suc">{{ sucNom(u.warehouse_code) }}</span></td>
                                       <td class="pr-det-act">
                                         <p-tag [value]="typeLabel(u.type)" [severity]="typeSev(u.type)" styleClass="pr-abc"></p-tag>
-                                        @if (u.from_code) { <span class="pr-mono pr-from">← {{ u.from_code }}</span> }
+                                        @if (u.from_code) { <span class="pr-from">desde {{ sucNom(u.from_code) }}</span> }
                                       </td>
                                       <td class="pr-r"><span class="pr-muted" title="Déficit de la sucursal (cajas)">déf {{ u.deficit | number:'1.0-1' }}</span></td>
                                       <td class="pr-r"><p-tag [value]="(u.on_hand | number:'1.0-1') ?? ''" [severity]="existSevU(u)" styleClass="pr-cov-tag" [title]="existTitleU(u)"></p-tag></td>
-                                      <td class="pr-r"><input type="number" min="0" step="any" class="pr-qty pr-qty-sm" (keydown)="onQtyKey($event)" [ngModel]="dispQty(u)" (ngModelChange)="setDispQty(u, $event)" [attr.aria-label]="'Traspaso de ' + r.sku + ' a ' + u.warehouse_code + ' (' + unitLabelShort(r.product_id) + ')'" /></td>
+                                      <td class="pr-r"><input type="number" min="0" step="any" class="pr-qty pr-qty-sm" (keydown)="onQtyKey($event)" [ngModel]="dispQty(u)" (ngModelChange)="setDispQty(u, $event)" [attr.aria-label]="'Traspaso de ' + r.sku + ' a ' + sucNom(u.warehouse_code) + ' (' + unitLabelShort(r.product_id) + ')'" /></td>
                                       <td class="pr-r pr-muted">{{ piezasDeCajas(u.qty, u.uxc) | number:'1.0-0' }}</td>
                                       <td class="pr-r pr-muted">{{ money(u.unit_cost) }}</td>
                                       <td class="pr-r pr-strong">{{ money(u.qty * u.unit_cost) }}</td>
@@ -1090,8 +1090,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         <div class="pr-filters">
           <app-segmented [options]="viaOpts" [value]="wlVia()" ariaLabel="Canal"
                          (valueChange)="setWlVia($any($event))"></app-segmented>
-          <p-iconfield styleClass="pr-search">
-            <p-inputicon styleClass="pi pi-search" />
+          <p-iconfield class="pr-search">
+            <p-inputicon class="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="wlSearch" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="Proveedor…" aria-label="Buscar proveedor" />
           </p-iconfield>
           <div class="pr-toolbar" role="toolbar" aria-label="Filtros del ciclo">
@@ -1145,7 +1145,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 <td role="cell">
                   <p-button type="button" label="Armar" icon="pi pi-arrow-right" iconPos="right" styleClass="p-button-sm p-button-text"
                             (click)="irAPedido(r)"
-                            [title]="'Abrir el Pedido con ' + (r.supplier_name || 'este proveedor') + ' y ' + r.warehouse_code + ' ya filtrados'"></p-button>
+                            [title]="'Abrir el Pedido con ' + (r.supplier_name || 'este proveedor') + ' y ' + sucNom(r.warehouse_code) + ' ya filtrados'"></p-button>
                 </td>
               </tr>
             </ng-template>
@@ -1193,8 +1193,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               }
             </div>
             <div class="pr-filters">
-              <p-iconfield styleClass="pr-search">
-                <p-inputicon styleClass="pi pi-search" />
+              <p-iconfield class="pr-search">
+                <p-inputicon class="pi pi-search" />
                 <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU, producto o proveedor…" aria-label="Buscar" />
               </p-iconfield>
               <span class="pr-count">
@@ -1266,8 +1266,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             }
           </div>
           <div class="pr-filters">
-            <p-iconfield styleClass="pr-search">
-              <p-inputicon styleClass="pi pi-search" />
+            <p-iconfield class="pr-search">
+              <p-inputicon class="pi pi-search" />
               <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU o producto…" aria-label="Buscar producto" />
             </p-iconfield>
             <button type="button" class="pr-uu-b" [class.pr-uu-on]="sobSoloQuedado()"
@@ -1333,8 +1333,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
              el motivo en la lista DEUDA de scripts/check-dense-tables.js. -->
         <div class="dt-scope">
         <div class="pr-filters">
-          <p-iconfield styleClass="pr-search">
-            <p-inputicon styleClass="pi pi-search" />
+          <p-iconfield class="pr-search">
+            <p-inputicon class="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU o producto…" aria-label="Buscar producto" />
           </p-iconfield>
           @if (deadValue() > 0) { <span class="pr-count">{{ money(deadValue()) }} inmovilizado</span> }
@@ -1828,6 +1828,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-zlink:hover { background: var(--card-bg); text-decoration: underline; }
     /* [RA-UX.5] Destructiva: nunca en --action (Von Restorff, DESIGN §10). */
     .pr-zlink.pr-zlink-bad { color: var(--bad-fg); }
+    .pr-suc { color: var(--text-main); font-weight: 500; }   /* [SUC.2] la sucursal, por su nombre */
     /* [RA-UX.10] La interaccion general: segunda fila de filtros, aviso en una linea, desglose que
        se deja ver entero y objetivos de al menos 24px (medido: 81 de 175 eran menores). */
     .pr-filters-mas { margin-top: -.25rem; padding: .5rem .6rem; border: 1px dashed var(--border-color); border-radius: var(--r-sm, 8px); }
@@ -2312,7 +2313,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const only = this.wbWarehouses.length ? new Set(this.wbWarehouses) : null;
     return (this.filters()?.warehouses ?? [])
       .filter((w) => w.kind !== 'truck' && !present.has(w.code) && (!only || only.has(w.id)))
-      .map((w) => ({ label: `${w.code} · ${w.name}`, value: w.code }));
+      .map((w) => ({ label: this.sucNom(w.code), value: w.code }));
   }
   addBranch(r: WorkbookRow, code: string | null): void {
     if (!code) return;
@@ -2542,7 +2543,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (!p) return '';
     const suc = Object.entries(p.por_sucursal)
       .sort((a, b) => b[1].cajas - a[1].cajas)
-      .map(([c, v]) => `${c}: ${v.cajas}`).join(' · ');
+      .map(([c, v]) => `${this.sucNom(c)}: ${v.cajas}`).join(' · ');
     const partes = [
       `${p.cajas} caja(s) de este producto ya están en ${p.documentos} requisición(es) SIN APROBAR.`,
     ];
@@ -2567,10 +2568,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   branchSignalFlags(r: WorkbookRow, b: BranchBuy): { txt: string; cls: string; title: string }[] {
     const out: { txt: string; cls: string; title: string }[] = [];
     const m = r.signals?.margin?.por_sucursal?.[b.code];
-    if (m?.bc) out.push({ txt: 'bajo costo', cls: 'pr-bflag-bad', title: `En ${b.code} se vende bajo costo al precio de hoy (margen ${m.m?.toFixed(1) ?? '—'}% sobre costo).` });
+    if (m?.bc) out.push({ txt: 'bajo costo', cls: 'pr-bflag-bad', title: `En ${this.sucNom(b.code)} se vende bajo costo al precio de hoy (margen ${m.m?.toFixed(1) ?? '—'}% sobre costo).` });
     const net = r.signals?.margin?.margen_pct;
     if (m?.m != null && net != null && !m.bc && Math.abs(m.m - net) >= 2) {
-      out.push({ txt: `margen ${m.m.toFixed(1)}%`, cls: '', title: `El margen de ${b.code} se aparta del de la red (${net.toFixed(1)}%): su precio de ficha o su costo son distintos.` });
+      out.push({ txt: `margen ${m.m.toFixed(1)}%`, cls: '', title: `El margen de ${this.sucNom(b.code)} se aparta del de la red (${net.toFixed(1)}%): su precio de ficha o su costo son distintos.` });
     }
     const lw = r.signals?.lost?.wincaja.por_sucursal?.[b.code];
     const lm = r.signals?.lost?.mostrador.por_sucursal?.[b.code];
@@ -2629,7 +2630,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     // Mismo indicador otra vez = cerrar (como un globo normal).
     if (this.monthlyKey === key && op.overlayVisible()) { op.hide(); this.monthlyKey = null; return; }
     this.monthlyKey = key;
-    const title = `${r.sku} · ${code ? `${code} ${this.nameOf(code)}` : 'toda la red'}`;
+    const title = `${r.sku} · ${code ? this.sucNom(code) : 'toda la red'}`;
     const cached = this.monthlyCache.get(key);
     // `vta` = lo que muestra la columna V30d (demanda x 30). Viaja al globo para poder mostrar las
     // DOS medidas: sin eso, el globo decia 1.1 al lado de una celda que decia 0.8 (medido en
@@ -3096,7 +3097,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (key !== this.cedisOptsKey) { this.cedisOptsCache = new Map(); this.cedisOptsKey = key; }
     let v = this.cedisOptsCache.get(b.code);
     if (!v) {
-      v = this.cedisFor(b).map((cd) => ({ label: `→ ${cd.code} · ${this.cedisLabel(cd.name)}`, value: cd.code }));
+      v = this.cedisFor(b).map((cd) => ({ label: `→ ${this.sucNom(cd.code)}`, value: cd.code }));
       this.cedisOptsCache.set(b.code, v);
     }
     return v;
@@ -3113,8 +3114,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   deliverTitle(r: WorkbookRow, b: BranchBuy): string {
     const to = this.deliverOf(r, b);
     if (!to) return 'El proveedor entrega directo en esta sucursal. No genera traspaso.';
-    return `La compra se entrega en ${to} ${this.nameOf(to)}. Al armar la requisición se genera además `
-      + `un traspaso ${to} → ${b.code} por esa misma cantidad.`;
+    return `La compra se entrega en ${this.sucNom(to)}. Al armar la requisición se genera además `
+      + `un traspaso ${this.sucNom(to)} → ${this.sucNom(b.code)} por esa misma cantidad.`;
   }
 
   /**
@@ -3374,7 +3375,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const rows = this.branchBuys(r).filter((b) => this.qtyOf(r, b) > 0);
     const fila = (b: BranchBuy, seQueda = false): ReqPdfFila => ({
       qtyTxt: txt(this.qtyOf(r, b)),
-      destino: `${b.code} · ${b.name}${seQueda ? ' (se queda)' : ''}`,
+      destino: `${this.sucNom(b.code)}${seQueda ? ' (se queda)' : ''}`,
       vta: b.vta, exis: b.exis,
       diasActual: this.diasHoy(b), diasCon: this.diasInv(r, b),
       valor: this.qtyOf(r, b) * b.cc,
@@ -3900,13 +3901,20 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   // /categories: ese endpoint exige COMPRAS_CATEGORIAS_VER — permiso que esta ruta NO pide — así
   // que un rol con solo COMPRAS_PEDIDO_VER recibía 403 y el filtro quedaba vacío para siempre.
   categoryOpts = computed(() => (this.filters()?.categories ?? []).map((c) => ({ label: c.name, value: c.id })));
-  warehouseOpts = computed(() => (this.filters()?.warehouses ?? []).map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id })));
+  warehouseOpts = computed(() => (this.filters()?.warehouses ?? []).map((w) => ({ label: this.sucNom(w.code), value: w.id })));
   private readonly whName = computed(() => {
     const m = new Map<string, string>();
     for (const w of this.filters()?.warehouses ?? []) m.set(w.code, w.name);
     return m;
   });
   nameOf(code: string): string { return this.whName().get(code) || (code === '—' ? 'Sin almacén / red' : ''); }
+  /**
+   * `[SUC.2]` Una sucursal se NOMBRA, no se numera (PM, 2026-10-22: «jamás debemos usar terminologías como
+   * 01 o 00, siempre por nombre»). El mismo resolvedor que la pipe `sucursal` (`[SUC.1]`), para que la
+   * plantilla, los títulos, el plan y las notas que se guardan digan lo mismo. Si no conoce el código
+   * lo devuelve tal cual: un código que se ve se arregla; un nombre equivocado se cree.
+   */
+  sucNom(code: string | null | undefined): string { return warehouseName(code) || String(code ?? ''); }
 
   ngOnInit(): void {
     // Lookups de los filtros. NUNCA tragar el error (DESIGN §Ing.UI 6): si esto falla en
@@ -5022,7 +5030,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     for (const [k, ls] of buyGroups) {
       const consol = ls.filter((l) => l.toCode);
       const nota = consol.length
-        ? ` — consolidado: ${[...new Set(consol.map((l) => l.b.code))].join(', ')} bajan por traspaso`
+        ? ` — consolidado: ${[...new Set(consol.map((l) => this.sucNom(l.b.code)))].join(', ')} bajan por traspaso`
         : '';
       idxCompra.set(k, dtos.length);
       dtos.push({
@@ -5065,7 +5073,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       dtos.push({
         warehouse_id: ls[0].wh!, supplier_id: null, source_type: 'branch', source_warehouse_id: ls[0].toWh!,
         link_to: compraIdx ?? null,
-        notes: `Bajada de compra consolidada ${ls[0].toCode} → ${ls[0].b.code}`,
+        notes: `Bajada de compra consolidada ${this.sucNom(ls[0].toCode)} → ${this.sucNom(ls[0].b.code)}`,
         lines: ls.map<CreateRequisitionLine>((l) => ({
           product_id: l.r.product_id, source_type: 'branch', source_warehouse_id: l.toWh!,
           // `[RA-FIX.1]` En un traspaso el destino coincide con el encabezado, y se escribe igual:
@@ -5112,7 +5120,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const traspasos = d.filter((x) => x.source_type === 'branch');
     const monto = (xs: CreateRequisitionDto[]) =>
       xs.reduce((s, x) => s + x.lines.reduce((t, l) => t + Number(l.final_qty || 0) * Number(l.unit_cost || 0), 0), 0);
-    const codigo = (id?: string | null) => (id && this.whCode().get(id)) || '—';
+    const codigo = (id?: string | null) => (id && this.sucNom(this.whCode().get(id))) || '—';
     return {
       total: d.length,
       compras: compras.length, traspasos: traspasos.length,
@@ -5180,7 +5188,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       out.push(`Son ${d.length} documentos y el máximo por lote es ${ComprasPedidoRealComponent.MAX_DOCS}. `
         + 'Quita productos de la requisición (o filtra por proveedor) y genera en dos tandas.');
     }
-    const codigo = (id?: string | null) => (id && this.whCode().get(id)) || id || '—';
+    const codigo = (id?: string | null) => (id && this.sucNom(this.whCode().get(id))) || id || '—';
     d.forEach((x, i) => {
       const quien = `documento ${i + 1} (${x.source_type === 'branch' ? 'traspaso' : 'compra'} en ${codigo(x.warehouse_id)})`;
       const lineas = (x.lines || []).filter((l) => Number(l.final_qty) > 0);
@@ -5336,7 +5344,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         uxc: l.r.uxc, cajas: l.qty, piezas: piezasDeCajas(l.qty, l.r.uxc), unit_cost: l.b.cc, line_cost: l.qty * l.b.cc,
       })),
       ...tr.map<PedidoExportLine>((r) => ({
-        warehouse_code: r.warehouse_code, supplier_name: `TRASPASO ← ${r.from_code}`,
+        warehouse_code: r.warehouse_code, supplier_name: `TRASPASO desde ${this.sucNom(r.from_code)}`,
         sku: r.sku, nombre: r.nombre, abc_class: r.abc_class,
         sell_daily: r.sell_daily, days_cover: r.cover, deficit: r.deficit || undefined,
         on_hand: r.on_hand, suggested_qty: r.qty,
@@ -5345,7 +5353,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     ];
     this.dl.set(true);
     const first = buyL[0]?.r ?? tr[0];
-    const scopeName = pid ? (first?.nombre || 'producto') : code ? `${code} ${this.nameOf(code)}`.trim() : 'toda la red';
+    const scopeName = pid ? (first?.nombre || 'producto') : code ? this.sucNom(code) : 'toda la red';
     const fileTag = pid ? (first?.sku || 'producto') : code || 'global';
     this.api.exportPedidoXlsx({ title: `Pedido por sucursal — ${scopeName}`, basis: `cobertura ${this.coverage}d`, multi_warehouse: true, lines })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
