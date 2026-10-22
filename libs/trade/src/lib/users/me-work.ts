@@ -80,7 +80,13 @@ export type ResponsabilidadKey =
   | 'compras.entradas'
   | 'servicio.atender'
   /** `[PVI.17]` Las dos puertas donde una propuesta de presupuesto se vuelve un hecho. */
-  | 'finanzas.presupuesto';
+  | 'finanzas.presupuesto'
+  /**
+   * `[PGP.3]` Las dos puertas del pago a proveedor: **prepararlo** (Tesorería) y **autorizar el
+   * día** (Dirección). Son dos pasos distintos de la misma responsabilidad, igual que
+   * `finanzas.presupuesto`, y van en dos bandejas porque el conteo de uno esconde al del otro.
+   */
+  | 'finanzas.pagos';
 
 /**
  * `[SN.15]` Lo que cada conteo necesita saber de quién pregunta.
@@ -1435,6 +1441,113 @@ export const BANDEJAS: readonly BandejaDef[] = [
           cierre: null,
         },
       ),
+  },
+  /*
+   * `[PGP.3]` **Las dos puertas del pago a proveedor, y van separadas por lo que se midió.**
+   *
+   * Medido en prod el 2026-10-22 (`system_identifier 7688376744939610156`): el Calendario de
+   * Pagos llevaba **13 pagos armados, 10 pendientes y 0 ejecutados**, con **6 lotes en `draft`
+   * desde el 16-oct**. Parecía que faltaba la firma de Dirección. **No era eso:** los 10 pagos
+   * estaban **sin preparar** —sin método, sin cuenta de origen, sin destino— y `releaseLot()`
+   * rechaza el día entero si queda uno solo así. La firma habría devuelto 400.
+   *
+   * ⭐ **Por eso son dos bandejas y no una.** Con un solo contador «pagos del calendario
+   * pendientes», el 10 de Tesorería tapa el 0 de Dirección, y lo que hay que ver es
+   * justamente **de quién es el paso**. Es el mismo motivo por el que `[PVI.17]` partió
+   * presupuesto en dos.
+   */
+  {
+    id: 'pagos-por-preparar',
+    label: 'Pagos sin preparar',
+    detalle: 'sin método, cuenta de origen y destino, el día NO se puede autorizar completo',
+    ruta: '/finanzas/calendario-pagos',
+    icono: 'pi pi-pencil',
+    alcance: 'bandeja',
+    responsabilidad: 'finanzas.pagos',
+    acotablePorSucursal: false, // la tabla no tiene columna de sucursal: el pago la hereda de sus facturas
+    /*
+     * 2 días. No es el plazo del pago sino el de la PREPARACIÓN: el pago ya tiene día asignado,
+     * y si llega sin preparar a la víspera, el lote entero se cae. Los 6 lotes muertos llevaban
+     * 6 días cuando se midió, o sea tres veces este umbral sin que nadie lo supiera.
+     */
+    umbral_dias: 2,
+    /*
+     * ⚠️ `FINANCE_PAYMENTS_VER` y no `_GESTIONAR`, y no es laxitud: **`anyOf` tiene que ser el
+     * permiso que gatea `ruta`** (regla dura 1 de este registro, y el bloque 4 del smoke lo
+     * verifica contra `app.routes.ts`). `/finanzas/calendario-pagos` la gatea `_VER`; declarar
+     * `_GESTIONAR` mandaría a la persona a una pantalla que su guard rebota.
+     * Quién ve esta cola lo decide la RESPONSABILIDAD (`[SN.30]`), que se reparte a cuatro
+     * puestos, no los 30 usuarios con `_VER`. Y actuar lo sigue gateando el servidor.
+     */
+    anyOf: [Permission.FINANCE_PAYMENTS_VER],
+    medir: (knex, { tenantId }) =>
+      medirCola(knex, knex('finance.payment_allocations').where({ tenant_id: tenantId }), {
+        estadoCol: 'status',
+        estadoAbierto: 'pending',
+        fecha: 'created_at',
+        /*
+         * ⛔ **`cierre: null`, y es un hallazgo, no una omisión.** Ninguna columna marca «se
+         * preparó»: `prepare()` escribe `payment_method`, `bank_account_id` y `updated_at`, y
+         * `updated_at` también se mueve al reprogramar, al sumarle una factura o al cancelar.
+         * Usarla diría «se prepararon N en 30 días» contando cosas que no son eso. `null` viaja
+         * como «esta fuente no puede contestarlo», nunca como 0 (ADR-056).
+         */
+        cierre: null,
+        /*
+         * La misma condición que `isPrepared()` exige en `payment-calendar.service.ts`: un pago
+         * pendiente **con método** ya no es trabajo de esta cola aunque siga pendiente. Si el
+         * predicado se relajara, la bandeja contaría también lo que ya está listo y nadie
+         * distinguiría el trabajo real.
+         */
+        abiertaExtra: { sql: 'payment_method is null', args: [] },
+      }),
+  },
+  {
+    id: 'pagos-por-autorizar',
+    /*
+     * ⚠️ «sin autorizar», **no «esperando tu firma»**: la responsabilidad `finanzas.pagos` la
+     * tienen también los tres puestos que PREPARAN, y para ellos «tu firma» sería falso — firma
+     * Dirección. El rótulo describe el estado del día, que es cierto para todos los que lo leen.
+     */
+    label: 'Días de pago sin autorizar',
+    detalle: 'con todos sus pagos ya preparados · sin autorizar, Caja General no dispersa nada',
+    ruta: '/finanzas/calendario-pagos',
+    icono: 'pi pi-verified',
+    alcance: 'bandeja',
+    responsabilidad: 'finanzas.pagos',
+    acotablePorSucursal: false,
+    /*
+     * 1 día. Un día de pago se autoriza para ESE día: pasadas 24 h, o se dispersó tarde o hubo
+     * que reprogramarlo. Es el umbral más corto del registro, y corresponde.
+     */
+    umbral_dias: 1,
+    /** Mismo motivo que la cola de arriba: `anyOf` es el permiso del guard de la ruta. */
+    anyOf: [Permission.FINANCE_PAYMENTS_VER],
+    medir: (knex, { tenantId }) =>
+      medirCola(knex, knex('finance.payment_calendar_lots').where({ tenant_id: tenantId }), {
+        estadoCol: 'status',
+        estadoAbierto: 'draft',
+        fecha: 'created_at',
+        /** `released_at` la escribe `releaseLot()` y sólo ella: acá sí mide lo que dice. */
+        cierre: 'released_at',
+        /*
+         * ⛔⛔ **Sólo se cuentan los días que de verdad se PUEDEN autorizar.**
+         *
+         * `releaseLot()` rechaza el día si alguno de sus pagos pendientes está sin preparar o sin
+         * orden. Contar un lote así diría «tenés 6 días esperando tu firma» y los 6 botones
+         * devolverían 400 — un aviso que manda a la persona a chocarse contra una pared, que es
+         * peor que no avisar. Los 6 lotes medidos el 2026-10-22 caen todos acá: esta bandeja sale
+         * en **0**, y el 10 de «sin preparar» es el que dice dónde está el trabajo.
+         */
+        abiertaExtra: {
+          sql: `not exists (
+                  select 1 from finance.payment_allocations a
+                   where a.lot_id = finance.payment_calendar_lots.id
+                     and a.status = 'pending'
+                     and (a.payment_method is null or a.priority_rank is null))`,
+          args: [],
+        },
+      }),
   },
 ];
 

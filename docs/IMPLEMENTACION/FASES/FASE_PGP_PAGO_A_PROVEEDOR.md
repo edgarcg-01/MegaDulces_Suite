@@ -142,7 +142,7 @@ sirve para ubicar al beneficiario en la banca en línea por importe.
 |---|---|---|
 | E1.1 | 🧪 **Lista de a quién le falta cuenta**, ordenada por dinero, con la cobertura arriba y el renglón donde se cruza el 80 % marcado — `[PGP.1]`, 2026-10-22 | Tesorería · Compras |
 | E1.2 | Las 37 cuentas dadas de alta por el circuito de solicitud de TP.7 (solicita Compras, aprueba quien tiene `FINANCE_PAYMENT_CALENDAR_AUTORIZAR`) | Tesorería · Dirección |
-| E1.3 | Aviso de «hay un lote esperando tu firma» a quien firma | Dirección |
+| E1.3 | 🧪 **El trabajo detenido aparece en «Mi trabajo»**, en dos bandejas: lo que falta **preparar** y los días que faltan **autorizar** — `[PGP.3]`, 2026-10-22. ⚠️ Su migración **no está aplicada en prod** | Tesorería · Dirección |
 | E1.4 | **Un lote real recorrido entero**, con su acta: armado → ordenado → preparado → autorizado → ejecutado | todos |
 
 ⚠️ **Bloqueo con nombre:** E1.2 depende de una persona de Tesorería con acceso a la banca en
@@ -262,7 +262,7 @@ gratis: un pago escrito a medias se detecta al instante comparando los dos conte
 | # | Item | Estado | ¿Escribe? | Prueba contra base real |
 |---|---|---|---|---|
 | PGP.1 | `GET /commercial/supplier-payment-accounts/faltantes` + la lista en `/compras/cuentas-pago` | 🧪 **2026-10-22** | no | Guión de sólo lectura contra prod (ver abajo) |
-| PGP.2.1 | Repartir el permiso de firma y el aviso de lote en `draft` | ⬜ | sí (permisos) | ⛔ obligatoria |
+| PGP.3 | Las dos bandejas de pagos en «Mi trabajo» + la responsabilidad `finanzas.pagos` | 🧪 **2026-10-22** | sí (la migración) | `verify-pgp3-bandejas-pagos.js`, 4 controles. ⚠️ **La migración NO está aplicada en prod**: `sh ops/prod/aplicar-migracion.sh 20261022150827_pagos_responsabilidad.js`, y exige el commit empujado |
 | PGP.2.2 | Sembrar `supplier_payment_accounts` desde el circuito de solicitud | ⬜ | sí | ⛔ obligatoria, con el payload de la pantalla |
 | PGP.2.3 | `POST /finance/payment-calendar/allocations/:id/kepler/escribir` — escribe el `X-D-26` | ⬜ | **sí, al ERP** | ⛔ obligatoria + deshacer el documento, como hizo KR |
 | PGP.2.4 | Compuerta: no se escribe a Kepler un pago que no esté `executed` y autorizado | ⬜ | no | ⛔ rota a propósito una vez |
