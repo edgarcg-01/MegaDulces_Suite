@@ -101,6 +101,15 @@ export interface QuoteDeliverableData {
   estado?: 'borrador' | 'vigente' | 'vencida' | 'cancelada';
   /** Notas PARA EL CLIENTE. ⛔ No el mensaje crudo que pegó el operador (`customer_request`). */
   notes?: string | null;
+  /**
+   * `[E.29]` Control del documento. `actualizada` = última modificación de la cotización: un
+   * borrador se puede editar después de enviarlo, y sin esto dos papeles con el MISMO folio y
+   * distinto contenido no se distinguían. `elaboro` = quién la capturó. `orderCode` = el pedido
+   * en que se convirtió, si ya se convirtió.
+   */
+  actualizada?: string | Date | null;
+  elaboro?: string | null;
+  orderCode?: string | null;
 }
 
 /** Una fila del papel, ya resuelta. Los dos formatos (PDF y Excel) pintan esto y nada más. */
@@ -159,7 +168,11 @@ export function modeloEntregable(data: QuoteDeliverableData): ModeloEntregable {
       : it.unit_price;
     return { n: i + 1, item: it, tipo, unitario, importe };
   });
-  const fecha = data.quoteDate ? new Date(data.quoteDate) : new Date();
+  // `[E.29]` `AAAA-MM-DD` (lo que manda el servidor) se lee en hora LOCAL: `new Date(iso)` es la
+  // medianoche UTC, que en México todavía es el día ANTERIOR, y el papel imprimía la emisión un
+  // día antes.
+  const fecha = data.quoteDate instanceof Date ? data.quoteDate
+    : fechaDeIso(data.quoteDate) ?? (data.quoteDate ? new Date(data.quoteDate) : new Date());
   const emision = isNaN(fecha.getTime()) ? new Date() : fecha;
   const titulo = data.estado === 'cancelada' ? 'COTIZACIÓN CANCELADA'
     : data.estado === 'vencida' ? 'COTIZACIÓN VENCIDA'
@@ -199,10 +212,22 @@ export function fechaHora(d: Date): string {
  * sería medianoche UTC = el día anterior en México). Lo que no parsea se devuelve tal cual.
  */
 export function fechaVigencia(validUntil: string | null | undefined): { texto: string; fecha: Date | null } {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(validUntil ?? '');
-  if (!m) return { texto: validUntil || 'término indicado', fecha: null };
-  const fecha = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  return { texto: fechaCorta(fecha), fecha };
+  const fecha = fechaDeIso(validUntil);
+  return fecha ? { texto: fechaCorta(fecha), fecha } : { texto: validUntil || 'término indicado', fecha: null };
+}
+
+/** `AAAA-MM-DD` como medianoche LOCAL. null si no tiene esa forma. */
+export function fechaDeIso(v: string | null | undefined): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((v ?? '').trim());
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+}
+
+/**
+ * `[E.29]` ExcelJS escribe las fechas en UTC: una hora local de las 14:05 en México salía 20:05 en
+ * la hoja. Se le pasa la hora de pared local como si fuera UTC.
+ */
+export function paraExcel(d: Date): Date {
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()));
 }
 
 /**
@@ -210,6 +235,20 @@ export function fechaVigencia(validUntil: string | null | undefined): { texto: s
  * formato salió un papel que alguien trae impreso. Se sube al cambiar la estructura del papel.
  */
 export const PLANTILLA_COTIZACION = 'VEN-001 v2';
+
+/**
+ * `[E.29]` La línea de control del pie: folio, versión (última modificación), quién la elaboró y
+ * el pedido al que se convirtió. Sólo lo que hay: un dato ausente no se imprime vacío.
+ */
+export function lineaControl(data: QuoteDeliverableData): string {
+  const act = data.actualizada ? new Date(data.actualizada) : null;
+  return [
+    `Folio ${data.quoteCode || 'SIN ASIGNAR'}`,
+    act && !isNaN(act.getTime()) ? `Versión del ${fechaHora(act)}` : null,
+    data.elaboro ? `Elaboró ${data.elaboro}` : null,
+    data.orderCode ? `Pedido ${data.orderCode}` : null,
+  ].filter(Boolean).join(' · ');
+}
 
 /** Las condiciones que se imprimen al pie, en orden. */
 export function condiciones(data: QuoteDeliverableData, m: ModeloEntregable): string[] {
@@ -608,7 +647,8 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
 
   autoTable(doc, {
     startY: currentY,
-    margin: { left: M, right: M },
+    // Abajo, lugar para las tres líneas del pie (empresa · control · generación).
+    margin: { left: M, right: M, bottom: 46 },
     head,
     body: tableBody,
     theme: 'grid',
@@ -648,7 +688,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   const lineasCond = condiciones(data, m).flatMap((t) => doc.splitTextToSize(`• ${t}`, notesW - 16) as string[]);
   const boxH = Math.max(86, 12 + lineasCond.length * 9 + 11);
   let summaryY = finalY + 10;
-  if (summaryY + boxH > pageHeight - 40) {
+  if (summaryY + boxH > pageHeight - 46) {
     doc.addPage();
     drawPdfWatermark(doc, pageWidth, pageHeight); // la página del resumen también es cotización
     summaryY = M;
@@ -727,7 +767,8 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.5);
     doc.setTextColor(...cMuted);
-    doc.text(`${EMPRESA_NOMBRE} · Folio ${data.quoteCode || 'SIN ASIGNAR'} · ESTO ES UNA COTIZACIÓN, NO UNA VENTA`, M, pageHeight - 24);
+    doc.text(`${EMPRESA_NOMBRE} · ESTO ES UNA COTIZACIÓN, NO UNA VENTA`, M, pageHeight - 33);
+    doc.text(lineaControl(data), M, pageHeight - 24);
     doc.text(generado, M, pageHeight - 15);
     const pageStr = `Página ${p} de ${total}`;
     doc.text(pageStr, pageWidth - M - doc.getTextWidth(pageStr), pageHeight - 15);
@@ -831,7 +872,7 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
 
   ws.getCell(`${rightMetaCol}5`).value = 'Fecha Emisión:';
   ws.getCell(`${rightMetaCol}5`).font = { bold: true, size: 9 };
-  ws.getCell(`${rightValCol}5`).value = m.emision;
+  ws.getCell(`${rightValCol}5`).value = paraExcel(m.emision);
   ws.getCell(`${rightValCol}5`).numFmt = 'dd/mm/yyyy';
   ws.getCell(`${rightValCol}5`).font = { size: 9 };
 
@@ -844,7 +885,7 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   ws.getCell(`${rightMetaCol}6`).font = { bold: true, size: 9 };
   // [E.29] Fecha de verdad (se ordena y se filtra), no el texto AAAA-MM-DD.
   const vig = fechaVigencia(data.validUntil);
-  ws.getCell(`${rightValCol}6`).value = vig.fecha ?? vig.texto;
+  ws.getCell(`${rightValCol}6`).value = vig.fecha ? paraExcel(vig.fecha) : vig.texto;
   if (vig.fecha) ws.getCell(`${rightValCol}6`).numFmt = 'dd/mm/yyyy';
   ws.getCell(`${rightValCol}6`).font = { size: 9 };
 
@@ -857,6 +898,29 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   ws.getCell(`${rightMetaCol}7`).font = { bold: true, size: 9 };
   ws.getCell(`${rightValCol}7`).value = data.salespersonName ? `${data.salespersonName} (${data.salespersonCode || ''})` : 'Telemarketing';
   ws.getCell(`${rightValCol}7`).font = { size: 9 };
+
+  // [E.29] Control del documento, igual que el pie del PDF: versión (última modificación), quién
+  // la elaboró y el pedido al que se convirtió. Sólo lo que hay.
+  const act = data.actualizada ? new Date(data.actualizada) : null;
+  if (act && !isNaN(act.getTime())) {
+    ws.getCell(`${rightMetaCol}4`).value = 'Versión del:';
+    ws.getCell(`${rightMetaCol}4`).font = { bold: true, size: 9 };
+    ws.getCell(`${rightValCol}4`).value = paraExcel(act);
+    ws.getCell(`${rightValCol}4`).numFmt = 'dd/mm/yyyy hh:mm';
+    ws.getCell(`${rightValCol}4`).font = { size: 9 };
+  }
+  if (data.elaboro) {
+    ws.getCell('A8').value = 'Elaboró:';
+    ws.getCell('A8').font = { bold: true, size: 9 };
+    ws.getCell('B8').value = data.elaboro;
+    ws.getCell('B8').font = { size: 9 };
+  }
+  if (data.orderCode) {
+    ws.getCell(`${rightMetaCol}8`).value = 'Pedido:';
+    ws.getCell(`${rightMetaCol}8`).font = { bold: true, size: 9 };
+    ws.getCell(`${rightValCol}8`).value = data.orderCode;
+    ws.getCell(`${rightValCol}8`).font = { bold: true, size: 9 };
+  }
 
   // 4. Encabezados de tabla
   const titulos: Record<string, string> = {

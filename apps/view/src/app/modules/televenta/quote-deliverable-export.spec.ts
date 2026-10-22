@@ -7,6 +7,8 @@ import {
   modeloEntregable,
   condiciones,
   fechaVigencia,
+  lineaControl,
+  paraExcel,
 } from './quote-deliverable-export';
 
 describe('QuoteDeliverableExport — Estándares Comerciales y Entregables', () => {
@@ -203,5 +205,34 @@ describe('hoja de la cotización — condiciones y fechas', () => {
     const d = { ...base, notes: nota };
     expect(nota.length).toBeGreaterThan(90);
     expect(condiciones(d, modeloEntregable(d))).toContain('Nota: ' + nota);
+  });
+});
+
+/** [E.29] Control del documento: con qué versión, quién y a qué pedido corresponde un papel. */
+describe('hoja de la cotización — control', () => {
+  const base: QuoteDeliverableData = {
+    quoteCode: 'COT-2026-00026', customerCode: 'C1086', customerName: 'Cliente', branchCode: '01',
+    branchName: 'Padre Hidalgo', validUntil: '2026-11-06', discountPct: null,
+    items: [{ sku: 'A', name: 'Uno', unit_label: 'PAQ', quantity: 1, unit_price: 10, line_total: 10 }],
+  };
+
+  it('la línea de control lleva folio, versión, quién la elaboró y el pedido', () => {
+    const l = lineaControl({ ...base, actualizada: new Date(2026, 9, 22, 14, 5), elaboro: 'Cinthia Yaret', orderCode: 'PED-2026-00101' });
+    expect(l).toBe('Folio COT-2026-00026 · Versión del 22/10/2026 14:05 · Elaboró Cinthia Yaret · Pedido PED-2026-00101');
+  });
+
+  it('lo que falta no se imprime vacío; sin folio se DECLARA', () => {
+    expect(lineaControl(base)).toBe('Folio COT-2026-00026');
+    expect(lineaControl({ ...base, quoteCode: null, actualizada: 'no-es-fecha' })).toBe('Folio SIN ASIGNAR');
+  });
+
+  it('la emisión AAAA-MM-DD del servidor es ESE día, no el anterior (new Date(iso) es medianoche UTC)', () => {
+    const m = modeloEntregable({ ...base, quoteDate: '2026-10-22' });
+    expect([m.emision.getFullYear(), m.emision.getMonth(), m.emision.getDate()]).toEqual([2026, 9, 22]);
+  });
+
+  it('paraExcel conserva la hora de PARED (ExcelJS escribe en UTC)', () => {
+    const x = paraExcel(new Date(2026, 9, 22, 14, 5));
+    expect([x.getUTCDate(), x.getUTCHours(), x.getUTCMinutes()]).toEqual([22, 14, 5]);
   });
 });

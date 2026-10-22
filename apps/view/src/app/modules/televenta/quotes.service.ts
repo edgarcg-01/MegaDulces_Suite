@@ -268,6 +268,13 @@ export interface QuoteDetail {
   notes: string | null;
   order_code: string | null;
   created_by_username: string | null;
+  /** [E.29] Nombre de quien la elaboró (identity.users.nombre). Ausente en un API anterior a E.29. */
+  created_by_name?: string | null;
+  /**
+   * [E.29] Última modificación de la cotización (viaja con q.*; recalcular totales la mueve, así
+   * que cambia con cada renglón). Distingue dos papeles con el mismo folio.
+   */
+  updated_at?: string | null;
   lines: QuoteLine[];
 }
 
