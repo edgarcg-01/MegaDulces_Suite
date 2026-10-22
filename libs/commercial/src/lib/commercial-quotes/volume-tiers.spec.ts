@@ -1,4 +1,7 @@
-import { escaleraDisjunta, tramoDeCantidad, type VolumeTier } from './quote-pricing.service';
+import {
+  escaleraDisjunta, tramoDeCantidad, unidadMayorQueCabe,
+  type LadderRung, type Rung, type VolumeTier,
+} from './quote-pricing.service';
 
 /**
  * `[E.22]` El tramo de volumen que Kepler cobra. Caso real (2026-10-21): SKU 89008 en la 01/08,
@@ -32,5 +35,48 @@ describe('escalera de volumen del ERP', () => {
   it('una cantidad en un hueco entre tramos no toma ninguno (no se adivina)', () => {
     const t = escaleraDisjunta([{ desde: 3, hasta: 5, price: 9 }, { desde: 10, hasta: 99, price: 8 }])!;
     expect(tramoDeCantidad(t, 7)).toBeNull();
+  });
+});
+
+/**
+ * `[E.23]` Caso real: `02195` en la 01, kdii PZA $22.20 · PAQ de 12 $199.72 · CJA de 144 $2,197.95.
+ * Pedido de telemarketing 0003315: 144 PZA cobradas a $15.26 (`c66` = 15.2635416667 = CJA / 144).
+ */
+const LED_02195: { rungs: Record<Rung, LadderRung> } = {
+  rungs: {
+    base: { rung: 'base', label: 'PZA', price: 22.2, size: 1, volume: null },
+    pack: { rung: 'pack', label: 'PAQ', price: 199.72, size: 12, volume: null },
+    box: { rung: 'box', label: 'CJA', price: 2197.95, size: 144, volume: null },
+  },
+};
+
+describe('unidad mayor que cabe en la cantidad (kdm2.c66)', () => {
+  const precio = (rung: Rung, qty: number) => {
+    const m = unidadMayorQueCabe(LED_02195, rung, qty);
+    return m ? Math.round(m.step.price * m.factor * 100) / 100 : null;
+  };
+
+  it('144 PZA completan una CJA: la pieza sale a $15.26, como la cobró Kepler', () => {
+    expect(unidadMayorQueCabe(LED_02195, 'base', 144)).toMatchObject({ n: 1, step: { label: 'CJA' } });
+    expect(precio('base', 144)).toBe(15.26);
+  });
+
+  it('143 PZA no llegan a la CJA pero sí a 11 PAQ: la pieza sale al precio del PAQ', () => {
+    expect(unidadMayorQueCabe(LED_02195, 'base', 143)).toMatchObject({ n: 11, step: { label: 'PAQ' } });
+    expect(precio('base', 143)).toBe(16.64);
+  });
+
+  it('12 PAQ son 144 piezas: el PAQ sale a la CJA prorrateada', () => {
+    expect(precio('pack', 12)).toBe(183.16);
+  });
+
+  it('abajo de la unidad mayor más chica no hay prorrateo: rige la lista propia', () => {
+    expect(unidadMayorQueCabe(LED_02195, 'base', 11)).toBeNull();
+    expect(unidadMayorQueCabe(LED_02195, 'box', 3)).toBeNull();
+  });
+
+  it('un peldaño sin factor no se prorratea (no se adivina el tamaño)', () => {
+    const sinFactor = { rungs: { ...LED_02195.rungs, pack: { ...LED_02195.rungs.pack, size: null } } };
+    expect(unidadMayorQueCabe(sinFactor, 'pack', 50)).toBeNull();
   });
 });

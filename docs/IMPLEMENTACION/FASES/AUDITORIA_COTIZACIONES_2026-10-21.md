@@ -361,3 +361,69 @@ a **$55.00** (y su PDF, con el defecto C2 todavía en prod, imprimió $54.09).
 - Prueba: `volume-tiers.spec.ts` con la escalera real del 89008 (3/3) y **prueba negativa** (la
   regla vieja del primer tramo la pone roja); `commercial-quotes` + `commercial-orders` 60/60.
 - ⛔ **Sin ejercer contra la API** (lo usan `addLine` y los pedidos, caminos que escriben).
+
+## 11. `[E.23]` La verdad absoluta, medida: el replay contra los pedidos de Kepler (2026-10-21)
+
+**El instrumento.** `scripts/kepler/replay-cotizacion/` re-cotiza con el **motor real** (el
+`quote-pricing.service.ts` empaquetado: corre su propio SQL, no es un doble) cada renglón de los
+pedidos de telemarketing de Kepler (`U-D-40`, `c27 = 'TELEMARK'`) y lo compara campo por campo
+contra lo que Kepler registró. Sólo lectura (sesión psql con `default_transaction_read_only`, con
+sus controles: valor conocido, error, escritura rechazada). Arranca con dos renglones reales que
+tiene que reproducir o no mide nada.
+
+**Lo que Kepler guarda en el pedido, medido (1,639 pedidos, 30 d):** precio del renglón con
+impuestos (`c12`, a centavos) · `c66` = precio original del renglón · `c16` = Σ renglones × (1 − %
+cliente) en el 98.4 % / 97.1 % · `c14` IVA y `c15` IEPS **por la tasa de cada producto** · `c13` =
+descuento del cliente sin impuestos. La tasa de `kdii` (`c18`/`c19`) = la del renglón en 2,011 de
+2,011.
+
+**El hallazgo grande: Kepler cobra la cantidad al precio de la UNIDAD MAYOR que cabe en ella.**
+144 PZA de `02195` (CJA de 144) salen a $2,197.95 / 144 = **$15.26**, no a la lista de la pieza
+($22.20) ni a su tramo ($18.04); `c66` = 15.2635416667. El motor no lo sabía.
+
+| arbitrado contra lo cobrado | gana «unidad mayor prorrateada» | gana «lista de su unidad» |
+|---|---:|---:|
+| pedidos de telemarketing, 30 d | 7,284 | 280 |
+| mostrador `U-D-10`, 3 d | 5,087 | 218 |
+
+Y el precio cobrado baja desde ahí al **más barato de tres**: la unidad mayor prorrateada, el tramo
+de su propia unidad y el tramo de la unidad mayor (por las que caben enteras) prorrateado. Sobre
+13,116 renglones cuyo precio no cambió desde el pedido: **11,486 aciertan (87.6 %)**; sólo con la
+lista, 6,323. Cuando sólo el tramo de la unidad mayor mejora, Kepler lo cobró 1,274 de 1,476 veces.
+No es deriva de precio: acierta parejo en pedidos de 0–2, 3–9 y 10–30 días (87.0 / 86.4 / 88.3 %).
+
+**Arreglo:** `unidadMayorQueCabe()` (pura, probada con el 02195 real) + el tramo de la unidad
+mayor en `priceLine`, y el precio unitario a centavos como `c12`. `list_price` pasa a ser el `c66`
+de Kepler (el precio original), así que «Subtotal original − Descuento» sale como en su pantalla.
+
+**Antes / después, mismo universo** (143 pedidos, 2,011 renglones, $2,239,552):
+
+| | antes | después |
+|---|---:|---:|
+| renglones al centavo | 1,106 (55.0 %) | **1,810 (90.0 %)** |
+| importe al centavo | $647,542 | **$1,978,313 (88.3 %)** |
+| pedidos completos exactos (cabecera consistente) | 14 | **63** |
+
+En esos 63 pedidos el importe cuadra 63/63 y **el impuesto por producto (`kdii`) da IVA e IEPS al
+centavo en 63/63**; el modelo de hoy (IVA 16 % fijo) acierta el IVA en 22. → siguiente paso.
+
+**Lo que queda, declarado (1 día):**
+
+- ⛔ **Promos `descuxq`:** la misma promo, mismo SKU y sucursal, Kepler la aplica en unos pedidos y
+  en otros no. Clientes sin %: 73 de 78 sí; clientes con %: 121 sí / 81 no, y **no es la magnitud**
+  (5 % contra 2 %: 32 sí, 64 no). No se derivó qué decide. Es casi todo el residuo en dinero
+  (−$7.7 k en la 08 en un día, cotizado **de menos**).
+- 33 renglones a 1 centavo de Kepler (redondeo de la promo) · 30 donde Kepler no prorrateó (`c66` =
+  lista propia, el 3.7 % que también mide la tabla) · 30 artículos a $0.01 que el ERP no publica en
+  `v_label_prices` (bolsas/obsequios) · `17066` en KG sin precio.
+- ⚠️ **La captura del 89008 × 36 PAQ** (3 CJA) es el único caso que contradice el tramo de la unidad
+  mayor: con él saldría $50.85 y la pantalla de Kepler mostró $51.76. Los pedidos reales de 24 PAQ
+  sí traen `c66` = 51.7558 (la CJA prorrateada). **Pendiente: el folio de esa captura**.
+- ⛔ **El % del cliente:** `v_erp_wholesale_customers` **no tiene fila para 68 de 143 pedidos**
+  (47.6 %): la cotización de esos clientes no encuentra su descuento. En los que sí, 69 iguales y 6
+  distintos al `c19` del pedido.
+- 36 de 143 pedidos tienen la cabecera desfasada de sus renglones (pedido vivo, sigue a lo surtido):
+  se excluyen de la comparación de cabecera, no se cuentan como acierto.
+- ⚠️ **Lo usan también los PEDIDOS del vendedor** (`commercial-orders` llama a `priceLine`): su
+  precio cambia igual, en la misma dirección que Kepler.
+- ⛔ **Sin ejercer contra la API** (lo usan `addLine`/`updateLine` y los pedidos, que escriben).
