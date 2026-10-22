@@ -190,6 +190,9 @@ export function buscarEnCatalogo(buscables: readonly Buscable[], consulta: strin
     else if (todos(b.nTodo)) por = 'varios';
     if (!por) continue;
     const exacto = !!unico && (b.barcodes.includes(unico) || (!!unicoCorto && b.corto === unicoCorto));
+    // `[ETQ-PROMO.2]` Una promoción/ajuste de Kepler no es un producto: no sale al buscar por nombre ni por
+    // un pedazo de clave. Sólo si se teclea SU clave o código exacto (para poder preguntar qué es).
+    if (b.item.pm === 1 && !exacto) continue;
     res.push({ b, por, exacto });
   }
 

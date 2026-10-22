@@ -3,7 +3,7 @@ import { CommercialLabelsService } from './commercial-labels.service';
 /**
  * `[ETQ-PROMO.1]` La clasificación de «por qué no hay precio» con una base SIMULADA: prueba la lógica de
  * decisión (qué consulta alimenta qué estado), no el SQL. El SQL se comprobó contra producción en solo
- * lectura (ver la descripción del PR): 206 códigos a $0.01 en las 9 plazas, 0.4 ms con 5 códigos.
+ * lectura (ver la descripción del PR): 203 códigos a $0.01 en todas las plazas, 2 ms con 7 códigos.
  */
 type Fila = Record<string, unknown>;
 

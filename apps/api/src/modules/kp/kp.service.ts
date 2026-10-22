@@ -7,6 +7,7 @@ import { pgRaw } from './pg-raw.util';
 import {
   type MayoreoTier, type UnidadPrecioVerificador, type VerificadorPrecioResponse,
   type VerificadorSnapshot, type VerificadorSnapshotItem, VERIFICADOR_SNAPSHOT_FORMATO, compactarTier,
+  esCodigoSimbolico,
 } from '@megadulces/contracts';
 
 /** Una unidad de venta con su precio, para el verificador. `[VAC.L1]` Una sola definición: el contrato. */
@@ -568,6 +569,15 @@ export class KpService {
       );
       const ambiguo = !suc && distintos.size > 1;
 
+      // `[ETQ-PROMO.2]` ¿Es una promoción/ajuste de Kepler y no un producto? Se decide con las filas de
+      // ESTE código en todas las plazas donde existe (ya vienen en `rows`): $0.01 exacto en pieza y
+      // paquete/caja en todas, o «= GRATIS» en el nombre. Mismo criterio que la etiquetera.
+      const esCentavo = (v: unknown): boolean => v != null && Math.abs(Number(v) - 0.01) < 0.0005;
+      const filasDelCodigo = rows.filter((x: any) => String(x.codigo ?? '').trim() === String(r.codigo ?? '').trim());
+      const centavoEnTodas = filasDelCodigo.length > 0
+        && filasDelCodigo.every((x: any) => esCentavo(x.pv1) && (x.pv2 == null || Number(x.pv2) <= 0.01));
+      const esPromocion = esCodigoSimbolico(r.nombre, centavoEnTodas);
+
       // El override manual gana: es una corrección humana deliberada y es lo que sale impreso en
       // el anaquel. Sólo se pisa el precio de la unidad BASE (es lo que la tabla guarda por pieza).
       // `[TDA.4]` Una sola lectura trae el override manual Y los tiers de mayoreo: salen de la
@@ -626,6 +636,8 @@ export class KpService {
         origen_precio: origen,
         // `[MOS.1]` El proveedor de la ficha, de la misma lectura que el mayoreo.
         proveedor: etiqueta.proveedor,
+        // `[ETQ-PROMO.2]` Con esto en `true` el precio de arriba es el centavo simbólico, no un precio.
+        es_promocion: esPromocion,
       };
     } catch (e: unknown) {
       throw this.falloInterno('getPrecio', e);
@@ -676,6 +688,10 @@ export class KpService {
       // `[TDA.4]` Las etiquetas de TODO el catálogo en una sola lectura: el snapshot lo bajan los
       // kioscos una vez cada 12 h y pedir producto por producto serían ~9,000 viajes.
       const etiquetas = await this.mayoreoDeTodos(suc);
+
+      // `[ETQ-PROMO.2]` Por código: ¿$0.01 en TODAS las plazas? Se mide sobre todas (no sólo `suc`): un
+      // producto real puede tener un precio de paso en UNA tienda. Una lectura para todo el catálogo.
+      const centavo = await this.centavoEnTodasLasPlazas();
 
       const vistos = new Set<string>();
       const items: VerificadorSnapshotItem[] = [];
@@ -739,6 +755,8 @@ export class KpService {
           ...(et?.mayoreo.length ? { m: et.mayoreo.map(compactarTier) } : {}),
           ...(gramaje ? { g: gramaje } : {}),
           ...(pv !== undefined ? { pv } : {}),
+          // `[ETQ-PROMO.2]` Se OMITE cuando no es promoción: ~9,000 `pm: 0` serían peso muerto del kiosco.
+          ...(esCodigoSimbolico(r.nombre, centavo.get(String(r.codigo)) ?? null) ? { pm: 1 as const } : {}),
         });
       }
 
@@ -756,6 +774,25 @@ export class KpService {
       // catálogo llegó vacío". Ver `falloInterno`.
       throw this.falloInterno('getPreciosTodos', e);
     }
+  }
+
+  /**
+   * `[ETQ-PROMO.2]` Por código (con `LPAD` a 5, igual que `codigo`): ¿el precio es EXACTAMENTE $0.01 en
+   * TODAS las plazas, en la pieza y en el paquete/caja? Un valor que no es número cuenta como «no
+   * es $0.01» (falso), no se ignora: una celda con basura no puede sostener la afirmación.
+   */
+  private async centavoEnTodasLasPlazas(): Promise<Map<string, boolean>> {
+    const rows = await this.query<{ codigo: string; centavo_en_todas: boolean | null }>(`
+      SELECT LPAD(TRIM(c1::text), 5, '0') AS codigo,
+             bool_and(coalesce(${NUMC_NULL('c90')} = 0.01, false)
+                      AND coalesce(${NUMC_NULL('c91')}, 0) <= 0.01) AS centavo_en_todas
+        FROM kepler_ods.kdii
+       WHERE c1 IS NOT NULL AND c1::text ~ '^[0-9]'
+       GROUP BY 1
+    `);
+    const mapa = new Map<string, boolean>();
+    for (const x of rows) if (typeof x.centavo_en_todas === 'boolean') mapa.set(String(x.codigo), x.centavo_en_todas);
+    return mapa;
   }
 
   private async query<T = any>(sql: string, params?: any[]): Promise<T[]> {

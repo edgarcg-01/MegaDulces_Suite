@@ -137,4 +137,24 @@ describe('buscarEnCatalogo — nombre, proveedor, SKU o código de barras', () =
     expect(sinProv.proveedor).toBeNull();
     expect(buscarEnCatalogo([sinProv], 'rosa')).toEqual([]);
   });
+
+  /** `[ETQ-PROMO.2]` Una promoción de Kepler no es un producto: no sale al buscar, salvo por su clave exacta. */
+  describe('promociones de Kepler (pm:1)', () => {
+    const promo = { ...item('09089', '10 CJS OREO BASE 9 KG = GRATIS 1 CJ MAS', []), pm: 1 as const };
+    const real = item('10245', 'OREO GALLETA 36 G', []);
+    const base = [promo, real].map((x) => aBuscable(x, PROV));
+
+    it('⭐ buscar por nombre deja el producto y quita la promoción', () => {
+      expect(buscarEnCatalogo(base, 'oreo').map((r) => r.b.codigo)).toEqual(['10245']);
+    });
+
+    it('⭐ teclear su clave EXACTA sí la muestra (con o sin ceros): hay que poder preguntar qué es', () => {
+      expect(buscarEnCatalogo(base, '09089').map((r) => r.b.codigo)).toEqual(['09089']);
+      expect(buscarEnCatalogo(base, '9089').map((r) => r.b.codigo)).toEqual(['09089']);
+    });
+
+    it('⛔ [negativa] un pedazo de la clave NO la muestra', () => {
+      expect(buscarEnCatalogo(base, '0908').map((r) => r.b.codigo)).not.toContain('09089');
+    });
+  });
 });

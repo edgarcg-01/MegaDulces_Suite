@@ -35,6 +35,7 @@ export * from './http/price-presentation.contract';
 // pantalla y para el generador, o el aviso y la lista discrepan.
 export * from './http/price-change-notice.contract';
 export * from './http/price-change-compras.contract';
+export * from './http/codigo-simbolico.contract';
 // [SM.39] Denominaciones MXN. La clave de una denominacion NO es su valor: el
 // billete y la moneda de $20 valen lo mismo y son cosas distintas.
 export * from './money/denominations';
