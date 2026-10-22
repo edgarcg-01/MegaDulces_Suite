@@ -364,6 +364,10 @@ a **$55.00** (y su PDF, con el defecto C2 todavía en prod, imprimió $54.09).
 
 ## 11. `[E.23]` La verdad absoluta, medida: el replay contra los pedidos de Kepler (2026-10-21)
 
+> ⛔ **Corregido por E.28 (§15):** el «prorrateo a la unidad mayor» de esta sección era un artefacto: el
+> replay le pasaba al motor la unidad ASENTADA (`c11`) y no la CAPTURADA (`c55`). El instrumento y la
+> regla del IVA/IEPS siguen valiendo; la regla de precio, no.
+
 **El instrumento.** `scripts/kepler/replay-cotizacion/` re-cotiza con el **motor real** (el
 `quote-pricing.service.ts` empaquetado: corre su propio SQL, no es un doble) cada renglón de los
 pedidos de telemarketing de Kepler (`U-D-40`, `c27 = 'TELEMARK'`) y lo compara campo por campo
@@ -429,6 +433,9 @@ centavo en 63/63**; el modelo de hoy (IVA 16 % fijo) acierta el IVA en 22. → s
 - ⛔ **Sin ejercer contra la API** (lo usan `addLine`/`updateLine` y los pedidos, que escriben).
 
 ## 12. `[E.24]` Las verdades que faltaban: promociones, precedencia, padrón y costo (2026-10-22)
+
+> ⛔ **Corregido por E.28 (§15):** «la promo/el tramo de la unidad mayor» era la promo/el tramo de la
+> presentación CAPTURADA. Siguen valiendo: el tramo se cobra aunque supere la lista, el padrón y el costo.
 
 Todo medido con el replay de §11 sobre el **mismo universo congelado** (143 pedidos, 2,011
 renglones, $2,239,552: `replay.js <universo.json>` re-cotiza los mismos renglones) y, para las
@@ -562,3 +569,53 @@ La pantalla pinta lo guardado de inmediato y el aviso/existencia llegan después
 ⛔ `reprice` ESCRIBE y **no está ejercido**: `http-quote-lines-test.js` bloque 9 lo prueba (precio
 viejo simulado → check lo ve → reprice lo corrige → check ya no avisa; NEGATIVO: vencida → 400),
 **sin correr** (necesita la API arriba). Depende de la migración de E.25 (`iva_rate`/`ieps_rate`).
+
+## 15. `[E.28]` Corrección: Kepler cobra la PRESENTACIÓN capturada — el prorrateo de E.23/E.24 era un artefacto (2026-10-22)
+
+**Cómo se descubrió.** El usuario mandó la configuración de Kepler del 89008 («Margen de Utilidad por
+Rango de Cantidad Vendida **de la Unidad**»): el PAQ tiene sus tramos (10+ → $51.76) y la CJA los suyos
+(3+ → $610.18). Con E.24, 36 PAQ salían a $50.85 (tramo de la CJA) y su captura de Kepler dice $51.76.
+
+**Lo medido** (pedidos de telemarketing, 30 d): el renglón guarda la presentación **capturada**
+(`kdm2.c55`, cantidad `c51`) y la asienta en la unidad base (`c11`/`c9`). Capturados en CJA (9,156):
+`c66` = la CJA prorrateada; capturados en base aunque completen cajas (333): `c66` = la lista propia en
+275. **Kepler no prorratea solo.** Y guarda el precio **por unidad base a centavos** (`c12` con 2
+decimales y `c13 = c9 × c12` en 16,525 de 16,525): 1 CJA de 63004 a $753.09 se cobra **$753.12**.
+
+**El error de E.23/E.24 fue del instrumento, no de Kepler:** el replay le pasaba al motor la unidad
+asentada. Los renglones capturados en caja se leyeron como «cantidad que completa una caja» y salió una
+regla de prorrateo (7,284 contra 280) y de «precedencia de la unidad mayor» (304 contra 4) que no
+existen. Las dos quedan escritas como **refutadas** en `ERP_KEPLER.md` §2.7.
+
+**Arreglo:** el motor cobra la presentación del renglón (su lista, su tramo aunque supere la lista y su
+promo) y la expresa por unidad base a centavos (`aCentavosPorBase`, pura y probada con 63004 y 89008).
+El replay pasa `c55`/`c51`, compara por unidad base, y compara importes con la cantidad asentada (en
+11 renglones el surtido cambió la cantidad). `REPLAY_MOTOR_REF=<commit>` corre el motor de otro commit
+sobre el mismo universo (los controles se reportan, no detienen).
+
+Tres detalles más que el replay destapó en el camino: **(1)** un renglón agregado después de capturar
+(surtido/checado) trae `c55` pero `c51` vacío — su cantidad es `c9` ÷ factor; leerlo en la base lo
+hacía parecer «prorrateado»; **(2)** con promo, Kepler redondea primero la PRESENTACIÓN y luego la base
+(78401: $390.6578 → $390.66 → 12 × $32.56); **(3)** el redondeo es DECIMAL (961.02 / 12 = 80.085 → $80.09;
+en binario daba $80.08). Los tres están en `aCentavosPorBase`, con su prueba sobre el renglón real.
+
+**Antes / después, mismo universo y misma entrada** (110 pedidos, 1,345 renglones, $1,379,983):
+
+| | E.27 (prorrateo, caja redondeada) | **E.28** |
+|---|---:|---:|
+| renglones al centavo, precio e importe | 1,300 (96.7 %) | **1,310 (97.4 %)** |
+| importe al centavo | $1,323,959 | **$1,348,443 (97.7 %)** |
+| pedidos completos: total, IVA e IEPS al centavo | **13 de 80** | **82 de 83** (el otro, 1 ¢) |
+| clientes que la vista del padrón no encuentra | — | **0** (E.26) |
+
+Lo que queda, con nombre (35 renglones): 14 SKUs de promoción a $0.01 ($0.34) · promos que Kepler no
+dio en 1 PAQ de la 05 y en otros 2 renglones · 2 renglones de 3 CJA donde Kepler cobró la lista y no
+el tramo de 3+ · 11 «Kepler cobró lista» donde el motor aplica promo o tramo. Todos cotizan **de menos**
+($−280 + $1,327 de más en «más barato»): no se derivó qué decide esas excepciones.
+
+Controles: 5 renglones reales con la presentación capturada, incluida la captura del usuario (89008 ×
+36 PAQ = $1,863.36); el motor de E.27 los falla (2 CJA da $1,242.14 contra $1,242.24): prueba negativa.
+
+**Consecuencia para la cotización:** 36 PAQ capturados como PAQ salen a $51.76; si se capturan como
+3 CJA salen a 3 × $610.18 → $50.85 por PAQ. **Capturar en caja es más barato para el cliente**, y la
+cotización hoy no lo sugiere (posible aviso; no construido).

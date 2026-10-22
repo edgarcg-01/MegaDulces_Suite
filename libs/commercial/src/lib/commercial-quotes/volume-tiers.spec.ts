@@ -1,6 +1,6 @@
 import {
-  escaleraDisjunta, tramoDeCantidad, unidadMayorQueCabe,
-  type LadderRung, type Rung, type VolumeTier,
+  escaleraDisjunta, tramoDeCantidad, aCentavosPorBase,
+  type VolumeTier,
 } from './quote-pricing.service';
 
 /**
@@ -39,44 +39,37 @@ describe('escalera de volumen del ERP', () => {
 });
 
 /**
- * `[E.23]` Caso real: `02195` en la 01, kdii PZA $22.20 · PAQ de 12 $199.72 · CJA de 144 $2,197.95.
- * Pedido de telemarketing 0003315: 144 PZA cobradas a $15.26 (`c66` = 15.2635416667 = CJA / 144).
+ * `[E.28]` Kepler guarda el precio de una presentación POR UNIDAD BASE a centavos (`kdm2.c12`) y el
+ * importe es cantidad base × ese precio (`c13 = c9 × c12`). Renglones reales de pedidos U-D-40.
+ * (Reemplaza la «unidad mayor que cabe» de E.23: Kepler no prorratea solo — cobra la presentación
+ * que se captura, `kdm2.c55`; el prorrateo que se midió eran renglones capturados en CJA.)
  */
-const LED_02195: { rungs: Record<Rung, LadderRung> } = {
-  rungs: {
-    base: { rung: 'base', label: 'PZA', price: 22.2, size: 1, volume: null },
-    pack: { rung: 'pack', label: 'PAQ', price: 199.72, size: 12, volume: null },
-    box: { rung: 'box', label: 'CJA', price: 2197.95, size: 144, volume: null },
-  },
-};
-
-describe('unidad mayor que cabe en la cantidad (kdm2.c66)', () => {
-  const precio = (rung: Rung, qty: number) => {
-    const m = unidadMayorQueCabe(LED_02195, rung, qty);
-    return m ? Math.round(m.step.price * m.factor * 100) / 100 : null;
-  };
-
-  it('144 PZA completan una CJA: la pieza sale a $15.26, como la cobró Kepler', () => {
-    expect(unidadMayorQueCabe(LED_02195, 'base', 144)).toMatchObject({ n: 1, step: { label: 'CJA' } });
-    expect(precio('base', 144)).toBe(15.26);
+describe('precio de una presentación, a centavos por unidad base (kdm2.c12)', () => {
+  it('63004: 1 CJA de 24 PAQ a lista $753.09 → 24 × $31.38 = $753.12, como lo cobró Kepler', () => {
+    expect(aCentavosPorBase(753.09, 24, 1)).toEqual({ unit_price: 753.12, line_total: 753.12 });
   });
 
-  it('143 PZA no llegan a la CJA pero sí a 11 PAQ: la pieza sale al precio del PAQ', () => {
-    expect(unidadMayorQueCabe(LED_02195, 'base', 143)).toMatchObject({ n: 11, step: { label: 'PAQ' } });
-    expect(precio('base', 143)).toBe(16.64);
+  it('89008: 2 CJA de 12 PAQ a $621.07 → 24 × $51.76 = $1,242.24 (UD40 01-0002353)', () => {
+    expect(aCentavosPorBase(621.07, 12, 2)).toEqual({ unit_price: 621.12, line_total: 1242.24 });
   });
 
-  it('12 PAQ son 144 piezas: el PAQ sale a la CJA prorrateada', () => {
-    expect(precio('pack', 12)).toBe(183.16);
+  it('en la unidad base no hay conversión: 36 PAQ a $51.76 = $1,863.36 (la captura del 89008)', () => {
+    expect(aCentavosPorBase(51.76, 1, 36)).toEqual({ unit_price: 51.76, line_total: 1863.36 });
   });
 
-  it('abajo de la unidad mayor más chica no hay prorrateo: rige la lista propia', () => {
-    expect(unidadMayorQueCabe(LED_02195, 'base', 11)).toBeNull();
-    expect(unidadMayorQueCabe(LED_02195, 'box', 3)).toBeNull();
+  it('78401: 1 CJA con promo 3 % — se redondea la caja ($390.66) y luego la base: 12 × $32.56', () => {
+    expect(aCentavosPorBase(402.74 * 0.97, 12, 1)).toEqual({ unit_price: 390.72, line_total: 390.72 });
+    // NEGATIVO: dividir el precio con promo sin redondear la caja da $32.55 por PAQ
+    expect(Math.round((402.74 * 0.97 / 12 + Number.EPSILON) * 100) / 100).toBe(32.55);
   });
 
-  it('un peldaño sin factor no se prorratea (no se adivina el tamaño)', () => {
-    const sinFactor = { rungs: { ...LED_02195.rungs, pack: { ...LED_02195.rungs.pack, size: null } } };
-    expect(unidadMayorQueCabe(sinFactor, 'pack', 50)).toBeNull();
+  it('70079: 4 CJA de 12 PAQ al tramo $961.02 → 80.085 redondea a $80.09 (decimal), 48 × 80.09', () => {
+    expect(aCentavosPorBase(961.02, 12, 4)).toEqual({ unit_price: 961.08, line_total: 3844.32 });
+    // NEGATIVO: el redondeo binario de antes daba $80.08
+    expect(Math.round((961.02 / 12 + Number.EPSILON) * 100) / 100).toBe(80.08);
+  });
+
+  it('NEGATIVO: redondear la caja y no la unidad base da el importe que Kepler NO cobra', () => {
+    expect(Math.round(753.09 * 1 * 100) / 100).not.toBe(aCentavosPorBase(753.09, 24, 1).line_total);
   });
 });

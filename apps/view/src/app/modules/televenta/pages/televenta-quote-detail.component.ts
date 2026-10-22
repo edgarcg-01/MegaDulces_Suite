@@ -678,14 +678,12 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                 </p>
               }
             </div>
-            <!-- [E.27] De dónde sale el descuento, mecanismo por mecanismo. Cierra exacto contra el importe. -->
+            <!-- [E.27] De dónde sale el descuento, mecanismo por mecanismo. Cierra exacto contra el importe.
+                 [E.28] Sin «unidad mayor»: Kepler cobra la presentación capturada, no prorratea solo. -->
             @if (desglose(); as d) {
               <div class="rail-totales rail-desglose" aria-label="Desglose del descuento">
                 <div class="tot-row"><span><b>Desglose del descuento</b></span></div>
                 <div class="tot-row"><span>Precio de lista</span><b>{{ d.lista | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
-                @if (d.unidad_mayor) {
-                  <div class="tot-row"><span>Por unidad mayor (caja prorrateada)</span><b>− {{ d.unidad_mayor | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
-                }
                 @if (d.volumen > 0) {
                   <div class="tot-row"><span>Por volumen</span><b>− {{ d.volumen | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
                 } @else if (d.volumen < 0) {

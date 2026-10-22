@@ -27,13 +27,15 @@ const clasifica = (l) => {
   const m = l.motor;
   if (m.error) return 'error_motor';
   if (m.unit_price === null) return 'sin_precio';
-  if (norm(m.unit_label) !== norm(l.un)) return 'unidad_distinta';
-  const ePu = r2(m.unit_price);
+  // [E.28] El motor cotiza la PRESENTACIÓN capturada; Kepler guarda por unidad BASE (c12, c66).
+  if (norm(m.unit_label) !== norm(l.entrada?.unidad ?? l.un)) return 'unidad_distinta';
+  const f = Number(m.unit_factor) > 0 ? Number(m.unit_factor) : 1;
+  const ePu = r2(m.unit_price / f);
   const kPu = r2(Number(l.pu));
   if (Math.abs(ePu - kPu) <= 0.005) return 'exacto';
   const kLista = l.lista === null ? null : r2(Number(l.lista));
   if (kLista === null) return 'kepler_sin_lista';
-  if (Math.abs(m.list_price - kLista) > 0.01) return 'lista_distinta';
+  if (Math.abs(r2(m.list_price / f) - kLista) > 0.01) return 'lista_distinta';
   if (Math.abs(kPu - kLista) <= 0.01) return 'kepler_cobro_lista_motor_bajo';
   if (kPu < ePu) return 'kepler_mas_barato';
   return 'kepler_mas_caro';
@@ -44,12 +46,17 @@ if (clasifica({ ...ctl, pu: 55.93 }) !== 'kepler_cobro_lista_motor_bajo') throw 
 
 // ── Renglones ──
 const clases = new Map();
+let cantCambio = 0;
 for (const l of renglones) {
   l.clase = clasifica(l);
   const c = clases.get(l.clase) || { n: 0, kepler: 0, motor: 0, dif: 0, ej: [] };
   c.n++;
   c.kepler += Number(l.imp);
-  const eTot = l.motor.line_total ?? 0;
+  // [E.28] Importe con la cantidad ASENTADA por Kepler (c9): el motor cotizó la pedida (c51), y en un
+  // pedido surtido pueden diferir. Precio por base × c9 = lo que el motor cobraría por lo asentado.
+  const fM = Number(l.motor.unit_factor) > 0 ? Number(l.motor.unit_factor) : 1;
+  const eTot = l.motor.unit_price == null ? 0 : r2(r2(l.motor.unit_price / fM) * Number(l.qty));
+  if (l.entrada && l.motor.unit_price != null && Math.abs(l.entrada.cantidad * fM - Number(l.qty)) > 0.001) cantCambio++;
   c.motor += eTot;
   c.dif += eTot - Number(l.imp);
   if (c.ej.length < 6) c.ej.push(l);
@@ -59,7 +66,8 @@ const N = renglones.length;
 const K = renglones.reduce((a, l) => a + Number(l.imp), 0);
 const docs = new Set(renglones.map((l) => l.suc + '|' + l.folio + '|' + l.serie)).size;
 console.log(`# Replay — pedidos de telemarketing U-D-40 de los últimos ${dias} día(s)`);
-console.log(`Universo: ${docs} pedidos · ${N} renglones · ${pesos(K)} cobrados por Kepler\n`);
+console.log(`Universo: ${docs} pedidos · ${N} renglones · ${pesos(K)} cobrados por Kepler`);
+console.log(`(renglones cuya cantidad asentada difiere de la capturada —surtido—: ${cantCambio}; su importe se compara con la asentada)\n`);
 console.log('## Renglón: ¿el motor da el mismo precio que Kepler?');
 console.log('| clase | renglones | % | importe Kepler | importe motor | motor − Kepler |');
 console.log('|---|---:|---:|---:|---:|---:|');
@@ -71,7 +79,7 @@ for (const [k, c] of clases) {
   console.log(`\n### ejemplos: ${k}`);
   for (const l of c.ej) {
     const m = l.motor;
-    console.log(`- ${l.suc} ${l.folio} · ${l.sku} · ${l.qty} ${l.un} · Kepler pu ${l.pu} lista ${l.lista} | motor ${m.unit_label ?? '-'} pu ${m.unit_price} lista ${m.list_price} · aplicó [${(m.applied || []).map((a) => a.step).join(',')}]${m.volume_tier ? ' tramo ' + JSON.stringify(m.volume_tier) : ''}${m.unpriced_reason ? ' · ' + m.unpriced_reason : ''}${m.error ? ' · ERROR ' + m.error : ''}`);
+    console.log(`- ${l.suc} ${l.folio} · ${l.sku} · capturado ${l.entrada ? l.entrada.cantidad + ' ' + l.entrada.unidad : '?'} = ${l.qty} ${l.un} · Kepler pu ${l.pu} lista ${l.lista} | motor ${m.unit_label ?? '-'} pu ${m.unit_price} lista ${m.list_price} · aplicó [${(m.applied || []).map((a) => a.step).join(',')}]${m.volume_tier ? ' tramo ' + JSON.stringify(m.volume_tier) : ''}${m.unpriced_reason ? ' · ' + m.unpriced_reason : ''}${m.error ? ' · ERROR ' + m.error : ''}`);
   }
 }
 
@@ -84,6 +92,7 @@ for (const l of renglones) {
   porDoc.set(k, d);
 }
 const tasa = (v) => Math.abs(Number(v || 0)) / 100;
+let dSurtido = 0;
 let dTot = 0, dIncons = 0, dExactos = 0, dTotalOk = 0, ivaA = 0, iepsA = 0, ivaB = 0, iepsB = 0, ambasB = 0, pctDocs = 0;
 let ivaC = 0, iepsC = 0, ambasC = 0, asumidosC = 0;
 const pad = { igual: 0, distinto: 0, fuera: 0, noMedido: 0 };
@@ -103,6 +112,11 @@ for (const [, d] of porDoc) {
   const kSuma = d.ls.reduce((a, l) => a + Number(l.imp), 0);
   if (Math.abs(r2(kSuma * (1 - pct)) - Number(h.importe)) > 0.05) { dIncons++; continue; }
   if (!d.ls.every((l) => l.clase === 'exacto')) continue;
+  // [E.28] Si una cantidad cambió al surtir, el importe de la cotización (lo pedido) no es el asentado.
+  if (d.ls.some((l) => {
+    const fM = Number(l.motor.unit_factor) > 0 ? Number(l.motor.unit_factor) : 1;
+    return l.entrada && Math.abs(l.entrada.cantidad * fM - Number(l.qty)) > 0.001;
+  })) { dSurtido++; continue; }
   dExactos++;
   const suma = d.ls.reduce((a, l) => a + l.motor.line_total, 0);
   const total = r2(suma * (1 - pct));
@@ -136,7 +150,7 @@ for (const [, d] of porDoc) {
   else if (ejC.length < 5) ejC.push(`${h.suc} ${h.folio}: Kepler total ${h.importe} IVA ${h.iva} IEPS ${h.ieps} · cotización ${t.total} / ${t.iva} / ${t.ieps}`);
 }
 console.log('\n## Pedido: importe e impuestos (cabecera consistente y TODOS sus renglones exactos)');
-console.log(`Pedidos: ${dTot} · cabecera que no cuadra con sus propios renglones (pedido vivo, se excluye): ${dIncons} · con cabecera consistente y TODOS los renglones exactos: ${dExactos}`);
+console.log(`Pedidos: ${dTot} · cabecera que no cuadra con sus propios renglones (pedido vivo, se excluye): ${dIncons} · con una cantidad que cambió al surtir (se excluye): ${dSurtido} · con cabecera consistente y TODOS los renglones exactos: ${dExactos}`);
 console.log(`- importe (Σ renglones × (1 − %cliente del pedido)) = c16: **${dTotalOk} de ${dExactos}**`);
 console.log(`- A · modelo actual (IVA 16 % fijo): IVA cuadra en ${ivaA} de ${dExactos}; IEPS (=0) en ${iepsA} de ${dExactos}`);
 console.log(`- B · tasa por producto (kdii c18/c19): IVA cuadra en ${ivaB}, IEPS en ${iepsB}, **ambos en ${ambasB} de ${dExactos}**`);
