@@ -1,42 +1,35 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { Subject, of, throwError } from 'rxjs';
-import type { BoardCustomer, BoardVendor, SetVendorTargetResponse, SupervisorBoardResponse } from '@megadulces/contracts';
-import { ComercialSupervisorBoardComponent, periodLabel, routeSpan, sortVendors } from './comercial-supervisor-board.component';
+import type { BoardVendor, SupervisorBoardResponse } from '@megadulces/contracts';
+import { ComercialSupervisorBoardComponent, money, periodLabel, routeSpan, sortVendors } from './comercial-supervisor-board.component';
 import { ComercialCarteraComponent } from './comercial-cartera.component';
 import { SupervisorBoardService } from '../supervisor-board.service';
 import { CarteraService } from '../cartera.service';
 
 /**
- * `[MCP.3.9]` Mis vendedores (tablero del supervisor). Lo que importa: (1) Cartera abre en el
- * tablero y las pestañas de asignación siguen; (2) venta null = «Sin medir», nunca $0; (3) la meta
- * sólo se edita con can_set_targets; (4) guardar manda el PUT con el period_start del periodo y
- * revierte si falla; (5) el detalle separa visitados y sin visitar; (6) error ≠ vacío.
+ * `[MCP.3.9]`/`[MCP.3.10]` Mis vendedores (tablero del supervisor), ya reducido a pedido de David:
+ * (1) sólo Vendedor · Ruta · Visitados · Venta hoy — sin totales, meta, avance ni detalle;
+ * (2) venta null = «Sin medir», nunca $0; (3) error ≠ vacío; (4) la fecha y el orden vienen de la
+ * barra de Cartera y la respuesta vieja no tapa a la nueva; (5) Cartera: dos pestañas y una barra.
  */
-const cli = (o: Partial<BoardCustomer>): BoardCustomer => ({
-  customer_id: 'c', name: 'Cliente', code: null, visited_at: null, result: null, reason: null, ...o,
-});
 const vend = (o: Partial<BoardVendor> = {}): BoardVendor => ({
   user_id: 'v1', name: 'Rosa', routes: ['1V003 ROSA PEREZ'], day_state: 'finalizada',
   started_at: '2026-10-22T14:12:00Z', finished_at: '2026-10-22T20:37:00Z',
-  customers_total: 3, customers_visited: 2,
-  customers: [
-    cli({ customer_id: 'a', name: 'ABARROTES LUPITA', visited_at: '2026-10-22T16:05:00Z', result: 'con_pedido' }),
-    cli({ customer_id: 'b', name: 'TIENDA DON BETO', visited_at: '2026-10-22T15:30:00Z', result: 'sin_pedido', reason: 'sin_recursos' }),
-    cli({ customer_id: 'c', name: 'MISCELANEA CHUY' }),
-  ],
+  customers_total: 3, customers_visited: 2, customers: [],
   sales_day: { amount: 1500, tickets: 3, unmeasured_reason: null },
   sales_period: { amount: 20000, tickets: 30, unmeasured_reason: null },
   target: 40000, progress_pct: 50, ...o,
 });
+const SIN_KEPLER = 'Su ruta no tiene vendedor de Kepler';
 const RESP = (o: Partial<SupervisorBoardResponse> = {}): SupervisorBoardResponse => {
   const vendors = o.vendors ?? [
     vend(),
     vend({
       user_id: 'v2', name: 'Beto', routes: ['1V010'], day_state: 'en_ruta', finished_at: null,
-      sales_day: { amount: null, tickets: null, unmeasured_reason: 'Su ruta no tiene vendedor de Kepler' },
-      sales_period: { amount: null, tickets: null, unmeasured_reason: 'Su ruta no tiene vendedor de Kepler' },
-      target: null, progress_pct: null, customers_visited: 0, customers: [cli({ customer_id: 'z', name: 'ZAPATA' })], customers_total: 1,
+      sales_day: { amount: null, tickets: null, unmeasured_reason: SIN_KEPLER },
+      sales_period: { amount: null, tickets: null, unmeasured_reason: SIN_KEPLER },
+      target: null, progress_pct: null, customers_visited: 0, customers_total: 1,
     }),
   ];
   return {
@@ -49,25 +42,24 @@ const RESP = (o: Partial<SupervisorBoardResponse> = {}): SupervisorBoardResponse
   };
 };
 
-async function montar(resp: () => ReturnType<SupervisorBoardService['board']>, put?: () => ReturnType<SupervisorBoardService['setTarget']>) {
-  const svc = {
-    board: vi.fn(resp),
-    setTarget: vi.fn(put ?? (() => of({ user_id: 'v1', period_start: '2026-10-17', amount: 50000 } as SetVendorTargetResponse))),
-  };
+async function montar(resp: (date: string) => ReturnType<SupervisorBoardService['board']>) {
+  const svc = { board: vi.fn(resp) };
   await TestBed.configureTestingModule({
     imports: [ComercialSupervisorBoardComponent],
     providers: [{ provide: SupervisorBoardService, useValue: svc }],
   }).compileComponents();
   const fix = TestBed.createComponent(ComercialSupervisorBoardComponent);
+  fix.componentRef.setInput('date', '2026-10-22');
   fix.detectChanges();
   await fix.whenStable();
   fix.detectChanges();
   const el = fix.nativeElement as HTMLElement;
   const texto = () => el.textContent?.replace(/\s+/g, ' ') ?? '';
-  return { fix, el, texto, svc, cmp: fix.componentInstance };
+  const headers = () => [...el.querySelectorAll('th')].map((t) => t.textContent?.trim());
+  return { fix, el, texto, headers, svc, cmp: fix.componentInstance };
 }
 
-describe('ComercialSupervisorBoardComponent · [MCP.3.9]', () => {
+describe('ComercialSupervisorBoardComponent · [MCP.3.10]', () => {
   afterEach(() => TestBed.resetTestingModule());
 
   it('⛔ un error se dice como error, nunca como «nadie tiene ruta»', async () => {
@@ -78,160 +70,115 @@ describe('ComercialSupervisorBoardComponent · [MCP.3.9]', () => {
 
   it('vacío real con el alcance: «Nadie de tu equipo tiene ruta vecinal…»', async () => {
     const { texto } = await montar(() => of(RESP({ vendors: [] })));
-    expect(texto()).toMatch(/Nadie de tu equipo tiene ruta vecinal (hoy|ese día)/);
+    expect(texto()).toContain('Nadie de tu equipo tiene ruta vecinal');
   });
 
-  it('encabezado: alcance, catorcena y día del periodo', async () => {
-    const { texto } = await montar(() => of(RESP()));
-    expect(texto()).toContain('Rutas vecinales');
-    expect(texto()).toContain('Catorcena 17–30 oct');
-    expect(texto()).toContain('día 6 de 14');
+  it('⭐ sólo cuatro columnas: sin meta, avance, venta de la catorcena, totales ni detalle', async () => {
+    const { el, texto, headers } = await montar(() => of(RESP()));
+    expect(headers()).toEqual(['Vendedor', 'Ruta de hoy', 'Visitados', 'Venta hoy']);
+    expect(el.querySelector('app-metric-strip')).toBeNull();
+    expect(el.querySelector('app-context-help')).toBeNull();
+    expect(el.querySelector('aside')).toBeNull();
+    expect(el.querySelector('p-inputnumber')).toBeNull();
+    expect(texto()).not.toContain('Catorcena');
   });
 
-  it('⭐ fila por vendedor: código de ruta sin el nombre, inicio–fin, «En ruta desde», visitados', async () => {
-    const { texto } = await montar(() => of(RESP()));
-    expect(texto()).toContain('1V003');
-    expect(texto()).not.toContain('ROSA PEREZ');
-    expect(texto()).toContain('8:12 – 14:37');
-    expect(texto()).toContain('En ruta desde 8:12');
-    expect(texto()).toContain('2 de 3');
+  it('⛔ la base de tabla va en la <table> de adentro (en el <p-table> no aplica: salía sin padding ni encabezado)', async () => {
+    const { el } = await montar(() => of(RESP()));
+    expect(el.querySelector('table.surf-table--plain')).not.toBeNull();
+    expect(el.querySelector('.sb-panel')).not.toBeNull();
+    expect(el.querySelectorAll('p-tag').length).toBe(2);
+  });
+
+  it('⭐ el nombre es un botón (teclado): avisa qué vendedor abrir', async () => {
+    const { el, cmp, fix } = await montar(() => of(RESP()));
+    const pedidos: string[] = [];
+    cmp.openVendor.subscribe((id) => pedidos.push(id));
+    (el.querySelectorAll('button.sb-name')[1] as HTMLButtonElement).click();
+    fix.detectChanges();
+    expect(pedidos).toEqual(['v2']);
+  });
+
+  it('fila por vendedor: código de ruta sin el nombre, inicio–fin, «En ruta desde», visitados', async () => {
+    const { el } = await montar(() => of(RESP()));
+    const filas = [...el.querySelectorAll('tbody tr')].map((r) => r.textContent?.replace(/\s+/g, ' ') ?? '');
+    expect(filas[0]).toContain('Rosa');
+    expect(filas[0]).toContain('1V003');
+    expect(filas[0]).not.toContain('ROSA PEREZ');
+    expect(filas[0]).toContain('Terminó');
+    expect(filas[0]).toMatch(/8:12 – 14:37/);
+    expect(filas[0]).toContain('67 %');
+    expect(filas[0]).toContain('2 de 3');
+    expect(filas[1]).toContain('En ruta');
+    expect(filas[1]).toMatch(/desde 8:12/);
   });
 
   it('⛔ venta null se pinta «Sin medir» con su motivo, nunca $0', async () => {
     const { el } = await montar(() => of(RESP()));
-    const sm = el.querySelectorAll('.sb-unmeasured');
-    expect(sm.length).toBe(2);
-    expect(sm[0].getAttribute('title')).toBe('Su ruta no tiene vendedor de Kepler');
-    const fila = [...el.querySelectorAll('tbody tr')].find((tr) => tr.textContent?.includes('Beto'))!;
-    expect(fila.textContent).toContain('Sin medir');
-    expect(fila.textContent).not.toContain('$0');
+    const beto = [...el.querySelectorAll('tbody tr')][1];
+    const sm = beto.querySelector('.sb-unmeasured') as HTMLElement;
+    expect(sm.textContent?.trim()).toBe('Sin medir');
+    expect(sm.getAttribute('title')).toBe(SIN_KEPLER);
+    expect(beto.textContent).not.toContain('$0');
   });
 
-  it('⛔ totales: venta del equipo null → «Sin medir» con motivo; parcial si falta un vendedor', async () => {
-    const { cmp } = await montar(() => of(RESP()));
-    const hoy = cmp.kpis().find((k) => k.label === 'Venta cobrada hoy')!;
-    expect(hoy.state).toBe('parcial');
-    expect(hoy.stateNote).toContain('1 de 2 vendedores sin medir');
-    const cat = cmp.kpis().find((k) => k.label === 'Venta de la catorcena')!;
-    expect(cat.sub).toContain('avance 50 %');
-    expect(cat.sub).toContain('1 de 2 con meta');
-    cmp.data.set(RESP({ totals: { vendors: 2, customers_total: 4, customers_visited: 2, sales_day: null, sales_period: null, target: null } }));
-    const nulo = cmp.kpis().find((k) => k.label === 'Venta cobrada hoy')!;
-    expect(nulo.state).toBe('no_medido');
-    expect(nulo.value).toBe('Sin medir');
-    expect(nulo.stateNote).toContain('Su ruta no tiene vendedor de Kepler');
+  it('si la venta no se midió para NADIE (Ruta directa), la columna «Venta hoy» no se pinta', async () => {
+    const nadie = { amount: null, tickets: null, unmeasured_reason: 'Ruta directa' };
+    const { headers } = await montar(() => of(RESP({ scope: 'directa', vendors: [vend({ sales_day: nadie })] })));
+    expect(headers()).toEqual(['Vendedor', 'Ruta de hoy', 'Visitados']);
   });
 
-  it('meta editable SÓLO con can_set_targets; sin permiso se muestra el valor o «Sin meta»', async () => {
-    const { el, cmp, fix, texto } = await montar(() => of(RESP()));
-    expect(el.querySelectorAll('p-inputnumber').length).toBe(2);
-    cmp.data.set(RESP({ can_set_targets: false }));
+  it('la fecha viene de la barra: cambiarla vuelve a pedir el tablero de ese día', async () => {
+    const { fix, svc } = await montar(() => of(RESP()));
+    expect(svc.board).toHaveBeenLastCalledWith('2026-10-22');
+    fix.componentRef.setInput('date', '2026-10-20');
     fix.detectChanges();
-    expect(el.querySelectorAll('p-inputnumber').length).toBe(0);
-    expect(texto()).toContain('$40,000');
-    expect(texto()).toContain('Sin meta');
+    expect(svc.board).toHaveBeenLastCalledWith('2026-10-20');
   });
 
-  it('sin permiso y sin meta para nadie: no se pinta ni Meta ni Avance (columna vacía)', async () => {
-    const vs = [vend({ target: null, progress_pct: null })];
-    const { el } = await montar(() => of(RESP({ can_set_targets: false, vendors: vs })));
-    const ths = [...el.querySelectorAll('thead th')].map((t) => t.textContent?.trim());
-    expect(ths).toEqual(['Vendedor', 'Ruta', 'Visitados', 'Venta hoy', 'Venta catorcena']);
-  });
-
-  it('⭐ guardar manda el PUT con el period_start del periodo y queda la meta nueva', async () => {
-    const { cmp, svc } = await montar(() => of(RESP()));
-    const v = cmp.data()!.vendors[0];
-    cmp.setDraft(v.user_id, 50000);
-    expect(cmp.dirty(v)).toBe(true);
-    cmp.saveTarget(v);
-    expect(svc.setTarget).toHaveBeenCalledWith({ user_id: 'v1', period_start: '2026-10-17', amount: 50000 });
-    const after = cmp.data()!.vendors[0];
-    expect(after.target).toBe(50000);
-    expect(after.progress_pct).toBe(40);
-    expect(cmp.saving()).toBeNull();
-  });
-
-  it('⛔ si el PUT falla, la meta vuelve a la anterior (optimista con rollback)', async () => {
-    const res$ = new Subject<SetVendorTargetResponse>();
-    const { cmp } = await montar(() => of(RESP()), () => res$.asObservable());
-    const v = cmp.data()!.vendors[0];
-    cmp.setDraft(v.user_id, 90000);
-    cmp.saveTarget(v);
-    // Optimista: ya se ve la nueva mientras el servidor contesta.
-    expect(cmp.data()!.vendors[0].target).toBe(90000);
-    expect(cmp.saving()).toBe('v1');
-    // Doble clic del pánico: no manda otro PUT.
-    cmp.saveTarget(cmp.data()!.vendors[0]);
-    res$.error({ error: { message: 'Sin permiso' } });
-    expect(cmp.data()!.vendors[0].target).toBe(40000);
-    expect(cmp.data()!.vendors[0].progress_pct).toBe(50);
-    expect(cmp.saving()).toBeNull();
-  });
-
-  it('meta negativa no se manda; sin permiso no se manda', async () => {
-    const { cmp, svc } = await montar(() => of(RESP()));
-    const v = cmp.data()!.vendors[0];
-    cmp.setDraft(v.user_id, -5);
-    cmp.saveTarget(v);
-    expect(svc.setTarget).not.toHaveBeenCalled();
-    cmp.data.set(RESP({ can_set_targets: false }));
-    cmp.setDraft('v1', 100);
-    cmp.saveTarget(cmp.data()!.vendors[0]);
-    expect(svc.setTarget).not.toHaveBeenCalled();
-  });
-
-  it('⭐ el detalle separa «Visitados» (por hora, con resultado y motivo) de «Sin visitar»', async () => {
-    const { cmp, fix, el, texto } = await montar(() => of(RESP()));
-    expect(el.querySelector('#sb-detail')).toBeNull();
-    cmp.select('v1');
+  it('⛔ la respuesta vieja no tapa a la nueva', async () => {
+    const lenta = new Subject<SupervisorBoardResponse>();
+    const { fix, cmp } = await montar((d) => (d === '2026-10-22' ? lenta : of(RESP({ date: '2026-10-20' }))));
+    fix.componentRef.setInput('date', '2026-10-20');
     fix.detectChanges();
-    const det = el.querySelector('#sb-detail')!;
-    expect(det).not.toBeNull();
-    expect(texto()).toContain('Visitados (2)');
-    expect(texto()).toContain('Sin visitar (1)');
-    const visitados = [...det.querySelectorAll('ul')[0].querySelectorAll('.sb-cname')].map((x) => x.textContent?.trim());
-    expect(visitados).toEqual(['TIENDA DON BETO', 'ABARROTES LUPITA']);
-    expect(det.querySelectorAll('ul')[1].textContent).toContain('MISCELANEA CHUY');
-    expect(det.textContent).toContain('No tiene dinero');
-    expect(det.textContent).toContain('Con pedido');
+    lenta.next(RESP({ date: '2026-10-22' }));
+    expect(cmp.data()?.date).toBe('2026-10-20');
   });
 
-  it('orden por avance: el más atrasado primero y los sin meta al final', () => {
-    const a = vend({ user_id: 'a', name: 'A', progress_pct: 80 });
-    const b = vend({ user_id: 'b', name: 'B', progress_pct: null });
-    const c = vend({ user_id: 'c', name: 'C', progress_pct: 10 });
-    expect(sortVendors([a, b, c], 'avance').map((v) => v.user_id)).toEqual(['c', 'a', 'b']);
-    const d = vend({ user_id: 'd', name: 'D', sales_period: { amount: null, tickets: null, unmeasured_reason: 'x' } });
-    const e = vend({ user_id: 'e', name: 'E', sales_period: { amount: 5, tickets: 1, unmeasured_reason: null } });
-    expect(sortVendors([d, e, a], 'venta').map((v) => v.user_id)).toEqual(['a', 'e', 'd']);
+  it('orden: Venta = la de HOY, mayor primero y la sin medir al final; Nombre alfabético', () => {
+    const sinMedir = { amount: null, tickets: null, unmeasured_reason: 'x' };
+    const a = vend({ user_id: 'a', name: 'Ana', sales_day: { amount: 100, tickets: 1, unmeasured_reason: null } });
+    const b = vend({ user_id: 'b', name: 'Beto', sales_day: sinMedir });
+    const c = vend({ user_id: 'c', name: 'Carla', sales_day: { amount: 900, tickets: 1, unmeasured_reason: null } });
+    const z = vend({ user_id: 'z', name: 'Zoe', sales_day: { amount: 0, tickets: 0, unmeasured_reason: null } });
+    expect(sortVendors([a, b, c, z], 'venta').map((v) => v.user_id)).toEqual(['c', 'a', 'z', 'b']);
+    expect(sortVendors([c, b, a], 'nombre').map((v) => v.user_id)).toEqual(['a', 'b', 'c']);
   });
 
-  it('helpers: periodo que cruza de mes y «Sin iniciar»', () => {
+  it('helpers: periodo que cruza de mes, «Sin iniciar», dinero del texto de Postgres y vacío = —', () => {
+    expect(periodLabel('2026-10-17', '2026-10-30')).toBe('17–30 oct');
     expect(periodLabel('2026-10-31', '2026-11-13')).toBe('31 oct – 13 nov');
     expect(routeSpan(vend({ day_state: 'sin_iniciar', started_at: null, finished_at: null }))).toBe('Sin iniciar');
-  });
-
-  it('cambiar la fecha vuelve a pedir el tablero de ese día', async () => {
-    const { cmp, svc } = await montar(() => of(RESP()));
-    cmp.setDate(new Date('2026-10-20T18:00:00Z'));
-    expect(svc.board).toHaveBeenLastCalledWith('2026-10-20');
+    expect(money('1500.50')).toMatch(/1,501|1,500/);
+    expect(money(null)).toBe('—');
+    expect(money('')).toBe('—');
   });
 });
 
-describe('ComercialCarteraComponent · pestañas [MCP.3.9]', () => {
+describe('ComercialCarteraComponent · una barra, dos pestañas [MCP.3.10]', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  async function montarCartera() {
+  async function montarCartera(vista: string | null = null) {
     const cartera = {
-      listVendors: vi.fn(() => of([])), listSalesRoutes: vi.fn(() => of([])),
+      listVendors: vi.fn(() => of([])), teamAgenda: vi.fn(() => of([])),
       routesWarehouses: vi.fn(() => of({ warehouses: [], routes: [] })),
     };
-    const board = { board: vi.fn(() => of(RESP())), setTarget: vi.fn() };
+    const board = { board: vi.fn(() => of(RESP())), vendorSummary: vi.fn(), setTarget: vi.fn() };
     await TestBed.configureTestingModule({
       imports: [ComercialCarteraComponent],
       providers: [
         provideRouter([]),
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(vista ? { vista } : {}) } } },
         { provide: CarteraService, useValue: cartera },
         { provide: SupervisorBoardService, useValue: board },
       ],
@@ -241,21 +188,46 @@ describe('ComercialCarteraComponent · pestañas [MCP.3.9]', () => {
     await fix.whenStable();
     fix.detectChanges();
     const el = fix.nativeElement as HTMLElement;
-    return { fix, el, cartera, board, cmp: fix.componentInstance };
+    const opciones = () => [...el.querySelectorAll('.ca-bar app-segmented')].map((s) =>
+      [...s.querySelectorAll('[role=radio]')].map((b) => b.textContent?.trim()));
+    return { fix, el, cartera, board, opciones, cmp: fix.componentInstance };
   }
 
-  it('⭐ abre en «Mis vendedores»; «Visitas del día» ya no es pestaña; las de asignación siguen', async () => {
-    const { el, cmp, cartera, board } = await montarCartera();
+  it('⭐ abre en «Mis vendedores»: pestañas y «Ordenar» en la MISMA barra, y la frescura «Venta Kepler»', async () => {
+    const { el, cmp, board, cartera, opciones } = await montarCartera();
     expect(cmp.view()).toBe('tablero');
     expect(el.querySelector('app-comercial-supervisor-board')).not.toBeNull();
     expect(board.board).toHaveBeenCalled();
-    const tabs = [...el.querySelectorAll('.ca-tab')].map((t) => t.textContent?.trim());
-    expect(tabs).toEqual(['Mis vendedores', 'Asignar rutas', 'Sucursal por ruta']);
+    expect(opciones()).toEqual([['Mis vendedores', 'Asignar rutas'], ['Venta', 'Nombre']]);
+    expect(el.textContent).not.toContain('Sucursal por ruta');
+    expect(el.querySelector('.ca-bar app-freshness-pill')).not.toBeNull();
+    expect(cmp.boardFreshness()?.status).toBe('fresh');
     // La asignación no se pide hasta abrir su pestaña.
-    expect(cartera.listSalesRoutes).not.toHaveBeenCalled();
-    cmp.showVendedores();
-    expect(cartera.listSalesRoutes).toHaveBeenCalledTimes(1);
-    cmp.showSucursales();
-    expect(cartera.routesWarehouses).toHaveBeenCalledTimes(1);
+    expect(cartera.listVendors).not.toHaveBeenCalled();
+  });
+
+  it('«Asignar rutas» monta el menú de vendedores y oculta «Ordenar»', async () => {
+    const { fix, el, cmp, cartera, opciones } = await montarCartera();
+    cmp.setView('vendedores');
+    fix.detectChanges();
+    expect(el.querySelector('app-comercial-vendor-menu')).not.toBeNull();
+    expect(cartera.listVendors).toHaveBeenCalledTimes(1);
+    expect(opciones()).toEqual([['Mis vendedores', 'Asignar rutas']]);
+  });
+
+  it('⭐ del tablero al Resumen: clic en un vendedor abre «Asignar rutas» en ese vendedor', async () => {
+    const { fix, el, cmp, board } = await montarCartera();
+    board.vendorSummary.mockReturnValue(of({ ...RESP(), user_id: 'v1' }) as never);
+    cmp.openVendor('v1');
+    fix.detectChanges();
+    await fix.whenStable();
+    expect(cmp.view()).toBe('vendedores');
+    expect(el.querySelector('app-comercial-vendor-menu')).not.toBeNull();
+    expect(board.vendorSummary).toHaveBeenCalledWith('v1', cmp.date());
+  });
+
+  it('enlaces viejos: ?vista=sucursales (ya no existe) abre «Asignar rutas»', async () => {
+    const { cmp } = await montarCartera('sucursales');
+    expect(cmp.view()).toBe('vendedores');
   });
 });

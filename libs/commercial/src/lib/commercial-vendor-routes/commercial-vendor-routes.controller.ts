@@ -191,15 +191,17 @@ export class CommercialVendorRoutesController {
     return this.service.assign(body);
   }
 
+  // `[MCP.3.11]` Con CUALQUIERA de las dos: quien administra la cartera, o quien sólo puede cambiar la
+  // sucursal de una ruta (el supervisor). El servicio recorta al tipo de ruta de quien consulta.
   @Get('routes-warehouses')
-  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
+  @RequireAnyPermission(Permission.COMMERCIAL_CARTERA_GESTIONAR, Permission.COMMERCIAL_ROUTE_WAREHOUSE_GESTIONAR)
   @ApiOperation({ summary: 'Rutas del catálogo con su sucursal de surtido asignada + sugerencia por zona (para asignar)' })
   routesWarehouses() {
     return this.service.listRoutesWithWarehouse();
   }
 
   @Put('routes/:routeId/warehouse')
-  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
+  @RequireAnyPermission(Permission.COMMERCIAL_CARTERA_GESTIONAR, Permission.COMMERCIAL_ROUTE_WAREHOUSE_GESTIONAR)
   @ApiOperation({ summary: 'Asigna/cambia la sucursal de surtido de una ruta (idempotente)' })
   setRouteWarehouse(@Param('routeId') routeId: string, @Body('warehouse_id') warehouseId: string) {
     return this.service.setRouteWarehouse(routeId, warehouseId);

@@ -478,8 +478,9 @@ export class CommercialVendorRoutesService {
         if (!me) return [];
         q = q.where('supervisor_id', me);
       }
-      const vendors: { id: string; username: string; role_name: string }[] = await q
-        .select('id', 'username', 'role_name')
+      // `[MCP.3.10]` `nombre` para el menú de vendedores de «Asignar rutas» (el usuario no dice quién es).
+      const vendors: { id: string; username: string; role_name: string; nombre: string | null }[] = await q
+        .select('id', 'username', 'role_name', 'nombre')
         .orderBy('username');
       // `[MCP.3.9]` Alcance por tipo de ruta: fuera sólo quien tiene rutas (agenda o cartera) y
       // NINGUNA del alcance. Quien no tiene ninguna se queda: hay que poder asignarle la primera.
