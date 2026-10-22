@@ -18,7 +18,7 @@
 | 384 | 420 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
 | 421 | 537 | 7 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
 | 538 | 582 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
-| 583 | 606 | 2 | 2.9 ⭐ Los códigos SIMBÓLICOS: promociones, bonificaciones y ajustes viven en `kdii` a $0.01 (medido 2026-10-22 |
+| 583 | 606 | 3 | 2.9 ⭐ Los códigos SIMBÓLICOS: promociones, bonificaciones y ajustes viven en `kdii` a $0.01 (medido 2026-10-22 |
 | 607 | 645 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
 | 646 | 804 | 10 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
 | 805 | 919 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
@@ -598,7 +598,7 @@ Tipos que aparecen: **promociones** («5 CJS … = GRATIS 1 CJ …», «$15,000 
 
 ⚠️ **Cómo se distinguen de un producto sin precio** (`[ETQ-PROMO.1]`, `codigo-simbolico.ts`): el nombre trae «= GRATIS» **o** el precio es exactamente **$0.01 en todas las plazas**. ⛔ Un precio en **0.00** NO es señal: un producto nuevo sin precio está a 0 en todas las plazas y sí hay que ponerle precio. ⛔ $0.01 en UNA plaza tampoco: un producto real puede tener un precio de paso en una tienda.
 
-⚠️ **Quién consume la regla** (`esCodigoSimbolico`, `libs/contracts`): el mensaje de «por qué no hay precio» de la etiquetera, la marca «Promoción» de su buscador, el **verificador de precios** (`es_promocion` en vivo, `pm` en el respaldo, formato 4) y el buscador del mostrador. **El verificador NO pasa por `v_label_prices`**: lee `kdii` directo y por eso **mostraba el $0.01 como precio** hasta `[ETQ-PROMO.2]`.
+⚠️ **Quién consume la regla** (`esCodigoSimbolico`, `libs/contracts`): el mensaje de «por qué no hay precio» de la etiquetera, la marca «Promoción» de su buscador, el **buscador del mostrador** («¿Te pidieron algo?»: su ventana NO consulta existencia ni anota faltante de una promoción, porque la existencia de un código simbólico es 0 por construcción), el **verificador de precios** (`es_promocion` en vivo, `pm` en el respaldo, formato 4) y el buscador del mostrador. **El verificador NO pasa por `v_label_prices`**: lee `kdii` directo y por eso **mostraba el $0.01 como precio** hasta `[ETQ-PROMO.2]`.
 
 ⚠️ `v_label_prices` sólo emite filas con `c90 > 0.05`: estos códigos **nunca** aparecen ahí, y cualquier consumidor que lea «ausente de esa vista» como «sin precio» los confunde con un producto pendiente de precio. Medir contra `kepler_ods.kdii`, no contra la vista.
 
