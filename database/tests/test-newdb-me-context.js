@@ -349,8 +349,16 @@ const tieneDecoradorPermisos = (tramo) =>
   // `finanzas.cartera`. Van DOS entradas a propósito: medido en prod, 0 ejercicios y 156
   // obligaciones — con un solo contador el 0 se esconde detrás del 156, y el 0 es el que dice que
   // nadie mandó un presupuesto a firmar.
-  check('cada cola declara su responsabilidad (16 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
-    declaradas.length === 25, declaradas);
+  // `[PGP.3]` +2 COLAS pero +1 CLAVE: «pagos sin preparar» y «días de pago sin autorizar» son las
+  // dos puertas de la misma responsabilidad (`finanzas.pagos`), igual que `finanzas.cartera` y
+  // `finanzas.presupuesto`. Van DOS a propósito, y acá la razón se midió: el 2026-10-22 había
+  // **10 pagos sin preparar y 0 días autorizables**, y con un solo contador el 10 se come al 0 —
+  // que es justo el que dice que el trabajo detenido NO es de quien firma.
+  // ⚠️ **Y el esperado venía desfasado otra vez**: 25 declarado contra **26 reales** antes de este
+  // cambio, o sea que una cola anterior entró sin actualizar la cuenta — la misma nota que dejó
+  // `[MS.3.8]` sobre su propio desfase. 26 + las dos de pagos = 28.
+  check('cada cola declara su responsabilidad (18 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
+    declaradas.length === 28, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);
