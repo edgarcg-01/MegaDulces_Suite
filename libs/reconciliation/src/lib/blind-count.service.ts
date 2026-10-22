@@ -41,10 +41,20 @@ const MEDIOS_CUADRABLES: Record<string, string> = {
  * Kepler. rd/rv son la entrega del VENDEDOR DE RUTA en la tienda: no hay turno
  * de caja, no hay esperado, y la diferencia se declara no medible.
  */
-export const TIPOS_VALIDOS = ['cierre', 'relevo', 'retiro', 'rd', 'rv'] as const;
+export const TIPOS_VALIDOS = ['cierre', 'relevo', 'retiro', 'rd', 'rv', 'sin_caja'] as const;
 export type TipoArqueo = typeof TIPOS_VALIDOS[number];
 /** Los que NO se comparan contra el corte del dia (intra-turno o sin turno). */
-export const TIPOS_SIN_CORTE: readonly string[] = ['relevo', 'retiro', 'rd', 'rv'];
+export const TIPOS_SIN_CORTE: readonly string[] = ['relevo', 'retiro', 'rd', 'rv', 'sin_caja'];
+/**
+ * SM.47 - «Conteo de efectivo»: efectivo que no es de ninguna caja. Se guarda con
+ * este literal en `caja` (como RD/RV guardan su estacion) porque `caja` entra a la
+ * clave unica y NULL no deduplica.
+ */
+export const CAJA_SIN_CAJA = 'SIN_CAJA';
+/** SM.47 - Tope del motivo; el CHECK de la tabla exige lo mismo. */
+export const MOTIVO_MAX = 200;
+/** Los tipos que se numeran 1,2,3... en el dia (los demas son unicos). */
+const TIPOS_NUMERADOS: readonly string[] = ['retiro', 'sin_caja'];
 
 /**
  * SM.38 - Ventana del aviso de doble caja.
@@ -182,7 +192,9 @@ export interface BlindCountDto {
   turno?: string;
   cajero_code?: string;           // cierre: cajero que cierra · relevo: cajero SALIENTE
   cajero_entrante?: string;       // solo relevo: quién recibe la caja
-  tipo?: 'cierre' | 'relevo' | 'retiro' | 'rd' | 'rv';   // default 'cierre'
+  tipo?: TipoArqueo;   // default 'cierre'
+  /** SM.47 - Solo `sin_caja`: por que se conto ese dinero. Obligatorio ahi (1-200). */
+  motivo?: string;
   /**
    * SM.36 — Solo rd/rv: la ruta que entrega. Es la `route_key` del catalogo
    * (21, 501, RVPH01, VECINAL1...), y el CHECK de la tabla la exige presente
@@ -709,13 +721,13 @@ export class BlindCountService {
    * Queda dicho, no escondido.
    */
   private async secuenciaDe(trx: Knex.Transaction, tenantId: string, dto: BlindCountDto, tipo: TipoArqueo): Promise<number> {
-    if (tipo !== 'retiro') return 1;
+    if (!TIPOS_NUMERADOS.includes(tipo)) return 1;
     const pedida = Number(dto.secuencia);
     if (Number.isInteger(pedida) && pedida >= 1) return pedida;
     const row = await trx('reconciliation.blind_counts')
       .where({
         tenant_id: tenantId, warehouse_code: dto.warehouse_code,
-        caja: dto.caja, business_date: dto.business_date, tipo: 'retiro',
+        caja: dto.caja, business_date: dto.business_date, tipo,
       })
       // Mismo grano que la clave única, que compara con COALESCE(cajero_code,'').
       .modify((q: Knex.QueryBuilder) => {
@@ -749,6 +761,17 @@ export class BlindCountService {
     const incidencia = dto.incidencia_tipo && INCIDENCIAS.includes(dto.incidencia_tipo) ? dto.incidencia_tipo : null;
     if (dto.incidencia_tipo && !incidencia) throw new BadRequestException(`incidencia_tipo inválido (${INCIDENCIAS.join('|')})`);
     const medios = this.saneaMedios(dto.medios);
+    // SM.47 - El motivo es de `sin_caja` y solo de `sin_caja` (lo exige tambien el CHECK).
+    const motivo = (dto.motivo || '').trim() || null;
+    if (tipo === 'sin_caja' && !motivo) {
+      throw new BadRequestException('Escribe el motivo del conteo.');
+    }
+    if (motivo && motivo.length > MOTIVO_MAX) {
+      throw new BadRequestException(`El motivo admite hasta ${MOTIVO_MAX} caracteres.`);
+    }
+    if (tipo !== 'sin_caja' && motivo) {
+      throw new BadRequestException('motivo solo aplica al conteo de efectivo sin caja.');
+    }
 
     const { result, badCut } = await this.tk.run(async (trx) => {
       const secuencia = await this.secuenciaDe(trx, tenantId, dto, tipo);
@@ -765,6 +788,7 @@ export class BlindCountService {
         caja_kepler: dto.caja_kepler ? String(dto.caja_kepler) : null,
         turno_abierto_at: dto.turno_abierto_at || null,
         route_code: routeCode,
+        motivo,
       };
       await trx('reconciliation.blind_counts')
         .insert(row)
@@ -779,7 +803,7 @@ export class BlindCountService {
           medios: row.medios,
           nota: row.nota, photo_url: row.photo_url, captured_by: row.captured_by, incidencia_tipo: incidencia,
           cash_cut_folio: row.cash_cut_folio, caja_kepler: row.caja_kepler, turno_abierto_at: row.turno_abierto_at,
-          route_code: row.route_code,
+          route_code: row.route_code, motivo: row.motivo,
           validado_por: null, validado_at: null, validado_nota: null,
           captured_at: trx.fn.now(),
         });
@@ -787,7 +811,7 @@ export class BlindCountService {
       // intra-turno y el corte todavía no existe. El retiro se cuadra al cerrar,
       // cuando la identidad `Σ retiros + cajón = contado` ya se puede evaluar.
       if (TIPOS_SIN_CORTE.includes(tipo)) {
-        this.logger.log(`arqueo relevo suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: ${dto.cajero_code || '?'}→${dto.cajero_entrante || '?'} entregó ${total}`);
+        this.logger.log(`arqueo ${tipo} suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: ${dto.cajero_code || '?'}→${dto.cajero_entrante || '?'} entregó ${total}`);
         return { result: { tipo, secuencia, total_contado: total, matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false }, badCut: null as ReconBadCutItem | null };
       }
       const cmp = await this.compare(trx, tenantId, dto, total, medios);
@@ -1353,7 +1377,7 @@ export class BlindCountService {
           'bc.cash_cut_folio', 'bc.caja_kepler', 'bc.turno_abierto_at',
           'bc.validado_por', 'bc.validado_at', 'bc.validado_nota',
           trx.raw('pc.nombre AS cajero_nombre'), trx.raw('bc.total_contado::numeric AS total_contado'),
-          'bc.captured_by', 'bc.captured_at', 'bc.nota', 'bc.incidencia_tipo',
+          'bc.captured_by', 'bc.captured_at', 'bc.nota', 'bc.incidencia_tipo', 'bc.motivo',
           trx.raw('cc.efectivo_esperado::numeric AS esperado'),
           trx.raw('cc.efectivo_contado::numeric AS kepler_contado'),
           trx.raw('cc.efectivo_diff::numeric AS kepler_diff'),
@@ -1477,6 +1501,8 @@ export class BlindCountService {
           cash_cut_folio: r.cash_cut_folio || null, caja_kepler: r.caja_kepler || null, turno_abierto_at: r.turno_abierto_at || null,
           validado_por: r.validado_por || null, validado_at: r.validado_at || null, validado_nota: r.validado_nota || null,
           captured_by: r.captured_by, captured_at: r.captured_at, nota: r.nota, incidencia_tipo: r.incidencia_tipo || null,
+          // SM.47 - Por que se conto (solo `sin_caja`).
+          motivo: r.motivo || null,
           // [SM.43] Declarado por la persona (no es el esperado): viaja también a la cajera.
           medios: (typeof r.medios === 'string' ? JSON.parse(r.medios) : r.medios) || null,
           esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff, diff_real: diffReal,

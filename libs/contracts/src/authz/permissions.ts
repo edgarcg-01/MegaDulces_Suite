@@ -91,6 +91,12 @@ export enum Permission {
    * `encargado_tienda` y `auxiliar_tienda`.
    */
   STORE_ARQUEO_RUTA_CAPTURAR = 'STORE_ARQUEO_RUTA_CAPTURAR',
+  /**
+   * SM.47 — «Conteo de efectivo»: un arqueo SIN caja (solo sucursal, quien cuenta y
+   * motivo). Para la encargada de sucursal, Finanzas y el jefe de zona. Aparte de
+   * STORE_ARQUEO_CAPTURAR por la misma razon que el de rutas: ese lo tiene la cajera.
+   */
+  STORE_ARQUEO_SIN_CAJA_CAPTURAR = 'STORE_ARQUEO_SIN_CAJA_CAPTURAR',
   // Módulo: Tienda — análisis semanal de venta por sucursal (ISO week, WoW + tendencia)
   STORE_ANALYTICS_VER = 'STORE_ANALYTICS_VER',
   // Módulo: RH / Asistencia — el acto de checar en el kiosco de una sucursal (Fase CH).

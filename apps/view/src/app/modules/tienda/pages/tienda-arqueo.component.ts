@@ -174,7 +174,8 @@ interface CortesPersona {
               </div>
             </div>
           }
-          @if (canCapture()) {
+          <!-- [SM.47] Tambien quien SOLO cuenta efectivo sin caja (Finanzas) tiene panel de captura. -->
+          @if (canCapture() || canCaptureSinCaja()) {
         <div class="card-premium card-flat arq-panel">
           @if (cargandoTurnos()) {
             <p class="muted arq-msg">Buscando tus turnos en Kepler…</p>
@@ -307,7 +308,7 @@ interface CortesPersona {
               }
               <!-- [SM.46] En RD/RV no hay caja: lo que se arquea es lo que entrega una RUTA,
                    y la ruta se elige abajo. Pedir la caja ahi era un dato que no describe nada. -->
-              @if (!esRuta()) {
+              @if (!sinCajaFisica()) {
                 <label class="arq-lbl">Caja <input #hcell pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2" (keydown)="onHeadKey($event, idxCaja())" (focus)="selectAll($event)"></label>
               }
               <!-- Sin selector de fecha: un arqueo es de HOY. Elegir una fecha
@@ -317,8 +318,11 @@ interface CortesPersona {
                    no se le deja escribirlo: el backend le impone su usuario igual
                    (atribuir), y un campo editable que el servidor descarta en
                    silencio miente. Solo el supervisor captura a nombre de otra. -->
-              <label class="arq-lbl">Cajero <input #hcell pInputText class="arq-fld arq-fld-cajero" [(ngModel)]="aCajero" [readonly]="!revela" [attr.aria-readonly]="!revela" (ngModelChange)="dirty.set(true)" placeholder="código" (keydown)="onHeadKey($event, idxCajero())" (focus)="selectAll($event)"></label>
-              @if (turnos().length) {
+              <!-- [SM.47] En el conteo sin caja el rotulo dice lo que es, y el campo es fijo: el
+                   servidor lo firma SIEMPRE a nombre de quien inicio sesion (ni el supervisor
+                   captura por otro aqui). -->
+              <label class="arq-lbl">{{ esSinCaja() ? 'Quién hace el arqueo' : 'Cajero' }} <input #hcell pInputText class="arq-fld arq-fld-cajero" [(ngModel)]="aCajero" [readonly]="!revela || esSinCaja()" [attr.aria-readonly]="!revela || esSinCaja()" (ngModelChange)="dirty.set(true)" placeholder="código" (keydown)="onHeadKey($event, idxCajero())" (focus)="selectAll($event)"></label>
+              @if (turnos().length && !soloSinCaja()) {
                 <p-button type="button" label="Volver a mis turnos" icon="pi pi-arrow-left" styleClass="p-button-sm p-button-text" (click)="manual.set(false)"></p-button>
               }
             </div>
@@ -327,6 +331,16 @@ interface CortesPersona {
           @if (puedeContar()) {
             <app-segmented [options]="tipoOptions()" [value]="aTipo()" (valueChange)="elegirTipo($event)"
                            (saltarAbajo)="focusHead(0)" ariaLabel="Tipo de arqueo" />
+            @if (esSinCaja()) {
+              <!-- [SM.47] Sin caja ni esperado, el motivo es lo UNICO que explica por que se
+                   conto este dinero: es obligatorio (el servidor y la tabla lo exigen igual). -->
+              <label class="arq-lbl arq-block arq-motivo">
+                <span>Motivo del conteo <span class="arq-req">obligatorio</span></span>
+                <textarea pInputText class="arq-fld" rows="2" [maxlength]="motivoMax" [(ngModel)]="aMotivo" (ngModelChange)="dirty.set(true)"
+                          aria-required="true" placeholder="Ej.: arqueo sorpresa de supervisión, conteo de caja fuerte, fondo de cambio…"></textarea>
+                <span class="arq-motivo-n muted">{{ aMotivo.length }} / {{ motivoMax }}</span>
+              </label>
+            }
             @if (aTipo() === 'relevo') {
               <label class="arq-lbl arq-block">Cajero entrante <input pInputText class="arq-fld" [(ngModel)]="aEntrante" (ngModelChange)="dirty.set(true)" placeholder="quién recibe la caja"></label>
             }
@@ -413,7 +427,24 @@ interface CortesPersona {
                     </span>
                     <span class="arq-lista-imp">{{ (denomCount[d.key] || 0) ? money((denomCount[d.key] || 0) * d.valor) : '—' }}</span>
                   </label>
+                  <!-- [SM.47] Total de cada familia al cerrarla. Va DENTRO del mismo @for (y sin
+                       input) para no mover el indice i de la grilla de teclado: Enter salta
+                       del billete de $20 a la moneda de $20 sin detenerse aqui. -->
+                  @if (d.familia === 'billete' && denoms[i + 1]?.familia !== 'billete') {
+                    <div class="arq-lista-row arq-lista-sub" data-sub="billetes"
+                         [attr.aria-label]="'Total billetes: ' + pzasBilletes() + ' piezas, ' + money(totBilletes())">
+                      <span>Total billetes</span>
+                      <span class="arq-lista-pz">{{ pzasBilletes() }} pzas</span>
+                      <span class="arq-lista-imp">{{ money(totBilletes()) }}</span>
+                    </div>
+                  }
                 }
+                <div class="arq-lista-row arq-lista-sub" data-sub="monedas"
+                     [attr.aria-label]="'Total monedas: ' + pzasMonedas() + ' piezas, ' + money(totMonedas())">
+                  <span>Total monedas</span>
+                  <span class="arq-lista-pz">{{ pzasMonedas() }} pzas</span>
+                  <span class="arq-lista-imp">{{ money(totMonedas()) }}</span>
+                </div>
                 <div class="arq-lista-row arq-lista-foot">
                   <span>Total en efectivo</span>
                   <span class="arq-lista-pz">{{ pzasBilletes() + pzasMonedas() }} pzas</span>
@@ -625,7 +656,9 @@ interface CortesPersona {
                 <td>{{ b.business_date | date:'dd/MM/yy' }}</td>
                 <td class="arq-mono">{{ horaDe(b.captured_at) }}</td>
                 @if (variasSucursales()) { <td>{{ branchLabel(b.warehouse_code) }}</td> }
-                <td>{{ b.caja }}@if (b.tipo === 'relevo') { <p-tag value="Relevo" severity="info" styleClass="arq-tag-mini" /> }
+                <td>{{ b.tipo === 'sin_caja' ? '—' : b.caja }}@if (b.tipo === 'sin_caja') { <p-tag value="Conteo de efectivo" severity="secondary" styleClass="arq-tag-mini" />
+                    @if (b.motivo) { <span class="arq-hist-motivo">{{ b.motivo }}</span> } }
+                  @if (b.tipo === 'relevo') { <p-tag value="Relevo" severity="info" styleClass="arq-tag-mini" /> }
                   <!-- [SM.41] Que numero de sangria es. Sin esto, tres retiros del
                        mismo turno se leian como la misma fila repetida — y hasta esta
                        entrega eran, literalmente, una sola: la segunda pisaba a la primera. -->
@@ -700,11 +733,14 @@ interface CortesPersona {
                               </tr>
                             }
                           </tbody>
+                          <!-- [SM.47] Los totales de familia, como renglones de la tabla (antes una
+                               nota suelta debajo). -->
                           <tfoot>
+                            <tr class="arq-mini-sub"><td>Total billetes</td><td></td><td class="ta-r">{{ money(b.nuestro_billetes) }}</td></tr>
+                            <tr class="arq-mini-sub"><td>Total monedas</td><td></td><td class="ta-r">{{ money(b.nuestro_monedas) }}</td></tr>
                             <tr class="arq-mini-total"><td>Total contado</td><td></td><td class="ta-r strong">{{ money(b.total_contado) }}</td></tr>
                           </tfoot>
                         </table>
-                        <p class="arq-exp-note">Billetes {{ money(b.nuestro_billetes) }} · Monedas {{ money(b.nuestro_monedas) }}</p>
                       } @else {
                         <p class="muted arq-exp-note">Se guardó sin desglose por denominación.</p>
                       }
@@ -845,7 +881,7 @@ interface CortesPersona {
             <span>{{ branchLabel(t.warehouse_code) }} · {{ esRuta() ? 'Ruta ' + (rutaLabel() || '—') : 'Caja ' + t.caja }}</span>
             <span class="muted">{{ t.cajero_code || '—' }} · {{ t.business_date | date:'dd/MM/yy' }}</span>
           } @else {
-            <span>{{ branchLabel(aSuc()) || '—' }} · {{ esRuta() ? 'Ruta ' + (rutaLabel() || '—') : 'Caja ' + (aCaja || '—') }}</span>
+            <span>{{ branchLabel(aSuc()) || '—' }} · {{ esSinCaja() ? 'Sin caja' : esRuta() ? 'Ruta ' + (rutaLabel() || '—') : 'Caja ' + (aCaja || '—') }}</span>
             <span class="muted">{{ aCajero || '—' }} · {{ hoyTxt() }}</span>
           }
         </div>
@@ -1131,7 +1167,19 @@ interface CortesPersona {
        al volver ve de un vistazo hasta donde llego. */
     .arq-lista-row.has { background: color-mix(in srgb, var(--action) 7%, transparent); }
     .arq-lista-row.has .arq-lista-imp { color: var(--text-main); font-weight: 600; }
+    /* [SM.47] Total de familia: mismo fondo que el pie, un escalon mas chico para que
+       el Total en efectivo siga mandando. */
+    .arq-lista-sub { background: var(--surface-hover-bg); border-bottom: 2px solid var(--border-color); }
+    .arq-lista-sub > span { padding: .35rem .7rem; font-weight: 700; }
+    .arq-lista-sub > span:first-child { justify-content: center; font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+    .arq-lista-sub .arq-lista-imp { font-size: var(--fs-body); color: var(--text-main); }
     .arq-lista-foot { border-bottom: 0; background: var(--surface-hover-bg); }
+    /* [SM.47] Motivo del conteo sin caja. */
+    .arq-motivo { max-width: 40rem; }
+    .arq-motivo textarea { width: 100%; resize: vertical; }
+    .arq-req { font-size: var(--fs-micro); color: var(--action); font-weight: 600; margin-left: .3rem; }
+    .arq-motivo-n { align-self: flex-end; font-size: var(--fs-micro); }
+    .arq-hist-motivo { display: block; font-size: var(--fs-micro); color: var(--text-muted); }
     .arq-lista-foot > span { padding: .5rem .7rem; font-weight: 800; }
     .arq-lista-foot > span:first-child { justify-content: center; font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; }
     .arq-lista-pz { justify-content: center; font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); }
@@ -1197,6 +1245,7 @@ interface CortesPersona {
     .arq-mini-t td { padding: .18rem .45rem; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 45%, transparent); }
     .arq-mini-t tbody tr:last-child td { border-bottom: 0; }
     .arq-mini-t tfoot td { border-top: 1px solid var(--border-color); border-bottom: 0; padding-top: .3rem; }
+    .arq-mini-sub td { color: var(--text-muted); font-weight: 600; }
     .arq-mini-total td { font-weight: 700; }
     .arq-mono { font-family: var(--font-mono, monospace); }
     .arq-exp-note { margin: .4rem 0 0; font-size: .72rem; color: var(--text-muted); }
@@ -1461,7 +1510,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    */
   readonly idxCaja = computed(() => (this.variasSucursales() ? 1 : 0));
   // [SM.46] Sin campo Caja en RD/RV, el cajero sube una posicion en la cadena de teclado.
-  readonly idxCajero = computed(() => (this.variasSucursales() ? 1 : 0) + (this.esRuta() ? 0 : 1));
+  readonly idxCajero = computed(() => (this.variasSucursales() ? 1 : 0) + (this.sinCajaFisica() ? 0 : 1));
 
   /**
    * SM.38/SM.40 - Dos cajas abiertas con el mismo usuario. Viene resuelto del
@@ -1535,6 +1584,26 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly esRuta = computed(() => this.aTipo() === 'rd' || this.aTipo() === 'rv');
 
   /**
+   * [SM.47] «Conteo de efectivo»: efectivo que no es de ninguna caja. Permiso propio,
+   * como el de rutas: lo tienen encargada, Finanzas y jefe de zona, no la cajera.
+   */
+  readonly canCaptureSinCaja = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_SIN_CAJA_CAPTURAR] === true);
+  readonly esSinCaja = computed(() => this.aTipo() === 'sin_caja');
+  /** RD/RV y el conteo sin caja no tienen caja fisica: no se pide. */
+  readonly sinCajaFisica = computed(() => this.esRuta() || this.esSinCaja());
+  /**
+   * Quien SOLO tiene el conteo sin caja (Finanzas): no tiene turnos de Kepler ni
+   * captura de caja, asi que la pantalla abre directo en su pestana.
+   */
+  readonly soloSinCaja = computed(() =>
+    this.canCaptureSinCaja() && !this.perms.isAdmin()
+    && this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_CAPTURAR] !== true && !this.canCaptureRuta());
+  /** Tope del motivo: el mismo que el CHECK de la tabla. */
+  readonly motivoMax = 200;
+  aMotivo = '';
+
+  /**
    * Orden de las pestañas: RETIRO · CIERRE DE DÍA · RELEVO.
    *
    * El retiro va primero porque es lo que más se hace, y lo que se hace ANTES:
@@ -1561,12 +1630,13 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
      * entrega un vendedor de ruta. Y solo aparecen con el permiso propio: sin
      * el, la pestana no existe (no se dibuja deshabilitada, que invita a pedirla).
      */
-    if (!this.canCaptureRuta()) return base;
-    return [
-      ...base,
-      { label: 'RD', value: 'rd' as const },
-      { label: 'RV', value: 'rv' as const },
-    ];
+    const sinCaja = { label: 'Conteo de efectivo', value: 'sin_caja' as const };
+    // [SM.47] Quien solo cuenta efectivo sin caja ve SOLO esa pestana.
+    if (this.soloSinCaja()) return [sinCaja];
+    const rutas = this.canCaptureRuta()
+      ? [{ label: 'RD', value: 'rd' as const }, { label: 'RV', value: 'rv' as const }]
+      : [];
+    return [...base, ...rutas, ...(this.canCaptureSinCaja() ? [sinCaja] : [])];
   });
 
   readonly incidenciaOptions = [
@@ -1648,6 +1718,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly submitLabel = computed(() => {
     const t = this.aTipo();
     if (t === 'relevo') return 'Sellar relevo';
+    if (t === 'sin_caja') return 'Guardar conteo de efectivo';
     // El retiro NO revela diferencia ni al supervisor: el corte todavía no existe,
     // así que no hay contra qué comparar. Se cuadra al cerrar el turno.
     if (t === 'retiro') return 'Guardar retiro';
@@ -1663,6 +1734,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     const t = this.aTipo();
     if (t === 'relevo') return '¿Confirmas el relevo?';
     if (t === 'retiro') return '¿Confirmas el retiro?';
+    if (t === 'sin_caja') return '¿Confirmas el conteo de efectivo?';
     return '¿Confirmas el corte?';
   });
   readonly confirmCta = computed(() => {
@@ -1693,7 +1765,10 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       next: (w) => { this.sucursales.set(w); if (w.length === 1) this.aSuc.set(w[0].value); },
       error: () => { /* el backend recorta igual */ },
     });
-    this.cargarTurnos();
+    // [SM.47] Quien solo cuenta efectivo sin caja no tiene turnos de Kepler (ni permiso
+    // para pedirlos): la pantalla abre directo en su pestana.
+    if (this.soloSinCaja()) { this.manual.set(true); this.aTipo.set('sin_caja'); }
+    else this.cargarTurnos();
     this.load();
     // Poll fuera de Angular: es un timer de fondo, no debe disparar CD cada 45s.
     this.zone.runOutsideAngular(() => {
@@ -1816,7 +1891,11 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * Y limpia el resultado: dejarlo pegado mostraba el sello de un conteo anterior
    * con un botón que reimprimía ESE ticket.
    */
-  elegirTipo(v: string) { this.aTipo.set(v as ArqueoTipo); this.result.set(null); }
+  elegirTipo(v: string) {
+    this.aTipo.set(v as ArqueoTipo); this.result.set(null);
+    // [SM.47] El conteo sin caja queda a nombre de quien inicio sesion: el campo lo dice.
+    if (v === 'sin_caja') this.aCajero = (this.auth.user()?.username || '').toUpperCase();
+  }
 
   /**
    * ¿Hay dinero capturado sin guardar? Es la pregunta que `dirty` confundía con
@@ -1928,6 +2007,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       caja: t?.caja ?? this.aCaja,
       // [SM.46] RD/RV no tienen caja: el papel dice la ruta que entrego.
       ruta: this.esRuta() ? this.rutaLabel() || null : null,
+      motivo: this.esSinCaja() ? this.aMotivo.trim() || null : null,
       fecha: t?.business_date ?? this.fmtDate(this.aDate),
       folio: t?.folio ?? null,
       cajera: this.aCajero || '',
@@ -1993,6 +2073,8 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     if (this.arqTotal() <= 0 && !this.vacio()) return false;
     // [SM.46] RD/RV se sellan por RUTA: no piden caja (el endpoint de ruta no la recibe).
     if (this.esRuta()) return !!this.sucursalActiva() && !!this.aRuta;
+    // [SM.47] Sin caja: sucursal + motivo (la caja no existe).
+    if (this.esSinCaja()) return !!this.sucursalActiva() && !!this.aMotivo.trim();
     if (this.turnoSel()) return true;
     return this.manual() && !!(this.aSuc().trim()) && !!this.aCaja.trim() && !!this.aDate;
   }
@@ -2243,6 +2325,34 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
      * caja esta gateado con el permiso viejo, que tienen tambien cajero y
      * piso_tienda. Mandar rd/rv por ahi haria que la puerta nueva no sirva.
      */
+    /** [SM.47] El conteo sin caja sale por SU endpoint, con su permiso. */
+    if (this.esSinCaja()) {
+      this.svc.submitSinCaja({
+        warehouse_code: this.sucursalActiva() || undefined,
+        business_date: this.fmtDate(this.aDate),
+        denominations, medios, nota: this.aNota.trim() || undefined,
+        motivo: this.aMotivo.trim(),
+      }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.saving.set(false); this.dirty.set(false); this.vacio.set(false);
+          this.toast.add({
+            severity: 'success', summary: 'Conteo de efectivo sellado',
+            // Lo contado y nada de diferencia: no hay contra que comparar.
+            detail: `Contado ${this.money(r.total_contado)}. Queda como constancia.`,
+          });
+          // El papel ANTES de limpiar: sus denominaciones salen del formulario.
+          this.result.set({ tipo: r.tipo, secuencia: r.secuencia, total_contado: r.total_contado, reveal: false });
+          this.imprimir(this.result()!);
+          this.denomCount = {}; this.medios = {}; this.aMotivo = ''; this.recalcTotales();
+          this.load();
+        },
+        error: (e) => {
+          this.saving.set(false);
+          this.toast.add({ severity: 'error', summary: 'No se guardo', detail: e?.error?.message || 'Intenta de nuevo.' });
+        },
+      });
+      return;
+    }
     if (this.esRuta()) {
       if (!this.aRuta) {
         this.saving.set(false);
@@ -2490,13 +2600,14 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   private pajarDe(r: ArqueoRow): string {
     const total = Number(r.total_contado) || 0;
     const tipo = r.tipo === 'retiro' ? `retiro ${r.secuencia ?? 1}`
-      : r.tipo === 'cierre' ? 'cierre corte' : r.tipo === 'relevo' ? 'relevo' : String(r.tipo || '');
+      : r.tipo === 'cierre' ? 'cierre corte' : r.tipo === 'relevo' ? 'relevo'
+      : r.tipo === 'sin_caja' ? 'conteo de efectivo sin caja' : String(r.tipo || '');
     let fecha = '';
     try { fecha = r.business_date ? formatDate(r.business_date, 'dd/MM/yy', this.locale) : ''; } catch { fecha = ''; }
     return this.sinAcentos([
       `caja ${r.caja}`, r.cajero_nombre, r.cajero_code, r.cajero_entrante,
       this.branchLabel(r.warehouse_code), tipo, this.horaDe(r.captured_at), fecha,
-      this.money(total), total.toFixed(2), r.cash_cut_folio ? `#${r.cash_cut_folio}` : '',
+      this.money(total), total.toFixed(2), r.cash_cut_folio ? `#${r.cash_cut_folio}` : '', r.motivo,
     ].filter(Boolean).join(' | '));
   }
 
@@ -2530,6 +2641,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       medios_declarados: medios,
       tipo: b.tipo, cajero_entrante: b.cajero_entrante, turno: b.turno,
       arqueo_id: b.id, incidencia_tipo: b.incidencia_tipo, nota: b.nota, validado_nota: b.validado_nota ?? null,
+      motivo: b.motivo ?? null,
       capturado_at: b.captured_at, capturado_por: b.captured_by,
       validado_por: b.validado_por ?? null, validado_at: b.validado_at ?? null,
       // Solo llegan a quien revela: para la cajera el servidor ya los quitó.
