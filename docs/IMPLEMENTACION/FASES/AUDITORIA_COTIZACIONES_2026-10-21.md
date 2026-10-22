@@ -236,7 +236,7 @@ Hoy no existe `PATCH /commercial/quotes/:id`. Lo que hace falta, en orden de cap
 |---|---|---|---|
 | 1 | ✅ **`[E.19]` hecho (2026-10-21, ver §7)** · **C1 + C2 + M1 + M5 + M7**: una sola función de entregable que reciba del servidor `{suma de renglones, descuento, base sin IVA, IVA, total}` y no recalcule nada; fecha de la cotización; sin `$0.00`; sin el mensaje crudo | Es el precio que se le promete por escrito al cliente: $8,539.97 de diferencia en 18 cotizaciones | Chico |
 | 2 | ✅ **`[E.20]` hecho (2026-10-21, ver §8)** · **A1 + A2 + A3**: `contactoNombre` como signal, decimales para lo que se vende por kilo, cantidad del detalle al salir del campo | Errores de 10× y un botón que no se habilita, en el uso diario | Chico |
-| 3 | **C3**: `POST /quotes` con renglones en una transacción | Cotizaciones a medias y folios duplicados | Medio |
+| 3 | 🧪 **`[E.21]` en código (2026-10-21, ver §9; prueba HTTP pendiente de correr)** · **C3**: `POST /quotes` con renglones en una transacción | Cotizaciones a medias y folios duplicados | Medio |
 | 4 | **A4 + A5 + A6 + A8**: candados, `rung`, renglón sin catálogo, y las escrituras a una suite que corra en CI | Precondición de la edición; hoy nada protege las escrituras | Medio |
 | 5 | **Edición de cabecera** (§4) **junto con** extraer el editor de renglón compartido y reconstruir con PrimeNG (§3) | Es el pedido; tocar esas pantallas sin rehacerlas sumaría a 47 controles crudos | Grande |
 | 6 | **M8 + M9 + A7**: lista con `app-load-state` y recorrible, cancelar desde la UI, vencimiento, `editable` con permiso | Ciclo de vida (preparación de COT.5/COT.7) | Medio |
@@ -306,3 +306,28 @@ Hoy no existe `PATCH /commercial/quotes/:id`. Lo que hace falta, en orden de cap
 - Pruebas: `parseCantidad` 4 casos nuevos (`quote-units.spec` 19/19), televenta 29/29,
   `ngc --noEmit` con control, `reactividad --self-test` 6/6, demás compuertas verdes.
 - ⛔ **Sin validación visual** ni prueba en navegador del ciclo teclear → confirmar → guardar.
+
+---
+
+## 9. `[E.21]` Paso 3 en código: el alta es atómica (2026-10-21) — 🧪, NO ejercida todavía
+
+- **Backend**: `POST /commercial/quotes` acepta `lines[]` (qué y cuánto; nunca precio) y los agrega
+  **en la misma transacción** que la cabecera. El cuerpo de `addLine` se movió tal cual a
+  `addLineTrx(trx, …)` (diff sin espacios: idéntico); `addLine` queda como envoltorio con su
+  propia transacción, sin cambio de comportamiento. Si un renglón falla, se revierte todo —
+  cabecera y consecutivo del folio— y el 400 dice cuál: «Renglón 2 (SKU): …». Tope 300 renglones.
+- **Pantalla de alta**: una sola llamada; al terminar abre el **detalle** de lo guardado (antes iba
+  a la lista); si falla, no queda nada y la bandeja sigue intacta para reintentar.
+- **Contrato**: el body del controlador declara `salesperson_code/name` (el servicio ya los usaba
+  sin declararlos) y `lines`.
+- ⚠️ **Costo declarado**: el candado de `quote_sequences` se sostiene mientras se precian los
+  renglones; otra alta simultánea espera (segundos en la cotización más grande). Con 26 altas al mes
+  es aceptable; la mejora con nombre es preciar ANTES de abrir la transacción.
+- ⚠️ **Arranque no verificado** (protocolo §8.0b punto 30): `CommercialQuotesService` ahora recibe
+  `QuotePricingService` por constructor (mismo módulo, import de valor, sin ciclo). No se levantó la
+  API: lo confirma el despliegue o el CI.
+- ⛔ **Regla 13 — un endpoint que escribe no está probado hasta que una prueba lo ejerce contra base
+  real con el payload de la pantalla.** El smoke `http-quote-lines-test.js` §8 está escrito (alta con
+  renglón de catálogo + no manejado; prueba negativa: renglón inválido → 400 que lo nombra, ninguna
+  cotización a medias, folio sin consumir) pero **necesita la API arriba** y **no se ha corrido**.
+- Pruebas que sí corrieron: `commercial-quotes` 57/57, televenta 29/29, `ngc --noEmit` con control.

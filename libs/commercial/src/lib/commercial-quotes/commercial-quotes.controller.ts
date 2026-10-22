@@ -8,6 +8,7 @@ import {
   WholesaleCustomerRow,
   QuoteCatalogRow,
   CreatedQuote,
+  type CreateQuoteLine,
 } from './commercial-quotes.service';
 import {
   QuotePricingService,
@@ -180,6 +181,14 @@ export class CommercialQuotesController {
       customer_request?: string;
       notes?: string;
       internal_notes?: string;
+      /** Ya los usaba el servicio sin estar declarados acá (auditoría, deriva de contrato). */
+      salesperson_code?: string;
+      salesperson_name?: string;
+      /**
+       * `[E.21]` Los renglones, en la misma transacción que la cabecera: entra todo o nada.
+       * Qué y cuánto; el precio lo calcula el servidor.
+       */
+      lines?: CreateQuoteLine[];
     },
   ): Promise<CreatedQuote> {
     return this.service.create(body);
