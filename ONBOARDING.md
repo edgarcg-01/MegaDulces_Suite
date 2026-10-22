@@ -448,6 +448,16 @@ La explicación sin medir empujaba a un arreglo más grande (reescribir 64 etiqu
 - las `inputs` del componente en `node_modules/primeng/fesm2022/*.mjs`;
 - `getBoundingClientRect().width` y `getComputedStyle(el, '::before').content` en el navegador.
 
+**Lo que dejó el ciclo ETQ-PROMO.1 (el mensaje «precio 0, ponle precio») — puntos 60–63.** ⚠️ Numeración sujeta a renumeración si otro PR abierto agrega puntos.
+
+**60. Un mensaje que da una INSTRUCCIÓN es una afirmación: verifícala contra el dato antes de darla por buena.** *Origen: el 09089.* La pantalla decía «está en Kepler con precio 0: hay que ponerle precio en Kepler» y mandaba a alguien a arreglar algo que **no se arregla**: el precio era $0.01 (no 0) y el código es una promoción, no un producto. «Reconoce el código» era cierto; lo falso era lo que **pedía hacer**. **Cómo:** antes de cambiar el texto, saca el universo con un comando de solo lectura (cuántos códigos, en cuántas plazas, con qué precio) — aquí 206 códigos a $0.01 en las 9 plazas — y escribe la regla sobre eso, no sobre el único ejemplo de la captura.
+
+**61. Una regla de detección por NOMBRE cubre una parte: mide su cobertura, y combina señales independientes cada una con su negativa.** «= GRATIS» cubría **186 de 318** códigos sin precio; no veía «3X2 EN…», «1 EN 10 EN…» ni el typo «= GRATUS». El $0.01 en todas las plazas cubría **206** pero no veía **11** promociones que en alguna tienda sí cotizan. **Dos señales, cualquiera basta** — y se dejó fuera a propósito el caso que parece obvio (**0.00**), porque un producto nuevo sin precio es exactamente eso y debe seguir pidiendo precio. Mide también los falsos positivos y escribe las pruebas **negativas** (producto real sin precio → sigue `sin_precio`; «no se pudo medir» (`null`) no se vuelve promoción).
+
+**62. El SQL de un PR se ejerce contra producción en SOLO LECTURA con el texto EXACTO extraído del archivo, no reescrito.** Reescribir la consulta «parecida» en un script de prueba valida la copia, no el código. Aquí el script extrajo el SQL del servicio por expresión regular, lo corrió con 7 SKU conocidos (los simbólicos salen `true`, los productos reales `false`; 2 ms) y compara contra lo esperado. Es el punto 35 aplicado con una trampa menos.
+
+**63. Si el checkout compartido está atrasado o sucio, trabaja en una COPIA desechable, no en él.** `git archive origin/main | tar -x -C C:/tmp/<nombre>` + un *junction* a `node_modules`; ahí corren `vitest`, `tsgo` y las compuertas que no leen git, y los commits se arman con plumbing sin mover HEAD (ver el punto 38). ⛔ **Al terminar: `Remove-Item <copia>\node_modules` (o `cmd /c rmdir`) ANTES de borrar la carpeta** — al revés se lleva el `node_modules` real de todas las sesiones. Lo que **no** corre ahí: las compuertas que miden contra git (`Boundary type gate`, `pre-push`); se corren sobre el árbol real o sobre un `git archive` de la rama.
+
 > 🤖 Los comentarios de `nx-cloud` («AI Fix») en los PR son ruido del bot (la organización de Nx Cloud está deshabilitada): no son feedback ni hay que atenderlos.
 
 ---

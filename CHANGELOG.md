@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Fixed — Etiquetas: una promoción de Kepler ya no se dice «precio 0, ponle precio» (ETQ-PROMO.1, 2026-10-22)
+- Escanear el **09089** («10 CJS OREO BASE 9 KG = GRATIS 1 CJ MAS») decía *«está en Kepler pero con precio 0 en la tienda 02: hay que ponerle precio en Kepler»*. **Falso en las dos mitades:** el precio no es 0 (es **$0.01**) y nadie debe ponérselo, porque **no es un producto**: Kepler no permite una línea de venta sin precio y guarda sus promociones, bonificaciones y ajustes como un código más a $0.01.
+- Ahora dice *«es un código de promoción o ajuste de Kepler (a $0.01), no un producto: no lleva etiqueta y no hay que ponerle precio»*, y en la carga masiva los separa de «sin precio» con sus códigos («promociones de Kepler, no llevan etiqueta 1 (09089)»). Estado nuevo `erp_estado: 'codigo_simbolico'` (aditivo).
+- **Cómo se decide** (dos señales, cualquiera basta; sólo se evalúa si el código **no tiene precio usable** en la tienda): el nombre trae «= GRATIS», o el precio es **exactamente $0.01 en TODAS las plazas** (pieza y paquete/caja). Un precio en **0.00** NO cuenta: un producto nuevo sin precio todavía sigue pidiendo precio en Kepler.
+- Medido en producción (solo lectura, 2026-10-22): **206 códigos** a $0.01 en las 9 plazas, **188** con «= GRATIS» en el nombre; de **318** códigos sin precio usable, **186** son de promoción. El nombre solo habría dejado fuera «3X2 EN CH POOSH», «1 EN 10 EN…» y el typo «= GRATUS»; el precio solo, 11 promociones que en alguna tienda sí cotizan.
+- Sin migraciones ni permisos → **sin re-login**. **Sin validación visual** (ver el PR).
 ### Fixed — Buscadores sin lupa y avisos NG0955 en 36 pantallas, con compuertas (CSU.15, 2026-10-21)
 - **36 íconos de buscador** (lupas y ✕ de limpiar) que no se dibujaban: `styleClass` no existe en `p-inputicon` de PrimeNG 22. Ahora usan `class=`, y 28 buscadores recuperan el ancho mínimo que su pantalla pedía (`p-iconfield`).
 - **27 esqueletos de carga** que repetían la llave (`track i` sobre 8 `undefined`) y llenaban la consola de NG0955: ahora `track $index`.

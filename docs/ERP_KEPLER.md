@@ -1,45 +1,46 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 108 KB, 1661 líneas, 33 secciones.
+> **Índice navegable** — 110 KB, 1679 líneas, 34 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 46 | 65 | 1 | ERP Kepler — decode y flujo hacia la plataforma |
-| 66 | 101 | 2 | 1. Qué es Kepler y por qué duele |
-| 102 | 125 | 5 | 2. Tablas clave decodificadas |
-| 126 | 243 | 7 | 2.1 La escalera de unidades y el costo (decodificado 2026-08-31) |
-| 244 | 259 | 1 | 2.2 Existencia y ventas — validadas contra Kepler (2026-08-31) |
-| 260 | 313 | 4 | 2.3 ⚠️ La sucursal `00` de Kepler es OFICINAS, **no** el CEDIS |
-| 314 | 362 | 4 | 2.4 ⭐ La forma del schema, medida (auditoría estructural 2026-09-11) |
-| 363 | 382 | 1 | 2.5 ⭐ La historia de precio que ya teníamos y nadie lee |
-| 383 | 419 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
-| 420 | 536 | 7 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
-| 537 | 583 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
-| 584 | 622 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
-| 623 | 781 | 10 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
-| 782 | 896 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
-| 897 | 951 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
-| 952 | 989 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
-| 990 | 1019 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
-| 1020 | 1073 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
-| 1074 | 1122 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
-| 1123 | 1154 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
-| 1155 | 1215 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
-| 1216 | 1250 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
-| 1251 | 1362 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
-| 1363 | 1393 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
-| 1394 | 1441 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
-| 1442 | 1469 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
-| 1470 | 1526 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
-| 1527 | 1577 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
-| 1578 | 1603 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
-| 1604 | 1668 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
-| 1669 | 1688 | 1 | 6. Importers / feeds relevantes |
-| 1689 | 1696 | 1 | 7. Conexiones y credenciales |
-| 1697 | 1706 | 1 | 8. Para profundizar |
+| 47 | 66 | 1 | ERP Kepler — decode y flujo hacia la plataforma |
+| 67 | 102 | 2 | 1. Qué es Kepler y por qué duele |
+| 103 | 126 | 5 | 2. Tablas clave decodificadas |
+| 127 | 244 | 7 | 2.1 La escalera de unidades y el costo (decodificado 2026-08-31) |
+| 245 | 260 | 1 | 2.2 Existencia y ventas — validadas contra Kepler (2026-08-31) |
+| 261 | 314 | 4 | 2.3 ⚠️ La sucursal `00` de Kepler es OFICINAS, **no** el CEDIS |
+| 315 | 363 | 4 | 2.4 ⭐ La forma del schema, medida (auditoría estructural 2026-09-11) |
+| 364 | 383 | 1 | 2.5 ⭐ La historia de precio que ya teníamos y nadie lee |
+| 384 | 420 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
+| 421 | 537 | 7 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
+| 538 | 582 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
+| 583 | 602 | 2 | 2.9 ⭐ Los códigos SIMBÓLICOS: promociones, bonificaciones y ajustes viven en `kdii` a $0.01 (medido 2026-10-22 |
+| 603 | 641 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
+| 642 | 800 | 10 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
+| 801 | 915 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
+| 916 | 970 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
+| 971 | 1008 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
+| 1009 | 1038 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
+| 1039 | 1092 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
+| 1093 | 1141 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
+| 1142 | 1173 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
+| 1174 | 1234 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
+| 1235 | 1269 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
+| 1270 | 1381 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
+| 1382 | 1412 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
+| 1413 | 1460 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1461 | 1488 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1489 | 1545 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1546 | 1596 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1597 | 1622 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1623 | 1687 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1688 | 1707 | 1 | 6. Importers / feeds relevantes |
+| 1708 | 1715 | 1 | 7. Conexiones y credenciales |
+| 1716 | 1725 | 1 | 8. Para profundizar |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -578,6 +579,24 @@ medido; resolver con prueba de unidad antes de tocar §2):
 
 Reproducir: `node scripts/kepler/kpl-decode.mjs "Z:/Kepler/K95_Dev/temp" salida.json` y
 `node scripts/kepler/kpl-compare.mjs salida.json` (compara contra todos los `.md` del repo).
+
+### 2.9 ⭐ Los códigos SIMBÓLICOS: promociones, bonificaciones y ajustes viven en `kdii` a $0.01 (medido 2026-10-22)
+
+Kepler no permite una línea de venta sin precio, así que **lo que no es mercancía también es un código de `kdii`** y lleva un precio de **$0.01**. No se venden como producto y **no llevan etiqueta**. Disparó el hallazgo el **09089** («10 CJS OREO BASE 9 KG = GRATIS 1 CJ MAS»), que la etiquetera trataba como «precio 0: ponle precio».
+
+| Qué se midió en producción (solo lectura) | Cifra |
+|---|---:|
+| Códigos con **$0.01 en TODAS las plazas** (`c90`, y `c91` ≤ 0.01) | **206** |
+| Códigos con «= GRATIS» en el nombre | **188** |
+| Códigos con precio ≤ $0.05 en alguna plaza | **318** |
+| …de ésos, con «= GRATIS» en el nombre | **186** |
+| Promociones que en ALGUNA plaza sí cotizan (78171, 04023, 00162…) | **11** |
+
+Tipos que aparecen: **promociones** («5 CJS … = GRATIS 1 CJ …», «$15,000 MONDELEZ = GRATIS …»), **bonificaciones** («1 EN 10 EN GUMMY POP», «3X2 EN CH POOSH», «PEGAR 2 SABRITONES A CADA …»), **ajustes** («PACA DE CARTON P/RECICLAR», «PARA GENERAR VENTAS NC») y **placeholders** («* DESCONTINUADO»). Un typo («= GRATUS», `00040`) existe.
+
+⚠️ **Cómo se distinguen de un producto sin precio** (`[ETQ-PROMO.1]`, `codigo-simbolico.ts`): el nombre trae «= GRATIS» **o** el precio es exactamente **$0.01 en todas las plazas**. ⛔ Un precio en **0.00** NO es señal: un producto nuevo sin precio está a 0 en todas las plazas y sí hay que ponerle precio. ⛔ $0.01 en UNA plaza tampoco: un producto real puede tener un precio de paso en una tienda.
+
+⚠️ `v_label_prices` sólo emite filas con `c90 > 0.05`: estos códigos **nunca** aparecen ahí, y cualquier consumidor que lea «ausente de esa vista» como «sin precio» los confunde con un producto pendiente de precio. Medir contra `kepler_ods.kdii`, no contra la vista.
 
 ---
 
