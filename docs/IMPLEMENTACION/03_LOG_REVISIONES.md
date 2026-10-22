@@ -280,7 +280,7 @@
 
 **Cómo se armó** (el checkout compartido estaba 436 commits atrás, en una rama ya fusionada y con 34 archivos de otras sesiones): copia desechable `git archive origin/main` en `C:/tmp` con `node_modules` enlazado (se desmonta con `rmdir` **antes** de borrar la carpeta), suites ahí, y commit con plumbing sin mover HEAD.
 
-**No se hizo (declarado).** Validación visual del mensaje · decidir si los códigos simbólicos deben salir de la búsqueda del catálogo de etiquetas (hoy aparecen al buscarlos) · el resto de los 318 códigos sin precio que NO son simbólicos (≈112) sigue diciendo «ponle precio»: es correcto para los productos reales, pero no se revisó uno por uno.
+**No se hizo (declarado).** Validación visual del mensaje · decidir si los códigos simbólicos deben salir de la búsqueda del catálogo de etiquetas (hoy aparecen al buscarlos) · de los **318** códigos sin precio usable la regla marca **203** como simbólicos (medido con la unión exacta de las dos señales); los otros **115** siguen diciendo «ponle precio» —correcto para productos reales—, pero no se revisaron uno por uno.
 
 
 ## 2026-10-21 — `[CSU.15]` La lupa invisible y el NG0955 eran un renglón copiado: barrido en 36 archivos y dos compuertas
