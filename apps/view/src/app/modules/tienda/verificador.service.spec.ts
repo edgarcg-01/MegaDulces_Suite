@@ -94,6 +94,43 @@ describe('VerificadorService · en vivo primero, respaldo después, y se dice cu
     expect(r!.producto.unidades[0].precio_con_iva).toBe(19.9);
   });
 
+  it('⭐ [ETQ-PROMO.2] en vivo: es_promocion llega a la pantalla como esPromocion', async () => {
+    let r: ResultadoBusqueda | undefined;
+    svc.buscar('09089', '03').subscribe((x) => (r = x));
+    http.expectOne((rq) => rq.url.endsWith('/kp/precio')).flush({
+      ok: true, codigo: '09089', nombre: '10 CJS OREO BASE 9 KG = GRATIS 1 CJ MAS', es_promocion: true,
+      unidades: [{ u: 'PZA', precio_con_iva: 0.01, precio_sin_iva: 0.01, factor: 1 }],
+    });
+    if (r!.estado !== 'encontrado') throw new Error('debía encontrarlo');
+    expect(r!.esPromocion).toBe(true);
+  });
+
+  it('⛔ [negativa] un servidor anterior (sin es_promocion) NO se lee como promoción', async () => {
+    let r: ResultadoBusqueda | undefined;
+    svc.buscar('17083', '03').subscribe((x) => (r = x));
+    http.expectOne((rq) => rq.url.endsWith('/kp/precio')).flush({
+      ok: true, codigo: '17083', nombre: 'PALETA PAYASO',
+      unidades: [{ u: 'PZA', precio_con_iva: 19.9, precio_sin_iva: 17.16, factor: 1 }],
+    });
+    if (r!.estado !== 'encontrado') throw new Error('debía encontrarlo');
+    expect(r!.esPromocion).toBe(false);
+  });
+
+  it('⭐ [ETQ-PROMO.2] sin red: el respaldo (formato 4) marca la promoción con pm:1', async () => {
+    await offline.guardarSnapshotPrecios('03', {
+      ...SNAPSHOT,
+      productos: [...SNAPSHOT.productos, { c: '09089', b: [], n: '10 CJS OREO BASE 9 KG = GRATIS 1 CJ MAS', u: [{ u: 'PZA', p: 0.01, s: 0.01 }], pm: 1 }],
+    }, SNAPSHOT.generado);
+    let r: ResultadoBusqueda | undefined;
+    svc.buscar('09089', '03').subscribe((x) => (r = x));
+    http.expectOne((rq) => rq.url.endsWith('/kp/precio')).error(new ProgressEvent('offline'));
+    await Promise.resolve();
+    await Promise.resolve();
+    if (r!.estado !== 'encontrado') throw new Error('debía estar en el respaldo');
+    expect(r!.origen).toBe('respaldo');
+    expect(r!.esPromocion).toBe(true);
+  });
+
   it('cae al respaldo cuando la red falla, y lo declara como respaldo', async () => {
     await sembrarRespaldo();
 
@@ -360,6 +397,17 @@ describe('VerificadorService · en vivo primero, respaldo después, y se dice cu
       expect(r![0].unidades.map((x) => [x.u, x.factor])).toEqual([['PZA', 1], ['CJA', 24]]);
     });
 
+    it('⭐ [ETQ-PROMO.2] marca las promociones (pm:1) y las manda al final: el producto primero', async () => {
+      await offline.guardarSnapshotPrecios('03', {
+        ...SNAPSHOT,
+        productos: [
+          { c: '09089', b: [], n: '10 CJS OREO BASE 9 KG = GRATIS 1 CJ MAS', u: [{ u: 'PZA', p: 0.01, s: 0.01, f: 1 }], pm: 1 },
+          { c: '10245', b: [], n: 'OREO GALLETA 36 G', u: [{ u: 'PZA', p: 18.5, s: 15.95, f: 1 }] },
+        ],
+      }, SNAPSHOT.generado);
+      const r = await svc.buscarEnCatalogo('03', 'oreo');
+      expect(r!.map((x) => [x.codigo, x.esPromocion])).toEqual([['10245', false], ['09089', true]]);
+    });
     it('sin respaldo dice "no puedo buscar" (null), no "no hay resultados"', async () => {
       expect(await svc.buscarEnCatalogo('03', 'paleta')).toBeNull();
     });

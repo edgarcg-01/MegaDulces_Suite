@@ -1,3 +1,48 @@
+# Tienda › Arqueo de caja — totales por familia y «Conteo de efectivo» sin caja (SM.47)
+
+## Problema
+
+1. La tabla de conteo pasaba del último renglón (50¢) directo a «Total en efectivo». La cajera no veía cuánto llevaba
+   en billetes y cuánto en monedas, que es como se arma el sobre.
+2. La encargada de sucursal, Finanzas y el jefe de zona necesitan contar efectivo que **no es de ninguna caja**
+   (caja fuerte, fondo de cambio, un conteo de supervisión). La pantalla siempre pedía una caja y esa gente, en el
+   caso de Finanzas, ni siquiera podía abrirla.
+
+## Solución
+
+- Renglones **«Total billetes»** (después del billete de $20) y **«Total monedas»** (después de 50¢) en todas las
+  pestañas. No son casillas: Enter y las flechas los saltan. El detalle de un arqueo guardado los muestra igual.
+- Pestaña **«Conteo de efectivo»**: sucursal, «Quién hace el arqueo» (el usuario de la sesión, fijo) y **motivo
+  obligatorio** (hasta 200 caracteres). Sin campo Caja. La tabla, los medios y la nota siguen igual.
+- Quien solo tiene este permiso (Finanzas) abre la pantalla directo en esa pestaña.
+- Se guarda como constancia: no hay monto esperado, así que no se muestra diferencia.
+- El ticket se titula «CONTEO DE EFECTIVO», dice «Caja: sin caja» e imprime el motivo.
+
+## Cómo se implementó
+
+- Migración `20261022122545_blind_counts_tipo_sin_caja`: tipo `sin_caja` en el CHECK, se numera como el retiro (varios
+  el mismo día sin pisarse), columna `motivo` con CHECK (obligatoria en `sin_caja`, nula en los demás).
+- Migración `20261022122546_grant_arqueo_sin_caja`: reparte `STORE_ARQUEO_SIN_CAJA_CAPTURAR` a `encargado_tienda`,
+  `finanzas`, `finanzas_operativo` y `tesoreria`. No toca un permiso puesto en `false`.
+- `BlindCountService`: `sin_caja` en los tipos válidos y sin corte; valida el motivo; lo lee en el listado.
+- `StoreArqueoController`: `POST /store/arqueo/sin-caja` impone tipo, `caja = SIN_CAJA` y la firma de la sesión;
+  `POST /` rechaza `sin_caja`; `GET /` acepta también el permiso nuevo.
+- Pantalla: `canCaptureSinCaja`, `esSinCaja`, `soloSinCaja`; el panel de captura se abre también con el permiso nuevo;
+  la ruta y la entrada a Tienda lo aceptan.
+- Pruebas: base real desechable (19 ✓), controlador (5), pantalla (12 nuevas) y ticket (3 nuevas), todas comprobadas
+  en rojo con una mutación.
+
+## Por qué así
+
+- Tipo nuevo y no `caja` nula: `caja` entra a la clave única y NULL no deduplica; es el mismo camino que RD/RV.
+- Endpoint y permiso aparte: la puerta de la cajera (`POST /`) la tiene también `cajero`; si esto fuera un tipo más,
+  cualquiera podría sellar un conteo sin caja.
+- La firma la pone el servidor: firmar un conteo de dinero a nombre de otra persona no es un campo de formulario.
+- No se pisó el `STORE_ARQUEO_VER = false` de Finanzas: el listado acepta el permiso nuevo y solo le devuelve lo suyo.
+- Pendiente: decidir qué rol es «jefe de zona» (hoy no existe como rol).
+
+---
+
 # Tienda › Arqueo de caja — RD y RV se capturan por ruta, sin caja (SM.46)
 
 ## Problema

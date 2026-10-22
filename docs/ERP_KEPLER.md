@@ -1,45 +1,46 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 111 KB, 1697 líneas, 33 secciones.
+> **Índice navegable** — 111 KB, 1683 líneas, 34 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 46 | 65 | 1 | ERP Kepler — decode y flujo hacia la plataforma |
-| 66 | 101 | 2 | 1. Qué es Kepler y por qué duele |
-| 102 | 125 | 5 | 2. Tablas clave decodificadas |
-| 126 | 243 | 7 | 2.1 La escalera de unidades y el costo (decodificado 2026-08-31) |
-| 244 | 259 | 1 | 2.2 Existencia y ventas — validadas contra Kepler (2026-08-31) |
-| 260 | 313 | 4 | 2.3 ⚠️ La sucursal `00` de Kepler es OFICINAS, **no** el CEDIS |
-| 314 | 362 | 4 | 2.4 ⭐ La forma del schema, medida (auditoría estructural 2026-09-11) |
-| 363 | 382 | 1 | 2.5 ⭐ La historia de precio que ya teníamos y nadie lee |
-| 383 | 419 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
-| 420 | 572 | 10 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
-| 573 | 619 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
-| 620 | 658 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
-| 659 | 817 | 10 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
-| 818 | 932 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
-| 933 | 987 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
-| 988 | 1025 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
-| 1026 | 1055 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
-| 1056 | 1109 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
-| 1110 | 1158 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
-| 1159 | 1190 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
-| 1191 | 1251 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
-| 1252 | 1286 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
-| 1287 | 1398 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
-| 1399 | 1429 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
-| 1430 | 1477 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
-| 1478 | 1505 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
-| 1506 | 1562 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
-| 1563 | 1613 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
-| 1614 | 1639 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
-| 1640 | 1704 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
-| 1705 | 1724 | 1 | 6. Importers / feeds relevantes |
-| 1725 | 1732 | 1 | 7. Conexiones y credenciales |
-| 1733 | 1742 | 1 | 8. Para profundizar |
+| 47 | 66 | 1 | ERP Kepler — decode y flujo hacia la plataforma |
+| 67 | 102 | 2 | 1. Qué es Kepler y por qué duele |
+| 103 | 126 | 5 | 2. Tablas clave decodificadas |
+| 127 | 244 | 7 | 2.1 La escalera de unidades y el costo (decodificado 2026-08-31) |
+| 245 | 260 | 1 | 2.2 Existencia y ventas — validadas contra Kepler (2026-08-31) |
+| 261 | 314 | 4 | 2.3 ⚠️ La sucursal `00` de Kepler es OFICINAS, **no** el CEDIS |
+| 315 | 363 | 4 | 2.4 ⭐ La forma del schema, medida (auditoría estructural 2026-09-11) |
+| 364 | 383 | 1 | 2.5 ⭐ La historia de precio que ya teníamos y nadie lee |
+| 384 | 420 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
+| 421 | 537 | 7 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
+| 538 | 582 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
+| 583 | 606 | 3 | 2.9 ⭐ Los códigos SIMBÓLICOS: promociones, bonificaciones y ajustes viven en `kdii` a $0.01 (medido 2026-10-22 |
+| 607 | 645 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
+| 646 | 804 | 10 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
+| 805 | 919 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
+| 920 | 974 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
+| 975 | 1012 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
+| 1013 | 1042 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
+| 1043 | 1096 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
+| 1097 | 1145 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
+| 1146 | 1177 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
+| 1178 | 1238 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
+| 1239 | 1273 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
+| 1274 | 1385 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
+| 1386 | 1416 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
+| 1417 | 1464 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1465 | 1492 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1493 | 1549 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1550 | 1600 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1601 | 1626 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1627 | 1691 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1692 | 1711 | 1 | 6. Importers / feeds relevantes |
+| 1712 | 1719 | 1 | 7. Conexiones y credenciales |
+| 1720 | 1729 | 1 | 8. Para profundizar |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -465,43 +466,8 @@ entre tramos: ninguno). Escalera encimada → nivel 0 (lo de abajo, sin cambio).
 **por debajo** del tramo. Quién decide eso (cajero, cliente, canal) no está medido. En
 telemarketing (doc 8) el tramo se cumple en el 62.9 %.
 
-#### ⭐⭐ `[E.28]` Kepler cobra la PRESENTACIÓN que se captura (`kdm2.c55`), y guarda el precio POR UNIDAD BASE (2026-10-22)
+#### ⭐⭐ `[E.23]` El precio ORIGINAL del renglón (`kdm2.c66`) es la UNIDAD MAYOR que cabe, prorrateada (2026-10-21)
 
-El renglón del pedido guarda dos cosas distintas: **cómo se capturó** —`c55` = la presentación
-(`PAQ`, `CJA`…) y `c51` = la cantidad pedida en ella— y **cómo se asienta**: `c11`/`c9` = la unidad
-base y su cantidad (`c9 = c51 × factor` en 15,646 de 15,996). El precio sale de la presentación
-capturada —su lista, su tramo de `kdpv_prod_util` (que es **por unidad**: *«Margen de Utilidad por
-Rango de Cantidad Vendida de la Unidad»*) y su promo— y se guarda **por unidad base a centavos**:
-`c12` tiene 2 decimales y `c13 = c9 × c12` en 16,525 de 16,525 renglones (30 d de telemarketing).
-
-| capturado… | renglones | `c66` (precio original) |
-|---|---:|---|
-| en una presentación mayor (`c55` = CJA), asentado en PAQ | 9,156 | la presentación prorrateada: 7,278 (el resto, precios que se movieron) · la lista del PAQ: 35 |
-| en la unidad base, aunque la cantidad complete cajas | 333 | **la lista propia en 275**: Kepler NO prorratea solo |
-
-`89008`: «2 CJA» → 24 PAQ a $51.76 (`c66` 51.7558 = $621.07 / 12) = $1,242.24; «12 PAQ» y «36 PAQ» →
-tramo 10+ del PAQ, $51.76 (`c66` 55.93). 1 CJA de `63004` a $753.09 → 24 × $31.38 = **$753.12**.
-Y el tramo se cobra **aunque esté arriba de la lista** (`40509` × 50 PAQ: lista $11.99, cobrado $12.76).
-
-- **Con promo, primero se redondea la presentación y después la base:** 1 CJA de `78401` a $402.74
-  con 3 % = $390.6578 → **$390.66** → 12 × **$32.56** (dividir sin redondear da $32.55, que Kepler no
-  cobra; mismo patrón en `75015` y `47029`).
-- ⚠️ **Un renglón agregado después de capturar** (en surtido o checado, `c28`) trae `c55` pero **`c51`
-  vacío**: su cantidad en la presentación es `c9` ÷ el factor de esa presentación. Leerlo en la base
-  lo hace parecer «prorrateado»: de ahí salió parte del error de E.23.
-- **Kepler no prorratea solo, medido de frente:** de los renglones capturados en la unidad base cuya
-  cantidad completa una presentación mayor (30 d), **1** sale prorrateado; el resto, a la lista propia.
-
-#### ⛔ REFUTADA por E.28 — «la unidad mayor que cabe se prorratea sola» (E.23) y «el tramo y la promo de la unidad mayor» (E.24)
-
-Se dejan escritas para que nadie las reconstruya. **Se midieron con el instrumento mal armado:** el
-replay le pasaba al motor la unidad ASENTADA (`c11`/`c9`) y no la CAPTURADA (`c55`/`c51`). Los
-renglones capturados en CJA se veían como «36 PAQ cobrados a la caja», y de ahí salieron un
-«prorrateo automático» (7,284 contra 280) y una «precedencia de la unidad mayor» (304 contra 4) que
-eran sólo la presentación capturada. Lo destapó la pantalla de Kepler del 89008 (36 PAQ a $51.76,
-sin prorrateo) y la configuración del margen por unidad. Lo que decía el bloque:
-
-<details><summary>Texto original de E.23/E.24 (refutado)</summary>
 Kepler cobra la cantidad al precio de la unidad más grande de `kdii` (`c11`/`c80`/`c83`, factores
 `c81`/`c84`, precios `c90`/`c91`/`c92`) que cabe entera en ella, prorrateado a la unidad del renglón.
 144 PZA de `02195` (CJA de 144 a $2,197.95) → `c66` = **15.2635416667**, cobrado $15.26; la pieza
@@ -529,7 +495,6 @@ transacción, declarada:** el ~3.7 % que no se prorratea se concentra en una cap
 de un solo cliente con renglones prorrateados y sin prorratear dentro del MISMO pedido): es
 decisión de captura, no regla. Instrumento: `scripts/kepler/replay-cotizacion/`
 (AUDITORIA_COTIZACIONES §11–§12).
-</details>
 
 #### ⛔ Qué determina el nivel: NO se pudo derivar, y las cuatro hipótesis están REFUTADAS
 
@@ -614,6 +579,28 @@ medido; resolver con prueba de unidad antes de tocar §2):
 
 Reproducir: `node scripts/kepler/kpl-decode.mjs "Z:/Kepler/K95_Dev/temp" salida.json` y
 `node scripts/kepler/kpl-compare.mjs salida.json` (compara contra todos los `.md` del repo).
+
+### 2.9 ⭐ Los códigos SIMBÓLICOS: promociones, bonificaciones y ajustes viven en `kdii` a $0.01 (medido 2026-10-22)
+
+Kepler no permite una línea de venta sin precio, así que **lo que no es mercancía también es un código de `kdii`** y lleva un precio de **$0.01**. No se venden como producto y **no llevan etiqueta**. Disparó el hallazgo el **09089** («10 CJS OREO BASE 9 KG = GRATIS 1 CJ MAS»), que la etiquetera trataba como «precio 0: ponle precio».
+
+| Qué se midió en producción (solo lectura) | Cifra |
+|---|---:|
+| Códigos con **$0.01 en la pieza (`c90`) en TODAS las plazas** | **206** |
+| …y además el paquete/caja (`c91`) ≤ $0.01 (la forma que usa la regla) | **203** |
+| Códigos con «= GRATIS» en el nombre | **188** |
+| Códigos con precio ≤ $0.05 en alguna plaza | **318** |
+| …de ésos, con «= GRATIS» en el nombre | **186** |
+| **La regla (nombre «= GRATIS» O $0.01 en todas) marca, de esos 318** | **215** (12 sólo por nombre · 29 sólo por el $0.01) |
+| …y deja sin marcar (productos reales con un hueco de precio) | **103** |
+
+Tipos que aparecen: **promociones** («5 CJS … = GRATIS 1 CJ …», «$15,000 MONDELEZ = GRATIS …»), **bonificaciones** («1 EN 10 EN GUMMY POP», «3X2 EN CH POOSH», «PEGAR 2 SABRITONES A CADA …»), **ajustes** («PACA DE CARTON P/RECICLAR», «PARA GENERAR VENTAS NC») y **placeholders** («* DESCONTINUADO»). Un typo («= GRATUS», `00040`) existe.
+
+⚠️ **Cómo se distinguen de un producto sin precio** (`[ETQ-PROMO.1]`, `codigo-simbolico.ts`): el nombre trae «= GRATIS» **o** el precio es exactamente **$0.01 en todas las plazas**. ⛔ Un precio en **0.00** NO es señal: un producto nuevo sin precio está a 0 en todas las plazas y sí hay que ponerle precio. ⛔ $0.01 en UNA plaza tampoco: un producto real puede tener un precio de paso en una tienda.
+
+⚠️ **Quién consume la regla** (`esCodigoSimbolico`, `libs/contracts`): el mensaje de «por qué no hay precio» de la etiquetera, la marca «Promoción» de su buscador, el **buscador del mostrador** («¿Te pidieron algo?»: su ventana NO consulta existencia ni anota faltante de una promoción, porque la existencia de un código simbólico es 0 por construcción), el **verificador de precios** (`es_promocion` en vivo, `pm` en el respaldo, formato 4) y el buscador del mostrador. **El verificador NO pasa por `v_label_prices`**: lee `kdii` directo y por eso **mostraba el $0.01 como precio** hasta `[ETQ-PROMO.2]`.
+
+⚠️ `v_label_prices` sólo emite filas con `c90 > 0.05`: estos códigos **nunca** aparecen ahí, y cualquier consumidor que lea «ausente de esa vista» como «sin precio» los confunde con un producto pendiente de precio. Medir contra `kepler_ods.kdii`, no contra la vista.
 
 ---
 

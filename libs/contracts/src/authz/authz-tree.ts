@@ -150,6 +150,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'historical', label: 'Histórico de venta', route: '/comercial/historical', view: [Permission.COMMERCIAL_HISTORICAL_VER], manage: [] },
           { id: 'customers', label: 'Clientes', route: '/comercial/customers', view: [Permission.COMMERCIAL_CUSTOMERS_VER], manage: [Permission.COMMERCIAL_CUSTOMERS_GESTIONAR] },
           { id: 'cartera', label: 'Cartera / asignación', route: '/comercial/cartera', view: [Permission.COMMERCIAL_CARTERA_VER], manage: [Permission.COMMERCIAL_CARTERA_GESTIONAR] },
+          // `[MCP.3.11]` Módulo propio a propósito: dentro de «Cartera» el G daría las dos llaves juntas.
+          { id: 'route-warehouse', label: 'Sucursal de surtido por ruta', route: '/comercial/cartera', view: [], manage: [Permission.COMMERCIAL_ROUTE_WAREHOUSE_GESTIONAR] },
           { id: 'pricing', label: 'Precios', route: '/comercial/pricing', view: [Permission.COMMERCIAL_PRICING_VER], manage: [Permission.COMMERCIAL_PRICING_GESTIONAR] },
           { id: 'price-experiments', label: 'Experimentos de precio', route: '/comercial/precios/experimentos', view: [Permission.COMMERCIAL_PRICE_EXPERIMENT_VER], manage: [Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR] },
           { id: 'margin-engine', label: 'Motor de margen', route: '/comercial/precios/motor', view: [Permission.COMMERCIAL_MARGIN_ENGINE_VER], manage: [] },
@@ -291,7 +293,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'store-live', label: 'Tienda en Vivo', route: '/tienda/live', view: [Permission.STORE_LIVE_VER], manage: [] },
           { id: 'store-labels', label: 'Etiquetas de anaquel', route: '/tienda/etiquetas', view: [Permission.STORE_LABELS_VER], manage: [Permission.STORE_LABELS_COMPARTIR] },
-          { id: 'store-arqueo', label: 'Arqueo ciego de caja', route: '/tienda/arqueo', view: [Permission.STORE_ARQUEO_VER], manage: [Permission.STORE_ARQUEO_CAPTURAR, Permission.STORE_ARQUEO_RUTA_CAPTURAR] },
+          { id: 'store-arqueo', label: 'Arqueo ciego de caja', route: '/tienda/arqueo', view: [Permission.STORE_ARQUEO_VER], manage: [Permission.STORE_ARQUEO_CAPTURAR, Permission.STORE_ARQUEO_RUTA_CAPTURAR, Permission.STORE_ARQUEO_SIN_CAJA_CAPTURAR] },
           { id: 'store-caducidades', label: 'Control de Caducidades', route: '/tienda/caducidades', view: [Permission.COMMERCIAL_EXPIRY_VER], manage: [Permission.COMMERCIAL_EXPIRY_CAPTURAR] },
           { id: 'store-analytics', label: 'Análisis de ventas', route: '/tienda/analisis-semanal', view: [Permission.STORE_ANALYTICS_VER], manage: [] },
           { id: 'store-price-check', label: 'Verificador de precios', route: '/tienda/verificador', view: [Permission.STORE_PRICE_CHECK_VER], manage: [] },

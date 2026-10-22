@@ -106,6 +106,9 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
     .etqp-msg{ display:flex; align-items:center; gap:.6rem; padding:.6rem .75rem; border-radius: var(--r-sm);
       font-size: var(--fs-sm,.85rem); border:1px solid var(--info-soft-bg); background: var(--info-soft-bg); color: var(--info-soft-fg); }
     .etqp-msg.is-ok{ border-color: var(--ok-soft-bg); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+    /* [ETQ-PROMO.2] La marca de una promoción en la lista del buscador: token semántico, sin color de marca. */
+    .etqp-promo{ margin-left:.5rem; margin-right:auto; padding:.05rem .4rem; border-radius:var(--r-sm); font-size:var(--fs-micro); font-weight:var(--fw-bold);
+      background:var(--warn-soft-bg); color:var(--warn-soft-fg); white-space:nowrap; }
     .etqp-msg.is-warn{ border-color: var(--warn-soft-bg); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .etqp-msg.is-error{ border-color: var(--bad-soft-bg); background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .etqp-msg > span{ flex:1; }
@@ -451,7 +454,13 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
           optionLabel="name" [delay]="250" [minQueryLength]="2" [showClear]="true" appendTo="body"
           ariaLabelledBy="etqp-searchlbl" placeholder="Nombre, SKU o código de barras…">
           <ng-template let-h #item>
-            <div class="etqp-hit"><span class="nm">{{ h.name }}</span><span class="sku">{{ h.sku }}</span></div>
+            <div class="etqp-hit">
+              <span class="nm">{{ h.name }}</span>
+              @if (h.es_promocion) {
+                <span class="etqp-promo">Promoción</span>
+              }
+              <span class="sku">{{ h.sku }}</span>
+            </div>
           </ng-template>
           <ng-template #empty><div class="etqp-empty-hit">Sin coincidencias</div></ng-template>
         </p-autocomplete>
@@ -1218,8 +1227,11 @@ export class TiendaEtiquetasComponent {
           // [ETQ-ESTADO.1] Lo que no existe en el ERP se separa de lo que existe sin precio: se
           // arreglan en lugares distintos y la lista dice cuales son, no solo cuantos.
           const noExiste = skippedModels.filter((m) => m.erp_estado === 'no_existe_en_erp' || m.erp_estado === 'no_existe_en_plaza');
-          const resto = skippedModels.length - noExiste.length;
+          // [ETQ-PROMO.1] Las promociones de Kepler no son un producto sin precio: no hay nada que arreglar.
+          const promos = skippedModels.filter((m) => m.erp_estado === 'codigo_simbolico');
+          const resto = skippedModels.length - noExiste.length - promos.length;
           if (noExiste.length) text += ` · no existen en Kepler ${noExiste.length} (${noExiste.map((m) => m.sku || m.name).join(', ')})`;
+          if (promos.length) text += ` · promociones de Kepler, no llevan etiqueta ${promos.length} (${promos.map((m) => m.sku || m.name).join(', ')})`;
           if (resto) text += ` · sin precio ${resto}`;
         }
         if (nf) text += ` · no encontrados ${nf}`;
@@ -1281,6 +1293,8 @@ export class TiendaEtiquetasComponent {
         return `existe en Kepler pero no en la tienda ${suc}: hay que darlo de alta ahí → no se puede etiquetar.`;
       case 'sin_precio':
         return `está en Kepler pero con precio 0 en la tienda ${suc}: hay que ponerle precio en Kepler → no se puede etiquetar.`;
+      case 'codigo_simbolico':
+        return 'es un código de promoción o ajuste de Kepler (a $0.01), no un producto: no lleva etiqueta y no hay que ponerle precio.';
       default:
         return 'sin precio en Kepler → no se puede etiquetar.';
     }

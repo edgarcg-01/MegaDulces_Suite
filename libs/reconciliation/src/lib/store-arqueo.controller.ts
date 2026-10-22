@@ -1,10 +1,10 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
-  RolesGuard, RequirePermissions, Permission, ReqUser,
+  RolesGuard, RequirePermissions, RequireAnyPermission, Permission, ReqUser,
   ScopeService, CANONICAL_PARAM, isPlatformAdminRole,
 } from '@megadulces/platform-core';
-import { BlindCountService } from './blind-count.service';
+import { BlindCountService, CAJA_SIN_CAJA } from './blind-count.service';
 import { CashCutsSyncService } from './cash-cuts-sync.service';
 import { CashCountSlaService } from './cash-count-sla.service';
 import type { BlindCountDto } from './blind-count.service';
@@ -314,10 +314,61 @@ export class StoreArqueoController {
     };
   }
 
+  /**
+   * SM.47 - «Conteo de efectivo»: efectivo que NO es de ninguna caja (caja fuerte,
+   * fondo de cambio, un conteo de supervision). Lo capturan la encargada de
+   * sucursal, Finanzas y el jefe de zona.
+   *
+   * Endpoint APARTE, por la misma razon que el de rutas: `POST /` lo tiene la
+   * cajera, y si esto fuera un `tipo` mas cualquiera podria sellar un conteo sin
+   * caja. Por eso `POST /` rechaza `tipo: "sin_caja"`.
+   *
+   * - La sucursal pasa por `resolverSucursal()` (alcance de ESCRITURA).
+   * - Queda SIEMPRE a nombre de quien inicio sesion: «quien hace el arqueo» no es
+   *   un campo libre (firmar un conteo a nombre de otro no es un dato de formulario).
+   * - Sin turno ni esperado: se responde lo contado y se DECLARA que no es medible
+   *   (ADR-056), en vez de dibujar un cero que se leeria como «cuadro».
+   */
+  @Post('sin-caja')
+  @RequirePermissions(Permission.STORE_ARQUEO_SIN_CAJA_CAPTURAR)
+  @ApiOperation({ summary: 'Tienda - conteo de efectivo SIN caja (sucursal + quien cuenta + motivo). Sin esperado: registra constancia, no diferencia.' })
+  async submitSinCaja(@Body() body: BlindCountDto, @ReqUser() user: AuthUser): Promise<{
+    tipo: string; secuencia: number; total_contado: number; medible: false; motivo_no_medible: 'sin_esperado';
+  }> {
+    const warehouse_code = await this.resolverSucursal(body?.warehouse_code);
+    const res = await this.blind.submit(
+      {
+        ...body,
+        tipo: 'sin_caja',
+        warehouse_code,
+        caja: CAJA_SIN_CAJA,
+        cajero_code: this.atribuir(body, user, false),
+        cajero_entrante: undefined,
+        route_code: undefined,
+        incidencia_tipo: undefined,
+        cash_cut_folio: undefined,
+        caja_kepler: undefined,
+        turno_abierto_at: null,
+      },
+      user?.username,
+    );
+    return {
+      tipo: res.tipo,
+      secuencia: res.secuencia,
+      total_contado: res.total_contado,
+      medible: false,
+      motivo_no_medible: 'sin_esperado',
+    };
+  }
+
   @Post()
   @RequirePermissions(Permission.STORE_ARQUEO_CAPTURAR)
   @ApiOperation({ summary: 'Tienda — la cajera arquea el TURNO que Kepler le abrió (o captura a mano si todavía no hay turno). Queda a nombre de su usuario y devuelve solo su total contado.' })
   async submit(@Body() body: BlindCountDto, @ReqUser() user: AuthUser) {
+    // SM.47 - El conteo sin caja tiene su propia puerta y su propio permiso.
+    if (body?.tipo === 'sin_caja') {
+      throw new BadRequestException('El conteo de efectivo sin caja se captura por POST /store/arqueo/sin-caja.');
+    }
     const revela = this.revela(user);
     const warehouse_code = await this.resolverSucursal(body?.warehouse_code);
     const cajero_code = this.atribuir(body, user, revela);
@@ -337,7 +388,10 @@ export class StoreArqueoController {
   }
 
   @Get()
-  @RequirePermissions(Permission.STORE_ARQUEO_VER)
+  // SM.47 - Quien solo cuenta efectivo sin caja (Finanzas, que en prod tiene
+  // STORE_ARQUEO_VER en false a proposito) ve aqui SUS conteos del dia: sin
+  // RECONCILIATION_VER el listado ya viene recortado a su usuario y a hoy.
+  @RequireAnyPermission(Permission.STORE_ARQUEO_VER, Permission.STORE_ARQUEO_SIN_CAJA_CAPTURAR)
   @ApiQuery({ name: WH, required: false, description: 'Sucursal o CSV de sucursales. Se recorta a tu alcance. Acepta los nombres viejos (warehouse_code, sucursal…) y valores en código o uuid.' })
   @ApiQuery({ name: 'from', required: false })
   @ApiQuery({ name: 'to', required: false })

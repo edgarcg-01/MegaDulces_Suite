@@ -240,6 +240,30 @@ describe('TiendaEtiquetasComponent · la cola, la hoja y lo que declara', () => 
       expect(enCero).not.toContain('no existe');
     });
 
+    it('⭐ [ETQ-PROMO.1] una promoción de Kepler (09089) NO se dice «precio 0»: no es un producto y no lleva etiqueta', async () => {
+      const t = await escaneaSinPrecio(sinPrecio('09089', 'codigo_simbolico'));
+      expect(t).toContain('código de promoción o ajuste de Kepler');
+      expect(t).toContain('no lleva etiqueta');
+      // lo que decía antes y era falso: que hay que ponerle precio
+      expect(t).not.toContain('ponerle precio en Kepler');
+      expect(t).not.toContain('precio 0');
+      expect(cmp.queue().length).toBe(0);
+    });
+
+    it('[ETQ-PROMO.1] la carga masiva separa las promociones de «sin precio», con sus códigos', async () => {
+      svc.proximo = {
+        labels: [sinPrecio('09089', 'codigo_simbolico'), sinPrecio('78181', 'sin_precio'), modelo('10001')],
+        not_found: [], freshness: FRESH,
+      };
+      cmp.bulk.set(['09089', '78181', '10001'].join('\n'));
+      cmp.addBulk();
+      await tick();
+      const t = cmp.msg()?.text ?? '';
+      expect(t).toContain('promociones de Kepler, no llevan etiqueta 1 (09089)');
+      // «sin precio» cuenta sólo lo que de verdad hay que arreglar: el 78181, no la promoción
+      expect(t).toContain('sin precio 1');
+    });
+
     it('existe en otra tienda pero no en ésta: nombra la tienda', async () => {
       const t = await escaneaSinPrecio(sinPrecio('78182', 'no_existe_en_plaza'));
       expect(t).toContain('no en la tienda 01');
