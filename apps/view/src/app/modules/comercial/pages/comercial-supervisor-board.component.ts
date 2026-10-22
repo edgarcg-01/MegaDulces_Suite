@@ -143,8 +143,11 @@ function progressOf(sales: number | null, target: number | null): number | null 
 
           <div class="sb-md" [class.sb-md--open]="!!selected()">
             <div class="sb-master dt-scope">
+              <!-- Con teclado: flechas para moverse y Enter/Espacio abre el detalle (pSelectableRow). -->
               <p-table [value]="rows()" dataKey="user_id" class="dt-stack surf-table surf-table--plain surf-table--sticky" size="small"
-                [rowHover]="true" [tableStyle]="{ 'min-width': '40rem' }">
+                [rowHover]="true" [tableStyle]="{ 'min-width': '40rem' }"
+                selectionMode="single" [selection]="selected()" [metaKeySelection]="false"
+                (onRowSelect)="select($event.data.user_id)" (onRowUnselect)="select($event.data.user_id)">
                 <ng-template #header>
                   <tr>
                     <th scope="col">Vendedor</th>
@@ -157,7 +160,7 @@ function progressOf(sales: number | null, target: number | null): number | null 
                   </tr>
                 </ng-template>
                 <ng-template #body let-v>
-                  <tr class="sb-row" [class.sb-row-on]="selectedId() === v.user_id" (click)="select(v.user_id)">
+                  <tr class="sb-row" [pSelectableRow]="v" [class.sb-row-on]="selectedId() === v.user_id">
                     <td role="cell" data-label="Vendedor" class="dt-id">
                       <button type="button" class="sb-name" [attr.aria-expanded]="selectedId() === v.user_id"
                         [attr.aria-controls]="'sb-detail'">{{ v.name }}</button>
@@ -185,7 +188,7 @@ function progressOf(sales: number | null, target: number | null): number | null 
                       </td>
                     }
                     @if (cols().target) {
-                      <td role="cell" data-label="Meta" class="comm-num dt-num" (click)="$event.stopPropagation()">
+                      <td role="cell" data-label="Meta" class="comm-num dt-num" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()">
                         @if (d.can_set_targets) {
                           <span class="sb-target">
                             <p-inputnumber [ngModel]="draftOf(v)" (ngModelChange)="setDraft(v.user_id, $event)"
