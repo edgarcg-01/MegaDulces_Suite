@@ -256,6 +256,14 @@ la excepción de la regla de color. **Una mención no es cobertura** — es el m
 
 - **Iconos, nunca emojis** en la UI — `<i class="pi pi-pencil">`, no ✏️. Vale también cuando hablás
   de lo que va en pantalla. Hay compuerta: `sin emojis`.
+- ⛔ **Una sucursal o almacén se NOMBRA, jamás se numera** (PM, 2026-10-22: *«jamás debemos usar
+  terminologías como 01 o 00, siempre por nombre»*). Ni en la celda, ni en un título, ni en una
+  opción de un selector, ni en un `aria-label`, ni en lo que se GUARDA y otro lee después (notas de
+  una requisición, un PDF). «07» no le dice a nadie que es Morelia Madero. En plantilla, la pipe
+  `| sucursal`; en código, `warehouseName()` de `@megadulces/contracts` — el MISMO resolvedor, para
+  que todo diga lo mismo. Si no conoce el código lo devuelve tal cual: no se inventa un nombre.
+  *Medido el 2026-10-07: 121 códigos crudos en 64 componentes (`[SUC.1]`); el 2026-10-22,
+  `/compras/pedido` todavía decía «consolida en 01», «todo a 00» y «entrega en 01, 08».*
 - **Dark mode es first-class, no un pase final.** Sólo tokens que flipean por tema. Un hex o un token
   inexistente se ve bien en claro y queda roto en oscuro. Las sombras casi desaparecen en dark: la
   profundidad la lleva el **borde de 1px**.

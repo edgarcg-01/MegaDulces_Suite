@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desglose de Pedido — propuesta</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Tokens de libs/design-tokens/tokens.css — superficie Operations, modo oscuro (zinc). */
+  :root {
+    --layout-bg: #09090B; --card-bg: #18181B; --surface-ground: #111113;
+    --border-color: #27272A; --text-main: #FAFAFA; --text-muted: #A1A1AA; --text-faint: #71717A;
+    --action: #F05A28; --action-ring: rgba(240, 90, 40, 0.30);
+    --ok-fg: #22C55E; --warn-fg: #FBBF24; --bad-fg: #F87171; --info-fg: #60A5FA;
+    --overlay-hover: rgba(255, 255, 255, 0.045); --overlay-selected: rgba(255, 255, 255, 0.07);
+    --fs-lg: 1.125rem; --fs-body: .875rem; --fs-sm: .8125rem; --fs-xs: .75rem; --fs-micro: .6875rem;
+    --r-sm: 8px; --r-md: 12px;
+    --font-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--layout-bg); color: var(--text-main); font: 400 var(--fs-body)/1.45 var(--font-body); }
+  .wrap { max-width: 1440px; margin: 0 auto; padding: 20px 16px 48px; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .muted { color: var(--text-muted); } .faint { color: var(--text-faint); }
+
+  /* Aviso de maqueta */
+  .nota { display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; margin-bottom: 16px; border: 1px dashed var(--border-color);
+    border-radius: var(--r-sm); color: var(--text-muted); font-size: var(--fs-sm); }
+  .nota b { color: var(--text-main); }
+
+  /* Fila del producto (cerrada) */
+  .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
+  .prod { display: grid; grid-template-columns: minmax(280px, 1fr) repeat(4, auto); gap: 28px; align-items: center; padding: 14px 18px;
+    border-bottom: 1px solid var(--border-color); }
+  .prod .nom { font-weight: 600; } .prod .sub { font-size: var(--fs-xs); color: var(--text-muted); }
+  .kv { text-align: right; } .kv .k { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); }
+  .kv .v { font-size: var(--fs-lg); font-weight: 600; } .kv .v small { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 400; }
+
+  /* Desglose */
+  .det { padding: 18px 18px 14px; border-left: 3px solid var(--action); }
+  .respuesta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; margin-bottom: 10px; }
+  .respuesta .grande { font-size: 1.375rem; font-weight: 700; letter-spacing: -.01em; }
+  .respuesta .grande .num { font-weight: 600; }
+  .respuesta .resto { color: var(--text-muted); }
+  .avisos { display: grid; gap: 6px; margin-bottom: 12px; }
+  .aviso { display: flex; gap: 10px; align-items: flex-start; padding: 8px 12px; border-radius: var(--r-sm); font-size: var(--fs-sm);
+    background: var(--surface-ground); border: 1px solid var(--border-color); }
+  .aviso .ico { flex: none; width: 18px; text-align: center; }
+  .aviso.warn { border-left: 3px solid var(--warn-fg); } .aviso.warn .ico { color: var(--warn-fg); }
+  .aviso.info { border-left: 3px solid var(--info-fg); } .aviso.info .ico { color: var(--info-fg); }
+  .aviso a { color: var(--text-main); text-underline-offset: 3px; }
+  .senales { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: var(--fs-xs); color: var(--text-muted); margin: 2px 0 14px; }
+  .senales b { color: var(--text-main); font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); font-weight: 500;
+    text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--border-color); text-align: right; vertical-align: middle; font-size: var(--fs-sm); }
+  tr:hover td { background: var(--overlay-hover); }
+  .suc .nom { color: var(--text-main); font-weight: 500; }
+  .suc .tag { margin-left: 8px; font-size: var(--fs-micro); color: var(--warn-fg); border: 1px solid rgba(251,191,36,.35); border-radius: 999px; padding: 0 7px; }
+
+  /* "Hoy dura": el ÚNICO color de la tabla — la urgencia. */
+  .dura { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .barra { width: 64px; height: 6px; border-radius: 3px; background: var(--border-color); position: relative; overflow: hidden; }
+  .barra i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
+  .u-bad { color: var(--bad-fg); } .u-bad .barra i { background: var(--bad-fg); }
+  .u-warn { color: var(--warn-fg); } .u-warn .barra i { background: var(--warn-fg); }
+  .u-ok { color: var(--text-muted); } .u-ok .barra i { background: var(--text-faint); }
+
+  .tras { color: var(--info-fg); } .sale { color: var(--text-faint); font-size: var(--fs-xs); display: block; }
+  .pedir input { width: 72px; padding: 6px 8px; text-align: right; font: 600 var(--fs-body) var(--font-mono); color: var(--text-main);
+    background: var(--layout-bg); border: 1px solid var(--border-color); border-radius: 6px; }
+  .pedir input:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; border-color: transparent; }
+  .pedir .u { margin-left: 6px; color: var(--text-faint); font-size: var(--fs-xs); }
+  .cubierto { display: block; font-size: var(--fs-micro); color: var(--info-fg); margin-top: 2px; }
+  .queda { color: var(--text-muted); } .val { font-weight: 600; }
+  tr.cero td { color: var(--text-faint); } tr.cero .val { font-weight: 400; }
+  tfoot td { border-bottom: 0; font-weight: 600; padding-top: 12px; }
+
+  .pie { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-color); }
+  .ctl { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: var(--fs-sm); }
+  .ctl select { font: inherit; color: var(--text-main); background: var(--layout-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 5px 8px; }
+  .sp { flex: 1; }
+  .sec { font: 500 var(--fs-sm) var(--font-body); color: var(--text-muted); background: transparent; border: 0; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+  .sec:hover { background: var(--overlay-hover); color: var(--text-main); }
+  .pri { font: 600 var(--fs-sm) var(--font-body); color: #fff; background: var(--action); border: 0; padding: 9px 16px; border-radius: var(--r-sm); cursor: pointer; }
+  .pri:focus-visible, .sec:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+
+  /* Las notas de diseño */
+  .notas { margin-top: 26px; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .n { padding: 12px 14px; border: 1px solid var(--border-color); border-radius: var(--r-sm); font-size: var(--fs-sm); color: var(--text-muted); }
+  .n h3 { margin: 0 0 4px; font-size: var(--fs-sm); color: var(--text-main); }
+  .n .antes { display: block; margin-top: 6px; font-size: var(--fs-xs); color: var(--text-faint); }
+  h2 { font-size: var(--fs-body); margin: 26px 0 0; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+
+  @media (max-width: 48rem) {
+    .prod { grid-template-columns: 1fr 1fr; gap: 10px 16px; } .prod > :first-child { grid-column: 1 / -1; }
+    .barra { display: none; } th, td { padding: 8px 6px; }
+    .col-tras, .col-queda { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="nota">
+    <span aria-hidden="true">◇</span>
+    <div><b>Maqueta</b> de cómo debería verse el desglose de un producto al armar el pedido. Datos <b>reales de prod del 22-oct-2026</b>
+      (La Rosa Mazapán 70056, cobertura 30 días). Las cantidades se pueden editar: los días y los totales se recalculan.
+      No es la pantalla: es la referencia para implementarla en <span class="num">compras-pedido-real.component.ts</span>.</div>
+  </div>
+
+  <div class="card">
+    <!-- La fila del producto, cerrada: lo que decide, junto al nombre -->
+    <div class="prod">
+      <div><div class="nom">LA ROSA MAZAPÁN GIGANTE 50G /20</div>
+        <div class="sub"><span class="num">70056</span> · Distribuidora de la Rosa · 1 cj = 16 paq · $1,322.88 por caja</div></div>
+      <div class="kv"><div class="k">Comprar</div><div class="v num" id="h-cj">82 <small>cj</small></div></div>
+      <div class="kv"><div class="k">Valor</div><div class="v num" id="h-val">$108,476</div></div>
+      <div class="kv"><div class="k">Traspaso</div><div class="v num">7.0 <small>cj</small></div></div>
+      <div class="kv"><div class="k">Hoy dura (red)</div><div class="v num u-warn">25 <small>días</small></div></div>
+    </div>
+
+    <div class="det">
+      <!-- 1 · LA RESPUESTA, primero -->
+      <div class="respuesta">
+        <div class="grande">Comprar <span class="num" id="r-cj">82 cj</span> · <span class="num" id="r-val">$108,476</span></div>
+        <div class="resto">para cubrir 30 días · <b id="r-n">2</b> sucursales compran (Padre Hidalgo y Morelia Abastos) · 4 se cubren con traspaso · 2 no necesitan (Canindo y Morelia Madero)</div>
+      </div>
+
+      <!-- 2 · Lo que cambia la decisión, dicho en una línea cada uno -->
+      <div class="avisos">
+        <div class="aviso warn"><span class="ico" aria-hidden="true">!</span>
+          <div><b>No viene nada en camino que se pueda contar.</b> Hay 9 órdenes abiertas en Padre Hidalgo (285 cj), pero las 9 tienen la llegada
+            <b>vencida</b>: el proveedor surte en 1 día y llevan de 2 a 78 días abiertas — lo más probable es que ya se recibieron y la
+            OC nunca se cerró en Kepler. No se suman. <a href="#">Revisarlas en Abiertas en Kepler ›</a></div></div>
+        <div class="aviso info"><span class="ico" aria-hidden="true">⇄</span>
+          <div><b>La Piedad Abastos, 8 Esquinas, Yurécuaro y Zamora Centro se cubren con traspaso</b> (7.0 cj, $9,252) en vez de comprar. Hoy la pantalla les sugiere las
+            <b>dos cosas</b> — compra de 8 cj ($10,584) y traspaso — y armar ambas cubre ese faltante dos veces.</div></div>
+      </div>
+
+      <!-- 3 · Señales: una vez cada una, con su rótulo -->
+      <div class="senales">
+        <span>Margen hoy <b>16.3 %</b> <span class="faint">(15.3–21.3 según sucursal)</span></span>
+        <span>Venta perdida <b>$35 mil</b> <span class="faint">en Morelia Abastos</span></span>
+        <span>Proveedor: llevas <b>$667 K</b> de su pedido típico <b>$1.28 M</b></span>
+        <span>Demanda <b>▲ acelerando</b> (+0.85) · Surte <b>87 %</b></span>
+      </div>
+
+      <!-- 4 · La tabla, en el orden en que se decide: urgencia → lo que ya llega → lo que pido → cómo queda → cuánto -->
+      <table aria-label="Desglose por sucursal">
+        <thead><tr>
+          <th>Sucursal</th>
+          <th>Vende / 30 d</th>
+          <th>Existencia</th>
+          <th>Hoy dura</th>
+          <th class="col-tras">Traspaso</th>
+          <th>Pedir ✎</th>
+          <th class="col-queda">Queda en</th>
+          <th>Valor</th>
+        </tr></thead>
+        <tbody id="filas"></tbody>
+        <tfoot><tr>
+          <td>Total</td><td class="num" id="t-vta"></td><td class="num" id="t-exis"></td><td></td>
+          <td class="col-tras num tras">7.0 cj</td><td class="num" id="t-ped"></td><td class="col-queda"></td><td class="num val" id="t-val"></td>
+        </tr></tfoot>
+      </table>
+
+      <!-- 5 · Lo que casi nunca se toca, una vez y en gris -->
+      <div class="pie">
+        <label class="ctl">Entrega <select><option>directo a cada sucursal</option><option>consolidar zona La Piedad en Padre Hidalgo</option><option>consolidar todo en CEDIS</option></select></label>
+        <label class="ctl">Capturar en <select><option>cajas</option><option>paquetes</option></select></label>
+        <span class="sp"></span>
+        <button class="sec" type="button">Venta por mes</button>
+        <button class="sec" type="button">XLSX</button>
+        <button class="sec" type="button">PDF</button>
+        <button class="pri" type="button" id="agregar">+ Agregar a la requisición · $108,476</button>
+      </div>
+    </div>
+  </div>
+
+  <h2>Qué cambió contra la pantalla de hoy</h2>
+  <div class="notas">
+    <div class="n"><h3>1 · La respuesta, primero</h3>Una línea dice cuánto comprar, cuánto cuesta y qué sucursales lo necesitan.
+      <span class="antes">Hoy: hay que sumar 8 renglones y cruzarlos con la pestaña Traspasos.</span></div>
+    <div class="n"><h3>2 · «Hoy dura», no «queda en»</h3>Lo que decide es cuántos días aguanta HOY (19–37). Es el único color de la tabla: rojo &lt; 15 d, ámbar &lt; 30 d.
+      <span class="antes">Hoy: «Días inv.» muestra el resultado DESPUÉS del sugerido — siempre 31–37 d y siempre verde, no informa.</span></div>
+    <div class="n"><h3>3 · Compra y traspaso juntos</h3>El traspaso que ya llega está en la misma fila, y la cantidad a pedir lo descuenta. Padre Hidalgo dice que manda 5.1 cj.
+      <span class="antes">Hoy: pestañas separadas; La Piedad Abastos, 8 Esquinas, Yurécuaro y Zamora Centro reciben compra Y traspaso por el mismo faltante. (La pantalla mostraba 3 traspasos / $7,937; el motor sugiere 4 / $9,252 — por revisar.)</span></div>
+    <div class="n"><h3>4 · «En camino» que se puede creer</h3>Las OC se clasifican (ya existe: <span class="num">clasificarOc</span>) y las vencidas se declaran como tales, con su salida.
+      <span class="antes">Hoy: «🚚 285» suma 9 OC con llegada vencida hace 1–77 días.</span></div>
+    <div class="n"><h3>5 · El naranja, sólo para la acción</h3>Una primaria: «Agregar a la requisición». Entrega y unidad, un control por producto, en gris.
+      <span class="antes">Hoy: 8 «Sucursal» + 8 «cj» + 6 enlaces de zona en naranja; el campo que se decide, en gris.</span></div>
+    <div class="n"><h3>6 · Cada señal, una vez</h3>Margen, venta perdida, pedido típico y tendencia en una línea con su rótulo.
+      <span class="antes">Hoy: venta perdida 3 veces; «margen 21.3 %» en 4 de 8 sucursales sin decir por qué; dos márgenes sin rótulo.</span></div>
+  </div>
+</div>
+
+<script>
+  // Datos de prod (22-oct-2026, 70056). cajas; vta = venta 30 d; tras = traspaso que LLEGA; sale = traspaso que SALE.
+  const CAJA = 1322.88;
+  const SUC = [
+    { n: 'Yurécuaro',       vta: 2.5,   exis: 1.6,   tras: 0.9, de: 'Padre Hidalgo', ped: 0 },
+    { n: 'Zamora Centro',   vta: 5.3,   exis: 3.4,   tras: 1.9, de: 'Canindo', ped: 0 },
+    { n: 'Padre Hidalgo',   vta: 109.2, exis: 77.5,  sale: 5.1, a: 'La Piedad Abastos, 8 Esquinas y Yurécuaro', ped: 36 },
+    { n: 'Morelia Abastos', vta: 143.3, exis: 102.9, ped: 46, tag: 'perdió $35 mil' },
+    { n: 'La Piedad Abastos', vta: 10.9, exis: 8.1,  tras: 2.8, de: 'Padre Hidalgo', ped: 0 },
+    { n: '8 Esquinas',      vta: 21.1,  exis: 19.7,  tras: 1.4, de: 'Padre Hidalgo', ped: 0 },
+    { n: 'Morelia Madero',  vta: 41.5,  exis: 45.4,  ped: 0 },
+    { n: 'Canindo',         vta: 54.7,  exis: 66.4,  sale: 1.9, a: 'Zamora Centro', ped: 0 },
+  ];
+  const dias = (stock, vta) => (vta > 0 ? stock / (vta / 30.4) : null);
+  const peso = (v) => '$' + Math.round(v).toLocaleString('es-MX');
+  const urg = (d) => (d == null ? 'u-ok' : d < 15 ? 'u-bad' : d < 30 ? 'u-warn' : 'u-ok');
+  const tb = document.getElementById('filas');
+  for (const s of SUC) {
+    const hoy = dias(s.exis, s.vta);
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="suc"><span class="nom">' + s.n + '</span>' + (s.tag ? '<span class="tag">' + s.tag + '</span>' : '') + '</td>' +
+      '<td class="num">' + s.vta.toFixed(1) + '</td>' +
+      '<td class="num muted">' + s.exis.toFixed(1) + '</td>' +
+      '<td><span class="dura ' + urg(hoy) + '"><span class="num">' + Math.round(hoy) + ' d</span><span class="barra"><i style="width:' + Math.min(100, hoy / 45 * 100) + '%"></i></span></span></td>' +
+      '<td class="col-tras num">' + (s.tras ? '<span class="tras">' + s.tras.toFixed(1) + ' cj desde ' + s.de + '</span>' : '') +
+        (s.sale ? '<span class="sale">manda ' + s.sale.toFixed(1) + ' cj a ' + s.a + '</span>' : (s.tras ? '' : '<span class="faint">—</span>')) + '</td>' +
+      '<td class="pedir"><input type="number" min="0" step="1" value="' + s.ped + '" aria-label="Pedir para ' + s.n + '"><span class="u">cj</span>' +
+        (s.tras ? '<span class="cubierto">cubierto por traspaso</span>' : '') + '</td>' +
+      '<td class="col-queda num queda"></td>' +
+      '<td class="num val"></td>';
+    tb.appendChild(tr);
+    s.tr = tr;
+    tr.querySelector('input').addEventListener('input', (e) => { s.ped = Math.max(0, Number(e.target.value) || 0); pintar(); });
+  }
+  function pintar() {
+    let V = 0, E = 0, P = 0, $ = 0, n = 0;
+    for (const s of SUC) {
+      const stock = s.exis + (s.tras || 0) - (s.sale || 0) + s.ped;
+      const d = dias(stock, s.vta);
+      s.tr.querySelector('.queda').textContent = d == null ? '—' : Math.round(d) + ' d';
+      s.tr.querySelector('.val').textContent = s.ped > 0 ? peso(s.ped * CAJA) : '—';
+      s.tr.classList.toggle('cero', !(s.ped > 0));
+      V += s.vta; E += s.exis; P += s.ped; $ += s.ped * CAJA; if (s.ped > 0) n++;
+    }
+    document.getElementById('t-vta').textContent = V.toFixed(1);
+    document.getElementById('t-exis').textContent = E.toFixed(1);
+    document.getElementById('t-ped').textContent = P + ' cj';
+    document.getElementById('t-val').textContent = peso($);
+    for (const id of ['h-cj']) document.getElementById(id).innerHTML = P + ' <small>cj</small>';
+    document.getElementById('h-val').textContent = peso($);
+    document.getElementById('r-cj').textContent = P + ' cj';
+    document.getElementById('r-val').textContent = peso($);
+    document.getElementById('r-n').textContent = n;
+    document.getElementById('agregar').textContent = '+ Agregar a la requisición · ' + peso($);
+  }
+  pintar();
+</script>
+</body>
+</html>
