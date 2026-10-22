@@ -339,7 +339,7 @@ export const vendorName = (v: VendorOption): string => (v.nombre || '').trim() |
     .vm-block-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2); }
     .vm-h3 { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
     .vm-figure { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1); }
-    .vm-strong { font-weight: 700; color: var(--text-main); font-size: var(--fs-md); }
+    .vm-strong { font-weight: 700; color: var(--text-main); font-size: var(--fs-body); }
     .vm-pct { margin-left: auto; font-family: var(--font-mono); font-weight: 700; color: var(--text-main); }
     .vm-bar { height: 8px; border-radius: var(--r-pill); background: var(--overlay-hover); overflow: hidden; }
     .vm-bar-fill { display: block; height: 100%; background: var(--action); }
