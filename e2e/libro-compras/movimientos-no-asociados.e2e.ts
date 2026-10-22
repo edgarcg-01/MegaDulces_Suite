@@ -40,10 +40,11 @@ interface Factura {
   iva: number; ieps: number; incluida: boolean; account_suffix: string | null; cuenta_existe: boolean;
   en_libro_reciente: boolean; prueba_certeza: 'exacta' | 'por_importe' | null; estatus_sat: string;
   motivo_exclusion: string | null; cuenta_sugerida?: { cuenta: string } | null;
+  estatus_verificado_at?: string | null;
 }
 interface Mes {
   mes: string; run: Record<string, unknown> | null; facturas: Factura[];
-  resumen: { incluidas: number; total: number }; avisos: string[];
+  resumen: { incluidas: number; total: number; sin_verificar_sat?: number }; avisos: string[];
   cuentas_impuesto?: { iva: { cuenta: string }; ieps: { cuenta: string }; desde: string | null };
 }
 
@@ -235,9 +236,34 @@ test.describe('escritura — generar, entregar y cancelar el mes', () => {
     expect(otra.run?.['estado'], 'el mes no puede estar aplicado: es terminal').not.toBe('aplicado');
   });
 
+  test('verificar en el SAT: sin verificar no se genera; verificado, sí (LC.19.1)', async ({ page }) => {
+    test.setTimeout(360_000); // ~350 facturas a ~4 por segundo, en lotes de 100
+    const antes = await getMes(MES_ESCRITURA);
+    test.skip(!antes.resumen.incluidas, 'no hay nada que generar en el mes');
+    await abrir(page, MES_ESCRITURA);
+    const generarBtn = page.locator('.lc-acciones button', { hasText: 'Generar TXT' });
+    if ((antes.resumen.sin_verificar_sat ?? 0) > 0) {
+      await expect(page.locator('.lc-bloq'), 'el bloqueo del SAT se ve, con su monto').toContainText('sin verificar ante el SAT');
+      await expect(generarBtn, '⛔ con marcadas sin verificar, Generar está apagado').toBeDisabled();
+      const g = await api.post(`${API}/${MES_ESCRITURA}/generar`, { data: { impuestos: 'global', uuid: true } });
+      expect(g.status(), '⛔ y el servidor lo rechaza aunque alguien llame directo').toBe(400);
+      expect(await g.text()).toContain('sin verificar ante el SAT');
+      await page.locator('.na-sat button', { hasText: 'Verificar en el SAT' }).click();
+      await expect(page.locator('.p-toast-message', { hasText: 'Verificación ante el SAT' })).toBeVisible({ timeout: 330_000 });
+    }
+    const despues = await getMes(MES_ESCRITURA);
+    const pendientes = despues.facturas.filter((f) => f.incluida && f.estatus_sat !== 'vigente');
+    expect(pendientes.every((f) => !!f.estatus_verificado_at), 'toda marcada no vigente fue CONSULTADA (no se saltó)').toBe(true);
+    test.skip(pendientes.length > 0, `NO MEDIDO el resto: ${pendientes.length} marcadas no salieron vigentes ante el SAT — hay que revisarlas a mano`);
+    expect(despues.resumen.sin_verificar_sat ?? 0).toBe(0);
+    await page.reload();
+    await expect(generarBtn, 'con todo vigente, Generar se enciende').toBeEnabled({ timeout: 20_000 });
+  });
+
   test('generar: folio y nombre del libro, con UUID en cada renglón (#4, #5)', async ({ page }) => {
     const antes = await getMes(MES_ESCRITURA);
     test.skip(!antes.resumen.incluidas, 'no hay nada que generar en el mes');
+    test.skip((antes.resumen.sin_verificar_sat ?? 0) > 0, 'NO MEDIDO: quedan marcadas sin verificar ante el SAT');
     await abrir(page, MES_ESCRITURA);
     await expect(page.locator('#na-uuid'), '#5 la casilla del UUID arranca marcada').toBeChecked();
     await page.locator('.lc-acciones button', { hasText: 'Generar TXT' }).click();

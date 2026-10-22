@@ -45,6 +45,7 @@ const LC18_STYLES = `
 .na-sug label { cursor: pointer; }
 .na-sug .mono { font-family: var(--font-mono); }
 .na-link-sutil { margin-left: .35rem; font-size: var(--fs-xs); color: var(--text-muted); }
+.na-sat { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin: -.25rem 0 .75rem; font-size: var(--fs-sm); }
 `;
 
 /**
@@ -239,6 +240,19 @@ const LC18_STYLES = `
             <ul class="lc-avisos lc-bloq" aria-label="Lo que impide generar">
               @for (a of d.bloqueantes; track a) { <li><i class="pi pi-times-circle"></i>{{ a }}</li> }
             </ul>
+            <!-- LC.19.1: la salida del bloqueo del SAT esta junto al bloqueo, no en otro lado.
+                 No hay override: lo que el SAT no encuentre se desmarca. -->
+            @if (puedeGestionar() && (d.resumen.sin_verificar_sat ?? 0) > 0) {
+              <div class="na-sat">
+                <p-button type="button" label="Verificar en el SAT" icon="pi pi-shield"
+                          styleClass="p-button-outlined p-button-secondary"
+                          [loading]="verificandoSat()" [disabled]="verificandoSat()" (click)="verificarSat()" />
+                <span class="muted">
+                  @if (progresoSat(); as p) { {{ p }} }
+                  @else { Consulta cada factura en el servicio público del SAT (~4 por segundo). Lo que no aparezca vigente no entra al TXT. }
+                </span>
+              </div>
+            }
           }
 
           <!-- Cobertura + lo que queda fuera + avisos del mes eran cuatro bloques apilados
@@ -474,6 +488,10 @@ const LC18_STYLES = `
                     } @else if (!f.en_libro_reciente) {
                       <!-- El porque va en el renglon (motivo de exclusion), no en un tooltip. -->
                       <p-tag value="Sin libro reciente" severity="secondary" />
+                    } @else if (f.incluida && f.estatus_sat !== 'vigente') {
+                      <!-- LC.19.1: tenue, no ambar. El bloqueo ya grita arriba con su monto; si los
+                           275 renglones de octubre fueran ambar, nada en la tabla se leeria. -->
+                      <span class="na-cero">SAT sin verificar</span>
                     } @else {
                       <span class="na-cero">—</span>
                     }
@@ -664,6 +682,9 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   cargandoMeses = signal(false);
   cargandoMes = signal(false);
   generando = signal(false);
+  /** LC.19.1: la verificación ante el SAT corre por lotes; esto dice en cuál va. */
+  verificandoSat = signal(false);
+  progresoSat = signal<string | null>(null);
   dlgEntrega = signal(false);
   dlgCaratula = signal(false);
   guardandoCaratula = signal(false);
@@ -1156,6 +1177,42 @@ export class MovimientosNoAsociadosComponent implements OnInit {
       },
       error: (e) => { this.generando.set(false); this.error('No se pudo generar', e); },
     });
+  }
+
+  /**
+   * LC.19.1 — Verifica ante el SAT las facturas del mes, un lote (~100, ~25 s) por llamada, y
+   * repite mientras el servidor diga que quedan. Si cambias de mes se detiene: el resultado de
+   * otro mes no se mezcla con éste. Al final reabre el mes, que es quien decide qué bloquea.
+   */
+  verificarSat() {
+    const mes = this.mesSel(); if (!mes || this.verificandoSat()) return;
+    this.verificandoSat.set(true);
+    const acum = { consultados: 0, vigentes: 0, cancelados: 0, no_encontrados: 0, fallidos: 0 };
+    let total = 0;
+    const terminar = (resumen?: string, sev: 'success' | 'warn' = 'success') => {
+      this.verificandoSat.set(false); this.progresoSat.set(null);
+      if (resumen) this.toast.add({ severity: sev, summary: 'Verificación ante el SAT', detail: resumen, life: 8000 });
+      if (this.mesSel() === mes) this.abrirMes(mes);
+    };
+    const vuelta = () => this.svc.verificarSat(mes).subscribe({
+      next: (r) => {
+        if (!r.disponible) {
+          terminar('El servidor no tiene con qué consultar al SAT: no se verificó nada y nada se dio por vigente.', 'warn');
+          return;
+        }
+        total = total || r.por_verificar;
+        acum.consultados += r.consultados; acum.vigentes += r.vigentes; acum.cancelados += r.cancelados;
+        acum.no_encontrados += r.no_encontrados; acum.fallidos += r.fallidos;
+        this.progresoSat.set(`Verificando… ${acum.consultados} de ${total} consultadas`);
+        if (r.restantes > 0 && r.consultados > 0 && this.mesSel() === mes) { vuelta(); return; }
+        const otros = acum.cancelados + acum.no_encontrados + acum.fallidos;
+        terminar(`${acum.vigentes} vigentes · ${acum.cancelados} canceladas · ${acum.no_encontrados} que el SAT no encontró · `
+          + `${acum.fallidos} sin respuesta${otros ? '. Las que no salieron vigentes siguen sin poder entrar al TXT.' : '.'}`,
+          otros ? 'warn' : 'success');
+      },
+      error: (e) => { this.verificandoSat.set(false); this.progresoSat.set(null); this.error('No se pudo verificar ante el SAT', e); },
+    });
+    vuelta();
   }
 
   /**

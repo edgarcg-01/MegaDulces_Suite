@@ -38,6 +38,7 @@ export * from './lib/polizas/polizas.service';
 export * from './lib/polizas/poliza-type-audit.service';
 export * from './lib/purchase-book/finance-purchase-book.module';
 export * from './lib/purchase-book/purchase-book.service';
+export * from './lib/purchase-book/cfdi-estatus.port';
 export * from './lib/payment-program/finance-payment-program.module';
 export * from './lib/payment-program/payment-program.service';
 export * from './lib/caja/finance-caja-general.module';

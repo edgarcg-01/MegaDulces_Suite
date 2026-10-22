@@ -168,6 +168,7 @@ import { HealthNotifierBindingModule } from './composition/health-notifier.bindi
 import { ReconNotifierBindingModule } from './composition/recon-notifier.binding.module';
 // FISCAL.1.1 — binding del Port de consolidación de hallazgos → Maat (finance.findings).
 import { FinanceFindingsSinkBindingModule } from './composition/finance-findings-sink.binding.module';
+import { CfdiEstatusBindingModule } from './composition/cfdi-estatus.binding.module';
 import { InvoiceIssuerBindingModule } from './composition/invoice-issuer.binding.module';
 // Composition root: liga ORDER_FULFILLMENT_PORT (contracts) ← CommercialOrdersService.
 // Permite que logística dispare el fulfill sin importar commercial (DI inversion).
@@ -322,6 +323,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       FiscalConciliacionModule,
       FiscalDiotModule,
       FiscalEstatusModule,
+      CfdiEstatusBindingModule,
       FiscalContabilidadModule,
       FiscalMaterialidadModule,
       FiscalImpuestosModule,
