@@ -1003,10 +1003,10 @@ describe('[RA-NEG.2] el desglose compacto: qué hacer, en pocas palabras', () =>
       meses: [{ mes: '2026-01', base: 2400, promedio: 89, min: 84.88, max: 89.3 }, { mes: '2026-10', base: 6320, promedio: 81.7, min: 78.6, max: 82.68 }],
       ultimo: { fecha: '2026-10-21', sucursal: '06', costo_base: 78.595 }, minimo: { fecha: '2026-06-29', sucursal: '06', costo_base: 72.44, base: 1280 },
       total_base: 52368, total_valor: 4455190.69, renglones: 81, renglones_sin_unidad: 0, renglones_atipicos: 0,
-      al_estandar_reciente: [{ sucursal: '06', entradas: 3, base: 1520, costo_base: 78.5956 }] },
+      al_estandar_reciente: [{ sucursal: '06', entradas: 3, base: 1520, costo_base: 78.5956 }], entradas: [] },
     proveedor: { supplier_id: 's-1', nombre: 'DISTRIBUIDORA DE LA ROSA SA DE CV', compras_12m: 81143559.22, recepciones_12m: 618,
       descuento_pago_12m: 3131340.22, descuento_notas_12m: 2092748.91, descuento_pct: 6.44,
-      pronto_pago: { tasa: 0.0709, fuente: 'observed', pagos: 136, sin_descuento: 43, monto_sin_descuento: 20049786.69, estimado_perdido: 1421529.88, ultimo_sin_descuento: '2026-09-21' },
+      pronto_pago: { tasa: 0.0709, fuente: 'observed', pagos: 136, sin_descuento: 43, monto_sin_descuento: 20049786.69, estimado_perdido: 1421529.88, ultimo_sin_descuento: '2026-09-21', ultimos_sin_descuento: null },
       plazo_dias: 20, plazo_base: 'factura', plazo_kepler: [{ dias: 19, recepciones: 388 }, { dias: 21, recepciones: 230 }], tiempo_entrega_dias: null,
       reclamos: { del_proveedor: 0, en_la_base: 0 } },
     generado_at: '2026-10-22T12:00:00Z',
@@ -1085,6 +1085,30 @@ describe('[RA-NEG.2] el desglose compacto: qué hacer, en pocas palabras', () =>
     expect(el.querySelector('.pr-det-tabs')).toBeNull();
     const ths = [...el.querySelectorAll('.pr-dx-tbl thead th')].map((t) => (t.textContent || '').trim());
     expect(ths).toEqual(COLS);
+  });
+
+  it('[RA-NEG.3] «ver ›» de una acción abre el detalle en el panel lateral, sin salir del pedido', () => {
+    const f = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS), negociacion: () => of(DTO) });
+    const c = f.componentInstance;
+    c.toggleRow(fila());
+    f.detectChanges();
+    const verPide = [...(f.nativeElement as HTMLElement).querySelectorAll('.pr-acc')].find((li) => li.textContent?.includes('Pide'))!.querySelector('button') as HTMLButtonElement;
+    verPide.click();
+    expect(c.negDetalle()).toEqual({ pid: 'p-70056', vista: 'descuentos' });
+    expect(c.negDetalleTitulo()).toBe('Descuentos del proveedor');
+    expect((f.nativeElement as HTMLElement).querySelector('.pr-acc a[href]')).toBeNull();   // ninguna acción es una ruta
+  });
+
+  it('[RA-NEG.3] la requisición en armado sobrevive a salir de la pantalla y volver ([RA-UX.9b])', () => {
+    try { localStorage.clear(); } catch { /* jsdom */ }
+    const f = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) });
+    const c = f.componentInstance;
+    c.setDispOf(fila(), sucOf(c, '01'), 7);
+    expect(c.selected().has('p-70056')).toBe(true);
+    f.destroy();                                   // salir a otra pantalla
+    const c2 = montar(VACIO, undefined, 'u1', { transferSuggestion: () => of(TRAS) }).componentInstance;
+    expect(c2.selected().has('p-70056')).toBe(true);
+    expect(c2.carrito().productos).toBe(1);        // con su renglón, aunque la página nueva no lo traiga
   });
 
   it('«por sucursal…» abre el detalle con Unidad y Entrega; la unidad del producto se aplica a todas', () => {

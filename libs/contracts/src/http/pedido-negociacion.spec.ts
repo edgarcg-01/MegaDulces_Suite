@@ -16,13 +16,13 @@ function dto(over: Partial<PedidoNegociacionDto> = {}): PedidoNegociacionDto {
     pagado: {
       desde: '2025-10-22', hasta: '2026-10-22', meses: [], ultimo: { fecha: '2026-10-21', sucursal: '06', costo_base: 78.595 },
       minimo: null, total_base: 52368, total_valor: 4455190.69, renglones: 81, renglones_sin_unidad: 0, renglones_atipicos: 0,
-      al_estandar_reciente: [{ sucursal: '06', entradas: 3, base: 1520, costo_base: 78.5956 }],
+      al_estandar_reciente: [{ sucursal: '06', entradas: 3, base: 1520, costo_base: 78.5956 }], entradas: [],
     },
     proveedor: {
       supplier_id: 's', nombre: 'DISTRIBUIDORA DE LA ROSA SA DE CV', compras_12m: 81143559.22, recepciones_12m: 618,
       descuento_pago_12m: 3131340.22, descuento_notas_12m: 2092748.91, descuento_pct: 6.44,
       pronto_pago: { tasa: 0.0709, fuente: 'observed', pagos: 136, sin_descuento: 43, monto_sin_descuento: 20049786.69,
-        estimado_perdido: 1421529.88, ultimo_sin_descuento: '2026-09-21' },
+        estimado_perdido: 1421529.88, ultimo_sin_descuento: '2026-09-21', ultimos_sin_descuento: null },
       plazo_dias: 20, plazo_base: 'factura', plazo_kepler: [], tiempo_entrega_dias: null, reclamos: { del_proveedor: 0, en_la_base: 0 },
     },
     generado_at: '2026-10-22T12:00:00Z',

@@ -3,7 +3,7 @@
  * devuelve SQL en el contrato. Sin I/O, para poder probarla con filas fabricadas.
  * Contrato y fuentes: `libs/contracts/src/http/pedido-negociacion.contract.ts`.
  */
-import type { NegociacionAlEstandar, NegociacionCosto, NegociacionPagado, NegociacionPagoMes } from '@megadulces/contracts';
+import { MAX_ENTRADAS_NEGOCIACION, type NegociacionAlEstandar, type NegociacionCosto, type NegociacionPagado, type NegociacionPagoMes } from '@megadulces/contracts';
 
 /** Escalera de unidades de la ficha: rótulo y piezas BASE por unidad. */
 export interface EscaleraFicha {
@@ -121,6 +121,8 @@ export function resumirPagado(filas: EntradaFila[], esc: EscaleraFicha, estandar
     renglones_sin_unidad: sinUnidad,
     renglones_atipicos: atipicos,
     al_estandar_reciente: alEstandar,
+    entradas: [...conv].reverse().slice(0, MAX_ENTRADAS_NEGOCIACION)
+      .map((c) => ({ fecha: c.fecha, sucursal: c.plaza, base: r2(c.base), costo_base: r4(c.costoBase) })),
   };
 }
 
