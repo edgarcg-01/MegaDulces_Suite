@@ -37,11 +37,30 @@ export interface MovimientoPago {
   concepto: string;
 }
 
-export type FuenteFacturas = 'cadena_kepler' | 'importe_una';
+export type FuenteFacturas = 'cadena_kepler' | 'importe_una' | 'confirmada';
 
 export type ResolucionPago =
   | { estado: 'armable'; fuente: FuenteFacturas; proveedor_por_nombre: boolean; entrada: Omit<EntradaPagoProveedor, 'concepto'> }
   | { estado: 'a_confirmar' | 'sin_resolver'; motivo: string };
+
+/** Un CFDI tal como se le muestra a quien confirma. */
+export interface CfdiPropuesto {
+  uuid: string; folio: string | null; fecha: string; total: number;
+  /** Si ContPAQi ya lo tiene en una póliza de pago anterior, su fecha: la pantalla lo advierte. */
+  pagada_antes?: string | null;
+}
+
+/** `[CP.8.73]` La propuesta para confirmar un pago: proveedor, candidatos y una sugerencia que NO se aplica sola. */
+export interface PropuestaPago {
+  rfc: string;
+  proveedor_por_nombre: boolean;
+  pagado: number;
+  facturas: CfdiPropuesto[];
+  notas: CfdiPropuesto[];
+  /** UUID sugeridos (facturas). Vacío = sin sugerencia. */
+  sugerencia: string[];
+  origen: 'kepler' | 'importe' | null;
+}
 
 interface PagoKepler { acr: string; t: number; s: number; folio: string; f: string; monto: number; c45: string }
 interface Aplicacion { acr: string; pt: number; ps: number; pf: string; dt: number; ds: number; df: string }
@@ -239,6 +258,75 @@ export class FuentePagoProveedor {
   private enProvision(suf: string, x: Cfdi, fechaPago: string): boolean {
     const fp = this.prov.get(`2120${suf}|${r2(x.tot).toFixed(2)}`);
     return !!fp && fp <= fechaPago && fp >= x.f.slice(0, 7);
+  }
+
+  /**
+   * `[CP.8.73]` Lo que se le pone enfrente a quien confirma un pago que no se armó solo: el proveedor, sus
+   * facturas y notas abiertas en la ventana, y una SUGERENCIA (nunca aplicada sola): lo que Kepler aplicó a
+   * ese pago, o la única combinación de facturas que suma lo pagado.
+   */
+  proponer(m: MovimientoPago): PropuestaPago | null {
+    const B = r2(m.importe);
+    const l1 = this.candidatosL1(m);
+    const pg = l1.length === 1 ? l1[0] : null;
+    let rfc = pg ? this.rfcDe.get(pg.acr) ?? null : null;
+    const porNombre = !rfc;
+    if (!rfc) rfc = rfcPorTexto(m.concepto, this.padron);
+    if (!rfc) return null;
+    const enVentana = (x: Cfdi): boolean => dia(x.f) <= dia(m.fecha) + 30 && dia(m.fecha) - dia(x.f) <= 180;
+    const abiertas = (this.cfdiPorRfc.get(`${rfc}|I`) ?? []).filter((x) => enVentana(x) && !((this.pagadaAntes.get(x.u) ?? '9999') < m.fecha));
+    const notas = (this.cfdiPorRfc.get(`${rfc}|E`) ?? []).filter((x) => dia(x.f) <= dia(m.fecha) && dia(m.fecha) - dia(x.f) <= 180);
+    // Sugerencia 1: lo que Kepler aplicó a ese pago (aunque la cadena no haya cerrado completa).
+    let sugerencia: string[] = []; let origen: PropuestaPago['origen'] = null; const sugeridas: Cfdi[] = [];
+    if (pg) {
+      const aps = (this.aplicaciones.get(`${pg.acr}|${pg.t}|${pg.s}|${pg.folio}`) ?? []).filter((a) => a.dt === 20);
+      for (const a of aps) {
+        const d = this.docs.get(`${pg.acr}|${a.dt}|${a.ds}|${a.df}`);
+        const x = d ? this.buscarCfdi(rfc, 'I', d.imp, d.f, d.ref) : null;
+        if (x && x !== 'ambiguo' && !sugeridas.some((y) => y.u === x.u)) sugeridas.push(x);
+      }
+      if (sugeridas.length) { sugerencia = sugeridas.map((x) => x.u); origen = 'kepler'; }
+    }
+    // Sugerencia 2: la ÚNICA combinación (2..6) de facturas abiertas que suma lo pagado.
+    if (!sugerencia.length) {
+      const cand = abiertas.filter((x) => x.tot < B + TOL).sort((a, b) => b.tot - a.tot).slice(0, 24); const sols: string[][] = [];
+      const rec = (i: number, s: number, sel: string[]): void => {
+        if (sols.length > 1) return;
+        if (sel.length >= 1 && Math.abs(s - B) <= TOL) { sols.push([...sel]); return; }
+        if (sel.length >= 6 || i >= cand.length || s > B + TOL) return;
+        sel.push(cand[i].u); rec(i + 1, s + cand[i].tot, sel); sel.pop(); rec(i + 1, s, sel);
+      };
+      rec(0, 0, []);
+      if (sols.length === 1) { sugerencia = sols[0]; origen = 'importe'; }
+    }
+    const fila = (x: Cfdi): CfdiPropuesto => ({ uuid: x.u, folio: x.folio, fecha: x.f, total: x.tot, pagada_antes: this.pagadaAntes.get(x.u) ?? null });
+    // ⛔ Lo sugerido SIEMPRE está en la lista: Kepler puede sugerir una factura fuera de la ventana o ya pagada
+    // antes (se muestra con su fecha); sugerir algo que la pantalla no lista sería pedir confirmar a ciegas.
+    const facturas = [...abiertas, ...sugeridas.filter((x) => !abiertas.some((y) => y.u === x.u))];
+    return { rfc, proveedor_por_nombre: porNombre, pagado: B, facturas: facturas.map(fila), notas: notas.map(fila), sugerencia, origen };
+  }
+
+  /**
+   * `[CP.8.73]` La entrada del armador con las facturas y notas que CONFIRMÓ una persona. Valida que sean
+   * del proveedor del pago y estén en la ventana; el cuadre (facturas − notas = pagado) lo valida el armador.
+   */
+  entradaConfirmada(m: MovimientoPago, facturas: readonly string[], notas: readonly string[]): ResolucionPago {
+    const p = this.proponer(m);
+    if (!p) return { estado: 'sin_resolver', motivo: 'sin proveedor: no se puede confirmar un pago sin saber de quién es' };
+    const suf = this.cuentaDe(p.rfc, m.fecha);
+    if (!suf) return { estado: 'sin_resolver', motivo: `el proveedor ${p.rfc} no tiene cuenta en ContPAQi (ni historia ni mapa)` };
+    const porUuid = new Map([...(this.cfdiPorRfc.get(`${p.rfc}|I`) ?? []), ...(this.cfdiPorRfc.get(`${p.rfc}|E`) ?? [])].map((x) => [x.u, x]));
+    const F: Cfdi[] = []; const N: Cfdi[] = [];
+    for (const u of facturas) { const x = porUuid.get(String(u).toUpperCase()); if (!x || x.tc !== 'I') return { estado: 'sin_resolver', motivo: `la factura ${u} no es del proveedor ${p.rfc} o está fuera de la ventana` }; F.push(x); }
+    for (const u of notas) { const x = porUuid.get(String(u).toUpperCase()); if (!x || x.tc !== 'E') return { estado: 'sin_resolver', motivo: `la nota ${u} no es del proveedor ${p.rfc} o está fuera de la ventana` }; N.push(x); }
+    if (!F.length) return { estado: 'sin_resolver', motivo: 'hay que confirmar al menos una factura' };
+    if (new Set(F.map((x) => x.u)).size !== F.length || new Set(N.map((x) => x.u)).size !== N.length) {
+      return { estado: 'sin_resolver', motivo: 'una factura o nota viene repetida' };
+    }
+    return { estado: 'armable', fuente: 'confirmada', proveedor_por_nombre: p.proveedor_por_nombre,
+      entrada: { fecha: m.fecha, cuenta_banco: m.cuenta_banco, pagado: r2(m.importe), sufijo: suf,
+        facturas: F.map((x) => ({ uuid: x.u, total: x.tot, iva: x.iva, ieps: x.ieps, base16: x.s16, fecha: x.f, enProvision: this.enProvision(suf, x, m.fecha) })),
+        notas: N.map((x) => ({ uuid: x.u, total: x.tot, iva: x.iva, ieps: x.ieps, base16: x.s16, fecha: x.f, tipoRelacion: null })) } };
   }
 
   resolver(m: MovimientoPago): ResolucionPago {

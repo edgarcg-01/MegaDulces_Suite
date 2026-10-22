@@ -72,6 +72,21 @@ export class ContpaqiPuenteService {
     return this.http.post<ReglaVista>(`${this.base}/reglas/${encodeURIComponent(categoria)}/revocar`, {});
   }
 
+  /** `[CP.8.73]` Los pagos a proveedor del mes que esperan confirmar qué facturas pagan. */
+  pagosPorConfirmar(mes: string): Observable<{ mes: string; pagos: PagoPorConfirmar[] }> {
+    return this.http.get<{ mes: string; pagos: PagoPorConfirmar[] }>(`${this.base}/pagos-por-confirmar?mes=${encodeURIComponent(mes)}`);
+  }
+
+  /** `[CP.8.73]` 409 con el motivo si no cuadra o las facturas no son del proveedor. */
+  confirmarPago(movimiento: string, facturas: string[], notas: string[]): Observable<{ movimiento_id: string; renglones: number; total: number; redondeo: number }> {
+    return this.http.post<{ movimiento_id: string; renglones: number; total: number; redondeo: number }>(
+      `${this.base}/pagos/${encodeURIComponent(movimiento)}/confirmar`, { facturas, notas });
+  }
+
+  desconfirmarPago(movimiento: string): Observable<{ movimiento_id: string; apagadas: number }> {
+    return this.http.post<{ movimiento_id: string; apagadas: number }>(`${this.base}/pagos/${encodeURIComponent(movimiento)}/desconfirmar`, {});
+  }
+
   cuadre(): Observable<CuadreResp> {
     return this.http.get<CuadreResp>(`${this.base}/cuadre`);
   }
@@ -93,11 +108,43 @@ export interface LoteRow {
   /** `[CP.8.72]` `pago_proveedor` = un pago a proveedor armado completo (una póliza por pago). Ausente = lote del día. */
   tipo?: 'lote' | 'pago_proveedor';
   /** De dónde salieron las facturas del pago: la cadena de Kepler o una factura por importe. */
-  fuente?: 'cadena_kepler' | 'importe_una' | null;
+  fuente?: 'cadena_kepler' | 'importe_una' | 'confirmada' | null;
   /** UUID (facturas y notas) que lleva el pago. */
   cfdis?: number;
   /** Identidad de la fila: un pago y el lote de su día comparten banco y fecha. */
   clave?: string;
+}
+
+/** `[CP.8.73]` Un CFDI candidato para confirmar un pago. */
+export interface CfdiPropuesto {
+  uuid: string;
+  folio: string | null;
+  fecha: string;
+  total: number;
+  /** Fecha de una póliza de pago anterior que ya lo trae: se advierte, no se oculta. */
+  pagada_antes?: string | null;
+}
+
+/** `[CP.8.73]` Un pago a proveedor que no se armó solo, con su propuesta. */
+export interface PagoPorConfirmar {
+  movimiento_id: string;
+  fecha: string;
+  cuenta_banco: string;
+  banco_label: string | null;
+  importe: number;
+  concepto: string;
+  motivo: string;
+  propuesta: {
+    rfc: string;
+    proveedor_por_nombre: boolean;
+    pagado: number;
+    facturas: CfdiPropuesto[];
+    notas: CfdiPropuesto[];
+    /** ⛔ Nunca se preselecciona: la pantalla ofrece «usar la sugerencia». */
+    sugerencia: string[];
+    origen: 'kepler' | 'importe' | null;
+  } | null;
+  confirmacion: { facturas: string[]; notas: string[]; confirmado_por: string; vigente: boolean } | null;
 }
 
 /**
