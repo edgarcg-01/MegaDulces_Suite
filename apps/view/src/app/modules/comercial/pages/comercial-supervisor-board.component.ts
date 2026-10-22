@@ -147,7 +147,7 @@ function progressOf(sales: number | null, target: number | null): number | null 
               <p-table [value]="rows()" dataKey="user_id" class="dt-stack surf-table surf-table--plain surf-table--sticky" size="small"
                 [rowHover]="true" [tableStyle]="{ 'min-width': '40rem' }"
                 selectionMode="single" [selection]="selected()" [metaKeySelection]="false"
-                (onRowSelect)="select($event.data.user_id)" (onRowUnselect)="select($event.data.user_id)">
+                (onRowSelect)="alElegirFila($event)" (onRowUnselect)="alElegirFila($event)">
                 <ng-template #header>
                   <tr>
                     <th scope="col">Vendedor</th>
@@ -434,6 +434,12 @@ export class ComercialSupervisorBoardComponent {
           this.error.set(e?.error?.message || 'No se pudo cargar el tablero de tus vendedores.');
         },
       });
+  }
+
+  /** La tabla manda la fila elegida (o deselegida) con mouse o teclado; abre o cierra su detalle. */
+  alElegirFila(e: { data?: BoardVendor | BoardVendor[] }): void {
+    const fila = Array.isArray(e.data) ? e.data[0] : e.data;
+    if (fila) this.select(fila.user_id);
   }
 
   select(id: string): void {
