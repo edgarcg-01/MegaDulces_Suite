@@ -9,7 +9,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import {
   ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp,
-  PendienteProveedor, PendientesResp, ReglaVista,
+  PendienteProveedor, PendientesResp, ReglaVista, PagoPorConfirmar, CfdiPropuesto,
 } from '../contpaqi-puente.service';
 
 /**
@@ -504,6 +504,124 @@ import {
           }
         }
 
+        <!-- ── [CP.8.73] PAGOS A PROVEEDOR POR CONFIRMAR: qué facturas paga cada uno ── -->
+        @if (pagosError(); as pe) {
+          <div class="cpp-aviso mal" role="alert">Pagos por confirmar: {{ pe }}</div>
+        }
+        @if (pagos(); as pc) {
+          @if (pc.length) {
+            <section class="cpp-sec">
+              <div class="cpp-sec-h">
+                <h3>Pagos a proveedor por confirmar</h3>
+                <span class="cpp-tag">{{ pc.length | number }} pagos</span>
+              </div>
+              <p class="cpp-sec-p">
+                El puente arma solo el pago cuando sabe qu&eacute; facturas paga. Estos no: elige las facturas
+                (y las notas) que paga cada uno. Se puede confirmar <strong>s&oacute;lo cuando las facturas menos
+                las notas dan lo pagado</strong>, y queda tu nombre.
+              </p>
+              <div class="cpp-md">
+                <div class="card-premium card-flat cpp-tablewrap">
+                  <p-table [value]="pc" size="small" class="surf-table" [rowHover]="true"
+                           [scrollable]="true" scrollHeight="440px"
+                           selectionMode="single" [selection]="pagoSel()" (selectionChange)="elegirPago($event)"
+                           dataKey="movimiento_id">
+                    <ng-template #header>
+                      <tr><th>Fecha</th><th>Banco</th><th class="ta-r">Importe</th><th>Por qu&eacute;</th></tr>
+                    </ng-template>
+                    <ng-template #body let-p>
+                      <tr [pSelectableRow]="p">
+                        <td class="muted mono">{{ p.fecha }}</td>
+                        <td><span class="cpp-bank">{{ p.banco_label || p.cuenta_banco }}</span>
+                          <span class="cpp-code">{{ p.concepto }}</span></td>
+                        <td class="ta-r mono">{{ p.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                        <td>
+                          @if (p.confirmacion?.vigente) { <span class="cpp-code">confirmado por {{ p.confirmacion.confirmado_por }}</span> }
+                          @else { <span class="cpp-code">{{ p.motivo }}</span> }
+                        </td>
+                      </tr>
+                    </ng-template>
+                  </p-table>
+                </div>
+
+                <aside class="card-premium card-flat cpp-peek">
+                  @if (pagoSel(); as s) {
+                    <div class="cpp-eyebrow">Pago a proveedor</div>
+                    <h4 class="mono">{{ s.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</h4>
+                    <div class="cpp-code">{{ s.banco_label || s.cuenta_banco }} &middot; {{ s.fecha }} &middot; {{ s.concepto }}</div>
+                    @if (!s.propuesta) {
+                      <div class="cpp-note">No se sabe de qui&eacute;n es: ni Kepler tiene el pago ni el concepto lleva a un
+                        proveedor. Se resuelve en Compras (el RFC del acreedor) antes de poder confirmarlo.</div>
+                    } @else {
+                      <div class="cpp-kvs">
+                        <div class="cpp-kv"><span>Proveedor (RFC)</span><span class="mono">{{ s.propuesta.rfc }}</span></div>
+                      </div>
+                      @if (s.propuesta.sugerencia.length && puedeGestionar()) {
+                        <button type="button" class="cpp-btn-ok mt" (click)="usarSugerencia()">
+                          Usar la sugerencia ({{ s.propuesta.origen === 'kepler' ? 'lo que aplicó Kepler' : 'la única combinación por importe' }})
+                        </button>
+                      }
+                      <div class="cpp-eyebrow mt">Facturas ({{ s.propuesta.facturas.length | number }})</div>
+                      <div class="cpp-lista">
+                        @for (f of candidatas(); track f.uuid) {
+                          <label class="cpp-sug">
+                            <input type="checkbox" [checked]="marcadasF().has(f.uuid)" [disabled]="!puedeGestionar()"
+                                   (change)="alternar('f', f.uuid)">
+                            <span class="mono">{{ f.folio || '—' }}</span>
+                            <span class="muted mono">{{ f.fecha }}</span>
+                            <span class="mono">{{ f.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                            @if (f.sugerida) { <span class="cpp-code">sugerida</span> }
+                            @if (f.pagada_antes) { <span class="cpp-code"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> ya en un pago del {{ f.pagada_antes }}</span> }
+                          </label>
+                        }
+                      </div>
+                      @if (s.propuesta.notas.length) {
+                        <div class="cpp-eyebrow mt">Notas de cr&eacute;dito ({{ s.propuesta.notas.length | number }})</div>
+                        <div class="cpp-lista">
+                          @for (n of s.propuesta.notas; track n.uuid) {
+                            <label class="cpp-sug">
+                              <input type="checkbox" [checked]="marcadasN().has(n.uuid)" [disabled]="!puedeGestionar()"
+                                     (change)="alternar('n', n.uuid)">
+                              <span class="mono">{{ n.folio || '—' }}</span>
+                              <span class="muted mono">{{ n.fecha }}</span>
+                              <span class="mono">{{ n.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                            </label>
+                          }
+                        </div>
+                      }
+                      @if (cuadrePago(); as c) {
+                        <div class="cpp-kvs mt">
+                          <div class="cpp-kv"><span>Facturas</span><span class="mono">{{ c.facturas | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+                          <div class="cpp-kv"><span>&minus; Notas</span><span class="mono">{{ c.notas | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+                          <div class="cpp-kv"><span>Pagado</span><span class="mono">{{ s.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+                          <div class="cpp-kv"><span>Diferencia</span>
+                            <span class="mono" [class.cpp-mal]="!c.cuadra">{{ c.diferencia | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+                        </div>
+                        @if (puedeGestionar()) {
+                          <button type="button" class="cpp-btn-ok mt" [disabled]="!c.cuadra || confirmandoPago()" (click)="confirmarPago()">
+                            {{ confirmandoPago() ? 'Guardando…' : 'Confirmar' }}
+                          </button>
+                          @if (s.confirmacion?.vigente) {
+                            <button type="button" class="cpp-btn-bad mt" [disabled]="confirmandoPago()" (click)="desconfirmarPago()">Quitar la confirmaci&oacute;n</button>
+                          }
+                        } @else {
+                          <span class="cpp-code">sin permiso para confirmar</span>
+                        }
+                      }
+                    }
+                    @if (avisoPago(); as a) {
+                      <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
+                    }
+                  } @else {
+                    <div class="cpp-eyebrow">Pago</div>
+                    <h4>Elige un pago</h4>
+                  }
+                </aside>
+              </div>
+            </section>
+          }
+        }
+
         <!-- ── EL CUADRE: el vacío ES el dato ── -->
         <section class="cpp-sec">
           <div class="cpp-sec-h"><h3>Cuadre contra ContPAQi</h3></div>
@@ -657,6 +775,10 @@ import {
       font-size: var(--fs-sm); flex-wrap: wrap; }
     .cpp-sug input { accent-color: var(--action); flex: 0 0 auto; }
     .cpp-sug > span:nth-child(3) { color: var(--c-text-2); }
+    /* [CP.8.73] Pagos por confirmar: candidatas con scroll propio, la diferencia que no cuadra se marca. */
+    .cpp-lista { max-height: 16rem; overflow: auto; padding-right: .25rem; }
+    .cpp-kvs.mt, .cpp-btn-ok.mt, .cpp-btn-bad.mt { margin-top: .75rem; }
+    .cpp-mal { color: var(--bad-fg); font-weight: 600; }
     .cpp-btn-ok { border: 1px solid var(--action); background: transparent; color: var(--action);
       border-radius: var(--radius-sm); padding: 4px 12px; font: inherit; font-size: var(--fs-xs);
       cursor: pointer; white-space: nowrap; }
@@ -786,11 +908,90 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     return Math.max(0, r.movimientos - this.deNadie() - r.incluidas);
   });
 
+  // ── `[CP.8.73]` Pagos a proveedor por confirmar ────────────────────────────────────────────
+  readonly pagos = signal<PagoPorConfirmar[] | null>(null);
+  readonly pagosError = signal<string | null>(null);
+  readonly pagoSel = signal<PagoPorConfirmar | null>(null);
+  readonly marcadasF = signal<ReadonlySet<string>>(new Set());
+  readonly marcadasN = signal<ReadonlySet<string>>(new Set());
+  readonly confirmandoPago = signal(false);
+  readonly avisoPago = signal<{ texto: string; mal: boolean } | null>(null);
+  /** Las facturas del pago elegido: lo sugerido primero, después las más recientes. */
+  readonly candidatas = computed(() => {
+    const p = this.pagoSel()?.propuesta;
+    return p ? ordenarCandidatas(p.facturas, p.sugerencia) : [];
+  });
+  readonly cuadrePago = computed(() => {
+    const p = this.pagoSel()?.propuesta;
+    return p ? cuadreDePago(p.facturas, p.notas, this.marcadasF(), this.marcadasN(), p.pagado) : null;
+  });
+
+  cargarPagos(): void {
+    this.pagosError.set(null);
+    this.api.pagosPorConfirmar(this.mes()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.pagos.set(r.pagos);
+        const id = this.pagoSel()?.movimiento_id;
+        this.elegirPago(r.pagos.find((x) => x.movimiento_id === id) ?? r.pagos[0] ?? null);
+      },
+      error: (e) => { this.pagos.set(null); this.pagosError.set(e?.error?.message ?? 'no se pudo leer los pagos por confirmar'); },
+    });
+  }
+
+  /** ⛔ Al elegir un pago NO se marca la sugerencia: sólo lo ya confirmado vuelve marcado. */
+  elegirPago(p: PagoPorConfirmar | null): void {
+    this.pagoSel.set(p);
+    this.avisoPago.set(null);
+    const c = p?.confirmacion;
+    this.marcadasF.set(new Set(c?.facturas ?? []));
+    this.marcadasN.set(new Set(c?.notas ?? []));
+  }
+
+  usarSugerencia(): void {
+    const s = this.pagoSel()?.propuesta?.sugerencia ?? [];
+    this.marcadasF.set(new Set(s));
+  }
+
+  alternar(tipo: 'f' | 'n', uuid: string): void {
+    const sig = tipo === 'f' ? this.marcadasF : this.marcadasN;
+    const s = new Set(sig()); if (s.has(uuid)) s.delete(uuid); else s.add(uuid);
+    sig.set(s);
+  }
+
+  confirmarPago(): void {
+    const p = this.pagoSel(); const c = this.cuadrePago();
+    if (!p || !c?.cuadra || this.confirmandoPago()) return;
+    this.confirmandoPago.set(true);
+    this.api.confirmarPago(p.movimiento_id, [...this.marcadasF()], [...this.marcadasN()])
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.confirmandoPago.set(false);
+          this.avisoPago.set({ texto: `Confirmado: la póliza sale con ${r.renglones} renglones por ${r.total.toFixed(2)}.`, mal: false });
+          this.cargar();
+        },
+        error: (e) => {
+          this.confirmandoPago.set(false);
+          this.avisoPago.set({ texto: e?.error?.message ?? 'no se pudo confirmar', mal: true });
+        },
+      });
+  }
+
+  desconfirmarPago(): void {
+    const p = this.pagoSel();
+    if (!p?.confirmacion || this.confirmandoPago()) return;
+    this.confirmandoPago.set(true);
+    this.api.desconfirmarPago(p.movimiento_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.confirmandoPago.set(false); this.avisoPago.set({ texto: 'Confirmación quitada.', mal: false }); this.cargar(); },
+      error: (e) => { this.confirmandoPago.set(false); this.avisoPago.set({ texto: e?.error?.message ?? 'no se pudo quitar', mal: true }); },
+    });
+  }
+
   ngOnInit(): void { this.cargar(); }
 
   cargar(): void {
     this.loading.set(true);
     this.error.set(null);
+    this.cargarPagos();   // [CP.8.73] mismo mes, mismo momento
     this.api.lotes(this.mes()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
         this.data.set(d);
@@ -1056,7 +1257,33 @@ const ETIQUETA_MOTIVO: Record<string, string> = {
 
 /** `[CP.8.72]` De dónde salieron las facturas de un pago armado. */
 export function etiquetaFuente(f: string | null | undefined): string {
-  return f === 'cadena_kepler' ? 'lo que aplicó Kepler' : f === 'importe_una' ? 'una factura por importe' : '—';
+  return f === 'cadena_kepler' ? 'lo que aplicó Kepler' : f === 'importe_una' ? 'una factura por importe'
+    : f === 'confirmada' ? 'lo que confirmó contabilidad' : '—';
+}
+
+/**
+ * `[CP.8.73]` Las candidatas en el orden en que se revisan: lo sugerido primero, después las más recientes.
+ * (Medido: mediana 19 candidatas por pago, p90 98 — sin orden no se encuentran.)
+ */
+export function ordenarCandidatas(facturas: CfdiPropuesto[], sugerencia: string[]): (CfdiPropuesto & { sugerida: boolean })[] {
+  const s = new Set(sugerencia);
+  return facturas.map((f) => ({ ...f, sugerida: s.has(f.uuid) }))
+    .sort((a, b) => (a.sugerida === b.sugerida ? (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0) : a.sugerida ? -1 : 1));
+}
+
+/**
+ * `[CP.8.73]` La cuenta que decide si se puede confirmar: facturas − notas contra lo pagado. ⛔ Cuadra sólo con
+ * al menos una factura y una diferencia menor a $1 (lo que el armador manda a redondeo); es la misma compuerta
+ * del servidor, para que el botón no prometa lo que el servidor va a rechazar.
+ */
+export function cuadreDePago(
+  facturas: CfdiPropuesto[], notas: CfdiPropuesto[], marcadasF: ReadonlySet<string>, marcadasN: ReadonlySet<string>, pagado: number,
+): { facturas: number; notas: number; diferencia: number; cuadra: boolean } {
+  const cent = (n: number): number => Math.round(Number(n) * 100);
+  const f = facturas.filter((x) => marcadasF.has(x.uuid)).reduce((a, x) => a + cent(x.total), 0);
+  const n = notas.filter((x) => marcadasN.has(x.uuid)).reduce((a, x) => a + cent(x.total), 0);
+  const d = f - n - cent(pagado);
+  return { facturas: f / 100, notas: n / 100, diferencia: d / 100, cuadra: marcadasF.size > 0 && Math.abs(d) < 100 };
 }
 
 /**

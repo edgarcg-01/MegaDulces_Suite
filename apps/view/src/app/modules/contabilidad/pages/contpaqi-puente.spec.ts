@@ -11,6 +11,8 @@ import {
   contarDeNadie,
   esDeNadie,
   etiquetaFuente,
+  ordenarCandidatas,
+  cuadreDePago,
   etiquetaMotivo,
   participacion,
 } from './contabilidad-contpaqi-puente.component';
@@ -219,5 +221,30 @@ describe('[CP.8.72] pago a proveedor armado completo — lo que la pantalla dice
     expect(etiquetaFuente('cadena_kepler')).toBe('lo que aplicó Kepler');
     expect(etiquetaFuente('importe_una')).toBe('una factura por importe');
     expect(etiquetaFuente(null)).toBe('—');
+  });
+});
+
+describe('[CP.8.73] confirmar un pago a proveedor — lo que decide el botón', () => {
+  const f = (uuid: string, total: number, fecha: string) => ({ uuid, folio: uuid, fecha, total });
+  const facturas = [f('A', 6960, '2026-09-01'), f('B', 4640, '2026-09-05'), f('C', 1000, '2026-09-20')];
+  const notas = [f('N', 300, '2026-09-10')];
+
+  it('lo sugerido va primero, después lo más reciente', () => {
+    expect(ordenarCandidatas(facturas, ['A']).map((x) => x.uuid)).toEqual(['A', 'C', 'B']);
+    expect(ordenarCandidatas(facturas, []).map((x) => x.uuid)).toEqual(['C', 'B', 'A']);
+    expect(ordenarCandidatas(facturas, ['B']).find((x) => x.uuid === 'B')?.sugerida).toBe(true);
+  });
+  it('⛔ sin ninguna factura marcada NO cuadra, aunque la diferencia fuera cero', () => {
+    expect(cuadreDePago(facturas, notas, new Set(), new Set(), 0).cuadra).toBe(false);
+  });
+  it('facturas − notas = pagado (±$1) cuadra; un peso o más, no', () => {
+    expect(cuadreDePago(facturas, notas, new Set(['A', 'B']), new Set(), 11600).cuadra).toBe(true);
+    expect(cuadreDePago(facturas, notas, new Set(['A', 'B']), new Set(), 11599.40).cuadra).toBe(true);
+    expect(cuadreDePago(facturas, notas, new Set(['A', 'B']), new Set(), 11599).cuadra).toBe(false);
+    const c = cuadreDePago(facturas, notas, new Set(['A', 'B', 'C']), new Set(['N']), 12300);
+    expect(c).toEqual({ facturas: 12600, notas: 300, diferencia: 0, cuadra: true });
+  });
+  it('la fuente «confirmada» tiene rótulo', () => {
+    expect(etiquetaFuente('confirmada')).toBe('lo que confirmó contabilidad');
   });
 });

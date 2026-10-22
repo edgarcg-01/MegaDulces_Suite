@@ -20,6 +20,36 @@ export class FirmaRechazada extends Error {
   readonly code = 'firma_rechazada';
 }
 
+/** `[CP.8.73]` Una confirmación de pago que no procede (no cuadra, facturas de otro proveedor…), con su motivo. */
+export class ConfirmacionRechazada extends Error {
+  readonly code = 'confirmacion_rechazada';
+}
+
+/** `[CP.8.73]` Un pago a proveedor que no se armó solo, con lo que hace falta para confirmarlo. */
+export interface PagoPorConfirmar {
+  movimiento_id: string;
+  fecha: string;
+  cuenta_banco: string;
+  banco_label: string | null;
+  importe: number;
+  concepto: string;
+  /** Por qué no se armó solo. */
+  motivo: string;
+  /** `null` = no se sabe de quién es: no se puede confirmar desde aquí. */
+  propuesta: PropuestaPago | null;
+  /** La confirmación vigente, si ya hay una. */
+  confirmacion: { facturas: string[]; notas: string[]; confirmado_por: string; vigente: boolean } | null;
+}
+
+/** Una fila de `contpaqi.pago_confirmaciones` tal como la lee el armado. */
+interface FilaConfirmacion {
+  bank_movement_id: string;
+  facturas: string[];
+  notas: string[];
+  pagado: string | number;
+  confirmado_por: string;
+}
+
 /** Una fila de `contpaqi.account_rules` tal como la lee `reglas()`. */
 interface FilaRegla {
   categoria_code: string;
@@ -59,7 +89,9 @@ import {
 } from './poliza-egreso';
 import { tokenDe } from './token';
 import { armarPagoProveedorCompleto } from './pago-proveedor';
-import { FuentePagoProveedor, type FuenteFacturas, type MovimientoPago } from './pago-proveedor.fuente';
+import {
+  FuentePagoProveedor, type FuenteFacturas, type MovimientoPago, type PropuestaPago, type ResolucionPago,
+} from './pago-proveedor.fuente';
 import type { EventoArchivo } from './entrega';
 import {
   construirIndice, resolverProveedor, normalizarNombre, palabrasEnComun,
@@ -910,6 +942,140 @@ export class ContpaqiArmadoService {
     return fuente;
   }
 
+  /**
+   * `[CP.8.73]` Las confirmaciones vigentes de esos movimientos. ⛔ Lectura OPCIONAL en SAVEPOINT, con las dos
+   * ausencias distinguidas (ADR-056, mismo molde que `supplier_aliases`): sin la migración, el armado sigue
+   * sin confirmaciones; sin permiso, sigue igual pero lo grita.
+   */
+  private async leerConfirmaciones(ids: string[]): Promise<Map<string, FilaConfirmacion>> {
+    if (!ids.length) return new Map();
+    try {
+      const filas = (await this.db.transaction((sp) => sp('contpaqi.pago_confirmaciones')
+        .where({ tenant_id: MEGA, active: true }).whereIn('bank_movement_id', ids)
+        .select('bank_movement_id', 'facturas', 'notas', 'pagado', 'confirmado_por'))) as FilaConfirmacion[];
+      return new Map(filas.map((f) => [String(f.bank_movement_id), f]));
+    } catch (e) {
+      const code = (e as { code?: string })?.code;
+      if (code === '42P01') this.log.warn('contpaqi.pago_confirmaciones no existe en este destino: se arma sin confirmaciones');
+      else this.log.error(`⛔ contpaqi.pago_confirmaciones ilegible (${code ?? 'sin código'}): se arma SIN las confirmaciones. ${(e as Error)?.message ?? e}`);
+      return new Map();
+    }
+  }
+
+  /** `[CP.8.73]` Qué hace el armado con un pago a proveedor: la confirmación humana gana; si no, la fuente. */
+  private resolverPago(fuente: FuentePagoProveedor, m: MovimientoPago, conf: FilaConfirmacion | undefined): ResolucionPago {
+    if (!conf) return fuente.resolver(m);
+    // ⛔ Si el movimiento cambió de importe después de confirmar, la confirmación no se aplica a ciegas.
+    if (Math.round(Number(conf.pagado) * 100) !== Math.round(m.importe * 100)) {
+      return { estado: 'a_confirmar', motivo: `la confirmación era por ${Number(conf.pagado).toFixed(2)} y el movimiento hoy es ${m.importe.toFixed(2)}` };
+    }
+    return fuente.entradaConfirmada(m, conf.facturas ?? [], conf.notas ?? []);
+  }
+
+  /**
+   * `[CP.8.73]` Los pagos a proveedor del mes que NO se armaron solos, con la propuesta para confirmarlos:
+   * el proveedor, sus facturas y notas abiertas y una sugerencia que la pantalla NO preselecciona.
+   */
+  async pagosPorConfirmar(anioMes: string): Promise<PagoPorConfirmar[]> {
+    return this.conTenant(async () => {
+      const egresos = (await this.leerEgresos(anioMes)).filter((e) => e.cuenta_banco);
+      const reglas = await this.leerReglas();
+      const pagos = egresos.filter((e) => reglas.get(e.categoria_code)?.tipo_regla === 'por_proveedor');
+      if (!pagos.length) return [];
+      const movs = pagos.map((e): MovimientoPago => ({ cuenta_banco: e.cuenta_banco, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? '') }));
+      const fuente = await this.fuenteDelMes(anioMes, movs);
+      const confs = await this.leerConfirmaciones(pagos.map((e) => String(e.id)));
+      const out: PagoPorConfirmar[] = [];
+      pagos.forEach((e, i) => {
+        const conf = confs.get(String(e.id));
+        const r = this.resolverPago(fuente, movs[i], conf);
+        let motivo: string | null = null;
+        if (r.estado === 'armable') {
+          try { armarPagoProveedorCompleto({ ...r.entrada, concepto: 'X' }); if (!conf) return; }
+          catch (err) { motivo = err instanceof AsientoRechazado ? err.message : String(err); }
+        } else motivo = r.motivo;
+        // Un pago confirmado que se arma bien también se lista: es donde se puede desconfirmar.
+        out.push({
+          movimiento_id: String(e.id), fecha: e.fecha, cuenta_banco: e.cuenta_banco,
+          banco_label: [e.banco_nombre, e.banco_label].filter(Boolean).join(' ').trim() || null,
+          importe: movs[i].importe, concepto: movs[i].concepto,
+          motivo: motivo ?? 'confirmado: se arma con lo confirmado',
+          propuesta: fuente.proponer(movs[i]),
+          confirmacion: conf ? { facturas: conf.facturas, notas: conf.notas, confirmado_por: conf.confirmado_por, vigente: !motivo } : null,
+        });
+      });
+      return out;
+    });
+  }
+
+  /**
+   * `[CP.8.73]` Una persona confirma qué facturas y notas paga un movimiento. ⛔ Se guarda SÓLO si el pago se
+   * arma completo con eso (facturas − notas = pagado, del mismo proveedor, en la ventana): una confirmación que
+   * no cuadra no se guarda para «arreglarla después». Reemplaza a la vigente (la apaga, no la borra).
+   */
+  async confirmarPago(movimientoId: string, facturas: string[], notas: string[], por: string): Promise<{ movimiento_id: string; renglones: number; total: number; redondeo: number }> {
+    return this.conTenant(async () => {
+      if (!por) throw new ConfirmacionRechazada('no se pudo identificar quién confirma');
+      const m = await this.movimientoDePago(movimientoId);
+      const anioMes = m.fecha.slice(0, 7);
+      const fuente = await this.fuenteDelMes(anioMes, await this.movimientosPagoDelMes(anioMes));
+      const r = fuente.entradaConfirmada(m, facturas ?? [], notas ?? []);
+      if (r.estado !== 'armable') throw new ConfirmacionRechazada(r.motivo);
+      const entrada = r.entrada;
+      const a = ((): ReturnType<typeof armarPagoProveedorCompleto> => {
+        try { return armarPagoProveedorCompleto({ ...entrada, concepto: 'CONFIRMACION' }); }
+        catch (err) { throw new ConfirmacionRechazada(err instanceof Error ? err.message : String(err)); }
+      })();
+      await this.db('contpaqi.pago_confirmaciones').where({ tenant_id: MEGA, bank_movement_id: movimientoId, active: true })
+        .update({ active: false, updated_at: this.db.fn.now(), updated_by: por });
+      await this.db('contpaqi.pago_confirmaciones').insert({
+        tenant_id: MEGA, bank_movement_id: movimientoId,
+        facturas: r.entrada.facturas.map((f) => f.uuid), notas: r.entrada.notas.map((n) => n.uuid),
+        pagado: m.importe, confirmado_por: por, created_by: por, updated_by: por,
+      });
+      this.fuentes.delete(anioMes);
+      this.log.log(`pago ${movimientoId} confirmado por ${por}: ${r.entrada.facturas.length} facturas · ${r.entrada.notas.length} notas`);
+      return { movimiento_id: movimientoId, renglones: a.movimientos.length, total: a.total, redondeo: a.redondeo };
+    });
+  }
+
+  /** `[CP.8.73]` Apaga la confirmación vigente: el pago vuelve a resolverse solo (o a «a confirmar»). */
+  async desconfirmarPago(movimientoId: string, por: string): Promise<{ movimiento_id: string; apagadas: number }> {
+    return this.conTenant(async () => {
+      if (!por) throw new ConfirmacionRechazada('no se pudo identificar quién desconfirma');
+      const n = await this.db('contpaqi.pago_confirmaciones').where({ tenant_id: MEGA, bank_movement_id: movimientoId, active: true })
+        .update({ active: false, updated_at: this.db.fn.now(), updated_by: por });
+      if (!n) throw new ConfirmacionRechazada('ese movimiento no tiene una confirmación vigente');
+      this.fuentes.clear();
+      return { movimiento_id: movimientoId, apagadas: Number(n) };
+    });
+  }
+
+  /** El egreso como lo ve el armado, validando que sea un pago a proveedor con banco. */
+  private async movimientoDePago(movimientoId: string): Promise<MovimientoPago> {
+    const e = (await this.db('finance.bank_movements as m')
+      .join('finance.movement_categories as c', 'c.id', 'm.category_id')
+      .leftJoin('finance.bank_accounts as ba', 'ba.id', 'm.bank_account_id')
+      .where('m.tenant_id', MEGA).where('m.id', movimientoId).whereNull('m.deleted_at')
+      .first('m.concept', 'm.amount_out', 'c.code as categoria_code', 'ba.contpaqi_cuenta as cuenta_banco',
+        this.db.raw(`to_char(m.movement_date, 'YYYY-MM-DD') as fecha`))) as
+      { concept: string | null; amount_out: string | number; categoria_code: string; cuenta_banco: string | null; fecha: string } | undefined;
+    if (!e) throw new ConfirmacionRechazada('el movimiento no existe');
+    if (!e.cuenta_banco) throw new ConfirmacionRechazada('el movimiento no es de una cuenta de banco con cuenta en ContPAQi');
+    const regla = (await this.leerReglas()).get(e.categoria_code);
+    if (regla?.tipo_regla !== 'por_proveedor') throw new ConfirmacionRechazada(`el movimiento es de «${e.categoria_code}», no un pago a proveedor`);
+    if (!(Number(e.amount_out) > 0)) throw new ConfirmacionRechazada('el movimiento no es un egreso');
+    return { cuenta_banco: e.cuenta_banco, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? '') };
+  }
+
+  /** Los pagos a proveedor del mes, como entran a la fuente (misma huella que `construirLotes`). */
+  private async movimientosPagoDelMes(anioMes: string): Promise<MovimientoPago[]> {
+    const reglas = await this.leerReglas();
+    return (await this.leerEgresos(anioMes))
+      .filter((e) => e.cuenta_banco && reglas.get(e.categoria_code)?.tipo_regla === 'por_proveedor')
+      .map((e): MovimientoPago => ({ cuenta_banco: e.cuenta_banco, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? '') }));
+  }
+
   private async construirLotes(anioMes: string): Promise<{
     lotes: PolizaArmada[];
     fuera_de_lote: ResumenMes['fuera_de_lote'];
@@ -938,6 +1104,10 @@ export class ContpaqiArmadoService {
     });
     const movsPago = egresos.filter((e) => e.cuenta_banco && esPagoProveedor(e)).map(aMovimiento);
     const fuente = movsPago.length ? await this.fuenteDelMes(anioMes, movsPago) : null;
+    // `[CP.8.73]` La confirmación humana gana sobre lo que la fuente resuelve sola.
+    const confs = movsPago.length
+      ? await this.leerConfirmaciones(egresos.filter((e) => e.cuenta_banco && esPagoProveedor(e)).map((e) => String(e.id)))
+      : new Map<string, FilaConfirmacion>();
 
     const out: PolizaArmada[] = [];
     for (const [k, todas] of [...grupos.entries()].sort()) {
@@ -948,7 +1118,7 @@ export class ContpaqiArmadoService {
       for (const e of todas.filter(esPagoProveedor)) {
         let motivo: string;
         // `fuente` existe siempre que haya pagos a proveedor: se cargó con todos ellos arriba.
-        const r = fuente ? fuente.resolver(aMovimiento(e)) : { estado: 'sin_resolver' as const, motivo: 'sin fuente' };
+        const r = fuente ? this.resolverPago(fuente, aMovimiento(e), confs.get(String(e.id))) : { estado: 'sin_resolver' as const, motivo: 'sin fuente' };
         if (r.estado === 'armable') {
           try {
             const concepto = `PAGO ${String(e.concept ?? '').trim() || 'A PROVEEDOR'}`;
