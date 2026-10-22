@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
   CONTPAQI_POLIZA_SINK_PORT, type ContpaqiPolizaSinkPort,
@@ -94,7 +94,7 @@ import {
 } from './pago-proveedor.fuente';
 import type { EventoArchivo } from './entrega';
 import {
-  construirIndice, resolverProveedor, normalizarNombre, palabrasEnComun,
+  construirIndice, resolverProveedor, normalizarNombre, palabrasDe, proporcionComun,
   type AliasProveedor, type CuentaProveedor, type IndiceProveedores,
 } from './proveedor-resolver';
 
@@ -237,7 +237,7 @@ export interface ResultadoArmado {
 }
 
 @Injectable()
-export class ContpaqiArmadoService {
+export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(ContpaqiArmadoService.name);
 
   constructor(
@@ -509,20 +509,22 @@ export class ContpaqiArmadoService {
     }
 
     const filas = [...pend.values()].sort((a, b) => b.importe - a.importe);
+    // `[CP.8.75]` Las palabras de cada cuenta se calculan UNA vez, no una por nombre pendiente: era
+    // normalizar ~3 mil nombres ×2 por cada fila (335–441 ms de JS por carga). Mismo `palabrasEnComun`.
+    const palabras = (padron as { cuenta: string; proveedor_nombre: string | null; cuenta_nombre: string | null; veredicto: string }[])
+      .map((p) => ({ p, prov: palabrasDe(p.proveedor_nombre), nom: palabrasDe(p.cuenta_nombre) }));
     for (const f of filas) {
-      f.sugerencias = padron
-        .filter((p: any) => String(p.cuenta).startsWith(f.rubro))
-        .map((p: any) => ({
+      const pf = palabrasDe(f.concepto_banco);
+      f.sugerencias = palabras
+        .filter(({ p }) => String(p.cuenta).startsWith(f.rubro))
+        .map(({ p, prov, nom }) => ({
           cuenta: p.cuenta,
           nombre: p.proveedor_nombre ?? p.cuenta_nombre ?? '',
           veredicto: p.veredicto,
-          parecido: Math.max(
-            palabrasEnComun(f.concepto_banco, p.proveedor_nombre),
-            palabrasEnComun(f.concepto_banco, p.cuenta_nombre),
-          ),
+          parecido: Math.max(proporcionComun(pf, prov), proporcionComun(pf, nom)),
         }))
-        .filter((s: any) => s.parecido >= 0.5)
-        .sort((a: any, b: any) => b.parecido - a.parecido)
+        .filter((s) => s.parecido >= 0.5)
+        .sort((a, b) => b.parecido - a.parecido)
         .slice(0, 3);
     }
     return filas;
@@ -935,21 +937,66 @@ export class ContpaqiArmadoService {
    * `[CP.8.72]` La fuente del pago a proveedor, por mes y por 10 minutos: cargarla cuesta segundos (dos fases
    * de consultas sobre Kepler, CFDI y la historia de ContPAQi; ver `pago-proveedor.fuente.ts`) y la pantalla,
    * el archivo y «marcar entregado» la piden seguido. La huella invalida si los movimientos del mes cambian.
-   * ⚠️ Deuda con nombre: medido 2.5–3 s por mes desde la laptop; en el clúster NO MEDIDO.
+   *
+   * ⭐ `[CP.8.75]` Costo medido en el SERVIDOR (`EXPLAIN ANALYZE TIMING OFF`, pg-prod, sept-2026): ~1.1 s de
+   * consultas, más el traslado. No cabe en los 500 ms de una pantalla, así que no se paga al abrirla:
+   *  · una carga en curso se COMPARTE — la pantalla pide lotes y pagos a la vez y antes cargaban dos;
+   *  · cada pod del api la precalcula cada 9 min para el mes cerrado y el actual (`onModuleInit`), así
+   *    que la visita encuentra una de menos de 10 min. Otro mes se carga al pedirlo, una vez.
    */
   private readonly fuentes = new Map<string, { en: number; huella: string; fuente: FuentePagoProveedor }>();
+  private readonly cargandoFuente = new Map<string, Promise<FuentePagoProveedor>>();
 
-  private async fuenteDelMes(anioMes: string, movs: MovimientoPago[]): Promise<FuentePagoProveedor> {
+  private async fuenteDelMes(anioMes: string, movs: MovimientoPago[], forzar = false): Promise<FuentePagoProveedor> {
     const huella = movs.map((m) => `${m.cuenta_banco}|${m.fecha}|${m.importe}|${m.concepto}`).join(';');
     const c = this.fuentes.get(anioMes);
-    if (c && c.huella === huella && Date.now() - c.en < 10 * 60_000) return c.fuente;
+    if (!forzar && c && c.huella === huella && Date.now() - c.en < 10 * 60_000) return c.fuente;
+    const clave = `${anioMes}|${huella}`;
+    const enCurso = this.cargandoFuente.get(clave);
+    if (enCurso) return enCurso;
     const [y, m] = anioMes.split('-').map(Number);
     const hasta = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
     const t0 = Date.now();
-    const fuente = await FuentePagoProveedor.cargar(this.db, movs, `${anioMes}-01`, hasta);
-    this.log.log(`fuente de pago a proveedor ${anioMes}: ${movs.length} movimientos · ${Date.now() - t0} ms`);
-    this.fuentes.set(anioMes, { en: Date.now(), huella, fuente });
-    return fuente;
+    const carga = FuentePagoProveedor.cargar(this.db, movs, `${anioMes}-01`, hasta)
+      .then((fuente) => {
+        this.log.log(`fuente de pago a proveedor ${anioMes}: ${movs.length} movimientos · ${Date.now() - t0} ms`);
+        this.fuentes.set(anioMes, { en: Date.now(), huella, fuente });
+        return fuente;
+      })
+      .finally(() => this.cargandoFuente.delete(clave));
+    this.cargandoFuente.set(clave, carga);
+    return carga;
+  }
+
+  /** `[CP.8.75]` El precalentado: sólo en los pods que atienden la pantalla (no en el worker, que no la sirve). */
+  private reloj: ReturnType<typeof setInterval> | null = null;
+
+  onModuleInit(): void {
+    if (process.env.WORKER === 'true' || process.env.NODE_ENV === 'test') return;
+    const calentar = (): void => { void this.precalentar(); };
+    setTimeout(calentar, 30_000).unref?.();
+    this.reloj = setInterval(calentar, 9 * 60_000);
+    this.reloj.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.reloj) clearInterval(this.reloj);
+  }
+
+  /** Recarga la fuente del mes cerrado y del actual. Un fallo se registra y no tumba nada: la pantalla la carga al pedirla. */
+  async precalentar(hoy = new Date()): Promise<void> {
+    const actual = hoy.toISOString().slice(0, 7);
+    const d = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - 1, 1));
+    for (const mes of [d.toISOString().slice(0, 7), actual]) {
+      try {
+        await this.alcance.fuera(() => this.conTenant(async () => {
+          const movs = await this.movimientosPagoDelMes(mes);
+          if (movs.length) await this.fuenteDelMes(mes, movs, true);
+        }));
+      } catch (e) {
+        this.log.warn(`precalentar la fuente de ${mes} falló: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
   }
 
   /**

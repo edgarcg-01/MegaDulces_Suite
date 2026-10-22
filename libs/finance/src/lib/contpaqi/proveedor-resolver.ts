@@ -217,8 +217,16 @@ export function resolverProveedor(indice: IndiceProveedores, concepto: unknown):
  * reconocer de un vistazo, no decidir por él.
  */
 export function palabrasEnComun(a: unknown, b: unknown): number {
-  const pa = new Set(normalizarNombre(a).split(' ').filter((w) => w.length > 2));
-  const pb = new Set(normalizarNombre(b).split(' ').filter((w) => w.length > 2));
+  return proporcionComun(palabrasDe(a), palabrasDe(b));
+}
+
+/** Las palabras (de más de 2 letras) que compara `palabrasEnComun`. `[CP.8.75]` Separado para calcularlas una vez por nombre. */
+export function palabrasDe(s: unknown): Set<string> {
+  return new Set(normalizarNombre(s).split(' ').filter((w) => w.length > 2));
+}
+
+/** `palabrasEnComun` sobre palabras ya calculadas. */
+export function proporcionComun(pa: Set<string>, pb: Set<string>): number {
   if (!pa.size || !pb.size) return 0;
   let comunes = 0;
   for (const w of pa) if (pb.has(w)) comunes += 1;
