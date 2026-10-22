@@ -1,12 +1,60 @@
 import { Injectable, BadRequestException, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import type { Knex } from 'knex';
+import {
+  TenantKnexService, TenantContextService, laneAt, evalInput, composeFreshness, FRESHNESS_UNKNOWN, type Freshness,
+} from '@megadulces/platform-core';
 import {
   FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput,
 } from '@megadulces/contracts';
 import {
-  TIPO_POLIZA_DIARIO, r2, construirTxt, parsearTxt, type Movimiento, type PolizaTxtParseada,
+  TIPO_POLIZA_DIARIO, r2, construirTxt, parsearTxt, vigenciaArchivo, vigenciaPorBanderas, REGEX_LINEA_LEGADA,
+  type Movimiento, type PolizaTxtParseada,
 } from './poliza-txt';
+import { CFDI_ESTATUS_PORT, type CfdiEstatusPort, type VerificacionCfdis } from './cfdi-estatus.port';
+
+/** `[LC.19.1]` Por llamada a «Verificar en el SAT»: ~0.25 s por CFDI → ~25 s, lejos del corte de 100 s de Cloudflare. */
+const LOTE_VERIFICACION_SAT = 100;
+/** Lo verificado hace menos que esto no se vuelve a pedir en la misma vuelta (si no, un «no encontrado» se pediría para siempre). */
+const REINTENTO_SAT_MIN = 15;
+
+/** `[LC.19.1]` Una vuelta de verificación del mes. `restantes` = las que faltan por intentar. */
+export interface VerificacionSatMes extends VerificacionCfdis {
+  por_verificar: number;
+  restantes: number;
+}
+
+/** `[LC.19.6]` Lo que hizo una vuelta de `preparar`. Cada `motivo` dice por qué un paso NO se hizo solo. */
+export interface PreparacionMes {
+  mes: string;
+  aplicado: { hecho: boolean; motivo: string | null };
+  cuentas_asignadas: { rfc: string; cuenta: string; nombre: string }[];
+  /** null = no se llegó a verificar (el mes ya tenía archivo vigente o estaba aplicado). */
+  sat: VerificacionSatMes | null;
+  generado: { hecho: boolean; motivo: string | null; facturas?: number; folio?: number };
+  /** Facturas por verificar ante el SAT que quedan para la siguiente vuelta. */
+  restantes: number;
+}
+
+/** `[LC.19.6]` El mes que toca armar: el anterior al actual, en hora de México (el backend corre en MX). */
+function mesAnteriorMx(ahora: Date = new Date()): string {
+  const [y, m] = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit' })
+    .format(ahora).split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 2, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/** `[LC.19.1]` Sólo `vigente` se postea: `desconocido` es «no consta», no «no está cancelada». */
+const estaVigente = (f: { estatus_sat: string }) => f.estatus_sat === 'vigente';
+
+/** Las columnas de la corrida que ve la pantalla: todas menos el TXT (`archivo_contenido`). */
+const COLUMNAS_RUN = [
+  'id', 'tenant_id', 'anio_mes', 'tipo', 'estado', 'folio_poliza', 'fecha_poliza', 'concepto',
+  'facturas', 'renglones', 'total_cargos', 'total_abonos', 'subtotal_exento', 'subtotal_gravado',
+  'total_iva', 'total_ieps', 'archivo_hash', 'archivo_nombre', 'impuestos_modo', 'incluye_uuid',
+  'asocia_cfdi', 'generado_at', 'generado_by', 'entregado_at', 'entregado_by', 'entregado_a',
+  'aplicado_at', 'aplicado_by', 'notas', 'created_at', 'created_by', 'updated_at', 'updated_by',
+];
 
 export { type Movimiento, type PolizaTxtParseada } from './poliza-txt';
 
@@ -33,6 +81,184 @@ const CTA_IEPS = '1470110000';
 
 export type ImpuestosModo = 'global' | 'por-cuenta';
 export type EstadoRun = 'borrador' | 'generado' | 'entregado' | 'aplicado' | 'cancelado';
+
+/**
+ * `[LC.17]` — A qué estado se puede mover el trámite desde cada uno (por `marcar`; volver a
+ * `generado` sólo lo hace `generar`).
+ *
+ * ⛔ Antes `marcar` aceptaba cualquier salto: `aplicado` desde `generado` (nadie lo entregó),
+ * `entregado` desde `aplicado` (el trámite retrocedía) y `cancelado` desde `aplicado`. Lo
+ * último es el caro: cancelar saca las facturas de la puerta exacta (`v_purchase_book_uuids`
+ * sólo cuenta entregado/aplicado) y el mes las vuelve a ofrecer — un asiento que ContPAQi YA
+ * tiene, entregado otra vez.
+ */
+export const TRANSICIONES_RUN: Readonly<Record<EstadoRun, readonly EstadoRun[]>> = {
+  borrador: ['cancelado'],
+  generado: ['entregado', 'cancelado'],
+  entregado: ['aplicado', 'cancelado'],
+  aplicado: [],
+  cancelado: [],
+};
+
+/** Las facturas que `generar` deja registradas: alimentan la puerta exacta, no deciden. */
+const ORIGEN_GENERADO = 'generado';
+
+/**
+ * `[LC.18]` — Cómo reparte una factura la contadora entre `502` (gravado), `501` (exento) y el
+ * IEPS acreditable. **Medido al centavo en 763 de 763 facturas** de los libros de jul, ago y
+ * sep-2026 armados a mano (`test-newdb-libro-compras-replica.js`):
+ *
+ *   · `502 = IVA ÷ 0.16`, con tope en lo que queda tras quitar IVA e IEPS: en una factura 100 %
+ *     gravada el IVA redondeado por concepto hace que `IVA ÷ 0.16` se pase del neto por
+ *     centavos, y ahí todo va al `502` y no hay renglón `501` (40 de las 763).
+ *   · Sólo se acredita el IEPS a **tasa 8 %**. El de 26.5 % y el de cuota se quedan en el costo
+ *     (`502`/`501`), como en el libro manual — decisión de Edgar del 2026-10-21: el TXT tiene
+ *     que salir igual al que se armaba a mano. Lo no acreditado se declara como aviso.
+ *   · `501` = lo que resta. Cuadra por construcción: `501 + 502 + IVA + IEPS = total`.
+ *
+ * ⛔ Antes se usaba el subtotal de los conceptos gravados (`subtotal_iva_16`) y todo el IEPS:
+ * fiscalmente defendible, pero sólo coincidía con lo manual en 678 de las 763.
+ */
+export function repartirFactura(total: number, iva: number, ieps8: number): { subtotal16: number; base_exenta: number } {
+  // ⛔ En CENTAVOS ENTEROS, no en flotante: `4196.78 / 0.16` da 26229.8749999… y redondea a
+  // .87, cuando lo exacto es 26229.875 → .88 (lo que hace la contadora). Medido: 5 de 765
+  // facturas salían con un centavo de diferencia. `cent × 625 / 100` es `cent ÷ 0.16` exacto.
+  const cent = (n: number) => Math.round(Number(n) * 100);
+  const neto = cent(total) - cent(iva) - cent(ieps8);
+  const s16 = Math.min(Math.round((cent(iva) * 625) / 100), neto);
+  return { subtotal16: s16 / 100, base_exenta: (neto - s16) / 100 };
+}
+
+/**
+ * `[LC.18]` — El IEPS que el libro ACREDITA: sólo el de tasa 8 %. Fragmento de SQL sobre un
+ * `fiscal.cfdis f`; sin signos de interrogación (knex los cuenta como placeholders).
+ */
+const IEPS8_SQL = `coalesce((
+    SELECT sum((x->>'importe')::numeric)
+      FROM jsonb_array_elements(CASE WHEN jsonb_typeof(f.impuestos->'traslados') = 'array'
+                                     THEN f.impuestos->'traslados' ELSE '[]'::jsonb END) x
+     WHERE x->>'impuesto' = '003' AND x->>'tipo_factor' = 'Tasa' AND (x->>'tasa')::numeric = 0.08
+  ), 0)`;
+
+/** ¿La cuenta existe en ContPAQi? Catálogo (foto del importer) O ya usada en una póliza (feed vivo). */
+const cuentaExisteSql = (col: string) => `(
+    EXISTS (SELECT 1 FROM analytics.contpaqi_accounts ca
+             WHERE ca.tenant_id = current_tenant_id() AND ca.codigo = ${col})
+    OR EXISTS (SELECT 1 FROM analytics.gl_poliza_lines gx
+                WHERE gx.tenant_id = current_tenant_id() AND gx.source = 'contpaqi' AND gx.cuenta = ${col}))`;
+
+/**
+ * `[LC.18]` — El mapa RFC → cuenta del proveedor, UNO para el tablero, el mes y el respaldo.
+ *
+ * ⛔ Antes cada consulta leía `finance.gl_supplier_accounts` sola, que se sembró UNA vez desde
+ * la hoja `DATOS` el 2026-09-01. Los proveedores dados de alta después no existían para el
+ * módulo: en los libros manuales de jul/ago/sep son **2 + 5 + 4 facturas por $3.2M** que el
+ * generador no podía armar. Ahora:
+ *   1. lo que el libro ya tiene (gana siempre: está validado y se puede corregir a mano), y
+ *   2. lo que ContPAQi mismo resolvió (`contpaqi.supplier_accounts`, `[CP.8.20]`) con veredicto
+ *      firme: UUID asociado y nombre coinciden, o UUID sólido. **Nunca sólo por nombre.**
+ * La existencia de cada cuenta se mira EN VIVO (`cuentaExisteSql`) además del dato sembrado:
+ * el flag del sembrado es una foto del 1-sep y una cuenta creada después salía «inexistente».
+ */
+const MAPA_PROVEEDORES_CTE = `mapa_base AS (
+    SELECT DISTINCT ON (u.rfc) u.*
+      FROM (
+        SELECT a.rfc, a.account_suffix, a.supplier_name, a.cuenta_proveedor,
+               a.cuenta_compra_exenta, a.cuenta_compra_iva,
+               a.proveedor_existe AS p_ok, a.compra_exenta_existe AS e_ok, a.compra_iva_existe AS i_ok,
+               a.usado_en_asiento, 1 AS prioridad, 'libro' AS origen_mapa
+          FROM finance.gl_supplier_accounts a
+         WHERE a.tenant_id = current_tenant_id() AND a.deleted_at IS NULL AND a.rfc IS NOT NULL
+        UNION ALL
+        SELECT s.rfc, substr(s.cuenta, 4), s.cuenta_nombre, s.cuenta,
+               '501' || substr(s.cuenta, 4), '502' || substr(s.cuenta, 4),
+               NULL, NULL, NULL, false, 2, 'contpaqi'
+          FROM contpaqi.supplier_accounts s
+         WHERE s.tenant_id = current_tenant_id() AND s.rfc IS NOT NULL AND s.cuenta LIKE '212%'
+           AND s.veredicto IN ('confirmado', 'uuid_solido')
+      ) u
+     ORDER BY u.rfc, u.prioridad, u.usado_en_asiento DESC, u.account_suffix
+  ), mapa AS (
+    SELECT m.rfc, m.account_suffix, m.supplier_name, m.cuenta_proveedor,
+           m.cuenta_compra_exenta, m.cuenta_compra_iva, m.usado_en_asiento, m.origen_mapa,
+           (m.p_ok IS TRUE OR ${cuentaExisteSql('m.cuenta_proveedor')}) AS proveedor_existe,
+           (m.e_ok IS TRUE OR ${cuentaExisteSql('m.cuenta_compra_exenta')}) AS compra_exenta_existe,
+           (m.i_ok IS TRUE OR ${cuentaExisteSql('m.cuenta_compra_iva')}) AS compra_iva_existe
+      FROM mapa_base m
+  )`;
+
+const MESES_ES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+/** `2026-10` → `REGISTRO DE COMPRAS DEL MES DE OCTUBRE 2026`, la forma que más usa el libro manual. */
+export const conceptoLibro = (anioMes: string): string =>
+  `REGISTRO DE COMPRAS DEL MES DE ${MESES_ES[Number(anioMes.slice(5, 7)) - 1] ?? anioMes.slice(5, 7)} ${anioMes.slice(0, 4)}`;
+
+/** `[LC.18]` — Cuántos meses hacia atrás se mira si el proveedor ya entró al libro. */
+const MESES_HISTORIAL = 6;
+
+/**
+ * `[LC.18.2]` — La puerta exacta mira los UUID del libro en `mes ± VENTANA_PRUEBA_MESES`. Un CFDI
+ * entra al libro de su mes o, a veces, del siguiente (medido: con ventana 0 se pierden 24 de
+ * 77,712); 12 meses de cada lado no pierde ninguno.
+ */
+const VENTANA_PRUEBA_MESES = 12;
+
+/**
+ * La prioridad entre pruebas de `finance.v_purchase_book_uuid_prueba` (migración
+ * `20260903120000`), repetida acá para poder aplicarla DESPUÉS de filtrar por mes. ⛔ Si una
+ * cambia, la otra también: `test-newdb-libro-compras-replica.js` las cruza y se pone rojo.
+ */
+const ORDEN_PRUEBA_SQL = `CASE u.source
+    WHEN 'contpaqi_asoccfdi' THEN 1 WHEN 'contpaqi_concepto' THEN 2 WHEN 'run_aplicado' THEN 3
+    WHEN 'historico_xlsx' THEN 4 WHEN 'run_entregado' THEN 5 ELSE 9 END`;
+
+/** Palabras que no distinguen a un proveedor de otro al comparar nombres. */
+const RUIDO_NOMBRE = new Set(['S.A.', 'SA', 'DE', 'CV', 'RL', 'SAPI', 'SRL', 'LAS', 'LOS', 'DEL', 'SPR', 'SC', 'SAS', 'MEXICO', 'COMERCIALIZADORA', 'DISTRIBUIDORA', 'GRUPO']);
+
+const tokensNombre = (s: string): Set<string> => new Set(
+  String(s ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')
+    .split(/\s+/).filter((t) => t.length > 2 && !RUIDO_NOMBRE.has(t)),
+);
+
+/** `[LC.18]` Qué tanto se parecen dos razones sociales (0–1), sin acentos ni «SA DE CV». */
+export function parecidoNombre(a: string, b: string): number {
+  return parecidoTokens(tokensNombre(a), tokensNombre(b));
+}
+
+function parecidoTokens(x: Set<string>, y: Set<string>): number {
+  if (!x.size || !y.size) return 0;
+  let comunes = 0;
+  for (const t of y) if (x.has(t)) comunes++;
+  return comunes / Math.max(x.size, y.size);
+}
+
+/** Desde cuánto parecido de nombre se ofrece una cuenta como sugerencia en el diálogo. */
+const PARECIDO_MINIMO = 0.5;
+/**
+ * En el RENGLÓN (sin abrir el diálogo) se exige más: medido en oct-2026, con 0.5 salían personas
+ * que sólo comparten nombre de pila («VICTOR MANUEL VELAZQUEZ» → «VICTOR MANUEL SANCHEZ»).
+ */
+const PARECIDO_FILA = 0.8;
+const CANDIDATAS_TTL_MS = 5 * 60 * 1000;
+
+export interface SugerenciasCuenta {
+  rfc: string;
+  /** Como lo escribe el CFDI más reciente del RFC. */
+  nombre: string;
+  candidatas: {
+    cuenta: string; nombre: string; parecido: number; razon: string;
+    /** Si la cuenta ya es de OTRO RFC en el libro: asignarla se rechaza. */
+    asignada_a: string | null;
+    /** ContPAQi le asoció un CFDI de este RFC: la prueba más fuerte que hay. */
+    fuerte: boolean;
+  }[];
+}
+
+/** `[LC.18]` — Las cuentas de impuesto del asiento y de qué libro se tomaron (`null` = las fijas). */
+export interface CuentasImpuesto {
+  iva: { cuenta: string; nombre: string };
+  ieps: { cuenta: string; nombre: string };
+  desde: string | null;
+}
 
 /**
  * Las dos corridas que puede tener un mes:
@@ -110,12 +336,27 @@ export interface FacturaMes {
   fecha: string;
   total: number;
   iva: number;
+  /** `[LC.18]` El IEPS que se ACREDITA (tasa 8 %). Es el que va al renglón de IEPS del asiento. */
   ieps: number;
-  /** Subtotal de lo gravado a 16%, NETO de descuento. Ver `subtotal_iva_16` del feed. */
+  /** `[LC.18]` Todo el IEPS del CFDI, y lo que de él se queda en el costo (26.5 %, cuota). */
+  ieps_total: number;
+  ieps_no_acreditable: number;
+  /** Lo que va a la `502`: `IVA ÷ 0.16` con tope (ver `repartirFactura`). */
   subtotal16: number;
-  /** Lo que va a la cuenta de compras exentas, por diferencia contra el total. */
+  /** Lo que va a la `501`, por diferencia contra el total. */
   base_exenta: number;
   ieps_por_cuota: boolean;
+  /**
+   * `[LC.18]` El proveedor apareció en el libro (Diario folio 1) de alguno de los últimos
+   * `MESES_HISTORIAL` meses. Sin historial no entra por default: medido, ~115 facturas al mes
+   * sin asociar de proveedores del catálogo nunca entraron al libro manual, y ningún campo del
+   * CFDI ni de Kepler las distingue. Decisión de Edgar del 2026-10-21.
+   */
+  en_libro_reciente: boolean;
+  /** De dónde salió la cuenta: el mapa del libro, o lo que ContPAQi resolvió por UUID. */
+  origen_mapa: 'libro' | 'contpaqi' | null;
+  /** `[LC.18]` Sin cuenta: la 212 libre de ContPAQi cuyo nombre se parece al del emisor. Sugerencia, no decisión. */
+  cuenta_sugerida: { cuenta: string; nombre: string; parecido: number } | null;
   account_suffix: string | null;
   supplier_name: string | null;
   cuenta_proveedor: string | null;
@@ -161,12 +402,18 @@ export interface FacturaMes {
   /** Para que un humano pueda juzgar un falso positivo: qué se encontró, exactamente. */
   prueba_detalle: string | null;
   /**
-   * `vigente | cancelado | desconocido` según el ADD. **Casi todo es `desconocido`**
-   * (167,053 de 167,135): el ADD trae `CancelStatus` vacío y nadie valida contra el SAT.
-   * Por eso NO se filtra por `= vigente` — eso vaciaría el módulo. Se bloquea lo que se
-   * sabe malo (`cancelado`) y la ignorancia se declara en un aviso, no se esconde.
+   * `vigente | cancelado | desconocido`. Lo escribe el cron FISCAL.6 (WS del SAT) y el feed del
+   * ADD, que lo trae vacío casi siempre.
+   *
+   * `[LC.19.1]` ⛔ Antes se bloqueaba sólo `cancelado` y `desconocido` iba como aviso: medido el
+   * 2026-10-21, **el 100 % de los recibidos de ago/sep/oct estaba en `desconocido`**, porque el
+   * feed del ADD reescribía con vacío lo que el cron ya había verificado (07:30 → vigente, 11:47
+   * → desconocido otra vez). O sea que «no cancelado» no medía nada y un CFDI cancelado entraba
+   * al TXT. Ahora sólo `vigente` se postea; lo demás se verifica con `verificarSat`.
    */
   estatus_sat: string;
+  /** Cuándo se le preguntó al SAT por última vez (null = nunca). */
+  estatus_verificado_at: string | null;
 }
 
 @Injectable()
@@ -179,7 +426,159 @@ export class PurchaseBookService {
     // Best-effort: la bandeja unificada vive en Maat. Sin binding el módulo sigue
     // funcionando, sólo que el cuadre no consolida hallazgos.
     @Optional() @Inject(FINANCE_FINDINGS_SINK_PORT) private readonly findingsSink?: FinanceFindingsSinkPort,
+    // [LC.19.1] Verificación ante el SAT (libs/fiscal, ligado en apps/api/composition). Sin binding
+    // no se verifica nada y lo no vigente sigue sin poder postearse: se declara, no se asume.
+    @Optional() @Inject(CFDI_ESTATUS_PORT) private readonly estatusSat?: CfdiEstatusPort,
   ) {}
+
+  /**
+   * `[LC.19.2]` La edad de las dos fuentes del mes, por el latido de su carril:
+   *   · `cfdis`   ← `contpaqi_add_cfdis` (feed del ADD, cada 5 min)
+   *   · `polizas` ← `feed_contpaqi` (pólizas + bancos, cada minuto)
+   * Tolerancia 1 h para las dos: con el carril cada 1–5 min, una hora sin latido es una caída.
+   * ⚠️ `feed_contpaqi` corre DOS pasos y cierra `ok` si falla uno solo (GX.19); ese carril no
+   * tiene bitácora por paso. Es el testigo más fuerte que hay hoy, y queda declarado.
+   * En SAVEPOINT: si la lectura falla no aborta la transacción del mes, y se declara `unknown`.
+   */
+  private async frescuraFuentes(knex: Knex): Promise<Freshness> {
+    try {
+      return await knex.transaction(async (sp) => {
+        const cfdis = await laneAt(sp, 'contpaqi_add_cfdis');
+        const polizas = await laneAt(sp, 'feed_contpaqi');
+        return composeFreshness([
+          evalInput('cfdis', 'CFDIs del ADD', cfdis, 1),
+          evalInput('polizas', 'Pólizas de ContPAQi', polizas, 1),
+        ]);
+      });
+    } catch (e: unknown) {
+      this.logger.warn(`frescura del libro: no se pudo medir (${e instanceof Error ? e.message : String(e)})`);
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
+  /**
+   * `[LC.19.1]` Verifica ante el SAT, en el momento, las facturas del mes que podrían entrar al
+   * TXT: las marcadas, y las que tienen cuenta y no están ya en el libro (se pueden marcar). Un
+   * lote por llamada; la pantalla repite mientras `restantes > 0`. Lo que se verificó hace menos
+   * de REINTENTO_SAT_MIN no se vuelve a pedir, así un «no encontrado» no cicla.
+   */
+  async verificarSat(anioMes: string, tipo: TipoCorrida = 'complemento'): Promise<VerificacionSatMes> {
+    this.mesValido(anioMes);
+    const { facturas } = await this.getMes(anioMes, tipo);
+    const reciente = Date.now() - REINTENTO_SAT_MIN * 60_000;
+    const porVerificar = facturas.filter((f) => !estaVigente(f) && f.estatus_sat !== 'cancelado'
+      && (f.incluida || (f.cuenta_existe && f.prueba_certeza !== 'exacta'))
+      && !(f.estatus_verificado_at && Date.parse(f.estatus_verificado_at) > reciente));
+    const lote = porVerificar.slice(0, LOTE_VERIFICACION_SAT);
+    const base = { por_verificar: porVerificar.length, restantes: porVerificar.length - lote.length };
+    if (!this.estatusSat) {
+      return { consultados: 0, vigentes: 0, cancelados: 0, no_encontrados: 0, fallidos: 0, disponible: false, ...base, restantes: 0 };
+    }
+    const r = await this.estatusSat.verificarUuids(this.ctx.requireTenantId(), lote.map((f) => f.uuid));
+    this.logger.log(`verificar SAT ${anioMes}: ${r.consultados} consultadas · ${r.vigentes} vigentes · ${r.cancelados} canceladas · `
+      + `${r.no_encontrados} no encontradas · ${r.fallidos} fallidas · ${base.restantes} por intentar`);
+    return { ...r, ...base };
+  }
+
+  /**
+   * `[LC.19.6]` — Lo que el mes puede hacer SOLO, disparado por EVENTO (lo llama la pantalla al
+   * abrir el mes, sólo con GESTIONAR) — sin cron, por decisión de Edgar (2026-10-22). Una vuelta por
+   * llamada; la pantalla repite mientras `restantes > 0`. Cada paso tiene su freno, y lo que no pasa
+   * el freno se queda para una persona — nunca se fuerza:
+   *
+   *   1. **aplicado** — si ContPAQi ya tiene la póliza y casa RENGLÓN POR RENGLÓN con el archivo
+   *      (`cuadrarContraContpaqi`: 0 sobrantes de los dos lados, deltas en 0). Si casa a medias, se
+   *      dice y se deja: alguien la editó al importar y eso lo juzga una persona.
+   *   2. **cuenta del proveedor nuevo** — sólo con nombre IDÉNTICO (parecido 1.0), una sola candidata
+   *      ≥ PARECIDO_FILA, libre, y el RFC sin cuenta. Pasa por `asignarCuenta` (mismos frenos que la
+   *      manual) y queda rotulada `auto_lc`. Ojo: eso no la mete al TXT — un proveedor nuevo cae en
+   *      «Sin libro reciente» y espera revisión.
+   *   3. **estatus SAT** — un lote de `verificarSat`.
+   *   4. **el archivo** — sólo del MES QUE TOCA (el anterior al actual en hora de México), cuando el SAT
+   *      ya no tiene pendientes, sin bloqueantes, sin «importe ya posteado» marcadas, y la corrida está
+   *      sin archivo (nueva, borrador —p. ej. invalidada por un cambio— o cancelada).
+   */
+  async preparar(anioMes: string): Promise<PreparacionMes> {
+    this.mesValido(anioMes);
+    const tipo: TipoCorrida = 'complemento';
+    const out: PreparacionMes = {
+      mes: anioMes, aplicado: { hecho: false, motivo: null }, cuentas_asignadas: [],
+      sat: null, generado: { hecho: false, motivo: null }, restantes: 0,
+    };
+
+    // 1. ¿Ya lo tiene ContPAQi?
+    const run = await this.tk.run((knex) => knex('finance.purchase_book_runs')
+      .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first());
+    if (run && (run.estado === 'generado' || run.estado === 'entregado') && run.archivo_contenido) {
+      const c = await this.cuadrarContraContpaqi(anioMes, tipo);
+      if (c.comparable && c.existe_en_contpaqi && c.solo_nuestro === 0 && c.solo_contpaqi === 0
+        && Math.abs(c.delta_cargos) < 0.01 && Math.abs(c.delta_abonos) < 0.01) {
+        await this.tk.run(async (knex) => {
+          const userId = this.ctx.get()?.userId ?? null;
+          await knex('finance.purchase_book_runs').where({ id: run.id }).whereIn('estado', ['generado', 'entregado']).update({
+            estado: 'aplicado', aplicado_at: knex.fn.now(), aplicado_by: userId, updated_at: knex.fn.now(), updated_by: userId,
+            notas: this.sumarNota(knex, `aplicado automático: ContPAQi tiene el folio ${c.folio_esperado} y casan ${c.casan} de ${c.patas_archivo} renglones`),
+          });
+        });
+        out.aplicado = { hecho: true, motivo: `ContPAQi tiene el folio ${c.folio_esperado}: casan ${c.casan} de ${c.patas_archivo} renglones` };
+        return out;
+      }
+      if (c.comparable && c.existe_en_contpaqi) {
+        out.aplicado.motivo = `ContPAQi tiene el folio ${c.folio_esperado}, pero no casa con el archivo `
+          + `(${c.solo_nuestro} renglones sólo nuestros, ${c.solo_contpaqi} sólo de ContPAQi): revísalo y márcalo a mano`;
+      } else if (c.motivo) {
+        out.aplicado.motivo = c.motivo;
+      }
+      return out; // con archivo vigente no se toca nada más: lo que falta es subirlo
+    }
+    if (run && (run.estado === 'aplicado' || run.estado === 'entregado')) return out;
+
+    // 2. Cuentas de proveedores nuevos, sólo con nombre idéntico.
+    const { facturas } = await this.getMes(anioMes, tipo);
+    const rfcs = [...new Set(facturas.filter((f) => !f.account_suffix && f.cuenta_sugerida?.parecido === 1)
+      .map((f) => f.emisor_rfc.toUpperCase()))].slice(0, 10);
+    for (const rfc of rfcs) {
+      try {
+        const sg = await this.sugerirCuenta(rfc);
+        const fuertes = sg.candidatas.filter((x) => x.parecido >= PARECIDO_FILA || x.fuerte);
+        const top = fuertes[0];
+        if (fuertes.length !== 1 || !top || top.parecido !== 1 || top.asignada_a) continue;
+        await this.asignarCuenta(rfc, top.cuenta, 'auto');
+        out.cuentas_asignadas.push({ rfc, cuenta: top.cuenta, nombre: top.nombre });
+      } catch (e: unknown) {
+        // Un rechazo de asignarCuenta (cuenta inexistente, de otro RFC…) deja la factura para una persona.
+        this.logger.warn(`preparar ${anioMes}: no se asignó la cuenta de ${rfc} (${e instanceof Error ? e.message : String(e)})`);
+      }
+    }
+
+    // 3. Un lote de verificación ante el SAT.
+    out.sat = await this.verificarSat(anioMes, tipo);
+    out.restantes = out.sat.restantes;
+    if (out.restantes > 0) return out;
+
+    // 4. El archivo, sólo del mes que toca.
+    if (anioMes !== mesAnteriorMx()) {
+      out.generado.motivo = 'el archivo se arma solo únicamente para el mes que toca (el anterior al actual)';
+      return out;
+    }
+    if (run && !['borrador', 'cancelado'].includes(String(run.estado))) return out;
+    const d = await this.getMes(anioMes, tipo);
+    const dentro = d.facturas.filter((f) => f.incluida);
+    if (!dentro.length) { out.generado.motivo = 'no hay facturas marcadas'; return out; }
+    if (d.bloqueantes.length) { out.generado.motivo = d.bloqueantes.join(' · '); return out; }
+    if (dentro.some((f) => f.prueba_certeza === 'por_importe')) {
+      out.generado.motivo = 'hay marcadas con «importe ya posteado»: generarlas pide un motivo de una persona';
+      return out;
+    }
+    try {
+      const modo: ImpuestosModo = run?.impuestos_modo === 'por-cuenta' ? 'por-cuenta' : 'global';
+      const g = await this.generar(anioMes, { impuestos: modo, uuid: true, tipo });
+      out.generado = { hecho: true, motivo: null, facturas: g.facturas, folio: g.folio };
+    } catch (e: unknown) {
+      out.generado.motivo = e instanceof Error ? e.message : String(e);
+    }
+    return out;
+  }
 
   private mesValido(anioMes: string) {
     if (!/^\d{4}-\d{2}$/.test(anioMes || '')) throw new BadRequestException('mes inválido, se espera YYYY-MM');
@@ -204,6 +603,51 @@ export class PurchaseBookService {
   private inicioDelSiguiente(anioMes: string): string {
     const [y, m] = anioMes.split('-').map(Number);
     return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+  }
+
+  /** `2026-03` menos 6 → `2025-09`. */
+  private mesMenos(anioMes: string, n: number): string {
+    const [y, m] = anioMes.split('-').map(Number);
+    const t = y * 12 + (m - 1) - n;
+    return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
+  }
+
+  /**
+   * `[LC.18]` — A qué cuentas van el IVA y el IEPS del asiento: **las del último libro** (Diario
+   * folio 1) de este mes o de uno anterior, no unas fijas.
+   *
+   * ⛔ Medido: de ene a ago-2026 el libro usó `1470040000 IVA POR ACREDITAR` / `1470110000 IEPS
+   * POR ACREDITAR`, y en **sep-2026 la contadora cambió** a `1060000000 IVA ACREDITABLE` /
+   * `1470100000 IEPS ACREDITABLE`. Con las cuentas fijas en el código, el TXT de octubre habría
+   * salido con las de antes. Se clasifican por el NOMBRE de la cuenta (dice IVA o IEPS); si no
+   * hay libro previo, quedan las constantes y se declara.
+   */
+  async cuentasImpuesto(knex: Knex, anioMes: string): Promise<CuentasImpuesto> {
+    const { rows } = await knex.raw(
+      `WITH ultimo AS (
+         SELECT max(anio_mes) AS anio_mes
+           FROM analytics.gl_poliza_lines
+          WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+            AND tipo_pol = ? AND folio = ? AND anio_mes <= ?
+            AND cuenta LIKE '212%' AND cargo_abono = 'A'
+       )
+       SELECT l.anio_mes, l.cuenta, max(l.cuenta_nombre) AS nombre, sum(l.importe) AS importe
+         FROM analytics.gl_poliza_lines l JOIN ultimo u ON u.anio_mes = l.anio_mes
+        WHERE l.tenant_id = current_tenant_id() AND l.source = 'contpaqi'
+          AND l.tipo_pol = ? AND l.folio = ? AND l.cargo_abono = 'C'
+          AND l.cuenta NOT LIKE '212%' AND l.cuenta NOT LIKE '501%' AND l.cuenta NOT LIKE '502%'
+        GROUP BY 1, 2
+        ORDER BY 4 DESC`,
+      [TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), anioMes, TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO)],
+    );
+    const de = (re: RegExp) => rows.find((r: Record<string, unknown>) => re.test(String(r['nombre'] ?? '').toUpperCase()));
+    const iva = de(/\bIVA\b/);
+    const ieps = de(/\bIEPS\b/);
+    return {
+      iva: iva ? { cuenta: String(iva['cuenta']).trim(), nombre: String(iva['nombre'] ?? '') } : { cuenta: CTA_IVA, nombre: 'IVA POR ACREDITAR' },
+      ieps: ieps ? { cuenta: String(ieps['cuenta']).trim(), nombre: String(ieps['nombre'] ?? '') } : { cuenta: CTA_IEPS, nombre: 'IEPS POR ACREDITAR' },
+      desde: iva || ieps ? String((iva ?? ieps)!['anio_mes']) : null,
+    };
   }
 
   // ── El tablero: en qué va cada mes ────────────────────────────────────────────────────
@@ -302,26 +746,43 @@ export class PurchaseBookService {
              FROM analytics.gl_poliza_lines
             WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
               AND (cuenta LIKE '501%' OR cuenta LIKE '502%') AND cargo_abono = 'C'
+              -- LC.18: sólo los meses del tablero. El join pide g.anio_mes = mes del CFDI, que
+              -- ya está acotado abajo: recorrer todos los años no cambiaba ni una fila.
+              AND anio_mes >= to_char(date_trunc('month', now()) - make_interval(months => ?), 'YYYY-MM')
             GROUP BY 1, 2
-         ), ctas AS (
+         ), ${MAPA_PROVEEDORES_CTE}, ctas AS (
            -- Los RFC que SÍ tienen cuenta de compras usable. Se resuelve acá para que el
            -- tablero muestre lo accionable (lo que entra al TXT) y no un total que incluye
-           -- gasto y servicio, que nunca van a entrar. DISTINCT porque un RFC puede tener
-           -- más de una cuenta y el join lo duplicaría.
-           SELECT DISTINCT rfc
-             FROM finance.gl_supplier_accounts
-            WHERE tenant_id = current_tenant_id() AND deleted_at IS NULL AND proveedor_existe
+           -- gasto y servicio, que nunca van a entrar. LC.18: del mapa unificado, el mismo
+           -- que usa el detalle del mes (una fila por RFC).
+           SELECT rfc, cuenta_proveedor FROM mapa WHERE proveedor_existe
+         ), libros_hist AS (
+           -- LC.18: para qué meses cuenta cada proveedor como «con historial»: si entró al
+           -- libro en el mes M, cuenta para M+1 .. M+6. Se EXPANDE acá y se cruza por igualdad:
+           -- con un EXISTS por CFDI contra esta lista el tablero tardaba 7.3 s.
+           SELECT DISTINCT to_char(to_date(l.anio_mes, 'YYYY-MM') + make_interval(months => k), 'YYYY-MM') AS anio_mes,
+                  l.cuenta
+             FROM (SELECT DISTINCT anio_mes, cuenta
+                     FROM analytics.gl_poliza_lines
+                    WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+                      AND tipo_pol = ? AND folio = ? AND cuenta LIKE '212%' AND cargo_abono = 'A'
+                      AND anio_mes >= to_char(date_trunc('month', now()) - make_interval(months => ?), 'YYYY-MM')) l
+            CROSS JOIN generate_series(1, ${MESES_HISTORIAL}) AS k
          ), libro_uuid AS (
            -- La tercera puerta, exacta. DISTINCT obligatorio: la vista trae una fila por
            -- (source, source_key) y el libro histórico repite algún UUID; sin dedup el LEFT
            -- JOIN multiplicaría filas y el agregado de abajo sobrecontaría el mes.
            SELECT DISTINCT cfdi_uuid FROM finance.v_purchase_book_uuids
+            -- LC.18.2: solo los meses que pueden tocar al tablero (su ventana + 12, la misma
+            -- holgura medida en getMes). El filtro baja a las dos ramas de la vista.
+            WHERE anio_mes >= to_char(date_trunc('month', now()) - make_interval(months => ?), 'YYYY-MM')
          ), base AS (
            SELECT to_char(f.fecha, 'YYYY-MM') AS anio_mes, f.total,
                   (f.aso_contabilidad IS NOT TRUE) AS sin_asociar,
                   (p.importe IS NOT NULL OR g.importe IS NOT NULL OR lu.cfdi_uuid IS NOT NULL) AS ya_en_poliza,
                   (lu.cfdi_uuid IS NOT NULL) AS por_uuid,
-                  (c.rfc IS NOT NULL) AS con_cuenta
+                  (c.rfc IS NOT NULL) AS con_cuenta,
+                  (lh.cuenta IS NOT NULL) AS con_historial
              FROM fiscal.cfdis f
              LEFT JOIN libro_uuid lu ON lu.cfdi_uuid = upper(f.uuid)
              LEFT JOIN patas p
@@ -332,6 +793,7 @@ export class PurchaseBookService {
                     - coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)
                     - coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0), 2)
              LEFT JOIN ctas c ON c.rfc = f.emisor_rfc
+             LEFT JOIN libros_hist lh ON lh.cuenta = c.cuenta_proveedor AND lh.anio_mes = to_char(f.fecha, 'YYYY-MM')
             WHERE f.tenant_id = current_tenant_id()
               AND f.source = 'contpaqi_add' AND f.tipo_comprobante = 'I'
               -- (IG.14) FILTRO DE ROL EXPLICITO. La tabla fiscal.cfdis fue, hasta 2026-10-05, solo CFDI
@@ -344,9 +806,20 @@ export class PurchaseBookService {
               -- Acotado a los meses que el tablero va a mostrar. Sin esto se escanean los
               -- 167 mil CFDIs del ADD para tirar 24 renglones.
               AND f.fecha >= date_trunc('month', now()) - make_interval(months => ?)
+              -- LC.18: los cruces sólo hacen falta para lo NO asociado (todas las cifras de
+              -- abajo filtran por eso). Hacerlos sobre los 31 mil CFDIs costaba ~300 ms; el
+              -- total del mes sale aparte, de un conteo sin cruces.
+              AND f.aso_contabilidad IS NOT TRUE
+         ), totales AS (
+           SELECT to_char(f.fecha, 'YYYY-MM') AS anio_mes, count(*) AS cfdis
+             FROM fiscal.cfdis f
+            WHERE f.tenant_id = current_tenant_id()
+              AND f.source = 'contpaqi_add' AND f.tipo_comprobante = 'I' AND f.rol = 'recibidas'
+              AND f.fecha >= date_trunc('month', now()) - make_interval(months => ?)
+            GROUP BY 1
          ), agg AS (
-           SELECT anio_mes,
-                  count(*)                                              AS cfdis,
+           SELECT t.anio_mes,
+                  max(t.cfdis)                                          AS cfdis,
                   count(*) FILTER (WHERE sin_asociar)                   AS no_asociados,
                   sum(total) FILTER (WHERE sin_asociar)                 AS monto_no_asociado,
                   count(*) FILTER (WHERE sin_asociar AND ya_en_poliza)  AS ya_posteados,
@@ -360,11 +833,14 @@ export class PurchaseBookService {
                   count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza)   AS faltan,
                   sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza) AS monto_faltan,
                   -- Lo que de verdad entra al TXT: sin asociar, sin postear y con cuenta.
-                  count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND con_cuenta)       AS entran,
-                  sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND con_cuenta)     AS monto_entran,
+                  count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND con_cuenta AND con_historial)       AS entran,
+                  sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND con_cuenta AND con_historial)     AS monto_entran,
+                  count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND con_cuenta AND NOT con_historial)   AS sin_historial,
+                  sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND con_cuenta AND NOT con_historial) AS monto_sin_historial,
                   count(*) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND NOT con_cuenta)   AS fuera_catalogo,
                   sum(total) FILTER (WHERE sin_asociar AND NOT ya_en_poliza AND NOT con_cuenta) AS monto_fuera
-             FROM base GROUP BY 1
+             FROM totales t LEFT JOIN base b ON b.anio_mes = t.anio_mes
+            GROUP BY t.anio_mes
          ), libro AS (
            SELECT anio_mes, count(*) AS patas
              FROM analytics.gl_poliza_lines
@@ -382,7 +858,10 @@ export class PurchaseBookService {
                 AND r.tipo = 'complemento' AND r.deleted_at IS NULL
           ORDER BY a.anio_mes DESC
           LIMIT ?`,
-        [TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit, TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit],
+        [TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit,
+          TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit + MESES_HISTORIAL,
+          limit + VENTANA_PRUEBA_MESES, limit, limit,
+          TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit],
       );
       return rows.map((r: Record<string, unknown>) => ({
         anio_mes: r['anio_mes'],
@@ -403,13 +882,17 @@ export class PurchaseBookService {
         // al encabezado del detalle (que también cuenta solo lo que entra al TXT).
         entran: Number(r['entran']),
         monto_entran: r2(r['monto_entran']),
+        sin_historial: Number(r['sin_historial'] ?? 0),
+        monto_sin_historial: r2(r['monto_sin_historial']),
         fuera_catalogo: Number(r['fuera_catalogo']),
         monto_fuera: r2(r['monto_fuera']),
         // Sin patas del libro, el mes entero está sin contabilizar (caso ago-2026).
         existe_libro: Number(r['patas_libro'] ?? 0) > 0,
         estado: (r['estado'] as string) ?? 'sin_iniciar',
         run_id: r['run_id'],
-        folio_poliza: r['folio_poliza'] ? Number(r['folio_poliza']) : FOLIO_COMPLEMENTO,
+        // LC.18: sin corrida, el folio que tendría — el 1 si ContPAQi no tiene libro del mes.
+        folio_poliza: r['folio_poliza'] ? Number(r['folio_poliza'])
+          : (Number(r['patas_libro'] ?? 0) > 0 ? FOLIO_COMPLEMENTO : FOLIO_LIBRO),
         run_facturas: r['run_facturas'] ? Number(r['run_facturas']) : null,
         total_cargos: r['total_cargos'] ? r2(r['total_cargos']) : null,
         generado_at: r['generado_at'], entregado_at: r['entregado_at'], aplicado_at: r['aplicado_at'],
@@ -466,11 +949,20 @@ export class PurchaseBookService {
    * DB-direct con `$1` tampoco, porque no pasa por el formateador de knex. Vivido acá el
    * 2026-09-02: la pantalla dio 500 en prod por un `-- ¿...?` de tres palabras.
    */
-  async getMes(anioMes: string, tipo: TipoCorrida = 'libro'): Promise<{ mes: string; tipo: TipoCorrida; run: Record<string, unknown> | null; facturas: FacturaMes[]; resumen: Record<string, number>; bloqueantes: string[]; avisos: string[] }> {
+  async getMes(anioMes: string, tipo: TipoCorrida = 'libro'): Promise<{ mes: string; tipo: TipoCorrida; run: Record<string, unknown> | null; facturas: FacturaMes[]; resumen: Record<string, number>; bloqueantes: string[]; avisos: string[]; cuentas_impuesto: CuentasImpuesto; frescura: Freshness }> {
     this.mesValido(anioMes);
     return this.tk.run(async (knex) => {
+      // [LC.18 · e2e] Sin `archivo_contenido`: son ~160 KB que la pantalla no usa, y bajarlos
+      // costaba 150 ms de cada apertura. Lo único que hace falta del archivo son dos banderas.
       const run = await knex('finance.purchase_book_runs')
-        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
+        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at')
+        // ⚠️ `as unknown as string`: `Array<string>.concat` no acepta un `Knex.Raw` aunque el
+        // `select` de Knex sí lo reciba en runtime. Misma forma y mismo motivo que
+        // `cash-cut.service.ts:1439`. Sin esto el build sale `TS2769` — medido en CI, no supuesto.
+        .first(COLUMNAS_RUN.map((c) => `finance.purchase_book_runs.${c}`).concat([
+          knex.raw('(archivo_contenido IS NOT NULL) AS tiene_archivo') as unknown as string,
+          knex.raw('coalesce(archivo_contenido ~ ?, false) AS archivo_legado', [REGEX_LINEA_LEGADA]) as unknown as string,
+        ]));
 
       // Un RFC puede tener más de una cuenta en el mapa; DISTINCT ON evita duplicar la
       // factura por el join. Se prefiere la cuenta que ya se usó en pólizas reales.
@@ -492,8 +984,29 @@ export class PurchaseBookService {
               AND anio_mes = ?
               AND (cuenta LIKE '501%' OR cuenta LIKE '502%') AND cargo_abono = 'C'
             GROUP BY 1
+         ), ${MAPA_PROVEEDORES_CTE}, hist AS (
+           -- LC.18: las cuentas de proveedor que entraron al libro (Diario folio 1) en los
+           -- meses ANTERIORES de la ventana. Sin historial, la factura no entra por default.
+           SELECT DISTINCT cuenta
+             FROM analytics.gl_poliza_lines
+            WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+              AND tipo_pol = ? AND folio = ? AND cuenta LIKE '212%' AND cargo_abono = 'A'
+              AND anio_mes >= ? AND anio_mes < ?
+         ), prueba AS (
+           -- LC.18.2: la puerta exacta, sobre una VENTANA de meses alrededor del mes. Unida a la
+           -- vista entera (v_purchase_book_uuid_prueba) se ordenaban los 15,121 UUID del
+           -- historico para cruzar ~600: ~75 % del tiempo de abrir el mes. El filtro de mes
+           -- baja a las dos ramas de v_purchase_book_uuids (que no deduplica), y el DISTINCT ON
+           -- con la misma prioridad se hace aca. Equivalencia medida: 0 diferencias en 77,712
+           -- CFDIs de 58 meses contra la vista; con ventana de 0 meses difieren 24 (control).
+           SELECT DISTINCT ON (u.cfdi_uuid) u.cfdi_uuid, u.source, u.anio_mes, u.referencia
+             FROM finance.v_purchase_book_uuids u
+            WHERE u.anio_mes >= ? AND u.anio_mes <= ?
+            ORDER BY u.cfdi_uuid, ${ORDEN_PRUEBA_SQL}, u.anio_mes
          )
          SELECT DISTINCT ON (upper(f.uuid))
+                (h.cuenta IS NOT NULL) AS en_libro_reciente, a.origen_mapa,
+                ${IEPS8_SQL} AS ieps8,
                 pu.source AS prueba_source, pu.referencia AS prueba_ref, pu.anio_mes AS prueba_mes,
                 upper(f.uuid) AS uuid, f.emisor_rfc, f.emisor_nombre, f.serie, f.folio,
                 -- ⚠️ SIN BACKTICKS ACÁ: este comentario va dentro de un template literal de JS
@@ -516,6 +1029,7 @@ export class PurchaseBookService {
                 coalesce(a.compra_exenta_existe, false) AS compra_exenta_existe,
                 coalesce(a.compra_iva_existe, false)    AS compra_iva_existe,
                 f.aso_contabilidad, coalesce(f.estatus_sat, 'desconocido') AS estatus_sat,
+                f.estatus_checked_at,
                 -- Defensa contra el doble registro mientras el TXT no lleve UUID. Hay DOS
                 -- formas de que una compra ya esté contabilizada, y hay que mirar las dos:
                 --
@@ -532,15 +1046,20 @@ export class PurchaseBookService {
                 (p.importe IS NOT NULL) AS por_abono_212,
                 i.incluida, i.motivo
            FROM fiscal.cfdis f
-           LEFT JOIN finance.gl_supplier_accounts a
-             ON a.tenant_id = f.tenant_id AND a.rfc = f.emisor_rfc AND a.deleted_at IS NULL
+           -- LC.18: el mapa unificado (libro + ContPAQi), una fila por RFC.
+           LEFT JOIN mapa a ON a.rfc = f.emisor_rfc
+           LEFT JOIN hist h ON h.cuenta = a.cuenta_proveedor
            LEFT JOIN finance.purchase_book_run_items i
              ON i.tenant_id = f.tenant_id AND i.run_id = ? AND i.cfdi_uuid = upper(f.uuid)
+            -- LC.17: lo que dejo registrado generar NO es una decision de una persona. Si
+            -- contara como tal, el default del mes quedaria congelado en lo de la primera
+            -- generacion aunque despues aparezca la poliza en ContPAQi.
+            AND i.origen <> 'generado'
            -- La tercera puerta, EXACTA por UUID. Unívoca por CFDI (la vista hace
            -- DISTINCT ON), así que este join no puede multiplicar filas. Y va SIN join de
            -- mes a propósito: el corte del libro es por captura, no por fecha del CFDI —
            -- una factura de marzo capturada en la hoja de abril sólo se ve así.
-           LEFT JOIN finance.v_purchase_book_uuid_prueba pu ON pu.cfdi_uuid = upper(f.uuid)
+           LEFT JOIN prueba pu ON pu.cfdi_uuid = upper(f.uuid)
            LEFT JOIN patas  p ON p.importe = round(f.total, 2)
            LEFT JOIN cargos g ON g.importe = round(
                  f.total
@@ -559,12 +1078,18 @@ export class PurchaseBookService {
             AND (? = 'libro' OR f.aso_contabilidad IS NOT TRUE)
           ORDER BY upper(f.uuid), a.usado_en_asiento DESC NULLS LAST, a.account_suffix`,
         [TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), anioMes, anioMes,
+          TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), this.mesMenos(anioMes, MESES_HISTORIAL), anioMes,
+          this.mesMenos(anioMes, VENTANA_PRUEBA_MESES), this.mesMenos(anioMes, -VENTANA_PRUEBA_MESES),
           run?.id ?? null, this.inicioDeMes(anioMes), this.inicioDelSiguiente(anioMes), tipo],
       );
 
       const facturas: FacturaMes[] = rows.map((r: Record<string, unknown>) => {
-        const total = r2(r['total']), iva = r2(r['iva']), ieps = r2(r['ieps']);
-        const subtotal16 = r2(r['subtotal16']);
+        const total = r2(r['total']), iva = r2(r['iva']), iepsTotal = r2(r['ieps']);
+        // [LC.18] Lo que se acredita es el IEPS al 8 %; el resto queda en el costo, como en el
+        // libro manual. El reparto 501/502 es el de la contadora (`repartirFactura`).
+        const ieps = r2(r['ieps8']);
+        const { subtotal16, base_exenta: baseExenta } = repartirFactura(total, iva, ieps);
+        const enLibroReciente = r['en_libro_reciente'] === true;
         const conCuenta = r['cuenta_existe'] === true;
         const yaEnPoliza = r['ya_en_poliza'] === true;
         const estatusSat = String(r['estatus_sat'] ?? 'desconocido');
@@ -597,7 +1122,10 @@ export class PurchaseBookService {
         // Entra si su proveedor está en el catálogo de compras, no está ya posteada (si no
         // la duplicamos) y no es un CFDI que el SAT dio de baja. El anti-duplicado aplica en
         // los dos modos: en `libro` el riesgo es MAYOR, porque abarca el mes entero.
-        const porDefault = conCuenta && !yaEnPoliza && !cancelado;
+        // [LC.18] Y en `complemento` el proveedor tiene que haber entrado al libro en los
+        // últimos meses: lo que no, queda para que una persona lo revise (ver en_libro_reciente).
+        const sinHistorial = tipo === 'complemento' && !enLibroReciente;
+        const porDefault = conCuenta && !yaEnPoliza && !cancelado && !sinHistorial;
         return {
           uuid: String(r['uuid']),
           emisor_rfc: String(r['emisor_rfc'] ?? ''),
@@ -606,8 +1134,13 @@ export class PurchaseBookService {
           folio: (r['folio'] as string) ?? null,
           fecha: String(r['fecha']).slice(0, 10),
           total, iva, ieps, subtotal16,
-          base_exenta: r2(total - iva - ieps - subtotal16),
+          base_exenta: baseExenta,
+          ieps_total: iepsTotal,
+          ieps_no_acreditable: r2(iepsTotal - ieps),
           ieps_por_cuota: r['ieps_por_cuota'] === true,
+          en_libro_reciente: enLibroReciente,
+          origen_mapa: (r['origen_mapa'] as FacturaMes['origen_mapa']) ?? null,
+          cuenta_sugerida: null,
           account_suffix: (r['account_suffix'] as string) ?? null,
           supplier_name: (r['supplier_name'] as string) ?? null,
           cuenta_proveedor: (r['cuenta_proveedor'] as string) ?? null,
@@ -619,20 +1152,35 @@ export class PurchaseBookService {
           // La decisión guardada manda; si no hay, el default del modo. En `complemento` el
           // default es además el criterio que LC.2 buscaba y no encontraba en el CFDI: lo
           // que falta por contabilizar es lo que ContPAQi mismo dice que no está asociado.
-          incluida: r['incluida'] === null || r['incluida'] === undefined
-            ? porDefault
-            : r['incluida'] === true,
+          // [LC.18 · e2e] La prueba EXACTA gana también sobre la decisión guardada: una factura
+          // marcada a mano que ya se entregó (mismo folio fiscal) seguía contando como «entra»
+          // y el chip decía «Entran al TXT 1» con el mes ya entregado.
+          incluida: certeza === 'exacta'
+            ? false
+            : r['incluida'] === null || r['incluida'] === undefined
+              ? porDefault
+              : r['incluida'] === true,
           motivo_exclusion: (r['motivo'] as string)
             ?? (cancelado ? 'CFDI cancelado en el SAT' : null)
-            ?? detalle,
+            ?? detalle
+            ?? (conCuenta && sinHistorial
+              ? `el proveedor no entró al libro en los últimos ${MESES_HISTORIAL} meses: revísala y márcala si va`
+              : null),
           prueba_en_libro: prueba, prueba_certeza: certeza, prueba_detalle: detalle,
           estatus_sat: estatusSat,
+          estatus_verificado_at: r['estatus_checked_at'] ? new Date(r['estatus_checked_at'] as string).toISOString() : null,
           aso_contabilidad: r['aso_contabilidad'] === null || r['aso_contabilidad'] === undefined
             ? null
             : r['aso_contabilidad'] === true,
           ya_en_poliza: yaEnPoliza,
         };
       });
+
+      // [LC.18 · e2e] Para las facturas sin cuenta: ¿hay una 212 de ContPAQi, libre, cuyo nombre
+      // sea el del emisor? Medido en oct-2026: 262 «sin cuenta», casi todas de GASTO (gasolineras,
+      // inmobiliarias), y TODAS ofrecían «Asignar cuenta». Con esto la pantalla sólo destaca la
+      // acción donde hay una candidata real; el resto se lee como lo que es.
+      if (tipo === 'complemento') await this.sugerirCuentasDelMes(knex, facturas);
 
       const dentro = facturas.filter((f) => f.incluida);
       const resumen = {
@@ -645,6 +1193,8 @@ export class PurchaseBookService {
         iva: r2(dentro.reduce((a, f) => a + f.iva, 0)),
         ieps: r2(dentro.reduce((a, f) => a + f.ieps, 0)),
         total_todas: r2(facturas.reduce((a, f) => a + f.total, 0)),
+        // [LC.19.1] Las marcadas que no constan vigentes: es lo que «Verificar en el SAT» resuelve.
+        sin_verificar_sat: dentro.filter((f) => !estaVigente(f) && f.estatus_sat !== 'cancelado').length,
         // Los tres números del sub-módulo: cuántas no están asociadas, cuántas de esas ya
         // se postearon (y por eso NO van), y cuántas faltan de verdad.
         no_asociadas: facturas.filter((f) => f.aso_contabilidad !== true).length,
@@ -676,19 +1226,30 @@ export class PurchaseBookService {
       if (sinCta502.length) bloqueantes.push(`${sinCta502.length} factura(s) con base gravada pero sin cuenta de compras c/IVA en ContPAQi`);
       if (sinCta501.length) bloqueantes.push(`${sinCta501.length} factura(s) con base exenta pero sin cuenta de compras al 0% en ContPAQi`);
       if (negativas.length) bloqueantes.push(`${negativas.length} factura(s) con base exenta negativa — revisar descuentos`);
-      if (cuota.length) avisos.push(`${cuota.length} factura(s) con IEPS por cuota: el Excel las capturaba en cero`);
-
-      // Declarar la ignorancia en vez de esconderla. El ADD trae `CancelStatus` vacío en
-      // casi todo (167,053 de 167,135 CFDIs), así que "no cancelado" acá significa "no nos
-      // consta", no "vigente". Lo que se pierde si una resultó cancelada es el
-      // acreditamiento de IVA+IEPS, no la compra — por eso el monto que se declara es ése.
-      const sinVerificar = dentro.filter((f) => f.estatus_sat === 'desconocido');
-      if (sinVerificar.length) {
-        const pct = Math.round((sinVerificar.length / Math.max(dentro.length, 1)) * 100);
-        const enRiesgo = r2(sinVerificar.reduce((a, f) => a + f.iva + f.ieps, 0));
+      // [LC.18] Lo que el libro NO acredita se declara con su monto: es una decisión contable
+      // que hoy se toma por omisión, y así queda a la vista de quien la quiera revisar.
+      const noAcred = dentro.filter((f) => f.ieps_no_acreditable > 0.004);
+      if (noAcred.length) {
+        const monto = r2(noAcred.reduce((a, f) => a + f.ieps_no_acreditable, 0));
         avisos.push(
-          `${sinVerificar.length} de ${dentro.length} facturas (${pct}%) sin estatus verificado contra el SAT: `
-          + `no se valida cancelación. Acreditan ${enRiesgo.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} de IVA e IEPS.`,
+          `${noAcred.length} factura(s) con IEPS que no es al 8 % (cuota o 26.5 %): `
+          + `${monto.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} quedan en el costo y no se acreditan, igual que en el libro manual`,
+        );
+      } else if (cuota.length) {
+        avisos.push(`${cuota.length} factura(s) con IEPS por cuota`);
+      }
+
+      // [LC.19.1] Era un AVISO y pasa a BLOQUEANTE. "No cancelado" no significa "vigente": el
+      // 100 % de ago/sep/oct estaba sin verificar, así que el aviso salía siempre y no frenaba
+      // nada. Lo que se pierde si una resulta cancelada es el acreditamiento de IVA+IEPS, y por
+      // eso es el monto que se declara. La salida no es un override: es «Verificar en el SAT»,
+      // y lo que el SAT no encuentre se desmarca — no hay nada que un humano pueda juzgar ahí.
+      const sinVerificar = dentro.filter((f) => !estaVigente(f) && f.estatus_sat !== 'cancelado');
+      if (sinVerificar.length) {
+        const enRiesgo = r2(sinVerificar.reduce((a, f) => a + f.iva + f.ieps, 0));
+        bloqueantes.push(
+          `${sinVerificar.length} de ${dentro.length} facturas sin verificar ante el SAT (acreditan `
+          + `${enRiesgo.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} de IVA e IEPS): verifícalas antes de generar`,
         );
       }
 
@@ -701,9 +1262,34 @@ export class PurchaseBookService {
         if (sinDato.length) avisos.push(`${sinDato.length} factura(s) sin dato de asociación: corre el feed del ADD`);
         const fuera = facturas.filter((f) => !f.incluida && !f.ya_en_poliza && !f.motivo_exclusion);
         if (fuera.length) avisos.push(`${fuera.length} factura(s) no asociadas de proveedores fuera del catálogo de compras (gasto o servicio)`);
+        const sinHist = facturas.filter((f) => f.cuenta_existe && !f.ya_en_poliza && f.estatus_sat !== 'cancelado' && !f.en_libro_reciente);
+        if (sinHist.length) {
+          const monto = r2(sinHist.reduce((a, f) => a + f.total, 0));
+          avisos.push(
+            `${sinHist.length} factura(s) por ${monto.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} de proveedores que no entraron al libro `
+            + `en los últimos ${MESES_HISTORIAL} meses: no entran solas, revísalas en «Sin libro reciente»`,
+          );
+        }
       }
 
-      return { mes: anioMes, tipo, run: run ?? null, facturas, resumen, bloqueantes, avisos };
+      // [LC.19.2] De qué tan viejo es lo que estamos viendo. Las pólizas viejas BLOQUEAN: el
+      // anti-duplicado no vería lo que se posteó después y el TXT lo duplicaría. Los CFDIs viejos
+      // son aviso: lo que falte entra después en un complemento, no se duplica nada.
+      const frescura = await this.frescuraFuentes(knex);
+      const polizas = frescura.inputs.find((i) => i.key === 'polizas');
+      const cfdisF = frescura.inputs.find((i) => i.key === 'cfdis');
+      if (!polizas || polizas.status !== 'fresh') {
+        bloqueantes.push(polizas?.at
+          ? `las pólizas de ContPAQi no se leen desde hace ${polizas.age_human}: el anti-duplicado no vería lo posteado después`
+          : 'no se pudo medir cuándo se leyeron las pólizas de ContPAQi: sin eso el anti-duplicado no es confiable');
+      }
+      if (!cfdisF || cfdisF.status !== 'fresh') {
+        avisos.push(cfdisF?.at
+          ? `los CFDIs del ADD no se actualizan desde hace ${cfdisF.age_human}: pueden faltar facturas recientes`
+          : 'no se pudo medir cuándo se actualizaron los CFDIs del ADD');
+      }
+      const cuentasImpuesto = await this.cuentasImpuesto(knex, anioMes);
+      return { mes: anioMes, tipo, run: this.runParaPantalla(run), facturas, resumen, bloqueantes, avisos, cuentas_impuesto: cuentasImpuesto, frescura };
     });
   }
 
@@ -728,11 +1314,18 @@ export class PurchaseBookService {
         tenant_id: run.tenant_id, run_id: run.id, cfdi_uuid: String(u).toUpperCase(),
         incluida, motivo: incluida ? null : (motivo ?? null), origen: 'manual', created_by: userId,
       }));
+      // [LC.19.6] Si sólo cambia el MOTIVO (la factura ya estaba igual de dentro o de fuera), el
+      // archivo sigue correspondiendo: no se invalida. Antes, poner el porqué de una exclusión
+      // tiraba el TXT que el mes acababa de armar solo.
+      const previas = await knex('finance.purchase_book_run_items')
+        .where({ run_id: run.id }).whereIn('cfdi_uuid', filas.map((f) => f.cfdi_uuid)).select('cfdi_uuid', 'incluida');
+      const antes = new Map(previas.map((p: { cfdi_uuid: string; incluida: boolean }) => [p.cfdi_uuid, p.incluida]));
+      const soloMotivo = filas.every((f) => antes.has(f.cfdi_uuid) && antes.get(f.cfdi_uuid) === incluida);
       await knex('finance.purchase_book_run_items').insert(filas)
         .onConflict(['tenant_id', 'run_id', 'cfdi_uuid'])
         .merge(['incluida', 'motivo', 'origen']);
-      await this.invalidar(knex, run, userId);
-      return { ok: true, afectadas: filas.length };
+      if (!soloMotivo) await this.invalidar(knex, run, userId);
+      return { ok: true, afectadas: filas.length, archivo_invalidado: !soloMotivo };
     });
   }
 
@@ -750,6 +1343,38 @@ export class PurchaseBookService {
       estado: 'borrador', archivo_hash: null, archivo_contenido: null,
       updated_at: knex.fn.now(), updated_by: userId,
     });
+    // Lo que registró la generación describía ese archivo, que ya no existe.
+    await knex('finance.purchase_book_run_items').where({ run_id: run['id'], origen: ORIGEN_GENERADO }).del();
+  }
+
+  /**
+   * `[LC.17]` — La corrida como la ve la pantalla: sin el TXT (son ~77 KB que la pantalla no
+   * usa) y con lo que sí necesita saber de él, si se puede entregar y, si no, por qué.
+   */
+  private runParaPantalla(run: Record<string, unknown> | undefined | null): Record<string, unknown> | null {
+    if (!run) return null;
+    const { tiene_archivo: tiene, archivo_legado: legado, ...resto } = run;
+    const conArchivo = resto['estado'] === 'generado' || resto['estado'] === 'entregado' || resto['estado'] === 'aplicado';
+    const v = conArchivo ? vigenciaPorBanderas(tiene === true, legado === true) : { vigente: false, motivo: null };
+    return { ...resto, archivo_vigente: v.vigente, archivo_motivo: v.motivo };
+  }
+
+  /** `[LC.17]` — Agrega un renglón a `notas` sin borrar lo que ya había. */
+  private sumarNota(knex: Knex, nota: string): Knex.Raw {
+    return knex.raw(`concat_ws(chr(10), nullif(notas, ''), ?::text)`, [nota]);
+  }
+
+  /** `[LC.17]` — ¿ContPAQi ya tiene ese folio del Diario en el mes? (la misma guarda de generar) */
+  private async folioOcupado(knex: Knex, anioMes: string, folio: number): Promise<{ patas: number; cargos: number } | null> {
+    const { rows } = await knex.raw(
+      `SELECT coalesce(num_lines, 0) AS patas, round(coalesce(cargos, 0), 2) AS cargos
+         FROM analytics.gl_polizas
+        WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+          AND tipo_pol = ? AND folio = ? AND anio_mes = ?
+        LIMIT 1`,
+      [TIPO_POLIZA_DIARIO, String(folio), anioMes],
+    );
+    return rows.length ? { patas: Number(rows[0].patas), cargos: Number(rows[0].cargos) } : null;
   }
 
   /**
@@ -802,7 +1427,15 @@ export class PurchaseBookService {
       const patch: Record<string, unknown> = { updated_at: knex.fn.now(), updated_by: userId };
       if (folio !== null) patch['folio_poliza'] = folio;
       if (concepto !== null) patch['concepto'] = concepto;
-      await knex('finance.purchase_book_runs').where({ id: run.id }).update(patch);
+      try {
+        await knex.transaction((sp: Knex.Transaction) => sp('finance.purchase_book_runs').where({ id: run.id }).update(patch));
+      } catch (e) {
+        // [LC.18 · B6] Otra corrida nuestra del mismo mes ya usa ese folio: era un 500.
+        if ((e as { code?: string })?.code === '23505') {
+          throw new BadRequestException(`otra corrida de ${anioMes} ya usa el folio ${folio}. Elige otro.`);
+        }
+        throw e;
+      }
       // Cambió la carátula: el archivo firmado ya no corresponde.
       await this.invalidar(knex, run, userId);
       return {
@@ -813,23 +1446,268 @@ export class PurchaseBookService {
     });
   }
 
+  // ── Proveedor nuevo: su cuenta 212 ────────────────────────────────────────────────────
+  /**
+   * `[LC.18]` — Para un RFC que no está en el mapa: las cuentas de proveedor de ContPAQi que
+   * pueden ser la suya, con la razón de cada una.
+   *
+   * Existe porque cada mes entran proveedores nuevos (en jul/ago/sep-2026: 2, 5 y 4 facturas
+   * de cuentas creadas después de sembrar el mapa) y sin esto la contadora no tiene cómo
+   * decirle al módulo cuál es la cuenta. **Sugiere, no decide**: la cuenta la confirma una
+   * persona en `asignarCuenta` — el nombre solo no alcanza para asentar (`[CP.8.20]`: «PASCUAL»
+   * casaba con una persona física distinta).
+   */
+  async sugerirCuenta(rfc: string): Promise<SugerenciasCuenta> {
+    const r = this.rfcValido(rfc);
+    return this.tk.run(async (knex) => {
+      const { rows: em } = await knex.raw(
+        `SELECT emisor_nombre FROM fiscal.cfdis
+          WHERE tenant_id = current_tenant_id() AND rol = 'recibidas' AND upper(emisor_rfc) = ?
+          ORDER BY fecha DESC LIMIT 1`, [r]);
+      const nombre = String(em[0]?.emisor_nombre ?? '');
+      const { rows } = await knex.raw(
+        `WITH cands AS (
+           SELECT s.cuenta, s.cuenta_nombre AS nombre,
+                  (upper(coalesce(s.rfc, '')) = ? OR upper(coalesce(s.rfc_por_uuid, '')) = ?) AS por_uuid,
+                  (upper(coalesce(s.rfc_por_nombre, '')) = ?) AS por_nombre_contpaqi
+             FROM contpaqi.supplier_accounts s
+            WHERE s.tenant_id = current_tenant_id() AND s.cuenta LIKE '212%'
+           UNION ALL
+           SELECT ca.codigo, ca.nombre, false, false
+             FROM analytics.contpaqi_accounts ca
+            WHERE ca.tenant_id = current_tenant_id() AND ca.codigo LIKE '212%'
+           UNION ALL
+           SELECT DISTINCT gl.cuenta, gl.cuenta_nombre, false, false
+             FROM analytics.gl_poliza_lines gl
+            WHERE gl.tenant_id = current_tenant_id() AND gl.source = 'contpaqi' AND gl.cuenta LIKE '212%'
+              AND gl.anio_mes >= to_char(now() - interval '6 months', 'YYYY-MM')
+         )
+         SELECT c.cuenta, max(c.nombre) AS nombre, bool_or(c.por_uuid) AS por_uuid,
+                bool_or(c.por_nombre_contpaqi) AS por_nombre_contpaqi,
+                max(a.rfc) AS asignada_a
+           FROM cands c
+           LEFT JOIN finance.gl_supplier_accounts a
+             ON a.tenant_id = current_tenant_id() AND a.deleted_at IS NULL AND a.account_suffix = substr(c.cuenta, 4)
+          WHERE length(c.cuenta) = 10
+          GROUP BY c.cuenta`,
+        [r, r, r]);
+      const parecido = (s: string) => parecidoNombre(nombre, s);
+      const candidatas = rows
+        .map((c: Record<string, unknown>) => {
+          const score = r2(parecido(String(c['nombre'] ?? '')));
+          const porUuid = c['por_uuid'] === true;
+          const porNombre = c['por_nombre_contpaqi'] === true;
+          const asignadaA = c['asignada_a'] ? String(c['asignada_a']) : null;
+          return {
+            cuenta: String(c['cuenta']).trim(),
+            nombre: String(c['nombre'] ?? ''),
+            parecido: score,
+            razon: porUuid ? 'ContPAQi le asoció un CFDI de este RFC'
+              : porNombre ? 'ContPAQi la relaciona con este RFC por el nombre'
+                : `el nombre se parece (${Math.round(score * 100)} %)`,
+            asignada_a: asignadaA && asignadaA.toUpperCase() !== r ? asignadaA : null,
+            fuerte: porUuid,
+          };
+        })
+        .filter((c: { fuerte: boolean; parecido: number; razon: string }) => c.fuerte || c.razon.startsWith('ContPAQi') || c.parecido >= PARECIDO_MINIMO)
+        .sort((a: { fuerte: boolean; parecido: number }, b: { fuerte: boolean; parecido: number }) =>
+          Number(b.fuerte) - Number(a.fuerte) || b.parecido - a.parecido)
+        .slice(0, 6);
+      return { rfc: r, nombre, candidatas };
+    });
+  }
+
+  /**
+   * `[LC.18]` — Asienta la cuenta 212 de un RFC (y con ella sus 501/502) en el mapa del libro.
+   *
+   * Frenos, todos ANTES de escribir:
+   *  · la cuenta tiene que **existir en ContPAQi** (catálogo o ya usada en una póliza): un TXT
+   *    que cita una cuenta inexistente se rechaza entero al importarlo;
+   *  · un RFC tiene UNA cuenta en el mapa: si ya tiene otra, se dice cuál y no se pisa;
+   *  · una cuenta es de UN proveedor: si ya es de otro RFC, no se reasigna en silencio.
+   * Si la cuenta ya estaba en el mapa SIN RFC (los 24 del catálogo original), se le pone.
+   */
+  async asignarCuenta(rfc: string, cuenta: string, origen: 'manual' | 'auto' = 'manual'): Promise<{ ok: true; rfc: string; cuenta_proveedor: string; cuenta_compra_exenta: string; cuenta_compra_iva: string; compra_exenta_existe: boolean; compra_iva_existe: boolean; accion: 'alta' | 'rfc_puesto' }> {
+    const r = this.rfcValido(rfc);
+    const c = String(cuenta ?? '').trim();
+    if (!/^212\d{7}$/.test(c)) throw new BadRequestException('la cuenta de proveedor es de 10 dígitos y empieza con 212');
+    const suf = c.slice(3);
+    const userId = this.ctx.get()?.userId ?? null;
+    return this.tk.run(async (knex) => {
+      const existe = async (codigo: string) => {
+        const { rows } = await knex.raw(
+          `SELECT (EXISTS (SELECT 1 FROM analytics.contpaqi_accounts WHERE tenant_id = current_tenant_id() AND codigo = ?)
+                OR EXISTS (SELECT 1 FROM analytics.gl_poliza_lines WHERE tenant_id = current_tenant_id() AND source = 'contpaqi' AND cuenta = ?)) AS ok,
+                  (SELECT nombre FROM analytics.contpaqi_accounts WHERE tenant_id = current_tenant_id() AND codigo = ? LIMIT 1) AS nombre`,
+          [codigo, codigo, codigo]);
+        return { ok: rows[0]?.ok === true, nombre: (rows[0]?.nombre as string | null) ?? null };
+      };
+      const p = await existe(c);
+      if (!p.ok) {
+        throw new BadRequestException(
+          `la cuenta ${c} no existe en ContPAQi (o todavía no aparece en ninguna póliza ni en el catálogo). Dala de alta en ContPAQi y vuelve a intentar.`,
+        );
+      }
+      const delRfc = await knex('finance.gl_supplier_accounts')
+        .whereRaw('upper(rfc) = ?', [r]).whereNull('deleted_at').first();
+      if (delRfc && delRfc.account_suffix !== suf) {
+        throw new BadRequestException(`el RFC ${r} ya tiene la cuenta ${delRfc.cuenta_proveedor} en el libro; no se cambia desde aquí.`);
+      }
+      const e501 = await existe(`501${suf}`);
+      const e502 = await existe(`502${suf}`);
+      const deCuenta = await knex('finance.gl_supplier_accounts')
+        .where({ account_suffix: suf }).whereNull('deleted_at').first();
+      if (deCuenta && deCuenta.rfc && String(deCuenta.rfc).toUpperCase() !== r) {
+        throw new BadRequestException(`la cuenta ${c} ya es del RFC ${deCuenta.rfc} (${deCuenta.supplier_name}).`);
+      }
+      const flags = {
+        proveedor_existe: true, compra_exenta_existe: e501.ok, compra_iva_existe: e502.ok,
+        verificado_at: knex.fn.now(), updated_at: knex.fn.now(), updated_by: userId,
+      };
+      let accion: 'alta' | 'rfc_puesto';
+      if (deCuenta) {
+        await knex('finance.gl_supplier_accounts').where({ id: deCuenta.id }).update({ ...flags, rfc: r });
+        accion = 'rfc_puesto';
+      } else {
+        const { rows: em } = await knex.raw(
+          `SELECT emisor_nombre FROM fiscal.cfdis WHERE tenant_id = current_tenant_id() AND rol = 'recibidas'
+              AND upper(emisor_rfc) = ? ORDER BY fecha DESC LIMIT 1`, [r]);
+        await knex('finance.gl_supplier_accounts').insert({
+          tenant_id: knex.raw('current_tenant_id()'),
+          supplier_name: p.nombre || String(em[0]?.emisor_nombre ?? r),
+          rfc: r, account_suffix: suf, cuenta_proveedor: c,
+          cuenta_compra_exenta: `501${suf}`, cuenta_compra_iva: `502${suf}`,
+          // [LC.19.6] La automática se rotula aparte: si alguna sale mal, se encuentran todas.
+          source: origen === 'auto' ? 'auto_lc' : 'manual_lc',
+          notas: origen === 'auto'
+            ? 'LC.19.6: asignada sola (nombre idéntico, candidata única y libre)'
+            : 'LC.18: asignada desde Movimientos no asociados',
+          created_by: userId, ...flags,
+        });
+        accion = 'alta';
+      }
+      this.logger.log(`Cuenta ${c} asignada a ${r} (${accion}, ${origen})`);
+      // La cuenta dejó de estar libre: que no se siga sugiriendo a otro emisor.
+      this.candidatasCache.clear();
+      return {
+        ok: true as const, rfc: r, cuenta_proveedor: c,
+        cuenta_compra_exenta: `501${suf}`, cuenta_compra_iva: `502${suf}`,
+        compra_exenta_existe: e501.ok, compra_iva_existe: e502.ok, accion,
+      };
+    });
+  }
+
+  /**
+   * `[LC.18 · e2e]` Una consulta para todo el mes: las cuentas 212 que no son de nadie en el
+   * mapa, y la mejor por nombre para cada emisor sin cuenta. Pone `cuenta_sugerida` en sitio.
+   */
+  private async sugerirCuentasDelMes(knex: Knex, facturas: FacturaMes[]): Promise<void> {
+    const sinCuenta = facturas.filter((f) => !f.account_suffix);
+    if (!sinCuenta.length) return;
+    const cands = await this.cuentasCandidatas(knex);
+    const porNombre = new Map<string, FacturaMes['cuenta_sugerida']>();
+    for (const f of sinCuenta) {
+      if (!porNombre.has(f.emisor_nombre)) {
+        const propios = tokensNombre(f.emisor_nombre);
+        let mejor: FacturaMes['cuenta_sugerida'] = null;
+        for (const c of cands) {
+          const p = parecidoTokens(propios, c.tokens);
+          if (p >= PARECIDO_FILA && (!mejor || p > mejor.parecido)) mejor = { cuenta: c.cuenta, nombre: c.nombre, parecido: r2(p) };
+        }
+        porNombre.set(f.emisor_nombre, mejor);
+      }
+      f.cuenta_sugerida = porNombre.get(f.emisor_nombre) ?? null;
+    }
+  }
+
+  /**
+   * Las 212 libres (de nadie en el mapa), con sus tokens. Cambian cuando se da de alta una cuenta
+   * en ContPAQi o se asigna una aquí — no a cada clic: se guardan unos minutos por tenant
+   * (medido: 70–90 ms de los ~500 de abrir el mes) y `asignarCuenta` las invalida.
+   */
+  private candidatasCache = new Map<string, { at: number; cands: { cuenta: string; nombre: string; tokens: Set<string> }[] }>();
+
+  private async cuentasCandidatas(knex: Knex): Promise<{ cuenta: string; nombre: string; tokens: Set<string> }[]> {
+    const tenant = this.ctx.get()?.tenantId ?? '';
+    const hit = tenant ? this.candidatasCache.get(tenant) : undefined;
+    if (hit && Date.now() - hit.at < CANDIDATAS_TTL_MS) return hit.cands;
+    const { rows } = await knex.raw(
+      `WITH cands AS (
+         SELECT ca.codigo AS cuenta, ca.nombre
+           FROM analytics.contpaqi_accounts ca
+          WHERE ca.tenant_id = current_tenant_id() AND ca.codigo LIKE '212%'
+         UNION
+         SELECT DISTINCT gl.cuenta, gl.cuenta_nombre
+           FROM analytics.gl_poliza_lines gl
+          WHERE gl.tenant_id = current_tenant_id() AND gl.source = 'contpaqi' AND gl.cuenta LIKE '212%'
+            AND gl.anio_mes >= to_char(now() - interval '6 months', 'YYYY-MM')
+       )
+       SELECT c.cuenta, max(c.nombre) AS nombre
+         FROM cands c
+        WHERE length(c.cuenta) = 10 AND c.cuenta <> '2120000000'
+          AND NOT EXISTS (SELECT 1 FROM finance.gl_supplier_accounts a
+                           WHERE a.tenant_id = current_tenant_id() AND a.deleted_at IS NULL
+                             AND a.rfc IS NOT NULL AND a.account_suffix = substr(c.cuenta, 4))
+        GROUP BY c.cuenta`,
+    );
+    // Tokens de cada cuenta UNA vez: el mes trae ~100 emisores sin cuenta contra ~1,000 cuentas.
+    const cands = rows.map((r: Record<string, unknown>) => {
+      const nombre = String(r['nombre'] ?? '');
+      return { cuenta: String(r['cuenta']).trim(), nombre, tokens: tokensNombre(nombre) };
+    });
+    if (tenant) this.candidatasCache.set(tenant, { at: Date.now(), cands });
+    return cands;
+  }
+
+  private rfcValido(rfc: string): string {
+    const r = String(rfc ?? '').trim().toUpperCase();
+    if (!/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test(r)) throw new BadRequestException('RFC inválido');
+    return r;
+  }
+
   private async ensureRun(knex: any, anioMes: string, tipo: TipoCorrida = 'libro') {
     const existente = await knex('finance.purchase_book_runs')
       .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
     if (existente) return existente;
-    const esComplemento = tipo === 'complemento';
-    const [creado] = await knex('finance.purchase_book_runs')
-      .insert({
-        tenant_id: knex.raw('current_tenant_id()'), anio_mes: anioMes, estado: 'borrador', tipo,
-        folio_poliza: esComplemento ? FOLIO_COMPLEMENTO : FOLIO_LIBRO,
-        fecha_poliza: this.finDeMes(anioMes).toISOString().slice(0, 10),
-        concepto: esComplemento
-          ? `COMPLEMENTO REGISTRO DE COMPRAS ${anioMes}`
-          : `REGISTRO DE COMPRAS DEL MES ${anioMes}`,
-        created_by: this.ctx.get()?.userId ?? null,
-      })
-      .returning('*');
-    return creado;
+    // [LC.18] Lo normal cada mes es que ContPAQi todavía NO tenga el libro: entonces lo no
+    // asociado ES el libro y entra como folio 1 con el concepto de siempre. Sólo si el folio 1
+    // ya existe es un complemento en el 2. Antes nacía siempre en 2 y había que acordarse de
+    // cambiar la carátula — el modo normal dependía de un paso manual.
+    // Una corrida `libro` vieja (la pantalla del libro completo crea una al marcar facturas)
+    // puede tener tomado el folio 1 aunque ContPAQi no: entonces va al 2 y se avisa en la carátula.
+    const folio1Nuestro = await knex('finance.purchase_book_runs')
+      .where({ anio_mes: anioMes, folio_poliza: FOLIO_LIBRO }).whereNull('deleted_at').first();
+    const libroLibre = tipo === 'complemento' && !folio1Nuestro
+      && !(await this.folioOcupado(knex, anioMes, FOLIO_LIBRO));
+    const esComplemento = tipo === 'complemento' && !libroLibre;
+    try {
+      // Savepoint: un 23505 aborta la transacción entera y la consulta de abajo fallaría.
+      const [creado] = await knex.transaction((sp) => sp('finance.purchase_book_runs')
+        .insert({
+          tenant_id: knex.raw('current_tenant_id()'), anio_mes: anioMes, estado: 'borrador', tipo,
+          folio_poliza: esComplemento ? FOLIO_COMPLEMENTO : FOLIO_LIBRO,
+          fecha_poliza: this.finDeMes(anioMes).toISOString().slice(0, 10),
+          concepto: esComplemento ? `COMPLEMENTO REGISTRO DE COMPRAS ${anioMes}` : conceptoLibro(anioMes),
+          // [LC.18 · e2e] El default de la columna es false, y la pantalla lo leía como la
+          // opción elegida: marcar una factura creaba la corrida y DESMARCABA «poner el UUID»
+          // sola al recargar. El TXT de oct-2026 salió así, sin UUID. El default del generador
+          // es con UUID (`opts.uuid !== false`); la corrida nace igual.
+          incluye_uuid: true,
+          created_by: this.ctx.get()?.userId ?? null,
+        })
+        .returning('*'));
+      return creado;
+    } catch (e) {
+      // [LC.18 · B6] Dos clics a la vez, o una corrida `libro` vieja en el mismo folio: el
+      // UNIQUE (tenant, mes, folio) responde 23505 y eso salía como 500.
+      if ((e as { code?: string })?.code !== '23505') throw e;
+      const otra = await knex('finance.purchase_book_runs')
+        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
+      if (otra) return otra;
+      throw new BadRequestException(
+        `${anioMes} ya tiene otra corrida en el folio ${esComplemento ? FOLIO_COMPLEMENTO : FOLIO_LIBRO}. Cambia el folio en la carátula.`,
+      );
+    }
   }
 
   // ── El archivo ────────────────────────────────────────────────────────────────────────
@@ -842,7 +1720,11 @@ export class PurchaseBookService {
    *    esa base incluye al IEPS y lo contaría dos veces;
    *  - ese subtotal va NETO de descuento, o la base exenta sale negativa.
    */
-  construirMovimientos(facturas: FacturaMes[], modo: ImpuestosModo, conUuid: boolean): Movimiento[] {
+  construirMovimientos(
+    facturas: FacturaMes[], modo: ImpuestosModo, conUuid: boolean,
+    /** `[LC.18]` Las del último libro (`cuentasImpuesto`); las fijas sólo si no hay ninguno. */
+    cuentas: { iva: string; ieps: string } = { iva: CTA_IVA, ieps: CTA_IEPS },
+  ): Movimiento[] {
     const movs: Movimiento[] = [];
     const ivaPorCuenta = new Map<string, number>();
     const iepsPorCuenta = new Map<string, number>();
@@ -861,7 +1743,10 @@ export class PurchaseBookService {
     };
 
     for (const f of [...facturas].sort((a, b) => (a.fecha < b.fecha ? -1 : 1))) {
-      const ref = String(f.folio ?? '').slice(0, 10);
+      // [LC.18] Los últimos 5 caracteres del folio, como el libro manual: medido en las 763
+      // facturas de jul/ago/sep-2026 (folio 361750 → 61750, 000806268 → 06268). Con el folio
+      // entero, ningún renglón de proveedor coincidía con lo que la contadora sube.
+      const ref = String(f.folio ?? '').trim().slice(-5);
       const concepto = conUuid ? f.uuid : '';
       const quien = `${f.emisor_nombre || f.emisor_rfc} folio ${f.folio ?? '(sin folio)'}`;
       if (f.base_exenta > 0.004) {
@@ -877,16 +1762,16 @@ export class PurchaseBookService {
 
     if (modo === 'por-cuenta') {
       for (const [suf, monto] of [...ivaPorCuenta].sort()) {
-        movs.push({ cuenta: CTA_IVA, referencia: suf, abono: false, importe: monto, concepto: 'IVA acreditable' });
+        movs.push({ cuenta: cuentas.iva, referencia: suf, abono: false, importe: monto, concepto: 'IVA acreditable' });
       }
       for (const [suf, monto] of [...iepsPorCuenta].sort()) {
-        movs.push({ cuenta: CTA_IEPS, referencia: suf, abono: false, importe: monto, concepto: 'IEPS acreditable' });
+        movs.push({ cuenta: cuentas.ieps, referencia: suf, abono: false, importe: monto, concepto: 'IEPS acreditable' });
       }
     } else {
       const iva = r2([...ivaPorCuenta.values()].reduce((a, b) => a + b, 0));
       const ieps = r2([...iepsPorCuenta.values()].reduce((a, b) => a + b, 0));
-      if (iva > 0.004) movs.push({ cuenta: CTA_IVA, referencia: '', abono: false, importe: iva, concepto: '' });
-      if (ieps > 0.004) movs.push({ cuenta: CTA_IEPS, referencia: '', abono: false, importe: ieps, concepto: '' });
+      if (iva > 0.004) movs.push({ cuenta: cuentas.iva, referencia: '', abono: false, importe: iva, concepto: '' });
+      if (ieps > 0.004) movs.push({ cuenta: cuentas.ieps, referencia: '', abono: false, importe: ieps, concepto: '' });
     }
     return movs;
   }
@@ -957,9 +1842,16 @@ export class PurchaseBookService {
         + 'Usa "Movimientos no asociados"; si el mes no tiene póliza, cámbiale el folio a 1 en la carátula.',
       );
     }
-    const { facturas, resumen, bloqueantes } = await this.getMes(anioMes, tipo);
+    const { facturas, resumen, bloqueantes, cuentas_impuesto: ctasImp, frescura } = await this.getMes(anioMes, tipo);
     const dentro = facturas.filter((f) => f.incluida);
     if (!dentro.length) throw new BadRequestException('no hay movimientos sin asociar por entregar en este mes');
+    // [LC.19.2] Con las pólizas sin leer, las cuatro puertas del anti-duplicado miran una foto vieja.
+    const fPolizas = frescura.inputs.find((i) => i.key === 'polizas');
+    if (!fPolizas || fPolizas.status !== 'fresh') {
+      throw new BadRequestException(fPolizas?.at
+        ? `las pólizas de ContPAQi no se leen desde hace ${fPolizas.age_human}: generar ahora podría duplicar lo que se posteó después. Revisa el feed de ContPAQi.`
+        : 'no se pudo medir cuándo se leyeron las pólizas de ContPAQi: sin eso el anti-duplicado no es confiable.');
+    }
 
     // Si alguna de las incluidas ya está posteada, el archivo duplicaría un asiento. No es
     // un aviso, es un bloqueo — el daño es irreversible del lado de ContPAQi y nadie lo
@@ -993,14 +1885,15 @@ export class PurchaseBookService {
       || (f.subtotal16 > 0.004 && (!f.cuenta_compra_iva || !f.compra_iva_existe))
       || (f.base_exenta > 0.004 && (!f.cuenta_compra_exenta || !f.compra_exenta_existe))
       || f.base_exenta < -0.004
-      || f.estatus_sat === 'cancelado');
+      // [LC.19.1] Sólo lo que consta vigente ante el SAT (antes: todo lo que no fuera `cancelado`).
+      || !estaVigente(f));
     if (rechazables.length) {
       throw new BadRequestException(
         `${rechazables.length} factura(s) no se pueden postear: ${bloqueantes.join(' · ')}. Resuélvelo o exclúyelas.`,
       );
     }
 
-    const movs = this.construirMovimientos(dentro, modo, conUuid);
+    const movs = this.construirMovimientos(dentro, modo, conUuid, { iva: ctasImp.iva.cuenta, ieps: ctasImp.ieps.cuenta });
     const cargos = r2(movs.filter((m) => !m.abono).reduce((a, m) => a + m.importe, 0));
     const abonos = r2(movs.filter((m) => m.abono).reduce((a, m) => a + m.importe, 0));
     if (Math.abs(r2(cargos - abonos)) >= 0.01) {
@@ -1010,22 +1903,24 @@ export class PurchaseBookService {
     return this.tk.run(async (knex) => {
       const run = await this.ensureRun(knex, anioMes, tipo);
       if (run.estado === 'aplicado') throw new BadRequestException('el mes ya está aplicado');
+      // `[LC.17]` `entregado` cuenta igual que `aplicado`, como en `setInclusion`: regenerar
+      // pisaba el archivo y la firma que ya salieron de nuestras manos, y lo entregado dejaba
+      // de tener evidencia. Si ContPAQi lo rechazó, se cancela la entrega y se genera otro.
+      if (run.estado === 'entregado') {
+        throw new BadRequestException(
+          `el archivo de ${anioMes} ya se entregó; no se puede regenerar encima. `
+          + 'Si ContPAQi lo rechazó, cancela la entrega y vuelve a generarlo.',
+        );
+      }
 
       // Se vuelve a mirar el folio acá y no sólo en `setCaratula`: entre editar la carátula
       // y generar pudo correr el feed y traerse una póliza nueva en ese folio. Es el último
       // momento en que se puede avisar antes de que el archivo salga.
-      const { rows: ocupado } = await knex.raw(
-        `SELECT coalesce(num_lines, 0) AS patas, round(coalesce(cargos, 0), 2) AS cargos
-           FROM analytics.gl_polizas
-          WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
-            AND tipo_pol = ? AND folio = ? AND anio_mes = ?
-          LIMIT 1`,
-        [TIPO_POLIZA_DIARIO, String(run.folio_poliza ?? FOLIO_COMPLEMENTO), anioMes],
-      );
-      if (ocupado.length) {
+      const ocupado = await this.folioOcupado(knex, anioMes, run.folio_poliza ?? FOLIO_COMPLEMENTO);
+      if (ocupado) {
         throw new BadRequestException(
           `ContPAQi ya tiene el folio ${run.folio_poliza} del Diario en ${anioMes} `
-          + `(${ocupado[0].patas} renglones por ${ocupado[0].cargos}). Cambia el folio de la carátula antes de generar.`,
+          + `(${ocupado.patas} renglones por ${ocupado.cargos}). Cambia el folio de la carátula antes de generar.`,
         );
       }
 
@@ -1044,9 +1939,11 @@ export class PurchaseBookService {
         : [];
       const txt = this.construirTxt(anioMes, run.folio_poliza ?? FOLIO_LIBRO, concepto, movs, asociados);
       const hash = createHash('sha256').update(txt, 'latin1').digest('hex');
-      const nombre = tipo === 'complemento'
-        ? `complemento-compras-${anioMes}.txt`
-        : `poliza-compras-${anioMes}.txt`;
+      // [LC.18 · e2e] El nombre lo decide el FOLIO, no el tipo de corrida: el libro del mes
+      // (folio 1) bajaba como «complemento-compras-2026-10.txt».
+      const nombre = Number(run.folio_poliza ?? FOLIO_LIBRO) === FOLIO_LIBRO
+        ? `poliza-compras-${anioMes}.txt`
+        : `complemento-compras-${anioMes}.txt`;
       const userId = this.ctx.get()?.userId ?? null;
 
       await knex('finance.purchase_book_runs').where({ id: run.id }).update({
@@ -1059,12 +1956,36 @@ export class PurchaseBookService {
         archivo_hash: hash, archivo_nombre: nombre, archivo_contenido: txt,
         impuestos_modo: modo, incluye_uuid: conUuid, asocia_cfdi: asocia,
         generado_at: knex.fn.now(), generado_by: userId,
+        // Una corrida cancelada que se vuelve a generar es otro archivo: lo de la entrega
+        // anterior no le pertenece.
+        entregado_at: null, entregado_by: null, entregado_a: null,
         updated_at: knex.fn.now(), updated_by: userId,
-        // Un override sin rastro es un override que nadie audita.
+        // Un override sin rastro es un override que nadie audita. Se SUMA a las notas: pisarlas
+        // borraba el motivo de un override anterior.
         ...(sospechosas.length && opts.motivo
-          ? { notas: `${sospechosas.length} factura(s) incluidas pese al cruce por importe. Motivo: ${opts.motivo.trim()}` }
+          ? { notas: this.sumarNota(knex, `${sospechosas.length} factura(s) incluidas pese al cruce por importe. Motivo: ${opts.motivo.trim()}`) }
           : {}),
       });
+
+      /**
+       * `[LC.17]` — Qué facturas lleva ESTE archivo, una fila por UUID.
+       *
+       * ⛔ Antes sólo existían las filas que alguien marcó a mano, así que las incluidas por
+       * default —casi todas— no dejaban rastro, y la puerta exacta "ya se entregó"
+       * (`v_purchase_book_uuids`, que lee estas filas) nunca las veía: un complemento entregado
+       * en folio 2 no lo atrapa la puerta (a), que mira el folio 1, y el mes volvía a ofrecer las
+       * mismas facturas. `origen = 'generado'` las distingue de una decisión (ver `getMes`) y
+       * no pisa la de una persona (`ignore`): una fila manual ya dice lo mismo o más.
+       */
+      await knex('finance.purchase_book_run_items').where({ run_id: run.id, origen: ORIGEN_GENERADO }).del();
+      const registradas = [...new Set(dentro.map((f) => String(f.uuid).toUpperCase()))].map((u) => ({
+        tenant_id: run.tenant_id, run_id: run.id, cfdi_uuid: u,
+        incluida: true, motivo: null, origen: ORIGEN_GENERADO, created_by: userId,
+      }));
+      if (registradas.length) {
+        await knex('finance.purchase_book_run_items').insert(registradas)
+          .onConflict(['tenant_id', 'run_id', 'cfdi_uuid']).ignore();
+      }
       this.logger.log(`Póliza ${tipo} ${anioMes}: ${dentro.length} facturas · ${movs.length} movimientos · ${cargos}`);
       return { anio_mes: anioMes, tipo, nombre, hash, folio: run.folio_poliza ?? FOLIO_LIBRO, facturas: dentro.length, renglones: movs.length + 1, cargos, abonos, txt };
     });
@@ -1085,11 +2006,17 @@ export class PurchaseBookService {
         .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
       // El estado se mira además del contenido: en `borrador` no hay archivo vigente aunque
       // haya quedado texto de una corrida anterior. Cinturón redundante con `invalidar()`.
-      if (!run || run.estado === 'borrador' || !run.archivo_contenido) {
+      // `cancelado` igual que `borrador`: `invalidar` sólo limpia corridas en `generado`, así
+      // que una cancelada conservaba su archivo y lo seguía sirviendo.
+      if (!run || run.estado === 'borrador' || run.estado === 'cancelado' || !run.archivo_contenido) {
         throw new NotFoundException(
           `${anioMes} no tiene archivo generado todavía. Genéralo primero.`,
         );
       }
+      // `[LC.17]` Servir un archivo que ContPAQi rechaza es peor que no servir nada: se descubre
+      // al importar, con la contadora enfrente. Pasaba con el complemento de 2026-07.
+      const vig = vigenciaArchivo(run.archivo_contenido as string);
+      if (!vig.vigente) throw new BadRequestException(`${anioMes}: ${vig.motivo}.`);
       const parsed = this.parsearTxt(run.archivo_contenido as string);
       return {
         anio_mes: anioMes,
@@ -1139,36 +2066,36 @@ export class PurchaseBookService {
 
       const { rows: facturas } = desdeArchivo
         ? await knex.raw(
-          `SELECT DISTINCT ON (upper(f.uuid))
+          `WITH ${MAPA_PROVEEDORES_CTE}
+           SELECT DISTINCT ON (upper(f.uuid))
                   upper(f.uuid) AS uuid, f.emisor_rfc, f.emisor_nombre, f.serie, f.folio,
                   to_char(f.fecha, 'YYYY-MM-DD') AS fecha, f.total,
                   coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)  AS iva,
                   coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0) AS ieps,
-                  coalesce((f.impuestos->>'subtotal_iva_16')::numeric, 0) AS subtotal16,
+                  ${IEPS8_SQL} AS ieps8,
                   a.account_suffix, a.supplier_name,
                   a.cuenta_proveedor, a.cuenta_compra_exenta, a.cuenta_compra_iva
              FROM fiscal.cfdis f
-             LEFT JOIN finance.gl_supplier_accounts a
-               ON a.tenant_id = f.tenant_id AND a.rfc = f.emisor_rfc AND a.deleted_at IS NULL
+             LEFT JOIN mapa a ON a.rfc = f.emisor_rfc
             WHERE f.tenant_id = current_tenant_id() AND upper(f.uuid) = ANY (?)
               AND f.rol = 'recibidas'   -- cinturon: el UUID ya acota, pero el rol es la regla
             ORDER BY upper(f.uuid), a.usado_en_asiento DESC NULLS LAST, a.account_suffix`,
           [uuids],
         )
         : await knex.raw(
-          `SELECT DISTINCT ON (upper(f.uuid))
+          `WITH ${MAPA_PROVEEDORES_CTE}
+           SELECT DISTINCT ON (upper(f.uuid))
                   upper(f.uuid) AS uuid, f.emisor_rfc, f.emisor_nombre, f.serie, f.folio,
                   to_char(f.fecha, 'YYYY-MM-DD') AS fecha, f.total,
                   coalesce((f.impuestos->>'iva_trasladado')::numeric, 0)  AS iva,
                   coalesce((f.impuestos->>'ieps_trasladado')::numeric, 0) AS ieps,
-                  coalesce((f.impuestos->>'subtotal_iva_16')::numeric, 0) AS subtotal16,
+                  ${IEPS8_SQL} AS ieps8,
                   a.account_suffix, a.supplier_name,
                   a.cuenta_proveedor, a.cuenta_compra_exenta, a.cuenta_compra_iva
              FROM finance.purchase_book_run_items i
              JOIN fiscal.cfdis f
                ON f.tenant_id = i.tenant_id AND upper(f.uuid) = i.cfdi_uuid
-             LEFT JOIN finance.gl_supplier_accounts a
-               ON a.tenant_id = f.tenant_id AND a.rfc = f.emisor_rfc AND a.deleted_at IS NULL
+             LEFT JOIN mapa a ON a.rfc = f.emisor_rfc
             WHERE i.tenant_id = current_tenant_id() AND i.run_id = ? AND i.incluida
               AND f.rol = 'recibidas'   -- cinturon: el run ya acota, pero el rol es la regla
             ORDER BY upper(f.uuid), a.usado_en_asiento DESC NULLS LAST, a.account_suffix`,
@@ -1190,14 +2117,15 @@ export class PurchaseBookService {
         total_abonos: Number(run.total_abonos ?? 0),
         movimientos,
         facturas: facturas.map((f: Record<string, unknown>): FacturaRespaldo => {
-          const total = r2(f['total']), iva = r2(f['iva']), ieps = r2(f['ieps']);
-          const subtotal16 = r2(f['subtotal16']);
+          // [LC.18] El mismo reparto que el generador: si difiere, el respaldo no cuadra con el TXT.
+          const total = r2(f['total']), iva = r2(f['iva']), ieps = r2(f['ieps8']);
+          const { subtotal16, base_exenta } = repartirFactura(total, iva, ieps);
           return {
             uuid: String(f['uuid']), emisor_rfc: String(f['emisor_rfc'] ?? ''),
             emisor_nombre: String(f['emisor_nombre'] ?? ''),
             serie: (f['serie'] as string) ?? null, folio: (f['folio'] as string) ?? null,
             fecha: String(f['fecha']).slice(0, 10),
-            base_exenta: r2(total - iva - ieps - subtotal16), subtotal16, ieps, iva, total,
+            base_exenta, subtotal16, ieps, iva, total,
             supplier_name: (f['supplier_name'] as string) ?? null,
             cuenta_proveedor: (f['cuenta_proveedor'] as string) ?? null,
             cuenta_compra_exenta: (f['cuenta_compra_exenta'] as string) ?? null,
@@ -1269,14 +2197,46 @@ export class PurchaseBookService {
       const run = await knex('finance.purchase_book_runs')
         .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
       if (!run) throw new NotFoundException(`no hay corrida ${tipo} para ${anioMes}`);
-      if (estado !== 'cancelado' && run.estado === 'borrador') {
-        throw new BadRequestException('genera el archivo antes de mover el trámite');
+      const actual = run.estado as EstadoRun;
+      // [LC.19.6] «entregado» deja de ser un paso obligado: generado → aplicado se permite, pero
+      // sólo con EVIDENCIA — que ContPAQi ya tenga ese folio del Diario en el mes. Sin ella sigue
+      // rechazándose: nadie puede decir «aplicado» de algo que ContPAQi no tiene.
+      const folioRun = Number(run.folio_poliza ?? FOLIO_COMPLEMENTO);
+      const conEvidencia = estado === 'aplicado' && actual === 'generado'
+        && !!(await this.folioOcupado(knex, anioMes, folioRun));
+      if (!conEvidencia && !(TRANSICIONES_RUN[actual] ?? []).includes(estado)) {
+        if (actual === 'borrador') throw new BadRequestException('genera el archivo antes de mover el trámite');
+        if (actual === 'aplicado') {
+          throw new BadRequestException(`el complemento de ${anioMes} ya está aplicado en ContPAQi; el trámite terminó.`);
+        }
+        if (actual === 'generado' && estado === 'aplicado') {
+          throw new BadRequestException(
+            `no se puede pasar de generado a aplicado: ContPAQi todavía no tiene el folio ${folioRun} del Diario en ${anioMes}.`);
+        }
+        throw new BadRequestException(`no se puede pasar de ${actual} a ${estado}`);
+      }
+      // No se entrega un archivo que ContPAQi va a rechazar, ni uno que no se guardó.
+      if (estado === 'entregado') {
+        const vig = vigenciaArchivo(run.archivo_contenido as string | null);
+        if (!vig.vigente) throw new BadRequestException(`no se puede marcar entregado: ${vig.motivo}.`);
+      }
+      // Cancelar una entrega devuelve sus facturas a "pendientes" (la puerta exacta deja de
+      // verlas). Si ContPAQi ya tiene la póliza en ese folio, lo que corresponde es aplicado.
+      if (estado === 'cancelado' && actual === 'entregado') {
+        const ocupado = await this.folioOcupado(knex, anioMes, run.folio_poliza ?? FOLIO_COMPLEMENTO);
+        if (ocupado) {
+          throw new BadRequestException(
+            `ContPAQi ya tiene el folio ${run.folio_poliza} del Diario en ${anioMes} `
+            + `(${ocupado.patas} renglones por ${ocupado.cargos}): márcalo aplicado, no cancelado.`,
+          );
+        }
       }
       const userId = this.ctx.get()?.userId ?? null;
       const patch: Record<string, unknown> = { estado, updated_at: knex.fn.now(), updated_by: userId };
       if (estado === 'entregado') { patch['entregado_at'] = knex.fn.now(); patch['entregado_by'] = userId; patch['entregado_a'] = datos.entregado_a ?? null; }
       if (estado === 'aplicado') { patch['aplicado_at'] = knex.fn.now(); patch['aplicado_by'] = userId; }
-      if (datos.notas) patch['notas'] = datos.notas;
+      // Se suma: pisarla borraba el motivo del override que `generar` dejó escrito.
+      if (datos.notas?.trim()) patch['notas'] = this.sumarNota(knex, datos.notas.trim());
       await knex('finance.purchase_book_runs').where({ id: run.id }).update(patch);
       return { ok: true, anio_mes: anioMes, estado };
     });

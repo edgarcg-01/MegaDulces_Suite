@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
@@ -196,6 +196,45 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
     }
   }
   ngOnDestroy(): void { this.caja.disconnect(); }
+
+  /**
+   * ⭐⭐ `[CG.196]` **AL DESBLOQUEAR EL TELÉFONO, SE VUELVE A RECLAMAR EL CÓDIGO.**
+   *
+   * Edgar: *«si se bloquea el teléfono se pierde»*. Eran tres defectos encadenados y éste es el
+   * último, el que rompía la firma aunque los otros dos estuvieran arreglados:
+   *
+   *   1. El servidor avisaba `firma:cortada` al caerse el TELÉFONO y la PC desarmaba el panel.
+   *   2. El código moría a los 3 minutos.
+   *   3. **Y éste:** `tomar()` se llamaba UNA sola vez, en `ngOnInit`. Al bloquearse la pantalla
+   *      el socket cae; `socket.io` reconecta solo, pero el socket nuevo **no reclamó nada**, así
+   *      que el servidor no le puso `firmaTel`. El lienzo se seguía viendo listo —`ctx()` sigue
+   *      en memoria— y al tocar Enviar el servidor respondía `no_es_suyo`: la persona firmaba
+   *      dos veces y la segunda tampoco llegaba.
+   *
+   * Por eso se re-reclama en silencio: ya había un código vivo y un contexto en pantalla, o sea
+   * que esto no es un intento nuevo, es el mismo. ⚠️ **Sólo si falla se dice algo** — un aviso en
+   * cada reconexión convertiría un wifi intermitente en una pantalla llena de ruido.
+   *
+   * ⛔ Y no se toca `ctx`: si el re-reclamo falla, lo que hay en pantalla sigue siendo lo que la
+   * persona vio, y borrarlo le quitaría el contexto de lo que está por firmar.
+   */
+  private readonly reengancharAlVolver = effect(() => {
+    const vivo = this.caja.connected();
+    const antes = this.estabaConectado;
+    this.estabaConectado = vivo;
+    if (!vivo || antes || !this.codigoVivo || !this.ctx()) return;
+    void this.reclamarDeNuevo();
+  });
+
+  private estabaConectado = false;
+
+  /** El mismo reclamo, sin ruido: no limpia el campo ni apaga el contexto. */
+  private async reclamarDeNuevo(): Promise<void> {
+    const r = await this.caja.tomarFirma(this.codigoVivo);
+    if (!r.ok) {
+      this.aviso.set('Se perdió la conexión y el código ya no sirve. Pide uno nuevo en la caja.');
+    }
+  }
 
   /** Si entró por QR con pase: cambia lo que se le dice cuando el canal no abre. */
   private porPase = false;

@@ -91,7 +91,7 @@ const STATUS_LABEL: Record<Status, string> = {
       <div class="pp-filters">
         <app-segmented [options]="filterOpts" [value]="filter()" (valueChange)="setFilter($event)" ariaLabel="Filtrar por estado" />
         <div class="pp-search"><p-iconfield>
-          <p-inputicon styleClass="pi pi-search" />
+          <p-inputicon class="pi pi-search" />
           <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" placeholder="Proveedor o código…" aria-label="Buscar proveedor" />
         </p-iconfield></div>
       </div>

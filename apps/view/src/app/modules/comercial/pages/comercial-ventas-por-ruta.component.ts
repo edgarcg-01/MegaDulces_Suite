@@ -184,11 +184,11 @@ const MES: Record<string, string> = {
             <p-select [options]="monthOpts()" [ngModel]="fMonthTo()" (ngModelChange)="fMonthTo.set($event)"
                       optionLabel="label" optionValue="value" placeholder="Mes hasta" [showClear]="true" appendTo="body" styleClass="rr-vf-mo" ariaLabel="Mes hasta" />
           </div>
-          <p-iconfield styleClass="rr-vf-search">
-            <p-inputicon styleClass="pi pi-search" />
+          <p-iconfield class="rr-vf-search">
+            <p-inputicon class="pi pi-search" />
             <input pInputText type="text" [ngModel]="fQuery()" (ngModelChange)="fQuery.set($event)"
                    placeholder="Buscar ruta o sucursal…" aria-label="Buscar ruta o sucursal" />
-            @if (fQuery()) { <p-inputicon styleClass="pi pi-times rr-vf-clear" (click)="fQuery.set('')" role="button" ariaLabel="Limpiar búsqueda" /> }
+            @if (fQuery()) { <p-inputicon class="pi pi-times rr-vf-clear" (click)="fQuery.set('')" role="button" ariaLabel="Limpiar búsqueda" /> }
           </p-iconfield>
           <div class="rr-vf-money" role="group" aria-label="Rango de venta">
             <p-inputnumber [ngModel]="fMinRevenue()" (ngModelChange)="fMinRevenue.set($event)" mode="currency" currency="MXN"
@@ -586,8 +586,8 @@ const MES: Record<string, string> = {
               } @else {
                 <!-- Lista paginada de tickets (server-side) -->
                 <div class="rr-tk-filters">
-                  <p-iconfield styleClass="rr-tk-search">
-                    <p-inputicon styleClass="pi pi-search" />
+                  <p-iconfield class="rr-tk-search">
+                    <p-inputicon class="pi pi-search" />
                     <input pInputText type="text" [ngModel]="tkQuery()" (ngModelChange)="tkQuery.set($event)"
                            (keyup.enter)="loadTickets(true)" placeholder="Folio o cliente…" aria-label="Buscar folio o cliente" />
                   </p-iconfield>

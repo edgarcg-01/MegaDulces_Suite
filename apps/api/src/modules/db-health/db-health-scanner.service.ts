@@ -3,7 +3,9 @@ import { Cron } from '@nestjs/schedule';
 import type { Knex } from 'knex';
 import { KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
 import { AlertsService } from '@megadulces/commercial';
-import { HEALTH_NOTIFIER_PORT, HealthNotifierPort, MAILER_PORT, MailerPort } from '@megadulces/contracts';
+// ⚠️ Los `*Port` son INTERFACES y van con `type`; los `*_PORT` son los tokens de inyección y van
+// sin él. Mezclarlos rompe el build: webpack busca un valor que en tiempo de ejecución no existe.
+import { HEALTH_NOTIFIER_PORT, type HealthNotifierPort, MAILER_PORT, type MailerPort } from '@megadulces/contracts';
 import { DbHealthService, SourceHealth } from './db-health.service';
 
 /**

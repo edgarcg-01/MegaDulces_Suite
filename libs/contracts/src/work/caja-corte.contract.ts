@@ -44,14 +44,21 @@
  *                   la respuesta HTTP. ⛔ **No se recalcula**: recalcular hoy daría el juicio de
  *                   HOY —con los movimientos de hoy— sobre un conteo de ayer, y nadie podría
  *                   distinguir ese número del que de verdad se reveló. Se declara y se ve.
+ * · `esperado_imposible`
+ *                 — ⭐⭐ `[CG.195]` el `esperado` salió **negativo**: el libro afirma que en el
+ *                   cajón debería haber MENOS que cero efectivo. Un cajón no debe dinero, así que
+ *                   la cuenta que produjo ese número cruzó mal una pierna y la diferencia contra
+ *                   él no mide un sobrante. Se declara, igual que `sin_base`.
  */
-export type VeredictoCorte = 'cuadra' | 'sobra' | 'falta' | 'sin_contar' | 'sin_base' | 'sin_medir';
+export type VeredictoCorte =
+  | 'cuadra' | 'sobra' | 'falta' | 'sin_contar' | 'sin_base' | 'sin_medir' | 'esperado_imposible';
 
 /**
  * Los veredictos en los que **no se puede afirmar si la caja cuadra**. Sirve para que la pantalla
  * no los pinte como un faltante ni como un cuadre: no son un resultado, son la ausencia de uno.
  */
-export const VEREDICTOS_SIN_RESPUESTA: readonly VeredictoCorte[] = ['sin_contar', 'sin_base', 'sin_medir'] as const;
+export const VEREDICTOS_SIN_RESPUESTA: readonly VeredictoCorte[] =
+  ['sin_contar', 'sin_base', 'sin_medir', 'esperado_imposible'] as const;
 
 /** ¿Este veredicto responde «¿cuadra?», o declara que no se puede saber? */
 export function veredictoConcluyente(v: VeredictoCorte | null | undefined): boolean {

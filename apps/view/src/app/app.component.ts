@@ -1,5 +1,5 @@
 import { Component, DestroyRef, OnInit, inject, signal, ChangeDetectionStrategy } from '@angular/core';
-import { RouterOutlet, Router, NavigationEnd } from '@angular/router';
+import { RouterOutlet, Router } from '@angular/router';
 import { DiagnosticsRecorderService } from './core/errors/diagnostics-recorder.service';
 import { SwUpdate, VersionReadyEvent, UnrecoverableStateEvent } from '@angular/service-worker';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -77,17 +77,35 @@ export class AppComponent implements OnInit {
    * sin cambiar de ruta: ahí la actualización nunca se aplicaba y el equipo se quedaba con
    * la versión vieja aunque el deploy hubiera salido hace horas.
    */
-  private static readonly UPDATE_NUDGE_MS = 60 * 1000;
-  /** Hay versión nueva lista y ya pasó el tiempo de gracia: se ofrece aplicarla. */
-  readonly updateReady = signal(false);
-
-  /** Aplica la versión nueva ahora. Es acción del usuario: nadie recarga bajo sus manos. */
-  applyUpdate(): void {
-    this.updateReady.set(false);
+  /**
+   * ⭐ `[SW.2]` **Aplica la versión nueva. Sólo se llama con la pestaña FUERA DE LA VISTA.**
+   *
+   * Antes esto colgaba de un botón («Hay una versión nueva · Actualizar») que salía después de
+   * cada despliegue. Edgar lo hizo quitar el 2026-10-20.
+   *
+   * ⛔ **Y no se podía quitar sin poner otra cosa.** Sin aviso ni auto-aplicación, la gente se
+   * queda en la versión vieja hasta que recargue por su cuenta — y después de un *hotfix*, que
+   * es justo cuando importa que todos tengan el código nuevo, nadie se enteraría.
+   *
+   * ⛔ **Tampoco se podía volver a recargar al navegar**: eso ya estuvo y era un defecto medido
+   * —recargaba encima de la navegación recién pedida, la pantalla alcanzaba a montar y lanzar
+   * sus peticiones, y se tiraba todo; desde la silla del usuario es indistinguible de un cuelgue.
+   *
+   * ⭐ Con la pestaña oculta no hay nada que interrumpir: nadie está mirando ni tecleando, y se
+   * vuelve a una app ya fresca. En una jornada normal pasa seguido (cambiar de pestaña,
+   * minimizar, bloquear la pantalla, cambiar de app en la tablet).
+   *
+   * ⚠️ **Lo que esto NO cubre, dicho:** quien deje la pestaña visible y encima durante horas
+   * sigue con la versión vieja. No se le interrumpe a propósito — era el pedido— y el sondeo de
+   * `UPDATE_POLL_MS` deja la nueva lista para el primer momento en que se oculte.
+   */
+  private applyUpdate(): void {
+    if (!this.updatePending) return;
     this.updatePending = false;
     this.swUpdate.activateUpdate()
       .then(() => document.location.reload())
-      .catch(() => { this.updatePending = true; this.updateReady.set(true); });
+      // Si falla la activación se queda pendiente: se reintenta la próxima vez que se oculte.
+      .catch(() => { this.updatePending = true; });
   }
 
   /** Lleva a contar el corte que toca y saca ese de la barra; si quedan otros, siguen. */
@@ -161,27 +179,22 @@ export class AppComponent implements OnInit {
         filter((evt): evt is VersionReadyEvent => evt.type === 'VERSION_READY'),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe(() => {
-        this.updatePending = true;
-        // Si en un minuto no navegó (pantalla de trabajo fija), se lo ofrecemos visible.
-        setTimeout(() => { if (this.updatePending) this.updateReady.set(true); }, AppComponent.UPDATE_NUDGE_MS);
-      });
+      .subscribe(() => { this.updatePending = true; });
 
-    this.router.events
-      .pipe(
-        filter((e): e is NavigationEnd => e instanceof NavigationEnd),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe(() => {
-        // Al navegar con una version nueva lista se OFRECE, no se aplica.
-        // Antes hacia activateUpdate() + location.reload() aca mismo: recargaba encima de
-        // la navegacion que el usuario acababa de pedir. La pantalla alcanzaba a montar y
-        // a lanzar sus peticiones, y se tiraba todo a la basura — desde la silla del
-        // usuario es indistinguible de un cuelgue, y pasa justo despues de cada deploy.
-        // El aviso ya existe y recarga con un clic (applyUpdate); esto solo lo adelanta
-        // en vez de esperar el minuto de gracia.
-        if (this.updatePending) this.updateReady.set(true);
-      });
+    /**
+     * ⭐ `[SW.2]` **El único disparador: la pestaña deja de estar a la vista.**
+     *
+     * Acá colgaban dos cosas que se retiraron con el botón: un `setTimeout` de un minuto que
+     * lo sacaba a pantalla, y un suscriptor de `NavigationEnd` que lo adelantaba al navegar.
+     * Los dos existían para ELEGIR EL MOMENTO de molestar; sin botón no hay momento que elegir.
+     *
+     * ⚠️ `visibilitychange` y no `blur`: `blur` se dispara también al pasar a otra ventana con
+     * la pestaña todavía visible al lado —y recargarle la pantalla a alguien que la está
+     * mirando es exactamente lo que esto evita.
+     */
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this.applyUpdate();
+    });
 
     // unrecoverable: el SW entró en estado roto (raro pero pasa en iOS
     // Safari cuando se evicta el cache mid-fetch). Single fix: reload.

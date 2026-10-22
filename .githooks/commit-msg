@@ -1,0 +1,15 @@
+#!/bin/sh
+#
+# `[CAMBIOS.1]` Todo commit lleva el código de su tarjeta en el título (regla de Edgar, 2026-10-21).
+# Frena ANTES de que el commit exista: así nunca hace falta reescribir uno (--amend/rebase están
+# prohibidos en el checkout compartido). Lógica y prueba negativa en `scripts/check-commit-codigo.js`.
+# Se activa con `npm run hooks:install` (core.hooksPath = .githooks), como el resto.
+#
+# ⚠️ Sin Node no frena: avisa y deja pasar (misma política que pre-push).
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "⚠️  commit-msg: no encontré node en el PATH. Se deja pasar." >&2
+  exit 0
+fi
+
+exec node "$(git rev-parse --show-toplevel)/scripts/check-commit-codigo.js" --mensaje "$1"

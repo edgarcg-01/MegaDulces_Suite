@@ -6,6 +6,7 @@ import {
   type CandidatoContpaqi, type ExportPendiente, type ResultadoCuadre,
 } from './cuadre.engine';
 import { PREFIJO } from './token';
+import { AlcanceTenant } from './alcance-tenant';
 
 /**
  * Fase CP `[CP.8.10]` — **El servicio del cuadre: la I/O alrededor del motor.**
@@ -35,7 +36,23 @@ export const JOB_KEY = 'contpaqi_cuadre';
 export class ContpaqiCuadreService {
   private readonly log = new Logger(ContpaqiCuadreService.name);
 
-  constructor(@Inject('KNEX_NEW_DB') private readonly db: Knex) {}
+  constructor(@Inject('KNEX_NEW_DB') private readonly pool: Knex) {}
+
+  /**
+   * ⛔⛔ `[CP.8.58]` — `poliza_exports` tiene RLS forzado y este servicio corre por `@Cron`, sin
+   * request y como `app_runtime` (sin tenant por default). Sin fijarlo, el cuadre juzgaba **cero
+   * entregas para siempre** y latía `ok` — «sin eventos pendientes» —, indistinguible de que no
+   * hubiera nada. Ver `alcance-tenant.ts`.
+   */
+  private readonly alcance = new AlcanceTenant();
+
+  private get db(): Knex {
+    return this.alcance.db;
+  }
+
+  private conTenant<T>(fn: () => Promise<T>): Promise<T> {
+    return this.alcance.run(this.pool, MEGA, fn);
+  }
 
   /**
    * Cada 10 minutos. ⚠️ **Sin `timeZone`**: el contenedor corre en UTC y pasarle una zona a un
@@ -93,79 +110,84 @@ export class ContpaqiCuadreService {
     let resumen = resumirCuadre([]);
 
     try {
-      // 1. Lo que está esperando confirmación. `verificada IS NULL` es la clave: `false` ya tuvo
-      //    veredicto y volver a juzgarlo pisaría un motivo escrito.
-      const pendientes: ExportPendiente[] = (await this.db('contpaqi.poliza_exports')
-        .where({ tenant_id: MEGA })
-        .whereIn('estado', ['entregada', 'armada'])
-        .whereNull('verificada')
-        .select(
-          'evento_tipo', 'evento_id', 'periodo', 'total', 'asiento',
-          this.db.raw(`asiento->>'fecha' as fecha`),
-          this.db.raw(`(asiento->>'tipo_poliza')::int as tipo_poliza`),
-          this.db.raw(`asiento->>'token' as token`),
-          this.db.raw(`to_char(updated_at, 'YYYY-MM-DD') as entregada_en`),
-        )) as unknown as ExportPendiente[];
-
-      if (!pendientes.length) {
-        // ⭐ Cero pendientes NO es un error, y tampoco es salud: es silencio. Se late igual, con
-        // la nota diciéndolo, para que el tablero distinga "nada que hacer" de "no corrió".
-        resumen = resumirCuadre([]);
-        return resumen;
-      }
-
-      // 2. Los candidatos: las pólizas que el carril de vuelta trajo con un token nuestro, más
-      //    las del periodo (para el pareo por importe, que es el fallback).
-      //    ⚠️ Una sola consulta, no una por evento: con 128 mil pólizas, N consultas serían N
-      //    scans. El universo de interés es chico — los periodos que tocan los pendientes.
-      // ⭐ Medido el 2026-10-09 contra prod: traer el periodo COMPLETO daba **17,596 filas en
-      // 238 ms** para un solo mes. Pasa el gate de 500 ms por poco y se lo come con 3 periodos
-      // pendientes — y la mayoría de esas filas no puede casar con nada.
-      //
-      // El fallback por importe sólo necesita las pólizas que comparten **fecha Y total** con
-      // algún pendiente. Es una sobre-aproximación deliberada (no se filtra por tipo acá): el
-      // motor hace el pareo exacto, y este `WHERE` sólo está para no arrastrar el mes entero.
-      const fechas = [...new Set(pendientes.map((p) => p.fecha).filter(Boolean))];
-      const totales = [...new Set(pendientes.map((p) => Number(p.total)).filter((n) => Number.isFinite(n)))];
-      const candidatos: CandidatoContpaqi[] = (await this.db('analytics.gl_polizas')
-        .where({ tenant_id: MEGA })
-        .where((qb) => {
-          // Por token: la llave de certeza. Barata — son sólo las pólizas que nosotros pusimos.
-          qb.whereILike('concepto', `${PREFIJO}%`);
-          // Por importe: el fallback, acotado a lo que puede casar.
-          if (fechas.length && totales.length) {
-            // `= ANY(?::tipo[])` y no `whereIn(raw, …)`: lo segundo funciona en runtime pero
-            // knex no lo tipa, y un `any` escondido en el camino del dinero es justo lo que no
-            // conviene normalizar. Esta forma es la misma consulta y sí typechequea.
-            qb.orWhere((q) => q
-              .whereRaw(`to_char(fecha, 'YYYY-MM-DD') = ANY(?::text[])`, [fechas])
-              .whereRaw('cargos = ANY(?::numeric[])', [totales]));
-          }
-        })
-        .select(
-          'ejercicio', 'periodo', 'tipo_pol', 'folio', 'guid', 'concepto',
-          this.db.raw(`to_char(fecha, 'YYYY-MM-DD') as fecha`),
-          this.db.raw('cargos::float8 as cargos'),
-          this.db.raw('abonos::float8 as abonos'),
-        )) as unknown as CandidatoContpaqi[];
-
-      // 3. El motor decide. Acá no hay lógica de negocio: sólo se le pasa cada pendiente con el
-      //    universo de candidatos y se guarda lo que dictamine.
-      const resultados: ResultadoCuadre[] = [];
-      for (const p of pendientes) {
-        const r = cuadrar({ ...p, total: Number(p.total) }, candidatos, fechaHoy);
-        resultados.push(r);
-        await this.guardar(p, r);
-      }
-
-      resumen = resumirCuadre(resultados);
+      resumen = await this.conTenant(() => this.cuadrarEnAlcance(fechaHoy));
       return resumen;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       throw e;
     } finally {
+      // ⚠️ `[CP.8.58]` El latido va por el POOL, fuera de la transacción: si el cuadre falla y
+      // la transacción se revierte, el latido con el error tiene que quedar escrito igual.
       await this.latir(resumen, Date.now() - t0, error);
     }
+  }
+
+  private async cuadrarEnAlcance(fechaHoy: string): Promise<ReturnType<typeof resumirCuadre>> {
+    // 1. Lo que está esperando confirmación. `verificada IS NULL` es la clave: `false` ya tuvo
+    //    veredicto y volver a juzgarlo pisaría un motivo escrito.
+    const pendientes: ExportPendiente[] = (await this.db('contpaqi.poliza_exports')
+      .where({ tenant_id: MEGA })
+      .whereIn('estado', ['entregada', 'armada'])
+      .whereNull('verificada')
+      .select(
+        'evento_tipo', 'evento_id', 'periodo', 'total', 'asiento',
+        this.db.raw(`asiento->>'fecha' as fecha`),
+        this.db.raw(`(asiento->>'tipo_poliza')::int as tipo_poliza`),
+        this.db.raw(`asiento->>'token' as token`),
+        this.db.raw(`to_char(updated_at, 'YYYY-MM-DD') as entregada_en`),
+      )) as unknown as ExportPendiente[];
+
+    if (!pendientes.length) {
+      // ⭐ Cero pendientes NO es un error, y tampoco es salud: es silencio. Se late igual, con
+      // la nota diciéndolo, para que el tablero distinga "nada que hacer" de "no corrió".
+      return resumirCuadre([]);
+    }
+
+    // 2. Los candidatos: las pólizas que el carril de vuelta trajo con un token nuestro, más
+    //    las del periodo (para el pareo por importe, que es el fallback).
+    //    ⚠️ Una sola consulta, no una por evento: con 128 mil pólizas, N consultas serían N
+    //    scans. El universo de interés es chico — los periodos que tocan los pendientes.
+    // ⭐ Medido el 2026-10-09 contra prod: traer el periodo COMPLETO daba **17,596 filas en
+    // 238 ms** para un solo mes. Pasa el gate de 500 ms por poco y se lo come con 3 periodos
+    // pendientes — y la mayoría de esas filas no puede casar con nada.
+    //
+    // El fallback por importe sólo necesita las pólizas que comparten **fecha Y total** con
+    // algún pendiente. Es una sobre-aproximación deliberada (no se filtra por tipo acá): el
+    // motor hace el pareo exacto, y este `WHERE` sólo está para no arrastrar el mes entero.
+    const fechas = [...new Set(pendientes.map((p) => p.fecha).filter(Boolean))];
+    const totales = [...new Set(pendientes.map((p) => Number(p.total)).filter((n) => Number.isFinite(n)))];
+    const candidatos: CandidatoContpaqi[] = (await this.db('analytics.gl_polizas')
+      .where({ tenant_id: MEGA })
+      .where((qb) => {
+        // Por token: la llave de certeza. Barata — son sólo las pólizas que nosotros pusimos.
+        qb.whereILike('concepto', `${PREFIJO}%`);
+        // Por importe: el fallback, acotado a lo que puede casar.
+        if (fechas.length && totales.length) {
+          // `= ANY(?::tipo[])` y no `whereIn(raw, …)`: lo segundo funciona en runtime pero
+          // knex no lo tipa, y un `any` escondido en el camino del dinero es justo lo que no
+          // conviene normalizar. Esta forma es la misma consulta y sí typechequea.
+          qb.orWhere((q) => q
+            .whereRaw(`to_char(fecha, 'YYYY-MM-DD') = ANY(?::text[])`, [fechas])
+            .whereRaw('cargos = ANY(?::numeric[])', [totales]));
+        }
+      })
+      .select(
+        'ejercicio', 'periodo', 'tipo_pol', 'folio', 'guid', 'concepto',
+        this.db.raw(`to_char(fecha, 'YYYY-MM-DD') as fecha`),
+        this.db.raw('cargos::float8 as cargos'),
+        this.db.raw('abonos::float8 as abonos'),
+      )) as unknown as CandidatoContpaqi[];
+
+    // 3. El motor decide. Acá no hay lógica de negocio: sólo se le pasa cada pendiente con el
+    //    universo de candidatos y se guarda lo que dictamine.
+    const resultados: ResultadoCuadre[] = [];
+    for (const p of pendientes) {
+      const r = cuadrar({ ...p, total: Number(p.total) }, candidatos, fechaHoy);
+      resultados.push(r);
+      await this.guardar(p, r);
+    }
+
+    return resumirCuadre(resultados);
   }
 
   /**
@@ -208,20 +230,20 @@ export class ContpaqiCuadreService {
         ? 'sin eventos pendientes de cuadrar'
         : `${resumen.sincronizados}/${resumen.juzgables} sincronizados · ${resumen.por.esperando} esperando · `
           + `${resumen.por.difiere} difieren · ${resumen.por.probable} por confirmar · ${resumen.por.no_aparecio} no aparecieron`;
-      await this.db('analytics.cron_runs')
+      await this.pool('analytics.cron_runs')
         .insert({
           tenant_id: MEGA,
           job_key: JOB_KEY,
           label: 'Cuadre del puente ContPAQi',
-          last_start: this.db.fn.now(),
-          last_finish: this.db.fn.now(),
+          last_start: this.pool.fn.now(),
+          last_finish: this.pool.fn.now(),
           status: error ? 'error' : 'ok',
           rows_affected: resumen.total,
           duration_ms: ms,
           note: error ? null : nota,
           error: error ? error.slice(0, 500) : null,
           host: 'api',
-          updated_at: this.db.fn.now(),
+          updated_at: this.pool.fn.now(),
         })
         .onConflict(['tenant_id', 'job_key'])
         .merge(['label', 'last_start', 'last_finish', 'status', 'rows_affected', 'duration_ms', 'note', 'error', 'host', 'updated_at']);
@@ -249,11 +271,11 @@ export class ContpaqiCuadreService {
     divergentes: number;
     plazo_dias: number;
   }> {
-    const filas = await this.db('contpaqi.poliza_exports')
+    const filas = await this.conTenant(async () => this.db('contpaqi.poliza_exports')
       .where({ tenant_id: MEGA })
       .select('estado', 'verificada')
       .count({ n: '*' })
-      .groupBy('estado', 'verificada');
+      .groupBy('estado', 'verificada'));
 
     const num = (v: unknown) => Number(v ?? 0);
     const porEstado = new Map<string, number>();
@@ -281,7 +303,7 @@ export class ContpaqiCuadreService {
 
   /** Para la bandeja de `[CP.8.11]`: lo que no cuadró y necesita a una persona. */
   async divergencias(): Promise<unknown[]> {
-    return this.db('contpaqi.poliza_exports')
+    return this.conTenant(async () => this.db('contpaqi.poliza_exports')
       .where({ tenant_id: MEGA })
       // Dos casos, y son distintos: lo que YA tuvo veredicto negativo (difiere · ambiguo ·
       // no_aparecio), y lo que casó sólo por importe — `probable`, que no asciende solo y está
@@ -293,7 +315,7 @@ export class ContpaqiCuadreService {
       .orderBy('updated_at', 'desc')
       .limit(200)
       .select('evento_tipo', 'evento_id', 'periodo', 'total', 'estado', 'verificada',
-        'contpaqi_folio', 'contpaqi_guid', 'motivo', 'updated_at');
+        'contpaqi_folio', 'contpaqi_guid', 'motivo', 'updated_at'));
   }
 
   /** El plazo que usa el motor, para que la bandeja lo muestre sin repetir la constante. */

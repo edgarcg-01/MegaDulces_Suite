@@ -157,8 +157,8 @@ interface PPRecon { months: PPReconMonth[] }
         <p-select [options]="f().methods" [ngModel]="method()" (onChange)="onFilter('method', $event.value)" placeholder="Método" [showClear]="true" styleClass="pp-sel" ariaLabel="Método" />
         <p-select [options]="f().tipos" [ngModel]="tipo()" (onChange)="onFilter('tipo', $event.value)" placeholder="Tipo" [showClear]="true" styleClass="pp-sel" ariaLabel="Tipo" />
         <p-select [options]="keplerOpts" [ngModel]="kepler()" (onChange)="onFilter('kepler', $event.value)" optionLabel="label" optionValue="value" placeholder="Kepler" [showClear]="true" styleClass="pp-sel" ariaLabel="Estado Kepler" />
-        <p-iconfield styleClass="pp-search">
-          <p-inputicon styleClass="pi pi-search" />
+        <p-iconfield class="pp-search">
+          <p-inputicon class="pi pi-search" />
           <input pInputText type="text" placeholder="Proveedor…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar proveedor" />
         </p-iconfield>
         @if (hasFilters()) { <p-button label="Limpiar" icon="pi pi-filter-slash" size="small" [text]="true" (onClick)="clearFilters()"></p-button> }
@@ -191,7 +191,7 @@ interface PPRecon { months: PPReconMonth[] }
       }
 
       @if (loading()) {
-        <div class="pp-skel">@for (i of skelRows; track i) { <p-skeleton height="2rem" styleClass="pp-skel-row" /> }</div>
+        <div class="pp-skel">@for (i of skelRows; track $index) { <p-skeleton height="2rem" styleClass="pp-skel-row" /> }</div>
       } @else if (data(); as d) {
         <p-table [value]="d.rows" styleClass="p-datatable-sm surf-table surf-table--sticky pp-table" [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="d.rows.length > 200" [rows]="200">
           <ng-template #header>

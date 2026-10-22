@@ -3,6 +3,8 @@
 > **Estado (2026-10-12):** 🧪 **el puente ARMA y no entrega** · 10 migraciones en prod (batches
 > 856–880) · 10 candados · ⛔ **nunca se importó un archivo a ContPAQi**, así que
 > `contpaqi.poliza_exports` sigue en **0 filas** · **ADR:** ADR-040 (hereda).
+> **⭐ Plan para que entregue (2026-10-20):** [`FASE_CP8_ATERRIZAJE.md`](FASE_CP8_ATERRIZAJE.md) —
+> objetivos, entregables por capa (`[CP.8.46]`–`[CP.8.57]`) y las firmas D1–D5.
 > **Pedido de Edgar (2026-10-08):** *"quiero que de aquí salga la póliza y se haga
 > automáticamente en ContPAQi y viceversa"* → *"debemos generar una **sincronía o puente** entre
 > las dos"*.

@@ -5,6 +5,7 @@
 // VendorService que ANOTA cada método llamado, así mide qué sale a la red al abrir.
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { MessageService } from 'primeng/api';
 import { of } from 'rxjs';
 import { VendorService } from '../vendor.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
@@ -43,6 +44,8 @@ function montar(instantaneo: { origen: 'memoria' | 'telefono' | 'servidor'; at: 
     imports: [VendorTakeOrderComponent],
     providers: [
       provideRouter([]),
+      // [MCP.3.5] La pantalla usa el MessageService del shell /vendor (ya no declara el suyo).
+      MessageService,
       { provide: VendorService, useValue: api },
       { provide: ConnectivityService, useValue: { isOnline: () => true } },
       { provide: OfflineOrderService, useValue: offline },

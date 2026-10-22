@@ -32,7 +32,7 @@ import { BANCOS_STYLES } from './bancos.styles';
       <div class="fb-admin-bar">
         <p class="fb-admin-note muted">Catálogo REAL de cuentas de Kepler (almacén 00). Úsalo para saber qué mayor/subcuenta es cada cosa — NO adivines. Busca por clave (611) o descripción (comisión).</p>
         <p-iconfield iconPosition="left" class="fb-search">
-          <p-inputicon styleClass="pi pi-search" />
+          <p-inputicon class="pi pi-search" />
           <input pInputText type="text" [ngModel]="kaSearch()" (ngModelChange)="search.emit($event)"
                  placeholder="Buscar cuenta: clave o descripción…" aria-label="Buscar cuenta Kepler" />
         </p-iconfield>

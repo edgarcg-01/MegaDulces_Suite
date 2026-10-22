@@ -30,6 +30,8 @@
 - [ ] Si una migración aditiva la lee el código nuevo, el PR dice que se aplica **ANTES** del código (y su orden respecto a las demás).
 - [ ] Declaré arriba los **cambios de comportamiento** y lo que **no** incluye.
 - [ ] Si cambié un tipo de `libs/contracts`: busqué **todos** sus consumidores en `apps/*` y `libs/*`, **plantillas incluidas**, y `Build & typecheck` está en verde **antes** de pedir revisión. No escribí «compila» sin evidencia (vitest no tipa las plantillas).
+- [ ] Si edité archivos con un script, calculé el contenido **antes** de abrir el archivo para escribir y revisé `git diff --stat` (ningún archivo perdió líneas que no debía).
+- [ ] Si la función manda contenido de personas a un proveedor externo: la regla de quién queda **fuera** vive en el servidor, la probé apagándola, y arriba digo **qué sale, a quién y qué se excluye**.
 - [ ] Si toqué una tabla: declaré su RLS y la verifiqué contra producción; las pruebas de seguridad **intentan violar** la defensa y esperan el error exacto.
 
 ## Checklist (obligatorio)

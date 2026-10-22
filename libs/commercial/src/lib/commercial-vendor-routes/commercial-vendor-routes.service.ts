@@ -12,6 +12,8 @@ import { TenantContextService } from '@megadulces/platform-core';
 import { isPlatformAdminRole } from '@megadulces/platform-core';
 import { vendorTodayRouteExistsSql, vendorTodayRouteIdsSql } from '../shared/vendor-cartera.sql';
 import { syncErpCarteraForToday, syncErpCarteraForRoutes, isErpGovernedRoute } from '../shared/vendor-cartera-erp';
+import { haversineM } from './visit-protocol.engine';
+import { ResolvedRouteScope, resolveRouteScope } from './route-scope';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
@@ -51,6 +53,13 @@ function toVisitDaysArray(visitDays: unknown): number[] {
   return arr
     .map((d) => Number(d))
     .filter((d) => Number.isInteger(d) && d >= 1 && d <= 7);
+}
+
+/** [MCP.3.7] Metros entre el celular al llegar y el cliente; null si falta cualquiera de los dos. */
+export function arrivalDistanceM(vLat: unknown, vLng: unknown, cLat: unknown, cLng: unknown): number | null {
+  const n = [vLat, vLng, cLat, cLng].map((x) => (x == null || x === '' ? NaN : Number(x)));
+  if (n.some((x) => !Number.isFinite(x))) return null;
+  return Math.round(haversineM(n[0], n[1], n[2], n[3]));
 }
 
 /** Radio default de "cliente cercano": más amplio que los 30 m de tiendas (clientes dispersos + drift GPS + estacionar). */
@@ -154,6 +163,14 @@ export interface CreateVendorCustomerDto {
  * el vendedor solo lee su cartera. La cartera = clientes cuya sales_route está en
  * las rutas asignadas al vendedor.
  */
+/** Fila de `listSalesRoutes`: ruta con sus clientes. */
+type FilaRutaClientes = { sales_route: string; customer_count: number };
+
+/** Fila de `listRoutesWithWarehouse`: ruta con su sucursal asignada. */
+type FilaRutaSucursal = {
+  route_id: string; route: string; zone: string | null; assigned_id: string | null; assigned_name: string | null;
+};
+
 @Injectable()
 export class CommercialVendorRoutesService {
   constructor(
@@ -161,9 +178,21 @@ export class CommercialVendorRoutesService {
     private readonly tenantCtx: TenantContextService,
   ) {}
 
+  /**
+   * `[MCP.3.9]` Alcance por tipo de ruta de quien consulta (RV → sólo vecinales; RD → sólo las que
+   * no son vecinales; god-mode y los demás puestos → todas). La regla es UNA (`route-scope.ts`) y la
+   * comparten el tablero del supervisor y el monitoreo. Las LECTURAS de la asignación de cartera se
+   * recortan con `allows`; las ESCRITURAS rechazan (403) una ruta fuera del alcance con `assert`.
+   */
+  private routeScope(trx: Knex.Transaction): Promise<ResolvedRouteScope> {
+    const ctx = this.tenantCtx.get();
+    return resolveRouteScope(trx, { me: ctx?.userId || null, seeAll: isPlatformAdminRole(ctx?.roleName) });
+  }
+
   /** Rutas de venta del tenant (distinct de customers.sales_route) con conteo de clientes y a quién están asignadas. */
   async listSalesRoutes() {
     return this.tk.run(async (trx) => {
+      const scope = await this.routeScope(trx);
       const routes = await trx('commercial.customers')
         .whereNull('deleted_at')
         .whereNotNull('sales_route')
@@ -181,11 +210,13 @@ export class CommercialVendorRoutesService {
         if (!byRoute.has(a.sales_route)) byRoute.set(a.sales_route, []);
         byRoute.get(a.sales_route)!.push({ id: a.id, user_id: a.user_id, username: a.username });
       }
-      return routes.map((r: any) => ({
-        sales_route: r.sales_route,
-        customer_count: r.customer_count,
-        assigned_to: byRoute.get(r.sales_route) || [],
-      }));
+      return routes
+        .filter((r: FilaRutaClientes) => scope.allows(r.sales_route))
+        .map((r: FilaRutaClientes) => ({
+          sales_route: r.sales_route,
+          customer_count: r.customer_count,
+          assigned_to: byRoute.get(r.sales_route) || [],
+        }));
     });
   }
 
@@ -330,6 +361,7 @@ export class CommercialVendorRoutesService {
    */
   async listRoutesWithWarehouse() {
     return this.tk.run(async (trx) => {
+      const scope = await this.routeScope(trx);
       const whs = await trx('commercial.warehouses')
         .where({ kind: 'central', active: true })
         .whereNull('deleted_at')
@@ -373,7 +405,7 @@ export class CommercialVendorRoutesService {
 
       return {
         warehouses: whs.map((w: any) => ({ id: w.id, code: w.code, name: w.name })),
-        routes: routes.map((r: any) => {
+        routes: routes.filter((r: FilaRutaSucursal) => scope.allows(r.route)).map((r: FilaRutaSucursal) => {
           const s = r.assigned_id ? null : suggest(r.zone, r.route);
           return {
             route_id: r.route_id,
@@ -398,9 +430,10 @@ export class CommercialVendorRoutesService {
       const route = await trx('trade.catalogs')
         .where({ id: routeId, catalog_id: 'rutas' })
         .whereNull('deleted_at')
-        .select('id', 'tenant_id')
+        .select('id', 'tenant_id', 'value')
         .first();
       if (!route) throw new NotFoundException('Ruta no encontrada');
+      (await this.routeScope(trx)).assert(route.value);
       const wh = await trx('commercial.warehouses')
         .where({ id: warehouseId, kind: 'central' })
         .whereNull('deleted_at')
@@ -445,7 +478,31 @@ export class CommercialVendorRoutesService {
         if (!me) return [];
         q = q.where('supervisor_id', me);
       }
-      return q.select('id', 'username', 'role_name').orderBy('username');
+      const vendors: { id: string; username: string; role_name: string }[] = await q
+        .select('id', 'username', 'role_name')
+        .orderBy('username');
+      // `[MCP.3.9]` Alcance por tipo de ruta: fuera sólo quien tiene rutas (agenda o cartera) y
+      // NINGUNA del alcance. Quien no tiene ninguna se queda: hay que poder asignarle la primera.
+      const scope = await this.routeScope(trx);
+      if (scope.scope === null || !vendors.length) return vendors;
+      const ids = vendors.map((v) => v.id);
+      const r = await trx.raw(
+        `SELECT da.user_id, cat.value AS route
+           FROM public.daily_assignments da
+           JOIN public.catalogs cat ON cat.id = da.route_id AND cat.catalog_id = 'rutas' AND cat.deleted_at IS NULL
+          WHERE da.user_id = ANY(?::uuid[])
+         UNION
+         SELECT v.user_id, v.sales_route FROM commercial.vendor_sales_routes v WHERE v.user_id = ANY(?::uuid[])`,
+        [ids, ids],
+      );
+      const routesOf = new Map<string, string[]>();
+      for (const x of r.rows as { user_id: string; route: string }[]) {
+        (routesOf.get(x.user_id) ?? routesOf.set(x.user_id, []).get(x.user_id)!).push(x.route);
+      }
+      return vendors.filter((v) => {
+        const rs = routesOf.get(v.id);
+        return !rs?.length || rs.some((x) => scope.allows(x));
+      });
     });
   }
 
@@ -466,13 +523,15 @@ export class CommercialVendorRoutesService {
   async customersByRoute(salesRoute: string) {
     const route = (salesRoute || '').trim().toUpperCase();
     if (!route) throw new BadRequestException('sales_route requerido');
-    return this.tk.run(async (trx) =>
-      trx('commercial.customers')
+    return this.tk.run(async (trx) => {
+      // `[MCP.3.9]` Una ruta fuera del alcance se lee como vacía (lectura: se recorta, no se grita).
+      if (!(await this.routeScope(trx)).allows(route)) return [];
+      return trx('commercial.customers')
         .where({ sales_route: route })
         .whereNull('deleted_at')
         .select('id', 'code', 'name', 'visit_sequence', 'phone', 'whatsapp')
-        .orderByRaw('visit_sequence asc nulls last, name asc'),
-    );
+        .orderByRaw('visit_sequence asc nulls last, name asc');
+    });
   }
 
   /** Asignaciones cartera (vendedor → rutas). Opcional filtrar por vendedor. */
@@ -485,7 +544,9 @@ export class CommercialVendorRoutesService {
         })
         .select('v.id', 'v.user_id', 'u.username', 'v.sales_route', 'v.created_at');
       if (userId) q = q.where('v.user_id', userId);
-      return q.orderBy(['u.username', 'v.sales_route']);
+      const rows: { sales_route: string }[] = await q.orderBy(['u.username', 'v.sales_route']);
+      const scope = await this.routeScope(trx);
+      return rows.filter((a) => scope.allows(a.sales_route));
     });
   }
 
@@ -496,6 +557,7 @@ export class CommercialVendorRoutesService {
     if (!route) throw new BadRequestException('sales_route requerido');
 
     return this.tk.run(async (trx) => {
+      (await this.routeScope(trx)).assert(route);
       const createdBy = this.tenantCtx.get()?.userId || null;
       const [row] = await trx('commercial.vendor_sales_routes')
         .insert({
@@ -514,6 +576,10 @@ export class CommercialVendorRoutesService {
   async unassign(id: string) {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
+      // `[MCP.3.9]` Quitar también es escribir: fuera del alcance, 403 (no se borra a ciegas).
+      const a = await trx('commercial.vendor_sales_routes').where({ id }).select('sales_route').first();
+      if (!a) throw new NotFoundException('Asignación no encontrada');
+      (await this.routeScope(trx)).assert(a.sales_route);
       const n = await trx('commercial.vendor_sales_routes').where({ id }).del();
       if (!n) throw new NotFoundException('Asignación no encontrada');
       return { unassigned: true, id };
@@ -881,6 +947,8 @@ export class CommercialVendorRoutesService {
           'c.whatsapp',
           'c.latitude',
           'c.longitude',
+          // [MCP.3.7] La tarjeta de llegada muestra la dirección: calle y colonia de la ficha.
+          trx.raw(`NULLIF(concat_ws(', ', NULLIF(btrim(c.shipping_address->>'street'), ''), NULLIF(btrim(c.shipping_address->>'neighborhood'), '')), '') AS address`),
           trx.raw(`${HAVERSINE_SQL} as distance_m`, [lat, lat, lng]),
         )
         .orderByRaw('distance_m asc')
@@ -1027,16 +1095,33 @@ export class CommercialVendorRoutesService {
         .first();
       if (!customer) throw new NotFoundException(`Customer ${dto.customer_id} no encontrado`);
 
-      const [row] = await trx('commercial.vendor_visits')
-        .insert({
-          tenant_id: trx.raw('public.current_tenant_id()'),
-          user_id: me,
-          customer_id: dto.customer_id,
-          notes: dto.notes?.trim() || null,
-          latitude: dto.latitude ?? null,
-          longitude: dto.longitude ?? null,
-        })
-        .returning('*');
+      // [MCP.3.7] Abrir al cliente REGISTRA la llegada. Abrirlo otra vez con la visita de hoy
+      // todavía abierta NO crea otra: es la misma llegada (antes, cada toque era una visita más).
+      const open = await trx('commercial.vendor_visits')
+        .where({ user_id: me, customer_id: dto.customer_id })
+        .whereNull('ended_at')
+        .whereRaw(`(visited_at AT TIME ZONE 'America/Mexico_City')::date = (now() AT TIME ZONE 'America/Mexico_City')::date`)
+        .orderBy('visited_at', 'desc')
+        .first();
+      // Si la llegada abierta no tenía GPS y ahora sí lo hay, se completa (nunca se pisa uno que ya tenía).
+      const row = open
+        ? open.latitude == null && dto.latitude != null && dto.longitude != null
+          ? (await trx('commercial.vendor_visits').where({ id: open.id }).update({ latitude: dto.latitude, longitude: dto.longitude }).returning('*'))[0]
+          : open
+        : (
+            await trx('commercial.vendor_visits')
+              .insert({
+                tenant_id: trx.raw('public.current_tenant_id()'),
+                user_id: me,
+                customer_id: dto.customer_id,
+                notes: dto.notes?.trim() || null,
+                latitude: dto.latitude ?? null,
+                longitude: dto.longitude ?? null,
+              })
+              .returning('*')
+          )[0];
+      // Distancia del celular al cliente al llegar (null = sin GPS o cliente sin ubicación).
+      const distance_m = arrivalDistanceM(row.latitude, row.longitude, customer.latitude, customer.longitude);
 
       // Capture-on-visit: si el cliente aún no tiene coords y el check-in trae GPS,
       // backfill con guard anti-traslape (no pisa si colisiona con otro cliente).
@@ -1051,7 +1136,7 @@ export class CommercialVendorRoutesService {
           me,
         );
       }
-      return { ...row, location };
+      return { ...row, location, distance_m, reused: !!open };
     });
   }
 
@@ -1128,6 +1213,7 @@ export class CommercialVendorRoutesService {
       throw new BadRequestException('customer_ids debe ser array de UUIDs');
 
     return this.tk.run(async (trx) => {
+      (await this.routeScope(trx)).assert(route);
       let seq = 1;
       let updated = 0;
       for (const cid of dto.customer_ids) {
@@ -1261,6 +1347,8 @@ export class CommercialVendorRoutesService {
             notes: dto.notes?.trim() || null,
             latitude: lat,
             longitude: lng,
+            // [MCP.3.8] Quién lo dio de alta: la bandeja de clientes nuevos de la sucursal lo muestra.
+            created_by: me,
           })
           .returning('*');
         return row;

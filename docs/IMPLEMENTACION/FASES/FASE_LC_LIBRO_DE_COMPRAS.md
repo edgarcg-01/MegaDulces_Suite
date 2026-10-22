@@ -186,6 +186,8 @@ vínculo formal.
 | **LC.13** | ⬜ pantalla de `gl_supplier_accounts`. **Gate corrido 2026-09-03: no urge** — ningún proveedor de jul/ago necesita una cuenta 501/502 que no exista. Sí hay 207 facturas de ago (~$2.0M) cuyo RFC no está en el catálogo | — |
 | **LC.14** | ✅ **2026-09-03** — **tercera puerta, exacta por UUID** hasta jul-2026: `finance.purchase_book_history` + 2 vistas + sembrador con auto-chequeos. Bloqueo duro para la certeza, blando y auditado para la sospecha | LC.9 |
 | **LC.15** | ✅ **2026-09-03** — `analytics.gl_poliza_lines.concepto`: leer de vuelta el UUID que nosotros ponemos → **cuarta puerta**, desde ContPAQi mismo. Más el CSV para su Asociador de CFDI | LC.7, LC.14 |
+| **LC.17** | 🧪 **2026-10-21** — el trámite deja de mentir: un TXT guardado en formato legado o sin contenido no se descarga ni se entrega; `generar` registra las facturas que lleva (la puerta exacta «ya se entregó» por fin las ve) y no regenera encima de una entrega; `marcar` con máquina de estados; botón «Cancelar entrega». Candado `test-newdb-libro-compras-tramite.js` | LC.9 |
+| **LC.18** | 🧪 **2026-10-21** — **el libro del mes sale solo e igual al manual.** Reparto de la contadora (`502 = IVA ÷ 0.16` con tope, sólo IEPS al 8 % acreditable), referencia = últimos 5 del folio, cuentas de IVA/IEPS del último libro, folio 1 por default, mapa de proveedores unificado + alta de proveedor nuevo, regla del historial del proveedor. Aceptación: **jul/ago/sep-2026, 1,650 de 1,650 renglones idénticos al centavo** (`test-newdb-libro-compras-replica.js`) | LC.17 |
 
 **MVP = LC.0 → LC.6.1**, y ahí está el valor: LC.6.1 es el propósito del módulo (sacar lo no
 asociado en TXT). LC.7 lo vuelve confiable.
@@ -794,6 +796,399 @@ existen** — sólo `212`, `501`, `502` y `147x`.)
 
 ---
 
+## LC.17 — auditoría del 2026-10-21: el módulo no se usa, y lo que tiene guardado no se puede entregar
+
+Auditoría pedida por Edgar (*"¿cuál es el objetivo, se completó el plan, qué falta?"*). Medido en
+pg-prod, sólo lectura.
+
+### Lo que se encontró
+
+| Hecho | Prod 2026-10-21 |
+|---|---|
+| Corridas del módulo | **3 en total**, ninguna llegó a `entregado` ni `aplicado`; la última se tocó el 4-sep |
+| ago-2026 y sep-2026 | **Ya tienen la póliza mensual de compras** (folio 1: 625 y 428 renglones) — **sin corrida nuestra y con 0 UUID** en el concepto: se armaron a mano |
+| Complemento 2026-07 (`generado`) | TXT guardado en **formato legado** (P=147/M=211; el real es 185/272 desde `[CP.8.13]`, 8-oct). **La descarga lo servía tal cual** → ContPAQi lo rechaza |
+| Complemento 2026-06 (`generado`) | Firma sin contenido: los botones se veían y la descarga daba 404 |
+| Sin marca y ya posteadas por importe | ago 91 de 279 (**$10.2M**) · sep 142 de 392 (**$20.3M**) — el TXT a mano sin UUID sigue ensuciando la marca |
+| Histórico exacto por UUID (puerta c) | llega hasta **2026-07**: ago y sep sólo los protege el importe |
+
+### Los defectos del código (leídos, no supuestos)
+
+- **B1** `generar` no registraba las facturas incluidas por default: la puerta «ya se entregó»
+  (`v_purchase_book_uuids` lee `run_items`) sólo veía las marcadas a mano. Un complemento entregado en
+  folio 2 no lo atrapa la puerta (a), que mira el folio 1 → el mes las volvía a ofrecer.
+- **B3** `generar` aceptaba una corrida `entregado` y pisaba archivo y firma ya entregados.
+- **B4** `marcar` sin máquina de estados: `aplicado` desde `generado`, `entregado` desde `aplicado`,
+  `cancelado` desde `aplicado` (devuelve a pendientes un asiento que ContPAQi ya tiene); sin botón para
+  cancelar aunque el error decía «cancélala»; una cancelada seguía sirviendo su archivo; `notas` se pisaba.
+
+### Lo que se hizo (LC.17)
+
+- `vigenciaArchivo()` en `poliza-txt.ts`, con el MISMO criterio de formato que el parser. El parser
+  sigue tolerante (los cuadres lo necesitan); la vigencia decide si se entrega.
+- `obtenerArchivo` rechaza legado, sin contenido y `cancelado`. `marcar('entregado')` exige archivo vigente.
+- `getMes` manda a la pantalla `archivo_vigente` + `archivo_motivo` y ya no los ~77 KB del TXT.
+- `generar` registra una fila por factura con `origen = 'generado'`; `getMes` **no** las toma como
+  decisión (si contaran, el default del mes quedaría congelado aunque luego aparezca la póliza).
+  `invalidar` las borra. No pisa una decisión manual (`onConflict.ignore`).
+- `generar` rechaza `entregado`; al regenerar una cancelada limpia los datos de la entrega anterior.
+- `TRANSICIONES_RUN`: borrador→cancelado · generado→entregado|cancelado · entregado→aplicado|cancelado ·
+  aplicado y cancelado terminales. Cancelar una entrega se niega si ContPAQi ya tiene ese folio.
+- `notas` se suma (`concat_ws`), no se pisa.
+- Pantalla: los botones del archivo sólo si es vigente; veredicto «El archivo guardado ya no sirve» con
+  su motivo; «Generar» apagado en entregado/aplicado; **«Cancelar entrega»** (rojo, con diálogo y motivo
+  obligatorio).
+
+### Verificación
+
+- `test-newdb-libro-compras-tramite.js` **contra prod, sólo lectura: 11 ✓ / 0 ✗ · 1 NO MEDIDO** — jul y
+  jun se declaran no entregables y las guardas rechazan antes de escribir (sesión read-only).
+- **Modo completo (siembra 2031-03 y ejerce generar/entregar/cancelar/aplicar como `app_runtime`) NO
+  MEDIDO**: sólo corre en el job `pruebas-db` del CI; en esta máquina no hay Postgres local.
+- ⚠️ **La prueba negativa de la guarda de descarga no se hizo** (romperla a propósito fue bloqueado por el
+  clasificador de permisos). Sí hay negativa sobre `vigenciaArchivo` mismo.
+- `check:pantalla` 0 fallas nuevas · `check:templates` ✅ · `lint-boundary-gate` sin violaciones en purchase-book.
+- `test-newdb-libro-compras-caratula.js` 66/66 (se ajustó su regex: la consulta del folio se mudó a
+  `folioOcupado()`) · `test-newdb-libro-compras-txt.js` 49/49.
+- **Sin validación visual** (lo más probable de ajustar: el lugar del botón rojo dentro de la barra de acciones).
+
+### Lo que sigue abierto (no es LC.17)
+
+1. **Decisión de producto antes que código:** preguntarle a la contadora por qué armó ago y sep a mano. Sin
+   eso, el resto es para una pantalla que nadie abre. Y pedirle **un TXT de compras aceptado por ContPAQi**
+   (el bloque 4 del candado del TXT sigue en SKIP: el único real es una póliza tipo 2 de egresos).
+2. Volver a sembrar el histórico exacto con ago/sep, o leer la puerta (d) (el UUID en el concepto de
+   ContPAQi), que hoy es código muerto.
+3. B2 (puerta b compara una pata contra el neto partido 501+502) · B5 (cambiar de mes no limpia el detalle
+   ni cancela la petición) · B6 (choque de UNIQUE de folio → 500) · override con motivo sin UI.
+4. 428,309 CFDIs con `estatus_sat = 'desconocido'`: nadie valida cancelaciones.
+
+**Falta para prod:** commit + CI + redeploy api+view. No hay migración.
+
+## LC.18 — el libro del mes, automático e igual al que se arma a mano (2026-10-21)
+
+**Pedido de Edgar:** *«nosotros lo armamos a mano, el punto es automatizar esa tarea»*. Los libros
+de ago y sep-2026 los armó contabilidad a mano en ContPAQi (Diario folio 1). Eso los vuelve el
+**testigo perfecto**: si el módulo reproduce esas pólizas, la tarea quedó automatizada.
+
+### El criterio de aceptación, cumplido
+
+`test-newdb-libro-compras-replica.js` (sólo lectura contra prod): por cada abono a proveedor del
+libro real se busca su CFDI (cuenta + últimos 5 del folio + total) y el servicio real regenera el asiento.
+
+| Mes | Renglones reales | Generados | Distintos | IVA | IEPS |
+|---|---:|---:|---:|---|---|
+| jul-2026 | 597 | 597 | **0** | $614,102.17 = | $2,035,353.01 = |
+| ago-2026 | 625 | 625 | **0** | $837,398.41 = | $2,409,090.14 = |
+| sep-2026 | 428 | 428 | **0** | $249,348.86 = | $1,666,775.02 = |
+
+Incluye las 10 facturas de proveedores nuevos con la cuenta asignada como lo haría la pantalla.
+**Prueba negativa:** con el reparto anterior sólo coincidían 245/279, 257/293 y 188/203 facturas.
+
+### Lo que hubo que cambiar para llegar ahí (cada punto medido contra los tres libros)
+
+1. **El reparto 501/502 de la contadora.** `502 = IVA ÷ 0.16`, con tope en `total − IVA − IEPS8`
+   (en una factura 100 % gravada el IVA redondeado por concepto hace que se pase por centavos y
+   entonces no hay 501). `501` = lo que resta. **En centavos enteros**: en flotante, `4196.78 / 0.16`
+   redondeaba a .87 y lo exacto es .88 (5 facturas salían con un centavo de diferencia).
+2. **Sólo se acredita el IEPS al 8 %.** El de 26.5 % y el de cuota se quedan en el costo, como en
+   el libro manual. **Decisión de Edgar del 2026-10-21**. Se declara como aviso con su monto.
+   ⚠️ **Contradice a Fase RE**: el expediente de recepción dice del IEPS por cuota *«se acredita (no va
+   al costo)»* (`expediente-verdict.ts:452`). Alguien de contabilidad tiene que decidir cuál vale.
+3. **Referencia = últimos 5 caracteres del folio** (`361750 → 61750`, `000806268 → 06268`). Iba el folio entero.
+4. **Las cuentas de IVA e IEPS salen del último libro**, no de constantes: **en sep-2026 la contadora
+   cambió** de `1470040000 IVA POR ACREDITAR` / `1470110000 IEPS POR ACREDITAR` a `1060000000 IVA
+   ACREDITABLE` / `1470100000 IEPS ACREDITABLE`. Con las fijas, octubre salía con las de antes.
+5. **Folio 1 por default** cuando ContPAQi no tiene el libro del mes (el caso normal), con el concepto
+   `REGISTRO DE COMPRAS DEL MES DE <MES> <AÑO>`. Antes nacía como complemento en el folio 2.
+6. **Mapa de proveedores unificado** (`MAPA_PROVEEDORES_CTE`): el del libro + lo que ContPAQi resolvió
+   por UUID (`contpaqi.supplier_accounts`, veredicto firme; nunca sólo por nombre), con la existencia de
+   cada cuenta **en vivo** (catálogo O ya usada en una póliza). El mismo para tablero, mes y respaldo.
+7. **Alta de proveedor nuevo desde la pantalla** («Asignar cuenta»): sugiere la 212 por nombre / UUID
+   y valida antes de escribir — la cuenta existe en ContPAQi, no es de otro RFC, el RFC no tiene otra.
+   Cada mes entran proveedores nuevos: en jul/ago/sep fueron 1, 5 y 4 facturas ($767k) fuera del mapa.
+
+### Qué facturas entran: la parte que NO se puede reproducir al 100 %
+
+El libro es **100 % PPD** salvo unas pocas PUE al año, y ningún campo del CFDI ni de Kepler (cuenta por
+pagar `kdxe`) separa lo que entra de lo que no. Medido sobre jul/ago/sep: además de las facturas del libro,
+**~115 al mes** sin asociar, de proveedores del catálogo, **nunca entraron** al libro manual ($0.6–1.1M).
+**Decisión de Edgar (2026-10-21): separar por historial.** Entra por default sólo si el proveedor apareció
+en el libro de los últimos 6 meses; las demás van al grupo «Sin libro reciente», excluidas, para revisar.
+
+| Mes | Del libro con historial | Del libro sin historial (revisar a mano) | Extras que entran por default |
+|---|---:|---:|---:|
+| jul | 270 de 277 | 4 | 67 ($494k) |
+| ago | 281 de 291 | 7 | 48 ($448k) |
+| sep | 200 de 200 | 0 | 58 ($761k) |
+
+⚠️ **Medido con la marca de asociación de HOY**, que ContPAQi pone después de subir el libro: las cifras
+de arriba son una cota, no la foto del día en que se armó. **Octubre-2026 (el mes que toca):** propone
+**275 facturas por $31.8M** en folio 1, y deja 64 ($1.58M) en «Sin libro reciente».
+
+### También
+
+- **B6**: los choques de folio (`UNIQUE`) ya no dan 500 — savepoint + mensaje.
+- **B5**: cambiar de mes limpia la tabla y cancela la carga anterior.
+- **Override con motivo** desde la pantalla (lo pedía el servidor desde LC.14 y no había dónde escribirlo).
+- **Rendimiento**: tablero 7.3 s → **488 ms** (el historial se cruza por igualdad en vez de un `EXISTS` por
+  CFDI; `cargos` acotado a la ventana; los cruces sólo sobre lo no asociado). Mes 0.9 s → **300 ms**.
+  Medido desde la prueba, con red.
+
+### Verificación y lo que NO se midió
+
+- Réplica **27 ✓ / 0 ✗** contra prod (sólo lectura) · trámite **20 ✓** contra prod (sólo lectura; incluye
+  sugerencia real: BOMBONELYZ → `2120000562`, y los 4 rechazos del alta) · carátula 66/66 · txt 49/49.
+- **NO MEDIDO: el modo completo del trámite** (generar, entregar, cancelar, aplicar, **asignar cuenta**
+  escribiendo): sólo corre en el job `pruebas-db` del CI. En esta máquina no hay Postgres local.
+- **NO MEDIDO: el separador del TXT contra un import real.** El formato se validó en CP.8.13 contra 14
+  pólizas reales exportadas de ContPAQi, no con un import nuestro aceptado.
+- **Arranque no verificado** (`[CP.8.52]` regla 30): sólo se agregaron dos rutas al controlador, sin
+  tocar el constructor ni lo inyectado.
+- **Sin validación visual** (lo más probable de ajustar: el diálogo de «Asignar cuenta» y el lugar de la
+  línea de cuentas de impuesto).
+- **Catálogo de cuentas `analytics.contpaqi_accounts` es una foto del 2026-10-09** (lo llena un script sin
+  agenda). Una cuenta 212 recién creada se ve en cuanto aparece en cualquier póliza; antes de eso, «Asignar
+  cuenta» la rechaza como inexistente. Agendar ese refresco es una decisión de operación, no de este item.
+
+## LC.18.1 — e2e en producción con el navegador (2026-10-21)
+
+Sobre prod (commit `abe5feaeb`, que ya traía LC.17 y LC.18), con Chrome DevTools en un contexto aislado y
+la sesión iniciada por Edgar. **Escrituras autorizadas por Edgar: todo, en octubre-2026, más el alta de
+BOMBONELYZ.**
+
+### Lo que pasó (✓) y lo que quedó escrito en prod
+
+| # | Paso | Resultado |
+|---|---|---|
+| 1 | Abrir oct-2026 | 275 entran · $31,829,626 · chips 275+64+262+7 = 608 · pie cuadra · IVA/IEPS «como el libro de sep» · consola sin errores · mes 243 ms, rail 557 ms (en frío, por el túnel) |
+| 2 | jul-2026 (TXT legado) | «El archivo guardado ya no sirve», sólo «Generar» (sin descargar ni entregar) |
+| 3 | jun-2026 (firma sin archivo) | igual: sin los botones que daban 404 |
+| 4 | «Sin libro reciente» | 64 filas, desmarcadas, con su motivo; pie $1,583,162.75 = el aviso |
+| 5 | «Asignar cuenta» (gasolinera) | diálogo sin sugerencia, «Asignar» apagado; cancelado sin escribir |
+| 6 | **Alta BOMBONELYZ** (API, payload del diálogo) | sugiere `2120000562` (100 %) · cuenta de otro → 400 · **alta → 201, 501/502 verificadas** · cambiarla → 400. **Queda en `finance.gl_supplier_accounts` (source `manual_lc`)** |
+| 7 | Marcar a mano 1 «sin libro reciente» | chip 275 → 276; **la corrida nace folio 1 «REGISTRO DE COMPRAS DEL MES DE OCTUBRE 2026», fecha 31-oct** |
+| 8 | Marcar 1 «Revisar» + Generar | toast «se duplicaría» · diálogo de motivo · botón apagado sin motivo · «Volver» |
+| 9 | **Generar** (sin sospechosas) | 255 ms · 276 facturas · 588 renglones · $31,838,557.64 · folio 1 |
+| 10 | Descargar TXT | 200 · P/M = 185/272 · CRLF · 587 M · cuentas 1060000000/1470100000 · referencia de 5 |
+| 11 | Respaldo / CSV | 200 · 276 facturas · cuadra al centavo con el TXT |
+| 12 | **Marcar entregado** | Generar apagado · «Cancelar entrega» · las 276 pasan a «Ya en el libro» (puerta exacta) |
+| 13 | Regenerar encima / estado inválido | 400 / 400 |
+| 14 | **Cancelar entrega** (con motivo) | motivo en notas · descarga 404 · 276 vuelven a pendientes |
+| 15 | B5: 4 clics rápidos entre meses | queda octubre, con filas sólo de octubre |
+| 16 | Desmarcar la del paso 7 | vuelve a 275 |
+
+**Queda en prod:** la corrida `2026-10 / complemento` en **folio 1, estado `cancelado`**, con motivo «Prueba e2e
+LC.18 – no se subió a ContPAQi» (la contadora la regenera normal); filas de `run_items` de esa corrida (una
+exclusión manual de RUBEN PEREZ VICTOR, que es el default) y el alta de BOMBONELYZ.
+
+### Los 7 defectos que encontró, y su arreglo (LC.18.1)
+
+| # | Defecto | Arreglo |
+|---|---|---|
+| 1 | Sin corrida, la pantalla decía «Póliza **2**» y el servidor la crea en el 1 | el folio sin corrida sale del rail (1 si ContPAQi no tiene el libro) |
+| 2 | «…hay que generarlo de nuevo. Vuelve a generarlo.» | el motivo del servidor, sin repetir |
+| 3 | Las 262 «sin cuenta» de oct (casi todas de **gasto**) ofrecían «Asignar cuenta» todas igual | el servidor sugiere por fila la 212 **libre** con el mismo nombre (≥ 80 %; con 50 % salían personas que sólo comparten nombre de pila). Destacado sólo donde hay sugerencia (oct: 3 — RODOLFO BRAVO, PRODUCTOS UVAVIÑA, SANDRA SANDOVAL); en las demás «Sin cuenta» gris + «asignar» discreto. Ya no es rojo: excluida, no impide generar |
+| 4 | El libro del mes bajaba como `complemento-compras-2026-10.txt` | el nombre lo decide el folio |
+| 5 | ⛔ **El TXT de oct salió SIN UUID**: la corrida en borrador nacía con `incluye_uuid = false` (default de la columna) y la pantalla desmarcaba la casilla sola | la corrida nace con `incluye_uuid = true`; la pantalla sólo respeta la opción de un archivo vigente (no de un borrador ni de una cancelada) |
+| 6 | Entregado el mes, el chip decía «Entran al TXT 1» (la marcada a mano) | la prueba exacta gana también sobre la decisión manual |
+| 7 | Con la entrega cancelada, la tarjeta del rail decía «Cancelado» en rojo | «Pendiente»: el trámite vuelve a estar por hacer |
+
+Y uno de rendimiento: abrir el mes bajaba los ~160 KB del TXT (`select *`) sólo para saber si servía —
+**150 ms** de cada apertura. Ahora la vigencia se calcula en SQL (`vigenciaPorBanderas` + `REGEX_LINEA_LEGADA`,
+el mismo criterio que `esLegado`): **150 → 7–16 ms**. Las cuentas candidatas se guardan 5 min por tenant
+(`asignarCuenta` las invalida). ⚠️ Lo que queda pesado es la vista `v_purchase_book_uuid_prueba` (DISTINCT ON
+sobre los 15,121 UUID del histórico, ~75 % de la consulta del mes; viene de LC.14). Se probó empujarle el filtro
+con `= ANY(ARRAY(...))` y **empeoró** (656 ms: la comparación es lineal); el arreglo real es un índice de
+expresión `upper(cfdi_uuid)` — migración, no se hizo.
+
+**LC.18.2 (mismo día) — resuelto sin migración.** `getMes` ya no une a la vista entera: filtra `v_purchase_book_uuids` (la que no deduplica) a `mes ± 12` — el filtro baja a sus dos ramas — y aplica ahí la misma prioridad (`ORDEN_PRUEBA_SQL`). **Equivalencia medida: 0 diferencias en 77,712 CFDIs de 58 meses**; con ventana 0 difieren 24 (facturas capturadas en el libro del mes siguiente: el control negativo). El candado de réplica cruza ahora las dos implementaciones (5,634 facturas, 982 con prueba exacta, 0 distintas). Consulta del mes 505 → 174 ms (EXPLAIN); el mes completo **255–334 ms** medido desde la prueba. El rail aplica la misma ventana a su `libro_uuid`; lo que le pesa (~500 ms) son los 24 meses de CFDIs y de cargos 501/502, no el histórico — queda así, declarado.
+
+**Prueba del trámite:** los casos 4, 5 y 6 quedan en el modo completo (`pruebas-db`), y el de sólo lectura
+contra prod sigue verde (20 ✓). Réplica 27/27, carátula 66/66, txt 49/49. **Falta redesplegar** para que los
+arreglos de LC.18.1 lleguen a prod, y **volver a correr el e2e** (pasos 1, 7, 9, 10 y 12) para verlos ahí.
+
+## LC.18.3 — la suite e2e de Playwright (2026-10-21)
+
+`e2e/libro-compras/movimientos-no-asociados.e2e.ts` + su `playwright.config.ts`: el e2e manual de LC.18.1 hecho repetible, contra **prod** con navegador real. Lo que pinta la pantalla se **cruza contra lo que responde la API** (chips con el mismo criterio de grupos escrito aparte, pie contra `resumen.total`, cuentas de impuesto, folio), no contra cifras a mano. Cada uno de los 7 defectos de LC.18.1 tiene su prueba.
+
+- **Lectura** (default): 8 pruebas. **Escritura** (`E2E_ESCRIBIR=1`, mes `E2E_MES_ESCRITURA`, default 2026-10): generar → entregar → cancelar, verificando #4 (nombre), #5 (UUID en cada abono a proveedor y P/M = 185/272), #6 (entregado ⇒ nada por entrar) y #7. Deja el mes pendiente con una corrida cancelada; nunca marca aplicado.
+- **Sesión:** `MD_TOKEN_FILE` = archivo con el JWT de un usuario con `FISCAL_PURCHASE_BOOK_GESTIONAR`. Sin él, las 11 se saltan como **NO MEDIDO** (verificado).
+- Correr: `MD_TOKEN_FILE=<ruta> npx playwright test -c e2e/libro-compras/playwright.config.ts`.
+
+**Primera corrida, 2026-10-21, contra prod en `abe5feaeb` (SIN LC.18.1/18.2 desplegados):** 3 ✓ · 5 ✗ · 3 saltadas (escritura, a propósito). Las 5 rojas son exactamente lo que el despliegue arregla: **#5** (la casilla del UUID desmarcada), **#7** (tarjeta «Cancelado»), **#2** (motivo repetido), **#3** (la API todavía no manda `cuenta_sugerida`) y **el tiempo del mes: 1,401 ms** desde el navegador. Es la prueba negativa natural de la suite: rojo donde hay defecto.
+
+**Segunda corrida, 2026-10-21, contra prod en `309370573` (con LC.18.1/18.2):** **11 ✓ / 0 ✗ en 44 s, con escritura** (`E2E_ESCRIBIR=1`, oct-2026: generar → entregar → cancelar; el mes quedó pendiente otra vez).
+
+## LC.19 — verdad absoluta del libro, y después automatizarlo (2026-10-21)
+
+Pedido de Edgar: *«debemos automatizar este proceso y tener la menor cantidad de interacción humana»*
+y, antes, *«¿ya tenemos una verdad absoluta?»*. La respuesta medida fue **no**: el asiento sí está
+arbitrado (réplica 1,650/1,650 contra los libros manuales), pero ocho cosas no, y la peor es la primera.
+**Orden decidido: la verdad antes que la automatización** — automatizar sin LC.19.1 haría entrar
+solas también las facturas canceladas.
+
+| Item | Qué | Estado |
+|---|---|---|
+| **LC.19.1** | Estatus SAT real: el feed no borra lo verificado, sólo `vigente` se postea, «Verificar en el SAT» | 🧪 |
+| LC.19.2 | Frescura visible (CFDIs / pólizas) y «Nada pendiente» sólo con el feed al día | 🧪 |
+| LC.19.3 | Banner honesto: «N propuestas por regla de historial», no «$X sin contabilizar» | 🧪 |
+| LC.19.4 | Testigo de completitud de los CFDI (descarga masiva SAT vs ADD) | ⚠️ medido una vez; el continuo espera la e.firma (venció 2026-07-27) |
+| LC.19.5 | Sección LC en `VERDAD_ABSOLUTA.md` (§33) | 🧪 — **LC.19.5b** (paridad en `test-newdb-truth-parity.js`) queda como deuda con nombre |
+| **LC.19.6** | Menos interacción humana, **sin cron** (Edgar, 2026-10-22): el mes se prepara solo al abrirlo — SAT, aplicado por evidencia, cuentas de nombre idéntico, el archivo del mes que toca —, «Descargar todo», el porqué de la exclusión en lista cerrada | 🧪 |
+| LC.19.7 | Pendiente: ascender las «Importe ya posteado» que casan 212+referencia+total en el folio 1 · PUE y $0 fuera · catálogo de cuentas en el feed de ContPAQi | ⬜ |
+
+### LC.19.1 — el estatus SAT no medía nada
+
+**Medido el 2026-10-21 en prod (sólo lectura):** de los CFDI recibidos, **100 % `desconocido` en
+ago, sep y oct-2026** (920 de 920 en octubre); sólo julio tiene 191 vigentes y 3 canceladas. El
+libro bloqueaba sólo `cancelado`, así que **una factura cancelada entraba al TXT**. No era que nadie
+verificara: el cron FISCAL.6 (01:30) sí le pregunta al SAT, y el WS responde bien (`Vigente` en
+~100 ms, probado con 3 CFDI de octubre y uno de julio). **El feed del ADD lo borraba:** su UPSERT
+hacía `estatus_sat = EXCLUDED.estatus_sat`, y el ADD trae `CancelStatus` vacío → `desconocido`.
+Caso medido: consultado a las 07:30 → vigente; re-sincronizado por el feed a las 11:47 → desconocido.
+Lo mismo les pasaba a las facturas que nosotros cancelamos. Y la cola tampoco alcanzaba: 300 por
+noche, mezclando emitidos, contra **8,498 recibidos de los últimos 6 meses sin verificar**.
+
+**Lo que cambia:**
+- **Feed** (`import-contpaqi-cfdis.js` + `estatus-sat-merge.js`): `desconocido` que llega no pisa lo
+  sabido, y `cancelado` es absorbente. ⚠️ El feed vive en la imagen de ingesta: se despliega con
+  `ops/vl/deploy.sh feeds-cron`, **no** con `soltar.sh`.
+- **Cron FISCAL.6**: primero los `desconocido`, de ésos los recibidos; 300 → 2,500 por noche (~10 min).
+- **Libro**: sólo `vigente` se postea. «Sin verificar ante el SAT» pasa de aviso a **bloqueante**, en
+  la pantalla y en el servidor (`generar` lo rechaza aunque se llame directo). **Sin override**: no
+  hay nada que un humano pueda juzgar; lo que el SAT no encuentre se desmarca y se genera el resto.
+- **«Verificar en el SAT»** (`POST no-asociados/:mes/verificar-sat`): verifica en el momento las
+  marcadas y las que se podrían marcar, en lotes de 100 (~25 s, lejos del corte de 100 s de
+  Cloudflare); la pantalla repite hasta terminar. Lo consultado hace < 15 min no se vuelve a pedir,
+  así un «no encontrado» no cicla. Port `CFDI_ESTATUS_PORT` declarado en finance (que no puede
+  importar fiscal), ligado en `apps/api/src/composition/cfdi-estatus.binding.module.ts`.
+
+**Verificación:**
+- `test-newdb-cfdi-estatus-merge.js`: los 9 casos evaluados por Postgres ✓, prueba negativa (la
+  expresión vieja reprueba 3) ✓, cableado del feed ✓. **NO MEDIDO aquí:** el `EXPLAIN` del UPSERT — el
+  usuario de prod no puede escribir en `fiscal.cfdis` (ni planear un INSERT); se mide en `pruebas-db`.
+- Trámite contra prod (sólo lectura): **22 ✓**. Octubre: **275 de 275 marcadas sin verificar → bloqueante**;
+  sin el port, `verificarSat` no consulta nada y lo declara (`disponible=false`, 345 por verificar).
+- Trámite en `pruebas-db` (modo completo, **no corrido en esta máquina**): sin verificar no se genera
+  (prueba negativa en el servidor), la cadena real libro → `EstatusService` (SQL real como
+  `app_runtime`) → SOAP falso, qué se pide al SAT, el «no encontrado» que no cicla.
+- Inyección (regla 30): `design:paramtypes` / `self:paramtypes` leídos con `reflect-metadata` — índice 3
+  = `CFDI_ESTATUS_PORT`, opcional; el binding es global con `useExisting: EstatusService`. **Arranque
+  completo de la API no verificado** (sólo en CI/prod).
+- `check:pantalla contabilidad`: 0 fallas nuevas, la plantilla tipa.
+- ⚠️ Lint: el binding importa `@megadulces/fiscal` desde `apps/api` y `enforce-module-boundaries` no
+  lista `scope:fiscal` para `scope:api` (su comentario dice «la app api compone todos los dominios»).
+  Mismo caso que `invoice-issuer.binding.module.ts` y los 13 imports de `app.module.ts`. No se tocó la
+  config de lint sin autorización.
+- e2e: se agregó «verificar en el SAT» antes de generar (negativa en UI y API, luego verifica de verdad).
+
+### LC.19.2 — la frescura de las dos fuentes, y el cero que no es «al día»
+
+La pantalla no decía de cuándo era lo que mostraba (deuda §9 de `check:pantalla`), y con **cero
+CFDIs** pintaba en verde «Nada pendiente — todas las facturas están ligadas»: con el feed del ADD
+muerto se habría visto igual que un mes limpio.
+
+- `getMes` devuelve `frescura` (el `Freshness` ternario de `platform-core`, `evalInput` +
+  `composeFreshness`, no uno nuevo) con dos eslabones por el latido de su carril (`laneAt` →
+  `v_feed_freshness`): **`cfdis`** ← `contpaqi_add_cfdis` y **`polizas`** ← `feed_contpaqi`, tolerancia 1 h.
+  Leído en SAVEPOINT: si falla, `unknown`, nunca «fresco».
+- **Pólizas viejas o sin medir = BLOQUEANTE** (pantalla y `generar`): las cuatro puertas del
+  anti-duplicado mirarían una foto vieja y el TXT duplicaría lo posteado después. **CFDIs viejos =
+  aviso**: lo que falte entra después en un complemento, no se duplica nada.
+- La pantalla pinta una `<app-freshness-pill measures="data">` por fuente (la compartida). Con cero
+  CFDIs y el feed no fresco, el veredicto pasa a «Sin facturas por asociar, pero sin datos al día».
+- ⚠️ **Declarado:** `feed_contpaqi` corre dos pasos (pólizas + bancos) y cierra `ok` aunque falle uno
+  (GX.19); no tiene bitácora por paso. Es el testigo más fuerte que hay hoy para las pólizas.
+- Medido en prod: `app_runtime` lee `v_feed_freshness` y `cron_runs` (sin eso, todo saldría «sin
+  medir» y bloquearía cada mes); octubre abre en 329 ms con la frescura incluida.
+- Pruebas: trámite contra prod **23 ✓** (la frescura de las 2 fuentes medida, con hora). En `pruebas-db`:
+  latidos sembrados y restaurados; pólizas de hace 3 h → bloqueante y `generar` rechazado (prueba
+  negativa en el servidor); CFDIs de hace 3 h con pólizas al día → aviso, no bloqueo.
+- `check:pantalla`: la pantalla paga su deuda §9 (36 → 35 fallas), 0 nuevas.
+
+### LC.19.3 — el banner dice qué es: una propuesta
+
+Decía «**Faltan 275 movimientos por asociar — $31,829,626 sin contabilizar**», como si las 275
+fueran un hecho. Entran por una **regla** (proveedor con cuenta que salió en el libro de los últimos 6
+meses), y en jul/ago/sep **entre 46 y 65 al mes nunca entraron al libro manual** — ninguna aparece en
+ninguna póliza de ContPAQi, por UUID ni por su 212. Ahora: «**275 facturas sin asociar propuestas para
+el TXT · $X**. Entran porque el proveedor tiene cuenta y salió en el libro de los últimos 6 meses:
+revísalas antes de generar. Otras 64 ($1.58M) esperan revisión en «Sin libro reciente».»
+
+### LC.19.4 — ¿están todos los CFDI? Medido una vez; el testigo continuo está bloqueado
+
+El único testigo independiente del ADD es la **descarga masiva del SAT** (FISCAL.4). Medido en prod:
+corrió **una sola vez** con éxito (solicitud del 1 al 17 de julio de 2026; 4 intentos previos en
+error), y la **e.firma cargada venció el 2026-07-27**. En esa ventana:
+
+| | SAT | en la base |
+|---|---:|---:|
+| Total reportado por el SAT | 1,015 | 818 del ADD + 194 sólo de la descarga = 1,012 |
+| Lo que trajo **sólo** el SAT | — | 176 complementos de pago (P) + 18 traslados (T), **$0.00** |
+| Tipo I / E (lo que va al libro) | ~821 | **818** en el ADD (689 I + 129 E) |
+
+O sea: **para lo que entra al libro, el ADD estaba completo** en la única ventana medible (hueco de 3,
+< 0.4 %, sin identificar: el feed reescribe `source`, así que no se sabe cuáles UUID trajo cada uno).
+⚠️ **El testigo continuo espera una e.firma vigente**: cargarla es tocar una credencial (regla 7),
+lo decide contabilidad / Edgar. Hasta entonces, la completitud es **NO MEDIDA** fuera de esa ventana.
+
+### LC.19.5 — la sección en VERDAD_ABSOLUTA
+
+[`VERDAD_ABSOLUTA.md` §33](../../VERDAD_ABSOLUTA.md): qué arbitra cada número del libro (asiento,
+universo, anti-duplicado, estatus SAT, completitud, frescura, cuentas), su veredicto y su hueco con
+monto, los candados que lo vuelven a medir y tres hipótesis refutadas. **Deuda con nombre, LC.19.5b:**
+el libro calcula en el servicio, no desde una vista resolvedora, así que no entra a la tabla de §5 ni a
+`test-newdb-truth-parity.js`; su paridad publicado-vs-calculado vive hoy en el e2e, que corre a mano.
+
+### LC.19.6 — el mes se prepara solo, sin cron
+
+Pedido de Edgar: *«podemos mejorar la interacción humana»* → *«todo bien, sólo no usemos crons»*.
+**El evento es abrir el mes**: la pantalla (sólo con GESTIONAR) llama `POST no-asociados/:mes/preparar`
+y lo repite mientras el SAT tenga pendientes. Cada paso tiene un freno; lo que no pasa el freno se
+queda para una persona, con el motivo escrito — nunca se fuerza.
+
+| Paso | Lo hace solo cuando | Si no, |
+|---|---|---|
+| **Aplicado** | ContPAQi tiene la póliza y **casa renglón por renglón** con el archivo (`cuadrarContraContpaqi`: 0 sobrantes de cada lado, deltas en 0) | dice «tiene el folio pero no casa (N y M renglones)» y deja «Marcar aplicado» a la persona |
+| **Cuenta del proveedor nuevo** | nombre **idéntico** (parecido 1.0), **una sola** candidata ≥ 0.8, libre, RFC sin cuenta → `asignarCuenta` (mismos frenos), rotulada **`auto_lc`** | se queda en «Sin cuenta» con su sugerencia. ⚠️ Asignada no entra al TXT: un proveedor nuevo cae en «Sin libro reciente» |
+| **Estatus SAT** | siempre, un lote de 100 por vuelta | — |
+| **El archivo** | sólo el **mes que toca** (el anterior al actual, hora MX), SAT sin pendientes, 0 bloqueantes, ninguna marcada con «importe ya posteado», corrida sin archivo (nueva, borrador o cancelada) | dice por qué (p. ej. «hay marcadas con importe ya posteado: generarlas pide un motivo») |
+
+Y en la pantalla:
+- **«Marcar entregado» deja de ser un paso.** Generado → aplicado se permite en el servidor **sólo con
+  evidencia** (ContPAQi ya tiene el folio); sin ella se rechaza como antes. El estado `entregado`
+  sigue existiendo para quien lo use por API.
+- **«Descargar todo»**: los tres archivos (TXT, respaldo Excel, CSV del asociador) de un clic, con el
+  código de cada uno (sin ZIP: el Excel se arma en el navegador y duplicarlo en el servidor serían dos
+  implementaciones del mismo archivo). Chrome pide una vez permiso para descargas múltiples.
+- **El porqué de una exclusión**, en lista cerrada y opcional: *gasto o servicio · ya contabilizada
+  por otra vía · devolución o nota · duplicada · otro*. **Por qué:** medido sobre las 167 extras de
+  jul/ago/sep, **«excluir siempre a este proveedor» no sirve** — 123 (74 %) son de proveedores con unas
+  facturas dentro del libro manual y otras fuera el mismo mes, y los 8 proveedores restantes no se
+  repiten. La regla no está en los datos; con 2–3 meses de porqués etiquetados se puede medir si aparece.
+- Poner sólo el motivo **ya no tira el archivo** (`setInclusion` invalida únicamente si cambió dentro/fuera).
+- Al cambiar casillas, el mes se vuelve a preparar solo **4 s después del último clic** (no uno por clic).
+- **Defecto encontrado de paso:** `descargar()` fijaba el nombre `complemento-compras-*.txt` en el
+  navegador y pisaba el `poliza-compras-*` del servidor (lo de #4 en LC.18.1 sólo arregló el servidor).
+
+**Lo que queda humano, y por qué:** revisar las propuestas (el criterio no se puede derivar), importar
+el TXT y correr el Asociador en ContPAQi (ADR-040: no escribimos en el SoR), y lo que algún freno detuvo.
+**Sin aviso a contabilidad**: sin cron no hay quién dispare un correo el día 1; el rail ya dice
+«N por entregar» al entrar.
+
+**Pruebas:**
+- Trámite en `pruebas-db` (**no corrido en esta máquina**): sólo-motivo no invalida / sacar una de
+  dentro sí (negativa); póliza con un renglón +$0.01 → no se marca sola (negativa) / casando → aplicado
+  con su nota; nombre idéntico con una candidata → `auto_lc` / dos candidatas del mismo nombre → nada
+  (negativa); fuera del mes que toca no se arma el archivo; sin port del SAT, `disponible=false`.
+- Trámite contra prod (sólo lectura): **23 ✓**.
+- e2e: el bloque de lectura **intercepta** `preparar` (abrir el mes escribe); el de escritura abre con
+  la preparación encendida y espera el «El mes se preparó solo» sin clic. «Aplicado sin evidencia» se
+  prueba sólo si el cuadre CONSTA que ContPAQi no tiene el folio — si lo tuviera, marcaría el mes
+  aplicado de verdad (terminal). `--list`: 12 pruebas. **Correrlo espera el despliegue.**
+- `check:pantalla`: 0 fallas nuevas.
+
 ## Estado
 
 🔨 **EN CURSO 2026-09-03.** LC.0 → LC.12, LC.14, LC.15 y LC.16 cerrados. El módulo ya hace
@@ -851,3 +1246,67 @@ gatea Pólizas y Contabilidad electrónica): quien ya **ve** pólizas ve el libr
    que el emisor canceló después. Amerita su propio sprint.
 3. Un CFDI tipo `T` y los `P` (pagos) siguen viniendo de la descarga masiva vieja
    (194 filas de julio). Se pueden traer del ADD con `--tipos P,T` cuando haga falta.
+
+---
+
+## LC.CPAG — solicitar el complemento de pago al proveedor (2026-10-21)
+
+> **Pedido de Edgar:** *"solicitudes de complemento de pago: una vez se generó el pago, mandar
+> [pedir] el complemento de pago — compras a crédito y/o PPD. Agrégalo en Contabilidad."*
+> Tarjeta: [MegaDulces_PM#75](https://github.com/edgarcg-01/MegaDulces_PM/issues/75) (privada), hija de LC.
+> Va en LC y no en una fase nueva: son **las mismas facturas de compra (CFDI)** que este libro ya lee, y
+> el tablero está sobre el tope de fases en curso.
+
+### El problema
+
+Cuando pagamos una factura **PPD** (pago en parcialidades o diferido) de un proveedor, el proveedor
+debe emitir el **complemento de pago (CFDI tipo P)**. Sin él, el pago no queda soportado ante el SAT:
+el IVA de esa factura no se puede tratar como pagado. Hoy **nadie sabe cuáles faltan**.
+
+Medido en pg-prod (sólo lectura, 2026-10-21):
+
+| | Cantidad | Monto |
+|---|---:|---:|
+| Facturas **PPD recibidas** de proveedores (jul–oct) | **2,475** | **\$166.5 M** |
+| Complementos **recibidos** (tipo P) | **173**, todos del **1 al 17 de julio** | — |
+
+- ⛔ **Desde el 17-jul no entra ningún complemento recibido.** Las facturas I/E sí llegan al día por el
+  ADD de ContPAQi (`source = contpaqi_add`); los P sólo entraron por la descarga masiva vieja (una
+  solicitud buena de cinco: las otras cuatro de `fiscal.download_requests` quedaron en `error`).
+- ⭐ **La causa es una línea:** `import-contpaqi-cfdis.js` ya acepta `--tipos I,E,P,T` (l.38, 112) y su
+  default es `I,E`. La agenda (`ops/vl/crontab.feeds:182` y `:275`) nunca le pasa `P`. Esta misma
+  sección de Pendientes (arriba) ya lo dejaba anotado: *"se pueden traer del ADD con `--tipos P,T`
+  cuando haga falta"*. Ya hace falta.
+- ✅ La liga es exacta: los complementos traen en el XML el **folio fiscal de la factura pagada**
+  (`IdDocumento`) en **175 de 176**. El pago está en Kepler (`XD25`/`XD26`) y `kepler_ods.kdm5` lo liga
+  a la factura `XA2001` (medido en GX-PAGO).
+
+### El plan
+
+| # | Capa | Qué | Esfuerzo |
+|---|---|---|---|
+| CPAG.1 | C0 | Agregar `--tipos I,E,P` al carril `contpaqi-cfdis` (y al `-full` para el histórico desde jul). Verificar que el ADD de ContPAQi guarda los P (si no, la ruta B es la descarga masiva programada y arreglar sus errores) | **S** |
+| CPAG.2 | C0 | Vista `derive-no-copy`: factura PPD recibida → pago (`kdm5` → `XA2001` → UUID por RFC + folio + total) → complemento (`IdDocumento`) → estado | M |
+| CPAG.3 | C2/C3 | Pantalla en Contabilidad «Complementos de pago»: por proveedor, lo pagado sin complemento, días de atraso y monto | M |
+| CPAG.4 | C2/C3 | Solicitar el complemento al proveedor (D1) y registrar quién lo pidió y cuándo | S–M |
+
+**Prioridad (dinero × esfuerzo):** Alto × L = **2**. Partida: **CPAG.1 + CPAG.2 = saber cuáles
+faltan, Alto × M = prioridad 1.**
+
+### Las opciones
+
+**D1 · ¿Cómo se le pide el complemento al proveedor?**
+
+| Opción | A favor | En contra |
+|---|---|---|
+| **(a) Correo automático** | Nadie tiene que acordarse | No hay servidor de correo configurado (`SMTP_*` sólo en `.env.example`); correos que salen solos a proveedores necesitan plantilla aprobada y una dirección por proveedor que hoy no está en un solo lugar |
+| **(b) Texto listo para copiar** ⭐ recomendada para empezar | Sin infraestructura nueva; la contadora decide a quién y cuándo | Sigue siendo a mano |
+| **(c) WhatsApp** | Es por donde ya se habla con muchos proveedores | El BSP de WhatsApp sigue sin decidir (ADR-006) |
+
+En las tres se **registra** la solicitud (quién, cuándo, a qué proveedor, qué facturas), para saber
+qué se pidió y qué sigue sin llegar.
+
+**D2 · ¿Cuándo se considera atrasado?** El SAT da hasta el **día 5 del mes siguiente** al pago.
+Propuesta: *pendiente* desde el pago, *atrasado* desde el día 6 del mes siguiente.
+
+**No incluye:** emitir nuestros complementos a clientes (lo timbra Kepler: `kdfe33pagm1`).

@@ -37,7 +37,7 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1 style="display:inline-flex;align-items:center;gap:.4rem">Costo por proveedor <app-context-help topic="compras-costo-neto" /></h1>
-          <p class="surf-page-sub">Tu <strong>costo neto</strong> con cada proveedor = compras − descuentos efectivos (pronto pago + notas comerciales). El reabasto debería decidirse con este costo, no con el de lista. Compra por compra, en <a routerLink="/compras/compras-360">Costo por compra</a>.</p>
+          <p class="surf-page-sub">Tu <strong>costo neto</strong> con cada proveedor = compras − descuentos efectivos (pronto pago + notas comerciales). El reabasto debería decidirse con este costo, no con el de lista. Compra por compra, en <a routerLink="/compras/revision-facturas">Revisión de facturas</a> (columnas Ajuste y Neto).</p>
         </div>
         <div class="cn-head-actions">
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
@@ -45,8 +45,8 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
       </header>
 
       <div class="cn-filters">
-        <p-iconfield styleClass="cn-search">
-          <p-inputicon styleClass="pi pi-search" />
+        <p-iconfield class="cn-search">
+          <p-inputicon class="pi pi-search" />
           <input pInputText type="text" placeholder="Proveedor…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar proveedor" />
         </p-iconfield>
         <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)" optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true" styleClass="cn-sel" ariaLabel="Rango de fecha rápido" appendTo="body" />
@@ -70,7 +70,7 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
 
       @if (loading()) {
         <div class="cn-skel">
-          @for (i of skelRows; track i) { <p-skeleton height="2rem" styleClass="cn-skel-row" /> }
+          @for (i of skelRows; track $index) { <p-skeleton height="2rem" styleClass="cn-skel-row" /> }
         </div>
       } @else if (data(); as d) {
         <p-table [value]="d.rows" [loading]="false" styleClass="p-datatable-sm surf-table surf-table--sticky cn-table"

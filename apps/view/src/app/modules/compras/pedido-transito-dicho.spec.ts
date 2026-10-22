@@ -94,7 +94,8 @@ describe('[RA.TR.2] ⛔ la pantalla no puede afirmar que el sugerido resta el tr
   it('⭐ y lo dice al derecho, donde el comprador mira el número', () => {
     // El tooltip de la columna "En camino" y el pie: los dos tienen que negarlo explícitamente.
     expect(VISIBLE).toMatch(/El Pedido NO la descuenta/);
-    expect(VISIBLE).toMatch(/El sugerido NO descuenta lo que viene en camino/);
+    // [RA-UX.10] el pie pasó a minúsculas («no descuenta»): lo que importa es que lo NIEGUE, no la caja.
+    expect(VISIBLE).toMatch(/El sugerido no descuenta lo que viene en camino/i);
   });
 });
 

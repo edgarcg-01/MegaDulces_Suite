@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * Líneas Kepler (md.kdig) → catalog.brands (solo ALTAS, nunca renombra).
+ * Líneas Kepler (kepler_ods.kdig) → catalog.brands (solo ALTAS, nunca renombra).
  *
  * En Kepler cada producto pertenece a una "línea" (kdii.c3 → kdig.c1) cuyo
  * nombre es el proveedor/marca. catalog.brands.code = kdig.c1: el seed original
@@ -27,9 +27,6 @@ const { Client } = require('pg');
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const APPLY = process.argv.includes('--apply');
-// Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
-const { stockMap } = require('../lib/kepler-branches');
-const MAP = process.env.STOCK_BRANCH_MAP ? JSON.parse(process.env.STOCK_BRANCH_MAP) : stockMap({ cedis: true });
 
 (async () => {
   const db = new Client({ connectionString: DST });
@@ -37,21 +34,29 @@ const MAP = process.env.STOCK_BRANCH_MAP ? JSON.parse(process.env.STOCK_BRANCH_M
   try {
     console.log(`\n=== Líneas Kepler (kdig) → catalog.brands (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
+    // `[OPS.LIMPIEZA.4]` **DEL ODS, no de las sucursales.** Antes abría una conexión por sucursal
+    // con `stockMap()`, que da el POS REMOTO de cada una (no la réplica local): siete viajes por la
+    // red de las plazas, y una sucursal caída se saltaba con un `⚠` que nadie leía. Viola la regla
+    // principal (todo del ODS, de una tabla). `kepler_ods.kdig` ya trae las 9 con `sucursal`.
+    //
+    // ⭐ La PRECEDENCIA se conserva: antes ganaba la primera sucursal del mapa (00 → 08) que traía
+    // el código; acá, `ORDER BY sucursal` y la misma regla «primera gana». Medido en prod el
+    // 2026-10-19: 549 códigos y UNO solo con nombre distinto entre sucursales (`002`: KI´SNACKS
+    // en 00–05, MONDELEZ en 01/06/07/08) — gana la 00 antes y después.
+    const { rows } = await db.query(
+      `SELECT sucursal, btrim(c1) AS code, btrim(c2) AS nombre FROM kepler_ods.kdig
+        WHERE btrim(coalesce(c1,'')) <> '' AND btrim(coalesce(c2,'')) <> ''
+        ORDER BY sucursal, c1`);
+    // Una fuente vacía no es «no hay líneas nuevas»: es que la lectura falló. Se DECLARA.
+    if (!rows.length) throw new Error('kepler_ods.kdig devolvió 0 líneas — fuente vacía, no se decide nada');
     const byCode = new Map();
-    for (const b of MAP) {
-      const src = new Client({ connectionString: b.url, connectionTimeoutMillis: 8000 });
-      try {
-        await src.connect();
-        const { rows } = await src.query(
-          `SELECT btrim(c1) AS code, btrim(c2) AS nombre FROM md.kdig
-            WHERE btrim(coalesce(c1,'')) <> '' AND btrim(coalesce(c2,'')) <> ''`);
-        // \s+ → ' ': kdig trae \r y dobles espacios (btrim de PG solo quita espacios)
-        for (const r of rows) if (!byCode.has(r.code)) byCode.set(r.code, r.nombre.replace(/\s+/g, ' ').trim().toUpperCase());
-        console.log(`  ${b.url.split('@')[1]}: ${rows.length} líneas`);
-      } catch (e) {
-        console.log(`  ⚠ ${b.url.split('@')[1]} no disponible: ${e.message}`);
-      } finally { await src.end().catch(() => {}); }
+    const porSucursal = new Map();
+    for (const r of rows) {
+      porSucursal.set(r.sucursal, (porSucursal.get(r.sucursal) || 0) + 1);
+      // \s+ → ' ': kdig trae \r y dobles espacios (btrim de PG solo quita espacios)
+      if (!byCode.has(r.code)) byCode.set(r.code, r.nombre.replace(/\s+/g, ' ').trim().toUpperCase());
     }
+    console.log(`  kepler_ods.kdig: ${[...porSucursal].map(([s, n]) => `${s}=${n}`).join(' · ')}`);
     console.log(`  total dedup: ${byCode.size} líneas\n`);
 
     const existing = await db.query(

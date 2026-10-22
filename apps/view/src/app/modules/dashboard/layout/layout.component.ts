@@ -39,9 +39,10 @@ import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../
 import type { PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
 import { pestanaVisible, primeraPestanaVisible, urlEnPestanas } from '../../../shared/components/page-tabs/pestanas-de-area';
 import { GASTOS_TABS } from '../../finanzas/gastos-tabs';
+import { CAJA_TABS } from '../../finanzas/caja-tabs';
 import { PAGOS_TABS } from '../../finanzas/pagos-tabs';
 import { REPORTES_GENERALES_TABS } from '../../comercial/reports-tabs';
-import { RUTA_DIRECTA_TABS } from '../../comercial/ruta-directa-tabs';
+import { RUTA_DIRECTA_TABS, RUTA_DIRECTA_LABEL } from '../../comercial/ruta-directa-tabs';
 import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
 import { CUSTOMERS_TABS } from '../../comercial/customers-tabs';
 import { PRECIOS_TABS } from '../../comercial/precios-tabs';
@@ -466,6 +467,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Ruta y vendedores',
       items: [
         { label: 'Cartera de ventas',  icon: 'pi pi-sitemap',    route: '/comercial/cartera',       permission: Permission.USUARIOS_ASIGNAR_RUTA },
+        // [MCP.3.7] «Visitas del día» es la primera pestaña de Cartera de ventas, no otra entrada.
         { label: 'Cierre de ruta',     icon: 'pi pi-receipt',    route: '/comercial/route-tickets', permission: Permission.ROUTE_CONTROL_VER },
         { label: 'Ventas de vendedor', icon: 'pi pi-money-bill', route: '/comercial/vendor-sales',  permission: Permission.COMMERCIAL_VENDOR_SALES_VER },
         // ⭐ UNA entrada para las SIETE pantallas de Ruta Directa, con el patrón de `[GX.80]`:
@@ -474,7 +476,17 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // equivocada dos veces: no son reportes, y no son siete cosas — son un sub-módulo,
         // la misma operación mirada por siete lados. La tira de arriba es la que mueve entre
         // ellas, y por eso cada una de esas pantallas la pinta.
-        { label: 'Ventas por ruta', icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', tabs: RUTA_DIRECTA_TABS },
+        // ⛔ [AUD-A5] Se llamaba «Ventas por ruta», que es el nombre de UNA de sus siete
+        // pestañas. Medido en prod el 2026-10-20: estando en `/comercial/comisiones` la migaja
+        // decía «Comercial / Ventas / **Ventas por ruta**» — porque `currentPageTitle()`
+        // resuelve por `isNavActive()` y devuelve la etiqueta del ítem, no la de la pestaña.
+        // O sea que el eslabón con `aria-current="page"` nombraba otra pantalla.
+        //
+        // ⭐ El arreglo no es parchear `currentPageTitle`: es que el ítem diga lo que agrupa.
+        // El propio archivo de las pestañas ya lo tenía escrito — «el sub-módulo **Ruta
+        // Directa**, que cuelgan de Ventas por ruta» y «ahora hay un nombre para el conjunto»—
+        // pero el conjunto se quedó con el nombre de su primera parte. La ruta NO cambia.
+        { label: RUTA_DIRECTA_LABEL, icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', tabs: RUTA_DIRECTA_TABS },
       ],
     },
     {
@@ -685,12 +697,28 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
         { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
-        { label: 'Caja General', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
-        { label: 'Caja (captura)', icon: 'pi pi-pencil', route: '/finanzas/caja-general', permission: Permission.FINANCE_CAJA_VER },
-        // [IG.2] Faltaba en el sidebar: tenía pestaña desde CS.2 pero no entrada acá, así que se
-        // llegaba sólo escribiendo la URL. Lo destapó el candado nuevo de `finanzas-tabs.spec.ts`,
-        // que ahora recorre TODAS las pestañas en vez de nombrar tres rutas a mano.
-        { label: 'Caja Fuerte', icon: 'pi pi-lock', route: '/finanzas/caos', permission: Permission.FINANCE_CAOS_VER },
+        // `[CGA-A.38]` Era «Caja General», y ése es el nombre que el árbol de permisos le da al motor
+        // NUEVO (`/finanzas/caja-general`). Esta es el espejo del Access Control: movimientos hasta
+        // el 10-oct; desde el 12 la caja se opera en «Caja».
+        { label: 'Control (histórico)', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
+        /**
+         * `[CG.121]` **UNA entrada para las tres pantallas del efectivo** (pedido de Edgar,
+         * 2026-10-19): Captura · Expediente · Caja Fuerte. Adentro se cambia con la barra de
+         * pestañas: `CAJA_TABS`, la MISMA lista que leen la barra y esta entrada.
+         *
+         * Eran dos renglones sueltos acá —«Caja (captura)» y «Caja Fuerte»— y el **Expediente
+         * no tenía ninguno**: se llegaba sólo escribiendo la URL. Es lo que `[IG.2]` ya había
+         * cobrado con Caja Fuerte, repetido en la pantalla de al lado.
+         *
+         * ⚠️ `route` queda como valor por omisión: `conDestino()` la reemplaza por la PRIMERA
+         * pestaña que la persona ve, así que quien sólo tiene `FINANCE_CAOS_VER` entra por Caja
+         * Fuerte y no rebota contra `/sin-acceso`.
+         *
+         * ⛔ NO se toca «Caja General» (`/finanzas/caja`), el renglón de arriba: es otra
+         * pantalla —la LECTURA del espejo del Access, de Tesorería— y se retira en `CG.16`.
+         * Nombres parecidos, circuitos distintos.
+         */
+        { label: 'Caja', icon: 'pi pi-money-bill', route: '/finanzas/caja-general', tabs: CAJA_TABS },
         { label: 'Cancelados', icon: 'pi pi-ban', route: '/finanzas/cancelados', permission: Permission.FINANCE_BANK_VER },
         { label: 'Tareas de conciliación', icon: 'pi pi-check-square', route: '/finanzas/tareas', permission: Permission.FINANCE_BANK_VER },
         /**
@@ -901,13 +929,20 @@ export class LayoutComponent implements OnInit, OnDestroy {
       // revisión", permiso `_VALIDAR`) y quien la abría no sabía qué iba a hacer ahí.
       title: 'Recepción',
       items: [
-        // Captura pide GESTIONAR (todo lo que se hace ahí lo exige); observar es Control.
-        { label: 'Captura de facturas',  icon: 'pi pi-file-pdf', route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
-        // `[RE.24]` "Revisión de facturas" salió de uso (2026-09-02): validar y rechazar ya
-        // viven en la lista de órdenes, a la que se llega por Control. Una pantalla menos que
-        // aprender y un solo lugar donde se decide. La ruta redirige, no tira 404.
+        // `[RE.48]` «Captura de facturas» ya no es item propio: es la primera pestaña de Control de
+        // entradas (selector tipo iOS). Quien sube aterriza ahí; quien sólo observa, en Cobertura.
+        // Control va PRIMERO en Recepción (decisión del PM): el proceso empieza en la captura que
+        // vive adentro.
         // [NAV.1] El control de entradas en UNA entrada: su padre era también la pestaña «Cobertura por sucursal».
         { label: 'Control de entradas', icon: 'pi pi-sitemap', route: '/compras/entradas/control', tabs: ENTRADAS_CONTROL_TABS },
+        // `[RE.24]` La pantalla aparte "Revisión de facturas" salió de uso (2026-09-02): validar y
+        // rechazar viven en la lista de órdenes — un solo lugar donde se decide. Eso se mantiene.
+        // ⭐ `[RE.47]` Lo que se perdió fue la PUERTA: la lista se llegaba por Control o por un
+        // item llamado «Costo por compra» que abría en «Por revisar». Medido en prod (2026-10-21):
+        // 1,201 facturas en «recibido», **8 validadas en toda la historia, la última el
+        // 2026-09-01** — el día antes de retirar la puerta. Vuelve con el nombre del trabajo, a la
+        // MISMA lista (no es otra pantalla), y desde Recepción, donde vive el flujo.
+        { label: 'Revisión de facturas', icon: 'pi pi-check-square', route: '/compras/revision-facturas', permission: Permission.COMPRAS_ENTRADAS_VER },
         // RE.3 — el compromiso de pago que la orden de entrada ya traía y nadie veía.
         { label: 'Qué vence',            icon: 'pi pi-calendar-clock', route: '/compras/vencimientos', permission: Permission.COMPRAS_ENTRADAS_VER },
       ],
@@ -920,10 +955,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       // al que lo construyó y nada al comprador.
       title: 'Análisis',
       items: [
-        // RE.20.1 — la fusión: es la MISMA pantalla que `Control de entradas · Listado`, con el
-        // otro lente. Y pide `COMPRAS_ENTRADAS_VER` y no `COMPRAS_360_VER` porque el primero es
-        // superconjunto del segundo (medido): así nadie pierde acceso al fusionar.
-        { label: 'Costo por compra',    icon: 'pi pi-table',      route: '/compras/costo-por-compra', permission: Permission.COMPRAS_ENTRADAS_VER },
+        // `[RE.47]` «Costo por compra» se fue a Recepción como «Revisión de facturas»: abría en
+        // la cola de revisión, no en un análisis. El neto por compra sigue en sus columnas.
         { label: 'Costo por proveedor', icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
         { label: 'Costo estándar',     icon: 'pi pi-book',       route: '/compras/costo-estandar', permission: Permission.COMPRAS_COSTO_ESTANDAR_VER },
         { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_DESCUENTOS_VER },

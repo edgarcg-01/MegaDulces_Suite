@@ -22,6 +22,7 @@ import {
   opcionesUnidad,
   paqueteDeCaja,
   desglose,
+  parseCantidad,
   type OpcionUnidad,
   type PasoDesglose,
 } from '../quotes.service';
@@ -30,6 +31,7 @@ import {
   exportQuoteXlsx,
   type QuoteDeliverableData,
 } from '../quote-deliverable-export';
+import { totalesCotizacion } from '@megadulces/contracts';
 import { branchName } from '../../../core/constants/store-branches';
 
 /**
@@ -539,14 +541,17 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                   <td class="num dt-num" role="cell" data-label="Cantidad">
                     @if (editable() && l.parent_line_number === null) {
                       <div class="inline-qty-box">
+                        <!-- [E.20] Se guarda al CONFIRMAR (Enter o salir del campo), no con cada
+                             tecla: antes «48» mandaba un PATCH con 4, el campo se deshabilitaba y
+                             el 8 se perdía (auditoría A3). -->
                         <input
-                          type="number"
+                          type="text"
                           class="input num qty-inline"
-                          [ngModel]="num(l.quantity)"
-                          (ngModelChange)="pedirCambio(l, $event)"
-                          min="1"
-                          step="1"
-                          inputmode="numeric"
+                          [value]="num(l.quantity)"
+                          (change)="pedirCambio(l, $any($event.target))"
+                          (keydown.enter)="$any($event.target).blur()"
+                          (focus)="$any($event.target).select()"
+                          [attr.inputmode]="admiteFraccionLinea(l) ? 'decimal' : 'numeric'"
                           [disabled]="guardando()"
                           [attr.aria-label]="'Cantidad del renglón ' + l.line_number"
                         />
@@ -599,13 +604,22 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
         <aside class="rail" aria-label="Resumen de la cotización">
           <div class="card rail-card">
             <div class="rail-totales">
-              <div class="tot-row"><span>Subtotal ({{ q.lines.length }} renglones)</span><b>{{ num(q.subtotal) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
-              <div class="tot-row"><span>Impuestos</span><b>{{ num(q.tax_total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+              @if (impuestos(); as t) {
+                <div class="tot-row"><span>Subtotal sin impuestos ({{ q.lines.length }} renglones)</span><b>{{ t.subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                <div class="tot-row"><span>IVA</span><b>{{ t.iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+                <div class="tot-row"><span>IEPS</span><b>{{ t.ieps | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
+              }
               <div class="tot-row tot-final"><span>Total</span><b>{{ num(q.total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
               @if (num(q.terms_discount_pct)) {
                 <p class="tot-nota">
                   Incluye el {{ num(q.terms_discount_pct) }}% del cliente, aplicado sobre el subtotal —
                   no sobre el precio de cada renglón.
+                </p>
+              }
+              @if (impuestos()?.impuesto_asumido) {
+                <p class="tot-nota">
+                  Impuesto estimado en {{ impuestos()?.impuesto_asumido }} renglón(es): IVA 16 % asumido,
+                  porque se cotizaron antes de que se guardara la tasa de cada producto.
                 </p>
               }
             </div>
@@ -991,6 +1005,20 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   readonly peldanos = PELDANOS;
 
   readonly cot = signal<QuoteDetail | null>(null);
+
+  /**
+   * `[E.25]` Subtotal, IVA e IEPS con la tasa de CADA renglón: la misma función del servidor
+   * (`recalcTotals`) y del papel. Antes el riel mostraba «Impuestos» calculados al 16 % sobre todo.
+   */
+  readonly impuestos = computed(() => {
+    const q = this.cot();
+    if (!q) return null;
+    return totalesCotizacion(
+      q.lines.map((l) => (this.num(l.unit_price) === null ? null : Number(l.line_total) || 0)),
+      this.num(q.terms_discount_pct),
+      q.lines.map((l) => ({ iva: this.num(l.iva_rate), ieps: this.num(l.ieps_rate) })),
+    );
+  });
   readonly cargando = signal(true);
   readonly error = signal<string | null>(null);
   readonly guardando = signal(false);
@@ -1095,8 +1123,13 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.recargar();
   }
 
-  recargar(): void {
-    this.cargando.set(true);
+  /**
+   * @param silencioso [E.20] true = refresca los datos SIN el estado de carga global. Después de
+   * editar un renglón, el spinner desmontaba la página entera (y con ella el buscador al que
+   * `volverAlBuscador` quería regresar).
+   */
+  recargar(silencioso = false): void {
+    if (!silencioso) this.cargando.set(true);
     this.svc.getOne(this.id).subscribe({
       next: (q) => {
         this.cot.set(q);
@@ -1233,7 +1266,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
             detail: `${qty} ${unidadNom}${qty > 1 ? 's' : ''} de ${itemNom}`,
           });
           this.limpiarAlta();
-          this.recargar();
+          this.recargar(true);
           this.guardando.set(false);
           this.volverAlBuscador();
         },
@@ -1254,7 +1287,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
             detail: `${this.termino.trim()} guardado como no casado.`,
           });
           this.limpiarAlta();
-          this.recargar();
+          this.recargar(true);
           this.guardando.set(false);
           this.volverAlBuscador();
         },
@@ -1262,9 +1295,27 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       });
   }
 
-  pedirCambio(l: QuoteLine, valor: number): void {
-    const qty = Math.floor(Number(valor));
-    if (!Number.isFinite(qty) || qty <= 0 || qty === this.numOr0(l.quantity)) return;
+  /** [E.20] Fracción sólo en lo que se pesa y en su unidad base (antes Math.floor: 2.5 kg → 2). */
+  admiteFraccionLinea(l: QuoteLine): boolean {
+    return !!l.product_sold_by_kg && this.rungDeLinea(l) === 'base';
+  }
+
+  pedirCambio(l: QuoteLine, input: HTMLInputElement): void {
+    const actual = this.numOr0(l.quantity);
+    const qty = parseCantidad(input.value, this.admiteFraccionLinea(l));
+    if (qty === null) {
+      // Lo que no se entiende no se guarda: el campo vuelve a la cantidad que sí tiene el renglón.
+      input.value = String(actual);
+      this.toast.add({
+        severity: 'warn',
+        summary: 'Cantidad no válida',
+        detail: this.admiteFraccionLinea(l)
+          ? 'Escribe una cantidad mayor que cero, por ejemplo 2.5.'
+          : 'Escribe una cantidad entera mayor que cero.',
+      });
+      return;
+    }
+    if (qty === actual) return;
     this.guardando.set(true);
     this.svc.updateLine(this.id, l.id, { quantity: qty }).subscribe({
       next: (r) => {
@@ -1277,11 +1328,11 @@ export class TeleventaQuoteDetailComponent implements OnInit {
             detail: `${p.name || p.sku}: ahora ${p.unit_price} (${this.fuenteLabel(p.price_source)}).`,
           });
         }
-        this.recargar();
+        this.recargar(true);
       },
       error: (err) => {
         this.falla(err, 'No se pudo cambiar la cantidad');
-        this.recargar();
+        this.recargar(true);
       },
     });
   }
@@ -1297,7 +1348,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
           summary: 'Renglón quitado',
           detail: `Se eliminó el renglón ${l.line_number}.`,
         });
-        this.recargar();
+        this.recargar(true);
       },
       error: (err) => this.falla(err, 'No se pudo quitar el renglón'),
     });
@@ -1414,15 +1465,22 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       quantity: Number(l.quantity) || 1,
       unit_price: this.num(l.unit_price),
       line_total: Number(l.line_total) || 0,
+      iva_rate: this.num(l.iva_rate),
+      ieps_rate: this.num(l.ieps_rate),
       price_source: this.fuenteLabel(l.price_source),
       free_goods: null,
-      discount_pct: this.num(l.discount_pct) ?? (Number(q.terms_discount_pct) || null),
+      // [E.19] El regalo del ERP se imprime «Regalo», no $0.00. Y ya no viaja un descuento por
+      // renglón: el de volumen/promo YA está en `unit_price`, y pasarlo lo aplicaba dos veces
+      // (auditoría C2: 123 renglones de 18 cotizaciones impresos $8,539.97 por debajo).
+      regalo: l.price_source === 'free_goods',
     }));
 
-    const subtotal = Number(q.subtotal) || 0;
-    const discountPct = Number(q.terms_discount_pct) || 0;
-    const discountAmount = discountPct > 0 ? (subtotal * discountPct) / 100 : 0;
-    const total = Number(q.total) || subtotal - discountAmount;
+    // [E.19] El papel hace la MISMA cuenta que el servidor y se niega a salir si no reproduce el
+    // total guardado. Antes restaba el descuento a un subtotal que ya lo traía y no traía IVA (C1).
+    const estado: QuoteDeliverableData['estado'] =
+      q.status === 'cancelled' ? 'cancelada'
+      : (q.status === 'draft' || q.status === 'sent') && q.days_to_expiry < 0 ? 'vencida'
+      : 'vigente';
 
     return {
       // Esta cotización YA existe: su folio es lo primero que va al papel.
@@ -1434,15 +1492,16 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       branchCode: sucursalCod,
       branchName: branchName(sucursalCod),
       salespersonCode: q.salesperson_code || null,
-      salespersonName: this.vendedorAsignado(q) || null,
+      // [E.19] El vendedor viaja en su columna; la regex sobre `notes` nunca lo encontraba.
+      salespersonName: q.salesperson_name || this.vendedorAsignado(q) || null,
       quoteDate: q.quote_date || new Date(),
       validUntil: q.valid_until,
       items,
-      subtotal,
-      discountPct,
-      discountAmount,
-      total,
-      notes: q.customer_request || q.notes || null,
+      discountPct: this.num(q.terms_discount_pct),
+      totalGuardado: this.num(q.total),
+      estado,
+      // Notas PARA EL CLIENTE. ⛔ No `customer_request`: es el mensaje crudo que pegó el operador.
+      notes: q.notes || null,
     };
   }
 

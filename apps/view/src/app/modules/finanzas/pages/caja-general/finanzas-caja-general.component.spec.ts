@@ -24,7 +24,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { of, throwError, Subject } from 'rxjs';
 
-import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, DENOMINACIONES_MXN, denomDe, type Denominacion } from '@megadulces/contracts';
+import { DENOMINACIONES_MXN, denomDe, type Denominacion } from '@megadulces/contracts';
 import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component';
  import { CONTEXT_HELP } from '../../../../shared/context-help/context-help.dictionary';
 import {
@@ -244,6 +244,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       abrirCorte: vi.fn(() => of({ id: 'c1', folio: 'CC-2026-00001' })),
       // [CGP-V.3] Sin jornadas atrasadas: el caso de todos los días.
       jornadasPendientes: vi.fn(() => of({ sucursal: '00', hoy: todayMx(), inicio_libro: null, jornadas: [], alcance: 'cajon' })),
+      // `[CGS.14]` Por omisión la caja está libre: las pruebas del candado lo sobrescriben.
+      candado: vi.fn(() => of({ bloqueado: false, motivo: null, jornada: null, texto: null, con_llave: null, activo: true, hoy: todayMx(), pueden_recibir_llave: [] })),
       ...over,
     };
 
@@ -270,6 +272,56 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     return fixture;
   }
 
+  /**
+   * `[CGS.7]` El folio en grande: las dos ramas que no son obvias.
+   *
+   * ⛔ La del timer importa porque un segundo pago antes de que cierre el primero reiniciaba
+   * mal: el timer viejo cerraba el folio nuevo a los pocos segundos de aparecer.
+   */
+  describe('[CGS.7] el folio para anotar', () => {
+    it('sin folio no abre el dialogo', () => {
+      montar();
+      const c = comp as unknown as { mostrarFolio(v: unknown): void };
+      for (const v of [null, undefined, '', '   ']) {
+        c.mostrarFolio(v);
+        expect(comp.folioPagado()).toBeNull();
+      }
+    });
+
+    it('se cierra solo a los 10 s, y un folio nuevo reinicia la cuenta', () => {
+      vi.useFakeTimers();
+      try {
+        montar();
+        const c = comp as unknown as { mostrarFolio(v: unknown): void };
+        c.mostrarFolio('CG-2026-00311');
+        expect(comp.folioPagado()).toBe('CG-2026-00311');
+
+        vi.advanceTimersByTime(9000);
+        expect(comp.folioPagado()).toBe('CG-2026-00311');
+
+        // Llega el segundo pago faltando 1 s: la cuenta vuelve a empezar.
+        c.mostrarFolio('CG-2026-00312');
+        vi.advanceTimersByTime(9000);
+        expect(comp.folioPagado()).toBe('CG-2026-00312');
+
+        vi.advanceTimersByTime(1000);
+        expect(comp.folioPagado()).toBeNull();
+      } finally { vi.useRealTimers(); }
+    });
+
+    it('el boton lo cierra antes, y el timer ya no dispara', () => {
+      vi.useFakeTimers();
+      try {
+        montar();
+        (comp as unknown as { mostrarFolio(v: unknown): void }).mostrarFolio('CI-2026-00117');
+        comp.cerrarFolio();
+        expect(comp.folioPagado()).toBeNull();
+        // Prueba negativa: si el timer siguiera vivo, acá reabriría o reventaría.
+        vi.advanceTimersByTime(20000);
+        expect(comp.folioPagado()).toBeNull();
+      } finally { vi.useRealTimers(); }
+    });
+  });
   // localStorage persiste entre pruebas en jsdom: un borrador de la prueba anterior haria
   // pasar (o fallar) a la siguiente por el motivo equivocado.
   beforeEach(() => { try { localStorage.clear(); } catch { /* sin storage */ } });
@@ -301,6 +353,26 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   const montarJornada = (svcPatch?: Record<string, unknown>) => {
     const fx = montar(svcPatch as never);
     comp.jornadaAbierta.set(true);
+    fx.detectChanges();
+    return fx;
+  };
+
+  /**
+   * `[CG.123]` **Abre la jornada EN una de sus tres partes.**
+   *
+   * Desde que el diálogo tiene selector, «la jornada está abierta» ya no implica que todo esté
+   * pintado: cada parte se monta cuando se la elige. Las pruebas que miran «Pendientes» o
+   * «Historial» tienen que decir dónde están paradas — que es exactamente lo que hace la persona.
+   *
+   * ⚠️ Lo que esto **no** afloja: que una parte exista sigue comprobándose. Si un bloque se
+   * perdiera en la mudanza, elegir su sección lo dejaría vacío y la prueba se pondría roja igual.
+   */
+  const montarJornadaEn = (
+    seccion: 'hoy' | 'pendientes' | 'historial',
+    svcPatch?: Record<string, unknown>,
+  ) => {
+    const fx = montarJornada(svcPatch);
+    comp.seccionJornada.set(seccion);
     fx.detectChanges();
     return fx;
   };
@@ -366,7 +438,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     // se desmonta la persona queda encerrada con el filtro puesto y sin forma de sacarlo.
     const bandeja: Element | null = fixture.nativeElement.querySelector('.cg-bandeja');
     expect(bandeja).not.toBeNull();
-    expect(bandeja!.querySelectorAll('p-select').length).toBe(2);   // ventana + caja
+    // [CGA-A.43] La ventana se quitó: queda sólo el selector de caja.
+    expect(bandeja!.querySelectorAll('p-select').length).toBe(1);   // caja
     expect(bandeja!.querySelectorAll('app-segmented').length).toBe(1); // entra / sale
     expect(bandeja!.querySelectorAll('input[type="search"], input.cg-buscar').length).toBe(1);
   });
@@ -1477,6 +1550,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       arqueoDia: vi.fn(() => of(ARQUEO)),
       recurrentesSinRegla: vi.fn(() => of(RECURRENTES)),
       jornadasPendientes: vi.fn(() => of({ sucursal: '00', hoy: todayMx(), inicio_libro: null, jornadas: [], alcance: 'cajon' })),
+      // `[CGS.14]` Por omisión la caja está libre: las pruebas del candado lo sobrescriben.
+      candado: vi.fn(() => of({ bloqueado: false, motivo: null, jornada: null, texto: null, con_llave: null, activo: true, hoy: todayMx(), pueden_recibir_llave: [] })),
     };
     TestBed.configureTestingModule({
       imports: [FinanzasCajaGeneralComponent],
@@ -1764,6 +1839,43 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       .toBeGreaterThan(0);
   });
 
+  it('⭐ [CGA-LEG.9] el recorrido con teclado está ESCRITO, y lo escrito existe', async () => {
+    /**
+     * D.5: un atajo que nadie sabe que existe no existe — y para quien cuenta con las manos
+     * ocupadas el atajo **es** la interfaz. Medido el 2026-10-19: la plantilla tiene 23 bindings
+     * de teclado y sólo 5 teclas estaban anunciadas, todas dentro del arqueo. El bucle que la
+     * persona repite decenas de veces al día —elegir, arquear, volver— no decía una palabra.
+     *
+     * ⛔ **Lo que esta prueba protege de verdad es la segunda mitad: que lo anunciado funcione.**
+     * El prototipo tenía `/ buscar` y esta pantalla NO lo tiene: no hay ningún manejador global
+     * de `/`. Un atajo escrito que no responde es peor que ninguno — se prueba una vez, no pasa
+     * nada, y deja de creerse el resto del renglón.
+     */
+    // Con cola sembrada: el atajo promete algo SOBRE UNA FILA, así que sin filas la mitad que
+    // importa no se podría comprobar — y una prueba que no puede fallar no prueba nada.
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const atajo: HTMLElement | null = fx.nativeElement.querySelector('.cg-atajo-cola');
+    expect(atajo, 'el recorrido de la cola no se anuncia en ninguna parte').not.toBeNull();
+    const teclas = Array.from(atajo!.querySelectorAll('kbd')).map((k) => (k.textContent ?? '').trim());
+    expect(teclas, 'falta alguna de las cuatro teclas del recorrido')
+      .toEqual(expect.arrayContaining(['←', '→', '↑', '↓', 'Enter', 'Esc']));
+
+    // ⛔ [negativa] No se promete lo que no existe.
+    expect(atajo!.textContent, 'se anuncia «/ buscar» y esta pantalla no tiene ese atajo')
+      .not.toContain('/');
+
+    // Y lo prometido RESPONDE: Enter sobre una fila abre el arqueo.
+    const fila: HTMLElement | null = fx.nativeElement.querySelector('.cg-bandeja-tbl tbody tr');
+    expect(fila, 'no hay fila con la cual comprobar lo que el atajo promete').not.toBeNull();
+    expect(comp.capturaAbierta()).toBe(false);
+    fila!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fx.detectChanges();
+    expect(comp.capturaAbierta(), 'el atajo dice «Enter arquear» y Enter no abrió el arqueo').toBe(true);
+  });
+
   it('⛔ [CG.120] la captura A MANO no se ofrece, pero la puerta compartida sigue viva', () => {
     /**
      * La captura a mano se retiró el 2026-10-19: un movimiento tecleado nace **sin
@@ -1883,17 +1995,59 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(fx.nativeElement.querySelector('.cg-conc')).toBeNull();
   });
 
+  /**
+   * `[CG.123]` **La misma protección, repartida en las tres partes del selector.**
+   *
+   * Lo que esta prueba cuida no cambió: *la diferencia entre MOVER y borrar*. Lo que cambió es
+   * que el diálogo ya no pinta todo de una vez — Edgar lo llamó «un asco» y lo medido le daba la
+   * razón (3 rejillas, 39 cifras y 41 textos atenuados contra 5 enfatizados, en un solo
+   * desplazamiento). Así que cada bloque se busca **en la parte donde vive**, y si alguno se
+   * hubiera perdido en la mudanza, elegir su sección lo dejaría vacío y esto se pondría rojo.
+   */
   it('⛔ [negativa] abrir la jornada NO pierde nada: todo lo que se mudó sigue ahí', () => {
     const fx = montarJornada();
     expect(comp.jornadaAbierta()).toBe(true);
 
-    // Los cinco bloques que se mudaron al desplegable. Si alguno se cayó en la mudanza, esto
-    // se pone rojo — que es la diferencia entre MOVER y borrar.
-    const panel: Element = fx.nativeElement.querySelector('.cg-jornada');
-    expect(panel.querySelector('.cg-conc')).not.toBeNull();        // el cierre del día
-    expect(panel.querySelector('.cg-rec')).not.toBeNull();         // los que repiten sin cuenta
-    expect(panel.querySelector('.cg-historial')).not.toBeNull();   // el libro y los cortes
-    expect(panel.textContent).toContain('Cerrar jornada');         // la acción de rendir cuentas
+    // «Hoy» es la parte por default: el cierre del día y su acción de rendir cuentas.
+    const panel = (): Element => fx.nativeElement.querySelector('.cg-jornada');
+    expect(comp.seccionJornada()).toBe('hoy');
+    expect(panel().querySelector('.cg-conc')).not.toBeNull();
+    expect(panel().textContent).toContain('Cerrar jornada');
+
+    comp.seccionJornada.set('pendientes'); fx.detectChanges();
+    expect(panel().querySelector('.cg-rec')).not.toBeNull();       // los que repiten sin cuenta
+
+    comp.seccionJornada.set('historial'); fx.detectChanges();
+    expect(panel().querySelector('.cg-historial')).not.toBeNull(); // el libro y los cortes
+  });
+
+  /**
+   * ⛔⛔ `[CG.123]` **PRUEBA NEGATIVA DEL SELECTOR: lo que DECLARA un hueco no se esconde.**
+   *
+   * El primer intento de este cambio metió las tres regiones detrás del selector y listo. Nueve
+   * pruebas se pusieron rojas y **tenían razón**: con los cortes caídos, el aviso «no se pudieron
+   * leer» vivía DENTRO de la sección Historial, así que en la vista por default una lectura
+   * **fallida quedaba invisible**. Publicar nada es peor que publicar un cero (ADR-056) — es el
+   * mismo defecto que `[CG.181]` vino a arreglar, con una capa encima.
+   *
+   * Por eso las declaraciones subieron sobre el selector. Esto lo fija: parado en «Hoy», que es
+   * donde la persona abre, los tres huecos se leen igual.
+   */
+  it('⛔ [negativa] parado en «Hoy», lo que no se pudo medir se sigue diciendo', () => {
+    const fx = montarJornada({
+      libro: vi.fn(() => throwError(() => new Error('timeout'))),
+      cortes: vi.fn(() => throwError(() => new Error('timeout'))),
+      // ⚠️ `recurrentesSinRegla`, NO `recurrentes`: un doble que nombra un método que el
+      // servicio no tiene no simula nada — el componente llama al real y la prueba verde
+      // estaría midiendo el camino sano. Lo delató el selector publicando «Pendientes 57».
+      recurrentesSinRegla: vi.fn(() => throwError(() => new Error('timeout'))),
+    });
+    expect(comp.seccionJornada()).toBe('hoy');
+
+    const txt: string = fx.nativeElement.querySelector('.cg-jornada').textContent;
+    expect(txt).toContain('el libro no se pudo leer');
+    expect(txt).toContain('los cortes no se pudieron leer');
+    expect(txt).toContain('Sin medir');
   });
 
   /**
@@ -3054,7 +3208,13 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       ],
     };
 
-    const montar = () => montarJornada({ arqueoDia: vi.fn(() => of(CON_REPARTO as never)) });
+    /**
+     * `[CG.128]` Abre la jornada EN «Movimientos», que es donde vive el diario desde que se midió
+     * en la pantalla viva que pesaba **1,058px de los 2,023** de «Hoy» — el 55 %.
+     * ⚠️ El patch de datos NO se pierde: estas pruebas necesitan `CON_REPARTO`, y sin él la
+     * tabla queda vacía y la prueba pasaría a medir otra cosa.
+     */
+    const montar = () => montarJornadaEn('movimientos', { arqueoDia: vi.fn(() => of(CON_REPARTO as never)) });
 
     it('⭐ en «Caja general» suma SÓLO la morralla del cobro, no sus billetes', () => {
       montar();
@@ -3088,6 +3248,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     it('⛔ [negativa] el selector NO esconde renglones: el cobro sale en las TRES vistas', () => {
       // Esconderlo en «Caja general» sería tan falso como mostrarlo entero: el cobro ESTÁ en las
       // dos cajas. Si alguien vuelve a filtrar filas, esta cuenta cambia y la prueba se cae.
+      // `[CG.128]` Lo que esta prueba cuida no cambió: que el selector de CAJA cambie el
+      // importe y NO esconda renglones. Lo que cambió es dónde vive el diario.
       const fx = montar();
       for (const v of ['cajon', 'boveda', 'todo'] as const) {
         comp.dondeEntro.set(v);
@@ -3198,7 +3360,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // ausencias distintas —"no propone" y "no hay de dónde proponer"— no se pinten igual.
 
   it('el contador va SIEMPRE visible, aunque la lista esté plegada', () => {
-    const fx = montarJornada();
+    // `[CG.123]` Vive en «Pendientes»: no es la jornada de hoy, es trabajo que espera.
+    const fx = montarJornadaEn('pendientes');
     expect(comp.recAbierto()).toBe(false);          // nace plegada: son 57 filas
 
     const html: string = fx.nativeElement.innerHTML;
@@ -3257,7 +3420,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('abrir la lista pinta las filas, con el par propuesto y su respaldo', async () => {
-    const fx = montarJornada();
+    const fx = montarJornadaEn('pendientes');
     comp.recAbierto.set(true);
     fx.detectChanges();
     await Promise.resolve();
@@ -3299,19 +3462,45 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // eran justamente los del futuro: el ERP captura con 3 dias de mediana y ninguno legitimo
   // tiene `fecha_valor` de hoy.
 
-  it('la ventana por default es la MEDIDA, no la de pruebas ni «hoy»', () => {
-    // Estuvo en 1 dia desde el 22-sep "para las pruebas de CG.21", con un comentario que decia
-    // que tenia que volver. Se quedo ocho dias.
-    //
-    // `[CG.51]` Y ahora arranca en LA JORNADA (3 dias) por pedido de Edgar -- "por default solo
-    // deben ser los movimientos del dia"-- pero NO en 1 dia, que es lo que esa frase pide al pie
-    // de la letra. Medido contra prod el 2026-10-07 antes de cambiarlo: hoy = 0 movimientos, y el
-    // dia mas reciente con volumen real es el 05/10. `fecha_valor` es la fecha del DOCUMENTO y el
-    // ERP captura con 3 dias de mediana, asi que "hoy" abre la pantalla VACIA todos los dias.
-    montar();
-    expect(comp.ventanaDias()).toBe(CAJA_JORNADA_DIAS);
-    expect(comp.ventanaDias()).not.toBe(1);
-    expect(comp.ventanaDias()).toBeLessThan(CAJA_VENTANA_DIAS);
+  it('[CGA-A.43] la cola no manda ventana: la acota el servidor en el primer corte del libro', () => {
+    // Antes arrancaba en «La jornada» (3 días) con un selector. Medido el 2026-10-20: desde el
+    // primer corte del libro la cola es exacta (61 documentos) y los 3 días escondían 32.
+    const movimientosPendientes = vi.fn(() => of({ ...VACIA, desde: '2026-10-01', ventana_dias: null, desde_motivo: 'relevo', relevo: '2026-10-12', saldados_por_control: 495 }));
+    montar({ movimientosPendientes });
+    const pedidos = movimientosPendientes.mock.calls as unknown as Array<[{ from?: string }]>;
+    expect(pedidos.length).toBeGreaterThan(0);
+    // NEGATIVA: si la pantalla volviera a mandar una ventana, el servidor dejaría de acotar en el relevo.
+    for (const [q] of pedidos) expect(q.from).toBeUndefined();
+    expect((comp as unknown as Record<string, unknown>)['opcionesVentana']).toBeUndefined();
+    expect(comp.textoAlcance()).toContain('primer corte del libro');
+    expect(comp.textoAlcance()).toContain('12/10/26');
+    // [CGA-A.44] Arranca el 1 del mes del relevo y dice qué entra de la era Control.
+    expect(comp.textoAlcance()).toContain('01/10/26');
+    expect(comp.textoAlcance()).toContain('el Control no concilió');
+  });
+
+  it('[CGA-A.49] el alcance parte el total en la cola del libro y el rezago de Control', () => {
+    // «Mi trabajo» y la campana cuentan SÓLO la del libro: sin partirlo, la responsable ve 54 allá
+    // y 100 acá y no sabe cuál es el bueno (medido el 2026-10-20: 54 + 46 = 100).
+    const cola = {
+      del_libro: { n: 54, monto: 736378.53, mas_viejo: '2026-10-12' },
+      rezago_control: { n: 46, monto: 737331.75, mas_viejo: '2026-10-02' },
+    };
+    montar({ movimientosPendientes: vi.fn(() => of({ ...VACIA, desde: '2026-10-01', ventana_dias: null, desde_motivo: 'relevo', relevo: '2026-10-12', cola })) });
+    const t = comp.textoAlcance();
+    expect(t).toContain('54 desde el 12/10/26 (primer corte del libro)');
+    expect(t).toContain('46 del 01/10/26 al 11/10/26 que el Control no concilió');
+  });
+
+  it('[CGA-A.49] la antigüedad de un pendiente se cuenta contra el día de México', () => {
+    montar({});
+    const hoy = todayMx();
+    const hace = (n: number) => { const d = new Date(`${hoy}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+    expect(comp.diasPendiente(hoy)).toBe(0);
+    expect(comp.diasPendiente(hace(4))).toBe(4);
+    // NEGATIVA: lo fechado adelante no tiene antigüedad (lo declara `esFutura`), ni lo que no tiene fecha.
+    expect(comp.diasPendiente(hace(-2))).toBeNull();
+    expect(comp.diasPendiente(null)).toBeNull();
   });
 
   // ── [CG.51] El scroll: el historial se pliega, pero NO se esconde ─────────────────────────
@@ -3332,7 +3521,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('cerrado NO es escondido: la cabecera dice el rango y cuanto hay adentro', () => {
-    const fx = montarJornada();
+    // `[CG.123]` El libro y los cortes son OTRO rango de fechas: viven en «Historial».
+    const fx = montarJornadaEn('historial');
     const h: HTMLElement | null = fx.nativeElement.querySelector('.cg-historial-h');
     expect(h).not.toBeNull();
     // Plegar algo sin decir que tiene adentro lo vuelve indistinguible de que no exista.
@@ -3345,7 +3535,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('al abrirlo aparece el libro, y el aria-expanded lo acompana', () => {
-    const fx = montarJornada();
+    const fx = montarJornadaEn('historial');
     comp.historialAbierto.set(true);
     fx.detectChanges();
     expect(fx.nativeElement.querySelector('app-metric-strip')).not.toBeNull();
@@ -4124,15 +4314,18 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       expect(txt, 'un cero afirma lo que nadie midió').not.toContain('0 corte(s)');
     });
 
+    // `[CG.123]` El CONTEO vive en la cabecera del Historial, que es su sección. Lo que no
+    // depende de la sección es la DECLARACIÓN de un hueco: eso se comprueba parado en «Hoy»,
+    // en la prueba negativa del selector.
     it('[control] con los cortes sanos el conteo se publica igual que siempre', () => {
-      const fx = montarJornada({
+      const fx = montarJornadaEn('historial', {
         cortes: vi.fn(() => of({ rows: [{ id: 'c1', folio: 'CC-2026-00001' }], limit: 50 })),
       });
       expect(fx.nativeElement.textContent).toContain('1 corte(s)');
     });
 
     it('⛔ y las dos mitades son independientes: el libro caído no tapa los cortes medidos', () => {
-      const fx = montarJornada({
+      const fx = montarJornadaEn('historial', {
         libro: vi.fn(() => throwError(() => ({ status: 500 }))),
         cortes: vi.fn(() => of({ rows: [{ id: 'c1', folio: 'CC-2026-00001' }], limit: 50 })),
       });
@@ -4549,6 +4742,52 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       montar({ saldo: sinCorte(), jornadasPendientes: falla(404) });
       comp.cerrarJornada();
       expect(fechaAbierta()).toBe(todayMx());
+    });
+
+    // ⛔ `[CGS.14]` El candado se DICE antes de teclear: qué pasa y qué lo destraba, con el botón a la mano.
+    it('con la caja bloqueada, el aviso abre la pantalla con la frase y lleva a rendir cuentas', () => {
+      const fx = montarJornada({
+        saldo: sinCorte(), jornadasPendientes: pendientes([{ fecha: '2026-10-20', movimientos: 30 }]),
+        candado: vi.fn(() => of({
+          bloqueado: true, motivo: 'jornada_sin_corte', jornada: '2026-10-20', activo: true, hoy: todayMx(),
+          texto: 'No se puede capturar: la jornada del 20/10/2026 tiene 30 movimiento(s) y no tiene corte cerrado.',
+          con_llave: null, pueden_recibir_llave: [],
+        })),
+      });
+      const aviso = fx.nativeElement.querySelector('.cg-candado');
+      expect(aviso).not.toBeNull();
+      expect(aviso.getAttribute('role')).toBe('alert');
+      expect(aviso.textContent).toContain('20/10/2026');
+      expect(aviso.textContent).toContain('Rendir cuentas de esa jornada');
+    });
+
+    // `[CGS.18]` Lo que la supervisora devolvió se ve al entrar, y se responde ahí mismo.
+    it('un corte observado aparece al entrar con su motivo, y Responder lo manda al servidor', () => {
+      const responderCorte = vi.fn(() => of({ id: 'c8', estado: 'cerrado' }));
+      const fx = montarJornada({
+        saldo: sinCorte(), jornadasPendientes: pendientes([]), responderCorte,
+        cortes: vi.fn(() => of({ rows: [{
+          id: 'c8', folio: 'CC-2026-00008', fecha: '2026-10-20', estado: 'observado',
+          observed_by_username: 'maria_gutierrez', observacion: 'Faltan 500 y nadie lo explica',
+        }], limit: 50 })),
+      });
+      const aviso: string = fx.nativeElement.textContent;
+      expect(aviso).toContain('Faltan 500 y nadie lo explica');
+      expect(aviso).toContain('CC-2026-00008');
+
+      comp.abrirRespuesta(comp.observados()[0]);
+      comp.textoRespuesta.set('corto');
+      comp.enviarRespuesta();
+      expect(responderCorte).not.toHaveBeenCalled();   // [negativa] menos de 10 caracteres no se manda
+
+      comp.textoRespuesta.set('Se pagó un flete de 500 sin capturarlo');
+      comp.enviarRespuesta();
+      expect(responderCorte).toHaveBeenCalledWith('c8', 'Se pagó un flete de 500 sin capturarlo');
+    });
+
+    it('[negativa] con la caja libre no hay aviso de candado', () => {
+      const fx = montarJornada({ saldo: sinCorte(), jornadasPendientes: pendientes([]) });
+      expect(fx.nativeElement.querySelector('.cg-candado')).toBeNull();
     });
 
     it('con un corte atrasado ABIERTO va a ese corte, y el cierre dice de qué jornada es', () => {

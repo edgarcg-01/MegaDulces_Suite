@@ -48,6 +48,14 @@ const POR_CONSTRAINT: Record<string, string> = {
   cut_firmado_inmutable_chk: 'Este corte ya está cerrado: no se reabre y sus cifras ya no cambian.',
   cut_desglose_cuadra_chk: 'El desglose por denominación no suma lo que dice el contado.',
   ux_cash_cut_sucursal_fecha: 'Ya existe un corte de esta sucursal para esa fecha.',
+  // `[CGS.23]` La doble llave y las reglas de supervisión (migración 20261021110252). El servicio
+  // las revisa antes con su 403; esto es lo que queda si un camino llega directo a la base.
+  cut_doble_llave_chk: 'Quien cerró el corte no puede autorizarlo: tiene que hacerlo otra persona.',
+  cut_autoriza_lo_ajeno_chk:
+    'Quien autoriza no puede haber abierto el corte ni capturado o cancelado movimientos de él.',
+  cut_correccion_alcance_chk: 'La corrección de un corte cerrado sólo puede cambiar el conteo, no el libro.',
+  cash_ledger_en_corte_firmado_chk:
+    'Este movimiento ya está en un corte cerrado: no se edita ni se borra. Si estaba mal, se corrige con un ajuste en la jornada abierta.',
   // La carrera de dos aperturas a la vez: el servicio ya lo revisa antes, esto es lo que queda.
   ux_cash_cut_abierto: 'Esta sucursal ya tiene un corte abierto: hay que cerrarlo antes de abrir otro.',
 };

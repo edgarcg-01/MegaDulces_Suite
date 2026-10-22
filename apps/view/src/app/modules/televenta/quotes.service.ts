@@ -149,6 +149,9 @@ export interface PricedLine {
   line_total: number | null;
   tax_rate: number;
   tax_basis: string;
+  /** `[E.25]` IVA e IEPS del producto (fracción, `kdii.c18`/`c19`). null = sin ficha o sin precio. */
+  iva_rate: number | null;
+  ieps_rate: number | null;
   availability: string;
   applied: PriceStep[];
   not_applied: { mechanism: string; reason: string }[];
@@ -198,6 +201,9 @@ export interface QuoteLine {
   qty_unit: string | null;
   qty_factor: number | string | null;
   qty_factor_source: string | null;
+  /** `[E.25]` IVA e IEPS del producto al cotizar. null = renglón anterior a E.25 (impuesto ASUMIDO). */
+  iva_rate?: number | string | null;
+  ieps_rate?: number | string | null;
 }
 
 export interface QuoteDetail {
@@ -315,7 +321,7 @@ export class QuotesService {
   }
 
   /**
-   * Padrón de MAYOREO (`C####`) derivado de `kepler_ods.kdud`.
+   * Padrón de clientes del ERP derivado de `kepler_ods.kdud` (todas las claves desde E.26, no sólo `C####`).
    * Cada cliente trae el arreglo de sus sucursales porque sus condiciones difieren entre ellas.
    */
   searchWholesaleCustomers(search: string, limit = 20): Observable<WholesaleCustomer[]> {
@@ -340,8 +346,13 @@ export class QuotesService {
     notes?: string;
     salesperson_code?: string;
     salesperson_name?: string;
-  }): Observable<{ id: string; code: string; status: QuoteStatus; valid_until: string }> {
-    return this.http.post<{ id: string; code: string; status: QuoteStatus; valid_until: string }>(
+    /**
+     * `[E.21]` Los renglones viajan CON la cabecera y entran en la misma transacción: si uno
+     * falla no se crea nada (ni folio) y el error dice cuál. Qué y cuánto; nunca a cuánto.
+     */
+    lines?: Array<{ sku?: string; requested_text?: string; quantity: number; rung?: Rung }>;
+  }): Observable<{ id: string; code: string; status: QuoteStatus; valid_until: string; lines?: number }> {
+    return this.http.post<{ id: string; code: string; status: QuoteStatus; valid_until: string; lines?: number }>(
       this.base,
       payload,
     );

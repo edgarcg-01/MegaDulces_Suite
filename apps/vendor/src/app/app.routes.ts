@@ -30,6 +30,14 @@ export const appRoutes: Routes = [
           ),
       },
       {
+        // [MCP.3.6] Confirmar «Finalizar ruta»: al surtidor le llega un solo pedido con todo lo vendido.
+        path: 'route-finish',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-route-finish.component').then(
+            (m) => m.VendorRouteFinishComponent,
+          ),
+      },
+      {
         path: 'route-pick',
         loadComponent: () =>
           import('./modules/vendor/pages/vendor-route-pick.component').then(

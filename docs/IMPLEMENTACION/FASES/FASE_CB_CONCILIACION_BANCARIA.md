@@ -115,6 +115,7 @@ Dos fases de operación, con **julio 2026 (mes actual) como línea de corte**:
 **CB.1-backfill (pendiente de insumos):** el importer ya es genérico; falta **cargar los workbooks de feb–jul 2026** (solo tengo enero). Cuando Edgar los provea, se corre el importer una vez por mes (o un loop) → histórico completo. Ver [`CB.1b`] abajo.
 
 ## 4. Diferido / decisiones abiertas
+- ~~**CB.52.1 — pendiente OPERATIVO:** aplicar~~ ✅ **APLICADA** (batch 977, 2026-10-20 16:04 MX). Era: `20261020155755_bank_rules_comision_tpv_prioridad.js` a prod. La hermana `20261020151727` ya entró (**batch 976**, 15:40 MX) y alcanzó al **98 %**; faltan los **28 movimientos ($8,229.81)** capturados con el código del depósito. Sin DDL → la compuerta la clasifica **NO_MEDIDO y frena al equipo**: va **antes** de mergear. Comando en la cabecera de [`apply-one-migration-prod.js`](../../../database/scripts/apply-one-migration-prod.js). El archivo ya está en `md:/tmp`, **hash verificado** `740cf832eea8e698`.
 - **CB.47 — pendiente OPERATIVO (lo que de verdad cierra el descuadre):** cargar los estados de cuenta que faltan — **mar y may: 1604, 1621, 2169, 4885, 5565**; feb: 4885; abr/jun/sep: 3660. Y revisar la **1604**, que en abril tiene `bank_statement` pero **cero movimientos**. Mientras falten, sus traspasos seguirán sin contraparte por diseño: el sistema ya no los acusa de «sin origen», pero tampoco puede inventar la pata que no está.
 - **CB.46 — pendiente HUMANO:** ¿quién captura los **14 movimientos de CAJA GENERAL** ($43,285) con fecha **19-ago** dentro del corte de **sep-2026** y **sin concepto**? No son desfase de corte ni typo de año, y ningún umbral puede decidirlo solo.
 - **CB.46 — pendiente OPERATIVO (requiere ventana + OK):** los **23 movimientos ya en prod** con el año mal (**$1,579,507**: 17 en `2027-08-06` de la cuenta 7744, 6 en el año `0206` de la 4176). La compuerta evita que entren **nuevos**; los que ya están sólo se arreglan corrigiendo la celda y re-importando el mes, o con un UPDATE puntual. **No se tocó**: es escritura a prod en horario hábil.
@@ -128,3 +129,135 @@ Dos fases de operación, con **julio 2026 (mes actual) como línea de corte**:
 - Parser de estado de cuenta crudo por banco (elimina el doble tecleo) — post CB.1.
 - `caja_ahorro` → cuenta Kepler exacta por confirmar (¿`205`?).
 - `CAJA GENERAL` tiene layout de columnas distinto al de bancos → el importer necesita rama especial.
+
+---
+
+## 5. `[CB.52]` 🚀 La comisión de terminal dejaba de ser comisión porque el banco dice «CREDITO»
+
+**✅ EN PROD, COMPLETO, 2026-10-20** — `20261020151727` (**batch 976**, 15:40 MX) llevó el 98 % y
+`20261020155755` (**batch 977**, 16:04 MX) cerró el resto. Verificado leyendo prod con la misma
+consulta del antes:
+
+| | Antes | Después |
+|---|---:|---:|
+| `comision_bancaria` | 0 | **1,590 · $342,603.91** |
+| `iva_acreditable` | 1,567 | 1,586 · $54,834.41 |
+| atorados en `cobranza` | 25 · $8,209.04 | **0** |
+| sin categoría | 800 | **0** |
+
+**Controles, los dos intactos:** los **647 depósitos** de venta con tarjeta siguen en `cobranza`
+con **$4,975,481.93**, y el pago de crédito real sigue en `pago_credito` (**36 movs ·
+$2,109,268**). Commits locales sin push: `10c7c5a3d` · `73332d8c7` · `092189e5b` · `2e3f2c25e` ·
+`ac01b6d2f`.
+
+⚠️ **Observación de paso, NO de esta fase:** 2 `PAGO DE INTERESES` ($33,403.47) están en
+`iva_acreditable` porque llegaron con `code 147`. Son de antes (15-oct) y esta migración no los
+tocó; si son el IVA del interés están bien, y si no, es otra captura con el código cambiado.
+**No medido.**
+
+> ⛔⛔ **Lo que costó, y la lección que vale más que el arreglo.** El archivo se copió a
+> `md:/tmp` **antes** de corregirle las prioridades, y al aplicarlo corrió **la versión vieja**:
+> reglas en 138/139 con `match_code ^612$`. El ledger quedó diciendo `20261020151727` aplicada
+> — con un contenido que ya no es el del repo. **Una migración aplicada no se edita** (el
+> ledger describiría algo que nunca corrió): se restauró al contenido que SÍ corrió y la
+> corrección vive en una migración hermana.
+> ⭐ **El candado que faltaba es de dos líneas: `sha256sum` del archivo local contra el del
+> destino, antes de ejecutar.** Al copiar la hermana se hizo, y coincidió (`740cf832eea8e698`).
+> Nada en el camino avisa de esto: el script valida la identidad del clúster, no la del archivo.
+
+Salió de medir una afirmación de [`FASE_CP8`](FASE_CP8_PUENTE_CONTPAQI.md) §39.3, que suponía
+que ContPAQi llevaba los pagos de crédito «por su módulo de tesorería, no como renglón de
+póliza». ⛔ **Refutado:** están como renglón, en `2140110004 BANORTE CREDITO SIMPLE #089386050`
+contra `1020080000`. Lo que no cuadraba era **nuestra clasificación**.
+
+La regla `priority 142` (`code ^612$`, concepto `CAPITAL|CREDITO|CRÉDITO|PRESTAMO|…`) se lleva
+los cargos `APLI TASA DE DES CREDITO/1750968xx TERMINALES PUNTO DE VENTA`, que son **la comisión
+que cobra el banco por cobrar con tarjeta**. Medido en prod (sólo lectura) — la misma comisión
+estaba repartida en **cuatro** estados, igual que midió `[CP.8.46]`:
+
+| | Movs | Importe |
+|---|---:|---:|
+| mal en `pago_credito` | 770 | $202,130.82 |
+| variante `DEBITO`, **sin categoría** (ninguna regla la tomaba) | 792 | $131,849.15 |
+| capturadas con `code 102`, perdidas en `cobranza` | 21 | $8,124.85 |
+| en `iva_acreditable` sin ser IVA | 7 | $499.09 |
+| **→ `comision_bancaria`** | **1,590** | **$342,603.91** |
+| el IVA de esa comisión que llegó con otro código **→ `iva_acreditable`** | 26 | $1,425.45 |
+| pago de crédito REAL (`PAGO DE CAPITAL`/`DE INTERESES`), **no se toca** | ~4/mes | $230k/mes |
+
+⚠️ **Las reglas van en prioridad 54 y 55, no en los 130.** La `61` (`type ^I$`) y la `70`
+(`code ^102$`) mandan a `cobranza` antes de llegar ahí, y 21 de esas comisiones vienen
+capturadas justamente con el código del depósito. Por eso tampoco llevan `match_code`: el
+código del renglón es lo que viene mal.
+
+⚠️ **Falso positivo declarado:** de los ~3,176 movimientos con esa frase, **uno** trae el
+importe en depósito ($114.01, 24-jul — parece devolución de comisión) y queda en
+`comision_bancaria`. El motor clasifica por texto y no ve el importe.
+
+Contabilidad ya las lleva bien: **85 de 85** de la muestra jul–sep >$500 tienen su línea en
+`611-003 COMISIONES BANCARIAS`, a **−3 a +14 días** del movimiento bancario (⭐ sirve para
+calibrar la ventana del motor). Control placebo con un importe inventado: 0 coincidencias.
+
+⚠️ **Por qué el regex es estrecho.** `TERMINALES PUNTO DE VENTA` a secas también está en el
+**depósito** de la venta con tarjeta: **672 movimientos / $4,983,804.98** hoy correctos en
+`cobranza`. Una regla por esa frase sola convertiría cinco millones de ingreso en comisión. Las
+dos reglas nuevas exigen `code = 612` **y** `TASA DE DES(C)? (CREDITO|DEBITO)`.
+
+⚠️ **El IVA de esa comisión** ya iba bien a `iva_acreditable` con `code 147` (1,567 movs); **9
+llegaron con `code 612`** y quedaban sin categoría → los toma la regla `138`.
+
+Candado: [`bank-classify-comision-tpv.spec.ts`](../../../libs/finance/src/lib/bank/bank-classify-comision-tpv.spec.ts)
+— 11 casos con conceptos textuales de prod + **3 pruebas negativas**: sin la regla, la comisión
+vuelve a `pago_credito` y la variante `DEBITO` a `sin_clasificar`; y **con la regla correcta pero
+colocada en 139**, la comisión con `code 102` se pierde en `cobranza` mientras la de `612` sigue
+bien — o sea, el defecto de prioridad sería invisible sin ese caso. **14/14 verde, mutado a rojo
+dos veces** (quitarle `DEBITO` al regex, y bajar la regla a prioridad 139).
+
+⛔ **Lo que NO cierra:** el motor de clasificación vive **duplicado** — `classifyWith` en
+`finance-bank.service.ts` y una copia en `import-bank-statement.js`. El candado prueba la del
+servicio. Unificarlo es deuda con nombre (ADR-056).
+
+---
+
+## 6. `[CB.53]` 🧪 La conciliación corre al llegar el dato, no por reloj
+
+**EN CÓDIGO 2026-10-21** · commit `abd55a602` · sin migración · **apagado por defecto**.
+
+**El defecto:** `runMatch` sólo corría apretando un botón. Medido el 21-oct, el último pareo era
+de la tarde anterior y **octubre llevaba 62.9 % casado contra el 89.1 % de septiembre** — no
+porque el motor falle, sino porque nadie lo volvió a correr.
+
+⛔ **No es un `@Cron`** (Edgar, 2026-10-19: *«nada de crons»*). Se reusa el carril que ya corre en
+producción: `feeds-ingest` emite `NOTIFY caja_fuente` cuando su UPSERT toca `kepler_ods.kdm1` o
+`kdb1` — las dos tablas de las que deriva `analytics.kepler_bank_movements`.
+
+⭐ **Y acá, a diferencia de Caja, no hay que esperar ningún refresh:** esa es una **VISTA viva**
+(verificado en prod), no una matvista. Caja tuvo que escuchar el aviso *posterior* al refresh
+porque lee `mv_caja_movimientos`; de este lado el dato ya está cuando llega el aviso.
+
+**Lo que cuesta una corrida** (prod, sólo lectura, 21-oct): lado Kepler **2.41 s** en frío ·
+1.01 s caliente (12,429 filas, ventana ±45 d) · lado banco **0.45 s** (3,943 filas). ⚠️ El
+comentario del propio motor decía «~7 s» — esa cifra envejeció. Por eso el aviso **no dispara el
+motor directo**: espera el silencio de la ráfaga (`quiet` 60 s) y compara la **firma** del
+periodo (filas + última fecha + centavos, de los dos lados). Firma igual = no corre, y lo dice.
+
+**Qué periodos re-evalúa:** el mes en curso y, hasta el día 20, también el anterior. No es un
+número elegido: el lag de captura de Kepler tiene **mediana 2–5 días y máximo 19**, así que un
+documento del mes pasado puede llegar hoy y sin esa ventana no vuelve a tener quien lo busque.
+
+**Candados:** 15 casos del motor puro + **3 pruebas negativas** (con el corte en 0 el mes
+anterior deja de mirarse; sin firma todo aviso correría; los 4 motivos de NO correr son distintos
+entre sí, ninguno es un `return` mudo). 29/29 verde en el área, **mutado a rojo una vez**.
+
+⛔ **Lo que FALTA para que esto sirva** (hoy no hace nada):
+
+1. **Desplegar.** El worker corre la imagen vieja; el oyente no existe allá todavía.
+2. **Prender `ENABLE_BANK_RECON_AVISO=true`** en el worker. Apagado por defecto a propósito:
+   `runMatch` **escribe**, y desplegar no debe ser, por sí solo, empezar a conciliar.
+3. **Ejercerlo contra base real.** Un camino que escribe no está probado hasta que corrió
+   (regla dura del proyecto). Los candados prueban la decisión, no la escritura.
+
+⚠️ **Hueco declarado:** la carga del estado de cuenta **no emite ningún aviso**, igual que el
+carril de pólizas `kdc2*` (`[CG.198]`). En la práctica se tapa solo porque cada corrida
+re-evalúa el periodo entero — un estado de cuenta cargado a las 10:00 lo recoge el primer aviso
+de Kepler posterior — pero **no está garantizado por construcción**.

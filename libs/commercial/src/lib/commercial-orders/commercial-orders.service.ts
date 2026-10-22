@@ -1418,6 +1418,31 @@ export class CommercialOrdersService {
     customerName: string,
   ): Promise<void> {
     if (!order?.warehouse_id) return; // sin sucursal resuelta no hay a quién avisarle
+    // [MCP.3.6] Un pedido levantado con la ruta EN CURSO no se avisa: le llega al surtidor dentro del
+    // pedido global cuando el vendedor finaliza. Uno levantado DESPUÉS de finalizar cae en la tanda
+    // «fuera de la ruta», que ya está para surtir: ése sí se avisa, pero lleva a Surtir (la tarjeta
+    // de la tanda), no al pedido suelto, que la bandeja ya no muestra. Va en SAVEPOINT: si la tabla
+    // todavía no existe, falla sólo la lectura y el aviso de siempre sale igual.
+    let tanda: 'ruta' | 'fuera_de_ruta' | null = null;
+    try {
+      tanda = await trx.transaction(async (sp) => {
+        const { rows } = await sp.raw(
+          `SELECT rd.kind
+             FROM commercial.seller_route_days rd
+             JOIN commercial.orders o ON o.id = ? AND o.tenant_id = rd.tenant_id AND o.user_id = rd.user_id
+            WHERE rd.deleted_at IS NULL
+              AND rd.finished_at IS NULL
+              AND rd.work_date = (now() AT TIME ZONE 'America/Mexico_City')::date
+            ORDER BY (rd.kind = 'ruta') DESC
+            LIMIT 1`,
+          [order.id],
+        );
+        return (rows[0]?.kind as 'ruta' | 'fuera_de_ruta' | undefined) ?? null;
+      });
+      if (tanda === 'ruta') return;
+    } catch (e) {
+      this.logger.warn(`[MCP.3.6] no se pudo saber si ${order.code} va en una ruta: ${(e as Error).message}`);
+    }
     try {
       await trx.raw(
         `INSERT INTO commercial.order_notifications (tenant_id, order_id, warehouse_id, created_by)
@@ -1449,12 +1474,13 @@ export class CommercialOrdersService {
         this.alerts.emitTo(order.tenant_id, g.username, {
           type: 'order_to_pick',
           severity: 'info',
-          title: 'Pedido por armar',
+          title: tanda === 'fuera_de_ruta' ? 'Pedido fuera de la ruta' : 'Pedido por armar',
           message: `${order.code} — ${customerName}`,
           // [MCP.3] La campana navega a `data.route`: tocar el aviso abre el pedido para surtirlo.
+          // [MCP.3.1] En Surtir (la pantalla donde aterriza el surtidor), no en otra aparte.
           data: {
             order_id: order.id, code: order.code, warehouse_id: order.warehouse_id,
-            route: `/almacen/surtir-preventa?pedido=${order.id}`,
+            route: tanda === 'fuera_de_ruta' ? '/almacen/surtir' : `/almacen/surtir?pedido=${order.id}`,
           },
         });
       }

@@ -39,11 +39,13 @@ export class PaymentCalendarController {
     @Query('all') all?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('prontoPago') prontoPago?: 'por_vencer' | 'capturable',
   ) {
     return this.svc.listObligations({
       source, classification, search, dueFrom, dueTo,
       onlyCritical: onlyCritical === 'true', onlyAvailable: all !== 'true',
       limit: limit ? Number(limit) : undefined, offset: offset ? Number(offset) : undefined,
+      prontoPago,
     });
   }
 

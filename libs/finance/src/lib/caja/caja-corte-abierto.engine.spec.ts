@@ -1,5 +1,5 @@
 import {
-  avisoCortesAbiertos, debeAvisar, huellaDeSituacion, RECORDAR_CADA_MS, UMBRAL_CORTE_ABIERTO_H,
+  avisoCortesAbiertos, debeAvisar, huellaDeSituacion, RECORDAR_CADA_MS, UMBRAL_CORTE_ABIERTO_H, avisoRevisionTardia,
 } from './caja-corte-abierto.engine';
 
 describe('[CGP-L.10] debeAvisar — una alarma que grita de más enseña a ignorarla', () => {
@@ -150,5 +150,23 @@ describe('[CGP-L.10] avisoCortesAbiertos', () => {
       expect(h(m1)).toBe(h(m2));
       expect(h(m1)).not.toBe(h(m3));
     });
+  });
+});
+
+// `[CGS.3b]` D2: a las 12:00 del día siguiente sin revisar, el aviso escala a la suplente.
+describe('avisoRevisionTardia — el corte sin revisar escala a las 12:00', () => {
+  it('sin tardíos, no hay aviso', () => {
+    expect(avisoRevisionTardia([])).toBeNull();
+  });
+  it('uno tardío: aviso, nombra el folio y dice que revise la suplente', () => {
+    const a = avisoRevisionTardia([{ folio: 'CC-2026-00008', fecha: '2026-10-20' }])!;
+    expect(a).toMatchObject({ key: 'caja_corte_sin_revisar', severity: 'warn' });
+    expect(a.message).toContain('CC-2026-00008');
+    expect(a.message).toContain('suplente');
+  });
+  it('dos o más: crítico', () => {
+    expect(avisoRevisionTardia([
+      { folio: 'CC-1', fecha: '2026-10-19' }, { folio: 'CC-2', fecha: '2026-10-20' },
+    ])!.severity).toBe('critical');
   });
 });

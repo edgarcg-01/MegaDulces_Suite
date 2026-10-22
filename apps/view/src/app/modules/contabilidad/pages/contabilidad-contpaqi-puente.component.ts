@@ -4,427 +4,584 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
+import { TagModule } from 'primeng/tag';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import {
   ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp,
-  PendienteProveedor, PendientesResp,
+  PendienteProveedor, PendientesResp, ReglaVista, PagoPorConfirmar, CfdiPropuesto,
 } from '../contpaqi-puente.service';
 
 /**
- * Fase CP `[CP.8.33]` — **La bandeja del puente: qué saldría de póliza, y qué no sale y por qué.**
+ * Fase CP `[CP.8.33]` — **Las pólizas de egresos de banco para ContPAQi, mes por mes.**
  *
- * ── Por qué la pantalla muestra RECHAZOS y no entregas ──────────────────────────────────────
- * El puente hoy rechaza todo: las 21 reglas de cuenta están sin firmar. Una bandeja que sólo
- * listara lo entregado estaría en blanco.
+ * ── `[CP.8.76]` Un asistente de cuatro pasos, no una bandeja ───────────────────────────────
+ * La versión anterior contestaba siete preguntas en un solo scroll (cuánto sale, de quién es
+ * cada rechazo, qué lotes hay, firmar reglas, confirmar proveedores, confirmar pagos, entregar):
+ * diez bloques, seis tablas y prosa escrita para quien la programó. El PM la reportó «muy
+ * complicada de entender» y eligió partirla en pasos (2026-10-21). Ahora:
  *
- * ⭐ Lo que sí vale hoy es **el rechazo con dueño**. Medido en enero contra producción: 1,474
- * movimientos que un diseño por-movimiento habría vuelto 1,474 pólizas se agrupan en **258
- * lotes**, y los motivos se reparten entre cuatro responsables distintos... más uno que **no es
- * de nadie**: los 148 de `no_aplica` ya se midieron y NO generan póliza. Mezclarlos con el resto
- * haría que la bandeja pida trabajo que no existe.
+ *   arriba   → la respuesta: cuántas pólizas están listas y qué falta, en una frase;
+ *   pasos    → 1 reglas · 2 proveedores · 3 pagos · 4 revisar y entregar, cada uno con lo que
+ *              le queda; abre en el primero que tiene trabajo;
+ *   cuerpo   → sólo el paso elegido, con su instrucción en una línea.
  *
- * ── ⛔ Qué NO hace esta pantalla ────────────────────────────────────────────────────────────
- * **No entrega.** `contpaqi.poliza_exports` está vacía porque nunca se importó un archivo a
- * ContPAQi (`[CP.8.24]`). Un botón de entregar sería ofrecer un camino que nadie recorrió, así
- * que no existe — y `FISCAL_CONTPAQI_BRIDGE_GESTIONAR` ya está repartido para el día que lo haya.
+ * El rechazo con dueño (`[CP.8.33]`) y los lotes viven en el paso 4: son la revisión antes de
+ * entregar, no lo primero que se lee.
+ *
+ * ── Entregar ────────────────────────────────────────────────────────────────────────────────
+ * **No manda nada a ContPAQi.** `[CP.8.54]` «Marcar como cargado» registra que contabilidad ya
+ * CARGÓ el archivo, y sólo acepta ese mismo archivo (el backend lo compara byte a byte con el que
+ * genera hoy). Va separado de «Generar» porque descargar no es entregar. Exige `_GESTIONAR`.
  *
  * ── ⚠️ Ruta propia, no un tab de `/contabilidad/contpaqi` ───────────────────────────────────
  * Esa página ya existe desde CP.1–CP.4 y es el **otro sentido** (lee los libros que ContPAQi ya
  * tiene), gateada por `FISCAL_CONTAB_VER`. Colgar el puente ahí lo habría escondido detrás del
  * permiso equivocado: quien revisa los libros fiscales no es quien arma la póliza de egresos.
- *
- * Operations: denso, answer-first, tokens, dark-safe. Lectura pura — mirar no cambia nada.
  */
 @Component({
   selector: 'app-contabilidad-contpaqi-puente',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, TagModule, MetricStripComponent,
+    LoadStateComponent, FreshnessPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in cpp-page">
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Puente ContPAQi &mdash; bandeja de armado</h1>
-          <p class="surf-page-sub">
-            Qu&eacute; saldr&iacute;a de p&oacute;liza desde los egresos de banco, y qu&eacute; no sale y de qui&eacute;n es.
-            Simulaci&oacute;n de solo lectura: mirar no cambia nada.
-          </p>
+          <h1>P&oacute;lizas de egresos para ContPAQi</h1>
+          <p class="surf-page-sub">Lo que sale de los bancos en el mes, listo para cargar en ContPAQi. Nada se manda solo.</p>
         </div>
         <div class="surf-page-head-actions">
+          @if (cargadoEn(); as t) { <app-freshness-pill measures="fetch" [since]="t" [staleAfterSec]="600" /> }
           <p-select [options]="mesOpts" [ngModel]="mes()" (ngModelChange)="setMes($event)"
                     appendTo="body" class="cpp-sel" [style]="{ minWidth: '10rem' }"
                     ariaLabel="Mes"></p-select>
         </div>
       </header>
 
-      @if (error(); as e) {
-        <div class="cpp-error" role="alert">
-          <i class="pi pi-exclamation-triangle"></i>
-          <div>
-            <strong>No se pudo leer la bandeja.</strong>
-            <div class="cpp-error-d">{{ e }}</div>
-          </div>
-          <button type="button" class="cpp-btn" (click)="cargar()">Reintentar</button>
-        </div>
-      }
+      <app-load-state [loading]="loading()" [error]="error()" errorTitle="No se pudo leer el mes"
+                      [skeletonRows]="8" (retry)="cargar()">
+        @if (data(); as d) {
 
-      @if (loading()) {
-        <div class="cpp-skel" aria-busy="true">@for (i of [1,2,3,4,5,6]; track i) { <div class="cpp-skel-row"></div> }</div>
-      } @else if (data(); as d) {
+          <!-- Q.1 · la respuesta, antes que cualquier tabla -->
+          <section class="cpp-verdict">
+            <h2>
+              <span class="mono">{{ d.resumen.con_asiento | number }}</span>
+              {{ d.resumen.con_asiento === 1 ? 'póliza lista' : 'pólizas listas' }}
+              <span class="cpp-v-imp mono">{{ importeListo() | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+            </h2>
+            <p class="cpp-lede">{{ queFalta() }}</p>
+          </section>
 
-        <!-- ── EL VEREDICTO, antes que cualquier tabla ── -->
-        <section class="cpp-verdict">
-          <div class="cpp-eyebrow">Qu&eacute; saldr&iacute;a de p&oacute;liza este mes</div>
-          <h2>
-            <span class="mono">{{ d.resumen.incluidas | number }}</span> de
-            <span class="mono">{{ d.resumen.movimientos | number }}</span> movimientos.
-          </h2>
-          @if (d.resumen.incluidas === 0) {
-            <p class="cpp-lede">
-              El puente rechaza todo: no hay ninguna regla de cuenta firmada. No es una falla
-              &mdash; es el estado real, y lo que vale hoy es <strong>saber de qui&eacute;n es cada rechazo</strong>.
-            </p>
-          }
-
-          <!-- ⭐ El hueco se declara ARRIBA del número que lo omite, no en una nota al pie. -->
-          @if (d.fuera_de_lote.movimientos > 0) {
-            <div class="cpp-declara">
-              <strong class="mono">{{ d.fuera_de_lote.movimientos | number }}</strong>
-              movimientos del mes ({{ d.fuera_de_lote.importe | currency:'MXN':'symbol-narrow':'1.0-0' }})
-              <strong>no son egresos de banco</strong> y quedan fuera de todo lote:
-              @for (c of d.fuera_de_lote.cuentas; track c.cuenta) {
-                <span class="cpp-cta-fuera">{{ c.cuenta }} <span class="mono">({{ c.movimientos | number }})</span></span>
+          <!-- Los pasos: cada uno dice lo que le queda. El estado no depende sólo del color. -->
+          <nav class="cpp-pasos" aria-label="Pasos del mes">
+            <ol>
+              @for (p of pasos(); track p.id; let i = $index) {
+                <li>
+                  <button type="button" class="cpp-paso" [class.on]="paso() === p.id" [class.hecho]="p.pendientes === 0"
+                          [class.mal]="p.error" [attr.aria-current]="paso() === p.id ? 'step' : null" (click)="irA(p.id)">
+                    <span class="cpp-paso-n" aria-hidden="true">
+                      @if (p.pendientes === 0) { <i class="pi pi-check"></i> } @else { {{ i + 1 }} }
+                    </span>
+                    <span class="cpp-paso-txt">
+                      <span class="cpp-paso-t">{{ p.titulo }}</span>
+                      <span class="cpp-paso-s">{{ p.estado }}</span>
+                    </span>
+                  </button>
+                </li>
               }
-              &mdash; no tienen cuenta <code>102*</code> porque no son bancos. El universo del mes es
-              <strong class="mono">{{ d.resumen.universo | number }}</strong>, no {{ d.resumen.movimientos | number }}.
-            </div>
-          }
-        </section>
+            </ol>
+          </nav>
 
-        <app-metric-strip [items]="kpis()" ariaLabel="Resumen del puente" />
+          <section class="cpp-cuerpo" aria-live="polite">
+            @switch (paso()) {
 
-        <!-- [CP.8.38] El archivo. Descargar NO es entregar, y la pantalla lo dice. -->
-        @if (d.resumen.incluidas > 0 && puedeGestionar()) {
-          <div class="cpp-archivo">
-            <div>
-              <strong>{{ d.resumen.con_asiento | number }}</strong> p&oacute;lizas armadas
-              (<span class="mono">{{ d.resumen.incluidas | number }}</span> movimientos).
-              <div class="cpp-archivo-n">
-                Descargar <strong>no</strong> lo marca como entregado: el reloj del cuadre arranca
-                cuando alguien confirme que lo carg&oacute; en ContPAQi, no cuando bajes el archivo.
-              </div>
-            </div>
-            <button type="button" class="cpp-btn-ok" [disabled]="bajando()" (click)="descargar()">
-              {{ bajando() ? 'Generando…' : 'Generar el archivo' }}
-            </button>
-          </div>
-          @if (avisoArchivo(); as a) {
-            <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
-          }
-        }
-
-        <!-- ── EL RECHAZO CON DUEÑO: esto es la entrega ── -->
-        <section class="cpp-sec">
-          <div class="cpp-sec-h">
-            <h3>El rechazo, con due&ntilde;o</h3>
-            <span class="cpp-tag">esto es la entrega</span>
-          </div>
-          <p class="cpp-sec-p">
-            Sin esta tabla la pantalla dir&iacute;a &laquo;{{ d.resumen.movimientos | number }} pendientes&raquo;,
-            un n&uacute;mero que no le dice a nadie qu&eacute; hacer. El rengl&oacute;n activo se resalta cuando
-            filtr&aacute;s los lotes m&aacute;s abajo.
-          </p>
-          <!--
-            ⛔ Esta tabla NO es un control, es la lectura. El filtro vive abajo en botones de
-            verdad: una fila clicable sin equivalente de teclado deja afuera a quien no usa
-            mouse, y duplicar el filtro en dos lugares es dos sitios donde se desincroniza.
-          -->
-          <div class="card-premium card-flat cpp-tablewrap">
-            <p-table [value]="d.motivos" size="small" class="surf-table" [rowHover]="true">
-              <ng-template #header>
-                <tr><th>Motivo</th><th class="ta-r">Movs</th><th>Participaci&oacute;n</th><th>Le toca a</th></tr>
-              </ng-template>
-              <ng-template #body let-m>
-                <tr class="cpp-motivo" [class.sel]="filtro() === m.motivo">
-                  <td>
-                    <div>{{ etiqueta(m.motivo) }}</div>
-                    <div class="cpp-code">{{ m.motivo }}</div>
-                  </td>
-                  <td class="ta-r mono" [class.muted]="esDeNadie(m.motivo)">{{ m.movimientos | number }}</td>
-                  <td>
-                    <span class="cpp-share">
-                      <span class="cpp-bar" [class.nadie]="esDeNadie(m.motivo)">
-                        <i [style.width.%]="pct(m.movimientos, d.resumen.movimientos)"></i>
-                      </span>
-                      <span class="cpp-pct mono">{{ pct(m.movimientos, d.resumen.movimientos) | number:'1.1-1' }}%</span>
-                    </span>
-                  </td>
-                  <td>
-                    <span class="cpp-who" [attr.data-nadie]="esDeNadie(m.motivo) ? '' : null">
-                      <span class="cpp-dot"></span>{{ m.dueno }}
-                    </span>
-                  </td>
-                </tr>
-              </ng-template>
-              <ng-template #footer>
-                <tr><td colspan="4" class="cpp-foot">
-                  <span class="mono">{{ pendientes() | number }}</span> esperan a alguien &middot;
-                  <span class="mono">{{ d.resumen.incluidas | number }}</span> ya entran al asiento &middot;
-                  <span class="mono">{{ deNadie() | number }}</span> no son trabajo de nadie:
-                  ya se midi&oacute; que no generan p&oacute;liza.
-                </td></tr>
-              </ng-template>
-            </p-table>
-          </div>
-        </section>
-
-        <!-- ── MAESTRO-DETALLE DE LOTES ── -->
-        <section class="cpp-sec">
-          <div class="cpp-sec-h"><h3>Lotes del mes</h3></div>
-          <p class="cpp-sec-p">
-            La unidad es <strong>(cuenta de banco &times; d&iacute;a)</strong>, no el movimiento: as&iacute; es como
-            la contadora arma la p&oacute;liza, y as&iacute; se reconoce su trabajo en el archivo.
-          </p>
-
-          <div class="cpp-chips">
-            <button type="button" class="cpp-chip" [class.on]="filtro() === null"
-                    [attr.aria-pressed]="filtro() === null" (click)="toggleMotivo(null)">
-              Todos los lotes <span class="mono">{{ d.lotes.length | number }}</span>
-            </button>
-            @for (m of d.motivos; track m.motivo) {
-              <button type="button" class="cpp-chip" [class.on]="filtro() === m.motivo"
-                      [attr.aria-pressed]="filtro() === m.motivo" (click)="toggleMotivo(m.motivo)">
-                {{ etiqueta(m.motivo) }} <span class="mono">{{ lotesCon(m.motivo) | number }}</span>
-              </button>
-            }
-          </div>
-
-          <div class="cpp-md">
-            <div class="card-premium card-flat cpp-tablewrap">
-              <p-table [value]="visibles()" size="small" class="surf-table" [rowHover]="true"
-                       [scrollable]="true" scrollHeight="440px"
-                       [paginator]="visibles().length > 120" [rows]="120"
-                       selectionMode="single" [selection]="sel()" (selectionChange)="sel.set($event)"
-                       dataKey="k">
-                <ng-template #header>
-                  <tr><th>Banco</th><th>Fecha</th><th class="ta-r">Movs</th><th class="ta-r">Asiento</th></tr>
-                </ng-template>
-                <ng-template #body let-l>
-                  <tr [pSelectableRow]="l" class="cpp-lote">
-                    <td>
-                      <span class="cpp-bank">{{ banco(l) }}</span>
-                      <span class="cpp-code">{{ l.cuenta_banco }}</span>
-                    </td>
-                    <td class="muted mono">{{ l.fecha }}</td>
-                    <td class="ta-r mono">{{ l.movimientos | number }}</td>
-                    <td class="ta-r mono" [class.muted]="l.incluidas === 0">{{ l.incluidas | number }}</td>
-                  </tr>
-                </ng-template>
-                <ng-template #emptymessage>
-                  <tr><td colspan="4" class="cpp-empty">Ning&uacute;n lote con ese motivo.</td></tr>
-                </ng-template>
-              </p-table>
-            </div>
-
-            <aside class="card-premium card-flat cpp-peek">
-              @if (sel(); as l) {
-                <div class="cpp-eyebrow">Lote seleccionado</div>
-                <h4>{{ banco(l) }}</h4>
-                <div class="cpp-code">{{ l.cuenta_banco }} &middot; {{ l.fecha }}</div>
-                <div class="cpp-kvs">
-                  <div class="cpp-kv"><span>Movimientos</span><span class="mono">{{ l.movimientos | number }}</span></div>
-                  <div class="cpp-kv"><span>Entran al asiento</span>
-                    <span class="mono" [class.muted]="l.incluidas === 0">{{ l.incluidas | number }}</span></div>
-                  @if (l.incluidas > 0) {
-                    <div class="cpp-kv"><span>Renglones</span><span class="mono">{{ l.renglones | number }}</span></div>
-                    <div class="cpp-kv"><span>Total</span>
-                      <span class="mono">{{ l.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+              <!-- ── 1 · REGLAS DE CUENTA ── -->
+              @case ('reglas') {
+                <h3>1 &middot; Firma a qu&eacute; cuenta va cada tipo de gasto</h3>
+                <p class="cpp-instr">
+                  Elige la cuenta de gasto y firma. Desde ese momento, los movimientos de ese tipo salen en el archivo.
+                  @if (porFirmar().n > 0) {
+                    Lo pendiente suma <strong class="mono">{{ porFirmar().n | number }}</strong> movimientos
+                    (<strong class="mono">{{ porFirmar().imp | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>).
                   }
-                </div>
-                <div class="cpp-eyebrow mt">Por qu&eacute; no entran</div>
-                <div class="cpp-kvs">
-                  @for (m of motivosDe(l); track m.k) {
-                    <div class="cpp-kv">
-                      <span class="cpp-who" [attr.data-nadie]="esDeNadie(m.k) ? '' : null">
-                        <span class="cpp-dot"></span>{{ etiqueta(m.k) }}
-                      </span>
-                      <span class="mono">{{ m.n | number }}</span>
-                    </div>
-                  }
-                </div>
-                @if (l.iva_traspaso === 'no_emitido') {
-                  <div class="cpp-note">
-                    ⚠️ El lote cuadra pero <strong>no lleva el traspaso de IVA</strong>. Se declara en vez
-                    de emitir un rengl&oacute;n que nadie verific&oacute;.
+                </p>
+                @if (reglasError(); as e) {
+                  <div class="cpp-aviso mal" role="alert">No se pudieron leer las reglas: {{ e }}</div>
+                } @else if (reglas() === null) {
+                  <app-load-state [loading]="true" [skeletonRows]="5" />
+                } @else {
+                  <p class="cpp-ojo"><i class="pi pi-info-circle" aria-hidden="true"></i>
+                    La pista sale de p&oacute;lizas que ya est&aacute;n en ContPAQi. Rev&iacute;sala antes de firmar: una cuenta equivocada cuadra igual.</p>
+                  <div class="card-premium card-flat cpp-tablewrap">
+                    <p-table [value]="reglasVisibles()" size="small" class="surf-table" [rowHover]="true" dataKey="categoria_code">
+                      <ng-template #header>
+                        <tr><th>Tipo de gasto</th><th class="ta-r">Movs</th><th class="ta-r">Importe</th>
+                          <th>Cuenta de gasto</th><th></th></tr>
+                      </ng-template>
+                      <ng-template #body let-r>
+                        <tr>
+                          <td><span class="cpp-bank">{{ nombreRegla(r) }}</span></td>
+                          <td class="ta-r mono" [class.muted]="r.movimientos_mes === 0">{{ r.movimientos_mes | number }}</td>
+                          <td class="ta-r mono" [class.muted]="r.movimientos_mes === 0">{{ r.importe_mes | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                          <td class="cpp-cta">
+                            @if (r.estado === 'aprobada') {
+                              <div><span class="mono">{{ r.cuenta_gasto }}</span> {{ r.cuenta_nombre }}</div>
+                              <div class="cpp-sub">firmada por {{ r.aprobada_por }} &middot; {{ r.aprobada_en }}</div>
+                            } @else if (puedeGestionar()) {
+                              <p-select [options]="cuentas()" [ngModel]="cuentaElegida()[r.categoria_code] ?? null"
+                                        (ngModelChange)="elegirCuenta(r.categoria_code, $event)"
+                                        optionLabel="etiqueta" optionValue="codigo" [filter]="true" filterBy="etiqueta"
+                                        placeholder="Elige la cuenta" appendTo="body" [showClear]="true"
+                                        class="cpp-sel-cta" [ariaLabel]="'Cuenta de gasto para ' + nombreRegla(r)"></p-select>
+                              @if (codigoIndicio(r); as ci) {
+                                <button type="button" class="cpp-link" (click)="elegirCuenta(r.categoria_code, ci)">
+                                  usar la pista ({{ ci }})
+                                </button>
+                              }
+                            } @else {
+                              <span class="muted">sin firmar</span>
+                            }
+                          </td>
+                          <td class="ta-r">
+                            @if (puedeGestionar()) {
+                              @if (r.estado === 'aprobada') {
+                                <button type="button" class="cpp-btn-bad" [disabled]="firmando() === r.categoria_code"
+                                        (click)="revocar(r)">{{ firmando() === r.categoria_code ? 'Quitando…' : 'Quitar firma' }}</button>
+                              } @else {
+                                <button type="button" class="cpp-btn-ok"
+                                        [disabled]="!cuentaElegida()[r.categoria_code] || firmando() === r.categoria_code"
+                                        (click)="firmar(r)">{{ firmando() === r.categoria_code ? 'Firmando…' : 'Firmar' }}</button>
+                              }
+                            }
+                          </td>
+                        </tr>
+                      </ng-template>
+                      <ng-template #emptymessage>
+                        <tr><td colspan="5" class="cpp-empty">Ning&uacute;n tipo de gasto de este mes espera firma.</td></tr>
+                      </ng-template>
+                    </p-table>
                   </div>
+                  @if (reglasOcultas() > 0) {
+                    <button type="button" class="cpp-link mt" (click)="todasLasReglas.set(!todasLasReglas())">
+                      {{ todasLasReglas() ? 'Ver sólo las de este mes' : 'Ver también ' + reglasOcultas() + ' sin movimientos este mes' }}
+                    </button>
+                  }
+                  @if (avisoRegla(); as a) {
+                    <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
+                  }
+                  @if (noFirmables().length) {
+                    <details class="cpp-mas">
+                      <summary>{{ noFirmables().length }} tipos de gasto no se firman aqu&iacute;</summary>
+                      <ul class="cpp-lista-simple">
+                        @for (r of noFirmables(); track r.categoria_code) {
+                          <li><span>{{ nombreRegla(r) }}</span> <span class="muted">&middot; {{ porQueNoSeFirma(r) }}</span>
+                            @if (r.movimientos_mes > 0) { <span class="mono muted"> &middot; {{ r.movimientos_mes | number }} movs</span> }</li>
+                        }
+                      </ul>
+                    </details>
+                  }
                 }
-                <div class="cpp-note">
-                  Una p&oacute;liza por lote: N cargos y <strong>un</strong> abono al banco. Un rengl&oacute;n malo
-                  no tumba el lote &mdash; se cae solo y el resto sigue.
-                </div>
-              } @else {
-                <div class="cpp-eyebrow">Lote</div>
-                <h4>Eleg&iacute; un lote</h4>
-                <div class="cpp-note">La lista de la izquierda muestra un rengl&oacute;n por (banco &times; d&iacute;a).</div>
               }
-            </aside>
-          </div>
-        </section>
 
-        <!-- ── [CP.8.37] LO QUE FALTA ENLAZAR: el rechazo con su acción al lado ── -->
-        @if (porConfirmar(); as p) {
-          @if (p.filas.length) {
-            <section class="cpp-sec">
-              <div class="cpp-sec-h">
-                <h3>Proveedores por confirmar</h3>
-                <span class="cpp-tag">esto destraba dinero</span>
-              </div>
-              <p class="cpp-sec-p">
-                <strong class="mono">{{ p.filas.length }}</strong> nombres del banco que no llegan a una
-                cuenta, por <strong class="mono">{{ p.total_importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>.
-                Se confirma <strong>el nombre</strong>, no cada movimiento.
-              </p>
-              <div class="cpp-nota-dura">
-                ⛔ Las sugerencias est&aacute;n ordenadas por <strong>palabras en com&uacute;n</strong>: son
-                una pista, no un veredicto. Una cuenta equivocada <strong>cuadra igual</strong> y no se
-                ve hasta la balanza &mdash; por eso elige una persona y queda su nombre.
-              </div>
-              <div class="card-premium card-flat cpp-tablewrap">
-                <p-table [value]="p.filas" size="small" class="surf-table" [rowHover]="true"
-                         [scrollable]="true" scrollHeight="420px">
-                  <ng-template #header>
-                    <tr><th class="r">Importe</th><th class="r">Movs</th><th>Dice el banco</th>
-                      <th>Candidatos de ContPAQi</th><th></th></tr>
-                  </ng-template>
-                  <ng-template #body let-f>
-                    <tr>
-                      <td class="r mono">{{ f.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                      <td class="r mono">{{ f.movimientos | number }}</td>
-                      <td>
-                        <div class="cpp-bank">{{ f.concepto_banco }}</div>
-                        <div class="cpp-code">{{ f.veredicto }}</div>
-                      </td>
-                      <td>
-                        @if (!f.sugerencias.length) {
-                          <span class="muted">sin candidato parecido &mdash; hay que buscarlo en ContPAQi</span>
-                        }
-                        @for (s of f.sugerencias; track s.cuenta) {
-                          <label class="cpp-sug">
-                            <input type="radio" [name]="'sug-' + f.alias_normalizado" [value]="s.cuenta"
-                                   [checked]="elegido()[f.alias_normalizado] === s.cuenta"
-                                   (change)="elegir(f.alias_normalizado, s.cuenta)">
-                            <span class="mono">{{ s.cuenta }}</span>
-                            <span>{{ s.nombre }}</span>
-                            <span class="cpp-pct mono">{{ s.parecido * 100 | number:'1.0-0' }}%</span>
-                            <span class="cpp-code">{{ s.veredicto }}</span>
-                          </label>
-                        }
-                      </td>
-                      <td>
-                        @if (puedeGestionar()) {
-                          <button type="button" class="cpp-btn-ok"
-                                  [disabled]="!elegido()[f.alias_normalizado] || guardando() === f.alias_normalizado"
-                                  (click)="confirmar(f)">
-                            {{ guardando() === f.alias_normalizado ? 'Guardando…' : 'Confirmar' }}
-                          </button>
+              <!-- ── 2 · PROVEEDORES ── -->
+              @case ('proveedores') {
+                <h3>2 &middot; Confirma a qu&eacute; cuenta va cada nombre del banco</h3>
+                <p class="cpp-instr">
+                  El banco escribe el nombre del proveedor a su manera. Elige su cuenta en ContPAQi una vez y queda para siempre.
+                </p>
+                @if (proveedoresError(); as e) {
+                  <div class="cpp-aviso mal" role="alert">No se pudieron leer los proveedores: {{ e }}</div>
+                } @else if (porConfirmar(); as p) {
+                  <app-load-state [isEmpty]="!p.filas.length" emptyIcon="pi-check-circle"
+                                  emptyTitle="Todos los nombres de este mes ya tienen cuenta">
+                    <p class="cpp-ojo"><i class="pi pi-info-circle" aria-hidden="true"></i>
+                      Los candidatos se ordenan por palabras en com&uacute;n: son una pista. Queda tu nombre en lo que confirmes.</p>
+                    <div class="card-premium card-flat cpp-tablewrap">
+                      <p-table [value]="p.filas" size="small" class="surf-table" [rowHover]="true"
+                               [scrollable]="true" scrollHeight="480px">
+                        <ng-template #header>
+                          <tr><th>Nombre en el banco</th><th class="ta-r">Movs</th><th class="ta-r">Importe</th>
+                            <th>Cuenta en ContPAQi</th><th></th></tr>
+                        </ng-template>
+                        <ng-template #body let-f>
+                          <tr>
+                            <td><span class="cpp-bank">{{ f.concepto_banco }}</span></td>
+                            <td class="ta-r mono">{{ f.movimientos | number }}</td>
+                            <td class="ta-r mono">{{ f.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                            <td>
+                              @if (!f.sugerencias.length) {
+                                <span class="muted">sin candidato parecido: b&uacute;scalo en ContPAQi</span>
+                              }
+                              @for (s of f.sugerencias; track s.cuenta) {
+                                <label class="cpp-sug">
+                                  <input type="radio" [name]="'sug-' + f.alias_normalizado" [value]="s.cuenta"
+                                         [checked]="elegido()[f.alias_normalizado] === s.cuenta" [disabled]="!puedeGestionar()"
+                                         (change)="elegir(f.alias_normalizado, s.cuenta)">
+                                  <span class="mono">{{ s.cuenta }}</span>
+                                  <span>{{ s.nombre }}</span>
+                                </label>
+                              }
+                            </td>
+                            <td class="ta-r">
+                              @if (puedeGestionar()) {
+                                <button type="button" class="cpp-btn-ok"
+                                        [disabled]="!elegido()[f.alias_normalizado] || guardando() === f.alias_normalizado"
+                                        (click)="confirmar(f)">
+                                  {{ guardando() === f.alias_normalizado ? 'Guardando…' : 'Confirmar' }}
+                                </button>
+                              }
+                            </td>
+                          </tr>
+                        </ng-template>
+                      </p-table>
+                    </div>
+                  </app-load-state>
+                  @if (avisoAlias(); as a) {
+                    <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
+                  }
+                } @else {
+                  <app-load-state [loading]="true" [skeletonRows]="5" />
+                }
+              }
+
+              <!-- ── 3 · PAGOS A PROVEEDOR ── -->
+              @case ('pagos') {
+                <h3>3 &middot; Elige qu&eacute; facturas paga cada pago</h3>
+                <p class="cpp-instr">
+                  La mayor&iacute;a de los pagos se arman solos. Estos no: marca las facturas (y notas de cr&eacute;dito) que paga cada uno.
+                  Se confirma cuando las facturas menos las notas dan lo pagado.
+                </p>
+                @if (pagosError(); as pe) {
+                  <div class="cpp-aviso mal" role="alert">No se pudieron leer los pagos: {{ pe }}</div>
+                } @else if (pagos(); as pc) {
+                  <app-load-state [isEmpty]="!pc.length" emptyIcon="pi-check-circle"
+                                  emptyTitle="Todos los pagos a proveedor de este mes se arman solos">
+                    <div class="cpp-md">
+                      <div class="card-premium card-flat cpp-tablewrap">
+                        <p-table [value]="pc" size="small" class="surf-table" [rowHover]="true"
+                                 [scrollable]="true" scrollHeight="480px"
+                                 selectionMode="single" [selection]="pagoSel()" (selectionChange)="elegirPago($event)"
+                                 dataKey="movimiento_id">
+                          <ng-template #header>
+                            <tr><th>Fecha</th><th>Banco</th><th class="ta-r">Importe</th><th>Estado</th></tr>
+                          </ng-template>
+                          <ng-template #body let-p>
+                            <tr [pSelectableRow]="p">
+                              <td class="muted mono">{{ p.fecha }}</td>
+                              <td><span class="cpp-bank">{{ p.banco_label || p.cuenta_banco }}</span>
+                                <span class="cpp-sub">{{ p.concepto }}</span></td>
+                              <td class="ta-r mono">{{ p.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                              <td>
+                                @if (p.confirmacion?.vigente) { <p-tag severity="success" value="Confirmado" /> }
+                                @else if (!p.propuesta) { <p-tag severity="warn" value="Proveedor sin identificar" /> }
+                                @else { <p-tag severity="secondary" value="Por confirmar" /> }
+                              </td>
+                            </tr>
+                          </ng-template>
+                        </p-table>
+                      </div>
+
+                      <aside class="card-premium card-flat cpp-peek">
+                        @if (pagoSel(); as s) {
+                          <h4 class="mono">{{ s.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</h4>
+                          <div class="cpp-sub">{{ s.banco_label || s.cuenta_banco }} &middot; {{ s.fecha }} &middot; {{ s.concepto }}</div>
+                          @if (!s.propuesta) {
+                            <p class="cpp-note">No se sabe de qu&eacute; proveedor es: Kepler no tiene el pago y el concepto no lleva a nadie.
+                              Compras tiene que corregir el RFC del proveedor; despu&eacute;s aparece aqu&iacute; con sus facturas.</p>
+                          } @else {
+                            <div class="cpp-kvs">
+                              <div class="cpp-kv"><span>Proveedor (RFC)</span><span class="mono">{{ s.propuesta.rfc }}</span></div>
+                              @if (!s.confirmacion?.vigente) {
+                                <div class="cpp-kv"><span>Por qu&eacute; no sali&oacute; solo</span><span>{{ s.motivo }}</span></div>
+                              } @else {
+                                <div class="cpp-kv"><span>Confirm&oacute;</span><span>{{ s.confirmacion?.confirmado_por }}</span></div>
+                              }
+                            </div>
+                            @if (s.propuesta.sugerencia.length && puedeGestionar()) {
+                              <button type="button" class="cpp-btn-ok mt" (click)="usarSugerencia()">
+                                <i class="pi pi-bolt" aria-hidden="true"></i>
+                                Marcar la sugerencia ({{ s.propuesta.origen === 'kepler' ? 'lo que aplicó Kepler' : 'la única que da el importe' }})
+                              </button>
+                            }
+                            <div class="cpp-eyebrow mt">Facturas ({{ s.propuesta.facturas.length | number }})</div>
+                            <div class="cpp-lista">
+                              @for (f of candidatas(); track f.uuid) {
+                                <label class="cpp-sug">
+                                  <input type="checkbox" [checked]="marcadasF().has(f.uuid)" [disabled]="!puedeGestionar()"
+                                         (change)="alternar('f', f.uuid)">
+                                  <span class="mono">{{ f.folio || 'sin folio' }}</span>
+                                  <span class="muted mono">{{ f.fecha }}</span>
+                                  <span class="mono">{{ f.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                                  @if (f.sugerida) { <p-tag severity="info" value="sugerida" /> }
+                                  @if (f.pagada_antes) { <p-tag severity="warn" [value]="'ya en un pago del ' + f.pagada_antes" /> }
+                                </label>
+                              }
+                            </div>
+                            @if (s.propuesta.notas.length) {
+                              <div class="cpp-eyebrow mt">Notas de cr&eacute;dito ({{ s.propuesta.notas.length | number }})</div>
+                              <div class="cpp-lista">
+                                @for (n of s.propuesta.notas; track n.uuid) {
+                                  <label class="cpp-sug">
+                                    <input type="checkbox" [checked]="marcadasN().has(n.uuid)" [disabled]="!puedeGestionar()"
+                                           (change)="alternar('n', n.uuid)">
+                                    <span class="mono">{{ n.folio || 'sin folio' }}</span>
+                                    <span class="muted mono">{{ n.fecha }}</span>
+                                    <span class="mono">{{ n.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                                  </label>
+                                }
+                              </div>
+                            }
+                            @if (cuadrePago(); as c) {
+                              <div class="cpp-kvs mt">
+                                <div class="cpp-kv"><span>Facturas marcadas</span><span class="mono">{{ c.facturas | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+                                <div class="cpp-kv"><span>&minus; Notas marcadas</span><span class="mono">{{ c.notas | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+                                <div class="cpp-kv"><span>Pagado</span><span class="mono">{{ s.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+                                <div class="cpp-kv cpp-kv-total"><span>{{ c.cuadra ? 'Cuadra' : 'Falta cuadrar' }}</span>
+                                  <span class="mono" [class.cpp-mal]="!c.cuadra">{{ c.diferencia | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+                              </div>
+                              @if (puedeGestionar()) {
+                                <div class="cpp-acciones">
+                                  <button type="button" class="cpp-btn-ok" [disabled]="!c.cuadra || confirmandoPago()" (click)="confirmarPago()">
+                                    {{ confirmandoPago() ? 'Guardando…' : 'Confirmar' }}
+                                  </button>
+                                  @if (s.confirmacion?.vigente) {
+                                    <button type="button" class="cpp-btn-bad cpp-lejos" [disabled]="confirmandoPago()" (click)="desconfirmarPago()">Quitar la confirmaci&oacute;n</button>
+                                  }
+                                </div>
+                              }
+                            }
+                          }
+                          @if (avisoPago(); as a) {
+                            <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
+                          }
                         } @else {
-                          <span class="cpp-code">sin permiso para confirmar</span>
+                          <p class="cpp-note">Elige un pago de la lista.</p>
                         }
-                      </td>
-                    </tr>
-                  </ng-template>
-                </p-table>
-              </div>
-              @if (avisoAlias(); as a) {
-                <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
+                      </aside>
+                    </div>
+                  </app-load-state>
+                } @else {
+                  <app-load-state [loading]="true" [skeletonRows]="5" />
+                }
               }
-            </section>
-          }
-        }
 
-        <!-- ── EL CUADRE: el vacío ES el dato ── -->
-        <section class="cpp-sec">
-          <div class="cpp-sec-h"><h3>Cuadre contra ContPAQi</h3></div>
-          @if (cuadre(); as c) {
-            @if (!c.hay_entregas) {
-              <div class="card-premium card-flat cpp-vacio">
-                <div class="cpp-zero mono">0%</div>
-                <div>
-                  <h4>Sin entregas &mdash; el denominador es cero</h4>
-                  <p>
-                    Nunca se import&oacute; un archivo a ContPAQi, as&iacute; que no hay nada que cuadrar.
-                    Un tablero que mostrara <span class="mono">0%</span> sin decir que el denominador es
-                    cero mentir&iacute;a por omisi&oacute;n, as&iacute; que el servicio devuelve
-                    <code>hay_entregas = false</code> y la pantalla lo dice.
-                  </p>
-                  <div class="cpp-meta">
-                    <span>plazo del motor <b class="mono">{{ c.plazo_dias }} d&iacute;as</b></span>
-                    <span>verificadas <b class="mono">{{ c.verificadas | number }}</b></span>
-                    <span>esperando <b class="mono">{{ c.esperando | number }}</b></span>
-                    <span>divergentes <b class="mono">{{ c.divergentes | number }}</b></span>
+              <!-- ── 4 · REVISAR Y ENTREGAR ── -->
+              @case ('archivo') {
+                <h3>4 &middot; Descarga el archivo y m&aacute;rcalo como cargado</h3>
+                <p class="cpp-instr">
+                  El archivo trae las <strong class="mono">{{ d.resumen.con_asiento | number }}</strong> p&oacute;lizas listas.
+                  Desc&aacute;rgalo, imp&oacute;rtalo en ContPAQi y despu&eacute;s m&aacute;rcalo aqu&iacute; con el mismo archivo:
+                  la Suite revisa que las p&oacute;lizas aparezcan en ContPAQi.
+                </p>
+
+                <app-metric-strip [items]="kpis()" ariaLabel="Resumen del mes" />
+
+                @if (puedeGestionar()) {
+                  <div class="cpp-entrega">
+                    <button type="button" class="cpp-btn-ok" [disabled]="bajando() || d.resumen.con_asiento === 0" (click)="descargar()">
+                      <i class="pi pi-download" aria-hidden="true"></i>
+                      {{ bajando() ? 'Generando…' : 'Descargar el archivo' }}
+                    </button>
+                    <input #archivoCargado type="file" accept=".txt,text/plain" class="cpp-file"
+                           (change)="marcarEntregado(archivoCargado)" aria-label="Archivo que se cargó en ContPAQi" />
+                    <button type="button" class="cpp-btn-ok" [disabled]="entregando() || d.resumen.con_asiento === 0" (click)="archivoCargado.click()">
+                      <i class="pi pi-check" aria-hidden="true"></i>
+                      {{ entregando() ? 'Comparando…' : 'Ya lo cargué: elegir el archivo' }}
+                    </button>
                   </div>
+                  @if (avisoArchivo(); as a) { <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div> }
+                  @if (avisoEntrega(); as a) { <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div> }
+                }
+                @if (cuadre(); as c) {
+                  <p class="cpp-ojo">
+                    <i class="pi pi-sync" aria-hidden="true"></i>
+                    @if (!c.hay_entregas) {
+                      Todav&iacute;a no se ha marcado ning&uacute;n archivo como cargado.
+                    } @else {
+                      En ContPAQi: <strong class="mono">{{ c.verificadas | number }}</strong> encontradas,
+                      <strong class="mono">{{ c.esperando | number }}</strong> por revisar,
+                      <strong class="mono" [class.cpp-mal]="c.divergentes > 0">{{ c.divergentes | number }}</strong>
+                      que no aparecieron en {{ c.plazo_dias }} d&iacute;as.
+                    }
+                  </p>
+                }
+
+                <h4 class="cpp-h4">Lo que no entra al archivo, y a qui&eacute;n le toca</h4>
+                @if (d.fuera_de_lote.movimientos > 0) {
+                  <p class="cpp-sub-p">
+                    Aparte quedan <span class="mono">{{ d.fuera_de_lote.movimientos | number }}</span> movimientos
+                    ({{ d.fuera_de_lote.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}) de
+                    {{ cuentasFuera() }}: no son cuentas de banco.
+                  </p>
+                }
+                <div class="card-premium card-flat cpp-tablewrap">
+                  <p-table [value]="motivosConTrabajo()" size="small" class="surf-table">
+                    <ng-template #header>
+                      <tr><th>Por qu&eacute; no entra</th><th class="ta-r">Movs</th><th>Le toca a</th></tr>
+                    </ng-template>
+                    <ng-template #body let-m>
+                      <tr>
+                        <td>{{ etiqueta(m.motivo) }}</td>
+                        <td class="ta-r mono" [class.muted]="esDeNadie(m.motivo)">{{ m.movimientos | number }}</td>
+                        <td [class.muted]="esDeNadie(m.motivo)">{{ duenoCorto(m.dueno) }}</td>
+                      </tr>
+                    </ng-template>
+                    <ng-template #emptymessage>
+                      <tr><td colspan="3" class="cpp-empty">Todo el mes entra al archivo.</td></tr>
+                    </ng-template>
+                  </p-table>
                 </div>
-              </div>
-            } @else {
-              <div class="card-premium card-flat cpp-tablewrap">
-                <div class="cpp-meta pad">
-                  <span>verificadas <b class="mono">{{ c.verificadas | number }}</b></span>
-                  <span>esperando <b class="mono">{{ c.esperando | number }}</b></span>
-                  <span>divergentes <b class="mono">{{ c.divergentes | number }}</b></span>
-                  <span>plazo <b class="mono">{{ c.plazo_dias }} d&iacute;as</b></span>
+
+                <h4 class="cpp-h4">Las p&oacute;lizas del mes</h4>
+                <p class="cpp-sub-p">Una por banco y d&iacute;a, y una por cada pago a proveedor.</p>
+                <div class="cpp-chips">
+                  <button type="button" class="cpp-chip" [class.on]="filtro() === null"
+                          [attr.aria-pressed]="filtro() === null" (click)="toggleMotivo(null)">
+                    Todas <span class="mono">{{ d.lotes.length | number }}</span>
+                  </button>
+                  @for (m of d.motivos; track m.motivo) {
+                    <button type="button" class="cpp-chip" [class.on]="filtro() === m.motivo"
+                            [attr.aria-pressed]="filtro() === m.motivo" (click)="toggleMotivo(m.motivo)">
+                      {{ etiqueta(m.motivo) }} <span class="mono">{{ lotesCon(m.motivo) | number }}</span>
+                    </button>
+                  }
                 </div>
+                <div class="cpp-md">
+                  <div class="card-premium card-flat cpp-tablewrap">
+                    <p-table [value]="visibles()" size="small" class="surf-table" [rowHover]="true"
+                             [scrollable]="true" scrollHeight="440px"
+                             [paginator]="visibles().length > 120" [rows]="120"
+                             selectionMode="single" [selection]="sel()" (selectionChange)="sel.set($event)"
+                             dataKey="k">
+                      <ng-template #header>
+                        <tr><th>Banco</th><th>Fecha</th><th class="ta-r">Movs</th><th class="ta-r">Entran</th></tr>
+                      </ng-template>
+                      <ng-template #body let-l>
+                        <tr [pSelectableRow]="l" class="cpp-lote">
+                          <td>
+                            <span class="cpp-bank">{{ banco(l) }}</span>
+                            @if (l.tipo === 'pago_proveedor') { <span class="cpp-sub">pago a proveedor &middot; {{ l.cfdis | number }} facturas y notas</span> }
+                          </td>
+                          <td class="muted mono">{{ l.fecha }}</td>
+                          <td class="ta-r mono">{{ l.movimientos | number }}</td>
+                          <td class="ta-r mono" [class.muted]="l.incluidas === 0">{{ l.incluidas | number }}</td>
+                        </tr>
+                      </ng-template>
+                      <ng-template #emptymessage>
+                        <tr><td colspan="4" class="cpp-empty">Ninguna p&oacute;liza con ese motivo.</td></tr>
+                      </ng-template>
+                    </p-table>
+                  </div>
+
+                  <aside class="card-premium card-flat cpp-peek">
+                    @if (sel(); as l) {
+                      <h4>{{ banco(l) }}</h4>
+                      <div class="cpp-sub">{{ l.fecha }}{{ l.tipo === 'pago_proveedor' ? ' · pago a proveedor' : '' }}</div>
+                      <div class="cpp-kvs">
+                        @if (l.tipo === 'pago_proveedor') {
+                          <div class="cpp-kv"><span>Total</span><span class="mono">{{ l.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+                          <div class="cpp-kv"><span>Renglones</span><span class="mono">{{ l.renglones | number }}</span></div>
+                          <div class="cpp-kv"><span>Facturas y notas</span><span class="mono">{{ l.cfdis | number }}</span></div>
+                          <div class="cpp-kv"><span>Qu&eacute; facturas paga lo dice</span><span>{{ fuente(l) }}</span></div>
+                        } @else {
+                          <div class="cpp-kv"><span>Movimientos</span><span class="mono">{{ l.movimientos | number }}</span></div>
+                          <div class="cpp-kv"><span>Entran a la p&oacute;liza</span>
+                            <span class="mono" [class.muted]="l.incluidas === 0">{{ l.incluidas | number }}</span></div>
+                          @if (l.incluidas > 0) {
+                            <div class="cpp-kv"><span>Renglones</span><span class="mono">{{ l.renglones | number }}</span></div>
+                            <div class="cpp-kv"><span>Total</span><span class="mono">{{ l.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+                          }
+                        }
+                      </div>
+                      @if (motivosDe(l).length) {
+                        <div class="cpp-eyebrow mt">No entran</div>
+                        <div class="cpp-kvs">
+                          @for (m of motivosDe(l); track m.k) {
+                            <div class="cpp-kv"><span [class.muted]="esDeNadie(m.k)">{{ etiqueta(m.k) }}</span><span class="mono">{{ m.n | number }}</span></div>
+                          }
+                        </div>
+                      }
+                      @if (l.iva_traspaso === 'no_emitido') {
+                        <p class="cpp-note">Esta p&oacute;liza cuadra pero no lleva el traspaso de IVA.</p>
+                      }
+                    } @else {
+                      <p class="cpp-note">Elige una p&oacute;liza de la lista.</p>
+                    }
+                  </aside>
+                </div>
+              }
+
+              @default {
+                <app-load-state [loading]="true" [skeletonRows]="6" />
+              }
+            }
+
+            @if (paso(); as actual) {
+              <div class="cpp-nav">
+                @if (anterior(); as a) {
+                  <button type="button" class="cpp-btn-sec" (click)="irA(a.id)"><i class="pi pi-arrow-left" aria-hidden="true"></i> {{ a.titulo }}</button>
+                }
+                @if (siguiente(); as s) {
+                  <button type="button" class="cpp-btn-ok cpp-nav-sig" (click)="irA(s.id)">{{ s.titulo }} <i class="pi pi-arrow-right" aria-hidden="true"></i></button>
+                }
               </div>
             }
-          }
-        </section>
-      }
+          </section>
+        }
+      </app-load-state>
     </div>
   `,
   styles: [`
+    :host { display: block; }
     .cpp-page { --cpp-gap: 1.25rem; }
     .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .muted { color: var(--c-text-3); }
     .ta-r { text-align: right; }
 
-    .cpp-verdict { padding: 1.5rem 0 1.25rem; border-bottom: 1px solid var(--c-divider); }
-    .cpp-eyebrow { font-size: var(--fs-micro); letter-spacing: .09em; text-transform: uppercase;
-      color: var(--c-text-3); }
-    .cpp-eyebrow.mt { margin-top: 1.1rem; }
-    .cpp-verdict h2 { font-size: clamp(1.6rem, 4vw, 2.25rem); font-weight: 600; margin: .6rem 0 0;
+    /* Q.5 · primario = la frase de arriba; secundario = el paso; terciario = las tablas del paso. */
+    .cpp-verdict { padding: 1.25rem 0 1rem; }
+    .cpp-verdict h2 { font-size: clamp(1.5rem, 3.6vw, 2rem); font-weight: 600; margin: 0;
       letter-spacing: -.02em; line-height: 1.15; text-wrap: balance; }
-    .cpp-lede { margin: .75rem 0 0; color: var(--c-text-2); max-width: 62ch; }
-    .cpp-declara { margin-top: .85rem; padding-left: .75rem; border-left: 2px solid var(--c-warn);
-      color: var(--c-text-2); font-size: var(--fs-sm); max-width: 74ch; }
-    .cpp-cta-fuera { display: inline-block; margin: 0 .35rem; padding: 1px 7px;
-      border: 1px solid var(--c-divider); border-radius: 999px; font-size: var(--fs-xs); }
+    .cpp-v-imp { color: var(--c-text-2); font-weight: 500; margin-left: .35rem; font-size: .7em; }
+    .cpp-lede { margin: .5rem 0 0; color: var(--c-text-2); font-size: var(--fs-body); max-width: 70ch; }
 
-    .cpp-sec { padding: 1.5rem 0 0; }
-    .cpp-sec-h { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
-    .cpp-sec-h h3 { font-size: var(--fs-h3); font-weight: 600; margin: 0; letter-spacing: -.01em; }
-    .cpp-tag { font-size: var(--fs-micro); letter-spacing: .07em; text-transform: uppercase;
-      color: var(--action); }
-    .cpp-sec-p { color: var(--c-text-2); font-size: var(--fs-sm); margin: .35rem 0 .9rem; max-width: 74ch; }
+    .cpp-pasos ol { list-style: none; margin: 0; padding: 0; display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-2); }
+    .cpp-paso { width: 100%; display: flex; align-items: center; gap: var(--sp-3); text-align: left;
+      padding: var(--sp-3); border: 1px solid var(--c-divider); border-radius: var(--r-lg);
+      background: var(--c-surface-1); color: var(--c-text-2); font: inherit; cursor: pointer;
+      transition: border-color .12s var(--ease-standard, ease), background .12s var(--ease-standard, ease); }
+    .cpp-paso:hover { background: var(--surface-hover); }
+    .cpp-paso:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .cpp-paso.on { border-color: var(--action); background: var(--surface-selected-bg); color: var(--c-text-1, var(--text-main)); }
+    .cpp-paso-n { flex: 0 0 auto; width: 1.75rem; height: 1.75rem; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 1px solid var(--c-divider); font-weight: 600; font-size: var(--fs-sm); }
+    .cpp-paso.on .cpp-paso-n { border-color: var(--action); color: var(--action); }
+    .cpp-paso.hecho .cpp-paso-n { border-color: var(--ok-border); color: var(--ok-fg); }
+    .cpp-paso-txt { display: flex; flex-direction: column; min-width: 0; }
+    .cpp-paso-t { font-weight: 600; font-size: var(--fs-sm); }
+    .cpp-paso-s { font-size: var(--fs-xs); color: var(--c-text-3); }
+    .cpp-paso.mal .cpp-paso-s { color: var(--bad-fg); }
+
+    .cpp-cuerpo { padding-top: 1.25rem; }
+    .cpp-cuerpo h3 { font-size: var(--fs-h3); font-weight: 600; margin: 0; letter-spacing: -.01em; }
+    .cpp-instr { color: var(--c-text-2); font-size: var(--fs-sm); margin: .35rem 0 .9rem; max-width: 78ch; }
+    .cpp-ojo { display: flex; gap: .5rem; align-items: baseline; margin: 0 0 .8rem;
+      color: var(--c-text-3); font-size: var(--fs-xs); max-width: 78ch; }
+    .cpp-h4 { font-size: var(--fs-body); font-weight: 600; margin: 1.5rem 0 .25rem; }
+    .cpp-sub-p { color: var(--c-text-3); font-size: var(--fs-xs); margin: 0 0 .6rem; }
+    .cpp-eyebrow { font-size: var(--fs-micro); letter-spacing: .09em; text-transform: uppercase; color: var(--c-text-3); }
+    .cpp-eyebrow.mt { margin-top: 1.1rem; }
     .cpp-tablewrap { overflow: hidden; }
-    .cpp-code { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--c-text-3);
-      display: block; }
-
-    .cpp-motivo { cursor: pointer; }
-    .cpp-motivo.sel { background: var(--surface-selected-bg); box-shadow: inset 2px 0 0 0 var(--action); }
-    .cpp-share { display: flex; align-items: center; gap: .5rem; }
-    .cpp-bar { display: block; width: clamp(70px, 9vw, 130px); height: 6px; border-radius: 999px;
-      background: var(--surface-200); overflow: hidden; flex: 0 0 auto; }
-    .cpp-bar i { display: block; height: 100%; background: var(--c-text-3); border-radius: 999px; }
-    .cpp-bar.nadie i { background: var(--c-divider); }
-    .sel .cpp-bar i { background: var(--action); }
-    .cpp-pct { font-size: var(--fs-xs); color: var(--c-text-3); }
-    .cpp-who { display: inline-flex; align-items: center; gap: .45rem; white-space: nowrap; }
-    .cpp-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c-text-2); flex: 0 0 auto; }
-    .cpp-who[data-nadie] { color: var(--c-text-3); }
-    .cpp-who[data-nadie] .cpp-dot { background: transparent; border: 1px solid var(--c-text-3); }
-    .cpp-foot { font-size: var(--fs-xs); color: var(--c-text-2); }
+    .cpp-bank { font-weight: 500; display: block; }
+    .cpp-sub { display: block; font-size: var(--fs-xs); color: var(--c-text-3); }
 
     .cpp-chips { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .75rem; }
     .cpp-chip { border: 1px solid var(--c-divider); background: var(--c-surface-1); color: var(--c-text-2);
@@ -438,65 +595,68 @@ import {
     .cpp-md { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--cpp-gap);
       align-items: start; }
     .cpp-lote { cursor: pointer; }
-    .cpp-bank { font-weight: 500; display: block; }
     .cpp-peek { padding: 1.1rem; }
-    .cpp-peek h4 { margin: .35rem 0 .1rem; font-size: var(--fs-h3); font-weight: 600; }
+    .cpp-peek h4 { margin: 0 0 .1rem; font-size: var(--fs-h3); font-weight: 600; }
     .cpp-kvs { margin-top: .6rem; }
     .cpp-kv { display: flex; justify-content: space-between; gap: .75rem; padding: .5rem 0;
       border-bottom: 1px solid var(--c-divider); font-size: var(--fs-sm); }
     .cpp-kv:last-child { border-bottom: 0; }
     .cpp-kv > span:first-child { color: var(--c-text-2); min-width: 0; }
-    .cpp-note { margin-top: .85rem; padding-top: .85rem; border-top: 1px solid var(--c-divider);
-      font-size: var(--fs-xs); color: var(--c-text-3); }
-
-    .cpp-vacio { padding: 1.3rem; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1.1rem;
-      align-items: start; }
-    .cpp-zero { font-size: 2.5rem; font-weight: 500; color: var(--c-text-3); line-height: 1;
-      letter-spacing: -.03em; }
-    .cpp-vacio h4 { margin: 0 0 .35rem; font-size: var(--fs-h3); font-weight: 600; }
-    .cpp-vacio p { margin: 0; color: var(--c-text-2); font-size: var(--fs-sm); max-width: 66ch; }
-    .cpp-meta { margin-top: .75rem; display: flex; gap: 1.1rem; flex-wrap: wrap;
-      font-size: var(--fs-xs); color: var(--c-text-3); }
-    .cpp-meta.pad { margin: 0; padding: 1rem; }
-    .cpp-meta b { color: var(--c-text-2); font-weight: 500; }
+    .cpp-kv > span:last-child { text-align: right; }
+    .cpp-kv-total { font-weight: 600; }
+    .cpp-note { margin: .85rem 0 0; font-size: var(--fs-xs); color: var(--c-text-3); }
     .cpp-empty { padding: 1.5rem; text-align: center; color: var(--c-text-3); font-size: var(--fs-sm); }
 
-    .cpp-error { display: flex; align-items: center; gap: .75rem; padding: .9rem 1rem; margin-top: 1rem;
-      border: 1px solid var(--bad-border); background: var(--bad-soft-bg); color: var(--bad-soft-fg);
-      border-radius: var(--radius-md); font-size: var(--fs-sm); }
-    .cpp-error-d { font-size: var(--fs-xs); opacity: .85; }
-    .cpp-btn { margin-left: auto; border: 1px solid currentColor; background: transparent; color: inherit;
-      border-radius: var(--radius-sm); padding: 4px 10px; font: inherit; font-size: var(--fs-xs); cursor: pointer; }
+    .cpp-entrega { display: flex; gap: .6rem; flex-wrap: wrap; margin: 1rem 0 .75rem; }
+    .cpp-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
-    .cpp-skel { display: grid; gap: .5rem; margin-top: 1.25rem; }
-    .cpp-skel-row { height: var(--row-h-md); border-radius: var(--radius-sm); background: var(--surface-200); }
+    .cpp-cta { min-width: 18rem; }
+    .cpp-sel-cta { width: 100%; }
+    .cpp-link { border: 0; background: transparent; color: var(--action); padding: 2px 0; font: inherit;
+      font-size: var(--fs-xs); cursor: pointer; text-decoration: underline; }
+    .cpp-link.mt { margin-top: .5rem; }
+    .cpp-mas { margin-top: 1rem; font-size: var(--fs-sm); color: var(--c-text-2); }
+    .cpp-mas summary { cursor: pointer; color: var(--c-text-2); }
+    .cpp-lista-simple { margin: .5rem 0 0; padding-left: 1.1rem; font-size: var(--fs-xs); }
+    .cpp-lista-simple li { padding: 2px 0; }
 
-    .cpp-archivo { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
-      margin-top: 1rem; padding: .9rem 1rem; border: 1px solid var(--c-divider);
-      border-radius: var(--r-lg); background: var(--c-surface-1); font-size: var(--fs-sm); }
-    .cpp-archivo > div:first-child { flex: 1 1 24rem; min-width: 0; }
-    .cpp-archivo-n { color: var(--c-text-3); font-size: var(--fs-xs); margin-top: .25rem; max-width: 72ch; }
-
-    /* [CP.8.37] confirmar el alias */
-    .cpp-nota-dura { margin: 0 0 .8rem; padding-left: .8rem; border-left: 2px solid var(--c-warn);
-      color: var(--c-text-2); font-size: var(--fs-sm); max-width: 78ch; }
     .cpp-sug { display: flex; align-items: center; gap: .5rem; padding: 3px 0; cursor: pointer;
       font-size: var(--fs-sm); flex-wrap: wrap; }
     .cpp-sug input { accent-color: var(--action); flex: 0 0 auto; }
-    .cpp-sug > span:nth-child(3) { color: var(--c-text-2); }
-    .cpp-btn-ok { border: 1px solid var(--action); background: transparent; color: var(--action);
-      border-radius: var(--radius-sm); padding: 4px 12px; font: inherit; font-size: var(--fs-xs);
-      cursor: pointer; white-space: nowrap; }
+    .cpp-lista { max-height: 16rem; overflow: auto; padding-right: .25rem; }
+    .cpp-mal { color: var(--bad-fg); font-weight: 600; }
+    .cpp-acciones { display: flex; align-items: center; gap: .6rem; margin-top: .75rem; }
+    /* Von Restorff: la destructiva lejos de la diaria. */
+    .cpp-lejos { margin-left: auto; }
+    .cpp-btn-ok.mt { margin-top: .75rem; }
+
+    .cpp-btn-ok { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid var(--action);
+      background: transparent; color: var(--action); border-radius: var(--radius-sm); padding: 5px 12px;
+      font: inherit; font-size: var(--fs-sm); cursor: pointer; white-space: nowrap; }
     .cpp-btn-ok:hover:not(:disabled) { background: var(--surface-selected-bg); }
     .cpp-btn-ok:disabled { border-color: var(--c-divider); color: var(--c-text-3); cursor: default; }
+    .cpp-btn-sec { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid var(--c-divider);
+      background: transparent; color: var(--c-text-2); border-radius: var(--radius-sm); padding: 5px 12px;
+      font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+    .cpp-btn-sec:hover { background: var(--surface-hover); }
+    .cpp-btn-bad { border: 1px solid var(--bad-border); background: transparent; color: var(--bad-fg);
+      border-radius: var(--radius-sm); padding: 4px 12px; font: inherit; font-size: var(--fs-xs);
+      cursor: pointer; white-space: nowrap; }
+    .cpp-btn-bad:disabled { color: var(--c-text-3); border-color: var(--c-divider); cursor: default; }
+    .cpp-nav { display: flex; gap: .6rem; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--c-divider); }
+    .cpp-nav-sig { margin-left: auto; }
+
     .cpp-aviso { margin-top: .75rem; padding: .6rem .8rem; border-radius: var(--radius-md);
       font-size: var(--fs-sm); border: 1px solid var(--ok-border); background: var(--ok-soft-bg);
       color: var(--ok-soft-fg); }
     .cpp-aviso.mal { border-color: var(--bad-border); background: var(--bad-soft-bg);
       color: var(--bad-soft-fg); }
 
-    @media (max-width: 56.25rem) { .cpp-md { grid-template-columns: 1fr; } }
-    @media (prefers-reduced-motion: reduce) { .cpp-chip { transition: none; } }
+    @media (max-width: 56.25rem) {
+      .cpp-md { grid-template-columns: 1fr; }
+      .cpp-pasos ol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (prefers-reduced-motion: reduce) { .cpp-chip, .cpp-paso { transition: none; } }
   `],
 })
 export class ContabilidadContpaqiPuenteComponent implements OnInit {
@@ -522,6 +682,30 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   readonly guardando = signal<string | null>(null);
   readonly bajando = signal(false);
   readonly avisoArchivo = signal<{ texto: string; mal: boolean } | null>(null);
+  readonly entregando = signal(false);
+  readonly avisoEntrega = signal<{ texto: string; mal: boolean } | null>(null);
+  /** El plazo del motor, del backend: repetir la constante acá la dejaría divergir. */
+  readonly plazoDias = computed(() => this.cuadre()?.plazo_dias ?? 5);
+
+  // ── [CP.8.14] reglas de cuenta ──
+  readonly reglas = signal<ReglaVista[] | null>(null);
+  readonly reglasError = signal<string | null>(null);
+  readonly cuentas = signal<{ codigo: string; etiqueta: string }[]>([]);
+  /** categoría → cuenta elegida. ⛔ Nada se preselecciona: el indicio sólo llena si se pide. */
+  readonly cuentaElegida = signal<Record<string, string>>({});
+  readonly firmando = signal<string | null>(null);
+  readonly avisoRegla = signal<{ texto: string; mal: boolean } | null>(null);
+  readonly firmables = computed(() => (this.reglas() ?? []).filter((r) => r.firmable));
+  readonly noFirmables = computed(() => (this.reglas() ?? []).filter((r) => !r.firmable));
+  /** Lo que destrabaría firmar lo pendiente de la lista. Techo: otro motivo puede dejarlos fuera. */
+  readonly porFirmar = computed(() => {
+    const p = this.firmables().filter((r) => r.estado !== 'aprobada' && r.movimientos_mes > 0);
+    return {
+      reglas: p.length,
+      n: p.reduce((a, r) => a + r.movimientos_mes, 0),
+      imp: p.reduce((a, r) => a + Number(r.importe_mes), 0),
+    };
+  });
   readonly avisoAlias = signal<{ texto: string; mal: boolean } | null>(null);
   /**
    * Confirmar exige `_GESTIONAR`; mirar el pendiente sólo `_VER`.
@@ -536,33 +720,64 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   /** Los 12 meses cerrados hacia atrás. El mes en curso NO entra: siempre se ve incompleto. */
   readonly mesOpts = mesesAtras(12);
 
+  /** El resumen del paso 4: qué trae el archivo y qué se queda afuera. */
   readonly kpis = computed<MetricStripItem[]>(() => {
     const d = this.data();
-    const c = this.cuadre();
     if (!d) return [];
-    const fuera = d.fuera_de_lote;
     return [
-      { label: 'Lotes', value: d.resumen.lotes, format: 'number', sub: 'banco × día', state: 'medido' },
-      { label: 'Movimientos', value: d.resumen.movimientos, format: 'number',
-        sub: 'agrupados en lote', state: 'medido' },
-      { label: 'Con asiento', value: d.resumen.incluidas, format: 'number',
-        tone: d.resumen.incluidas === 0 ? 'muted' : 'ok',
-        sub: d.resumen.incluidas === 0 ? 'ninguna regla firmada' : 'listos para armar',
-        state: 'medido' },
-      // ⭐ `no_medido` NO es "cero": es "este puente no lo cubre". Son dos cosas distintas y el
-      // organismo tiene vocabulario para las dos desde `[VP.MS]`.
-      { label: 'Fuera de lote', value: fuera.movimientos, format: 'number', tone: 'muted',
-        state: fuera.movimientos > 0 ? 'no_medido' : 'medido',
-        stateNote: fuera.cuentas.map((x) => `${x.cuenta}: ${x.movimientos}`).join(' · ')
-          || 'nada quedó fuera',
-        sub: 'no son egresos de banco' },
-      { label: 'Entregas', value: c ? (c.hay_entregas ? c.verificadas : 0) : 0, format: 'number',
-        tone: 'muted',
-        state: c && !c.hay_entregas ? 'no_medido' : 'medido',
-        stateNote: 'nunca se importó un archivo a ContPAQi',
-        sub: 'verificadas en ContPAQi' },
+      { label: 'Pólizas listas', value: d.resumen.con_asiento, format: 'number', state: 'medido',
+        tone: d.resumen.con_asiento === 0 ? 'muted' : 'ok', sub: 'van en el archivo' },
+      { label: 'Importe', value: this.importeListo(), format: 'currency', state: 'medido', sub: 'de esas pólizas' },
+      { label: 'Movimientos que entran', value: d.resumen.incluidas, format: 'number', state: 'medido',
+        sub: `de ${d.resumen.movimientos.toLocaleString('es-MX')} de banco` },
+      { label: 'Esperan un paso', value: this.pendientes(), format: 'number', state: 'medido',
+        tone: this.pendientes() > 0 ? 'warn' : 'muted', sub: 'reglas, proveedores, pagos u otros' },
     ];
   });
+
+  // ── `[CP.8.76]` Los cuatro pasos ──────────────────────────────────────────────────────────
+  /** Cuándo cargó la pantalla. ⚠️ Es la hora del navegador (`measures="fetch"`), no la edad del dato. */
+  readonly cargadoEn = signal<Date | null>(null);
+  readonly proveedoresError = signal<string | null>(null);
+  /** El paso que eligió la persona. `null` = el primero que tiene trabajo. */
+  readonly pasoElegido = signal<Paso | null>(null);
+  readonly todasLasReglas = signal(false);
+
+  readonly importeListo = computed(() =>
+    (this.data()?.lotes ?? []).filter((l) => l.incluidas > 0).reduce((a, l) => a + Number(l.total), 0));
+
+  readonly pagosPendientes = computed(() => {
+    const p = this.pagos();
+    return p ? p.filter((x) => !x.confirmacion?.vigente).length : null;
+  });
+
+  readonly pasos = computed<PasoVista[]>(() => armarPasos({
+    reglas: this.reglas() ? this.porFirmar().reglas : null, reglasError: !!this.reglasError(),
+    proveedores: this.porConfirmar()?.filas.length ?? null, proveedoresError: !!this.proveedoresError(),
+    pagos: this.pagosPendientes(), pagosError: !!this.pagosError(),
+    polizas: this.data()?.resumen.con_asiento ?? 0,
+  }));
+
+  readonly paso = computed<Paso | null>(() => this.pasoElegido() ?? primerPasoConTrabajo(this.pasos()));
+  readonly anterior = computed(() => vecino(this.pasos(), this.paso(), -1));
+  readonly siguiente = computed(() => vecino(this.pasos(), this.paso(), +1));
+  readonly queFalta = computed(() => fraseQueFalta(this.pasos()));
+
+  /** Las reglas de este mes (con movimientos o ya firmadas); las demás, a un clic y contadas. */
+  readonly reglasVisibles = computed(() => this.todasLasReglas()
+    ? this.firmables() : this.firmables().filter((r) => r.movimientos_mes > 0 || r.estado === 'aprobada'));
+  readonly reglasOcultas = computed(() =>
+    this.firmables().filter((r) => !(r.movimientos_mes > 0 || r.estado === 'aprobada')).length);
+
+  readonly motivosConTrabajo = computed(() => this.data()?.motivos ?? []);
+  readonly cuentasFuera = computed(() => (this.data()?.fuera_de_lote.cuentas ?? []).map((c) => c.cuenta).join(' y '));
+
+  irA(p: Paso): void { this.pasoElegido.set(p); }
+
+  porQueNoSeFirma(r: ReglaVista): string { return motivoNoFirmable(r.tipo_regla); }
+
+  /** El dueño viene como «quién — qué hace»; en la tabla basta el quién. */
+  duenoCorto(d: string): string { return d.split(' — ')[0]; }
 
   readonly visibles = computed<LoteVista[]>(() => {
     const d = this.data();
@@ -572,7 +787,8 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     return [...rows]
       .sort((a, b) => b.movimientos - a.movimientos || a.fecha.localeCompare(b.fecha))
       // `dataKey` de PrimeNG necesita UN campo, y la llave del lote son dos (banco y día).
-      .map((l) => ({ ...l, k: `${l.cuenta_banco}|${l.fecha}` }));
+      // `[CP.8.72]` La clave viene del servidor: un pago a proveedor y el lote de su día comparten banco y fecha.
+      .map((l) => ({ ...l, k: l.clave ?? `${l.cuenta_banco}|${l.fecha}` }));
   });
 
   readonly deNadie = computed(() => contarDeNadie(this.data()?.motivos ?? []));
@@ -588,16 +804,106 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     return Math.max(0, r.movimientos - this.deNadie() - r.incluidas);
   });
 
+  // ── `[CP.8.73]` Pagos a proveedor por confirmar ────────────────────────────────────────────
+  readonly pagos = signal<PagoPorConfirmar[] | null>(null);
+  readonly pagosError = signal<string | null>(null);
+  readonly pagoSel = signal<PagoPorConfirmar | null>(null);
+  readonly marcadasF = signal<ReadonlySet<string>>(new Set());
+  readonly marcadasN = signal<ReadonlySet<string>>(new Set());
+  readonly confirmandoPago = signal(false);
+  readonly avisoPago = signal<{ texto: string; mal: boolean } | null>(null);
+  /** Las facturas del pago elegido: lo sugerido primero, después las más recientes. */
+  readonly candidatas = computed(() => {
+    const p = this.pagoSel()?.propuesta;
+    return p ? ordenarCandidatas(p.facturas, p.sugerencia) : [];
+  });
+  readonly cuadrePago = computed(() => {
+    const p = this.pagoSel()?.propuesta;
+    return p ? cuadreDePago(p.facturas, p.notas, this.marcadasF(), this.marcadasN(), p.pagado) : null;
+  });
+
+  cargarPagos(): void {
+    this.pagosError.set(null);
+    this.api.pagosPorConfirmar(this.mes()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.pagos.set(r.pagos);
+        const id = this.pagoSel()?.movimiento_id;
+        this.elegirPago(r.pagos.find((x) => x.movimiento_id === id) ?? r.pagos[0] ?? null);
+      },
+      error: (e) => { this.pagos.set(null); this.pagosError.set(e?.error?.message ?? 'no se pudo leer los pagos por confirmar'); },
+    });
+  }
+
+  /** ⛔ Al elegir un pago NO se marca la sugerencia: sólo lo ya confirmado vuelve marcado. */
+  elegirPago(p: PagoPorConfirmar | null): void {
+    this.pagoSel.set(p);
+    this.avisoPago.set(null);
+    const c = p?.confirmacion;
+    this.marcadasF.set(new Set(c?.facturas ?? []));
+    this.marcadasN.set(new Set(c?.notas ?? []));
+  }
+
+  usarSugerencia(): void {
+    const s = this.pagoSel()?.propuesta?.sugerencia ?? [];
+    this.marcadasF.set(new Set(s));
+  }
+
+  alternar(tipo: 'f' | 'n', uuid: string): void {
+    const sig = tipo === 'f' ? this.marcadasF : this.marcadasN;
+    const s = new Set(sig()); if (s.has(uuid)) s.delete(uuid); else s.add(uuid);
+    sig.set(s);
+  }
+
+  confirmarPago(): void {
+    const p = this.pagoSel(); const c = this.cuadrePago();
+    if (!p || !c?.cuadra || this.confirmandoPago()) return;
+    this.confirmandoPago.set(true);
+    this.api.confirmarPago(p.movimiento_id, [...this.marcadasF()], [...this.marcadasN()])
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.confirmandoPago.set(false);
+          this.avisoPago.set({ texto: `Confirmado: la póliza sale con ${r.renglones} renglones por ${r.total.toFixed(2)}.`, mal: false });
+          this.cargar(true);
+        },
+        error: (e) => {
+          this.confirmandoPago.set(false);
+          this.avisoPago.set({ texto: e?.error?.message ?? 'no se pudo confirmar', mal: true });
+        },
+      });
+  }
+
+  desconfirmarPago(): void {
+    const p = this.pagoSel();
+    if (!p?.confirmacion || this.confirmandoPago()) return;
+    this.confirmandoPago.set(true);
+    this.api.desconfirmarPago(p.movimiento_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.confirmandoPago.set(false); this.avisoPago.set({ texto: 'Confirmación quitada.', mal: false }); this.cargar(true); },
+      error: (e) => { this.confirmandoPago.set(false); this.avisoPago.set({ texto: e?.error?.message ?? 'no se pudo quitar', mal: true }); },
+    });
+  }
+
   ngOnInit(): void { this.cargar(); }
 
-  cargar(): void {
-    this.loading.set(true);
+  /**
+   * `silencioso` = recargar después de firmar o confirmar SIN volver al esqueleto: la persona se
+   * queda en su paso y en su fila, y los números se actualizan debajo.
+   */
+  cargar(silencioso = false): void {
+    if (!silencioso) {
+      this.loading.set(true);
+      this.reglas.set(null);
+      this.porConfirmar.set(null);
+      this.pagos.set(null);
+    }
     this.error.set(null);
+    this.cargarPagos();   // [CP.8.73] mismo mes, mismo momento
     this.api.lotes(this.mes()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
         this.data.set(d);
+        this.cargadoEn.set(new Date());
         // Completa al llegar: el primer lote ya seleccionado, no un panel en blanco.
-        this.sel.set(this.visibles()[0] ?? null);
+        const k = this.sel()?.k ?? null;
+        this.sel.set(this.visibles().find((l) => l.k === k) ?? this.visibles()[0] ?? null);
         this.loading.set(false);
       },
       error: (e) => {
@@ -610,9 +916,90 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     this.api.cuadre().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (c) => this.cuadre.set(c), error: () => this.cuadre.set(null) });
 
-    // Igual que el cuadre: si falla, la bandeja sigue sirviendo y la sección no se dibuja.
-    this.api.pendientes(this.mes()).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (p) => this.porConfirmar.set(p), error: () => this.porConfirmar.set(null) });
+    // `[CP.8.76]` ⛔ Antes el error se tragaba (`null` y la sección desaparecía): se leía como «no hay
+    // proveedores por confirmar», que es justo lo contrario. Ahora el paso dice «no se pudo leer».
+    this.proveedoresError.set(null);
+    this.api.pendientes(this.mes()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => this.porConfirmar.set(p),
+      error: (e) => { this.porConfirmar.set(null); this.proveedoresError.set(e?.error?.message ?? 'error de red'); },
+    });
+
+    // [CP.8.14] ⚠️ Aquí el error SÍ se dibuja: una sección de firmas que desaparece se lee como
+    // «no hay nada que firmar», y es justo lo contrario.
+    this.reglasError.set(null);
+    this.api.reglas(this.mes()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.reglas.set(r.reglas),
+      error: (e) => { this.reglas.set(null); this.reglasError.set(e?.error?.message ?? 'error de red'); },
+    });
+    if (!this.cuentas().length && this.puedeGestionar()) {
+      this.api.cuentasGasto().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (c) => this.cuentas.set(c.cuentas.map((x) => ({ codigo: x.codigo, etiqueta: `${x.codigo} ${x.nombre}` }))),
+        error: () => this.cuentas.set([]),
+      });
+    }
+  }
+
+  /** El nombre legible es la primera frase de la evidencia medida («Comisión bancaria.»). */
+  nombreRegla(r: ReglaVista): string {
+    return nombreDeRegla(r);
+  }
+
+  /** El código de 10 dígitos del indicio, sólo si existe en el catálogo que se puede firmar. */
+  codigoIndicio(r: ReglaVista): string | null {
+    return codigoDeIndicio(r.indicio, this.cuentas());
+  }
+
+  elegirCuenta(categoria: string, cuenta: string | null): void {
+    this.cuentaElegida.update((m) => {
+      const n = { ...m };
+      if (cuenta) n[categoria] = cuenta; else delete n[categoria];
+      return n;
+    });
+  }
+
+  /** ⭐ Al firmar se recarga la bandeja entera: la firma cambia qué movimientos entran al asiento. */
+  firmar(r: ReglaVista): void {
+    const cuenta = this.cuentaElegida()[r.categoria_code];
+    if (!cuenta || this.firmando()) return;
+    this.firmando.set(r.categoria_code);
+    this.avisoRegla.set(null);
+    this.api.firmarRegla(r.categoria_code, cuenta).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (v) => {
+        this.firmando.set(null);
+        this.elegirCuenta(r.categoria_code, null);
+        this.avisoRegla.set({
+          texto: `${this.nombreRegla(r)} quedó firmada a ${v.cuenta_gasto} ${v.cuenta_nombre ?? ''}. `
+            + 'Sus movimientos ya entran al armado; lo ya entregado no se vuelve a mandar.',
+          mal: false,
+        });
+        this.cargar(true);
+      },
+      error: (e) => {
+        this.firmando.set(null);
+        this.avisoRegla.set({ texto: e?.error?.message ?? 'No se pudo firmar', mal: true });
+      },
+    });
+  }
+
+  revocar(r: ReglaVista): void {
+    if (this.firmando()) return;
+    this.firmando.set(r.categoria_code);
+    this.avisoRegla.set(null);
+    this.api.revocarRegla(r.categoria_code).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.firmando.set(null);
+        this.avisoRegla.set({
+          texto: `${this.nombreRegla(r)} quedó sin firmar: sus movimientos dejan de armarse. `
+            + 'Lo que ya se entregó a ContPAQi no se toca.',
+          mal: false,
+        });
+        this.cargar(true);
+      },
+      error: (e) => {
+        this.firmando.set(null);
+        this.avisoRegla.set({ texto: e?.error?.message ?? 'No se pudo revocar', mal: true });
+      },
+    });
   }
 
   /**
@@ -650,6 +1037,47 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     });
   }
 
+  /**
+   * `[CP.8.54]` Marca entregado el archivo que se cargó en ContPAQi.
+   *
+   * ⭐ Se deshabilita en el primer clic, antes de leer el archivo: el doble clic no manda dos
+   * veces (y aunque mandara, el backend no duplica). Los bytes viajan tal cual en base64 — el
+   * archivo es latin1 de ancho fijo y cualquier decodificación a texto podría cambiarlo.
+   */
+  async marcarEntregado(input: HTMLInputElement): Promise<void> {
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || this.entregando()) return;
+    this.entregando.set(true);
+    this.avisoEntrega.set(null);
+    let b64: string;
+    try {
+      b64 = aBase64(new Uint8Array(await file.arrayBuffer()));
+    } catch {
+      this.entregando.set(false);
+      this.avisoEntrega.set({ texto: 'No se pudo leer el archivo elegido.', mal: true });
+      return;
+    }
+    const mes = this.mes();
+    this.api.entregar(mes, b64).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.entregando.set(false);
+        const ya = r.ya_registradas ? ` (${r.ya_registradas} ya estaban registradas)` : '';
+        this.avisoEntrega.set({
+          texto: `${r.nuevas} pólizas de ${r.mes} quedaron como entregadas${ya}. `
+            + `La Suite las buscará en ContPAQi; las que no aparezcan en ${this.plazoDias()} días se avisan aquí.`,
+          mal: false,
+        });
+        this.api.cuadre().pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({ next: (c) => this.cuadre.set(c), error: () => this.cuadre.set(null) });
+      },
+      error: (e) => {
+        this.entregando.set(false);
+        this.avisoEntrega.set({ texto: e?.error?.message ?? 'No se pudo marcar como entregado', mal: true });
+      },
+    });
+  }
+
   elegir(alias: string, cuenta: string): void {
     this.elegido.update((m) => ({ ...m, [alias]: cuenta }));
   }
@@ -670,7 +1098,7 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
         next: () => {
           this.guardando.set(null);
           this.avisoAlias.set({ texto: `"${f.concepto_banco}" queda en ${cuenta}.`, mal: false });
-          this.cargar();
+          this.cargar(true);
         },
         error: (e) => {
           this.guardando.set(null);
@@ -681,7 +1109,7 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
       });
   }
 
-  setMes(m: string): void { this.mes.set(m); this.filtro.set(null); this.sel.set(null); this.cargar(); }
+  setMes(m: string): void { this.mes.set(m); this.filtro.set(null); this.sel.set(null); this.pasoElegido.set(null); this.cargar(); }
 
   toggleMotivo(motivo: string | null): void {
     this.filtro.set(motivo !== null && this.filtro() === motivo ? null : motivo);
@@ -700,7 +1128,6 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
 
   etiqueta(motivo: string): string { return etiquetaMotivo(motivo); }
   esDeNadie(motivo: string): boolean { return esDeNadie(motivo); }
-  pct(n: number, total: number): number { return participacion(n, total); }
 
   /**
    * El rótulo sale del propio lote; si el backend no lo manda, se muestra la cuenta contable
@@ -708,10 +1135,91 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
    * contabilidad es peor que una cuenta sin rótulo.
    */
   banco(l: LoteRow): string { return l.banco_label || l.cuenta_banco; }
+  fuente(l: LoteRow): string { return etiquetaFuente(l.fuente); }
 }
 
 /** Una fila de la tabla: el lote más la llave que `dataKey` necesita. */
 type LoteVista = LoteRow & { k: string };
+
+/** `[CP.8.76]` Los pasos del mes, en el orden en que se hacen. */
+export type Paso = 'reglas' | 'proveedores' | 'pagos' | 'archivo';
+
+export interface PasoVista {
+  id: Paso;
+  titulo: string;
+  /** Lo que le queda. `null` = todavía cargando (o no se pudo leer: ver `error`). El paso 4 no tiene pendiente. */
+  pendientes: number | null;
+  error: boolean;
+  /** La línea chica bajo el título: «4 por firmar», «listo», «cargando…», «no se pudo leer». */
+  estado: string;
+  /** Cómo se nombra lo que falta en la frase de arriba («firmar 4 reglas»). */
+  frase: (n: number) => string;
+}
+
+const plural = (n: number, uno: string, varios: string): string => `${n.toLocaleString('es-MX')} ${n === 1 ? uno : varios}`;
+
+/**
+ * `[CP.8.76]` Los cuatro pasos con su estado. ⛔ Cargando ≠ listo ≠ no se pudo leer: un paso cuya lista
+ * falló NO se pinta «listo» — se leería como «no hay nada que hacer», que es justo lo contrario.
+ */
+export function armarPasos(e: {
+  reglas: number | null; reglasError: boolean;
+  proveedores: number | null; proveedoresError: boolean;
+  pagos: number | null; pagosError: boolean;
+  polizas: number;
+}): PasoVista[] {
+  const estado = (n: number | null, error: boolean, falta: (n: number) => string): string =>
+    error ? 'no se pudo leer' : n === null ? 'cargando…' : n === 0 ? 'listo' : falta(n);
+  return [
+    { id: 'reglas', titulo: 'Reglas de cuenta', pendientes: e.reglasError ? null : e.reglas, error: e.reglasError,
+      estado: estado(e.reglas, e.reglasError, (n) => plural(n, 'por firmar', 'por firmar')),
+      frase: (n) => `firmar ${plural(n, 'regla', 'reglas')}` },
+    { id: 'proveedores', titulo: 'Proveedores', pendientes: e.proveedoresError ? null : e.proveedores, error: e.proveedoresError,
+      estado: estado(e.proveedores, e.proveedoresError, (n) => plural(n, 'nombre por confirmar', 'nombres por confirmar')),
+      frase: (n) => `confirmar ${plural(n, 'nombre del banco', 'nombres del banco')}` },
+    { id: 'pagos', titulo: 'Pagos a proveedor', pendientes: e.pagosError ? null : e.pagos, error: e.pagosError,
+      estado: estado(e.pagos, e.pagosError, (n) => plural(n, 'pago por confirmar', 'pagos por confirmar')),
+      frase: (n) => `elegir las facturas de ${plural(n, 'pago', 'pagos')}` },
+    { id: 'archivo', titulo: 'Revisar y entregar', pendientes: null, error: false,
+      estado: plural(e.polizas, 'póliza en el archivo', 'pólizas en el archivo'), frase: () => '' },
+  ];
+}
+
+/**
+ * El paso con el que abre: el primero con trabajo. Mientras alguno de los tres no termina de cargar
+ * devuelve `null` (la pantalla espera en vez de abrir en uno y saltar a otro). Uno que falló cuenta
+ * como «con trabajo»: abre ahí, donde está el error.
+ */
+export function primerPasoConTrabajo(pasos: PasoVista[]): Paso | null {
+  const tres = pasos.filter((p) => p.id !== 'archivo');
+  if (tres.some((p) => p.pendientes === null && !p.error)) return null;
+  return tres.find((p) => p.error || (p.pendientes ?? 0) > 0)?.id ?? 'archivo';
+}
+
+export function vecino(pasos: PasoVista[], actual: Paso | null, d: -1 | 1): PasoVista | null {
+  const i = pasos.findIndex((p) => p.id === actual);
+  return i < 0 ? null : pasos[i + d] ?? null;
+}
+
+/** La frase de arriba: qué falta para cerrar el mes, en el orden de los pasos. */
+export function fraseQueFalta(pasos: PasoVista[]): string {
+  const tres = pasos.filter((p) => p.id !== 'archivo');
+  if (tres.some((p) => p.error)) return 'Alguna lista no se pudo leer: el paso marcado lo dice.';
+  if (tres.some((p) => p.pendientes === null)) return 'Revisando qué falta…';
+  const faltan = tres.filter((p) => (p.pendientes ?? 0) > 0).map((p) => p.frase(p.pendientes as number));
+  if (!faltan.length) return 'No falta nada de tu lado: descarga el archivo en el paso 4.';
+  const lista = faltan.length === 1 ? faltan[0] : `${faltan.slice(0, -1).join(', ')} y ${faltan[faltan.length - 1]}`;
+  return `Para que salga el resto falta ${lista}.`;
+}
+
+/** Por qué un tipo de gasto no se firma aquí, en palabras de contabilidad (no el código de la regla). */
+export function motivoNoFirmable(tipoRegla: string): string {
+  return tipoRegla === 'por_proveedor' ? 'va a la cuenta del proveedor (pasos 2 y 3)'
+    : tipoRegla === 'no_aplica' ? 'no genera póliza'
+    : tipoRegla === 'sin_medir' ? 'falta medirlo: le toca a Sistemas'
+    : tipoRegla === 'por_sucursal' ? 'depende de la plaza y el banco no la trae'
+    : 'no lleva una cuenta fija';
+}
 
 /**
  * ⭐ Etiquetas en el idioma de quien mira. La clave técnica sigue visible abajo del rótulo,
@@ -727,7 +1235,46 @@ const ETIQUETA_MOTIVO: Record<string, string> = {
   importe_invalido: 'Importe no positivo',
   descuadre: 'Subtotal + IVA ≠ total',
   regla_sin_cuenta: 'Regla firmada sin cuenta',
+  // `[CP.8.72]` Pagos a proveedor que no se arman solos: se cuentan en su lote, nunca entran incompletos.
+  pago_a_confirmar: 'Pago a proveedor: confirmar qué facturas paga',
+  pago_sin_resolver: 'Pago a proveedor sin identificar',
+  pago_no_cuadra: 'Pago a proveedor: facturas − notas ≠ pagado',
+  pago_proveedor_sin_cuenta: 'Pago a proveedor sin cuenta',
+  pago_sin_facturas: 'Pago a proveedor sin facturas',
+  pago_importe_invalido: 'Pago a proveedor con un CFDI en cero',
+  pago_error: 'Pago a proveedor: error al armar',
 };
+
+/** `[CP.8.72]` De dónde salieron las facturas de un pago armado. */
+export function etiquetaFuente(f: string | null | undefined): string {
+  return f === 'cadena_kepler' ? 'lo que aplicó Kepler' : f === 'importe_una' ? 'una factura por importe'
+    : f === 'confirmada' ? 'lo que confirmó contabilidad' : '—';
+}
+
+/**
+ * `[CP.8.73]` Las candidatas en el orden en que se revisan: lo sugerido primero, después las más recientes.
+ * (Medido: mediana 19 candidatas por pago, p90 98 — sin orden no se encuentran.)
+ */
+export function ordenarCandidatas(facturas: CfdiPropuesto[], sugerencia: string[]): (CfdiPropuesto & { sugerida: boolean })[] {
+  const s = new Set(sugerencia);
+  return facturas.map((f) => ({ ...f, sugerida: s.has(f.uuid) }))
+    .sort((a, b) => (a.sugerida === b.sugerida ? (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0) : a.sugerida ? -1 : 1));
+}
+
+/**
+ * `[CP.8.73]` La cuenta que decide si se puede confirmar: facturas − notas contra lo pagado. ⛔ Cuadra sólo con
+ * al menos una factura y una diferencia menor a $1 (lo que el armador manda a redondeo); es la misma compuerta
+ * del servidor, para que el botón no prometa lo que el servidor va a rechazar.
+ */
+export function cuadreDePago(
+  facturas: CfdiPropuesto[], notas: CfdiPropuesto[], marcadasF: ReadonlySet<string>, marcadasN: ReadonlySet<string>, pagado: number,
+): { facturas: number; notas: number; diferencia: number; cuadra: boolean } {
+  const cent = (n: number): number => Math.round(Number(n) * 100);
+  const f = facturas.filter((x) => marcadasF.has(x.uuid)).reduce((a, x) => a + cent(x.total), 0);
+  const n = notas.filter((x) => marcadasN.has(x.uuid)).reduce((a, x) => a + cent(x.total), 0);
+  const d = f - n - cent(pagado);
+  return { facturas: f / 100, notas: n / 100, diferencia: d / 100, cuadra: marcadasF.size > 0 && Math.abs(d) < 100 };
+}
 
 /**
  * ⛔ **El único motivo que NO es trabajo de nadie**, y la razón de que esta pantalla exista.
@@ -758,6 +1305,33 @@ export function participacion(n: number, total: number): number {
 /** Cuántos movimientos ya están decididos y por lo tanto NO esperan a nadie. */
 export function contarDeNadie(motivos: { motivo: string; movimientos: number }[]): number {
   return motivos.filter((m) => esDeNadie(m.motivo)).reduce((a, m) => a + m.movimientos, 0);
+}
+
+/** `[CP.8.14]` El nombre legible de una regla: la primera frase de su evidencia («Comisión bancaria.»). */
+export function nombreDeRegla(r: { evidencia: string | null; categoria_code: string }): string {
+  const f = (r.evidencia ?? '').split('.')[0].trim();
+  return f && f.length <= 48 ? f : r.categoria_code;
+}
+
+/**
+ * `[CP.8.14]` El código del indicio, SÓLO si está en el catálogo que se puede firmar: ofrecer
+ * «usar el indicio» con una cuenta que el backend va a rechazar es invitar al error.
+ */
+export function codigoDeIndicio(indicio: string | null, cuentas: { codigo: string }[]): string | null {
+  const m = /^(\d{10})/.exec(indicio ?? '');
+  return m && cuentas.some((c) => c.codigo === m[1]) ? m[1] : null;
+}
+
+/**
+ * `[CP.8.54]` Bytes → base64, por tramos: `String.fromCharCode(...bytes)` de un golpe revienta
+ * la pila con un archivo de unos cientos de KB.
+ */
+export function aBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
 }
 
 /** El mes cerrado más reciente. ⚠️ No el actual: el mes en curso siempre se ve incompleto. */

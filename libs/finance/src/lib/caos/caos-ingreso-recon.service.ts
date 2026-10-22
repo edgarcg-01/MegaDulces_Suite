@@ -200,6 +200,16 @@ export class CaosIngresoReconService {
 
       const reparto = repartirIngresosCaos(depositos, cobros);
 
+      /**
+       * ⛔⛔ `[CGA-A.37]` **ESTE INSERT NO GUARDÓ UNA SOLA FILA EN SU VIDA.** El índice
+       * `ux_caos_atrib_cobro_vivo` exigía UNA fila por cobro, y el motor parte un cobro entre dos
+       * depósitos a propósito (el último tramo de cada depósito es parcial). Medido en prod: 512
+       * cobros partidos, 779 filas rechazadas, la transacción entera revertida en cada corrida.
+       * El candado se reemplazó por el que sí protege —Σ por cobro ≤ su monto— y para eso cada
+       * tramo lleva el monto TOTAL de su cobro (`cobro_monto`).
+       */
+      const montoDeCobro = new Map(cobros.map((c) => [c.origen_ref, c.monto] as const));
+
       // 3 · Escribir. Sólo los tramos: el cobro y el depósito viven en sus fuentes.
       const filas: any[] = [];
       for (const { deposito, veredicto } of reparto.resultados) {
@@ -212,6 +222,7 @@ export class CaosIngresoReconService {
             cobro_origen_ref: ap.origen_ref,
             cobro_fecha: ap.fecha,
             monto: ap.monto,
+            cobro_monto: montoDeCobro.get(ap.origen_ref) ?? null,
             metodo: 'fifo_anterior',
             calculado_por: user?.id ?? null,
           });

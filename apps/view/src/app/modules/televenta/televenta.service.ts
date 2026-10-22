@@ -139,7 +139,6 @@ export interface TeleventaDashboard {
   conversion_7d: { total_calls: number; orders_taken: number; conversion_pct: number };
   top_operators: Array<{ user_id: string; username: string | null; calls: number; orders: number; minutes: number }>;
   outcomes_7d: Array<{ outcome: string; count: number }>;
-  queue_preview: Array<{ id: string; code: string; name: string; phone: string | null; last_order_at: string | null }>;
   /**
    * E.9 — la facturación REAL del canal, del ERP (`U/D/8`, canal TELEMARK).
    * Es independiente de la captura de llamadas: existe aunque nadie registre una llamada aquí.
@@ -149,6 +148,43 @@ export interface TeleventaDashboard {
   actividad: { registrada: boolean; nota: string };
 }
 
+export interface TelemarketingDescuentos {
+  /** Facturas CON renglones: el universo de la cascada. */
+  facturas: number;
+  /** La réplica trae la cabecera antes que el detalle: éstas quedan fuera de la cuenta. */
+  facturas_sin_renglones: number;
+  total_sin_renglones: number;
+  renglones: number;
+  /** Sin precio de lista en el ERP: ahí el descuento de producto es un piso. */
+  renglones_sin_lista: number;
+  lista: number;
+  producto: number;
+  subtotal: number;
+  cliente: number;
+  facturado: number;
+  /** Contra el maestro de clientes de HOY: salieron con menos % del negociado. */
+  negociado_no_aplicado: DiferenciaMaestro;
+  /** Contra el maestro de HOY: salieron con más % del que el maestro registra. */
+  sin_respaldo_maestro: DiferenciaMaestro;
+}
+
+/** `[E.16]` `detalle` trae TODAS las facturas (sin tope), de mayor a menor diferencia. */
+export interface DiferenciaMaestro {
+  facturas: number;
+  monto: number;
+  detalle: Array<{
+    folio_digital: string;
+    fecha: string | null;
+    cliente_code: string | null;
+    cliente_nombre: string | null;
+    vendedor_nombre: string | null;
+    pct_maestro: number;
+    pct_documento: number;
+    subtotal: number;
+    diferencia: number;
+  }>;
+}
+
 export interface TelemarketingBilling {
   hoy: { facturas: number; importe: number };
   mes: { facturas: number; importe: number };
@@ -156,13 +192,21 @@ export interface TelemarketingBilling {
     facturas: number; importe: number; clientes: number;
     saldo: number; saldo_vencido: number; facturas_vencidas: number;
   };
+  /** Vencido de TODA la cartera del canal, sin ventana de emisión (la deuda vieja incluida). */
+  cartera_vencida: { saldo: number; facturas: number };
+  /** De los `d30.clientes` facturados, cuántos existen en el padrón de la cola. */
+  clientes_en_cola: number;
   /** Fecha de NEGOCIO del documento más reciente (no el reloj del navegador). */
   ultima_factura: string | null;
   /** El operador viene del ERP (`vendedor_code`): no hay con qué cruzarlo a un usuario. */
   por_operador: Array<{
     vendedor_code: string | null; vendedor_nombre: string | null;
     facturas: number; importe: string; saldo: string; clientes: number;
+    /** `[E.15]` null = el operador no tiene renglones todavía: no se sabe, no es $0. */
+    descuento_producto: number | null; descuento_cliente: number | null; importe_lista: number | null;
   }>;
+  /** `[E.15]` La cascada del descuento en 30 días: lista − producto = subtotal − cliente = facturado. */
+  descuentos: TelemarketingDescuentos;
   ultimas: Array<{
     folio_digital: string; sucursal: string; doc_prefix: string; folio: string; fecha: string;
     cliente_code: string; cliente_nombre: string; vendedor_nombre: string | null;

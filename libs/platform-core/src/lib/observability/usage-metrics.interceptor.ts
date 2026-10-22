@@ -46,6 +46,22 @@ interface Celda {
   msTotal: number;
   msMax: number;
   errores: number;
+  /** `[ERR.1]` Rechazos: 400–499 (validación, permiso, no encontrado). */
+  errores4xx: number;
+  /** `[ERR.1]` Fallas: 500+, o un error sin código (Nest lo responde como 500). */
+  errores5xx: number;
+}
+
+/**
+ * `[ERR.1]` El código HTTP con que va a salir un error. `HttpException` lo da con `getStatus()`;
+ * otros lo traen en `status`/`statusCode`. Sin código, Nest responde 500: se cuenta como falla.
+ */
+export function claseDeError(err: unknown): '4xx' | '5xx' {
+  const e = err as { getStatus?: () => unknown; status?: unknown; statusCode?: unknown } | null;
+  let s: unknown;
+  try { s = typeof e?.getStatus === 'function' ? e.getStatus() : (e?.status ?? e?.statusCode); } catch { s = undefined; }
+  const n = Number(s);
+  return Number.isInteger(n) && n >= 400 && n < 500 ? '4xx' : '5xx';
 }
 
 export const USAGE_METRICS_DB = 'USAGE_METRICS_DB';
@@ -71,6 +87,12 @@ export class UsageMetricsInterceptor implements NestInterceptor, OnModuleDestroy
   private descargando = false;
   /** Se declara para que una descarga que nunca corrió no se lea como "no hubo tráfico". */
   private ultimaDescarga: Date | null = null;
+  /**
+   * `[ERR.1]` ¿La tabla ya tiene `errores_4xx`/`errores_5xx`? Se asume que sí; si Postgres
+   * responde 42703 (columna inexistente: la migración `20261021111235` aún no se aplicó), se
+   * vuelve a escribir SIN ellas. Así el orden código↔migración no pierde un minuto de métricas.
+   */
+  private conClasesDeError = true;
 
   constructor(@Optional() @Inject(USAGE_METRICS_DB) private readonly knex?: unknown) {
     if (process.env['USAGE_METRICS'] === 'off') {
@@ -92,12 +114,12 @@ export class UsageMetricsInterceptor implements NestInterceptor, OnModuleDestroy
     if (context.getType() !== 'http' || !this.timer) return next.handle();
     const t0 = Date.now();
     const req = context.switchToHttp().getRequest();
-    const anotar = (falla: boolean) => {
-      try { this.anotar(req, Date.now() - t0, falla); } catch { /* jamás rompe el request */ }
+    const anotar = (falla: boolean, clase?: '4xx' | '5xx') => {
+      try { this.anotar(req, Date.now() - t0, falla, clase); } catch { /* jamás rompe el request */ }
     };
     return next.handle().pipe(tap({
       next: () => anotar(false),
-      error: () => anotar(true),
+      error: (err: unknown) => anotar(true, claseDeError(err)),
     }));
   }
 
@@ -122,7 +144,7 @@ export class UsageMetricsInterceptor implements NestInterceptor, OnModuleDestroy
       .slice(0, 200) || '/';
   }
 
-  private anotar(req: Record<string, any>, ms: number, falla: boolean) {
+  private anotar(req: Record<string, any>, ms: number, falla: boolean, clase?: '4xx' | '5xx') {
     const u = req['user'] as { sub?: string; tenant_id?: string; role_name?: string } | undefined;
     const tenant = u?.tenant_id || process.env['DEFAULT_TENANT_ID'] || TENANT_POR_DEFECTO;
     if (!tenant) return;                       // sin tenant no hay dónde guardarlo
@@ -132,8 +154,12 @@ export class UsageMetricsInterceptor implements NestInterceptor, OnModuleDestroy
     const rol = u?.role_name || '(anonimo)';
 
     const k = `${tenant}|${fecha}|${metodo}|${ruta}|${rol}`;
-    const c = this.buffer.get(k) || { hits: 0, msTotal: 0, msMax: 0, errores: 0 };
-    c.hits++; c.msTotal += ms; c.msMax = Math.max(c.msMax, ms); if (falla) c.errores++;
+    const c = this.buffer.get(k) || { hits: 0, msTotal: 0, msMax: 0, errores: 0, errores4xx: 0, errores5xx: 0 };
+    c.hits++; c.msTotal += ms; c.msMax = Math.max(c.msMax, ms);
+    if (falla) {
+      c.errores++;
+      if (clase === '4xx') c.errores4xx++; else c.errores5xx++;
+    }
     this.buffer.set(k, c);
 
     /*
@@ -161,7 +187,9 @@ export class UsageMetricsInterceptor implements NestInterceptor, OnModuleDestroy
     if (!this.buffer.size && !this.usuarios.size) {
       // Sin tráfico no se escribe nada, pero SÍ se late con el motivo: un latido ausente y un
       // latido "cero legítimo" son cosas distintas y el tablero tiene que poder distinguirlas.
-      await this.latir(0, 0, ['sin trafico en la ventana']);
+      // ⛔ El motivo NO va en `fallas`: ahí pintaba `error` (38.8 % de los latidos en prod, cada
+      // madrugada). Lo declara `ceroEsOk` dentro de `latir()`, que es su lugar.
+      await this.latir(0, 0, []);
       return;
     }
     this.descargando = true;
@@ -179,21 +207,39 @@ export class UsageMetricsInterceptor implements NestInterceptor, OnModuleDestroy
         return {
           tenant_id, fecha, metodo, ruta, role_name,
           hits: c.hits, ms_total: c.msTotal, ms_max: c.msMax, errores: c.errores,
+          errores_4xx: c.errores4xx, errores_5xx: c.errores5xx,
           updated_at: knex.fn.now(),
         };
       });
+      // SUMA sobre lo que ya había: el grano es el día y las descargas son cada minuto.
+      const escribir = (lote: Record<string, unknown>[], conClases: boolean) => knex('analytics.ui_usage')
+        .insert(conClases ? lote : lote.map((f) => Object.fromEntries(
+          Object.entries(f).filter(([k]) => k !== 'errores_4xx' && k !== 'errores_5xx'))))
+        .onConflict(['tenant_id', 'fecha', 'metodo', 'ruta', 'role_name'])
+        .merge({
+          hits: knex.raw('analytics.ui_usage.hits + excluded.hits'),
+          ms_total: knex.raw('analytics.ui_usage.ms_total + excluded.ms_total'),
+          ms_max: knex.raw('greatest(analytics.ui_usage.ms_max, excluded.ms_max)'),
+          errores: knex.raw('analytics.ui_usage.errores + excluded.errores'),
+          ...(conClases ? {
+            errores_4xx: knex.raw('analytics.ui_usage.errores_4xx + excluded.errores_4xx'),
+            errores_5xx: knex.raw('analytics.ui_usage.errores_5xx + excluded.errores_5xx'),
+          } : {}),
+          updated_at: knex.fn.now(),
+        });
       for (let i = 0; i < filas.length; i += 500) {
         const lote = filas.slice(i, i + 500);
-        // SUMA sobre lo que ya había: el grano es el día y las descargas son cada minuto.
-        const r = await knex('analytics.ui_usage').insert(lote)
-          .onConflict(['tenant_id', 'fecha', 'metodo', 'ruta', 'role_name'])
-          .merge({
-            hits: knex.raw('analytics.ui_usage.hits + excluded.hits'),
-            ms_total: knex.raw('analytics.ui_usage.ms_total + excluded.ms_total'),
-            ms_max: knex.raw('greatest(analytics.ui_usage.ms_max, excluded.ms_max)'),
-            errores: knex.raw('analytics.ui_usage.errores + excluded.errores'),
-            updated_at: knex.fn.now(),
-          });
+        let r: unknown;
+        try {
+          r = await escribir(lote, this.conClasesDeError);
+        } catch (e) {
+          // `[ERR.1]` 42703 = columna inexistente: la migración todavía no se aplicó. Se escribe
+          // en el formato viejo y se recuerda, para no perder métricas por el orden de despliegue.
+          if ((e as { code?: string })?.code !== '42703' || !this.conClasesDeError) throw e;
+          this.conClasesDeError = false;
+          this.log.warn('analytics.ui_usage sin errores_4xx/errores_5xx: falta la migración 20261021111235; se escribe sin separar');
+          r = await escribir(lote, false);
+        }
         escritas += Array.isArray(r) ? r.length : lote.length;
       }
       if (users.length) {
@@ -243,6 +289,7 @@ export class UsageMetricsInterceptor implements NestInterceptor, OnModuleDestroy
       usuarios_pendientes: this.usuarios.size,
       ultima_descarga: this.ultimaDescarga,
       encendido: this.timer !== null,
+      con_clases_de_error: this.conClasesDeError,
     };
   }
 }

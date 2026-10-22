@@ -65,10 +65,12 @@ function servicios(scope: ResolvedScope, perfil: string | null = null) {
   const scopeSvc = new ScopeService(null as any, null as any);
   vi.spyOn(scopeSvc, 'current').mockResolvedValue(scope);
   const ctx = { get: () => ({ userId: 'u', tenantId: 't' }), requireTenantId: () => 't' } as any;
+  // [E.21] El alta con renglones usa el servicio de precios dentro de su transacción.
+  const pricing = new QuotePricingService(tk, ctx, scopeSvc);
   return {
     calls,
-    quotes: new CommercialQuotesService(tk, ctx, scopeSvc),
-    pricing: new QuotePricingService(tk, ctx, scopeSvc),
+    quotes: new CommercialQuotesService(tk, ctx, scopeSvc, pricing),
+    pricing,
   };
 }
 

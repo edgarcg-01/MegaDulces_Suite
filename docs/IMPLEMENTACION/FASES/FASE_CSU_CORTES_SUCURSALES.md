@@ -101,6 +101,62 @@ manda sobre el mes. Costo medido: un mes completo (106 cortes), **630–750 ms e
   rojas con el bruto). Sin migración ni permisos. ⚠️ La consulta del mes tarda **~6 s** contra prod
   **desde antes de este cambio** (la parte de devoluciones cuesta ~36 ms); el "630–750 ms" de
   CSU.1 quedó viejo — revisar aparte. 🧪 2026-10-08
+- [x] **[CSU.10]** **Rendimiento: la pantalla tarda demasiado y el personal reporta que «no sirve»**
+  (objetivo pedido: **≤ 0.5 s**). Sólo forma, **ninguna cifra cambia**: la vista
+  `analytics.erp_collections` (DISTINCT ON sobre todos los cobros de la historia) se evaluaba
+  **por cada corte** dentro de un LATERAL; ahora se consulta **una vez** con la lista exacta de cobros
+  y se casa en memoria. `ap` se arma desde el corte (entra completo a `ix_kdm5_aplicacion_factura`) y
+  `dv` repite sus filtros con la forma de `ix_kdm1_abono_doc` (redundantes, con AND). Paridad
+  vieja↔nueva **idéntica campo por campo** en la base local `:5442` con fixtures (réplica cruzada,
+  folio repetido entre sucursales, cobro sin vista, devolución cancelada/fuera de fecha/U-A-35), y
+  la prueba negativa (quitar el casado por folio) se pone roja. 27/27 del motor en verde.
+  **Medido en banco LOCAL a escala de prod** (`:5442`, PG 18.6, todo en una transacción con
+  ROLLBACK: `kdm1` 880,697 filas / 825 MB, `kdue` 600k, `kdm5` 400k, 34k cobros, 504 cortes de
+  oct con 389 cobrados y 50 con devolución): **vieja 88,615 ms → nueva 192 ms** (mediana de 3 en
+  caliente con `csu-cortes-bench-local.js`; + 2 ms de nombres; otra corrida: 82,380 → 163),
+  salida **idéntica** a escala. ⭐ Primera versión de la reescritura
+  medía 456 ms con 2 % de los datos: el planner inlineaba los agregados `a`/`d` y los recalculaba
+  por corte (loops=504) — por eso van `MATERIALIZED`. Los 82–95 s de la vieja calzan con que en prod la
+  petición **falle** (el navegador mostró `cortes-sucursales` en rojo): pasa el límite del túnel.
+  ⚠️ **NO MEDIDO en prod**: hardware, `kdud`/complementos y el resto de la API (alcance, JSON) son
+  locales o sintéticos. No se cierra ✅ (regla 15) hasta correr el de prod.
+  **Re-medir** (`database/scripts/`): `csu-cortes-bench-local.js` (escala de prod, exit 1 si pasa de
+  500 ms o rompe la paridad) · `csu-cortes-paridad-local.js [--mutar]` (casos borde + prueba
+  negativa) · `csu-cortes-paridad-prod.js` (sólo lectura, candado de identidad del clúster).
+  Fuera de alcance, a propósito: el bug del arqueo mal casado (folio de turno repetido el mismo día,
+  SM.35) cambia cifras y va en su propio item. 🧪 2026-10-21
+- [x] **[CSU.11]** **Cobros cancelados en Kepler: dejan de sumar, de raíz** (pedido del PM: «omitir todo
+  lo CANCELADO» y «corregirlo de raíz, no parchar»). Kepler cancela en la cabecera (`kdm1.c43='C'`,
+  importe 0) y deja la aplicación viva en `kdm5`: 854 de 70,478 en prod. Vista canónica
+  `analytics.kepler_kdm5_vigente` (mig `20261021102646`, se verifica sola); la leen el CTE `ap` de
+  Cortes y la cartera (mig `20261021102648`: `erp_receivable_documents`, `erp_receivable_doc()`,
+  `v_route_credit_sales`, desde su definición viva). Compuerta `check:kdm5-vigente` en el `pre-push`,
+  con `--db` para el catálogo. **Medido en prod (oct):** cobrado −$171,986.56 (14 cobros),
+  pendiente +$6,816.36, resto idéntico; cartera +$165,615.07 (21 docs); 13 facturas «pagadas» que no
+  lo estaban. Paridad local con cobro cancelado sembrado + `--mutar=cancelado` en rojo. ⚠️ Migraciones
+  a prod ANTES del código, una por una, fuera de horario. GOTCHAS §89 · ADR-098. 🧪 2026-10-21
+- [x] **[CSU.12]** **Del lado proveedor, los cancelados tampoco cuentan.** Los $13.3 M de pagos
+  cancelados aplicados a entradas (`kdm5` X-D) NO los sumaba ninguna vista de prod (medido en el
+  catálogo). El daño estaba en la CABECERA: `expense_documents` traía **1,021 documentos cancelados,
+  $3,177,101.13** (263 con importe vía el agregado contable) → Comprobaciones, pagables de Caja,
+  materialidad, MAAT; `mv_supplier_prompt_discount`, **101 pagos cancelados con $1,450,384.26 de
+  descuento** que no existió → tasa de pronto pago inflada (CF004 7.39 % → 6.20 %). Mig
+  `20261021121257` (definición viva + `c43 <> 'C'`; verificada en prod: quita exactamente los 1,021;
+  la matview se recrea con índice, permisos y comentario, **~18–25 s: fuera de horario**).
+  `check:kdm5-vigente:db` revisa además «cabeceras kdm1 con dinero sin c43»: 6 declarados con su
+  porqué, uno nuevo → rojo. 🧪 2026-10-21
+- [x] **[CSU.13]** **Buscador de cortes, y los cobros cancelados se VEN (no suman).** Pedido del PM: «no contamos con un apartado de búsqueda, reducir el tiempo para consultar». Después: «este corte cancelado no me aparece au501-00076». Qué se hizo:
+  - **Buscador** «Buscar corte», sobre la lista completa del periodo, con `filtrarPorBusqueda` (la semántica de `applySmartSearch`). Busca por folio con o sin ceros, caja-turno, sucursal, fecha, montos como se ven, estados, cajero, cobros (folio, forma, concepto, cuenta) y devoluciones. Atajos: `/` enfoca, `Esc` limpia. Si no hay resultados en la sucursal elegida, dice cuántos hay en otras.
+  - **Folios escritos a mano:** se comparan **por número**. Letras en cualquier orden, tipo con o sin ceros y cualquier cantidad de ceros, con un terminador para que el 76 no traiga el 761.
+  - **Cancelados:** vista `analytics.kepler_kdm5_cancelado` (mig `20261021135510`), complemento exacto de la vigente, verificado al crearse (vigentes + canceladas = kdm5). El corte publica `cobros_cancelados`; el detalle los marca «Cancelado en Kepler — no suma», con el monto tachado; la lista lleva «N cancelado»; el buscador los encuentra (también con la palabra «cancelado»).
+  - **Medido en prod, sólo lectura:** 11 cortes de octubre, 14 cobros, $171,986.56 que NO suman; el resto de la salida idéntica a `main`; 236 ms contra 228.
+  - **Arreglos vistos en el navegador:** la lupa (`p-inputicon` no tiene `styleClass` en PrimeNG 22; corregido en CSU.15: el `class` estático sí llega) y NG0955 del esqueleto de carga (`track i` sobre 8 `undefined`). 🧪 2026-10-21
+- [x] **[CSU.14]** **«Por sucursal» se reduce a la elegida.** Pedido del PM: «cuando se seleccione una sucursal las demás se oculten para optimizar la vista y el espacio». Con una sucursal elegida, la tabla deja sólo su fila y el encabezado dice «N ocultas · ver todas»; vuelven con ese enlace o con otro clic sobre la misma fila. Sólo pantalla (dos `computed`). Validado en el navegador: 8 → 1 → 8, consola limpia. 🧪 2026-10-21
+- [x] **[CSU.15]** **Barrido: la lupa invisible y el NG0955 en todo `apps/view`, con compuertas.** Lo que CSU.13 dejó como deuda era más de lo declarado. Sobre `main`:
+  - 36 `p-inputicon` y 28 `p-iconfield` con `styleClass`, que PrimeNG 22 no tiene: lupas de 0 px y buscadores sin su `min-width`. Pasan a `class=`.
+  - 27 `@for … track i` sobre `Array.from({ length: N })`, en 15 archivos: pasan a `track $index`.
+
+  Son 36 archivos de 7 módulos. Compuertas: `check:primeng` con techo 0 para los dos componentes, y `check:track`, nueva, en el `pre-push` con `--self-test`. Las dos salen rojas contra el `main` sin barrer, con los números exactos. `check:pantalla --todas` queda igual (629 fallas, 0 nuevas). Corrige lo que CSU.13 explicó mal: el `class` estático **sí** llega, sólo se pierde `styleClass`. Protocolo §8.0b 58–59, GOTCHAS §90. 🧪 2026-10-21
 - [ ] **[CSU.3]** Entrega 2 — banco: cruzar los cobros con `finance.bank_movements` (tarjeta y
   transferencia), tolerando que un abono cubra varios cobros y que el cobro no trae la fecha real.
   Requiere el estado de cuenta de oct-2026 cargado en Bancos.

@@ -262,7 +262,7 @@ ponerse roja — lo rojo no llega a prod, pero tampoco llega nada más hasta que
 
 ### 8.0b Antes de pedir revisión — el protocolo previo al PR
 
-> **Origen:** feedback de Edgar en #304 y #305 (2026-10-08), lo que valoró en #336 (2026-10-09), el rojo del CI de #346 (2026-10-09) y lo que costó llevar #349/#350/#351 (etiquetas) a verde (2026-10-10, puntos 8–13) y la barra compacta de Cambios de precio (2026-10-14, puntos 14–17) y la auditoría de diseño del PM sobre el verificador de precios más lo que costó llevar VAC a verde (2026-10-14, puntos 18–25). Cada punto es algo que **ya costó** o que **sí se valoró**: se midió al mergear, no es teoría. La plantilla del PR trae las mismas casillas; esta sección dice **por qué** y **cómo**.
+> **Origen:** feedback de Edgar en #304 y #305 (2026-10-08), lo que valoró en #336 (2026-10-09), el rojo del CI de #346 (2026-10-09) y lo que costó llevar #349/#350/#351 (etiquetas) a verde (2026-10-10, puntos 8–13) y la barra compacta de Cambios de precio (2026-10-14, puntos 14–17) y la auditoría de diseño del PM sobre el verificador de precios más lo que costó llevar VAC a verde (2026-10-14, puntos 18–25) y el ciclo de PRV.2/MS.DICTADO (2026-10-16, puntos 32–33). Cada punto es algo que **ya costó** o que **sí se valoró**: se midió al mergear, no es teoría. La plantilla del PR trae las mismas casillas; esta sección dice **por qué** y **cómo**.
 
 **1. El PR apunta a `main`. Siempre. No se apilan PR sobre ramas de feature.**
 - **Por qué:** el CI sólo corre con `pull_request: branches: [main]`. Un PR apuntado a otra rama **nunca se compila**: #305 llegó con 411 líneas que ningún compilador había visto. Y **re-apuntar la base no dispara el CI** (GitHub corre con `opened`/`synchronize`; cambiar la base no es ninguno): lo dispara un *push*.
@@ -347,6 +347,106 @@ ponerse roja — lo rojo no llega a prod, pero tampoco llega nada más hasta que
 
 **31. Una compuerta roja por una causa ajena NO es «ajena»: para TU cambio es NO MEDIDA.** *Origen: #414.* Mi `npm run check` dio `boot` en rojo por `pdf-lib` ausente y lo clasifiqué en el PR como «roja y ajena a esta rama»; pero `boot` murió **al cargar el módulo, antes de que Nest construyera el grafo de inyección**, o sea que **no pudo ver el defecto que yo había introducido**. Clasificar una roja como ajena responde «¿la causé yo?» y deja sin responder la pregunta que importa: **«¿qué debía verificar esta compuerta sobre MI diff, y quién lo verificó?»**. **Cómo:** por cada compuerta roja o que no corrió, escribe en el PR qué cubría y **cómo lo cubriste a mano o que queda NO MEDIDO**; un rojo ajeno que tapa la única compuerta que miraba tu riesgo (arranque, RLS, migraciones) **frena el PR hasta que lo cubras**, no se anota al pie.
 
+**32. Un script que edita archivos calcula el contenido nuevo ANTES de abrir el archivo para escribir — y después se mira `git diff --stat`.** Complementa el 16 (que dice *qué* herramienta usar). Un script de documentación mío hacía `open(ruta,'wb').write(f(contenido))`: el `open` en modo escritura **vacía el archivo antes de evaluar `f`**, así que cuando `f` falló (un ancla que no existía) el plan legal quedó en **0 bytes** en el árbol; sólo se salvó porque estaba en el índice. Lee, calcula, y **recién entonces** escribe (`const out = fn(texto); writeFileSync(ruta, out)`); si un ancla no aparece **exactamente una vez**, el script se detiene sin tocar nada. Y tras cualquier edición por script, `git diff --stat`: un archivo que perdió todas sus líneas —o 14 líneas en blanco ajenas, como me pasó con un `.replace(/\n\n\n+/g…)` que colapsó todo el CHANGELOG— se ve ahí al instante.
+
+**33. Si la función manda contenido de personas a un proveedor externo, la regla de quién queda fuera va en el SERVIDOR.** El dictado de la Mesa de Servicio manda audio a Groq: lo que alguien cuenta en RH (una queja, un acoso) no debe viajar a un tercero sin que legal lo apruebe. La pantalla esconde el botón, pero **la pantalla es un cliente entre varios**: el servidor rechaza (403) y también sin área (400/404, *fail-closed*). Se prueba **apagando la regla y mostrando el rojo**, y el PR dice **qué sale, a quién y qué se excluye**. Si el proveedor no está configurado en un entorno, la función lo dice y la alternativa (escribir) sigue sirviendo.
+
+> **Sobre «observaciones de PM»:** los puntos 32–33 salen de lo que costó este ciclo, **no** de comentarios de revisión: #389 se mergeó con CI verde y sin comentarios de nadie. Cuando el PM o Edgar comenten un PR, su feedback entra aquí con su origen, no se reconstruye de memoria.
+
+**Observaciones del PM sobre Cortes/Sucursales (2026-10-21) y lo que costó `[CSU.10]` — puntos 39–44.** La pantalla tardaba tanto que la petición fallaba («tarda demasiado» y «no sirve» eran el mismo síntoma); el PM pidió el origen y no un parche, una meta de carga y la prueba en local antes del PR.
+
+**39. Un bug que aparece en «algunos registros» se busca en el MECANISMO, no se parcha registro por registro.** *Origen: PM — «hay un bug en los cortes; queremos el origen del problema para no estar parchando por corte».* Antes de tocar un registro, busca el JOIN que puede elegir mal: un `LATERAL … LIMIT 1` sin desempate sobre una llave que **se repite** (aquí: el folio de turno se reusa el mismo día y en la misma caja, ya documentado en SM.35, y el arqueo se casaba sólo por sucursal + caja + folio), una ventana de fechas que deja entrar dos candidatos, una copia que se sincroniza con atraso. Cuenta cuántos casos tiene el patrón y arréglalo en su **propio** item: un arreglo que cambia cifras no viaja con uno de rendimiento (regla 15).
+
+**40. Una pantalla operativa carga en ≤ 0.5 s — y «tarda» o «no sirve» se diagnostica en la pestaña Network, no de oídas.** *Origen: PM — «debemos optimizar el tiempo de carga a 0.5 segundos, no más».* Abre DevTools → Network, filtra por la ruta de la API y recarga: la fila **roja** es la que falló; `Headers → Status Code` dice dónde se cortó (500 la API, 502/504/524 el proxy o el túnel por tiempo) y `Timing → Waiting for server response` cuánto tardó. ⚠️ La fila de la **navegación** de la página (`/finanzas/…`, sin `/api`, «Provisional headers», sólo *Stalled*) la atiende el service worker y no es la llamada de datos. El PR trae el tiempo **antes y después** medidos.
+
+**41. Medir rendimiento contra una base vacía no es medir: banco local a escala de prod, en una transacción con ROLLBACK.** *Origen: PM — «primero realiza pruebas en local y asegura que la carga sea de 0.5 segundos».* Sin datos, cualquier consulta responde en milisegundos. Carga volúmenes tomados de mediciones **documentadas** de prod (filas y **ancho** de fila: `kdm1` pesa ~870 B por fila; sin relleno el escaneo es más barato que en prod), haz `ANALYZE` dentro de la misma transacción, corre la versión vieja y la nueva **sobre los mismos datos**, reporta la mediana en caliente y la fría aparte, y declara lo que el banco no reproduce (hardware, tablas que no simulaste, el resto de la API). Plantilla: `database/scripts/csu-cortes-bench-local.js`. Contra prod, sólo lectura: `csu-cortes-paridad-prod.js`.
+
+**42. Un `LATERAL` por fila contra una vista pesada es cuadrático — y un CTE agregado sin `MATERIALIZED` puede volver a serlo.** Cortes ejecutaba la vista `analytics.erp_collections` (un `DISTINCT ON` sobre todos los cobros de la historia) **una vez por corte**: 88,615 ms en el banco, contra 192 ms después. La primera reescritura medía 456 ms con **2 %** de los datos: el planner inlineó el agregado de cobros y lo recalculó por corte (`GroupAggregate … loops=504`). Lee `loops=` en `EXPLAIN ANALYZE` y, si un agregado se repite por fila, decláralo `AS MATERIALIZED`. Una vista cara se consulta **una vez** con la lista exacta de llaves (`= ANY` sobre sus columnas de `DISTINCT ON`, que es lo que deja bajar el filtro) y se casa en memoria.
+
+**43. Para que entre un índice de expresión, el predicado se escribe con la MISMA expresión — sumado con AND, sin reemplazar el original.** `ix_kdm1_abono_doc` es `(btrim(sucursal), btrim(c1), (c4)::integer, (c5)::integer, btrim(c6))`; un filtro `m.c4::text IN ('21','25')` no lo usa. Agregar `(m.c4)::integer IN (21, 25)` **además** del original deja entrar el índice sin cambiar qué filas pasan: el original sigue filtrando, y la redundancia sólo puede quitar lo que el original ya quitaba.
+
+**44. Optimizar es misma salida: compruébalo campo por campo y rompe la comprobación a propósito.** Una prueba de paridad corre la SQL **de antes** (sacada de un commit con `git show`, no copiada a mano) y la nueva sobre los mismos datos y compara el JSON con llaves ordenadas, con fixtures de los casos borde (llave repetida entre sucursales, réplica cruzada, fila sin detalle, cancelados, fuera de ventana). Su prueba negativa quita una condición del JOIN y **tiene** que salir en rojo; si sigue verde, la paridad no mide nada (punto 13). `database/scripts/csu-cortes-paridad-local.js [--mutar]`. ⚠️ **La paridad prueba el SQL, no el `.ts`:** un acento grave en un comentario SQL (`-- … ‹a› …` escrito con backticks) **cierra el template literal** y el archivo no compila, pero el extractor lo saltaba y Postgres ignora el comentario — paridad verde sobre código roto. Lo atrapó el `pre-push` (`sql-backticks` + `boundary`); ahora el extractor también lo rechaza. Corre `node scripts/check-sql-backticks.js` antes de empujar SQL nuevo.
+
+**45. Un documento CANCELADO en Kepler no suma en ningún lado — y la regla vive en UNA fuente, no en cada consulta.** *Origen: PM — «omitir los montos de todos los que tengan estatus CANCELADO en Kepler; corregirlo de raíz y no estar parchando cada vez que salga un error».* Kepler cancela en la cabecera (`kdm1.c43 = 'C'`) y deja vivas las aplicaciones de `kdm5`. Se había corregido tres veces, consumidor por consumidor, y una de esas veces el filtro quedó en la fecha y no en el monto. Antes de escribir un filtro en tu consulta, pregúntate si la regla ya tiene casa. Si no la tiene, créasela (una vista derivada que se verifica sola) y ponle candado (`check:kdm5-vigente`, con `--db` para lo que vive en la base). Si tu PR suma documentos de Kepler, declara cómo excluye los cancelados. GOTCHAS §89 · ADR-098.
+
+**Observaciones del PM sobre los cancelados de Kepler (2026-10-21) y lo que costó `[CSU.11]`/`[CSU.12]` — puntos 46–51.** El PM pidió que lo cancelado en Kepler no cuente en ningún lado, de raíz, y luego «sigue con los proveedores». Cada punto ya costó algo ese mismo día.
+
+**46. Antes de corregir un dominio, mide en el CATÁLOGO de prod qué lo SUMA de verdad — no corrijas un monto que nadie lee.** *Origen: PM — «sigue con los proveedores».* Los $13.3 M de pagos cancelados aplicados a entradas parecían el problema. Medido en `pg_depend`/`pg_get_viewdef`: **ninguna** vista ni función de prod los sumaba. El daño estaba en otro lado: la cabecera, con $3.18 M en gastos y $1.45 M en pronto pago. Arreglar lo que se ve grande sin medir habría dejado intacto lo que sí pegaba.
+
+**47. «Cancelado» en la cabecera no pone en cero todo lo que cuelga del documento.** Kepler deja `c16 = 0`, pero sobreviven tres cosas:
+- el descuento `c84`;
+- el importe que otra tabla agrega (`expense_doc_accounting`);
+- las líneas de `kdm2`.
+
+Si tu vista lee dinero de `kdm1`, filtra `btrim(coalesce(x.c43,'')) <> 'C'`. Si a propósito no lo hace (el ticket POS U-D-10, donde `c43` no es señal), decláralo en `check:kdm5-vigente:db`. Las aplicaciones se leen de `analytics.kepler_kdm5_vigente` (GOTCHAS §89).
+
+**48. Tras fusionar `main`, el índice navegable se REGENERA con `npm run docs:indices`, nunca se desplaza a mano.** Git fusiona el bloque `INDICE-AUTO` línea por línea y deja dos versiones intercaladas. El mismo día, el log quedó con **0 de 452** filas válidas, dos veces. Comprueba con `npm run check:docs-indices` antes de empujar.
+
+**49. La rama de tu PR puede recibir commits de otros —el lead fusiona `main` en ella—: mira el remoto antes de empujar, y NUNCA la fuerces.** `git ls-remote origin refs/heads/<rama>`. Si no es tu último commit, construye encima: fusiona con un commit cuyo árbol sea el tuyo ya validado. `--force-with-lease` lo atajó con «stale info»: es para eso.
+
+**50. Medir en local exige las MISMAS llaves e índices que prod — si no, la cifra miente en cualquier sentido.** La vista canónica busca la cabecera por `kdm1_pkey`. Prod la tiene; las tablas del ODS local no tienen llaves. En local tardó **más de 46 s**, en prod **175 ms**. Antes de medir, compara `pg_indexes` de las tablas que tocas en los dos lados.
+
+**51. Un rojo que no llegó a comparar NO es un rojo: es NO MEDIDO.** Dos negativos de la paridad salieron «rojos» sin probar nada:
+- uno por un `SET LOCAL statement_timeout` que la migración dejó vivo en la transacción de la prueba;
+- otro porque la mutación (quitar el casado por folio) corrió **44 min** sin terminar sobre datos a escala.
+
+Una prueba que no llega a comparar sale con un código distinto y lo dice. La mutación rompe la condición sin quitarla, para no volver patológica la consulta.
+
+**Observaciones del PM sobre el buscador de Cortes (2026-10-21, `[CSU.13]`) — puntos 52–55.**
+
+**52. Omitir un monto no es esconder el documento: lo que no suma se VE, marcado, y se encuentra.** *Origen: PM — «este corte cancelado no me aparece».* CSU.11 sacó del corte los cobros cancelados para que no sumaran, y con eso quedaron **invisibles**: quien buscaba el folio no encontraba nada y no sabía por qué. Lo correcto es separar las dos preguntas: no suma (fuera del total) y existe (se muestra con su etiqueta y se encuentra con el buscador). Si para mostrarlo hace falta una fuente nueva, que sea el complemento exacto de la que ya existe, verificado al crearse (vigentes + canceladas = total). Una segunda copia de la regla no sirve.
+
+**53. Un buscador entiende los folios como los escribe la gente, no como los guarda el sistema.** *Origen: PM — «au501-00076» para `UA0501-0000076`.* Las letras van al revés, al tipo le falta el cero y el folio trae otra cantidad de ceros. Con búsqueda por fragmentos, ninguna de esas formas casa. Un folio se compara **por número**: el documento publica sus variantes cortas, la consulta se lleva a esa forma, y un terminador evita que el 76 traiga el 761. Pruébalo con lo que escribió la persona, no con el folio bien escrito.
+
+**54. Una pantalla no está lista hasta verla en un navegador real, con la consola limpia.** *Origen: PM — «¿por qué la búsqueda no me aparece?».* Al abrir `localhost:4200` con el navegador del agente aparecieron dos defectos que ninguna compuerta vio:
+- la **lupa en 0 px**: `p-inputicon` no tiene `styleClass` en PrimeNG 22, así que `styleClass="pi pi-search"` queda como atributo muerto; va `class="pi pi-search"` estático (corregido en CSU.15: el `class` sí llega, ver punto 59);
+- **NG0955** por `track i` sobre un esqueleto de `undefined`: va `track $index`.
+
+El criterio de cierre es la pantalla abierta, la acción probada y `list_console_messages` sin advertencias. «Sin validación visual» se declara (punto 17) sólo cuando de verdad no se pudo abrir.
+
+**55. «No lo veo en local» se diagnostica antes de tocar código: qué sirve el servidor, qué tiene el navegador, y si el API está arriba.** Tres causas distintas se vieron igual:
+- el servidor sí entregaba el cambio (el texto estaba en el *chunk*);
+- el navegador tenía la pestaña vieja y no había service worker;
+- `nx serve api` se reinició al tocar el backend, y el login dio «Error de conexión» unos segundos.
+
+Revisa en ese orden: `curl` del *chunk*, DevTools › Application › Service Workers, `curl` a `/api/health`. Y avisa antes de tocar el backend mientras alguien prueba.
+
+**56. En una pantalla resumen → detalle, elegir un elemento deja a la vista sólo ESE elemento: el resto se oculta, no se queda ocupando el espacio.** *Origen: PM, sobre «Por sucursal» en Cortes: «cuando se seleccione una sucursal las demás se oculten para optimizar la vista y el espacio».*
+
+Con una sucursal elegida, las otras 7 filas empujaban la lista de cortes, que es lo que se vino a ver, fuera de la pantalla. La forma:
+- un `computed` con lo visible (todas, o sólo la elegida);
+- el encabezado dice cuántas quedaron ocultas, con «ver todas»;
+- otro clic sobre la misma fila también las regresa.
+
+Que se pueda volver sin buscar el botón es parte del requisito. Lo oculto se declara con su número; no desaparece en silencio.
+
+**57. Si dos PR abiertos tocan el mismo bloque de documentación, el segundo en entrar resuelve con una FUSIÓN ordenada y `npm run docs:indices`, sin renumerar lo que ya entró.** *Lo que costó el 2026-10-21.* #439 (puntos 46–51, CSU.12) y #441 (52–55, CSU.13) insertaban en el mismo lugar de §8.0b y de la fase. Además, cada fusión de `main` en la rama del PR volvió a intercalar el índice: el log quedó en 2/229, dos veces el mismo día.
+
+Lo que funcionó:
+1. **Anticiparlo:** declarar el choque y el orden de fusión en el PR, comprobado con `git merge-tree`.
+2. **Cuando el primero entra:** fusionar `main` en la rama del segundo con un commit cuyo árbol se arma así:
+   - la versión de `main` de cada documento, más SÓLO lo que agrega este PR, en orden numérico;
+   - después, regenerar los índices con el generador de `main`.
+3. **Antes de empujar:**
+   - comprobar que ningún archivo quedó con marcas de conflicto;
+   - comprobar que la compuerta que tocaron los dos conserva los cambios de ambos;
+   - revisar el remoto con `ls-remote`, porque el lead pudo haber fusionado otra vez.
+
+**58. Un defecto que encontraste en UNA pantalla se busca en todo el repo y se cierra con una compuerta, no sólo donde lo viste.** *Lección de CSU.13 → CSU.15 (2026-10-21).* La lupa en 0 px y el NG0955 aparecieron en Cortes, pero eran el mismo renglón copiado en otras pantallas:
+- 36 `p-inputicon` y 28 `p-iconfield` con `styleClass`;
+- 27 `@for … track i` sobre un esqueleto, en 15 archivos.
+
+Mi primer conteo decía «3 pantallas» porque busqué una sola forma de escribirlo. La forma que funcionó:
+1. **Inventario con comando sobre `origin/main`**, con todas las variantes, no sobre tu árbol.
+2. **Arreglo mecánico**, con un script que imprime cada cambio, y el conteo del diff contra el inventario.
+3. **La compuerta va en la familia que ya existe** (punto 12). `p-inputicon`/`p-iconfield` entraron a `SIN_STYLECLASS` de `check:primeng` con techo 0. El `track` no es de PrimeNG y tiene su compuerta propia, `check:track`.
+4. **La negativa se corre contra el `main` sin barrer**, y debe salir roja con el número exacto del inventario (36 + 28 y 28). Si sale otro número, el detector o el inventario están mal.
+
+**59. Antes de escribir POR QUÉ falla una API, mídelo: la explicación también es una cifra.** *Lección de CSU.15.* En CSU.13 escribí que «PrimeNG 22 pisa el `class` de `p-inputicon`» y receté meter un `<i>` adentro. En el navegador, el `class` estático **sí** llega: lupa de 14 px con su glifo. Lo único que se pierde es `styleClass`, porque el componente no tiene esa entrada; su única entrada es `hostName`.
+
+La explicación sin medir empujaba a un arreglo más grande (reescribir 64 etiquetas) cuando bastaba con cambiar una palabra, y se copió al protocolo (punto 54). La evidencia barata son dos:
+- las `inputs` del componente en `node_modules/primeng/fesm2022/*.mjs`;
+- `getBoundingClientRect().width` y `getComputedStyle(el, '::before').content` en el navegador.
 
 > 🤖 Los comentarios de `nx-cloud` («AI Fix») en los PR son ruido del bot (la organización de Nx Cloud está deshabilitada): no son feedback ni hay que atenderlos.
 

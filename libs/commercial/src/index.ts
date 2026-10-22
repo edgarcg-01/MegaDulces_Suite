@@ -43,6 +43,8 @@ export * from './lib/warehouse-locations/warehouse-locations.module';
 export * from './lib/presale-control/presale-control.module';
 // [MCP.3] + [MCP.8] Surtido de preventa por pedido y avance para la vendedora.
 export * from './lib/presale-picking/presale-picking.module';
+// [MCP.3.8] Cliente nuevo: alta en la Suite y liga con su clave de Kepler.
+export * from './lib/new-customers-kepler/new-customers-kepler.module';
 export * from './lib/commercial-carga/commercial-carga.module';
 export * from './lib/commercial-analytics/commercial-analytics.module';
 export * from './lib/commercial-replenishment/commercial-replenishment.module';
