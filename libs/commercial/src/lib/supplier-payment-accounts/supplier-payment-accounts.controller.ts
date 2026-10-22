@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import { SupplierPaymentAccountsService, CreateAccountChangeRequestDto } from './supplier-payment-accounts.service';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
@@ -17,6 +17,21 @@ interface AuthedRequest { user?: { username?: string; full_name?: string } }
 @Controller('commercial/supplier-payment-accounts')
 export class SupplierPaymentAccountsController {
   constructor(private readonly svc: SupplierPaymentAccountsService) {}
+
+  /**
+   * `[PGP.1]` A quién le falta cuenta, ordenado por el dinero que destraba.
+   *
+   * ⭐ Lo ven **los dos lados del circuito**: Compras es quien abre la solicitud de alta y
+   * Tesorería es quien tiene la CLABE en la banca en línea. Por eso `RequireAnyPermission` y no
+   * el `COMPRAS_OBLIGACIONES_VER` del resto del módulo — con ése, quien tiene el dato no podría
+   * ver la lista. No expone ningún dato bancario: el control sigue en solicitar y aprobar.
+   */
+  @Get('faltantes')
+  @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'PGP.1 — proveedores que cobran por banco y no tienen cuenta de pago, por dinero descendente.' })
+  listMissing(@Query('dias') dias?: string) {
+    return this.svc.listMissingAccounts(dias ? Number(dias) : 120);
+  }
 
   @Get('by-supplier/:supplierId')
   @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_VER)

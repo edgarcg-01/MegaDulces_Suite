@@ -15,6 +15,11 @@ import { environment } from '../../../../environments/environment';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
+import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import type { CuentaPagoFaltante, CuentasPagoFaltantesResponse } from '@megadulces/contracts';
 
 interface SupplierOpt { id: string; name: string; code: string }
 interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; notes: string | null; attachment_url: string | null; es_favorita: boolean; status: string }
@@ -34,7 +39,7 @@ interface ChangeRequest {
   selector: 'app-compras-cuentas-pago',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, DialogModule, CheckboxModule, TagModule, ToastModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, DialogModule, CheckboxModule, TagModule, ToastModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent],
   providers: [MessageService],
   template: `
     <div class="surf-page in cta-page">
@@ -46,6 +51,82 @@ interface ChangeRequest {
         </div>
         <button pButton type="button" (click)="openNewSupplierPick()"><span class="pi pi-plus"></span>&nbsp;Solicitar cuenta</button>
       </header>
+
+      <section class="cta-section">
+        <div class="cta-section-head">
+          <h2>A quién le falta cuenta</h2>
+          <app-context-help topic="cuentas-de-pago" />
+        </div>
+
+        @if (loadingFaltantes() || errorFaltantes()) {
+          <app-load-state [loading]="loadingFaltantes()" [error]="errorFaltantes()" [skeletonRows]="6"
+            errorTitle="No se pudo medir la cobertura de cuentas" (retry)="loadFaltantes()"></app-load-state>
+        } @else if (universo(); as u) {
+          <app-metric-strip [items]="kpiFaltantes(u)" ariaLabel="Cobertura de cuentas de pago" />
+
+          <p class="cta-lede">
+            @if (u.corte_80pct) {
+              Dando de alta las <strong>{{ u.corte_80pct }}</strong> cuentas de arriba, el pago por transferencia
+              queda cubierto para el <strong>80 %</strong> del dinero. Hoy se cubre el
+              <strong>{{ u.pct_monto_cubierto }} %</strong>.
+            } @else if (u.proveedores_total === 0) {
+              No hubo pagos por banco entre {{ u.desde }} y {{ u.hasta }}: no hay nada que medir.
+            } @else {
+              Los proveedores que cobran por banco en la ventana ya tienen cuenta: la cobertura es del
+              <strong>{{ u.pct_monto_cubierto }} %</strong>.
+            }
+          </p>
+
+          @if (u.data_as_of) {
+            <app-freshness-pill measures="data" [since]="u.data_as_of" label="Pagos del ERP" />
+          } @else {
+            <span class="cta-muted cta-sin-edad">Sin filas con las que medir la edad del dato.</span>
+          }
+
+          <p class="cta-proc">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            Pagos por banco del {{ u.desde }} al {{ u.hasta }} ({{ u.dias }} días) —
+            {{ u.proveedores_total }} proveedores, {{ money(u.monto_total) }}. El medio sale de la cuenta de
+            tesorería del documento, no del tipo de documento.
+            @if (u.proveedores_sin_catalogo > 0) {
+              <strong> {{ u.proveedores_sin_catalogo }}</strong> proveedores ({{ money(u.monto_sin_catalogo) }})
+              no están en el catálogo de la suite: cuentan en el total pero no se les puede abrir solicitud acá.
+            }
+          </p>
+
+          <p-table [value]="faltantes()" [paginator]="faltantes().length > 25" [rows]="25"
+            styleClass="p-datatable-sm surf-table surf-table--plain surf-table--sticky cta-table">
+            <ng-template #header>
+              <tr>
+                <th>Proveedor</th>
+                <th class="comm-num">Pagado</th>
+                <th class="comm-num">Cobertura si se da de alta</th>
+                <th class="comm-num">Pagos</th>
+                <th>Último pago</th>
+                <th style="width:9rem"><span class="sr-only">Acciones</span></th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-f let-i="rowIndex">
+              <tr [class.cta-row-corte]="i + 1 === universo()?.corte_80pct">
+                <td><strong>{{ f.nombre }}</strong> <span class="cta-muted cta-mono">{{ f.codigo }}</span></td>
+                <td class="comm-num">{{ money(f.monto) }}</td>
+                <td class="comm-num">{{ f.acumulado_pct }} %</td>
+                <td class="comm-num">{{ f.pagos }}</td>
+                <td class="cta-muted">{{ f.ultimo_pago_date }} · {{ money(f.ultimo_pago_monto) }}</td>
+                <td>
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="solicitarPara(f)">Solicitar cuenta</button>
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="6" class="cta-empty">
+                @if (universo()?.proveedores_total) { Todos los que cobran por banco ya tienen cuenta. }
+                @else { Sin pagos por banco en la ventana. }
+              </td></tr>
+            </ng-template>
+          </p-table>
+        }
+      </section>
 
       <section class="cta-section">
         <div class="cta-section-head"><h2>Buscar proveedor</h2></div>
@@ -136,6 +217,7 @@ interface ChangeRequest {
     .surf-page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
     .cta-section { margin-top:1.4rem; }
     .cta-section h2 { font-size:.95rem; margin:0 0 .5rem; }
+    .cta-section-head { display:flex; align-items:baseline; gap:.5rem; }
     .cta-search, .cta-full { width:100%; margin-bottom:.4rem; }
     .cta-sup-list { border:1px solid var(--border-color); border-radius:var(--r-md); max-height:8rem; overflow-y:auto; margin-bottom:.5rem; }
     .cta-sup-item { padding:.3rem .6rem; font-size:.82rem; cursor:pointer; }
@@ -154,6 +236,14 @@ interface ChangeRequest {
     .cta-dlg-p { font-size:.85rem; font-weight:600; margin:0 0 .4rem; }
     .cta-dlg-actions { margin-top:.8rem; }
     .cta-uploaded { font-size:.78rem; color:var(--ok-fg); margin:.2rem 0; }
+    /* [PGP.1] */
+    app-metric-strip { display:block; margin:.2rem 0 .7rem; }
+    .cta-lede { font-size:var(--fs-sm); color:var(--text-main); margin:.2rem 0 .5rem; max-width:62ch; }
+    .cta-proc { display:flex; gap:.4rem; align-items:flex-start; font-size:var(--fs-xs); color:var(--text-muted); margin:0 0 .6rem; max-width:82ch; }
+    .cta-proc .pi { margin-top:.15rem; }
+    /* El renglón donde se cruza el 80 %: una línea, no un relleno — el color no es el dato. */
+    .cta-row-corte > td { border-bottom:2px solid var(--action); }
+    .cta-sin-edad { display:inline-block; font-size:var(--fs-xs); margin-bottom:.4rem; }
   `],
 })
 export class ComprasCuentasPagoComponent implements OnInit {
@@ -174,6 +264,11 @@ export class ComprasCuentasPagoComponent implements OnInit {
   loadingAccounts = signal(false);
   requests = signal<ChangeRequest[]>([]);
   loadingRequests = signal(false);
+  // [PGP.1] Cobertura de cuentas. `universo` en null = todavía no se midió, distinto de medido en cero.
+  faltantes = signal<CuentaPagoFaltante[]>([]);
+  universo = signal<CuentasPagoFaltantesResponse['universo'] | null>(null);
+  loadingFaltantes = signal(false);
+  errorFaltantes = signal<string | null>(null);
   saving = signal(false);
   private searchTimer: any;
 
@@ -185,7 +280,61 @@ export class ComprasCuentasPagoComponent implements OnInit {
   uploadedKind: 'pdf' | 'image' | null = null;
   form: any = {};
 
-  ngOnInit(): void { this.loadRequests(); }
+  ngOnInit(): void { this.loadRequests(); this.loadFaltantes(); }
+
+  /**
+   * `[PGP.1]` **La lista que destraba el Calendario de Pagos.** Sin cuenta destino no se puede
+   * preparar un pago, y un lote con un solo pago sin preparar no se puede autorizar: medido el
+   * 2026-10-22, 6 lotes llevaban desde el 16-oct en borrador por esto.
+   *
+   * Los tres niveles de esta sección: **primario** = cuántas cuentas faltan para cubrir el 80 %
+   * del dinero · **secundario** = quién, por monto · **terciario** = su último pago, que es con
+   * lo que se le ubica en la banca en línea.
+   */
+  loadFaltantes(): void {
+    this.loadingFaltantes.set(true);
+    this.errorFaltantes.set(null);
+    this.http.get<CuentasPagoFaltantesResponse>(`${this.base}/faltantes`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.universo.set(r.universo); this.faltantes.set(r.faltantes); this.loadingFaltantes.set(false); },
+      // ⛔ El error NO se pinta como lista vacía: una cobertura que no se pudo medir no es cero.
+      error: (e) => { this.errorFaltantes.set(e?.error?.message || 'No se pudo consultar la cobertura de cuentas.'); this.loadingFaltantes.set(false); },
+    });
+  }
+
+  kpiFaltantes(u: CuentasPagoFaltantesResponse['universo']): MetricStripItem[] {
+    return [
+      {
+        label: 'Cuentas por dar de alta para cubrir el 80 %',
+        value: u.corte_80pct ?? 'Sin pendientes',
+        format: u.corte_80pct ? 'number' : 'text',
+        tone: u.corte_80pct ? 'warn' : 'ok',
+        sub: u.corte_80pct ? `de ${this.faltantes().length} sin cuenta` : undefined,
+      },
+      { label: 'Dinero ya cubierto', value: u.pct_monto_cubierto, format: 'percent', tone: u.pct_monto_cubierto >= 80 ? 'ok' : 'warn', sub: this.money(u.monto_cubierto) },
+      { label: 'Pagado por banco sin cuenta registrada', value: u.monto_total - u.monto_cubierto, format: 'currency-short', sub: `${u.dias} días` },
+    ];
+  }
+
+  /** `[PGP.1]` Q.4 — del número a su lugar de arreglo, con el proveedor ya puesto. */
+  solicitarPara(f: CuentaPagoFaltante): void {
+    const s: SupplierOpt = { id: f.supplier_id, name: f.nombre, code: f.codigo };
+    this.selectedSupplier.set(s);
+    this.supplierSearch = f.nombre;
+    this.loadAccounts(f.supplier_id);
+    this.requestDeactivate = false;
+    this.requestAccountId = null;
+    this.form = { proposed_es_favorita: true, reason: `Alta de cuenta para pagarle por transferencia (PGP.1): ${this.money(f.monto)} pagados por banco en la ventana.` };
+    this.requestSupplier.set(s);
+    this.dlgSupplierSearch = '';
+    this.uploadedUrl.set(null);
+    this.uploadedKind = null;
+    this.requestVisible = true;
+  }
+
+  /** Los `numeric` de Postgres llegan como string por JSON: `Number()` antes de formatear. */
+  money(v: number | string | null | undefined): string {
+    return Number(v ?? 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+  }
 
   requestTitle(): string { return this.requestDeactivate ? 'Solicitar baja de cuenta' : 'Solicitar cuenta de pago'; }
 
