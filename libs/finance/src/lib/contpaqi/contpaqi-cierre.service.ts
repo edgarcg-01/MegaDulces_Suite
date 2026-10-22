@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import {
   TenantKnexService, TenantContextService, evalInput, composeFreshness,
 } from '@megadulces/platform-core';
@@ -151,4 +151,78 @@ export class ContpaqiCierreService {
       query_ms,
     };
   }
+
+  /**
+   * `[LC.21]` El desglose de una celda del semáforo: los renglones de póliza de UNA familia en UN mes.
+   *
+   * ⚠️ El filtro de cada familia es el de `v_contpaqi_cierre_mensual` (esa vista manda; aquí se repite
+   * para poder listar) y la prueba `test-newdb-cierre-desglose.js` cruza las dos: renglones y suma de
+   * aquí contra `senal` / `senal_renglones` de la matvista, mes por mes. Si alguien cambia la vista y
+   * no esto, se pone rojo.
+   *
+   * `provisional = true` lista lo que va en pólizas con fecha FUTURA (el «+ $X fechado adelante — no
+   * cuenta»); sin él, lo asentado (que sí cuenta).
+   */
+  async renglones(opts: { mes: string; familia: string; provisional?: boolean; page?: number }): Promise<RenglonesCierre> {
+    const mes = String(opts.mes ?? '').trim();
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) throw new BadRequestException('mes inválido, se espera YYYY-MM');
+    const f = FAMILIAS_CIERRE[opts.familia];
+    if (!f) throw new BadRequestException(`familia inválida: ${opts.familia} (${Object.keys(FAMILIAS_CIERRE).join(', ')})`);
+    const page = Math.max(1, Number(opts.page) || 1);
+    const size = 100;
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const base = () => {
+        const q = trx('analytics.gl_poliza_lines as l')
+          .where('l.tenant_id', tenantId).andWhere('l.source', 'contpaqi').andWhere('l.anio_mes', mes)
+          .whereRaw(f.where);
+        // «Futura» = la póliza tiene fecha posterior a hoy (la misma regla que la vista).
+        const futura = trx('analytics.gl_polizas as p').select(trx.raw('1'))
+          .whereRaw('p.tenant_id = l.tenant_id AND p.source = l.source AND p.ejercicio = l.ejercicio AND p.periodo = l.periodo'
+            + ' AND p.tipo_pol = l.tipo_pol AND p.folio = l.folio AND p.sucursal = l.sucursal AND p.fecha > CURRENT_DATE');
+        return opts.provisional ? q.whereExists(futura) : q.whereNotExists(futura);
+      };
+      const t = await base().select(trx.raw('count(*)::int AS renglones'), trx.raw('ROUND(COALESCE(SUM(l.importe), 0)::numeric, 2) AS importe')).first();
+      const sem = await trx(MV).where({ tenant_id: tenantId, anio_mes: mes, familia: opts.familia })
+        .select('senal', 'senal_renglones', 'provisional').first();
+      const rows = await base()
+        .orderBy([{ column: 'l.tipo_pol' }, { column: 'l.folio' }, { column: 'l.num_movto' }])
+        .limit(size).offset((page - 1) * size)
+        .select('l.cuenta', 'l.cuenta_nombre', 'l.tipo_pol', 'l.folio', 'l.num_movto', 'l.cargo_abono', 'l.importe', 'l.concepto', 'l.referencia');
+      const semImporte = sem ? Number(opts.provisional ? (sem.provisional ?? 0) : (sem.senal ?? 0)) : null;
+      return {
+        mes, familia: opts.familia, etiqueta: f.etiqueta, filtro: f.texto, provisional: !!opts.provisional,
+        page, page_size: size, renglones: Number(t?.renglones ?? 0), importe: Number(t?.importe ?? 0),
+        // Lo que dice el semáforo (la matvista, recalculada @15 min): si difiere, el dato cambió
+        // después del último recálculo — se dice, no se esconde.
+        semaforo: sem ? { importe: semImporte, renglones: opts.provisional ? null : Number(sem.senal_renglones ?? 0) } : null,
+        filas: rows.map((r: Record<string, unknown>) => ({
+          cuenta: String(r['cuenta'] ?? '').trim(), cuenta_nombre: (r['cuenta_nombre'] as string) ?? null,
+          tipo_pol: String(r['tipo_pol']), folio: String(r['folio']), num_movto: Number(r['num_movto']),
+          cargo_abono: String(r['cargo_abono']), importe: Number(r['importe']),
+          concepto: (r['concepto'] as string) ?? null, referencia: (r['referencia'] as string) ?? null,
+        })),
+      };
+    });
+  }
+}
+
+/**
+ * `[LC.21]` El filtro de cada familia del semáforo — COPIA del `CASE` de `v_contpaqi_cierre_mensual`
+ * (la vista manda). La prueba de desglose cruza las dos; no se edita una sin la otra.
+ */
+const FAMILIAS_CIERRE: Record<string, { etiqueta: string; texto: string; where: string }> = {
+  compras: { etiqueta: 'Compras del mes', texto: 'abonos 2120*', where: "left(l.cuenta, 4) = '2120' AND l.cargo_abono = 'A'" },
+  ventas: { etiqueta: 'Ventas', texto: 'abonos 401*/403*', where: "left(l.cuenta, 3) IN ('401', '403') AND l.cargo_abono = 'A'" },
+  bancos: { etiqueta: 'Movimiento bancario', texto: 'cargos+abonos 1020*', where: "left(l.cuenta, 4) = '1020'" },
+  gastos: { etiqueta: 'Gastos de operacion', texto: 'cargos 5200*', where: "left(l.cuenta, 4) = '5200' AND l.cargo_abono = 'C'" },
+  nomina: { etiqueta: 'Nomina', texto: 'cargos 2150*', where: "left(l.cuenta, 4) = '2150' AND l.cargo_abono = 'C'" },
+};
+
+/** `[LC.21]` Los renglones de una familia en un mes, y lo que dice el semáforo de esa misma celda. */
+export interface RenglonesCierre {
+  mes: string; familia: string; etiqueta: string; filtro: string; provisional: boolean;
+  page: number; page_size: number; renglones: number; importe: number;
+  semaforo: { importe: number | null; renglones: number | null } | null;
+  filas: { cuenta: string; cuenta_nombre: string | null; tipo_pol: string; folio: string; num_movto: number; cargo_abono: string; importe: number; concepto: string | null; referencia: string | null }[];
 }

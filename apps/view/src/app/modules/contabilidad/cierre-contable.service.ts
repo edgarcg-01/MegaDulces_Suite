@@ -26,6 +26,32 @@ export class CierreContableService {
     if (hasta) p.push(`hasta=${encodeURIComponent(hasta)}`);
     return this.http.get<CierreResp>(`${this.base}/cierre${p.length ? '?' + p.join('&') : ''}`);
   }
+
+  /** `[LC.21]` Los renglones de póliza detrás de una celda del semáforo (o lo fechado adelante). */
+  renglones(mes: string, familia: string, provisional = false, page = 1): Observable<RenglonesCierre> {
+    const q = `mes=${encodeURIComponent(mes)}&familia=${encodeURIComponent(familia)}&page=${page}`
+      + (provisional ? '&provisional=true' : '');
+    return this.http.get<RenglonesCierre>(`${this.base}/cierre/renglones?${q}`);
+  }
+}
+
+/** `[LC.21]` Los renglones de una familia en un mes, y lo que dice el semáforo de esa misma celda. */
+export interface RenglonesCierre {
+  mes: string;
+  familia: string;
+  etiqueta: string;
+  filtro: string;
+  provisional: boolean;
+  page: number;
+  page_size: number;
+  renglones: number;
+  importe: number;
+  /** La cifra de la matvista (recalculada @15 min). `null` = esa celda no existe en el semáforo. */
+  semaforo: { importe: number | null; renglones: number | null } | null;
+  filas: {
+    cuenta: string; cuenta_nombre: string | null; tipo_pol: string; folio: string; num_movto: number;
+    cargo_abono: string; importe: number; concepto: string | null; referencia: string | null;
+  }[];
 }
 
 /** Los cinco estados de `[CDRP.2]`. Las dos ausencias se distinguen a propósito. */

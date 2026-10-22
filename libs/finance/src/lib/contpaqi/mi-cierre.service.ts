@@ -206,6 +206,75 @@ export class MiCierreService {
     );
     return { actualizadas, estado, verificada };
   }
+
+  /**
+   * `[LC.21]` El desglose de un renglón de la bandeja: las pólizas de UNA familia en UN mes, con sus
+   * renglones y cargos. Cada póliza abre su detalle en `GET contabilidad/polizas/detail`.
+   *
+   * ⚠️ La clasificación es COPIA del `CASE` de `v_contpaqi_captura_mensual` (la vista manda) y
+   * `test-newdb-mi-cierre-desglose.js` cruza las dos — pólizas, renglones y cargos por familia y mes.
+   */
+  async polizas(opts: { mes: string; familia: string; page?: number }): Promise<PolizasMiCierre> {
+    if (!esMes(opts.mes)) throw new BadRequestException('mes inválido, se espera YYYY-MM');
+    if (!FAMILIAS.some((f) => f.familia === opts.familia)) {
+      throw new BadRequestException(`familia inválida: ${opts.familia}`);
+    }
+    const page = Math.max(1, Number(opts.page) || 1);
+    const size = 100;
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const base = () => trx('analytics.gl_polizas as p')
+        .where('p.tenant_id', tenantId).andWhere('p.source', 'contpaqi').andWhere('p.anio_mes', opts.mes)
+        .whereRaw(`(${CLASIFICA_POLIZA}) = ?`, [opts.familia]);
+      const t = await base().select(
+        trx.raw('count(*)::int AS polizas'),
+        trx.raw('COALESCE(sum(p.num_lines), 0)::int AS renglones'),
+        trx.raw('ROUND(COALESCE(sum(p.cargos), 0)::numeric, 2) AS cargos'),
+      ).first();
+      const rows = await base()
+        .orderBy([{ column: 'p.fecha' }, { column: 'p.tipo_pol' }, { column: 'p.folio' }])
+        .limit(size).offset((page - 1) * size)
+        .select('p.ejercicio', 'p.periodo', 'p.tipo_pol', 'p.folio', 'p.sucursal', 'p.concepto', 'p.num_lines', 'p.cargos',
+          trx.raw(`to_char(p.fecha, 'YYYY-MM-DD') AS fecha`));
+      return {
+        mes: opts.mes, familia: opts.familia, page, page_size: size,
+        polizas: Number(t?.polizas ?? 0), renglones: Number(t?.renglones ?? 0), cargos: Number(t?.cargos ?? 0),
+        filas: rows.map((r: Record<string, unknown>) => ({
+          ejercicio: Number(r['ejercicio']), periodo: Number(r['periodo']), tipo_pol: String(r['tipo_pol']),
+          folio: String(r['folio']), sucursal: (r['sucursal'] as string) ?? null,
+          fecha: (r['fecha'] as string) ?? null,
+          concepto: (r['concepto'] as string) ?? null,
+          renglones: Number(r['num_lines'] ?? 0), cargos: Number(r['cargos'] ?? 0),
+        })),
+      };
+    });
+  }
+}
+
+/**
+ * `[LC.21]` COPIA del `CASE` de `v_contpaqi_captura_mensual` (el orden importa: gana la primera que
+ * casa). No se edita uno sin el otro; la prueba de desglose lo vigila.
+ */
+const CLASIFICA_POLIZA = `CASE
+  WHEN p.concepto ILIKE 'NOM %' THEN 'nomina'
+  WHEN p.concepto ILIKE '%COMISION%' THEN 'comisiones_bancarias'
+  WHEN p.concepto ILIKE '%TRASPASO%' THEN 'traspasos'
+  WHEN p.concepto ILIKE '%COMPRAS DEL MES%' OR p.concepto ILIKE '%REGISTRO DE COMPRAS%' THEN 'libro_compras'
+  WHEN p.concepto ILIKE 'VENTAS %' THEN 'cobranza_sucursal'
+  WHEN p.concepto ILIKE 'VTA%' THEN 'venta_diaria'
+  WHEN p.concepto ILIKE 'TLMKT%' THEN 'venta_telemarketing'
+  WHEN p.concepto ILIKE 'PAGO%' THEN 'pago_gasto'
+  WHEN p.concepto ILIKE 'GASTOS %' THEN 'gastos_varios'
+  ELSE 'otros' END`;
+
+/** `[LC.21]` Las pólizas de una familia de la bandeja en un mes. */
+export interface PolizasMiCierre {
+  mes: string; familia: string; page: number; page_size: number;
+  polizas: number; renglones: number; cargos: number;
+  filas: {
+    ejercicio: number; periodo: number; tipo_pol: string; folio: string; sucursal: string | null;
+    fecha: string | null; concepto: string | null; renglones: number; cargos: number;
+  }[];
 }
 
 function mesActual(): string {

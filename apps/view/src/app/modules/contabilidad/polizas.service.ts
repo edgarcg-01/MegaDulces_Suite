@@ -89,7 +89,8 @@ export class PolizasService {
     p.set('page', String(opts.page || 1)); p.set('page_size', String(opts.page_size || 50));
     return this.http.get<PolizaList>(`${this.base}?${p.toString()}`);
   }
-  detail(r: PolizaRow): Observable<PolizaDetail> {
+  /** Basta la llave de la póliza: `[LC.21]` la abre desde «Mi cierre», que no trae la fila completa. */
+  detail(r: Pick<PolizaRow, 'source' | 'ejercicio' | 'periodo' | 'tipo_pol' | 'folio' | 'sucursal'>): Observable<PolizaDetail> {
     const p = new URLSearchParams({
       source: r.source, ejercicio: String(r.ejercicio), periodo: String(r.periodo),
       tipo_pol: r.tipo_pol, folio: r.folio, sucursal: r.sucursal,

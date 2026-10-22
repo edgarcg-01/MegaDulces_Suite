@@ -2,8 +2,10 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { TableModule } from 'primeng/table';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import {
-  CierreContableService, type CierreResp, type EstadoCierre, type MesCierre,
+  CierreContableService, type CierreResp, type EstadoCierre, type FamiliaCierre, type MesCierre,
+  type RenglonesCierre,
 } from '../cierre-contable.service';
 
 /**
@@ -32,7 +34,7 @@ import {
 @Component({
   selector: 'app-contabilidad-cierre',
   standalone: true,
-  imports: [CommonModule, TableModule],
+  imports: [CommonModule, TableModule, SidePeekComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in cci-page">
@@ -138,20 +140,26 @@ import {
                       <div class="cci-code">{{ f.senal_cuentas }}</div>
                     </td>
                     <td class="ta-r">
-                      <span class="mono" [class.muted]="f.senal_renglones === 0">
-                        {{ f.senal | currency:'MXN':'symbol-narrow':'1.0-0' }}
-                      </span>
-                      <!-- ⛔ Sin esto, "$0" y "nadie capturó nada" se leen igual. -->
-                      <!-- ⚠️ El plural va con el carácter real: una entidad HTML dentro de una
-                           interpolación se imprime tal cual ("rengl&oacute;n"), no se resuelve. -->
-                      <div class="cci-sub" [class.cci-cero]="f.senal_renglones === 0">
-                        {{ f.senal_renglones | number }} {{ f.senal_renglones === 1 ? 'renglón' : 'renglones' }}
-                      </div>
+                      <!-- LC.21: el asentado abre sus renglones de póliza; con 0 no hay nada que abrir. -->
+                      @if (f.senal_renglones > 0) {
+                        <button type="button" class="cci-drill" (click)="abrir(m.anio_mes, f, false)"
+                                [attr.aria-label]="'Ver los ' + f.senal_renglones + ' renglones de ' + f.etiqueta + ' en ' + m.anio_mes">
+                          <span class="mono">{{ f.senal | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                          <span class="cci-sub">{{ f.senal_renglones | number }} {{ f.senal_renglones === 1 ? 'renglón' : 'renglones' }}</span>
+                        </button>
+                      } @else {
+                        <span class="mono muted">{{ f.senal | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                        <!-- ⛔ Sin esto, "$0" y "nadie capturó nada" se leen igual. -->
+                        <!-- ⚠️ El plural va con el carácter real: una entidad HTML dentro de una
+                             interpolación se imprime tal cual ("rengl&oacute;n"), no se resuelve. -->
+                        <div class="cci-sub cci-cero">0 renglones</div>
+                      }
                       @if (f.provisional) {
-                        <div class="cci-prov">
+                        <button type="button" class="cci-drill cci-prov" (click)="abrir(m.anio_mes, f, true)"
+                                [attr.aria-label]="'Ver lo fechado adelante de ' + f.etiqueta + ' en ' + m.anio_mes">
                           + {{ f.provisional | currency:'MXN':'symbol-narrow':'1.0-0' }} fechado adelante
                           &mdash; no cuenta
-                        </div>
+                        </button>
                       }
                     </td>
                     <td class="ta-r">
@@ -218,6 +226,41 @@ import {
           </div>
         </footer>
       }
+
+      <!-- LC.21: los renglones de póliza detrás de una celda del semáforo. -->
+      <app-side-peek [open]="!!panel()" (openChange)="cerrarPanel($event)" [width]="760"
+                     [title]="tituloPanel()" [subtitle]="subtituloPanel()">
+        @if (cargandoPanel() && !renglones()) { <p class="cci-note muted">Cargando…</p> }
+        @if (errorPanel(); as e) { <p class="cci-note cci-bad" role="alert">No se pudo cargar el detalle: {{ e }}</p> }
+        @if (renglones(); as r) {
+          <p class="cci-note">
+            <strong class="mono">{{ r.renglones | number }}</strong> {{ r.renglones === 1 ? 'renglón' : 'renglones' }}
+            por <strong class="mono">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong>
+            &mdash; {{ r.filtro }}{{ r.provisional ? ', en pólizas con fecha posterior a hoy (no cuentan para el mes)' : ', sin las pólizas fechadas adelante' }}.
+          </p>
+          @if (difiere(r); as d) { <p class="cci-note cci-warn-t">{{ d }}</p> }
+          <p-table [value]="r.filas" size="small" class="surf-table" [scrollable]="true" scrollHeight="60vh">
+            <ng-template #header>
+              <tr><th>Póliza</th><th>Cuenta</th><th class="ta-r">Cargo</th><th class="ta-r">Abono</th><th>Concepto / referencia</th></tr>
+            </ng-template>
+            <ng-template #body let-x>
+              <tr>
+                <td class="mono">{{ tipoPoliza(x.tipo_pol) }} {{ x.folio }} &middot; {{ x.num_movto }}</td>
+                <td><span class="mono">{{ x.cuenta }}</span>@if (x.cuenta_nombre) { <div class="cci-sub">{{ x.cuenta_nombre }}</div> }</td>
+                <td class="ta-r mono">{{ x.cargo_abono === 'C' ? (x.importe | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
+                <td class="ta-r mono">{{ x.cargo_abono === 'A' ? (x.importe | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
+                <td class="muted">{{ x.concepto || x.referencia || '—' }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+          @if (r.filas.length < r.renglones) {
+            <p class="cci-note muted">
+              Mostrando {{ r.filas.length | number }} de {{ r.renglones | number }}
+              <button type="button" class="cci-link" [disabled]="cargandoPanel()" (click)="masPanel()">Cargar más</button>
+            </p>
+          }
+        }
+      </app-side-peek>
     </div>
   `,
   styles: [`
@@ -272,6 +315,18 @@ import {
     .cci-proc-v[data-fresh="stale"], .cci-proc-v[data-fresh="unknown"] { color: var(--warn); }
     .cci-lento { color: var(--warn); }
 
+    .cci-drill { display: inline-flex; flex-direction: column; align-items: flex-end; gap: .05rem;
+      font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: right; }
+    .cci-drill > .mono { text-decoration: underline dotted; text-underline-offset: 3px; }
+    .cci-drill:hover > .mono, .cci-drill.cci-prov:hover { text-decoration: underline; }
+    .cci-drill.cci-prov { text-decoration: underline dotted; text-underline-offset: 3px; }
+    .cci-drill:focus-visible, .cci-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .cci-link { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer;
+      text-decoration: underline dotted; text-underline-offset: 3px; }
+    .cci-note { margin: 0 0 .6rem; font-size: .82rem; line-height: 1.45; }
+    .cci-bad { color: var(--bad); }
+    .cci-warn-t { color: var(--warn); }
+
     .cci-error { display: flex; align-items: flex-start; gap: .6rem; padding: .7rem .85rem;
       border: 1px solid var(--bad); border-radius: var(--radius-md, .5rem); }
     .cci-error-d { font-size: .78rem; color: var(--text-muted); }
@@ -315,6 +370,54 @@ export class ContabilidadCierreComponent implements OnInit {
   }
 
   texto = textoEstado;
+  difiere = difiereDelSemaforo;
+
+  // ── LC.21: el desglose de una celda ──
+  readonly panel = signal<{ mes: string; familia: string; etiqueta: string; provisional: boolean } | null>(null);
+  readonly renglones = signal<RenglonesCierre | null>(null);
+  readonly cargandoPanel = signal(false);
+  readonly errorPanel = signal<string | null>(null);
+  readonly tituloPanel = computed(() => {
+    const p = this.panel();
+    return p ? `${p.etiqueta} · ${p.mes}` : '';
+  });
+  readonly subtituloPanel = computed(() =>
+    this.panel()?.provisional ? 'Fechado adelante: no cuenta para el mes' : 'Lo asentado en ContPAQi');
+  private pagina = 1;
+
+  abrir(mes: string, f: FamiliaCierre, provisional: boolean): void {
+    this.panel.set({ mes, familia: f.familia, etiqueta: f.etiqueta, provisional });
+    this.renglones.set(null);
+    this.pagina = 1;
+    this.traerPanel();
+  }
+
+  masPanel(): void { this.pagina += 1; this.traerPanel(); }
+
+  cerrarPanel(abierto: boolean): void { if (!abierto) { this.panel.set(null); this.renglones.set(null); } }
+
+  private traerPanel(): void {
+    const p = this.panel();
+    if (!p) return;
+    this.cargandoPanel.set(true);
+    this.errorPanel.set(null);
+    this.api.renglones(p.mes, p.familia, p.provisional, this.pagina).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        // Una respuesta que llega después de cambiar de celda no se mezcla con la nueva.
+        const actual = this.panel();
+        if (!actual || actual.mes !== r.mes || actual.familia !== r.familia || actual.provisional !== r.provisional) return;
+        const prev = this.renglones();
+        this.renglones.set(r.page > 1 && prev ? { ...r, filas: [...prev.filas, ...r.filas] } : r);
+        this.cargandoPanel.set(false);
+      },
+      error: (e) => {
+        this.errorPanel.set(e?.error?.message || e?.message || 'Error desconocido');
+        this.cargandoPanel.set(false);
+      },
+    });
+  }
+
+  tipoPoliza(t: string): string { return ({ '1': 'Ingreso', '2': 'Egreso', '3': 'Diario' } as Record<string, string>)[t] ?? `Tipo ${t}`; }
 }
 
 /*
@@ -375,6 +478,22 @@ export function peorDeCerrados(meses: readonly MesCierre[]): EstadoCierre {
   if (ms.some((m) => m.estado === 'warn')) return 'warn';
   if (ms.length > 0 && ms.every((m) => m.estado === 'ok')) return 'ok';
   return 'sin_medir';
+}
+
+/**
+ * `[LC.21]` Si el desglose (al momento) y el semáforo (matvista, recalculada @15 min) no dicen lo
+ * mismo, se dice cuál es cuál — no se elige uno en silencio. `null` = coinciden, o no hay con qué.
+ */
+export function difiereDelSemaforo(r: RenglonesCierre): string | null {
+  const s = r.semaforo;
+  if (!s || s.importe === null) return null;
+  const mismoImporte = Math.abs(s.importe - r.importe) < 0.01;
+  const mismosRenglones = s.renglones === null || s.renglones === r.renglones;
+  if (mismoImporte && mismosRenglones) return null;
+  const fmt = (n: number) => n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+  return `El semáforo dice ${fmt(s.importe)}${s.renglones !== null ? ` en ${s.renglones} renglones` : ''}; `
+    + `aquí, leído al momento, ${fmt(r.importe)}${s.renglones !== null ? ` en ${r.renglones}` : ''}. `
+    + 'ContPAQi cambió después del último recálculo del semáforo (cada 15 min).';
 }
 
 /** ⛔ Las dos ausencias NO comparten texto: una la arregla Dirección, la otra Sistemas. */
