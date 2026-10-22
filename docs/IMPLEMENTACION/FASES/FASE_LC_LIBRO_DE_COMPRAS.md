@@ -1035,7 +1035,8 @@ solas también las facturas canceladas.
 | LC.19.3 | Banner honesto: «N propuestas por regla de historial», no «$X sin contabilizar» | 🧪 |
 | LC.19.4 | Testigo de completitud de los CFDI (descarga masiva SAT vs ADD) | ⚠️ medido una vez; el continuo espera la e.firma (venció 2026-07-27) |
 | LC.19.5 | Sección LC en `VERDAD_ABSOLUTA.md` (§33) | 🧪 — **LC.19.5b** (paridad en `test-newdb-truth-parity.js`) queda como deuda con nombre |
-| LC.19.6+ | Automatizar: ascender las «Importe ya posteado» que casan 212+referencia+total en el folio 1, aplicado automático, PUE y $0 fuera, catálogo de cuentas en el feed de ContPAQi, generación el día 1 | ⬜ |
+| **LC.19.6** | Menos interacción humana, **sin cron** (Edgar, 2026-10-22): el mes se prepara solo al abrirlo — SAT, aplicado por evidencia, cuentas de nombre idéntico, el archivo del mes que toca —, «Descargar todo», el porqué de la exclusión en lista cerrada | 🧪 |
+| LC.19.7 | Pendiente: ascender las «Importe ya posteado» que casan 212+referencia+total en el folio 1 · PUE y $0 fuera · catálogo de cuentas en el feed de ContPAQi | ⬜ |
 
 ### LC.19.1 — el estatus SAT no medía nada
 
@@ -1139,6 +1140,54 @@ universo, anti-duplicado, estatus SAT, completitud, frescura, cuentas), su vered
 monto, los candados que lo vuelven a medir y tres hipótesis refutadas. **Deuda con nombre, LC.19.5b:**
 el libro calcula en el servicio, no desde una vista resolvedora, así que no entra a la tabla de §5 ni a
 `test-newdb-truth-parity.js`; su paridad publicado-vs-calculado vive hoy en el e2e, que corre a mano.
+
+### LC.19.6 — el mes se prepara solo, sin cron
+
+Pedido de Edgar: *«podemos mejorar la interacción humana»* → *«todo bien, sólo no usemos crons»*.
+**El evento es abrir el mes**: la pantalla (sólo con GESTIONAR) llama `POST no-asociados/:mes/preparar`
+y lo repite mientras el SAT tenga pendientes. Cada paso tiene un freno; lo que no pasa el freno se
+queda para una persona, con el motivo escrito — nunca se fuerza.
+
+| Paso | Lo hace solo cuando | Si no, |
+|---|---|---|
+| **Aplicado** | ContPAQi tiene la póliza y **casa renglón por renglón** con el archivo (`cuadrarContraContpaqi`: 0 sobrantes de cada lado, deltas en 0) | dice «tiene el folio pero no casa (N y M renglones)» y deja «Marcar aplicado» a la persona |
+| **Cuenta del proveedor nuevo** | nombre **idéntico** (parecido 1.0), **una sola** candidata ≥ 0.8, libre, RFC sin cuenta → `asignarCuenta` (mismos frenos), rotulada **`auto_lc`** | se queda en «Sin cuenta» con su sugerencia. ⚠️ Asignada no entra al TXT: un proveedor nuevo cae en «Sin libro reciente» |
+| **Estatus SAT** | siempre, un lote de 100 por vuelta | — |
+| **El archivo** | sólo el **mes que toca** (el anterior al actual, hora MX), SAT sin pendientes, 0 bloqueantes, ninguna marcada con «importe ya posteado», corrida sin archivo (nueva, borrador o cancelada) | dice por qué (p. ej. «hay marcadas con importe ya posteado: generarlas pide un motivo») |
+
+Y en la pantalla:
+- **«Marcar entregado» deja de ser un paso.** Generado → aplicado se permite en el servidor **sólo con
+  evidencia** (ContPAQi ya tiene el folio); sin ella se rechaza como antes. El estado `entregado`
+  sigue existiendo para quien lo use por API.
+- **«Descargar todo»**: los tres archivos (TXT, respaldo Excel, CSV del asociador) de un clic, con el
+  código de cada uno (sin ZIP: el Excel se arma en el navegador y duplicarlo en el servidor serían dos
+  implementaciones del mismo archivo). Chrome pide una vez permiso para descargas múltiples.
+- **El porqué de una exclusión**, en lista cerrada y opcional: *gasto o servicio · ya contabilizada
+  por otra vía · devolución o nota · duplicada · otro*. **Por qué:** medido sobre las 167 extras de
+  jul/ago/sep, **«excluir siempre a este proveedor» no sirve** — 123 (74 %) son de proveedores con unas
+  facturas dentro del libro manual y otras fuera el mismo mes, y los 8 proveedores restantes no se
+  repiten. La regla no está en los datos; con 2–3 meses de porqués etiquetados se puede medir si aparece.
+- Poner sólo el motivo **ya no tira el archivo** (`setInclusion` invalida únicamente si cambió dentro/fuera).
+- Al cambiar casillas, el mes se vuelve a preparar solo **4 s después del último clic** (no uno por clic).
+- **Defecto encontrado de paso:** `descargar()` fijaba el nombre `complemento-compras-*.txt` en el
+  navegador y pisaba el `poliza-compras-*` del servidor (lo de #4 en LC.18.1 sólo arregló el servidor).
+
+**Lo que queda humano, y por qué:** revisar las propuestas (el criterio no se puede derivar), importar
+el TXT y correr el Asociador en ContPAQi (ADR-040: no escribimos en el SoR), y lo que algún freno detuvo.
+**Sin aviso a contabilidad**: sin cron no hay quién dispare un correo el día 1; el rail ya dice
+«N por entregar» al entrar.
+
+**Pruebas:**
+- Trámite en `pruebas-db` (**no corrido en esta máquina**): sólo-motivo no invalida / sacar una de
+  dentro sí (negativa); póliza con un renglón +$0.01 → no se marca sola (negativa) / casando → aplicado
+  con su nota; nombre idéntico con una candidata → `auto_lc` / dos candidatas del mismo nombre → nada
+  (negativa); fuera del mes que toca no se arma el archivo; sin port del SAT, `disponible=false`.
+- Trámite contra prod (sólo lectura): **23 ✓**.
+- e2e: el bloque de lectura **intercepta** `preparar` (abrir el mes escribe); el de escritura abre con
+  la preparación encendida y espera el «El mes se preparó solo» sin clic. «Aplicado sin evidencia» se
+  prueba sólo si el cuadre CONSTA que ContPAQi no tiene el folio — si lo tuviera, marcaría el mes
+  aplicado de verdad (terminal). `--list`: 12 pruebas. **Correrlo espera el despliegue.**
+- `check:pantalla`: 0 fallas nuevas.
 
 ## Estado
 

@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nest
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { PurchaseBookService, ImpuestosModo, TipoCorrida, SugerenciasCuenta, VerificacionSatMes } from './purchase-book.service';
+import { PurchaseBookService, ImpuestosModo, TipoCorrida, SugerenciasCuenta, VerificacionSatMes, PreparacionMes } from './purchase-book.service';
 
 /**
  * Fase LC (ADR-052) — Libro de Compras. El trámite mensual se lleva aquí y a ContPAQi
@@ -99,6 +99,14 @@ export class PurchaseBookController {
   @ApiOperation({ summary: 'Verifica ante el SAT (vigente/cancelado) las facturas del mes que podrían entrar al TXT, un lote por llamada.' })
   verificarSat(@Param('mes') mes: string): Promise<VerificacionSatMes> {
     return this.svc.verificarSat(mes, 'complemento');
+  }
+
+  // [LC.19.6] Sin cron: lo dispara la pantalla al abrir el mes. Una vuelta por llamada.
+  @Post('no-asociados/:mes/preparar')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'Lo que el mes hace solo: aplicado si ContPAQi ya casa, cuentas con nombre idéntico, un lote del SAT y, en el mes que toca, el archivo.' })
+  preparar(@Param('mes') mes: string): Promise<PreparacionMes> {
+    return this.svc.preparar(mes);
   }
 
   @Post('no-asociados/:mes/generar')
