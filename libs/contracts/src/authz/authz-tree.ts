@@ -495,7 +495,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // CP.1–CP.4 (los libros fiscales) y la gatea `FISCAL_CONTAB_VER`. Apuntar este nodo
           // ahí mandaba a quien sólo tiene el permiso del puente a una ruta que lo rebota —
           // el mismo defecto de gates mal partidos de `[IC.13]`.
-          { id: 'contpaqi-puente', label: 'Puente ContPAQi (egresos → póliza)', route: '/contabilidad/contpaqi-puente', view: [Permission.FISCAL_CONTPAQI_BRIDGE_VER], manage: [Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR] },
+          { id: 'contpaqi-puente', label: 'Puente ContPAQi (egresos → póliza)', route: '/contabilidad/contpaqi-puente', view: [Permission.FISCAL_CONTPAQI_BRIDGE_VER], manage: [Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR, Permission.FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR] },
           { id: 'facturar', label: 'Facturación (emisión CFDI)', route: '/contabilidad/facturar', view: [Permission.FISCAL_FACTURAR_VER], manage: [Permission.FISCAL_FACTURAR_GESTIONAR] },
           { id: 'conciliacion', label: 'Conciliación fiscal', route: '/contabilidad/conciliacion', view: [Permission.FISCAL_CONCILIACION_VER], manage: [] },
           { id: 'diot', label: 'DIOT / IVA', route: '/contabilidad/diot', view: [Permission.FISCAL_DIOT_VER], manage: [] },

@@ -2,7 +2,6 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
@@ -12,11 +11,12 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import {
   ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp,
   PendienteProveedor, PendientesResp, ReglaVista, PagoPorConfirmar, CfdiPropuesto, MovimientosResp,
-  FiltroMovimientos, MovimientoBanco,
+  FiltroMovimientos, MovimientoBanco, CategoriaEgreso, VistaPreviaBeneficiario,
 } from '../contpaqi-puente.service';
 
 /**
@@ -49,7 +49,7 @@ import {
 @Component({
   selector: 'app-contabilidad-contpaqi-puente',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, TableModule, SelectModule, TagModule, MetricStripComponent,
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, TagModule, MetricStripComponent,
     LoadStateComponent, FreshnessPillComponent, SidePeekComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -540,6 +540,7 @@ import {
       <!-- [CP.8.77] La cifra se recorre: «437 movs» abre los 437. -->
       <app-side-peek [open]="movsAbierto()" (openChange)="movsAbierto.set($event)" [width]="640"
                      [title]="movsTitulo()" [subtitle]="movsSubtitulo()">
+        @if (catAviso(); as a) { <div class="cpp-aviso cpp-aviso-top" [class.mal]="a.mal" role="status">{{ a.texto }}</div> }
         <app-load-state [loading]="movs() === null && !movsError()" [error]="movsError()" [skeletonRows]="8"
                         errorTitle="No se pudieron leer los movimientos" (retry)="recargarMovimientos()"
                         [isEmpty]="(movs()?.filas?.length ?? 0) === 0" emptyTitle="Sin movimientos">
@@ -569,12 +570,48 @@ import {
                     @if (x.motivo === null) { <p-tag severity="success" value="Entra al archivo" /> }
                     @else { <p-tag [severity]="esDeNadie(x.motivo) || x.motivo === 'fuera_de_banco' ? 'secondary' : 'warn'" [value]="etiqueta(x.motivo)" /> }
                     @if (x.motivo === 'sin_categoria') {
-                      <a class="cpp-ir" routerLink="/finanzas/bancos">Categorizar en Bancos <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
+                      @if (puedeCategorizar()) {
+                        <button type="button" class="cpp-ir" (click)="abrirCategorizar(x)" [attr.aria-expanded]="catAbierto() === x.id">Categorizar <i class="pi pi-tag" aria-hidden="true"></i></button>
+                      } @else { <span class="cpp-sub">Sin permiso para categorizar</span> }
                     } @else if (pasoDe(x.motivo); as ps) {
                       <button type="button" class="cpp-ir" (click)="irAMovimiento(x)">Ir <i class="pi pi-arrow-right" aria-hidden="true"></i></button>
                     }
                   </td>
                 </tr>
+                <!-- [CP.8.80] Categorizar aquí mismo; con la casilla, también los que vengan de ese beneficiario. -->
+                @if (catAbierto() === x.id) {
+                  <tr class="cpp-cat-fila"><td colspan="4">
+                    <div class="cpp-cat" role="group" [attr.aria-label]="'Categorizar ' + (x.razon_social || x.concepto)">
+                      <div class="cpp-cat-campos">
+                        <p-select [options]="categorias() ?? []" optionLabel="nombre" optionValue="code" [filter]="true" filterBy="nombre"
+                                  appendTo="body" placeholder="Categoría" ariaLabel="Categoría" styleClass="cpp-cat-sel"
+                                  [loading]="categorias() === null" [ngModel]="catElegida()" (ngModelChange)="catElegida.set($event)" />
+                        <label class="cpp-sug"><input type="checkbox" [ngModel]="catRecordar()" (ngModelChange)="cambiarRecordar($event)" /> y todos los que empiecen con</label>
+                        <input type="text" class="cpp-buscar-in cpp-cat-texto" [disabled]="!catRecordar()" aria-label="Nombre del beneficiario"
+                               [ngModel]="catTexto()" (ngModelChange)="escribirTexto($event)" />
+                      </div>
+                      @if (catRecordar()) {
+                        @if (catPreviaError(); as pe) { <p class="cpp-mal cpp-cat-nota" role="alert">{{ pe }}</p> }
+                        @else if (catPrevia(); as v) {
+                          <p class="cpp-cat-nota">Toma <strong class="mono">{{ v.movimientos | number }}</strong> egresos sin categoría
+                            (<span class="mono">{{ v.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>) de todos los meses, y los que traigan los próximos estados de cuenta.
+                            @if (v.regla_existente; as re) { Ya hay una regla con ese texto: {{ re.categoria }}. }</p>
+                          <ul class="cpp-lista-simple cpp-lista">
+                            @for (f of v.filas.slice(0, 8); track f.id) {
+                              <li><span class="mono muted">{{ f.fecha }}</span> {{ f.concepto }} <span class="mono">{{ f.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></li>
+                            }
+                          </ul>
+                          @if (v.movimientos > 8) { <p class="cpp-sub">Se muestran 8 de {{ v.movimientos | number }}.</p> }
+                        } @else { <p class="cpp-sub">Calculando qué toma…</p> }
+                      }
+                      <div class="cpp-acciones">
+                        <button type="button" class="cpp-btn-ok" [disabled]="!puedeGuardarCategoria()" (click)="guardarCategoria(x)">
+                          <i class="pi" [class.pi-check]="!catGuardando()" [class.pi-spin]="catGuardando()" [class.pi-spinner]="catGuardando()" aria-hidden="true"></i> Guardar</button>
+                        <button type="button" class="cpp-btn-sec" (click)="cerrarCategorizar()">Cancelar</button>
+                      </div>
+                    </div>
+                  </td></tr>
+                }
               </ng-template>
               <ng-template #footer>
                 <tr><td colspan="2">Total</td><td class="ta-r mono">{{ m.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td></td></tr>
@@ -722,6 +759,17 @@ import {
       color: var(--ok-soft-fg); }
     .cpp-aviso.mal { border-color: var(--bad-border); background: var(--bad-soft-bg);
       color: var(--bad-soft-fg); }
+    .cpp-aviso-top { margin: 0 0 .75rem; }
+
+    /* [CP.8.80] El formulario en línea bajo el movimiento. */
+    .cpp-cat-fila > td { background: var(--surface-hover); }
+    .cpp-cat { padding: .5rem 0; }
+    .cpp-cat-campos { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+    .cpp-cat-campos .cpp-sug { padding: 0; }
+    .cpp-cat-texto { padding-left: 10px; width: 16rem; }
+    .cpp-cat-texto:disabled { color: var(--c-text-3); }
+    .cpp-cat-nota { margin: .6rem 0 .25rem; font-size: var(--fs-sm); color: var(--c-text-2); }
+    .cpp-cat .cpp-lista { max-height: 10rem; }
 
     @media (max-width: 56.25rem) {
       .cpp-md { grid-template-columns: 1fr; }
@@ -1108,6 +1156,8 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   });
 
   verMovimientos(filtro: FiltroMovimientos, titulo: string): void {
+    this.cerrarCategorizar();
+    this.catAviso.set(null);
     this.movsFiltro = filtro;
     this.movsTitulo.set(titulo);
     this.movsAbierto.set(true);
@@ -1120,6 +1170,109 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     this.api.movimientos(this.mes(), this.movsFiltro).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.movs.set(r),
       error: (e) => this.movsError.set(e?.error?.message ?? 'error de red'),
+    });
+  }
+
+  // ── `[CP.8.80]` Categorizar aquí mismo, y recordarlo por beneficiario ──────────────────────────
+  // Antes: «Categorizar en Bancos» abría Bancos sin filtro, y Bancos es de sólo lectura (`[CB.14]`).
+  private readonly perms = inject(PermissionsService);
+  /** ⚠️ Cortesía, no puerta: manda el guard del endpoint (`_CATEGORIZAR`). Los roles de plataforma pasan. */
+  readonly puedeCategorizar = this.perms.has$(Permission.FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR);
+  readonly categorias = signal<CategoriaEgreso[] | null>(null);
+  readonly catAbierto = signal<string | null>(null);
+  readonly catElegida = signal('');
+  readonly catRecordar = signal(true);
+  readonly catTexto = signal('');
+  readonly catPrevia = signal<VistaPreviaBeneficiario | null>(null);
+  readonly catPreviaError = signal<string | null>(null);
+  readonly catGuardando = signal(false);
+  readonly catAviso = signal<{ texto: string; mal: boolean } | null>(null);
+  private esperaPrevia: ReturnType<typeof setTimeout> | null = null;
+  /** Sólo cuenta la última vista previa pedida: una lenta que llega tarde no pisa a la nueva. */
+  private previaPedida = 0;
+
+  /** ⛔ Con la casilla, no se guarda sin haber visto qué toma la regla. */
+  readonly puedeGuardarCategoria = computed(() => {
+    const elegida = this.catElegida(), guardando = this.catGuardando(), recordar = this.catRecordar();
+    const previa = this.catPrevia(), error = this.catPreviaError();
+    return !!elegida && !guardando && (!recordar || (!!previa && !error));
+  });
+
+  abrirCategorizar(m: MovimientoBanco): void {
+    if (this.catAbierto() === m.id) { this.cerrarCategorizar(); return; }
+    this.cerrarCategorizar();
+    this.catAbierto.set(m.id);
+    this.catElegida.set('');
+    this.catRecordar.set(true);
+    this.catAviso.set(null);
+    this.catTexto.set(sugerenciaBeneficiario(m.concepto));
+    if (this.categorias() === null) {
+      this.api.categoriasEgreso().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (c) => this.categorias.set(c),
+        error: (e) => {
+          this.categorias.set([]);
+          this.catAviso.set({ mal: true, texto: `No se pudieron leer las categorías: ${e?.error?.message ?? 'error de red'}` });
+        },
+      });
+    }
+    this.pedirPrevia();
+  }
+
+  cerrarCategorizar(): void {
+    if (this.esperaPrevia) { clearTimeout(this.esperaPrevia); this.esperaPrevia = null; }
+    this.previaPedida += 1;
+    this.catAbierto.set(null);
+    this.catPrevia.set(null);
+    this.catPreviaError.set(null);
+  }
+
+  cambiarRecordar(v: boolean): void {
+    this.catRecordar.set(!!v);
+    if (v) this.pedirPrevia();
+  }
+
+  escribirTexto(v: string): void {
+    this.catTexto.set(v ?? '');
+    this.catPrevia.set(null);
+    this.catPreviaError.set(null);
+    if (this.esperaPrevia) clearTimeout(this.esperaPrevia);
+    this.esperaPrevia = setTimeout(() => this.pedirPrevia(), 400);
+  }
+
+  private pedirPrevia(): void {
+    const id = this.catAbierto();
+    if (!id || !this.catRecordar()) return;
+    const n = ++this.previaPedida;
+    this.catPrevia.set(null);
+    this.catPreviaError.set(null);
+    this.api.vistaPreviaBeneficiario(id, this.catTexto()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (v) => { if (n === this.previaPedida) this.catPrevia.set(v); },
+      error: (e) => { if (n === this.previaPedida) this.catPreviaError.set(e?.error?.message ?? 'No se pudo calcular qué toma la regla.'); },
+    });
+  }
+
+  /** ⭐ Al guardar se recarga la lista y la bandeja: la categoría cambia qué entra al archivo. */
+  guardarCategoria(m: MovimientoBanco): void {
+    if (!this.puedeGuardarCategoria()) return;
+    this.catGuardando.set(true);   // idempotencia visual: el segundo clic ya no pasa
+    const categoria = this.catElegida();
+    const body = this.catRecordar() ? { categoria, beneficiario: this.catTexto() } : { categoria };
+    this.api.categorizar(m.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.catGuardando.set(false);
+        const nombre = this.categorias()?.find((c) => c.code === r.categoria)?.nombre ?? r.categoria;
+        const imp = r.importe_aplicado.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+        this.cerrarCategorizar();
+        this.catAviso.set({ mal: false, texto: r.regla
+          ? `Categorizado como ${nombre}. Con «${r.regla.texto}» se categorizaron ${r.aplicados} más (${imp}), y se aplicará a los próximos estados de cuenta.`
+          : `Categorizado como ${nombre}.` });
+        this.recargarMovimientos();
+        this.cargar(true);
+      },
+      error: (e) => {
+        this.catGuardando.set(false);
+        this.catAviso.set({ mal: true, texto: e?.error?.message ?? 'No se pudo categorizar.' });
+      },
     });
   }
 
@@ -1394,6 +1547,17 @@ export function fraseQueFalta(pasos: PasoVista[]): string {
  * `[CP.8.78]` A qué paso lleva «Ir» desde un movimiento, según por qué no entra. `null` = no se resuelve en esta
  * pantalla: sin categoría se categoriza en Bancos, y fuera de banco no es de este puente.
  */
+/**
+ * `[CP.8.80]` El nombre con que se propone la regla: el concepto sin las iniciales sueltas del final. Medido: el
+ * mismo beneficiario llega como «Oscar Hernandez R» y «Oscar Hernandez Rodriguez»; proponer «OSCAR HERNANDEZ R»
+ * tomaría uno solo. Nunca deja menos de dos palabras.
+ */
+export function sugerenciaBeneficiario(concepto: string | null | undefined): string {
+  const p = String(concepto ?? '').replace(/\s+/g, ' ').trim().toUpperCase().split(' ').filter(Boolean);
+  while (p.length > 2 && p[p.length - 1].replace(/[^A-Z0-9ÁÉÍÓÚÜÑ]/g, '').length <= 1) p.pop();
+  return p.join(' ');
+}
+
 export function pasoDeMotivo(motivo: string | null): Paso | null {
   if (motivo === null) return 'archivo';
   if (motivo === 'sin_categoria' || motivo === 'fuera_de_banco') return null;

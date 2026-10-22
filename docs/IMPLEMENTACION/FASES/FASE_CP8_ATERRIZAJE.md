@@ -972,3 +972,8 @@ falta uno nuevo.
 - **2026-10-22** — `[CP.8.78]`/`[CP.8.79]` buscador y desglose de toda cifra de movimientos. Buscando «Oscar
   Hernandez» apareció que **457 egresos de septiembre ($8.70 M) sin categoría desaparecían del puente** por un
   JOIN obligatorio; ahora se ven con motivo propio. Las pólizas armadas no cambian.
+- **2026-10-22** — `[CP.8.80]` «Categorizar en Bancos» llevaba a una pantalla de solo lectura, sin filtro. Ahora
+  se categoriza en el renglón, con permiso propio `FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR` (contabilidad, finanzas,
+  superadmin), y opcionalmente queda la regla por beneficiario («empieza con», palabra completa, atada al tipo).
+  Solo llena lo vacío. Escritura NO MEDIDA hasta el CI (`pruebas-db`); permiso sin repartir hasta aplicar la
+  migración `20261022131931`.

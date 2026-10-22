@@ -2297,6 +2297,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Descargar no es entregar', def: 'Bajar el archivo no marca nada. Sólo «Ya lo cargué», con el mismo archivo que importaste, registra la entrega.' },
           { term: 'Una póliza por banco y día', def: 'Así arma contabilidad los egresos. Los pagos a proveedor llevan una póliza cada uno, con el UUID de cada factura y nota.' },
           { term: 'Fuera de banco', def: 'Movimientos de cuentas que no son bancos (Caja General, factoraje). No entran a estas pólizas y se cuentan aparte.' },
+          { term: 'Sin categoría', def: 'Un egreso sin categoría no entra al archivo. Usa «Categorizar» en su renglón. Con «y todos los que empiecen con», el nombre queda recordado: los pagos que ya están y los de los próximos estados de cuenta toman la misma categoría. Antes de guardar ves cuáles toma. Solo llena lo vacío; una categoría que ya existe no se cambia aquí.' },
         ],
       },
     ],

@@ -21,6 +21,7 @@ import {
   vecino,
   motivoNoFirmable,
   pasoDeMotivo,
+  sugerenciaBeneficiario,
 } from './contabilidad-contpaqi-puente.component';
 
 /**
@@ -316,5 +317,32 @@ describe('[CP.8.78] «Ir» desde un movimiento — al paso donde se resuelve', (
   it('los dos motivos nuevos tienen rótulo (no se muestra el código)', () => {
     expect(etiquetaMotivo('sin_categoria')).toBe('Sin categoría');
     expect(etiquetaMotivo('fuera_de_banco')).toBe('Fuera de banco');
+  });
+});
+
+describe('[CP.8.80] categorizar desde el puente', () => {
+  it('propone el nombre sin la inicial suelta: «Oscar Hernandez R» → «OSCAR HERNANDEZ»', () => {
+    expect(sugerenciaBeneficiario('Oscar Hernandez R')).toBe('OSCAR HERNANDEZ');
+    expect(sugerenciaBeneficiario('  Oscar   Hernandez Rodriguez ')).toBe('OSCAR HERNANDEZ RODRIGUEZ');
+    expect(sugerenciaBeneficiario('Juan Perez A. B')).toBe('JUAN PEREZ');
+  });
+
+  it('⛔ nunca deja menos de dos palabras, ni inventa con un concepto vacío', () => {
+    expect(sugerenciaBeneficiario('Juan P')).toBe('JUAN P');
+    expect(sugerenciaBeneficiario('TELMEX')).toBe('TELMEX');
+    expect(sugerenciaBeneficiario(null)).toBe('');
+  });
+
+  it('el permiso de categorizar cuelga del nodo del puente (asignable en /admin/roles)', () => {
+    const nodo = buscarNodo(AUTHZ_TREE as unknown as Nodo[], 'contpaqi-puente') as (Nodo & { manage?: string[] }) | null;
+    expect(nodo?.manage).toContain('FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR');
+    // ⛔ Y no como permiso de ver: quien sólo mira el puente no categoriza.
+    expect(nodo?.view).not.toContain('FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR');
+  });
+
+  it('⛔ el enlace «Categorizar en Bancos» ya no existe: Bancos es de sólo lectura y no llevaba a ningún lado', () => {
+    const cmp = leer('apps/view/src/app/modules/contabilidad/pages/contabilidad-contpaqi-puente.component.ts');
+    expect(cmp).not.toContain('routerLink="/finanzas/bancos"');
+    expect(cmp).toContain('abrirCategorizar(x)');
   });
 });

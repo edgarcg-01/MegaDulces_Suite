@@ -691,6 +691,10 @@ export enum Permission {
   // mirar. Repartirlo después, con el botón vivo, es cuando se cometen los errores.
   FISCAL_CONTPAQI_BRIDGE_VER = 'FISCAL_CONTPAQI_BRIDGE_VER',
   FISCAL_CONTPAQI_BRIDGE_GESTIONAR = 'FISCAL_CONTPAQI_BRIDGE_GESTIONAR',
+  // [CP.8.80] Categorizar un egreso de banco SIN categoría desde el puente (y recordarlo por beneficiario).
+  // Propio, no `FINANCE_BANK_GESTIONAR`: ése además sube estados de cuenta y edita cuentas (decisión del PM,
+  // 2026-10-22). Sólo llena lo vacío: una categoría que ya existe se cambia en Finanzas.
+  FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR = 'FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR',
   // FE = facturación electrónica (emisión/timbrado CFDI 4.0 vía PAC SW/Conectia).
   FISCAL_FACTURAR_VER = 'FISCAL_FACTURAR_VER',
   FISCAL_FACTURAR_GESTIONAR = 'FISCAL_FACTURAR_GESTIONAR',
