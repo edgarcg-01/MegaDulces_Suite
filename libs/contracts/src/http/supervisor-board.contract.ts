@@ -115,3 +115,87 @@ export interface SetVendorTargetResponse {
   period_start: string;
   amount: number | null;
 }
+
+/**
+ * `[MCP.3.10]` Resumen de UN vendedor para «Asignar rutas»: su meta de la catorcena contra lo cobrado,
+ * sus días de la catorcena y lo que ya tiene configurado (ruta, sucursal, clientes de su ruta).
+ *
+ * Los días se arman con el MISMO armado del tablero (`VisitMonitorService.buildDay`), uno por día,
+ * así que «visitados» y «cobrado» de un día cuadran con lo que el tablero mostró ese día.
+ */
+export interface VendorSummaryDay {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  /** Códigos de ruta de ese día (ej. `1V003`); vacío = no tuvo ruta. */
+  routes: string[];
+  customers_total: number;
+  customers_visited: number;
+  /** Clientes con pedido ese día. */
+  orders: number;
+  /** Venta cobrada en Kepler ese día; `null` + motivo si no se pudo medir. */
+  sales: BoardSales;
+}
+
+export interface VendorSummaryRoute {
+  /** Valor de catálogo (ej. «1V003 PAULINA …»). */
+  route: string;
+  /** Código Kepler (ej. `1V003`) o `null` si la ruta no lo declara. */
+  code: string | null;
+  /** Sucursal de surtido de la ruta; `null` = sin asignar. */
+  warehouse_name: string | null;
+  /**
+   * Clientes de la ruta (todos, sin filtrar por día de visita). Es la meta de visitas: el vendedor
+   * debe visitar a los clientes de su ruta (decisión de David, 2026-10-22: se deriva, no se captura).
+   */
+  customers: number;
+}
+
+/**
+ * Un día de la AGENDA semanal del vendedor (`public.daily_assignments`). Es la ruta que manda:
+ * la app del vendedor arma su lista de clientes con la elección del día o, si no hay, con ésta
+ * (`vendor-cartera.sql.ts`), y el tablero la lee igual. NO es `vendor_sales_routes`, que la app
+ * del vendedor no usa.
+ */
+export interface VendorAgendaDay {
+  /** ISO: 1 = lunes … 7 = domingo. */
+  day_of_week: number;
+  /** id de la fila de la agenda (para quitarla). */
+  assignment_id: string;
+  route_id: string;
+  /** Valor de catálogo (ej. «1V003 PAULINA …»). */
+  route: string;
+}
+
+/** Ruta que se le puede poner: del catálogo, de su zona y del tipo de ruta de quien consulta. */
+export interface VendorRouteOption {
+  id: string;
+  route: string;
+  /** Código Kepler (ej. `1V003`) o `null`. */
+  code: string | null;
+}
+
+export interface VendorSummaryResponse {
+  user_id: string;
+  name: string;
+  /** `YYYY-MM-DD` consultado (hora de México). */
+  date: string;
+  period: BoardPeriod;
+  /** Meta de la catorcena en pesos; `null` = sin capturar. */
+  target: number | null;
+  /** Cobrado en Kepler desde el inicio de la catorcena hasta `date`. */
+  sales_period: BoardSales;
+  /** Avance contra la meta; `null` si falta meta o venta. */
+  progress_pct: number | null;
+  /** ¿Quien consulta puede capturar la meta? */
+  can_set_targets: boolean;
+  /** Las rutas de su agenda semanal (o, si no tiene agenda, las del último día de la catorcena que trabajó). */
+  routes: VendorSummaryRoute[];
+  /** Días de la catorcena hasta `date`, del más reciente al más viejo. */
+  days: VendorSummaryDay[];
+  /** Su agenda semanal, un renglón por día que tiene ruta (los días sin ruta no vienen). */
+  agenda: VendorAgendaDay[];
+  /** Rutas que se le pueden asignar (las mismas que acepta `POST /daily-assignments`). */
+  route_options: VendorRouteOption[];
+  /** De cuándo es la venta (VP.2.3). */
+  freshness: Freshness;
+}
