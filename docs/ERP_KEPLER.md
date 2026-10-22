@@ -1,44 +1,45 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 102 KB, 1563 líneas, 32 secciones.
+> **Índice navegable** — 105 KB, 1623 líneas, 33 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 45 | 64 | 1 | ERP Kepler — decode y flujo hacia la plataforma |
-| 65 | 100 | 2 | 1. Qué es Kepler y por qué duele |
-| 101 | 124 | 5 | 2. Tablas clave decodificadas |
-| 125 | 242 | 7 | 2.1 La escalera de unidades y el costo (decodificado 2026-08-31) |
-| 243 | 258 | 1 | 2.2 Existencia y ventas — validadas contra Kepler (2026-08-31) |
-| 259 | 312 | 4 | 2.3 ⚠️ La sucursal `00` de Kepler es OFICINAS, **no** el CEDIS |
-| 313 | 361 | 4 | 2.4 ⭐ La forma del schema, medida (auditoría estructural 2026-09-11) |
-| 362 | 381 | 1 | 2.5 ⭐ La historia de precio que ya teníamos y nadie lee |
-| 382 | 418 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
-| 419 | 480 | 4 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
-| 481 | 527 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
-| 528 | 566 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
-| 567 | 717 | 9 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
-| 718 | 832 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
-| 833 | 887 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
-| 888 | 925 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
-| 926 | 955 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
-| 956 | 1009 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
-| 1010 | 1058 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
-| 1059 | 1090 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
-| 1091 | 1151 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
-| 1152 | 1263 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
-| 1264 | 1294 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
-| 1295 | 1342 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
-| 1343 | 1370 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
-| 1371 | 1427 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
-| 1428 | 1478 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
-| 1479 | 1504 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
-| 1505 | 1569 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
-| 1570 | 1589 | 1 | 6. Importers / feeds relevantes |
-| 1590 | 1597 | 1 | 7. Conexiones y credenciales |
-| 1598 | 1607 | 1 | 8. Para profundizar |
+| 46 | 65 | 1 | ERP Kepler — decode y flujo hacia la plataforma |
+| 66 | 101 | 2 | 1. Qué es Kepler y por qué duele |
+| 102 | 125 | 5 | 2. Tablas clave decodificadas |
+| 126 | 243 | 7 | 2.1 La escalera de unidades y el costo (decodificado 2026-08-31) |
+| 244 | 259 | 1 | 2.2 Existencia y ventas — validadas contra Kepler (2026-08-31) |
+| 260 | 313 | 4 | 2.3 ⚠️ La sucursal `00` de Kepler es OFICINAS, **no** el CEDIS |
+| 314 | 362 | 4 | 2.4 ⭐ La forma del schema, medida (auditoría estructural 2026-09-11) |
+| 363 | 382 | 1 | 2.5 ⭐ La historia de precio que ya teníamos y nadie lee |
+| 383 | 419 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
+| 420 | 506 | 5 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
+| 507 | 553 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
+| 554 | 592 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
+| 593 | 743 | 9 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
+| 744 | 858 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
+| 859 | 913 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
+| 914 | 951 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
+| 952 | 981 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
+| 982 | 1035 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
+| 1036 | 1084 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
+| 1085 | 1116 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
+| 1117 | 1177 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
+| 1178 | 1212 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
+| 1213 | 1324 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
+| 1325 | 1355 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
+| 1356 | 1403 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1404 | 1431 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1432 | 1488 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1489 | 1539 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1540 | 1565 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1566 | 1630 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1631 | 1650 | 1 | 6. Importers / feeds relevantes |
+| 1651 | 1658 | 1 | 7. Conexiones y credenciales |
+| 1659 | 1668 | 1 | 8. Para profundizar |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -438,6 +439,31 @@ en `[PV.1]`/`[PV.2]`.
 **El nivel 0 es el estándar** — el precio del cliente sin nivel asignado. Arbitrado con dinero
 (ADR-059) sobre `83652`: lo cobrado fue `77.25` a qty 1-2, `71.15` a qty 5 y 10, `70.51` a qty 30.
 **Nadie pagó nunca los niveles profundos de ese SKU**, ni siquiera superando su `c4`.
+
+#### ⭐ `[E.22]` Corrección (2026-10-21): en las escaleras DISJUNTAS el nivel SÍ es un escalón de volumen
+
+La refutación de abajo se hizo sobre `83652`, cuya escalera está **encimada** (varios niveles con
+el mismo rango de cantidad). Pero **el 93 % de las escaleras de `kdpv_prod_util` son disjuntas**:
+cada tramo empieza después de que termina el anterior (95,377 de 102,448 con ≥ 2 tramos). El caso
+que lo destapó: `89008` PAQ = `1: 3-5 $55.00 · 2: 6-9 $53.16 · 3: 10+ $51.76`, sin nivel 0, y
+Kepler cobró en 120 días **exactamente el tramo que contiene la cantidad** en el 100 % de los
+renglones de venta (lista $55.93 de 1 a 2).
+
+**Arbitrado a escala con dinero** (ADR-059; 60 d, ventas `U-D` 5/6/8/10/12, 1.6 M renglones):
+
+| escalera | cuando «el tramo de su cantidad» y «el primer tramo» difieren, Kepler cobró… |
+|---|---|
+| **disjunta** | el tramo de su cantidad **4,275** veces · el primer tramo **26** (99.4 %) |
+| encimada | 1,880 contra 2,294: ninguna regla gana → niveles por transacción, como dice abajo |
+
+**Regla vigente (motor de cotizaciones y pedidos, `quote-pricing.service.ts`):** escalera
+disjunta → el tramo cuyo `[c4, c5]` contiene la cantidad (abajo del primero: lista; en un hueco
+entre tramos: ninguno). Escalera encimada → nivel 0 (lo de abajo, sin cambio).
+
+⚠️ **Lo que sigue sin derivarse, declarado:** aun en las disjuntas, Kepler cobra su tramo en el
+54.6 % de los renglones; el **28.6 % sale a precio de lista** (no se aplicó el volumen) y el 15.9 %
+**por debajo** del tramo. Quién decide eso (cajero, cliente, canal) no está medido. En
+telemarketing (doc 8) el tramo se cumple en el 62.9 %.
 
 #### ⛔ Qué determina el nivel: NO se pudo derivar, y las cuatro hipótesis están REFUTADAS
 

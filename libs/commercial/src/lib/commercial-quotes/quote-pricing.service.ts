@@ -81,6 +81,38 @@ export interface LadderRung {
   size: number | null;
   /** Precio por volumen del ERP para ESTE peldaño (`kdpv_prod_util`), si existe. */
   volume: { min_qty: number; price: number } | null;
+  /**
+   * `[E.22]` La escalera COMPLETA de volumen de esta unidad, sólo si el ERP la publica disjunta
+   * (cada tramo empieza después de que termina el anterior). Ausente = no hay escalera o sus
+   * tramos se enciman (niveles por transacción, ERP_KEPLER §2.7): entonces rige `volume`.
+   */
+  tiers?: VolumeTier[];
+}
+
+/** `[E.22]` Un tramo de `kdpv_prod_util`: desde `c4` hasta `c5` unidades, a `c7`. */
+export interface VolumeTier {
+  desde: number;
+  hasta: number;
+  price: number;
+}
+
+/**
+ * `[E.22]` Los tramos ordenados si NO se enciman; null si se enciman.
+ *
+ * Arbitrado contra lo cobrado (60 d, ventas U-D, 2026-10-21): en las 95,377 escaleras disjuntas,
+ * cuando «el tramo que contiene la cantidad» y «el primer tramo» dan precios distintos, Kepler
+ * cobró el de la cantidad en 4,275 renglones y el primero en 26. En las 7,071 encimadas ninguna
+ * regla gana (1,880 contra 2,294): ahí siguen siendo niveles por transacción y no se derivan.
+ */
+export function escaleraDisjunta(tramos: VolumeTier[]): VolumeTier[] | null {
+  const t = [...tramos].sort((a, b) => a.desde - b.desde || a.hasta - b.hasta);
+  for (let i = 1; i < t.length; i++) if (t[i].desde <= t[i - 1].hasta) return null;
+  return t.length ? t : null;
+}
+
+/** `[E.22]` El tramo que CONTIENE la cantidad; null si cae abajo del primero o en un hueco. */
+export function tramoDeCantidad(tramos: VolumeTier[], qty: number): VolumeTier | null {
+  return tramos.find((t) => qty >= t.desde && qty <= t.hasta) ?? null;
 }
 
 /** `[VTK.1]` Fila de `analytics.v_label_presentations` con la unidad mayor (CJA/BTO/CUB) de un SKU. */
@@ -346,6 +378,28 @@ export class QuotePricingService {
     const kdpvRows = kdpv.rows as KdpvVolumeRow[];
     const kdpvByKey = new Map<string, KdpvVolumeRow>(kdpvRows.map((r) => [r.sku + '|' + r.unidad, r]));
 
+    // `[E.22]` La escalera COMPLETA por (sku, unidad): el motor elige el tramo que CONTIENE la
+    // cantidad. Antes sólo conocía el primero y 38 PAQ del 89008 salían a $55.00 (Kepler: $51.76).
+    const tramosQ = await knex.raw(
+      'SELECT btrim(u.c1) AS sku, upper(btrim(u.c2::text)) AS unidad,'
+        + ' u.c4::numeric AS desde, u.c5::numeric AS hasta, u.c7::numeric AS price'
+        + ' FROM kepler_ods.kdpv_prod_util u'
+        + ' WHERE u.sucursal = ?' + inSkus('btrim(u.c1)')
+        + ' AND u.c7::numeric > 0',
+      [branch, ...args],
+    );
+    const tramosPorClave = new Map<string, VolumeTier[]>();
+    for (const r of tramosQ.rows as Array<{ sku: string; unidad: string; desde: string; hasta: string; price: string }>) {
+      const k = r.sku + '|' + r.unidad;
+      const l = tramosPorClave.get(k) ?? [];
+      l.push({ desde: Number(r.desde), hasta: Number(r.hasta), price: Number(r.price) });
+      tramosPorClave.set(k, l);
+    }
+    const tiersDe = (sku: string, label: string | null): VolumeTier[] | undefined => {
+      const l = label ? tramosPorClave.get(sku + '|' + label.toUpperCase()) : undefined;
+      return (l && escaleraDisjunta(l)) || undefined;
+    };
+
     const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
     const volumeOf = (minQty: unknown, price: unknown) =>
       minQty !== null && minQty !== undefined && price !== null && price !== undefined
@@ -398,6 +452,7 @@ export class QuotePricingService {
             volume: baseIsGrouped
               ? volumeOf(p.wholesale_pack_min_qty, p.wholesale_pack_price)
               : volumeOf(p.wholesale_piece_min_qty, p.wholesale_piece_price),
+            tiers: tiersDe(sku, p.unit_base ?? null),
           },
           pack: {
             rung: 'pack',
@@ -406,6 +461,7 @@ export class QuotePricingService {
             size: num(p.pack_size),
             // El volumen de PAQ sólo está publicado aparte cuando la base es PZA.
             volume: base === 'PZA' ? volumeOf(p.wholesale_pack_min_qty, p.wholesale_pack_price) : null,
+            tiers: base === 'PZA' ? tiersDe(sku, 'PAQ') : undefined,
           },
           box: {
             rung: 'box',
@@ -413,6 +469,7 @@ export class QuotePricingService {
             price: boxPrice,
             size: boxSize,
             volume: boxVolume,
+            tiers: boxPrice !== null ? tiersDe(sku, boxLabel ?? 'CJA') : undefined,
           },
         },
       });
@@ -498,28 +555,40 @@ export class QuotePricingService {
 
     // ── Mecanismo 2a: el precio por VOLUMEN del propio ERP (kdpv_prod_util) ──────────────────
     // No es un descuento porcentual: es OTRO precio del mismo peldaño a partir de N unidades.
-    if (step.volume) {
-      if (quantity >= step.volume.min_qty) {
-        if (step.volume.price < price) {
+    // `[E.22]` Con escalera disjunta rige el tramo que CONTIENE la cantidad; abajo del primero se
+    // informa el primero, y en un hueco entre tramos no se aplica ninguno (no se adivina).
+    const tramo = step.tiers ? tramoDeCantidad(step.tiers, quantity) : null;
+    const volume = !step.tiers
+      ? step.volume
+      : tramo
+        ? { min_qty: tramo.desde, price: tramo.price }
+        : quantity < step.tiers[0].desde
+          ? { min_qty: step.tiers[0].desde, price: step.tiers[0].price }
+          : null;
+    if (volume) {
+      if (quantity >= volume.min_qty) {
+        if (volume.price < price) {
           applied.push({
             step: 'volumen',
-            source: 'kdpv_prod_util (via v_label_prices.wholesale_*)',
-            detail: `Precio por volumen desde ${step.volume.min_qty} ${step.label ?? 'u'}`,
+            source: step.tiers ? 'kdpv_prod_util (tramo que contiene la cantidad)' : 'kdpv_prod_util (via v_label_prices.wholesale_*)',
+            detail: tramo
+              ? `Precio por volumen de ${tramo.desde} a ${tramo.hasta >= 999999 ? 'más' : tramo.hasta} ${step.label ?? 'u'}`
+              : `Precio por volumen desde ${volume.min_qty} ${step.label ?? 'u'}`,
             before: price,
-            after: step.volume.price,
+            after: volume.price,
           });
-          price = step.volume.price;
+          price = volume.price;
           priceSource = 'volume_qty';
         } else {
           // El ERP publica un "mayoreo" más caro que la lista. Pasa, y no se corrige en silencio.
           warnings.push(
-            `El precio por volumen del ERP (${step.volume.price}) es MAYOR que el de lista (${price}): se conserva el de lista.`,
+            `El precio por volumen del ERP (${volume.price}) es MAYOR que el de lista (${price}): se conserva el de lista.`,
           );
         }
       } else {
         notApplied.push({
           mechanism: 'volumen',
-          reason: `Precio por volumen de $${step.volume.price} disponible a partir de ${step.volume.min_qty} ${step.label ?? 'unidades'}.`,
+          reason: `Precio por volumen de $${volume.price} disponible a partir de ${volume.min_qty} ${step.label ?? 'unidades'}.`,
         });
       }
     }
@@ -634,7 +703,7 @@ export class QuotePricingService {
       availability: productId ? 'available' : 'unmatched',
       applied,
       not_applied: notApplied,
-      volume_tier: step.volume ? { min_qty: step.volume.min_qty, price: step.volume.price } : null,
+      volume_tier: volume ? { min_qty: volume.min_qty, price: volume.price } : null,
       free_goods: freeGoods,
       unpriced_reason: null,
       warnings,
