@@ -261,6 +261,15 @@ export class FuentePagoProveedor {
   }
 
   /**
+   * `[CP.8.78]` El RFC por el nombre que escribió tesorería en el concepto, contra los emisores de CFDI — la misma
+   * regla de `[CP.8.71]` (`rfcPorTexto`: un solo emisor, o nada). Para el buscador: un pago sin categoría no pasa
+   * por `proponer`, pero su concepto sí dice de quién es («Oscar Hernandez» → HERO840925823).
+   */
+  rfcPorConcepto(concepto: string): string | null {
+    return rfcPorTexto(concepto, this.padron);
+  }
+
+  /**
    * `[CP.8.73]` Lo que se le pone enfrente a quien confirma un pago que no se armó solo: el proveedor, sus
    * facturas y notas abiertas en la ventana, y una SUGERENCIA (nunca aplicada sola): lo que Kepler aplicó a
    * ese pago, o la única combinación de facturas que suma lo pagado.

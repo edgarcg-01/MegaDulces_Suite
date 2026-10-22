@@ -20,6 +20,7 @@ import {
   fraseQueFalta,
   vecino,
   motivoNoFirmable,
+  pasoDeMotivo,
 } from './contabilidad-contpaqi-puente.component';
 
 /**
@@ -296,5 +297,24 @@ describe('[CP.8.76] los cuatro pasos — cargando ≠ listo ≠ no se pudo leer'
     expect(motivoNoFirmable('por_proveedor')).toContain('pasos 2 y 3');
     expect(motivoNoFirmable('no_aplica')).toBe('no genera póliza');
     expect(motivoNoFirmable('otra_cosa')).not.toContain('otra_cosa');
+  });
+});
+
+describe('[CP.8.78] «Ir» desde un movimiento — al paso donde se resuelve', () => {
+  it('entra → revisar y entregar; sin regla → reglas; nombre sin cuenta → proveedores; pago → pagos', () => {
+    expect(pasoDeMotivo(null)).toBe('archivo');
+    expect(pasoDeMotivo('sin_regla')).toBe('reglas');
+    expect(pasoDeMotivo('proveedor_sin_cuenta')).toBe('proveedores');
+    expect(pasoDeMotivo('pago_a_confirmar')).toBe('pagos');
+    expect(pasoDeMotivo('pago_sin_resolver')).toBe('pagos');
+    expect(pasoDeMotivo('no_aplica')).toBe('archivo');
+  });
+  it('⛔ sin categoría y fuera de banco NO llevan a un paso: no se resuelven en esta pantalla', () => {
+    expect(pasoDeMotivo('sin_categoria')).toBeNull();
+    expect(pasoDeMotivo('fuera_de_banco')).toBeNull();
+  });
+  it('los dos motivos nuevos tienen rótulo (no se muestra el código)', () => {
+    expect(etiquetaMotivo('sin_categoria')).toBe('Sin categoría');
+    expect(etiquetaMotivo('fuera_de_banco')).toBe('Fuera de banco');
   });
 });
