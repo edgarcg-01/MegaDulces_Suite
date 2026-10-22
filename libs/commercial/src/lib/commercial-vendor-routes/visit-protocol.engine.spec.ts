@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import {
   VISIT_RADIUS_M,
   addCounts,

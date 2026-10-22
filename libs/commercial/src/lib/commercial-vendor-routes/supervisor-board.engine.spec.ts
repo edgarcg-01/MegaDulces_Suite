@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import {
   CATORCENA_ANCLA,
   SIN_MEDIR,
