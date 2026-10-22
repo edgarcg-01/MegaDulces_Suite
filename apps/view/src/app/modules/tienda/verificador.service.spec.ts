@@ -397,6 +397,17 @@ describe('VerificadorService · en vivo primero, respaldo después, y se dice cu
       expect(r![0].unidades.map((x) => [x.u, x.factor])).toEqual([['PZA', 1], ['CJA', 24]]);
     });
 
+    it('⭐ [ETQ-PROMO.2] marca las promociones (pm:1) y las manda al final: el producto primero', async () => {
+      await offline.guardarSnapshotPrecios('03', {
+        ...SNAPSHOT,
+        productos: [
+          { c: '09089', b: [], n: '10 CJS OREO BASE 9 KG = GRATIS 1 CJ MAS', u: [{ u: 'PZA', p: 0.01, s: 0.01, f: 1 }], pm: 1 },
+          { c: '10245', b: [], n: 'OREO GALLETA 36 G', u: [{ u: 'PZA', p: 18.5, s: 15.95, f: 1 }] },
+        ],
+      }, SNAPSHOT.generado);
+      const r = await svc.buscarEnCatalogo('03', 'oreo');
+      expect(r!.map((x) => [x.codigo, x.esPromocion])).toEqual([['10245', false], ['09089', true]]);
+    });
     it('sin respaldo dice "no puedo buscar" (null), no "no hay resultados"', async () => {
       expect(await svc.buscarEnCatalogo('03', 'paleta')).toBeNull();
     });

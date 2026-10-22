@@ -55,6 +55,8 @@ export interface HalladoCatalogo {
   exacto: boolean;
   unidades: UnidadPrecio[];
   mayoreo: MayoreoTier[];
+  /** `[ETQ-PROMO.2]` Promoción/ajuste de Kepler, no un producto: no tiene precio de venta y NO se anota como faltante. */
+  esPromocion: boolean;
 }
 
 /**
@@ -477,7 +479,7 @@ export class VerificadorService {
     const hay = await this.cargarIndice(sucursal);
     if (!hay) return null; // no hay respaldo: "no puedo buscar" ≠ "no hay resultados"
 
-    return buscarEnCatalogo(this.buscables, texto, limite).map(({ b, por, exacto }) => ({
+    return buscarEnCatalogo(this.buscables, texto, limite).map(({ b, por, exacto, esPromocion }) => ({
       codigo: b.codigo,
       nombre: b.item.n || '',
       proveedor: b.proveedor,
@@ -485,6 +487,7 @@ export class VerificadorService {
       exacto,
       unidades: unidadesDeItem(b.item),
       mayoreo: (b.item.m || []).map(expandirTier),
+      esPromocion,
     }));
   }
 

@@ -48,6 +48,12 @@ type Hallado = {
   proveedor: string | null;
   unidades: UnidadPrecio[];
   mayoreo: MayoreoTier[];
+  /**
+   * `[ETQ-PROMO.2]` Promoción/ajuste de Kepler. Elegirla NO consulta la existencia ni anota nada: «anotar un
+   * faltante» de una promoción mandaba a Compras a surtir algo que no es mercancía (y la existencia de un
+   * código simbólico es 0 por construcción, así que se habría anotado SOLO).
+   */
+  esPromocion?: boolean;
 };
 
 type Aviso = { tono: 'warn' | 'bad'; texto: string } | null;
@@ -108,12 +114,14 @@ const PASO_MS = 100;
                         (click)="elegir(r)">
                   <span class="fx-fila-top">
                     <span class="fx-fila-n">{{ r.nombre }}</span>
+                    @if (r.esPromocion) { <span class="fx-promo-tag">Promoción</span> }
                     <span class="fx-por">{{ r.porEtiqueta }}</span>
                   </span>
                   <span class="fx-fila-meta">
                     <span class="num">SKU {{ r.codigo }}</span>
                     @if (r.proveedor) { <span>{{ r.proveedor }}</span> }
                   </span>
+                  @if (!r.esPromocion) {
                   <span class="fx-pres">
                     @for (p of r.pres; track p.u) {
                       <span class="fx-pz">
@@ -130,6 +138,7 @@ const PASO_MS = 100;
                       </span>
                     }
                   </span>
+                  }
                 </button>
               </li>
             }
@@ -225,6 +234,10 @@ const PASO_MS = 100;
                 @if (elegido()?.proveedor) { <span class="fx-v-prov">{{ elegido()?.proveedor }}</span> }
               </div>
 
+              @if (elegido()?.esPromocion) {
+                <p class="fx-promo-v" role="note"><span class="fx-promo-tag">Promoción</span>
+                  Es una promoción de Kepler, no un producto: no tiene precio de venta ni se surte.</p>
+              } @else {
               <!-- [MOS.1] Cada presentación con lo que trae: la caja en paquetes cuando se puede. -->
               @if (presentaciones().length) {
                 <ul class="fx-tab" aria-label="Presentaciones y precio">
@@ -271,9 +284,16 @@ const PASO_MS = 100;
                   @default { <span class="fx-chip warn">No se pudo leer el precio</span> }
                 }
               </div>
+              }
             </div>
 
             <div class="fx-v-der">
+              @if (elegido()?.esPromocion) {
+                <div class="fx-nada">
+                  <i class="pi pi-info-circle" aria-hidden="true"></i>
+                  <span>No se consultó la existencia y no se anotó nada: una promoción no es un faltante.</span>
+                </div>
+              } @else {
               <!-- El veredicto. Tres respuestas, no dos: "no se pudo leer" NUNCA se dibuja
                    como cero, porque mandan a hacer cosas opuestas. -->
               @if (!consulta()) {
@@ -343,6 +363,7 @@ const PASO_MS = 100;
                     {{ enviando() ? 'Anotando…' : 'Anotar igual' }}
                   </button>
                 </div>
+              }
               }
             </div>
           </div>
@@ -424,6 +445,10 @@ const PASO_MS = 100;
     .fx-fila:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
     .fx-fila-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; min-width: 0; }
     .fx-fila-n { font-weight: 600; min-width: 0; }
+    /* [ETQ-PROMO.2] La marca de una promoción: token semántico, sin color de marca ni sombra. */
+    .fx-promo-tag { flex: 0 0 auto; padding: .05rem .4rem; border-radius: var(--r-sm); font-size: var(--fs-micro); font-weight: 700;
+      background: var(--warn-soft-bg); color: var(--warn-soft-fg); white-space: nowrap; }
+    .fx-promo-v { margin: .4rem 0 0; font-size: var(--fs-sm); line-height: 1.45; color: var(--text-main); }
     .fx-por { flex: 0 0 auto; font-size: var(--fs-micro); font-weight: 600; white-space: nowrap;
       color: var(--text-muted); background: var(--neutral-100); border-radius: var(--r-pill, 999px);
       padding: .05rem .45rem; }
@@ -768,7 +793,7 @@ export class FaltanteExpressComponent {
             });
             return;
           }
-          this.elegir(this.desdeProducto(r.producto), r.origen === 'live' ? 'vivo' : 'respaldo', true);
+          this.elegir(this.desdeProducto(r.producto, r.esPromocion === true), r.origen === 'live' ? 'vivo' : 'respaldo', true);
         } else if (r.estado === 'no_encontrado') {
           if (r.origen === 'live') {
             // `[MOS.2]` Kepler contestó que no existe: es autoritativo, y se anota SOLO en la
@@ -792,8 +817,9 @@ export class FaltanteExpressComponent {
     });
   }
 
-  private desdeProducto(p: { codigo: string; nombre: string; proveedor?: string | null; unidades: UnidadPrecio[]; mayoreo: MayoreoTier[] }): Hallado {
+  private desdeProducto(p: { codigo: string; nombre: string; proveedor?: string | null; unidades: UnidadPrecio[]; mayoreo: MayoreoTier[] }, esPromocion = false): Hallado {
     return {
+      esPromocion,
       codigo: p.codigo,
       nombre: p.nombre,
       proveedor: p.proveedor ?? null,
@@ -885,7 +911,7 @@ export class FaltanteExpressComponent {
     this.noReg.set(null);
     this.origenPres.set(origen);
     this.elegido.set(h);
-    if (!yaEnVivo && origen === 'respaldo') this.refrescarEnVivo(h.codigo, suc);
+    if (!yaEnVivo && origen === 'respaldo' && !h.esPromocion) this.refrescarEnVivo(h.codigo, suc);
     this.resultados.set([]);
     this.termino.set('');
     this.aviso.set(null);
@@ -898,6 +924,10 @@ export class FaltanteExpressComponent {
     this.pararReloj();
     this.restante.set(this.totalMs);
     this.pausado.set(false);
+
+    // `[ETQ-PROMO.2]` Una promoción no tiene existencia que consultar ni faltante que anotar: la ventana avisa y
+    // se cierra sola. SIN esto, escanearla (o elegirla de la lista) la anotaba como faltante por sí sola.
+    if (h.esPromocion) { this.arrancarReloj(); return; }
 
     this.api.consultar(suc, h.codigo).subscribe({
       next: (c) => { this.consulta.set(c); this.trasConsultar(c); },
@@ -922,7 +952,7 @@ export class FaltanteExpressComponent {
       next: (r) => {
         if (r.estado !== 'encontrado' || r.origen !== 'live' || r.plazaSinDato) return;
         if (this.elegido()?.codigo !== codigo) return;
-        this.elegido.set(this.desdeProducto(r.producto));
+        this.elegido.set(this.desdeProducto(r.producto, r.esPromocion === true));
         this.origenPres.set('vivo');
       },
       // Sin red se queda lo del respaldo, que ya está rotulado como tal.

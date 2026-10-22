@@ -573,9 +573,10 @@ export class KpService {
       // ESTE código en todas las plazas donde existe (ya vienen en `rows`): $0.01 exacto en pieza y
       // paquete/caja en todas, o «= GRATIS» en el nombre. Mismo criterio que la etiquetera.
       const esCentavo = (v: unknown): boolean => v != null && Math.abs(Number(v) - 0.01) < 0.0005;
-      const filasDelCodigo = rows.filter((x: any) => String(x.codigo ?? '').trim() === String(r.codigo ?? '').trim());
+      type FilaCentavo = { codigo?: unknown; pv1?: unknown; pv2?: unknown };
+      const filasDelCodigo = (rows as FilaCentavo[]).filter((x) => String(x.codigo ?? '').trim() === String(r.codigo ?? '').trim());
       const centavoEnTodas = filasDelCodigo.length > 0
-        && filasDelCodigo.every((x: any) => esCentavo(x.pv1) && (x.pv2 == null || Number(x.pv2) <= 0.01));
+        && filasDelCodigo.every((x) => esCentavo(x.pv1) && (x.pv2 == null || Number(x.pv2) <= 0.01));
       const esPromocion = esCodigoSimbolico(r.nombre, centavoEnTodas);
 
       // El override manual gana: es una corrección humana deliberada y es lo que sale impreso en

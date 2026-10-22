@@ -162,6 +162,8 @@ export interface Coincidencia {
   por: CampoCoincidencia;
   /** El código tecleado ES una clave o un código de barras de este producto. */
   exacto: boolean;
+  /** `[ETQ-PROMO.2]` Es una promoción/ajuste de Kepler (`pm:1` del respaldo), no un producto. */
+  esPromocion: boolean;
 }
 
 const RANGO_CAMPO: Record<CampoCoincidencia, number> = { sku: 0, barcode: 1, nombre: 2, proveedor: 3, varios: 4 };
@@ -190,16 +192,17 @@ export function buscarEnCatalogo(buscables: readonly Buscable[], consulta: strin
     else if (todos(b.nTodo)) por = 'varios';
     if (!por) continue;
     const exacto = !!unico && (b.barcodes.includes(unico) || (!!unicoCorto && b.corto === unicoCorto));
-    // `[ETQ-PROMO.2]` Una promoción/ajuste de Kepler no es un producto: no sale al buscar por nombre ni por
-    // un pedazo de clave. Sólo si se teclea SU clave o código exacto (para poder preguntar qué es).
-    if (b.item.pm === 1 && !exacto) continue;
-    res.push({ b, por, exacto });
+    // `[ETQ-PROMO.2]` Una promoción/ajuste de Kepler SÍ sale (quien busca «OREO BASE 9 KG» quiere ver qué es),
+    // pero marcada y después de los productos: igual que en el buscador de la etiquetera.
+    res.push({ b, por, exacto, esPromocion: b.item.pm === 1 });
   }
 
   const primero = tokens[0];
   return res
     .sort((x, y) =>
       Number(y.exacto) - Number(x.exacto)
+      // `[ETQ-PROMO.2]` Las promociones detrás de los productos (salvo que se teclee SU clave exacta: va primero).
+      || Number(x.esPromocion) - Number(y.esPromocion)
       || RANGO_CAMPO[x.por] - RANGO_CAMPO[y.por]
       || Number(y.b.nNombre.startsWith(primero)) - Number(x.b.nNombre.startsWith(primero))
       || x.b.item.n.localeCompare(y.b.item.n))
