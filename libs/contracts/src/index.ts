@@ -96,6 +96,12 @@ export * from './http/warehouse-picking-kepler.contract';
 // [MCP.1] Mesa de Control de Preventa: pedido PD- de la Suite ligado a su documento de Kepler.
 export * from './http/warehouse-presale.contract';
 export * from './http/presale-picking.contract';
+// [MCP.3.8] Cliente nuevo: alta en la Suite y liga con su clave de Kepler.
+export * from './http/new-customers-kepler.contract';
+export * from './http/presale-route.contract';
+export * from './http/supervisor-board.contract';
+// [MCP.3.7] Protocolo de visitas: el monitoreo de visitas del día para el supervisor de ventas.
+export * from './http/visit-monitor.contract';
 // [MCP.5] Guías de carga de preventa: el repartidor pesca sus pedidos y la cajera imprime la guía.
 export * from './http/presale-load-guide.contract';
 // [PU.R] El estado de resultados del presupuesto: plan contra real, con el costo de ventas que a

@@ -12,6 +12,7 @@ import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/route
 import { MessageService } from 'primeng/api';
 import { of } from 'rxjs';
 import { VendorService } from '../vendor.service';
+import { RouteDayService } from '../route-day.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
 import { OfflineOrderService } from '../../../core/services/offline-order.service';
 import { HapticService } from '../../../core/services/haptic.service';
@@ -88,6 +89,8 @@ describe('Tomar pedido sin IA', () => {
       imports: [VendorTakeOrderComponent],
       providers: [
         provideRouter([]),
+        // [MCP.3.5] La pantalla usa el MessageService del shell /vendor (ya no declara el suyo).
+        MessageService,
         { provide: VendorService, useValue: api },
         { provide: ConnectivityService, useValue: { isOnline: () => true } },
         { provide: OfflineOrderService, useValue: { cacheContext: () => Promise.resolve() } },
@@ -122,8 +125,9 @@ describe('Tomar pedido sin IA', () => {
     expect(texto).not.toContain('por qué');
     expect(el.querySelector('button.mic')).toBeNull();
     expect(el.querySelector('[aria-label="Dictar pedido por voz"]')).toBeNull();
-    // `rotation_tier` viene del catálogo, no del motor: el chip se conserva.
-    expect(texto).toContain('Alta rotación');
+    // `rotation_tier` viene del catálogo, no del motor; aun así el chip ya no se pinta:
+    // [MCP.3.5] se quitó de la tarjeta por pedido de ruta (ver vendor-tomar-pedido-avisos.spec.ts).
+    expect(texto).not.toContain('Alta rotación');
   });
 
   it('tocar "+" no re-pide sugerencias después del debounce', fakeAsync(() => {
@@ -164,6 +168,14 @@ describe('Mi ruta sin IA', () => {
         MessageService,
         { provide: VendorService, useValue: api },
         { provide: GeolocationService, useValue: { supported: false } },
+        // [MCP.3.6] Mi ruta primero pregunta si la ruta de hoy está iniciada; aquí ya va en ruta.
+        {
+          provide: RouteDayService,
+          useValue: {
+            today: () =>
+              of({ id: 'rd1', work_date: '2026-10-21', state: 'en_ruta', started_at: '2026-10-21T14:00:00.000Z', finished_at: null, visited: 0, orders: 0, total: 0 }),
+          },
+        },
       ],
     });
     const fixture = TestBed.createComponent(VendorRouteHomeComponent);
