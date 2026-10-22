@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { FinanzasCapturarGastoComponent } from './finanzas-capturar-gasto.component';
+import { PermissionsService } from '../../../core/services/permissions.service';
 
 /**
  * [GX.17] **El botón tiene que decir por qué está apagado.**
@@ -20,6 +21,15 @@ import { FinanzasCapturarGastoComponent } from './finanzas-capturar-gasto.compon
 describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => {
   let comp: FinanzasCapturarGastoComponent;
   let http: HttpTestingController;
+
+  // `[GX.86]` Estas pruebas hablan del botón DENTRO del horario de alta. Sin fijar la hora,
+  // fuera de 8:30–10:00 / 17:00–18:00 el botón dice «Cerrado» y todo el archivo se pone rojo
+  // según la hora a la que corra el CI. Sólo se finge `Date`: los temporizadores siguen reales.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-19T09:00:00-06:00')); // lunes 9:00 en México
+  });
+  afterEach(() => vi.useRealTimers());
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -686,5 +696,63 @@ describe('[GX.79] FinanzasCapturarGastoComponent · tope de 20 MB', () => {
     comp.onFile(eventoCon(21, 'escaneo.pdf'), 'comprobante_1');
     expect(comp.formError()).toBe('"escaneo.pdf" supera 20 MB.');
     expect(comp.names()['comprobante_1']).toBeUndefined();
+  });
+});
+
+/**
+ * `[GX.86]` **Fuera del horario de alta, quien sólo da de alta no puede mandar el vale.**
+ * Horario: lunes a viernes, 8:30–10:00 y 17:00–18:00 (México). El servidor es el que bloquea;
+ * la pantalla avisa ANTES de llenar y el botón dice cuándo abre.
+ */
+describe('[GX.86] FinanzasCapturarGastoComponent · horario de alta', () => {
+  let comp: FinanzasCapturarGastoComponent;
+
+  const crear = async (permisos: Record<string, boolean>, ahora: string) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(ahora));
+    await TestBed.configureTestingModule({
+      imports: [FinanzasCapturarGastoComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    }).compileComponents();
+    TestBed.inject(PermissionsService).load(permisos, 'capturista');
+    comp = TestBed.createComponent(FinanzasCapturarGastoComponent).componentInstance;
+    // Un vale completo: lo único que puede frenarlo es el horario.
+    comp.gasto.set({ folio: '0049641', beneficiario: 'X', importe: 10, sucursal: '01' } as never);
+    comp.clasificacion.set('no_comprobable');
+    comp.formaPago.set('efectivo');
+    comp.names.set({ comprobante_1: 'vale.jpg' });
+    comp.sellos.set({ comprobante_1: { live: true } } as never);
+    comp.comentarios.set('Balatas');
+  };
+  afterEach(() => vi.useRealTimers());
+
+  const CAPTURISTA = { FINANCE_EXPENSES_CAPTURAR: true, FINANCE_EXPENSES_VER: true };
+  const MEDIODIA = '2026-10-19T12:00:00-06:00'; // lunes, entre ventanas
+
+  it('al mediodía el capturista NO puede mandar, y el botón dice cuándo abre', async () => {
+    await crear(CAPTURISTA, MEDIODIA);
+    expect(comp.altaCerrada()).toBe(true);
+    expect(comp.puedeEnviar()).toBe(false);
+    expect(comp.enviarLabel()).toBe('Cerrado: abre hoy a las 17:00');
+  });
+
+  it('submit() fuera del horario no sube nada y dice por qué', async () => {
+    await crear(CAPTURISTA, MEDIODIA);
+    const subir = vi.spyOn(comp as never, 'uploadThen' as never);
+    comp.submit();
+    expect(subir).not.toHaveBeenCalled();
+    expect(comp.formError()).toContain('Abre hoy a las 17:00');
+  });
+
+  it('a las 17:30 el mismo vale SÍ se puede mandar', async () => {
+    await crear(CAPTURISTA, '2026-10-19T17:30:00-06:00');
+    expect(comp.puedeEnviar()).toBe(true);
+    expect(comp.enviarLabel()).toBe('Enviar a aprobación');
+  });
+
+  it('el aprobador (COMPROBAR) no tiene horario', async () => {
+    await crear({ ...CAPTURISTA, FINANCE_EXPENSES_COMPROBAR: true }, '2026-10-24T22:00:00-06:00'); // sábado noche
+    expect(comp.altaCerrada()).toBe(false);
+    expect(comp.puedeEnviar()).toBe(true);
   });
 });

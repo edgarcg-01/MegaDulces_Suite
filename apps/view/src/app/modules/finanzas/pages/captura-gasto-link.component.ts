@@ -9,6 +9,7 @@ import { CameraShotComponent } from '../components/camera-shot.component';
 import { ProofFile, ProofFileRole, ExpenseClasificacion, requiereEvidencia } from '../comprobaciones.service';
 import { money } from '../../../shared/util';
 import { dmy } from './finanzas-format';
+import { horarioAltaGastos, type EstadoHorarioAlta } from '@megadulces/contracts';
 
 /** Una foto pendiente de subir, con lo que hace falta para mostrarla y mandarla. */
 interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; }
@@ -64,6 +65,9 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
             <button type="button" class="cg-btn" (click)="otro()">Subir otro gasto</button>
           </div>
         } @else {
+
+          <!-- [GX.86] Fuera del horario de alta se dice ARRIBA, antes de tomar las fotos. -->
+          @if (!horario().abierto) { <p class="cg-err" role="status">{{ horario().mensaje }}</p> }
 
           <!-- ── Lo devuelto, antes que nada ──────────────────────────────── -->
           @if (devueltas().length) {
@@ -412,7 +416,12 @@ export class CapturaGastoLinkComponent {
     { value: 'no_comprobable', label: 'Sin comprobante' },
   ];
 
+  /** `[GX.86]` El horario de alta (la misma regla que bloquea el servidor). Se recalcula cada 30 s. */
+  readonly horario = signal<EstadoHorarioAlta>(horarioAltaGastos());
+
   constructor() {
+    const reloj = setInterval(() => this.horario.set(horarioAltaGastos()), 30_000);
+    this.destroyRef.onDestroy(() => clearInterval(reloj));
     this.token = this.route.snapshot.paramMap.get('token') || '';
     this.cargar();
   }
@@ -514,6 +523,8 @@ export class CapturaGastoLinkComponent {
 
   /** ¿Se puede mandar? Mismas reglas que valida el servidor, dichas antes de tocar el botón. */
   readonly listo = computed(() => {
+    // `[GX.86]` Fuera del horario de alta no se manda (el servidor también lo rechaza).
+    if (!this.horario().abierto) return false;
     if (!this.clasificacion()) return false;
     if (!this.tomas()['solicitud_kepler']) return false;
     if (this.llevaTicket() && !this.tomas()['comprobante_1']) return false;
@@ -521,12 +532,17 @@ export class CapturaGastoLinkComponent {
   });
   /** Qué falta, en el orden en que se llena. */
   falta(): string {
+    if (!this.horario().abierto) return this.horario().mensaje;
     if (!this.clasificacion()) return 'Elige qué tipo de gasto es';
     if (!this.tomas()['solicitud_kepler']) return 'Falta la foto de la solicitud firmada';
     return 'Falta la foto del ticket';
   }
 
   enviar(): void {
+    // `[GX.86]` Se recalcula ahora: si la ventana cerró hace segundos, no se suben fotos que el
+    // servidor ya no va a aceptar.
+    this.horario.set(horarioAltaGastos());
+    if (!this.horario().abierto) { this.error.set(this.horario().mensaje); return; }
     if (!this.listo() || this.enviando()) return;
 
     const imp = Number(this.importe) || 0;

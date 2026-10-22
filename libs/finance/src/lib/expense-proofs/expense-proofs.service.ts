@@ -5,6 +5,7 @@ import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStora
 // [GX.14] La compuerta y el catalogo de formas de pago viven en libs/contracts: los lee
 // este servicio (que devuelve el 400) y el boton del frontend. Una sola regla, no dos.
 import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } from '@megadulces/contracts';
+import { asegurarHorarioAlta } from './horario-alta';
 import { detallesDePago, unirDetallesDePago } from '@megadulces/contracts';
 // [GX.17] La agrupacion de la pantalla de Aprobacion vive aparte, sin knex, porque decide
 // QUE VE quien firma y eso se prueba sin base.
@@ -819,9 +820,16 @@ export class ExpenseProofsService {
    * conservan, dejan de escribirse, y el módulo hermano `expense-comprobaciones` (GX.8)
    * mantiene su propio `validate-photo`, que es otra pantalla y no se tocó.
    */
-  /** Alta del expediente de gasto (con los archivos ya subidos vía uploadFile). */
-  async create(dto: CreateExpenseProofDto, actor?: string) {
+  /**
+   * Alta del expediente de gasto (con los archivos ya subidos vía uploadFile).
+   *
+   * `[GX.86]` `exentoDeHorario` lo decide el controller con los permisos del token. ⛔ Si no
+   * viene, NO es exento: un llamador nuevo que se olvide de pasarlo queda dentro del horario,
+   * no fuera.
+   */
+  async create(dto: CreateExpenseProofDto, actor?: string, exentoDeHorario = false): Promise<{ id: string; folio_solicitud: string; status: string }> {
     this.tenantCtx.requireTenantId();
+    asegurarHorarioAlta(exentoDeHorario);
     const req = (v?: string) => (v || '').trim();
     const folioSolicitud = req(dto.folio_solicitud);
     const files = Array.isArray(dto.files) ? dto.files.filter((f) => f && f.url && f.role) : [];
