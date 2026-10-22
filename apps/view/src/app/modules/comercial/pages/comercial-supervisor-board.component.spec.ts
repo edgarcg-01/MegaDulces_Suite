@@ -43,7 +43,9 @@ const RESP = (o: Partial<SupervisorBoardResponse> = {}): SupervisorBoardResponse
     date: '2026-10-22', period: { start: '2026-10-17', end: '2026-10-30', day: 6 }, scope: 'vecinal',
     scope_label: 'Rutas vecinales', can_set_targets: true, vendors,
     totals: { vendors: vendors.length, customers_total: 4, customers_visited: 2, sales_day: 1500, sales_period: 20000, target: 40000 },
-    generated_at: '2026-10-22T21:00:00Z', ...o,
+    generated_at: '2026-10-22T21:00:00Z',
+    freshness: { data_as_of: '2026-10-22T20:59:00Z', status: 'fresh', stale: false, age_human: '1 min', inputs: [] },
+    ...o,
   };
 };
 

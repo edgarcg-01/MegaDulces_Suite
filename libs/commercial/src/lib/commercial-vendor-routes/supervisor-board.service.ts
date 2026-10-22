@@ -8,7 +8,10 @@ import type {
   SupervisorBoardResponse,
   VisitMonitorRow,
 } from '@megadulces/contracts';
-import { TenantKnexService, TenantContextService, isPlatformAdminRole } from '@megadulces/platform-core';
+import {
+  FRESHNESS_UNKNOWN, TenantKnexService, TenantContextService, composeFreshness, evalInput, isPlatformAdminRole, laneAt,
+} from '@megadulces/platform-core';
+import type { Freshness } from '@megadulces/contracts';
 import { parseYmd } from './visit-protocol.engine';
 import { VisitMonitorService, resolveDay, routesForDays } from './visit-monitor.service';
 import { RouteCatalog, resolveRouteScope } from './route-scope';
@@ -121,6 +124,7 @@ export class SupervisorBoardService {
         vendors: [],
         totals: { vendors: 0, customers_total: 0, customers_visited: 0, sales_day: null, sales_period: null, target: null },
         generated_at: new Date().toISOString(),
+        freshness: await this.frescura(trx),
       };
       if (!listed.length) return base;
 
@@ -204,6 +208,19 @@ export class SupervisorBoardService {
    * (`users.supervisor_id = quien captura`; god-mode: cualquiera del tenant) y de SU alcance (que
    * tenga alguna ruta del alcance en esa catorcena). La meta propia no se captura: no es supervisión.
    */
+  /**
+   * De cuándo es la venta (VP.2.3): del carril que mantiene al día el ODS de Kepler. Si no se puede
+   * medir, se declara desconocida; nunca se afirma «fresco».
+   */
+  private async frescura(trx: Knex.Transaction): Promise<Freshness> {
+    try {
+      const carril = await laneAt(trx, 'ods_live_hot');
+      return composeFreshness([evalInput('ods_live_hot', 'Ventas de Kepler (ODS)', carril, 1)]);
+    } catch {
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
   async setTarget(dto: SetVendorTargetRequest): Promise<SetVendorTargetResponse> {
     const ctx = this.tenantCtx.get();
     const me = ctx?.userId || null;

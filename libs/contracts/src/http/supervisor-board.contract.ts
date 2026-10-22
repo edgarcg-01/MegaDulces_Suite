@@ -16,6 +16,8 @@
  * Lo que no se pudo medir se DECLARA (`null` + motivo), nunca se dibuja como $0.
  */
 
+import type { Freshness } from './provenance.contract';
+
 /** Tipo de ruta que ve quien consulta. `null` = todas (superadmin, admin). */
 export type BoardRouteScope = 'vecinal' | 'directa' | null;
 
@@ -93,6 +95,11 @@ export interface SupervisorBoardResponse {
   };
   /** ISO 8601: cuándo se armó la respuesta. */
   generated_at: string;
+  /**
+   * De cuándo es el dato (VP.2.3): la venta sale del ODS de Kepler, que alimenta el carril
+   * `ods_live_hot`. `generated_at` sólo dice cuándo respondió el servidor.
+   */
+  freshness: Freshness;
 }
 
 export interface SetVendorTargetRequest {
