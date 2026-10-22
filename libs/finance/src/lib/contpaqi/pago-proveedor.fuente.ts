@@ -26,6 +26,13 @@ import { construirPadron, resolverRfcAcreedor, rfcPorTexto, type PadronEmisores 
 const TOL = 1;
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
 const dia = (s: string): number => Math.floor(Date.parse(String(s).slice(0, 10)) / 86400000);
+/**
+ * `[CP.8.84]` Días DESPUÉS del pago en que todavía se busca la nota. Medido ene–sep 2026: de 557 notas que la
+ * contadora aplicó en pagos que el puente no armaba, **335 tenían fecha posterior al pago** (1–30 días; 119 al
+ * día siguiente): el proveedor emite la nota de crédito al cobrar y ella la aplica en la misma póliza. Buscarlas
+ * sólo hacia atrás dejaba fuera el 60 %.
+ */
+const VENTANA_NOTA_DESPUES = 31;
 const digitos = (s: unknown): string => String(s ?? '').replace(/[^0-9]/g, '');
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -66,7 +73,7 @@ interface PagoKepler { acr: string; t: number; s: number; folio: string; f: stri
 interface Aplicacion { acr: string; pt: number; ps: number; pf: string; dt: number; ds: number; df: string }
 interface DocKepler { acr: string; t: number; s: number; folio: string; f: string; imp: number; ref: string | null }
 /** `tr`: `TipoRelacion` del XML del CFDI (sólo notas), o null si el XML no llegó todavía (`[LC.20]`). */
-interface Cfdi { u: string; rfc: string; nom: string | null; tc: 'I' | 'E'; folio: string | null; tot: number; iva: number; ieps: number; s16: number; f: string; tr?: string | null; mixta?: boolean }
+interface Cfdi { u: string; rfc: string; nom: string | null; tc: 'I' | 'E'; folio: string | null; tot: number; iva: number; ieps: number; s16: number; f: string; tr?: string | null; mixta?: boolean; rel?: string[] | null }
 
 /** Agrega a una lista dentro de un mapa. */
 function meter<K, V>(m: Map<K, V[]>, k: K, v: V): void {
@@ -183,7 +190,11 @@ export class FuentePagoProveedor {
              -- [CP.8.82] Mixta: trae conceptos al 0 % Y al 16 %. Ahí la contadora saca la base al 16 % del IVA.
              (jsonb_typeof(impuestos->'traslados') = 'array' AND EXISTS (
                 SELECT 1 FROM jsonb_array_elements(impuestos->'traslados') t
-                 WHERE t->>'nombre' = 'IVA' AND (t->>'tasa')::numeric = 0 AND (t->>'base')::numeric > 0)) mixta
+                 WHERE t->>'nombre' = 'IVA' AND (t->>'tasa')::numeric = 0 AND (t->>'base')::numeric > 0)) mixta,
+             -- [CP.8.84] A qué factura(s) descuenta la nota (CfdiRelacionado del XML). Medido: 27 de 27 ligan a una
+             -- factura del mismo pago.
+             CASE WHEN tipo_comprobante = 'E' THEN (SELECT array_agg(upper(r[1])) FROM regexp_matches(coalesce(xml, ''),
+               'CfdiRelacionado[^>]*UUID="([0-9A-Fa-f-]{36})"', 'g') r) END rel
         FROM fiscal.cfdis
        WHERE tenant_id = ? AND rol='recibidas' AND tipo_comprobante IN ('I','E')
          AND fecha >= ?::date AND emisor_rfc = ANY(?)`, [MEGA, inicioCfdi, listaRfc])).rows as Cfdi[] : [];
@@ -206,10 +217,20 @@ export class FuentePagoProveedor {
          AND upper(l.cfdi_uuid) = ANY(?)`, [MEGA, anio - 1, anio, [...rfcDeUuid.keys()]])).rows as { u: string; cuenta: string; f: string }[])
       .map((l) => ({ ...l, rfc: rfcDeUuid.get(l.u) ?? '' })) : [];
     const usoRfc = new Map<string, { f: string; suf: string }[]>(); const pagadaAntes = new Map<string, string>();
-    for (const l of usoRows) {
+    // `[CP.8.84]` Una nota que ella ya aplicó en otra póliza no se vuelve a usar (misma regla que la factura pagada).
+    const uuidsNotas = cfdis.filter((x) => x.tc === 'E').map((x) => x.u);
+    const notaUso = uuidsNotas.length ? (await db.raw(`
+      SELECT upper(l.cfdi_uuid) u, min(p.fecha)::date::text f
+        FROM analytics.gl_polizas p
+        JOIN analytics.gl_poliza_lines l ON l.tenant_id=p.tenant_id AND l.source=p.source AND l.ejercicio=p.ejercicio
+         AND l.periodo=p.periodo AND l.tipo_pol=p.tipo_pol AND l.folio=p.folio
+       WHERE p.tenant_id = ? AND p.source='contpaqi' AND p.ejercicio IN (?, ?) AND p.tipo_pol='2'
+         AND l.cargo_abono='A' AND l.cfdi_uuid IS NOT NULL AND l.cuenta ~ '^50[5-8]0' AND upper(l.cfdi_uuid) = ANY(?)
+       GROUP BY 1`, [MEGA, anio - 1, anio, uuidsNotas])).rows as { u: string; f: string }[] : [];
+    for (const l of [...usoRows, ...notaUso]) {
       const f0 = pagadaAntes.get(l.u); if (!f0 || l.f < f0) pagadaAntes.set(l.u, l.f);
-      meter(usoRfc, l.rfc, { f: l.f, suf: l.cuenta.slice(4) });
     }
+    for (const l of usoRows) meter(usoRfc, l.rfc, { f: l.f, suf: l.cuenta.slice(4) });
     for (const v of usoRfc.values()) v.sort((a, b) => (a.f < b.f ? -1 : a.f > b.f ? 1 : 0));
     // Provisiones (diario, abono 2120) sólo de las cuentas de esos proveedores.
     const cuentas = new Set<string>();
@@ -275,6 +296,33 @@ export class FuentePagoProveedor {
     return h.length ? h[h.length - 1].suf : this.mapa.get(rfc) ?? null;
   }
 
+  /** `[CP.8.84]` Las notas del proveedor que pueden aplicarse a un pago de esa fecha y que nadie aplicó antes. */
+  private notasLibres(rfc: string, fecha: string, excluir: Set<string>): Cfdi[] {
+    return (this.cfdiPorRfc.get(`${rfc}|E`) ?? []).filter((x) => !excluir.has(x.u)
+      && dia(x.f) >= dia(fecha) - 180 && dia(x.f) <= dia(fecha) + VENTANA_NOTA_DESPUES
+      && !((this.pagadaAntes.get(x.u) ?? '9999') < fecha));
+  }
+
+  /**
+   * `[CP.8.84]` Las notas que completan el pago de estas facturas: las que su XML relaciona con alguna de ellas, si
+   * con ellas cuadra. Si no, null: el pago va a confirmar con las notas a la vista.
+   *
+   * ⛔ Se MIDIÓ y se descartó elegir «la única combinación de notas que da la diferencia» cuando no hay XML: armaba
+   * 61 pagos más y sólo 34 salían iguales a los de la contadora (56 %, contra 91 % de lo que ya se arma). Con XML:
+   * 3 de 4 — la muestra crece sola conforme `[LC.20]` llena `fiscal.cfdis.xml`.
+   */
+  private notasPara(rfc: string, F: Cfdi[], B: number, fecha: string, base: Cfdi[]): Cfdi[] | null {
+    const tol = TOL + 0.01 * F.length;
+    const falta = (ns: Cfdi[]): number => r2(F.reduce((a, x) => a + x.tot, 0) - ns.reduce((a, x) => a + x.tot, 0) - B);
+    if (Math.abs(falta(base)) <= tol) return base;
+    if (falta(base) < 0) return null;
+    const deF = new Set(F.map((x) => x.u));
+    const libres = this.notasLibres(rfc, fecha, new Set(base.map((x) => x.u)));
+    const ligadas = libres.filter((x) => (x.rel ?? []).some((u) => deF.has(u)));
+    if (ligadas.length && Math.abs(falta([...base, ...ligadas])) <= tol) return [...base, ...ligadas];
+    return null;
+  }
+
   /**
    * `[CP.8.82]` La nota como la ve el armador: la relación del XML y, de respaldo, lo que la contadora usó con ese
    * proveedor en los meses ANTERIORES al pago (sin el mes del pago: no se califica con lo que se está calificando).
@@ -315,7 +363,9 @@ export class FuentePagoProveedor {
     if (!rfc) return null;
     const enVentana = (x: Cfdi): boolean => dia(x.f) <= dia(m.fecha) + 30 && dia(m.fecha) - dia(x.f) <= 180;
     const abiertas = (this.cfdiPorRfc.get(`${rfc}|I`) ?? []).filter((x) => enVentana(x) && !((this.pagadaAntes.get(x.u) ?? '9999') < m.fecha));
-    const notas = (this.cfdiPorRfc.get(`${rfc}|E`) ?? []).filter((x) => dia(x.f) <= dia(m.fecha) && dia(m.fecha) - dia(x.f) <= 180);
+    // `[CP.8.84]` Incluye las notas emitidas hasta 31 días DESPUÉS del pago: el 60 % de las que ella aplica.
+    const notas = (this.cfdiPorRfc.get(`${rfc}|E`) ?? []).filter((x) => dia(x.f) <= dia(m.fecha) + VENTANA_NOTA_DESPUES && dia(m.fecha) - dia(x.f) <= 180
+      && !((this.pagadaAntes.get(x.u) ?? '9999') < m.fecha));
     // Sugerencia 1: lo que Kepler aplicó a ese pago (aunque la cadena no haya cerrado completa).
     let sugerencia: string[] = []; let origen: PropuestaPago['origen'] = null; const sugeridas: Cfdi[] = [];
     if (pg) {
@@ -399,15 +449,23 @@ export class FuentePagoProveedor {
       const abiertas = (this.cfdiPorRfc.get(`${rfc}|I`) ?? []).filter((x) => dia(x.f) <= dia(m.fecha) + 30 && dia(m.fecha) - dia(x.f) <= 180
         && !((this.pagadaAntes.get(x.u) ?? '9999') < m.fecha));
       const unas = abiertas.filter((x) => Math.abs(x.tot - B) <= TOL);
+      // `[CP.8.84]` Una factura cuyo neto (menos las notas que su XML le liga) es lo pagado: determinista.
+      const netas = unas.length ? [] : abiertas.filter((x) => {
+        const ns = this.notasLibres(rfc, m.fecha, new Set()).filter((n) => (n.rel ?? []).includes(x.u));
+        return ns.length > 0 && Math.abs(x.tot - ns.reduce((a, n) => a + n.tot, 0) - B) <= TOL;
+      });
       if (unas.length === 1) { F = [unas[0]]; fuente = 'importe_una'; }
+      else if (netas.length === 1) { F = [netas[0]]; fuente = 'importe_una'; }
       else if (unas.length > 1) return { estado: 'a_confirmar', motivo: `${unas.length} facturas abiertas del proveedor por el mismo importe` };
       else return { estado: 'a_confirmar', motivo: 'sin cadena en Kepler y ninguna factura por el importe: varias facturas, notas o pago parcial' };
     }
     const suf = this.cuentaDe(rfc, m.fecha);
     if (!suf) return { estado: 'sin_resolver', motivo: `el proveedor ${rfc} no tiene cuenta en ContPAQi (ni historia ni mapa)` };
     const sumF = F.reduce((a, x) => a + x.tot, 0);
-    // Sin la relación del ADD, las notas sólo salen de la cadena; si las facturas solas ya dan lo pagado, no van.
-    const notas = Math.abs(sumF - B) <= TOL + 0.01 * F.length ? [] : (fuente === 'cadena_kepler' ? N : []);
+    // Si las facturas solas ya dan lo pagado, las notas no van. Si no: las de la cadena y, si todavía falta para
+    // cuadrar, las que el XML liga a estas facturas o la ÚNICA combinación que da la diferencia (`[CP.8.84]`).
+    const base = fuente === 'cadena_kepler' ? N : [];
+    const notas = Math.abs(sumF - B) <= TOL + 0.01 * F.length ? [] : (this.notasPara(rfc, F, B, m.fecha, base) ?? base);
     const facturas: FacturaPagada[] = F.map((x) => ({ uuid: x.u, total: x.tot, iva: x.iva, ieps: x.ieps, base16: x.s16, mixta: !!x.mixta, fecha: x.f, enProvision: this.enProvision(suf, x, m.fecha) }));
     const notasAp: NotaAplicada[] = notas.map((x) => this.nota(suf, x, m.fecha));
     return { estado: 'armable', fuente: fuente ?? 'importe_una', proveedor_por_nombre: porNombre,

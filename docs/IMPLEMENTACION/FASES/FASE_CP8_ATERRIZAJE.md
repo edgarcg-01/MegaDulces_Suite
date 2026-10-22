@@ -1050,3 +1050,32 @@ falta uno nuevo.
     de la de Oscar: una póliza por pago, sus facturas y su complemento de pago. El lote «banco × día» sin CFDI que
     arma hoy el puente para los gastos no es esa forma. Hay que rediseñarlo antes de firmar reglas de gasto.
   - **Regla que deja:** toda cifra de acierto del puente se publica con su cobertura del universo al lado.
+- **2026-10-22** — `[CP.8.84]` **Los pagos a proveedor que no se arman solos** (`database/scripts/pagos-sin-armar-contpaqi.js`,
+  solo lectura). Son 876, comparados uno por uno con las facturas y notas que ella pagó.
+  - **Causas:**
+
+    | Causa | Pagos | Importe |
+    |---|---:|---:|
+    | Ella aplicó notas | 444 | $134.2 M |
+    | Sus facturas estaban entre las candidatas | 143 | $16.7 M |
+    | La sugerencia ya era la correcta | 109 | $20.7 M |
+    | Pago parcial | 55 | $10.5 M |
+    | Sin póliza que case | 56 | $9.6 M |
+
+  - ⭐ **Causa raíz de las notas: el 60 % se emite DESPUÉS del pago.** Son 335 de 557, con 1–30 días de
+    diferencia y 119 al día siguiente. El puente solo las buscaba hacia atrás. Donde hay XML, la nota relaciona una
+    factura del mismo pago en 27 de 27 casos.
+  - **Corregido:**
+    1. Las notas se buscan hasta 31 días después del pago.
+    2. Una nota ya aplicada en otra póliza no se reusa.
+    3. Las notas que el XML liga a las facturas se aplican solas; también la factura cuyo neto, menos sus notas
+       ligadas, es lo pagado.
+  - **Medido:**
+    - A/B: 91.1 % → **91.0 % (820/901)**, con 4 pagos armados más.
+    - En «Pagos por confirmar», sus notas aparecen entre las candidatas en **384 de 483** pagos con notas, contra
+      175 antes.
+  - ⛔ **Descartado, medido:**
+    - Armar con «la única combinación de notas que da la diferencia»: de 61 pagos armados, 34 iguales (56 %).
+    - Armar con la sugerencia: acierta 24 % en general, y 50–75 % por origen.
+
+    Esos pagos se quedan en confirmación.
