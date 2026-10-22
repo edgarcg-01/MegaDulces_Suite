@@ -96,10 +96,8 @@ export interface SupervisorBoardResponse {
   /** ISO 8601: cuándo se armó la respuesta. */
   generated_at: string;
   /**
-   * `[VP.2.3]` De cuándo es el DATO, que no es lo mismo que cuándo se armó la respuesta.
-   * La venta sale de `analytics.v_kepler_vecinal_sales_docs` sobre `kepler_ods.kdm1`: el
-   * servidor puede contestar en 200 ms sobre una réplica de hace seis horas y `generated_at`
-   * lo reportaría igual de fresco.
+   * De cuándo es el dato (VP.2.3): la venta sale del ODS de Kepler, que alimenta el carril
+   * `ods_live_hot`. `generated_at` sólo dice cuándo respondió el servidor.
    */
   freshness: Freshness;
 }

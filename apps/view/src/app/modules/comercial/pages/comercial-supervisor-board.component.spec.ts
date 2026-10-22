@@ -44,8 +44,7 @@ const RESP = (o: Partial<SupervisorBoardResponse> = {}): SupervisorBoardResponse
     scope_label: 'Rutas vecinales', can_set_targets: true, vendors,
     totals: { vendors: vendors.length, customers_total: 4, customers_visited: 2, sales_day: 1500, sales_period: 20000, target: 40000 },
     generated_at: '2026-10-22T21:00:00Z',
-    // [VP.2.3] el tablero declara de cuando es el dato, no solo cuando contesto
-    freshness: { status: 'fresh', stale: false, age_human: '2 min', data_as_of: '2026-10-22T20:58:00Z', inputs: [] },
+    freshness: { data_as_of: '2026-10-22T20:59:00Z', status: 'fresh', stale: false, age_human: '1 min', inputs: [] },
     ...o,
   };
 };
