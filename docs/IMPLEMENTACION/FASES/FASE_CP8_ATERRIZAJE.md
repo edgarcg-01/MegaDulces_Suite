@@ -773,6 +773,33 @@ quedar **fuera** de las candidatas (factura vieja o ya pagada): corregido, lo su
 ya pagado se advierte. Prueba `test-newdb-contpaqi-confirmacion.js`: el modo que escribe corre en `pruebas-db`
 (**NO MEDIDO** aquí); prod sólo lectura, septiembre 93 por confirmar.
 
+### `[CP.8.75]` La pantalla tardaba más de 500 ms — medido en el servidor (2026-10-22)
+
+Reporte del PM: «la pantalla tarda más de 500 ms». **Confirmado, y no por la red.** Al abrir, la pantalla pide
+lotes, proveedores pendientes, reglas, cuadre y pagos a la vez; **cuatro** de esas llamadas leían los egresos
+del mes con `to_char(movement_date) = ?` en el WHERE, que anula el índice. Tiempo de **servidor**
+(`EXPLAIN ANALYZE`, `TIMING OFF`, pg-prod, sólo lectura): **915–1,043 ms cada una** → con rango sargable y el IVA
+hermano por `DISTINCT ON`, **45–87 ms** (mediana 974 → 58, 6 corridas alternadas). Filas idénticas en 12 meses.
+
+| Pieza | Antes | Después | Cómo |
+|---|---|---|---|
+| Egresos del mes (×4 por carga) | 974 ms servidor | 58 ms | rango + `DISTINCT ON` (`f057f2bcf`) |
+| Fuente de pagos (lotes y pagos) | ~1.1 s servidor, ×2 si llegan juntas | 0 al abrir | carga compartida + precalentado cada 9 min por pod (`2ae8f53cb`) |
+| Sugerencias de proveedor | 335–441 ms de JS | una pasada | palabras del padrón calculadas una vez |
+
+⚠️ **Lo que NO se midió: el tiempo dentro del pod.** La lectura dentro del pod no se autorizó. Desde la laptop
+domina el traslado (8,826 filas: 8 ms de servidor, 658 ms en llegar), así que esos tiempos no describen al
+usuario. Se mide en el navegador tras desplegar (pestaña Red, las 5 llamadas de la carga).
+
+### `[CP.8.76]` La pantalla era muy complicada: asistente de cuatro pasos (2026-10-22)
+
+Reporte del PM: «la interfaz es muy complicada de entender». Diagnóstico: **conflación** — contestaba siete
+preguntas en un scroll (diez bloques, seis tablas) — y **ruido**: prosa para quien la programó, códigos internos,
+símbolos de alerta en el texto. El PM eligió un asistente por pasos. Arriba la respuesta (pólizas listas e
+importe, y qué falta en una frase); luego **1 reglas · 2 proveedores · 3 pagos · 4 revisar y entregar**, cada paso
+con lo que le queda; abre en el primero con trabajo. `check:pantalla`: de 2 fallas en deuda (§2, §9) a 0.
+Commit `70ff5b1d7`. **Sin validación visual.**
+
 ### Fuera de este expediente
 
 Los egresos que **no** son pago a proveedor (19 % del dinero) siguen al nivel del catálogo (§3.5):
@@ -858,6 +885,7 @@ Los códigos siguen la numeración de CP.8 (el último usado es `[CP.8.45]`).
 | `CP.8.54` | **«Marcar como entregado»**, separado de «Generar», con confirmación que dice qué arranca (*«a los 5 días la Suite empieza a preguntar por qué no aparece»*) | 🧪 2026-10-20 (§3.3) | medir antes de tocar |
 | `[CP.8.14]` | **Reglas con su evidencia y botón de aprobar** — la pantalla que el 37.6 % necesita | 🧪 2026-10-20 (§3.4) | ídem |
 | `[CP.8.11]` | **Bandeja de divergencias** | ⬜ (existente) | ídem |
+| `[CP.8.76]` | **Asistente de cuatro pasos** (reglas · proveedores · pagos · entregar) | 🧪 2026-10-22 (§3.6) | 2 en deuda → 0 |
 
 ⛔ Skill `diseno` antes del primer archivo. El permiso ya está repartido (§1 de este doc); no hace
 falta uno nuevo.
@@ -934,3 +962,8 @@ falta uno nuevo.
 - **2026-10-21** — lista de RFC por corregir para Compras (doc privado): 21 acreedores ($34.0 M). Los 104
   sin CFDI: 103 son proveedores de remisión pagados en efectivo desde Caja General ($35.67 M), y esas
   compras no tienen póliza en ContPAQi (CAJA registra $0.47 M en 2026) — hallazgo para contabilidad.
+- **2026-10-22** — `[CP.8.75]` la pantalla pasaba de 500 ms por el servidor, no por la red: los egresos del mes
+  se leían cuatro veces por carga con `to_char` en el WHERE (974 ms de servidor cada una → 58 ms con rango).
+  La fuente de pagos se comparte y se precalienta. Tiempo dentro del pod NO MEDIDO.
+- **2026-10-22** — `[CP.8.76]` la pantalla pasa a un asistente de cuatro pasos (elección del PM): contestaba
+  siete preguntas a la vez. Sin validación visual.

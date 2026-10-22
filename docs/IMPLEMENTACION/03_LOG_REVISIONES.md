@@ -261,6 +261,32 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-22 — `[CP.8.75]`–`[CP.8.76]` El puente ContPAQi: lento y difícil de entender, los dos con causa medida
+
+**Reporte del PM:** «la pantalla tarda más de 500 ms» y «la interfaz es muy complicada de entender».
+
+**Lento (`[CP.8.75]`), y no por la red.** Al abrir, cuatro llamadas leían los egresos del mes con
+`to_char(movement_date) = ?` en el WHERE, que anula el índice: **974 ms de servidor cada una** (mediana de 6,
+`EXPLAIN ANALYZE TIMING OFF` contra pg-prod) → **58 ms** con rango sargable e IVA hermano por `DISTINCT ON`,
+filas idénticas en 12 meses. La fuente de pagos (~1.1 s de servidor) se comparte entre peticiones simultáneas y
+se precalienta por pod; las sugerencias de proveedor dejan de re-normalizar 3 mil cuentas por fila (335–441 ms
+de JS). ⚠️ **NO MEDIDO dentro del pod**: no se autorizó la lectura ahí, y desde la laptop domina el traslado
+(8,826 filas: 8 ms de servidor, 658 ms en llegar). Se mide en el navegador al desplegar.
+
+**Complicada (`[CP.8.76]`): conflación + ruido.** Contestaba siete preguntas en un scroll (diez bloques, seis
+tablas) con prosa escrita para quien la programó. El PM eligió un asistente de cuatro pasos entre tres
+opciones: arriba la respuesta y qué falta; abajo reglas · proveedores · pagos · entregar. `check:pantalla`
+de 2 fallas en deuda a 0. Sin validación visual.
+
+**Lecciones:**
+
+- ⭐ **Un tiempo medido desde la laptop no describe al usuario.** 658 ms para traer filas que el servidor
+  sirvió en 8: hay que separar servidor y traslado antes de culpar a una consulta, o se optimiza lo que no es.
+- ⭐ **Cuatro endpoints que recalculan la misma base son cuatro veces el costo**, y en paralelo compiten entre
+  sí. El arreglo barato fue la consulta; el de fondo sería una sola pasada por mes.
+- ⛔ Un `catch` que deja la sección en `null` hace que «no se pudo leer» se vea como «no hay nada que hacer»
+  (proveedores por confirmar). Corregido en el paso 2.
+
 ## 2026-10-21 — `[RA-UX.1]`–`[RA-UX.8]` Auditoría de interacción de `/compras/pedido`: la pantalla generaba lotes dobles
 
 **Qué se cerró:** los ocho hallazgos de la auditoría de interacción (nivel B + C, sin validación
