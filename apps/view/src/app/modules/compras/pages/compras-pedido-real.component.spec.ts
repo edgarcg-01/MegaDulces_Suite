@@ -3,13 +3,16 @@ import { join } from 'path';
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
-import { of, throwError } from 'rxjs';
+import { EMPTY, of, throwError } from 'rxjs';
+import { vi } from 'vitest';
+import { ConfirmationService } from 'primeng/api';
 import type { Freshness } from '@megadulces/contracts';
 
 import { ComprasPedidoRealComponent } from './compras-pedido-real.component';
 import { ComprasService } from '../compras.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { UsoService } from '../../../core/services/uso.service';
+import { CONTEXT_HELP } from '../../../shared/context-help/context-help.dictionary';
 
 /**
  * `[RA-PERF.6]` / `[RA-PERF.8]` — el primer candado de ESTA pantalla.
@@ -96,6 +99,11 @@ function montar(workbook: Record<string, unknown>, worklist?: unknown, sub = 'u1
     sobrante: () => of({ tramos: [], total_valor: 0, total_quedado: 0, total_quedado_valor: 0, ventana_dias: 90, rows: [], total: 0, page: 1, pageSize: 50 }),
     // `[RA.CAP]` `null` = la llamada falló (es lo que devuelve el `catchError` del componente).
     deudaPorProveedor: () => (DEUDA === 'error' ? throwError(() => new Error('403')) : of(DEUDA)),
+    // `[RA-UX.1]` El lote se crea: es lo que dispara la limpieza de lo armado.
+    createRequisitionBatch: () => of({ batch_id: 'b-1', batch_folio: 'RQ-LOTE-TEST', total: 1, compras: 1, traspasos: 0 }),
+    // `[RA-UX.2]` Los dos XLSX: el del servidor (sugerido) y el de lo capturado.
+    exportWorkbookXlsx: () => EMPTY,   // sin descarga real: jsdom no tiene createObjectURL
+    exportPedidoXlsx: () => EMPTY,
     worklist: () => (worklist === 'error'
       ? throwError(() => new Error('500'))
       : of(worklist ?? { total: 0, vencidos: 0, hoy: 0, prox7: 0, page: 1, pageSize: 500, rows: [] })),
@@ -589,5 +597,168 @@ describe('[RA.PM] la autopsia de la compra, como segunda lente de Sobrante', () 
     const c = montar(VACIO).componentInstance;
     expect(c.pmRot({ rotacion: null } as never)).toBe('—');
     expect(c.pmRot({ rotacion: 0 } as never)).toBe('0%');
+  });
+});
+
+describe('[RA-UX] auditoría de interacción 2026-10-21: lo que la persona hace, la pantalla lo cumple', () => {
+  const KEY = 'pedido-borrador:u1';
+  beforeEach(() => { try { localStorage.clear(); } catch { /* jsdom */ } });
+  const fila = (pid = 'p-1') => ({
+    product_id: pid, sku: pid, nombre: pid, supplier_id: 's-1', supplier_name: 'DEMO',
+    uxc: 16, caja_cost: 646.29, cells: {}, signals: null,
+  });
+  const suc = (code: string) => ({ code, name: code, cc: 1, exis: 0, seed: 0, seedUnit: 'caja', rung: null, vta: 0, nat: 0, natu: '', natuRaw: '', hub: false, mx: null, rop: null, added: false });
+  /** Un plan con UN documento de compra de los productos dados (es lo que arma buildReq). */
+  const plan = (...pids: string[]) => [{
+    warehouse_id: 'w-01', supplier_id: 's-1', source_type: 'supplier',
+    lines: pids.map((product_id) => ({ product_id, supplier_id: 's-1', source_type: 'supplier', final_qty: 3, unit_cost: 100 })),
+  }];
+
+  // ── [RA-UX.1] el lote no se puede volver a generar con un clic ──
+  it('⛔ tras generar, lo armado SALE: cantidad, marca y aviso de cambios sin guardar', () => {
+    const c = montar(VACIO).componentInstance;
+    c.setDispOf(fila('p-1') as never, suc('01') as never, 5);
+    expect(c.selected().has('p-1')).toBe(true);
+    c.plan.set(plan('p-1') as never);
+    c.confirmarPlan();
+    expect(c.qtyOf(fila('p-1') as never, suc('01') as never)).toBe(0);
+    expect(c.selected().has('p-1')).toBe(false);
+    expect(c.hasUnsavedChanges()).toBe(false);
+  });
+
+  it('⛔ NEGATIVA: al salir de la pantalla NO reescribe el borrador de un pedido ya armado', () => {
+    // Era la segunda puerta al duplicado: borradorCleanup volvía a guardar las cantidades y la
+    // siguiente visita decía «Recuperé tu pedido a medio capturar» de algo ya generado.
+    const f = montar(VACIO);
+    const c = f.componentInstance;
+    c.setDispOf(fila('p-1') as never, suc('01') as never, 5);
+    c.onBeforeUnload({ preventDefault: () => undefined } as BeforeUnloadEvent);
+    expect(localStorage.getItem(KEY)).toBeTruthy();
+    c.plan.set(plan('p-1') as never);
+    c.confirmarPlan();
+    f.destroy();
+    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(montar(VACIO).componentInstance.borradorRecuperado()).toBeNull();
+  });
+
+  it('lo escrito en OTRO producto, no armado, se queda — con su marca y su borrador', () => {
+    const c = montar(VACIO).componentInstance;
+    c.setDispOf(fila('p-1') as never, suc('01') as never, 5);
+    c.setDispOf(fila('p-2') as never, suc('01') as never, 7);
+    c.plan.set(plan('p-1') as never);
+    c.confirmarPlan();
+    expect(c.qtyOf(fila('p-2') as never, suc('01') as never)).toBe(7);
+    expect(c.selected().has('p-2')).toBe(true);
+    expect(c.hasUnsavedChanges()).toBe(true);
+    const guardado = JSON.parse(localStorage.getItem(KEY) || '{}');
+    expect(Object.keys(guardado.q || {})).toEqual(['p-2|01']);
+  });
+
+  // ── [RA-UX.3] escribir marca ──
+  it('escribir una cantidad marca el producto; escribir 0 no', () => {
+    const c = montar(VACIO).componentInstance;
+    c.setDispOf(fila('p-1') as never, suc('01') as never, 0);
+    expect(c.selected().has('p-1')).toBe(false);
+    c.setDispOf(fila('p-1') as never, suc('01') as never, 3);
+    expect(c.selected().has('p-1')).toBe(true);
+  });
+
+  it('⭐ lo escrito y desmarcado a mano se AVISA, y se puede volver a marcar desde el aviso', () => {
+    const c = montar(VACIO).componentInstance;
+    expect(c.sinMarcar()).toBeNull();
+    c.setDispOf(fila('p-1') as never, suc('01') as never, 3);
+    expect(c.sinMarcar()).toBeNull();
+    c.clearSel();
+    expect(c.sinMarcar()).toEqual({ total: 1, cargados: 1 });
+    c.marcarEscritos();
+    expect(c.selected().has('p-1')).toBe(true);
+    expect(c.sinMarcar()).toBeNull();
+  });
+
+  it('un borrador recuperado de productos que NO están cargados se avisa, pero no se puede marcar', () => {
+    localStorage.setItem(KEY, JSON.stringify({ v: 1, at: Date.now(), q: { 'p-9|01': 4 }, u: {}, d: {} }));
+    const c = montar(VACIO).componentInstance;
+    expect(c.sinMarcar()).toEqual({ total: 1, cargados: 0 });
+  });
+
+  // ── [RA-UX.2] el XLSX dice qué exporta ──
+  it('sin nada marcado, el XLSX dice «sugerido» y baja el del servidor', () => {
+    const f = montar(VACIO);
+    const c = f.componentInstance;
+    const api = TestBed.inject(ComprasService);
+    const srv = vi.spyOn(api, 'exportWorkbookXlsx');
+    const mio = vi.spyOn(api, 'exportPedidoXlsx');
+    c.wbRows.set([fila('p-1')] as never);
+    expect(c.xlsxLabel()).toBe('XLSX sugerido');
+    c.xlsxGlobal();
+    expect(srv).toHaveBeenCalledTimes(1);
+    expect(mio).not.toHaveBeenCalled();
+  });
+
+  it('⛔ con productos marcados, el XLSX NO baja el sugerido: baja lo marcado', () => {
+    const c = montar(VACIO).componentInstance;
+    const api = TestBed.inject(ComprasService);
+    const srv = vi.spyOn(api, 'exportWorkbookXlsx');
+    Object.defineProperty(c, 'selCount', { value: () => 2 });
+    expect(c.xlsxLabel()).toBe('XLSX (2)');
+    c.xlsxGlobal();
+    expect(srv).not.toHaveBeenCalled();
+  });
+
+  // ── [RA-UX.5] descartar pregunta ──
+  it('⛔ «Descartar» NO borra al primer clic: pregunta, y sólo el «sí» borra', () => {
+    const f = montar(VACIO);
+    const c = f.componentInstance;
+    const conf = f.debugElement.injector.get(ConfirmationService);
+    let aceptar: (() => void) | undefined;
+    vi.spyOn(conf, 'confirm').mockImplementation((o) => { aceptar = o.accept as () => void; return conf; });
+    c.setDispOf(fila('p-1') as never, suc('01') as never, 4);
+    c.pedirDescartar();
+    expect(c.qtyOf(fila('p-1') as never, suc('01') as never)).toBe(4);
+    aceptar?.();
+    expect(c.qtyOf(fila('p-1') as never, suc('01') as never)).toBe(0);
+  });
+
+  // ── [RA-UX.6] la cobertura se aplica sin esperar el blur, y no recarga por nada ──
+  it('la cobertura recarga si cambió, y no recarga con el mismo valor ni fuera de rango', () => {
+    const c = montar(VACIO).componentInstance;
+    const wb = vi.spyOn(TestBed.inject(ComprasService), 'workbook');
+    c.coberturaYa();                       // mismo valor que la carga inicial
+    expect(wb).not.toHaveBeenCalled();
+    c.coverage = 0; c.coberturaYa();       // a medio teclear
+    expect(wb).not.toHaveBeenCalled();
+    c.coverage = 45; c.coberturaYa();
+    expect(wb).toHaveBeenCalledTimes(1);
+  });
+
+  // ── [RA-UX.8] teclado de la fila ──
+  it('Enter y Espacio abren la fila; la tecla que nace en un botón de adentro NO', () => {
+    const c = montar(VACIO).componentInstance;
+    const tr = document.createElement('tr');
+    const btn = document.createElement('button');
+    const ev = (key: string, target: EventTarget) =>
+      ({ key, target, currentTarget: tr, preventDefault: () => undefined }) as unknown as KeyboardEvent;
+    c.onRowKey(ev('Enter', btn), fila('p-1') as never);
+    expect(c.isOpen(fila('p-1') as never)).toBe(false);
+    c.onRowKey(ev(' ', tr), fila('p-1') as never);
+    expect(c.isOpen(fila('p-1') as never)).toBe(true);
+    c.onRowKey(ev('Enter', tr), fila('p-1') as never);
+    expect(c.isOpen(fila('p-1') as never)).toBe(false);
+  });
+
+  it('⛔ NEGATIVA: recargar la tabla ya no cierra lo que estaba abierto', () => {
+    const c = montar(VACIO).componentInstance;
+    c.toggleRow(fila('p-1') as never);
+    c.loadWorkbook();
+    expect(c.isOpen(fila('p-1') as never)).toBe(true);
+  });
+
+  // ── [RA-UX.7] la ayuda no contradice la pantalla ──
+  it('⛔ la ayuda «?» ya no dice que el tránsito se resta, ni describe botones retirados', () => {
+    const t = CONTEXT_HELP['pedido-compras'];
+    const todo = JSON.stringify(t);
+    expect(todo).not.toMatch(/Se restan del pedido/);
+    expect(todo).not.toMatch(/Englobar|Desglosar/);
+    expect(todo).toMatch(/NO se restan del sugerido/);
   });
 });
