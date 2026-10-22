@@ -35,6 +35,7 @@ import {
   paqueteDeCaja,
   desglose,
   parseCantidad,
+  vendedorDelCliente,
   type OpcionUnidad,
   type PasoDesglose,
   type QuoteBranches,
@@ -303,29 +304,48 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
           }
           </div>
 
-          <!-- VENDEDOR QUE DA SEGUIMIENTO: en la misma fila que el cliente -->
-          <div class="vendedor-inner">
-            <label for="vendedorSelect" class="vendedor-label">
-              <i class="pi pi-user" aria-hidden="true"></i> Vendedor
-            </label>
-            <p-select
-              inputId="vendedorSelect"
-              class="vendedor-select"
-              [options]="opcionesVendedor()"
-              optionLabel="label"
-              optionValue="value"
-              [ngModel]="vendedorSeleccionado()"
-              (ngModelChange)="onVendedorChange($event)"
-              placeholder="Vendedor que da seguimiento"
-              [filter]="true"
-              filterBy="label"
-              [showClear]="true"
-              [loading]="cargandoVendedores()"
-              [disabled]="guardando() || cargandoVendedores()"
-              emptyMessage="Sin vendedores que mostrar"
-              appendTo="body"
-            />
-          </div>
+          <!-- VENDEDOR: lo pone el CLIENTE, no se pregunta. En los pedidos de telemarketing de
+               Kepler (90 d) el vendedor del pedido (kdm1.c12) es el del cliente (kdud.c12) en
+               3,257 de 3,336. Se ofrece cambiarlo para el resto; sin cliente no hay de dónde
+               sacarlo, y en «Todavía no es cliente» se elige. -->
+          @if (modo() === 'contacto' || cliente()) {
+            <div class="vendedor-inner">
+              @if (vendedorFijo(); as vc) {
+                <span class="vendedor-label"><i class="pi pi-user" aria-hidden="true"></i> Vendedor</span>
+                <span class="vendedor-fijo">{{ vc.name }}</span>
+                <span class="vendedor-origen">del cliente en Kepler</span>
+                <p-button
+                  label="Cambiar"
+                  size="small"
+                  [text]="true"
+                  (onClick)="cambiandoVendedor.set(true)"
+                  [disabled]="guardando()"
+                  ariaLabel="Cambiar el vendedor"
+                />
+              } @else {
+                <label for="vendedorSelect" class="vendedor-label">
+                  <i class="pi pi-user" aria-hidden="true"></i> Vendedor
+                </label>
+                <p-select
+                  inputId="vendedorSelect"
+                  class="vendedor-select"
+                  [options]="opcionesVendedor()"
+                  optionLabel="label"
+                  optionValue="value"
+                  [ngModel]="vendedorSeleccionado()"
+                  (ngModelChange)="onVendedorChange($event)"
+                  [placeholder]="modo() === 'mayoreo' && !vendedorCliente() ? 'El cliente no trae vendedor en Kepler: elige uno' : 'Vendedor que da seguimiento'"
+                  [filter]="true"
+                  filterBy="label"
+                  [showClear]="true"
+                  [loading]="cargandoVendedores()"
+                  [disabled]="guardando() || cargandoVendedores()"
+                  emptyMessage="Sin vendedores que mostrar"
+                  appendTo="body"
+                />
+              }
+            </div>
+          }
           </div>
         </div>
 
@@ -1044,6 +1064,8 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       }
       .vendedor-label i { color: var(--primary-color, var(--action)); }
       .vendedor-select { flex: 1; min-width: 0; }
+      .vendedor-fijo { font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
+      .vendedor-origen { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
       .origen-opt { display: flex; flex-direction: column; }
       .origen-hint { font-size: var(--fs-xs); color: var(--text-muted); }
 
@@ -1293,11 +1315,20 @@ export class TeleventaQuoteNewComponent implements OnInit {
   vendedores = signal<Array<{ code: string; name: string }>>([]);
   cargandoVendedores = signal(false);
   vendedorSeleccionado = signal<string | null>(null);
+  /** El operador pidió elegir otro vendedor que el del cliente. */
+  readonly cambiandoVendedor = signal(false);
 
   readonly vendedorSeleccionadoObj = computed(() => {
     const code = this.vendedorSeleccionado();
     if (!code) return null;
     return this.vendedores().find((v) => v.code === code) ?? null;
+  });
+  /** El vendedor del cliente en la sucursal (kdud.c12), si está en el padrón de vendedores de esa sucursal. */
+  readonly vendedorCliente = computed(() => vendedorDelCliente(this.sucursalTerms()?.salesperson_code, this.vendedores()));
+  /** El vendedor se muestra como DATO (no como pregunta) mientras sea el del cliente. */
+  readonly vendedorFijo = computed(() => {
+    const vc = this.vendedorCliente();
+    return this.modo() === 'mayoreo' && vc && this.vendedorSeleccionado() === vc.code && !this.cambiandoVendedor() ? vc : null;
   });
   readonly opcionesVendedor = computed(() => this.vendedores().map((v) => ({ value: v.code, label: `${v.code} — ${v.name}` })));
 
@@ -1573,6 +1604,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
 
   limpiarCliente(): void {
     this.cliente.set(null);
+    this.vendedorSeleccionado.set(null);
+    this.cambiandoVendedor.set(false);
     this.resultadosClientes.set([]);
     this.terminoCliente = '';
   }
@@ -1605,21 +1638,15 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   asignarVendedorSugerido(): void {
-    const terms = this.sucursalTerms();
-    const list = this.vendedores();
-    if (!terms?.salesperson_code) return;
-
-    const rawTarget = terms.salesperson_code.trim();
-    const cleanTarget = rawTarget.replace(/^0+/, '');
-
-    const found = list.find(
-      (v) => v.code === rawTarget || v.code.replace(/^0+/, '') === cleanTarget,
-    );
-    if (found) {
-      this.vendedorSeleccionado.set(found.code);
-    } else if (this.vendedorSeleccionado() && !list.some((v) => v.code === this.vendedorSeleccionado())) {
-      this.vendedorSeleccionado.set(null);
+    // [E.29] Con cliente, el vendedor es EL DEL CLIENTE en esa sucursal o ninguno: antes, si el
+    // cliente nuevo no traía vendedor, se quedaba el del cliente anterior.
+    if (this.cliente()) {
+      this.vendedorSeleccionado.set(this.vendedorCliente()?.code ?? null);
+      this.cambiandoVendedor.set(false);
+      return;
     }
+    const sel = this.vendedorSeleccionado();
+    if (sel && !this.vendedores().some((v) => v.code === sel)) this.vendedorSeleccionado.set(null);
   }
 
   onVendedorChange(val: string | null): void {

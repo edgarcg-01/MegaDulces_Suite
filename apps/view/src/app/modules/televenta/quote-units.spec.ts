@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { abrevUnidadBase, desglose, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad } from './quote-units';
+import { abrevUnidadBase, desglose, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente } from './quote-units';
 import { etiquetaDesglose } from './quote-deliverable-export';
 import type { QuoteCatalogRow } from './quotes.service';
 
@@ -115,6 +115,22 @@ describe('parseCantidad', () => {
   it('vacío, cero, negativo o texto: null (la pantalla conserva la cantidad anterior)', () => {
     for (const v of ['', '0', '-3', 'abc', '2.', '.5', '1.2.3', null, undefined]) {
       expect(parseCantidad(v, true)).toBeNull();
+    }
+  });
+});
+
+/** `[E.29]` El vendedor sale del cliente: en Kepler, 3,257 de 3,336 pedidos de telemarketing (90 d). */
+describe('vendedorDelCliente', () => {
+  const padron = [{ code: '10001', name: 'CINTHIA' }, { code: '00502', name: 'DANIEL' }];
+
+  it('encuentra el del cliente, con o sin ceros a la izquierda', () => {
+    expect(vendedorDelCliente('10001', padron)?.name).toBe('CINTHIA');
+    expect(vendedorDelCliente(' 502 ', padron)?.code).toBe('00502');
+  });
+
+  it('cliente sin vendedor, o con uno que no está en el padrón de la sucursal: null, nunca otro', () => {
+    for (const c of [null, undefined, '', '   ', '99999']) {
+      expect(vendedorDelCliente(c, padron)).toBeNull();
     }
   });
 });

@@ -161,3 +161,15 @@ export function parseCantidad(valor: unknown, admiteFraccion: boolean): number |
   if (!admiteFraccion) return Number.isInteger(n) ? n : null;
   return Math.round(n * 1000) / 1000;
 }
+
+/**
+ * `[E.29]` El vendedor del cliente (`kdud.c12`) dentro del padrón de vendedores de la sucursal
+ * (`kduv`). Los dos guardan el código con o sin ceros a la izquierda. Sin código, o si el código no
+ * está en el padrón: null — la pantalla pregunta en vez de dejar el vendedor de otro cliente.
+ */
+export function vendedorDelCliente<V extends { code: string }>(codigo: string | null | undefined, padron: V[]): V | null {
+  const raw = (codigo ?? '').trim();
+  if (!raw) return null;
+  const limpio = raw.replace(/^0+/, '');
+  return padron.find((v) => v.code === raw || v.code.replace(/^0+/, '') === limpio) ?? null;
+}
