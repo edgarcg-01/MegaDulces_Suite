@@ -40,6 +40,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { ComprasFlujoComponent } from './compras-flujo.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
@@ -136,7 +137,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
-    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, ConfirmDialogModule, PopoverModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent, ComprasFlujoComponent,
+    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, ConfirmDialogModule, PopoverModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent, SidePeekComponent, ComprasFlujoComponent,
     SucursalPipe,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -150,7 +151,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           <h1 style="display:inline-flex;align-items:center;gap:.4rem">Pedido <span class="pr-badge">unificado</span> <app-context-help topic="pedido-compras" /></h1>
           <!-- [RA-UX.7] Era un instructivo de ~70 palabras: si la pantalla necesita explicarse para
                usarse, la explicación va al "?" (diccionario versionado, regla P), no al encabezado. -->
-          <p class="surf-page-sub">Qué pedir, producto por producto. Abre una fila para capturar por sucursal; lo que escribas se marca solo para la requisición.</p>
+          <p class="surf-page-sub">Qué pedir, producto por producto. Abre una fila para capturar por sucursal; lo que escribas se agrega a la requisición, que se genera toda junta desde la barra de abajo.</p>
         </div>
         <!-- Era un role="tablist" con dos role="tab" y CERO role="tabpanel": un tab que no controla
              ningún panel es ARIA rota (el lector anuncia "pestaña 1 de 2" y no hay panel al que
@@ -319,8 +320,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                     <span class="pr-sel-all">
                       <input type="checkbox" class="pr-chk" [checked]="selState() === 'all'" [indeterminate]="selState() === 'some'"
                              [disabled]="selAllBusy()" (click)="$event.stopPropagation()" (change)="toggleSelAll($event)"
-                             [title]="selState() === 'all' ? 'Quitar la selección' : 'Seleccionar todos los productos de la consulta que tienen pedido al proveedor (todas las páginas)'"
-                             aria-label="Seleccionar todos los productos con pedido" />
+                             [title]="selState() === 'all' ? 'Quitar todo de la requisición' : 'Agregar a la requisición todos los productos de la consulta que tienen pedido (todas las páginas)'"
+                             aria-label="Agregar a la requisición todos los productos con pedido" />
                       @if (selAllBusy()) { <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> }
                       Producto
                     </span>
@@ -347,8 +348,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                     [attr.aria-expanded]="isOpen(r)" [attr.aria-label]="(isOpen(r) ? 'Cerrar' : 'Abrir') + ' detalle de ' + r.sku">
                   <td><div class="pr-prod"><input type="checkbox" class="pr-chk" [checked]="isSel(r)" [disabled]="!isSel(r) && sumCajas(r) <= 0"
                            (click)="$event.stopPropagation()" (change)="toggleSel(r)"
-                           [title]="sumCajas(r) > 0 ? 'Incluir en la requisición y el PDF globales' : 'Sin pedido al proveedor: no hay nada que requerir'"
-                           [attr.aria-label]="'Seleccionar ' + r.sku" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} cj@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
+                           [title]="sumCajas(r) > 0 ? 'En la requisición en armado (la barra de abajo)' : 'Sin pedido al proveedor: no hay nada que requerir'"
+                           [attr.aria-label]="'Agregar ' + r.sku + ' a la requisición'" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} cj@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
                   <td class="pr-r pr-muted pr-uxc">
                     <!-- [RA-PRO.70] La escalera real del artículo: 1, 2 o 3 unidades, con sus rótulos de Kepler. -->
                     <div [title]="unidadFilaTitle(r)">{{ unidadFilaTxt(r) }}</div>
@@ -715,7 +716,20 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                           <p-button type="button" [label]="pdfBusy() ? 'Generando…' : (compacto() ? 'PDF' : 'PDF del producto')" icon="pi pi-file-pdf" styleClass="p-button-sm p-button-text p-button-secondary"
                                     (click)="printReqPdf(r)" [disabled]="pdfBusy() || sumCajas(r) <= 0"
                                     title="Orden de requisición en PDF (borrador, sin folio): entrega del proveedor, repartición desde el CEDIS y días de inventario por sucursal."></p-button>
-                          <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisición'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq(undefined, r.product_id)" [disabled]="saving() || (sumValor(r) + prodTr(r.product_id)) <= 0"></p-button>
+                          <!-- [RA-UX.9] Era «Requisición» y GENERABA al instante una requisición sólo de este
+                               producto: el comprador que arma 20 productos generaba 20 lotes sueltos, o tenía
+                               que saber que la casilla de la fila era otra cosa. Ahora el producto se AGREGA a
+                               la requisición en armado (la barra de abajo) y se genera todo junto, una vez. -->
+                          @if (isSel(r)) {
+                            <span class="pr-cart-in" role="status">
+                              <i class="pi pi-check-circle" aria-hidden="true"></i> En la requisición
+                              <button type="button" class="pr-zlink" (click)="quitarDeRequisicion(r.product_id)" [attr.aria-label]="'Quitar ' + r.sku + ' de la requisición'">quitar</button>
+                            </span>
+                          } @else {
+                            <p-button type="button" label="Agregar a la requisición" icon="pi pi-plus" styleClass="p-button-sm p-button-outlined"
+                                      (click)="agregarARequisicion(r)" [disabled]="(sumValor(r) + prodTr(r.product_id)) <= 0"
+                                      [title]="(sumValor(r) + prodTr(r.product_id)) > 0 ? 'Suma este producto, con lo que capturaste, a la requisición en armado. Se genera todo junto desde la barra de abajo.' : 'Sin cantidad para pedir ni traspasar: no hay nada que agregar.'"></p-button>
+                          }
                         </div>
                       </div>
                     </td>
@@ -741,23 +755,28 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           <p class="pr-foot">Todo en <strong>cajas</strong>. <strong>El sugerido no descuenta lo que viene en camino</strong>: revisa esa columna antes de pedir, lo que pidas se le suma. Qué significa cada columna, en el <i class="pi pi-question-circle" aria-hidden="true"></i> de arriba.</p>
         }
 
-        @if (wbRows().length) {
-          <div class="pr-bulk" role="region" aria-label="Acciones globales" [class.pr-bulk-abierta]="compacto() && bulkOpen()">
+        @if (wbRows().length || carrito().productos > 0) {
+          <div class="pr-bulk" role="region" aria-label="Requisición en armado" [class.pr-bulk-abierta]="compacto() && bulkOpen()">
             @if (compacto() && !bulkOpen()) {
               <!-- [RA-PRO.59] En celular: un renglón. La leyenda completa tapaba ~35% de la pantalla;
                    se abre al tocar el resumen. -->
               <button type="button" class="pr-bulk-mini" (click)="bulkOpen.set(true)" [attr.aria-expanded]="false" title="Ver el detalle">
-                @if (selCount() > 0) { <strong>{{ selCount() }}</strong> sel · {{ dineroCorto(selValor()) }} }
+                @if (carrito().productos > 0) { <i class="pi pi-shopping-cart" aria-hidden="true"></i> <strong>{{ carrito().productos }}</strong> · {{ dineroCorto(carrito().valor) }} }
                 @else if (totCajas() > 0) { Página · {{ dineroCorto(totBuy()) }} }
                 @else { {{ wbTotal() }} productos }
                 <i class="pi pi-chevron-up" aria-hidden="true"></i>
               </button>
-            } @else if (selCount() > 0) {
-              <!-- [RA-PRO.54] Los botones de acá al lado arman SÓLO lo seleccionado (requisición y PDF). -->
-              <span class="pr-bulk-n" title="Productos marcados, con lo que hayas editado en sus desgloses. Es exactamente lo que arman la requisición y el PDF globales.">
-                <strong>{{ selCount() }}</strong> producto{{ selCount() === 1 ? '' : 's' }} seleccionado{{ selCount() === 1 ? '' : 's' }} · comprar <strong>{{ money(selValor()) }}</strong>
-                <button type="button" class="pr-zlink" (click)="clearSel()">quitar selección</button>
-              </span>
+            } @else if (carrito().productos > 0) {
+              <!-- [RA-UX.9] La barra ES la requisición en armado: qué lleva, de cuántos proveedores y
+                   cuánto, con la puerta al detalle. Antes decía «N seleccionados», que no dice para qué. -->
+              <button type="button" class="pr-cart-btn" (click)="carritoAbierto.set(true)" aria-haspopup="dialog"
+                      title="Ver y ajustar lo que va en la requisición, por proveedor">
+                <i class="pi pi-shopping-cart" aria-hidden="true"></i>
+                <span><strong>{{ carrito().productos }}</strong> producto{{ carrito().productos === 1 ? '' : 's' }}
+                  · {{ carrito().proveedores }} proveedor{{ carrito().proveedores === 1 ? '' : 'es' }}
+                  · comprar <strong>{{ money(carrito().valor) }}</strong>@if (carrito().traspaso > 0) { · traspaso {{ money(carrito().traspaso) }} }</span>
+                <span class="pr-cart-ver">Ver</span>
+              </button>
               <!-- [RA-DYN.U3] El piso del proveedor, donde se decide. Antes el comprador armaba la
                    requisición y se enteraba del mínimo al hablar con el proveedor. -->
               @if (minimosFaltantes().length; as nMin) {
@@ -768,7 +787,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 </span>
               }
             } @else if (totCajas() > 0) {
-              <span class="pr-bulk-n" title="Suma de los productos de ESTA página, con lo que hayas editado en los desgloses. El KPI «A comprar» de arriba es el total del filtro completo.">En esta página · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> } · <em>marca los productos para armar la requisición</em></span>
+              <span class="pr-bulk-n" title="Suma de los productos de ESTA página, con lo que hayas editado en los desgloses. El KPI «A comprar» de arriba es el total del filtro completo.">En esta página · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> } · <em>abre un producto y agrégalo a la requisición</em></span>
             } @else {
               <span class="pr-bulk-n">{{ wbTotal() }} productos en la vista</span>
             }
@@ -778,9 +797,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             @if (sinMarcar(); as sm) {
               <span class="pr-min-warn" role="status">
                 <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                <strong>{{ sm.total }}</strong> {{ sm.total === 1 ? 'producto con cantidad escrita no está marcado' : 'productos con cantidad escrita no están marcados' }}: no entran.
+                <strong>{{ sm.total }}</strong> {{ sm.total === 1 ? 'producto con cantidad escrita no está en la requisición' : 'productos con cantidad escrita no están en la requisición' }}: no entran.
                 @if (sm.cargados > 0) {
-                  <button type="button" class="pr-zlink" (click)="marcarEscritos()">{{ sm.cargados === sm.total ? 'marcarlos' : 'marcar los ' + sm.cargados + ' de esta consulta' }}</button>
+                  <button type="button" class="pr-zlink" (click)="marcarEscritos()">{{ sm.cargados === sm.total ? 'agregarlos' : 'agregar los ' + sm.cargados + ' de esta consulta' }}</button>
                 }
               </span>
             }
@@ -799,11 +818,62 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <p-button type="button" [label]="xlsxLabel()" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text p-button-secondary" (click)="xlsxGlobal()" [disabled]="dl() || !wbRows().length" [ariaLabel]="xlsxTitle()" [title]="xlsxTitle()"></p-button>
             <p-button type="button" [label]="pdfBusy() ? 'Generando…' : (compacto() ? 'PDF' : 'PDF requisición') + ' (' + selCount() + ')'" icon="pi pi-file-pdf" styleClass="p-button-sm p-button-text p-button-secondary"
                       (click)="printReqGlobalPdf()" [disabled]="pdfBusy() || selCount() === 0"
-                      title="Orden de requisición en PDF de los productos marcados: una hoja por proveedor, con la O. Compra en blanco por punto de entrega."></p-button>
-            <p-button type="button" [label]="saving() ? 'Armando…' : (compacto() ? 'Req.' : 'Requisiciones') + ' (' + selCount() + ')'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq()" [disabled]="saving() || selCount() === 0"
-                      title="Registra en el sistema las requisiciones de los productos marcados: una por proveedor y punto de entrega, más sus traspasos."></p-button>
+                      title="La requisición en armado en PDF: una hoja por proveedor, con la O. Compra en blanco por punto de entrega. No guarda nada."></p-button>
+            <p-button type="button" [label]="saving() ? 'Armando…' : (compacto() ? 'Generar' : 'Generar requisición') + ' (' + carrito().entran + ')'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq()" [disabled]="saving() || carrito().entran === 0"
+                      title="Revisa y genera la requisición en armado: una por proveedor y punto de entrega, más sus traspasos. Antes de crear nada te muestra el plan."></p-button>
           </div>
         }
+
+        <!-- [RA-UX.9] LA REQUISICIÓN EN ARMADO, completa: por proveedor, con su subtotal y su pedido
+             típico, y cada producto con lo que lleva. Cajón y no diálogo: se ve sin perder la lista
+             (DESIGN §datos densos 8). -->
+        <app-side-peek [open]="carritoAbierto()" (openChange)="carritoAbierto.set($event)" [width]="560"
+                       title="Requisición en armado" [subtitle]="carritoSub()">
+          @if (!carrito().productos) {
+            <div class="pr-cart-vacio">
+              <i class="pi pi-shopping-cart" aria-hidden="true"></i>
+              <p>La requisición está vacía.</p>
+              <span>Abre un producto y usa «Agregar a la requisición», o marca su casilla. Escribir una cantidad también lo agrega.</span>
+            </div>
+          } @else {
+            @for (g of carrito().grupos; track g.id) {
+              <section class="pr-cart-g" [attr.aria-label]="'Proveedor ' + g.nombre">
+                <header class="pr-cart-gh">
+                  <strong>{{ g.nombre }}</strong>
+                  <span class="pr-muted">{{ g.items.length }} producto{{ g.items.length === 1 ? '' : 's' }} · {{ g.cajas | number:'1.0-1' }} cj</span>
+                  <span class="pr-bulk-sp"></span>
+                  <strong class="pr-cart-m">{{ money(g.valor) }}</strong>
+                </header>
+                @if (g.minimo) {
+                  <p class="pr-cart-min"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ g.minimo }}</p>
+                }
+                <ul class="pr-cart-l">
+                  @for (it of g.items; track it.r.product_id) {
+                    <li class="pr-cart-i" [class.pr-cart-i-off]="!it.entra">
+                      <div class="pr-cart-n">
+                        <span class="pr-cart-nom">{{ it.r.nombre }}</span>
+                        <span class="pr-sku">{{ it.r.sku }}</span>
+                        @if (!it.entra) { <span class="pr-bflag" title="Sin cantidad para pedir ni traspasar: no se genera nada de este producto.">sin cantidad — no entra</span> }
+                        @if (pendiente(it.r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(it.r)">ya requisado {{ pq.cajas | number:'1.0-1' }} cj</span> }
+                      </div>
+                      <div class="pr-cart-d">
+                        <span class="pr-muted">{{ it.sucursales }} sucursal{{ it.sucursales === 1 ? '' : 'es' }} · {{ it.cajas | number:'1.0-1' }} {{ etOf(it.r).mayor }}@if (it.traspaso > 0) { · traspaso {{ money(it.traspaso) }} }</span>
+                        <strong class="pr-cart-m">{{ money(it.valor) }}</strong>
+                        <button type="button" class="pr-zlink" (click)="quitarDeRequisicion(it.r.product_id)" [attr.aria-label]="'Quitar ' + it.r.sku + ' de la requisición'">quitar</button>
+                      </div>
+                    </li>
+                  }
+                </ul>
+              </section>
+            }
+            <div class="pr-cart-foot">
+              <button type="button" class="pr-zlink pr-zlink-bad" (click)="pedirVaciar()">Vaciar requisición</button>
+              <span class="pr-bulk-sp"></span>
+              <p-button type="button" [label]="'Generar requisición (' + carrito().entran + ')'" icon="pi pi-check" styleClass="p-button-sm"
+                        (click)="generarDesdeCarrito()" [disabled]="saving() || carrito().entran === 0"></p-button>
+            </div>
+          }
+        </app-side-peek>
 
         <!-- RA-PRO.44 — QUÉ VIENE EN CAMINO: las OCs abiertas del SKU.
              ⚠️ [RA.TR] Este comentario decía "el motor descuenta lo ya pedido" y describía la
@@ -1731,6 +1801,32 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-zlink:hover { background: var(--card-bg); text-decoration: underline; }
     /* [RA-UX.5] Destructiva: nunca en --action (Von Restorff, DESIGN §10). */
     .pr-zlink.pr-zlink-bad { color: var(--bad-fg); }
+    /* [RA-UX.9] La requisición en armado: el estado del producto, la barra y el cajón.
+       Jerarquía: primario = el total del carrito y de cada proveedor (peso + tabular);
+       secundario = nombre del producto; terciario = sku, sucursales y cajas (muted). */
+    .pr-cart-in { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-sm); color: var(--text-main); }
+    .pr-cart-in .pi-check-circle { color: var(--action); }
+    .pr-cart-btn { display: inline-flex; align-items: center; gap: .5rem; min-height: 32px; padding: .25rem .6rem;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: transparent;
+      color: var(--text-main); font: inherit; font-size: var(--fs-body); font-variant-numeric: tabular-nums; cursor: pointer; }
+    .pr-cart-btn:hover { background: var(--overlay-hover, var(--card-bg)); }
+    .pr-cart-btn:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .pr-cart-ver { color: var(--action); font-weight: 600; }
+    .pr-cart-vacio { display: grid; justify-items: center; gap: .4rem; padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
+    .pr-cart-vacio .pi { font-size: var(--fs-xl, 1.5rem); color: var(--text-faint); }
+    .pr-cart-vacio p { margin: 0; color: var(--text-main); font-weight: 600; }
+    .pr-cart-g { padding: .75rem 0; border-bottom: 1px solid var(--border-color); }
+    .pr-cart-gh { display: flex; align-items: baseline; gap: .5rem; font-size: var(--fs-sm); }
+    .pr-cart-m { font-variant-numeric: tabular-nums; }
+    .pr-cart-min { display: flex; align-items: center; gap: .35rem; margin: .35rem 0 0; font-size: var(--fs-xs); color: var(--warn-fg); }
+    .pr-cart-l { list-style: none; margin: .4rem 0 0; padding: 0; display: grid; gap: .35rem; }
+    .pr-cart-i { display: grid; gap: .1rem; padding: .35rem 0 .35rem .75rem; }
+    .pr-cart-i-off { opacity: .6; }
+    .pr-cart-n { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem; font-size: var(--fs-sm); color: var(--text-main); }
+    .pr-cart-d { display: flex; align-items: baseline; gap: .5rem; font-size: var(--fs-xs); }
+    .pr-cart-d .pr-cart-m { margin-left: auto; font-size: var(--fs-sm); }
+    .pr-cart-foot { position: sticky; bottom: 0; display: flex; align-items: center; gap: .5rem; padding: .75rem 0;
+      background: var(--card-bg); border-top: 1px solid var(--border-color); }
     /* control de entrega + selector de CEDIS */
     .pr-ent { white-space: nowrap; }
     /* El borde/fondo/radio ya los pone el tema de PrimeNG con nuestros tokens: acá sólo queda la
@@ -2633,6 +2729,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * y lo que quede escrito sin marcar se avisa en la barra (`sinMarcar`).
    */
   private marcarAlEditar(r: WorkbookRow): void {
+    if (this.quitados().has(r.product_id)) this.quitados.update((q) => { const n = new Set(q); n.delete(r.product_id); return n; });
     if (this.selected().has(r.product_id)) return;
     this.rowCache.update((m) => new Map(m).set(r.product_id, r));   // sobrevive al cambio de página
     this.selected.update((s) => new Set(s).add(r.product_id));
@@ -2641,11 +2738,12 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   /** `[RA-UX.3]` Productos con alguna cantidad escrita > 0 que NO están marcados. */
   readonly sinMarcar = computed<{ total: number; cargados: number } | null>(() => {
     const sel = this.selected();
+    const q = this.quitados();   // [RA-UX.9] lo que la persona sacó a propósito no se le reclama
     const known = this.knownRows();
     const pids = this.pidsEscritos();
     let total = 0, cargados = 0;
     for (const pid of pids) {
-      if (sel.has(pid)) continue;
+      if (sel.has(pid) || q.has(pid)) continue;
       total++;
       if (known.has(pid)) cargados++;
     }
@@ -2670,7 +2768,88 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     }
     this.rowCache.set(cache);
     this.selected.set(s);
+    this.quitados.set(new Set());
   }
+
+  // ── `[RA-UX.9]` LA REQUISICIÓN EN ARMADO (el carrito) ─────────────────────────────────────
+  // Era un botón «Requisición» por producto que GENERABA al instante una requisición sólo de
+  // ese producto, y aparte una casilla por fila que alimentaba «Requisiciones (N)» de la barra:
+  // dos caminos para lo mismo, y el obvio (el botón grande del desglose) era el que partía el
+  // pedido en lotes sueltos. Ahora hay UNO: el producto se agrega a la requisición en armado y
+  // todo se genera junto. La casilla de la fila y el botón del desglose son la misma cosa.
+  //
+  // ⚠️ El carrito ES `selected` (+ `rowCache`): no se inventa otra estructura. Lo que se genera,
+  // se exporta y se imprime sigue saliendo de `selRows()`, como antes.
+
+  readonly carritoAbierto = signal(false);
+  /**
+   * Lo que la persona QUITÓ a propósito. No es un estado de negocio: sólo apaga el aviso de
+   * «escrito y no está en la requisición» para lo que ella misma sacó — ese aviso es para lo que
+   * se quedó afuera SIN querer (un borrador recuperado), y gritarle por su propia decisión le
+   * enseña a ignorarlo.
+   */
+  private readonly quitados = signal<Set<string>>(new Set());
+
+  agregarARequisicion(r: WorkbookRow): void { this.marcarAlEditar(r); }
+  quitarDeRequisicion(pid: string): void {
+    const s = new Set(this.selected()); s.delete(pid); this.selected.set(s);
+    this.quitados.update((q) => new Set(q).add(pid));
+    this.queryEligible.set(null);   // «todo agregado» ya no describe la requisición
+  }
+  /** Vaciar es destructivo para la requisición (no para las cantidades): pregunta. */
+  pedirVaciar(): void {
+    const n = this.selected().size;
+    this.confirm.confirm({
+      header: '¿Vaciar la requisición?',
+      message: `Se quitan ${n === 1 ? '1 producto' : n + ' productos'}. Las cantidades que escribiste se conservan: puedes volver a agregarlos.`,
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, vaciar', rejectLabel: 'Seguir armando',
+      acceptButtonStyleClass: 'p-button-danger', rejectButtonStyleClass: 'p-button-text',
+      defaultFocus: 'reject',
+      accept: () => { this.clearSel(); this.carritoAbierto.set(false); },
+    });
+  }
+  generarDesdeCarrito(): void { this.carritoAbierto.set(false); this.buildReq(); }
+
+  /**
+   * La requisición en armado, por proveedor. Cada producto con lo que de verdad lleva (cajas, $,
+   * sucursales con cantidad y traspaso) — la misma cuenta que usa `buildReq`, no otra.
+   * `entran` cuenta lo que tiene algo que generar: un producto marcado y en cero no genera nada.
+   */
+  readonly carrito = computed(() => {
+    this.tickN();   // los traspasos editan `URow.qty` en sitio y avisan con tick()
+    const minimos = new Map(this.minimosFaltantes().map((m) => [m.id, m]));
+    type Item = { r: WorkbookRow; cajas: number; valor: number; traspaso: number; sucursales: number; entra: boolean };
+    const grupos = new Map<string, { id: string; nombre: string; items: Item[]; cajas: number; valor: number; minimo: string | null }>();
+    let valor = 0, traspaso = 0, entran = 0;
+    const rows = this.selRows();
+    for (const r of rows) {
+      const cajas = this.sumCajas(r);
+      const v = this.sumValor(r);
+      const tr = this.prodTr(r.product_id);
+      const sucursales = this.branchBuys(r).filter((b) => this.qtyOf(r, b) > 0).length;
+      const entra = cajas > 0 || tr > 0;
+      const id = r.supplier_id || 'none';
+      let g = grupos.get(id);
+      if (!g) {
+        const m = r.supplier_id ? minimos.get(r.supplier_id) : undefined;
+        g = { id, nombre: r.supplier_name || 'Sin proveedor', items: [], cajas: 0, valor: 0, minimo: m ? this.textoMinimo(m) : null };
+        grupos.set(id, g);
+      }
+      g.items.push({ r, cajas, valor: v, traspaso: tr, sucursales, entra });
+      g.cajas += cajas; g.valor += v;
+      valor += v; traspaso += tr; if (entra) entran++;
+    }
+    const lista = [...grupos.values()].sort((a, b) => b.valor - a.valor);
+    for (const g of lista) g.items.sort((a, b) => b.valor - a.valor);
+    return { grupos: lista, productos: rows.length, proveedores: lista.length, valor, traspaso, entran };
+  });
+  readonly carritoSub = computed(() => {
+    const c = this.carrito();
+    if (!c.productos) return null;
+    return `${c.productos} producto${c.productos === 1 ? '' : 's'} · ${c.proveedores} proveedor${c.proveedores === 1 ? '' : 'es'} · comprar ${this.money(c.valor)}`
+      + (c.traspaso > 0 ? ` · traspaso ${this.money(c.traspaso)}` : '');
+  });
 
   /**
    * Días de inventario con lo que se pida: (existencia + pedido) ÷ (venta 30 d ÷ 30.4).
@@ -3024,7 +3203,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    */
   minimoResumen(): string {
     const v = this.minimosFaltantes()[0];
-    if (!v) return '';
+    return v ? this.textoMinimo(v) : '';
+  }
+  /** La frase de un proveedor bajo su pedido típico. La comparten la barra y el cajón. */
+  private textoMinimo(v: { nombre: string; cajas: number; minCajas: number | null; monto: number; minMonto: number | null; faltanCajas: number }): string {
     if (v.faltanCajas > 0) {
       return `${v.nombre}: ${Math.floor(v.cajas)} de ${Math.round(v.minCajas || 0)} cajas de su pedido típico`;
     }
@@ -3053,14 +3235,21 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   isSel(r: WorkbookRow): boolean { return this.selected().has(r.product_id); }
   toggleSel(r: WorkbookRow): void {
     const s = new Set(this.selected());
-    if (s.has(r.product_id)) s.delete(r.product_id);
-    else {
+    if (s.has(r.product_id)) {
+      s.delete(r.product_id);
+      this.quitados.update((q) => new Set(q).add(r.product_id));   // [RA-UX.9] la sacó a propósito
+    } else {
       s.add(r.product_id);
       this.rowCache.update((m) => new Map(m).set(r.product_id, r));   // sobrevive al cambio de página
+      this.quitados.update((q) => { const n = new Set(q); n.delete(r.product_id); return n; });
     }
     this.selected.set(s);
   }
-  clearSel(): void { this.selected.set(new Set()); }
+  clearSel(): void {
+    const sacados = this.selected();
+    this.quitados.update((q) => new Set(Array.from(q).concat(Array.from(sacados))));   // [RA-UX.9] vaciar también es a propósito
+    this.selected.set(new Set());
+  }
   // `[RA-BORR.1]` Acá vivía `resetSel()`, que vaciaba selección + caché de renglones en cada cambio
   // de filtro. Se retira con su llamador: ahora lo marcado sobrevive, y lo único que de verdad
   // caduca con la consulta (`queryEligible`) se limpia en su sitio.
@@ -4883,7 +5072,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const out: string[] = [];
     if (d.length > ComprasPedidoRealComponent.MAX_DOCS) {
       out.push(`Son ${d.length} documentos y el máximo por lote es ${ComprasPedidoRealComponent.MAX_DOCS}. `
-        + 'Marca menos productos (o filtra por proveedor) y arma en dos tandas.');
+        + 'Quita productos de la requisición (o filtra por proveedor) y genera en dos tandas.');
     }
     const codigo = (id?: string | null) => (id && this.whCode().get(id)) || id || '—';
     d.forEach((x, i) => {
@@ -4945,7 +5134,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
           severity: 'success', life: 12000,
           summary: `${nombre}: ${r.compras} compra(s) + ${r.traspasos} traspaso(s)`,
           detail: `Quedan ESPERANDO APROBACIÓN en Compras › Requisiciones — hasta entonces no se le pide nada a nadie. `
-            + `${n === 1 ? 'El producto armado se quitó' : `Los ${n} productos armados se quitaron`} de la selección; en la lista aparecen como «ya requisado».`,
+            + `${n === 1 ? 'El producto armado se quitó' : `Los ${n} productos armados se quitaron`} de la requisición en armado; en la lista aparecen como «ya requisado».`,
         });
         this.mode() === 'muerto' ? this.loadDead() : this.loadWorkbook();
       },
@@ -4999,8 +5188,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   xlsxTitle(): string {
     const n = this.selCount();
     return n > 0
-      ? `Exportar los ${n} producto(s) marcados con las cantidades que escribiste — lo mismo que arma la requisición.`
-      : 'Exportar el SUGERIDO del sistema para todo el filtro (hoja Todos + una por proveedor). No lleva cantidades escritas: marca productos para exportar tu pedido.';
+      ? `Exportar los ${n} producto(s) de la requisición en armado, con las cantidades que escribiste.`
+      : 'Exportar el SUGERIDO del sistema para todo el filtro (hoja Todos + una por proveedor). No lleva cantidades escritas: agrega productos a la requisición para exportar tu pedido.';
   }
   xlsxGlobal(): void {
     if (this.selCount() > 0) this.exportScope();
