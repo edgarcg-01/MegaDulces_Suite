@@ -48,6 +48,8 @@
   .aviso { display: flex; gap: 10px; align-items: flex-start; padding: 8px 12px; border-radius: var(--r-sm); font-size: var(--fs-sm);
     background: var(--surface-ground); border: 1px solid var(--border-color); }
   .aviso .ico { flex: none; width: 18px; text-align: center; }
+  .aviso .haz { flex: none; min-width: 92px; font: 700 var(--fs-micro) var(--font-body); text-transform: uppercase; letter-spacing: .06em; padding-top: 2px; }
+  .aviso.warn .haz { color: var(--warn-fg); } .aviso.info .haz { color: var(--info-fg); }
   .aviso.warn { border-left: 3px solid var(--warn-fg); } .aviso.warn .ico { color: var(--warn-fg); }
   .aviso.info { border-left: 3px solid var(--info-fg); } .aviso.info .ico { color: var(--info-fg); }
   .aviso a { color: var(--text-main); text-underline-offset: 3px; }
@@ -97,7 +99,47 @@
   .n .antes { display: block; margin-top: 6px; font-size: var(--fs-xs); color: var(--text-faint); }
   h2 { font-size: var(--fs-body); margin: 26px 0 0; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
 
+  /* Costo y negociación */
+  .nego { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-color); scroll-margin-top: 16px; }
+  .nego-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 10px; }
+  .nego-h h3 { margin: 0; font-size: var(--fs-body); font-weight: 600; }
+  .nego-h a, .prov a, .senales a { color: var(--text-muted); font-size: var(--fs-xs); text-underline-offset: 3px; }
+  .nego-h a:hover, .prov a:hover { color: var(--text-main); }
+  .nego-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 22px; margin-top: 4px; }
+  .cifras { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+  .cifra .k { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); }
+  .cifra .v { font-size: var(--fs-lg); font-weight: 600; margin: 2px 0; }
+  .cifra .s, .prov .s { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
+  .hist { margin-top: 16px; }
+  .hist-t { font-size: var(--fs-xs); color: var(--text-muted); margin-bottom: 4px; }
+  #spark { width: 100%; height: 96px; display: block; }
+  .hist-l { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--fs-xs); color: var(--text-muted); margin-top: 4px; }
+  .ln { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 6px; }
+  .ln.pag { border-color: var(--text-main); } .ln.est { border-color: var(--info-fg); border-top-style: dashed; }
+  .calc { margin-top: 14px; padding: 12px 14px; background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-sm); }
+  .calc-in { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 500; }
+  .pesos { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); }
+  .pesos input { width: 110px; padding: 6px 8px; text-align: right; font: 600 var(--fs-body) var(--font-mono); color: var(--text-main);
+    background: var(--layout-bg); border: 1px solid var(--border-color); border-radius: 6px; }
+  .pesos input:focus-visible, .chip:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+  .calc-rap { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 10px; }
+  .chip { font: 500 var(--fs-xs) var(--font-body); color: var(--text-muted); background: transparent; border: 1px solid var(--border-color);
+    border-radius: 999px; padding: 4px 10px; min-height: 28px; cursor: pointer; }
+  .chip:hover { color: var(--text-main); background: var(--overlay-hover); }
+  .calc-out { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .calc-out .k { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); }
+  .calc-out .v { font-size: var(--fs-lg); font-weight: 600; }
+  .calc-out .s { font-size: var(--fs-xs); color: var(--text-muted); }
+  .calc-out .bueno { color: var(--ok-fg); }
+  .prov { margin: 0; display: grid; gap: 0; align-content: start; }
+  .prov > div { display: grid; grid-template-columns: 150px 1fr; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border-color); }
+  .prov > div:last-child { border-bottom: 0; }
+  .prov dt { color: var(--text-muted); font-size: var(--fs-sm); }
+  .prov dd { margin: 0; font-size: var(--fs-sm); } .prov dd b { font-weight: 600; }
+
+  @media (max-width: 64rem) { .nego-grid { grid-template-columns: 1fr; } }
   @media (max-width: 48rem) {
+    .cifras, .calc-out { grid-template-columns: 1fr 1fr; } .prov > div { grid-template-columns: 1fr; gap: 2px; }
     .prod { grid-template-columns: 1fr 1fr; gap: 10px 16px; } .prod > :first-child { grid-column: 1 / -1; }
     .barra { display: none; } th, td { padding: 8px 6px; }
     .col-tras, .col-queda { display: none; }
@@ -134,20 +176,17 @@
 
       <!-- 2 · Lo que cambia la decisión, dicho en una línea cada uno -->
       <div class="avisos">
-        <div class="aviso warn"><span class="ico" aria-hidden="true">!</span>
-          <div><b>No viene nada en camino que se pueda contar.</b> Hay 9 órdenes abiertas en Padre Hidalgo (285 cj), pero las 9 tienen la llegada
-            <b>vencida</b>: el proveedor surte en 1 día y llevan de 2 a 78 días abiertas — lo más probable es que ya se recibieron y la
-            OC nunca se cerró en Kepler. No se suman. <a href="#">Revisarlas en Abiertas en Kepler ›</a></div></div>
-        <div class="aviso info"><span class="ico" aria-hidden="true">⇄</span>
-          <div><b>La Piedad Abastos, 8 Esquinas, Yurécuaro y Zamora Centro se cubren con traspaso</b> (7.0 cj, $9,252) en vez de comprar. Hoy la pantalla les sugiere las
-            <b>dos cosas</b> — compra de 8 cj ($10,584) y traspaso — y armar ambas cubre ese faltante dos veces.</div></div>
+        <div class="aviso warn"><span class="haz">Revisa</span>
+            <div><b>9 OC vencidas en Padre Hidalgo.</b> 285 cj que no llegan: no se cuentan como en camino. <a href="#">Abiertas en Kepler ›</a></div></div>
+        <div class="aviso info"><span class="haz">No compres</span>
+            <div><b>para 4 sucursales.</b> La Piedad Abastos, 8 Esquinas, Yurécuaro y Zamora Centro se cubren con traspaso (7.0 cj).</div></div>
       </div>
 
       <!-- 3 · Señales: una vez cada una, con su rótulo -->
       <div class="senales">
-        <span>Margen hoy <b>16.3 %</b> <span class="faint">(15.3–21.3 según sucursal)</span></span>
+        <span>Margen de lo que compras <b>15.3 %</b> <a class="faint" href="#nego">ver costo ↓</a></span>
         <span>Venta perdida <b>$35 mil</b> <span class="faint">en Morelia Abastos</span></span>
-        <span>Proveedor: llevas <b>$667 K</b> de su pedido típico <b>$1.28 M</b></span>
+        <span>Proveedor: llevas <b>$667 K</b> en la requisición · mínimo <b>$1.28 M</b></span>
         <span>Demanda <b>▲ acelerando</b> (+0.85) · Surte <b>87 %</b></span>
       </div>
 
@@ -170,7 +209,68 @@
         </tr></tfoot>
       </table>
 
-      <!-- 5 · Lo que casi nunca se toca, una vez y en gris -->
+      <!-- 5 · COSTO Y NEGOCIACIÓN: lo que necesitas para hablar con el proveedor, antes de mandar el pedido -->
+      <section class="nego" id="nego" aria-labelledby="nego-t">
+        <div class="nego-h">
+          <h3 id="nego-t">Costo y negociación <span class="muted">· Distribuidora de la Rosa</span></h3>
+          <span class="sp"></span>
+          <a href="#">Historial de costos ›</a><a href="#">Costo estándar ›</a><a href="#">Descuentos del proveedor ›</a>
+        </div>
+
+        <div class="avisos">
+          <div class="aviso warn"><span class="haz">Negocia</span>
+            <div><b>$1,257.53 la caja.</b> Pagas $82.68 el paquete y Kepler costea $78.60: el margen real es 15.3 %, no 21.3 % ($17.7 mil al mes).</div></div>
+          <div class="aviso warn"><span class="haz">O sube</span>
+            <div><b>el precio a $108.29 el paquete.</b> Si el costo no baja, así recuperas el 21.3 %. <a href="#">Costo estándar ›</a></div></div>
+          <div class="aviso warn"><span class="haz">Pide</span>
+            <div><b>el descuento por pronto pago.</b> 43 pagos salieron sin él: ≈ $1.42 M con la tasa observada de 7.09 %. <a href="#">Ver pagos ›</a></div></div>
+          <div class="aviso info"><span class="haz">Confirma</span>
+            <div><b>la factura de Canindo.</b> Registró $78.60 y puede ser captura; si es real, es tu mejor argumento.</div></div>
+        </div>
+
+        <div class="nego-grid">
+          <!-- Izquierda: ESTE producto -->
+          <div>
+            <div class="cifras">
+              <div class="cifra"><div class="k">Costo hoy</div><div class="v num">$1,322.88</div><div class="s"><span class="num">$82.68</span> el paquete · última OC 19-oct</div></div>
+              <div class="cifra"><div class="k">Estándar Kepler</div><div class="v num">$1,257.53</div><div class="s"><span class="num">$78.60</span> el paquete</div></div>
+              <div class="cifra"><div class="k">Precio de venta</div><div class="v num">$102.94</div><div class="s">el paquete con IEPS 8 % · igual en las 8</div></div>
+              <div class="cifra"><div class="k">Margen real</div><div class="v num u-warn">15.3 %</div><div class="s">sobre costo · la ficha dice 21.3 %</div></div>
+            </div>
+
+            <div class="hist">
+              <div class="hist-t">Lo que le has pagado, por paquete <span class="faint">· promedio de cada mes, 2026</span></div>
+              <svg id="spark" viewBox="0 0 400 96" role="img" aria-label="Precio pagado por paquete de enero a octubre de 2026: de 89 pesos a 81.70; el costo estándar es 78.60"></svg>
+              <div class="hist-l"><span><i class="ln pag"></i>pagado</span><span><i class="ln est"></i>estándar Kepler $78.60</span>
+                <span class="faint">Más bajo del año: <span class="num">$72.44</span> el 29-jun en Canindo (1,280 paq) · bajó <span class="num">7 %</span> desde enero</span></div>
+            </div>
+
+            <div class="calc">
+              <label class="calc-in">Si el proveedor te da la caja a
+                <span class="pesos"><span>$</span><input id="c-cj" type="number" min="0" step="0.01" value="1322.88" aria-describedby="c-out"></span></label>
+              <div class="calc-rap">
+                <button class="chip" type="button" data-v="1257.53">al estándar · $1,257.53</button>
+                <button class="chip" type="button" data-v="1159.04">al más bajo del año · $1,159.04</button>
+                <button class="chip" type="button" data-v="1322.88">lo de hoy</button>
+              </div>
+              <div class="calc-out" id="c-out" aria-live="polite"></div>
+            </div>
+          </div>
+
+          <!-- Derecha: EL PROVEEDOR, lo que pesa en la mesa -->
+          <dl class="prov">
+            <div><dt>Le compramos en 12 meses</dt><dd><b class="num">$88.0 M</b><span class="s">este producto <span class="num">$4.46 M</span> · <span class="num">3,273</span> cj · 5.1 %</span></dd></div>
+            <div><dt>Descuento obtenido</dt><dd><b class="num">5.9 %</b><span class="s"><span class="num">$5.22 M</span>: pronto pago <span class="num">$3.13 M</span> + notas <span class="num">$2.09 M</span></span></dd></div>
+            <div><dt>Plazo</dt><dd><b>20 días</b><span class="s">desde la factura · en Kepler 19 o 21 según la orden</span></dd></div>
+            <div><dt>Surte</dt><dd><b class="num">87 %</b><span class="s">de lo pedido, en dinero</span></dd></div>
+            <div><dt>Su pedido típico</dt><dd><b class="num">$713 K</b><span class="s">mínimo capturado <span class="num">$1.28 M</span> · llevas <span class="num">$667 K</span> en la requisición</span></dd></div>
+            <div><dt>Tiempo de entrega</dt><dd><b class="faint">no capturado</b><span class="s">el cálculo supone 7 días · <a href="#">capturarlo ›</a></span></dd></div>
+            <div><dt>Reclamos de recepción</dt><dd><b class="faint">sin registro</b><span class="s">nadie ha capturado un reclamo todavía (0 en toda la base): no quiere decir que no haya faltado nada</span></dd></div>
+          </dl>
+        </div>
+      </section>
+
+      <!-- 6 · Lo que casi nunca se toca, una vez y en gris -->
       <div class="pie">
         <label class="ctl">Entrega <select><option>directo a cada sucursal</option><option>consolidar zona La Piedad en Padre Hidalgo</option><option>consolidar todo en CEDIS</option></select></label>
         <label class="ctl">Capturar en <select><option>cajas</option><option>paquetes</option></select></label>
@@ -197,6 +297,11 @@
       <span class="antes">Hoy: 8 «Sucursal» + 8 «cj» + 6 enlaces de zona en naranja; el campo que se decide, en gris.</span></div>
     <div class="n"><h3>6 · Cada señal, una vez</h3>Margen, venta perdida, pedido típico y tendencia en una línea con su rótulo.
       <span class="antes">Hoy: venta perdida 3 veces; «margen 21.3 %» en 4 de 8 sucursales sin decir por qué; dos márgenes sin rótulo.</span></div>
+    <div class="n"><h3>7 · Costo y negociación, en el pedido</h3>Costo de hoy contra el estándar y el precio, lo pagado mes a mes, una calculadora de «si me lo dejan en…» y lo que pesa
+      del proveedor (volumen, descuentos tomados y no tomados, plazo, surtido, mínimo). Cada cifra lleva a su pantalla.
+      <span class="antes">Hoy: está repartido en 6 pantallas (Costo estándar, Historial de costos, Descuentos, Costo neto, Plazos, Reclamos) y ninguna se abre desde el pedido. El «pedido típico» no lo pinta ninguna pantalla, aunque el servidor ya lo calcula.</span></div>
+    <div class="n"><h3>8 · El margen que se cree</h3>Un solo margen, el de lo que se está comprando (15.3 %), con la causa a la vista: la caja se paga a $82.68 el paquete y Kepler costea a $78.60.
+      <span class="antes">Hoy: «15.3–21.3 según sucursal» parece diferencia de precio entre sucursales; el precio es el mismo en las 8 y lo que cambia es qué documento alimentó el costo de cada una.</span></div>
   </div>
 </div>
 
@@ -225,8 +330,8 @@
       '<td class="num">' + s.vta.toFixed(1) + '</td>' +
       '<td class="num muted">' + s.exis.toFixed(1) + '</td>' +
       '<td><span class="dura ' + urg(hoy) + '"><span class="num">' + Math.round(hoy) + ' d</span><span class="barra"><i style="width:' + Math.min(100, hoy / 45 * 100) + '%"></i></span></span></td>' +
-      '<td class="col-tras num">' + (s.tras ? '<span class="tras">' + s.tras.toFixed(1) + ' cj desde ' + s.de + '</span>' : '') +
-        (s.sale ? '<span class="sale">manda ' + s.sale.toFixed(1) + ' cj a ' + s.a + '</span>' : (s.tras ? '' : '<span class="faint">—</span>')) + '</td>' +
+      '<td class="col-tras">' + (s.tras ? '<span class="tras"><span class="num">' + s.tras.toFixed(1) + ' cj</span> desde ' + s.de + '</span>' : '') +
+        (s.sale ? '<span class="sale">manda <span class="num">' + s.sale.toFixed(1) + ' cj</span> a ' + s.a + '</span>' : (s.tras ? '' : '<span class="faint">—</span>')) + '</td>' +
       '<td class="pedir"><input type="number" min="0" step="1" value="' + s.ped + '" aria-label="Pedir para ' + s.n + '"><span class="u">cj</span>' +
         (s.tras ? '<span class="cubierto">cubierto por traspaso</span>' : '') + '</td>' +
       '<td class="col-queda num queda"></td>' +
@@ -255,7 +360,55 @@
     document.getElementById('r-val').textContent = peso($);
     document.getElementById('r-n').textContent = n;
     document.getElementById('agregar').textContent = '+ Agregar a la requisición · ' + peso($);
+    calcular();
   }
+
+  // ── Costo y negociación (datos de prod, 22-oct-2026) ──
+  const PRECIO_SIN_IEPS = 102.94 / 1.08;   // precio de ficha sin IEPS 8 %, igual en las 8 sucursales
+  const PAQ_X_CJ = 16, CJ_12M = 3273;      // cajas compradas a La Rosa en 12 meses
+  const margen = (cj) => (PRECIO_SIN_IEPS / (cj / PAQ_X_CJ) - 1) * 100;
+  const inp = document.getElementById('c-cj');
+  function calcular() {
+    const cj = Number(inp.value) || 0;
+    const P = SUC.reduce((a, s) => a + s.ped, 0);
+    const dif = CAJA - cj;
+    const m = cj > 0 ? margen(cj) : null;
+    const tono = (v) => (v > 0 ? 'bueno' : v < 0 ? 'u-bad' : '');
+    document.getElementById('c-out').innerHTML =
+      '<div><div class="k">Margen</div><div class="v num ' + (m != null && m >= 20 ? 'bueno' : m != null && m < 10 ? 'u-bad' : '') + '">' + (m == null ? '—' : m.toFixed(1) + ' %') + '</div>' +
+        '<div class="s">al precio de hoy · paquete a <span class="num">$' + (cj / PAQ_X_CJ).toFixed(2) + '</span></div></div>' +
+      '<div><div class="k">En este pedido</div><div class="v num ' + tono(dif) + '">' + (dif === 0 ? '$0' : (dif > 0 ? 'ahorras ' : 'pagas ') + peso(Math.abs(dif * P))) + '</div>' +
+        '<div class="s">' + P + ' cj contra el costo de hoy</div></div>' +
+      '<div><div class="k">En un año</div><div class="v num ' + tono(dif) + '">' + (dif === 0 ? '$0' : peso(Math.abs(dif * CJ_12M))) + '</div>' +
+        '<div class="s">si compras lo mismo que en 12 meses (<span class="num">3,273</span> cj)</div></div>';
+  }
+  inp.addEventListener('input', calcular);
+  for (const b of document.querySelectorAll('.chip')) b.addEventListener('click', () => { inp.value = b.dataset.v; calcular(); inp.focus(); });
+
+  // Gráfica: promedio mensual pagado a La Rosa por paquete (entradas X-A-20, ene–oct 2026) contra el estándar.
+  (function () {
+    const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct'];
+    const PAG = [89.00, 87.43, 88.84, 84.60, 88.76, 82.49, 84.30, 82.68, 82.68, 81.70];
+    const svg = document.getElementById('spark'); const ns = 'http://www.w3.org/2000/svg';
+    // El viewBox toma el ancho real: así la línea ocupa la columna y el texto no se deforma.
+    const W = Math.max(240, Math.round(svg.getBoundingClientRect().width)), H = 96;
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    const EST = 78.60, LO = 76, HI = 92, PL = 14, PR = 44, PT = 16, PB = 18;
+    const x = (i) => PL + i * (W - PL - PR) / (PAG.length - 1);
+    const y = (v) => PT + (HI - v) / (HI - LO) * (H - PT - PB);
+    const el = (t, a, txt) => { const e = document.createElementNS(ns, t); for (const k in a) e.setAttribute(k, a[k]); if (txt) e.textContent = txt; svg.appendChild(e); return e; };
+    const css = getComputedStyle(document.documentElement);
+    const c = (n) => css.getPropertyValue(n).trim();
+    el('line', { x1: PL, x2: W - PR, y1: y(EST), y2: y(EST), stroke: c('--info-fg'), 'stroke-width': 1.5, 'stroke-dasharray': '4 4' });
+    el('text', { x: W - PR + 4, y: y(EST) + 4, fill: c('--info-fg'), 'font-size': 11, 'font-family': 'Geist Mono' }, '78.60');
+    el('polyline', { points: PAG.map((v, i) => x(i) + ',' + y(v)).join(' '), fill: 'none', stroke: c('--text-main'), 'stroke-width': 2, 'stroke-linejoin': 'round' });
+    PAG.forEach((v, i) => {
+      el('circle', { cx: x(i), cy: y(v), r: i === PAG.length - 1 ? 3.5 : 2, fill: c('--text-main') });
+      el('text', { x: x(i), y: H - 3, fill: c('--text-faint'), 'font-size': 10, 'text-anchor': 'middle', 'font-family': 'Hanken Grotesk' }, MES[i]);
+    });
+    el('text', { x: x(0), y: y(PAG[0]) - 6, fill: c('--text-muted'), 'font-size': 11, 'font-family': 'Geist Mono' }, '89.00');
+    el('text', { x: W - PR + 4, y: y(PAG.at(-1)) + 4, fill: c('--text-main'), 'font-size': 11, 'font-family': 'Geist Mono' }, '81.70');
+  })();
   pintar();
 </script>
 </body>

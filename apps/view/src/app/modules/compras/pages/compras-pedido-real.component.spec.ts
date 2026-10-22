@@ -86,7 +86,7 @@ function canal(p: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-function montar(workbook: Record<string, unknown>, worklist?: unknown, sub = 'u1') {
+function montar(workbook: Record<string, unknown>, worklist?: unknown, sub = 'u1', extra: Record<string, unknown> = {}) {
   const api = {
     filters: () => of(FILTROS),
     workbook: () => of(workbook),
@@ -104,9 +104,12 @@ function montar(workbook: Record<string, unknown>, worklist?: unknown, sub = 'u1
     // `[RA-UX.2]` Los dos XLSX: el del servidor (sugerido) y el de lo capturado.
     exportWorkbookXlsx: () => EMPTY,   // sin descarga real: jsdom no tiene createObjectURL
     exportPedidoXlsx: () => EMPTY,
+    // `[RA-NEG.1]` El panel de negociación: por default no llega nada (se queda «leyendo»).
+    negociacion: () => EMPTY,
     worklist: () => (worklist === 'error'
       ? throwError(() => new Error('500'))
       : of(worklist ?? { total: 0, vencidos: 0, hoy: 0, prox7: 0, page: 1, pageSize: 500, rows: [] })),
+    ...extra,
   };
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
@@ -972,5 +975,131 @@ describe('[SUC.2] la sucursal se nombra, no se numera', () => {
     const plantilla = fuente.slice(fuente.indexOf('template: `'), fuente.indexOf('styles: [`'));
     expect(plantilla).not.toMatch(/\{\{\s*(b|e|z|u)\.(code|hubCode|warehouse_code|from_code)\s*\}\}/);
     expect(plantilla).not.toMatch(/todo a \{\{\s*z\.hubCode/);
+  });
+});
+
+describe('[RA-NEG.2] el desglose compacto: qué hacer, en pocas palabras', () => {
+  // Datos de 70056 (prod, 22-oct-2026), recortados a cuatro sucursales. `ped` es el sugerido en cajas.
+  const FILA = {
+    product_id: 'p-70056', sku: '70056', nombre: 'LA ROSA MAZAPAN GIGANTE 50G /20', supplier_id: 's-1', supplier_name: 'LA ROSA',
+    uxc: 16, caja_cost: 1322.88, transito_cajas: '285.0', fill_rate: '0.871', signals: null,
+    cells: {
+      '01': { vta: 109.2, exis: 77.5, ped: 36, cc: 1322.88 },   // Padre Hidalgo: hoy dura 21.6 d
+      '04': { vta: 2.5, exis: 1.6, ped: 1, cc: 1322.88 },       // Yurécuaro: 19.5 d
+      '03': { vta: 21.1, exis: 19.7, ped: 2, cc: 1322.88 },     // 8 Esquinas: 28.4 d
+      '07': { vta: 41.5, exis: 45.4, ped: 0, cc: 1322.88 },     // Morelia Madero: 33.2 d
+    },
+  };
+  const WB = { ...VACIO, total: 1, rows: [FILA] };
+  const tras = (to: string, from: string, cajas: number) => ({
+    product_id: 'p-70056', sku: '70056', nombre: 'x', to_code: to, from_code: from, uxc: 16, unit_cost: 1322.88, transfer_cajas: cajas, deficit_cajas: cajas,
+  });
+  const TRAS = { rows: [tras('04', '01', 1), tras('03', '01', 1)] };
+  const DTO = {
+    product_id: 'p-70056', sku: '70056', unidad_base: 'PAQ', base_por_caja: 16,
+    costo: { estandar_base: 78.595625, reposicion_base: 82.68, precio_ficha: 102.94, impuesto_pct: 8, precio_igual_en_todas: true,
+      margen_ficha_pct: 21.27, precio_conserva_margen: 108.29, impacto_30d: 17735.76, sucursales_afectadas: ['01', '03', '07', '08'] },
+    pagado: { desde: '2025-10-22', hasta: '2026-10-22',
+      meses: [{ mes: '2026-01', base: 2400, promedio: 89, min: 84.88, max: 89.3 }, { mes: '2026-10', base: 6320, promedio: 81.7, min: 78.6, max: 82.68 }],
+      ultimo: { fecha: '2026-10-21', sucursal: '06', costo_base: 78.595 }, minimo: { fecha: '2026-06-29', sucursal: '06', costo_base: 72.44, base: 1280 },
+      total_base: 52368, total_valor: 4455190.69, renglones: 81, renglones_sin_unidad: 0, renglones_atipicos: 0,
+      al_estandar_reciente: [{ sucursal: '06', entradas: 3, base: 1520, costo_base: 78.5956 }] },
+    proveedor: { supplier_id: 's-1', nombre: 'DISTRIBUIDORA DE LA ROSA SA DE CV', compras_12m: 81143559.22, recepciones_12m: 618,
+      descuento_pago_12m: 3131340.22, descuento_notas_12m: 2092748.91, descuento_pct: 6.44,
+      pronto_pago: { tasa: 0.0709, fuente: 'observed', pagos: 136, sin_descuento: 43, monto_sin_descuento: 20049786.69, estimado_perdido: 1421529.88, ultimo_sin_descuento: '2026-09-21' },
+      plazo_dias: 20, plazo_base: 'factura', plazo_kepler: [{ dias: 19, recepciones: 388 }, { dias: 21, recepciones: 230 }], tiempo_entrega_dias: null,
+      reclamos: { del_proveedor: 0, en_la_base: 0 } },
+    generado_at: '2026-10-22T12:00:00Z',
+  };
+  const fila = () => FILA as never;
+  const sucOf = (c: ComprasPedidoRealComponent, code: string) => c.branchBuys(fila()).find((b) => b.code === code)!;
+  const COLS = ['Sucursal', 'Vende 30 d', 'Exist.', 'Hoy dura', 'Traspaso', 'Pedir ✎', 'Queda', 'Valor'];
+
+  it('la lista va en el orden en que se decide: la que menos aguanta HOY, arriba', () => {
+    const c = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) }).componentInstance;
+    expect(c.filasDesglose(fila()).map((b) => b.code)).toEqual(['04', '01', '03', '07']);
+  });
+
+  it('acciones de la pantalla: revisa lo que viene en camino y no compres donde ya llega traspaso', () => {
+    const c = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) }).componentInstance;
+    const a = c.accionesDe(fila());
+    expect(a.map((x) => x.clave)).toEqual(['revisa', 'nocompres']);
+    expect(a[0].que).toBe('285 cj en camino');
+    expect(a[1].que).toBe('para 2 sucursales');
+    expect(JSON.stringify(a)).not.toMatch(/\b0[0-9]\b/);   // ninguna sucursal por código
+  });
+
+  it('«descontar» resta el traspaso UNA vez y la acción se va (un segundo clic no resta otra vez)', () => {
+    const c = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) }).componentInstance;
+    const q = (code: string) => c.qtyOf(fila(), sucOf(c, code));
+    const antes = { y: q('04'), e: q('03'), p: q('01') };
+    expect(antes.e).toBeGreaterThan(1);                                // control: hay algo que descontar
+    c.descontarTraspaso(fila());
+    expect(q('04')).toBe(Math.max(0, antes.y - 1));
+    expect(q('03')).toBe(antes.e - 1);
+    expect(q('01')).toBe(antes.p);                                    // a quien no le llega nada, no se le toca
+    expect(c.accionesDe(fila()).map((x) => x.clave)).not.toContain('nocompres');
+    c.descontarTraspaso(fila());                                      // ⛔ NEGATIVA: el segundo clic no resta
+    expect(q('03')).toBe(antes.e - 1);
+  });
+
+  it('«Queda» cuenta el traspaso que llega; «Hoy dura» no cuenta nada que no esté', () => {
+    const c = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) }).componentInstance;
+    const y = sucOf(c, '04');
+    expect(c.diasHoyDe(y)!).toBeCloseTo(1.6 / (2.5 / 30.4), 1);
+    c.setDispOf(fila(), y, 0);
+    expect(c.quedaDias(fila(), y)!).toBeCloseTo((1.6 + 1) / (2.5 / 30.4), 1);
+  });
+
+  it('al abrir el producto pide su negociación UNA vez, y las acciones del contrato se suman con nombres', () => {
+    let llamadas = 0;
+    const f = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS), negociacion: () => { llamadas++; return of(DTO); } });
+    const c = f.componentInstance;
+    c.toggleRow(fila());
+    c.toggleRow(fila()); c.toggleRow(fila());                        // cerrar y volver a abrir no vuelve a pedir
+    expect(llamadas).toBe(1);
+    expect(c.negOf('p-70056')?.estado).toBe('listo');
+    const a = c.accionesDe(fila());
+    expect(a.map((x) => x.verbo)).toEqual(['Revisa', 'No compres', 'Negocia', 'O sube', 'Pide', 'Confirma']);
+    expect(a.find((x) => x.clave === 'confirma')!.que).toBe('el $78.60 de Canindo');
+  });
+
+  it('⛔ si la negociación falla se DICE y se puede reintentar (no se pinta un panel vacío)', () => {
+    let falla = true;
+    const c = montar(WB, undefined, 'u1', { negociacion: () => (falla ? throwError(() => new Error('500')) : of(DTO)) }).componentInstance;
+    c.toggleRow(fila());
+    expect(c.negOf('p-70056')?.estado).toBe('error');
+    expect(c.accionesDe(fila()).some((x) => x.clave === 'negocia')).toBe(false);
+    falla = false;
+    c.cargarNegociacion('p-70056', true);
+    expect(c.negOf('p-70056')?.estado).toBe('listo');
+  });
+
+  it('el desglose abierto pinta acciones y el panel, y ya no las pestañas de antes', () => {
+    const f = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS), negociacion: () => of(DTO) });
+    f.componentInstance.toggleRow(fila());
+    f.detectChanges();
+    const el = f.nativeElement as HTMLElement;
+    expect(el.querySelectorAll('.pr-acc').length).toBe(6);
+    expect(el.querySelector('app-pedido-negociacion-panel')).not.toBeNull();
+    expect(el.querySelector('.pr-det-tabs')).toBeNull();
+    const ths = [...el.querySelectorAll('.pr-dx-tbl thead th')].map((t) => (t.textContent || '').trim());
+    expect(ths).toEqual(COLS);
+  });
+
+  it('«por sucursal…» abre el detalle con Unidad y Entrega; la unidad del producto se aplica a todas', () => {
+    const f = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) });
+    const c = f.componentInstance;
+    expect(c.entregaModo(fila())).toBe('directo');
+    c.setEntregaModo(fila(), 'mixto');
+    expect(c.verDetalle('p-70056')).toBe(true);
+    c.toggleRow(fila());
+    f.detectChanges();
+    const ths = [...(f.nativeElement as HTMLElement).querySelectorAll('.pr-dx-tbl thead th')].map((t) => (t.textContent || '').trim());
+    expect(ths).toContain('Unidad');
+    expect(ths).toContain('Entrega');
+    c.setUnidadModo(fila(), 1);
+    expect(c.branchBuys(fila()).every((b) => c.unitOfBranch(fila(), b) === 1)).toBe(true);
+    expect(c.unidadModo(fila())).toBe(1);
   });
 });

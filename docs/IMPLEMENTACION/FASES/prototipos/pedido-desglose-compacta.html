@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desglose compacto de Pedido</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Tokens de libs/design-tokens/tokens.css — superficie Operations, modo oscuro (zinc). */
+  :root {
+    --layout-bg: #09090B; --card-bg: #18181B; --surface-ground: #111113;
+    --border-color: #27272A; --text-main: #FAFAFA; --text-muted: #A1A1AA; --text-faint: #71717A;
+    --action: #F05A28; --action-ring: rgba(240, 90, 40, 0.30);
+    --ok-fg: #22C55E; --warn-fg: #FBBF24; --bad-fg: #F87171; --info-fg: #60A5FA;
+    --overlay-hover: rgba(255, 255, 255, 0.045);
+    --fs-lg: 1.125rem; --fs-body: .875rem; --fs-sm: .8125rem; --fs-xs: .75rem; --fs-micro: .6875rem;
+    --r-sm: 8px; --r-md: 12px;
+    --font-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--layout-bg); color: var(--text-main); font: 400 var(--fs-body)/1.4 var(--font-body); }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .muted { color: var(--text-muted); } .faint { color: var(--text-faint); }
+  a { color: var(--text-muted); text-underline-offset: 3px; } a:hover { color: var(--text-main); }
+  .u-bad { color: var(--bad-fg); } .u-warn { color: var(--warn-fg); } .bueno { color: var(--ok-fg); }
+
+  /* Barra de la app simulada: lo que ocupa la Suite arriba del contenido. */
+  .appbar { height: 56px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; padding: 0 16px;
+    color: var(--text-faint); font-size: var(--fs-xs); }
+  .wrap { max-width: 1440px; margin: 0 auto; padding: 12px 16px 48px; }
+
+  .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
+  .prod { display: grid; grid-template-columns: minmax(260px, 1fr) repeat(4, auto); gap: 24px; align-items: center; padding: 9px 16px;
+    border-bottom: 1px solid var(--border-color); }
+  .prod .nom { font-weight: 600; } .prod .sub { font-size: var(--fs-xs); color: var(--text-muted); }
+  .kv { text-align: right; } .kv .k { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); }
+  .kv .v { font-size: var(--fs-body); font-weight: 600; } .kv .v small { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 400; }
+
+  .det { padding: 10px 16px 10px; border-left: 3px solid var(--action); }
+  .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 6px; }
+  .top .grande { font-size: var(--fs-lg); font-weight: 700; }
+  .top .resto, .top .sen { color: var(--text-muted); font-size: var(--fs-sm); } .top b { color: var(--text-main); font-weight: 600; }
+  .top .sen { margin-left: auto; }
+
+  /* Acciones: verbo + qué + por qué, en una rejilla de 3. */
+  .acciones { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; }
+  .acc { display: grid; grid-template-columns: 84px 1fr; gap: 8px; padding: 5px 10px; white-space: nowrap; overflow: hidden; border: 1px solid var(--border-color);
+    border-left-width: 3px; border-radius: var(--r-sm); background: var(--surface-ground); font-size: var(--fs-sm); line-height: 1.35; }
+  .acc.warn { border-left-color: var(--warn-fg); } .acc.info { border-left-color: var(--info-fg); }
+  .acc .haz { font: 700 var(--fs-micro) var(--font-body); text-transform: uppercase; letter-spacing: .06em; padding-top: 2px; }
+  .acc.warn .haz { color: var(--warn-fg); } .acc.info .haz { color: var(--info-fg); }
+  .acc .por { color: var(--text-muted); }
+  .acc > div { overflow: hidden; text-overflow: ellipsis; }
+
+  /* Cuerpo: la tabla (cantidades) | la negociación (costo y proveedor). */
+  .cuerpo { display: grid; grid-template-columns: minmax(0, 1fr) 430px; gap: 18px; align-items: start; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); font-weight: 500;
+    text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  td { padding: 3px 8px; border-bottom: 1px solid var(--border-color); text-align: right; vertical-align: middle; font-size: var(--fs-sm); white-space: nowrap; }
+  tr:hover td { background: var(--overlay-hover); }
+  .suc .nom { font-weight: 500; }
+  .suc .tag { margin-left: 6px; font-size: var(--fs-micro); color: var(--warn-fg); border: 1px solid rgba(251,191,36,.35); border-radius: 999px; padding: 0 6px; }
+  .dura { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; }
+  .barra { width: 40px; height: 5px; border-radius: 3px; background: var(--border-color); position: relative; overflow: hidden; }
+  .barra i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
+  .d-bad { color: var(--bad-fg); } .d-bad .barra i { background: var(--bad-fg); }
+  .d-warn { color: var(--warn-fg); } .d-warn .barra i { background: var(--warn-fg); }
+  .d-ok { color: var(--text-muted); } .d-ok .barra i { background: var(--text-faint); }
+  .tras { color: var(--info-fg); } .sale { color: var(--text-faint); font-size: var(--fs-xs); }
+  .pedir input { width: 58px; height: 24px; padding: 2px 6px; text-align: right; font: 600 var(--fs-sm) var(--font-mono); color: var(--text-main);
+    background: var(--layout-bg); border: 1px solid var(--border-color); border-radius: 6px; }
+  .pedir input:focus-visible, .calc input:focus-visible, .chip:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; border-color: transparent; }
+  .pedir .u { margin-left: 4px; color: var(--text-faint); font-size: var(--fs-xs); }
+  tr.cero td { color: var(--text-faint); } tr.cero .suc .nom { color: var(--text-muted); }
+  .val { font-weight: 600; } tr.cero .val { font-weight: 400; }
+  tfoot td { border-bottom: 0; font-weight: 600; padding-top: 7px; }
+
+  /* Negociación */
+  .nego { border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: 10px 12px; background: var(--surface-ground); }
+  .nego-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .nego-h h3 { margin: 0; font-size: var(--fs-sm); font-weight: 600; } .nego-h .sp { flex: 1; } .nego-h a { font-size: var(--fs-xs); }
+  .cifras { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .k { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); white-space: nowrap; }
+  .cifra .v { font-size: var(--fs-body); font-weight: 600; } .s { font-size: var(--fs-xs); color: var(--text-muted); }
+  .hist { margin-top: 8px; display: grid; grid-template-columns: 1fr; }
+  #spark { width: 100%; height: 44px; display: block; }
+  .hist-l { font-size: var(--fs-xs); color: var(--text-muted); display: flex; flex-wrap: wrap; gap: 2px 10px; white-space: nowrap; }
+  .ln { display: inline-block; width: 14px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
+  .ln.pag { border-color: var(--text-main); } .ln.est { border-color: var(--info-fg); border-top-style: dashed; }
+  .calc { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color); }
+  .calc-in { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: var(--fs-sm); font-weight: 500; }
+  .calc input { width: 96px; height: 26px; padding: 2px 6px; text-align: right; font: 600 var(--fs-sm) var(--font-mono); color: var(--text-main);
+    background: var(--layout-bg); border: 1px solid var(--border-color); border-radius: 6px; }
+  .chip { font: 500 var(--fs-xs) var(--font-body); color: var(--text-muted); background: transparent; border: 1px solid var(--border-color);
+    border-radius: 999px; padding: 2px 9px; min-height: 24px; cursor: pointer; }
+  .chip:hover { color: var(--text-main); background: var(--overlay-hover); }
+  .calc-out { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+  .calc-out .v { font-size: var(--fs-body); font-weight: 600; }
+  .prov { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--border-color); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 12px; }
+  .prov dd .s { display: block; }
+  .prov dt { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); }
+  .prov dd { margin: 0; font-size: var(--fs-sm); } .prov dd b { font-weight: 600; }
+
+  .pie { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-color); }
+  .ctl { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--fs-sm); }
+  .ctl select { font: inherit; color: var(--text-main); background: var(--layout-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 3px 6px; }
+  .sp { flex: 1; }
+  .sec { font: 500 var(--fs-sm) var(--font-body); color: var(--text-muted); background: transparent; border: 0; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+  .sec:hover { background: var(--overlay-hover); color: var(--text-main); }
+  .pri { font: 600 var(--fs-sm) var(--font-body); color: #fff; background: var(--action); border: 0; padding: 8px 14px; border-radius: var(--r-sm); cursor: pointer; }
+  .pri:focus-visible, .sec:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+
+  .nota { margin-top: 18px; padding: 10px 14px; border: 1px dashed var(--border-color); border-radius: var(--r-sm); color: var(--text-muted); font-size: var(--fs-sm); }
+  .nota b { color: var(--text-main); } .nota ul { margin: 6px 0 0; padding-left: 18px; }
+
+  /* Abajo de 1280 px la negociación baja debajo de la tabla: ahí ya no entra en una pantalla, y se dice. */
+  @media (max-width: 80rem) { .cuerpo { grid-template-columns: 1fr; } .acciones { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 48rem) {
+    .prod { grid-template-columns: 1fr 1fr; gap: 8px 14px; } .prod > :first-child { grid-column: 1 / -1; }
+    .acciones { grid-template-columns: 1fr; } .barra, .col-queda, .col-tras { display: none; } .top .sen { margin-left: 0; }
+    .cifras { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="appbar">Suite · Compras › Pedido &nbsp;(barra de la app simulada, 56 px)</div>
+<div class="wrap">
+  <div class="card" id="desglose">
+    <div class="prod">
+      <div><div class="nom">LA ROSA MAZAPÁN GIGANTE 50G /20</div>
+        <div class="sub"><span class="num">70056</span> · Distribuidora de la Rosa · 1 cj = 16 paq</div></div>
+      <div class="kv"><div class="k">Comprar</div><div class="v num" id="h-cj">82 <small>cj</small></div></div>
+      <div class="kv"><div class="k">Valor</div><div class="v num" id="h-val">$108,476</div></div>
+      <div class="kv"><div class="k">Traspaso</div><div class="v num">7.0 <small>cj</small></div></div>
+      <div class="kv"><div class="k">Hoy dura (red)</div><div class="v num u-warn">25 <small>días</small></div></div>
+    </div>
+
+    <div class="det">
+      <div class="top">
+        <span class="resto">30 días · compran <b>Padre Hidalgo</b> y <b>Morelia Abastos</b> · 4 por traspaso</span>
+        <span class="sen">Venta perdida <b>$35 mil</b> · Demanda <b>▲ acelerando</b> · Surte <b>87 %</b></span>
+      </div>
+
+      <div class="acciones">
+        <div class="acc warn"><span class="haz">Revisa</span><div><b>9 OC vencidas</b> en Padre Hidalgo <span class="por">(285 cj)</span> <a href="#">Abiertas ›</a></div></div>
+        <div class="acc warn"><span class="haz">Negocia</span><div><b>$1,257.53 la caja</b> <span class="por">(hoy $1,322.88)</span></div></div>
+        <div class="acc warn"><span class="haz">Pide</span><div><b>el pronto pago</b> <span class="por">(≈ $1.42 M sin tomar)</span> <a href="#">Pagos ›</a></div></div>
+        <div class="acc info"><span class="haz">No compres</span><div><b>para 4 sucursales</b> <span class="por">(van por traspaso)</span></div></div>
+        <div class="acc warn"><span class="haz">O sube</span><div><b>el precio a $108.29</b> <span class="por">(margen 21.3 %)</span></div></div>
+        <div class="acc info"><span class="haz">Confirma</span><div><b>el $78.60 de Canindo</b> <span class="por">en la factura</span></div></div>
+      </div>
+
+      <div class="cuerpo">
+        <div class="izq">
+        <table aria-label="Desglose por sucursal">
+          <thead><tr>
+            <th>Sucursal</th><th>Vende 30 d</th><th>Exist.</th><th>Hoy dura</th><th class="col-tras">Traspaso</th><th>Pedir</th><th class="col-queda">Queda</th><th>Valor</th>
+          </tr></thead>
+          <tbody id="filas"></tbody>
+          <tfoot><tr>
+            <td>Total</td><td class="num" id="t-vta"></td><td class="num" id="t-exis"></td><td></td>
+            <td class="col-tras num tras">+7.0 cj</td><td class="num" id="t-ped"></td><td class="col-queda"></td><td class="num val" id="t-val"></td>
+          </tr></tfoot>
+        </table>
+      <div class="pie">
+        <label class="ctl">Entrega <select><option>directo a cada sucursal</option><option>consolidar zona La Piedad en Padre Hidalgo</option><option>consolidar todo en CEDIS</option></select></label>
+        <label class="ctl">en <select aria-label="Capturar en"><option>cajas</option><option>paquetes</option></select></label>
+        <span class="sp"></span>
+        <button class="sec" type="button">Venta por mes</button><button class="sec" type="button">XLSX</button><button class="sec" type="button">PDF</button>
+        <button class="pri" type="button" id="agregar">+ Agregar a la requisición · $108,476</button>
+      </div>
+        </div>
+
+        <section class="nego" aria-labelledby="nego-t">
+          <div class="nego-h"><h3 id="nego-t">Costo y negociación</h3><span class="sp"></span>
+            <a href="#">Historial ›</a><a href="#">Estándar ›</a><a href="#">Descuentos ›</a></div>
+          <div class="cifras">
+            <div class="cifra"><div class="k">Costo hoy</div><div class="v num">$1,322.88</div><div class="s"><span class="num">$82.68</span>/paq</div></div>
+            <div class="cifra"><div class="k">Estándar</div><div class="v num">$1,257.53</div><div class="s"><span class="num">$78.60</span>/paq</div></div>
+            <div class="cifra"><div class="k">Precio</div><div class="v num">$102.94</div><div class="s">/paq con IEPS</div></div>
+            <div class="cifra"><div class="k">Margen real</div><div class="v num u-warn">15.3 %</div><div class="s">ficha 21.3 %</div></div>
+          </div>
+          <div class="hist">
+            <svg id="spark" role="img" aria-label="Pagado por paquete de enero a octubre de 2026: de 89 a 81.70 pesos; estándar 78.60"></svg>
+            <div class="hist-l"><span><i class="ln pag"></i>pagado/paq</span><span><i class="ln est"></i>estándar</span>
+              <span class="faint">mín. <span class="num">$72.44</span> 29-jun · −7 % en 2026</span></div>
+          </div>
+          <div class="calc">
+            <div class="calc-in"><label for="c-cj">Caja a $</label><input id="c-cj" type="number" min="0" step="0.01" value="1322.88" aria-describedby="c-out">
+              <button class="chip" type="button" data-v="1257.53" title="$1,257.53">estándar</button>
+              <button class="chip" type="button" data-v="1159.04" title="$1,159.04">mín. del año</button>
+              <button class="chip" type="button" data-v="1322.88">hoy</button>
+            </div>
+            <div class="calc-out" id="c-out" aria-live="polite"></div>
+          </div>
+          <dl class="prov">
+            <div><dt>Compras 12 meses</dt><dd><b class="num">$88.0 M</b> <span class="s">este producto 5.1 %</span></dd></div>
+            <div><dt>Descuento</dt><dd><b class="num">5.9 %</b> <span class="s num">$5.22 M</span></dd></div>
+            <div><dt>Plazo</dt><dd><b>20 días</b> <span class="s">de factura</span></dd></div>
+            <div><dt>Pedido típico</dt><dd><b class="num">$713 K</b> <span class="s">mín. <span class="num">$1.28 M</span></span></dd></div>
+            <div><dt>Tiempo de entrega</dt><dd><a href="#">no capturado ›</a></dd></div>
+            <div><dt>Reclamos</dt><dd><span class="faint">sin registro</span> <span class="s">0 en toda la base</span></dd></div>
+          </dl>
+        </section>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="nota"><b>Variante compacta</b> de <span class="num">pedido-desglose-propuesta.html</span>: los mismos datos (prod, 22-oct-2026, 70056), sin plegar nada.
+    <ul>
+      <li>Tabla y negociación lado a lado; las 6 acciones en una rejilla de 3.</li>
+      <li>Lo que se quitó era <b>repetido</b>, no información: «cubierto por traspaso» (lo dice la columna Traspaso), a quién manda cada traspaso (lo dice la fila que recibe), el pronto pago en la lista (ya es una acción).</li>
+      <li>El botón «Agregar» quedó al pie de la tabla, donde termina la captura.</li>
+      <li>Medido con el alto que deja el navegador (no el de la pantalla): ver cifras en la respuesta. Abajo de 1280 px la negociación baja debajo de la tabla y hay que desplazar; en teléfono también.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  // Datos de prod (22-oct-2026, 70056). cajas; vta = venta 30 d; tras = traspaso que LLEGA; sale = traspaso que SALE.
+  const CAJA = 1322.88;
+  const SUC = [
+    { n: 'Yurécuaro',         vta: 2.5,   exis: 1.6,   tras: 0.9, de: 'Padre Hidalgo', ped: 0 },
+    { n: 'Zamora Centro',     vta: 5.3,   exis: 3.4,   tras: 1.9, de: 'Canindo', ped: 0 },
+    { n: 'Padre Hidalgo',     vta: 109.2, exis: 77.5,  sale: 5.1, ped: 36 },
+    { n: 'Morelia Abastos',   vta: 143.3, exis: 102.9, ped: 46, tag: 'perdió $35 mil' },
+    { n: 'La Piedad Abastos', vta: 10.9,  exis: 8.1,   tras: 2.8, de: 'Padre Hidalgo', ped: 0 },
+    { n: '8 Esquinas',        vta: 21.1,  exis: 19.7,  tras: 1.4, de: 'Padre Hidalgo', ped: 0 },
+    { n: 'Morelia Madero',    vta: 41.5,  exis: 45.4,  ped: 0 },
+    { n: 'Canindo',           vta: 54.7,  exis: 66.4,  sale: 1.9, ped: 0 },
+  ];
+  const dias = (stock, vta) => (vta > 0 ? stock / (vta / 30.4) : null);
+  const peso = (v) => '$' + Math.round(v).toLocaleString('es-MX');
+  const urg = (d) => (d == null ? 'd-ok' : d < 15 ? 'd-bad' : d < 30 ? 'd-warn' : 'd-ok');
+  const tb = document.getElementById('filas');
+  for (const s of SUC) {
+    const hoy = dias(s.exis, s.vta);
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="suc"><span class="nom">' + s.n + '</span>' + (s.tag ? '<span class="tag">' + s.tag + '</span>' : '') + '</td>' +
+      '<td class="num">' + s.vta.toFixed(1) + '</td>' +
+      '<td class="num muted">' + s.exis.toFixed(1) + '</td>' +
+      '<td><span class="dura ' + urg(hoy) + '"><span class="num">' + Math.round(hoy) + ' d</span><span class="barra"><i style="width:' + Math.min(100, hoy / 45 * 100) + '%"></i></span></span></td>' +
+      '<td class="col-tras">' + (s.tras ? '<span class="tras"><span class="num">+' + s.tras.toFixed(1) + '</span> de ' + s.de + '</span>'
+        : s.sale ? '<span class="sale">manda <span class="num">' + s.sale.toFixed(1) + '</span></span>' : '<span class="faint">—</span>') + '</td>' +
+      '<td class="pedir"><input type="number" min="0" step="1" value="' + s.ped + '" aria-label="Pedir para ' + s.n + '"><span class="u">cj</span></td>' +
+      '<td class="col-queda num muted"></td>' +
+      '<td class="num val"></td>';
+    tb.appendChild(tr);
+    s.tr = tr;
+    tr.querySelector('input').addEventListener('input', (e) => { s.ped = Math.max(0, Number(e.target.value) || 0); pintar(); });
+  }
+  const PRECIO_SIN_IEPS = 102.94 / 1.08, PAQ_X_CJ = 16, CJ_12M = 3273;
+  const inp = document.getElementById('c-cj');
+  function calcular() {
+    const cj = Number(inp.value) || 0, P = SUC.reduce((a, s) => a + s.ped, 0), dif = CAJA - cj;
+    const m = cj > 0 ? (PRECIO_SIN_IEPS / (cj / PAQ_X_CJ) - 1) * 100 : null;
+    const tono = (v) => (v > 0 ? 'bueno' : v < 0 ? 'u-bad' : '');
+    const dinero = (v) => (v === 0 ? '$0' : (v > 0 ? '−' : '+') + peso(Math.abs(v)));
+    document.getElementById('c-out').innerHTML =
+      '<div><div class="k">Margen</div><div class="v num ' + (m != null && m >= 20 ? 'bueno' : m != null && m < 10 ? 'u-bad' : '') + '">' + (m == null ? '—' : m.toFixed(1) + ' %') + '</div></div>' +
+      '<div><div class="k">Este pedido (' + P + ' cj)</div><div class="v num ' + tono(dif) + '">' + dinero(dif * P) + '</div></div>' +
+      '<div><div class="k">Un año (3,273 cj)</div><div class="v num ' + tono(dif) + '">' + dinero(dif * CJ_12M) + '</div></div>';
+  }
+  inp.addEventListener('input', calcular);
+  for (const b of document.querySelectorAll('.chip')) b.addEventListener('click', () => { inp.value = b.dataset.v; calcular(); inp.focus(); });
+  function pintar() {
+    let V = 0, E = 0, P = 0, $ = 0, n = 0;
+    for (const s of SUC) {
+      const d = dias(s.exis + (s.tras || 0) - (s.sale || 0) + s.ped, s.vta);
+      s.tr.querySelector('.col-queda').textContent = d == null ? '—' : Math.round(d) + ' d';
+      s.tr.querySelector('.val').textContent = s.ped > 0 ? peso(s.ped * CAJA) : '—';
+      s.tr.classList.toggle('cero', !(s.ped > 0));
+      V += s.vta; E += s.exis; P += s.ped; $ += s.ped * CAJA; if (s.ped > 0) n++;
+    }
+    document.getElementById('t-vta').textContent = V.toFixed(1);
+    document.getElementById('t-exis').textContent = E.toFixed(1);
+    document.getElementById('t-ped').textContent = P + ' cj';
+    document.getElementById('t-val').textContent = peso($);
+    document.getElementById('h-cj').innerHTML = P + ' <small>cj</small>';
+    document.getElementById('h-val').textContent = peso($);
+    document.getElementById('agregar').textContent = '+ Agregar a la requisición · ' + peso($);
+    calcular();
+  }
+  // Gráfica: promedio mensual pagado a La Rosa por paquete (entradas X-A-20, ene–oct 2026) contra el estándar.
+  (function () {
+    const PAG = [89.00, 87.43, 88.84, 84.60, 88.76, 82.49, 84.30, 82.68, 82.68, 81.70];
+    const svg = document.getElementById('spark'); const ns = 'http://www.w3.org/2000/svg';
+    const W = Math.max(200, Math.round(svg.getBoundingClientRect().width)), H = 44;
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    const EST = 78.60, LO = 77, HI = 91, PL = 4, PR = 40, PT = 8, PB = 6;
+    const x = (i) => PL + i * (W - PL - PR) / (PAG.length - 1);
+    const y = (v) => PT + (HI - v) / (HI - LO) * (H - PT - PB);
+    const css = getComputedStyle(document.documentElement), c = (n) => css.getPropertyValue(n).trim();
+    const el = (t, a, txt) => { const e = document.createElementNS(ns, t); for (const k in a) e.setAttribute(k, a[k]); if (txt) e.textContent = txt; svg.appendChild(e); };
+    el('line', { x1: PL, x2: W - PR, y1: y(EST), y2: y(EST), stroke: c('--info-fg'), 'stroke-width': 1.5, 'stroke-dasharray': '4 4' });
+    el('text', { x: W - PR + 4, y: y(EST) + 4, fill: c('--info-fg'), 'font-size': 10, 'font-family': 'Geist Mono' }, '78.60');
+    el('polyline', { points: PAG.map((v, i) => x(i) + ',' + y(v)).join(' '), fill: 'none', stroke: c('--text-main'), 'stroke-width': 1.75, 'stroke-linejoin': 'round' });
+    el('circle', { cx: x(PAG.length - 1), cy: y(PAG.at(-1)), r: 3, fill: c('--text-main') });
+    el('text', { x: W - PR + 4, y: y(PAG.at(-1)) - 1, fill: c('--text-main'), 'font-size': 10, 'font-family': 'Geist Mono' }, '81.70');
+    el('text', { x: PL, y: y(PAG[0]) - 2, fill: c('--text-muted'), 'font-size': 10, 'font-family': 'Geist Mono' }, '89.00');
+  })();
+  pintar();
+</script>
+</body>
+</html>

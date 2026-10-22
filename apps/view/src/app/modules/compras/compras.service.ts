@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { ClaseOc, EstadoCadena, FlujoComprasDto, type Freshness, MonthlySalesResponse, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto, WorkbookSkuSignals } from '@megadulces/contracts';
+import { ClaseOc, EstadoCadena, FlujoComprasDto, type Freshness, MonthlySalesResponse, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto, type PedidoNegociacionDto, WorkbookSkuSignals } from '@megadulces/contracts';
 import type { OcDetalle } from './oc-kepler-pdf';
 
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
@@ -1238,6 +1238,11 @@ export class ComprasService {
   }
 
   /** [RA-PRO.65] Venta por mes del SKU (24 meses) de una sucursal, o de la red si no hay `code`. */
+  /** `[RA-NEG.1]` Costo, precio, margen, lo pagado y el proveedor de UN producto (panel del desglose). */
+  negociacion(productId: string): Observable<PedidoNegociacionDto> {
+    return this.http.get<PedidoNegociacionDto>(`${this.base}/negociacion/${productId}`);
+  }
+
   monthlySales(productId: string, code?: string): Observable<MonthlySalesResponse> {
     const qs = code ? `?code=${encodeURIComponent(code)}` : '';
     return this.http.get<MonthlySalesResponse>(`${this.base}/workbook/${productId}/monthly${qs}`);
