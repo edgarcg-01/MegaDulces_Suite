@@ -967,3 +967,5 @@ falta uno nuevo.
   La fuente de pagos se comparte y se precalienta. Tiempo dentro del pod NO MEDIDO.
 - **2026-10-22** — `[CP.8.76]` la pantalla pasa a un asistente de cuatro pasos (elección del PM): contestaba
   siete preguntas a la vez. Sin validación visual.
+- **2026-10-22** — `[CP.8.77]` auditoría del PM en prod: cada «Movs» abre sus movimientos (144 cifras cruzadas
+  contra prod, idénticas) y el texto de los pasos se va a la ayuda; sólo queda el foco de cada paso.
