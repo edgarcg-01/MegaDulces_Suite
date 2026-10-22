@@ -1484,8 +1484,13 @@ export class ComprasService {
    * lote. Reemplaza las N llamadas sueltas: con aquéllas, un fallo a la mitad dejaba medio pedido
    * creado y el aviso decía «error parcial» sin decir cuál.
    */
-  createRequisitionBatch(requisitions: CreateRequisitionDto[]): Observable<RequisitionBatchResult> {
-    return this.http.post<RequisitionBatchResult>(`${this.base}/requisitions/batch`, { requisitions });
+  /**
+   * `[RA-UX.1b]` El servidor contesta 409 `LOTE_REPETIDO` si el lote repite renglones de compra que
+   * la misma persona generó en la última hora. `allowDuplicate` es la confirmación explícita.
+   */
+  createRequisitionBatch(requisitions: CreateRequisitionDto[], allowDuplicate = false): Observable<RequisitionBatchResult> {
+    return this.http.post<RequisitionBatchResult>(`${this.base}/requisitions/batch`,
+      allowDuplicate ? { requisitions, allow_duplicate: true } : { requisitions });
   }
   /** `[RQ.8]` La bandeja por lote: una fila por «Armar», no por documento. */
   listRequisitionBatches(q?: { estado?: string; source_type?: string; page?: number; pageSize?: number }): Observable<RequisitionBatchListDto> {

@@ -475,7 +475,9 @@ export class CommercialReplenishmentController {
   @Post('requisitions/batch')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
   @ApiOperation({ summary: '[RQ.8] Crea TODAS las requisiciones de un «Armar» en UNA transacción, bajo un folio de lote RQ-LOTE-AAAA-NNNNN, y ata cada bajada a la compra que la originó (`link_to` = índice dentro del arreglo). O entran todas o no entra ninguna. Máx. 300.' })
-  createRequisitionBatch(@Body() dto: { requisitions?: CreateRequisitionDto[] }) {
+  // `[RA-UX.1b]` 409 `LOTE_REPETIDO` si repite renglones de compra que la misma persona generó en
+  // la última hora; `allow_duplicate: true` lo confirma a sabiendas.
+  createRequisitionBatch(@Body() dto: { requisitions?: CreateRequisitionDto[]; allow_duplicate?: boolean }) {
     return this.svc.createRequisitionBatch(dto);
   }
 
