@@ -1033,8 +1033,8 @@ solas también las facturas canceladas.
 | **LC.19.1** | Estatus SAT real: el feed no borra lo verificado, sólo `vigente` se postea, «Verificar en el SAT» | 🧪 |
 | LC.19.2 | Frescura visible (CFDIs / pólizas) y «Nada pendiente» sólo con el feed al día | 🧪 |
 | LC.19.3 | Banner honesto: «N propuestas por regla de historial», no «$X sin contabilizar» | 🧪 |
-| LC.19.4 | Testigo de completitud de los CFDI (descarga masiva SAT vs ADD) | ⬜ |
-| LC.19.5 | Sección LC en `VERDAD_ABSOLUTA.md` con su paridad registrada (R7) | ⬜ |
+| LC.19.4 | Testigo de completitud de los CFDI (descarga masiva SAT vs ADD) | ⚠️ medido una vez; el continuo espera la e.firma (venció 2026-07-27) |
+| LC.19.5 | Sección LC en `VERDAD_ABSOLUTA.md` (§33) | 🧪 — **LC.19.5b** (paridad en `test-newdb-truth-parity.js`) queda como deuda con nombre |
 | LC.19.6+ | Automatizar: ascender las «Importe ya posteado» que casan 212+referencia+total en el folio 1, aplicado automático, PUE y $0 fuera, catálogo de cuentas en el feed de ContPAQi, generación el día 1 | ⬜ |
 
 ### LC.19.1 — el estatus SAT no medía nada
@@ -1114,6 +1114,31 @@ meses), y en jul/ago/sep **entre 46 y 65 al mes nunca entraron al libro manual**
 ninguna póliza de ContPAQi, por UUID ni por su 212. Ahora: «**275 facturas sin asociar propuestas para
 el TXT · $X**. Entran porque el proveedor tiene cuenta y salió en el libro de los últimos 6 meses:
 revísalas antes de generar. Otras 64 ($1.58M) esperan revisión en «Sin libro reciente».»
+
+### LC.19.4 — ¿están todos los CFDI? Medido una vez; el testigo continuo está bloqueado
+
+El único testigo independiente del ADD es la **descarga masiva del SAT** (FISCAL.4). Medido en prod:
+corrió **una sola vez** con éxito (solicitud del 1 al 17 de julio de 2026; 4 intentos previos en
+error), y la **e.firma cargada venció el 2026-07-27**. En esa ventana:
+
+| | SAT | en la base |
+|---|---:|---:|
+| Total reportado por el SAT | 1,015 | 818 del ADD + 194 sólo de la descarga = 1,012 |
+| Lo que trajo **sólo** el SAT | — | 176 complementos de pago (P) + 18 traslados (T), **$0.00** |
+| Tipo I / E (lo que va al libro) | ~821 | **818** en el ADD (689 I + 129 E) |
+
+O sea: **para lo que entra al libro, el ADD estaba completo** en la única ventana medible (hueco de 3,
+< 0.4 %, sin identificar: el feed reescribe `source`, así que no se sabe cuáles UUID trajo cada uno).
+⚠️ **El testigo continuo espera una e.firma vigente**: cargarla es tocar una credencial (regla 7),
+lo decide contabilidad / Edgar. Hasta entonces, la completitud es **NO MEDIDA** fuera de esa ventana.
+
+### LC.19.5 — la sección en VERDAD_ABSOLUTA
+
+[`VERDAD_ABSOLUTA.md` §33](../../VERDAD_ABSOLUTA.md): qué arbitra cada número del libro (asiento,
+universo, anti-duplicado, estatus SAT, completitud, frescura, cuentas), su veredicto y su hueco con
+monto, los candados que lo vuelven a medir y tres hipótesis refutadas. **Deuda con nombre, LC.19.5b:**
+el libro calcula en el servicio, no desde una vista resolvedora, así que no entra a la tabla de §5 ni a
+`test-newdb-truth-parity.js`; su paridad publicado-vs-calculado vive hoy en el e2e, que corre a mano.
 
 ## Estado
 
