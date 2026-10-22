@@ -746,8 +746,16 @@ la nota → factura de las que llevan nota. **Sin D8 se puede empezar; con D8 se
 notas, redondeo, compuerta «no cuadra → a confirmar», UUID por factura y nota para los renglones `AD`) y
 `rfc-acreedor.ts` (la escalera de `[CP.8.71]`). Puros, como `poliza-egreso.ts`. 23 casos en
 `pago-proveedor.spec.ts`, dos mutados a rojo (provisión, residuo de centavos). ⭐ **Cruzado contra el
-simulador: 1,143 de 1,143 pólizas idénticas renglón por renglón**, todas cuadran. Falta: el servicio que le
-da de comer (cadena + importe desde la base, C1) y el endpoint/pantalla (C2/C3).
+simulador: 1,143 de 1,143 pólizas idénticas renglón por renglón**, todas cuadran.
+
+**Integrado (C1→C3, 2026-10-21):** `pago-proveedor.fuente.ts` resuelve cada movimiento sin el ADD (cruzado
+contra el simulador `SIN_ADD`: 976 de 977 armadas idénticas) y `construirLotes` saca el pago a proveedor del
+lote del día: **una póliza por pago** (`bank_pago_proveedor`, con sus `AD`), y lo que no se arma queda contado
+en su lote con motivo — ya no sale nunca «2120 / banco». Ejercido contra prod con conexión de sólo lectura:
+septiembre **91 pagos completos ($12.76 M)** de 184 (55 a confirmar, 30 no cuadran, 8 sin identificar), enero
+**108 ($18.29 M)**; cero lotes con la forma incompleta, mismo resultado dos veces, `poliza_exports` sin escribir.
+⚠️ Deudas con nombre: la carga del mes tarda 4.4 s (1.5 s con la caché de 10 min) medido desde la laptop, en el
+clúster **NO MEDIDO**; el job `pruebas-db` no ejerce la fuente (sus siembras son `por_categoria`).
 
 ### Fuera de este expediente
 
