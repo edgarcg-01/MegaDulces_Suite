@@ -11,6 +11,7 @@ import {
   CLASES_UNIDAD, CLASE_UNIDAD_LABEL, MINIMO_VALOR_MENOR, warehouseCodeAndName,
   type ClaseUnidad, type PosicionPedido,
   type MotivoAjuste, type AutoabastoPedidoGrupo, type AutoabastoPedidoLinea, type AutoabastoPedidoResponse,
+  type AutoabastoVieneDoc,
 } from '@megadulces/contracts';
 
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
@@ -126,6 +127,46 @@ interface Renglon {
           </p>
         }
         <app-metric-strip [items]="kpis()" ariaLabel="Resumen del pedido"></app-metric-strip>
+        <!-- [AB.23] Lo que te va a llegar: para no pedir dos veces lo que ya viene. Lo de la ventana ya
+             se restó de «A pedir»; lo más viejo se muestra para reclamarlo, no se resta. -->
+        @if (viene(); as v) {
+          <section class="mp-viene" aria-labelledby="mp-viene-h">
+            <h2 id="mp-viene-h" class="mp-viene-h">Lo que te va a llegar</h2>
+            @if (!v.docs.length) {
+              <p class="mp-dim">No hay pedidos de traspaso abiertos ni embarques en camino hacia {{ d.almacen.code | sucursal }}.</p>
+            } @else {
+              <p class="mp-viene-res">
+                @if (v.embarques) { <strong>{{ v.embarques }} {{ v.embarques === 1 ? 'embarque en camino' : 'embarques en camino' }}</strong> }
+                @if (v.embarques && v.pedidos) { y }
+                @if (v.pedidos) { <strong>{{ v.pedidos }} {{ v.pedidos === 1 ? 'pedido en preparación' : 'pedidos en preparación' }}</strong> }
+                @if (v.monto) { · {{ v.monto | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                <span class="mp-dim">— ya se restaron de lo que te toca pedir.</span>
+                @if (v.viejos) { <span class="mp-chip mp-chip-warn">{{ v.viejos }} sin llegar desde hace días: no se restan, reclámalos</span> }
+                @if (v.planes) { <span class="mp-chip" pTooltip="Compras ya decidió mandártelo, pero todavía no existe el pedido de traspaso en Kepler: la matriz no lo surte hasta que exista. No se resta." tooltipPosition="top">{{ v.planes }} {{ v.planes === 1 ? 'requisición' : 'requisiciones' }} de Compras sin llegar a Kepler</span> }
+              </p>
+              <ul class="mp-viene-l">
+                @for (doc of v.visibles; track doc.tipo + doc.origen + doc.serie + doc.folio) {
+                  <li class="mp-viene-i" [class.mp-viene-viejo]="!doc.se_resta">
+                    <span class="mp-viene-et" [class.mp-viene-camino]="doc.tipo === 'embarque'">{{ etapa(doc) }}</span>
+                    <span class="mp-viene-de">desde <strong>{{ doc.origen | sucursal }}</strong></span>
+                    <span class="mp-dim">{{ doc.tipo === 'embarque' ? 'Embarque' : doc.tipo === 'plan' ? 'Requisición' : 'Pedido' }} {{ doc.folio }}</span>
+                    <span class="mp-dim">{{ doc.renglones }} {{ doc.renglones === 1 ? 'producto' : 'productos' }}</span>
+                    <span class="mp-num">{{ doc.monto == null ? '—' : (doc.monto | currency:'MXN':'symbol-narrow':'1.0-0') }}</span>
+                    <span [class.mp-warn-t]="!doc.se_resta">{{ hace(doc.dias) }}@if (doc.tipo === 'plan') { · aún no está en Kepler } @else if (!doc.se_resta) { · no se resta }</span>
+                  </li>
+                }
+              </ul>
+              @if (v.docs.length > v.visibles.length || verTodoViene()) {
+                <button type="button" class="mp-link" (click)="verTodoViene.set(!verTodoViene())">
+                  {{ verTodoViene() ? 'Ver menos' : 'Ver los ' + v.docs.length }}
+                </button>
+              }
+              @if (d.viene?.renglones_sin_unidad) {
+                <p class="mp-dim">{{ d.viene!.renglones_sin_unidad }} renglón(es) vienen en una unidad que la ficha del producto no conoce: no se restaron.</p>
+              }
+            }
+          </section>
+        }
         <fieldset class="mp-pos">
           <legend class="mp-pos-leg">¿Hasta dónde pides?</legend>
           @for (p of posicionesTodas; track p) {
@@ -215,7 +256,7 @@ interface Renglon {
                     <th class="mp-c-sku">SKU / Producto</th>
                     <th class="mp-num" pTooltip="Venta de los últimos 30 días, en cajas." tooltipPosition="top">Venta 30 d</th>
                     <th class="mp-num">Existencia</th>
-                    <th class="mp-num" pTooltip="Pedidos abiertos a la matriz de 7 días o menos. Ya se restaron." tooltipPosition="top">Ya pedido</th>
+                    <th class="mp-num" pTooltip="Lo que ya te viene y ya se restó: pedidos abiertos a la matriz de 7 días o menos, más lo embarcado que todavía no recibes." tooltipPosition="top">Ya viene</th>
                     <th class="mp-num mp-c-pedir">A pedir</th>
                     <th class="mp-num">Valor</th>
                     <th>Avisos</th>
@@ -231,7 +272,7 @@ interface Renglon {
                       </td>
                       <td class="mp-num">{{ l.venta_30d == null ? '—' : qty(l.venta_30d) }}</td>
                       <td class="mp-num">{{ qty(l.existencia) }}</td>
-                      <td class="mp-num">{{ l.ya_pedido > 0 ? qty(l.ya_pedido) : '—' }}</td>
+                      <td class="mp-num" [pTooltip]="yaVieneTitle(l)" tooltipPosition="top">{{ yaViene(l) > 0 ? qty(yaViene(l)) : '—' }}</td>
                       <td class="mp-num mp-c-pedir" [pTooltip]="porQueAPedir(l)" tooltipPosition="left">
                         @if (data()?.puede_ajustar && l.a_pedir.factor) {
                           <span class="mp-step">
@@ -260,6 +301,9 @@ interface Renglon {
                       <td class="mp-num">{{ valor(l) == null ? '—' : (valor(l) | currency:'MXN':'symbol-narrow':'1.0-0') }}</td>
                       <td class="mp-flags">
                         <span class="mp-chip">{{ posicion(l.posicion) }}</span>
+                        @if (l.planeado_compras > 0) {
+                          <span class="mp-chip" [pTooltip]="'Compras ya decidió mandarte ' + qty(l.planeado_compras) + ' cajas, pero todavía no está en Kepler: no se resta hasta que exista el pedido de traspaso.'" tooltipPosition="left">Compras {{ qty(l.planeado_compras) }}</span>
+                        }
                         @if (l.atorado > 0) {
                           <span class="mp-chip mp-chip-warn" [pTooltip]="'Pedido abierto hace más de 7 días: ' + qty(l.atorado) + ' cajas. No se resta: reclámalo o cancélalo.'" tooltipPosition="left">Atorado {{ qty(l.atorado) }}</span>
                         }
@@ -314,6 +358,19 @@ interface Renglon {
     .mp-sub { margin: .3rem 0 0; max-width: 66ch; font-size: var(--fs-body); line-height: 1.5; color: var(--text-muted); }
     .mp-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
     .mp-wh { min-width: 15rem; }
+    /* [AB.23] Lo que te va a llegar */
+    .mp-viene { border: 1px solid var(--border-color); border-radius: 8px; padding: .6rem .8rem; background: var(--card-bg); }
+    .mp-viene-h { margin: 0 0 .3rem; font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+    .mp-viene-res { margin: 0 0 .4rem; font-size: var(--fs-sm); color: var(--text-main); display: flex; flex-wrap: wrap; gap: .25rem .5rem; align-items: baseline; }
+    .mp-viene-l { list-style: none; margin: 0; padding: 0; display: grid; gap: .15rem; }
+    .mp-viene-i { display: grid; grid-template-columns: 6.5rem minmax(9rem, 1.4fr) minmax(7rem, 1fr) 6rem 6.5rem minmax(7rem, 1fr);
+      gap: .5rem; align-items: baseline; font-size: var(--fs-sm); padding: .2rem 0; border-top: 1px solid var(--border-color); }
+    .mp-viene-i:first-child { border-top: 0; }
+    .mp-viene-et { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+    .mp-viene-et.mp-viene-camino { color: var(--info-fg); }
+    .mp-viene-viejo { color: var(--text-muted); }
+    .mp-warn-t { color: var(--warn-fg); }
+    @container (max-width: 40rem) { .mp-viene-i { grid-template-columns: 1fr 1fr; } }
     .mp-note { display: flex; gap: .55rem; align-items: flex-start; margin: 0; padding: .6rem .8rem; border-radius: 8px;
       font-size: var(--fs-sm); line-height: 1.45; background: var(--surface-100); color: var(--text-muted); }
     .mp-warn { background: var(--warn-soft-bg); color: var(--text-main); }
@@ -398,6 +455,39 @@ export class AlmacenAutoabastoPedidoComponent {
   /** `true` sólo si los filtros llegaron bien: una lista vacía por error no es «sin almacén». */
   readonly filtrosListos = signal(false);
   readonly verCubiertos = signal(false);
+  /** `[AB.23]` Lo que te va a llegar: los primeros, y «ver los N» para el resto (nunca se esconde sin decirlo). */
+  readonly verTodoViene = signal(false);
+  private static readonly VIENE_VISIBLES = 6;
+  readonly viene = computed(() => {
+    const v = this.data()?.viene;
+    if (!v) return null;
+    // En camino primero (lo que llega antes), después los pedidos y al final lo planeado por Compras.
+    const orden = { embarque: 0, pedido: 1, plan: 2 } as const;
+    const docs = [...v.documentos].sort((a, b) => orden[a.tipo] - orden[b.tipo] || a.dias - b.dias);
+    const restan = docs.filter((x) => x.se_resta);
+    return {
+      docs,
+      visibles: this.verTodoViene() ? docs : docs.slice(0, AlmacenAutoabastoPedidoComponent.VIENE_VISIBLES),
+      embarques: restan.filter((x) => x.tipo === 'embarque').length,
+      pedidos: restan.filter((x) => x.tipo === 'pedido').length,
+      monto: restan.reduce((s, x) => s + (x.monto ?? 0), 0),
+      viejos: docs.filter((x) => !x.se_resta && x.tipo !== 'plan').length,
+      planes: docs.filter((x) => x.tipo === 'plan').length,
+    };
+  });
+  etapa(doc: AutoabastoVieneDoc): string {
+    return ({ EMBARCADO: 'En camino', AUTORIZADO: 'Autorizado', SURTIDO: 'Surtido', CHECADO: 'Checado', PLANEADO: 'Lo planeó Compras' } as Record<string, string>)[doc.estado] ?? doc.estado;
+  }
+  hace(dias: number): string { return dias <= 0 ? 'hoy' : dias === 1 ? 'ayer' : `hace ${dias} días`; }
+  /** `[AB.23]` Lo que ya viene y se restó: pedido abierto + embarcado sin recibir. */
+  yaViene(l: AutoabastoPedidoLinea): number { return (l.ya_pedido || 0) + (l.en_camino || 0); }
+  yaVieneTitle(l: AutoabastoPedidoLinea): string {
+    if (!(this.yaViene(l) > 0)) return 'No hay nada en camino ni pedido para este producto.';
+    const p: string[] = [];
+    if (l.ya_pedido > 0) p.push(`pedido a la matriz ${qty(l.ya_pedido)}`);
+    if (l.en_camino > 0) p.push(`en camino ${qty(l.en_camino)}`);
+    return `Ya viene: ${p.join(' + ')} cajas. Ya se restó de «A pedir».`;
+  }
   /** Lo que la persona va moviendo, por producto. Manda sobre el sugerido y sobre lo guardado. */
   readonly estado = signal<Record<string, Renglon>>({});
   /** Grupos que la persona revisó y aceptó en esta sesión. */
@@ -699,6 +789,7 @@ export class AlmacenAutoabastoPedidoComponent {
               notas.push(`Ajuste: sug. ${qty(l.a_pedir.cantidad)}${m ? `, ${MOTIVO_AJUSTE_LABEL[m]}` : ''}`);
             }
             if (l.minimo_menor === 'agotado') notas.push('Agotado: se pide aunque sea poco');
+            if (l.en_camino > 0) notas.push(`En camino ${qty(l.en_camino)} cj`);
             if (l.atorado > 0) notas.push(`Atorado ${qty(l.atorado)} cj`);
             if (l.negado_30d > 0) notas.push(`Negado 30 d ${qty(l.negado_30d)} cj`);
             return {
@@ -831,8 +922,9 @@ export class AlmacenAutoabastoPedidoComponent {
 
   /** La cuenta del renglón, para auditarla: falta − ya pedido = neta → cómo se redondeó. */
   porQueAPedir(l: AutoabastoPedidoLinea): string {
-    const resta = l.ya_pedido > 0
-      ? `Falta ${qty(l.falta)} − ya pedido ${qty(l.ya_pedido)} = ${qty(l.falta_neta)} cajas.`
+    const partes = [l.ya_pedido > 0 ? ` − ya pedido ${qty(l.ya_pedido)}` : '', l.en_camino > 0 ? ` − en camino ${qty(l.en_camino)}` : ''].join('');
+    const resta = partes
+      ? `Falta ${qty(l.falta)}${partes} = ${qty(l.falta_neta)} cajas.`
       : `Falta ${qty(l.falta_neta)} cajas.`;
     switch (l.a_pedir.regla) {
       case 'cajas': return `${resta} Media caja o más: se piden cajas completas.`;
@@ -840,7 +932,7 @@ export class AlmacenAutoabastoPedidoComponent {
       case 'granel': return `${resta} Granel: kilos completos.`;
       case 'base': return `${resta} No tiene caja: se pide en ${l.a_pedir.unidad ?? 'su unidad'}.`;
       case 'sin_escalera': return `${resta} Kepler no trae su escalera de unidades: no se redondeó.`;
-      default: return l.ya_pedido > 0 ? `${resta} Lo ya pedido lo cubre.` : 'Nada que pedir.';
+      default: return this.yaViene(l) > 0 ? `${resta} Lo que ya viene lo cubre.` : 'Nada que pedir.';
     }
   }
 }

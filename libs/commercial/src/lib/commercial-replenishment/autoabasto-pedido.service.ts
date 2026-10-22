@@ -31,6 +31,15 @@ import { CommercialReplenishmentService } from './commercial-replenishment.servi
 const VENTANA_YA_PEDIDO_DIAS = 7;
 /** Lo negado se mira sobre este periodo. Sólo informa: no cambia el sugerido (decisión 2026-10-12). */
 const VENTANA_NEGADO_DIAS = 30;
+/**
+ * `[AB.23]` Lo EMBARCADO sin recibir de esta antigüedad o menos se resta. Medido 2026-10-22 sobre
+ * 1,081 embarques recibidos en 30 días: del embarque a la recepción, mediana 1 día, p90 4, máximo 11.
+ * Lo de más días se muestra (probablemente se recibió sin capturar la recepción), no se resta: es
+ * la misma regla que «atorado» para los pedidos abiertos.
+ */
+const VENTANA_EN_CAMINO_DIAS = 7;
+/** `[AB.23]` Lo que se le muestra a la sucursal como «viene»: pedidos y embarques de este periodo. */
+const VENTANA_VIENE_DIAS = 30;
 
 /**
  * Lo pedido a otra sucursal y lo que no le surtieron, por producto, para UNA sucursal destino.
@@ -71,7 +80,7 @@ h AS MATERIALIZED (
    ORDER BY k.sucursal, k.c5, k.c6, k.c9 DESC
 ),
 l AS (
-  SELECT h.est, h.f, btrim(x.c8::text) AS sku,
+  SELECT h.est, h.f, btrim(x.c8::text) AS sku, NULLIF(upper(btrim(x.c11::text)), '') AS unidad,
          NULLIF(btrim(x.c9::text), '')::numeric  AS base_qty,
          NULLIF(btrim(x.c51::text), '')::numeric AS ped,
          NULLIF(btrim(x.c54::text), '')::numeric AS emb,
@@ -81,19 +90,124 @@ l AS (
       ON x.sucursal = h.sucursal AND x.c2 = h.c2 AND x.c3 = h.c3 AND x.c4 = h.c4 AND x.c5 = h.c5 AND x.c6 = h.c6
      AND btrim(x.c1) = btrim(x.sucursal)
 )
-SELECT sku,
+SELECT sku, unidad,
        COALESCE(sum(base_qty) FILTER (WHERE est IN ('AUTORIZADO','SURTIDO','CHECADO') AND f >= current_date - ${VENTANA_YA_PEDIDO_DIAS}), 0) AS ya_pedido,
        COALESCE(sum(base_qty) FILTER (WHERE est IN ('AUTORIZADO','SURTIDO','CHECADO') AND f <  current_date - ${VENTANA_YA_PEDIDO_DIAS}), 0) AS atorado,
        COALESCE(sum(GREATEST(ped - emb, 0) * base_qty / NULLIF(fin, 0))
                 FILTER (WHERE est = 'EMBARCADO' AND f >= current_date - ${VENTANA_NEGADO_DIAS}), 0) AS negado
   FROM l
- GROUP BY sku`;
+ GROUP BY sku, unidad`;
+
+/**
+ * `[AB.23]` Lo EMBARCADO a esta sucursal (U-D-41 en la sucursal que manda, cliente `TI…` de ésta)
+ * que todavía no tiene su recepción (U-A-50 en ESTA sucursal que apunta al embarque: `c37=41`,
+ * `c38`/`c39` = serie/folio). Mismo emparejamiento que el Andén (`receiving-session.service.ts`).
+ * Cantidad por renglón en su unidad (`c9`, `c11`): se convierte a base con la escalera.
+ */
+const EMBARCADO_SIN_RECIBIR_SQL = `
+WITH dest AS (
+  SELECT dest_code FROM analytics.v_erp_branch_catalog WHERE tenant_id = :t AND suc_code = :suc
+),
+e AS MATERIALIZED (
+  SELECT h.sucursal, h.c2, h.c3, h.c4, h.c5, h.c6, (h.c9)::date AS f
+    FROM kepler_ods.kdm1 h
+   WHERE h.c2 = 'U' AND h.c3 = 'D' AND (h.c4)::int = 41 AND btrim(h.c1) = btrim(h.sucursal)
+     AND btrim(COALESCE(h.c43, '')) <> 'C'
+     AND (h.c9)::date >= current_date - ${VENTANA_EN_CAMINO_DIAS}
+     AND btrim(h.c10::text) IN (SELECT dest_code FROM dest)
+     AND NOT EXISTS (
+       SELECT 1 FROM kepler_ods.kdm1 x
+        WHERE x.c2 = 'U' AND x.c3 = 'A' AND (x.c4)::int = 50
+          AND btrim(x.sucursal) = :suc AND btrim(x.c1) = :suc
+          AND x.c37 = 41 AND x.c38 = h.c5 AND btrim(x.c39::text) = btrim(h.c6::text)
+          AND btrim(COALESCE(x.c43, '')) <> 'C' AND (x.c9)::date >= (h.c9)::date - 1)
+)
+SELECT btrim(x.c8::text) AS sku, NULLIF(upper(btrim(x.c11::text)), '') AS unidad,
+       COALESCE(sum(NULLIF(btrim(x.c9::text), '')::numeric), 0) AS en_camino
+  FROM e
+  JOIN kepler_ods.kdm2 x
+    ON x.sucursal = e.sucursal AND x.c2 = e.c2 AND x.c3 = e.c3 AND x.c4 = e.c4 AND x.c5 = e.c5 AND x.c6 = e.c6
+   AND btrim(x.c1) = btrim(x.sucursal)
+ WHERE NULLIF(btrim(x.c8::text), '') IS NOT NULL
+ GROUP BY 1, 2`;
+
+/**
+ * `[AB.23]` Los DOCUMENTOS que le van a llegar: pedidos de traspaso abiertos (versión vigente, como
+ * `PEDIDOS_SUCURSAL_SQL`) y embarques sin recibir, de `VENTANA_VIENE_DIAS`. Es lo que la sucursal
+ * lee arriba para no pedir dos veces; el detalle por producto va en cada renglón.
+ */
+const VIENE_DOCS_SQL = `
+WITH dest AS (
+  SELECT dest_code FROM analytics.v_erp_branch_catalog WHERE tenant_id = :t AND suc_code = :suc
+),
+ped AS (
+  SELECT DISTINCT ON (k.sucursal, k.c5, k.c6)
+         'pedido'::text AS tipo, btrim(k.sucursal) AS origen, (k.c5)::int AS serie, btrim(k.c6::text) AS folio,
+         upper(btrim(k.c11::text)) AS estado, (k.c9)::date AS f,
+         NULLIF(regexp_replace(k.c16::text, '[^0-9.-]', '', 'g'), '')::numeric AS monto,
+         k.sucursal AS s_raw, k.c2, k.c3, k.c4, k.c5, k.c6
+    FROM kepler_ods.kdm1 k
+   WHERE k.c2 = 'U' AND k.c3 = 'D' AND (k.c4)::int = 40 AND btrim(k.c1) = btrim(k.sucursal)
+     AND k.c9 >= current_date - ${VENTANA_VIENE_DIAS} AND upper(btrim(k.c27::text)) = 'SUCURSAL'
+     AND btrim(k.c10::text) IN (SELECT dest_code FROM dest)
+   ORDER BY k.sucursal, k.c5, k.c6, k.c9 DESC
+),
+emb AS (
+  SELECT 'embarque'::text AS tipo, btrim(h.sucursal) AS origen, (h.c5)::int AS serie, btrim(h.c6::text) AS folio,
+         'EMBARCADO'::text AS estado, (h.c9)::date AS f,
+         NULLIF(regexp_replace(h.c16::text, '[^0-9.-]', '', 'g'), '')::numeric AS monto,
+         h.sucursal AS s_raw, h.c2, h.c3, h.c4, h.c5, h.c6
+    FROM kepler_ods.kdm1 h
+   WHERE h.c2 = 'U' AND h.c3 = 'D' AND (h.c4)::int = 41 AND btrim(h.c1) = btrim(h.sucursal)
+     AND btrim(COALESCE(h.c43, '')) <> 'C'
+     AND (h.c9)::date >= current_date - ${VENTANA_VIENE_DIAS}
+     AND btrim(h.c10::text) IN (SELECT dest_code FROM dest)
+     AND NOT EXISTS (
+       SELECT 1 FROM kepler_ods.kdm1 x
+        WHERE x.c2 = 'U' AND x.c3 = 'A' AND (x.c4)::int = 50
+          AND btrim(x.sucursal) = :suc AND btrim(x.c1) = :suc
+          AND x.c37 = 41 AND x.c38 = h.c5 AND btrim(x.c39::text) = btrim(h.c6::text)
+          AND btrim(COALESCE(x.c43, '')) <> 'C' AND (x.c9)::date >= (h.c9)::date - 1)
+),
+docs AS (
+  SELECT * FROM ped WHERE estado IN ('AUTORIZADO', 'SURTIDO', 'CHECADO')
+  UNION ALL SELECT * FROM emb
+)
+SELECT d.tipo, d.origen, d.serie, d.folio, d.estado, to_char(d.f, 'YYYY-MM-DD') AS fecha,
+       (current_date - d.f)::int AS dias, d.monto,
+       (SELECT count(*) FROM kepler_ods.kdm2 x
+         WHERE x.sucursal = d.s_raw AND x.c2 = d.c2 AND x.c3 = d.c3 AND x.c4 = d.c4 AND x.c5 = d.c5 AND x.c6 = d.c6
+           AND btrim(x.c1) = btrim(x.sucursal) AND NULLIF(btrim(x.c8::text), '') IS NOT NULL)::int AS renglones
+  FROM docs d
+ ORDER BY d.f DESC, d.origen, d.folio DESC`;
+
+/**
+ * `[AB.24]` Lo que Compras planeó mandarle a ESTA sucursal desde `/compras/pedido` (requisición de
+ * traspaso, `source_type='branch'`) que todavía no llegó a Kepler. Medido 2026-10-22: de 788, ninguna
+ * llegó (el envío está apagado: `KEPLER_PUSH_URL sin configurar`). Sólo lo reciente: 306 aprobadas
+ * tienen más de 7 días y son planes que nadie ejecutó.
+ */
+const PLANEADO_COMPRAS_SQL = `
+SELECT r.id, r.folio, r.estado, coalesce(wo.kepler_code, wo.code) AS origen, to_char(r.created_at::date, 'YYYY-MM-DD') AS fecha,
+       (current_date - r.created_at::date)::int AS dias, r.total_cost AS monto, l.product_id, l.final_qty
+  FROM commercial.purchase_requisitions r
+  JOIN commercial.purchase_requisition_lines l ON l.requisition_id = r.id AND l.tenant_id = r.tenant_id
+  LEFT JOIN commercial.warehouses wo ON wo.id = r.source_warehouse_id AND wo.tenant_id = r.tenant_id
+ WHERE r.tenant_id = :t AND r.warehouse_id = :wh AND r.source_type = 'branch'
+   AND r.estado IN ('pending_approval', 'approved') AND r.kepler_folio IS NULL
+   AND r.created_at >= now() - interval '${VENTANA_YA_PEDIDO_DIAS} days'
+   AND COALESCE(l.final_qty, 0) > 0`;
 
 /** ¿Hay cliente de traspaso para esta sucursal? Sin él, lo pedido NO se mide (≠ «cero»). */
 const TIENE_DESTINO_SQL = `SELECT 1 FROM analytics.v_erp_branch_catalog WHERE tenant_id = :t AND suc_code = :suc LIMIT 1`;
 
 
-interface FilaPedidos { sku: string; ya_pedido: string | number; atorado: string | number; negado: string | number }
+interface FilaPedidos { sku: string; unidad: string | null; ya_pedido: string | number; atorado: string | number; negado: string | number }
+interface FilaEnCamino { sku: string; unidad: string | null; en_camino: string | number }
+interface FilaPlan { id: string; folio: string | null; estado: string; origen: string | null; fecha: string; dias: number; monto: string | number | null; product_id: string; final_qty: string | number }
+interface FilaDoc { tipo: 'pedido' | 'embarque'; origen: string; serie: number; folio: string; estado: string; fecha: string; dias: number; monto: string | number | null; renglones: number }
+/** Lo que viene de un producto, ya en unidad BASE. */
+interface VieneSku { ya: number; atorado: number; negado: number; camino: number }
 interface FilaEscalera {
   sku: string; unit_base: string | null; u2_label: string | null; u3_label: string | null;
   f2: string | number | null; f3: string | number | null; is_weight: boolean | null;
@@ -109,6 +223,25 @@ const numONull = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 const r1 = (n: number) => Math.round(n * 10) / 10;
+/**
+ * `[AB.23]` Unidades BASE por unidad del renglón, con la escalera de Kepler. Antes se asumía que
+ * `kdm2.c9` venía en base, y casi siempre es así — pero medido el 2026-10-22, 44 renglones de pedidos
+ * de traspaso en 30 días venían en CAJAS (y 44 de embarques en 15): un pedido de 2 cajas restaba 2
+ * paquetes. `null` = la escalera EXISTE y no conoce la unidad: no se adivina.
+ */
+export function factorBaseDe(unidad: string | null, e: EscaleraUnidades | null): number | null {
+  const u = (unidad ?? '').trim().toUpperCase();
+  // Sin escalera se toma la base, como antes de `[AB.23]`: no restar nada sería peor que restar en base.
+  if (!e) return 1;
+  if (!u || u === (e.unit_base ?? '').trim().toUpperCase()) return 1;
+  if (u === (e.u2_label ?? '').trim().toUpperCase() && Number(e.f2) > 0) return Number(e.f2);
+  if (u === (e.u3_label ?? '').trim().toUpperCase() && Number(e.f3) > 0) return Number(e.f3);
+  // La base con rótulo de GRAMAJE (`500`, `250`) llega sin nombre a la escalera (`unit_base` null).
+  // Medido 2026-10-22 con 02972 OREO GRANEL: el embarque venía en «500» a $47.79, que es el costo por
+  // unidad base. Lo cazó el testigo de test-newdb-autoabasto-en-camino.js.
+  if (!e.unit_base && /^[0-9]+$/.test(u)) return 1;
+  return null;
+}
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
@@ -137,7 +270,7 @@ export class AutoabastoPedidoService {
     const filas = mesa.rows;
     const skus = [...new Set(filas.map((f) => String(f['sku'])))];
 
-    const { pedidos, escaleras, medidos, borrador, ajustes, guardable, posiciones } = await this.tk.run(async (trx: Knex.Transaction) => {
+    const { pedidos, enCamino, docs, planes, escaleras, medidos, borrador, ajustes, guardable, posiciones } = await this.tk.run(async (trx: Knex.Transaction) => {
       // `[AB.18]` El borrador guardado y lo que la persona ya ajustó. Sólo LEE: abrir el pedido no
       // escribe nada (el borrador nace con el primer ajuste). Si la migración del borrador todavía
       // no llegó a esta base, el pedido se sirve igual y lo declara (`guardado_disponible`); se pregunta con
@@ -166,11 +299,17 @@ export class AutoabastoPedidoService {
       const binds = { t: tenantId, suc: almacen.code };
       const destino = await trx.raw(TIENE_DESTINO_SQL, binds);
       const medidos = (destino.rows ?? []).length > 0;
-      const pedidos = new Map<string, FilaPedidos>();
+      // `[AB.23]` Por (producto, unidad): se convierte a base más abajo, con la escalera.
+      const pedidos: FilaPedidos[] = [];
+      const enCamino: FilaEnCamino[] = [];
+      let docs: FilaDoc[] = [];
       if (medidos) {
-        const r = await trx.raw(PEDIDOS_SUCURSAL_SQL, binds);
-        for (const p of (r.rows ?? []) as FilaPedidos[]) pedidos.set(p.sku, p);
+        pedidos.push(...(((await trx.raw(PEDIDOS_SUCURSAL_SQL, binds)).rows ?? []) as FilaPedidos[]));
+        enCamino.push(...(((await trx.raw(EMBARCADO_SIN_RECIBIR_SQL, binds)).rows ?? []) as FilaEnCamino[]));
+        docs = ((await trx.raw(VIENE_DOCS_SQL, binds)).rows ?? []) as FilaDoc[];
       }
+      // `[AB.24]` Lo planeado por Compras no depende de Kepler: se lee siempre.
+      const planes = ((await trx.raw(PLANEADO_COMPRAS_SQL, { t: tenantId, wh: almacen.id })).rows ?? []) as FilaPlan[];
       const escaleras = new Map<string, EscaleraUnidades>();
       if (skus.length) {
         // Escalera de unidades de Kepler (vista sobre kdii), sólo de los productos de la mesa.
@@ -184,18 +323,45 @@ export class AutoabastoPedidoService {
           });
         }
       }
-      return { pedidos, escaleras, medidos, borrador, ajustes, guardable, posiciones };
+      return { pedidos, enCamino, docs, planes, escaleras, medidos, borrador, ajustes, guardable, posiciones };
     });
 
+    // `[AB.23]` Lo que viene, por producto y en BASE. Una unidad que la escalera no conoce no se suma: se cuenta.
+    const viene = new Map<string, VieneSku>();
+    let sinUnidad = 0;
+    const enMesa = new Set(skus);   // lo que no está en la mesa no se pinta: ni se suma ni se cuenta
+    const sumar = (sku: string, unidad: string | null, campo: keyof VieneSku, qty: number) => {
+      if (!(qty > 0) || !enMesa.has(sku)) return;
+      const k = factorBaseDe(unidad, escaleras.get(sku) ?? null);
+      if (k == null) { sinUnidad++; return; }
+      const v = viene.get(sku) ?? { ya: 0, atorado: 0, negado: 0, camino: 0 };
+      v[campo] += qty * k;
+      viene.set(sku, v);
+    };
+    for (const p of pedidos) {
+      sumar(p.sku, p.unidad, 'ya', num(p.ya_pedido));
+      sumar(p.sku, p.unidad, 'atorado', num(p.atorado));
+      sumar(p.sku, p.unidad, 'negado', num(p.negado));
+    }
+    for (const e of enCamino) sumar(e.sku, e.unidad, 'camino', num(e.en_camino));
+    // `[AB.24]` Lo planeado por Compras, por producto (cajas) y por documento.
+    const planPorProducto = new Map<string, number>();
+    const planDocs = new Map<string, FilaPlan & { renglones: number }>();
+    for (const p of planes) {
+      planPorProducto.set(p.product_id, (planPorProducto.get(p.product_id) ?? 0) + num(p.final_qty));
+      const d = planDocs.get(p.id);
+      if (d) d.renglones++; else planDocs.set(p.id, { ...p, renglones: 1 });
+    }
     const grupos = new Map<string, AutoabastoPedidoGrupo>();
     for (const f of filas) {
       const sku = String(f['sku']);
       // El factor del almacén: las cantidades "_nat" vienen en unidad base, las de la mesa en cajas.
       const cf = Math.max(1, num(f['caja_factor']));
-      const p = pedidos.get(sku);
-      const yaBase = num(p?.ya_pedido);
+      const p = viene.get(sku);
+      const yaBase = p?.ya ?? 0;
+      const caminoBase = p?.camino ?? 0;
       const faltaBase = num(f['suggested_qty_nat']);
-      const netaBase = Math.max(0, faltaBase - yaBase);
+      const netaBase = Math.max(0, faltaBase - yaBase - caminoBase);
       const costo = numONull(f['unit_cost']);
       // Se valúa sólo si el motor no retuvo el $ del renglón (peldaño contradicho, U.2).
       const valuable = f['rung_veredicto'] == null && costo != null;
@@ -222,8 +388,10 @@ export class AutoabastoPedidoService {
         objetivo: numONull(f['target_qty']),
         falta: num(f['suggested_qty']),
         ya_pedido: r1(yaBase / cf),
-        atorado: r1(num(p?.atorado) / cf),
-        negado_30d: r1(num(p?.negado) / cf),
+        atorado: r1((p?.atorado ?? 0) / cf),
+        negado_30d: r1((p?.negado ?? 0) / cf),
+        en_camino: r1(caminoBase / cf),
+        planeado_compras: r1(planPorProducto.get(productId) ?? 0),
         falta_neta: r1(netaBase / cf),
         a_pedir: aPedir,
         ajuste,
@@ -292,6 +460,21 @@ export class AutoabastoPedidoService {
       cobertura_dias: coberturaAutoabasto(almacen.code),
       ventana_ya_pedido_dias: VENTANA_YA_PEDIDO_DIAS,
       ventana_negado_dias: VENTANA_NEGADO_DIAS,
+      ventana_en_camino_dias: VENTANA_EN_CAMINO_DIAS,
+      viene: medidos || planDocs.size ? {
+        documentos: [
+          ...docs.map((d) => ({
+            tipo: d.tipo, origen: d.origen, serie: Number(d.serie), folio: d.folio, estado: d.estado, fecha: d.fecha,
+            dias: Number(d.dias), renglones: Number(d.renglones), monto: numONull(d.monto),
+            se_resta: d.tipo === 'embarque' ? Number(d.dias) <= VENTANA_EN_CAMINO_DIAS : Number(d.dias) <= VENTANA_YA_PEDIDO_DIAS,
+          })),
+          ...[...planDocs.values()].map((p) => ({
+            tipo: 'plan' as const, origen: p.origen ?? '', serie: 0, folio: p.folio ?? '', estado: 'PLANEADO', fecha: p.fecha,
+            dias: Number(p.dias), renglones: p.renglones, monto: numONull(p.monto), se_resta: false,
+          })),
+        ],
+        renglones_sin_unidad: sinUnidad,
+      } : null,
       grupos: lista,
       pedidos_medidos: medidos,
       pedido_id: borrador,
