@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { classifyWith, compileRules } from '../bank/finance-bank.service';
 import { patronDe, reglaBeneficiario, textoBeneficiario, type ReglaBeneficiario } from './beneficiario';
 

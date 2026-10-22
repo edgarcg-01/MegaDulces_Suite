@@ -2,6 +2,7 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { MaatToolsService } from './maat-tools.service';
+import type { ContpaqiBalanzaRenglones, ContpaqiBancoMovimientos } from '@megadulces/contracts';
 
 /**
  * Fase CP (ADR-040) — superficie ContPAQi en el proyecto **Contabilidad** (`/contabilidad/contpaqi`).
@@ -42,7 +43,7 @@ export class ContabilidadContpaqiController {
     @Query('from_mes') from_mes?: string,
     @Query('to_mes') to_mes?: string,
     @Query('page') page?: string,
-  ) {
+  ): Promise<ContpaqiBalanzaRenglones> {
     return this.maat.contpaqiBalanzaRenglones({ cuenta, from_mes, to_mes, page: page ? Number(page) : 1 });
   }
 
@@ -72,7 +73,7 @@ export class ContabilidadContpaqiController {
     @Query('from_mes') from_mes?: string,
     @Query('to_mes') to_mes?: string,
     @Query('page') page?: string,
-  ) {
+  ): Promise<ContpaqiBancoMovimientos> {
     return this.maat.contpaqiBancoMovimientos({ cuenta, mes, flujo, from_mes, to_mes, page: page ? Number(page) : 1 });
   }
 

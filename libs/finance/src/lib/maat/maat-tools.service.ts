@@ -1,5 +1,43 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import type {
+  ContpaqiBalanzaRenglones, ContpaqiBalanzaRenglonesQuery, ContpaqiBancoMovimientos,
+  ContpaqiBancoMovimientosQuery, ContpaqiMovimientoBanco, ContpaqiRenglonPoliza,
+} from '@megadulces/contracts';
+
+/**
+ * `[LC.21]` Las filas CRUDAS que devuelve el `select`, antes de normalizarlas al contrato.
+ *
+ * ⚠️ Los `numeric` llegan como **string**: node-pg entrega `numeric` como texto para no perder
+ * precisión. Tiparlos de `number` invita a sumarlos sin convertirlos, que es como se fabrica un
+ * total equivocado que se lee igual que uno correcto. Por eso `string | number` y un `Number()`
+ * explícito en el mapeo.
+ */
+interface FilaPolizaCruda {
+  anio_mes: string;
+  tipo_pol: string | number;
+  folio: string | number;
+  num_movto: string | number;
+  cargo_abono: string;
+  importe: string | number;
+  referencia: string | null;
+  concepto: string | null;
+  cfdi_uuid: string | null;
+}
+
+/** `[LC.21]` Ídem para el auxiliar bancario. `fecha` llega como `Date` del driver. */
+interface FilaBancoCruda {
+  fecha: Date | string | null;
+  cuenta: string | null;
+  cuenta_nombre: string | null;
+  flujo: string;
+  importe: string | number;
+  concepto: string | null;
+  referencia: string | null;
+  poliza_tipo: string | null;
+  poliza_folio: string | number | null;
+  es_conciliado: boolean | null;
+}
 import { MaatActionsService } from './maat-actions.service';
 import { MaatKnowledgeVectorService } from './maat-knowledge-vector.service';
 import { MaatProviderGraphService } from './maat-provider-graph.service';
@@ -725,7 +763,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
    * clientes (1050…) traen $1.24 M de cargos en la balanza sin ningún renglón de póliza importado.
    * Por eso se devuelven las dos sumas: el desglose dice si cuadra, no lo supone.
    */
-  async contpaqiBalanzaRenglones(q: any) {
+  async contpaqiBalanzaRenglones(q: ContpaqiBalanzaRenglonesQuery): Promise<ContpaqiBalanzaRenglones> {
     const cuenta = String(q.cuenta ?? '').trim();
     if (!/^\d{4,20}$/.test(cuenta)) throw new BadRequestException('cuenta inválida');
     const { from_mes, to_mes } = this.mesRange(q);
@@ -745,7 +783,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         .select(trx.raw('MAX(l.cuenta_nombre) AS nombre'),
           trx.raw('ROUND(COALESCE(SUM(l.cargos), 0)::numeric, 2) AS cargos'),
           trx.raw('ROUND(COALESCE(SUM(l.abonos), 0)::numeric, 2) AS abonos')).first();
-      const rows: any[] = await base()
+      const rows: FilaPolizaCruda[] = await base()
         .orderBy([{ column: 'g.anio_mes' }, { column: 'g.tipo_pol' }, { column: 'g.folio' }, { column: 'g.num_movto' }])
         .limit(size).offset((page - 1) * size)
         .select('g.anio_mes', 'g.tipo_pol', 'g.folio', 'g.num_movto', 'g.cargo_abono', 'g.importe', 'g.referencia', 'g.concepto', 'g.cfdi_uuid');
@@ -807,7 +845,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
    * mes (`mes`), y opcionalmente sólo depósitos o retiros (`flujo`) — lo que se haya abierto: el
    * número de «Movs», «Depósitos» o «Retiros». Devuelve la suma de lo filtrado para que cuadre a la vista.
    */
-  async contpaqiBancoMovimientos(q: any) {
+  async contpaqiBancoMovimientos(q: ContpaqiBancoMovimientosQuery): Promise<ContpaqiBancoMovimientos> {
     const cuenta = q.cuenta ? String(q.cuenta).trim() : null;
     const mes = q.mes ? String(q.mes).trim() : null;
     if (cuenta && !/^\d{4,20}$/.test(cuenta)) throw new BadRequestException('cuenta inválida');
@@ -828,7 +866,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
       const t = await base().select(trx.raw('count(*)::int AS movs'),
         trx.raw("ROUND(COALESCE(SUM(m.importe) FILTER (WHERE m.flujo = 'deposito'), 0)::numeric, 2) AS depositos"),
         trx.raw("ROUND(COALESCE(SUM(m.importe) FILTER (WHERE m.flujo = 'retiro'), 0)::numeric, 2) AS retiros")).first();
-      const rows: any[] = await base()
+      const rows: FilaBancoCruda[] = await base()
         .orderBy([{ column: 'm.fecha', order: 'desc' }, { column: 'm.importe', order: 'desc' }])
         .limit(size).offset((page - 1) * size)
         .select('m.fecha', 'm.cuenta', 'm.cuenta_nombre', 'm.flujo', 'm.importe', 'm.concepto', 'm.referencia',

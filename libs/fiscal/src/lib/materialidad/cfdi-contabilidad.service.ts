@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import type { CfdisProveedorResponse } from '@megadulces/contracts';
 
 /**
  * CP.8 (Fase CP, ADR-040) — CFDI ↔ Contabilidad (ContPAQi). Valor fiscal #1: cruza los CFDI
@@ -90,7 +91,7 @@ export class CfdiContabilidadService {
    * MISMO filtro que los cuenta (recibidos, I/E, no cancelados, del mes) — así `num_cfdis` y `total`
    * del renglón son exactamente el conteo y la suma de esta lista.
    */
-  async cfdisDeProveedor(period?: string, rfc?: string) {
+  async cfdisDeProveedor(period?: string, rfc?: string): Promise<CfdisProveedorResponse> {
     const p = this.normPeriod(period);
     const r = String(rfc ?? '').trim().toUpperCase();
     if (!/^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$/.test(r)) throw new BadRequestException('RFC inválido');

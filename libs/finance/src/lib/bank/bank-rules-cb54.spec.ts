@@ -1,6 +1,5 @@
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
 import { compileRules, classifyWith, type ClassifyRuleRow } from './finance-bank.service';
 
 /**

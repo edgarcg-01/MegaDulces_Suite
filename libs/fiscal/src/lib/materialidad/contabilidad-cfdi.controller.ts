@@ -2,6 +2,7 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CfdiContabilidadService } from './cfdi-contabilidad.service';
+import type { CfdisProveedorResponse } from '@megadulces/contracts';
 
 /**
  * CP.8 (Fase CP, ADR-040) — CFDI ↔ Contabilidad (ContPAQi). Vive en Contabilidad:
@@ -24,5 +25,5 @@ export class ContabilidadCfdiController {
   @Get('cfdis')
   @RequirePermissions(Permission.FISCAL_CONTAB_VER)
   @ApiOperation({ summary: 'Los CFDI recibidos de un proveedor en el periodo, con el mismo filtro que el renglón de overview.' })
-  cfdis(@Query('period') period?: string, @Query('rfc') rfc?: string) { return this.svc.cfdisDeProveedor(period, rfc); }
+  cfdis(@Query('period') period?: string, @Query('rfc') rfc?: string): Promise<CfdisProveedorResponse> { return this.svc.cfdisDeProveedor(period, rfc); }
 }

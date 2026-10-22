@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nest
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import { SupplierPaymentAccountsService, CreateAccountChangeRequestDto } from './supplier-payment-accounts.service';
+import type { CuentasPagoFaltantesResponse } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -29,7 +30,7 @@ export class SupplierPaymentAccountsController {
   @Get('faltantes')
   @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'PGP.1 — proveedores que cobran por banco y no tienen cuenta de pago, por dinero descendente.' })
-  listMissing(@Query('dias') dias?: string) {
+  listMissing(@Query('dias') dias?: string): Promise<CuentasPagoFaltantesResponse> {
     return this.svc.listMissingAccounts(dias ? Number(dias) : 120);
   }
 

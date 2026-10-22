@@ -105,6 +105,7 @@ export * from './http/presale-picking.contract';
 export * from './http/new-customers-kepler.contract';
 export * from './http/presale-route.contract';
 export * from './http/supervisor-board.contract';
+export * from './http/contabilidad-contpaqi.contract';
 // [MCP.3.7] Protocolo de visitas: el monitoreo de visitas del día para el supervisor de ventas.
 export * from './http/visit-monitor.contract';
 // [MCP.5] Guías de carga de preventa: el repartidor pesca sus pedidos y la cajera imprime la guía.
