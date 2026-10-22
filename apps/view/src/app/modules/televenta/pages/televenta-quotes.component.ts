@@ -288,8 +288,8 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
       .kpi-label { font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
       .kpi-value { font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
       .kpi-foot { font-size: var(--fs-xs); color: var(--text-muted); }
-      .kpi-warn .kpi-value { color: var(--yellow-600, #b45309); }
-      .kpi-danger .kpi-value { color: var(--red-600, #b91c1c); }
+      .kpi-warn .kpi-value { color: var(--warn-soft-fg); }
+      .kpi-danger .kpi-value { color: var(--bad-fg); }
 
       .toolbar { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem; }
       .chips { display: flex; gap: 0.35rem; }
@@ -298,8 +298,8 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
         border-radius: 9999px; padding: 0.35rem 0.85rem; font-size: var(--fs-sm);
         cursor: pointer; color: var(--text-muted); min-height: 32px;
       }
-      .chip:hover { background: var(--neutral-100); }
-      .chip-active { background: var(--primary-color, var(--action)); border-color: var(--primary-color, var(--action)); color: #fff; font-weight: 600; }
+      .chip:hover { background: var(--hover-bg); }
+      .chip-active { background: var(--action); border-color: var(--action); color: var(--action-ink); font-weight: 600; }
       .search {
         flex: 1; min-width: 220px; padding: 0.4rem 0.75rem;
         border: 1px solid var(--border-color); border-radius: 6px; font-size: var(--fs-body);
@@ -311,13 +311,13 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
       .table-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; overflow-x: auto; }
       .num { text-align: right; }
       .mono { font-family: var(--font-mono, monospace); font-size: var(--fs-sm); }
-      .lineage { display: block; font-size: var(--fs-xs); color: var(--green-600, #15803d); }
+      .lineage { display: block; font-size: var(--fs-xs); color: var(--ok-soft-fg); }
       .recipient { display: block; font-size: var(--fs-body); }
       .cust-code { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
       .prospect { font-style: italic; }
       .days { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
-      .overdue { color: var(--red-600, #b91c1c); font-weight: 600; }
-      .unmatched { display: block; font-size: var(--fs-xs); color: var(--yellow-700, #a16207); }
+      .overdue { color: var(--bad-fg); font-weight: 600; }
+      .unmatched { display: block; font-size: var(--fs-xs); color: var(--warn-soft-fg); }
       .muted { color: var(--text-muted); font-size: var(--fs-sm); }
       .table-foot { margin: 0; padding: 0.5rem 0.75rem; font-size: var(--fs-xs); color: var(--text-muted); border-top: 1px solid var(--border-color); }
 
