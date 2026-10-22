@@ -67,6 +67,14 @@ const UUIDS = [
   '1C170000-0000-4000-8000-000000000001', '1C170000-0000-4000-8000-000000000002',
   '1C170000-0000-4000-8000-000000000003', '1C170000-0000-4000-8000-000000000004',
 ];
+// [LC.19.6] Otro mes, sin corrida, para «preparar»: un proveedor con UNA cuenta de nombre idéntico
+// (se asigna sola) y uno con DOS cuentas del mismo nombre (no se adivina).
+const MES2 = '2031-04';
+const RFC_AUTO = 'LCA190101AAA';
+const SUF_AUTO = '9990047';
+const RFC_DOBLE = 'LCD190101AAA';
+const SUF_DOBLE = ['9990057', '9990067'];
+const UUIDS2 = ['1C190000-0000-4000-8000-000000000001', '1C190000-0000-4000-8000-000000000002'];
 
 let ok = 0;
 let fail = 0;
@@ -243,12 +251,14 @@ async function completo(urlAdmin, urlRuntime) {
     const ids = (await admin('finance.purchase_book_runs').where({ tenant_id: MEGA, anio_mes: MES }).select('id')).map((r) => r.id);
     if (ids.length) await admin('finance.purchase_book_run_items').whereIn('run_id', ids).del();
     await admin('finance.purchase_book_runs').where({ tenant_id: MEGA, anio_mes: MES }).del();
-    await admin('fiscal.cfdis').where({ tenant_id: MEGA }).whereIn('uuid', UUIDS).del();
-    await admin('finance.gl_supplier_accounts').where({ tenant_id: MEGA }).whereIn('rfc', [RFC, RFC_SIN_HIST, RFC_NUEVO]).del();
+    await admin('fiscal.cfdis').where({ tenant_id: MEGA }).whereIn('uuid', [...UUIDS, ...UUIDS2]).del();
+    await admin('finance.gl_supplier_accounts').where({ tenant_id: MEGA }).whereIn('rfc', [RFC, RFC_SIN_HIST, RFC_NUEVO, RFC_AUTO, RFC_DOBLE]).del();
     await admin('analytics.gl_poliza_lines').where({ tenant_id: MEGA, source: 'contpaqi', anio_mes: '2031-02' })
       .whereIn('cuenta', [`212${SUF}`]).del();
+    // [LC.19.6] La póliza «de ContPAQi» que siembra la prueba del aplicado automático (mes futuro: no hay datos reales).
+    await admin('analytics.gl_poliza_lines').where({ tenant_id: MEGA, source: 'contpaqi', anio_mes: MES }).del();
     await admin('analytics.contpaqi_accounts').where({ tenant_id: MEGA })
-      .whereIn('codigo', [`212${SUF_NUEVO}`, `501${SUF_NUEVO}`, `502${SUF_NUEVO}`]).del();
+      .whereIn('codigo', [`212${SUF_NUEVO}`, `501${SUF_NUEVO}`, `502${SUF_NUEVO}`, `212${SUF_AUTO}`, ...SUF_DOBLE.map((s) => `212${s}`)]).del();
   };
   try {
     for (const t of ['finance.purchase_book_runs', 'finance.purchase_book_run_items', 'fiscal.cfdis', 'finance.gl_supplier_accounts',
@@ -449,6 +459,25 @@ async function completo(urlAdmin, urlRuntime) {
     it = await items();
     check(it.length === 2, `sigue habiendo una fila por factura (dio ${it.length}), no se duplicaron`);
 
+    console.log('\n[7b] LC.19.6 — poner el porqué de una exclusión no tira el archivo');
+    await svc.setInclusion(MES, [UUIDS[2]], false, undefined, 'complemento');
+    await svc.generar(MES, { impuestos: 'global', uuid: true, ...T });
+    const sm = await svc.setInclusion(MES, [UUIDS[2]], false, 'gasto o servicio', 'complemento');
+    r = await corrida();
+    const itSm = (await items()).find((x) => x.cfdi_uuid === UUIDS[2]);
+    check(sm.archivo_invalidado === false && r.estado === 'generado' && !!r.archivo_contenido,
+      `⭐ sólo cambió el motivo: el archivo sigue (${r.estado}, archivo_invalidado=${sm.archivo_invalidado})`);
+    const { rows: [mot] } = await admin.raw(
+      `SELECT i.motivo FROM finance.purchase_book_run_items i JOIN finance.purchase_book_runs r ON r.id = i.run_id
+        WHERE r.tenant_id = ? AND r.anio_mes = ? AND i.cfdi_uuid = ?`, [MEGA, MES, UUIDS[2]]);
+    check(itSm && itSm.incluida === false && mot && mot.motivo === 'gasto o servicio', 'y el motivo de la lista cerrada quedó guardado');
+    const camb = await svc.setInclusion(MES, [UUIDS[1]], false, undefined, 'complemento');
+    check(camb.archivo_invalidado === true && (await corrida()).estado === 'borrador',
+      '⛔ prueba negativa: sacar una que estaba DENTRO sí invalida el archivo');
+    await svc.setInclusion(MES, [UUIDS[1]], true, undefined, 'complemento');
+    await svc.generar(MES, { impuestos: 'global', uuid: true, ...T });
+    r = await corrida();
+
     console.log('\n[8] Un archivo legado guardado no se entrega');
     const bueno = r.archivo_contenido;
     const viejo = bueno.split('\r\n').map((l) => (l.startsWith('M1') ? `M ${l.slice(2)}` : l)).join('\r\n');
@@ -461,9 +490,31 @@ async function completo(urlAdmin, urlRuntime) {
     check(d.run.archivo_vigente === false, 'la pantalla lo sabe (archivo_vigente = false)');
     await admin('finance.purchase_book_runs').where({ id: r.id }).update({ archivo_contenido: bueno });
 
+    console.log('\n[8b] LC.19.6 — aplicado SOLO, cuando ContPAQi casa renglón por renglón (sin «entregado»)');
+    const { parsearTxt: parsear } = require(path.join(SRC, 'poliza-txt.ts'));
+    const px = parsear(bueno);
+    const sembrarPoliza = async (alterar) => {
+      await admin('analytics.gl_poliza_lines').where({ tenant_id: MEGA, source: 'contpaqi', anio_mes: MES }).del();
+      await admin('analytics.gl_poliza_lines').insert(px.movimientos.map((m, i) => ({
+        tenant_id: MEGA, source: 'contpaqi', sucursal: '00', ejercicio: 2031, periodo: 3, tipo_pol: '3', folio: String(px.header.folio),
+        num_movto: i + 1, cuenta: m.cuenta, cargo_abono: m.abono ? 'A' : 'C',
+        importe: alterar && i === 0 ? r2c(m.importe + 0.01) : m.importe, anio_mes: MES,
+      })));
+      // El espejo de pólizas tiene que ser más nuevo que la generación (guarda de cuadrarContraContpaqi).
+      await admin('analytics.cron_runs').where({ tenant_id: MEGA, job_key: 'feed_contpaqi' })
+        .update({ last_start: admin.fn.now(), last_finish: admin.fn.now() });
+    };
+    await sembrarPoliza(true);
+    let pr = await svc.preparar(MES);
+    check(!pr.aplicado.hecho && /no casa/.test(String(pr.aplicado.motivo)) && (await corrida()).estado === 'generado',
+      `⛔ prueba negativa: un renglón editado al importar (+$0.01) NO se marca solo — «${String(pr.aplicado.motivo).slice(0, 70)}…»`);
+    await sembrarPoliza(false);
+    pr = await svc.preparar(MES);
+    r = await corrida();
+    check(pr.aplicado.hecho && r.estado === 'aplicado' && /aplicado automático/.test(String(r.notas)),
+      `⭐ casa renglón por renglón → aplicado solo, con su nota (${pr.aplicado.motivo})`);
+
     console.log('\n[9] aplicado es terminal');
-    await svc.marcar(MES, 'entregado', T);
-    await svc.marcar(MES, 'aplicado', T);
     e = await rechazo(() => svc.marcar(MES, 'cancelado', T));
     check(e && /ya está aplicado/.test(msg(e)), '⛔ una aplicada no se cancela (sus facturas volverían a ofrecerse)');
     e = await rechazo(() => svc.marcar(MES, 'entregado', T));
@@ -490,6 +541,30 @@ async function completo(urlAdmin, urlRuntime) {
     const fN = d.facturas.find((f) => f.uuid === UUIDS[3]);
     check(fN && fN.account_suffix === SUF_NUEVO && fN.cuenta_existe && !fN.en_libro_reciente && !fN.incluida,
       'el mes ya la ve con cuenta; como nunca entró al libro, espera revisión (no entra sola)');
+
+    console.log('\n[11] LC.19.6 — preparar asigna sola la cuenta de nombre idéntico, y sólo esa');
+    await admin('analytics.contpaqi_accounts').insert([
+      { tenant_id: MEGA, codigo: `212${SUF_AUTO}`, nombre: 'CANDADO AUTO LC19', computed_at: admin.fn.now() },
+      ...SUF_DOBLE.map((s) => ({ tenant_id: MEGA, codigo: `212${s}`, nombre: 'CANDADO DOBLE LC19', computed_at: admin.fn.now() })),
+    ]);
+    for (const [i, [uuid, rfc, nombre]] of [[UUIDS2[0], RFC_AUTO, 'CANDADO AUTO LC19'], [UUIDS2[1], RFC_DOBLE, 'CANDADO DOBLE LC19']].entries()) {
+      await admin('fiscal.cfdis').insert({
+        tenant_id: MEGA, uuid, tipo_comprobante: 'I', serie: 'LC', folio: `19${i}`, fecha: '2031-04-10',
+        emisor_rfc: rfc, emisor_nombre: nombre, subtotal: 100, descuento: 0, total: 100,
+        impuestos: JSON.stringify({ iva_trasladado: 0, ieps_trasladado: 0 }), rol: 'recibidas', source: 'contpaqi_add', aso_contabilidad: false,
+      });
+    }
+    const svc2 = servicio(runtime); // instancia nueva: el caché de candidatas no conoce las cuentas recién sembradas
+    const p2 = await svc2.preparar(MES2);
+    const auto = await admin('finance.gl_supplier_accounts').where({ tenant_id: MEGA, rfc: RFC_AUTO }).first();
+    check(p2.cuentas_asignadas.some((c) => c.rfc === RFC_AUTO && c.cuenta === `212${SUF_AUTO}`) && auto && auto.source === 'auto_lc',
+      `⭐ nombre idéntico y una sola candidata libre → asignada sola, rotulada auto_lc (${auto ? auto.source : 'sin fila'})`);
+    check(!(await admin('finance.gl_supplier_accounts').where({ tenant_id: MEGA, rfc: RFC_DOBLE }).first())
+      && !p2.cuentas_asignadas.some((c) => c.rfc === RFC_DOBLE),
+      '⛔ prueba negativa: dos cuentas con el mismo nombre → no se adivina, queda para una persona');
+    check(!p2.generado.hecho && /mes que toca/.test(String(p2.generado.motivo)),
+      '⛔ el archivo no se arma solo fuera del mes que toca (2031-04 no es el anterior al actual)');
+    check(p2.sat && p2.sat.disponible === false, 'sin el port del SAT, preparar lo declara (disponible=false) y no da nada por vigente');
   } finally {
     try { await limpiar(); } catch (e) { console.log(`  ⚠ limpieza incompleta: ${e.message}`); }
     try { await restaurarLatidos(); } catch (e) { console.log(`  ⚠ no se restauraron los latidos: ${e.message}`); }

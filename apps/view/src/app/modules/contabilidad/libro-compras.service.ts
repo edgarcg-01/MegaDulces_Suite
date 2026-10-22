@@ -83,6 +83,25 @@ export interface FacturaMes {
   estatus_verificado_at: string | null;
 }
 
+/** LC.19.6: lo que hizo una vuelta de `preparar`. Cada `motivo` dice por qué un paso NO se hizo solo. */
+export interface PreparacionMes {
+  mes: string;
+  aplicado: { hecho: boolean; motivo: string | null };
+  cuentas_asignadas: { rfc: string; cuenta: string; nombre: string }[];
+  sat: VerificacionSatMes | null;
+  generado: { hecho: boolean; motivo: string | null; facturas?: number; folio?: number };
+  restantes: number;
+}
+
+/** LC.19.6: por qué se excluyó una factura — lista cerrada, para poder aprender una regla después. */
+export const MOTIVOS_EXCLUSION = [
+  'gasto o servicio',
+  'ya contabilizada por otra vía',
+  'devolución o nota',
+  'duplicada',
+  'otro',
+] as const;
+
 /** LC.19.1: una vuelta de «Verificar en el SAT». `restantes` = las que faltan por intentar. */
 export interface VerificacionSatMes {
   consultados: number; vigentes: number; cancelados: number;
@@ -314,6 +333,11 @@ export class LibroComprasService {
     return this.http.post<GenerarResultado>(`${this.noAso}/${mes}/generar`, {
       impuestos, uuid, ...(forzar ? { forzar_importe: true, motivo: forzar.motivo } : {}),
     });
+  }
+
+  /** LC.19.6: lo que el mes hace solo, al abrirlo (sin cron). Repetir mientras `restantes > 0`. */
+  prepararMes(mes: string): Observable<PreparacionMes> {
+    return this.http.post<PreparacionMes>(`${this.noAso}/${mes}/preparar`, {});
   }
 
   /** LC.19.1: verifica ante el SAT un lote de las facturas del mes (~25 s). Repetir mientras `restantes > 0`. */

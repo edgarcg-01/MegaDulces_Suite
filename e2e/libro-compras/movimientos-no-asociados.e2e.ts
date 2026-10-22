@@ -70,7 +70,18 @@ const grupoDe = (f: Factura) =>
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const pesos = (s: string) => Number(s.replace(/[^0-9.-]/g, ''));
 
-async function abrir(page: Page, mes: string) {
+/** LC.19.6: lo que responde `preparar` cuando no se le deja hacer nada (la suite de lectura no escribe). */
+const PREPARAR_VACIO = {
+  mes: '', aplicado: { hecho: false, motivo: null }, cuentas_asignadas: [], sat: null,
+  generado: { hecho: false, motivo: null }, restantes: 0,
+};
+
+async function abrir(page: Page, mes: string, opts: { preparar?: boolean } = {}) {
+  // LC.19.6: abrir el mes lo PREPARA (verifica en el SAT, asigna cuentas, marca aplicado): eso
+  // escribe. Fuera del bloque de escritura se intercepta y se responde «nada que hacer».
+  if (!opts.preparar) {
+    await page.route('**/no-asociados/*/preparar', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PREPARAR_VACIO) }));
+  }
   await page.addInitScript((t) => { try { localStorage.setItem('auth_token', t as string); } catch { /* */ } }, token);
   await page.goto(`${RUTA}?mes=${mes}`);
   await expect(page.locator('.lc-veredicto')).toBeVisible({ timeout: 20_000 });
@@ -236,20 +247,21 @@ test.describe('escritura — generar, entregar y cancelar el mes', () => {
     expect(otra.run?.['estado'], 'el mes no puede estar aplicado: es terminal').not.toBe('aplicado');
   });
 
-  test('verificar en el SAT: sin verificar no se genera; verificado, sí (LC.19.1)', async ({ page }) => {
+  test('preparar al abrir: verifica en el SAT SOLO; sin verificar no se genera (LC.19.1, LC.19.6)', async ({ page }) => {
     test.setTimeout(360_000); // ~350 facturas a ~4 por segundo, en lotes de 100
     const antes = await getMes(MES_ESCRITURA);
     test.skip(!antes.resumen.incluidas, 'no hay nada que generar en el mes');
-    await abrir(page, MES_ESCRITURA);
     const generarBtn = page.locator('.lc-acciones button', { hasText: 'Generar TXT' });
     if ((antes.resumen.sin_verificar_sat ?? 0) > 0) {
-      await expect(page.locator('.lc-bloq'), 'el bloqueo del SAT se ve, con su monto').toContainText('sin verificar ante el SAT');
-      await expect(generarBtn, '⛔ con marcadas sin verificar, Generar está apagado').toBeDisabled();
+      // La negativa, antes de abrir (abrir dispara la verificación).
       const g = await api.post(`${API}/${MES_ESCRITURA}/generar`, { data: { impuestos: 'global', uuid: true } });
-      expect(g.status(), '⛔ y el servidor lo rechaza aunque alguien llame directo').toBe(400);
+      expect(g.status(), '⛔ con marcadas sin verificar, el servidor no genera aunque alguien llame directo').toBe(400);
       expect(await g.text()).toContain('sin verificar ante el SAT');
-      await page.locator('.na-sat button', { hasText: 'Verificar en el SAT' }).click();
-      await expect(page.locator('.p-toast-message', { hasText: 'Verificación ante el SAT' })).toBeVisible({ timeout: 330_000 });
+      await abrir(page, MES_ESCRITURA, { preparar: true });
+      await expect(page.locator('.na-prep'), 'sin clic: el mes dice que se está preparando').toBeVisible({ timeout: 20_000 });
+      await expect(page.locator('.p-toast-message', { hasText: 'El mes se preparó solo' })).toBeVisible({ timeout: 330_000 });
+    } else {
+      await abrir(page, MES_ESCRITURA, { preparar: true });
     }
     const despues = await getMes(MES_ESCRITURA);
     const pendientes = despues.facturas.filter((f) => f.incluida && f.estatus_sat !== 'vigente');
@@ -285,12 +297,24 @@ test.describe('escritura — generar, entregar y cancelar el mes', () => {
     expect(conUuid.length, '#5 cada abono a proveedor lleva el UUID de su CFDI').toBe(movsProveedor.length);
   });
 
-  test('entregar: nada queda «por entrar» y todo pasa a «Ya en el libro» (#6)', async ({ page }) => {
+  test('aplicado sin ContPAQi se rechaza; entregado ya no es un paso de la pantalla (#6, LC.19.6)', async ({ page }) => {
     await abrir(page, MES_ESCRITURA);
-    await page.locator('.lc-acciones button', { hasText: 'Marcar entregado' }).click();
-    const dlg = page.getByRole('dialog', { name: 'Marcar como entregado' });
-    await dlg.locator('input').fill('e2e LC.18.3 (no se sube)');
-    await dlg.getByRole('button', { name: 'Confirmar' }).click();
+    await expect(page.locator('.lc-acciones button', { hasText: 'Marcar entregado' }), 'LC.19.6: «Marcar entregado» ya no está').toHaveCount(0);
+    // ⛔ Sólo se intenta si CONSTA que ContPAQi no tiene el folio: si lo tuviera, la llamada marcaría
+    // el mes aplicado DE VERDAD, y aplicado es terminal.
+    const cu = await (await api.get(`${API}/${MES_ESCRITURA}/cuadre`)).json();
+    if (cu.comparable && !cu.existe_en_contpaqi) {
+      const ap = await api.post(`${API}/${MES_ESCRITURA}/estado`, { data: { estado: 'aplicado' } });
+      expect(ap.status(), '⛔ generado → aplicado sin que ContPAQi tenga el folio se rechaza').toBe(400);
+      expect(await ap.text()).toContain('ContPAQi todavía no tiene el folio');
+    } else {
+      test.info().annotations.push({ type: 'NO MEDIDO', description: `aplicado sin evidencia: el cuadre no permite afirmar que ContPAQi no tiene el folio (${cu.motivo || 'existe'})` });
+    }
+    // El estado «entregado» sigue existiendo en el servidor; la prueba lo pone por API para
+    // ejercer #6 (entregado ⇒ nada por entrar) y dejar el mes listo para «Cancelar entrega».
+    const en = await api.post(`${API}/${MES_ESCRITURA}/estado`, { data: { estado: 'entregado', entregado_a: 'e2e LC.19.6 (no se sube)' } });
+    expect(en.status()).toBe(201);
+    await page.reload();
     await expect(page.locator('.lc-veredicto')).toContainText('Entregado', { timeout: 15_000 });
     await expect(page.locator('.lc-acciones button', { hasText: 'Generar TXT' })).toBeDisabled();
     const c = await chips(page);

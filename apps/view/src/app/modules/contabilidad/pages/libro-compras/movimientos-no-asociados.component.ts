@@ -19,6 +19,8 @@ import { Permission } from '../../../../core/constants/permissions';
 import { LibroComprasService, MesNoAsociado, MesDetalle, FacturaMes, ImpuestosModo, FacturaRespaldo, MovimientoRespaldo, CoberturaUuid, SugerenciasCuenta } from '../../libro-compras.service';
 import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
+import { SelectModule } from 'primeng/select';
+import { MOTIVOS_EXCLUSION, PreparacionMes } from '../../libro-compras.service';
 import type { Freshness } from '@megadulces/contracts';
 import { LIBRO_COMPRAS_STYLES, NO_ASOCIADOS_STYLES } from './libro-compras.styles';
 
@@ -48,6 +50,8 @@ const LC18_STYLES = `
 .na-sug .mono { font-family: var(--font-mono); }
 .na-link-sutil { margin-left: .35rem; font-size: var(--fs-xs); color: var(--text-muted); }
 .na-fresc { display: inline-flex; gap: .6rem; align-items: center; }
+.na-prep { display: flex; align-items: center; gap: .45rem; margin: -.25rem 0 .75rem; font-size: var(--fs-sm); }
+.na-motivo { margin-top: .2rem; }
 .na-sat { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin: -.25rem 0 .75rem; font-size: var(--fs-sm); }
 `;
 
@@ -72,7 +76,7 @@ const LC18_STYLES = `
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule,
     SelectButtonModule, CheckboxModule, InputTextModule, ToastModule, TooltipModule, RadioButtonModule,
-    FreshnessPillComponent,
+    FreshnessPillComponent, SelectModule,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -197,6 +201,10 @@ const LC18_STYLES = `
                      jul-2026 tenía el formato viejo y se descargaba igual; el de jun-2026 tenía
                      la firma sin el contenido y los botones daban 404. -->
                 @if (archivoVigente()) {
+                  <!-- LC.19.6: lo que se sube a ContPAQi son los tres archivos; un clic los baja
+                       todos. Los tres botones sueltos se quedan para cuando sólo hace falta uno. -->
+                  <p-button type="button" label="Descargar todo" icon="pi pi-download"
+                            [loading]="bajandoTodo()" (click)="descargarTodo()" />
                   <p-button type="button" label="Descargar TXT" icon="pi pi-download"
                             styleClass="p-button-outlined p-button-secondary" (click)="descargar()" />
                   <!-- A ContPAQi va el TXT Y su respaldo: nadie sube millones a la
@@ -213,13 +221,15 @@ const LC18_STYLES = `
                             pTooltip="Listado movimiento ↔ UUID para el Asociador de CFDI de ContPAQi"
                             (click)="descargarAsociador()" />
                 }
-                @if (estadoRun() === 'generado' && archivoVigente()) {
-                  <p-button type="button" label="Marcar entregado" icon="pi pi-send"
-                            styleClass="p-button-text p-button-secondary" (click)="dlgEntrega.set(true)" />
-                }
-                @if (estadoRun() === 'entregado') {
+                <!-- LC.19.6: «Marcar entregado» ya no es un paso. Aplicado se marca solo cuando la
+                     poliza de ContPAQi casa renglon por renglon con el archivo; el boton queda
+                     para cuando casa a medias (alguien la edito al importar), y el servidor lo
+                     rechaza si ContPAQi todavia no tiene el folio. -->
+                @if ((estadoRun() === 'generado' && archivoVigente()) || estadoRun() === 'entregado') {
                   <p-button type="button" label="Marcar aplicado" icon="pi pi-check-circle"
                             styleClass="p-button-text p-button-secondary" (click)="marcar('aplicado')" />
+                }
+                @if (estadoRun() === 'entregado') {
                   <!-- La salida cuando ContPAQi rechazó el archivo: sin ella, el error de
                        generar decía "cancélala" y no había dónde. Destructiva: rojo y con
                        confirmación, nunca un clic suelto. -->
@@ -229,6 +239,10 @@ const LC18_STYLES = `
               }
             </div>
           </div>
+          <!-- LC.19.6: lo que el mes esta haciendo solo, en una linea. Sin cron: arranca al abrirlo. -->
+          @if (preparando(); as p) {
+            <p class="na-prep muted"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> {{ p }}</p>
+          }
 
           <!-- La tira de 5 mosaicos vivía acá y se fue al PIE de la tabla (LC.16.3). Cuatro
                de los cinco eran los totales de cuatro columnas de la tabla, y el quinto
@@ -246,7 +260,7 @@ const LC18_STYLES = `
             </ul>
             <!-- LC.19.1: la salida del bloqueo del SAT esta junto al bloqueo, no en otro lado.
                  No hay override: lo que el SAT no encuentre se desmarca. -->
-            @if (puedeGestionar() && (d.resumen.sin_verificar_sat ?? 0) > 0) {
+            @if (puedeGestionar() && (d.resumen.sin_verificar_sat ?? 0) > 0 && !preparando()) {
               <div class="na-sat">
                 <p-button type="button" label="Verificar en el SAT" icon="pi pi-shield"
                           styleClass="p-button-outlined p-button-secondary"
@@ -429,6 +443,16 @@ const LC18_STYLES = `
                     }
                     @if (!f.incluida && f.motivo_exclusion) {
                       <small class="muted">Excluida: {{ f.motivo_exclusion }}</small>
+                    } @else if (!f.incluida && puedeGestionar() && f.cuenta_existe && f.en_libro_reciente && !f.prueba_certeza) {
+                      <!-- LC.19.6: la regla de que entra no se puede derivar de los datos (74 % de las
+                           extras son de proveedores con unas facturas dentro y otras fuera). Lo que se
+                           puede es juntar el POR QUE de la contadora en una lista cerrada para medirlo
+                           despues. Opcional: excluir sigue siendo un solo clic. -->
+                      <div class="na-motivo">
+                        <p-select [options]="motivosExclusion" optionLabel="label" optionValue="value" [ngModel]="null" (ngModelChange)="elegirMotivo(f, $event)"
+                                  placeholder="¿Por qué no va?" size="small"
+                                  [ariaLabel]="'Por qué no va la factura de ' + f.emisor_nombre" appendTo="body" />
+                      </div>
                     }
                   </td>
                   <td class="c-num mono">{{ f.folio }}</td>
@@ -696,6 +720,13 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   /** LC.19.1: la verificación ante el SAT corre por lotes; esto dice en cuál va. */
   verificandoSat = signal(false);
   progresoSat = signal<string | null>(null);
+  /** LC.19.6: lo que el mes está haciendo solo (null = nada en curso). */
+  preparando = signal<string | null>(null);
+  bajandoTodo = signal(false);
+  readonly motivosExclusion = MOTIVOS_EXCLUSION.map((m) => ({ label: m, value: m }));
+  /** Meses ya preparados en esta visita: reabrir el mes tras prepararlo no lo vuelve a disparar. */
+  private preparados = new Set<string>();
+  private rePreparar: ReturnType<typeof setTimeout> | null = null;
   dlgEntrega = signal(false);
   dlgCaratula = signal(false);
   guardandoCaratula = signal(false);
@@ -1078,6 +1109,8 @@ export class MovimientosNoAsociadosComponent implements OnInit {
         const conArchivo = ['generado', 'entregado', 'aplicado'].includes(String(d.run?.['estado'] ?? ''));
         this.incluirUuid = conArchivo ? d.run?.['incluye_uuid'] !== false : true;
         this.cargandoMes.set(false);
+        // LC.19.6: sin cron — abrir el mes ES el evento que lo prepara.
+        this.prepararMes(mes);
       },
       error: (e) => { this.cargandoMes.set(false); this.error('No se pudo abrir el mes', e); },
     });
@@ -1149,8 +1182,84 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     const antes = f.incluida;
     this.aplicarInclusionLocal(f.uuid, incluida);
     this.svc.setInclusionNoAsociados(mes, [f.uuid], incluida).subscribe({
+      // LC.19.6: un cambio invalida el archivo generado; el mes se vuelve a preparar solo cuando
+      // dejas de mover casillas (no uno por clic).
+      next: () => this.programarPreparacion(mes),
       error: (e) => { this.aplicarInclusionLocal(f.uuid, antes); this.error('No se pudo cambiar la factura', e); },
     });
+  }
+
+  /** LC.19.6 — el porqué de una exclusión, de la lista cerrada. Queda en la decisión guardada. */
+  elegirMotivo(f: FacturaMes, motivo: string | null) {
+    const mes = this.mesSel(); if (!mes || !motivo) return;
+    this.svc.setInclusionNoAsociados(mes, [f.uuid], false, motivo).subscribe({
+      next: () => {
+        const d = this.detalle(); if (!d) return;
+        this.detalle.set({ ...d, facturas: d.facturas.map((x) => (x.uuid === f.uuid ? { ...x, motivo_exclusion: motivo } : x)) });
+      },
+      error: (e) => this.error('No se pudo guardar el motivo', e),
+    });
+  }
+
+  private programarPreparacion(mes: string) {
+    if (this.rePreparar) clearTimeout(this.rePreparar);
+    this.rePreparar = setTimeout(() => {
+      this.rePreparar = null;
+      this.preparados.delete(mes);
+      if (this.mesSel() === mes) this.prepararMes(mes);
+    }, 4000);
+  }
+
+  /**
+   * LC.19.6 — Lo que el mes hace solo (POST /preparar), disparado al abrirlo: «aplicado» si ContPAQi
+   * ya casa con el archivo, cuentas de proveedores con nombre idéntico, la verificación ante el SAT
+   * por lotes y, en el mes que toca, el archivo. Sólo con GESTIONAR. Repite mientras el SAT tenga
+   * pendientes; al final reabre el mes una vez y dice qué hizo.
+   */
+  private prepararMes(mes: string) {
+    if (!this.puedeGestionar() || this.preparados.has(mes)) return;
+    this.preparados.add(mes);
+    this.preparando.set('Preparando el mes…');
+    const hecho = { aplicado: null as string | null, cuentas: [] as string[], consultadas: 0, vigentes: 0, otras: 0, generado: null as string | null };
+    const vuelta = (n: number) => this.svc.prepararMes(mes).subscribe({
+      next: (p: PreparacionMes) => {
+        if (p.aplicado.hecho) hecho.aplicado = p.aplicado.motivo;
+        hecho.cuentas.push(...p.cuentas_asignadas.map((c) => `${c.nombre} → ${c.cuenta}`));
+        if (p.sat) {
+          hecho.consultadas += p.sat.consultados; hecho.vigentes += p.sat.vigentes;
+          hecho.otras += p.sat.cancelados + p.sat.no_encontrados + p.sat.fallidos;
+        }
+        if (p.generado.hecho) hecho.generado = `${p.generado.facturas} facturas, póliza ${p.generado.folio}`;
+        if (p.restantes > 0 && (p.sat?.consultados ?? 0) > 0 && n < 30 && this.mesSel() === mes) {
+          this.preparando.set(`Verificando en el SAT… ${hecho.consultadas} consultadas, faltan ${p.restantes}`);
+          vuelta(n + 1);
+          return;
+        }
+        this.preparando.set(null);
+        const partes = [
+          hecho.aplicado ? `aplicado: ${hecho.aplicado}` : '',
+          hecho.cuentas.length ? `cuenta asignada: ${hecho.cuentas.join(', ')}` : '',
+          hecho.consultadas ? `SAT: ${hecho.vigentes} vigentes${hecho.otras ? `, ${hecho.otras} sin confirmar` : ''}` : '',
+          hecho.generado ? `archivo listo: ${hecho.generado}` : '',
+        ].filter(Boolean);
+        if (!partes.length) return;
+        this.toast.add({ severity: hecho.otras ? 'warn' : 'info', summary: 'El mes se preparó solo', detail: partes.join(' · '), life: 9000 });
+        if (this.mesSel() === mes) this.abrirMes(mes);
+        this.cargarMeses();
+      },
+      error: (e) => { this.preparando.set(null); this.error('No se pudo preparar el mes solo', e); },
+    });
+    vuelta(0);
+  }
+
+  /** LC.19.6 — los tres archivos que van a ContPAQi, de un clic (con el código de cada uno). */
+  descargarTodo() {
+    if (this.bajandoTodo()) return;
+    this.bajandoTodo.set(true);
+    this.descargar();
+    this.exportarRespaldo();
+    this.descargarAsociador();
+    setTimeout(() => this.bajandoTodo.set(false), 1500);
   }
 
   private aplicarInclusionLocal(uuid: string, incluida: boolean) {
@@ -1347,7 +1456,9 @@ export class MovimientosNoAsociadosComponent implements OnInit {
       next: (blob) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url; a.download = `complemento-compras-${mes}.txt`;
+        // LC.19.6: el nombre es el que guardó la corrida (poliza-compras-* para el libro del mes,
+        // complemento-* para lo demás). Antes se fijaba aquí y pisaba al del servidor.
+        a.href = url; a.download = String(this.detalle()?.run?.['archivo_nombre'] ?? `complemento-compras-${mes}.txt`);
         a.click(); URL.revokeObjectURL(url);
       },
       error: (e) => this.error('No se pudo descargar', e),

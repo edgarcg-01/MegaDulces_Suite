@@ -24,6 +24,26 @@ export interface VerificacionSatMes extends VerificacionCfdis {
   restantes: number;
 }
 
+/** `[LC.19.6]` Lo que hizo una vuelta de `preparar`. Cada `motivo` dice por qué un paso NO se hizo solo. */
+export interface PreparacionMes {
+  mes: string;
+  aplicado: { hecho: boolean; motivo: string | null };
+  cuentas_asignadas: { rfc: string; cuenta: string; nombre: string }[];
+  /** null = no se llegó a verificar (el mes ya tenía archivo vigente o estaba aplicado). */
+  sat: VerificacionSatMes | null;
+  generado: { hecho: boolean; motivo: string | null; facturas?: number; folio?: number };
+  /** Facturas por verificar ante el SAT que quedan para la siguiente vuelta. */
+  restantes: number;
+}
+
+/** `[LC.19.6]` El mes que toca armar: el anterior al actual, en hora de México (el backend corre en MX). */
+function mesAnteriorMx(ahora: Date = new Date()): string {
+  const [y, m] = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit' })
+    .format(ahora).split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 2, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 /** `[LC.19.1]` Sólo `vigente` se postea: `desconocido` es «no consta», no «no está cancelada». */
 const estaVigente = (f: { estatus_sat: string }) => f.estatus_sat === 'vigente';
 
@@ -458,6 +478,106 @@ export class PurchaseBookService {
     this.logger.log(`verificar SAT ${anioMes}: ${r.consultados} consultadas · ${r.vigentes} vigentes · ${r.cancelados} canceladas · `
       + `${r.no_encontrados} no encontradas · ${r.fallidos} fallidas · ${base.restantes} por intentar`);
     return { ...r, ...base };
+  }
+
+  /**
+   * `[LC.19.6]` — Lo que el mes puede hacer SOLO, disparado por EVENTO (lo llama la pantalla al
+   * abrir el mes, sólo con GESTIONAR) — sin cron, por decisión de Edgar (2026-10-22). Una vuelta por
+   * llamada; la pantalla repite mientras `restantes > 0`. Cada paso tiene su freno, y lo que no pasa
+   * el freno se queda para una persona — nunca se fuerza:
+   *
+   *   1. **aplicado** — si ContPAQi ya tiene la póliza y casa RENGLÓN POR RENGLÓN con el archivo
+   *      (`cuadrarContraContpaqi`: 0 sobrantes de los dos lados, deltas en 0). Si casa a medias, se
+   *      dice y se deja: alguien la editó al importar y eso lo juzga una persona.
+   *   2. **cuenta del proveedor nuevo** — sólo con nombre IDÉNTICO (parecido 1.0), una sola candidata
+   *      ≥ PARECIDO_FILA, libre, y el RFC sin cuenta. Pasa por `asignarCuenta` (mismos frenos que la
+   *      manual) y queda rotulada `auto_lc`. Ojo: eso no la mete al TXT — un proveedor nuevo cae en
+   *      «Sin libro reciente» y espera revisión.
+   *   3. **estatus SAT** — un lote de `verificarSat`.
+   *   4. **el archivo** — sólo del MES QUE TOCA (el anterior al actual en hora de México), cuando el SAT
+   *      ya no tiene pendientes, sin bloqueantes, sin «importe ya posteado» marcadas, y la corrida está
+   *      sin archivo (nueva, borrador —p. ej. invalidada por un cambio— o cancelada).
+   */
+  async preparar(anioMes: string): Promise<PreparacionMes> {
+    this.mesValido(anioMes);
+    const tipo: TipoCorrida = 'complemento';
+    const out: PreparacionMes = {
+      mes: anioMes, aplicado: { hecho: false, motivo: null }, cuentas_asignadas: [],
+      sat: null, generado: { hecho: false, motivo: null }, restantes: 0,
+    };
+
+    // 1. ¿Ya lo tiene ContPAQi?
+    const run = await this.tk.run((knex) => knex('finance.purchase_book_runs')
+      .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first());
+    if (run && (run.estado === 'generado' || run.estado === 'entregado') && run.archivo_contenido) {
+      const c = await this.cuadrarContraContpaqi(anioMes, tipo);
+      if (c.comparable && c.existe_en_contpaqi && c.solo_nuestro === 0 && c.solo_contpaqi === 0
+        && Math.abs(c.delta_cargos) < 0.01 && Math.abs(c.delta_abonos) < 0.01) {
+        await this.tk.run(async (knex) => {
+          const userId = this.ctx.get()?.userId ?? null;
+          await knex('finance.purchase_book_runs').where({ id: run.id }).whereIn('estado', ['generado', 'entregado']).update({
+            estado: 'aplicado', aplicado_at: knex.fn.now(), aplicado_by: userId, updated_at: knex.fn.now(), updated_by: userId,
+            notas: this.sumarNota(knex, `aplicado automático: ContPAQi tiene el folio ${c.folio_esperado} y casan ${c.casan} de ${c.patas_archivo} renglones`),
+          });
+        });
+        out.aplicado = { hecho: true, motivo: `ContPAQi tiene el folio ${c.folio_esperado}: casan ${c.casan} de ${c.patas_archivo} renglones` };
+        return out;
+      }
+      if (c.comparable && c.existe_en_contpaqi) {
+        out.aplicado.motivo = `ContPAQi tiene el folio ${c.folio_esperado}, pero no casa con el archivo `
+          + `(${c.solo_nuestro} renglones sólo nuestros, ${c.solo_contpaqi} sólo de ContPAQi): revísalo y márcalo a mano`;
+      } else if (c.motivo) {
+        out.aplicado.motivo = c.motivo;
+      }
+      return out; // con archivo vigente no se toca nada más: lo que falta es subirlo
+    }
+    if (run && (run.estado === 'aplicado' || run.estado === 'entregado')) return out;
+
+    // 2. Cuentas de proveedores nuevos, sólo con nombre idéntico.
+    const { facturas } = await this.getMes(anioMes, tipo);
+    const rfcs = [...new Set(facturas.filter((f) => !f.account_suffix && f.cuenta_sugerida?.parecido === 1)
+      .map((f) => f.emisor_rfc.toUpperCase()))].slice(0, 10);
+    for (const rfc of rfcs) {
+      try {
+        const sg = await this.sugerirCuenta(rfc);
+        const fuertes = sg.candidatas.filter((x) => x.parecido >= PARECIDO_FILA || x.fuerte);
+        const top = fuertes[0];
+        if (fuertes.length !== 1 || !top || top.parecido !== 1 || top.asignada_a) continue;
+        await this.asignarCuenta(rfc, top.cuenta, 'auto');
+        out.cuentas_asignadas.push({ rfc, cuenta: top.cuenta, nombre: top.nombre });
+      } catch (e: unknown) {
+        // Un rechazo de asignarCuenta (cuenta inexistente, de otro RFC…) deja la factura para una persona.
+        this.logger.warn(`preparar ${anioMes}: no se asignó la cuenta de ${rfc} (${e instanceof Error ? e.message : String(e)})`);
+      }
+    }
+
+    // 3. Un lote de verificación ante el SAT.
+    out.sat = await this.verificarSat(anioMes, tipo);
+    out.restantes = out.sat.restantes;
+    if (out.restantes > 0) return out;
+
+    // 4. El archivo, sólo del mes que toca.
+    if (anioMes !== mesAnteriorMx()) {
+      out.generado.motivo = 'el archivo se arma solo únicamente para el mes que toca (el anterior al actual)';
+      return out;
+    }
+    if (run && !['borrador', 'cancelado'].includes(String(run.estado))) return out;
+    const d = await this.getMes(anioMes, tipo);
+    const dentro = d.facturas.filter((f) => f.incluida);
+    if (!dentro.length) { out.generado.motivo = 'no hay facturas marcadas'; return out; }
+    if (d.bloqueantes.length) { out.generado.motivo = d.bloqueantes.join(' · '); return out; }
+    if (dentro.some((f) => f.prueba_certeza === 'por_importe')) {
+      out.generado.motivo = 'hay marcadas con «importe ya posteado»: generarlas pide un motivo de una persona';
+      return out;
+    }
+    try {
+      const modo: ImpuestosModo = run?.impuestos_modo === 'por-cuenta' ? 'por-cuenta' : 'global';
+      const g = await this.generar(anioMes, { impuestos: modo, uuid: true, tipo });
+      out.generado = { hecho: true, motivo: null, facturas: g.facturas, folio: g.folio };
+    } catch (e: unknown) {
+      out.generado.motivo = e instanceof Error ? e.message : String(e);
+    }
+    return out;
   }
 
   private mesValido(anioMes: string) {
@@ -1194,11 +1314,18 @@ export class PurchaseBookService {
         tenant_id: run.tenant_id, run_id: run.id, cfdi_uuid: String(u).toUpperCase(),
         incluida, motivo: incluida ? null : (motivo ?? null), origen: 'manual', created_by: userId,
       }));
+      // [LC.19.6] Si sólo cambia el MOTIVO (la factura ya estaba igual de dentro o de fuera), el
+      // archivo sigue correspondiendo: no se invalida. Antes, poner el porqué de una exclusión
+      // tiraba el TXT que el mes acababa de armar solo.
+      const previas = await knex('finance.purchase_book_run_items')
+        .where({ run_id: run.id }).whereIn('cfdi_uuid', filas.map((f) => f.cfdi_uuid)).select('cfdi_uuid', 'incluida');
+      const antes = new Map(previas.map((p: { cfdi_uuid: string; incluida: boolean }) => [p.cfdi_uuid, p.incluida]));
+      const soloMotivo = filas.every((f) => antes.has(f.cfdi_uuid) && antes.get(f.cfdi_uuid) === incluida);
       await knex('finance.purchase_book_run_items').insert(filas)
         .onConflict(['tenant_id', 'run_id', 'cfdi_uuid'])
         .merge(['incluida', 'motivo', 'origen']);
-      await this.invalidar(knex, run, userId);
-      return { ok: true, afectadas: filas.length };
+      if (!soloMotivo) await this.invalidar(knex, run, userId);
+      return { ok: true, afectadas: filas.length, archivo_invalidado: !soloMotivo };
     });
   }
 
@@ -1400,7 +1527,7 @@ export class PurchaseBookService {
    *  · una cuenta es de UN proveedor: si ya es de otro RFC, no se reasigna en silencio.
    * Si la cuenta ya estaba en el mapa SIN RFC (los 24 del catálogo original), se le pone.
    */
-  async asignarCuenta(rfc: string, cuenta: string): Promise<{ ok: true; rfc: string; cuenta_proveedor: string; cuenta_compra_exenta: string; cuenta_compra_iva: string; compra_exenta_existe: boolean; compra_iva_existe: boolean; accion: 'alta' | 'rfc_puesto' }> {
+  async asignarCuenta(rfc: string, cuenta: string, origen: 'manual' | 'auto' = 'manual'): Promise<{ ok: true; rfc: string; cuenta_proveedor: string; cuenta_compra_exenta: string; cuenta_compra_iva: string; compra_exenta_existe: boolean; compra_iva_existe: boolean; accion: 'alta' | 'rfc_puesto' }> {
     const r = this.rfcValido(rfc);
     const c = String(cuenta ?? '').trim();
     if (!/^212\d{7}$/.test(c)) throw new BadRequestException('la cuenta de proveedor es de 10 dígitos y empieza con 212');
@@ -1450,12 +1577,16 @@ export class PurchaseBookService {
           supplier_name: p.nombre || String(em[0]?.emisor_nombre ?? r),
           rfc: r, account_suffix: suf, cuenta_proveedor: c,
           cuenta_compra_exenta: `501${suf}`, cuenta_compra_iva: `502${suf}`,
-          source: 'manual_lc', notas: 'LC.18: asignada desde Movimientos no asociados',
+          // [LC.19.6] La automática se rotula aparte: si alguna sale mal, se encuentran todas.
+          source: origen === 'auto' ? 'auto_lc' : 'manual_lc',
+          notas: origen === 'auto'
+            ? 'LC.19.6: asignada sola (nombre idéntico, candidata única y libre)'
+            : 'LC.18: asignada desde Movimientos no asociados',
           created_by: userId, ...flags,
         });
         accion = 'alta';
       }
-      this.logger.log(`Cuenta ${c} asignada a ${r} (${accion})`);
+      this.logger.log(`Cuenta ${c} asignada a ${r} (${accion}, ${origen})`);
       // La cuenta dejó de estar libre: que no se siga sugiriendo a otro emisor.
       this.candidatasCache.clear();
       return {
@@ -2067,10 +2198,20 @@ export class PurchaseBookService {
         .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
       if (!run) throw new NotFoundException(`no hay corrida ${tipo} para ${anioMes}`);
       const actual = run.estado as EstadoRun;
-      if (!(TRANSICIONES_RUN[actual] ?? []).includes(estado)) {
+      // [LC.19.6] «entregado» deja de ser un paso obligado: generado → aplicado se permite, pero
+      // sólo con EVIDENCIA — que ContPAQi ya tenga ese folio del Diario en el mes. Sin ella sigue
+      // rechazándose: nadie puede decir «aplicado» de algo que ContPAQi no tiene.
+      const folioRun = Number(run.folio_poliza ?? FOLIO_COMPLEMENTO);
+      const conEvidencia = estado === 'aplicado' && actual === 'generado'
+        && !!(await this.folioOcupado(knex, anioMes, folioRun));
+      if (!conEvidencia && !(TRANSICIONES_RUN[actual] ?? []).includes(estado)) {
         if (actual === 'borrador') throw new BadRequestException('genera el archivo antes de mover el trámite');
         if (actual === 'aplicado') {
           throw new BadRequestException(`el complemento de ${anioMes} ya está aplicado en ContPAQi; el trámite terminó.`);
+        }
+        if (actual === 'generado' && estado === 'aplicado') {
+          throw new BadRequestException(
+            `no se puede pasar de generado a aplicado: ContPAQi todavía no tiene el folio ${folioRun} del Diario en ${anioMes}.`);
         }
         throw new BadRequestException(`no se puede pasar de ${actual} a ${estado}`);
       }
