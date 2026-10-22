@@ -1317,6 +1317,38 @@ del mecanismo del `?`, renglones = Docs e importe = Importe en los 3 vivos, doct
 rechazado, conteos por fuente estables, y cada tarjeta = el total de la lista de su filtro (contpaqi
 19,689 / 1 · kepler 118,173 / 1,744).
 
+### Oleada 2 · ContPAQi — balanza, bancos, proveedores SAT, CFDI vs contabilidad (2026-10-22)
+
+**Dos listas que escondían filas, encontradas al desglosar:**
+- ⛔ **Proveedores SAT decía «50 proveedor(es) en listas del SAT» con 109** (6 en 69B): el total era
+  `rows.length` de una consulta con `limit 50`. Ahora el total sale de un conteo aparte y la lista carga
+  el resto. (También corrige la respuesta del chat de Maat, que usa el mismo método.)
+- ⛔ **La balanza mostraba los 30 grupos más grandes sin decirlo** — por cuenta son **992** en 12 meses.
+  Bancos, los 40 primeros (hoy 19, cabían). Ahora dicen «mostrando N de M · Cargar más».
+
+**Desglose:**
+- **Balanza:** una fila de familia, mes o agrupador SAT abre **sus cuentas** (con «Volver»); una cuenta
+  abre **sus renglones de póliza** (`GET contabilidad/contpaqi/balanza/renglones`, nuevo) **junto con lo
+  que dice la balanza de esa cuenta**: medido jul–sep, 1,561 de 1,597 pares cuenta-mes cuadran al
+  centavo y 36 cuentas de clientes (1050…) traen **$1.24 M** de cargos en la balanza **sin ningún
+  renglón de póliza importado** — el desglose lo dice («no cuadra… la diferencia está en pólizas que
+  ContPAQi tiene y nosotros no importamos»), no lo esconde. La balanza sólo trae cuentas afectables:
+  agrupar por familia no cuenta doble (medido).
+- **Bancos:** Depósitos, Retiros y Movs abren los movimientos que los forman
+  (`GET contabilidad/contpaqi/bank/movimientos`, nuevo), por banco o por mes, y por flujo.
+- **Proveedores SAT:** «N proveedor(es)» y «M en 69B» abren su lista.
+- **CFDI vs contabilidad:** las 4 tarjetas filtran la tabla por riesgo; «CFDIs» y «Total» de cada
+  proveedor abren sus CFDI del periodo (`GET contabilidad/cfdi-vs-contabilidad/cfdis`, nuevo, mismo
+  filtro que el renglón), y cada CFDI abre su factura (el visor de LC.20).
+- **Libros vs operación:** «Libros (ContPAQi)» de un mes (= abonos − cargos de la familia 4) abre esas
+  cuentas en la balanza. ⚠️ El lado de **Kepler** (`analytics.ledger_monthly`) no tiene desglose todavía.
+
+**Prueba:** `test-newdb-contpaqi-desglose.js` (prod, sólo lectura) **15 ✓**: EFOS = universo, la
+balanza dice 992 cuentas, cada familia = suma de sus cuentas (1, 2, 4, 5), las 10 cuentas más grandes
+cuadran con sus renglones, ⛔ negativa: una cuenta con balanza y sin renglones dice «no cuadra»
+(1050000070, jul: $265,341), los 3 bancos más grandes y un mes por flujo al centavo, los CFDI de 12
+proveedores = su renglón, y entradas malas rechazadas antes del SQL.
+
 ### Oleadas siguientes (⬜)
 - **2 (resto) — los movimientos contables:**
   ContPAQi (bancos «Movs», balanza cargos/abonos → renglones), puente (pasos 1/3/4 abren un superconjunto;

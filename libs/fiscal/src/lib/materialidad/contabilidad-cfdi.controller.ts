@@ -19,4 +19,10 @@ export class ContabilidadCfdiController {
   @RequirePermissions(Permission.FISCAL_CONTAB_VER)
   @ApiOperation({ summary: 'CFDI recibidos del periodo vs padrón de proveedores ContPAQi + lista SAT: EFOS/no-deducible, no registrados.' })
   overview(@Query('period') period?: string) { return this.svc.overview(period); }
+
+  // [LC.21] El desglose de un proveedor: sus CFDI del periodo (los mismos que cuenta el renglón).
+  @Get('cfdis')
+  @RequirePermissions(Permission.FISCAL_CONTAB_VER)
+  @ApiOperation({ summary: 'Los CFDI recibidos de un proveedor en el periodo, con el mismo filtro que el renglón de overview.' })
+  cfdis(@Query('period') period?: string, @Query('rfc') rfc?: string) { return this.svc.cfdisDeProveedor(period, rfc); }
 }

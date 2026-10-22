@@ -26,8 +26,24 @@ export class ContabilidadContpaqiController {
     @Query('familia') familia?: string,
     @Query('cuenta') cuenta?: string,
     @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('agrupador_sat') agrupador_sat?: string,
   ) {
-    return this.maat.contpaqiBalanza({ group_by: group_by || 'familia', from_mes, to_mes, familia, cuenta, limit: limit ? Number(limit) : undefined });
+    return this.maat.contpaqiBalanza({ group_by: group_by || 'familia', from_mes, to_mes, familia, cuenta, agrupador_sat,
+      limit: limit ? Number(limit) : undefined, offset: offset ? Number(offset) : undefined });
+  }
+
+  // [LC.21] El desglose de una cuenta de la balanza: sus renglones de póliza, y si cuadran con la balanza.
+  @Get('balanza/renglones')
+  @RequirePermissions(Permission.FISCAL_CONTAB_VER)
+  @ApiOperation({ summary: 'Renglones de póliza (ContPAQi) de una cuenta en el rango, con su suma y la de la balanza para la misma cuenta.' })
+  balanzaRenglones(
+    @Query('cuenta') cuenta: string,
+    @Query('from_mes') from_mes?: string,
+    @Query('to_mes') to_mes?: string,
+    @Query('page') page?: string,
+  ) {
+    return this.maat.contpaqiBalanzaRenglones({ cuenta, from_mes, to_mes, page: page ? Number(page) : 1 });
   }
 
   @Get('bank')
@@ -39,8 +55,25 @@ export class ContabilidadContpaqiController {
     @Query('from_mes') from_mes?: string,
     @Query('to_mes') to_mes?: string,
     @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
   ) {
-    return this.maat.contpaqiBanco({ group_by: group_by || 'banco', banco, from_mes, to_mes, limit: limit ? Number(limit) : undefined });
+    return this.maat.contpaqiBanco({ group_by: group_by || 'banco', banco, from_mes, to_mes,
+      limit: limit ? Number(limit) : undefined, offset: offset ? Number(offset) : undefined });
+  }
+
+  // [LC.21] El desglose de una fila del auxiliar bancario: sus movimientos (por banco o por mes).
+  @Get('bank/movimientos')
+  @RequirePermissions(Permission.FISCAL_CONTAB_VER)
+  @ApiOperation({ summary: 'Movimientos bancarios (ContPAQi) de un banco o de un mes, opcionalmente sólo depósitos o retiros.' })
+  bankMovimientos(
+    @Query('cuenta') cuenta?: string,
+    @Query('mes') mes?: string,
+    @Query('flujo') flujo?: string,
+    @Query('from_mes') from_mes?: string,
+    @Query('to_mes') to_mes?: string,
+    @Query('page') page?: string,
+  ) {
+    return this.maat.contpaqiBancoMovimientos({ cuenta, mes, flujo, from_mes, to_mes, page: page ? Number(page) : 1 });
   }
 
   @Get('efos')
@@ -50,8 +83,9 @@ export class ContabilidadContpaqiController {
     @Query('solo_69b') solo_69b?: string,
     @Query('search') search?: string,
     @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
   ) {
-    return this.maat.contpaqiEfos({ solo_69b: solo_69b === 'true', search, limit: limit ? Number(limit) : undefined });
+    return this.maat.contpaqiEfos({ solo_69b: solo_69b === 'true', search, limit: limit ? Number(limit) : undefined, offset: offset ? Number(offset) : undefined });
   }
 
   @Get('libros-vs-operacion')

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { MaatActionsService } from './maat-actions.service';
 import { MaatKnowledgeVectorService } from './maat-knowledge-vector.service';
@@ -123,7 +123,7 @@ Hoy es ${ctx.today} (México).${scope.userName ? ` Hablas con ${scope.userName}.
 6. Cuando el usuario valide un hecho nuevo importante ("esto es así porque..."), ofrécele guardarlo con maat_guardar_conocimiento.
 7. **Verificabilidad**: cuando des una cifra importante, puedes indicar entre paréntesis de dónde salió (ej. "vía balanza, mar-2026"). El usuario ve las tablas de datos debajo de tu respuesta.
 8. **SÍ puedes dar links a las pólizas** — no al ERP Kepler (es on-prem sin web), sino a NUESTRA interfaz de egresos. Las tools maat_documento y maat_buscar_documentos devuelven un campo \`ui_url\`: SIEMPRE que menciones un documento concreto, ponlo como link markdown, ej. \`[XA2001-0000754](ui_url)\`. NUNCA digas "no puedo darte links".
-9. **Buscar sin folio**: si el usuario pide "desglosa/muéstrame una póliza de \<proveedor\>" sin darte folio, usa maat_buscar_documentos (NO le pidas el folio). Traduce nombres de sucursal a código con el catálogo de abajo.
+9. **Buscar sin folio**: si el usuario pide "desglosa/muéstrame una póliza de <proveedor>" sin darte folio, usa maat_buscar_documentos (NO le pidas el folio). Traduce nombres de sucursal a código con el catálogo de abajo.
 10. **Proactividad**: cuando hables de un proveedor o el usuario pida "revisa", corre maat_alertas y menciona señales relevantes (duplicados, saltos de precio, sin recepción). No lo fuerces si no hay señales.
 11. **INVESTIGA COMO ANALISTA, no como buscador.** Ante un "¿por qué…?", "¿cómo va…?" o cualquier síntoma, NO te quedes con la primera tool: encadena hasta la CAUSA RAÍZ. Ej. "¿por qué bajó la rentabilidad?" → maat_pnl (ves gastos↑) → maat_egresos(group_by cuenta_mayor, familia 6) (ves qué cuenta subió) → maat_alertas de ese proveedor/cuenta (duplicados/saltos). Puedes pedir VARIAS tools en un mismo turno cuando son independientes. Usa maat_tomar_nota para no perder hallazgos intermedios en investigaciones largas.
 12. **RESPUESTA FINAL OBLIGATORIA vía render_response.** Cuando ya tengas todo, NO respondas en texto plano: llama a la tool \`render_response\` con \`narrative\` (tu respuesta en Markdown) y \`suggested_follow_ups\` (2-3 repreguntas útiles). El frontend renderiza los botones desde ese arreglo tipado. Es tu único canal de respuesta al usuario.
@@ -679,14 +679,17 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
   // analytics.contpaqi_ledger_monthly = balanza CONSOLIDADA de la entidad (sin sucursal;
   // la contabilidad casi no segmenta). Verdad fiscal; sin RLS → tenant explícito.
   async contpaqiBalanza(q: any) {
-    const DIMS: Record<string, { group: string; label: string }> = {
-      cuenta: { group: 'l.cuenta, l.cuenta_nombre', label: "l.cuenta || ' ' || COALESCE(l.cuenta_nombre,'')" },
-      familia: { group: 'l.familia', label: "CASE l.familia WHEN '1' THEN '1 Activo' WHEN '2' THEN '2 Pasivo' WHEN '3' THEN '3 Capital' WHEN '4' THEN '4 Ingresos' WHEN '5' THEN '5 Costos/Gastos' WHEN '6' THEN '6 Otros' ELSE l.familia END" },
-      mes: { group: 'l.anio_mes', label: 'l.anio_mes' },
-      agrupador_sat: { group: 'l.agrupador_sat, l.agrupador_sat_nombre', label: "COALESCE(l.agrupador_sat,'-') || ' ' || COALESCE(l.agrupador_sat_nombre,'')" },
+    // [LC.21] `clave` = el valor crudo del grupo (la cuenta, la familia, el mes, el agrupador): lo
+    // que el desglose necesita para pedir lo de adentro. La etiqueta (`key`) no sirve para eso.
+    const DIMS: Record<string, { group: string; label: string; clave: string }> = {
+      cuenta: { group: 'l.cuenta, l.cuenta_nombre', label: "l.cuenta || ' ' || COALESCE(l.cuenta_nombre,'')", clave: 'l.cuenta' },
+      familia: { group: 'l.familia', label: "CASE l.familia WHEN '1' THEN '1 Activo' WHEN '2' THEN '2 Pasivo' WHEN '3' THEN '3 Capital' WHEN '4' THEN '4 Ingresos' WHEN '5' THEN '5 Costos/Gastos' WHEN '6' THEN '6 Otros' ELSE l.familia END", clave: 'l.familia' },
+      mes: { group: 'l.anio_mes', label: 'l.anio_mes', clave: 'l.anio_mes' },
+      agrupador_sat: { group: 'l.agrupador_sat, l.agrupador_sat_nombre', label: "COALESCE(l.agrupador_sat,'-') || ' ' || COALESCE(l.agrupador_sat_nombre,'')", clave: 'l.agrupador_sat' },
     };
     const dim = DIMS[q.group_by] || DIMS['familia'];
     const limit = Math.min(200, Math.max(1, Number(q.limit) || 30));
+    const offset = Math.max(0, Number(q.offset) || 0);
     const { from_mes, to_mes } = this.mesRange(q);
     return this.tk.run(async (trx) => {
       const b = trx('analytics.contpaqi_ledger_monthly as l')
@@ -694,19 +697,70 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         .andWhere('l.anio_mes', '>=', from_mes).andWhere('l.anio_mes', '<=', to_mes);
       if (q.familia) b.where('l.familia', String(q.familia));
       if (q.cuenta) b.where('l.cuenta', String(q.cuenta));
+      if (q.agrupador_sat) b.where('l.agrupador_sat', String(q.agrupador_sat));
+      // [LC.21] ⛔ Cuántos grupos hay EN TOTAL: la tabla mostraba los 30 más grandes sin decirlo
+      // (por cuenta son 992 en 12 meses, medido el 2026-10-22).
+      const tot = await b.clone().select(trx.raw(`count(DISTINCT ${dim.clave})::int AS n`)).first();
       b.groupByRaw(dim.group)
-        .select(trx.raw(`${dim.label} AS key`),
+        .select(trx.raw(`${dim.label} AS key`), trx.raw(`${dim.clave} AS clave`),
           trx.raw('ROUND(SUM(l.cargos)::numeric,2) AS cargos'),
           trx.raw('ROUND(SUM(l.abonos)::numeric,2) AS abonos'),
           trx.raw('ROUND(SUM(l.cargos - l.abonos)::numeric,2) AS neto'))
-        .limit(limit);
+        .limit(limit).offset(offset);
       if (q.group_by === 'mes') b.orderByRaw('1');
-      else b.orderByRaw('GREATEST(ABS(SUM(l.cargos)), ABS(SUM(l.abonos))) DESC');
+      else b.orderByRaw('GREATEST(ABS(SUM(l.cargos)), ABS(SUM(l.abonos))) DESC, 2');
       const rows: any[] = await b;
       return {
         fuente: 'ContPAQi (libros fiscales oficiales, consolidado de la entidad)',
-        from_mes, to_mes,
-        rows: col(rows.map((r) => ({ [q.group_by]: r.key, cargos: Number(r.cargos), abonos: Number(r.abonos), neto: Number(r.neto) }))),
+        from_mes, to_mes, total_grupos: Number(tot?.n ?? rows.length), offset, limit,
+        rows: col(rows.map((r) => ({ [q.group_by]: r.key, clave: r.clave == null ? null : String(r.clave).trim(), cargos: Number(r.cargos), abonos: Number(r.abonos), neto: Number(r.neto) }))),
+      };
+    });
+  }
+
+  /**
+   * [LC.21] El desglose de una cuenta de la balanza: sus renglones de póliza (`gl_poliza_lines`) en
+   * el rango, con su suma, y lo que dice la BALANZA de esa cuenta en el mismo rango. Medido el
+   * 2026-10-22 (jul–sep): 1,561 de 1,597 pares cuenta-mes coinciden al centavo; 36 cuentas de
+   * clientes (1050…) traen $1.24 M de cargos en la balanza sin ningún renglón de póliza importado.
+   * Por eso se devuelven las dos sumas: el desglose dice si cuadra, no lo supone.
+   */
+  async contpaqiBalanzaRenglones(q: any) {
+    const cuenta = String(q.cuenta ?? '').trim();
+    if (!/^\d{4,20}$/.test(cuenta)) throw new BadRequestException('cuenta inválida');
+    const { from_mes, to_mes } = this.mesRange(q);
+    const page = Math.max(1, Number(q.page) || 1);
+    const size = Math.min(200, Math.max(10, Number(q.page_size) || 100));
+    return this.tk.run(async (trx) => {
+      const base = () => trx('analytics.gl_poliza_lines as g')
+        .where('g.tenant_id', this.tenantId()).andWhere('g.source', 'contpaqi').andWhere('g.cuenta', cuenta)
+        .andWhere('g.anio_mes', '>=', from_mes).andWhere('g.anio_mes', '<=', to_mes);
+      const t = await base().select(
+        trx.raw('count(*)::int AS renglones'),
+        trx.raw("ROUND(COALESCE(SUM(g.importe) FILTER (WHERE g.cargo_abono = 'C'), 0)::numeric, 2) AS cargos"),
+        trx.raw("ROUND(COALESCE(SUM(g.importe) FILTER (WHERE g.cargo_abono = 'A'), 0)::numeric, 2) AS abonos")).first();
+      const bal = await trx('analytics.contpaqi_ledger_monthly as l')
+        .where('l.tenant_id', this.tenantId()).andWhere('l.cuenta', cuenta)
+        .andWhere('l.anio_mes', '>=', from_mes).andWhere('l.anio_mes', '<=', to_mes)
+        .select(trx.raw('MAX(l.cuenta_nombre) AS nombre'),
+          trx.raw('ROUND(COALESCE(SUM(l.cargos), 0)::numeric, 2) AS cargos'),
+          trx.raw('ROUND(COALESCE(SUM(l.abonos), 0)::numeric, 2) AS abonos')).first();
+      const rows: any[] = await base()
+        .orderBy([{ column: 'g.anio_mes' }, { column: 'g.tipo_pol' }, { column: 'g.folio' }, { column: 'g.num_movto' }])
+        .limit(size).offset((page - 1) * size)
+        .select('g.anio_mes', 'g.tipo_pol', 'g.folio', 'g.num_movto', 'g.cargo_abono', 'g.importe', 'g.referencia', 'g.concepto', 'g.cfdi_uuid');
+      const c = Number(t?.cargos ?? 0); const a = Number(t?.abonos ?? 0);
+      const bc = Number(bal?.cargos ?? 0); const ba = Number(bal?.abonos ?? 0);
+      return {
+        cuenta, nombre: bal?.nombre ?? null, from_mes, to_mes, page, page_size: size,
+        renglones: Number(t?.renglones ?? 0), cargos: c, abonos: a,
+        balanza: { cargos: bc, abonos: ba },
+        cuadra: Math.abs(c - bc) < 0.01 && Math.abs(a - ba) < 0.01,
+        filas: rows.map((r) => ({
+          anio_mes: r.anio_mes, tipo_pol: String(r.tipo_pol), folio: String(r.folio), num_movto: Number(r.num_movto),
+          cargo_abono: r.cargo_abono, importe: Number(r.importe), referencia: r.referencia ?? null,
+          concepto: r.concepto ?? null, cfdi_uuid: r.cfdi_uuid ?? null,
+        })),
       };
     });
   }
@@ -723,20 +777,70 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         .where('m.tenant_id', this.tenantId())
         .andWhere('m.anio_mes', '>=', from_mes).andWhere('m.anio_mes', '<=', to_mes);
       if (q.banco) b.whereRaw('m.cuenta_nombre ILIKE ?', [`%${String(q.banco).trim()}%`]);
+      // [LC.21] Cuántos grupos hay en total (antes: los 40 primeros, sin decirlo).
+      const tot = await b.clone().select(trx.raw(`count(DISTINCT ${byMes ? 'm.anio_mes' : 'm.cuenta'})::int AS n`)).first();
+      const offset = Math.max(0, Number(q.offset) || 0);
       b.groupByRaw(byMes ? 'm.anio_mes' : 'm.cuenta, m.cuenta_nombre')
         .select(trx.raw(`${byMes ? 'm.anio_mes' : 'm.cuenta_nombre'} AS key`))
+        // [LC.21] la cuenta cruda: con ella el desglose pide los movimientos de ESE banco.
+        .select(trx.raw(`${byMes ? 'NULL' : 'm.cuenta'} AS cuenta`))
         .select(trx.raw("ROUND(SUM(m.importe) FILTER (WHERE m.flujo='deposito')::numeric,2) AS depositos"))
         .select(trx.raw("ROUND(SUM(m.importe) FILTER (WHERE m.flujo='retiro')::numeric,2) AS retiros"))
         .select(trx.raw('COUNT(*)::int AS movs'))
-        .limit(limit);
+        .limit(limit).offset(offset);
       if (byMes) b.orderByRaw('1');
-      else b.orderByRaw("SUM(m.importe) DESC");
+      else b.orderByRaw('SUM(m.importe) DESC, 2');
       const rows: any[] = await b;
       return {
         fuente: 'ContPAQi (auxiliar bancario, libros)', from_mes, to_mes, banco: q.banco || null,
+        total_grupos: Number(tot?.n ?? rows.length), offset, limit,
         rows: col(rows.map((r) => {
           const dep = Number(r.depositos) || 0, ret = Number(r.retiros) || 0;
-          return { [byMes ? 'mes' : 'banco']: String(r.key || '').trim(), depositos: dep, retiros: ret, neto: Math.round((dep - ret) * 100) / 100, movs: Number(r.movs) };
+          return { [byMes ? 'mes' : 'banco']: String(r.key || '').trim(), cuenta: r.cuenta == null ? null : String(r.cuenta).trim(), depositos: dep, retiros: ret, neto: Math.round((dep - ret) * 100) / 100, movs: Number(r.movs) };
+        })),
+      };
+    });
+  }
+
+  /**
+   * [LC.21] El desglose de una fila del auxiliar bancario: sus movimientos. Por banco (`cuenta`) o por
+   * mes (`mes`), y opcionalmente sólo depósitos o retiros (`flujo`) — lo que se haya abierto: el
+   * número de «Movs», «Depósitos» o «Retiros». Devuelve la suma de lo filtrado para que cuadre a la vista.
+   */
+  async contpaqiBancoMovimientos(q: any) {
+    const cuenta = q.cuenta ? String(q.cuenta).trim() : null;
+    const mes = q.mes ? String(q.mes).trim() : null;
+    if (cuenta && !/^\d{4,20}$/.test(cuenta)) throw new BadRequestException('cuenta inválida');
+    if (mes && !/^\d{4}-\d{2}$/.test(mes)) throw new BadRequestException('mes inválido, se espera YYYY-MM');
+    if (!cuenta && !mes) throw new BadRequestException('hace falta la cuenta del banco o el mes');
+    const flujo = q.flujo === 'deposito' || q.flujo === 'retiro' ? q.flujo : null;
+    const { from_mes, to_mes } = mes ? { from_mes: mes, to_mes: mes } : this.mesRange(q);
+    const page = Math.max(1, Number(q.page) || 1);
+    const size = Math.min(200, Math.max(10, Number(q.page_size) || 100));
+    return this.tk.run(async (trx) => {
+      const base = () => {
+        const b = trx('analytics.contpaqi_bank_movements as m').where('m.tenant_id', this.tenantId())
+          .andWhere('m.anio_mes', '>=', from_mes).andWhere('m.anio_mes', '<=', to_mes);
+        if (cuenta) b.andWhere('m.cuenta', cuenta);
+        if (flujo) b.andWhere('m.flujo', flujo);
+        return b;
+      };
+      const t = await base().select(trx.raw('count(*)::int AS movs'),
+        trx.raw("ROUND(COALESCE(SUM(m.importe) FILTER (WHERE m.flujo = 'deposito'), 0)::numeric, 2) AS depositos"),
+        trx.raw("ROUND(COALESCE(SUM(m.importe) FILTER (WHERE m.flujo = 'retiro'), 0)::numeric, 2) AS retiros")).first();
+      const rows: any[] = await base()
+        .orderBy([{ column: 'm.fecha', order: 'desc' }, { column: 'm.importe', order: 'desc' }])
+        .limit(size).offset((page - 1) * size)
+        .select('m.fecha', 'm.cuenta', 'm.cuenta_nombre', 'm.flujo', 'm.importe', 'm.concepto', 'm.referencia',
+          'm.poliza_tipo', 'm.poliza_folio', 'm.es_conciliado');
+      return {
+        cuenta, mes, flujo, from_mes, to_mes, page, page_size: size,
+        movs: Number(t?.movs ?? 0), depositos: Number(t?.depositos ?? 0), retiros: Number(t?.retiros ?? 0),
+        filas: rows.map((r) => ({
+          fecha: r.fecha ? new Date(r.fecha).toISOString().slice(0, 10) : null,
+          cuenta: String(r.cuenta ?? '').trim(), banco: String(r.cuenta_nombre ?? '').trim(),
+          flujo: r.flujo, importe: Number(r.importe), concepto: r.concepto ?? null, referencia: r.referencia ?? null,
+          poliza: r.poliza_folio != null ? `${r.poliza_tipo ?? ''}/${r.poliza_folio}` : null, conciliado: r.es_conciliado === true,
         })),
       };
     });
@@ -757,13 +861,18 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         const t = `%${String(q.search).trim()}%`;
         b.whereRaw('(s.rfc ILIKE ? OR s.nombre ILIKE ?)', [t, t]);
       }
+      // [LC.21] ⛔ El total salía de las filas YA recortadas (`rows.length` tras `limit 50`): con 109
+      // proveedores en listas (medido el 2026-10-22) el encabezado decía «50». Los totales van de un
+      // conteo aparte; las filas se paginan con `offset`.
+      const cuenta = await b.clone().clearSelect().clearOrder()
+        .select(trx.raw('count(*)::int AS total'), trx.raw("count(*) FILTER (WHERE l.lista = '69B')::int AS en_69b")).first();
+      const offset = Math.max(0, Number(q.offset) || 0);
       const rows: any[] = await b
         .select('s.codigo', 's.nombre', 's.rfc', 'l.lista', 'l.situacion', trx.raw('l.fecha_publicacion::date AS fecha_publicacion'))
         .orderByRaw("CASE l.lista WHEN '69B' THEN 0 ELSE 1 END, s.nombre")
-        .limit(limit);
-      const en69b = rows.filter((r) => r.lista === '69B').length;
+        .limit(limit).offset(offset);
       return {
-        total: rows.length, en_69b: en69b,
+        total: Number(cuenta?.total ?? rows.length), en_69b: Number(cuenta?.en_69b ?? 0), offset, limit,
         nota: '69B = EFOS (facturan operaciones simuladas): CFDI NO deducible, riesgo ALTO y foco de auditoría SAT — prioriza estos. 69 = art. 69 CFF (incumplidos/no localizados/cancelados): riesgo menor, verificar caso por caso. Cruce por RFC exacto sobre los proveedores de la contabilidad.',
         rows: col(rows.map((r) => ({ rfc: r.rfc, nombre: r.nombre, lista: r.lista, situacion: r.situacion, codigo: String(r.codigo).trim() }))),
       };
