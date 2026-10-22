@@ -2302,4 +2302,39 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+
+  // `[PGP.1]` La pantalla de cuentas de pago estrena una sección con jerga derivada —cobertura,
+  // el 80 %, «pagado por banco»— y ninguna de las tres se entiende por su nombre. Se escribe acá
+  // y no en un `title` porque una definición dentro de un `title` sólo existe para quien tiene
+  // mouse.
+  'cuentas-de-pago': {
+    title: 'A quién le falta cuenta — qué significa cada cifra',
+    intro: 'Para pagarle a un proveedor por transferencia hay que tener registrada su cuenta. Sin ella, el pago no se puede preparar; y un día de pago con un solo pago sin preparar no se puede autorizar completo. Esta sección dice a quién le falta, empezando por el que más dinero mueve.',
+    groups: [
+      {
+        heading: 'Las cifras de arriba',
+        entries: [
+          { term: 'Cuentas por dar de alta para cubrir el 80 %', def: 'Cuántos proveedores hay que registrar, empezando por los de más dinero, para que ocho de cada diez pesos que salen por banco se puedan pagar desde la plataforma. No son todos: unos pocos proveedores concentran casi todo el monto.' },
+          { term: 'Dinero ya cubierto', def: 'Qué parte del dinero pagado por banco en la ventana corresponde a proveedores que ya tienen su cuenta registrada. Sube conforme se dan de alta; es la forma de ver el avance.' },
+          { term: 'Pagado por banco sin cuenta registrada', def: 'Lo que se pagó por transferencia a proveedores que todavía no tienen cuenta en la plataforma. Es el trabajo que queda, medido en pesos.' },
+        ],
+      },
+      {
+        heading: 'La tabla',
+        entries: [
+          { term: 'Cobertura si se da de alta', def: 'A cuánto llegaría el dinero cubierto si se registraran todas las cuentas desde arriba hasta ese renglón. La línea marcada es donde se cruza el 80 %.' },
+          { term: 'Último pago', def: 'Fecha e importe del último pago por banco a ese proveedor. Sirve para ubicarlo en la banca en línea buscando por monto: el nombre con el que el banco lo conoce no siempre es el del ERP.' },
+          { term: 'Pagado', def: 'Suma de lo pagado por banco a ese proveedor dentro de la ventana que dice el pie. No es su deuda ni su saldo: es lo que ya salió.' },
+        ],
+      },
+      {
+        heading: 'De dónde sale',
+        entries: [
+          { term: 'Por banco', def: 'El medio se toma de la cuenta de tesorería con la que se registró el pago, no del tipo de documento. Es la diferencia entre decir «transferencia» y que de verdad haya salido del banco.' },
+          { term: 'Proveedores fuera del catálogo', def: 'Si a alguien se le pagó por banco y su clave no existe en el catálogo de la plataforma, su dinero se sigue contando en el total pero no se le puede abrir la solicitud desde aquí. Se avisa en el pie en vez de esconderlo.' },
+          { term: 'Toda alta pasa por autorización', def: 'Quien solicita la cuenta no es quien la aprueba. El botón de cada renglón abre la solicitud con el proveedor ya puesto; la cuenta queda activa cuando alguien con permiso de autorizar la aprueba.' },
+        ],
+      },
+    ],
+  },
 };

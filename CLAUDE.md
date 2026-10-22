@@ -248,6 +248,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **RH** | Recursos Humanos: migración de Mega Talento | 🔨 |
 | **GP** | Gestión de pedidos en almacén (surtido/checado/embarque sin papel) | 🧪 |
 | **VAC** | Acople del verificador de precios al estándar (`/tienda/verificador`) | 🟢 |
+| **PGP** | Pago a proveedor de punta a punta (firma → ejecución → `X-D-26` escrito en Kepler) | ⬜ |
 
 ---
 

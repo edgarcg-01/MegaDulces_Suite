@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ObjectStorageService } from '@megadulces/platform-core';
+import type { CuentasPagoFaltantesResponse } from '@megadulces/contracts';
+import { repartirFaltantes } from './missing-accounts.engine';
 
 export interface CreateAccountChangeRequestDto {
   supplier_id: string;
@@ -14,6 +16,46 @@ export interface CreateAccountChangeRequestDto {
   proposed_es_favorita?: boolean;
   reason: string;
 }
+
+/** La ventana real que se midió, para que la pantalla la pueda decir. Siempre devuelve una fila. */
+const SQL_RANGO = `
+  SELECT to_char(((now() AT TIME ZONE 'America/Mexico_City')::date - ($1::int || ' days')::interval)::date, 'YYYY-MM-DD') AS desde,
+         to_char((now() AT TIME ZONE 'America/Mexico_City')::date, 'YYYY-MM-DD')                                          AS hasta`;
+
+/**
+ * `[PGP.1]` Un renglón por proveedor al que se le pagó **por banco** en la ventana, diga o no
+ * el catálogo quién es, tenga o no cuenta. El filtrado y los porcentajes se hacen arriba, en TS,
+ * porque el denominador es el total de TODOS y no se puede recortar acá sin inflarlo.
+ *
+ * ⛔ `medio_pago` (de `c45`, la cuenta de tesorería), NUNCA `metodo_pago` (de `c31`, el tipo de
+ * documento): `metodo_pago` marca "Transferencia" 2,682 pagos / $52.26M que salieron en efectivo.
+ *
+ * ⚠️ `LEFT JOIN` a propósito: el proveedor que no resuelve al catálogo se CUENTA y se declara.
+ * Con `JOIN` desaparecería en silencio y la lista diría que no falta nadie más.
+ */
+const SQL_FALTANTES = `
+  WITH pagos AS (
+    SELECT p.proveedor_code,
+           max(p.proveedor_nombre)                                        AS nombre,
+           sum(p.monto)                                                   AS monto,
+           count(*)                                                       AS pagos,
+           to_char(max(p.pago_date), 'YYYY-MM-DD')                        AS ultimo_pago_date,
+           max(p.computed_at)                                             AS computed_at,
+           (array_agg(p.monto ORDER BY p.pago_date DESC, p.folio DESC))[1] AS ultimo_pago_monto
+      FROM analytics.erp_supplier_payments p
+     WHERE p.pago_date >= ((now() AT TIME ZONE 'America/Mexico_City')::date - ($1::int || ' days')::interval)::date
+       AND p.pago_date <= (now() AT TIME ZONE 'America/Mexico_City')::date
+       AND p.medio_pago = 'banco'
+     GROUP BY 1
+  )
+  SELECT pg.proveedor_code, pg.nombre, pg.monto, pg.pagos, pg.ultimo_pago_date, pg.ultimo_pago_monto, pg.computed_at,
+         s.id AS supplier_id,
+         EXISTS (SELECT 1 FROM commercial.supplier_payment_accounts a
+                  WHERE a.supplier_id = s.id AND a.status = 'activa') AS tiene_cuenta
+    FROM pagos pg
+    LEFT JOIN catalog.suppliers s
+           ON btrim(s.code) = btrim(pg.proveedor_code) AND s.tenant_id = $2
+   ORDER BY pg.monto DESC`;
 
 /**
  * Fase TP.7 (ADR-064) — Catálogo de cuentas de pago a proveedor + workflow de aprobación.
@@ -30,6 +72,27 @@ export class SupplierPaymentAccountsService {
     private readonly tenantCtx: TenantContextService,
     private readonly storage: ObjectStorageService,
   ) {}
+
+  /**
+   * `[PGP.1]` **A quién le falta cuenta de pago, ordenado por el dinero que destraba.**
+   *
+   * El medio de pago sale de `medio_pago` (derivado de `c45`, la cuenta de tesorería), **no de
+   * `metodo_pago`**: ése viene de `c31`, que es el TIPO DE DOCUMENTO, y marca como
+   * "Transferencia" 2,682 pagos / $52.26M que salieron en efectivo.
+   *
+   * El universo se publica entero (ADR-056): sin él, «faltan 169» no se puede verificar. Los
+   * proveedores que no resuelven al catálogo **se cuentan aparte** en vez de desaparecer en el
+   * `LEFT JOIN` — son trabajo que esta pantalla no puede destrabar.
+   */
+  async listMissingAccounts(dias = 120): Promise<CuentasPagoFaltantesResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const d = Number.isFinite(dias) ? Math.min(Math.max(Math.trunc(dias), 1), 1095) : 120;
+    return this.tk.run(async (trx) => {
+      const [rango, r] = await Promise.all([trx.raw(SQL_RANGO, [d]), trx.raw(SQL_FALTANTES, [d, tenantId])]);
+      const { desde, hasta } = rango.rows[0];
+      return repartirFaltantes(r.rows ?? [], { dias: d, desde, hasta });
+    });
+  }
 
   async listAccounts(supplierId: string) {
     this.tenantCtx.requireTenantId();

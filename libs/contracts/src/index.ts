@@ -88,6 +88,8 @@ export * from './http/income.contract';
 export * from './http/cortes-sucursales.contract';
 // [ECA.1] Estado de cuenta de acreedores: documento de Kepler con sus pagos casados (kdxe + kdxf).
 export * from './http/creditor-statements.contract';
+// [PGP.1] A quién le falta cuenta de pago — la llave que destraba el Calendario de Pagos.
+export * from './http/cuentas-pago-faltantes.contract';
 export * from './http/warehouse-orders.contract';
 export * from './http/autoabasto-pedido.contract';
 export * from './http/warehouse-locations.contract';
