@@ -16,6 +16,8 @@
  * Lo que no se pudo medir se DECLARA (`null` + motivo), nunca se dibuja como $0.
  */
 
+import type { Freshness } from './provenance.contract';
+
 /** Tipo de ruta que ve quien consulta. `null` = todas (superadmin, admin). */
 export type BoardRouteScope = 'vecinal' | 'directa' | null;
 
@@ -93,6 +95,13 @@ export interface SupervisorBoardResponse {
   };
   /** ISO 8601: cuándo se armó la respuesta. */
   generated_at: string;
+  /**
+   * `[VP.2.3]` De cuándo es el DATO, que no es lo mismo que cuándo se armó la respuesta.
+   * La venta sale de `analytics.v_kepler_vecinal_sales_docs` sobre `kepler_ods.kdm1`: el
+   * servidor puede contestar en 200 ms sobre una réplica de hace seis horas y `generated_at`
+   * lo reportaría igual de fresco.
+   */
+  freshness: Freshness;
 }
 
 export interface SetVendorTargetRequest {
