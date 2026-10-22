@@ -609,7 +609,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // codigo vigente de compras-pedido-real; lo que la pantalla no dice, aca tampoco se afirma.
   'pedido-compras': {
     title: 'Pedido — guía',
-    intro: 'Una fila por producto con su total de red. Abre una fila para ver y capturar por sucursal. Lo que escribas se marca solo; «Requisiciones (N)» arma lo marcado y, antes de crear nada, te muestra cuántos documentos van a salir. Todo está en cajas.',
+    intro: 'Una fila por producto con su total de red. Abre una fila para ver y capturar por sucursal. Lo que escribas se agrega a la requisición en armado (la barra de abajo); «Generar requisición» la crea toda junta y, antes de crear nada, te muestra cuántos documentos van a salir. Todo está en cajas.',
     groups: [
       {
         heading: 'Cómo sale el sugerido',
@@ -651,10 +651,11 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Armar y exportar',
         entries: [
-          { term: 'Marcar', def: 'La casilla de cada producto. Escribir una cantidad lo marca solo. La casilla de arriba marca todos los productos de la consulta que tienen pedido, de todas las páginas.' },
-          { term: 'Requisiciones (N)', def: 'Arma lo marcado: una requisición por proveedor y punto de entrega, más sus traspasos. Primero muestra el plan; al confirmar entra todo o no entra nada. Quedan esperando aprobación en Compras › Requisiciones. Lo armado sale de la selección.' },
-          { term: 'PDF requisición', def: 'La orden en PDF de lo marcado, como borrador sin folio. No guarda nada.' },
-          { term: 'XLSX (N) / XLSX sugerido', def: 'Con productos marcados exporta lo marcado con las cantidades que escribiste. Sin nada marcado exporta el sugerido del sistema para todo el filtro, sin tus cantidades.' },
+          { term: 'Agregar a la requisición', def: 'El botón del producto abierto, o su casilla en la fila: lo suma a la requisición en armado, con lo que capturaste. Escribir una cantidad también lo agrega. La casilla de arriba agrega todos los productos de la consulta que tienen pedido, de todas las páginas.' },
+          { term: 'Requisición en armado', def: 'La barra de abajo: cuántos productos, de cuántos proveedores y cuánto. «Ver» abre el detalle por proveedor, con su subtotal y si va por debajo de su pedido típico; ahí se quita un producto o se vacía (vaciar no borra lo que escribiste).' },
+          { term: 'Generar requisición (N)', def: 'Crea la requisición en armado: una requisición por proveedor y punto de entrega, más sus traspasos. Primero muestra el plan; al confirmar entra todo o no entra nada. Quedan esperando aprobación en Compras › Requisiciones. Lo generado sale de la requisición en armado. Si ya generaste lo mismo en la última hora, avisa y pide confirmarlo.' },
+          { term: 'PDF requisición', def: 'La requisición en armado en PDF, como borrador sin folio. No guarda nada.' },
+          { term: 'XLSX (N) / XLSX sugerido', def: 'Con productos en la requisición exporta esos, con las cantidades que escribiste. Con la requisición vacía exporta el sugerido del sistema para todo el filtro, sin tus cantidades.' },
           { term: 'Solo con pedido', def: 'Oculta lo que no tiene sugerido.' },
         ],
       },

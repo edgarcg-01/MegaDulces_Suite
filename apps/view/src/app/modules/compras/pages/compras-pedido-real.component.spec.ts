@@ -663,12 +663,12 @@ describe('[RA-UX] auditoría de interacción 2026-10-21: lo que la persona hace,
     expect(c.selected().has('p-1')).toBe(true);
   });
 
-  it('⭐ lo escrito y desmarcado a mano se AVISA, y se puede volver a marcar desde el aviso', () => {
+  // [RA-UX.9] Cambia a propósito: desmarcar a mano es una decisión y ya no se reclama. El aviso
+  // queda para lo que se quedó afuera SIN querer: un borrador recuperado.
+  it('⭐ lo escrito que volvió de un borrador sin estar en la requisición se AVISA, y se puede agregar desde el aviso', () => {
+    localStorage.setItem(KEY, JSON.stringify({ v: 1, at: Date.now(), q: { 'p-1|01': 3 }, u: {}, d: {} }));
     const c = montar(VACIO).componentInstance;
-    expect(c.sinMarcar()).toBeNull();
-    c.setDispOf(fila('p-1') as never, suc('01') as never, 3);
-    expect(c.sinMarcar()).toBeNull();
-    c.clearSel();
+    c.wbRows.set([fila('p-1')] as never);
     expect(c.sinMarcar()).toEqual({ total: 1, cargados: 1 });
     c.marcarEscritos();
     expect(c.selected().has('p-1')).toBe(true);
@@ -814,5 +814,72 @@ describe('[RA-UX.1b] el servidor frena el lote repetido y la pantalla deja confi
     c.plan.set(plan as never);
     c.confirmarPlan();
     expect(c.repetido()).toBeNull();
+  });
+});
+
+describe('[RA-UX.9] la requisición en armado (el carrito)', () => {
+  beforeEach(() => { try { localStorage.clear(); } catch { /* jsdom */ } });
+  const fila = (pid: string, prov = 's-1', nombre = 'PROV UNO') => ({ product_id: pid, sku: pid, nombre: pid, supplier_id: prov, supplier_name: nombre, uxc: 16, caja_cost: 1, cells: {}, signals: null });
+  const suc = { code: '01', name: '01', cc: 1, exis: 0, seed: 0, seedUnit: 'caja', rung: null, vta: 0, nat: 0, natu: '', natuRaw: '', hub: false, mx: null, rop: null, added: false };
+
+  it('«Agregar a la requisición» NO genera nada: sólo agrega, y «quitar» lo saca', () => {
+    const c = montar(VACIO).componentInstance;
+    const gen = vi.spyOn(TestBed.inject(ComprasService), 'createRequisitionBatch');
+    c.agregarARequisicion(fila('p-1') as never);
+    expect(c.selected().has('p-1')).toBe(true);
+    expect(c.planVisible).toBe(false);
+    expect(gen).not.toHaveBeenCalled();
+    c.quitarDeRequisicion('p-1');
+    expect(c.selected().has('p-1')).toBe(false);
+  });
+
+  it('agrupa por proveedor con su subtotal, y cuenta lo que ENTRA (con cantidad) aparte de lo agregado', () => {
+    const c = montar(VACIO).componentInstance;
+    // Las cuentas por producto son las del desglose (probadas aparte): acá se fijan para probar el AGRUPADO.
+    const cj: Record<string, number> = { 'p-1': 10, 'p-2': 5, 'p-3': 0 };
+    vi.spyOn(c, 'sumCajas').mockImplementation((r: { product_id: string }) => cj[r.product_id] ?? 0);
+    vi.spyOn(c, 'sumValor').mockImplementation((r: { product_id: string }) => (cj[r.product_id] ?? 0) * 100);
+    c.agregarARequisicion(fila('p-1') as never);
+    c.agregarARequisicion(fila('p-2', 's-2', 'PROV DOS') as never);
+    c.agregarARequisicion(fila('p-3') as never);
+    const k = c.carrito();
+    expect(k.productos).toBe(3);
+    expect(k.entran).toBe(2);                       // p-3 está agregado pero en cero: no genera nada
+    expect(k.proveedores).toBe(2);
+    expect(k.valor).toBe(1500);
+    expect(k.grupos.map((g) => [g.nombre, g.valor])).toEqual([['PROV UNO', 1000], ['PROV DOS', 500]]);
+    expect(k.grupos[0].items.find((i) => i.r.product_id === 'p-3')?.entra).toBe(false);
+  });
+
+  it('⛔ «Vaciar» pregunta primero, y vaciar NO borra lo escrito', () => {
+    const f = montar(VACIO);
+    const c = f.componentInstance;
+    const conf = f.debugElement.injector.get(ConfirmationService);
+    let aceptar: (() => void) | undefined;
+    vi.spyOn(conf, 'confirm').mockImplementation((o) => { aceptar = o.accept as () => void; return conf; });
+    c.setDispOf(fila('p-1') as never, suc as never, 4);
+    c.pedirVaciar();
+    expect(c.selected().has('p-1')).toBe(true);
+    aceptar?.();
+    expect(c.selected().size).toBe(0);
+    expect(c.qtyOf(fila('p-1') as never, suc as never)).toBe(4);
+  });
+
+  it('⭐ lo que la persona quitó a propósito NO se le reclama en el aviso; volver a escribir lo re-agrega', () => {
+    const c = montar(VACIO).componentInstance;
+    c.setDispOf(fila('p-1') as never, suc as never, 3);
+    c.quitarDeRequisicion('p-1');
+    expect(c.sinMarcar()).toBeNull();
+    c.setDispOf(fila('p-1') as never, suc as never, 5);
+    expect(c.selected().has('p-1')).toBe(true);
+  });
+
+  it('«Generar» desde el cajón lo cierra y abre el plan (la revisión de siempre)', () => {
+    const c = montar(VACIO).componentInstance;
+    const build = vi.spyOn(c, 'buildReq').mockImplementation(() => undefined);
+    c.carritoAbierto.set(true);
+    c.generarDesdeCarrito();
+    expect(c.carritoAbierto()).toBe(false);
+    expect(build).toHaveBeenCalledWith();
   });
 });
