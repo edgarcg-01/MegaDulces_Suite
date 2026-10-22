@@ -1079,3 +1079,20 @@ falta uno nuevo.
     - Armar con la sugerencia: acierta 24 % en general, y 50–75 % por origen.
 
     Esos pagos se quedan en confirmación.
+- **2026-10-22** — `[CP.8.85]` **Pólizas sin movimiento de banco que case**
+  (`database/scripts/egresos-sin-banco-contpaqi.js`, solo lectura). Se revisó renglón por renglón: 10,994 de
+  18,556 renglones de banco no casaban a ±3 días. Tres causas:
+  1. ⭐ **Ella agrupa:**
+     - **Comisiones bancarias:** UNA póliza por banco al cierre del mes («PAGO COMISIONES BBVA 4885» del 31/08 lleva
+       777 renglones). 25 pólizas de BBVA, 14 de Santander, 6 de Banorte.
+     - **Combustible:** por semana (128 pólizas).
+
+     El movimiento existe, pero con otra fecha. Con la ventana «del día 1 del mes a la fecha de la póliza» para las
+     pólizas que agrupan, las pólizas sin banco bajan de **717 ($76.1 M) a 527 ($31.0 M)**.
+
+     ⚠️ **Para el diseño del armado de gastos:** las comisiones van por banco × MES, no por banco × día.
+  2. **Faltan estados de cuenta en Bancos (para Finanzas):**
+     - Santander 2169 y Santander 1604 no tienen **mayo 2026**: 159 pólizas, $12.1 M.
+     - Bajío 3660 no tiene abril, junio ni septiembre.
+  3. **Resto:** 368 pólizas, $18.9 M en nueve meses (32–57 al mes), sin investigar a fondo. El más grande es un pago
+     de capital e intereses de $4.83 M en agosto.
