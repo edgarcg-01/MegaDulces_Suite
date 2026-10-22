@@ -76,12 +76,19 @@ export interface ContpaqiBancoMovimientos {
   filas: ContpaqiMovimientoBanco[];
 }
 
-/** Lo que acepta el desglose de la balanza. `page` es 1-based. */
+/**
+ * Lo que acepta el desglose de la balanza. `page` es 1-based.
+ *
+ * ⚠️ `from_mes`/`to_mes` son `string`, no `unknown`: el servicio se los pasa tal cual a su
+ * resolvedor de rango, que los exige tipados. Los demás llegan del query string y el servicio
+ * los normaliza (`String(…)`, `Number(…)`), así que ahí `unknown` es lo honesto.
+ */
 export interface ContpaqiBalanzaRenglonesQuery {
   cuenta?: unknown;
-  from_mes?: unknown;
-  to_mes?: unknown;
+  from_mes?: string;
+  to_mes?: string;
   page?: unknown;
+  page_size?: unknown;
 }
 
 /** Lo que acepta el desglose del auxiliar bancario. `page` es 1-based. */
@@ -89,9 +96,10 @@ export interface ContpaqiBancoMovimientosQuery {
   cuenta?: unknown;
   mes?: unknown;
   flujo?: unknown;
-  from_mes?: unknown;
-  to_mes?: unknown;
+  from_mes?: string;
+  to_mes?: string;
   page?: unknown;
+  page_size?: unknown;
 }
 
 /** `[LC.21]` Un CFDI del proveedor, dentro del desglose «CFDI vs Contabilidad». */
