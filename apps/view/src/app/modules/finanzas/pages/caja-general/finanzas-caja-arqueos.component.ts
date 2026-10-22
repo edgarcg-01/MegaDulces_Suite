@@ -163,8 +163,9 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
  * el botón vivía en Captura → «Tu jornada» → Historial plegado, y esta pantalla, que es donde se
  * revisa, contaba «sin la segunda llave» sin dejar hacer nada con eso.
  *
- * **No arbitra entre la Suite y Control** (ADR-059): cuando el segundo testigo discrepa se
- * publica la discrepancia, no un ganador.
+ * **No reescribe lo firmado.** `[CGS.36]` Cuando un testigo (Control, la máquina, el libro de hoy)
+ * contradice una entrada de la cuenta, la diferencia VERDADERA se publica al lado de la sellada, con
+ * el porqué; el conteo que manda es el arqueo físico, como en los reconteos de CC-3 y CC-7.
  */
 @Component({
   selector: 'app-finanzas-caja-arqueos',
