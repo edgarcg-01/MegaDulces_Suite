@@ -45,6 +45,7 @@ const sql = require('mssql');
 const { Client } = require('pg');
 const hb = require('../lib/cron-heartbeat');
 const { mergeEstatusSatSql } = require('./estatus-sat-merge');
+const { completarXml } = require('./add-xml');
 
 // Latido POR CARRIL (2026-09-07). Los dos carriles del ecosystem —`inc` @5min y `full` diario—
 // escribían el MISMO `job_key`, y `analytics.cron_runs` tiene PRIMARY KEY (tenant_id, job_key) SIN
@@ -74,6 +75,10 @@ const ROL = (() => {
   if (v !== 'recibidas' && v !== 'emitidas') throw new Error(`--rol invalido: ${v} (recibidas|emitidas)`);
   return v;
 })();
+// [LC.20] El XML de cada CFDI se completa desde el ADD (sólo donde falta). Por default sólo
+// recibidos —son los que se contabilizan—; los emitidos, con `--xml`. `--sin-xml` lo apaga.
+const GUARDAR_XML = !process.argv.includes('--sin-xml') && (ROL === 'recibidas' || process.argv.includes('--xml'));
+const LIMITE_XML = Number(process.env.CONTPAQI_XML_POR_PASADA || 1000);
 /**
  * El predicado de rol, por alias de tabla.
  *
@@ -209,7 +214,7 @@ async function maxTimeStamp(mss, tipoList) {
   // ── 1) Resolver el ADD vivo (el más recientemente sincronizado para el RFC) ──────────
   let mss = await sql.connect(SRC('DB_Directory'));
   const dirs = (await mss.request().query(`
-    SELECT DB_DocumentsMetadata AS db, RFC, Syncronized
+    SELECT DB_DocumentsMetadata AS db, DB_DocumentsContent AS content, RFC, Syncronized
       FROM DatabaseDirectory WHERE RFC = '${RFC}' ORDER BY Syncronized DESC`)).recordset;
   await mss.close();
   if (!dirs.length) throw new Error(`DB_Directory no tiene ADD para el RFC ${RFC}`);
@@ -217,6 +222,10 @@ async function maxTimeStamp(mss, tipoList) {
   console.log(`  ADD vivo: ${ADD} (sync ${iso(dirs[0].Syncronized)?.slice(0, 10)})`);
 
   mss = await sql.connect(SRC(ADD));
+  // [LC.20] La base del contenido (el XML) es otra; pool propio, porque `sql.connect` es global.
+  const poolXml = GUARDAR_XML && APPLY && dirs[0].content
+    ? await new sql.ConnectionPool(SRC(dirs[0].content)).connect()
+    : null;
   const tipoList = TIPOS.map((t) => `'${t}'`).join(',');
   const pg = new Client({ connectionString: DST, ssl: DST.includes('rlwy.net') ? { rejectUnauthorized: false } : false });
   if (APPLY) await pg.connect();
@@ -225,7 +234,14 @@ async function maxTimeStamp(mss, tipoList) {
     if (APPLY) await hb.begin(FEED_KEY, ETIQUETA_ROL);
     try {
       const n = await pasada(mss, pg, tipoList);
-      if (APPLY) await hb.end(FEED_KEY, { status: 'ok', rows: n, note: modo.toLowerCase() });
+      // [LC.20] Después del encabezado, el documento: sólo de las que no lo tienen.
+      let notaXml = '';
+      if (poolXml) {
+        const x = await completarXml(pg, poolXml, { tenant: TENANT, rol: ROL, tipos: TIPOS, limite: LIMITE_XML, apply: APPLY, feedKey: FEED_KEY });
+        notaXml = ` · xml ${x.guardadas}/${x.pedidas}${x.sin_contenido ? ` (${x.sin_contenido} sin contenido)` : ''}${x.uuid_distinto ? ` (${x.uuid_distinto} UUID distinto)` : ''}`;
+        if (x.pedidas) console.log(`  XML: ${x.guardadas} guardados de ${x.pedidas} pedidos · ${x.sin_contenido} sin contenido en el ADD · ${x.uuid_distinto} con UUID distinto (no se guardan)`);
+      }
+      if (APPLY) await hb.end(FEED_KEY, { status: 'ok', rows: n, note: modo.toLowerCase() + notaXml });
       return n;
     } catch (e) {
       if (APPLY) await hb.end(FEED_KEY, { status: 'error', error: e.message });
@@ -236,6 +252,7 @@ async function maxTimeStamp(mss, tipoList) {
   if (!WATCH) {
     const n = await correr();
     await mss.close();
+    if (poolXml) await poolXml.close();
     if (APPLY) { await pg.end(); console.log(`\n✅ TOTAL: ${n} CFDIs sincronizados a fiscal.cfdis (source=contpaqi_add).`); }
     else console.log(`\nDRY-RUN — ${n} CFDIs listos. Corre con --apply para escribir.`);
     return;
