@@ -36,6 +36,23 @@ export interface NegociacionPagoMes {
   max: number;
 }
 
+/** `[RA-NEG.3]` Una entrada pagada al proveedor, en unidad base: el historial que se ve SIN salir del pedido. */
+export interface NegociacionEntrada {
+  fecha: string;
+  /** Código de la plaza que recibió; `00` = capturada en oficinas sin plaza resuelta. */
+  sucursal: string;
+  base: number;
+  costo_base: number;
+}
+
+/** `[RA-NEG.3]` Un pago al proveedor que salió SIN el descuento por pronto pago. */
+export interface NegociacionPagoSinDescuento {
+  fecha: string;
+  folio: string;
+  sucursal: string;
+  monto: number;
+}
+
 /** Entradas recientes registradas EXACTAMENTE al costo estándar: puede ser un precio mejor o una captura. */
 export interface NegociacionAlEstandar {
   /** Código de la sucursal que recibió (la plaza). La pantalla la NOMBRA, nunca pinta el código. */
@@ -88,6 +105,8 @@ export interface NegociacionPagado {
    */
   renglones_atipicos: number;
   al_estandar_reciente: NegociacionAlEstandar[];
+  /** `[RA-NEG.3]` Las últimas entradas (hasta `MAX_ENTRADAS_NEGOCIACION`), de la más reciente a la más vieja. Sin las atípicas. */
+  entradas: NegociacionEntrada[];
 }
 
 export interface NegociacionProntoPago {
@@ -101,6 +120,11 @@ export interface NegociacionProntoPago {
   /** `tasa × monto_sin_descuento`: estimado, no un hecho. */
   estimado_perdido: number;
   ultimo_sin_descuento: string | null;
+  /**
+   * `[RA-NEG.3]` Los últimos pagos sin descuento (hasta 15). `null` = quien consulta no tiene permiso de ver
+   * Descuentos: se DECLARA, no se manda vacío (vacío se leería «todos los pagos llevaron descuento»).
+   */
+  ultimos_sin_descuento: NegociacionPagoSinDescuento[] | null;
 }
 
 export interface NegociacionProveedor {
@@ -137,6 +161,9 @@ export interface PedidoNegociacionDto {
   generado_at: string;
 }
 
+/** `[RA-NEG.3]` Cuántas entradas viajan para el historial del panel (las demás están resumidas por mes). */
+export const MAX_ENTRADAS_NEGOCIACION = 40;
+
 /** Margen sobre costo, como lo expresa Kepler: precio SIN impuesto ÷ costo − 1, en %. */
 export function margenSobreCosto(precioConImpuesto: number | null, impuestoPct: number | null, costo: number | null): number | null {
   if (precioConImpuesto == null || impuestoPct == null || costo == null || !(costo > 0)) return null;
@@ -154,8 +181,11 @@ export interface AccionNegociacion {
   que: string;
   por: string;
   tono: TonoAccion;
-  /** Pantalla donde se ve el detalle, si hay. */
-  enlace: string | null;
+  /**
+   * `[RA-NEG.3]` Qué detalle abre, DENTRO del pedido: `historial` (lo pagado y los costos) o `descuentos`.
+   * Antes era una ruta a otra pantalla, y salir del pedido perdía la requisición en armado.
+   */
+  detalle: 'historial' | 'descuentos' | null;
 }
 
 /** Diferencia por debajo de la cual dos costos se toman como iguales (centavos de redondeo). */
@@ -183,7 +213,7 @@ export function accionesNegociacion(d: PedidoNegociacionDto, nombreSucursal: (co
   // NEGOCIA — se paga más que el costo con el que Kepler fija el precio.
   if (est != null && ult != null && ult - est > TOLERANCIA) {
     out.push({
-      clave: 'negocia', verbo: 'Negocia', que: enCaja(est), tono: 'warn', enlace: '/compras/catalogo/costos',
+      clave: 'negocia', verbo: 'Negocia', que: enCaja(est), tono: 'warn', detalle: 'historial',
       por: '(hoy ' + enCaja(ult).replace(' la caja', '') + ')',
     });
   }
@@ -191,7 +221,7 @@ export function accionesNegociacion(d: PedidoNegociacionDto, nombreSucursal: (co
   const pc = d.costo.precio_conserva_margen, pf = d.costo.precio_ficha;
   if (pc != null && pf != null && pc - pf > TOLERANCIA && d.costo.impacto_30d > 0 && d.costo.precio_igual_en_todas) {
     out.push({
-      clave: 'sube', verbo: out.length ? 'O sube' : 'Sube', que: 'el precio a ' + pesos(pc), tono: 'warn', enlace: '/compras/costo-estandar',
+      clave: 'sube', verbo: out.length ? 'O sube' : 'Sube', que: 'el precio a ' + pesos(pc), tono: 'warn', detalle: 'historial',
       por: '(' + millones(d.costo.impacto_30d) + ' de más en 30 días)',
     });
   }
@@ -199,7 +229,7 @@ export function accionesNegociacion(d: PedidoNegociacionDto, nombreSucursal: (co
   const pp = d.proveedor?.pronto_pago;
   if (pp && pp.sin_descuento > 0 && pp.estimado_perdido > 0) {
     out.push({
-      clave: 'pide', verbo: 'Pide', que: 'el pronto pago', tono: 'warn', enlace: '/compras/descuentos',
+      clave: 'pide', verbo: 'Pide', que: 'el pronto pago', tono: 'warn', detalle: 'descuentos',
       por: '(≈ ' + millones(pp.estimado_perdido) + ' sin tomar en ' + pp.sin_descuento + ' pagos)',
     });
   }
@@ -208,7 +238,7 @@ export function accionesNegociacion(d: PedidoNegociacionDto, nombreSucursal: (co
     // `00` aquí NO es una plaza: es lo capturado en oficinas cuya plaza no se pudo resolver.
     const donde = a.sucursal === '00' ? 'capturado en oficinas' : 'de ' + nombreSucursal(a.sucursal);
     out.push({
-      clave: 'confirma', verbo: 'Confirma', que: 'el ' + pesos(a.costo_base) + ' ' + donde, tono: 'info', enlace: null,
+      clave: 'confirma', verbo: 'Confirma', que: 'el ' + pesos(a.costo_base) + ' ' + donde, tono: 'info', detalle: 'historial',
       por: 'en la factura: es el costo estándar al centavo',
     });
   }

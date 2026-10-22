@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { ContextHelpComponent } from '../../shared/context-help/context-help.component';
 import { margenSobreCosto, type PedidoNegociacionDto, warehouseName } from '@megadulces/contracts';
 
 /** A qué pantallas puede saltar quien mira el panel (cada enlace pide su propio permiso). */
@@ -26,19 +27,17 @@ const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'o
 @Component({
   selector: 'app-pedido-negociacion-panel',
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="ng" aria-labelledby="ng-t">
       <div class="ng-h">
         <h3 id="ng-t">Costo y negociación</h3>
+        <app-context-help topic="negociacion-costos"></app-context-help>
         <span class="ng-sp"></span>
-        @if (links().costos) {
-          <a [routerLink]="['/compras/catalogo/costos']" [queryParams]="{ vista: 'historial', sku: d().sku }">Historial ›</a>
-        }
-        @if (links().descuentos && d().proveedor) {
-          <a [routerLink]="['/compras/descuentos']" [queryParams]="{ view: 'fuga', q: d().proveedor!.nombre }">Descuentos ›</a>
-        }
+        <!-- [RA-NEG.3] Se abren AQUÍ, en el panel lateral: antes eran rutas y salir del pedido perdía la requisición. -->
+        <button type="button" class="ng-lnk" (click)="abrir.emit('historial')">Historial y costos ›</button>
+        @if (d().proveedor) { <button type="button" class="ng-lnk" (click)="abrir.emit('descuentos')">Descuentos ›</button> }
       </div>
 
       <div class="ng-cifras">
@@ -118,7 +117,8 @@ const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'o
           </dd></div>
           <div><dt>Entrega</dt><dd>
             @if (p.tiempo_entrega_dias != null) { <b>{{ p.tiempo_entrega_dias }} días</b> }
-            @else if (links().proveedores) { <a [routerLink]="['/compras/proveedores']" [queryParams]="{ q: p.nombre }" title="El cálculo supone 7 días mientras no se capture">no capturado ›</a> }
+            @else if (links().proveedores) { <span class="ng-faint">no capturado</span> <a class="ng-s" [routerLink]="['/compras/proveedores']" [queryParams]="{ q: p.nombre }" target="_blank" rel="noopener"
+                 title="Se abre en otra pestaña: tu pedido no se pierde. Mientras no se capture, el cálculo supone 7 días.">capturarlo en otra pestaña <i class="pi pi-external-link" aria-hidden="true"></i></a> }
             @else { <span class="ng-faint" title="El cálculo supone 7 días mientras no se capture">no capturado</span> }
           </dd></div>
           <div><dt>Reclamos</dt><dd>
@@ -140,6 +140,9 @@ const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'o
     .ng-sp { flex: 1; }
     .ng-h a, .ng-prov a { font-size: var(--fs-xs); color: var(--text-muted); text-underline-offset: 3px; }
     .ng-h a:hover, .ng-prov a:hover { color: var(--text-main); }
+    .ng-lnk { font-family: inherit; font-size: var(--fs-xs); color: var(--text-muted); background: none; border: 0; padding: .2rem .1rem; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+    .ng-lnk:hover { color: var(--text-main); }
+    .ng-lnk:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .ng-h a:focus-visible, .ng-prov a:focus-visible, .ng-chip:focus-visible, .ng-calc input:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .ng-cifras { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; }
     .ng-k { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -183,6 +186,8 @@ export class PedidoNegociacionPanelComponent {
   /** Surtido del proveedor (0–1), el mismo de la fila. */
   readonly surte = input<number | null>(null);
   readonly links = input<EnlacesNegociacion>({ costos: false, descuentos: false, proveedores: false });
+  /** `[RA-NEG.3]` Qué detalle abrir en el panel lateral del pedido. */
+  readonly abrir = output<'historial' | 'descuentos'>();
 
   /** El costo por caja que se está probando en la calculadora. `null` = el de hoy. */
   readonly costoProbado = signal<number | null>(null);

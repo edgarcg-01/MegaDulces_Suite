@@ -41,7 +41,11 @@ export class PedidoNegociacionService {
     return this.cache ? this.cache.getOrSet(clave, PedidoNegociacionService.CACHE_MS, fn) : fn();
   }
 
-  async negociacion(productId: string): Promise<PedidoNegociacionDto> {
+  /**
+   * @param verDescuentos `[RA-NEG.3]` si quien consulta puede ver Descuentos (`COMPRAS_DESCUENTOS_VER`). Sin él, la
+   *   lista de pagos sin descuento no viaja y se declara `null`; los totales sí (ya los publica el panel).
+   */
+  async negociacion(productId: string, verDescuentos = false): Promise<PedidoNegociacionDto> {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!/^[0-9a-f-]{36}$/i.test(productId)) throw new NotFoundException('Producto no encontrado');
     const prod = await this.tk.run(async (trx) => (await trx.raw(
@@ -60,7 +64,7 @@ export class PedidoNegociacionService {
     const [producto, proveedor] = await Promise.all([
       this.producto(sku, supCode),
       supId && supCode
-        ? this.conCache(`pedido:neg:prov:v1:${supId}`, () => this.proveedor(tenantId, {
+        ? this.conCache(`pedido:neg:prov:v2:${supId}:${verDescuentos ? 1 : 0}`, () => this.proveedor(tenantId, verDescuentos, {
             sup_id: supId, sup_code: supCode, sup_name: prod.sup_name ?? supCode, credit_days: prod.credit_days,
             credit_term_base: prod.credit_term_base, lead_time_days: prod.lead_time_days,
           }))
@@ -87,7 +91,7 @@ export class PedidoNegociacionService {
     const d = new Date(); d.setUTCDate(d.getUTCDate() - 365);
     const desde = d.toISOString().slice(0, 10);
     // Lo pagado, en caché: la clave lleva el día y el estándar, que es contra lo que se compara.
-    const pagado = await this.conCache(`pedido:neg:pagado:v2:${sku}:${supCode ?? '-'}:${hasta}:${costo.estandar_base ?? '-'}`, async () => {
+    const pagado = await this.conCache(`pedido:neg:pagado:v3:${sku}:${supCode ?? '-'}:${hasta}:${costo.estandar_base ?? '-'}`, async () => {
       const filas = supCode ? await this.entradas(sku, supCode, desde) : [];
       await this.resolverPlazas(filas, esc, hasta);
       return resumirPagado(filas, esc, costo.estandar_base, desde, hasta);
@@ -172,7 +176,7 @@ export class PedidoNegociacionService {
   }
 
   /** El proveedor en 12 meses: lo que le compramos, lo que nos descontó y lo que dejamos en la mesa. */
-  private async proveedor(tenantId: string, p: { sup_id: string; sup_code: string; sup_name: string; credit_days: number | null;
+  private async proveedor(tenantId: string, verDescuentos: boolean, p: { sup_id: string; sup_code: string; sup_name: string; credit_days: number | null;
     credit_term_base: string | null; lead_time_days: number | null }): Promise<NegociacionProveedor> {
     return this.tk.run(async (trx) => {
       // En secuencia: comparten la conexión de la transacción.
@@ -198,6 +202,10 @@ export class PedidoNegociacionService {
       const pg = pago.rows[0] as { desc_pago: string; pagos: number; sin: number; monto_sin: string; ult_sin: string | null };
       const descNota = n((nota.rows[0] as { desc_nota: string }).desc_nota);
       const pl = pol.rows[0] as { tasa: string; source: string | null } | undefined;
+      const sinDesc = pl && verDescuentos ? (await trx.raw(
+        `SELECT pago_date::text AS fecha, folio, sucursal, monto::numeric AS monto FROM analytics.erp_supplier_payments
+          WHERE tenant_id = ? AND proveedor_code = ? AND pago_date >= current_date - 365 AND descuento = 0
+          ORDER BY pago_date DESC, folio DESC LIMIT 15`, [tenantId, p.sup_code])).rows as { fecha: string; folio: string; sucursal: string; monto: string }[] : null;
       const rc = recl.rows[0] as { del_proveedor: number; en_la_base: number };
       return {
         supplier_id: p.sup_id, nombre: p.sup_name,
@@ -208,6 +216,7 @@ export class PedidoNegociacionService {
         pronto_pago: pl ? {
           tasa: n(pl.tasa), fuente: pl.source, pagos: pg.pagos, sin_descuento: pg.sin, monto_sin_descuento: n(pg.monto_sin),
           estimado_perdido: Math.round(n(pl.tasa) * n(pg.monto_sin) * 100) / 100, ultimo_sin_descuento: pg.ult_sin,
+          ultimos_sin_descuento: sinDesc ? sinDesc.map((x) => ({ fecha: x.fecha, folio: String(x.folio).trim(), sucursal: String(x.sucursal).trim(), monto: n(x.monto) })) : null,
         } : null,
         plazo_dias: p.credit_days, plazo_base: p.credit_term_base,
         plazo_kepler: recs.map((r) => ({ dias: r.dias_credito, recepciones: r.n })),

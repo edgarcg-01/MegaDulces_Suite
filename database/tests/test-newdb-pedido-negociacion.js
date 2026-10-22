@@ -127,6 +127,22 @@ const NUM = (col) => `nullif(regexp_replace(${col}::text, '[^0-9.-]', '', 'g'), 
   ok(lecturasKdm2 === antes, `3a. la segunda llamada no relee kdm2 (${lecturasKdm2 - antes} lecturas)`);
   ok(JSON.stringify({ ...d2, generado_at: 0 }) === JSON.stringify({ ...d, generado_at: 0 }), '3b. y responde lo mismo');
 
+  // 3c. [RA-NEG.3] Las entradas del historial: las más recientes primero y como mucho 40.
+  const ent = d.pagado.entradas;
+  ok(ent.length <= 40 && ent.every((e, i) => i === 0 || ent[i - 1].fecha >= e.fecha), `3c. entradas del historial: ${ent.length} (≤ 40), de la más reciente a la más vieja`);
+
+  // 3d. [RA-NEG.3] NEGATIVA de permiso: sin Descuentos la lista de pagos no viaja (null, no vacía); con él, sí.
+  // Un producto cuyo proveedor SÍ tiene tasa de pronto pago (si no, no hay lista que proteger).
+  const conTasa = (await knex.raw(`SELECT p.id FROM catalog.products p JOIN catalog.suppliers s ON s.id = p.supplier_id AND s.tenant_id = p.tenant_id
+      JOIN commercial.supplier_discount_policy pol ON pol.tenant_id = p.tenant_id AND pol.proveedor_code = s.code AND pol.active AND pol.expected_discount_rate > 0
+     WHERE p.tenant_id = ? AND p.deleted_at IS NULL ORDER BY p.sku LIMIT 1`, [T])).rows[0];
+  const sin = conTasa ? (await servicio(null).negociacion(conTasa.id, false)).proveedor?.pronto_pago : null;
+  const con = conTasa ? (await servicio(null).negociacion(conTasa.id, true)).proveedor?.pronto_pago : null;
+  if (sin && con) {
+    ok(sin.ultimos_sin_descuento === null && Array.isArray(con.ultimos_sin_descuento),
+      `3d. pagos sin descuento: sin permiso = null · con permiso = ${con.ultimos_sin_descuento.length} pagos`);
+  } else noMedido('3d. el proveedor del producto no tiene tasa de pronto pago');
+
   // 4. NEGATIVA: un id que no es un producto.
   let st = null;
   try { await s.negociacion('00000000-0000-0000-0000-000000000000'); } catch (e) { st = e.status ?? e.getStatus?.(); }

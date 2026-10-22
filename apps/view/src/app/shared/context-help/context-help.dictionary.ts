@@ -1562,6 +1562,36 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // template, que es justo lo que §P prohíbe: la fuente de la explicación es este diccionario.
   // Los siete veredictos son el vocabulario que decide a quién se persigue, y tres de ellos
   // son AUSENCIAS distintas entre sí — confundirlas es el error que la vista existe para evitar.
+  'negociacion-costos': {
+    title: 'Costo y negociación — guía',
+    intro: 'Lo que necesitas para hablar con el proveedor antes de mandar el pedido. Todo sale de Kepler y de los pagos registrados: acá no se captura nada. «Historial y costos» y «Descuentos» se abren en un panel lateral, sin salir del pedido.',
+    groups: [
+      {
+        heading: 'Los tres costos',
+        entries: [
+          { term: 'Costo estándar', def: 'El costo capturado en la ficha del producto en Kepler. No es un promedio ni cambia con cada compra: cambia de golpe cuando alguien edita la ficha. Es el que FIJA EL PRECIO: precio = estándar × (1 + margen de la ficha) × (1 + impuesto), y esa fórmula cuadra al centavo en el 97.75 % del catálogo. Si se queda por debajo de lo que pagas, la ficha anuncia un margen que no existe.' },
+          { term: 'Costo de hoy', def: 'Lo que costó la última entrada en Kepler (costo de reposición). Con él se valúa el pedido y se calcula el margen real.' },
+          { term: 'Lo pagado', def: 'El promedio de lo que le pagaste al proveedor en sus entradas de 12 meses, mes por mes y una por una en «Historial y costos». Las bonificaciones a centavo no entran.' },
+        ],
+      },
+      {
+        heading: 'Los dos márgenes',
+        entries: [
+          { term: 'Margen de la ficha', def: 'El que calcula Kepler con el costo estándar. Es el que ves en la ficha.' },
+          { term: 'Margen real', def: 'Precio sin impuesto ÷ costo de hoy − 1. Si es menor que el de la ficha, el estándar quedó viejo: negocia el costo o sube el precio.' },
+        ],
+      },
+      {
+        heading: 'La calculadora y el proveedor',
+        entries: [
+          { term: 'Caja a $', def: 'Escribe el costo que te ofrece el proveedor (o usa «estándar» o «mín. del año») y ve el margen y cuánto ahorras en este pedido y en un año comprando lo mismo que en los últimos 12 meses.' },
+          { term: 'Pronto pago no tomado', def: 'Pagos que salieron sin el descuento por pronto pago. La tasa casi siempre es OBSERVADA (sale de los pagos que sí lo llevaron): el monto es un estimado, no un contrato.' },
+          { term: 'Pedido típico', def: 'Lo que llevas de este proveedor contra el tamaño de sus pedidos de siempre. No es un mínimo que el proveedor exija.' },
+          { term: 'Reclamos «sin registro»', def: 'Nadie ha capturado reclamos de recepción todavía. Un cero ahí no quiere decir que no haya faltado nada.' },
+        ],
+      },
+    ],
+  },
   'costo-estandar': {
     title: 'Costo estándar — guía',
     intro: 'Con qué costo está poniendo precio Kepler, y si se parece a lo que cuesta reponer hoy. Todo sale del ERP: acá no se captura ni se corrige nada.',

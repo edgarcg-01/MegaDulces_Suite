@@ -15,7 +15,7 @@ const DTO: PedidoNegociacionDto = {
   pagado: { desde: '2025-10-22', hasta: '2026-10-22',
     meses: [{ mes: '2026-01', base: 2400, promedio: 89, min: 84.88, max: 89.3 }, { mes: '2026-10', base: 6320, promedio: 81.7, min: 78.6, max: 82.68 }],
     ultimo: { fecha: '2026-10-21', sucursal: '06', costo_base: 78.595 }, minimo: { fecha: '2026-06-29', sucursal: '06', costo_base: 72.44, base: 1280 },
-    total_base: 52368, total_valor: 4455190.69, renglones: 81, renglones_sin_unidad: 0, renglones_atipicos: 0, al_estandar_reciente: [] },
+    total_base: 52368, total_valor: 4455190.69, renglones: 81, renglones_sin_unidad: 0, renglones_atipicos: 0, al_estandar_reciente: [], entradas: [] },
   proveedor: { supplier_id: 's-1', nombre: 'DISTRIBUIDORA DE LA ROSA SA DE CV', compras_12m: 81143559.22, recepciones_12m: 618,
     descuento_pago_12m: 3131340.22, descuento_notas_12m: 2092748.91, descuento_pct: 6.44, pronto_pago: null,
     plazo_dias: 20, plazo_base: 'factura', plazo_kepler: [{ dias: 19, recepciones: 388 }, { dias: 21, recepciones: 230 }], tiempo_entrega_dias: null,
@@ -100,6 +100,22 @@ describe('[RA-NEG.1] panel «Costo y negociación»', () => {
     const t = texto(montar(vacio));
     expect(t).toContain('no tiene proveedor');
     expect(t).toContain('Sin compras a este proveedor en 12 meses');
+  });
+
+  it('[RA-NEG.3] «Historial» y «Descuentos» ABREN el detalle aquí: emiten, no navegan', () => {
+    const f = montar();
+    const vistas: string[] = [];
+    f.componentInstance.abrir.subscribe((v) => vistas.push(v));
+    const bs = [...(f.nativeElement as HTMLElement).querySelectorAll('button.ng-lnk')] as HTMLButtonElement[];
+    bs.forEach((b) => b.click());
+    expect(vistas).toEqual(['historial', 'descuentos']);
+    expect((f.nativeElement as HTMLElement).querySelector('a[href*="/compras/catalogo"], a[href*="/compras/descuentos"]')).toBeNull();
+  });
+
+  it('lo que sí lleva a otra pantalla (capturar el tiempo de entrega) se abre en OTRA pestaña, dicho', () => {
+    const a = (montar().nativeElement as HTMLElement).querySelector('a[href*="/compras/proveedores"]') as HTMLAnchorElement;
+    expect(a.target).toBe('_blank');
+    expect(a.textContent).toContain('otra pestaña');
   });
 
   it('dos precios entre sucursales se declaran junto al precio', () => {

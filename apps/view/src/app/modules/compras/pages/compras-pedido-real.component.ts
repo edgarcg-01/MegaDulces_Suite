@@ -7,6 +7,7 @@ import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { accionesNegociacion, compareWarehouseCodes, type Freshness, type PedidoNegociacionDto, WAREHOUSE_DISPLAY_ORDER, warehouseName } from '@megadulces/contracts';
 import { type EnlacesNegociacion, PedidoNegociacionPanelComponent } from '../pedido-negociacion-panel.component';
+import { PedidoNegociacionDetalleComponent } from '../pedido-negociacion-detalle.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
@@ -129,7 +130,8 @@ interface ZoneGroup {
 interface AccionDesglose {
   clave: string; verbo: string; que: string; por: string; tono: 'warn' | 'info';
   boton: 'transito' | 'descontar' | null;
-  enlace: { ruta: string; qp: Record<string, string | null> } | null;
+  /** `[RA-NEG.3]` Qué detalle abre en el panel lateral (sin salir del pedido). */
+  detalle: 'historial' | 'descuentos' | null;
 }
 /** `[RA-NEG.2]` Dónde entrega el proveedor, para TODO el producto. `mixto` = cada sucursal la suya. */
 type EntregaModo = 'directo' | 'zona' | 'cedis' | 'mixto';
@@ -149,6 +151,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
   standalone: true,
   imports: [
     PedidoNegociacionPanelComponent,
+    PedidoNegociacionDetalleComponent,
     CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, ConfirmDialogModule, PopoverModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent, SidePeekComponent, ComprasFlujoComponent,
     SucursalPipe,
@@ -499,8 +502,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                     } @else if (a.boton === 'descontar') {
                                       <button type="button" class="pr-zlink" (click)="descontarTraspaso(r)"
                                               title="Resta de lo que se pide en cada sucursal lo que ya le llega por traspaso. Se puede volver a editar.">descontar</button>
-                                    } @else if (a.enlace) {
-                                      <a class="pr-zlink" [routerLink]="[a.enlace.ruta]" [queryParams]="a.enlace.qp">ver ›</a>
+                                    } @else if (a.detalle) {
+                                      <button type="button" class="pr-zlink" (click)="abrirDetalle(r.product_id, a.detalle)">ver ›</button>
                                     }
                                   </span>
                                 </li>
@@ -765,7 +768,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                               @case ('listo') {
                                 <app-pedido-negociacion-panel [d]="negOf(r.product_id)!.d!" [cajas]="sumCajas(r)"
                                   [tipico]="tipicoCorto(r)" [tipicoTitle]="pedidoTipico(r) ? pedidoTipicoTitle(pedidoTipico(r)!) : ''"
-                                  [surte]="r.fill_rate != null ? +r.fill_rate : null" [links]="negLinks()"></app-pedido-negociacion-panel>
+                                  [surte]="r.fill_rate != null ? +r.fill_rate : null" [links]="negLinks()"
+                                  (abrir)="abrirDetalle(r.product_id, $event)"></app-pedido-negociacion-panel>
                               }
                               @case ('error') {
                                 <div class="pr-dx-neg-msg" role="alert">No se pudo leer el costo y la negociación.
@@ -873,6 +877,14 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         <!-- [RA-UX.9] LA REQUISICIÓN EN ARMADO, completa: por proveedor, con su subtotal y su pedido
              típico, y cada producto con lo que lleva. Cajón y no diálogo: se ve sin perder la lista
              (DESIGN §datos densos 8). -->
+        <!-- [RA-NEG.3] El detalle de la negociación, sin salir del pedido. -->
+        <app-side-peek [open]="!!negDetalle()" (openChange)="cerrarDetalle($event)" [width]="620"
+                       [title]="negDetalleTitulo()" [subtitle]="negDetalleDto() ? negDetalleDto()!.sku + (negDetalleDto()!.proveedor ? ' · ' + negDetalleDto()!.proveedor!.nombre : '') : null">
+          @if (negDetalleDto(); as nd) {
+            <app-pedido-negociacion-detalle [d]="nd" [vista]="negDetalle()!.vista"></app-pedido-negociacion-detalle>
+          }
+        </app-side-peek>
+
         <app-side-peek [open]="carritoAbierto()" (openChange)="cerrarCarrito($event)" [width]="560"
                        title="Requisición en armado" [subtitle]="carritoSub()">
           @if (!carrito().productos) {
@@ -2117,7 +2129,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       // Sin cantidades no hay borrador: dejar un cascarón haría que la próxima sesión anuncie
       // "recuperé tu pedido" sobre cero renglones.
       if (!Object.keys(q).length) { localStorage.removeItem(k); return; }
-      localStorage.setItem(k, JSON.stringify({ v: this.BORRADOR_V, at: Date.now(), q, u: this.buyUnit(), d: this.buyDeliver() }));
+      // `[RA-NEG.3]` También la requisición en armado (`[RA-UX.9b]`): lo agregado, lo quitado y la copia de cada
+      // renglón, que es lo que deja ver en el carrito productos de otras páginas. Sin esto, irse a otra
+      // pantalla y volver recuperaba las cantidades y vaciaba la requisición.
+      const sel = [...this.selected()];
+      const filas = sel.map((pid) => this.knownRows().get(pid)).filter((r): r is WorkbookRow => !!r);
+      localStorage.setItem(k, JSON.stringify({ v: this.BORRADOR_V, at: Date.now(), q, u: this.buyUnit(), d: this.buyDeliver(),
+        sel, qt: [...this.quitados()], rows: filas }));
     } catch { /* cupo lleno o modo privado: el pedido sigue vivo en memoria */ }
   }
 
@@ -2135,6 +2153,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       this.buyQty.set(s.q);
       if (s.u && typeof s.u === 'object') this.buyUnit.set(s.u);
       if (s.d && typeof s.d === 'object') this.buyDeliver.set(s.d);
+      if (Array.isArray(s.rows)) this.rowCache.update((m) => { const n = new Map(m); for (const r of s.rows as WorkbookRow[]) if (r?.product_id) n.set(r.product_id, r); return n; });
+      if (Array.isArray(s.sel)) this.selected.set(new Set(s.sel as string[]));
+      if (Array.isArray(s.qt)) this.quitados.set(new Set(s.qt as string[]));
       // Hay trabajo sin armar: los dos guards tienen que poder avisar desde el primer segundo.
       this.dirty.set(true);
       this.borradorRecuperado.set({ n, at: s.at });
@@ -2898,11 +2919,12 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    */
   private readonly quitados = signal<Set<string>>(new Set());
 
-  agregarARequisicion(r: WorkbookRow): void { this.marcarAlEditar(r); }
+  agregarARequisicion(r: WorkbookRow): void { this.marcarAlEditar(r); this.guardarBorrador(); }
   quitarDeRequisicion(pid: string): void {
     const s = new Set(this.selected()); s.delete(pid); this.selected.set(s);
     this.quitados.update((q) => new Set(q).add(pid));
     this.queryEligible.set(null);   // «todo agregado» ya no describe la requisición
+    this.guardarBorrador();
   }
   /** Vaciar es destructivo para la requisición (no para las cantidades): pregunta. */
   pedirVaciar(): void {
@@ -3896,6 +3918,20 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     descuentos: this.puede(Permission.COMPRAS_DESCUENTOS_VER),
     proveedores: this.puede(Permission.COMPRAS_PROVEEDORES_VER),
   }));
+  /**
+   * `[RA-NEG.3]` El detalle del panel de negociación, en un panel lateral DENTRO del pedido. Antes «Historial ›» y
+   * «Descuentos ›» eran rutas: salir del pedido perdía la requisición en armado (pedido del PM, 2026-10-22).
+   */
+  readonly negDetalle = signal<{ pid: string; vista: 'historial' | 'descuentos' } | null>(null);
+  readonly negDetalleDto = computed(() => { const x = this.negDetalle(); return x ? this.negOf(x.pid)?.d ?? null : null; });
+  abrirDetalle(pid: string, vista: 'historial' | 'descuentos'): void { this.recordarFoco(); this.negDetalle.set({ pid, vista }); }
+  cerrarDetalle(abierto: boolean): void { if (!abierto) { this.negDetalle.set(null); this.volverFoco(); } }
+  negDetalleTitulo(): string {
+    const d = this.negDetalleDto(), x = this.negDetalle();
+    if (!d || !x) return '';
+    return x.vista === 'historial' ? 'Historial y costos' : 'Descuentos del proveedor';
+  }
+
   /** «$667 K de $1.28 M» — el pedido típico que ya publica la fila. */
   tipicoCorto(r: WorkbookRow): string | null {
     const pt = this.pedidoTipico(r);
@@ -3913,24 +3949,18 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const out: AccionDesglose[] = [];
     const enCamino = Number(r.transito_cajas) || 0;
     if (enCamino > 0) {
-      out.push({ clave: 'revisa', verbo: 'Revisa', que: `${this.cj1(enCamino)} cj en camino`, por: '(no se restan del pedido)', tono: 'warn', boton: 'transito', enlace: null });
+      out.push({ clave: 'revisa', verbo: 'Revisa', que: `${this.cj1(enCamino)} cj en camino`, por: '(no se restan del pedido)', tono: 'warn', boton: 'transito', detalle: null });
     }
     const cubiertas = this.porDescontar(r);
     if (cubiertas.length) {
-      out.push({ clave: 'nocompres', verbo: 'No compres', tono: 'info', boton: 'descontar', enlace: null,
+      out.push({ clave: 'nocompres', verbo: 'No compres', tono: 'info', boton: 'descontar', detalle: null,
         que: cubiertas.length === 1 ? `en ${this.sucNom(cubiertas[0].code)}` : `para ${cubiertas.length} sucursales`,
         por: '(les llega por traspaso)' });
     }
     const n = this.negOf(r.product_id);
     if (n?.estado === 'listo' && n.d) {
-      const links = this.negLinks();
       for (const a of accionesNegociacion(n.d, (c) => this.sucNom(c))) {
-        const enlace: AccionDesglose['enlace'] = a.clave === 'pide' && links.descuentos && n.d.proveedor
-          ? { ruta: '/compras/descuentos', qp: { view: 'fuga', q: n.d.proveedor.nombre } }
-          : (a.clave === 'negocia' || a.clave === 'sube') && links.costos
-            ? { ruta: '/compras/catalogo/costos', qp: { vista: a.clave === 'negocia' ? 'historial' : null, sku: n.d.sku } }
-            : null;
-        out.push({ clave: a.clave, verbo: a.verbo, que: a.que, por: a.por, tono: a.tono, boton: null, enlace });
+        out.push({ clave: a.clave, verbo: a.verbo, que: a.que, por: a.por, tono: a.tono, boton: null, detalle: a.detalle });
       }
     }
     return out;
