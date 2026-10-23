@@ -184,15 +184,15 @@ const ORDEN_COLUMNA: Record<string, OrdenMesa> = { sku: 'sku', falta: 'falta', f
                    styleClass="p-datatable-sm dt-stack surf-table surf-table--plain surf-table--sticky surf-table--frozen-first">
             <ng-template #header>
               <tr>
-                <th pSortableColumn="sku" class="ab-c-sku">Producto <p-sortIcon field="sku" /></th>
+                <th pSortableColumn="sku" class="ab-c-sku">Producto <p-sorticon field="sku" /></th>
                 <th>Posición</th>
                 <th class="comm-num">Existencia</th>
                 <th class="comm-num ab-c-dim">Mín</th>
                 <th class="comm-num ab-c-dim">Reorden</th>
                 <th class="comm-num ab-c-dim">Máx</th>
-                <th pSortableColumn="falta" class="comm-num">Falta <p-sortIcon field="falta" /></th>
+                <th pSortableColumn="falta" class="comm-num">Falta <p-sorticon field="falta" /></th>
                 <th class="comm-num">Ya viene</th>
-                <th pSortableColumn="falta_neta" class="comm-num">Falta neta <p-sortIcon field="falta_neta" /></th>
+                <th pSortableColumn="falta_neta" class="comm-num">Falta neta <p-sorticon field="falta_neta" /></th>
                 <th>Surte</th>
                 <th>Estado</th>
                 <th>Entrega</th>
