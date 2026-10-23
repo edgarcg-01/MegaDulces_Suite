@@ -1112,3 +1112,52 @@ nadie la firmó). Detalle y mediciones en `03_LOG_REVISIONES.md` (2026-10-23).
 |---|---|---|
 | **A.15d** | Una puerta para **firmar** `finance.route_customer_map` (hoy ninguna pantalla ni endpoint la escribe); `501`–`505` sin `cliente_code` | C2/C3 |
 | **A.15e** | Cobros vecinales de la sucursal base (`VENTAS RV … CANDY Y RAFA`) siguen sin ruta: entran por el ODS, no por `route_collections` (Frente B) | C0 |
+
+### 11.9 `[CGA-A.50]`–`[CGA-A.54]` · El retiro de CAOS que se lleva una persona queda a su cargo (ADR-101) 🔨 C0+C1 en código (2026-10-23)
+
+**Pedido de Edgar:** *«hoy sacan 200 mil del cajero porque saben que se van a pagar 200 mil»* ·
+*«necesito que no arreglemos diferencias, es por eso que debemos vincular pequeñas»* · *«asociemos
+movimientos a salidas de egresos para saber exactamente los arqueos y tener todo controlado»*.
+
+**Medido en prod, sólo lectura (`system_identifier` `7688376744939610156`), por jornada:**
+
+| Día | Retirado de CAOS | Gastos del libro | Esperado | Contado | Diferencia |
+|---|---:|---:|---:|---:|---:|
+| 15-oct | $495,680 | $632,800 | −$79,031 | $57,571 | +$136,602 |
+| 17-oct | $150,730 | $330,513 | −$81,227 | $619 | +$81,846 |
+| 19-oct | $261,110 | $32,705 | $276,657 | $87,773 | **−$188,885** |
+| 20-oct | $204,010 | $269,363 | $24,585 | $25,787 | +$1,202 |
+| 21-oct | $176,460 | $573,568 | **−$221,512** | $23,757 | +$245,269 |
+| 22-oct | $484,660 | $511,206 | $45,772 | $28,962 | −$16,810 |
+
+`[CG.96]` suma lo dispensado al cajón del día y resta todo gasto. Con el retiro en bulto, el dinero
+está **en la calle, pagando**: el día del retiro el corte lo pide en el cajón, y el día de los gastos
+los resta de un cajón por el que no pasaron. La suma de las diferencias de los 8 cortes con
+diferencia (12 al 22-oct) es **+$308,553.91** neto: la custodia mueve dinero entre jornadas, así que
+de esa suma sólo explica lo que haya quedado abierto al final; el resto queda como hueco con nombre — o hay gastos registrados que no salieron de este efectivo, o ingresos que no se
+capturaron (`[CGA-A.25]`, D7).
+
+**Otras cifras de la misma medición:**
+- 409 retiros por $19.8 M desde el 27-may; 30 enlazados (7 % del dinero), todos 1 a 1 por
+  `ux_caos_link_vivo`.
+- 003 hace el 84 % de los retiros ($16.7 M) y cerró los 10 cortes; ninguno autorizado.
+- 603 depósitos de ruta ($13.1 M) entran con el usuario genérico «Vendedor (006)».
+- `analytics.caos_cash_counts`: 0 filas (`[CGA-A.54]`).
+- Ningún gasto del libro trae CFDI; 179 de 283 no son múltiplo de $20 (llevan morralla del cajón).
+
+**Por qué NO se cuadran billetes por gasto:** son fungibles, los declara el interesado, y hoy la
+pantalla los COPIA del retiro (24 de 30 enlaces «idénticos» por copia). El único cuadre de billetes
+que vale es el que hace la máquina cuando el sobrante regresa a CAOS.
+
+**Hecho (C0 + C1, sin desplegar):** migración `20261023162138_cga_a50_retiro_de_caos_en_custodia.js`,
+motor `libs/finance/src/lib/caja/caja-custodia.engine.ts` (+ spec, 17 pruebas) integrado en
+`calcularCorte({ custodia })`, suite de base real `database/tests/test-newdb-caja-custodia.js` en el
+job `caja-db`. Sin custodias declaradas el esperado es idéntico: entra sin recalcular un solo corte.
+
+**Falta:** `[CGA-A.51]` C2 (consultas que hoy esconden un retiro ya enlazado, endpoints de
+clasificar y cerrar, freno del corte) · `[CGA-A.52]` C3 (captura con parte del retiro, bandeja de
+retiros del día, saldo por persona) · `[CGA-A.53]` prueba de un tercero por gasto · `[CGA-A.54]`
+conteo de la máquina sin guardar.
+
+**Decisiones de Edgar:** (1) día de arranque, con arqueo completo a dos personas; los 379 retiros
+viejos quedan como historial · (2) plazo de una custodia (24 / 48 / 72 h).

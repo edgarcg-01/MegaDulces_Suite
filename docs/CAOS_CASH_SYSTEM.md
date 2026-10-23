@@ -339,3 +339,59 @@ y el bloqueante real no es técnico sino de negocio: anclar a qué caja/sucursal
 Respuestas crudas de la API (no versionadas, en la raíz del working dir): `caos-getTransactions-response.json`,
 `caos-getTransactionDetails-1417.json`. Capturas: `caos-integrations.png`, `caos-transacciones.png`,
 `caos-transacciones-datos.png`, `caos-tx-detalle.png`.
+
+---
+
+## Control de retiros: qué permite CAOS y cómo está configurado hoy (revisado 2026-10-23)
+
+> Revisión **sólo lectura** con sesión de administrador por Playwright: se abrieron
+> `Ajustes › Modo de Trabajo`, `Autorizaciones`, `Usuarios del Dispositivo` y se leyeron los mismos
+> `getConfiguration` que la consola pide al cargar. **No se guardó nada.**
+
+### ¿Se puede ordenar un retiro desde fuera? — NO. ¿Se puede APROBAR desde fuera? — SÍ.
+
+- La consola **no tiene ninguna función para iniciar un retiro** a distancia. El retiro siempre se
+  inicia en la pantalla del equipo, por un operador con sesión.
+- Lo que sí existe es una **bandeja de autorizaciones**: cuando una solicitud de retiro excede el
+  límite del grupo del operador, el equipo la deja **esperando aprobación** y aparece en
+  `Autorizaciones › Autorizaciones Pendientes`. Endpoints (leídos del JS de la página, **no ejercidos**):
+  - `GET /Authorizations/PendingRequests/getPendingRequests` — la bandeja.
+  - `POST /Authorizations/PendingRequests/setApproval` `{ requestID, approved: true|false }` — aprobar o rechazar.
+- La reserva caduca: `reservationPermanence = 15` min (la solicitud no atendida se cancela sola).
+- **Tabla de retardos:** solicitudes de **≥ $250,000** esperan **300 s** antes de entregar.
+
+⭐ O sea: la suite **podría ser la que aprueba** cada retiro (con firma, monto y referencia
+registrados de nuestro lado) llamando `setApproval`. Es control **previo**, no conciliación posterior.
+⚠️ NO MEDIDO: el comportamiento real de la bandeja (la vimos vacía), el formato de `getPendingRequests`
+con una solicitud viva, y si `setApproval` exige algo más que la cookie de sesión.
+
+### Cómo está configurado HOY — el control existe y está apagado
+
+Grupos del dispositivo (`GET /Function/Users/getAllDeviceGroups`, `allowedFunctions` decodificado con `functionsMap`):
+
+| Grupo | ¿Dispensa? | Límite diario | Pide autorización al exceder | Usuarios |
+|---|---|---|---|---|
+| **GERENTE** | **Sí** (+ Vaciar Stocks, Dotar, Gestión de Usuarios, Config. de dispositivo) | `0` | **No** (`requestAuthIfReqExceedsPeriodLimit = 0`) | 001, 002, 003 |
+| SUPERVISOR | Sí | $2,000 (op. ≤ $500) | No | — (nadie) |
+| Aux Caja | No (sólo depósito) | — | — | 004, 005 |
+| Vendedores | No (sólo depósito) | — | — | 006 |
+| INGENIERO | No (servicio técnico) | — | — | 950210 (proveedor) |
+
+- ⛔ **Los tres usuarios que retiran están en GERENTE, sin límite efectivo y sin autorización.**
+  Los retiros de $152,000 registrados confirman que en la práctica no hay tope.
+  (`dailyLimit = 0` en GERENTE vs `-1` en otros: semántica exacta **no verificada**.)
+- ⛔ **Nadie tiene "Dispensar por"** y no hay **doble autenticación** para retiros: el
+  login auxiliar (`auxiliaryLoginType = 0`) está apagado y su lista de operaciones ni siquiera
+  incluye *Dispensar*.
+- ✅ **Referencia obligatoria** en Depósito y Dispensar (`transactionRefEnabled`, ops `deposit`,
+  `withdrawal`) — es lo que alimenta el matcher CS.3. Texto libre, no único.
+- ⚠️ Contraseñas: `passwordLength = 0`, `maximumLoginAttempts = 0`, vigencia `0` → sin largo mínimo,
+  sin bloqueo por intentos, sin caducidad.
+
+### Qué habría que cambiar (decisión de Dirección/Tesorería, no técnica)
+
+1. A GERENTE: fijar un **límite** y prender **«pedir autorización al exceder el límite»**. Con
+   límite bajo, **todo** retiro cae a la bandeja.
+2. Decidir **quién aprueba**: un admin en la consola, o la suite vía `setApproval` (fase con ADR;
+   requiere TLS o al menos rotar la clave `admin` — hoy el login es replayable sobre HTTP).
+3. Contraseñas con largo mínimo y bloqueo por intentos.

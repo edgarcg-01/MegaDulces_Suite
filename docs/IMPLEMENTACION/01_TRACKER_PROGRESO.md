@@ -9114,6 +9114,40 @@ TP.6-TP.8+TP.10".
 >   dos comandos míos**, y commitear la etiqueta exigió `git apply --cached` de un solo hunk para no
 >   llevarse 5 hunks ajenos. ⛔ **No se abre como fase** (Fase 0 en curso, §7 del método).
 
+> ### 🔨 2026-10-23 — **CGA-A.50 · El retiro de CAOS que se lleva una persona queda a su cargo (ADR-101)**
+>
+> Edgar: *«hoy sacan 200 mil del cajero porque saben que se van a pagar 200 mil»* · *«necesito que
+> no arreglemos diferencias, es por eso que debemos vincular pequeñas»* · *«asociemos movimientos a
+> salidas de egresos para saber exactamente los arqueos»*. Medido en prod (sólo lectura): el 19-oct
+> se retiraron $261,110 y se registraron $32,705 de gastos → «falta» −$188,885; el 21-oct, $176,460
+> contra $573,568 → esperado −$221,512. Es el mismo dinero en la jornada equivocada. Y
+> `ux_caos_link_vivo` sólo deja enlazar un retiro con UN gasto: 30 de 409 retiros enlazados (7 %).
+> Plan: `FASE_CGA_PLAN_IMPLEMENTACION.md` §11.9.
+>
+> - [x] **[CGA-A.50]** 🔨 **C0 + C1 en código, sin desplegar.** Migración `20261023162138`: el
+>   candado «un enlace por movimiento» pasa a «la suma no pasa del retiro ni del gasto» (trigger con
+>   candado por movimiento) y nace `finance.caos_retiro_custodia` (`cajon` | `custodia`, responsable,
+>   cierre `regreso_caos` | `cajon` | `faltante`; el regreso vale lo que contó la máquina). Motor
+>   `caja-custodia.engine.ts` + `calcularCorte({ custodia })`: **sin custodias el esperado es
+>   idéntico** (prueba con el corte del 22-oct). 17 pruebas del motor (7 negativas) reproducen el 19
+>   y el 21 de octubre y su control sin custodia; `libs/finance` 1,769 ✓. Suite de base real
+>   `test-newdb-caja-custodia.js` (17 comprobaciones + 2 mutaciones) en el job `caja-db`. ⚠️ **NO MEDIDO en
+>   base real todavía**: no hubo Postgres de prueba en esta máquina; la corre el CI.
+> - **[CGA-A.51]** ⬜ **C2.** Las tres consultas que esconden un retiro en cuanto tiene un enlace
+>   (`caosCapturables`, `caosCandidatos`, `emparejarCaos`: `whereNotExists caos_cash_links`) pasan a
+>   «le queda disponible» y lo devuelven. Endpoints para clasificar un retiro y cerrar una custodia
+>   (prueba contra base real con el payload de la pantalla). El corte lee las piernas de custodia y
+>   **no cierra con retiros de su jornada sin clasificar** (`custodiaPermiteCerrar`).
+> - **[CGA-A.52]** ⬜ **C3.** Captura: «¿de dónde salió el dinero?» obligatorio; al enlazar un retiro
+>   se toma **una parte** (≤ disponible, ≤ lo que falta del gasto) y ya no se copian sus billetes.
+>   Bandeja «retiros de hoy» para clasificar, y saldo a cargo por persona con antigüedad.
+> - **[CGA-A.53]** ⬜ Prueba de un tercero por gasto (CFDI forma de pago 01, o factura + recepción en
+>   Kepler), usada una sola vez. Sin esto un gasto inventado se enlaza y cuadra.
+> - **[CGA-A.54]** ⬜ `analytics.caos_cash_counts` tiene **0 filas** en prod: el conteo propio de la
+>   máquina no se guarda y el cuadre continuo foto-contra-foto no corre. Medir por qué.
+> - ⚠️ **Decisiones pendientes de Edgar:** día de arranque (con arqueo completo a dos personas; los
+>   379 retiros viejos quedan como historial) y plazo de una custodia (24 / 48 / 72 h).
+
 > ### 🔨 2026-10-20 — **CGS · El supervisor ve el arqueo, y puede autorizarlo**
 >
 > Edgar pidió tres cosas: *«que todas las mañanas le llegue una notificación a María Gutiérrez (a

@@ -43,6 +43,7 @@
  */
 import { denomKeyDeValor, VEREDICTOS_SIN_RESPUESTA } from '@megadulces/contracts';
 import { diaCorto } from './caja-corte-abierto.engine';
+import { ajusteDeCustodia, type PiernasCustodia } from './caja-custodia.engine';
 
 export type TipoMovimiento = 'ingreso' | 'gasto' | 'deposito';
 
@@ -253,6 +254,12 @@ export function calcularCorte(input: {
    * salió del cajón a la bóveda. Ausente = 0: no se asume nada sobre un cajero que no se midió.
    */
   cajeroSinCapturar?: { dispensado?: number; depositado?: number } | null;
+  /**
+   * ⭐ `[CGA-A.50]` Los retiros de la jornada que se llevó una persona (no entraron al cajón) y los
+   * gastos pagados con ellos (no salieron del cajón). Ausente = sin custodias declaradas: el
+   * esperado queda EXACTAMENTE como en `[CG.96]`. Ver `caja-custodia.engine`.
+   */
+  custodia?: PiernasCustodia | null;
 }): TotalesCorte {
   const vivos = (input.movimientos ?? []).filter((m) => m && m.estado !== 'cancelado');
   const cancelados = (input.movimientos ?? []).length - vivos.length;
@@ -348,7 +355,9 @@ export function calcularCorte(input: {
   const esperado = redondea(
     Number(input.fondoInicial ?? 0)
     + ingresos - gastos - depositos
-    + dispensadoCajero - depositadoCajero,
+    + dispensadoCajero - depositadoCajero
+    // `[CGA-A.50]` El dinero que está en la calle a cargo de alguien no se pide en el cajón.
+    + ajusteDeCustodia(input.custodia),
   );
 
   // De qué está hecho ese `esperado`. La aritmética no cambia; lo que cambia es que el corte
