@@ -202,6 +202,7 @@ export class AutoabastoController {
     @Query('sort_dir') sort_dir?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('todos') todos?: string,
   ): Promise<AutoabastoRenglonesResponse> {
     const almacen = await this.almacenEnAlcance(warehouse_id);
     // Un filtro que no existe se dice, no se ignora: ignorarlo devolvería la lista entera como si fuera el filtro.
@@ -217,6 +218,8 @@ export class AutoabastoController {
       sort_dir: sort_dir === 'asc' ? 'asc' : 'desc',
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
+      // El PDF: todo lo del almacén con el filtro, sin paginar.
+      todos: todos === '1' || todos === 'true',
     });
   }
 

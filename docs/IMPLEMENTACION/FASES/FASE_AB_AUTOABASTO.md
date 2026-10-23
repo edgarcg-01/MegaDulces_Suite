@@ -1531,7 +1531,21 @@ Reglas:
 - Prueba contra base real con el payload de la pantalla (regla del endpoint que escribe), incluida la
   negativa: un almacén fuera del alcance → 403; un renglón con cantidad que el servidor no reconoce → 400.
 
-**C3 — AB.28 Las pantallas.**
+**C3 — AB.28 Las pantallas.** Partido en dos (decisión 2026-10-23): **AB.28a** la mesa nueva, sin
+dependencias; **AB.28b** renombrar «Mi pedido» y quitarle los − / +, que espera a AB.29 (sin «Generar
+requisición», quitar los − / + dejaría a la sucursal sin forma de decir lo que necesita).
+
+🧪 *AB.28a en código 2026-10-23:* la mesa lee `/renglones` (un almacén; con varios, pide elegir y no
+adivina); columnas Producto · Posición · Existencia · Mín · Reorden · Máx · Falta · Ya viene · Falta neta ·
+Surte · Estado · Entrega; KPI primario «Nadie lo ha pedido», después lo que se pide a la matriz y al
+proveedor; filtros por estado (con su conteo dentro del control), posición, «surte» y búsqueda en el
+servidor; ayuda en el diccionario (`almacen-autoabasto`); la sucursal por nombre en la celda «Surte» y en
+el PDF. El PDF sale de la misma respuesta (`todos=1`). `check:pantalla`: la mesa pasa de 3 fallas a 1
+(queda §9 frescura, deuda declarada: la respuesta trae la hora del cálculo, no la edad del dato). La
+prueba cazó una **doble carga** (cada una ~3.7 s) que ya tenía la pantalla vieja. ⚠️ **Sin validación
+visual** (no se levanta la app local): lo más probable de ajustar es el ancho de columnas, el control de
+estado en pantallas angostas y la posición de los tooltips. `/mesa`, `/mesa/resumen` y `/reporte` quedan
+sin uso en la pantalla: se retiran cuando AB.28a esté en prod.
 - **Mesa:** un almacén; columnas Posición · Venta 30 d · Existencia · Mín / Reorden / Máx · Falta ·
   Ya viene · Falta neta · Surte · Estado. Salen Acción, De la red y A comprar (D3). Un renglón abre «Lo
   que te llega» en ese producto. El PDF imprime lo mismo.
