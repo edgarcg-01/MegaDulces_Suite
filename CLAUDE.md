@@ -239,7 +239,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **PU** | Presupuestos (motor de planeación y control) | 🧪 |
 | **IC** | Inventario Continuo (3 ritmos) | 🚀 |
 | **CE** | Costo estándar de Kepler (el que fija el precio) | 🚀 |
-| **PO** | Post-corte del 1-oct-2026 (el `00` dejó de concentrar) | 🔨 |
+| **PO** | Post-corte del 1-oct-2026 (el `00` dejó de concentrar) | ⏸️ |
 | **NP** | Productos nuevos (seguimiento a 30/60/90 días) | 🧪 |
 | **PF** | Flujo de venta de cualquier producto (Compras › Catálogo › Productos) | 🧪 |
 | **MS** | Mesa de Servicio (tickets de servicio) | ⏸️ |
@@ -250,6 +250,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **GP** | Gestión de pedidos en almacén (surtido/checado/embarque sin papel) | 🧪 |
 | **VAC** | Acople del verificador de precios al estándar (`/tienda/verificador`) | 🟢 |
 | **PGP** | Pago a proveedor de punta a punta (firma → ejecución → `X-D-26` escrito en Kepler) | ⬜ |
+| **PQ** | `/compras/pedido`: del sugerido al ERP sin inventar nada (lo aprobado sale, agenda de proveedores, lazo cerrado; M1/M2 medidas) | 🔨 |
 
 ---
 
