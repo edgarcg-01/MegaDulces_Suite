@@ -7,7 +7,7 @@ import type {
 } from '@megadulces/contracts';
 
 import { DOCTIPOS, coordenada } from './kepler-doctipo';
-import { plantillaDe, servidoresEncendidos, urlDeServidor } from './kepler-servidores';
+import { MARCA_SUITE, plantillaDe, servidoresEncendidos, topeDiario, urlDeServidor } from './kepler-servidores';
 
 /** Número de Kepler (texto con formato) → number. `0` si viene vacío. */
 const num = (v: unknown): number =>
@@ -171,6 +171,21 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
       const resueltas = e.lineas.map((l) => ({
         sku: l.sku, unidad: 'CJA', unidad_caja: 'CJA', por_caja: 1, cantidad: l.cajas,
       }));
+
+      // ⛔ `[KR.12]` El tope diario del servidor: cuántos documentos con marca de la Suite ya
+      // tienen esta fecha en ESTE servidor. Se cuenta en Kepler, no en la Suite: lo que importa
+      // es lo que el ERP ya tiene, incluido lo que escribió otro proceso o un reintento.
+      // ⚠️ Dos aprobaciones simultáneas pueden pasar las dos (no hay candado): el pool es de 2.
+      const tope = topeDiario(e.sucursal, process.env);
+      const hoy = await c.query(
+        `SELECT count(*)::int AS n FROM md.kdm1
+          WHERE c1=$1 AND c9::date = $2::date
+            AND ((c2='X' AND c3='A' AND btrim(c4::text)='30' AND btrim(c11) LIKE $3)
+              OR (c2='U' AND c3='D' AND btrim(c4::text)='40' AND btrim(c24) LIKE $3))`,
+        [e.sucursal, e.fecha, `${MARCA_SUITE}%`]);
+      if (hoy.rows[0].n >= tope) {
+        return { estado: 'rechazada', motivo: `Tope diario del servidor ${e.sucursal} alcanzado: ${hoy.rows[0].n} de ${tope} documentos hoy (KEPLER_PUSH_MAX_DIA_${e.sucursal})` };
+      }
 
       await c.query('BEGIN');
 

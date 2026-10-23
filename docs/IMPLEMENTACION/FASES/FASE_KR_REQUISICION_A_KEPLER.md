@@ -269,6 +269,8 @@ entera. Los 10 archivos de prueba del módulo: **197/197**, sin regresiones.
 | **KR.8** | Pantalla: folio, motivo, reintento, y **declarar los 360 traspasos** | ✅ 2026-10-13 |
 | **KR.9** | Encendido: `GRANT INSERT` + `KEPLER_PUSH_URL` + `pg_hba` desde `md` | ⬜ |
 | **KR.11** | ⭐ **Un servidor por sucursal**: pool por `KEPLER_PUSH_URL_NN`, plantilla por servidor, sin comodín a `00` ([runbook §8](../RUNBOOKS/KEPLER_PUSH_DESPLIEGUE.md)) | 🔨 2026-10-23 — código + prueba (13, rota a propósito); encendido por servidor ⬜ |
+| **KR.12** | Tope diario por servidor (`KEPLER_PUSH_MAX_DIA_NN`, default 1), contado en Kepler | 🔨 2026-10-23 — SQL ejercido contra `md_00` vivo (sólo lectura) y control en ODS |
+| **KR.13** | `kepler-push-ops.js`: revisar · listar · deshacer (con respaldo) · restaurar. Protocolo P0–P5 ([runbook §9](../RUNBOOKS/KEPLER_PUSH_DESPLIEGUE.md)) | 🔨 2026-10-23 — lectura probada con controles; borrar/restaurar **NO EJERCIDO** (se ejerce en P2) |
 
 **Ruta crítica: KR.6 → KR.7 → KR.8.** KR.4 y KR.5 son cableado y están escritos; KR.6 es el que
 decide si lo que se escribe *significa* lo correcto, y KR.7 si se puede deshacer.

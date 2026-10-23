@@ -87,3 +87,28 @@ export function plantillaDe(tipo: KeplerDoctipo, sucursal: string, env: Env): Re
   }
   return { ok: true, valor: { serie, folio } };
 }
+
+/**
+ * `[KR.12]` **Tope diario de documentos por servidor** — el freno del canario.
+ *
+ * `KEPLER_PUSH_MAX_DIA_NN` = cuántos documentos puede escribir la Suite en ese servidor con la
+ * misma fecha. ⛔ **Default 1**: encender un servidor sin decidir su tope deja pasar UNO, y el
+ * segundo rebota con su motivo en `kepler_error`. Subirlo es un paso explícito del protocolo
+ * (runbook §9), no un olvido. Lo que motivó un default tan bajo: el 2026-10-13 una sola
+ * requisición salió cuatro veces antes de que nadie lo notara.
+ *
+ * Un valor que no es entero positivo cae al default — nunca a «sin tope».
+ */
+export const TOPE_DIARIO_DEFAULT = 1;
+
+export function topeDiario(sucursal: string, env: Env): number {
+  const n = normalizarSucursal(sucursal);
+  if (!n.ok) return TOPE_DIARIO_DEFAULT;
+  const raw = val(env, `KEPLER_PUSH_MAX_DIA_${n.valor}`);
+  if (!/^\d+$/.test(raw)) return TOPE_DIARIO_DEFAULT;
+  const v = Number(raw);
+  return v >= 1 ? v : TOPE_DIARIO_DEFAULT;
+}
+
+/** Prefijo con el que la Suite marca sus documentos en Kepler (`c11` en compra, `c24` en traspaso). */
+export const MARCA_SUITE = 'RQ-';

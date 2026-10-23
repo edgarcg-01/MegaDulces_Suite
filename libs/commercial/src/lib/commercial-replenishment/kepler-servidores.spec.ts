@@ -1,4 +1,4 @@
-import { normalizarSucursal, plantillaDe, servidoresEncendidos, urlDeServidor } from './kepler-servidores';
+import { normalizarSucursal, plantillaDe, servidoresEncendidos, topeDiario, urlDeServidor } from './kepler-servidores';
 
 /**
  * `[KR.11]` Un documento se escribe en el servidor Kepler de SU sucursal. El caso que importa es
@@ -71,5 +71,17 @@ describe('plantillaDe', () => {
 
   it('el traspaso de 00 sigue sin default', () => {
     expect(plantillaDe('traspaso', '00', {}).ok).toBe(false);
+  });
+});
+
+describe('topeDiario', () => {
+  it('default 1: encender sin decidir el tope deja pasar uno solo', () => {
+    expect(topeDiario('00', {})).toBe(1);
+  });
+  it('cada servidor tiene el suyo', () => {
+    expect(topeDiario('01', { KEPLER_PUSH_MAX_DIA_01: '25', KEPLER_PUSH_MAX_DIA_00: '3' })).toBe(25);
+  });
+  it('⛔ CONTROL: un valor raro cae al default, nunca a «sin tope»', () => {
+    for (const v of ['0', '-5', 'abc', '2.5', '', ' ']) expect(topeDiario('00', { KEPLER_PUSH_MAX_DIA_00: v })).toBe(1);
   });
 });
