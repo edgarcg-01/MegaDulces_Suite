@@ -134,7 +134,8 @@ import { CajaSocketService } from '../../caja-socket.service';
         @if (conectando()) {
           <p class="fm-sub">Abriendo el canal con la caja…</p>
         } @else if (caja.estado() === 'caido') {
-          <p-message severity="warn">Sin conexión con el servidor. Revisa la red del teléfono.</p-message>
+          <!-- CG.203: caido tiene cuatro causas y cada una se arregla distinto. -->
+          <p-message severity="warn">{{ textoCaida() }}</p-message>
         }
       }
     </div>
@@ -164,6 +165,27 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
    */
   readonly conectando = computed(() => this.caja.estado() === 'conectando');
 
+  /**
+   * ⭐ `[CG.203]` **Qué decirle cuando el canal no abre — según POR QUÉ no abre.**
+   *
+   * Antes eran dos frases para cuatro causas: *«revisa la red»* sin pase y *«el QR venció»* con
+   * pase. Las dos mentían a menudo. A un teléfono sin cuenta que tecleó el código le decía que
+   * revisara una red que estaba bien, cuando lo que faltaba era escanear el QR (el QR trae el pase
+   * y con él no hace falta sesión). Y a un teléfono que perdió el wifi con el QR vivo le decía que
+   * el QR había vencido, así que pedía otro y firmaba de nuevo.
+   */
+  readonly textoCaida = computed(() => {
+    switch (this.caja.motivoCaida()) {
+      case 'sin_credencial':
+      case 'sesion_rechazada':
+        return 'Escanea con la cámara el QR que muestra la caja: así no hace falta iniciar sesión.';
+      case 'pase_rechazado':
+        return 'Este QR ya venció o no es válido. Pide uno nuevo en la pantalla de la caja.';
+      default:
+        return 'Sin conexión con el servidor. Revisa la red del teléfono.';
+    }
+  });
+
   readonly money = (v: number) =>
     (Number(v) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
 
@@ -187,7 +209,6 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
     // teléfono entra como invitado atado a ese único código. Sin pase todo sigue igual que antes
     // (hace falta sesión), que es el camino del teléfono del cajero.
     const pase = q.get('pase');
-    this.porPase = !!pase;
     this.caja.connect(pase);
     const porUrl = q.get('c');
     if (porUrl) {
@@ -235,9 +256,6 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
       this.aviso.set('Se perdió la conexión y el código ya no sirve. Pide uno nuevo en la caja.');
     }
   }
-
-  /** Si entró por QR con pase: cambia lo que se le dice cuando el canal no abre. */
-  private porPase = false;
 
   /**
    * ⚠️ `connect()` NO deja el socket listo — el handshake tarda, y `tomar()` en el mismo turno le
@@ -346,9 +364,9 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
         if (this.caja.estado() === 'conectando') {
           return 'Todavía no abre el canal con la caja. Espera unos segundos y vuelve a intentar.';
         }
-        return this.porPase
-          ? 'El QR venció (dura 3 minutos). Pide uno nuevo en la pantalla de la caja.'
-          : 'Sin conexión con el servidor. Revisa la red del teléfono.';
+        // ⛔ `[CG.203]` Ya no se adivina por si la URL trae pase: el QR vence a las 8 h (no a los
+        // 3 min que decía la frase de antes), y la causa la sabe el canal (`motivoCaida`).
+        return this.textoCaida();
       case 'sin_respuesta': return 'El servidor no contestó. Prueba de nuevo.';
       default: return 'No se pudo continuar. Prueba de nuevo.';
     }

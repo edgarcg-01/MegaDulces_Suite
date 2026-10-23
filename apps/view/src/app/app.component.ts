@@ -10,6 +10,7 @@ import { StatusBarService } from './core/services/status-bar.service';
 import { AppErrorOutletComponent } from './core/errors/app-error-outlet.component';
 import { alCambiarEnOtraVentana } from './core/utils/cross-tab';
 import { loginUrlTree } from './core/auth/login-redirect';
+import { enRutaPublica } from './core/auth/rutas-publicas';
 import { AuthService } from './core/services/auth.service';
 import { ArqueoDueService } from './modules/tienda/arqueo-due.service';
 
@@ -119,7 +120,9 @@ export class AppComponent implements OnInit {
     // Primero la grabadora: si algo se cuelga al arrancar, queremos tenerlo registrado.
     this.diag.start();
     // SM.23 — abre el canal del aviso "haz tu arqueo" (no-op si el usuario no captura).
-    this.arqueoDue.iniciar();
+    // `[CG.203]` No en una pantalla pública: abriría un socket con la sesión que el teléfono
+    // arrastre, y el aviso de arqueo no es de quien vino a firmar.
+    if (!enRutaPublica()) this.arqueoDue.iniciar();
     // `[ID.21]` Permisos frescos al arrancar: los del JWT pueden tener horas y
     // ahora se editan por persona. Sin esto, quitarle un permiso a alguien no se
     // ve en el menú hasta que vuelva a entrar. Best-effort — si falla, queda el
@@ -149,6 +152,9 @@ export class AppComponent implements OnInit {
       // resuelve con el 401 y su `returnUrl` (`[SN.31]`).
       if (valor !== null) return;
       if (!this.auth.isAuthenticated) return;
+      // `[CG.203]` Quien está en `/firmar` no tiene una sesión que cerrar: llevarlo al login
+      // porque el cajero salió en otra pestaña del mismo teléfono sería el mismo defecto.
+      if (enRutaPublica()) return;
       this.auth.logout();
       void this.router.navigateByUrl(loginUrlTree(this.router, this.router.url, 'required'));
     });
@@ -192,8 +198,13 @@ export class AppComponent implements OnInit {
      * la pestaña todavía visible al lado —y recargarle la pantalla a alguien que la está
      * mirando es exactamente lo que esto evita.
      */
+    //
+    // ⛔ `[CG.203]` **Salvo en una pantalla pública.** En el teléfono de la firma «oculta» es
+    // BLOQUEAR LA PANTALLA, que es el caso normal: con una versión pendiente —11 despliegues en
+    // 4 días, medido el 2026-10-23— recargaba y se llevaba el trazo ya dibujado. La persona
+    // firmaba otra vez. Ahí la versión nueva llega en la próxima carga, que es la próxima firma.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') this.applyUpdate();
+      if (document.visibilityState === 'hidden' && !enRutaPublica()) this.applyUpdate();
     });
 
     // unrecoverable: el SW entró en estado roto (raro pero pasa en iOS
