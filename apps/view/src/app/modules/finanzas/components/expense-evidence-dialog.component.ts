@@ -8,6 +8,9 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { FileUploadModule } from 'primeng/fileupload';
 import { MAX_ARCHIVO_GASTO_BYTES, MAX_ARCHIVO_GASTO_MB } from '@megadulces/contracts';
+import { horarioAltaGastos } from '@megadulces/contracts';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { TextareaModule } from 'primeng/textarea';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { ComprobacionesService, ProofFile, ProofFileRole, ExpenseClasificacion, requiereEvidencia } from '../comprobaciones.service';
@@ -172,6 +175,7 @@ export class ExpenseEvidenceDialogComponent {
   readonly branchLabel = branchLabel;
   private readonly svc = inject(ComprobacionesService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly perms = inject(PermissionsService);
 
   readonly open = model(false);
   readonly solicitud = input<ExpenseRequestRow | null>(null);
@@ -289,6 +293,10 @@ export class ExpenseEvidenceDialogComponent {
   enviar() {
     const s = this.solicitud();
     if (!s || this.saving()) return;
+    // `[GX.86]` Este diálogo también da de ALTA el vale: fuera de horario se frena ANTES de subir
+    // archivos (el servidor lo rechazaría después). Quien aprueba no tiene horario.
+    const h = horarioAltaGastos();
+    if (!h.abierto && !this.perms.has(Permission.FINANCE_EXPENSES_COMPROBAR)) { this.error.set(h.mensaje); return; }
     if (!this.clasificacion()) { this.error.set('Elige el tipo de gasto.'); return; }
 
     // No comprobable: sin archivos, con motivo obligatorio. Se crea directo.
