@@ -137,6 +137,12 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   // haya algo que entregar", pero la ruta sólo acepta `_VER` — mismo patrón que las de arriba.
   // Es benigna hoy porque nadie tiene GESTIONAR sin VER; se borra de acá cuando exista el botón.
   { perm: Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR, url: '/contabilidad/contpaqi-puente', motivo: 'manage sin view' },
+  // [CP.8.80] `_CATEGORIZAR` entró como `manage` del mismo nodo y dejó este candado rojo en `main`
+  // (CI de 7cdcaa1d6 en adelante). Mismo patrón: la ruta sólo acepta `_VER`. La migración 20261022131931
+  // lo da sólo a contabilidad, finanzas y superadmin, que ya traen el puente con `_GESTIONAR` (medido en prod
+  // el 2026-10-22); la migración NO escribe `_VER`, así que «nadie lo tiene sin poder entrar» se sostiene por
+  // el reparto actual, no por un candado. Se borra de acá cuando la ruta acepte el par.
+  { perm: Permission.FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR, url: '/contabilidad/contpaqi-puente', motivo: 'manage sin view' },
   // admin
   { perm: Permission.ROLES_CONFIGURAR, url: '/admin/roles', motivo: 'manage sin view: la ruta exige ROLES_VER' },
 ];
