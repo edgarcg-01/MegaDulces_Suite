@@ -36,6 +36,9 @@ import { revisarFirma } from './caja-firma.engine';
 import { tomarFirmaParaMovimiento, marcarFirmaUsada } from './caja-firma.service';
 import { diaDe } from './caja-autollenado.engine';
 import { traducirErrorDeCaja } from './caja-errores';
+import {
+  CajaCustodiaService, sqlDisponibleCaos, sqlCustodiaCerrada, sqlRetiroClasificado,
+} from './caja-custodia.service';
 import { conciliacion } from './caja-conciliacion.engine';
 import { relacionExiste } from './caja-db.util';
 import {
@@ -2001,6 +2004,9 @@ export class CashLedgerService {
         .select(trx.raw('1')).from('finance.caos_cash_links as k')
         .whereRaw(`k.tenant_id = m.tenant_id AND k.caos_device = m.device
            AND k.caos_external_id = m.external_id AND k.deleted_at IS NULL`));
+      // `[CGA-A.51]` Un retiro ya clasificado (al cajón o a cargo de alguien) no se captura como un
+      // gasto entero: su dinero se explica con los gastos que se le enlazan (ADR-101).
+      if (await CajaCustodiaService.hayCustodia(trx)) qb = qb.whereRaw(`NOT ${sqlRetiroClasificado('m')}`);
       if (q.to) qb = qb.where('m.occurred_at', '<=', new Date(new Date(q.to).getTime() + 86400000).toISOString().slice(0, 10));
       if (q.tipo === 'ingreso') qb = qb.where('m.type_id', 0);
       if (q.tipo === 'gasto') qb = qb.where('m.type_id', 4);
@@ -2091,16 +2097,21 @@ export class CashLedgerService {
           .whereRaw(`l.tenant_id = m.tenant_id AND l.origen_tipo='caos'
              AND l.origen_ref = m.device || '|' || m.external_id
              AND l.deleted_at IS NULL AND l.estado <> 'cancelado'`));
-      // Guarda: excluye lo ya enlazado sólo si la tabla existe (código puede ir por delante de la mig).
-      if (await this.tablaCaosLinks(trx)) qb = qb.whereNotExists((sub: any) => sub
-        .select(trx.raw('1')).from('finance.caos_cash_links as k')
-        .whereRaw(`k.tenant_id = m.tenant_id AND k.caos_device = m.device
-           AND k.caos_external_id = m.external_id AND k.deleted_at IS NULL`));
+      /**
+       * ⭐ `[CGA-A.51]` Se ofrece lo que al retiro le QUEDA, no se esconde al primer enlace. Antes
+       * esto era un `whereNotExists` sobre `caos_cash_links`: un retiro de $200,000 que pagó un
+       * gasto de $13,803 desaparecía con $186,196.95 todavía sin explicar (ADR-101). Guarda: la
+       * tabla puede no existir si el código va por delante de su migración.
+       */
+      const hayLinks = await this.tablaCaosLinks(trx);
+      if (hayLinks) qb = qb.whereRaw(`${sqlDisponibleCaos('m')} > 0.005`);
+      if (await CajaCustodiaService.hayCustodia(trx)) qb = qb.whereRaw(`NOT ${sqlCustodiaCerrada('m')}`);
       const movs = await qb
         .orderBy([{ column: 'm.occurred_at', order: 'desc' }])
         .limit(200) // candidatos crudos; el ranking recorta a `limit`
         .select('m.id', 'm.device', 'm.external_id', 'm.type_label', 'm.occurred_at',
-          'm.accounting_date', 'm.user_external', 'm.total', 'm.ref');
+          'm.accounting_date', 'm.user_external', 'm.total', 'm.ref',
+          trx.raw(`${hayLinks ? sqlDisponibleCaos('m') : 'abs(m.total)'} AS disponible`));
 
       const ids = movs.map((r: any) => r.id);
       const dens = ids.length
@@ -2116,8 +2127,8 @@ export class CashLedgerService {
       const candidatos: CaosCand[] = movs.map((m: any) => ({
         origen_ref: `${m.device}|${m.external_id}`, external_id: Number(m.external_id), device: m.device,
         type_label: m.type_label, fecha_valor: ymd(m.accounting_date || m.occurred_at) || '',
-        sucursal: SUCURSAL_CAJA_GENERAL, user_external: m.user_external, ref: m.ref, monto: Number(m.total),
-        denominaciones: porMov.get(m.id) || [],
+        sucursal: SUCURSAL_CAJA_GENERAL, user_external: m.user_external, ref: m.ref,
+        ...montoDisponible(m), denominaciones: billetesSiEntero(m, porMov.get(m.id)),
       }));
 
       // Lo APRENDIDO: si la vista aún no existe (deploy por delante de la migración), se sigue sin ella.
@@ -2163,13 +2174,14 @@ export class CashLedgerService {
       .whereNotExists((sub: any) => sub.select(trx.raw('1')).from('finance.cash_ledger as l')
         .whereRaw(`l.tenant_id=m.tenant_id AND l.origen_tipo='caos'
            AND l.origen_ref=m.device||'|'||m.external_id AND l.deleted_at IS NULL AND l.estado<>'cancelado'`));
-    if (await this.tablaCaosLinks(trx)) qb = qb.whereNotExists((sub: any) => sub
-      .select(trx.raw('1')).from('finance.caos_cash_links as k')
-      .whereRaw(`k.tenant_id=m.tenant_id AND k.caos_device=m.device
-         AND k.caos_external_id=m.external_id AND k.deleted_at IS NULL`));
+    // `[CGA-A.51]` Lo que le QUEDA, no «sin ningún enlace» (ver `caosCandidatos`).
+    const hayLinks = await this.tablaCaosLinks(trx);
+    if (hayLinks) qb = qb.whereRaw(`${sqlDisponibleCaos('m')} > 0.005`);
+    if (await CajaCustodiaService.hayCustodia(trx)) qb = qb.whereRaw(`NOT ${sqlCustodiaCerrada('m')}`);
     const movs = await qb.limit(500)
       .select('m.id', 'm.device', 'm.external_id', 'm.type_id', 'm.type_label', 'm.occurred_at',
-        'm.accounting_date', 'm.user_external', 'm.total', 'm.ref');
+        'm.accounting_date', 'm.user_external', 'm.total', 'm.ref',
+        trx.raw(`${hayLinks ? sqlDisponibleCaos('m') : 'abs(m.total)'} AS disponible`));
     if (!movs.length) return rows.map((r: any) => ({ ...r, caos_match: null }));
     const ids = movs.map((r: any) => r.id);
     const dens = await trx('analytics.caos_cash_denominations').where('tenant_id', tenantId).whereIn('movement_id', ids)
@@ -2183,8 +2195,8 @@ export class CashLedgerService {
     const cand = movs.map((m: any) => ({
       origen_ref: `${m.device}|${m.external_id}`, external_id: Number(m.external_id), device: m.device,
       type_label: m.type_label, fecha_valor: ymd(m.accounting_date || m.occurred_at) || '',
-      sucursal: SUCURSAL_CAJA_GENERAL, user_external: m.user_external, ref: m.ref, monto: Number(m.total),
-      denominaciones: porMov.get(m.id) || [], type_id: Number(m.type_id),
+      sucursal: SUCURSAL_CAJA_GENERAL, user_external: m.user_external, ref: m.ref,
+      ...montoDisponible(m), denominaciones: billetesSiEntero(m, porMov.get(m.id)), type_id: Number(m.type_id),
     }));
     // ⛔ `[CGP-L.6]` Se pregunta antes de leer: el `catch` vacío abortaba la transacción y
     // `marcarClientesCredito`, la consulta siguiente de la bandeja, reventaba con 25P02.
@@ -3579,4 +3591,27 @@ export class CashLedgerService {
       };
     });
   }
+}
+
+/**
+ * `[CGA-A.51]` `monto` = lo que le QUEDA al movimiento; `total` = lo que salió de la máquina. Sin
+ * enlaces son iguales y el candidato es idéntico al de antes.
+ */
+function montoDisponible(m: { total: unknown; disponible?: unknown }): { monto: number; total: number } {
+  const total = Math.abs(Number(m.total) || 0);
+  const disp = m.disponible == null ? total : Number(m.disponible);
+  return { monto: Math.round(disp * 100) / 100, total };
+}
+
+/**
+ * `[CGA-A.51]` Los billetes del movimiento sólo si nadie tomó todavía una parte: de un retiro
+ * usado a medias no se sabe qué billetes quedan, y copiar los del retiro entero afirmaría un conteo
+ * que no existe (ADR-101: de 30 enlaces, 24 tenían billetes «idénticos» por esta copia).
+ */
+function billetesSiEntero(
+  m: { total: unknown; disponible?: unknown },
+  billetes: Array<{ denominacion: number; piezas: number }> | undefined,
+): Array<{ denominacion: number; piezas: number }> {
+  const { monto, total } = montoDisponible(m);
+  return Math.abs(total - monto) <= 0.005 ? (billetes ?? []) : [];
 }

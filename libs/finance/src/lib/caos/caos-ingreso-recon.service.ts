@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { diaDeFecha } from '@megadulces/contracts';
 import {
@@ -145,6 +146,7 @@ export class CaosIngresoReconService {
     const desde = q.from || '2026-05-27';
 
     return this.tk.run(async (trx) => {
+      const hayCustodia = !!(await trx.raw(`SELECT to_regclass('finance.caos_retiro_custodia') AS t`)).rows?.[0]?.t;
       // 1 · Los depósitos que todavía NO están atribuidos.
       const depositos: DepositoCaos[] = (await trx('analytics.caos_cash_movements as m')
         .where('m.tenant_id', tenantId)
@@ -154,6 +156,24 @@ export class CaosIngresoReconService {
           this.select(1).from('finance.caos_ingreso_atribucion as a')
             .whereRaw('a.tenant_id = m.tenant_id AND a.caos_device = m.device '
               + 'AND a.caos_external_id = m.external_id AND a.deleted_at IS NULL');
+        })
+        /**
+         * ⛔ `[CGA-A.51]` El REGRESO de un retiro que se llevó una persona (ADR-101) no es un
+         * cobro: es el sobrante que vuelve a la máquina. Repartirlo consumiría cobros viejos de
+         * Kepler que no tienen nada que ver — un jineteo fabricado por el conciliador. Dos señales:
+         * la custodia ya cerrada con ese depósito, o la referencia de CAOS empieza con «regreso»
+         * (la convención para depositar un sobrante, porque el cierre suele llegar después de la
+         * corrida de cada hora). Medido el 2026-10-23: 0 depósitos con esa referencia hasta hoy.
+         */
+        .whereRaw(`coalesce(m.ref, '') !~* '^[[:space:]]*regres'`)
+        .modify((qb: Knex.QueryBuilder) => {
+          if (hayCustodia) {
+            qb.whereNotExists(function (this: Knex.QueryBuilder) {
+              this.select(1).from('finance.caos_retiro_custodia as c')
+                .whereRaw('c.tenant_id = m.tenant_id AND c.caos_device = m.device '
+                  + 'AND c.cierre_caos_external_id = m.external_id AND c.deleted_at IS NULL');
+            });
+          }
         })
         .orderBy('m.occurred_at', 'asc').orderBy('m.external_id', 'asc')
         .select('m.device', 'm.external_id', 'm.occurred_at', 'm.total'))

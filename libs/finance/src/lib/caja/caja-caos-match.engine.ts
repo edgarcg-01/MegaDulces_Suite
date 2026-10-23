@@ -61,7 +61,17 @@ export interface CaosCandidato {
   sucursal: string;
   user_external: string | null;
   ref: string | null;
+  /**
+   * ⭐ `[CGA-A.51]` Lo que le QUEDA al movimiento (lo que salió menos lo ya enlazado a otros
+   * gastos). Es lo que se puede tomar y contra lo que se compara el gasto. Sin enlaces, = `total`.
+   */
   monto: number;
+  /** `[CGA-A.51]` Lo que salió (o entró) de la máquina. Ausente = igual a `monto`. */
+  total?: number;
+  /**
+   * Los billetes del movimiento. ⚠️ Vacío cuando ya se tomó una parte: no se sabe qué billetes
+   * quedan, y copiar los del retiro entero afirmaría un conteo que no existe.
+   */
   denominaciones: Array<{ denominacion: number; piezas: number }>;
 }
 
