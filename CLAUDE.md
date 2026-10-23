@@ -218,6 +218,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **VR** | Venta en Ruta (autoventa offline-first, lap/móvil) | ⏸️ |
 | **Maat** | AI de Finanzas (conocimiento + chat + patrones) | ⏸️ |
 | **RA** | Compras / Reabastecimiento (punto de reorden + existencia crítica + sugerido) | 🟢 |
+| **AB** | Autoabasto: Compras decide el traspaso, cada sucursal ve su mesa (ADR-100) | 🔨 |
 | **CB** | Conciliación bancaria (interfaz reemplaza el Excel) | 🚀 |
 | **CP** | Conector ContPAQi (SoR contable externo) | 🚀 |
 | **CC** | Comprobantes de Cobranza (ficha de depósito + OCR) | ⏸️ |
@@ -241,7 +242,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **PO** | Post-corte del 1-oct-2026 (el `00` dejó de concentrar) | 🔨 |
 | **NP** | Productos nuevos (seguimiento a 30/60/90 días) | 🧪 |
 | **PF** | Flujo de venta de cualquier producto (Compras › Catálogo › Productos) | 🧪 |
-| **MS** | Mesa de Servicio (tickets de servicio) | 🔨 |
+| **MS** | Mesa de Servicio (tickets de servicio) | ⏸️ |
 | **CSU** | Cortes/Sucursales (corte de caja → cobro → ingreso) | 🟢 |
 | **CGA** | Caja General: cazar el ingreso/egreso pendiente (ruta detalle, vecinal, proveedores en efectivo) | 🔨 |
 | **ECA** | Estado de cuenta de acreedores (por tipo) | 🧪 |
