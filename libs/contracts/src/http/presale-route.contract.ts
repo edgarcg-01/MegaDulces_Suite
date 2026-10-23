@@ -67,8 +67,18 @@ export interface RouteBatchRow {
   orders: number;
   /** Productos distintos en el pedido global. */
   products: number;
+  /**
+   * `[MCP.3.13]` Quién empezó / terminó la parte de TU sucursal (la ruta se surte por sucursal:
+   * `commercial.seller_route_day_picks`). Una ruta surtida antes de ese cambio trae el dueño único
+   * de siempre.
+   */
   pick_started: RouteBatchPerson | null;
   pick_finished: RouteBatchPerson | null;
+  /**
+   * `[MCP.3.13]` Sucursales (etiqueta corta) que surten OTRAS partes de los pedidos agrupados de esta
+   * ruta. `[]` = la ruta no trae pedidos agrupados con otras sucursales.
+   */
+  group_other_warehouses?: string[];
 }
 
 export interface RouteBatchInboxResponse {
@@ -134,6 +144,10 @@ export interface RouteBatchBag {
   lines: RouteBatchBagLine[];
   total_before: number;
   total_after: number;
+  /** `[MCP.3.13]` Igual que en `PresalePickInboxRow`: folio del principal del grupo; `null` = suelto. */
+  group_code?: string | null;
+  group_parts?: number | null;
+  group_other_warehouses?: string[];
 }
 
 export interface RouteBatchFinishResponse {

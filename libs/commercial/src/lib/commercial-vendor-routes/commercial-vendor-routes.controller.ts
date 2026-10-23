@@ -1,3 +1,4 @@
+import type { VendorZoneStockResponse } from '@megadulces/contracts';
 import type { DayPickCleared, DayPickChoice, DayPickState } from '@megadulces/contracts';
 import {
   Body,
@@ -74,6 +75,15 @@ export class CommercialVendorRoutesController {
   @ApiOperation({ summary: 'Cartera del vendedor logueado: sus rutas de venta' })
   myRoutes() {
     return this.service.myRoutes();
+  }
+
+  @Get('my-zone-stock')
+  @RequireAnyPermission(Permission.COMMERCIAL_CARTERA_VER, Permission.VENDOR_APP_ACCESS)
+  @ApiOperation({
+    summary: 'MCP.3.12: existencias de las sucursales de la zona del vendedor (purchase_zone), para la tira de la toma de pedido. Sólo lectura.',
+  })
+  myZoneStock(): Promise<VendorZoneStockResponse> {
+    return this.service.myZoneStock();
   }
 
   @Get('my-stock-sources')

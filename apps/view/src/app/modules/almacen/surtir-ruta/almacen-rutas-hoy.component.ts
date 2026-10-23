@@ -10,7 +10,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { PresalePickingService } from '../presale-picking.service';
-import { horaMx, nombreRuta } from './ruta-surtido.util';
+import { horaMx, nombreRuta, textoOtrasSucursales } from './ruta-surtido.util';
 
 /** Cada cuánto se vuelve a pedir: igual que la lista de sueltos de Surtir. */
 const RUTAS_CADA_MS = 30_000;
@@ -63,6 +63,8 @@ function plural(n: number, uno: string, varios: string): string {
                   @if (r.kind === 'fuera_de_ruta') { <span class="rh-sub">Levantado después de cerrar su ruta</span> }
                   @else if (r.finished_at) { <span class="rh-sub">Terminó a las {{ hora(r.finished_at) }}</span> }
                   <span class="rh-datos">{{ plural(r.orders, 'pedido', 'pedidos') }} · {{ plural(r.products, 'producto', 'productos') }}</span>
+                  <!-- [MCP.3.13] Pedidos agrupados: otra sucursal surte su parte de esta ruta. -->
+                  @if (otras(r); as o) { <span class="rh-parte">{{ o }}</span> }
                   <button type="button" class="rh-btn" [disabled]="abriendo() !== null" (click)="empezar(r)">
                     <i class="pi" [class.pi-play]="abriendo() !== r.route_day_id"
                        [class.pi-spin]="abriendo() === r.route_day_id" [class.pi-spinner]="abriendo() === r.route_day_id" aria-hidden="true"></i>
@@ -74,6 +76,8 @@ function plural(n: number, uno: string, varios: string): string {
                 <article class="rh-card" [attr.data-estado]="r.state">
                   <strong class="rh-nom">{{ nombreRuta(r) }}</strong>
                   <span class="rh-datos">{{ plural(r.orders, 'pedido', 'pedidos') }} · {{ plural(r.products, 'producto', 'productos') }}</span>
+                  <!-- [MCP.3.13] Pedidos agrupados: otra sucursal surte su parte de esta ruta. -->
+                  @if (otras(r); as o) { <span class="rh-parte">{{ o }}</span> }
                   @if (esMia(r)) {
                     <button type="button" class="rh-btn" [disabled]="abriendo() !== null" (click)="seguir(r)">
                       <i class="pi pi-play" aria-hidden="true"></i><span>Seguir recolectando</span>
@@ -119,6 +123,7 @@ function plural(n: number, uno: string, varios: string): string {
     .rh-sub { font-size: var(--fs-body); color: var(--text-muted); }
     .rh-card-hecha .rh-sub i { color: var(--ok-fg); }
     .rh-datos { font-size: var(--fs-body); color: var(--text-main); font-variant-numeric: tabular-nums; }
+    .rh-parte { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
     .rh-btn { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); margin-top: var(--sp-2);
       min-height: max(3.25rem, var(--tap-min)); border: 0; border-radius: var(--r-lg); cursor: pointer;
       background: var(--action); color: var(--action-ink); font-size: var(--fs-h2); font-weight: 800; }
@@ -139,6 +144,8 @@ export class AlmacenRutasHoyComponent implements OnInit {
 
   readonly plural = plural;
   readonly nombreRuta = nombreRuta;
+  /** [MCP.3.13] «Pedidos agrupados · también surte PH…»; null si la ruta no tiene partes en otra sucursal. */
+  readonly otras = textoOtrasSucursales;
 
   private readonly filas = signal<RouteBatchRow[]>([]);
   readonly cargando = signal(true);

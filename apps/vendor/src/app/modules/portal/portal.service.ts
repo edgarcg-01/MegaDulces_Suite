@@ -168,6 +168,10 @@ export interface OrderLine {
   qty_factor?: number | string | null;
   /** [VTK.2] Total de Kepler con impuestos (motor de cotizaciones). Null = cálculo anterior. */
   erp_gross_total?: number | string | null;
+  /** [MCP.3.13] De qué sucursal de la zona se surte (null = la del pedido). */
+  source_warehouse_id?: string | null;
+  source_warehouse_name?: string | null;
+  source_warehouse_short?: string | null;
 }
 
 export interface Order {
@@ -506,12 +510,15 @@ export class PortalService {
     productId: string,
     quantity: number,
     sello?: { qty_unit: string; qty_factor: number },
+    /** [MCP.3.13] Otra sucursal de la zona de la que se surte; sin ella, la del pedido. */
+    origen?: string | null,
   ): Observable<OrderLine> {
     return this.http
       .post<OrderLine>(`${this.base}/orders/${orderId}/lines`, {
         product_id: productId,
         quantity,
         ...(sello ?? {}),
+        ...(origen ? { source_warehouse_id: origen } : {}),
       })
       .pipe(tap(() => this.refreshCart()));
   }
@@ -590,9 +597,15 @@ export class PortalService {
     lineId: string,
     quantity: number,
     sello?: { qty_unit: string; qty_factor: number },
+    /** [MCP.3.13] Mover el renglón a otra sucursal de la zona (`null` = la del pedido). Omitido = no cambia. */
+    origen?: string | null,
   ): Observable<OrderLine> {
     return this.http
-      .patch<OrderLine>(`${this.base}/orders/${orderId}/lines/${lineId}`, { quantity, ...(sello ?? {}) })
+      .patch<OrderLine>(`${this.base}/orders/${orderId}/lines/${lineId}`, {
+        quantity,
+        ...(sello ?? {}),
+        ...(origen !== undefined ? { source_warehouse_id: origen } : {}),
+      })
       .pipe(tap(() => this.refreshCart()));
   }
 

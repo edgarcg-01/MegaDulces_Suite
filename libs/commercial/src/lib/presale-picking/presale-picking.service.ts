@@ -38,6 +38,24 @@ import {
 } from './presale-picking.engine';
 import { PEDIDO_EN_RUTA_SQL } from './presale-route.engine';
 
+/**
+ * `[MCP.3.13]` Pedido agrupado, en SQL sobre `o` = `commercial.orders`: folio del principal, partes
+ * vivas y la etiqueta corta de las sucursales de las OTRAS partes. Suelto (`group_id` NULL) → NULL,
+ * NULL y `{}`. Las partes canceladas no cuentan: ya no se surten en ningún lado.
+ */
+const GRUPO_SELECT_SQL = [
+  `(SELECT m.code FROM commercial.orders m WHERE m.tenant_id = o.tenant_id AND m.id = o.group_id) AS group_code`,
+  `CASE WHEN o.group_id IS NULL THEN NULL ELSE (SELECT count(*) FROM commercial.orders g
+     WHERE g.tenant_id = o.tenant_id AND g.group_id = o.group_id AND g.deleted_at IS NULL AND g.status <> 'cancelled')::int END AS group_parts`,
+  `CASE WHEN o.group_id IS NULL THEN ARRAY[]::text[] ELSE ARRAY(
+     SELECT DISTINCT coalesce(nullif(btrim(gw.short_label), ''), gw.name)
+       FROM commercial.orders g
+       JOIN commercial.warehouses gw ON gw.id = g.warehouse_id AND gw.tenant_id = g.tenant_id
+      WHERE g.tenant_id = o.tenant_id AND g.group_id = o.group_id AND g.deleted_at IS NULL
+        AND g.status <> 'cancelled' AND g.warehouse_id <> o.warehouse_id
+      ORDER BY 1) END AS group_other_warehouses`,
+];
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Ventana de la bandeja: lo atrasado de más de 30 días ya no es surtido, es limpieza de la mesa. */
 const DIAS_ATRAS = 30;
@@ -151,7 +169,12 @@ export class PresalePickingService {
         .whereNull('seen_at')
         .update({ seen_at: trx.fn.now(), seen_by: userId });
       const [nueva] = await this.leer(trx, { almacenes: null, orderId });
-      this.avisarVendedora(fila, 'Tu pedido ya lo están surtiendo', `${fila['customer_name'] ?? fila['code']} · ${nombre} empezó a las ${horaMx(pick.started_at)}`);
+      const parte = parteDe(fila);
+      this.avisarVendedora(
+        fila,
+        parte ? `${parte}: ya lo están surtiendo` : 'Tu pedido ya lo están surtiendo',
+        `${fila['customer_name'] ?? fila['code']} · ${nombre} empezó a las ${horaMx(pick.started_at)}`,
+      );
       return this.aRenglon(nueva, hoy);
     });
   }
@@ -170,11 +193,14 @@ export class PresalePickingService {
       }
       const { outcome, report } = await this.cerrarPedido(trx, fila, pick.id, dto?.lines ?? [], { userId, nombre });
       const cliente = (fila['customer_name'] as string) ?? (fila['code'] as string);
+      // [MCP.3.13] Cada parte de un pedido agrupado avisa por separado: el título dice cuál.
+      const parte = parteDe(fila);
       if (report) {
         const n = report.removed.length + report.adjusted.length;
-        this.avisarVendedora(fila, `Reporte de surtido: faltó ${n} ${n === 1 ? 'producto' : 'productos'}`, `${cliente} · nuevo total $${report.total_after.toFixed(2)}`);
+        const falto = `faltó ${n} ${n === 1 ? 'producto' : 'productos'}`;
+        this.avisarVendedora(fila, parte ? `${parte}: ${falto}` : `Reporte de surtido: ${falto}`, `${cliente} · nuevo total ${report.total_after.toFixed(2)}`);
       } else {
-        this.avisarVendedora(fila, 'Tu pedido se surtió completo', `${cliente} · listo para cobrar`);
+        this.avisarVendedora(fila, parte ? `${parte}: surtido completo` : 'Tu pedido se surtió completo', `${cliente} · listo para cobrar`);
       }
       return { order_id: orderId, outcome, report };
     });
@@ -392,6 +418,8 @@ export class PresalePickingService {
         trx.raw('(SELECT count(*) FROM commercial.order_lines ol WHERE ol.order_id = o.id)::int AS lines'),
         trx.raw(`EXISTS (SELECT 1 FROM commercial.wave_orders wo WHERE wo.order_id = o.id AND wo.stage <> 'listo_embarque') AS en_ola`),
         trx.raw(`EXISTS (SELECT 1 FROM commercial.order_notifications n WHERE n.order_id = o.id AND n.seen_at IS NULL) AS unseen`),
+        'o.group_id',
+        ...GRUPO_SELECT_SQL.map((s) => trx.raw(s)),
       )
       // D5 de la Fase MCP: se surte por orden de llegada; la fecha de entrega separa la pestaña.
       .orderByRaw('o.requested_delivery_date ASC, o.confirmed_at ASC NULLS LAST, o.code ASC')
@@ -421,6 +449,10 @@ export class PresalePickingService {
       started: f['started_at'] ? { user_id: f['started_by'] as string, name: f['started_by_name'] as string, at: iso(f['started_at']) as string } : null,
       finished: f['finished_at'] ? { user_id: f['finished_by'] as string, name: f['finished_by_name'] as string, at: iso(f['finished_at']) as string } : null,
       unseen: !!f['unseen'],
+      // [MCP.3.13] Pedido agrupado; suelto = null / [].
+      group_code: (f['group_code'] as string | null | undefined) ?? null,
+      group_parts: f['group_parts'] == null ? null : Number(f['group_parts']),
+      group_other_warehouses: Array.isArray(f['group_other_warehouses']) ? (f['group_other_warehouses'] as unknown[]).map(String) : [],
     };
   }
 
@@ -449,6 +481,17 @@ export class PresalePickingService {
         .catch((e) => this.logger.warn(`[MCP.8] push a la vendedora falló: ${(e as Error).message}`));
     }
   }
+}
+
+/**
+ * `[MCP.3.13]` «Tu pedido P-10482 · parte de Padre Hidalgo» si el pedido es parte de un grupo con
+ * otras sucursales; `null` si es suelto (o todas sus partes son de la misma sucursal).
+ */
+function parteDe(fila: Record<string, unknown>): string | null {
+  const otras = fila['group_other_warehouses'];
+  if (!fila['group_code'] || !Array.isArray(otras) || !otras.length) return null;
+  const sucursal = String(fila['warehouse_name'] ?? '').trim() || 'tu sucursal';
+  return `Tu pedido ${fila['group_code']} · parte de ${sucursal}`;
 }
 
 function iso(v: unknown): string | null {

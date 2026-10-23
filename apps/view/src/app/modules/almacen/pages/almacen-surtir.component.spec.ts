@@ -317,6 +317,24 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(texto()).toContain('No se pudo revisar si hay clientes nuevos sin clave de Kepler');
   });
 
+  it('[MCP.3.13] la parte de un pedido agrupado se rotula; el pedido suelto no', async () => {
+    pv['inbox'].mockReturnValue(of(BANDEJA([
+      PV({ group_code: 'P-10482', group_parts: 2, group_other_warehouses: ['LPA'] }),
+      PV({ order_id: 'o-vero', code: 'P-10482', customer_name: 'VERO VASCO', group_code: 'P-10482', group_parts: 2, group_other_warehouses: ['LPA'] }),
+      PV({ order_id: 'o-suelto', code: 'PD-2026-00091', customer_name: 'SUELTO', group_code: null, group_parts: null, group_other_warehouses: [] }),
+    ])));
+    await montar();
+    clic('Sucursal');
+    const tarjetas = Array.from(el().querySelectorAll('.sr-ped')).map((n) => (n.textContent ?? '').replace(/\s+/g, ' '));
+    expect(tarjetas.find((t) => t.includes('ABARROTES ROSY'))).toContain('Parte de P-10482 · también surte LPA');
+    // El principal del grupo no dice «Parte de» sí mismo.
+    expect(tarjetas.find((t) => t.includes('VERO VASCO'))).toContain('Pedido agrupado · también surte LPA');
+    // Prueba negativa: un pedido suelto no lleva rótulo.
+    const suelto = tarjetas.find((t) => t.includes('SUELTO')) ?? '';
+    expect(suelto).not.toContain('Parte de');
+    expect(suelto).not.toContain('Pedido agrupado');
+  });
+
   it('separa Hoy / Mañana / Próximos y cuenta sólo lo pendiente de MI almacén', async () => {
     await montar();
     clic('Sucursal');

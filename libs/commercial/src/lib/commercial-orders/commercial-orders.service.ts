@@ -97,6 +97,13 @@ export interface AddLineDto {
   /** Override del descuento por línea (0..1). Si no viene, 0. */
   discount_percent?: number;
   notes?: string;
+  /**
+   * `[MCP.3.13]` De qué sucursal de la ZONA se surte este renglón (pedido agrupado). Omitido, `null`
+   * o la del pedido = la del pedido, como siempre. Otra = debe ser central, activa y de la misma
+   * `purchase_zone` que la del pedido; el precio sale de ESA sucursal (se cobra en su Kepler). Sólo
+   * en borrador: al mandar el pedido, los renglones de otra sucursal se mueven a su parte.
+   */
+  source_warehouse_id?: string | null;
 }
 
 /** [VU.2] Lo que el servidor sella junto a la cantidad. `null` en los tres = no se registró. */
@@ -128,6 +135,42 @@ export interface UpdateLineDto {
   qty_factor?: number;
   discount_percent?: number;
   notes?: string;
+  /**
+   * `[MCP.3.13]` De qué sucursal de la ZONA se surte este renglón (pedido agrupado). Omitido, `null`
+   * o la del pedido = la del pedido, como siempre. Otra = debe ser central, activa y de la misma
+   * `purchase_zone` que la del pedido; el precio sale de ESA sucursal (se cobra en su Kepler). Sólo
+   * en borrador: al mandar el pedido, los renglones de otra sucursal se mueven a su parte.
+   */
+  source_warehouse_id?: string | null;
+}
+
+/** `[MCP.3.13]` Lo que la separación por sucursal y la toma en campo leen del pedido. */
+interface PedidoFila {
+  id: string;
+  tenant_id: string;
+  code: string;
+  customer_id: string;
+  user_id: string | null;
+  warehouse_id: string;
+  price_list_id: string | null;
+  route_id: string | null;
+  status: OrderStatus;
+  payment_method: string | null;
+  delivery_type: DeliveryType;
+  requested_delivery_date: string | Date | null;
+  delivery_address: unknown;
+  delivery_channel: string | null;
+  notes: string | null;
+  currency: string | null;
+  group_id: string | null;
+  pending_approval_at: string | Date | null;
+}
+
+/** `[MCP.3.13]` Lo que la separación lee de cada renglón. */
+interface RenglonFila {
+  id: string;
+  line_number: number;
+  source_warehouse_id: string | null;
 }
 
 export interface ReplaceLinesDto {
@@ -261,6 +304,39 @@ export class CommercialOrdersService {
       unit_price: unitPrice, tax_rate: taxRate, line_subtotal: lineSubtotal, line_tax: lineTax,
       line_total: lineTotal, erp_gross_total: +grossTotal.toFixed(2), rung,
     };
+  }
+
+  /**
+   * `[MCP.3.13]` La sucursal de surtido de un renglón. `null` = la del pedido (todo lo de hoy).
+   *
+   * Otra sucursal sólo si es central, activa y de la MISMA zona (`purchase_zone`) que la del pedido:
+   * David pidió vender sólo de sucursales de la zona (La Piedad = PH, LPA, 8ES, YU …). El CEDIS
+   * («Corporativo») nunca entra. Se valida en el servidor: la pantalla sólo ofrece las de la zona,
+   * pero no es la que decide.
+   */
+  private async origenDelRenglon(
+    trx: Knex | Knex.Transaction,
+    order: { warehouse_id: string | null },
+    sourceId: string | null | undefined,
+  ): Promise<string | null> {
+    if (sourceId == null || sourceId === '' || sourceId === order.warehouse_id) return null;
+    if (!UUID_REGEX.test(sourceId)) throw new BadRequestException('source_warehouse_id inválido');
+    const [mia, otra] = await Promise.all([
+      trx('commercial.warehouses').where({ id: order.warehouse_id }).first('purchase_zone'),
+      trx('commercial.warehouses').where({ id: sourceId }).whereNull('deleted_at')
+        .first('id', 'kind', 'active', 'purchase_zone', 'name'),
+    ]) as [
+      { purchase_zone: string | null } | undefined,
+      { id: string; kind: string; active: boolean; purchase_zone: string | null; name: string } | undefined,
+    ];
+    if (!otra || otra.kind !== 'central' || !otra.active) {
+      throw new BadRequestException('Esa sucursal no existe o no está activa.');
+    }
+    const zona = String(mia?.purchase_zone ?? '').trim();
+    if (!zona || String(otra.purchase_zone ?? '').trim() !== zona) {
+      throw new BadRequestException(`${otra.name} no es de la zona de tu sucursal: sólo se surte de sucursales de tu zona.`);
+    }
+    return sourceId;
   }
 
   /**
@@ -611,13 +687,19 @@ export class CommercialOrdersService {
       const conv = await this.resolverUnidadCaptura(
         trx, dto.product_id, dto.quantity, dto.qty_unit, dto.qty_factor);
       const qtyBase = conv.quantity;
+      // [MCP.3.13] De qué sucursal se surte: el precio es el de ESA sucursal (se cobra en su Kepler).
+      const origen = await this.origenDelRenglon(trx, order, dto.source_warehouse_id);
+      const whPrecio = origen ?? order.warehouse_id;
 
       // Merge por producto: si el SKU ya tiene línea en el carrito, se INCREMENTA
       // (igual que updateLine: conserva el snapshot de precio y recalcula) en vez
       // de crear una línea duplicada. Antes addLine SIEMPRE insertaba → el mismo
       // producto aparecía como líneas separadas al re-agregarlo desde rails/sheet.
+      // [MCP.3.13] Se fusiona por (producto, sucursal de surtido): el mismo producto pedido de dos
+      // sucursales son dos renglones, porque se surten, se cobran y se recogen en lugares distintos.
       const existing = await trx('commercial.order_lines')
         .where({ order_id: orderId, product_id: dto.product_id })
+        .whereRaw('source_warehouse_id IS NOT DISTINCT FROM ?::uuid', [origen])
         .first();
       if (existing) {
         const newQty = Number(existing.quantity) + qtyBase;
@@ -626,7 +708,7 @@ export class CommercialOrdersService {
         // [VTK.2] Motor de cotizaciones primero (Kepler por sucursal y peldaño); si no puede,
         // el cálculo anterior. Con unidades distintas se tarifica en la base.
         const motor = await this.tarificarConMotor(
-          trx, order.warehouse_id, dto.product_id, newQty,
+          trx, whPrecio, dto.product_id, newQty,
           mismaUnidad ? conv.sello.qty_unit : null, exDiscount);
         // FIQ.3: re-tarificar por el NUEVO total — el tier de volumen puede bajar
         // el precio/pza al acumular (pieza→caja). Fallback al snapshot si no resuelve.
@@ -665,7 +747,7 @@ export class CommercialOrdersService {
       // [VTK.2] Línea nueva: el motor de cotizaciones (Kepler por sucursal y peldaño + volumen +
       // promos). Kepler vende desde 1 unidad: con el motor no hay mínimo de compra.
       const motor = await this.tarificarConMotor(
-        trx, order.warehouse_id, dto.product_id, qtyBase, conv.sello.qty_unit, discount);
+        trx, whPrecio, dto.product_id, qtyBase, conv.sello.qty_unit, discount);
 
       let unitPrice: number;
       let taxRate: number;
@@ -718,6 +800,7 @@ export class CommercialOrdersService {
           line_total: lineTotal,
           erp_gross_total: motor ? motor.erp_gross_total : null,
           notes: dto.notes || null,
+          source_warehouse_id: origen,
         })
         .returning('*');
 
@@ -740,7 +823,10 @@ export class CommercialOrdersService {
     // [VU.2] El dedupe suma cantidades por producto. Si dos renglones del mismo producto vienen en
     // unidades DISTINTAS, sumarlos crudo daría un número que no está en ninguna unidad — así que
     // se marca `unidad_mixta` y más abajo esa línea se rechaza en vez de inventar un total.
+    // [MCP.3.13] La llave es (producto, sucursal de surtido): el mismo producto de dos sucursales son
+    // dos renglones.
     const merged = new Map<string, {
+      product_id: string; source_warehouse_id: string | null;
       quantity: number; discount_percent?: number; notes?: string;
       qty_unit?: string; qty_factor?: number; unidad_mixta?: boolean;
     }>();
@@ -749,12 +835,15 @@ export class CommercialOrdersService {
       const qty = Number(l.quantity);
       if (!Number.isFinite(qty) || qty <= 0) continue;
       const u = String(l.qty_unit ?? '').trim().toUpperCase() || undefined;
-      const prev = merged.get(l.product_id);
+      const src = l.source_warehouse_id || null;
+      const key = `${l.product_id}|${src ?? ''}`;
+      const prev = merged.get(key);
       if (prev) {
         prev.quantity += qty;
         if ((prev.qty_unit ?? '') !== (u ?? '')) prev.unidad_mixta = true;
       } else {
-        merged.set(l.product_id, {
+        merged.set(key, {
+          product_id: l.product_id, source_warehouse_id: src,
           quantity: qty, discount_percent: l.discount_percent, notes: l.notes,
           qty_unit: u, qty_factor: l.qty_factor,
         });
@@ -770,7 +859,17 @@ export class CommercialOrdersService {
 
       const skipped: { product_id: string; reason: string }[] = [];
       let lineNumber = 0;
-      for (const [productId, info] of merged) {
+      for (const info of merged.values()) {
+        const productId = info.product_id;
+        // [MCP.3.13] Sucursal de surtido validada contra la zona; si no es válida, se omite CON motivo.
+        let origen: string | null;
+        try {
+          origen = await this.origenDelRenglon(trx, order, info.source_warehouse_id);
+        } catch (e: unknown) {
+          skipped.push({ product_id: productId, reason: (e as Error)?.message || 'sucursal inválida' });
+          continue;
+        }
+        const whPrecio = origen ?? order.warehouse_id;
         // [VU.2] Dos capturas del mismo producto en unidades distintas no se suman: se declara.
         if (info.unidad_mixta) {
           skipped.push({ product_id: productId, reason: 'renglones en unidades distintas' });
@@ -796,13 +895,14 @@ export class CommercialOrdersService {
         // [VTK.2] Motor de cotizaciones (Kepler por sucursal y peldaño + volumen + promos). Sin
         // mínimo de compra: Kepler vende desde 1. Si no puede tarificar, el cálculo anterior.
         const motor = await this.tarificarConMotor(
-          trx, order.warehouse_id, productId, info.quantity, conv.sello.qty_unit, discountMotor);
+          trx, whPrecio, productId, info.quantity, conv.sello.qty_unit, discountMotor);
         if (motor) {
           lineNumber += 1;
           await trx('commercial.order_lines').insert({
             tenant_id: trx.raw('public.current_tenant_id()'),
             order_id: orderId,
             product_id: productId,
+            source_warehouse_id: origen,
             line_number: lineNumber,
             quantity: info.quantity,
             requested_quantity: info.quantity,
@@ -847,6 +947,7 @@ export class CommercialOrdersService {
           tenant_id: trx.raw('public.current_tenant_id()'),
           order_id: orderId,
           product_id: productId,
+          source_warehouse_id: origen,
           line_number: lineNumber,
           quantity: qty,
           requested_quantity: qty,
@@ -954,6 +1055,27 @@ export class CommercialOrdersService {
           ? dto.discount_percent
           : Number(line.discount_percent);
 
+      // [MCP.3.13] Cambiar de qué sucursal se surte: sólo en borrador (después ya es otra parte del
+      // pedido) y sin chocar con otro renglón del mismo producto en esa sucursal.
+      const origenAntes: string | null = line.source_warehouse_id ?? null;
+      let origen = origenAntes;
+      if (dto.source_warehouse_id !== undefined) {
+        origen = await this.origenDelRenglon(trx, order, dto.source_warehouse_id);
+        if (origen !== origenAntes) {
+          if (order.status !== 'draft') {
+            throw new ConflictException('La sucursal de surtido sólo se cambia mientras el pedido es borrador.');
+          }
+          const choca = await trx('commercial.order_lines')
+            .where({ order_id: orderId, product_id: line.product_id })
+            .whereNot('id', lineId)
+            .whereRaw('source_warehouse_id IS NOT DISTINCT FROM ?::uuid', [origen])
+            .first('id');
+          if (choca) throw new ConflictException('Ya tienes ese producto pedido de esa sucursal: súmalo en ese renglón.');
+        }
+      }
+      const cambioOrigen = origen !== origenAntes;
+      const whPrecio = origen ?? order.warehouse_id;
+
       if (quantity <= 0) throw new BadRequestException('quantity debe ser > 0');
       if (discount < 0 || discount > 1)
         throw new BadRequestException('discount_percent en [0..1]');
@@ -984,15 +1106,15 @@ export class CommercialOrdersService {
       // se conserva el precio del renglón como siempre y se suelta el total de Kepler (ya no
       // describe la nueva cantidad).
       const unidadTrasEdicion = 'qty_unit' in selloTrasEdicion ? selloTrasEdicion.qty_unit : line.qty_unit;
-      const motor = (quantity !== prevQty || discount !== Number(line.discount_percent))
-        ? await this.tarificarConMotor(trx, order.warehouse_id, line.product_id, quantity, unidadTrasEdicion, discount)
+      const motor = (quantity !== prevQty || discount !== Number(line.discount_percent) || cambioOrigen)
+        ? await this.tarificarConMotor(trx, whPrecio, line.product_id, quantity, unidadTrasEdicion, discount)
         : null;
       const unitPrice = motor ? motor.unit_price : Number(line.unit_price);
       const taxRate = motor ? motor.tax_rate : Number(line.tax_rate);
       const lineSubtotal = motor ? motor.line_subtotal : +(quantity * unitPrice * (1 - discount)).toFixed(2);
       const lineTax = motor ? motor.line_tax : +(lineSubtotal * taxRate).toFixed(2);
       const lineTotal = motor ? motor.line_total : +(lineSubtotal + lineTax).toFixed(2);
-      const sinCambioDePrecio = quantity === prevQty && discount === Number(line.discount_percent);
+      const sinCambioDePrecio = quantity === prevQty && discount === Number(line.discount_percent) && !cambioOrigen;
 
       // En draft el cliente sigue armando — `requested_quantity` se sincroniza
       // con `quantity` porque NO existe todavía una "cantidad pedida congelada".
@@ -1008,6 +1130,7 @@ export class CommercialOrdersService {
         erp_gross_total: motor ? motor.erp_gross_total : (sinCambioDePrecio ? line.erp_gross_total : null),
         notes: dto.notes !== undefined ? dto.notes : line.notes,
         ...selloTrasEdicion,
+        ...(cambioOrigen ? { source_warehouse_id: origen } : {}),
       };
       if (order.status === 'draft') {
         updatePatch.requested_quantity = quantity;
@@ -1327,6 +1450,114 @@ export class CommercialOrdersService {
         }
       }
 
+      // [MCP.3.13] Pedido agrupado: los renglones que se surten en OTRA sucursal de la zona se
+      // mueven a su parte (otro pedido de esa sucursal, mismo grupo) y cada parte se toma igual que
+      // el principal. Sólo en borrador; en el mismo lock: un reintento ya ve el pedido confirmado.
+      const partes = order.status === 'draft' ? await this.separarPorSucursal(trx, order, userId) : [];
+
+      const updated = await this.tomarEnCampo(trx, order, userId, { avisarCliente: true, partes: partes.length });
+      for (const parte of partes) {
+        await this.tomarEnCampo(trx, parte, userId, { avisarCliente: false, partes: 0 });
+      }
+      return partes.length ? { ...updated, group_parts: partes.length + 1 } : updated;
+    });
+  }
+
+  /**
+   * `[MCP.3.13]` Separa el pedido por sucursal de surtido. Devuelve las partes nuevas (en borrador).
+   *
+   *  · Renglones con `source_warehouse_id` de otra sucursal → una parte por sucursal: un pedido nuevo
+   *    con el mismo encabezado, `warehouse_id` = esa sucursal y `group_id` = el principal. Los
+   *    renglones se MUEVEN (conservan su precio, que ya era el de esa sucursal).
+   *  · Si el principal se queda sin renglones propios (todo se pidió de otras sucursales), no se deja
+   *    un pedido vacío: el principal toma la sucursal de la primera parte.
+   *  · El principal se apunta a sí mismo (`group_id = id`) cuando tiene partes.
+   */
+  private async separarPorSucursal(
+    trx: Knex.Transaction,
+    order: PedidoFila,
+    userId: string | null,
+  ): Promise<PedidoFila[]> {
+    const lineas = (await trx('commercial.order_lines').where({ order_id: order.id }).orderBy('line_number')) as RenglonFila[];
+    const ajena = (l: RenglonFila): l is RenglonFila & { source_warehouse_id: string } =>
+      !!l.source_warehouse_id && l.source_warehouse_id !== order.warehouse_id;
+    const porSucursal = new Map<string, RenglonFila[]>();
+    for (const l of lineas) if (ajena(l)) porSucursal.set(l.source_warehouse_id, [...(porSucursal.get(l.source_warehouse_id) ?? []), l]);
+    if (!porSucursal.size) return [];
+
+    if (!lineas.some((l) => !ajena(l))) {
+      const [primera] = porSucursal.keys();
+      await trx('commercial.orders').where({ id: order.id }).update({ warehouse_id: primera, updated_at: trx.fn.now(), updated_by: userId });
+      order.warehouse_id = primera;
+      porSucursal.delete(primera);
+      if (!porSucursal.size) return [];
+    }
+
+    await trx('commercial.orders').where({ id: order.id }).update({ group_id: order.id });
+    order.group_id = order.id;
+
+    const partes: PedidoFila[] = [];
+    for (const [warehouseId, ls] of porSucursal) {
+      const code = await this.nextCode(trx);
+      const [parte] = await trx('commercial.orders')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          code,
+          group_id: order.id,
+          customer_id: order.customer_id,
+          user_id: order.user_id,
+          warehouse_id: warehouseId,
+          price_list_id: order.price_list_id,
+          route_id: order.route_id,
+          status: 'draft',
+          payment_method: order.payment_method || 'cash',
+          delivery_type: order.delivery_type,
+          requested_delivery_date: order.requested_delivery_date,
+          delivery_address: order.delivery_address ? JSON.stringify(order.delivery_address) : null,
+          delivery_channel: order.delivery_channel || null,
+          subtotal: 0,
+          tax_total: 0,
+          total: 0,
+          paid_amount: 0,
+          balance_due: 0,
+          currency: order.currency || 'MXN',
+          notes: order.notes || null,
+          created_by: userId,
+        })
+        .returning('*') as PedidoFila[];
+      await this.recordHistory(trx, parte.id, null, 'draft', `parte de ${order.code}`);
+      let n = 0;
+      for (const l of ls) {
+        n += 1;
+        await trx('commercial.order_lines').where({ id: l.id }).update({ order_id: parte.id, line_number: n });
+      }
+      await this.recalcOrderTotals(trx, parte.id);
+      partes.push(parte);
+    }
+
+    // Los renglones que se quedan se renumeran 1..n (hacia abajo: nunca chocan con el UNIQUE).
+    const propias = (await trx('commercial.order_lines').where({ order_id: order.id }).orderBy('line_number')) as RenglonFila[];
+    for (let i = 0; i < propias.length; i++) {
+      if (Number(propias[i].line_number) !== i + 1) {
+        await trx('commercial.order_lines').where({ id: propias[i].id }).update({ line_number: i + 1 });
+      }
+    }
+    await this.recalcOrderTotals(trx, order.id);
+    return partes;
+  }
+
+  /**
+   * Los pasos de `place()` que llevan UN pedido de borrador a confirmado (reserva si no es preventa,
+   * cantidad pedida congelada, historial, señales y aviso a su sucursal). `[MCP.3.13]` Corre para el
+   * principal y para cada parte; al cliente se le avisa una vez, por el principal.
+   */
+  private async tomarEnCampo(
+    trx: Knex.Transaction,
+    order: PedidoFila,
+    userId: string | null,
+    opts: { avisarCliente: boolean; partes: number },
+  ): Promise<PedidoFila & { total: number | string }> {
+      const orderId: string = order.id;
       const lines = await trx('commercial.order_lines')
         .where({ order_id: orderId })
         .orderBy('line_number');
@@ -1378,21 +1609,25 @@ export class CommercialOrdersService {
       this.alerts.emitOrderConfirmed(tenantId, {
         order_id: orderId, code: updated.code, customer_id: order.customer_id, customer_name: customerName, total,
       });
-      this.notifyCustomer(
-        order.customer_id,
-        orderId,
-        'Pedido confirmado ✓',
-        `Tu pedido ${updated.code} fue confirmado y está en proceso.`,
-      );
+      if (opts.avisarCliente) {
+        this.notifyCustomer(
+          order.customer_id,
+          orderId,
+          'Pedido confirmado ✓',
+          opts.partes
+            ? `Tu pedido ${updated.code} fue confirmado y está en proceso. Se surte en ${opts.partes + 1} sucursales.`
+            : `Tu pedido ${updated.code} fue confirmado y está en proceso.`,
+        );
+      }
 
       // [VEC.4] Y el aviso a la SUCURSAL que lo tiene que armar. Va en los DOS caminos que
       // llegan a `confirmed` (`place` del campo y `approve` del escritorio) porque los dos
       // meten el pedido al pool: avisar sólo en uno dejaría pedidos visibles para surtir que
       // nunca avisaron a nadie, y esa discrepancia no se nota hasta que falta mercancía.
+      // [MCP.3.13] Cada parte avisa a SU sucursal: es un pedido de esa sucursal.
       await this.avisarSucursal(trx, updated, customerName);
 
       return updated;
-    });
   }
 
   /**
@@ -2358,11 +2593,13 @@ export class CommercialOrdersService {
       const lines = await trx('commercial.order_lines as ol')
         .leftJoin('public.products as p', 'p.id', 'ol.product_id')
         .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
+        // [MCP.3.13] La existencia es la de la sucursal de surtido del renglón (la del pedido si no dice).
+        .leftJoin('commercial.warehouses as sw', 'sw.id', 'ol.source_warehouse_id')
         .leftJoin('commercial.stock as s', function () {
           this.on('s.product_id', '=', 'ol.product_id').andOn(
             's.warehouse_id',
             '=',
-            trx.raw('?', [order.warehouse_id]),
+            trx.raw('COALESCE(ol.source_warehouse_id, ?::uuid)', [order.warehouse_id]),
           );
         })
         .where('ol.order_id', orderId)
@@ -2371,6 +2608,8 @@ export class CommercialOrdersService {
           'ol.*',
           'p.nombre as product_name',
           'b.nombre as brand_name',
+          'sw.name as source_warehouse_name',
+          'sw.short_label as source_warehouse_short',
           trx.raw('COALESCE(s.quantity, 0) as stock_quantity'),
           trx.raw('COALESCE(s.reserved_quantity, 0) as stock_reserved'),
           // Stock disponible para ESTA línea: si el pedido está pending_approval/confirmed,
@@ -2386,7 +2625,17 @@ export class CommercialOrdersService {
             [order.status],
           ),
         );
-      return { ...order, lines };
+      // [MCP.3.13] Pedido agrupado: todas sus partes (la principal primero), para verlo como UNO.
+      const group = order.group_id
+        ? await trx('commercial.orders as g')
+            .leftJoin('commercial.warehouses as gw', 'gw.id', 'g.warehouse_id')
+            .where('g.group_id', order.group_id)
+            .whereNull('g.deleted_at')
+            .orderByRaw('(g.id = g.group_id) DESC, g.code')
+            .select('g.id', 'g.code', 'g.status', 'g.total', 'g.warehouse_id', 'gw.name as warehouse_name', 'gw.short_label as warehouse_short',
+              trx.raw('(g.id = g.group_id) AS is_main'))
+        : [];
+      return { ...order, lines, group_parts: group };
     });
   }
 

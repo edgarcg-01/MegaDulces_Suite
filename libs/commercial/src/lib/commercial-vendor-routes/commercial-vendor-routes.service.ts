@@ -1,3 +1,5 @@
+import type { VendorZoneStockResponse } from '@megadulces/contracts';
+import { zoneStock } from './zone-stock';
 import {
   Injectable,
   BadRequestException,
@@ -231,6 +233,19 @@ export class CommercialVendorRoutesService {
    * El app pasa el `id` elegido como `warehouse_id` al catálogo → stock_available de
    * ESA fuente. Todo lectura, scope de tenant (RLS via tk.run).
    */
+  /**
+   * `[MCP.3.12]` Existencias de las sucursales de la zona del vendedor (la tira de la toma de
+   * pedido). La sucursal es la MISMA que resuelve `myStockSources` (ruta del día → su sucursal);
+   * si es el default del tenant (no asignada), no se inventa zona: se declara.
+   */
+  async myZoneStock(): Promise<VendorZoneStockResponse> {
+    const { sucursal } = await this.myStockSources();
+    if (sucursal && sucursal.assigned === false) {
+      return { zone: null, warehouses: [], stock: {}, unmeasured_reason: 'No tienes sucursal de surtido asignada.' };
+    }
+    return this.tk.run((trx) => zoneStock(trx, sucursal?.id ?? null));
+  }
+
   async myStockSources() {
     const me = this.tenantCtx.get()?.userId || null;
     return this.tk.run(async (trx) => {
