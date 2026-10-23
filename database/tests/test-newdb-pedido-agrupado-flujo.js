@@ -122,7 +122,7 @@ module.exports = { TenantKnexService: class {}, TenantContextService: class {}, 
         warehouseIds: async (q) => (q && '__wh' in q ? q.__wh : null),
       };
       const pricing = { resolvePriceForQty: async () => ({ price: 10, tax_rate: 0.16, min_purchase: 1, source: 'list' }) };
-      const alerts = { emitLargeOrder() {}, emitOrderConfirmed() {}, emitTo() {} };
+      const alerts = { emitLargeOrder: () => undefined, emitOrderConfirmed: () => undefined, emitTo: () => undefined };
       const push = { notifyCustomer: async () => undefined, sendToCustomer: async () => undefined, sendToUser: async () => undefined };
       const stock = { reserve: async () => undefined, release: async () => undefined, consume: async () => undefined };
       const quotes = { ladders: async () => new Map(), priceLine: async () => ({ line_total: null, unit_price: null }) };
