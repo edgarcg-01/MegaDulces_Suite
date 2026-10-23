@@ -9,7 +9,7 @@
  */
 import {
   esConfirmable, cuentaPorRegla, aplicaPatron, resumirLote, evaluarDescuadre, evaluarArqueo, desgloseNeto, rankearFrecuentes,
-  esFechaFutura, cvDe, propuestaDe, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS, LOTE_EPSILON, REGLA_MAX_PATRON,
+  esFechaFutura, cvDe, propuestaDe, rutaCodigo, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS, LOTE_EPSILON, REGLA_MAX_PATRON,
   type MapaRuta, type FilaLote, type UsoGasto, type ReglaGasto,
 } from './caja-lote.engine';
 
@@ -50,6 +50,18 @@ describe('esConfirmable — nada se elige a mano, o no se confirma', () => {
     const r = esConfirmable(ent(0), ok);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.motivo).toBe('sin_monto');
+  });
+
+  it('[CGA-A.15c] el cobro de camioneta se busca en el mapa por SU ruta, no por CONTADO', () => {
+    expect(rutaCodigo('ruta_501')).toBe('501');
+    expect(rutaCodigo(' RUTA_21 ')).toBe('21');
+  });
+
+  it('⛔ [negativa] dos camionetas en un cobro, o un texto sin forma de ruta, no dan ninguna', () => {
+    expect(rutaCodigo('ruta_502 · ruta_504')).toBeNull();
+    expect(rutaCodigo('Caja 1-48')).toBeNull();
+    expect(rutaCodigo(null)).toBeNull();
+    expect(rutaCodigo('')).toBeNull();
   });
 
   it('cada motivo tiene un texto propio: un motivo sin frase no le sirve a nadie', () => {
