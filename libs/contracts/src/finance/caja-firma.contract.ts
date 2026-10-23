@@ -22,22 +22,82 @@ export interface ContextoFirma {
   readonly documento: string | null;
 }
 
-/** La firma que vuelve del teléfono. */
-export interface FirmaRecibida {
-  readonly codigo: string;
-  readonly png: string;
-  readonly nombre: string | null;
-  /**
-   * ⭐ El monto que se le **mostró** a quien firmó. La pantalla lo compara con el de ahora: si el
-   * cajero cambió el importe después, la firma dejó de corresponder — y sin este campo nadie se
-   * enteraría, porque la pantalla seguiría diciendo «firmado» sobre otra cifra.
-   */
-  readonly monto_firmado: number;
-  readonly por: string | null;
-}
+/**
+ * ⭐⭐ `[CG.199]`–`[CG.202]` **El pedido de firma es una fila del servidor** (`finance.cash_signature_requests`).
+ *
+ * Reemplaza al emparejamiento por socket (`[CG.68]`–`[CG.196]`), cuyo estado vivía en la memoria
+ * del socket de la PC y se perdía con cada despliegue, wifi caído o pestaña en segundo plano.
+ *
+ * `vencida` NO se guarda: se calcula contra `expira_at` al leer. Así una fila nunca dice
+ * «abierta» de algo que ya no se puede firmar.
+ */
+export type EstadoFirmaSolicitud = 'abierta' | 'tomada' | 'firmada' | 'usada' | 'cancelada' | 'vencida';
 
 /**
- * ⭐⭐ `[CG.196]` **Cuánto vive un código de emparejamiento — un RESPALDO, no la puerta.**
+ * Por qué no se pudo. **Un código, una causa, una acción**: el teléfono le dice a la persona
+ * exactamente qué hacer, y la PC también — `[CG.204]`.
+ */
+export type FalloFirmaSolicitud =
+  | 'no_existe'       // el QR no es de un pedido nuestro (o está mal copiado)
+  | 'vencida'         // pasó `FIRMA_VIDA_MS`: hace falta otro QR
+  | 'cancelada'       // la caja lo canceló
+  | 'ya_usada'        // ya se guardó con un movimiento
+  | 'otro_telefono'   // lo tomó otro teléfono
+  | 'no_es_firma'     // el trazo no es un PNG válido o está vacío
+  | 'no_firmada'      // (PC) se quiso guardar con un pedido que todavía no se firma
+  | 'monto_distinto'; // (PC) el importe cambió después de firmar
+
+/**
+ * La frase de cada fallo: **qué pasó y qué hacer**, en una línea. La usan el servidor (mensaje
+ * del error), la PC y el teléfono — una sola redacción para que las tres puntas no se contradigan.
+ */
+export function textoFalloFirma(f: FalloFirmaSolicitud | string | null | undefined): string {
+  switch (f) {
+    case 'no_existe': return 'Este QR no corresponde a ningún pedido de firma. Pide uno nuevo en la caja.';
+    case 'vencida': return 'Este QR ya venció. Pide uno nuevo en la pantalla de la caja.';
+    case 'cancelada': return 'La caja canceló este pedido de firma. Si hace falta, que lo pida de nuevo.';
+    case 'ya_usada': return 'Esta firma ya quedó guardada con su movimiento.';
+    case 'otro_telefono': return 'Este QR ya lo abrió otro teléfono. Pide uno nuevo en la caja.';
+    case 'no_es_firma': return 'La firma no se pudo leer. Borra y firma de nuevo.';
+    case 'no_firmada': return 'Todavía no llega la firma del teléfono.';
+    case 'monto_distinto': return 'La firma del teléfono fue por otro importe. Vuelve a pedirla o firma en esta pantalla.';
+    default: return 'No se pudo completar la firma. Prueba de nuevo.';
+  }
+}
+
+/** Lo que la PC recibe al pedir la firma: el QR se arma con `token`. */
+export interface FirmaSolicitudAbierta {
+  readonly id: string;
+  readonly token: string;
+  readonly expira_at: string;
+}
+
+/** Lo que la PC consulta mientras espera (`GET`). La imagen sólo viaja cuando ya está firmada. */
+export interface FirmaSolicitudEstado {
+  readonly id: string;
+  readonly estado: EstadoFirmaSolicitud;
+  readonly monto: number;
+  readonly firma_png: string | null;
+  readonly firma_nombre: string | null;
+  readonly firmada_at: string | null;
+}
+
+/** Lo que el teléfono ve. ⛔ Nada más que el contexto y su estado: el teléfono cambia de manos. */
+export interface FirmaSolicitudTelefono {
+  readonly estado: EstadoFirmaSolicitud;
+  readonly contexto: ContextoFirma;
+}
+
+/** Ruta pública del teléfono y ruta de la PC. Viven acá para que las dos puntas no diverjan. */
+export const FIRMA_RUTA_PUBLICA_API = 'finance/firma';
+export const FIRMA_RUTA_PC_API = 'finance/caja-firmas';
+
+/**
+ * ⭐⭐ `[CG.196]` **Cuánto vive un pedido de firma — un RESPALDO, no la puerta.**
+ *
+ * ⚠️ `[CG.201]` El texto de abajo describe el diseño por socket, que se retiró: hoy la vida del
+ * pedido es `expira_at` de su fila y la del token del QR es este mismo número. Se conservan las
+ * razones de las 8 horas, que siguen valiendo.
  *
  * Pedido de Edgar (2026-10-20): *«el token de la firma caduca muy rápido, o si se bloquea el
  * teléfono se pierde; que dure más y no se venza hasta que se firme o se cancele»*.

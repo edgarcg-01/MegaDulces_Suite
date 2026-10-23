@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
-import { provideZonelessChangeDetection, signal } from '@angular/core';
+import { provideZonelessChangeDetection } from '@angular/core';
 import { FinanzasCajaFirmaComponent } from './finanzas-caja-firma.component';
-import { CajaSocketService } from '../../caja-socket.service';
+import { CajaFirmaApiService, type ResultadoFirma } from '../../caja-firma-api.service';
+import type { FirmaSolicitudTelefono } from '@megadulces/contracts';
 
 /** jsdom no implementa ResizeObserver y PrimeNG lo usa al montar el boton. */
 class ResizeObserverStub {
@@ -13,135 +14,142 @@ class ResizeObserverStub {
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
 
 /**
- * **[AUD] La pantalla del telefono: "todavia no" y "no se pudo" NO se pintan igual.**
+ * ⭐⭐ `[CG.204]` **El teléfono por HTTP: no se rinde por la red y no miente.**
  *
- * Lo que esto clava, y que costo un mensaje falso en el unico flujo que se le pasa a un tercero
- * con un reloj de tres minutos corriendo:
+ * Lo que esto clava, cada caso contra un defecto vivido (Edgar: *«a veces tienen que firmar hasta
+ * 3 veces»*):
+ *   · sin QR no hay campo para teclear un código (`[CG.207]`);
+ *   · sin red, abrir y enviar se REINTENTAN solos, con techo, y se dice en qué intento va;
+ *   · «Firma enviada» sólo con el acuse del servidor;
+ *   · un fallo del servidor (vencido, otro teléfono) NO se reintenta: reintentarlo no lo cambia;
+ *   · el teléfono que vuelve a abrir un QR ya firmado oye «ya quedó», no «firma otra vez».
  *
- *   · `CajaSocketService.connected` nace en `false` y recien pasa a `true` en el evento
- *     `connect`, asi que durante TODO el handshake vale lo mismo que una caida. La pantalla
- *     mostraba el aviso ambar *"revisa la red del telefono"* apenas se escaneaba el QR.
- *   · Y como el boton Continuar quedaba habilitado en esa ventana, el toque llegaba a un socket
- *     sin conectar, volvia `sin_conexion`, y el traductor de errores lo convertia en
- *     *"El QR vencio (dura 3 minutos)"* -- falso, y mandando a la persona a pedir otro QR.
- *
- * ⚠️ PRUEBA NEGATIVA (hecha a mano al escribir esto): con la condicion vieja
- * `@if (!caja.connected())` en vez de los tres estados, los casos 1 y 4a se ponen ROJOS --
- * el aviso de red aparece mientras conecta, y el fallo se reporta como QR vencido.
+ * ⚠️ PRUEBA NEGATIVA (corrida el 2026-10-23): con `enviar()` sin bucle (un solo intento), se ponen
+ * rojas la 6 y la 7.
  */
-describe('FinanzasCajaFirmaComponent · el canal tiene TRES estados', () => {
-  type Estado = 'sin_iniciar' | 'conectando' | 'vivo' | 'caido';
+const CTX: FirmaSolicitudTelefono = {
+  estado: 'tomada',
+  contexto: { tipo: 'gasto', monto: 1250.5, beneficiario: 'Juan Pérez', documento: 'X-D-26 1234' },
+};
+type Ver = ResultadoFirma<FirmaSolicitudTelefono>;
+type Firmar = ResultadoFirma<{ ok: true; repetida: boolean }>;
+const RED = { ok: false as const, fallo: 'red' as const };
 
-  type Motivo = 'sin_credencial' | 'sesion_rechazada' | 'pase_rechazado' | 'red' | null;
+function montar(url: string, ver: Ver[] = [{ ok: true, v: CTX }], firmar: Firmar[] = [{ ok: true, v: { ok: true, repetida: false } }]) {
+  const colaVer = [...ver];
+  const colaFirmar = [...firmar];
+  const api = {
+    ver: vi.fn(async (): Promise<Ver> => colaVer.length > 1 ? colaVer.shift()! : colaVer[0]),
+    firmar: vi.fn(async (): Promise<Firmar> => colaFirmar.length > 1 ? colaFirmar.shift()! : colaFirmar[0]),
+  };
+  window.history.replaceState({}, '', url);
+  TestBed.configureTestingModule({
+    imports: [FinanzasCajaFirmaComponent],
+    providers: [provideZonelessChangeDetection(), { provide: CajaFirmaApiService, useValue: api }],
+  });
+  const fx = TestBed.createComponent(FinanzasCajaFirmaComponent);
+  const comp = fx.componentInstance;
+  comp.esperaMs = () => 0;   // el reloj real haría esperar ~30 s por caso
+  fx.detectChanges();
+  return { fx, comp, api };
+}
 
-  // `[CG.207]` La URL por defecto es la que arma el QR: código + pase. Sin pase no se abre canal.
-  function montar(estadoInicial: Estado, url = '/firmar?c=ABC234&pase=P1', motivo: Motivo = 'red') {
-    const estado = signal<Estado>(estadoInicial);
-    const motivoCaida = signal<Motivo>(estadoInicial === 'caido' ? motivo : null);
-    const sock = {
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-      connected: () => estado() === 'vivo',
-      estado,
-      motivoCaida,
-      tomarFirma: vi.fn(async () => ({ ok: false as const, error: 'sin_conexion' })),
-      enviarFirma: vi.fn(async () => ({ ok: true as const })),
-    };
-    // `porPase` sale de la URL, no de un input: se arma la URL real que produce el QR.
-    window.history.replaceState({}, '', url);
+/** El trazo, sin canvas: jsdom no dibuja. Lo que se prueba es qué se hace con él. */
+function conTrazo(comp: FinanzasCajaFirmaComponent): void {
+  (comp as unknown as { pad: () => { aPng: () => string } }).pad = () => ({ aPng: () => 'data:image/png;base64,AAA' });
+  comp.hecha.set(true);
+}
 
-    TestBed.configureTestingModule({
-      imports: [FinanzasCajaFirmaComponent],
-      providers: [
-        provideZonelessChangeDetection(),
-        { provide: CajaSocketService, useValue: sock },
-      ],
-    });
-    const fx = TestBed.createComponent(FinanzasCajaFirmaComponent);
-    fx.detectChanges();
-    return { fx, comp: fx.componentInstance, sock, estado };
-  }
+const txt = (fx: { nativeElement: HTMLElement }) => fx.nativeElement.textContent ?? '';
+const boton = (fx: { nativeElement: HTMLElement }, rotulo: string) =>
+  [...fx.nativeElement.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes(rotulo));
+const listo = async (fx: { whenStable(): Promise<unknown>; detectChanges(): void }) => {
+  for (let i = 0; i < 30; i++) { await new Promise((r) => setTimeout(r, 0)); }
+  await fx.whenStable();
+  fx.detectChanges();
+};
 
-  const txt = (fx: { nativeElement: HTMLElement }) => fx.nativeElement.textContent ?? '';
-  const reintentar = (fx: { nativeElement: HTMLElement }) =>
-    [...fx.nativeElement.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes('Reintentar'));
+describe('[CG.204] el teléfono que firma, por HTTP', () => {
+  afterEach(() => { TestBed.resetTestingModule(); window.history.replaceState({}, '', '/'); });
 
-  it('1 · mientras el canal abre dice que esta abriendo, y NO acusa a la red', () => {
-    const { fx } = montar('conectando');
-    expect(txt(fx)).toContain('Abriendo el canal');
-    expect(txt(fx)).not.toContain('Revisa la red');
+  it('1 · ⭐ [CG.207] sin QR no hay campo para teclear un código, y explica que hay que escanear', () => {
+    const { fx, api } = montar('/firmar');
+    expect(fx.nativeElement.querySelector('input'), 'sigue habiendo un campo para teclear').toBeNull();
+    expect(txt(fx)).toContain('apunta al QR');
+    expect(api.ver).not.toHaveBeenCalled();
   });
 
-  it('2 · con el canal caido SI acusa a la red, y deja de decir que esta abriendo', () => {
-    const { fx } = montar('caido');
-    expect(txt(fx)).toContain('Revisa la red');
-    expect(txt(fx)).not.toContain('Abriendo el canal');
+  it('2 · con el QR abre el pedido con el token y ESTE teléfono, y muestra qué se firma', async () => {
+    const { fx, comp, api } = montar('/firmar?t=TOK');
+    await listo(fx);
+    expect(api.ver).toHaveBeenCalledWith('TOK', comp.telefono);
+    expect(comp.telefono).toMatch(/^tel_[0-9a-f]{32}$/);
+    expect(txt(fx)).toContain('Juan Pérez');
+    expect(txt(fx)).toContain('1,250.50');
   });
 
-  it('3 · Reintentar aparece tras un fallo, se apaga mientras el canal abre y prende al abrir', async () => {
-    const { fx, comp, estado } = montar('vivo');
-    await comp.tomar();                 // el doble responde sin_conexion: queda el aviso
-    fx.detectChanges();
-    expect(reintentar(fx)?.disabled).toBe(false);
-
-    estado.set('conectando');
-    fx.detectChanges();
-    expect(reintentar(fx)?.disabled, 'un toque durante el handshake llega a un socket sin conectar').toBe(true);
-
-    estado.set('vivo');
-    fx.detectChanges();
-    expect(reintentar(fx)?.disabled).toBe(false);
+  it('3 · sin red al abrir: reintenta SOLO hasta el techo, y después ofrece Reintentar', async () => {
+    const { fx, comp, api } = montar('/firmar?t=TOK', [RED]);
+    await listo(fx);
+    expect(api.ver).toHaveBeenCalledTimes(comp.maxIntentos);
+    expect(comp.aviso()).toContain('No hay conexión');
+    expect(boton(fx, 'Reintentar'), 'sin Reintentar, la persona sólo puede pedir otro QR').toBeTruthy();
   });
 
-  it('4a · un fallo MIENTRAS conecta no se reporta como QR vencido', async () => {
-    const { fx, comp } = montar('conectando', '/firma?pase=P1');
-    comp.codigo = 'ABC234';
-    await comp.tomar();
-    fx.detectChanges();
-    expect(comp.aviso()).toContain('Todavía no abre el canal');
-    expect(comp.aviso()).not.toContain('venció');
-  });
-
-  it('4b · si el servidor RECHAZO el pase, el QR vencido es la explicacion correcta', async () => {
-    const { fx, comp } = montar('caido', '/firma?pase=P1', 'pase_rechazado');
-    comp.codigo = 'ABC234';
-    await comp.tomar();
-    fx.detectChanges();
+  it('4 · un fallo del SERVIDOR (vencido) no se reintenta: se dice qué hacer', async () => {
+    const { fx, comp, api } = montar('/firmar?t=TOK', [{ ok: false, fallo: 'vencida' }]);
+    await listo(fx);
+    expect(api.ver).toHaveBeenCalledTimes(1);
     expect(comp.aviso()).toContain('venció');
+    expect(boton(fx, 'Reintentar'), 'reintentar un vencido no lo arregla').toBeFalsy();
   });
 
-  // ⭐⭐ `[CG.207]` SÓLO EL QR (Edgar: «no necesitamos el código, solo el qr»). El campo para
-  // teclear el código era el camino que pedía sesión. PRUEBA NEGATIVA (corrida el 2026-10-23):
-  // devolviendo el connect() sin pase de antes al ngOnInit, el 5 y el 5b se ponen rojos.
-  it('5 · sin QR no hay campo para teclear un código: explica que hay que escanear', () => {
-    const { fx, sock } = montar('sin_iniciar', '/firmar');
-    expect(fx.nativeElement.querySelector('input:not([aria-label="Nombre de quien firma"])'),
-      'sigue habiendo un campo para teclear el código').toBeNull();
-    expect(txt(fx)).toContain('apunta al QR');
-    expect(txt(fx)).toContain('No hace falta iniciar sesión');
-    expect(sock.connect, 'sin pase no hay canal que abrir').not.toHaveBeenCalled();
+  it('5 · el MISMO teléfono que vuelve a abrir un QR ya firmado oye «ya quedó», no «firma otra vez»', async () => {
+    const { fx, comp } = montar('/firmar?t=TOK', [{ ok: true, v: { ...CTX, estado: 'firmada' } }]);
+    await listo(fx);
+    expect(comp.enviada()).toBe(true);
+    expect(txt(fx)).toContain('Firma enviada');
+    expect(fx.nativeElement.querySelector('canvas'), 'le pidió firmar otra vez').toBeNull();
   });
 
-  it('5b · con código pero SIN pase tampoco se abre canal con la sesión del teléfono', () => {
-    const { fx, sock } = montar('sin_iniciar', '/firmar?c=ABC234');
-    expect(sock.connect).not.toHaveBeenCalled();
-    expect(txt(fx)).toContain('apunta al QR');
-  });
-
-  it('5c · con el QR completo abre el canal con el PASE, no con la sesión', () => {
-    const { sock } = montar('conectando');
-    expect(sock.connect).toHaveBeenCalledWith('P1');
-  });
-
-  // ⭐ `[CG.203]` Las dos mentiras que costaban firmar otra vez: la frase vieja decía «el QR
-  // venció» siempre que hubiera pase (la 6 lo prohíbe); la caída de red se dice como red.
-  it('6 · con pase y la RED caida, no culpa al QR: la persona no tiene que pedir otro', async () => {
-    const { fx, comp } = montar('caido', '/firma?pase=P1', 'red');
-    comp.codigo = 'ABC234';
-    await comp.tomar();
+  it('6 · ⭐ sin red al enviar: reintenta con el MISMO trazo y dice «enviada» sólo con el acuse', async () => {
+    const { fx, comp, api } = montar('/firmar?t=TOK', undefined, [RED, RED, { ok: true, v: { ok: true, repetida: false } }]);
+    await listo(fx);
+    conTrazo(comp);
+    await comp.enviar();
     fx.detectChanges();
-    expect(comp.aviso()).toContain('Revisa la red');
-    expect(comp.aviso()).not.toContain('venció');
+    expect(api.firmar).toHaveBeenCalledTimes(3);
+    for (const c of api.firmar.mock.calls) expect((c as unknown[])[2]).toBe('data:image/png;base64,AAA');
+    expect(comp.enviada()).toBe(true);
   });
 
+  it('7 · ⛔ si la red nunca vuelve NO dice «enviada», y la firma sigue ahí para mandarla después', async () => {
+    const { fx, comp, api } = montar('/firmar?t=TOK', undefined, [RED]);
+    await listo(fx);
+    conTrazo(comp);
+    await comp.enviar();
+    fx.detectChanges();
+    expect(api.firmar).toHaveBeenCalledTimes(comp.maxIntentos);
+    expect(comp.enviada(), 'dijo enviada sin acuse').toBe(false);
+    expect(comp.hecha(), 'se perdió el trazo').toBe(true);
+    expect(comp.aviso()).toContain('Tu firma sigue acá');
+  });
+
+  it('8 · otro teléfono: el servidor dice que no, y no se reintenta', async () => {
+    const { fx, comp, api } = montar('/firmar?t=TOK', undefined, [{ ok: false, fallo: 'otro_telefono' }]);
+    await listo(fx);
+    conTrazo(comp);
+    await comp.enviar();
+    expect(api.firmar).toHaveBeenCalledTimes(1);
+    expect(comp.aviso()).toContain('otro teléfono');
+    expect(comp.enviada()).toBe(false);
+  });
+
+  it('9 · el id del teléfono es ESTABLE: volver a abrir la pantalla es el mismo teléfono', async () => {
+    const a = montar('/firmar?t=TOK');
+    const id = a.comp.telefono;
+    TestBed.resetTestingModule();
+    const b = montar('/firmar?t=TOK');
+    expect(b.comp.telefono).toBe(id);
+  });
 });

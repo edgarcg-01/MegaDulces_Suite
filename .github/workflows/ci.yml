@@ -1015,7 +1015,8 @@ jobs:
                  libs/finance/src/lib/caja/caja-corte-abierto.scanner-real.spec.ts \
                  libs/finance/src/lib/caja/cash-ledger.detalle-real.spec.ts \
                  libs/finance/src/lib/caja/caja-db.util-real.spec.ts \
-                 libs/finance/src/lib/caos/caos-ingreso-cron.granos-real.spec.ts 2>&1 | tee servicio.log; then
+                 libs/finance/src/lib/caos/caos-ingreso-cron.granos-real.spec.ts \
+                 libs/finance/src/lib/caja/caja-firma.servicio-real.spec.ts 2>&1 | tee servicio.log; then
             echo "::error title=Servicio real del corte::$(grep -E 'FAIL|Error|×' servicio.log | head -6 | tr '\n' ' ' | cut -c1-900)"
             exit 1
           fi

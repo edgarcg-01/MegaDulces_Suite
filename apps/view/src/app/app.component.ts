@@ -11,6 +11,7 @@ import { AppErrorOutletComponent } from './core/errors/app-error-outlet.componen
 import { alCambiarEnOtraVentana } from './core/utils/cross-tab';
 import { loginUrlTree } from './core/auth/login-redirect';
 import { enRutaPublica } from './core/auth/rutas-publicas';
+import { recargaAutomaticaBloqueada } from './core/services/recarga-segura';
 import { AuthService } from './core/services/auth.service';
 import { ArqueoDueService } from './modules/tienda/arqueo-due.service';
 
@@ -204,7 +205,8 @@ export class AppComponent implements OnInit {
     // 4 días, medido el 2026-10-23— recargaba y se llevaba el trazo ya dibujado. La persona
     // firmaba otra vez. Ahí la versión nueva llega en la próxima carga, que es la próxima firma.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden' && !enRutaPublica()) this.applyUpdate();
+      // `[CG.205]` Y tampoco con trabajo en vuelo declarado (una firma del teléfono esperando).
+      if (document.visibilityState === 'hidden' && !enRutaPublica() && !recargaAutomaticaBloqueada()) this.applyUpdate();
     });
 
     // unrecoverable: el SW entró en estado roto (raro pero pasa en iOS

@@ -156,6 +156,26 @@ el pedido no vive en él. Arreglo de C3, C4 y C5.
 
 ---
 
+## 3b. Estado al 2026-10-23 (fin del día)
+
+| Item | Estado | Evidencia |
+|---|---|---|
+| `[CG.203]` login | 🧪 | 6 pruebas + negativa; commit `8a393c81b` |
+| `[CG.207]` sólo QR | 🧪 | negativa; commit `9a2eeeaa8` |
+| `[CG.199]` tabla | 🧪 | migración `20261023161827`, idempotente en base local; **no aplicada en prod** |
+| `[CG.200]` motor | 🧪 | 19 pruebas + negativa |
+| `[CG.201]`/`[CG.202]` API y alta | 🧪 | **8/8 contra Postgres real** (`app_runtime`) + negativa |
+| `[CG.204]` teléfono | 🧪 | 9 pruebas + negativa |
+| `[CG.205]` PC | 🧪 | 8 pruebas nuevas, 441 verdes |
+| `[CG.206]` cierre | ⬜ | requiere migración en prod, despliegue y 2 semanas de datos |
+
+⚠️ **Lo que falta para que esto llegue a la gente, en orden:** (1) aplicar `20261023161827` en
+prod con `apply-one-migration-prod.js` — **antes** del código, porque el alta la lee; (2) empujar
+y que `ci-green` selle; (3) desplegar; (4) smoke con un despliegue en medio. ⚠️ El job `caja-db`
+del CI se va a detener en `[CGS.52]` (`20261023095246`, de otra sesión: migración de datos que
+aborta en base vacía) **antes** de llegar a la prueba real de la firma — esa compuerta queda
+**NO MEDIDA** para este cambio hasta que `[CGS.52]` tolere una base vacía.
+
 ## 4. Orden y por qué
 
 1. **E4 (`[CG.203]`) primero, solo**: arregla el «pide usuario» sin tocar el modelo, es chico y

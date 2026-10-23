@@ -43,8 +43,10 @@ const CSV = path.join(REPO, 'docs', 'esquema-bd-prod-columnas.csv');
 /** La migración que crea `tenants` y `current_tenant_id()`: el piso de toda tabla con RLS. */
 const ORIGEN = '20260526000001_init_tenants_and_extensions.js';
 /** Las tablas y la vista que son el corte. Una migración que las crea o altera, entra. */
+// `[CG.199]` `cash_signature_requests`: el pedido de firma por teléfono. El alta del movimiento la
+// lee con candado (`[CG.202]`), así que sin ella el servicio real del alta no se puede ejercer.
 const NUCLEO = ['cash_ledger_cut_denominations', 'cash_ledger_cuts', 'cash_ledger_denominations',
-  'cash_ledger_sequences', 'v_cash_ledger_balance', 'cash_ledger'];
+  'cash_ledger_sequences', 'v_cash_ledger_balance', 'cash_ledger', 'cash_signature_requests'];
 /**
  * Lo que LEE el servicio del corte fuera del núcleo (`contar`, `cerrar`, `saldo`): las dos piernas
  * de la bóveda (CAOS) y el reparto cajón/bóveda. Sin esto la base sirve para probar las reglas de
