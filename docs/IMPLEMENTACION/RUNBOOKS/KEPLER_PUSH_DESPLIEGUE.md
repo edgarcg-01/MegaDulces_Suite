@@ -301,3 +301,78 @@ Después, §5.2 a §5.6 **en ese servidor**, con una compra de pocos renglones.
   `.50.50` o `.32.32`. Se prueba con `disponible()` tras encender.
 - **`md.pv_suc_ip` en cada servidor.** Medido sólo en `md_00`. Si falta, el traspaso rechaza con
   su motivo; no escribe nada.
+
+---
+
+## 9. ⭐⭐ Protocolo de encendido servidor por servidor, con vuelta atrás (2026-10-23)
+
+Pedido: *«vayamos una por una habilitando la inserción … me gustaría tener algún protocolo de
+seguridad o especie de rollback»*.
+
+### 9.1 Las palancas, de la más fina a la más gruesa
+
+Cada una basta sola para frenar. Se usan **de arriba hacia abajo**.
+
+| nivel | qué se hace | qué frena | cuánto tarda | quién |
+|---|---|---|---|---|
+| **N0 · tipo** | quitar `KEPLER_REQ_TEMPLATE_FOLIO_NN` o `KEPLER_PED_TEMPLATE_FOLIO_NN` y reiniciar `api` | sólo compra o sólo traspaso de ese servidor | ~1 min | Edgar |
+| **N0 · tope** | `KEPLER_PUSH_MAX_DIA_NN` (default **1**) | más de N documentos por día en ese servidor | ~1 min | Edgar |
+| **N1 · servidor** | quitar `KEPLER_PUSH_URL_NN` y reiniciar `api` | todo ese servidor | ~1 min | Edgar |
+| **N2 · red** | comentar la línea de `pg_hba` + `SELECT pg_reload_conf();` | todo ese servidor, **sin reiniciar la Suite** | segundos | quien tenga el servidor |
+| **N3 · base** | `REVOKE INSERT ON md.kdm1, md.kdm2 FROM kepler_push;` | todo, aunque alguien vuelva a poner la variable | segundos | superusuario del servidor |
+| **N4 · documento** | `kepler-push-ops.js deshacer … --apply` | borra UN documento ya escrito, con respaldo | segundos | Edgar, con `KEPLER_ADMIN_URL_NN` |
+| **N4' · rehacer** | `kepler-push-ops.js restaurar --archivo … --apply` | vuelve a poner lo que N4 quitó | segundos | idem |
+
+⛔ **Lo que N4 NO hace:** borrar algo que la Suite no escribió (la marca `RQ-` tiene que ser
+exactamente su folio), algo que Kepler ya procesó (`c43` ≠ `N`), algo que ya tiene hijos (una
+orden de compra o un embarque apuntándole) ni un traspaso que alguien ya surtió. Esos casos se
+cancelan en Kepler como cualquier documento: ya son de Compras, no de la Suite.
+
+⚠️ **Lo que N4 deja atrás:** el ODS puede conservar el encabezado borrado. Medido hoy: los 4
+documentos de la prueba del 13-oct ya no existen en `md_00` y siguen en `kepler_ods`. `listar
+--fuente ods` los muestra.
+
+⚠️ **N4 no se pudo ensayar fuera del ERP** (sin base de pruebas disponible). Por eso el paso P2
+lo ejerce sobre el canario, con alguien mirando, antes de abrir nada.
+
+### 9.2 Los pasos de UN servidor
+
+`NN` = el servidor que se enciende. No se pasa al siguiente paso sin cumplir el criterio.
+
+| paso | qué | criterio para seguir |
+|---|---|---|
+| **P0 · pre-vuelo** | §8.4 (rol, `pg_hba`) y `node database/scripts/kepler-push-ops.js revisar --sucursal NN` | **cero FALLA** |
+| **P1 · canario** | variables con **sólo la plantilla de compra** y `KEPLER_PUSH_MAX_DIA_NN=1`. Reintentar UNA requisición chica desde su ficha | `listar` muestra 1 documento; en Kepler, proveedor, renglones y total iguales a la Suite |
+| **P2 · ensayo de vuelta atrás** | (a) intentar la **Baja** desde la UI de Kepler — §7. (b) `deshacer` sin `--apply`, luego con `--apply`. (c) `listar` en 0 y la ficha sin folio. (d) reintentar: sale con folio nuevo | las cuatro cosas pasan. Si (a) falla, se anota y se decide; (b)–(d) son obligatorias |
+| **P3 · un día** | `KEPLER_PUSH_MAX_DIA_NN=5`. Al cierre: `revisar` + `listar` + Compras confirma en Kepler | cero duplicados, cero diferencias, Compras de acuerdo |
+| **P4 · abrir compra** | subir el tope a ~2× el máximo diario de aprobaciones de ese servidor | `revisar` limpio una semana |
+| **P5 · traspaso** | `GRANT SELECT ON md.pv_suc_ip`, poner la plantilla de traspaso, y repetir P1–P4. En P1, verificar que el destino `TI###` sea el correcto | igual que arriba |
+
+**Se para y se baja a N1 en cuanto pase cualquiera de estas cosas:** un documento duplicado, un
+total o un renglón distinto al de la Suite, `revisar` en FALLA, o alguien de Compras que dice
+que algo se ve raro. Después se investiga.
+
+### 9.3 Orden de los servidores
+
+| orden | servidor | por qué |
+|---|---|---|
+| 1 | `00` oficinas | el rol ya existe, es el 84 % del dinero pendiente, y es donde se probó KR |
+| 2 | `01` · `08` · `06` | tienen compras **y** traspasos pendientes |
+| 3 | `02` · `03` · `04` · `05` · `07` | sólo compras, 3 a 7 requisiciones cada uno |
+
+### 9.4 El estado real de `00` hoy (medido con `revisar`, 2026-10-23)
+
+| | |
+|---|---|
+| ⛔ FALLA | `kepler_push` todavía tiene `UPDATE` sobre `md.kdfolio`: el `REVOKE` de §1.2 no se corrió |
+| AVISO | sin `SELECT` sobre `md.pv_suc_ip`: el traspaso rebotaría. §1.1 tampoco se corrió |
+| AVISO | la Suite apunta `RQ-2026-00807 → 0003114`, que ya no existe (resto de la prueba del 13-oct) |
+| OK | escribe sólo `kdm1`/`kdm2`, lee, tablas temporales, plantilla de compra `0000424` con 103 renglones |
+
+Canario sugerido para `00`: `RQ-2026-00775` (proveedor `CA022`, 1 renglón, $5,565) o
+`RQ-2026-00759` (`CV004`, 1 renglón, $12,500).
+
+### 9.5 Antes del P0 de cualquier servidor
+
+El código de KR.11–KR.13 está en commits locales. Hasta que se empuje y se despliegue, las
+variables nuevas no hacen nada: el `api` de prod todavía corre el adapter de una sola conexión.
