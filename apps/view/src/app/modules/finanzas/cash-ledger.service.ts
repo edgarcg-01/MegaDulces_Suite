@@ -382,6 +382,31 @@ export class CashLedgerService {
     return this.http.patch<ReglaCaja>(`${this.base}/reglas/${encodeURIComponent(id)}`, body);
   }
 
+  /**
+   * ⭐ `[CGA-A.19]` Cuántos movimientos de la cola tienen su cuenta de Kepler, sobre el universo
+   * ENTERO (no la página), y qué entidades no la tienen. Es la cifra que dice si el 100 % se cumple.
+   */
+  coberturaCuentasKepler(f: { caja?: string; sucursal?: string } = {}): Observable<CoberturaCuentasKepler> {
+    let p = new HttpParams();
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
+    return this.leer<CoberturaCuentasKepler>(`${this.base}/cuentas-kepler/cobertura`, { params: p });
+  }
+
+  /** `[CGA-A.18]` Lo declarado por entidad: la configuración para lo que Kepler no resuelve. */
+  declaradas(): Observable<EntidadDeclarada[]> {
+    return this.leer<EntidadDeclarada[]>(`${this.base}/autofill/declaradas`);
+  }
+
+  /** `[CGA-A.18]` Declara (o cambia) la cuenta/concepto de una entidad. Exige motivo de 10+ caracteres. */
+  declararEntidad(body: { entidad_code: string; kepler_cuenta: string; kepler_concepto: string; motivo: string; sucursal?: string }): Observable<EntidadDeclarada> {
+    return this.http.post<EntidadDeclarada>(`${this.base}/autofill/declarar`, body);
+  }
+
+  /** `[CGA-A.19]` Quita una declaración: la entidad vuelve a resolverse por póliza o por tipo de documento. */
+  quitarDeclarada(entidadCode: string): Observable<{ quitada: boolean }> {
+    return this.http.delete<{ quitada: boolean }>(`${this.base}/autofill/declaradas/${encodeURIComponent(entidadCode)}`);
+  }
+
   cortes(f: { from?: string; to?: string; sucursal?: string; estado?: string; limit?: number } = {}): Observable<{ rows: CorteCaja[]; limit: number }> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
@@ -629,8 +654,15 @@ export interface MovimientoPendiente {
   kepler_concepto: string | null;
   /** CS.3.1b — El NOMBRE de la contra-cuenta cuando viene del documento (para mostrarla). */
   kepler_cuenta_nombre?: string | null;
-  /** CS.3.1b — De dónde salió la cuenta: `ruta` | `regla` | `documento` (su propia póliza). */
-  cuenta_fuente?: 'ruta' | 'regla' | 'documento' | null;
+  /**
+   * CS.3.1b — De dónde salió la cuenta: `ruta` | `regla` | `documento` (su propia póliza).
+   * `[CGA-A.17]` `libro_dominante`: cuenta de la póliza, concepto de lo que las personas eligieron.
+   * `[CGA-A.19]` `tipo_documento`: la póliza no llegó todavía y la cuenta es la que Kepler usa
+   * SIEMPRE para ese tipo · `declarada`: la declaró una persona para esa entidad.
+   */
+  cuenta_fuente?: 'ruta' | 'regla' | 'documento' | 'libro_dominante' | 'tipo_documento' | 'declarada' | null;
+  /** `[CGA-A.19]` La procedencia de la cuenta en una frase, lista para pintar. */
+  cuenta_fuente_texto?: string | null;
   /** CS.3.1b — `true` = la cuenta es autoritativa (del documento) y la pantalla la BLOQUEA. */
   cuenta_bloqueada?: boolean;
   /** CS.3.1b — Los conceptos válidos de esa cuenta, para la elección ACOTADA (no buscador libre). */
@@ -663,6 +695,41 @@ export interface CajaKepler {
 
 /** [CGA-A.49] Una de las dos colas de la bandeja: cuántos, cuánto y el día del más viejo. */
 export interface ColaParte { n: number; monto: number; mas_viejo: string | null }
+
+/** `[CGA-A.18]` Una entidad cuya cuenta/concepto declaró una persona, con su motivo. */
+export interface EntidadDeclarada {
+  entidad_code: string;
+  kepler_cuenta: string;
+  kepler_concepto: string;
+  motivo: string;
+  declarada_por_username: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * `[CGA-A.19]` La cobertura de cuentas de Kepler sobre el universo de la cola. Los tres estados son
+ * excluyentes y suman `universo`. `truncado` = el universo pasó el tope y las cifras son de las
+ * primeras `tope` filas: entonces NO se puede afirmar un 100 %.
+ */
+export interface CoberturaCuentasKepler {
+  desde: string;
+  hasta: string;
+  universo: number;
+  truncado: boolean;
+  tope: number;
+  con_cuenta: { movimientos: number; monto: number };
+  falta_concepto: { movimientos: number; monto: number };
+  sin_cuenta: { movimientos: number; monto: number };
+  por_fuente: Array<{ fuente: string; movimientos: number; monto: number }>;
+  sin_cuenta_por_entidad: Array<{
+    entidad_code: string | null; beneficiario: string | null; tipo: string; doc_tipos: string[];
+    movimientos: number; monto: number; motivo_texto: string | null; mas_viejo: string;
+  }>;
+  /** La edad del dato (último refresco de la foto de caja). `null` = sin medir. */
+  datos_al: string | null;
+  medido_ms: number;
+}
 
 export interface PendientesResponse {
   /** Desde qué fecha se está mirando. `ventana_dias` null = el filtro lo puso la persona. */

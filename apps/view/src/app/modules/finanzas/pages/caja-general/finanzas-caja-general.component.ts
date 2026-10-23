@@ -62,6 +62,7 @@ import {
 } from './caja-captura.util';
 import { CajaPasosComponent } from '../../components/caja-pasos.component';
 import { CajaTabsComponent } from '../../caja-tabs.component';
+import { CajaCuentasKeplerComponent } from './caja-cuentas-kepler.component';
 
 /**
  * `[CGP-V.2]` Lo que el servidor respondió al sellar o recontar EN ESTA sesión, atado a SU corte, con
@@ -177,7 +178,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     MessageModule, ToastModule,
     MetricStripComponent, LoadStateComponent,
     FreshnessPillComponent, SegmentedComponent, ContextHelpComponent, SucursalPipe, CajaPasosComponent,
-    SidePeekComponent, CajaTabsComponent,
+    SidePeekComponent, CajaTabsComponent, CajaCuentasKeplerComponent,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
   // confirmar el lote fallaban en silencio y se veían igual que un botón muerto.
@@ -2725,6 +2726,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   <p-button label="Corregir" icon="pi pi-pencil" size="small"
                             severity="secondary" [text]="true"
                             (onClick)="corrigiendo.set(true)"></p-button>
+                  <!-- [CGA-A.19] Sin cuenta, la salida no es sólo teclearla en ESTE movimiento: es
+                       declararla para la entidad, una vez, para los que vengan. -->
+                  @if (!f().kepler_cuenta && cobroElegido()?.entidad_code && puedeAutorizarPorPermiso()) {
+                    <p-button label="Declarar la cuenta de esta entidad" icon="pi pi-sitemap" size="small"
+                              severity="secondary" [text]="true"
+                              (onClick)="cuentasKepler.set({ entidad: cobroElegido()?.entidad_code ?? null, beneficiario: cobroElegido()?.beneficiario ?? null })"></p-button>
+                  }
                 </div>
               } @else {
               <div class="fin-row fin-row-col">
@@ -2898,6 +2906,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           } @else {
             <span class="fin-hint-warn">frescura sin medir</span>
           }
+          <!-- [CGA-A.19] La cobertura de cuentas sobre TODA la cola, y la configuración. Siempre
+               visible: una configuración que sólo aparece cuando algo falla no se encuentra el
+               día que hace falta revisarla. -->
+          <p-button label="Cuentas de Kepler" icon="pi pi-sitemap" size="small" severity="secondary" [text]="true"
+                    (onClick)="cuentasKepler.set({ entidad: null, beneficiario: null })"></p-button>
           <span class="cg-bandeja-sp"></span>
           <!-- Regla P: la jerga de esta pantalla (corte, arqueo, fondo, veredicto, contracuenta,
                ventana, rezago) se explica desde el diccionario versionado, sin salir de acá. -->
@@ -3928,6 +3941,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
          (cuerpoReporteDia, funcion pura): dos superficies, un solo armador. Va en <pre> con fuente
          mono porque el texto esta alineado en columnas de ancho fijo -- renderizarlo con tipografia
          proporcional desalinea los totales y el reporte deja de poder leerse de un vistazo. -->
+    <!-- ⭐ [CGA-A.19] Cuentas de Kepler: cuántos movimientos de la cola tienen su cuenta, y la
+         configuración para el residuo que Kepler no resuelve. Es una CONSULTA y una declaración,
+         no una captura: por eso vive en un diálogo y no en el formulario. -->
+    <p-dialog [visible]="cuentasKepler() !== null" (visibleChange)="$event ? null : cuentasKepler.set(null)"
+              [modal]="true" [style]="{ width: '64rem', maxWidth: '96vw' }"
+              header="Cuentas de Kepler" [draggable]="false">
+      @if (cuentasKepler(); as ck) {
+        <app-caja-cuentas-kepler [puedeDeclarar]="puedeAutorizarPorPermiso()"
+                                 [entidadInicial]="ck.entidad ? { entidad: ck.entidad, beneficiario: ck.beneficiario } : null"
+                                 (cambio)="cargarPendientes(true)" />
+      }
+    </p-dialog>
+
     <p-dialog [visible]="reporteAbierto()" (visibleChange)="$event ? null : cerrarConFoco(reporteAbierto)"
               [modal]="true" [style]="{ width: '34rem', maxWidth: '96vw' }"
               header="Reporte de movimientos" [draggable]="false">
@@ -5748,8 +5774,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const doc = this.cuentaFuenteDoc();
     const manual = this.conceptoManual();
     // La cuenta del documento manda sobre todo: es el dato de Kepler, no una propuesta.
+    // `[CGA-A.19]` Si el servidor dice de dónde salió (tipo de documento, declarada), se dice eso:
+    // una cuenta inferida del tipo no puede leerse como «de la póliza del documento».
     if (doc) return { tono: 'propuesto' as const,
-      texto: `Cuenta ${doc.cuenta} de la póliza del documento (Kepler)${doc.conceptos.length > 1 ? ' — elegí el concepto' : ''}.` };
+      texto: (doc.texto || `Cuenta ${doc.cuenta} de la póliza del documento (Kepler).`)
+        + (doc.conceptos.length > 1 ? ' Elige el concepto.' : '') };
     if (manual) return etiquetaManual();
     // `[CG.180]` La fuente se lee ACÁ y no dentro del util: el util es puro y se prueba solo.
     return etiquetaProcedencia(this.propuesta()?.concepto, this.autofillFuenteVacia());
@@ -5763,7 +5792,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * busca en todo el catálogo). `corregirCuentaDoc()` lo suelta si de verdad hace falta. `null` =
    * captura normal (regla/propuesta/manual).
    */
-  cuentaFuenteDoc = signal<{ cuenta: string; cuenta_nombre: string | null; conceptos: Array<{ concepto: string; concepto_nombre: string | null }> } | null>(null);
+  cuentaFuenteDoc = signal<{
+    cuenta: string; cuenta_nombre: string | null; conceptos: Array<{ concepto: string; concepto_nombre: string | null }>;
+    /** `[CGA-A.19]` La procedencia en una frase, como la manda el servidor (póliza, tipo de documento o declarada). */
+    texto?: string | null;
+  } | null>(null);
   /**
    * CG.22.6 - ¿esta cuenta vale para este beneficiario de ahora en adelante?
    *
@@ -5772,6 +5805,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * ese numero. Nace apagado: declarar una regla contable es una decision, no un default.
    */
   declararRegla = signal(false);
+
+  /**
+   * `[CGA-A.19]` El diálogo «Cuentas de Kepler». `null` = cerrado; con `entidad` abre ya puesto en
+   * declarar esa entidad (desde la ficha de un movimiento que llegó sin cuenta).
+   */
+  cuentasKepler = signal<{ entidad: string | null; beneficiario: string | null } | null>(null);
 
   /**
    * Solo se ofrece donde la regla APLICA: el motor de reglas clasifica EGRESOS por beneficiario
@@ -7331,9 +7370,14 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // CS.3.1b — Si la cuenta salió de la PROPIA póliza del documento, es autoritativa: se muestra
     // y se BLOQUEA (el buscador se acota a los conceptos de esa cuenta). No se pide propuesta por
     // historia — el dato de Kepler manda.
-    if (c.cuenta_fuente === 'documento' && c.kepler_cuenta) {
+    // `[CGA-A.19]` La cuenta del TIPO de documento (su póliza no llegó) y la DECLARADA para la
+    // entidad también vienen resueltas por el servidor: se muestran igual, bloqueadas y con su
+    // procedencia. Pedirle propuesta a la historia las pisaría con otra fuente.
+    const fuentesBloqueadas = ['documento', 'tipo_documento', 'declarada'];
+    if (c.cuenta_fuente && fuentesBloqueadas.includes(c.cuenta_fuente) && c.kepler_cuenta) {
       const conceptos = c.conceptos_cuenta ?? [];
-      this.cuentaFuenteDoc.set({ cuenta: c.kepler_cuenta, cuenta_nombre: c.kepler_cuenta_nombre ?? null, conceptos });
+      this.cuentaFuenteDoc.set({ cuenta: c.kepler_cuenta, cuenta_nombre: c.kepler_cuenta_nombre ?? null, conceptos,
+        texto: c.cuenta_fuente_texto ?? null });
       this.conceptoSel = c.kepler_concepto
         ? { cuenta: c.kepler_cuenta, concepto: c.kepler_concepto, concepto_nombre: conceptos[0]?.concepto_nombre ?? '',
             sucursal: c.sucursal, cuenta_mayor: '', label: `${c.kepler_cuenta} / ${c.kepler_concepto}` }

@@ -10,6 +10,7 @@
 import {
   esConfirmable, cuentaPorRegla, aplicaPatron, resumirLote, evaluarDescuadre, evaluarArqueo, desgloseNeto, rankearFrecuentes,
   esFechaFutura, cvDe, propuestaDe, rutaCodigo, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS, LOTE_EPSILON, REGLA_MAX_PATRON,
+  cuentaDelTipoDeDocumento,
   type MapaRuta, type FilaLote, type UsoGasto, type ReglaGasto,
 } from './caja-lote.engine';
 
@@ -495,5 +496,65 @@ describe('[CGP-L.8] evaluarArqueo y desgloseNeto respetan el flujo', () => {
     expect(desgloseNeto(COBRO_CON_CAMBIO, 0.5)).toBe(380.5);
     expect(desgloseNeto([], 0)).toBe(0);
     expect(desgloseNeto(null, 3)).toBe(3);
+  });
+});
+
+// ── `[CGA-A.19]` La cuenta del tipo de documento ─────────────────────────────────────────────────
+//
+// Cifras de prod (180 días, 2026-10-23). El caso positivo y el placebo salen de la MISMA consulta:
+// si las guardas dejaran pasar `XA4501 → 210-001`, un acreedor nuevo quedaría asentado en la
+// subcuenta con nombre de otra persona.
+describe('[CGA-A.19] cuentaDelTipoDeDocumento', () => {
+  const PROD = [
+    { tipo_pol: 'XD2601', cuenta: '201', cuenta_nombre: 'PASIVO A PROVEEDORES', n: 23428 },
+    { tipo_pol: 'UA0501', cuenta: '115', cuenta_nombre: 'ABONO A CLIENTES', n: 18063 },
+    { tipo_pol: 'XD2501', cuenta: '201', cuenta_nombre: 'PASIVO A PROVEEDORES', n: 903 },
+    { tipo_pol: 'XA4501', cuenta: '210-001', cuenta_nombre: 'ACREEDOR RODOLFO SEPULVEDA', n: 111 },
+    { tipo_pol: 'XD6001', cuenta: '107', cuenta_nombre: null, n: 105 },
+    { tipo_pol: 'UA2501', cuenta: '115', cuenta_nombre: 'ABONO A CLIENTES', n: 2033 },
+    { tipo_pol: 'UA2501', cuenta: '403', cuenta_nombre: null, n: 1357 },
+    { tipo_pol: 'UA2501', cuenta: '401-001', cuenta_nombre: 'VENTAS PISO VENTAS', n: 565 },
+  ];
+
+  it('X-D-26 → 201 y U-A-5 → 115, con su soporte', () => {
+    const m = cuentaDelTipoDeDocumento(PROD);
+    expect(m.get('XD2601')).toEqual({ tipo_pol: 'XD2601', cuenta: '201', cuenta_nombre: 'PASIVO A PROVEEDORES', soporte: 23428, total: 23428 });
+    expect(m.get('UA0501')?.cuenta).toBe('115');
+    expect(m.get('XD2501')?.cuenta).toBe('201');
+  });
+
+  it('⛔ [negativa] X-A-45: 100 % a la subcuenta de UN acreedor NO es la cuenta del tipo', () => {
+    expect(cuentaDelTipoDeDocumento(PROD).has('XA4501')).toBe(false);
+    // Aunque tuviera soporte de sobra, una subcuenta (con `-`) identifica a QUIÉN, no a QUÉ.
+    expect(cuentaDelTipoDeDocumento([{ tipo_pol: 'XA4501', cuenta: '210-001', cuenta_nombre: null, n: 9000 }]).size).toBe(0);
+  });
+
+  it('⛔ [negativa] U-A-25 repartida entre varias cuentas no propone ninguna', () => {
+    expect(cuentaDelTipoDeDocumento(PROD).has('UA2501')).toBe(false);
+  });
+
+  it('⛔ [negativa] poco soporte (X-D-60, 105 líneas) no alcanza aunque sea unánime', () => {
+    expect(cuentaDelTipoDeDocumento(PROD).has('XD6001')).toBe(false);
+  });
+
+  it('⛔ [negativa] un 99 % no basta: una línea de cada cien a otra cuenta ya es un tipo ambiguo', () => {
+    const m = cuentaDelTipoDeDocumento([
+      { tipo_pol: 'XD2601', cuenta: '201', cuenta_nombre: null, n: 990 },
+      { tipo_pol: 'XD2601', cuenta: '601', cuenta_nombre: null, n: 10 },
+    ]);
+    expect(m.size).toBe(0);
+  });
+
+  it('las piernas de caja/banco (102*) no cuentan como contracuenta', () => {
+    const m = cuentaDelTipoDeDocumento([
+      { tipo_pol: 'XD2601', cuenta: '102', cuenta_nombre: 'CAJA', n: 50000 },
+      { tipo_pol: 'XD2601', cuenta: '201', cuenta_nombre: null, n: 600 },
+    ]);
+    expect(m.get('XD2601')).toMatchObject({ cuenta: '201', soporte: 600, total: 600 });
+  });
+
+  it('sin líneas, mapa vacío (no un default)', () => {
+    expect(cuentaDelTipoDeDocumento(null).size).toBe(0);
+    expect(cuentaDelTipoDeDocumento([]).size).toBe(0);
   });
 });

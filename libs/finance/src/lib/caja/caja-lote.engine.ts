@@ -58,7 +58,7 @@ export const TEXTO_NO_CONFIRMABLE: Record<MotivoNoConfirmable, string> = {
   sin_confirmar: 'La identidad de esta ruta es una propuesta sin firmar. Confírmala antes de aplicarle dinero.',
   sin_cuenta: 'Falta declarar con qué cuenta contable entra esta ruta.',
   sin_monto: 'El documento del ERP no trae importe: no hay nada que confirmar.',
-  sin_regla: 'Nadie declaró con qué cuenta contable se registra este beneficiario. Se captura a mano.',
+  sin_regla: 'Nadie declaró con qué cuenta contable se registra este beneficiario: declárala en «Cuentas de Kepler» o captúralo a mano.',
   fecha_futura: 'Este documento viene fechado después de hoy: su fecha es un error de captura del ERP. '
     + 'Captúralo a mano y corrige la fecha, o el movimiento se va a registrar en un mes que todavía no llegó.',
 };
@@ -352,6 +352,93 @@ export function cuentaPorRegla(
   return r
     ? { ok: true, kepler_cuenta: r.kepler_cuenta, kepler_concepto: r.kepler_concepto }
     : { ok: false, motivo: 'sin_regla' };
+}
+
+// ── `[CGA-A.19]` La cuenta del TIPO DE DOCUMENTO, para el documento cuya póliza no llegó ──────
+
+/**
+ * Un renglón agregado de póliza: cuántas líneas de ese tipo de póliza (`XD2601`) fueron contra
+ * esa cuenta. Las cuentas de caja y banco (`102*`) ya vienen fuera: son la pierna del efectivo,
+ * no la contracuenta.
+ */
+export interface LineasPorTipoPol {
+  tipo_pol: string;
+  cuenta: string;
+  cuenta_nombre: string | null;
+  n: number;
+}
+
+export interface CuentaDeTipoDocumento {
+  tipo_pol: string;
+  cuenta: string;
+  cuenta_nombre: string | null;
+  /** Líneas de póliza contra ESA cuenta. */
+  soporte: number;
+  /** Líneas de póliza de ese tipo, contra cualquier cuenta que no sea caja ni banco. */
+  total: number;
+}
+
+/**
+ * Las guardas, cada una con el caso que la justifica (prod, 180 días, 2026-10-23):
+ *
+ *   · `XD2601` (X-D-26) → `201 PASIVO A PROVEEDORES`: **23,428 de 23,428** líneas, 296 entidades.
+ *   · `UA0501` (U-A-5)  → `115 ABONO A CLIENTES`:     **18,063 de 18,063**, 50 entidades.
+ *   · `XD2501` (X-D-25) → `201`: 903 de 903.
+ *
+ * ⛔ **Y el placebo que fija las guardas: `XA4501` (X-A-45) da 100 % a `210-001 ACREEDOR RODOLFO
+ * SEPULVEDA`** (111 de 111). Es la cuenta de UN acreedor, no del tipo de documento: el 100 % es
+ * porque en 180 días casi sólo él usó ese tipo. Sin guardas, el próximo acreedor que entre por
+ * X-A-45 quedaría asentado en la cuenta de otra persona. Lo frenan dos guardas a la vez:
+ *   1. **soporte ≥ 500 líneas** — 111 no prueba nada sobre el tipo;
+ *   2. **cuenta de MAYOR** (sin `-`): `201` y `115` son de mayor; `210-001` es una subcuenta con
+ *      nombre propio, y una subcuenta identifica a QUIÉN, no a QUÉ.
+ *
+ * `XD6001` (X-D-60 → `107`, 105 líneas) y `UA2501` (U-A-25, repartida entre 7 cuentas) quedan fuera
+ * por soporte y por dominancia: van a declaración, no a una cuenta por descarte.
+ */
+export const TIPO_DOCUMENTO_MIN_SOPORTE = 500;
+export const TIPO_DOCUMENTO_MIN_DOMINANCIA = 0.995;
+
+/**
+ * ⭐ `[CGA-A.19]` **¿Qué cuenta usa Kepler SIEMPRE para este tipo de documento?**
+ *
+ * Existe por lo que medimos el 2026-10-23 sobre la cola viva: de 619 pendientes, **24 no tenían
+ * cuenta** y **los 24 eran documentos de hoy o de ayer cuya póliza todavía no se generaba** — entre
+ * ellos el `X-D-26 0000285` de la captura de Edgar. El piso CS.3.1b lee la cuenta de la póliza del
+ * propio documento, y sin póliza no había nada que leer.
+ *
+ * Pero la cuenta no es del documento: es de su TIPO. Un pago `X-D-26` salda un pasivo y Kepler lo
+ * asienta contra `201` el 100 % de las veces, sea cual sea el beneficiario. La póliza que va a
+ * llegar mañana va a decir `201`; esperar a que llegue no agrega información.
+ *
+ * ⛔ Sólo devuelve un tipo cuando pasa las tres guardas. Si no, ese tipo NO está en el mapa, y el
+ * documento sigue a la declaración por entidad: **jamás una cuenta por descarte**.
+ */
+export function cuentaDelTipoDeDocumento(
+  lineas: readonly LineasPorTipoPol[] | null | undefined,
+  minSoporte = TIPO_DOCUMENTO_MIN_SOPORTE,
+  minDominancia = TIPO_DOCUMENTO_MIN_DOMINANCIA,
+): Map<string, CuentaDeTipoDocumento> {
+  const porTipo = new Map<string, LineasPorTipoPol[]>();
+  for (const l of lineas ?? []) {
+    if (!l?.tipo_pol || !l.cuenta || String(l.cuenta).startsWith('102')) continue;
+    const xs = porTipo.get(l.tipo_pol) ?? [];
+    xs.push(l);
+    porTipo.set(l.tipo_pol, xs);
+  }
+  const out = new Map<string, CuentaDeTipoDocumento>();
+  for (const [tipo, xs] of porTipo) {
+    const total = xs.reduce((s, x) => s + (Number(x.n) || 0), 0);
+    // Orden total: por soporte y, en empate, por cuenta — nunca «la que vino primero».
+    const top = [...xs].sort((a, b) => (Number(b.n) || 0) - (Number(a.n) || 0)
+      || String(a.cuenta).localeCompare(String(b.cuenta)))[0];
+    const soporte = Number(top.n) || 0;
+    if (total < minSoporte) continue;
+    if (soporte / total < minDominancia) continue;
+    if (String(top.cuenta).includes('-')) continue;
+    out.set(tipo, { tipo_pol: tipo, cuenta: String(top.cuenta), cuenta_nombre: top.cuenta_nombre ?? null, soporte, total });
+  }
+  return out;
 }
 
 // ── El resultado del lote ──────────────────────────────────────────────────────────────────────
