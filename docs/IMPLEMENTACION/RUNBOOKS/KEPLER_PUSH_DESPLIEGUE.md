@@ -376,3 +376,26 @@ Canario sugerido para `00`: `RQ-2026-00775` (proveedor `CA022`, 1 renglón, $5,5
 
 El código de KR.11–KR.13 está en commits locales. Hasta que se empuje y se despliegue, las
 variables nuevas no hacen nada: el `api` de prod todavía corre el adapter de una sola conexión.
+
+---
+
+## 10. `[KR.14]` Dónde viven las contraseñas: un archivo maestro y un secreto propio
+
+Nadie tiene que recordar ni teclear una contraseña. `node ops/prod/kepler-push-secretos.js` arma
+todo en `%USERPROFILE%\kepler-push-secretos\`, **fuera del repo** (el repo es público; el script
+se niega a escribir adentro):
+
+| archivo | qué es | adónde va |
+|---|---|---|
+| `kepler-push.env` | **el maestro**: por servidor, URL con su contraseña, plantillas y tope | al secreto k3s `kepler-push`, que el `api` lee con `envFrom` (`optional`: sin él arranca y no escribe) |
+| `roles/md_NN.sql` | `CREATE ROLE kepler_push` con la contraseña de ESE servidor + `GRANT` + línea de `pg_hba` | se corre una vez en cada servidor, como superusuario |
+| `kepler-admin.env` | plantilla de URL de superusuario para el rollback | ⛔ sólo en la máquina de quien opera; **nunca** al clúster |
+
+- **Línea comentada = servidor apagado.** Encender = descomentar sus líneas, recrear el secreto y
+  reiniciar `api` (los comandos están al final del maestro). Apagar todo = borrar el secreto.
+- `00` reusa la contraseña que ya existía. Los demás tienen una nueva de 32 caracteres.
+- Volver a correr el script **no cambia ninguna contraseña** (verificado por hash); sólo agrega
+  lo que falte.
+- `kepler-push-ops.js` lee el maestro, **incluidas las líneas comentadas**, así que `revisar` funciona
+  antes de encender un servidor en prod.
+- ⚠️ En Windows el modo `600` no aplica. Respaldar la carpeta en el gestor de contraseñas del equipo.
