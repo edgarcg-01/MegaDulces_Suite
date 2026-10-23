@@ -221,7 +221,7 @@ const ORDEN_COLUMNA: Record<string, OrdenMesa> = { sku: 'sku', falta: 'falta', f
                         [pTooltip]="surtePorQue(r.surte)" tooltipPosition="left">{{ surteTexto(r.surte) }}</span>
                 </td>
                 <td data-label="Estado">
-                  <p-tag [value]="estadoLabel[r.estado]" [severity]="estadoSeveridad[r.estado]"
+                  <p-tag [value]="etiquetaEstado(r.estado)" [severity]="severidadEstado(r.estado)"
                          [pTooltip]="estadoPorQue(r.estado)" tooltipPosition="left" />
                 </td>
                 <td class="ab-why" data-label="Entrega" [pTooltip]="entregaPorQue(r)" tooltipPosition="left">{{ entrega(r) }}</td>
@@ -308,8 +308,9 @@ export class AlmacenAutoabastoComponent {
   /** La última consulta pedida: una idéntica no se vuelve a pedir (ver `load`). */
   private ultimaConsulta: string | null = null;
 
-  readonly estadoLabel = ESTADO_RENGLON_LABEL;
-  readonly estadoSeveridad = ESTADO_SEVERIDAD;
+  /** La fila de la tabla llega sin tipo a la plantilla: el estado pasa por aquí para indexar con tipo. */
+  etiquetaEstado(e: EstadoRenglon): string { return ESTADO_RENGLON_LABEL[e] ?? e; }
+  severidadEstado(e: EstadoRenglon): 'danger' | 'warn' | 'success' | 'secondary' { return ESTADO_SEVERIDAD[e] ?? 'secondary'; }
   readonly posicionOpts = Object.entries(POSICION).map(([value, p]) => ({ value, label: p.label }));
   readonly surteOpts = (Object.keys(SURTE_LABEL) as SurteRenglon['tipo'][]).map((value) => ({ value, label: SURTE_LABEL[value] }));
 
