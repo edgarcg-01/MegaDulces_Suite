@@ -2,6 +2,14 @@ import { BadRequestException } from '@nestjs/common';
 import type { ObjectStorageService } from '@megadulces/platform-core';
 import { MAX_TOTAL_ADJUNTOS_BYTES, ServiceDeskAttachmentsService } from './attachments.service';
 
+// El índice de `@megadulces/platform-core` levanta `TenantModule`, que exige `JWT_SECRET` AL IMPORTARSE y el CI no lo define: sin este mock el
+// archivo no carga («[AUTHZ-HARD] JWT_SECRET no está definido»). Se usan las funciones REALES de firma y nombre (no dobles): lo que se
+// prueba es `preparar`, que es justo quien las llama.
+vi.mock('@megadulces/platform-core', async () => {
+  const firma = await import('../../../platform-core/src/lib/storage/attachment-signature');
+  return { sanitizarNombre: firma.sanitizarNombre, validarAdjunto: firma.validarAdjunto, ObjectStorageService: class {} };
+});
+
 const MB = 1048576;
 const PDF = (bytes: number): string => `data:application/pdf;base64,${Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(bytes - 9, 7)]).toString('base64')}`;
 const PNG = (): string => `data:image/png;base64,${Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 1)]).toString('base64')}`;
