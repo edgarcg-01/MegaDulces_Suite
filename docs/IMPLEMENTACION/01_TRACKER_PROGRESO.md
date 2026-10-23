@@ -1,7 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1912 KB, 12407 líneas, 72 secciones.
-> **Índice navegable** — 1907 KB, 12354 líneas, 72 secciones.
+> **Índice navegable** — 1945 KB, 12511 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -9,148 +8,77 @@
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
 | 85 | 92 | 15 | Tracker de Progreso |
-| 93 | 161 | 175 | 📊 Estado global de fases |
-| 162 | 188 | 1 | 🚦 Estado por item (granular) |
-| 189 | 3125 | 398 | 🎯 EN PROGRESO |
-| 3142 | 3179 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 3180 | 3213 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 3214 | 3298 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 3299 | 3402 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 3403 | 3469 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 3470 | 3573 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 3574 | 3657 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 3658 | 3827 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 3828 | 3890 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 3891 | 3963 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 3964 | 4015 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 4016 | 4631 | 54 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 4632 | 4645 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 4646 | 4670 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 4671 | 4693 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 4694 | 4732 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 4733 | 5361 | 56 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 5362 | 5546 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 5547 | 5589 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 5590 | 5667 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 5668 | 5761 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 5762 | 5897 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 5898 | 5914 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 5915 | 5962 | 85 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 5963 | 6030 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 6031 | 6283 | 20 | Fase CH — Checadores / Control de asistencia |
-| 6284 | 6349 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 6350 | 6377 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 6378 | 6544 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 6545 | 6892 | 119 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 6893 | 6955 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 6956 | 7063 | 31 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 7064 | 7126 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 7127 | 7287 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 7288 | 7358 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 7359 | 7407 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 7408 | 7440 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 7441 | 7830 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 7831 | 7962 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 7963 | 8009 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 8010 | 8049 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 8050 | 8102 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 8103 | 8169 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 8170 | 8332 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 8333 | 8616 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 8617 | 8784 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8785 | 10808 | 151 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 10809 | 10817 | 1 | Fase RR — Ventas por ruta |
-| 10818 | 11113 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11114 | 11124 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11125 | 11145 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11146 | 11156 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11157 | 11168 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11169 | 11228 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11229 | 11656 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 11657 | 11671 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 11672 | 11713 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 11714 | 11859 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 11860 | 11890 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 11891 | 11938 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 11939 | 11960 | 15 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 11961 | 11990 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 11997 | 12006 | 1 | 📝 Convenciones |
-| 12007 | 12043 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12044 | 12062 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12063 | 12115 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12116 | 12470 | 40 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12471 | 12491 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
-| 93 | 160 | 172 | 📊 Estado global de fases |
-| 161 | 187 | 1 | 🚦 Estado por item (granular) |
-| 188 | 3126 | 401 | 🎯 EN PROGRESO |
-| 3143 | 3180 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 3181 | 3214 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 3215 | 3299 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 3300 | 3403 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 3404 | 3470 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 3471 | 3574 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 3575 | 3658 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 3659 | 3828 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 3829 | 3891 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 3892 | 3964 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 3965 | 4016 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 4017 | 4582 | 49 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 4583 | 4596 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 4597 | 4621 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 4622 | 4644 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 4645 | 4683 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 4684 | 5312 | 56 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 5313 | 5497 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 5498 | 5540 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 5541 | 5618 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 5619 | 5712 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 5713 | 5848 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 5849 | 5865 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 5866 | 5914 | 87 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 5915 | 5982 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 5983 | 6235 | 20 | Fase CH — Checadores / Control de asistencia |
-| 6236 | 6301 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 6302 | 6329 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 6330 | 6496 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 6497 | 6844 | 119 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 6845 | 6907 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 6908 | 7015 | 31 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 7016 | 7078 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 7079 | 7239 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 7240 | 7310 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 7311 | 7359 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 7360 | 7392 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 7393 | 7782 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 7783 | 7914 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 7915 | 7961 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 7962 | 8001 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 8002 | 8054 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 8055 | 8121 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 8122 | 8284 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 8285 | 8568 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 8569 | 8736 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8737 | 10760 | 151 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 10761 | 10769 | 1 | Fase RR — Ventas por ruta |
-| 10770 | 11065 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11066 | 11076 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11077 | 11097 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11098 | 11108 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11109 | 11120 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11121 | 11180 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11181 | 11608 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 11609 | 11623 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 11624 | 11665 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 11666 | 11811 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 11812 | 11842 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 11843 | 11890 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 11891 | 11914 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 11915 | 11944 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 11951 | 11960 | 1 | 📝 Convenciones |
-| 11961 | 11997 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 11998 | 12016 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12017 | 12069 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12070 | 12417 | 36 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12418 | 12438 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 93 | 171 | 182 | 📊 Estado global de fases |
+| 172 | 198 | 1 | 🚦 Estado por item (granular) |
+| 199 | 3137 | 401 | 🎯 EN PROGRESO |
+| 3154 | 3191 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 3192 | 3225 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 3226 | 3310 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 3311 | 3414 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 3415 | 3481 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 3482 | 3585 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 3586 | 3669 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 3670 | 3839 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 3840 | 3902 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 3903 | 3975 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 3976 | 4027 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 4028 | 4730 | 72 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 4731 | 4744 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 4745 | 4769 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 4770 | 4792 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 4793 | 4831 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 4832 | 5460 | 56 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 5461 | 5645 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 5646 | 5688 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 5689 | 5766 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 5767 | 5860 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 5861 | 5996 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 5997 | 6013 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 6014 | 6062 | 87 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 6063 | 6130 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 6131 | 6383 | 20 | Fase CH — Checadores / Control de asistencia |
+| 6384 | 6449 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 6450 | 6477 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6478 | 6644 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 6645 | 6992 | 119 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 6993 | 7055 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 7056 | 7163 | 31 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7164 | 7226 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 7227 | 7387 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7388 | 7458 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7459 | 7507 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 7508 | 7540 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 7541 | 7930 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 7931 | 8062 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 8063 | 8109 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 8110 | 8149 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 8150 | 8202 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8203 | 8269 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8270 | 8432 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8433 | 8716 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8717 | 8884 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8885 | 10908 | 151 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 10909 | 10917 | 1 | Fase RR — Ventas por ruta |
+| 10918 | 11213 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11214 | 11224 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11225 | 11245 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11246 | 11256 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11257 | 11268 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11269 | 11328 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11329 | 11756 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 11757 | 11771 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 11772 | 11813 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 11814 | 11959 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 11960 | 11990 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 11991 | 12038 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12039 | 12062 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12063 | 12092 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12099 | 12108 | 1 | 📝 Convenciones |
+| 12109 | 12145 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12146 | 12164 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12165 | 12217 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12218 | 12574 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12575 | 12595 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -185,6 +113,15 @@
 | **RA-FIX — El flujo de compra: lo que se guardaba destruido y lo que se redondeaba dos veces** | 🧪 **EN CÓDIGO · 2026-10-19** (521 pruebas de `compras` en la vista + 190 de `commercial-replenishment` verdes, incluidas 6 nuevas de `fraccion-caja` y 4 del candado del redondeo, **con su prueba negativa corrida en rojo**; ⛔ **falta: aplicar la migración `20261019084231` en prod** + el typecheck del CI + validación visual del acuse) | **Salió de auditar el flujo contra prod el 2026-10-19** (979 requisiciones, 6,996 renglones). **[RA-FIX.1] El renglón de COMPRA no sabía a qué sucursal iba**: `source_warehouse_id` es el ORIGEN de un traspaso y en las de compra iba NULL (**0 de 3,728**, contra 3,268/3,268 en traspasos), así que el desglose por sucursal se guardaba como N renglones del mismo SKU distinguibles sólo por `on_hand` — **473 grupos, 1,269 renglones de más, 74 requisiciones**; `RQ-2026-00913` trae el SKU 88045 **nueve veces**. De ahí colgaba que el empuje a Kepler consolidara por SKU justificándose en que *el desglose ya estaba perdido*. Columna nueva `destination_warehouse_id` (mig `20261019084231`, FK + índice parcial, **nullable y sin backfill: el dato nunca se guardó y repartirlo por `on_hand` sería fabricar la liga**, ADR-056) + el servicio la escribe sólo si existe (mismo patrón que `[RQ.1]`: despliegue y migración no llegan juntos) + la pantalla manda la sucursal que ya tenía en la mano. Candado `test-newdb-requisicion-destino.js` en tres mitades (el backlog se mide siempre · las invariantes sólo donde la columna existe, si no **NO MEDIDO** · prueba negativa: con destino, dos renglones de (documento, producto, destino) son un duplicado, no un desglose). **[RA-FIX.3] Una fracción de caja no se le escribe al ERP**: 170 renglones con `final_qty` fraccionaria (la más chica **0.0070**) en 63 requisiciones, 22 vivas — el sink habría escrito `0.007 CJA` en `md.kdm2`, un documento que se ve perfecto y que nadie puede surtir. Criterio y mensaje en `fraccion-caja.ts` (un solo lugar, como `transito.ts`), fail-closed **nombrando los SKUs**; de ahí salían también los 31 renglones con `line_cost` distinto de `final_qty × unit_cost`. **[RA-FIX.4] Un solo redondeo**: candado `redondeo-unico.spec.ts` que escanea el módulo y se pone rojo si alguien vuelve a convertir piezas↔cajas a mano. Encontró **dos** cosas de verdad: `compras-que-toca.component.ts` (**1,037 líneas de código MUERTO** —ninguna ruta lo carga desde que `/compras/que-toca` redirige a `/compras/pedido`— con una copia a mano del resolvedor `uxc` del motor) → **borrado**; y tres conversiones `cajas × uxc` escritas a mano en el acuse y las dos exportaciones → `piezasDeCajas()`. ⛔ **Lo que este item NO hace, y se declara**: unir las DOS reglas de redondeo (`roundSeedConTope` en la vista, con tope de 45 días, contra `redondearPedido` + `aplicarMinimoMenor` en `libs/contracts`, con escalera de unidades y mínimo de $200) — eso cambia el número que se le pide a un proveedor y va **aparte, medido antes y después**. Tampoco toca los 1,269 renglones ya escritos ni los 170 con fracción: el dato que les falta nunca se guardó. ⚠️ **Corrección a la propia auditoría**: los **30 `ordered` sin `ordered_at`** NO son un defecto vivo — `[RQ.5]` lo arregló el 2026-10-06 y los 30 son anteriores a esa fecha. |
 | **RA-PRO.67 — `/compras/oc-abiertas`: la bandeja mezclaba papel vivo con papel muerto** | 🧪 **EN CÓDIGO · 2026-10-02** (pre-vuelo read-only contra prod verde con prueba negativa; builds api+view verdes; 21 pruebas de `oc-abiertas` verdes. **Falta: aplicar mig + redeploy + validación visual.** Sin permisos nuevos → sin re-login) | Disparado por "¿por qué no se están actualizando?" sobre 5 recepciones `XA2001` de PH. **Esas sí se actualizaron** (cadena completa en el ODS, las 5 OC cerraron). Lo que no se actualiza son **36 renglones de 292 por $2,443,575** que nunca van a salir solos: `cerrada` se derivaba **sólo de la cadena de documentos** y jamás miraba `c43`. **Dos testigos, ninguno alcanza solo** (ADR-059): se contradicen en **4 de 292** filas — 2 que sólo el ERP ve canceladas y 2 donde el ERP va rezagado. ⭐ **El documento resolvió el estatus `A`, que Kepler NO documenta**: en vez de adivinar la letra se miraron sus 19 órdenes y **17 tenían todos sus vales cancelados**; leerlo como "Autorizada = pendiente" habría mandado **$1,110,521** al lado equivocado. Mig `20261002183000` agrega `estado_cadena` (sin_vale|vale_cancelado|vale_vivo|cerrada), `pendiente_en_erp`, `vales` y `vales_vivos` **al final** y **no filtra ni cambia un solo número publicado** (candado: 0 discrepancias en 10,682 órdenes contra la foto previa). De paso el `EXISTS` anidado pasa a **un** `LEFT JOIN LATERAL`: **~2 s → 455 ms**. ⚠️ **El orden dentro de la migración no es cosmético**: la foto del valor viejo se toma **antes** del DDL porque knex corre todo en una transacción y `CREATE OR REPLACE VIEW` sostiene ACCESS EXCLUSIVE hasta el commit — la primera versión medía **26.8 s de lock**; así son **~0.4 s**. Hallazgo nuevo: **28 órdenes / $1,300,137 con vale VIVO y sin orden de entrada** (mercancía apartada que nadie capturó) y **43 vales colgados por $3,223,426** que no mira ninguna pantalla. ⛔ **RA-PRO.68 (ritmo real por proveedor) queda BLOQUEADO a propósito**: `analytics.mv_supplier_fill_rate` (`[RA-DYN.U5]`, otra sesión) recorre **la misma cadena** y todavía no está en prod — derivar de ahí en vez de materializar una segunda copia. Medido: mediana de entrega **0 d**, p90 **4 d**, contra el umbral de **30 d** de la pantalla → **93 órdenes por $9,090,274** pasaron el ritmo normal y nadie las marca. |
 | **RA-PRO.64+ — `/compras/pedido` con perspectiva del comprador** | 🧪 **Etapas 1 (PR #212) y 2 (PR #223) mergeadas · [RA-PRO.70] EN CÓDIGO · 2026-10-03** (builds 4 apps verdes, `lint:boundary` verde, 213 pruebas de compras + 13 de señales; validación visual pendiente) | Nace de una simulación comprador vs. vendedor GONAC sobre el 83185 en prod (solo lectura). **Etapa 1:** [RA-PRO.64] "+ Agregar sucursal" + leyendas *sin existencia · sin venta · sin mínimo*; [RA-PRO.65] **V30d / Máx** + globo de 13 meses y prorrateo 60/40 de referencia. **Etapa 2:** [RA-PRO.67] tres márgenes sobre costo (*hoy* = Costo estándar · *esta compra* = lista del proveedor · *con lo pagado*) y venta perdida Wincaja **verificada contra el precio** (cuadra 79–88 % en tiendas, 44.8 % en CEDIS) + mostrador FLT; [RA-PRO.68] unidades de mayor a menor con rótulos de Kepler (regla COT.17), también en PDF; [RA-PRO.69] el "mínimo" del proveedor resultó ser el **pedido típico derivado del historial** (RA-PRO.10) → se rotula así y NO rellena. **[RA-PRO.70]** escalera REAL de unidades (1, 2 o 3 según el artículo: Kepler repite rótulos con factor 1) — 562 / 5,397 / 366 artículos; botones de captura, columna Unidad, Σ Ped. y Σ Base. ⛔ **Hallazgo abierto:** `/compras/proveedores` → "Ver pedido" (`supplierOrder()`) SÍ rellena hasta ese típico (aprox. 208 de 287 proveedores, +$13.1M sobre $7.6M). Sin migraciones ni permisos nuevos. Plan en [`FASE_RA_PEDIDO_PERSPECTIVA`](FASES/FASE_RA_PEDIDO_PERSPECTIVA.md). |
+| **AB.25 — Medir antes de construir: la mesa contra «Mi pedido» y cuánto cubre el plan de Compras** | ✅ **MEDIDO · 2026-10-23 · C0** (`database/scripts/ab25-mesa-vs-pedido.js`, sólo lectura, 7–9 s la red; el instrumento cazó su propio error —`LEAST` ignora NULL— antes de publicar; cruce contra la API y tiempo por almacén NO MEDIDOS) | De 8,534 renglones que lista la mesa, 393 (4.6 %) ya vienen y se vuelven a pedir y **3,264 (38.2 %)** tienen una Acción que contradice a quién se le pide. El plan de Compras cubre el 4.5 % de las cajas que faltan (sucursales 7.8 %; 30 días 12.2 %). ⚠️ Corregido el mismo día: sin el folio de Kepler la cifra no separa «Compras planea poco» de «se pasó y no se ligó»; PQ M2 midió que el **54.8 %** de los traspasos aprobados no tiene ningún `U-D-40` con sus SKUs en 15 días. Ver `FASE_AB` §16.11–§16.12. |
+| **AB.26 — Una sola cuenta del renglón, por almacén** | 🧪 **EN CÓDIGO · 2026-10-23 · C1** (commit `c4e06e039`; 20 pruebas nuevas con su **negativa vista en rojo**; contracts 758/758, `commercial-replenishment` 224/224, `almacen` 518/518; `tsgo` de la api y `lint:boundary` verdes; **antes/después de «Mi pedido» en prod NO MEDIDO**: se mide por la API al desplegar) | `armarRenglon` / `estadoRenglon` / `surteDe` en `libs/contracts`, movidos tal cual del servicio. La línea gana `estado` (Nadie lo ha pedido · Compras lo planeó · Ya viene · En política) y `surte` (matriz / proveedor / sin ruta). |
+| **AB.27 — La mesa sirve esas líneas, un almacén a la vez** | 🧪 **EN CÓDIGO · 2026-10-23 · C2** (commit `f68917cf0`; sin migración; 11 pruebas de contrato con su **negativa vista en rojo**; contracts 769/769, `commercial-replenishment` 241/241, `almacen` 518/518; `tsgo` de la api, `check:templates-types` de api/portal/vendor/view y `lint:boundary` verdes; **tiempo NO MEDIDO** contra la meta de 500 ms: es el de «Mi pedido», 3.7 s el 12-oct) | Endpoint NUEVO `GET /commercial/autoabasto/renglones` (`AUTOABASTO_VER`, sólo lectura, UN almacén del alcance) que convive con `/mesa` hasta que la pantalla cambie en AB.28, para que ningún despliegue intermedio rompa la mesa actual. Sale de `armarAlmacen()`, el mismo armado de «Mi pedido»: la falta neta es la misma **por construcción**. El renglón de «Mi pedido» + mínimo, reorden, máximo, OC en camino y entrega; filtros por estado, posición, «surte» y búsqueda; orden de lectura con desempate por SKU; resumen del almacén entero con la regla de los grupos (lo no valuable aparte, nunca $0); filtro inválido → 400. Pendiente: bajar el tiempo (commit aparte). |
+| **AB.28 — Pantallas: mesa por sucursal y «Lo que te llega»** | 🧪 **AB.28a EN CÓDIGO · 2026-10-23 · C3** (commits `90c5eb572`, `3ad9bea93`, `3b9848943`; `almacen` + `context-help` 554/554, contracts 769/769, `tsgo` api y `check:templates-types` de las 4 apps verdes; `check:pantalla`: la mesa de 3 fallas a 1 —queda §9, deuda declarada—; **sin validación visual**) · ⬜ **AB.28b** espera a AB.29 | **AB.28a — la mesa nueva:** lee `/renglones` (un almacén; con varios pide elegir, D2); Producto · Posición · Existencia · Mín · Reorden · Máx · Falta · Ya viene · Falta neta · Surte · Estado · Entrega; sale la Acción por sobrante de la red (D3); KPI primario «Nadie lo ha pedido»; la matriz por nombre en celda y PDF; filtros en el servidor; ayuda `almacen-autoabasto`; PDF desde la misma respuesta. Las pruebas cazaron una **doble carga** (~3.7 s cada una) que ya tenía la pantalla vieja, y la compuerta de plantillas cazó `<p-sortIcon>` (NG8001) y un índice sin tipo (TS7053) que habrían tumbado el AOT. **AB.28b** (renombrar «Mi pedido» a «Lo que te llega», quitar − / + y «Aceptar grupo») espera a AB.29: sin «Generar requisición», la sucursal se quedaría sin forma de decir lo que necesita. Pendiente: retirar `/mesa`, `/mesa/resumen` y `/reporte` cuando AB.28a esté en prod. |
+| **AB.29 — «Generar requisición»: la mini «Mi pedido» de la sucursal** | ⬜ **TODO · C1–C3** (D7 firmada; depende de AB.32 y de PQ.2/PQ.9/PQ.11) | Requisición que **Compras aprueba**, prellenada con AB.26 (sólo «Nadie lo ha pedido», restando también lo que Compras ya planeó), una por origen; reusa `insertRequisition()`, los − / + de AB.18 y la escalera `AUTOABASTO_*`; **marcada como pedida por sucursal** (columna de origen, migración aditiva) y sus renglones dejan de sugerirse mientras viva. Prueba contra base real con negativas. Ver `FASE_AB` §16.13. |
+| **AB.30 — La liga del folio (la consume AB; la construye PQ)** | ⬜ **TODO** (D9 firmada por Edgar 2026-10-23) | Quien pasa el pedido a Kepler registra el folio. **No se construye en AB:** lo hacen PQ.2 (cierre manual del traspaso con la coordenada del `U-D-40`/`U-D-41`) y PQ.7 (la OC exige la coordenada de Kepler), más KR.9/KR.11 (envío automático). AB sólo cambia la cuenta de AB.26 para que un plan con folio cuente como «ya viene» y no como plan. |
+| **AB.31 — Lo que una sucursal pide a su matriz se aparta de la existencia de la matriz** | ⬜ **TODO · C1** (D10, falta firma; **coordinar con PQ**: toca el número de `/compras/pedido`) | Hoy `transferPlan` toma toda la existencia del origen y el plan no lee `U-D-40`: la matriz se ve completa hasta que embarca. Restar de lo disponible de la matriz los traspasos abiertos y las requisiciones de traspaso aprobadas. Commit aparte con antes/después. |
+| **AB.32 — Avisos del flujo de la requisición de sucursal** | ⬜ **TODO · C2/C3** (D12, falta firma; va junto con AB.29) | Hoy crear, aprobar o rechazar no avisa a nadie. Compras: tarea en «Mi trabajo» por cada requisición de sucursal por aprobar; sucursal: aviso al aprobarse o rechazarse con el motivo. El motivo obligatorio y quién/cuándo los construye PQ (PQ.9, PQ.11); AB pone las tareas y avisos con el contrato de tarea existente. |
+| **AB.33 — Arreglos del flujo de requisiciones que ya existe** | ⬜ **TODO** (se entregan a PQ: es su pantalla y la está editando) | Verificado en el código 2026-10-23: (1) «Capturar OC» se habilita con `COMPRAS_REQUISICIONES_AUTORIZAR` y el servidor exige `_GESTIONAR`; (2) Aprobar/Rechazar del detalle al revés → botón que da 403; (3) la lista no muestra quién creó la requisición. Lo único de AB: (4) que la requisición de COMPRA de la sucursal aparezca en «Mi pedido» (hoy sólo lee traspasos). |
 | **AB.24 — «Mi pedido» muestra lo que Compras ya planeó para la sucursal y no llegó a Kepler** | 🧪 **EN CÓDIGO · 2026-10-22** (sin migración; mismas pruebas que AB.23) | Decisión del PM (opción A): **manda el pedido general** — lo que Compras decide para cada sucursal es lo que le llega, y la sucursal sólo completa. Mientras el envío a Kepler (Fase KR) esté apagado (`KEPLER_PUSH_URL sin configurar` en 68 traspasos y 64 compras aprobados), lo planeado se MUESTRA («Compras N», documento «Lo planeó Compras · aún no está en Kepler») y **no se resta**: sin el pedido de traspaso en Kepler la matriz no surte. Encendido KR, se vuelve «ya pedido» y se resta solo (el adapter clona `U-D-40` con `c27='SUCURSAL'` y el `TI` destino, lo que lee «Mi pedido»). ⚠️ **306 traspasos aprobados tienen más de 7 días** (desde el 16-sep): no deben empujarse de golpe al encender KR. Ver `FASE_AB` §15.14. |
 | **AB.23 — «Mi pedido» resta lo EMBARCADO que todavía no llega** | 🧪 **EN CÓDIGO · 2026-10-22** (sin migración; `test-newdb-autoabasto-en-camino.js` 5 ✓ · 1 no medido contra prod en solo lectura; unidades 6/6; pantalla 6/6; `ngc` con control; `check:pantalla` 0 nuevas) | Pedido del PM: «que los encargados sepan qué mercancía les va a llegar para que no hagan pedido». Al embarcarse, el pedido de traspaso dejaba de contar como «ya pedido» y la existencia no sube hasta la recepción: en ese lapso (mediana 1 día, p90 4, medido sobre 1,081 embarques) el encargado lo volvía a pedir. Ahora se resta lo embarcado (`U-D-41`) sin su recepción (`U-A-50`) de 7 días o menos; arriba, «Lo que te va a llegar» (embarques, pedidos en preparación, por nombre de origen); columna «Ya viene». **Corrección de unidades:** lo pedido se asumía en base y 44 renglones en 30 días venían en CAJAS; ahora se convierte con la escalera (el testigo cazó además la base con rótulo de gramaje «500» que la escalera trae sin nombre). **Antes/después, servicio real, 8 sucursales:** valor a pedir $17,279,163 → $16,866,725 (−$412,438; la base es ~2 h anterior: parte es movimiento del día). Ver `FASE_AB` §15.14. |
 | **AB.22 — Cobertura por almacén: 21 d sucursales, 2.5 d rutas, 30 d matrices** | 🧪 **EN CÓDIGO · 2026-10-13** (sin migración; contrato 46 pruebas, `almacen` 442/442, typecheck api + plantillas + boundary verdes; **medido en prod en solo lectura**) | Decisión de Francisco: el objetivo por demanda deja los 30 días fijos de AB.15. Un mapa en `libs/contracts` (`COBERTURA_AUTOABASTO` + su forma SQL) que lee el motor y la pantalla. Efecto medido (cajas a pedir, 30 d → nuevo): 02 3,695→2,072 · 03 9,245→5,682 · 04 1,219→753 · 05 2,626→1,549 · 07 9,673→6,103; matrices sin cambio. ⛔ **Las rutas siguen en 0**: su plan trae venta y existencia 0 y no tienen política de reorden — deuda con nombre: demanda y carga por ruta en el plan. Ver `FASE_AB` §15.13. |
@@ -4289,6 +4226,41 @@ cerrados con `validated_by = 'Claude Vision'`.
   que vive en uno de ellos. Y `workbookDetail()` del front es **código muerto**: transporta
   `last_purchase` y `order_days` que ninguna pantalla pinta.
 
+### `[RA-MED]` — Medición previa al motor: ¿el comprador mejora el sugerido? y ¿nuestra requisición es la de Kepler? (2026-10-23)
+
+> Brief de Edgar (2026-10-23): dos mediciones **antes de cualquier cambio al motor**. Sólo lectura
+> contra prod (`system_identifier 7688376744939610156`), scripts reproducibles y placebo donde aplica.
+> Detalle y tablas: [`MEDICION_RA_SUGERIDO_Y_CUADRE_KEPLER_2026-10-23.md`](FASES/MEDICION_RA_SUGERIDO_Y_CUADRE_KEPLER_2026-10-23.md).
+
+- [x] **[RA-MED.1]** ✅ **Veredicto por renglón contra la salida posterior** (`database/scripts/medir-ra-sugerido-vs-salida-posterior.js`).
+  1,008 renglones de compra (24-sep → 8-oct): **499 mejor · 199 peor · 91 igual · 219 sin medir**.
+  Árbitro = lo que salió después (venta U-D 8/10/12 en sucursal; **embarques U-D-41 en el CEDIS**, que
+  no vende), en unidad base de Kepler (factor por almacén; `base_label` = unidad de venta en 99.8 %).
+  ⭐ Subir acierta en la dirección (492 contra 158), bajar falla (7 contra 41); pero **el sugerido
+  dejaba 1.6 días de cobertura mediana, lo pedido 10.2 y el objetivo era 19**: 631 de 710 medibles
+  (88.9 %) se agotaban con el sugerido. **522 renglones (51.8 %) nacieron con sugerido 0** y el
+  comprador los pidió (325 «mejor»). En «peor» se pidieron **$2,946,807** por encima del sugerido.
+- [x] **[RA-MED.2]** ✅ **Cuadre requisición ↔ documento de Kepler con placebo** (`database/scripts/medir-ra-requisicion-vs-kepler.js`).
+  **Compras** (202, 120 d): 125 con documento del proveedor en 15 d (placebo 78), **45 mismo conjunto
+  de SKUs** (placebo 5), **16 mismo importe** (placebo **0**). Sobre 43 pares idénticos (399 renglones):
+  importe **392/399** al centavo; cantidad y costo cuadran con `c58` (376/375) y con el factor Suite
+  (394); 7 renglones distintos con causa (3 cantidad movida, 4 costo movido). ⛔ `kdm1.c16` **trae IVA**
+  (`kdm2.c17` por renglón): el encabezado sólo cuadra 12/43 — se compara por renglón, neto contra neto.
+  17 de los 43 pares siguen `approved` en la Suite. 77 de 202 sin documento (38 %).
+  **Traspasos** (661, 3,254 renglones): SKU y cantidad base en un `U-D-40` origen→TI destino **386
+  (11.9 %) contra placebo 93 (2.9 %)**: 9 de 10 renglones no llegan tal cual; 602 se quedan `approved`.
+  Campos derivados nuestros declarados en §3 del .md (ninguno se presenta como dato del ERP).
+- [ ] **[RA-MED.3]** ⬜ **La línea de requisición guarda la base del sugerido** (demanda diaria, horizonte,
+  tope, existencia y tránsito que vio, versión del plan). Medido: `min_stock/reorder_point/max_stock`
+  llegan **en 0 en los 1,008 renglones** y `replenishment_plan` no guarda historia (`computed_at` = hoy;
+  el CEDIS lleva la demanda en `eff_daily`, `daily_pieces` = 0 en 1,727). Sin esto el motor no se calibra.
+- [ ] **[RA-MED.4]** ⬜ Horizonte de juicio **por proveedor** y veredicto posterior como columna de `/compras/flujo`
+  (Luis Francisco: 58 de 59 «peor» son Mondelez a plazo largo — el árbitro de 19 d los castiga).
+- [ ] **[RA-MED.5]** ⬜ Pantalla de requisición: «Reorden» deja de pintar un 0 no medido; «Costo unit.» dice
+  **por caja**; `approved` avisa «ya existe en Kepler» cuando el cruce lo encuentra.
+- [ ] **[RA-MED.6]** ⬜ Decidir el traspaso: plantilla `U-D-40` y empuje encendido, o dejar de presentar la
+  requisición de sucursal como «pedido a la matriz».
+
 ### `[RA-UX]` — Auditoría de interacción de `/compras/pedido` (2026-10-21)
 
 > Auditoría con la skill `auditoria-diseno`, **nivel B (prod, sólo lectura) + C (fuente)**. ⛔ **Nivel
@@ -4437,12 +4409,64 @@ cerrados con `validated_by = 'Claude Vision'`.
   salir** (`[RA-UX.9b]` cerrado): el borrador guarda lo agregado, lo quitado y la copia de cada renglón. Pruebas:
   vitest 106 (pedido 89 · panel 12 · detalle 5) + contrato 9 + lógica 14; `test-newdb-pedido-negociacion.js` 12/12
   (entradas en orden, NEGATIVA de permiso: sin él `null`, con él 14 pagos). `ngc` y `tsc` limpios.
+- [x] **[RA-DOC.1]** 🧪 **Los PDF de Compras pasan a la paleta única de documentos** (`PALETA_DOCUMENTO`, `[E.29]`).
+  Revisión de colorimetría de la requisición (PM, 2026-10-22). Medido: `compras-pdf-comun.ts` tenía hex Stone a mano
+  (familia retirada el 2026-09-14) y el naranja `--action` como TEXTO en el título de la caja y en el total de la orden
+  al proveedor, donde da 3.39:1. Ahora: tinta zinc, encabezado de tabla claro con texto en tinta (no gasta tóner),
+  marca sólo en el filete de 1 pt. Los cinco PDF que importan de ahí (requisición, OC Kepler, orden al proveedor,
+  entregas, lista de precios) cambian juntos. La maqueta `prototipos/documentos-compra.html` aplica lo mismo y
+  separa marca de estado: cada estado lleva su rótulo escrito (FALTANTE, CONTROL INTERNO) porque se imprime en
+  blanco y negro. Pruebas: vitest 24 (requisición, orden al proveedor, paleta AA); `tsc` limpio. **Sin validación
+  visual del PDF real** (la maqueta sí se vio en Chrome headless).
 - [ ] **[RA-NEG.5]** ⬜ **Aplicar `20261022125024_ix_kdm2_compra_sku`** (índice de los renglones de COMPRA
   por producto, gemelo de `ix_kdm2_sku_venta`). Sin él, lo pagado barre ~514 mil renglones `X/A`
   (300–1,680 ms). `CONCURRENTLY`, **ventana nocturna**, una por una con `apply-one-migration-prod.js`.
 - [ ] **[RA-NEG.6]** ⬜ **«Revisa» sin clasificar.** Hoy dice «285 cj en camino (no se restan)» y lleva a
   las órdenes; falta que el servidor mande el tránsito clasificado (`clasificarOc`) para decir «9 OC
   vencidas» como la maqueta. Espera decisión del PM.
+### `[PQ]` — `/compras/pedido`: del sugerido al ERP sin inventar nada (2026-10-23) — 🔨 ABIERTA 2026-10-23 (PO → ⏸️)
+
+> Plan: [`FASE_PQ_PEDIDO_VERDAD_Y_CIERRE.md`](FASES/FASE_PQ_PEDIDO_VERDAD_Y_CIERRE.md). Auditoría
+> del flujo en nivel B+C contra prod (`system_identifier 7688376744939610156`, 2026-10-23). **La
+> bandeja ya se vacía** (43 pendientes, 1 día); el cuello está aguas abajo: **680 aprobadas sin
+> salida por $19.05 M**, `oc_folio` en 0 de 1,301, 134 con «KEPLER_PUSH_URL sin configurar». Fase 0
+> en curso y cupo 4/4: queda ⬜. **M1 y M2 son medición sin código y no ocupan cupo: van primero.**
+> Decisiones D1–D7 en el plan, sin firmar.
+
+- [x] **[PQ.M2]** ✅ 2026-10-23 **Se sabe, columna por columna, si nuestra requisición es idéntica al documento de Kepler** — 2026-10-23. **Cerrado el mismo día:** el chequeo de rótulos (nivel C, fuente de `compras-pedido-real.component.ts`) recorrió los 6 que citan a Kepler —«en camino (OC abierta en Kepler)», «unidades según Kepler», «cumplimiento medido en Kepler (OC vs vale)», «cadencia derivada de entregas reales en Kepler», «llegada estimada: Kepler no guarda fecha prometida», «sin acreedor en Kepler»— y los 3 derivados (IAD, XYZ, sugerido) se describen como cálculo propio. Ninguno vende un derivado como dato del ERP. ⚠️ Sin validación visual (no se abrió la pantalla viva). **Medido el mismo día** (`database/scripts/pq-m2-cuadre-requisicion-kepler.js`, prod sólo lectura, 863 requisiciones de 120 d: 202 compras · 661 traspasos; resultado completo en el plan §11.1). **No hay dato inventado en el costo:** cuadra con Kepler en **1,062 de 1,191** renglones de compra (89.2 %) y **939 de 1,020** de traspaso (92.1 %), reconciliado por `c58`; el importe al centavo cuando cuadra la cantidad. **Lo que cambia es la cantidad**: 38.3 % (compra) y 30.5 % (traspaso). Placebo: total cuadra **16 contra 0**. Control: reencuentra los pares del 16-oct. ⚠️ Lo que la Suite pidió y Kepler no trae: 137 renglones de compra ($1.11 M) y 830 de traspaso ($5.78 M) — no inventado, **no ejecutado**; 362 traspasos (54.8 %) sin ningún `U-D-40` con sus SKUs. ⛔ **NO MEDIDO:** que la pantalla no rotule los derivados (fill rate, colchón, ABC, «pendiente», IAD) como dato del ERP — nivel C, a mano. Falta eso para ✅.
+  **Para:** gerente_compras, Dirección · **Por qué:** sin esto no se puede afirmar que la Suite no publica dato inventado; hoy el cruce es de 6 pares / 37 renglones (16-oct)
+  **Capa:** C0 (medición, sólo lectura) · **Depende de:** nada
+  **Criterios:**
+  - Dado el universo de `ordered`/`received` (compras contra `X-A-30`/`X-A-35`, traspasos contra `U-D-40`), cuando corre el script, entonces publica por requisición: proveedor, sucursal por nombre, SKU, cantidad y costo **en la misma unidad** (`c58`), importe, total y fecha, con el % que cuadra por columna y la **causa** de cada diferencia.
+  - Dado el control placebo `[f−30, f−15 d]`, entonces el cuadre por importe en la ventana real supera al placebo; si no, el cruce se declara ruido.
+  - Dado un almacén sin réplica (`08`) o sin documento del proveedor, entonces `sin documento` / `sin réplica`, nunca «no cuadra».
+  - Dado un campo que la Suite publica y Kepler no tiene (fill rate, colchón, ABC, «pendiente», IAD), entonces queda listado como **derivado nuestro** y se verifica que la pantalla no lo rotule como dato del ERP.
+  **Verificado contra:** `kepler_ods` `kdm1`/`kdm2` de las 8 réplicas, mismo grano (documento × renglón). **¿Escribe?** no. **No incluye:** corregir nada; sólo medir.
+- [ ] **[PQ.M1]** 🧪 **Cada corrección del comprador al sugerido tiene veredicto: mejor, normal o peor** — 2026-10-23. **Instrumento construido y controlado, veredicto NO MEDIDO a escala** (`database/scripts/pq-m1-comprador-vs-sugerido.js`; plan §11.2). «Llegó» por documento del ERP (`X-A-40` / `U-A-50` en `stock_movements`): control sobre requisiciones `received` = **85.1 %** (la primera versión, con la foto como árbitro, dio 9 % y se tiró; la segunda leía el CEDIS ausente como cero — tiene **196 SKUs** fotografiados — y se tiró). Desenlace por `stock_snapshots` al cierre de la ventana (cadencia 7–30 d). **Sólo 28 renglones juzgables** (24 subieron: mejor 45.8 % · normal 41.7 % · peor 12.5 %): fotos de 28 días, CEDIS sin foto (1,132 renglones) y ventanas incompletas (3,855). ⭐ **Lo que sí quedó medido:** en el control (1,679 renglones sin corrección) **sólo el 25.8 % tuvo entrada en el ERP dentro de su ventana**; los corregidos hacia arriba llegaron el 46 %. Mientras lo aprobado no salga (F1), no se puede separar «decidió mal» de «nunca se pidió». Re-correr con 60–90 d de fotos y con el CEDIS fotografiado (hueco de `[IC]`).
+  **Para:** gerente_compras, Dirección · **Por qué:** 2,726 de 7,111 renglones en 30 d subieron el sugerido y 273 lo bajaron; nadie sabe si tenían razón. Gobierna D6 y cualquier cambio al motor
+  **Capa:** C0 (medición, sólo lectura) · **Depende de:** nada
+  **Criterios:**
+  - Dado un renglón con `final_qty ≠ suggested_qty` de los últimos 90 d, cuando pasa la ventana cadencia + lead del canal, entonces recibe `mejor` / `normal` / `peor` según la venta, el agotamiento y la existencia **posteriores** leídos del ODS.
+  - Dado un renglón sin venta posterior con qué juzgar, entonces `sin medir`, nunca `normal`.
+  - Dado el reporte, entonces se publica por comprador y por proveedor, con universo y ventana declarados.
+  - ❌ Dado que se use la demanda que ya usó el motor como árbitro, entonces el instrumento se tira: sólo venta posterior.
+  **Verificado contra:** `kepler_ods` venta y existencia por SKU × sucursal. **¿Escribe?** no. **No incluye:** recalibrar el motor.
+- [x] **[PQ.1]** 🧪 **La pantalla distingue «aprobada» de «aprobada y escrita en Kepler»** — 2026-10-23. **Capa:** C2+C3 · **Depende de:** D1 ✅. Hoy 680 aprobadas sin documento se ven igual que una entregada; 602 son traspasos y **ninguno de tipo `branch` llegó jamás a `received`**. **Hecho (2026-10-23):** el resumen de `listRequisitions` cuenta, dentro de cada estado, `n_kepler` (salió) · `n_kepler_error` (salió mal) · `n_sin_empujar` (nunca se intentó) + monto y antigüedad de las sin documento, con `to_jsonb` por si la columna llega después del deploy; filtro `kepler=sin_documento` (sólo `approved`); la bandeja `/compras/requisiciones` cambia la casilla «Aprobadas sin OC» por **«Aprobadas sin documento en Kepler»** (valor = aprobadas − en Kepler, con drill que pone el filtro y lo deja a la vista para quitarlo; con un servidor viejo dice «sin medir», nunca 0) y cada aprobada lleva una segunda etiqueta: «en Kepler 00/0003114» · «no salió a Kepler» (título con el motivo) · «sin empujar a Kepler» · «Kepler: sin medir». Pruebas: 7 nuevas en `compras-requisiciones.component.spec.ts` (22/22), dos negativas (servidor sin desglose → «sin medir»; drill ajeno no toca el filtro). `check:pantalla` 2 → 2 (0 nuevas), `check:templates` y `check-template-types` verdes, diagnósticos del editor en 0. ⚠️ **Sin validación visual** (no se abrió la pantalla viva); lo más probable de ajustar: el alto de la celda de estado con dos etiquetas. ⛔ No incluye el cierre manual del traspaso (PQ.2).
+- [ ] **[KR.11]** 🔨 **Cada sucursal escribe en SU servidor Kepler, no en el de oficinas** — 2026-10-23. Medido en `kepler_ods`: los `X-A-30`/`U-D-40` de cada sucursal viven en su propio `md_NN`; el adapter tenía una sola conexión a `md_00`. Ahora un pool por `KEPLER_PUSH_URL_NN`, plantilla por servidor, y `KEPLER_PUSH_URL` sólo vale para `00` (nunca comodín). `kepler-servidores.ts` + spec 13/13, **rota a propósito** (comodín → 2 rojos); módulo 238/238. Tipado sin verificar en local (lo hace el CI). Plantillas candidatas y rezago por servidor en `RUNBOOKS/KEPLER_PUSH_DESPLIEGUE.md` §8. **Falta:** rol `kepler_push` + `pg_hba` + variables en cada servidor (Edgar), IP del `08` NO MEDIDA, baja en Kepler (KR.7) sin probar.
+- [ ] **[KR.12]** 🔨 **Tope diario de documentos por servidor** — 2026-10-23. `KEPLER_PUSH_MAX_DIA_NN`, default **1** (un servidor encendido sin decidir su tope deja pasar uno). Se cuenta en Kepler por la marca `RQ-`. SQL ejercido contra `md_00` vivo en sólo lectura (~100 ms) con control en ODS (13-oct = 4, esperado 4). Spec rota a propósito. ⚠️ Dos aprobaciones simultáneas pueden pasar las dos.
+- [ ] **[KR.13]** 🔨 **Rollback y pre-vuelo: `database/scripts/kepler-push-ops.js`** (revisar · listar · deshacer con respaldo exacto · restaurar) + protocolo P0–P5 en runbook §9 — 2026-10-23. Lectura probada con 10 controles (3 negativos de deshacer: doc humano, `c43=C`, `--apply` sobre ODS). ⛔ Borrar y restaurar **NO EJERCIDOS** fuera del ERP (sin base de pruebas): se ejercen en P2 sobre el canario. Medido de paso: en `md_00` el rol aún tiene `UPDATE` en `kdfolio` y no lee `pv_suc_ip`; el ODS conserva 4 encabezados fantasma de la prueba del 13-oct.
+- [ ] **[PQ.2]** ⬜ **El traspaso aprobado tiene salida aunque KR esté apagado** (cierre manual con coordenada `U-D-40`/`U-D-41`, o cancelación con motivo) — 2026-10-23. **Capa:** C2+C3 · **Depende de:** D1. **¿Escribe?** sí → prueba contra base real con el payload de la pantalla.
+- [ ] **[PQ.3]** ⬜ **El comprador captura día de visita, cadencia y lead time por proveedor; la derivada es sugerencia con su regularidad** — 2026-10-23. **Capa:** C2+C3 · **Depende de:** D5. Hoy `cadence_source='manual'` 0 de 1,049 y `lead_time_days` 0 de 1,049; sólo 221 de 886 canales de compra son regulares.
+- [x] **[PQ.4]** 🧪 **Agenda por proveedor: una fila por proveedor con cadencia, próxima fecha, sucursales que le tocan y sugerido, desde la que se arma el pedido** — 2026-10-23. **Capa:** C2+C3 · **Depende de:** D2 ✅ (PQ.3, la captura de cadencia, viene después: hoy la agenda muestra la DERIVADA y lo dice al pie). Hoy el Ciclo es por canal (1,049 filas para 301 proveedores) y recibe 7 hits en 30 d contra 3,734 de Pedido. **Hecho (2026-10-23):** endpoint `GET worklist/proveedores` (`worklistProveedores`, misma álgebra que `worklist`: mismos filtros, mismo `agg`, agrupado por proveedor: canales, vencidos, hoy, próximos 7, fecha más urgente, cadencia promedio, `sucursales_tocan` con id + código, Σ bajo reorden, Σ sugerido; 1 fila por proveedor, cabe entero); la pestaña Ciclo abre **por Proveedores** (segmentado Proveedores | Canales), «Dónde» nombra las sucursales que tocan con su atraso (nunca «01»), «Armar» deja proveedor + TODAS sus sucursales que tocan puestos en Pedido; la agenda lleva su propio contador de generación para no invalidar los KPI. ⭐ **Cruce 1 encontrado y declarado de paso:** la vista por canal pedía 500 y el encabezado contaba el total sin avisar — hoy **639 canales activos, 500 en la lista, 139 invisibles**; ahora dice «Se muestran 500 de 639» y manda a la agenda. **Verificado contra prod con el servicio real** (`test-newdb-agenda-proveedores.js`, ts-node, sólo lectura, `system_identifier 7688376744939610156`): Σ canales 639 = 639 · Σ vencidos 390 = 390 · proveedores vencidos 190 = 190 · sugerido y bajo-reorden **126 de 126 proveedores comparables al centavo** · 237 proveedores en **227 ms** (ciclo por canal: 428 ms). Pruebas de pantalla: 6 nuevas (100/100), negativas: agenda rota se declara; lista completa sin aviso de tope. `check:pantalla` 0 nuevas, plantillas y tipos verdes. ⚠️ **Sin validación visual.** ⛔ No incluye capturar cadencia/lead (PQ.3) ni la cobertura por cadencia (PQ.6).
+- [x] **[PQ.5]** 🧪 **Pedido avisa «hoy te toca pedirle a N proveedores» y lleva al Ciclo** — 2026-10-23. **Capa:** C2+C3 · **Depende de:** D2 ✅. Hoy 637 canales de compra vencidos, 24 tocan hoy, 89 en 7 d. **Hecho (2026-10-23):** `worklist` suma `prov_vencidos` / `prov_hoy` (proveedores DISTINTOS: el comprador piensa en proveedores, no en los 1,049 canales); la pestaña Pedido llama al `worklist` una vez al abrir (`via=purchase`, `pageSize=1`, sólo agregados) y pinta debajo de los KPI: «Hoy te toca pedirle a **N proveedores**: V canales vencidos · H tocan hoy · P en 7 días» con filete rojo si hay vencidos, «Hoy no le toca pedir a nadie» cuando el cero es medido, y **«no se pudo medir»** si la consulta falla (nunca «no toca nadie»); con un servidor sin el conteo de proveedores habla en canales y no inventa el N. Botón «Ver el ciclo» → pestaña Ciclo. Pruebas: 5 nuevas (94/94), negativas: consulta rota y servidor viejo. `check:pantalla` 0 nuevas, plantillas y tipos verdes. ⚠️ **Sin validación visual.** ⛔ No incluye la agenda por proveedor (PQ.4) ni mide todavía si el Ciclo se usa más: eso se lee en `ui_usage` a los 30 días.
+- [ ] **[PQ.6]** ⬜ **La cobertura por proveedor sale de cadencia + lead; 30 d sólo de respaldo** — 2026-10-23. **Capa:** C1 · **Depende de:** PQ.3, PQ.M1, D6. ⛔ **Cambia el número que se le pide al proveedor**: antes/después con la misma consulta, commit aparte.
+- [ ] **[PQ.7]** ⬜ **Un solo camino a `ordered`: la OC interna exige la coordenada de Kepler al cerrarse** — 2026-10-23. **Capa:** C1+C2 · **Depende de:** D3. Hoy 183 `ordered` sin `oc_folio` = 183 OC internas en 30 d; `oc_folio` en 0 por diseño.
+- [ ] **[PQ.8]** ⬜ **Al armar, se avisa si otro folio vivo ya pide el mismo producto al mismo proveedor y almacén** — 2026-10-23. **Capa:** C1+C3 · **Depende de:** D4. Hoy 84 grupos repetidos, 388 renglones, $3.30 M; `LOTE_REPETIDO` sólo frena el lote idéntico.
+- [ ] **[PQ.9]** ⬜ **Cancelar o rechazar exige motivo y la bandeja lo muestra** — 2026-10-23. **Capa:** C2+C3 · **Depende de:** D4. Hoy 395 canceladas por $34.72 M con `notes` del motor y ningún porqué. **¿Escribe?** sí.
+- [ ] **[PQ.10]** ⬜ **`workbook`, `transfer-suggestion` y el XLSX bajo 500 ms, o con su hueco declarado** — 2026-10-23. **Capa:** C0+C2 · **Depende de:** `[RA-UX.11b]` (es su ejecución). Hoy `workbook` 1.7–2.0 s promedio y pico 11.4 s; XLSX 10.9 s promedio, pico 121 s; `dead-stock` 16.5 s. ⛔ Antes/después con la misma consulta, commit aparte de todo cambio de negocio.
+- [ ] **[PQ.11]** ⬜ **La autorización deja de ser un segundo clic: quien creó no aprueba, y la aprobación guarda lo que se vio** — 2026-10-23. **Capa:** C1+C2+C3 · **Depende de:** D4. Hoy 863 aprobaciones en 30 d, 849 de una persona, 484 (56 %) por quien creó, mediana 20 h. ACT-APR ligero de P-COM-00; el primitivo de actas va a `libs/` o queda como deuda con nombre (ADR-056). **¿Escribe?** sí.
+- ⚠️ **Fuera de PQ, ya con item:** deploy de RA-NEG.1–3 (prod en `bc9031c72`) · `[RA-NEG.5]` índice. La jerarquía completa de los 8 hallazgos, con su item, está en el plan §3b.
+
 ### `[RQ]` — Lo que pasa DESPUÉS de generar una requisición en `/compras/pedido`
 
 > El flujo estaba construido entero y correcto; lo que no funcionaba es que **casi nada lo
@@ -12543,6 +12567,8 @@ entregada» el cuadre nunca tiene qué buscar. Firmas pendientes **D1–D5** (§
 - [x] 🧪 `[CP.8.82]` C0/C1 — **Por qué difería el armado y dos correcciones**: 89.0 % → **91.1 % (817/897)**. (1) Notas: la fuente pasaba `tipoRelacion: null` siempre (nunca devolución); ahora `TipoRelacion` del XML del CFDI (`[LC.20]`) y, sin XML, lo que ella usó antes con el proveedor (+8/−2). (2) Factura mixta 0 %/16 %: base al 16 % = IVA / 0.16, como ella (55/66 mixtas; 326/328 no mixtas) (+15/−2). Pruebas negativas a rojo (2). **Para contabilidad:** 39 facturas por **$6,455,514.30** provisionadas Y pagadas como compra directa (doble registro, 33 en abril) + 4 pagos a 2120 sin provisión. Costo servidor de la fuente +118 ms (caché 10 min); pod NO MEDIDO.
 - [ ] 🔨 `[CP.8.83]` C0 — **El universo desde el lado de la contadora** (`database/scripts/universo-egresos-contpaqi.js`): de 4,625 pólizas de egreso ene–sep 2026 el puente cubre **899 (19.4 %)**; el 91 % de `[CP.8.81]` era precisión, no cobertura — por eso se escapó la de Oscar Hernández (Mant. eq. de reparto, sin categoría). Resto: sin centro de costo 1,050 · sin movimiento de banco 717 ($76.1 M) · sin categoría 548 · a confirmar 461 ($121.0 M) · sin regla 459 · no cuadra 281 ($67.2 M). ⭐ Gasto 52xx: 1,292/1,594 con CFDI, una póliza por pago → el lote «banco × día» de gastos no es su forma; rediseñar antes de firmar reglas de gasto.
 - [x] 🧪 `[CP.8.84]` C1 — **Pagos a proveedor que no se arman solos** (876 ene–sep, `database/scripts/pagos-sin-armar-contpaqi.js`): causa #1 «ella aplicó notas» 444 / $134.2 M, y **el 60 % de sus notas tiene fecha POSTERIOR al pago** (335/557; el puente sólo buscaba hacia atrás). Ahora: notas hasta 31 días después, sin reusar las ya aplicadas, y las que el XML liga a la factura se aplican solas (27/27 ligan bien). A/B 91.0 % (820/901, +4 armadas); en «Pagos por confirmar» sus notas aparecen en 384/483 pagos (antes 175). Descartado medido: combinación de notas por importe (56 %) y armar con la sugerencia (24 %).
+- [x] 🧪 `[CP.8.85]` C0 — **Pólizas de egreso sin movimiento de banco que case** (`database/scripts/egresos-sin-banco-contpaqi.js`): 717 ($76.1 M) → **527 ($31.0 M)** al reconocer que ella AGRUPA (comisiones bancarias: una póliza por banco al cierre del mes, hasta 777 renglones; combustible por semana). Para Finanzas: faltan estados de cuenta de **Santander 2169 y 1604 de mayo 2026** (159 pólizas, $12.1 M) y Bajío 3660 de abril/junio/septiembre. Resto 368 pólizas / $18.9 M sin investigar. ⚠️ Diseño del armado de gastos: comisiones por banco × MES, no × día.
+- [ ] 🔨 `[CP.8.86]` C1 — **Rediseño del armado de gastos, medido antes de escribirlo**: la cuenta 52xx la decide el PROVEEDOR (historia del RFC 93.0 %, placebo 9.0 %; por categoría no hay regla concluyente). Simulación «gasto con factura» ene–sep 2026: arma 276 de 980 egresos de gasto con **89.1 % iguales** a la contadora; el freno es el RFC (concepto sin nombre: 468). RFC por importe +91 al 75 % (sugerir, no armar). Comisiones: banco × mes. ⚠️ Falta decisión del PM: autoridad para armar por historia del RFC (¿firma por categoría «por proveedor»?).
 
 ---
 

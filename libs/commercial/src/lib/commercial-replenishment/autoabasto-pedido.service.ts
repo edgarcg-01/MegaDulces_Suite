@@ -2,8 +2,8 @@ import { BadRequestException, Injectable, ServiceUnavailableException } from '@n
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, MX_TZ, toMxDateKey } from '@megadulces/platform-core';
 import {
-  redondearPedido,
-  aplicarMinimoMenor,
+  armarRenglon,
+  surteDe,
   coberturaAutoabasto,
   COBERTURA_AUTOABASTO,
   COBERTURA_AUTOABASTO_DEFAULT,
@@ -17,7 +17,15 @@ import {
   type AjusteLinea,
   type EscaleraUnidades,
   type AutoabastoPedidoGrupo,
-  type AutoabastoPedidoLinea,
+  type VieneBase,
+  type RenglonArmado,
+  filtrarRenglones,
+  ordenarRenglones,
+  resumirRenglones,
+  type FiltroMesa,
+  type OrdenMesa,
+  type AutoabastoMesaRenglon,
+  type AutoabastoRenglonesResponse,
   type AutoabastoPedidoResponse,
   type AutoabastoAjusteRequest,
   type AutoabastoAjusteResponse,
@@ -206,8 +214,6 @@ interface FilaPedidos { sku: string; unidad: string | null; ya_pedido: string | 
 interface FilaEnCamino { sku: string; unidad: string | null; en_camino: string | number }
 interface FilaPlan { id: string; folio: string | null; estado: string; origen: string | null; fecha: string; dias: number; monto: string | number | null; product_id: string; final_qty: string | number }
 interface FilaDoc { tipo: 'pedido' | 'embarque'; origen: string; serie: number; folio: string; estado: string; fecha: string; dias: number; monto: string | number | null; renglones: number }
-/** Lo que viene de un producto, ya en unidad BASE. */
-interface VieneSku { ya: number; atorado: number; negado: number; camino: number }
 interface FilaEscalera {
   sku: string; unit_base: string | null; u2_label: string | null; u3_label: string | null;
   f2: string | number | null; f3: string | number | null; is_weight: boolean | null;
@@ -262,7 +268,13 @@ export class AutoabastoPedidoService {
     private readonly tenantCtx: TenantContextService,
   ) {}
 
-  async pedido(almacen: { id: string; code: string; name: string }, area: string, puedeAjustar = false): Promise<AutoabastoPedidoResponse> {
+  /**
+   * `[AB.27]` Lo que «Mi pedido» y la mesa leen de UN almacén, armado una sola vez y de una sola
+   * forma: los renglones del motor, lo que ya viene, lo planeado por Compras y lo ajustado, pasados
+   * por `armarRenglon` (AB.26). Las dos pantallas salen de aquí: si una cambiara la cuenta, cambiarían
+   * las dos.
+   */
+  private async armarAlmacen(almacen: Almacen, area: string): Promise<AlmacenArmado> {
     const tenantId = this.tenantCtx.requireTenantId();
     const mesa = await this.motor.criticalStock(
       { warehouse_id: almacen.id, target_basis: 'demanda', export: true }, area,
@@ -327,10 +339,10 @@ export class AutoabastoPedidoService {
     });
 
     // `[AB.23]` Lo que viene, por producto y en BASE. Una unidad que la escalera no conoce no se suma: se cuenta.
-    const viene = new Map<string, VieneSku>();
+    const viene = new Map<string, VieneBase>();
     let sinUnidad = 0;
     const enMesa = new Set(skus);   // lo que no está en la mesa no se pinta: ni se suma ni se cuenta
-    const sumar = (sku: string, unidad: string | null, campo: keyof VieneSku, qty: number) => {
+    const sumar = (sku: string, unidad: string | null, campo: keyof VieneBase, qty: number) => {
       if (!(qty > 0) || !enMesa.has(sku)) return;
       const k = factorBaseDe(unidad, escaleras.get(sku) ?? null);
       if (k == null) { sinUnidad++; return; }
@@ -352,34 +364,14 @@ export class AutoabastoPedidoService {
       const d = planDocs.get(p.id);
       if (d) d.renglones++; else planDocs.set(p.id, { ...p, renglones: 1 });
     }
-    const grupos = new Map<string, AutoabastoPedidoGrupo>();
-    for (const f of filas) {
+    const renglones: RenglonInterno[] = filas.map((f) => {
       const sku = String(f['sku']);
       // El factor del almacén: las cantidades "_nat" vienen en unidad base, las de la mesa en cajas.
       const cf = Math.max(1, num(f['caja_factor']));
-      const p = viene.get(sku);
-      const yaBase = p?.ya ?? 0;
-      const caminoBase = p?.camino ?? 0;
-      const faltaBase = num(f['suggested_qty_nat']);
-      const netaBase = Math.max(0, faltaBase - yaBase - caminoBase);
-      const costo = numONull(f['unit_cost']);
-      // Se valúa sólo si el motor no retuvo el $ del renglón (peldaño contradicho, U.2).
-      const valuable = f['rung_veredicto'] == null && costo != null;
-      // `[AB.20]` Lo que va en unidad menor y vale menos de $200 no se pide. Sin costo confiable el
-      // mínimo no se puede revisar: el renglón se queda y se declara (`sin_costo`), no se supone.
-      // Un agotado se pide aunque no llegue al mínimo: el mínimo sólo frena bajo mínimo / bajo reorden.
-      const minimo = aplicarMinimoMenor(redondearPedido(netaBase, escaleras.get(sku) ?? null), valuable ? costo : null, String(f['bucket'] ?? ''));
-      const aPedir = minimo.redondeo;
-      // `[AB.18]` Lo que de verdad lleva el pedido: el ajuste de la persona si existe; si no, el sugerido.
       const productId = String(f['product_id']);
-      const guardado = ajustes.get(productId) ?? null;
-      const efectivoBase = guardado ? guardado.cantidad_base : aPedir.cantidad_base;
-      const efectivoCant = guardado ? guardado.cantidad : aPedir.cantidad;
-      const ajuste: AjusteLinea | null = guardado
-        ? { cantidad: guardado.cantidad, unidad: guardado.unidad, motivo: guardado.motivo, ajustado_por: guardado.ajustado_por, ajustado_at: guardado.ajustado_at }
-        : null;
-
-      const linea: AutoabastoPedidoLinea = {
+      // `[AB.26]` La cuenta del renglón vive en `libs/contracts` (`armarRenglon`). Acá sólo se le pasa
+      // lo que el servidor leyó; ninguna resta se escribe aquí.
+      return { fila: f, cf, ...armarRenglon({
         product_id: productId,
         sku,
         nombre: String(f['nombre'] ?? ''),
@@ -387,33 +379,35 @@ export class AutoabastoPedidoService {
         existencia: num(f['on_hand']),
         objetivo: numONull(f['target_qty']),
         falta: num(f['suggested_qty']),
-        ya_pedido: r1(yaBase / cf),
-        atorado: r1((p?.atorado ?? 0) / cf),
-        negado_30d: r1((p?.negado ?? 0) / cf),
-        en_camino: r1(caminoBase / cf),
-        planeado_compras: r1(planPorProducto.get(productId) ?? 0),
-        falta_neta: r1(netaBase / cf),
-        a_pedir: aPedir,
-        ajuste,
-        valor: valuable && efectivoBase > 0 ? r2(efectivoBase * (costo as number)) : null,
-        costo_base: valuable ? (costo as number) : null,
+        falta_base: num(f['suggested_qty_nat']),
+        caja_factor: cf,
+        costo_base: numONull(f['unit_cost']),
+        rung_veredicto: f['rung_veredicto'] == null ? null : String(f['rung_veredicto']),
         posicion: String(f['bucket'] ?? ''),
-        minimo_menor: minimo.estado,
-        valor_menor: minimo.valor_menor,
-      };
+        viene: viene.get(sku) ?? null,
+        planeado_compras: planPorProducto.get(productId) ?? 0,
+        escalera: escaleras.get(sku) ?? null,
+        ajuste: ajustes.get(productId) ?? null,
+        surte: surteDe(f['replenish_via'], f['source_warehouse_code'], f['supplier_id'], f['supplier_name']),
+      }) };
+    });
+    return { renglones, docs, planDocs, sinUnidad, medidos, borrador, guardable, posiciones };
+  }
 
-      const via = f['replenish_via'];
-      const origen = f['source_warehouse_code'];
-      const tipo: AutoabastoPedidoGrupo['tipo'] =
-        via === 'transfer' && origen ? 'matriz' : f['supplier_id'] ? 'proveedor' : 'sin_ruta';
-      const clave = tipo === 'matriz' ? String(origen) : tipo === 'proveedor' ? String(f['supplier_id']) : null;
+  async pedido(almacen: Almacen, area: string, puedeAjustar = false): Promise<AutoabastoPedidoResponse> {
+    const { renglones, docs, planDocs, sinUnidad, medidos, borrador, guardable, posiciones } = await this.armarAlmacen(almacen, area);
+    const grupos = new Map<string, AutoabastoPedidoGrupo>();
+    for (const { fila: f, cf, linea, efectivo_base: efectivoBase, efectivo_cantidad: efectivoCant } of renglones) {
+      const aPedir = linea.a_pedir;
+
+      const { tipo, clave, nombre } = linea.surte;
       const llave = `${tipo}:${clave ?? ''}`;
       let g = grupos.get(llave);
       if (!g) {
         g = {
           tipo,
           clave,
-          nombre: tipo === 'matriz' ? String(origen) : tipo === 'proveedor' ? String(f['supplier_name'] ?? 'Proveedor') : 'Sin ruta configurada',
+          nombre,
           lineas: [],
           renglones_a_pedir: 0,
           total_cajas: 0,
@@ -481,6 +475,55 @@ export class AutoabastoPedidoService {
       puede_ajustar: puedeAjustar,
       guardado_disponible: guardable,
       posiciones,
+    };
+  }
+
+  /**
+   * `[AB.27]` La mesa de UN almacén sobre la cuenta única: cada renglón es el de «Mi pedido» más lo
+   * que sólo la mesa muestra (mínimo, reorden, máximo, entrega). El resumen es del almacén entero y se
+   * suma con la misma regla que los grupos de «Mi pedido»; el filtro sólo recorta la lista.
+   *
+   * ⚠️ Cuesta lo mismo que «Mi pedido» (3.7 s medidos el 2026-10-12 en AB.16, sin re-medir): arma el
+   * almacén entero en cada llamada y pagina después. Bajarlo es un commit aparte (regla: optimizar no
+   * va junto con cambiar la cuenta).
+   */
+  async renglones(
+    almacen: Almacen, area: string,
+    q: FiltroMesa & { sort_by?: OrdenMesa; sort_dir?: 'asc' | 'desc'; page?: number; pageSize?: number; todos?: boolean },
+  ): Promise<AutoabastoRenglonesResponse> {
+    const { renglones, medidos } = await this.armarAlmacen(almacen, area);
+    const todos: AutoabastoMesaRenglon[] = renglones.map(({ fila: f, linea }) => ({
+      ...linea,
+      diagnostico: {
+        min_stock: num(f['min_stock']),
+        reorder_point: num(f['reorder_point']),
+        max_stock: num(f['max_stock']),
+        oc_en_camino: num(f['in_transit']),
+        venta_diaria: numONull(f['avg_daily_units']),
+        next_due_date: fechaDe(f['next_due_date']),
+        lead_time_days: numONull(f['lead_time_days']),
+        cadence_days: numONull(f['cadence_days']),
+        abc_class: f['abc_class'] == null ? null : String(f['abc_class']),
+        rung_veredicto: f['rung_veredicto'] == null ? null : String(f['rung_veredicto']),
+        sales_rank: numONull(f['sales_rank']),
+      },
+    }));
+    const lista = ordenarRenglones(filtrarRenglones(todos, q), q.sort_by ?? 'lectura', q.sort_dir ?? 'desc');
+    // `todos` = el papel: el almacén completo con el filtro, sin paginar (ya se armó entero de todos modos).
+    const pageSize = q.todos ? Math.max(1, lista.length) : Math.min(500, Math.max(1, Math.floor(Number(q.pageSize) || 50)));
+    const page = q.todos ? 1 : Math.max(1, Math.floor(Number(q.page) || 1));
+    const ahora = new Date();
+    return {
+      almacen,
+      fecha_mx: toMxDateKey(ahora),
+      hora_mx: new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(ahora),
+      cobertura_dias: coberturaAutoabasto(almacen.code),
+      pedidos_medidos: medidos,
+      total: lista.length,
+      page,
+      pageSize,
+      resumen: resumirRenglones(todos),
+      renglones: lista.slice((page - 1) * pageSize, page * pageSize),
     };
   }
 
@@ -675,4 +718,31 @@ export class AutoabastoPedidoService {
 interface FilaLinea {
   product_id: string; cantidad: string | number; unidad: string | null; cantidad_base: string | number;
   motivo: string | null; ajustado_por_username: string | null; ajustado_at: string | Date;
+}
+
+type Almacen = { id: string; code: string; name: string };
+
+/** `[AB.27]` Un renglón ya armado, con la fila del motor de la que salió y el factor de caja del almacén. */
+interface RenglonInterno extends RenglonArmado {
+  fila: Record<string, unknown>;
+  cf: number;
+}
+
+/** `[AB.27]` Lo que `armarAlmacen` deja listo para «Mi pedido» y para la mesa. */
+interface AlmacenArmado {
+  renglones: RenglonInterno[];
+  docs: FilaDoc[];
+  planDocs: Map<string, FilaPlan & { renglones: number }>;
+  sinUnidad: number;
+  medidos: boolean;
+  borrador: string | null;
+  guardable: boolean;
+  posiciones: PosicionPedido[];
+}
+
+/** Una fecha del motor como AAAA-MM-DD (el driver puede devolver `Date` o texto). `null` = sin fecha. */
+function fechaDe(v: unknown): string | null {
+  if (v == null || v === '') return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : toMxDateKey(v);
+  return String(v).slice(0, 10);
 }

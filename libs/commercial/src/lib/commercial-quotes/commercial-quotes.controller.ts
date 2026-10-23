@@ -17,6 +17,7 @@ import {
   AddLineResult,
   RemoveLineResult,
   QuoteCheck,
+  BranchStock,
 } from './quote-pricing.service';
 
 /**
@@ -150,6 +151,22 @@ export class CommercialQuotesController {
       quantity: Number(quantity) || 1,
       rung,
     });
+  }
+
+  /**
+   * [E.29] Existencia de la sucursal para la bandeja del alta, ANTES de guardar (la misma lectura
+   * que `:id/check`). ⚠️ Antes de `@Get(':id')`, por la misma razón que `summary`.
+   */
+  @Get('stock')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
+  @ApiOperation({
+    summary:
+      '[E.29] Existencia de la sucursal por SKU (unidad BASE de Kepler) y de cuándo es. Sólo lectura; base_qty null = sin dato.',
+  })
+  @ApiQuery({ name: 'branch', required: true, description: 'Sucursal Kepler (01-08).' })
+  @ApiQuery({ name: 'skus', required: true, description: 'SKUs separados por coma (hasta 200).' })
+  stock(@Query('branch') branch: string, @Query('skus') skus?: string): Promise<BranchStock> {
+    return this.pricing.stockFor(branch, (skus ?? '').split(','));
   }
 
   @Get(':id')

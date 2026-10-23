@@ -27,7 +27,7 @@ import { buildFolio } from './caja-autofill.engine';
 import { diaAnterior, inicioDelMes, primerCorteDelLibro, saldadosPorControl } from './caja-relevo';
 import {
   esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, evaluarArqueo, desgloseNeto, rankearFrecuentes,
-  esFechaFutura, reglaQueAplica, cvDe, propuestaDe, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
+  esFechaFutura, reglaQueAplica, cvDe, propuestaDe, rutaCodigo, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
   type MapaRuta, type ReglaGasto, type Confirmable, type ClaseDescuadre,
   type FilaLote, type ResumenLote, type Descuadre,
 } from './caja-lote.engine';
@@ -1659,8 +1659,12 @@ export class CashLedgerService {
         // puede demostrar que una optimización posterior no movió filas de lugar.
         .orderByRaw('fecha_captura DESC NULLS LAST, fecha_valor DESC, folio DESC, doc_tipo ASC, clave_banco ASC')
         .limit(limit)
+        // ⛔ `[CGA-A.15c]` `ruta` faltaba acá. `[CGA-A.15]` la agregó a la vista y la pantalla ya
+        // la pintaba, pero este SELECT nunca la pidió: el dato moría en el servidor y la bandeja
+        // mostraba «Caja 1-48» —el corte de la camioneta— en vez de la ruta, en 103 de 103 cobros
+        // de camioneta (medido 2026-10-23).
         .select('origen_ref', 'tipo', 'origen_tipo', 'clave_banco', 'caja_nombre', 'sucursal',
-          'doc_tipo', 'folio', 'fecha_valor', 'entidad_code', 'beneficiario', 'concepto', 'metodo', 'monto');
+          'doc_tipo', 'folio', 'fecha_valor', 'entidad_code', 'beneficiario', 'concepto', 'metodo', 'monto', 'ruta');
 
       const conCuenta = await this.resolverCuentas(trx, tenantId, rows);
       // CS.3.6 — el motor UNE solo: a cada pendiente de Kepler le pega su match del cajero (CAOS),
@@ -2158,8 +2162,14 @@ export class CashLedgerService {
   private async resolverCuentas(trx: any, tenantId: string, rows: any[]) {
     const hayIngreso = rows.some((r) => r.tipo === 'ingreso');
     const hayGasto = rows.some((r) => r.tipo !== 'ingreso');
+    const ingresos = rows.filter((r) => r.tipo === 'ingreso');
     const mapa = hayIngreso
-      ? await this.mapaDeRutas(trx, tenantId, rows.filter((r) => r.tipo === 'ingreso').map((r) => r.entidad_code))
+      ? await this.mapaDeRutas(trx, tenantId, ingresos.map((r) => r.entidad_code))
+      : new Map<string, MapaRuta>();
+    // `[CGA-A.15c]` El cobro de camioneta trae `CONTADO` como cliente y la ruta aparte: se busca
+    // por SU ruta. Sin esto caía a `sin_mapa` («ruta sin declarar») con la ruta en la misma fila.
+    const mapaPorRuta = hayIngreso
+      ? await this.mapaDeRutas(trx, tenantId, ingresos.map((r) => rutaCodigo(r.ruta)), 'route_code')
       : new Map<string, MapaRuta>();
     const reglas = hayGasto ? await this.reglasDeGasto(trx, tenantId) : [];
 
@@ -2190,7 +2200,7 @@ export class CashLedgerService {
       const v: Confirmable = r.tipo === 'ingreso'
         ? esConfirmable(
             { origen_ref: r.origen_ref, cliente_code: r.entidad_code, monto: Number(r.monto) },
-            mapa.get(String(r.entidad_code ?? '')) ?? null)
+            mapa.get(String(r.entidad_code ?? '')) ?? mapaPorRuta.get(rutaCodigo(r.ruta) ?? '') ?? null)
         : cuentaPorRegla(
             { tipo: r.tipo, glosa: r.concepto, beneficiario: r.beneficiario ?? r.entidad_code, monto: Number(r.monto) },
             reglas);
@@ -2618,15 +2628,21 @@ export class CashLedgerService {
    *
    * ⚠️ Se busca por `cliente_code` (el código del ERP) y no por `route_code`, porque es lo que el
    * cobro trae. La fila del mapa liga los dos; acá sólo se lee.
+   *
+   * `[CGA-A.15c]` Con `llave = 'route_code'` indexa por la ruta: es lo que trae el cobro de
+   * camioneta, cuyo cliente es el genérico `CONTADO`.
    */
-  private async mapaDeRutas(trx: any, tenantId: string, codigos: Array<string | null>) {
+  private async mapaDeRutas(
+    trx: Knex | Knex.Transaction, tenantId: string, codigos: Array<string | null>,
+    llave: 'cliente_code' | 'route_code' = 'cliente_code',
+  ): Promise<Map<string, MapaRuta>> {
     const lista = [...new Set(codigos.filter(Boolean).map(String))];
     const m = new Map<string, MapaRuta>();
     if (!lista.length) return m;
-    const filas = await trx('finance.route_customer_map')
-      .where('tenant_id', tenantId).whereIn('cliente_code', lista)
-      .select('cliente_code', 'confirmed_at', 'kepler_cuenta', 'kepler_concepto');
-    filas.forEach((f: any) => m.set(String(f.cliente_code), f));
+    const filas: Array<MapaRuta & { route_code: string | null }> = await trx('finance.route_customer_map')
+      .where('tenant_id', tenantId).whereIn(llave, lista)
+      .select('route_code', 'cliente_code', 'confirmed_at', 'kepler_cuenta', 'kepler_concepto');
+    filas.forEach((f) => m.set(String(f[llave]), f));
     return m;
   }
 
@@ -2674,8 +2690,10 @@ export class CashLedgerService {
       try {
         const pend = await this.tk.run(async (trx) => trx('finance.v_caja_movimientos_pendientes')
           .where({ tenant_id: tenantId, origen_ref: it.origen_ref })
+          // `[CGA-A.15c]` `ruta` también acá: `resolverCuentas()` la usa, y si la bandeja la ve y el
+          // lote no, la lista y el lote decidirían distinto sobre la misma fila.
           .first('origen_ref', 'tipo', 'origen_tipo', 'sucursal', 'clave_banco', 'doc_tipo', 'folio',
-            'fecha_valor', 'entidad_code', 'beneficiario', 'concepto', 'monto'));
+            'fecha_valor', 'entidad_code', 'beneficiario', 'concepto', 'monto', 'ruta'));
 
         if (!pend) {
           filas.push({ origen_ref: it.origen_ref, estado: 'duplicado',

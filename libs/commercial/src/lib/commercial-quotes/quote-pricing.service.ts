@@ -254,6 +254,14 @@ export interface QuoteCheckLine {
   stock: { base_qty: number; base_unit: string | null; in_line_unit: number | null; line_unit: string | null } | null;
 }
 
+/** [E.29] Existencia de una sucursal por SKU (unidad BASE de Kepler). */
+export interface BranchStock {
+  branch: string;
+  /** De cuándo es la existencia (feed kdil). null = no se supo. */
+  stock_as_of: string | null;
+  items: Array<{ sku: string; base_qty: number | null }>;
+}
+
 export interface QuoteCheck {
   quote_id: string;
   branch: string;
@@ -1327,6 +1335,41 @@ export class QuotePricingService {
    * renglón. Es lo que la pantalla usa para avisar que Kepler movió un precio, desglosar el
    * descuento y mostrar la existencia.
    */
+  /**
+   * [E.29] La existencia de la sucursal por SKU (unidad BASE de Kepler) y de cuándo es. La bandeja
+   * del alta la muestra ANTES de guardar, con la misma lectura que checkQuote: «hay 6, faltan 1»
+   * tiene que decir lo mismo antes y después de crear la cotización. Sólo lectura.
+   * base_qty null = el ERP no tiene ese SKU en la sucursal (sin dato, que no es cero).
+   */
+  async stockFor(branch: string, skus: string[]): Promise<BranchStock> {
+    const suc = (branch || '').trim();
+    if (!suc) throw new BadRequestException('Falta la sucursal.');
+    await this.scope.assertCanRead('warehouse', suc, AREA_COTIZACIONES);
+    const lista = [...new Set(skus.map((x) => (x || '').trim()).filter(Boolean))].slice(0, 200);
+    return this.tk.run(async (trx) => {
+      const { stock, al } = await this.existencia(trx, suc, lista);
+      return { branch: suc, stock_as_of: al, items: lista.map((sku) => ({ sku, base_qty: stock.get(sku) ?? null })) };
+    });
+  }
+
+  /** Existencia por SKU de UNA sucursal y la frescura del feed. La vista sin filtro tarda más de un minuto; por sucursal y SKU, ~75 ms (medido). */
+  private async existencia(trx: Knex, branch: string, skus: string[]): Promise<{ stock: Map<string, number>; al: string | null }> {
+    const stock = new Map<string, number>();
+    if (skus.length) {
+      const st = await trx.raw(
+        `SELECT sku, qty_stock_units FROM analytics.v_erp_stock_on_hand
+          WHERE warehouse_code = ? AND sku IN (${skus.map(() => '?').join(', ')})`,
+        [branch, ...skus],
+      );
+      for (const r of st.rows as Array<{ sku: string; qty_stock_units: string | number | null }>) {
+        if (r.qty_stock_units !== null) stock.set(r.sku, Number(r.qty_stock_units));
+      }
+    }
+    const fresco = await trx.raw(`SELECT dato_al FROM analytics.v_feed_freshness WHERE feed = 'kdil' LIMIT 1`);
+    const al = (fresco.rows as Array<{ dato_al: string | Date | null }>)[0]?.dato_al ?? null;
+    return { stock, al: al ? new Date(al).toISOString() : null };
+  }
+
   async checkQuote(quoteId: string): Promise<QuoteCheck> {
     return this.tk.run(async (trx) => {
       const q = await trx.raw(
@@ -1359,20 +1402,7 @@ export class QuotePricingService {
       const skus = [...new Set(filas.map((l) => l.sku).filter((x): x is string => !!x))];
       const pre = await this.precargarPrecios(trx, branch, skus);
 
-      // Existencia: la vista sin filtro tarda más de un minuto; por sucursal y SKU, ~75 ms (medido).
-      const stock = new Map<string, number>();
-      if (skus.length) {
-        const st = await trx.raw(
-          `SELECT sku, qty_stock_units FROM analytics.v_erp_stock_on_hand
-            WHERE warehouse_code = ? AND sku IN (${skus.map(() => '?').join(', ')})`,
-          [branch, ...skus],
-        );
-        for (const r of st.rows as Array<{ sku: string; qty_stock_units: string | number | null }>) {
-          if (r.qty_stock_units !== null) stock.set(r.sku, Number(r.qty_stock_units));
-        }
-      }
-      const fresco = await trx.raw(`SELECT dato_al FROM analytics.v_feed_freshness WHERE feed = 'kdil' LIMIT 1`);
-      const al = (fresco.rows as Array<{ dato_al: string | Date | null }>)[0]?.dato_al ?? null;
+      const { stock, al } = await this.existencia(trx, branch, skus);
 
       const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
       const out: QuoteCheckLine[] = [];
@@ -1421,7 +1451,7 @@ export class QuotePricingService {
         quote_id: quoteId,
         branch,
         checked_at: new Date().toISOString(),
-        stock_as_of: al ? new Date(al).toISOString() : null,
+        stock_as_of: al,
         historical: !quote.vigente,
         repriceable: !!quote.vigente && quote.status === 'draft',
         lines: out,

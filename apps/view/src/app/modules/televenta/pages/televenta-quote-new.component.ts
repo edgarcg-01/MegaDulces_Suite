@@ -6,7 +6,6 @@ import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { ProgressSpinnerModule } from 'primeng/progressspinner';
 import { TagModule } from 'primeng/tag';
-import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { AutoCompleteModule } from 'primeng/autocomplete';
@@ -36,7 +35,8 @@ import {
   desglose,
   parseCantidad,
   vendedorDelCliente,
-  etiquetaFuentePrecio,
+  descuentoDerivado,
+  existenciaEnUnidad,
   type OpcionUnidad,
   type PasoDesglose,
   type QuoteBranches,
@@ -47,6 +47,10 @@ function esPesable(it: { base_unit: string | null; rung: Rung }): boolean {
   return it.base_unit === 'KG' && it.rung === 'base';
 }
 import { totalesCotizacion } from '@megadulces/contracts';
+import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { pasosDelPrecio, explicacionDelPrecio } from '../quote-discount-breakdown';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
 /**
  * Las plazas Kepler donde se puede cotizar: el catálogo compartido `STORE_BRANCHES` menos el
@@ -82,6 +86,11 @@ export interface ItemBandeja {
   /** `[E.25]` IVA e IEPS del producto (del motor). null = sin ficha o sin precio. */
   iva_rate?: number | null;
   ieps_rate?: number | null;
+  /** `[E.29]` Precio de lista de la presentación y los pasos del precio («lista $26.94 → volumen $24.79»). */
+  list_price?: number | null;
+  pasos?: string;
+  /** `[E.29]` Qué descuento es, concreto («Precio por volumen de 10 a más PAQ»). */
+  explicacion?: string;
 }
 
 const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
@@ -101,7 +110,6 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
     ButtonModule,
     ProgressSpinnerModule,
     TagModule,
-    TableModule,
     SelectModule,
     SelectButtonModule,
     AutoCompleteModule,
@@ -112,6 +120,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
     InputIconModule,
     InputGroupModule,
     InputGroupAddonModule,
+    QuoteLinesTableComponent,
+    FreshnessPillComponent,
+    ContextHelpComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -680,13 +691,23 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
           }
       </div>
 
-      <!-- ── BLOQUE 3: La Bandeja donde se van agregando los productos ────────────────── -->
+      <!-- ── BLOQUE 3: Los renglones, tal cual se verán en la cotización ─────────────────
+           [E.29] Misma tabla que el detalle (app-quote-lines-table): existencia de hoy, lista,
+           precio, de dónde sale el descuento e importe. Lo que se ve antes de crear es lo que
+           queda guardado. -->
       <div class="card mt-card bandeja-card">
         <div class="card-head">
           <div class="card-head-left">
             <span class="step-num">3</span>
-            <h2>Bandeja</h2>
+            <h2>Renglones</h2>
+            <!-- [E.29] Qué es cada tipo de descuento: diccionario versionado (regla P), no un title. -->
+            <app-context-help topic="cotizacion-descuentos" />
             <p-tag severity="secondary" [rounded]="true" [value]="bandeja().length + (bandeja().length === 1 ? ' artículo' : ' artículos')" />
+            @if (existenciaAl(); as al) {
+              <app-freshness-pill measures="data" [since]="al" label="Existencia"></app-freshness-pill>
+            } @else if (existenciaError()) {
+              <span class="exist-error" role="status">No se pudo leer la existencia</span>
+            }
           </div>
         </div>
 
@@ -694,123 +715,16 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
           @if (bandeja().length === 0) {
             <div class="empty-bandeja">
               <i class="pi pi-shopping-cart empty-icon" aria-hidden="true"></i>
-              <p class="empty-title">La bandeja está vacía</p>
+              <p class="empty-title">Todavía no hay renglones</p>
               <p class="empty-hint">Busca productos en el paso 2 y agrégalos uno a uno.</p>
             </div>
           } @else {
-            <!-- UNA línea por renglón (COT.16): con 15 partidas cabían 7 sin scroll porque cada
-                 renglón ocupaba dos (SKU abajo y el desglose abajo del precio). rowTrackBy por id:
-                 sin él, cambiar la cantidad rehace la fila y el campo pierde el foco al teclear. -->
-            <p-table class="bandeja-table" [value]="bandeja()" dataKey="id" [rowTrackBy]="porId" [scrollable]="true">
-              <ng-template #header>
-                <tr>
-                  <th class="num">#</th>
-                  <th>Artículo</th>
-                  <th>Presentación</th>
-                  <th class="num">Cantidad</th>
-                  <th class="num">P. Unitario</th>
-                  <th>Fuente precio</th>
-                  <th class="num">Importe</th>
-                  <th><span class="sr-only">Acciones</span></th>
-                </tr>
-              </ng-template>
-              <ng-template #body let-item let-idx="rowIndex">
-                <tr [class.row-no-casado]="!item.sku">
-                  <td class="num mono">{{ idx + 1 }}</td>
-                  <td class="item-cell" [attr.title]="item.barcode ? 'EAN ' + item.barcode : null">
-                    @if (item.sku) {
-                      <strong class="item-name">{{ item.name }}</strong>
-                      <span class="item-sku">{{ item.sku }}</span>
-                    } @else {
-                      <p-tag severity="warn" value="No manejado" class="tag-no-casado" />
-                      <strong class="item-name">{{ item.requested_text }}</strong>
-                    }
-                    @if (item.free_goods) {
-                      <span class="gift-tag"><i class="pi pi-gift" aria-hidden="true"></i> Regalo: {{ item.free_goods.quantity }} de {{ item.free_goods.sku }}</span>
-                    }
-                  </td>
-                  <td>
-                    @if (item.sku) {
-                      <span class="pres-badge">{{ item.unit_label }}</span>
-                      @if (item.factor && item.factor > 1) {
-                        <span class="pres-factor">x{{ item.factor }}</span>
-                      }
-                    } @else {
-                      <span class="pres-factor">—</span>
-                    }
-                  </td>
-                  <td class="num">
-                    <p-inputgroup class="table-qty-control">
-                      <p-button
-                        icon="pi pi-minus"
-                        size="small"
-                        severity="secondary"
-                        [text]="true"
-                        (onClick)="ajustarCantidadBandeja(item, -1)"
-                        [disabled]="item.quantity <= 1 || guardando()"
-                        ariaLabel="Restar uno"
-                      />
-                      <input
-                        pInputText
-                        pSize="small"
-                        type="text"
-                        [attr.inputmode]="esPesable(item) ? 'decimal' : 'numeric'"
-                        class="table-qty-val"
-                        [value]="item.quantity"
-                        (change)="fijarCantidadBandeja(item, $any($event.target).value)"
-                        (keydown.enter)="$any($event.target).blur()"
-                        (focus)="$any($event.target).select()"
-                        [disabled]="guardando()"
-                        aria-label="Cantidad del renglón"
-                      />
-                      <p-button
-                        icon="pi pi-plus"
-                        size="small"
-                        severity="secondary"
-                        [text]="true"
-                        (onClick)="ajustarCantidadBandeja(item, 1)"
-                        [disabled]="guardando()"
-                        ariaLabel="Sumar uno"
-                      />
-                    </p-inputgroup>
-                  </td>
-                  <td class="num font-num">
-                    <span class="p-unit-main">{{ item.unit_price !== null ? (item.unit_price | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</span>
-                    @if (item.unit_price !== null) {
-                      @for (p of desgloseDe(item); track p.unidad; let ultimo = $last) {
-                        <span class="p-unit-sub-breakdown">{{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}/{{ p.unidad }}@if (!ultimo) { ·}</span>
-                      }
-                    }
-                  </td>
-                  <td>
-                    @if (item.sku) {
-                      <p-tag
-                        [severity]="item.price_source === 'volume_qty' ? 'success' : 'secondary'"
-                        [icon]="item.price_source === 'volume_qty' ? 'pi pi-bolt' : ''"
-                        [value]="fuenteLabel(item.price_source)"
-                      />
-                    } @else {
-                      <p-tag severity="secondary" value="Sin precio" />
-                    }
-                  </td>
-                  <td class="num font-num bold-num">
-                    {{ item.sku ? (item.line_total | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}
-                  </td>
-                  <td class="num">
-                    <p-button
-                      icon="pi pi-trash"
-                      size="small"
-                      severity="danger"
-                      [text]="true"
-                      (onClick)="quitarDeBandeja(item.id)"
-                      [disabled]="guardando()"
-                      ariaLabel="Quitar de la bandeja"
-                    />
-                  </td>
-                </tr>
-              </ng-template>
-            </p-table>
-
+            <app-quote-lines-table
+              [renglones]="renglonesBandeja()"
+              [bloqueado]="guardando()"
+              (cantidad)="onCantidadBandeja($event)"
+              (quitar)="quitarDeBandeja($event)"
+            />
           }
         </div>
       </div>
@@ -1219,30 +1133,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .empty-title { font-weight: 600; font-size: 0.95rem; margin: 0 0 0.2rem; color: var(--text-main); }
       .empty-hint { font-size: var(--fs-sm); margin: 0; }
 
-      /* p-table: densidad compacta (el theming pone bordes y fondo; acá sólo el aire) */
-      .bandeja-table { display: block; font-size: var(--fs-sm); }
-      .bandeja-table th { padding: 0.35rem 0.6rem; font-size: var(--fs-xs); white-space: nowrap; }
-      .bandeja-table td { padding: 0.3rem 0.6rem; vertical-align: middle; }
-      .num { text-align: right; }
-      .mono { font-family: var(--font-mono, monospace); font-size: var(--fs-xs); color: var(--text-muted); }
-      .font-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
-      .bold-num { font-weight: 700; color: var(--text-main); }
-
-      /* Bandeja de UNA línea por renglón: nombre y SKU juntos; el EAN va en el title */
-      /* min-width: sin piso, el nombre es la PRIMERA columna que cede y queda en «…» antes de que
-         la tabla haga scroll. Con piso, lo que no cabe se recorre con el scroll de p-table. */
-      .item-cell { white-space: nowrap; max-width: 0; min-width: 12rem; width: 100%; overflow: hidden; text-overflow: ellipsis; }
-      .item-name { font-size: var(--fs-sm); }
-      .item-sku { font-family: var(--font-mono, monospace); font-weight: 600; font-size: 0.7rem; color: var(--text-muted); margin-left: 0.4rem; }
-      .tag-no-casado { margin-right: 0.4rem; }
-      .row-no-casado td { background: var(--warn-soft-bg); }
-      .gift-tag { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; color: var(--info-soft-fg); margin-left: 0.4rem; font-weight: 600; }
-
-      .pres-badge { font-weight: 700; background: var(--surface-ground); padding: 1px 5px; border-radius: 4px; font-size: var(--fs-xs); }
-      .pres-factor { font-size: 0.7rem; color: var(--text-muted); margin-left: 0.25rem; }
-
-      .table-qty-control { width: auto; display: inline-flex; }
-      .table-qty-val { width: 3.5rem; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .exist-error { font-size: var(--fs-xs); color: var(--bad-fg); }
 
       /* Resumen totales bandeja */
       .rail-card { display: flex; flex-direction: column; }
@@ -1300,7 +1191,6 @@ export class TeleventaQuoteNewComponent implements OnInit {
     { label: 'Todavía no es cliente', value: 'contacto' },
   ];
   readonly incrementos = [5, 10, 25, 50, 100];
-  readonly porId = (_: number, it: ItemBandeja): string => it.id;
   readonly sucursales8: StoreBranch[] = SUCURSALES_8;
 
   // Estado del Destinatario
@@ -1365,7 +1255,6 @@ export class TeleventaQuoteNewComponent implements OnInit {
   rung = signal<Rung>('base');
   cantidadArticulo = signal<number>(1);
   /** [E.20] La cantidad admite fracción sólo si el artículo se pesa y se cotiza en su unidad base. */
-  protected readonly esPesable = esPesable;
   readonly admiteFraccion = computed(() => !!this.articuloElegido()?.sold_by_kg && this.rung() === 'base');
   /** Unidades del artículo elegido, de MENOR a MAYOR (Pieza 1 · Paquete 10 · Caja 140). */
   readonly opcionesUnidadElegido = computed<OpcionUnidad[]>(() => {
@@ -1390,6 +1279,49 @@ export class TeleventaQuoteNewComponent implements OnInit {
 
   // ── La Bandeja de productos de la cotización ───────────────────────────────
   bandeja = signal<ItemBandeja[]>([]);
+  /** [E.29] Existencia de la sucursal por SKU (unidad base). null = la consulta falló (no es «sin existencia»). */
+  readonly existencias = signal<Map<string, number | null> | null>(new Map());
+  readonly existenciaAl = signal<string | null>(null);
+  readonly cargandoExistencia = signal(false);
+  readonly existenciaError = signal(false);
+
+  /**
+   * [E.29] La bandeja como RENGLONES, igual que el detalle de una cotización guardada (misma tabla,
+   * mismas columnas: existencia, lista, precio, de dónde sale e importe).
+   */
+  readonly renglonesBandeja = computed<RenglonTabla[]>(() => {
+    const ex = this.existencias();
+    const cargando = this.cargandoExistencia();
+    return this.bandeja().map((it, i) => {
+      const base = it.sku && ex ? ex.get(it.sku) : undefined;
+      const existencia: RenglonTabla['existencia'] = !it.sku ? null
+        : base === undefined ? (cargando ? 'cargando' : null)
+        : base === null ? 'sin-dato'
+        : { ...existenciaEnUnidad(base, it.factor, it.quantity), unidad: it.unit_label };
+      return {
+        id: it.id,
+        numero: i + 1,
+        nombre: it.sku ? it.name : it.requested_text || it.name,
+        sinCasar: !it.sku,
+        regaloDe: null,
+        notaRegalo: it.free_goods ? `Regalo del ERP: ${it.free_goods.quantity} de ${it.free_goods.sku}` : null,
+        unidad: it.sku ? it.unit_label : null,
+        factor: it.factor && it.factor > 1 ? it.factor : null,
+        cantidad: it.quantity,
+        editable: true,
+        admiteFraccion: esPesable(it),
+        existencia,
+        lista: it.list_price ?? null,
+        precio: it.unit_price,
+        desglose: this.desgloseDe(it),
+        fuente: it.sku ? it.price_source : 'unknown',
+        dtoPct: descuentoDerivado(it.list_price, it.unit_price),
+        pasos: it.pasos ?? '',
+        explicacion: it.explicacion ?? '',
+        importe: it.sku ? it.line_total : null,
+      };
+    });
+  });
 
   private readonly busquedaCliente$ = new Subject<string>();
   private readonly busquedaArticulo$ = new Subject<void>();
@@ -1630,6 +1562,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     const s = val || '';
     this.sucursal.set(s);
     this.cargarVendedores(s);
+    this.revisarExistencia();
     // Al cambiar de sucursal, refrescar precio previo del artículo si hay uno seleccionado
     if (this.articuloElegido()) {
       this.previa$.next();
@@ -1858,8 +1791,12 @@ export class TeleventaQuoteNewComponent implements OnInit {
         ieps_rate: prev!.ieps_rate ?? null,
         price_source: prev!.price_source,
         free_goods: prev!.free_goods ? { sku: prev!.free_goods.sku, quantity: prev!.free_goods.quantity } : null,
+        list_price: prev!.list_price ?? null,
+        pasos: this.pasosDe(prev!),
+        explicacion: explicacionDelPrecio(prev!.applied),
       };
       this.bandeja.update((items) => [...items, item]);
+      this.revisarExistencia();
       this.toast.add({
         severity: 'success',
         summary: 'Agregado a la bandeja',
@@ -1902,6 +1839,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
       line_total: 0,
       price_source: 'unknown',
       free_goods: null,
+      list_price: null,
+      pasos: '',
     };
     this.bandeja.update((items) => [...items, item]);
     this.toast.add({ severity: 'info', summary: 'Anotado como no manejado', detail: `"${texto}" queda en la cotización sin precio.` });
@@ -1927,24 +1866,52 @@ export class TeleventaQuoteNewComponent implements OnInit {
     );
   }
 
-  ajustarCantidadBandeja(item: ItemBandeja, delta: number): void {
-    // Se parte de la cantidad ACTUAL del renglón, no de la que tenía cuando se pintó el botón:
-    // con clics rápidos, 4 × "+" sobre 8 dejaban 9 (cada clic veía el 8) — COT.16.
-    const actual = this.bandeja().find((it) => it.id === item.id);
-    if (!actual) return;
-    this.cambiarCantidadBandeja(item.id, actual.quantity + delta);
-  }
-
-  /** Cantidad tecleada en la bandeja ("mejor que sean 12"). */
-  fijarCantidadBandeja(item: ItemBandeja, valor: string): void {
+  /** Cantidad tecleada en la tabla de renglones ("mejor que sean 12"), al confirmar. */
+  onCantidadBandeja(e: CambioCantidad): void {
+    const item = this.bandeja().find((it) => it.id === e.id);
+    if (!item) return;
     // [E.20] Fracción sólo si el renglón se pesa (KG en su unidad base); «2.5» ya no es 25.
-    const n = parseCantidad(valor, esPesable(item));
+    const n = parseCantidad(e.valor, esPesable(item));
     if (n === null) {
-      // Vacío o inválido: se vuelve a pintar la cantidad que sí tiene el renglón.
-      this.bandeja.update((items) => items.map((it) => (it.id === item.id ? { ...it } : it)));
+      // Lo que no se entiende no se cambia: el campo vuelve a la cantidad que sí tiene el renglón.
+      e.input.value = String(item.quantity);
       return;
     }
     this.cambiarCantidadBandeja(item.id, n);
+  }
+
+  /** `[E.29]` Los pasos del precio como los escribe el detalle: «lista $26.94 → volumen $24.79». */
+  private pasosDe(p: PricedLine): string {
+    return pasosDelPrecio(p.applied, (n) => this.dinero(n));
+  }
+
+  /**
+   * `[E.29]` La existencia de la sucursal para los SKUs de la bandeja, ANTES de guardar: la misma
+   * lectura que el detalle (`/stock` comparte la consulta con `:id/check`). Se pide al agregar un
+   * artículo y al cambiar de sucursal; lo que falta se recalcula solo con la cantidad.
+   */
+  revisarExistencia(): void {
+    const suc = this.sucursal();
+    const skus = [...new Set(this.bandeja().map((it) => it.sku).filter(Boolean))];
+    if (!suc || !skus.length) {
+      this.existencias.set(new Map());
+      return;
+    }
+    this.cargandoExistencia.set(true);
+    this.existenciaError.set(false);
+    this.svc.stock(suc, skus).subscribe({
+      next: (r) => {
+        this.existencias.set(new Map(r.items.map((x) => [x.sku, x.base_qty])));
+        this.existenciaAl.set(r.stock_as_of);
+        this.cargandoExistencia.set(false);
+      },
+      error: () => {
+        // Error ≠ «sin existencia»: los renglones no pintan nada y la cabecera lo dice.
+        this.existencias.set(null);
+        this.existenciaError.set(true);
+        this.cargandoExistencia.set(false);
+      },
+    });
   }
 
   /**
@@ -1983,6 +1950,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
                 ieps_rate: p.ieps_rate ?? null,
                 price_source: p.price_source,
                 free_goods: p.free_goods ? { sku: p.free_goods.sku, quantity: p.free_goods.quantity } : null,
+                list_price: p.list_price ?? null,
+                pasos: this.pasosDe(p),
+                explicacion: explicacionDelPrecio(p.applied),
               };
             }),
           );
@@ -2119,8 +2089,5 @@ export class TeleventaQuoteNewComponent implements OnInit {
     return item.unit_price === null ? [] : desglose(item.unit_price, item.factor, item.base_unit, item.pack_size);
   }
 
-  fuenteLabel(s: string): string {
-    return etiquetaFuentePrecio(s);
-  }
 }
 

@@ -15,7 +15,7 @@
 
 import type jsPDFType from 'jspdf';
 import { totalesCotizacion, type QuoteTotals } from '@megadulces/contracts';
-import { desglose } from './quote-units';
+import { desglose, descuentoDerivado, definicionDescuento, etiquetaFuentePrecio } from './quote-units';
 import { PALETA_DOCUMENTO as P, rgb, argb } from '../../shared/util/paleta-documento';
 
 export type JsPDFCtor = typeof jsPDFType;
@@ -43,6 +43,8 @@ export interface QuoteDeliverableItem {
   quantity: number;
   /** Precio cotizado de la unidad (YA trae volumen/promo). null = sin precio. */
   unit_price: number | null;
+  /** `[E.29]` Precio de LISTA de la presentación: con él el papel desglosa el descuento del producto. */
+  list_price?: number | null;
   line_total: number;
   price_source?: string;
   free_goods?: { sku: string; quantity: number } | null;
@@ -122,6 +124,11 @@ export interface FilaEntregable {
   unitario: number | null;
   /** Importe que se imprime: el neto repartido (Σ = total) si hay descuento. */
   importe: number | null;
+  /** `[E.29]` Lista de la presentación y el descuento del PRODUCTO contra ella (volumen, promoción). */
+  lista: number | null;
+  dtoProducto: number | null;
+  /** Cómo salió el precio (la etiqueta de price_source: «Volumen», «Promo por cantidad»…). */
+  mecanismo: string;
 }
 
 export interface ModeloEntregable {
@@ -162,12 +169,14 @@ export function modeloEntregable(data: QuoteDeliverableData): ModeloEntregable {
   const conDescuento = totales.descuento_pct !== null;
   const filas: FilaEntregable[] = data.items.map((it, i) => {
     const tipo = tipoDe(it);
-    if (tipo !== 'precio') return { n: i + 1, item: it, tipo, unitario: null, importe: null };
+    const lista = it.list_price ?? null;
+    const mecanismo = it.price_source || '';
+    if (tipo !== 'precio') return { n: i + 1, item: it, tipo, unitario: null, importe: null, lista, dtoProducto: null, mecanismo };
     const importe = conDescuento ? (totales.netos[i] as number) : Number(it.line_total) || 0;
     const unitario = conDescuento
       ? (it.quantity > 0 ? importe / it.quantity : null)
       : it.unit_price;
-    return { n: i + 1, item: it, tipo, unitario, importe };
+    return { n: i + 1, item: it, tipo, unitario, importe, lista, dtoProducto: descuentoDerivado(lista, it.unit_price), mecanismo };
   });
   // `[E.29]` `AAAA-MM-DD` (lo que manda el servidor) se lee en hora LOCAL: `new Date(iso)` es la
   // medianoche UTC, que en México todavía es el día ANTERIOR, y el papel imprimía la emisión un
@@ -179,6 +188,19 @@ export function modeloEntregable(data: QuoteDeliverableData): ModeloEntregable {
     : data.estado === 'vencida' ? 'COTIZACIÓN VENCIDA'
     : 'COTIZACIÓN FORMAL';
   return { conDescuento, filas, totales, emision, titulo, alerta: data.estado === 'cancelada' || data.estado === 'vencida' };
+}
+
+/**
+ * `[E.29]` La columna «Descuento» del papel, renglón por renglón, como la pantalla: el del PRODUCTO
+ * contra su lista («Volumen −7.98 %») y, si el cliente tiene %, el suyo («Cliente −3 %»). Sin
+ * ninguno, una raya: el precio es el de lista.
+ */
+export function etiquetaDescuento(f: FilaEntregable, m: ModeloEntregable): string[] {
+  if (f.tipo !== 'precio') return ['—'];
+  const out: string[] = [];
+  if (f.dtoProducto) out.push(`${f.mecanismo || 'Descuento'} −${f.dtoProducto}%`);
+  if (m.conDescuento && m.totales.descuento_pct) out.push(`Cliente −${m.totales.descuento_pct}%`);
+  return out.length ? out : ['—'];
 }
 
 /** Lo que va en la columna de precio unitario: el precio y, si es unidad mayor, su desglose. */
@@ -263,6 +285,18 @@ export function condiciones(data: QuoteDeliverableData, m: ModeloEntregable): st
   if (data.paymentDays !== null && data.paymentDays !== undefined && Number.isFinite(Number(data.paymentDays))) {
     const d = Number(data.paymentDays);
     out.push(d > 0 ? `Plazo de pago: ${d} días de crédito.` : 'Plazo de pago: de contado (sin días de crédito).');
+  }
+  // `[E.29]` Qué es cada descuento que aparece en ESTA cotización (sólo los que aparecen), con la
+  // misma definición que la ayuda de la pantalla (TIPOS_DE_DESCUENTO).
+  const presentes = new Set<string>();
+  for (const f of m.filas) {
+    if (f.tipo === 'precio' && f.dtoProducto && f.mecanismo) presentes.add(f.mecanismo);
+    if (f.tipo === 'regalo' || f.item.free_goods) presentes.add(etiquetaFuentePrecio('free_goods'));
+  }
+  if (m.conDescuento) presentes.add(etiquetaFuentePrecio('customer_terms'));
+  for (const etiqueta of presentes) {
+    const def = definicionDescuento(etiqueta);
+    if (def) out.push(`${etiqueta}: ${def}`);
   }
   if (m.totales.sin_precio > 0) {
     out.push(`${m.totales.sin_precio} artículo(s) sin precio: se cotizan aparte y no están en el total.`);
@@ -612,43 +646,38 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
 
   const hasDiscount = m.conDescuento;
 
-  const head = hasDiscount
-    ? [['#', 'SKU', 'Descripción del artículo', 'Presentación', 'Cant.', 'Descuento', 'P. Unitario Neto', 'Importe Neto']]
-    : [['#', 'SKU', 'Descripción del artículo', 'Presentación', 'Cant.', 'P. Unitario', 'Importe']];
+  // `[E.29]` Como la pantalla: la LISTA y de dónde sale el descuento en cada renglón (producto y,
+  // si lo hay, cliente). Con descuento del cliente el precio y el importe son NETOS (su parte
+  // repartida: la columna suma el total de abajo, E.19).
+  const head = [[
+    '#', 'SKU', 'Descripción del artículo', 'Pres.', 'Cant.', 'P. Lista', 'Descuento',
+    hasDiscount ? 'P. Unit. Neto' : 'P. Unitario', hasDiscount ? 'Importe Neto' : 'Importe',
+  ]];
 
-  const columnStyles = hasDiscount
-    ? {
-        0: { halign: 'center' as const, cellWidth: 18 },
-        1: { fontStyle: 'bold' as const, cellWidth: 44 },
-        2: { cellWidth: 'auto' as const },
-        3: { halign: 'center' as const, cellWidth: 46 },
-        4: { halign: 'right' as const, fontStyle: 'bold' as const, cellWidth: 28 },
-        5: { halign: 'center' as const, fontStyle: 'bold' as const, textColor: cInk, cellWidth: 42 },
-        6: { halign: 'right' as const, fontStyle: 'bold' as const, cellWidth: 92 },
-        7: { halign: 'right' as const, fontStyle: 'bold' as const, textColor: cInk, cellWidth: 62 },
-      }
-    : {
-        0: { halign: 'center' as const, cellWidth: 22 },
-        1: { fontStyle: 'bold' as const, cellWidth: 50 },
-        2: { cellWidth: 'auto' as const },
-        3: { halign: 'center' as const, cellWidth: 55 },
-        4: { halign: 'right' as const, fontStyle: 'bold' as const, cellWidth: 35 },
-        5: { halign: 'right' as const, fontStyle: 'bold' as const, cellWidth: 92 },
-        6: { halign: 'right' as const, fontStyle: 'bold' as const, textColor: cInk, cellWidth: 68 },
-      };
+  const columnStyles = {
+    0: { halign: 'center' as const, cellWidth: 16 },
+    1: { fontStyle: 'bold' as const, cellWidth: 38 },
+    2: { cellWidth: 'auto' as const },
+    3: { halign: 'center' as const, cellWidth: 34 },
+    4: { halign: 'right' as const, fontStyle: 'bold' as const, cellWidth: 26 },
+    5: { halign: 'right' as const, textColor: cMuted, cellWidth: 46 },
+    6: { fontSize: 6.5, textColor: cInk, cellWidth: 62 },
+    7: { halign: 'right' as const, fontStyle: 'bold' as const, cellWidth: 84 },
+    8: { halign: 'right' as const, fontStyle: 'bold' as const, textColor: cInk, cellWidth: 56 },
+  };
 
-  // `[E.19]` Las filas salen del modelo: el descuento de la columna es el del CLIENTE (el único
-  // que el papel aplica), y el neto es su parte repartida — la columna suma el total de abajo.
   const tableBody = m.filas.map((f) => {
     const it = f.item;
     let descripcion = it.name;
     if (it.content) descripcion += ` (${it.content})`;
     if (it.barcode) descripcion += `\nEAN: ${it.barcode}`;
     if (it.free_goods) descripcion += `\nRegalo ERP: ${it.free_goods.quantity} de ${it.free_goods.sku}`;
-    const base = [f.n, it.sku, descripcion, it.unit_label, it.quantity.toLocaleString('es-MX')];
-    return hasDiscount
-      ? [...base, f.tipo === 'precio' ? `${m.totales.descuento_pct}%` : '—', etiquetaUnitario(f), etiquetaImporte(f)]
-      : [...base, etiquetaUnitario(f), etiquetaImporte(f)];
+    return [
+      f.n, it.sku, descripcion, it.unit_label, it.quantity.toLocaleString('es-MX'),
+      f.tipo === 'precio' && f.lista !== null ? moneyFormat(f.lista) : '—',
+      etiquetaDescuento(f, m).join('\n'),
+      etiquetaUnitario(f), etiquetaImporte(f),
+    ];
   });
 
   autoTable(doc, {
@@ -821,6 +850,10 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
     { key: 'name', width: hasDiscount ? 38 : 42 },
     { key: 'unit', width: 13 },
     { key: 'qty', width: 10 },
+    // `[E.29]` El desglose del descuento, como la pantalla: lista, mecanismo y % del producto.
+    { key: 'list', width: 12 },
+    { key: 'mecanismo', width: 18 },
+    { key: 'dtoProd', width: 11 },
     ...(hasDiscount ? [{ key: 'dto', width: 11 }] : []),
     { key: 'price', width: 15 },
     { key: 'desglose', width: 26 },
@@ -940,7 +973,10 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
     name: 'Descripción del Artículo',
     unit: 'Presentación',
     qty: 'Cantidad',
-    dto: 'Descuento',
+    list: 'P. Lista',
+    mecanismo: 'Precio de',
+    dtoProd: 'Desc. producto',
+    dto: 'Desc. cliente',
     price: hasDiscount ? 'P. Unitario Neto' : 'P. Unitario',
     desglose: 'Precio por unidad menor',
     total: hasDiscount ? 'Importe Neto' : 'Importe',
@@ -983,12 +1019,16 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
       name: it.name + (it.content ? ` (${it.content})` : ''),
       unit: it.unit_label,
       qty: it.quantity,
+      list: f.tipo === 'precio' ? f.lista : null,
+      mecanismo: f.tipo === 'precio' ? f.mecanismo : '',
+      dtoProd: f.tipo === 'precio' && f.dtoProducto !== null ? f.dtoProducto / 100 : null,
       dto: f.tipo === 'precio' && m.totales.descuento_pct !== null ? m.totales.descuento_pct / 100 : null,
       price: conPrecio ? f.unitario : null,
       desglose: desgloseTxt,
       // El regalo es un cero REAL; lo sin precio queda vacío (no es cero, ADR-056).
       total: f.tipo === 'regalo' ? 0 : f.importe,
-      notes: it.free_goods ? `Regalo ERP: ${it.free_goods.quantity} de ${it.free_goods.sku}` : (it.price_source || ''),
+      // El mecanismo ya tiene su columna («Precio de»): acá sólo lo que el ERP regala.
+      notes: it.free_goods ? `Regalo ERP: ${it.free_goods.quantity} de ${it.free_goods.sku}` : '',
     };
     const row = ws.getRow(rowIdx);
     row.values = columnas.map((c) => valores[c.key] ?? null);
@@ -1002,6 +1042,11 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
     celda('qty').alignment = { horizontal: 'right' };
     // Con decimales sólo si los hay: «#,##0» mostraba 2.5 kg como 3.
     celda('qty').numFmt = '#,##0.###';
+    celda('list').alignment = { horizontal: 'right' };
+    celda('list').numFmt = '$#,##0.00';
+    celda('list').font = { color: { argb: argb(P.tintaSecundaria) } };
+    celda('dtoProd').alignment = { horizontal: 'center' };
+    celda('dtoProd').numFmt = '0.##%';
     if (hasDiscount) {
       celda('dto').alignment = { horizontal: 'center' };
       celda('dto').numFmt = '0.##%';

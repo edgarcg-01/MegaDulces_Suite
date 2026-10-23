@@ -7,6 +7,7 @@
  * Sólo Latin-1: las fuentes estándar de jsPDF (Helvetica) no traen flechas ni símbolos.
  */
 import type jsPDFType from 'jspdf';
+import { PALETA_DOCUMENTO as P, rgb } from '../../shared/util/paleta-documento';
 
 export type JsPDFCtor = typeof jsPDFType;
 export type AutoTableFn = (doc: jsPDFType, options: Record<string, unknown>) => void;
@@ -14,13 +15,18 @@ export type AutoTableFn = (doc: jsPDFType, options: Record<string, unknown>) => 
 export const EMPRESA = 'MEGA DULCES DE LOS ALTOS';
 export const LOGO_URL = 'assets/logos/mega-dulces-logo-print.png';
 
-// Paleta sobria (Stone de DESIGN.md) + el sunset de acción sólo en la raya del título.
-export const INK: [number, number, number] = [28, 25, 23];       // stone-900
-export const MUTED: [number, number, number] = [120, 113, 108];  // stone-500
-export const RULE: [number, number, number] = [231, 229, 228];   // stone-200
-export const HEAD: [number, number, number] = [68, 64, 60];      // stone-700
-export const ZEBRA: [number, number, number] = [245, 245, 244];  // stone-100
-export const ACTION: [number, number, number] = [240, 90, 40];   // --action #F05A28
+// La paleta de TODOS los documentos de la suite ([E.29] paleta-documento.ts). Antes eran hex Stone a mano
+// (familia retirada de DESIGN.md el 2026-09-14) y el naranja iba como TEXTO en el título de la caja y en
+// el total, donde da 3.39:1. La marca queda en el logo y en un filete de 1 pt; lo demás es tinta.
+export const INK = rgb(P.tinta);
+export const MUTED = rgb(P.tintaSecundaria);
+export const RULE = rgb(P.regla);
+export const HEAD = rgb(P.tintaSecundaria);
+export const ZEBRA = rgb(P.fondoSuave);
+/** Encabezado de tabla: claro y con texto en tinta (un relleno oscuro gasta tóner y no agrega jerarquía). */
+export const TH = rgb(P.encabezado);
+/** SÓLO para trazos (el filete del encabezado). Como texto chico no cumple AA. */
+export const ACTION = rgb(P.marca);
 export const M = 36;
 
 export const money = (v: number) =>
@@ -102,7 +108,7 @@ export function dibujarEncabezado(doc: jsPDFType, logo: string | null, e: Encabe
   const bw = 220, bx = W - M - bw;
   doc.setDrawColor(...RULE); doc.setFillColor(...ZEBRA);
   doc.roundedRect(bx, y - 6, bw, 54, 4, 4, 'FD');
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...ACTION);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...INK);
   doc.text(doc.splitTextToSize(e.cajaTitulo, bw - 20)[0], bx + 10, y + 8);
   let ly = y + 21;
   if (e.cajaTitulo2) {
@@ -112,7 +118,7 @@ export function dibujarEncabezado(doc: jsPDFType, logo: string | null, e: Encabe
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...MUTED);
   e.cajaLineas.slice(0, e.cajaTitulo2 ? 2 : 3).forEach((l, i) => doc.text(doc.splitTextToSize(l, bw - 20)[0], bx + 10, ly + i * 11));
 
-  doc.setDrawColor(...ACTION); doc.setLineWidth(1.5); doc.line(M, y + 58, W - M, y + 58);
+  doc.setDrawColor(...ACTION); doc.setLineWidth(1); doc.line(M, y + 58, W - M, y + 58);
   doc.setLineWidth(0.5);
   return y + 72;
 }
@@ -214,7 +220,7 @@ export function dibujarPies(doc: jsPDFType, etiqueta: string, datosAl: Date | nu
 export const tablaBase = {
   margin: { left: M, right: M }, theme: 'grid',
   styles: { fontSize: 8.5, cellPadding: 4, textColor: INK, lineColor: RULE, lineWidth: 0.5 },
-  headStyles: { fillColor: HEAD, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+  headStyles: { fillColor: TH, textColor: INK, fontStyle: 'bold', fontSize: 8 },
 };
 /** Alinea a la derecha el título y el total de las columnas numéricas (DESIGN, regla D.0). */
 export const alinearTitulos = (cols: number[]) =>

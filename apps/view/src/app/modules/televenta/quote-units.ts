@@ -181,7 +181,7 @@ export function vendedorDelCliente<V extends { code: string }>(codigo: string | 
  */
 export const FUENTE_PRECIO: Record<string, string> = {
   list: 'Lista',
-  customer_terms: 'Condiciones del cliente',
+  customer_terms: 'Descuento del cliente',
   volume_qty: 'Volumen',
   volume_amount: 'Volumen por monto',
   promo_qty: 'Promo por cantidad',
@@ -193,4 +193,61 @@ export const FUENTE_PRECIO: Record<string, string> = {
 
 export function etiquetaFuentePrecio(s: string | null | undefined): string {
   return s ? FUENTE_PRECIO[s] ?? s : '';
+}
+
+/**
+ * `[E.29]` Qué es cada tipo de descuento, en palabra llana. UNA fuente para la ayuda de la pantalla
+ * (`cotizacion-descuentos` en el diccionario) y la leyenda del papel: las dos no pueden explicarlo
+ * distinto. Anclado a lo medido (VERDAD_ABSOLUTA §34, ERP_KEPLER §2.7), no a lo que el nombre sugiere.
+ * El término es la etiqueta de `FUENTE_PRECIO`, la misma que se ve en la columna «De dónde sale».
+ */
+export const TIPOS_DE_DESCUENTO: ReadonlyArray<{ clave: string; def: string }> = [
+  { clave: 'list', def: 'El precio de la presentación en la sucursal, sin descuento. Es el que se cobra cuando no aplica ningún volumen ni promoción.' },
+  { clave: 'volume_qty', def: 'Precio más bajo por comprar más de la MISMA presentación: Kepler fija rangos (por ejemplo, de 10 paquetes en adelante) y cobra el del rango en que cae la cantidad. Cuenta por presentación: 36 paquetes no reciben el precio de 3 cajas; para eso se capturan en caja.' },
+  { clave: 'promo_qty', def: 'Promoción vigente en Kepler para esa presentación: un porcentaje sobre el precio, a partir de la cantidad que fija la promoción y hasta su fecha de fin.' },
+  { clave: 'free_goods', def: 'Al pedir cierta cantidad, Kepler regala otro producto. El regalo va en su propio renglón, a precio cero.' },
+  { clave: 'customer_terms', def: 'El porcentaje del cliente en esa sucursal (su ficha en Kepler). No cambia el precio de cada renglón: se resta del total, como lo hace Kepler. En el papel, precio e importe ya salen netos.' },
+  { clave: 'volume_amount', def: 'Descuento de Kepler por monto de compra. La cotización todavía no lo aplica: su regla no se ha podido comprobar contra lo que Kepler cobra, así que se declara en vez de calcularse.' },
+  { clave: 'promo_amount', def: 'Promoción de Kepler por monto de compra. Igual que el volumen por monto: se declara, todavía no se aplica.' },
+  { clave: 'unknown', def: 'El producto no tiene precio en esa sucursal o no se encontró en el catálogo. No suma al total: se cotiza aparte.' },
+];
+
+/** `[E.29]` La definición de un tipo de descuento por su ETIQUETA (lo que viaja al papel). */
+export function definicionDescuento(etiqueta: string): string | null {
+  const t = TIPOS_DE_DESCUENTO.find((x) => FUENTE_PRECIO[x.clave] === etiqueta);
+  return t ? t.def : null;
+}
+
+/** [E.29] El tono de la etiqueta de cada fuente (mismo en el alta y el detalle). */
+export const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'secondary'> = {
+  list: 'secondary',
+  volume_qty: 'info',
+  volume_amount: 'info',
+  promo_qty: 'success',
+  promo_amount: 'success',
+  free_goods: 'success',
+  unknown: 'warn',
+};
+
+export function tonoFuentePrecio(s: string | null | undefined): 'success' | 'info' | 'warn' | 'danger' | 'secondary' {
+  return (s && FUENTE_TONO[s]) || 'secondary';
+}
+
+/**
+ * [E.29] El descuento del renglón contra su lista, en %. La MISMA cuenta que el servidor en
+ * getOne (round((lista − precio) / lista × 100, 2)): antes de guardar y después dice lo mismo.
+ * null = sin lista o sin precio (no es 0 %).
+ */
+export function descuentoDerivado(lista: number | null | undefined, precio: number | null | undefined): number | null {
+  if (lista === null || lista === undefined || !(lista > 0) || precio === null || precio === undefined) return null;
+  return Math.round(((lista - precio) / lista) * 100 * 100) / 100;
+}
+
+/**
+ * [E.29] La existencia de la sucursal (viene en la unidad BASE de Kepler) en la unidad del
+ * renglón, y cuánto falta para surtir la cantidad pedida. Misma regla que checkQuote.
+ */
+export function existenciaEnUnidad(baseQty: number, factor: number | null | undefined, cantidad: number): { cantidad: number; faltan: number } {
+  const hay = factor && factor > 0 ? Math.round((baseQty / factor) * 100) / 100 : baseQty;
+  return { cantidad: hay, faltan: Math.max(0, Math.round((cantidad - hay) * 100) / 100) };
 }

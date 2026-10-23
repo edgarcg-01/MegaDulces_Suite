@@ -1322,3 +1322,21 @@ Candado: 18 aserciones (7 nuevas sobre la pantalla), **mutado a rojo** quitando 
 
 ⚠️ Mi extractor del candado volvió a nacer mal: `indexOf('guardarOc(')` agarraba la aparición del
 **template** (`(keyup.enter)="guardarOc()"`) en vez del método. Anclado a la definición.
+
+
+---
+
+## RA-MED — Medición previa al motor (2026-10-23) ✅ medido · ⬜ RA-MED.3–6
+
+Brief de Edgar: *cómo influyen los pedidos (mejor, normal o peor) vs sugerido, y si las requisiciones
+son idénticas en costos e información a las de Kepler, para que no haya información inventada de
+nuestro lado.* Medido en prod, sólo lectura, con placebo donde aplica:
+**[`MEDICION_RA_SUGERIDO_Y_CUADRE_KEPLER_2026-10-23.md`](MEDICION_RA_SUGERIDO_Y_CUADRE_KEPLER_2026-10-23.md)**.
+
+- 1,008 renglones de compra: **499 mejor · 199 peor · 91 igual · 219 sin medir** contra la salida
+  posterior; el sugerido dejaba **1.6 d** de cobertura, lo pedido **10.2 d**, objetivo **19 d**; **51.8 %
+  de los renglones nacieron con sugerido 0**.
+- Compras contra Kepler: cuando hay documento, **392 de 399 renglones al centavo**; cantidad y costo
+  sólo difieren de unidad (`c58`). `c16` trae IVA. Traspasos: **11.9 % contra placebo 2.9 %** — no es el
+  mismo documento.
+- Deuda con nombre: la línea de requisición **no guarda la base del sugerido** (`[RA-MED.3]`).

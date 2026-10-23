@@ -3,7 +3,7 @@ import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import { MonthlySalesResponse, OcDetalleDto, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
-import { CommercialReplenishmentService, CreateRequisitionDto, LoteRequisicionesCreado, parseSoloQuedado, ReceiveRequisitionDto } from './commercial-replenishment.service';
+import { CommercialReplenishmentService, CreateRequisitionDto, LoteRequisicionesCreado, parseSoloQuedado, ReceiveRequisitionDto, WorklistProveedoresResponse } from './commercial-replenishment.service';
 import { ReplenishmentExportService, PedidoExport } from './replenishment-export.service';
 
 const REQ_ESTADO_LABEL: Record<string, string> = {
@@ -433,6 +433,21 @@ export class CommercialReplenishmentController {
     return this.svc.worklist({ warehouse_id, warehouse_ids, via, status, search, target_basis, category_id, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
+  @Get('worklist/proveedores')
+  @RequirePermissions(Permission.COMPRAS_PEDIDO_VER)
+  @ApiOperation({ summary: '[PQ.4] La agenda: una fila por PROVEEDOR (cuándo toca, en qué sucursales, sugerido sumado). Mismos filtros y misma álgebra que worklist.' })
+  worklistProveedores(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('warehouse_ids') warehouse_ids?: string,
+    @Query('via') via?: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('target_basis') target_basis?: string,
+    @Query('category_id') category_id?: string,
+  ): Promise<WorklistProveedoresResponse> {
+    return this.svc.worklistProveedores({ warehouse_id, warehouse_ids, via, status, search, target_basis, category_id });
+  }
+
   // ⚠️ `requisitions/batches` va ANTES que `requisitions/:id`: con el orden al revés, Nest casa
   // 'batches' como un id y devuelve 400. Es el mismo error que la Fase LC pagó con `no-asociados`.
   @Get('requisitions/batches')
@@ -449,17 +464,18 @@ export class CommercialReplenishmentController {
 
   @Get('requisitions')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_VER)
-  @ApiOperation({ summary: '[RQ.9] Lista de requisiciones. Filtros: estado, warehouse_id, source_type, batch_id (los documentos de un lote) y search (folio, proveedor o folio de lote).' })
+  @ApiOperation({ summary: '[RQ.9] Lista de requisiciones. Filtros: estado, warehouse_id, source_type, batch_id (los documentos de un lote), search (folio, proveedor o folio de lote) y kepler=sin_documento ([PQ.1] aprobadas sin documento en el ERP).' })
   listRequisitions(
     @Query('estado') estado?: string,
     @Query('warehouse_id') warehouse_id?: string,
     @Query('source_type') source_type?: string,
     @Query('batch_id') batch_id?: string,
     @Query('search') search?: string,
+    @Query('kepler') kepler?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.listRequisitions({ estado, warehouse_id, source_type, batch_id, search, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.listRequisitions({ estado, warehouse_id, source_type, batch_id, search, kepler, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('requisitions/:id')

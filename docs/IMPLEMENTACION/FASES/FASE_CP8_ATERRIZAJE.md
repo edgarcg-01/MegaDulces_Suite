@@ -1079,3 +1079,40 @@ falta uno nuevo.
     - Armar con la sugerencia: acierta 24 % en general, y 50–75 % por origen.
 
     Esos pagos se quedan en confirmación.
+- **2026-10-22** — `[CP.8.85]` **Pólizas sin movimiento de banco que case**
+  (`database/scripts/egresos-sin-banco-contpaqi.js`, solo lectura). Se revisó renglón por renglón: 10,994 de
+  18,556 renglones de banco no casaban a ±3 días. Tres causas:
+  1. ⭐ **Ella agrupa:**
+     - **Comisiones bancarias:** UNA póliza por banco al cierre del mes («PAGO COMISIONES BBVA 4885» del 31/08 lleva
+       777 renglones). 25 pólizas de BBVA, 14 de Santander, 6 de Banorte.
+     - **Combustible:** por semana (128 pólizas).
+
+     El movimiento existe, pero con otra fecha. Con la ventana «del día 1 del mes a la fecha de la póliza» para las
+     pólizas que agrupan, las pólizas sin banco bajan de **717 ($76.1 M) a 527 ($31.0 M)**.
+
+     ⚠️ **Para el diseño del armado de gastos:** las comisiones van por banco × MES, no por banco × día.
+  2. **Faltan estados de cuenta en Bancos (para Finanzas):**
+     - Santander 2169 y Santander 1604 no tienen **mayo 2026**: 159 pólizas, $12.1 M.
+     - Bajío 3660 no tiene abril, junio ni septiembre.
+  3. **Resto:** 368 pólizas, $18.9 M en nueve meses (32–57 al mes), sin investigar a fondo. El más grande es un pago
+     de capital e intereses de $4.83 M en agosto.
+- **2026-10-23** — `[CP.8.86]` **Rediseño del armado de gastos, medido antes de escribirlo**
+  (`gasto-por-rfc-contpaqi.js`, `simula-gasto-con-factura-contpaqi.js`, solo lectura).
+  - ⭐ **La cuenta de un gasto la decide el PROVEEDOR, no la categoría del banco.** Base: 3,447 pólizas de gasto
+    52xx de 2025–2026.
+    - «La cuenta 52xx que ese RFC usó antes» acierta **1,328 de 1,428 (93.0 %)**; el placebo (la cuenta de otro
+      RFC) da 9.0 %.
+    - El 94.9 % de las pólizas de cada RFC cae en su cuenta más usada.
+    - Por categoría, `[CP.8.18]` dejó la mayoría sin regla concluyente.
+  - **Forma:** una póliza por pago con las facturas en 1,970 casos; agrupadas en 812.
+  - **Simulación del armado** (ene–sep 2026; 980 egresos que para ella son gasto de una pata). Pasos: RFC por el
+    concepto, facturas por importe (una, o la única combinación de 2 a 4), cuenta por historia del RFC, IVA e IEPS
+    de las facturas.
+    - Arma **276; iguales 246 (89.1 %)**, la misma precisión que los pagos a proveedor.
+    - No arma: sin RFC en el concepto 468 · varias facturas por el mismo importe 85 · ninguna factura cuadra 78 ·
+      RFC sin historia 37 · combinación ambigua 36. Las facturas con retención no se arman: se declaran.
+    - **RFC por importe** (la única factura de cualquier proveedor por ese importe): 91 más, 68 iguales (75 %).
+      Placebo: 9. Sirve para sugerir, no para armar.
+  - **Comisiones bancarias:** van por banco × MES (`[CP.8.85]`), otra forma.
+  - **Decisión pendiente del PM:** con qué autoridad se arma un gasto por historia del RFC. Por ejemplo, que el
+    contador firme la categoría como «por proveedor» una vez, como ya es `compra_mercancia`.

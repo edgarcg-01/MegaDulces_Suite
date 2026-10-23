@@ -44,6 +44,36 @@ const arg = (nombre) => {
  * 1. LA PLANTILLA — una sola, con los CUATRO bloques. No hay snippet que pegar.
  * ──────────────────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * ⭐ `[RC.6]` El cuerpo del carril de cobros vive UNA sola vez. Lo usan la plantilla completa
+ * (como subrutina `:cobros`) y el residente autónomo (`--solo-cobros`). Duplicarlo sería repetir
+ * el defecto que `[CGA-A.12]` cierra: dos copias del mismo bloque que nadie compara.
+ */
+const CUERPO_COBROS = `%PSQL% -d "%DST%" -v ON_ERROR_STOP=1 -c "DELETE FROM ingest.route_collections_stg WHERE truck='%TRUCK%'" 2>>"%LOG%"
+
+REM  enable_nestloop=off, medido en ruta_28 el 2026-10-22: el planificador estimaba 1 fila en
+REM  kdm5 (salian 12,529) y recorria las 73 mil cabeceras de kdm1 UNA VEZ POR COBRO --
+REM  76 s y 8 M de bloques por vuelta, todo en memoria. Con hash join son milisegundos.
+REM  Es de la sesion: los dos -c van por la misma conexion y no toca nada del Kepler.
+REM  -q es OBLIGATORIO: sin el, el "SET" que imprime el primer -c entra a la tuberia como
+REM  primera fila del CSV y el runner rechaza el lote entero ("missing data for column
+REM  almacen", ruta_28, 17:21). -q calla las etiquetas; los datos del \\copy salen igual.
+%PSQL% -d "%SRC%" -q -v ON_ERROR_STOP=1 -c "set enable_nestloop=off" -c "\\copy (select '%TRUCK%', btrim(h.c1::text), btrim(h.c6::text), h.c9::date, btrim(h.c45::text), btrim(a.c8::text)||'-'||btrim(a.c9::text)||'-'||btrim(a.c10::text), btrim(a.c11::text), a.c12::numeric, btrim(a.c14::text) from md.kdm5 a join md.kdm1 h on btrim(h.c1::text)=btrim(a.c1::text) and btrim(h.c2::text)=btrim(a.c2::text) and btrim(h.c3::text)=btrim(a.c3::text) and btrim(h.c4::text)=btrim(a.c4::text) and btrim(h.c5::text)=btrim(a.c5::text) and btrim(h.c6::text)=btrim(a.c6::text) where btrim(a.c2::text)='U' and btrim(a.c3::text)='A' and btrim(a.c4::text)='5' and btrim(h.c1::text)=regexp_replace(current_database(),'^md_','') and h.c9 >= current_date - %DAYS%) to stdout csv" | %PSQL% -d "%DST%" -v ON_ERROR_STOP=1 -c "\\copy ingest.route_collections_stg (truck,almacen,cobro_folio,fecha,cuenta,doc_tipo,folio_corte,importe,referencia) from stdin csv" 2>>"%LOG%"
+
+REM  El conteo se captura para poder callar cuando no movio nada. Sale a archivo
+REM  y se lee de ahi: for /f con comillas invertidas NO se usa -- este archivo lo
+REM  genera una plantilla de JavaScript y un acento grave la cerraria.
+set N=
+%PSQL% -d "%DST%" -tAc "SELECT ingest.merge_route_collections('%TRUCK%')" > %TMPN% 2>>"%LOG%"
+for /f "delims=" %%n in (%TMPN%) do set N=%%n
+if "%N%"=="" (
+  echo [%date% %time%] ERROR cobros %TRUCK%: el merge no devolvio nada >> "%LOG%"
+  exit /b 1
+)
+if "%1"=="1" echo [%date% %time%] merge cobros -^> %N% filas >> "%LOG%"
+if not "%1"=="1" if not "%N%"=="0" echo [%date% %time%] merge cobros -^> %N% filas >> "%LOG%"
+exit /b 0`;
+
 function plantilla({ truck, serie, dias }) {
   return `@echo off
 REM ============================================================================
@@ -111,6 +141,36 @@ set TRUCK=${truck}
 set DAYS=${dias}
 set ROUTE_SERIE=${serie}
 
+REM ===========================================================================
+REM  [RC.6] MODO DE CORRIDA — el carril de COBROS se separa de los otros dos.
+REM
+REM    push-ruta.cmd                -> los tres bloques, UNA vez   (tarea cada 15 min)
+REM    push-ruta.cmd cobros         -> solo el bloque 3, UNA vez   (a mano / diagnostico)
+REM    push-ruta.cmd cobros-residente -> solo el bloque 3, en bucle cada COBRO_SEG
+REM
+REM  Por que separados, medido en el runner el 2026-10-22:
+REM
+REM    mart.ventas       3,585,356 filas vivas  ·  274.5 M borradas de por vida
+REM                      1,881,645 muertas AHORA  ·  10 GB para 3.6 M filas
+REM    mart.cobros_ruta        240 filas vivas  ·        8,826 borradas  ·  200 kB
+REM
+REM  El merge de ventas BORRA la ventana entera y la reinserta en cada empuje: ya
+REM  va en 76 veces el tamano vivo de su tabla. Bajar ESE carril a un minuto es
+REM  multiplicar por 15 la reescritura de una tabla de 10 GB, y el autovacuum no
+REM  alcanza. El de cobros son 15 filas: correrlo cada 20 s no se nota.
+REM
+REM  ⚠️ Y lo que este modo NO arregla: si el vendedor todavia no capturo su cobro
+REM  en Kepler, no hay documento que viajar. Medido en ruta_26 el 2026-10-22 --
+REM  empujo puntual cada 15 min y su cobro del dia no existia. Esto acorta el
+REM  TRANSPORTE, no la captura.
+REM ===========================================================================
+set MODO=%1
+if "%MODO%"=="" set MODO=full
+REM  20 s y no 1 s: por debajo de eso el costo deja de ser el merge y pasa a ser
+REM  abrir cuatro conexiones psql contra el Kepler que el vendedor esta usando.
+set COBRO_SEG=20
+set TMPN=C:\\KeplerPush\\n_%TRUCK%.tmp
+
 REM  ⛔ [VL.7.6] EL RUNNER ES ${RUNNER_HOST} (el servidor Linux \`md\`), NO 192.168.0.249.
 REM  El :5433 de .249 sobrevive como reenvio TCP, asi que una van mal dada de alta FUNCIONA
 REM  y por eso el error no se ve. Alta nueva => ${RUNNER_HOST} directo.
@@ -126,6 +186,9 @@ REM ============================================================================
 if not defined PSQL echo [%date% %time%] ERROR: psql.exe no encontrado >> "%LOG%"
 if not defined PSQL goto :eof
 
+REM  [RC.6] El residente no pasa por el precheck de una sola vez: se reintenta solo.
+if /i "%MODO%"=="cobros-residente" goto :residente
+
 REM 0) PRECHECK: el runner responde? Si no, salir rapido (se reintenta al reconectar).
 %PSQL% -d "%DST%" -tAc "select 1" >nul 2>&1
 if errorlevel 1 (
@@ -133,6 +196,14 @@ if errorlevel 1 (
   goto :eof
 )
 echo [%date% %time%] --- ONLINE, push %TRUCK% (serie %ROUTE_SERIE%) --- >> "%LOG%"
+
+REM  [RC.6] Solo cobros, una vez.
+if /i "%MODO%"=="cobros" (
+  call :cobros 1
+  echo [%date% %time%] OK %TRUCK% ^(solo cobros^) >> "%LOG%"
+  endlocal
+  goto :eof
+)
 
 REM ===========================================================================
 REM  BLOQUE 1 — VENTAS
@@ -190,16 +261,111 @@ REM
 REM  NO se filtra por cuenta: van los de caja (0011) y los de banco (2169). La
 REM  cuenta viaja en su columna y se separa del otro lado.
 REM ===========================================================================
-%PSQL% -d "%DST%" -v ON_ERROR_STOP=1 -c "DELETE FROM ingest.route_collections_stg WHERE truck='%TRUCK%'" 2>>"%LOG%"
-
-%PSQL% -d "%SRC%" -v ON_ERROR_STOP=1 -c "\\copy (select '%TRUCK%', btrim(h.c1::text), btrim(h.c6::text), h.c9::date, btrim(h.c45::text), btrim(a.c8::text)||'-'||btrim(a.c9::text)||'-'||btrim(a.c10::text), btrim(a.c11::text), a.c12::numeric, btrim(a.c14::text) from md.kdm5 a join md.kdm1 h on btrim(h.c1::text)=btrim(a.c1::text) and btrim(h.c2::text)=btrim(a.c2::text) and btrim(h.c3::text)=btrim(a.c3::text) and btrim(h.c4::text)=btrim(a.c4::text) and btrim(h.c5::text)=btrim(a.c5::text) and btrim(h.c6::text)=btrim(a.c6::text) where btrim(a.c2::text)='U' and btrim(a.c3::text)='A' and btrim(a.c4::text)='5' and btrim(h.c1::text)=regexp_replace(current_database(),'^md_','') and h.c9 >= current_date - %DAYS%) to stdout csv" | %PSQL% -d "%DST%" -v ON_ERROR_STOP=1 -c "\\copy ingest.route_collections_stg (truck,almacen,cobro_folio,fecha,cuenta,doc_tipo,folio_corte,importe,referencia) from stdin csv" >> "%LOG%" 2>&1
-
-echo [%date% %time%] merge cobros -^> filas: >> "%LOG%"
-%PSQL% -d "%DST%" -tAc "SELECT ingest.merge_route_collections('%TRUCK%')" >> "%LOG%" 2>&1
+call :cobros 1
 
 echo [%date% %time%] OK %TRUCK% >> "%LOG%"
 
 endlocal
+goto :eof
+
+REM ===========================================================================
+REM  [RC.6] RESIDENTE DE COBROS — arranca con la maquina y no termina nunca.
+REM
+REM  Tarea programada: "Al iniciar el equipo" + "Si la tarea ya se esta
+REM  ejecutando, no iniciar una nueva instancia" + reiniciar si falla.
+REM
+REM  ⛔ NO lleva precheck de una sola vez: si el runner no contesta, la vuelta
+REM  siguiente lo intenta de nuevo. Un residente que se cierra al primer corte de
+REM  red deja de existir sin que nadie lo note -- que es el mismo modo de fallar
+REM  que [CGA-A.13] documenta para el carril entero.
+REM
+REM  ⚠️ Y NO escribe una linea por vuelta: a 20 s serian ~4,300 vueltas por dia y
+REM  el log se vuelve ilegible justo cuando hace falta leerlo. Solo deja rastro
+REM  cuando el merge movio filas o cuando algo fallo.
+REM ===========================================================================
+:residente
+echo [%date% %time%] --- RESIDENTE de cobros arriba (cada %COBRO_SEG% s) --- >> "%LOG%"
+:residente_vuelta
+%PSQL% -d "%DST%" -tAc "select 1" >nul 2>&1
+if not errorlevel 1 call :cobros 0
+REM  ping y no timeout: el comando timeout necesita consola y una tarea programada no la
+REM  tiene -- falla con "redireccion de entrada no admitida" y el bucle gira en
+REM  vacio a toda velocidad.
+ping -n %COBRO_SEG% 127.0.0.1 >nul 2>&1
+goto :residente_vuelta
+
+REM ===========================================================================
+REM  BLOQUE 3 (subrutina) — COBROS UA0501  [RC.2]
+REM    %%1 = 1 -> deja rastro siempre   ·   %%1 = 0 -> solo si movio filas
+REM ===========================================================================
+:cobros
+${CUERPO_COBROS}
+`;
+}
+
+/**
+ * ⭐ `[RC.6]` **El residente de cobros como archivo APARTE.** Se despliega al lado del
+ * `push-ruta.cmd` que ya corre, sin tocarlo: el archivo que funciona no se edita en caliente —
+ * el 2026-10-22 un parche sobre el `.cmd` vivo de la 504 lo dejó en 0 bytes. Éste es nuevo,
+ * no reemplaza nada, y si falla el carril de 15 min sigue entero.
+ *
+ * Lleva sus propias credenciales porque las del otro archivo viven dentro de él, fuera del repo.
+ */
+function plantillaCobros({ truck, dias }) {
+  return `@echo off
+REM ============================================================================
+REM  SOLO-COBROS v1 -- RESIDENTE. GENERADO, NO ESCRITO A MANO.
+REM
+REM    node database/importers/kepler/route-push/armar-push-camioneta.js \\
+REM         --truck ${truck} --dias ${dias} --solo-cobros
+REM
+REM  Copiar a C:\\KeplerPush\\push-cobros.cmd (FUERA del repo: lleva credenciales),
+REM  llenar los <CLAVE_...> y registrar la tarea:
+REM
+REM    schtasks /Create /TN "KeplerPush-Cobros" /SC ONSTART /RU SYSTEM /RL HIGHEST ^
+REM      /TR "C:\\KeplerPush\\push-cobros.cmd" /F
+REM    schtasks /Run /TN "KeplerPush-Cobros"
+REM
+REM  Corre el bloque de COBROS cada COBRO_SEG segundos, para siempre. NO toca
+REM  ventas ni existencia: esas siguen en push-ruta.cmd cada 15 min. Por que
+REM  separados: mart.ventas lleva 274 M filas borradas sobre 3.6 M vivas (10 GB);
+REM  reescribirla cada 20 s la revienta. mart.cobros_ruta son 15 filas y 200 kB.
+REM
+REM  ⚠️ Esto acorta el TRANSPORTE. Si el vendedor no capturo el cobro en Kepler,
+REM  no hay documento que viajar (ruta_26, 2026-10-22).
+REM ============================================================================
+setlocal
+set PGCLIENTENCODING=UTF8
+
+set PSQL=
+if exist "C:\\Program Files\\PostgreSQL\\18\\bin\\psql.exe" set PSQL="C:\\Program Files\\PostgreSQL\\18\\bin\\psql.exe"
+if not defined PSQL if exist "C:\\Program Files\\PostgreSQL\\17\\bin\\psql.exe" set PSQL="C:\\Program Files\\PostgreSQL\\17\\bin\\psql.exe"
+if not defined PSQL if exist "C:\\Program Files\\PostgreSQL\\16\\bin\\psql.exe" set PSQL="C:\\Program Files\\PostgreSQL\\16\\bin\\psql.exe"
+if not defined PSQL if exist "C:\\Program Files\\PostgreSQL\\15\\bin\\psql.exe" set PSQL="C:\\Program Files\\PostgreSQL\\15\\bin\\psql.exe"
+if not defined PSQL if exist "C:\\Program Files\\PostgreSQL\\14\\bin\\psql.exe" set PSQL="C:\\Program Files\\PostgreSQL\\14\\bin\\psql.exe"
+
+set TRUCK=${truck}
+set DAYS=${dias}
+set COBRO_SEG=20
+set TMPN=C:\\KeplerPush\\n_%TRUCK%.tmp
+
+set SRC=postgresql://postgres:<CLAVE_LOCAL>@localhost:5432/<DB_LOCAL>?connect_timeout=5
+set DST=postgresql://postgres:<CLAVE_RUNNER>@${RUNNER_HOST}:${RUNNER_PORT}/kepler_consolidado?connect_timeout=5
+set LOG=C:\\KeplerPush\\push_%TRUCK%_cobros.log
+
+if not defined PSQL echo [%date% %time%] ERROR: psql.exe no encontrado >> "%LOG%"
+if not defined PSQL goto :eof
+
+echo [%date% %time%] --- RESIDENTE de cobros arriba (cada %COBRO_SEG% s) --- >> "%LOG%"
+:vuelta
+%PSQL% -d "%DST%" -tAc "select 1" >nul 2>&1
+if not errorlevel 1 call :cobros 0
+REM  ping y no timeout: timeout necesita consola y una tarea programada no la tiene.
+ping -n %COBRO_SEG% 127.0.0.1 >nul 2>&1
+goto :vuelta
+
+:cobros
+${CUERPO_COBROS}
 `;
 }
 
@@ -216,6 +382,17 @@ const REGLAS = [
   { id: 'ventas', texto: 'manda VENTAS', ok: (s) => /route_sales_stg/.test(s) && /merge_route_sales/.test(s) },
   { id: 'existencia', texto: 'manda EXISTENCIA', ok: (s) => /route_stock_stg/.test(s) && /merge_route_stock/.test(s) },
   { id: 'cobros', texto: 'manda COBROS', ok: (s) => /route_collections_stg/.test(s) && /merge_route_collections/.test(s) },
+  {
+    /**
+     * ⭐ `[RC.6]` El carril de cobros tiene que poder correr SOLO. Sin esto, bajar su latencia
+     * obliga a bajar la de ventas, y eso multiplica por 15 la reescritura de una tabla de 10 GB
+     * (medido: `mart.ventas` ya lleva 274 M borrados de por vida sobre 3.6 M filas vivas).
+     */
+    id: 'cobros_separable',
+    texto: 'el carril de COBROS se puede correr solo y en residente',
+    ok: (s) => /:cobros\b/.test(s) && (/cobros-residente/.test(s) || /^REM\s+SOLO-COBROS/m.test(s)),
+    duele: 'sin esto, acortar la latencia del cobro arrastra a ventas y existencia',
+  },
   {
     id: 'filtro_almacen',
     texto: 'el bloque de cobros filtra por ALMACÉN propio',
@@ -296,7 +473,12 @@ function variablesHuerfanas(s) {
 function verificar(texto, etiqueta) {
   console.log(`\n[CGA-A.12] Verificando ${etiqueta}\n`);
   let malas = 0;
-  for (const r of REGLAS) {
+  // `[RC.6]` El residente autónomo no lleva ventas ni existencia a propósito: se juzga por lo
+  // que es, no por lo que el archivo completo tiene. `cobros_separable` sí le aplica.
+  const soloCobros = /^REM\s+SOLO-COBROS/m.test(texto);
+  const reglas = soloCobros ? REGLAS.filter((r) => !['ventas', 'existencia'].includes(r.id)) : REGLAS;
+  if (soloCobros) console.log('  (archivo SOLO-COBROS: no se le exige ventas ni existencia)\n');
+  for (const r of reglas) {
     if (r.ok(texto)) { console.log(`  ✓ ${r.texto}`); continue; }
     malas++;
     console.log(`  ✗ ${r.texto}`);
@@ -324,12 +506,20 @@ function selfTest() {
 
   const sano = corre(bueno);
   if (sano.length) fallas.push(`la plantilla propia incumple: ${sano.join(', ')}`);
+  // `[RC.6]` El residente aparte pasa todo menos ventas/existencia, que no lleva a propósito.
+  const residente = plantillaCobros({ truck: 'ruta_21', dias: 15 });
+  const sanoR = corre(residente).filter((id) => !['ventas', 'existencia'].includes(id));
+  if (sanoR.length) fallas.push(`el residente SOLO-COBROS incumple: ${sanoR.join(', ')}`);
+  if (!/^REM\s+SOLO-COBROS/m.test(residente)) fallas.push('el residente no se identifica como SOLO-COBROS');
 
   /** Cada mutación rompe UNA cosa, y tiene que salir esa y no otra. */
   const casos = [
     ['cobros', bueno.replace(/route_collections_stg/g, 'route_collections_XXX')
                     .replace(/merge_route_collections/g, 'merge_route_XXX')],
     ['filtro_almacen', bueno.replace(/regexp_replace\(current_database\(\)[^)]*\)[^ ]*/, "'01-005'")],
+    // ⭐ `[RC.6]` Volver a fundir el bloque de cobros con los otros dos: el defecto que este
+    // modo cierra. Sin la subrutina no hay forma de correrlo solo.
+    ['cobros_separable', bueno.replace(/:cobros\b/g, ':cobrosXX').replace(/cobros-residente/g, 'XX')],
     ['conexion', bueno.replace(/^set SRC=/m, 'set LOCAL_CONN=')],
     ['runner', bueno.replace(/192\.168\.0\.222/g, '192.168.0.249')],
     ['timeout', bueno.replace(/\?connect_timeout=5/g, '')],
@@ -347,7 +537,9 @@ function selfTest() {
 
   console.log('');
   if (fallas.length) { for (const f of fallas) console.log(`  ✗ ${f}`); console.log(''); return 1; }
-  console.log('✓ prueba negativa: la plantilla propia pasa las 8 reglas, y las 6 mutaciones caen.\n');
+  // ⚠️ Los dos conteos SALEN de los datos: escritos a mano quedaron viejos al agregar `[RC.6]`
+  // y el self-test publicaba «8 reglas / 6 mutaciones» corriendo 9 y 7.
+  console.log(`✓ prueba negativa: la plantilla propia pasa las ${REGLAS.length} reglas, y las ${casos.length} mutaciones caen.\n`);
   return 0;
 }
 
@@ -364,13 +556,64 @@ if (aVerificar) {
 
 const truck = arg('--truck');
 const serie = arg('--serie');
-if (!truck || !serie) {
+const soloCobros = process.argv.includes('--solo-cobros');
+if (!truck || (!serie && !soloCobros)) {
   console.error('uso: --truck ruta_21 --serie UD1001 [--dias 15] [--salida <archivo>]');
+  console.error('     --truck ruta_21 --solo-cobros [--dias 15] [--salida <archivo>]   (residente aparte)');
   console.error('     --verificar <archivo.cmd>   |   --self-test');
   process.exit(1);
 }
 const dias = Number(arg('--dias') || 15);
-const texto = plantilla({ truck, serie, dias });
+let texto = soloCobros ? plantillaCobros({ truck, dias }) : plantilla({ truck, serie, dias });
+
+/**
+ * ⭐ `[RC.6]` `--ps1`: el residente envuelto en UN bloque de PowerShell para pegar por VNC en la
+ * laptop. No pide teclear claves: **lee las dos líneas de conexión del `push-ruta.cmd` que ya
+ * corre ahí** y las copia al archivo nuevo. `push-ruta.cmd` sólo se LEE — el 2026-10-22 un parche
+ * sobre el archivo vivo de la 504 lo dejó en 0 bytes, y no se repite.
+ */
+if (process.argv.includes('--ps1')) {
+  if (!soloCobros) { console.error('--ps1 sólo aplica con --solo-cobros'); process.exit(1); }
+  const b64 = Buffer.from(texto, 'utf8').toString('base64');
+  texto = [
+    `# Correr EN LA LAPTOP de ${truck}, PowerShell como administrador. Generado por armar-push-camioneta.js --ps1`,
+    '# No toca push-ruta.cmd: solo LEE sus dos lineas de conexion.',
+    '$ErrorActionPreference = "Stop"',
+    `$b64 = "${b64}"`,
+    '$nuevo = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))',
+    '$viejo = Get-Content C:\\KeplerPush\\push-ruta.cmd',
+    // ⛔⛔ Medido el 2026-10-22, 17:04: el instalador de ruta_26 se pegó en la laptop de ruta_22.
+    // Durante 4 minutos el runner recibió los cobros de la 22 etiquetados como 26 — 21 filas,
+    // 07-oct → hoy — y prod los leyó en vivo. La laptop SABE quién es (su push-ruta.cmd dice
+    // `set TRUCK=`): se compara ANTES de escribir nada.
+    `$yo = (($viejo | Where-Object { $_ -match "^set TRUCK=" }) | Select-Object -First 1) -replace "^set TRUCK=", ""`,
+    `if ($yo -and $yo.Trim() -ne "${truck}") { throw "ESTA laptop es $($yo.Trim()), y este instalador es de ${truck}. No se escribio nada." }`,
+    `if (-not $yo) { "AVISO: push-ruta.cmd no declara set TRUCK=; no se pudo confirmar que esta laptop sea ${truck}" }`,
+    '$lSrc = ($viejo | Where-Object { $_ -match "^set (SRC|LOCAL_CONN)=" }) | Select-Object -First 1',
+    '$lDst = ($viejo | Where-Object { $_ -match "^set (DST|RUNNER_CONN)=" }) | Select-Object -First 1',
+    'if (-not $lSrc -or -not $lDst) { throw "push-ruta.cmd no tiene set SRC=/set DST= (ni LOCAL_CONN/RUNNER_CONN)" }',
+    '$src = "set SRC=" + ($lSrc -replace "^set \\w+=", "")',
+    '$dst = "set DST=" + ($lDst -replace "^set \\w+=", "")',
+    '$pSrc = ($nuevo -split "\\r?\\n" | Where-Object { $_ -like "set SRC=*" }) | Select-Object -First 1',
+    '$pDst = ($nuevo -split "\\r?\\n" | Where-Object { $_ -like "set DST=*" }) | Select-Object -First 1',
+    '$nuevo = $nuevo.Replace($pSrc, $src).Replace($pDst, $dst)',
+    // Sólo el CÓDIGO: el REM de cabecera dice «llenar los <CLAVE_...>» y la primera versión se
+    // frenó sola en la laptop de la 22 por leer su propio comentario.
+    'if (($nuevo -split "\\r?\\n" | Where-Object { $_ -notmatch "^\\s*REM" }) -match "<CLAVE_") { throw "quedo un <CLAVE_...> sin llenar" }',
+    '[IO.File]::WriteAllText("C:\\KeplerPush\\push-cobros.cmd", $nuevo, [Text.Encoding]::ASCII)',
+    '"escrito C:\\KeplerPush\\push-cobros.cmd (" + (Get-Item C:\\KeplerPush\\push-cobros.cmd).Length + " bytes)"',
+    // ⛔ ONSTART + SYSTEM no lanzó nada en la laptop de la 22 (2026-10-22): la tarea quedó
+    // «Listo» y el residente nunca escribió su primera línea. ONLOGON con el usuario de la
+    // sesión —el mismo que corre la tarea `\RutaNN` de 15 min— sí arranca, y `Start-Process`
+    // lo levanta ya mismo sin esperar un reinicio.
+    'schtasks /Create /TN "KeplerPush-Cobros" /SC ONLOGON /RU $env:USERNAME /RL HIGHEST /TR "C:\\KeplerPush\\push-cobros.cmd" /F',
+    'Start-Process cmd -ArgumentList "/c C:\\KeplerPush\\push-cobros.cmd" -WindowStyle Hidden',
+    'Start-Sleep -Seconds 30',
+    '"--- ultimas lineas del log ---"',
+    `Get-Content C:\\KeplerPush\\push_${truck}_cobros.log -Tail 5`,
+    'schtasks /Query /TN "KeplerPush-Cobros" /FO LIST | Select-String "Estado|Status"',
+  ].join('\r\n');
+}
 const salida = arg('--salida');
 if (salida) {
   fs.writeFileSync(path.resolve(salida), texto);

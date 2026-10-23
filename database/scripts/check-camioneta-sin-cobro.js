@@ -70,6 +70,17 @@ const COBRO_RANCIO_H = 36;
  * encima — la 504 con 21 días, las vecinales con 15, la 501 con 8.
  */
 const DATO_RANCIO_D = 3;
+/**
+ * `[RC.6]` El carril de cobros ya no espera 15 min: cada laptop corre un RESIDENTE que empuja
+ * cada 20 s (`push-cobros.cmd`). Si la laptop está en línea (la venta empujó hace poco) y el
+ * latido de cobros tiene más de esto, el residente se cayó o nunca se instaló.
+ *
+ * Pedido de Edgar el 2026-10-22, con la ruta 26 esperando: «15 minutos de espera nadie los
+ * hace». Por eso esto es ROJO y no aviso: una unidad sin residente es el incidente de vuelta.
+ */
+const RESIDENTE_RANCIO_MIN = 3;
+/** Más de esto sin venta = la laptop no está en línea; no se le puede exigir residente. */
+const EN_LINEA_MIN = 20;
 
 const horas = (t) => (t ? (Date.now() - new Date(t).getTime()) / 3.6e6 : null);
 const edad = (h) => (h == null ? 'nunca' : h < 1 ? `${Math.round(h * 60)} min` : h < 48 ? `${h.toFixed(1)} h` : `${Math.round(h / 24)} d`);
@@ -136,6 +147,8 @@ function clasificar(r) {
   if (hv == null || hv > VENTA_FRESCA_H) return 'dormida';      // no mandó venta: otro problema
   if (hc == null) return 'sin_cablear';                          // venta fresca, cobro NUNCA
   if (hc > COBRO_RANCIO_H) return 'carril_caido';                // venta fresca, cobro rancio
+  // `[RC.6]` Laptop en línea y el cobro sin latir hace > 3 min: el residente de 20 s no está.
+  if (hv * 60 <= EN_LINEA_MIN && hc * 60 > RESIDENTE_RANCIO_MIN) return 'sin_residente';
   // `[CGA-A.13b]` Empuja puntual, pero lo que manda es viejo. El caso de la 504.
   const dv = dias(r.dato_venta);
   const dc = dias(r.dato_cobro);
@@ -150,6 +163,7 @@ const ROTULO = {
   carril_caido: '⛔ CARRIL CAÍDO',
   sin_cablear: '⛔ SIN CABLEAR',
   dato_rancio: '⛔ EMPUJA DATO VIEJO',
+  sin_residente: '⛔ SIN RESIDENTE (cobro a 15 min)',
   fuera_inventario: '⛔ FUERA DEL INVENTARIO',
   dormida: '·  dormida',
 };
@@ -188,7 +202,7 @@ async function leer(c, join, dato) {
   return filas;
 }
 
-const ROTO = ['sin_cablear', 'carril_caido', 'dato_rancio', 'fuera_inventario'];
+const ROTO = ['sin_cablear', 'carril_caido', 'dato_rancio', 'fuera_inventario', 'sin_residente'];
 
 async function main(c, dato) {
   const filas = await leer(c, 'LEFT', dato);
@@ -252,6 +266,13 @@ async function main(c, dato) {
     console.log('   unidad y la ventana `--dias` con que se generó su archivo.');
   }
 
+  const sinRes = filas.filter((r) => r.estado === 'sin_residente');
+  if (sinRes.length) {
+    console.log(`\n⛔ ${sinRes.length} unidad(es) EN LÍNEA SIN RESIDENTE de cobros: ${sinRes.map((r) => r.truck).join(', ')}`);
+    console.log(`   Su cobro espera hasta 15 min. Instalar en la laptop (por VNC, un solo pegado):`);
+    console.log('   node database/importers/kepler/route-push/armar-push-camioneta.js --truck <ruta> --solo-cobros --ps1');
+  }
+
   if (fuera.length) {
     console.log(`\n⛔ ${fuera.length} unidad(es) NO están en el inventario del runner: ${fuera.map((r) => r.truck).join(', ')}`);
     console.log('   Tienen dato en prod y ninguna fila de latido, así que para esta compuerta no');
@@ -308,6 +329,14 @@ async function selfTest(c, dato) {
       { venta_ok: ahora, cobro_ok: ahora, dato_medido: true, dato_venta: hoyD, dato_cobro: hoyD }],
     ['dato viejo pero SIN medir prod', 'al_dia',
       { venta_ok: ahora, cobro_ok: ahora, dato_medido: false, dato_venta: null, dato_cobro: null }],
+    // `[RC.6]` Laptop en línea (venta hace 5 min) y cobro hace 10 min: no hay residente.
+    ['en línea, cobro late hace 10 min', 'sin_residente',
+      { venta_ok: new Date(Date.now() - 5 * 60e3).toISOString(), cobro_ok: new Date(Date.now() - 10 * 60e3).toISOString(),
+        dato_medido: true, dato_venta: hoyD, dato_cobro: hoyD }],
+    // Y el mismo caso con la laptop fuera de línea (venta hace 2 h) NO se juzga: no se puede.
+    ['fuera de línea, cobro hace 10 min', 'al_dia',
+      { venta_ok: new Date(Date.now() - 2 * 3600e3).toISOString(), cobro_ok: new Date(Date.now() - 10 * 60e3).toISOString(),
+        dato_medido: true, dato_venta: hoyD, dato_cobro: hoyD }],
     ['sin latido, con dato en prod', 'fuera_inventario',
       { fuera_inventario: true, venta_ok: null, cobro_ok: null, dato_medido: true, dato_venta: viejo, dato_cobro: null }],
   ];

@@ -55,6 +55,11 @@ export interface CorteCajaDto {
   respuesta: string | null;
   /** `[CGS.17]` La nota con la que se autorizó: obligatoria si hubo diferencia. */
   authorization_note: string | null;
+  /** `[CGS.52]` Por qué no tiene esperado, conteo o diferencia. `null` = no falta nada. */
+  sin_medir_motivo: string | null;
+  /** `[CGS.52]` Si sus cifras se recalcularon después de firmar: el porqué y cuándo (ISO). */
+  recalculo_motivo: string | null;
+  recalculado_at: string | null;
 }
 
 const num = (v: unknown): number | null => {
@@ -103,7 +108,64 @@ export function aCorteCajaDto(r: Record<string, unknown>): CorteCajaDto {
     responded_at: instante(r['responded_at']),
     respuesta: txt(r['respuesta']),
     authorization_note: txt(r['authorization_note']),
+    sin_medir_motivo: txt(r['sin_medir_motivo']),
+    recalculo_motivo: txt(r['recalculo_motivo']),
+    recalculado_at: instante(r['recalculado_at']),
   };
+}
+
+/**
+ * ⭐⭐ `[CGS.52]` **Lo que quedó en caja y la diferencia son DOS cosas, y se dicen por separado.**
+ *
+ * PM, 2026-10-23: *«diferencia vs lo que quedó en caja es diferente. Debemos ser claros y no
+ * confundir al supervisor»*. Medido ese día: los cortes del 15, 16, 17 y 21-oct publicaban «sobra»
+ * entre $49k y $245k porque su «debería haber» salía NEGATIVO — y con el esperado bajo cero la resta
+ * sale positiva SIEMPRE, así que se leía un sobrante donde lo que había era un libro que no cuadra.
+ *
+ *  · **Quedó en caja** = el conteo físico. Un hecho: con eso arranca el día siguiente.
+ *  · **Debería haber** = la cuenta del libro. Negativa es imposible en una caja física: se dice
+ *    «no calculable» con cuánto excede el libro, nunca se pinta como cifra.
+ *  · **Diferencia** = sólo si las dos existen y la cuenta tiene sentido.
+ *
+ * Vive acá porque la leen DOS pantallas (la lista de cortes y Arqueos): dos lecturas del mismo corte
+ * divergen. `fmt` lo pone quien pinta; `difPublicada` deja pasar la diferencia que corrigieron los
+ * testigos (`[CGS.36]`) sin que esta función tenga que saber de ellos.
+ */
+export interface LecturaCorte {
+  quedo: { texto: string; sub: string | null; medido: boolean };
+  deberia: { texto: string; sub: string | null; medido: boolean };
+  dif: { texto: string; sub: string | null; tono: 'ok' | 'bad' | 'dim' };
+}
+export function leerCorte(
+  c: { contado: number | null; esperado: number | null; diferencia: number | null; fondo_inicial: number | null; sin_medir_motivo: string | null },
+  fmt: (n: number) => string,
+  /** `atestiguada` = los testigos la confirmaron o corrigieron: sólo entonces vale con esperado negativo. */
+  difPublicada?: { valor: number | null; nota: string | null; atestiguada: boolean } | null,
+): LecturaCorte {
+  const quedo = c.contado !== null
+    ? { texto: fmt(c.contado), sub: null, medido: true }
+    : { texto: c.sin_medir_motivo ? 'sin conteo físico' : 'sin contar', sub: null, medido: false };
+  const deberia = c.esperado === null
+    ? { texto: 'sin medir', sub: c.fondo_inicial === null ? 'no se sabe con cuánto arrancó' : null, medido: false }
+    : c.esperado < 0
+      ? { texto: 'no calculable', sub: `el libro trae ${fmt(-c.esperado)} más de salidas que de dinero`, medido: false }
+      : { texto: fmt(c.esperado), sub: null, medido: true };
+  let dif: LecturaCorte['dif'];
+  const valor = difPublicada ? difPublicada.valor : c.diferencia;
+  if (c.contado === null || c.esperado === null) {
+    dif = { texto: 'sin medir', sub: c.sin_medir_motivo ? 'ver la nota del día' : null, tono: 'dim' };
+  } else if (c.esperado < 0 && !difPublicada?.atestiguada) {
+    dif = { texto: 'no calculable', sub: 'el libro no explica el dinero', tono: 'dim' };
+  } else if (valor === null) {
+    dif = { texto: '—', sub: null, tono: 'dim' };
+  } else if (Math.abs(valor) < 0.005) {
+    dif = { texto: fmt(0), sub: 'cuadra', tono: 'ok' };
+  } else {
+    const firmado = `${valor < 0 ? '−' : '+'}${fmt(Math.abs(valor))}`;
+    const nota = difPublicada?.nota;
+    dif = { texto: firmado, sub: `${valor > 0 ? 'sobra' : 'falta'}${nota ? ` · ${nota}` : ''}`, tono: 'bad' };
+  }
+  return { quedo, deberia, dif };
 }
 
 /**
