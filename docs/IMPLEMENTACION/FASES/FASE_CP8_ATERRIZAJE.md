@@ -1096,3 +1096,23 @@ falta uno nuevo.
      - Bajío 3660 no tiene abril, junio ni septiembre.
   3. **Resto:** 368 pólizas, $18.9 M en nueve meses (32–57 al mes), sin investigar a fondo. El más grande es un pago
      de capital e intereses de $4.83 M en agosto.
+- **2026-10-23** — `[CP.8.86]` **Rediseño del armado de gastos, medido antes de escribirlo**
+  (`gasto-por-rfc-contpaqi.js`, `simula-gasto-con-factura-contpaqi.js`, solo lectura).
+  - ⭐ **La cuenta de un gasto la decide el PROVEEDOR, no la categoría del banco.** Base: 3,447 pólizas de gasto
+    52xx de 2025–2026.
+    - «La cuenta 52xx que ese RFC usó antes» acierta **1,328 de 1,428 (93.0 %)**; el placebo (la cuenta de otro
+      RFC) da 9.0 %.
+    - El 94.9 % de las pólizas de cada RFC cae en su cuenta más usada.
+    - Por categoría, `[CP.8.18]` dejó la mayoría sin regla concluyente.
+  - **Forma:** una póliza por pago con las facturas en 1,970 casos; agrupadas en 812.
+  - **Simulación del armado** (ene–sep 2026; 980 egresos que para ella son gasto de una pata). Pasos: RFC por el
+    concepto, facturas por importe (una, o la única combinación de 2 a 4), cuenta por historia del RFC, IVA e IEPS
+    de las facturas.
+    - Arma **276; iguales 246 (89.1 %)**, la misma precisión que los pagos a proveedor.
+    - No arma: sin RFC en el concepto 468 · varias facturas por el mismo importe 85 · ninguna factura cuadra 78 ·
+      RFC sin historia 37 · combinación ambigua 36. Las facturas con retención no se arman: se declaran.
+    - **RFC por importe** (la única factura de cualquier proveedor por ese importe): 91 más, 68 iguales (75 %).
+      Placebo: 9. Sirve para sugerir, no para armar.
+  - **Comisiones bancarias:** van por banco × MES (`[CP.8.85]`), otra forma.
+  - **Decisión pendiente del PM:** con qué autoridad se arma un gasto por historia del RFC. Por ejemplo, que el
+    contador firme la categoría como «por proveedor» una vez, como ya es `compra_mercancia`.
