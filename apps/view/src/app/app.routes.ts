@@ -98,8 +98,8 @@ export const routes: Routes = [
   // `caja-firma-remota.engine.ts`). La puerta no se quitó: se cambió por una llave que la caja
   // entrega en el momento, en vez de pedir que la persona sea empleada de finanzas.
   //
-  // ⚠️ La ruta vieja se CONSERVA: un teléfono con sesión sigue entrando por ahí y tecleando el
-  // código, que es el respaldo cuando no se puede escanear.
+  // ⚠️ `[CG.207]` La ruta vieja (`/finanzas/caja-general/firma`, con sesión y código tecleado) ya
+  // NO es respaldo: redirige acá. Se firma sólo por QR.
   {
     path: 'firmar',
     loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-firma.component').then(m => m.FinanzasCajaFirmaComponent),
@@ -687,15 +687,13 @@ export const routes: Routes = [
         pathMatch: 'full',
       },
       {
-        // `[CG.68]` La pantalla del TELÉFONO del mostrador: acá se firma el movimiento que la
-        // caja está capturando en la PC. Se teclea el código de seis que la caja muestra.
-        //
-        // ⚠️ Con `FINANCE_CAJA_VER` alcanza, y es a propósito: el teléfono se le pasa a otras
-        // personas para que firmen. Aportar evidencia no es escribir el libro — quien guarda es
-        // la PC, y para eso sí hace falta `GESTIONAR`.
+        // `[CG.68]` Acá vivía la pantalla del TELÉFONO con sesión, que tecleaba el código de seis.
+        // ⭐ `[CG.207]` Edgar, 2026-10-23: *«no necesitamos el código, solo el qr»*. Sin código
+        // tecleado esta entrada no tiene nada propio: se firma sólo por QR, en `/firmar`, sin
+        // sesión. Se REDIRIGE en vez de borrarse: un favorito o un enlace viejo no da 404.
         path: 'caja-general/firma',
-        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-firma.component').then(m => m.FinanzasCajaFirmaComponent),
-        canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR)]
+        redirectTo: '/firmar',
+        pathMatch: 'full',
       },
       {
         // CS.2 — Caja Fuerte (CAOS): reporte de movimientos de efectivo del dispositivo AST700.

@@ -96,6 +96,11 @@ un monto distinto al que se guarda no vale (`firmaSigueValiendo`, ya existe).
 
 ### C2 — API
 
+> ⭐ **Decisión de Edgar, 2026-10-23 (`[CG.207]`, ya hecho):** *«no necesitamos el código, solo
+> el qr»*. Se firma **sólo escaneando**: la PC no muestra el código y el teléfono no tiene campo
+> para teclearlo. Simplifica E2: el token del QR es la única llave, no hay búsqueda por código
+> tecleado ni intentos que contar, y el código de seis puede desaparecer del modelo.
+
 **`[CG.201]` E2 · El teléfono habla por HTTP con el token del QR; el socket sólo avisa.**
 `GET /finance/firma/:token` (contexto) y `POST /finance/firma/:token` (PNG, idempotente por id del
 pedido), públicos y exceptuados en `authInterceptor` como `/finance/captura`. El token se revalida

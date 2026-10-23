@@ -34,7 +34,8 @@ describe('FinanzasCajaFirmaComponent · el canal tiene TRES estados', () => {
 
   type Motivo = 'sin_credencial' | 'sesion_rechazada' | 'pase_rechazado' | 'red' | null;
 
-  function montar(estadoInicial: Estado, url = '/finanzas/caja-general/firma', motivo: Motivo = 'red') {
+  // `[CG.207]` La URL por defecto es la que arma el QR: código + pase. Sin pase no se abre canal.
+  function montar(estadoInicial: Estado, url = '/firmar?c=ABC234&pase=P1', motivo: Motivo = 'red') {
     const estado = signal<Estado>(estadoInicial);
     const motivoCaida = signal<Motivo>(estadoInicial === 'caido' ? motivo : null);
     const sock = {
@@ -62,8 +63,8 @@ describe('FinanzasCajaFirmaComponent · el canal tiene TRES estados', () => {
   }
 
   const txt = (fx: { nativeElement: HTMLElement }) => fx.nativeElement.textContent ?? '';
-  const continuar = (fx: { nativeElement: HTMLElement }) =>
-    [...fx.nativeElement.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes('Continuar'));
+  const reintentar = (fx: { nativeElement: HTMLElement }) =>
+    [...fx.nativeElement.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes('Reintentar'));
 
   it('1 · mientras el canal abre dice que esta abriendo, y NO acusa a la red', () => {
     const { fx } = montar('conectando');
@@ -77,23 +78,19 @@ describe('FinanzasCajaFirmaComponent · el canal tiene TRES estados', () => {
     expect(txt(fx)).not.toContain('Abriendo el canal');
   });
 
-  it('3 · el boton esta apagado mientras conecta aunque el codigo este completo, y prende al abrir', async () => {
-    const { fx, estado } = montar('conectando');
-
-    // ⚠️ El codigo se TECLEA en el campo, no se asigna al componente: `codigo` es un campo plano
-    // con [(ngModel)], y escribirlo desde afuera no pasa por el binding -- el boton seguiria
-    // apagado por "faltan caracteres" y la prueba pasaria por el motivo equivocado. Medido: con
-    // la asignacion directa este caso quedaba VERDE incluso con el arreglo quitado.
-    const campo = fx.nativeElement.querySelector('input.fm-cod') as HTMLInputElement;
-    campo.value = 'ABC234';
-    campo.dispatchEvent(new Event('input'));
-    await fx.whenStable();
+  it('3 · Reintentar aparece tras un fallo, se apaga mientras el canal abre y prende al abrir', async () => {
+    const { fx, comp, estado } = montar('vivo');
+    await comp.tomar();                 // el doble responde sin_conexion: queda el aviso
     fx.detectChanges();
-    expect(continuar(fx)?.disabled).toBe(true);
+    expect(reintentar(fx)?.disabled).toBe(false);
+
+    estado.set('conectando');
+    fx.detectChanges();
+    expect(reintentar(fx)?.disabled, 'un toque durante el handshake llega a un socket sin conectar').toBe(true);
 
     estado.set('vivo');
     fx.detectChanges();
-    expect(continuar(fx)?.disabled).toBe(false);
+    expect(reintentar(fx)?.disabled).toBe(false);
   });
 
   it('4a · un fallo MIENTRAS conecta no se reporta como QR vencido', async () => {
@@ -113,16 +110,31 @@ describe('FinanzasCajaFirmaComponent · el canal tiene TRES estados', () => {
     expect(comp.aviso()).toContain('venció');
   });
 
-  it('5 · sin pase, un canal caido habla de la red y nunca del QR', async () => {
-    const { comp } = montar('caido');
-    comp.codigo = 'ABC234';
-    await comp.tomar();
-    expect(comp.aviso()).toContain('Revisa la red');
-    expect(comp.aviso()).not.toContain('venció');
+  // ⭐⭐ `[CG.207]` SÓLO EL QR (Edgar: «no necesitamos el código, solo el qr»). El campo para
+  // teclear el código era el camino que pedía sesión. PRUEBA NEGATIVA (corrida el 2026-10-23):
+  // devolviendo el connect() sin pase de antes al ngOnInit, el 5 y el 5b se ponen rojos.
+  it('5 · sin QR no hay campo para teclear un código: explica que hay que escanear', () => {
+    const { fx, sock } = montar('sin_iniciar', '/firmar');
+    expect(fx.nativeElement.querySelector('input:not([aria-label="Nombre de quien firma"])'),
+      'sigue habiendo un campo para teclear el código').toBeNull();
+    expect(txt(fx)).toContain('apunta al QR');
+    expect(txt(fx)).toContain('No hace falta iniciar sesión');
+    expect(sock.connect, 'sin pase no hay canal que abrir').not.toHaveBeenCalled();
+  });
+
+  it('5b · con código pero SIN pase tampoco se abre canal con la sesión del teléfono', () => {
+    const { fx, sock } = montar('sin_iniciar', '/firmar?c=ABC234');
+    expect(sock.connect).not.toHaveBeenCalled();
+    expect(txt(fx)).toContain('apunta al QR');
+  });
+
+  it('5c · con el QR completo abre el canal con el PASE, no con la sesión', () => {
+    const { sock } = montar('conectando');
+    expect(sock.connect).toHaveBeenCalledWith('P1');
   });
 
   // ⭐ `[CG.203]` Las dos mentiras que costaban firmar otra vez: la frase vieja decía «el QR
-  // venció» siempre que hubiera pase (la 6 lo prohíbe) y «revisa la red» siempre que no (la 7).
+  // venció» siempre que hubiera pase (la 6 lo prohíbe); la caída de red se dice como red.
   it('6 · con pase y la RED caida, no culpa al QR: la persona no tiene que pedir otro', async () => {
     const { fx, comp } = montar('caido', '/firma?pase=P1', 'red');
     comp.codigo = 'ABC234';
@@ -132,14 +144,4 @@ describe('FinanzasCajaFirmaComponent · el canal tiene TRES estados', () => {
     expect(comp.aviso()).not.toContain('venció');
   });
 
-  it('7 · sin pase ni sesion, manda a escanear el QR y no a revisar una red que esta bien', () => {
-    const { fx } = montar('caido', '/firmar?c=ABC234', 'sin_credencial');
-    expect(txt(fx)).toContain('Escanea con la cámara el QR');
-    expect(txt(fx)).not.toContain('Revisa la red');
-  });
-
-  it('8 · una sesion vencida en el telefono tampoco es la red', () => {
-    const { fx } = montar('caido', '/firmar?c=ABC234', 'sesion_rechazada');
-    expect(txt(fx)).toContain('no hace falta iniciar sesión');
-  });
 });
