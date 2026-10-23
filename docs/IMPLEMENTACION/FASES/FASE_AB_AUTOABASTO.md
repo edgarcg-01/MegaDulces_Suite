@@ -1486,7 +1486,12 @@ estado · excepción guardada. El tipo vive en `libs/contracts`. La mesa y «Lo 
 - Prueba negativa: un renglón con embarque sin recibir sale con falta neta menor; quitando la resta, rojo.
 - Un almacén sin cliente de traspaso declara «sin medir», nunca 0.
 
-**C2 — AB.27 La mesa sirve esas líneas.** `GET /mesa`, `/mesa/resumen` y `/reporte` exigen **un**
+**C2 — AB.27 La mesa sirve esas líneas.** 🧪 *En código 2026-10-23, como endpoint NUEVO
+`GET /commercial/autoabasto/renglones` (un almacén, sólo lectura) que convive con `/mesa` hasta que la
+pantalla cambie en AB.28: así ningún despliegue intermedio rompe la mesa actual. Sale del mismo
+`armarAlmacen()` que «Mi pedido» (misma cuenta por construcción); filtros por estado, posición, «surte» y
+búsqueda, orden de lectura, resumen del almacén entero con la regla de los grupos. Tiempo: el mismo de
+«Mi pedido» (3.7 s, sin re-medir) — NO MEDIDO contra la meta de 500 ms; bajarlo va en commit aparte.* `GET /mesa`, `/mesa/resumen` y `/reporte` exigen **un**
 almacén dentro del alcance (D2) y salen de la función de C1.
 - Para el mismo almacén, la falta neta de la mesa = la de «Lo que te llega», renglón por renglón.
 - `/mesa` responde en < 500 ms. «Mi pedido» tarda **3.7 s** (medido el 2026-10-12 en AB.16, **sin
