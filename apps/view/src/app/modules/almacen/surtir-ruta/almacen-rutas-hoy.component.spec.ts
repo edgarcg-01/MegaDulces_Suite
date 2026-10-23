@@ -60,6 +60,18 @@ describe('AlmacenRutasHoyComponent · rutas de hoy (MCP.3.6)', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
+  it('[MCP.3.13] la tarjeta dice qué otra sucursal surte su parte de la ruta; sin partes, nada', async () => {
+    api.routes = vi.fn(() => of(BANDEJA([
+      R({ group_other_warehouses: ['PH'] }),
+      R({ route_day_id: 'rd-otro', seller_name: 'Luis Gómez', state: 'surtiendo', group_other_warehouses: [],
+          pick_started: { user_id: 'otro', name: 'Félix Herrera', at: '2026-10-21T17:00:00.000Z' } }),
+    ])));
+    await montar();
+    expect(tarjeta('lista')!.textContent!.replace(/\s+/g, ' ')).toContain('Pedidos agrupados · también surte PH');
+    // Prueba negativa: una ruta sin partes en otra sucursal no lleva rótulo.
+    expect(tarjeta('surtiendo')!.querySelector('.rh-parte')).toBeNull();
+  });
+
   it('⭐ lista: tarjeta destacada con la hora en que terminó, pedidos, productos y «Empezar a recolectar»', async () => {
     await montar();
     const t = tarjeta('lista')!;

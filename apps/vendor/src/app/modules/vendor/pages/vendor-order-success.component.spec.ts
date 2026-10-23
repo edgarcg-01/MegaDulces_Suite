@@ -70,3 +70,17 @@ describe('VendorOrderSuccessComponent · volver al inicio (MCP.3.3)', () => {
     expect(css.bottom).toContain('5rem');
   });
 });
+
+describe('VendorOrderSuccessComponent · pedido agrupado [MCP.3.13]', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('⭐ un pedido surtido en dos sucursales lo dice: «Se surte en LPA y PH»', async () => {
+    const { el } = await montar({ ...QUERY, surte: 'LPA,PH' });
+    expect(el.querySelector('.surte')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Se surte en LPA y PH · el cliente recibe un ticket de cada sucursal');
+  });
+
+  it('un pedido de una sola sucursal no dice nada de más', async () => {
+    const { el } = await montar();
+    expect(el.querySelector('.surte')).toBeNull();
+  });
+});

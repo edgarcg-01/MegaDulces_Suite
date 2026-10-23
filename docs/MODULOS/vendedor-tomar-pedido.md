@@ -5,6 +5,36 @@ unidad (pieza, paquete, caja) y agenda el pedido. Las entradas más nuevas van a
 
 ---
 
+## Vender de otras sucursales de la zona: «pedido agrupado» (MCP.3.12–3.13, 2026-10-23)
+
+### El problema
+
+Se dio permiso de vender de otras sucursales, pero el vendedor sólo veía y pedía la existencia de SU sucursal, y
+todo el sistema (precio, surtido, ticket de Kepler, guía, liquidación) suponía una sucursal por pedido.
+
+### La solución
+
+- En cada producto, una tira discreta con la existencia de cada sucursal de la zona. Tocar una = de ahí se surte
+  ese producto (con su precio). El carrito y el pedido agendado dicen en qué sucursales se surte.
+- Para el vendedor y el cliente es UN pedido; por dentro, cada sucursal recibe su parte.
+
+### Cómo se implementó
+
+- `GET commercial/vendor-routes/my-zone-stock` (zona = `warehouses.purchase_zone`, existencia de `commercial.stock`).
+- `order_lines.source_warehouse_id` (validado contra la zona en el servidor) y precio de esa sucursal.
+- `place()` separa: los renglones de otra sucursal pasan a una parte (`orders.group_id` = principal); si todo era
+  de otra sucursal, el principal toma esa sucursal (no queda pedido vacío).
+- Surtido de ruta por sucursal (`seller_route_day_picks`), clave Kepler del cliente por sucursal
+  (`customer_branch_keys`), reparto con las partes del grupo y liquidación en una sola caja. ADR-101.
+
+### Por qué se hizo así
+
+- Separar en partes deja cada parte como un pedido de UNA sucursal: surtido, ticket y guía siguen funcionando
+  como hoy. Poner la sucursal en cada renglón obligaba a rehacer ~30 puntos del sistema.
+- Se cobra en cada sucursal porque cada Kepler registra lo que salió de su almacén (regla de David).
+
+---
+
 ## La fecha de entrega es hoy por omisión (MCP.3.4, 2026-10-20)
 
 ### El problema

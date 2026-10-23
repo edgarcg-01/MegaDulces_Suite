@@ -7,6 +7,8 @@ import type {
   LoadGuidesResponse,
   PresaleLiquidateRequest,
   PresaleCandidatesResponse,
+  PresaleCustomerBranchKeyRequest,
+  PresaleCustomerBranchKeyResponse,
   PresaleDetail,
   PresaleLinkResponse,
   PresaleListResponse,
@@ -45,6 +47,11 @@ export class AlmacenPreventaService {
 
   unlink(id: string, reason: string): Observable<PresaleLinkResponse> {
     return this.http.post<PresaleLinkResponse>(`${this.base}/${id}/unlink`, { reason });
+  }
+
+  /** `[MCP.3.13]` Liga la clave de Kepler del cliente en otra sucursal (las claves son por sucursal). */
+  linkBranchKey(req: PresaleCustomerBranchKeyRequest): Observable<PresaleCustomerBranchKeyResponse> {
+    return this.http.post<PresaleCustomerBranchKeyResponse>(`${this.base}/customer-branch-key`, req);
   }
 
   // ── [MCP.5] Guías de carga (la caja) ─────────────────────────────────────────────────────────

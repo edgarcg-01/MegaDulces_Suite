@@ -182,3 +182,109 @@ export function repartirRuta(
   }
   return Array.from(porPedido.values());
 }
+
+// ───────────────────────── [MCP.3.13] El surtido de la ruta, por sucursal ─────────────────────────
+
+/** Persona y hora de un paso del surtido, como lo guarda la base. */
+export interface PasoDeSurtido {
+  by: string;
+  name: string;
+  at: Date | string;
+}
+
+/** Una fila de `commercial.seller_route_day_picks`: el surtido de UNA sucursal en la ruta. */
+export interface SurtidoDeSucursal {
+  warehouse_id: string;
+  pick_started_by: string;
+  pick_started_by_name: string;
+  pick_started_at: Date | string;
+  pick_finished_by: string | null;
+  pick_finished_by_name: string | null;
+  pick_finished_at: Date | string | null;
+}
+
+/** El dueño único de `seller_route_days.pick_*` (antes de [MCP.3.13]). */
+export interface SurtidoLegado {
+  pick_started_by: string | null;
+  pick_started_by_name: string | null;
+  pick_started_at: Date | string | null;
+  pick_finished_by: string | null;
+  pick_finished_by_name: string | null;
+  pick_finished_at: Date | string | null;
+}
+
+/** Lo que un surtidor ve de la ruta: el surtido de SUS sucursales. */
+export interface SurtidoVisto {
+  started: PasoDeSurtido | null;
+  finished: PasoDeSurtido | null;
+}
+
+const ms = (v: Date | string | null | undefined): number => (v ? new Date(v).getTime() : Number.NaN);
+
+/**
+ * `[MCP.3.13]` El estado del surtido de la ruta para quien tiene en su alcance `almacenes` (las
+ * sucursales de SUS pedidos en esa ruta).
+ *
+ *  · Ruta sin ninguna fila en `seller_route_day_picks` → se surtió (o se está surtiendo) con el
+ *    modelo de un solo dueño: manda `seller_route_days.pick_*`. Así el histórico se sigue viendo.
+ *  · Con filas: sólo cuentan las de mis sucursales. Terminada = TODAS mis sucursales terminaron
+ *    (empezó el primero, terminó el último). Si alguna sigue abierta, se ve quién la tiene.
+ */
+export function surtidoVisto(
+  legado: SurtidoLegado,
+  almacenes: readonly string[],
+  filas: readonly SurtidoDeSucursal[],
+): SurtidoVisto {
+  if (!filas.length) {
+    return {
+      started: legado.pick_started_at ? { by: legado.pick_started_by ?? '', name: legado.pick_started_by_name ?? '', at: legado.pick_started_at } : null,
+      finished: legado.pick_finished_at ? { by: legado.pick_finished_by ?? '', name: legado.pick_finished_by_name ?? '', at: legado.pick_finished_at } : null,
+    };
+  }
+  const mias = filas.filter((f) => almacenes.includes(f.warehouse_id));
+  if (!mias.length) return { started: null, finished: null };
+  const porInicio = [...mias].sort((a, b) => ms(a.pick_started_at) - ms(b.pick_started_at));
+  const abiertas = porInicio.filter((f) => !f.pick_finished_at);
+  const todas = almacenes.every((a) => mias.some((f) => f.warehouse_id === a));
+  const primero = abiertas[0] ?? porInicio[0];
+  const started: PasoDeSurtido = { by: primero.pick_started_by, name: primero.pick_started_by_name, at: primero.pick_started_at };
+  if (abiertas.length || !todas) return { started, finished: null };
+  const ultimo = [...mias].sort((a, b) => ms(b.pick_finished_at) - ms(a.pick_finished_at))[0];
+  return {
+    started: { by: porInicio[0].pick_started_by, name: porInicio[0].pick_started_by_name, at: porInicio[0].pick_started_at },
+    finished: { by: ultimo.pick_finished_by ?? '', name: ultimo.pick_finished_by_name ?? '', at: ultimo.pick_finished_at as Date | string },
+  };
+}
+
+/** Etiqueta corta de una sucursal: `short_label`, si no el nombre. */
+export function etiquetaSucursal(w: { short_label?: string | null; name?: string | null }): string | null {
+  return (w.short_label ?? '').trim() || (w.name ?? '').trim() || null;
+}
+
+/** Una parte viva de un pedido agrupado: a qué grupo pertenece y de qué sucursal es. */
+export interface ParteDeGrupo {
+  group_id: string;
+  warehouse_id: string;
+  short_label: string | null;
+  name: string | null;
+}
+
+/**
+ * `[MCP.3.13]` Las sucursales que surten OTRAS partes de los pedidos agrupados de una ruta: las de
+ * sus grupos que no son las mías (`warehouse_ids` = sucursales de mis pedidos en la ruta).
+ * Ordenadas y sin repetir.
+ */
+export function otrasSucursales(
+  ruta: { group_ids: readonly string[]; warehouse_ids: readonly string[] },
+  partes: readonly ParteDeGrupo[],
+): string[] {
+  const grupos = new Set(ruta.group_ids);
+  const mias = new Set(ruta.warehouse_ids);
+  const etiquetas = new Set<string>();
+  for (const p of partes) {
+    if (!grupos.has(p.group_id) || mias.has(p.warehouse_id)) continue;
+    const e = etiquetaSucursal(p);
+    if (e) etiquetas.add(e);
+  }
+  return [...etiquetas].sort((a, b) => a.localeCompare(b, 'es'));
+}

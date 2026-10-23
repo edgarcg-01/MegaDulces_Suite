@@ -128,6 +128,26 @@ export interface PresaleOrderRow {
    * ligado o sin notas. Las notas hechas en Kepler SIN documento origen no se ven (se declaran).
    */
   credit_note: PresaleCreditNote | null;
+  /**
+   * `[MCP.3.13]` Pedido agrupado: el pedido del vendedor que se surte en varias sucursales de la zona.
+   * Cada parte es un pedido de UNA sucursal (se cobra en el Kepler de ESA sucursal); todas apuntan al
+   * principal. Ausente o `null` = pedido suelto.
+   *  · `group_id`          id del pedido principal (el principal se apunta a sí mismo).
+   *  · `group_code`        folio del principal (el que conocen el vendedor y el cliente).
+   *  · `group_main_branch` sucursal Kepler del principal: en su caja se entrega TODO el cobro del grupo.
+   *  · `group_parts`       pedidos vivos del grupo (principal incluido, sin cancelados).
+   *  · `group_branches`    sucursales Kepler de esos pedidos.
+   */
+  group_id?: string | null;
+  group_code?: string | null;
+  group_main_branch?: string | null;
+  group_parts?: number | null;
+  group_branches?: string[] | null;
+  /**
+   * `[MCP.3.13]` `true` = la clave de cliente que se usa es la ligada para ESTA sucursal
+   * (`commercial.customer_branch_keys`), no la de su sucursal de origen.
+   */
+  customer_key_from_branch?: boolean;
 }
 
 /** `[MCP.7.1]` Lo que Kepler acreditó contra el ticket de un pedido. */
@@ -229,4 +249,36 @@ export interface PresaleLinkResponse {
   order_id: string;
   /** El documento ligado; ausente al desligar. */
   folio_digital?: string;
+}
+
+/**
+ * `[MCP.3.13]` Liga la clave de Kepler de un cliente en una sucursal que NO es la de origen (las
+ * claves de Kepler son POR sucursal). Ligar otra da de baja la anterior; no la pisa.
+ */
+export interface PresaleCustomerBranchKeyRequest {
+  customer_id: string;
+  /** Sucursal Kepler de dos dígitos (la de `analytics.erp_sale_tickets.sucursal`). */
+  branch: string;
+  erp_customer_code: string;
+}
+
+export interface PresaleCustomerBranchKeyResponse {
+  ok: true;
+  customer_id: string;
+  branch: string;
+  /** La clave tal como la escribe Kepler en esa sucursal (si se encontró), o la tecleada. */
+  erp_customer_code: string;
+  /**
+   * Con qué se comprobó que la clave existe en el Kepler de esa sucursal:
+   *  · `catalogo` — está en su catálogo de clientes (`analytics.v_customer_master`).
+   *  · `tickets`  — no está en el catálogo, pero ya tiene tickets en esa sucursal.
+   *  · `null`     — NO SE PUDO VERIFICAR: la sucursal no publica su catálogo de clientes en el ODS.
+   *                 Se ligó igual y se declara en `warning`.
+   */
+  verified_by: 'catalogo' | 'tickets' | null;
+  /** Nombre del cliente en ese Kepler, para confirmarlo a ojo. `null` si no se encontró. */
+  kepler_name: string | null;
+  /** La clave viva anterior que se dio de baja, o `null`. */
+  replaced_code: string | null;
+  warning: string | null;
 }

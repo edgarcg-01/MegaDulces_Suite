@@ -18,6 +18,8 @@ interface Mundo {
   lineas?: Array<Record<string, unknown>>;
   enOla?: boolean;
   almacenes?: string[] | null;
+  /** [MCP.3.13] Columnas del grupo que trae `leer` (pedido agrupado). */
+  grupo?: Record<string, unknown>;
 }
 
 function armar(m: Mundo) {
@@ -56,6 +58,7 @@ function armar(m: Mundo) {
     seller_username: '42pmpb', customer_name: 'ABARROTES ROSY', requested_delivery_date: '2026-10-14',
     confirmed_at: '2026-10-14T15:42:00Z', lines: 2, en_ola: !!m.enOla,
     started_at: m.pick?.['started_at'] ?? null, started_by: m.pick?.['started_by'] ?? null, started_by_name: m.pick?.['started_by_name'] ?? null,
+    ...m.grupo,
   };
   (svc as any).leer = vi.fn(async () => [fila]);
   return { svc, orders, alerts, push, updates, raws };
@@ -145,5 +148,54 @@ describe('PresalePickingService · terminar', () => {
     const { svc, orders } = armar({ pick: ABIERTO_POR(YO), lineas: LINEAS });
     await expect(svc.finish(PEDIDO, { lines: [{ line_id: 'l1', picked: 5 }] })).rejects.toBeInstanceOf(BadRequestException);
     expect(orders.recortarTrasSurtido).not.toHaveBeenCalled();
+  });
+});
+
+/** [MCP.3.13] Una parte de LPA del pedido P-10482, cuya otra parte se surte en PH. */
+const PARTE_LPA = {
+  warehouse_name: 'La Piedad Abastos', group_id: 'g-1', group_code: 'P-10482', group_parts: 2, group_other_warehouses: ['PH'],
+};
+
+describe('[MCP.3.13] pedido agrupado · bandeja y avisos', () => {
+  it('el renglón de una parte trae el folio del principal, las partes y las OTRAS sucursales', async () => {
+    const { svc } = armar({ grupo: PARTE_LPA });
+    const r = await svc.inbox();
+    expect(r.data[0]).toMatchObject({ group_code: 'P-10482', group_parts: 2, group_other_warehouses: ['PH'] });
+  });
+
+  it('un pedido suelto trae null / null / [] (no se inventa grupo)', async () => {
+    const { svc } = armar({});
+    const r = await svc.inbox();
+    expect(r.data[0]).toMatchObject({ group_code: null, group_parts: null, group_other_warehouses: [] });
+  });
+
+  it('el aviso de una parte surtida nombra la sucursal', async () => {
+    const { svc, alerts } = armar({ pick: ABIERTO_POR(YO), lineas: LINEAS, grupo: PARTE_LPA });
+    await svc.finish(PEDIDO, { lines: [{ line_id: 'l1', picked: 5 }, { line_id: 'l2', picked: 1 }] });
+    expect(alerts.emitTo).toHaveBeenCalledWith(T, '42pmpb', expect.objectContaining({
+      title: 'Tu pedido P-10482 · parte de La Piedad Abastos: surtido completo',
+    }));
+  });
+
+  it('con faltantes, también nombra la sucursal', async () => {
+    const { svc, alerts } = armar({ pick: ABIERTO_POR(YO), lineas: LINEAS, grupo: PARTE_LPA });
+    await svc.finish(PEDIDO, { lines: [{ line_id: 'l1', picked: 3 }, { line_id: 'l2', picked: 0 }] });
+    expect(alerts.emitTo).toHaveBeenCalledWith(T, '42pmpb', expect.objectContaining({
+      title: 'Tu pedido P-10482 · parte de La Piedad Abastos: faltó 2 productos',
+    }));
+  });
+
+  it('al empezar, el aviso de la parte nombra la sucursal', async () => {
+    const { svc, alerts } = armar({ pick: ABIERTO_POR(YO), grupo: PARTE_LPA });
+    await svc.start(PEDIDO);
+    expect(alerts.emitTo).toHaveBeenCalledWith(T, '42pmpb', expect.objectContaining({
+      title: 'Tu pedido P-10482 · parte de La Piedad Abastos: ya lo están surtiendo',
+    }));
+  });
+
+  it('un grupo cuyas partes son todas de la misma sucursal avisa como siempre', async () => {
+    const { svc, alerts } = armar({ pick: ABIERTO_POR(YO), lineas: LINEAS, grupo: { ...PARTE_LPA, group_other_warehouses: [] } });
+    await svc.finish(PEDIDO, { lines: [{ line_id: 'l1', picked: 5 }, { line_id: 'l2', picked: 1 }] });
+    expect(alerts.emitTo).toHaveBeenCalledWith(T, '42pmpb', expect.objectContaining({ title: 'Tu pedido se surtió completo' }));
   });
 });

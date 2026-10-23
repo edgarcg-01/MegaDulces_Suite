@@ -210,3 +210,4 @@ export * from './finance/caos-conteo-fisico.contract';
 export * from './finance/posicion-caja.contract';
 export * from './finance/verdad-diferencia.contract';
 export * from './finance/arqueo-completo.contract';
+export * from './http/vendor-zone-stock.contract';

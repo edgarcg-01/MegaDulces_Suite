@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Added — Vender de otras sucursales de la zona: «pedido agrupado» (MCP.3.12–3.13, ADR-101, 2026-10-23)
+- **App del vendedor:** en cada producto, una tira chica con la existencia de las sucursales de su zona (La Piedad = PH, LPA, 8ES, YU · Zamora = DAMASO, CAN · Morelia = MM, MA). Tocar una sucursal = de ahí se surte ese producto, con su precio. El carrito dice «Se surte en LPA (3) · PH (1)» y el pedido agendado «Se surte en LPA y PH».
+- **Un pedido, varias sucursales:** al mandarlo, cada sucursal recibe SU parte (mismo grupo). Cada parte se surte, se cobra en el Kepler de su sucursal y el repartidor la recoge ahí.
+- **Surtido:** cada sucursal empieza y termina su parte de la ruta; las tarjetas dicen «Parte de P-xxxx · también surte PH».
+- **Mesa y caja:** «Parte de … · se cobra en …», ligar la clave Kepler del cliente en otra sucursal, y la caja del pedido principal liquida también las guías de recolección de otras sucursales, con desglose por sucursal.
+- ⚠️ 3 migraciones aditivas que van **antes** del código. Sin permisos nuevos.
 ### Changed — Cartera de ventas: «Asignar rutas» es un menú de vendedores y el tablero se simplifica (MCP.3.10–3.11, 2026-10-22)
 - **Mis vendedores:** sólo Vendedor · Ruta de hoy («En ruta · desde 9:32», «Terminó · 8:12 – 14:37», «Sin iniciar») · Visitados · Venta hoy. Pestañas, «Ordenar», fecha y la frescura «Venta Kepler» van en una sola barra. Fuera los totales, la meta, el avance y el detalle por cliente.
 - **Asignar rutas:** menú de vendedores; al elegir uno, **Resumen** (meta de la catorcena contra lo cobrado y sus días) y **Configurar** (ruta de la semana, sucursal de surtido, meta y clientes a visitar). Se quitaron «Sucursal por ruta» y el orden de visita.

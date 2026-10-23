@@ -106,6 +106,16 @@ describe('AlmacenSurtirRutaComponent · recolectar y repartir una ruta (MCP.3.6)
     expect(Array.from(el().querySelectorAll('.rr-marca')).map((n) => n.textContent?.trim())).toEqual(['DE LA ROSA', 'CANELS']);
   });
 
+  it('[MCP.3.13] con partes en otra sucursal, Recolectar avisa que aquí va sólo lo propio; sin partes, nada', async () => {
+    api.routeDetail = vi.fn(() => of(DETALLE(RUTA({ group_other_warehouses: ['PH'] }))));
+    await montar();
+    expect(texto()).toContain('Pedidos agrupados · también surte PH: aquí va sólo lo de tu sucursal');
+    TestBed.resetTestingModule();
+    api.routeDetail = vi.fn(() => of(DETALLE(RUTA({ group_other_warehouses: [] }))));
+    await montar();
+    expect(el().querySelector('.rr-parte')).toBeNull();
+  });
+
   it('el producto actual va en grande: «3 CJA = 90 piezas», con «Lo tomé» y «Hay menos»; no dice a quién le toca', async () => {
     await montar();
     const a = el().querySelector('.rr-actual')!;
@@ -289,6 +299,19 @@ describe('AlmacenSurtirRutaComponent · recolectar y repartir una ruta (MCP.3.6)
     expect(mazapan.textContent!.replace(/\s+/g, ' ')).toContain('Pidió 2 CJA; no alcanzó. Paulina Placencia ya tiene el aviso.');
     expect(pulpa.classList).not.toContain('rr-bl-falta');
     expect(pulpa.textContent).not.toContain('no alcanzó');
+  });
+
+  it('[MCP.3.13] la bolsa de una parte de pedido agrupado se rotula; la suelta no', async () => {
+    const r = REPARTO();
+    r.bags[0] = { ...r.bags[0], group_code: 'P-10482', group_parts: 2, group_other_warehouses: ['PH'] };
+    r.bags[2] = { ...r.bags[2], group_code: 'P-10482', group_parts: 2, group_other_warehouses: ['PH'] };
+    api.routeFinish = vi.fn(() => of(r));
+    await aRepartir();
+    const de = (id: string): string => (el().querySelector(`[data-pedido="${id}"]`)?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(de('o-rosy')).toContain('Parte de P-10482 · también surte PH');
+    expect(de('o-esc')).toContain('Parte de P-10482 · también surte PH');
+    // Prueba negativa: la bolsa de un pedido suelto no lleva rótulo.
+    expect(de('o-vero')).not.toContain('Parte de');
   });
 
   it('una bolsa sin mercancía se dice como tal y no cuenta como bolsa por armar', async () => {

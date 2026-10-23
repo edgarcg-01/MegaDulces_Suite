@@ -92,6 +92,27 @@ export function nombreRuta(r: Pick<RouteBatchRow, 'seller_name'> & Partial<Pick<
   return r.seller_name ? `Ruta de ${r.seller_name}` : 'Ruta sin vendedor';
 }
 
+/**
+ * `[MCP.3.13]` Rótulo de un pedido agrupado: «Parte de P-10482 · también surte PH». El principal del
+ * grupo dice «Pedido agrupado · …». Suelto → `null` (no se pinta nada).
+ */
+export function textoParte(p: {
+  code: string;
+  group_code?: string | null;
+  group_other_warehouses?: readonly string[] | null;
+}): string | null {
+  if (!p.group_code) return null;
+  const base = p.group_code === p.code ? 'Pedido agrupado' : `Parte de ${p.group_code}`;
+  const otras = (p.group_other_warehouses ?? []).filter((s) => !!s && !!s.trim());
+  return otras.length ? `${base} · también surte ${otras.join(', ')}` : base;
+}
+
+/** `[MCP.3.13]` Para la ruta: qué otras sucursales surten partes de sus pedidos; `null` si ninguna. */
+export function textoOtrasSucursales(r: { group_other_warehouses?: readonly string[] | null }): string | null {
+  const otras = (r.group_other_warehouses ?? []).filter((s) => !!s && !!s.trim());
+  return otras.length ? `Pedidos agrupados · también surte ${otras.join(', ')}: aquí va sólo lo de tu sucursal` : null;
+}
+
 /** Lo que quedó guardado en el celular de una ruta ya recolectada. */
 export interface BolsasGuardadas {
   route: RouteBatchRow;

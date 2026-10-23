@@ -13,7 +13,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { PresalePickingService } from '../presale-picking.service';
 import {
   BolsasGuardadas, PREF_RUTA_BOLSAS, PREF_RUTA_RECOLECTA, acotarCantidad, admiteDecimales, agruparPorMarca,
-  cuerpoTerminar, fmtCantidad, guardarLocal, horaMx, leerJson, nombreRuta, productosUnicos,
+  cuerpoTerminar, fmtCantidad, guardarLocal, horaMx, leerJson, nombreRuta, productosUnicos, textoOtrasSucursales, textoParte,
 } from '../surtir-ruta/ruta-surtido.util';
 
 type Fase = 'cargando' | 'bloqueada' | 'recolectar' | 'repartir';
@@ -77,6 +77,8 @@ function plural(n: number, uno: string, varios: string): string {
 
         <!-- ─────────── RECOLECTAR ─────────── -->
         @if (fase() === 'recolectar') {
+          <!-- [MCP.3.13] Pedidos agrupados: otra sucursal surte su parte de esta misma ruta. -->
+          @if (otrasSucursales(); as o) { <p class="rr-parte"><i class="pi pi-sitemap" aria-hidden="true"></i> {{ o }}</p> }
           <app-metric-strip mode="bullet" density="compact" ariaLabel="Avance de la recolección" [items]="avanceRecolecta()"></app-metric-strip>
 
           @for (g of grupos(); track g.marca) {
@@ -180,6 +182,7 @@ function plural(n: number, uno: string, varios: string): string {
                   <h2 class="rr-bolsa-h">Pedido {{ i + 1 }} · {{ b.customer_name || 'Cliente sin nombre' }}</h2>
                   <span class="rr-sku">{{ b.code }}</span>
                 </div>
+                @if (textoParte(b); as tp) { <span class="rr-parte">{{ tp }}</span> }
                 @for (l of b.lines; track $index) {
                   <div class="rr-bl" [class.rr-bl-falta]="falto(l)">
                     <span class="rr-bl-n">{{ l.product_name }}</span>
@@ -205,6 +208,7 @@ function plural(n: number, uno: string, varios: string): string {
                 <h2 class="rr-bolsa-h">{{ b.customer_name || 'Cliente sin nombre' }}</h2>
                 <span class="rr-sku">{{ b.code }}</span>
               </div>
+              @if (textoParte(b); as tp) { <span class="rr-parte">{{ tp }}</span> }
               <p class="rr-bl-aviso">
                 <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                 No hubo nada de este pedido: avísale a {{ vendedora() }} para cancelarlo.
@@ -326,6 +330,8 @@ function plural(n: number, uno: string, varios: string): string {
     .rr-bl-aviso { grid-column: 1 / -1; display: flex; gap: var(--sp-1); align-items: flex-start; margin: 0;
       color: var(--bad-fg); font-size: var(--fs-body); font-weight: 600; }
     .rr-btn-bolsa { min-height: 3.5rem; flex-direction: row; gap: var(--sp-2); }
+    /* [MCP.3.13] Pedido agrupado: discreto, informa que otra sucursal surte el resto. */
+    .rr-parte { margin: 0; font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
 
     .rr-pie { position: sticky; bottom: 0; z-index: 5; display: flex; flex-direction: column; gap: var(--sp-1); margin-top: var(--sp-4);
       padding: var(--sp-2) 0 calc(var(--sp-2) + env(safe-area-inset-bottom));
@@ -350,6 +356,8 @@ export class AlmacenSurtirRutaComponent implements OnInit {
 
   readonly plural = plural;
   readonly fmt = fmtCantidad;
+  /** [MCP.3.13] «Parte de P-10482 · también surte PH» en cada bolsa; suelto → null. */
+  readonly textoParte = textoParte;
 
   private id = '';
   readonly fase = signal<Fase>('cargando');
@@ -383,6 +391,11 @@ export class AlmacenSurtirRutaComponent implements OnInit {
     return n;
   });
   readonly vendedora = computed(() => this.route()?.seller_name || 'La vendedora');
+  /** [MCP.3.13] Otras sucursales que surten partes de esta ruta; null si ninguna. */
+  readonly otrasSucursales = computed(() => {
+    const r = this.route();
+    return r ? textoOtrasSucursales(r) : null;
+  });
   readonly grupos = computed(() => agruparPorMarca(this.productos()));
   readonly hechos = computed(() => {
     const m = this.recolectado();
