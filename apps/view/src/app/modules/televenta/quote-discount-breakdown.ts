@@ -50,6 +50,18 @@ export const ETIQUETA_PASO: Record<string, string> = {
   gratis_cantidad: 'regalo',
 };
 
+/**
+ * [E.29] Los pasos del precio en una línea: «lista $26.94 → volumen $24.79». Vacío si el precio no
+ * pasó por más de un paso (la lista sola no se explica). El alta y el detalle lo escriben igual.
+ */
+export function pasosDelPrecio(
+  aplicados: ReadonlyArray<{ step: string; after: number | null }> | null | undefined,
+  dinero: (n: number) => string,
+): string {
+  const pasos = (aplicados ?? []).filter((p): p is { step: string; after: number } => p.after !== null);
+  return pasos.length > 1 ? pasos.map((p) => (ETIQUETA_PASO[p.step] ?? p.step) + ' ' + dinero(p.after)).join(' → ') : '';
+}
+
 const cent = (n: number): number => Math.round(n * 100);
 
 export function desgloseDescuento(renglones: RenglonParaDesglose[]): DesgloseDescuento {

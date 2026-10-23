@@ -194,3 +194,37 @@ export const FUENTE_PRECIO: Record<string, string> = {
 export function etiquetaFuentePrecio(s: string | null | undefined): string {
   return s ? FUENTE_PRECIO[s] ?? s : '';
 }
+
+/** [E.29] El tono de la etiqueta de cada fuente (mismo en el alta y el detalle). */
+export const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'secondary'> = {
+  list: 'secondary',
+  volume_qty: 'info',
+  volume_amount: 'info',
+  promo_qty: 'success',
+  promo_amount: 'success',
+  free_goods: 'success',
+  unknown: 'warn',
+};
+
+export function tonoFuentePrecio(s: string | null | undefined): 'success' | 'info' | 'warn' | 'danger' | 'secondary' {
+  return (s && FUENTE_TONO[s]) || 'secondary';
+}
+
+/**
+ * [E.29] El descuento del renglón contra su lista, en %. La MISMA cuenta que el servidor en
+ * getOne (round((lista − precio) / lista × 100, 2)): antes de guardar y después dice lo mismo.
+ * null = sin lista o sin precio (no es 0 %).
+ */
+export function descuentoDerivado(lista: number | null | undefined, precio: number | null | undefined): number | null {
+  if (lista === null || lista === undefined || !(lista > 0) || precio === null || precio === undefined) return null;
+  return Math.round(((lista - precio) / lista) * 100 * 100) / 100;
+}
+
+/**
+ * [E.29] La existencia de la sucursal (viene en la unidad BASE de Kepler) en la unidad del
+ * renglón, y cuánto falta para surtir la cantidad pedida. Misma regla que checkQuote.
+ */
+export function existenciaEnUnidad(baseQty: number, factor: number | null | undefined, cantidad: number): { cantidad: number; faltan: number } {
+  const hay = factor && factor > 0 ? Math.round((baseQty / factor) * 100) / 100 : baseQty;
+  return { cantidad: hay, faltan: Math.max(0, Math.round((cantidad - hay) * 100) / 100) };
+}
