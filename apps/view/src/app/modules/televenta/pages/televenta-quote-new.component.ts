@@ -49,7 +49,8 @@ function esPesable(it: { base_unit: string | null; rung: Rung }): boolean {
 import { totalesCotizacion } from '@megadulces/contracts';
 import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
-import { pasosDelPrecio } from '../quote-discount-breakdown';
+import { pasosDelPrecio, explicacionDelPrecio } from '../quote-discount-breakdown';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
 /**
  * Las plazas Kepler donde se puede cotizar: el catálogo compartido `STORE_BRANCHES` menos el
@@ -88,6 +89,8 @@ export interface ItemBandeja {
   /** `[E.29]` Precio de lista de la presentación y los pasos del precio («lista $26.94 → volumen $24.79»). */
   list_price?: number | null;
   pasos?: string;
+  /** `[E.29]` Qué descuento es, concreto («Precio por volumen de 10 a más PAQ»). */
+  explicacion?: string;
 }
 
 const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
@@ -119,6 +122,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
     InputGroupAddonModule,
     QuoteLinesTableComponent,
     FreshnessPillComponent,
+    ContextHelpComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -696,6 +700,8 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
           <div class="card-head-left">
             <span class="step-num">3</span>
             <h2>Renglones</h2>
+            <!-- [E.29] Qué es cada tipo de descuento: diccionario versionado (regla P), no un title. -->
+            <app-context-help topic="cotizacion-descuentos" />
             <p-tag severity="secondary" [rounded]="true" [value]="bandeja().length + (bandeja().length === 1 ? ' artículo' : ' artículos')" />
             @if (existenciaAl(); as al) {
               <app-freshness-pill measures="data" [since]="al" label="Existencia"></app-freshness-pill>
@@ -1311,6 +1317,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         fuente: it.sku ? it.price_source : 'unknown',
         dtoPct: descuentoDerivado(it.list_price, it.unit_price),
         pasos: it.pasos ?? '',
+        explicacion: it.explicacion ?? '',
         importe: it.sku ? it.line_total : null,
       };
     });
@@ -1786,6 +1793,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         free_goods: prev!.free_goods ? { sku: prev!.free_goods.sku, quantity: prev!.free_goods.quantity } : null,
         list_price: prev!.list_price ?? null,
         pasos: this.pasosDe(prev!),
+        explicacion: explicacionDelPrecio(prev!.applied),
       };
       this.bandeja.update((items) => [...items, item]);
       this.revisarExistencia();
@@ -1944,6 +1952,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
                 free_goods: p.free_goods ? { sku: p.free_goods.sku, quantity: p.free_goods.quantity } : null,
                 list_price: p.list_price ?? null,
                 pasos: this.pasosDe(p),
+                explicacion: explicacionDelPrecio(p.applied),
               };
             }),
           );

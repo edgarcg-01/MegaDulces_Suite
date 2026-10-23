@@ -42,6 +42,8 @@ export interface RenglonTabla {
   dtoPct: number | null;
   /** «lista $26.94 → volumen $24.79»; vacío si no hay pasos que explicar. */
   pasos: string;
+  /** Qué descuento es, concreto: «Precio por volumen de 10 a más PAQ», «50% desde 1 PAQ · vigente hasta 22/11/2026». */
+  explicacion: string;
   importe: number | null;
 }
 
@@ -144,6 +146,7 @@ export interface CambioCantidad {
           <td role="cell" data-label="De dónde sale">
             <p-tag [value]="etiqueta(r.fuente)" [severity]="tono(r.fuente)" />
             @if (r.dtoPct) { <span class="dto">−{{ r.dtoPct }}%</span> }
+            @if (r.explicacion) { <span class="explica">{{ r.explicacion }}</span> }
             @if (r.pasos) { <span class="pasos">{{ r.pasos }}</span> }
           </td>
           <td class="num dt-num" role="cell" data-label="Importe">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
@@ -183,6 +186,7 @@ export interface CambioCantidad {
       .sin-casar { font-size: 0.7rem; color: var(--warn-soft-fg); margin-left: 0.35rem; }
       .factor { margin-left: 0.25rem; font-size: 0.7rem; color: var(--text-muted); }
       .dto { font-size: 0.7rem; color: var(--ok-soft-fg); margin-left: 0.3rem; }
+      .explica { display: block; font-size: var(--fs-xs); color: var(--text-main); }
       .pasos { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
       .falta { color: var(--bad-fg); font-weight: 600; }
       .falta-nota { display: block; font-size: var(--fs-xs); color: var(--bad-fg); }

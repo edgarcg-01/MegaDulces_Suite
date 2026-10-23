@@ -36,7 +36,8 @@ import {
   type QuoteDeliverableData,
 } from '../quote-deliverable-export';
 import { totalesCotizacion } from '@megadulces/contracts';
-import { desgloseDescuento, pasosDelPrecio } from '../quote-discount-breakdown';
+import { desgloseDescuento, pasosDelPrecio, explicacionDelPrecio } from '../quote-discount-breakdown';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { branchName } from '../../../core/constants/store-branches';
@@ -85,6 +86,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
     ProgressSpinnerModule,
     FreshnessPillComponent,
     QuoteLinesTableComponent,
+    ContextHelpComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -513,6 +515,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
         <div class="card table-card dt-scope">
           <div class="card-head">
             <h2>Renglones</h2>
+            <app-context-help topic="cotizacion-descuentos" />
             <span class="badge-count">{{ q.lines.length }}</span>
             @if (revision()?.stock_as_of; as al) {
               <app-freshness-pill measures="data" [since]="al" label="Existencia"></app-freshness-pill>
@@ -1029,6 +1032,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         fuente: l.price_source,
         dtoPct: this.num(l.discount_pct),
         pasos: this.pasosDe(l),
+        explicacion: this.explicacionDe(l),
         importe: this.num(l.line_total),
       };
     });
@@ -1471,6 +1475,13 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     const rv = this.revisionDe(l);
     if (!rv?.now || rv.price_changed) return '';
     return pasosDelPrecio(rv.now.applied, (n) => this.dinero(n));
+  }
+
+  /** [E.29] Qué descuento es, concreto; como los pasos, sólo si el precio de hoy es el guardado. */
+  explicacionDe(l: QuoteLine): string {
+    const rv = this.revisionDe(l);
+    if (!rv?.now || rv.price_changed) return '';
+    return explicacionDelPrecio(rv.now.applied);
   }
 
   pedirRecotizar(r: QuoteCheck): void {

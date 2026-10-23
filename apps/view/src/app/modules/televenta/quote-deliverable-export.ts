@@ -15,7 +15,7 @@
 
 import type jsPDFType from 'jspdf';
 import { totalesCotizacion, type QuoteTotals } from '@megadulces/contracts';
-import { desglose, descuentoDerivado } from './quote-units';
+import { desglose, descuentoDerivado, definicionDescuento, etiquetaFuentePrecio } from './quote-units';
 import { PALETA_DOCUMENTO as P, rgb, argb } from '../../shared/util/paleta-documento';
 
 export type JsPDFCtor = typeof jsPDFType;
@@ -285,6 +285,18 @@ export function condiciones(data: QuoteDeliverableData, m: ModeloEntregable): st
   if (data.paymentDays !== null && data.paymentDays !== undefined && Number.isFinite(Number(data.paymentDays))) {
     const d = Number(data.paymentDays);
     out.push(d > 0 ? `Plazo de pago: ${d} días de crédito.` : 'Plazo de pago: de contado (sin días de crédito).');
+  }
+  // `[E.29]` Qué es cada descuento que aparece en ESTA cotización (sólo los que aparecen), con la
+  // misma definición que la ayuda de la pantalla (TIPOS_DE_DESCUENTO).
+  const presentes = new Set<string>();
+  for (const f of m.filas) {
+    if (f.tipo === 'precio' && f.dtoProducto && f.mecanismo) presentes.add(f.mecanismo);
+    if (f.tipo === 'regalo' || f.item.free_goods) presentes.add(etiquetaFuentePrecio('free_goods'));
+  }
+  if (m.conDescuento) presentes.add(etiquetaFuentePrecio('customer_terms'));
+  for (const etiqueta of presentes) {
+    const def = definicionDescuento(etiqueta);
+    if (def) out.push(`${etiqueta}: ${def}`);
   }
   if (m.totales.sin_precio > 0) {
     out.push(`${m.totales.sin_precio} artículo(s) sin precio: se cotizan aparte y no están en el total.`);
