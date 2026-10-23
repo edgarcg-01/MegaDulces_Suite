@@ -137,6 +137,10 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   // haya algo que entregar", pero la ruta sólo acepta `_VER` — mismo patrón que las de arriba.
   // Es benigna hoy porque nadie tiene GESTIONAR sin VER; se borra de acá cuando exista el botón.
   { perm: Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR, url: '/contabilidad/contpaqi-puente', motivo: 'manage sin view' },
+  // `[CP.8.80]` Llave de acción (categorizar un egreso desde el puente): sola no abre la pantalla, que
+  // exige _VER, y sus GET también la piden. En prod (2026-10-23) la tienen contabilidad, finanzas y
+  // superadmin, los tres con _VER: hoy nadie rebota.
+  { perm: Permission.FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR, url: '/contabilidad/contpaqi-puente', motivo: 'manage sin view: llave de acción del puente' },
   // admin
   { perm: Permission.ROLES_CONFIGURAR, url: '/admin/roles', motivo: 'manage sin view: la ruta exige ROLES_VER' },
 ];
