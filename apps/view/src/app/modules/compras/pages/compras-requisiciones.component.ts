@@ -49,7 +49,15 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
            antigüedad, con el filtro en "todos los estados" y 50 por página ordenadas por fecha.
            Medido en prod el 2026-10-06: 610 pendientes por $42.7 M, 24 días de promedio y 77 la
            más vieja — todo invisible desde acá, porque las viejas caen en la página 12. -->
-      <app-metric-strip [items]="kpis()" ariaLabel="Requisiciones por estado" />
+      <app-metric-strip [items]="kpis()" ariaLabel="Requisiciones por estado" (drill)="onDrill($event)" />
+      <!-- [PQ.1] El filtro que puso la casilla se ve y se quita: un filtro escondido deja una
+           lista acotada que no dice por qué (el mismo defecto que [RQ.8] arregló para el lote). -->
+      @if (fKepler) {
+        <div class="rq-lote-cab" role="status">
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="quitarKepler()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Quitar filtro</span></button>
+          <span>Mostrando sólo <strong>aprobadas sin documento en Kepler</strong>: salieron mal o nunca se empujaron. Abrí una para reintentar o cancelarla con motivo.</span>
+        </div>
+      }
 
       <!-- [RQ.8] POR LOTE o POR DOCUMENTO. Un «Armar» genera 8.2 documentos en promedio y 117 en
            el peor (82 generaciones medidas en prod), así que la lista plana obliga a leer 117
@@ -246,7 +254,14 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rq-r">{{ r.total_lines | number }}</td>
                   <td class="rq-r">{{ r.total_units | number:'1.0-0' }}</td>
                   <td class="rq-r">{{ money(r.total_cost) }}</td>
-                  <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag></td>
+                  <td class="rq-estado">
+                    <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+                    <!-- [PQ.1] Una aprobada SIN documento en Kepler no es una aprobada: medido el
+                         2026-10-23, 680 por $19.05 M se veían idénticas a una escrita en el ERP. -->
+                    @if (r.estado === 'approved') {
+                      <p-tag [value]="keplerLabel(r)" [severity]="keplerSev(r)" [attr.title]="keplerTitle(r)" styleClass="rq-kep"></p-tag>
+                    }
+                  </td>
                   <td class="rq-r" [class.rq-viejo]="(r.dias ?? 0) > 30">{{ r.dias ?? '—' }}</td>
                   <td><p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag></td>
                   <td class="rq-muted">{{ r.created_at | date:'dd/MM/yy HH:mm' }}</td>
@@ -334,7 +349,14 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rq-r">{{ r.total_lines | number }}</td>
                   <td class="rq-r">{{ r.total_units | number:'1.0-0' }}</td>
                   <td class="rq-r">{{ money(r.total_cost) }}</td>
-                  <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag></td>
+                  <td class="rq-estado">
+                    <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+                    <!-- [PQ.1] Una aprobada SIN documento en Kepler no es una aprobada: medido el
+                         2026-10-23, 680 por $19.05 M se veían idénticas a una escrita en el ERP. -->
+                    @if (r.estado === 'approved') {
+                      <p-tag [value]="keplerLabel(r)" [severity]="keplerSev(r)" [attr.title]="keplerTitle(r)" styleClass="rq-kep"></p-tag>
+                    }
+                  </td>
                   <td class="rq-r" [class.rq-viejo]="(r.dias ?? 0) > 30">{{ r.dias ?? '—' }}</td>
                   <td><p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag></td>
                   <td class="rq-muted">{{ r.created_at | date:'dd/MM/yy HH:mm' }}</td>
@@ -423,6 +445,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     /* El rojo es del renglón que ya pasó los 30 días: a esa edad el costo capturado dejó de ser
        el de hoy en la mayoría de los renglones (83.5 % medido en prod en el tramo 31-60 d). */
     .rq-viejo { color: var(--bad-fg); font-weight: 700; }
+    /* [PQ.1] Las dos etiquetas de una aprobada, una debajo de la otra: el estado y si salió al ERP. */
+    .rq-estado { display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; }
     .rq-alerta { display: flex; align-items: center; gap: .6rem; margin: .5rem 0 .9rem;
                  padding: .6rem .8rem; border-radius: var(--radius-md);
                  border: 1px solid var(--warn-border);
@@ -463,6 +487,8 @@ export class ComprasRequisicionesComponent implements OnInit {
    * bandeja y un archivo histórico.
    */
   fEstado: string = 'pending_approval';
+  /** `[PQ.1]` `'sin_documento'` = sólo aprobadas sin folio de Kepler. Lo pone el drill de la casilla. */
+  fKepler: 'sin_documento' | null = null;
   /** `[RQ.9]` Sucursal y buscador: el backend ya los aceptaba, la pantalla nunca los ofreció. */
   fAlmacen: string | null = null;
   fBuscar = '';
@@ -616,6 +642,7 @@ export class ComprasRequisicionesComponent implements OnInit {
     this.loading.set(true);
     this.api.listRequisitions({
       estado: this.fEstado || undefined,
+      kepler: this.fKepler || undefined,   // `[PQ.1]`
       // `[RQ.11]` Misma razón: los documentos DE UN LOTE son de los dos tipos, y el resumen que
       // alimenta el tablero de arriba tiene que contar el universo entero, no media pestaña.
       source_type: (this.vista() === 'lote' || this.loteAbierto()) ? undefined : this.tab(),
@@ -667,8 +694,15 @@ export class ComprasRequisicionesComponent implements OnInit {
     return [
       { label: 'Esperando aprobación', value: p?.n ?? 0, tone: (p?.n ?? 0) > 0 ? 'warn' : undefined,
         sub: p ? `${this.money(p.monto)} · ${p.dias_prom} d de promedio` : 'sin requisiciones' },
-      { label: 'Aprobadas sin OC', value: a?.n ?? 0,
-        sub: a ? `${this.money(a.monto)} · hasta ${a.dias_max} d parada(s)` : 'ninguna' },
+      // `[PQ.1]` La casilla deja de contar «aprobadas» y cuenta las que NO tienen documento en
+      // Kepler, que es la cola real: aprobar sin que salga al ERP no compra nada. Si el servidor
+      // es anterior a PQ.1 y no manda el desglose, se dice «sin medir» — nunca 0 (ADR-056).
+      a && a.n_kepler == null
+        ? { label: 'Aprobadas sin documento en Kepler', value: '—', format: 'text', sub: `${a.n} aprobada(s) · sin medir: el servidor no reporta el estado en Kepler` }
+        : { label: 'Aprobadas sin documento en Kepler', value: a ? a.n - (a.n_kepler ?? 0) : 0,
+            tone: a && a.n - (a.n_kepler ?? 0) > 0 ? 'warn' : undefined,
+            sub: a ? `${this.money(a.monto_sin_kepler ?? 0)} · ${a.n_kepler_error ?? 0} salió mal · ${a.n_sin_empujar ?? 0} sin empujar · hasta ${a.dias_max_sin_kepler ?? 0} d` : 'ninguna',
+            drill: 'kepler_sin_documento', drillLabel: 'Ver las aprobadas sin documento en Kepler' },
       { label: 'Ordenadas', value: o?.n ?? 0, sub: o ? this.money(o.monto) : 'ninguna' },
       { label: 'Recibidas', value: rc?.n ?? 0, sub: rc ? this.money(rc.monto) : 'ninguna' },
     ];
@@ -679,6 +713,38 @@ export class ComprasRequisicionesComponent implements OnInit {
     return p && p.n_mas_30 > 0 ? { n: p.n_mas_30, monto: p.monto_mas_30 } : null;
   }
   verPendientes(): void { this.fEstado = 'pending_approval'; this.reload(); }
+
+  // ── `[PQ.1]` Aprobada ≠ escrita en Kepler ──────────────────────────────────────────────
+  /** El drill de la casilla pone el filtro y lo DEJA VISIBLE (la cinta de arriba lo muestra y lo quita). */
+  onDrill(llave: string): void {
+    if (llave !== 'kepler_sin_documento') return;
+    this.fKepler = 'sin_documento'; this.fEstado = 'approved';
+    this.vista.set('documento'); this.loteAbierto.set(null);
+    this.reload();
+  }
+  quitarKepler(): void { this.fKepler = null; this.reload(); }
+  /**
+   * Tres etiquetas para tres ausencias que no son la misma (ADR-056): salió · salió mal · nunca
+   * se empujó. Si la fila no trae las columnas (servidor viejo) se dice «sin medir», no «sin empujar».
+   */
+  keplerLabel(r: RequisitionRow): string {
+    if (r.kepler_folio) return `en Kepler ${r.kepler_sucursal ? (r.kepler_sucursal + '/') : ''}${r.kepler_folio}`;
+    if (r.kepler_error) return 'no salió a Kepler';
+    if (r.kepler_folio === undefined && r.kepler_error === undefined) return 'Kepler: sin medir';
+    return 'sin empujar a Kepler';
+  }
+  keplerSev(r: RequisitionRow): Sev {
+    if (r.kepler_folio) return 'secondary';
+    if (r.kepler_error) return 'danger';
+    if (r.kepler_folio === undefined && r.kepler_error === undefined) return 'secondary';
+    return 'warn';
+  }
+  keplerTitle(r: RequisitionRow): string {
+    if (r.kepler_folio) return 'La Suite ya escribió esta requisición en Kepler con ese folio.';
+    if (r.kepler_error) return `No se pudo escribir en Kepler: ${r.kepler_error}. Abrí la requisición para reintentar.`;
+    if (r.kepler_folio === undefined && r.kepler_error === undefined) return 'El servidor no reporta si salió a Kepler.';
+    return 'Aprobada, pero todavía no se intentó escribirla en Kepler. Sin documento en el ERP, no compra nada.';
+  }
 
   // ── `[RQ.1]` Vigencia en la fila ───────────────────────────────────────────────────────────
   /** TRES etiquetas, no dos: "sin medir" no es "al día" (ADR-056). */

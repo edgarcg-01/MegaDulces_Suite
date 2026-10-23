@@ -449,17 +449,18 @@ export class CommercialReplenishmentController {
 
   @Get('requisitions')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_VER)
-  @ApiOperation({ summary: '[RQ.9] Lista de requisiciones. Filtros: estado, warehouse_id, source_type, batch_id (los documentos de un lote) y search (folio, proveedor o folio de lote).' })
+  @ApiOperation({ summary: '[RQ.9] Lista de requisiciones. Filtros: estado, warehouse_id, source_type, batch_id (los documentos de un lote), search (folio, proveedor o folio de lote) y kepler=sin_documento ([PQ.1] aprobadas sin documento en el ERP).' })
   listRequisitions(
     @Query('estado') estado?: string,
     @Query('warehouse_id') warehouse_id?: string,
     @Query('source_type') source_type?: string,
     @Query('batch_id') batch_id?: string,
     @Query('search') search?: string,
+    @Query('kepler') kepler?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.listRequisitions({ estado, warehouse_id, source_type, batch_id, search, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.listRequisitions({ estado, warehouse_id, source_type, batch_id, search, kepler, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('requisitions/:id')

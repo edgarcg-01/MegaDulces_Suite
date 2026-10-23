@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1939 KB, 12509 líneas, 72 secciones.
+> **Índice navegable** — 1940 KB, 12509 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -22,7 +22,7 @@
 | 3840 | 3902 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
 | 3903 | 3975 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
 | 3976 | 4027 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 4028 | 4728 | 67 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 4028 | 4728 | 68 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
 | 4729 | 4742 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
 | 4743 | 4767 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
 | 4768 | 4790 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
@@ -4451,7 +4451,7 @@ cerrados con `validated_by = 'Claude Vision'`.
   - Dado el reporte, entonces se publica por comprador y por proveedor, con universo y ventana declarados.
   - ❌ Dado que se use la demanda que ya usó el motor como árbitro, entonces el instrumento se tira: sólo venta posterior.
   **Verificado contra:** `kepler_ods` venta y existencia por SKU × sucursal. **¿Escribe?** no. **No incluye:** recalibrar el motor.
-- [ ] **[PQ.1]** ⬜ **La pantalla distingue «aprobada» de «aprobada y escrita en Kepler»** — 2026-10-23. **Capa:** C3 · **Depende de:** D1. Hoy 680 aprobadas sin documento se ven igual que una entregada; 602 son traspasos y **ninguno de tipo `branch` llegó jamás a `received`**.
+- [x] **[PQ.1]** 🧪 **La pantalla distingue «aprobada» de «aprobada y escrita en Kepler»** — 2026-10-23. **Capa:** C2+C3 · **Depende de:** D1 ✅. Hoy 680 aprobadas sin documento se ven igual que una entregada; 602 son traspasos y **ninguno de tipo `branch` llegó jamás a `received`**. **Hecho (2026-10-23):** el resumen de `listRequisitions` cuenta, dentro de cada estado, `n_kepler` (salió) · `n_kepler_error` (salió mal) · `n_sin_empujar` (nunca se intentó) + monto y antigüedad de las sin documento, con `to_jsonb` por si la columna llega después del deploy; filtro `kepler=sin_documento` (sólo `approved`); la bandeja `/compras/requisiciones` cambia la casilla «Aprobadas sin OC» por **«Aprobadas sin documento en Kepler»** (valor = aprobadas − en Kepler, con drill que pone el filtro y lo deja a la vista para quitarlo; con un servidor viejo dice «sin medir», nunca 0) y cada aprobada lleva una segunda etiqueta: «en Kepler 00/0003114» · «no salió a Kepler» (título con el motivo) · «sin empujar a Kepler» · «Kepler: sin medir». Pruebas: 7 nuevas en `compras-requisiciones.component.spec.ts` (22/22), dos negativas (servidor sin desglose → «sin medir»; drill ajeno no toca el filtro). `check:pantalla` 2 → 2 (0 nuevas), `check:templates` y `check-template-types` verdes, diagnósticos del editor en 0. ⚠️ **Sin validación visual** (no se abrió la pantalla viva); lo más probable de ajustar: el alto de la celda de estado con dos etiquetas. ⛔ No incluye el cierre manual del traspaso (PQ.2).
 - [ ] **[KR.11]** 🔨 **Cada sucursal escribe en SU servidor Kepler, no en el de oficinas** — 2026-10-23. Medido en `kepler_ods`: los `X-A-30`/`U-D-40` de cada sucursal viven en su propio `md_NN`; el adapter tenía una sola conexión a `md_00`. Ahora un pool por `KEPLER_PUSH_URL_NN`, plantilla por servidor, y `KEPLER_PUSH_URL` sólo vale para `00` (nunca comodín). `kepler-servidores.ts` + spec 13/13, **rota a propósito** (comodín → 2 rojos); módulo 238/238. Tipado sin verificar en local (lo hace el CI). Plantillas candidatas y rezago por servidor en `RUNBOOKS/KEPLER_PUSH_DESPLIEGUE.md` §8. **Falta:** rol `kepler_push` + `pg_hba` + variables en cada servidor (Edgar), IP del `08` NO MEDIDA, baja en Kepler (KR.7) sin probar.
 - [ ] **[PQ.2]** ⬜ **El traspaso aprobado tiene salida aunque KR esté apagado** (cierre manual con coordenada `U-D-40`/`U-D-41`, o cancelación con motivo) — 2026-10-23. **Capa:** C2+C3 · **Depende de:** D1. **¿Escribe?** sí → prueba contra base real con el payload de la pantalla.
 - [ ] **[PQ.3]** ⬜ **El comprador captura día de visita, cadencia y lead time por proveedor; la derivada es sugerencia con su regularidad** — 2026-10-23. **Capa:** C2+C3 · **Depende de:** D5. Hoy `cadence_source='manual'` 0 de 1,049 y `lead_time_days` 0 de 1,049; sólo 221 de 886 canales de compra son regulares.
