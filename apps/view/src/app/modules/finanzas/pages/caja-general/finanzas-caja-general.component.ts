@@ -18,7 +18,7 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { evaluarCambio, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS } from '@megadulces/contracts';
+import { evaluarCambio, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS, leerCorte, type LecturaCorte } from '@megadulces/contracts';
 import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
 /**
@@ -2368,7 +2368,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <ng-template #header>
           <tr>
             <th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col">Sucursal</th><th scope="col">Estado</th>
-            <th scope="col" class="comm-num">Esperado</th><th scope="col" class="comm-num">Contado</th><th scope="col" class="comm-num">Diferencia</th>
+            <th scope="col" class="comm-num">Quedó en caja</th><th scope="col" class="comm-num">Debería haber</th><th scope="col" class="comm-num">Diferencia</th>
             <th scope="col">Cerró / Autorizó</th><th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
@@ -2378,10 +2378,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <td>{{ dmy(c.fecha) }}</td>
             <td>{{ c.sucursal | sucursal }}</td>
             <td><p-tag [value]="etiquetaEstadoCorte(c.estado)" [severity]="sevEstadoCorte(c.estado)"></p-tag></td>
-            <td class="comm-num">{{ c.esperado === null ? '—' : money(c.esperado) }}</td>
-            <td class="comm-num">{{ c.contado === null ? '—' : money(c.contado) }}</td>
-            <td class="comm-num" [class.fin-neg]="c.diferencia < 0">
-              {{ c.diferencia === null ? '—' : money(c.diferencia) }}
+            <!-- [CGS.52] Primero el HECHO (el conteo fisico), despues la cuenta y la diferencia.
+                 Un debería haber negativo dice «no calculable», no un sobrante. Misma regla que Arqueos. -->
+            @let lc = lecturaCorte(c);
+            <td class="comm-num">
+              @if (lc.quedo.medido) { <b>{{ lc.quedo.texto }}</b> } @else { <span class="fin-dim">{{ lc.quedo.texto }}</span> }
+            </td>
+            <td class="comm-num">
+              @if (lc.deberia.medido) { {{ lc.deberia.texto }} } @else { <span class="fin-dim">{{ lc.deberia.texto }}</span> }
+              @if (lc.deberia.sub) { <small class="fin-dim d-block">{{ lc.deberia.sub }}</small> }
+            </td>
+            <td class="comm-num">
+              <span [class.fin-neg]="lc.dif.tono === 'bad'" [class.fin-dim]="lc.dif.tono === 'dim'">{{ lc.dif.texto }}</span>
+              @if (lc.dif.sub) { <small class="fin-dim d-block">{{ lc.dif.sub }}</small> }
             </td>
             <td>
               <small class="fin-dim">{{ c.closed_by_username || '—' }} / {{ c.authorized_by_username || '—' }}</small>
@@ -6291,6 +6300,14 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   // "los mismos nombres que la gente ya usa".
   etiquetaTipo(t: string): string { return ETIQUETA_TIPO[t] ?? t; }
   etiquetaEstadoCorte(e: string): string { return ETIQUETA_ESTADO_CORTE[e] ?? e; }
+
+  /**
+   * `[CGS.52]` Quedó en caja · debería haber · diferencia, por separado y con la MISMA regla que
+   * Arqueos (`leerCorte()` en contracts): un «debería haber» negativo no se pinta como sobrante.
+   */
+  lecturaCorte(c: CorteCaja): LecturaCorte {
+    return leerCorte(c, (n) => money(n));
+  }
   etiquetaVeredicto(v: string | undefined): string { return v ? (ETIQUETA_VEREDICTO[v] ?? v) : '—'; }
 
   /**

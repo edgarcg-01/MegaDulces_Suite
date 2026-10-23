@@ -137,6 +137,14 @@ export interface ArqueoDia {
   autorizado: boolean;
   nota: string | null;
   reconteo_motivo: string | null;
+  /**
+   * `[CGS.52]` Por qué este corte NO tiene esperado, conteo o diferencia (p. ej. el 13-oct: no hubo
+   * conteo físico). `null` = no falta nada. Lo que no se midió se declara, nunca se dibuja como 0.
+   */
+  sin_medir_motivo: string | null;
+  /** `[CGS.52]` Si las cifras se recalcularon después de firmar: el porqué y cuándo (ISO). */
+  recalculo_motivo: string | null;
+  recalculado_at: string | null;
 
   // ── `[CGS.24]` La revisión de la supervisora ────────────────────────────────────────────
   /** El id del corte: con él se autoriza u observa desde esta misma pantalla. */
