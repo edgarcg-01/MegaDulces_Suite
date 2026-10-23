@@ -2,8 +2,8 @@ import { BadRequestException, Injectable, ServiceUnavailableException } from '@n
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, MX_TZ, toMxDateKey } from '@megadulces/platform-core';
 import {
-  redondearPedido,
-  aplicarMinimoMenor,
+  armarRenglon,
+  surteDe,
   coberturaAutoabasto,
   COBERTURA_AUTOABASTO,
   COBERTURA_AUTOABASTO_DEFAULT,
@@ -17,7 +17,7 @@ import {
   type AjusteLinea,
   type EscaleraUnidades,
   type AutoabastoPedidoGrupo,
-  type AutoabastoPedidoLinea,
+  type VieneBase,
   type AutoabastoPedidoResponse,
   type AutoabastoAjusteRequest,
   type AutoabastoAjusteResponse,
@@ -206,8 +206,6 @@ interface FilaPedidos { sku: string; unidad: string | null; ya_pedido: string | 
 interface FilaEnCamino { sku: string; unidad: string | null; en_camino: string | number }
 interface FilaPlan { id: string; folio: string | null; estado: string; origen: string | null; fecha: string; dias: number; monto: string | number | null; product_id: string; final_qty: string | number }
 interface FilaDoc { tipo: 'pedido' | 'embarque'; origen: string; serie: number; folio: string; estado: string; fecha: string; dias: number; monto: string | number | null; renglones: number }
-/** Lo que viene de un producto, ya en unidad BASE. */
-interface VieneSku { ya: number; atorado: number; negado: number; camino: number }
 interface FilaEscalera {
   sku: string; unit_base: string | null; u2_label: string | null; u3_label: string | null;
   f2: string | number | null; f3: string | number | null; is_weight: boolean | null;
@@ -327,10 +325,10 @@ export class AutoabastoPedidoService {
     });
 
     // `[AB.23]` Lo que viene, por producto y en BASE. Una unidad que la escalera no conoce no se suma: se cuenta.
-    const viene = new Map<string, VieneSku>();
+    const viene = new Map<string, VieneBase>();
     let sinUnidad = 0;
     const enMesa = new Set(skus);   // lo que no está en la mesa no se pinta: ni se suma ni se cuenta
-    const sumar = (sku: string, unidad: string | null, campo: keyof VieneSku, qty: number) => {
+    const sumar = (sku: string, unidad: string | null, campo: keyof VieneBase, qty: number) => {
       if (!(qty > 0) || !enMesa.has(sku)) return;
       const k = factorBaseDe(unidad, escaleras.get(sku) ?? null);
       if (k == null) { sinUnidad++; return; }
@@ -357,29 +355,10 @@ export class AutoabastoPedidoService {
       const sku = String(f['sku']);
       // El factor del almacén: las cantidades "_nat" vienen en unidad base, las de la mesa en cajas.
       const cf = Math.max(1, num(f['caja_factor']));
-      const p = viene.get(sku);
-      const yaBase = p?.ya ?? 0;
-      const caminoBase = p?.camino ?? 0;
-      const faltaBase = num(f['suggested_qty_nat']);
-      const netaBase = Math.max(0, faltaBase - yaBase - caminoBase);
-      const costo = numONull(f['unit_cost']);
-      // Se valúa sólo si el motor no retuvo el $ del renglón (peldaño contradicho, U.2).
-      const valuable = f['rung_veredicto'] == null && costo != null;
-      // `[AB.20]` Lo que va en unidad menor y vale menos de $200 no se pide. Sin costo confiable el
-      // mínimo no se puede revisar: el renglón se queda y se declara (`sin_costo`), no se supone.
-      // Un agotado se pide aunque no llegue al mínimo: el mínimo sólo frena bajo mínimo / bajo reorden.
-      const minimo = aplicarMinimoMenor(redondearPedido(netaBase, escaleras.get(sku) ?? null), valuable ? costo : null, String(f['bucket'] ?? ''));
-      const aPedir = minimo.redondeo;
-      // `[AB.18]` Lo que de verdad lleva el pedido: el ajuste de la persona si existe; si no, el sugerido.
       const productId = String(f['product_id']);
-      const guardado = ajustes.get(productId) ?? null;
-      const efectivoBase = guardado ? guardado.cantidad_base : aPedir.cantidad_base;
-      const efectivoCant = guardado ? guardado.cantidad : aPedir.cantidad;
-      const ajuste: AjusteLinea | null = guardado
-        ? { cantidad: guardado.cantidad, unidad: guardado.unidad, motivo: guardado.motivo, ajustado_por: guardado.ajustado_por, ajustado_at: guardado.ajustado_at }
-        : null;
-
-      const linea: AutoabastoPedidoLinea = {
+      // `[AB.26]` La cuenta del renglón vive en `libs/contracts` (`armarRenglon`): la misma que va a
+      // usar la mesa. Acá sólo se le pasa lo que el servidor leyó; ninguna resta se escribe aquí.
+      const { linea, efectivo_base: efectivoBase, efectivo_cantidad: efectivoCant } = armarRenglon({
         product_id: productId,
         sku,
         nombre: String(f['nombre'] ?? ''),
@@ -387,33 +366,27 @@ export class AutoabastoPedidoService {
         existencia: num(f['on_hand']),
         objetivo: numONull(f['target_qty']),
         falta: num(f['suggested_qty']),
-        ya_pedido: r1(yaBase / cf),
-        atorado: r1((p?.atorado ?? 0) / cf),
-        negado_30d: r1((p?.negado ?? 0) / cf),
-        en_camino: r1(caminoBase / cf),
-        planeado_compras: r1(planPorProducto.get(productId) ?? 0),
-        falta_neta: r1(netaBase / cf),
-        a_pedir: aPedir,
-        ajuste,
-        valor: valuable && efectivoBase > 0 ? r2(efectivoBase * (costo as number)) : null,
-        costo_base: valuable ? (costo as number) : null,
+        falta_base: num(f['suggested_qty_nat']),
+        caja_factor: cf,
+        costo_base: numONull(f['unit_cost']),
+        rung_veredicto: f['rung_veredicto'] == null ? null : String(f['rung_veredicto']),
         posicion: String(f['bucket'] ?? ''),
-        minimo_menor: minimo.estado,
-        valor_menor: minimo.valor_menor,
-      };
+        viene: viene.get(sku) ?? null,
+        planeado_compras: planPorProducto.get(productId) ?? 0,
+        escalera: escaleras.get(sku) ?? null,
+        ajuste: ajustes.get(productId) ?? null,
+        surte: surteDe(f['replenish_via'], f['source_warehouse_code'], f['supplier_id'], f['supplier_name']),
+      });
+      const aPedir = linea.a_pedir;
 
-      const via = f['replenish_via'];
-      const origen = f['source_warehouse_code'];
-      const tipo: AutoabastoPedidoGrupo['tipo'] =
-        via === 'transfer' && origen ? 'matriz' : f['supplier_id'] ? 'proveedor' : 'sin_ruta';
-      const clave = tipo === 'matriz' ? String(origen) : tipo === 'proveedor' ? String(f['supplier_id']) : null;
+      const { tipo, clave, nombre } = linea.surte;
       const llave = `${tipo}:${clave ?? ''}`;
       let g = grupos.get(llave);
       if (!g) {
         g = {
           tipo,
           clave,
-          nombre: tipo === 'matriz' ? String(origen) : tipo === 'proveedor' ? String(f['supplier_name'] ?? 'Proveedor') : 'Sin ruta configurada',
+          nombre,
           lineas: [],
           renglones_a_pedir: 0,
           total_cajas: 0,

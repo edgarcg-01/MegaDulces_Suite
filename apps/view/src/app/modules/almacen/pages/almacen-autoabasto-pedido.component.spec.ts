@@ -22,7 +22,8 @@ const linea = (p: Partial<AutoabastoPedidoLinea> = {}): AutoabastoPedidoLinea =>
   product_id: 'p-1', sku: '70056', nombre: 'MAZAPÁN', venta_30d: 10, existencia: 2, objetivo: 12, falta: 10,
   ya_pedido: 2, atorado: 0, negado_30d: 0, en_camino: 3, planeado_compras: 0, falta_neta: 5,
   a_pedir: { cantidad: 5, unidad: 'cj', factor: 16, cantidad_base: 80, regla: 'cajas' } as never,
-  ajuste: null, valor: 100, costo_base: 1, posicion: 'bajo_minimo', minimo_menor: 'no_aplica' as never, valor_menor: null, ...p,
+  ajuste: null, valor: 100, costo_base: 1, posicion: 'bajo_minimo', minimo_menor: 'no_aplica' as never, valor_menor: null,
+  estado: 'sin_pedir', surte: { tipo: 'matriz', clave: '00', nombre: '00' }, ...p,
 });
 const RESP = (docs: AutoabastoVieneDoc[]): AutoabastoPedidoResponse => ({
   almacen: { id: 'w-01', code: '01', name: 'Padre Hidalgo' }, fecha_mx: '2026-10-22', hora_mx: '13:00', cobertura_dias: 15,

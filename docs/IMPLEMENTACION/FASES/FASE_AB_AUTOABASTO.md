@@ -1477,7 +1477,7 @@ en la laptop), por sucursal:
 3. Tiempo de la cuenta por almacén.
 Lo que no se pueda correr se declara NO MEDIDO.
 
-**C1 — AB.26 Una sola cuenta del renglón, por almacén.** Sacar de `AutoabastoPedidoService.pedido()`
+**C1 — AB.26 Una sola cuenta del renglón, por almacén.** 🧪 *En código 2026-10-23: `armarRenglon` / `estadoRenglon` / `surteDe` en `libs/contracts`, 20 pruebas con su negativa vista en rojo; antes/después en prod NO MEDIDO hasta desplegar.* Sacar de `AutoabastoPedidoService.pedido()`
 la función que arma la línea: falta · ya pedido · en camino · planeado por Compras · falta neta · surte ·
 estado · excepción guardada. El tipo vive en `libs/contracts`. La mesa y «Lo que te llega» la consumen.
 - «Mi pedido» devuelve lo mismo que antes en los 9 almacenes (antes/después en sólo lectura), salvo lo
