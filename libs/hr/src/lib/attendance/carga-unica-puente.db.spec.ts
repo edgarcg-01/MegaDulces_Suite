@@ -60,7 +60,7 @@ suite('carga única contra la base: el reloj desconocido cede ante un reloj real
     const r: Record<string, unknown> = {};
     try {
       await knex.transaction(async (trx) => {
-        for (const m of carga.MIGRACIONES_FASE) await require(path.resolve(__dirname, '../../../../../database/migrations-newdb', `${m}.js`)).up(trx);
+        for (const m of [...carga.MIGRACIONES_FASE, carga.MIGRACION_VARIOS_HORARIOS]) await require(path.resolve(__dirname, '../../../../../database/migrations-newdb', `${m}.js`)).up(trx);
         await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);
         const sufijo = Date.now();
         const [sitio, otro] = [`rh-carga-${sufijo}`, `rh-carga-otro-${sufijo}`];
@@ -120,7 +120,7 @@ suite('carga única contra la base: el reloj desconocido cede ante un reloj real
         await trx.raw(`DELETE FROM public.knex_migrations WHERE name LIKE '20261007%hr_%'`);
         r['faltan'] = await motivo(carga.verificarDestinoProd(trx, { clusterId: local }));
         // Con todo registrado: pasa.
-        for (const m of [carga.MIGRACION_BASE_CH, ...carga.MIGRACIONES_FASE]) {
+        for (const m of [carga.MIGRACION_BASE_CH, ...carga.MIGRACIONES_FASE, carga.MIGRACION_VARIOS_HORARIOS]) {
           await trx.raw(`INSERT INTO public.knex_migrations (name, batch, migration_time)
                          SELECT ?, 0, now() WHERE NOT EXISTS (SELECT 1 FROM public.knex_migrations WHERE name = ?)`, [`${m}.js`, `${m}.js`]);
         }
