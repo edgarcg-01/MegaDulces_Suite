@@ -208,6 +208,40 @@ export interface CriticalStockQuery {
   export?: boolean;  // interno: sube el cap de filas para exportar TODO (XLSX). No expuesto por query param.
 }
 
+/**
+ * `[PQ.4]` Una fila de la agenda POR PROVEEDOR: el mismo universo que `worklist`, pero colapsado
+ * a un renglón por proveedor en vez de uno por almacén×proveedor (237 contra 639 canales).
+ *
+ * ⚠️ Los `numeric` llegan como **string**: node-pg entrega `numeric` como texto. `cadence_days`
+ * y `suggested_cost` se declaran `string | number` a propósito — tiparlos de `number` invita a
+ * sumarlos sin convertirlos, que es como se fabrica un total equivocado que se lee bien.
+ * Los `::int` del `select` sí llegan como número.
+ */
+export interface WorklistProveedorRow {
+  supplier_id: string;
+  supplier_name: string | null;
+  n_canales: number;
+  n_vencidos: number;
+  n_hoy: number;
+  n_prox7: number;
+  next_due_date: Date | string | null;
+  days_to_due: number | null;
+  last_delivery_date: Date | string | null;
+  cadence_days: string | number | null;
+  lead_time_days: number | null;
+  /** Las sucursales que TOCAN (vencidas u hoy), con su id para que «Armar» las deje puestas. */
+  sucursales_tocan: { id: string; code: string; days_to_due: number }[];
+  n_skus: number;
+  n_below: number;
+  suggested_cost: string | number;
+}
+
+/** `[PQ.4]` Lo que devuelve la agenda por proveedor. `total` es lo devuelto, con `LIMIT 1000`. */
+export interface WorklistProveedoresResponse {
+  total: number;
+  rows: WorklistProveedorRow[];
+}
+
 // RA-PRO.8 — worklist "qué toca" (ciclos de reabasto por almacén×proveedor).
 export interface WorklistQuery {
   warehouse_id?: string;
@@ -340,7 +374,7 @@ interface ReceiveLineDto { line_id: string; received_qty: number; }
  */
 /**
  * `[RQ.8]` Lo que devuelve un «Armar» en lote: el folio bajo el que entraron todas y el
- * desglose de lo creado. `batch_folio` es `string | null` porque el folio del lote solo se
+ * desglose de lo creado. `batch_folio` es `string | null` porque el folio del lote sólo se
  * emite cuando las columnas del lote ya existen en la base (`loteColsListas`); sin ellas el
  * lote entra igual y se identifica por `batch_id`.
  */
@@ -3477,7 +3511,7 @@ export class CommercialReplenishmentService {
    * sugerido que la vista por canal, serían dos números para el mismo hecho. Se reusa el SQL
    * por composición, no copiándolo.
    */
-  async worklistProveedores(q: WorklistQuery) {
+  async worklistProveedores(q: WorklistQuery): Promise<WorklistProveedoresResponse> {
     const tenantId = this.tenantCtx.requireTenantId();
     const whIds = await this.whIds(q);
     return this.tk.run(async (trx) => {

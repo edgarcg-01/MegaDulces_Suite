@@ -3,7 +3,7 @@ import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import { MonthlySalesResponse, OcDetalleDto, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
-import { CommercialReplenishmentService, CreateRequisitionDto, LoteRequisicionesCreado, parseSoloQuedado, ReceiveRequisitionDto } from './commercial-replenishment.service';
+import { CommercialReplenishmentService, CreateRequisitionDto, LoteRequisicionesCreado, parseSoloQuedado, ReceiveRequisitionDto, WorklistProveedoresResponse } from './commercial-replenishment.service';
 import { ReplenishmentExportService, PedidoExport } from './replenishment-export.service';
 
 const REQ_ESTADO_LABEL: Record<string, string> = {
@@ -444,7 +444,7 @@ export class CommercialReplenishmentController {
     @Query('search') search?: string,
     @Query('target_basis') target_basis?: string,
     @Query('category_id') category_id?: string,
-  ) {
+  ): Promise<WorklistProveedoresResponse> {
     return this.svc.worklistProveedores({ warehouse_id, warehouse_ids, via, status, search, target_basis, category_id });
   }
 
