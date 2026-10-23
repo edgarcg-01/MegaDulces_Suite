@@ -2633,16 +2633,16 @@ export class CashLedgerService {
    * camioneta, cuyo cliente es el genérico `CONTADO`.
    */
   private async mapaDeRutas(
-    trx: any, tenantId: string, codigos: Array<string | null>,
+    trx: Knex | Knex.Transaction, tenantId: string, codigos: Array<string | null>,
     llave: 'cliente_code' | 'route_code' = 'cliente_code',
-  ) {
+  ): Promise<Map<string, MapaRuta>> {
     const lista = [...new Set(codigos.filter(Boolean).map(String))];
     const m = new Map<string, MapaRuta>();
     if (!lista.length) return m;
-    const filas = await trx('finance.route_customer_map')
+    const filas: Array<MapaRuta & { route_code: string | null }> = await trx('finance.route_customer_map')
       .where('tenant_id', tenantId).whereIn(llave, lista)
       .select('route_code', 'cliente_code', 'confirmed_at', 'kepler_cuenta', 'kepler_concepto');
-    filas.forEach((f: any) => m.set(String(f[llave]), f));
+    filas.forEach((f) => m.set(String(f[llave]), f));
     return m;
   }
 
