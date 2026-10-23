@@ -1386,6 +1386,7 @@ tipo; un mismo SKU puede estar en un pedido y en un embarque, por eso 777 es un 
 | 2 | `/mesa`: «sugerido ya neto de tránsito» (`@ApiOperation`) | No resta nada: la política es `'ignorar'`, y el tránsito que lee son OC a proveedor, no traspasos |
 | 3 | Ruta: «Hoy sólo LEE; solicitar y autorizar entran en el PR siguiente» | «Mi pedido» ya escribe (AB.18); solicitar y autorizar no existen |
 | 4 | «Mi pedido» en uso | 22 de 23 eventos son de Dirección |
+| 6 | §15.7: el motor de `/compras/pedido` trabaja «con demanda dependiente en las matrices» | **No en el código:** cada almacén se calcula con su propia venta; `eff_daily` sólo lo usa la lista de sobrestock (§16.13 A) |
 | 5 | El plan de Compras es lo que la sucursal necesita | Cubre el 4.5 % de las cajas que el motor marca como falta (AB.25); sin el folio de Kepler no se sabe cuánto se pasó (§16.12) |
 
 ### 16.6 Decisiones
@@ -1659,6 +1660,114 @@ capturó por otro lado; sin verificar.)
   sabe si llegó»**.
 - **AB.26 tiene una regla nueva:** mientras no haya folio, lo planeado por Compras y su copia capturada
   en Kepler pueden ser lo mismo. La cuenta no puede restar los dos.
+
+### 16.13 El flujo de la requisición de sucursal, de punta a punta (2026-10-23)
+
+**El pedido de Edgar:** *«al generar su requisición, ¿de dónde obtendrá la mercancía? ¿cómo afectará
+al pedido? ¿lo afectará en algo? No dejemos nada a la duda: resolvamos o tengamos un flujo adecuado de
+comunicación.»*
+
+Se revisó el código del motor y del ciclo de las requisiciones, y se midió en `pg-prod` (sólo lectura,
+30 días). Primero **cómo está hoy**, después **cómo debe quedar**.
+
+#### A. Cómo está hoy (medido y leído en el código)
+
+**La red, configurada en prod:** 02, 03 y 04 se surten de 01; 05 de 06; 07 de 08; y 01, 06 y 08 de 00.
+Centros de compra: 00, 01, 06, 08. Cada sucursal tiene **los dos canales según el proveedor**: unos
+productos le llegan por traspaso de su matriz y otros los compra directo (`replenishment_channel`).
+
+| Pregunta | Respuesta hoy | Evidencia |
+|---|---|---|
+| ¿De dónde sale la mercancía? | Del **canal** de ese producto en esa sucursal: su matriz (traspaso) o el proveedor (compra). El servidor ya obliga a **una requisición por origen**: no mezcla traspaso y compra, ni dos proveedores | `insertRequisition()` (`commercial-replenishment.service.ts:3799-3818`) |
+| ¿La matriz aparta lo que le pidió su sucursal? | ⛔ **No.** La existencia de la matriz se ve completa hasta que sale el embarque (`U-D-41`). Ni los pedidos de traspaso abiertos (`U-D-40`) ni las requisiciones aprobadas la comprometen | `transferPlan` toma la existencia ENTERA del origen (`:3093`); el plan no lee `U-D-40` |
+| ¿El pedido de Compras para la matriz incluye lo que necesitan sus sucursales? | ⛔ **No.** Cada almacén se calcula con **su propia venta**. La «demanda dependiente en las matrices» que afirmaba §15.7 **no existe en el código**: `eff_daily` sólo lo usa la lista de sobrestock | `workbook` usa `daily_pieces` por almacén (`:2024, 2105`); `eff_daily` sólo en `overstockList` (`:3219-3259`) |
+| ¿Qué pasa si la matriz no tiene? | El traspaso se reparte en proporción entre las sucursales y lo que no alcanza queda como faltante; **no protege la venta de la propia matriz** (sin regla de punto de reorden). La «bajada» (comprar a la matriz y bajarlo) sólo pasa si el comprador consolida a mano | `transferPlan` (`:3125-3150`); `compras-pedido-real.component.ts:3104-3137` |
+| ¿La matriz surte lo que le piden? | Casi siempre. Renglones embarcados con faltante, 30 días: **00: 0.3 %** · **01: 6.5 %** · **06: 11.4 %** · **08: 5.2 %** (en cantidad: 0.1 / 4.9 / 10.0 / 4.6 %). ⚠️ Que `c51` sea lo pedido originalmente es la hipótesis de FASE_DN, sin arbitrar | `kepler_ods`, `U-D-40` embarcados |
+| ¿Quién aprueba? | `gerente_compras`: 648 de 649 traspasos y 192 de 205 compras en 30 días | `approved_by` |
+| ¿Cuánto tarda? | Aprobar un traspaso: mediana **46 h**. **590 traspasos aprobados llevan una semana sin pasar a «ordenado»** (no hay dónde registrar su folio). Compras aprobadas sin ordenar: 78, con 17 días de mediana | `purchase_requisitions` |
+| ¿Quién se entera de cada paso? | ⛔ **Nadie.** Crear, aprobar o rechazar no avisa a nadie: no hay tarea en «Mi trabajo», ni evento, ni correo. Compras tiene que entrar a `/compras/requisiciones` a ver | Sin `emit`, sin bandeja, sin fuente de tarea (`me-work.ts`, `task.contract.ts:117-124`) |
+| ¿Se sabe quién la creó? | En la lista, **no** (no se selecciona `created_by`); en el detalle sale el id sin nombre | `listRequisitions` (`:4097-4119`), `getRequisition` (`:4265`) |
+| ¿Se sabe quién la rechazó? | ⛔ **No.** Rechazar sólo cambia el estado; no guarda quién, cuándo ni por qué | `setEstado` (`:4387-4403`) |
+| ¿Se puede cancelar una aprobada? | **No** | — |
+
+**Defectos que salieron de paso (verificados en el código):**
+1. **«Capturar OC»** (lista de requisiciones, pestaña Proveedor) se habilita con `COMPRAS_REQUISICIONES_AUTORIZAR`,
+   pero el servidor exige `…_GESTIONAR` (`compras-requisiciones.component.ts:260, 520` contra el controlador `:519`).
+2. **Aprobar / Rechazar** (detalle) se muestran con `…_GESTIONAR`, pero el servidor exige `…_AUTORIZAR`
+   (`compras-requisicion-detalle.component.ts:57-66, 232` contra `:489, 508`). Un botón que parece funcionar y da 403.
+3. **Los traspasos no tienen dónde registrar su folio de Kepler** (sólo la pestaña Proveedor tiene «Capturar OC»).
+
+#### B. Cómo debe quedar: el flujo, paso por paso
+
+| # | Paso | Quién | Qué pasa con el pedido | Quién se entera y cómo |
+|---|---|---|---|---|
+| 1 | La sucursal ve que le falta algo que **nadie ha pedido** (estado de AB.26) y pulsa «Generar requisición» | Almacenista | Nada todavía | — |
+| 2 | Se arma: cada renglón ya trae a quién se le pide («Surte»); **sale una requisición por origen** (su matriz / cada proveedor), en `pending_approval`, marcada como **pedida por sucursal** | Almacenista | En la sucursal, esos renglones pasan a **«Pedido a Compras · por aprobar»** y no se vuelven a sugerir. En la matriz, si es traspaso, **queda comprometido** (D10) | **Compras: tarea en «Mi trabajo»** «Requisiciones de sucursal por aprobar» (D12) |
+| 3 | Compras revisa: si es traspaso, ve **cuánto tiene la matriz después de lo comprometido**; si no alcanza, decide comprar a la matriz (bajada) o al proveedor | Comprador | Si se agrega compra a la matriz, entra al pedido general de esa matriz | — |
+| 4a | **Aprueba** (todo o con cantidades ajustadas) | Comprador | La requisición queda aprobada; sigue comprometida en la matriz | **Sucursal: aviso en «Mi trabajo»** «Aprobada: se pasa a Kepler» |
+| 4b | **Rechaza** con motivo obligatorio | Comprador | Se libera lo comprometido; los renglones vuelven a «Nadie lo ha pedido» | **Sucursal: aviso con el motivo**; se guarda quién y cuándo (hoy no) |
+| 5 | **Se pasa a Kepler** (`U-D-40` en la matriz si es traspaso; `X-A-30`/OC si es compra) y **se registra el folio** (AB.30) | Quien captura (matriz o Compras) | Pasa a «ordenado»; el renglón deja de contarse como plan y cuenta como **«ya viene»** (sin doble conteo) | La sucursal lo ve en «Lo que te llega» con su folio |
+| 6 | La matriz embarca (`U-D-41`) | Matriz | **«En camino»**; se libera lo comprometido (ya salió) | «Lo que te llega» |
+| 7 | La sucursal recibe (`U-A-50`) | Almacenista | Sube la existencia | — |
+| 8 | Si la matriz no surtió todo (**negado**) | — | El faltante vuelve a aparecer como falta en la sucursal | Sucursal y Compras ven el negado (ya existe en «Mi pedido») |
+
+**Respuesta directa a «¿afecta al pedido?»:** sí, en tres lugares, y hoy ninguno está resuelto:
+
+1. **A la sucursal:** lo que pidió no se debe volver a sugerir. Hoy su propia requisición de **compra** ni
+   siquiera aparece en «Mi pedido» (`PLANEADO_COMPRAS_SQL` sólo lee traspasos).
+2. **A la matriz:** lo que le piden sus sucursales tiene que restarse de lo que tiene disponible (D10).
+   Si no, el mismo inventario se cuenta para la venta de la matriz y para el traspaso, y se le promete
+   a dos sucursales lo mismo.
+3. **Al pedido general de Compras:** cuando la matriz no alcanza, el faltante tiene que convertirse en
+   compra para la matriz. Hoy sólo pasa si el comprador consolida a mano (D11).
+
+#### C. Decisiones a firmar
+
+| # | Decisión | Recomendación | Por qué |
+|---|---|---|---|
+| **D10** | ¿Lo que una sucursal pide a su matriz se aparta de la existencia de la matriz? | **Sí:** los pedidos de traspaso abiertos y las requisiciones de traspaso aprobadas (no las pendientes) se restan de lo disponible de la matriz en el plan de traspasos y en el sobrante de la red | Sin esto la matriz se compromete dos veces. ⚠️ Cambia cifras de `/compras/pedido`: va en commit aparte con su antes/después |
+| **D11** | Cuando la matriz no alcanza, ¿el faltante se vuelve compra para la matriz sola? | **Sí, como sugerencia en el pedido de Compras** («la matriz necesita X para surtir a sus sucursales»), no como compra automática | Hoy depende de que el comprador lo note y consolide a mano |
+| **D12** | ¿Quién se entera de cada paso? | **Compras:** tarea en «Mi trabajo» por cada requisición de sucursal por aprobar. **Sucursal:** aviso al aprobarse o rechazarse, con el motivo. Con el contrato de tarea que ya existe (ADR-061/081), sin canal nuevo | Hoy nadie se entera de nada; 590 traspasos aprobados llevan una semana parados sin que nadie lo vea |
+| **D13** | ¿Quién aprueba la requisición de sucursal? | **El comprador** (`gerente_compras`, que ya aprueba 648 de 649) con `AUTOABASTO_AUTORIZAR`; si pasa el tope de inventario en pesos, **Dirección** con `AUTOABASTO_EXCEDER_TOPE` (escalera §6.1). La banda «se aprueba sola» queda para después, con volumen medido | Las llaves ya están repartidas y ningún endpoint las usa |
+
+#### D. Items nuevos
+
+- **AB.31 — Lo comprometido en la matriz** (D10). C1, motor; cambia cifras de Compras → antes/después.
+- **AB.32 — Avisos del flujo** (D12): tarea de Compras por aprobar y aviso a la sucursal; rechazo con
+  motivo, quién y cuándo.
+- **AB.33 — Arreglos del flujo de requisiciones que ya existe**: los dos botones con permiso cruzado,
+  registrar el folio también en traspasos (va con AB.30), mostrar quién creó la requisición, y que la
+  requisición de compra de la sucursal aparezca en «Mi pedido».
+- AB.29 se amplía: la requisición queda **marcada como pedida por sucursal** (columna de origen,
+  migración aditiva) y sus renglones dejan de sugerirse mientras esté viva.
+
+**Lo que NO se pudo determinar:** si hay algo fuera de estos archivos que aparte existencia en la
+matriz; y el estado vivo del envío automático (el último dato, 22-oct, decía apagado).
+
+#### E. Lo que ya cubre la fase PQ — no se duplica
+
+El mismo 2026-10-23 otra sesión abrió **PQ** (`FASE_PQ_PEDIDO_VERDAD_Y_CIERRE.md`, «del sugerido al
+ERP sin inventar nada»), que pasó PO a ⏸️. Ataca el mismo hueco desde el lado de Compras, y su medición
+(M2) es más fina que la de §16.12: **el 54.8 % de los traspasos aprobados no tiene ningún `U-D-40` con
+sus SKUs en 15 días**, y de lo que sí llega, el comprador cambia la cantidad en Kepler en el 31 %. O sea
+que hoy el pedido de la Suite se pasa a Kepler **sólo en parte**.
+
+| Lo que AB necesita | Lo construye | Item |
+|---|---|---|
+| Registrar el folio del traspaso pasado a mano | PQ | PQ.2 (cierre manual con la coordenada del `U-D-40`/`U-D-41`) |
+| Registrar el folio de la compra | PQ | PQ.7 (la OC exige la coordenada de Kepler) |
+| Envío automático a Kepler | KR | KR.9 / KR.11 (cada sucursal escribe en su servidor) |
+| Rechazo y cancelación con motivo | PQ | PQ.9 |
+| Quién aprobó y qué vio | PQ | PQ.11 |
+| Duplicado entre días | PQ | PQ.8 |
+| Permisos cruzados de los botones y quién creó la requisición | **se entregan a PQ** (su pantalla, que está editando) | AB.33 (1)–(3) |
+| La cuenta única de la sucursal, la mesa, «Lo que te llega» | AB | AB.26–AB.28 |
+| La requisición nacida en la sucursal y sus avisos | AB | AB.29, AB.32 |
+| Lo comprometido en la matriz | AB, **acordado con PQ** (toca el número de `/compras/pedido`, que PQ dice que sólo mueve PQ.6) | AB.31 |
+
+**Orden:** AB.26 ✅ → AB.27 (la mesa sobre la cuenta única) → AB.28 (pantallas) → AB.29 + AB.32 juntos,
+**cuando PQ.2 y PQ.9 estén** (la requisición de sucursal no sale sin folio, sin motivo de rechazo ni
+avisos) → AB.31 (con PQ). AB.30 se cierra solo cuando PQ.2/PQ.7 escriban el folio.
 
 ### 16.10 Definición de Terminado
 
