@@ -1291,12 +1291,13 @@ septiembre), con prueba contra el historial.
 OBJETIVO:  que cada sucursal vea, en SU mesa y en «Mi pedido», la MISMA cuenta de lo que le falta y de
            lo que ya le viene, salida de una sola función en el servidor; y que el pedido de traspaso
            lo decida Compras, no cada tienda.
-MÉTRICA:   renglones (sucursal × producto) cubiertos por un documento de Kepler que «Mi pedido» resta
-           y la mesa no — HOY: hasta 777, en documentos por $1,533,966 (2026-10-23, universo; el
-           trabajo exacto es el item AB.25) → META: 0 por construcción al cerrar AB.27.
+MÉTRICA:   renglones que la mesa lista y en los que la mesa y «Mi pedido» no pueden coincidir —
+           HOY (AB.25, 2026-10-23): 393 que ya vienen y la mesa vuelve a pedir + 3,264 cuya «Acción»
+           contradice a quién se le pide, de 8,534 listados → META: 0 por construcción al cerrar AB.27.
+           (Universo de lo que ya viene: hasta 777 renglones en documentos por $1,533,966.)
 CAPA TOPE: C3
 ÁREA:      Comercial (Almacén)
-DUEÑO:     sin asignar — se llena en la ronda (pregunta abierta, §16.9)
+DUEÑO:     Edgar (2026-10-23) · cierre comprometido: sin fecha todavía
 ESTADO:    🔨 ABIERTA 2026-10-23 por decisión de Edgar. Toma el cupo de MS, que pasa a ⏸️.
 ```
 
@@ -1398,6 +1399,7 @@ tipo; un mismo SKU puede estar en un pedido y en un embarque, por eso 777 es un 
 | **D5** | Cupo | **AB entra a 🔨; MS pasa a ⏸️** con su doc intacto | ✅ Edgar, 2026-10-23 |
 | **D6** | Nombre de la pestaña «Mi pedido» | **«Lo que te llega»**, porque con D1 la sucursal ya no arma pedido | ✅ Edgar, 2026-10-23 |
 | **D7** | ¿La sucursal puede pedir algo por su cuenta? | **Sí, como requisición que Compras aprueba**, desde una mini pantalla tipo «Mi pedido» prellenada con el mismo motor (lo que falta, menos lo que ya viene y lo que Compras ya planeó). No es un pedido directo a Kepler | ✅ Edgar, 2026-10-23 (AB.29) |
+| **D8** | ¿Cuándo se apaga el pedido de la tienda en Kepler? | Recomendación: **sólo cuando el plan de Compras cubra al menos el 80 % de las cajas que les faltan a las sucursales, dos semanas seguidas**, medido con `ab25-mesa-vs-pedido.js`. HOY: 7.8 % (7 días) · 12.2 % (30 días). Mientras tanto la sucursal pide por AB.29 | ⬜ propuesta, falta firma |
 
 **D3 en palabras simples.** Hoy cada renglón de la mesa tiene una columna «Acción» que dice *Traspaso*,
 *Traspaso parcial* o *Comprar*. La mesa la decide mirando si **cualquier** almacén de la empresa tiene de
@@ -1533,7 +1535,7 @@ Reglas:
   entrega»).
 - Skill `diseno` y `npm run check:pantalla -- almacen` antes y después.
 
-**Orden:** AB.25 → AB.26 → AB.27 → AB.29 → AB.28. AB.25 va primero porque su punto 2 puede cambiar D1.
+**Orden:** ~~AB.25~~ ✅ → AB.26 → AB.27 → AB.29 → AB.28. AB.25 cambió el peso de AB.29: pasa a ser el camino principal mientras Compras no cubra (§16.11).
 
 ### 16.9 Riesgos y bloqueos
 
@@ -1543,9 +1545,71 @@ Reglas:
 | ⛔ **El plan de Compras casi no coincide con lo que piden las tiendas** | Edgar (PM) | 11.8 % contra 8.1 % de placebo (AB.24) | AB.25 punto 2. Si Compras no cubre la necesidad, apagar el pedido de la tienda deja sucursales sin mercancía |
 | D1 cambia el modelo que firmó el dueño | Edgar | Francisco firmó el 12-oct que la sucursal arma el pedido | Comunicárselo antes de AB.28 |
 | Almacenistas sin almacén asignado | **sin dueño — pregunta** (¿quién administra Personas?) | 5 de 6 sin asignar (12-oct) | Asignarlos |
-| AB sin dueño ni cierre comprometido | Edgar | Abierta hoy | Llenarlos en la ronda; sin ellos la fase cae a ⏸️ (método §3) |
+| AB sin fecha de cierre comprometida | Edgar (dueño desde 2026-10-23) | Abierta hoy | Ponerla; sin ella la fase cae a ⏸️ (método §3) |
 | La requisición de sucursal se vuelve la vía de rutina (y regresan los tres lugares) | Edgar (PM) | Pedir es fácil; cada tienda hoy pide casi a diario | Medir cada semana: requisiciones de sucursal por almacén y cuántas rechaza Compras. Si una sucursal pide casi a diario, el plan de Compras no la está cubriendo: se corrige el plan, no se aprueba en automático |
 | Requisición aprobada + pedido capturado en Kepler = doble | Edgar | Con KR apagado la tienda sigue capturando en Kepler | La requisición aprobada se imprime (AB.21) y se captura UNA vez; al capturarse aparece como «ya pedido» y se resta |
+
+### 16.11 ✅ [AB.25] Lo que midió el C0 — 2026-10-23
+
+Script versionado y repetible: `node database/scripts/ab25-mesa-vs-pedido.js [--ventana=7|30]`
+(`pg-prod`, `system_identifier` 7688376744939610156, transacción `READ ONLY`, 7.1–9.3 s para toda la
+red). Reproduce con el **texto** de las expresiones del motor (`demandTarget`, `onHand('plan')`,
+`networkSurplus`, `transferIn`, `accionExpr`, `cajaFactor`) y el agrupado de «Mi pedido». **No corre el
+servicio**, así que el cruce contra la API queda **NO MEDIDO**.
+
+**El instrumento se probó contra un control antes de publicar.** La primera corrida dio que el plan de
+Compras cubría 36,104 de 36,786 cajas en 01 con sólo 101 renglones planeados: imposible. Causa:
+`LEAST(plan, falta)` en Postgres **ignora el NULL** y devolvía la falta entera donde no había plan. Se
+corrigió con `COALESCE(plan, 0)`. Control de consistencia que sí pasa: los renglones «ya viene» por
+sucursal quedan siempre por debajo de los SKUs en documentos medidos en §16.3 (p. ej. 02: 104 ≤ 198).
+
+**Por almacén (plan de Compras de 7 días, como «Mi pedido»):**
+
+| Almacén | La mesa lista | Ya viene y la mesa lo pide | «Traspaso» pero surte otro | «Comprar» pero surte su matriz | Nadie lo ha pedido | …de ésos, Compras lo planeó | Falta (cajas) | Cubierto por el plan (cajas) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 01 | 1,630 | 34 | 367 | 210 | 1,596 | 101 | 36,786 | 1,089 |
+| 02 | 880 | 104 | 36 | 164 | 776 | 87 | 1,730 | 168 |
+| 03 | 1,035 | 51 | 33 | 153 | 984 | 147 | 3,919 | 400 |
+| 04 | 554 | 58 | 3 | 107 | 496 | 53 | 403 | 87 |
+| 05 | 481 | 38 | 7 | 114 | 443 | 44 | 1,096 | 191 |
+| 06 | 1,245 | 59 | 481 | 112 | 1,186 | 92 | 16,792 | 539 |
+| 07 | 983 | 39 | 45 | 184 | 944 | 104 | 5,898 | 173 |
+| 08 | 1,726 | 10 | 1,236 | 12 | 1,716 | 211 | 29,719 | 1,645 |
+| **Total** | **8,534** | **393 (4.6 %)** | **2,208** | **1,056** | **8,141** | **839 (10.3 %)** | **96,343** | **4,292 (4.5 %)** |
+
+(00 no lista nada: su objetivo sale en 0. Compras le planeó 25 renglones, todos sin falta.)
+
+**Lo que dice:**
+
+1. **La sincronía es un problema real y mayormente de «a quién», no de «cuánto».** 393 renglones
+   (4.6 %) se piden de nuevo aunque ya vienen; pero **3,264 (38.2 %)** tienen una «Acción» que contradice
+   a quién se le pide en «Mi pedido»: 2,208 dicen «Traspaso» cuando su canal es un proveedor (1,236 sólo
+   en 08) y 1,056 dicen «Comprar» cuando su canal es su matriz. D3 corrige más de un tercio de la mesa.
+2. ⛔ **El plan de Compras cubre muy poco de lo que el motor dice que falta.** De los 8,141 renglones que
+   nadie ha pedido, Compras planeó **839 (10.3 %)**, y en cajas cubre **4.5 %** (sucursales 02–07:
+   **7.8 %**; matrices 01, 06, 08: 3.9 %). Con la ventana de 30 días e incluyendo `ordered`: **22.7 %** de
+   los renglones y **13.6 %** de las cajas (sucursales 12.2 %). **No depende de la ventana.**
+3. **Y lo que planea no siempre hace falta:** de 1,329 renglones planeados en 7 días, **394 (29.6 %)**
+   son de productos con falta 0 según el mismo motor.
+
+**Lo que esto NO prueba (y no se adivina):**
+
+- **Por qué** Compras planea tan poco: puede ser que planee por ciclo de proveedor, que corrija el
+  objetivo a la baja, o que el objetivo (21–30 días de cobertura) esté alto para cómo se surte hoy una
+  sucursal (pide casi a diario). **NO MEDIDO**: es la pregunta para Compras.
+- En las **matrices** (01, 06, 08) parte de su falta se cubre con OC a proveedor que ninguna de las dos
+  pantallas resta (política de tránsito `'ignorar'`), así que su cobertura está subestimada.
+- El tiempo **por almacén** del servicio: NO MEDIDO (sólo el SQL de la red entera: 7–9 s).
+
+**Consecuencia para ADR-100.** El riesgo con nombre se cumplió: **hoy el plan de Compras no puede
+reemplazar el pedido de la sucursal**. D1 sigue firmada como destino, pero el orden cambia:
+
+- AB.26 / AB.27 (una sola cuenta, mesa sincronizada) **siguen igual**: valen con cualquier modelo.
+- AB.29 («Generar requisición») **deja de ser la excepción y pasa a ser el camino principal mientras
+  Compras no cubra**: es la forma de que lo que la sucursal pide pase por Compras en vez de ir directo a
+  Kepler.
+- **El pedido de la tienda en Kepler no se apaga** hasta que la cobertura del plan de Compras, medida con
+  este mismo script, llegue a la meta que se firme (D8, §16.6).
 
 ### 16.10 Definición de Terminado
 
