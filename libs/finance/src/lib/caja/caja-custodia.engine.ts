@@ -235,6 +235,13 @@ export function custodiaPermiteCerrar(p: PiernasCustodia | null | undefined):
   return { ok: false, motivo: 'retiros_sin_clasificar', retiros: p.sin_clasificar.retiros, monto: p.sin_clasificar.monto };
 }
 
+/** La frase del freno: cuántos retiros y cuánto dinero, para que se sepa qué buscar. */
+export function textoRetirosSinClasificar(retiros: number, monto: number): string {
+  const pesos = `$${Number(monto).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${retiros === 1 ? 'Hay 1 retiro' : `Hay ${retiros} retiros`} de CAOS de esta jornada (${pesos}) sin decir si `
+    + 'entraron al cajón o quedaron a cargo de alguien. Clasifícalos antes de cerrar el corte.';
+}
+
 /** Lo que una persona tiene a su cargo hoy: la suma de sus retiros abiertos o vencidos. */
 export function saldoPorResponsable(saldos: SaldoRetiro[]): Array<{
   responsable: string; abiertos: number; vencidos: number; monto: number; mas_viejo_horas: number | null;

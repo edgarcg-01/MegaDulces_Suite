@@ -17,6 +17,9 @@ import { CajaArqueoController } from './caja-arqueo.controller';
 // `[CG.201]` La firma por teléfono: el pedido es una fila y el teléfono habla por HTTP.
 import { CajaFirmaService } from './caja-firma.service';
 import { CajaFirmaController, CajaFirmaPublicController } from './caja-firma.controller';
+// `[CGA-A.51]` El retiro de CAOS que se lleva una persona (ADR-101).
+import { CajaCustodiaService } from './caja-custodia.service';
+import { CajaCustodiaController } from './caja-custodia.controller';
 
 /**
  * Caja General. Dos mitades que conviven durante el traslape (ADR-070):
@@ -33,7 +36,7 @@ import { CajaFirmaController, CajaFirmaPublicController } from './caja-firma.con
   // CG.23.2 — el tiempo real va en su propio módulo (namespace `/caja` + puente NOTIFY→WS).
   imports: [CajaRealtimeModule],
   controllers: [CajaGeneralController, CashLedgerController, CajaControlController, CajaArqueoController,
-    CajaFirmaController, CajaFirmaPublicController],
+    CajaFirmaController, CajaFirmaPublicController, CajaCustodiaController],
   // [CG.25] El vigilante de la fecha adelantada: avisa, y cuando Kepler corrige, sigue. Va acá y
   // no en el controller porque corre por `@Cron`, sin request — con su propia advertencia de RLS.
   // [CG.141] El carril que refresca `mv_caja_autofill_entidad`. Va acá, y NO en el array
@@ -47,9 +50,9 @@ import { CajaFirmaController, CajaFirmaPublicController } from './caja-firma.con
   // `ENABLE_CAJA_AUTOLLENADO=true` lo prende, y la migración de la cuenta de servicio va antes.
   providers: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
     CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
-    CajaAutollenadoService, CajaArqueoService, CajaFirmaService],
+    CajaAutollenadoService, CajaArqueoService, CajaFirmaService, CajaCustodiaService],
   exports: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
     CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
-    CajaAutollenadoService, CajaArqueoService],
+    CajaAutollenadoService, CajaArqueoService, CajaCustodiaService],
 })
 export class FinanceCajaGeneralModule {}

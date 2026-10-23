@@ -137,6 +137,11 @@ const rechaza = (err, code, nombre) => !!err && err.code === code && (err.constr
       const e10 = await intento(trx, () => cierre({ cierre_dia: null }));
       ok(rechaza(e10, '23514', 'caos_cust_cierre_completo_chk'), 'NEGATIVA: un cierre a medias no existe');
       ok(!(await intento(trx, () => cierre({}))), 'el regreso de $4,000 con su depósito cierra la custodia');
+      await cierre({});
+      const [g6] = await trx('finance.cash_ledger').insert(gasto(1000)).returning('*');
+      const e11 = await intento(trx, () => trx('finance.caos_cash_links').insert(enlace(ret, g6, 1000)));
+      ok(rechaza(e11, '23514', 'caos_link_custodia_cerrada'),
+        'NEGATIVA: a una custodia cerrada no se le enlaza un gasto más (se pagó con otro dinero, o el cierre estuvo mal)');
 
       console.log('\n── 6. RLS ──');
       await comoApp(OTRO_T);

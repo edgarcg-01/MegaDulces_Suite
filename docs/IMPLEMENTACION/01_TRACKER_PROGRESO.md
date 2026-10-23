@@ -9133,11 +9133,22 @@ TP.6-TP.8+TP.10".
 >   y el 21 de octubre y su control sin custodia; `libs/finance` 1,769 ✓. Suite de base real
 >   `test-newdb-caja-custodia.js` (17 comprobaciones + 2 mutaciones) en el job `caja-db`. ⚠️ **NO MEDIDO en
 >   base real todavía**: no hubo Postgres de prueba en esta máquina; la corre el CI.
-> - **[CGA-A.51]** ⬜ **C2.** Las tres consultas que esconden un retiro en cuanto tiene un enlace
->   (`caosCapturables`, `caosCandidatos`, `emparejarCaos`: `whereNotExists caos_cash_links`) pasan a
->   «le queda disponible» y lo devuelven. Endpoints para clasificar un retiro y cerrar una custodia
->   (prueba contra base real con el payload de la pantalla). El corte lee las piernas de custodia y
->   **no cierra con retiros de su jornada sin clasificar** (`custodiaPermiteCerrar`).
+> - [x] **[CGA-A.51]** 🔨 **C2 en código, sin desplegar.** `caosCandidatos` y `emparejarCaos` ofrecen
+>   lo que al retiro le QUEDA (`sqlDisponibleCaos`, una sola expresión) y ya no copian billetes de un
+>   retiro usado a medias; `caosCapturables` deja fuera un retiro ya clasificado. `CajaCustodiaService`
+>   + `GET /finance/caja-custodia/retiros`, `POST …/clasificar`, `POST …/:id/cerrar` (el monto no se
+>   teclea: lo que le queda, o lo que contó la máquina en el depósito del regreso). El corte pasa
+>   `custodia` a `calcularCorte` en sus 5 cálculos y **no cierra con retiros de su jornada sin
+>   clasificar** — freno APAGADO hasta `CAJA_CUSTODIA_DESDE` (patrón `[CGS.3]`); plazo por
+>   `CAJA_CUSTODIA_PLAZO_HORAS` (72 h mientras Edgar no decida). `CG.58` ya no reparte un depósito que
+>   es regreso de custodia (cierre atado, o referencia de CAOS que empieza con «regreso»; 0 hoy). Los
+>   errores del trigger tienen nombre y frase (`caja-errores.ts`). Prueba de servicio real
+>   `caja-custodia.servicio-real.spec.ts` (3 escenarios, 6 negativas) en el job `caja-db`;
+>   `libs/finance` 1,730 ✓; `lint:boundary` ✓. ⚠️ **NO MEDIDO contra base real** (sin Postgres de
+>   prueba aquí) y **arranque de Nest no verificado** (controlador y servicio nuevos en el módulo).
+>   ⚠️ Deuda con nombre: «¿Cuánto hay ahora?» (`caja-posicion`) todavía no descuenta la custodia —
+>   mientras no haya custodias da lo mismo; con la primera, diverge del corte. Y `emparejarCaos`
+>   sigue ofreciendo un retiro a UN solo pendiente por vez.
 > - **[CGA-A.52]** ⬜ **C3.** Captura: «¿de dónde salió el dinero?» obligatorio; al enlazar un retiro
 >   se toma **una parte** (≤ disponible, ≤ lo que falta del gasto) y ya no se copian sus billetes.
 >   Bandeja «retiros de hoy» para clasificar, y saldo a cargo por persona con antigüedad.

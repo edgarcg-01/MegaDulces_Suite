@@ -59,7 +59,18 @@ exports.up = async function up(knex) {
        WHERE m.tenant_id = NEW.tenant_id AND m.device = NEW.caos_device AND m.external_id = NEW.caos_external_id;
       IF v_total IS NULL THEN
         RAISE EXCEPTION 'CAOS_LINK_SIN_MOVIMIENTO'
-          USING ERRCODE = '23503', DETAIL = format('%s|%s no existe en analytics.caos_cash_movements', NEW.caos_device, NEW.caos_external_id);
+          USING ERRCODE = '23503', CONSTRAINT = 'caos_link_sin_movimiento', DETAIL = format('%s|%s no existe en analytics.caos_cash_movements', NEW.caos_device, NEW.caos_external_id);
+      END IF;
+
+      -- Una custodia cerrada ya explicó su último peso: un gasto que llega después se pagó con
+      -- otro dinero, o el cierre estuvo mal. En los dos casos no se enlaza en silencio.
+      IF to_regclass('finance.caos_retiro_custodia') IS NOT NULL AND EXISTS (
+           SELECT 1 FROM finance.caos_retiro_custodia c
+            WHERE c.tenant_id = NEW.tenant_id AND c.caos_device = NEW.caos_device
+              AND c.caos_external_id = NEW.caos_external_id AND c.deleted_at IS NULL
+              AND c.cierre_tipo IS NOT NULL) THEN
+        RAISE EXCEPTION 'CAOS_LINK_CUSTODIA_CERRADA'
+          USING ERRCODE = '23514', CONSTRAINT = 'caos_link_custodia_cerrada';
       END IF;
 
       SELECT coalesce(sum(abs(k.monto_enlazado)), 0) INTO v_otros
@@ -68,7 +79,7 @@ exports.up = async function up(knex) {
          AND k.caos_external_id = NEW.caos_external_id AND k.deleted_at IS NULL AND k.id <> NEW.id;
       IF v_otros + abs(NEW.monto_enlazado) > v_total + 0.005 THEN
         RAISE EXCEPTION 'CAOS_LINK_EXCEDE_MOVIMIENTO'
-          USING ERRCODE = '23514',
+          USING ERRCODE = '23514', CONSTRAINT = 'caos_link_excede_movimiento',
                 DETAIL = format('movimiento %s · ya enlazado %s · disponible %s · pedido %s',
                                 v_total, v_otros, v_total - v_otros, abs(NEW.monto_enlazado));
       END IF;
@@ -76,7 +87,7 @@ exports.up = async function up(knex) {
       SELECT abs(l.monto) INTO v_captura FROM finance.cash_ledger l
        WHERE l.id = NEW.cash_ledger_id AND l.tenant_id = NEW.tenant_id;
       IF v_captura IS NULL THEN
-        RAISE EXCEPTION 'CAOS_LINK_SIN_CAPTURA' USING ERRCODE = '23503';
+        RAISE EXCEPTION 'CAOS_LINK_SIN_CAPTURA' USING ERRCODE = '23503', CONSTRAINT = 'caos_link_sin_captura';
       END IF;
       SELECT coalesce(sum(abs(k.monto_enlazado)), 0) INTO v_en_cap
         FROM finance.caos_cash_links k
@@ -84,7 +95,7 @@ exports.up = async function up(knex) {
          AND k.deleted_at IS NULL AND k.id <> NEW.id;
       IF v_en_cap + abs(NEW.monto_enlazado) > v_captura + 0.005 THEN
         RAISE EXCEPTION 'CAOS_LINK_EXCEDE_CAPTURA'
-          USING ERRCODE = '23514',
+          USING ERRCODE = '23514', CONSTRAINT = 'caos_link_excede_captura',
                 DETAIL = format('captura %s · ya enlazado %s · pedido %s', v_captura, v_en_cap, abs(NEW.monto_enlazado));
       END IF;
       RETURN NEW;
@@ -166,17 +177,17 @@ exports.up = async function up(knex) {
       SELECT m.type_id INTO v_tipo FROM analytics.caos_cash_movements m
        WHERE m.tenant_id = NEW.tenant_id AND m.device = NEW.caos_device AND m.external_id = NEW.caos_external_id;
       IF v_tipo IS DISTINCT FROM 4 THEN
-        RAISE EXCEPTION 'CAOS_CUSTODIA_NO_ES_RETIRO' USING ERRCODE = '23514',
+        RAISE EXCEPTION 'CAOS_CUSTODIA_NO_ES_RETIRO' USING ERRCODE = '23514', CONSTRAINT = 'caos_custodia_no_es_retiro',
           DETAIL = format('%s|%s tipo %s', NEW.caos_device, NEW.caos_external_id, coalesce(v_tipo::text, 'inexistente'));
       END IF;
       IF NEW.cierre_tipo = 'regreso_caos' THEN
         SELECT m.type_id, abs(m.total) INTO v_tipo, v_total FROM analytics.caos_cash_movements m
          WHERE m.tenant_id = NEW.tenant_id AND m.device = NEW.caos_device AND m.external_id = NEW.cierre_caos_external_id;
         IF v_tipo IS DISTINCT FROM 0 THEN
-          RAISE EXCEPTION 'CAOS_CUSTODIA_REGRESO_NO_ES_DEPOSITO' USING ERRCODE = '23514';
+          RAISE EXCEPTION 'CAOS_CUSTODIA_REGRESO_NO_ES_DEPOSITO' USING ERRCODE = '23514', CONSTRAINT = 'caos_custodia_regreso_no_es_deposito';
         END IF;
         IF abs(v_total - NEW.cierre_monto) > 0.005 THEN
-          RAISE EXCEPTION 'CAOS_CUSTODIA_REGRESO_MONTO' USING ERRCODE = '23514',
+          RAISE EXCEPTION 'CAOS_CUSTODIA_REGRESO_MONTO' USING ERRCODE = '23514', CONSTRAINT = 'caos_custodia_regreso_monto',
             DETAIL = format('el depósito trae %s y el cierre dice %s', v_total, NEW.cierre_monto);
         END IF;
       END IF;
