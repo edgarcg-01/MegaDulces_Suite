@@ -1133,6 +1133,25 @@ export const CRON_JOBS: CronCfg[] = [
   // caería en `cfg ? classify : 'ok'` y un cron parado se vería verde. Va junto con `latirCron` en `sla.service.ts`.
   // Cada 5 min: 0.25 h de aviso (3 corridas perdidas), 1 h de crítico. Entregar CERO es lo normal y lo declara `ceroEsOk`.
   { key: 'service_desk_sla',   label: 'Mesa de Servicio: barrido del SLA', cadence: 'cada 5 min', warnH: 0.25, critH: 1, maxRunH: 0.25 },
+  // [RH.1.8] Asistencia (Fase RH). Las dos llaves salen de constantes exportadas por `@megadulces/hr`
+  // (`HR_INGEST_JOB_KEY`, `AGENT_JOB_KEY`) y `db-health.spec.ts` exige que estén aquí: si alguien
+  // renombra la constante, la prueba se pone roja en vez de que el latido caiga en `unknown`.
+  //
+  // ⚠️ SE MERGEA EN EL PASO 7 DEL CORTE (runbook RH_CORTE_ASISTENCIA §3.1), no antes: un job
+  // declarado que nunca latió sale `warn` («DECLARADO Y NUNCA REPORTÓ», `veredictoSinLatido`) y el
+  // escáner abre alerta por eso — dos semanas de amarillo por carriles que todavía no deben correr.
+  //
+  // Sin `maxRunH` a propósito: los dos laten con `latirCron`, que escribe `ok`/`error` de una vez y
+  // NUNCA deja la fila en `running`, así que un tope de duración no se evaluaría jamás.
+  //
+  // Ingesta: late con cada lote (`ingest()`) y con cada latido del lector (`heartbeat()`), y el lector
+  // manda latido por reloj cada 5 min aunque nadie cheque (`LATIDO_MS`, checadores/agente/reloj.js)
+  // — también cuando el reloj falla. Una sola llave para los 12 relojes: un reloj caído NO la pone
+  // roja (eso lo dice el semáforo de /rh/relojes); lo que la pone roja es que el LECTOR deje de hablar.
+  { key: 'hr_attendance_ingest', label: 'Relojes checadores: entrada de checadas', cadence: 'continuo (latido del lector, ≤5 min)', warnH: 0.5, critH: 2 },
+  // Agente de alertas: `@Cron('0 */30 * * * *')` en el WORKER, sólo con ENABLE_HR_ATTENDANCE_AGENT=true
+  // (apagado no late). Aviso al perder ~2 corridas, crítico al perder ~5. Un sitio que falla = `error`.
+  { key: 'hr_attendance_agent',  label: 'Asistencia: agente de alertas', cadence: 'cada 30 min (worker)', warnH: 1.5, critH: 3 },
   // [CG.25] Sin este renglón el latido de `caja_fecha_futura` no sirve: el sensor caería en el
   // `cfg ? classify : 'ok'` y un cron parado se vería verde — que es justo el modo de falla que
   // este job existe para no repetir.
