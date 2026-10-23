@@ -4,10 +4,10 @@ import type {
   KeplerRequisitionSinkPort,
   KeplerRequisitionEntrada,
   KeplerRequisitionResultado,
-  KeplerDoctipo,
 } from '@megadulces/contracts';
 
 import { DOCTIPOS, coordenada } from './kepler-doctipo';
+import { plantillaDe, servidoresEncendidos, urlDeServidor } from './kepler-servidores';
 
 /** Número de Kepler (texto con formato) → number. `0` si viene vacío. */
 const num = (v: unknown): number =>
@@ -73,53 +73,57 @@ const num = (v: unknown): number =>
 @Injectable()
 export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, OnModuleDestroy {
   private readonly logger = new Logger(KeplerRequisitionSinkAdapter.name);
-  private readonly pool: Pool | null;
-
   /**
-   * Coordenada del documento plantilla, **una por tipo**. Override por env para no recompilar.
-   *
-   * ⚠️ La del traspaso **no tiene default**: hay que elegir a mano un `U-D-40` en estado
-   * `AUTORIZADO`. Clonar uno procesado arrastra `c100`/`c102`/`c103` —quién surtió, checó y
-   * embarcó— y pare un pedido que nace diciendo que ya lo trabajó alguien. El adapter igual los
-   * limpia (`DOCTIPOS.traspaso.limpiar`), pero el default vacío obliga a mirar cuál se eligió.
+   * `[KR.11]` **Un pool por servidor Kepler**, creado al primer uso. Cada sucursal escribe en SU
+   * base (`md_NN`); la regla de qué variable abre qué servidor vive en `kepler-servidores.ts`.
+   * ⛔ Un servidor sin `KEPLER_PUSH_URL_NN` queda apagado — nunca se redirige a oficinas.
    */
-  private plantilla(tipo: KeplerDoctipo): { serie: string; folio: string } {
-    const d = DOCTIPOS[tipo];
-    return {
-      serie: process.env[d.envSerie] || '1',
-      folio: process.env[d.envFolio] || (tipo === 'compra' ? '0000424' : ''),
-    };
+  private readonly pools = new Map<string, Pool>();
+
+  private poolDe(url: string): Pool {
+    let p = this.pools.get(url);
+    if (!p) {
+      p = new Pool({ connectionString: url, max: 2, connectionTimeoutMillis: 8000, statement_timeout: 30000 });
+      this.pools.set(url, p);
+    }
+    return p;
   }
 
   constructor() {
-    const url = process.env.KEPLER_PUSH_URL;
-    this.pool = url
-      ? new Pool({ connectionString: url, max: 2, connectionTimeoutMillis: 8000, statement_timeout: 30000 })
-      : null;
-    if (!url) this.logger.warn('KEPLER_PUSH_URL sin definir — la escritura a Kepler queda apagada.');
+    const encendidos = servidoresEncendidos(process.env);
+    if (!encendidos.length) this.logger.warn('Ningún KEPLER_PUSH_URL_NN definido — la escritura a Kepler queda apagada.');
+    else this.logger.log(`Escritura a Kepler encendida para: ${encendidos.map((s) => s.sucursal).join(', ')}`);
   }
 
-  async onModuleDestroy() { await this.pool?.end().catch(() => undefined); }
+  async onModuleDestroy() {
+    await Promise.all([...this.pools.values()].map((p) => p.end().catch(() => undefined)));
+  }
 
+  /** `true` si al menos un servidor está configurado y responde. */
   async disponible(): Promise<boolean> {
-    if (!this.pool) return false;
-    try { await this.pool.query('SELECT 1'); return true; }
-    catch (e) { this.logger.warn(`Kepler no responde: ${(e as Error).message}`); return false; }
+    for (const s of servidoresEncendidos(process.env)) {
+      try { await this.poolDe(s.url).query('SELECT 1'); return true; }
+      catch (e) { this.logger.warn(`Kepler ${s.sucursal} no responde: ${(e as Error).message}`); }
+    }
+    return false;
   }
 
 
   async entregar(e: KeplerRequisitionEntrada): Promise<KeplerRequisitionResultado> {
-    if (!this.pool) return { estado: 'rechazada', motivo: 'KEPLER_PUSH_URL sin configurar' };
     if (!e.lineas?.length) return { estado: 'rechazada', motivo: 'La requisición no tiene renglones' };
 
     const tipo = e.tipo ?? 'compra';
     const d = DOCTIPOS[tipo];
-    const tmpl = this.plantilla(tipo);
-    if (!tmpl.folio) {
-      return { estado: 'rechazada', motivo: `Falta ${d.envFolio}: no hay documento plantilla elegido para ${coordenada(tipo)}` };
-    }
+    // El documento se crea en el servidor de `e.sucursal` (en el traspaso, el ORIGEN).
+    const srv = urlDeServidor(e.sucursal, process.env);
+    if (!srv.ok) return { estado: 'rechazada', motivo: srv.motivo };
+    // ⚠️ La plantilla del traspaso **no tiene default** en ningún servidor: hay que elegir a mano
+    // un `U-D-40` en `AUTORIZADO`. Clonar uno procesado arrastra quién surtió, checó y embarcó.
+    const pl = plantillaDe(tipo, e.sucursal, process.env);
+    if (!pl.ok) return { estado: 'rechazada', motivo: `${pl.motivo} (${coordenada(tipo)})` };
+    const tmpl = pl.valor;
 
-    const c = await this.pool.connect();
+    const c = await this.poolDe(srv.valor).connect();
     try {
       // ── La CONTRAPARTE de `c10`, que es distinta en cada tipo ─────────────────────────────
       // ⛔ En los dos casos tiene que existir EN KEPLER. Un código válido en la Suite pero

@@ -194,3 +194,110 @@ puede crear.** Yo resolvería esto **antes** del paso 1.
 **Y sigue abierto** qué es el `74,439` de `md.kdfolio` fila `PD-`, cuando el folio máximo real de
 `U-D-40` es `0001081`. La secuencia observada es densa desde 1 y `MAX+1` reproduce lo que el ERP
 hace, pero nadie sabe para qué sirve ese contador.
+
+---
+
+## 8. ⭐ `[KR.11]` Encender cada servidor de Kepler (2026-10-23)
+
+### 8.1 Por qué una conexión no alcanza
+
+Medido en `kepler_ods.kdm1` el 2026-10-23: los `X-A-30` y `U-D-40` de cada sucursal viven **en su
+propio servidor** (`sucursal = c1` en los nueve). `md_00` sólo guarda los de oficinas. La versión
+anterior del adapter tenía una sola conexión a `md_00` y escribía ahí `c1 = sucursal`: una
+requisición de `02` habría quedado en un ERP que La Piedad no mira. No pasaba sólo porque la
+plantilla `02/1/0000424` no existe en `md_00` y el adapter rechazaba.
+
+Desde KR.11 el adapter abre **un pool por servidor**, con estas reglas (prueba en
+`kepler-servidores.spec.ts`, rota a propósito y vista en rojo):
+
+| variable | qué hace |
+|---|---|
+| `KEPLER_PUSH_URL_NN` | conexión del servidor `NN` |
+| `KEPLER_PUSH_URL` | sólo para `00`, compatibilidad con §3. ⛔ **No es comodín** |
+| `KEPLER_REQ_TEMPLATE_FOLIO_NN` / `_SERIE_NN` | plantilla de compra en ese servidor |
+| `KEPLER_PED_TEMPLATE_FOLIO_NN` / `_SERIE_NN` | plantilla de traspaso en ese servidor, **sin default** |
+
+Un servidor sin su variable queda **apagado** y la requisición lo dice en `kepler_error`.
+
+### 8.2 Lo que espera salir, por servidor (prod, 2026-10-23)
+
+Requisiciones `approved` sin `kepler_folio`. El traspaso se crea en el servidor de **origen**.
+
+| servidor | host | compras | importe | traspasos | importe |
+|---|---|---:|---:|---:|---:|
+| `00` | `192.168.9.95:5432/md_00` | 31 | $5,131,936 | 371 | $10,916,246 |
+| `01` | `192.168.10.10:1977/md_01` | 9 | $222,935 | 135 | $952,281 |
+| `02` | `192.168.42.42:5432/md_02` | 3 | $19,975 | — | — |
+| `03` | `192.168.40.40:5432/md_03` | 3 | $5,557 | — | — |
+| `04` | `192.168.44.44:5432/md_04` | 3 | $9,333 | — | — |
+| `05` | `192.168.54.54:5432/md_05` | 3 | $24,092 | — | — |
+| `06` | `192.168.50.50:1977/md_06` | 4 | $52,638 | 29 | $201,692 |
+| `07` | `192.168.32.32:1977/md_07` | 7 | $88,691 | — | — |
+| `08` | ⚠️ **NO MEDIDO** — no está en el repo | 15 | $681,880 | 67 | $742,583 |
+
+⚠️ Encender **no** empuja este rezago: sólo `approve()` empuja, y el lote no (§7 c de FASE_KR).
+Las ya aprobadas salen con el botón de reintento de la ficha, una por una.
+
+### 8.3 Plantillas candidatas (de `kepler_ods`, sólo lectura)
+
+Criterio: compra = `X-A-30` del propio servidor con más renglones en 400 días; traspaso =
+`U-D-40` en `AUTORIZADO`, `c43='N'`, `c27='SUCURSAL'`, responsables vacíos. **Control:** el mismo
+criterio devuelve en `00` exactamente las plantillas ya elegidas a mano (`0000424`, `0000450`).
+
+| servidor | compra | renglones | traspaso | renglones |
+|---|---|---:|---|---:|
+| `00` | `0000424` | 103 | `0000450` | 4 |
+| `01` | `0000092` | 48 | `0003384` ⚠️ de hoy | 42 |
+| `02` | `0000101` | 286 | `0002124` | 1 |
+| `03` | `0000158` | 262 | `0000002` | 1 |
+| `04` | `0000059` | 154 | ninguna sana | — |
+| `05` | `0000007` | 49 | `0001108` ⚠️ de ayer | 51 |
+| `06` | `0000001` | 10 | `0001479` | 11 |
+| `07` | `0000035` | 59 | ninguna sana | — |
+| `08` | `0000005` | 53 | `0000028` | 44 |
+
+⚠️ Un pedido `AUTORIZADO` de hoy todavía se va a surtir. Si alguien lo da de baja, ese servidor
+deja de poder escribir traspasos y lo dice. Antes de fijarlas, **abrir cada una en Kepler**.
+
+### 8.4 Por cada servidor, en este orden
+
+Como superusuario de ese servidor (`sa` en `.42.42`, `postgres` en los demás):
+
+```sql
+CREATE ROLE kepler_push LOGIN PASSWORD '<contraseña propia de este servidor>';
+GRANT CONNECT, TEMPORARY ON DATABASE md_NN TO kepler_push;
+GRANT USAGE ON SCHEMA md TO kepler_push;
+GRANT SELECT ON md.kdm1, md.kdm2, md.pv_suc_ip TO kepler_push;
+GRANT INSERT ON md.kdm1, md.kdm2 TO kepler_push;
+```
+
+Verificación con la consulta de §1.3. **Esperado: `escribe=2 · lee=3 · modifica=0`.**
+`TEMPORARY` es necesario: el adapter clona la plantilla en una tabla temporal.
+
+Luego la línea de `pg_hba.conf` y `SELECT pg_reload_conf();`:
+
+```
+host  md_NN  kepler_push  192.168.0.222/32  scram-sha-256
+```
+
+Y en el entorno del deployment `api` de prod, por cada servidor encendido:
+
+```bash
+KEPLER_PUSH_URL_NN=postgresql://kepler_push:<LA CONTRASEÑA>@<host>:<puerto>/md_NN
+KEPLER_REQ_TEMPLATE_FOLIO_NN=<de §8.3>
+KEPLER_PED_TEMPLATE_FOLIO_NN=<de §8.3, sólo si ese servidor origina traspasos>
+```
+
+Al arrancar, el log del API dice `Escritura a Kepler encendida para: 00, 01, …`. Si un servidor
+falta en esa línea, su variable no llegó.
+
+Después, §5.2 a §5.6 **en ese servidor**, con una compra de pocos renglones.
+
+### 8.5 Lo que sigue abierto
+
+- **§7 sin resolver.** La baja desde la UI de Kepler no se probó. Vale igual para los nueve.
+- **IP del servidor `08`.** No está en el repo. Sale de `pg_subscription` en las réplicas de `md`.
+- **Red desde el pod.** Que `md` replique de los ocho no prueba que el pod `api` llegue a
+  `.50.50` o `.32.32`. Se prueba con `disponible()` tras encender.
+- **`md.pv_suc_ip` en cada servidor.** Medido sólo en `md_00`. Si falta, el traspaso rechaza con
+  su motivo; no escribe nada.
