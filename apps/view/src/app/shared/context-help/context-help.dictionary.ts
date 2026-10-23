@@ -7,6 +7,10 @@
  * Definiciones ancladas al comportamiento real del sistema (backend libs/fiscal, etc.),
  * no inventadas.
  */
+// `[E.29]` Los tipos de descuento salen de UNA fuente (quote-units), la misma que la leyenda del papel
+// de la cotización: la ayuda y el PDF no pueden explicar distinto el mismo descuento.
+import { FUENTE_PRECIO, TIPOS_DE_DESCUENTO } from '../../modules/televenta/quote-units';
+
 export interface HelpEntry { term: string; def: string; }
 export interface HelpGroup { heading: string; entries: HelpEntry[]; }
 /** Bloque "cómo se resuelve": pasos accionables. kind='fix' = se corrige (en Kepler/aquí);
@@ -15,6 +19,29 @@ export interface HelpResolveBlock { heading: string; kind?: 'fix' | 'info'; intr
 export interface HelpTopic { title: string; intro?: string; groups?: HelpGroup[]; resolve?: HelpResolveBlock[]; }
 
 export const CONTEXT_HELP: Record<string, HelpTopic> = {
+  // `[E.29]` Los renglones de una cotización (alta y detalle: la misma tabla). Lo lee el operador de
+  // telemarketing y, a veces, el cliente por encima de su hombro: palabra llana.
+  'cotizacion-descuentos': {
+    title: 'Cotización — de dónde sale cada precio',
+    intro: 'Cada renglón se cotiza como lo cobraría Kepler: con la presentación que se captura (pieza, paquete, caja), su precio de lista, su precio por volumen y su promoción. La columna «De dónde sale» dice cuál se aplicó y, abajo, qué es en concreto. El descuento del cliente no va en el renglón: se resta del total.',
+    groups: [
+      {
+        heading: 'Tipos de descuento (columna «De dónde sale»)',
+        entries: TIPOS_DE_DESCUENTO.map((t) => ({ term: FUENTE_PRECIO[t.clave] ?? t.clave, def: t.def })),
+      },
+      {
+        heading: 'Las columnas',
+        entries: [
+          { term: 'Existencia hoy', def: 'Lo que la sucursal tiene en Kepler, convertido a la presentación del renglón, con la edad del dato arriba. «Faltan N» es lo que no alcanza para surtir lo pedido; «sin dato» es que Kepler no lo tiene registrado, que no es lo mismo que cero.' },
+          { term: 'Lista', def: 'El precio de la presentación antes de cualquier descuento. Contra él se calcula el porcentaje.' },
+          { term: 'Precio', def: 'Lo que se cobra por unidad de la presentación, ya con volumen o promoción. Entre paréntesis, lo que sale cada unidad menor (por ejemplo, cada paquete dentro de la caja).' },
+          { term: 'Porcentaje', def: 'Cuánto baja el precio contra la lista: (lista − precio) ÷ lista. Es la misma cuenta antes y después de guardar la cotización.' },
+          { term: 'Línea gris', def: 'Los pasos del precio, de la lista al precio final: «lista $26.94 → volumen $24.79».' },
+          { term: 'Importe', def: 'Cantidad por precio, a centavos como Kepler (el precio se guarda por unidad base). La suma de los importes, menos el descuento del cliente, es el total.' },
+        ],
+      },
+    ],
+  },
   // `[AB.28]` La mesa de Autoabasto (`/almacen/autoabasto`). La lee el almacenista y el encargado de
   // sucursal: palabra llana, nada de nombres de columna. Cada definición está anclada a la cuenta real
   // (`armarRenglon` en libs/contracts y FASE_AB §16.8), no a lo que la etiqueta sugiere.

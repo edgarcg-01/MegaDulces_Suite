@@ -62,6 +62,21 @@ export function pasosDelPrecio(
   return pasos.length > 1 ? pasos.map((p) => (ETIQUETA_PASO[p.step] ?? p.step) + ' ' + dinero(p.after)).join(' → ') : '';
 }
 
+/**
+ * `[E.29]` Qué descuento es, concreto, en este renglón: el texto que el motor ya escribe en cada
+ * paso que no es la lista («Precio por volumen de 10 a más PAQ», «50% desde 1 PAQ · vigente hasta
+ * 22/11/2026», «Desde 6 PAQ se regalan 1 de 88219»). Las fechas AAAA-MM-DD del servidor salen en
+ * dd/mm/aaaa, como el resto de la pantalla.
+ */
+export function explicacionDelPrecio(
+  aplicados: ReadonlyArray<{ step: string; detail?: string | null }> | null | undefined,
+): string {
+  return (aplicados ?? [])
+    .filter((p) => p.step !== 'lista' && !!p.detail)
+    .map((p) => String(p.detail).replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, '$3/$2/$1'))
+    .join(' · ');
+}
+
 const cent = (n: number): number => Math.round(n * 100);
 
 export function desgloseDescuento(renglones: RenglonParaDesglose[]): DesgloseDescuento {
