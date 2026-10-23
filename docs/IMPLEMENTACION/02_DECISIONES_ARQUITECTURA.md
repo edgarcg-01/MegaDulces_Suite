@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 409 KB, 3203 líneas, 99 secciones.
+> **Índice navegable** — 409 KB, 3209 líneas, 99 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -104,8 +104,8 @@
 | 3090 | 3118 | 2 | ADR-098 — Las aplicaciones de Kepler se leen VIGENTES desde una sola vista, y una compuerta impide leer `kdm5` |
 | 3119 | 3157 | 20 | ADRs vigentes (resumen) |
 | 3158 | 3205 | 3 | ADR-099 — Enlazar un papel a una entrada es ESCRIBIR: se busca con el alcance de captura, y el folio del prove |
-| 3206 | 3271 | 4 | ADR-100 — El pedido de traspaso de una sucursal lo decide Compras; la sucursal ve su mesa y marca excepciones |
-| 3274 | 3314 | 21 | ADRs vigentes (resumen) |
+| 3206 | 3277 | 4 | ADR-100 — El pedido de traspaso de una sucursal lo decide Compras; la sucursal ve su mesa y marca excepciones |
+| 3280 | 3320 | 21 | ADRs vigentes (resumen) |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -3249,6 +3249,12 @@ El plan de Compras coincide con lo que piden las tiendas en el **11.8 %** de los
 **8.1 %** de un placebo a −60 días (AB.24). Antes de apagar el pedido de la tienda hay que medir
 cuánto de la necesidad de cada sucursal cubre el plan de Compras (`[AB.25]` punto 2). Si no la cubre,
 esta decisión se revisa con la cifra.
+
+**Medido el mismo día (`[AB.25]`, `database/scripts/ab25-mesa-vs-pedido.js`):** el plan de Compras cubre
+el **4.5 %** de las cajas que faltan (sucursales **7.8 %**; con ventana de 30 días, 12.2 %). El riesgo se
+cumplió: la decisión se mantiene como destino, pero **el pedido de la tienda no se apaga** y la
+requisición de la sucursal (`[AB.29]`) pasa a ser el camino principal hasta que la cobertura llegue a la
+meta que se firme (D8 en `FASE_AB` §16.6).
 
 ### Rechazado
 
