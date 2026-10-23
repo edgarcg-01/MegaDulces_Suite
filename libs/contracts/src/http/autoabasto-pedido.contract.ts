@@ -391,6 +391,169 @@ export interface AutoabastoPedidoLinea {
   minimo_menor: EstadoMinimoMenor;
   /** `[AB.20]` Lo que valía en unidad menor antes del mínimo (para decir «$120, no llega a $200»). */
   valor_menor: number | null;
+  /** `[AB.26]` Qué pasa con el renglón: ya viene, Compras lo planeó, nadie lo ha pedido o está en política. */
+  estado: EstadoRenglon;
+  /** `[AB.26]` A quién se le pide, según el canal configurado. Es el mismo dato que agrupa «Mi pedido». */
+  surte: SurteRenglon;
+}
+
+// ── [AB.26] Una sola cuenta del renglón ──────────────────────────────────────────────────────
+//
+// La mesa de Autoabasto y «Mi pedido» partían del mismo motor y después cada una seguía su camino:
+// medido el 2026-10-23 (AB.25), de 8,534 renglones que listaba la mesa, 393 ya venían y se volvían a
+// pedir y 3,264 tenían una «Acción» que contradecía a quién se le pide. La cuenta del renglón vive
+// AQUÍ, pura, para que el servidor la use en las dos pantallas y la prueba la ejerza sin base de datos.
+
+/** `[AB.26]` A quién se le pide el renglón, según el canal configurado (`replenishment_channel`). */
+export interface SurteRenglon {
+  /** `matriz` = traspaso desde su matriz · `proveedor` = compra · `sin_ruta` = no hay canal. */
+  tipo: 'matriz' | 'proveedor' | 'sin_ruta';
+  /** Código del almacén que surte (matriz) o id del proveedor. `null` sin ruta. */
+  clave: string | null;
+  nombre: string;
+}
+
+/**
+ * `[AB.26]` El «a quién» del renglón. Sustituye a la «Acción» de la mesa, que elegía origen con el
+ * sobrante de TODA la red: una instrucción que la sucursal no puede ejecutar (FASE_AB D3).
+ * ⚠️ Sin canal NO es compra: se dice `sin_ruta`, no se rellena con un origen por default (ADR-056).
+ */
+export function surteDe(via: unknown, origen: unknown, supplierId: unknown, supplierName: unknown): SurteRenglon {
+  if (via === 'transfer' && origen) return { tipo: 'matriz', clave: String(origen), nombre: String(origen) };
+  if (supplierId) return { tipo: 'proveedor', clave: String(supplierId), nombre: String(supplierName ?? 'Proveedor') };
+  return { tipo: 'sin_ruta', clave: null, nombre: 'Sin ruta configurada' };
+}
+
+/** `[AB.26]` Qué pasa con el renglón. El orden es el de lectura: primero lo que nadie ha pedido. */
+export const ESTADOS_RENGLON = ['sin_pedir', 'compras_lo_planeo', 'ya_viene', 'en_politica'] as const;
+export type EstadoRenglon = typeof ESTADOS_RENGLON[number];
+
+export const ESTADO_RENGLON_LABEL: Record<EstadoRenglon, string> = {
+  sin_pedir: 'Nadie lo ha pedido',
+  compras_lo_planeo: 'Compras lo planeó',
+  ya_viene: 'Ya viene',
+  en_politica: 'En política',
+};
+
+/**
+ * `[AB.26]` El estado sale de las cantidades, no de un juicio:
+ *  · sin falta → `en_politica`;
+ *  · lo que ya viene (pedido abierto + embarque sin recibir) cubre la falta → `ya_viene`;
+ *  · queda falta y Compras la planeó → `compras_lo_planeo` (el plan NO se resta: AB.24 / §16.8);
+ *  · queda falta y nadie la pidió → `sin_pedir`. Es el porqué que AB.3b dejó abierto.
+ * ⚠️ `ya_viene` gana sobre el plan: sin el folio de Kepler (AB.30) un plan ya capturado aparece también
+ * como pedido abierto, y contarlo dos veces diría que hay más en camino de lo que hay.
+ */
+export function estadoRenglon(faltaBase: number, netaBase: number, planeadoCajas: number): EstadoRenglon {
+  if (!(faltaBase > 0)) return 'en_politica';
+  if (!(netaBase > 0)) return 'ya_viene';
+  if (planeadoCajas > 0) return 'compras_lo_planeo';
+  return 'sin_pedir';
+}
+
+/** `[AB.26]` Lo que ya viene de un producto, en la unidad BASE del almacén. */
+export interface VieneBase {
+  /** Pedidos abiertos a la matriz de la ventana corta (se restan). */
+  ya: number;
+  /** Pedidos abiertos más viejos (se muestran, no se restan). */
+  atorado: number;
+  /** Pedido − embarcado del periodo (sólo informa). */
+  negado: number;
+  /** Embarcado sin recibir de la ventana corta (se resta). */
+  camino: number;
+}
+
+/** `[AB.26]` Lo que el servidor sabe de un renglón antes de hacer la cuenta. */
+export interface EntradaRenglon {
+  product_id: string;
+  sku: string;
+  nombre: string;
+  venta_30d: number | null;
+  existencia: number;
+  objetivo: number | null;
+  /** Lo que el motor dice que falta, en cajas (la columna «Falta» de la mesa). */
+  falta: number;
+  /** Lo mismo en la unidad base del almacén (`suggested_qty_nat` del motor). */
+  falta_base: number;
+  /** Unidades base por caja en este almacén. Lo que llegue menor que 1 se toma como 1. */
+  caja_factor: number;
+  /** Costo por unidad base. `null` = sin costo. */
+  costo_base: number | null;
+  /** Veredicto del peldaño (U.2). Cualquier valor = el $ está retenido. */
+  rung_veredicto: string | null;
+  posicion: string;
+  /** `null` = no hay nada que venga (o no se pudo medir: eso lo declara la respuesta, no el renglón). */
+  viene: VieneBase | null;
+  /** Lo planeado por Compras para este almacén, en cajas. */
+  planeado_compras: number;
+  escalera: EscaleraUnidades | null;
+  /** Lo que la persona dejó guardado, con su cantidad en base. */
+  ajuste: (AjusteLinea & { cantidad_base: number }) | null;
+  surte: SurteRenglon;
+}
+
+export interface RenglonArmado {
+  linea: AutoabastoPedidoLinea;
+  /** Lo que de verdad lleva el pedido, en base: el ajuste si existe; si no, lo sugerido redondeado. */
+  efectivo_base: number;
+  /** Lo mismo en la unidad de captura. */
+  efectivo_cantidad: number;
+}
+
+const r1 = (n: number) => Math.round(n * 10) / 10;
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * `[AB.26]` LA cuenta del renglón. Antes vivía dentro del bucle de `AutoabastoPedidoService.pedido()`;
+ * se movió tal cual (mismo orden de restas, mismo redondeo) para que la mesa la use sin copiarla.
+ *
+ *   falta neta = falta − ya pedido − en camino      (en base; lo atorado, lo negado y el plan NO se restan)
+ *   a pedir    = redondeo §15.2 de la falta neta, con el mínimo de $200 en unidad menor (AB.20)
+ *   lleva      = el ajuste guardado si lo hay; si no, a pedir
+ */
+export function armarRenglon(e: EntradaRenglon): RenglonArmado {
+  const cf = Math.max(1, Number(e.caja_factor) || 0);
+  const yaBase = e.viene?.ya ?? 0;
+  const caminoBase = e.viene?.camino ?? 0;
+  const netaBase = Math.max(0, e.falta_base - yaBase - caminoBase);
+  // Se valúa sólo si el peldaño no está contradicho (U.2) y hay costo.
+  const valuable = e.rung_veredicto == null && e.costo_base != null;
+  const minimo = aplicarMinimoMenor(redondearPedido(netaBase, e.escalera), valuable ? e.costo_base : null, e.posicion);
+  const aPedir = minimo.redondeo;
+  const g = e.ajuste;
+  const efectivoBase = g ? g.cantidad_base : aPedir.cantidad_base;
+  const efectivoCant = g ? g.cantidad : aPedir.cantidad;
+  const ajuste: AjusteLinea | null = g
+    ? { cantidad: g.cantidad, unidad: g.unidad, motivo: g.motivo, ajustado_por: g.ajustado_por, ajustado_at: g.ajustado_at }
+    : null;
+  return {
+    linea: {
+      product_id: e.product_id,
+      sku: e.sku,
+      nombre: e.nombre,
+      venta_30d: e.venta_30d,
+      existencia: e.existencia,
+      objetivo: e.objetivo,
+      falta: e.falta,
+      ya_pedido: r1(yaBase / cf),
+      atorado: r1((e.viene?.atorado ?? 0) / cf),
+      negado_30d: r1((e.viene?.negado ?? 0) / cf),
+      en_camino: r1(caminoBase / cf),
+      planeado_compras: r1(e.planeado_compras),
+      falta_neta: r1(netaBase / cf),
+      a_pedir: aPedir,
+      ajuste,
+      valor: valuable && efectivoBase > 0 ? r2(efectivoBase * (e.costo_base as number)) : null,
+      costo_base: valuable ? e.costo_base : null,
+      posicion: e.posicion,
+      minimo_menor: minimo.estado,
+      valor_menor: minimo.valor_menor,
+      estado: estadoRenglon(e.falta_base, netaBase, e.planeado_compras),
+      surte: e.surte,
+    },
+    efectivo_base: efectivoBase,
+    efectivo_cantidad: efectivoCant,
+  };
 }
 
 export interface AutoabastoPedidoGrupo {

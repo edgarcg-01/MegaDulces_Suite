@@ -6,7 +6,23 @@ import type {
   AutoabastoPedidoResponse, AutoabastoAjusteRequest, AutoabastoAjusteResponse,
   AutoabastoRestablecerRequest, AutoabastoAceptarGrupoRequest, AutoabastoAbrirRequest,
   AutoabastoPosicionesRequest, PosicionPedido,
+  AutoabastoRenglonesResponse, EstadoRenglon, SurteRenglon, OrdenMesa,
 } from '@megadulces/contracts';
+
+/** `[AB.27]` Filtros de `GET /commercial/autoabasto/renglones`. El almacén es obligatorio: una mesa por sucursal. */
+export interface AutoabastoRenglonesQuery {
+  warehouse_id: string;
+  estado?: EstadoRenglon;
+  posicion?: string;
+  surte?: SurteRenglon['tipo'];
+  search?: string;
+  sort_by?: OrdenMesa;
+  sort_dir?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
+  /** El PDF: el almacén completo con el filtro, sin paginar. */
+  todos?: 1;
+}
 
 /**
  * Fase AB — cliente de la **mesa de autoabasto** (`/commercial/autoabasto/*`).
@@ -221,7 +237,7 @@ export class AutoabastoService {
   private readonly base = `${environment.apiUrl}/commercial/autoabasto`;
 
   /** Sólo manda los parámetros con valor: un `''` en el query cambia el filtro del backend. */
-  private params(q: AutoabastoQuery): HttpParams {
+  private params(q: AutoabastoQuery | AutoabastoRenglonesQuery): HttpParams {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(q)) {
       if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
@@ -239,6 +255,14 @@ export class AutoabastoService {
 
   filtros(): Observable<AutoabastoFiltros> {
     return this.http.get<AutoabastoFiltros>(`${this.base}/filtros`);
+  }
+
+  /**
+   * `[AB.27]` La mesa de UN almacén sobre la cuenta única de «Mi pedido»: mismos renglones (estado,
+   * a quién se le pide, lo que ya viene, falta neta) más mínimo, reorden, máximo y entrega.
+   */
+  renglones(q: AutoabastoRenglonesQuery): Observable<AutoabastoRenglonesResponse> {
+    return this.http.get<AutoabastoRenglonesResponse>(`${this.base}/renglones`, { params: this.params(q) });
   }
 
   /** `[AB.16]` «Mi pedido» de un almacén: por origen, con ya pedido / atorado / negado y redondeo. */

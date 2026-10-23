@@ -12,7 +12,10 @@
  * realidad era `undefined`, son cifras falsas con cara de sanas (ADR-056).
  */
 
-import { coberturaAutoabasto, COBERTURA_AUTOABASTO_DEFAULT } from '@megadulces/contracts';
+import {
+  coberturaAutoabasto, COBERTURA_AUTOABASTO_DEFAULT, warehouseName,
+  type AutoabastoMesaRenglon, type EstadoRenglon, type SurteRenglon,
+} from '@megadulces/contracts';
 
 /** Lo que estas funciones necesitan de un renglón de la mesa. Subconjunto de `AutoabastoRow`. */
 export interface PorqueRow {
@@ -118,8 +121,11 @@ export function cuandoTexto(r: Pick<PorqueRow, 'next_due_date' | 'cadence_days'>
   return Number(r.cadence_days) ? `cada ${qty(r.cadence_days)} d` : '—';
 }
 
-/** ¿Por qué debo pedir hoy? — la explicación larga. */
-export function cuandoPorQue(r: PorqueRow, hoy: Date = new Date()): string {
+/** ¿Por qué debo pedir hoy? — la explicación larga. `[AB.28]` Sólo pide los campos que usa: la mesa nueva no trae `PorqueRow` entero. */
+export function cuandoPorQue(
+  r: Pick<PorqueRow, 'next_due_date' | 'cadence_days' | 'lead_time_days' | 'on_hand' | 'avg_daily_units'>,
+  hoy: Date = new Date(),
+): string {
   const partes: string[] = [];
   const f = fechaCorta(r.next_due_date);
   const d = diasHasta(r.next_due_date, hoy);
@@ -199,4 +205,58 @@ function restaPorQue(r: PorqueRow, politicaTransito?: string | null): string {
   }
   if (r.transfer_in > 0) return `${base} Se cubre completo con el sobrante de otras sucursales.`;
   return base;
+}
+
+// ── [AB.28] Los porqués de la mesa sobre la cuenta única (renglones de AB.26/AB.27) ──────────────
+// Misma regla del archivo: cuando falta el dato se dice por qué falta. La sucursal se NOMBRA, nunca
+// se numera (`warehouseName`, el mismo resolvedor de la pipe `sucursal`).
+
+/** A quién se le pide — el texto corto de la columna «Surte». */
+export function surteTexto(s: SurteRenglon): string {
+  if (s.tipo === 'matriz') return warehouseName(s.clave);
+  if (s.tipo === 'proveedor') return s.nombre;
+  return 'Sin ruta';
+}
+
+/** A quién se le pide — la explicación larga. Sin canal NO es compra (ADR-056). */
+export function surtePorQue(s: SurteRenglon): string {
+  if (s.tipo === 'matriz') return `Traspaso: este producto le llega de ${warehouseName(s.clave)}, que es su canal configurado.`;
+  if (s.tipo === 'proveedor') return `Compra a ${s.nombre}: es el canal configurado para este proveedor en esta sucursal.`;
+  return 'No hay canal configurado para este proveedor en esta sucursal: no se sabe a quién pedírselo, y no se supone que sea compra.';
+}
+
+/**
+ * ¿Por qué esa falta neta? — la resta completa, con lo que se resta y lo que NO.
+ *
+ * `medidos = false` = la sucursal no tiene cliente de traspaso en Kepler: lo ya pedido no se pudo
+ * leer, y la pantalla no puede afirmar «nadie lo ha pedido» sin decirlo.
+ */
+export function faltaNetaPorQue(r: AutoabastoMesaRenglon, medidos = true): string {
+  const partes = [
+    `Objetivo ${r.objetivo == null ? 'sin publicar' : qty(r.objetivo)} − existencia ${qty(r.existencia)} = falta ${qty(r.falta)} caja(s).`,
+  ];
+  if (r.ya_pedido > 0 || r.en_camino > 0) {
+    partes.push(`Ya viene: pedido abierto ${qty(r.ya_pedido)} + en camino ${qty(r.en_camino)} → falta neta ${qty(r.falta_neta)}.`);
+  } else {
+    partes.push(medidos
+      ? 'No hay pedido abierto ni embarque en camino para este producto.'
+      : 'Lo ya pedido NO se pudo medir: esta sucursal no tiene cliente de traspaso en Kepler.');
+  }
+  if (r.planeado_compras > 0) {
+    partes.push(`Compras planeó ${qty(r.planeado_compras)} que todavía no está en Kepler: se muestra, no se resta.`);
+  }
+  if (r.atorado > 0) {
+    partes.push(`Hay ${qty(r.atorado)} en pedidos de más de 7 días: reclámalos; no se restan.`);
+  }
+  return partes.join(' ');
+}
+
+/** Qué quiere decir el estado del renglón, en palabras. */
+export function estadoPorQue(e: EstadoRenglon): string {
+  switch (e) {
+    case 'sin_pedir': return 'Le falta y nadie lo ha pedido: ni un pedido abierto a la matriz, ni un embarque en camino, ni un plan de Compras.';
+    case 'compras_lo_planeo': return 'Le falta, y Compras ya lo planeó, pero todavía no es un pedido en Kepler.';
+    case 'ya_viene': return 'Lo que falta ya está pedido o en camino.';
+    case 'en_politica': return 'No le falta: está dentro de su objetivo.';
+  }
 }

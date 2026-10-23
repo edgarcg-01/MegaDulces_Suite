@@ -1,4 +1,4 @@
-import { aCorteCajaDto } from './corte-caja.contract';
+import { aCorteCajaDto, leerCorte } from './corte-caja.contract';
 
 /**
  * `[CGP-L.7]` La respuesta de un corte, tipada. Antes salía la fila cruda de Postgres: el dinero como
@@ -43,5 +43,53 @@ describe('[CGP-L.7] aCorteCajaDto', () => {
     const d = aCorteCajaDto(fila) as unknown as Record<string, unknown>;
     expect(d['tenant_id']).toBeUndefined();
     expect(d['conteo_previo']).toBeUndefined();
+  });
+});
+
+/**
+ * `[CGS.52]` Lo que quedó en caja y la diferencia, dichas por separado. Los casos son los cortes
+ * REALES de octubre: el 21-oct publicaba «sobra +$245,268.64» con un «debería haber» de −$221,512.14.
+ */
+describe('[CGS.52] leerCorte', () => {
+  const fmt = (n: number) => `$${n.toFixed(2)}`;
+  const base = { contado: 25787, esperado: 24585.37, diferencia: 1201.63, fondo_inicial: 87772.5, sin_medir_motivo: null };
+
+  it('un corte normal: quedó en caja, debería haber y la diferencia con su sentido', () => {
+    const l = leerCorte(base, fmt);
+    expect(l.quedo).toEqual({ texto: '$25787.00', sub: null, medido: true });
+    expect(l.deberia).toEqual({ texto: '$24585.37', sub: null, medido: true });
+    expect(l.dif).toEqual({ texto: '+$1201.63', sub: 'sobra', tono: 'bad' });
+  });
+
+  it('⛔ [negativa] con el «debería haber» NEGATIVO no se publica un sobrante (el 21-oct)', () => {
+    const l = leerCorte({ contado: 23756.5, esperado: -221512.14, diferencia: 245268.64, fondo_inicial: 25787, sin_medir_motivo: null }, fmt);
+    expect(l.quedo.texto).toBe('$23756.50');                 // el hecho se sigue diciendo
+    expect(l.deberia.texto).toBe('no calculable');
+    expect(l.deberia.sub).toBe('el libro trae $221512.14 más de salidas que de dinero');
+    expect(l.dif.texto).toBe('no calculable');
+    expect(l.dif.texto).not.toContain('245');
+  });
+
+  it('con el esperado negativo pero la diferencia ATESTIGUADA, la cifra sí vale; «sin confirmar» no alcanza', () => {
+    const neg = { contado: 100, esperado: -50, diferencia: 150, fondo_inicial: 0, sin_medir_motivo: null };
+    expect(leerCorte(neg, fmt, { valor: 120, nota: 'confirmada por los testigos', atestiguada: true }).dif.texto).toBe('+$120.00');
+    expect(leerCorte(neg, fmt, { valor: 150, nota: 'sin confirmar', atestiguada: false }).dif.texto).toBe('no calculable');
+  });
+
+  it('⛔ sin conteo físico (el 13-oct) no hay diferencia, y se dice por qué — nunca $0', () => {
+    const l = leerCorte({ contado: null, esperado: -28784.79, diferencia: null, fondo_inicial: 3653.5, sin_medir_motivo: 'No hubo conteo fisico' }, fmt);
+    expect(l.quedo).toEqual({ texto: 'sin conteo físico', sub: null, medido: false });
+    expect(l.dif).toEqual({ texto: 'sin medir', sub: 'ver la nota del día', tono: 'dim' });
+  });
+
+  it('sin fondo conocido (el 14-oct) el «debería haber» es sin medir y dice por qué', () => {
+    const l = leerCorte({ contado: 14128.5, esperado: null, diferencia: null, fondo_inicial: null, sin_medir_motivo: 'El 13 no tuvo conteo' }, fmt);
+    expect(l.quedo.texto).toBe('$14128.50');
+    expect(l.deberia).toEqual({ texto: 'sin medir', sub: 'no se sabe con cuánto arrancó', medido: false });
+    expect(l.dif.texto).toBe('sin medir');
+  });
+
+  it('cuadra al centavo', () => {
+    expect(leerCorte({ ...base, contado: 100, esperado: 100, diferencia: 0 }, fmt).dif).toEqual({ texto: '$0.00', sub: 'cuadra', tono: 'ok' });
   });
 });

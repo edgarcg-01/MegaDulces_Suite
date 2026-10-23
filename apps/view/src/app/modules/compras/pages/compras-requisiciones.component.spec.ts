@@ -355,3 +355,96 @@ describe('[MT] el drill-down renderizado', () => {
   });
 });
 
+/**
+ * `[PQ.1]` Aprobada ≠ escrita en Kepler. Medido en prod el 2026-10-23: 680 `approved` sin
+ * documento en el ERP por $19.05 M se veían idénticas a una entregada. Tres ausencias que no
+ * son la misma (ADR-056), una casilla que las cuenta y un drill que pone el filtro A LA VISTA.
+ */
+describe('[PQ.1] aprobada ≠ escrita en Kepler', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const APROBADA = (over: Record<string, unknown>) => ({ ...FILA, id: '9f3c1a2b-0000-4000-8000-0000000000a1', folio: 'RQ-2026-00900', estado: 'approved', ...over });
+  const RESUMEN_APROBADAS = (over: Record<string, unknown> = {}) => [{
+    estado: 'approved', n: 10, monto: 100000, dias_prom: 5, dias_max: 25, n_mas_30: 0, monto_mas_30: 0,
+    n_kepler: 3, n_kepler_error: 2, n_sin_empujar: 5, monto_sin_kepler: 70000, dias_max_sin_kepler: 25, ...over,
+  }];
+
+  function montarCon(rows: unknown[], resumen: unknown[] = [], capturar?: (q: any) => void) {
+    TestBed.configureTestingModule({
+      imports: [ComprasRequisicionesComponent],
+      providers: [provideRouter([]), {
+        provide: ComprasService,
+        useValue: apiFalsa({ listRequisitions: (q: any) => { capturar?.(q); return of({ rows, total: rows.length, resumen }); } }),
+      }],
+    });
+    return porDocumento(TestBed.createComponent(ComprasRequisicionesComponent));
+  }
+  const etiquetas = (fix: ReturnType<typeof montarCon>) =>
+    Array.from(fix.nativeElement.querySelectorAll('p-tag')).map((t) => (t as HTMLElement).textContent?.trim() ?? '');
+
+  it('tres ausencias, tres etiquetas: salió · salió mal · sin empujar', () => {
+    const c = montarCon([]).componentInstance;
+    expect(c.keplerLabel(APROBADA({ kepler_sucursal: '00', kepler_folio: '0003114', kepler_error: null }) as any)).toBe('en Kepler 00/0003114');
+    expect(c.keplerSev(APROBADA({ kepler_folio: '0003114' }) as any)).toBe('secondary');
+    expect(c.keplerLabel(APROBADA({ kepler_folio: null, kepler_error: 'KEPLER_PUSH_URL sin configurar' }) as any)).toBe('no salió a Kepler');
+    expect(c.keplerSev(APROBADA({ kepler_folio: null, kepler_error: 'x' }) as any)).toBe('danger');
+    expect(c.keplerLabel(APROBADA({ kepler_folio: null, kepler_error: null }) as any)).toBe('sin empujar a Kepler');
+    expect(c.keplerSev(APROBADA({ kepler_folio: null, kepler_error: null }) as any)).toBe('warn');
+  });
+
+  it('NEGATIVA: una fila sin las columnas (servidor viejo) dice «sin medir», no «sin empujar»', () => {
+    const c = montarCon([]).componentInstance;
+    expect(c.keplerLabel(APROBADA({}) as any)).toBe('Kepler: sin medir');
+  });
+
+  it('la aprobada pinta la segunda etiqueta; la pendiente no', () => {
+    const fix = montarCon([APROBADA({ kepler_folio: null, kepler_error: 'KEPLER_PUSH_URL sin configurar' }), FILA]);
+    const tags = etiquetas(fix);
+    expect(tags).toContain('no salió a Kepler');
+    // Las dos pestañas montan sus rejillas: una etiqueta de Kepler por cada «Aprobada» pintada,
+    // y ninguna para la pendiente.
+    expect(tags.filter((t) => /Kepler/.test(t)).length).toBe(tags.filter((t) => t === 'Aprobada').length);
+    expect(tags.filter((t) => t === 'Pendiente').length).toBeGreaterThan(0);
+  });
+
+  it('la casilla cuenta las aprobadas SIN documento, con su desglose y su monto', () => {
+    const fix = montarCon([], RESUMEN_APROBADAS());
+    const k = fix.componentInstance.kpis().find((x) => x.label === 'Aprobadas sin documento en Kepler')!;
+    expect(k.value).toBe(7);                 // 10 aprobadas − 3 en Kepler
+    expect(k.tone).toBe('warn');
+    expect(k.sub).toContain('2 salió mal');
+    expect(k.sub).toContain('5 sin empujar');
+    expect(k.sub).toContain('25 d');
+    expect(k.drill).toBe('kepler_sin_documento');
+  });
+
+  it('NEGATIVA: sin el desglose del servidor la casilla dice «sin medir», nunca 0', () => {
+    const fix = montarCon([], RESUMEN_APROBADAS({ n_kepler: undefined, n_kepler_error: undefined, n_sin_empujar: undefined }));
+    const k = fix.componentInstance.kpis().find((x) => x.label === 'Aprobadas sin documento en Kepler')!;
+    expect(k.value).toBe('—');
+    expect(k.format).toBe('text');
+    expect(k.sub).toContain('sin medir');
+  });
+
+  it('el drill pone el filtro, lo manda al servidor y lo deja a la vista para quitarlo', () => {
+    let ult: any = null;
+    const fix = montarCon([], RESUMEN_APROBADAS(), (q) => { ult = q; });
+    fix.componentInstance.onDrill('kepler_sin_documento');
+    fix.detectChanges();
+    expect(ult?.kepler).toBe('sin_documento');
+    expect(ult?.estado).toBe('approved');
+    expect(fix.nativeElement.textContent).toContain('aprobadas sin documento en Kepler');
+    fix.componentInstance.quitarKepler();
+    fix.detectChanges();
+    expect(ult?.kepler).toBeUndefined();
+  });
+
+  it('NEGATIVA: un drill ajeno no toca el filtro', () => {
+    let ult: any = null;
+    const fix = montarCon([], [], (q) => { ult = q; });
+    fix.componentInstance.onDrill('otra_cosa');
+    expect(ult?.kepler).toBeUndefined();
+    expect(fix.componentInstance.fKepler).toBeNull();
+  });
+});
+

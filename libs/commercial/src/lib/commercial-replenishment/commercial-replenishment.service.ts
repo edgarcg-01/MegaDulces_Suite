@@ -208,6 +208,40 @@ export interface CriticalStockQuery {
   export?: boolean;  // interno: sube el cap de filas para exportar TODO (XLSX). No expuesto por query param.
 }
 
+/**
+ * `[PQ.4]` Una fila de la agenda POR PROVEEDOR: el mismo universo que `worklist`, pero colapsado
+ * a un renglón por proveedor en vez de uno por almacén×proveedor (237 contra 639 canales).
+ *
+ * ⚠️ Los `numeric` llegan como **string**: node-pg entrega `numeric` como texto. `cadence_days`
+ * y `suggested_cost` se declaran `string | number` a propósito — tiparlos de `number` invita a
+ * sumarlos sin convertirlos, que es como se fabrica un total equivocado que se lee bien.
+ * Los `::int` del `select` sí llegan como número.
+ */
+export interface WorklistProveedorRow {
+  supplier_id: string;
+  supplier_name: string | null;
+  n_canales: number;
+  n_vencidos: number;
+  n_hoy: number;
+  n_prox7: number;
+  next_due_date: Date | string | null;
+  days_to_due: number | null;
+  last_delivery_date: Date | string | null;
+  cadence_days: string | number | null;
+  lead_time_days: number | null;
+  /** Las sucursales que TOCAN (vencidas u hoy), con su id para que «Armar» las deje puestas. */
+  sucursales_tocan: { id: string; code: string; days_to_due: number }[];
+  n_skus: number;
+  n_below: number;
+  suggested_cost: string | number;
+}
+
+/** `[PQ.4]` Lo que devuelve la agenda por proveedor. `total` es lo devuelto, con `LIMIT 1000`. */
+export interface WorklistProveedoresResponse {
+  total: number;
+  rows: WorklistProveedorRow[];
+}
+
 // RA-PRO.8 — worklist "qué toca" (ciclos de reabasto por almacén×proveedor).
 export interface WorklistQuery {
   warehouse_id?: string;
@@ -340,7 +374,7 @@ interface ReceiveLineDto { line_id: string; received_qty: number; }
  */
 /**
  * `[RQ.8]` Lo que devuelve un «Armar» en lote: el folio bajo el que entraron todas y el
- * desglose de lo creado. `batch_folio` es `string | null` porque el folio del lote solo se
+ * desglose de lo creado. `batch_folio` es `string | null` porque el folio del lote sólo se
  * emite cuando las columnas del lote ya existen en la base (`loteColsListas`); sin ellas el
  * lote entra igual y se identifica por `batch_id`.
  */
@@ -409,6 +443,18 @@ export interface RequisitionResumenDto {
   /** `[RQ.2]` Las que pasaron los 30 días — el escalón donde el costo deja de ser el de hoy. */
   n_mas_30: number;
   monto_mas_30: number;
+  /**
+   * `[PQ.1]` Dentro del estado, ¿cuántas tienen DOCUMENTO en Kepler? Medido el 2026-10-23: 680
+   * `approved` sin salida por $19.05 M (602 traspasos) y la bandeja las contaba igual que una
+   * escrita en el ERP. Tres ausencias distintas (ADR-056): `n_kepler` salió · `n_kepler_error`
+   * salió mal, lo arregla una persona · `n_sin_empujar` nunca se intentó.
+   */
+  n_kepler: number;
+  n_kepler_error: number;
+  n_sin_empujar: number;
+  /** Monto y antigüedad de las que NO tienen documento en Kepler (error + sin empujar). */
+  monto_sin_kepler: number;
+  dias_max_sin_kepler: number;
 }
 
 /** `[MT.6]` Pagina de requisiciones. */
@@ -3437,12 +3483,113 @@ export class CommercialReplenishmentService {
                count(*) FILTER (WHERE rc.next_due_date < CURRENT_DATE)::int vencidos,
                count(*) FILTER (WHERE rc.next_due_date = CURRENT_DATE)::int hoy,
                count(*) FILTER (WHERE rc.next_due_date > CURRENT_DATE AND rc.next_due_date <= CURRENT_DATE + 7)::int prox7,
+               -- [PQ.5] El comprador piensa en PROVEEDORES, no en canales (proveedor × sucursal):
+               -- medido el 2026-10-23, 1,049 canales de compra para 301 proveedores. El aviso de
+               -- Pedido dice «te toca pedirle a N proveedores», y ese N es éste.
+               count(DISTINCT rc.supplier_id) FILTER (WHERE rc.next_due_date < CURRENT_DATE)::int prov_vencidos,
+               count(DISTINCT rc.supplier_id) FILTER (WHERE rc.next_due_date = CURRENT_DATE)::int prov_hoy,
                COALESCE(SUM(rc.cadence_days),0) AS _dummy
           FROM commercial.replenishment_channel rc
           LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
          WHERE ${where}`, binds)).rows[0];
 
-      return { total: Number(kpi.total), vencidos: Number(kpi.vencidos), hoy: Number(kpi.hoy), prox7: Number(kpi.prox7), page, pageSize, rows };
+      return { total: Number(kpi.total), vencidos: Number(kpi.vencidos), hoy: Number(kpi.hoy), prox7: Number(kpi.prox7),
+        prov_vencidos: Number(kpi.prov_vencidos), prov_hoy: Number(kpi.prov_hoy), page, pageSize, rows };
+    });
+  }
+
+  /**
+   * `[PQ.4]` LA AGENDA: una fila por PROVEEDOR, no por canal.
+   *
+   * El comprador pregunta «¿a quién le toca?» y el `worklist` contesta en canales (proveedor ×
+   * sucursal): 1,049 filas de compra para 301 proveedores, medido el 2026-10-23 — y la pestaña
+   * las pedía de a 500 sin decir que se topaba. Acá el universo cabe entero (301) y cada fila
+   * dice cuándo toca (la fecha más urgente de sus canales), en qué sucursales, cuánto sugiere
+   * el motor sumando sus canales y cuántos SKUs tiene bajo reorden.
+   *
+   * ⚠️ Misma álgebra que `worklist`: mismos filtros (`where`), mismo `agg`. Si esto diera otro
+   * sugerido que la vista por canal, serían dos números para el mismo hecho. Se reusa el SQL
+   * por composición, no copiándolo.
+   */
+  async worklistProveedores(q: WorklistQuery): Promise<WorklistProveedoresResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const whIds = await this.whIds(q);
+    return this.tk.run(async (trx) => {
+      const oh = 'COALESCE(rpl.stock_pz,0)';
+      const it = this.transitDescuento();
+      const basis = this.basis(q.target_basis);
+      const target = basis === 'cadence' ? this.cadenceTarget() : this.targetCol(basis);
+      const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
+      const cost = `COALESCE(rpl.caja_cost / NULLIF(GREATEST(COALESCE(rpl.display_bf, rpl.bf, 1), 1), 0), pr.cost_with_tax, pr.cost_base, 0)`;
+      const catFrag = q.category_id && UUID_RX.test(q.category_id) ? 'AND pr.category_id = :cat' : '';
+      const filters: string[] = [
+        `rc.tenant_id = :t`,
+        `rc.cadence_days IS NOT NULL`,
+        `rc.last_delivery_date >= CURRENT_DATE - GREATEST(rc.cadence_days*2, 60)::int`,
+      ];
+      const binds: Record<string, unknown> = { t: tenantId };
+      if (whIds) {
+        if (!whIds.length) filters.push('false');
+        else { filters.push(`rc.warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`); whIds.forEach((w, i) => { binds[`w${i}`] = w; }); }
+      }
+      if (q.via && ['purchase', 'transfer'].includes(q.via)) { filters.push(`rc.via = :via`); binds.via = q.via; }
+      if (q.status === 'due') filters.push(`rc.next_due_date <= CURRENT_DATE`);
+      if (q.search && q.search.trim()) { filters.push(`sup.name ILIKE :s`); binds.s = `%${q.search.trim()}%`; }
+      if (catFrag) {
+        filters.push(`EXISTS (SELECT 1 FROM commercial.reorder_policy rpc JOIN catalog.products prc ON prc.tenant_id=rpc.tenant_id AND prc.id=rpc.product_id WHERE rpc.tenant_id=rc.tenant_id AND rpc.warehouse_id=rc.warehouse_id AND prc.supplier_id=rc.supplier_id AND prc.category_id=:cat)`);
+        binds.cat = q.category_id;
+      }
+      const where = filters.join(' AND ');
+      const rows = (await trx.raw(`
+        WITH canales AS (
+          SELECT rc.*
+            FROM commercial.replenishment_channel rc
+            LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
+           WHERE ${where}
+        ),
+        agg AS (
+          SELECT warehouse_id, supplier_id,
+                 count(*)::int n_skus,
+                 count(*) FILTER (WHERE below)::int n_below,
+                 COALESCE(ROUND(SUM(sug*unit_cost)::numeric,2),0) AS suggested_cost
+            FROM (
+              SELECT rc.warehouse_id, rc.supplier_id,
+                     (${oh} <= rp.reorder_point) AS below, ${sug} AS sug, ${cost} AS unit_cost
+                FROM canales rc
+                LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
+                JOIN catalog.products pr ON pr.tenant_id=rc.tenant_id
+                     AND pr.supplier_id=rc.supplier_id AND pr.activo=true ${catFrag}
+                JOIN commercial.reorder_policy rp ON rp.tenant_id=rc.tenant_id
+                     AND rp.warehouse_id=rc.warehouse_id AND rp.product_id=pr.id
+                LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
+                LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id=rp.tenant_id AND rpl.warehouse_id=rp.warehouse_id AND rpl.product_id=rp.product_id
+            ) x
+           GROUP BY 1, 2
+        )
+        SELECT rc.supplier_id, sup.name AS supplier_name,
+               count(*)::int AS n_canales,
+               count(*) FILTER (WHERE rc.next_due_date < CURRENT_DATE)::int AS n_vencidos,
+               count(*) FILTER (WHERE rc.next_due_date = CURRENT_DATE)::int AS n_hoy,
+               count(*) FILTER (WHERE rc.next_due_date > CURRENT_DATE AND rc.next_due_date <= CURRENT_DATE + 7)::int AS n_prox7,
+               min(rc.next_due_date) AS next_due_date,
+               (min(rc.next_due_date) - CURRENT_DATE)::int AS days_to_due,
+               max(rc.last_delivery_date) AS last_delivery_date,
+               ROUND(AVG(rc.cadence_days)::numeric, 1) AS cadence_days,
+               COALESCE(MAX(COALESCE(rc.lead_time_days, sup.lead_time_days)), NULL) AS lead_time_days,
+               -- Las sucursales que TOCAN (vencidas u hoy), con su id para que «Armar» las deje puestas.
+               COALESCE(json_agg(json_build_object('id', w.id, 'code', w.code, 'days_to_due', (rc.next_due_date - CURRENT_DATE)::int)
+                 ORDER BY rc.next_due_date) FILTER (WHERE rc.next_due_date <= CURRENT_DATE), '[]'::json) AS sucursales_tocan,
+               COALESCE(SUM(agg.n_skus), 0)::int AS n_skus,
+               COALESCE(SUM(agg.n_below), 0)::int AS n_below,
+               COALESCE(SUM(agg.suggested_cost), 0)::numeric AS suggested_cost
+          FROM canales rc
+          JOIN commercial.warehouses w ON w.tenant_id=rc.tenant_id AND w.id=rc.warehouse_id
+          LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
+          LEFT JOIN agg ON agg.warehouse_id=rc.warehouse_id AND agg.supplier_id=rc.supplier_id
+         GROUP BY rc.supplier_id, sup.name
+         ORDER BY min(rc.next_due_date) ASC NULLS LAST, SUM(agg.suggested_cost) DESC NULLS LAST
+         LIMIT 1000`, binds)).rows;
+      return { total: rows.length, rows };
     });
   }
 
@@ -4044,7 +4191,7 @@ export class CommercialReplenishmentService {
   }
 
   async listRequisitions(
-    q: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; page?: number; pageSize?: number },
+    q: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; kepler?: string; page?: number; pageSize?: number },
   ): Promise<RequisitionListDto> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
@@ -4091,6 +4238,14 @@ export class CommercialReplenishmentService {
       // lote) **sí** la acotan: ésos son el universo del que se pregunta.
       const baseResumen = base.clone();
       if (q.estado) base.andWhere('r.estado', q.estado);
+      // `[PQ.1]` Las aprobadas que NO tienen documento en Kepler: es el drill de la casilla del
+      // tablero (regla Q.4: el número que denuncia lleva a su lugar de arreglo con el filtro
+      // puesto). Mismo `to_jsonb` que el SELECT: la columna puede faltar si el deploy llega
+      // antes que su migración. Sólo tiene sentido sobre `approved`: en los demás estados el
+      // documento del ERP es otro (la OC) y no se mide acá.
+      if (q.kepler === 'sin_documento') {
+        base.andWhere('r.estado', 'approved').andWhereRaw(`to_jsonb(r) ->> 'kepler_folio' IS NULL`);
+      }
 
       const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
       const rows = await base.clone()
@@ -4142,11 +4297,21 @@ export class CommercialReplenishmentService {
           // de 8-30 días y en el 83.5 % de los de 31-60 — ahí es donde la requisición deja de ser
           // verdad y hay que recalcularla antes de aprobar.
           trx.raw(`count(*) FILTER (WHERE r.created_at < now() - interval '30 days')::int AS n_mas_30`),
-          trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE r.created_at < now() - interval '30 days'), 0) AS monto_mas_30`));
+          trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE r.created_at < now() - interval '30 days'), 0) AS monto_mas_30`),
+          // `[PQ.1]` ¿Salió a Kepler? Tres ausencias que no son la misma. Se cuentan dentro de
+          // CADA estado; la pantalla las lee sólo en `approved`, donde la salida es el `X-A-30`
+          // / `U-D-40` que escribe la Suite. Con `to_jsonb` por la misma razón que el SELECT.
+          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NOT NULL)::int AS n_kepler`),
+          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL AND to_jsonb(r) ->> 'kepler_error' IS NOT NULL)::int AS n_kepler_error`),
+          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL AND to_jsonb(r) ->> 'kepler_error' IS NULL)::int AS n_sin_empujar`),
+          trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL), 0) AS monto_sin_kepler`),
+          trx.raw(`COALESCE(max(floor(extract(epoch FROM now() - r.created_at) / 86400)) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL), 0)::int AS dias_max_sin_kepler`));
       const resumen = (resumenRows as any[]).map((x) => ({
         estado: String(x.estado), n: Number(x.n) || 0, monto: Number(x.monto) || 0,
         dias_prom: Number(x.dias_prom) || 0, dias_max: Number(x.dias_max) || 0,
         n_mas_30: Number(x.n_mas_30) || 0, monto_mas_30: Number(x.monto_mas_30) || 0,
+        n_kepler: Number(x.n_kepler) || 0, n_kepler_error: Number(x.n_kepler_error) || 0, n_sin_empujar: Number(x.n_sin_empujar) || 0,
+        monto_sin_kepler: Number(x.monto_sin_kepler) || 0, dias_max_sin_kepler: Number(x.dias_max_sin_kepler) || 0,
       }));
       return { total: Number(totalRow?.c || 0), page, pageSize, rows, resumen };
     });

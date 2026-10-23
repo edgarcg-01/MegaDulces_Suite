@@ -104,6 +104,24 @@ export interface MapaRuta {
   kepler_concepto: string | null;
 }
 
+/**
+ * `[CGA-A.15c]` `ruta_501` → `501`: la llave de `finance.route_customer_map.route_code`.
+ *
+ * El cobro de camioneta llega con `entidad_code = 'CONTADO'` (el cliente genérico del ticket), y
+ * ese código no está —ni debe estar— en el mapa. Buscarlo ahí rotulaba **103 de 103** cobros de
+ * camioneta como «ruta sin declarar» **teniendo la ruta en la misma fila** (medido 2026-10-23).
+ *
+ * ⛔ Dos camionetas en un solo cobro (`ruta_502 · ruta_504`) no devuelven ninguna: elegir una
+ * sería asignarle dinero a una ruta por descarte. Y un texto que no tiene la forma `ruta_N` no
+ * se interpreta: `null`, y la fila sigue por su camino de siempre.
+ */
+export function rutaCodigo(ruta: string | null | undefined): string | null {
+  const s = String(ruta ?? '').trim();
+  if (!s || s.includes('·')) return null;
+  const m = /^ruta_(\w+)$/i.exec(s);
+  return m ? m[1] : null;
+}
+
 export interface EntregaPendiente {
   origen_ref: string;
   cliente_code: string | null;

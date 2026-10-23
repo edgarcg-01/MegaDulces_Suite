@@ -19,7 +19,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../../shared/compon
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import {
-  veredictoConcluyente,
+  veredictoConcluyente, leerCorte, type LecturaCorte,
   type Freshness, type ArqueoDia, type ArqueosResponse, type VeredictoCorte, type ArqueoControlUltimo,
   type EstadoVerdad, type EstadoTestigo,
 } from '@megadulces/contracts';
@@ -412,8 +412,8 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
             <ng-template #header>
               <tr>
                 <th scope="col">Día</th>
+                <th scope="col" class="comm-num">Quedó en caja</th>
                 <th scope="col" class="comm-num">Debería haber</th>
-                <th scope="col" class="comm-num">Se contó</th>
                 <th scope="col" class="comm-num">Diferencia</th>
                 <th scope="col">Veredicto</th>
                 <th scope="col" class="comm-num">Movs.</th>
@@ -426,30 +426,29 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                   <b>{{ dmy(f.fecha) }}</b>
                   @if (f.arqueo) { <span class="cq-dim cq-mono"> {{ f.arqueo.folio }}</span> }
                 </td>
-                <td role="cell" data-label="Debería haber" class="comm-num">
-                  @if (!f.arqueo) { <span class="cq-dim">sin arqueo</span> }
-                  @else if (f.arqueo.esperado === null) { <span class="cq-dim">sin medir</span> }
-                  @else { <span [class.cq-mal]="f.arqueo.esperado < 0">{{ mx(f.arqueo.esperado) }}</span> }
-                </td>
-                <td role="cell" data-label="Se contó" class="comm-num cq-strong">
-                  @if (f.arqueo?.contado !== null && f.arqueo?.contado !== undefined) { {{ mx(f.arqueo.contado) }} }
-                  @else { <span class="cq-dim">—</span> }
-                </td>
-                <td role="cell" data-label="Diferencia" class="comm-num">
-                  <!-- ⛔ Con el esperado negativo la resta sale positiva SIEMPRE: pintarla como
-                       cifra normal afirmaria un sobrante justo donde la cuenta esta mas rota. -->
-                  <!-- [CGS.36] La que se publica es la VERDADERA cuando un testigo la corrige, con la
-                       sellada al lado: la lista no repite una cifra que Control y la maquina desmienten. -->
-                  @if (!f.arqueo) { <span class="cq-dim">—</span> }
-                  @else {
-                    @let d = difDe(f.arqueo);
-                    @if (d.valor === null) { <span class="cq-dim">—</span> }
-                    @else if (d.sinSentido) { <span class="cq-dim">no significa nada</span> }
-                    @else if (d.valor === 0) { <span class="cq-dim">0.00</span> }
-                    @else { <span class="cq-mal">{{ firmado(d.valor) }}</span> }
-                    @if (d.nota) { <span class="cq-pos-sub">{{ d.nota }}</span> }
-                  }
-                </td>
+                <!-- [CGS.52] Primero el HECHO (el conteo fisico: lo que quedo en el cajon), despues la
+                     cuenta del libro y la diferencia. Las tres salen de lectura(), la misma que usa el
+                     resumen de arriba. Un debería haber negativo no se pinta como cifra. -->
+                @if (f.arqueo) {
+                  @let l = lectura(f.arqueo);
+                  <td role="cell" data-label="Quedó en caja" class="comm-num" [class.cq-strong]="l.quedo.medido">
+                    @if (l.quedo.medido) { {{ l.quedo.texto }} } @else { <span class="cq-dim">{{ l.quedo.texto }}</span> }
+                  </td>
+                  <td role="cell" data-label="Debería haber" class="comm-num">
+                    @if (l.deberia.medido) { {{ l.deberia.texto }} } @else { <span class="cq-dim">{{ l.deberia.texto }}</span> }
+                    @if (l.deberia.sub) { <span class="cq-pos-sub">{{ l.deberia.sub }}</span> }
+                  </td>
+                  <td role="cell" data-label="Diferencia" class="comm-num">
+                    <!-- [CGS.36] La que se publica es la VERDADERA cuando un testigo la corrige, con la
+                         sellada al lado (va en el sub). -->
+                    <span [class.cq-mal]="l.dif.tono === 'bad'" [class.cq-dim]="l.dif.tono === 'dim'">{{ l.dif.texto }}</span>
+                    @if (l.dif.sub) { <span class="cq-pos-sub">{{ l.dif.sub }}</span> }
+                  </td>
+                } @else {
+                  <td role="cell" data-label="Quedó en caja" class="comm-num"><span class="cq-dim">sin arqueo</span></td>
+                  <td role="cell" data-label="Debería haber" class="comm-num"><span class="cq-dim">—</span></td>
+                  <td role="cell" data-label="Diferencia" class="comm-num"><span class="cq-dim">—</span></td>
+                }
                 <td role="cell" data-label="Veredicto">
                   @if (f.arqueo) {
                     <p-tag [value]="tagVeredicto(f.arqueo).texto"
@@ -609,16 +608,16 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                         {{ a.esperado === null ? 'sin medir' : mx(a.esperado) }}
                       </td>
                     </tr>
+                    @let lc = lectura(a);
                     <tr class="cq-t-total">
-                      <td>Se contó</td>
-                      <td class="comm-num">{{ a.contado === null ? 'sin contar' : mx(a.contado) }}</td>
+                      <td>Quedó en caja <span class="cq-dim">(conteo físico)</span></td>
+                      <td class="comm-num">{{ lc.quedo.texto }}</td>
                     </tr>
                     <tr class="cq-t-total">
                       <td>Diferencia</td>
                       <td class="comm-num">
-                        @if (a.diferencia === null) { <span class="cq-dim">—</span> }
-                        @else if (a.veredicto === 'esperado_imposible') { <span class="cq-dim">no significa nada</span> }
-                        @else { {{ firmado(a.diferencia) }} }
+                        <span [class.cq-mal]="lc.dif.tono === 'bad'" [class.cq-dim]="lc.dif.tono === 'dim'">{{ lc.dif.texto }}</span>
+                        @if (lc.dif.sub) { <span class="cq-pos-sub">{{ lc.dif.sub }}</span> }
                       </td>
                     </tr>
                     @if (a.verdad; as v) {
@@ -985,7 +984,26 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
    * `veredicto`. Lo que faltaba era un lugar tipado donde resolverlo.
    */
   protected tagVeredicto(a: ArqueoDia): { texto: string; sev: 'success' | 'warn' | 'danger' | 'info' } {
+    // `[CGS.52]` Un corte que declara qué no se midió lo dice con sus palabras, no como «sin veredicto».
+    if (a.sin_medir_motivo) {
+      return { texto: a.contado === null ? 'Sin conteo físico' : 'Sin fondo conocido', sev: 'warn' };
+    }
     return VEREDICTO[a.veredicto];
+  }
+
+  /**
+   * ⭐⭐ `[CGS.52]` Quedó en caja · debería haber · diferencia, dichas por separado. La regla vive en
+   * `leerCorte()` de `@megadulces/contracts` porque la lista de cortes de Caja General la lee igual;
+   * acá sólo se le pasa la diferencia que corrigieron los testigos (`[CGS.36]`).
+   */
+  protected lectura(a: ArqueoDia): LecturaCorte {
+    const d = this.difDe(a);
+    const atestiguada = a.verdad?.estado === 'confirmada' || a.verdad?.estado === 'corregida';
+    return leerCorte(
+      { contado: a.contado, esperado: a.esperado, diferencia: a.diferencia, fondo_inicial: a.fondo.monto, sin_medir_motivo: a.sin_medir_motivo },
+      (n) => this.mx(n),
+      { valor: d.valor, nota: d.nota, atestiguada },
+    );
   }
 
   /**
@@ -1089,29 +1107,27 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   readonly veredictoKpis = computed<MetricStripItem[]>(() => {
     const u = this.ultimoArqueo();
     if (!u) return [];
+    // `[CGS.52]` Primero el HECHO (lo que quedó en caja), después la cuenta y la diferencia, con la
+    // misma lectura que la tabla (`lectura()`): el resumen y el renglón no pueden decir cosas distintas.
+    const l = this.lectura(u);
     const items: MetricStripItem[] = [
       {
-        label: 'Debería haber', value: u.esperado === null ? 'sin medir' : money(u.esperado),
-        state: u.esperado === null ? 'no_medido' : 'derivado',
-        method: 'fondo + ingresos − gastos − depósitos ± la caja fuerte; no es un conteo',
-        tone: (u.esperado ?? 0) < 0 ? 'bad' : 'default',
-        sub: (u.esperado ?? 0) < 0 ? 'negativo: un cajón no debe dinero' : undefined,
+        label: 'Quedó en caja', value: l.quedo.texto, state: l.quedo.medido ? 'medido' : 'no_medido',
+        sub: l.quedo.medido ? 'conteo físico; con eso arranca el día siguiente' : undefined,
       },
-      { label: 'Se contó', value: u.contado === null ? 'sin contar' : money(u.contado), state: 'medido' },
+      {
+        label: 'Debería haber', value: l.deberia.texto, state: l.deberia.medido ? 'derivado' : 'no_medido',
+        method: 'fondo + ingresos − gastos − depósitos ± la caja fuerte; no es un conteo',
+        tone: l.deberia.medido ? 'default' : 'bad', sub: l.deberia.sub ?? undefined,
+      },
+      {
+        label: 'Diferencia', value: l.dif.texto, state: l.dif.tono === 'dim' ? 'no_medido' : undefined,
+        tone: l.dif.tono === 'ok' ? 'ok' : l.dif.tono === 'bad' ? 'bad' : 'default', sub: l.dif.sub ?? undefined,
+        stateNote: l.dif.texto === 'no calculable'
+          ? 'Con el «debería haber» en negativo la resta saldría positiva siempre: diría «sobra» justo donde la cuenta está más rota.'
+          : undefined,
+      },
     ];
-    const d = this.difDe(u);
-    if (d.sinSentido) {
-      items.push({
-        label: 'Diferencia', value: 'no significa nada', state: 'no_medido', tone: 'bad',
-        stateNote: 'Con el esperado en negativo la resta sale positiva siempre: diría «sobra» justo donde la cuenta está más rota.',
-      });
-    } else if (d.valor !== null) {
-      // `[CGS.36]` La verdadera cuando un testigo la corrige; `sub` dice si está confirmada.
-      items.push({
-        label: 'Diferencia', value: d.valor === 0 ? money(0) : this.firmado(d.valor),
-        tone: d.valor === 0 ? 'ok' : 'bad', sub: d.nota ?? undefined,
-      });
-    }
     const sinResp = this.arqueos().filter((a) => !veredictoConcluyente(a.veredicto)).length;
     items.push({
       label: 'Arqueos sin respuesta', value: `${sinResp} de ${this.arqueos().length}`,
@@ -1158,6 +1174,12 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   /** Lo que ESTE arqueo no puede afirmar, con su número. */
   notasArqueo(a: ArqueoDia): string[] {
     const out: string[] = [];
+    // `[CGS.52]` Lo que no se midió va PRIMERO: es lo que explica por qué faltan cifras arriba.
+    if (a.sin_medir_motivo) out.push(a.sin_medir_motivo);
+    if (a.recalculo_motivo) {
+      out.push(`Las cifras se recalcularon después de firmar${a.recalculado_at ? ` (${dmy(a.recalculado_at.slice(0, 10))})` : ''}. `
+        + `Motivo: «${a.recalculo_motivo}». Las anteriores quedan guardadas.`);
+    }
     if (!a.desglose_explica && a.esperado !== null) {
       out.push('⛔ Los términos de arriba NO suman el «debería haber» que se congeló al cerrar '
         + `(${this.mx(a.esperado_recompuesto)} contra ${this.mx(a.esperado)}). `

@@ -109,6 +109,8 @@ function montar(workbook: Record<string, unknown>, worklist?: unknown, sub = 'u1
     worklist: () => (worklist === 'error'
       ? throwError(() => new Error('500'))
       : of(worklist ?? { total: 0, vencidos: 0, hoy: 0, prox7: 0, page: 1, pageSize: 500, rows: [] })),
+    // `[PQ.4]` La agenda por proveedor: por default vacía (cada prueba de PQ.4 la reemplaza en `extra`).
+    worklistProveedores: () => of({ total: 0, rows: [] }),
     ...extra,
   };
   TestBed.resetTestingModule();
@@ -1125,5 +1127,125 @@ describe('[RA-NEG.2] el desglose compacto: qué hacer, en pocas palabras', () =>
     c.setUnidadModo(fila(), 1);
     expect(c.branchBuys(fila()).every((b) => c.unitOfBranch(fila(), b) === 1)).toBe(true);
     expect(c.unidadModo(fila())).toBe(1);
+  });
+});
+
+/**
+ * `[PQ.5]` El CUÁNDO, enfrente del Pedido. La pestaña Ciclo lo contestaba desde RA-CICLO.1 y
+ * nadie entraba (7 hits en 30 d contra 3,734 de Pedido, 637 canales de compra vencidos el
+ * 2026-10-23). El aviso vive en Pedido y lleva al Ciclo. Lo que NO puede hacer: dibujar
+ * «hoy no toca nadie» sobre una consulta rota (ADR-056).
+ */
+describe('[PQ.5] «hoy te toca pedirle a…» en la pestaña Pedido', () => {
+  const CICLO = { total: 1049, vencidos: 637, hoy: 24, prox7: 89, prov_vencidos: 180, prov_hoy: 12, page: 1, pageSize: 1, rows: [] };
+
+  it('con vencidos, el aviso nombra proveedores y canales, y marca urgencia', () => {
+    const fix = montar(VACIO, CICLO);
+    const c = fix.componentInstance;
+    expect(c.mode()).toBe('pedido');
+    expect(c.cicloAviso()?.vencidos).toBe(637);
+    expect(c.cicloAvisoProveedores(c.cicloAviso()!)).toBe('192 proveedores');
+    const t = fix.nativeElement.textContent as string;
+    expect(t).toContain('Hoy te toca pedirle a 192 proveedores');
+    expect(t).toContain('637 canales vencidos');
+    expect(fix.nativeElement.querySelector('.pr-ciclo-urge')).not.toBeNull();
+  });
+
+  it('⛔ si la consulta FALLA dice «no se pudo medir», nunca «no toca nadie»', () => {
+    const fix = montar(VACIO, 'error');
+    expect(fix.componentInstance.cicloAvisoError()).toBe(true);
+    expect(fix.componentInstance.cicloAviso()).toBeNull();
+    const t = fix.nativeElement.textContent as string;
+    expect(t).toContain('no se pudo medir');
+    expect(t).not.toContain('no le toca pedir a nadie');
+  });
+
+  it('cero vencidos y cero hoy es un cero MEDIDO: lo dice, con lo que viene', () => {
+    const fix = montar(VACIO, { ...CICLO, vencidos: 0, hoy: 0, prov_vencidos: 0, prov_hoy: 0, prox7: 4 });
+    const t = fix.nativeElement.textContent as string;
+    expect(t).toContain('Hoy no le toca pedir a nadie');
+    expect(t).toContain('4 canales tocan');
+    expect(fix.nativeElement.querySelector('.pr-ciclo-urge')).toBeNull();
+  });
+
+  it('NEGATIVA: un servidor sin proveedores no inventa el N — habla en canales', () => {
+    const c = montar(VACIO, { total: 10, vencidos: 3, hoy: 1, prox7: 2, page: 1, pageSize: 1, rows: [] }).componentInstance;
+    expect(c.cicloAviso()?.prov_vencidos).toBeNull();
+    expect(c.cicloAvisoProveedores(c.cicloAviso()!)).toBe('4 canal(es)');
+  });
+
+  it('«Ver el ciclo» lleva a la pestaña Ciclo', () => {
+    const fix = montar(VACIO, CICLO);
+    const btn = Array.from(fix.nativeElement.querySelectorAll('button')).find((b) => (b as HTMLElement).textContent?.includes('Ver el ciclo')) as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    btn.click();
+    expect(fix.componentInstance.mode()).toBe('ciclo');
+  });
+});
+
+/**
+ * `[PQ.4]` La agenda: una fila por PROVEEDOR en la pestaña Ciclo. Medido el 2026-10-23: 1,049
+ * canales de compra para 301 proveedores, y la lista pedía 500 sin decir que se topaba.
+ */
+describe('[PQ.4] la agenda por proveedor, y el tope de la lista por canal se declara', () => {
+  const PROV = {
+    supplier_id: 's-9', supplier_name: 'GONAC', n_canales: 3, n_vencidos: 2, n_hoy: 0, n_prox7: 1,
+    next_due_date: '2026-10-01', days_to_due: -22, last_delivery_date: '2026-09-16', cadence_days: 15, lead_time_days: null,
+    sucursales_tocan: [{ id: 'w-01', code: '01', days_to_due: -22 }, { id: 'w-03', code: '03', days_to_due: 0 }],
+    n_skus: 40, n_below: 12, suggested_cost: 214113,
+  };
+  const CICLO = { total: 1049, vencidos: 637, hoy: 24, prox7: 89, page: 1, pageSize: 500, rows: [canal()] };
+
+  it('abre por proveedores, pide la agenda con los filtros del ciclo y la pinta por NOMBRE de sucursal', () => {
+    let q: any = null;
+    const fix = montar(VACIO, CICLO, 'u1', { worklistProveedores: (qq: any) => { q = qq; return of({ total: 1, rows: [PROV] }); } });
+    const c = fix.componentInstance;
+    c.setMode('ciclo'); fix.detectChanges();
+    expect(c.wlVista()).toBe('proveedores');
+    expect(q?.via).toBe('purchase');
+    expect(c.agRows().length).toBe(1);
+    const t = fix.nativeElement.textContent as string;
+    expect(t).toContain('GONAC');
+    expect(t).toContain('22 d tarde');
+    expect(c.sucursalesTocan(PROV as any)).toBe('Padre Hidalgo (22 d tarde) · 8 Esquinas (hoy)');
+    expect(c.sucursalesTocan(PROV as any)).not.toMatch(/\b0[13]\b/);
+  });
+
+  it('«Armar» deja el proveedor y TODAS sus sucursales que tocan puestas en el Pedido', () => {
+    const c = montar(VACIO, CICLO, 'u1', { worklistProveedores: () => of({ total: 1, rows: [PROV] }) }).componentInstance;
+    c.setMode('ciclo');
+    c.irAPedidoProveedor(PROV as any);
+    expect(c.fSupplier).toBe('s-9');
+    expect(c.wbWarehouses).toEqual(['w-01', 'w-03']);
+    expect(c.mode()).toBe('pedido');
+  });
+
+  it('⛔ si la agenda FALLA lo dice y no deja la tabla vacía como si no hubiera proveedores', () => {
+    const fix = montar(VACIO, CICLO, 'u1', { worklistProveedores: () => throwError(() => new Error('500')) });
+    const c = fix.componentInstance;
+    c.setMode('ciclo'); fix.detectChanges();
+    expect(c.agError()).toBe(true);
+    expect((fix.nativeElement.textContent as string)).toContain('No se pudo cargar la agenda');
+  });
+
+  it('pedir la agenda NO invalida los KPI del ciclo (contadores de generación separados)', () => {
+    const c = montar(VACIO, CICLO, 'u1', { worklistProveedores: () => of({ total: 1, rows: [PROV] }) }).componentInstance;
+    c.setMode('ciclo');
+    expect(c.cicloKpi()[0].value).toBe(637);
+    expect(c.agRows().length).toBe(1);
+  });
+
+  it('Cruce 1: cuando el encabezado cuenta más canales de los que la lista trajo, se declara', () => {
+    const fix = montar(VACIO, CICLO, 'u1', { worklistProveedores: () => of({ total: 0, rows: [] }) });
+    const c = fix.componentInstance;
+    c.setMode('ciclo'); c.setWlVista('canales'); fix.detectChanges();
+    expect(c.wlTope()).toEqual({ mostrados: 1, total: 1049 });
+    expect((fix.nativeElement.textContent as string)).toContain('Se muestran 1 de 1,049 canales');
+  });
+
+  it('NEGATIVA: si la lista trae todo, no hay aviso de tope', () => {
+    const c = montar(VACIO, { ...CICLO, total: 1 }, 'u1', { worklistProveedores: () => of({ total: 0, rows: [] }) }).componentInstance;
+    c.setMode('ciclo');
+    expect(c.wlTope()).toBeNull();
   });
 });

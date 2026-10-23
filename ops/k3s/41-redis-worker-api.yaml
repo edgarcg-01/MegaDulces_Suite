@@ -195,6 +195,9 @@ spec:
                 command: ["sh", "-c", "sleep 10"]
           envFrom:
             - secretRef: { name: prod-env }
+            # `[KR.14]` Escritura a Kepler por servidor (runbook KEPLER_PUSH_DESPLIEGUE.md §9).
+            # `optional`: sin el secreto el api arranca igual y la escritura queda apagada.
+            - secretRef: { name: kepler-push, optional: true }
           env:
             - { name: TZ,             value: America/Mexico_City }
             - { name: NODE_ENV,       value: production }

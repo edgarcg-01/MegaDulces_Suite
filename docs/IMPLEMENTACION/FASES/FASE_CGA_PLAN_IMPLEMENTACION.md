@@ -1100,3 +1100,15 @@ Esta sesión **no escribe el código de A.32–A.35**. De cada entregable compru
 ⛔ Se rechaza un entregable que traiga una cifra sin su medición, **por plausible que suene**.
 
 ---
+
+### 11.8 `[CGA-A.15c]` · La bandeja dice de qué ruta es cada cobro ✅ en código (2026-10-23)
+
+`[CGA-A.15]` puso `ruta` en la vista y en la pantalla, pero el `SELECT` de la API no la pedía:
+**102 cobros / $1,816,796.59** se veían como «Caja 1-NN» + «ruta sin declarar». Ahora viajan con
+su ruta y el chip dice lo cierto: «identidad sin firmar» (la ruta existe en `route_customer_map`,
+nadie la firmó). Detalle y mediciones en `03_LOG_REVISIONES.md` (2026-10-23).
+
+| # | lo que falta | quién |
+|---|---|---|
+| **A.15d** | Una puerta para **firmar** `finance.route_customer_map` (hoy ninguna pantalla ni endpoint la escribe); `501`–`505` sin `cliente_code` | C2/C3 |
+| **A.15e** | Cobros vecinales de la sucursal base (`VENTAS RV … CANDY Y RAFA`) siguen sin ruta: entran por el ODS, no por `route_collections` (Frente B) | C0 |
