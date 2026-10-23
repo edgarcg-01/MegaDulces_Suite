@@ -409,6 +409,18 @@ export interface RequisitionResumenDto {
   /** `[RQ.2]` Las que pasaron los 30 días — el escalón donde el costo deja de ser el de hoy. */
   n_mas_30: number;
   monto_mas_30: number;
+  /**
+   * `[PQ.1]` Dentro del estado, ¿cuántas tienen DOCUMENTO en Kepler? Medido el 2026-10-23: 680
+   * `approved` sin salida por $19.05 M (602 traspasos) y la bandeja las contaba igual que una
+   * escrita en el ERP. Tres ausencias distintas (ADR-056): `n_kepler` salió · `n_kepler_error`
+   * salió mal, lo arregla una persona · `n_sin_empujar` nunca se intentó.
+   */
+  n_kepler: number;
+  n_kepler_error: number;
+  n_sin_empujar: number;
+  /** Monto y antigüedad de las que NO tienen documento en Kepler (error + sin empujar). */
+  monto_sin_kepler: number;
+  dias_max_sin_kepler: number;
 }
 
 /** `[MT.6]` Pagina de requisiciones. */
@@ -4044,7 +4056,7 @@ export class CommercialReplenishmentService {
   }
 
   async listRequisitions(
-    q: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; page?: number; pageSize?: number },
+    q: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; kepler?: string; page?: number; pageSize?: number },
   ): Promise<RequisitionListDto> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
@@ -4091,6 +4103,14 @@ export class CommercialReplenishmentService {
       // lote) **sí** la acotan: ésos son el universo del que se pregunta.
       const baseResumen = base.clone();
       if (q.estado) base.andWhere('r.estado', q.estado);
+      // `[PQ.1]` Las aprobadas que NO tienen documento en Kepler: es el drill de la casilla del
+      // tablero (regla Q.4: el número que denuncia lleva a su lugar de arreglo con el filtro
+      // puesto). Mismo `to_jsonb` que el SELECT: la columna puede faltar si el deploy llega
+      // antes que su migración. Sólo tiene sentido sobre `approved`: en los demás estados el
+      // documento del ERP es otro (la OC) y no se mide acá.
+      if (q.kepler === 'sin_documento') {
+        base.andWhere('r.estado', 'approved').andWhereRaw(`to_jsonb(r) ->> 'kepler_folio' IS NULL`);
+      }
 
       const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
       const rows = await base.clone()
@@ -4142,11 +4162,21 @@ export class CommercialReplenishmentService {
           // de 8-30 días y en el 83.5 % de los de 31-60 — ahí es donde la requisición deja de ser
           // verdad y hay que recalcularla antes de aprobar.
           trx.raw(`count(*) FILTER (WHERE r.created_at < now() - interval '30 days')::int AS n_mas_30`),
-          trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE r.created_at < now() - interval '30 days'), 0) AS monto_mas_30`));
+          trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE r.created_at < now() - interval '30 days'), 0) AS monto_mas_30`),
+          // `[PQ.1]` ¿Salió a Kepler? Tres ausencias que no son la misma. Se cuentan dentro de
+          // CADA estado; la pantalla las lee sólo en `approved`, donde la salida es el `X-A-30`
+          // / `U-D-40` que escribe la Suite. Con `to_jsonb` por la misma razón que el SELECT.
+          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NOT NULL)::int AS n_kepler`),
+          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL AND to_jsonb(r) ->> 'kepler_error' IS NOT NULL)::int AS n_kepler_error`),
+          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL AND to_jsonb(r) ->> 'kepler_error' IS NULL)::int AS n_sin_empujar`),
+          trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL), 0) AS monto_sin_kepler`),
+          trx.raw(`COALESCE(max(floor(extract(epoch FROM now() - r.created_at) / 86400)) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL), 0)::int AS dias_max_sin_kepler`));
       const resumen = (resumenRows as any[]).map((x) => ({
         estado: String(x.estado), n: Number(x.n) || 0, monto: Number(x.monto) || 0,
         dias_prom: Number(x.dias_prom) || 0, dias_max: Number(x.dias_max) || 0,
         n_mas_30: Number(x.n_mas_30) || 0, monto_mas_30: Number(x.monto_mas_30) || 0,
+        n_kepler: Number(x.n_kepler) || 0, n_kepler_error: Number(x.n_kepler_error) || 0, n_sin_empujar: Number(x.n_sin_empujar) || 0,
+        monto_sin_kepler: Number(x.monto_sin_kepler) || 0, dias_max_sin_kepler: Number(x.dias_max_sin_kepler) || 0,
       }));
       return { total: Number(totalRow?.c || 0), page, pageSize, rows, resumen };
     });

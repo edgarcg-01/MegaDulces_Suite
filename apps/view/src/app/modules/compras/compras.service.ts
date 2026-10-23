@@ -707,6 +707,16 @@ export interface RequisitionResumen {
   /** `[RQ.2]` Las que pasaron los 30 días — el escalón donde el costo deja de ser el de hoy. */
   n_mas_30: number;
   monto_mas_30: number;
+  /**
+   * `[PQ.1]` Dentro del estado, ¿cuántas tienen documento en Kepler? Opcionales porque un
+   * servidor anterior a PQ.1 no las manda, y entonces la casilla dice «sin medir», no 0.
+   * `n_kepler` salió · `n_kepler_error` salió mal · `n_sin_empujar` nunca se intentó.
+   */
+  n_kepler?: number;
+  n_kepler_error?: number;
+  n_sin_empujar?: number;
+  monto_sin_kepler?: number;
+  dias_max_sin_kepler?: number;
 }
 export interface RequisitionDetail extends RequisitionRow {
   lines: RequisitionLine[];
@@ -1471,13 +1481,14 @@ export class ComprasService {
     return this.http.post<{ groups: number; merged: number; products_repointed: number }>(`${this.base}/categories/auto-dedup`, {});
   }
 
-  listRequisitions(q?: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: RequisitionRow[]; resumen: RequisitionResumen[] }> {
+  listRequisitions(q?: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; kepler?: 'sin_documento'; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: RequisitionRow[]; resumen: RequisitionResumen[] }> {
     const p = new URLSearchParams();
     if (q?.estado) p.set('estado', q.estado);
     if (q?.warehouse_id) p.set('warehouse_id', q.warehouse_id);
     if (q?.source_type) p.set('source_type', q.source_type);
     if (q?.batch_id) p.set('batch_id', q.batch_id);
     if (q?.search) p.set('search', q.search);
+    if (q?.kepler) p.set('kepler', q.kepler);   // `[PQ.1]` aprobadas sin documento en Kepler
     if (q?.page) p.set('page', String(q.page));
     if (q?.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
