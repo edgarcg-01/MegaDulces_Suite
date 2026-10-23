@@ -58,6 +58,11 @@ export interface CambioCantidad {
   standalone: true,
   imports: [CommonModule, TableModule, TagModule, ButtonModule, InputTextModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // `[E.29]` El contenedor de la consulta se declara con la clase CANÓNICA, no a mano.
+  // El `:host` de abajo ya ponía `container-type`/`container-name: densetable`, así que el
+  // apilado sí ocurría — pero `check:dense-tables` busca `dt-scope` y, sin él, la próxima
+  // pantalla que copie ésta se lleva la forma de a mano y ahí sí queda rota en silencio.
+  host: { class: 'dt-scope' },
   template: `
     <!-- rowTrackBy por id: al cambiar una cantidad la fila no se rehace y el campo no pierde el foco. -->
     <p-table class="dt-stack" [value]="renglones()" dataKey="id" [rowTrackBy]="porId" size="small" [tableStyle]="{ 'min-width': '70rem' }">
