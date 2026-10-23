@@ -433,6 +433,21 @@ export class CommercialReplenishmentController {
     return this.svc.worklist({ warehouse_id, warehouse_ids, via, status, search, target_basis, category_id, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
+  @Get('worklist/proveedores')
+  @RequirePermissions(Permission.COMPRAS_PEDIDO_VER)
+  @ApiOperation({ summary: '[PQ.4] La agenda: una fila por PROVEEDOR (cuándo toca, en qué sucursales, sugerido sumado). Mismos filtros y misma álgebra que worklist.' })
+  worklistProveedores(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('warehouse_ids') warehouse_ids?: string,
+    @Query('via') via?: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('target_basis') target_basis?: string,
+    @Query('category_id') category_id?: string,
+  ) {
+    return this.svc.worklistProveedores({ warehouse_id, warehouse_ids, via, status, search, target_basis, category_id });
+  }
+
   // ⚠️ `requisitions/batches` va ANTES que `requisitions/:id`: con el orden al revés, Nest casa
   // 'batches' como un id y devuelve 400. Es el mismo error que la Fase LC pagó con `no-asociados`.
   @Get('requisitions/batches')

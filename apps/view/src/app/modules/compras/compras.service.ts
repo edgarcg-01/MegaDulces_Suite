@@ -991,6 +991,25 @@ export interface WorklistResponse {
   prov_vencidos?: number; prov_hoy?: number;
   page: number; pageSize: number; rows: WorklistRow[];
 }
+/** `[PQ.4]` Una fila por proveedor en la agenda del Ciclo. */
+export interface AgendaProveedorRow {
+  supplier_id: string;
+  supplier_name: string | null;
+  n_canales: number;
+  n_vencidos: number;
+  n_hoy: number;
+  n_prox7: number;
+  next_due_date: string | null;          // la fecha más urgente entre sus canales
+  days_to_due: number | null;            // <0 vencido · 0 hoy · >0 futuro
+  last_delivery_date: string | null;
+  cadence_days: number | null;           // promedio entre sus canales (derivada de Kepler)
+  lead_time_days: number | null;
+  sucursales_tocan: { id: string; code: string; days_to_due: number }[];   // vencidas u hoy
+  n_skus: number;
+  n_below: number;
+  suggested_cost: number;
+}
+export interface AgendaProveedoresResponse { total: number; rows: AgendaProveedorRow[]; }
 export interface WorklistQuery {
   warehouse_ids?: string[]; warehouse_id?: string; via?: string; status?: string; search?: string; target_basis?: string; category_id?: string; page?: number; pageSize?: number;
 }
@@ -1636,6 +1655,20 @@ export class ComprasService {
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
     return this.http.get<WorklistResponse>(`${this.base}/worklist${qs ? '?' + qs : ''}`);
+  }
+
+  /** `[PQ.4]` La agenda del Ciclo: una fila por proveedor, mismos filtros que `worklist`, sin paginar (cabe entero). */
+  worklistProveedores(q: WorklistQuery): Observable<AgendaProveedoresResponse> {
+    const p = new URLSearchParams();
+    if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
+    else if (q.warehouse_id) p.set('warehouse_id', q.warehouse_id);
+    if (q.via) p.set('via', q.via);
+    if (q.status) p.set('status', q.status);
+    if (q.search) p.set('search', q.search);
+    if (q.target_basis) p.set('target_basis', q.target_basis);
+    if (q.category_id) p.set('category_id', q.category_id);
+    const qs = p.toString();
+    return this.http.get<AgendaProveedoresResponse>(`${this.base}/worklist/proveedores${qs ? '?' + qs : ''}`);
   }
 
   /** RA-PRO — histórico de compras al proveedor (tamaño típico de orden). warehouse_id opcional (el de compra; para traspasos, el hub). */
