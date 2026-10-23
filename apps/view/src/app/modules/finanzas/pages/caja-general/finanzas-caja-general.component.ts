@@ -447,13 +447,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-firma-falta { font-size:var(--fs-xs); }
     /* ⛔ touch-action:none es lo que impide que el dedo SCROLLEE en vez de dibujar. Sin esto,
        en un telefono la firma es imposible: el gesto se lo come la pagina. */
-    /* [CG.68] El codigo se dicta en voz alta o se lee de lejos. */
+    /* [CG.207] El recuadro del QR. El codigo ya no se muestra: viaja adentro del QR. */
     .cg-firma-codigo { display:flex; align-items:center; gap:var(--sp-4);
                        padding:var(--sp-3); border:1px dashed var(--action);
                        border-radius:var(--r-md); background:var(--action-ring); }
     .cg-firma-cod-txt { display:flex; flex-direction:column; align-items:flex-start; gap:var(--sp-1);
                         flex:1 1 auto; min-width:0; }
-    .cg-firma-cod { font-size:var(--fs-h1); font-weight:700; letter-spacing:.18em; line-height:1; }
     /* [CG.74] El QR. Fondo BLANCO siempre, tambien en tema oscuro: un QR invertido no lo lee
        ninguna camara, y esta pantalla se usa en oscuro. El padding es la zona de silencio que
        el lector necesita alrededor del patron. */
@@ -3726,20 +3725,16 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                                 [text]="true" (onClick)="firmaLimpiar()"></p-button>
                     </div>
                   </div>
-                } @else if (firmaCodigo(); as cod) {
-                  <!-- ⛔ [CG.74] ACA DECIA "Abri Caja General > Firmar en el telefono", Y ESA
-                       ENTRADA DE MENU NO EXISTE. Medido: la ruta /finanzas/caja-general/firma
-                       esta registrada y NADA en la navegacion apunta ahi -- la unica mencion en
-                       todo el repo era un comentario en este archivo. O sea que el procedimiento
-                       real era teclear una URL de memoria, en un telefono, con un codigo que vive
-                       TRES MINUTOS. Lo encontro Edgar del modo mas directo: "como hago esto".
-                       Ahora el camino corto es el QR y el codigo queda como respaldo -- se sigue
-                       dictando en voz alta cuando el telefono no puede escanear. -->
+                } @else if (firmaCodigo()) {
+                  <!-- ⭐⭐ [CG.207] SOLO EL QR. Edgar, 2026-10-23: "no necesitamos el codigo, solo
+                       el qr". El codigo de seis se mostraba y se dictaba como respaldo, y ese
+                       respaldo era justo el camino que pedia iniciar sesion: tecleado, el
+                       telefono no trae pase y el servidor no sabe de que empresa es. El codigo
+                       sigue existiendo, pero ADENTRO del QR y del pase: nadie lo lee ni lo teclea. -->
                   <div class="cg-firma-codigo">
                     <div class="cg-firma-cod-txt">
-                      <span class="cg-lbl-micro">Escanea el QR con el teléfono</span>
-                      <strong class="mono cg-firma-cod">{{ cod }}</strong>
-                      <small class="fin-dim">{{ firmaTelefonoListo() ? 'El teléfono ya está — esperando la firma…' : 'o entra a ' + rutaFirmaCorta() + ' y escribe el código' }}</small>
+                      <span class="cg-lbl-micro">Escanea el QR con la cámara del teléfono</span>
+                      <small class="fin-dim">{{ firmaTelefonoListo() ? 'El teléfono ya está — esperando la firma…' : 'No hace falta iniciar sesión en el teléfono.' }}</small>
                       <p-button label="Cancelar" size="small" severity="secondary" [text]="true"
                                 (onClick)="firmaCerrarRemota()"></p-button>
                     </div>
@@ -5216,11 +5211,6 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** `[CG.74]` El hueco donde se inyecta el SVG del QR. */
   @ViewChild('qrFirma') qrRef?: ElementRef<HTMLElement>;
 
-  /** La ruta que se dicta cuando el teléfono no puede escanear. Sin el `https://`, que nadie dicta. */
-  rutaFirmaCorta(): string {
-    return `${location.host}${RUTA_FIRMA}`;
-  }
-
   /**
    * `[CG.74]` La URL absoluta que va dentro del QR, **con el código ya puesto**.
    *
@@ -5229,12 +5219,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * mientras alguien prueba en local — o al revés, que es peor.
    */
   private urlFirmaTelefono(codigo: string): string {
-    // ⭐ `[CG.84]` Con pase, el teléfono entra sin sesión y con su código ya puesto. El `c=` se
-    // manda igual: es el que se dicta en voz alta cuando el teléfono no puede escanear, y es el
-    // que usa un teléfono que SÍ tiene sesión. Los dos caminos siguen vivos.
-    const pase = this.firmaPase();
-    const q = `?c=${encodeURIComponent(codigo)}`
-      + (pase ? `&pase=${encodeURIComponent(pase)}` : '');
+    // ⭐ `[CG.84]` Con pase, el teléfono entra sin sesión y con su código ya puesto.
+    // `[CG.207]` El pase es obligatorio (sin él no se pinta QR) y el código viaja adentro de la
+    // URL para que el teléfono lo reclame solo: nadie lo lee ni lo teclea.
+    const pase = this.firmaPase() ?? '';
+    const q = `?c=${encodeURIComponent(codigo)}&pase=${encodeURIComponent(pase)}`;
     return `${location.origin}${RUTA_FIRMA}${q}`;
   }
 
@@ -5375,10 +5364,16 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.firmaAviso.set(this.textoFalloFirma(String((r as { error?: string }).error ?? '')));
         return;
       }
+      // ⛔ `[CG.207]` Sin pase no hay QR que sirva: el teléfono ya no teclea el código, así que un
+      // QR con el código solo abriría una pantalla que no puede hacer nada. Se dice y no se pinta.
+      if (!r.pase) {
+        void this.caja.cerrarFirma();
+        this.firmaAviso.set('El servidor no entregó el pase del QR. Firma en esta pantalla.');
+        return;
+      }
       this.firmaCodigo.set(r.codigo);
-      // `[CG.84]` El pase ANTES de pintar: el QR lo lee de acá. Si el servidor es viejo y no lo
-      // manda, queda `null` y el QR sale con el código solo — el camino de antes, que sigue vivo.
-      this.firmaPase.set(r.pase ?? null);
+      // `[CG.84]` El pase ANTES de pintar: el QR lo lee de acá.
+      this.firmaPase.set(r.pase);
       this.firmaTelefonoListo.set(false);
       this.pintarQrFirma();   // `[CG.74]` el QR del codigo que acaba de nacer
     } finally {

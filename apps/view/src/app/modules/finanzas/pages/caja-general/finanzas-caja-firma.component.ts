@@ -11,15 +11,15 @@ import { CajaSocketService } from '../../caja-socket.service';
  * `[CG.68]` **La pantalla del teléfono del mostrador: acá se firma.**
  *
  * Edgar: *"si esto lo estoy usando en pc, ¿cómo hago que esto se envíe a mi teléfono para que se
- * firme?"*. La caja muestra un código de seis caracteres; acá se teclea, aparece QUÉ se está
- * firmando, se firma, y el trazo vuelve a la pantalla de la caja por una room que es de los dos.
+ * firme?"*. La caja muestra un QR; el teléfono lo escanea, aparece QUÉ se está firmando, se firma,
+ * y el trazo vuelve a la pantalla de la caja por una room que es de los dos.
  *
- * ── Por qué es una PÁGINA de esta app y no una superficie nueva ──────────────────────────────
+ * ── `[CG.207]` Sólo QR, sin sesión ───────────────────────────────────────────────────────────
  *
- * El teléfono es **del mostrador** (decisión de Edgar) y entra con su propio usuario, así que no
- * hace falta ninguna superficie pública, ni enlaces con token, ni QR — y no se agrega ninguna.
- * Es la regla del proyecto: *una superficie nueva es un MÓDULO o una PÁGINA dentro de una app del
- * monorepo, nunca un artefacto suelto.*
+ * Esto nació (`[CG.68]`) como un teléfono con usuario propio que tecleaba un código de seis.
+ * `[CG.84]` agregó el QR con pase para no pedir contraseña, y `[CG.207]` retiró el código tecleado
+ * (Edgar, 2026-10-23: *«no necesitamos el código, solo el qr»*): era el camino que pedía sesión.
+ * Sigue siendo una PÁGINA de esta app, pública (`/firmar`, lista en `rutas-publicas.ts`).
  *
  * ── ⚠️ Lo que esta pantalla NO puede hacer, a propósito ─────────────────────────────────────
  *
@@ -41,9 +41,6 @@ import { CajaSocketService } from '../../caja-socket.service';
           padding:var(--sp-4); max-width:32rem; margin:0 auto; }
     .fm h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.02em; }
     .fm-sub { margin:0; font-size:var(--fs-sm); color:var(--text-muted); }
-    /* El código se teclea mirando otra pantalla: campo grande, mono y espaciado. */
-    .fm-cod { font-family:var(--font-mono); font-size:var(--fs-h1); letter-spacing:.18em;
-              text-align:center; text-transform:uppercase; }
     .fm-que { display:flex; flex-direction:column; gap:var(--sp-1);
               padding:var(--sp-3); border:1px solid var(--border-color);
               border-radius:var(--r-md); background:var(--card-bg); }
@@ -67,7 +64,7 @@ import { CajaSocketService } from '../../caja-socket.service';
     <div class="fm">
       <header>
         <h1>Firmar un movimiento de caja</h1>
-        <p class="fm-sub">{{ ctx() ? 'Firma donde dice, y toca Enviar.' : 'Escribe el código que muestra la caja.' }}</p>
+        <p class="fm-sub">{{ ctx() ? 'Firma donde dice, y toca Enviar.' : 'Escanea el QR que muestra la caja.' }}</p>
       </header>
 
       @if (aviso(); as a) { <p-message severity="warn">{{ a }}</p-message> }
@@ -110,21 +107,24 @@ import { CajaSocketService } from '../../caja-socket.service';
 
         <p class="fm-legal">Vale como constancia de que recibiste el efectivo, igual que firmar el
           ticket en papel. No es una firma electrónica con validez fiscal.</p>
+      } @else if (!codigo) {
+        <!-- ⭐⭐ CG.207 SOLO EL QR. Edgar: "no necesitamos el codigo, solo el qr". Aca vivia un
+             campo para teclear el codigo de seis, y ese era el camino que pedia iniciar sesion:
+             tecleado no trae pase, y sin pase el servidor no sabe de que empresa es. Sin QR esta
+             pantalla no tiene nada que hacer, y lo dice.
+             (Sin acentos graves aca adentro: esto vive en un template literal y uno lo CIERRA.) -->
+        <p class="fm-sub">Abre la cámara del teléfono y apunta al QR que muestra la pantalla de la
+          caja. No hace falta iniciar sesión.</p>
       } @else {
-        <input type="text" pInputText class="fm-cod" [(ngModel)]="codigo"
-               placeholder="ABC234" maxlength="9" autocomplete="off"
-               inputmode="text" aria-label="Código que muestra la caja"
-               (keyup.enter)="tomar()" />
-        <!-- ⛔⛔ El botón se apaga mientras el canal abre, y NO sólo mientras se pide. Habilitado
-             durante el handshake, el toque llegaba a un socket sin conectar, volvía "sin_conexion"
-             y el traductor lo contaba como "el QR venció" — con el QR perfectamente vivo.
-             Con loading y no con un rótulo a mano: pone el spinner Y desactiva, que es lo que
-             impide el segundo toque.
-             (Sin acentos graves acá adentro: esto vive en un template literal y uno lo CIERRA.) -->
-        <p-button label="Continuar" icon="pi pi-arrow-right"
-                  [loading]="tomando() || conectando()"
-                  [disabled]="codigo.trim().length < 6 || tomando() || conectando()"
-                  (onClick)="tomar()"></p-button>
+        <!-- ⛔⛔ Reintentar se apaga mientras el canal abre, y NO solo mientras se pide: un toque
+             durante el handshake llegaba a un socket sin conectar y volvia "sin_conexion".
+             Con loading: pone el spinner Y desactiva, que es lo que impide el segundo toque. -->
+        @if (aviso()) {
+          <p-button label="Reintentar" icon="pi pi-refresh" severity="secondary" [outlined]="true"
+                    [loading]="tomando() || conectando()"
+                    [disabled]="tomando() || conectando()"
+                    (onClick)="tomar()"></p-button>
+        }
         <!-- ⚠️ TRES estados, no dos. "Todavía no" y "no se pudo" se veían iguales porque los dos
              son connected() en false, así que al escanear el QR lo primero que aparecía era un
              aviso ámbar mandando a revisar la red — con la red bien y el canal abriendo. -->
@@ -206,15 +206,17 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
     const q = new URLSearchParams(location.search);
     // ⭐⭐ `[CG.84]` **EL PASE: acá se deja de pedir contraseña.** Edgar: *"el no password para
     // firmar"*. Si el QR trae pase, el canal se abre con él en vez de con una sesión, y este
-    // teléfono entra como invitado atado a ese único código. Sin pase todo sigue igual que antes
-    // (hace falta sesión), que es el camino del teléfono del cajero.
+    // teléfono entra como invitado atado a ese único código.
+    //
+    // ⭐⭐ `[CG.207]` **Sin pase no se abre nada.** Antes, sin pase, el canal se abría con la sesión
+    // del teléfono y se tecleaba el código: ése era el camino que pedía iniciar sesión, y Edgar
+    // lo retiró («no necesitamos el código, solo el qr»). Sin QR la pantalla sólo explica.
     const pase = q.get('pase');
-    this.caja.connect(pase);
     const porUrl = q.get('c');
-    if (porUrl) {
-      this.codigo = porUrl;
-      void this.tomarCuandoHayaCanal();
-    }
+    if (!pase || !porUrl) return;
+    this.caja.connect(pase);
+    this.codigo = porUrl;
+    void this.tomarCuandoHayaCanal();
   }
   ngOnDestroy(): void { this.caja.disconnect(); }
 

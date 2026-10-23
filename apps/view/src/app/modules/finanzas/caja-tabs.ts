@@ -30,9 +30,9 @@ import { Permission } from '../../core/constants/permissions';
  * y la barra se lo va a reflejar. No se empareja acá: emparejarlo es cambiar un permiso de una
  * ruta, y eso se decide en el árbol de authz, no en una barra de pestañas.
  *
- * ⚠️ `/finanzas/caja-general/firma` NO es pestaña a propósito: es la pantalla del TELÉFONO del
- * mostrador, se entra por el código de seis que muestra la caja, y el teléfono se le presta a
- * quien viene a firmar. Una pestaña ahí la pondría al alcance de un clic desde la PC, que es
+ * ⚠️ La firma en el teléfono (`/firmar`; `/finanzas/caja-general/firma` sólo redirige ahí desde
+ * `[CG.207]`) NO es pestaña a propósito: se entra escaneando el QR que muestra la caja, y el
+ * teléfono se le presta a quien viene a firmar. Una pestaña ahí la pondría al alcance de un clic desde la PC, que es
  * justo lo contrario de para qué existe.
  */
 export const CAJA_TABS: readonly PageTab[] = [

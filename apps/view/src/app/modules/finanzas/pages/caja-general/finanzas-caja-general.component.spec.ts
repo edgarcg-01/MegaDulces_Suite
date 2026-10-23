@@ -219,7 +219,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       // corresponde a eso es `caido`, no un `conectando` eterno.
       estado: () => 'caido' as const,
       firmaTomada$: new Subject(), firmaRecibida$: new Subject(), firmaCortada$: new Subject(),
-      abrirFirma: vi.fn(async () => ({ ok: true, codigo: 'ABC234' })),
+      abrirFirma: vi.fn(async () => ({ ok: true, codigo: 'ABC234', pase: 'ey.PASE.firmado' })),
       tomarFirma: vi.fn(async () => ({ ok: true })),
       enviarFirma: vi.fn(async () => ({ ok: true })),
       cerrarFirma: vi.fn(async () => ({ ok: true })),
@@ -975,10 +975,11 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(hueco!.querySelector('svg'), 'el hueco quedó vacío: el QR no se pintó').not.toBeNull();
 
     const panel = (fx.nativeElement.querySelector('.cg-firma-codigo') as HTMLElement).textContent ?? '';
-    expect(panel).toContain('ABC234');   // el código sigue a la vista
-    // `[CG.84]` La ruta que se dicta pasó a `/firmar`, la PÚBLICA: la vieja colgaba de un padre
-    // con `authGuard`, o sea que el teléfono necesitaba sesión para firmar un recibo.
-    expect(panel).toContain('/firmar');
+    // ⭐⭐ `[CG.207]` SÓLO EL QR (Edgar: «no necesitamos el código, solo el qr»). El código y la
+    // ruta para teclearlo eran el respaldo, y ese respaldo era el camino que pedía sesión.
+    expect(panel, 'el código de seis sigue a la vista').not.toContain('ABC234');
+    expect(panel, 'sigue invitando a teclear el código').not.toMatch(/escribe el c[oó]digo/i);
+    expect(panel).toContain('Escanea el QR');
     expect(panel, 'sigue mandando a una entrada de menú que no existe')
       .not.toMatch(/Caja General\s*[›>]/);
   });
@@ -1000,12 +1001,6 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       'quedó el QR del código que ya se cerró').toBeNull();
   });
 
-  it('[CG.74] la ruta que se dicta no lleva el esquema: nadie dicta "https://"', () => {
-    montar();
-    expect(comp.rutaFirmaCorta()).toContain('/firmar');
-    expect(comp.rutaFirmaCorta()).not.toContain('http');
-  });
-
   it('⭐ [CG.84] el QR lleva el PASE: el teléfono entra sin iniciar sesión', async () => {
     // Sin el pase el teléfono cae en la ruta pública SIN credencial, el canal lo rechaza, y
     // volvemos al login que Edgar pidió quitar. Que el pase viaje en el QR ES la garantía.
@@ -1020,7 +1015,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.firmaPase(), 'el pase no se guardó').toBe('ey.PASE.firmado');
     const url = (comp as unknown as { urlFirmaTelefono(c: string): string }).urlFirmaTelefono('ABC234');
     expect(url).toContain('/firmar');
-    expect(url).toContain('c=ABC234');               // el código sigue, para dictarlo
+    expect(url).toContain('c=ABC234');               // el código viaja adentro, para reclamarlo solo
     expect(url).toContain('pase=ey.PASE.firmado');   // y el pase, para no pedir contraseña
   });
 
@@ -1039,20 +1034,23 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.firmaPase(), 'el pase sobrevivió al panel que lo creó').toBeNull();
   });
 
-  it('⛔ [CG.84] [negativa] si el servidor NO manda pase, el QR sale con el código solo', async () => {
-    // Compatibilidad hacia atrás MEDIDA, no supuesta: con un backend viejo el camino de antes
-    // (teléfono con sesión + código tecleado) tiene que seguir funcionando.
+  it('⛔ [CG.207] [negativa] si el servidor NO manda pase, NO se pinta QR: lo dice y suelta el código', async () => {
+    // Antes salía un QR con el código solo, para el teléfono con sesión que lo tecleaba. Sin
+    // teclear (`[CG.207]`), ese QR abriría una pantalla que no puede hacer nada.
     const fx = montar();
     cajaSock.abrirFirma = vi.fn(async () => ({ ok: true, codigo: 'ABC234' }));
+    cajaSock.cerrarFirma = vi.fn(async () => ({ ok: true }));
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
     fx.detectChanges();
     await comp.firmaPedirEnTelefono();
+    fx.detectChanges();
 
+    expect(comp.firmaCodigo()).toBeNull();
     expect(comp.firmaPase()).toBeNull();
-    const url = (comp as unknown as { urlFirmaTelefono(c: string): string }).urlFirmaTelefono('ABC234');
-    expect(url).toContain('c=ABC234');
-    expect(url).not.toContain('pase=');
+    expect(fx.nativeElement.querySelector('.cg-firma-qr')).toBeNull();
+    expect(comp.firmaAviso()).toContain('pase');
+    expect(cajaSock.cerrarFirma, 'el código quedó reclamable en el servidor').toHaveBeenCalled();
   });
 
   it('el código del emparejamiento NO sobrevive a la captura anterior', async () => {
