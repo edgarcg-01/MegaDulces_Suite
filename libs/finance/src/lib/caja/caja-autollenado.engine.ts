@@ -111,6 +111,8 @@ export interface PendienteResuelto {
   /** Su motivo cuando `confirmable` es falso. */
   motivo?: string | null;
   motivo_texto?: string | null;
+  /** De dónde salió la cuenta (`documento`, `tipo_documento`, `declarada`…). */
+  cuenta_fuente?: string | null;
 }
 
 export interface Excluido {
@@ -189,6 +191,17 @@ export function planearVuelta(
         detalle: r.motivo ? String(r.motivo) : null,
         monto,
       });
+      continue;
+    }
+    /**
+     * ⛔ `[CGA-A.19]` La cuenta del TIPO de documento (su póliza todavía no llega) se le ofrece a
+     * una PERSONA, que la ve con su procedencia y confirma con un clic. Este motor escribe sin
+     * nadie mirando, y su regla es la de arriba: **reintentar, no adivinar** — la póliza llega en
+     * días (90.5 % a 0-2 días, 99.4 % a 3-7) y entonces el documento se resuelve por su propia
+     * póliza. Esperar cuesta nada; asentar sin la póliza es lo único que acá no se hace solo.
+     */
+    if (r.cuenta_fuente === 'tipo_documento') {
+      excluidos.push({ origen_ref: r.origen_ref, motivo: 'sin_resolver', detalle: 'espera_poliza', monto });
       continue;
     }
     aplicar.push(r.origen_ref);

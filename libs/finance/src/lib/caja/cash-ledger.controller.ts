@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 import { SUCURSAL_CAJA_GENERAL, type CorteCajaDto, type PosicionCajaDto } from '@megadulces/contracts';
-import { CashLedgerService, type CreateMovementInput, type EntidadDeclarada } from './cash-ledger.service';
+import { CashLedgerService, type CreateMovementInput, type EntidadDeclarada, type CoberturaCuentasKepler } from './cash-ledger.service';
 import { CajaAutofillService, type AutofillInput } from './caja-autofill.service';
 import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
 import type { PorReclasificar } from './cash-cut.service';
@@ -300,6 +300,25 @@ export class CashLedgerController {
   @ApiOperation({ summary: '[CGA-A.18] Las entidades cuya cuenta/concepto se declaró a mano, con su motivo y quién la declaró. Lo DERIVADO no aparece acá: esto es sólo lo que alguien decidió.' })
   declaradas(): Promise<EntidadDeclarada[]> {
     return this.svc.declaradas();
+  }
+
+  /** `[CGA-A.19]` Quitar una declaración. Misma llave que declararla: decide para toda la entidad. */
+  @Delete('autofill/declaradas/:entidad_code')
+  @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
+  @ApiOperation({ summary: '[CGA-A.19] Quita la cuenta/concepto declarada de una entidad. La entidad vuelve a resolverse por la póliza o por su tipo de documento; lo ya confirmado no cambia.' })
+  quitarDeclarada(@Param('entidad_code') entidad: string, @Req() req: AuthedRequest): Promise<{ quitada: boolean }> {
+    return this.svc.quitarDeclarada(entidad, this.user(req));
+  }
+
+  /**
+   * ⭐ `[CGA-A.19]` Cuántos movimientos de la cola tienen su cuenta de Kepler, sobre el universo
+   * entero (no la página), y cuáles entidades no. Va ANTES de `@Get(':id')`.
+   */
+  @Get('cuentas-kepler/cobertura')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[CGA-A.19] Cobertura de cuentas de Kepler sobre TODO el universo de la cola: con cuenta (por fuente: póliza, tipo de documento, regla, ruta, declarada), falta concepto, y sin cuenta agrupado por entidad. Con tope declarado (truncado).' })
+  coberturaCuentasKepler(@Query('caja') caja?: string, @Query('sucursal') sucursal?: string): Promise<CoberturaCuentasKepler> {
+    return this.svc.coberturaCuentasKepler({ caja, sucursal });
   }
 
   /**
