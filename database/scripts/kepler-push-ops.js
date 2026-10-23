@@ -46,6 +46,19 @@ const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env'), quiet: true });
 const { Client } = require('pg');
 
+// `[KR.14]` El archivo maestro (ops/prod/kepler-push-secretos.js) y las URL de superusuario,
+// fuera del repo. Se leen TAMBIÉN las líneas comentadas: un servidor apagado en prod igual se
+// puede revisar antes de encenderlo. Lo que ya venga del entorno o del .env no se pisa.
+const DIR_SECRETOS = process.env.KEPLER_PUSH_SECRETOS || path.join(os.homedir(), 'kepler-push-secretos');
+for (const nombre of ['kepler-push.env', 'kepler-admin.env']) {
+  const p = path.join(DIR_SECRETOS, nombre);
+  if (!fs.existsSync(p)) continue;
+  for (const line of fs.readFileSync(p, 'utf8').split(/\r?\n/)) {
+    const m = line.match(/^#?\s*(KEPLER_[A-Z_]+_\d{2})=(\S+)\s*$/);
+    if (m && !m[2].includes('<') && !process.env[m[1]]) process.env[m[1]] = m[2];
+  }
+}
+
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 const MARCA = 'RQ-';
 const DOC = {
