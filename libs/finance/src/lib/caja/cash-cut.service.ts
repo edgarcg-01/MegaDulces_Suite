@@ -640,13 +640,16 @@ export class CashCutService {
         const prev = await trx('finance.cash_ledger_cuts')
           .where({ tenant_id: tenantId, sucursal: input.sucursal })
           .whereIn('estado', ['cerrado', 'observado', 'autorizado'])
-          .whereNotNull('contado')
           // `[CGP-L.4]` El fondo hereda del último cierre ANTERIOR a esta fecha. La regla de orden de
           // arriba ya impide que exista uno posterior; esto lo deja dicho en la consulta misma.
           .where('fecha', '<', input.fecha)
           .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'closed_at', order: 'desc' }])
           .first('folio', 'contado', 'fecha');
-        if (prev && Number(prev.contado) >= 0) {
+        // ⛔ `[CGS.52]` Acá había `.whereNotNull('contado')`: si el último cierre NO tuvo conteo
+        // físico (el 13-oct), se saltaba a uno más viejo y lo heredaba como «cierre anterior»,
+        // ignorando lo que se movió el día sin conteo. Ahora un último cierre sin conteo deja el
+        // fondo sin medir (`monto` sigue null), que es la verdad.
+        if (prev && prev.contado != null && Number(prev.contado) >= 0) {
           monto = Number(prev.contado);
           origen = 'cierre_anterior';
         }
@@ -1456,7 +1459,10 @@ export class CashCutService {
     return this.tk.run(async (trx) => {
       let qb = trx('finance.cash_ledger_cuts')
         .where({ tenant_id: tenantId, sucursal })
-        .whereNotNull('contado');
+        // `[CGS.52]` Un corte firmado SIN conteo físico (el 13-oct) también sale, con su porqué: si
+        // se filtrara, la fila desaparecería y el supervisor vería un día menos sin enterarse.
+        .where((b: Knex.QueryBuilder) => b.whereNotNull('contado')
+          .orWhere((s: Knex.QueryBuilder) => s.whereNot('estado', 'borrador').whereNotNull('sin_medir_motivo')));
       if (q.desde) qb = qb.where('fecha', '>=', q.desde);
       if (q.hasta) qb = qb.where('fecha', '<=', q.hasta);
       const cortes = await qb.orderBy('fecha', 'desc').orderBy('folio', 'desc').limit(limit);
@@ -1632,6 +1638,9 @@ export class CashCutService {
           autorizado: c['authorized_at'] != null,
           nota: (c['nota'] ?? null) as string | null,
           reconteo_motivo: (c['reconteo_motivo'] ?? null) as string | null,
+          sin_medir_motivo: (c['sin_medir_motivo'] ?? null) as string | null,
+          recalculo_motivo: (c['recalculo_motivo'] ?? null) as string | null,
+          recalculado_at: c['recalculado_at'] ? new Date(c['recalculado_at'] as string).toISOString() : null,
           corte_id: String(c['id']),
           no_revisa: Array.from(noRevisa.get(String(c['id'])) ?? []),
           observacion: (c['observacion'] ?? null) as string | null,
