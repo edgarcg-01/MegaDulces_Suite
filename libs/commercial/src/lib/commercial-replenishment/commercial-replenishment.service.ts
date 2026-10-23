@@ -3464,6 +3464,101 @@ export class CommercialReplenishmentService {
     });
   }
 
+  /**
+   * `[PQ.4]` LA AGENDA: una fila por PROVEEDOR, no por canal.
+   *
+   * El comprador pregunta «¿a quién le toca?» y el `worklist` contesta en canales (proveedor ×
+   * sucursal): 1,049 filas de compra para 301 proveedores, medido el 2026-10-23 — y la pestaña
+   * las pedía de a 500 sin decir que se topaba. Acá el universo cabe entero (301) y cada fila
+   * dice cuándo toca (la fecha más urgente de sus canales), en qué sucursales, cuánto sugiere
+   * el motor sumando sus canales y cuántos SKUs tiene bajo reorden.
+   *
+   * ⚠️ Misma álgebra que `worklist`: mismos filtros (`where`), mismo `agg`. Si esto diera otro
+   * sugerido que la vista por canal, serían dos números para el mismo hecho. Se reusa el SQL
+   * por composición, no copiándolo.
+   */
+  async worklistProveedores(q: WorklistQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const whIds = await this.whIds(q);
+    return this.tk.run(async (trx) => {
+      const oh = 'COALESCE(rpl.stock_pz,0)';
+      const it = this.transitDescuento();
+      const basis = this.basis(q.target_basis);
+      const target = basis === 'cadence' ? this.cadenceTarget() : this.targetCol(basis);
+      const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
+      const cost = `COALESCE(rpl.caja_cost / NULLIF(GREATEST(COALESCE(rpl.display_bf, rpl.bf, 1), 1), 0), pr.cost_with_tax, pr.cost_base, 0)`;
+      const catFrag = q.category_id && UUID_RX.test(q.category_id) ? 'AND pr.category_id = :cat' : '';
+      const filters: string[] = [
+        `rc.tenant_id = :t`,
+        `rc.cadence_days IS NOT NULL`,
+        `rc.last_delivery_date >= CURRENT_DATE - GREATEST(rc.cadence_days*2, 60)::int`,
+      ];
+      const binds: Record<string, unknown> = { t: tenantId };
+      if (whIds) {
+        if (!whIds.length) filters.push('false');
+        else { filters.push(`rc.warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`); whIds.forEach((w, i) => { binds[`w${i}`] = w; }); }
+      }
+      if (q.via && ['purchase', 'transfer'].includes(q.via)) { filters.push(`rc.via = :via`); binds.via = q.via; }
+      if (q.status === 'due') filters.push(`rc.next_due_date <= CURRENT_DATE`);
+      if (q.search && q.search.trim()) { filters.push(`sup.name ILIKE :s`); binds.s = `%${q.search.trim()}%`; }
+      if (catFrag) {
+        filters.push(`EXISTS (SELECT 1 FROM commercial.reorder_policy rpc JOIN catalog.products prc ON prc.tenant_id=rpc.tenant_id AND prc.id=rpc.product_id WHERE rpc.tenant_id=rc.tenant_id AND rpc.warehouse_id=rc.warehouse_id AND prc.supplier_id=rc.supplier_id AND prc.category_id=:cat)`);
+        binds.cat = q.category_id;
+      }
+      const where = filters.join(' AND ');
+      const rows = (await trx.raw(`
+        WITH canales AS (
+          SELECT rc.*
+            FROM commercial.replenishment_channel rc
+            LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
+           WHERE ${where}
+        ),
+        agg AS (
+          SELECT warehouse_id, supplier_id,
+                 count(*)::int n_skus,
+                 count(*) FILTER (WHERE below)::int n_below,
+                 COALESCE(ROUND(SUM(sug*unit_cost)::numeric,2),0) AS suggested_cost
+            FROM (
+              SELECT rc.warehouse_id, rc.supplier_id,
+                     (${oh} <= rp.reorder_point) AS below, ${sug} AS sug, ${cost} AS unit_cost
+                FROM canales rc
+                LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
+                JOIN catalog.products pr ON pr.tenant_id=rc.tenant_id
+                     AND pr.supplier_id=rc.supplier_id AND pr.activo=true ${catFrag}
+                JOIN commercial.reorder_policy rp ON rp.tenant_id=rc.tenant_id
+                     AND rp.warehouse_id=rc.warehouse_id AND rp.product_id=pr.id
+                LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
+                LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id=rp.tenant_id AND rpl.warehouse_id=rp.warehouse_id AND rpl.product_id=rp.product_id
+            ) x
+           GROUP BY 1, 2
+        )
+        SELECT rc.supplier_id, sup.name AS supplier_name,
+               count(*)::int AS n_canales,
+               count(*) FILTER (WHERE rc.next_due_date < CURRENT_DATE)::int AS n_vencidos,
+               count(*) FILTER (WHERE rc.next_due_date = CURRENT_DATE)::int AS n_hoy,
+               count(*) FILTER (WHERE rc.next_due_date > CURRENT_DATE AND rc.next_due_date <= CURRENT_DATE + 7)::int AS n_prox7,
+               min(rc.next_due_date) AS next_due_date,
+               (min(rc.next_due_date) - CURRENT_DATE)::int AS days_to_due,
+               max(rc.last_delivery_date) AS last_delivery_date,
+               ROUND(AVG(rc.cadence_days)::numeric, 1) AS cadence_days,
+               COALESCE(MAX(COALESCE(rc.lead_time_days, sup.lead_time_days)), NULL) AS lead_time_days,
+               -- Las sucursales que TOCAN (vencidas u hoy), con su id para que «Armar» las deje puestas.
+               COALESCE(json_agg(json_build_object('id', w.id, 'code', w.code, 'days_to_due', (rc.next_due_date - CURRENT_DATE)::int)
+                 ORDER BY rc.next_due_date) FILTER (WHERE rc.next_due_date <= CURRENT_DATE), '[]'::json) AS sucursales_tocan,
+               COALESCE(SUM(agg.n_skus), 0)::int AS n_skus,
+               COALESCE(SUM(agg.n_below), 0)::int AS n_below,
+               COALESCE(SUM(agg.suggested_cost), 0)::numeric AS suggested_cost
+          FROM canales rc
+          JOIN commercial.warehouses w ON w.tenant_id=rc.tenant_id AND w.id=rc.warehouse_id
+          LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
+          LEFT JOIN agg ON agg.warehouse_id=rc.warehouse_id AND agg.supplier_id=rc.supplier_id
+         GROUP BY rc.supplier_id, sup.name
+         ORDER BY min(rc.next_due_date) ASC NULLS LAST, SUM(agg.suggested_cost) DESC NULLS LAST
+         LIMIT 1000`, binds)).rows;
+      return { total: rows.length, rows };
+    });
+  }
+
   // ── Stock muerto / SIN rotación (mostrar TODO lo no reabastecible) ─────
   /**
    * TODO producto activo SIN política de reorden en el almacén → no rota (0 demanda →

@@ -38,7 +38,7 @@ import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
   DeadStockRow, DeudaAcreedor, PostmortemRow, PostmortemVeredicto, SobranteRow, SobranteTramo, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
-  InTransitOc, InTransitResponse, MonthlySalesResponse, WorklistRow,
+  InTransitOc, InTransitResponse, MonthlySalesResponse, WorklistRow, AgendaProveedorRow,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -49,6 +49,8 @@ import { ComprasFlujoComponent } from './compras-flujo.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 type Mode = 'pedido' | 'ciclo' | 'muerto' | 'sobrante' | 'flujo';
+/** `[PQ.4]` Lo que el atraso necesita leer: un canal o un proveedor de la agenda sirven igual. */
+type AtrasoDe = Pick<WorklistRow, 'days_to_due' | 'cadence_days' | 'last_delivery_date' | 'lead_time_days'>;
 type UType = 'comprar' | 'traspaso' | 'sobre';
 
 /** Renglón unificado de la vista consolidada por sucursal. */
@@ -1156,14 +1158,86 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                     (click)="wlSoloVencidos.set(!wlSoloVencidos()); loadWorklist()"
                     title="Sólo los canales cuya fecha de pedido ya pasó">Sólo vencidos</button>
           </div>
+          <span class="pr-fsep" aria-hidden="true"></span>
+          <!-- [PQ.4] La AGENDA: una fila por proveedor. El comprador piensa en proveedores y el
+               ciclo le contestaba en canales (1,049 para 301 proveedores, medido 2026-10-23). -->
+          <app-segmented [options]="wlVistaOpts" [value]="wlVista()" ariaLabel="Ver por"
+                         (valueChange)="setWlVista($any($event))"></app-segmented>
         </div>
-        @if (wlError()) {
+        @if (wlVista() === 'proveedores') {
+          @if (agError()) {
+            <div class="pr-state pr-error">
+              <i class="pi pi-exclamation-triangle"></i>
+              <div><p>No se pudo cargar la agenda de proveedores.</p>
+                <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadAgenda()"></p-button></div>
+            </div>
+          } @else {
+            <p-table [value]="agRows()" [loading]="agLoading()"
+                     [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
+                     size="small" class="pr-table dt-stack" [tableStyle]="cicloTableStyle">
+              <ng-template #header>
+                <tr>
+                  <th style="min-width:14rem">Proveedor</th>
+                  <th title="La fecha más urgente entre sus sucursales: última entrega + cadencia.">Toca</th>
+                  <th title="Sucursales donde ya pasó la fecha o toca hoy.">Dónde</th>
+                  <th class="pr-r" title="Cada cuántos días entrega, promedio de sus sucursales, derivado de sus entregas reales en Kepler. No se captura todavía.">Cadencia</th>
+                  <th class="pr-r" title="SKUs de este proveedor, sumando sus sucursales, en o por debajo de su punto de reorden.">Bajo reorden</th>
+                  <th class="pr-r pr-val" title="Lo que costaría llenar el ciclo de todas sus sucursales, con la misma fórmula del Pedido.">Sugerido</th>
+                  <th style="width:6rem"></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-r>
+                <tr [class.pr-wl-vencido]="(r.days_to_due ?? 0) < 0">
+                  <td class="dt-id" role="cell">
+                    <div class="pr-prod">{{ r.supplier_name || '—' }}</div>
+                    <div class="pr-sku">{{ r.n_canales }} {{ r.n_canales === 1 ? 'sucursal' : 'sucursales' }}@if (r.lead_time_days != null) { · tarda {{ r.lead_time_days }} d en surtir}</div>
+                  </td>
+                  <td role="cell" data-label="Toca">
+                    <p-tag [value]="atrasoTxt(r)" [severity]="atrasoSev(r)" styleClass="pr-cov-tag" [title]="atrasoTitle(r)"></p-tag>
+                    <div class="pr-sku">{{ r.next_due_date ? (r.next_due_date | date:'dd/MM/yy') : 'sin fecha' }}</div>
+                  </td>
+                  <td role="cell" data-label="Dónde">
+                    @if (r.sucursales_tocan?.length) {
+                      <span>{{ sucursalesTocan(r) }}</span>
+                    } @else {
+                      <span class="pr-muted">ninguna todavía · {{ r.n_prox7 }} en 7 d</span>
+                    }
+                  </td>
+                  <td class="pr-r pr-muted dt-num" role="cell" data-label="Cadencia">{{ r.cadence_days != null ? (r.cadence_days | number:'1.0-0') + ' d' : '—' }}</td>
+                  <td class="pr-r pr-muted dt-num" role="cell" data-label="Bajo reorden">{{ r.n_below | number:'1.0-0' }} <span class="pr-wl-de">de {{ r.n_skus | number:'1.0-0' }}</span></td>
+                  <td class="pr-r pr-val pr-strong dt-num" role="cell" data-label="Sugerido">{{ r.suggested_cost > 0 ? money(r.suggested_cost) : '—' }}</td>
+                  <td role="cell">
+                    <p-button type="button" label="Armar" icon="pi pi-arrow-right" iconPos="right" styleClass="p-button-sm p-button-text"
+                              (click)="irAPedidoProveedor(r)"
+                              [title]="'Abrir el Pedido con ' + (r.supplier_name || 'este proveedor') + ' y sus sucursales que tocan ya filtrados'"></p-button>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="7" class="pr-empty">
+                  <i class="pi pi-inbox"></i>
+                  <p>{{ wlSoloVencidos() ? 'Ningún proveedor vencido.' : 'Sin proveedores con ciclo.' }}</p>
+                </td></tr>
+              </ng-template>
+            </p-table>
+            <p class="pr-foot">Un renglón por <strong>proveedor</strong>, ordenado por la fecha más urgente de sus sucursales. La cadencia es la <strong>derivada</strong> de sus entregas en Kepler (acierta en 1 de 4 canales): capturarla es el siguiente paso de esta fase.</p>
+          }
+        } @else if (wlError()) {
           <div class="pr-state pr-error">
             <i class="pi pi-exclamation-triangle"></i>
             <div><p>No se pudo cargar el ciclo de reabasto.</p>
               <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadWorklist()"></p-button></div>
           </div>
         } @else {
+          <!-- [PQ.4] Cruce 1: el encabezado cuenta el universo y la lista pide 500. Lo que no entra
+               se DICE, no se esconde. -->
+          @if (wlTope(); as t) {
+            <div class="pr-borrador" role="status">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              <p>Se muestran <strong>{{ t.mostrados | number }}</strong> de <strong>{{ t.total | number }}</strong> canales: los {{ t.total - t.mostrados | number }} restantes no entran en esta lista.
+                <span class="pr-borrador-sub">Afiná el filtro o mirá la agenda por proveedor, que cabe entera.</span></p>
+            </div>
+          }
           <p-table [value]="wlRows()" [loading]="wlLoading()"
                    [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
                    size="small" class="pr-table dt-stack" [tableStyle]="cicloTableStyle">
@@ -5200,6 +5274,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   });
 
   loadWorklist(): void {
+    // `[PQ.4]` La agenda comparte los filtros del ciclo: se recarga con ellos. Lleva SU propio
+    // contador de generación (`agGen`): si usara `reqGen`, pedir la agenda invalidaría la
+    // respuesta del worklist y los KPI quedarían «sin medir» para siempre.
+    if (this.wlVista() === 'proveedores') this.loadAgenda();
     const gen = ++this.reqGen;
     this.wlLoading.set(true); this.wlError.set(false); this.saveFilters();
     this.api.worklist({
@@ -5245,21 +5323,21 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
 
   /** `days_to_due` viene del servidor: <0 vencido · 0 hoy · >0 falta. */
-  atrasoTxt(r: WorklistRow): string {
+  atrasoTxt(r: AtrasoDe): string {
     const d = r.days_to_due;
     if (d == null) return 'sin fecha';
     if (d < 0) return `${-d} d tarde`;
     if (d === 0) return 'hoy';
     return `en ${d} d`;
   }
-  atrasoSev(r: WorklistRow): Sev {
+  atrasoSev(r: AtrasoDe): Sev {
     const d = r.days_to_due;
     if (d == null) return 'secondary';
     if (d < 0) return 'danger';
     if (d === 0) return 'warn';
     return d <= 7 ? 'info' : 'secondary';
   }
-  atrasoTitle(r: WorklistRow): string {
+  atrasoTitle(r: AtrasoDe): string {
     if (r.days_to_due == null) return 'Este canal no tiene fecha de próximo pedido: le falta cadencia derivada de sus entregas.';
     const base = r.cadence_days != null && r.last_delivery_date
       ? `Última entrega ${r.last_delivery_date.split('-').reverse().join('/')} + cadencia ${r.cadence_days} d.`
@@ -5281,6 +5359,54 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (r.warehouse_id) this.wbWarehouses = [r.warehouse_id];
     this.setMode('pedido');
   }
+
+  // ── `[PQ.4]` La agenda por proveedor ───────────────────────────────────────────────────
+  readonly wlVista = signal<'proveedores' | 'canales'>('proveedores');
+  readonly wlVistaOpts: SegOption[] = [{ label: 'Proveedores', value: 'proveedores' }, { label: 'Canales', value: 'canales' }];
+  readonly agRows = signal<AgendaProveedorRow[]>([]);
+  readonly agLoading = signal(false);
+  readonly agError = signal(false);
+  setWlVista(v: 'proveedores' | 'canales'): void {
+    if (this.wlVista() === v) return;
+    this.wlVista.set(v);
+    if (v === 'proveedores' && !this.agRows().length && !this.agError()) this.loadAgenda();
+  }
+  private agGen = 0;
+  loadAgenda(): void {
+    const gen = ++this.agGen;
+    this.agLoading.set(true); this.agError.set(false);
+    this.api.worklistProveedores({
+      via: this.wlVia(),
+      status: this.wlSoloVencidos() ? 'due' : undefined,
+      search: this.wlSearch.trim() || undefined,
+      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined,
+    }).pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((r) => {
+        if (gen !== this.agGen) return;
+        this.agLoading.set(false);
+        if (!r) { this.agError.set(true); this.agRows.set([]); return; }
+        this.agRows.set(r.rows ?? []);
+      });
+  }
+  /** Las sucursales que ya tocan, POR NOMBRE, con su atraso. Nunca «01» (regla del PM). */
+  sucursalesTocan(r: AgendaProveedorRow): string {
+    return (r.sucursales_tocan ?? []).map((s) => {
+      const d = Number(s.days_to_due) || 0;
+      return `${this.sucNom(s.code)}${d < 0 ? ` (${-d} d tarde)` : ' (hoy)'}`;
+    }).join(' · ');
+  }
+  /** «Armar» desde la agenda: el proveedor y TODAS sus sucursales que tocan, puestos en el Pedido. */
+  irAPedidoProveedor(r: AgendaProveedorRow): void {
+    this.fSupplier = r.supplier_id || null;
+    const ids = (r.sucursales_tocan ?? []).map((s) => s.id).filter(Boolean);
+    if (ids.length) this.wbWarehouses = ids;
+    this.setMode('pedido');
+  }
+  /** `[PQ.4]` Cruce 1: cuando el total del encabezado supera lo que la lista trajo, se declara. */
+  readonly wlTope = computed<{ mostrados: number; total: number } | null>(() => {
+    const k = this.wlKpiRaw(); const n = this.wlRows().length;
+    return k && k.total > n && n > 0 ? { mostrados: n, total: k.total } : null;
+  });
 
   /** RA-PRO.33 — XLSX del stock muerto (capital inmovilizado). */
   exportDead(): void {
