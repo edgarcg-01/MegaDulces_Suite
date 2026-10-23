@@ -35,7 +35,9 @@ import {
 import { AuthService } from '../../../../core/services/auth.service';
 import { PermissionsService } from '../../../../core/services/permissions.service';
 import { CajaSocketService, type CajaEvent } from '../../caja-socket.service';
-import type { ContextoFirma, CorteRow, FirmaRecibida } from '@megadulces/contracts';
+import type { CorteRow, FirmaSolicitudEstado } from '@megadulces/contracts';
+import { CajaFirmaApiService } from '../../caja-firma-api.service';
+import { recargaAutomaticaBloqueada } from '../../../../core/services/recarga-segura';
 import { todayMx } from '../../../../core/utils/mx-date';
 
 /** jsdom no implementa ResizeObserver y algún componente de PrimeNG lo usa al montar. */
@@ -192,6 +194,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // ⚠️ Sin ellos `suscribirCambios` revienta en `.pipe` de undefined -- la pantalla lo atrapa y
   // degrada ("sin avisos en vivo"), asi que el defecto no se ve como error sino como una prueba
   // suelta que falla por otra cosa. Un doble incompleto miente sobre el contrato.
+  let firmaApi: Record<'abrir' | 'estado' | 'cancelar', ReturnType<typeof vi.fn>>;
+  const estadoFirma = (estado: FirmaSolicitudEstado['estado'], o: Partial<FirmaSolicitudEstado> = {}): FirmaSolicitudEstado => ({
+    id: 's1', estado, monto: 0, firma_png: null, firma_nombre: null, firmada_at: null, ...o,
+  });
   let cajaSock: {
     connect: () => void; disconnect: () => void; change$: Subject<CajaEvent>;
     connected: () => boolean;
@@ -202,14 +208,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
      * arriba, y se cumple aunque hoy no se note).
      */
     estado: () => 'sin_iniciar' | 'conectando' | 'vivo' | 'caido';
-    firmaTomada$: Subject<{ codigo: string; por: string | null }>;
-    firmaRecibida$: Subject<FirmaRecibida>;
-    firmaCortada$: Subject<{ codigo: string }>;
-    /** `[CG.84]` `pase` es lo que deja firmar SIN sesión: va dentro del QR. */
-    abrirFirma: (c: ContextoFirma) => Promise<{ ok: boolean; codigo?: string; pase?: string }>;
-    tomarFirma: (c: string) => Promise<{ ok: boolean }>;
-    enviarFirma: (c: string, p: string, n: string | null) => Promise<{ ok: boolean }>;
-    cerrarFirma: () => Promise<{ ok: boolean }>;
+    /** `[CG.201]` El único aviso de firma que queda en el socket: adelanta el repaso. */
+    firmaLista$: Subject<{ id: string }>;
   };
 
   function montar(over: Partial<Record<string, ReturnType<typeof vi.fn>>> = {}) {
@@ -218,11 +218,13 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       // Coherente con `connected: () => false`: en jsdom el canal nunca abre, y el estado que le
       // corresponde a eso es `caido`, no un `conectando` eterno.
       estado: () => 'caido' as const,
-      firmaTomada$: new Subject(), firmaRecibida$: new Subject(), firmaCortada$: new Subject(),
-      abrirFirma: vi.fn(async () => ({ ok: true, codigo: 'ABC234', pase: 'ey.PASE.firmado' })),
-      tomarFirma: vi.fn(async () => ({ ok: true })),
-      enviarFirma: vi.fn(async () => ({ ok: true })),
-      cerrarFirma: vi.fn(async () => ({ ok: true })),
+      firmaLista$: new Subject<{ id: string }>(),
+    };
+    // `[CG.201]` La firma por teléfono va por HTTP. Por defecto: el pedido se abre y sigue abierto.
+    firmaApi = {
+      abrir: vi.fn(async () => ({ ok: true as const, v: { id: 's1', token: 'ey.TOKEN.firmado', expira_at: '2026-10-24T02:00:00Z' } })),
+      estado: vi.fn(async () => ({ ok: true as const, v: estadoFirma('abierta') })),
+      cancelar: vi.fn(async () => ({ ok: true as const, v: { ok: true as const } })),
     };
     svc = {
       cobertura: vi.fn(() => of(COBERTURA)),
@@ -263,6 +265,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
         // Subject que las pruebas empujan a mano: así se ejercita lo que la pantalla HACE con
         // el aviso, que es lo único nuestro en ese camino.
         { provide: CajaSocketService, useValue: cajaSock },
+        { provide: CajaFirmaApiService, useValue: firmaApi },
       ],
     });
 
@@ -888,6 +891,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
     const cuerpo = crear.mock.calls[0][0] as Record<string, unknown>;
     expect(cuerpo['firma_png'], 'se mandó una firma que ya no correspondía').toBeUndefined();
+    expect(cuerpo['firma_solicitud_id'], 'se mandó el pedido de una firma que ya no correspondía').toBeUndefined();
   });
 
   /**
@@ -1001,56 +1005,126 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       'quedó el QR del código que ya se cerró').toBeNull();
   });
 
-  it('⭐ [CG.84] el QR lleva el PASE: el teléfono entra sin iniciar sesión', async () => {
-    // Sin el pase el teléfono cae en la ruta pública SIN credencial, el canal lo rechaza, y
-    // volvemos al login que Edgar pidió quitar. Que el pase viaje en el QR ES la garantía.
-    // ⚠️ El doble se pisa DESPUÉS de montar: el `over` de montar() va a `svc`, no al socket.
+  /** Abre una captura de gasto lista para pedir la firma. */
+  function capturaDeGasto() {
     const fx = montar();
-    cajaSock.abrirFirma = vi.fn(async () => ({ ok: true, codigo: 'ABC234', pase: 'ey.PASE.firmado' }));
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
     fx.detectChanges();
+    return fx;
+  }
+
+  it('⭐ [CG.201] el QR lleva SÓLO el token del pedido: sin código y sin pase', async () => {
+    capturaDeGasto();
     await comp.firmaPedirEnTelefono();
-
-    expect(comp.firmaPase(), 'el pase no se guardó').toBe('ey.PASE.firmado');
-    const url = (comp as unknown as { urlFirmaTelefono(c: string): string }).urlFirmaTelefono('ABC234');
-    expect(url).toContain('/firmar');
-    expect(url).toContain('c=ABC234');               // el código viaja adentro, para reclamarlo solo
-    expect(url).toContain('pase=ey.PASE.firmado');   // y el pase, para no pedir contraseña
-  });
-
-  it('⛔ [CG.84] [negativa] al cerrar el panel, el pase NO se queda vivo', async () => {
-    // Un pase es una llave de 3 minutos. Si sobrevive al panel, el próximo QR sale firmado con
-    // la llave de un movimiento que ya se cerró.
-    const fx = montar();
-    cajaSock.abrirFirma = vi.fn(async () => ({ ok: true, codigo: 'ABC234', pase: 'ey.PASE.firmado' }));
-    comp.abrirCaptura();
-    comp.setF('tipo', 'gasto');
-    fx.detectChanges();
-    await comp.firmaPedirEnTelefono();
-    expect(comp.firmaPase()).toBe('ey.PASE.firmado');
-
+    expect(comp.firmaSolicitudId()).toBe('s1');
+    expect(comp.firmaToken()).toBe('ey.TOKEN.firmado');
+    const url = (comp as unknown as { urlFirmaTelefono(t: string): string }).urlFirmaTelefono('ey.TOKEN.firmado');
+    expect(url).toContain('/firmar?t=ey.TOKEN.firmado');
+    expect(url).not.toMatch(/[?&](c|pase)=/);
     comp.firmaCerrarRemota();
-    expect(comp.firmaPase(), 'el pase sobrevivió al panel que lo creó').toBeNull();
   });
 
-  it('⛔ [CG.207] [negativa] si el servidor NO manda pase, NO se pinta QR: lo dice y suelta el código', async () => {
-    // Antes salía un QR con el código solo, para el teléfono con sesión que lo tecleaba. Sin
-    // teclear (`[CG.207]`), ese QR abriría una pantalla que no puede hacer nada.
-    const fx = montar();
-    cajaSock.abrirFirma = vi.fn(async () => ({ ok: true, codigo: 'ABC234' }));
-    cajaSock.cerrarFirma = vi.fn(async () => ({ ok: true }));
-    comp.abrirCaptura();
-    comp.setF('tipo', 'gasto');
-    fx.detectChanges();
+  it('⛔ [CG.201] [negativa] al cerrar el panel, el token no queda vivo y el pedido se CANCELA en el servidor', async () => {
+    capturaDeGasto();
+    await comp.firmaPedirEnTelefono();
+    comp.firmaCerrarRemota();
+    expect(comp.firmaToken(), 'el token sobrevivió al panel que lo creó').toBeNull();
+    expect(comp.firmaSolicitudId()).toBeNull();
+    expect(firmaApi['cancelar'], 'el QR siguió sirviendo en el servidor').toHaveBeenCalledWith('s1');
+  });
+
+  it('[CG.201] si no se puede pedir (sin red), lo dice y NO pinta un QR', async () => {
+    const fx = capturaDeGasto();
+    firmaApi['abrir'].mockResolvedValueOnce({ ok: false, fallo: 'red' });
     await comp.firmaPedirEnTelefono();
     fx.detectChanges();
-
-    expect(comp.firmaCodigo()).toBeNull();
-    expect(comp.firmaPase()).toBeNull();
+    expect(comp.firmaSolicitudId()).toBeNull();
     expect(fx.nativeElement.querySelector('.cg-firma-qr')).toBeNull();
-    expect(comp.firmaAviso()).toContain('pase');
-    expect(cajaSock.cerrarFirma, 'el código quedó reclamable en el servidor').toHaveBeenCalled();
+    expect(comp.firmaAviso()).toContain('No hay conexión');
+  });
+
+  it('⭐⭐ [CG.205] la firma llega por el REPASO de la fila, sin socket', async () => {
+    capturaDeGasto();
+    await comp.firmaPedirEnTelefono();
+    firmaApi['estado'].mockResolvedValueOnce({ ok: true, v: estadoFirma('tomada') });
+    await comp.repasarFirma();
+    expect(comp.firmaTelefonoListo()).toBe(true);
+
+    firmaApi['estado'].mockResolvedValueOnce({ ok: true, v: estadoFirma('firmada', { monto: 0, firma_png: 'data:image/png;base64,AAA', firma_nombre: 'Juan Pérez' }) });
+    await comp.repasarFirma();
+    expect(comp.firmaRemotaPng()).toBe('data:image/png;base64,AAA');
+    expect(comp.firmaRemotaId()).toBe('s1');
+    expect(comp.firmaNombre()).toBe('Juan Pérez');
+    expect(comp.firmaSolicitudId(), 'siguió esperando una firma que ya llegó').toBeNull();
+  });
+
+  it('[CG.205] el aviso del socket ADELANTA el repaso; uno de otro pedido no hace nada', async () => {
+    capturaDeGasto();
+    await comp.firmaPedirEnTelefono();
+    firmaApi['estado'].mockClear();
+    cajaSock.firmaLista$.next({ id: 'otro' });
+    expect(firmaApi['estado']).not.toHaveBeenCalled();
+    cajaSock.firmaLista$.next({ id: 's1' });
+    expect(firmaApi['estado']).toHaveBeenCalledWith('s1');
+    comp.firmaCerrarRemota();
+  });
+
+  it('[CG.205] un pedido vencido o cancelado deja de esperarse y lo dice', async () => {
+    capturaDeGasto();
+    await comp.firmaPedirEnTelefono();
+    firmaApi['estado'].mockResolvedValueOnce({ ok: true, v: estadoFirma('vencida') });
+    await comp.repasarFirma();
+    expect(comp.firmaSolicitudId()).toBeNull();
+    expect(comp.firmaAviso()).toContain('venció');
+  });
+
+  it('⭐ [CG.205] al RECARGAR, pedir la firma del mismo movimiento recupera el pedido (y la firma) sin pedir otra', async () => {
+    capturaDeGasto();
+    sessionStorage.setItem('caja.firma.pedido', JSON.stringify({
+      id: 's9', token: 'ey.VIEJO', tipo: 'gasto', monto: 0, beneficiario: null, documento: null,
+    }));
+    firmaApi['estado']
+      .mockResolvedValueOnce({ ok: true, v: estadoFirma('firmada', { id: 's9', firma_png: 'data:image/png;base64,BBB' }) })
+      .mockResolvedValueOnce({ ok: true, v: estadoFirma('firmada', { id: 's9', firma_png: 'data:image/png;base64,BBB' }) });
+    await comp.firmaPedirEnTelefono();
+    expect(firmaApi['abrir'], 'pidió una firma nueva para un movimiento que ya estaba firmado').not.toHaveBeenCalled();
+    expect(comp.firmaRemotaId()).toBe('s9');
+    expect(comp.firmaRemotaPng()).toBe('data:image/png;base64,BBB');
+    sessionStorage.clear();
+  });
+
+  it('[CG.205] con firma en vuelo la app NO se recarga sola; al cerrar, vuelve a poder', async () => {
+    const fx = capturaDeGasto();
+    expect(recargaAutomaticaBloqueada()).toBe(false);
+    await comp.firmaPedirEnTelefono();
+    fx.detectChanges();
+    expect(recargaAutomaticaBloqueada(), 'una recarga se llevaría el pedido').toBe(true);
+    comp.firmaCerrarRemota();
+    fx.detectChanges();
+    expect(recargaAutomaticaBloqueada()).toBe(false);
+  });
+
+  it('⭐ [CG.202] guardar manda el ID del pedido firmado, NO la imagen', async () => {
+    const crear = vi.fn(() => of({ id: 'x', folio: 'F-1' }));
+    const fx = montar({ crear });
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'compra de papeleria');
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
+    contar({ 500: 3 });
+    comp.firmaRemotaPng.set('data:image/png;base64,AAA');
+    comp.firmaRemotaMonto.set(Number(comp.f().monto) || 0);
+    comp.firmaRemotaId.set('s1');
+    fx.detectChanges();
+
+    comp.guardar();
+
+    const cuerpo = crear.mock.calls[0][0] as Record<string, unknown>;
+    expect(cuerpo['firma_solicitud_id']).toBe('s1');
+    expect(cuerpo['firma_png'], 'la PC mandó la imagen: la firma del teléfono la pone el servidor').toBeUndefined();
   });
 
   it('el código del emparejamiento NO sobrevive a la captura anterior', async () => {
@@ -1059,13 +1133,15 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
     fx.detectChanges();
-    comp.firmaCodigo.set('ABC234');
+    comp.firmaSolicitudId.set('s1');
+    comp.firmaRemotaId.set('s0');
     comp.firmaRemotaPng.set('data:image/png;base64,AAA');
     comp.firmaRemotaMonto.set(1500);
 
     comp.abrirCaptura();
 
-    expect(comp.firmaCodigo()).toBeNull();
+    expect(comp.firmaSolicitudId()).toBeNull();
+    expect(comp.firmaRemotaId()).toBeNull();
     expect(comp.firmaRemotaPng()).toBeNull();
     expect(comp.firmaRemotaMonto()).toBeNull();
   });
@@ -1557,6 +1633,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
         provideZonelessChangeDetection(), provideRouter([]),
         { provide: CashLedgerService, useValue: svc },
         { provide: AuthService, useValue: { user: () => ({ sub: 'OTRO-CAJERO' }) } },
+        // `[CG.201]` Sin esto el cliente real de la firma pediría HttpClient. Esta prueba no firma.
+        { provide: CajaFirmaApiService, useValue: {} },
       ],
     });
     const f2 = TestBed.createComponent(FinanzasCajaGeneralComponent);
@@ -2770,6 +2848,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
         { provide: CashLedgerService, useValue: svc },
         { provide: AuthService, useValue: { user: () => ({ sub: 'u1' }), token: () => null } },
         { provide: CajaSocketService, useValue: romper },
+        { provide: CajaFirmaApiService, useValue: firmaApi },
       ],
     });
     const fx = TestBed.createComponent(FinanzasCajaGeneralComponent);

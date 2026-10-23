@@ -93,10 +93,10 @@ export const routes: Routes = [
   // un teléfono que se le pasa a quien viene a firmar un recibo. Las dos cosas estaban mal.
   //
   // Mismo molde que `captura/:token` de arriba: al tope del árbol, fuera del layout y sin guard.
-  // ⛔ Y "sin guard" NO es "sin autorización": el QR trae un **pase** firmado por el servidor que
-  // vive 3 minutos, es de un solo uso y queda atado a UN código (`[CG.84]` en
-  // `caja-firma-remota.engine.ts`). La puerta no se quitó: se cambió por una llave que la caja
-  // entrega en el momento, en vez de pedir que la persona sea empleada de finanzas.
+  // ⛔ Y "sin guard" NO es "sin autorización": el QR trae un **token** firmado por el servidor con
+  // el id de UN pedido de firma, y la autoridad es la fila de ese pedido (estado y vencimiento),
+  // releída en cada uso (`[CG.201]`, `caja-firma.service.ts`). La puerta no se quitó: se cambió por
+  // una llave que la caja entrega en el momento, en vez de pedir que la persona sea empleada de finanzas.
   //
   // ⚠️ `[CG.207]` La ruta vieja (`/finanzas/caja-general/firma`, con sesión y código tecleado) ya
   // NO es respaldo: redirige acá. Se firma sólo por QR.

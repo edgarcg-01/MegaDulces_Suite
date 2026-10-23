@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, NgZone, OnDestroy, OnInit, computed, inject, signal, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, NgZone, OnDestroy, OnInit, computed, effect, inject, signal, ViewChild } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -18,6 +18,7 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
+import { textoFalloFirma, type ContextoFirma } from '@megadulces/contracts';
 import { evaluarCambio, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS, leerCorte, type LecturaCorte } from '@megadulces/contracts';
 import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
@@ -51,6 +52,9 @@ import { PermissionsService } from '../../../../core/services/permissions.servic
 import { Permission } from '../../../../core/constants/permissions';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
+// `[CG.201]` La firma por teléfono habla por HTTP; el socket sólo adelanta el repaso.
+import { CajaFirmaApiService } from '../../caja-firma-api.service';
+import { bloquearRecargaAutomatica } from '../../../../core/services/recarga-segura';
 import { imprimirComprobante as imprimirTicketComprobante, imprimirReporteDia as imprimirTicketReporte, cuerpoReporteDia, type ComprobanteCaja, type ReporteDia } from './ticket-comprobante';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import {
@@ -3725,7 +3729,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                                 [text]="true" (onClick)="firmaLimpiar()"></p-button>
                     </div>
                   </div>
-                } @else if (firmaCodigo()) {
+                } @else if (firmaSolicitudId()) {
                   <!-- ⭐⭐ [CG.207] SOLO EL QR. Edgar, 2026-10-23: "no necesitamos el codigo, solo
                        el qr". El codigo de seis se mostraba y se dictaba como respaldo, y ese
                        respaldo era justo el camino que pedia iniciar sesion: tecleado, el
@@ -3748,15 +3752,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     <p-button label="Firmar en el teléfono" icon="pi pi-mobile" size="small"
                               severity="secondary" [outlined]="true"
                               [loading]="firmaPidiendo()"
-                              [disabled]="firmaPidiendo() || !socketVivo()"
+                              [disabled]="firmaPidiendo()"
                               (onClick)="firmaPedirEnTelefono()"></p-button>
+                    <!-- CG.201: ya no depende del canal en vivo. El pedido va por HTTP y la PC lo
+                         repasa sola; sin socket la firma llega igual, unos segundos despues. -->
                     <span class="fin-dim">o firma acá abajo</span>
-                    @if (!socketVivo()) {
-                      <!-- ⚠️ Se DICE por que no se puede, en vez de dejar un boton apagado sin
-                           motivo: sin conexion en vivo el emparejamiento no existe. -->
-                      <small class="fin-hint-warn d-block">Sin conexión en vivo: por ahora sólo se
-                        puede firmar en esta pantalla.</small>
-                    }
                   </div>
                 }
                 @if (firmaAviso(); as a) { <p-message severity="warn" class="cg-full">{{ a }}</p-message> }
@@ -4204,6 +4204,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   private toast = inject(MessageService);
   private borrador = inject(CajaBorradorService);
   private caja = inject(CajaSocketService);
+  private readonly firmaApi = inject(CajaFirmaApiService);
   private destroyRef = inject(DestroyRef);
   // `encuestarVisible` se llama desde `ngOnInit`, que NO es contexto de inyección: si no se le
   // pasan `destroyRef` y `zone`, su `inject()` interno revienta. Por eso se toman acá.
@@ -5218,13 +5219,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * `megadulcessuite.com`, y un QR con el dominio clavado mandaría el teléfono a producción
    * mientras alguien prueba en local — o al revés, que es peor.
    */
-  private urlFirmaTelefono(codigo: string): string {
-    // ⭐ `[CG.84]` Con pase, el teléfono entra sin sesión y con su código ya puesto.
-    // `[CG.207]` El pase es obligatorio (sin él no se pinta QR) y el código viaja adentro de la
-    // URL para que el teléfono lo reclame solo: nadie lo lee ni lo teclea.
-    const pase = this.firmaPase() ?? '';
-    const q = `?c=${encodeURIComponent(codigo)}&pase=${encodeURIComponent(pase)}`;
-    return `${location.origin}${RUTA_FIRMA}${q}`;
+  private urlFirmaTelefono(token: string): string {
+    // ⭐ `[CG.201]` El QR lleva SÓLO el token del pedido: sin código (`[CG.207]`) y sin sesión
+    // (`[CG.203]`). El servidor relee la fila en cada uso; el token sólo dice cuál es.
+    return `${location.origin}${RUTA_FIRMA}?t=${encodeURIComponent(token)}`;
   }
 
   /**
@@ -5236,7 +5234,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * de cerrar gira para siempre.
    */
   private pintarQrFirma(reintentar = true): void {
-    const cod = this.firmaCodigo();
+    const cod = this.firmaToken();
     // `[CG.74]` `pintarQr` pasó a ser asincrónica: el codificador de QR se carga diferido para no
     // meter 449 kB en el paquete inicial de TODA la app (rompió el presupuesto de Angular y dejó
     // `main` sin poder desplegar). Acá no se espera a nadie — se encadena el reintento, que es lo
@@ -5251,7 +5249,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
          * pantalla es peor que ninguno, porque se escanea igual y falla recién del otro lado.
          * Se vuelve a pintar con el código que está vivo AHORA, sin reintento (ya hubo uno).
          */
-        if (this.firmaCodigo() !== cod) { this.pintarQrFirma(false); return; }
+        if (this.firmaToken() !== cod) { this.pintarQrFirma(false); return; }
         if (!ok && cod && reintentar) setTimeout(() => this.pintarQrFirma(false));
       });
   }
@@ -5302,30 +5300,53 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
   firmaLimpiar(): void {
     this.pad()?.limpiar();
+    // `[CG.202]` Rehacer descarta la firma del teléfono: se cancela su pedido para que no quede
+    // una firma suelta que alguien pueda usar después.
+    const remota = this.firmaRemotaId();
+    if (remota) { void this.firmaApi.cancelar(remota); this.olvidarPedido(); }
+    this.firmaRemotaId.set(null);
     this.firmaRemotaPng.set(null);
     this.firmaRemotaMonto.set(null);
     this.firmaHecha.set(false);
   }
 
-  // ── `[CG.68]` FIRMAR DESDE EL TELEFONO DEL MOSTRADOR ────────────────────────────────────
+  // ── `[CG.68]` FIRMAR DESDE EL TELÉFONO ───────────────────────────────────────────────────
+  //
+  // ⭐⭐ `[CG.201]`/`[CG.205]` **El pedido es una FILA del servidor y esta pantalla la REPASA.**
+  // Antes era un emparejamiento por socket: el código vivía en la memoria del socket de esta PC, y
+  // cada despliegue, wifi caído o pestaña en segundo plano lo perdía sin avisar. Ahora:
+  //   · se pide por HTTP y el QR lleva el token del pedido (sin código, `[CG.207]`);
+  //   · la PC consulta el estado cada `REPASO_MS`; el aviso `firma:lista` del socket sólo lo
+  //     adelanta — si se pierde, la firma aparece en el siguiente repaso;
+  //   · el pedido se recuerda en `sessionStorage`: si la pestaña se recarga, al volver a pedir la
+  //     firma del MISMO movimiento se recupera el pedido (y la firma, si ya llegó) en vez de
+  //     pedir otra;
+  //   · mientras hay firma en vuelo, la app no se recarga sola (`recarga-segura.ts`).
 
-  /** El codigo que la PC muestra, mientras el emparejamiento esta vivo. */
-  firmaCodigo = signal<string | null>(null);
+  /** El pedido abierto (esperando al teléfono), o `null`. */
+  firmaSolicitudId = signal<string | null>(null);
+  /** El token del QR del pedido abierto. Es una llave: vive en memoria y en la sesión de la pestaña. */
+  firmaToken = signal<string | null>(null);
   firmaPidiendo = signal(false);
   firmaTelefonoListo = signal(false);
   firmaAviso = signal<string | null>(null);
-  /** La firma que llego del telefono. Es una IMAGEN, no un trazo en el canvas de esta pantalla. */
+  /** La firma que llegó del teléfono. Es una IMAGEN, no un trazo en el canvas de esta pantalla. */
   firmaRemotaPng = signal<string | null>(null);
   /**
-   * ⭐ El monto que se le MOSTRO a quien firmo. Si el importe cambia despues, la firma deja de
-   * corresponder -- y sin esto la pantalla seguiria diciendo "firmado" sobre otra cifra.
+   * ⭐ El monto que se le MOSTRÓ a quien firmó. Si el importe cambia después, la firma deja de
+   * corresponder -- y sin esto la pantalla seguiría diciendo "firmado" sobre otra cifra.
    */
   firmaRemotaMonto = signal<number | null>(null);
+  /**
+   * `[CG.202]` El pedido YA FIRMADO cuya firma se va a guardar. Al guardar viaja su id, no la
+   * imagen: el servidor toma la imagen de la fila y la marca usada.
+   */
+  firmaRemotaId = signal<string | null>(null);
 
   socketVivo = computed(() => this.caja.connected());
 
   /**
-   * ⛔ La firma remota se INVALIDA sola si el monto cambio. Es un computed y no una bandera
+   * ⛔ La firma remota se INVALIDA sola si el monto cambió. Es un computed y no una bandera
    * porque el monto sale del conteo: cambia con cada pieza que se agrega, y nadie se va a
    * acordar de revalidar a mano.
    */
@@ -5336,74 +5357,170 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     return firmaSigueValiendo(m, Number(this.f().monto) || 0);
   });
 
+  /** Cada cuánto se repasa el pedido mientras se espera. El criterio de `[CG.205]` es ≤ 5 s. */
+  static readonly REPASO_MS = 2000;
+  private repaso: ReturnType<typeof setInterval> | null = null;
+  private repasando = false;
+  /** Repasos seguidos sin respuesta: se avisa al tercero, no al primero (un hipo de red no es noticia). */
+  private repasosSinRed = 0;
+  private soltarRecarga: (() => void) | null = null;
+
   /**
-   * ⭐⭐ `[CG.84]` **El pase que va dentro del QR, para que el teléfono NO tenga que loguearse.**
-   *
-   * Edgar: *"el no password para firmar"*. Lo emite el servidor cuando esta PC —ya con sesión y
-   * con permiso de gestionar— pide el código, y vive los mismos 3 minutos. El teléfono lo
-   * presenta en lugar de un usuario y entra como invitado atado a ESE código.
-   *
-   * ⚠️ No se guarda en ningún lado ni se muestra como texto: vive en memoria mientras el panel
-   * está abierto y se borra al cerrarlo. Es una llave, no un dato.
+   * `[CG.205]` Mientras haya firma en vuelo —pedida o recibida sin guardar— la app no se recarga
+   * sola al ocultar la pestaña. Un efecto y no llamadas sueltas: hay cuatro lugares que cambian
+   * estas señales y ninguno se tiene que acordar.
    */
-  readonly firmaPase = signal<string | null>(null);
+  private readonly bloqueoRecarga = effect(() => {
+    const enVuelo = !!this.firmaSolicitudId() || !!this.firmaRemotaId();
+    if (enVuelo && !this.soltarRecarga) this.soltarRecarga = bloquearRecargaAutomatica('firma-telefono');
+    if (!enVuelo && this.soltarRecarga) { this.soltarRecarga(); this.soltarRecarga = null; }
+  });
+
+  private contextoFirmaActual(): ContextoFirma {
+    const c = this.cobroElegido();
+    return {
+      tipo: this.f().tipo,
+      monto: Number(this.f().monto) || 0,
+      beneficiario: this.f().beneficiario || null,
+      documento: c ? `${c.doc_tipo} ${c.folio}` : null,
+    };
+  }
 
   async firmaPedirEnTelefono(): Promise<void> {
     this.firmaAviso.set(null);
     this.firmaPidiendo.set(true);
     try {
-      const c = this.cobroElegido();
-      const r = await this.caja.abrirFirma({
-        tipo: this.f().tipo,
-        monto: Number(this.f().monto) || 0,
-        beneficiario: this.f().beneficiario || null,
-        documento: c ? `${c.doc_tipo} ${c.folio}` : null,
-      });
-      if (!r.ok || !r.codigo) {
-        // ⚠️ El motivo se DICE. Un boton que no hace nada manda a la persona a adivinar.
-        this.firmaAviso.set(this.textoFalloFirma(String((r as { error?: string }).error ?? '')));
+      const ctx = this.contextoFirmaActual();
+      // `[CG.205]` ¿Hay un pedido de ESTE mismo movimiento de antes de recargar? Se recupera.
+      if (await this.recuperarPedido(ctx)) return;
+      const r = await this.firmaApi.abrir(ctx);
+      if (!r.ok) {
+        // ⚠️ El motivo se DICE. Un botón que no hace nada manda a la persona a adivinar.
+        this.firmaAviso.set(r.fallo === 'red'
+          ? 'No hay conexión con el servidor. Prueba de nuevo o firma en esta pantalla.'
+          : 'No se pudo pedir la firma al teléfono. Firma en esta pantalla.');
         return;
       }
-      // ⛔ `[CG.207]` Sin pase no hay QR que sirva: el teléfono ya no teclea el código, así que un
-      // QR con el código solo abriría una pantalla que no puede hacer nada. Se dice y no se pinta.
-      if (!r.pase) {
-        void this.caja.cerrarFirma();
-        this.firmaAviso.set('El servidor no entregó el pase del QR. Firma en esta pantalla.');
-        return;
-      }
-      this.firmaCodigo.set(r.codigo);
-      // `[CG.84]` El pase ANTES de pintar: el QR lo lee de acá.
-      this.firmaPase.set(r.pase);
-      this.firmaTelefonoListo.set(false);
-      this.pintarQrFirma();   // `[CG.74]` el QR del codigo que acaba de nacer
+      this.recordarPedido({ id: r.v.id, token: r.v.token, ...ctx });
+      this.empezarEspera(r.v.id, r.v.token);
     } finally {
       this.firmaPidiendo.set(false);
     }
   }
 
-  firmaCerrarRemota(): void {
-    // Se le avisa al servidor: si no, el codigo queda reclamable los 3 minutos completos y un
-    // telefono podria ver el contexto de un pedido que el cajero ya cancelo.
-    if (this.firmaCodigo()) void this.caja.cerrarFirma();
-    this.firmaCodigo.set(null);
-    this.firmaPase.set(null);   // `[CG.84]` la llave se va con el panel
+  private empezarEspera(id: string, token: string): void {
+    this.firmaSolicitudId.set(id);
+    this.firmaToken.set(token);
     this.firmaTelefonoListo.set(false);
-    this.firmaAviso.set(null);
-    // `[CG.74]` Y se borra el QR: uno vencido en pantalla es peor que ninguno — alguien lo
-    // escanea, la pagina dice "ese codigo no existe", y queda buscando el error donde no esta.
+    this.repasosSinRed = 0;
+    this.pintarQrFirma();   // `[CG.74]` el QR del pedido que acaba de nacer
+    this.pararRepaso();
+    this.repaso = setInterval(() => { void this.repasarFirma(); }, FinanzasCajaGeneralComponent.REPASO_MS);
+  }
+
+  private pararRepaso(): void {
+    if (this.repaso) { clearInterval(this.repaso); this.repaso = null; }
+  }
+
+  /**
+   * ⭐ `[CG.205]` Lee la fila del pedido y actúa. Es la ÚNICA puerta por la que llega una firma a
+   * esta pantalla: el socket sólo la llama antes de tiempo.
+   */
+  async repasarFirma(): Promise<void> {
+    const id = this.firmaSolicitudId();
+    if (!id || this.repasando) return;
+    this.repasando = true;
+    try {
+      const r = await this.firmaApi.estado(id);
+      if (this.firmaSolicitudId() !== id) return;   // se canceló o se pidió otro mientras tanto
+      if (!r.ok) {
+        if (r.fallo === 'red') {
+          // Se sigue esperando: la firma está a salvo en el servidor. Sólo se avisa si persiste.
+          if (++this.repasosSinRed === 3) {
+            this.firmaAviso.set('Sin conexión con el servidor. Si el teléfono ya firmó, la firma aparece sola al volver la red.');
+          }
+          return;
+        }
+        this.firmaAviso.set(textoFalloFirma(r.fallo));
+        this.soltarPedido();
+        return;
+      }
+      if (this.repasosSinRed >= 3) this.firmaAviso.set(null);
+      this.repasosSinRed = 0;
+      const e = r.v;
+      if (e.estado === 'tomada') { this.firmaTelefonoListo.set(true); return; }
+      if (e.estado === 'firmada' && e.firma_png) {
+        this.firmaRemotaPng.set(e.firma_png);
+        this.firmaRemotaMonto.set(Number(e.monto) || 0);
+        if (e.firma_nombre && !this.firmaNombre().trim()) this.firmaNombre.set(e.firma_nombre);
+        this.firmaHecha.set(true);
+        this.firmaRemotaId.set(id);
+        this.firmaSolicitudId.set(null);
+        this.firmaToken.set(null);
+        this.firmaTelefonoListo.set(false);
+        this.pararRepaso();
+        this.pintarQrFirma(false);
+        return;
+      }
+      if (e.estado === 'vencida' || e.estado === 'cancelada' || e.estado === 'usada') {
+        this.firmaAviso.set(textoFalloFirma(e.estado === 'usada' ? 'ya_usada' : e.estado));
+        this.soltarPedido();
+      }
+    } finally {
+      this.repasando = false;
+    }
+  }
+
+  /** Deja de esperar SIN cancelar en el servidor (el pedido ya no sirve o ya se resolvió). */
+  private soltarPedido(): void {
+    this.pararRepaso();
+    this.olvidarPedido();
+    this.firmaSolicitudId.set(null);
+    this.firmaToken.set(null);
+    this.firmaTelefonoListo.set(false);
     this.pintarQrFirma(false);
   }
 
-  /** Traduce el fallo del canal a algo que se pueda leer y actuar. */
-  textoFalloFirma(e: string): string {
-    switch (e) {
-      case 'sin_conexion': return 'Sin conexión en vivo con el servidor: firma en esta pantalla.';
-      case 'sin_respuesta': return 'El servidor no contestó. Prueba de nuevo o firma acá.';
-      case 'sin_permiso': return 'Tu usuario no puede pedir firma remota (hace falta gestionar la caja).';
-      case 'sin_codigo_libre': return 'No se pudo generar un código. Prueba de nuevo.';
-      default: return 'No se pudo pedir la firma al teléfono. Firma en esta pantalla.';
-    }
+  firmaCerrarRemota(): void {
+    // Se le avisa al servidor: si no, el QR seguiría sirviendo y un teléfono podría ver el
+    // contexto de un pedido que el cajero ya canceló.
+    const id = this.firmaSolicitudId();
+    if (id) void this.firmaApi.cancelar(id);
+    this.soltarPedido();
+    this.firmaAviso.set(null);
   }
+
+  // ── `[CG.205]` El pedido sobrevive a la recarga de la pestaña ─────────────────────────────
+
+  private static readonly CLAVE_PEDIDO = 'caja.firma.pedido';
+
+  private recordarPedido(p: { id: string; token: string } & ContextoFirma): void {
+    try { sessionStorage.setItem(FinanzasCajaGeneralComponent.CLAVE_PEDIDO, JSON.stringify(p)); } catch { /* sin almacenamiento */ }
+  }
+
+  private olvidarPedido(): void {
+    try { sessionStorage.removeItem(FinanzasCajaGeneralComponent.CLAVE_PEDIDO); } catch { /* sin almacenamiento */ }
+  }
+
+  /**
+   * Si la pestaña guardó un pedido del MISMO movimiento (tipo, monto, beneficiario, documento),
+   * se retoma: abierto → se vuelve a esperar con el mismo QR; firmado → la firma aparece ya.
+   * Cualquier otro caso lo olvida y deja pedir uno nuevo.
+   */
+  private async recuperarPedido(ctx: ContextoFirma): Promise<boolean> {
+    let p: ({ id: string; token: string } & ContextoFirma) | null = null;
+    try { p = JSON.parse(sessionStorage.getItem(FinanzasCajaGeneralComponent.CLAVE_PEDIDO) || 'null'); } catch { p = null; }
+    if (!p?.id || !p.token) return false;
+    const mismo = p.tipo === ctx.tipo && firmaSigueValiendo(p.monto, ctx.monto)
+      && (p.beneficiario ?? null) === (ctx.beneficiario ?? null) && (p.documento ?? null) === (ctx.documento ?? null);
+    if (!mismo) { this.olvidarPedido(); return false; }
+    const r = await this.firmaApi.estado(p.id);
+    if (!r.ok || !['abierta', 'tomada', 'firmada'].includes(r.v.estado)) { this.olvidarPedido(); return false; }
+    this.empezarEspera(p.id, p.token);
+    if (r.v.estado !== 'abierta') await this.repasarFirma();
+    return true;
+  }
+
   aperturaAbierta = signal(false);
   cierreAbierto = signal(false);
   /**
@@ -6124,6 +6241,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   ngOnDestroy(): void {
     clearTimeout(this.debounce);
+    this.pararRepaso();
+    this.soltarRecarga?.();
     if (this.folioTimer) clearTimeout(this.folioTimer);
     this.caja.disconnect();
   }
@@ -6186,45 +6305,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       this.cargarSaldo();
     });
 
-    // `[CG.68]` Los tres avisos del emparejamiento.
-    this.caja.firmaTomada$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
-      this.firmaTelefonoListo.set(true);
-    });
-    this.caja.firmaRecibida$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f) => {
-      if (f.codigo !== this.firmaCodigo()) return;   // no es la nuestra
-      this.firmaRemotaPng.set(f.png);
-      this.firmaRemotaMonto.set(Number(f.monto_firmado) || 0);
-      if (f.nombre && !this.firmaNombre().trim()) this.firmaNombre.set(f.nombre);
-      this.firmaHecha.set(true);
-      this.firmaCodigo.set(null);
-      this.firmaTelefonoListo.set(false);
-    });
-    this.caja.firmaCortada$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
-      if (e.codigo !== this.firmaCodigo()) return;
-      this.firmaCerrarRemota();
-      // ⚠️ Se avisa: si no, el cajero se queda mirando un codigo que ya no sirve.
-      this.firmaAviso.set('Se cortó la conexión con el teléfono. Pide un código nuevo o firma acá.');
-    });
-    /**
-     * ⭐⭐ `[CG.196]` **EL TELÉFONO SE FUE, LA FIRMA NO.**
-     *
-     * Acá estaba el defecto que Edgar reportó: al bloquearse el teléfono, el servidor emitía
-     * `firma:cortada` y esta pantalla llamaba a `firmaCerrarRemota()` — que borra el código, el
-     * pase y el QR, **y encima le manda `firma:cerrar` al servidor**. O sea que una pantalla
-     * apagada destruía el emparejamiento, y el mismo teléfono al volver recibía `no_existe`.
-     *
-     * ⛔ **No se desarma nada.** El emparejamiento vive en el socket de la PC, que sigue acá: el
-     * código sigue siendo reclamable y el QR en pantalla sigue sirviendo. Lo único que cambia es
-     * que vuelve a estar libre —al caer su socket, el teléfono salió de la room, así que
-     * `decidirTomar` ya no lo ve como `ya_tomado`— y por eso se baja `firmaTelefonoListo`.
-     *
-     * ⚠️ Se dice, igual que todo lo demás: sin el aviso, el cajero ve el «listo» apagarse solo y
-     * no sabe si tiene que hacer algo. Acá no tiene que hacer nada más que esperar.
-     */
-    this.caja.firmaTelefonoSalio$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
-      if (e.codigo !== this.firmaCodigo()) return;
-      this.firmaTelefonoListo.set(false);
-      this.firmaAviso.set('El teléfono se desconectó. El código sigue sirviendo: que vuelva a escanear el QR.');
+    // `[CG.201]` El teléfono tomó o firmó: se repasa YA. Si este aviso se pierde, el repaso de
+    // `REPASO_MS` la trae igual — el socket adelanta, el repaso garantiza.
+    this.caja.firmaLista$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
+      if (e.id === this.firmaSolicitudId()) void this.repasarFirma();
     });
   }
 
@@ -7230,6 +7314,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // firma de otro movimiento.
     this.firmaRemotaPng.set(null);
     this.firmaRemotaMonto.set(null);
+    this.firmaRemotaId.set(null);
     this.firmaCerrarRemota();
     this.abrirConFoco(this.capturaAbierta);
     // ⛔ `[CG.46]` Esto lo hacía `p-dialog` solo y un `<aside>` NO. Sin esto, quien elige una fila
@@ -8471,7 +8556,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // declarar "firmado" sin imagen.
       // `[CG.68]` Si vino del telefono, esa manda. ⛔ Y solo si SIGUE valiendo: si el monto
       // cambio despues de firmar, la firma corresponde a otra cifra y no se manda.
-      firma_png: (this.firmaRemotaVale() ? this.firmaRemotaPng() : null) ?? this.firmaPad?.aPng() ?? undefined,
+      // `[CG.202]` La del teléfono viaja por el ID del pedido: el servidor toma la imagen de la fila.
+      firma_solicitud_id: (this.firmaRemotaVale() && this.firmaRemotaId()) || undefined,
+      firma_png: (this.firmaRemotaVale() && this.firmaRemotaId()) ? undefined : (this.firmaPad?.aPng() ?? undefined),
       firma_nombre: this.firmaNombre().trim() || undefined,
       // CS.3.13 — la parte a crédito (no efectivo). El servidor la persiste y el arqueo la cuenta como
       // parte del total (efectivo + crédito = monto).

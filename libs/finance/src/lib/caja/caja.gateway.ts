@@ -1,17 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { WebSocketGateway, WebSocketServer, OnGatewayConnection, OnGatewayDisconnect, SubscribeMessage, MessageBody, ConnectedSocket } from '@nestjs/websockets';
+import { WebSocketGateway, WebSocketServer, OnGatewayConnection, OnGatewayDisconnect } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
-import {
-  decidirTomar, decidirEntregar, nuevoCodigo, normalizarCodigo, roomDeFirma, VIDA_MS,
-  type ContextoFirma, type FalloVinculo, type MarcaPc, type SocketEnRoom,
-  hayQueFrenar, TOPE_INTENTOS, CLAVE_PASE, esPaseDeFirma,
-  // `[CG.196]` Quién se fue decide si la firma sigue viva. Pura, con prueba negativa.
-  avisoAlDesconectar,
-} from './caja-firma-remota.engine';
-import { revisarFirma } from './caja-firma.engine';
-
 /**
  * Lo que cambió en la caja. **No transporta los movimientos**: dice "andá a buscar" y con qué
  * firma, para que la pantalla sepa si lo que tiene ya está viejo sin traerse la lista de nuevo.
@@ -50,25 +41,15 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
   private tenantSockets = new Map<string, Set<string>>();
 
-  // ⛔⛔ `[CG.68b]` ACA VIVIA UN `Map` DE EMPAREJAMIENTOS, y lo justifique con "produccion corre
-  // UN solo prod-api" citando el runbook. Medido contra prod el 2026-10-08: prod corre en k3s
-  // con `api 2/2` desde hacia siete dias, asi que la PC y el telefono caian en pods distintos y
-  // el codigo "no existia" la mitad de las veces.
-  //
-  // ⭐ El arreglo no fue mover el Map a Redis: fue NO TENER MAPA. El emparejamiento vive en las
-  // ROOMS de Socket.IO, que el adaptador de Redis (verificado ACTIVO en el log del pod) comparte
-  // entre pods junto con el `data` de cada socket. `fetchSockets()` ve a la PC este donde este.
+  // ⭐ `[CG.201]` Acá vivía el emparejamiento de la firma por teléfono (`[CG.68]`–`[CG.196]`): el
+  // código en `client.data` del socket de la PC, y el PNG por un `emit` sin acuse. Cada despliegue,
+  // wifi caído o pestaña en segundo plano lo perdía. Hoy el pedido es una fila
+  // (`finance.cash_signature_requests`) y el teléfono habla por HTTP (`caja-firma.service.ts`); acá
+  // sólo queda el AVISO `firma:lista`, que adelanta el repaso de la PC.
 
   constructor(private readonly jwtService: JwtService) {}
 
   async handleConnection(client: Socket): Promise<void> {
-    // ⭐⭐ `[CG.84]` **EL TELÉFONO QUE VIENE A FIRMAR NO INICIA SESIÓN.** Si trae un pase, entra
-    // por acá y nunca se le pide un JWT de usuario. Va PRIMERO a propósito: un teléfono con los
-    // dos (el del cajero, logueado, escaneando su propio QR) entra igual como invitado, que es
-    // el modo más restringido de los dos — nunca al revés.
-    const pase = this.extractPase(client);
-    if (pase) { this.conectarInvitado(client, pase); return; }
-
     const token = this.extractToken(client);
     if (!token) { client.emit('auth_error', { reason: 'missing_token' }); client.disconnect(true); return; }
     let payload: any;
@@ -91,12 +72,7 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     client.join(`tenant:${tenantId}`);
-    // `[CG.68]` El permiso de ESCRITURA se guarda al conectar: pedir una firma es parte de
-    // capturar (exige GESTIONAR), pero firmar no lo es. El telefono del mostrador se le pasa a
-    // otras personas, asi que entra con el permiso minimo: VER alcanza para aportar evidencia.
-    const puedeGestionar = isPlatformAdminRole(payload?.role_name)
-      || perms[Permission.FINANCE_CAJA_GESTIONAR] === true;
-    client.data = { tenantId, username: payload.username, puedeGestionar };
+    client.data = { tenantId, username: payload.username };
     if (!this.tenantSockets.has(tenantId)) this.tenantSockets.set(tenantId, new Set());
     this.tenantSockets.get(tenantId)!.add(client.id);
     client.emit('connected', { tenant_id: tenantId });
@@ -105,216 +81,6 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleDisconnect(client: Socket): void {
     const t = client.data?.tenantId;
     if (t) this.tenantSockets.get(t)?.delete(client.id);
-    // `[CG.68]` Un vinculo con una sola punta no sirve: se le DICE al que queda. Sin el aviso,
-    // la PC se queda esperando una firma que nadie va a mandar.
-    //
-    // ⚠️ No hay nada que "cerrar": socket.io saca al socket de sus rooms solo, y con el se va el
-    // emparejamiento. Lo unico que falta es el aviso.
-    // ⭐⭐ `[CG.196]` **QUIÉN SE FUE DECIDE SI LA FIRMA SIGUE VIVA.** Antes esto colapsaba las dos
-    // puntas en un `??` y emitía `firma:cortada` para cualquiera de las dos. El efecto, que es el
-    // defecto que Edgar reportó —*«si se bloquea el teléfono se pierde»*—:
-    //
-    //   el teléfono se bloquea  ->  su socket cae  ->  `firma:cortada` a TODA la room
-    //     ->  la PC lo oye y llama a `firmaCerrarRemota()`, que borra código, pase y QR
-    //     ->  y de paso le manda `firma:cerrar` al servidor
-    //     ->  el teléfono vuelve y ya no hay nada: `no_existe`
-    //
-    // Y no eran simétricas nunca: **el emparejamiento vive en el socket de la PC**
-    // (`client.data.firma`), así que si se va la PC el vínculo ya no existe —su marca se fue con
-    // ella—, pero si se va el teléfono la marca sigue ahí y el código sigue siendo reclamable.
-    // ⚠️ Un teléfono que se bloquea NO es un teléfono que se fue: es el caso NORMAL.
-    // ⭐ La decisión es pura y vive en el motor (`avisoAlDesconectar`), con su prueba negativa.
-    // Acá sólo queda emitir: si se va la PC el vínculo murió (`firma:cortada`), y si se va el
-    // teléfono el vínculo SIGUE VIVO y sólo se dice (`firma:telefono_salio`).
-    const aviso = avisoAlDesconectar(client.data);
-    if (t && aviso) {
-      this.server?.to(roomDeFirma(t, aviso.codigo)).emit(aviso.evento, { codigo: aviso.codigo });
-    }
-  }
-
-  // ══ `[CG.68]` LA FIRMA DESDE EL TELEFONO DEL MOSTRADOR ══════════════════════════════════
-  //
-  // Edgar: *"si esto lo estoy usando en pc, como hago que esto se envie a mi telefono para que
-  // se firme?"*. Tres mensajes, y el PNG viaja por una room de DOS -- nunca por la del tenant,
-  // que es la que tiene a todas las cajas de la empresa adentro.
-
-  /**
-   * La PC pide un codigo. Exige GESTIONAR: pedir la firma es parte de capturar.
-   *
-   * ⭐ El emparejamiento se GUARDA EN EL PROPIO SOCKET de la PC (`client.data.firma`). Con el
-   * adaptador de Redis, `fetchSockets()` de otro pod trae ese `data`: eso es lo que hace que
-   * funcione con N replicas sin que el servidor tenga un almacen.
-   */
-  @SubscribeMessage('firma:abrir')
-  abrirFirma(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() ctx: ContextoFirma,
-  ): { ok: boolean; codigo?: string; pase?: string; vida_ms?: number; error?: string } {
-    const tenantId = client.data?.tenantId as string | undefined;
-    if (!tenantId) return { ok: false, error: 'sin_tenant' };
-    if (!client.data?.puedeGestionar) return { ok: false, error: 'sin_permiso' };
-
-    // ⚠️ Se queda SOLO con los cuatro campos del contexto. Si se guardara el cuerpo entero, la
-    // PC podria empujarle al telefono cualquier cosa que despues la pantalla del telefono pinte.
-    const limpio: ContextoFirma = {
-      tipo: String(ctx?.tipo ?? ''),
-      monto: Number(ctx?.monto) || 0,
-      beneficiario: ctx?.beneficiario ? String(ctx.beneficiario).slice(0, 120) : null,
-      documento: ctx?.documento ? String(ctx.documento).slice(0, 60) : null,
-    };
-
-    // ⚠️ Si esta PC ya tenia un codigo abierto, SALE de esa room antes de abrir otro: si no,
-    // quedaria esperando en dos y la firma de un pedido viejo entraria al nuevo.
-    const previo: string | null = client.data?.firma?.codigo ?? null;
-    if (previo) client.leave(roomDeFirma(tenantId, previo));
-
-    const codigo = nuevoCodigo();
-    const marca: MarcaPc = { codigo, ctx: limpio, creado: Date.now() };
-    client.data = { ...client.data, firma: marca };
-    client.join(roomDeFirma(tenantId, codigo));
-
-    // ⭐ `[CG.84]` El PASE que va dentro del QR: lo emite el servidor para ESTA PC, que ya probó
-    // sesión y permiso de GESTIONAR acá arriba. Vive lo mismo que el código — un pase que durara
-    // más sería una llave viva para una room que ya se cerró.
-    const pase = this.jwtService.sign(
-      { k: CLAVE_PASE, t: tenantId, c: codigo },
-      { expiresIn: Math.floor(VIDA_MS / 1000) },
-    );
-    return { ok: true, codigo, pase, vida_ms: VIDA_MS };
-  }
-
-  /**
-   * La PC cancela el pedido.
-   *
-   * ⚠️ Sin esto el codigo seguia reclamable los 3 minutos completos aunque el cajero ya lo
-   * hubiera cancelado: la pantalla lo ignoraba (compara el codigo) pero el telefono podia
-   * tomarlo y ver el contexto del efectivo de un pedido que ya no existe.
-   */
-  @SubscribeMessage('firma:cerrar')
-  cerrarFirma(@ConnectedSocket() client: Socket): { ok: boolean } {
-    const tenantId = client.data?.tenantId as string | undefined;
-    const cod: string | null = client.data?.firma?.codigo ?? null;
-    if (tenantId && cod) {
-      this.server?.to(roomDeFirma(tenantId, cod)).emit('firma:cortada', { codigo: cod });
-      client.leave(roomDeFirma(tenantId, cod));
-    }
-    client.data = { ...client.data, firma: null };
-    return { ok: true };
-  }
-
-  /** El telefono teclea el codigo. Solo VER: aportar evidencia no es escribir el libro. */
-  @SubscribeMessage('firma:tomar')
-  async tomarFirma(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() body: { codigo?: string },
-  ): Promise<{ ok: boolean; ctx?: ContextoFirma; error?: FalloVinculo | 'sin_tenant' | 'demasiados_intentos' }> {
-    const tenantId = client.data?.tenantId as string | undefined;
-    if (!tenantId) return { ok: false, error: 'sin_tenant' };
-
-    // `[CG.83]` El tope se consulta ANTES de mirar el código: a un socket que ya gastó sus
-    // intentos no se le dice si el siguiente existe -- responderle `no_existe` le confirmaría que
-    // el anterior tampoco, que es la señal que busca quien tantea.
-    if (hayQueFrenar(client.data?.intentosFirma)) {
-      this.logger.warn(`Corte por tanteo: ${client.id} agotó ${TOPE_INTENTOS} intentos de código`);
-      client.emit('auth_error', { reason: 'demasiados_intentos' });
-      client.disconnect(true);
-      return { ok: false, error: 'demasiados_intentos' };
-    }
-
-    const cod = normalizarCodigo(body?.codigo);
-
-    // ⛔ `[CG.84]` Un invitado SÓLO puede reclamar el código de su propio pase. Sin esta línea,
-    // un pase válido alcanzaría para reclamar cualquier firma abierta del tenant — y entonces el
-    // pase no cerraría el agujero del login, lo abriría más grande.
-    // ⚠️ Responde `no_es_suyo`, que es exactamente lo que es, y NO gasta un intento: no está
-    // tanteando un código, está usando el suyo mal.
-    if (client.data?.invitado && cod !== client.data?.paseCodigo) {
-      return { ok: false, error: 'no_es_suyo' };
-    }
-
-    const room = roomDeFirma(tenantId, cod);
-    const r = decidirTomar(await this.fotoDeRoom(room), cod, tenantId, Date.now());
-    if (!r.ok || !r.v) {
-      // ⚠️ Cuenta CUALQUIER fallo, no sólo `no_existe`. Distinguirlos acá volvería el contador un
-      // oráculo: "este no cuenta" significaría "este código SÍ existe, fallaste por otra cosa".
-      client.data = { ...client.data, intentosFirma: Number(client.data?.intentosFirma ?? 0) + 1 };
-      return { ok: false, error: r.fallo };
-    }
-
-    // Reclamó bien: el contador se reinicia. Un error de tecleo no deja deuda para después.
-    client.data = { ...client.data, firmaTel: cod, intentosFirma: 0 };
-    client.join(room);
-    // Se le avisa a la PC que el telefono ya esta del otro lado: sin esto, el cajero no sabe si
-    // el codigo se tecleo bien y lo vuelve a dictar.
-    this.server?.to(room).emit('firma:tomada', { codigo: cod, por: client.data?.username ?? null });
-    return { ok: true, ctx: r.v.ctx };
-  }
-
-  /** El telefono entrega la firma. El PNG se VALIDA aca tambien. */
-  @SubscribeMessage('firma:enviar')
-  async enviarFirma(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() body: { codigo?: string; png?: string; nombre?: string },
-  ): Promise<{ ok: boolean; error?: FalloVinculo | 'sin_tenant' | 'no_es_firma' }> {
-    const tenantId = client.data?.tenantId as string | undefined;
-    if (!tenantId) return { ok: false, error: 'sin_tenant' };
-
-    const cod = normalizarCodigo(body?.codigo);
-    const room = roomDeFirma(tenantId, cod);
-    const r = decidirEntregar(await this.fotoDeRoom(room), cod, tenantId, client.id, Date.now());
-    if (!r.ok || !r.v) return { ok: false, error: r.fallo };
-
-    // ⛔ Se revisa ACA tambien, y no solo al guardar: el telefono es un cliente como cualquier
-    // otro. Mandar la basura por el canal y descubrirla recien en el POST dejaria a la pantalla
-    // de la caja diciendo "firmado" sobre algo que el servidor despues va a tirar.
-    const firma = revisarFirma(r.v.ctx.tipo, body?.png);
-    if (!firma.png) {
-      this.logger.warn(
-        '[CG.68] firma rechazada en el canal (' + firma.descartada + ') · ' + client.data?.username,
-      );
-      return { ok: false, error: 'no_es_firma' };
-    }
-
-    this.server?.to(room).emit('firma:recibida', {
-      codigo: cod,
-      png: firma.png,
-      nombre: body?.nombre ? String(body.nombre).slice(0, 120) : null,
-      // ⭐ El monto que se le MOSTRO a quien firmo. La pantalla lo compara con el de ahora: si
-      // el cajero lo cambio despues, la firma dejo de corresponder.
-      monto_firmado: r.v.ctx.monto,
-      por: client.data?.username ?? null,
-    });
-    // Un solo envio por emparejamiento: el telefono suelta la room, asi que un segundo intento
-    // cae en 'no_es_suyo' en vez de pisar la firma que ya llego.
-    client.leave(room);
-    client.data = { ...client.data, firmaTel: null };
-    return { ok: true };
-  }
-
-  /**
-   * La foto de los sockets de una room, como DATO.
-   *
-   * ⭐ `fetchSockets()` con el adaptador de Redis consulta a TODOS los pods y trae el `data` de
-   * cada socket. Es la pieza que hace que el emparejamiento funcione con `api 2/2` sin que el
-   * servidor guarde nada. Sin adaptador devuelve solo los locales — y entonces el telefono ve
-   * `no_existe`, que es un mensaje honesto, no un silencio.
-   */
-  private async fotoDeRoom(room: string): Promise<SocketEnRoom[]> {
-    if (!this.server) return [];
-    try {
-      const socks = await this.server.in(room).fetchSockets();
-      return socks.map((x) => ({
-        id: x.id,
-        tenantId: (x.data?.tenantId as string | undefined) ?? null,
-        pc: (x.data?.firma as MarcaPc | undefined) ?? null,
-        telefono: (x.data?.firmaTel as string | undefined) ?? null,
-      }));
-    } catch (e) {
-      // ⚠️ Se declara: si el adaptador falla, la decision va a decir 'no_existe' y la persona
-      // va a revisar el codigo en vano. Queda en el log para que se pueda distinguir.
-      this.logger.warn('[CG.68] no se pudo leer la room ' + room + ': ' + (e as Error).message);
-      return [];
-    }
   }
 
   /**
@@ -331,55 +97,19 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`tenant:${tenantId}`).emit('caja_changed', full);
   }
 
+  /**
+   * ⭐ `[CG.201]` **El teléfono tomó o firmó un pedido: que la PC repase YA.** Sólo viaja el id
+   * —nunca la imagen—, porque esta room es de TODAS las cajas de la empresa. Si el aviso se pierde
+   * no pasa nada: la PC repasa la fila sola cada pocos segundos (`[CG.205]`).
+   */
+  emitFirma(tenantId: string, id: string): void {
+    if (!this.server) return;
+    this.server.to(`tenant:${tenantId}`).emit('firma:lista', { id });
+  }
+
   /** Cuántos sockets escuchan ese tenant. Sirve para no hacer trabajo que nadie mira. */
   oyentes(tenantId: string): number {
     return this.tenantSockets.get(tenantId)?.size ?? 0;
-  }
-
-  /** `[CG.84]` El pase viaja igual que el token: en el handshake o en la query del QR. */
-  private extractPase(client: Socket): string | null {
-    const a = client.handshake?.auth?.['pase'];
-    if (typeof a === 'string' && a.length > 10) return a;
-    const q = client.handshake?.query?.['pase'];
-    if (typeof q === 'string' && q.length > 10) return q;
-    return null;
-  }
-
-  /**
-   * `[CG.84]` Entra el teléfono que viene a firmar, SIN sesión.
-   *
-   * ⛔ Las tres cosas que lo hacen un invitado y no un usuario, y ninguna es decorativa:
-   *
-   *   1. **No entra a `tenant:${t}`.** Esa room recibe cada cambio de cada caja de la empresa.
-   *      Un teléfono prestado que escuche ahí es una fuga, no una comodidad.
-   *   2. **`puedeGestionar: false`**, así que `firma:abrir` le responde `sin_permiso`: un
-   *      invitado no puede fabricarse códigos nuevos.
-   *   3. **Queda atado al código de SU pase** (`paseCodigo`), que `tomarFirma` verifica. Sin eso
-   *      un pase válido serviría para reclamar CUALQUIER firma abierta del tenant — que es
-   *      exactamente el agujero que el pase viene a cerrar, no a abrir.
-   *
-   * ⚠️ `esPaseDeFirma` no es redundante con `verify()`. `verify()` prueba que la firma es nuestra
-   * y que no venció; lo que NO prueba es que el payload sea un pase. Sin esta comprobación, un
-   * **token de sesión perfectamente válido** entraría por acá como invitado.
-   */
-  private conectarInvitado(client: Socket, pase: string): void {
-    let p: unknown;
-    try { p = this.jwtService.verify(pase); }
-    catch (e: any) {
-      this.logger.warn(`Reject ${client.id}: pase de firma inválido o vencido (${e.message})`);
-      client.emit('auth_error', { reason: 'pase_vencido' }); client.disconnect(true); return;
-    }
-    if (!esPaseDeFirma(p)) {
-      this.logger.warn(`Reject ${client.id}: el token presentado como pase no es un ${CLAVE_PASE}`);
-      client.emit('auth_error', { reason: 'pase_invalido' }); client.disconnect(true); return;
-    }
-    const codigo = normalizarCodigo(p.c);
-    client.data = {
-      tenantId: p.t, username: null, puedeGestionar: false,
-      invitado: true, paseCodigo: codigo,
-    };
-    // Se le DEVUELVE el código: el teléfono no tiene que teclear nada, ya viene en el pase.
-    client.emit('connected', { tenant_id: p.t, invitado: true, codigo });
   }
 
   private extractToken(client: Socket): string | null {

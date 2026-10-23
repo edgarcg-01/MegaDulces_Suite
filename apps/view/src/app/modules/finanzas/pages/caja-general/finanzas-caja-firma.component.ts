@@ -1,32 +1,36 @@
-import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, OnInit, ViewChild, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageModule } from 'primeng/message';
 import { prepararFirma, type FirmaCanvas } from '@megadulces/ui-web';
-import type { ContextoFirma } from '@megadulces/contracts';
-import { CajaSocketService } from '../../caja-socket.service';
+import { textoFalloFirma, type ContextoFirma } from '@megadulces/contracts';
+import { CajaFirmaApiService } from '../../caja-firma-api.service';
 
 /**
- * `[CG.68]` **La pantalla del teléfono del mostrador: acá se firma.**
+ * `[CG.68]` **La pantalla del teléfono: acá se firma.**
  *
- * Edgar: *"si esto lo estoy usando en pc, ¿cómo hago que esto se envíe a mi teléfono para que se
- * firme?"*. La caja muestra un QR; el teléfono lo escanea, aparece QUÉ se está firmando, se firma,
- * y el trazo vuelve a la pantalla de la caja por una room que es de los dos.
+ * La caja muestra un QR; el teléfono lo escanea, aparece QUÉ se está firmando, se firma, y la PC
+ * lo recibe. Pública (`/firmar`, lista en `rutas-publicas.ts`): no pide sesión (`[CG.203]`) y se
+ * entra sólo por QR (`[CG.207]`, Edgar: *«no necesitamos el código, solo el qr»*).
  *
- * ── `[CG.207]` Sólo QR, sin sesión ───────────────────────────────────────────────────────────
+ * ── ⭐⭐ `[CG.201]`/`[CG.204]` Por HTTP, y sin rendirse ─────────────────────────────────────────
  *
- * Esto nació (`[CG.68]`) como un teléfono con usuario propio que tecleaba un código de seis.
- * `[CG.84]` agregó el QR con pase para no pedir contraseña, y `[CG.207]` retiró el código tecleado
- * (Edgar, 2026-10-23: *«no necesitamos el código, solo el qr»*): era el camino que pedía sesión.
- * Sigue siendo una PÁGINA de esta app, pública (`/firmar`, lista en `rutas-publicas.ts`).
+ * Antes hablaba por un socket: al bloquear el teléfono el socket caía, `socket.io` se rendía tras
+ * 5 intentos y la firma no salía — la persona firmaba otra vez (Edgar: *«hasta 3 veces»*). Ahora:
+ *
+ *   · el pedido vive en el servidor, así que volver del bloqueo no pierde nada;
+ *   · ver y enviar **se reintentan solos** cuando no hubo respuesta (red), con techo visible;
+ *   · **«Firma enviada» sólo se dice cuando el servidor confirmó que la guardó**;
+ *   · el envío es idempotente del lado del servidor: un reintento cuyo primer acuse se perdió
+ *     contesta OK, no «ya firmada»;
+ *   · cada fallo tiene UNA frase y UNA acción (`textoFalloFirma`, compartida con la PC).
  *
  * ── ⚠️ Lo que esta pantalla NO puede hacer, a propósito ─────────────────────────────────────
  *
  * No lee la caja, no lista movimientos y no guarda nada. Ve **cuatro datos** del movimiento
  * (tipo, monto, beneficiario, documento) y manda un PNG. El teléfono se le pasa a otras personas
- * para que firmen: todo lo que esta pantalla pueda mostrar, lo va a ver quien firma. Por eso el
- * servidor la atiende con permiso de **lectura** (`FINANCE_CAJA_VER`), no de gestión.
+ * para que firmen: todo lo que esta pantalla pueda mostrar, lo va a ver quien firma.
  */
 @Component({
   selector: 'app-finanzas-caja-firma',
@@ -70,13 +74,12 @@ import { CajaSocketService } from '../../caja-socket.service';
       @if (aviso(); as a) { <p-message severity="warn">{{ a }}</p-message> }
 
       @if (enviada()) {
-        <!-- Vacío operacional: NO centrado, y dice qué pasó y qué sigue. -->
+        <!-- Vacío operacional: NO centrado, y dice qué pasó y qué sigue. Se llega acá SOLO con el
+             acuse del servidor: antes decía enviada con la firma todavía en el aire. -->
         <div class="fm-listo">
           <i class="pi pi-check-circle" aria-hidden="true"></i>
           <strong>Firma enviada</strong>
           <p>Ya está en la pantalla de la caja. Puedes devolver el teléfono.</p>
-          <p-button label="Firmar otro" icon="pi pi-replay" size="small" severity="secondary"
-                    [outlined]="true" (onClick)="reiniciar()"></p-button>
         </div>
       } @else if (ctx(); as c) {
         <!-- ⭐ QUÉ se está firmando, antes de firmar. Una firma sobre algo que no se leyó no es
@@ -98,179 +101,124 @@ import { CajaSocketService } from '../../caja-socket.service';
 
         <div class="fm-acciones">
           <p-button label="Borrar" icon="pi pi-eraser" severity="secondary" [text]="true"
-                    [disabled]="!hecha()" (onClick)="limpiar()"></p-button>
-          <!-- El envío viaja por el socket y puede tardar: sin spinner, el botón sólo se apaga y
-               quien firma no sabe si salió. [CG.68] ya pagó que el teléfono se vuelva a tocar. -->
+                    [disabled]="!hecha() || enviando()" (onClick)="limpiar()"></p-button>
+          <!-- Con loading: pone el spinner Y desactiva, que es lo que impide el segundo toque. -->
           <p-button label="Enviar" icon="pi pi-send" [loading]="enviando()"
                     [disabled]="!hecha() || enviando()" (onClick)="enviar()"></p-button>
         </div>
+        @if (reintentando(); as n) {
+          <p class="fm-sub">Sin señal: reintentando el envío ({{ n }} de {{ maxIntentos }})… No cierres esta pantalla.</p>
+        }
 
         <p class="fm-legal">Vale como constancia de que recibiste el efectivo, igual que firmar el
           ticket en papel. No es una firma electrónica con validez fiscal.</p>
-      } @else if (!codigo) {
-        <!-- ⭐⭐ CG.207 SOLO EL QR. Edgar: "no necesitamos el codigo, solo el qr". Aca vivia un
-             campo para teclear el codigo de seis, y ese era el camino que pedia iniciar sesion:
-             tecleado no trae pase, y sin pase el servidor no sabe de que empresa es. Sin QR esta
-             pantalla no tiene nada que hacer, y lo dice.
-             (Sin acentos graves aca adentro: esto vive en un template literal y uno lo CIERRA.) -->
+      } @else if (!token) {
+        <!-- ⭐⭐ CG.207 SOLO EL QR. Sin el token del QR esta pantalla no tiene nada que hacer, y lo
+             dice. (Sin acentos graves aca adentro: esto vive en un template literal y uno lo CIERRA.) -->
         <p class="fm-sub">Abre la cámara del teléfono y apunta al QR que muestra la pantalla de la
           caja. No hace falta iniciar sesión.</p>
-      } @else {
-        <!-- ⛔⛔ Reintentar se apaga mientras el canal abre, y NO solo mientras se pide: un toque
-             durante el handshake llegaba a un socket sin conectar y volvia "sin_conexion".
-             Con loading: pone el spinner Y desactiva, que es lo que impide el segundo toque. -->
-        @if (aviso()) {
-          <p-button label="Reintentar" icon="pi pi-refresh" severity="secondary" [outlined]="true"
-                    [loading]="tomando() || conectando()"
-                    [disabled]="tomando() || conectando()"
-                    (onClick)="tomar()"></p-button>
-        }
-        <!-- ⚠️ TRES estados, no dos. "Todavía no" y "no se pudo" se veían iguales porque los dos
-             son connected() en false, así que al escanear el QR lo primero que aparecía era un
-             aviso ámbar mandando a revisar la red — con la red bien y el canal abriendo. -->
-        <!-- ⚠️ Se usa .fm-sub y no .fin-dim: este componente NO importa FINANZAS_SHARED_STYLES y los
-             estilos del vecino no cruzan la frontera del componente — la clase existiría en el
-             HTML sin una sola regla detrás. -->
-        @if (conectando()) {
-          <p class="fm-sub">Abriendo el canal con la caja…</p>
-        } @else if (caja.estado() === 'caido') {
-          <!-- CG.203: caido tiene cuatro causas y cada una se arregla distinto. -->
-          <p-message severity="warn">{{ textoCaida() }}</p-message>
-        }
+      } @else if (cargando()) {
+        <p class="fm-sub">Abriendo el pedido de la caja…</p>
+      } @else if (aviso() && reintentable()) {
+        <p-button label="Reintentar" icon="pi pi-refresh" severity="secondary" [outlined]="true"
+                  (onClick)="abrir()"></p-button>
       }
     </div>
   `,
 })
-export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
-  readonly caja = inject(CajaSocketService);
+export class FinanzasCajaFirmaComponent implements OnInit {
+  private readonly api = inject(CajaFirmaApiService);
 
   @ViewChild('pad') padRef?: ElementRef<HTMLCanvasElement>;
   private firma: FirmaCanvas | null = null;
   private firmaEl: HTMLCanvasElement | null = null;
 
-  codigo = '';
+  /** El token del QR (`?t=`). Sin él no hay nada que firmar. */
+  token = '';
   nombre = '';
   readonly ctx = signal<ContextoFirma | null>(null);
-  readonly tomando = signal(false);
+  readonly cargando = signal(false);
   readonly enviando = signal(false);
   readonly enviada = signal(false);
   readonly aviso = signal<string | null>(null);
+  /** El último fallo fue de red: tiene sentido ofrecer Reintentar. Uno del servidor, no. */
+  readonly reintentable = signal(false);
+  /** Número de reintento de envío en curso, o `null`. Se DICE: un spinner mudo parece colgado. */
+  readonly reintentando = signal<number | null>(null);
   /** Señal y no el primitivo: el primitivo no es reactivo y la plantilla no se enteraría. */
   readonly hecha = signal(false);
 
-  /**
-   * El canal todavía está abriendo. Se lee **incondicionalmente** del estado del servicio: un
-   * `computed` detrás de un `&&` que corte antes de leer la señal se queda sin dependencias y no
-   * recalcula nunca (compuerta `reactividad`).
-   */
-  readonly conectando = computed(() => this.caja.estado() === 'conectando');
+  /** Techo de reintentos y espera entre ellos. Ver `[CG.204]`: sin techo, gira para siempre. */
+  readonly maxIntentos = 6;
+  /** Inyectable para las pruebas: el reloj real haría esperar ~30 s a cada caso. */
+  esperaMs = (intento: number): number => Math.min(8000, 1000 * 2 ** (intento - 1));
 
-  /**
-   * ⭐ `[CG.203]` **Qué decirle cuando el canal no abre — según POR QUÉ no abre.**
-   *
-   * Antes eran dos frases para cuatro causas: *«revisa la red»* sin pase y *«el QR venció»* con
-   * pase. Las dos mentían a menudo. A un teléfono sin cuenta que tecleó el código le decía que
-   * revisara una red que estaba bien, cuando lo que faltaba era escanear el QR (el QR trae el pase
-   * y con él no hace falta sesión). Y a un teléfono que perdió el wifi con el QR vivo le decía que
-   * el QR había vencido, así que pedía otro y firmaba de nuevo.
-   */
-  readonly textoCaida = computed(() => {
-    switch (this.caja.motivoCaida()) {
-      case 'sin_credencial':
-      case 'sesion_rechazada':
-        return 'Escanea con la cámara el QR que muestra la caja: así no hace falta iniciar sesión.';
-      case 'pase_rechazado':
-        return 'Este QR ya venció o no es válido. Pide uno nuevo en la pantalla de la caja.';
-      default:
-        return 'Sin conexión con el servidor. Revisa la red del teléfono.';
-    }
-  });
+  /** El id de ESTE teléfono: lo que permite volver (bloqueo, recarga) sin contar como otro. */
+  readonly telefono = idDeTelefono();
 
   readonly money = (v: number) =>
     (Number(v) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
 
-  /**
-   * `[CG.74]` **El código puede llegar por la URL**, que es lo que hace útil al QR de la caja.
-   *
-   * Antes sólo se tecleaba, y el procedimiento real era: abrir una URL de memoria en un teléfono,
-   * iniciar sesión, y escribir 6 caracteres contra un reloj de tres minutos.
-   *
-   * ⚠️ `?c=` se trata EXACTAMENTE como lo tecleado: pasa por el mismo `tomar()`, con la misma
-   * normalización y los mismos fallos. Un atajo que valide distinto que la puerta principal es
-   * un segundo camino con sus propios agujeros.
-   *
-   * ⚠️ No se reintenta si falla: el código pudo vencer o ya estar tomado, y el aviso que deja
-   * `tomar()` es justamente lo que la persona necesita leer. Reintentar lo taparía.
-   */
   ngOnInit(): void {
-    const q = new URLSearchParams(location.search);
-    // ⭐⭐ `[CG.84]` **EL PASE: acá se deja de pedir contraseña.** Edgar: *"el no password para
-    // firmar"*. Si el QR trae pase, el canal se abre con él en vez de con una sesión, y este
-    // teléfono entra como invitado atado a ese único código.
-    //
-    // ⭐⭐ `[CG.207]` **Sin pase no se abre nada.** Antes, sin pase, el canal se abría con la sesión
-    // del teléfono y se tecleaba el código: ése era el camino que pedía iniciar sesión, y Edgar
-    // lo retiró («no necesitamos el código, solo el qr»). Sin QR la pantalla sólo explica.
-    const pase = q.get('pase');
-    const porUrl = q.get('c');
-    if (!pase || !porUrl) return;
-    this.caja.connect(pase);
-    this.codigo = porUrl;
-    void this.tomarCuandoHayaCanal();
+    this.token = new URLSearchParams(location.search).get('t') ?? '';
+    if (this.token) void this.abrir();
   }
-  ngOnDestroy(): void { this.caja.disconnect(); }
 
-  /**
-   * ⭐⭐ `[CG.196]` **AL DESBLOQUEAR EL TELÉFONO, SE VUELVE A RECLAMAR EL CÓDIGO.**
-   *
-   * Edgar: *«si se bloquea el teléfono se pierde»*. Eran tres defectos encadenados y éste es el
-   * último, el que rompía la firma aunque los otros dos estuvieran arreglados:
-   *
-   *   1. El servidor avisaba `firma:cortada` al caerse el TELÉFONO y la PC desarmaba el panel.
-   *   2. El código moría a los 3 minutos.
-   *   3. **Y éste:** `tomar()` se llamaba UNA sola vez, en `ngOnInit`. Al bloquearse la pantalla
-   *      el socket cae; `socket.io` reconecta solo, pero el socket nuevo **no reclamó nada**, así
-   *      que el servidor no le puso `firmaTel`. El lienzo se seguía viendo listo —`ctx()` sigue
-   *      en memoria— y al tocar Enviar el servidor respondía `no_es_suyo`: la persona firmaba
-   *      dos veces y la segunda tampoco llegaba.
-   *
-   * Por eso se re-reclama en silencio: ya había un código vivo y un contexto en pantalla, o sea
-   * que esto no es un intento nuevo, es el mismo. ⚠️ **Sólo si falla se dice algo** — un aviso en
-   * cada reconexión convertiría un wifi intermitente en una pantalla llena de ruido.
-   *
-   * ⛔ Y no se toca `ctx`: si el re-reclamo falla, lo que hay en pantalla sigue siendo lo que la
-   * persona vio, y borrarlo le quitaría el contexto de lo que está por firmar.
-   */
-  private readonly reengancharAlVolver = effect(() => {
-    const vivo = this.caja.connected();
-    const antes = this.estabaConectado;
-    this.estabaConectado = vivo;
-    if (!vivo || antes || !this.codigoVivo || !this.ctx()) return;
-    void this.reclamarDeNuevo();
-  });
-
-  private estabaConectado = false;
-
-  /** El mismo reclamo, sin ruido: no limpia el campo ni apaga el contexto. */
-  private async reclamarDeNuevo(): Promise<void> {
-    const r = await this.caja.tomarFirma(this.codigoVivo);
-    if (!r.ok) {
-      this.aviso.set('Se perdió la conexión y el código ya no sirve. Pide uno nuevo en la caja.');
+  /** Abre el pedido del QR. Si no hay red, reintenta solo; si el servidor dice que no, lo dice. */
+  async abrir(): Promise<void> {
+    this.aviso.set(null);
+    this.reintentable.set(false);
+    this.cargando.set(true);
+    try {
+      for (let intento = 1; ; intento++) {
+        const r = await this.api.ver(this.token, this.telefono);
+        if (r.ok) {
+          // El mismo teléfono que ya firmó (volvió a abrir el QR): ya quedó, no se pide otra firma.
+          if (r.v.estado === 'firmada') { this.enviada.set(true); return; }
+          this.ctx.set(r.v.contexto);
+          return;
+        }
+        if (r.fallo !== 'red' || intento >= this.maxIntentos) {
+          this.aviso.set(r.fallo === 'red'
+            ? 'No hay conexión con el servidor. Revisa la señal del teléfono y toca Reintentar.'
+            : textoFalloFirma(r.fallo));
+          this.reintentable.set(r.fallo === 'red');
+          return;
+        }
+        await dormir(this.esperaMs(intento));
+      }
+    } finally {
+      this.cargando.set(false);
     }
   }
 
   /**
-   * ⚠️ `connect()` NO deja el socket listo — el handshake tarda, y `tomar()` en el mismo turno le
-   * pega a un socket todavía desconectado y responde `sin_conexion`. Con el QR recién escaneado
-   * eso se lee como "no funciona", cuando lo único que pasó es que se preguntó demasiado pronto.
-   * Se espera al canal, con techo: una espera sin techo deja la pantalla girando para siempre.
+   * ⭐ `[CG.204]` Envía y **no se rinde por la red**: reintenta con espera creciente hasta el techo,
+   * diciendo en qué intento va. El trazo se conserva entre intentos. «Enviada» sólo con acuse.
    */
-  private async tomarCuandoHayaCanal(plazoMs = 6000): Promise<void> {
-    const hasta = Date.now() + plazoMs;
-    while (!this.caja.connected() && Date.now() < hasta) {
-      await new Promise((r) => setTimeout(r, 120));
+  async enviar(): Promise<void> {
+    const png = this.pad()?.aPng();
+    // ⚠️ Se vuelve a preguntar al primitivo en vez de confiar en la señal: entre que se habilitó
+    // el botón y el toque pudo pasar un "Borrar".
+    if (!png) { this.aviso.set('Todavía no hay firma. Firma en el recuadro blanco.'); return; }
+    this.aviso.set(null);
+    this.enviando.set(true);
+    try {
+      for (let intento = 1; ; intento++) {
+        const r = await this.api.firmar(this.token, this.telefono, png, this.nombre.trim() || null);
+        if (r.ok) { this.enviada.set(true); return; }
+        if (r.fallo !== 'red') { this.aviso.set(textoFalloFirma(r.fallo)); return; }
+        if (intento >= this.maxIntentos) {
+          this.aviso.set('No se pudo enviar: no hay señal. Tu firma sigue acá; toca Enviar cuando vuelva la señal.');
+          return;
+        }
+        this.reintentando.set(intento);
+        await dormir(this.esperaMs(intento));
+      }
+    } finally {
+      this.reintentando.set(null);
+      this.enviando.set(false);
     }
-    await this.tomar();
   }
 
   /**
@@ -299,78 +247,24 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
     this.hecha.set(p.firmada());
   }
   limpiar(): void { this.pad()?.limpiar(); this.hecha.set(false); }
+}
 
-  async tomar(): Promise<void> {
-    this.aviso.set(null);
-    this.tomando.set(true);
-    try {
-      const tecleado = this.codigo.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const r = await this.caja.tomarFirma(tecleado);
-      if (!r.ok || !('ctx' in r) || !r.ctx) { this.aviso.set(this.textoFallo(String((r as { error?: string }).error ?? ''))); return; }
-      this.ctx.set(r.ctx);
-      // ⛔ Se GUARDA el código: `enviar()` lo necesita para entregar, y el campo se limpia acá.
-      // Sin esta línea el envío salía con el código vacío y el servidor lo rechazaba como
-      // `no_existe` — con la firma ya hecha y la persona esperando.
-      this.codigoVivo = tecleado;
-      this.codigo = '';
-    } finally { this.tomando.set(false); }
-  }
+const dormir = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-  async enviar(): Promise<void> {
-    const p = this.pad();
-    const png = p?.aPng();
-    // ⚠️ Se vuelve a preguntar al primitivo en vez de confiar en la señal: entre que se habilitó
-    // el botón y el toque pudo pasar un "Borrar".
-    if (!png) { this.aviso.set('Todavía no hay firma. Firma en el recuadro blanco.'); return; }
-    this.aviso.set(null);
-    this.enviando.set(true);
-    try {
-      // El código ya no está en el campo: lo guarda el vínculo del lado del servidor, pero el
-      // mensaje lo pide igual, así que se reusa el que vino con el contexto.
-      const r = await this.caja.enviarFirma(this.codigoVivo, png, this.nombre.trim() || null);
-      if (!r.ok) { this.aviso.set(this.textoFallo(String((r as { error?: string }).error ?? ''))); return; }
-      this.enviada.set(true);
-    } finally { this.enviando.set(false); }
-  }
-
-  reiniciar(): void {
-    this.ctx.set(null);
-    this.enviada.set(false);
-    this.nombre = '';
-    this.codigo = '';
-    this.codigoVivo = '';
-    this.limpiar();
-  }
-
-  /** El código con el que se reclamó, para poder entregar. */
-  private codigoVivo = '';
-
-  private textoFallo(e: string): string {
-    switch (e) {
-      // ⭐ `vencido` y `no_existe` son DOS cosas y la persona tiene que oír cosas distintas:
-      // una se arregla pidiendo otro código, la otra revisando lo que tecleó.
-      case 'vencido': return 'El código ya venció. Pídele uno nuevo a la caja.';
-      case 'no_existe': return 'Ese código no existe. Revisa lo que escribiste.';
-      case 'ya_tomado': return 'Ese código ya lo está usando otro teléfono.';
-      case 'otro_tenant': return 'Ese código no es de esta empresa.';
-      case 'no_es_suyo': return 'Este teléfono no es el que tomó el código.';
-      case 'no_es_firma': return 'La firma no se pudo leer. Borra y firma de nuevo.';
-      // ⭐ `[CG.84]` Entrar por QR y que no abra el canal casi siempre es UNA cosa: el QR venció.
-      // Decir "revisa la red" ahí manda a la persona a buscar el problema donde no está.
-      //
-      // ⛔ Pero NO siempre, y afirmarlo costaba caro: un pase vencido lo RECHAZA el servidor
-      // (`auth_error` → estado `caido`), mientras que un canal que todavía no abrió deja el
-      // estado en `conectando`. Con el botón apagado durante el handshake esto ya casi no
-      // debería verse; cuando se vea, cada caso dice lo suyo en vez de culpar siempre al QR.
-      case 'sin_conexion':
-        if (this.caja.estado() === 'conectando') {
-          return 'Todavía no abre el canal con la caja. Espera unos segundos y vuelve a intentar.';
-        }
-        // ⛔ `[CG.203]` Ya no se adivina por si la URL trae pase: el QR vence a las 8 h (no a los
-        // 3 min que decía la frase de antes), y la causa la sabe el canal (`motivoCaida`).
-        return this.textoCaida();
-      case 'sin_respuesta': return 'El servidor no contestó. Prueba de nuevo.';
-      default: return 'No se pudo continuar. Prueba de nuevo.';
-    }
-  }
+/**
+ * Un id estable por teléfono, guardado en el navegador. ⚠️ No es una credencial: sólo distingue
+ * «el mismo teléfono que vuelve» de «otro teléfono». Si el navegador no deja guardar (modo
+ * privado), vive en memoria: volver del bloqueo sigue funcionando; recargar cuenta como otro.
+ */
+function idDeTelefono(): string {
+  const CLAVE = 'caja.firma.telefono';
+  try {
+    const previo = localStorage.getItem(CLAVE);
+    if (previo && /^[A-Za-z0-9_-]{8,64}$/.test(previo)) return previo;
+  } catch { /* sin almacenamiento */ }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  const id = 'tel_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  try { localStorage.setItem(CLAVE, id); } catch { /* sin almacenamiento: queda en memoria */ }
+  return id;
 }

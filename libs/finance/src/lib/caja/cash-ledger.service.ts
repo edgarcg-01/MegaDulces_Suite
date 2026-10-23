@@ -33,6 +33,7 @@ import {
   cuentaDelTipoDeDocumento, type CuentaDeTipoDocumento, type LineasPorTipoPol,
 } from './caja-lote.engine';
 import { revisarFirma } from './caja-firma.engine';
+import { tomarFirmaParaMovimiento, marcarFirmaUsada } from './caja-firma.service';
 import { diaDe } from './caja-autollenado.engine';
 import { traducirErrorDeCaja } from './caja-errores';
 import { conciliacion } from './caja-conciliacion.engine';
@@ -210,6 +211,14 @@ export interface CreateMovementInput {
    */
   firma_png?: string;
   firma_nombre?: string;
+  /**
+   * ⭐⭐ `[CG.202]` **La firma del TELÉFONO viaja por su id, no como imagen.** El servidor toma el
+   * PNG de `finance.cash_signature_requests` (con candado), exige que esté firmada, que sea del
+   * mismo tipo y del MISMO monto que se guarda, y la marca usada en la misma transacción. Así la PC
+   * no puede presentar como «firmada en el teléfono» una imagen que no salió de un pedido firmado,
+   * y una firma no se usa dos veces. Si viene, `firma_png` se ignora.
+   */
+  firma_solicitud_id?: string;
   /**
    * CS.3.13 — La parte del movimiento que quedó A CRÉDITO (no llegó en efectivo): queda como saldo
    * del cliente. `efectivo esperado = documento − venta_credito`. El `monto` sigue siendo el efectivo.
@@ -1232,8 +1241,14 @@ export class CashLedgerService {
       const glosa = input.glosa?.trim()
         || (doc ? `${doc.doc_tipo} ${doc.folio} · ${doc.beneficiario || doc.entidad_code || 'sin beneficiario'}`.slice(0, 200) : '');
 
+      // ⭐ `[CG.202]` La firma del teléfono sale de la FILA del pedido, contra el monto RESUELTO.
+      // Lanza un 410/422 con `fallo` si no sirve: guardar en silencio sin firma sería decir que nadie
+      // firmó cuando sí firmó (o al revés).
+      const remota = input.firma_solicitud_id
+        ? await tomarFirmaParaMovimiento(trx, String(input.firma_solicitud_id), input.tipo, monto)
+        : null;
       // `[CG.67]` Antes del insert, para que el estado y la imagen salgan de UNA sola decisión.
-      const firma = revisarFirma(input.tipo, input.firma_png);
+      const firma = revisarFirma(input.tipo, remota ? remota.png : input.firma_png);
       if (firma.descartada) {
         // ⚠️ Una firma que LLEGÓ y no se guardó no se tira en silencio: queda en el log con su
         // motivo. "No firmó" y "firmó y lo tiramos" se arreglan en lugares distintos.
@@ -1285,13 +1300,18 @@ export class CashLedgerService {
         // y además valida que lo que llegó sea de verdad un PNG: `firma_png = 'ok'` pasaría
         // cualquier chequeo de "no nulo" y también el CHECK de la tabla.
         firma_png: firma.png,
-        firma_nombre: firma.png ? (input.firma_nombre?.trim() || null) : null,
+        firma_nombre: firma.png ? (input.firma_nombre?.trim() || remota?.nombre || null) : null,
         // La hora la pone el SERVIDOR. El reloj del navegador no es prueba de cuándo se firmó.
         firma_at: firma.png ? trx.fn.now() : null,
         firma_estado: firma.estado,
         created_by: user.id,
         created_by_username: user.username ?? null,
       }).returning('*');
+
+      // `[CG.202]` El pedido queda consumido por ESTE movimiento, en la misma transacción.
+      if (remota && input.firma_solicitud_id) {
+        await marcarFirmaUsada(trx, String(input.firma_solicitud_id), mov.id, user.id ?? null);
+      }
 
       if (dens.length) {
         await trx('finance.cash_ledger_denominations').insert(
