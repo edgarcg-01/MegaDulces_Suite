@@ -987,6 +987,8 @@ export interface WorklistRow {
 }
 export interface WorklistResponse {
   total: number; vencidos: number; hoy: number; prox7: number;
+  /** `[PQ.5]` Proveedores distintos vencidos / que tocan hoy. Opcionales: un servidor anterior no los manda. */
+  prov_vencidos?: number; prov_hoy?: number;
   page: number; pageSize: number; rows: WorklistRow[];
 }
 export interface WorklistQuery {
