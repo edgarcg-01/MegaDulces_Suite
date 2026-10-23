@@ -1334,6 +1334,7 @@ Kepler), «Mi pedido» lo sugiere (nadie de tienda lo usa, §16.3) y la tienda l
 | 4 | «hay que reestructurar Autoabasto para que funcione en sincronía con Mi pedido» | Primera versión de este anexo (mesa de varios almacenes) |
 | 5 | «compras decide · no, cada sucursal ve sólo su mesa · d3 no entendí · ¿cuáles rutas? · hagámoslo cupo y documentemos el plan» | D1 = Compras, D2 = mesa por sucursal, D3 explicada otra vez, D4 con la lista de rutas, AB entra a 🔨 y MS pasa a ⏸️. **Deroga** la mesa de varios almacenes de la versión 4 |
 | 6 | «rd se surte ellos por ahora pero dejémoslo documentado. lo demás sí lo autorizo» | D3, D4 y D6 firmados; las camionetas RD quedan fuera y se surten solas por ahora (§16.6) |
+| 7 | «y en caso de que la sucursal necesite generar un pedido, en base al motor de Mi pedido vs lo que se le va a traspasar y existencia… por si es necesario poder generar una requisición, no está de más que vean una mini pantalla tipo Mi pedido» | D7: la «excepción» de AB.29 pasa a ser **«Generar requisición»**, una mini «Mi pedido» que Compras aprueba |
 
 ### 16.3 Lo medido hoy
 
@@ -1396,6 +1397,7 @@ tipo; un mismo SKU puede estar en un pedido y en un embarque, por eso 777 es un 
 | **D4** | Las rutas (ver abajo) | **Fuera de Autoabasto.** Las camionetas RD se surten ellas mismas por ahora (documentado abajo) | ✅ Edgar, 2026-10-23 |
 | **D5** | Cupo | **AB entra a 🔨; MS pasa a ⏸️** con su doc intacto | ✅ Edgar, 2026-10-23 |
 | **D6** | Nombre de la pestaña «Mi pedido» | **«Lo que te llega»**, porque con D1 la sucursal ya no arma pedido | ✅ Edgar, 2026-10-23 |
+| **D7** | ¿La sucursal puede pedir algo por su cuenta? | **Sí, como requisición que Compras aprueba**, desde una mini pantalla tipo «Mi pedido» prellenada con el mismo motor (lo que falta, menos lo que ya viene y lo que Compras ya planeó). No es un pedido directo a Kepler | ✅ Edgar, 2026-10-23 (AB.29) |
 
 **D3 en palabras simples.** Hoy cada renglón de la mesa tiene una columna «Acción» que dice *Traspaso*,
 *Traspaso parcial* o *Comprar*. La mesa la decide mirando si **cualquier** almacén de la empresa tiene de
@@ -1438,16 +1440,17 @@ se reste.
 - No crea un flujo de solicitar / autorizar traspasos entre plazas.
 - No asigna almacén a los almacenistas (12-oct: 5 de 6 sin almacén, **sin re-medir**), pero sin eso
   ninguna de las dos pantallas les sirve.
-- No borra tablas: las de AB.18 (`autoabasto_pedidos`, `_lineas`, `_huella`) se reusan para las
-  excepciones.
+- No borra tablas: las de AB.18 (`autoabasto_pedidos`, `_lineas`, `_huella`) se reusan para el
+  borrador de la requisición de la sucursal (AB.29).
 - Ningún importer ni tabla nueva: todo sale de `kepler_ods`, del plan de Compras
   (`purchase_requisitions`) y de las tablas que ya existen.
 
 ### 16.8 El modelo y las capas
 
 **El flujo con D1:** Compras decide el traspaso de cada sucursal → el plan llega a Kepler (KR) → la
-matriz surte → la sucursal recibe. La sucursal **no arma pedido**: ve su mesa y lo que le llega, y si
-algo le falta y nadie lo planeó, **marca una excepción** con cantidad y motivo, que le llega a Compras.
+matriz surte → la sucursal recibe. La sucursal **no arma el pedido de rutina**: ve su mesa y lo que le
+llega. Si de verdad necesita algo que nadie planeó, **genera una requisición** desde una mini pantalla
+tipo «Mi pedido» (D7), y **Compras la aprueba o la rechaza**: Compras sigue siendo quien decide.
 
 **Cómo se cuenta «ya viene» en las dos pantallas** (una sola regla):
 
@@ -1485,18 +1488,47 @@ almacén dentro del alcance (D2) y salen de la función de C1.
 - `/mesa` responde en < 500 ms. «Mi pedido» tarda **3.7 s** (medido el 2026-10-12 en AB.16, **sin
   re-medir**). Si no se alcanza, se declara.
 
-**C2/C3 — AB.29 Las excepciones llegan a Compras.** La escritura ya existe (`PUT /pedido/ajuste`, con
-motivo y huella): pasa a significar «excepción». Lo nuevo es la **lectura en Compras**: las excepciones
-abiertas de cada sucursal dentro de `/compras/pedido`, donde se decide.
-- Prueba contra base real con el payload de la pantalla (regla del endpoint que escribe).
-- Lista de motivos revisada para una excepción (hoy está pensada para un ajuste).
+**C1–C3 — AB.29 «Generar requisición»: la mini «Mi pedido» de la sucursal (D7).** Reemplaza a la
+«excepción» de la versión anterior. Nada se construye de cero:
+
+| Pieza | Ya existe | Lo nuevo |
+|---|---|---|
+| Qué se le sugiere pedir | la cuenta de AB.26 | sólo los renglones *Nadie lo ha pedido*, prellenados con su falta neta |
+| Ajustar con − / + y motivo | AB.18 (pasos por unidad de captura, motivo al pasar ±20 %, huella) | se mudan de «Mi pedido» a esta pantalla |
+| Redondeo y mínimo de $200 | AB.19 / AB.20 (`libs/contracts`) | — |
+| Agrupar por a quién se le pide | grupos de «Mi pedido» (matriz / proveedor) | una requisición por grupo |
+| La requisición | `insertRequisition()` → `purchase_requisitions` en `pending_approval`, folio `RQ-` | un endpoint de Autoabasto con `AUTOABASTO_SOLICITAR` que llama a **esa misma función** |
+| Que la apruebe Compras | su bandeja y su autorización actuales | — |
+| Tope y facultades | claves `AUTOABASTO_AUTORIZAR` / `_EXCEDER_TOPE` (escalera §6.1, repartidas desde la migración `20260919160000`) | el tope en pesos de la requisición |
+| PDF para capturar en Kepler | AB.21 | lo imprime la requisición aprobada mientras KR esté apagado |
+
+Reglas:
+
+- **Al prellenar se resta también lo que Compras ya planeó**, aunque todavía no esté en Kepler. En la
+  mesa no se resta (diría «cubierto» de algo que no llega); en la requisición sí, porque pedirlo otra
+  vez sería duplicar una decisión que Compras ya tomó. Si la sucursal cree que el plan no le va a llegar,
+  lo pide igual **con motivo**.
+- **El servidor recalcula los renglones**: el navegador manda producto, cantidad y motivo; existencia,
+  sugerido, costo y origen los pone el servidor con la cuenta de AB.26. Nada de la pantalla se toma por
+  bueno.
+- **Contra duplicados**, dos redes que ya existen: (1) lo que Compras ya planeó se resta al prellenar
+  (regla de arriba); (2) el doble clic lo frena `lote-repetido.ts` (409 con lo encontrado y «generar de
+  todos modos»). ⚠️ Esa red hoy **sólo mira renglones de COMPRA** de la misma persona en minutos: para
+  las requisiciones de traspaso de la sucursal hay que extenderla, aditiva, con su prueba.
+- El almacén tiene que estar en el alcance de la persona (la misma comprobación de `almacenEnAlcance`).
+- Hoy **0** requisiciones las crea alguien de sucursal: en 30 días, las 1,013 las crearon roles de
+  Compras y Dirección (medido 2026-10-23, sólo lectura). Si Compras necesita filtrar «las que pidió una
+  sucursal», sale de `created_by`; una columna de origen sólo si eso no alcanza (migración aditiva).
+- Prueba contra base real con el payload de la pantalla (regla del endpoint que escribe), incluida la
+  negativa: un almacén fuera del alcance → 403; un renglón con cantidad que el servidor no reconoce → 400.
 
 **C3 — AB.28 Las pantallas.**
 - **Mesa:** un almacén; columnas Posición · Venta 30 d · Existencia · Mín / Reorden / Máx · Falta ·
   Ya viene · Falta neta · Surte · Estado. Salen Acción, De la red y A comprar (D3). Un renglón abre «Lo
   que te llega» en ese producto. El PDF imprime lo mismo.
 - **«Lo que te llega»** (D6, firmada): lo que viene por documento (plan de Compras, pedidos, embarques) y por
-  producto; salen los − / + y «Aceptar grupo»; entra **«Marcar excepción»**.
+  producto; salen los − / + y «Aceptar grupo» de la vista principal, y entra el botón **«Generar
+  requisición»**, que abre la mini pantalla de AB.29.
 - Se corrigen los textos rancios (§16.5 #2 y #3, y el pie «Solicitar y autorizar llegan en la siguiente
   entrega»).
 - Skill `diseno` y `npm run check:pantalla -- almacen` antes y después.
@@ -1512,12 +1544,14 @@ abiertas de cada sucursal dentro de `/compras/pedido`, donde se decide.
 | D1 cambia el modelo que firmó el dueño | Edgar | Francisco firmó el 12-oct que la sucursal arma el pedido | Comunicárselo antes de AB.28 |
 | Almacenistas sin almacén asignado | **sin dueño — pregunta** (¿quién administra Personas?) | 5 de 6 sin asignar (12-oct) | Asignarlos |
 | AB sin dueño ni cierre comprometido | Edgar | Abierta hoy | Llenarlos en la ronda; sin ellos la fase cae a ⏸️ (método §3) |
+| La requisición de sucursal se vuelve la vía de rutina (y regresan los tres lugares) | Edgar (PM) | Pedir es fácil; cada tienda hoy pide casi a diario | Medir cada semana: requisiciones de sucursal por almacén y cuántas rechaza Compras. Si una sucursal pide casi a diario, el plan de Compras no la está cubriendo: se corrige el plan, no se aprueba en automático |
+| Requisición aprobada + pedido capturado en Kepler = doble | Edgar | Con KR apagado la tienda sigue capturando en Kepler | La requisición aprobada se imprime (AB.21) y se captura UNA vez; al capturarse aparece como «ya pedido» y se resta |
 
 ### 16.10 Definición de Terminado
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
 - [ ] C0–C3 verificadas o declaradas NO MEDIDO.
-- [ ] La escritura de excepciones (AB.29) ejercida contra base real con el payload de la pantalla.
+- [ ] «Generar requisición» (AB.29) ejercida contra base real con el payload de la pantalla, con sus negativas (fuera de alcance → 403).
 - [ ] La prueba negativa de AB.26 vista en rojo.
 - [ ] La línea del renglón vive en `libs/contracts` (sin segundo cálculo en el front).
 - [ ] Tracker, `03_LOG_REVISIONES.md`, fila de AB en el roadmap y ADR-100 al día.
