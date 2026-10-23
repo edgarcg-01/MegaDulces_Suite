@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1934 KB, 12499 líneas, 72 secciones.
+> **Índice navegable** — 1935 KB, 12500 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -77,8 +77,8 @@
 | 12098 | 12134 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
 | 12135 | 12153 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
 | 12154 | 12206 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12207 | 12562 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12563 | 12583 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 12207 | 12563 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12564 | 12584 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -12557,6 +12557,7 @@ entregada» el cuadre nunca tiene qué buscar. Firmas pendientes **D1–D5** (§
 - [ ] 🔨 `[CP.8.83]` C0 — **El universo desde el lado de la contadora** (`database/scripts/universo-egresos-contpaqi.js`): de 4,625 pólizas de egreso ene–sep 2026 el puente cubre **899 (19.4 %)**; el 91 % de `[CP.8.81]` era precisión, no cobertura — por eso se escapó la de Oscar Hernández (Mant. eq. de reparto, sin categoría). Resto: sin centro de costo 1,050 · sin movimiento de banco 717 ($76.1 M) · sin categoría 548 · a confirmar 461 ($121.0 M) · sin regla 459 · no cuadra 281 ($67.2 M). ⭐ Gasto 52xx: 1,292/1,594 con CFDI, una póliza por pago → el lote «banco × día» de gastos no es su forma; rediseñar antes de firmar reglas de gasto.
 - [x] 🧪 `[CP.8.84]` C1 — **Pagos a proveedor que no se arman solos** (876 ene–sep, `database/scripts/pagos-sin-armar-contpaqi.js`): causa #1 «ella aplicó notas» 444 / $134.2 M, y **el 60 % de sus notas tiene fecha POSTERIOR al pago** (335/557; el puente sólo buscaba hacia atrás). Ahora: notas hasta 31 días después, sin reusar las ya aplicadas, y las que el XML liga a la factura se aplican solas (27/27 ligan bien). A/B 91.0 % (820/901, +4 armadas); en «Pagos por confirmar» sus notas aparecen en 384/483 pagos (antes 175). Descartado medido: combinación de notas por importe (56 %) y armar con la sugerencia (24 %).
 - [x] 🧪 `[CP.8.85]` C0 — **Pólizas de egreso sin movimiento de banco que case** (`database/scripts/egresos-sin-banco-contpaqi.js`): 717 ($76.1 M) → **527 ($31.0 M)** al reconocer que ella AGRUPA (comisiones bancarias: una póliza por banco al cierre del mes, hasta 777 renglones; combustible por semana). Para Finanzas: faltan estados de cuenta de **Santander 2169 y 1604 de mayo 2026** (159 pólizas, $12.1 M) y Bajío 3660 de abril/junio/septiembre. Resto 368 pólizas / $18.9 M sin investigar. ⚠️ Diseño del armado de gastos: comisiones por banco × MES, no × día.
+- [ ] 🔨 `[CP.8.86]` C1 — **Rediseño del armado de gastos, medido antes de escribirlo**: la cuenta 52xx la decide el PROVEEDOR (historia del RFC 93.0 %, placebo 9.0 %; por categoría no hay regla concluyente). Simulación «gasto con factura» ene–sep 2026: arma 276 de 980 egresos de gasto con **89.1 % iguales** a la contadora; el freno es el RFC (concepto sin nombre: 468). RFC por importe +91 al 75 % (sugerir, no armar). Comisiones: banco × mes. ⚠️ Falta decisión del PM: autoridad para armar por historia del RFC (¿firma por categoría «por proveedor»?).
 
 ---
 
