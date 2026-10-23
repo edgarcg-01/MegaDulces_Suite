@@ -222,6 +222,13 @@ export interface QuoteCheckLine {
   stock: { base_qty: number; base_unit: string | null; in_line_unit: number | null; line_unit: string | null } | null;
 }
 
+/** [E.29] Existencia de una sucursal por SKU (unidad BASE de Kepler). base_qty null = sin dato. */
+export interface BranchStock {
+  branch: string;
+  stock_as_of: string | null;
+  items: Array<{ sku: string; base_qty: number | null }>;
+}
+
 export interface QuoteCheck {
   quote_id: string;
   branch: string;
@@ -312,6 +319,12 @@ export class QuotesService {
   }
 
   /** `[E.27]` La cotización contra Kepler HOY: precio, pasos del descuento y existencia. No escribe. */
+  /** [E.29] Existencia de la sucursal para la bandeja del alta, antes de guardar. */
+  stock(branch: string, skus: string[]): Observable<BranchStock> {
+    const params = new HttpParams().set('branch', branch).set('skus', skus.join(','));
+    return this.http.get<BranchStock>(`${this.base}/stock`, { params });
+  }
+
   check(id: string): Observable<QuoteCheck> {
     return this.http.get<QuoteCheck>(`${this.base}/${id}/check`);
   }

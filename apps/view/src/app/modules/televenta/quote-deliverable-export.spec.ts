@@ -9,7 +9,37 @@ import {
   fechaVigencia,
   lineaControl,
   paraExcel,
+  etiquetaDescuento,
 } from './quote-deliverable-export';
+
+/** [E.29] El papel desglosa el descuento renglón por renglón, como la pantalla (captura COT-2026-00027). */
+describe('hoja de la cotización — desglose del descuento', () => {
+  const items = [
+    { sku: '04110', name: 'GALL SANDWICH JR CHOCOLATE', unit_label: 'PAQ', quantity: 7, unit_price: 24.79, list_price: 26.94, line_total: 173.53, price_source: 'Volumen' },
+    { sku: '44141', name: 'GALL CHAVALIN 560GR', unit_label: 'PAQ', quantity: 1, unit_price: 39.88, list_price: 79.75, line_total: 39.88, price_source: 'Promo por cantidad' },
+    { sku: '00001', name: 'DE LISTA', unit_label: 'PZA', quantity: 1, unit_price: 10, list_price: 10, line_total: 10, price_source: 'Lista' },
+    { sku: '00002', name: 'SIN PRECIO', unit_label: 'PZA', quantity: 1, unit_price: null, list_price: null, line_total: 0, price_source: 'Sin precio' },
+  ];
+  const base: QuoteDeliverableData = {
+    customerCode: 'C1', customerName: 'Cliente', branchCode: '01', branchName: 'Padre Hidalgo',
+    validUntil: '2026-11-07', discountPct: null, items,
+  };
+
+  it('cada renglón lleva su lista y su descuento del producto (la cuenta del servidor)', () => {
+    const m = modeloEntregable(base);
+    expect(m.filas.map((f) => [f.lista, f.dtoProducto])).toEqual([[26.94, 7.98], [79.75, 49.99], [10, 0], [null, null]]);
+    expect(m.filas.map((f) => etiquetaDescuento(f, m))).toEqual([
+      ['Volumen −7.98%'], ['Promo por cantidad −49.99%'], ['—'], ['—'],
+    ]);
+  });
+
+  it('con % del cliente, el renglón dice los dos descuentos', () => {
+    const m = modeloEntregable({ ...base, discountPct: 3 });
+    expect(etiquetaDescuento(m.filas[0], m)).toEqual(['Volumen −7.98%', 'Cliente −3%']);
+    expect(etiquetaDescuento(m.filas[2], m)).toEqual(['Cliente −3%']);
+    expect(etiquetaDescuento(m.filas[3], m)).toEqual(['—']);
+  });
+});
 
 describe('QuoteDeliverableExport — Estándares Comerciales y Entregables', () => {
   const dummyQuote: QuoteDeliverableData = {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { abrevUnidadBase, desglose, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente } from './quote-units';
+import { abrevUnidadBase, desglose, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, existenciaEnUnidad, tonoFuentePrecio } from './quote-units';
+import { pasosDelPrecio } from './quote-discount-breakdown';
 import { etiquetaDesglose } from './quote-deliverable-export';
 import type { QuoteCatalogRow } from './quotes.service';
 
@@ -132,5 +133,39 @@ describe('vendedorDelCliente', () => {
     for (const c of [null, undefined, '', '   ', '99999']) {
       expect(vendedorDelCliente(c, padron)).toBeNull();
     }
+  });
+});
+
+/** [E.29] Lo que la bandeja del alta muestra antes de guardar, igual que el detalle (captura COT-2026-00027). */
+describe('renglón antes de guardar = renglón guardado', () => {
+  it('el descuento contra lista es la cuenta del servidor: 26.94 → 24.79 = 7.98 %; 79.75 → 39.88 = 49.99 %', () => {
+    expect(descuentoDerivado(26.94, 24.79)).toBe(7.98);
+    expect(descuentoDerivado(79.75, 39.88)).toBe(49.99);
+    expect(descuentoDerivado(26.94, 26.94)).toBe(0);
+  });
+
+  it('sin lista o sin precio NO es 0 %: es null', () => {
+    for (const [l, p] of [[null, 10], [0, 10], [10, null], [undefined, 1]] as const) expect(descuentoDerivado(l, p)).toBeNull();
+  });
+
+  it('la existencia en la unidad del renglón y lo que falta (60 base en PAQ de 10, piden 7: hay 6, faltan 1)', () => {
+    expect(existenciaEnUnidad(60, 10, 7)).toEqual({ cantidad: 6, faltan: 1 });
+    expect(existenciaEnUnidad(170, 10, 1)).toEqual({ cantidad: 17, faltan: 0 });
+    expect(existenciaEnUnidad(0, 10, 3)).toEqual({ cantidad: 0, faltan: 3 });
+    expect(existenciaEnUnidad(5, null, 2)).toEqual({ cantidad: 5, faltan: 0 });
+  });
+
+  it('los pasos del precio: lista → volumen; un solo paso no se explica', () => {
+    const f = (n: number) => '$' + n.toFixed(2);
+    expect(pasosDelPrecio([{ step: 'lista', after: 26.94 }, { step: 'volumen', after: 24.79 }], f)).toBe('lista $26.94 → volumen $24.79');
+    expect(pasosDelPrecio([{ step: 'lista', after: 79.75 }, { step: 'promo_cantidad', after: 39.88 }], f)).toBe('lista $79.75 → promoción $39.88');
+    expect(pasosDelPrecio([{ step: 'lista', after: 10 }], f)).toBe('');
+    expect(pasosDelPrecio([{ step: 'lista', after: 10 }, { step: 'volumen', after: null }], f)).toBe('');
+  });
+
+  it('el tono de la etiqueta: desconocida = secundaria', () => {
+    expect(tonoFuentePrecio('volume_qty')).toBe('info');
+    expect(tonoFuentePrecio('promo_qty')).toBe('success');
+    expect(tonoFuentePrecio('algo')).toBe('secondary');
   });
 });
