@@ -15,6 +15,35 @@ export interface HelpResolveBlock { heading: string; kind?: 'fix' | 'info'; intr
 export interface HelpTopic { title: string; intro?: string; groups?: HelpGroup[]; resolve?: HelpResolveBlock[]; }
 
 export const CONTEXT_HELP: Record<string, HelpTopic> = {
+  // `[AB.28]` La mesa de Autoabasto (`/almacen/autoabasto`). La lee el almacenista y el encargado de
+  // sucursal: palabra llana, nada de nombres de columna. Cada definición está anclada a la cuenta real
+  // (`armarRenglon` en libs/contracts y FASE_AB §16.8), no a lo que la etiqueta sugiere.
+  'almacen-autoabasto': {
+    title: 'Autoabasto — qué le falta a tu almacén',
+    intro: 'La mesa muestra, producto por producto, cuánto le falta a tu almacén para llegar a su objetivo, qué parte ya viene en camino y a quién se le pide. Es la misma cuenta que «Mi pedido»: las dos pantallas no pueden dar cifras distintas del mismo producto.',
+    groups: [
+      {
+        heading: 'Las columnas',
+        entries: [
+          { term: 'Objetivo', def: 'Lo que el almacén debería tener: la venta diaria del producto por los días de cobertura del almacén (21 en sucursales, 30 en matrices y CEDIS), ajustada por temporada.' },
+          { term: 'Falta', def: 'Objetivo menos existencia. Es lo que falta antes de contar lo que ya viene en camino.' },
+          { term: 'Ya viene', def: 'Lo que ya está pedido a tu matriz (pedido abierto de 7 días o menos) más lo que ya se embarcó y todavía no recibes. Se resta de lo que falta.' },
+          { term: 'Falta neta', def: 'Lo que falta después de restar lo que ya viene. Es lo que de verdad hay que pedir.' },
+          { term: 'Surte', def: 'A quién se le pide este producto: tu matriz (traspaso) o el proveedor (compra), según el canal configurado. «Sin ruta» quiere decir que no hay canal: no se sabe a quién pedírselo.' },
+          { term: 'Posición', def: 'Dónde está la existencia contra la política del almacén: agotado, bajo mínimo, bajo reorden, sano o sobrestock. Decide qué tan urgente es.' },
+        ],
+      },
+      {
+        heading: 'Los estados',
+        entries: [
+          { term: 'Nadie lo ha pedido', def: 'Le falta y no hay pedido abierto, ni embarque en camino, ni plan de Compras. Es lo primero que hay que revisar.' },
+          { term: 'Compras lo planeó', def: 'Le falta y Compras ya lo planeó en su pedido general, pero todavía no es un pedido en Kepler. No se resta: mientras no esté en Kepler, la matriz no lo surte.' },
+          { term: 'Estado «Ya viene»', def: 'Lo que ya está pedido o en camino cubre todo lo que falta. No hay que hacer nada más que recibirlo.' },
+          { term: 'Valor sin medir', def: 'Cuando el costo de compra de un producto no cuadra con su unidad, su valor no se suma: se cuenta aparte. Las cantidades sí son válidas.' },
+        ],
+      },
+    ],
+  },
   // `[PR.V4]` El motor habla con siete verbos y cinco grados de certeza, y ninguno es obvio.
   // Siete roles lo leen (compras, finanzas, marketing, direccion, gerente_compras y dos mas) y
   // ninguno es tecnico, asi que el registro de TODO este topico es palabra llana: nada de

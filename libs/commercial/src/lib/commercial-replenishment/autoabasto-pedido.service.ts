@@ -489,7 +489,7 @@ export class AutoabastoPedidoService {
    */
   async renglones(
     almacen: Almacen, area: string,
-    q: FiltroMesa & { sort_by?: OrdenMesa; sort_dir?: 'asc' | 'desc'; page?: number; pageSize?: number },
+    q: FiltroMesa & { sort_by?: OrdenMesa; sort_dir?: 'asc' | 'desc'; page?: number; pageSize?: number; todos?: boolean },
   ): Promise<AutoabastoRenglonesResponse> {
     const { renglones, medidos } = await this.armarAlmacen(almacen, area);
     const todos: AutoabastoMesaRenglon[] = renglones.map(({ fila: f, linea }) => ({
@@ -505,11 +505,13 @@ export class AutoabastoPedidoService {
         cadence_days: numONull(f['cadence_days']),
         abc_class: f['abc_class'] == null ? null : String(f['abc_class']),
         rung_veredicto: f['rung_veredicto'] == null ? null : String(f['rung_veredicto']),
+        sales_rank: numONull(f['sales_rank']),
       },
     }));
     const lista = ordenarRenglones(filtrarRenglones(todos, q), q.sort_by ?? 'lectura', q.sort_dir ?? 'desc');
-    const pageSize = Math.min(500, Math.max(1, Math.floor(Number(q.pageSize) || 50)));
-    const page = Math.max(1, Math.floor(Number(q.page) || 1));
+    // `todos` = el papel: el almacén completo con el filtro, sin paginar (ya se armó entero de todos modos).
+    const pageSize = q.todos ? Math.max(1, lista.length) : Math.min(500, Math.max(1, Math.floor(Number(q.pageSize) || 50)));
+    const page = q.todos ? 1 : Math.max(1, Math.floor(Number(q.page) || 1));
     const ahora = new Date();
     return {
       almacen,

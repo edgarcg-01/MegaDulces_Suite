@@ -20,6 +20,8 @@ export interface AutoabastoRenglonesQuery {
   sort_dir?: 'asc' | 'desc';
   page?: number;
   pageSize?: number;
+  /** El PDF: el almacén completo con el filtro, sin paginar. */
+  todos?: 1;
 }
 
 /**

@@ -34,6 +34,12 @@ export interface DiagnosticoRenglon {
   abc_class: string | null;
   /** Veredicto del peldaño cuando el $ viene retenido. `null` = nada impide valuar. */
   rung_veredicto: string | null;
+  /**
+   * Lugar del producto por venta en $ dentro del almacén (#1 = el que más vende). **`null` = no vendió
+   * en el periodo medido.** Es la señal de «sin venta» confiable: la venta diaria llega redondeada en
+   * cajas y una venta chica sale 0.00 (medido en Padre Hidalgo, AB.13: 1,440 contra 1,011 reales).
+   */
+  sales_rank: number | null;
 }
 
 export interface AutoabastoMesaRenglon extends AutoabastoPedidoLinea {
