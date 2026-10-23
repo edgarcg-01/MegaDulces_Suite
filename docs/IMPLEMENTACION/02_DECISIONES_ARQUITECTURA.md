@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 409 KB, 3200 líneas, 99 secciones.
+> **Índice navegable** — 409 KB, 3203 líneas, 99 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -104,8 +104,8 @@
 | 3090 | 3118 | 2 | ADR-098 — Las aplicaciones de Kepler se leen VIGENTES desde una sola vista, y una compuerta impide leer `kdm5` |
 | 3119 | 3157 | 20 | ADRs vigentes (resumen) |
 | 3158 | 3205 | 3 | ADR-099 — Enlazar un papel a una entrada es ESCRIBIR: se busca con el alcance de captura, y el folio del prove |
-| 3206 | 3268 | 3 | ADR-100 — El pedido de traspaso de una sucursal lo decide Compras; la sucursal ve su mesa y marca excepciones |
-| 3271 | 3311 | 21 | ADRs vigentes (resumen) |
+| 3206 | 3271 | 4 | ADR-100 — El pedido de traspaso de una sucursal lo decide Compras; la sucursal ve su mesa y marca excepciones |
+| 3274 | 3314 | 21 | ADRs vigentes (resumen) |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -3227,8 +3227,11 @@ mientras «Mi pedido» usaba el canal configurado.
 ### La decisión
 
 1. **Compras decide** el pedido de traspaso de cada sucursal, en el pedido general.
-2. **La sucursal no arma pedido.** Ve **sólo su mesa** (un almacén) y lo que le llega, y si algo le
-   falta y nadie lo planeó, **marca una excepción** con cantidad y motivo que le llega a Compras.
+2. **La sucursal no arma el pedido de rutina.** Ve **sólo su mesa** (un almacén) y lo que le llega. Si
+   necesita algo que nadie planeó, **genera una requisición** desde una mini pantalla tipo «Mi pedido»
+   (prellenada con el mismo motor, restando lo que ya viene y lo que Compras ya planeó) y **Compras la
+   aprueba o la rechaza** — sigue siendo quien decide. Reusa `insertRequisition()`, su bandeja y la
+   escalera `AUTOABASTO_SOLICITAR` / `_AUTORIZAR` / `_EXCEDER_TOPE` (`[AB.29]`).
 3. **Una sola cuenta del renglón** (falta, ya viene, falta neta, surte, estado) en el servidor, con su
    tipo en `libs/contracts`; la mesa y «Lo que te llega» la consumen. Ninguna pantalla recalcula.
 4. **Lo planeado por Compras se resta sólo cuando ya está en Kepler.** Antes se muestra y no se
@@ -3238,7 +3241,7 @@ mientras «Mi pedido» usaba el canal configurado.
 
 - **El pedido de la tienda en Kepler sigue** mientras el envío a Kepler (Fase KR) esté apagado: sin
   el `U-D-40` la matriz no surte. Apagarlo antes deja sucursales sin mercancía.
-- Las tablas de AB.18 se reusan: el ajuste con motivo pasa a significar excepción.
+- Las tablas de AB.18 se reusan como borrador de la requisición de la sucursal.
 
 ### Riesgo con nombre
 
@@ -3307,4 +3310,4 @@ esta decisión se revisa con la cifra.
 
 - **ADR-095** ⏳ 2026-10-19 — **Que ES cada documento de venta de Kepler es un dato NUESTRO, con el universo tomado del ERP** (Fase VEC): la clase vive en una tabla propia porque el ERP no la trae (probado: las banderas de kdmm NO distinguen contado de credito, y una de ellas difiere entre sucursales); el universo sale de kdmm, asi que un tipo nuevo aparece solo como sin_clasificar; cinco clases y ninguna es «otros»; lo que nadie clasifico se DECLARA con su importe. ⚠️ Cada clase exige su MEDICION: UD0601 «Factura global» ($116 M) se habia marcado espejo por el nombre.
 
-- **ADR-100** ✅ 2026-10-23 — **El pedido de traspaso de una sucursal lo decide Compras; la sucursal ve SÓLO su mesa y marca excepciones** (Fase AB §16). El mismo pedido se decidía en tres lugares (Compras: 675 traspasos en 30 días, **0** en Kepler · «Mi pedido»: 22 de 23 eventos de Dirección · la tienda en Kepler: casi a diario) y sólo el último surtía. Una sola cuenta del renglón en el servidor (tipo en `libs/contracts`) para la mesa y «Lo que te llega»; lo planeado por Compras se resta sólo cuando ya está en Kepler. ⛔ El pedido de la tienda en Kepler **no se apaga** hasta encender KR. Riesgo con nombre: el plan de Compras coincide con lo que piden las tiendas en 11.8 % (placebo 8.1 %) → `[AB.25]` mide la cobertura antes de apagar nada.
+- **ADR-100** ✅ 2026-10-23 — **El pedido de traspaso de una sucursal lo decide Compras; la sucursal ve SÓLO su mesa y, si lo necesita, genera una requisición que Compras aprueba** (Fase AB §16). El mismo pedido se decidía en tres lugares (Compras: 675 traspasos en 30 días, **0** en Kepler · «Mi pedido»: 22 de 23 eventos de Dirección · la tienda en Kepler: casi a diario) y sólo el último surtía. Una sola cuenta del renglón en el servidor (tipo en `libs/contracts`) para la mesa y «Lo que te llega»; lo planeado por Compras se resta sólo cuando ya está en Kepler. ⛔ El pedido de la tienda en Kepler **no se apaga** hasta encender KR. Riesgo con nombre: el plan de Compras coincide con lo que piden las tiendas en 11.8 % (placebo 8.1 %) → `[AB.25]` mide la cobertura antes de apagar nada.
