@@ -1127,3 +1127,56 @@ describe('[RA-NEG.2] el desglose compacto: qué hacer, en pocas palabras', () =>
     expect(c.unidadModo(fila())).toBe(1);
   });
 });
+
+/**
+ * `[PQ.5]` El CUÁNDO, enfrente del Pedido. La pestaña Ciclo lo contestaba desde RA-CICLO.1 y
+ * nadie entraba (7 hits en 30 d contra 3,734 de Pedido, 637 canales de compra vencidos el
+ * 2026-10-23). El aviso vive en Pedido y lleva al Ciclo. Lo que NO puede hacer: dibujar
+ * «hoy no toca nadie» sobre una consulta rota (ADR-056).
+ */
+describe('[PQ.5] «hoy te toca pedirle a…» en la pestaña Pedido', () => {
+  const CICLO = { total: 1049, vencidos: 637, hoy: 24, prox7: 89, prov_vencidos: 180, prov_hoy: 12, page: 1, pageSize: 1, rows: [] };
+
+  it('con vencidos, el aviso nombra proveedores y canales, y marca urgencia', () => {
+    const fix = montar(VACIO, CICLO);
+    const c = fix.componentInstance;
+    expect(c.mode()).toBe('pedido');
+    expect(c.cicloAviso()?.vencidos).toBe(637);
+    expect(c.cicloAvisoProveedores(c.cicloAviso()!)).toBe('192 proveedores');
+    const t = fix.nativeElement.textContent as string;
+    expect(t).toContain('Hoy te toca pedirle a 192 proveedores');
+    expect(t).toContain('637 canales vencidos');
+    expect(fix.nativeElement.querySelector('.pr-ciclo-urge')).not.toBeNull();
+  });
+
+  it('⛔ si la consulta FALLA dice «no se pudo medir», nunca «no toca nadie»', () => {
+    const fix = montar(VACIO, 'error');
+    expect(fix.componentInstance.cicloAvisoError()).toBe(true);
+    expect(fix.componentInstance.cicloAviso()).toBeNull();
+    const t = fix.nativeElement.textContent as string;
+    expect(t).toContain('no se pudo medir');
+    expect(t).not.toContain('no le toca pedir a nadie');
+  });
+
+  it('cero vencidos y cero hoy es un cero MEDIDO: lo dice, con lo que viene', () => {
+    const fix = montar(VACIO, { ...CICLO, vencidos: 0, hoy: 0, prov_vencidos: 0, prov_hoy: 0, prox7: 4 });
+    const t = fix.nativeElement.textContent as string;
+    expect(t).toContain('Hoy no le toca pedir a nadie');
+    expect(t).toContain('4 canales tocan');
+    expect(fix.nativeElement.querySelector('.pr-ciclo-urge')).toBeNull();
+  });
+
+  it('NEGATIVA: un servidor sin proveedores no inventa el N — habla en canales', () => {
+    const c = montar(VACIO, { total: 10, vencidos: 3, hoy: 1, prox7: 2, page: 1, pageSize: 1, rows: [] }).componentInstance;
+    expect(c.cicloAviso()?.prov_vencidos).toBeNull();
+    expect(c.cicloAvisoProveedores(c.cicloAviso()!)).toBe('4 canal(es)');
+  });
+
+  it('«Ver el ciclo» lleva a la pestaña Ciclo', () => {
+    const fix = montar(VACIO, CICLO);
+    const btn = Array.from(fix.nativeElement.querySelectorAll('button')).find((b) => (b as HTMLElement).textContent?.includes('Ver el ciclo')) as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    btn.click();
+    expect(fix.componentInstance.mode()).toBe('ciclo');
+  });
+});

@@ -210,6 +210,32 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
       @if (mode()==='pedido') {
         <!-- RA-PRO.32.3 — PEDIDO unificado: workbook por SKU + desglose por sucursal (compra/traspaso/sobre) en el acordeón -->
         <app-metric-strip [items]="pedidoKpi()" ariaLabel="Resumen del pedido" />
+        <!-- [PQ.5] El CUÁNDO, enfrente. La pestaña Ciclo lo contesta desde [RA-CICLO.1] y nadie
+             entra por ahí: 7 hits en 30 d contra 3,734 de Pedido, con 637 canales de compra
+             vencidos (medido 2026-10-23). Si la consulta falla se dice «no se pudo medir»:
+             un «hoy no toca nadie» sobre una consulta rota afirma lo contrario de lo que pasa. -->
+        @if (cicloAvisoError()) {
+          <div class="pr-borrador pr-ciclo" role="status">
+            <i class="pi pi-calendar" aria-hidden="true"></i>
+            <p>El ciclo de hoy <strong>no se pudo medir</strong>: no se sabe a quién le toca pedir.
+              <span class="pr-borrador-sub">Reintentá desde la pestaña Ciclo.</span></p>
+            <button type="button" class="pr-zlink" (click)="setMode('ciclo')">Ver el ciclo</button>
+          </div>
+        } @else if (cicloAviso(); as a) {
+          <div class="pr-borrador pr-ciclo" [class.pr-ciclo-urge]="a.vencidos > 0" role="status">
+            <i class="pi pi-calendar" aria-hidden="true"></i>
+            @if (a.vencidos + a.hoy > 0) {
+              <p>Hoy te toca pedirle a <strong>{{ cicloAvisoProveedores(a) }}</strong>:
+                <strong>{{ a.vencidos | number }}</strong> {{ a.vencidos === 1 ? 'canal vencido' : 'canales vencidos' }}
+                · <strong>{{ a.hoy | number }}</strong> {{ a.hoy === 1 ? 'toca hoy' : 'tocan hoy' }}
+                · {{ a.prox7 | number }} en los próximos 7 días.
+                <span class="pr-borrador-sub">Un canal es un proveedor en una sucursal.</span></p>
+            } @else {
+              <p>Hoy no le toca pedir a nadie. <strong>{{ a.prox7 | number }}</strong> {{ a.prox7 === 1 ? 'canal toca' : 'canales tocan' }} en los próximos 7 días.</p>
+            }
+            <button type="button" class="pr-zlink" (click)="setMode('ciclo')">Ver el ciclo</button>
+          </div>
+        }
         <!-- [RA-BORR.2] Lo recuperado se DICE, con su hora y con salida. Restaurar en silencio es
              peor que no restaurar: el comprador armaría sobre números que no escribió hoy. -->
         @if (borradorRecuperado(); as b) {
@@ -1857,6 +1883,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-borrador p { margin: 0; flex: 1; color: var(--text-main); }
     .pr-borrador i { color: var(--action); }
     .pr-borrador-sub { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
+    /* [PQ.5] El aviso del ciclo: mismo molde que el borrador; con vencidos, el filete avisa. */
+    .pr-ciclo-urge { border-left-color: var(--bad-fg); }
+    .pr-ciclo-urge i { color: var(--bad-fg); }
     /* RA-PEND.2 — lo que impide generar, arriba del boton apagado. */
     .pr-plan-stop { margin: .6rem 0 0; padding: .55rem .7rem; border: 1px solid var(--bad-border);
       border-radius: var(--r-sm, 8px); background: var(--bad-bg, transparent); color: var(--bad-fg); font-size: var(--fs-sm); }
@@ -4261,6 +4290,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     // medidos contra prod) y después se cruza en memoria al cambiar de proveedor: pedirla en cada
     // cambio de filtro sería un viaje por clic para un dato que se mueve una vez al día.
     this.cargarDeuda();
+    this.cargarAvisoCiclo();
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (f) => this.filters.set(f),
       error: (e) => this.toast.add({
@@ -5187,6 +5217,31 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         this.wlKpiRaw.set({ total: Number(r.total) || 0, vencidos: Number(r.vencidos) || 0, hoy: Number(r.hoy) || 0, prox7: Number(r.prox7) || 0 });
         this.loadedAt.set(Date.now());
       });
+  }
+
+  // ── `[PQ.5]` El CUÁNDO, enfrente del Pedido ───────────────────────────────────────────
+  /** Los agregados del ciclo de COMPRA, sin filas: una llamada al abrir, no una por filtro. `null` = todavía no se midió. */
+  readonly cicloAviso = signal<{ vencidos: number; hoy: number; prox7: number; prov_vencidos: number | null; prov_hoy: number | null } | null>(null);
+  readonly cicloAvisoError = signal(false);
+  cargarAvisoCiclo(): void {
+    this.cicloAvisoError.set(false);
+    this.api.worklist({ via: 'purchase', pageSize: 1 })
+      .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((r) => {
+        if (!r) { this.cicloAviso.set(null); this.cicloAvisoError.set(true); return; }
+        this.cicloAviso.set({
+          vencidos: Number(r.vencidos) || 0, hoy: Number(r.hoy) || 0, prox7: Number(r.prox7) || 0,
+          // Un servidor anterior a PQ.5 no manda proveedores: se declara, no se cuenta como 0.
+          prov_vencidos: r.prov_vencidos == null ? null : Number(r.prov_vencidos),
+          prov_hoy: r.prov_hoy == null ? null : Number(r.prov_hoy),
+        });
+      });
+  }
+  /** «N proveedores» cuando el servidor los cuenta; si no, se dice en canales y no se inventa el N. */
+  cicloAvisoProveedores(a: { vencidos: number; hoy: number; prov_vencidos: number | null; prov_hoy: number | null }): string {
+    if (a.prov_vencidos == null || a.prov_hoy == null) return `${a.vencidos + a.hoy} canal(es)`;
+    const n = a.prov_vencidos + a.prov_hoy;
+    return n === 1 ? '1 proveedor' : `${n} proveedores`;
   }
 
   /** `days_to_due` viene del servidor: <0 vencido · 0 hoy · >0 falta. */

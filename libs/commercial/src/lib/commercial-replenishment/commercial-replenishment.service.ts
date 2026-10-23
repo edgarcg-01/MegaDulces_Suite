@@ -3449,12 +3449,18 @@ export class CommercialReplenishmentService {
                count(*) FILTER (WHERE rc.next_due_date < CURRENT_DATE)::int vencidos,
                count(*) FILTER (WHERE rc.next_due_date = CURRENT_DATE)::int hoy,
                count(*) FILTER (WHERE rc.next_due_date > CURRENT_DATE AND rc.next_due_date <= CURRENT_DATE + 7)::int prox7,
+               -- [PQ.5] El comprador piensa en PROVEEDORES, no en canales (proveedor × sucursal):
+               -- medido el 2026-10-23, 1,049 canales de compra para 301 proveedores. El aviso de
+               -- Pedido dice «te toca pedirle a N proveedores», y ese N es éste.
+               count(DISTINCT rc.supplier_id) FILTER (WHERE rc.next_due_date < CURRENT_DATE)::int prov_vencidos,
+               count(DISTINCT rc.supplier_id) FILTER (WHERE rc.next_due_date = CURRENT_DATE)::int prov_hoy,
                COALESCE(SUM(rc.cadence_days),0) AS _dummy
           FROM commercial.replenishment_channel rc
           LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
          WHERE ${where}`, binds)).rows[0];
 
-      return { total: Number(kpi.total), vencidos: Number(kpi.vencidos), hoy: Number(kpi.hoy), prox7: Number(kpi.prox7), page, pageSize, rows };
+      return { total: Number(kpi.total), vencidos: Number(kpi.vencidos), hoy: Number(kpi.hoy), prox7: Number(kpi.prox7),
+        prov_vencidos: Number(kpi.prov_vencidos), prov_hoy: Number(kpi.prov_hoy), page, pageSize, rows };
     });
   }
 
