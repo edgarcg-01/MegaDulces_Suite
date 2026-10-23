@@ -241,8 +241,102 @@ veredicto por renglón.
 
 ---
 
+## 11. Resultados de M2 y M1 — medidos el 2026-10-23
+
+> `pg-prod`, `system_identifier 7688376744939610156`, sólo lectura. Scripts:
+> [`pq-m2-cuadre-requisicion-kepler.js`](../../../database/scripts/pq-m2-cuadre-requisicion-kepler.js) ·
+> [`pq-m1-comprador-vs-sugerido.js`](../../../database/scripts/pq-m1-comprador-vs-sugerido.js).
+> Los dos arrancan con un control cuya respuesta se conocía: M2 reencuentra los pares del 16-oct
+> (`RQ-2026-00760/00774 → 00/XA3501/0007134`, `00792/00802 → 0007137`); M1 da «llegó» en el
+> **85.1 %** de los renglones de requisiciones `received` (la primera versión daba 9 % y se tiró).
+
+### 11.1 M2 — ¿nuestra requisición es idéntica a la de Kepler?
+
+Universo: 863 requisiciones `approved/ordered/received` de 120 días (202 compras · 661 traspasos).
+Ventana real `[f, f+15]`, placebo `[f−30, f−15]`.
+
+| prueba | compra real | compra placebo | traspaso real | traspaso placebo |
+|---|---:|---:|---:|---:|
+| hay documento del mismo proveedor/destino y sucursal | 125 (61.9 %) | 79 (39.1 %) | 658 (99.5 %) | 609 (92.1 %) |
+| …con al menos un SKU de la requisición | 124 (61.4 %) | 77 (38.1 %) | 296 (44.8 %) | 242 (36.6 %) |
+| …y el **total cuadra** (±0.5 %) | **16 (7.9 %)** | **0** | 3 (0.5 %) | 0 |
+
+**Columna por columna** (compra: 124 pares, 1,191 renglones comunes por $12.44 M · traspaso: 296
+pares, 1,020 renglones por $4.65 M):
+
+| columna | compra | traspaso |
+|---|---:|---:|
+| proveedor / destino · sucursal | 100 % (por construcción) | 100 % |
+| fecha = mismo día (≤3 d) | 103/124 (118) | 25/296 (107) |
+| total del documento | 16/124 | 3/296 |
+| mismo conjunto de SKUs | 84/124 | 17/296 |
+| importe del renglón | 631/1,191 (53.0 %) | 628/1,020 (61.6 %) |
+| cantidad cruda (cajas = unidad Kepler) | 20 (1.7 %) | 11 (1.1 %) |
+| **cantidad vía `c58`** (cajas × unidades por caja) | 655 (55.0 %) | 672 (65.9 %) |
+| costo crudo | 29 (2.4 %) | 10 (1.0 %) |
+| **costo vía `c58`** (costo caja ÷ unidades por caja) | **1,062 (89.2 %)** | **939 (92.1 %)** |
+
+| causa por renglón común | compra | traspaso |
+|---|---:|---:|
+| cuadra vía `c58` (cantidad, costo e importe) | 49.2 % | 61.4 % |
+| **cantidad cambiada** (costo cuadra, cantidad no) | **38.3 %** | **30.5 %** |
+| costo movido (cantidad cuadra, costo no) | 4.1 % | 4.3 % |
+| ambos difieren | 4.9 % | 3.6 % |
+| sin factor `c58` | 1.9 % | 0 % |
+
+**Lo que contesta, en una línea:** *no hay dato inventado en el costo.* El costo que la Suite
+escribe en el renglón es el de Kepler en el **89–92 %** de los renglones comunes, reconciliado por
+la escalera de unidades (`c58`), y el importe cuadra al centavo cuando cuadra la cantidad. **Lo que
+cambia es la cantidad** (38 % en compra, 31 % en traspaso): el comprador escribe otra en Kepler.
+Y lo que la Suite pidió y Kepler **no trae**: 137 renglones de compra ($1.11 M) y 830 de traspaso
+($5.78 M). Eso no es «inventado»: es **no ejecutado**, y coincide con las 680 aprobadas sin salida.
+
+⚠️ **Traspasos: el 54.8 % (362) no tiene ningún `U-D-40` con sus SKUs en 15 días.** Es la misma
+cifra vista desde el ERP: lo aprobado en la Suite no se vuelve documento. Un `U-D-41` directo sin
+`U-D-40` no se buscó (medido el 16-oct: 92.8 % de los embarques sí nacen de un `U-D-40`).
+
+### 11.2 M1 — ¿el comprador mejora, repite o empeora el sugerido?
+
+Instrumento: ventana = cadencia del canal (7–30 d; 14 d sin canal); «llegó» por documento del ERP
+(`X-A-40` compra, `U-A-50` traspaso) en `analytics.stock_movements`; desenlace por la foto de
+existencia al cierre de la ventana (`stock_snapshots`); sobrestock = más de 45 días de cobertura.
+
+| motivo por el que un renglón queda **sin medir** | renglones |
+|---|---:|
+| ventana todavía incompleta (fotos desde el 24-sep, 28 días) | 3,855 (76.6 %) |
+| almacén sin foto de existencia: **el CEDIS tiene 196 SKUs fotografiados** | 1,132 (22.5 %) |
+| no llegó mercancía en la ventana | 43 |
+
+| grupo | renglones | agotado al pedir (con foto) | **llegó** (documento ERP) |
+|---|---:|---:|---:|
+| igual (control: el comprador no tocó el sugerido) | 1,679 | 37.7 % | **25.8 %** |
+| subió | 981 | 25.8 % | 46.0 % |
+| bajó | 38 | 20.0 % | 52.6 % |
+
+Desenlace sobre 1,566 renglones medidos: en el control, **75.3 % no llegó**; de lo que llegó,
+sobrestock 9.5 % · sano 11.5 % · agotado al cierre 0.5 %. En «subió» (66): no llegó 63.6 %,
+agotado al cierre 7.6 %, sobrestock 4.5 %, sano 24.2 %.
+
+**Veredicto de la corrección: 28 renglones juzgables** (24 subieron: mejor 45.8 % · normal 41.7 %
+· peor 12.5 %, Δ $54,976; 4 bajaron: normal 100 %). ⛔ **Es muestra chica y se declara: NO MEDIDO
+a escala.** El instrumento funciona (control 85 %); el universo no alcanza porque las fotos tienen
+28 días, el CEDIS no está fotografiado y 3 de 4 pedidos del control nunca llegaron.
+
+**Lo que sí quedó medido y pesa más que el veredicto:** el hallazgo 1 visto desde el inventario.
+**Tres de cada cuatro renglones aprobados sin corrección no tuvieron entrada en el ERP dentro de su
+ventana**, y los corregidos hacia arriba llegaron el doble (46 % contra 26 %): el comprador sube la
+cantidad en lo que después sí ejecuta. Mientras lo aprobado no salga (F1), M1 no puede separar
+«decidió mal» de «nunca se pidió».
+
+**Qué falta para cerrar M1:** (a) fotos de existencia del CEDIS (hoy 196 SKUs: hueco de `[IC]`,
+no de esta fase); (b) 60–90 días más de fotos; (c) re-correr con `--detalle` por comprador y
+proveedor cuando haya ≥20 renglones juzgados por fila.
+
+---
+
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-23 | Auditoría del flujo (nivel B+C), jerarquía, agenda medida, M1/M2 definidas, doc creado en ⬜. Consultas en el scratchpad de la sesión; cifras en §1 | sesión Claude + PM |
+| 2026-10-23 | «Hagámoslo»: M2 y M1 corridas contra prod con sus scripts y controles (§11). M2 🧪: el costo es el de Kepler (89–92 % vía `c58`), cambia la cantidad; M1 🧪 instrumento con control pero **28 renglones juzgables: NO MEDIDO a escala**. Dos defectos del instrumento tirados por el control (foto como árbitro de «llegó»; CEDIS sin foto leído como cero) | sesión Claude + PM |

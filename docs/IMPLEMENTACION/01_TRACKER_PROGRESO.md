@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1931 KB, 12498 líneas, 72 secciones.
+> **Índice navegable** — 1933 KB, 12498 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -22,7 +22,7 @@
 | 3831 | 3893 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
 | 3894 | 3966 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
 | 3967 | 4018 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 4019 | 4718 | 64 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 4019 | 4718 | 66 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
 | 4719 | 4732 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
 | 4733 | 4757 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
 | 4758 | 4780 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
@@ -4424,7 +4424,7 @@ cerrados con `validated_by = 'Claude Vision'`.
 > en curso y cupo 4/4: queda ⬜. **M1 y M2 son medición sin código y no ocupan cupo: van primero.**
 > Decisiones D1–D7 en el plan, sin firmar.
 
-- [ ] **[PQ.M2]** ⬜ **Se sabe, columna por columna, si nuestra requisición es idéntica al documento de Kepler** — 2026-10-23.
+- [x] **[PQ.M2]** 🧪 **Se sabe, columna por columna, si nuestra requisición es idéntica al documento de Kepler** — 2026-10-23. **Medido el mismo día** (`database/scripts/pq-m2-cuadre-requisicion-kepler.js`, prod sólo lectura, 863 requisiciones de 120 d: 202 compras · 661 traspasos; resultado completo en el plan §11.1). **No hay dato inventado en el costo:** cuadra con Kepler en **1,062 de 1,191** renglones de compra (89.2 %) y **939 de 1,020** de traspaso (92.1 %), reconciliado por `c58`; el importe al centavo cuando cuadra la cantidad. **Lo que cambia es la cantidad**: 38.3 % (compra) y 30.5 % (traspaso). Placebo: total cuadra **16 contra 0**. Control: reencuentra los pares del 16-oct. ⚠️ Lo que la Suite pidió y Kepler no trae: 137 renglones de compra ($1.11 M) y 830 de traspaso ($5.78 M) — no inventado, **no ejecutado**; 362 traspasos (54.8 %) sin ningún `U-D-40` con sus SKUs. ⛔ **NO MEDIDO:** que la pantalla no rotule los derivados (fill rate, colchón, ABC, «pendiente», IAD) como dato del ERP — nivel C, a mano. Falta eso para ✅.
   **Para:** gerente_compras, Dirección · **Por qué:** sin esto no se puede afirmar que la Suite no publica dato inventado; hoy el cruce es de 6 pares / 37 renglones (16-oct)
   **Capa:** C0 (medición, sólo lectura) · **Depende de:** nada
   **Criterios:**
@@ -4433,7 +4433,7 @@ cerrados con `validated_by = 'Claude Vision'`.
   - Dado un almacén sin réplica (`08`) o sin documento del proveedor, entonces `sin documento` / `sin réplica`, nunca «no cuadra».
   - Dado un campo que la Suite publica y Kepler no tiene (fill rate, colchón, ABC, «pendiente», IAD), entonces queda listado como **derivado nuestro** y se verifica que la pantalla no lo rotule como dato del ERP.
   **Verificado contra:** `kepler_ods` `kdm1`/`kdm2` de las 8 réplicas, mismo grano (documento × renglón). **¿Escribe?** no. **No incluye:** corregir nada; sólo medir.
-- [ ] **[PQ.M1]** ⬜ **Cada corrección del comprador al sugerido tiene veredicto: mejor, normal o peor** — 2026-10-23.
+- [ ] **[PQ.M1]** 🧪 **Cada corrección del comprador al sugerido tiene veredicto: mejor, normal o peor** — 2026-10-23. **Instrumento construido y controlado, veredicto NO MEDIDO a escala** (`database/scripts/pq-m1-comprador-vs-sugerido.js`; plan §11.2). «Llegó» por documento del ERP (`X-A-40` / `U-A-50` en `stock_movements`): control sobre requisiciones `received` = **85.1 %** (la primera versión, con la foto como árbitro, dio 9 % y se tiró; la segunda leía el CEDIS ausente como cero — tiene **196 SKUs** fotografiados — y se tiró). Desenlace por `stock_snapshots` al cierre de la ventana (cadencia 7–30 d). **Sólo 28 renglones juzgables** (24 subieron: mejor 45.8 % · normal 41.7 % · peor 12.5 %): fotos de 28 días, CEDIS sin foto (1,132 renglones) y ventanas incompletas (3,855). ⭐ **Lo que sí quedó medido:** en el control (1,679 renglones sin corrección) **sólo el 25.8 % tuvo entrada en el ERP dentro de su ventana**; los corregidos hacia arriba llegaron el 46 %. Mientras lo aprobado no salga (F1), no se puede separar «decidió mal» de «nunca se pidió». Re-correr con 60–90 d de fotos y con el CEDIS fotografiado (hueco de `[IC]`).
   **Para:** gerente_compras, Dirección · **Por qué:** 2,726 de 7,111 renglones en 30 d subieron el sugerido y 273 lo bajaron; nadie sabe si tenían razón. Gobierna D6 y cualquier cambio al motor
   **Capa:** C0 (medición, sólo lectura) · **Depende de:** nada
   **Criterios:**
