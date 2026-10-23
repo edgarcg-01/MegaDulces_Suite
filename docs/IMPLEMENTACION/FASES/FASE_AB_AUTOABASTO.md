@@ -1320,10 +1320,10 @@ su camino. El controlador promete «dos audiencias, un solo número»; eso se cu
 Consecuencia: para el mismo producto la mesa puede decir «Comprar 12 cajas» mientras «Mi pedido» dice
 «ya viene, no pidas».
 
-Y por encima de las dos pantallas, **el pedido de una sucursal se decide hoy en tres lugares y sólo uno
-se ejecuta**: Compras lo planea en `/compras/pedido` (675 traspasos vivos en 30 días, **0** llegaron a
-Kepler), «Mi pedido» lo sugiere (nadie de tienda lo usa, §16.3) y la tienda lo captura en Kepler
-(`U-D-40`), que es lo único que hace que la matriz surta.
+Y por encima de las dos pantallas, **el pedido de una sucursal se decide hoy en tres lugares**: Compras lo planea en `/compras/pedido`, «Mi pedido» lo sugiere (nadie de tienda lo usa,
+§16.3) y lo que se ejecuta es lo que se captura en Kepler (`U-D-40` en la base de la matriz que surte).
+⚠️ *Corregido el 2026-10-23 (§16.12): el pedido de la Suite SÍ se pasa a Kepler, a mano; lo que falta es
+que la Suite sepa qué se pasó.*
 
 ### 16.2 El pedido y cómo cambió
 
@@ -1361,12 +1361,12 @@ tipo; un mismo SKU puede estar en un pedido y en un embarque, por eso 777 es un 
 - «Mi pedido»: **23 eventos de huella en total; 22 son de UNA persona con rol `direccion`** y 1 es de un
   almacenista (una apertura, 14-oct). Último evento: 15-oct. **Ninguna tienda pide desde ahí.**
 - La mesa: uso **NO MEDIDO** (no deja huella).
-- Las tiendas piden en Kepler casi a diario: en 30 días, 01←00 143 pedidos en 24 días, 07←08 169 en 28,
-  02←01 95 en 17.
-- Compras: **675 traspasos planeados** vivos en 30 días (aprobados, ordenados o por aprobar), **0** en
-  Kepler. Medido en AB.24 (2026-10-22): sólo el **11.8 %** de sus renglones aparece después como pedido
-  de la tienda en Kepler, contra **8.1 %** de un placebo a −60 días. O sea que **el plan de Compras y lo
-  que piden las tiendas casi no coinciden** — es el riesgo número uno de D1 (§16.9).
+- En Kepler se capturan pedidos de traspaso casi a diario, **en la base de la matriz que surte** (no en
+  la tienda): en 30 días, 01←00 143 pedidos en 24 días, 07←08 169 en 28, 02←01 95 en 17 (§16.12).
+- Compras: **675 traspasos planeados** vivos en 30 días (aprobados, ordenados o por aprobar), **0 con
+  folio de Kepler registrado**. ⚠️ Eso NO quiere decir que no se pasaron: se pasan a mano y la Suite no
+  guarda el folio (§16.12). Buscándolos por destino y producto, aparece el **12.0 %** de los renglones
+  en 0–3 días, contra **7.8 %** de un placebo (AB.24 había medido 11.8 % contra 8.1 %).
 
 ### 16.4 Universo y trabajo — y cuánto dinero hay de verdad
 
@@ -1376,7 +1376,7 @@ tipo; un mismo SKU puede estar en un pedido y en un embarque, por eso 777 es un 
 - **Dinero en juego:** lo que se pierde HOY por la diferencia entre pantallas es **NO MEDIDO y
   probablemente bajo**, porque las tiendas no piden desde ellas. Tarjeta: **Medio (estimado) × L →
   prioridad 3, abierta por decisión de Edgar (2026-10-23)**. El dinero grande no está en la mesa: está
-  en que el plan de Compras (675 traspasos) no se ejecuta y las tiendas piden por su cuenta.
+  en que la Suite no sabe qué de su pedido ya se pasó a Kepler (§16.12, AB.30).
 
 ### 16.5 Lo que creíamos y cayó
 
@@ -1386,7 +1386,7 @@ tipo; un mismo SKU puede estar en un pedido y en un embarque, por eso 777 es un 
 | 2 | `/mesa`: «sugerido ya neto de tránsito» (`@ApiOperation`) | No resta nada: la política es `'ignorar'`, y el tránsito que lee son OC a proveedor, no traspasos |
 | 3 | Ruta: «Hoy sólo LEE; solicitar y autorizar entran en el PR siguiente» | «Mi pedido» ya escribe (AB.18); solicitar y autorizar no existen |
 | 4 | «Mi pedido» en uso | 22 de 23 eventos son de Dirección |
-| 5 | El plan de Compras es lo que la sucursal necesita | Coincide con lo que la tienda pide en el 11.8 % de los renglones (placebo 8.1 %) |
+| 5 | El plan de Compras es lo que la sucursal necesita | Cubre el 4.5 % de las cajas que el motor marca como falta (AB.25); sin el folio de Kepler no se sabe cuánto se pasó (§16.12) |
 
 ### 16.6 Decisiones
 
@@ -1399,7 +1399,8 @@ tipo; un mismo SKU puede estar en un pedido y en un embarque, por eso 777 es un 
 | **D5** | Cupo | **AB entra a 🔨; MS pasa a ⏸️** con su doc intacto | ✅ Edgar, 2026-10-23 |
 | **D6** | Nombre de la pestaña «Mi pedido» | **«Lo que te llega»**, porque con D1 la sucursal ya no arma pedido | ✅ Edgar, 2026-10-23 |
 | **D7** | ¿La sucursal puede pedir algo por su cuenta? | **Sí, como requisición que Compras aprueba**, desde una mini pantalla tipo «Mi pedido» prellenada con el mismo motor (lo que falta, menos lo que ya viene y lo que Compras ya planeó). No es un pedido directo a Kepler | ✅ Edgar, 2026-10-23 (AB.29) |
-| **D8** | ¿Cuándo se apaga el pedido de la tienda en Kepler? | Recomendación: **sólo cuando el plan de Compras cubra al menos el 80 % de las cajas que les faltan a las sucursales, dos semanas seguidas**, medido con `ab25-mesa-vs-pedido.js`. HOY: 7.8 % (7 días) · 12.2 % (30 días). Mientras tanto la sucursal pide por AB.29 | ⬜ propuesta, falta firma |
+| ~~**D8**~~ | ~~¿Cuándo se apaga el pedido de la tienda en Kepler?~~ | **Retirada (Edgar, 2026-10-23):** las requisiciones y los traspasos se hacen en Kepler y el pedido de la Suite se pasa a Kepler. No hay un «pedido de la tienda» que apagar: Kepler es donde se ejecuta todo | ❌ retirada |
+| **D9** | ¿Cómo sabe la Suite qué de su pedido ya se pasó a Kepler? | (a) quien captura en Kepler registra el folio en la Suite (para compras ya existe `oc_folio`, con 0 usos en 273 requisiciones) · (b) emparejar por destino + producto + fecha (medido: 12.0 % contra 7.8 % de placebo, no sirve de regla) · (c) el envío automático (Fase KR). Recomendación: **(a) ahora, (c) después** — sin la liga, el plan de Compras y su copia en Kepler se cuentan como dos cosas (§16.12). Item AB.30 | ⬜ falta firma |
 
 **D3 en palabras simples.** Hoy cada renglón de la mesa tiene una columna «Acción» que dice *Traspaso*,
 *Traspaso parcial* o *Comprar*. La mesa la decide mirando si **cualquier** almacén de la empresa tiene de
@@ -1436,8 +1437,8 @@ se reste.
 ### 16.7 Qué NO incluye
 
 - No cambia el motor (`criticalStock`) ni el cálculo de `/compras/pedido`.
-- **No enciende el envío a Kepler (Fase KR)**, y mientras esté apagado **no se apaga el pedido de la
-  tienda en Kepler**: sigue siendo lo único que hace que la matriz surta (§16.9).
+- **No enciende el envío a Kepler (Fase KR).** Kepler sigue siendo donde se capturan requisiciones y
+  traspasos: la Suite decide y arma el pedido, Kepler lo ejecuta.
 - No toca los traspasos aprobados viejos de Compras.
 - No crea un flujo de solicitar / autorizar traspasos entre plazas.
 - No asigna almacén a los almacenistas (12-oct: 5 de 6 sin almacén, **sin re-medir**), pero sin eso
@@ -1461,7 +1462,7 @@ tipo «Mi pedido» (D7), y **Compras la aprueba o la rechaza**: Compras sigue si
 | Pedido de traspaso abierto en Kepler, ≤ 7 días | Sí (como hoy en «Mi pedido») |
 | Embarque sin recibir, ≤ 7 días | Sí (como hoy en «Mi pedido») |
 | Plan de Compras que **ya está** en Kepler | Sí: es un pedido abierto más |
-| Plan de Compras que **todavía no está** en Kepler | **No**: se muestra «Compras lo planeó · aún no está en Kepler». Restarlo diría «cubierto» de algo que no va a llegar mientras KR esté apagado |
+| Plan de Compras que **todavía no está** en Kepler | **No**: se muestra «Compras lo planeó · aún no está en Kepler». Restarlo diría «cubierto» de algo que todavía nadie capturó. ⚠️ Hoy la Suite no puede distinguir «ya está» de «todavía no está» porque no guarda el folio (D9 / AB.30); hasta entonces, todo lo planeado cae en esta fila |
 | Pedido abierto de más de 7 días | No: se muestra como atorado, para reclamarlo |
 
 **Estado de cada renglón** (mesa y «Lo que te llega» usan los mismos): *Ya viene* · *Compras lo planeó* ·
@@ -1535,19 +1536,30 @@ Reglas:
   entrega»).
 - Skill `diseno` y `npm run check:pantalla -- almacen` antes y después.
 
-**Orden:** ~~AB.25~~ ✅ → AB.26 → AB.27 → AB.29 → AB.28. AB.25 cambió el peso de AB.29: pasa a ser el camino principal mientras Compras no cubra (§16.11).
+**C2/C3 — AB.30 La liga del folio: la Suite sabe qué de su pedido ya está en Kepler (D9).** Quien captura
+en Kepler el pedido de la Suite (requisición de compra → `X-A-30`/OC, traspaso → `U-D-40`) registra el
+folio en la Suite. Para compras la columna ya existe (`oc_folio`, `oc_capturada_at`, `oc_capturada_por`)
+y tiene **0 usos en 273 requisiciones**: hay que averiguar por qué no se usa antes de construir otra
+pantalla. Para traspasos se agrega lo equivalente (migración aditiva). Con el folio:
+- la cuenta de AB.26 deja de contar el plan y su copia en Kepler como dos cosas;
+- AB.25 se vuelve a medir y separa «Compras planea poco» de «se pasó y no se ligó».
+- Prueba contra base real con el payload de la pantalla; negativa: un folio que no existe en Kepler para
+  ese destino se rechaza.
+
+**Orden:** ~~AB.25~~ ✅ → AB.26 → AB.30 → AB.27 → AB.29 → AB.28. AB.30 entra antes que la mesa porque sin el
+folio la cuenta única no puede saber qué del plan ya está en Kepler (§16.12).
 
 ### 16.9 Riesgos y bloqueos
 
 | Bloqueo | Dueño | Causa | Qué lo destraba |
 |---|---|---|---|
-| ⛔ **El plan de Compras no llega a Kepler** | Edgar (último commit de KR, 2026-10-14) | `KEPLER_PUSH_URL` sin configurar: 0 de 675 traspasos en 30 días | Encender KR con su runbook (`RUNBOOKS/KEPLER_PUSH_DESPLIEGUE.md`). Hasta entonces D1 es una decisión en papel y la tienda sigue pidiendo en Kepler |
-| ⛔ **El plan de Compras casi no coincide con lo que piden las tiendas** | Edgar (PM) | 11.8 % contra 8.1 % de placebo (AB.24) | AB.25 punto 2. Si Compras no cubre la necesidad, apagar el pedido de la tienda deja sucursales sin mercancía |
+| ⛔ **La Suite no sabe qué de su pedido ya se pasó a Kepler** | Edgar | Se pasa a mano y nadie guarda el folio: 0 de 273 compras con `oc_folio`, 0 traspasos con folio | D9 / AB.30. Después, encender KR (`RUNBOOKS/KEPLER_PUSH_DESPLIEGUE.md`) |
+| ⛔ **El plan de Compras cubre poco de lo que el motor marca** | Edgar (PM) | 4.5 % de las cajas (AB.25) | Primero AB.30 (sin folio no se separa «planea poco» de «no se ligó»); después preguntarle a Compras por qué, con la cifra re-medida |
 | D1 cambia el modelo que firmó el dueño | Edgar | Francisco firmó el 12-oct que la sucursal arma el pedido | Comunicárselo antes de AB.28 |
 | Almacenistas sin almacén asignado | **sin dueño — pregunta** (¿quién administra Personas?) | 5 de 6 sin asignar (12-oct) | Asignarlos |
 | AB sin fecha de cierre comprometida | Edgar (dueño desde 2026-10-23) | Abierta hoy | Ponerla; sin ella la fase cae a ⏸️ (método §3) |
 | La requisición de sucursal se vuelve la vía de rutina (y regresan los tres lugares) | Edgar (PM) | Pedir es fácil; cada tienda hoy pide casi a diario | Medir cada semana: requisiciones de sucursal por almacén y cuántas rechaza Compras. Si una sucursal pide casi a diario, el plan de Compras no la está cubriendo: se corrige el plan, no se aprueba en automático |
-| Requisición aprobada + pedido capturado en Kepler = doble | Edgar | Con KR apagado la tienda sigue capturando en Kepler | La requisición aprobada se imprime (AB.21) y se captura UNA vez; al capturarse aparece como «ya pedido» y se resta |
+| Requisición aprobada + su captura en Kepler = contada dos veces | Edgar | Sin folio, la Suite ve el plan y el `U-D-40` capturado como dos cosas | La requisición aprobada se imprime (AB.21), se captura UNA vez y se registra su folio (AB.30); entonces deja de contarse como plan |
 
 ### 16.11 ✅ [AB.25] Lo que midió el C0 — 2026-10-23
 
@@ -1601,15 +1613,52 @@ sucursal quedan siempre por debajo de los SKUs en documentos medidos en §16.3 (
   pantallas resta (política de tránsito `'ignorar'`), así que su cobertura está subestimada.
 - El tiempo **por almacén** del servicio: NO MEDIDO (sólo el SQL de la red entera: 7–9 s).
 
-**Consecuencia para ADR-100.** El riesgo con nombre se cumplió: **hoy el plan de Compras no puede
-reemplazar el pedido de la sucursal**. D1 sigue firmada como destino, pero el orden cambia:
+**Consecuencia para ADR-100** (corregida el mismo día, §16.12): el plan de Compras cubre poco de lo que
+el motor marca como falta. D1 sigue firmada y el orden queda así:
 
 - AB.26 / AB.27 (una sola cuenta, mesa sincronizada) **siguen igual**: valen con cualquier modelo.
-- AB.29 («Generar requisición») **deja de ser la excepción y pasa a ser el camino principal mientras
-  Compras no cubra**: es la forma de que lo que la sucursal pide pase por Compras en vez de ir directo a
-  Kepler.
-- **El pedido de la tienda en Kepler no se apaga** hasta que la cobertura del plan de Compras, medida con
-  este mismo script, llegue a la meta que se firme (D8, §16.6).
+- AB.29 («Generar requisición»): lo que pide la sucursal entra a la Suite, Compras lo aprueba y **se pasa
+  a Kepler igual que el pedido de Compras**.
+- **AB.30 (nuevo): la liga del folio.** Sin ella no se puede medir de verdad la cobertura del plan (lo
+  ya capturado se ve como «ya viene», lo planeado como plan, y la Suite no sabe que son lo mismo).
+
+### 16.12 ⚠️ Corrección — en Kepler se ejecuta todo; el pedido de la Suite se pasa a mano (2026-10-23)
+
+**Lo que dijo Edgar:** *«las requisiciones y traspasos se hacen en Kepler hoy; el pedido de Suite se
+pasa a Kepler»*. Dos afirmaciones de este anexo estaban mal planteadas:
+
+| # | Lo que decía este anexo | Lo correcto, medido (`pg-prod`, sólo lectura, 30 días) |
+|---|---|---|
+| 1 | «Compras planeó 675 traspasos y **0** llegaron a Kepler» | El 0 es sólo el **envío automático** (`kepler_folio`, Fase KR apagada). El pedido de la Suite se captura **a mano** en Kepler y **nadie registra el folio**: 0 de 273 requisiciones de compra tienen `oc_folio` aunque la columna existe. La Suite no sabe qué se pasó |
+| 2 | «La tienda pide en Kepler por su cuenta, casi a diario» | Los pedidos de traspaso `U-D-40` viven **en la base de la matriz que surte** y los captura gente de ahí: 00 → 571 (481 un mismo usuario), 01 → 437, 08 → 345, 06 → 180. Las **requisiciones de compra** `X-A-30` sí las hacen las sucursales: 07 → 40, 02 → 39, 03 → 27 |
+| 3 | D8: «apagar el pedido de la tienda en Kepler» | No hay nada que apagar: Kepler es donde se ejecuta. D8 se retira |
+
+**Lo que se midió para contrastarlo:** si el pedido de la Suite se pasa a Kepler, sus renglones de
+traspaso deberían aparecer en un `U-D-40` al mismo destino y del mismo producto poco después.
+
+| Estado en la Suite | Renglones (30 d) | En un `U-D-40` 0–3 días después | Placebo (57–60 días antes) |
+|---|---:|---:|---:|
+| approved | 2,718 | 327 (12.0 %) | 213 (7.8 %) |
+| ordered | 456 | 38 (8.3 %) | 18 (3.9 %) |
+| cancelled | 126 | 37 (29.4 %) | 4 (3.2 %) |
+| pending_approval | 99 | 6 | 5 |
+
+**Lo que eso dice y lo que no:** el emparejamiento por destino + producto + fecha encuentra poco por
+encima del placebo. Puede ser que se capture más tarde, en otro documento, con otra clave de producto, o
+que una parte no se capture. **NO MEDIDO cuál.** Sólo con el folio se puede saber, y por eso D9 / AB.30.
+(Los cancelados que sí aparecen en Kepler, 29.4 %, sugieren que a veces se cancela en la Suite lo que ya se
+capturó por otro lado; sin verificar.)
+
+**Qué cambia en el plan:**
+
+- **D1 no cambia:** Compras decide; la Suite arma el pedido; Kepler lo ejecuta.
+- **D8 se retira**; entra **D9** (cómo sabe la Suite qué ya se pasó) y el item **AB.30** (registrar el
+  folio de Kepler al pasar el pedido).
+- **AB.25 sigue válido en lo que mide** (la mesa contra «Mi pedido», y cuánto del faltante tiene un
+  documento o un plan), pero la lectura «el plan de Compras no llega» se cambia por **«la Suite no
+  sabe si llegó»**.
+- **AB.26 tiene una regla nueva:** mientras no haya folio, lo planeado por Compras y su copia capturada
+  en Kepler pueden ser lo mismo. La cuenta no puede restar los dos.
 
 ### 16.10 Definición de Terminado
 
