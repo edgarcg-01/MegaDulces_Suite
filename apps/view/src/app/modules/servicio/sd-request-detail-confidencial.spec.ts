@@ -34,7 +34,7 @@ const t = (status: SdStatus, over: Partial<SdRequestDetail> = {}): SdRequestDeta
     { id: 'm1', kind: 'system', visibility: 'public', author_id: 'u1', author_label: 'Ana', body: 'Solicitud creada', meta: {}, created_at: '2026-10-02T15:00:00.000Z' },
     { id: 'm2', kind: 'internal_note', visibility: 'internal', author_id: 'u2', author_label: 'Jorge', body: 'Parece el usuario bloqueado', meta: {}, created_at: '2026-10-02T15:05:00.000Z' },
   ],
-  attachments: [], time_logged_minutes: 0, time_entries: [], ...over,
+  attachments: [], links: [], time_logged_minutes: 0, time_entries: [], ...over,
 });
 
 function makeApi(initial: SdRequestDetail) {
@@ -74,7 +74,7 @@ describe('[MSH.3] SdRequestDetailComponent — confidencial', () => {
 
   const LIMITADA: Partial<SdRequestDetail> = {
     basic: true, confidential: true, title: '', description: '', category_id: '', category_name: null, requester_id: '', requester_name: null,
-    assigned_to: null, assigned_to_name: null, priority: null, priority_suggested: null, messages: [], attachments: [], time_logged_minutes: null, time_entries: null,
+    assigned_to: null, assigned_to_name: null, priority: null, priority_suggested: null, messages: [], attachments: [], links: [], time_logged_minutes: null, time_entries: null,
   };
 
   it('⭐ la vista limitada muestra el folio, el área, el estado y la nota de por qué es limitada', async () => {

@@ -11,14 +11,24 @@
  * tipo que detectó la firma (ver `platform-core/storage/attachment-signature.ts`).
  */
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import type { SdAttachmentInput } from '@megadulces/contracts';
+import type { SdAttachmentInput, SdLinkInput } from '@megadulces/contracts';
 import { ObjectStorageService, sanitizarNombre, validarAdjunto, type AdjuntoValido } from '@megadulces/platform-core';
 
+import { nombreDeAdjunto } from './domain/nombre-adjunto';
+import { MAX_ENLACES_POR_ENVIO, normalizarEnlaceGoogle, type TipoEnlace } from './domain/enlaces';
+
 export const MAX_ADJUNTOS_POR_ENVIO = 5;
+/** `[MS.ADJ.1.3]` Suma máxima de bytes reales por envío (D9, aprobado 2026-10-22). En base64 son ~29 MB: cabe en el cuerpo de 32 MB. */
+export const MAX_TOTAL_ADJUNTOS_BYTES = 22 * 1048576;
 
 export interface AdjuntoPreparado {
   file_name: string;
   adjunto: AdjuntoValido;
+}
+
+export interface EnlacePreparado {
+  url: string;
+  kind: TipoEnlace;
 }
 
 export interface AdjuntoSubido {
@@ -41,11 +51,39 @@ export class ServiceDeskAttachmentsService {
     if (lista.length > MAX_ADJUNTOS_POR_ENVIO) {
       throw new BadRequestException(`Máximo ${MAX_ADJUNTOS_POR_ENVIO} archivos por envío`);
     }
+    // `[MS.ADJ.1.3]` Tope del ENVÍO completo, ANTES de decodificar: 5 × 8 MB = 40 MB reales (~53 MB en base64) rebasaban el
+    // límite de 32 MB del cuerpo y el usuario recibía un 413 genérico en vez de este mensaje. Se estima desde el largo del base64.
+    const estimado = lista.reduce((s, e) => s + Math.floor(((typeof e?.file_base64 === 'string' ? e.file_base64.length : 0) * 3) / 4), 0);
+    if (estimado > MAX_TOTAL_ADJUNTOS_BYTES) {
+      throw new BadRequestException(`Los archivos suman más de ${MAX_TOTAL_ADJUNTOS_BYTES / 1048576} MB por envío; adjunta menos o más livianos`);
+    }
     return lista.map((e, i) => {
       const r = validarAdjunto(e?.file_base64, maxBytes);
       if (!r.ok) throw new BadRequestException(`Archivo ${i + 1}: ${r.detalle}`);
-      return { file_name: sanitizarNombre(e?.file_name, r.adjunto.contentType), adjunto: r.adjunto };
+      // `[MS.ADJ.1.1/1.2]` el nombre (y con él la extensión de la clave del bucket) dice lo que el archivo ES, no lo que declaró el cliente.
+      const file_name = nombreDeAdjunto(sanitizarNombre(e?.file_name, r.adjunto.contentType), r.adjunto.contentType);
+      return { file_name, adjunto: r.adjunto };
     });
+  }
+
+  /**
+   * `[MS.ADJ.2.2]` Enlaces de Google: se normalizan y validan (host exacto, https, sin credenciales; ver `domain/enlaces.ts`). Sin red:
+   * el servidor jamás visita la URL. Lanza 400 con el motivo del primero inválido; un enlace repetido en el envío se guarda una vez.
+   */
+  prepararEnlaces(entradas: SdLinkInput[] | undefined): EnlacePreparado[] {
+    const lista = entradas ?? [];
+    if (!Array.isArray(lista)) throw new BadRequestException('links debe ser una lista');
+    if (lista.length > MAX_ENLACES_POR_ENVIO) throw new BadRequestException(`Máximo ${MAX_ENLACES_POR_ENVIO} enlaces por envío`);
+    const vistos = new Set<string>();
+    const listos: EnlacePreparado[] = [];
+    lista.forEach((e, i) => {
+      const r = normalizarEnlaceGoogle(e?.url);
+      if (!r.ok) throw new BadRequestException(`Enlace ${i + 1}: ${r.motivo}`);
+      if (vistos.has(r.url)) return;
+      vistos.add(r.url);
+      listos.push({ url: r.url, kind: r.tipo });
+    });
+    return listos;
   }
 
   /** Sube al bucket. Si uno falla, borra los que ya se subieron y propaga el error. */

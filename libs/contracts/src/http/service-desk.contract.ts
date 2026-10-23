@@ -218,6 +218,14 @@ export interface SdAttachmentInput {
   file_name?: string;
 }
 
+/**
+ * `[MS.ADJ.2.3]` Un enlace de Google (Docs, Hojas, Presentaciones, Formularios, Drive) como adjunto. El servidor lo NORMALIZA y lo
+ * valida (host exacto, https, sin credenciales) y NUNCA lo visita; lo que no sea de Google → 400.
+ */
+export interface SdLinkInput {
+  url: string;
+}
+
 export interface SdCreateRequestDto {
   category_id: string;
   title: string;
@@ -234,6 +242,8 @@ export interface SdCreateRequestDto {
   /** Código de sucursal (`'01'`…). Obligatorio si la categoría exige sucursal. */
   warehouse_code?: string | null;
   attachments?: SdAttachmentInput[];
+  /** `[MS.ADJ.2.3]` Enlaces de Google (máximo 3 por envío). */
+  links?: SdLinkInput[];
   /**
    * `[MS.3.11]` Levantar la solicitud A NOMBRE DE otra persona. **Sólo quien atiende** (`ATENDER`/`COORDINAR`): para
    * cualquier otro es 403. La persona debe tener usuario; es quien recibe los avisos y quien confirma o reabre.
@@ -339,6 +349,15 @@ export interface SdMessageDto {
   created_at: string;
 }
 
+/** `[MS.ADJ.2.3]` `kind` = lo que es en Google (la pantalla lo etiqueta: «Hoja de cálculo», «Documento»…). */
+export interface SdLinkDto {
+  id: string;
+  message_id: string | null;
+  url: string;
+  kind: 'documento' | 'hoja' | 'presentacion' | 'formulario' | 'archivo' | 'carpeta';
+  created_at: string;
+}
+
 export interface SdAttachmentDto {
   id: string;
   message_id: string | null;
@@ -367,6 +386,8 @@ export interface SdRequestDetail extends SdRequestRow {
   /** El solicitante NO recibe las notas internas: este arreglo ya viene filtrado por el servidor. */
   messages: SdMessageDto[];
   attachments: SdAttachmentDto[];
+  /** `[MS.ADJ.2.3]` Enlaces de Google del ticket y de sus mensajes (con la misma visibilidad que los adjuntos). */
+  links: SdLinkDto[];
   /** Minutos registrados en `work_log`. Sólo lo ve quien atiende. */
   time_logged_minutes: number | null;
   /**
@@ -400,6 +421,8 @@ export interface SdPostMessageDto {
   /** `internal` sólo lo admite quien atiende; para el solicitante se ignora y se rechaza. */
   visibility?: SdVisibility;
   attachments?: SdAttachmentInput[];
+  /** `[MS.ADJ.2.3]` Enlaces de Google (máximo 3 por envío). */
+  links?: SdLinkInput[];
 }
 
 export interface SdChangeStatusDto {

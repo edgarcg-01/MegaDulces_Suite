@@ -10,16 +10,15 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
 import { SD_IMPACTS, SD_UBICACIONES_EXTRA, type SdAttachmentInput, type SdCatalogResponse, type SdDepartmentDto, type SdImpact, type SdPreferencesDto, type SdRequesterDto, type SdRequestRow } from '@megadulces/contracts';
 import { STORE_BRANCHES } from '../../../core/constants/store-branches';
-import { optimizarImagenes } from '../image-compress';
 import { avisoConfidencial, etiquetaPrioridad } from '../confidencial';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { IMPACT_LABEL, PRIORITY_LABEL, STATUS_LABEL, ServiceDeskService, sdError } from '../service-desk.service';
-import { SdRequestDetailComponent, MAX_ARCHIVOS } from '../sd-request-detail.component';
+import { SdRequestDetailComponent } from '../sd-request-detail.component';
+import { SdAdjuntosComponent } from '../sd-adjuntos.component';
 import { SdDictadoComponent } from '../sd-dictado.component';
 import { unirDictado } from '../../../shared/voz/grabador-voz';
 
-const TIPOS_OK = /^(image\/(jpeg|png|webp|gif|heic|heif)|application\/pdf)$/i;
 
 function dataUri(f: File): Promise<string> {
   return new Promise((ok, fail) => {
@@ -42,7 +41,7 @@ function dataUri(f: File): Promise<string> {
 @Component({
   selector: 'app-servicio-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, DialogModule, InputTextModule, TextareaModule, SdRequestDetailComponent, SdDictadoComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, DialogModule, InputTextModule, TextareaModule, SdRequestDetailComponent, SdDictadoComponent, SdAdjuntosComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="ss-page" [class.con-ficha]="panel()">
@@ -233,22 +232,10 @@ function dataUri(f: File): Promise<string> {
                 }
 
                 <div class="ss-field">
-                  <span>Fotos o PDF {{ fotoRequerida() ? '*' : '(opcional)' }}</span>
+                  <span>Fotos, PDF o enlaces de Google {{ fotoRequerida() ? '*' : '(opcional)' }}</span>
                   @if (fotoRequerida(); as f) { <span class="ss-hint">{{ f.label }}: adjunta al menos una.</span> }
-                  <div class="ss-att">
-                    <p-button icon="pi pi-camera" label="Cámara" severity="secondary" [outlined]="true" size="small" (onClick)="cam.click()" />
-                    <input #cam type="file" hidden accept="image/*" capture="environment" (change)="elegirArchivos($event)" />
-                    <p-button icon="pi pi-paperclip" label="Adjuntar" severity="secondary" [outlined]="true" size="small" (onClick)="fi.click()" />
-                    <input #fi type="file" hidden multiple accept="image/*,application/pdf" (change)="elegirArchivos($event)" />
-                    <span class="ss-hint">Hasta {{ maxArchivos }}. Una captura de pantalla ayuda mucho.</span>
-                    @if (optimizando()) { <span class="ss-hint" role="status">Optimizando las fotos…</span> }
-                  </div>
-                  @if (archivos().length) {
-                    <ul class="ss-pend">@for (f of archivos(); track f.name + f.size) {
-                      <li><i class="pi pi-paperclip" aria-hidden="true"></i> {{ f.name }}
-                        <p-button icon="pi pi-times" [text]="true" size="small" severity="secondary" [ariaLabel]="'Quitar ' + f.name" (onClick)="quitar(f)" /></li>
-                    }</ul>
-                  }
+                  <span class="ss-hint">Una captura de pantalla ayuda mucho.</span>
+                  <app-sd-adjuntos [(archivos)]="archivos" [(enlaces)]="enlaces" [(optimizando)]="optimizando" />
                 </div>
 
                 @if (usaPrioridad()) { <p class="ss-hint">La prioridad la propone el sistema según lo que marcaste y la confirma quien atiende.</p> }
@@ -354,10 +341,7 @@ function dataUri(f: File): Promise<string> {
     .ss-impact { border: 1px solid var(--border-color); border-radius: var(--r-md); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); margin: 0; }
     .ss-impact legend { font-weight: 600; font-size: var(--fs-xs); color: var(--text-main); padding: 0 var(--sp-1); }
     .ss-radio, .ss-chk { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
-    .ss-att { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
     .ss-hint { font-size: var(--fs-xs); color: var(--text-muted); margin: 0; }
-    .ss-pend { list-style: none; margin: var(--sp-1) 0 0; padding: 0; font-size: var(--fs-xs); color: var(--text-muted); }
-    .ss-pend li { display: flex; align-items: center; gap: var(--sp-1); }
     .ss-ffoot { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
     .ss-dlg { display: flex; flex-direction: column; gap: var(--sp-3); }
     @media (max-width: 68.75rem) {
@@ -388,7 +372,6 @@ export class ServicioSolicitudesComponent implements OnInit {
 
   readonly statusLabel = STATUS_LABEL;
   readonly priorityLabel = PRIORITY_LABEL;
-  readonly maxArchivos = MAX_ARCHIVOS;
   /** Las sucursales de la red y, al final, las ubicaciones que no son sucursal (oficinas corporativas; `[MS.3.14]`). */
   readonly sucursales: { code: string; name: string }[] = [...STORE_BRANCHES, ...Object.entries(SD_UBICACIONES_EXTRA).map(([code, name]) => ({ code, name }))];
   readonly impactos = SD_IMPACTS.map((v) => ({ value: v, label: IMPACT_LABEL[v] }));
@@ -407,6 +390,8 @@ export class ServicioSolicitudesComponent implements OnInit {
   // ── alta ──
   readonly catalogo = signal<SdCatalogResponse | null>(null);
   readonly archivos = signal<File[]>([]);
+  /** `[MS.ADJ.3.5]` Enlaces de Google pendientes de enviar (el servidor los normaliza y valida). */
+  readonly enlaces = signal<string[]>([]);
   readonly enviando = signal(false);
   readonly formError = signal<string | null>(null);
   form: { category_id: string | null; title: string; description: string; impact: SdImpact; blocks_work: boolean; warehouse_code: string | null; /** `[MS.7.7]` `null` = sin contestar (en una cola de riesgo es obligatoria). */ safety_risk: boolean | null; /** `[MS.7.3]` Zona opcional. */ zone_code: string | null; /** `[PRV.2]` La casilla del aviso de privacidad. */ acepta_aviso: boolean } = this.formVacio();
@@ -535,6 +520,7 @@ export class ServicioSolicitudesComponent implements OnInit {
     this.categoriaId.set(null);
     this.areaId.set(null);
     this.archivos.set([]);
+    this.enlaces.set([]);
     this.formError.set(null);
     this.selId.set(null);
     this.creando.set(true);
@@ -631,23 +617,6 @@ export class ServicioSolicitudesComponent implements OnInit {
     this.areaCode = null;
   }
 
-  elegirArchivos(ev: Event): void {
-    const input = ev.target as HTMLInputElement;
-    const nuevos = Array.from(input.files ?? []);
-    input.value = '';
-    const malos = nuevos.filter((f) => !TIPOS_OK.test(f.type));
-    if (malos.length) this.formError.set(`Sólo se aceptan fotos y PDF: ${malos.map((f) => f.name).join(', ')}.`);
-    this.optimizando.set(true);
-    // Las fotos de teléfono (3–15 MB) se achican ANTES de subir: ver `image-compress.ts`. Lo que no se pueda, sube original.
-    void optimizarImagenes(nuevos.filter((f) => TIPOS_OK.test(f.type))).then((listos) => {
-      const todos = [...this.archivos(), ...listos];
-      if (todos.length > MAX_ARCHIVOS) this.formError.set(`Máximo ${MAX_ARCHIVOS} archivos por envío.`);
-      this.archivos.set(todos.slice(0, MAX_ARCHIVOS));
-      this.optimizando.set(false);
-    });
-  }
-  quitar(f: File): void { this.archivos.update((a) => a.filter((x) => x !== f)); }
-
   /** `[MS.7.4]` Sólo lo contestado de los campos de ESTA cola (la foto no viaja aquí: es un adjunto). Sin nada, no se manda. */
   private extraPayload(): Record<string, unknown> | undefined {
     const out: Record<string, unknown> = {};
@@ -678,6 +647,7 @@ export class ServicioSolicitudesComponent implements OnInit {
         zone_code: this.preguntaZona() ? this.form.zone_code || null : undefined,
         extra: this.extraPayload(),
         attachments: attachments.length ? attachments : undefined,
+        links: this.enlaces().length ? this.enlaces().map((url) => ({ url })) : undefined,
         // Sólo viaja si quien atiende ELIGIÓ a la persona: sin ella, la solicitud es de quien la escribe (lo de siempre).
         requester_id: this.solicitante()?.user_id,
         // `[PRV.2]` Sólo viaja si la persona marcó la casilla de la versión vigente (el servidor exige el id exacto).

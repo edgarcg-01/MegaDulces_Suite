@@ -9,6 +9,15 @@
 ---
 
 ## [Unreleased]
+### Added — Mesa de Servicio: arrastrar archivos desde el escritorio y adjuntar enlaces de Google (MS.ADJ, 2026-10-22)
+- **Arrastrar y soltar** imágenes y PDF en el recuadro de adjuntos de «Nueva solicitud» y del hilo; lo que no sea imagen ni PDF se rechaza con el aviso de compartirlo por **enlace de Google**. Soltar un archivo fuera del recuadro ya no abre el archivo ni pierde lo escrito.
+- **Enlaces de Google** (Docs, Hojas, Presentaciones, Formularios y Drive), hasta 3 por envío: el servidor los normaliza y valida (host exacto, https, sin credenciales) y nunca los visita. Se ven como chips en el detalle; los de una nota interna no los ve quien reportó. ⚠️ Los enlaces quedan restringidos: quien atiende sólo los abre si se compartieron con su cuenta.
+- Migración **`20261022135014_servicedesk_request_links`** (aditiva; aplicar ANTES del código, una por una).
+- Garage (S3) local bajo el perfil `s3` de `docker-compose.dev.yml` y `scripts/dev-garage-init.js` para probar adjuntos sin bucket de nube.
+### Changed — Adjuntos de la Mesa: tope de 22 MB por envío y nombre coherente con el tipo (MS.ADJ, 2026-10-22)
+- **Tope de 22 MB por envío** (antes 5 × 8 MB reventaba el cuerpo de 32 MB con un 413 genérico): ahora un 400 que lo dice.
+- La extensión del archivo guardado y el nombre mostrado salen del **tipo detectado**: `foto.exe` con bytes de PNG queda `foto.png`; se quitan extensiones peligrosas del final y los caracteres de dirección Unicode (`U+202E`).
+- `SdRequestDetail.links` es obligatorio en el contrato.
 ### Changed — Cartera de ventas: «Asignar rutas» es un menú de vendedores y el tablero se simplifica (MCP.3.10–3.11, 2026-10-22)
 - **Mis vendedores:** sólo Vendedor · Ruta de hoy («En ruta · desde 9:32», «Terminó · 8:12 – 14:37», «Sin iniciar») · Visitados · Venta hoy. Pestañas, «Ordenar», fecha y la frescura «Venta Kepler» van en una sola barra. Fuera los totales, la meta, el avance y el detalle por cliente.
 - **Asignar rutas:** menú de vendedores; al elegir uno, **Resumen** (meta de la catorcena contra lo cobrado y sus días) y **Configurar** (ruta de la semana, sucursal de surtido, meta y clientes a visitar). Se quitaron «Sucursal por ruta» y el orden de visita.

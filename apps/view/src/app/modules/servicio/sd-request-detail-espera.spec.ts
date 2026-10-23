@@ -21,7 +21,7 @@ const t = (status: SdStatus, pause_reason: SdPauseReason | null = null): SdReque
   sla: { first_response_due_at: null, due_at: null, first_responded_at: null, paused: status === 'en_espera', first_breached: false, resolution_breached: false, used_ratio: null },
   description: '', requester_department_code: null, requester_position_code: null, channel: 'web',
   resolved_at: null, resolution_note: null, closed_at: null, close_reason: null, reopened_count: 0,
-  messages: [], attachments: [], time_logged_minutes: 0, time_entries: [],
+  messages: [], attachments: [], links: [], time_logged_minutes: 0, time_entries: [],
 } as unknown as SdRequestDetail);
 
 describe('[MS.7.9] SdRequestDetailComponent — poner en espera con motivo', () => {
