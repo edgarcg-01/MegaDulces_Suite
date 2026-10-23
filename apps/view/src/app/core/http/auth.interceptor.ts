@@ -5,6 +5,7 @@ import { Router } from '@angular/router';
 import { catchError } from 'rxjs/operators';
 import { throwError } from 'rxjs';
 import { loginUrlTree } from '../auth/login-redirect';
+import { enRutaPublica } from '../auth/rutas-publicas';
 
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const authService = inject(AuthService);
@@ -24,6 +25,15 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   // `[RH.2.4]` La bolsa de trabajo (`/hr/talent/public`) es pública por lo mismo: quien se postula no tiene cuenta.
   if (req.url.includes('/auth/login') || req.url.includes('/auth-mt/login')
       || req.url.includes('/finance/captura') || req.url.includes('/hr/talent/public')) {
+    return next(req);
+  }
+
+  // ⭐⭐ `[CG.203]` **En una pantalla pública no hay sesión que pegar ni que perder.** La excepción
+  // de arriba mira la URL de la PETICIÓN; ésta mira la PANTALLA, que es lo que faltaba: el 401
+  // que mandaba al login desde `/firmar` lo provocaba el arranque, no la pantalla. Sin token y sin
+  // redirect — y sin `logout()`, que en el teléfono del cajero le cerraría la Suite por escanear
+  // un QR. Lista única en `rutas-publicas.ts`.
+  if (enRutaPublica()) {
     return next(req);
   }
 

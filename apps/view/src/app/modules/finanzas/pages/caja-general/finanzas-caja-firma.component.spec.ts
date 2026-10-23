@@ -32,13 +32,17 @@ class ResizeObserverStub {
 describe('FinanzasCajaFirmaComponent · el canal tiene TRES estados', () => {
   type Estado = 'sin_iniciar' | 'conectando' | 'vivo' | 'caido';
 
-  function montar(estadoInicial: Estado, url = '/finanzas/caja-general/firma') {
+  type Motivo = 'sin_credencial' | 'sesion_rechazada' | 'pase_rechazado' | 'red' | null;
+
+  function montar(estadoInicial: Estado, url = '/finanzas/caja-general/firma', motivo: Motivo = 'red') {
     const estado = signal<Estado>(estadoInicial);
+    const motivoCaida = signal<Motivo>(estadoInicial === 'caido' ? motivo : null);
     const sock = {
       connect: vi.fn(),
       disconnect: vi.fn(),
       connected: () => estado() === 'vivo',
       estado,
+      motivoCaida,
       tomarFirma: vi.fn(async () => ({ ok: false as const, error: 'sin_conexion' })),
       enviarFirma: vi.fn(async () => ({ ok: true as const })),
     };
@@ -101,8 +105,8 @@ describe('FinanzasCajaFirmaComponent · el canal tiene TRES estados', () => {
     expect(comp.aviso()).not.toContain('venció');
   });
 
-  it('4b · con el canal caido y pase, el QR vencido SIGUE siendo la explicacion correcta', async () => {
-    const { fx, comp } = montar('caido', '/firma?pase=P1');
+  it('4b · si el servidor RECHAZO el pase, el QR vencido es la explicacion correcta', async () => {
+    const { fx, comp } = montar('caido', '/firma?pase=P1', 'pase_rechazado');
     comp.codigo = 'ABC234';
     await comp.tomar();
     fx.detectChanges();
@@ -115,5 +119,27 @@ describe('FinanzasCajaFirmaComponent · el canal tiene TRES estados', () => {
     await comp.tomar();
     expect(comp.aviso()).toContain('Revisa la red');
     expect(comp.aviso()).not.toContain('venció');
+  });
+
+  // ⭐ `[CG.203]` Las dos mentiras que costaban firmar otra vez: la frase vieja decía «el QR
+  // venció» siempre que hubiera pase (la 6 lo prohíbe) y «revisa la red» siempre que no (la 7).
+  it('6 · con pase y la RED caida, no culpa al QR: la persona no tiene que pedir otro', async () => {
+    const { fx, comp } = montar('caido', '/firma?pase=P1', 'red');
+    comp.codigo = 'ABC234';
+    await comp.tomar();
+    fx.detectChanges();
+    expect(comp.aviso()).toContain('Revisa la red');
+    expect(comp.aviso()).not.toContain('venció');
+  });
+
+  it('7 · sin pase ni sesion, manda a escanear el QR y no a revisar una red que esta bien', () => {
+    const { fx } = montar('caido', '/firmar?c=ABC234', 'sin_credencial');
+    expect(txt(fx)).toContain('Escanea con la cámara el QR');
+    expect(txt(fx)).not.toContain('Revisa la red');
+  });
+
+  it('8 · una sesion vencida en el telefono tampoco es la red', () => {
+    const { fx } = montar('caido', '/firmar?c=ABC234', 'sesion_rechazada');
+    expect(txt(fx)).toContain('no hace falta iniciar sesión');
   });
 });

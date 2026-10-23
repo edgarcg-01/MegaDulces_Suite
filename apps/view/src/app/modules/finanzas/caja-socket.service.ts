@@ -64,6 +64,22 @@ export class CajaSocketService {
    */
   readonly estado = signal<'sin_iniciar' | 'conectando' | 'vivo' | 'caido'>('sin_iniciar');
 
+  /**
+   * ⭐ `[CG.203]` **Por qué está `caido`**, que es lo que la persona necesita para saber qué hacer.
+   *
+   * `caido` juntaba tres causas con tres arreglos distintos, y el teléfono de la firma decía para
+   * las tres *«revisa la red del teléfono»*:
+   *
+   *   · `sin_credencial`        — ni pase ni sesión (se tecleó el código en un teléfono sin
+   *                               cuenta). La red está bien: lo que falta es escanear el QR.
+   *   · `sesion_rechazada`      — la sesión que el teléfono guardaba ya venció.
+   *   · `pase_rechazado`        — el pase del QR venció o no es un pase. Hace falta otro QR.
+   *   · `red`                   — se cortó la conexión. Ésta sí es la red.
+   *
+   * `null` mientras no esté caído.
+   */
+  readonly motivoCaida = signal<'sin_credencial' | 'sesion_rechazada' | 'pase_rechazado' | 'red' | null>(null);
+
   readonly change$ = new Subject<CajaEvent>();
 
   /** `[CG.68]` El teléfono tecleó el código y ya está del otro lado. */
@@ -116,14 +132,15 @@ export class CajaSocketService {
     // el handshake ve false, crea OTRO socket y pisa la referencia — el primero queda huérfano,
     // reconectando solo y fuera del alcance de disconnect(). (Mismo defecto ya vivido en Bancos.)
     if (this.socket) {
-      if (!this.socket.connected) { this.estado.set('conectando'); this.socket.connect(); }
+      if (!this.socket.connected) { this.motivoCaida.set(null); this.estado.set('conectando'); this.socket.connect(); }
       return;
     }
     const token = pase ? null : this.auth.token();
     // ⚠️ Sin credencial no se intenta siquiera, y eso NO es "conectando": es que no se puede.
     // Antes volvía en silencio y el estado quedaba en el `false` inicial, indistinguible de un
     // handshake en curso que nunca iba a terminar.
-    if (!pase && !token) { this.estado.set('caido'); return; }
+    if (!pase && !token) { this.motivoCaida.set('sin_credencial'); this.estado.set('caido'); return; }
+    this.motivoCaida.set(null);
     this.estado.set('conectando');
     this.modo = modoPedido;
     this.socket = io(`${this.baseUrl()}/caja`, {
@@ -134,9 +151,19 @@ export class CajaSocketService {
       reconnectionAttempts: 5,
       reconnectionDelay: 1500,
     });
-    this.socket.on('connect', () => { this.connected.set(true); this.estado.set('vivo'); });
-    this.socket.on('disconnect', () => { this.connected.set(false); this.estado.set('caido'); });
-    this.socket.on('auth_error', () => { this.connected.set(false); this.estado.set('caido'); });
+    this.socket.on('connect', () => { this.connected.set(true); this.motivoCaida.set(null); this.estado.set('vivo'); });
+    // ⚠️ `[CG.203]` El servidor manda `auth_error` y RECIÉN DESPUÉS corta, así que el `disconnect`
+    // llega segundo: si pisara el motivo, toda credencial rechazada se leería como «la red».
+    this.socket.on('disconnect', () => {
+      this.connected.set(false);
+      if (this.motivoCaida() === null) this.motivoCaida.set('red');
+      this.estado.set('caido');
+    });
+    this.socket.on('auth_error', () => {
+      this.connected.set(false);
+      this.motivoCaida.set(modoPedido === 'pase' ? 'pase_rechazado' : 'sesion_rechazada');
+      this.estado.set('caido');
+    });
     this.socket.on('caja_changed', (e: CajaEvent) => this.change$.next(e));
     // `[CG.68]` Los tres avisos del emparejamiento PC ↔ teléfono.
     this.socket.on('firma:tomada', (e: { codigo: string; por: string | null }) => this.firmaTomada$.next(e));
@@ -210,6 +237,7 @@ export class CajaSocketService {
     this.connected.set(false);
     // Cerrar a propósito no es caerse: vuelve al estado de arranque, o la próxima pantalla que
     // monte arrancaría mostrando una falla que no ocurrió.
+    this.motivoCaida.set(null);
     this.estado.set('sin_iniciar');
   }
 
