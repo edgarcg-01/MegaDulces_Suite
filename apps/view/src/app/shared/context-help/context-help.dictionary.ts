@@ -2423,4 +2423,51 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+
+  // `[PGP.7]` La pantalla absorbió a Pronto pago y quedó como el único lugar donde se hace un
+  // pago. Sin esta entrada, lo absorbido llega sin explicación: el chip del descuento vivía con
+  // su definición metida en un `title`, que sólo existe para quien tiene mouse (regla P).
+  'calendario-de-pagos': {
+    title: 'Calendario de pagos — todo el pago, en un solo lugar',
+    intro:
+      'Acá se arma el día de pago, se prepara cada transferencia, se autoriza el lote y se liga con el documento del ERP. Desde octubre de 2026 también muestra qué factura está por perder su descuento por pronto pago, que antes era una pantalla aparte: el dato es el mismo y la decisión es la misma, así que se toma sin cambiar de lugar.',
+    groups: [
+      {
+        heading: 'Los pasos, y de quién es cada uno',
+        entries: [
+          { term: '1 · Armar el día', def: 'Elegís qué facturas se pagan y a qué día. Una factura puede venir de cuatro lugares: la deuda viva del ERP, una obligación de compra, un gasto autorizado por Presupuestos o un compromiso financiero. Un pago es UNA transferencia a UNA cuenta, así que no se pueden juntar facturas de beneficiarios distintos.' },
+          { term: '2 · Preparar', def: 'Le pones el método, la cuenta de donde sale el dinero y la cuenta a donde llega. Es de Tesorería. Mientras un solo pago del día quede sin preparar, el día entero NO se puede autorizar.' },
+          { term: '3 · Autorizar el día', def: 'Lo hace quien tiene el permiso de autorizar, que no es quien preparó: esa separación es el control. Al autorizar, el día recibe su folio y Caja General ya puede dispersar.' },
+          { term: '4 · Ejecutar y ligar', def: 'Caja General paga y marca el pago como ejecutado. Después se liga con su documento del ERP, que es lo que permite volver a cruzarlo contra la contabilidad. Va aparte porque el dinero sale antes de que el ERP capture el documento.' },
+        ],
+      },
+      {
+        heading: 'El descuento por pronto pago',
+        entries: [
+          { term: 'Ahorra $X (Y %)', def: 'Lo que se dejaría de pagar si esa factura se liquida dentro de la ventana. El monto dice cuánto se gana; el porcentaje sirve para compararlo contra lo que cuesta adelantar el dinero.' },
+          { term: 'Antes del <fecha>', def: 'La fecha límite estimada. ⚠️ Es OBSERVADA, no pactada: sale de los pagos a ese proveedor que de hecho obtuvieron descuento, no de una condición acordada. El acuerdo con el proveedor no existe como dato en ningún sistema. Es una guía defendible, no una promesa.' },
+          { term: 'Por vencer', def: 'Le quedan cinco días o menos de ventana. Es un aviso para que no se pierda por olvido, no una regla de negocio.' },
+          { term: 'Fuera de ventana', def: 'Se pasó la mediana de lo que históricamente funcionó con ese proveedor. ⚠️ NO quiere decir «perdido»: todavía se puede pedir, y tratarlo como perdido haría que nadie lo intente.' },
+          { term: 'Sin medir', def: 'No hay observaciones suficientes de ese proveedor para estimar una ventana. ⚠️ No es lo mismo no saber que saber que no da descuento: por eso el renglón no muestra nada en vez de mostrar cero.' },
+          { term: 'Ordenar por descuento', def: 'Cambia el orden de la lista: en vez de por fecha de pago, por fecha límite del descuento y, a igualdad, por lo que se gana. Es el orden que tenía la pantalla de Pronto pago, porque cada factura pierde el privilegio en su propio día y agruparlas esconde la que vence mañana.' },
+        ],
+      },
+      {
+        heading: 'Lo que ya no está acá, y dónde quedó',
+        entries: [
+          { term: 'Pronto pago (la pantalla)', def: 'Salió del menú en octubre de 2026. Lo que servía para decidir —cuánto se gana, hasta cuándo y en qué estado está la ventana— está en esta pantalla. Su otra mitad, los hallazgos de descuento ya perdido, llevaba 55 días sin producirse. La dirección sigue funcionando si la tenés guardada.' },
+          { term: 'Programa de pagos', def: 'Salió del menú en octubre de 2026: era el Excel de Tesorería importado y su última carga fue del 8 de agosto. Lo que de verdad se pagó se consulta en «Pagos a proveedor», que sale del ERP y está al día. La dirección sigue funcionando si la tenés guardada.' },
+          { term: 'Cuánto se debe', def: 'Esta pantalla muestra lo que se va a pagar. Para ver la deuda documento por documento, con sus pagos y notas aplicadas, está «Estado de cuenta acreedores»; para el cuadre contable, «Cuadre y deuda».' },
+        ],
+      },
+      {
+        heading: 'El contraste contra el libro de Tesorería',
+        entries: [
+          { term: 'Según el libro salieron $X', def: 'Lo que el Excel de Tesorería registra como pagado ese día. ⚠️ Es OTRO universo que lo de arriba: se suma por fecha, no se casa renglón por renglón con los pagos del calendario. Sirve para comparar totales, no para dar por cuadrado un pago.' },
+          { term: 'El libro no tiene ese mes', def: 'El Excel de Tesorería no fue cargado para ese mes. ⚠️ NO quiere decir que no se haya pagado: quiere decir que no hay con qué comparar.' },
+          { term: '⚠️ El libro está detenido', def: 'Su última carga es del 8 de agosto de 2026. De septiembre en adelante el contraste va a decir siempre «el libro no tiene ese mes», y eso es un hueco del libro, no del calendario. Lo que de verdad se pagó se consulta en «Pagos a proveedor», que sale del ERP.' },
+        ],
+      },
+    ],
+  },
 };

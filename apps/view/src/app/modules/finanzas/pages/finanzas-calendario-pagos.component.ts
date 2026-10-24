@@ -29,6 +29,7 @@ import { Permission } from '../../../core/constants/permissions';
 import { agruparObligaciones, allocationKey, filasAgrupadas, obligationKey, sugerirArmado, vencimiento, type ArmadoGrupo } from './calendario-pagos-grupos';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
 type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto' | 'presupuesto_recortado' | 'otro';
 
@@ -120,7 +121,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, TagModule, MessageModule, CheckboxModule, ToastModule, TooltipModule, MetricStripComponent, LoadStateComponent, EntityInspectorComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, TagModule, MessageModule, CheckboxModule, ToastModule, TooltipModule, MetricStripComponent, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent],
   providers: [MessageService],
   template: `
     <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
@@ -130,8 +131,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       <p-toast></p-toast>
       <header class="surf-page-head cal-head">
         <div class="surf-page-head-text">
-          <h1>Calendario de pagos</h1>
-          <p class="surf-page-sub">Elige el día arriba, agrégale obligaciones desde la izquierda y ordénalo y prepáralo a la derecha.</p>
+          <!-- [PGP.7] El «about» de que esta pantalla ya incluye todo el ciclo: desde que absorbio
+               a Pronto pago es el unico lugar donde se hace un pago, y lo absorbido llegaba sin
+               explicacion. La jerga va al diccionario versionado, no a un title (regla P). -->
+          <h1>Calendario de pagos <app-context-help topic="calendario-de-pagos" /></h1>
+          <p class="surf-page-sub">Elige el día arriba, agrégale obligaciones desde la izquierda y ordénalo y prepáralo a la derecha. Incluye el descuento por pronto pago de cada factura.</p>
         </div>
         <div class="cal-nav">
           <button pButton type="button" class="p-button-sm p-button-outlined" (click)="shiftWeek(-1)" aria-label="Semana anterior"><span class="pi pi-angle-left" aria-hidden="true"></span></button>
@@ -178,11 +182,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                    no casa renglones: casar por monto+mes es lo de PP.4). -->
               @if (d.libro; as lb) {
                 @if (!lb.mes_cargado && isPast(d.date)) {
-                  <span class="cal-day-libro is-gap" title="El Excel de Tesoreria no tiene ese mes. NO quiere decir que no se haya pagado.">
+                  <span class="cal-day-libro is-gap" title="Sin libro para ese mes — ver el about de la pantalla">
                     <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> libro sin cargar
                   </span>
                 } @else if (lb.n > 0) {
-                  <span class="cal-day-libro" [title]="'Segun el LIBRO de Tesoreria salieron ' + money(lb.monto) + ' en ' + lb.n + ' pago(s) ese dia. Es otro universo que lo de arriba: se suma por fecha, no se casa renglon por renglon.'">
+                  <span class="cal-day-libro" [title]="'Segun el libro de Tesoreria: ' + money(lb.monto) + ' en ' + lb.n + ' pago(s) — ver el about'">
                     <i class="pi pi-book" aria-hidden="true"></i> libro: <span class="comm-num">{{ moneyShort(lb.monto) }}</span> · {{ lb.n }}
                   </span>
                 }
@@ -267,8 +271,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                          tabla es un panel estrecho de cuatro columnas y tres mas la romperian.
                          Solo aparece cuando hay algo que ganar; lo demas no dice nada. -->
                     @if (r.o.pronto_beneficio && (r.o.pronto_estado === 'por_vencer' || r.o.pronto_estado === 'capturable')) {
+                      <!-- [PGP.7] La definicion ya NO vive en este title: un title solo existe
+                           para quien tiene mouse. Esta en el diccionario, abierta desde el about
+                           del encabezado. Lo que queda aqui es una pista, no la definicion. -->
                       <span class="cal-pp" [class.cal-pp-urge]="r.o.pronto_estado === 'por_vencer'"
-                            [title]="'Descuento por pronto pago estimado. La fecha limite es OBSERVADA, no pactada.'">
+                            [title]="'Descuento estimado — ver el about de la pantalla'">
                         <i class="pi" [class.pi-bolt]="r.o.pronto_estado === 'por_vencer'" [class.pi-tag]="r.o.pronto_estado === 'capturable'" aria-hidden="true"></i>
                         ahorra {{ money(r.o.pronto_beneficio) }}@if (r.o.pronto_tasa) { <span class="cal-muted"> ({{ pct(r.o.pronto_tasa) }})</span> }
                         @if (r.o.pronto_fecha_limite) { <span class="cal-muted">· antes del {{ shortDate(r.o.pronto_fecha_limite) }}</span> }
