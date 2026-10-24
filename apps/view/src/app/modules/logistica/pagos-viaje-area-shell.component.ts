@@ -5,7 +5,7 @@ import { PAGOS_VIAJE_TABS } from './pagos-viaje-tabs';
 
 /**
  * `[EMB.43]` — **Shell de Logística › Pagos de viaje.** Pinta el encabezado del módulo y la barra
- * de pestañas UNA vez para las tres pantallas (Por completar · Por persona · Tarifas). Es el
+ * de pestañas UNA vez para las tres pantallas (Operaciones · Por persona · Tarifas). Es el
  * patrón de Gastos y Almacén: un padre con hijos, y cada hijo conserva su permiso.
  */
 @Component({
@@ -18,7 +18,7 @@ import { PAGOS_VIAJE_TABS } from './pagos-viaje-tabs';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Pagos de viaje</h1>
-          <p class="surf-page-sub">Comisión, viáticos y carga por caja de choferes, ayudantes y cargadores. El viaje sale de Kepler; aquí sólo se captura lo que Kepler no sabe.</p>
+          <p class="surf-page-sub">Cuánto le toca a cada quien de cada operación —comisión, viático y carga por caja— y el reporte para pedir el gasto en Kepler. La operación y sus cajas salen de Kepler; aquí sólo se agrega quién fue.</p>
         </div>
       </header>
       <app-page-tabs [tabs]="tabs" ariaLabel="Pantallas de pagos de viaje" />

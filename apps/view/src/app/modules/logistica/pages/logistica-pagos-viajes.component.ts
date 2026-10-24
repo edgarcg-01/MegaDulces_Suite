@@ -1,16 +1,22 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { CurrencyPipe } from '@angular/common';
+import { CurrencyPipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
+import { MultiSelectModule } from 'primeng/multiselect';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { CheckboxModule } from 'primeng/checkbox';
-import { RadioButtonModule } from 'primeng/radiobutton';
 import { DatePickerModule } from 'primeng/datepicker';
-import type { BandejaDeViajes, CompletarGuiaBody, FaltaDelViaje, ViajePorCompletar } from '@megadulces/contracts';
+import type {
+  AltaRapidaResultado, CompletarGuiaBody, FaltaDelViaje, OperacionDelReporte, PersonaDelPadron, ReporteDePagos,
+} from '@megadulces/contracts';
 // Por subruta, no por el barrel: ver tsconfig.base.json (bundle inicial).
-import { corteVecino, FALTA_LABEL, TIPO_VIAJE_LABEL } from '@megadulces/contracts/http/cierre-viaje';
+import {
+  corteVecino, FALTA_LABEL, repartoDeCarga, ROL_LABEL, TIPO_VIAJE_LABEL, totalDeCarga,
+} from '@megadulces/contracts/http/cierre-viaje';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -18,36 +24,43 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
-import { Driver, LogisticaService } from '../logistica.service';
-import { CierreViajeComponent } from '../components/cierre-viaje.component';
+import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
+import { LogisticaService } from '../logistica.service';
+import { AltaPersonaComponent } from '../components/alta-persona.component';
 
-type Vista = 'pendientes' | 'completos' | 'todos';
-type TipoEntrega = 'route' | 'long_trip';
+type Vista = 'pendientes' | 'completas' | 'todas';
+type Operacion = OperacionDelReporte & { clave: string };
 
-/** Lo que cada falta pide hacer, en la columna y en el panel. */
-const FALTA_TONO: Record<FaltaDelViaje, 'warn' | 'danger'> = { tomar: 'danger', chofer: 'warn', horario: 'warn', cargadores: 'warn' };
-const llave = (v: Pick<ViajePorCompletar, 'sucursal' | 'guia'>) => `${v.sucursal}|${v.guia}`;
+const llave = (o: Pick<OperacionDelReporte, 'sucursal' | 'guia'>): string => `${o.sucursal}|${o.guia}`;
 const hhmm = (d: Date | null): string | null =>
   d ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : null;
+const mensaje = (e: unknown, def: string): string => {
+  const x = e as { error?: { message?: string | string[] }; message?: string } | null;
+  const m = x?.error?.message ?? x?.message;
+  return (Array.isArray(m) ? m.join(' ') : m) || def;
+};
 
 /**
- * `[EMB.43]` — **Logística › Pagos de viaje › Por completar.**
+ * `[EMB.47]` — **Logística › Pagos de viaje › Operaciones.**
  *
- * La pregunta que contesta: ¿a qué viajes de Kepler de la catorcena les falta algo para poder
- * pagarse? El viaje ya existe en Kepler (la guía), así que nadie lo «crea»: aparece solo. Aquí se
- * captura únicamente lo que Kepler no sabe —quién más fue, el horario y quién cargó— en un panel
- * lateral, sin perder la lista.
+ * La pregunta que contesta: de cada operación de la catorcena (traspaso o entrega a cliente),
+ * ¿cuánto le toca a cada quien? Kepler ya sabe la operación y sus cajas; lo único que NO sabe es
+ * quién fue. Aquí se agrega al chofer, a los ayudantes y a los cargadores —y si alguien no está en
+ * el padrón, se da de alta en el momento— y el reparto sale solo. Las solicitudes de gasto se sacan
+ * en «Por persona».
  *
- * Jerarquía: primario = cuántos viajes faltan y qué les falta; secundario = la lista; terciario =
- * guía, importe y destinos de cada fila.
+ * Jerarquía: primario = cuánto ya está repartido y a cuántas operaciones les falta quién fue;
+ * secundario = la lista; terciario = guía, destinos y cajas de cada fila.
  */
 @Component({
   selector: 'app-logistica-pagos-viajes',
   standalone: true,
   imports: [
-    CurrencyPipe, FormsModule, TableModule, SelectModule, ButtonModule, TagModule, CheckboxModule, RadioButtonModule,
-    DatePickerModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent, SidePeekComponent,
-    SegmentedComponent, SucursalPipe, CierreViajeComponent,
+    CurrencyPipe, DecimalPipe, FormsModule, RouterLink, TableModule, SelectModule, MultiSelectModule, ButtonModule, TagModule,
+    CheckboxModule, DatePickerModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent, SidePeekComponent,
+    SegmentedComponent, SucursalPipe, AltaPersonaComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -57,37 +70,37 @@ const hhmm = (d: Date | null): string | null =>
           <button pButton type="button" [text]="true" size="small" (click)="mover(-1)"
                   [disabled]="!data()" aria-label="Catorcena anterior"><span class="p-button-icon pi pi-chevron-left" aria-hidden="true"></span></button>
           <span class="pv-corte-txt">
-            @if (data(); as d) { Catorcena {{ fechaCorta(d.corte.desde) }} – {{ fechaCorta(d.corte.hasta) }} · se paga el {{ fechaCorta(d.corte.pago) }} }
+            @if (data(); as d) { Catorcena {{ fechaCorta(d.corte.desde) }} a {{ fechaCorta(d.corte.hasta) }} · se paga el {{ fechaCorta(d.corte.pago) }} }
             @else { Catorcena }
           </span>
           <button pButton type="button" [text]="true" size="small" (click)="mover(1)"
                   [disabled]="!data()" aria-label="Catorcena siguiente"><span class="p-button-icon pi pi-chevron-right" aria-hidden="true"></span></button>
         </div>
         @if (data(); as d) {
-          <app-freshness-pill measures="fetch" [since]="d.leido_at" label="viajes de Kepler" />
+          <app-freshness-pill measures="fetch" [since]="d.leido_at" label="operaciones de Kepler" />
         }
       </div>
 
       @if (data(); as d) {
         <p class="pv-titular">{{ titular() }}</p>
-        <app-metric-strip [items]="kpis()" mode="strip" density="compact" ariaLabel="Viajes de la catorcena" />
+        <app-metric-strip [items]="kpis()" mode="strip" density="compact" ariaLabel="Operaciones de la catorcena" />
       }
 
-      <app-load-state [loading]="cargando() && !data()" [error]="error()" [isEmpty]="!!data() && !data()!.viajes.length"
-                      emptyIcon="pi-truck" emptyTitle="Sin viajes de Kepler en esta catorcena"
-                      emptyHint="Sólo cuentan traspasos y entregas a cliente; las cargas a camión de ruta no pagan comisión ni viático."
+      <app-load-state [loading]="cargando() && !data()" [error]="error()" [isEmpty]="!!data() && !data()!.operaciones.length"
+                      emptyIcon="pi-truck" emptyTitle="Sin operaciones de Kepler en esta catorcena"
+                      emptyHint="Sólo cuentan traspasos y entregas a cliente; las cargas a camión de ruta no pagan comisión, viático ni carga."
                       (retry)="cargar()">
         <section class="pv-barra" aria-label="Filtros">
-          <app-segmented [options]="vistas()" [value]="vista()" (valueChange)="vista.set($any($event))" ariaLabel="Qué viajes ver" />
+          <app-segmented [options]="vistas()" [value]="vista()" (valueChange)="vista.set($any($event))" ariaLabel="Qué operaciones ver" />
           <p-select [options]="sucursales()" optionLabel="label" optionValue="value" [ngModel]="sucursal()"
                     (ngModelChange)="sucursal.set($event)" [showClear]="true" placeholder="Todas las sucursales"
                     ariaLabel="Sucursal" appendTo="body" class="pv-sel" />
           <label class="pv-buscar">
-            <span class="sr-only">Buscar viaje</span>
+            <span class="sr-only">Buscar operación</span>
             <input type="search" [value]="busqueda()" (input)="busqueda.set($any($event.target).value)"
-                   placeholder="Guía, destino o chofer" autocomplete="off" spellcheck="false" />
+                   placeholder="Guía, destino o persona" autocomplete="off" spellcheck="false" />
           </label>
-          <span class="pv-cuenta">{{ filtrados().length }} de {{ data()?.viajes?.length ?? 0 }} viajes</span>
+          <span class="pv-cuenta">{{ filtrados().length }} de {{ data()?.operaciones?.length ?? 0 }} operaciones</span>
         </section>
 
         <div class="dt-scope">
@@ -95,127 +108,170 @@ const hhmm = (d: Date | null): string | null =>
                    (onRowSelect)="alSeleccionar($event.data)" [paginator]="filtrados().length > 50" [rows]="50"
                    [showCurrentPageReport]="true" currentPageReportTemplate="{first}–{last} de {totalRecords}"
                    size="small" class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack"
-                   [tableStyle]="{ 'min-width': '52rem' }">
+                   [tableStyle]="{ 'min-width': '60rem' }">
             <ng-template #header>
               <tr>
                 <th scope="col">Guía</th>
                 <th scope="col">Fecha</th>
                 <th scope="col">Tipo</th>
                 <th scope="col">Destinos</th>
-                <th scope="col">Chofer en Kepler</th>
-                <th scope="col" class="comm-num">Importe</th>
+                <th scope="col" class="comm-num">Cajas</th>
+                <th scope="col">Quién fue</th>
+                <th scope="col" class="comm-num">Repartido</th>
                 <th scope="col">Qué falta</th>
               </tr>
             </ng-template>
-            <ng-template #body let-v>
-              <tr [pSelectableRow]="v" [attr.aria-label]="'Abrir la guía ' + v.guia + ' de ' + (v.sucursal | sucursal)">
+            <ng-template #body let-o>
+              <tr [pSelectableRow]="o" [attr.aria-label]="'Abrir la guía ' + o.guia + ' de ' + (o.sucursal | sucursal)">
                 <td data-label="Guía">
-                  <span class="pv-guia">{{ v.guia }}</span>
-                  <span class="pv-sub">{{ v.sucursal | sucursal }}@if (v.shipment_folio) { · {{ v.shipment_folio }} }</span>
+                  <span class="pv-guia">{{ o.guia }}</span>
+                  <span class="pv-sub">{{ o.sucursal | sucursal }}</span>
                 </td>
-                <td data-label="Fecha">{{ fechaCorta(v.fecha) }}</td>
-                <td data-label="Tipo">{{ tipoLabel(v.tipo) }}</td>
-                <td data-label="Destinos" class="pv-destinos">{{ v.destinos || '—' }}</td>
-                <td data-label="Chofer en Kepler">{{ v.chofer_kepler || '—' }}</td>
-                <td data-label="Importe" class="comm-num">{{ v.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td data-label="Fecha">{{ fechaCorta(o.fecha) }}</td>
+                <td data-label="Tipo">{{ tipoLabel(o.tipo) }}</td>
+                <td data-label="Destinos" class="pv-destinos">{{ o.destinos || '—' }}</td>
+                <td data-label="Cajas" class="comm-num">{{ o.cajas == null ? '—' : (o.cajas | number:'1.0-0') }}</td>
+                <td data-label="Quién fue">
+                  @if (o.driver_id) { {{ nombre(o.driver_id) }} }
+                  @else if (o.chofer_kepler) { <span class="pv-tenue">{{ o.chofer_kepler }} (Kepler)</span> }
+                  @else { <span class="pv-tenue">—</span> }
+                  <span class="pv-sub">{{ equipo(o) }}</span>
+                </td>
+                <td data-label="Repartido" class="comm-num">{{ o.repartido | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td data-label="Qué falta">
-                  @for (f of v.faltan; track f) { <p-tag [value]="faltaLabel(f)" [severity]="faltaTono(f)" class="pv-tag" /> }
-                  @empty { <p-tag value="Completo" severity="success" /> }
+                  @for (f of o.faltan; track f) { <p-tag [value]="faltaLabel(f)" severity="warn" class="pv-tag" /> }
+                  @empty { <p-tag value="Completa" severity="success" /> }
                 </td>
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="7" class="pv-vacio">Ningún viaje con este filtro.</td></tr>
+              <tr><td colspan="8" class="pv-vacio">Ninguna operación con este filtro.</td></tr>
             </ng-template>
           </p-table>
         </div>
       </app-load-state>
 
       <app-side-peek [open]="peek()" (openChange)="!$event && cerrar()" [width]="640"
-                     [title]="viaje() ? 'Guía ' + viaje()!.guia : ''"
-                     [subtitle]="viaje() ? subtituloPeek(viaje()!) : null">
-        @if (viaje(); as v) {
+                     [title]="op() ? 'Guía ' + op()!.guia : ''"
+                     [subtitle]="op() ? subtituloPeek(op()!) : null">
+        @if (op(); as o) {
           <div class="pv-peek">
             <dl class="pv-datos">
-              <div><dt>Destinos</dt><dd>{{ v.destinos || '—' }}</dd></div>
-              <div><dt>Chofer en Kepler</dt><dd>{{ v.chofer_kepler || 'Kepler no lo trae' }}</dd></div>
-              <div><dt>Importe</dt><dd>{{ v.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</dd></div>
+              <div><dt>Destinos</dt><dd>{{ o.destinos || '—' }}</dd></div>
+              <div><dt>Cajas</dt><dd>{{ o.cajas == null ? 'Kepler no las trae todavía' : (o.cajas | number:'1.0-0') }}</dd></div>
+              <div><dt>Carga</dt><dd>{{ textoCarga(o) }}</dd></div>
+              <div><dt>Chofer en Kepler</dt><dd>{{ o.chofer_kepler || 'Kepler no lo trae' }}</dd></div>
             </dl>
 
             @if (avisoPeek(); as a) { <div class="pv-msg pv-msg-ok" role="status">{{ a }}</div> }
             @if (errorPeek(); as e) { <div class="pv-msg pv-msg-bad" role="alert">{{ e }}</div> }
 
-            <!-- 1. Tomar el viaje: la hoja de la Suite que guarda lo que Kepler no sabe. -->
-            @if (!v.shipment_id) {
-              <section class="pv-paso" aria-labelledby="pv-paso-1">
-                <h3 id="pv-paso-1"><span class="pv-num">1</span> Tomar el viaje</h3>
-                <p class="pv-sub">Este viaje todavía no tiene hoja en la Suite. Al tomarlo se crea con sus paradas de Kepler; después se captura la tripulación y quién cargó.</p>
-                <fieldset class="pv-radios">
-                  <legend>Tipo de entrega</legend>
-                  <label><p-radiobutton name="pv-tipo" value="route" [ngModel]="tipoEntrega()" (ngModelChange)="tipoEntrega.set($event)" inputId="pv-tipo-ruta" /> Por ruta</label>
-                  <label><p-radiobutton name="pv-tipo" value="long_trip" [ngModel]="tipoEntrega()" (ngModelChange)="tipoEntrega.set($event)" inputId="pv-tipo-largo" /> Viaje largo</label>
-                </fieldset>
-                <button pButton type="button" [loading]="tomando()"
-                        [disabled]="!tipoEntrega() || tomando()" (click)="tomar(v)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Tomar viaje</span></button>
-              </section>
-            } @else {
-              <!-- 2. Tripulación y horario: de aquí salen la comisión y los viáticos. -->
-              <section class="pv-paso" aria-labelledby="pv-paso-2">
-                <h3 id="pv-paso-2"><span class="pv-num">2</span> Quién fue y a qué hora</h3>
-                @if (!v.guide_id) {
-                  <p class="pv-sub">El viaje no tiene guía de entrega activa: revísalo en Embarques.</p>
-                } @else if (guiaCompleta(v)) {
-                  <dl class="pv-datos">
-                    <div><dt>Chofer</dt><dd>{{ nombre(v.driver_id) }}</dd></div>
-                    <div><dt>Ayudantes</dt><dd>{{ ayudantes(v) }}</dd></div>
-                    <div><dt>Salida · llegada</dt><dd>{{ v.departure_time }} – {{ v.arrival_time }}@if (v.overnight) { · durmió fuera }</dd></div>
-                  </dl>
-                  <p class="pv-sub">La guía ya está completa: con eso se calcularon la comisión y los viáticos (no se edita).</p>
-                } @else {
-                  <div class="pv-form">
-                    <label for="pv-chofer">Chofer</label>
-                    @if (v.driver_id) {
-                      <p class="pv-fijo" id="pv-chofer">{{ nombre(v.driver_id) }} <span class="pv-sub">(viene de Kepler)</span></p>
-                    } @else {
-                      <p-select inputId="pv-chofer" [options]="personas()" optionLabel="full_name" optionValue="id" [filter]="true"
-                                [ngModel]="chofer()" (ngModelChange)="chofer.set($event)" placeholder="Elige al chofer" appendTo="body" />
-                    }
-                    <label for="pv-ay1">Ayudante 1 <span class="pv-sub">(opcional)</span></label>
-                    <p-select inputId="pv-ay1" [options]="personas()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true"
-                              [ngModel]="ayudante1()" (ngModelChange)="ayudante1.set($event)" placeholder="Nadie" appendTo="body" />
-                    <label for="pv-ay2">Ayudante 2 <span class="pv-sub">(opcional)</span></label>
-                    <p-select inputId="pv-ay2" [options]="personas()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true"
-                              [ngModel]="ayudante2()" (ngModelChange)="ayudante2.set($event)" placeholder="Nadie" appendTo="body" />
-                    <div class="pv-horas">
-                      <div>
-                        <label for="pv-salida">Salida</label>
-                        <p-datepicker inputId="pv-salida" [timeOnly]="true" hourFormat="24" [ngModel]="salida()" (ngModelChange)="salida.set($event)" appendTo="body" />
-                      </div>
-                      <div>
-                        <label for="pv-llegada">Llegada</label>
-                        <p-datepicker inputId="pv-llegada" [timeOnly]="true" hourFormat="24" [ngModel]="llegada()" (ngModelChange)="llegada.set($event)" appendTo="body" />
-                      </div>
+            <!-- Chofer y ayudantes: de aquí salen la comisión (por la ruta) y el viático (por el horario). -->
+            <section class="pv-paso" aria-labelledby="pv-tripulacion">
+              <h3 id="pv-tripulacion">Chofer y ayudantes</h3>
+              @if (guiaCompleta(o)) {
+                <dl class="pv-datos">
+                  <div><dt>Chofer</dt><dd>{{ nombre(o.driver_id) }}</dd></div>
+                  <div><dt>Ayudantes</dt><dd>{{ ayudantes(o) }}</dd></div>
+                  <div><dt>Salida y llegada</dt><dd>{{ o.departure_time }} a {{ o.arrival_time }}@if (o.overnight) { · durmió fuera }</dd></div>
+                </dl>
+                <p class="pv-sub">Con esto se calcularon la comisión y el viático: ya no se cambia.</p>
+              } @else if (!puedeCapturar()) {
+                <p class="pv-sub">Falta capturarlos. Lo hace quien gestiona Pagos de viaje.</p>
+              } @else {
+                <div class="pv-form">
+                  <label for="pv-chofer">Chofer</label>
+                  @if (o.driver_id) {
+                    <p class="pv-fijo" id="pv-chofer">{{ nombre(o.driver_id) }} <span class="pv-sub">(viene de Kepler)</span></p>
+                  } @else {
+                    <p-select inputId="pv-chofer" [options]="opciones()" optionLabel="full_name" optionValue="id" [filter]="true"
+                              [ngModel]="chofer()" (ngModelChange)="chofer.set($event)"
+                              [placeholder]="o.chofer_kepler ? 'Kepler dice: ' + o.chofer_kepler : 'Elige al chofer'" appendTo="body" />
+                    @if (o.chofer_kepler && !chofer()) { <span class="pv-sub">Si no eliges, se toma el de Kepler cuando está en el padrón.</span> }
+                  }
+                  <label for="pv-ay1">Ayudante 1 <span class="pv-sub pv-inline">(opcional)</span></label>
+                  <p-select inputId="pv-ay1" [options]="opciones()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true"
+                            [ngModel]="ayudante1()" (ngModelChange)="ayudante1.set($event)" placeholder="Nadie" appendTo="body" />
+                  <label for="pv-ay2">Ayudante 2 <span class="pv-sub pv-inline">(opcional)</span></label>
+                  <p-select inputId="pv-ay2" [options]="opciones()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true"
+                            [ngModel]="ayudante2()" (ngModelChange)="ayudante2.set($event)" placeholder="Nadie" appendTo="body" />
+                  <button pButton type="button" [text]="true" size="small" class="pv-alta" (click)="altaAyudante.set(true)"><span class="p-button-icon p-button-icon-left pi pi-user-plus" aria-hidden="true"></span><span class="p-button-label">Agregar ayudante nuevo</span></button>
+                  <div class="pv-horas">
+                    <div>
+                      <label for="pv-salida">Salida</label>
+                      <p-datepicker inputId="pv-salida" [timeOnly]="true" hourFormat="24" [ngModel]="salida()" (ngModelChange)="salida.set($event)" appendTo="body" />
                     </div>
-                    <label class="pv-check"><p-checkbox [binary]="true" inputId="pv-noche" [ngModel]="durmio()" (ngModelChange)="durmio.set($event)" /> Durmió fuera</label>
-                    @if (erroresGuia(v).length) {
-                      <ul class="pv-errs">@for (e of erroresGuia(v); track e) { <li>{{ e }}</li> }</ul>
-                    }
-                    <button pButton type="button" [loading]="guardandoGuia()"
-                            [disabled]="erroresGuia(v).length > 0 || guardandoGuia()" (click)="guardarGuia(v)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar tripulación y horario</span></button>
-                    <p class="pv-sub">Se guarda una sola vez: con esto se calculan la comisión (por la ruta) y los viáticos (por el horario).</p>
+                    <div>
+                      <label for="pv-llegada">Llegada</label>
+                      <p-datepicker inputId="pv-llegada" [timeOnly]="true" hourFormat="24" [ngModel]="llegada()" (ngModelChange)="llegada.set($event)" appendTo="body" />
+                    </div>
                   </div>
-                }
-              </section>
+                  <label class="pv-check"><p-checkbox [binary]="true" inputId="pv-noche" [ngModel]="durmio()" (ngModelChange)="durmio.set($event)" /> Durmió fuera</label>
+                  @if (erroresTripulacion(o).length) {
+                    <ul class="pv-errs">@for (e of erroresTripulacion(o); track e) { <li>{{ e }}</li> }</ul>
+                  }
+                  <button pButton type="button" [loading]="guardandoGuia()"
+                          [disabled]="erroresTripulacion(o).length > 0 || guardandoGuia()" (click)="guardarTripulacion(o)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar chofer y ayudantes</span></button>
+                  <p class="pv-sub">Se guarda una sola vez: con esto se calculan la comisión (por la ruta) y el viático (por el horario).</p>
+                </div>
+              }
+            </section>
 
-              <!-- 3. Quién cargó, paradas y lo que se libera: el mismo bloque de «Cierre y pago». -->
-              <section class="pv-paso" aria-labelledby="pv-paso-3">
-                <h3 id="pv-paso-3"><span class="pv-num">3</span> Quién cargó y cierre de paradas</h3>
-                <app-cierre-viaje [shipmentId]="v.shipment_id" [drivers]="padron()" />
-              </section>
-            }
+            <!-- Quién cargó: cajas × tarifa, en partes iguales. -->
+            <section class="pv-paso" aria-labelledby="pv-carga">
+              <h3 id="pv-carga">Quién cargó</h3>
+              @if (o.tarifa_por_caja == null) {
+                <div class="pv-msg pv-msg-warn">No hay tarifa de carga por caja vigente para esta fecha: captúrala en la pestaña Tarifas. Sin tarifa no se reparte: un cero sería no pagar.</div>
+              } @else if (o.cajas == null) {
+                <div class="pv-msg pv-msg-warn">Kepler todavía no trae los renglones de esta guía: no se sabe cuántas cajas lleva y la carga no se puede repartir.</div>
+              } @else if (!puedeCapturar()) {
+                <p class="pv-sub">{{ o.cargadores ? cargadoresTexto(o) : 'Falta registrar quién cargó. Lo hace quien gestiona Pagos de viaje.' }}</p>
+              } @else {
+                <div class="pv-ms">
+                  <label class="sr-only" for="pv-cargadores">Cargadores</label>
+                  <p-multiselect inputId="pv-cargadores" [options]="opciones()" optionLabel="full_name" optionValue="id"
+                                 [ngModel]="cargadoresSel()" (ngModelChange)="cargadoresSel.set($event ?? [])" [filter]="true"
+                                 placeholder="Elige a quienes cargaron" display="chip" appendTo="body" />
+                </div>
+                <button pButton type="button" [text]="true" size="small" class="pv-alta" (click)="altaCargador.set(true)"><span class="p-button-icon p-button-icon-left pi pi-user-plus" aria-hidden="true"></span><span class="p-button-label">Agregar cargador nuevo</span></button>
+                @if (textoReparto(o); as t) { <p class="pv-sub" role="status">{{ t }}</p> }
+                <button pButton type="button" [loading]="guardandoCarga()" [disabled]="guardandoCarga()" (click)="guardarCargadores(o)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar cargadores</span></button>
+              }
+            </section>
+
+            <!-- Lo que sale de esta operación, persona por persona. -->
+            <section class="pv-paso" aria-labelledby="pv-reparto">
+              <h3 id="pv-reparto">Cuánto le toca a cada quien</h3>
+              @if (o.renglones.length) {
+                <div class="dt-scope">
+                  <p-table [value]="o.renglones" size="small" class="surf-table surf-table--plain dt-stack">
+                    <ng-template #header>
+                      <tr><th scope="col">Persona</th><th scope="col">Papel</th><th scope="col">Concepto en Kepler</th><th scope="col" class="comm-num">Importe</th></tr>
+                    </ng-template>
+                    <ng-template #body let-r>
+                      <tr>
+                        <td data-label="Persona">{{ r.persona }}</td>
+                        <td data-label="Papel">{{ rolLabel(r.rol) }}</td>
+                        <td data-label="Concepto en Kepler"><span class="pv-guia">{{ r.codigo }}</span> <span class="pv-sub">{{ r.nombre_concepto }}</span></td>
+                        <td data-label="Importe" class="comm-num">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                      </tr>
+                    </ng-template>
+                    <ng-template #footer>
+                      <tr><td colspan="3">Total de la operación</td><td class="comm-num">{{ o.repartido | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr>
+                    </ng-template>
+                  </p-table>
+                </div>
+                <a routerLink="/logistica/pagos/personas" class="pv-link">Ver las solicitudes por persona</a>
+              } @else {
+                <p class="pv-sub">Todavía a nadie: falta capturar quién fue.</p>
+              }
+            </section>
           </div>
         }
       </app-side-peek>
+
+      <app-alta-persona rol="ayudante" [visible]="altaAyudante()" (visibleChange)="altaAyudante.set($event)" (creada)="ayudanteCreado($event)" />
+      <app-alta-persona rol="cargador" [visible]="altaCargador()" (visibleChange)="altaCargador.set($event)" (creada)="cargadorCreado($event)" />
     </div>
   `,
   styles: [`
@@ -230,8 +286,10 @@ const hhmm = (d: Date | null): string | null =>
     .pv-buscar input { min-width: 16rem; padding: var(--sp-2); border: 1px solid var(--border-color); border-radius: var(--r-md); background: transparent; color: inherit; font: inherit; }
     .pv-buscar input:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
     .pv-cuenta { margin-left: auto; font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
-    .pv-guia { display: block; font-family: var(--font-mono); font-weight: var(--fw-medium); }
+    .pv-guia { font-family: var(--font-mono); font-weight: var(--fw-medium); }
     .pv-sub { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
+    .pv-inline { display: inline; }
+    .pv-tenue { color: var(--text-muted); }
     .pv-destinos { max-width: 22rem; }
     .pv-tag { margin: 0 var(--sp-1) var(--sp-1) 0; }
     .pv-vacio { padding: var(--sp-4); color: var(--text-muted); }
@@ -240,29 +298,32 @@ const hhmm = (d: Date | null): string | null =>
     .pv-datos dt { font-size: var(--fs-xs); color: var(--text-muted); }
     .pv-datos dd { margin: 0; font-weight: var(--fw-medium); }
     .pv-paso { display: flex; flex-direction: column; gap: var(--sp-2); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
-    .pv-paso h3 { margin: 0; font-size: var(--fs-body); font-weight: var(--fw-bold); display: flex; align-items: center; gap: var(--sp-2); }
-    .pv-num { display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: var(--r-pill); border: 1px solid var(--border-color); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
-    .pv-radios { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: var(--sp-4); }
-    .pv-radios legend { font-size: var(--fs-sm); font-weight: var(--fw-medium); margin-bottom: var(--sp-1); }
-    .pv-radios label, .pv-check { display: inline-flex; align-items: center; gap: var(--sp-2); min-height: 32px; }
+    .pv-paso h3 { margin: 0; font-size: var(--fs-body); font-weight: var(--fw-bold); }
+    .pv-check { display: inline-flex; align-items: center; gap: var(--sp-2); min-height: 32px; }
     .pv-form { display: flex; flex-direction: column; gap: var(--sp-1); }
     .pv-form > label { font-size: var(--fs-sm); font-weight: var(--fw-medium); margin-top: var(--sp-2); }
     .pv-fijo { margin: 0; font-weight: var(--fw-medium); }
+    .pv-alta { align-self: flex-start; }
     .pv-horas { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin-top: var(--sp-2); }
     .pv-horas label { display: block; font-size: var(--fs-sm); font-weight: var(--fw-medium); margin-bottom: var(--sp-1); }
+    .pv-ms ::ng-deep .p-multiselect { width: 100%; }
     .pv-errs { margin: var(--sp-2) 0 0; padding-left: 1.1rem; color: var(--bad-soft-fg); font-size: var(--fs-xs); }
     .pv-msg { padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); font-size: var(--fs-sm); }
     .pv-msg-ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .pv-msg-bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
+    .pv-msg-warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .pv-link { font-size: var(--fs-sm); }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     @container (max-width: 40rem) { .pv-cuenta { margin-left: 0; } }
   `],
 })
 export class LogisticaPagosViajesComponent {
   private readonly api = inject(LogisticaService);
+  private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
   private readonly sucursalPipe = new SucursalPipe();
 
-  readonly data = signal<BandejaDeViajes | null>(null);
+  readonly data = signal<ReporteDePagos | null>(null);
   readonly cargando = signal(false);
   readonly error = signal<string | null>(null);
   readonly vista = signal<Vista>('pendientes');
@@ -273,8 +334,6 @@ export class LogisticaPagosViajesComponent {
   private readonly clave = signal<string | null>(null);
   readonly avisoPeek = signal<string | null>(null);
   readonly errorPeek = signal<string | null>(null);
-  readonly tipoEntrega = signal<TipoEntrega | null>(null);
-  readonly tomando = signal(false);
   readonly chofer = signal<string | null>(null);
   readonly ayudante1 = signal<string | null>(null);
   readonly ayudante2 = signal<string | null>(null);
@@ -282,56 +341,81 @@ export class LogisticaPagosViajesComponent {
   readonly llegada = signal<Date | null>(null);
   readonly durmio = signal(false);
   readonly guardandoGuia = signal(false);
+  readonly cargadoresSel = signal<string[]>([]);
+  readonly guardandoCarga = signal(false);
+  readonly altaAyudante = signal(false);
+  readonly altaCargador = signal(false);
+  /** Quien se dio de alta aquí mismo: entra a las listas sin esperar a releer el padrón. */
+  private readonly altas = signal<PersonaDelPadron[]>([]);
+
+  /** Capturar ESCRIBE: lo mismo que piden los endpoints (`LOGISTICS_PAGOS_GESTIONAR`). */
+  readonly puedeCapturar = computed(() => {
+    if (this.perms.isAdmin()) return true;
+    return (this.auth.user()?.permissions ?? {})[Permission.LOGISTICS_PAGOS_GESTIONAR] === true;
+  });
 
   /** Las filas con su llave, para la selección de la tabla. */
-  readonly viajes = computed(() => (this.data()?.viajes ?? []).map((v) => ({ ...v, clave: llave(v) })));
-  readonly viaje = computed(() => this.viajes().find((v) => v.clave === this.clave()) ?? null);
-  readonly seleccion = computed(() => (this.peek() ? this.viaje() : null));
+  readonly operaciones = computed<Operacion[]>(() => (this.data()?.operaciones ?? []).map((o) => ({ ...o, clave: llave(o) })));
+  readonly op = computed(() => this.operaciones().find((o) => o.clave === this.clave()) ?? null);
+  readonly seleccion = computed(() => (this.peek() ? this.op() : null));
 
-  readonly personas = computed(() => this.data()?.personas ?? []);
-  /** El padrón con la forma que pide `app-cierre-viaje` (ya viene sólo lo activo). */
-  readonly padron = computed<Driver[]>(() => this.personas().map((p) => ({
-    id: p.id, full_name: p.full_name, roles: p.roles as Driver['roles'], employee_type: 'interno', status: 'activo', active: true,
-  })));
+  readonly opciones = computed<PersonaDelPadron[]>(() => {
+    const base = this.data()?.personas ?? [];
+    const nuevas = this.altas().filter((a) => !base.some((p) => p.id === a.id));
+    return [...base, ...nuevas].sort((a, b) => a.full_name.localeCompare(b.full_name, 'es'));
+  });
+  private readonly nombres = computed(() => {
+    const m = new Map(this.opciones().map((p) => [p.id, p.full_name]));
+    for (const o of this.data()?.operaciones ?? []) for (const r of o.renglones) if (!m.has(r.persona_id)) m.set(r.persona_id, r.persona);
+    return m;
+  });
 
   readonly filtrados = computed(() => {
     const vista = this.vista();
     const suc = this.sucursal();
     const q = this.busqueda();
-    return this.viajes().filter((v) =>
-      (vista === 'todos' || (vista === 'completos' ? !v.faltan.length : v.faltan.length > 0))
-      && (!suc || v.sucursal === suc)
-      && coincideBusqueda(q, v.guia, v.destinos, v.chofer_kepler, v.shipment_folio, this.sucursalPipe.transform(v.sucursal)));
+    return this.operaciones().filter((o) =>
+      (vista === 'todas' || (vista === 'completas' ? !o.faltan.length : o.faltan.length > 0))
+      && (!suc || o.sucursal === suc)
+      && coincideBusqueda(q, o.guia, o.destinos, o.chofer_kepler, this.sucursalPipe.transform(o.sucursal),
+        ...o.renglones.map((r) => r.persona)));
   });
 
   private readonly cuenta = computed(() => {
-    const vs = this.viajes();
-    const con = (f: FaltaDelViaje) => vs.filter((v) => v.faltan.includes(f)).length;
+    const os = this.operaciones();
+    const personas = new Set(os.flatMap((o) => o.renglones.map((r) => r.persona_id)));
+    const sinRepartir = os.filter((o) => !o.cargadores && o.carga_total != null);
     return {
-      total: vs.length,
-      completos: vs.filter((v) => !v.faltan.length).length,
-      tomar: con('tomar'),
-      guia: vs.filter((v) => v.faltan.includes('chofer') || v.faltan.includes('horario')).length,
-      cargadores: con('cargadores'),
+      total: os.length,
+      completas: os.filter((o) => !o.faltan.length).length,
+      tripulacion: os.filter((o) => o.faltan.includes('chofer') || o.faltan.includes('horario')).length,
+      cargadores: os.filter((o) => o.faltan.includes('cargadores')).length,
+      cajas: os.reduce((a, o) => a + (o.cajas ?? 0), 0),
+      sinCajas: os.filter((o) => o.cajas == null).length,
+      repartido: Math.round(os.reduce((a, o) => a + o.repartido, 0) * 100) / 100,
+      cargaSinRepartir: Math.round(sinRepartir.reduce((a, o) => a + (o.carga_total ?? 0), 0) * 100) / 100,
+      personas: personas.size,
     };
   });
 
   readonly titular = computed(() => {
     const c = this.cuenta();
-    if (!c.total) return 'No hay viajes de traspaso ni de entrega a cliente en esta catorcena.';
-    const faltan = c.total - c.completos;
+    if (!c.total) return 'No hay traspasos ni entregas a cliente en esta catorcena.';
+    const faltan = c.total - c.completas;
+    const repartido = `${this.dinero(c.repartido)} repartido entre ${c.personas} persona${c.personas === 1 ? '' : 's'}`;
     return faltan
-      ? `De ${c.total} viajes de la catorcena, ${c.completos} están completos y a ${faltan} les falta algo para poder pagarse.`
-      : `Los ${c.total} viajes de la catorcena están completos: ya se pueden pagar en cuanto cierren sus paradas.`;
+      ? `De ${c.total} operaciones, a ${faltan} les falta quién fue. Ya hay ${repartido}.`
+      : `Las ${c.total} operaciones ya tienen a quién le toca: ${repartido}. Las solicitudes salen en «Por persona».`;
   });
 
   readonly kpis = computed<MetricStripItem[]>(() => {
     const c = this.cuenta();
     return [
-      { label: 'Viajes', value: c.total, format: 'number', sub: 'traspaso y cliente' },
-      { label: 'Completos', value: c.completos, format: 'number', tone: c.completos === c.total && c.total ? 'ok' : 'default' },
-      { label: 'Sin hoja en la Suite', value: c.tomar, format: 'number', tone: c.tomar ? 'bad' : 'muted' },
-      { label: 'Falta chofer u horario', value: c.guia, format: 'number', tone: c.guia ? 'warn' : 'muted' },
+      { label: 'Repartido', value: c.repartido, format: 'currency2', tone: 'brand', sub: `${c.personas} personas` },
+      { label: 'Operaciones', value: c.total, format: 'number', sub: 'traspaso y cliente' },
+      { label: 'Cajas', value: c.cajas, format: 'number', sub: c.sinCajas ? `${c.sinCajas} sin dato de Kepler` : 'de Kepler' },
+      { label: 'Carga sin repartir', value: c.cargaSinRepartir, format: 'currency2', tone: c.cargaSinRepartir > 0 ? 'warn' : 'muted', sub: 'falta quién cargó' },
+      { label: 'Falta chofer u horario', value: c.tripulacion, format: 'number', tone: c.tripulacion ? 'warn' : 'muted' },
       { label: 'Falta quién cargó', value: c.cargadores, format: 'number', tone: c.cargadores ? 'warn' : 'muted' },
       { label: 'Cargas a ruta', value: this.data()?.fuera_de_alcance ?? 0, format: 'number', tone: 'muted', sub: 'no pagan · fuera' },
     ];
@@ -340,14 +424,14 @@ export class LogisticaPagosViajesComponent {
   readonly vistas = computed<SegOption[]>(() => {
     const c = this.cuenta();
     return [
-      { label: 'Por completar', value: 'pendientes', count: c.total - c.completos },
-      { label: 'Completos', value: 'completos', count: c.completos },
-      { label: 'Todos', value: 'todos', count: c.total },
+      { label: 'Por completar', value: 'pendientes', count: c.total - c.completas },
+      { label: 'Completas', value: 'completas', count: c.completas },
+      { label: 'Todas', value: 'todas', count: c.total },
     ];
   });
 
   readonly sucursales = computed(() => {
-    const codigos = [...new Set(this.viajes().map((v) => v.sucursal))].sort();
+    const codigos = [...new Set(this.operaciones().map((o) => o.sucursal))].sort();
     return codigos.map((c) => ({ value: c, label: this.sucursalPipe.transform(c) }));
   });
 
@@ -355,14 +439,25 @@ export class LogisticaPagosViajesComponent {
     this.cargar();
   }
 
+  private corteActual(): { desde: string; hasta: string } | undefined {
+    const d = this.data();
+    return d ? { desde: d.corte.desde, hasta: d.corte.hasta } : undefined;
+  }
+
   cargar(corte?: { desde: string; hasta: string }): void {
     this.cargando.set(true);
     this.error.set(null);
-    const pedido = corte ?? (this.data() ? { desde: this.data()!.corte.desde, hasta: this.data()!.corte.hasta } : undefined);
-    this.api.getBandejaViajes(pedido).subscribe({
+    this.api.getReportePagos(corte ?? this.corteActual()).subscribe({
       next: (d) => { this.data.set(d); this.cargando.set(false); },
-      error: (e) => { this.cargando.set(false); this.error.set(e?.error?.message ?? 'No se pudieron leer los viajes de Kepler.'); },
+      error: (e) => { this.cargando.set(false); this.error.set(mensaje(e, 'No se pudieron leer las operaciones de Kepler.')); },
     });
+  }
+
+  /** Relee el reporte y devuelve la operación abierta tal como quedó. */
+  private async releer(): Promise<Operacion | null> {
+    const d = await firstValueFrom(this.api.getReportePagos(this.corteActual()));
+    this.data.set(d);
+    return this.op();
   }
 
   mover(paso: -1 | 1): void {
@@ -375,100 +470,185 @@ export class LogisticaPagosViajesComponent {
   }
 
   /** La tabla entrega una fila, varias o ninguna: aquí la selección es de UNA fila. */
-  alSeleccionar(d: ViajePorCompletar | ViajePorCompletar[] | undefined): void {
+  alSeleccionar(d: Operacion | Operacion[] | undefined): void {
     if (d && !Array.isArray(d)) this.abrir(d);
   }
 
-  abrir(v: ViajePorCompletar): void {
-    this.clave.set(llave(v));
+  abrir(o: OperacionDelReporte): void {
+    this.clave.set(llave(o));
     this.avisoPeek.set(null);
     this.errorPeek.set(null);
-    this.tipoEntrega.set(null);
-    this.chofer.set(v.driver_id);
-    this.ayudante1.set(v.helper1_id);
-    this.ayudante2.set(v.helper2_id);
+    this.chofer.set(o.driver_id);
+    this.ayudante1.set(o.helper1_id);
+    this.ayudante2.set(o.helper2_id);
     this.salida.set(null);
     this.llegada.set(null);
-    this.durmio.set(v.overnight);
+    this.durmio.set(o.overnight);
+    this.cargadoresSel.set([...o.cargador_ids]);
     this.peek.set(true);
   }
 
-  /** Al cerrar el panel se relee la bandeja: lo capturado (cargadores, cierre) cambia lo que falta. */
   cerrar(): void {
-    const habiaPanel = this.peek();
     this.peek.set(false);
     this.clave.set(null);
-    if (habiaPanel) this.cargar();
   }
 
-  tomar(v: ViajePorCompletar): void {
-    const tipo = this.tipoEntrega();
-    if (!tipo || this.tomando()) return;
-    this.tomando.set(true);
-    this.errorPeek.set(null);
-    this.api.createShipmentFromKepler(v.sucursal, v.guia, { delivery_type: tipo }).subscribe({
-      next: (r) => {
-        this.tomando.set(false);
-        this.avisoPeek.set(`Viaje tomado: hoja ${r.shipment.folio} con ${r.destinatarios} parada${r.destinatarios === 1 ? '' : 's'}. Ahora captura quién fue y a qué hora.`);
-        this.cargar();
-      },
-      error: (e) => { this.tomando.set(false); this.errorPeek.set(e?.error?.message ?? 'No se pudo tomar el viaje.'); },
-    });
+  /**
+   * La hoja de la Suite que guarda lo que Kepler no sabe. Ya no se «toma» a mano: nace aquí, la
+   * primera vez que se captura a alguien. El tipo de entrega no cambia el pago; se deriva de
+   * «durmió fuera» (viaje largo) para no preguntar algo que no se usa.
+   */
+  private async asegurarHoja(o: Operacion): Promise<Operacion> {
+    if (o.shipment_id) return o;
+    try {
+      await firstValueFrom(this.api.createShipmentFromKepler(o.sucursal, o.guia, { delivery_type: this.durmio() ? 'long_trip' : 'route' }));
+    } catch (e) {
+      // Si otra persona la acaba de crear, se sigue con la suya: lo que falta se captura igual.
+      const fresca = await this.releer();
+      if (fresca?.shipment_id) return fresca;
+      throw e;
+    }
+    const fresca = await this.releer();
+    if (!fresca?.shipment_id) throw new Error('La hoja de la Suite no apareció al releer. Recarga e intenta de nuevo.');
+    return fresca;
   }
 
-  guiaCompleta(v: ViajePorCompletar): boolean {
-    return !!v.driver_id && !!v.departure_time && !!v.arrival_time;
+  guiaCompleta(o: OperacionDelReporte): boolean {
+    return !!o.driver_id && !!o.departure_time && !!o.arrival_time;
   }
 
   /** Lo que falta en el formulario, en llano. El servidor vuelve a validar (tarifas incluidas). */
-  erroresGuia(v: ViajePorCompletar): string[] {
+  erroresTripulacion(o: OperacionDelReporte): string[] {
     const e: string[] = [];
-    if (!v.driver_id && !this.chofer()) e.push('Elige al chofer.');
+    if (!o.driver_id && !this.chofer() && !o.chofer_kepler) e.push('Elige al chofer.');
     if (!this.salida()) e.push('Captura la hora de salida.');
     if (!this.llegada()) e.push('Captura la hora de llegada.');
-    const quien = [v.driver_id ?? this.chofer(), this.ayudante1(), this.ayudante2()].filter(Boolean);
+    const quien = [o.driver_id ?? this.chofer(), this.ayudante1(), this.ayudante2()].filter(Boolean);
     if (new Set(quien).size !== quien.length) e.push('Una persona no puede ir dos veces en el mismo viaje.');
     return e;
   }
 
-  guardarGuia(v: ViajePorCompletar): void {
-    if (!v.guide_id || this.erroresGuia(v).length || this.guardandoGuia()) return;
-    const body: CompletarGuiaBody = {
-      helper1_id: this.ayudante1(),
-      helper2_id: this.ayudante2(),
-      departure_time: hhmm(this.salida()),
-      arrival_time: hhmm(this.llegada()),
-      overnight: this.durmio(),
-      // El chofer sólo se manda si Kepler no lo trajo: la guía no se lo deja cambiar.
-      ...(v.driver_id ? {} : { driver_id: this.chofer() }),
-    };
+  async guardarTripulacion(inicial: Operacion): Promise<void> {
+    if (this.erroresTripulacion(inicial).length || this.guardandoGuia()) return;
     this.guardandoGuia.set(true);
     this.errorPeek.set(null);
-    this.api.completeGuide(v.guide_id, body).subscribe({
-      next: (g) => {
-        this.guardandoGuia.set(false);
-        const total = Number(g.driver_commission ?? 0) + Number(g.helper1_commission ?? 0) + Number(g.helper2_commission ?? 0);
-        this.avisoPeek.set(`Guía completa: comisión ${this.dinero(total)} y viáticos ${this.dinero(Number(g.per_diem_total ?? 0))}. Falta quién cargó, si no lo has registrado.`);
-        this.cargar();
-      },
-      error: (e) => { this.guardandoGuia.set(false); this.errorPeek.set(e?.error?.message ?? 'No se pudo guardar la guía.'); },
-    });
+    this.avisoPeek.set(null);
+    try {
+      const o = await this.asegurarHoja(inicial);
+      if (this.guiaCompleta(o)) { this.avisoPeek.set('Otra persona ya había capturado al chofer y su horario.'); return; }
+      if (!o.guide_id) throw new Error('La operación no tiene guía de entrega activa: revísala en Embarques.');
+      if (!o.driver_id && !this.chofer()) {
+        throw new Error(`Kepler trae a ${o.chofer_kepler ?? 'un chofer'} pero no está en el padrón activo: elige al chofer.`);
+      }
+      const body: CompletarGuiaBody = {
+        helper1_id: this.ayudante1(),
+        helper2_id: this.ayudante2(),
+        departure_time: hhmm(this.salida()),
+        arrival_time: hhmm(this.llegada()),
+        overnight: this.durmio(),
+        // El chofer sólo se manda si Kepler no lo trajo: la guía no deja cambiarlo.
+        ...(o.driver_id ? {} : { driver_id: this.chofer() }),
+      };
+      const g = await firstValueFrom(this.api.completeGuide(o.guide_id, body));
+      const comision = Number(g.driver_commission ?? 0) + Number(g.helper1_commission ?? 0) + Number(g.helper2_commission ?? 0);
+      await this.releer();
+      const distinto = o.driver_id && this.chofer() && this.chofer() !== o.driver_id ? ` El chofer quedó el de Kepler (${this.nombre(o.driver_id)}).` : '';
+      this.avisoPeek.set(`Listo: comisión ${this.dinero(comision)} y viático ${this.dinero(Number(g.per_diem_total ?? 0))}.${distinto}`);
+    } catch (e) {
+      this.errorPeek.set(mensaje(e, 'No se pudo guardar al chofer y los ayudantes.'));
+    } finally {
+      this.guardandoGuia.set(false);
+    }
+  }
+
+  async guardarCargadores(inicial: Operacion): Promise<void> {
+    if (this.guardandoCarga()) return;
+    this.guardandoCarga.set(true);
+    this.errorPeek.set(null);
+    this.avisoPeek.set(null);
+    try {
+      const o = await this.asegurarHoja(inicial);
+      await firstValueFrom(this.api.setCargadores(o.shipment_id as string, this.cargadoresSel()));
+      const fresca = await this.releer();
+      this.cargadoresSel.set([...(fresca?.cargador_ids ?? [])]);
+      this.avisoPeek.set(fresca?.cargadores ? `Listo: ${this.cargadoresTexto(fresca)}` : 'Listo: la operación quedó sin cargadores.');
+    } catch (e) {
+      this.errorPeek.set(mensaje(e, 'No se pudieron guardar los cargadores.'));
+    } finally {
+      this.guardandoCarga.set(false);
+    }
+  }
+
+  ayudanteCreado(r: AltaRapidaResultado & { mensaje: string }): void {
+    this.agregarAlta(r);
+    if (!this.ayudante1()) this.ayudante1.set(r.driver.id);
+    else if (!this.ayudante2() && this.ayudante1() !== r.driver.id) this.ayudante2.set(r.driver.id);
+    this.avisoPeek.set(`${r.mensaje} Falta «Guardar chofer y ayudantes».`);
+  }
+
+  cargadorCreado(r: AltaRapidaResultado & { mensaje: string }): void {
+    this.agregarAlta(r);
+    if (!this.cargadoresSel().includes(r.driver.id)) this.cargadoresSel.update((xs) => [...xs, r.driver.id]);
+    this.avisoPeek.set(`${r.mensaje} Falta «Guardar cargadores».`);
+  }
+
+  private agregarAlta(r: AltaRapidaResultado): void {
+    const p: PersonaDelPadron = { id: r.driver.id, full_name: r.driver.full_name, roles: r.driver.roles };
+    this.altas.update((xs) => [...xs.filter((x) => x.id !== p.id), p]);
+  }
+
+  /**
+   * Cuánto le tocaría a cada quien con los elegidos, con la MISMA regla del servidor
+   * (`repartoDeCarga`). Al guardar se recalcula con las cajas de Kepler de ese momento.
+   */
+  textoReparto(o: OperacionDelReporte): string | null {
+    const n = this.cargadoresSel().length;
+    const total = totalDeCarga(o.cajas, o.tarifa_por_caja);
+    if (!n || total == null) return null;
+    if (total === 0) return 'Esta operación no lleva cajas: quien cargó queda registrado, pero la carga no paga.';
+    const partes = repartoDeCarga(total, n);
+    const max = Math.max(...partes);
+    const min = Math.min(...partes);
+    return max === min
+      ? `Al guardar: ${this.dinero(max)} para ${n === 1 ? 'quien cargó' : `cada uno de los ${n}`}.`
+      : `Al guardar: ${this.dinero(min)} a ${this.dinero(max)} por persona (el centavo que sobra va a los primeros).`;
+  }
+
+  textoCarga(o: OperacionDelReporte): string {
+    if (o.carga_total == null) return o.tarifa_por_caja == null ? 'Sin tarifa por caja' : 'Sin cajas de Kepler';
+    const base = `${this.dinero(o.carga_total)}`;
+    return o.cajas != null && o.tarifa_por_caja != null
+      ? `${base} (${o.cajas.toLocaleString('es-MX')} cajas × ${this.dinero(o.tarifa_por_caja)})`
+      : base;
+  }
+
+  cargadoresTexto(o: OperacionDelReporte): string {
+    const nombres = o.cargador_ids.map((id) => this.nombre(id));
+    return `${nombres.length} cargador${nombres.length === 1 ? '' : 'es'}: ${nombres.join(', ')}.`;
+  }
+
+  equipo(o: OperacionDelReporte): string {
+    const ay = [o.helper1_id, o.helper2_id].filter(Boolean).length;
+    const partes: string[] = [];
+    if (ay) partes.push(`${ay} ayudante${ay === 1 ? '' : 's'}`);
+    if (o.cargadores) partes.push(`${o.cargadores} cargador${o.cargadores === 1 ? '' : 'es'}`);
+    return partes.join(' · ');
   }
 
   nombre(id: string | null): string {
     if (!id) return '—';
-    return this.personas().find((p) => p.id === id)?.full_name ?? 'Persona fuera del padrón activo';
+    return this.nombres().get(id) ?? 'Persona fuera del padrón activo';
   }
-  ayudantes(v: ViajePorCompletar): string {
-    const n = [v.helper1_id, v.helper2_id].filter(Boolean).map((id) => this.nombre(id));
+  ayudantes(o: OperacionDelReporte): string {
+    const n = [o.helper1_id, o.helper2_id].filter(Boolean).map((id) => this.nombre(id));
     return n.length ? n.join(' · ') : 'Ninguno';
   }
-  subtituloPeek(v: ViajePorCompletar): string {
-    return `${this.sucursalPipe.transform(v.sucursal)} · ${this.fechaCorta(v.fecha)} · ${this.tipoLabel(v.tipo)}`;
+  subtituloPeek(o: OperacionDelReporte): string {
+    return `${this.sucursalPipe.transform(o.sucursal)} · ${this.fechaCorta(o.fecha)} · ${this.tipoLabel(o.tipo)}`;
   }
-  tipoLabel(t: ViajePorCompletar['tipo']): string { return TIPO_VIAJE_LABEL[t] ?? t; }
+  tipoLabel(t: OperacionDelReporte['tipo']): string { return TIPO_VIAJE_LABEL[t] ?? t; }
   faltaLabel(f: FaltaDelViaje): string { return FALTA_LABEL[f]; }
-  faltaTono(f: FaltaDelViaje): 'warn' | 'danger' { return FALTA_TONO[f]; }
+  rolLabel(r: keyof typeof ROL_LABEL): string { return ROL_LABEL[r]; }
   fechaCorta(iso: string): string {
     const d = new Date(iso + 'T12:00:00');
     return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' });

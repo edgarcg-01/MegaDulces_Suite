@@ -1,7 +1,8 @@
 import {
-  CARGADORES_MAX, corteAPagar, corteDe, corteVecino, erroresDeCargadores, erroresDeCierreDeParada, faltasDelViaje,
-  FOTO_MAX_CHARS, repartoDeCarga, seCierraEnLaSuite, tipoDeParadaKepler, tipoDelViaje, totalDeCarga, totalesPorConcepto,
+  CARGADORES_MAX, conceptoDelReparto, corteAPagar, corteDe, corteVecino, erroresDeCargadores, erroresDeCierreDeParada, faltasDelViaje,
+  FOTO_MAX_CHARS, repartoDeCarga, seCierraEnLaSuite, solicitudesDelReporte, tipoDeParadaKepler, tipoDelViaje, totalDeCarga, totalesPorConcepto,
 } from './cierre-viaje.contract';
+import type { OperacionDelReporte, RenglonDelReparto } from './cierre-viaje.contract';
 
 /**
  * `[EMB.24]` Cierre de paradas y `[EMB.27]` cargadores (ADR-091). La regla vive en el contrato:
@@ -167,7 +168,7 @@ describe('[EMB.43] la catorcena', () => {
   });
 });
 
-describe('[EMB.43] la bandeja: tipo de parada y lo que le falta al viaje', () => {
+describe('[EMB.43] tipo de parada y lo que le falta al viaje', () => {
   it('serie 1 = cliente; serie 2: TI = traspaso, RUTA/RD = carga a ruta (como erp_shipment_stop_closure)', () => {
     expect(tipoDeParadaKepler(1, 'C0001')).toBe('cliente');
     expect(tipoDeParadaKepler('2', 'TI006')).toBe('traspaso');
@@ -181,7 +182,7 @@ describe('[EMB.43] la bandeja: tipo de parada y lo que le falta al viaje', () =>
     expect(tipoDelViaje([])).toBeNull();
   });
   it('lo que falta, en el orden en que se captura; nada = completo', () => {
-    expect(faltasDelViaje(null)).toEqual(['tomar']);
+    expect(faltasDelViaje(null)).toEqual(['chofer', 'horario', 'cargadores']);
     const base = { shipment_id: 's', guide_id: 'g', driver_id: 'd', departure_time: '06:00', arrival_time: '15:00', cargadores: 2 };
     expect(faltasDelViaje(base)).toEqual([]);
     expect(faltasDelViaje({ ...base, driver_id: null, arrival_time: null, cargadores: 0 })).toEqual(['chofer', 'horario', 'cargadores']);
@@ -189,5 +190,66 @@ describe('[EMB.43] la bandeja: tipo de parada y lo que le falta al viaje', () =>
   it('PRUEBA NEGATIVA: medio horario no es horario', () => {
     const base = { shipment_id: 's', guide_id: 'g', driver_id: 'd', departure_time: '06:00', arrival_time: null, cargadores: 1 };
     expect(faltasDelViaje(base)).toEqual(['horario']);
+  });
+});
+
+describe('[EMB.47] el reporte de reparto: conceptos de Kepler y solicitudes por persona', () => {
+  it('conceptos medidos en los X-A-10 de Logística: traspaso 054/027, cliente 075/128, carga 054', () => {
+    expect(conceptoDelReparto('traspaso', 'comision').codigo).toBe('054');
+    expect(conceptoDelReparto('traspaso', 'viatico').codigo).toBe('027');
+    expect(conceptoDelReparto('cliente', 'comision').codigo).toBe('075');
+    expect(conceptoDelReparto('cliente', 'viatico').codigo).toBe('128');
+    expect(conceptoDelReparto('cliente', 'carga').codigo).toBe('054');
+    expect(conceptoDelReparto('mixto', 'viatico').codigo).toBe('027');
+  });
+
+  const r = (persona_id: string, rol: RenglonDelReparto['rol'], concepto: RenglonDelReparto['concepto'], codigo: string, importe: number): RenglonDelReparto => ({
+    persona_id, persona: `P-${persona_id}`, rol, concepto, codigo, nombre_concepto: `C-${codigo}`, importe,
+  });
+  const op = (guia: string, fecha: string, destinos: string, renglones: RenglonDelReparto[]): OperacionDelReporte => ({
+    sucursal: '00', guia, fecha, paradas: 1, destinos, tipo: 'traspaso', chofer_kepler: null, importe: 0,
+    shipment_id: 's', shipment_folio: null, guide_id: 'g', driver_id: null, helper1_id: null, helper2_id: null,
+    departure_time: null, arrival_time: null, overnight: false, cargadores: 0, faltan: [],
+    cajas: null, tarifa_por_caja: null, carga_total: null, cargador_ids: [], renglones, repartido: 0,
+  });
+
+  it('una solicitud por persona: renglones por concepto × destino, sumados en la catorcena', () => {
+    const s = solicitudesDelReporte([
+      op('G1', '2026-10-09', 'YURECUARO', [r('a', 'chofer', 'comision', '054', 100.1), r('a', 'chofer', 'viatico', '027', 80), r('b', 'cargador', 'carga', '054', 10.55)]),
+      op('G2', '2026-10-08', 'YURECUARO', [r('a', 'chofer', 'comision', '054', 100.2)]),
+      op('G3', '2026-10-10', 'LA PIEDAD', [r('a', 'ayudante', 'comision', '054', 50), r('b', 'cargador', 'carga', '054', 10.55)]),
+    ]);
+    expect(s.map((x) => x.persona)).toEqual(['P-a', 'P-b']);
+    const a = s[0];
+    expect(a.total).toBe(330.3);
+    expect(a.operaciones).toBe(3);
+    expect(a.roles).toEqual(['chofer', 'ayudante']);
+    expect(a.por_concepto).toEqual({ comision: 250.3, viatico: 80, carga: 0 });
+    expect(a.renglones).toEqual([
+      { codigo: '027', nombre_concepto: 'C-027', destino: 'YURECUARO', operaciones: 1, importe: 80 },
+      { codigo: '054', nombre_concepto: 'C-054', destino: 'LA PIEDAD', operaciones: 1, importe: 50 },
+      { codigo: '054', nombre_concepto: 'C-054', destino: 'YURECUARO', operaciones: 2, importe: 200.3 },
+    ]);
+    // El detalle va por fecha: de dónde sale cada peso.
+    expect(a.detalle.map((d) => d.guia)).toEqual(['G2', 'G1', 'G1', 'G3']);
+    expect(s[1]).toEqual(expect.objectContaining({ total: 21.1, operaciones: 2, por_concepto: { comision: 0, viatico: 0, carga: 21.1 } }));
+  });
+
+  it('la suma de los renglones de la solicitud es su total (nada se pierde al agrupar)', () => {
+    const s = solicitudesDelReporte([
+      op('G1', '2026-10-09', 'A', [r('a', 'chofer', 'comision', '054', 0.1), r('a', 'chofer', 'viatico', '027', 0.2)]),
+      op('G2', '2026-10-09', 'B', [r('a', 'chofer', 'comision', '054', 0.7)]),
+    ]);
+    expect(s[0].renglones.reduce((t, x) => t + x.importe, 0)).toBeCloseTo(s[0].total, 10);
+    expect(s[0].total).toBe(1);
+  });
+
+  it('PRUEBA NEGATIVA: un renglón en cero no crea persona ni renglón', () => {
+    expect(solicitudesDelReporte([op('G1', '2026-10-09', 'A', [r('a', 'chofer', 'comision', '054', 0)])])).toEqual([]);
+  });
+
+  it('un viaje sin destino se agrupa en «—», no se pierde', () => {
+    const s = solicitudesDelReporte([op('G1', '2026-10-09', '', [r('a', 'chofer', 'comision', '054', 5)])]);
+    expect(s[0].renglones[0].destino).toBe('—');
   });
 });

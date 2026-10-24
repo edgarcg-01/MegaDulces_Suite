@@ -3,7 +3,7 @@ import { BadRequestException, ConflictException, NotFoundException, RequestMetho
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { ANY_PERMISSIONS_KEY, Permission, PERMISSIONS_KEY } from '@megadulces/platform-core';
 import { TripClosureController } from './trip-closure.controller';
-import { TripClosureService } from './trip-closure.service';
+import { cajasPorGuia, renglonesDeLaOperacion, TripClosureService } from './trip-closure.service';
 
 /**
  * `[EMB.24]` `[EMB.27]` — Cierre de parada y registro de cargadores (ADR-091).
@@ -35,7 +35,7 @@ function baseFalsa(r: Respuestas) {
     let filtro: any = null;
     const b: any = {
       where(a: any) { if (typeof a === 'object') filtro = { ...(filtro ?? {}), ...a }; return b; },
-      whereNull: () => b, whereNot: () => b, whereIn: () => b, join: () => b, leftJoin: () => b,
+      whereNull: () => b, whereNot: () => b, whereIn: () => b, whereRaw: () => b, join: () => b, leftJoin: () => b,
       orderBy: () => b, orderByRaw: () => b, select: () => b, forUpdate: () => b, distinct: () => b, whereBetween: () => b,
       first: async () => r.primero?.[tabla],
       count: async () => [{ n: String(r.conteo ?? 0) }],
@@ -266,6 +266,20 @@ describe('TripClosureService.setCargadores — [EMB.39] la carga se paga por caj
     expect(borrados).toHaveLength(0);
   });
 
+  it('[EMB.47] las cajas de una carga a camión de ruta en la misma guía NO se pagan', async () => {
+    const { svc, inserts } = baseFalsa({
+      primero: { 'logistics.config_finance': TARIFA, 'logistics.shipments': EMB },
+      lista: kepler({
+        'analytics.erp_shipment_stops': [{ serie: 2, folio: '0001339', cliente_code: 'TI006' }, { serie: 2, folio: '0001340', cliente_code: 'RUTA21' }],
+        'analytics.erp_shipment_stop_load': [{ serie: 2, folio: '0001339', cajas: '531' }, { serie: 2, folio: '0001340', cajas: '400' }],
+        'logistics.drivers': [{ id: CARGADOR_A }],
+      }),
+    });
+    conCierre(svc);
+    await svc.setCargadores(UUID_EMB, { driver_ids: [CARGADOR_A] });
+    expect(inserts[0].filas[0]).toEqual(expect.objectContaining({ boxes: 531, rate: 106.2 }));
+  });
+
   it('PRUEBA NEGATIVA: embarque manual sin cajas capturadas no se registra', async () => {
     const manual = { ...EMB, kepler_sucursal: null, kepler_guia: null, boxes_count: 0 };
     const { svc, borrados } = baseFalsa({ primero: { 'logistics.config_finance': TARIFA, 'logistics.shipments': manual }, lista: PADRON });
@@ -308,10 +322,11 @@ describe('TripClosureController — rutas y permisos', () => {
     alguno: Reflect.getMetadata(ANY_PERMISSIONS_KEY, fn),
   });
 
-  it('[EMB.43] la bandeja es del módulo Pagos de viaje: pide VER del módulo', () => {
+  it('[EMB.47] el reporte: VER del módulo, o las llaves con que Finanzas ya leía el corte', () => {
     expect(Reflect.getMetadata(PATH_METADATA, TripClosureController)).toBe('logistics/trip-closure');
-    expect(meta(TripClosureController.prototype.bandeja)).toEqual({
-      ruta: 'bandeja', verbo: RequestMethod.GET, permisos: [Permission.LOGISTICS_PAGOS_VER], alguno: undefined,
+    expect(meta(TripClosureController.prototype.reporte)).toEqual({
+      ruta: 'reporte', verbo: RequestMethod.GET, permisos: undefined,
+      alguno: [Permission.LOGISTICS_PAGOS_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR],
     });
   });
 
@@ -337,12 +352,12 @@ describe('TripClosureController — rutas y permisos', () => {
   });
 });
 
-describe('[EMB.43] TripClosureService.bandeja — los viajes de Kepler y lo que les falta', () => {
+describe('[EMB.47] TripClosureService.reporte — cuánto le toca a cada quien de cada operación', () => {
   // Cuatro guías inventadas de la misma catorcena:
-  //  A 00/0000001 traspaso a TI006, ya tomada y completa;
-  //  B 06/0000002 entrega a cliente, sin tomar;
+  //  A 00/0000001 traspaso a TI006, con tripulación completa y dos cargadores;
+  //  B 06/0000002 entrega a cliente, sin hoja en la Suite;
   //  C 00/0000003 sólo carga a camión de ruta (no paga: fuera de alcance);
-  //  D 01/0000004 traspaso + cliente, tomada sin horario ni cargadores.
+  //  D 01/0000004 traspaso + cliente, con chofer pero sin horario ni cargadores.
   const VIAJES = [
     { sucursal: '00', guia_embarque: '0000001', fecha: '2026-10-09', paradas: 1, chofer_nombre: 'CHOFER UNO', total: '1000' },
     { sucursal: '06', guia_embarque: '0000002', fecha: '2026-10-10', paradas: 2, chofer_nombre: null, total: '500.5' },
@@ -350,67 +365,174 @@ describe('[EMB.43] TripClosureService.bandeja — los viajes de Kepler y lo que 
     { sucursal: '01', guia_embarque: '0000004', fecha: '2026-10-08', paradas: 2, chofer_nombre: 'CHOFER DOS', total: '700' },
   ];
   const PARADAS = [
-    { sucursal: '00', guia_embarque: '0000001', serie: 2, cliente_code: 'TI006', destino_nombre: 'SUCURSAL ZAMORA CANINDO' },
-    { sucursal: '06', guia_embarque: '0000002', serie: 1, cliente_code: 'C0001', destino_nombre: 'CLIENTE PRUEBA' },
-    { sucursal: '06', guia_embarque: '0000002', serie: 1, cliente_code: 'C0002', destino_nombre: 'CLIENTE PRUEBA DOS' },
-    { sucursal: '00', guia_embarque: '0000003', serie: 2, cliente_code: 'RUTA21', destino_nombre: 'R.D. 21 PH PRUEBA' },
-    { sucursal: '01', guia_embarque: '0000004', serie: 2, cliente_code: 'TI001', destino_nombre: 'SUCURSAL PADRE HIDALGO' },
-    { sucursal: '01', guia_embarque: '0000004', serie: 1, cliente_code: 'C0003', destino_nombre: 'CLIENTE TRES' },
+    { sucursal: '00', guia_embarque: '0000001', serie: 2, folio: 'F1', cliente_code: 'TI006', destino_nombre: 'SUCURSAL ZAMORA CANINDO' },
+    { sucursal: '06', guia_embarque: '0000002', serie: 1, folio: 'F2', cliente_code: 'C0001', destino_nombre: 'CLIENTE PRUEBA' },
+    { sucursal: '06', guia_embarque: '0000002', serie: 1, folio: 'F3', cliente_code: 'C0002', destino_nombre: 'CLIENTE PRUEBA DOS' },
+    { sucursal: '00', guia_embarque: '0000003', serie: 2, folio: 'F4', cliente_code: 'RUTA21', destino_nombre: 'R.D. 21 PH PRUEBA' },
+    { sucursal: '01', guia_embarque: '0000004', serie: 2, folio: 'F5', cliente_code: 'TI001', destino_nombre: 'SUCURSAL PADRE HIDALGO' },
+    { sucursal: '01', guia_embarque: '0000004', serie: 1, folio: 'F6', cliente_code: 'C0003', destino_nombre: 'CLIENTE TRES' },
+  ];
+  // Kepler: B lleva 10 + 5 cajas; la carga a ruta de C trae 400 que no deben aparecer en ningún lado.
+  const CAJAS = [
+    { sucursal: '06', serie: 1, folio: 'F2', cajas: '10' },
+    { sucursal: '06', serie: 1, folio: 'F3', cajas: '5' },
+    { sucursal: '00', serie: 2, folio: 'F4', cajas: '400' },
+    { sucursal: '00', serie: 2, folio: 'F1', cajas: '480' },
   ];
   const SUITE = [
     { shipment_id: 's-a', folio: 'EMB-A', kepler_sucursal: '00', kepler_guia: '0000001', guide_id: 'g-a', driver_id: 'd1',
-      helper1_id: null, helper2_id: null, departure_time: '05:30:00', arrival_time: '16:10:00', overnight: false, cargadores: 2 },
+      helper1_id: 'h1', helper2_id: null, driver_commission: '300', helper1_commission: '150', helper2_commission: '0',
+      viatico_driver: '125', viatico_helper1: '125', viatico_helper2: null,
+      departure_time: '05:30:00', arrival_time: '16:10:00', overnight: false },
     { shipment_id: 's-d', folio: 'EMB-D', kepler_sucursal: '01', kepler_guia: '0000004', guide_id: 'g-d', driver_id: 'd2',
-      helper1_id: null, helper2_id: null, departure_time: null, arrival_time: null, overnight: false, cargadores: 0 },
+      helper1_id: null, helper2_id: null, driver_commission: null, helper1_commission: null, helper2_commission: null,
+      viatico_driver: null, viatico_helper1: null, viatico_helper2: null,
+      departure_time: null, arrival_time: null, overnight: false },
+  ];
+  // Lo guardado al registrar a los cargadores: 500 cajas × $0.20 = $100, $50 cada quien.
+  const CARGAS = [
+    { shipment_id: 's-a', driver_id: CARGADOR_A, rate: '50', boxes: '500', rate_per_box: '0.2' },
+    { shipment_id: 's-a', driver_id: CARGADOR_B, rate: '50', boxes: '500', rate_per_box: '0.2' },
+  ];
+  // d2 no está en el padrón activo: su nombre no se inventa.
+  const DRIVERS = [
+    { id: 'd1', full_name: 'CHOFER PRUEBA', roles: ['chofer'] },
+    { id: 'h1', full_name: 'AYUDANTE PRUEBA', roles: ['ayudante'] },
+    { id: CARGADOR_A, full_name: 'CARGADOR A', roles: ['ayudante'] },
+    { id: CARGADOR_B, full_name: 'CARGADOR B', roles: ['ayudante'] },
   ];
   const lista = {
-    'analytics.erp_shipment_trips': VIAJES, 'analytics.erp_shipment_stops': PARADAS, __raw: SUITE,
-    'logistics.drivers': [{ id: 'd1', full_name: 'PERSONA PRUEBA', roles: ['chofer'] }],
+    'analytics.erp_shipment_trips': VIAJES, 'analytics.erp_shipment_stops': PARADAS, 'analytics.erp_shipment_stop_load': CAJAS,
+    __raw: SUITE, 'logistics.load_details': CARGAS, 'logistics.drivers': DRIVERS,
+  };
+  const primero = { 'logistics.config_finance': { id: 'cfg-1', value: '0.2000', active: true } };
+  const porGuia = async (r = { lista, primero }) => {
+    const { svc } = baseFalsa(r);
+    const rep = await svc.reporte('2026-10-08', '2026-10-21');
+    return { rep, por: Object.fromEntries(rep.operaciones.map((o) => [o.guia, o])) };
   };
 
   it('las cargas a camión de ruta quedan fuera y se CUENTAN, no se esconden', async () => {
-    const { svc } = baseFalsa({ lista });
-    const b = await svc.bandeja('2026-10-08', '2026-10-21');
-    expect(b.fuera_de_alcance).toBe(1);
-    expect(b.viajes.map((v) => v.guia)).not.toContain('0000003');
-    expect(b.viajes).toHaveLength(3);
+    const { rep } = await porGuia();
+    expect(rep.fuera_de_alcance).toBe(1);
+    expect(rep.operaciones.map((o) => o.guia)).not.toContain('0000003');
+    expect(rep.operaciones).toHaveLength(3);
   });
 
-  it('dice qué le falta a cada viaje y pone primero lo que más falta', async () => {
-    const { svc } = baseFalsa({ lista });
-    const b = await svc.bandeja('2026-10-08', '2026-10-21');
-    const por = Object.fromEntries(b.viajes.map((v) => [v.guia, v]));
-    expect(por['0000002'].faltan).toEqual(['tomar']);
+  it('dice qué le falta a cada operación y pone primero lo que más falta', async () => {
+    const { rep, por } = await porGuia();
+    expect(por['0000002'].faltan).toEqual(['chofer', 'horario', 'cargadores']);
     expect(por['0000004'].faltan).toEqual(['horario', 'cargadores']);
     expect(por['0000001'].faltan).toEqual([]);
-    expect(b.viajes.map((v) => v.guia)).toEqual(['0000004', '0000002', '0000001']);
+    expect(rep.operaciones.map((o) => o.guia)).toEqual(['0000002', '0000004', '0000001']);
   });
 
-  it('tipo, destinos que pagan, chofer de Kepler, importe y lo capturado en la Suite', async () => {
-    const { svc } = baseFalsa({ lista });
-    const b = await svc.bandeja('2026-10-08', '2026-10-21');
-    const por = Object.fromEntries(b.viajes.map((v) => [v.guia, v]));
-    expect(por['0000004'].tipo).toBe('mixto');
-    expect(por['0000004'].destinos).toBe('SUCURSAL PADRE HIDALGO · CLIENTE TRES');
-    expect(por['0000002']).toEqual(expect.objectContaining({ tipo: 'cliente', chofer_kepler: null, importe: 500.5, shipment_id: null }));
-    expect(por['0000001']).toEqual(expect.objectContaining({
-      tipo: 'traspaso', shipment_folio: 'EMB-A', departure_time: '05:30', arrival_time: '16:10', cargadores: 2,
+  it('reparte comisión, viático y carga por persona con el concepto de Kepler del traspaso', async () => {
+    const { por } = await porGuia();
+    const a = por['0000001'];
+    expect(a.renglones.map((r) => [r.persona, r.rol, r.codigo, r.importe])).toEqual([
+      ['CHOFER PRUEBA', 'chofer', '054', 300],
+      ['CHOFER PRUEBA', 'chofer', '027', 125],
+      ['AYUDANTE PRUEBA', 'ayudante', '054', 150],
+      ['AYUDANTE PRUEBA', 'ayudante', '027', 125],
+      ['CARGADOR A', 'cargador', '054', 50],
+      ['CARGADOR B', 'cargador', '054', 50],
+    ]);
+    expect(a.repartido).toBe(800);
+    expect(a.cargador_ids).toEqual([CARGADOR_A, CARGADOR_B]);
+  });
+
+  it('con cargadores, cajas y tarifa son las GUARDADAS, no las de hoy', async () => {
+    const { por } = await porGuia({ lista, primero: { 'logistics.config_finance': { id: 'cfg-1', value: '0.5000', active: true } } });
+    expect(por['0000001']).toEqual(expect.objectContaining({ cajas: 500, tarifa_por_caja: 0.2, carga_total: 100, cargadores: 2 }));
+  });
+
+  it('sin cargadores, la carga se calcula: cajas de Kepler × tarifa vigente ese día', async () => {
+    const { por } = await porGuia();
+    expect(por['0000002']).toEqual(expect.objectContaining({
+      tipo: 'cliente', cajas: 15, tarifa_por_caja: 0.2, carga_total: 3, renglones: [], repartido: 0, shipment_id: null,
     }));
-    expect(b.personas).toEqual([{ id: 'd1', full_name: 'PERSONA PRUEBA', roles: ['chofer'] }]);
-    expect(b.corte).toEqual({ desde: '2026-10-08', hasta: '2026-10-21', pago: '2026-10-23' });
+  });
+
+  it('PRUEBA NEGATIVA: sin renglones en Kepler las cajas son null y la carga no se inventa', async () => {
+    const { por } = await porGuia();
+    expect(por['0000004']).toEqual(expect.objectContaining({ tipo: 'mixto', cajas: null, carga_total: null }));
+  });
+
+  it('PRUEBA NEGATIVA: sin tarifa activa la carga es null, no $0', async () => {
+    const { por } = await porGuia({ lista, primero: {} as any });
+    expect(por['0000002']).toEqual(expect.objectContaining({ cajas: 15, tarifa_por_caja: null, carga_total: null }));
+  });
+
+  it('quien no está en el padrón activo sale declarado, no con otro nombre', async () => {
+    const conComision = [SUITE[0], { ...SUITE[1], driver_commission: '200' }];
+    const { por } = await porGuia({ lista: { ...lista, __raw: conComision }, primero });
+    expect(por['0000004'].renglones).toEqual([expect.objectContaining({ persona_id: 'd2', persona: 'Persona sin nombre en el padrón', codigo: '054' })]);
+  });
+
+  it('destinos que pagan, chofer de Kepler, padrón y corte', async () => {
+    const { rep, por } = await porGuia();
+    expect(por['0000004'].destinos).toBe('SUCURSAL PADRE HIDALGO · CLIENTE TRES');
+    expect(por['0000002']).toEqual(expect.objectContaining({ chofer_kepler: null, importe: 500.5 }));
+    expect(por['0000001']).toEqual(expect.objectContaining({ shipment_folio: 'EMB-A', departure_time: '05:30', arrival_time: '16:10' }));
+    expect(rep.personas).toHaveLength(4);
+    expect(rep.corte).toEqual({ desde: '2026-10-08', hasta: '2026-10-21', pago: '2026-10-23' });
   });
 
   it('PRUEBA NEGATIVA: un viaje tomado SIN guía no se da por completo (falta chofer y horario)', async () => {
-    const sinGuia = { ...SUITE[0], guide_id: null, driver_id: null, departure_time: null, arrival_time: null };
-    const { svc } = baseFalsa({ lista: { ...lista, __raw: [sinGuia] } });
-    const b = await svc.bandeja('2026-10-08', '2026-10-21');
-    expect(b.viajes.find((v) => v.guia === '0000001')?.faltan).toEqual(['chofer', 'horario']);
+    const sinGuia = { ...SUITE[0], guide_id: null, driver_id: null, helper1_id: null, departure_time: null, arrival_time: null };
+    const { por } = await porGuia({ lista: { ...lista, __raw: [sinGuia] }, primero });
+    expect(por['0000001'].faltan).toEqual(['chofer', 'horario']);
   });
 
   it('sucursal o fechas mal formadas: 400', async () => {
     const { svc } = baseFalsa({ lista });
-    await expect(svc.bandeja(undefined, undefined, 'Morelia')).rejects.toBeInstanceOf(BadRequestException);
-    await expect(svc.bandeja('2026-10-21', '2026-10-08')).rejects.toBeInstanceOf(BadRequestException);
-    await expect(svc.bandeja('08/10/2026', '2026-10-21')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.reporte(undefined, undefined, 'Morelia')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.reporte('2026-10-21', '2026-10-08')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.reporte('08/10/2026', '2026-10-21')).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('[EMB.47] renglonesDeLaOperacion y cajasPorGuia', () => {
+  const suite = {
+    shipment_id: 's', folio: 'F', kepler_sucursal: '00', kepler_guia: 'G', guide_id: 'g', driver_id: 'd1', helper1_id: null, helper2_id: null,
+    driver_commission: '300', helper1_commission: null, helper2_commission: null, viatico_driver: '100', viatico_helper1: null, viatico_helper2: null,
+    departure_time: '06:00:00', arrival_time: '15:00:00', overnight: false,
+  };
+  const nombre = (id: string) => `N-${id}`;
+
+  it('entrega a cliente: 075 comisión y 128 viático; la carga va a 054', () => {
+    const r = renglonesDeLaOperacion('cliente', suite, [{ shipment_id: 's', driver_id: 'c1', rate: '12.5', boxes: '62.5', rate_per_box: '0.2' }], nombre);
+    expect(r.map((x) => [x.persona, x.concepto, x.codigo])).toEqual([
+      ['N-d1', 'comision', '075'], ['N-d1', 'viatico', '128'], ['N-c1', 'carga', '054'],
+    ]);
+  });
+
+  it('un viaje mixto se pide como traspaso', () => {
+    expect(renglonesDeLaOperacion('mixto', suite, [], nombre).map((x) => x.codigo)).toEqual(['054', '027']);
+  });
+
+  it('montos en cero o vacíos no generan renglón', () => {
+    const r = renglonesDeLaOperacion('traspaso', { ...suite, driver_commission: '0', viatico_driver: null }, [], nombre);
+    expect(r).toEqual([]);
+  });
+
+  it('cajas: sin la carga a ruta, el mismo documento una vez, null si Kepler no trae renglones, 0 si son piezas', () => {
+    const p = (guia: string, folio: string, cc = 'TI001') => ({ sucursal: '00', guia_embarque: guia, serie: 2, folio, cliente_code: cc, destino_nombre: null });
+    const c = cajasPorGuia(
+      [p('G1', 'A'), p('G1', 'A'), p('G1', 'R', 'RUTA21'), p('G2', 'B'), p('G3', 'C')],
+      [{ sucursal: '00', serie: 2, folio: 'A', cajas: '7' }, { sucursal: '00', serie: 2, folio: 'R', cajas: '99' }, { sucursal: '00', serie: '2', folio: 'C', cajas: '0' }],
+    );
+    expect(c.get('00|G1')).toBe(7);
+    expect(c.get('00|G2')).toBeNull();
+    expect(c.get('00|G3')).toBe(0);
+  });
+
+  it('PRUEBA NEGATIVA: un folio igual en OTRA sucursal no suma', () => {
+    const c = cajasPorGuia(
+      [{ sucursal: '00', guia_embarque: 'G1', serie: 2, folio: 'A', cliente_code: 'TI001', destino_nombre: null }],
+      [{ sucursal: '06', serie: 2, folio: 'A', cajas: '50' }],
+    );
+    expect(c.get('00|G1')).toBeNull();
   });
 });

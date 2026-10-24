@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Permission, RequireAnyPermission, RequirePermissions } from '@megadulces/platform-core';
-import type { BandejaDeViajes, CargadoresBody, CerrarParadaBody, CierreDeEmbarque, ParadaCierre } from '@megadulces/contracts';
+import { Permission, RequireAnyPermission } from '@megadulces/platform-core';
+import type { CargadoresBody, CerrarParadaBody, CierreDeEmbarque, ParadaCierre, ReporteDePagos } from '@megadulces/contracts';
 import { TripClosureService } from './trip-closure.service';
 
 /**
@@ -17,15 +17,17 @@ import { TripClosureService } from './trip-closure.service';
 export class TripClosureController {
   constructor(private readonly service: TripClosureService) {}
 
-  @Get('bandeja')
-  @RequirePermissions(Permission.LOGISTICS_PAGOS_VER)
-  @ApiOperation({ summary: 'EMB.43: los viajes de Kepler de la catorcena (traspaso y cliente) y lo que le falta a cada uno para pagarse' })
-  bandeja(
+  // Las mismas llaves que leían el corte en Finanzas (`finance/trip-pay`): la pantalla «Por persona»
+  // también vive en Finanzas › Gastos › Comisiones de logística y no puede perder a quien ya entraba.
+  @Get('reporte')
+  @RequireAnyPermission(Permission.LOGISTICS_PAGOS_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'EMB.47: la catorcena operación por operación — cajas, quién fue y cuánto le toca a cada quien' })
+  reporte(
     @Query('desde') desde?: string,
     @Query('hasta') hasta?: string,
     @Query('sucursal') sucursal?: string,
-  ): Promise<BandejaDeViajes> {
-    return this.service.bandeja(desde, hasta, sucursal);
+  ): Promise<ReporteDePagos> {
+    return this.service.reporte(desde, hasta, sucursal);
   }
 
   @Get('shipments/:id')

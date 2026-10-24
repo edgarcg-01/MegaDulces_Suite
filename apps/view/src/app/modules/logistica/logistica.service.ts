@@ -6,7 +6,7 @@ import { environment } from '../../../environments/environment';
 import type {
   KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody, RevisionGps, CompletarGuiaBody, GuiaCompletada,
   CierreDeEmbarque, CerrarParadaBody, ParadaCierre, AltaRapidaBody, AltaRapidaResultado,
-  BandejaDeViajes, CorteDeLogistica, DetallePersona, ValeCreado,
+  ReporteDePagos,
 } from '@megadulces/contracts';
 
 // ── Tipos ────────────────────────────────────────────────────────────────
@@ -1282,26 +1282,13 @@ export class LogisticaService {
     return this.http.put<CierreDeEmbarque>(`${this.base}/trip-closure/shipments/${shipmentId}/cargadores`, { driver_ids: driverIds });
   }
 
-  // ── `[EMB.43]` Logística › Pagos de viaje ───────────────────────────────
-  /** Los viajes de Kepler de la catorcena y lo que le falta a cada uno para pagarse. */
-  getBandejaViajes(corte?: { desde: string; hasta: string }, sucursal?: string | null): Observable<BandejaDeViajes> {
+  // ── `[EMB.47]` Logística › Pagos de viaje ───────────────────────────────
+  /** La catorcena operación por operación: cajas, quién fue y cuánto le toca a cada quien. */
+  getReportePagos(corte?: { desde: string; hasta: string }, sucursal?: string | null): Observable<ReporteDePagos> {
     let p = new HttpParams();
     if (corte) p = p.set('desde', corte.desde).set('hasta', corte.hasta);
     if (sucursal) p = p.set('sucursal', sucursal);
-    return this.http.get<BandejaDeViajes>(`${this.base}/trip-closure/bandeja`, { params: p });
-  }
-  /** Lo que cobra cada persona en la catorcena (lo arma Logística, lo aprueba Finanzas). */
-  getCortePagos(corte?: { desde: string; hasta: string }): Observable<CorteDeLogistica> {
-    let p = new HttpParams();
-    if (corte) p = p.set('desde', corte.desde).set('hasta', corte.hasta);
-    return this.http.get<CorteDeLogistica>(`${environment.apiUrl}/finance/trip-pay/corte`, { params: p });
-  }
-  getPersonaPagos(driverId: string, corte: { desde: string; hasta: string }): Observable<DetallePersona> {
-    const p = new HttpParams().set('desde', corte.desde).set('hasta', corte.hasta);
-    return this.http.get<DetallePersona>(`${environment.apiUrl}/finance/trip-pay/personas/${driverId}`, { params: p });
-  }
-  armarValePagos(driverId: string, corte: { desde: string; hasta: string }): Observable<ValeCreado> {
-    return this.http.post<ValeCreado>(`${environment.apiUrl}/finance/trip-pay/vales`, { driver_id: driverId, desde: corte.desde, hasta: corte.hasta });
+    return this.http.get<ReporteDePagos>(`${this.base}/trip-closure/reporte`, { params: p });
   }
   /** `[EMB.28.1]` Quién cambió una tarifa, cuándo, y qué tenía antes. */
   historialTarifa(entity: 'config' | 'route', id: string): Observable<TariffChange[]> {

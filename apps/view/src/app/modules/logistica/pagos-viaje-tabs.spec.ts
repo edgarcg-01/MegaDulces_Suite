@@ -16,15 +16,15 @@ const rutas = readFileSync(join(__dirname, '../../app.routes.ts'), 'utf8');
 const menu = readFileSync(join(__dirname, '../dashboard/layout/layout.component.ts'), 'utf8');
 
 describe('[EMB.43] las pestañas de Pagos de viaje', () => {
-  it('son Por completar, Por persona y Tarifas, en ese orden', () => {
+  it('son Operaciones, Por persona y Tarifas, en ese orden', () => {
     expect(PAGOS_VIAJE_TABS.map((t) => [t.label, t.route])).toEqual([
-      ['Por completar', '/logistica/pagos/viajes'],
+      ['Operaciones', '/logistica/pagos/viajes'],
       ['Por persona', '/logistica/pagos/personas'],
       ['Tarifas', '/logistica/pagos/tarifas'],
     ]);
   });
 
-  it('con VER del módulo se ven las tres y se entra por «Por completar»', () => {
+  it('con VER del módulo se ven las tres y se entra por «Operaciones»', () => {
     const ver = con(Permission.LOGISTICS_PAGOS_VER);
     expect(PAGOS_VIAJE_TABS.filter((t) => pestanaVisible(t, ver))).toHaveLength(3);
     expect(primeraPestanaVisible(PAGOS_VIAJE_TABS, ver)?.route).toBe('/logistica/pagos/viajes');

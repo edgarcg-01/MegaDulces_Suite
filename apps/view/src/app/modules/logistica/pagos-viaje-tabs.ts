@@ -2,16 +2,16 @@ import { PageTab } from '../../shared/components/page-tabs/page-tabs.component';
 import { Permission } from '../../core/constants/permissions';
 
 /**
- * `[EMB.43]` — **Logística › Pagos de viaje, en pestañas.**
+ * `[EMB.43]` `[EMB.47]` — **Logística › Pagos de viaje, en pestañas.**
  *
  * Pedido de Edgar (2026-10-24): «rediseñemos el frontend y démosle un módulo específico en
  * Logística» al control de comisiones, viáticos y carga por caja. Tres trabajos distintos, tres
  * pestañas (la prueba de la frase: cada una contesta UNA pregunta):
  *
- *  · **Por completar** — ¿a qué viajes de Kepler les falta quién fue, el horario o quién cargó?
- *    Es el trabajo diario: sin eso no hay nada que pagar.
- *  · **Por persona** — ¿cuánto cobra cada quien esta catorcena, y por qué? Es el trabajo de cada
- *    14 días: armar el vale que aprueba Finanzas.
+ *  · **Operaciones** — de cada traspaso o entrega a cliente, ¿quién fue y cuánto le toca a cada
+ *    quien? Es el trabajo diario: Kepler sabe la operación y sus cajas, aquí se agrega a la gente.
+ *  · **Por persona** — ¿cuánto pide cada quien esta catorcena, y con qué renglones? Es el reporte
+ *    de cada 14 días (PDF y Excel) con el que se hace la solicitud de gasto en Kepler.
  *  · **Tarifas** — ¿con qué se paga y desde cuándo? Comisión por ruta, viáticos y carga por caja,
  *    con su historial.
  *
@@ -20,9 +20,9 @@ import { Permission } from '../../core/constants/permissions';
  */
 export const PAGOS_VIAJE_TABS: readonly PageTab[] = [
   {
-    label: 'Por completar',
+    label: 'Operaciones',
     route: '/logistica/pagos/viajes',
-    icon: 'pi pi-inbox',
+    icon: 'pi pi-truck',
     permission: Permission.LOGISTICS_PAGOS_VER,
   },
   {
