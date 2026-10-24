@@ -71,7 +71,7 @@ const cierre = (paradas: ParadaCierre[], estado: CierreDeEmbarque['viajes'][numb
   paradas,
   pagos: [p({ liberado: estado !== 'abierto', estado_viaje: estado })],
   cargadores: [],
-  tarifa_carga: 30,
+  carga: { tarifa_por_caja: 0.2, cajas: 531, fuente_cajas: 'kepler', total: 106.2 },
 });
 
 function montar() {
@@ -142,6 +142,42 @@ describe('CierreViajeComponent (montado)', () => {
     put.flush({ ...cierre([parada({})]), cargadores: [{ id: 'l1', driver_id: 'd7', persona: 'CARGADOR PRUEBA', rate: 30, pagado: false }] });
     expect(c.seleccion).toEqual(['d7']);
     expect(c.guardandoCarga()).toBe(false);
+  });
+
+  it('[EMB.39] dice cajas × tarifa = total y cuánto le toca a cada quien con la misma regla del servidor', () => {
+    const { f, c, http, el } = montar();
+    f.detectChanges();
+    http.expectOne((r) => r.url.endsWith('/shipments/s1')).flush(cierre([parada({})]));
+    f.detectChanges();
+    expect(el.textContent).toContain('531 cajas');
+    expect(el.textContent).toContain('$106.20');
+    expect(c.textoReparto(106.2, 2)).toContain('$53.10');
+    expect(c.textoReparto(5, 3)).toContain('$1.67 o $1.66');
+  });
+
+  it('[EMB.39] PRUEBA NEGATIVA: sin tarifa vigente o sin cajas no ofrece registrar a nadie, y lo dice', () => {
+    for (const carga of [
+      { tarifa_por_caja: null, cajas: 531, fuente_cajas: 'kepler' as const, total: null },
+      { tarifa_por_caja: 0.2, cajas: null, fuente_cajas: null, total: null },
+    ]) {
+      TestBed.resetTestingModule();
+      const { f, http, el } = montar();
+      f.detectChanges();
+      http.expectOne((r) => r.url.endsWith('/shipments/s1')).flush({ ...cierre([parada({})]), carga });
+      f.detectChanges();
+      expect(el.querySelector('#cv-cargadores')).toBeNull();
+      expect(el.textContent).toMatch(carga.tarifa_por_caja == null ? /No hay tarifa de carga por caja/ : /No se sabe cuántas cajas/);
+    }
+  });
+
+  it('[EMB.39] cero cajas es un dato: deja registrar y avisa que la carga no paga', () => {
+    const { f, http, el } = montar();
+    f.detectChanges();
+    http.expectOne((r) => r.url.endsWith('/shipments/s1'))
+      .flush({ ...cierre([parada({})]), carga: { tarifa_por_caja: 0.2, cajas: 0, fuente_cajas: 'kepler', total: 0 } });
+    f.detectChanges();
+    expect(el.querySelector('#cv-cargadores')).not.toBeNull();
+    expect(el.textContent).toContain('la carga no paga');
   });
 });
 

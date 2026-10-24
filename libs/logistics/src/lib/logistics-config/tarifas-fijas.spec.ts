@@ -3,7 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { Permission } from '@megadulces/platform-core';
 import { actorDe } from './logistics-config.controller';
 import { ActorTarifas, LogisticsConfigService } from './logistics-config.service';
-import { cambiosDeConfig, cambiosDeRuta, configFijada, rutaFijada } from './tarifas-fijas.logic';
+import { CambioRegistrado, cambiosDeConfig, cambiosDeRuta, configFijada, rutaFijada, tarifaVigenteEl } from './tarifas-fijas.logic';
 
 /**
  * `[EMB.28.1]` Tarifas fijas: capturar la primera vez es de quien configura; cambiar, borrar o
@@ -189,5 +189,47 @@ describe('[EMB.33] «sin comisión» también es una tarifa fijada', () => {
     const { svc, historia } = baseFalsa({ 'logistics.routes': { ...LOCAL, sin_comision: false } });
     await svc.updateRoute(RUTA, { sin_comision: true }, CONFIGURA);
     expect(historia).toEqual([expect.objectContaining({ field: 'sin_comision', old_value: 'false', new_value: 'true', autorizado: false })]);
+  });
+});
+
+describe('[EMB.39] la tarifa vigente un día sale de la bitácora', () => {
+  // Historia inventada de la tarifa de carga por caja. Las horas son UTC: 2026-11-01T05:00Z es el
+  // 31-oct a las 23:00 en México, así que ese cambio aplica desde el 31-oct.
+  const historia: CambioRegistrado[] = [
+    { field: 'value', old_value: null, new_value: '0.2', changed_at: '2026-10-27T16:00:00Z' },
+    { field: 'value', old_value: '0.2', new_value: '0.25', changed_at: '2026-11-01T05:00:00Z' },
+    { field: 'active', old_value: 'true', new_value: 'false', changed_at: '2026-12-01T18:00:00Z' },
+    { field: 'active', old_value: 'false', new_value: 'true', changed_at: '2026-12-10T18:00:00Z' },
+  ];
+  const hoy = { value: '0.2500', active: true };
+
+  it('cada día paga con la tarifa que estaba puesta ese día', () => {
+    expect(tarifaVigenteEl(hoy, historia, '2026-10-27')).toBe(0.2);
+    expect(tarifaVigenteEl(hoy, historia, '2026-10-30')).toBe(0.2);
+    expect(tarifaVigenteEl(hoy, historia, '2026-11-15')).toBe(0.25);
+    expect(tarifaVigenteEl(hoy, historia, '2026-12-11')).toBe(0.25);
+  });
+
+  it('PRUEBA NEGATIVA: un cambio NO aplica hacia atrás — subir la tarifa no mueve lo ya cargado', () => {
+    expect(tarifaVigenteEl(hoy, historia, '2026-10-30')).not.toBe(0.25);
+  });
+
+  it('el día se cuenta en hora de México, no en UTC', () => {
+    expect(tarifaVigenteEl(hoy, historia, '2026-10-31')).toBe(0.25);
+  });
+
+  it('antes de existir, o mientras estuvo apagada, no hay tarifa (null, no cero)', () => {
+    expect(tarifaVigenteEl(hoy, historia, '2026-10-26')).toBeNull();
+    expect(tarifaVigenteEl(hoy, historia, '2026-12-05')).toBeNull();
+  });
+
+  it('sin bitácora manda cómo está hoy; apagada o en cero no paga', () => {
+    expect(tarifaVigenteEl({ value: '0.2' }, [], '2026-01-01')).toBe(0.2);
+    expect(tarifaVigenteEl({ value: '0.2', active: false }, [], '2026-01-01')).toBeNull();
+    expect(tarifaVigenteEl({ value: '0' }, [], '2026-01-01')).toBeNull();
+  });
+
+  it('volver a prender una tarifa queda en la bitácora (si no, la vigencia la daría por prendida antes)', () => {
+    expect(cambiosDeConfig({ active: false }, { active: true })).toEqual([{ field: 'active', old_value: 'false', new_value: 'true' }]);
   });
 });

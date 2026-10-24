@@ -1,5 +1,6 @@
 import {
-  CARGADORES_MAX, erroresDeCargadores, erroresDeCierreDeParada, FOTO_MAX_CHARS, seCierraEnLaSuite, totalesPorConcepto,
+  CARGADORES_MAX, erroresDeCargadores, erroresDeCierreDeParada, FOTO_MAX_CHARS, repartoDeCarga, seCierraEnLaSuite,
+  totalDeCarga, totalesPorConcepto,
 } from './cierre-viaje.contract';
 
 /**
@@ -77,24 +78,68 @@ describe('erroresDeCierreDeParada', () => {
 });
 
 describe('erroresDeCargadores', () => {
-  it('con tarifa y personas distintas: se puede', () => {
-    expect(erroresDeCargadores({ driver_ids: [A, B] }, 30)).toEqual([]);
+  const CARGA = { tarifa_por_caja: 0.2, cajas: 531 };
+
+  it('con tarifa, cajas y personas distintas: se puede', () => {
+    expect(erroresDeCargadores({ driver_ids: [A, B] }, CARGA)).toEqual([]);
   });
 
-  it('sin tarifa capturada no se registra: un cero sería no pagar', () => {
-    expect(erroresDeCargadores({ driver_ids: [A] }, null)[0]).toMatch(/tarifa de carga/);
-    expect(erroresDeCargadores({ driver_ids: [A] }, 0)[0]).toMatch(/tarifa de carga/);
+  it('PRUEBA NEGATIVA: sin tarifa vigente no se registra: un cero sería no pagar', () => {
+    expect(erroresDeCargadores({ driver_ids: [A] }, { ...CARGA, tarifa_por_caja: null })[0]).toMatch(/tarifa de carga por caja/);
+    expect(erroresDeCargadores({ driver_ids: [A] }, { ...CARGA, tarifa_por_caja: 0 })[0]).toMatch(/tarifa de carga por caja/);
+    expect(erroresDeCargadores({ driver_ids: [A] }, null)[0]).toMatch(/tarifa de carga por caja/);
+  });
+
+  it('PRUEBA NEGATIVA: cajas que no se saben (null) frenan; cero cajas es un dato y NO frena', () => {
+    expect(erroresDeCargadores({ driver_ids: [A] }, { ...CARGA, cajas: null })).toContain(
+      'No se sabe cuántas cajas lleva el embarque: captúralas en «Información» antes de registrar a quienes cargaron.');
+    expect(erroresDeCargadores({ driver_ids: [A] }, { ...CARGA, cajas: 0 })).toEqual([]);
   });
 
   it('rechaza repetidos, ids inválidos y más del máximo', () => {
-    expect(erroresDeCargadores({ driver_ids: [A, A] }, 30)).toContain('Un cargador está repetido.');
-    expect(erroresDeCargadores({ driver_ids: ['x'] }, 30)).toContain('Hay un cargador inválido.');
+    expect(erroresDeCargadores({ driver_ids: [A, A] }, CARGA)).toContain('Un cargador está repetido.');
+    expect(erroresDeCargadores({ driver_ids: ['x'] }, CARGA)).toContain('Hay un cargador inválido.');
     const muchos = Array.from({ length: CARGADORES_MAX + 1 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
-    expect(erroresDeCargadores({ driver_ids: muchos }, 30)).toContain(`Máximo ${CARGADORES_MAX} cargadores por carga.`);
+    expect(erroresDeCargadores({ driver_ids: muchos }, CARGA)).toContain(`Máximo ${CARGADORES_MAX} cargadores por carga.`);
   });
 
-  it('una lista vacía es válida: quita a todos', () => {
-    expect(erroresDeCargadores({ driver_ids: [] }, 30)).toEqual([]);
+  it('una lista vacía es válida aunque no haya tarifa ni cajas: quitar a todos no paga nada', () => {
+    expect(erroresDeCargadores({ driver_ids: [] }, CARGA)).toEqual([]);
+    expect(erroresDeCargadores({ driver_ids: [] }, { tarifa_por_caja: null, cajas: null })).toEqual([]);
+  });
+});
+
+describe('[EMB.39] carga por caja', () => {
+  it('total = cajas × tarifa, a centavos', () => {
+    expect(totalDeCarga(531, 0.2)).toBe(106.2);
+    expect(totalDeCarga(25, 0.2)).toBe(5);
+    expect(totalDeCarga(0, 0.2)).toBe(0);
+    expect(totalDeCarga(3, 0.333)).toBe(1);
+  });
+
+  it('sin cajas o sin tarifa no hay total (no es cero)', () => {
+    expect(totalDeCarga(null, 0.2)).toBeNull();
+    expect(totalDeCarga(25, null)).toBeNull();
+  });
+
+  it('reparto en partes iguales; lo que no divide exacto va de a centavo a los primeros', () => {
+    expect(repartoDeCarga(106.2, 3)).toEqual([35.4, 35.4, 35.4]);
+    expect(repartoDeCarga(5, 3)).toEqual([1.67, 1.67, 1.66]);
+    expect(repartoDeCarga(0.05, 3)).toEqual([0.02, 0.02, 0.01]);
+  });
+
+  it('PRUEBA NEGATIVA: la suma de las partes es SIEMPRE el total, ni un centavo de más o de menos', () => {
+    for (const [cajas, personas] of [[1, 3], [7, 6], [531, 7], [12345, 9], [2, 10]]) {
+      const total = totalDeCarga(cajas, 0.2) as number;
+      const partes = repartoDeCarga(total, personas);
+      expect(partes).toHaveLength(personas);
+      expect(Math.round(partes.reduce((a, b) => a + b, 0) * 100)).toBe(Math.round(total * 100));
+    }
+  });
+
+  it('sin personas no hay partes; con total cero cada quien cobra cero', () => {
+    expect(repartoDeCarga(10, 0)).toEqual([]);
+    expect(repartoDeCarga(0, 2)).toEqual([0, 0]);
   });
 });
 

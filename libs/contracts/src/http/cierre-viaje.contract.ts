@@ -121,8 +121,29 @@ export interface CargadorRegistrado {
   id: string;
   driver_id: string;
   persona: string;
+  /** Lo que cobra esta persona por la carga (su parte del reparto). */
   rate: number;
   pagado: boolean;
+}
+
+/** `[EMB.39]` De dónde salen las cajas de la carga. */
+export type FuenteCajas = 'kepler' | 'captura';
+
+/**
+ * `[EMB.39]` Con qué se paga la carga del embarque: **tarifa por caja × cajas**, repartido en
+ * partes iguales entre quienes cargaron (decisión de Edgar, 2026-10-24).
+ */
+export interface CargaDelEmbarque {
+  /** La tarifa por caja VIGENTE el día del embarque. `null` = ese día no había tarifa. */
+  tarifa_por_caja: number | null;
+  /**
+   * Cajas del embarque. Kepler: Σ `kdm2.c54` con presentación CJA/BTO de todas las paradas de la
+   * guía. Embarque manual: las capturadas. `null` = no se sabe (no es lo mismo que 0).
+   */
+  cajas: number | null;
+  fuente_cajas: FuenteCajas | null;
+  /** Cajas × tarifa, a centavos. `null` si falta cualquiera de las dos. */
+  total: number | null;
 }
 
 /** `GET /logistics/trip-closure/shipments/:id` */
@@ -132,8 +153,8 @@ export interface CierreDeEmbarque {
   paradas: ParadaCierre[];
   pagos: PagoViaje[];
   cargadores: CargadorRegistrado[];
-  /** `null` = no está capturada: no se pueden registrar cargadores hasta capturarla. */
-  tarifa_carga: number | null;
+  /** `[EMB.39]` Tarifa, cajas y total de la carga. Sin tarifa o sin cajas no se registran cargadores. */
+  carga: CargaDelEmbarque;
 }
 
 /** `POST /logistics/trip-closure/paradas/:recipientId/cierre` */
@@ -205,16 +226,49 @@ export function erroresDeCierreDeParada(
   return errs;
 }
 
+/** `[EMB.39]` La llave de `logistics.config_finance` con la tarifa de carga por caja. */
+export const TARIFA_CARGA_CAJA_KEY = 'tarifa_carga_caja';
+
+const centavos = (v: number): number => Math.round(v * 100);
+
+/** `[EMB.39]` Cajas × tarifa, a centavos. `null` si falta cualquiera de las dos. */
+export function totalDeCarga(cajas: number | null, tarifaPorCaja: number | null): number | null {
+  if (cajas == null || tarifaPorCaja == null || !Number.isFinite(cajas) || !Number.isFinite(tarifaPorCaja)) return null;
+  return centavos(cajas * tarifaPorCaja) / 100;
+}
+
+/**
+ * `[EMB.39]` Reparte el total de la carga en partes iguales, a centavos, sin perder ni inventar
+ * un centavo: lo que no divide exacto va, de a uno, a los primeros de la lista. La suma de las
+ * partes es SIEMPRE el total. Sin personas, no hay partes.
+ */
+export function repartoDeCarga(total: number, personas: number): number[] {
+  if (!(personas > 0) || !Number.isFinite(total) || total <= 0) return Array.from({ length: Math.max(0, personas) }, () => 0);
+  const c = centavos(total);
+  const base = Math.floor(c / personas);
+  const sobran = c - base * personas;
+  return Array.from({ length: personas }, (_, i) => (base + (i < sobran ? 1 : 0)) / 100);
+}
+
 /** Todo lo que impide registrar los cargadores. Vacío = se puede. */
-export function erroresDeCargadores(body: Partial<CargadoresBody> | null | undefined, tarifa: number | null): string[] {
+export function erroresDeCargadores(
+  body: Partial<CargadoresBody> | null | undefined,
+  carga: Pick<CargaDelEmbarque, 'tarifa_por_caja' | 'cajas'> | null,
+): string[] {
   const errs: string[] = [];
-  if (tarifa == null || !(tarifa > 0)) {
-    errs.push('Falta capturar la tarifa de carga por persona en Logística › Configuración (tarifa_maniobra_carga).');
-  }
   const ids = body?.driver_ids;
   if (!Array.isArray(ids)) {
     errs.push('Lista de cargadores inválida.');
     return errs;
+  }
+  // Quitar a todos no paga nada: no necesita tarifa ni cajas.
+  if (ids.length) {
+    if (carga?.tarifa_por_caja == null || !(carga.tarifa_por_caja > 0)) {
+      errs.push(`No hay tarifa de carga por caja vigente para la fecha del embarque: captúrala en Logística › Configuración (${TARIFA_CARGA_CAJA_KEY}).`);
+    }
+    if (carga?.cajas == null) {
+      errs.push('No se sabe cuántas cajas lleva el embarque: captúralas en «Información» antes de registrar a quienes cargaron.');
+    }
   }
   if (ids.some((i) => typeof i !== 'string' || !UUID.test(i))) errs.push('Hay un cargador inválido.');
   if (new Set(ids).size !== ids.length) errs.push('Un cargador está repetido.');
