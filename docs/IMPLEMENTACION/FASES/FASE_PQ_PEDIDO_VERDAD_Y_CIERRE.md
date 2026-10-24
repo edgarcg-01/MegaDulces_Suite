@@ -222,6 +222,7 @@ veredicto por renglón.
 | Bloqueo | Dueño | Causa | Qué lo destraba |
 |---|---|---|---|
 | KR.9 apagado | Edgar | `KEPLER_PUSH_URL`, `GRANT INSERT`, `pg_hba` sin poner | D1 firmada + runbook, fuera de horario hábil |
+| **El CEDIS no tiene existencia medida** (127 SKUs contados el 30-sep; 1,264 embarcados en 30 d) | Operación / Almacén CEDIS (a nombrar por el PM) | corte a Kepler sin saldos iniciales (§12) | inventario físico completo capturado como `N-A-30`, o carga de saldos iniciales. Sin eso PQ.12 no puede calcular la compra del CEDIS |
 | Cupo 4/4 🔨 y Fase 0 en curso | PM | Método §3 y §7 | M1 y M2 **no ocupan cupo** (medición, sin código); F1–F3 esperan cupo o una fase que cierre |
 | Traspasos sin réplica para medir (`08`) | — | no hay `kepler_md_08` | Se declara, no se cuenta |
 | Auto-deploy comentado | Edgar | decisión 2026-10 | Deploy manual de lo ya empujado |
@@ -334,11 +335,54 @@ proveedor cuando haya ≥20 renglones juzgados por fila.
 
 ---
 
+## 12. El CEDIS no recomienda comprar nada — y por qué no puede todavía (2026-10-24)
+
+> Disparador: el PM abrió `/compras/pedido` filtrado al CEDIS y vio «A comprar $0 · SKUs 0 · Sin
+> datos en los puntos de compra», con «A traspasar $2.89 M desde CEDIS» al lado. Y trajo el
+> **reporte de existencia por productos de Kepler** para el CEDIS (`KRep_md_invrepexsrep.kpl.pdf`,
+> 2026-10-24 11:55, 123 páginas, 8,992 productos). Todo lo de abajo es sólo lectura contra prod.
+
+| hecho | medido |
+|---|---:|
+| Pares del CEDIS en el plan | 1,755 · **0 con venta propia** (el CEDIS no vende, sólo traspasa) · 1,636 con demanda de red (`eff_daily`, **33,855 pz/día**) |
+| Sugerido de compra del motor | `venta propia × cobertura − existencia` → **0 en todos** → con «Solo con pedido» la lista queda vacía |
+| Existencia del CEDIS en el ODS | **296 SKUs, 372,335 pz** |
+| Existencia del CEDIS según **Kepler** (el PDF) | **352 SKUs, 370,338 pz** · 199 de 228 comunes iguales (el resto, desfase del parser sobre renglones sin descripción) |
+| SKUs que el CEDIS **embarcó** en 30 d (`U-D-41`) | **1,264** (1.18 M pz) · con existencia en Kepler: **207** · en el ODS: 236 |
+| Saldo inicial del kardex `00` (`kdil.c4`) | **0 en el 100 %** |
+| Único inventario físico del CEDIS (`N-A-30`) | **2026-09-30, folio 0000001: 127 SKUs, 340,077 pz** |
+| Flujo del `00` en 30 d | entradas `X-A-40` 1.06 M pz · embarques `U-D-41` 1.18 M pz |
+
+**Lo que contesta:** nuestra existencia del CEDIS **es la de Kepler**, no un defecto del feed. Y
+la de Kepler es un artefacto del corte del 30-sep: se contaron **127 SKUs** y el resto arrancó en
+cero sin saldo inicial; desde entonces entra casi lo mismo que sale, así que ~900 de los 1,264
+SKUs que el CEDIS embarca viven en **cero o negativo** en su kardex. El CEDIS opera con mercancía
+que su propio sistema dice que no tiene.
+
+**Por eso el motor no puede darle número al CEDIS, ni con la demanda de red:** con `eff_daily` y
+30 d saldría **$20.22 M a comprar**, pero el 84 % es de SKUs cuya existencia está en cero por falta
+de conteo, no por falta de mercancía. Sería una cifra dibujada (ADR-056). Lo honesto hoy en
+pantalla es **«existencia no medida para N SKUs»**, no «A comprar $0 · sin demanda».
+
+**Lo que destraba, y no es código:** un **inventario físico completo del CEDIS capturado en Kepler**
+(`N-A-30`) o la carga de saldos iniciales. Con eso, la vía para el CEDIS es sencilla porque no vende:
+su demanda es `eff_daily` (ya calculada) y su compra es `eff_daily × cobertura − existencia`.
+Registrado como **PQ.12** (dependiente de ese conteo) y como bloqueo con dueño en §8.
+
+⚠️ Dos cosas que este cruce **no** resolvió: (a) `kdil` crudo del almacén `00` trae 3,836 SKUs con
+saldo positivo y 8.36 M pz, que ni Kepler ni nosotros publicamos — es el residuo de cuando `md_00`
+era base de prueba (`VERDAD_ABSOLUTA` §17), y sigue sin explicarse del todo; (b) el join a `kdil`
+por SKU no se logró en esta sesión (la columna del SKU en `kdil` no es `c2`), así que el conteo de
+«embarcados con saldo negativo» queda **NO MEDIDO** por esa vía; se infiere del reporte de Kepler.
+
+---
+
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-23 | Auditoría del flujo (nivel B+C), jerarquía, agenda medida, M1/M2 definidas, doc creado en ⬜. Consultas en el scratchpad de la sesión; cifras en §1 | sesión Claude + PM |
+| 2026-10-24 | «El CEDIS no recomienda comprar nada»: medido y cruzado con el reporte de existencia de Kepler (§12). Nuestra existencia = la de Kepler; la de Kepler = 127 SKUs contados el 30-sep y el resto en cero. **PQ.12** (demanda de red + D14 + compra del CEDIS) queda ⬜ dependiente del inventario físico del CEDIS. La sesión AB propuso D14/D15; PQ los acepta con cuatro ajustes (una sola regla de tránsito en `libs/`, D10 sin `eff_daily` en hubs mixtos, D15 sobre la bandeja existente, el número en un commit con antes/después) | PM + sesión PQ |
 | 2026-10-23 | **PQ.1, PQ.5 y PQ.4 en 🧪** (commits `61cbe15`, `ea81144`, `da0b005`): la bandeja distingue «aprobada» de «escrita en Kepler»; Pedido avisa «hoy te toca pedirle a N proveedores»; el Ciclo abre por **agenda de proveedores** (237 filas, 227 ms, cruzada al centavo contra la vista por canal con el servicio real) y declara el tope de la lista por canal (639 activos, 500 mostrados). ⛔ **Bloqueo nuevo:** los items que ESCRIBEN (PQ.2, PQ.3, PQ.7, PQ.8, PQ.9, PQ.11) exigen prueba contra base real con el payload de la pantalla y **Docker Desktop no responde** en la máquina de trabajo: sin base de pruebas no se arrancan. Dueño: quien levante el stack `dev:up`. Otra sesión avanzó KR.12/KR.13 (encendido de Kepler servidor por servidor): revisar antes de PQ.2 | sesión Claude |
 | 2026-10-23 | **Fase abierta 🔨**: el PM pasó **PO → ⏸️** (20 d sin commit, 0 items) y PQ ocupa su cupo. Fila en el roadmap. Dueño y fecha meta siguen sin nombrar. Arranca F1 (PQ.1) | PM |
 | 2026-10-23 | PQ.M2 ✅ (rótulos revisados, nivel C). El PM firmó **D1 (c), D2 (b)+(c), D3 (c), D5 (b)**. Pendientes D4, D6 (espera M1) y D7. F1–F3 siguen sin cupo: 4/4 🔨 | PM |
