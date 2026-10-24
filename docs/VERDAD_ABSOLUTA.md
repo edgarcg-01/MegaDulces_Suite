@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 349 KB, 5206 líneas, 38 secciones.
+> **Índice navegable** — 352 KB, 5237 líneas, 38 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -26,25 +26,25 @@
 | 1745 | 1767 | 1 | 11. Lo que este documento no cubre |
 | 1768 | 1843 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
 | 1844 | 2003 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
-| 2004 | 2387 | 23 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
-| 2388 | 2628 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
-| 2629 | 2821 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
-| 2822 | 2864 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
-| 2865 | 2963 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
-| 2964 | 3437 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
-| 3438 | 3545 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
-| 3546 | 3700 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
-| 3701 | 3852 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
-| 3853 | 4058 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
-| 4059 | 4148 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
-| 4149 | 4338 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
-| 4339 | 4407 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
-| 4408 | 4702 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
-| 4703 | 4920 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
-| 4921 | 5030 | 7 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
-| 5031 | 5076 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
-| 5077 | 5161 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
-| 5162 | 5256 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
+| 2004 | 2418 | 25 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
+| 2419 | 2659 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
+| 2660 | 2852 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
+| 2853 | 2895 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
+| 2896 | 2994 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
+| 2995 | 3468 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
+| 3469 | 3576 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
+| 3577 | 3731 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
+| 3732 | 3883 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
+| 3884 | 4089 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
+| 4090 | 4179 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
+| 4180 | 4369 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
+| 4370 | 4438 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
+| 4439 | 4733 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 4734 | 4951 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
+| 4952 | 5061 | 7 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
+| 5062 | 5107 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
+| 5108 | 5192 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
+| 5193 | 5287 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -2094,6 +2094,37 @@ dar por supuesto.
 publica desde `kdil` sin un segundo testigo que la respalde. No es un problema del CEDIS; es del
 dato de existencia completo. Si `kdil` está mal, está mal para todas — y eso es una fase aparte, no
 un motivo para dejar un almacén en blanco.
+
+### 17.4b ⭐⭐ El árbitro que faltaba: el REPORTE de Kepler, cruzado SKU por SKU (PQ.12, 2026-10-24)
+
+El PM trajo el **«Reporte de existencia por productos»** de Kepler para el CEDIS (24-oct 11:55,
+8,954 productos) y fijó la regla: *«nada inventado ni importado; la misma fórmula de Kepler y los
+mismos resultados»*. Cruzado contra `v_erp_stock_on_hand` del `00` con
+[`pq-paridad-existencia-reporte-kepler.js`](../database/scripts/pq-paridad-existencia-reporte-kepler.js)
+(control: 11 cifras leídas a ojo en las páginas 10 y 18; ⛔ `pdftotext -layout` **corría los renglones
+un SKU** y daba 155 «diferencias» falsas, `-raw` acierta 11 de 11):
+
+| | Kepler (reporte) | nuestra vista | veredicto |
+|---|---:|---:|---|
+| SKUs con existencia positiva | 303 (369,572 u) | 296 (372,335 u) | **289 idénticos** |
+| distintos | 2 | | movimientos de HOY después de las 11:55 (`X-A-40` 0010073: 360 y 2,090 u) |
+| sólo Kepler | 12 | | 1 fuera del catálogo (`99225`) · **11 con último movimiento ANTES del corte** (22-sep, 10-abr, dic-25; saldos 2–224 u) que el filtro «actividad posterior al corte» excluye y Kepler publica |
+| sólo nuestra vista | 11 | | movimientos de hoy después de las 11:55 |
+| **negativos** | **45 (−55,174 u)** | 0 | `GREATEST(…,0)` los recorta; `kdil c4+c8−c9` crudo los reproduce **45 de 45** |
+
+⭐ **La fórmula es la misma y el resultado es el mismo**: la existencia del CEDIS que publicamos
+**es la de Kepler**. Las dos desviaciones son **nuestras** y se vuelven decisiones del PM, no
+defaults: (a) recortar negativos (§3.1b) esconde 45 SKUs que Kepler muestra en rojo; (b) el filtro
+de actividad deja fuera 11 SKUs que Kepler sí lista. ⚠️ **NO MEDIDO:** por qué Kepler publica esos
+11 y no los otros ~3,800 con saldo positivo en `kdil` sin actividad desde el corte (el crudo sin
+filtro reproduce sólo 1,202 de 8,954 renglones del reporte): el filtro de actividad **replica** el
+resultado de Kepler sin que sepamos la regla exacta del ERP.
+
+⛔ **Y lo que el reporte confirma del lado del negocio:** Kepler mismo tiene existencia para
+**352 SKUs** en el CEDIS mientras el CEDIS **embarcó 1,264 SKUs en 30 días** (`U-D-41`, 1.18 M u).
+El único saldo inicial es el inventario físico `N-A-30` del 30-sep: **127 SKUs, 340,077 u**;
+`kdil.c4` es 0 en el 100 %. El CEDIS opera con mercancía que su kardex no tiene; ningún motor
+puede calcular su compra hasta un conteo completo (bloqueo con dueño en `FASE_PQ` §8).
 
 ### 17.5 ⛔ La cobertura REAL del árbitro: 2.8% nominal, **0% independiente**
 
