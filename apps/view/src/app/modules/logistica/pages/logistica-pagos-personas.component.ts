@@ -86,7 +86,7 @@ import { LogisticaService } from '../logistica.service';
         </section>
         <div class="dt-scope">
           <p-table [value]="filtradas()" dataKey="driver_id" selectionMode="single" [selection]="seleccion()"
-                   (onRowSelect)="abrir($event.data)"
+                   (onRowSelect)="alSeleccionar($event.data)"
                    size="small" class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack"
                    [tableStyle]="{ 'min-width': '60rem' }">
             <ng-template #header>
@@ -128,7 +128,7 @@ import { LogisticaService } from '../logistica.service';
         </div>
       </app-load-state>
 
-      <app-side-peek [open]="!!sel()" (openChange)="!$event && cerrar()" width="44rem"
+      <app-side-peek [open]="!!sel()" (openChange)="!$event && cerrar()" [width]="704"
                      [title]="detalle()?.persona ?? personaSel()?.persona ?? ''"
                      [subtitle]="data() ? 'Catorcena ' + fechaCorta(data()!.corte.desde) + ' – ' + fechaCorta(data()!.corte.hasta) : null">
         <app-load-state [loading]="!detalle() && !errorDetalle()" [error]="errorDetalle()" [isEmpty]="false" [skeletonRows]="4"
@@ -307,6 +307,11 @@ export class LogisticaPagosPersonasComponent {
     this.aviso.set(null);
     this.data.set(null);
     this.cargar({ desde: c.desde, hasta: c.hasta });
+  }
+
+  /** La tabla entrega una fila, varias o ninguna: aquí la selección es de UNA fila. */
+  alSeleccionar(d: ResumenPersona | ResumenPersona[] | undefined): void {
+    if (d && !Array.isArray(d)) this.abrir(d);
   }
 
   abrir(p: ResumenPersona): void {
