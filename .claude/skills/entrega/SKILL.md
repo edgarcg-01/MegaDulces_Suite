@@ -15,9 +15,10 @@ description: El carril de entrega de esta suite, de punta a punta — revisar y 
 ```
 commit → push (pre-push: 25 compuertas sobre el ÁRBOL)
        → CI (compuertas sobre el COMMIT)
-       → sellar mueve ci-green      ← sólo si build + secret-scan pasan
+       → sellar mueve ci-green         ← sólo si build + secret-scan pasan
+       → MIGRACIONES, una por una      ← §5; van ANTES de soltar
        → soltar.sh mueve prod-release  ← lo mueve una PERSONA
-       → el vigía despliega         ← sólo si NO hay migraciones pendientes
+       → el vigía despliega            ← frena con UNA migración pendiente
        → /api/health contesta el commit nuevo
 ```
 
@@ -71,7 +72,7 @@ compuertas rojas**. Si mergeás con una roja, nombrala; no la dejes pasar como s
 ### ⭐ Un rojo de `main` contamina a todos los PRs
 
 El 2026-10-23, `landing-guards.spec.ts` fallaba **1 de 4,068 pruebas** en `main`, y por eso
-#450 y #451 aparecían rojos. **No era de ellos.** Antes de diagnosticar un PR, mirá si el
+los PRs #450 y #451 aparecían rojos. **No era de ellos.** Antes de diagnosticar uno, mirá si el
 mismo rojo está en `main`: si está, el PR no tiene nada que arreglar y se destraba solo
 cuando entre el arreglo.
 
@@ -247,22 +248,92 @@ sh ops/prod/soltar.sh
 `GRANT` la compuerta no puede extraer ningún objeto, así que declara `NO_MEDIDO` y **frena**
 — no adivina. Eso costó las 23 horas. **Aplicá antes de soltar, siempre.**
 
-### Revisar una migración antes de aplicarla
+### Verificar que llegó
 
 ```bash
-grep -ioE "MATERIALIZED VIEW|CREATE INDEX CONCURRENTLY|ADD COLUMN|NOT NULL|DELETE FROM|GRANT" <mig>
+curl -s http://192.168.0.222:30080/api/health
+ssh superoot@192.168.0.222 'tail -8 ~/ops/prod/auto-deploy.log'
 ```
 
-- **`NOT NULL` en tabla NUEVA** → sin riesgo. **En tabla existente** → recorrer *todos* los
-  caminos que insertan ahí.
-- **`DROP` de una vista o matvista** → los `GRANT` **no sobreviven**. Registrá la ACL antes y
-  verificala después:
-  ```sql
-  SELECT relacl FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-   WHERE n.nspname='<esquema>' AND c.relname='<objeto>';
-  ```
-- **`CREATE MATERIALIZED VIEW … WITH DATA`** → si la fuente filtra por `current_tenant_id()`
-  y la sesión no trae `app.tenant_id`, **nace con cero filas y sin error** (GOTCHAS §87.1).
+⛔ **El registro NO es el testigo.** Un despliegue corrido a mano escribe su salida en la
+sesión de quien lo lanzó y **no deja un renglón**: el log puede terminar en `FALLO` mientras
+producción ya sirve el commit nuevo. Quien lo lea después concluye lo contrario de lo que pasó.
+
+⚠️ **El vigía no reintenta un `fetch` caído.** Trata "se cayó la red un segundo" igual que
+"el build está roto": guarda el SHA y no vuelve a intentar. Un parpadeo dejó prod **1 h 50
+min** sin el despliegue ya aprobado. Si el log dice `no reintento`, comprobá la causa —
+`ls-remote` y la llave— y relanzá a mano.
+
+---
+
+## 5 · Migraciones
+
+⛔ **Son el único paso de este carril que toca datos de verdad**, y el que más seguido frena
+el despliegue. Van **antes** de soltar, **una por una**, y nunca con `migrate:latest` — en
+prod hay **DOS** `knex_migrations` (`public` es la real con 1,300+ filas; `identity` está
+vacía y gana por el `search_path` de `postgres`).
+
+```bash
+sh ops/prod/aplicar-migracion.sh --pendientes
+sh ops/prod/aplicar-migracion.sh <archivo.js>
+```
+
+El envoltorio se niega si el archivo **no está en `origin/main`** — por eso el push va antes.
+Es la compuerta que evita el caso del 2026-10-08: ocho migraciones aplicadas desde commits que
+nunca se empujaron, cada una dejando el ledger nombrando un archivo que la imagen no tiene, y
+con eso **la siguiente migración de cualquiera** bloqueada.
+
+### ⛔⛔ `--pendientes` mide UNA de CUATRO carpetas
+
+Medido el 2026-10-24. `aplicar-migracion.sh` tiene `DIR=database/migrations-newdb` fijo, y el
+repo tiene cuatro:
+
+| carpeta | archivos | |
+|---|---:|---|
+| `database/migrations-newdb` | 1,332 | la única que el script mira |
+| `database/migrations` | 89 | legacy Railway, hasta jun-2026 |
+| `database/migrations-hr` | 2 | **fuera del alcance** |
+| `database/migrations-products` | 1 | **fuera del alcance** |
+
+⭐ Y lo que apareció al mirarlas: **ninguna de esas tres figura en `public.knex_migrations`**,
+pero el esquema `hr` **tiene 21 tablas**. O sea que existen por otro camino y el ledger no lo
+sabe — y `[RH.1.8]` (los relojes checadores) vive encima de eso.
+
+**Por eso «cero pendientes» no se dice sin decir de qué carpeta.** Si vas a afirmarlo entero:
+
+```bash
+for d in database/migrations*; do printf "%-32s %s\n" "$d" "$(ls "$d" | wc -l)"; done
+```
+
+⚠️ Y `migrations-products` contiene `load_products_from_json` — **un importer disfrazado de
+migración**, que es justo lo que la regla principal del proyecto prohíbe. No se aplica: se
+declara.
+
+### Revisar una migración ANTES de aplicarla
+
+```bash
+grep -ioE "MATERIALIZED VIEW|CREATE INDEX CONCURRENTLY|CREATE INDEX|CREATE TABLE|ADD COLUMN|NOT NULL|DELETE FROM|UPDATE [a-z_.]+ SET|GRANT" <mig>
+```
+
+| Lo que aparece | Qué comprobar |
+|---|---|
+| `NOT NULL` en tabla **nueva** | sin riesgo — no hay caminos de inserción viejos |
+| `NOT NULL` en tabla **existente** | recorrer **todos** los caminos que insertan ahí (`grep` del nombre de la tabla). Costó 8 días de arqueos sin poder cerrarse |
+| `DROP` de vista o matvista | los **`GRANT` no sobreviven**: registrá la ACL antes y verificala después |
+| `CREATE MATERIALIZED VIEW … WITH DATA` | si la fuente filtra por `current_tenant_id()` y la sesión no trae `app.tenant_id`, **nace con cero filas y sin error** (GOTCHAS §87.1) |
+| `DELETE` / `UPDATE` masivo | ⛔ no en horario hábil |
+| `CREATE INDEX CONCURRENTLY` | ver abajo |
+
+```sql
+-- la ACL, antes y después de un DROP
+SELECT relacl FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+ WHERE n.nspname='<esquema>' AND c.relname='<objeto>';
+```
+
+⚠️ Leé lo que **imprime** la migración, no sólo su `OK`. Las buenas declaran lo que movieron
+(«4 roles», «217 filas», «esperado −149,915.32 → −28,784.79»), y ahí se ve si tocó lo que
+decía. Si además reparte permisos: **las personas afectadas tienen que volver a entrar**, el
+JWT trae los permisos.
 
 ### `CREATE INDEX CONCURRENTLY` — la trampa que costó un día
 
@@ -289,21 +360,14 @@ sh ops/prod/aplicar-migracion.sh <mig>
 `pid <> pg_backend_pid()`; si no, vas a "medir" que algo sigue corriendo cuando es tu propio
 `SELECT`.
 
-### Verificar que llegó
+### Las huérfanas: una fila del ledger sin archivo
 
-```bash
-curl -s http://192.168.0.222:30080/api/health
-ssh superoot@192.168.0.222 'tail -8 ~/ops/prod/auto-deploy.log'
-```
-
-⛔ **El registro NO es el testigo.** Un despliegue corrido a mano escribe su salida en la
-sesión de quien lo lanzó y **no deja un renglón**: el log puede terminar en `FALLO` mientras
-producción ya sirve el commit nuevo. Quien lo lea después concluye lo contrario de lo que pasó.
-
-⚠️ **El vigía no reintenta un `fetch` caído.** Trata "se cayó la red un segundo" igual que
-"el build está roto": guarda el SHA y no vuelve a intentar. Un parpadeo dejó prod **1 h 50
-min** sin el despliegue ya aprobado. Si el log dice `no reintento`, comprobá la causa —
-`ls-remote` y la llave— y relanzá a mano.
+`--pendientes` también lista **huérfanas** — nombres que el ledger de prod tiene y el repo ya
+no. Hoy hay una (`20260921200000_budget_sales_plan_method_fallback.js`, batch 1), y su efecto
+no es cosmético: **el envoltorio copia ese archivo al pod en CADA migración** para que
+`knex.migrate.list()` no aborte con *«the migration directory is corrupt»*. Es trabajo
+repetido sobre un diagnóstico falso. Se resuelve mirando por qué sobra esa fila, no borrando
+el archivo del repo.
 
 ---
 
