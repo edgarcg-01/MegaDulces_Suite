@@ -1,6 +1,6 @@
 import {
-  CARGADORES_MAX, erroresDeCargadores, erroresDeCierreDeParada, FOTO_MAX_CHARS, repartoDeCarga, seCierraEnLaSuite,
-  totalDeCarga, totalesPorConcepto,
+  CARGADORES_MAX, corteAPagar, corteDe, corteVecino, erroresDeCargadores, erroresDeCierreDeParada, faltasDelViaje,
+  FOTO_MAX_CHARS, repartoDeCarga, seCierraEnLaSuite, tipoDeParadaKepler, tipoDelViaje, totalDeCarga, totalesPorConcepto,
 } from './cierre-viaje.contract';
 
 /**
@@ -151,5 +151,43 @@ describe('totalesPorConcepto', () => {
       { concept: 'viatico', amount: 200 },
       { concept: 'maniobra_carga', amount: 30 },
     ])).toEqual({ comision: 220.2, viatico: 200, maniobra_carga: 30 });
+  });
+});
+
+describe('[EMB.43] la catorcena', () => {
+  it('jueves a miércoles, anclada en el jueves 1-ene-2026; se paga el viernes', () => {
+    expect(corteDe('2026-10-14')).toEqual({ desde: '2026-10-08', hasta: '2026-10-21', pago: '2026-10-23' });
+    expect(corteDe('2026-10-08')).toEqual(corteDe('2026-10-21'));
+    expect(corteDe('2026-10-22').desde).toBe('2026-10-22');
+  });
+  it('el que se paga es el último que ya cerró; el vecino se mueve de 14 en 14', () => {
+    expect(corteAPagar('2026-10-24')).toEqual({ desde: '2026-10-08', hasta: '2026-10-21', pago: '2026-10-23' });
+    expect(corteVecino(corteDe('2026-10-14'), 1).desde).toBe('2026-10-22');
+    expect(corteVecino(corteDe('2026-10-14'), -1).desde).toBe('2026-09-24');
+  });
+});
+
+describe('[EMB.43] la bandeja: tipo de parada y lo que le falta al viaje', () => {
+  it('serie 1 = cliente; serie 2: TI = traspaso, RUTA/RD = carga a ruta (como erp_shipment_stop_closure)', () => {
+    expect(tipoDeParadaKepler(1, 'C0001')).toBe('cliente');
+    expect(tipoDeParadaKepler('2', 'TI006')).toBe('traspaso');
+    expect(tipoDeParadaKepler(2, 'RUTA21')).toBe('carga_ruta');
+    expect(tipoDeParadaKepler(2, 'RD505')).toBe('carga_ruta');
+  });
+  it('el viaje se clasifica sólo por las paradas que pagan; de puras cargas a ruta, no entra', () => {
+    expect(tipoDelViaje(['traspaso', 'carga_ruta'])).toBe('traspaso');
+    expect(tipoDelViaje(['cliente', 'traspaso'])).toBe('mixto');
+    expect(tipoDelViaje(['carga_ruta', 'carga_ruta'])).toBeNull();
+    expect(tipoDelViaje([])).toBeNull();
+  });
+  it('lo que falta, en el orden en que se captura; nada = completo', () => {
+    expect(faltasDelViaje(null)).toEqual(['tomar']);
+    const base = { shipment_id: 's', guide_id: 'g', driver_id: 'd', departure_time: '06:00', arrival_time: '15:00', cargadores: 2 };
+    expect(faltasDelViaje(base)).toEqual([]);
+    expect(faltasDelViaje({ ...base, driver_id: null, arrival_time: null, cargadores: 0 })).toEqual(['chofer', 'horario', 'cargadores']);
+  });
+  it('PRUEBA NEGATIVA: medio horario no es horario', () => {
+    const base = { shipment_id: 's', guide_id: 'g', driver_id: 'd', departure_time: '06:00', arrival_time: null, cargadores: 1 };
+    expect(faltasDelViaje(base)).toEqual(['horario']);
   });
 });

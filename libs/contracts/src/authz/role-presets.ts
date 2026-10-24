@@ -134,6 +134,8 @@ export const MODULE_GROUPS: Record<string, Permission[]> = {
     Permission.LOGISTICS_EXPENSES_VER,
     Permission.LOGISTICS_EXPENSES_GESTIONAR,
     Permission.LOGISTICS_CONFIG_GESTIONAR,
+    Permission.LOGISTICS_PAGOS_VER,
+    Permission.LOGISTICS_PAGOS_GESTIONAR,
     Permission.LOGISTICS_CARTAPORTE_VER,
     Permission.LOGISTICS_CARTAPORTE_GESTIONAR,
     Permission.LOGISTICS_TRANSFERS_VER,

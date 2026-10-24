@@ -163,11 +163,12 @@ describe('TripPayController — rutas, permisos y quién prepara', () => {
   });
   const AMBOS = [Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR];
 
-  it('las tres rutas aceptan Finanzas (comprobar) o Logística (gestionar), y nadie más', () => {
+  it('las tres rutas aceptan Finanzas (comprobar), Logística (gestionar) o el módulo Pagos de viaje, y nadie más', () => {
     expect(Reflect.getMetadata(PATH_METADATA, TripPayController)).toBe('finance/trip-pay');
-    expect(meta(TripPayController.prototype.corte)).toEqual({ ruta: 'corte', verbo: RequestMethod.GET, permisos: AMBOS });
-    expect(meta(TripPayController.prototype.persona)).toEqual({ ruta: 'personas/:driverId', verbo: RequestMethod.GET, permisos: AMBOS });
-    expect(meta(TripPayController.prototype.crearVale)).toEqual({ ruta: 'vales', verbo: RequestMethod.POST, permisos: AMBOS });
+    // [EMB.43] Ver la catorcena: con VER del módulo. Armar el vale (escribe): sólo con GESTIONAR.
+    expect(meta(TripPayController.prototype.corte)).toEqual({ ruta: 'corte', verbo: RequestMethod.GET, permisos: [...AMBOS, Permission.LOGISTICS_PAGOS_VER] });
+    expect(meta(TripPayController.prototype.persona)).toEqual({ ruta: 'personas/:driverId', verbo: RequestMethod.GET, permisos: [...AMBOS, Permission.LOGISTICS_PAGOS_VER] });
+    expect(meta(TripPayController.prototype.crearVale)).toEqual({ ruta: 'vales', verbo: RequestMethod.POST, permisos: [...AMBOS, Permission.LOGISTICS_PAGOS_GESTIONAR] });
   });
 
   it('el vale queda a nombre del usuario de la sesión, no de lo que mande el cuerpo', async () => {

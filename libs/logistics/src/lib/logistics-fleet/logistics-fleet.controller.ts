@@ -180,7 +180,7 @@ export class LogisticsFleetController {
    * (`LOGISTICS_SHIPMENTS_GESTIONAR`). Sólo nombre y papel: el resto del expediente sigue en Personal.
    */
   @Post('drivers/alta-rapida')
-  @RequireAnyPermission(Permission.LOGISTICS_FLEET_GESTIONAR, Permission.LOGISTICS_GUIDES_GESTIONAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR)
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_GESTIONAR, Permission.LOGISTICS_GUIDES_GESTIONAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR, Permission.LOGISTICS_PAGOS_GESTIONAR)
   @ApiOperation({ summary: 'EMB.32: alta rápida de ayudante o cargador (sin duplicar; reactiva si estaba de baja)' })
   altaRapida(@Body() body: AltaRapidaBody): Promise<AltaRapidaResultado> {
     return this.service.altaRapida(body);

@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { BadRequestException, ConflictException, NotFoundException, RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
-import { Permission, PERMISSIONS_KEY } from '@megadulces/platform-core';
+import { ANY_PERMISSIONS_KEY, Permission, PERMISSIONS_KEY } from '@megadulces/platform-core';
 import { TripClosureController } from './trip-closure.controller';
 import { TripClosureService } from './trip-closure.service';
 
@@ -36,7 +36,7 @@ function baseFalsa(r: Respuestas) {
     const b: any = {
       where(a: any) { if (typeof a === 'object') filtro = { ...(filtro ?? {}), ...a }; return b; },
       whereNull: () => b, whereNot: () => b, whereIn: () => b, join: () => b, leftJoin: () => b,
-      orderBy: () => b, orderByRaw: () => b, select: () => b, forUpdate: () => b, distinct: () => b,
+      orderBy: () => b, orderByRaw: () => b, select: () => b, forUpdate: () => b, distinct: () => b, whereBetween: () => b,
       first: async () => r.primero?.[tabla],
       count: async () => [{ n: String(r.conteo ?? 0) }],
       update: async (datos: any) => { updates.push({ tabla, where: filtro, datos }); return r.actualizadas ?? 1; },
@@ -47,7 +47,12 @@ function baseFalsa(r: Respuestas) {
     return b;
   };
   trx.fn = { now: () => 'NOW()' };
-  trx.raw = (sql: string) => ({ sql });
+  // Un raw se usa como valor (el tenant) o se espera (la consulta de la Suite en la bandeja): al
+  // esperarlo contesta las filas de `lista['__raw']`.
+  trx.raw = (sql: string) => ({
+    sql,
+    then: (ok: any, ko: any) => Promise.resolve({ rows: r.lista?.['__raw'] ?? [] }).then(ok, ko),
+  });
   const tk: any = { run: async (fn: (t: any) => any) => fn(trx) };
   const ctx: any = {
     get: () => ({ username: 'prueba', userId: UUID_USUARIO }),
@@ -300,21 +305,112 @@ describe('TripClosureController — rutas y permisos', () => {
     ruta: Reflect.getMetadata(PATH_METADATA, fn),
     verbo: Reflect.getMetadata(METHOD_METADATA, fn),
     permisos: Reflect.getMetadata(PERMISSIONS_KEY, fn),
+    alguno: Reflect.getMetadata(ANY_PERMISSIONS_KEY, fn),
   });
 
-  it('ver el cierre pide sólo VER embarques', () => {
+  it('[EMB.43] la bandeja es del módulo Pagos de viaje: pide VER del módulo', () => {
     expect(Reflect.getMetadata(PATH_METADATA, TripClosureController)).toBe('logistics/trip-closure');
-    expect(meta(TripClosureController.prototype.cierre)).toEqual({
-      ruta: 'shipments/:id', verbo: RequestMethod.GET, permisos: [Permission.LOGISTICS_SHIPMENTS_VER],
+    expect(meta(TripClosureController.prototype.bandeja)).toEqual({
+      ruta: 'bandeja', verbo: RequestMethod.GET, permisos: [Permission.LOGISTICS_PAGOS_VER], alguno: undefined,
     });
   });
 
-  it('cerrar una parada pide GESTIONAR guías; registrar cargadores, GESTIONAR embarques', () => {
+  it('ver el cierre: VER embarques o VER del módulo Pagos de viaje', () => {
+    expect(meta(TripClosureController.prototype.cierre)).toEqual({
+      ruta: 'shipments/:id', verbo: RequestMethod.GET, permisos: undefined,
+      alguno: [Permission.LOGISTICS_SHIPMENTS_VER, Permission.LOGISTICS_PAGOS_VER],
+    });
+  });
+
+  it('escribir (cerrar parada, registrar cargadores) pide GESTIONAR: el de siempre o el del módulo, nunca VER', () => {
     expect(meta(TripClosureController.prototype.cerrarParada)).toEqual({
-      ruta: 'paradas/:recipientId/cierre', verbo: RequestMethod.POST, permisos: [Permission.LOGISTICS_GUIDES_GESTIONAR],
+      ruta: 'paradas/:recipientId/cierre', verbo: RequestMethod.POST, permisos: undefined,
+      alguno: [Permission.LOGISTICS_GUIDES_GESTIONAR, Permission.LOGISTICS_PAGOS_GESTIONAR],
     });
     expect(meta(TripClosureController.prototype.cargadores)).toEqual({
-      ruta: 'shipments/:id/cargadores', verbo: RequestMethod.PUT, permisos: [Permission.LOGISTICS_SHIPMENTS_GESTIONAR],
+      ruta: 'shipments/:id/cargadores', verbo: RequestMethod.PUT, permisos: undefined,
+      alguno: [Permission.LOGISTICS_SHIPMENTS_GESTIONAR, Permission.LOGISTICS_PAGOS_GESTIONAR],
     });
+    for (const fn of [TripClosureController.prototype.cerrarParada, TripClosureController.prototype.cargadores]) {
+      expect(meta(fn).alguno).not.toContain(Permission.LOGISTICS_PAGOS_VER);
+    }
+  });
+});
+
+describe('[EMB.43] TripClosureService.bandeja — los viajes de Kepler y lo que les falta', () => {
+  // Cuatro guías inventadas de la misma catorcena:
+  //  A 00/0000001 traspaso a TI006, ya tomada y completa;
+  //  B 06/0000002 entrega a cliente, sin tomar;
+  //  C 00/0000003 sólo carga a camión de ruta (no paga: fuera de alcance);
+  //  D 01/0000004 traspaso + cliente, tomada sin horario ni cargadores.
+  const VIAJES = [
+    { sucursal: '00', guia_embarque: '0000001', fecha: '2026-10-09', paradas: 1, chofer_nombre: 'CHOFER UNO', total: '1000' },
+    { sucursal: '06', guia_embarque: '0000002', fecha: '2026-10-10', paradas: 2, chofer_nombre: null, total: '500.5' },
+    { sucursal: '00', guia_embarque: '0000003', fecha: '2026-10-10', paradas: 1, chofer_nombre: 'CHOFER RUTA', total: '9000' },
+    { sucursal: '01', guia_embarque: '0000004', fecha: '2026-10-08', paradas: 2, chofer_nombre: 'CHOFER DOS', total: '700' },
+  ];
+  const PARADAS = [
+    { sucursal: '00', guia_embarque: '0000001', serie: 2, cliente_code: 'TI006', destino_nombre: 'SUCURSAL ZAMORA CANINDO' },
+    { sucursal: '06', guia_embarque: '0000002', serie: 1, cliente_code: 'C0001', destino_nombre: 'CLIENTE PRUEBA' },
+    { sucursal: '06', guia_embarque: '0000002', serie: 1, cliente_code: 'C0002', destino_nombre: 'CLIENTE PRUEBA DOS' },
+    { sucursal: '00', guia_embarque: '0000003', serie: 2, cliente_code: 'RUTA21', destino_nombre: 'R.D. 21 PH PRUEBA' },
+    { sucursal: '01', guia_embarque: '0000004', serie: 2, cliente_code: 'TI001', destino_nombre: 'SUCURSAL PADRE HIDALGO' },
+    { sucursal: '01', guia_embarque: '0000004', serie: 1, cliente_code: 'C0003', destino_nombre: 'CLIENTE TRES' },
+  ];
+  const SUITE = [
+    { shipment_id: 's-a', folio: 'EMB-A', kepler_sucursal: '00', kepler_guia: '0000001', guide_id: 'g-a', driver_id: 'd1',
+      helper1_id: null, helper2_id: null, departure_time: '05:30:00', arrival_time: '16:10:00', overnight: false, cargadores: 2 },
+    { shipment_id: 's-d', folio: 'EMB-D', kepler_sucursal: '01', kepler_guia: '0000004', guide_id: 'g-d', driver_id: 'd2',
+      helper1_id: null, helper2_id: null, departure_time: null, arrival_time: null, overnight: false, cargadores: 0 },
+  ];
+  const lista = {
+    'analytics.erp_shipment_trips': VIAJES, 'analytics.erp_shipment_stops': PARADAS, __raw: SUITE,
+    'logistics.drivers': [{ id: 'd1', full_name: 'PERSONA PRUEBA', roles: ['chofer'] }],
+  };
+
+  it('las cargas a camión de ruta quedan fuera y se CUENTAN, no se esconden', async () => {
+    const { svc } = baseFalsa({ lista });
+    const b = await svc.bandeja('2026-10-08', '2026-10-21');
+    expect(b.fuera_de_alcance).toBe(1);
+    expect(b.viajes.map((v) => v.guia)).not.toContain('0000003');
+    expect(b.viajes).toHaveLength(3);
+  });
+
+  it('dice qué le falta a cada viaje y pone primero lo que más falta', async () => {
+    const { svc } = baseFalsa({ lista });
+    const b = await svc.bandeja('2026-10-08', '2026-10-21');
+    const por = Object.fromEntries(b.viajes.map((v) => [v.guia, v]));
+    expect(por['0000002'].faltan).toEqual(['tomar']);
+    expect(por['0000004'].faltan).toEqual(['horario', 'cargadores']);
+    expect(por['0000001'].faltan).toEqual([]);
+    expect(b.viajes.map((v) => v.guia)).toEqual(['0000004', '0000002', '0000001']);
+  });
+
+  it('tipo, destinos que pagan, chofer de Kepler, importe y lo capturado en la Suite', async () => {
+    const { svc } = baseFalsa({ lista });
+    const b = await svc.bandeja('2026-10-08', '2026-10-21');
+    const por = Object.fromEntries(b.viajes.map((v) => [v.guia, v]));
+    expect(por['0000004'].tipo).toBe('mixto');
+    expect(por['0000004'].destinos).toBe('SUCURSAL PADRE HIDALGO · CLIENTE TRES');
+    expect(por['0000002']).toEqual(expect.objectContaining({ tipo: 'cliente', chofer_kepler: null, importe: 500.5, shipment_id: null }));
+    expect(por['0000001']).toEqual(expect.objectContaining({
+      tipo: 'traspaso', shipment_folio: 'EMB-A', departure_time: '05:30', arrival_time: '16:10', cargadores: 2,
+    }));
+    expect(b.personas).toEqual([{ id: 'd1', full_name: 'PERSONA PRUEBA', roles: ['chofer'] }]);
+    expect(b.corte).toEqual({ desde: '2026-10-08', hasta: '2026-10-21', pago: '2026-10-23' });
+  });
+
+  it('PRUEBA NEGATIVA: un viaje tomado SIN guía no se da por completo (falta chofer y horario)', async () => {
+    const sinGuia = { ...SUITE[0], guide_id: null, driver_id: null, departure_time: null, arrival_time: null };
+    const { svc } = baseFalsa({ lista: { ...lista, __raw: [sinGuia] } });
+    const b = await svc.bandeja('2026-10-08', '2026-10-21');
+    expect(b.viajes.find((v) => v.guia === '0000001')?.faltan).toEqual(['chofer', 'horario']);
+  });
+
+  it('sucursal o fechas mal formadas: 400', async () => {
+    const { svc } = baseFalsa({ lista });
+    await expect(svc.bandeja(undefined, undefined, 'Morelia')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.bandeja('2026-10-21', '2026-10-08')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.bandeja('08/10/2026', '2026-10-21')).rejects.toBeInstanceOf(BadRequestException);
   });
 });

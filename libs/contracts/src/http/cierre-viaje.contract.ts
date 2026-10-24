@@ -282,3 +282,195 @@ export function totalesPorConcepto(items: Pick<PagoViaje, 'concept' | 'amount'>[
   for (const i of items) t[i.concept] = Math.round((t[i.concept] + Number(i.amount || 0)) * 100) / 100;
   return t;
 }
+
+// ── `[EMB.43]` La catorcena: el corte de pago de Logística ─────────────────────────────────────
+//
+// Vivía en `libs/finance/.../trip-pay.logic.ts`; se muda aquí porque ahora la usan DOS pantallas
+// (Logística › Pagos de viaje y Finanzas › Comisiones de logística) y el servidor. Una regla de dos
+// pantallas vive en el contrato una sola vez.
+//
+// El corte es CATORCENAL de jueves a miércoles, anclado en el jueves 1-ene-2026 (el calendario que
+// ya siembra `logistics_baseline.js`). Se paga el viernes siguiente.
+
+const ANCLA_CORTE = Date.UTC(2026, 0, 1); // jueves 1-ene-2026
+const DIA_MS = 86_400_000;
+const isoDia = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+export interface Corte {
+  desde: string; // jueves
+  hasta: string; // miércoles
+  pago: string;  // viernes
+}
+
+export function esFecha(v: unknown): v is string {
+  return typeof v === 'string' && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(v) && !Number.isNaN(Date.parse(v + 'T00:00:00Z'));
+}
+
+/** El corte de 14 días que contiene `fecha` (YYYY-MM-DD). */
+export function corteDe(fecha: string): Corte {
+  const t = Date.parse(fecha + 'T00:00:00Z');
+  if (Number.isNaN(t)) throw new Error(`fecha inválida: ${fecha}`);
+  const n = Math.floor((t - ANCLA_CORTE) / (14 * DIA_MS));
+  const desde = ANCLA_CORTE + n * 14 * DIA_MS;
+  return { desde: isoDia(desde), hasta: isoDia(desde + 13 * DIA_MS), pago: isoDia(desde + 15 * DIA_MS) };
+}
+
+/** El último corte que ya cerró (el que se paga ahora) visto desde `hoy`. */
+export function corteAPagar(hoy: string): Corte {
+  const actual = corteDe(hoy);
+  return corteDe(isoDia(Date.parse(actual.desde + 'T00:00:00Z') - DIA_MS));
+}
+
+/** El corte vecino: `-1` el anterior, `+1` el siguiente. */
+export function corteVecino(c: Pick<Corte, 'desde'>, paso: -1 | 1): Corte {
+  return corteDe(isoDia(Date.parse(c.desde + 'T00:00:00Z') + paso * 14 * DIA_MS));
+}
+
+/** Lo que una persona cobra en el corte (`GET /finance/trip-pay/corte`). */
+export interface ResumenPersona {
+  driver_id: string;
+  persona: string;
+  roles: string[];
+  viajes: number;
+  cargas: number;
+  liberado: Record<ConceptoPago, number>;
+  liberado_total: number;
+  retenido_total: number;
+  retenidos: number;
+  en_vale_total: number;
+  vales: string[];
+}
+
+/** `GET /finance/trip-pay/corte` */
+export interface CorteDeLogistica {
+  corte: Corte;
+  personas: ResumenPersona[];
+  totales: { liberado: number; retenido: number; en_vale: number };
+}
+
+/** `GET /finance/trip-pay/personas/:driverId` */
+export interface DetallePersona {
+  corte: Corte;
+  driver_id: string;
+  persona: string;
+  pagables: PagoViaje[];
+  retenidos: PagoViaje[];
+  en_vale: PagoViaje[];
+}
+
+/** `POST /finance/trip-pay/vales` */
+export interface ValeCreado {
+  id: string;
+  importe: number;
+  renglones: number;
+  persona: string;
+}
+
+// ── `[EMB.43]` La bandeja «Por completar»: los viajes de Kepler y lo que les falta ─────────────
+//
+// El viaje lo trae Kepler (la guía `c86`); la Suite sólo guarda lo que Kepler no sabe: quién más
+// fue (ayudantes), el horario y quién cargó. Esta bandeja dice, viaje por viaje, qué falta para
+// que se pueda pagar. Las guías de puras cargas a camión de ruta quedan fuera: no pagan comisión
+// ni viático, y la carga a ruta no paga por caja (decisión de Edgar, 2026-10-24).
+
+/** Lo que le falta a un viaje para pagarse, en el orden en que se captura. */
+export type FaltaDelViaje = 'tomar' | 'chofer' | 'horario' | 'cargadores';
+
+export const FALTA_LABEL: Record<FaltaDelViaje, string> = {
+  tomar: 'Sin hoja en la Suite',
+  chofer: 'Falta el chofer',
+  horario: 'Falta el horario',
+  cargadores: 'Falta quién cargó',
+};
+
+/** Tipo de una parada de Kepler, por su serie y el código de destino (`kdm1.c10`). */
+export type TipoParadaKepler = 'cliente' | 'traspaso' | 'carga_ruta';
+
+/**
+ * Serie 1 = entrega a cliente. Serie 2: `TI###` = traspaso a sucursal; `RUTA nn` / `RD 5xx` = carga
+ * a camión de ruta. Medido 8–21 oct 2026: 593 paradas serie 1; serie 2 = 638 `TI`, 69 `RUTA`, 54 `RD`.
+ * Es la misma regla que `analytics.erp_shipment_stop_closure`.
+ */
+export function tipoDeParadaKepler(serie: number | string, codigoDestino: string | null | undefined): TipoParadaKepler {
+  if (Number(serie) === 1) return 'cliente';
+  return /^\s*(RUTA|RD)/i.test(codigoDestino ?? '') ? 'carga_ruta' : 'traspaso';
+}
+
+/** Tipo del viaje según sus paradas que SÍ pagan (sin las cargas a ruta). `null` = ninguna paga. */
+export type TipoViajePago = 'traspaso' | 'cliente' | 'mixto';
+export function tipoDelViaje(tipos: TipoParadaKepler[]): TipoViajePago | null {
+  const pagan = new Set(tipos.filter((t) => t !== 'carga_ruta'));
+  if (!pagan.size) return null;
+  return pagan.size > 1 ? 'mixto' : ([...pagan][0] as TipoViajePago);
+}
+
+export const TIPO_VIAJE_LABEL: Record<TipoViajePago, string> = {
+  traspaso: 'Traspaso',
+  cliente: 'Cliente',
+  mixto: 'Traspaso y cliente',
+};
+
+/** Lo que la Suite sabe de un viaje (su hoja, su guía y sus cargadores). `null` = no se ha tomado. */
+export interface ViajeEnLaSuite {
+  shipment_id: string;
+  guide_id: string | null;
+  driver_id: string | null;
+  departure_time: string | null;
+  arrival_time: string | null;
+  cargadores: number;
+}
+
+/**
+ * Qué le falta al viaje, en el orden en que se captura. Vacío = completo: ya se puede pagar en
+ * cuanto cierren sus paradas. Es la misma regla que `pendientesDeLaGuia` (chofer y horario).
+ */
+export function faltasDelViaje(suite: ViajeEnLaSuite | null): FaltaDelViaje[] {
+  if (!suite) return ['tomar'];
+  const f: FaltaDelViaje[] = [];
+  if (!suite.driver_id) f.push('chofer');
+  if (!suite.departure_time || !suite.arrival_time) f.push('horario');
+  if (!(suite.cargadores > 0)) f.push('cargadores');
+  return f;
+}
+
+/** Un viaje de la bandeja (`GET /logistics/trip-closure/bandeja`). */
+export interface ViajePorCompletar {
+  sucursal: string;
+  guia: string;
+  fecha: string;
+  paradas: number;
+  /** Nombres de los destinos que pagan, separados por « · ». */
+  destinos: string;
+  tipo: TipoViajePago;
+  chofer_kepler: string | null;
+  importe: number;
+  shipment_id: string | null;
+  shipment_folio: string | null;
+  guide_id: string | null;
+  driver_id: string | null;
+  helper1_id: string | null;
+  helper2_id: string | null;
+  departure_time: string | null;
+  arrival_time: string | null;
+  overnight: boolean;
+  cargadores: number;
+  faltan: FaltaDelViaje[];
+}
+
+/** Una persona del padrón de Logística, para elegir chofer, ayudantes y cargadores. */
+export interface PersonaDelPadron {
+  id: string;
+  full_name: string;
+  roles: string[];
+}
+
+/** `GET /logistics/trip-closure/bandeja?desde&hasta&sucursal` */
+export interface BandejaDeViajes {
+  corte: Corte;
+  viajes: ViajePorCompletar[];
+  /** Guías del periodo que son SÓLO cargas a camión de ruta: no entran (se cuentan, no se esconden). */
+  fuera_de_alcance: number;
+  personas: PersonaDelPadron[];
+  /** Cuándo se leyó (para la edad del dato). */
+  leido_at: string;
+}
