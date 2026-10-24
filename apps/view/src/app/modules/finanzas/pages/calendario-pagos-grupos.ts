@@ -153,3 +153,31 @@ export function filasAgrupadas<T extends GroupableObligation>(groups: readonly O
   }
   return rows;
 }
+
+/**
+ * `[PGP.10]` **La fecha corta lleva AÑO cuando no es de este año.**
+ *
+ * ── Qué lo motiva ───────────────────────────────────────────────────────────────────────────
+ * La columna «Vence» del Calendario formateaba siempre `{día, mes}`. En una lista de deuda eso
+ * borra la diferencia entre lo que vence el mes que viene y lo que venció hace dos años.
+ *
+ * Medido contra prod el 2026-10-24: los **dos renglones que la pantalla pone primero** —los de
+ * más monto y más vencidos— son «Nota cargo a proveedor» del **01/01/2025**, por **$8 M y $6 M**,
+ * y se leían **«1 ene»**: igual que un vencimiento próximo. Son **$14.0 M** con forma de saldo de
+ * apertura o préstamo a los socios (claves `AE*`, importes redondos), y Contabilidad todavía no
+ * dictaminó qué son. Nadie debería poder programarlos creyendo que es deuda del mes.
+ *
+ * ⛔ El año va en **dos dígitos** a propósito: la columna vive en un panel angosto y ensancharla
+ * empuja al resto. Lo que hace falta es distinguir el año, no escribirlo completo.
+ *
+ * `hoyIso` se recibe en vez de leer el reloj adentro: así la prueba fija el presente y no depende
+ * del día en que se corra.
+ */
+export function fechaCorta(iso: string | null, hoyIso: string): string {
+  if (!iso) return '—';
+  const d = iso.slice(0, 10);
+  const opts: Intl.DateTimeFormatOptions = d.slice(0, 4) === hoyIso.slice(0, 4)
+    ? { day: 'numeric', month: 'short' }
+    : { day: 'numeric', month: 'short', year: '2-digit' };
+  return new Date(d + 'T12:00:00Z').toLocaleDateString('es-MX', { ...opts, timeZone: 'UTC' });
+}

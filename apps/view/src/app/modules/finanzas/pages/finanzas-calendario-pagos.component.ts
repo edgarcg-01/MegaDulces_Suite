@@ -26,7 +26,7 @@ import { EntityInspectorComponent } from '../../../shared/components/entity-insp
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { agruparObligaciones, allocationKey, filasAgrupadas, obligationKey, sugerirArmado, vencimiento, type ArmadoGrupo } from './calendario-pagos-grupos';
+import { agruparObligaciones, allocationKey, fechaCorta, filasAgrupadas, obligationKey, sugerirArmado, vencimiento, type ArmadoGrupo } from './calendario-pagos-grupos';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -204,7 +204,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           <div class="cal-panel-head">
             <!-- [TP.17.2] Cuando el techo recorta, el contador dice "N de M": un "1,000 facturas"
                  a secas sobre 2,931 es el numero que miente, no el que falta. -->
-            <h2>Obligaciones disponibles <span class="cal-count">@if (obligationsTruncated()) { {{ obligations().length | number }} de {{ obligationsTotal() | number }} } @else { {{ obligations().length | number }} }{{ obligations().length === 1 && !obligationsTruncated() ? ' factura' : ' facturas' }} · {{ obligationGroups().length | number }} {{ obligationGroups().length === 1 ? 'proveedor' : 'proveedores' }}</span></h2>
+            <!-- [PGP.10] El conteo de proveedores dice de QUE universo es. Antes se leia
+                 "1,000 de 2,876 facturas · 186 proveedores" y el "de 2,876" parecia alcanzar a los
+                 dos: las facturas declaraban su recorte y los proveedores no. Medido contra prod:
+                 son 368 acreedores en el universo y 186 en las 1,000 cargadas. Decir "186" a secas
+                 se lee como "le debo a 186", que es la mitad de la verdad. -->
+            <h2>Obligaciones disponibles <span class="cal-count">@if (obligationsTruncated()) { {{ obligations().length | number }} de {{ obligationsTotal() | number }} } @else { {{ obligations().length | number }} }{{ obligations().length === 1 && !obligationsTruncated() ? ' factura' : ' facturas' }} · {{ obligationGroups().length | number }} {{ obligationGroups().length === 1 ? 'proveedor' : 'proveedores' }}@if (obligationsTruncated()) { <span class="cal-muted"> de las cargadas</span> }</span></h2>
           </div>
           <!-- [TP.17.2] El techo se DECLARA (ADR-056). Medido el 2026-10-16: con la deuda derivada
                el corte de 1,000 dejaba fuera 1,895 documentos por $105,683,725 -el 79% del dinero-
@@ -779,11 +784,32 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const pending = days.flatMap((d) => d.allocations).filter((a) => a.status === 'pending');
     const unprepared = pending.filter((a) => !isPrepared(a)).length;
     const missing = days.length - withCap.length;
+    /*
+     * `[PGP.10]` **El TRABAJO va primero; el presupuesto es contexto.**
+     *
+     * Auditoría del 2026-10-24, pedida por Edgar: *«¿a cuál le doy prioridad?»*. La pantalla no
+     * contestaba. Lo que había: «Presupuesto de la semana» primero y en grande, y «Pagos por
+     * preparar» **cuarto**, en letra chica — cuando el presupuesto es un tope que no pide hacer
+     * nada y los pagos sin preparar son lo único que detiene el circuito. Medido ese día: los
+     * 10 pagos sin preparar llevaban 6 días parados y por ellos **6 lotes seguían en borrador**.
+     *
+     * ⛔ El orden del `MetricStrip` ES la jerarquía: la primera tarjeta es la que la vista toma
+     * primero (`DESIGN.md` §Q.1 answer-first, §Q.5 tres niveles). Lo que se movió es el peso,
+     * no el dato — las cuatro cifras siguen estando, que es la diferencia entre jerarquizar y
+     * esconder (`ESTANDAR_DE_INTERFACES` §4.0).
+     *
+     * ⚠️ Y la etiqueta deja de ser un sustantivo: «Esperan que los prepares» dice **de quién es
+     * el paso**. Un rótulo que nombra la cosa y no la acción se lee como un dato más.
+     */
     return [
+      unprepared > 0
+        ? { label: 'Esperan que los prepares', value: unprepared, format: 'number', tone: 'warn',
+            sub: `de ${pending.length} pago(s) · sin esto el día no se autoriza` }
+        : { label: 'Pagos por preparar', value: 0, format: 'number', tone: 'ok',
+            sub: pending.length ? `los ${pending.length} pendientes están listos` : 'sin pagos pendientes' },
       { label: 'Presupuesto de la semana', value: budget, format: 'currency-short', tone: 'default', sub: missing ? `${missing} día(s) sin presupuesto` : undefined },
       { label: 'Comprometido', value: assigned, format: 'currency-short', tone: 'default' },
       { label: 'Disponible', value: available, format: 'currency-short', tone: available < 0 ? 'bad' : 'default' },
-      { label: 'Pagos por preparar', value: unprepared, format: 'number', tone: unprepared > 0 ? 'warn' : 'default', sub: pending.length ? `de ${pending.length} pendiente(s)` : 'sin pagos pendientes' },
     ];
   });
   /** Lo que impide autorizar, dicho en una frase; null si se puede. */
@@ -908,7 +934,19 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   }
   dayShort(iso: string): string { return this.fmt(iso, { weekday: 'short', day: 'numeric' }); }
   dayLong(iso: string): string { return this.fmt(iso, { weekday: 'long', day: 'numeric', month: 'short' }); }
-  shortDate(iso: string | null): string { return iso ? this.fmt(iso.slice(0, 10), { day: 'numeric', month: 'short' }) : '—'; }
+  /**
+   * `[PGP.10]` **La fecha lleva año cuando NO es de este año.**
+   *
+   * ⛔ Antes formateaba siempre `{ día, mes }`, y en una lista de deuda eso borra la diferencia
+   * entre una factura que vence el mes que viene y una de hace dos años. Medido el 2026-10-24
+   * contra prod: los **dos renglones que la pantalla pone primero** —los de más monto y más
+   * vencidos— son «Nota cargo a proveedor» del **01/01/2025** por **$8 M y $6 M**, y se leían
+   * «1 ene», igual que un vencimiento próximo. Son $14.0 M con forma de saldo de apertura o
+   * préstamo a los socios, y Contabilidad todavía no dictaminó qué son.
+   *
+   * El año va en dos dígitos para no ensanchar la columna, que vive en un panel angosto.
+   */
+  shortDate(iso: string | null): string { return fechaCorta(iso, this.todayIso); }
   isOverdue(iso: string | null): boolean { return !!iso && iso.slice(0, 10) < this.todayIso; }
 
   /** `[TP.21.2]` Un dia ya pasado. Solo ahi un libro vacio dice algo: hacia adelante no hay nada que registrar. */
