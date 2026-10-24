@@ -198,8 +198,10 @@ export function modeloEntregable(data: QuoteDeliverableData): ModeloEntregable {
 export function etiquetaDescuento(f: FilaEntregable, m: ModeloEntregable): string[] {
   if (f.tipo !== 'precio') return ['—'];
   const out: string[] = [];
-  if (f.dtoProducto) out.push(`${f.mecanismo || 'Descuento'} −${f.dtoProducto}%`);
-  if (m.conDescuento && m.totales.descuento_pct) out.push(`Cliente −${m.totales.descuento_pct}%`);
+  // Guion ASCII, no «−» (U+2212): la fuente del PDF (Helvetica, WinAnsi) no lo tiene y jsPDF pintaba
+  // «Promo por c a n t i d a d " 5 4» (visto en COT-2026-00028).
+  if (f.dtoProducto) out.push(`${f.mecanismo || 'Descuento'} -${f.dtoProducto}%`);
+  if (m.conDescuento && m.totales.descuento_pct) out.push(`Cliente -${m.totales.descuento_pct}%`);
   return out.length ? out : ['—'];
 }
 
@@ -254,6 +256,21 @@ export function paraExcel(d: Date): Date {
 }
 
 /**
+ * `[E.29]` ¿Cabe en la fuente del PDF? jsPDF usa Helvetica con codificación WinAnsi (cp1252): un
+ * carácter fuera de ella no da error, se pinta basura y descompone el espaciado del resto
+ * («Promo por c a n t i d a d " 5 4» por un «−»). Todo texto del papel pasa por aquí en la prueba.
+ */
+export function cabeEnWinAnsi(t: string): boolean {
+  const extras = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ';
+  for (const ch of t) {
+    const c = ch.codePointAt(0) as number;
+    if (c === 10 || (c >= 32 && c <= 126) || (c >= 160 && c <= 255) || extras.includes(ch)) continue;
+    return false;
+  }
+  return true;
+}
+
+/**
  * `[E.29]` Identificador de la PLANTILLA (no del documento): con él se sabe con qué reglas de
  * formato salió un papel que alguien trae impreso. Se sube al cambiar la estructura del papel.
  */
@@ -277,7 +294,6 @@ export function lineaControl(data: QuoteDeliverableData): string {
 export function condiciones(data: QuoteDeliverableData, m: ModeloEntregable): string[] {
   const out = [
     'Precios expresados en Moneda Nacional (MXN) con impuestos incluidos.',
-    'ESTO ES UNA COTIZACIÓN, NO UNA VENTA. Efectos informativos para el cliente que solicitó la información.',
     'Precios y promociones sujetos a existencias físicas al confirmar su pedido formal.',
     // La sucursal por NOMBRE: el código («01») no le dice nada al cliente.
     `Válida hasta el ${fechaVigencia(data.validUntil).texto} en ${data.branchName}.`,
@@ -519,127 +535,79 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   doc.setTextColor(...cMuted);
   doc.text(EMPRESA_SLOGAN, textLeft, currentY + 40);
 
-  // 4. Recuadro de Metadatos (Derecha)
-  const metaBoxW = 160;
-  const metaBoxX = pageWidth - M - metaBoxW;
-  // Un renglón más cuando hay folio que imprimir (o que declarar ausente).
-  const metaBoxH = 61;
-
-  doc.setFillColor(...cCardBg);
-  doc.setDrawColor(...cRule);
-  doc.setLineWidth(1);
-  doc.roundedRect(metaBoxX, currentY - 2, metaBoxW, metaBoxH, 4, 4, 'FD');
+  // 4. Datos del documento (derecha). `[E.29]` Sin recuadro: la hoja tenía seis cajas con fondo gris
+  // y DESIGN agrupa por ESPACIO, no por cajas. Alineados a la derecha, como una cabecera de factura.
+  const derecha = pageWidth - M;
+  const linea = (t: string, y: number, negrita = false, color: [number, number, number] = cInk): void => {
+    doc.setFont('helvetica', negrita ? 'bold' : 'normal');
+    doc.setTextColor(...color);
+    doc.text(t, derecha - doc.getTextWidth(t), y);
+  };
 
   // La emisión es la de la COTIZACIÓN: reimprimirla otro día no la vuelve de hoy (auditoría M1).
   const fechaStr = fechaCorta(m.emision);
 
-  doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
-  if (m.alerta) doc.setTextColor(...cError); // vencida o cancelada: estado de error, con su texto
-  else doc.setTextColor(...cInk);
-  doc.text(m.titulo, metaBoxX + 8, currentY + 10);
-
-  doc.setFont('helvetica', 'normal');
+  linea(m.titulo, currentY + 10, true, m.alerta ? cError : cInk); // vencida o cancelada: con su texto
   doc.setFontSize(7.5);
-  doc.setTextColor(...cInk);
-  // El folio, en negrita y arriba de todo: es el dato con el que el cliente vuelve a
-  // referirse a este papel. Cuando no hay, se DECLARA — un hueco silencioso haría creer
-  // que el documento es rastreable cuando no lo es.
-  if (data.quoteCode) {
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...cInk);
-    doc.text(`Folio: ${data.quoteCode}`, metaBoxX + 8, currentY + 22);
-    doc.setFont('helvetica', 'normal');
-  } else {
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...cError);
-    doc.text('Folio: SIN ASIGNAR (borrador)', metaBoxX + 8, currentY + 22);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...cInk);
-  }
-  doc.text(`Emisión: ${fechaStr}`, metaBoxX + 8, currentY + 33);
-  doc.text(`Vigencia hasta: ${fechaVigencia(data.validUntil).texto}`, metaBoxX + 8, currentY + 44);
-  doc.text(doc.splitTextToSize(`Sucursal: ${data.branchName}`, metaBoxW - 16)[0], metaBoxX + 8, currentY + 55);
+  // El folio, en negrita: es el dato con el que el cliente vuelve a referirse a este papel. Sin folio
+  // se DECLARA — un hueco silencioso haría creer que el documento es rastreable cuando no lo es.
+  if (data.quoteCode) linea(`Folio: ${data.quoteCode}`, currentY + 22, true);
+  else linea('Folio: SIN ASIGNAR (borrador)', currentY + 22, true, cError);
+  linea(`Emisión: ${fechaStr}`, currentY + 33);
+  linea(`Vigencia hasta: ${fechaVigencia(data.validUntil).texto}`, currentY + 44);
+  linea(`Sucursal: ${data.branchName}`, currentY + 55);
 
-  // 5. Banner de Aviso / Marca de agua visible
-  currentY += 67;
-  // La leyenda no es un error: va neutra y en negrita; el rojo queda para lo que de verdad falla.
-  doc.setFillColor(...rgb(P.encabezado));
-  doc.setDrawColor(...cRule);
-  doc.setLineWidth(0.75);
-  doc.roundedRect(M, currentY, contentWidth, 16, 3, 3, 'FD');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.setTextColor(...cInk);
-  doc.text(
-    'ESTO ES UNA COTIZACIÓN, NO UNA VENTA · EFECTOS INFORMATIVOS PARA EL CLIENTE QUE SOLICITÓ LA INFORMACIÓN',
-    pageWidth / 2,
-    currentY + 11,
-    { align: 'center' }
-  );
-
-  // Línea divisoria de acento: la marca como TRAZO.
-  currentY += 22;
+  // 5. `[E.29]` Ya no va la franja «ESTO ES UNA COTIZACIÓN…»: el aviso salía CUATRO veces (marca de
+  // agua, franja, primera condición y pie). Quedan la marca de agua (requisito de Dirección) y el pie.
+  currentY += 64;
   doc.setDrawColor(...cMarca);
   doc.setLineWidth(1);
   doc.line(M, currentY, pageWidth - M, currentY);
 
-  // 6. Bloques de Información: Cliente y Asesor
-  currentY += 10;
-  const colGap = 12;
+  // 6. Cliente y vendedor, en dos columnas sin caja.
+  currentY += 14;
+  const colGap = 24;
   const colW = (contentWidth - colGap) / 2;
-  const infoCardH = 54;
+  const card2X = M + colW + colGap;
 
-  // Tarjeta Cliente
-  doc.setFillColor(...cCardBg);
-  doc.setDrawColor(...cRule);
-  doc.setLineWidth(1);
-  doc.roundedRect(M, currentY, colW, infoCardH, 4, 4, 'FD');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.setTextColor(...cMuted);
-  doc.text('DATOS DEL DESTINATARIO', M + 8, currentY + 11);
+  const rotulo = (t: string, x: number): void => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(...cMuted);
+    doc.text(t, x, currentY);
+  };
+  rotulo('CLIENTE', M);
+  rotulo('VENDEDOR', card2X);
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
+  doc.setFontSize(9);
   doc.setTextColor(...cInk);
   const clienteNom = data.customerCode ? `[${data.customerCode}] ${data.customerName}` : data.customerName;
-  const lineasNom = doc.splitTextToSize(clienteNom, colW - 16);
-  doc.text(lineasNom.slice(0, 2), M + 8, currentY + 23);
+  doc.text((doc.splitTextToSize(clienteNom, colW) as string[]).slice(0, 2), M, currentY + 12);
+  // Lo que no hay se DICE, no se rellena: antes «Equipo Comercial Telemarketing» sin vendedor y
+  // «Cliente registrado en catálogo mayorista» sin teléfono (ADR-056).
+  const vendedor = data.salespersonName
+    ? `${data.salespersonName}${data.salespersonCode ? ` (${data.salespersonCode})` : ''}`
+    : null;
+  doc.setTextColor(...(vendedor ? cInk : cMuted));
+  doc.setFont('helvetica', vendedor ? 'bold' : 'normal');
+  doc.text((doc.splitTextToSize(vendedor ?? 'Sin vendedor asignado', colW) as string[])[0], card2X, currentY + 12);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
-  doc.setTextColor(...cMuted);
-  const contactText = [data.customerPhone ? `Tel: ${data.customerPhone}` : null, data.customerEmail ? `Correo: ${data.customerEmail}` : null]
-    .filter(Boolean)
-    .join('  ·  ');
-  doc.text(contactText || 'Cliente registrado en catálogo mayorista', M + 8, currentY + 45);
-
-  // Tarjeta Asesor / Condiciones
-  const card2X = M + colW + colGap;
-  doc.setFillColor(...cCardBg);
-  doc.roundedRect(card2X, currentY, colW, infoCardH, 4, 4, 'FD');
-
-  doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(...cMuted);
-  doc.text('ASESOR DE SEGUIMIENTO Y CONDICIONES', card2X + 8, currentY + 11);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(...cInk);
-  const asesorNom = data.salespersonName
-    ? `${data.salespersonName}${data.salespersonCode ? ` (${data.salespersonCode})` : ''}`
-    : 'Equipo Comercial Telemarketing';
-  doc.text(doc.splitTextToSize(asesorNom, colW - 16)[0], card2X + 8, currentY + 23);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
-  doc.setTextColor(...cMuted);
-  const dtoText = (data.discountPct || 0) > 0 ? `Descuento cliente: ${data.discountPct}% aplicado` : 'Precios netos de lista de mayoreo';
-  doc.text(`Atención: ${data.branchName}`, card2X + 8, currentY + 34);
-  doc.text(dtoText, card2X + 8, currentY + 45);
+  const contacto = [data.customerPhone ? `Tel: ${data.customerPhone}` : null, data.customerEmail ? `Correo: ${data.customerEmail}` : null]
+    .filter(Boolean)
+    .join('  ·  ');
+  doc.text(contacto || 'Sin teléfono ni correo registrados', M, currentY + 32);
+  // «Precios netos de lista de mayoreo» decía lo que no es: sin % del cliente, el precio es el de cada renglón.
+  doc.text(
+    (data.discountPct || 0) > 0 ? `Descuento del cliente: ${data.discountPct} %` : 'Sin descuento de cliente',
+    card2X,
+    currentY + 32,
+  );
+  const infoCardH = 36;
 
   // 7. Tabla de Artículos con Descuentos y Unidades Menores
   currentY += infoCardH + 10;
@@ -655,14 +623,15 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   ]];
 
   const columnStyles = {
-    0: { halign: 'center' as const, cellWidth: 16 },
-    1: { fontStyle: 'bold' as const, cellWidth: 38 },
+    0: { halign: 'center' as const, cellWidth: 14 },
+    1: { fontStyle: 'bold' as const, cellWidth: 36 },
     2: { cellWidth: 'auto' as const },
-    3: { halign: 'center' as const, cellWidth: 34 },
+    3: { halign: 'center' as const, cellWidth: 30 },
     4: { halign: 'right' as const, fontStyle: 'bold' as const, cellWidth: 26 },
-    5: { halign: 'right' as const, textColor: cMuted, cellWidth: 46 },
-    6: { fontSize: 6.5, textColor: cInk, cellWidth: 62 },
-    7: { halign: 'right' as const, fontStyle: 'bold' as const, cellWidth: 84 },
+    5: { halign: 'right' as const, textColor: cMuted, cellWidth: 44 },
+    // Ancha lo bastante para «Promo por cantidad -54.24%» en una línea (a 62 pt se partía en tres).
+    6: { fontSize: 6.5, textColor: cInk, cellWidth: 86 },
+    7: { halign: 'right' as const, fontStyle: 'bold' as const, cellWidth: 76 },
     8: { halign: 'right' as const, fontStyle: 'bold' as const, textColor: cInk, cellWidth: 56 },
   };
 
@@ -686,7 +655,14 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
     margin: { left: M, right: M, bottom: 46 },
     head,
     body: tableBody,
-    theme: 'grid',
+    // `[E.29]` Sin rejilla: DESIGN pide filas separadas por un divisor inferior fino, sin líneas verticales.
+    theme: 'plain',
+    // Cada encabezado se alinea como su columna: «Cant.», «Importe»… iban a la izquierda y sus cifras a la derecha.
+    didParseCell: (d: any) => {
+      if (d.section !== 'head') return;
+      const h = (columnStyles as Record<number, { halign?: string }>)[d.column.index]?.halign;
+      if (h) d.cell.styles.halign = h;
+    },
     headStyles: {
       // Encabezado claro: un relleno oscuro gasta tinta y no se imprime mejor.
       fillColor: rgb(P.encabezado),
@@ -695,6 +671,8 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
       fontStyle: 'bold',
       halign: 'left',
       cellPadding: 4,
+      lineColor: cMuted,
+      lineWidth: { bottom: 0.75 },
     },
     styles: {
       fontSize: 7,
@@ -702,7 +680,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
       cellPadding: 4,
       valign: 'middle',
       lineColor: cRule,
-      lineWidth: 0.5,
+      lineWidth: { bottom: 0.5 },
     },
     // Sin renglones cebra (DESIGN.md §tablas): el divisor de 1px separa las filas.
     columnStyles,
@@ -730,15 +708,11 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
     summaryY = M;
   }
 
-  doc.setFillColor(...cCardBg);
-  doc.setDrawColor(...cRule);
-  doc.setLineWidth(1);
-  doc.roundedRect(M, summaryY, notesW, boxH, 4, 4, 'FD');
-
+  // `[E.29]` Sin caja: un rótulo y el texto. La única caja que queda es la del total.
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.setTextColor(...cInk);
-  doc.text('CONDICIONES GENERALES Y VIGENCIA:', M + 8, summaryY + 12);
+  doc.setFontSize(7);
+  doc.setTextColor(...cMuted);
+  doc.text('CONDICIONES Y VIGENCIA', M + 8, summaryY + 12);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.8);
