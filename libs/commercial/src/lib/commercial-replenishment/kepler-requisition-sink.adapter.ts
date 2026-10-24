@@ -9,6 +9,12 @@ import type {
 import { DOCTIPOS, coordenada } from './kepler-doctipo';
 import { MARCA_SUITE, plantillaDe, servidoresEncendidos, topeDiario, urlDeServidor } from './kepler-servidores';
 
+/**
+ * `[KR.16]` Número → texto como Kepler lo guarda en sus columnas `varchar` de importe (`c57`):
+ * sin relleno, hasta dos decimales, sin ceros de sobra. Medido: `791`, `373.76`, `1083`.
+ */
+export const textoKepler = (v: number): string => String(Math.round((Number(v) || 0) * 100) / 100);
+
 /** Número de Kepler (texto con formato) → number. `0` si viene vacío. */
 const num = (v: unknown): number =>
   Number(String(v ?? '').replace(/[^0-9.-]/g, '') || 0);
@@ -108,6 +114,18 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
     return false;
   }
 
+
+  /**
+   * `[KR.16]` El único paso que ESCRIBE en el ERP: pasar las tablas temporales a `md.kdm1` /
+   * `md.kdm2` y confirmar. Aparte para que el ensayo (`kepler-requisition-sink.ensayo.spec.ts`)
+   * corra TODO el SQL real contra cada servidor —plantilla, proveedor, tope, folio, tipos— y
+   * termine en `ROLLBACK` en vez de aquí.
+   */
+  protected async confirmar(c: PoolClient): Promise<void> {
+    await c.query('INSERT INTO md.kdm1 SELECT * FROM _h');
+    await c.query('INSERT INTO md.kdm2 SELECT * FROM _l');
+    await c.query('COMMIT');
+  }
 
   async entregar(e: KeplerRequisitionEntrada): Promise<KeplerRequisitionResultado> {
     if (!e.lineas?.length) return { estado: 'rechazada', motivo: 'La requisición no tiene renglones' };
@@ -251,16 +269,20 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
         // Las dos invariantes que Kepler cumple en ~99-100% de sus 17,810 renglones quedan
         // satisfechas POR CONSTRUCCIÓN: `c9×c12 = c13` y `c12×c58 = c57`. Es la misma forma que
         // tienen los 22 documentos `CJA` históricos que llegaron a entrada de inventario.
+        //
+        // ⛔ `[KR.16]` `c57` y `c58` son TEXTO (`varchar`) y `c12` es `numeric`, en los nueve
+        // servidores (medido 2026-10-24). La versión anterior mandaba el MISMO `$5` a `c12` y a
+        // `c57` y Postgres rechazaba la sentencia entera («tipos de dato inconsistentes para el
+        // parámetro $5») — en el canario de Yurécuaro, sin escribir nada. Cada columna lleva su
+        // propio parámetro y el texto va con el formato que Kepler ya usa: `791`, `373.76`.
         await c.query(
           `UPDATE _l SET c6=$1, c8=$2, c9=$3, c10=$4, c11='CJA', c12=$5, c13=$6,
-                         c55='CJA', c57=$5, c58=1
+                         c55='CJA', c57=$8, c58='1'
             WHERE c7=$7`,
-          [folio, ln.sku, ln.cajas, ln.nombre, ln.costo_caja, ln.importe, i + 1]);
+          [folio, ln.sku, ln.cajas, ln.nombre, ln.costo_caja, ln.importe, i + 1, textoKepler(ln.costo_caja)]);
       }
 
-      await c.query('INSERT INTO md.kdm1 SELECT * FROM _h');
-      await c.query('INSERT INTO md.kdm2 SELECT * FROM _l');
-      await c.query('COMMIT');
+      await this.confirmar(c);
 
       this.logger.log(`Requisición ${e.folio_suite} → Kepler ${e.sucursal}/${folio} (${n} renglones)`);
       return { estado: 'entregada', kepler: { sucursal: e.sucursal, folio, renglones: n }, lineas: resueltas };
