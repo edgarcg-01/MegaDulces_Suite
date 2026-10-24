@@ -175,19 +175,21 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   @if (dayUnprepared(d) > 0) { <span class="cal-warn-txt"> · {{ dayUnprepared(d) }} sin preparar</span> }
                 } @else { <span class="cal-muted">Sin pagos</span> }
               </span>
-              <!-- [TP.21.2] LA COSTURA. El libro de Tesoreria y este calendario son la misma
-                   linea de tiempo partida en dos: el pasado en un Excel, el futuro aqui. Medido:
-                   cero dias en comun y 53 dias en medio que ninguna pantalla contaba. Esta linea
-                   es ese pasado, en el mismo dia, declarado como OTRO universo (suma por fecha,
-                   no casa renglones: casar por monto+mes es lo de PP.4). -->
+              <!-- [PGP.9] LA COSTURA, ahora contra el ERP. Antes la traia el Excel de Tesoreria y
+                   eso obligaba a que alguien lo cargara: llevaba 77 dias sin hacerlo, asi que la
+                   pantalla decia "libro sin cargar" todos los dias. El ERP es el mismo hecho -que
+                   dinero salio ese dia- y llega solo. Sigue siendo OTRO universo: suma por fecha,
+                   no casa renglones (casar por monto+mes es lo de PP.4). -->
               @if (d.libro; as lb) {
-                @if (!lb.mes_cargado && isPast(d.date)) {
-                  <span class="cal-day-libro is-gap" title="Sin libro para ese mes — ver el about de la pantalla">
-                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> libro sin cargar
+                @if (lb.n > 0) {
+                  <span class="cal-day-libro" [title]="'Segun el ERP salieron ' + money(lb.monto) + ' en ' + lb.n + ' pago(s) — ver el about'">
+                    <i class="pi pi-building-columns" aria-hidden="true"></i> salió: <span class="comm-num">{{ moneyShort(lb.monto) }}</span> · {{ lb.n }}
                   </span>
-                } @else if (lb.n > 0) {
-                  <span class="cal-day-libro" [title]="'Segun el libro de Tesoreria: ' + money(lb.monto) + ' en ' + lb.n + ' pago(s) — ver el about'">
-                    <i class="pi pi-book" aria-hidden="true"></i> libro: <span class="comm-num">{{ moneyShort(lb.monto) }}</span> · {{ lb.n }}
+                } @else if (isPast(d.date) && !lb.data_as_of) {
+                  <!-- ⛔ Un cero SIN fecha de corte no se puede leer: no se sabe si no se pago o si
+                       el espejo no se recalculo. Se declara en vez de pintar el cero (ADR-056). -->
+                  <span class="cal-day-libro is-gap" title="El espejo del ERP no trae fecha de corte: no se puede saber si ese dia no hubo pagos — ver el about">
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> sin medir
                   </span>
                 }
               }

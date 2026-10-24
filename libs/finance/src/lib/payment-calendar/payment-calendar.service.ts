@@ -529,46 +529,61 @@ export class PaymentCalendarService {
   }
 
   /**
-   * `[TP.21.1]` **El libro de Tesorería, sumado por día, para una semana.**
+   * `[PGP.9]` **Lo que de verdad salió cada día, del ERP — ya no del Excel de Tesorería.**
    *
-   * El *Programa de pagos* y el *Calendario* son la misma línea de tiempo —el día en que sale el
-   * dinero— cortada en dos: el pasado lo lleva un Excel y el futuro lo lleva el sistema. Medido el
-   * 2026-10-20: el libro llega al **2026-08-28**, el calendario empieza el **2026-10-16**, hay
-   * **0 días en común** y **53 días** en medio de los que ninguna pantalla dice nada.
+   * ── Por qué cambió la fuente ────────────────────────────────────────────────────────────
+   * Pedido de Edgar el 2026-10-24: *«no debemos depender de que se esté cargando un libro»*.
+   * Tenía razón, y la medición es contundente. Las dos fuentes, el mismo día:
    *
-   * ⛔ **No casa renglones.** El libro no guarda el folio del pago de Kepler; casarlo por
-   * monto+mes es lo de `[PP.4]` ($273 M indefendibles). Acá se suma por `pay_date`, que es la
-   * única llave que las dos comparten de verdad, y el resultado se publica como **otro universo**,
-   * no como la misma fila.
+   *     libro de Tesorería (Excel)    último pago 2026-08-28 · última carga 2026-08-08 · 77 días
+   *     ERP (erp_supplier_payments)   último pago 2026-12-01 · recalculado HOY      ·  0 días
    *
-   * ⚠️ `mes_cargado` es la mitad del valor: un día de un mes que el Excel no tiene da `0` por
-   * ausencia, no porque no se haya pagado. Es el mismo defecto que `[PP.10]` encontró escondiendo
-   * $91,720,679 — pintarlos igual es dibujar un cero que nadie midió (ADR-056).
+   * Y no es sólo que se haya detenido: **cuando estaba vivo ya cubría un tercio**. Agosto, mes
+   * a mes: el libro registró **157 pagos / $17.9 M** contra **530 / $45.2 M** del ERP. En
+   * septiembre y octubre el libro tiene **cero**, el ERP tiene 346 y 179.
+   *
+   * ⇒ Un testigo que alguien carga a mano no es un testigo: es una tarea que se olvida, y
+   * mientras se olvida la pantalla publica «libro sin cargar» en todos los días. El ERP es el
+   * mismo hecho —qué dinero salió ese día— y llega solo.
+   *
+   * ── Lo que se conserva de `[TP.21.1]` ───────────────────────────────────────────────────
+   * ⛔ **Sigue sin casar renglones.** Se suma por fecha de pago, que es la llave que las dos
+   * líneas comparten de verdad, y se publica como **otro universo**: el calendario dice lo que
+   * se va a pagar, esto dice lo que el ERP registra que salió. Casarlos fila por fila es lo de
+   * `[PP.4]` ($273 M indefendibles).
+   *
+   * ⭐ **Y la lección de ADR-056 se conserva cambiando de eje.** Antes un día sin filas podía
+   * ser «el Excel no tiene ese mes»; ahora puede ser «el espejo del ERP no se ha recalculado».
+   * Por eso en vez de `mes_cargado` viaja `data_as_of`: con el espejo fresco, un cero significa
+   * **no se pagó** (un sábado, por ejemplo); con el espejo viejo, significa **no sabemos**. El
+   * cero sin su fecha al lado es el mismo cero dibujado de siempre.
    */
-  private async weekBook(from: string, to: string): Promise<Record<string, { monto: number; n: number; mes_cargado: boolean }>> {
+  private async weekBook(from: string, to: string): Promise<Record<string, { monto: number; n: number; data_as_of: string | null }>> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const porDia = await trx('finance.payment_program')
-        .select(trx.raw(`to_char(pay_date,'YYYY-MM-DD') AS dia`))
-        .sum({ monto: 'amount' }).count({ n: '*' })
+      const porDia = await trx('analytics.erp_supplier_payments')
+        .select(trx.raw(`to_char(pago_date,'YYYY-MM-DD') AS dia`))
+        .sum({ monto: 'monto' }).count({ n: '*' })
+        .max({ as_of: 'computed_at' })
         .where({ tenant_id: tenantId })
-        .whereBetween('pay_date', [from, to])
+        .whereBetween('pago_date', [from, to])
         .groupByRaw('1');
-      // Qué MESES tiene el libro. Se pregunta aparte porque la respuesta para un día sin filas
-      // depende de esto: sin mes no es "no se pagó", es "no sabemos".
-      const meses = await trx('finance.payment_program')
-        .distinct('source_month').where({ tenant_id: tenantId })
-        .whereNotNull('source_month');
-      const cargados = (meses as { source_month: string }[]).map((m) => m.source_month);
 
-      const out: Record<string, { monto: number; n: number; mes_cargado: boolean }> = {};
+      /*
+       * La frescura del ESPEJO, no la del día: un día sin pagos no tiene `computed_at` propio y
+       * aun así hace falta saber si el espejo está al día para leer ese cero. Se pregunta aparte,
+       * sobre la ventana reciente, que es lo que indica si el feed sigue llegando.
+       */
+      const [fresco] = await trx('analytics.erp_supplier_payments')
+        .max({ as_of: 'computed_at' })
+        .where({ tenant_id: tenantId });
+      const asOf = (fresco as { as_of: Date | string | null })?.as_of;
+      const asOfIso = asOf ? new Date(asOf).toISOString() : null;
+
+      const out: Record<string, { monto: number; n: number; data_as_of: string | null }> = {};
       for (const d of weekDates(from)) {
         const fila = (porDia as { dia: string; monto: string | null; n: string }[]).find((x) => x.dia === d);
-        out[d] = {
-          monto: Number(fila?.monto ?? 0),
-          n: Number(fila?.n ?? 0),
-          mes_cargado: cargados.indexOf(d.slice(0, 7)) >= 0,
-        };
+        out[d] = { monto: Number(fila?.monto ?? 0), n: Number(fila?.n ?? 0), data_as_of: asOfIso };
       }
       return out;
     });

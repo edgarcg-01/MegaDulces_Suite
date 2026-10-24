@@ -75,15 +75,23 @@ export interface PaymentCalendarAllocation {
  * fecha**, que es la única llave que las dos comparten de verdad.
  */
 export interface PaymentCalendarDayBook {
-  /** Lo que el libro registra ese día. `0` con `mes_cargado: true` sí significa «no se pagó». */
+  /**
+   * Lo que el **ERP** registra que salió ese día. `[PGP.9]` cambió la fuente: era el Excel de
+   * Tesorería y pasó a `analytics.erp_supplier_payments`.
+   *
+   * ⭐ El motivo, medido el 2026-10-24: el Excel llevaba **77 días sin cargarse**, y cuando
+   * estaba vivo ya cubría un tercio —agosto: **157 pagos / $17.9 M** en el libro contra
+   * **530 / $45.2 M** en el ERP—. Un testigo que alguien carga a mano no es un testigo.
+   */
   monto: number;
   n: number;
   /**
-   * ⚠️ Si el mes de ese día **no está cargado** en el libro, `monto` es `0` por ausencia, no por
-   * ausencia de pagos. Sin esta bandera las dos cosas se pintan igual — que es exactamente el
-   * defecto que `[PP.10]` encontró escondiendo $91,720,679 en la conciliación mensual.
+   * ⚠️ Cuándo se recalculó por última vez el espejo del ERP, en ISO. **Sin esto, un `0` no se
+   * puede leer**: con el espejo fresco significa «no se pagó» (un sábado); con el espejo viejo
+   * significa «no sabemos». Es la misma lección que la bandera anterior —`mes_cargado`— movida
+   * al eje que corresponde ahora que la fuente llega sola. `null` = no hay con qué fecharlo.
    */
-  mes_cargado: boolean;
+  data_as_of: string | null;
 }
 
 export interface PaymentCalendarWeekDay {

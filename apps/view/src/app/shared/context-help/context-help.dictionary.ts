@@ -2461,11 +2461,12 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         ],
       },
       {
-        heading: 'El contraste contra el libro de Tesorería',
+        heading: 'Lo que ya salió ese día',
         entries: [
-          { term: 'Según el libro salieron $X', def: 'Lo que el Excel de Tesorería registra como pagado ese día. ⚠️ Es OTRO universo que lo de arriba: se suma por fecha, no se casa renglón por renglón con los pagos del calendario. Sirve para comparar totales, no para dar por cuadrado un pago.' },
-          { term: 'El libro no tiene ese mes', def: 'El Excel de Tesorería no fue cargado para ese mes. ⚠️ NO quiere decir que no se haya pagado: quiere decir que no hay con qué comparar.' },
-          { term: '⚠️ El libro está detenido', def: 'Su última carga es del 8 de agosto de 2026. De septiembre en adelante el contraste va a decir siempre «el libro no tiene ese mes», y eso es un hueco del libro, no del calendario. Lo que de verdad se pagó se consulta en «Pagos a proveedor», que sale del ERP.' },
+          { term: 'Salió $X · N', def: 'Lo que el ERP registra que de verdad se pagó ese día, con cuántos pagos fueron. ⚠️ Es OTRO universo que lo de arriba: se suma por fecha, no se casa renglón por renglón con los pagos del calendario. Sirve para comparar totales, no para dar por cuadrado un pago.' },
+          { term: 'Un día sin nada', def: 'Si el día ya pasó y no aparece ningún monto, es que no salió dinero ese día — un sábado, por ejemplo. El dato viene del ERP y se actualiza solo, así que el cero significa cero.' },
+          { term: 'Sin medir', def: 'Aparece sólo si el espejo del ERP no trae fecha de corte. Entonces el cero no se puede leer: no se sabe si no hubo pagos o si el dato no se actualizó. Se avisa en vez de pintar un cero que nadie midió.' },
+          { term: 'Antes lo traía un Excel', def: 'Hasta octubre de 2026 este contraste salía del libro de Tesorería, que alguien cargaba a mano: llevaba 77 días sin cargarse y, cuando estaba al día, registraba menos de la mitad (en agosto, 157 pagos contra los 530 del ERP). Ahora sale del ERP y no depende de que nadie lo cargue.' },
         ],
       },
     ],
