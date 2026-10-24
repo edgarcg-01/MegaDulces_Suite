@@ -331,6 +331,18 @@ export class PaymentCalendarService {
     limit?: number; offset?: number;
     /** [TP.20.4] Solo facturas cuyo descuento por pronto pago esta por vencer o aun es capturable. */
     prontoPago?: 'por_vencer' | 'capturable';
+    /**
+     * `[PGP.7]` **Con qué urgencia se lee la lista.** Era la ultima razon para tener Pronto pago
+     * como pantalla aparte: el inventario de §23 midio que las dos listas ordenan al reves y
+     * concluyo que fusionarlas rompia una. Lo que rompia era imponer UN orden; ofrecer los dos
+     * no rompe ninguno.
+     *
+     *  · `vencimiento` (default) — cuando hay que pagar. El orden de siempre, intacto.
+     *  · `descuento` — cuando se pierde el privilegio. Es el orden de Pronto pago, y su encabezado
+     *    decia que «el orden ES la mitad del valor»: por fecha limite del descuento y, a igualdad,
+     *    por lo que se gana.
+     */
+    orden?: 'vencimiento' | 'descuento';
   }) {
     // `[TP.17.2]` 1000 era el techo fijo de antes: se conserva como default para no cambiar lo que
     // ya veía la pantalla, pero ahora se puede mover y, sobre todo, se sabe cuánto quedó afuera.
@@ -351,7 +363,7 @@ export class PaymentCalendarService {
         'paid_amount', 'available_amount', 'is_critical', 'critical_reason', 'authorized_by',
         'authorized_at', 'status', 'notes', 'created_at', 'branch_code', 'payee_id',
         // [TP.20.4] la ventana de pronto pago viaja con la fila
-        'pronto_fecha_limite', 'pronto_beneficio', 'pronto_estado',
+        'pronto_fecha_limite', 'pronto_tasa', 'pronto_beneficio', 'pronto_estado',
         // [TP.20.5] el ref de la ficha. NULL en los orígenes que no tienen documento de Kepler
         // detrás: un ref inventado abriría un panel que no existe.
         'entity_ref',
@@ -363,7 +375,7 @@ export class PaymentCalendarService {
         'o.reserved_amount', 'o.paid_amount',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
         'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
-        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
+        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_tasa'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
       ).whereNotIn('o.status', ['cancelled', 'propuesta']); // propuesta = sin autorizar → fuera del Calendario (PR.3)
 
       const legCommitment = trx('finance.financial_commitments as o').select(
@@ -373,7 +385,7 @@ export class PaymentCalendarService {
         'o.reserved_amount', 'o.paid_amount',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
         'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
-        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
+        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_tasa'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
       ).whereNotIn('o.status', ['cancelled']);
 
       const legSupplier = trx('commercial.supplier_payment_obligations as o')
@@ -386,7 +398,7 @@ export class PaymentCalendarService {
           'o.reserved_amount', 'o.paid_amount',
           trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
           's.is_critical', 's.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw("nullif(btrim(o.kepler_sucursal), '') AS branch_code"), 'o.supplier_id AS payee_id',
-          trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"),
+          trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_tasa'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"),
           // [TP.20.5] La obligacion CAPTURADA por Entregas tambien tiene ficha, pero solo si
           // alguien le anoto el documento de Kepler. Sin esos cuatro campos no hay a que apuntar.
           trx.raw(`CASE WHEN o.kepler_sucursal IS NOT NULL AND o.kepler_folio IS NOT NULL
@@ -503,9 +515,15 @@ export class PaymentCalendarService {
        */
       const [{ total }] = await base.clone().clearSelect().clearOrder()
         .count<{ total: string }[]>({ total: '*' });
-      const rows = await base
-        .orderByRaw('ob.original_due_date ASC NULLS LAST, ob.available_amount DESC')
-        .limit(limit).offset(offset);
+      /*
+       * `[PGP.7]` Dos ordenes, uno por pregunta. ⛔ `NULLS LAST` en los dos campos del descuento:
+       * una factura sin ventana medible NO es urgente, es desconocida, y ponerla arriba mandaria
+       * a Tesoreria a mirar primero lo que nadie midio.
+       */
+      const orderBy = q.orden === 'descuento'
+        ? 'ob.pronto_fecha_limite ASC NULLS LAST, ob.pronto_beneficio DESC NULLS LAST'
+        : 'ob.original_due_date ASC NULLS LAST, ob.available_amount DESC';
+      const rows = await base.orderByRaw(orderBy).limit(limit).offset(offset);
       return { rows, total: Number(total), limit, offset };
     });
   }
