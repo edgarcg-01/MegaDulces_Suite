@@ -53,7 +53,7 @@ function montar(resp: AutoabastoRenglonesResponse, warehouses = ALMACENES) {
     providers: [
       provideZonelessChangeDetection(), provideRouter([]),
       { provide: AutoabastoService, useValue: {
-        filtros: () => of({ warehouses, suppliers: [] }),
+        filtros: () => of({ warehouses }),
         renglones: (q: unknown) => { llamadas.push(q); return of(resp); },
       } },
       { provide: AuthService, useValue: { user: () => ({ sub: 'u1', username: 'u1', permissions: {} }), token: () => null } },
