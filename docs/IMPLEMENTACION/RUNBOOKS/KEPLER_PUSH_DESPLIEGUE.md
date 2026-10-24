@@ -251,7 +251,7 @@ criterio devuelve en `00` exactamente las plantillas ya elegidas a mano (`000042
 | `02` | `0000101` | 286 | `0002124` | 1 |
 | `03` | `0000158` | 262 | `0000002` | 1 |
 | `04` | `0000059` | 154 | ninguna sana | — |
-| `05` | `0000007` | 49 | `0001108` ⚠️ de ayer | 51 |
+| `05` | `0000007` | 49 | ⛔ ninguna sana: la reciente puede procesarse y las antiguas van a clientes, no a `TI###` | — |
 | `06` | `0000001` | 10 | `0000895` (22-sep, sin procesar) | 4 |
 | `07` | `0000035` | 59 | ninguna sana | — |
 | `08` | `0000005` | 53 | `0000028` | 44 |
