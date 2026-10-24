@@ -218,7 +218,7 @@ export class CajaFirmaService {
             intentos_envio: trx.raw('intentos_envio + 1'), ultimo_fallo: d.fallo, updated_at: trx.fn.now(),
           });
         }
-        return { fallo: d.fallo, descartada: revision.descartada };
+        return { ok: false as const, fallo: d.fallo, descartada: revision.descartada };
       }
       if (d.accion === 'repetida') return { ok: true as const, repetida: true };
       await trx('finance.cash_signature_requests').where({ id: t.sid }).update({
@@ -234,7 +234,8 @@ export class CajaFirmaService {
       });
       return { ok: true as const, repetida: false };
     });
-    if ('fallo' in r) {
+    // `ok` es el discriminante: con `'fallo' in r` TS normaliza la unión y deja `fallo` opcional.
+    if (!r.ok) {
       if (r.fallo === 'no_es_firma') this.logger.warn(`[CG.201] firma rechazada (${r.descartada}) · pedido ${t.sid}`);
       // Fuera de la transacción: el rastro del fallo SÍ se confirma, la excepción no lo revierte.
       throw falloFirma(r.fallo);
