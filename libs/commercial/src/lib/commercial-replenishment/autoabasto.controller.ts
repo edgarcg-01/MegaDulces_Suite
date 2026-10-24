@@ -20,7 +20,8 @@ import { AutoabastoPedidoService } from './autoabasto-pedido.service';
  */
 type AutoabastoMesa = Awaited<ReturnType<CommercialReplenishmentService['criticalStock']>>;
 type AutoabastoResumen = Awaited<ReturnType<CommercialReplenishmentService['summary']>>;
-type AutoabastoFiltros = Awaited<ReturnType<CommercialReplenishmentService['filters']>>;
+/** `[AB.36]` Sólo los almacenes: ninguna pantalla de Autoabasto pinta proveedores, marcas ni categorías. */
+type AutoabastoFiltros = { warehouses: Awaited<ReturnType<CommercialReplenishmentService['almacenes']>> };
 
 /**
  * `[AB.13]` El reporte imprimible: las MISMAS filas y el MISMO resumen que la mesa, completos y
@@ -158,12 +159,16 @@ export class AutoabastoController {
     return this.svc.summary({ warehouse_id, warehouse_ids, supplier_id, category_id, product_search: search, target_basis: target_basis || BASE_AUTOABASTO }, AREA_AUTOABASTO);
   }
 
-  /** Los almacenes (ya recortados al alcance de la persona) y proveedores para filtrar la mesa. */
+  /**
+   * Los almacenes ya recortados al alcance de la persona. `[AB.36]` Antes devolvía `filters()` entero
+   * (proveedores, marcas y categorías de toda la red: 157–193 ms, medido 2026-10-24) y la pantalla lo
+   * espera ANTES de pedir la mesa; sólo usaba los almacenes.
+   */
   @Get('filtros')
   @RequirePermissions(Permission.AUTOABASTO_VER)
   @ApiOperation({ summary: 'Catálogos para los filtros de la mesa' })
-  filtros(): Promise<AutoabastoFiltros> {
-    return this.svc.filters(AREA_AUTOABASTO);
+  async filtros(): Promise<AutoabastoFiltros> {
+    return { warehouses: await this.svc.almacenes(AREA_AUTOABASTO) };
   }
 
   /**
@@ -231,7 +236,8 @@ export class AutoabastoController {
     if (!warehouse_id || !UUID_RX.test(warehouse_id)) {
       throw new BadRequestException('El pedido es por almacén: elige uno.');
     }
-    const { warehouses } = await this.svc.filters(AREA_AUTOABASTO);
+    // `[AB.36]` Sólo los almacenes: `filters()` entero costaba ~175 ms más de proveedores y marcas.
+    const warehouses = await this.svc.almacenes(AREA_AUTOABASTO);
     const almacen = (warehouses as { id: string; code: string; name: string }[]).find((w) => w.id === warehouse_id);
     if (!almacen) throw new ForbiddenException('Ese almacén no está dentro de tu alcance.');
     return { id: almacen.id, code: almacen.code, name: almacen.name };
@@ -307,7 +313,8 @@ export class AutoabastoController {
     if (!warehouse_id || !UUID_RX.test(warehouse_id)) {
       throw new BadRequestException('El reporte es por almacén: elige uno.');
     }
-    const { warehouses } = await this.svc.filters(AREA_AUTOABASTO);
+    // `[AB.36]` Sólo los almacenes: `filters()` entero costaba ~175 ms más de proveedores y marcas.
+    const warehouses = await this.svc.almacenes(AREA_AUTOABASTO);
     const almacen = (warehouses as { id: string; code: string; name: string }[]).find((w) => w.id === warehouse_id);
     if (!almacen) throw new ForbiddenException('Ese almacén no está dentro de tu alcance.');
 

@@ -257,6 +257,31 @@ SELECT e.suc, btrim(x.c8::text) AS sku, NULLIF(upper(btrim(x.c11::text)), '') AS
  WHERE NULLIF(btrim(x.c8::text), '') IS NOT NULL
  GROUP BY 1, 2, 3`;
 
+/**
+ * `[AB.36]` La escalera de unidades de Kepler de esos SKU, en UN solo lugar (la mesa, «Mi pedido» y
+ * la cuenta de red la leían cada una con su copia del mismo mapeo).
+ *
+ * Lee la copia materializada `analytics.mv_product_unit_ladder` (`SELECT *` de la vista, refrescada
+ * cada 15 min por `AnalyticsRefreshService`) si EXISTE; si no, la vista viva. Viva y por SKU costaba
+ * 185–340 ms en la mesa de Padre Hidalgo (1,377 SKU), detrás del motor, con techo de 500 ms.
+ * Un SKU sin escalera no aparece en el mapa: quien consume lo cuenta como «sin unidad», no lo adivina.
+ */
+export async function leerEscaleras(trx: Knex.Transaction, skus: readonly string[]): Promise<Map<string, EscaleraUnidades>> {
+  const escaleras = new Map<string, EscaleraUnidades>();
+  if (!skus.length) return escaleras;
+  const mv = (await trx.raw(`SELECT to_regclass('analytics.mv_product_unit_ladder') AS t`)).rows?.[0]?.t;
+  const e: Array<{ sku: string; unit_base: string | null; u2_label: string | null; u3_label: string | null;
+    f2: string | number | null; f3: string | number | null; is_weight: boolean | null }> =
+    await trx(mv ? 'analytics.mv_product_unit_ladder' : 'analytics.v_product_unit_ladder')
+      .select('sku', 'unit_base', 'u2_label', 'u3_label', 'f2', 'f3', 'is_weight')
+      .whereIn('sku', [...skus]);
+  const nn = (v: unknown): number | null => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  for (const x of e) {
+    escaleras.set(x.sku, { unit_base: x.unit_base, u2_label: x.u2_label, u3_label: x.u3_label, f2: nn(x.f2), f3: nn(x.f3), is_weight: !!x.is_weight });
+  }
+  return escaleras;
+}
+
 /** `[AB.34]` Lo que ya viene a cada sucursal, por producto y en BASE. La llave es el código de la sucursal. */
 export type YaPedidoRed = Map<string, { viene: Map<string, VieneBase>; sinUnidad: number }>;
 
@@ -271,18 +296,7 @@ export async function leerYaPedidoRed(trx: Knex.Transaction, tenantId: string): 
   type ConSuc<T> = T & { suc: string };
   const pedidos = ((await trx.raw(PEDIDOS_SUCURSAL_RED_SQL, { t: tenantId })).rows ?? []) as ConSuc<FilaPedidos>[];
   const camino = ((await trx.raw(EMBARCADO_SIN_RECIBIR_RED_SQL, { t: tenantId })).rows ?? []) as ConSuc<FilaEnCamino>[];
-  const skus = [...new Set([...pedidos, ...camino].map((r) => r.sku))];
-  const escaleras = new Map<string, EscaleraUnidades>();
-  if (skus.length) {
-    const e: Array<{ sku: string; unit_base: string | null; u2_label: string | null; u3_label: string | null;
-      f2: string | number | null; f3: string | number | null; is_weight: boolean | null }> = await trx('analytics.v_product_unit_ladder')
-      .select('sku', 'unit_base', 'u2_label', 'u3_label', 'f2', 'f3', 'is_weight')
-      .whereIn('sku', skus);
-    const nn = (v: unknown): number | null => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
-    for (const x of e) {
-      escaleras.set(x.sku, { unit_base: x.unit_base, u2_label: x.u2_label, u3_label: x.u3_label, f2: nn(x.f2), f3: nn(x.f3), is_weight: !!x.is_weight });
-    }
-  }
+  const escaleras = await leerEscaleras(trx, [...new Set([...pedidos, ...camino].map((r) => r.sku))]);
   const out: YaPedidoRed = new Map();
   const sucs = new Set([...pedidos, ...camino].map((r) => r.suc));
   for (const suc of sucs) {

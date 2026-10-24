@@ -36,7 +36,7 @@ import {
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
 import {
   VENTANA_YA_PEDIDO_DIAS, VENTANA_NEGADO_DIAS, VENTANA_EN_CAMINO_DIAS, VENTANA_VIENE_DIAS,
-  PEDIDOS_SUCURSAL_SQL, EMBARCADO_SIN_RECIBIR_SQL, sumarYaPedido,
+  PEDIDOS_SUCURSAL_SQL, EMBARCADO_SIN_RECIBIR_SQL, sumarYaPedido, leerEscaleras,
   type FilaPedidos, type FilaEnCamino,
 } from './ya-pedido-sucursal';
 // `[AB.34]` Se re-exporta: sus pruebas y otros consumidores lo importaban de aquí.
@@ -115,10 +115,6 @@ const TIENE_DESTINO_SQL = `SELECT 1 FROM analytics.v_erp_branch_catalog WHERE te
 
 interface FilaPlan { id: string; folio: string | null; estado: string; origen: string | null; fecha: string; dias: number; monto: string | number | null; product_id: string; final_qty: string | number }
 interface FilaDoc { tipo: 'pedido' | 'embarque'; origen: string; serie: number; folio: string; estado: string; fecha: string; dias: number; monto: string | number | null; renglones: number }
-interface FilaEscalera {
-  sku: string; unit_base: string | null; u2_label: string | null; u3_label: string | null;
-  f2: string | number | null; f3: string | number | null; is_weight: boolean | null;
-}
 
 const num = (v: unknown): number => {
   const n = Number(v);
@@ -158,67 +154,69 @@ export class AutoabastoPedidoService {
    */
   private async armarAlmacen(almacen: Almacen, area: string): Promise<AlmacenArmado> {
     const tenantId = this.tenantCtx.requireTenantId();
-    const mesa = await this.motor.criticalStock(
-      { warehouse_id: almacen.id, target_basis: 'demanda', export: true }, area,
-    );
-    const filas = mesa.rows;
-    const skus = [...new Set(filas.map((f) => String(f['sku'])))];
-
-    const { pedidos, enCamino, docs, planes, escaleras, medidos, borrador, ajustes, guardable, posiciones } = await this.tk.run(async (trx: Knex.Transaction) => {
-      // `[AB.18]` El borrador guardado y lo que la persona ya ajustó. Sólo LEE: abrir el pedido no
-      // escribe nada (el borrador nace con el primer ajuste). Si la migración del borrador todavía
-      // no llegó a esta base, el pedido se sirve igual y lo declara (`guardado_disponible`); se pregunta con
-      // `to_regclass` porque un SELECT fallido abortaría la transacción entera.
-      const guardable = await this.borradorDisponible(trx);
-      const borrador = guardable ? await this.borradorDe(trx, tenantId, almacen.id) : null;
-      // `[AB.19]` Hasta dónde pide: lo guardado en el borrador; sin borrador, el default.
-      let posiciones: PosicionPedido[] = [...POSICIONES_PEDIDO_DEFAULT];
-      if (borrador) {
-        const b = await trx('commercial.autoabasto_pedidos').where({ tenant_id: tenantId, id: borrador }).first('posiciones');
-        posiciones = normalizarPosiciones(b?.posiciones);
-      }
-      const ajustes = new Map<string, AjusteLinea & { cantidad_base: number }>();
-      if (borrador) {
-        const ls: FilaLinea[] = await trx('commercial.autoabasto_pedido_lineas')
-          .where({ tenant_id: tenantId, pedido_id: borrador })
-          .select('product_id', 'cantidad', 'unidad', 'cantidad_base', 'motivo', 'ajustado_por_username', 'ajustado_at');
-        for (const l of ls) {
-          ajustes.set(l.product_id, {
-            cantidad: num(l.cantidad), unidad: l.unidad, motivo: (l.motivo as MotivoAjuste | null) ?? null,
-            ajustado_por: l.ajustado_por_username, ajustado_at: new Date(l.ajustado_at).toISOString(),
-            cantidad_base: num(l.cantidad_base),
-          });
+    const binds = { t: tenantId, suc: almacen.code };
+    // `[AB.36]` Tres lecturas que no dependen una de otra, EN PARALELO (cada una en su transacción).
+    // En serie, la mesa tardaba la suma: medido en prod el 2026-10-24, Padre Hidalgo 1.2–1.5 s con el
+    // motor ya optimizado. Las cuentas no cambian: cada consulta es la misma, sólo deja de esperar a
+    // la anterior. Son 3 conexiones por petición (el pool es de 10).
+    //  1. el motor (`ligero`: sin el reparto de la red ni la etiquetera, que esta pantalla no lee) y,
+    //     en cuanto llega, la escalera de SUS productos;
+    //  2. lo de la Suite (borrador, ajustes, destino, planes) y los pedidos abiertos en Kepler;
+    //  3. los embarques sin recibir y los documentos que vienen.
+    // Las de Kepler corren aunque la sucursal no tenga cliente de traspaso (su `dest` sale vacío y
+    // no devuelven nada); abajo se descartan igual si no está medida, como antes.
+    const kepler = <T>(trx: Knex.Transaction, sql: string): Promise<T[]> =>
+      trx.raw(sql, binds).then((r: { rows?: T[] }) => r.rows ?? []);
+    const [{ filas, skus, escaleras }, propio, llega] = await Promise.all([
+      this.motor.criticalStock({ warehouse_id: almacen.id, target_basis: 'demanda', export: true, ligero: true }, area)
+        .then(async (mesa) => {
+          const skus = [...new Set(mesa.rows.map((f) => String(f['sku'])))];
+          return { filas: mesa.rows, skus, escaleras: await this.escalerasDe(skus) };
+        }),
+      this.tk.run(async (trx: Knex.Transaction) => {
+        // `[AB.18]` El borrador guardado y lo que la persona ya ajustó. Sólo LEE: abrir el pedido no
+        // escribe nada (el borrador nace con el primer ajuste). Si la migración del borrador todavía
+        // no llegó a esta base, el pedido se sirve igual y lo declara (`guardado_disponible`); se pregunta con
+        // `to_regclass` porque un SELECT fallido abortaría la transacción entera.
+        const guardable = await this.borradorDisponible(trx);
+        const borrador = guardable ? await this.borradorDe(trx, tenantId, almacen.id) : null;
+        // `[AB.19]` Hasta dónde pide: lo guardado en el borrador; sin borrador, el default.
+        let posiciones: PosicionPedido[] = [...POSICIONES_PEDIDO_DEFAULT];
+        if (borrador) {
+          const b = await trx('commercial.autoabasto_pedidos').where({ tenant_id: tenantId, id: borrador }).first('posiciones');
+          posiciones = normalizarPosiciones(b?.posiciones);
         }
-      }
-      const binds = { t: tenantId, suc: almacen.code };
-      const destino = await trx.raw(TIENE_DESTINO_SQL, binds);
-      const medidos = (destino.rows ?? []).length > 0;
-      // `[AB.23]` Por (producto, unidad): se convierte a base más abajo, con la escalera.
-      const pedidos: FilaPedidos[] = [];
-      const enCamino: FilaEnCamino[] = [];
-      let docs: FilaDoc[] = [];
-      if (medidos) {
-        pedidos.push(...(((await trx.raw(PEDIDOS_SUCURSAL_SQL, binds)).rows ?? []) as FilaPedidos[]));
-        enCamino.push(...(((await trx.raw(EMBARCADO_SIN_RECIBIR_SQL, binds)).rows ?? []) as FilaEnCamino[]));
-        docs = ((await trx.raw(VIENE_DOCS_SQL, binds)).rows ?? []) as FilaDoc[];
-      }
-      // `[AB.24]` Lo planeado por Compras no depende de Kepler: se lee siempre.
-      const planes = ((await trx.raw(PLANEADO_COMPRAS_SQL, { t: tenantId, wh: almacen.id })).rows ?? []) as FilaPlan[];
-      const escaleras = new Map<string, EscaleraUnidades>();
-      if (skus.length) {
-        // Escalera de unidades de Kepler (vista sobre kdii), sólo de los productos de la mesa.
-        const e: FilaEscalera[] = await trx('analytics.v_product_unit_ladder')
-          .select('sku', 'unit_base', 'u2_label', 'u3_label', 'f2', 'f3', 'is_weight')
-          .whereIn('sku', skus);
-        for (const x of e) {
-          escaleras.set(x.sku, {
-            unit_base: x.unit_base, u2_label: x.u2_label, u3_label: x.u3_label,
-            f2: numONull(x.f2), f3: numONull(x.f3), is_weight: !!x.is_weight,
-          });
+        const ajustes = new Map<string, AjusteLinea & { cantidad_base: number }>();
+        if (borrador) {
+          const ls: FilaLinea[] = await trx('commercial.autoabasto_pedido_lineas')
+            .where({ tenant_id: tenantId, pedido_id: borrador })
+            .select('product_id', 'cantidad', 'unidad', 'cantidad_base', 'motivo', 'ajustado_por_username', 'ajustado_at');
+          for (const l of ls) {
+            ajustes.set(l.product_id, {
+              cantidad: num(l.cantidad), unidad: l.unidad, motivo: (l.motivo as MotivoAjuste | null) ?? null,
+              ajustado_por: l.ajustado_por_username, ajustado_at: new Date(l.ajustado_at).toISOString(),
+              cantidad_base: num(l.cantidad_base),
+            });
+          }
         }
-      }
-      return { pedidos, enCamino, docs, planes, escaleras, medidos, borrador, ajustes, guardable, posiciones };
-    });
+        const destino = await trx.raw(TIENE_DESTINO_SQL, binds);
+        const medidos = (destino.rows ?? []).length > 0;
+        // `[AB.24]` Lo planeado por Compras no depende de Kepler: se lee siempre.
+        const planes = ((await trx.raw(PLANEADO_COMPRAS_SQL, { t: tenantId, wh: almacen.id })).rows ?? []) as FilaPlan[];
+        // `[AB.23]` Por (producto, unidad): se convierte a base más abajo, con la escalera.
+        const pedidos = await kepler<FilaPedidos>(trx, PEDIDOS_SUCURSAL_SQL);
+        return { medidos, planes, pedidos, borrador, ajustes, guardable, posiciones };
+      }),
+      this.tk.run(async (trx: Knex.Transaction) => ({
+        enCamino: await kepler<FilaEnCamino>(trx, EMBARCADO_SIN_RECIBIR_SQL),
+        docs: await kepler<FilaDoc>(trx, VIENE_DOCS_SQL),
+      })),
+    ]);
+    const { medidos, planes, borrador, ajustes, guardable, posiciones } = propio;
+    // Sin cliente de traspaso, lo pedido NO se mide (≠ «cero»): se descarta, como antes.
+    const pedidos = medidos ? propio.pedidos : [];
+    const enCamino = medidos ? llega.enCamino : [];
+    const docs = medidos ? llega.docs : [];
 
     // `[AB.23]` → `[AB.34]` Lo que viene, por producto y en BASE: la MISMA cuenta que usa /compras/pedido
     // (`ya-pedido-sucursal.ts`). Una unidad que la escalera no conoce no se suma: se cuenta.
@@ -415,6 +413,12 @@ export class AutoabastoPedidoService {
       });
       return { posiciones };
     });
+  }
+
+  /** Escalera de unidades de Kepler, sólo de los productos de la mesa (`[AB.36]` `leerEscaleras`). */
+  private escalerasDe(skus: string[]): Promise<Map<string, EscaleraUnidades>> {
+    if (!skus.length) return Promise.resolve(new Map());
+    return this.tk.run((trx: Knex.Transaction) => leerEscaleras(trx, skus));
   }
 
   // ── [AB.18] Ajustes del almacenista y su huella ─────────────────────────────────────────────

@@ -206,6 +206,16 @@ export interface CriticalStockQuery {
   page?: number;
   pageSize?: number;
   export?: boolean;  // interno: sube el cap de filas para exportar TODO (XLSX). No expuesto por query param.
+  /**
+   * `[AB.36]` Interno, no expuesto por query param: la mesa de Autoabasto y «Mi pedido» NO leen el
+   * reparto de la red (`transfer_in`, `buy_qty`, `buy_cost`, `surplus_network`, `accion` — desde D3
+   * el traspaso lo decide Compras) ni la etiquetera (`box_size`, `pack_size`). Con `ligero` esas
+   * columnas salen `null` («no se calculó», nunca cero) y la consulta se ahorra el sobrante de la red,
+   * un agregado sobre TODO el tenant que era ~60 % de su tiempo (medido 2026-10-24, Padre Hidalgo).
+   * Nada de lo que sí se devuelve depende de él: ni el sugerido, ni la posición, ni el orden.
+   * Con un filtro por `accion` se ignora (ese filtro necesita el reparto).
+   */
+  ligero?: boolean;
 }
 
 /**
@@ -1147,6 +1157,31 @@ export class CommercialReplenishmentService {
     const whIds = await this.whIds(q, area);
 
     return this.tk.run(async (trx) => {
+      // `[AB.36]` La mesa de Autoabasto y «Mi pedido» salen de esta consulta, y tardaba 4–6 s por
+      // sucursal (medido en prod el 2026-10-24, La Piedad: 4,240 ms de mediana). Tres cambios, cada
+      // uno medido contra la consulta REAL capturada del servicio, con el resultado comparado fila por
+      // fila (755 renglones, mismo orden, ninguna columna distinta):
+      //  · el factor de caja y el costo se leen de sus copias MATERIALIZADAS (abajo, `mv`);
+      //  · el JIT se apaga: compilaba ~0.3–0.4 s en cada llamada para una consulta que corre una vez;
+      //  · los precios de etiqueta (`lbl`) se leen DESPUÉS, sólo para los renglones devueltos.
+      // Juntos: 4,240 → ~500 ms la consulta, + ~145 ms la decoración.
+      await trx.raw('SET LOCAL jit = off');
+      // Se pregunta si EXISTEN en vez de asumirlo (mismo patrón que `[RA-PERF.1]` en `workbook()`).
+      //  · `mv_warehouse_box_factor` = la vista, 0 y 0 filas de diferencia en los dos sentidos
+      //    (249,194 filas, 2026-10-24).
+      //  · ⚠️ `mv_erp_unit_cost` NO es idéntica todo el tiempo: se refresca cada 15 min (grupo
+      //    `analytics_refresh` de `AnalyticsRefreshService`, latido en `analytics.cron_runs`) y el
+      //    2026-10-24 difería de la vista en 27 de 249,194 pares (costos que cambiaron después del
+      //    último refresco). O sea: el $ de la mesa puede usar un costo de hasta ~15 min de antigüedad.
+      //    La vista viva cuesta ~1 s aunque se filtre a un solo almacén, así que no cabe en 500 ms.
+      //    Rentabilidad ya lee la misma copia.
+      const mv = (await trx.raw(
+        `SELECT to_regclass('analytics.mv_warehouse_box_factor') AS vbf, to_regclass('analytics.mv_erp_unit_cost') AS euc`,
+      )).rows?.[0] ?? {};
+      const vbfSrc = mv.vbf ? 'analytics.mv_warehouse_box_factor' : 'analytics.v_warehouse_box_factor';
+      const eucSrc = mv.euc ? 'analytics.mv_erp_unit_cost' : 'analytics.v_erp_unit_cost';
+      // `[AB.36]` Sin el reparto de la red ni la etiquetera (ver `CriticalStockQuery.ligero`).
+      const ligero = !!q.ligero && !(ACCIONES as readonly string[]).includes(q.accion ?? '');
       // Ranking POR DINERO (venta/mes est.) RELATIVO al filtro activo: cuando se selecciona
       // un proveedor (o hay búsqueda), #1 = el producto de ESE proveedor que más VENDE EN $
       // en la sucursal — no el rank global. Antes ordenaba por unidades/día, pero la demanda
@@ -1161,6 +1196,9 @@ export class CommercialReplenishmentService {
       if (q.category_id && UUID_RX.test(q.category_id)) { rankFilter += ' AND p2.category_id = ?'; rankBind.push(q.category_id); }
       const rankTerm = (q.search || '').trim();
       if (rankTerm) { rankFilter += ' AND (p2.sku ILIKE ? OR p2.nombre ILIKE ?)'; rankBind.push(`%${rankTerm}%`, `%${rankTerm}%`); }
+      // `[AB.36]` El ranking es POR almacén (`PARTITION BY warehouse_id`): acotarlo a los almacenes de
+      // la consulta no mueve ningún rango, y deja de ordenar la venta de toda la red para uno solo.
+      if (whIds) { rankFilter += ' AND ih2.warehouse_id = ANY(?::uuid[])'; rankBind.push(whIds); }
       const rankSub = trx.raw(
         `(SELECT ih2.warehouse_id, ih2.product_id,
                  DENSE_RANK() OVER (PARTITION BY ih2.warehouse_id ORDER BY ${rankMoney} DESC, ih2.avg_daily_units DESC) AS sales_rank
@@ -1179,7 +1217,7 @@ export class CommercialReplenishmentService {
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
         // [VA.4] el costo del ARBITRO, al grano almacen x producto. Ver costUnit() para el CASE
         // por ERP y para por que Wincaja se queda con el catalogo.
-        .leftJoin('analytics.v_erp_unit_cost as euc', (j) =>
+        .leftJoin(`${eucSrc} as euc`, (j) =>
           j.on('euc.tenant_id', 'rp.tenant_id').andOn('euc.warehouse_id', 'rp.warehouse_id').andOn('euc.product_id', 'rp.product_id'))
         // RA.5 — tránsito desde el fact (sin RLS → tenant_id explícito en el ON)
         .leftJoin('analytics.replenishment_plan as rpl', (j) =>
@@ -1192,16 +1230,19 @@ export class CommercialReplenishmentService {
           j.on('rc.tenant_id', 'rp.tenant_id').andOn('rc.warehouse_id', 'rp.warehouse_id').andOn('rc.supplier_id', 'pr.supplier_id'))
         .leftJoin('commercial.warehouses as srcw', (j) =>
           j.on('srcw.tenant_id', 'rp.tenant_id').andOn('srcw.id', 'rc.source_warehouse_id'))
-        // Box factor de la etiquetera (fallback de factor_sale para uxc canónico; ver reference_box_factor_factor_sale)
-        .leftJoin(
-          trx.raw(`(SELECT tenant_id, product_id, max(box_size) AS bs, max(pack_size) AS ps FROM commercial.v_product_label_prices GROUP BY tenant_id, product_id) as lbl`),
-          (j: any) => j.on('lbl.tenant_id', 'rp.tenant_id').andOn('lbl.product_id', 'rp.product_id'))
+        // `[AB.36]` El box factor de la etiquetera (`lbl`) ya NO se une aquí: se lee después del
+        // listado, sólo para sus renglones (ver abajo).
         // ADR-055 — factor de caja POR ALMACÉN para display (resolvedor canónico único).
-        .leftJoin('analytics.v_warehouse_box_factor as vbf', (j) =>
+        .leftJoin(`${vbfSrc} as vbf`, (j) =>
           j.on('vbf.tenant_id', 'rp.tenant_id').andOn('vbf.warehouse_id', 'rp.warehouse_id').andOn('vbf.product_id', 'rp.product_id'))
         // RA-PRO.16 — SUPERÁVIT DE RED por producto, y [AB.12] lo que la red le PIDE. Ver networkSurplus().
-        .leftJoin(this.networkSurplus(trx, tenantId, target, basis === 'cadence', oh),
-          (j: any) => j.on('sbp.product_id', 'rp.product_id'))
+        // `[AB.36]` Con `ligero` no se une: ninguna columna que se devuelve lo nombra.
+        .modify((b: Knex.QueryBuilder) => {
+          if (!ligero) {
+            b.leftJoin(this.networkSurplus(trx, tenantId, target, basis === 'cadence', oh),
+              (j: Knex.JoinClause) => j.on('sbp.product_id', 'rp.product_id'));
+          }
+        })
         // Ranking POR VENTAS relativo al filtro (rankSub arriba): #1 = el que más vende
         // en la sucursal dentro del universo seleccionado. Solo los que venden reciben
         // rank (demanda 0 → NULL vía el leftJoin).
@@ -1232,6 +1273,10 @@ export class CommercialReplenishmentService {
       const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
       const surH = `GREATEST(0, ${oh} - rp.max_stock)`;
       const tin = this.transferIn(sug, surH);
+      // `[AB.36]` Una columna que depende del reparto de la red: con `ligero` sale NULL («no se
+      // calculó»), nunca cero, y la consulta no nombra `sbp`.
+      const deRed = (expr: string, alias: string, tipo = 'numeric') =>
+        trx.raw(ligero ? `NULL::${tipo} AS ${alias}` : `${expr} AS ${alias}`);
 
       // `[AB.14]` El filtro por acción va en el SERVIDOR. Antes la pantalla recortaba la página
       // ya cargada: con 50 renglones por página, «Traspaso» mostraba los traspasos de ESA página
@@ -1287,8 +1332,12 @@ export class CommercialReplenishmentService {
         conteo.andWhereRaw(`${sug} > 0`);
       }
 
-      const totalRow: any = await conteo.count('* as c').first();
-      const total = Number(totalRow?.c || 0);
+      // `[AB.36]` Con `ligero` y exportando todo, el conteo se pide sólo si el listado llegó al tope:
+      // por debajo, el total ES el número de renglones (mismos filtros, uniones 1:1 — el candado de
+      // eso es test-newdb-critical-stock-count.js). Ahorra una consulta en la ruta de la mesa.
+      const contar = async () => Number(((await conteo.count('* as c').first()) as { c?: string | number } | undefined)?.c || 0);
+      const contarDespues = ligero && !!q.export;
+      let total = contarDespues ? 0 : await contar();
 
       // [EC.U] Las MISMAS cantidades, sin dividir — en la unidad NATIVA del almacén.
       //
@@ -1327,8 +1376,8 @@ export class CommercialReplenishmentService {
           trx.raw(`ROUND(rp.max_stock::numeric, 2)       AS max_stock_nat`),
           trx.raw(`ROUND(rp.safety_stock::numeric, 2)    AS safety_stock_nat`),
           trx.raw(`ROUND((${sug})::numeric, 2)           AS suggested_qty_nat`),
-          trx.raw(`ROUND((${tin})::numeric, 2)           AS transfer_in_nat`),
-          trx.raw(`ROUND(GREATEST(0, ${sug} - ${tin})::numeric, 2) AS buy_qty_nat`),
+          deRed(`ROUND((${tin})::numeric, 2)`, 'transfer_in_nat'),
+          deRed(`ROUND(GREATEST(0, ${sug} - ${tin})::numeric, 2)`, 'buy_qty_nat'),
           'rp.source',
           // RA-PRO.1/2 — política profesional: safety stock por nivel de servicio + segmentación XYZ
           trx.raw(`ROUND(rp.safety_stock / (${cf}), 1) AS safety_stock`),
@@ -1360,8 +1409,7 @@ export class CommercialReplenishmentService {
           trx.raw('sup.min_order_amount AS supplier_min_amount'),
           trx.raw('pr.factor_purchase AS factor_purchase'),
           trx.raw('pr.factor_sale AS factor_sale'), // piezas/caja REAL (factor_purchase está roto); ver reference_box_factor_factor_sale
-          trx.raw('lbl.bs AS box_size'),            // fallback de factor_sale para uxc (etiquetera)
-          trx.raw('lbl.ps AS pack_size'),           // RA-PRO.30 — Pz/Paq; prueba box_size=factor_sale×pack_size
+          // `box_size` y `pack_size` (etiquetera) se agregan después del listado: ver `[AB.36]` abajo.
 
           trx.raw('COALESCE(abc.abc_class, rp.abc_class) AS abc_class'),
           trx.raw(`${this.costUnit()} AS unit_cost`),
@@ -1375,13 +1423,13 @@ export class CommercialReplenishmentService {
           trx.raw('vbf.base_label AS rung_base_label'),
           // RA-PRO.16 — Redistribución: cubrir el sugerido con sobrante de OTRA sucursal antes de comprar.
           trx.raw(`ROUND(GREATEST(0, ${oh} - rp.max_stock) / (${cf}), 1) AS surplus_here`),                                  // sobrante en ESTE almacén (traspasar a otra)
-          trx.raw(`ROUND(GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)) / (${cf}), 1) AS surplus_network`), // sobrante del producto en OTRAS sucursales
+          deRed(`ROUND(GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)) / (${cf}), 1)`, 'surplus_network'), // sobrante del producto en OTRAS sucursales
           // [AB.12] `transfer_in` es la PARTE que le toca a esta sucursal del sobrante de la red, no
           // el sobrante entero — ver transferIn(). `surplus_network` sigue siendo el total disponible.
-          trx.raw(`ROUND((${tin}) / (${cf}), 1) AS transfer_in`), // cubrible por traspaso
-          trx.raw(`ROUND(GREATEST(0, ${sug} - ${tin}) / (${cf}), 1) AS buy_qty`), // compra REAL (residual)
-          trx.raw(`CASE WHEN ${this.rungMedible()} THEN ROUND(GREATEST(0, ${sug} - ${tin}) * ${this.costUnit()}, 2) END AS buy_cost`),
-          trx.raw(`${this.accionExpr(sug, surH, tin)} AS accion`),
+          deRed(`ROUND((${tin}) / (${cf}), 1)`, 'transfer_in'), // cubrible por traspaso
+          deRed(`ROUND(GREATEST(0, ${sug} - ${tin}) / (${cf}), 1)`, 'buy_qty'), // compra REAL (residual)
+          deRed(`CASE WHEN ${this.rungMedible()} THEN ROUND(GREATEST(0, ${sug} - ${tin}) * ${this.costUnit()}, 2) END`, 'buy_cost'),
+          deRed(this.accionExpr(sug, surH, tin), 'accion', 'text'),
         )
         // Dinero primero: el sugerido valorizado ($) manda. Sin esto, los 3k+
         // agotados (muchos SKUs admin/insumo con costo 0) acaparan 60+ páginas
@@ -1406,6 +1454,27 @@ export class CommercialReplenishmentService {
           }
         })
         .limit(pageSize).offset((page - 1) * pageSize);
+      if (contarDespues) total = rows.length < pageSize ? rows.length : await contar();
+
+      // `[AB.36]` Box factor de la etiquetera (fallback de factor_sale para uxc canónico; ver
+      // reference_box_factor_factor_sale), sólo de los productos del listado. Unido arriba, agrupaba la
+      // vista ENTERA (79 mil precios de todo el tenant, ~0.5 s) para decorar dos columnas que ningún
+      // filtro ni orden usa. Mismo `max()` por producto: el resultado no cambia (probado fila por fila
+      // en `database/tests/test-newdb-mesa-rapida.js`). Sin dato queda `null`, como con el LEFT JOIN.
+      const ids: string[] = [...new Set((rows as Array<{ product_id: string }>).map((r) => r.product_id))];
+      const etiquetas = new Map<string, { bs: unknown; ps: unknown }>();
+      // Con `ligero` no se lee: quien lo pide no la usa, y sale `null` («no se leyó»).
+      if (ids.length && !ligero) {
+        const lbl = await trx.raw(
+          `SELECT product_id, max(box_size) AS bs, max(pack_size) AS ps FROM commercial.v_product_label_prices
+            WHERE tenant_id = ? AND product_id = ANY(?::uuid[]) GROUP BY product_id`, [tenantId, ids]);
+        for (const e of lbl.rows ?? []) etiquetas.set(e.product_id, { bs: e.bs, ps: e.ps });
+      }
+      for (const r of rows as Array<Record<string, unknown>>) {
+        const e = etiquetas.get(String(r['product_id']));
+        r['box_size'] = e?.bs ?? null;   // fallback de factor_sale para uxc (etiquetera)
+        r['pack_size'] = e?.ps ?? null;  // RA-PRO.30 — Pz/Paq; prueba box_size=factor_sale×pack_size
+      }
 
       return {
         total, page, pageSize, target_basis: basis, rows,
@@ -3767,36 +3836,55 @@ export class CommercialReplenishmentService {
    * devolvían vacío. Una pantalla que ofrece una sucursal y después la muestra en cero se lee
    * como «ahí no falta nada», que es peor que no ofrecerla.
    */
+  /**
+   * `[AB.36]` Sólo los almacenes que la persona alcanza: la MISMA lista que `filters()`, sin
+   * proveedores, marcas ni categorías. La usa el control de alcance de Autoabasto, que antes pedía
+   * `filters()` entero (157–193 ms, medido 2026-10-24) para leer 6 ms de almacenes en cada carga.
+   */
+  async almacenes(area: string = AREA): Promise<ReplenishmentFilters['warehouses']> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const permitidos = await this.whIds({}, area);
+    return this.tk.run((trx) => this.almacenesDe(trx, tenantId, permitidos));
+  }
+
+  /**
+   * RA-PRO.48 — el alcance era "almacenes CON reorder_policy", y eso dejaba la lista corta: el
+   * pedido se arma sobre `analytics.replenishment_plan`, que tiene 9 almacenes, mientras la
+   * política sólo cubría 4. Los otros 5 llegaban al front sin nombre (`nameOf` devolvía '') y
+   * el desglose los mostraba con el renglón en blanco. Ahora cubre lo que la pantalla muestra:
+   * con política, o presentes en el fact, o CEDIS de consolidación.
+   * `purchase_zone` / `is_purchase_hub` (mig 20260910120000) alimentan el agrupado por zona y
+   * el selector "Consolidado ▸ ¿en qué CEDIS?". Se leen de la tabla, no se deducen de códigos.
+   * `[AB.36]` En un solo lugar para `filters()` y `almacenes()`: si fueran dos, el selector y el
+   * control de alcance podrían ofrecer y aceptar listas distintas.
+   */
+  private async almacenesDe(trx: Knex.Transaction, tenantId: string, permitidos: string[] | null): Promise<ReplenishmentFilters['warehouses']> {
+    return (await trx('commercial.warehouses as w')
+      .where('w.tenant_id', tenantId)
+      .andWhere('w.active', true)
+      .whereNull('w.deleted_at')
+      .andWhere((q) => q
+        .whereExists(trx.select(trx.raw('1')).from('commercial.reorder_policy as rp')
+          .whereRaw('rp.tenant_id = w.tenant_id AND rp.warehouse_id = w.id'))
+        .orWhereExists(trx.select(trx.raw('1')).from('analytics.replenishment_plan as pl')
+          .whereRaw('pl.tenant_id = w.tenant_id AND pl.warehouse_id = w.id'))
+        .orWhere('w.is_purchase_hub', true))
+      .modify((q) => { if (permitidos) q.whereIn('w.id', permitidos); })
+      .select('w.id as id', 'w.code as code', 'w.name as name', 'w.kind as kind',
+        'w.purchase_zone as purchase_zone', 'w.is_purchase_hub as is_purchase_hub',
+        'w.display_order as display_order'))
+      // Orden canónico de tiendas para el multiselect (mismo que las columnas del workbook).
+      // ⚠️ Al fusionar con `[RA-PRO.32.2]`: este alcance ampliado traía `.orderBy('w.code')`, que
+      // es JUSTO el alfabético que ese contrato retiró ("00,01,…,MD-30 no es como el negocio
+      // piensa la red"). Se ordena acá, en JS, igual que el otro consumidor de este servicio.
+      .sort((a: { code: string }, b: { code: string }) => compareWarehouseCodes(a.code, b.code));
+  }
+
   async filters(area: string = AREA): Promise<ReplenishmentFilters> {
     const tenantId = this.tenantCtx.requireTenantId();
     const permitidos = await this.whIds({}, area);
     return this.tk.run(async (trx) => {
-      // RA-PRO.48 — el alcance era "almacenes CON reorder_policy", y eso dejaba la lista corta: el
-      // pedido se arma sobre `analytics.replenishment_plan`, que tiene 9 almacenes, mientras la
-      // política sólo cubría 4. Los otros 5 llegaban al front sin nombre (`nameOf` devolvía '') y
-      // el desglose los mostraba con el renglón en blanco. Ahora cubre lo que la pantalla muestra:
-      // con política, o presentes en el fact, o CEDIS de consolidación.
-      // `purchase_zone` / `is_purchase_hub` (mig 20260910120000) alimentan el agrupado por zona y
-      // el selector "Consolidado ▸ ¿en qué CEDIS?". Se leen de la tabla, no se deducen de códigos.
-      const warehouses = (await trx('commercial.warehouses as w')
-        .where('w.tenant_id', tenantId)
-        .andWhere('w.active', true)
-        .whereNull('w.deleted_at')
-        .andWhere((q) => q
-          .whereExists(trx.select(trx.raw('1')).from('commercial.reorder_policy as rp')
-            .whereRaw('rp.tenant_id = w.tenant_id AND rp.warehouse_id = w.id'))
-          .orWhereExists(trx.select(trx.raw('1')).from('analytics.replenishment_plan as pl')
-            .whereRaw('pl.tenant_id = w.tenant_id AND pl.warehouse_id = w.id'))
-          .orWhere('w.is_purchase_hub', true))
-        .modify((q) => { if (permitidos) q.whereIn('w.id', permitidos); })
-        .select('w.id as id', 'w.code as code', 'w.name as name', 'w.kind as kind',
-          'w.purchase_zone as purchase_zone', 'w.is_purchase_hub as is_purchase_hub',
-          'w.display_order as display_order'))
-        // Orden canónico de tiendas para el multiselect (mismo que las columnas del workbook).
-        // ⚠️ Al fusionar con `[RA-PRO.32.2]`: este alcance ampliado traía `.orderBy('w.code')`, que
-        // es JUSTO el alfabético que ese contrato retiró ("00,01,…,MD-30 no es como el negocio
-        // piensa la red"). Se ordena acá, en JS, igual que el otro consumidor de este servicio.
-        .sort((a: { code: string }, b: { code: string }) => compareWarehouseCodes(a.code, b.code));
+      const warehouses = await this.almacenesDe(trx, tenantId, permitidos);
       const suppliers = await trx('commercial.reorder_policy as rp')
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))

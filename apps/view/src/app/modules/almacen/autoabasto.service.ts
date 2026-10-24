@@ -176,15 +176,13 @@ export interface AutoabastoWarehouseOpt {
   is_purchase_hub: boolean;
 }
 
-export interface AutoabastoSupplierOpt {
-  id: string;
-  name: string;
-  min_order_boxes: number | null;
-}
-
+/**
+ * `[AB.36]` Sólo los almacenes que la persona alcanza. Traía también los proveedores (y el servidor
+ * calculaba marcas y categorías de toda la red) y ninguna pantalla de Autoabasto los pintaba; la mesa
+ * espera esta respuesta antes de pedirse, así que eran ~175 ms sumados a cada carga.
+ */
 export interface AutoabastoFiltros {
   warehouses: AutoabastoWarehouseOpt[];
-  suppliers: AutoabastoSupplierOpt[];
 }
 
 /**
