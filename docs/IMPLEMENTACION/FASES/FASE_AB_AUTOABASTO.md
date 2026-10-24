@@ -1817,8 +1817,8 @@ mecánica, no son datos de prod.
 
 | # | Decisión | Forma acordada entre AB y PQ | Firma |
 |---|---|---|---|
-| **D14** | ¿Lo que pidió la sucursal cambia el sugerido de Compras? | **Resta** en la celda de la sucursal sólo lo que es mercancía en movimiento: pedido de traspaso abierto de 7 días o menos y embarque sin recibir, **contados desde el documento de Kepler**, nunca desde la requisición aprobada en la Suite (PQ M2: el 55 % de esas no tiene ningún `U-D-40`). Las requisiciones de la sucursal **se muestran y no se restan**. Al aprobarse, la requisición se liga a su origen | ⬜ el PM aprobó el plan; falta la firma explícita |
-| **D15** | ¿Dónde atiende Compras lo que pide la sucursal? | **No es bandeja nueva:** `/compras/requisiciones` con el filtro «pedida por sucursal», más la tarea en «Mi trabajo» (AB.32). La liga origen → atención ya existe desde `[RQ.8]` | ⬜ ídem |
+| **D14** | ¿Lo que pidió la sucursal cambia el sugerido de Compras? | **Resta** en la celda de la sucursal sólo lo que es mercancía en movimiento: pedido de traspaso abierto de 7 días o menos y embarque sin recibir, **contados desde el documento de Kepler**, nunca desde la requisición aprobada en la Suite (PQ M2: el 55 % de esas no tiene ningún `U-D-40`). Las requisiciones de la sucursal **se muestran y no se restan**. Al aprobarse, la requisición se liga a su origen | ✅ PM, 2026-10-24 («sigamos con lo pendiente») |
+| **D15** | ¿Dónde atiende Compras lo que pide la sucursal? | **No es bandeja nueva:** `/compras/requisiciones` con el filtro «pedida por sucursal», más la tarea en «Mi trabajo» (AB.32). La liga origen → atención ya existe desde `[RQ.8]` | ✅ PM, 2026-10-24 |
 
 **Los cuatro ajustes de PQ, aceptados:**
 1. **Una sola regla de «ya viene».** La cuenta de traspasos abiertos y embarques sin recibir sale de UNA función compartida en `libs/` (al lado de `transito.ts`), con las ventanas de 7 días, la conversión de unidades de AB.23 y una consulta para toda la red. «Mi pedido», la mesa y `/compras/pedido` la consumen; nadie la reescribe (ADR-056).
@@ -1838,7 +1838,9 @@ mecánica, no son datos de prod.
 | **PQ** | Consumirla en `workbook` y `transferPlan` como descuento por celda, mostrar «la sucursal ya pidió» y hacer **el commit del número** con su antes/después. ⚠️ **Número de item por asignar:** PQ propuso «PQ.12», pero ese número ya lo usa PQ para «la matriz pide lo que sus sucursales le van a sacar» (CEDIS) |
 | **AB.31 / D10–D11** | Lo comprometido en la matriz, coordinado con PQ. ⚠️ Se cruza con ese PQ.12 del CEDIS: es la misma pregunta («cuánto le van a sacar a la matriz») vista desde 00. Hay que decidir quién la responde antes de que los dos la construyan |
 
-#### Un error que el ejercicio destapó — AB.35
+🧪 *AB.34 en código 2026-10-24 (`624060d10`): `ya-pedido-sucursal.ts`; prueba contra prod 12/12 (SQL idéntico al de «Mi pedido», red = sucursal por sucursal en 9 bases, control negativo). ⚠️ `leerYaPedidoRed` tarda **5.2 s** para la red: no entra así a `/compras/pedido`; bajarlo va aparte, antes de que PQ lo consuma.*
+
+#### Un error que el ejercicio destapó — AB.35 — 🧪 *corregido 2026-10-24 (`716a3e828`): «Falta por pedir», y la explicación dice cuánto ya viene.*
 
 En el Mazapán, la mesa (AB.28a) dice **«Nadie lo ha pedido»** aunque ya vienen 20 de 32: el rótulo
 afirma algo falso cuando la cobertura es parcial (ley 0 del estándar de interfaces). `estadoRenglon`
