@@ -401,7 +401,10 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
             <span class="step-num">2</span>
             <h2>Artículo</h2>
           </div>
-          <div class="search-step">
+          <!-- [E.29] La lista se abre al TECLEAR o con ↓ (los más vendidos), nunca sólo por entrar al
+               campo, y se cierra con Esc o al salir: antes se abría al recibir el foco y no la
+               cerraba nada más que elegir un artículo. -->
+          <div class="search-step" (focusout)="alSalirDelBuscador($event)">
             <label class="sr-only" for="prodSearchInput">Buscar artículo por código de barras, SKU o nombre</label>
             <!-- La lista de abajo NO es p-autocomplete a propósito: Enter antes de que llegue la
                  respuesta elige el primer renglón de ESA respuesta y el escaneo exacto se elige
@@ -417,10 +420,11 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 [(ngModel)]="terminoArticulo"
                 (ngModelChange)="onTerminoArticulo($event)"
                 (focus)="onFocoArticulo()"
+                (keydown.escape)="catalogoAbierto.set(false)"
                 (keydown.arrowdown)="$event.preventDefault(); moverResaltado(1)"
                 (keydown.arrowup)="$event.preventDefault(); moverResaltado(-1)"
                 (keydown.enter)="$event.preventDefault(); elegirResaltado()"
-                [placeholder]="sucursal() ? 'Escanea el código de barras o escribe SKU / nombre (palabras en cualquier orden) · ↑↓ y Enter para elegir' : 'Primero elige la sucursal'"
+                [placeholder]="sucursal() ? 'Escanea el código de barras o escribe SKU / nombre · ↓ muestra los más vendidos · Enter elige' : 'Primero elige la sucursal'"
                 autocorrect="off"
                 spellcheck="false"
                 [disabled]="guardando() || !sucursal()"
@@ -787,6 +791,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                   [minDate]="hoy"
                   dateFormat="dd/mm/yy"
                   [showIcon]="true"
+                  [showOnFocus]="false"
                   [disabled]="guardando()"
                   [fluid]="true"
                   appendTo="body"
@@ -1265,7 +1270,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
   previaArticulo = signal<PricedLine | null>(null);
   /** El buscador de artículo: al agregar a la bandeja el cursor vuelve acá para el siguiente. */
   private readonly buscadorArticulo = viewChild<ElementRef<HTMLInputElement>>('buscadorArticulo');
-  private focoSinAbrirCatalogo = false;
+  /** [E.29] El foco está en el buscador: sólo entonces una respuesta puede abrir la lista. */
+  private buscadorEnFoco = false;
   /** El campo de cantidad de la franja: recibe el cursor al elegir artículo (dictado sin mouse). */
   private readonly cantidadInput = viewChild<ElementRef<HTMLInputElement>>('cantidadInput');
   /** Renglón resaltado de la lista de artículos (↑/↓ + Enter). */
@@ -1427,7 +1433,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
         this.buscandoArticulo.set(false);
         // Con un artículo ya elegido la lista NO se reabre: una respuesta que llega tarde la
         // abría encima de la franja de cantidad y tapaba el campo donde se está tecleando.
-        this.catalogoAbierto.set(!this.articuloElegido());
+        // [E.29] Y tampoco si la persona ya salió del buscador: la respuesta la reabría encima de la
+        // tabla cuando el foco ya estaba en otra parte.
+        this.catalogoAbierto.set(!this.articuloElegido() && this.buscadorEnFoco);
 
         // Si es escaneo exacto de código de barras o SKU
         const t = this.terminoArticulo.trim();
@@ -1617,12 +1625,17 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.busquedaArticulo$.next();
   }
 
+  /** Entrar al campo NO abre la lista (E.29): se abre al teclear o con ↓. */
   onFocoArticulo(): void {
-    if (this.focoSinAbrirCatalogo) return;
-    this.catalogoAbierto.set(true);
-    if (this.resultadosArticulos().length === 0) {
-      this.busquedaArticulo$.next();
-    }
+    this.buscadorEnFoco = true;
+  }
+
+  /** Salir del buscador (clic afuera, Tab) cierra la lista; moverse a una opción de la lista, no. */
+  alSalirDelBuscador(e: FocusEvent): void {
+    const destino = e.relatedTarget as Node | null;
+    if (destino && (e.currentTarget as HTMLElement).contains(destino)) return;
+    this.buscadorEnFoco = false;
+    this.catalogoAbierto.set(false);
   }
 
   elegirArticulo(p: QuoteCatalogRow): void {
@@ -1641,13 +1654,18 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.agregarAlLlegarPrecio = false;
     this.articuloElegido.set(null);
     this.previaArticulo.set(null);
-    this.catalogoAbierto.set(true);
+    // [E.29] Vuelve al buscador; la lista se abre cuando se teclee, no sola.
+    this.volverAlBuscador();
   }
 
   /** ↑/↓ en el buscador: mueve el resaltado de la lista sin soltar el teclado. */
   moverResaltado(delta: number): void {
     const n = this.resultadosArticulos().length;
-    if (!n) return;
+    if (!n) {
+      // [E.29] ↓ con el campo vacío es «muéstrame los más vendidos»: la pide y la abre al llegar.
+      if (delta > 0) this.busquedaArticulo$.next();
+      return;
+    }
     this.catalogoAbierto.set(true);
     this.resaltado.set(Math.min(n - 1, Math.max(0, this.resaltado() + delta)));
     afterNextRender(
@@ -1856,14 +1874,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
    * bandeja recién actualizada. Al teclear se abre sola (búsqueda).
    */
   private volverAlBuscador(): void {
-    this.focoSinAbrirCatalogo = true;
-    afterNextRender(
-      () => {
-        this.buscadorArticulo()?.nativeElement.focus();
-        this.focoSinAbrirCatalogo = false;
-      },
-      { injector: this.injector },
-    );
+    afterNextRender(() => this.buscadorArticulo()?.nativeElement.focus(), { injector: this.injector });
   }
 
   /** Cantidad tecleada en la tabla de renglones ("mejor que sean 12"), al confirmar. */

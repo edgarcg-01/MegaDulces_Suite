@@ -203,7 +203,8 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
             <div class="captura-body">
               <!-- COT.18: el título comparte fila con el buscador (antes: encabezado + subtítulo +
                    etiqueta = 3 renglones antes de poder escribir). -->
-              <div class="search-step">
+              <!-- [E.29] Como el alta: la lista se abre al teclear, se cierra con Esc o al salir. -->
+              <div class="search-step" (focusout)="alSalirDelBuscador($event)">
                 <label class="captura-lbl" for="prodSearchInput">
                   <i class="pi pi-plus-circle" aria-hidden="true"></i> Agregar artículo
                 </label>
@@ -217,6 +218,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                     [(ngModel)]="termino"
                     (ngModelChange)="onTermino($event)"
                     (focus)="onFoco()"
+                    (keydown.escape)="catalogoAbierto.set(false)"
                     placeholder="Escribe código SKU, código de barras o nombre del producto..."
                     autocorrect="off"
                     spellcheck="false"
@@ -986,7 +988,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   readonly elegido = signal<QuoteCatalogRow | null>(null);
   /** El buscador de artículo: al agregar un renglón el cursor vuelve acá para el siguiente. */
   private readonly buscadorArticulo = viewChild<ElementRef<HTMLInputElement>>('buscadorArticulo');
-  private focoSinAbrirCatalogo = false;
+  /** [E.29] El foco está en el buscador: sólo entonces una respuesta puede abrir la lista. */
+  private buscadorEnFoco = false;
 
   termino = '';
   cantidad = 1;
@@ -1145,7 +1148,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         });
         this.resultados.set(ordenados);
         this.buscando.set(false);
-        this.catalogoAbierto.set(true);
+        // [E.29] Sólo si la persona sigue en el buscador: una respuesta tardía no la reabre encima.
+        this.catalogoAbierto.set(this.buscadorEnFoco);
 
         const t = this.termino.trim();
         if (ordenados.length === 1 && t && (ordenados[0].sku.toUpperCase() === t.toUpperCase() || ordenados[0].barcode === t)) {
@@ -1194,10 +1198,17 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.buscar$.next();
   }
 
+  /** Entrar al campo NO abre la lista (E.29): se abre al teclear. */
   onFoco(): void {
-    if (this.focoSinAbrirCatalogo) return;
-    this.catalogoAbierto.set(true);
-    if (this.resultados().length === 0) this.buscar$.next();
+    this.buscadorEnFoco = true;
+  }
+
+  /** Salir del buscador cierra la lista; moverse a una opción de la lista, no. */
+  alSalirDelBuscador(e: FocusEvent): void {
+    const destino = e.relatedTarget as Node | null;
+    if (destino && (e.currentTarget as HTMLElement).contains(destino)) return;
+    this.buscadorEnFoco = false;
+    this.catalogoAbierto.set(false);
   }
 
   elegir(p: QuoteCatalogRow): void {
@@ -1209,7 +1220,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   limpiarEleccion(): void {
     this.elegido.set(null);
     this.previa.set(null);
-    this.catalogoAbierto.set(true);
+    // [E.29] Vuelve al buscador; la lista se abre cuando se teclee, no sola.
+    this.volverAlBuscador();
   }
 
   setRung(r: Rung): void {
@@ -1407,14 +1419,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
    * la pantalla lo vuelva a habilitar, si no el `focus()` cae sobre un control deshabilitado.
    */
   private volverAlBuscador(): void {
-    this.focoSinAbrirCatalogo = true;
-    afterNextRender(
-      () => {
-        this.buscadorArticulo()?.nativeElement.focus();
-        this.focoSinAbrirCatalogo = false;
-      },
-      { injector: this.injector },
-    );
+    afterNextRender(() => this.buscadorArticulo()?.nativeElement.focus(), { injector: this.injector });
   }
 
   private limpiarAlta(): void {
