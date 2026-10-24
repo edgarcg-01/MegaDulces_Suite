@@ -369,11 +369,26 @@ pantalla es **«existencia no medida para N SKUs»**, no «A comprar $0 · sin d
 su demanda es `eff_daily` (ya calculada) y su compra es `eff_daily × cobertura − existencia`.
 Registrado como **PQ.12** (dependiente de ese conteo) y como bloqueo con dueño en §8.
 
-⚠️ Dos cosas que este cruce **no** resolvió: (a) `kdil` crudo del almacén `00` trae 3,836 SKUs con
-saldo positivo y 8.36 M pz, que ni Kepler ni nosotros publicamos — es el residuo de cuando `md_00`
-era base de prueba (`VERDAD_ABSOLUTA` §17), y sigue sin explicarse del todo; (b) el join a `kdil`
-por SKU no se logró en esta sesión (la columna del SKU en `kdil` no es `c2`), así que el conteo de
-«embarcados con saldo negativo» queda **NO MEDIDO** por esa vía; se infiere del reporte de Kepler.
+### 12.1 Paridad con el reporte de Kepler, SKU por SKU (misma tarde)
+
+Regla del PM: *«nada inventado ni importado; la misma fórmula de Kepler y los mismos resultados»*.
+Medido con [`pq-paridad-existencia-reporte-kepler.js`](../../../database/scripts/pq-paridad-existencia-reporte-kepler.js)
+(control a ojo 11/11; `pdftotext -layout` corría los renglones un SKU y se tiró): **289 de 303
+positivos idénticos**; 2 distintos y 11 «sólo nuestros» son movimientos de hoy después de las 11:55;
+**45 negativos** que Kepler publica y nuestra vista recorta a 0 (`kdil c4+c8−c9` crudo los
+reproduce 45/45); **11 «sólo Kepler»** con último movimiento antes del corte que nuestro filtro de
+actividad excluye; 1 SKU fuera del catálogo. Detalle en `VERDAD_ABSOLUTA` §17.4b.
+
+**Decisiones nuevas, a firmar:**
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| D8 | ¿Publicamos los negativos como Kepler? | **Sí**, con rótulo «negativo en Kepler»: hoy 45 SKUs se ven como 0 y un cero y un faltante no son lo mismo (ADR-056). Quita el `GREATEST(…,0)` de la vista; cambia número → antes/después |
+| D9 | ¿Qué hacemos con los 11 SKUs sin actividad desde el corte que Kepler sí lista? | Investigar la regla exacta del ERP antes de tocar el filtro: ese filtro es lo que hoy nos deja a 296 contra 303 y no a 3,836. **NO MEDIDO** por qué Kepler incluye esos 11 |
+
+⚠️ Sigue sin resolverse por qué `kdil` crudo trae 3,836 SKUs positivos (8.36 M pz) que ni Kepler ni
+nosotros publicamos: el filtro de actividad **replica** el resultado de Kepler sin que sepamos su regla.
+El join a `kdil` por SKU es por `c3` (no `c2`), ya corregido en el instrumento.
 
 ---
 
