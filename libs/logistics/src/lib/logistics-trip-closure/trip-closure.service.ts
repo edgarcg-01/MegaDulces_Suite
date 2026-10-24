@@ -8,6 +8,7 @@ import {
 import type { Knex } from 'knex';
 import { ObjectStorageService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import type {
+  CargaDelEmbarque,
   CargadorRegistrado,
   CargadoresBody,
   CerrarParadaBody,
@@ -16,7 +17,10 @@ import type {
   PagoViaje,
   ParadaCierre,
 } from '@megadulces/contracts';
-import { erroresDeCargadores, erroresDeCierreDeParada } from '@megadulces/contracts';
+import {
+  erroresDeCargadores, erroresDeCierreDeParada, repartoDeCarga, TARIFA_CARGA_CAJA_KEY, totalDeCarga,
+} from '@megadulces/contracts';
+import { CambioRegistrado, tarifaVigenteEl } from '../logistics-config/tarifas-fijas.logic';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -47,6 +51,16 @@ export interface FilaPago extends Omit<PagoViaje, 'shipment_date' | 'amount'> {
   amount: Num;
 }
 interface FilaCargador { id: string; driver_id: string; persona: string; rate: Num; pagado: boolean | null }
+/** Lo que hace falta del embarque para calcular su carga. */
+interface EmbarqueCarga {
+  id: string;
+  shipment_date: Fecha;
+  kepler_sucursal: string | null;
+  kepler_guia: string | null;
+  boxes_count: Num;
+  status?: string;
+}
+const COLS_EMBARQUE = ['id', 'shipment_date', 'kepler_sucursal', 'kepler_guia', 'boxes_count', 'status'];
 
 const num = (v: unknown): number | null => (v == null ? null : Number(v));
 const dia = (v: unknown): string | null => {
@@ -86,18 +100,19 @@ export class TripClosureService {
   async cierre(shipmentId: string): Promise<CierreDeEmbarque> {
     if (!UUID.test(shipmentId)) throw new BadRequestException('shipment_id inválido');
     const datos = await this.tk.run(async (trx) => {
-      const s = await trx('logistics.shipments').where({ id: shipmentId }).whereNull('deleted_at').first('id');
+      const s: EmbarqueCarga | undefined = await trx('logistics.shipments')
+        .where({ id: shipmentId }).whereNull('deleted_at').first(COLS_EMBARQUE);
       if (!s) throw new NotFoundException('Embarque no encontrado');
-      const [viajes, paradas, pagos, cargadores, tarifa] = await Promise.all([
+      const [viajes, paradas, pagos, cargadores, carga] = await Promise.all([
         trx('logistics.v_trip_state').where({ shipment_id: shipmentId }).orderBy('guide_number'),
         trx('logistics.v_trip_stop_closure')
           .where({ shipment_id: shipmentId })
           .orderByRaw('sequence_order NULLS LAST, kepler_folio NULLS LAST, recipient_id'),
         trx('logistics.v_trip_pay_items').where({ shipment_id: shipmentId }).orderBy(['rol', 'persona', 'concept']),
         this.cargadoresDe(trx, shipmentId),
-        this.tarifaCarga(trx),
+        this.cargaDe(trx, s),
       ]);
-      return { viajes, paradas, pagos, cargadores, tarifa };
+      return { viajes, paradas, pagos, cargadores, carga };
     });
 
     const paradas: ParadaCierre[] = await Promise.all(
@@ -146,7 +161,7 @@ export class TripClosureService {
       paradas,
       pagos: (datos.pagos as FilaPago[]).map(aPagoViaje),
       cargadores: datos.cargadores,
-      tarifa_carga: datos.tarifa,
+      carga: datos.carga,
     };
   }
 
@@ -196,17 +211,22 @@ export class TripClosureService {
     return shipment.paradas.find((p) => p.recipient_id === recipientId) as ParadaCierre;
   }
 
-  /** `[EMB.27]` Quién cargó el embarque. Reemplaza la lista; cada cargador cobra la tarifa vigente. */
+  /**
+   * `[EMB.27]` `[EMB.39]` Quién cargó el embarque. Reemplaza la lista. La carga se paga por caja:
+   * cajas del embarque × tarifa vigente el día del embarque, repartido en partes iguales a centavos.
+   * Cada renglón guarda con qué cajas y qué tarifa se calculó: cambiar la tarifa después no lo mueve.
+   */
   async setCargadores(shipmentId: string, body: CargadoresBody): Promise<CierreDeEmbarque> {
     if (!UUID.test(shipmentId)) throw new BadRequestException('shipment_id inválido');
     await this.tk.run(async (trx) => {
-      const tarifa = await this.tarifaCarga(trx);
-      const errs = erroresDeCargadores(body, tarifa);
-      if (errs.length) throw new BadRequestException(errs.join(' '));
-
-      const s = await trx('logistics.shipments').where({ id: shipmentId }).whereNull('deleted_at').forUpdate().first();
+      const s: EmbarqueCarga | undefined = await trx('logistics.shipments')
+        .where({ id: shipmentId }).whereNull('deleted_at').forUpdate().first(COLS_EMBARQUE);
       if (!s) throw new NotFoundException('Embarque no encontrado');
       if (s.status === 'cancelado') throw new ConflictException('El embarque está cancelado.');
+
+      const carga = await this.cargaDe(trx, s);
+      const errs = erroresDeCargadores(body, carga);
+      if (errs.length) throw new BadRequestException(errs.join(' '));
 
       const pagados = await trx('finance.trip_pay_lines as l')
         .join('logistics.load_details as ld', 'ld.id', 'l.source_id')
@@ -232,16 +252,20 @@ export class TripClosureService {
 
       await trx('logistics.load_details').where({ shipment_id: shipmentId }).del();
       if (ids.length) {
+        const partes = repartoDeCarga(carga.total ?? 0, ids.length);
         await trx('logistics.load_details').insert(
-          ids.map((driver_id) => ({
+          ids.map((driver_id, i) => ({
             tenant_id: trx.raw('public.current_tenant_id()'),
             shipment_id: shipmentId,
             driver_id,
-            rate: tarifa,
+            rate: partes[i],
+            boxes: carga.cajas,
+            rate_per_box: carga.tarifa_por_caja,
             role_at_time: 'cargador',
             created_by: this.actorId(),
           })),
         );
+        this.logger.log(`Carga ${shipmentId}: ${carga.cajas} cajas × $${carga.tarifa_por_caja} = $${carga.total} entre ${ids.length} (${this.actor() ?? '?'})`);
       }
     });
     return this.cierre(shipmentId);
@@ -264,12 +288,58 @@ export class TripClosureService {
     }));
   }
 
-  private async tarifaCarga(trx: Knex.Transaction): Promise<number | null> {
-    const row = await trx('logistics.config_finance')
-      .where({ key: 'tarifa_maniobra_carga', active: true })
-      .first('value');
-    const v = row?.value == null ? null : Number(row.value);
-    return v != null && v > 0 ? v : null;
+  /** `[EMB.39]` Tarifa vigente el día del embarque × cajas del embarque. */
+  private async cargaDe(trx: Knex.Transaction, s: EmbarqueCarga): Promise<CargaDelEmbarque> {
+    const [tarifa, cajas] = await Promise.all([this.tarifaCargaEl(trx, dia(s.shipment_date)), this.cajasDe(trx, s)]);
+    return {
+      tarifa_por_caja: tarifa,
+      cajas: cajas?.cajas ?? null,
+      fuente_cajas: cajas?.fuente ?? null,
+      total: totalDeCarga(cajas?.cajas ?? null, tarifa),
+    };
+  }
+
+  /**
+   * `[EMB.39]` La tarifa por caja que estaba vigente ese día, derivada de `logistics.tariff_changes`
+   * (EMB.28.1): un cambio de tarifa aplica desde el día en que se hizo, no hacia atrás.
+   */
+  private async tarifaCargaEl(trx: Knex.Transaction, diaEmbarque: string | null): Promise<number | null> {
+    if (!diaEmbarque) return null;
+    const row = await trx('logistics.config_finance').where({ key: TARIFA_CARGA_CAJA_KEY }).first('id', 'value', 'active');
+    if (!row) return null;
+    const cambios: CambioRegistrado[] = await trx('logistics.tariff_changes')
+      .where({ entity: 'config', entity_id: row.id })
+      .select('field', 'old_value', 'new_value', 'changed_at');
+    return tarifaVigenteEl(row, cambios, diaEmbarque);
+  }
+
+  /**
+   * `[EMB.39]` Cajas del embarque. Si salió de Kepler: Σ de las cajas (presentación CJA/BTO) de
+   * todas las paradas de la guía, leídas en vivo. Si es manual: las capturadas. `null` = no se sabe;
+   * un embarque de Kepler con sólo piezas sueltas tiene 0 cajas, que es un dato, no un hueco.
+   */
+  private async cajasDe(trx: Knex.Transaction, s: EmbarqueCarga): Promise<{ cajas: number; fuente: 'kepler' | 'captura' } | null> {
+    if (s.kepler_sucursal && s.kepler_guia) {
+      // Dos pasos con constantes, a propósito: un LATERAL contra `erp_shipment_stop_load` no baja
+      // serie/folio al índice de kdm2 y recorre TODOS los embarques de la sucursal por parada
+      // (medido 2026-10-24: guía de 30 paradas, 1.7–6 s; así, 15 ms con el mismo resultado).
+      const paradas: Array<{ serie: number; folio: string }> = await trx('analytics.erp_shipment_stops')
+        .where({ sucursal: s.kepler_sucursal, guia_embarque: s.kepler_guia })
+        .distinct('serie', 'folio');
+      if (!paradas.length) return null;
+      const deLaGuia = new Set(paradas.map((p) => `${p.serie}|${p.folio}`));
+      const renglones: Array<{ serie: number; folio: string; cajas: Num }> = await trx('analytics.erp_shipment_stop_load')
+        .where({ sucursal: s.kepler_sucursal })
+        .whereIn('serie', [...new Set(paradas.map((p) => Number(p.serie)))])
+        .whereIn('folio', [...new Set(paradas.map((p) => p.folio))])
+        .select('serie', 'folio', 'cajas');
+      const propios = renglones.filter((r) => deLaGuia.has(`${r.serie}|${r.folio}`));
+      // Sin renglones en Kepler, las cajas no se saben (null); con piezas sueltas, son 0 de verdad.
+      if (!propios.length) return null;
+      return { cajas: propios.reduce((a, r) => a + Number(r.cajas ?? 0), 0), fuente: 'kepler' };
+    }
+    const capturadas = Number(s.boxes_count ?? 0);
+    return capturadas > 0 ? { cajas: capturadas, fuente: 'captura' } : null;
   }
 
   private async urlDe(key: string | null): Promise<string | null> {

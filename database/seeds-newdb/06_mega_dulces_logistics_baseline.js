@@ -105,6 +105,9 @@ exports.seed = async function (knex) {
       { key: 'costo_km_estandar', category: 'costo_km', value: 8.5, unit: 'mxn/km', description: 'Costo fijo por km (incluye depreciación, llantas, aceite).' },
       { key: 'factor_jalisco', category: 'factor', value: 1.0, unit: 'pct', description: 'Factor multiplicador para rutas en Jalisco.' },
       { key: 'tarifa_maniobra_caja', category: 'tarifa_maniobra', value: 5.0, unit: 'mxn', description: 'Tarifa por caja en maniobra de carga/descarga.' },
+      // [EMB.39] La que lee el pago de la carga (decisión de Edgar, 2026-10-24). En prod la da de
+      // alta la migración 20261024110354; aquí para que una base de desarrollo arranque igual.
+      { key: 'tarifa_carga_caja', category: 'tarifa_maniobra', value: 0.2, unit: 'mxn/caja', description: 'Carga de camión: pesos por caja embarcada; se reparte en partes iguales entre quienes cargaron' },
     ];
     for (const cfg of configs) {
       await trx('logistics.config_finance')

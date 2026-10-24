@@ -36,7 +36,7 @@ function baseFalsa(r: Respuestas) {
     const b: any = {
       where(a: any) { if (typeof a === 'object') filtro = { ...(filtro ?? {}), ...a }; return b; },
       whereNull: () => b, whereNot: () => b, whereIn: () => b, join: () => b, leftJoin: () => b,
-      orderBy: () => b, orderByRaw: () => b, select: () => b, forUpdate: () => b,
+      orderBy: () => b, orderByRaw: () => b, select: () => b, forUpdate: () => b, distinct: () => b,
       first: async () => r.primero?.[tabla],
       count: async () => [{ n: String(r.conteo ?? 0) }],
       update: async (datos: any) => { updates.push({ tabla, where: filtro, datos }); return r.actualizadas ?? 1; },
@@ -147,28 +147,89 @@ describe('TripClosureService.cerrarParada', () => {
   });
 });
 
-describe('TripClosureService.setCargadores', () => {
-  const EMB = { id: UUID_EMB, status: 'programado' };
+describe('TripClosureService.setCargadores — [EMB.39] la carga se paga por caja', () => {
+  // Embarque de Kepler con una parada de 531 cajas; tarifa de $0.20 por caja.
+  const EMB = { id: UUID_EMB, status: 'programado', shipment_date: '2026-10-20', kepler_sucursal: '06', kepler_guia: '0001521', boxes_count: 0 };
+  const TARIFA = { id: 'cfg-1', value: '0.2000', active: true };
+  const PARADAS = [{ serie: 2, folio: '0001339' }];
+  const CARGA = [{ serie: 2, folio: '0001339', cajas: '531' }];
+  const kepler = (extra: Respuestas['lista'] = {}): Respuestas['lista'] => ({
+    'analytics.erp_shipment_stops': PARADAS, 'analytics.erp_shipment_stop_load': CARGA, ...extra,
+  });
+  // Las pruebas negativas llevan al cargador EN el padrón: sin él, el 400 saldría de «no existe» y
+  // la prueba pasaría por la razón equivocada (así lo cazó la mutación del 2026-10-24).
+  const PADRON = { 'logistics.drivers': [{ id: CARGADOR_A }] };
   const conCierre = (svc: TripClosureService) => vi.spyOn(svc, 'cierre').mockResolvedValue({} as any);
 
-  it('reemplaza la lista: borra y vuelve a insertar con la tarifa vigente y el papel «cargador»', async () => {
+  it('reparte cajas × tarifa en partes iguales y guarda con qué cajas y qué tarifa se calculó', async () => {
     const { svc, inserts, borrados } = baseFalsa({
-      primero: { 'logistics.config_finance': { value: '30' }, 'logistics.shipments': EMB },
-      lista: { 'logistics.drivers': [{ id: CARGADOR_A }, { id: CARGADOR_B }] },
+      primero: { 'logistics.config_finance': TARIFA, 'logistics.shipments': EMB },
+      lista: kepler({ 'logistics.drivers': [{ id: CARGADOR_A }, { id: CARGADOR_B }] }),
     });
     conCierre(svc);
     await svc.setCargadores(UUID_EMB, { driver_ids: [CARGADOR_A, CARGADOR_B] });
     expect(borrados).toEqual(['logistics.load_details']);
     expect(inserts).toHaveLength(1);
+    // 531 × $0.20 = $106.20 entre 2 = $53.10 cada quien.
     expect(inserts[0].filas).toEqual([
-      expect.objectContaining({ shipment_id: UUID_EMB, driver_id: CARGADOR_A, rate: 30, role_at_time: 'cargador', created_by: UUID_USUARIO }),
-      expect.objectContaining({ shipment_id: UUID_EMB, driver_id: CARGADOR_B, rate: 30, role_at_time: 'cargador' }),
+      expect.objectContaining({ shipment_id: UUID_EMB, driver_id: CARGADOR_A, rate: 53.1, boxes: 531, rate_per_box: 0.2, role_at_time: 'cargador', created_by: UUID_USUARIO }),
+      expect.objectContaining({ shipment_id: UUID_EMB, driver_id: CARGADOR_B, rate: 53.1, boxes: 531, rate_per_box: 0.2, role_at_time: 'cargador' }),
     ]);
+  });
+
+  it('el centavo que no divide exacto va al primero: la suma es el total', async () => {
+    const { svc, inserts } = baseFalsa({
+      primero: { 'logistics.config_finance': TARIFA, 'logistics.shipments': EMB },
+      lista: kepler({
+        'analytics.erp_shipment_stop_load': [{ serie: 2, folio: '0001339', cajas: '25' }],
+        'logistics.drivers': [{ id: CARGADOR_A }, { id: CARGADOR_B }, { id: UUID_PARADA }],
+      }),
+    });
+    conCierre(svc);
+    await svc.setCargadores(UUID_EMB, { driver_ids: [CARGADOR_A, CARGADOR_B, UUID_PARADA] });
+    expect(inserts[0].filas.map((f: any) => f.rate)).toEqual([1.67, 1.67, 1.66]);
+  });
+
+  it('cobra con la tarifa VIGENTE el día del embarque, no con la de hoy', async () => {
+    const { svc, inserts } = baseFalsa({
+      primero: { 'logistics.config_finance': { ...TARIFA, value: '0.3000' }, 'logistics.shipments': EMB },
+      lista: kepler({
+        'logistics.drivers': [{ id: CARGADOR_A }],
+        'logistics.tariff_changes': [
+          { field: 'value', old_value: null, new_value: '0.2', changed_at: '2026-10-01T16:00:00Z' },
+          { field: 'value', old_value: '0.2', new_value: '0.3', changed_at: '2026-11-03T16:00:00Z' },
+        ],
+      }),
+    });
+    conCierre(svc);
+    await svc.setCargadores(UUID_EMB, { driver_ids: [CARGADOR_A] });
+    expect(inserts[0].filas[0]).toEqual(expect.objectContaining({ rate: 106.2, rate_per_box: 0.2 }));
+  });
+
+  it('un embarque de puras piezas sueltas tiene 0 cajas: se registra quién cargó y cobra $0', async () => {
+    const { svc, inserts } = baseFalsa({
+      primero: { 'logistics.config_finance': TARIFA, 'logistics.shipments': EMB },
+      lista: kepler({ 'analytics.erp_shipment_stop_load': [{ serie: 2, folio: '0001339', cajas: '0' }], 'logistics.drivers': [{ id: CARGADOR_A }] }),
+    });
+    conCierre(svc);
+    await svc.setCargadores(UUID_EMB, { driver_ids: [CARGADOR_A] });
+    expect(inserts[0].filas[0]).toEqual(expect.objectContaining({ rate: 0, boxes: 0 }));
+  });
+
+  it('embarque manual: usa las cajas capturadas', async () => {
+    const manual = { ...EMB, kepler_sucursal: null, kepler_guia: null, boxes_count: 40 };
+    const { svc, inserts } = baseFalsa({
+      primero: { 'logistics.config_finance': TARIFA, 'logistics.shipments': manual },
+      lista: { 'logistics.drivers': [{ id: CARGADOR_A }] },
+    });
+    conCierre(svc);
+    await svc.setCargadores(UUID_EMB, { driver_ids: [CARGADOR_A] });
+    expect(inserts[0].filas[0]).toEqual(expect.objectContaining({ rate: 8, boxes: 40 }));
   });
 
   it('lista vacía: quita a todos y no inserta', async () => {
     const { svc, inserts, borrados } = baseFalsa({
-      primero: { 'logistics.config_finance': { value: '30' }, 'logistics.shipments': EMB },
+      primero: { 'logistics.config_finance': TARIFA, 'logistics.shipments': EMB }, lista: kepler(),
     });
     conCierre(svc);
     await svc.setCargadores(UUID_EMB, { driver_ids: [] });
@@ -176,15 +237,40 @@ describe('TripClosureService.setCargadores', () => {
     expect(inserts).toHaveLength(0);
   });
 
-  it('PRUEBA NEGATIVA: sin tarifa de carga capturada no se registra a nadie', async () => {
-    const { svc, borrados } = baseFalsa({ primero: { 'logistics.shipments': EMB } });
-    await expect(svc.setCargadores(UUID_EMB, { driver_ids: [CARGADOR_A] })).rejects.toBeInstanceOf(BadRequestException);
+  it('PRUEBA NEGATIVA: sin tarifa de carga por caja no se registra a nadie', async () => {
+    const { svc, borrados } = baseFalsa({ primero: { 'logistics.shipments': EMB }, lista: kepler(PADRON) });
+    await expect(svc.setCargadores(UUID_EMB, { driver_ids: [CARGADOR_A] })).rejects.toThrow(/tarifa de carga por caja/);
+    expect(borrados).toHaveLength(0);
+  });
+
+  it('PRUEBA NEGATIVA: la tarifa todavía no existía el día del embarque → no se registra', async () => {
+    const { svc, borrados } = baseFalsa({
+      primero: { 'logistics.config_finance': TARIFA, 'logistics.shipments': EMB },
+      lista: kepler({ ...PADRON, 'logistics.tariff_changes': [{ field: 'value', old_value: null, new_value: '0.2', changed_at: '2026-10-27T16:00:00Z' }] }),
+    });
+    await expect(svc.setCargadores(UUID_EMB, { driver_ids: [CARGADOR_A] })).rejects.toThrow(/tarifa de carga por caja/);
+    expect(borrados).toHaveLength(0);
+  });
+
+  it('PRUEBA NEGATIVA: si Kepler sólo trae renglones de OTRA parada, las cajas no se saben', async () => {
+    const { svc, borrados } = baseFalsa({
+      primero: { 'logistics.config_finance': TARIFA, 'logistics.shipments': EMB },
+      lista: kepler({ ...PADRON, 'analytics.erp_shipment_stop_load': [{ serie: 1, folio: '0001339', cajas: '999' }] }),
+    });
+    await expect(svc.setCargadores(UUID_EMB, { driver_ids: [CARGADOR_A] })).rejects.toThrow(/No se sabe cuántas cajas/);
+    expect(borrados).toHaveLength(0);
+  });
+
+  it('PRUEBA NEGATIVA: embarque manual sin cajas capturadas no se registra', async () => {
+    const manual = { ...EMB, kepler_sucursal: null, kepler_guia: null, boxes_count: 0 };
+    const { svc, borrados } = baseFalsa({ primero: { 'logistics.config_finance': TARIFA, 'logistics.shipments': manual }, lista: PADRON });
+    await expect(svc.setCargadores(UUID_EMB, { driver_ids: [CARGADOR_A] })).rejects.toThrow(/No se sabe cuántas cajas/);
     expect(borrados).toHaveLength(0);
   });
 
   it('PRUEBA NEGATIVA: si la carga ya está en un vale, no se cambia', async () => {
     const { svc, borrados } = baseFalsa({
-      primero: { 'logistics.config_finance': { value: '30' }, 'logistics.shipments': EMB }, conteo: 1,
+      primero: { 'logistics.config_finance': TARIFA, 'logistics.shipments': EMB }, lista: kepler(), conteo: 1,
     });
     await expect(svc.setCargadores(UUID_EMB, { driver_ids: [CARGADOR_A] })).rejects.toBeInstanceOf(ConflictException);
     expect(borrados).toHaveLength(0);
@@ -192,8 +278,8 @@ describe('TripClosureService.setCargadores', () => {
 
   it('un cargador fuera del padrón activo frena todo', async () => {
     const { svc, borrados } = baseFalsa({
-      primero: { 'logistics.config_finance': { value: '30' }, 'logistics.shipments': EMB },
-      lista: { 'logistics.drivers': [{ id: CARGADOR_A }] },
+      primero: { 'logistics.config_finance': TARIFA, 'logistics.shipments': EMB },
+      lista: kepler({ 'logistics.drivers': [{ id: CARGADOR_A }] }),
     });
     await expect(svc.setCargadores(UUID_EMB, { driver_ids: [CARGADOR_A, CARGADOR_B] })).rejects.toBeInstanceOf(BadRequestException);
     expect(borrados).toHaveLength(0);
@@ -201,10 +287,10 @@ describe('TripClosureService.setCargadores', () => {
 
   it('embarque cancelado → 409; inexistente → 404', async () => {
     const cancelado = baseFalsa({
-      primero: { 'logistics.config_finance': { value: '30' }, 'logistics.shipments': { ...EMB, status: 'cancelado' } },
+      primero: { 'logistics.config_finance': TARIFA, 'logistics.shipments': { ...EMB, status: 'cancelado' } },
     });
     await expect(cancelado.svc.setCargadores(UUID_EMB, { driver_ids: [] })).rejects.toBeInstanceOf(ConflictException);
-    const falta = baseFalsa({ primero: { 'logistics.config_finance': { value: '30' } } });
+    const falta = baseFalsa({ primero: { 'logistics.config_finance': TARIFA } });
     await expect(falta.svc.setCargadores(UUID_EMB, { driver_ids: [] })).rejects.toBeInstanceOf(NotFoundException);
   });
 });

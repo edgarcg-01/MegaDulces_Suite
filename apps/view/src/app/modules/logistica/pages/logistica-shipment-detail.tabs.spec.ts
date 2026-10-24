@@ -17,7 +17,7 @@ const EMB = {
   freight_revenue: 0, cargo_value: 0, boxes_count: 0, total_weight_kg: 0,
 };
 
-const CIERRE = { shipment_id: 'e1', viajes: [], paradas: [], pagos: [], cargadores: [], tarifa_carga: 30 };
+const CIERRE = { shipment_id: 'e1', viajes: [], paradas: [], pagos: [], cargadores: [], carga: { tarifa_por_caja: 0.2, cajas: 0, fuente_cajas: 'kepler', total: 0 } };
 
 function contestar(http: HttpTestingController) {
   for (let vuelta = 0; vuelta < 8; vuelta++) {

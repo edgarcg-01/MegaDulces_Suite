@@ -10,6 +10,7 @@
  * normalizado (`comisionSugerida`), así que renombrar una ruta tarifada mueve su comisión a otro
  * viaje igual que cambiar el monto.
  */
+import { diaMxDeInstante } from '@megadulces/contracts';
 
 /** Las categorías de `config_finance` con las que se paga a una persona. */
 export const CATEGORIAS_QUE_PAGAN = ['viatico', 'tarifa_maniobra'] as const;
@@ -86,7 +87,50 @@ export function cambiosDeConfig(antes: ConfigTarifa, dto: Partial<ConfigTarifa>)
   if (dto.active === false && antes.active !== false) {
     c.push({ field: 'active', old_value: 'true', new_value: 'false' });
   }
+  // [EMB.39] Volver a prender una tarifa también cambia lo que se paga desde ese día: sin este
+  // renglón, la vigencia (tarifaVigenteEl) la daría por prendida también antes.
+  if (dto.active === true && antes.active === false) {
+    c.push({ field: 'active', old_value: 'false', new_value: 'true' });
+  }
   return c;
+}
+
+/** Un renglón de `logistics.tariff_changes` de UN renglón de configuración. */
+export interface CambioRegistrado {
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  changed_at: string | Date;
+}
+
+/**
+ * `[EMB.39]` La tarifa que estaba VIGENTE un día, DERIVADA de la bitácora de cambios — no se
+ * guarda una segunda copia de la tarifa. Se parte de cómo está hoy y se deshacen, del más nuevo al
+ * más viejo, los cambios hechos DESPUÉS de ese día. Un cambio aplica desde el día (hora de México)
+ * en que se hizo: cambiar la tarifa no mueve lo que ya se cargó antes.
+ *
+ * `null` = ese día no había tarifa: todavía no existía, estaba apagada o en cero.
+ */
+export function tarifaVigenteEl(
+  actual: { value: unknown; active?: boolean | null },
+  cambios: CambioRegistrado[],
+  dia: string,
+): number | null {
+  const v0 = Number(actual.value);
+  let valor: number | null = Number.isFinite(v0) ? v0 : null;
+  let activa = actual.active !== false;
+  const despues = cambios
+    .filter((c) => (diaMxDeInstante(c.changed_at) ?? '') > dia)
+    .sort((a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime());
+  for (const c of despues) {
+    if (c.field === 'value') {
+      const o = c.old_value == null ? null : Number(c.old_value);
+      valor = o != null && Number.isFinite(o) ? o : null;
+    } else if (c.field === 'active') {
+      activa = c.old_value !== 'false';
+    }
+  }
+  return activa && valor != null && valor > 0 ? valor : null;
 }
 
 /** El mensaje cuando alguien sin el permiso intenta tocar una tarifa fijada. */
