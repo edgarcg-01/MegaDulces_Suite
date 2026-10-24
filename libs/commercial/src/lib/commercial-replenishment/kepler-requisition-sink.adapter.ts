@@ -15,6 +15,13 @@ import { MARCA_SUITE, plantillaDe, servidoresEncendidos, topeDiario, urlDeServid
  */
 export const textoKepler = (v: number): string => String(Math.round((Number(v) || 0) * 100) / 100);
 
+/** `[KR.17]` Quién capturó (`kdm1.c67`, varchar(23)): lo escribió la Suite, no una persona. */
+export const CAPTURISTA_SUITE = 'SUITE';
+
+/** `[KR.17]` Hora de captura como la guarda Kepler (`kdm1.c69`, varchar(5)): `HH:MM`, hora de México. */
+export const horaMx = (d: Date = new Date()): string =>
+  new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Mexico_City', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
+
 /** Número de Kepler (texto con formato) → number. `0` si viene vacío. */
 const num = (v: unknown): number =>
   Number(String(v ?? '').replace(/[^0-9.-]/g, '') || 0);
@@ -180,6 +187,18 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
         c32 = nom.rows[0]?.nombre || ti.rows[0].nombre;
       }
 
+      // ⛔ `[KR.17]` RFC y domicilio de la CONTRAPARTE (`c22`, `c33`–`c35`): del último documento
+      // del mismo tipo con ese `c10` en ESTE servidor. Antes se heredaban de la plantilla, y el
+      // canario de Yurécuaro (2026-10-24) salió a nombre de Cueritos Lupita con el domicilio del
+      // proveedor de la plantilla. Si no hay precedente, vacío — nunca el de otro.
+      const fiscal = (await c.query(
+        `SELECT coalesce(c22,'') AS c22, coalesce(c33,'') AS c33, coalesce(c34,'') AS c34, coalesce(c35,'') AS c35
+           FROM md.kdm1
+          WHERE c1=$1 AND c2=$2 AND c3=$3 AND btrim(c4::text) = ANY($4::text[]) AND btrim(c10)=$5
+          ORDER BY c9 DESC, c6 DESC LIMIT 1`,
+        [e.sucursal, d.genero, d.naturaleza, tipo === 'compra' ? ['30', '35'] : ['40'], c10])).rows[0]
+        ?? { c22: '', c33: '', c34: '', c35: '' };
+
       // ⭐ `[KR.6]` **No hay resolución de unidad: se escribe en `CJA`, tal cual.**
       // La versión anterior leía el precedente del ERP y convertía cajas → `PAQ`, contrastando
       // dos factores de caja. Se retiró el 2026-10-14 tras medir que (a) Kepler **no convierte
@@ -232,6 +251,18 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
           d.c11 === 'referencia' ? e.folio_suite : d.c11,
           d.marca === 'c24' ? e.folio_suite : '']);
 
+      // ⛔ `[KR.17]` Lo que la plantilla arrastraba y es del documento, no del molde. Medido sobre
+      // 3,061 requisiciones de oficinas, 1,050 de La Piedad y 338 de 8 Esquinas (2026-10-24):
+      //   `c18` fecha de entrega = fecha del documento en 64-75 % (y ≥ en 97-100 %) — se usa la
+      //         fecha; la plantilla traía la suya (07-mar) y así se veía en pantalla.
+      //   `c14`/`c15` importes accesorios: 0 en 36-73 % de compras y 99 % de traspasos. La Suite no
+      //         los calcula: 0, nunca el importe de otro documento.
+      //   `c69` hora de captura · `c67` quién capturó: la plantilla los atribuía a una persona que
+      //         no capturó nada. `SUITE` dice quién lo escribió.
+      await c.query(
+        `UPDATE _h SET c18 = $1, c14 = 0, c15 = 0, c69 = $2, c67 = $3, c22 = $4, c33 = $5, c34 = $6, c35 = $7`,
+        [e.fecha, horaMx(), CAPTURISTA_SUITE, fiscal.c22, fiscal.c33, fiscal.c34, fiscal.c35]);
+
       // `c27` sólo lo usa el traspaso (`SUCURSAL`); la compra no tiene esa columna en juego.
       if (d.c27) await c.query('UPDATE _h SET c27 = $1', [d.c27]);
       // ⛔ Las columnas que llena el PROCESO, no la creación: quién surtió, checó y embarcó.
@@ -275,11 +306,22 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
         // `c57` y Postgres rechazaba la sentencia entera («tipos de dato inconsistentes para el
         // parámetro $5») — en el canario de Yurécuaro, sin escribir nada. Cada columna lleva su
         // propio parámetro y el texto va con el formato que Kepler ya usa: `791`, `373.76`.
+        //
+        // ⛔ `[KR.17]` Y cuatro columnas del renglón que la plantilla arrastraba (medido sobre
+        // 17,810 renglones de oficinas, 15,753 de La Piedad, 4,499 de 8 Esquinas y los U-D-40):
+        //   `c24` cantidad PENDIENTE = cantidad en el 100 % de los documentos sin hijo, 0 en los
+        //         ya convertidos. La plantilla traía 0 → Kepler la daba por REFERENCIADA y la UI
+        //         se negaba a darla de baja («Documento referenciado, no se canceló»).
+        //   `c56` cantidad en la presentación capturada (`c55`): con `c55=c11='CJA'` es la misma.
+        //         La plantilla traía 5 y era lo que la pantalla de Kepler mostraba como cantidad.
+        //   `c25` contraparte del renglón = `c10` del encabezado (96-100 %).
+        //   `c32` fecha del renglón = fecha del documento (96-100 %).
         await c.query(
           `UPDATE _l SET c6=$1, c8=$2, c9=$3, c10=$4, c11='CJA', c12=$5, c13=$6,
-                         c55='CJA', c57=$8, c58='1'
+                         c55='CJA', c57=$8, c58='1', c24=$3, c56=$9, c25=$10, c32=$11
             WHERE c7=$7`,
-          [folio, ln.sku, ln.cajas, ln.nombre, ln.costo_caja, ln.importe, i + 1, textoKepler(ln.costo_caja)]);
+          [folio, ln.sku, ln.cajas, ln.nombre, ln.costo_caja, ln.importe, i + 1, textoKepler(ln.costo_caja),
+            textoKepler(ln.cajas), c10, e.fecha]);
       }
 
       await this.confirmar(c);
