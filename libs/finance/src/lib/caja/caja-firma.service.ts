@@ -207,7 +207,22 @@ export class CajaFirmaService {
   ): Promise<{ ok: true; repetida: boolean }> {
     const t = this.leerToken(token);
     if (!telefonoValido(telefonoId)) throw new HttpException({ message: 'teléfono sin identificador' }, 400);
-    const r = await this.tk.run(t.tenant_id, async (trx) => {
+    /**
+     * `[CG.201]` ⛔ La unión se declara, no se infiere.
+     *
+     * Las tres salidas del bloque son literales distintos, y al inferirlas a través del genérico
+     * de `tk.run` TypeScript las colapsa en UN objeto con las propiedades opcionales
+     * (`fallo?: …`). Entonces `if (!r.ok)` estrecha `ok` pero `r.fallo` sigue siendo
+     * `FalloFirmaSolicitud | undefined` y `falloFirma(r.fallo)` no compila (TS2345, medido en CI).
+     *
+     * Con la unión ANOTADA, `ok` vuelve a ser discriminante de verdad y las dos ramas quedan
+     * completas. No es un `as`: es decir la forma que el bloque ya tenía.
+     */
+    type ResultadoFirma =
+      | { ok: false; fallo: FalloFirmaSolicitud; descartada: 'no_es_png' | 'muy_grande' | null }
+      | { ok: true; repetida: boolean };
+
+    const r = await this.tk.run(t.tenant_id, async (trx): Promise<ResultadoFirma> => {
       const f = await leerConCandado(trx, t.sid);
       const revision = revisarFirma(f?.tipo ?? 'gasto', png);
       const d = decidirFirmar(f, telefonoId, !!revision.png, new Date());
