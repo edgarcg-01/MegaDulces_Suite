@@ -63,7 +63,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Los estados',
         entries: [
-          { term: 'Nadie lo ha pedido', def: 'Le falta y no hay pedido abierto, ni embarque en camino, ni plan de Compras. Es lo primero que hay que revisar.' },
+          { term: 'Falta por pedir', def: 'Le falta y lo que ya viene no alcanza: lo que queda nadie lo ha pedido todavía (ni pedido abierto, ni embarque en camino, ni plan de Compras). Puede que ya venga una parte; la explicación del renglón dice cuánto. Es lo primero que hay que revisar.' },
           { term: 'Compras lo planeó', def: 'Le falta y Compras ya lo planeó en su pedido general, pero todavía no es un pedido en Kepler. No se resta: mientras no esté en Kepler, la matriz no lo surte.' },
           { term: 'Estado «Ya viene»', def: 'Lo que ya está pedido o en camino cubre todo lo que falta. No hay que hacer nada más que recibirlo.' },
           { term: 'Valor sin medir', def: 'Cuando el costo de compra de un producto no cuadra con su unidad, su valor no se suma: se cuenta aparte. Las cantidades sí son válidas.' },

@@ -429,7 +429,8 @@ export const ESTADOS_RENGLON = ['sin_pedir', 'compras_lo_planeo', 'ya_viene', 'e
 export type EstadoRenglon = typeof ESTADOS_RENGLON[number];
 
 export const ESTADO_RENGLON_LABEL: Record<EstadoRenglon, string> = {
-  sin_pedir: 'Nadie lo ha pedido',
+  // [AB.35] No «Nadie lo ha pedido»: con cobertura parcial (20 de 32 en camino) eso afirmaba algo falso.
+  sin_pedir: 'Falta por pedir',
   compras_lo_planeo: 'Compras lo planeó',
   ya_viene: 'Ya viene',
   en_politica: 'En política',

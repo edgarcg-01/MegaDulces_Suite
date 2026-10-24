@@ -251,10 +251,20 @@ export function faltaNetaPorQue(r: AutoabastoMesaRenglon, medidos = true): strin
   return partes.join(' ');
 }
 
-/** Qué quiere decir el estado del renglón, en palabras. */
-export function estadoPorQue(e: EstadoRenglon): string {
-  switch (e) {
-    case 'sin_pedir': return 'Le falta y nadie lo ha pedido: ni un pedido abierto a la matriz, ni un embarque en camino, ni un plan de Compras.';
+/**
+ * Qué quiere decir el estado del renglón, en palabras.
+ *
+ * `[AB.35]` Con cobertura PARCIAL (ya vienen 20 de 32) no se puede decir «nadie lo ha pedido»: se dice
+ * cuánto ya viene y que nadie ha pedido EL RESTO. Por eso recibe el renglón, no sólo el estado.
+ */
+export function estadoPorQue(
+  r: Pick<AutoabastoMesaRenglon, 'estado' | 'falta' | 'falta_neta' | 'ya_pedido' | 'en_camino'>,
+): string {
+  const viene = (r.ya_pedido || 0) + (r.en_camino || 0);
+  switch (r.estado) {
+    case 'sin_pedir': return viene > 0
+      ? `Faltan ${qty(r.falta_neta)} caja(s) por pedir: ya vienen ${qty(viene)} de ${qty(r.falta)}, y nadie ha pedido el resto.`
+      : 'Le falta y nadie lo ha pedido: ni un pedido abierto a la matriz, ni un embarque en camino, ni un plan de Compras.';
     case 'compras_lo_planeo': return 'Le falta, y Compras ya lo planeó, pero todavía no es un pedido en Kepler.';
     case 'ya_viene': return 'Lo que falta ya está pedido o en camino.';
     case 'en_politica': return 'No le falta: está dentro de su objetivo.';

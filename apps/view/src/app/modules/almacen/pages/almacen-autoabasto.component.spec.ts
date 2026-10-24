@@ -77,7 +77,7 @@ describe('[AB.28] la mesa sobre la cuenta única', () => {
     const t = texto(montar(RESP([renglon()])).f);
     expect(t).toContain('Falta neta');
     expect(t).toContain('Surte');
-    expect(t).toContain('Nadie lo ha pedido');
+    expect(t).toContain('Falta por pedir');
     expect(t).not.toContain('Acción');
     expect(t).not.toContain('De la red');
     expect(t).not.toContain('A comprar');
@@ -102,7 +102,7 @@ describe('[AB.28] la mesa sobre la cuenta única', () => {
 
   it('el primario es cuántos renglones nadie ha pedido', () => {
     const c = montar(RESP([renglon()])).f.componentInstance;
-    expect(c.kpis()[0]).toMatchObject({ label: 'Nadie lo ha pedido', value: 1, tone: 'bad' });
+    expect(c.kpis()[0]).toMatchObject({ label: 'Falta por pedir', value: 1, tone: 'bad' });
   });
 
   it('⛔ un importe que no se pudo medir sale «—», nunca $0', () => {
@@ -124,7 +124,7 @@ describe('[AB.28] la mesa sobre la cuenta única', () => {
 describe('[AB.28] la ayuda de la mesa existe en el diccionario', () => {
   const topic = CONTEXT_HELP['almacen-autoabasto'];
   const terminos = topic.groups!.flatMap((g) => g.entries.map((e) => e.term));
-  it.each(['Falta', 'Ya viene', 'Falta neta', 'Surte', 'Posición', 'Nadie lo ha pedido', 'Compras lo planeó', 'Valor sin medir'])(
+  it.each(['Falta', 'Ya viene', 'Falta neta', 'Surte', 'Posición', 'Falta por pedir', 'Compras lo planeó', 'Valor sin medir'])(
     'documenta «%s»', (t) => {
       expect(terminos).toContain(t);
     });
