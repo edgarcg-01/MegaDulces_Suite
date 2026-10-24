@@ -46,3 +46,59 @@ describe('[VAC.U15] ayuda del verificador', () => {
     expect(def).toMatch(/modo kiosco[^.]*no se muestra/i);
   });
 });
+
+/**
+ * `[PGP.7]` **El «about» del Calendario de pagos.**
+ *
+ * La pantalla absorbió a Pronto pago y quedó como el único lugar donde se hace un pago. Si este
+ * tópico desaparece, el botón de ayuda del encabezado queda abriendo nada — y, peor, lo absorbido
+ * se queda sin explicación justo donde antes había una pantalla entera para explicarlo.
+ *
+ * ⛔ Las tres advertencias que se verifican abajo no son decorativas: son las que evitan que
+ * alguien lea la ventana de descuento como una promesa del proveedor, trate un «fuera de ventana»
+ * como dinero perdido, o lea «sin medir» como «no da descuento».
+ */
+describe('[PGP.7] el about del Calendario de pagos', () => {
+  const topic = CONTEXT_HELP['calendario-de-pagos'];
+  const entradas = () => topic.groups!.flatMap((g) => g.entries);
+
+  it('existe y toda entrada trae término y definición con sustancia', () => {
+    expect(topic).toBeDefined();
+    for (const e of entradas()) {
+      expect(e.term.trim()).not.toBe('');
+      expect(e.def.trim().length, `definición corta en "${e.term}"`).toBeGreaterThan(20);
+    }
+  });
+
+  it.each([
+    '1 · Armar el día',
+    '2 · Preparar',
+    '3 · Autorizar el día',
+    '4 · Ejecutar y ligar',
+  ])('explica el paso "%s" del circuito', (termino) => {
+    expect(entradas().map((e) => e.term)).toContain(termino);
+  });
+
+  it('dice que la ventana del descuento es OBSERVADA, no pactada', () => {
+    const def = entradas().find((e) => e.term.startsWith('Antes del'))!.def;
+    expect(def).toMatch(/observada/i);
+    expect(def).toMatch(/no pactada|no de una condición acordada/i);
+  });
+
+  it('⛔ aclara que «fuera de ventana» NO es «perdido»', () => {
+    const def = entradas().find((e) => e.term === 'Fuera de ventana')!.def;
+    expect(def).toMatch(/no quiere decir .perdido|NO.*perdido/i);
+  });
+
+  it('⛔ aclara que «sin medir» NO es «no da descuento»', () => {
+    const def = entradas().find((e) => e.term === 'Sin medir')!.def;
+    expect(def).toMatch(/no es lo mismo no saber que saber que no/i);
+  });
+
+  it('dice dónde quedó lo que salió del menú, y que las direcciones siguen vivas', () => {
+    for (const t of ['Pronto pago (la pantalla)', 'Programa de pagos']) {
+      const def = entradas().find((e) => e.term === t)!.def;
+      expect(def, t).toMatch(/sigue funcionando si la tenés guardada/i);
+    }
+  });
+});
