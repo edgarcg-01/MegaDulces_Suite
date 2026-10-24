@@ -1848,9 +1848,48 @@ devuelve `sin_pedir` siempre que quede falta neta, venga algo o no. Arreglo: el 
 **«Falta por pedir»** y su explicación dice cuánto falta y cuánto ya viene. Es texto del contrato y de
 la pantalla, con su prueba (un renglón con cobertura parcial no puede decir «nadie»).
 
+### 16.15 🧪 [AB.36] La mesa en menos de 500 ms (2026-10-24)
+
+Pedido del PM: *«todo debe durar menos de medio segundo la carga de la interfaz completa»*. Medido en
+prod en sólo lectura (servicio real, mediana de 3, viejo y nuevo intercalados): **la mesa tardaba
+4.2–5.9 s por sucursal**, y ~5 s eran UNA consulta del motor (`criticalStock`), no lo de AB.
+
+| Dónde se iba el tiempo (La Piedad, la consulta del motor) | ms |
+|---|---:|
+| tal cual (vistas vivas de costo y factor de caja) | 4,240 |
+| + matviews `mv_warehouse_box_factor` / `mv_erp_unit_cost` | 1,434 |
+| + JIT apagado | 1,006 |
+| + etiquetera fuera del listado (se lee aparte, 145 ms) | 522 |
+| + `ligero`: sin el sobrante de la red (~60 % en Padre Hidalgo; la mesa no pinta Acción desde D3) | ~300 |
+
+Además: las lecturas de AB en paralelo con el motor (3 conexiones), el conteo omitido cuando se
+exporta todo, el ranking de venta acotado al almacén, y el control de alcance con sólo los almacenes
+(`filters()` entero eran 157–193 ms de proveedores, marcas y categorías que nadie pintaba).
+
+**Resultado (commit `05b738153`):** `/renglones` **0.24–0.66 s**; carga completa (filtros → renglones)
+**247–577 ms**. La prueba `test-newdb-mesa-rapida.js` compara el servicio viejo (cargado desde git)
+contra el nuevo en los 22 almacenes: mismos renglones, mismo orden, mismos campos (25/25, con control
+negativo y la compuerta vista en rojo).
+
+**Lo que falta para cerrar:**
+
+- ⚠️ **Padre Hidalgo sigue en ~577 ms** (y Morelia Abastos roza 500 en algunas corridas). Lo que queda
+  en su ruta crítica es la escalera de unidades (185–340 ms viva). La migración `20261024134443` la
+  materializa (`mv_product_unit_ladder`, `SELECT *` de la vista, refresco de 15 min). **Estimado** con
+  la escalera precargada: Padre Hidalgo 448 ms, Morelia Abastos 336. **NO MEDIDO** hasta aplicarla en
+  prod. ⛔ **Orden: la migración ANTES del código** (el refresco de 15 min la nombra y, si no existe,
+  pone en error su latido).
+- **Declarado:** el costo de la mesa sale de una copia de hasta ~15 min (27 de 249,194 pares diferían
+  de la vista viva al medirlo). La vista viva cuesta ~1 s aunque se filtre a un almacén.
+- **No medido:** red y pintado del navegador (prod está en la LAN, se espera poco); sin validación visual.
+- `leerYaPedidoRed` (para PQ) re-medido en esta sesión: **0.77–0.99 s** (el 5.2 s anterior fue una
+  corrida en frío o con carga). Sigue sobre 500: con la escalera materializada baja ~0.25 s; el resto
+  (el anti-join de embarques sin recibir) va aparte, antes de que PQ lo consuma.
+
 ### 16.10 Definición de Terminado
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
+- [ ] Carga completa de la mesa y de «Mi pedido» bajo 500 ms en todas las sucursales, medida en prod (AB.36).
 - [ ] C0–C3 verificadas o declaradas NO MEDIDO.
 - [ ] «Generar requisición» (AB.29) ejercida contra base real con el payload de la pantalla, con sus negativas (fuera de alcance → 403).
 - [ ] La prueba negativa de AB.26 vista en rojo.
