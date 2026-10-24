@@ -85,37 +85,77 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
    * puede nacer sin barra y nadie se entera.
    */
   describe('[TP.20.3] la puerta única de Pagos', () => {
+    /**
+     * `[PGP.7]` **Dos, no cuatro** — y las otras dos siguen VIVAS por URL.
+     *
+     * Medido contra prod el 2026-10-23: «Programa de pagos» llevaba **76 días sin cargar** (su
+     * última importación es del 8-ago) y la mitad retrospectiva de «Pronto pago» **55 días sin
+     * producir** (el detector calló el 29-ago, y sus 98 hallazgos siguen sin triar). La mitad
+     * prospectiva de Pronto pago ya viaja dentro del Calendario desde `[TP.20.4]`.
+     */
     const DE_PAGOS = [
-      '/finanzas/pronto-pago',
       '/finanzas/calendario-pagos',
       '/finanzas/pagos-comprobantes',
-      '/finanzas/programa-pagos',
     ] as const;
 
-    it('el sidebar tiene UNA entrada «Pagos» que lleva las cuatro pestañas', () => {
+    /**
+     * ⛔ Salieron del MENÚ, no del router. El riesgo que cuida este bloque —una pantalla viva sin
+     * puerta por un olvido— se cubre acá comprobando que su ruta siga existiendo: retirarlas es
+     * una decisión, borrarlas sería otra y nadie la tomó.
+     */
+    const RETIRADAS = ['/finanzas/pronto-pago', '/finanzas/programa-pagos'] as const;
+
+    it('el sidebar tiene UNA entrada «Pagos» que lleva sus pestañas', () => {
       const src = fuenteSidebar();
       expect(src).toContain('tabs: PAGOS_TABS');
-      // ⛔ Y ya NO las lista como renglones sueltos: si alguien vuelve a agregarlas, son dos
-      // puertas a lo mismo y el menú deja de decir que son un ciclo.
-      for (const r of DE_PAGOS.filter((x) => x !== '/finanzas/pronto-pago')) {
+      /*
+       * ⛔ Y ya NO las lista como renglones sueltos: si alguien vuelve a agregarlas, son dos
+       * puertas a lo mismo y el menú deja de decir que son un ciclo.
+       *
+       * ⚠️ La entrada «Pagos» necesita UNA de las pestañas como destino —es a donde lleva el
+       * clic—, así que esa no cuenta. Se lee del propio archivo en vez de clavarla: `[PGP.7]`
+       * cambió ese destino de Pronto pago al Calendario y la aserción se puso roja por nombrar
+       * una ruta concreta. Lo que se vigila es que no haya OTRAS puertas, no cuál es ésta.
+       */
+      const destino = /\{ label: 'Pagos',[^}]*route: '([^']+)'/.exec(src)?.[1];
+      expect(destino, 'la entrada «Pagos» debe llevar a alguna de sus pestañas').toBeTruthy();
+      expect(DE_PAGOS as readonly string[]).toContain(destino!);
+      for (const r of DE_PAGOS.filter((x) => x !== destino)) {
         expect(src).not.toContain("route: '" + r + "'");
       }
     });
 
-    it('las cuatro rutas están en PAGOS_TABS, en el orden del ciclo del dinero', () => {
+    it('[PGP.7] PAGOS_TABS son las dos del ciclo vivo: hacer el pago y comprobarlo', () => {
       expect(PAGOS_TABS.map((t) => t.route)).toEqual([...DE_PAGOS]);
     });
 
     /**
-     * ⛔ Sin shell de ruta, la barra vive en cada pantalla: esto comprueba que las cuatro la
+     * `[PGP.7]` ⛔ **La prueba que convierte «retirar» en algo distinto de «borrar».**
+     *
+     * Las dos pantallas salieron del menú porque su dato estaba muerto (76 y 55 días sin
+     * actualizarse), no porque sobren: quien las tenga en marcadores las sigue abriendo, y el día
+     * que el feed vuelva, el histórico está ahí. Si alguien borra la ruta, esto se pone rojo.
+     */
+    it('[PGP.7] las retiradas del menú siguen VIVAS en el router', () => {
+      const CANDIDATAS = ['src/app/app.routes.ts', 'apps/view/src/app/app.routes.ts'];
+      let rutas: string | null = null;
+      for (const c of CANDIDATAS) { try { rutas = readFileSync(c, 'utf8'); break; } catch { /* siguiente */ } }
+      if (rutas === null) throw new Error('NO MEDIDO: no se pudo leer app.routes.ts');
+      for (const r of RETIRADAS) {
+        expect(rutas, r + ' salió del menú, pero su ruta NO debe desaparecer').toContain(
+          "path: '" + r.replace('/finanzas/', '') + "'",
+        );
+      }
+    });
+
+    /**
+     * ⛔ Sin shell de ruta, la barra vive en cada pantalla: esto comprueba que las del menú la
      * tengan. Una pantalla sin barra queda encerrada — se entra, pero no se sale a sus hermanas.
      */
-    it('las cuatro pantallas embeben la barra de pestañas', () => {
+    it('las pantallas del menú embeben la barra de pestañas', () => {
       const ARCHIVOS: Record<string, string> = {
-        '/finanzas/pronto-pago': 'finanzas-pronto-pago.component.ts',
         '/finanzas/calendario-pagos': 'finanzas-calendario-pagos.component.ts',
         '/finanzas/pagos-comprobantes': 'finanzas-pagos-comprobantes.component.ts',
-        '/finanzas/programa-pagos': 'finanzas-programa-pagos.component.ts',
       };
       for (const ruta of DE_PAGOS) {
         const base = ARCHIVOS[ruta];

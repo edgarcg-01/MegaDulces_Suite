@@ -51,6 +51,15 @@ export function sqlVentanaProntoPago(v = 'v', d = 'd'): string {
                        THEN ${v}.fecha + ${d}.dias_mediana END`;
   return `
     ${limite} AS pronto_fecha_limite,
+    /* [PGP.7] La TASA, el cuarto campo. Viajaba solo a la pantalla de Pronto pago, y era la
+       ultima razon por la que habia que salir del Calendario para decidir: el beneficio en pesos
+       dice cuanto, pero no si el descuento vale la pena contra el costo de adelantar el dinero;
+       para eso hace falta el %. Se agrega aca y no en el Calendario por lo mismo que los otros
+       tres: una segunda definicion de la tasa diria otro numero de la misma factura.
+       Misma guarda que el beneficio: sin observaciones suficientes queda NULL, nunca 0. Un 0 se
+       lee como "este proveedor no da descuento", que es lo contrario de "no lo sabemos". */
+    CASE WHEN ${d}.n_observaciones >= ${PRONTO_PAGO_MIN_OBS}
+         THEN ${d}.tasa_observada END AS pronto_tasa,
     CASE WHEN ${d}.n_observaciones >= ${PRONTO_PAGO_MIN_OBS} AND ${d}.tasa_observada IS NOT NULL
          THEN round(${v}.pendiente * ${d}.tasa_observada, 2) END AS pronto_beneficio,
     CASE

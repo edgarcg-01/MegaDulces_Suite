@@ -766,7 +766,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
          * ⚠️ A diferencia de «Gastos» no hay shell de ruta: `/finanzas` sólo admite un padre con
          * `path: ''` al final y ya lo ocupa el área Gastos. El porqué, en `pagos-tabs.ts`.
          */
-        { label: 'Pagos', icon: 'pi pi-send', route: '/finanzas/pronto-pago', tabs: PAGOS_TABS },
+        // `[PGP.7]` Lleva al Calendario, que es donde se hace el pago. Antes entraba por Pronto
+        // pago, que salió de las pestañas: su mitad útil vive adentro del Calendario desde
+        // `[TP.20.4]` y su mitad retrospectiva llevaba 55 días sin producir (medido 2026-10-23).
+        { label: 'Pagos', icon: 'pi pi-send', route: '/finanzas/calendario-pagos', tabs: PAGOS_TABS },
         { label: 'Cuadre y deuda', icon: 'pi pi-wallet', route: '/finanzas/cuadre-proveedor', permission: Permission.FINANCE_PAYMENTS_VER },
         // [ECA.2] Junto a "Cuadre y deuda" (decisión de Francisco, 2026-10-07): el mismo tema
         // —cuánto se debe— visto documento por documento y para todos los tipos de acreedor.

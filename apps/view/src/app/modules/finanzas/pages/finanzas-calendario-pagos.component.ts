@@ -50,6 +50,12 @@ interface Obligation {
    */
   pronto_fecha_limite?: string | null;
   pronto_beneficio?: number | null;
+  /**
+   * `[PGP.7]` La tasa observada. Era la última columna por la que había que ir a Pronto pago:
+   * el beneficio en pesos dice cuánto se gana, pero no si conviene adelantar el dinero — para
+   * eso hace falta el %. `null` = sin observaciones suficientes, que **no** es 0 %.
+   */
+  pronto_tasa?: number | null;
   pronto_estado?: 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir';
   /**
    * `[TP.20.5]` **El ref de la ficha de esta factura.** Lo arma el backend, que es el único que
@@ -212,6 +218,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             <label class="cal-check"><p-checkbox [(ngModel)]="onlyCritical" [binary]="true" (onChange)="loadObligations()" />Críticos</label>
             <!-- [TP.20.4] Armar el dia mirando lo que CADUCA, sin salir a otra pantalla. -->
             <label class="cal-check" title="Solo facturas cuyo descuento por pronto pago vence en 5 dias o menos"><p-checkbox [(ngModel)]="soloPorVencer" [binary]="true" (onChange)="loadObligations()" />Descuento por vencer</label>
+            <!-- [PGP.7] El orden de Pronto pago, aqui. El inventario de TP §23 midio que las dos
+                 listas ordenan al reves y concluyo que fusionarlas rompia una; lo que rompia era
+                 imponer UN orden. Ofrecer los dos no rompe ninguno: por omision manda la fecha de
+                 pago, y quien persigue el descuento lee por fecha limite del privilegio. -->
+            <label class="cal-check" title="Ordena por la fecha limite del descuento y, a igualdad, por lo que se gana"><p-checkbox [(ngModel)]="ordenDescuento" [binary]="true" (onChange)="loadObligations()" />Ordenar por descuento</label>
           </div>
           <p-table [value]="obligationRows()" [loading]="loadingObligations()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm surf-table cal-table cal-oblig-table">
             <ng-template #header>
@@ -259,7 +270,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       <span class="cal-pp" [class.cal-pp-urge]="r.o.pronto_estado === 'por_vencer'"
                             [title]="'Descuento por pronto pago estimado. La fecha limite es OBSERVADA, no pactada.'">
                         <i class="pi" [class.pi-bolt]="r.o.pronto_estado === 'por_vencer'" [class.pi-tag]="r.o.pronto_estado === 'capturable'" aria-hidden="true"></i>
-                        ahorra {{ money(r.o.pronto_beneficio) }}
+                        ahorra {{ money(r.o.pronto_beneficio) }}@if (r.o.pronto_tasa) { <span class="cal-muted"> ({{ pct(r.o.pronto_tasa) }})</span> }
                         @if (r.o.pronto_fecha_limite) { <span class="cal-muted">· antes del {{ shortDate(r.o.pronto_fecha_limite) }}</span> }
                       </span>
                     }
@@ -793,6 +804,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   onlyCritical = false;
   /** `[TP.20.4]` Filtra a lo que pierde descuento en 5 días o menos. */
   soloPorVencer = false;
+  /** [PGP.7] Lee la misma lista por urgencia de descuento en vez de por fecha de pago. */
+  ordenDescuento = false;
 
   obligations = signal<Obligation[]>([]);
   /** Proveedores plegados (por clave de grupo). */
@@ -942,6 +955,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (this.search.trim()) p.set('search', this.search.trim());
     if (this.onlyCritical) p.set('onlyCritical', 'true');
     if (this.soloPorVencer) p.set('prontoPago', 'por_vencer');
+    if (this.ordenDescuento) p.set('orden', 'descuento');
     this.http.get<ObligationPage>(`${this.base}/obligations?${p.toString()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.obligations.set(r.rows); this.obligationsTotal.set(r.total); this.loadingObligations.set(false); },
       error: () => { this.loadingObligations.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las obligaciones.' }); },
@@ -977,6 +991,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   lotSeverity(s: string): 'success' | 'info' | 'secondary' | 'warn' { return s === 'released' || s === 'executing' ? 'success' : s === 'closed' ? 'secondary' : 'info'; }
   methodLabel(m: string): string { return METHOD_LABEL[m] || m; }
   money(n: number | string | null | undefined): string { return Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 }); }
+  /**
+   * `[PGP.7]` La tasa observada, en %. Llega como fracción (`0.0741` = 7.41 %) y los `numeric`
+   * de Postgres viajan como **string** por JSON, así que `Number()` antes de formatear.
+   */
+  pct(n: number | string | null | undefined): string {
+    return Number(n || 0).toLocaleString('es-MX', { style: 'percent', maximumFractionDigits: 2 });
+  }
   allocationTitle(a: PaymentCalendarAllocation): string {
     const first = a.items[0]?.beneficiary ?? '—';
     return a.items.length > 1 ? `${first} +${a.items.length - 1}` : first;
