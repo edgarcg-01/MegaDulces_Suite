@@ -294,6 +294,7 @@ async function deshacer() {
   const k = new Client({ connectionString: admin, statement_timeout: 30000, connectionTimeoutMillis: 8000 });
   await k.connect();
   const key = [s, d.c2, d.c3, d.c4, doc.serie, folio];
+  let respaldo = '';
   const W = `c1=$1 AND c2=$2 AND c3=$3 AND btrim(c4::text)=$4 AND btrim(c5::text)=$5 AND c6=$6`;
   try {
     await k.query('BEGIN');
@@ -321,20 +322,36 @@ async function deshacer() {
     if (b1.rowCount !== 1 || b2.rowCount !== l.length) throw new Error(`se iban a borrar ${b1.rowCount}+${b2.rowCount} filas y el respaldo tiene 1+${l.length}`);
     await k.query('COMMIT');
     console.log(`✔ Borrado en Kepler ${s}: 1 encabezado, ${b2.rowCount} renglones.`);
-
-    const u = await sc.query(
-      `UPDATE commercial.purchase_requisitions
-          SET kepler_sucursal=NULL, kepler_folio=NULL, kepler_pushed_at=NULL,
-              kepler_error=$4
-        WHERE tenant_id=$1 AND folio=$2 AND kepler_sucursal=$3 AND kepler_folio=$5`,
-      [TENANT, folioSuite, s, `Deshecho en Kepler ${new Date().toISOString()} (respaldo ${path.basename(archivo)})`, folio]);
-    if (u.rowCount === 1) console.log('✔ La Suite ya no lo da por escrito: se puede reintentar desde la ficha.');
-    else console.log(`⚠️ La Suite NO se actualizó (${u.rowCount} filas). Si apuntaba a este documento, limpiar kepler_folio a mano.`);
+    respaldo = archivo;
   } catch (e) {
     await k.query('ROLLBACK').catch(() => undefined);
     console.error(`⛔ ROLLBACK, Kepler quedó como estaba: ${e.message}`);
     process.exitCode = 1;
-  } finally { await k.end(); await sc.end(); }
+    await k.end(); await sc.end();
+    return;
+  }
+  await k.end();
+
+  // ⛔ `[KR.17]` La Suite va APARTE: el borrado de Kepler ya está confirmado y nada de aquí abajo
+  // puede «revertirlo». Medido el 2026-10-24: el primer `deshacer` real borró 04/0000122 y luego
+  // el UPDATE falló porque el usuario de prod de la máquina es de SÓLO LECTURA (`edgar`,
+  // default_transaction_read_only) — y el mensaje decía «Kepler quedó como estaba», que era falso.
+  const nota = `Deshecho en Kepler ${new Date().toISOString()} (respaldo ${path.basename(respaldo)})`;
+  const sql = `UPDATE commercial.purchase_requisitions SET kepler_sucursal=NULL, kepler_folio=NULL, kepler_pushed_at=NULL, kepler_error='${nota}' `
+    + `WHERE tenant_id='${TENANT}' AND folio='${folioSuite}' AND kepler_sucursal='${s}' AND kepler_folio='${folio}';`;
+  try {
+    const u = await sc.query(
+      `UPDATE commercial.purchase_requisitions
+          SET kepler_sucursal=NULL, kepler_folio=NULL, kepler_pushed_at=NULL, kepler_error=$4
+        WHERE tenant_id=$1 AND folio=$2 AND kepler_sucursal=$3 AND kepler_folio=$5`,
+      [TENANT, folioSuite, s, nota, folio]);
+    if (u.rowCount === 1) console.log('✔ La Suite ya no lo da por escrito: se puede reintentar desde la ficha.');
+    else console.log(`⚠️ La Suite NO se actualizó (${u.rowCount} filas). Si apuntaba a este documento:\n   ${sql}`);
+  } catch (e) {
+    console.error(`⚠️ Kepler YA quedó borrado, pero la Suite no se pudo actualizar (${e.message}).`);
+    console.error(`   Correr con un usuario que escriba en prod:\n   ${sql}`);
+    process.exitCode = 1;
+  } finally { await sc.end(); }
 }
 
 // ── restaurar ──────────────────────────────────────────────────────────────────────────────
