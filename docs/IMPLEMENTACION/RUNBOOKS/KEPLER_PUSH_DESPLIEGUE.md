@@ -233,7 +233,7 @@ Requisiciones `approved` sin `kepler_folio`. El traspaso se crea en el servidor 
 | `05` | `192.168.54.54:5432/md_05` | 3 | $24,092 | — | — |
 | `06` | `192.168.50.50:1977/md_06` | 4 | $52,638 | 29 | $201,692 |
 | `07` | `192.168.32.32:1977/md_07` | 7 | $88,691 | — | — |
-| `08` | ⚠️ **NO MEDIDO** — no está en el repo | 15 | $681,880 | 67 | $742,583 |
+| `08` | `192.168.30.30:1977/md_08` (Morelia Abastos; de `database/importers/lib/kepler-branches.js`) | 15 | $681,880 | 67 | $742,583 |
 
 ⚠️ Encender **no** empuja este rezago: sólo `approve()` empuja, y el lote no (§7 c de FASE_KR).
 Las ya aprobadas salen con el botón de reintento de la ficha, una por una.
@@ -296,7 +296,7 @@ Después, §5.2 a §5.6 **en ese servidor**, con una compra de pocos renglones.
 ### 8.5 Lo que sigue abierto
 
 - **§7 sin resolver.** La baja desde la UI de Kepler no se probó. Vale igual para los nueve.
-- **IP del servidor `08`.** No está en el repo. Sale de `pg_subscription` en las réplicas de `md`.
+- ~~**IP del servidor `08`.**~~ Resuelto: `192.168.30.30:1977`, registrada en `database/importers/lib/kepler-branches.js`.
 - **Red desde el pod.** Que `md` replique de los ocho no prueba que el pod `api` llegue a
   `.50.50` o `.32.32`. Se prueba con `disponible()` tras encender.
 - **`md.pv_suc_ip` en cada servidor.** Medido sólo en `md_00`. Si falta, el traspaso rechaza con

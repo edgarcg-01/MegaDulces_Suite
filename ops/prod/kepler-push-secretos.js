@@ -27,7 +27,7 @@
  *   creado en `.9.95` y verificado con `kepler-push-ops.js revisar`.
  * - Contraseñas de 32 caracteres [A-Za-z0-9]: sin símbolos que rompan una URL, cmd o psql.
  * - El script NO imprime contraseñas.
- * - `08`: su host no está en el repo → se omite y se dice. Agregarlo a SERVIDORES cuando se mida.
+ * - `08` (Morelia Abastos): host tomado de database/importers/lib/kepler-branches.js.
  */
 const fs = require('node:fs');
 const os = require('node:os');
@@ -46,7 +46,7 @@ const SERVIDORES = {
   '05': { host: '192.168.54.54', port: 5432 },
   '06': { host: '192.168.50.50', port: 1977 },
   '07': { host: '192.168.32.32', port: 1977 },
-  // '08': host NO MEDIDO
+  '08': { host: '192.168.30.30', port: 1977 }, // database/importers/lib/kepler-branches.js
 };
 
 /** Plantillas candidatas (runbook §8.3). Confirmarlas en Kepler antes de encender. */
@@ -152,7 +152,7 @@ for (const [s, srv] of Object.entries(SERVIDORES)) {
   }
   resumen.push(`${s}  ${act(kUrl, activaDef) ? 'ENCENDIDO' : 'apagado  '}  contraseña ${origen}`);
 }
-out.push('# ── 08 · host NO MEDIDO: agregarlo a SERVIDORES en ops/prod/kepler-push-secretos.js ──');
+
 out.push('');
 out.push('# ── Cargar en prod (en md, con este archivo copiado a ~/kepler-push.env):');
 out.push('#   kubectl -n prod create secret generic kepler-push --from-env-file=$HOME/kepler-push.env \\');
@@ -178,5 +178,5 @@ console.log(`Roles:   ${path.join(DIR, 'roles')}`);
 console.log(`Admin:   ${ADMIN}`);
 console.log('');
 resumen.forEach((r) => console.log(r));
-console.log('08  omitido  host NO MEDIDO');
+
 console.log('\n⚠️ En Windows el modo 600 no aplica: la carpeta queda con los permisos de tu usuario.');
