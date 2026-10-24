@@ -6,52 +6,13 @@
  * gastos por persona de 075/128 se ejercen en viernes (17-jul, 31-jul, 14-ago, 28-ago, 11-sep,
  * 25-sep), justo dos días después de cada cierre.
  */
-import type { ConceptoPago, PagoViaje } from '@megadulces/contracts';
+import type { ConceptoPago, Corte, PagoViaje, ResumenPersona } from '@megadulces/contracts';
 import { CONCEPTO_KEPLER, totalesPorConcepto } from '@megadulces/contracts';
 
-const ANCLA = Date.UTC(2026, 0, 1); // jueves 1-ene-2026
-const DIA = 86_400_000;
-
-export interface Corte {
-  desde: string; // jueves
-  hasta: string; // miércoles
-  pago: string;  // viernes
-}
-
-const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-
-/** El corte de 14 días que contiene `fecha` (YYYY-MM-DD). */
-export function corteDe(fecha: string): Corte {
-  const t = Date.parse(fecha + 'T00:00:00Z');
-  if (Number.isNaN(t)) throw new Error(`fecha inválida: ${fecha}`);
-  const n = Math.floor((t - ANCLA) / (14 * DIA));
-  const desde = ANCLA + n * 14 * DIA;
-  return { desde: iso(desde), hasta: iso(desde + 13 * DIA), pago: iso(desde + 15 * DIA) };
-}
-
-/** El último corte que ya cerró (el que se paga ahora) visto desde `hoy`. */
-export function corteAPagar(hoy: string): Corte {
-  const actual = corteDe(hoy);
-  return corteDe(iso(Date.parse(actual.desde + 'T00:00:00Z') - DIA));
-}
-
-export function esFecha(v: unknown): v is string {
-  return typeof v === 'string' && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(v) && !Number.isNaN(Date.parse(v + 'T00:00:00Z'));
-}
-
-export interface ResumenPersona {
-  driver_id: string;
-  persona: string;
-  roles: string[];
-  viajes: number;
-  cargas: number;
-  liberado: Record<ConceptoPago, number>;
-  liberado_total: number;
-  retenido_total: number;
-  retenidos: number;
-  en_vale_total: number;
-  vales: string[];
-}
+// `[EMB.43]` El corte y el resumen por persona se mudaron al contrato (los usan dos pantallas y el
+// servidor). Se re-exportan para no mover a quien ya los importaba de aquí.
+export { corteAPagar, corteDe, esFecha } from '@megadulces/contracts';
+export type { Corte, ResumenPersona } from '@megadulces/contracts';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 

@@ -820,8 +820,11 @@ export const routes: Routes = [
       {
         // `[EMB.29]` Comisiones y viáticos de logística por corte de 14 días (ADR-091): un vale
         // por persona con SÓLO viajes cerrados y cargas en Kepler. Mismo par de permisos que la API.
+        // `[EMB.43]` Es la MISMA pantalla que Logística › Pagos de viaje › Por persona: una sola
+        // implementación en los dos lugares (antes eran dos). Aquí lleva su título de Finanzas.
         path: 'comisiones-logistica',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-comisiones-logistica.component').then(m => m.FinanzasComisionesLogisticaComponent),
+        loadComponent: () => import('./modules/logistica/pages/logistica-pagos-personas.component').then(m => m.LogisticaPagosPersonasComponent),
+        data: { titulo: 'Comisiones de logística' },
         canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR)]
       },
         ],
@@ -2261,6 +2264,31 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/logistica/pages/logistica-config.component').then(m => m.LogisticaConfigComponent),
         // [EMB.28.1] También el autorizador de tarifas (dirección), que no siempre configura.
         canActivate: [anyPermissionGuard(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)]
+      },
+      {
+        // [EMB.43] Pagos de viaje: comisión, viáticos y carga por caja, con permiso propio. Tres
+        // pestañas (Por completar · Por persona · Tarifas) bajo un shell; cada una con su guard.
+        path: 'pagos',
+        loadComponent: () => import('./modules/logistica/pagos-viaje-area-shell.component').then(m => m.PagosViajeAreaShellComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_PAGOS_VER)],
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'viajes' },
+          {
+            path: 'viajes',
+            loadComponent: () => import('./modules/logistica/pages/logistica-pagos-viajes.component').then(m => m.LogisticaPagosViajesComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_PAGOS_VER)]
+          },
+          {
+            path: 'personas',
+            loadComponent: () => import('./modules/logistica/pages/logistica-pagos-personas.component').then(m => m.LogisticaPagosPersonasComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_PAGOS_VER)]
+          },
+          {
+            path: 'tarifas',
+            loadComponent: () => import('./modules/logistica/pages/logistica-pagos-tarifas.component').then(m => m.LogisticaPagosTarifasComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_PAGOS_VER)]
+          },
+        ]
       },
     ]
   },

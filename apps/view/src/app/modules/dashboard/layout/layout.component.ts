@@ -39,6 +39,7 @@ import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../
 import type { PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
 import { pestanaVisible, primeraPestanaVisible, urlEnPestanas } from '../../../shared/components/page-tabs/pestanas-de-area';
 import { GASTOS_TABS } from '../../finanzas/gastos-tabs';
+import { PAGOS_VIAJE_TABS } from '../../logistica/pagos-viaje-tabs';
 import { CAJA_TABS } from '../../finanzas/caja-tabs';
 import { PAGOS_TABS } from '../../finanzas/pagos-tabs';
 import { REPORTES_GENERALES_TABS } from '../../comercial/reports-tabs';
@@ -534,6 +535,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Rastreo',       icon: 'pi pi-map-marker', route: '/logistica/tracking', permission: Permission.LOGISTICS_FLEET_VER },
         { label: 'Flotilla',      icon: 'pi pi-car',        route: '/logistica/fleet',    permission: Permission.LOGISTICS_FLEET_VER },
+        // [EMB.43] Una sola entrada para las tres pestañas (Por completar · Por persona · Tarifas).
+        { label: 'Pagos de viaje', icon: 'pi pi-dollar', route: '/logistica/pagos/viajes', tabs: PAGOS_VIAJE_TABS },
         { label: 'Liquidaciones', icon: 'pi pi-wallet',     route: '/logistica/payroll',  permission: Permission.LOGISTICS_PAYROLL_VER },
       ],
     },

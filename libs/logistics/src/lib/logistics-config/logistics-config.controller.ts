@@ -68,7 +68,7 @@ export class LogisticsConfigController {
   }
 
   @Get()
-  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_SHIPMENTS_VER)
+  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_SHIPMENTS_VER, Permission.LOGISTICS_PAGOS_VER)
   @ApiOperation({ summary: 'Listar config_finance del tenant' })
   list(@Query('category') category?: ConfigCategory, @Query('active') active?: string) {
     return this.service.list({
@@ -78,7 +78,7 @@ export class LogisticsConfigController {
   }
 
   @Get(':id')
-  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_SHIPMENTS_VER)
+  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_SHIPMENTS_VER, Permission.LOGISTICS_PAGOS_VER)
   @ApiOperation({ summary: 'Obtener config por id' })
   findOne(@Param('id') id: string): Promise<ConfigRow> {
     return this.service.findById(id);
@@ -99,7 +99,7 @@ export class LogisticsConfigController {
   }
 
   @Get(':id/historial')
-  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
+  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR, Permission.LOGISTICS_PAGOS_VER)
   @ApiOperation({ summary: 'EMB.28.1: historia de un renglón de configuración (quién, cuándo, antes y después)' })
   historialConfig(@Param('id') id: string): Promise<TariffChangeRow[]> {
     return this.service.historial('config', id);
@@ -107,7 +107,7 @@ export class LogisticsConfigController {
 
   // ── J.9.8 — Routes CRUD (Comisiones por ruta del catálogo destinos) ────
   @Get('routes/list')
-  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_SHIPMENTS_VER)
+  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_SHIPMENTS_VER, Permission.LOGISTICS_PAGOS_VER)
   @ApiOperation({ summary: 'J.9.8: listar routes (96 destinos reales del importer baseline)' })
   listRoutes(@Query('active') active?: string, @Query('search') search?: string) {
     return this.service.listRoutes({
@@ -138,7 +138,7 @@ export class LogisticsConfigController {
   }
 
   @Get('routes/:id/historial')
-  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
+  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR, Permission.LOGISTICS_PAGOS_VER)
   @ApiOperation({ summary: 'EMB.28.1: historia de la tarifa de una ruta (quién, cuándo, antes y después)' })
   historialRuta(@Param('id') id: string): Promise<TariffChangeRow[]> {
     return this.service.historial('route', id);

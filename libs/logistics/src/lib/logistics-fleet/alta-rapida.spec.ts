@@ -84,12 +84,13 @@ describe('LogisticsFleetService.altaRapida', () => {
 });
 
 describe('POST logistics/fleet/drivers/alta-rapida', () => {
-  it('la abre quien gestiona flota, quien completa guías o quien registra cargadores', () => {
+  it('la abre quien gestiona flota, quien completa guías, quien registra cargadores o quien opera Pagos de viaje', () => {
     const fn = LogisticsFleetController.prototype.altaRapida;
     expect(Reflect.getMetadata(PATH_METADATA, fn)).toBe('drivers/alta-rapida');
     expect(Reflect.getMetadata(METHOD_METADATA, fn)).toBe(RequestMethod.POST);
     expect(Reflect.getMetadata(ANY_PERMISSIONS_KEY, fn)).toEqual([
       Permission.LOGISTICS_FLEET_GESTIONAR, Permission.LOGISTICS_GUIDES_GESTIONAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR,
+      Permission.LOGISTICS_PAGOS_GESTIONAR,
     ]);
   });
 });

@@ -224,8 +224,53 @@ habría dado por prendida hacia atrás).
 - La migración **no está aplicada en prod**. Mientras no se aplique, la pantalla dirá «no hay tarifa de carga por caja vigente».
 - Embarques de antes del día en que se aplique la migración: la tarifa no existía → no se registran cargadores (se declara, no se inventa).
 
+### EMB.43 · El módulo «Logística › Pagos de viaje» — cómo quedó (🧪, 2026-10-24)
+
+Pedido de Edgar: *«rediseñemos el frontend y démosle un módulo específico en logística»*. Tres
+trabajos, tres pestañas (cada una contesta UNA pregunta):
+
+| Pestaña | La pregunta | Lo que hace |
+|---|---|---|
+| **Por completar** (`/logistica/pagos/viajes`) | ¿A qué viajes de Kepler de la catorcena les falta algo para pagarse? | Los viajes **aparecen solos** desde Kepler (traspaso y cliente; las cargas a ruta se cuentan y quedan fuera). Panel lateral en 3 pasos: tomar el viaje (sólo el tipo de entrega) → tripulación y horario → quién cargó y cierre de paradas (`app-cierre-viaje`, el mismo bloque del detalle del embarque) |
+| **Por persona** (`/logistica/pagos/personas`) | ¿Cuánto cobra cada quien esta catorcena, y por qué? | Lo liberado sin vale, lo retenido con su motivo y lo ya en vale; «Armar vale» para Gastos. ⭐ **Es la MISMA pantalla** que Finanzas › Comisiones de logística (antes eran dos implementaciones; la vieja se retiró) |
+| **Tarifas** (`/logistica/pagos/tarifas`) | ¿Con qué se paga y desde cuándo? | Carga por caja, viáticos y comisión por ruta, con el **historial** de cada cambio (la bitácora existía y no tenía pantalla). Se cambian en Configuración, que lleva el candado |
+
+**Acceso (firmado por Edgar):** permiso propio `LOGISTICS_PAGOS_VER` / `_GESTIONAR`. Migración
+`20261024114154` lo reparte: VER+GESTIONAR a `encargado_bodega` (sólo Leonardo Cazares) y
+`coordinador_embarques` (sólo Juan Arellano); VER a `finanzas` y `direccion`. ⛔ Hallazgo que lo
+motivó: **Leonardo, quien arma hoy la liquidación, no tenía NINGÚN permiso de logística**, y las 8
+hojas piloto las creó un desarrollador (superadmin). Todo endpoint que usa el módulo acepta el permiso
+propio (bandeja, cierre, tomar viaje, completar guía, cargadores, alta rápida, catorcena, vale,
+lectura de tarifas e historial); **ninguna escritura de tarifas** se abre al módulo (prueba negativa).
+
+**Backend nuevo:** `GET /logistics/trip-closure/bandeja` — viajes de Kepler en vivo + lo que la Suite
+sabe de cada uno. ⛔ No usa `logistics.v_trip_state` (se pasó de 60 s en prod); lo que falta sale de
+la guía y de `load_details`. Medido en prod con el SQL exacto: 436 guías, ~400 ms (la vista de viajes
+de Kepler es lo lento); controles EMB-5 completo, EMB-4 sin horario, EMB-2 sin chofer. La catorcena
+(`corteDe`) se mudó al contrato: la usan dos pantallas y el servidor.
+
+**Verificado:** logistics 85 ✓ · finance 20 ✓ · contracts+authz 107 ✓ · view (logística, finanzas,
+guards, layout) 1,271 ✓. `check:pantalla -- logistica`: las 3 páginas nuevas cumplen las 10 reglas.
+Compuertas `templates`, `tokens`, `motion`, `estilos`, `teclado`, `busqueda`, `tables`, `track`,
+`migrations`, `mig-colisiones`, `wiring`, `primeng`, emojis y reactividad en verde.
+⚠️ Al construir, la compuerta `primeng` cazó dos defectos que habrían salido en producción: botones
+`pButton` con `label`/`icon` (en v22 salen **vacíos**) y `styleClass` en `p-table` (v22 lo ignora).
+
+**NO MEDIDO / pendiente:**
+- ⛔ Las escrituras desde el panel (tomar, completar guía, cargadores, vale) **no se ejercieron contra
+  una base real** con el payload de la pantalla. Reusan endpoints existentes; el permiso es lo nuevo.
+- Las dos migraciones (`20261024110354`, `20261024114154`) **no están aplicadas en prod**. La de permisos
+  sólo hace UPDATE: **aplicarla antes de empujar**. Las personas tienen que volver a entrar.
+- **Sin validación visual**: no se levantó la app. Lo más probable de ajustar: el ancho del panel
+  lateral (40–44rem) y la densidad de la tabla en pantallas angostas.
+- `MATRIZ_ACCESOS.md` se regenera desde prod **después** de aplicar el reparto.
+- **Descarga en recepción/entrada** (Edgar: la carga por caja aplica a «traspasos, clientes, recepción,
+  entrada»): falta el modelo, porque una recepción no tiene embarque. Es el siguiente item: medir cajas
+  en `U-A-50` / `X-A-40` y dónde se captura quién descargó.
+
 ## Bitácora
 
+- **2026-10-24** — EMB.43: módulo Logística › Pagos de viaje (3 pestañas, permiso propio repartido a Leonardo y Juan).
 - **2026-10-24** — EMB.39 en código (🧪): carga a $0.20 por caja, configurable con vigencia. D3 firmada por Edgar.
 - **2026-10-24** — Medición y anexo. Pedido de Edgar: *«el punto es automatizar y llevar con control
   de comisiones y viáticos de logística, considerando cuando cargan camión su comisión por cargar,

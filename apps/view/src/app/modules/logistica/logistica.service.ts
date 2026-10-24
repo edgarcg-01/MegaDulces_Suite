@@ -6,6 +6,7 @@ import { environment } from '../../../environments/environment';
 import type {
   KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody, RevisionGps, CompletarGuiaBody, GuiaCompletada,
   CierreDeEmbarque, CerrarParadaBody, ParadaCierre, AltaRapidaBody, AltaRapidaResultado,
+  BandejaDeViajes, CorteDeLogistica, DetallePersona, ValeCreado,
 } from '@megadulces/contracts';
 
 // ── Tipos ────────────────────────────────────────────────────────────────
@@ -79,6 +80,20 @@ export interface ConfigItem {
   value: number;
   unit?: string | null;
   active: boolean;
+}
+
+/** `[EMB.28.1]` Un cambio de tarifa en la bitácora (`logistics.tariff_changes`). */
+export interface TariffChange {
+  id: string;
+  entity: 'route' | 'config';
+  entity_id: string;
+  entity_label: string;
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  autorizado: boolean;
+  changed_by_username: string | null;
+  changed_at: string;
 }
 
 export interface Shipment {
@@ -1265,6 +1280,33 @@ export class LogisticaService {
   }
   setCargadores(shipmentId: string, driverIds: string[]) {
     return this.http.put<CierreDeEmbarque>(`${this.base}/trip-closure/shipments/${shipmentId}/cargadores`, { driver_ids: driverIds });
+  }
+
+  // ── `[EMB.43]` Logística › Pagos de viaje ───────────────────────────────
+  /** Los viajes de Kepler de la catorcena y lo que le falta a cada uno para pagarse. */
+  getBandejaViajes(corte?: { desde: string; hasta: string }, sucursal?: string | null): Observable<BandejaDeViajes> {
+    let p = new HttpParams();
+    if (corte) p = p.set('desde', corte.desde).set('hasta', corte.hasta);
+    if (sucursal) p = p.set('sucursal', sucursal);
+    return this.http.get<BandejaDeViajes>(`${this.base}/trip-closure/bandeja`, { params: p });
+  }
+  /** Lo que cobra cada persona en la catorcena (lo arma Logística, lo aprueba Finanzas). */
+  getCortePagos(corte?: { desde: string; hasta: string }): Observable<CorteDeLogistica> {
+    let p = new HttpParams();
+    if (corte) p = p.set('desde', corte.desde).set('hasta', corte.hasta);
+    return this.http.get<CorteDeLogistica>(`${environment.apiUrl}/finance/trip-pay/corte`, { params: p });
+  }
+  getPersonaPagos(driverId: string, corte: { desde: string; hasta: string }): Observable<DetallePersona> {
+    const p = new HttpParams().set('desde', corte.desde).set('hasta', corte.hasta);
+    return this.http.get<DetallePersona>(`${environment.apiUrl}/finance/trip-pay/personas/${driverId}`, { params: p });
+  }
+  armarValePagos(driverId: string, corte: { desde: string; hasta: string }): Observable<ValeCreado> {
+    return this.http.post<ValeCreado>(`${environment.apiUrl}/finance/trip-pay/vales`, { driver_id: driverId, desde: corte.desde, hasta: corte.hasta });
+  }
+  /** `[EMB.28.1]` Quién cambió una tarifa, cuándo, y qué tenía antes. */
+  historialTarifa(entity: 'config' | 'route', id: string): Observable<TariffChange[]> {
+    const ruta = entity === 'route' ? `config/routes/${id}/historial` : `config/${id}/historial`;
+    return this.http.get<TariffChange[]>(`${this.base}/${ruta}`);
   }
 
   // ── Expenses ─────────────────────────────────────────────────────────────

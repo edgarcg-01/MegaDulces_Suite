@@ -108,6 +108,8 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.LOGISTICS_ROUTE_EXPENSES_GESTIONAR, url: '/logistica/gasto-ruta', motivo: 'manage sin view' },
   { perm: Permission.LOGISTICS_EXPENSES_GESTIONAR, url: '/logistica/costs', motivo: 'manage sin view' },
   { perm: Permission.LOGISTICS_PAYROLL_GESTIONAR, url: '/logistica/payroll', motivo: 'manage sin view' },
+  // [EMB.43] Se reparten juntas (migración 20261024114154): nadie tiene GESTIONAR sin VER.
+  { perm: Permission.LOGISTICS_PAGOS_GESTIONAR, url: '/logistica/pagos', motivo: 'manage sin view' },
   // finanzas
   { perm: Permission.FINANCE_BANK_GESTIONAR, url: '/finanzas/bancos', motivo: 'manage sin view' },
   { perm: Permission.FINANCE_COLLECTIONS_GESTIONAR, url: '/finanzas/cobranza', motivo: 'manage sin view' },

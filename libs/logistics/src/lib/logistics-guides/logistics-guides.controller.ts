@@ -9,7 +9,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
-import { Permission, RequirePermissions } from '@megadulces/platform-core';
+import { Permission, RequireAnyPermission, RequirePermissions } from '@megadulces/platform-core';
 import {
   LogisticsGuidesService,
   CreateGuideDto,
@@ -53,7 +53,8 @@ export class LogisticsGuidesController {
   }
 
   @Post(':id/complete')
-  @RequirePermissions(Permission.LOGISTICS_GUIDES_GESTIONAR)
+  // [EMB.43] También la completa Logística › Pagos de viaje, desde su bandeja, con su permiso propio.
+  @RequireAnyPermission(Permission.LOGISTICS_GUIDES_GESTIONAR, Permission.LOGISTICS_PAGOS_GESTIONAR)
   @ApiOperation({ summary: 'EMB.22: completar UNA vez la guía de un viaje de Kepler (tripulación y horario); calcula comisión y viáticos' })
   complete(@Param('id') id: string, @Body() body: CompletarGuiaBody): Promise<GuiaCompletada> {
     return this.service.complete(id, body);

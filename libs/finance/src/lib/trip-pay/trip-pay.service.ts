@@ -7,12 +7,15 @@ import {
 } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { ObjectStorageService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
-import type { PagoViaje } from '@megadulces/contracts';
+import type { CorteDeLogistica, DetallePersona, PagoViaje, ValeCreado } from '@megadulces/contracts';
 import { CONCEPTO_KEPLER, totalesPorConcepto } from '@megadulces/contracts';
 import { htmlAPdf } from '../shared/chromium-pdf';
 import {
   conceptoDelVale, corteAPagar, corteDe, Corte, esFecha, htmlHojaDeViajes, resumenPorPersona, ResumenPersona,
 } from './trip-pay.logic';
+
+// `[EMB.43]` Las formas de la respuesta viven en el contrato: las leen dos pantallas.
+export type { CorteDeLogistica, DetallePersona, ValeCreado } from '@megadulces/contracts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Fila cruda de `logistics.v_trip_pay_items` (pg devuelve numeric como texto y date como Date). */
@@ -23,27 +26,6 @@ interface FilaPago extends Omit<PagoViaje, 'shipment_date' | 'amount'> {
 
 const dia = (v: unknown): string => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v ?? '').slice(0, 10));
 
-export interface CorteDeLogistica {
-  corte: Corte;
-  personas: ResumenPersona[];
-  totales: { liberado: number; retenido: number; en_vale: number };
-}
-
-export interface DetallePersona {
-  corte: Corte;
-  driver_id: string;
-  persona: string;
-  pagables: PagoViaje[];
-  retenidos: PagoViaje[];
-  en_vale: PagoViaje[];
-}
-
-export interface ValeCreado {
-  id: string;
-  importe: number;
-  renglones: number;
-  persona: string;
-}
 
 /**
  * `[EMB.29]` — El vale de comisiones y viáticos de logística (ADR-091).
