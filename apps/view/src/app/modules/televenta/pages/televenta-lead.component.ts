@@ -199,6 +199,8 @@ import {
               [(ngModel)]="logNextAction"
               name="next_action_at"
               [showTime]="true"
+              [showIcon]="true"
+              [showOnFocus]="false"
               hourFormat="24"
               [minDate]="nowDate"
               [style]="{ width: '100%' }"
