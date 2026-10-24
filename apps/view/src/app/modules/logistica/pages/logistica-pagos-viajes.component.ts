@@ -92,7 +92,7 @@ const hhmm = (d: Date | null): string | null =>
 
         <div class="dt-scope">
           <p-table [value]="filtrados()" dataKey="clave" selectionMode="single" [selection]="seleccion()"
-                   (onRowSelect)="abrir($event.data)" [paginator]="filtrados().length > 50" [rows]="50"
+                   (onRowSelect)="alSeleccionar($event.data)" [paginator]="filtrados().length > 50" [rows]="50"
                    [showCurrentPageReport]="true" currentPageReportTemplate="{first}–{last} de {totalRecords}"
                    size="small" class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack"
                    [tableStyle]="{ 'min-width': '52rem' }">
@@ -131,7 +131,7 @@ const hhmm = (d: Date | null): string | null =>
         </div>
       </app-load-state>
 
-      <app-side-peek [open]="peek()" (openChange)="!$event && cerrar()" width="40rem"
+      <app-side-peek [open]="peek()" (openChange)="!$event && cerrar()" [width]="640"
                      [title]="viaje() ? 'Guía ' + viaje()!.guia : ''"
                      [subtitle]="viaje() ? subtituloPeek(viaje()!) : null">
         @if (viaje(); as v) {
@@ -372,6 +372,11 @@ export class LogisticaPagosViajesComponent {
     this.cerrar();
     this.data.set(null);
     this.cargar({ desde: c.desde, hasta: c.hasta });
+  }
+
+  /** La tabla entrega una fila, varias o ninguna: aquí la selección es de UNA fila. */
+  alSeleccionar(d: ViajePorCompletar | ViajePorCompletar[] | undefined): void {
+    if (d && !Array.isArray(d)) this.abrir(d);
   }
 
   abrir(v: ViajePorCompletar): void {

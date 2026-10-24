@@ -125,7 +125,7 @@ interface Historia { titulo: string; entity: 'config' | 'route'; id: string }
         </section>
       </app-load-state>
 
-      <app-side-peek [open]="!!historia()" (openChange)="!$event && historia.set(null)" width="34rem"
+      <app-side-peek [open]="!!historia()" (openChange)="!$event && historia.set(null)" [width]="544"
                      [title]="historia()?.titulo ?? ''" subtitle="Historial de la tarifa">
         <app-load-state [loading]="cargandoHistoria()" [error]="errorHistoria()" [isEmpty]="!cargandoHistoria() && !cambios().length"
                         emptyIcon="pi-history" emptyTitle="Sin cambios registrados"
