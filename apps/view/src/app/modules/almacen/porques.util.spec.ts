@@ -262,7 +262,20 @@ describe('[AB.28] los porqués de la mesa sobre la cuenta única', () => {
   });
 
   it('cada estado tiene su explicación', () => {
-    for (const e of ['sin_pedir', 'compras_lo_planeo', 'ya_viene', 'en_politica'] as const) expect(estadoPorQue(e).length).toBeGreaterThan(20);
+    for (const e of ['sin_pedir', 'compras_lo_planeo', 'ya_viene', 'en_politica'] as const) {
+      expect(estadoPorQue(renglon({ estado: e })).length).toBeGreaterThan(20);
+    }
+  });
+
+  it('⛔ [AB.35] con cobertura parcial NO dice «nadie lo ha pedido»: dice cuánto ya viene', () => {
+    // El caso del ejercicio del PM: faltan 32, ya vienen 20, quedan 12.
+    const t = estadoPorQue(renglon({ estado: 'sin_pedir', falta: 32, ya_pedido: 12, en_camino: 8, falta_neta: 12 }));
+    expect(t).toBe('Faltan 12 caja(s) por pedir: ya vienen 20 de 32, y nadie ha pedido el resto.');
+    expect(t).not.toMatch(/nadie lo ha pedido/i);
+  });
+
+  it('sin nada en camino sí dice que nadie lo ha pedido', () => {
+    expect(estadoPorQue(renglon({ estado: 'sin_pedir', ya_pedido: 0, en_camino: 0 }))).toContain('nadie lo ha pedido');
   });
 
   it('cuandoPorQue acepta sólo los campos que usa (la mesa nueva no trae el renglón viejo)', () => {

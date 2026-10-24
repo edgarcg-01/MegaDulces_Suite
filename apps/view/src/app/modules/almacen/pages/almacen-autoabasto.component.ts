@@ -35,7 +35,7 @@ import { qty, cuandoTexto, cuandoPorQue, surteTexto, surtePorQue, faltaNetaPorQu
  * le pide. Desde AB.28 lee `GET /commercial/autoabasto/renglones`, que sale del MISMO armado que
  * «Mi pedido» (`armarRenglon` en libs/contracts): las dos pantallas no pueden dar cifras distintas.
  *
- * La pregunta que contesta, en una frase: **¿qué le falta a mi almacén que nadie ha pedido?**
+ * La pregunta que contesta, en una frase: **¿qué le falta a mi almacén que todavía nadie ha pedido?**
  * Jerarquía (DESIGN §Q.5): primario = cuántos renglones nadie ha pedido y cuánto vale lo que se pide;
  * secundario = la tabla con falta neta y estado; terciario = mínimo, reorden, máximo y entrega.
  *
@@ -160,7 +160,7 @@ const ORDEN_COLUMNA: Record<string, OrdenMesa> = { sku: 'sku', falta: 'falta', f
             <p class="ab-aviso" role="note">
               <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
               Esta sucursal no tiene cliente de traspaso en Kepler: lo ya pedido a la matriz <strong>no se pudo medir</strong>,
-              así que «Ya viene» puede quedarse corto y «Nadie lo ha pedido» puede incluir algo que sí se pidió.
+              así que «Ya viene» puede quedarse corto y «Falta por pedir» puede incluir algo que sí se pidió.
             </p>
           }
           @if (r.resumen.sin_valuar > 0) {
@@ -222,7 +222,7 @@ const ORDEN_COLUMNA: Record<string, OrdenMesa> = { sku: 'sku', falta: 'falta', f
                 </td>
                 <td data-label="Estado">
                   <p-tag [value]="etiquetaEstado(r.estado)" [severity]="severidadEstado(r.estado)"
-                         [pTooltip]="estadoPorQue(r.estado)" tooltipPosition="left" />
+                         [pTooltip]="estadoPorQue(r)" tooltipPosition="left" />
                 </td>
                 <td class="ab-why" data-label="Entrega" [pTooltip]="entregaPorQue(r)" tooltipPosition="left">{{ entrega(r) }}</td>
               </tr>
@@ -335,7 +335,7 @@ export class AlmacenAutoabastoComponent {
     const dinero = (label: string, v: number | null, sub: string): MetricStripItem =>
       v == null ? { label, value: '—', format: 'text', sub: 'sin medir' } : { label, value: v, format: 'currency-short', sub };
     const items: MetricStripItem[] = [
-      { label: 'Nadie lo ha pedido', value: r.por_estado.sin_pedir, tone: r.por_estado.sin_pedir > 0 ? 'bad' : 'ok', sub: 'renglones con falta y sin pedido' },
+      { label: 'Falta por pedir', value: r.por_estado.sin_pedir, tone: r.por_estado.sin_pedir > 0 ? 'bad' : 'ok', sub: 'lo que ya viene no alcanza' },
       { label: 'Compras lo planeó', value: r.por_estado.compras_lo_planeo, tone: 'warn', sub: 'aún no está en Kepler' },
       { label: 'Ya viene', value: r.por_estado.ya_viene, tone: 'ok', sub: 'pedido o en camino' },
       dinero('Se pide a la matriz', r.por_surte.matriz.valor, `${r.por_surte.matriz.a_pedir} renglones`),

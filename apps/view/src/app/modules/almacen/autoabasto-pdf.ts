@@ -39,7 +39,7 @@ export function surtePdf(r: Pick<AutoabastoMesaRenglon, 'surte'>): string {
 
 /** Lo que el reporte necesita además de los datos del servidor. */
 export interface AutoabastoPdfOpts {
-  /** Los filtros aplicados, ya en palabras ("Estado: Nadie lo ha pedido"…). */
+  /** Los filtros aplicados, ya en palabras ("Estado: Falta por pedir"…). */
   filtros: string[];
   /** Quién lo generó (el usuario de la sesión). */
   generadoPor: string | null;
@@ -67,7 +67,7 @@ export async function descargarPdfAutoabasto(rep: AutoabastoRenglonesResponse, o
   // Un importe que no se pudo medir se imprime «sin medir», nunca $0.
   const pesos = (v: number | null) => (v == null ? 'sin medir' : money(v));
   const cajas: [string, string][] = [
-    ['Nadie lo ha pedido', String(r.por_estado.sin_pedir)],
+    ['Falta por pedir', String(r.por_estado.sin_pedir)],
     ['Compras lo planeó', String(r.por_estado.compras_lo_planeo)],
     ['Ya viene', String(r.por_estado.ya_viene)],
     ['Se pide a la matriz', pesos(r.por_surte.matriz.valor)],
