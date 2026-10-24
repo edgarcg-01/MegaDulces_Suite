@@ -1788,6 +1788,64 @@ que hoy el pedido de la Suite se pasa a Kepler **sólo en parte**.
 **cuando PQ.2 y PQ.9 estén** (la requisición de sucursal no sale sin folio, sin motivo de rechazo ni
 avisos) → AB.31 (con PQ). AB.30 se cierra solo cuando PQ.2/PQ.7 escriban el folio.
 
+### 16.14 El pedido de una sucursal (no matriz), de punta a punta — ejemplo y lo que falta (2026-10-24)
+
+El PM pidió un ejercicio desde cero para ver cómo se **informa** y cómo se **genera** el pedido de una
+sucursal que no es matriz. Le gustó el plan; queda escrito así. **Números ilustrativos**: muestran la
+mecánica, no son datos de prod.
+
+**Escenario:** La Piedad Abastos, que se surte de su matriz Padre Hidalgo. Lunes 8 am, cajas.
+
+| Producto | Surte | Objetivo | Existencia | Falta | Ya viene | Falta neta |
+|---|---|---:|---:|---:|---|---:|
+| Mazapán | Padre Hidalgo (traspaso) | 42 | 10 | 32 | pedido abierto 12 + embarque 8 = 20 | **12** |
+| Chicle | Padre Hidalgo (traspaso) | 30 | 5 | 25 | nada en Kepler; Compras planeó 25 en la Suite (no se resta) | **25** |
+| Paleta | Padre Hidalgo (traspaso) | 20 | 6 | 14 | embarque 14 | **0** |
+| Agua | Proveedor X (compra) | 50 | 20 | 30 | nada | **30** |
+| Cacahuate | Proveedor Y (compra) | 25 | 40 | 0 | — | no aparece |
+
+| Paso | Qué pasa | Quién se entera | Existe hoy |
+|---|---|---|---|
+| **1. Se informa** | La mesa: falta por pedir 2 (Mazapán, Agua) · Compras lo planeó 1 (Chicle) · ya viene 1 (Paleta). «Lo que te llega» lista el pedido 0450, el embarque 0391 y el plan RQ-2026-00123 «aún no en Kepler» | La sucursal, sin llamar a nadie | ✅ en código (AB.26–AB.28a) |
+| **2. Se genera** | «Generar requisición» prellenada sólo con la falta por pedir: Mazapán 12 (traspaso) · Agua 30 → la sucursal deja 24 con motivo «espacio en bodega». El Chicle no se prellena (ya lo planeó Compras). Salen **RQ-201** (traspaso) y **RQ-202** (compra), pendientes, marcadas «pedida por sucursal»; en la mesa pasan a «Pedido a Compras · por aprobar» | — | ⬜ AB.29 |
+| **3. Compras se entera** | Tarea en «Mi trabajo»: «2 requisiciones de La Piedad Abastos». En `/compras/pedido`, celda La Piedad × Mazapán: falta 32 − ya viene 20 = **12** (hoy diría 32: planearía 20 de más) y el aviso «la sucursal pidió 12 (RQ-201, por aprobar)», que no se resta | Compras | ⬜ AB.32 + D14/D15 |
+| **4. Compras decide** | Aprueba RQ-201: en Padre Hidalgo quedan apartados 12 (si tenía 100, quedan 76 disponibles, D10). RQ-202: aprueba, cambia o rechaza **con motivo** | La sucursal recibe aviso con el motivo | ⬜ AB.31 + PQ.9 |
+| **5. Se pasa a Kepler** | Padre Hidalgo captura el pedido de traspaso y registra el folio en la Suite; Compras captura la OC del agua y registra su folio. Desde ahí cuenta como «ya viene», una sola vez | La sucursal lo ve con su folio | ⬜ PQ.2 / PQ.7 |
+| **6. Embarque y recepción** | «En camino» y se libera lo apartado; al recibir sube la existencia. Si la matriz manda 10 de 12, los 2 vuelven como falta y el faltante de surtido se ve | Sucursal y Compras | ✅ el faltante de surtido ya existe en «Mi pedido» |
+
+#### D14 y D15 — con los ajustes que pidió la sesión de PQ (2026-10-23)
+
+| # | Decisión | Forma acordada entre AB y PQ | Firma |
+|---|---|---|---|
+| **D14** | ¿Lo que pidió la sucursal cambia el sugerido de Compras? | **Resta** en la celda de la sucursal sólo lo que es mercancía en movimiento: pedido de traspaso abierto de 7 días o menos y embarque sin recibir, **contados desde el documento de Kepler**, nunca desde la requisición aprobada en la Suite (PQ M2: el 55 % de esas no tiene ningún `U-D-40`). Las requisiciones de la sucursal **se muestran y no se restan**. Al aprobarse, la requisición se liga a su origen | ⬜ el PM aprobó el plan; falta la firma explícita |
+| **D15** | ¿Dónde atiende Compras lo que pide la sucursal? | **No es bandeja nueva:** `/compras/requisiciones` con el filtro «pedida por sucursal», más la tarea en «Mi trabajo» (AB.32). La liga origen → atención ya existe desde `[RQ.8]` | ⬜ ídem |
+
+**Los cuatro ajustes de PQ, aceptados:**
+1. **Una sola regla de «ya viene».** La cuenta de traspasos abiertos y embarques sin recibir sale de UNA función compartida en `libs/` (al lado de `transito.ts`), con las ventanas de 7 días, la conversión de unidades de AB.23 y una consulta para toda la red. «Mi pedido», la mesa y `/compras/pedido` la consumen; nadie la reescribe (ADR-056).
+2. **La matriz con su venta propia + lo comprometido**, nunca con la suma de la venta de sus sucursales (`eff_daily`): sería contar dos veces junto con D10.
+3. **D15 sin bandeja nueva** (arriba).
+4. **El número de `/compras/pedido` cambia en UN commit con antes/después, y no espera a M1:** restar lo que ya viene es un hecho, no una calibración.
+
+**Dos condiciones de AB:**
+- La medición antes/después que corre el código del servicio desde una laptop contra prod sólo es aceptable con conexión de sólo lectura (`default_transaction_read_only = on`) y `system_identifier` impreso, y así se escribe en el commit. Si no, roza la regla de no levantar el backend local.
+- Extraer la cuenta (AB.34) no puede cambiar lo que devuelve «Mi pedido»: se prueba contra prod en sólo lectura antes de que PQ la use.
+
+**El reparto:**
+
+| Quién | Qué |
+|---|---|
+| **AB.34** | La función compartida «lo que la sucursal ya pidió»: traspaso abierto ≤ 7 d + embarque sin recibir, en unidad base, para toda la red, con su prueba contra prod |
+| **PQ** | Consumirla en `workbook` y `transferPlan` como descuento por celda, mostrar «la sucursal ya pidió» y hacer **el commit del número** con su antes/después. ⚠️ **Número de item por asignar:** PQ propuso «PQ.12», pero ese número ya lo usa PQ para «la matriz pide lo que sus sucursales le van a sacar» (CEDIS) |
+| **AB.31 / D10–D11** | Lo comprometido en la matriz, coordinado con PQ. ⚠️ Se cruza con ese PQ.12 del CEDIS: es la misma pregunta («cuánto le van a sacar a la matriz») vista desde 00. Hay que decidir quién la responde antes de que los dos la construyan |
+
+#### Un error que el ejercicio destapó — AB.35
+
+En el Mazapán, la mesa (AB.28a) dice **«Nadie lo ha pedido»** aunque ya vienen 20 de 32: el rótulo
+afirma algo falso cuando la cobertura es parcial (ley 0 del estándar de interfaces). `estadoRenglon`
+devuelve `sin_pedir` siempre que quede falta neta, venga algo o no. Arreglo: el estado se llama
+**«Falta por pedir»** y su explicación dice cuánto falta y cuánto ya viene. Es texto del contrato y de
+la pantalla, con su prueba (un renglón con cobertura parcial no puede decir «nadie»).
+
 ### 16.10 Definición de Terminado
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
