@@ -163,6 +163,11 @@ async function revisar() {
       [s, d.c2, d.c3, d.c4, p.serie, p.folio])).rows;
     if (h.length !== 1) falla(`${tipo}: plantilla ${p.serie}/${p.folio}`, 'no existe en este servidor');
     else if (!h[0].renglones) falla(`${tipo}: plantilla ${p.serie}/${p.folio}`, 'no tiene renglones de los que copiar');
+    // ⛔ La plantilla de TRASPASO tiene que seguir sin procesar. Medido el 2026-10-23: la candidata
+    // de `01` (`0003384`) estaba AUTORIZADO en la mañana y EMBARCADO (`c43='A'`) en la tarde —
+    // un pedido vivo avanza. Clonarla haría nacer pedidos con rastros del proceso.
+    else if (tipo === 'traspaso' && (h[0].c11 !== 'AUTORIZADO' || h[0].c43 !== 'N'))
+      falla(`${tipo}: plantilla ${p.serie}/${p.folio}`, `ya procesada (c11=${h[0].c11} · c43=${h[0].c43}): elegir un U-D-40 AUTORIZADO con c43='N'`);
     else ok(`${tipo}: plantilla ${p.serie}/${p.folio}`, `${h[0].renglones} renglones · c11=${h[0].c11} · c43=${h[0].c43}`);
     if (tipo === 'traspaso') {
       if (!lee.has('pv_suc_ip')) falla('traspaso: lee pv_suc_ip', `GRANT SELECT ON md.pv_suc_ip TO ${who.u}`);

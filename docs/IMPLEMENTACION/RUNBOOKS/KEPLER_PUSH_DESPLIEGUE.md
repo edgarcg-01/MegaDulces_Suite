@@ -247,12 +247,12 @@ criterio devuelve en `00` exactamente las plantillas ya elegidas a mano (`000042
 | servidor | compra | renglones | traspaso | renglones |
 |---|---|---:|---|---:|
 | `00` | `0000424` | 103 | `0000450` | 4 |
-| `01` | `0000092` | 48 | `0003384` ⚠️ de hoy | 42 |
+| `01` | `0000092` | 48 | ⛔ ninguna sana: `0003384` pasó a EMBARCADO el mismo día; todo AUTORIZADO se procesa en <3 días | — |
 | `02` | `0000101` | 286 | `0002124` | 1 |
 | `03` | `0000158` | 262 | `0000002` | 1 |
 | `04` | `0000059` | 154 | ninguna sana | — |
 | `05` | `0000007` | 49 | `0001108` ⚠️ de ayer | 51 |
-| `06` | `0000001` | 10 | `0001479` | 11 |
+| `06` | `0000001` | 10 | `0000895` (22-sep, sin procesar) | 4 |
 | `07` | `0000035` | 59 | ninguna sana | — |
 | `08` | `0000005` | 53 | `0000028` | 44 |
 
