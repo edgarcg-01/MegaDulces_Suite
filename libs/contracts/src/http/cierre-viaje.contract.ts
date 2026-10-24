@@ -373,11 +373,13 @@ export interface ValeCreado {
 // que se pueda pagar. Las guías de puras cargas a camión de ruta quedan fuera: no pagan comisión
 // ni viático, y la carga a ruta no paga por caja (decisión de Edgar, 2026-10-24).
 
-/** Lo que le falta a un viaje para pagarse, en el orden en que se captura. */
-export type FaltaDelViaje = 'tomar' | 'chofer' | 'horario' | 'cargadores';
+/**
+ * Lo que le falta a un viaje para repartirse, en el orden en que se captura. `[EMB.47]` Ya no hay
+ * «tomar»: la hoja de la Suite se crea sola al capturar al chofer o a los cargadores.
+ */
+export type FaltaDelViaje = 'chofer' | 'horario' | 'cargadores';
 
 export const FALTA_LABEL: Record<FaltaDelViaje, string> = {
-  tomar: 'Sin hoja en la Suite',
   chofer: 'Falta el chofer',
   horario: 'Falta el horario',
   cargadores: 'Falta quién cargó',
@@ -421,11 +423,11 @@ export interface ViajeEnLaSuite {
 }
 
 /**
- * Qué le falta al viaje, en el orden en que se captura. Vacío = completo: ya se puede pagar en
- * cuanto cierren sus paradas. Es la misma regla que `pendientesDeLaGuia` (chofer y horario).
+ * Qué le falta al viaje, en el orden en que se captura. Vacío = completo: ya se sabe cuánto le toca
+ * a cada quien. Es la misma regla que `pendientesDeLaGuia` (chofer y horario).
  */
 export function faltasDelViaje(suite: ViajeEnLaSuite | null): FaltaDelViaje[] {
-  if (!suite) return ['tomar'];
+  if (!suite) return ['chofer', 'horario', 'cargadores'];
   const f: FaltaDelViaje[] = [];
   if (!suite.driver_id) f.push('chofer');
   if (!suite.departure_time || !suite.arrival_time) f.push('horario');
@@ -433,7 +435,7 @@ export function faltasDelViaje(suite: ViajeEnLaSuite | null): FaltaDelViaje[] {
   return f;
 }
 
-/** Un viaje de la bandeja (`GET /logistics/trip-closure/bandeja`). */
+/** Un viaje de Kepler con lo que la Suite sabe de él (base de `OperacionDelReporte`). */
 export interface ViajePorCompletar {
   sucursal: string;
   guia: string;
@@ -464,13 +466,170 @@ export interface PersonaDelPadron {
   roles: string[];
 }
 
-/** `GET /logistics/trip-closure/bandeja?desde&hasta&sucursal` */
-export interface BandejaDeViajes {
+// ── [EMB.47] El reporte de reparto: cuánto le toca a cada quien de cada operación ─────────────
+//
+// Pedido del usuario (2026-10-24): «la finalidad del módulo es sacar los gastos y la repartición…
+// sabemos cuántas cajas, cuántos procesos. Sólo necesitamos decirles cuánto les toca de cada
+// operación… y generarlo a forma de reporte para que ellos hagan sus solicitudes de gasto». Con
+// eso salen el cierre de paradas y el vale: el gasto se pide en Kepler (X-A-15) con este reporte.
+//
+// Lo único que Kepler NO sabe es quién fue (medido en Oficinas, 14 días: el chofer viene en 58 de
+// 103 guías; los ayudantes, nunca). Eso es lo único que se captura.
+
+export type ConceptoDelReparto = 'comision' | 'viatico' | 'carga';
+export type RolDelReparto = 'chofer' | 'ayudante' | 'cargador';
+
+export const ROL_LABEL: Record<RolDelReparto, string> = { chofer: 'Chofer', ayudante: 'Ayudante', cargador: 'Cargador' };
+export const CONCEPTO_DEL_REPARTO_LABEL: Record<ConceptoDelReparto, string> = {
+  comision: 'Comisión', viatico: 'Viático', carga: 'Carga',
+};
+
+export interface ConceptoKepler { codigo: string; nombre: string }
+
+/**
+ * El concepto de Kepler con que se pide el gasto, por tipo de viaje. Medido en los X-A-10 de
+ * Logística de 90 días (`kdm6.c12` / `c9`, al 2026-10-24): traspaso → 054 (384 renglones) + 027
+ * (336); cliente → 075 (155) + 128 (142). La carga por caja va a 054 en los dos: decisión del
+ * usuario del 2026-10-24. Un viaje mixto (4 de 314 guías del 8 al 21 de octubre) se pide como
+ * traspaso.
+ */
+export const CONCEPTO_DEL_REPARTO: Record<'traspaso' | 'cliente', Record<ConceptoDelReparto, ConceptoKepler>> = {
+  traspaso: {
+    comision: { codigo: '054', nombre: 'COMISION ARRASTRE MERCANCIA' },
+    viatico: { codigo: '027', nombre: 'VIATICOS TRASPASO DE MERCANCIA' },
+    carga: { codigo: '054', nombre: 'COMISION ARRASTRE MERCANCIA' },
+  },
+  cliente: {
+    comision: { codigo: '075', nombre: 'COMISIONES LOGISTICAS TLMKT' },
+    viatico: { codigo: '128', nombre: 'VIATICOS ENTREGA CLIENTES' },
+    carga: { codigo: '054', nombre: 'COMISION ARRASTRE MERCANCIA' },
+  },
+};
+
+export function conceptoDelReparto(tipo: TipoViajePago, concepto: ConceptoDelReparto): ConceptoKepler {
+  return CONCEPTO_DEL_REPARTO[tipo === 'cliente' ? 'cliente' : 'traspaso'][concepto];
+}
+
+/** Lo que le toca a UNA persona de UNA operación por UN concepto. */
+export interface RenglonDelReparto {
+  persona_id: string;
+  persona: string;
+  rol: RolDelReparto;
+  concepto: ConceptoDelReparto;
+  codigo: string;
+  nombre_concepto: string;
+  importe: number;
+}
+
+/** Una operación del reporte: el viaje de Kepler, sus cajas y cómo se reparte. */
+export interface OperacionDelReporte extends ViajePorCompletar {
+  /** Cajas de las paradas que pagan (sin las cargas a ruta). `null` = Kepler no trae renglones. */
+  cajas: number | null;
+  /** La tarifa por caja vigente ese día. `null` = no hay tarifa activa. */
+  tarifa_por_caja: number | null;
+  /** Lo que paga la carga (cajas × tarifa, o lo ya guardado). `null` = no se puede saber. */
+  carga_total: number | null;
+  cargador_ids: string[];
+  renglones: RenglonDelReparto[];
+  /** Σ de los renglones: lo que ya se sabe a quién le toca. */
+  repartido: number;
+}
+
+/** `GET /logistics/trip-closure/reporte?desde&hasta&sucursal` */
+export interface ReporteDePagos {
   corte: Corte;
-  viajes: ViajePorCompletar[];
+  operaciones: OperacionDelReporte[];
   /** Guías del periodo que son SÓLO cargas a camión de ruta: no entran (se cuentan, no se esconden). */
   fuera_de_alcance: number;
+  /** El padrón activo, para elegir chofer, ayudantes y cargadores. */
   personas: PersonaDelPadron[];
   /** Cuándo se leyó (para la edad del dato). */
   leido_at: string;
+}
+
+/** Un renglón para capturar en la solicitud de Kepler: concepto × destino, sumado en la catorcena. */
+export interface RenglonDeSolicitud {
+  codigo: string;
+  nombre_concepto: string;
+  destino: string;
+  operaciones: number;
+  importe: number;
+}
+
+/** De dónde sale cada peso de la solicitud: una línea por operación y concepto. */
+export interface DetalleDeSolicitud {
+  fecha: string;
+  sucursal: string;
+  guia: string;
+  destino: string;
+  rol: RolDelReparto;
+  concepto: ConceptoDelReparto;
+  codigo: string;
+  importe: number;
+}
+
+/** Lo que una persona pide en la catorcena. */
+export interface SolicitudDePersona {
+  persona_id: string;
+  persona: string;
+  roles: RolDelReparto[];
+  operaciones: number;
+  por_concepto: Record<ConceptoDelReparto, number>;
+  total: number;
+  renglones: RenglonDeSolicitud[];
+  detalle: DetalleDeSolicitud[];
+}
+
+/** Pesos redondeados al centavo. */
+const alCentavo = (n: number): number => centavos(n) / 100;
+
+/**
+ * Las solicitudes de la catorcena, una por persona, armadas de los renglones de las operaciones.
+ * Se agrupa por concepto de Kepler y destino porque así se captura el gasto: un renglón por
+ * concepto y centro de costo (medido en los X-A-10 de octubre: 5 a 16 renglones por persona).
+ */
+export function solicitudesDelReporte(operaciones: OperacionDelReporte[]): SolicitudDePersona[] {
+  const porPersona = new Map<string, SolicitudDePersona & { _ops: Set<string>; _renglon: Map<string, RenglonDeSolicitud & { _ops: Set<string> }> }>();
+  for (const op of operaciones) {
+    const llaveOp = `${op.sucursal}|${op.guia}`;
+    const destino = op.destinos || '—';
+    for (const r of op.renglones) {
+      if (!(r.importe > 0)) continue;
+      let s = porPersona.get(r.persona_id);
+      if (!s) {
+        s = {
+          persona_id: r.persona_id, persona: r.persona, roles: [], operaciones: 0,
+          por_concepto: { comision: 0, viatico: 0, carga: 0 }, total: 0, renglones: [], detalle: [],
+          _ops: new Set(), _renglon: new Map(),
+        };
+        porPersona.set(r.persona_id, s);
+      }
+      if (!s.roles.includes(r.rol)) s.roles.push(r.rol);
+      s._ops.add(llaveOp);
+      s.por_concepto[r.concepto] = alCentavo(s.por_concepto[r.concepto] + r.importe);
+      s.total = alCentavo(s.total + r.importe);
+      const k = `${r.codigo}|${destino}`;
+      let rs = s._renglon.get(k);
+      if (!rs) {
+        rs = { codigo: r.codigo, nombre_concepto: r.nombre_concepto, destino, operaciones: 0, importe: 0, _ops: new Set() };
+        s._renglon.set(k, rs);
+      }
+      rs._ops.add(llaveOp);
+      rs.importe = alCentavo(rs.importe + r.importe);
+      s.detalle.push({
+        fecha: op.fecha, sucursal: op.sucursal, guia: op.guia, destino, rol: r.rol,
+        concepto: r.concepto, codigo: r.codigo, importe: r.importe,
+      });
+    }
+  }
+  return [...porPersona.values()]
+    .map(({ _ops, _renglon, ...s }) => ({
+      ...s,
+      operaciones: _ops.size,
+      renglones: [..._renglon.values()]
+        .map(({ _ops: ops, ...r }) => ({ ...r, operaciones: ops.size }))
+        .sort((a, b) => a.codigo.localeCompare(b.codigo) || a.destino.localeCompare(b.destino)),
+      detalle: s.detalle.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.guia.localeCompare(b.guia)),
+    }))
+    .sort((a, b) => a.persona.localeCompare(b.persona, 'es'));
 }

@@ -100,13 +100,13 @@ y descarga de compras quedan fuera (§5).
 
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
-| **D1** | Concepto y centro de costo por tipo de viaje | (a) todo a 075/128/186 como hoy · (b) por tipo | **(b)**: traspaso → **054/027**, centro de costo = piso de la sucursal destino; cliente → **075/128**, TLMK de la plaza; flete a terceros → 075/128 en `1-09-63`; hotel → 189. Es lo que Logística ya captura; (a) clasifica mal $97k al mes |
+| **D1** ✅ (conceptos) | Concepto y centro de costo por tipo de viaje | (a) todo a 075/128/186 como hoy · (b) por tipo | **(b)**: traspaso → **054/027**, centro de costo = piso de la sucursal destino; cliente → **075/128**, TLMK de la plaza; flete a terceros → 075/128 en `1-09-63`; hotel → 189. Es lo que Logística ya captura; (a) clasifica mal $97k al mes. **Conceptos firmados por Edgar el 2026-10-24** («hagamos lo que mencionaste»): traspaso 054/027, cliente 075/128, **carga por caja → 054** en los dos, mixto como traspaso (EMB.47). ⚠️ El **centro de costo** sigue sin derivarse: el reporte da el destino por nombre |
 | **D2** | ¿Quién crea el viaje? | (a) «Nuevo embarque» a mano · (b) **cada guía Kepler en alcance aparece sola** | **(b)**. El viaje es de Kepler (vista, sin copia); la Suite guarda sólo tripulación, horas y cargadores por `(sucursal, guía)`. Chofer por default = Kepler `c84` → `drivers.kepler_code` |
 | **D3** ✅ | Pago por cargar el camión | (a) $ fijo por persona por embarque (hoy $30) · (b) $ por caja del embarque, repartido entre cargadores · (c) mixto | **Firmada por Edgar, 2026-10-24: «se pagarán 20 centavos por caja», con una configuración que se pueda cambiar.** Se implementó (b): cajas del embarque × $0.20, **repartido en partes iguales** entre quienes cargaron (el reparto igual es interpretación de esta sesión, por el precedente de EMB.18; confirmar). Ver EMB.39 |
 | **D4** | Tarifa de viático | (a) por horario con la config actual (café $25, desayuno/comida/cena $100) · (b) lo que dice la liquidación | (a) con las tarifas **cuadradas contra la liquidación** (EMB §2 midió «$80 por comida por persona»; la config dice $100). Se cuadra en EMB.37, no se cambia a ojo |
 | **D5** | Identidad de la persona | texto libre de Kepler (`c24`: «BRANCON CORONA», «RAUL GALVAL») · padrón `logistics.drivers` | Padrón (**EMB.31**). El texto de Kepler queda sólo como testigo para casar el pago |
-| **D6** | Cierre de catorcena | (a) «Armar vale» persona por persona · (b) borradores de todos al cerrar el corte | **(b)**: el jueves se generan los vales en borrador; una persona aprueba. Nunca se paga sin aprobación |
-| **D7** | Captura en Kepler | (a) a mano como hoy · (b) la Suite entrega los renglones exactos (concepto, centro de costo, importe) y después casa el folio sola · (c) escribir en Kepler | **(b)**. (c) queda fuera: escribir en el ERP es otra fase (PGP) |
+| **D6** ⛔ superada | Cierre de catorcena | (a) «Armar vale» persona por persona · (b) borradores de todos al cerrar el corte | **Superada por Edgar el 2026-10-24**: *«solo necesitamos decirles cuánto les toca de cada operación… y generarlo a forma de reporte para que ellos hagan sus solicitudes de gasto»*. No hay vale en la Suite: el gasto se pide en Kepler con el reporte (EMB.47) |
+| **D7** ✅ (b) | Captura en Kepler | (a) a mano como hoy · (b) la Suite entrega los renglones exactos (concepto, centro de costo, importe) y después casa el folio sola · (c) escribir en Kepler | **(b), mitad entregada en EMB.47**: el reporte da los renglones (concepto × destino × importe) en PDF y Excel. Falta casar el folio `X-A-15` solo (EMB.42). (c) queda fuera: escribir en el ERP es otra fase (PGP) |
 | **D8** | Cupo (4/4 🔨: AB, CGA, RH, PQ) | (a) esperar a que cierre una · (b) C0 ya, dentro del aterrizaje de EMB · (c) pausar una | **(b)**: C0 son vistas de sólo lectura y una reproducción de catorcena; no estrena fase, aterriza EMB (🧪). **C1–C3 entran cuando se libere un cupo**, o Edgar decide qué pasa a ⏸️ |
 
 ---
@@ -259,8 +259,10 @@ Compuertas `templates`, `tokens`, `motion`, `estilos`, `teclado`, `busqueda`, `t
 **NO MEDIDO / pendiente:**
 - ⛔ Las escrituras desde el panel (tomar, completar guía, cargadores, vale) **no se ejercieron contra
   una base real** con el payload de la pantalla. Reusan endpoints existentes; el permiso es lo nuevo.
-- Las dos migraciones (`20261024110354`, `20261024114154`) **no están aplicadas en prod**. La de permisos
-  sólo hace UPDATE: **aplicarla antes de empujar**. Las personas tienen que volver a entrar.
+- ✅ Las dos migraciones (`20261024110354`, `20261024114154`) **se aplicaron en prod el 2026-10-24**
+  (18:36 y 18:37 UTC; verificado en `public.knex_migrations`, columnas, tarifa y reparto a los 4 roles).
+  ⛔ Lo que decía aquí —«aplicarla antes de empujar»— era falso: `aplicar-migracion.sh` se niega si el
+  archivo no está en `origin/main`. Las personas tienen que volver a entrar.
 - **Sin validación visual**: no se levantó la app. Lo más probable de ajustar: el ancho del panel
   lateral (40–44rem) y la densidad de la tabla en pantallas angostas.
 - `MATRIZ_ACCESOS.md` se regenera desde prod **después** de aplicar el reparto.
@@ -268,8 +270,66 @@ Compuertas `templates`, `tokens`, `motion`, `estilos`, `teclado`, `busqueda`, `t
   entrada»): falta el modelo, porque una recepción no tiene embarque. Es el siguiente item: medir cajas
   en `U-A-50` / `X-A-40` y dónde se captura quién descargó.
 
+### EMB.47 · El módulo es un REPORTE de reparto — cómo quedó (🧪, 2026-10-24)
+
+Edgar, al ver EMB.43: *«la finalidad del módulo es sacar los gastos y la repartición de las
+cantidades mencionadas. Sabemos cuántas cajas, cuántos procesos. Sólo necesitamos decirles cuánto les
+toca de cada operación. No necesitamos más, y generarlo a forma de reporte para que ellos hagan sus
+solicitudes de gasto»* — y después: *«hay que darle la opción aquí de agregar chofer y agregar
+cargadores»*. O sea: fuera el flujo (tomar el viaje, cierre de paradas, armar vale); queda **quién
+fue** y **cuánto le toca a cada quien**.
+
+**Lo medido antes de rediseñar (prod, sólo lectura):**
+- Cómo se paga hoy: **un `X-A-10` por persona por catorcena** (octubre en Oficinas: 12 personas × 2
+  pagos, 5–16 renglones cada uno); cada renglón es **concepto × centro de costo de la sucursal
+  destino** (`kdm6.c12`/`c16`). Textos de 90 días: 054 «COMISION ARRASTRE MERCANCIA» (384), 027
+  «VIATICOS TRASPASO DE MERCANCIA» (336), 075 «COMISIONES LOGISTICAS TLMKT» (155), 128 «VIATICOS
+  ENTREGA CLIENTES» (142), 186 «MANIOBRAS CLIENTES» (1).
+- Lo único que Kepler no sabe es **quién fue**: el chofer viene en 58 de 103 guías de Oficinas (14
+  días); los ayudantes, nunca. Los 17 choferes de Kepler (30 días) **sí** están en el padrón; el
+  padrón activo tiene **25 choferes, 1 ayudante y 0 cargadores** → dar de alta ayudantes y cargadores
+  desde el reporte no es un extra: sin eso no se puede repartir.
+- Viajes mixtos (traspaso + cliente): 4 de 314 guías que pagan (8–21 oct) → se piden como traspaso.
+
+| Pestaña | Lo que hace ahora |
+|---|---|
+| **Operaciones** (`/logistica/pagos/viajes`) | Cada traspaso o entrega a cliente de Kepler con sus **cajas**, quién fue y cuánto se repartió. En el panel: **chofer y ayudantes** (con horario: de ahí salen comisión y viático), **cargadores** (cajas × $0.20 en partes iguales, con la vista previa) y **«Agregar ayudante/cargador nuevo»** (alta rápida de EMB.32). La hoja de la Suite **nace sola** al guardar la primera captura: ya no hay «tomar el viaje» |
+| **Por persona** (`/logistica/pagos/personas`) | La **solicitud de gasto de cada quien**: renglones concepto × destino sumados en la catorcena (como se captura el X-A-15), de dónde sale cada peso, y **PDF** (una hoja por persona con firma) y **Excel**. Es la misma pantalla en Finanzas › Comisiones de logística |
+| **Tarifas** | Sin cambio |
+
+**Backend:** `GET /logistics/trip-closure/reporte` reemplaza a `bandeja` (que nunca llegó a prod).
+Tres lecturas en paralelo, cada una con su conexión. Medido en prod (8–21 oct, todas las sucursales):
+viajes 322 ms; paradas 65 ms + cajas de 1,341 documentos en lote 240 ms. Acepta las mismas llaves
+con que Finanzas leía el corte (`FINANCE_EXPENSES_COMPROBAR`, `LOGISTICS_SHIPMENTS_GESTIONAR`), para
+no dejar fuera a quien ya entraba a Comisiones de logística. **No se agregó ninguna escritura**: la
+captura reusa `from-kepler`, `guides/:id/complete`, `cargadores` y `alta-rapida`.
+
+**Cambio de regla:** las cajas de una carga a camión de ruta **en la misma guía** ya no se pagan
+(antes `cajasDe` sumaba todas las paradas). Es la decisión del 2026-10-24 («no camiones de ruta»)
+aplicada también donde se guarda: `cajasPorGuia` es una sola función para el reporte y para
+`setCargadores`.
+
+**Verificado:** logistics 44 ✓ · contracts 33 ✓ · view (logística + guards) 169 ✓ · tsgo 0 errores.
+Mutación en rojo: quitar la exclusión de las cargas a ruta → 2 rojas. `check:pantalla`: las 3
+pantallas cumplen las 10 reglas y tipan; `templates`, `tokens`, `estilos`, `teclado`, `busqueda`,
+`tables`, `track`, `wiring`, `primeng`, emojis y reactividad en verde.
+
+**NO MEDIDO / pendiente:**
+- ⛔ La captura encadenada (crear la hoja → releer → completar la guía / guardar cargadores) **no se
+  ejerció contra una base real**; las pruebas la recorren con HTTP de mentira. Los endpoints ya
+  existían; lo nuevo es el orden.
+- El tiempo del endpoint completo en prod (se midieron sus consultas, no la respuesta).
+- **Centro de costo** del renglón: el reporte da el destino por nombre, no la clave de `kdc3`. Las
+  claves de piso coinciden con los códigos `MD-NN` (`1-01-42-00` = La Piedad Abastos = `MD-42`), pero
+  `TI###` no traduce limpio a sucursal (`receiving-origin.ts`): queda para EMB.36.
+- El viático sigue saliendo del horario con la config (café $25, comidas $100); Kepler muestra
+  montos de $60–$80 por destino. **D4 sin firmar.**
+- Los vales de `finance.trip_pay_lines` (EMB.29) quedan sin pantalla; el backend no se tocó.
+- Sin validación visual.
+
 ## Bitácora
 
+- **2026-10-24** — EMB.47: el módulo pasa a ser un reporte de reparto (Operaciones + solicitudes por persona en PDF/Excel); D1 (conceptos) firmada, D6 superada. Migraciones de EMB.39/43 aplicadas en prod.
 - **2026-10-24** — EMB.43: módulo Logística › Pagos de viaje (3 pestañas, permiso propio repartido a Leonardo y Juan).
 - **2026-10-24** — EMB.39 en código (🧪): carga a $0.20 por caja, configurable con vigencia. D3 firmada por Edgar.
 - **2026-10-24** — Medición y anexo. Pedido de Edgar: *«el punto es automatizar y llevar con control

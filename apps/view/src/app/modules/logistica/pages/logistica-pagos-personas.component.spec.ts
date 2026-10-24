@@ -1,140 +1,109 @@
-import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
-import type { PagoViaje } from '@megadulces/contracts';
-import { AuthService } from '../../../core/services/auth.service';
-import { PermissionsService } from '../../../core/services/permissions.service';
-import { Permission } from '../../../core/constants/permissions';
+import type { OperacionDelReporte, ReporteDePagos } from '@megadulces/contracts';
 import { LogisticaPagosPersonasComponent } from './logistica-pagos-personas.component';
 
 /**
- * `[EMB.43]` (antes `[EMB.29]` en Finanzas) — «Por persona»: lo que cobra cada quien en la
- * catorcena. Es la MISMA pantalla en Logística › Pagos de viaje y en Finanzas › Comisiones de
- * logística. Se MONTA (eso compila la plantilla, que tsc no mira) y se recorre: el corte, una
- * persona, armar su vale y moverse de corte. Nombres y montos de prueba, inventados.
+ * `[EMB.47]` — «Por persona»: la solicitud de gasto de cada quien en la catorcena. Es la MISMA
+ * pantalla en Logística › Pagos de viaje y en Finanzas › Comisiones de logística. Se MONTA (eso
+ * compila la plantilla, que tsc no mira) y se recorre: el reporte, una persona y moverse de corte.
+ * Nombres y montos de prueba, inventados.
  */
-
 const CORTE = { desde: '2026-09-24', hasta: '2026-10-07', pago: '2026-10-09' };
-const PERSONA = {
-  driver_id: 'd1', persona: 'CHOFER PRUEBA', roles: ['chofer'], viajes: 2, cargas: 0,
-  liberado: { comision: 129, viatico: 200, maniobra_carga: 0 }, liberado_total: 329,
-  retenido_total: 50, retenidos: 1, en_vale_total: 0, vales: [],
-};
-const CORTE_RESP = { corte: CORTE, personas: [PERSONA], totales: { liberado: 329, retenido: 50, en_vale: 0 } };
-const item = (o: Partial<PagoViaje>): PagoViaje => ({
-  source: 'guia', source_id: 'g1', shipment_id: 's1', shipment_folio: 'EMB-2026-00001', kepler_sucursal: '01',
-  kepler_guia: '0001597', shipment_date: '2026-09-30', guide_number: 'GUIA-1', driver_id: 'd1', persona: 'CHOFER PRUEBA',
-  rol: 'chofer', concept: 'comision', amount: 129, estado_viaje: 'cerrado', liberado: true, motivo: 'Viaje cerrado',
-  en_vale: false, expense_proof_id: null, vale_status: null, vale_folio: null, ...o,
+const op = (x: Partial<OperacionDelReporte>): OperacionDelReporte => ({
+  sucursal: '00', guia: '0000001', fecha: '2026-09-30', paradas: 1, destinos: 'YURECUARO', tipo: 'traspaso', chofer_kepler: null,
+  importe: 0, shipment_id: 's1', shipment_folio: null, guide_id: 'g1', driver_id: 'd1', helper1_id: null, helper2_id: null,
+  departure_time: '06:00', arrival_time: '15:00', overnight: false, cargadores: 1, faltan: [], cajas: 100, tarifa_por_caja: 0.2,
+  carga_total: 20, cargador_ids: ['c1'], renglones: [], repartido: 0, ...x,
 });
-const DETALLE = {
-  corte: CORTE, driver_id: 'd1', persona: 'CHOFER PRUEBA',
-  pagables: [item({}), item({ concept: 'viatico', amount: 200 })],
-  retenidos: [item({ source_id: 'g2', amount: 50, liberado: false, estado_viaje: 'abierto', motivo: 'Faltan paradas por cerrar' })],
-  en_vale: [],
+const REPORTE: ReporteDePagos = {
+  corte: CORTE,
+  operaciones: [
+    op({
+      renglones: [
+        { persona_id: 'd1', persona: 'CHOFER PRUEBA', rol: 'chofer', concepto: 'comision', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 129 },
+        { persona_id: 'd1', persona: 'CHOFER PRUEBA', rol: 'chofer', concepto: 'viatico', codigo: '027', nombre_concepto: 'VIATICOS TRASPASO DE MERCANCIA', importe: 200 },
+        { persona_id: 'c1', persona: 'CARGADOR PRUEBA', rol: 'cargador', concepto: 'carga', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 20 },
+      ],
+    }),
+    op({ guia: '0000002', shipment_id: null, driver_id: null, faltan: ['chofer', 'horario', 'cargadores'], cargador_ids: [], cargadores: 0 }),
+  ],
+  fuera_de_alcance: 0, personas: [], leido_at: '2026-10-08T12:00:00.000Z',
 };
 
-function montar(opts: { permisos?: Partial<Record<Permission, boolean>>; titulo?: string } = {}) {
+function montar(titulo?: string) {
   TestBed.configureTestingModule({
     imports: [LogisticaPagosPersonasComponent],
     providers: [
       provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
-      { provide: AuthService, useValue: { user: signal({ permissions: opts.permisos ?? { [Permission.LOGISTICS_PAGOS_GESTIONAR]: true } }) } },
-      { provide: PermissionsService, useValue: { isAdmin: () => false } },
-      { provide: ActivatedRoute, useValue: { snapshot: { data: opts.titulo ? { titulo: opts.titulo } : {} } } },
+      { provide: ActivatedRoute, useValue: { snapshot: { data: titulo ? { titulo } : {} } } },
     ],
   });
   const f = TestBed.createComponent(LogisticaPagosPersonasComponent);
   const http = TestBed.inject(HttpTestingController);
   return { f, c: f.componentInstance, http, el: f.nativeElement as HTMLElement };
 }
+const reporte = (http: HttpTestingController) => http.expectOne((r) => r.url.endsWith('/logistics/trip-closure/reporte'));
 
 describe('LogisticaPagosPersonasComponent', () => {
   beforeAll(() => registerLocaleData(localeEsMx));
   afterEach(() => TestBed.inject(HttpTestingController).verify());
 
-  it('pide el corte vigente (sin fechas) y pinta los totales y a cada persona', async () => {
+  it('pide la catorcena vigente (sin fechas) y pinta lo que pide cada persona', async () => {
     const { f, http, el } = montar();
-    const req = http.expectOne((r) => r.url.endsWith('/finance/trip-pay/corte'));
+    const req = reporte(http);
     expect(req.request.params.keys()).toEqual([]);
-    req.flush(CORTE_RESP);
+    req.flush(REPORTE);
     f.detectChanges();
     await f.whenStable();
+    expect(el.textContent).toContain('2 personas piden $349.00 en total esta catorcena.');
     expect(el.textContent).toContain('CHOFER PRUEBA');
     expect(el.textContent).toContain('$329.00');
-    expect(el.textContent).toContain('$50.00');
   });
 
-  it('al abrir a una persona trae su detalle del mismo corte, y el total a pagar sólo suma lo liberado', () => {
-    const { f, c, http } = montar();
-    http.expectOne((r) => r.url.endsWith('/corte')).flush(CORTE_RESP);
-    c.abrir(PERSONA);
-    const req = http.expectOne((r) => r.url.endsWith('/personas/d1'));
-    expect(req.request.params.get('desde')).toBe('2026-09-24');
-    expect(req.request.params.get('hasta')).toBe('2026-10-07');
-    req.flush(DETALLE);
+  it('declara las operaciones que todavía no tienen quién fue: lo suyo no se puede pedir', () => {
+    const { f, c, http, el } = montar();
+    reporte(http).flush(REPORTE);
     f.detectChanges();
-    expect(c.totalPagable()).toBe(329);
+    expect(c.pendientes().operaciones).toBe(1);
+    expect(el.textContent).toContain('1 operación todavía sin quién fue');
   });
 
-  it('armar el vale manda persona y corte, avisa y recarga el corte', () => {
+  it('al abrir a una persona: renglones para Kepler (concepto × destino) y de dónde sale cada peso', () => {
     const { c, http } = montar();
-    http.expectOne((r) => r.url.endsWith('/corte')).flush(CORTE_RESP);
-    c.armarVale(DETALLE);
-    const post = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/vales'));
-    expect(post.request.body).toEqual({ driver_id: 'd1', desde: '2026-09-24', hasta: '2026-10-07' });
-    post.flush({ id: 'v1', importe: 329, renglones: 2, persona: 'CHOFER PRUEBA' });
-    expect(c.aviso()).toContain('$329.00');
-    http.expectOne((r) => r.url.endsWith('/corte')).flush({ corte: CORTE, personas: [], totales: { liberado: 0, retenido: 0, en_vale: 329 } });
-  });
-
-  it('si el vale choca (409) muestra el mensaje del servidor', () => {
-    const { c, http } = montar();
-    http.expectOne((r) => r.url.endsWith('/corte')).flush(CORTE_RESP);
-    c.armarVale(DETALLE);
-    http.expectOne((r) => r.url.endsWith('/vales')).flush(
-      { message: 'Alguno de estos viajes ya se pagó en otro vale. Recarga la página.' },
-      { status: 409, statusText: 'Conflict' },
-    );
-    expect(c.creando()).toBe(false);
-    expect(c.errorVale()).toContain('ya se pagó');
+    reporte(http).flush(REPORTE);
+    c.alSeleccionar(c.solicitudes().find((s) => s.persona === 'CHOFER PRUEBA'));
+    expect(c.sel()?.renglones.map((r) => [r.codigo, r.destino, r.importe])).toEqual([['027', 'YURECUARO', 200], ['054', 'YURECUARO', 129]]);
+    expect(c.sel()?.detalle).toHaveLength(2);
   });
 
   it('moverse de catorcena pide las fechas de 14 días antes y suelta a la persona abierta', () => {
     const { c, http } = montar();
-    http.expectOne((r) => r.url.endsWith('/corte')).flush(CORTE_RESP);
+    reporte(http).flush(REPORTE);
+    c.alSeleccionar(c.solicitudes()[0]);
     c.mover(-1);
-    const req = http.expectOne((r) => r.url.endsWith('/corte'));
+    const req = reporte(http);
     expect(req.request.params.get('desde')).toBe('2026-09-10');
     expect(req.request.params.get('hasta')).toBe('2026-09-23');
-    req.flush({ corte: { desde: '2026-09-10', hasta: '2026-09-23', pago: '2026-09-25' }, personas: [], totales: { liberado: 0, retenido: 0, en_vale: 0 } });
+    req.flush({ ...REPORTE, corte: { desde: '2026-09-10', hasta: '2026-09-23', pago: '2026-09-25' }, operaciones: [] });
     expect(c.sel()).toBeNull();
-    expect(c.detalle()).toBeNull();
   });
 
-  it('[EMB.43] desde Finanzas lleva su título; dentro de Pagos de viaje, no (lo pone el shell)', () => {
-    const fin = montar({ titulo: 'Comisiones de logística' });
-    fin.http.expectOne((r) => r.url.endsWith('/corte')).flush(CORTE_RESP);
+  it('desde Finanzas lleva su título y NO enlaza a Operaciones (allá puede no tener permiso); dentro de Pagos de viaje, al revés', () => {
+    const fin = montar('Comisiones de logística');
+    reporte(fin.http).flush(REPORTE);
     fin.f.detectChanges();
     expect(fin.el.querySelector('h1')?.textContent).toContain('Comisiones de logística');
+    expect(fin.el.textContent).not.toContain('Ir a Operaciones');
     TestBed.resetTestingModule();
     const log = montar();
-    log.http.expectOne((r) => r.url.endsWith('/corte')).flush(CORTE_RESP);
+    reporte(log.http).flush(REPORTE);
     log.f.detectChanges();
     expect(log.el.querySelector('h1')).toBeNull();
-  });
-
-  it('[EMB.43] PRUEBA NEGATIVA: quien sólo VE el módulo no tiene «Armar vale» (la API también lo rechaza)', () => {
-    const { c, http } = montar({ permisos: { [Permission.LOGISTICS_PAGOS_VER]: true } });
-    http.expectOne((r) => r.url.endsWith('/corte')).flush(CORTE_RESP);
-    expect(c.puedeArmar()).toBe(false);
-    TestBed.resetTestingModule();
-    const g = montar({ permisos: { [Permission.LOGISTICS_PAGOS_GESTIONAR]: true } });
-    g.http.expectOne((r) => r.url.endsWith('/corte')).flush(CORTE_RESP);
-    expect(g.c.puedeArmar()).toBe(true);
+    expect(log.el.textContent).toContain('Ir a Operaciones');
   });
 });
