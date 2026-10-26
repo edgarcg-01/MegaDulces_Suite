@@ -20,6 +20,7 @@ import type {
 import { warehouseName } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -149,7 +150,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, MetricStripComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, MetricStripComponent, SidePeekComponent],
   providers: [MessageService],
   template: `
     <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
@@ -531,7 +532,17 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                      es una decision de Finanzas con el proveedor, no una regla automatica-
                                      pero no se puede decidir lo que no se ve. Medido: 54 acreedores con deuda
                                      viva traen $4,484,249 a favor; varios quedarian en CERO. -->
-                                @if (f.credito; as c) { <span class="pg-favor"><i class="pi pi-replay" aria-hidden="true"></i>{{ c }}</span> }
+                                @if (f.credito; as c) {
+                                  <!-- [PGP.17] El aviso ABRE el desglose: decir «trae $9,778.59 a
+                                       favor» sin decir de que tipo ni de que documento no deja
+                                       actuar. Es un boton, no un texto (Q.4). -->
+                                  <button type="button" class="pg-favor pg-favor-btn"
+                                          [attr.aria-label]="'Ver los descuentos de ' + f.o.beneficiary"
+                                          (click)="abrirCreditos(f.o.payee_code, f.o.beneficiary)">
+                                    <i class="pi pi-replay" aria-hidden="true"></i>{{ c }}
+                                    <i class="pi pi-angle-right" aria-hidden="true"></i>
+                                  </button>
+                                }
                                 <!-- [PGP.16] Lo que cuesta pagarla antes de su vencimiento. Medido:
                                      el 17.9% del dinero sale antes de tiempo, 6 dias en promedio.
                                      Se calla cuando el pronto pago gana mas de lo que cuesta. -->
@@ -588,6 +599,68 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         </main>
       </div>
     </div>
+
+    <!-- ── [PGP.17] Los descuentos de un acreedor: LOS DOS CASOS ──────────────────────────
+         Pedido de Edgar: «especificando todo tipo de descuento para que sepan que aplicar
+         desde Suite». Se muestra lo YA APLICADO a proposito: sin eso, un proceso que funciona
+         -las notas de credito se netean casi al 100%- se lee como que el sistema no hace nada. -->
+    <app-side-peek [open]="!!creditoAbierto()" (openChange)="$event || creditoAbierto.set(null)"
+                   [width]="640"
+                   [title]="'Descuentos de ' + (creditoAbierto()?.nombre || '')"
+                   [subtitle]="creditoAbierto()?.code || null">
+      <app-load-state [loading]="creditoCargando()" [error]="creditoError()" [skeletonRows]="4">
+        <div class="pg-cr">
+          <p class="pg-cr-why">
+            Lo que Kepler casa contra las facturas de este acreedor. <b>Cheques y transferencias no
+            estan aqui</b>: son pagos, no descuentos.
+          </p>
+
+          <div class="pg-cr-tot">
+            <span><b class="comm-num">{{ money(creditoTotalPendiente()) }}</b> sin aplicar · {{ creditoPendientes().length }} documento(s)</span>
+            <span class="cal-muted"><b class="comm-num">{{ money(creditoTotalAplicado()) }}</b> ya aplicado por Kepler</span>
+          </div>
+
+          @if (creditoPendientes().length) {
+            <h3 class="pg-cr-h">Sin aplicar — esto es lo que se puede netear</h3>
+            @for (d of creditoPendientes(); track d.clase + d.folio + d.sucursal) {
+              <div class="pg-cr-row is-pend">
+                <span class="pg-cr-main">
+                  <span class="cal-benef">{{ d.clase }}<span class="pg-dr-amt comm-num">{{ money(d.a_favor) }}</span></span>
+                  <span class="pg-sub"><span class="cal-suc">{{ branchLabel(d.sucursal) }}</span>folio {{ d.folio }}@if (d.referencia) { <span class="cal-ref">{{ d.referencia }}</span> }@if (d.fecha) { · {{ shortDate(d.fecha) }} }</span>
+                  @if (d.aplicado > 0) {
+                    <!-- El caso mas comun: se aplico un pedazo y sobro el resto. -->
+                    <span class="pg-cr-part">de {{ money(d.importe) }} se aplicaron {{ money(d.aplicado) }} y sobro el resto</span>
+                  }
+                </span>
+              </div>
+            }
+          } @else {
+            <p class="pg-cr-ok"><i class="pi pi-check-circle" aria-hidden="true"></i> No queda nada por aplicar de este acreedor.</p>
+          }
+
+          @if (creditoAplicados().length) {
+            <h3 class="pg-cr-h">Ya aplicado por Kepler — no hay que hacer nada</h3>
+            <p class="pg-cr-why">Estos ya redujeron la deuda: por eso esas facturas no aparecen, o aparecen con menos saldo, en la lista.</p>
+            @for (d of creditoAplicados(); track d.clase + d.folio + d.sucursal) {
+              <div class="pg-cr-row">
+                <span class="pg-cr-main">
+                  <span class="pg-sub"><b>{{ d.clase }}</b> <span class="cal-suc">{{ branchLabel(d.sucursal) }}</span>folio {{ d.folio }}@if (d.referencia) { <span class="cal-ref">{{ d.referencia }}</span> }@if (d.fecha) { · {{ shortDate(d.fecha) }} }</span>
+                </span>
+                <span class="comm-num cal-muted">{{ money(d.aplicado) }}</span>
+              </div>
+            }
+          }
+
+          <p class="pg-cr-decl">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            Aplicar un descuento contra una factura se hace <b>en Kepler</b>: la Suite todavia no
+            escribe ese movimiento. Esta pantalla dice <b>que hay</b> y <b>cuanto</b>, para que no
+            se pague de mas. Las cifras son un <b>piso</b>: el casamiento del ERP sobre-cuenta lo
+            aplicado, asi que lo pendiente real puede ser mayor.
+          </p>
+        </div>
+      </app-load-state>
+    </app-side-peek>
 
     <!-- Dialog: agregar con otro importe u otro dia -->
     <!-- [PGP.15] CUALQUIER fecha, con lo que cabe ESE dia a la vista. Era un desplegable con los 7 dias
@@ -746,6 +819,27 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
        (regla #5 de DESIGN.md, y lo unico que sobrevive a forced-colors). */
     .pg-favor { display:inline-flex; align-items:center; gap:4px; margin-left:var(--sp-1);
       font-size:var(--fs-nano); font-weight:700; color:var(--warn-fg); }
+    /* [PGP.17] El aviso es un BOTON: dice cuanto, y abre de que tipo y de que documento. */
+    .pg-favor-btn { border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-nano);
+      font-weight:700; color:var(--warn-fg); padding:0 2px; border-radius:var(--r-sm); }
+    .pg-favor-btn:hover { text-decoration:underline; }
+    .pg-favor-btn:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    /* El cajon del desglose. Lo PENDIENTE lleva el peso; lo ya aplicado es contexto. */
+    .pg-cr { display:grid; gap:var(--sp-2); }
+    .pg-cr-tot { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-3); padding:var(--sp-2) var(--sp-3);
+      border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--surface-2); font-size:var(--fs-xs); }
+    .pg-cr-tot b { color:var(--text-main); font-weight:700; }
+    .pg-cr-h { font-size:var(--fs-xs); font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+      color:var(--text-muted); margin:var(--sp-2) 0 0; }
+    .pg-cr-row { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:var(--sp-2); align-items:center;
+      padding:var(--sp-2) var(--sp-3); border:1px solid var(--border-color); border-radius:var(--r-sm); }
+    .pg-cr-row.is-pend { border-left:3px solid var(--warn-fg); }
+    .pg-cr-main { display:flex; flex-direction:column; min-width:0; }
+    .pg-cr-part { font-size:var(--fs-nano); color:var(--warn-fg); }
+    .pg-cr-ok { display:flex; align-items:center; gap:6px; font-size:var(--fs-xs); color:var(--ok-fg); margin:0; }
+    .pg-cr-decl { display:flex; gap:var(--sp-2); font-size:var(--fs-nano); color:var(--text-muted);
+      border-top:1px solid var(--border-color); padding-top:var(--sp-2); margin:var(--sp-2) 0 0; }
+    .pg-cr-decl b { color:var(--text-main); }
     /* [PGP.16] El costo de adelantar: terciario a proposito. Es un dato para decidir, no una
        alarma -la propuesta ya no adelanta nada por su cuenta-. */
     .pg-pronto-no { display:inline-flex; align-items:center; gap:4px; margin-left:var(--sp-1);
@@ -1222,6 +1316,38 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     for (const it of g.items) { const c = this.creditoDe(it); if (c) return c; }
     return null;
   }
+  // ── [PGP.17] El desglose: qué aplicar, de qué tipo, y qué ya se aplicó ──────────────────────
+  readonly creditoAbierto = signal<{ code: string; nombre: string } | null>(null);
+  readonly creditoDetalle = signal<Array<{ sucursal: string; clase: string; folio: string; referencia: string | null; fecha: string | null; importe: number; aplicado: number; a_favor: number; pendiente: boolean }>>([]);
+  readonly creditoCargando = signal(false);
+  readonly creditoError = signal<string | null>(null);
+  /** Lo pendiente primero: es lo único sobre lo que se puede actuar. */
+  readonly creditoPendientes = computed(() => this.creditoDetalle().filter((d) => d.pendiente));
+  readonly creditoAplicados = computed(() => this.creditoDetalle().filter((d) => !d.pendiente));
+  readonly creditoTotalPendiente = computed(() => this.creditoPendientes().reduce((s, d) => s + Number(d.a_favor), 0));
+  readonly creditoTotalAplicado = computed(() => this.creditoAplicados().reduce((s, d) => s + Number(d.aplicado), 0));
+
+  /**
+   * `[PGP.17]` Abre el desglose de un acreedor. Pedido de Edgar: *«especificando todo tipo de
+   * descuento para que sepan qué aplicar desde Suite»* — el aviso dice CUÁNTO, esto dice **de qué
+   * tipo, de qué documento y si ya se aplicó**, que es lo único con lo que alguien puede actuar.
+   */
+  abrirCreditos(code: string | null | undefined, nombre: string): void {
+    const c = (code ?? '').trim();
+    if (!c) return;
+    this.creditoAbierto.set({ code: c, nombre });
+    this.creditoDetalle.set([]);
+    this.creditoError.set(null);
+    this.creditoCargando.set(true);
+    this.http.get<Array<{ sucursal: string; clase: string; folio: string; referencia: string | null; fecha: string | null; importe: number; aplicado: number; a_favor: number; pendiente: boolean }>>(
+      `${this.base}/creditos-a-favor/${encodeURIComponent(c)}`,
+    ).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rows) => { this.creditoDetalle.set(rows ?? []); this.creditoCargando.set(false); },
+      // ⛔ Error ≠ vacío: «no se pudo leer» no se puede pintar como «no tiene descuentos».
+      error: (e) => { this.creditoError.set(e?.error?.message || 'No se pudo leer el desglose.'); this.creditoCargando.set(false); },
+    });
+  }
+
   private loadCreditos(): void {
     this.http.get<Array<{ proveedor: string; a_favor: number; docs: number; clases: string; con_deuda_viva: boolean }>>(`${this.base}/creditos-a-favor`)
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
