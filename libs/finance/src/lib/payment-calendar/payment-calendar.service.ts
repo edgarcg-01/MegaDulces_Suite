@@ -529,7 +529,10 @@ export class PaymentCalendarService {
        */
       if (q.search?.trim()) {
         const s = q.search.trim();
-        base.andWhere((w: any) => w
+        // `[PGP.12]` El tipo sale del USO: a `w` se le encadenan `whereILike`/`orWhereILike`,
+        // o sea que es el constructor de consultas de Knex, no un `any`. Mismo patrón que
+        // `commission-padron.service.ts`.
+        base.andWhere((w: Knex.QueryBuilder) => w
           .whereILike('ob.beneficiary', `%${s}%`)
           .orWhereILike('ob.concept', `%${s}%`)
           .orWhereILike('ob.doc_ref', `%${s}%`)
