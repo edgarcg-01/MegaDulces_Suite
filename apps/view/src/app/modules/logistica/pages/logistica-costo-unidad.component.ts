@@ -110,7 +110,7 @@ const GRUPOS: GrupoRubro[] = ['fijos', 'variables', 'administrativos', 'fuera_de
                       (retry)="cargar()">
         <div class="dt-scope">
           <p-table [value]="filas()" dataKey="vehicle_id" selectionMode="single" [selection]="seleccion()"
-                   (onRowSelect)="abrir($event.data)" size="small"
+                   (onRowSelect)="alSeleccionar($event.data)" size="small"
                    class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack" [tableStyle]="{ 'min-width': '60rem' }">
             <ng-template #header>
               <tr>
@@ -494,6 +494,11 @@ export class LogisticaCostoUnidadComponent {
     this.data.set(null);
     this.cargar();
     if (this.selId()) this.cargarDetalle();
+  }
+
+  /** PrimeNG tipa la fila elegida como fila, lista o nada; en selección simple llega una. */
+  alSeleccionar(d: UnidadCosto | UnidadCosto[] | undefined): void {
+    if (d && !Array.isArray(d)) this.abrir(d);
   }
 
   abrir(u: UnidadCosto): void {
