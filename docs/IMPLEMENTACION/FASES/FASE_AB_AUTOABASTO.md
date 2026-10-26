@@ -2177,9 +2177,22 @@ Pruebas: `cantidad-pedido.spec.ts` 11 (casos con su cuenta a mano; **negativa**:
 (dos pruebas viejas cambiaron a la regla nueva: con la unidad en duda ya no se pide); pantalla 38; reabasto 250.
 
 **Pendiente de AB.40:** (b) Compras adopta la pieza común en lugar de `pedido-tope.ts` y resta lo que ya viene (motor de
-PQ: coordinar en su tarjeta); (c) un solo costo (hoy Autoabasto muestra `kdik.c16` y manda `caja_cost`; medir antes cuántos
-renglones difieren y por cuánto); (d) un solo veredicto de unidad (Compras lee `v_warehouse_box_factor`, Autoabasto
-`replenishment_plan`).
+PQ: coordinar en su tarjeta).
+
+**(d) no existía — corrección.** Se dijo que Compras y Autoabasto leían el veredicto de unidad de fuentes distintas. Es la
+**misma** columna (`replenishment_plan.rung_veredicto`): Compras la lee como `COALESCE(…, 'sin_dato')` y da por buenos `ok`,
+`sin_dato` y `z_no_arbitrable`; Autoabasto da por bueno el nulo. Valores reales en prod: nulo 49,293, `x2_deflactada` 409,
+`x1_inflada` 55 — los dos bloquean exactamente lo mismo. La regla de AB.40a coincide con Compras.
+
+**(c) 🧪 Un solo costo.** Autoabasto valuaba con el costo de existencia de Kepler (`kdik.c16`, por unidad base) y a Compras
+le mandaba `caja_cost` del plan. Medido sobre 19,289 renglones con venta: 80 % cuadran a ±3 %, 17 % difieren 3–18 % (dos
+costos válidos), **106 difieren 2× o más** por dos defectos distintos — `kdik.c16` roto (95040 en Morelia Abastos: $0.0005 la
+pieza contra $57 de compra real) o `caja_cost` que es por pieza y no por caja (familia 33xxx, caja de 100; **`/compras/pedido`
+lo valúa igual de mal hoy**). Ahora `costoUnicoBase` valúa con la caja que viaja a Compras y, si contradice al de Kepler 2× o
+más, **no elige**: valor «sin medir». Medido con el servicio real: valor del sugerido de la red **$15.63 M → $15.13 M (−3.2 %)**
+— lo que se mostraba era más caro que lo que se manda — y **62 renglones** quedan sin medir por contradicción (antes salían con
+un número de cualquiera de los dos). Pruebas: `cantidad-pedido.spec.ts` 15 (con los SKUs reales del defecto); contracts 812.
+⚠️ Deuda con nombre: el `caja_cost` por pieza de la familia 33xxx está mal en el plan (`replenishment_plan`), y eso es de Compras.
 
 **D20 queda como [AB.40]**, sin construir: mueve un número que decide ~$14.7 M y toca el motor de PQ (otra fase, otra
 sesión). Orden: función de cantidad única en `libs/contracts` con su candado → antes/después por almacén y por proveedor →

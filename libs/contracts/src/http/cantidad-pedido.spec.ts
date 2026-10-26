@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cabeBajoTope, diasDeCobertura, textoTopeBase, toparRedondeo, TOPE_COBERTURA_DIAS } from './cantidad-pedido.contract';
+import { cabeBajoTope, costoUnicoBase, diasDeCobertura, textoTopeBase, toparRedondeo, TOPE_COBERTURA_DIAS } from './cantidad-pedido.contract';
 import { armarRenglon, redondearPedido, type EntradaRenglon, type EscaleraUnidades } from './autoabasto-pedido.contract';
 
 /**
@@ -102,5 +102,35 @@ describe('[AB.40] armarRenglon aplica el motor único', () => {
     const { linea } = armarRenglon(entrada({ viene: { ya: 5000, atorado: 0, negado: 0, camino: 0 } }));
     expect(linea.a_pedir).toMatchObject({ cantidad: 104, cantidad_base: 18720 });
     expect(linea.tope?.motivo).toBe('recortado');
+  });
+});
+
+describe('[AB.40c] un solo costo: el de la caja que viaja a Compras', () => {
+  it('caja de 180 a $2,083.33 → $11.574 por pieza, y cuadra con el de Kepler ($11.57)', () => {
+    expect(costoUnicoBase(2083.33, 180, 11.57)).toBeCloseTo(11.574, 3);
+  });
+  it('⛔ si contradice al de Kepler 2× o más, no se elige ninguno: null', () => {
+    // 95040 en Morelia Abastos: caja de 20 a $1,346.91 contra $0.0005 de Kepler (kdik.c16 roto)
+    expect(costoUnicoBase(1346.91, 20, 0.0005)).toBeNull();
+    // 33222: caja de 100 con caja_cost $23.25 (es el precio de UNA pieza) contra $28.31 de Kepler
+    expect(costoUnicoBase(23.25, 100, 28.31)).toBeNull();
+  });
+  it('sin testigo de Kepler se usa la caja; sin caja no hay costo (nunca $0)', () => {
+    expect(costoUnicoBase(120, 12, null)).toBe(10);
+    expect(costoUnicoBase(null, 12, 10)).toBeNull();
+    expect(costoUnicoBase(0, 12, 10)).toBeNull();
+  });
+  it('armarRenglon valúa con la caja que se manda; un llamador sin caja_cost sigue como antes', () => {
+    const base: EntradaRenglon = {
+      product_id: 'p', sku: '1', nombre: 'X', venta_30d: 10, existencia: 0, objetivo: 2, falta: 2, falta_base: 24,
+      caja_factor: 12, costo_base: 1.5, rung_veredicto: null, posicion: 'bajo_minimo', viene: null, planeado_compras: 0,
+      pedido_sucursal: 0, escalera: { unit_base: 'PZA', u2_label: 'CJA', u3_label: null, f2: 12, f3: null, is_weight: false },
+      ajuste: null, surte: { tipo: 'matriz', clave: '00', nombre: '00' },
+    };
+    const conCaja = armarRenglon({ ...base, caja_cost: 19.2 }).linea;
+    expect(conCaja.costo_base).toBeCloseTo(1.6, 9);
+    expect(conCaja.valor).toBe(38.4);   // 24 pz × 19.2/12
+    expect(armarRenglon(base).linea).toMatchObject({ costo_base: 1.5, valor: 36 });
+    expect(armarRenglon({ ...base, caja_cost: 1.5 }).linea).toMatchObject({ costo_base: null, valor: null });  // 0.125 vs 1.5: contradicho
   });
 });
