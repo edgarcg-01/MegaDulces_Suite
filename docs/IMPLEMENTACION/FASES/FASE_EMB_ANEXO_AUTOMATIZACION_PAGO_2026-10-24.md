@@ -480,7 +480,41 @@ pantallas 136 (filtros, orden). Mutación en rojo: quitar la regla de «varios d
 (b) viajes a varias sucursales: ¿la comisión se reparte entre sus centros? (c) la vista de viajes de
 Kepler, lenta bajo carga.
 
+### EMB.37 · Primera medición: el reporte contra lo pagado (catorcena 8–21 oct, 2026-10-26)
+
+Sonda temporal de sólo lectura contra prod (`system_identifier` verificado; borrada al terminar):
+`TripClosureService.reporte('2026-10-08','2026-10-21')` contra las solicitudes `X-A-15` del
+proveedor `GNFC002` fechadas 22–25 oct. ⚠️ Que ese pago cubra exactamente 8–21 oct es un supuesto:
+la solicitud no trae el periodo.
+
+| | Comisión (054+075) | Viático (027+128) | Personas |
+|---|---:|---:|---:|
+| Pagado en Kepler | **$61,063** | **$24,190** | 13 |
+| Calculado por el reporte | **$15,307** (25 %) | **$0** | 7 choferes |
+
+Causas, de mayor a menor:
+
+1. **Falta quién fue.** 206 de 303 operaciones no tienen chofer (Kepler no lo trae y nadie lo
+   capturó), y los ayudantes no existen en Kepler: Cristian Rizo cobró $10,780 y no aparece en
+   ninguna guía. Es la captura irreducible que ya se había medido.
+2. **Los traspasos locales SÍ se pagan.** Antonio Méndez, Raúl Galván y Rafa González cobraron 054
+   al centro de Padre Hidalgo ($1,630 / $1,770 / $1,560), y también a 8 Esquinas y Yurécuaro. Las
+   rutas «LA PIEDAD», «SANTA ANA» y «SANTA ANA PACUECO» están «sin comisión» (EMB.33) → confirma
+   que hay que quitarles esa marca y ponerles tarifa (decisión pendiente de Edgar).
+3. **Morelia se cuenta de más.** A Antonio Méndez el reporte le calcula 10 viajes al centro de
+   Morelia Madero ($1,800: 4 que salen de CEDIS y 6 de Morelia Abastos y Canindo) y Kepler no le
+   pagó ninguno a ese centro; sí le pagó $1,630 a Morelia Abastos. Hipótesis sin confirmar: Morelia
+   se paga como un solo destino, o es el mismo viaje en dos guías (CEDIS→Abastos y Abastos→Madero).
+4. **Viático en cero.** El reporte sólo lo tiene si se captura; falta la regla D4 (los montos
+   pagados son chicos y redondos por destino).
+5. **Datos de demostración en el padrón:** «Chofer Demo» sale como cargador con $30 (EMB.46).
+
+Donde el chofer sí se conoce, los montos no coinciden en ninguno de los dos sentidos: Antonio
+$6,600 calculado contra $5,540 pagado; Raúl $4,022 contra $5,410.
+
 ## Bitácora
+
+- **2026-10-26** — EMB.37, primera medición: el reporte calcula el 25 % de la comisión pagada y 0 % del viático de la catorcena 8–21 oct (causas arriba).
 
 - **2026-10-26** — EMB.52/53: filtros y orden; el formato de la solicitud igual al X-A-15 (proveedor GNFC002, cuenta y centro de costo derivados).
 - **2026-10-26** — EMB.51: cada importe con su cálculo; renglones, guías y personas se abren (ligas entre pestañas).
