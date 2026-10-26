@@ -565,12 +565,68 @@ Lo que **sí** se confirmó en vivo: PQ.5 (aviso «Hoy te toca pedirle a 196 pro
 (agenda con «Armar») y PQ.1 (dos etiquetas por fila) ya están en prod y se ven como se diseñaron.
 PQ.14 todavía no está en prod (el toast sigue sin enlace).
 
+### 13.2 Después de aprobar: `/compras/ordenes` (2026-10-26, nivel A en `localhost:4200` + B en prod)
+
+El PM aprobó una requisición en su entorno local y pidió revisar cómo debe interactuar esa pantalla.
+Recorrido con el mismo Chromium (login con el usuario de prueba; ⚠️ en ese entorno
+`/api/users/me/context` responde **500** y un `F5` tira la sesión — se navegó dentro de la app).
+
+**Lo que hay hoy (medido):** la requisición aprobada (RQ-2026-01465, FERNANDO ZERMEÑO, $39,459)
+aparece como **OC-2026-00231 «Abierta»** porque alguien pulsó «Generar orden de compra» en su
+detalle (`POST purchase-orders/from-requisition/:id`). Es una OC **propia de la Suite**
+(`commercial.purchase_orders`), con folio propio, sin folio de Kepler. En su detalle, «Registrar
+recepción» abre un diálogo con cantidad y costo real por línea, default = pendiente, y al confirmar
+crea una **orden de entrada propia** (`commercial.goods_receipts`, folio OE) y **mueve
+`commercial.stock`**. La pestaña «Abiertas en Kepler» es otro universo: 305 OC del ERP (266
+«Pendiente», «Falta orden de entrada»).
+
+| Prod, sólo lectura | |
+|---|---:|
+| OC propias desde el 28-sep (todas nacidas de una requisición) | 235 · $26.6 M (160 abiertas, 49 parciales, 26 recibidas) |
+| recepciones propias (OE) | 136 · 13,179 u · $163,522 · **con stock aplicado: 2** |
+| requisiciones con folio de OC **de Kepler** (RQ.15) | **0** |
+| quién lee `commercial.stock` | alertas, Thot, catálogo, caducidades, ubicaciones — **no el Pedido** (lee `v_erp_stock_on_hand`, Kepler) |
+
+**El veredicto, bajo la regla «nada inventado; la fórmula de Kepler»:**
+
+1. 🔴 **La recepción propia inventa existencia.** «Al confirmar suma a existencia del almacén
+   destino» — pero esa existencia vive en `commercial.stock`, el Pedido no la ve y Kepler no la
+   tiene. La entrada real es la **orden de entrada `X-A-40` de Kepler** (RE: Recepción 360 ya la lee).
+   Dos verdades de existencia es exactamente lo que la regla prohíbe.
+2. 🔴 **Dos OC por el mismo pedido.** La Suite emite OC-2026-NNNNN y Kepler emite su X-A-35 cuando
+   el comprador la recaptura; nada las junta (0 requisiciones con `oc_folio`). El seguimiento de
+   «Falta / Avance» se hace sobre la copia, no sobre el documento que el proveedor y Contabilidad ven.
+3. 🟠 «Abiertas en Kepler» —el universo real— es la tercera pestaña; la copia propia es la segunda y
+   abre por default.
+
+**Cómo debe interactuar (propuesta, a firmar):**
+
+- Al aprobar, la requisición **no genera una OC propia**: sale a Kepler como X-A-30 (KR) y la
+  pantalla de órdenes muestra **la X-A-35 de Kepler** que nace de ella, enlazada por `oc_folio`
+  (RQ.15 ya exige sucursal + folio). Mientras KR esté apagada: «Marcar como ordenada» con el folio
+  de Kepler, y la fila dice «sin OC en Kepler» hasta entonces.
+- **«Registrar recepción» desaparece** de la Suite: la recepción es la `X-A-40` de Kepler y la
+  pantalla la **lee** (fill rate = recibido/pedido en Kepler, que `mv_supplier_fill_rate` ya calcula).
+  Lo que la Suite agrega es lo que Kepler no tiene: la foto/firma/incidencia (RE), nunca la cantidad.
+- `/compras/ordenes` queda con **una sola lista**, la de Kepler, con tres estados que ya existen:
+  pedida (X-A-35 sin X-A-40) · parcial · recibida; y la columna «de qué requisición» por `oc_folio`.
+- Las 235 OC propias y 136 OE se **congelan** (solo lectura, rotuladas «documento interno, no está
+  en Kepler») y se declaran en VERDAD_ABSOLUTA como universo paralelo hasta migrar.
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| D21 | ¿La Suite deja de emitir OC y OE propias y sigue sólo las de Kepler? | **Sí.** Apagar «Generar orden de compra» y «Registrar recepción» (quedan como lectura), y leer X-A-35/X-A-40. Es ADR-040 aplicado a Compras |
+
+**NO MEDIDO:** cuántas de las 136 OE propias tienen su X-A-40 gemela en Kepler (cruce por
+proveedor + fecha + SKU, instrumento pendiente); y por qué sólo 2 de 136 aplicaron stock.
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-26 | `/compras/ordenes` tras aprobar (§13.2): la Suite emite OC y OE **propias** (235 OC $26.6 M, 136 OE) y la recepción mueve `commercial.stock`, que el Pedido no lee y Kepler no tiene; 0 requisiciones con `oc_folio` de Kepler. Nace **D21**: la Suite deja de emitir OC/OE y sigue sólo las de Kepler (X-A-35/X-A-40) | PM + sesión PQ |
 | 2026-10-26 | «Que se pueda aceptar todo un lote de golpe» → **PQ.15 🧪** (`bbd691066`): en «Por lote», «Aprobar lote (N)» con confirmación en dos clics; manda al bulk ya probado sólo los pendientes del lote (tope 200) y declara que el lote no empuja a Kepler. 34/34 vitest, sin endpoint nuevo. Sin validación visual del botón | PM + sesión PQ |
 | 2026-10-26 | **Nivel A hecho** (§13.1) con Chromium propio y el usuario de prueba del PM: 11 hallazgos nuevos medidos en pantalla (A1 «Armar» abre vacío · A2 KPI de red con filtro · A3 casilla 1 vs lista 27 · sucursal por código · Ñ como «?» · aprobada con 0 unidades · «Limpiar» no vacía el carrito…). La requisición de prueba no se creó: el clasificador bloqueó la escritura en prod | PM + sesión PQ |
 | 2026-10-26 | Auditoría del flujo generar → aprobar (§13): nivel A bloqueado (navegadores tomados, sin login); nivel C+B con 7 hallazgos. **PQ.14 🧪** (`ffe073b74`): apagado de Kepler como estado de la bandeja, no falla por fila; lo generado queda a la vista con su lote y enlace a la bandeja. 130/130 vitest | PM + sesión PQ |
