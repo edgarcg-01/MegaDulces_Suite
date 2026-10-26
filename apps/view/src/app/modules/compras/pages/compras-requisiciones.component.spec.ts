@@ -517,6 +517,85 @@ describe('[PQ.14] el apagado de Kepler es un estado de la bandeja, no una falla 
   });
 });
 
+describe('[PQ.15] aprobar un lote completo de golpe, desde su fila', () => {
+  afterEach(() => TestBed.resetTestingModule());
+  const LOTE = (over: Record<string, unknown> = {}) => ({
+    lote: '7a1b2c3d-0000-4000-8000-00000000000a', batch_folio: 'RQ-LOTE-2026-00141', documentos: 10, compras: 0, traspasos: 10,
+    almacenes: 6, proveedores: 0, renglones: 73, monto: 281201, created_at: '2026-10-26T14:02:00Z', dias: 0,
+    estado: 'pending_approval', pendientes: 10, autor: 'arizbeth_gonzalez', ...over,
+  });
+  type Llamada = { list?: Record<string, unknown>; bulk?: [string[], string, string | null] };
+  function montar(lote: Record<string, unknown>, pendientesEnServidor = 3, llamadas: Llamada[] = [], permiso = true) {
+    TestBed.configureTestingModule({
+      imports: [ComprasRequisicionesComponent],
+      providers: [provideRouter([]), { provide: ComprasService, useValue: apiFalsa({
+        listRequisitionBatches: () => of({ rows: [lote], total: 1, page: 1, pageSize: 25, disponible: true, con_lote: 1 }),
+        listRequisitions: (q: Record<string, unknown>) => {
+          llamadas.push({ list: q });
+          const rows = Array.from({ length: pendientesEnServidor }, (_, i) => ({ ...FILA, id: `9f3c1a2b-0000-4000-8000-0000000000${(10 + i).toString(16)}`, folio: `RQ-${i}` }));
+          return of({ rows, total: rows.length, resumen: [] });
+        },
+        bulkRequisiciones: (ids: string[], accion: string, motivo: string | null) => { llamadas.push({ bulk: [ids, accion, motivo] }); return of({ pedidas: ids.length, hechas: ids.length, ok: ids, fallas: [] }); },
+      }) }],
+    });
+    const fix = TestBed.createComponent(ComprasRequisicionesComponent);
+    fix.componentInstance.canAutorizar = permiso;
+    fix.detectChanges();
+    fix.componentInstance.vista.set('lote');
+    fix.detectChanges();
+    return fix;
+  }
+  const boton = (fix: { nativeElement: HTMLElement }, texto: RegExp) =>
+    Array.from(fix.nativeElement.querySelectorAll('button')).find((b) => texto.test(b.textContent || '')) as HTMLButtonElement | undefined;
+
+  it('el lote con pendientes ofrece «Aprobar lote (N)»; el primer clic pide confirmación y el segundo manda al servidor SOLO los pendientes del lote', () => {
+    const llamadas: Llamada[] = [];
+    const fix = montar(LOTE(), 3, llamadas);
+    const b = boton(fix, /Aprobar lote \(10\)/);
+    expect(b).toBeDefined();
+    b!.click(); fix.detectChanges();
+    expect(llamadas.filter((l) => l.bulk)).toEqual([]);          // todavía nada: pide confirmación
+    const si = boton(fix, /Sí, aprobar 10/);
+    expect(si).toBeDefined();
+    si!.click(); fix.detectChanges();
+    const list = llamadas.find((l) => l.list && l.list['batch_id'])!.list!;
+    expect(list['batch_id']).toBe('7a1b2c3d-0000-4000-8000-00000000000a');
+    expect(list['estado']).toBe('pending_approval');
+    expect(list['pageSize']).toBe(200);
+    const bulk = llamadas.find((l) => l.bulk)!.bulk!;
+    expect(bulk[0].length).toBe(3);
+    expect(bulk[1]).toBe('approve');
+    expect(fix.componentInstance.loteAConfirmar()).toBeNull();
+  });
+
+  it('NEGATIVA: sin pendientes no hay botón', () => {
+    const fix = montar(LOTE({ pendientes: 0, estado: 'approved' }));
+    expect(boton(fix, /Aprobar lote/)).toBeUndefined();
+  });
+
+  it('NEGATIVA: sin permiso de autorizar no hay botón', () => {
+    const fix = montar(LOTE(), 3, [], false);
+    expect(boton(fix, /Aprobar lote/)).toBeUndefined();
+  });
+
+  it('NEGATIVA: un lote con más de 200 pendientes no manda nada y lo dice (tope del servidor)', () => {
+    const llamadas: Llamada[] = [];
+    const fix = montar(LOTE({ pendientes: 201, documentos: 201 }), 201, llamadas);
+    fix.componentInstance.aprobarLote(LOTE({ pendientes: 201, documentos: 201 }) as never);
+    // La bandeja pide su propia lista al abrir; lo que NO debe existir es la lectura del lote ni el bulk.
+    expect(llamadas.filter((l) => l.bulk || (l.list && l.list['batch_id']))).toEqual([]);
+  });
+
+  it('Cancelar en la confirmación no manda nada', () => {
+    const llamadas: Llamada[] = [];
+    const fix = montar(LOTE(), 3, llamadas);
+    boton(fix, /Aprobar lote/)!.click(); fix.detectChanges();
+    boton(fix, /^\s*Cancelar\s*$/)!.click(); fix.detectChanges();
+    expect(llamadas.filter((l) => l.bulk)).toEqual([]);
+    expect(boton(fix, /Aprobar lote \(10\)/)).toBeDefined();
+  });
+});
+
 describe('[AB.32] rechazar lo que pidió una sucursal exige motivo', () => {
   const DE_SUCURSAL = { ...FILA, id: '9f3c1a2b-0000-4000-8000-000000000002', folio: 'RQ-2026-00043', requested_by_branch: true };
   function montarConSucursal(bulk: (ids: string[], accion: string, motivo: string | null) => unknown) {
