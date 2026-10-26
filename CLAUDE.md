@@ -253,6 +253,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **VAC** | Acople del verificador de precios al estándar (`/tienda/verificador`) | 🟢 |
 | **PGP** | Pago a proveedor de punta a punta (firma → ejecución → `X-D-26` escrito en Kepler) | ⬜ |
 | **PQ** | `/compras/pedido`: del sugerido al ERP sin inventar nada (lo aprobado sale, agenda de proveedores, lazo cerrado; M1/M2 medidas) | 🔨 |
+| **FC** | Flotilla: costo por unidad — reemplaza la hoja «TRANSPORTES 2026» (anexo FCU; todo con pantalla). 5ª en curso, abierta por el PM el 2026-10-26 | 🔨 |
 
 ---
 
