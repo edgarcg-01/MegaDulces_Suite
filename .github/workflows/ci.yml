@@ -962,12 +962,15 @@ jobs:
       # El motivo de una falla sale como anotación: los logs del CI piden sesión, las anotaciones no.
       - name: Base de caja desde cero
         run: |
+          # `[CGP-D.1.2]` Sin pipefail, `if ! node ... | tee` mira el código de `tee` (siempre 0): el 23-oct
+          # este paso salió VERDE con «⛔ se detiene en ...» y el rojo recién apareció en las suites.
+          set -o pipefail
           if ! node database/tests/caja/preparar-base-caja.js --url "$DATABASE_URL_NEW" 2>&1 | tee base.log; then
             motivo=$(grep -A3 '⛔' base.log | tr '\n' ' ' | cut -c1-900)
             echo "::error title=preparar-base-caja::${motivo:-sin motivo en el log}"
             exit 1
           fi
-          echo "::notice title=Base de caja::$(grep -E 'LISTO|tablas ajenas|traídas' base.log | tr '\n' ' ' | cut -c1-600)"
+          echo "::notice title=Base de caja::$(grep -E 'LISTO|tablas ajenas|traídas|NO MEDIDO' base.log | tr '\n' ' ' | cut -c1-600)"
 
       # Cada suite corre aunque falle la anterior: un rojo no tiene que esconder a los demás. El
       # resumen y las aserciones fallidas salen como anotaciones, que se leen sin iniciar sesión.

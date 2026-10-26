@@ -100,9 +100,15 @@ const rechaza = (err, code, nombre) => !!err && err.code === code && (err.constr
         `NEGATIVA: enlazar $6,000 a un gasto de $5,000 → CAOS_LINK_EXCEDE_CAPTURA (${e2 && e2.code})`);
 
       console.log('\n── 3. El mismo par dos veces, y un movimiento que no existe ──');
-      const e3 = await intento(trx, () => trx('finance.caos_cash_links').insert(enlace(ret, g1, 1)));
-      ok(rechaza(e3, '23505', 'ux_caos_link_par_vivo') || rechaza(e3, '23514', 'CAOS_LINK_EXCEDE_MOVIMIENTO'),
-        `NEGATIVA: el mismo gasto con el mismo retiro no se repite (${e3 && e3.code})`);
+      // `[CGP-D.1.2]` El par se repite con LUGAR en el gasto y en el retiro: con `g1` (ya enlazado
+      // completo) el trigger de monto saltaba antes que el índice y la prueba medía otra regla
+      // (23514 CAOS_LINK_EXCEDE_CAPTURA). Así sólo `ux_caos_link_par_vivo` puede rechazarlo.
+      const e3 = await intento(trx, async () => {
+        await trx('finance.caos_cash_links').insert(enlace(ret, g3, 10000));
+        await trx('finance.caos_cash_links').insert(enlace(ret, g3, 1));
+      });
+      ok(rechaza(e3, '23505', 'ux_caos_link_par_vivo'),
+        `NEGATIVA: el mismo gasto con el mismo retiro no se repite (${e3 ? `${e3.code} ${e3.constraint}` : 'pasó'})`);
       const e4 = await intento(trx, () => trx('finance.caos_cash_links').insert({ ...enlace(ret, g4, 1), caos_external_id: 1 }));
       ok(rechaza(e4, '23503', 'CAOS_LINK_SIN_MOVIMIENTO'), `NEGATIVA: un movimiento que no existe no se enlaza (${e4 && e4.code})`);
 
@@ -132,8 +138,15 @@ const rechaza = (err, code, nombre) => !!err && err.code === code && (err.constr
       const e8 = await intento(trx, () => cierre({ cierre_monto: 4500 }));
       ok(rechaza(e8, '23514', 'CAOS_CUSTODIA_REGRESO_MONTO'),
         'NEGATIVA: el regreso a CAOS vale lo que contó la máquina, no lo que se teclea');
+      // `[CGP-D.1.2]` Un regreso sin depósito lo frena PRIMERO el trigger (BEFORE UPDATE corre antes
+      // que los CHECK), así que el CHECK `caos_cust_regreso_con_deposito_chk` sólo se alcanza por su
+      // otro lado: un cierre que NO es regreso pero trae depósito. Se miden las dos defensas.
       const e9 = await intento(trx, () => cierre({ cierre_caos_external_id: null }));
-      ok(rechaza(e9, '23514', 'caos_cust_regreso_con_deposito_chk'), 'NEGATIVA: un regreso a CAOS sin su depósito no existe');
+      ok(rechaza(e9, '23514', 'CAOS_CUSTODIA_REGRESO_NO_ES_DEPOSITO'),
+        `NEGATIVA: un regreso a CAOS sin su depósito no existe (${e9 ? `${e9.code} ${e9.constraint}` : 'pasó'})`);
+      const e9b = await intento(trx, () => cierre({ cierre_tipo: 'cajon' }));
+      ok(rechaza(e9b, '23514', 'caos_cust_regreso_con_deposito_chk'),
+        `NEGATIVA: un cierre que no es regreso no se ata a un depósito de CAOS (${e9b ? `${e9b.code} ${e9b.constraint}` : 'pasó'})`);
       const e10 = await intento(trx, () => cierre({ cierre_dia: null }));
       ok(rechaza(e10, '23514', 'caos_cust_cierre_completo_chk'), 'NEGATIVA: un cierre a medias no existe');
       ok(!(await intento(trx, () => cierre({}))), 'el regreso de $4,000 con su depósito cierra la custodia');
