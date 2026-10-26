@@ -205,6 +205,13 @@ const { estadoCola, profundidadCola, drenarCola } = require('../lib/ods-cola');
 const COLA_TABLES = (process.env.ODS_COLA_TABLES || '').split(',').map((s) => s.trim()).filter(Boolean);
 const COLA_ESTADO_MS = 60 * 1000;
 const _colaEstado = new Map(); // code → { en, activas: Set, faltan: string[] }
+// ⛔ LA COLA SÓLO VE LO QUE PASÓ DESPUÉS DE EXISTIR. Medido en el piloto de la 06 (2026-10-26):
+// dos facturas capturadas a las 16:19, segundos ANTES del trigger, cayeron debajo del watermark
+// (página 1,982 contra 2,497) — el ctid no las vio, la cola no las tenía, y la red de 5 min que
+// las habría rescatado ya se saltaba porque la cola estaba activa. Quedaban esperando al
+// reconciliador de 15 min. Por eso, cuando la cola de una tabla se ACTIVA en una rama (o el
+// proceso arranca), la red corre UNA vez completa —la «puesta al día»— y recién después se salta.
+const _redConCola = new Set(); // `${code}/${table}` que ya hicieron su puesta al día con la cola activa
 
 // RED DE SEGURIDAD del carril HASH (bug 2026-09-02): el shadow se marca para TODAS las filas
 // enviadas, sin poder confirmar que el destino las aplicó — y NO se puede validar por `rowCount`,
@@ -549,7 +556,10 @@ async function syncCtid(p, code, table, meta, { apply, full, colaActiva = false 
        rows_last=EXCLUDED.rows_last, changed_last=EXCLUDED.changed_last, last_run_at=now()`,
     [table, lastCtid, seen, changed]);
   if (seen) console.log(`  ✓ ${code}/${table} [ctid]: ${seen} leídas · ${changed} escritas · ctid→${lastCtid}`);
-  if (colaActiva && !full) return { suc: code, tabla: table, carril: 'ctid', leidas: seen, escritas: changed, redes: 'cola' };
+  // [OBS.15] Con la cola activa, las redes se saltan — salvo la primera vez (la puesta al día).
+  const llaveRed = `${code}/${table}`;
+  if (colaActiva && !full && _redConCola.has(llaveRed)) return { suc: code, tabla: table, carril: 'ctid', leidas: seen, escritas: changed, redes: 'cola' };
+  const puestaAlDia = colaActiva && !full;
 
   // RED DE SEGURIDAD: re-envía la ventana reciente por fecha (recupera filas que el ctid saltó).
   // Idempotente (raw-upsert) → re-enviar filas ya presentes es inofensivo. Throttle a SAFETY_INTERVAL.
@@ -560,7 +570,8 @@ async function syncCtid(p, code, table, meta, { apply, full, colaActiva = false 
   if (ventana) {
     const key = `${code}/${table}`;
     const nowMs = Date.now();
-    if (full || (nowMs - (_lastSafety.get(key) || 0)) >= SAFETY_INTERVAL_MS) {
+    // La puesta al día no espera su turno de 5 min: es lo que cubre el instante antes del trigger.
+    if (full || puestaAlDia || (nowMs - (_lastSafety.get(key) || 0)) >= SAFETY_INTERVAL_MS) {
       _lastSafety.set(key, nowMs);
       let sbuf = [], sSeen = 0, sChanged = 0;
       const rows = (await p.query(
@@ -572,12 +583,14 @@ async function syncCtid(p, code, table, meta, { apply, full, colaActiva = false 
         if (sbuf.length >= SHIP_BATCH) { const r = await ship(sbuf, shipMeta); sChanged += Number(r.rowCount || 0); sbuf = []; }
       }
       if (sbuf.length) { const r = await ship(sbuf, shipMeta); sChanged += Number(r.rowCount || 0); }
-      if (sChanged) console.log(`  ⛑ ${code}/${table} [safety ${SAFETY_DAYS}d]: ${sSeen} revisadas · ${sChanged} recuperadas/actualizadas`);
+      if (sChanged || puestaAlDia) console.log(`  ⛑ ${code}/${table} [safety ${SAFETY_DAYS}d${puestaAlDia ? ' · puesta al día con la cola' : ''}]: ${sSeen} revisadas · ${sChanged} recuperadas/actualizadas`);
     }
   }
 
   // [GX.73] Y los documentos que todavía cambian de estado, sin importar su fecha.
-  await reenviarAbiertos(p, code, table, meta, { full });
+  await reenviarAbiertos(p, code, table, meta, { full: full || puestaAlDia });
+  // Se marca AL FINAL: si la puesta al día tiró a medias, la próxima pasada la repite entera.
+  if (puestaAlDia) _redConCola.add(llaveRed);
   return { suc: code, tabla: table, carril: 'ctid', leidas: seen, escritas: changed };
 }
 
@@ -760,6 +773,9 @@ async function colaDe(p, code) {
   if (hit && Date.now() - hit.en < COLA_ESTADO_MS) return hit;
   const e = await estadoCola(p, COLA_TABLES);
   const activas = new Set(COLA_TABLES.filter((t) => e.tablas[t] === 'activa'));
+  // Una tabla que NO estaba activa y ahora sí (se instaló, o se reinstaló tras quitarla) vuelve
+  // a necesitar su puesta al día: lo que cambió mientras no había trigger no está en la cola.
+  for (const t of COLA_TABLES) if (!activas.has(t) || !hit?.activas.has(t)) _redConCola.delete(`${code}/${t}`);
   const v = { en: Date.now(), activas, faltan: COLA_TABLES.filter((t) => !activas.has(t)).map((t) => `${t}:${e.tablas[t]}`) };
   _colaEstado.set(code, v);
   return v;
@@ -875,15 +891,26 @@ function resumir(summary) {
   const wrote = summary.reduce((a, r) => a + (r.escritas || 0), 0);
   const errs = summary.filter((r) => r.error).length;
   const fallas = summary.fallas || [];
-  // [OBS.15] La peor espera réplica → ODS que midió la cola en este ciclo (0 = no hubo nada).
-  const espera = summary.reduce((m, r) => (r.carril === 'cola' ? Math.max(m, r.espera_max_ms || 0) : m), 0);
-  return { wrote, errs, fallas, espera, cola: summary.cola, marcas: summary.marcas || [] };
+  // [OBS.15] La peor espera réplica → ODS que midió la cola en este ciclo, y cuántas entradas
+  // drenó: sin entradas no hay espera que medir, y eso NO es «0 ms».
+  const cola = summary.filter((r) => r.carril === 'cola');
+  const espera = cola.reduce((m, r) => Math.max(m, r.espera_max_ms || 0), 0);
+  const drenadas = cola.reduce((a, r) => a + (r.leidas || 0), 0);
+  return { wrote, errs, fallas, espera, drenadas, cola: summary.cola, marcas: summary.marcas || [] };
 }
-/** `[OBS.15]` Texto de la cola para el latido: dónde está activa y la peor espera medida. */
-function notaCola(cola, espera) {
+/**
+ * `[OBS.15]` Texto de la cola para el latido: dónde está activa y la peor espera medida.
+ * ⛔ Lo que no se midió se DECLARA (regla 11): la primera versión escribía «peor réplica→ODS
+ * 0 ms» con la cola apagada en las 9 ramas — un cero dibujado donde no había medición. Medido en
+ * prod el 2026-10-26 a minutos de desplegar.
+ */
+function notaCola(cola, espera, drenadas) {
   if (!COLA_TABLES.length || !cola) return '';
+  const medida = !cola.activas ? 'sin medir (no hay cola activa)'
+    : !drenadas ? 'sin movimientos en la ventana'
+      : `${espera} ms`;
   return ` · cola ${cola.activas}/${cola.ramas} ramas${cola.faltan.length ? ` (sin cola: ${cola.faltan.join(' ')})` : ''}`
-    + ` · peor réplica→ODS ${espera} ms`;
+    + ` · peor réplica→ODS ${medida}`;
 }
 function textoError({ fallas, errs }) {
   return [fallas.length ? `${fallas.length}/${BRANCHES.length} ramas no conectan — ${fallas.join(' · ')}` : null,
@@ -900,7 +927,7 @@ function textoError({ fallas, errs }) {
  * es el pulso). Dependencias inyectadas para la prueba (`test-ods-cola.js`, bloque 5).
  */
 function crearCicloTiempoReal({ ciclo, latir: latirFn, marcarRamas: marcarFn, cadaMs, late = true, ahora = Date.now }) {
-  const hb = { abierto: false, desde: ahora(), ciclos: 0, wrote: 0, peorMs: 0, espera: 0, error: null, ultimo: null };
+  const hb = { abierto: false, desde: ahora(), ciclos: 0, wrote: 0, peorMs: 0, espera: 0, drenadas: 0, error: null, ultimo: null };
   return async ({ full }) => {
     const t0 = ahora();
     if (late && !hb.abierto) { await latirFn('begin'); hb.abierto = true; }
@@ -909,7 +936,7 @@ function crearCicloTiempoReal({ ciclo, latir: latirFn, marcarRamas: marcarFn, ca
     const ms = ahora() - t0;
     hb.ciclos++; hb.peorMs = Math.max(hb.peorMs, ms);
     if (r) {
-      hb.wrote += r.wrote; hb.espera = Math.max(hb.espera, r.espera); hb.ultimo = r;
+      hb.wrote += r.wrote; hb.espera = Math.max(hb.espera, r.espera); hb.drenadas += r.drenadas; hb.ultimo = r;
       if (r.fallas.length || r.errs) hb.error = textoError(r);
     } else hb.error = falla.message;
     if (late && ahora() - hb.desde >= cadaMs) {
@@ -920,10 +947,10 @@ function crearCicloTiempoReal({ ciclo, latir: latirFn, marcarRamas: marcarFn, ca
         rows: hb.wrote,
         ms: hb.peorMs,
         note: `${BRANCHES.length - u.fallas.length}/${BRANCHES.length} ramas · ${hb.wrote} filas en ${hb.ciclos} ciclos`
-          + ` · peor ciclo ${hb.peorMs} ms${notaCola(u.cola, hb.espera)}`,
+          + ` · peor ciclo ${hb.peorMs} ms${notaCola(u.cola, hb.espera, hb.drenadas)}`,
         error: hb.error,
       });
-      Object.assign(hb, { desde: ahora(), ciclos: 0, wrote: 0, peorMs: 0, espera: 0, error: null });
+      Object.assign(hb, { desde: ahora(), ciclos: 0, wrote: 0, peorMs: 0, espera: 0, drenadas: 0, error: null });
     }
     if (falla) throw falla;
     return { wrote: r.wrote, ms };
@@ -1041,7 +1068,7 @@ if (require.main === module) {
             status: malo ? 'error' : 'ok',
             rows: wrote,
             ms: Date.now() - t0,
-            note: `${BRANCHES.length - fallas.length}/${BRANCHES.length} ramas · ${wrote} filas · ${errs} tablas con error${notaCola(r.cola, r.espera)}`,
+            note: `${BRANCHES.length - fallas.length}/${BRANCHES.length} ramas · ${wrote} filas · ${errs} tablas con error${notaCola(r.cola, r.espera, r.drenadas)}`,
             error: malo ? textoError(r) : null,
           });
         }
@@ -1058,7 +1085,7 @@ if (require.main === module) {
         const summary = await cycleAll({ apply: false, full: FULL });
         console.log('\n=== Resumen ===');
         console.table(summary.slice(0, 200));
-        if (COLA_TABLES.length) console.log(`  cola (${COLA_TABLES.join(',')}):${notaCola(summary.cola, resumir(summary).espera)}`);
+        if (COLA_TABLES.length) console.log(`  cola (${COLA_TABLES.join(',')}):${notaCola(summary.cola, resumir(summary).espera, resumir(summary).drenadas)}`);
         console.log('DRY-RUN — nada cambió. Corré con --apply.');
         if (DEST) await cerrar(DEST);
         return;
