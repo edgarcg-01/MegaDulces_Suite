@@ -304,6 +304,13 @@ export enum Permission {
   LOGISTICS_PAGOS_VER = 'LOGISTICS_PAGOS_VER',
   LOGISTICS_PAGOS_GESTIONAR = 'LOGISTICS_PAGOS_GESTIONAR',
 
+  // [FCU.3.9] Módulo: Logística — Costo por unidad (lo que hacía la hoja «TRANSPORTES 2026»).
+  // VER = el tablero, el detalle, la bandeja, el presupuesto y la reposición; GESTIONAR = asignar
+  // gastos de Kepler a su unidad, editar la ficha y el presupuesto, capturar nómina administrativa
+  // y odómetro. ⚠️ Salarios y nómina administrativa sólo se VEN con GESTIONAR (dato sensible).
+  LOGISTICS_COSTO_UNIDAD_VER = 'LOGISTICS_COSTO_UNIDAD_VER',
+  LOGISTICS_COSTO_UNIDAD_GESTIONAR = 'LOGISTICS_COSTO_UNIDAD_GESTIONAR',
+
   // Módulo: Logística — Configuración financiera (factores, costo km)
   LOGISTICS_CONFIG_GESTIONAR = 'LOGISTICS_CONFIG_GESTIONAR',
   // [EMB.28.1] Cambiar una tarifa YA FIJADA (comisión por ruta, viático, maniobra de carga):

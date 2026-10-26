@@ -148,6 +148,8 @@ export * from './http/viaticos-guia.contract';
 export * from './http/revision-gps.contract';
 // [EMB.24]–[EMB.29] Pago por viaje cerrado: cierre de paradas, cargadores y lo que se libera.
 export * from './http/cierre-viaje.contract';
+// [FCU] Costo por unidad: lo que hacía la hoja «TRANSPORTES 2026», con pantalla.
+export * from './http/costo-unidad.contract';
 // [EMB.32] Alta rápida de ayudantes y cargadores desde la guía y el cierre.
 export * from './http/alta-persona.contract';
 // [RE.35] El expediente de la factura de una orden de entrada (el papel identifica, el CFDI informa).
