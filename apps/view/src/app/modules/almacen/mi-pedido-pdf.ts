@@ -206,7 +206,7 @@ export async function descargarPdfMiPedido(d: MiPedidoPdfDatos): Promise<string 
     if (i > 0) doc.addPage();
     dibujarGrupo(doc, autoTable, logo, d, g);
   });
-  dibujarPies(doc, `Pedido ${d.almacen.code} · ${fechaLarga(d.fecha_mx)} ${d.hora_mx}`, null, 'Almacén > Abasto > Mi pedido');
+  dibujarPies(doc, `Pedido de ${d.almacen.name} · ${fechaLarga(d.fecha_mx)} ${d.hora_mx}`, null, 'Almacén > Abasto > Autoabasto');
   const quien = grupos.length === 1 ? textoParaArchivo(grupos[0].origen, 24) : 'TODOS';
   const archivo = `PEDIDO-${textoParaArchivo(d.almacen.code)}-${quien}-${d.fecha_mx}-${d.hora_mx.replace(':', '-')}.pdf`;
   doc.save(archivo);

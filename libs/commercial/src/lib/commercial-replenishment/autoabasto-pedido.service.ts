@@ -25,6 +25,7 @@ import {
   type FiltroMesa,
   type OrdenMesa,
   type AutoabastoMesaRenglon,
+  type DiagnosticoRenglon,
   type AutoabastoRenglonesResponse,
   type AutoabastoPedidoResponse,
   type AutoabastoAjusteRequest,
@@ -352,7 +353,8 @@ export class AutoabastoPedidoService {
         };
         grupos.set(llave, g);
       }
-      g.lineas.push(linea);
+      // `[AB.39]` La pantalla única también explica la posición (mínimo, reorden, máximo, entrega).
+      g.lineas.push({ ...linea, diagnostico: diagnosticoDe(f) });
       // `[AB.29]` Lo que la sucursal ya mandó a Compras se ve, pero no suma como «a pedir».
       if (efectivoCant > 0 && !yaSeMandoACompras(linea)) {
         g.renglones_a_pedir++;
@@ -538,22 +540,7 @@ export class AutoabastoPedidoService {
     q: FiltroMesa & { sort_by?: OrdenMesa; sort_dir?: 'asc' | 'desc'; page?: number; pageSize?: number; todos?: boolean },
   ): Promise<AutoabastoRenglonesResponse> {
     const { renglones, medidos } = await this.armarAlmacen(almacen, area);
-    const todos: AutoabastoMesaRenglon[] = renglones.map(({ fila: f, linea }) => ({
-      ...linea,
-      diagnostico: {
-        min_stock: num(f['min_stock']),
-        reorder_point: num(f['reorder_point']),
-        max_stock: num(f['max_stock']),
-        oc_en_camino: num(f['in_transit']),
-        venta_diaria: numONull(f['avg_daily_units']),
-        next_due_date: fechaDe(f['next_due_date']),
-        lead_time_days: numONull(f['lead_time_days']),
-        cadence_days: numONull(f['cadence_days']),
-        abc_class: f['abc_class'] == null ? null : String(f['abc_class']),
-        rung_veredicto: f['rung_veredicto'] == null ? null : String(f['rung_veredicto']),
-        sales_rank: numONull(f['sales_rank']),
-      },
-    }));
+    const todos: AutoabastoMesaRenglon[] = renglones.map(({ fila: f, linea }) => ({ ...linea, diagnostico: diagnosticoDe(f) }));
     const lista = ordenarRenglones(filtrarRenglones(todos, q), q.sort_by ?? 'lectura', q.sort_dir ?? 'desc');
     // `todos` = el papel: el almacén completo con el filtro, sin paginar (ya se armó entero de todos modos).
     const pageSize = q.todos ? Math.max(1, lista.length) : Math.min(500, Math.max(1, Math.floor(Number(q.pageSize) || 50)));
@@ -799,4 +786,24 @@ function fechaDe(v: unknown): string | null {
   if (v == null || v === '') return null;
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : toMxDateKey(v);
   return String(v).slice(0, 10);
+}
+
+/**
+ * `[AB.39]` Lo que explica la posición del renglón: mínimo, reorden, máximo y entrega, tal como los
+ * trae el motor. Una sola función para la mesa (`/renglones`) y para la pantalla única (`/pedido`).
+ */
+function diagnosticoDe(f: Record<string, unknown>): DiagnosticoRenglon {
+  return {
+    min_stock: num(f['min_stock']),
+    reorder_point: num(f['reorder_point']),
+    max_stock: num(f['max_stock']),
+    oc_en_camino: num(f['in_transit']),
+    venta_diaria: numONull(f['avg_daily_units']),
+    next_due_date: fechaDe(f['next_due_date']),
+    lead_time_days: numONull(f['lead_time_days']),
+    cadence_days: numONull(f['cadence_days']),
+    abc_class: f['abc_class'] == null ? null : String(f['abc_class']),
+    rung_veredicto: f['rung_veredicto'] == null ? null : String(f['rung_veredicto']),
+    sales_rank: numONull(f['sales_rank']),
+  };
 }

@@ -231,7 +231,10 @@ export function surtePorQue(s: SurteRenglon): string {
  * `medidos = false` = la sucursal no tiene cliente de traspaso en Kepler: lo ya pedido no se pudo
  * leer, y la pantalla no puede afirmar «nadie lo ha pedido» sin decirlo.
  */
-export function faltaNetaPorQue(r: AutoabastoMesaRenglon, medidos = true): string {
+export function faltaNetaPorQue(
+  r: Pick<AutoabastoMesaRenglon, 'objetivo' | 'existencia' | 'falta' | 'ya_pedido' | 'en_camino' | 'falta_neta' | 'planeado_compras' | 'atorado'>,
+  medidos = true,
+): string {
   const partes = [
     `Objetivo ${r.objetivo == null ? 'sin publicar' : qty(r.objetivo)} − existencia ${qty(r.existencia)} = falta ${qty(r.falta)} caja(s).`,
   ];

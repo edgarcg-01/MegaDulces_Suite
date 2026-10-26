@@ -1682,12 +1682,12 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.AUTOABASTO_SOLICITAR)]
       },
       {
-        // [AB.16] «Mi pedido» — el pedido de la semana de un almacén, agrupado por a quién se le
-        // pide, con lo ya pedido a la matriz y la cantidad redondeada a como se captura en Kepler.
-        // Misma puerta que la mesa: es la misma audiencia y sólo lee.
+        // [AB.39] «Mi pedido» y la mesa son UNA pantalla desde el 2026-10-26 (eran la misma cuenta
+        // pintada dos veces). La ruta vieja se queda como redirección: un marcador o un enlace viejo
+        // no puede terminar en 404.
         path: 'autoabasto/pedido',
-        loadComponent: () => import('./modules/almacen/pages/almacen-autoabasto-pedido.component').then(m => m.AlmacenAutoabastoPedidoComponent),
-        canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.AUTOABASTO_SOLICITAR)]
+        redirectTo: '/almacen/autoabasto',
+        pathMatch: 'full'
       },
       {
         // Análisis BI — espacio de indicadores cruzados del almacén. Arranca SIN indicadores

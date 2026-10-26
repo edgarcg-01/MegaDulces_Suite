@@ -164,8 +164,9 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
      * Inventario, porque es lo que sigue a mirar el censo: primero ves qué hay, después
      * decidís qué traer.
      *
-     * Dos tabs: la mesa (*Autoabasto*) y `[AB.16]` *Mi pedido* (el pedido de la semana por
-     * origen). *Nivelación de inventarios* (`/almacen/nivelacion`, `NIVELACION_VER`) entra como
+     * Un solo tab: `[AB.39]` la mesa y *Mi pedido* son una pantalla desde el 2026-10-26 (eran la
+     * misma cuenta pintada dos veces; `/almacen/autoabasto/pedido` redirige). Con un tab la barra
+     * no se pinta. *Nivelación de inventarios* (`/almacen/nivelacion`, `NIVELACION_VER`) entra como
      * tab **con su pantalla** en el PR 4 de la fase. Ni el tab ni su prefijo se declaran
      * antes: sin ruta en `app.routes.ts` el tab tiraría 404 y el prefijo no resolvería nunca
      * — código muerto que además aparenta alcance.
@@ -173,8 +174,6 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     match: ['/almacen/autoabasto'],
     tabs: [
       { label: 'Autoabasto', icon: 'pi pi-shopping-cart', route: '/almacen/autoabasto', permission: Permission.AUTOABASTO_VER, exact: true },
-      // [AB.16] El pedido de la semana, por origen. Con dos tabs, la barra ya se pinta.
-      { label: 'Mi pedido', icon: 'pi pi-list-check', route: '/almacen/autoabasto/pedido', permission: Permission.AUTOABASTO_VER, exact: true },
     ],
   },
   {
