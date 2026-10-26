@@ -18,13 +18,13 @@ import type {
   ParadaCierre,
 } from '@megadulces/contracts';
 import type {
-  ComisionDeRuta, Corte, DesgloseDeOperacion, DocumentoDeLaOperacion, EstadoRecepcion, OperacionDelReporte,
+  CentroDeCosto, ComisionDeRuta, Corte, DesgloseDeOperacion, SinCentro, DocumentoDeLaOperacion, EstadoRecepcion, OperacionDelReporte,
   PersonaDelPadron, RenglonDelReparto, ReporteDePagos, RolDelReparto, TipoParadaKepler, TipoViajePago,
   ConceptoDelReparto,
 } from '@megadulces/contracts';
 import {
   conceptoDelReparto, corteDe, erroresDeCargadores, erroresDeCierreDeParada, esFecha, faltasDelViaje, repartoDeCarga,
-  SKUS_SIN_CARGA, TARIFA_CARGA_CAJA_KEY, tipoDeParadaKepler, tipoDelViaje, totalDeCarga,
+  SKUS_SIN_CARGA, TARIFA_CARGA_CAJA_KEY, tipoDeParadaKepler, tipoDelViaje, totalDeCarga, WAREHOUSE_DISPLAY_ORDER,
 } from '@megadulces/contracts';
 import { CambioRegistrado, tarifaVigenteEl } from '../logistics-config/tarifas-fijas.logic';
 import {
@@ -224,6 +224,46 @@ export function renglonesDeLaOperacion(
   }
   for (const c of cargas) poner(c.driver_id, 'cargador', 'carga', c.rate, calculoDeCarga(c, cargas.length));
   return out;
+}
+
+/**
+ * `[EMB.53]` El centro de costo del PISO de cada sucursal, del catálogo de Kepler (`kdc3`): es
+ * `1-0P-NN-00` con NN = el código MD de la sucursal (MD-42 La Piedad Abastos → 1-01-42-00 «LA PIEDAD
+ * ABASTOS PISO»; verificado contra los nombres de las 9). Si el catálogo trae cero o más de uno
+ * para ese NN, la sucursal se queda sin centro: no se adivina.
+ */
+export function centrosDePiso(kdc3: Array<{ codigo: string; nombre: string | null }>): Map<string, CentroDeCosto> {
+  const out = new Map<string, CentroDeCosto>();
+  for (const g of WAREHOUSE_DISPLAY_ORDER) {
+    const md = g.codes.find((c) => /^MD-\d{2}$/.test(c));
+    if (!md) continue;
+    const forma = new RegExp(`^1-0\\d-${md.slice(3)}-00$`);
+    const candidatos = kdc3.filter((c) => forma.test(c.codigo.trim()));
+    if (candidatos.length !== 1) continue;
+    const centro = { codigo: candidatos[0].codigo.trim(), nombre: (candidatos[0].nombre ?? '').trim() || candidatos[0].codigo.trim() };
+    for (const suc of g.codes.filter((c) => /^\d{2}$/.test(c))) out.set(suc, centro);
+  }
+  return out;
+}
+
+/**
+ * `[EMB.53]` El centro de costo de UNA operación. Un traspaso va al piso de su sucursal destino
+ * (`TI###` → sucursal por `pv_suc_ip`, la misma regla que `erp_shipment_stop_closure`). Una entrega
+ * a cliente, o un traspaso a varias sucursales, NO se resuelve aquí: se dice por qué.
+ */
+export function centroDeOperacion(
+  paradas: FilaParadaKepler[],
+  tiASucursal: Map<string, string>,
+  centros: Map<string, CentroDeCosto>,
+): { centro: CentroDeCosto | null; sin_centro: SinCentro | null } {
+  const pagan = paradas.filter((p) => tipoDeParadaKepler(p.serie, p.cliente_code) !== 'carga_ruta');
+  if (pagan.some((p) => tipoDeParadaKepler(p.serie, p.cliente_code) === 'cliente')) return { centro: null, sin_centro: 'cliente' };
+  const sucursales = pagan.map((p) => tiASucursal.get((p.cliente_code ?? '').trim()) ?? null);
+  if (!sucursales.length || sucursales.some((x) => x == null)) return { centro: null, sin_centro: 'sin_catalogo' };
+  const distintas = [...new Set(sucursales as string[])];
+  if (distintas.length > 1) return { centro: null, sin_centro: 'varios_destinos' };
+  const centro = centros.get(distintas[0]) ?? null;
+  return centro ? { centro, sin_centro: null } : { centro: null, sin_centro: 'sin_catalogo' };
 }
 
 /** `[EMB.51]` Pesos para leer: «$1,234.50». Sin Intl: el resultado es el mismo en cualquier servidor. */
@@ -462,6 +502,13 @@ export class TripClosureService {
         // `[EMB.48]` El catálogo de rutas con su tarifa: el mismo que lee la toma del viaje.
         rutas: await (trx('logistics.routes').whereNull('deleted_at').where('active', true)
           .select('id', 'name', 'kepler_code', 'driver_commission', 'helper_commission', 'sin_comision') as Promise<RutaSuite[]>),
+        // `[EMB.53]` TI### → sucursal (como `erp_shipment_stop_closure`) y los centros de piso de `kdc3`.
+        ti: (await trx.raw<{ rows: Array<{ ti: string; suc: string }> }>(
+          `SELECT DISTINCT ON (btrim(c7)) btrim(c7) AS ti, btrim(c1) AS suc FROM kepler_ods.pv_suc_ip
+            WHERE btrim(c7) ~ '^TI[0-9]+$' AND btrim(c1) ~ '^[0-9]{2}$' ORDER BY btrim(c7), btrim(c1)`)).rows,
+        kdc3: (await trx.raw<{ rows: Array<{ codigo: string; nombre: string | null }> }>(
+          `SELECT btrim(c1) AS codigo, btrim(c2::text) AS nombre FROM kepler_ods.kdc3
+            WHERE btrim(sucursal) = '00' AND btrim(c1) ~ '^1-0[0-9]-[0-9]{2}-00$'`)).rows,
       })),
     ]);
 
@@ -477,6 +524,13 @@ export class TripClosureService {
       porGuia.set(k, g);
     }
     const carga = cargaPorGuia(kepler.paradas, kepler.renglones, kepler.sinCarga);
+    const tiASucursal = new Map(base.ti.map((r) => [r.ti, r.suc]));
+    const centros = centrosDePiso(base.kdc3);
+    const paradasPorGuia = new Map<string, FilaParadaKepler[]>();
+    for (const p of kepler.paradas) {
+      const g = `${p.sucursal}|${p.guia_embarque}`;
+      paradasPorGuia.set(g, [...(paradasPorGuia.get(g) ?? []), p]);
+    }
     const comisiones = comisionPorGuia(kepler.paradas, base.rutas);
     const enAlcance = viajes.filter((v) => tipoDelViaje(porGuia.get(`${v.sucursal}|${v.guia_embarque}`)?.tipos ?? []));
     // `[EMB.48]` Una guía de puro tiempo aire no es un viaje que cargar: se cuenta y no entra.
@@ -582,6 +636,7 @@ export class TripClosureService {
         faltan: faltasDelViaje(s ? { ...s, cargadores: deCarga.length } : null, !!choferKeplerId),
         cajas: cajasOp,
         sueltos: deKepler ? deKepler.sueltos : null,
+        ...centroDeOperacion(paradasPorGuia.get(k) ?? [], tiASucursal, centros),
         comision_ruta: comisionRuta,
         chofer_kepler_id: choferKeplerId,
         tarifa_por_caja: tarifa,

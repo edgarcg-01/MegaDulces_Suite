@@ -1,7 +1,7 @@
-import type { Corte, SolicitudDePersona } from '@megadulces/contracts';
+import type { Corte, RenglonDeSolicitud, SolicitudDePersona } from '@megadulces/contracts';
 import { warehouseName } from '@megadulces/contracts';
 // Por subruta, no por el barrel: ver tsconfig.base.json (bundle inicial).
-import { ROL_LABEL } from '@megadulces/contracts/http/cierre-viaje';
+import { PROVEEDOR_DE_LA_SOLICITUD, ROL_LABEL, SIN_CENTRO_LABEL } from '@megadulces/contracts/http/cierre-viaje';
 import {
   alinearTitulos, dibujarEncabezado, dibujarPies, HEAD, lastY, loadLibs, loadLogo, M, money, MUTED, tablaBase,
   textoParaArchivo,
@@ -34,7 +34,15 @@ export function textoDelCorte(c: Corte): string {
   return `Catorcena ${fechaCorta(c.desde)} a ${fechaCorta(c.hasta)} · se paga el ${fechaCorta(c.pago)}`;
 }
 
-export const CSV_CABECERA = ['Persona', 'Concepto', 'Descripcion', 'Destino', 'Operaciones', 'Importe'] as const;
+export const CSV_CABECERA = [
+  'Proveedor', 'Beneficiario', 'Cuenta', 'Concepto', 'Descripcion', 'Centro_costo', 'Centro_nombre', 'Destino', 'Operaciones', 'Importe',
+] as const;
+
+/** `[EMB.53]` El centro como se escribe en el formato: código y nombre, o por qué no hay. */
+export function centroDelRenglon(r: RenglonDeSolicitud): { codigo: string; nombre: string } {
+  if (r.centro) return { codigo: r.centro.codigo, nombre: r.centro.nombre };
+  return { codigo: '', nombre: r.sin_centro ? SIN_CENTRO_LABEL[r.sin_centro] : '' };
+}
 
 /**
  * El CSV, **con BOM** (sin él Excel abre «Ã»). Números con punto y sin miles: es para procesar.
@@ -44,7 +52,11 @@ export function csvSolicitudes(solicitudes: SolicitudDePersona[]): string {
   const filas: string[] = [];
   for (const s of solicitudes) {
     for (const r of s.renglones) {
-      filas.push([s.persona, r.codigo, r.nombre_concepto, r.destino, r.operaciones, r.importe.toFixed(2)].map(esc).join(','));
+      const c = centroDelRenglon(r);
+      filas.push([
+        PROVEEDOR_DE_LA_SOLICITUD.codigo, s.persona, r.cuenta ?? '', r.codigo, r.nombre_concepto, c.codigo, c.nombre, r.destino,
+        r.operaciones, r.importe.toFixed(2),
+      ].map(esc).join(','));
     }
   }
   return '﻿' + [CSV_CABECERA.join(','), ...filas].join('\n');
@@ -73,23 +85,42 @@ export async function descargarPdfSolicitudes(solicitudes: SolicitudDePersona[],
   solicitudes.forEach((s, i) => {
     if (i > 0) doc.addPage();
     let y = dibujarEncabezado(doc, logo, {
-      titulo: 'Solicitud de gasto · Comisiones y viáticos de Logística',
+      titulo: 'Solicitud de gasto (X-A-15) · Comisiones y viáticos de Logística',
       cajaTitulo: s.persona,
       cajaTitulo2: `Total ${money(s.total)}`,
       cajaLineas: [textoDelCorte(c), `${s.operaciones} operaci${s.operaciones === 1 ? 'ón' : 'ones'} · ${s.roles.map((r) => ROL_LABEL[r]).join(', ')}`],
     });
 
+    // [EMB.53] La cabecera de la solicitud, con los mismos datos que lleva el X-A-15 real.
+    autoTable(doc, {
+      ...tablaBase,
+      startY: y,
+      theme: 'plain',
+      body: [
+        ['Proveedor', `${PROVEEDOR_DE_LA_SOLICITUD.codigo} · ${PROVEEDOR_DE_LA_SOLICITUD.nombre}`, 'Área', PROVEEDOR_DE_LA_SOLICITUD.area],
+        ['Beneficiario', s.persona, 'Moneda', PROVEEDOR_DE_LA_SOLICITUD.moneda],
+        ['Periodo', textoDelCorte(c), 'Total', money(s.total)],
+      ],
+      styles: { ...tablaBase.styles, fontSize: 8.5, cellPadding: 2 },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 70 }, 2: { fontStyle: 'bold', cellWidth: 50 }, 3: { cellWidth: 110 } },
+    });
+    y = lastY(doc, y) + 14;
+
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...HEAD);
-    doc.text('Para capturar en Kepler', M, y);
+    doc.text('Renglones para capturar', M, y);
     autoTable(doc, {
       ...tablaBase,
       startY: y + 6,
-      head: [['Concepto', 'Descripción', 'Destino', 'Operaciones', 'Importe']],
-      body: s.renglones.map((r) => [r.codigo, r.nombre_concepto, r.destino, String(r.operaciones), money(r.importe)]),
-      foot: [['', '', 'Total', '', money(s.total)]],
+      head: [['#', 'Cuenta', 'Concepto', 'Descripción', 'Centro de costo', 'Importe']],
+      body: s.renglones.map((r, k) => {
+        const ce = centroDelRenglon(r);
+        return [String(k + 1), r.cuenta ?? '—', r.codigo, r.nombre_concepto, ce.codigo ? `${ce.codigo} ${ce.nombre}` : `— ${ce.nombre}`, money(r.importe)];
+      }),
+      foot: [['', '', '', '', 'Total', money(s.total)]],
       footStyles: { fillColor: [255, 255, 255], textColor: HEAD, fontStyle: 'bold' },
-      columnStyles: { 0: { cellWidth: 56 }, 3: { halign: 'right', cellWidth: 64 }, 4: { halign: 'right', cellWidth: 80 } },
-      didParseCell: alinearTitulos([3, 4]),
+      styles: { ...tablaBase.styles, fontSize: 8 },
+      columnStyles: { 0: { cellWidth: 18 }, 1: { cellWidth: 50 }, 2: { cellWidth: 38 }, 5: { halign: 'right', cellWidth: 68 } },
+      didParseCell: alinearTitulos([5]),
     });
     y = lastY(doc, y) + 18;
 
@@ -113,9 +144,9 @@ export async function descargarPdfSolicitudes(solicitudes: SolicitudDePersona[],
     // Firma de quien recibe: al fondo de la hoja (o de una nueva si ya no cabe).
     if (y > H - 90) { doc.addPage(); y = M; }
     const fy = Math.max(y + 40, H - 78);
-    const fw = (W - 2 * M - 40) / 2;
-    ['Elaboró (Logística)', `Recibí · ${s.persona}`].forEach((t, k) => {
-      const fx = M + k * (fw + 40);
+    const fw = (W - 2 * M - 40) / 3;
+    ['Solicita (Logística)', 'Autoriza', `Recibí · ${s.persona}`].forEach((t, k) => {
+      const fx = M + k * (fw + 20);
       doc.setDrawColor(...HEAD); doc.line(fx, fy, fx + fw, fy);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...MUTED);
       doc.text(t, fx, fy + 11);

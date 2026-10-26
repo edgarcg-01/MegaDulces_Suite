@@ -21,7 +21,7 @@ const o = (x: Partial<OperacionDelReporte>): OperacionDelReporte => ({
   chofer_kepler: null, importe: 500.5, shipment_id: null, shipment_folio: null, guide_id: null, driver_id: null,
   helper1_id: null, helper2_id: null, departure_time: null, arrival_time: null, overnight: false, cargadores: 0,
   faltan: ['chofer', 'horario', 'cargadores'], cajas: 15, sueltos: 0, tarifa_por_caja: 0.2, carga_total: 3, cargador_ids: [],
-  comision_ruta: { chofer: null, ayudante: null, ruta: null, sin_tarifa: [] }, chofer_kepler_id: null,
+  comision_ruta: { chofer: null, ayudante: null, ruta: null, sin_tarifa: [] }, chofer_kepler_id: null, centro: null, sin_centro: null,
   renglones: [], repartido: 0, ...x,
 });
 /** Sin hoja; Kepler trae a PERSONA DOS, que está en el padrón: su comisión de ruta ya se sabe. */
@@ -126,7 +126,8 @@ describe('LogisticaPagosViajesComponent', () => {
   it('abre en «Por completar»; la búsqueda encuentra también por quien cobra', () => {
     const { c, http } = montar();
     reporte(http).flush(REPORTE);
-    expect(c.filtrados().map((x) => x.guia)).toEqual(['0000002', '0000004']);
+    // Lo que más falta primero; a igualdad, sucursal y guía (orden fijo: la lista no baila).
+    expect(c.filtrados().map((x) => x.guia)).toEqual(['0000004', '0000002']);
     c.vista.set('completas');
     expect(c.filtrados().map((x) => x.guia)).toEqual(['0000001']);
     c.vista.set('todas');
@@ -269,6 +270,38 @@ describe('LogisticaPagosViajesComponent', () => {
     desglose(http).flush(DESGLOSE);
     expect(c.op()?.guia).toBe('0000001');
     expect(c.vista()).toBe('todas');
+  });
+
+  it('[EMB.52] filtros de la pantalla principal: tipo, estado, persona y día', () => {
+    const { c, http } = montar();
+    reporte(http).flush(REPORTE);
+    c.vista.set('todas');
+    c.tipoFiltro.set('traspaso');
+    expect(c.filtrados().map((x) => x.guia)).toEqual(['0000001']);
+    c.tipoFiltro.set(null);
+    c.estadoFiltro.set('sin_tarifa');
+    expect(c.filtrados().map((x) => x.guia)).toEqual(['0000004']);
+    c.estadoFiltro.set('sueltas');
+    expect(c.filtrados().map((x) => x.guia)).toEqual(['0000002']);
+    c.estadoFiltro.set(null);
+    c.personaFiltro.set('c1');
+    expect(c.filtrados().map((x) => x.guia)).toEqual(['0000001']);
+    c.personaFiltro.set(null);
+    c.diaFiltro.set('2026-10-10');
+    expect(c.filtrados()).toHaveLength(3);
+    expect(c.personasFiltro().map((p) => p.label)).toContain('CARGADOR PRUEBA');
+  });
+
+  it('[EMB.52] el orden manda también en la vista de tarjetas: mayor carga, mayor comisión, guía', () => {
+    const { c, http } = montar();
+    reporte(http).flush(REPORTE);
+    c.vista.set('todas');
+    c.orden.set('carga');
+    expect(c.filtrados().map((x) => x.guia)).toEqual(['0000001', '0000002', '0000004']);
+    c.orden.set('comision');
+    expect(c.filtrados().map((x) => x.guia)).toEqual(['0000001', '0000002', '0000004']);
+    c.orden.set('guia');
+    expect(c.filtrados().map((x) => x.guia)).toEqual(['0000001', '0000004', '0000002']);
   });
 
   it('moverse de catorcena pide las fechas 14 días antes', () => {

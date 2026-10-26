@@ -1,13 +1,17 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
+import { SelectModule } from 'primeng/select';
 import { ButtonModule } from 'primeng/button';
 import type {
-  DesgloseDeOperacion, DetalleDeSolicitud, RenglonDeSolicitud, ReporteDePagos, RolDelReparto, SolicitudDePersona,
+  DesgloseDeOperacion, DetalleDeSolicitud, RenglonDeSolicitud, ReporteDePagos, RolDelReparto, SinCentro, SolicitudDePersona,
 } from '@megadulces/contracts';
 // Por subruta, no por el barrel: ver tsconfig.base.json (bundle inicial).
-import { corteVecino, esFecha, ROL_LABEL, solicitudesDelReporte } from '@megadulces/contracts/http/cierre-viaje';
+import {
+  corteVecino, esFecha, PROVEEDOR_DE_LA_SOLICITUD, ROL_LABEL, SIN_CENTRO_LABEL, solicitudesDelReporte,
+} from '@megadulces/contracts/http/cierre-viaje';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -17,6 +21,29 @@ import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { LogisticaService } from '../logistica.service';
 import { descargarCsvSolicitudes, descargarPdfSolicitudes } from '../pagos-viaje-documentos';
 import { DesgloseOperacionComponent } from '../components/desglose-operacion.component';
+
+type OrdenPersonas = 'total' | 'nombre' | 'operaciones' | 'comision' | 'viatico' | 'carga';
+const ORDENES_PERSONAS: ReadonlyArray<{ value: OrdenPersonas; label: string }> = [
+  { value: 'total', label: 'Orden: mayor total' },
+  { value: 'nombre', label: 'Orden: por nombre' },
+  { value: 'operaciones', label: 'Orden: más operaciones' },
+  { value: 'comision', label: 'Orden: mayor comisión' },
+  { value: 'viatico', label: 'Orden: mayor viático' },
+  { value: 'carga', label: 'Orden: mayor carga' },
+];
+
+/** `[EMB.52]` El orden elegido; a igualdad, por nombre. */
+export function ordenarPersonas(xs: SolicitudDePersona[], orden: OrdenPersonas): SolicitudDePersona[] {
+  const cmp: Record<OrdenPersonas, (a: SolicitudDePersona, b: SolicitudDePersona) => number> = {
+    total: (a, b) => b.total - a.total,
+    nombre: () => 0,
+    operaciones: (a, b) => b.operaciones - a.operaciones,
+    comision: (a, b) => b.por_concepto.comision - a.por_concepto.comision,
+    viatico: (a, b) => b.por_concepto.viatico - a.por_concepto.viatico,
+    carga: (a, b) => b.por_concepto.carga - a.por_concepto.carga,
+  };
+  return [...xs].sort((a, b) => cmp[orden](a, b) || a.persona.localeCompare(b.persona, 'es'));
+}
 
 /**
  * `[EMB.47]` — **Por persona: la solicitud de gasto de cada quien en la catorcena.**
@@ -36,8 +63,8 @@ import { DesgloseOperacionComponent } from '../components/desglose-operacion.com
   selector: 'app-logistica-pagos-personas',
   standalone: true,
   imports: [
-    CurrencyPipe, RouterLink, TableModule, ButtonModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent,
-    SidePeekComponent, SucursalPipe, DesgloseOperacionComponent,
+    CurrencyPipe, FormsModule, RouterLink, TableModule, ButtonModule, SelectModule, LoadStateComponent, MetricStripComponent,
+    FreshnessPillComponent, SidePeekComponent, SucursalPipe, DesgloseOperacionComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -88,6 +115,12 @@ import { DesgloseOperacionComponent } from '../components/desglose-operacion.com
                       emptyHint="Las solicitudes salen de las operaciones con chofer, ayudantes o cargadores capturados."
                       (retry)="cargar()">
         <section class="pp-barra" aria-label="Filtros">
+          <!-- [EMB.52] Filtro por papel y orden (también ordena la vista de tarjetas). -->
+          <p-select [options]="papeles" optionLabel="label" optionValue="value" [ngModel]="papel()"
+                    (ngModelChange)="papel.set($event)" [showClear]="true" placeholder="Cualquier papel"
+                    ariaLabel="Papel" appendTo="body" class="pp-sel" />
+          <p-select [options]="ordenes" optionLabel="label" optionValue="value" [ngModel]="orden()"
+                    (ngModelChange)="orden.set($event ?? 'total')" ariaLabel="Ordenar por" appendTo="body" class="pp-sel" />
           <label class="pp-buscar">
             <span class="sr-only">Buscar persona</span>
             <input type="search" [value]="busqueda()" (input)="busqueda.set($any($event.target).value)"
@@ -170,19 +203,29 @@ import { DesgloseOperacionComponent } from '../components/desglose-operacion.com
                 </div>
               </div>
 
-              <h3>Para capturar en Kepler</h3>
-              <p class="pp-sub">Haz clic en un renglón para ver de qué operaciones sale.</p>
+              <h3>Solicitud de gasto para capturar en Kepler (X-A-15)</h3>
+              <!-- [EMB.53] Los datos de la cabecera, tal como los lleva la solicitud real de Logística. -->
+              <dl class="pp-x15">
+                <div><dt>Proveedor</dt><dd><span class="pp-codigo">{{ proveedor.codigo }}</span> · {{ proveedor.nombre }}</dd></div>
+                <div><dt>Beneficiario</dt><dd>{{ s.persona }}</dd></div>
+                <div><dt>Área · moneda</dt><dd>{{ proveedor.area }} · {{ proveedor.moneda }}</dd></div>
+              </dl>
+              <p class="pp-sub">Un renglón por concepto y centro de costo. Haz clic en uno para ver de qué operaciones sale.</p>
               <div class="dt-scope">
                 <p-table [value]="renglonesDeSel()" dataKey="clave" selectionMode="single" [selection]="renglonSel()"
                          (onRowSelect)="alFiltrar($event.data)" (onRowUnselect)="filtro.set(null)"
                          size="small" class="surf-table surf-table--plain dt-stack">
                   <ng-template #header>
-                    <tr><th scope="col">Concepto</th><th scope="col">Destino</th><th scope="col" class="comm-num">Operaciones</th><th scope="col" class="comm-num">Importe</th></tr>
+                    <tr><th scope="col">Concepto</th><th scope="col">Cuenta</th><th scope="col">Centro de costo</th><th scope="col" class="comm-num">Operaciones</th><th scope="col" class="comm-num">Importe</th></tr>
                   </ng-template>
                   <ng-template #body let-r>
                     <tr [pSelectableRow]="r" [attr.aria-label]="'Ver las operaciones de ' + r.codigo + ' a ' + r.destino">
                       <td data-label="Concepto"><span class="pp-codigo">{{ r.codigo }}</span><span class="pp-sub">{{ r.nombre_concepto }}</span></td>
-                      <td data-label="Destino">{{ r.destino }}</td>
+                      <td data-label="Cuenta"><span class="pp-codigo">{{ r.cuenta || '—' }}</span></td>
+                      <td data-label="Centro de costo">
+                        @if (r.centro; as c) { <span class="pp-codigo">{{ c.codigo }}</span><span class="pp-sub">{{ c.nombre }}</span> }
+                        @else { <span class="pp-aviso-texto">{{ sinCentro(r.sin_centro) }}</span><span class="pp-sub">{{ r.destino }}</span> }
+                      </td>
                       <td data-label="Operaciones" class="comm-num">{{ r.operaciones }}</td>
                       <td data-label="Importe" class="comm-num">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                     </tr>
@@ -230,6 +273,11 @@ import { DesgloseOperacionComponent } from '../components/desglose-operacion.com
     .pp-titular { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); color: var(--fg-1); }
     .pp-aviso { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); font-size: var(--fs-sm); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .pp-barra { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+    .pp-sel { min-width: 12rem; }
+    .pp-x15 { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: var(--sp-1) var(--sp-3); margin: 0; }
+    .pp-x15 dt { font-size: var(--fs-xs); color: var(--text-muted); }
+    .pp-x15 dd { margin: 0; font-size: var(--fs-sm); }
+    .pp-aviso-texto { display: block; font-size: var(--fs-xs); color: var(--warn-soft-fg); }
     .pp-buscar input { min-width: 16rem; padding: var(--sp-2); border: 1px solid var(--border-color); border-radius: var(--r-md); background: transparent; color: inherit; font: inherit; }
     .pp-buscar input:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
     .pp-cuenta { margin-left: auto; font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
@@ -277,9 +325,20 @@ export class LogisticaPagosPersonasComponent {
 
   /** Una sola regla con «Operaciones»: las solicitudes salen de los renglones de las operaciones. */
   readonly solicitudes = computed<SolicitudDePersona[]>(() => solicitudesDelReporte(this.data()?.operaciones ?? []));
+  /** `[EMB.53]` El proveedor y el área con que Logística pide en Kepler (medido en sus X-A-15). */
+  readonly proveedor = PROVEEDOR_DE_LA_SOLICITUD;
+
+  // `[EMB.52]` Filtro por papel y orden.
+  readonly papel = signal<RolDelReparto | null>(null);
+  readonly orden = signal<OrdenPersonas>('total');
+  readonly papeles = (['chofer', 'ayudante', 'cargador'] as const).map((value) => ({ value, label: ROL_LABEL[value] }));
+  readonly ordenes = ORDENES_PERSONAS;
+
   readonly filtradas = computed(() => {
     const q = this.busqueda();
-    return this.solicitudes().filter((s) => coincideBusqueda(q, s.persona));
+    const papel = this.papel();
+    const lista = this.solicitudes().filter((s) => coincideBusqueda(q, s.persona) && (!papel || s.roles.includes(papel)));
+    return ordenarPersonas(lista, this.orden());
   });
   readonly sel = computed(() => this.solicitudes().find((s) => s.persona_id === this.selId()) ?? null);
   readonly seleccion = computed(() => this.sel());
@@ -409,6 +468,9 @@ export class LogisticaPagosPersonasComponent {
     if (d && ss.length) descargarCsvSolicitudes(ss, d.corte);
   }
 
+  sinCentro(m: SinCentro | null): string {
+    return m ? SIN_CENTRO_LABEL[m] : '—';
+  }
   roles(rs: RolDelReparto[]): string {
     return rs.map((r) => ROL_LABEL[r]).join(' · ');
   }
