@@ -80,6 +80,21 @@
 # acá la replicación es LÓGICA.
 #
 # Por eso esto NO toca las réplicas: ni trigger, ni slot de CDC, ni aviso fuera de banda.
+#
+# ── ⛔ `[OBS.15]` CORRECCIÓN, MEDIDA EL 2026-10-26: el sondeo era barato, pero CIEGO ─────────
+#
+# El párrafo de arriba midió bien el COSTO y mal la PREMISA: suponía que `ctid > watermark` ve
+# todas las filas nuevas. En el suscriptor el heap reusa espacio y las filas caen DEBAJO:
+#
+#     réplica 01, md.kdm2 .... watermark en la página 46,868 · las filas de hoy en 25,688–27,318
+#     en 2 h de este carril .. kdm1 de 06 y 07: 0 filas por ctid, 235 por la red de 5 min
+#     en 90 min del caliente . kdm2 de 00/01/06/08: 0 por ctid, todo por la red de 5 min
+#
+# O sea que en esas ramas la cabecera o sus renglones llegaban de 0 a 5.6 min tarde, y en
+# `/comercial/documentos` se leía «Detalle no replicado». Ahora SÍ hay un trigger en las réplicas
+# — la alternativa «trigger fail-safe» que Edgar había traído en `[CG.79]` —, que anota la llave
+# en `ods.cola`; este carril la vacía cada 250 ms. Todo el porqué en
+# `database/importers/lib/ods-cola.js`; se instala con `database/scripts/ods-cola-instalar.js`.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -114,7 +129,8 @@ spec:
           # ⚠️ Los argumentos van en un arreglo YAML y no en una cadena de shell: `--apply` se
           # compara EXACTO, y un retorno de carro pegado lo dejaría corriendo en seco imprimiendo
           # `ok` — lo que pasó en `[VL.4]` cuando el crontab viajó con CRLF.
-          command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=1", "--tables=kdm1"]
+          # `[OBS.15]` `--watch=0.25` es el PERIODO (con `ODS_TIEMPO_REAL`): un ciclo cada 250 ms.
+          command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=0.25", "--tables=kdm1"]
           envFrom:
             - secretRef:
                 name: ingest-env
@@ -138,10 +154,24 @@ spec:
             # que uno trabajando.
             - name: ODS_HB_KEY
               value: ods_live_caja
-            # El carril late cada pasada (3 s). 5 min de antigüedad ya es un proceso que dejó de
-            # dar vueltas — no el rezago de un ciclo largo, como en el caliente (20 min).
+            # El carril late cada 10 s (`ODS_HB_CADA_SEC`). 5 min de antigüedad ya es un proceso que
+            # dejó de dar vueltas — no el rezago de un ciclo largo, como en el caliente (20 min).
             - name: ODS_HB_MAX_MIN
               value: "5"
+            # `[OBS.15]` TIEMPO REAL: conexiones abiertas entre ciclos, latido cada 10 s con lo
+            # acumulado (no dos escrituras a prod por ciclo) y piso del sondeo en 0.2 s.
+            - name: ODS_TIEMPO_REAL
+              value: "1"
+            - name: ODS_HB_CADA_SEC
+              value: "10"
+            # `[OBS.15]` La COLA DE CAMBIOS: cabecera Y renglones salen de `ods.cola` en la misma
+            # pasada. Va aparte de `KP_ODS_TABLES` a propósito: la cola no toca `ods.ctl`, así que
+            # `kdm2` sigue siendo del carril caliente (ahí vive el recálculo de precio de venta).
+            # Donde la cola no está instalada no pasa nada distinto: el latido lo DECLARA
+            # («sin cola: …») y las redes de seguridad siguen como hoy.
+            # ⛔ UN solo manifiesto puede declarar esta variable (lo candadea test-ods-cola.js).
+            - name: ODS_COLA_TABLES
+              value: kdm1,kdm2
           # ⛔ La sonda mide ENTREGA contra `analytics.cron_runs`, no "el proceso existe". El
           # cuelgue del 04-09-2026 fue exactamente eso: proceso vivo, CPU 0 %, latido envejeciendo.
           livenessProbe:
