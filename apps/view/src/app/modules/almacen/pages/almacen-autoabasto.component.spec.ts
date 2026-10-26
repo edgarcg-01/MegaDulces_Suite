@@ -82,10 +82,10 @@ describe('[AB.39] una sola pantalla: un almacén a la vez (D2)', () => {
     expect(texto(montar(RESP([], { pedidos_medidos: false })).f)).toContain('no se pudo medir');
   });
 
-  it('⛔ la matriz que surte se NOMBRA, nunca se numera', () => {
-    const t = texto(montar(RESP()).f);
-    expect(t).toContain('CEDIS');
-    expect(t).not.toMatch(/Traspaso de 00\b/);
+  it('⛔ la matriz que surte se NOMBRA, nunca se numera (ni «00 · CEDIS»)', () => {
+    const { f } = montar(RESP());
+    const titulo = ((f.nativeElement as HTMLElement).querySelector('.ab-gtitle strong')?.textContent || '').trim();
+    expect(titulo).toBe('CEDIS');
   });
 });
 
@@ -208,6 +208,21 @@ describe('[AB.29] Enviar a Compras', () => {
     const t = texto(f);
     expect(t).toContain('Se mandó a Compras: RQ-2026-00001 (traspaso de CEDIS, 1 producto).');
     expect(t).toContain('Le llegó a Yajaira Arizbeth Gonzalez');
+  });
+
+  it('⭐ el pedido cuenta lo MISMO que se manda: lo que Compras planeó, lo que ya viene y lo sin ruta no entran', () => {
+    const { c } = montar(conCasos());
+    expect(c.enPedido().map((l) => l.product_id)).toEqual(c.porEnviar().ids);
+    expect(c.enPedido().map((l) => l.product_id)).toEqual(['p-falta']);
+    const plan = c.data()!.grupos[0].lineas.find((l) => l.product_id === 'p-planeado')!;
+    expect(c.incluida(plan)).toBe(false);
+    expect(c.editable(plan)).toBe(false);
+    expect(c.fueraDelPedido(plan)).toBe('Compras ya lo planeó');
+    // El importe de «Se pide a la matriz» es el de lo que sale, no el de lo planeado.
+    expect(c.kpis().find((k) => k.label === 'Se pide a la matriz')).toMatchObject({ value: 80, sub: '1 renglón' }); // 5 cj × 16 × $1, en vivo
+    // Y en «Todos» se ve, con su porqué.
+    c.setVista('todos');
+    expect(c.lineasVisibles(c.data()!.grupos[0]).map((l) => l.product_id)).toContain('p-planeado');
   });
 
   it('⭐ los filtros de la vista cambian lo que se VE, nunca lo que se manda', () => {

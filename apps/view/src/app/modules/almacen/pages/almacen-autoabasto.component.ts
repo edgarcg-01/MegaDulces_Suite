@@ -15,7 +15,7 @@ import {
   necesitaMotivo, pasoAjuste, MOTIVOS_AJUSTE, MOTIVO_AJUSTE_LABEL, UMBRAL_MOTIVO,
   posicionPedido, POSICIONES_PEDIDO, POSICIONES_PEDIDO_DEFAULT, POSICION_PEDIDO_LABEL,
   CLASES_UNIDAD, CLASE_UNIDAD_LABEL, MINIMO_VALOR_MENOR, warehouseCodeAndName,
-  ESTADO_RENGLON_LABEL, resumirRenglones, esEnviable, yaSeMandoACompras,
+  ESTADO_RENGLON_LABEL, resumirRenglones, esEnviable, motivoNoEnviable, yaSeMandoACompras,
   type ClaseUnidad, type PosicionPedido, type EstadoRenglon, type SurteRenglon, type ResumenMesa,
   type MotivoAjuste, type AutoabastoPedidoGrupo, type AutoabastoPedidoLinea, type AutoabastoPedidoResponse,
   type AutoabastoVieneDoc, type AutoabastoEnviarResponse,
@@ -345,7 +345,7 @@ interface Edicion {
             <header class="ab-ghead">
               <div class="ab-gtitle">
                 <span class="ab-gtipo">{{ tipoTexto(g) }}</span>
-                <strong class="ab-why" [pTooltip]="surtePorQueGrupo(g)" tooltipPosition="top">{{ g.tipo === 'matriz' ? (g.nombre | sucursal:'con-codigo') : g.nombre }}</strong>
+                <strong class="ab-why" [pTooltip]="surtePorQueGrupo(g)" tooltipPosition="top">{{ g.tipo === 'matriz' ? (g.nombre | sucursal) : g.nombre }}</strong>
                 @if (aceptados().has(llaveGrupo(g))) {
                   <span class="ab-chip ab-chip-ok"><i class="pi pi-check" aria-hidden="true"></i> Revisado</span>
                 }
@@ -608,6 +608,8 @@ interface Edicion {
     .ab-clase-tit { font-weight: 650; color: var(--text-main); }
     .ab-clase-tot { margin-left: auto; color: var(--text-main); font-variant-numeric: tabular-nums; }
 
+    /* Encabezados en la letra del texto y en UNA línea: la mono (tabular) se queda en las cifras. */
+    th { font-family: var(--font-body); white-space: nowrap; }
     .ab-c-sku { min-width: 15rem; }
     .ab-c-pedir { min-width: 11rem; }
     .ab-sku { display: block; font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-xs); color: var(--text-muted); }
@@ -799,7 +801,7 @@ export class AlmacenAutoabastoComponent {
   readonly conteoPosicion = computed<Record<PosicionPedido, number>>(() => {
     const n: Record<PosicionPedido, number> = { agotado: 0, bajo_minimo: 0, bajo_reorden: 0, otros: 0 };
     this.edicion();
-    for (const l of this.todas()) if (this.cantidad(l) > 0 && !yaSeMandoACompras(l)) n[posicionPedido(l.posicion)]++;
+    for (const l of this.todas()) if (this.cantidad(l) > 0 && !this.porQueNoVa(l)) n[posicionPedido(l.posicion)]++;
     return n;
   });
 
@@ -925,9 +927,20 @@ export class AlmacenAutoabastoComponent {
     return this.cantidad(l) * l.a_pedir.factor * l.costo_base;
   }
 
-  /** `[AB.19]` + `[AB.29]` El renglón entra al pedido si su posición está marcada y no se mandó ya a Compras. */
+  /**
+   * `[AB.39]` Por qué el renglón NO puede ir en el pedido por lo que ES —ya lo pediste, Compras lo planeó,
+   * ya viene, no le falta, no tiene a quién pedírselo—, sin mirar la cantidad. Es la MISMA regla que aplica
+   * «Enviar a Compras» (`motivoNoEnviable`): el total, el PDF y el envío cuentan lo mismo. Antes el total
+   * sumaba lo que Compras ya planeó y el envío lo dejaba fuera (captura del PM, 2026-10-26: el agua de
+   * Padre Hidalgo, 553 cajas planeadas por Compras y 548 en «tu pedido»).
+   */
+  private porQueNoVa(l: AutoabastoPedidoLinea): string | null {
+    return motivoNoEnviable({ estado: l.estado, surte: l.surte, ajuste: null, a_pedir: { ...l.a_pedir, cantidad: 1 } });
+  }
+
+  /** `[AB.19]` + `[AB.39]` El renglón entra al pedido si su posición está marcada y se puede pedir. */
   incluida(l: AutoabastoPedidoLinea): boolean {
-    return this.posiciones().has(posicionPedido(l.posicion)) && !yaSeMandoACompras(l);
+    return this.posiciones().has(posicionPedido(l.posicion)) && !this.porQueNoVa(l);
   }
 
   /** Se puede mover con − / + sólo lo que entra al pedido, con permiso y con escalera de unidades. */
@@ -937,7 +950,8 @@ export class AlmacenAutoabastoComponent {
 
   /** Por qué un renglón visible NO entra al pedido (sólo se ve fuera de «En tu pedido»). */
   fueraDelPedido(l: AutoabastoPedidoLinea): string | null {
-    if (yaSeMandoACompras(l)) return 'Ya lo pediste a Compras';
+    const no = this.porQueNoVa(l);
+    if (no) return no;
     if (!this.posiciones().has(posicionPedido(l.posicion))) return 'No entra: su posición no está marcada';
     return null;
   }

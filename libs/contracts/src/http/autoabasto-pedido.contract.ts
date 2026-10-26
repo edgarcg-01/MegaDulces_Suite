@@ -230,7 +230,13 @@ export function aplicarMinimoMenor(
 export const POSICIONES_PEDIDO = ['agotado', 'bajo_minimo', 'bajo_reorden', 'otros'] as const;
 export type PosicionPedido = typeof POSICIONES_PEDIDO[number];
 
-export const POSICIONES_PEDIDO_DEFAULT: readonly PosicionPedido[] = ['agotado', 'bajo_minimo', 'bajo_reorden'];
+/**
+ * `[AB.39]` Lo que entra por default: agotado y bajo mínimo (PM, 2026-10-26). Hasta hoy entraba también
+ * «bajo reorden», y las 4 sucursales que guardaron sus posiciones lo habían quitado. Medido ese día en las
+ * otras 4: sale el 18–30 % del valor del pedido (Padre Hidalgo 193 renglones / $1.04 M, Morelia Abastos
+ * 250 / $1.34 M). Quien lo quiera, lo marca y se guarda en su borrador.
+ */
+export const POSICIONES_PEDIDO_DEFAULT: readonly PosicionPedido[] = ['agotado', 'bajo_minimo'];
 
 export const POSICION_PEDIDO_LABEL: Record<PosicionPedido, string> = {
   agotado: 'Agotado',
