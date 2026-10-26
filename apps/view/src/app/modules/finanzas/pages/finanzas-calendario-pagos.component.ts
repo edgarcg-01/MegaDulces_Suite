@@ -18,6 +18,7 @@ import type {
   PaymentObligationSource, PaymentOriginAccount,
 } from '@megadulces/contracts';
 import { warehouseName } from '@megadulces/contracts';
+import type { SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
@@ -1339,7 +1340,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.creditoDetalle.set([]);
     this.creditoError.set(null);
     this.creditoCargando.set(true);
-    this.http.get<Array<{ sucursal: string; clase: string; folio: string; referencia: string | null; fecha: string | null; importe: number; aplicado: number; a_favor: number; pendiente: boolean }>>(
+    this.http.get<SupplierCreditRow[]>(
       `${this.base}/creditos-a-favor/${encodeURIComponent(c)}`,
     ).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (rows) => { this.creditoDetalle.set(rows ?? []); this.creditoCargando.set(false); },
@@ -1349,7 +1350,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   }
 
   private loadCreditos(): void {
-    this.http.get<Array<{ proveedor: string; a_favor: number; docs: number; clases: string; con_deuda_viva: boolean }>>(`${this.base}/creditos-a-favor`)
+    this.http.get<SupplierUnappliedCreditRow[]>(`${this.base}/creditos-a-favor`)
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (rows) => this.creditos.set(new Map((rows ?? []).filter((r) => r.con_deuda_viva)
           .map((r) => [r.proveedor, { a_favor: Number(r.a_favor), docs: r.docs, clases: r.clases }]))),
