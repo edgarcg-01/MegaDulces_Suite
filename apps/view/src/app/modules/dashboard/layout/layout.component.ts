@@ -51,6 +51,7 @@ import { PROMOS_TABS } from '../../comercial/promos-tabs';
 import { TELEMARKETING_TABS } from '../../comercial/telemarketing-tabs';
 import { CATALOGO_TABS } from '../../compras/catalogo-tabs';
 import { ENTRADAS_CONTROL_TABS } from '../../compras/entradas-control-tabs';
+import { PARAMETROS_COMPRA_TABS, PARAMETROS_COMPRA_LABEL } from '../../compras/parametros-compra-tabs';
 import { ANALISIS_TABS } from '../../tienda/analisis/analisis-tabs';
 import { ARQUEO_TABS } from '../../tienda/arqueo-tabs';
 import { ETIQUETAS_TABS } from '../../tienda/etiquetas-tabs';
@@ -905,9 +906,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // `[NAV.4]` (2026-10-26) Los grupos siguen el FLUJO de la compra hasta el pago
   // (docs/FLUJO_COMPRA_A_PAGO.md): Planeación → Compra → Recepción → Pago a proveedor, y al
   // final lo que se consulta o se mantiene (Catálogo, Costos). Sólo cambian grupo y orden: las
-  // 21 pantallas siguen siendo renglones propios, con su ruta, icono, permiso y nombre.
-  // ⛔ No se pliegan en `tabs:` — eso fue `[NAV.2]` y dejó 19 pantallas sin camino (ver
-  // `check-sidebar-tabs.js`). Lo que se movió, y por qué:
+  // 21 pantallas conservan su ruta, icono, permiso y nombre.
+  // ⛔ Plegar en `tabs:` exige que la PÁGINA pinte la barra primero: `[NAV.2]` lo hizo al revés y
+  // dejó 19 pantallas sin camino (ver `check-sidebar-tabs.js`). `[NAV.5]` sí pliega tres
+  // (Parámetros de compra), con la barra ya pintada en las tres. Lo que se movió, y por qué:
   //   · Hallazgos y Faltantes de piso → Planeación: son SEÑALES de demanda que se planean
   //     (agotado/bajo reorden; lo que el mostrador pidió y no había), no análisis.
   //   · Reclamos → Recepción: es el faltante que el andén detectó AL RECIBIR.
@@ -939,7 +941,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // las tres bandejas las trabaja el mismo comprador.
         { label: 'Faltantes de piso',   icon: 'pi pi-megaphone',  route: '/compras/faltantes',   permission: Permission.COMPRAS_HALLAZGOS_VER },
         { label: 'Asistente (Thot)', icon: 'pi pi-comments',  route: '/compras/asistente', permission: Permission.COMPRAS_PEDIDO_GESTIONAR },
-        { label: 'Red de abasto',    icon: 'pi pi-sitemap',   route: '/compras/red',       permission: Permission.COMPRAS_RED_VER },
+        // `[NAV.5]` Red de abasto vive ahora en «Parámetros de compra» (grupo Catálogo).
       ],
     },
     {
@@ -1013,8 +1015,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // [CAT.1] Vino de Ventas. Adentro trae su pestaña de códigos repetidos.
         // [NAV.1] El catálogo entero en UNA entrada. Eran DIEZ renglones hermanos: `/compras/catalogo` y sus nueve hijas. ⚠️ Ahora aterriza en «Resumen», que es la primera pestaña, no en «Productos» como antes.
         { label: 'Catálogo', icon: 'pi pi-shopping-bag', route: '/compras/catalogo', tabs: CATALOGO_TABS },
-        { label: 'Proveedores', icon: 'pi pi-truck', route: '/compras/proveedores', permission: Permission.COMPRAS_PROVEEDORES_VER },
-        { label: 'Categorías',  icon: 'pi pi-tags',  route: '/compras/categorias',  permission: Permission.COMPRAS_CATEGORIAS_VER },
+        // `[NAV.5]` Proveedores, Categorías y Red de abasto en UNA entrada con su barra: las tres
+        // configuran el motor del pedido y sumaron cero visitas en 30 días. Cada pestaña conserva su
+        // permiso; la barra la pintan las tres páginas (ver `parametros-compra-tabs.ts`).
+        { label: PARAMETROS_COMPRA_LABEL, icon: 'pi pi-sliders-h', route: '/compras/proveedores', tabs: PARAMETROS_COMPRA_TABS },
       ],
     },
     {
