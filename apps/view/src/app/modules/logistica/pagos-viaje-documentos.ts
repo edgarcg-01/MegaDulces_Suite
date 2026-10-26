@@ -100,7 +100,7 @@ export async function descargarPdfSolicitudes(solicitudes: SolicitudDePersona[],
       startY: y + 6,
       head: [['Fecha', 'Guía', 'Destino', 'Papel', 'Concepto', 'Importe']],
       body: s.detalle.map((d) => [
-        fechaCorta(d.fecha), `${warehouseName(d.sucursal)} ${d.guia}`, d.destino, ROL_LABEL[d.rol], d.codigo, money(d.importe),
+        fechaCorta(d.fecha), `${warehouseName(d.sucursal)} ${d.guia}`, d.destino, ROL_LABEL[d.rol] + (d.fuente === 'kepler' ? ' (Kepler)' : ''), d.codigo, money(d.importe),
       ]),
       styles: { ...tablaBase.styles, fontSize: 7.5 },
       columnStyles: { 0: { cellWidth: 44 }, 4: { cellWidth: 48 }, 5: { halign: 'right', cellWidth: 70 } },

@@ -204,13 +204,14 @@ describe('[EMB.47] el reporte de reparto: conceptos de Kepler y solicitudes por 
   });
 
   const r = (persona_id: string, rol: RenglonDelReparto['rol'], concepto: RenglonDelReparto['concepto'], codigo: string, importe: number): RenglonDelReparto => ({
-    persona_id, persona: `P-${persona_id}`, rol, concepto, codigo, nombre_concepto: `C-${codigo}`, importe,
+    persona_id, persona: `P-${persona_id}`, rol, concepto, codigo, nombre_concepto: `C-${codigo}`, importe, fuente: 'captura',
   });
   const op = (guia: string, fecha: string, destinos: string, renglones: RenglonDelReparto[]): OperacionDelReporte => ({
     sucursal: '00', guia, fecha, paradas: 1, destinos, tipo: 'traspaso', chofer_kepler: null, importe: 0,
     shipment_id: 's', shipment_folio: null, guide_id: 'g', driver_id: null, helper1_id: null, helper2_id: null,
     departure_time: null, arrival_time: null, overnight: false, cargadores: 0, faltan: [],
-    cajas: null, tarifa_por_caja: null, carga_total: null, cargador_ids: [], renglones, repartido: 0,
+    cajas: null, sueltos: null, comision_ruta: { chofer: null, ayudante: null, ruta: null, sin_tarifa: [] }, chofer_kepler_id: null,
+    tarifa_por_caja: null, carga_total: null, cargador_ids: [], renglones, repartido: 0,
   });
 
   it('una solicitud por persona: renglones por concepto × destino, sumados en la catorcena', () => {

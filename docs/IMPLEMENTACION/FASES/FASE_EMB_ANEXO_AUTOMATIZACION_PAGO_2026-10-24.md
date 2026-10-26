@@ -327,8 +327,38 @@ pantallas cumplen las 10 reglas y tipan; `templates`, `tokens`, `estilos`, `tecl
 - Los vales de `finance.trip_pay_lines` (EMB.29) quedan sin pantalla; el backend no se tocó.
 - Sin validación visual.
 
+### EMB.48 · «Todos los viajes salen en 0» — lo que el reporte ya sabía y callaba (🧪, 2026-10-26)
+
+Edgar, al probarlo en local con la catorcena 22-oct → 4-nov: *«todos los viajes salen en 0»*. Eran
+**dos ceros distintos**, medidos en prod (sólo lectura):
+
+| Cero | Causa | Qué se hizo |
+|---|---|---|
+| **«Repartido $0.00» en las 85** | Nadie había capturado a nadie, y la pantalla sólo pintaba lo ASIGNADO. Callaba lo que ya sabía: la carga (cajas × tarifa) y la comisión de la ruta | Cada fila dice **Carga** y **Comisión chofer** (la tarifa de la ruta, `comisionSugerida`, la misma regla de la guía). La comisión se **asigna sola al chofer de Kepler** (casado con el padrón por `kepler_code`: los 15 choferes de la catorcena casan) como renglón `fuente: 'kepler'`; al completar la guía la reemplaza la capturada, mismo monto. Ruta sin tarifa → «Ruta sin tarifa», no $0 |
+| **«Cajas 0» en muchos traspasos** | **7 de 85 guías llevan SÓLO tiempo aire** (SKU 00022, saldo de recarga: 1,025 «piezas» a $0.81 a cada sucursal). Además 9 llevan mercancía sin ninguna caja (1,090 unidades en paquete/pieza/kilo) y 27 llevan 7,559 unidades sueltas junto a sus cajas | Las de puro tiempo aire **salen del reporte y se cuentan** (`solo_tiempo_aire`). Las unidades sueltas se muestran («+N sueltas») y **no pagan por caja**: D3 dice «por caja» — convertirlas a cajas es decisión pendiente |
+
+**Lo que muestra ahora la catorcena (verificado con SQL independiente del código):** 78
+operaciones; 8,646 cajas → **$1,729.20 de carga**; **$5,882.16 de comisión de choferes** en 43
+operaciones; **35 van a rutas sin tarifa** en el catálogo (156 rutas, 98 con tarifa). ⚠️ El SQL de
+verificación aproxima el emparejamiento por nombre; el código usa `nombreNormalizado`.
+
+**Verificado:** logistics 50 ✓ (6 nuevas de EMB.48) · contracts 33 ✓ · view logística 127 ✓ · tsgo 0
+errores · `check:pantalla` 3/3. Mutaciones en rojo: sin el filtro de tiempo aire → 1 roja; comisión
+de Kepler sumada aunque la guía esté completa → 5 rojas. ⚠️ Al escribirlo se cazó un error propio:
+«guía completa» se detectaba por la comisión no nula, pero la columna es `NOT NULL DEFAULT 0` y la
+guía que nace al tomar el viaje la trae en 0 — ahora es chofer + salida + llegada
+(`pendientesDeLaGuia`).
+
+**NO MEDIDO:** el tiempo del endpoint completo (se suman ~110 ms del tiempo aire, medido aparte);
+sin validación visual de las columnas nuevas.
+
+**Decisiones abiertas que esto destapa:** (a) **35 rutas sin tarifa** esta catorcena: alguien tiene
+que ponerles comisión en Configuración (Leonardo) o no se sabe cuánto pagan; (b) ¿las unidades en
+**paquete/pieza** cuentan como caja (convertidas con su factor) o no pagan carga?
+
 ## Bitácora
 
+- **2026-10-26** — EMB.48: el reporte muestra carga y comisión de ruta sin capturar; tiempo aire fuera (7 guías). Pedido: «todos los viajes salen en 0».
 - **2026-10-24** — EMB.47: el módulo pasa a ser un reporte de reparto (Operaciones + solicitudes por persona en PDF/Excel); D1 (conceptos) firmada, D6 superada. Migraciones de EMB.39/43 aplicadas en prod.
 - **2026-10-24** — EMB.43: módulo Logística › Pagos de viaje (3 pestañas, permiso propio repartido a Leonardo y Juan).
 - **2026-10-24** — EMB.39 en código (🧪): carga a $0.20 por caja, configurable con vigencia. D3 firmada por Edgar.
