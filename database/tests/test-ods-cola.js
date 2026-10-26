@@ -68,19 +68,31 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
       ['c5', 'numeric'], ['c6', 'character varying'], ['c9', 'date'], ['c43', 'character varying'], ['c68', 'date']]
       .map(([column_name, data_type]) => ({ column_name, data_type }));
     const META = { cols: COLS, pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] };
-    const correr = async (opts) => {
+    const correr = async (code, opts) => {
       const consultas = [];
       const p = { async query(sql) { consultas.push(String(sql)); return /SELECT last_ctid FROM ods\.ctl/.test(sql) ? { rows: [{ last_ctid: '(0,0)' }] } : { rows: [], rowCount: 0 }; } };
-      await syncCtid(p, '06', 'kdm1', META, { apply: true, full: false, ...opts });
+      await syncCtid(p, code, 'kdm1', META, { apply: true, full: false, ...opts });
       return consultas;
     };
-    const conCola = await correr({ colaActiva: true });
-    const sinCola = await correr({ colaActiva: false });
     const red = (qs) => qs.some((s) => /current_date - 3/.test(s));
     const estado = (qs) => qs.some((s) => /"c1" = \$1 AND/.test(s));
+    // ⛔ La puesta al día: medido en el piloto de la 06, dos facturas capturadas segundos ANTES del
+    // trigger quedaron fuera de la cola Y fuera de la red (que ya se saltaba). La primera pasada con
+    // la cola activa tiene que correr las dos redes completas.
+    const primera = await correr('06', { colaActiva: true });
+    A(red(primera) && estado(primera), '⛔ PRIMERA pasada con cola: corre las dos redes una vez (cubre lo de antes del trigger)');
+    const conCola = await correr('06', { colaActiva: true });
     A(conCola.some((s) => /ctid > \$1::tid/.test(s)), 'con cola, el ctid SIGUE corriendo (es barato y mantiene `ods.ctl` al día)');
-    A(!red(conCola) && !estado(conCola), 'con cola, NI la red de 3 días NI la de estado (eran el ciclo de ~1.5 s cada 5 min)');
+    A(!red(conCola) && !estado(conCola), 'ya puesta al día: NI la red de 3 días NI la de estado (eran el ciclo de ~1.5 s cada 5 min)');
+    const sinCola = await correr('07', { colaActiva: false });
     A(red(sinCola) && estado(sinCola), 'CONTROL: sin cola, las dos redes corren como siempre');
+    // El caso real de una instalación: la rama corrió su red hace un momento (SIN cola) y en ese
+    // instante se activa la cola. La puesta al día no puede esperar su turno de 5 min, ni darse por
+    // hecha porque la red ya había corrido sin cola.
+    await correr('08', { colaActiva: false });
+    const recienActivada = await correr('08', { colaActiva: true });
+    A(red(recienActivada) && estado(recienActivada),
+      '⛔ recién activada la cola, la puesta al día corre YA aunque la red haya corrido hace segundos sin cola');
     const full = []; const pf = { async query(sql) { full.push(String(sql)); return /last_ctid/.test(sql) ? { rows: [{ last_ctid: '(0,0)' }] } : { rows: [], rowCount: 0 }; } };
     await syncCtid(pf, '06', 'kdm1', META, { apply: true, full: true, colaActiva: true });
     A(red(full), '`--full` corre la red aunque haya cola (una reparación no se salta nada)');
@@ -213,7 +225,7 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
           for (const l of quitarSql(TABLAS, op)) for (const s of l) await c.query(s);
           A((await estadoCola(c, ['kdm1', 'kdm2'], op)).tablas.kdm1 === 'ausente', 'retirada: estado `ausente`');
         } finally {
-          await c.query('ROLLBACK').catch(() => {});
+          await c.query('ROLLBACK').catch(() => { /* la transacción ya terminó: nada que deshacer */ });
         }
       }
       await c.end();
@@ -246,7 +258,7 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
     const ciclo = async () => {
       reloj += 50; // el ciclo tarda 50 ms
       if (modo === 'tira') throw new Error('réplica caída');
-      const s = [{ suc: '06', tabla: 'cola', carril: 'cola', escritas: 2, espera_max_ms: 120 }];
+      const s = [{ suc: '06', tabla: 'cola', carril: 'cola', leidas: 2, escritas: 2, espera_max_ms: 120 }];
       s.fallas = modo === 'falla' ? ['07: no conecta'] : [];
       s.marcas = [{ suc: '06', tablas: 1, filas: 2, error: null }];
       s.cola = { activas: 9, ramas: 9, faltan: [] };
@@ -254,7 +266,7 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
     };
     const tick = crearCicloTiempoReal({ ciclo, latir: async (f, d) => latidos.push({ f, d }), marcarRamas: async (m) => marcas.push(m), cadaMs: 10000, ahora });
     // Un ciclo cada 250 ms: 50 de trabajo + 200 de espera.
-    const correr = async (n) => { for (let i = 0; i < n; i++) { await tick({ full: false }).catch(() => {}); reloj += 200; } };
+    const correr = async (n) => { for (let i = 0; i < n; i++) { await tick({ full: false }).catch(() => { /* el error se mide en su propia aserción */ }); reloj += 200; } };
 
     await correr(1);
     A(latidos.length === 1 && latidos[0].f === 'begin', 'el primer ciclo abre la corrida (`begin` fija el host que mira la sonda)');
@@ -281,10 +293,26 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
     A(tiro, 'si el ciclo tira, el error sube al bucle (que lo registra y sigue)');
     A(latidos.filter((l) => l.f === 'begin').length === 1, '`begin` sale UNA sola vez en toda la vida del proceso');
 
-    const mudo = crearCicloTiempoReal({ ciclo, latir: async () => { throw new Error('no debía latir'); }, marcarRamas: async () => {}, cadaMs: 10000, ahora, late: false });
+    const mudo = crearCicloTiempoReal({ ciclo, latir: async () => { throw new Error('no debía latir'); }, marcarRamas: async () => { /* sin latido tampoco hay marca */ }, cadaMs: 10000, ahora, late: false });
     let callado = true;
     try { for (let i = 0; i < 60; i++) { await mudo({ full: false }); reloj += 200; } } catch { callado = false; }
     A(callado, 'sin destino de latido (`late=false`) no intenta latir');
+
+    // ⛔ Lo no medido se DECLARA. La primera versión escribía «peor réplica→ODS 0 ms» con la cola
+    // apagada en las 9 ramas (medido en prod a minutos de desplegar).
+    const notaDe = async (cola, filasCola) => {
+      const notas = [];
+      const t = crearCicloTiempoReal({
+        ciclo: async () => { reloj += 50; const s = [...filasCola]; s.fallas = []; s.marcas = []; s.cola = cola; return s; },
+        latir: async (f, d) => { if (f === 'end') notas.push(d.note); }, marcarRamas: async () => { /* sin marcas en este caso */ }, cadaMs: 1000, ahora,
+      });
+      for (let i = 0; i < 6; i++) { await t({ full: false }); reloj += 200; }
+      return notas[0] || '';
+    };
+    const apagada = await notaDe({ activas: 0, ramas: 9, faltan: ['06(kdm1:ausente,kdm2:ausente)'] }, []);
+    A(/peor réplica→ODS sin medir/.test(apagada) && !/réplica→ODS 0 ms/.test(apagada), '⛔ sin cola activa la espera dice «sin medir», no «0 ms»');
+    const quieta = await notaDe({ activas: 1, ramas: 9, faltan: [] }, [{ carril: 'cola', leidas: 0, escritas: 0, espera_max_ms: 0 }]);
+    A(/sin movimientos en la ventana/.test(quieta) && !/réplica→ODS 0 ms/.test(quieta), '⛔ con cola pero sin entradas, dice «sin movimientos», no «0 ms»');
   }
 
   console.log(`\n${fail ? '✖' : '✔'} ${ok} ok · ${fail} fallas · ${noMedido} NO MEDIDO`);

@@ -74,7 +74,7 @@ async function pkDe(p, tabla) {
         for (const l of lotes) {
           await p.query('BEGIN');
           try { for (const s of l) await p.query(s); await p.query('COMMIT'); }
-          catch (e) { await p.query('ROLLBACK').catch(() => {}); throw e; }
+          catch (e) { await p.query('ROLLBACK').catch(() => { /* la conexión ya cayó: no hay qué deshacer */ }); throw e; }
         }
       }
       const despues = APPLY ? await estadoCola(p, TABLAS) : antes;
@@ -87,7 +87,7 @@ async function pkDe(p, tabla) {
       });
     } catch (e) {
       resumen.push({ rama: b.code, error: e.message.slice(0, 90) });
-    } finally { await p.end().catch(() => {}); }
+    } finally { await p.end().catch(() => { /* cerrar mal no cambia el resultado de la rama */ }); }
   }
   console.table(resumen);
   const errores = resumen.filter((r) => r.error).length;
