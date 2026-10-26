@@ -14,7 +14,7 @@ import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import type {
-  PaymentCalendarAllocation, PaymentCalendarWeek, PaymentCalendarWeekDay,
+  PaymentCalendarAllocation, PaymentCalendarDaySummary, PaymentCalendarWeek, PaymentCalendarWeekDay,
   PaymentObligationSource, PaymentOriginAccount,
 } from '@megadulces/contracts';
 import { warehouseName } from '@megadulces/contracts';
@@ -364,10 +364,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   <div class="pg-applyall">
                     <span class="pg-aa-lb">Para los {{ pendingCount() }} pagos</span>
                     <span class="pg-aa-f"><label for="pg-bulk-method">Método</label>
-                      <p-select inputId="pg-bulk-method" [options]="methodOpts" [(ngModel)]="bulkMethod" optionLabel="label" optionValue="value" placeholder="Elegir…" styleClass="cal-sel p-inputtext-sm" /></span>
+                      <p-select appendTo="body" inputId="pg-bulk-method" [options]="methodOpts" [(ngModel)]="bulkMethod" optionLabel="label" optionValue="value" placeholder="Elegir…" size="small" class="cal-sel" /></span>
                     @if (bulkMethod !== 'efectivo') {
                       <span class="pg-aa-f"><label for="pg-bulk-origin">Sale de</label>
-                        <p-select inputId="pg-bulk-origin" [options]="originOpts()" [(ngModel)]="bulkOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta…" [filter]="true" filterBy="label" styleClass="cal-sel p-inputtext-sm" /></span>
+                        <p-select appendTo="body" inputId="pg-bulk-origin" [options]="originOpts()" [(ngModel)]="bulkOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta…" [filter]="true" filterBy="label" size="small" class="cal-sel" /></span>
                     }
                     <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!bulkMethod || (bulkMethod !== 'efectivo' && !bulkOriginId) || saving()" [loading]="saving()" (click)="aplicarATodos()">Aplicar a los {{ pendingCount() }}</button>
                     @if (bulkMethod === 'transferencia' || bulkMethod === 'cargo_automatico') {
@@ -490,8 +490,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       <input pInputText type="search" [(ngModel)]="search" (keyup.enter)="loadObligations()"
                              placeholder="Buscar en las {{ obligationsTotal() | number }} facturas: nombre, folio, referencia o código…"
                              class="p-inputtext-sm pg-grow" aria-label="Buscar en lo que debo por nombre del beneficiario, folio interno, referencia del proveedor o código del acreedor" />
-                      <p-select [options]="classificationOpts" [(ngModel)]="classificationFilter" (onChange)="loadObligations()" optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true" styleClass="cal-sel p-inputtext-sm" ariaLabel="Tipo de obligación" />
-                      <p-select [options]="ordenOpts" [(ngModel)]="ordenSel" (onChange)="onOrden()" optionLabel="label" optionValue="value" styleClass="cal-sel p-inputtext-sm" ariaLabel="Orden de la lista" />
+                      <p-select appendTo="body" [options]="classificationOpts" [(ngModel)]="classificationFilter" (onChange)="loadObligations()" optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true" size="small" class="cal-sel" ariaLabel="Tipo de obligación" />
+                      <p-select appendTo="body" [options]="ordenOpts" [(ngModel)]="ordenSel" (onChange)="onOrden()" optionLabel="label" optionValue="value" size="small" class="cal-sel" ariaLabel="Orden de la lista" />
                       <label class="cal-check"><p-checkbox [(ngModel)]="onlyCritical" [binary]="true" (onChange)="loadObligations()" />Críticos</label>
                     </div>
                     @if (obligationsTruncated()) {
@@ -567,16 +567,43 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     </div>
 
     <!-- Dialog: agregar con otro importe u otro dia -->
+    <!-- [PGP.15] CUALQUIER fecha, con lo que cabe ESE dia a la vista. Era un desplegable con los 7 dias
+         de la semana cargada -no se podia programar la siguiente- que ademas se abria DENTRO del
+         dialogo: lo recortaba, le metia una barra de desplazamiento y tapaba el importe. -->
     <p-dialog [(visible)]="quickAddVisible" [modal]="true" header="Agregar con otro importe u otro día" [style]="{ width: '28rem' }">
       @if (quickAddTarget(); as o) {
-        <p class="cal-dlg-p">{{ o.beneficiary }} — {{ o.concept }}</p>
+        <p class="cal-dlg-p"><strong>{{ o.beneficiary }}</strong> — {{ o.concept }}</p>
+        <p class="cal-dlg-hint">Por pagar de esta factura: <b class="comm-num">{{ money(o.available_amount) }}</b></p>
         <label class="cal-dlg-label" for="cal-quick-day">Día de pago</label>
-        <p-select inputId="cal-quick-day" [options]="dayOpts()" [(ngModel)]="targetDate" optionLabel="label" optionValue="value" styleClass="cal-dlg-sel" />
-        <label class="cal-dlg-label" for="cal-quick-amt">Importe a asignar (disponible {{ money(o.available_amount) }})</label>
-        <input id="cal-quick-amt" pInputText type="number" [(ngModel)]="quickAddAmount" [max]="o.available_amount" min="0.01" class="cal-dlg-full" />
+        <input id="cal-quick-day" type="date" [min]="todayIso" [ngModel]="targetDate" (ngModelChange)="elegirDiaDestino($event)" class="cal-date-input cal-dlg-full" />
+        <label class="cal-dlg-label" for="cal-quick-amt">Importe</label>
+        <input id="cal-quick-amt" pInputText type="number" [(ngModel)]="quickAddAmount" [max]="o.available_amount" min="0.01" step="0.01" class="cal-dlg-full comm-num" />
+        <p class="pg-dlg-cap" aria-live="polite">
+          @if (!targetDate) {
+            Elige el día.
+          } @else if (destinoCargando()) {
+            Leyendo el tope del {{ dayLong(targetDate) }}…
+          } @else if (destinoError(); as err) {
+            <b>No se pudo leer el tope de ese día</b> ({{ err }}). Se puede agregar igual; el día dirá si cabe.
+          } @else if (destino(); as s) {
+            @if (diaCerrado(s.lot_status)) {
+              <b class="cal-bad-txt">El {{ dayLong(targetDate) }} ya está autorizado: no se le pueden agregar pagos.</b>
+            } @else if (!s.capacity_defined) {
+              El {{ dayLong(targetDate) }} <b>no tiene tope fijado</b>: se puede agregar, pero el día no se autoriza hasta que Presupuestos lo fije.
+            } @else {
+              Libre ese día: <b class="comm-num">{{ money(s.remaining_amount) }}</b> de {{ money(s.authorized_amount) }}.
+              @if (quedaDestino() < -0.005) {
+                <b class="cal-bad-txt">Con este importe el día se excede por {{ money(-quedaDestino()) }}.</b>
+              } @else if (importeQuick() > 0) {
+                Quedarían <b class="comm-num">{{ money(quedaDestino()) }}</b>.
+              }
+            }
+          }
+          @if (importeQuick() > numero(o.available_amount) + 0.005) { <b class="cal-bad-txt">El importe pasa de lo que se debe de esta factura.</b> }
+        </p>
         <div class="cal-dlg-actions">
           <button pButton type="button" class="p-button-text p-button-secondary" (click)="quickAddVisible = false">Cancelar</button>
-          <button pButton type="button" (click)="confirmQuickAdd()" [loading]="saving()">Agregar</button>
+          <button pButton type="button" (click)="confirmQuickAdd()" [loading]="saving()" [disabled]="!quickAddValido()">@if (targetDate) { Agregar al {{ dayLong(targetDate) }} } @else { Agregar }</button>
         </div>
       }
     </p-dialog>
@@ -587,15 +614,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <p class="cal-dlg-p"><strong>{{ allocationTitle(a) }}</strong> · {{ money(a.amount_assigned) }}</p>
       }
       <label class="cal-dlg-label" for="cal-prep-method">Método de pago</label>
-      <p-select inputId="cal-prep-method" [options]="methodOpts" [(ngModel)]="prepMethod" optionLabel="label" optionValue="value" placeholder="Método" styleClass="cal-dlg-sel" />
+      <p-select appendTo="body" inputId="cal-prep-method" [options]="methodOpts" [(ngModel)]="prepMethod" optionLabel="label" optionValue="value" placeholder="Método" [fluid]="true" class="cal-dlg-sel" />
       @if (prepMethod === 'transferencia' || prepMethod === 'cargo_automatico' || prepMethod === 'cheque') {
         <label class="cal-dlg-label" for="cal-prep-origin">Cuenta de origen (de dónde sale el dinero)</label>
-        <p-select inputId="cal-prep-origin" [options]="originOpts()" [(ngModel)]="prepOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta de Mega Dulces…" [filter]="true" filterBy="label" styleClass="cal-dlg-sel" />
+        <p-select appendTo="body" inputId="cal-prep-origin" [options]="originOpts()" [(ngModel)]="prepOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta de Mega Dulces…" [filter]="true" filterBy="label" [fluid]="true" class="cal-dlg-sel" />
       }
       @if (prepMethod === 'transferencia' || prepMethod === 'cargo_automatico') {
         @if (prepAccounts().length) {
           <label class="cal-dlg-label" for="cal-prep-dest">Cuenta destino del catálogo del proveedor</label>
-          <p-select inputId="cal-prep-dest" [options]="prepAccounts()" [(ngModel)]="prepAccountId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta…" [showClear]="true" styleClass="cal-dlg-sel" />
+          <p-select appendTo="body" inputId="cal-prep-dest" [options]="prepAccounts()" [(ngModel)]="prepAccountId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta…" [showClear]="true" [fluid]="true" class="cal-dlg-sel" />
         } @else if (prepAccountsError()) {
           <p class="cal-dlg-hint"><b>No se pudo leer el catálogo de cuentas del proveedor ({{ prepAccountsError() }}).</b> Captura la CLABE abajo.</p>
         } @else if (prepSupplierId) {
@@ -636,7 +663,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <p class="cal-dlg-p"><strong>{{ allocationTitle(a) }}</strong> · {{ money(a.amount_assigned) }}</p>
       }
       <label class="cal-dlg-label" for="cal-reb-reason">Por qué rebotó</label>
-      <p-select inputId="cal-reb-reason" [options]="reboteReasonOpts" [(ngModel)]="reboteReason" optionLabel="label" optionValue="value" placeholder="Motivo" styleClass="cal-dlg-sel" />
+      <p-select appendTo="body" inputId="cal-reb-reason" [options]="reboteReasonOpts" [(ngModel)]="reboteReason" optionLabel="label" optionValue="value" placeholder="Motivo" [fluid]="true" class="cal-dlg-sel" />
       @if (reboteReason === 'otro') {
         <input pInputText type="text" [(ngModel)]="reboteDetail" placeholder="Detalle (obligatorio)" class="cal-dlg-full" aria-label="Detalle del motivo" />
       }
@@ -654,7 +681,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       <label class="cal-dlg-label" for="cal-rep-date">Nueva fecha</label>
       <input id="cal-rep-date" type="date" [(ngModel)]="reprogramDate" class="cal-date-input cal-dlg-full" />
       <label class="cal-dlg-label" for="cal-rep-reason">Motivo</label>
-      <p-select inputId="cal-rep-reason" [options]="reprogramReasonOpts" [(ngModel)]="reprogramReason" optionLabel="label" optionValue="value" placeholder="Motivo" styleClass="cal-dlg-sel" />
+      <p-select appendTo="body" inputId="cal-rep-reason" [options]="reprogramReasonOpts" [(ngModel)]="reprogramReason" optionLabel="label" optionValue="value" placeholder="Motivo" [fluid]="true" class="cal-dlg-sel" />
       @if (reprogramReason === 'otro') {
         <input pInputText type="text" [(ngModel)]="reprogramReasonDetail" placeholder="Detalle (obligatorio)" class="cal-dlg-full" aria-label="Detalle del motivo" />
       }
@@ -885,6 +912,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-dlg-actions { display:flex; gap:var(--sp-2); align-items:center; justify-content:flex-end; margin-top:var(--sp-3); }
     .cal-dlg-label { display:block; font-size:var(--fs-xs); color:var(--text-muted); margin:var(--sp-2) 0 var(--sp-1); }
     :host ::ng-deep .cal-dlg-sel { width:100%; margin-bottom:var(--sp-2); }
+    /* Lo que cabe el dia destino, a la escala del dialogo; solo el exceso lleva color. */
+    .pg-dlg-cap { margin:0; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.45; }
+    .pg-dlg-cap b { color:var(--text-main); }
+    .pg-dlg-cap b.cal-bad-txt { color:var(--bad-soft-fg); }
     .pg-dlg-list { list-style:none; margin:0; padding:0; max-height:16rem; overflow:auto; border-top:1px solid var(--border-color); }
     .pg-dlg-list li { display:flex; justify-content:space-between; gap:var(--sp-3); padding:4px 0; border-bottom:1px solid var(--border-color); font-size:var(--fs-sm); }
     .pg-dlg-fol { color:var(--text-muted); font-size:var(--fs-xs); margin-right:var(--sp-1); }
@@ -1198,11 +1229,6 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (!w) return '—';
     return `${this.fmt(w.from, { day: 'numeric', month: 'short' })} – ${this.fmt(w.to, { day: 'numeric', month: 'short', year: 'numeric' })}`;
   });
-  /** Días de la semana visible como destino de un pago nuevo (con su disponible, para decidir ahí). */
-  readonly dayOpts = computed(() => (this.week()?.days ?? []).map((d) => ({
-    value: d.date,
-    label: `${this.dayLong(d.date)} · ${d.summary.capacity_defined ? 'disponible ' + this.money(d.summary.remaining_amount) : 'sin capacidad'}`,
-  })));
 
   classificationFilter: string | null = null;
   search = '';
@@ -1359,7 +1385,6 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         this.week.set(w);
         this.loadingWeek.set(false);
         if (!w.days.some((d) => d.date === this.selectedDate())) this.selectedDate.set(w.from);
-        if (!w.days.some((d) => d.date === this.targetDate)) this.targetDate = this.selectedDate();
         void this.proponer();
       },
       error: (e) => { if (seq !== this.weekSeq) return; this.loadingWeek.set(false); this.weekError.set(e?.error?.message || 'No se pudo cargar la semana de pagos.'); },
@@ -1552,9 +1577,21 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   private async assign(date: string, pick: { o: Obligation; amount: number }[], notes?: string): Promise<string> {
     if (!pick.length) return 'nada que agregar';
     const k = obligationKey(pick[0].o);
+    // [PGP.15] Un día fuera de la semana a la vista se lee del servidor: sin eso, agregar al martes de la
+    // semana que viene creaba un pago nuevo aunque ese día ya tuviera uno de este proveedor y sucursal.
     const day = this.week()?.days.find((d) => d.date === date);
-    const open = day && !['released', 'executing', 'closed'].includes(day.summary.lot_status ?? '')
-      ? day.allocations.find((a) => a.status === 'pending' && a.folio == null && allocationKey(a) === k)
+    let pagosDelDia = day?.allocations ?? [];
+    let estado = day?.summary.lot_status ?? null;
+    if (!day) {
+      const [rows, s] = await Promise.all([
+        firstValueFrom(this.http.get<PaymentCalendarAllocation[]>(`${this.base}/days/${date}/allocations`)),
+        firstValueFrom(this.http.get<PaymentCalendarDaySummary>(`${this.base}/days/${date}/summary`)),
+      ]);
+      pagosDelDia = rows;
+      estado = s.lot_status;
+    }
+    const open = !this.diaCerrado(estado)
+      ? pagosDelDia.find((a) => a.status === 'pending' && a.folio == null && allocationKey(a) === k)
       : undefined;
     if (open) {
       // Una por una (no hay endpoint de varias en una transacción): si falla una a la mitad, se
@@ -1878,12 +1915,46 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   quickAddDialog(o: Obligation): void {
     this.quickAddTarget.set(o);
     this.quickAddAmount = Number(o.available_amount);
-    this.targetDate = this.selectedDate();
     this.quickAddVisible = true;
+    this.elegirDiaDestino(this.selectedDate() < this.todayIso ? this.todayIso : this.selectedDate());
+  }
+  /**
+   * `[PGP.15]` **El día destino puede ser cualquiera**, y su tope se lee de `days/:date/summary` (sólo
+   * lectura): lo que cabe se dice ANTES de agregar, no después en el veredicto de otro día.
+   */
+  readonly destino = signal<PaymentCalendarDaySummary | null>(null);
+  readonly destinoCargando = signal(false);
+  readonly destinoError = signal<string | null>(null);
+  private destinoSeq = 0;
+  elegirDiaDestino(fecha: string): void {
+    this.targetDate = fecha;
+    this.destino.set(null);
+    this.destinoError.set(null);
+    if (!fecha) return;
+    const seq = ++this.destinoSeq;
+    this.destinoCargando.set(true);
+    this.http.get<PaymentCalendarDaySummary>(`${this.base}/days/${fecha}/summary`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => { if (seq !== this.destinoSeq) return; this.destino.set(s); this.destinoCargando.set(false); },
+      error: (e) => { if (seq !== this.destinoSeq) return; this.destinoCargando.set(false); this.destinoError.set(this.errMsg(e, 'error del servidor')); },
+    });
+  }
+  /** Un día autorizado, en dispersión o cerrado ya no recibe pagos. */
+  diaCerrado(estado: string | null | undefined): boolean { return ['released', 'executing', 'closed'].includes(estado ?? ''); }
+  /** Los `numeric` de Postgres viajan como texto: se convierten antes de comparar o restar. */
+  numero(v: number | string | null | undefined): number { return Number(v) || 0; }
+  importeQuick(): number { return this.numero(this.quickAddAmount); }
+  /** Lo que quedaría libre del tope del día destino con este importe (negativo = se excede). */
+  quedaDestino(): number { return this.numero(this.destino()?.remaining_amount) - this.importeQuick(); }
+  /** Prevenir antes que reportar (ESTANDAR §4.5): sin día, sin importe válido o con el día ya autorizado, no se agrega. */
+  quickAddValido(): boolean {
+    const o = this.quickAddTarget();
+    const imp = this.importeQuick();
+    return !!o && !!this.targetDate && this.targetDate >= this.todayIso && imp > 0
+      && imp <= this.numero(o.available_amount) + 0.005 && !this.destinoCargando() && !this.diaCerrado(this.destino()?.lot_status) && !this.saving();
   }
   async confirmQuickAdd(): Promise<void> {
     const o = this.quickAddTarget();
-    if (!o) return;
+    if (!o || !this.quickAddValido()) return;
     const fecha = this.targetDate;
     this.saving.set(true);
     try {
