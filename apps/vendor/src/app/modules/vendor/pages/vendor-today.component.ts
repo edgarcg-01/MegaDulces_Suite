@@ -19,6 +19,7 @@ import { VendorService } from '../vendor.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { Order } from '../../portal/portal.service';
+import { sucursalesDelPedido, textoSucursales } from '../pedido-grupo';
 import { OfflineOrderService, PendingOrderSummary } from '../../../core/services/offline-order.service';
 
 /** Mi día — resumen del día del vendedor (rediseño Mercado): mini-hero con KPIs + lista de pedidos. */
@@ -110,15 +111,24 @@ import { OfflineOrderService, PendingOrderSummary } from '../../../core/services
       @if (!loading() && orders().length > 0) {
         <div class="list">
           <div class="seclab">Pedidos de hoy</div>
-          @for (o of orders(); track o) {
-            <button class="orow" (click)="goToOrder(o)">
+          @for (f of filas(); track f.o.id) {
+            <button class="orow" (click)="goToOrder(f.o)">
               <span class="oc">
-                <span class="code">{{ o.code }}</span>
-                <span class="time">{{ fmtTime(o.created_at) }}</span>
+                <span class="code">{{ f.o.code }}</span>
+                <span class="time">{{ fmtTime(f.o.created_at) }}</span>
+                @if (f.sucs.length) {
+                  <span class="sucs" [attr.aria-label]="'Se surte en ' + f.texto">
+                    @for (s of f.sucs; track $index) {
+                      <span class="chip" [ngClass]="s.tono">{{ s.short }} · {{ s.etiqueta }}</span>
+                    }
+                  </span>
+                }
               </span>
               <span class="oright">
-                <span class="chip" [ngClass]="statusClass(o.status)">{{ statusLabel(o.status) }}</span>
-                <span class="total">{{ fmtMoney(o.total) }}</span>
+                @if (!f.sucs.length) {
+                  <span class="chip" [ngClass]="statusClass(f.o.status)">{{ statusLabel(f.o.status) }}</span>
+                }
+                <span class="total">{{ fmtMoney(f.o.total) }}</span>
               </span>
             </button>
           }
@@ -184,6 +194,7 @@ import { OfflineOrderService, PendingOrderSummary } from '../../../core/services
       .orow:active { transform: scale(0.99); }
       @media (prefers-reduced-motion: reduce) { .orow { transition: none; } .hero::before { animation: none; } .hero-refresh.spinning i { animation: none; } }
       .oc { min-width: 0; }
+      .sucs { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.3rem; }
       .code { display: block; font-family: var(--font-mono); font-weight: 700; color: var(--text-main); }
       .time { font-size: var(--fs-xs); color: var(--text-muted); }
       .oright { display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem; flex-shrink: 0; }
@@ -227,6 +238,13 @@ export class VendorTodayComponent implements OnInit {
   readonly loadError = signal(false);
   readonly refreshing = signal(false);
   readonly orders = signal<Order[]>([]);
+  /** [MCP.3.14] Cada pedido con el estado de sus sucursales (vacío si surte en una sola). */
+  readonly filas = computed(() =>
+    this.orders().map((o) => {
+      const sucs = sucursalesDelPedido(o);
+      return { o, sucs, texto: textoSucursales(sucs) };
+    }),
+  );
   /** Pedidos confirmados offline en espera de sincronizar (cola + muertos). */
   readonly pendingOffline = signal<PendingOrderSummary[]>([]);
 

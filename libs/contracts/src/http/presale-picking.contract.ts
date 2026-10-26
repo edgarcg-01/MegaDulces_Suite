@@ -46,6 +46,15 @@ export interface PresalePickInboxRow {
   finished: PresalePickPerson | null;
   /** Aviso de la sucursal sin acuse. */
   unseen: boolean;
+  /**
+   * `[MCP.3.13]` Pedido agrupado: folio del pedido PRINCIPAL del grupo (el del vendedor; si este
+   * renglón es el principal, su propio folio). `null` = pedido suelto. Opcional por compatibilidad.
+   */
+  group_code?: string | null;
+  /** Partes vivas del grupo (no canceladas), contando ésta. `null` = pedido suelto. */
+  group_parts?: number | null;
+  /** Etiqueta corta (`warehouses.short_label`, si no el nombre) de las sucursales de las OTRAS partes. `[]` = suelto. */
+  group_other_warehouses?: string[];
 }
 
 export interface PresalePickInboxResponse {

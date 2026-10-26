@@ -25,6 +25,8 @@ import { Observable, ReplaySubject, forkJoin, from, of, switchMap, catchError, m
 import type { OfflinePedidoLine } from '../../../core/services/offline-database.service';
 import { VendorService, VendorCustomer, VendorOrder, FrequentProduct, type CatalogoAlAbrir } from '../vendor.service';
 import { type OrigenCatalogo, edadCatalogo, hayQueRefrescar } from '../catalogo-al-abrir';
+import type { VendorZoneStockResponse } from '@megadulces/contracts';
+import { type ChipZona, chipsDeZona, edadZona } from '../zona-existencias';
 import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
@@ -225,6 +227,10 @@ const foldText = (s: string | null | undefined): string =>
           @if (catalogoAviso(); as av) {
             <p class="cat-age" [class.warn]="av.fallo" role="status"><i class="pi pi-clock" aria-hidden="true"></i> {{ av.texto }}</p>
           }
+          <!-- [MCP.3.12] De cuándo es la existencia de las otras sucursales, o por qué no se ve. -->
+          @if (zonaAviso(); as za) {
+            <p class="cat-age" [class.warn]="za.fallo" role="status"><i class="pi pi-building" aria-hidden="true"></i> {{ za.texto }}</p>
+          }
           <!-- Order pad: con búsqueda → resultados; sin búsqueda → Habituales + Catálogo -->
           @if (searchTerm().trim()) {
             <div class="list-head">
@@ -306,6 +312,22 @@ const foldText = (s: string | null | undefined): string =>
                     <span class="stk" [ngClass]="stockClass(p)">{{ stockLabel(p) }}</span>
                   }
                 </div>
+                <!-- [MCP.3.12] Existencias de las sucursales de la zona, en chico. Sólo se ven: elegir
+                     de cuál se surte es la parte 2. -->
+                @if (zonaDe(p); as zs) {
+                  <!-- [MCP.3.13] Tocar una sucursal = de ahí se surte ESTE producto (se cobra allá). -->
+                  <div class="zs" role="radiogroup" [attr.aria-label]="'De qué sucursal se surte ' + p.product_name">
+                    <i class="pi pi-building" aria-hidden="true"></i>
+                    @for (c of zs; track c.id) {
+                      <button type="button" class="zs-c" role="radio" [class.mine]="c.mine" [class.on]="origenEs(p, c)"
+                        [class.cero]="c.qty === 0" [class.nd]="c.qty == null" [attr.aria-checked]="origenEs(p, c)"
+                        [attr.aria-label]="ariaChip(c, p)" [disabled]="cambiandoOrigen() === p.product_id"
+                        (click)="elegirOrigen(p, c); $event.stopPropagation()">{{ c.short }}&nbsp;<b>{{ c.texto }}</b></button>
+                    }
+                    @if (selectedUnit(p)?.unit; as u) { <span class="zs-u" aria-hidden="true">{{ u }}</span> }
+                  </div>
+                  @if (avisoOrigen(p); as av) { <div class="zs-warn" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ av }}</div> }
+                }
                 <!-- [VTK.9] Al buscar: cuánto trae la caja, sin abrir la ficha ni hacer la cuenta. -->
                 @if (box && contenidoCajaById().get(p.product_id); as bc) {
                   <div class="box-c">
@@ -416,7 +438,7 @@ const foldText = (s: string | null | undefined): string =>
                   <div class="cline">
                     <div class="cl-info">
                       <div class="cl-n">{{ productNameById(l.product_id) }}</div>
-                      <div class="cl-t">{{ fmtMoney(l.line_total) }}</div>
+                      <div class="cl-t">{{ fmtMoney(l.line_total) }}@if (l.source_warehouse_id) {<span class="cl-src"> · se surte en {{ l.source_warehouse_short || l.source_warehouse_name }}</span>}</div>
                       <!-- Mayoreo por cantidad: precio nuevo + cuánto se descuenta vs base. -->
                       @if (mayoreoInfo(l); as m) {
                         <div class="cl-may">
@@ -437,6 +459,12 @@ const foldText = (s: string | null | undefined): string =>
                 }
               </div>
               <div class="sh-foot">
+                @if (surteEn(); as se) {
+                  <p class="se" role="note"><i class="pi pi-building" aria-hidden="true"></i> Se surte en
+                    @for (g of se; track g.label) { <span class="se-g" [class.ajena]="g.ajena">{{ g.label }} ({{ g.n }})</span> }
+                    · un pedido; cada sucursal cobra lo suyo
+                  </p>
+                }
                 <div class="totals">
                   <div class="row"><span>Subtotal</span><b>{{ fmtMoney(cartSubtotal()) }}</b></div>
                   <div class="row"><span>IVA</span><b>{{ fmtMoney(cartTaxTotal()) }}</b></div>
@@ -607,6 +635,24 @@ const foldText = (s: string | null | undefined): string =>
       /* [VTK.9] Contenido de la caja en los resultados de búsqueda. */
       .prod .box-c { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; color: var(--text-muted); }
       .prod .box-c i { font-size: 0.7rem; }
+      /* [MCP.3.12] Tira de existencias de la zona: discreta pero legible (0.72rem, sin color de acción). */
+      .prod .zs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin: 0.25rem 0 0; font-size: 0.72rem; color: var(--text-muted); }
+      .prod .zs > i { font-size: 0.66rem; }
+      .prod .zs-c { display: inline-flex; align-items: baseline; padding: 0.05rem 0.4rem; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); background: var(--surface-ground); color: var(--text-main); font-weight: 600; white-space: nowrap; }
+      .prod .zs-c b { font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; }
+      .prod .zs-c.mine { border-color: var(--text-muted); }
+      .prod .zs-c.cero, .prod .zs-c.nd { color: var(--text-muted); border-style: dashed; font-weight: 500; }
+      .prod .zs-u { font-size: 0.68rem; }
+      /* [MCP.3.13] La tira es elegible: botones discretos, la elegida con el color de acción. */
+      .prod button.zs-c { min-height: 1.9rem; cursor: pointer; font-family: inherit; font-size: 0.72rem; }
+      .prod button.zs-c.on { border-color: var(--action); border-style: solid; background: var(--overlay-selected); color: var(--text-main); font-weight: 700; }
+      .prod button.zs-c:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+      .prod button.zs-c:disabled { opacity: 0.6; cursor: progress; }
+      .prod .zs-warn { display: flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.72rem; font-weight: 600; color: var(--warn-fg); }
+      .cl-src { color: var(--text-muted); font-weight: 600; }
+      .se { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin: 0 0 0.5rem; font-size: 0.76rem; color: var(--text-muted); }
+      .se-g { padding: 0.05rem 0.45rem; border-radius: var(--r-pill, 999px); background: var(--surface-ground); color: var(--text-main); font-weight: 700; }
+      .se-g.ajena { border: 1px solid var(--action); }
       .prod .box-c b { font-family: var(--font-mono); font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
       /* [VTK.12] Caja elegida en el selector. */
       .prod .box-sel { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; color: var(--text-main); }
@@ -883,6 +929,21 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly catalogoRefrescando = signal(false);
   /** `[VTK.11]` La recarga de fondo falló: se sigue con la copia y se dice. */
   readonly catalogoFallo = signal(false);
+  /** `[MCP.3.12]` Existencias de las sucursales de la zona (null = aún no llega o no aplica). */
+  readonly zona = signal<VendorZoneStockResponse | null>(null);
+  /** `[MCP.3.12]` La consulta de la zona falló: se dice, no se pintan ceros. */
+  readonly zonaFallo = signal(false);
+  /** `[MCP.3.12]` De cuándo es la existencia de la zona, o por qué no se puede ver. */
+  readonly zonaAviso = computed(() => {
+    const z = this.zona();
+    const fallo = this.zonaFallo();
+    if (fallo) return { texto: 'No se pudo leer la existencia de las otras sucursales de tu zona', fallo: true };
+    if (!z) return null;
+    if (z.unmeasured_reason) return { texto: `Otras sucursales: ${z.unmeasured_reason}`, fallo: true };
+    if (z.warehouses.length < 2) return null;
+    const edad = edadZona(z, Date.now());
+    return { texto: `Zona ${z.zone}: existencias de las otras sucursales${edad ? ' de ' + edad : ''}`, fallo: false };
+  });
   /**
    * `[VTK.11]` El aviso de la edad del catálogo (ADR-056). Null cuando lo que se ve acaba de
    * bajar del servidor: ahí no hay nada que declarar.
@@ -1000,6 +1061,97 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private readonly sentQty = signal<Map<string, { qty: number; done: boolean }>>(new Map());
   /** [MCP.3.6] Volcado en vuelo: el siguiente espera a que vuelva (nunca dos PUT al mismo renglón a la vez). */
   private flushEnVuelo: Observable<void> | null = null;
+
+  /** `[MCP.3.12]` La tira de la zona de este producto, en la unidad que se está pidiendo. */
+  zonaDe(p: PriceRow): ChipZona[] | null {
+    return this.offlineMode() ? null : chipsDeZona(this.zona(), p.product_id, this.unitFactor(p));
+  }
+
+  // ── [MCP.3.13] De qué sucursal de la zona se surte cada producto ──────────────────────────
+  /** Producto → sucursal elegida ANTES de tener renglón (`null` = la mía). Con renglón manda el renglón. */
+  readonly origenElegido = signal<Map<string, string | null>>(new Map());
+  /** Producto cuyo renglón se está moviendo de sucursal (la tira se bloquea mientras). */
+  readonly cambiandoOrigen = signal<string | null>(null);
+
+  private lineaDe(productId: string): OrderLine | undefined {
+    return this.cartLines().find((l) => l.product_id === productId);
+  }
+  /** La sucursal de surtido de este producto: la de su renglón, o la elegida; `null` = la mía. */
+  origenDe(p: PriceRow): string | null {
+    const l = this.lineaDe(p.product_id);
+    if (l) return l.source_warehouse_id ?? null;
+    return this.origenElegido().get(p.product_id) ?? null;
+  }
+  origenEs(p: PriceRow, c: ChipZona): boolean {
+    const o = this.origenDe(p);
+    return o ? c.id === o : c.mine;
+  }
+  ariaChip(c: ChipZona, p: PriceRow): string {
+    const u = this.selectedUnit(p)?.unit ?? '';
+    return `${c.name}${c.mine ? ' (tu sucursal)' : ''}: ${c.qty == null ? 'sin dato' : c.qty + (u ? ' ' + u : '')}`;
+  }
+  /** Si lo que se pide pasa de lo que hay en la sucursal elegida, se dice en la fila (no bloquea: es preventa). */
+  avisoOrigen(p: PriceRow): string | null {
+    const zs = this.zonaDe(p);
+    const n = this.dispCount(p);
+    if (!zs || !(n > 0)) return null;
+    const c = zs.find((x) => this.origenEs(p, x));
+    if (!c || c.qty == null || n <= c.qty) return null;
+    return c.qty === 0 ? `En ${c.short} no hay: elige otra sucursal` : `En ${c.short} sólo hay ${c.qty}: elige otra o pide ${c.qty}`;
+  }
+
+  /**
+   * Toca una sucursal de la tira. Sin renglón: queda elegida para el siguiente «+». Con renglón: se
+   * mueve a esa sucursal (el servidor lo vuelve a tarificar con el precio de allá). No se mueve
+   * mientras hay una cantidad sin guardar: se mezclarían dos cambios en el mismo renglón.
+   */
+  elegirOrigen(p: PriceRow, c: ChipZona): void {
+    const origen = c.mine ? null : c.id;
+    const linea = this.lineaDe(p.product_id);
+    if (!linea) {
+      this.origenElegido.update((m) => new Map(m).set(p.product_id, origen));
+      this.haptic.selection();
+      return;
+    }
+    if ((linea.source_warehouse_id ?? null) === origen) return;
+    const orderId = this.cartOrderId();
+    if (!orderId || this.cambiandoOrigen()) return;
+    if (this.pendingQty().has(p.product_id) || this.sentQty().has(p.product_id)) {
+      this.toast.add({ severity: 'info', summary: 'Un momento', detail: 'Se está guardando la cantidad; vuelve a tocar la sucursal.', life: 3000 });
+      return;
+    }
+    this.cambiandoOrigen.set(p.product_id);
+    this.haptic.selection();
+    this.api
+      .updateLine(orderId, linea.id, Number(linea.quantity), undefined, origen)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => this.reloadCart(() => this.cambiandoOrigen.set(null)),
+        error: (err) => {
+          this.cambiandoOrigen.set(null);
+          this.haptic.notification('error');
+          this.toast.add({ severity: 'error', summary: 'No se cambió la sucursal', detail: this.motivoDeError(err), life: 5000 });
+        },
+      });
+  }
+
+  /** «Se surte en: LPA (3) · PH (1)». `null` cuando todo sale de la sucursal del pedido. */
+  readonly surteEn = computed(() => {
+    const lines = this.cartLines();
+    if (!lines.some((l) => !!l.source_warehouse_id)) return null;
+    const mia = this.zona()?.warehouses.find((w) => w.mine);
+    const grupos = new Map<string, { label: string; n: number; ajena: boolean }>();
+    for (const l of lines) {
+      const ajena = !!l.source_warehouse_id;
+      const label = ajena
+        ? (l.source_warehouse_short || l.source_warehouse_name || 'otra sucursal')
+        : (mia?.short || this.stockSources().sucursal?.name || 'tu sucursal');
+      const g = grupos.get(label) ?? { label, n: 0, ajena };
+      g.n += 1;
+      grupos.set(label, g);
+    }
+    return [...grupos.values()].sort((a, b) => Number(a.ajena) - Number(b.ajena));
+  });
 
   stockClass(p: PriceRow): 'ok' | 'warn' | 'bad' {
     const s = Number(p.stock_available ?? 0);
@@ -1290,7 +1442,23 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   }
 
   /** Carga online: backend + cachea el contexto para poder abrir offline luego. */
+  /** `[MCP.3.12]` La zona va por su lado: si tarda o falla, la toma de pedido abre igual. */
+  private cargarZona(): void {
+    this.zonaFallo.set(false);
+    this.api
+      .myZoneStock()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (z) => this.zona.set(z ?? null),
+        error: () => {
+          this.zona.set(null);
+          this.zonaFallo.set(true);
+        },
+      });
+  }
+
   private loadOnline(customerId: string): void {
+    this.cargarZona();
     // [VTK.13] Todo lo que no depende de otra respuesta sale A LA VEZ. Antes borrador,
     // pendientes y habituales esperaban a la ronda de fuentes+cliente sin necesitarla, y las
     // listas de precio abrían otro salto después del cliente: 3–4 viajes en serie por apertura.
@@ -1609,9 +1777,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       .pipe(
         switchMap((draft) => {
           this.cartOrderId.set(draft.id);
+          // [MCP.3.13] Con la sucursal elegida en la tira (sin elegir = la del pedido).
+          const origen = this.origenDe(p);
           return qEnviada != null && sello
-            ? this.api.addLine(draft.id, p.product_id, qEnviada, sello)
-            : this.api.addLine(draft.id, p.product_id, q);
+            ? this.api.addLine(draft.id, p.product_id, qEnviada, sello, origen)
+            : this.api.addLine(draft.id, p.product_id, q, undefined, origen);
         }),
         takeUntilDestroyed(this.destroyRef),
       )
@@ -2066,7 +2236,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       });
   }
 
-  private onDone(o: { code?: string; total?: number | string } | null): void {
+  private onDone(o: { code?: string; total?: number | string; group_parts?: number } | null): void {
     this.submitting.set(false);
     const c = this.customer();
     // Corrección: el pedido ya existía y ya se avisó al cliente cuando se agendó.
@@ -2078,15 +2248,19 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       this.router.navigate(['/vendor/pending']);
       return;
     }
+    // [MCP.3.13] Con partes, el total que devuelve place() es sólo el de la principal: para el
+    // vendedor y el cliente es UN pedido, así que se muestra el del carrito completo.
+    const agrupado = !!o?.group_parts && o.group_parts > 1;
     this.router.navigate(['/vendor/order-success'], {
       queryParams: {
         code: o?.code || '',
-        total: o?.total ?? this.cartTotal(),
+        total: agrupado ? this.cartTotal() : (o?.total ?? this.cartTotal()),
         units: this.cartUnitsTotal(),
         name: c?.name || '',
         wa: c?.whatsapp || '',
         date: this.requestedDate,
         customer: c?.id || '',
+        ...(agrupado ? { surte: (this.surteEn() ?? []).map((g) => g.label).join(',') } : {}),
       },
     });
   }

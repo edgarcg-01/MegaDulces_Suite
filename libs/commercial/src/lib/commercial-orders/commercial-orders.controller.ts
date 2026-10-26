@@ -55,6 +55,7 @@ export class CommercialOrdersController {
     @Query('to') to?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('group') group?: string,
   ) {
     return this.service.list({
       status,
@@ -66,6 +67,8 @@ export class CommercialOrdersController {
       to,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
+      // [MCP.3.14] Un renglón por pedido agrupado (app del vendedor).
+      group: group === 'true' || group === '1',
     });
   }
 

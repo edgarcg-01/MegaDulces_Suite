@@ -23,7 +23,10 @@ import { relojMx } from '../warehouse-orders/warehouse-orders.engine';
 import { AlertsService } from '../commercial-alerts/alerts.service';
 import { CommercialPushService } from '../commercial-push/commercial-push.service';
 import { CierreInvalido, cantidadMostrada, sumarDias } from './presale-picking.engine';
-import { PEDIDO_EN_RUTA_SQL, consolidar, repartirRuta, type CierreDePedido, type RenglonDeRuta } from './presale-route.engine';
+import {
+  PEDIDO_EN_RUTA_SQL, consolidar, etiquetaSucursal, otrasSucursales, repartirRuta, surtidoVisto,
+  type CierreDePedido, type ParteDeGrupo, type RenglonDeRuta, type SurtidoDeSucursal,
+} from './presale-route.engine';
 import { PresalePickingService } from './presale-picking.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -37,10 +40,27 @@ type FilaRuta = {
   pick_finished_by: string | null; pick_finished_by_name: string | null; pick_finished_at: Date | string | null;
 };
 
-/** `leerRutas` agrega el vendedor y los conteos. */
+/**
+ * `leerRutas` agrega el vendedor y los conteos. `[MCP.3.13]` Y, por sucursal: las de mis pedidos
+ * en la ruta (`warehouse_ids`), el surtido de cada una (`picks`, TODAS las de la ruta: sin filas
+ * es una ruta del modelo de un solo dueño) y las sucursales de las otras partes de sus grupos.
+ */
 type FilaRutaConConteo = FilaRuta & {
   seller_name: string | null; seller_username: string | null; orders: number | string; products: number | string;
+  warehouse_ids?: string[] | null;
+  group_ids?: string[] | null;
+  picks?: SurtidoDeSucursal[];
+  group_other_warehouses?: string[];
 };
+
+/**
+ * `[MCP.3.13]` El pedido de esta fila ya lo surtió SU sucursal en esta ruta. `rd` = la ruta, `o` = el
+ * pedido. Junto con `rd.pick_finished_at` (rutas del modelo de un solo dueño) decide qué cuenta
+ * como «ya surtido».
+ */
+const SUCURSAL_YA_SURTIO_SQL = `EXISTS (SELECT 1 FROM commercial.seller_route_day_picks k
+  WHERE k.tenant_id = rd.tenant_id AND k.route_day_id = rd.id AND k.warehouse_id = o.warehouse_id
+    AND k.pick_finished_at IS NOT NULL)`;
 
 /**
  * `[MCP.3.6]` Ruta del vendedor y su surtido como UN pedido global.
@@ -134,7 +154,14 @@ export class PresaleRouteService {
     });
   }
 
-  /** Registra quién empieza a surtir la ruta y abre el surtido de cada pedido. Idempotente para la misma persona. */
+  /**
+   * Registra quién empieza a surtir la ruta y abre el surtido de cada pedido. Idempotente para la misma persona.
+   *
+   * `[MCP.3.13]` Por SUCURSAL: con el pedido agrupado, el surtidor de LPA y el de PH surten la misma
+   * ruta, cada quien sus pedidos. El dueño vive en `commercial.seller_route_day_picks` por (ruta,
+   * sucursal); la sucursal es la de mis pedidos en la ruta (`alcance`). Si en mi alcance la ruta tiene
+   * pedidos de VARIAS sucursales (modo dios), se rechaza: una persona recolecta en un solo almacén.
+   */
   async routeStart(id: string, query: Record<string, unknown> = {}): Promise<RouteBatchRow> {
     if (!UUID_RE.test(id)) throw new BadRequestException('id inválido');
     const { userId, nombre } = await this.picking.quien();
@@ -142,13 +169,18 @@ export class PresaleRouteService {
     return this.tk.run(async (trx) => {
       const rd = await this.bloquear(trx, id);
       if (rd.kind !== 'fuera_de_ruta' && !rd.finished_at) throw new ConflictException('La ruta sigue abierta: el vendedor todavía no la finaliza.');
-      if (rd.pick_finished_at) throw new ConflictException('Esta ruta ya se surtió.');
-      if (rd.pick_started_by && rd.pick_started_by !== userId) {
-        throw new ConflictException(`Ya la está surtiendo ${rd.pick_started_by_name} desde ${horaMx(rd.pick_started_at)}.`);
-      }
       const renglones = await this.renglonesDeRuta(trx, id, almacenes);
       const pedidos = pedidosDe(renglones);
       if (!pedidos.length) throw new NotFoundException('Esta ruta no tiene pedidos de tu sucursal.');
+      const sucursal = await this.unaSucursal(trx, pedidos);
+      const { propia, legado } = await this.surtidoDeSucursal(trx, rd, sucursal);
+      if (legado?.pick_finished_at || propia?.pick_finished_at) {
+        throw new ConflictException(legado ? 'Esta ruta ya se surtió.' : 'Tu sucursal ya surtió su parte de esta ruta.');
+      }
+      const dueno = propia ?? legado;
+      if (dueno && dueno.pick_started_by !== userId) {
+        throw new ConflictException(`Ya la está surtiendo ${dueno.pick_started_by_name} desde ${horaMx(dueno.pick_started_at)}.`);
+      }
       const ids = pedidos.map((p) => p.order_id);
 
       const enOla = await trx('commercial.wave_orders as wo')
@@ -179,15 +211,10 @@ export class PresaleRouteService {
           [corte.finished_at, userId, userId, id],
         );
       }
-      if (!rd.pick_started_by) {
-        await trx('commercial.seller_route_days').where({ id }).update({
-          pick_started_by: userId,
-          pick_started_by_name: nombre,
-          pick_started_at: trx.fn.now(),
-          updated_at: trx.fn.now(),
-          updated_by: userId,
-        });
-      }
+      // [MCP.3.13] Ya no se escribe `seller_route_days.pick_*` (dueño único): fuera de este servicio
+      // nadie lo lee (grep 2026-10-23) y escribirlo le volvería a cerrar la ruta a las otras sucursales.
+      // Una ruta empezada con el modelo viejo por mí se pasa a mi sucursal con su hora original.
+      if (!propia) await this.abrirSurtidoDeSucursal(trx, id, sucursal, userId, nombre, legado?.pick_started_at ?? null);
       for (const p of pedidos) {
         await trx.raw(
           `INSERT INTO commercial.presale_picks (tenant_id, order_id, warehouse_id, started_by, started_by_name)
@@ -202,8 +229,16 @@ export class PresaleRouteService {
         .whereNull('seen_at')
         .update({ seen_at: trx.fn.now(), seen_by: userId });
       const fila = await this.rutaEnAlcance(trx, id, almacenes);
-      this.avisarVendedora(fila, 'Tu ruta ya la están surtiendo', `${pedidos.length} ${pedidos.length === 1 ? 'pedido' : 'pedidos'} · ${nombre} empezó a las ${horaMx(fila.pick_started_at ?? new Date())}`);
-      return aRenglon(fila);
+      const renglon = aRenglon(fila);
+      // [MCP.3.13] Con partes en otras sucursales, cada una avisa: el título dice cuál, para que dos
+      // «ya la están surtiendo» no se lean como el mismo aviso repetido.
+      const parte = await this.parteDeSucursal(trx, fila, sucursal);
+      this.avisarVendedora(
+        fila,
+        parte ? `Tu ruta · parte de ${parte}: ya la están surtiendo` : 'Tu ruta ya la están surtiendo',
+        `${pedidos.length} ${pedidos.length === 1 ? 'pedido' : 'pedidos'} · ${nombre} empezó a las ${horaMx(renglon.pick_started?.at ?? new Date())}`,
+      );
+      return renglon;
     });
   }
 
@@ -217,13 +252,21 @@ export class PresaleRouteService {
     const almacenes = await this.alcance(query);
     return this.tk.run(async (trx) => {
       const rd = await this.bloquear(trx, id);
-      if (rd.pick_finished_at) throw new ConflictException('Esta ruta ya se surtió.');
-      if (!rd.pick_started_by) throw new ConflictException('Primero toca «Empezar a surtir».');
-      if (rd.pick_started_by !== quien.userId) {
-        throw new ForbiddenException(`La está surtiendo ${rd.pick_started_by_name}: sólo esa persona la puede cerrar.`);
-      }
       const renglones = await this.renglonesDeRuta(trx, id, almacenes);
       if (!renglones.length) throw new NotFoundException('Esta ruta no tiene pedidos de tu sucursal.');
+      // [MCP.3.13] Se cierra la parte de MI sucursal; las demás siguen con su propio surtidor.
+      const sucursal = await this.unaSucursal(trx, pedidosDe(renglones));
+      const { propia, legado } = await this.surtidoDeSucursal(trx, rd, sucursal);
+      if (legado?.pick_finished_at || propia?.pick_finished_at) {
+        throw new ConflictException(legado ? 'Esta ruta ya se surtió.' : 'Tu sucursal ya surtió su parte de esta ruta.');
+      }
+      const dueno = propia ?? legado;
+      if (!dueno) throw new ConflictException('Primero toca «Empezar a surtir».');
+      if (dueno.pick_started_by !== quien.userId) {
+        throw new ForbiddenException(`La está surtiendo ${dueno.pick_started_by_name}: sólo esa persona la puede cerrar.`);
+      }
+      // Empezada con el modelo de un solo dueño: se pasa a mi sucursal (con su hora) para cerrarla aquí.
+      if (!propia) await this.abrirSurtidoDeSucursal(trx, id, sucursal, quien.userId, quien.nombre, legado?.pick_started_at ?? null);
       let cierres: CierreDePedido[];
       try {
         cierres = repartirRuta(consolidar(renglones), renglones, dto?.products ?? []);
@@ -256,7 +299,10 @@ export class PresaleRouteService {
           const m = cantidadMostrada({ quantity: Number(r.quantity), qty_unit: r.qty_unit, qty_factor: r.qty_factor });
           return { product_name: r.product_name, unit: m.unit, ordered: m.qty, picked: picked.get(r.line_id) ?? 0 };
         });
-        const base = { order_id: c.order_id, code: fila['code'] as string, customer_name: (fila['customer_name'] as string) ?? null, lines };
+        const base = {
+          order_id: c.order_id, code: fila['code'] as string, customer_name: (fila['customer_name'] as string) ?? null, lines,
+          ...grupoDe(fila),
+        };
         if (c.sin_mercancia) {
           // planearCierre rechaza el pedido vacío: no se cierra, se reporta para que lo cancelen.
           bags.push({ ...base, outcome: 'sin_mercancia', total_before: total, total_after: total });
@@ -271,7 +317,7 @@ export class PresaleRouteService {
         });
       }
 
-      await trx('commercial.seller_route_days').where({ id }).update({
+      await trx('commercial.seller_route_day_picks').where({ route_day_id: id, warehouse_id: sucursal }).update({
         pick_finished_by: quien.userId,
         pick_finished_by_name: quien.nombre,
         pick_finished_at: trx.fn.now(),
@@ -283,15 +329,19 @@ export class PresaleRouteService {
       const cortos = bags.filter((b) => b.outcome !== 'completo');
       const antes = bags.reduce((s, b) => s + b.total_before, 0);
       const despues = bags.reduce((s, b) => s + b.total_after, 0);
+      // [MCP.3.13] Con partes en otras sucursales, el aviso dice de cuál es este reporte.
+      const parte = await this.parteDeSucursal(trx, fila, sucursal);
+      const deTuRuta = parte ? `Tu ruta · parte de ${parte}` : null;
       if (cortos.length) {
         const vacios = bags.filter((b) => b.outcome === 'sin_mercancia').length;
+        const cuantos = `${cortos.length} de ${bags.length} ${bags.length === 1 ? 'pedido' : 'pedidos'} con faltantes`;
         this.avisarVendedora(
           fila,
-          `Reporte de surtido de tu ruta: ${cortos.length} de ${bags.length} ${bags.length === 1 ? 'pedido' : 'pedidos'} con faltantes`,
+          deTuRuta ? `${deTuRuta}: ${cuantos}` : `Reporte de surtido de tu ruta: ${cuantos}`,
           `Nuevo total $${despues.toFixed(2)} (antes $${antes.toFixed(2)})${vacios ? ` · ${vacios} sin mercancía: cancélalo${vacios === 1 ? '' : 's'}` : ''}`,
         );
       } else {
-        this.avisarVendedora(fila, 'Tu ruta se surtió completa', `${bags.length} ${bags.length === 1 ? 'pedido' : 'pedidos'} · listos para cobrar`);
+        this.avisarVendedora(fila, deTuRuta ? `${deTuRuta}: surtido completo` : 'Tu ruta se surtió completa', `${bags.length} ${bags.length === 1 ? 'pedido' : 'pedidos'} · listos para cobrar`);
       }
       return { route_day_id: id, bags };
     });
@@ -332,6 +382,74 @@ export class PresaleRouteService {
     const rd = await trx('commercial.seller_route_days').where({ id }).whereNull('deleted_at').forUpdate().first();
     if (!rd) throw new NotFoundException('Ruta no encontrada.');
     return rd as FilaRuta;
+  }
+
+  /**
+   * `[MCP.3.13]` La sucursal que surte: la de mis pedidos en la ruta. Si mi alcance trae pedidos de
+   * varias (modo dios), se rechaza con sus nombres: una persona recolecta en UN almacén, y repartir el
+   * dueño entre sucursales a nombre de alguien que no está ahí sería inventar quién surtió.
+   */
+  private async unaSucursal(trx: Knex.Transaction, pedidos: ReadonlyArray<{ warehouse_id: string }>): Promise<string> {
+    const ids = [...new Set(pedidos.map((p) => p.warehouse_id))];
+    if (ids.length === 1) return ids[0];
+    const ws = (await trx('commercial.warehouses').whereIn('id', ids).select('id', 'name', 'short_label')) as Array<{
+      id: string; name: string | null; short_label: string | null;
+    }>;
+    const nombres = ids.map((i) => etiquetaSucursal(ws.find((w) => w.id === i) ?? {}) ?? i).join(' y ');
+    throw new ConflictException(
+      `Esta ruta tiene pedidos de ${ids.length} sucursales en tu alcance (${nombres}): cada sucursal surte su parte. Entra con una sola sucursal para surtir la suya.`,
+    );
+  }
+
+  /**
+   * `[MCP.3.13]` El surtido de MI sucursal en la ruta (`propia`) o, si la ruta no tiene NINGUNA fila
+   * por sucursal y alguien la empezó con el modelo de un solo dueño (`seller_route_days.pick_*`), ese
+   * dueño (`legado`): una ruta a medias al desplegar se sigue respetando.
+   */
+  private async surtidoDeSucursal(
+    trx: Knex.Transaction,
+    rd: FilaRuta,
+    sucursal: string,
+  ): Promise<{ propia: SurtidoDeSucursal | null; legado: FilaRuta | null }> {
+    const filas = (await trx('commercial.seller_route_day_picks')
+      .where({ route_day_id: rd.id })
+      .forUpdate()
+      .select(
+        'warehouse_id', 'pick_started_by', 'pick_started_by_name', 'pick_started_at',
+        'pick_finished_by', 'pick_finished_by_name', 'pick_finished_at',
+      )) as SurtidoDeSucursal[];
+    const propia = filas.find((f) => f.warehouse_id === sucursal) ?? null;
+    const legado = !filas.length && rd.pick_started_by ? rd : null;
+    return { propia, legado };
+  }
+
+  /** `[MCP.3.13]` Abre el surtido de una sucursal en la ruta. `desde` = hora heredada del modelo viejo. */
+  private async abrirSurtidoDeSucursal(
+    trx: Knex.Transaction,
+    routeDayId: string,
+    warehouseId: string,
+    userId: string,
+    nombre: string,
+    desde: Date | string | null,
+  ): Promise<void> {
+    await trx.raw(
+      `INSERT INTO commercial.seller_route_day_picks
+         (tenant_id, route_day_id, warehouse_id, pick_started_by, pick_started_by_name, pick_started_at, created_by, updated_by)
+       VALUES (public.current_tenant_id(), ?, ?, ?, ?, coalesce(?::timestamptz, now()), ?, ?)
+       ON CONFLICT (tenant_id, route_day_id, warehouse_id) DO NOTHING`,
+      [routeDayId, warehouseId, userId, nombre, desde, userId, userId],
+    );
+  }
+
+  /**
+   * `[MCP.3.13]` Nombre de mi sucursal para el aviso a la vendedora, sólo si la ruta trae pedidos
+   * agrupados con otras sucursales (si no, el aviso de siempre ya es inequívoco).
+   */
+  private async parteDeSucursal(trx: Knex.Transaction, fila: FilaRutaConConteo, sucursal: string): Promise<string | null> {
+    if (!fila.group_other_warehouses?.length) return null;
+    const w = (await trx('commercial.warehouses').where({ id: sucursal }).first('name', 'short_label')) as
+      { name: string | null; short_label: string | null } | undefined;
+    return (w?.name ?? '').trim() || etiquetaSucursal(w ?? {}) || 'tu sucursal';
   }
 
   /** El día de la persona con sus pedidos dentro de la ventana (hasta ahora, si sigue en ruta). */
@@ -387,14 +505,16 @@ export class PresaleRouteService {
       .whereNull('rd.deleted_at')
       .where('o.delivery_type', 'route')
       .whereNotNull('o.requested_delivery_date')
-      .whereRaw(`(o.status = 'confirmed' OR (rd.pick_finished_at IS NOT NULL AND o.status <> 'cancelled'))`);
+      // [MCP.3.13] «Ya surtido» es por sucursal (la del pedido); `rd.pick_finished_at` queda para las
+      // rutas del modelo de un solo dueño.
+      .whereRaw(`(o.status = 'confirmed' OR ((rd.pick_finished_at IS NOT NULL OR ${SUCURSAL_YA_SURTIO_SQL}) AND o.status <> 'cancelled'))`);
     if (f.almacenes !== null) qb.whereIn('o.warehouse_id', f.almacenes);
     if (f.id) qb.where('rd.id', f.id);
     if (f.hoy) {
       const ayer = sumarDias(f.hoy, -1);
       qb.where(function () {
         this.where('rd.work_date', f.hoy as string).orWhere(function () {
-          this.where('rd.work_date', ayer).whereNull('rd.pick_finished_at');
+          this.where('rd.work_date', ayer).whereNull('rd.pick_finished_at').whereRaw(`NOT ${SUCURSAL_YA_SURTIO_SQL}`);
         });
       });
     }
@@ -409,10 +529,39 @@ export class PresaleRouteService {
         'u.username as seller_username',
         trx.raw('count(DISTINCT o.id)::int AS orders'),
         trx.raw('count(DISTINCT l.product_id)::int AS products'),
+        // [MCP.3.13] Las sucursales de mis pedidos en la ruta y los grupos a los que pertenecen.
+        trx.raw('array_agg(DISTINCT o.warehouse_id::text) AS warehouse_ids'),
+        trx.raw('array_agg(DISTINCT o.group_id::text) FILTER (WHERE o.group_id IS NOT NULL) AS group_ids'),
       )
       .orderByRaw('rd.work_date ASC, rd.finished_at ASC NULLS LAST, rd.started_at ASC')
       .limit(200);
-    return filas as FilaRutaConConteo[];
+    const rutas = filas as FilaRutaConConteo[];
+    if (!rutas.length) return rutas;
+
+    // [MCP.3.13] El surtido por sucursal de cada ruta (TODAS sus filas: sin filas = modelo viejo).
+    const picks = (await trx('commercial.seller_route_day_picks')
+      .whereIn('route_day_id', rutas.map((r) => r.id))
+      .select(
+        'route_day_id', 'warehouse_id', 'pick_started_by', 'pick_started_by_name', 'pick_started_at',
+        'pick_finished_by', 'pick_finished_by_name', 'pick_finished_at',
+      )) as Array<SurtidoDeSucursal & { route_day_id: string }>;
+    // Las partes vivas de los grupos de mis pedidos, para decir qué otras sucursales surten.
+    const grupos = [...new Set(rutas.flatMap((r) => r.group_ids ?? []))];
+    const partes = grupos.length
+      ? ((await trx('commercial.orders as g')
+          .join('commercial.warehouses as gw', function () {
+            this.on('gw.id', '=', 'g.warehouse_id').andOn('gw.tenant_id', '=', 'g.tenant_id');
+          })
+          .whereIn('g.group_id', grupos)
+          .whereNull('g.deleted_at')
+          .whereNot('g.status', 'cancelled')
+          .distinct('g.group_id', 'g.warehouse_id', 'gw.name', 'gw.short_label')) as ParteDeGrupo[])
+      : [];
+    return rutas.map((r) => ({
+      ...r,
+      picks: picks.filter((p) => p.route_day_id === r.id),
+      group_other_warehouses: otrasSucursales({ group_ids: r.group_ids ?? [], warehouse_ids: r.warehouse_ids ?? [] }, partes),
+    }));
   }
 
   /** Los renglones de los pedidos de la ruta que están por surtir, en mi alcance. */
@@ -548,30 +697,42 @@ function pedidosDe(renglones: ReadonlyArray<RenglonDeRuta & { warehouse_id: stri
   return Array.from(vistos, ([order_id, warehouse_id]) => ({ order_id, warehouse_id }));
 }
 
-function estadoDe(f: FilaRuta): RouteBatchState {
+/**
+ * `[MCP.3.13]` El estado de la ruta para quien la mira = el de SUS sucursales (`surtidoVisto`): la
+ * parte de PH surtida no vuelve «surtida» la ruta para el surtidor de LPA.
+ */
+function estadoDe(f: FilaRutaConConteo, visto: ReturnType<typeof surtidoVisto>): RouteBatchState {
   if (!f.finished_at && f.kind !== 'fuera_de_ruta') return 'en_ruta';
-  if (f.pick_finished_at) return 'surtida';
-  if (f.pick_started_at) return 'surtiendo';
+  if (visto.finished) return 'surtida';
+  if (visto.started) return 'surtiendo';
   return 'lista';
 }
 
 function aRenglon(f: FilaRutaConConteo): RouteBatchRow {
+  const visto = surtidoVisto(f, f.warehouse_ids ?? [], f.picks ?? []);
   return {
     route_day_id: f.id,
     kind: f.kind ?? 'ruta',
     seller_name: f.seller_name ?? null,
     work_date: f.work_date,
-    state: estadoDe(f),
+    state: estadoDe(f, visto),
     started_at: iso(f.started_at) as string,
     finished_at: iso(f.finished_at),
     orders: Number(f.orders) || 0,
     products: Number(f.products) || 0,
-    pick_started: f.pick_started_at
-      ? { user_id: f.pick_started_by ?? '', name: f.pick_started_by_name ?? '', at: iso(f.pick_started_at) as string }
-      : null,
-    pick_finished: f.pick_finished_at
-      ? { user_id: f.pick_finished_by ?? '', name: f.pick_finished_by_name ?? '', at: iso(f.pick_finished_at) as string }
-      : null,
+    pick_started: visto.started ? { user_id: visto.started.by, name: visto.started.name, at: iso(visto.started.at) as string } : null,
+    pick_finished: visto.finished ? { user_id: visto.finished.by, name: visto.finished.name, at: iso(visto.finished.at) as string } : null,
+    group_other_warehouses: f.group_other_warehouses ?? [],
+  };
+}
+
+/** `[MCP.3.13]` Los datos del grupo de una fila de `PresalePickingService.leer` (para la bolsa). */
+function grupoDe(fila: Record<string, unknown>): Pick<RouteBatchBag, 'group_code' | 'group_parts' | 'group_other_warehouses'> {
+  const otras = fila['group_other_warehouses'];
+  return {
+    group_code: (fila['group_code'] as string | null | undefined) ?? null,
+    group_parts: fila['group_parts'] == null ? null : Number(fila['group_parts']),
+    group_other_warehouses: Array.isArray(otras) ? otras.map(String) : [],
   };
 }
 

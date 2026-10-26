@@ -19,6 +19,7 @@ import { PresalePickingService } from '../presale-picking.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { AlmacenRutasHoyComponent } from '../surtir-ruta/almacen-rutas-hoy.component';
 import { ClientesNuevosAvisoComponent } from '../clientes-nuevos-aviso.component';
+import { textoParte } from '../surtir-ruta/ruta-surtido.util';
 
 /**
  * Preferencias guardadas en el dispositivo (almacén y origen elegidos): el surtidor no tiene por
@@ -208,6 +209,8 @@ function plural(n: number, uno: string, varios: string): string {
                 </div>
                 <strong class="sr-ped-cli">{{ p.customer_name || 'Cliente sin nombre' }}</strong>
                 @if (sinClave().has(p.order_id)) { <span class="sr-tag-nuevo">Cliente nuevo · sin clave de Kepler</span> }
+                <!-- [MCP.3.13] Parte de un pedido agrupado: el resto se surte en otra sucursal. -->
+                @if (textoParte(p); as tp) { <span class="sr-tag-parte">{{ tp }}</span> }
                 <div class="sr-datos">
                   <span class="sr-dato"><i class="pi pi-user" aria-hidden="true"></i>{{ p.seller_name || 'Sin vendedor' }}</span>
                   <span class="sr-dato">{{ plural(p.lines, 'producto', 'productos') }}</span>
@@ -271,6 +274,7 @@ function plural(n: number, uno: string, varios: string): string {
           <span class="sr-ola-code">{{ o.code }}</span>
           @if (pedidoSucursal(); as p) {
             <span class="sr-ola-ped">{{ p.customer_name || 'Cliente sin nombre' }} · {{ p.seller_name || 'Sin vendedor' }}</span>
+            @if (textoParte(p); as tp) { <span class="sr-ola-ped sr-tag-parte">{{ tp }}</span> }
             <span class="sr-ola-ped"><i class="pi pi-mobile" aria-hidden="true"></i> Lo que marques se guarda en este celular. Al terminar, lo que no hubo se quita del pedido y se le avisa a la vendedora.</span>
           } @else {
             <span class="sr-ola-ped">{{ plural(o.pedidos.length, 'pedido', 'pedidos') }}: {{ o.pedidos.join(', ') }}</span>
@@ -595,6 +599,8 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-ped-cli { font-size: var(--fs-lg); line-height: 1.2; }
     .sr-tag-tarde { font-size: var(--fs-xs); font-weight: 700; color: var(--warn-fg); }
     .sr-tag-nuevo { font-size: var(--fs-xs); font-weight: 700; color: var(--info-fg); }
+    /* [MCP.3.13] Discreto: informa, no pide acción. */
+    .sr-tag-parte { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
     .sr-btn-ped { min-height: 3.25rem; font-size: var(--fs-lg); flex-direction: row; gap: .5rem; margin-top: .2rem; }
     .sr-btn-ped i { font-size: var(--fs-lg); }
     .sr-ver-lista { align-self: flex-start; }
@@ -615,6 +621,8 @@ export class AlmacenSurtirComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly plural = plural;
+  /** [MCP.3.13] «Parte de P-10482 · también surte PH»; suelto → null. */
+  readonly textoParte = textoParte;
   readonly origenes: ReadonlyArray<{ v: Origen; l: string }> = [
     // [MCP.3.2] Sucursal primero (decisión de David, 2026-10-19): es lo que surte la sucursal.
     { v: 'SUCURSAL', l: 'Sucursal' },

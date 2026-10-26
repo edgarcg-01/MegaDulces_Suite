@@ -1,5 +1,8 @@
 import { CierreInvalido } from './presale-picking.engine';
-import { PEDIDO_EN_RUTA_SQL, consolidar, repartirRuta, type RenglonDeRuta } from './presale-route.engine';
+import {
+  PEDIDO_EN_RUTA_SQL, consolidar, etiquetaSucursal, otrasSucursales, repartirRuta, surtidoVisto,
+  type RenglonDeRuta, type SurtidoDeSucursal, type SurtidoLegado,
+} from './presale-route.engine';
 
 /**
  * `[MCP.3.6]` El pedido global de la ruta, sin base. Lo que se prueba es lo que se puede romper sin
@@ -145,5 +148,76 @@ describe('PEDIDO_EN_RUTA_SQL · la ventana de la ruta', () => {
     expect(PEDIDO_EN_RUTA_SQL).toMatch(/rd\.finished_at IS NULL OR o\.confirmed_at <= rd\.finished_at/);
     expect(PEDIDO_EN_RUTA_SQL).toMatch(/= rd\.work_date/);
     expect(PEDIDO_EN_RUTA_SQL).toMatch(/rd\.deleted_at IS NULL/);
+  });
+});
+
+// ───────────────────────────── [MCP.3.13] por sucursal ─────────────────────────────
+
+const SIN_LEGADO: SurtidoLegado = {
+  pick_started_by: null, pick_started_by_name: null, pick_started_at: null,
+  pick_finished_by: null, pick_finished_by_name: null, pick_finished_at: null,
+};
+const suc = (warehouse_id: string, p: Partial<SurtidoDeSucursal> = {}): SurtidoDeSucursal => ({
+  warehouse_id, pick_started_by: 'u-' + warehouse_id, pick_started_by_name: 'Surtidor ' + warehouse_id,
+  pick_started_at: '2026-10-23T18:00:00Z', pick_finished_by: null, pick_finished_by_name: null, pick_finished_at: null, ...p,
+});
+const terminada = (warehouse_id: string, at: string, p: Partial<SurtidoDeSucursal> = {}) =>
+  suc(warehouse_id, { pick_finished_by: 'u-' + warehouse_id, pick_finished_by_name: 'Surtidor ' + warehouse_id, pick_finished_at: at, ...p });
+
+describe('[MCP.3.13] surtidoVisto · el estado de la ruta para MIS sucursales', () => {
+  it('sin filas por sucursal manda el dueño único de siempre (rutas surtidas antes del cambio)', () => {
+    const v = surtidoVisto(
+      { ...SIN_LEGADO, pick_started_by: 'ana', pick_started_by_name: 'Ana', pick_started_at: '2026-10-22T18:00:00Z',
+        pick_finished_by: 'ana', pick_finished_by_name: 'Ana', pick_finished_at: '2026-10-22T19:00:00Z' },
+      ['lpa'], [],
+    );
+    expect(v.started).toMatchObject({ by: 'ana' });
+    expect(v.finished).toMatchObject({ by: 'ana', at: '2026-10-22T19:00:00Z' });
+  });
+
+  it('sin filas ni dueño viejo: nada empezado', () => {
+    expect(surtidoVisto(SIN_LEGADO, ['lpa'], [])).toEqual({ started: null, finished: null });
+  });
+
+  it('con filas, el dueño viejo ya no cuenta y sólo ven MIS sucursales', () => {
+    const v = surtidoVisto({ ...SIN_LEGADO, pick_finished_at: '2026-10-22T19:00:00Z' }, ['lpa'], [terminada('ph', '2026-10-23T19:00:00Z')]);
+    expect(v).toEqual({ started: null, finished: null });
+  });
+
+  it('mi sucursal abierta → empezada por quien la tiene, sin terminar', () => {
+    const v = surtidoVisto(SIN_LEGADO, ['lpa'], [terminada('ph', '2026-10-23T19:00:00Z'), suc('lpa')]);
+    expect(v.started).toMatchObject({ by: 'u-lpa' });
+    expect(v.finished).toBeNull();
+  });
+
+  it('varias sucursales (modo dios): terminada sólo cuando TODAS terminaron, con la última hora', () => {
+    const una = surtidoVisto(SIN_LEGADO, ['lpa', 'ph'], [terminada('ph', '2026-10-23T19:00:00Z')]);
+    expect(una.finished).toBeNull();
+    expect(una.started).toMatchObject({ by: 'u-ph' });
+    const dos = surtidoVisto(SIN_LEGADO, ['lpa', 'ph'], [terminada('ph', '2026-10-23T19:00:00Z'), terminada('lpa', '2026-10-23T20:00:00Z')]);
+    expect(dos.finished).toMatchObject({ by: 'u-lpa', at: '2026-10-23T20:00:00Z' });
+  });
+});
+
+describe('[MCP.3.13] otrasSucursales · quién más surte partes de la ruta', () => {
+  const parte = (group_id: string, warehouse_id: string, short_label: string | null, name: string) => ({ group_id, warehouse_id, short_label, name });
+
+  it('las de mis grupos que no son mías, sin repetir y ordenadas', () => {
+    const r = otrasSucursales(
+      { group_ids: ['g1', 'g2'], warehouse_ids: ['lpa'] },
+      [parte('g1', 'lpa', 'LPA', 'La Piedad Abastos'), parte('g1', 'ph', 'PH', 'Padre Hidalgo'), parte('g2', 'ph', 'PH', 'Padre Hidalgo'),
+        parte('g2', 'cen', null, 'Centro'), parte('g9', 'zam', 'ZAM', 'Zamora')],
+    );
+    expect(r).toEqual(['Centro', 'PH']);
+  });
+
+  it('sin grupos: ninguna', () => {
+    expect(otrasSucursales({ group_ids: [], warehouse_ids: ['lpa'] }, [parte('g1', 'ph', 'PH', 'Padre Hidalgo')])).toEqual([]);
+  });
+
+  it('la etiqueta es la corta y, si no hay, el nombre', () => {
+    expect(etiquetaSucursal({ short_label: ' PH ', name: 'Padre Hidalgo' })).toBe('PH');
+    expect(etiquetaSucursal({ short_label: '', name: 'Padre Hidalgo' })).toBe('Padre Hidalgo');
+    expect(etiquetaSucursal({})).toBeNull();
   });
 });
