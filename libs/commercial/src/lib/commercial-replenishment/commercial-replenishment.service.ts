@@ -1400,6 +1400,13 @@ export class CommercialReplenishmentService {
           trx.raw(`(${cf}) AS caja_factor`), // divisor usado (piezas o paquetes por caja)
           // [EC.U] Lo mismo en unidad nativa. El rótulo ya viaja en `rung_base_label`.
           trx.raw(`ROUND((${oh})::numeric, 2)            AS on_hand_nat`),
+          // `[AB.40]` La venta de 30 días en la MISMA unidad base que `on_hand_nat` y que el objetivo
+          // (`demandTarget()`: daily ÷ (SUF×BF) × DBF), sin temporada ni cobertura: es el ritmo contra el
+          // que se miden los días del tope de 45. NULL = el producto no está en el plan.
+          trx.raw(`CASE WHEN rpl.product_id IS NOT NULL
+                        THEN ROUND((COALESCE(rpl.daily_pieces, 0) * 30 / (COALESCE(rpl.suf, 1) * COALESCE(rpl.bf, 1))
+                                    * COALESCE(rpl.display_bf, rpl.bf, 1))::numeric, 2)
+                   END AS venta_30d_nat`),
           trx.raw(`ROUND((${itShow})::numeric, 2)        AS in_transit_nat`),
           trx.raw(`ROUND(rp.min_stock::numeric, 2)       AS min_stock_nat`),
           trx.raw(`ROUND(rp.reorder_point::numeric, 2)   AS reorder_point_nat`),

@@ -97,6 +97,8 @@ export * from './http/warehouse-orders.contract';
 export * from './http/autoabasto-pedido.contract';
 // [AB.27] La mesa de Autoabasto sobre la cuenta única del renglón.
 export * from './http/autoabasto-mesa.contract';
+// [AB.40] El motor único de cantidad (tope de 45 días) para Autoabasto y Compras.
+export * from './http/cantidad-pedido.contract';
 export * from './http/warehouse-locations.contract';
 // [GP.2] Pool de surtido con pedidos de Kepler (U-D-40) y armado de olas por tamaño.
 export * from './http/warehouse-picking-kepler.contract';

@@ -70,11 +70,13 @@ describe('[AB.26] armarRenglon — la cuenta única del renglón', () => {
     expect(linea.ajuste).toEqual({ cantidad: 5, unidad: 'CJA', motivo: 'promocion_proxima', ajustado_por: 'ana', ajustado_at: '2026-10-23T10:00:00.000Z' });
   });
 
-  it('⛔ con el peldaño contradicho el $ no se dibuja: valor y costo salen null, nunca 0', () => {
+  it('⛔ con el peldaño contradicho el $ no se dibuja (null, nunca 0) y [AB.40] tampoco se pide', () => {
     const { linea } = armarRenglon(entrada({ rung_veredicto: 'x1_inflada' }));
     expect(linea.valor).toBeNull();
     expect(linea.costo_base).toBeNull();
-    expect(linea.a_pedir.cantidad).toBe(2);
+    // D20: como /compras/pedido, con la unidad en duda la cantidad no sale; antes salía 2.
+    expect(linea.a_pedir.cantidad).toBe(0);
+    expect(linea.tope?.motivo).toBe('unidad_dudosa');
   });
 
   it('un factor de caja menor que 1 se toma como 1 (no divide entre cero)', () => {

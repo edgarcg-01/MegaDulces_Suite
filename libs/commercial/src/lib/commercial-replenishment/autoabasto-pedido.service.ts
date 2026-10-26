@@ -323,6 +323,9 @@ export class AutoabastoPedidoService {
         escalera: escaleras.get(sku) ?? null,
         ajuste: ajustes.get(productId) ?? null,
         surte: surteDe(f['replenish_via'], f['source_warehouse_code'], f['supplier_id'], f['supplier_name']),
+        // `[AB.40]` El tope de 45 días se mide en unidad base, con lo que el motor ya trae.
+        venta_30d_base: numONull(f['venta_30d_nat']),
+        existencia_base: numONull(f['on_hand_nat']),
       }) };
     });
     return { renglones, docs, planDocs, reqDocs, sinUnidad, medidos, borrador, guardable, posiciones };

@@ -16,6 +16,7 @@ import {
   posicionPedido, POSICIONES_PEDIDO, POSICIONES_PEDIDO_DEFAULT, POSICION_PEDIDO_LABEL,
   CLASES_UNIDAD, CLASE_UNIDAD_LABEL, MINIMO_VALOR_MENOR, warehouseCodeAndName,
   ESTADO_RENGLON_LABEL, resumirRenglones, esEnviable, motivoNoEnviable, yaSeMandoACompras,
+  TOPE_COBERTURA_DIAS, textoTopeBase,
   type ClaseUnidad, type PosicionPedido, type EstadoRenglon, type SurteRenglon, type ResumenMesa,
   type MotivoAjuste, type AutoabastoPedidoGrupo, type AutoabastoPedidoLinea, type AutoabastoPedidoResponse,
   type AutoabastoVieneDoc, type AutoabastoEnviarResponse,
@@ -473,6 +474,9 @@ interface Edicion {
                       }
                       @if (l.minimo_menor === 'sin_costo') {
                         <span class="ab-chip" pTooltip="No tiene costo confiable: no se pudo revisar el mínimo en unidad menor. Se deja como está." tooltipPosition="left">Mínimo sin revisar</span>
+                      }
+                      @if (avisoTope(l); as at) {
+                        <span class="ab-chip ab-chip-warn ab-why" [pTooltip]="textoTope(l)" tooltipPosition="left">{{ at }}</span>
                       }
                       @if (l.a_pedir.regla === 'sin_escalera') {
                         <span class="ab-chip" pTooltip="Kepler no trae su escalera de unidades: la cantidad no se redondeó y no se puede ajustar." tooltipPosition="left">Sin unidad</span>
@@ -1352,6 +1356,24 @@ export class AlmacenAutoabastoComponent {
 
   /** La cuenta del renglón, para auditarla: falta − ya pedido = neta → cómo se redondeó. */
   porQueAPedir(l: AutoabastoPedidoLinea): string {
+    const cuenta = this.cuentaAPedir(l);
+    // `[AB.40]` Si el motor único movió la cantidad (tope de 45 días o unidad en duda), se dice aquí.
+    const t = l.tope;
+    return t && t.motivo && t.motivo !== 'sin_medir' ? `${cuenta} ${textoTopeBase(t, null)}` : cuenta;
+  }
+
+  /** `[AB.40]` El aviso corto del renglón cuando el motor único recortó o no pidió. */
+  avisoTope(l: AutoabastoPedidoLinea): string | null {
+    switch (l.tope?.motivo) {
+      case 'recortado': return `Tope ${TOPE_COBERTURA_DIAS} días`;
+      case 'ya_pasa_sin_pedir': case 'no_cabe': return `Ya cubre ${TOPE_COBERTURA_DIAS} días`;
+      case 'unidad_dudosa': return 'Unidad en duda';
+      default: return null;
+    }
+  }
+  textoTope(l: AutoabastoPedidoLinea): string { return l.tope ? textoTopeBase(l.tope, null) : ''; }
+
+  private cuentaAPedir(l: AutoabastoPedidoLinea): string {
     const partes = [l.ya_pedido > 0 ? ` − ya pedido ${qty(l.ya_pedido)}` : '', l.en_camino > 0 ? ` − en camino ${qty(l.en_camino)}` : ''].join('');
     const resta = partes
       ? `Falta ${qty(l.falta)}${partes} = ${qty(l.falta_neta)} cajas.`

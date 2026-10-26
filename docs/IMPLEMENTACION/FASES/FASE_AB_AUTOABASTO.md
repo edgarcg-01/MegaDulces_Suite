@@ -2145,6 +2145,42 @@ renglones / $1.04 M, Morelia Abastos 250 / $1.34 M, Morelia Madero 73 / $0.18 M,
 36/36 (negativa de la regla del pedido en rojo), `test-localdb-autoabasto-borrador.js` 4/4 contra base real (negativa: el
 INSERT viejo nace con «bajo reorden»), contracts 797, reabasto 250.
 
+#### 16.18.2 🧪 [AB.40a] El motor único, primer paso: la pieza común y Autoabasto (2026-10-26)
+
+`libs/contracts/src/http/cantidad-pedido.contract.ts` — el tope de 45 días en **unidad base** (`cabeBajoTope`,
+`toparRedondeo`, `textoTopeBase`), con las reglas de `[RA.45D]` (recortar hacia abajo en la escalera: mayor entera →
+menor entera → nada; no topar lo que no se mide) y lo que Autoabasto aporta (**lo que ya viene cuenta como
+existencia** para el tope). `armarRenglon` aplica: redondeo §15.2 → tope → mínimo de $200; y con la unidad en duda
+(`rung_veredicto`) **no se pide**, como en Compras. El renglón trae `tope` (motivo, lo de antes, días) y la pantalla lo
+dice («Tope 45 días», «Ya cubre 45 días», «Unidad en duda», con su porqué). El motor publica `venta_30d_nat` (la misma
+demanda en base que el objetivo, sin temporada).
+
+**Antes → después, servicio real contra prod (sólo lectura), sugerido sin ajustes:**
+
+| | Renglones con algo que pedir | Recortados | No se piden por unidad en duda | Valor |
+|---|---:|---:|---:|---:|
+| Padre Hidalgo | 1,329 → 1,206 | 135 | 18 | $5.97 M → $5.79 M (−3 %) |
+| Canindo | 906 → 803 | 103 | 17 | $3.05 M → $2.93 M (−4 %) |
+| Morelia Abastos | 1,266 → 1,168 | 102 | 32 | $4.72 M → $4.55 M (−4 %) |
+| Las otras 5 | 3,165 → 2,553 | 44 | 53 | $2.41 M → $2.36 M (−2 a −6 %) |
+| **Red** | **6,666 → 5,730** | **384** | **120** | **$16.15 M → $15.63 M (−3 %)** |
+
+(Los renglones bajan más que los recortes porque un recorte a la unidad menor puede quedar debajo del mínimo de $200.)
+
+⛔ **Lo que esta medición dice, sin adornos:** el tope de 45 días casi no toca a Autoabasto, porque su objetivo ya es
+de 21 o 30 días; sólo muerde con temporada alta o redondeo grande (Mr Beast en Padre Hidalgo: 144 → 131 cajas, todavía
+~6× el máximo de la política). **El sobrepedido de la captura (26 % del valor sobre el máximo) NO lo resuelve D20**: viene
+de que el objetivo por demanda y la política (mín/reorden/máx) dan números muy distintos para el mismo producto. Eso es
+una pregunta abierta para el PM, no un defecto de código.
+
+Pruebas: `cantidad-pedido.spec.ts` 11 (casos con su cuenta a mano; **negativa**: sin el tope, 6 en rojo); contracts 808
+(dos pruebas viejas cambiaron a la regla nueva: con la unidad en duda ya no se pide); pantalla 38; reabasto 250.
+
+**Pendiente de AB.40:** (b) Compras adopta la pieza común en lugar de `pedido-tope.ts` y resta lo que ya viene (motor de
+PQ: coordinar en su tarjeta); (c) un solo costo (hoy Autoabasto muestra `kdik.c16` y manda `caja_cost`; medir antes cuántos
+renglones difieren y por cuánto); (d) un solo veredicto de unidad (Compras lee `v_warehouse_box_factor`, Autoabasto
+`replenishment_plan`).
+
 **D20 queda como [AB.40]**, sin construir: mueve un número que decide ~$14.7 M y toca el motor de PQ (otra fase, otra
 sesión). Orden: función de cantidad única en `libs/contracts` con su candado → antes/después por almacén y por proveedor →
 coordinar en la tarjeta de PQ → publicar fuera de horario.

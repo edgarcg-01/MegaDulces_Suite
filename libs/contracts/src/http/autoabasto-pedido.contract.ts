@@ -11,6 +11,9 @@
 // Sólo el tipo: la mesa importa valores de este archivo, y un `import type` se borra al compilar,
 // así que no arma un ciclo en tiempo de ejecución.
 import type { DiagnosticoRenglon } from './autoabasto-mesa.contract';
+// `[AB.40]` El motor único de cantidad (tope de 45 días). Este archivo le presta sólo TIPOS
+// (`import type`), así que no hay ciclo en tiempo de ejecución.
+import { toparRedondeo, type MotivoTope } from './cantidad-pedido.contract';
 
 /** La escalera de unidades de Kepler de un producto (`analytics.v_product_unit_ladder`). */
 export interface EscaleraUnidades {
@@ -417,6 +420,18 @@ export interface AutoabastoPedidoLinea {
    * la pantalla lo dice («—») en vez de dibujar ceros.
    */
   diagnostico?: DiagnosticoRenglon;
+  /**
+   * `[AB.40]` Qué le hizo el motor único a la cantidad después de la cuenta: el tope de 45 días
+   * (`recortado`, `ya_pasa_sin_pedir`, `no_cabe`), `unidad_dudosa` (no se pide), `sin_medir` (no se topó)
+   * o `null` (cabía). Opcional: un servidor anterior no lo manda.
+   */
+  tope?: {
+    motivo: MotivoTope | 'unidad_dudosa';
+    /** Lo que daba la cuenta antes del tope, en unidad base. */
+    antes_base: number;
+    dias: number | null;
+    dias_hoy: number | null;
+  };
 }
 
 // ── [AB.26] Una sola cuenta del renglón ──────────────────────────────────────────────────────
@@ -521,6 +536,12 @@ export interface EntradaRenglon {
   /** Lo que la persona dejó guardado, con su cantidad en base. */
   ajuste: (AjusteLinea & { cantidad_base: number }) | null;
   surte: SurteRenglon;
+  /**
+   * `[AB.40]` Venta de 30 días y existencia en unidad BASE, para el tope de 45 días. Opcionales: sin
+   * ellas el tope se declara «sin medir» y no recorta (nunca se topa con un número que no se tiene).
+   */
+  venta_30d_base?: number | null;
+  existencia_base?: number | null;
 }
 
 export interface RenglonArmado {
@@ -548,8 +569,22 @@ export function armarRenglon(e: EntradaRenglon): RenglonArmado {
   const caminoBase = e.viene?.camino ?? 0;
   const netaBase = Math.max(0, e.falta_base - yaBase - caminoBase);
   // Se valúa sólo si el peldaño no está contradicho (U.2) y hay costo.
-  const valuable = e.rung_veredicto == null && e.costo_base != null;
-  const minimo = aplicarMinimoMenor(redondearPedido(netaBase, e.escalera), valuable ? e.costo_base : null, e.posicion);
+  const unidadDudosa = e.rung_veredicto != null;
+  const valuable = !unidadDudosa && e.costo_base != null;
+  // `[AB.40]` D20 — el motor único: redondeo §15.2 → tope de 45 días (contando lo que ya viene) →
+  // mínimo de $200 en unidad menor. Y con la unidad en duda no se pide (como /compras/pedido): la
+  // existencia en esa unidad no es verdad, así que lo que «falta» tampoco.
+  const redondeo = redondearPedido(netaBase, e.escalera);
+  const topado = toparRedondeo(redondeo, e.escalera, {
+    venta30Base: e.venta_30d_base ?? null,
+    existenciaBase: e.existencia_base ?? 0,
+    vieneBase: yaBase + caminoBase,
+    noConfiable: unidadDudosa,
+  });
+  const sinPedir = unidadDudosa && topado.redondeo.cantidad > 0
+    ? { ...topado.redondeo, regla: 'nada' as const, cantidad: 0, cantidad_base: 0 }
+    : topado.redondeo;
+  const minimo = aplicarMinimoMenor(sinPedir, valuable ? e.costo_base : null, e.posicion);
   const aPedir = minimo.redondeo;
   const g = e.ajuste;
   const efectivoBase = g ? g.cantidad_base : aPedir.cantidad_base;
@@ -582,6 +617,13 @@ export function armarRenglon(e: EntradaRenglon): RenglonArmado {
       valor_menor: minimo.valor_menor,
       estado: estadoRenglon(e.falta_base, netaBase, e.planeado_compras, e.pedido_sucursal),
       surte: e.surte,
+      // `[AB.40]` Por qué la cantidad no es la que daba la cuenta, dicho en el renglón.
+      tope: {
+        motivo: unidadDudosa && redondeo.cantidad > 0 ? 'unidad_dudosa' : topado.motivo,
+        antes_base: redondeo.cantidad_base,
+        dias: topado.dias,
+        dias_hoy: topado.dias_hoy,
+      },
     },
     efectivo_base: efectivoBase,
     efectivo_cantidad: efectivoCant,
