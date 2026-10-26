@@ -113,6 +113,8 @@ mecanismo les sirve.
 | FCU.0.3 | Asignación confirmada renglón → unidad (tabla propia, HITL: clave del renglón de Kepler, `vehicle_id`, quién, cuándo, «no es de flota») con `tenant_id` + auditoría | ⬜ | ningún renglón asignado dos veces; un renglón cancelado en Kepler sale solo |
 | FCU.0.4 | Ficha de la unidad completa: número y nombre de la hoja, área (Transportes / reparto / TLMK…), propia o arrendada, valor y fecha de compra, vida útil, aseguradora, póliza, prima, **vence**, salario mensual del chofer (capturado) | ⬜ | las 14 de la hoja con ficha; las 2 que viajan y no están (Ford 450 NC-1134-D, Ford 550) dadas de alta o descartadas |
 | FCU.0.5 | Presupuesto anual por unidad × rubro (lo que hoy dice la hoja), carga única desde el CSV y luego editable (D5) | ⬜ | Σ por unidad = la hoja **corregida** (sin el error de la comisión) |
+| FCU.0.7 | Nómina administrativa de Logística por mes y método de reparto (tabla propia, `tenant_id` + auditoría) | ⬜ | Σ repartido = capturado, al centavo |
+| FCU.0.8 | Lectura mensual de odómetro para las unidades sin GPS (reusar la forma de `route_odometer` de RD.5 con `vehicle_id`; no una tercera tabla de km) | ⬜ | una lectura menor a la anterior se rotula, no se corrige (como RD.5) |
 | FCU.0.6 | Retirar `config_finance.costo_km_*` (14 claves de la hoja + `costo_km_estandar`) y su lectura en `logistics-expenses` | ⬜ | `shipment_expenses` sigue en 0 filas; nada más los lee (grep) |
 
 ⛔ Sin importer: el gasto se lee en vivo de `kepler_ods`; lo único propio es la asignación, la ficha y el presupuesto.
@@ -130,15 +132,59 @@ mecanismo les sirve.
 |---|---|---|---|---|
 | FCU.2.1 | `GET` costo por unidad y rango (tabla + detalle por rubro y renglón) | ⬜ | no | sólo lectura en prod, < 500 ms |
 | FCU.2.2 | `PUT` asignación renglón → unidad (una o en lote) | ⬜ | **sí** | ⛔ obligatoria, payload de la pantalla |
-| FCU.2.3 | `PUT` ficha de la unidad y presupuesto | ⬜ | **sí** | ⛔ obligatoria |
+| FCU.2.3 | `PUT` ficha de la unidad, presupuesto, nómina administrativa y lectura de odómetro | ⬜ | **sí** | ⛔ obligatoria, cada una con el payload de su pantalla |
+| FCU.2.4 | `GET` simulador de reposición (calcula, no guarda) | ⬜ | no | reproduce la tabla lateral de la hoja |
 
 ### C3 · UI
-| # | Item | Estado | `check:pantalla` |
+
+⛔⛔ **Regla de esta fase (Edgar, 2026-10-26): «TODO DEBE TENER PANTALLA».** Ninguna celda de la
+hoja se queda en «se revisa en Kepler» ni en «no está»: lo que sale de Kepler o del GPS se **ve** y
+se abre hasta su renglón; lo que no existe en ninguna fuente se **captura** en una pantalla, con su
+procedencia a la vista. La tabla de cobertura de abajo es la prueba de cierre: una celda sin
+pantalla = la fase no está terminada.
+
+| # | Pantalla (pestaña) | Qué cubre de la hoja | Estado |
 |---|---|---|---|
-| FCU.3.1 | **Flotilla › Costo por unidad**: veredicto arriba (costo del mes, $/km, % asignado), tabla por unidad (real · presupuesto · km · $/km), detalle por rubro hasta el renglón de Kepler | ⬜ | |
-| FCU.3.2 | **Gastos sin unidad**: bandeja con la sugerencia ya puesta; asignar en lote | ⬜ | |
-| FCU.3.3 | Avisos: seguro por vencer, unidad sin GPS, unidad sin viajes (hoy City Star, Kodiak y Nissan JV05705: 0 guías en 2026), gasto sin unidad del mes | ⬜ | |
-| FCU.3.4 | Ficha y presupuesto editables (sustituye capturar la hoja) | ⬜ | |
+| FCU.3.1 | **Unidades** — tablero: una fila por unidad (real · presupuesto · km · $/km · avisos), con selector de corte | TOTAL GF, TOTAL GV, TOTAL GA, TOTAL GASTO y $/km de las 14 fichas; las columnas **anual, 6 meses, 4 meses, mes, periodo de 28 días, catorcena, día y por km** | ⬜ |
+| FCU.3.2 | **Unidad** (detalle) — cada rubro de la hoja: presupuesto, real del corte, por mes/día/km, y clic hasta el renglón de Kepler, la guía o la captura de donde sale | los 15 renglones de cada ficha (placas… lubricantes, sueldos admin) | ⬜ |
+| FCU.3.3 | **Ficha** — formulario de la unidad | número de serie (VIN), número y nombre («UNIDAD 1 · INTERNATIONAL 1»), placas (la de la Suite y la de Kepler), modelo/año, **vencimiento del seguro**, aseguradora, póliza, prima, propia o arrendada, valor y fecha de compra, vida útil, valor residual, área, alias para Kepler, **salario mensual del chofer**, **km por año presupuestados**, y **lectura mensual de odómetro** para las unidades sin GPS | ⬜ |
+| FCU.3.4 | **Presupuesto** — rejilla unidades × rubros (anual), editable, con carga inicial desde la hoja | cada monto anual de las 15 fichas tal como lo captura hoy Transportes | ⬜ |
+| FCU.3.5 | **Gastos sin unidad** — bandeja de Kepler con la unidad sugerida; asignar uno o en lote, o marcar «no es de flota» | cómo cada peso real llega a su rubro y su unidad | ⬜ |
+| FCU.3.6 | **Nómina administrativa** — captura mensual de la nómina administrativa de Logística y cómo se reparte (por km del GPS o partes iguales) | SUELDOS ADMIN y GASTOS DIRECTOS | ⬜ |
+| FCU.3.7 | **Reposición** — simulador: valor de la unidad, incremento anual (5 % en la hoja), años, km por año → valor residual, depreciación acumulada y del año, $/km por año | la tabla lateral de la hoja (años 1–10) | ⬜ |
+| FCU.3.8 | **Avisos** en el tablero: seguro por vencer, unidad sin GPS ni lectura de odómetro, unidad sin viajes (hoy City Star, Kodiak y Nissan JV05705: 0 guías en 2026), gasto sin unidad del mes, rubro sin presupuesto | lo que la hoja no avisa | ⬜ |
+
+**Una sola ficha:** Flotilla › Unidades (`/logistica/fleet`) hoy edita placa, año, marca, modelo,
+capacidad, rendimiento y estado, y **no** tiene VIN ni seguro. No se hace un segundo formulario: el
+de Flotilla abre la misma Ficha (FCU.3.3), que escribe en `logistics.vehicles`.
+
+### Cobertura, celda por celda (prueba de cierre)
+
+| Celda de la hoja | De dónde sale | Pantalla |
+|---|---|---|
+| NÚMERO DE SERIE | captura | Ficha |
+| UNIDAD n y nombre | captura | Ficha; título en Unidades y Unidad |
+| PLACAS | Suite + Kepler (las dos a la vista) | Ficha; Unidades |
+| VENCIMIENTO DEL SEGURO | captura (la prima la confirma Kepler 111) | Ficha; aviso en Unidades |
+| MODELO | captura | Ficha |
+| KM X AÑO | presupuesto: captura · real: GPS o lectura de odómetro | Ficha (presupuesto y lecturas); Unidad (real) |
+| PLACAS, REFRENDO Y VERIFICACIÓN | Kepler 101 · 109 · 241 · 300 | Unidad → renglones; Presupuesto |
+| ARRENDAMIENTO / DEPRECIACIÓN | arrendada: Kepler 115 · propia: valor de compra, vida útil y residual de la Ficha | Unidad; Ficha; Reposición |
+| PENSIÓN | Kepler 205 | Unidad; Presupuesto |
+| GPS MAGNITRACKING · GPS SALVADOR | Kepler 209 (por proveedor) | Unidad; Presupuesto |
+| SEGURO | Kepler 111 + prima de la Ficha | Unidad; Ficha |
+| COMISIONES | Kepler X-A-15 `GNFC002` (054/075) por las guías de la unidad | Unidad → guías (liga a Pagos de viaje) |
+| SALARIOS | captura (Ficha: salario mensual) | Ficha; Unidad |
+| SERVICIO Y MTTO. PREVENTIVO | Kepler 076 · 240 · 267 | Unidad → renglones |
+| REPARACIONES GENERALES | Kepler 068 · 188 · 099 · 156 · 024 · 255 · 309 | Unidad → renglones |
+| NEUMÁTICOS | Kepler 044 · 045 · 200 · 025 | Unidad → renglones |
+| LUBRICANTES | Kepler 022 | Unidad → renglones |
+| GASTOS DIRECTOS · SUELDOS ADMIN | captura mensual + reparto | Nómina administrativa; Unidad |
+| TOTAL GF · TOTAL GV · TOTAL GA · TOTAL GASTO | calculado (sin el error de la hoja que omite la comisión) | Unidades; Unidad |
+| 6 MESES · 4 MESES · X MES · X PERIODO · MES · DIARIO · $/KM | calculado sobre el corte elegido | selector de corte en Unidades y Unidad |
+| Tabla lateral (valor, 5 %, residual, depreciación, km, $/km por año) | calculado | Reposición |
+| Celdas sueltas sin rótulo (fila 35–36: 67,600 · 267,280 · 334,880 · 33,488 · 241.28 · 2,895.36; fila 70–72: 690 · $225 · $1,575; junto al Kodiak: 24,000 · 200,000 · 5,555.56 · 66,666.67 · 224,000 · 259,840) | **no se sabe qué calculan** | ⚠️ preguntar a quien llena la hoja; si son cálculos vivos, tienen pantalla; si son borradores, se descartan **por escrito** |
+| *(no está en la hoja)* combustible · casetas · viáticos · carga · multas | Kepler 038 · 122/123 · 027/128 · $0.20/caja · 135 | Unidad (rubros adicionales) |
 
 ⛔ Skill `diseno` antes del primer archivo; observaciones de diseño al plan antes del primer C3.
 
@@ -149,13 +195,13 @@ con pestañas como «Pagos de viaje» (`*-tabs.ts`):
 
 | Entrada del sidebar | Pestañas | Ruta |
 |---|---|---|
-| **Costo por unidad** (`pi pi-truck`) | Por unidad · Gastos sin unidad · Fichas y presupuesto | `/logistica/costo-unidad/…` |
+| **Costo por unidad** (`pi pi-truck`) | Unidades · Gastos sin unidad · Presupuesto · Nómina administrativa · Reposición (la Ficha y el detalle de Unidad se abren desde la fila) | `/logistica/costo-unidad/…` |
 
 | # | Item | Estado |
 |---|---|---|
-| FCU.3.5 | Permiso propio `LOGISTICS_COSTO_UNIDAD_VER` (ver) y `LOGISTICS_COSTO_UNIDAD_GESTIONAR` (asignar, ficha, presupuesto) — no se reusa `LOGISTICS_EXPENSES_VER` ni `FLEET_VER` | ⬜ |
-| FCU.3.6 | Ruta gateada (`permissionGuard`), item del sidebar con `permission`, pestañas en `costo-unidad-tabs.ts`, entrada en `permission.guard.ts` (destino por permiso) | ⬜ |
-| FCU.3.7 | **Repartir** el permiso en prod (migración anclada a un hermano, idempotente, con re-login): Leonardo (`encargado_bodega`), Juan (`coordinador_embarques`), jefatura de CEDIS; ver a Finanzas si lo pide | ⬜ |
+| FCU.3.9 | Permiso propio `LOGISTICS_COSTO_UNIDAD_VER` (ver) y `LOGISTICS_COSTO_UNIDAD_GESTIONAR` (asignar, ficha, presupuesto, nómina administrativa, odómetro). ⚠️ El salario y la nómina administrativa son dato sensible: se ven sólo con GESTIONAR — no se reusa `LOGISTICS_EXPENSES_VER` ni `FLEET_VER` | ⬜ |
+| FCU.3.10 | Ruta gateada (`permissionGuard`), item del sidebar con `permission`, pestañas en `costo-unidad-tabs.ts`, entrada en `permission.guard.ts` (destino por permiso) | ⬜ |
+| FCU.3.11 | **Repartir** el permiso en prod (migración anclada a un hermano, idempotente, con re-login): Leonardo (`encargado_bodega`), Juan (`coordinador_embarques`), jefatura de CEDIS; ver a Finanzas si lo pide | ⬜ |
 
 ⛔ El módulo no está entregado hasta que el permiso está **repartido** en prod (regla 20 de `CLAUDE.md`).
 
@@ -171,7 +217,7 @@ con pestañas como «Pagos de viaje» (`*-tabs.ts`):
 | D4 | **Sueldo administrativo.** La hoja pone $82,000 idéntico en las 15 fichas (no sale de dividir nada). | Capturar la nómina administrativa de Logística del mes y **prorratearla por km del GPS** (o partes iguales si se prefiere); nunca repetirla entera por unidad. |
 | D5 | **Presupuesto.** ¿Tabla propia o el motor de Presupuestos (PU)? PU planea por cuenta × sucursal × mes, **sin dimensión de unidad**. | Extender PU con la dimensión «unidad» (aditivo) si PU lo acepta; si no, tabla propia mínima. No dos motores de presupuesto. |
 | D6 | **Universo.** La hoja tiene 14 unidades; viajan 8 de ellas + 2 que no están; 3 sin un solo viaje en 2026. | Universo = unidades con área «Transportes» en la ficha; dar de alta Ford 450 NC-1134-D y Ford 550, y que Logística decida qué hacer con City Star, Kodiak y Nissan JV05705. |
-| D7 | **Periodo.** La hoja usa 13 «periodos» al año (28 días); el pago va por catorcena (26). | Mes y catorcena; se retira el periodo de 28 días. |
+| D7 | **Periodo.** La hoja usa 13 «periodos» al año (28 días); el pago va por catorcena (26). | **Todos los cortes de la hoja** en el selector (año, 6 meses, 4 meses, mes, periodo de 28 días, catorcena, día, por km): «todo debe tener pantalla». Por defecto, mes. |
 | D8 | **Depreciación de propias.** | Línea recta: (valor de compra − residual) ÷ vida útil, prorrateada por día; residual y vida útil capturables. |
 
 ---
