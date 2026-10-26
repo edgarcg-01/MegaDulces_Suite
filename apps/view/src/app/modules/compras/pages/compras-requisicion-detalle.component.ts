@@ -7,6 +7,9 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
+import { DialogModule } from 'primeng/dialog';
+import { TextareaModule } from 'primeng/textarea';
+import { FormsModule } from '@angular/forms';
 import { MessageService } from 'primeng/api';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -20,7 +23,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-requisicion-detalle',
   standalone: true,
-  imports: [RouterLink, CommonModule, ButtonModule, TableModule, TagModule, ToastModule, MetricStripComponent, SucursalPipe],
+  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, TagModule, ToastModule, DialogModule, TextareaModule, MetricStripComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -34,6 +37,10 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               {{ r.folio }}
               @if (r.source_type === 'branch') {
                 <p-tag value="Traspaso" severity="info"></p-tag>
+              }
+              <!-- [AB.29] La pidió una sucursal desde Autoabasto: rechazarla pide motivo. -->
+              @if (r.requested_by_branch) {
+                <p-tag value="Pedida por la sucursal" severity="info"></p-tag>
               }
               <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
             </h1>
@@ -62,7 +69,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                         [attr.title]="'Trae el costo de hoy a cada renglón. No cambia las cantidades.'"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Recalcular costos</span></button>
               }
               @if (r.estado === 'pending_approval') {
-                <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="reject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+                <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="abrirRechazo()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
                 <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="approve()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
               } @else if (r.estado === 'approved') {
                 <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="generatePO()"><span class="p-button-icon p-button-icon-left pi" [ngClass]="r.source_type === 'branch' ? 'pi-send' : 'pi-shopping-cart'" aria-hidden="true"></span><span class="p-button-label">{{ r.source_type === 'branch' ? 'Generar orden de traspaso' : 'Generar orden de compra' }}</span></button>
@@ -168,9 +175,39 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       } @else if (!loading()) {
         <p class="rd-empty">Requisición no encontrada.</p>
       }
+      <!-- [AB.32] Rechazar: si la pidió una sucursal, el motivo es obligatorio y la sucursal lo ve. -->
+      <p-dialog [visible]="rechazoAbierto()" (visibleChange)="rechazoAbierto.set($event)" [modal]="true" [style]="{ width: '32rem' }"
+                [breakpoints]="{ '40rem': '95vw' }" header="Rechazar requisición" [dismissableMask]="!busy()">
+        <p class="rd-rech-p">
+          @if (req()?.requested_by_branch) {
+            La pidió una sucursal desde Autoabasto: <strong>escribe el motivo</strong>. La sucursal lo va a ver para saber si volver a pedirlo.
+          } @else {
+            Puedes dejar el motivo; queda guardado con quién la rechazó y cuándo.
+          }
+        </p>
+        <label class="rd-rech-lab" for="rd-rech-motivo">Motivo @if (!req()?.requested_by_branch) { <span class="rd-muted">(opcional)</span> }</label>
+        <textarea pTextarea id="rd-rech-motivo" class="rd-rech-motivo" rows="3" maxlength="500"
+                  [ngModel]="motivoRechazo()" (ngModelChange)="motivoRechazo.set($event)"
+                  placeholder="Por ejemplo: la matriz no tiene existencia; se compra directo la otra semana"></textarea>
+        <ng-template #footer>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="rechazoAbierto.set(false)" [disabled]="busy()">
+            <span class="p-button-label">Cancelar</span>
+          </button>
+          <button pButton type="button" class="p-button-sm p-button-danger" (click)="reject()"
+                  [disabled]="busy() || (!!req()?.requested_by_branch && !motivoRechazo().trim())">
+            <span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span>
+            <span class="p-button-label">Rechazar</span>
+          </button>
+        </ng-template>
+      </p-dialog>
     </div>
   `,
   styles: [`
+    /* [AB.32] Rechazar con motivo */
+    .rd-rech-p { margin: 0 0 .6rem; font-size: var(--fs-sm); line-height: 1.45; }
+    .rd-rech-lab { display: block; margin-bottom: .25rem; font-size: var(--fs-sm); font-weight: 600; }
+    .rd-rech-motivo { width: 100%; }
+    .rd-muted { color: var(--text-muted); font-weight: 400; }
     :host { display: block; }
     .rd-back { margin-bottom: .25rem; margin-left: -.5rem; }
     .surf-page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
@@ -224,6 +261,8 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
       { label: 'Creada', value: fmtDate(r.created_at), format: 'text' },
     ];
     if (r.notes) items.push({ label: 'Nota', value: r.notes, format: 'text' });
+    // `[AB.32]` Por qué se rechazó, con la misma voz que la ve la sucursal.
+    if (r.rejection_reason) items.push({ label: 'Motivo del rechazo', value: r.rejection_reason, format: 'text', tone: 'bad' });
     return items;
   }
   loading = signal(true);
@@ -376,11 +415,20 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
     return { cls: 'rd-vig-mal', icono: 'pi-exclamation-triangle',
       texto: `${v.movidos} de ${v.medibles} renglones ya no tienen el costo de hoy: ${this.money(v.monto_capturado)} capturados contra ${this.money(v.monto_hoy)} actuales (${v.delta >= 0 ? '+' : ''}${this.money(v.delta)})${cola}${edad}. Recalcula antes de aprobar — aprobar está frenado hasta entonces.` };
   }
+  /** `[AB.32]` Rechazar pasa por el diálogo: una de sucursal exige motivo (el servidor también). */
+  readonly rechazoAbierto = signal(false);
+  readonly motivoRechazo = signal('');
+  abrirRechazo(): void {
+    this.motivoRechazo.set('');
+    this.rechazoAbierto.set(true);
+  }
   reject(): void {
+    const motivo = this.motivoRechazo().trim();
+    if (this.req()?.requested_by_branch && !motivo) return;
     this.busy.set(true);
-    this.api.reject(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.busy.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada' }); this.load(); },
-      error: () => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo rechazar.' }); },
+    this.api.reject(this.id, motivo || null).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.busy.set(false); this.rechazoAbierto.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada' }); this.load(); },
+      error: (e) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo rechazar', detail: e?.error?.message || 'Intenta de nuevo.' }); },
     });
   }
   /** RA.15 — genera la OC desde la requisición aprobada y navega a ella. */

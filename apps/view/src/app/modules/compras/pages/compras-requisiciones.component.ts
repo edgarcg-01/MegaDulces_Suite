@@ -15,6 +15,7 @@ import { TagModule } from 'primeng/tag';
 import { TabsModule } from 'primeng/tabs';
 import { ToastModule } from 'primeng/toast';
 import { DialogModule } from 'primeng/dialog';
+import { TextareaModule } from 'primeng/textarea';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { MessageService } from 'primeng/api';
 import { ComprasService, RequisitionRow, RequisitionEstado, RequisitionResumen, RequisitionBatchRow } from '../compras.service';
@@ -32,7 +33,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-requisiciones',
   standalone: true,
-  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, TagModule, TabsModule, ToastModule, DialogModule, MetricStripComponent, SegmentedComponent, InputTextModule, IconFieldModule, InputIconModule, SucursalPipe],
+  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, TagModule, TabsModule, ToastModule, DialogModule, TextareaModule, MetricStripComponent, SegmentedComponent, InputTextModule, IconFieldModule, InputIconModule, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -56,6 +57,13 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <div class="rq-lote-cab" role="status">
           <button pButton type="button" class="p-button-sm p-button-text" (click)="quitarKepler()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Quitar filtro</span></button>
           <span>Mostrando sólo <strong>aprobadas sin documento en Kepler</strong>: salieron mal o nunca se empujaron. Abrí una para reintentar o cancelarla con motivo.</span>
+        </div>
+      }
+      <!-- [AB.32] Lo que pidieron las sucursales desde Autoabasto. El filtro se ve y se quita, igual que el de Kepler. -->
+      @if (fDeSucursal) {
+        <div class="rq-lote-cab" role="status">
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="toggleDeSucursal()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Quitar filtro</span></button>
+          <span>Mostrando sólo lo que <strong>pidieron las sucursales</strong> desde Autoabasto. Rechazar una pide motivo: la sucursal lo ve.</span>
         </div>
       }
 
@@ -177,7 +185,9 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               </td>
               <td class="rq-r">{{ r.total_lines | number }}</td>
               <td class="rq-r">{{ money(r.total_cost) }}</td>
-              <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag></td>
+              <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+                    @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
+                    @if (r.rejection_reason) { <div class="rq-sub rq-motivo">Motivo: {{ r.rejection_reason }}</div> }</td>
               <td class="rq-r" [class.rq-viejo]="(r.dias ?? 0) > 30">{{ r.dias ?? '—' }}</td>
               <td><p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag></td>
               <td><i class="pi pi-angle-right rq-muted"></i></td>
@@ -222,6 +232,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <input pInputText type="text" [(ngModel)]="fBuscar" (keyup.enter)="reload()"
                        placeholder="Folio, proveedor o lote…" aria-label="Buscar requisición" />
               </p-iconfield>
+              <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!fDeSucursal" [attr.aria-pressed]="fDeSucursal"
+                      (click)="toggleDeSucursal()"><span class="p-button-icon p-button-icon-left pi pi-shop" aria-hidden="true"></span><span class="p-button-label">Pedidas por sucursal</span></button>
               <!-- [RQ.4] Mover las 610 pendientes exigia abrir 610 fichas: el costo de la bandeja
                    ERA el tramite. La barra solo existe cuando hay algo marcado -- un boton de lote
                    permanentemente apagado es ruido, no informacion. -->
@@ -229,7 +241,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <div class="rq-lote" role="group" aria-label="Acciones en lote">
                   <span class="rq-lote-n">{{ sel().size }} marcada(s)</span>
                   <button pButton type="button" class="p-button-sm" [disabled]="!canAutorizar || busy()" (click)="lote('approve')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
-                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [disabled]="!canAutorizar || busy()" (click)="lote('reject')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [disabled]="!canAutorizar || busy()" (click)="abrirRechazo()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
                   <button pButton type="button" class="p-button-sm p-button-text" (click)="limpiarMarcas()"><span class="p-button-label">Quitar marcas</span></button>
                 </div>
               }
@@ -256,6 +268,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rq-r">{{ money(r.total_cost) }}</td>
                   <td class="rq-estado">
                     <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+                    @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
+                    @if (r.rejection_reason) { <div class="rq-sub rq-motivo">Motivo: {{ r.rejection_reason }}</div> }
                     <!-- [PQ.1] Una aprobada SIN documento en Kepler no es una aprobada: medido el
                          2026-10-23, 680 por $19.05 M se veían idénticas a una escrita en el ERP. -->
                     @if (r.estado === 'approved') {
@@ -313,6 +327,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <input pInputText type="text" [(ngModel)]="fBuscar" (keyup.enter)="reload()"
                        placeholder="Folio, proveedor o lote…" aria-label="Buscar requisición" />
               </p-iconfield>
+              <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!fDeSucursal" [attr.aria-pressed]="fDeSucursal"
+                      (click)="toggleDeSucursal()"><span class="p-button-icon p-button-icon-left pi pi-shop" aria-hidden="true"></span><span class="p-button-label">Pedidas por sucursal</span></button>
               <!-- [RQ.4] Mover las 610 pendientes exigia abrir 610 fichas: el costo de la bandeja
                    ERA el tramite. La barra solo existe cuando hay algo marcado -- un boton de lote
                    permanentemente apagado es ruido, no informacion. -->
@@ -320,7 +336,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <div class="rq-lote" role="group" aria-label="Acciones en lote">
                   <span class="rq-lote-n">{{ sel().size }} marcada(s)</span>
                   <button pButton type="button" class="p-button-sm" [disabled]="!canAutorizar || busy()" (click)="lote('approve')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
-                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [disabled]="!canAutorizar || busy()" (click)="lote('reject')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [disabled]="!canAutorizar || busy()" (click)="abrirRechazo()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
                   <button pButton type="button" class="p-button-sm p-button-text" (click)="limpiarMarcas()"><span class="p-button-label">Quitar marcas</span></button>
                 </div>
               }
@@ -351,6 +367,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rq-r">{{ money(r.total_cost) }}</td>
                   <td class="rq-estado">
                     <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+                    @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
+                    @if (r.rejection_reason) { <div class="rq-sub rq-motivo">Motivo: {{ r.rejection_reason }}</div> }
                     <!-- [PQ.1] Una aprobada SIN documento en Kepler no es una aprobada: medido el
                          2026-10-23, 680 por $19.05 M se veían idénticas a una escrita en el ERP. -->
                     @if (r.estado === 'approved') {
@@ -409,6 +427,28 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           </button>
         </ng-template>
       </p-dialog>
+
+      <!-- [AB.32] Rechazar en lote: una requisición que pidió una sucursal no se rechaza sin decirle por qué. -->
+      <p-dialog [visible]="rechazoAbierto()" (visibleChange)="rechazoAbierto.set($event)" [modal]="true" [style]="{ width: '32rem' }"
+                [breakpoints]="{ '40rem': '95vw' }" header="Rechazar requisiciones" [dismissableMask]="!busy()">
+        <p class="rq-rech-p">Vas a rechazar <strong>{{ sel().size }}</strong> requisición(es).
+          @if (marcadasDeSucursal(); as k) { <strong>{{ k }}</strong> {{ k === 1 ? 'la pidió una sucursal' : 'las pidieron sucursales' }}: el motivo es obligatorio y la sucursal lo va a ver. }
+        </p>
+        <label class="rq-rech-lab" for="rq-rech-motivo">Motivo @if (!marcadasDeSucursal()) { <span class="rq-muted">(opcional)</span> }</label>
+        <textarea pTextarea id="rq-rech-motivo" class="rq-rech-motivo" rows="3" maxlength="500"
+                  [ngModel]="motivoRechazo()" (ngModelChange)="motivoRechazo.set($event)"
+                  placeholder="Por ejemplo: la matriz no tiene existencia; se compra directo la otra semana"></textarea>
+        <ng-template #footer>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="rechazoAbierto.set(false)" [disabled]="busy()">
+            <span class="p-button-label">Cancelar</span>
+          </button>
+          <button pButton type="button" class="p-button-sm p-button-danger" (click)="confirmarRechazo()"
+                  [disabled]="busy() || (marcadasDeSucursal() > 0 && !motivoRechazo().trim())">
+            <span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span>
+            <span class="p-button-label">Rechazar</span>
+          </button>
+        </ng-template>
+      </p-dialog>
     </div>
   `,
   styles: [`
@@ -439,6 +479,12 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                border: 1px solid var(--surface-border); }
     .rq-pill-buy { color: var(--action); border-color: var(--action); }
     .rq-pill-tr  { color: var(--text-muted); }
+    /* [AB.32] Pedida por una sucursal, y el porqué si se rechazó */
+    .rq-pill-suc { color: var(--info-fg); border-color: var(--info-fg); margin-left: .3rem; }
+    .rq-motivo { color: var(--bad-soft-fg); font-size: var(--fs-xs); margin-top: .15rem; }
+    .rq-rech-p { margin: 0 0 .6rem; font-size: var(--fs-sm); line-height: 1.45; }
+    .rq-rech-lab { display: block; margin-bottom: .25rem; font-size: var(--fs-sm); font-weight: 600; }
+    .rq-rech-motivo { width: 100%; }
     .rq-flecha { margin: 0 .3rem; font-size: var(--fs-xs); }
     .rq-chk { width: 2.25rem; text-align: center; }
     .rq-chk input { cursor: pointer; }
@@ -489,6 +535,11 @@ export class ComprasRequisicionesComponent implements OnInit {
   fEstado: string = 'pending_approval';
   /** `[PQ.1]` `'sin_documento'` = sólo aprobadas sin folio de Kepler. Lo pone el drill de la casilla. */
   fKepler: 'sin_documento' | null = null;
+  /** `[AB.32]` Sólo lo que pidieron las sucursales desde Autoabasto (`?de_sucursal=1` también lo pone). */
+  fDeSucursal = false;
+  /** `[AB.32]` Rechazar en lote: el diálogo y el motivo. */
+  readonly rechazoAbierto = signal(false);
+  readonly motivoRechazo = signal('');
   /** `[RQ.9]` Sucursal y buscador: el backend ya los aceptaba, la pantalla nunca los ofreció. */
   fAlmacen: string | null = null;
   fBuscar = '';
@@ -558,6 +609,7 @@ export class ComprasRequisicionesComponent implements OnInit {
     if (qTab === 'branch' || qTab === 'traspaso' || qTab === 'traspasos') {
       this.tab.set('branch');
     }
+    this.fDeSucursal = this.route.snapshot.queryParamMap.get('de_sucursal') === '1';
     // `[RQ.9]` El catálogo de sucursales sale del MISMO /filters que usa Pedido. No se traga el
     // error: sin lista, el selector queda mudo y nadie sabe por qué (DESIGN §Ing.UI 6).
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -643,6 +695,7 @@ export class ComprasRequisicionesComponent implements OnInit {
     this.api.listRequisitions({
       estado: this.fEstado || undefined,
       kepler: this.fKepler || undefined,   // `[PQ.1]`
+      de_sucursal: this.fDeSucursal || undefined,   // `[AB.32]`
       // `[RQ.11]` Misma razón: los documentos DE UN LOTE son de los dos tipos, y el resumen que
       // alimenta el tablero de arriba tiene que contar el universo entero, no media pestaña.
       source_type: (this.vista() === 'lote' || this.loteAbierto()) ? undefined : this.tab(),
@@ -723,6 +776,26 @@ export class ComprasRequisicionesComponent implements OnInit {
     this.reload();
   }
   quitarKepler(): void { this.fKepler = null; this.reload(); }
+  toggleDeSucursal(): void { this.fDeSucursal = !this.fDeSucursal; this.reload(); }
+
+  /** `[AB.32]` Cuántas de las marcadas pidió una sucursal: si hay alguna, el motivo es obligatorio. */
+  readonly marcadasDeSucursal = computed<number>(() => {
+    const sel = this.sel();
+    return this.rows().filter((r) => sel.has(r.id) && r.requested_by_branch).length;
+  });
+
+  abrirRechazo(): void {
+    if (!this.sel().size) return;
+    this.motivoRechazo.set('');
+    this.rechazoAbierto.set(true);
+  }
+
+  confirmarRechazo(): void {
+    const motivo = this.motivoRechazo().trim();
+    if (this.marcadasDeSucursal() > 0 && !motivo) return;
+    this.rechazoAbierto.set(false);
+    this.lote('reject', motivo || null);
+  }
   /**
    * Tres etiquetas para tres ausencias que no son la misma (ADR-056): salió · salió mal · nunca
    * se empujó. Si la fila no trae las columnas (servidor viejo) se dice «sin medir», no «sin empujar».
@@ -845,11 +918,11 @@ export class ComprasRequisicionesComponent implements OnInit {
       });
   }
 
-  lote(accion: 'approve' | 'reject'): void {
+  lote(accion: 'approve' | 'reject', motivo: string | null = null): void {
     const ids = [...this.sel()];
     if (!ids.length) return;
     this.busy.set(true);
-    this.api.bulkRequisiciones(ids, accion).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.api.bulkRequisiciones(ids, accion, motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.busy.set(false);
         const verbo = accion === 'approve' ? 'aprobada(s)' : 'rechazada(s)';

@@ -448,3 +448,46 @@ describe('[PQ.1] aprobada ≠ escrita en Kepler', () => {
   });
 });
 
+
+describe('[AB.32] rechazar lo que pidió una sucursal exige motivo', () => {
+  const DE_SUCURSAL = { ...FILA, id: '9f3c1a2b-0000-4000-8000-000000000002', folio: 'RQ-2026-00043', requested_by_branch: true };
+  function montarConSucursal(bulk: (ids: string[], accion: string, motivo: string | null) => unknown) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [ComprasRequisicionesComponent],
+      providers: [
+        provideRouter([]),
+        { provide: ComprasService, useValue: apiFalsa({
+          listRequisitions: () => of({ rows: [FILA, DE_SUCURSAL], total: 2 }),
+          bulkRequisiciones: bulk,
+        }) },
+      ],
+    });
+    return porDocumento(TestBed.createComponent(ComprasRequisicionesComponent));
+  }
+
+  it('la fila de sucursal se marca, y con una marcada el rechazo no sale sin motivo', () => {
+    const llamadas: Array<[string[], string, string | null]> = [];
+    const fix = montarConSucursal((ids, accion, motivo) => { llamadas.push([ids, accion, motivo]); return of({ pedidas: 1, hechas: 1, ok: ids, fallas: [] }); });
+    const c = fix.componentInstance;
+    expect((fix.nativeElement as HTMLElement).textContent).toContain('DE SUCURSAL');
+    c.marcar(DE_SUCURSAL.id, true);
+    expect(c.marcadasDeSucursal()).toBe(1);
+    c.abrirRechazo();
+    c.confirmarRechazo();                 // sin motivo
+    expect(llamadas).toEqual([]);
+    c.motivoRechazo.set('  la matriz no tiene  ');
+    c.confirmarRechazo();
+    expect(llamadas).toEqual([[[DE_SUCURSAL.id], 'reject', 'la matriz no tiene']]);
+  });
+
+  it('una de Compras se sigue rechazando sin motivo', () => {
+    const llamadas: Array<[string[], string, string | null]> = [];
+    const c = montarConSucursal((ids, accion, motivo) => { llamadas.push([ids, accion, motivo]); return of({ pedidas: 1, hechas: 1, ok: ids, fallas: [] }); }).componentInstance;
+    c.marcar(FILA.id, true);
+    expect(c.marcadasDeSucursal()).toBe(0);
+    c.abrirRechazo();
+    c.confirmarRechazo();
+    expect(llamadas).toEqual([[[FILA.id], 'reject', null]]);
+  });
+});
