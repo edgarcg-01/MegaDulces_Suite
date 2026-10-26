@@ -41,11 +41,14 @@ export const OperationsPreset = definePreset(Aura, {
     },
     colorScheme: {
       light: {
+        // `[AUD.4]` 2026-10-26: el botón primario en claro era #F05A28 con texto blanco = 3.39:1
+        // (AA pide 4.5). Igual que --action en tokens.css: #C8401A = 5.00:1, hover 5.68, press 7.26.
+        // La rampa de arriba no cambia (500 sigue siendo el sunset de marca y el anillo de foco).
         primary: {
-          color: '#F05A28',
+          color: '#C8401A',
           contrastColor: '#FFFFFF',
-          hoverColor: '#D2451C',
-          activeColor: '#B83C15',
+          hoverColor: '#B83C15',
+          activeColor: '#9C3311',
         },
         highlight: {
           background: 'rgba(240, 90, 40, 0.12)',

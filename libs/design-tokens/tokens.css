@@ -188,7 +188,12 @@
   /* Color de texto. Namespace --text-* = COLOR (no tamaño; el tamaño es --fs-*). */
   --text-main:     var(--neutral-950);
   --text-muted:    var(--neutral-600);
-  --text-faint:    var(--neutral-400);
+  /* `[AUD.4]` 2026-10-26 (Edgar: «hay que corregirlos»). Era --neutral-400 (#A1A1AA): 2.56:1 sobre
+     tarjeta, 2.46 sobre ground y 2.33 sobre layout, y es el color de ~984 usos (encabezados de
+     tabla, rótulos, migas, metadatos) a 11–13 px. AA pide 4.5:1. #6B6B74 da 5.28 / 5.05 / 4.80
+     y sigue un escalón debajo de --text-muted (7.7:1): la jerarquía de tres niveles se conserva.
+     Va fuera de la rampa a propósito: --neutral-500 (#71717A) daba 4.40 sobre layout. */
+  --text-faint:    #6B6B74;
   --text-disabled: rgba(9, 9, 11, 0.45);
 
   /* Alias de foreground con nombre no ambiguo — preferir en código nuevo. */
@@ -217,9 +222,11 @@
                         §datos densos 13 y WCAG 1.4.11 exigen para un indicador de foco.
      Medido en los cuatro fondos: el translúcido daba 1.41–1.52:1 (FALLA en los cuatro);
      el sólido da 3.08 (ground claro) · 3.39 (tarjeta clara) · 5.23 y 5.87 en oscuro.
-     ⚠️ Nota de precisión: 3.39:1 es el MISMO número que hace fallar a --action-ink, y acá
-     PASA. No es contradicción: un indicador de foco pide 3:1 y un texto pide 4.5:1.
-     El mismo contraste, dos pisos distintos, dos veredictos distintos. */
+     ⚠️ Nota de precisión: 3.39:1 era el MISMO número que hacía fallar a --action-ink, y acá
+     PASABA. No es contradicción: un indicador de foco pide 3:1 y un texto pide 4.5:1.
+     El mismo contraste, dos pisos distintos, dos veredictos distintos.
+     `[AUD.4]` 2026-10-26: --action en claro pasó a #C8401A, así que el anillo sólido en claro
+     sube a 5.00 (tarjeta) · 4.54 (layout). Las cifras de arriba son del sunset #F05A28. */
   --focus-ring:            var(--action);
 
   /* ── ROLES DE COLOR (capa de composición) ────────────────────────────────
@@ -384,8 +391,19 @@ body.theme-monochrome {
 
   --text-main:     #FAFAFA;   /* zinc-50  */
   --text-muted:    #A1A1AA;   /* zinc-400 */
-  --text-faint:    #71717A;   /* zinc-500 */
+  /* `[AUD.4]` 2026-10-26: era #71717A (zinc-500), 3.67:1 sobre tarjeta y 3.08 sobre hover.
+     #8B8B94 da 5.25 tarjeta · 5.89 layout · 5.59 ground · 4.41 hover. */
+  --text-faint:    #8B8B94;
   --text-disabled: rgba(250, 250, 250, 0.45);
+
+  /* `[AUD.4]` La acción en oscuro conserva el sunset (#F05A28: 5.23:1 como texto sobre tarjeta)
+     y lleva TINTA OSCURA: blanco sobre sunset daba 3.39:1. El hover aclara en vez de oscurecer
+     porque la tinta es oscura (#18181B sobre #F2744E = 6.23:1). */
+  --action:       #F05A28;
+  --action-hover: #F2744E;
+  --action-press: #F5957A;
+  --action-ink:   #18181B;
+  --action-ring:  rgba(240, 90, 40, 0.30);
 
   --shadow-light:  0 1px 3px rgba(0, 0, 0, 0.5);
   --shadow-hover:  0 0 20px rgba(251, 244, 233, 0.08);
@@ -472,11 +490,17 @@ body.theme-monochrome {
      hiciera falta recuperarla. La calidez de marca vive en --brand-*,
      --action y --ember-*, no en el sustrato. */
 
-  --action:       #F05A28;
-  --action-hover: #D2451C;
-  --action-press: #B83C15;
+  /* `[AUD.4]` 2026-10-26 — la acción en CLARO baja un escalón el sunset. #F05A28 con texto blanco
+     daba 3.39:1 (botón principal) y como texto naranja sobre blanco lo mismo: ~579 usos de
+     `color: var(--action)` debajo de AA. #C8401A da 5.00:1 con tinta blanca y, como texto, 5.00
+     sobre tarjeta · 4.79 ground · 4.54 layout. El sunset #F05A28 sigue siendo la marca
+     (--brand-700) y la acción del modo oscuro (override en `.theme-monochrome`).
+     Hover 5.68:1 · press 7.26:1. */
+  --action:       #C8401A;
+  --action-hover: #B83C15;
+  --action-press: #9C3311;
   --action-ink:   #FFFFFF;
-  --action-ring:  rgba(240, 90, 40, 0.30);
+  --action-ring:  rgba(200, 64, 26, 0.30);
 
   /* Radii — single source. sm=chips/tags, md=controles/botones, lg=tarjetas,
      xl=tarjetas grandes, 2xl=hero/sheets, pill=full rounded. */

@@ -230,6 +230,21 @@ Y dos corolarios que ya costaron:
 
 ## 5. El recorrido, en orden
 
+⛔ **Primero el diseño en grande, después los detalles** (Edgar, 2026-10-26: *«revisa el diseño en
+general, estructura, colores, jerarquía de información; no puedes basar tu diseño en pequeñas
+cosas»*). Antes de cualquier acento o ratio suelto, contesta con la pantalla viva:
+
+1. **Estructura:** ¿cuánto de la primera pantalla es marco y cuánto trabajo? (medir dónde empieza el trabajo).
+2. **Jerarquía:** mide la escala tipográfica REAL de lo que contesta la pantalla contra lo que la rodea.
+   Si un encabezado de columna es más grande que el veredicto, ése es el hallazgo principal.
+3. **Color:** ¿cuántos roles cumple el color de acción? Cuenta los elementos. Si son decenas, no significa nada.
+4. **Agrupación:** ¿se agrupa con espacio o con cajas? Cuenta los contenedores anidados.
+5. **Flujo por rol:** ¿qué ve primero cada persona que entra, y es lo suyo?
+
+Los detalles (acentos, un ratio, 10 px) van **después**, como síntomas de esto. *El caso:
+`/finanzas/calendario-pagos` — se entregaron 12 detalles y no se dijo que el veredicto medía 14 px
+contra 16 px de los encabezados de columna, ni que había 47 textos en naranja de acción.*
+
 ```bash
 # 1 · ¿La pantalla usa el sistema, o es deuda? Cero hits = el hallazgo principal es ése.
 M=apps/view/src/app/modules/<ruta>
