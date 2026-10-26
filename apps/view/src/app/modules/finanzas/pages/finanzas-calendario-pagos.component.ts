@@ -532,6 +532,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                      pero no se puede decidir lo que no se ve. Medido: 54 acreedores con deuda
                                      viva traen $4,484,249 a favor; varios quedarian en CERO. -->
                                 @if (f.credito; as c) { <span class="pg-favor"><i class="pi pi-replay" aria-hidden="true"></i>{{ c }}</span> }
+                                <!-- [PGP.16] Lo que cuesta pagarla antes de su vencimiento. Medido:
+                                     el 17.9% del dinero sale antes de tiempo, 6 dias en promedio.
+                                     Se calla cuando el pronto pago gana mas de lo que cuesta. -->
+                                @if (f.adelanto; as a) { <span class="pg-pronto-no"><i class="pi pi-clock" aria-hidden="true"></i>{{ a }}</span> }
                               </span>
                             </span>
                             <span class="pg-dr-due">{{ f.vence }}</span>
@@ -742,6 +746,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
        (regla #5 de DESIGN.md, y lo unico que sobrevive a forced-colors). */
     .pg-favor { display:inline-flex; align-items:center; gap:4px; margin-left:var(--sp-1);
       font-size:var(--fs-nano); font-weight:700; color:var(--warn-fg); }
+    /* [PGP.16] El costo de adelantar: terciario a proposito. Es un dato para decidir, no una
+       alarma -la propuesta ya no adelanta nada por su cuenta-. */
+    .pg-pronto-no { display:inline-flex; align-items:center; gap:4px; margin-left:var(--sp-1);
+      font-size:var(--fs-nano); color:var(--text-muted); }
 
     /* ── Encabezado y lienzo ─────────────────────────────────────────── */
     .pg-head { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; }
@@ -1142,6 +1150,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       return {
         o, pronto,
         credito: cr ? `trae ${this.money(cr.a_favor)} a favor sin aplicar (${cr.clases.toLowerCase()})` : null,
+        // [PGP.16] El costo de adelantar el pago. Pedido de Edgar: «hay que hacer los pagos lo
+        // mas cercano a la fecha de vencimiento».
+        adelanto: this.adelantoDe(o),
         sucursal: this.branchLabel(o.branch_code),
         vence: this.venceTxt(o),
         importe: this.money(o.available_amount),
@@ -1682,6 +1693,45 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * `[PGP.14]` Lo que decide en la deuda no es la fecha suelta sino **cuánto lleva vencida**. Antes:
    * «14 ene» sin año junto a «1 ene 25» con un año de dos dígitos que se leía como día, todo en rojo.
    */
+  /**
+   * `[PGP.16]` **Lo que cuesta pagar antes de tiempo** — pedido de Edgar el 2026-10-26: *«hay que
+   * hacer los pagos lo más cercano a la fecha de vencimiento»*.
+   *
+   * El dinero que sale antes de su vencimiento es dinero que deja de estar en la cuenta sin que
+   * nadie lo haya decidido. Medido contra prod ese día (Oficinas, 90 días, 8,835 aplicaciones
+   * casadas por `kdxf` contra el vencimiento de su factura):
+   *
+   * | cuándo sale | del monto |
+   * |---|---|
+   * | antes del vencimiento | **17.9 %** · $29,714,126 · 6 días antes en promedio |
+   * | el día del vencimiento | 10.3 % |
+   * | después | 71.8 % (la mediana es **1 día después**) |
+   *
+   * Adelantar esos $29.7 M cuesta ≈ **$73,704 por trimestre** al 12 % anual.
+   *
+   * ⛔ **No bloquea nada.** La propuesta ya toma sólo lo vencido o que vence ese día; esto es para
+   * lo que alguien agrega **a mano** desde el cajón. Y tiene una excepción medida: si la factura
+   * pierde su descuento por pronto pago antes del vencimiento, **adelantarla conviene** — por eso
+   * el aviso se calla cuando el descuento supera el costo de adelantar.
+   *
+   * ⚠️ **La tasa es un SUPUESTO declarado, no una medición.** 12 % anual es el costo de oportunidad
+   * que se usa para comparar, no el costo real del dinero de Mega Dulces: ése lo fija Dirección y
+   * cuando exista como dato, esta constante se reemplaza.
+   */
+  private readonly TASA_ANUAL = 0.12;
+  adelantoDe(o: Obligation): string | null {
+    const v = vencimiento(o);
+    if (!v) return null;
+    const dias = Math.round((Date.parse(v.slice(0, 10) + 'T12:00:00Z') - Date.parse(this.todayIso + 'T12:00:00Z')) / 86400000);
+    if (dias <= 0) return null; // ya venció o vence hoy: pagarla no adelanta nada
+    const costo = Number(o.available_amount || 0) * this.TASA_ANUAL * (dias / 365);
+    // ⛔ Si el pronto pago gana más de lo que cuesta adelantar, adelantar es lo correcto y este
+    // aviso sobra: dos consejos opuestos en el mismo renglón no informan, paralizan.
+    const gana = Number(o.pronto_beneficio || 0);
+    if (gana > costo && (o.pronto_estado === 'por_vencer' || o.pronto_estado === 'capturable')) return null;
+    return `se adelanta ${dias} día(s): cuesta ${this.money(costo)} de financiamiento`;
+  }
+
   venceTxt(o: Obligation): string {
     const v = (this.vence(o) ?? '').slice(0, 10);
     if (!v) return 'sin vencimiento';

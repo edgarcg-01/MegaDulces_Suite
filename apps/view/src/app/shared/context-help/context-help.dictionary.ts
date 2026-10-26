@@ -770,6 +770,43 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // `[FCU.3]` Logística › Costo por unidad: reemplaza la hoja «TRANSPORTES 2026 - COSTOS DE TRANSPORTE».
+  // Lo leen Logística y Finanzas. Cada definición está anclada a `armarUnidad`
+  // (libs/logistics/.../costo-unidad.logic.ts) y a RUBROS_COSTO_UNIDAD (libs/contracts), no a la hoja.
+  'costo-unidad': {
+    title: 'Costo por unidad — de dónde sale cada peso',
+    intro: 'Por cada unidad de Transportes: lo que costó en el periodo contra lo presupuestado, rubro por rubro. El gasto sale de Kepler (los gastos X-A-10 de los conceptos de flota), los km del GPS (o del odómetro si no tiene GPS) y las comisiones de sus guías. Lo que no existe en ninguna fuente —salario del chofer, nómina administrativa, valor de compra— se captura aquí.',
+    groups: [
+      {
+        heading: 'De dónde sale (cada rubro lo dice)',
+        entries: [
+          { term: 'Kepler', def: 'La suma de los gastos de Kepler de ese rubro que son de esta unidad: los confirmados y los sugeridos por el texto. Si ninguno la nombra, el real es $0 y el rubro te manda a «Gastos sin unidad».' },
+          { term: 'Calculado', def: 'Comisiones: cada guía de la unidad por la tarifa de su ruta para el chofer (la misma regla de Pagos de viaje, sin ayudantes). Depreciación de una unidad propia: (valor de compra − residual) ÷ vida útil, por los días del periodo.' },
+          { term: 'Capturado', def: 'Lo que se escribió aquí: el salario mensual del chofer (ficha) o la nómina administrativa del mes, repartida entre las unidades.' },
+          { term: 'Falta capturar', def: 'El dato no está en ninguna fuente y nadie lo ha escrito (por ejemplo, el salario del chofer o la nómina de un mes). No suma al real y se cuenta arriba como «faltan datos».' },
+          { term: 'Sin medir', def: 'Debería haber un gasto y no se pudo atribuir: una unidad arrendada sin ningún pago de renta en Kepler que la nombre en el periodo. No suma al real.' },
+          { term: 'Restringido', def: 'El salario y la nómina administrativa sólo los ve quien gestiona Costo por unidad. Para los demás no suman ni al real ni al presupuesto, y se avisa arriba.' },
+        ],
+      },
+      {
+        heading: 'Los gastos de Kepler',
+        entries: [
+          { term: 'Sugerido por el texto', def: 'Kepler no tiene un campo de unidad. El sistema lee el texto del gasto y lo compara con los nombres de la ficha («Cómo se escribe en los gastos de Kepler»). Suma al real, pero queda por confirmar en «Gastos sin unidad».' },
+          { term: 'Nombra dos unidades', def: 'El texto coincide con más de una unidad: no se adivina. No suma a ninguna hasta que alguien la asigne.' },
+          { term: 'No es de flota', def: 'Alguien dijo que ese gasto no es de una unidad (por ejemplo, una refacción de montacargas). Ya no aparece en la bandeja.' },
+        ],
+      },
+      {
+        heading: 'Las cifras',
+        entries: [
+          { term: 'Presupuesto del periodo', def: 'El presupuesto anual de cada rubro (pestaña Presupuesto) por los días del periodo ÷ 365.' },
+          { term: 'Expresado por mes, catorcena, día…', def: 'Las columnas de la hoja: el monto del periodo llevado a ese corte (monto × 365 ÷ días del periodo ÷ cortes por año). Sirve para comparar un mes contra lo que la hoja dice por mes.' },
+          { term: '$/km real', def: 'El real del periodo ÷ los km del periodo. Sin km (sin GPS ni lecturas de odómetro) no se calcula: no se divide entre un supuesto.' },
+          { term: '$/km hoja', def: 'El presupuesto anual de la unidad ÷ los km presupuestados al año de su ficha. Es el número que traía la hoja.' },
+        ],
+      },
+    ],
+  },
   'route-compliance': {
     title: 'Cumplimiento de ruta — guía',
     intro: 'Cruza el PLAN de la ruta (las tiendas que la unidad debía servir ese día) contra lo REAL (dónde paró el camión según GPS, matcheado a cada cliente). Solo se puede evaluar una unidad si el día tiene posiciones GPS y su ruta tiene tiendas con coordenadas.',
@@ -2465,6 +2502,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Kepler (X-D-26)', def: 'El pago se sigue capturando A MANO en el ERP. La escritura automática está apagada. Si la pantalla no lo dijera, quien captura dejaría de hacerlo creyendo que la Suite lo escribe.' },
           { term: 'Trae $X a favor sin aplicar', def: 'Ese acreedor tiene notas de crédito, devoluciones, bonificaciones o anticipos que Kepler todavía NO neteó contra ninguna factura. ⛔ No bloquea el pago —netear es una decisión de Finanzas con el proveedor, no una regla automática—, pero pagar la factura completa deja ese dinero ahí. Medido el 2026-10-26: $8,264,176 sin aplicar en 201 documentos, de los cuales $4,484,249 son de 54 acreedores a los que además les debemos. Varios quedarían en CERO: un proveedor debe $149,640 y trae $2,000,820 a favor. ⚠️ Es un PISO, no un dictamen: el casamiento del ERP sobre-cuenta lo aplicado, así que lo pendiente real puede ser mayor.' },
           { term: 'Qué SÍ se aplica solo', def: 'Las notas de crédito: 1,801 documentos por $110.6M, prácticamente todas neteadas por Kepler. Ese proceso funciona y la deuda que ves ya nace con el descuento hecho. Lo que se queda sin aplicar son los ANTICIPOS (58% aplicado) y las DEVOLUCIONES (40%): 6 de cada 10 devoluciones nunca se netearon contra una factura.' },
+          { term: 'Se adelanta N días: cuesta $X', def: 'Lo que cuesta pagar una factura ANTES de su vencimiento: el dinero sale de la cuenta antes de tiempo. La regla es pagar lo más cerca posible del vencimiento. Medido el 2026-10-26 (Oficinas, 90 días, 8,835 pagos casados contra el vencimiento de su factura): el 17.9% del dinero —$29,714,126— sale antes de tiempo, 6 días antes en promedio, lo que cuesta unos $73,704 por trimestre. La mediana sí está bien: 1 día después del vencimiento. ⛔ No bloquea nada, y se calla cuando el descuento por pronto pago gana más de lo que cuesta adelantar: ahí adelantar es lo correcto. ⚠️ La tasa con la que se calcula (12% anual) es un SUPUESTO para comparar, no el costo real del dinero de Mega Dulces.' },
+          { term: 'Lo que compone el importe', def: 'En Kepler, el total de la factura trae su subtotal, su IVA (16%) y, en los dulces, el IEPS (8% sobre el subtotal, por ser alimento de alta densidad calórica). Eso NO es un descuento: es la composición del documento. Lo que reduce lo que sale del banco son otras cuatro cosas: el pronto pago, el crédito a favor sin aplicar, lo que Kepler ya neteó, y no adelantar el pago.' },
         ],
       },
       {
