@@ -236,9 +236,19 @@ import { RouteCreditComponent } from './comercial-route-credit.component';
               <p-tag severity="secondary" value="Cancelada en Kepler" />
               <span class="peek-hint">Sin anexo: el documento fue cancelado (estatus {{ x.doc_estatus }}).</span>
             } @else if (x.detalle_ausente) {
-              <p-tag severity="danger" value="Detalle no replicado" />
-              <span class="peek-hint">Kepler tiene los renglones de este documento, pero no llegaron a la plataforma.
-                No es una factura de servicio: falta el detalle de nuestro lado.</span>
+              <!-- [OBS.15.7] Sólo se afirma lo medido: la cabecera llegó y el ODS no tiene NINGÚN
+                   renglón del documento (no es que se hayan filtrado por ser de servicio). El texto
+                   anterior decía «Kepler tiene los renglones», y eso nadie lo había mirado. Con la
+                   cola de cambios los renglones viajan con su cabecera en menos de 1 s, así que se
+                   vuelve a consultar UNA vez; si siguen sin llegar, ya no es una carrera. -->
+              @if (detReintento() === 'pendiente') {
+                <p-tag severity="warn" value="Renglones sin llegar" />
+                <span class="peek-hint">La cabecera llegó sin sus renglones. Volviendo a consultar…</span>
+              } @else {
+                <p-tag severity="danger" value="Renglones sin llegar" />
+                <span class="peek-hint">Volvimos a consultar y la cabecera sigue sin sus renglones (no es una
+                  factura de servicio). Si no aparecen en unos minutos, avisa a Sistemas con este folio.</span>
+              }
             } @else if (x.sin_detalle) {
               <p-tag severity="warn" value="Sin detalle de producto" />
               <span class="peek-hint">Su único renglón es de servicio, no hay mercancía que desglosar.</span>
@@ -432,6 +442,12 @@ export class ComercialDocumentosComponent {
   readonly peek = signal(false);
   readonly det = signal<SalesDocDetail | null>(null);
   readonly detLoading = signal(false);
+  /** [OBS.15.7] El documento llegó sin renglones: 'pendiente' mientras se vuelve a consultar. */
+  readonly detReintento = signal<'pendiente' | 'hecho' | null>(null);
+  private reintentoTimer: ReturnType<typeof setTimeout> | null = null;
+  private cancelarReintento(): void {
+    if (this.reintentoTimer) { clearTimeout(this.reintentoTimer); this.reintentoTimer = null; }
+  }
   private readonly catalogos = signal<SalesDocsFiltros | null>(null);
   private readonly scope = inject(DataScopeService);
   /**
@@ -451,6 +467,9 @@ export class ComercialDocumentosComponent {
     (this.catalogos()?.vendedores || []).map((v) => ({ label: v.vendedor_nombre, value: v.vendedor_code })));
 
   constructor() {
+    // [OBS.15.7] Un reintento que dispara con la vista ya destruida pediría `takeUntilDestroyed`
+    // sobre un DestroyRef muerto, que tira. Se cancela al salir (y al abrir otro documento).
+    this.destroyRef.onDestroy(() => this.cancelarReintento());
     this.scope.warehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (ops) => {
         this.sucursales.set(ops);
@@ -703,14 +722,40 @@ export class ComercialDocumentosComponent {
       });
   }
 
-  /** Abre el detalle por folio digital, venga de la tabla o de un deep-link. */
-  private abrirPorFolio(folioDigital: string): void {
-    this.det.set(null);
-    this.detLoading.set(true);
-    this.peek.set(true);
+  /**
+   * Abre el detalle por folio digital, venga de la tabla o de un deep-link.
+   *
+   * `[OBS.15.7]` Si llega sin renglones (`detalle_ausente`), vuelve a consultar UNA vez a los 3 s
+   * sin vaciar el panel. Con la cola de cambios la cabecera y sus renglones viajan juntos en menos
+   * de 1 s, así que sólo una carrera muy corta lo explica; si al segundo intento siguen sin llegar,
+   * el panel lo dice. El reintento se descarta si mientras tanto se cerró el panel o se abrió otro
+   * documento: su respuesta ya no le corresponde a lo que se está viendo.
+   */
+  private abrirPorFolio(folioDigital: string, reintento = false): void {
+    if (!reintento) {
+      this.cancelarReintento();
+      this.det.set(null);
+      this.detLoading.set(true);
+      this.detReintento.set(null);
+      this.peek.set(true);
+    }
+    const sigueAbierto = () => this.peek() && this.det()?.folio_digital === folioDigital;
     this.svc.detail(folioDigital).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => { this.det.set(d); this.detLoading.set(false); },
+      next: (d) => {
+        if (reintento && !sigueAbierto()) return;
+        this.det.set(d);
+        this.detLoading.set(false);
+        if (reintento) { this.detReintento.set('hecho'); return; }
+        if (d.detalle_ausente) {
+          this.detReintento.set('pendiente');
+          this.reintentoTimer = setTimeout(() => {
+            this.reintentoTimer = null;
+            if (sigueAbierto()) this.abrirPorFolio(folioDigital, true);
+          }, 3000);
+        }
+      },
       error: () => {
+        if (reintento) { if (sigueAbierto()) this.detReintento.set('hecho'); return; }
         this.detLoading.set(false);
         this.toast.add({ severity: 'error', summary: 'No se pudo abrir el documento', life: 4000 });
       },
