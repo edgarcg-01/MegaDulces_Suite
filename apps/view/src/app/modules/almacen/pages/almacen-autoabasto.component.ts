@@ -13,6 +13,8 @@ import { CheckboxModule } from 'primeng/checkbox';
 import { DialogModule } from 'primeng/dialog';
 import { TextareaModule } from 'primeng/textarea';
 import { PopoverModule, type Popover } from 'primeng/popover';
+import { MenuModule } from 'primeng/menu';
+import type { MenuItem } from 'primeng/api';
 import {
   necesitaMotivo, pasoAjuste, MOTIVOS_AJUSTE, MOTIVO_AJUSTE_LABEL, UMBRAL_MOTIVO,
   posicionPedido, POSICIONES_PEDIDO, POSICIONES_PEDIDO_DEFAULT, POSICION_PEDIDO_LABEL,
@@ -105,7 +107,7 @@ interface Edicion {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, InputTextModule, TooltipModule, TagModule,
-    CheckboxModule, DialogModule, TextareaModule, PopoverModule, VentaPorMesComponent,
+    CheckboxModule, DialogModule, TextareaModule, PopoverModule, MenuModule, VentaPorMesComponent,
     LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, ContextHelpComponent, SucursalPipe,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -118,6 +120,17 @@ interface Edicion {
         </div>
         <div class="ab-actions">
           <app-context-help topic="almacen-autoabasto" />
+          <!-- [AB.43] Todos los papeles en UN botón: el pedido completo, cada origen y el reporte del almacén. -->
+          <button pButton type="button" class="p-button-sm p-button-outlined"
+                  (click)="menuPdf.toggle($event)" [disabled]="loading() || !data() || imprimiendo() || generandoReporte()"
+                  aria-haspopup="menu" aria-label="Descargar un PDF">
+            <span class="p-button-icon p-button-icon-left pi"
+                  [class.pi-file-pdf]="!imprimiendo() && !generandoReporte()" [class.pi-spin]="imprimiendo() || generandoReporte()"
+                  [class.pi-spinner]="imprimiendo() || generandoReporte()" aria-hidden="true"></span>
+            <span class="p-button-label">PDF</span>
+            <span class="p-button-icon p-button-icon-right pi pi-chevron-down" aria-hidden="true"></span>
+          </button>
+          <p-menu #menuPdf [model]="opcionesPdf()" [popup]="true" appendTo="body" />
           @if (data()?.puede_ajustar) {
             <!-- [AB.29] La acción principal: lo que falta por pedir sale como requisición a Compras. -->
             <button pButton type="button" class="p-button-sm"
@@ -128,24 +141,6 @@ interface Edicion {
               <span class="p-button-label">Enviar a Compras</span>
             </button>
           }
-          <button pButton type="button" class="p-button-sm p-button-outlined"
-                  (click)="pdf()" [disabled]="loading() || !hayQuePedir() || imprimiendo()"
-                  pTooltip="El pedido, cada origen en su hoja, para capturarlo en Kepler." tooltipPosition="bottom">
-            <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
-            <span class="p-button-label">PDF del pedido</span>
-          </button>
-          <button pButton type="button" class="p-button-sm p-button-outlined"
-                  (click)="reporte()" [disabled]="!warehouseId() || generandoReporte()"
-                  pTooltip="Todos los productos del almacén con los filtros de estado, origen y búsqueda." tooltipPosition="bottom">
-            <span class="p-button-icon p-button-icon-left pi"
-                  [class.pi-file]="!generandoReporte()" [class.pi-spin]="generandoReporte()" [class.pi-spinner]="generandoReporte()" aria-hidden="true"></span>
-            <span class="p-button-label">{{ generandoReporte() ? 'Generando…' : 'Reporte del almacén' }}</span>
-          </button>
-          <button pButton type="button" class="p-button-sm p-button-outlined"
-                  (click)="recargar()" [disabled]="loading()">
-            <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span>
-            <span class="p-button-label">Recalcular</span>
-          </button>
         </div>
       </header>
 
@@ -184,6 +179,9 @@ interface Edicion {
           Calculado el {{ d0.fecha_mx }} a las {{ d0.hora_mx }} · cobertura {{ d0.cobertura_dias }} días ·
           en cajas, salvo «A pedir», que va en la unidad en que se captura
           <app-freshness-pill measures="fetch" [since]="cargadoEn()" />
+          <button type="button" class="ab-link ab-recalc" (click)="recargar()" [disabled]="loading()">
+            <i class="pi pi-refresh" [class.pi-spin]="loading()" aria-hidden="true"></i> Recalcular
+          </button>
         </p>
       }
       </div>
@@ -395,30 +393,12 @@ interface Edicion {
               <div class="ab-gtitle">
                 <span class="ab-gtipo">{{ tipoTexto(g) }}</span>
                 <strong class="ab-why" [pTooltip]="surtePorQueGrupo(g)" tooltipPosition="top">{{ g.tipo === 'matriz' ? (g.nombre | sucursal) : g.nombre }}</strong>
-                @if (aceptados().has(llaveGrupo(g))) {
-                  <span class="ab-chip ab-chip-ok"><i class="pi pi-check" aria-hidden="true"></i> Revisado</span>
-                }
               </div>
               <div class="ab-gtot">
                 @let t = totales(g);
                 <span>{{ t.renglones }} en el pedido</span>
                 @if (t.ajustados > 0) { <span class="ab-dim">{{ t.ajustados }} ajustados</span> }
                 <span class="ab-strong">{{ t.valor == null ? '—' : (t.valor | currency:'MXN':'symbol-narrow':'1.0-0') }}</span>
-                <button pButton type="button" class="p-button-sm p-button-outlined"
-                        (click)="pdf(g)" [disabled]="!t.renglones || imprimiendo()"
-                        [attr.aria-label]="'PDF del pedido a ' + g.nombre"
-                        [pTooltip]="g.tipo === 'proveedor' ? 'Requisición de compra para este proveedor' : 'Pedido de traspaso para capturar en la sucursal que surte'" tooltipPosition="top">
-                  <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
-                  <span class="p-button-label">PDF</span>
-                </button>
-                @if (data()?.puede_ajustar) {
-                  <button pButton type="button" class="p-button-sm"
-                          [class.p-button-outlined]="aceptados().has(llaveGrupo(g))"
-                          (click)="aceptarGrupo(g)" [disabled]="!t.renglones">
-                    <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
-                    <span class="p-button-label">{{ aceptados().has(llaveGrupo(g)) ? 'Aceptado' : 'Aceptar grupo' }}</span>
-                  </button>
-                }
               </div>
             </header>
             @if (avisoMinimo(g); as am) {
@@ -623,6 +603,7 @@ interface Edicion {
     .ab-almacen { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
     .ab-ctx { display: flex; align-items: center; gap: var(--sp-2) var(--sp-4); flex-wrap: wrap; }
     .ab-pos-nota { margin-left: auto; }
+    .ab-recalc { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs); }
     .ab-viene-todos { display: inline-flex; align-items: center; gap: .3rem; }
     .ab-viene-todos .pi { font-size: .7rem; }
     .ab-scope { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); }
@@ -874,7 +855,6 @@ export class AlmacenAutoabastoComponent {
   /** Lo que la persona va moviendo, por producto. Manda sobre el sugerido y sobre lo guardado. */
   readonly edicion = signal<Record<string, Edicion>>({});
   /** Grupos que la persona revisó y aceptó en esta sesión. */
-  readonly aceptados = signal<Set<string>>(new Set());
   /** `[AB.19]` Hasta dónde pide: qué posiciones entran al pedido. Se guarda en el borrador. */
   readonly posiciones = signal<Set<PosicionPedido>>(new Set(POSICIONES_PEDIDO_DEFAULT));
   readonly posicionesTodas = POSICIONES_PEDIDO;
@@ -882,7 +862,7 @@ export class AlmacenAutoabastoComponent {
   readonly expandidas = signal<Set<string>>(new Set());
   readonly visiblesTabla = VISIBLES_TABLA;
   private posTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Error de una acción que no debe tapar el pedido (guardar posiciones, aceptar grupo). */
+  /** Error de una acción que no debe tapar el pedido (p. ej. guardar posiciones). */
   readonly aviso = signal<string | null>(null);
   /** `[AB.29]` Enviar a Compras: el diálogo, la nota, el envío en curso y lo que contestó el servidor. */
   readonly envioAbierto = signal(false);
@@ -1047,7 +1027,6 @@ export class AlmacenAutoabastoComponent {
     this.loading.set(true);
     this.error.set(null);
     this.edicion.set({});
-    this.aceptados.set(new Set());
     this.expandidas.set(new Set());
     this.docAbierto.set({});
     this.svc.pedido(id).subscribe({
@@ -1293,19 +1272,6 @@ export class AlmacenAutoabastoComponent {
     this.svc.restablecer({ warehouse_id: id, product_id: l.product_id, ms_en_renglon: ms }).subscribe({
       next: () => { this.quitarAjusteGuardado(l); this.patch(l.product_id, { ...this.edicion()[l.product_id], guardando: false, guardado: true }); },
       error: (e) => this.patch(l.product_id, { ...this.edicion()[l.product_id], guardando: false, error: e?.error?.message ?? 'No se pudo restablecer.' }),
-    });
-  }
-
-  aceptarGrupo(g: AutoabastoPedidoGrupo): void {
-    const id = this.warehouseId();
-    if (!id) return;
-    const llave = this.llaveGrupo(g);
-    this.svc.aceptarGrupo({
-      warehouse_id: id, origen_tipo: g.tipo, origen_clave: g.clave,
-      renglones: g.lineas.filter((l) => this.incluida(l) && this.cantidad(l) > 0).length,
-    }).subscribe({
-      next: () => this.aceptados.update((s) => new Set(s).add(llave)),
-      error: (e) => this.aviso.set(e?.error?.message ?? 'No se pudo aceptar el grupo.'),
     });
   }
 
@@ -1623,6 +1589,24 @@ export class AlmacenAutoabastoComponent {
   etiquetaPosicion(p: PosicionPedido): string { return POSICION_PEDIDO_LABEL[p]; }
   posicion(p: string): string { return POSICION[p] ?? p; }
   etiquetaMotivo(m: MotivoAjuste): string { return MOTIVO_AJUSTE_LABEL[m]; }
+  /** `[AB.43]` Los papeles: el pedido completo, cada origen por separado y el reporte del almacén. */
+  readonly opcionesPdf = computed<MenuItem[]>(() => {
+    const d = this.data();
+    const grupos = (d?.grupos ?? []).filter((g) => g.tipo !== 'sin_ruta');
+    return [
+      { label: 'El pedido completo', items: [
+        { label: 'Una hoja por origen', icon: 'pi pi-file-pdf', disabled: !this.hayQuePedir(), command: () => void this.pdf() },
+      ] },
+      ...(grupos.length > 1 ? [{ label: 'Sólo un origen', items: grupos.map((g): MenuItem => ({
+        label: `${this.tipoTexto(g)} ${g.tipo === 'matriz' ? warehouseName(g.nombre) : g.nombre}`,
+        icon: 'pi pi-file', disabled: !this.totales(g).renglones, command: () => void this.pdf(g),
+      })) }] : []),
+      { label: 'El almacén', items: [
+        { label: 'Reporte del almacén (todos los productos)', icon: 'pi pi-list', command: () => void this.reporte() },
+      ] },
+    ];
+  });
+
   llaveGrupo(g: AutoabastoPedidoGrupo): string { return `${g.tipo}:${g.clave ?? ''}`; }
   tipoTexto(g: AutoabastoPedidoGrupo): string {
     return g.tipo === 'matriz' ? 'Traspaso de' : g.tipo === 'proveedor' ? 'Compra a' : '';

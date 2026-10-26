@@ -2285,6 +2285,24 @@ Nada se esconde sin decirlo: el resumen dice cuántos documentos hay y cuánto v
 chips a la vista. Pantalla 49/49 (negativa: sin valuar → la cifra NO se marca parcial). ⚠️ **Sin validación visual:**
 cuánto alto se ganó es estimado (~450 px), no medido en navegador.
 
+### 16.21 🧪 [AB.43] Una sola acción principal (2026-10-26)
+
+El PM: «¿para qué tantos botones?». Arriba había cinco (ayuda, Enviar a Compras, PDF del pedido, Reporte del almacén,
+Recalcular) y en cada grupo dos más (PDF, **Aceptar grupo** en naranja). Uso medido en prod, 30 días (`autoabasto_huella`):
+abrir 14 · ajustar 6 · posiciones 4 · aceptar grupo 3 · requisiciones enviadas 0. Los PDF y «Recalcular» no dejan huella:
+su uso **no está medido**. Se decidió por lo que hace cada uno:
+
+- **Enviar a Compras** queda como el único primario de la pantalla (Von Restorff: una primaria por pantalla).
+- **Un botón «PDF ▾»** reúne los papeles: el pedido completo (una hoja por origen), cada origen por separado (sólo si hay
+  más de uno: con uno sería el mismo papel) y el reporte del almacén.
+- **Recalcular** pasa a la fila del sello, junto a «cargado hace…»: es donde se lee la edad del dato.
+- **«Aceptar grupo» sale de la pantalla:** sólo pintaba «Revisado» y dejaba huella; no cambiaba lo que se manda, y competía
+  como primario con «Enviar a Compras», que es el acto que de verdad cierra el pedido. El endpoint
+  `POST /pedido/aceptar-grupo` y sus huellas se quedan (nada se borra); si nadie lo vuelve a pedir, se retira aparte.
+
+Pantalla 53/53; negativa: la prueba de «un solo primario» corrida contra el componente anterior da rojo
+(«Enviar a Compras» + 2 «Aceptar grupo»). Sin validación visual.
+
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
 - [ ] Carga completa de la mesa y de «Mi pedido» bajo 500 ms en todas las sucursales, medida en prod (AB.36).
