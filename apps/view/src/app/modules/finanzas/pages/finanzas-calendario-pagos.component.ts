@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, inject, signal, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, inject, signal, computed, effect, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
@@ -45,6 +45,8 @@ interface Verdict { tone: 'ok' | 'bad' | 'muted'; say: string; why: string | nul
 interface Etapa { n: number; nombre: string; quien: string | null; dice: string; estado: 'hecho' | 'ahora' | 'pendiente' }
 /** `[PGP.15]` Lo último que esta persona eligió en «Para los N pagos» (sólo una comodidad por navegador). */
 const PREF_PREPARAR = 'pgp.preparar.ultimo';
+/** El MISMO formato que antes daba `toLocaleString('es-MX', { currency: 'MXN', maximumFractionDigits: 2 })`, armado una vez. */
+const PESOS = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 });
 
 interface Obligation {
   obligation_source: PaymentObligationSource; obligation_id: string; beneficiary: string; concept: string;
@@ -500,35 +502,41 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <div class="pg-dr-hd" aria-hidden="true"><span>Proveedor y documento</span><span>Vencimiento</span><span class="r">Importe</span><span></span></div>
                     <div class="pg-drawer-b">
                       <app-load-state [loading]="loadingObligations()" [skeletonRows]="4">
-                        @for (o of obligacionesProgramables(); track o.obligation_id) {
+                        <!-- ⛔ [PGP.15] El cajon congelaba la pantalla 15.9 s al abrirse (medido: 954 renglones,
+                             13,300 nodos, 1,908 pButton con su pTooltip, y cada renglon formateando fechas e
+                             importes en cada ciclo). Ahora: (1) los textos de cada renglon se calculan UNA vez
+                             (filasDeuda); (2) botones nativos; (3) se pintan primero los de arriba y el resto
+                             entra por tandas sin bloquear (deudaVisible): al final estan TODOS en la pagina. -->
+                        @for (f of filasDeuda().slice(0, deudaVisible()); track f.o.obligation_id) {
                           <div class="pg-dr-row">
                             <span class="pg-dr-main">
-                              <span class="cal-benef">{{ o.beneficiary }}@if (o.is_critical) { <span class="pg-crit"><i class="pi pi-flag" aria-hidden="true"></i>crítico</span> }</span>
-                              <span class="pg-sub"><span class="cal-suc">{{ branchLabel(o.branch_code) }}</span>
-                                @if (o.entity_ref) {
-                                  <button type="button" class="cal-reflink" [title]="'Ver la ficha completa de ' + docLabel(o)" (click)="inspect.set(o.entity_ref!)">{{ o.concept }}</button>
-                                } @else { {{ o.concept }} }
-                                @if (o.doc_ref) { <span class="cal-ref">{{ o.doc_ref }}</span> }
-                                @if (o.pronto_beneficio && (o.pronto_estado === 'por_vencer' || o.pronto_estado === 'capturable')) {
-                                  <span class="cal-pp" [class.cal-pp-urge]="o.pronto_estado === 'por_vencer'">
-                                    <i class="pi" [class.pi-bolt]="o.pronto_estado === 'por_vencer'" [class.pi-tag]="o.pronto_estado === 'capturable'" aria-hidden="true"></i>
-                                    pierde {{ money(o.pronto_beneficio) }}@if (o.pronto_tasa) { ({{ pct(o.pronto_tasa) }}) }@if (o.pronto_fecha_limite) { si no se paga antes del {{ shortDate(o.pronto_fecha_limite) }} }
+                              <span class="cal-benef">{{ f.o.beneficiary }}@if (f.o.is_critical) { <span class="pg-crit"><i class="pi pi-flag" aria-hidden="true"></i>crítico</span> }</span>
+                              <span class="pg-sub"><span class="cal-suc">{{ f.sucursal }}</span>
+                                @if (f.o.entity_ref) {
+                                  <button type="button" class="cal-reflink" [title]="f.tituloFicha" (click)="inspect.set(f.o.entity_ref!)">{{ f.o.concept }}</button>
+                                } @else { {{ f.o.concept }} }
+                                @if (f.o.doc_ref) { <span class="cal-ref">{{ f.o.doc_ref }}</span> }
+                                @if (f.pronto; as p) {
+                                  <span class="cal-pp" [class.cal-pp-urge]="p.urge">
+                                    <i class="pi" [class.pi-bolt]="p.urge" [class.pi-tag]="!p.urge" aria-hidden="true"></i>{{ p.texto }}
                                   </span>
                                 }
                               </span>
                             </span>
-                            <span class="pg-dr-due">{{ venceTxt(o) }}</span>
-                            <span class="pg-dr-amt comm-num">{{ money(o.available_amount) }}</span>
+                            <span class="pg-dr-due">{{ f.vence }}</span>
+                            <span class="pg-dr-amt comm-num">{{ f.importe }}</span>
                             <span class="pg-dr-acts">
-                              <!-- [PGP.15] Un clic agrega la factura COMPLETA al dia abierto (antes: un dialogo que
-                                   repetia el dia y el importe que ya se sabian). Lo raro -otro importe, otro dia- va
-                                   en el segundo boton. -->
-                              <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ico" [disabled]="saving()" [attr.aria-label]="'Agregar completa al ' + dayLong(day.date) + ': ' + o.beneficiary + ' ' + o.concept" pTooltip="Agregar completa a este día" tooltipPosition="left" (click)="quickAdd(o)"><span class="pi pi-plus" aria-hidden="true"></span></button>
-                              <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ico" [disabled]="saving()" [attr.aria-label]="'Agregar con otro importe o a otro día: ' + o.beneficiary + ' ' + o.concept" pTooltip="Otro importe u otro día" tooltipPosition="left" (click)="quickAddDialog(o)"><span class="pi pi-sliders-h" aria-hidden="true"></span></button>
+                              <!-- [PGP.15] Un clic agrega la factura COMPLETA al dia abierto; lo raro -otro importe,
+                                   otro dia- va en el segundo boton. Ayuda en title y aria-label. -->
+                              <button type="button" class="pg-icobtn" [disabled]="saving()" [attr.aria-label]="f.ariaAgregar" title="Agregar completa a este día" (click)="quickAdd(f.o)"><span class="pi pi-plus" aria-hidden="true"></span></button>
+                              <button type="button" class="pg-icobtn" [disabled]="saving()" [attr.aria-label]="f.ariaOtro" title="Otro importe u otro día" (click)="quickAddDialog(f.o)"><span class="pi pi-sliders-h" aria-hidden="true"></span></button>
                             </span>
                           </div>
                         } @empty {
                           <p class="cal-empty">Sin obligaciones con estos filtros. Las facturas de proveedor llegan aquí cuando Finanzas acepta una entrega en <a routerLink="/compras/obligaciones" [queryParams]="{ tab: 'entregas' }">Entregas de Compras</a>.</p>
+                        }
+                        @if (deudaVisible() < filasDeuda().length) {
+                          <p class="pg-drawer-n" aria-live="polite">Mostrando {{ deudaVisible() | number }} de {{ filasDeuda().length | number }}…</p>
                         }
                       </app-load-state>
                     </div>
@@ -892,6 +900,14 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-dr-amt { text-align:right; font-weight:700; white-space:nowrap; color:var(--text-main); }
     .pg-dr-due { font-size:var(--fs-xs); white-space:nowrap; color:var(--text-muted); }
     .pg-dr-acts { display:flex; justify-content:flex-end; gap:2px; color:var(--text-muted); }
+    /* [PGP.15] Boton nativo del cajon (ver la plantilla: 1,908 pButton congelaban 15.9 s). */
+    .pg-icobtn { all:unset; box-sizing:border-box; cursor:pointer; display:inline-grid; place-items:center; width:28px; height:28px;
+      border-radius:var(--r-sm); color:var(--text-muted); }
+    .pg-icobtn:hover:not(:disabled) { background:var(--overlay-hover); color:var(--text-main); }
+    .pg-icobtn:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-icobtn:disabled { opacity:.4; cursor:default; }
+    /* Los renglones fuera de vista no se maquetan ni se pintan hasta que se desplazan a la vista. */
+    .pg-drawer-b .pg-dr-row { content-visibility:auto; contain-intrinsic-size:auto 3.25rem; }
     .pg-dr-row.is-locked { background:var(--surface-2); color:var(--text-muted); }
     /* Critico: bandera y palabra, en el color del texto. Era rojo: un critico no es un error. */
     .pg-crit { display:inline-flex; align-items:center; gap:3px; font-size:var(--fs-micro); font-weight:700; text-transform:uppercase; letter-spacing:.03em;
@@ -957,7 +973,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     }
     @media (pointer: coarse) {
       :host ::ng-deep .pg-ico.p-button { min-height:44px; min-width:44px; }
-      .pg-tg { width:44px; height:44px; }
+      .pg-tg, .pg-icobtn { width:44px; height:44px; }
       .pg-day { padding-top:var(--sp-2); padding-bottom:var(--sp-2); }
     }
   `],
@@ -1091,6 +1107,53 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   private readonly CORTE = '2026-10-01';
   readonly obligacionesEnRevision = computed(() => this.obligations().filter((o) => this.enRevision(o)));
   readonly obligacionesProgramables = computed(() => this.obligations().filter((o) => !this.enRevision(o)));
+  /**
+   * `[PGP.15]` **Cada renglón del cajón, con sus textos ya calculados.** El cajón tiene ~1,000
+   * renglones y antes cada uno formateaba fecha, importe, sucursal y dos `aria-label` en CADA
+   * ciclo de detección. Abrirlo congelaba la pantalla 15.9 s (medido). Se recalcula sólo cuando
+   * cambia la lista o el día abierto (que entra en el `aria-label`).
+   */
+  readonly filasDeuda = computed(() => {
+    const dia = this.dayLong(this.selectedDate());
+    return this.obligacionesProgramables().map((o) => {
+      const urge = o.pronto_estado === 'por_vencer';
+      const pronto = o.pronto_beneficio && (urge || o.pronto_estado === 'capturable')
+        ? { urge, texto: ` pierde ${this.money(o.pronto_beneficio)}${o.pronto_tasa ? ` (${this.pct(o.pronto_tasa)})` : ''}${o.pronto_fecha_limite ? ` si no se paga antes del ${this.shortDate(o.pronto_fecha_limite)}` : ''}` }
+        : null;
+      return {
+        o, pronto,
+        sucursal: this.branchLabel(o.branch_code),
+        vence: this.venceTxt(o),
+        importe: this.money(o.available_amount),
+        tituloFicha: 'Ver la ficha completa de ' + this.docLabel(o),
+        ariaAgregar: `Agregar completa al ${dia}: ${o.beneficiary} ${o.concept}`,
+        ariaOtro: `Agregar con otro importe o a otro día: ${o.beneficiary} ${o.concept}`,
+      };
+    });
+  });
+  /**
+   * `[PGP.15]` Cuántos renglones del cajón están pintados. Primero 50 —lo que se ve sin desplazar—
+   * y el resto en tandas de 50, una por cuadro (medido: ~1 ms por renglon en desarrollo), sin bloquear la pantalla. Al terminar están todos
+   * (se pueden buscar con Ctrl+F); mientras tanto el cajón dice «Mostrando N de M…».
+   */
+  readonly deudaVisible = signal(50);
+  private rampaId = 0;
+  private readonly rampaDeuda = effect(() => {
+    // Cerrado no se calcula nada; al abrirse, `verDeuda` cambia y el efecto vuelve a correr.
+    if (!this.verDeuda()) return;
+    const total = this.filasDeuda().length;
+    untracked(() => {
+      cancelAnimationFrame(this.rampaId);
+      let n = Math.min(50, total);
+      this.deudaVisible.set(n);
+      const paso = (): void => {
+        n = Math.min(n + 50, total);
+        this.deudaVisible.set(n);
+        if (n < total) this.rampaId = requestAnimationFrame(paso);
+      };
+      if (n < total) this.rampaId = requestAnimationFrame(paso);
+    });
+  });
   private enRevision(o: Obligation): boolean {
     if (o.obligation_source !== 'kepler_payable') return false;
     const suc = (o.branch_code ?? '').trim();
@@ -1304,6 +1367,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   readonly reboteReasonOpts = REPROGRAM_REASON_OPTS.filter((o) => o.value !== 'presupuesto_recortado');
 
   ngOnInit(): void {
+    this.destroyRef.onDestroy(() => cancelAnimationFrame(this.rampaId));
     this.recuperarPreparacion();
     this.reload();
     this.http.get<PaymentOriginAccount[]>(`${this.base}/origin-accounts`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -1329,8 +1393,20 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   private fmt(iso: string, opts: Intl.DateTimeFormatOptions): string {
     return new Date(iso + 'T12:00:00Z').toLocaleDateString('es-MX', { ...opts, timeZone: 'UTC' });
   }
-  dayShort(iso: string): string { return this.fmt(iso, { weekday: 'short', day: 'numeric' }); }
-  dayLong(iso: string): string { return this.fmt(iso, { weekday: 'long', day: 'numeric', month: 'short' }); }
+  /**
+   * `[PGP.15]` **Con memoria.** Las fechas se pintan en cada ciclo de detección y en cada renglón
+   * (el cajón de la deuda tiene ~1,000): `toLocaleDateString` arma un formateador nuevo por llamada.
+   * Una fecha da siempre el mismo texto, así que se calcula una vez.
+   */
+  private readonly fechasCache = new Map<string, string>();
+  private fmtMemo(clave: string, iso: string, opts: Intl.DateTimeFormatOptions): string {
+    const k = clave + iso;
+    let v = this.fechasCache.get(k);
+    if (v === undefined) { v = this.fmt(iso, opts); this.fechasCache.set(k, v); }
+    return v;
+  }
+  dayShort(iso: string): string { return this.fmtMemo('c', iso, { weekday: 'short', day: 'numeric' }); }
+  dayLong(iso: string): string { return this.fmtMemo('l', iso, { weekday: 'long', day: 'numeric', month: 'short' }); }
   /**
    * `[PGP.10]` **La fecha lleva año cuando NO es de este año.**
    *
@@ -1501,7 +1577,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     return this.isReleased() ? 'pi-clock' : 'pi-check';
   }
   methodLabel(m: string): string { return METHOD_LABEL[m] || m; }
-  money(n: number | string | null | undefined): string { return Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 }); }
+  /** `[PGP.15]` Un solo formateador: `toLocaleString` con opciones crea uno nuevo en cada llamada, y esto se llama por renglón y por ciclo. */
+  money(n: number | string | null | undefined): string { return PESOS.format(Number(n || 0)); }
   /**
    * `[PGP.7]` La tasa observada, en %. Llega como fracción (`0.0741` = 7.41 %) y los `numeric`
    * de Postgres viajan como **string** por JSON, así que `Number()` antes de formatear.
