@@ -924,15 +924,15 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // pestaña; una que se cruza de paso puede no dejar evento. Por eso nada se quitó.
   private comprasNavGroups: { title: string; items: NavItem[] }[] = [
     {
+      // `[NAV.4.1]` Lo que se mira ANTES de decidir: qué hay, qué falta y con qué se planea. El
+      // Pedido ya no vive acá: encabeza «Compra», pegado a su seguimiento (ver abajo).
       title: 'Planeación',
       items: [
         // Existencia va ANTES de Pedido, y el orden es la tesis: primero ves qué hay, después
-        // decidís qué comprar. Es el mismo componente que /almacen/inventory/existencia.
+        // decides qué comprar. Es el mismo componente que /almacen/inventory/existencia.
         { label: 'Existencia',       icon: 'pi pi-box',       route: '/compras/existencia', permission: Permission.EXISTENCIA_VER },
-        { label: 'Pedido',           icon: 'pi pi-cart-plus', route: '/compras/pedido',    permission: Permission.COMPRAS_PEDIDO_VER },
-        // `[NAV.4]` Las dos señales que alimentan el pedido, justo después de él. Hallazgos =
-        // el barrido nocturno (agotados clase A, bajo reorden); Faltantes de piso = la demanda
-        // que ningún feed ve.
+        // `[NAV.4]` Las dos señales que alimentan el pedido. Hallazgos = el barrido nocturno
+        // (agotados clase A, bajo reorden); Faltantes de piso = la demanda que ningún feed ve.
         { label: 'Hallazgos',           icon: 'pi pi-flag',       route: '/compras/hallazgos',   permission: Permission.COMPRAS_HALLAZGOS_VER },
         // `[FLT.14]` Lo que el mostrador reportó: la demanda que ningún feed puede ver, porque una
         // venta que no ocurrió no deja rastro en el ERP. Mismo permiso que Hallazgos y Reclamos —
@@ -947,8 +947,16 @@ export class LayoutComponent implements OnInit, OnDestroy {
       // "Órdenes" y adentro convivían "Órdenes de compra" (lo que pedimos) con las facturas de
       // entrada (lo que llega): dos cosas opuestas bajo el mismo sustantivo, y con dos rutas
       // casi idénticas (`/compras/ordenes` vs `/compras/entradas/control/ordenes`).
+      //
+      // `[NAV.4.1]` El Pedido encabeza la etapa, y debajo va su SEGUIMIENTO en el orden en que
+      // avanza el documento: el pedido genera la requisición, la requisición se vuelve orden, y la
+      // orden que no cierra queda «abierta en Kepler». Es el camino que más se recorre: en 30
+      // días, Pedido + Requisiciones salieron juntos en 28 visitas, + Abiertas en Kepler en 9 y
+      // + Órdenes en 7. En `[NAV.4]` quedaron cuatro renglones de Planeación en medio; eso
+      // alejaba el paso siguiente del pedido.
       title: 'Compra',
       items: [
+        { label: 'Pedido',           icon: 'pi pi-cart-plus', route: '/compras/pedido',    permission: Permission.COMPRAS_PEDIDO_VER },
         { label: 'Requisiciones',     icon: 'pi pi-file-edit',     route: '/compras/requisiciones', permission: Permission.COMPRAS_REQUISICIONES_VER },
         { label: 'Órdenes de compra', icon: 'pi pi-shopping-cart', route: '/compras/ordenes',       permission: Permission.COMPRAS_ORDENES_VER },
         // RA-PRO.45 — las OCs de Kepler que quedaron abiertas: lo que hay que cerrar o cancelar
