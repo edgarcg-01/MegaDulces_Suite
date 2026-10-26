@@ -520,12 +520,58 @@ menú para llegar a la bandeja, 3–4 para aprobar, y la recaptura completa en K
 prueba con acceso a Compras. Con eso se recorre el flujo completo (una requisición de prueba que se
 cancela con motivo al terminar) y se miden pliegue, jerarquía, contraste y foco.
 
+### 13.1 Nivel A — pantalla viva, medida (2026-10-26, tarde)
+
+Chromium propio (Playwright, perfil limpio) contra `https://megadulcessuite.com` con el usuario de
+prueba que dio el PM; 1366×768 y 1920×1080. Instrumento `scratchpad/pw/driver.js` (comandos por
+archivo); **control**: el `h1` existe y está arriba del pliegue (Pedido: «Pedido», y=121, 30 px ✓;
+Bandeja: «Requisiciones y Traspasos», y=105, 30 px ✓). ⛔ **La requisición de prueba NO se creó**:
+el clasificador de auto mode bloqueó la escritura en prod («Modify Shared Resources»); el flujo se
+recorrió hasta el diálogo de confirmación y se canceló.
+
+**Pedido (`/compras/pedido`), 1366×768:**
+
+| Medida | Valor |
+|---|---:|
+| carga hasta red quieta · llamadas API | 3.0 s · 12 (la más lenta `purchase-suggestion` 1,884 ms; el workbook de un proveedor 1,612 ms) |
+| dónde empieza la tabla · filas en el pliegue | y=594 · **2 de 20** (1920×1080: 7) |
+| con el aviso de «Instalar Mega Dulces» abierto | **0 filas** y la barra de «Generar» tapada |
+| interactivos arriba del pliegue | 52 (de 118) |
+| encabezados de columna · celdas · `body` | **16 px semibold** · 14 px · 16 px |
+| textos en color de acción arriba del pliegue | 7, uno de ellos la cifra **«A comprar $23,722,982»** |
+| casillas por sucursal al abrir una fila | 8 inputs de 64×26 px (por debajo de 44 px en `coarse`) |
+
+**Bandeja (`/compras/requisiciones`), 1366×768:** carga 1.2 s; `requisitions` y `batches` se piden
+**dos veces** cada una al abrir (Cruce 6). Vista «por documento» con el drill de Kepler: la tabla
+empieza en **y=545** (cinta de KPI + cinta del filtro + Por lote/documento + pestañas + filtros = 5
+capas) y entran **3 de 50 filas**; el folio se parte en **3 renglones**; cada fila mide ~85 px por las
+dos etiquetas apiladas (PQ.1). Etiquetas en pantalla: 47 «sin empujar» (ámbar) · 3 «no salió» (rojo).
+
+| # | Hallazgo nuevo (nivel A) | Costo | Regla |
+|---|---|---|---|
+| A1 | **Las dos vistas del mismo dato no traen el mismo universo**: la agenda del Ciclo dice SABOR Y ALEGRIA «1 de 1 bajo reorden · $263»; «Armar» abre el workbook **vacío** («Sin datos en los puntos de compra»), con o sin filtro de sucursal y de alcance. TOSTADAS GUADALUPE: agenda $12,825, workbook 4 productos $4,175 | el botón «Armar» (PQ.4, mío) promete algo que la pantalla destino no tiene | Cruce 5 |
+| A2 | **La cinta de KPI no sigue al filtro cuando el resultado es vacío**: con SABOR Y ALEGRIA elegido muestra «A comprar $23,399,972» (la red entera) | una cifra de red leída como del proveedor | Cruce 2 / veracidad |
+| A3 | Bandeja: «Esperando aprobación **1** · $39,459» mientras la lista «por lote» muestra **4 lotes pendientes, 27 documentos, $876,066** (la casilla cuenta sólo la pestaña Compra) | el encabezado no se puede recorrer en su lista | Cruce 1 |
+| A4 | Sucursales **por código** en la lista de lotes («6 sucursales: 01, 02, 03, 04, 06, 07») y en el detalle («entrega en 04 (Yurécuaro)») | regla dura: sucursal por nombre | GOTCHAS / memoria |
+| A5 | «FERNANDO ZERME?O MU?OZ»: la Ñ llega como «?» desde el ODS a la pantalla | nombre de proveedor mal escrito en el documento | veracidad |
+| A6 | Requisición aprobada con **1 línea · 0 unidades · $38** (RQ-2026-01390) a la vista en la bandeja | un documento vacío aprobado | poka-yoke |
+| A7 | «Limpiar» en los filtros no toca la requisición en armado: cancelé un plan de 14 documentos, limpié, y los 11 productos siguieron marcados (el siguiente plan salió de **16 documentos**) | duplicado a un clic | §10.8 estado sucio |
+| A8 | «Ver» ambiguo: «Ver el ciclo» y «Ver» (carrito) a la vez; en la barra el «Ver» no es botón | la automatización y el teclado lo confunden | Jakob |
+| A9 | Detalle: 3 cintas apiladas antes de las cifras; «Sugerido 1 · Pedir 176» en 4 renglones sin señal del cambio ×176 (M1) | la corrección más grande de la requisición no se ve | Von Restorff |
+| A10 | Pedido: 2 filas visibles en el pliegue y el aviso PWA tapa «Generar» | el trabajo empieza en el 77 % de la altura | §5 estructura |
+| A11 | Carrito: «0 de 71 cajas de su pedido típico» para 0.2 cj; «Generar los 1» | redondeo que dice cero y plural forzado | veracidad / texto |
+
+Lo que **sí** se confirmó en vivo: PQ.5 (aviso «Hoy te toca pedirle a 196 proveedores…»), PQ.4
+(agenda con «Armar») y PQ.1 (dos etiquetas por fila) ya están en prod y se ven como se diseñaron.
+PQ.14 todavía no está en prod (el toast sigue sin enlace).
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-26 | **Nivel A hecho** (§13.1) con Chromium propio y el usuario de prueba del PM: 11 hallazgos nuevos medidos en pantalla (A1 «Armar» abre vacío · A2 KPI de red con filtro · A3 casilla 1 vs lista 27 · sucursal por código · Ñ como «?» · aprobada con 0 unidades · «Limpiar» no vacía el carrito…). La requisición de prueba no se creó: el clasificador bloqueó la escritura en prod | PM + sesión PQ |
 | 2026-10-26 | Auditoría del flujo generar → aprobar (§13): nivel A bloqueado (navegadores tomados, sin login); nivel C+B con 7 hallazgos. **PQ.14 🧪** (`ffe073b74`): apagado de Kepler como estado de la bandeja, no falla por fila; lo generado queda a la vista con su lote y enlace a la bandeja. 130/130 vitest | PM + sesión PQ |
 | 2026-10-26 | «Necesito un 100 %»: las 268 líneas fuera de la ficha son 162 por etiqueta (cuadran por factor) + 106 unidades elegidas a mano en Kepler. **PQ.13 🧪**: migración que hace mandar la ficha de Kepler en sus almacenes (867 celdas, 568 a 1 por `unidad_unica`); cuerpo ejercido en prod sólo lectura, **sin aplicar** (§12.4) | PM + sesión PQ |
 | 2026-10-26 | «Resolvámoslo» (D20): medido contra 19,367 líneas de OC reales de Kepler (90 d). **El resolvedor ya da el `c58` de Kepler en 99.3 % de las líneas en caja; el `c84` solo daría 98.7 %** → D20 refutada, sin vista que cambiar. `c58` es el factor del peldaño capturado (`c55`), no del producto. El desfase al escribir está en el adaptador (escribe `CJA`/`c58=1`); va a KR (§12.3) | PM + sesión PQ |
