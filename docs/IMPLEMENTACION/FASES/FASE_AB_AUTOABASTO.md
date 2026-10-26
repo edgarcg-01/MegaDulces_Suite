@@ -1923,6 +1923,45 @@ Compras (Arizbeth)»*. Firmado con él ese día (cierra **D12** y **D13** de §1
   la matriz (AB.31/D10); el folio del traspaso pasado a Kepler (PQ.2); el permiso cruzado del botón
   «Rechazar» del detalle (`GESTIONAR` contra `AUTORIZAR`, de PQ).
 
+### 16.17 ⛔ El motor sale del ODS: «absolutamente nada debe venir de importers» (2026-10-26)
+
+**Pedido del PM:** *«absolutamente nada debe venir de importers»*. Al preguntar de dónde salen la
+existencia y las ventas de la mesa, se midió (prod, sólo lectura) que la mesa, «Mi pedido» y la
+requisición dependen de **ocho tablas llenas por scripts de `database/importers`**, y que
+`/compras/pedido` lee las mismas:
+
+| Lo que usa | Tabla | La escribe |
+|---|---|---|
+| Existencia y venta diaria | `analytics.replenishment_plan` | `import-replenishment-plan.js` |
+| Demanda limpia | `analytics.product_demand` | `import-demand-clean.js` |
+| Venta por día | `analytics.sales_daily` | `import-sales-fact.js` (+3) |
+| Mínimo / reorden / máximo | `commercial.reorder_policy` | `import-computed-reorder.js`, `import-network-reorder.js` |
+| A quién se le pide y cada cuándo | `commercial.replenishment_channel` | `import-replenishment-cadence.js` |
+| Ranking de venta | `analytics.inventory_health` | `import-inventory-health.js` |
+| Productos / proveedores | `catalog.products` / `catalog.suppliers` | ~15 / 3 scripts |
+
+Lo que ya sale directo del ODS: lo ya pedido y lo en camino (`kdm1/kdm2`), la escalera (`kdii`),
+costo y factor de caja (vistas del ODS, leídas por su matview). La existencia ya existe como vista del
+ODS (`v_erp_stock_on_hand`), pero el motor lee la copia del importer.
+
+**Decisiones del PM (2026-10-26):**
+
+| # | Decisión | Firma |
+|---|---|---|
+| D16 | Se permite una **matview que sea `SELECT *` de una vista del ODS**, refrescada por la app con su latido y con la edad a la vista. No es un importer: ningún script carga datos | ✅ PM |
+| D17 | **Alcance: el motor completo** — la mesa, «Mi pedido» y `/compras/pedido` leen las mismas vistas del ODS y siguen dando la misma cifra. Se coordina con PQ. Catálogo y proveedores quedan **fuera** (los usa toda la Suite: proyecto aparte, con su fase) | ✅ PM |
+
+**Plan (C0 → C3, cada número que cambia en su commit con antes/después):**
+
+1. **C0** — inventario de lo que calcula cada importer y de las vistas del ODS que ya existen; paridad
+   de cada candidata contra lo de hoy, almacén × producto (en curso).
+2. **C0/C1** — las vistas que falten: demanda por almacén × producto, existencia directa de
+   `v_erp_stock_on_hand`, la política (mínimo / reorden / máximo) como vista o función, el canal.
+3. **C1/C2** — el motor (AB y Compras a la vez) lee las vistas; matviews de esas vistas donde haga
+   falta para los 500 ms.
+4. **Cierre** — los scripts salen de la agenda de feeds (`ops/vl/crontab.feeds`) sólo después de la
+   paridad medida; el código de `database/importers` correspondiente se retira o queda como deuda con nombre.
+
 ### 16.10 Definición de Terminado
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
