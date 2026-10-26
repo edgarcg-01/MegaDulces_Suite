@@ -11,11 +11,12 @@ import { TagModule } from 'primeng/tag';
 import { CheckboxModule } from 'primeng/checkbox';
 import { DatePickerModule } from 'primeng/datepicker';
 import type {
-  AltaRapidaResultado, CompletarGuiaBody, FaltaDelViaje, OperacionDelReporte, PersonaDelPadron, ReporteDePagos,
+  AltaRapidaResultado, CompletarGuiaBody, DesgloseDeOperacion, EstadoRecepcion, FaltaDelViaje, OperacionDelReporte,
+  PersonaDelPadron, ReporteDePagos, ResponsableKepler, TipoParadaKepler,
 } from '@megadulces/contracts';
 // Por subruta, no por el barrel: ver tsconfig.base.json (bundle inicial).
 import {
-  corteVecino, FALTA_LABEL, repartoDeCarga, ROL_LABEL, TIPO_VIAJE_LABEL, totalDeCarga,
+  corteVecino, ESTADO_RECEPCION_LABEL, FALTA_LABEL, repartoDeCarga, ROL_LABEL, TIPO_VIAJE_LABEL, totalDeCarga,
 } from '@megadulces/contracts/http/cierre-viaje';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -185,6 +186,59 @@ const mensaje = (e: unknown, def: string): string => {
             @if (avisoPeek(); as a) { <div class="pv-msg pv-msg-ok" role="status">{{ a }}</div> }
             @if (errorPeek(); as e) { <div class="pv-msg pv-msg-bad" role="alert">{{ e }}</div> }
 
+            <!-- [EMB.50] El movimiento documento por documento: cajas, quién lo hizo y la recepción. -->
+            <section class="pv-paso" aria-labelledby="pv-desglose">
+              <h3 id="pv-desglose">Desglose del movimiento</h3>
+              <app-load-state [loading]="cargandoDesglose()" [error]="errorDesglose()"
+                              [isEmpty]="!!desglose() && !desglose()!.documentos.length" [skeletonRows]="3"
+                              emptyIcon="pi-file" emptyTitle="Kepler no trae documentos de esta guía" (retry)="cargarDesglose(o)">
+                @if (desglose(); as d) {
+                  <p class="pv-sub">{{ d.documentos.length }} documento{{ d.documentos.length === 1 ? '' : 's' }} ·
+                    {{ d.cajas | number:'1.0-2' }} cajas@if (d.sueltos) { · {{ d.sueltos | number:'1.0-2' }} sueltas }</p>
+                  <ul class="pv-docs">
+                    @for (doc of d.documentos; track doc.serie + '|' + doc.folio) {
+                      <li class="pv-doc">
+                        <div class="pv-doc-cab">
+                          <span><span class="pv-guia">{{ doc.folio }}</span> · {{ tipoParada(doc.tipo) }} · {{ doc.destino || '—' }}</span>
+                          <span class="pv-doc-num">{{ doc.cajas | number:'1.0-2' }} cajas@if (doc.sueltos) { · {{ doc.sueltos | number:'1.0-2' }} sueltas }</span>
+                        </div>
+                        <dl class="pv-doc-quien">
+                          <div><dt>Surtió</dt><dd>{{ persona(doc.surtio) }}</dd></div>
+                          <div><dt>Checó</dt><dd>{{ persona(doc.checo) }}</dd></div>
+                          <div><dt>Embarcó</dt><dd>{{ persona(doc.embarco) }}</dd></div>
+                          <div><dt>Capturó en Kepler</dt><dd>{{ doc.capturo ? 'usuario ' + doc.capturo : '—' }}@if (doc.hora_captura) { · {{ doc.hora_captura }} }</dd></div>
+                        </dl>
+                        @if (doc.recepcion; as r) {
+                          <p class="pv-doc-rec">
+                            <span [class]="'pv-rec pv-rec-' + r.estado">{{ estadoRecepcion(r.estado) }}</span>
+                            Recepción en {{ r.sucursal ? (r.sucursal | sucursal) : 'destino desconocido' }}@if (r.folio) {: folio {{ r.folio }} del {{ fechaCorta(r.fecha!) }}, capturó el usuario {{ r.capturo || '—' }} }@if (r.diferencia) { · diferencia {{ r.diferencia | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                          </p>
+                        }
+                        <details class="pv-doc-det">
+                          <summary>{{ doc.renglones.length }} producto{{ doc.renglones.length === 1 ? '' : 's' }}</summary>
+                          <div class="dt-scope">
+                            <p-table [value]="doc.renglones" size="small" class="surf-table surf-table--plain dt-stack">
+                              <ng-template #header>
+                                <tr><th scope="col">Producto</th><th scope="col" class="comm-num">Cantidad</th><th scope="col">Presentación</th><th scope="col" class="comm-num">Cajas</th></tr>
+                              </ng-template>
+                              <ng-template #body let-r>
+                                <tr>
+                                  <td data-label="Producto">{{ r.producto || r.sku }}<span class="pv-sub">{{ r.sku }}@if (r.sin_carga) { · no se carga }</span></td>
+                                  <td data-label="Cantidad" class="comm-num">{{ r.cantidad == null ? '—' : (r.cantidad | number:'1.0-2') }}</td>
+                                  <td data-label="Presentación">{{ r.presentacion || 'sin presentación' }}</td>
+                                  <td data-label="Cajas" class="comm-num">{{ r.cajas | number:'1.0-2' }}</td>
+                                </tr>
+                              </ng-template>
+                            </p-table>
+                          </div>
+                        </details>
+                      </li>
+                    }
+                  </ul>
+                }
+              </app-load-state>
+            </section>
+
             <!-- Chofer y ayudantes: de aquí salen la comisión (por la ruta) y el viático (por el horario). -->
             <section class="pv-paso" aria-labelledby="pv-tripulacion">
               <h3 id="pv-tripulacion">Chofer y ayudantes</h3>
@@ -333,6 +387,20 @@ const mensaje = (e: unknown, def: string): string => {
     .pv-msg-bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .pv-msg-warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .pv-link { font-size: var(--fs-sm); }
+    .pv-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
+    .pv-doc { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); }
+    .pv-doc-cab { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--sp-2); font-size: var(--fs-sm); }
+    .pv-doc-num { font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
+    .pv-doc-quien { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: var(--sp-1) var(--sp-3); margin: var(--sp-2) 0 0; }
+    .pv-doc-quien dt { font-size: var(--fs-xs); color: var(--text-muted); }
+    .pv-doc-quien dd { margin: 0; font-size: var(--fs-sm); }
+    .pv-doc-rec { margin: var(--sp-2) 0 0; font-size: var(--fs-sm); }
+    .pv-rec { font-weight: var(--fw-medium); margin-right: var(--sp-1); }
+    .pv-rec-cerrada { color: var(--ok-soft-fg); }
+    .pv-rec-faltante, .pv-rec-sobrante, .pv-rec-pendiente, .pv-rec-destino_desconocido { color: var(--warn-soft-fg); }
+    .pv-doc-det { margin-top: var(--sp-2); }
+    .pv-doc-det summary { cursor: pointer; font-size: var(--fs-sm); color: var(--text-muted); }
+    .pv-doc-det summary:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     @container (max-width: 40rem) { .pv-cuenta { margin-left: 0; } }
   `],
@@ -365,6 +433,10 @@ export class LogisticaPagosViajesComponent {
   readonly guardandoCarga = signal(false);
   readonly altaAyudante = signal(false);
   readonly altaCargador = signal(false);
+  /** `[EMB.50]` El desglose de la operación abierta (se pide al abrir el panel). */
+  readonly desglose = signal<DesgloseDeOperacion | null>(null);
+  readonly cargandoDesglose = signal(false);
+  readonly errorDesglose = signal<string | null>(null);
   /** Quien se dio de alta aquí mismo: entra a las listas sin esperar a releer el padrón. */
   private readonly altas = signal<PersonaDelPadron[]>([]);
 
@@ -509,6 +581,39 @@ export class LogisticaPagosViajesComponent {
     this.durmio.set(o.overnight);
     this.cargadoresSel.set([...o.cargador_ids]);
     this.peek.set(true);
+    this.cargarDesglose(o);
+  }
+
+  /** `[EMB.50]` Si se abre otra operación antes de que llegue, la respuesta vieja se descarta. */
+  cargarDesglose(o: Pick<OperacionDelReporte, 'sucursal' | 'guia'>): void {
+    const pedida = llave(o);
+    this.desglose.set(null);
+    this.errorDesglose.set(null);
+    this.cargandoDesglose.set(true);
+    this.api.getDesgloseOperacion(o.sucursal, o.guia).subscribe({
+      next: (d) => {
+        if (this.clave() !== pedida) return;
+        this.desglose.set(d);
+        this.cargandoDesglose.set(false);
+      },
+      error: (e) => {
+        if (this.clave() !== pedida) return;
+        this.cargandoDesglose.set(false);
+        this.errorDesglose.set(mensaje(e, 'No se pudo leer el desglose de Kepler.'));
+      },
+    });
+  }
+
+  tipoParada(t: TipoParadaKepler): string {
+    return ({ cliente: 'Entrega a cliente', traspaso: 'Traspaso', carga_ruta: 'Carga a ruta (no paga)' } as const)[t];
+  }
+  /** Una persona de un catálogo de Kepler; sin nombre se dice la clave, no se inventa. */
+  persona(p: ResponsableKepler): string {
+    if (p.nombre) return p.nombre;
+    return p.codigo ? `clave ${p.codigo} (sin nombre en Kepler)` : '—';
+  }
+  estadoRecepcion(e: EstadoRecepcion): string {
+    return ESTADO_RECEPCION_LABEL[e] ?? e;
   }
 
   cerrar(): void {

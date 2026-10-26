@@ -380,8 +380,35 @@ se leyeron en prod.
 midió sólo contra el concepto 075; en Kepler los traspasos locales sí cobran por 054 (p. ej. 22-oct:
 Antonio Méndez $1,630 al centro de Padre Hidalgo). Espera respuesta de Edgar.
 
+### EMB.50 · El desglose de cada operación (🧪, 2026-10-26)
+
+Edgar: *«que se pueda desglosar el movimiento (cuántas cajas), quién hizo recepciones, etc.»*. En el
+panel de cada operación, sección **«Desglose del movimiento»**, documento por documento:
+
+| Qué | De dónde (Kepler, en vivo) |
+|---|---|
+| Cajas y sueltas del documento | `kdm2.c54`/`c55` — la MISMA regla que el reporte (CJA/BTO; sin tiempo aire; carga a ruta = 0) |
+| Productos (cantidad, presentación, cajas) | `kdm2` + nombre de `kdii` |
+| Quién **surtió, checó y embarcó** | `erp_shipment_headers.resp_*` contra `v_kepler_responsables` (`resolverPorCodigo`: una clave ambigua NO se adivina) |
+| Quién lo capturó y a qué hora | `erp_shipment_stops.usuario_captura` / `hora_captura` |
+| La **recepción** del traspaso en destino | `erp_shipment_stop_closure` (U-A-50): folio, día, diferencia y estado; **quién la capturó** = `kdm1.c67` del U-A-50 |
+
+`GET /logistics/trip-closure/operaciones/:sucursal/:guia/desglose` (sólo lee; mismas llaves que el
+reporte). **Verificado contra prod (sólo lectura, código real):** el desglose cuadra con el reporte
+en **78 de 78** operaciones (cajas y sueltas); máximo 73 ms por operación. Ejemplo real: traspaso a
+Padre Hidalgo — surtió RODOLFO LANDEROS, checó LIZBETH MARTÍNEZ, **embarcó DIEGO RODRÍGUEZ**,
+recepción 0000518 capturada por el usuario `10RQN`, completa. Pruebas: logistics 88 (9 nuevas),
+pantallas 17; mutación de la guarda de respuestas tardías en rojo.
+
+**Lo que NO se puede (declarado):** quién recibió sale como **clave de usuario de Kepler** (`10RQN`),
+no con nombre: el ODS no trae catálogo de usuarios (buscado: ninguna tabla). **Oportunidad:** Kepler
+ya registra quién **embarcó** cada documento; con eso los cargadores podrían precargarse — pendiente de
+que Edgar diga si «embarcó» = quien cargó el camión. **Fuera de esto:** la descarga en la recepción de
+compras (entradas de proveedor) sigue siendo el item pendiente.
+
 ## Bitácora
 
+- **2026-10-26** — EMB.50: desglose por documento (cajas, surtió/checó/embarcó, recepción en destino). Pedido: «quién hizo recepciones».
 - **2026-10-26** — EMB.49: la tarifa por caja rige desde el 22-oct (decisión de Edgar), con «rige desde» en la bitácora.
 - **2026-10-26** — EMB.48: el reporte muestra carga y comisión de ruta sin capturar; tiempo aire fuera (7 guías). Pedido: «todos los viajes salen en 0».
 - **2026-10-24** — EMB.47: el módulo pasa a ser un reporte de reparto (Operaciones + solicitudes por persona en PDF/Excel); D1 (conceptos) firmada, D6 superada. Migraciones de EMB.39/43 aplicadas en prod.

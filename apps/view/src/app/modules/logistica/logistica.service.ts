@@ -6,7 +6,7 @@ import { environment } from '../../../environments/environment';
 import type {
   KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody, RevisionGps, CompletarGuiaBody, GuiaCompletada,
   CierreDeEmbarque, CerrarParadaBody, ParadaCierre, AltaRapidaBody, AltaRapidaResultado,
-  ReporteDePagos,
+  ReporteDePagos, DesgloseDeOperacion,
 } from '@megadulces/contracts';
 
 // ── Tipos ────────────────────────────────────────────────────────────────
@@ -1291,6 +1291,11 @@ export class LogisticaService {
     if (corte) p = p.set('desde', corte.desde).set('hasta', corte.hasta);
     if (sucursal) p = p.set('sucursal', sucursal);
     return this.http.get<ReporteDePagos>(`${this.base}/trip-closure/reporte`, { params: p });
+  }
+  /** `[EMB.50]` Una operación documento por documento: cajas, quién surtió/checó/embarcó, recepción. */
+  getDesgloseOperacion(sucursal: string, guia: string): Observable<DesgloseDeOperacion> {
+    return this.http.get<DesgloseDeOperacion>(
+      `${this.base}/trip-closure/operaciones/${encodeURIComponent(sucursal)}/${encodeURIComponent(guia)}/desglose`);
   }
   /** `[EMB.28.1]` Quién cambió una tarifa, cuándo, y qué tenía antes. */
   historialTarifa(entity: 'config' | 'route', id: string): Observable<TariffChange[]> {

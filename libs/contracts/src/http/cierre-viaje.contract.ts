@@ -678,3 +678,81 @@ export function solicitudesDelReporte(operaciones: OperacionDelReporte[]): Solic
     }))
     .sort((a, b) => a.persona.localeCompare(b.persona, 'es'));
 }
+
+// ── [EMB.50] El desglose de una operación ─────────────────────────────────────────────────────
+//
+// Edgar (2026-10-26): «que se pueda desglosar el movimiento (cuántas cajas), quién hizo
+// recepciones, etc.». Por documento de la guía: sus cajas (con la MISMA regla que el reporte:
+// presentación capturada CJA/BTO, sin tiempo aire), quién surtió/checó/embarcó según Kepler, y en
+// un traspaso su recepción en la sucursal destino (U-A-50) con quién la capturó.
+
+/** Una persona según un catálogo de Kepler: `nombre` null = la clave no está (o es ambigua). */
+export interface ResponsableKepler {
+  codigo: string | null;
+  nombre: string | null;
+}
+
+/** Un renglón del documento, en la presentación en que se CAPTURÓ (`kdm2.c54`/`c55`). */
+export interface RenglonDelDocumento {
+  linea: number | null;
+  sku: string;
+  producto: string | null;
+  cantidad: number | null;
+  presentacion: string | null;
+  /** La cantidad, si la presentación es caja o bulto; si no, 0. */
+  cajas: number;
+  /** Tiempo aire y demás `SKUS_SIN_CARGA`: viaja, no se carga. */
+  sin_carga: boolean;
+}
+
+export type EstadoRecepcion = 'cerrada' | 'faltante' | 'sobrante' | 'pendiente' | 'destino_desconocido';
+
+export const ESTADO_RECEPCION_LABEL: Record<EstadoRecepcion, string> = {
+  cerrada: 'Recibido completo',
+  faltante: 'Llegó de menos',
+  sobrante: 'Llegó de más',
+  pendiente: 'Sin recepción en Kepler',
+  destino_desconocido: 'Destino sin sucursal',
+};
+
+/** La entrada (`U-A-50`) con que la sucursal destino recibió un traspaso. */
+export interface RecepcionDelTraspaso {
+  sucursal: string | null;
+  folio: string | null;
+  fecha: string | null;
+  /** Usuario de Kepler que la capturó (`kdm1.c67`). Es una CLAVE: Kepler no trae su nombre. */
+  capturo: string | null;
+  /** Recibido − embarcado, en pesos. */
+  diferencia: number | null;
+  estado: EstadoRecepcion;
+}
+
+export interface DocumentoDeLaOperacion {
+  serie: number;
+  folio: string;
+  tipo: TipoParadaKepler;
+  destino: string | null;
+  /** Cajas y unidades sueltas del documento (0 si es una carga a ruta: no paga). */
+  cajas: number;
+  sueltos: number;
+  surtio: ResponsableKepler;
+  checo: ResponsableKepler;
+  embarco: ResponsableKepler;
+  /** Usuario de Kepler que capturó el embarque, y a qué hora. */
+  capturo: string | null;
+  hora_captura: string | null;
+  /** Sólo en traspasos. */
+  recepcion: RecepcionDelTraspaso | null;
+  renglones: RenglonDelDocumento[];
+}
+
+/** `GET /logistics/trip-closure/operaciones/:sucursal/:guia/desglose` */
+export interface DesgloseDeOperacion {
+  sucursal: string;
+  guia: string;
+  documentos: DocumentoDeLaOperacion[];
+  /** Σ de los documentos que pagan: cuadra con las cajas de la operación en el reporte. */
+  cajas: number;
+  sueltos: number;
+  leido_at: string;
+}
