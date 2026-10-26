@@ -40,6 +40,7 @@ import type { PageTab } from '../../../shared/components/page-tabs/page-tabs.com
 import { pestanaVisible, primeraPestanaVisible, urlEnPestanas } from '../../../shared/components/page-tabs/pestanas-de-area';
 import { GASTOS_TABS } from '../../finanzas/gastos-tabs';
 import { PAGOS_VIAJE_TABS } from '../../logistica/pagos-viaje-tabs';
+import { COSTO_UNIDAD_TABS } from '../../logistica/costo-unidad-tabs';
 import { CAJA_TABS } from '../../finanzas/caja-tabs';
 import { PAGOS_TABS } from '../../finanzas/pagos-tabs';
 import { CORTES_ARQUEOS_TABS, CORTES_ARQUEOS_LABEL } from '../../finanzas/cortes-arqueos-tabs';
@@ -555,6 +556,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Costos',        icon: 'pi pi-money-bill', route: '/logistica/costs',     permission: Permission.LOGISTICS_EXPENSES_VER },
         { label: 'Gasto de ruta', icon: 'pi pi-car',        route: '/logistica/gasto-ruta', permission: Permission.LOGISTICS_ROUTE_EXPENSES_VER },
+        // [FCU.3] Reemplaza la hoja «TRANSPORTES 2026»: una entrada, cinco pestañas.
+        { label: 'Costo por unidad', icon: 'pi pi-truck', route: '/logistica/costo-unidad/unidades', tabs: COSTO_UNIDAD_TABS },
         { label: 'Traspasos',     icon: 'pi pi-sync',       route: '/logistica/traspasos', permission: Permission.LOGISTICS_TRANSFERS_VER },
         { label: 'Reportes',      icon: 'pi pi-chart-bar',  route: '/logistica/reports',   permission: Permission.LOGISTICS_SHIPMENTS_VER },
         { label: 'Configuración', icon: 'pi pi-cog',        route: '/logistica/config',    permission: Permission.LOGISTICS_CONFIG_GESTIONAR },

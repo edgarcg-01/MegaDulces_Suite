@@ -2290,6 +2290,41 @@ export const routes: Routes = [
           },
         ]
       },
+      {
+        // [FCU.3] Costo por unidad: lo que hacía la hoja «TRANSPORTES 2026», con pantalla. Cinco
+        // pestañas (COSTO_UNIDAD_TABS), cada una con su guard; la nómina administrativa es dato
+        // sensible y pide GESTIONAR.
+        path: 'costo-unidad',
+        canActivate: [permissionGuard(Permission.LOGISTICS_COSTO_UNIDAD_VER)],
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'unidades' },
+          {
+            path: 'unidades',
+            loadComponent: () => import('./modules/logistica/pages/logistica-costo-unidad.component').then(m => m.LogisticaCostoUnidadComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_COSTO_UNIDAD_VER)]
+          },
+          {
+            path: 'pendientes',
+            loadComponent: () => import('./modules/logistica/pages/logistica-costo-unidad-pendientes.component').then(m => m.LogisticaCostoUnidadPendientesComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_COSTO_UNIDAD_VER)]
+          },
+          {
+            path: 'presupuesto',
+            loadComponent: () => import('./modules/logistica/pages/logistica-costo-unidad-presupuesto.component').then(m => m.LogisticaCostoUnidadPresupuestoComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_COSTO_UNIDAD_VER)]
+          },
+          {
+            path: 'nomina',
+            loadComponent: () => import('./modules/logistica/pages/logistica-costo-unidad-nomina.component').then(m => m.LogisticaCostoUnidadNominaComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_COSTO_UNIDAD_GESTIONAR)]
+          },
+          {
+            path: 'reposicion',
+            loadComponent: () => import('./modules/logistica/pages/logistica-costo-unidad-reposicion.component').then(m => m.LogisticaCostoUnidadReposicionComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_COSTO_UNIDAD_VER)]
+          },
+        ]
+      },
     ]
   },
   // ── Proyecto Administración (cross-cutting) ─────────────────────────
