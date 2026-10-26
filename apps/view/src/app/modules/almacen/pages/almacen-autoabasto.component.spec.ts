@@ -336,6 +336,38 @@ describe('[AB.42] el espacio es para el pedido', () => {
   });
 });
 
+describe('[AB.43] una sola acción principal; los papeles en un botón', () => {
+  const dosOrigenes = () => RESP([], { puede_ajustar: true, grupos: [
+    grupo([linea()]),
+    grupo([linea({ product_id: 'p-9', sku: '11111', surte: { tipo: 'proveedor', clave: 's-1', nombre: 'MONDELEZ' } })], { tipo: 'proveedor', clave: 's-1', nombre: 'MONDELEZ' }),
+  ] });
+
+  it('⛔ un solo botón primario en toda la pantalla (Enviar a Compras); sin «Aceptar grupo» ni PDF por grupo', () => {
+    const { f } = montar(dosOrigenes());
+    const el = f.nativeElement as HTMLElement;
+    const primarios = Array.from(el.querySelectorAll('button.p-button')).filter((b) => !b.classList.contains('p-button-outlined') && !b.classList.contains('p-button-text'));
+    expect(primarios.map((b) => (b.textContent || '').trim())).toEqual(['Enviar a Compras']);
+    expect(texto(f)).not.toContain('Aceptar grupo');
+    expect(el.querySelectorAll('.ab-ghead button')).toHaveLength(0);
+  });
+
+  it('«PDF» ofrece el pedido completo, cada origen por su nombre y el reporte del almacén', () => {
+    const { c } = montar(dosOrigenes());
+    const labels = c.opcionesPdf().flatMap((g) => (g.items ?? []).map((i) => i.label));
+    expect(labels).toEqual(['Una hoja por origen', 'Traspaso de CEDIS', 'Compra a MONDELEZ', 'Reporte del almacén (todos los productos)']);
+  });
+
+  it('con un solo origen no repite «sólo un origen» (sería el mismo papel que el completo)', () => {
+    const { c } = montar(RESP([], { puede_ajustar: true }));
+    expect(c.opcionesPdf().map((g) => g.label)).toEqual(['El pedido completo', 'El almacén']);
+  });
+
+  it('«Recalcular» vive junto a la edad del dato', () => {
+    const { f } = montar(RESP());
+    expect((f.nativeElement as HTMLElement).querySelector('.ab-stamp .ab-recalc')?.textContent).toContain('Recalcular');
+  });
+});
+
 describe('[AB.41] lo que te va a llegar se abre: qué productos trae cada documento', () => {
   const RENGLONES = { renglones: [
     { sku: '70056', nombre: 'MAZAPÁN', cantidad: 72, unidad: 'CJA', cantidad_base: 1296, unidad_base: 'PZA' },
