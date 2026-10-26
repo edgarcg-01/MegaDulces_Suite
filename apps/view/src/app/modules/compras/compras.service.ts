@@ -558,6 +558,11 @@ export interface RequisitionRow {
   approved_at: string | null;
   warehouse_code: string | null;
   warehouse_name: string | null;
+  /** `[AB.29]` La pidió una sucursal desde Autoabasto. Ausente/false = la armó Compras. */
+  requested_by_branch?: boolean;
+  /** `[AB.32]` Por qué se rechazó. `null` = no se rechazó, o fue antes de que existiera la constancia. */
+  rejection_reason?: string | null;
+  rejected_at?: string | null;
   supplier_name: string | null;
   /**
    * `[RQ.15]` La orden de compra de Kepler que salió de esta requisición. Las DOS o ninguna.
@@ -1502,7 +1507,7 @@ export class ComprasService {
     return this.http.post<{ groups: number; merged: number; products_repointed: number }>(`${this.base}/categories/auto-dedup`, {});
   }
 
-  listRequisitions(q?: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; kepler?: 'sin_documento'; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: RequisitionRow[]; resumen: RequisitionResumen[] }> {
+  listRequisitions(q?: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; kepler?: 'sin_documento'; de_sucursal?: boolean; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: RequisitionRow[]; resumen: RequisitionResumen[] }> {
     const p = new URLSearchParams();
     if (q?.estado) p.set('estado', q.estado);
     if (q?.warehouse_id) p.set('warehouse_id', q.warehouse_id);
@@ -1510,6 +1515,7 @@ export class ComprasService {
     if (q?.batch_id) p.set('batch_id', q.batch_id);
     if (q?.search) p.set('search', q.search);
     if (q?.kepler) p.set('kepler', q.kepler);   // `[PQ.1]` aprobadas sin documento en Kepler
+    if (q?.de_sucursal) p.set('de_sucursal', '1');   // `[AB.32]` las que pidió una sucursal
     if (q?.page) p.set('page', String(q.page));
     if (q?.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
@@ -1545,8 +1551,8 @@ export class ComprasService {
     return this.http.post<{ id: string; renglones_actualizados: number; total_cost: number; vigencia: RequisitionVigencia | null }>(`${this.base}/requisitions/${id}/recalculate`, {});
   }
   /** `[RQ.4]` Aprueba o rechaza varias de una; lo que no pasa vuelve con su motivo. */
-  bulkRequisiciones(ids: string[], accion: 'approve' | 'reject'): Observable<{ pedidas: number; hechas: number; ok: string[]; fallas: Array<{ id: string; motivo: string }> }> {
-    return this.http.post<{ pedidas: number; hechas: number; ok: string[]; fallas: Array<{ id: string; motivo: string }> }>(`${this.base}/requisitions/bulk`, { ids, accion });
+  bulkRequisiciones(ids: string[], accion: 'approve' | 'reject', motivo?: string | null): Observable<{ pedidas: number; hechas: number; ok: string[]; fallas: Array<{ id: string; motivo: string }> }> {
+    return this.http.post<{ pedidas: number; hechas: number; ok: string[]; fallas: Array<{ id: string; motivo: string }> }>(`${this.base}/requisitions/bulk`, { ids, accion, motivo: motivo ?? null });
   }
 
   getRequisition(id: string): Observable<RequisitionDetail> {
@@ -1566,8 +1572,9 @@ export class ComprasService {
   pushKepler(id: string): Observable<KeplerPushResult> {
     return this.http.post<KeplerPushResult>(`${this.base}/requisitions/${id}/push-kepler`, {});
   }
-  reject(id: string): Observable<{ id: string; estado: RequisitionEstado }> {
-    return this.http.post<{ id: string; estado: RequisitionEstado }>(`${this.base}/requisitions/${id}/reject`, {});
+  /** `[AB.32]` El motivo es OBLIGATORIO si la pidió una sucursal (el servidor contesta 400 sin él). */
+  reject(id: string, motivo?: string | null): Observable<{ id: string; estado: RequisitionEstado }> {
+    return this.http.post<{ id: string; estado: RequisitionEstado }>(`${this.base}/requisitions/${id}/reject`, { motivo: motivo ?? null });
   }
   /** RA.14 — approved → ordered (OC emitida / en tránsito). */
   /**

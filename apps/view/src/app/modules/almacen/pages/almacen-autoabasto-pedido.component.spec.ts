@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { of } from 'rxjs';
+import { vi } from 'vitest';
 import type { AutoabastoPedidoLinea, AutoabastoPedidoResponse, AutoabastoVieneDoc } from '@megadulces/contracts';
 import { AlmacenAutoabastoPedidoComponent } from './almacen-autoabasto-pedido.component';
 import { AutoabastoService } from '../autoabasto.service';
@@ -34,7 +35,7 @@ const RESP = (docs: AutoabastoVieneDoc[]): AutoabastoPedidoResponse => ({
   pedidos_medidos: true, pedido_id: null, puede_ajustar: false, guardado_disponible: true, posiciones: ['agotado', 'bajo_minimo'] as never,
 });
 
-function montar(resp: AutoabastoPedidoResponse) {
+function montar(resp: AutoabastoPedidoResponse, extra: Record<string, unknown> = {}) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [AlmacenAutoabastoPedidoComponent],
@@ -42,7 +43,7 @@ function montar(resp: AutoabastoPedidoResponse) {
       provideZonelessChangeDetection(), provideRouter([]),
       { provide: AutoabastoService, useValue: {
         filtros: () => of({ warehouses: [{ id: 'w-01', code: '01', name: 'Padre Hidalgo' }] }),
-        pedido: () => of(resp), abrirPedido: () => of(null),
+        pedido: () => of(resp), abrirPedido: () => of(null), ...extra,
       } },
       { provide: AuthService, useValue: { user: () => ({ sub: 'u1', username: 'u1' }), token: () => null } },
     ],
@@ -101,5 +102,67 @@ describe('[AB.23] «Mi pedido»: lo que te va a llegar', () => {
     expect(texto(f)).toContain('Ver los 9');
     f.componentInstance.verTodoViene.set(true);
     expect(f.componentInstance.viene()!.visibles.length).toBe(9);
+  });
+});
+
+describe('[AB.29] «Enviar a Compras»', () => {
+  /** Un pedido que la persona PUEDE ajustar, con renglones de los cuatro casos. */
+  const conCasos = (docs: AutoabastoVieneDoc[] = []): AutoabastoPedidoResponse => {
+    const r = RESP(docs);
+    return {
+      ...r, puede_ajustar: true,
+      grupos: [
+        { ...r.grupos[0], lineas: [
+          linea({ product_id: 'p-falta' }),
+          linea({ product_id: 'p-mandado', sku: '111', estado: 'lo_pediste', pedido_sucursal: 5 }),
+          linea({ product_id: 'p-planeado', sku: '222', estado: 'compras_lo_planeo', planeado_compras: 5 }),
+        ] },
+        { tipo: 'sin_ruta', clave: null, nombre: 'Sin ruta configurada', lineas: [linea({ product_id: 'p-sinruta', sku: '333', surte: { tipo: 'sin_ruta', clave: null, nombre: 'Sin ruta configurada' } })],
+          renglones_a_pedir: 1, total_cajas: 5, renglones_sin_caja: 0, total_valor: 100, sin_valuar: 0, minimo_cajas: null, minimo_valor: null },
+      ],
+    };
+  };
+
+  it('manda SÓLO lo que falta por pedir (no lo ya mandado, ni lo planeado, ni lo sin ruta), con la nota', () => {
+    const enviar = vi.fn(() => of({ requisiciones: [{ id: 'r1', folio: 'RQ-2026-00001', surte: { tipo: 'matriz', clave: '00', nombre: '00' }, renglones: 1, total_cajas: 5 }],
+      omitidos: [], le_llega_a: ['yajaira arizbeth gonzalez'] }));
+    const f = montar(conCasos(), { enviar });
+    const c = f.componentInstance;
+    expect(c.porEnviar().ids).toEqual(['p-falta']);
+    c.abrirEnvio();
+    c.notaEnvio.set('  viene promoción  ');
+    c.enviar();
+    expect(enviar).toHaveBeenCalledWith({ warehouse_id: 'w-01', product_ids: ['p-falta'], nota: 'viene promoción' });
+    f.detectChanges();
+    const t = texto(f);
+    expect(t).toContain('Se mandó a Compras: RQ-2026-00001 (traspaso de CEDIS, 1 producto).');
+    expect(t).toContain('Le llegó a Yajaira Arizbeth Gonzalez');
+  });
+
+  it('⛔ con un renglón movido y sin guardar, no se puede enviar: se manda lo guardado', () => {
+    const c = montar(conCasos()).componentInstance;
+    c.estado.set({ 'p-falta': { cantidad: 7, motivo: null, guardando: false, guardado: false, error: null, desde: null } });
+    expect(c.sinGuardar()).toBe(1);
+    expect(c.porQueNoEnviar()).toContain('Espera a que se guarden tus cambios');
+    c.abrirEnvio();
+    expect(c.envioAbierto()).toBe(false);
+  });
+
+  it('lo ya mandado no entra a los grupos ni al PDF, y un aviso dice cuántos son', () => {
+    const f = montar(conCasos());
+    const c = f.componentInstance;
+    expect(c.yaMandados()).toBe(1);
+    expect(c.lineasVisibles(c.data()!.grupos[0]).map((l) => l.product_id)).not.toContain('p-mandado');
+    expect(texto(f)).toContain('1 producto ya lo pediste a Compras');
+  });
+
+  it('una requisición rechazada se ve con el motivo de Compras', () => {
+    const f = montar(conCasos([doc({ tipo: 'requisicion', estado: 'RECHAZADA', folio: 'RQ-2026-00009', origen: '00', se_resta: false,
+      motivo: 'Hay existencia en la matriz para la otra semana' })]));
+    const t = texto(f);
+    expect(f.componentInstance.viene()!.rechazadas).toBe(1);
+    expect(t).toContain('Rechazada');
+    expect(t).toContain('Motivo de Compras: «Hay existencia en la matriz para la otra semana»');
+    expect(t).not.toContain('ya se restaron');   // una requisición no es mercancía en movimiento
   });
 });
