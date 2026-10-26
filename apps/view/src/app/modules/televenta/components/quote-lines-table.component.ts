@@ -5,6 +5,7 @@ import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { etiquetaFuentePrecio, tonoFuentePrecio, type PasoDesglose } from '../quote-units';
+import { notaRedondeo } from '../quote-discount-breakdown';
 
 /**
  * `[E.29]` Un renglón de cotización como lo ve el operador, YA resuelto. Lo arman el alta (la
@@ -50,6 +51,8 @@ export interface RenglonTabla {
    * Σ netos = total al centavo). null = sin % de cliente o renglón sin precio.
    */
   neto: number | null;
+  /** `[E.29]` Precio de la presentación antes del redondeo de Kepler por unidad base; null = no se sabe. */
+  sinRedondear: number | null;
 }
 
 export interface CambioCantidad {
@@ -158,6 +161,14 @@ export interface CambioCantidad {
             @if (r.dtoPct) { <span class="dto">−{{ r.dtoPct }}%</span> }
             @if (r.explicacion) { <span class="explica">{{ r.explicacion }}</span> }
             @if (r.pasos) { <span class="pasos">{{ r.pasos }}</span> }
+            @if (redondeo(r); as nota) { <span class="pasos">{{ nota }}</span> }
+            <!-- [E.29] El % del cliente también es de dónde sale el importe: se dice en el renglón. -->
+            @if (r.neto !== null && r.neto !== r.importe) {
+              <span class="cliente">
+                <p-tag [value]="etiqueta('customer_terms')" [severity]="tono('customer_terms')" />
+                <span class="dto">−{{ clientePct() }}%</span>
+              </span>
+            }
           </td>
           <!-- [E.29] Con % de cliente, el importe es el de la hoja (ya con su parte del descuento) y
                dice de dónde sale: el renglón de Kepler, antes del %, es el de abajo. -->
@@ -206,6 +217,7 @@ export interface CambioCantidad {
       .factor { margin-left: 0.25rem; font-size: 0.7rem; color: var(--text-muted); }
       .dto { font-size: 0.7rem; color: var(--ok-soft-fg); margin-left: 0.3rem; }
       .explica { display: block; font-size: var(--fs-xs); color: var(--text-main); }
+      .cliente { display: block; margin-top: 0.25rem; }
       .pasos { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
       .falta { color: var(--bad-fg); font-weight: 600; }
       .falta-nota { display: block; font-size: var(--fs-xs); color: var(--bad-fg); }
@@ -242,5 +254,10 @@ export class QuoteLinesTableComponent {
 
   dinero(v: number | null): string {
     return v === null ? '—' : v.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+  }
+
+  /** `[E.29]` «Kepler redondea por PAQ a centavos: …» cuando el precio no es el de su último paso. */
+  redondeo(r: RenglonTabla): string {
+    return notaRedondeo(r.sinRedondear, r.precio, r.desglose[r.desglose.length - 1], (n) => this.dinero(n));
   }
 }
