@@ -425,11 +425,14 @@ export interface ViajeEnLaSuite {
 /**
  * Qué le falta al viaje, en el orden en que se captura. Vacío = completo: ya se sabe cuánto le toca
  * a cada quien. Es la misma regla que `pendientesDeLaGuia` (chofer y horario).
+ *
+ * `[EMB.48]` `choferDeKepler`: Kepler trae al chofer y está en el padrón activo. Entonces el chofer
+ * NO falta —la guía lo toma de Kepler y no deja cambiarlo—, aunque la hoja todavía no exista.
  */
-export function faltasDelViaje(suite: ViajeEnLaSuite | null): FaltaDelViaje[] {
-  if (!suite) return ['chofer', 'horario', 'cargadores'];
+export function faltasDelViaje(suite: ViajeEnLaSuite | null, choferDeKepler = false): FaltaDelViaje[] {
+  if (!suite) return choferDeKepler ? ['horario', 'cargadores'] : ['chofer', 'horario', 'cargadores'];
   const f: FaltaDelViaje[] = [];
-  if (!suite.driver_id) f.push('chofer');
+  if (!suite.driver_id && !choferDeKepler) f.push('chofer');
   if (!suite.departure_time || !suite.arrival_time) f.push('horario');
   if (!(suite.cargadores > 0)) f.push('cargadores');
   return f;
@@ -510,6 +513,14 @@ export function conceptoDelReparto(tipo: TipoViajePago, concepto: ConceptoDelRep
   return CONCEPTO_DEL_REPARTO[tipo === 'cliente' ? 'cliente' : 'traspaso'][concepto];
 }
 
+/**
+ * De dónde sale un renglón. `captura`: de lo que alguien guardó (la guía completa, los cargadores).
+ * `kepler` `[EMB.48]`: la comisión del chofer que trae Kepler por la tarifa de la ruta, antes de que
+ * nadie capture nada — es el MISMO monto que dará la guía al completarse (misma regla, y la guía no
+ * deja cambiar al chofer de Kepler).
+ */
+export type FuenteDelRenglon = 'captura' | 'kepler';
+
 /** Lo que le toca a UNA persona de UNA operación por UN concepto. */
 export interface RenglonDelReparto {
   persona_id: string;
@@ -519,12 +530,43 @@ export interface RenglonDelReparto {
   codigo: string;
   nombre_concepto: string;
   importe: number;
+  fuente: FuenteDelRenglon;
 }
+
+/**
+ * `[EMB.48]` La comisión que paga la ruta del viaje, por persona: la de MAYOR tarifa entre sus
+ * rutas (`comisionSugerida`, la misma regla con que se completa la guía). `null` = ninguna ruta del
+ * viaje tiene tarifa: se dice cuáles, no se pinta $0.
+ */
+export interface ComisionDeRuta {
+  chofer: number | null;
+  ayudante: number | null;
+  /** La ruta cuya tarifa se usó. */
+  ruta: string | null;
+  /** Rutas del viaje sin tarifa en el catálogo. */
+  sin_tarifa: string[];
+}
+
+/**
+ * `[EMB.48]` Productos que viajan en una guía pero NO se cargan: el tiempo aire (SKU 00022) es saldo
+ * de recarga, no mercancía. Medido 2026-10-26: 7 de 85 guías de la catorcena llevan SÓLO tiempo aire
+ * (1,025 «piezas» a $0.81 a cada sucursal) y salían como operaciones de 0 cajas por pagar.
+ */
+export const SKUS_SIN_CARGA: readonly string[] = ['00022'];
 
 /** Una operación del reporte: el viaje de Kepler, sus cajas y cómo se reparte. */
 export interface OperacionDelReporte extends ViajePorCompletar {
   /** Cajas de las paradas que pagan (sin las cargas a ruta). `null` = Kepler no trae renglones. */
   cajas: number | null;
+  /**
+   * `[EMB.48]` Unidades que viajan en otra presentación (paquete, pieza, kilo) y NO pagan por caja.
+   * Sin el tiempo aire. `null` = Kepler no trae renglones.
+   */
+  sueltos: number | null;
+  /** `[EMB.48]` Lo que paga la ruta por persona, sepa o no quién fue. */
+  comision_ruta: ComisionDeRuta;
+  /** `[EMB.48]` El chofer que trae Kepler, ya casado con el padrón activo por su clave. */
+  chofer_kepler_id: string | null;
   /** La tarifa por caja vigente ese día. `null` = no hay tarifa activa. */
   tarifa_por_caja: number | null;
   /** Lo que paga la carga (cajas × tarifa, o lo ya guardado). `null` = no se puede saber. */
@@ -541,6 +583,8 @@ export interface ReporteDePagos {
   operaciones: OperacionDelReporte[];
   /** Guías del periodo que son SÓLO cargas a camión de ruta: no entran (se cuentan, no se esconden). */
   fuera_de_alcance: number;
+  /** `[EMB.48]` Guías que sólo llevan tiempo aire: no son un viaje que cargar (se cuentan). */
+  solo_tiempo_aire: number;
   /** El padrón activo, para elegir chofer, ayudantes y cargadores. */
   personas: PersonaDelPadron[];
   /** Cuándo se leyó (para la edad del dato). */
@@ -566,6 +610,7 @@ export interface DetalleDeSolicitud {
   concepto: ConceptoDelReparto;
   codigo: string;
   importe: number;
+  fuente: FuenteDelRenglon;
 }
 
 /** Lo que una persona pide en la catorcena. */
@@ -618,7 +663,7 @@ export function solicitudesDelReporte(operaciones: OperacionDelReporte[]): Solic
       rs.importe = alCentavo(rs.importe + r.importe);
       s.detalle.push({
         fecha: op.fecha, sucursal: op.sucursal, guia: op.guia, destino, rol: r.rol,
-        concepto: r.concepto, codigo: r.codigo, importe: r.importe,
+        concepto: r.concepto, codigo: r.codigo, importe: r.importe, fuente: r.fuente,
       });
     }
   }

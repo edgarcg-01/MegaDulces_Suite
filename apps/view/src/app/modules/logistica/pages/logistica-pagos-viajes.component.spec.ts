@@ -20,26 +20,34 @@ const o = (x: Partial<OperacionDelReporte>): OperacionDelReporte => ({
   sucursal: '06', guia: '0000002', fecha: '2026-10-10', paradas: 2, destinos: 'CLIENTE PRUEBA', tipo: 'cliente',
   chofer_kepler: null, importe: 500.5, shipment_id: null, shipment_folio: null, guide_id: null, driver_id: null,
   helper1_id: null, helper2_id: null, departure_time: null, arrival_time: null, overnight: false, cargadores: 0,
-  faltan: ['chofer', 'horario', 'cargadores'], cajas: 15, tarifa_por_caja: 0.2, carga_total: 3, cargador_ids: [],
+  faltan: ['chofer', 'horario', 'cargadores'], cajas: 15, sueltos: 0, tarifa_por_caja: 0.2, carga_total: 3, cargador_ids: [],
+  comision_ruta: { chofer: null, ayudante: null, ruta: null, sin_tarifa: [] }, chofer_kepler_id: null,
   renglones: [], repartido: 0, ...x,
 });
-const SIN_HOJA = o({ chofer_kepler: 'PERSONA DOS' });
+/** Sin hoja; Kepler trae a PERSONA DOS, que está en el padrón: su comisión de ruta ya se sabe. */
+const SIN_HOJA = o({
+  chofer_kepler: 'PERSONA DOS', chofer_kepler_id: 'd2', faltan: ['horario', 'cargadores'], sueltos: 40,
+  comision_ruta: { chofer: 150, ayudante: 100, ruta: 'LA PIEDAD', sin_tarifa: [] }, repartido: 150,
+  renglones: [{ persona_id: 'd2', persona: 'PERSONA DOS', rol: 'chofer', concepto: 'comision', codigo: '075', nombre_concepto: 'COMISIONES LOGISTICAS TLMKT', importe: 150, fuente: 'kepler' }],
+});
 const SIN_HORARIO = o({
   sucursal: '01', guia: '0000004', tipo: 'mixto', chofer_kepler: 'PERSONA DOS', shipment_id: 's-d', shipment_folio: 'EMB-D',
   guide_id: 'g-d', driver_id: 'd2', faltan: ['horario', 'cargadores'], cajas: null, carga_total: null,
+  comision_ruta: { chofer: null, ayudante: null, ruta: null, sin_tarifa: ['RUTA NUEVA'] },
 });
 const COMPLETA = o({
   sucursal: '00', guia: '0000001', tipo: 'traspaso', destinos: 'YURECUARO', shipment_id: 's-a', shipment_folio: 'EMB-A',
   guide_id: 'g-a', driver_id: 'd1', departure_time: '05:30', arrival_time: '16:10', cargadores: 1, faltan: [],
   cajas: 500, carga_total: 100, cargador_ids: ['c1'], repartido: 400,
+  comision_ruta: { chofer: 300, ayudante: 150, ruta: 'YURECUARO', sin_tarifa: [] },
   renglones: [
-    { persona_id: 'd1', persona: 'PERSONA UNO', rol: 'chofer', concepto: 'comision', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 300 },
-    { persona_id: 'c1', persona: 'CARGADOR PRUEBA', rol: 'cargador', concepto: 'carga', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 100 },
+    { persona_id: 'd1', persona: 'PERSONA UNO', rol: 'chofer', concepto: 'comision', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 300, fuente: 'captura' },
+    { persona_id: 'c1', persona: 'CARGADOR PRUEBA', rol: 'cargador', concepto: 'carga', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 100, fuente: 'captura' },
   ],
 });
 const REPORTE: ReporteDePagos = {
   corte: { desde: '2026-10-08', hasta: '2026-10-21', pago: '2026-10-23' },
-  operaciones: [SIN_HOJA, SIN_HORARIO, COMPLETA], fuera_de_alcance: 1,
+  operaciones: [SIN_HOJA, SIN_HORARIO, COMPLETA], fuera_de_alcance: 1, solo_tiempo_aire: 7,
   personas: [{ id: 'd1', full_name: 'PERSONA UNO', roles: ['chofer'] }, { id: 'd2', full_name: 'PERSONA DOS', roles: ['chofer'] },
     { id: 'a1', full_name: 'AYUDANTE PRUEBA', roles: ['ayudante'] }, { id: 'c1', full_name: 'CARGADOR PRUEBA', roles: ['cargador'] }],
   leido_at: '2026-10-24T18:00:00.000Z',
@@ -77,9 +85,23 @@ describe('LogisticaPagosViajesComponent', () => {
     expect(req.request.params.keys()).toEqual([]);
     req.flush(REPORTE);
     f.detectChanges();
-    expect(el.textContent).toContain('De 3 operaciones, a 2 les falta quién fue. Ya hay $400.00 repartido entre 2 personas.');
+    expect(el.textContent).toContain('3 operaciones: $103.00 de carga (515 cajas) y $450.00 de comisión de choferes. '
+      + '$550.00 ya asignado a 3 personas; falta quién cargó en 2.');
     expect(el.textContent).toContain('Falta el horario');
     expect(el.textContent).toContain('PERSONA DOS (Kepler)');
+  });
+
+  it('[EMB.48] cada fila dice lo que ya se sabe: carga, comisión de la ruta, y «sin tarifa» en vez de $0', () => {
+    const { f, http, el } = montar();
+    reporte(http).flush(REPORTE);
+    f.detectChanges();
+    const filas = [...el.querySelectorAll('tbody tr')].map((tr) => tr.textContent ?? '');
+    const sinHoja = filas.find((t) => t.includes('0000002')) ?? '';
+    expect(sinHoja).toContain('$3.00');
+    expect(sinHoja).toContain('$150');
+    expect(sinHoja).toContain('+40 sueltas');
+    expect(filas.find((t) => t.includes('0000004'))).toContain('Ruta sin tarifa');
+    expect(el.textContent).toContain('7 sólo tiempo aire');
   });
 
   it('abre en «Por completar»; la búsqueda encuentra también por quien cobra', () => {
@@ -118,20 +140,16 @@ describe('LogisticaPagosViajesComponent', () => {
     expect(c.errorPeek()).toBeNull();
   });
 
-  it('PRUEBA NEGATIVA: si Kepler trae un chofer que NO está en el padrón y no se eligió, no se completa la guía', async () => {
+  it('PRUEBA NEGATIVA: si el chofer de Kepler NO está en el padrón y no se eligió, frena ANTES de crear la hoja', async () => {
     const { c, http } = montar();
-    reporte(http).flush(REPORTE);
+    const fuera = o({ chofer_kepler: 'NO ESTA EN EL PADRON', chofer_kepler_id: null });
+    reporte(http).flush({ ...REPORTE, operaciones: [fuera, SIN_HORARIO, COMPLETA] });
     c.abrir(c.operaciones()[0]);
     c.salida.set(new Date(2026, 9, 10, 6, 0));
     c.llegada.set(new Date(2026, 9, 10, 14, 0));
-    const listo = c.guardarTripulacion(c.op()!);
-    http.expectOne((r) => r.url.endsWith('/from-kepler/06/0000002')).flush({ shipment: { id: 's-b' }, guide: { id: 'g-b' }, destinatarios: 2 });
-    await tick();
-    const sinChofer: ReporteDePagos = { ...REPORTE, operaciones: [o({ ...SIN_HOJA, shipment_id: 's-b', guide_id: 'g-b', driver_id: null }), SIN_HORARIO, COMPLETA] };
-    reporte(http).flush(sinChofer);
-    await listo;
-    http.expectNone((r) => r.url.includes('/complete'));
-    expect(c.errorPeek()).toContain('no está en el padrón activo');
+    expect(c.erroresTripulacion(c.op()!)).toContain('Elige al chofer.');
+    await c.guardarTripulacion(c.op()!);
+    http.expectNone((r) => r.method === 'POST');
   });
 
   it('PRUEBA NEGATIVA: sin horario, o con la misma persona dos veces, no se manda nada', async () => {

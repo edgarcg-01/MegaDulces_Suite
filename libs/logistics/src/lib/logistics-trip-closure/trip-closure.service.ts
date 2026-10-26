@@ -18,14 +18,15 @@ import type {
   ParadaCierre,
 } from '@megadulces/contracts';
 import type {
-  Corte, OperacionDelReporte, PersonaDelPadron, RenglonDelReparto, ReporteDePagos, RolDelReparto, TipoParadaKepler,
-  TipoViajePago, ConceptoDelReparto,
+  ComisionDeRuta, Corte, OperacionDelReporte, PersonaDelPadron, RenglonDelReparto, ReporteDePagos, RolDelReparto,
+  TipoParadaKepler, TipoViajePago, ConceptoDelReparto,
 } from '@megadulces/contracts';
 import {
   conceptoDelReparto, corteDe, erroresDeCargadores, erroresDeCierreDeParada, esFecha, faltasDelViaje, repartoDeCarga,
-  TARIFA_CARGA_CAJA_KEY, tipoDeParadaKepler, tipoDelViaje, totalDeCarga,
+  SKUS_SIN_CARGA, TARIFA_CARGA_CAJA_KEY, tipoDeParadaKepler, tipoDelViaje, totalDeCarga,
 } from '@megadulces/contracts';
 import { CambioRegistrado, tarifaVigenteEl } from '../logistics-config/tarifas-fijas.logic';
+import { comisionSugerida, RutaSuite } from '../logistics-erp-shipments/nuevo-embarque.logic';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -68,11 +69,16 @@ interface EmbarqueCarga {
 const COLS_EMBARQUE = ['id', 'shipment_date', 'kepler_sucursal', 'kepler_guia', 'boxes_count', 'status'];
 
 /** `[EMB.43]` `[EMB.47]` Filas crudas del reporte. */
-interface FilaViajeKepler { sucursal: string; guia_embarque: string; fecha: Fecha; paradas: Num; chofer_nombre: string | null; total: Num }
+interface FilaViajeKepler {
+  sucursal: string; guia_embarque: string; fecha: Fecha; paradas: Num; chofer_code: string | null; chofer_nombre: string | null; total: Num;
+}
 interface FilaParadaKepler {
   sucursal: string; guia_embarque: string; serie: number | string; folio: string; cliente_code: string | null; destino_nombre: string | null;
+  ruta_clave?: string | null; ruta_nombre?: string | null;
 }
-interface FilaCajasKepler { sucursal: string; serie: number | string; folio: string; cajas: Num }
+interface FilaCajasKepler { sucursal: string; serie: number | string; folio: string; cajas: Num; sueltos?: Num; renglones?: Num }
+/** `[EMB.48]` Lo que un documento lleva de productos que no se cargan (tiempo aire). */
+interface FilaSinCarga { sucursal: string; serie: number | string; folio: string; cantidad: Num; renglones: Num }
 interface FilaSuite {
   shipment_id: string; folio: string; kepler_sucursal: string; kepler_guia: string;
   guide_id: string | null; driver_id: string | null; helper1_id: string | null; helper2_id: string | null;
@@ -87,28 +93,84 @@ interface TarifaConBitacora { row: { id: string; value: Num; active: boolean }; 
 const num = (v: unknown): number | null => (v == null ? null : Number(v));
 const centavos = (n: number) => Math.round(n * 100) / 100;
 
+/** `[EMB.48]` Lo que lleva una guía en las paradas que pagan. */
+export interface CargaDeGuia {
+  cajas: number;
+  /** Unidades en otra presentación (paquete, pieza, kilo), sin el tiempo aire. */
+  sueltos: number;
+  /** Todos sus documentos son sólo tiempo aire: no hay nada que cargar. */
+  soloSinCarga: boolean;
+}
+
 /**
  * `[EMB.47]` Cajas por guía, de las paradas que PAGAN: la carga a camión de ruta no paga por caja
  * (decisión del 2026-10-24), así que sus cajas no entran aunque vayan en la misma guía.
  * `null` = ninguna parada que paga tiene renglones en Kepler (no se sabe); 0 = sólo piezas sueltas.
+ *
+ * `[EMB.48]` Además dice cuántas unidades van sueltas y si la guía no lleva más que tiempo aire
+ * (`sinCarga`: lo que cada documento trae de `SKUS_SIN_CARGA`).
  */
-export function cajasPorGuia(paradas: FilaParadaKepler[], renglones: FilaCajasKepler[]): Map<string, number | null> {
-  const porDoc = new Map<string, number>();
+export function cargaPorGuia(
+  paradas: FilaParadaKepler[], renglones: FilaCajasKepler[], sinCarga: FilaSinCarga[] = [],
+): Map<string, CargaDeGuia | null> {
+  const doc = (r: { sucursal: string; serie: number | string; folio: string }) => `${r.sucursal}|${Number(r.serie)}|${r.folio}`;
+  const porDoc = new Map<string, { cajas: number; sueltos: number; renglones: number }>();
   for (const r of renglones) {
-    const k = `${r.sucursal}|${Number(r.serie)}|${r.folio}`;
-    porDoc.set(k, (porDoc.get(k) ?? 0) + Number(r.cajas ?? 0));
+    const a = porDoc.get(doc(r)) ?? { cajas: 0, sueltos: 0, renglones: 0 };
+    a.cajas += Number(r.cajas ?? 0);
+    a.sueltos += Number(r.sueltos ?? 0);
+    a.renglones += Number(r.renglones ?? 0);
+    porDoc.set(doc(r), a);
   }
-  const out = new Map<string, number | null>();
+  const sc = new Map(sinCarga.map((s) => [doc(s), s]));
+  const out = new Map<string, CargaDeGuia | null>();
   const vistos = new Set<string>();
   for (const p of paradas) {
     if (tipoDeParadaKepler(p.serie, p.cliente_code) === 'carga_ruta') continue;
-    const doc = `${p.sucursal}|${Number(p.serie)}|${p.folio}`;
+    const k = doc(p);
     const guia = `${p.sucursal}|${p.guia_embarque}`;
     if (!out.has(guia)) out.set(guia, null);
     // Una guía puede listar el mismo documento dos veces: se cuenta una.
-    if (vistos.has(`${guia}|${doc}`) || !porDoc.has(doc)) continue;
-    vistos.add(`${guia}|${doc}`);
-    out.set(guia, (out.get(guia) ?? 0) + (porDoc.get(doc) as number));
+    const d = porDoc.get(k);
+    if (vistos.has(`${guia}|${k}`) || !d) continue;
+    vistos.add(`${guia}|${k}`);
+    const s = sc.get(k);
+    const prev = out.get(guia) ?? { cajas: 0, sueltos: 0, soloSinCarga: true };
+    out.set(guia, {
+      cajas: prev.cajas + d.cajas,
+      sueltos: prev.sueltos + Math.max(0, d.sueltos - Number(s?.cantidad ?? 0)),
+      soloSinCarga: prev.soloSinCarga && !!s && d.renglones > 0 && Number(s.renglones) >= d.renglones,
+    });
+  }
+  return out;
+}
+
+/** `[EMB.47]` Sólo las cajas (lo que usa el registro de cargadores). */
+export function cajasPorGuia(paradas: FilaParadaKepler[], renglones: FilaCajasKepler[]): Map<string, number | null> {
+  return new Map([...cargaPorGuia(paradas, renglones)].map(([g, c]) => [g, c ? c.cajas : null]));
+}
+
+/**
+ * `[EMB.48]` La comisión de la ruta de cada guía, con la MISMA regla con que se completa la guía:
+ * las rutas de TODAS sus paradas (como `resumirViaje`) contra el catálogo, y gana la de mayor tarifa.
+ */
+export function comisionPorGuia(paradas: FilaParadaKepler[], catalogo: RutaSuite[]): Map<string, ComisionDeRuta> {
+  const rutas = new Map<string, Map<string, { clave: string; nombre: string | null }>>();
+  for (const p of paradas) {
+    const g = `${p.sucursal}|${p.guia_embarque}`;
+    if (!rutas.has(g)) rutas.set(g, new Map());
+    const clave = p.ruta_clave?.trim();
+    if (clave && !rutas.get(g)!.has(clave)) rutas.get(g)!.set(clave, { clave, nombre: p.ruta_nombre ?? null });
+  }
+  const out = new Map<string, ComisionDeRuta>();
+  for (const [g, rs] of rutas) {
+    const c = comisionSugerida([...rs.values()], catalogo);
+    out.set(g, {
+      chofer: c.driver,
+      ayudante: c.helper,
+      ruta: c.ruta_usada ? (c.ruta_usada.nombre ?? c.ruta_usada.clave) : null,
+      sin_tarifa: c.sin_tarifa.map((x) => x.nombre ?? x.clave),
+    });
   }
   return out;
 }
@@ -116,21 +178,32 @@ export function cajasPorGuia(paradas: FilaParadaKepler[], renglones: FilaCajasKe
 /**
  * `[EMB.47]` Lo que le toca a cada quien de UNA operación: comisión y viático de la tripulación
  * (calculados al completar la guía) y la carga de cada cargador (guardada al registrarlos).
+ *
+ * `[EMB.48]` Mientras la guía no se completa, la comisión del chofer de Kepler ya se sabe (la
+ * tarifa de la ruta): sale como renglón con `fuente: 'kepler'`. Al completarse, la reemplaza la de
+ * la guía, que es el mismo monto por la misma regla.
  */
 export function renglonesDeLaOperacion(
   tipo: TipoViajePago,
   s: FilaSuite | null,
   cargas: FilaCarga[],
   nombre: (id: string) => string,
+  deKepler: { chofer_id: string | null; comision: number | null } = { chofer_id: null, comision: null },
 ): RenglonDelReparto[] {
   const out: RenglonDelReparto[] = [];
-  const poner = (id: string | null, rol: RolDelReparto, concepto: ConceptoDelReparto, monto: Num) => {
+  const poner = (id: string | null, rol: RolDelReparto, concepto: ConceptoDelReparto, monto: Num, fuente: RenglonDelReparto['fuente'] = 'captura') => {
     const importe = centavos(Number(monto ?? 0));
     if (!id || !(importe > 0)) return;
     const c = conceptoDelReparto(tipo, concepto);
-    out.push({ persona_id: id, persona: nombre(id), rol, concepto, codigo: c.codigo, nombre_concepto: c.nombre, importe });
+    out.push({ persona_id: id, persona: nombre(id), rol, concepto, codigo: c.codigo, nombre_concepto: c.nombre, importe, fuente });
   };
-  if (s) {
+  // La guía completa trae su comisión calculada; mientras no, la de la ruta para el chofer que se sabe.
+  // ⚠️ «Completa» = chofer + salida + llegada (`pendientesDeLaGuia`), NO la comisión: la columna es
+  // NOT NULL con 0 por default y la guía que nace al tomar el viaje la trae en 0.
+  const guiaCompleta = !!s?.driver_id && !!s?.departure_time && !!s?.arrival_time;
+  if (!guiaCompleta) {
+    poner(s?.driver_id ?? deKepler.chofer_id, 'chofer', 'comision', deKepler.comision, 'kepler');
+  } else if (s) {
     poner(s.driver_id, 'chofer', 'comision', s.driver_commission);
     poner(s.driver_id, 'chofer', 'viatico', s.viatico_driver);
     poner(s.helper1_id, 'ayudante', 'comision', s.helper1_commission);
@@ -186,7 +259,11 @@ export class TripClosureService {
    *
    * Tres lecturas en paralelo, cada una en su transacción: dentro de UNA sola, Postgres las forma en
    * fila. Medido 8–21 oct 2026 (todas las sucursales): viajes 322 ms; paradas 65 ms + cajas de 1,341
-   * documentos 240 ms. Juntas, ~350 ms. ⚠️ El total del endpoint en prod: NO MEDIDO todavía.
+   * documentos 240 ms + tiempo aire 110 ms. ⚠️ El total del endpoint en prod: NO MEDIDO todavía.
+   *
+   * `[EMB.48]` Cada operación dice lo que ya se sabe SIN capturar nada —la carga (cajas × tarifa) y
+   * la comisión de su ruta, ya asignada al chofer de Kepler—, y las guías de sólo tiempo aire salen
+   * (se cuentan): «todos los viajes salen en 0» era eso, la pantalla callaba lo que ya sabía.
    */
   async reporte(desde?: string, hasta?: string, sucursal?: string): Promise<ReporteDePagos> {
     const corte = this.resolverCorte(desde, hasta);
@@ -202,24 +279,42 @@ export class TripClosureService {
     const [viajes, kepler, base] = await Promise.all([
       this.tk.run((trx) =>
         delCorte(trx, 'analytics.erp_shipment_trips')
-          .select('sucursal', 'guia_embarque', 'fecha', 'paradas', 'chofer_nombre', 'total') as Promise<FilaViajeKepler[]>),
+          .select('sucursal', 'guia_embarque', 'fecha', 'paradas', 'chofer_code', 'chofer_nombre', 'total') as Promise<FilaViajeKepler[]>),
       this.tk.run(async (trx) => {
         const paradas: FilaParadaKepler[] = await delCorte(trx, 'analytics.erp_shipment_stops')
-          .select('sucursal', 'guia_embarque', 'serie', 'folio', 'cliente_code', 'destino_nombre');
-        if (!paradas.length) return { paradas, renglones: [] as FilaCajasKepler[] };
+          .select('sucursal', 'guia_embarque', 'serie', 'folio', 'cliente_code', 'destino_nombre', 'ruta_clave', 'ruta_nombre');
+        if (!paradas.length) return { paradas, renglones: [] as FilaCajasKepler[], sinCarga: [] as FilaSinCarga[] };
         // Constantes en arreglo, no un JOIN: así baja al índice de kdm2 (mismo motivo que `cajasDe`).
+        const sucs = [...new Set(paradas.map((p) => p.sucursal))];
+        const series = [...new Set(paradas.map((p) => Number(p.serie)))];
+        const folios = [...new Set(paradas.map((p) => p.folio))];
         const renglones: FilaCajasKepler[] = await trx('analytics.erp_shipment_stop_load')
           .where('tenant_id', trx.raw('public.current_tenant_id()'))
-          .whereRaw('sucursal = ANY(?::text[])', [[...new Set(paradas.map((p) => p.sucursal))]])
-          .whereRaw('serie = ANY(?::int[])', [[...new Set(paradas.map((p) => Number(p.serie)))]])
-          .whereRaw('folio = ANY(?::text[])', [[...new Set(paradas.map((p) => p.folio))]])
-          .select('sucursal', 'serie', 'folio', 'cajas');
-        return { paradas, renglones };
+          .whereRaw('sucursal = ANY(?::text[])', [sucs])
+          .whereRaw('serie = ANY(?::int[])', [series])
+          .whereRaw('folio = ANY(?::text[])', [folios])
+          .select('sucursal', 'serie', 'folio', 'cajas', 'sueltos', 'renglones');
+        // `[EMB.48]` Lo que cada documento lleva de tiempo aire: mismos filtros que la vista de cajas.
+        // Medido 2026-10-26: 30 ms (314 folios) y 110 ms (1,341).
+        const { rows: sinCarga } = await trx.raw<{ rows: FilaSinCarga[] }>(
+          `SELECT btrim(sucursal) AS sucursal, c5::int AS serie, btrim(c6) AS folio, count(*)::int AS renglones,
+                  sum(nullif(regexp_replace(c54::text, '[^0-9.-]', '', 'g'), '')::numeric) AS cantidad
+             FROM kepler_ods.kdm2
+            WHERE c2 = 'U' AND c3 = 'D' AND c4::int = 41 AND btrim(c1) = btrim(sucursal)
+              AND btrim(sucursal) = ANY(?::text[]) AND c5::int = ANY(?::int[]) AND btrim(c6) = ANY(?::text[])
+              AND btrim(c8::text) = ANY(?::text[])
+            GROUP BY 1, 2, 3`,
+          [sucs, series, folios, [...SKUS_SIN_CARGA]],
+        );
+        return { paradas, renglones, sinCarga };
       }),
       this.tk.run(async (trx) => ({
         personas: await (trx('logistics.drivers').whereNull('deleted_at').where({ active: true, status: 'activo' })
           .orderBy('full_name').select('id', 'full_name', 'roles') as Promise<PersonaDelPadron[]>),
         tarifa: await this.tarifaCarga(trx),
+        // `[EMB.48]` El catálogo de rutas con su tarifa: el mismo que lee la toma del viaje.
+        rutas: await (trx('logistics.routes').whereNull('deleted_at').where('active', true)
+          .select('id', 'name', 'kepler_code', 'driver_commission', 'helper_commission', 'sin_comision') as Promise<RutaSuite[]>),
       })),
     ]);
 
@@ -234,15 +329,33 @@ export class TripClosureService {
       if (tipo !== 'carga_ruta' && nombre && !g.destinos.includes(nombre)) g.destinos.push(nombre);
       porGuia.set(k, g);
     }
-    const cajas = cajasPorGuia(kepler.paradas, kepler.renglones);
-    const pagan = viajes.filter((v) => tipoDelViaje(porGuia.get(`${v.sucursal}|${v.guia_embarque}`)?.tipos ?? []));
+    const carga = cargaPorGuia(kepler.paradas, kepler.renglones, kepler.sinCarga);
+    const comisiones = comisionPorGuia(kepler.paradas, base.rutas);
+    const enAlcance = viajes.filter((v) => tipoDelViaje(porGuia.get(`${v.sucursal}|${v.guia_embarque}`)?.tipos ?? []));
+    // `[EMB.48]` Una guía de puro tiempo aire no es un viaje que cargar: se cuenta y no entra.
+    const pagan = enAlcance.filter((v) => !carga.get(`${v.sucursal}|${v.guia_embarque}`)?.soloSinCarga);
 
     // Lo que la Suite sabe de esas guías: la tripulación con sus montos y quién cargó.
     const nombres = new Map(base.personas.map((p) => [p.id, p.full_name]));
-    const { suite, cargas } = await this.tk.run(async (trx) => {
+    const { suite, cargas, choferPorClave } = await this.tk.run(async (trx) => {
       const suite = new Map<string, FilaSuite>();
       const cargas = new Map<string, FilaCarga[]>();
-      if (!pagan.length) return { suite, cargas };
+      const choferPorClave = new Map<string, string>();
+      if (!pagan.length) return { suite, cargas, choferPorClave };
+      // `[EMB.48]` El chofer de Kepler, casado con el padrón ACTIVO por su clave (como la toma del
+      // viaje). Medido 2026-10-26: los 15 choferes de la catorcena casan.
+      const claves = [...new Set(pagan.map((v) => v.chofer_code?.trim()).filter((c): c is string => !!c))];
+      if (claves.length) {
+        const choferes: Array<{ id: string; full_name: string; kepler_code: string }> = await trx('logistics.drivers')
+          .whereIn('kepler_code', claves).whereNull('deleted_at').where({ active: true, status: 'activo' })
+          .select('id', 'full_name', 'kepler_code');
+        for (const c of choferes) {
+          const clave = c.kepler_code?.trim();
+          if (!clave) continue;
+          choferPorClave.set(clave, c.id);
+          nombres.set(c.id, c.full_name);
+        }
+      }
       const { rows } = await trx.raw<{ rows: FilaSuite[] }>(
         `SELECT s.id AS shipment_id, s.folio, s.kepler_sucursal, s.kepler_guia,
                 g.id AS guide_id, g.driver_id, g.helper1_id, g.helper2_id,
@@ -277,7 +390,7 @@ export class TripClosureService {
         const otros: Array<{ id: string; full_name: string }> = await trx('logistics.drivers').whereIn('id', faltan).select('id', 'full_name');
         for (const o of otros) nombres.set(o.id, o.full_name);
       }
-      return { suite, cargas };
+      return { suite, cargas, choferPorClave };
     });
     const nombre = (id: string) => nombres.get(id) ?? 'Persona sin nombre en el padrón';
 
@@ -292,8 +405,11 @@ export class TripClosureService {
       const tarifa = guardada?.rate_per_box != null
         ? Number(guardada.rate_per_box)
         : base.tarifa ? tarifaVigenteEl(base.tarifa.row, base.tarifa.cambios, fecha) : null;
-      const cajasOp = guardada ? Number(guardada.boxes) : cajas.get(k) ?? null;
-      const renglones = renglonesDeLaOperacion(tipo, s, deCarga, nombre);
+      const deKepler = carga.get(k) ?? null;
+      const cajasOp = guardada ? Number(guardada.boxes) : deKepler ? deKepler.cajas : null;
+      const comisionRuta = comisiones.get(k) ?? { chofer: null, ayudante: null, ruta: null, sin_tarifa: [] };
+      const choferKeplerId = v.chofer_code?.trim() ? choferPorClave.get(v.chofer_code.trim()) ?? null : null;
+      const renglones = renglonesDeLaOperacion(tipo, s, deCarga, nombre, { chofer_id: choferKeplerId, comision: comisionRuta.chofer });
       return {
         sucursal: v.sucursal,
         guia: v.guia_embarque,
@@ -313,8 +429,11 @@ export class TripClosureService {
         arrival_time: s?.arrival_time?.slice(0, 5) ?? null,
         overnight: !!s?.overnight,
         cargadores: deCarga.length,
-        faltan: faltasDelViaje(s ? { ...s, cargadores: deCarga.length } : null),
+        faltan: faltasDelViaje(s ? { ...s, cargadores: deCarga.length } : null, !!choferKeplerId),
         cajas: cajasOp,
+        sueltos: deKepler ? deKepler.sueltos : null,
+        comision_ruta: comisionRuta,
+        chofer_kepler_id: choferKeplerId,
         tarifa_por_caja: tarifa,
         carga_total: deCarga.length
           ? centavos(deCarga.reduce((a, c) => a + Number(c.rate ?? 0), 0))
@@ -329,7 +448,8 @@ export class TripClosureService {
     return {
       corte,
       operaciones,
-      fuera_de_alcance: viajes.length - pagan.length,
+      fuera_de_alcance: viajes.length - enAlcance.length,
+      solo_tiempo_aire: enAlcance.length - pagan.length,
       personas: base.personas.map((p) => ({ id: p.id, full_name: p.full_name, roles: Array.isArray(p.roles) ? p.roles : [] })),
       leido_at: new Date().toISOString(),
     };

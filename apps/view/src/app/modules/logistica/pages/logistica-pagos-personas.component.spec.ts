@@ -18,21 +18,22 @@ const op = (x: Partial<OperacionDelReporte>): OperacionDelReporte => ({
   sucursal: '00', guia: '0000001', fecha: '2026-09-30', paradas: 1, destinos: 'YURECUARO', tipo: 'traspaso', chofer_kepler: null,
   importe: 0, shipment_id: 's1', shipment_folio: null, guide_id: 'g1', driver_id: 'd1', helper1_id: null, helper2_id: null,
   departure_time: '06:00', arrival_time: '15:00', overnight: false, cargadores: 1, faltan: [], cajas: 100, tarifa_por_caja: 0.2,
-  carga_total: 20, cargador_ids: ['c1'], renglones: [], repartido: 0, ...x,
+  carga_total: 20, cargador_ids: ['c1'], renglones: [], repartido: 0, sueltos: 0, chofer_kepler_id: null,
+  comision_ruta: { chofer: 129, ayudante: 0, ruta: 'LA PIEDAD', sin_tarifa: [] }, ...x,
 });
 const REPORTE: ReporteDePagos = {
   corte: CORTE,
   operaciones: [
     op({
       renglones: [
-        { persona_id: 'd1', persona: 'CHOFER PRUEBA', rol: 'chofer', concepto: 'comision', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 129 },
-        { persona_id: 'd1', persona: 'CHOFER PRUEBA', rol: 'chofer', concepto: 'viatico', codigo: '027', nombre_concepto: 'VIATICOS TRASPASO DE MERCANCIA', importe: 200 },
-        { persona_id: 'c1', persona: 'CARGADOR PRUEBA', rol: 'cargador', concepto: 'carga', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 20 },
+        { persona_id: 'd1', persona: 'CHOFER PRUEBA', rol: 'chofer', concepto: 'comision', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 129, fuente: 'kepler' },
+        { persona_id: 'd1', persona: 'CHOFER PRUEBA', rol: 'chofer', concepto: 'viatico', codigo: '027', nombre_concepto: 'VIATICOS TRASPASO DE MERCANCIA', importe: 200, fuente: 'captura' },
+        { persona_id: 'c1', persona: 'CARGADOR PRUEBA', rol: 'cargador', concepto: 'carga', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 20, fuente: 'captura' },
       ],
     }),
     op({ guia: '0000002', shipment_id: null, driver_id: null, faltan: ['chofer', 'horario', 'cargadores'], cargador_ids: [], cargadores: 0 }),
   ],
-  fuera_de_alcance: 0, personas: [], leido_at: '2026-10-08T12:00:00.000Z',
+  fuera_de_alcance: 0, solo_tiempo_aire: 0, personas: [], leido_at: '2026-10-08T12:00:00.000Z',
 };
 
 function montar(titulo?: string) {

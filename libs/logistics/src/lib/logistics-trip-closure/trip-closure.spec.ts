@@ -47,11 +47,13 @@ function baseFalsa(r: Respuestas) {
     return b;
   };
   trx.fn = { now: () => 'NOW()' };
-  // Un raw se usa como valor (el tenant) o se espera (la consulta de la Suite en la bandeja): al
-  // esperarlo contesta las filas de `lista['__raw']`.
+  // Un raw se usa como valor (el tenant) o se espera: la consulta de la Suite en el reporte contesta
+  // `lista['__raw']`; la del tiempo aire sobre `kdm2`, `lista['__sin_carga']`.
   trx.raw = (sql: string) => ({
     sql,
-    then: (ok: any, ko: any) => Promise.resolve({ rows: r.lista?.['__raw'] ?? [] }).then(ok, ko),
+    then: (ok: any, ko: any) => Promise.resolve({
+      rows: (String(sql).includes('kepler_ods.kdm2') ? r.lista?.['__sin_carga'] : r.lista?.['__raw']) ?? [],
+    }).then(ok, ko),
   });
   const tk: any = { run: async (fn: (t: any) => any) => fn(trx) };
   const ctx: any = {
@@ -465,7 +467,7 @@ describe('[EMB.47] TripClosureService.reporte — cuánto le toca a cada quien d
   });
 
   it('quien no está en el padrón activo sale declarado, no con otro nombre', async () => {
-    const conComision = [SUITE[0], { ...SUITE[1], driver_commission: '200' }];
+    const conComision = [SUITE[0], { ...SUITE[1], driver_commission: '200', departure_time: '06:00:00', arrival_time: '14:00:00' }];
     const { por } = await porGuia({ lista: { ...lista, __raw: conComision }, primero });
     expect(por['0000004'].renglones).toEqual([expect.objectContaining({ persona_id: 'd2', persona: 'Persona sin nombre en el padrón', codigo: '054' })]);
   });
@@ -534,5 +536,91 @@ describe('[EMB.47] renglonesDeLaOperacion y cajasPorGuia', () => {
       [{ sucursal: '06', serie: 2, folio: 'A', cajas: '50' }],
     );
     expect(c.get('00|G1')).toBeNull();
+  });
+});
+
+describe('[EMB.48] el reporte dice lo que ya se sabe sin capturar nada', () => {
+  // «Todos los viajes salen en 0» (Edgar, 2026-10-26). Cuatro guías inventadas:
+  //  T 0000010 traspaso con chofer de Kepler (00003, en el padrón) y ruta con tarifa;
+  //  A 0000011 sólo tiempo aire (SKU 00022): no es un viaje que cargar;
+  //  M 0000012 mercancía y tiempo aire en el mismo documento;
+  //  C 0000013 guía ya completa con el mismo chofer: su comisión es la capturada, sin duplicar.
+  const VIAJES = [
+    { sucursal: '00', guia_embarque: '0000010', fecha: '2026-10-22', paradas: 1, chofer_code: '00003', chofer_nombre: 'CHOFER KEPLER', total: '100' },
+    { sucursal: '00', guia_embarque: '0000011', fecha: '2026-10-22', paradas: 1, chofer_code: null, chofer_nombre: null, total: '980' },
+    { sucursal: '00', guia_embarque: '0000012', fecha: '2026-10-22', paradas: 1, chofer_code: '99999', chofer_nombre: 'NO ESTA', total: '50' },
+    { sucursal: '00', guia_embarque: '0000013', fecha: '2026-10-23', paradas: 1, chofer_code: '00003', chofer_nombre: 'CHOFER KEPLER', total: '70' },
+  ];
+  const p = (guia: string, folio: string, ruta: string | null) => ({
+    sucursal: '00', guia_embarque: guia, serie: 2, folio, cliente_code: 'TI001', destino_nombre: 'TRASPASO A SUCURSAL PRUEBA',
+    ruta_clave: ruta, ruta_nombre: ruta === 'R0009' ? 'LA PIEDAD' : 'RUTA SIN TARIFA',
+  });
+  const lista = {
+    'analytics.erp_shipment_trips': VIAJES,
+    'analytics.erp_shipment_stops': [p('0000010', 'F10', 'R0009'), p('0000011', 'F11', 'R0009'), p('0000012', 'F12', 'R9999'), p('0000013', 'F13', 'R0009')],
+    'analytics.erp_shipment_stop_load': [
+      { sucursal: '00', serie: 2, folio: 'F10', cajas: '50', sueltos: '20', renglones: 3 },
+      { sucursal: '00', serie: 2, folio: 'F11', cajas: '0', sueltos: '1207', renglones: 1 },
+      { sucursal: '00', serie: 2, folio: 'F12', cajas: '10', sueltos: '1250', renglones: 2 },
+      { sucursal: '00', serie: 2, folio: 'F13', cajas: '5', sueltos: '0', renglones: 1 },
+    ],
+    __sin_carga: [
+      { sucursal: '00', serie: 2, folio: 'F11', cantidad: '1207', renglones: 1 },
+      { sucursal: '00', serie: 2, folio: 'F12', cantidad: '1000', renglones: 1 },
+    ],
+    __raw: [{
+      shipment_id: 's-c', folio: 'EMB-C', kepler_sucursal: '00', kepler_guia: '0000013', guide_id: 'g-c', driver_id: 'd3',
+      helper1_id: null, helper2_id: null, driver_commission: '150', helper1_commission: '0', helper2_commission: '0',
+      viatico_driver: '100', viatico_helper1: null, viatico_helper2: null, departure_time: '06:00:00', arrival_time: '15:00:00', overnight: false,
+    }],
+    'logistics.routes': [{ id: 'r1', name: 'LA PIEDAD', kepler_code: 'R0009', driver_commission: '150', helper_commission: '100', sin_comision: false }],
+    'logistics.drivers': [{ id: 'd3', full_name: 'CHOFER KEPLER', roles: ['chofer'], kepler_code: '00003' }],
+  };
+  const primero = { 'logistics.config_finance': { id: 'cfg-1', value: '0.2000', active: true } };
+  const reporte = async (l: Record<string, any[]> = lista) => {
+    const { svc } = baseFalsa({ lista: l, primero });
+    const rep = await svc.reporte('2026-10-22', '2026-11-04');
+    return { rep, por: Object.fromEntries(rep.operaciones.map((o) => [o.guia, o])) };
+  };
+
+  it('la guía de puro tiempo aire NO es una operación: se cuenta aparte', async () => {
+    const { rep } = await reporte();
+    expect(rep.solo_tiempo_aire).toBe(1);
+    expect(rep.operaciones.map((o) => o.guia)).not.toContain('0000011');
+  });
+
+  it('sin capturar nada: la carga y la comisión de la ruta, ya asignada al chofer de Kepler', async () => {
+    const { por } = await reporte();
+    expect(por['0000010']).toEqual(expect.objectContaining({
+      cajas: 50, sueltos: 20, carga_total: 10, chofer_kepler_id: 'd3', faltan: ['horario', 'cargadores'],
+      comision_ruta: { chofer: 150, ayudante: 100, ruta: 'LA PIEDAD', sin_tarifa: [] },
+    }));
+    expect(por['0000010'].renglones).toEqual([expect.objectContaining({
+      persona: 'CHOFER KEPLER', rol: 'chofer', concepto: 'comision', codigo: '054', importe: 150, fuente: 'kepler',
+    })]);
+    expect(por['0000010'].repartido).toBe(150);
+  });
+
+  it('el tiempo aire se descuenta de los sueltos de un documento que también lleva mercancía', async () => {
+    const { por } = await reporte();
+    expect(por['0000012']).toEqual(expect.objectContaining({ cajas: 10, sueltos: 250 }));
+  });
+
+  it('PRUEBA NEGATIVA: ruta sin tarifa → comisión null con la ruta nombrada, sin renglón inventado', async () => {
+    const { por } = await reporte();
+    expect(por['0000012'].comision_ruta).toEqual({ chofer: null, ayudante: null, ruta: null, sin_tarifa: ['RUTA SIN TARIFA'] });
+    expect(por['0000012'].renglones).toEqual([]);
+  });
+
+  it('PRUEBA NEGATIVA: un chofer de Kepler que no está en el padrón no se asigna (sigue faltando)', async () => {
+    const { por } = await reporte();
+    expect(por['0000012'].chofer_kepler_id).toBeNull();
+    expect(por['0000012'].faltan).toContain('chofer');
+  });
+
+  it('PRUEBA NEGATIVA: con la guía completa manda lo capturado; la comisión de Kepler NO se suma encima', async () => {
+    const { por } = await reporte();
+    expect(por['0000013'].renglones.map((r) => [r.concepto, r.importe, r.fuente])).toEqual([['comision', 150, 'captura'], ['viatico', 100, 'captura']]);
+    expect(por['0000013'].repartido).toBe(250);
   });
 });

@@ -108,7 +108,7 @@ const mensaje = (e: unknown, def: string): string => {
                    (onRowSelect)="alSeleccionar($event.data)" [paginator]="filtrados().length > 50" [rows]="50"
                    [showCurrentPageReport]="true" currentPageReportTemplate="{first}–{last} de {totalRecords}"
                    size="small" class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack"
-                   [tableStyle]="{ 'min-width': '60rem' }">
+                   [tableStyle]="{ 'min-width': '72rem' }">
             <ng-template #header>
               <tr>
                 <th scope="col">Guía</th>
@@ -116,8 +116,10 @@ const mensaje = (e: unknown, def: string): string => {
                 <th scope="col">Tipo</th>
                 <th scope="col">Destinos</th>
                 <th scope="col" class="comm-num">Cajas</th>
+                <th scope="col" class="comm-num">Carga</th>
+                <th scope="col" class="comm-num">Comisión chofer</th>
                 <th scope="col">Quién fue</th>
-                <th scope="col" class="comm-num">Repartido</th>
+                <th scope="col" class="comm-num">Asignado</th>
                 <th scope="col">Qué falta</th>
               </tr>
             </ng-template>
@@ -130,14 +132,27 @@ const mensaje = (e: unknown, def: string): string => {
                 <td data-label="Fecha">{{ fechaCorta(o.fecha) }}</td>
                 <td data-label="Tipo">{{ tipoLabel(o.tipo) }}</td>
                 <td data-label="Destinos" class="pv-destinos">{{ o.destinos || '—' }}</td>
-                <td data-label="Cajas" class="comm-num">{{ o.cajas == null ? '—' : (o.cajas | number:'1.0-0') }}</td>
+                <td data-label="Cajas" class="comm-num">
+                  {{ o.cajas == null ? '—' : (o.cajas | number:'1.0-0') }}
+                  @if (o.sueltos) { <span class="pv-sub">+{{ o.sueltos | number:'1.0-0' }} sueltas</span> }
+                </td>
+                <td data-label="Carga" class="comm-num">
+                  @if (o.carga_total != null) { {{ o.carga_total | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                  @else { <span class="pv-tenue">{{ o.tarifa_por_caja == null ? 'Sin tarifa' : 'Sin cajas' }}</span> }
+                </td>
+                <td data-label="Comisión chofer" class="comm-num">
+                  @if (o.comision_ruta.chofer != null) {
+                    {{ o.comision_ruta.chofer | currency:'MXN':'symbol-narrow':'1.0-2' }}
+                    <span class="pv-sub">{{ o.comision_ruta.ruta }}</span>
+                  } @else { <span class="pv-aviso">Ruta sin tarifa</span> }
+                </td>
                 <td data-label="Quién fue">
-                  @if (o.driver_id) { {{ nombre(o.driver_id) }} }
-                  @else if (o.chofer_kepler) { <span class="pv-tenue">{{ o.chofer_kepler }} (Kepler)</span> }
+                  @if (choferDe(o); as ch) { {{ ch.nombre }}@if (ch.deKepler) { <span class="pv-tenue"> (Kepler)</span> } }
+                  @else if (o.chofer_kepler) { <span class="pv-tenue">{{ o.chofer_kepler }} (Kepler, fuera del padrón)</span> }
                   @else { <span class="pv-tenue">—</span> }
                   <span class="pv-sub">{{ equipo(o) }}</span>
                 </td>
-                <td data-label="Repartido" class="comm-num">{{ o.repartido | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td data-label="Asignado" class="comm-num">{{ o.repartido | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td data-label="Qué falta">
                   @for (f of o.faltan; track f) { <p-tag [value]="faltaLabel(f)" severity="warn" class="pv-tag" /> }
                   @empty { <p-tag value="Completa" severity="success" /> }
@@ -145,7 +160,7 @@ const mensaje = (e: unknown, def: string): string => {
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="8" class="pv-vacio">Ninguna operación con este filtro.</td></tr>
+              <tr><td colspan="10" class="pv-vacio">Ninguna operación con este filtro.</td></tr>
             </ng-template>
           </p-table>
         </div>
@@ -160,8 +175,12 @@ const mensaje = (e: unknown, def: string): string => {
               <div><dt>Destinos</dt><dd>{{ o.destinos || '—' }}</dd></div>
               <div><dt>Cajas</dt><dd>{{ o.cajas == null ? 'Kepler no las trae todavía' : (o.cajas | number:'1.0-0') }}</dd></div>
               <div><dt>Carga</dt><dd>{{ textoCarga(o) }}</dd></div>
+              <div><dt>Comisión de la ruta</dt><dd>{{ textoComision(o) }}</dd></div>
               <div><dt>Chofer en Kepler</dt><dd>{{ o.chofer_kepler || 'Kepler no lo trae' }}</dd></div>
             </dl>
+            @if (o.sueltos) {
+              <p class="pv-sub">Además lleva {{ o.sueltos | number:'1.0-0' }} unidades en paquete, pieza o kilo: no pagan por caja.</p>
+            }
 
             @if (avisoPeek(); as a) { <div class="pv-msg pv-msg-ok" role="status">{{ a }}</div> }
             @if (errorPeek(); as e) { <div class="pv-msg pv-msg-bad" role="alert">{{ e }}</div> }
@@ -181,13 +200,13 @@ const mensaje = (e: unknown, def: string): string => {
               } @else {
                 <div class="pv-form">
                   <label for="pv-chofer">Chofer</label>
-                  @if (o.driver_id) {
-                    <p class="pv-fijo" id="pv-chofer">{{ nombre(o.driver_id) }} <span class="pv-sub">(viene de Kepler)</span></p>
+                  @if (o.driver_id ?? o.chofer_kepler_id; as fijo) {
+                    <p class="pv-fijo" id="pv-chofer">{{ nombre(fijo) }} <span class="pv-sub">(viene de Kepler)</span></p>
                   } @else {
                     <p-select inputId="pv-chofer" [options]="opciones()" optionLabel="full_name" optionValue="id" [filter]="true"
                               [ngModel]="chofer()" (ngModelChange)="chofer.set($event)"
-                              [placeholder]="o.chofer_kepler ? 'Kepler dice: ' + o.chofer_kepler : 'Elige al chofer'" appendTo="body" />
-                    @if (o.chofer_kepler && !chofer()) { <span class="pv-sub">Si no eliges, se toma el de Kepler cuando está en el padrón.</span> }
+                              placeholder="Elige al chofer" appendTo="body" />
+                    @if (o.chofer_kepler) { <span class="pv-sub">Kepler dice «{{ o.chofer_kepler }}», pero no está en el padrón activo.</span> }
                   }
                   <label for="pv-ay1">Ayudante 1 <span class="pv-sub pv-inline">(opcional)</span></label>
                   <p-select inputId="pv-ay1" [options]="opciones()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true"
@@ -250,7 +269,7 @@ const mensaje = (e: unknown, def: string): string => {
                     </ng-template>
                     <ng-template #body let-r>
                       <tr>
-                        <td data-label="Persona">{{ r.persona }}</td>
+                        <td data-label="Persona">{{ r.persona }}@if (r.fuente === 'kepler') { <span class="pv-sub">De Kepler: la tarifa de la ruta. Se confirma al guardar el horario.</span> }</td>
                         <td data-label="Papel">{{ rolLabel(r.rol) }}</td>
                         <td data-label="Concepto en Kepler"><span class="pv-guia">{{ r.codigo }}</span> <span class="pv-sub">{{ r.nombre_concepto }}</span></td>
                         <td data-label="Importe" class="comm-num">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
@@ -290,6 +309,7 @@ const mensaje = (e: unknown, def: string): string => {
     .pv-sub { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
     .pv-inline { display: inline; }
     .pv-tenue { color: var(--text-muted); }
+    .pv-aviso { color: var(--warn-soft-fg); font-size: var(--fs-sm); }
     .pv-destinos { max-width: 22rem; }
     .pv-tag { margin: 0 var(--sp-1) var(--sp-1) 0; }
     .pv-vacio { padding: var(--sp-4); color: var(--text-muted); }
@@ -384,7 +404,7 @@ export class LogisticaPagosViajesComponent {
   private readonly cuenta = computed(() => {
     const os = this.operaciones();
     const personas = new Set(os.flatMap((o) => o.renglones.map((r) => r.persona_id)));
-    const sinRepartir = os.filter((o) => !o.cargadores && o.carga_total != null);
+    const suma = (xs: number[]) => Math.round(xs.reduce((a, x) => a + x, 0) * 100) / 100;
     return {
       total: os.length,
       completas: os.filter((o) => !o.faltan.length).length,
@@ -392,8 +412,11 @@ export class LogisticaPagosViajesComponent {
       cargadores: os.filter((o) => o.faltan.includes('cargadores')).length,
       cajas: os.reduce((a, o) => a + (o.cajas ?? 0), 0),
       sinCajas: os.filter((o) => o.cajas == null).length,
-      repartido: Math.round(os.reduce((a, o) => a + o.repartido, 0) * 100) / 100,
-      cargaSinRepartir: Math.round(sinRepartir.reduce((a, o) => a + (o.carga_total ?? 0), 0) * 100) / 100,
+      // `[EMB.48]` Lo que ya se sabe sin capturar: la carga de cada operación y la comisión de su ruta.
+      carga: suma(os.map((o) => o.carga_total ?? 0)),
+      comision: suma(os.map((o) => o.comision_ruta.chofer ?? 0)),
+      sinTarifa: os.filter((o) => o.comision_ruta.chofer == null).length,
+      repartido: suma(os.map((o) => o.repartido)),
       personas: personas.size,
     };
   });
@@ -401,23 +424,23 @@ export class LogisticaPagosViajesComponent {
   readonly titular = computed(() => {
     const c = this.cuenta();
     if (!c.total) return 'No hay traspasos ni entregas a cliente en esta catorcena.';
-    const faltan = c.total - c.completas;
-    const repartido = `${this.dinero(c.repartido)} repartido entre ${c.personas} persona${c.personas === 1 ? '' : 's'}`;
-    return faltan
-      ? `De ${c.total} operaciones, a ${faltan} les falta quién fue. Ya hay ${repartido}.`
-      : `Las ${c.total} operaciones ya tienen a quién le toca: ${repartido}. Las solicitudes salen en «Por persona».`;
+    const sabe = `${c.total} operaciones: ${this.dinero(c.carga)} de carga (${c.cajas.toLocaleString('es-MX')} cajas) y `
+      + `${this.dinero(c.comision)} de comisión de choferes`;
+    const asignado = `${this.dinero(c.repartido)} ya asignado a ${c.personas} persona${c.personas === 1 ? '' : 's'}`;
+    return `${sabe}. ${asignado}${c.cargadores ? `; falta quién cargó en ${c.cargadores}` : ''}.`;
   });
 
   readonly kpis = computed<MetricStripItem[]>(() => {
     const c = this.cuenta();
     return [
-      { label: 'Repartido', value: c.repartido, format: 'currency2', tone: 'brand', sub: `${c.personas} personas` },
-      { label: 'Operaciones', value: c.total, format: 'number', sub: 'traspaso y cliente' },
-      { label: 'Cajas', value: c.cajas, format: 'number', sub: c.sinCajas ? `${c.sinCajas} sin dato de Kepler` : 'de Kepler' },
-      { label: 'Carga sin repartir', value: c.cargaSinRepartir, format: 'currency2', tone: c.cargaSinRepartir > 0 ? 'warn' : 'muted', sub: 'falta quién cargó' },
+      { label: 'Carga', value: c.carga, format: 'currency2', tone: 'brand', sub: `${c.cajas.toLocaleString('es-MX')} cajas × tarifa` },
+      { label: 'Comisión de choferes', value: c.comision, format: 'currency2', tone: 'brand', sub: 'por la tarifa de la ruta' },
+      { label: 'Ya asignado', value: c.repartido, format: 'currency2', sub: `${c.personas} personas` },
+      { label: 'Ruta sin tarifa', value: c.sinTarifa, format: 'number', tone: c.sinTarifa ? 'warn' : 'muted', sub: 'su comisión no se sabe' },
       { label: 'Falta chofer u horario', value: c.tripulacion, format: 'number', tone: c.tripulacion ? 'warn' : 'muted' },
       { label: 'Falta quién cargó', value: c.cargadores, format: 'number', tone: c.cargadores ? 'warn' : 'muted' },
-      { label: 'Cargas a ruta', value: this.data()?.fuera_de_alcance ?? 0, format: 'number', tone: 'muted', sub: 'no pagan · fuera' },
+      { label: 'Fuera', value: (this.data()?.fuera_de_alcance ?? 0) + (this.data()?.solo_tiempo_aire ?? 0), format: 'number', tone: 'muted',
+        sub: `${this.data()?.fuera_de_alcance ?? 0} cargas a ruta · ${this.data()?.solo_tiempo_aire ?? 0} sólo tiempo aire` },
     ];
   });
 
@@ -520,10 +543,10 @@ export class LogisticaPagosViajesComponent {
   /** Lo que falta en el formulario, en llano. El servidor vuelve a validar (tarifas incluidas). */
   erroresTripulacion(o: OperacionDelReporte): string[] {
     const e: string[] = [];
-    if (!o.driver_id && !this.chofer() && !o.chofer_kepler) e.push('Elige al chofer.');
+    if (!o.driver_id && !o.chofer_kepler_id && !this.chofer()) e.push('Elige al chofer.');
     if (!this.salida()) e.push('Captura la hora de salida.');
     if (!this.llegada()) e.push('Captura la hora de llegada.');
-    const quien = [o.driver_id ?? this.chofer(), this.ayudante1(), this.ayudante2()].filter(Boolean);
+    const quien = [o.driver_id ?? o.chofer_kepler_id ?? this.chofer(), this.ayudante1(), this.ayudante2()].filter(Boolean);
     if (new Set(quien).size !== quien.length) e.push('Una persona no puede ir dos veces en el mismo viaje.');
     return e;
   }
@@ -612,6 +635,21 @@ export class LogisticaPagosViajesComponent {
     return max === min
       ? `Al guardar: ${this.dinero(max)} para ${n === 1 ? 'quien cargó' : `cada uno de los ${n}`}.`
       : `Al guardar: ${this.dinero(min)} a ${this.dinero(max)} por persona (el centavo que sobra va a los primeros).`;
+  }
+
+  /** Quién manejó: el de la guía, o el de Kepler ya casado con el padrón. */
+  choferDe(o: OperacionDelReporte): { nombre: string; deKepler: boolean } | null {
+    if (o.driver_id) return { nombre: this.nombre(o.driver_id), deKepler: false };
+    if (o.chofer_kepler_id) return { nombre: this.nombre(o.chofer_kepler_id), deKepler: true };
+    return null;
+  }
+
+  textoComision(o: OperacionDelReporte): string {
+    const c = o.comision_ruta;
+    if (c.chofer == null) {
+      return c.sin_tarifa.length ? `Sin tarifa: ${c.sin_tarifa.join(', ')}` : 'Kepler no trae la ruta';
+    }
+    return `${this.dinero(c.chofer)} chofer · ${this.dinero(c.ayudante ?? 0)} ayudante (${c.ruta})`;
   }
 
   textoCarga(o: OperacionDelReporte): string {

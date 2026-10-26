@@ -173,7 +173,7 @@ import { descargarCsvSolicitudes, descargarPdfSolicitudes } from '../pagos-viaje
                     <td data-label="Fecha">{{ fechaCorta(d.fecha) }}</td>
                     <td data-label="Guía"><span class="pp-codigo">{{ d.guia }}</span><span class="pp-sub">{{ d.sucursal | sucursal }}</span></td>
                     <td data-label="Destino">{{ d.destino }}</td>
-                    <td data-label="Papel">{{ rol(d.rol) }}</td>
+                    <td data-label="Papel">{{ rol(d.rol) }}@if (d.fuente === 'kepler') { <span class="pp-sub">de Kepler</span> }</td>
                     <td data-label="Concepto">{{ d.codigo }}</td>
                     <td data-label="Importe" class="comm-num">{{ d.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   </tr>
