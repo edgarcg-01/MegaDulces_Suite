@@ -45,9 +45,9 @@ export class TripBuilderScannerService {
       try {
         await this.trips.buildForVehicleDay(h.vehicle_id, h.day);
         armados++;
-      } catch (e: any) {
+      } catch (e: unknown) {
         fallidos++;
-        this.logger.error(`resumen ${h.vehicle_id} ${h.day} falló: ${e?.message || e}`);
+        this.logger.error(`resumen ${h.vehicle_id} ${h.day} falló: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
     if (huecos.length) this.logger.log(`huecos de resumen: ${armados} armados, ${fallidos} fallidos (vehículo × día)`);
