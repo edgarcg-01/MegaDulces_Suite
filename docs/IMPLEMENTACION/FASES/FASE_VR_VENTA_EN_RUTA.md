@@ -219,3 +219,48 @@ Nueva store `ventasRuta` (no reusar `pedidosPendientes` — semántica distinta)
 4. **Folio ante el cliente = folio local `VR-…`** (el PD- es interno/contable). ¿Aceptable fiscalmente/operativamente? (Kepler hoy da folio local de la camioneta, así que es equivalente.)
 5. **Piloto**: qué 1-2 camionetas, y si corre en paralelo con Kepler local (recomendado: sí, 2-4 semanas, comparando `mart.ventas ruta_NN` vs `orders source='route_sale'`).
 6. Impresora térmica: ¿requisito de arranque o fase 2? (plan asume fase 2; el comprobante v1 es pantalla + WhatsApp diferido).
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+
+**La pregunta que contesta (prueba de la frase, §4.0b):**
+
+- Venta en el momento (`take-order` en modo instante → cobro → comprobante): *«¿Cuánto le cobro a
+  este cliente por lo que se lleva?»* — una pregunta. Bien.
+- Estado de la cola («Mi día»): *«¿Ya subió todo lo que vendí?»* — una pregunta. Bien.
+- Carga y retorno del camión: *«¿Qué traigo en el camión?»* — una pregunta. Bien.
+- Liquidación y bandeja del encargado: *«¿Cuadra la ruta de hoy?»* — una pregunta; caja y
+  mercancía son sus dos planos (I5) y van como dos bloques bajo el mismo veredicto, no como dos
+  pantallas.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):** cobro: primario = **total a cobrar** · secundario =
+efectivo recibido → cambio · terciario = renglones. Liquidación: primario = **veredicto por plano
+(efectivo ±$ · mercancía ±pzas y su valor)** · secundario = discrepancias ordenadas por $ ·
+terciario = folios `VR-`/`PD-`.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| VR.UI.1 | 🔴 | **El corte no ve lo que sigue en el teléfono.** §3.8 calcula el esperado «desde `commercial.payments WHERE received_by=vendedor`»: toda venta en `ready`, `syncing` o `dead` —ya cobrada y entregada— no existe para el corte. El arqueo ciego le marca sobrante al vendedor (el efectivo está en su mano, la venta no en el servidor), y si se cierra así, la venta llega después a un corte cerrado. | §1.3 · §1.5 | El corte muestra «Último contacto del teléfono de [nombre]: [hora] · [N] ventas sin subir ($[X])» (el dispositivo reporta su cola en cada contacto) y no se cierra con ventas pendientes sin una nota. Una venta que llega a un corte cerrado abre una discrepancia visible; no se suma en silencio. |
+| VR.UI.2 | 🔴 | **Cerrar sesión con ventas sin subir.** El plan cuida el 401 («pausa y pide re-login preservando todo»), pero no dice qué pasa con `ventasRuta` si el vendedor cierra sesión, si otro inicia en la misma lap o si se borran los datos del navegador. Cada venta ahí ya se cobró en la calle: perderla es perder el registro de dinero recibido. | §5.1 · DESIGN §PWA.5 | «Cerrar sesión» con pendientes se bloquea: «Tienes [N] ventas sin subir ($[X]). Conéctate para subirlas antes de salir.». La cola es por usuario y nunca se sube con la sesión de otro. Prueba: cierre de sesión con cola → la cola sigue y se sube con su dueño. |
+| VR.UI.3 | 🔴 | **El cuadre del camión no declara su unidad.** I5 (`carga + retorno_previo − ventas = retorno esperado` contra el conteo físico) mezcla el traspaso CEDIS→camión, la `quantity` del payload de venta y el conteo de la tarde, y el plan no dice en qué unidad viene cada uno. Si la carga sale en cajas y la venta en piezas, `merma_ruta` reporta faltantes que no existen —o esconde los reales— y el encargado se los cobra al vendedor. | §1.6 · regla «probar la unidad» ([`UNIDADES_DE_MEDIDA.md`](../../UNIDADES_DE_MEDIDA.md)) | El cuadre se hace en pieza base y cada renglón lo dice: «carga 3 cajas × 24 = 72 pzas · vendidas 60 · esperadas 12 · contadas 10 → faltan 2 pzas ($[X])». El conteo pide la presentación con su unidad escrita. |
+| VR.UI.4 | 🟠 | **El precio que se cobra no dice de cuándo es.** I3 graba el precio cobrado en el teléfono; el paquete de ruta se baja en la mañana y el plan prueba «3 días offline». La pantalla de cobro no dice la edad del precio: el vendedor cobra uno viejo sin saberlo y se entera en la bandeja (`price_variance`). | §3.6 · §1.6 · §3.2 | El cobro muestra «Precios del [día] [hora]». Pasado el TTL: «Precios de hace [N] días: si cambiaron, la diferencia se marcará para tu encargado» (avisa, no bloquea: ADR-032). En la bandeja, la variación en llano: «Cobró $12.50; vigente $13.00 desde el [día] → −$3.00». |
+| VR.UI.5 | 🟠 | **La UI bloquea lo que el servidor acepta.** §3.1 paso 5: «picker validado DURO contra el ledger local del camión»; I4 acepta stock negativo como «venta legítima de carga no registrada». Con el producto en la mano y el teléfono diciendo 0, el vendedor no puede vender y vende fuera del sistema. Conflicto para Edgar. | §4.5 · ADR-032 | Propuesta: no bloquear; avisar con confirmación deliberada: «El camión dice 0 de este producto. Si lo traes, véndelo: quedará marcado como "venta sin carga" para tu encargado». |
+| VR.UI.6 | 🟠 | **Un interruptor decide si la mercancía sale ahora.** El mismo `take-order` con un toggle instante/futuro: en el estado equivocado, una preventa descuenta el camión y espera efectivo que no se cobró, o una venta cobrada queda como pedido para otro día. | §4.4 · Von Restorff · §1.1 | El modo se elige al empezar y se ve en toda la pantalla. El botón final dice la consecuencia: «Cobrar $[X] y entregar ahora» contra «Enviar pedido para el [día]». |
+| VR.UI.7 | 🟠 | **Dos folios para la misma venta.** El cliente recibe `VR-A3F2-00041`; la oficina trabaja con `PD-…`. Si el cliente llama con su folio y la pantalla busca sólo `PD-`, la venta «no existe». | §1.5 | Búsqueda por cualquiera de los dos folios en toda pantalla que liste ventas; el detalle muestra ambos («VR-A3F2-00041 · PD-2026-[N]»). Mientras la decisión 4 siga abierta, el comprobante dice «Comprobante de venta — no es factura». |
+| VR.UI.8 | 🟠 | **La cola existe en Dexie y no en la pantalla.** El plan pinta un toast por venta al sincronizar (`local_folio → PD-`) y un badge que «separa ready de dead»: al reconectar con 30 ventas salen 30 avisos, y una venta `dead` (400) sólo muestra un `lastError` técnico. El WhatsApp del comprobante «se difiere» sin decir si salió. | DESIGN Fallos parciales · §3.5 · DESIGN §PWA.5 | Un resumen: «[N] ventas subidas · [M] con error». La venta con error dice «No se pudo subir (error del sistema). No la borres: avisa a tu encargado; cuenta en tu corte.» y llega también a la bandeja del encargado; nunca se descarta sola. El comprobante dice «Se enviará por WhatsApp cuando haya señal» y después «Enviado». En `apps/vendor` no hay piezas compartidas (hueco de la skill `diseno` §5): el patrón es el de `app-offline-status` de `apps/view`. |
+| VR.UI.9 | 🟠 | **Cinco tipos de bandera en una sola lista.** `venta_sin_carga`, `price_variance`, `customer_pending`, `line_flags` y `merma_ruta` llegan a «la misma bandeja del encargado»; sin veredicto, el encargado suma con la vista para saber si la ruta cuadra. | §3.1 · §3.2 · §3.3 · DESIGN §Q.1 | Abre con «Ruta de [nombre]: efectivo −$[X] · mercancía −[N] pzas ($[Y]) · [M] precios distintos (+$[Z])». Cada bandera con su lectura en llano y enlace a la venta con el filtro puesto. |
+| VR.UI.10 | 🟡 | **Lap y teléfono, dos manos distintas.** VR.3 promete «atajos de teclado para el picker» en lap (≥1024 px) y el cobro se hace con una mano y a pleno sol en la calle. | §2.2 · Fitts (≥44 px en `coarse`) · DESIGN §PWA.4 | Los atajos están escritos en pantalla. En `coarse`, objetivos ≥44 px y el botón de cobrar al alcance del pulgar, respetando `env(safe-area-inset-*)`. Contraste comprobado a sol directo y en oscuro. |
+
+**Lo que esta revisión no cubre:** la decisión fiscal del folio local (decisión 4), la impresora
+térmica (VR.8) y la pantalla de carga del camión más allá de su unidad; todo se verifica en nivel A
+cuando exista C3. Cruces con otras fases: el corte que VR reusa es el de LM (ver LM.UI.3: hoy el
+conteo del encargado no es ciego), y Horus calcula «no visitó» contra visitas que la cola de VR
+todavía no sube (Horus.UI.1).

@@ -485,3 +485,59 @@ Se armó un Postgres desechable en Docker (`127.0.0.1:5442`) completando lo que 
 prod es tabla, dos extensiones en el schema equivocado, el tenant, roles, zonas y un usuario. **Se saltaron ~80
 migraciones** que asertan sobre datos reales del ERP o sobre personas concretas de prod. **Esa base NO es
 prod:** valida la estructura y las invariantes de `servicedesk`, no el comportamiento con datos reales.
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+>
+> La fase está ⏸️, pero su capa visual está construida (MS.3.x 🧪, más lo que sumaron
+> [`FASE_MS7`](FASE_MS7_MANTENIMIENTO.md) y [`FASE_MSH`](FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md), que
+> se leyeron sólo en lo que toca pantalla): **la pantalla existe: cada observación es un criterio a
+> verificar en ella, no un defecto medido.**
+
+**La pregunta que contesta cada pantalla (prueba de la frase, §4.0b):**
+
+- Nueva solicitud: *«¿Qué necesito reportar?»* — una pregunta. Bien partido.
+- Mis solicitudes: *«¿En qué va lo que reporté?»* — una pregunta, pero la acción que la cierra
+  (confirmar o reabrir lo resuelto) no tiene lugar propio (MS.UI.1).
+- Bandeja: *«¿Qué solicitudes de mi cola necesitan que alguien actúe ya?»* — una pregunta; Sin
+  asignar / Mías / En espera / Todas son cortes de ella. Bien partido.
+- Reportes: *«¿Cumplimos los plazos, por prioridad, categoría y ubicación?»* — una pregunta que hoy
+  no se puede contestar con honestidad: los plazos son propuesta sin calibrar (MS.UI.5).
+- Configuración: *«¿Cómo se reparte y se mide cada cola?»* — una pregunta, en un contenedor que
+  creció a categorías, plazos, horario, miembros, zonas, campos propios, reglas de ruteo y banderas
+  de confidencialidad: más de seis bloques que piden separarse por cola.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):**
+
+- Mis solicitudes: primario = **lo resuelto que espera tu confirmación** · secundario = lo abierto
+  con su estado · terciario = folio e hilo.
+- Bandeja: primario = **sin asignar y por vencer de tu cola** · secundario = la tabla · terciario =
+  folio, categoría y ubicación.
+- Reportes: primario = **cumplimiento de plazo por prioridad, con su universo dicho** · secundario =
+  tiempos por categoría y ubicación · terciario = recurrentes.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| MS.UI.1 | 🔴 | **Lo resuelto se cierra solo a los 3 días y quien reportó no tiene cómo enterarse.** Los avisos reales están diferidos (P5: sin SMTP ni plantilla de Meta en prod), y quien sólo tiene `SERVICIO_REPORTAR` no ve el espacio 9: su camino a «Mis solicitudes» es un botón rotulado «Reportar un problema», donde nadie busca en qué va lo suyo. Lo resuelto que nadie confirma pasa a cerrado por silencio (`close_reason='auto'`), y si Reportes lo suma con lo confirmado, Sistemas lee como aceptada una solución que nadie revisó. | §1.1 · §2.4 · §1.4 | El botón del header ofrece las dos cosas: «Reportar un problema» y «Mis solicitudes», ésta con «{N} por confirmar». En Mis solicitudes, primario = lo resuelto que espera confirmación. Reportes separa «Confirmadas por quien reportó» de «Cerradas solas a los 3 días» y nunca las suma como una. |
+| MS.UI.2 | 🔴 | **Al enviar, la pantalla promete un aviso que no va a salir.** El plan pide mostrar «folio + qué canal recibirá el aviso», pero con P5 el correo y el WhatsApp terminan en `notification_log` como `skipped`/`failed`. «Te avisaremos por correo» sin correo configurado es la misma mentira que un cero dibujado. | §1.1 · §1.3 · ADR-056 | La confirmación nombra un canal sólo si está configurado en el servidor **y** la persona tiene el dato y el consentimiento; si no: «No te llegará aviso automático: revisa el estado en Mis solicitudes». «Aviso no enviado» con su motivo también en la ficha de quien reportó, no sólo en la de quien atiende. |
+| MS.UI.3 | 🟠 | **El tablero y la lista de la bandeja cuentan universos distintos.** Las solicitudes de prueba (MS.7.12) salen del tablero y de Reportes pero **siguen en la lista** con su etiqueta; las confidenciales de RH, para quien administra, salen en la lista como «Solicitud confidencial» y se excluyen del global (MSH H8). Arriba «Abiertas 12», abajo 14 filas, y nada lo explica. | §1.2 · §1.5 | `app-metric-strip` y Reportes dicen lo que no cuentan: «No cuenta: {N} de prueba · {M} confidenciales». O la lista las excluye por defecto con un `app-segmented` «Incluir prueba». Las dos cifras se reconcilian sin restar a mano. |
+| MS.UI.4 | 🟠 | **La vista básica del administrador deshace el mínimo de casos.** Reportes suprime lo confidencial bajo 5 casos para que no se identifique a nadie (MSH R4), pero la bandeja le lista al administrador **cada** solicitud de RH con folio, área, estado y fechas (R2). Contar filas y cruzar fechas con quién faltó esa semana es la deducción que el mínimo quería impedir. **Conflicto para Edgar:** R2 y R4 siguen abiertas (MSH §8, pregunta 3). | Capa 5 respeto · §1.5 | O R2 se acota a un renglón agregado «RH: {N} abiertas (confidenciales)» que aparece sólo con N ≥ `report_min_cases`, o el plan declara que el administrador puede deducirlo y RH lo acepta por escrito. |
+| MS.UI.5 | 🟠 | **El semáforo pinta «vencida» contra plazos que nadie ha calibrado.** Los números de §2.3 son «propuesta sin calibrar» y el escalamiento nace apagado ~30 días para medir; aun así la bandeja trae columna de semáforo y «vencidas» en el tablero. Y en Mantenimiento, con reloj hábil, una Urgente que entra a las 22:00 sale en verde hasta las 08:00 (MS.7 M5). | §1.6 · §3.2 · §2.3 | La celda del plazo dice en texto «vence en 2 h», «vencida hace 3 h» o «corre desde las 08:00», nunca sólo un punto de color. `app-context-help` junto a «Vencidas» con la política vigente de esa cola y «plazos en calibración hasta {fecha}». |
+| MS.UI.6 | 🟠 | **La nota interna y la respuesta a quien reportó se escriben en el mismo hilo.** El plan llama a la nota interna filtrada «el fallo más caro de esta fase» y la protege en el servidor; el error que el servidor no puede atajar es el inverso: escribir en la caja pública lo que era para el equipo. Desde MS.3.13 las notas internas además llevan adjuntos. | §4.4 Von Restorff · §1.1 | Dos acciones rotuladas por destinatario: «Responder a {nombre}» y «Nota interna (sólo el equipo)». La nota interna se distingue en el hilo por icono de candado y texto «Interna», no sólo por un fondo. El envío público repite a quién le llega. |
+| MS.UI.7 | 🟠 | **La prioridad y la asignación que propone el sistema se ven como decisiones de una persona.** `priority_suggested` (impacto × bloqueo, o riesgo × operación en Mantenimiento) y la asignación automática por regla (MS.3.10, que «no cuenta como primera respuesta») ocupan las mismas columnas que lo confirmado: una Urgente sugerida y una confirmada pesan igual en la bandeja. | DESIGN §X · §1.1 | Mientras nadie la confirme, la prioridad se pinta «Sugerida: Alta» con la marca de motor; la asignación automática, «Por regla: {regla}». Confirmar quita la marca y queda en el hilo. |
+| MS.UI.8 | 🟠 | **La bandeja «Sin asignar» no le aparece a nadie en «Mi trabajo».** La clave `servicio.atender` existe desde MS.3.8 pero «no se repartió a nadie», y con la regla de SN.30 una cola sólo se muestra a quien responde de ella. Sumado a P5 (sin avisos por correo), una Urgente sin asignar, con primera respuesta a 30 min, sólo se ve si alguien abre la bandeja por su cuenta. | §2.4 · §3.4 | `servicio.atender` repartida a los miembros de cada cola (sale de `queue_members`), o la bandeja declara «Nadie la tiene en Mi trabajo». Verificado con una persona de TI que la ve en su portada. |
+| MS.UI.9 | 🟠 | **El formulario deja llenar lo que el servidor va a rechazar.** Hacia un área confidencial sigue visible «a nombre de otra persona» (403 salvo miembros de RH, MSH.3 declarado c); a nombre de alguien que no ha aceptado el aviso, el servidor responde 409 (PRV.2); en Configuración, «Confidencial» se marca en una cola con solicitudes y «Mide plazos» apagado no avisa que la tarjeta de plazos se ignora (MSH.3 b, d). En cada caso el error aparece después de capturar. | §4.5 · §1.1 | Hacia un área confidencial, quien no es del área no ve el bloque «a nombre de otra persona»; antes de enviar: «{Nombre} tiene que aceptar el aviso de privacidad de {área} antes de levantar esta solicitud». «Confidencial» deshabilitada con su motivo si la cola tiene solicitudes; la tarjeta de plazos dice «Esta cola no mide plazos». |
+| MS.UI.10 | 🟡 | **Ubicaciones que no son sucursal (`OF`, `EC`) y los textos que se guardan.** MS.3.14 y MS.7 M7 suman «Oficinas Corporativas» y «Estacionamiento CEDIS» por código; la regla alcanza también lo que se guarda y otro lee después: el asunto del correo, el WhatsApp y el hilo. | regla PM 2026-10-22 · DESIGN skill §4 | Ubicación por nombre en celda, filtro, opciones, `aria-label`, avisos e hilo, con el mismo resolvedor (`\| sucursal` / `warehouseName()` extendido a `OF` y `EC`). |
+| MS.UI.11 | 🟡 | **La validación visual quedó a medias.** MS.3.9 se hizo en claro, oscuro y 390 px; Reportes sólo en oscuro; MSH.3 sin navegador («falta mirarlo en pantalla antes de MSH.4»); nada en `forced-colors`, donde las cuatro prioridades (neutro · info · warn · bad) pierden el relleno. | método §4 · §2.3 | Nivel A con `auditoria-diseno` de la cola confidencial con sus tres miradas (quien reporta, RH, quien administra) y de Reportes en claro, antes de sembrar RH (MSH.4). La prioridad se lee por su texto en `forced-colors`. |
+
+**Lo que esta revisión no cubre:** la pantalla de `apps/vendor` y el enlace público sin cuenta
+(MS.5, sin construir); el puente con la Bitácora (no es pantalla); el texto exacto de los avisos;
+contraste, foco y teclado reales, que exigen nivel A.

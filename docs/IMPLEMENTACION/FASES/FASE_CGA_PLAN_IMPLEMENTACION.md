@@ -1161,3 +1161,69 @@ conteo de la máquina sin guardar.
 
 **Decisiones de Edgar:** (1) día de arranque, con arqueo completo a dos personas; los 379 retiros
 viejos quedan como historial · (2) plazo de una custodia (24 / 48 / 72 h).
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+> La bandeja, el arqueo y el panel vecinal ya existen: en ellos cada observación es un criterio a
+> verificar, no un defecto medido. La rama del corte (A.4), la custodia (A.52) y la pestaña de
+> efectivo (C.6) todavía no tienen pantalla. No se repite lo que ya dicen
+> [`FASE_CG_LEGIBILIDAD_DOS_CABEZAS_2026-10-19.md`](FASE_CG_LEGIBILIDAD_DOS_CABEZAS_2026-10-19.md)
+> (escalas, piso de 12 px, folio, dos modos de lectura) ni
+> [`FASE_CG_PATRONES_Y_ACCESIBILIDAD.md`](FASE_CG_PATRONES_Y_ACCESIBILIDAD.md) (contrato
+> `CajaCobertura`).
+
+**La pregunta que contesta (prueba de la frase, §4.0b):**
+
+- **Bandeja de pendientes:** *«¿Qué dinero que ya registró Kepler me falta pasar al libro?»* — una
+  pregunta. ⚠️ Con la rama del corte `U-D-23` (A.4/A.6) pasaría a ser *«…y qué venta cerrada no
+  tiene cobro»*: conflación (§4.0 A). Corte: los cortes sin cobro van a su propio segmento, con su
+  dueño, no como filas de la cola (CGA.UI.2).
+- **Arqueo del corte:** *«¿Cuadra el efectivo del cajón contra lo que dice el libro?»* — una
+  pregunta que hoy no tiene respuesta mientras falte la pierna del depósito (D7, CGA.UI.3).
+- **Custodia (A.52):** *«¿Quién tiene hoy dinero de CAOS a su cargo, y desde cuándo?»* — «desde
+  cuándo» es atributo de la misma pregunta. Bien partido.
+- **Pestaña de efectivo (C.6):** *«¿Cuánto efectivo le debemos hoy a quien cobra en efectivo?»* —
+  una pregunta si el modo declarado es el filtro. Si la misma pestaña sirve además para declarar el
+  modo de 1,331 proveedores, son dos: la declaración va a un segmento «Por declarar».
+- **Panel vecinal (`app-vecinal-recon`, frente B):** *«¿Cuánto de la venta vecinal llegó contado a
+  caja?»* — una pregunta.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):**
+
+- Bandeja: primario = movimientos y $ por capturar, con la edad de su fuente · secundario = la cola
+  por fecha · terciario = folio, glosa y entidad.
+- Arqueo: primario = contado contra esperado con su veredicto (o la declaración de que no lo hay) ·
+  secundario = las piernas (ingresos, gastos, custodias, CAOS) · terciario = denominaciones.
+- Custodia: primario = dinero abierto en custodia y la custodia más vieja · secundario = una fila
+  por persona · terciario = cada retiro y sus gastos.
+- Pestaña de efectivo: primario = deuda en efectivo vencida · secundario = proveedores por deuda ·
+  terciario = % en caja, quién declaró y cuándo.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| CGA.UI.1 | 🔴 | **El panel vecinal dice «cuadra» donde nadie contó.** `efectivo_contado` está escrito idéntico al esperado en **484 de 580 días → $7,579,991.50, el 84.3 % del dinero**: ahí `cuadra` es verdadero por construcción y se lee como «alguien contó y salió exacto». Del otro lado, **31 cortes con contado 0 y desglose poblado ($302,806.65)** se pintan como cero. | §1.3 · §1.1 · §2.3 | Un día con contado = esperado al centavo y sin conteo independiente no va en verde ni dice «cuadra»: dice «Kepler publicó el corte; no hay conteo independiente». Los dos veredictos de B.3 se distinguen con texto en `p-tag`: «Nadie contó» y «Hay un conteo de $X que no se capturó»; ninguno suma al libro. Va junto con B.1 (es breaking para el panel). |
+| CGA.UI.2 | 🔴 | **La rama del corte `U-D-23` (A.4) invita a cobrar dos veces.** El plan la publica «como pendiente de cobro, no como ingreso», pero no dice qué acción tiene la fila. Si se ve como un renglón más de la cola, quien captura mete la venta y, cuando llegue su `U-A-5`, el dinero entra dos veces — «la trampa que mató al puente vecinal». En juego: **81 cortes de sucursal sin cobro ($2,984,827.33) y 67 de camioneta ($1,151,493.52)**. | §1.1 · §4.0 A · Poka-yoke | Segmento propio con `app-segmented` («Por capturar · Cortes sin cobro»), con conteo y $ en cada opción. La fila dice «Venta cerrada · falta su cobro» y **no** tiene acción de captura; su acción lleva a quien lo arregla («Se captura en Kepler» / «La camioneta no ha mandado su cobro»). El endpoint de captura rechaza un `origen_ref` de corte, con prueba negativa. |
+| CGA.UI.3 | 🔴 | **El arqueo afirma faltantes que el plan dice que no se pueden afirmar.** No existe un solo movimiento `tipo='deposito'` (0 de 250) y `esperado_imposible` sólo cubre el esperado negativo: `CC-2026-00007` sigue diciendo **«falta $208,594.59»** y el 19-oct **−$188,885**, cuando §10.13 dice que, sin esa pierna, no se distingue un defecto de un faltante real. Quien cerró el corte lee que perdió doscientos mil pesos. | §1.3 · §1.6 · §3.2 | **Conflicto para Edgar:** o D7 se contesta antes de pasar C3 a 🚀, o mientras falte la pierna el veredicto no dice «falta»/«sobra» a secas: «Diferencia $208,594.59 — no se registran depósitos al banco, así que no distingue un faltante de un depósito», como entrada nueva de `VEREDICTOS_SIN_RESPUESTA`. `[CG.194]` y `[CG.195]` («sin validación visual» desde el 19 y 20-oct) se revisan en nivel A antes de 🚀. |
+| CGA.UI.4 | 🔴 | **Una bandeja vacía se lee como «ya no hay trabajo».** El plan lo dice tres veces: los `U-A-5` bajaron de ~90–115 por semana a **3** desde el 12-oct (D1); si se cae el sync de `cash_cuts`, «la bandeja se vacía en silencio» (B.4); y 6 camionetas mandan venta sin cobro (A.13). Además **16 cobros ($211,548.14)** siguen tapados. Los detectores que lo saben viven en `npm run`, fuera del alcance de quien captura. | §1.3 · §1.2 · §3.5 · §3.6 | Encabezado con `app-freshness-pill` compuesta (gana la peor: ODS `kdm1`, latido de `route_collections`, sync de `cash_cuts`). El vacío de `app-load-state` distingue «Sin pendientes · fuentes al día» de «Kepler registró 3 depósitos esta semana (lo normal: ~100)». Una línea fija con lo que los detectores ya cuentan: «16 cobros ($211,548.14) tapados por capturas ambiguas · 6 camionetas mandan venta y no cobro». |
+| CGA.UI.5 | 🔴 | **«Saldo por persona» (A.52) afirma que alguien tiene dinero a su cargo.** El usuario de CAOS «003» hace el **84 % de los retiros ($16.7 M)** y **603 depósitos ($13.1 M)** entran con el genérico «Vendedor (006)»: si la persona sale del usuario de CAOS, el saldo se le carga a quien use ese login. Y el plazo de una custodia (24 / 48 / 72 h) sigue sin decidir, así que «vencida» no tiene definición. | §1.1 · §1.3 · nombres, no códigos | La persona por nombre desde el catálogo; usuario genérico o sin mapa → «Sin persona identificada (usuario de CAOS "Vendedor")», nunca asignado a alguien. Sin plazo decidido, cada custodia muestra su edad («abierta hace 30 h») y no hay estado «vencida»; con plazo, «Fuera de plazo» con icono y texto. |
+| CGA.UI.6 | 🔴 | **El libro guarda un importe viejo y el documento sale de la cola.** `CI-2026-00047`: libro **$120.00**, fuente **$21,240.00**. La cola excluye por `origen_ref`, así que para la pantalla ese cobro está resuelto y **$21,120.00** quedan invisibles. §10.7 pide «que la pantalla re-contraste el importe contra la fuente» y lo mete dentro de A.10, sin item C3. | §1.3 · §3.3 · §3.4 | Item C3 con nombre. La fila del libro lleva chip cuando la fuente difiere más de $1.00: «Kepler hoy: $21,240.00 · libro: $120.00 → difieren $21,120.00», con acción de corregir. Hasta $1.00 es informativo y sin alarma (`CI-2026-00004`, −$0.38: lo decidió quien capturó). |
+| CGA.UI.7 | 🔴 | **El selector del documento (A.10b) deja elegir el homónimo equivocado.** `U-A-5 0000007` existe el mismo día en **siete almacenes ($136,385.41)**, y con `declared_doc_ref` una mala elección ya no tapa «por texto»: tapa **por llave** el cobro de otra ruta. El plan escribe los candidatos como `01-002 ruta_22`. Las 5 capturas ambiguas ($80,541.00) se resuelven en esta misma pantalla. | §1.1 · Poka-yoke · nombres, no códigos | Cada candidato dice sucursal y camioneta por nombre (pipe `\| sucursal` / `warehouseName()`), fecha e importe. Con más de un candidato no hay selección por defecto y no se puede guardar sin elegir: «Elige el documento: 7 coinciden con este folio». |
+| CGA.UI.8 | 🟠 | **La captura copia los billetes del retiro al gasto.** Hoy 24 de 30 enlaces son «idénticos» por copia, así que el cuadre de billetes es verdadero por construcción. El plan ya decidió no cuadrar billetes por gasto (§11.9); falta que la pantalla de A.52 lo cumpla. | §1.3 · §4.0c | La captura de un gasto contra un retiro pide sólo el importe: sin desglose de billetes, ni precargado ni editable. El único cuadre de billetes es al regresar el sobrante a CAOS. Prueba: el payload de la captura no lleva denominaciones. |
+| CGA.UI.9 | 🟠 | **La pestaña de efectivo (C.6) no dice qué es «efectivo» ni desde cuándo.** `medio_pago='caja'` puede ser cualquier cuenta de caja, incluida la de sucursal (G6: «la diferencia entre 130 proveedores y otro número»); el feed arranca el 23-dic-2025; **1,017 de 1,331** no tienen sugerencia; hay pagos fechados hasta el 01-dic-2026 (G8). Y «mixto» a secas esconde que `CB013` tiene **$9.09** fuera de caja de $2,587,209.71 y `CD015` **$133,117.65** en efectivo con 0.20 %. | §1.6 · §1.3 · §3.2 | Encabezado «Pagos desde el 23-dic-2025 · cuentas de caja: [universo que mida G6]». `app-segmented` con conteo: Siempre · Mixto · Nunca · Sin historial (un `NULL` nunca se pinta «nunca»). La sugerencia en llano: «Mixto: $9.09 por banco de $2,587,209.71». Orden por importe en caja, no por %. Pagos con fecha futura, contados aparte. |
+| CGA.UI.10 | 🟠 | **La deuda de C.6 puede contradecir a ECA.** C.5 la lee «del resolvedor de C.1» y D5 sigue abierta: si sale de `v_supplier_payables`, la pestaña da por pagadas **26 facturas ($169,957.00)** que ECA muestra como debidas (en el universo de efectivo, una factura de $203.70; el resolvedor igual tiene que ser uno). ContPAQi «no puede confirmar esta deuda» y `'2120'\|\|lpad(...)` trae el saldo **de otro proveedor**. Y de los 324 borrados, **22 cobran en 2026 ($11,220,546.79), 10 en efectivo ($1,951,182.86)**. | §1.5 · §1.1 | Un solo resolvedor con ECA, con prueba que compara el saldo por proveedor contra ECA al mismo corte. Sin columna de ContPAQi; si se agrega, por `gl_supplier_accounts` con el nombre verificado y la diferencia en llano. Los borrados se listan con chip «Dado de baja el 20-jul · se le pagó después», y el filtro por defecto no los esconde. |
+| CGA.UI.11 | 🟠 | **La pestaña de efectivo puede nacer sin puerta.** §4 lo deja sin verificar («el público del frente C podría no ver esa pestaña») y D4 (¿Compras o Finanzas es dueño de la bandera?) decide quién escribe. | §2.4 | Antes de C.6 → 🚀: los roles que pagan en efectivo ven la pestaña en prod, con `MATRIZ_ACCESOS.md` regenerada. La escritura va con el permiso que decida D4; quien sólo lee ve el modo declarado con autor y fecha, sin el control. |
+| CGA.UI.12 | 🟠 | **Diez cortes cerrados y ninguno autorizado, con dos diagnósticos.** Este plan (A.26) dice que no es hueco de permiso: `direccion` tiene `FINANCE_CAJA_AUTORIZAR` como segunda llave. `FASE_CG_LEGIBILIDAD` §2b dice que la supervisora designada (`tesoreria`) no la tiene. Las dos pueden ser ciertas, pero el Modo Supervisión de aquel documento abre con «N cortes esperan tu firma» para alguien que hoy no puede firmar. **Conflicto para Edgar.** | §2.4 · §3.4 | Decidir quién autoriza. Quien cierra ve «Espera autorización de [nombre o puesto con la llave]», nunca un botón apagado sin motivo; el conteo de cortes por autorizar lo ve, con su acción, quien sí puede firmar. |
+| CGA.UI.13 | 🟠 | **4,504 egresos de Caja General sin categoría ($12.5 M) no tienen dónde arreglarse.** `[CB.54]` los declara «de la fase CGA»; este plan no los nombra, el puente ContPAQi los deja fuera (Caja General no es banco) y Bancos es de sólo lectura desde `[CB.14]`. | §3.4 · §2.4 | El plan nombra la pantalla donde se categoriza un egreso de Caja General, o lo declara deuda con nombre. La bandeja muestra «4,504 egresos sin categoría ($12.5 M)» con enlace a ese lugar y el filtro puesto. |
+| CGA.UI.14 | 🟡 | **«Tu jornada» publica una cobertura que no suma** (§10.12): «2,850 de 3,020 · 114 sin subcuenta» deja **56** sin nombrar; y el suelto del 28-sep lleva 21 días sin camino para abrir su corte. | §1.2 · §3.4 | La cobertura suma sus partes con nombre («2,850 + 114 sin subcuenta + 56 [motivo] = 3,020»). Cada suelto fuera de jornada lleva acción a su corte, o la frase de por qué no se puede. |
+
+**Lo que esta revisión no cubre:** escalas, contraste y teclado (ya medidos en
+`FASE_CG_LEGIBILIDAD`), lo que sólo se ve en nivel A (pliegue, foco, Alto Contraste) y el texto
+final de los avisos, que se valida con Carmen y con la supervisora.

@@ -277,3 +277,56 @@ Sin el paso 1 la pantalla carga vacía: las vistas no existen en prod.
 - ¿Permiso propio `COMMERCIAL_SALES_DOCS_VER` (10 touch-points) para que aparezca en sidebar y `/admin/roles`? Hoy reusa `COMMERCIAL_ORDERS_VER` y vive sólo como tab.
 - ¿El pagaré sale siempre o sólo con crédito?
 - ¿Se necesita AX.5 (impresión desatendida en sucursal) o basta el navegador?
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre. La pantalla existe: cada
+> observación es un criterio a verificar en ella, no un defecto medido. El anexo impreso se revisa
+> como **una vista más del mismo dato** (§1.5): contra la pantalla y contra Kepler; no tiene modo
+> oscuro, pero sí se imprime en blanco y negro.
+
+**La pregunta que contesta cada vista (prueba de la frase, §4.0b):**
+
+- **Pantalla** (`/comercial/documentos`): *«¿Qué facturas emitió telemarketing en el periodo, con
+  su estado de cobro?»* — una pregunta (el cobro es atributo de cada factura). Pero el nombre
+  «Documentos», dentro de Ventas, promete un universo mayor (AX.UI.3).
+- **Anexo impreso**: *«¿Qué me vendieron, en qué presentación y a cómo?»* — una pregunta, la del
+  tendero que dio origen a la fase.
+- **Pagaré**: *«¿Cuánto debo y para cuándo?»* — otra pregunta y otro acto (firmar una deuda): bien
+  que vaya como apartado propio del mismo documento; mal que se emita sin las condiciones de
+  AX.UI.1.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):**
+
+- Pantalla: primario = **facturado del periodo y saldo vencido, cada uno con su universo** ·
+  secundario = la lista de facturas con su estado de cobro · terciario = folio, RFC y vendedor.
+- Anexo: primario = **total a pagar y fecha de vencimiento** · secundario = los renglones (cantidad
+  en su presentación, precio por unidad y por caja) · terciario = membrete, bancos y notas.
+- Pagaré: primario = **monto, vencimiento y deudor** · secundario = interés moratorio y lugar de
+  pago · terciario = aval.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| AX.UI.1 | 🔴 | **El pagaré puede salir por más de lo que se debe, o con una fecha que no es la pactada.** Con firma, es un título de crédito que se cobra. El plan no condiciona su emisión al saldo: una factura liquidada (`F`) o con abono parcial (`R`) puede imprimir pagaré por el total. Y el vencimiento es reconstruido en **69 documentos** (`derivado_erp_invalido` 60 + `derivado` 9; AX.9.2, 2026-09-05); la regla vieja «fecha + días de crédito de hoy» difería del ERP en **329 de 729 (45 %)**. La pantalla declara de dónde sale la fecha; el papel no tiene cómo. | §1.5 · §1.1 · §4.5 | «Con pagaré» se deshabilita, con su razón escrita, en facturas liquidadas y de contado; con abono parcial, el pagaré dice el saldo o no se emite (decide Edgar con Finanzas). Sólo se emite con `vencimiento_source = erp`; si no, el diálogo muestra la fecha derivada y pide confirmarla. Pantalla, anexo y pagaré imprimen el mismo campo de vencimiento (prueba sobre un documento `derivado`). |
+| AX.UI.2 | 🔴 | **El KPI de vencido cuenta otro universo que el Resumen de Telemarketing, que enlaza aquí.** AX.9.1 lo calcula sobre las facturas de la ventana (264 documentos, $2,028,423 a 30 días, 2026-09-05); el Resumen de Telemarketing publica «Vencido · toda la cartera» **$6,552,580.94** (Fase E §E.14, 2026-10-21) porque descubrió que la ventana dejaba fuera el 43 % del vencido. Misma palabra, mismo canal, dos cifras a un clic. | §1.5 · §1.6 · auditoría Cruce 5 | El KPI se rotula «Vencido de lo facturado en el periodo» y lleva al lado la cifra de toda la cartera del canal, o adopta la de toda la cartera. Las dos pantallas usan las mismas palabras para el mismo universo, con prueba de que cuadran al centavo. Registrado también en Fase E (E.UI.5). |
+| AX.UI.3 | 🔴 | **«Documentos», dentro de Ventas, son sólo las facturas de telemarketing.** AX.9 midió que lo listado es canal TELEMARK en el 100 %, de 2 sucursales: **$8.36M / 738 documentos en 30 días = 31 % de la venta al cliente final** y 7 % de lo que se mueve en `U/D` (2026-09-05). Mostrador (160k documentos en 90 días) y rutas no están. Quien busca una factura de mostrador concluye que no existe; y el plan nombra esas sucursales por código. | §1.4 · auditoría Cruce 3 · §1.6 · regla PM 2026-10-22 | Título y subtítulo dicen el universo: «Facturas de telemarketing · no incluye mostrador ni ventas de ruta». Una búsqueda sin resultados recuerda ese universo en vez de decir sólo «sin resultados». Sucursales por nombre con la pipe `\| sucursal` en filtro, celda y `aria-label`. |
+| AX.UI.4 | 🟠 | **El texto del pagaré afirma un acuerdo que el plan no dice de dónde sale.** Imprime un moratorio de **3 % mensual «pactado»** sin fuente ni contraparte en el plan: es la misma forma del RFC equivocado de AX.10.1 (una constante que nadie cruzó contra nada, impresa en membrete y pagaré). Y la revisión de contador y abogado que el plan exige «antes de producción» no consta. | §1.1 · ADR-056 | El 3 % sale de configuración verificada, con prueba que se niega a imprimir sin ella (como `emisorFiscal()`). La opción «con pagaré» no se ofrece en producción hasta que el plan registre la revisión legal del texto. |
+| AX.UI.5 | 🟠 | **Un reparto negativo saldría rotulado «descuento».** El reparto por mayor residuo va «con signo», y el barrido del 2026-08-24 contó **348 facturas con total mayor que la suma de sus renglones**: ahí la columna de descuento imprimiría un recargo. AX.9.3 encontró después que `total = Σrenglones × (1 − d%)` en 1,268 de 1,268, lo que dejaría ese caso en cero: no está medido. | §1.1 · §1.3 | Contar hoy las facturas imprimibles con total > Σ renglones. Si hay alguna, el PDF no lo rotula «descuento»: «Ajuste: el total de la factura es $X mayor que la suma de los renglones», o se niega. Prueba con un caso sintético de reparto negativo. |
+| AX.UI.6 | 🟠 | **«Imprimir» tiene cuatro formas de negarse y el plan no dice qué ve la persona.** El PDF se niega por factura sin renglones de producto (95 con total > 0, hasta **$439,527**), detalle incompleto (6), cancelada o emisor sin configurar; además el visor puede no tener `print()` y abre otra pestaña con un aviso. Cada impresión es un render de Puppeteer: un doble clic son dos. | §3.5 · §4.5 · Idempotencia visual | La negativa se anuncia antes de intentar, en el renglón y en el detalle, con su causa: «Kepler no trae los productos de esta factura: no se puede armar el anexo». «Imprimir» se deshabilita en el primer clic y dice «Generando PDF…» hasta que llegue. |
+| AX.UI.7 | 🟠 | **Las canceladas desaparecen en vez de decir que lo son.** Se quitaron del listado y del PDF (280 en $0, AX.9 fila 3): buscar el folio de una factura cancelada da lo mismo que buscar uno que no existe, y quien atiende al cliente no puede decirle «esa se canceló». | §1.3 · §3.5 | La búsqueda por folio exacto encuentra la cancelada con `p-tag` «Cancelada en Kepler» y sin botón de imprimir; fuera de esa búsqueda, el listado sigue sin mostrarlas y lo dice en el subtítulo («no incluye N canceladas»). |
+| AX.UI.8 | 🟠 | **El anexo se imprime en láser blanco y negro y el plan no lo prueba así.** El papel no tiene modo oscuro pero sí escala de grises: la banda «no es comprobante fiscal», los rótulos de grupo y cualquier cifra negativa no pueden depender de un fondo o de un color. Los A/B de AX.10 midieron hojas, no legibilidad. | §2.3 · §3.7 | Una impresión de prueba en escala de grises de 3 documentos (sin descuento, con descuento, con pagaré): la banda se lee por borde y texto, los grupos se distinguen por texto y peso, todo negativo lleva signo «−». El candado `anexo-venta.spec.ts` agrega que ningún estilo del PDF use el color como único portador. |
+| AX.UI.9 | 🟠 | **El anexo existe para el tendero y le habla en códigos de Kepler.** «Cero unidades inventadas» es correcto, pero `PAQ`, `CJA`, `BTO`, `CUB` y «15 × 250» quedan sin explicar en un papel que nació porque el cliente no entendía el CFDI. «15 × 250» no dice 250 de qué. | §3.8 · §3.9 | Al pie, una leyenda sólo con las unidades de ese documento, tomada de la descripción de Kepler o de un diccionario versionado (nunca redactada en la plantilla): «PAQ = paquete · CJA = caja · BTO = bulto». Si no hay descripción para un código numérico: «presentación “250” según Kepler», sin inventar gramos. |
+| AX.UI.10 | 🟠 | **La pantalla y su enlace desde Telemarketing piden permisos distintos.** Este plan deja abierto «¿permiso propio `COMMERCIAL_SALES_DOCS_VER`?» y gatea con `COMMERCIAL_ORDERS_VER`; Fase E (E.9, 2026-09-07) dice que ese permiso ya está repartido y gatea con él el enlace «Facturación». Un rol con uno y sin el otro ve un enlace que rebota o no ve la puerta. La pantalla vive sólo como pestaña, sin entrada propia en el menú. | §2.4 | Un solo permiso para ruta y enlace, el mismo en las dos fases, verificado repartido en producción. La decisión abierta se cierra con lo que E.9 ya midió. |
+| AX.UI.11 | 🟡 | **La pregunta que dio origen al anexo sigue sin respuesta impresa.** «¿A cómo me sale la pieza?»: el anexo deriva precio por unidad de venta y por caja (§Lo que el service deriva), no por pieza cuando la venta es en paquete. | §3.1 · §4.0c | El plan decide: o se imprime el precio por pieza con un factor verificado contra Kepler, o declara por qué no y deja de prometerlo en §Por qué. |
+| AX.UI.12 | 🟡 | **Lo último que cambió en el papel no se ha visto impreso.** AX.9 y AX.13 (suma por unidad) dicen «falta validación visual», y el kilo truncado (2.5 KG impreso como «2 KG») quedó «no medido» en anexos que ya se entregaron a clientes. | método §4 · §1.3 | Revisión en nivel A del PDF impreso (no la vista previa) sobre facturas reales de los tramos de AX.10, y el conteo de anexos con cantidad fraccionaria emitidos antes del 2026-10-05, con la decisión de si se reimprimen. |
+
+**Lo que esta revisión no cubre:** el texto legal del pagaré (es del abogado), la fidelidad renglón
+por renglón contra Kepler (ya la mide el barrido de AX) y todo lo visual de pantalla y papel, que
+exige nivel A.

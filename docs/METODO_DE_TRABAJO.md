@@ -132,6 +132,7 @@ Una fase se marca ✅ sólo cuando:
 |---|---|---|
 | Objetivo vago → fase | `spec` | Convierte intención en spec ejecutable antes de codear |
 | Revisar el plan | `plan-eng-review` · `autoplan` | Antes de la primera línea, no después |
+| Revisar el plan (diseño, antes de C3) | **`auditoria-diseno` §9** | Un rótulo que miente se corrige en el plan con una línea; en la pantalla, con una reescritura |
 | Navegar 181 docs | `graphify` | El repo no cabe en una ventana de contexto |
 | Causa raíz de un bug | `investigate` | Investigar el proceso REAL antes de concluir |
 | Frontend (C3) | **`diseno`** ⛔ obligatoria | Reemplaza a todas las skills de diseño genéricas |

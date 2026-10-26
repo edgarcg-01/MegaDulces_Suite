@@ -142,3 +142,49 @@ Grounded en comprobantes BBVA reales (`Z:\Datos Usuarios\0Finanzas\Pagos\2026\<m
 Smoke `test-newdb-supplier-payment-controls` **13/13** (en regression). Builds api+view OK. Mig `20260805210000` en Railway (batch 161).
 
 **Pendiente prod (SP):** redeploy api+view (código pusheado) + re-login + correr el bulk ingest desde LAN con dry-run → revisar match → `--apply`. Requiere `ANTHROPIC_API_KEY` en el API para el OCR. Diferido: matching por CFDI (`serie F`/`folio 451` vs `fiscal.cfdis`) y liga a la orden de entrada/factura vía `erp_purchase_adjustments.factura_ref` (c11).
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+> La pantalla existe (`/finanzas/cobranza`, `/finanzas/pagos-comprobantes`, `/finanzas/entradas`):
+> cada observación es un criterio a verificar en ella, no un defecto medido.
+
+**La pregunta que contesta (prueba de la frase, §4.0b):**
+
+- *`/finanzas/cobranza`, modo cobros:* *«¿Qué cobros de crédito siguen sin su evidencia completa
+  (ficha de depósito → abono en el banco)?»* — una sola; la cadena cobro → ficha → banco es su
+  evidencia. Bien.
+- *`/finanzas/cobranza`, modo «Abonos sin cobro»:* *«¿Qué dinero entró al banco sin un cobro en
+  Kepler?»* — es otra pregunta, y por eso está bien que sea otro modo; el corte con `app-segmented`
+  es el correcto.
+- *`/finanzas/pagos-comprobantes` y `/finanzas/entradas`:* la misma pregunta para el pago a proveedor
+  y para la entrada de mercancía. Bien partidas, pero son tres copias de una pantalla (CC.UI.9).
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5), cobranza:** primario = **cobros sin evidencia completa:
+cuántos y cuánto dinero, separados en «sin ficha» y «con ficha, sin abono en el banco»** · secundario
+= la tabla de cobros con el chip de cuadre y el estado de banco · terciario = referencia SPEI, cuenta
+destino, folio.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| CC.UI.1 | 🔴 | **El chip de cuadre puede ponerse verde por lo que tecleó la persona, no por lo que dice la ficha.** El flujo es subir → OCR → **editar** → guardar, y el cuadre compara el monto contra el del cobro con tolerancia de $1. Si el OCR leyó mal y quien captura corrige el monto mirando el cobro de al lado, el chip dice «cuadra» con un número que nadie leyó del papel. Es el control de los 5,227 cobros con ficha. | §1.1 · DESIGN §X.3 y §X.4 | Lo que propuso el OCR se ve como del motor (fondo y borde `--ember-soft`/`--ember-border` con el sello de IA de DESIGN) y lo corregido a mano se marca: «corregido a mano · el OCR leyó $X». El chip compara el monto leído; si se editó, dice «Cuadra con lo capturado a mano, no con lo leído», en `warn`, no en `ok`. |
+| CC.UI.2 | 🔴 | **«Cuenta propia» se decide por los últimos 4 dígitos.** `cuenta_propia` = que `ocr_cuenta_dest` termine en el `account_label` de una cuenta de la empresa (`…3041` → BANORTE 3041). El control existe para cazar depósitos a una cuenta que no es nuestra, y cualquier cuenta de un tercero que termine igual sale en verde. Lo mismo para `cuenta_origen` en pagos a proveedor (SP.2). | §1.1 · §2.3 | El tag no dice «Cuenta propia»: dice «Termina en 3041, como BANORTE 3041», con el número completo que leyó el OCR al lado. Verde sólo si coincide la cuenta completa (o la CLABE) contra `finance.bank_accounts`. |
+| CC.UI.3 | 🔴 | **«Huérfano» se pinta resaltado sobre 2,664 abonos que el plan dice que no son huérfanos.** El conteo está inflado por la granularidad: el banco registra un depósito en bulto que cubre N cobros, y el cruce 1:1 por monto sólo caza los que casualmente valen un cobro. Contra 242 con candidato (lo accionable), 2,664 filas gritan «investigar» y entierran a las 242. | §1.1 · §4.0 B (ruido) · §3.1 | Rótulo «Sin cobro del mismo monto (puede ser un depósito que cubre varios cobros)», en tono neutro. El modo abre filtrado en «con candidato» (242) y el KPI separa las dos cifras. «Huérfano» se reserva para cuando exista el cruce por suma de cobros que el plan difiere. |
+| CC.UI.4 | 🔴 | **«Confirmado» llama confirmación a un solo candidato por monto y fecha.** `bankMatch()` dice `confirmado` cuando encuentra **un** abono de la misma cuenta, monto ±$1 y fecha −1/+6 días; nadie confirmó nada, y sin clave SPEI el cruce no tiene control placebo. Con depósitos de ruta de montos parecidos (~$8,850 en los casos reales del plan), un candidato único puede ser el depósito de otro cobro. | §1.1 · DESIGN §X.3 y §X.4 | Estados: «Un candidato en el banco» (sugerencia, con su razón: cuenta, monto, días de diferencia) → «Conciliado por ‹persona› el dd-mmm» sólo al confirmar (CC.5). El verde se reserva para el segundo. |
+| CC.UI.5 | 🔴 | **Desde el 1-oct la lista de cobros puede no traer los de las plazas, y no lo diría.** El plan fija «Fuente = CEDIS `md_00` (centraliza la cobranza; sumar sucursales duplica)»: la premisa del régimen que terminó el 30-sep. La Fase PO encontró `erp_collections` anclada a Oficinas (`PO.3` pendiente). En el flujo ficha-first, la ficha de un cliente de plaza termina en «no se encontró el cobro» y se lee como «no existe en Kepler». Y el plan dice que la tabla la llena un importer sin agenda (cron diferido): su edad no se conoce. | §1.6 · §1.3 · §3.6 · cruce con PO | Encima de la tabla, el universo y la edad: `app-freshness-pill` con la última lectura y, hasta que `PO.3` se mida, «Cobros de Oficinas; desde el 1-oct pueden faltar los de las plazas (Fase PO)». «No se encontró el cobro» dice también «la lista llega hasta dd-mmm hh:mm». La sucursal del cobro, por nombre (`\| sucursal`). |
+| CC.UI.6 | 🟠 | **Sin la llave del OCR, los campos vacíos se leen como «la ficha no dice nada».** El extractor «degrada sin `ANTHROPIC_API_KEY`», y SP lo exige en el API. Mientras lee (imagen o PDF, segundos), el plan no describe qué se ve. | §1.3 · §3.5 · DESIGN §X «estado de trabajo honesto» | Tres estados distintos: «Leyendo la ficha…» (con lo ya leído), «La lectura automática no está disponible: captura los datos a mano» y «El OCR no encontró el monto». Ninguno deja campos vacíos sin decir por qué. |
+| CC.UI.7 | 🟠 | **La misma bandera marca un posible fraude y un caso legítimo.** «Referencia duplicada» (`pi-flag-fill`) sale igual para un depósito que cubre varios cobros (el manuscrito «448/441/761» del plan) que para una ficha repetida en dos cobros; las dos suman al KPI «Alertas de control». | §1.1 · §4.0 B · §2.3 | Dos estados con texto: «Un depósito para N cobros» (informativo, fuera de alertas) y «La misma ficha ya está en el cobro ‹folio›» (alerta, navegable a ese cobro). El KPI cuenta sólo el segundo. |
+| CC.UI.8 | 🟠 | **El cobro que sugiere el matcher se acepta con «un tap» y sin ver la competencia.** Ficha-first (CC.7) busca por monto ±$1 y fecha ±7 días; con montos repetidos, el primero de la lista es una apuesta. El plan habla de «tap»: pantalla táctil. | DESIGN §X.3 y §X.6 · DESIGN Fitts | Con un solo candidato, se muestra con su razón («mismo monto, 2 días antes, sin comprobante»). Con dos o más, ninguno preseleccionado: «Hay N cobros de $X en la semana: elige el que corresponde». Objetivos de ≥44 px en `pointer: coarse`. |
+| CC.UI.9 | 🟠 | **Tres pantallas «calcan» la de Cobranza, y una de ellas entra al circuito de PGP.** `/finanzas/cobranza`, `/finanzas/pagos-comprobantes` y `/finanzas/entradas` repiten el mismo panel (subir → OCR → editar → validar): cada arreglo de CC.UI.1, .6 y .8 habría que hacerlo tres veces. Además PGP cuenta «Pagos a proveedor (evidencia)» entre las pantallas que absorbe su estación, y su O3 escribe el `X-D-26`: el mismo pago quedaría ligado a Kepler por dos caminos (el match por OCR de SP.3 y la asignación del Calendario), que pueden responder distinto. | §5.4 · §1.5 · cruce con PGP | El panel de evidencia + OCR vive una vez en `apps/view/src/app/shared/components/` y lo usan las tres pantallas. Para el pago a proveedor, una sola liga pago ↔ documento de Kepler: la del Calendario cuando el pago nació ahí; el match por OCR sólo para lo que no pasó por el Calendario, y la fila dice cuál de los dos la hizo. |
+| CC.UI.10 | 🟠 | **«Pagos a proveedor» no dice qué pagos.** La vista cubre `X-D-25/26/60` con `c10 LIKE 'C%'` (mercancía); quedan fuera gastos (`GG*`), bancos (`GB*`) y nómina (`GN*`). Y este plan conserva la línea que dice que `XD2601` «NO es transferencia a proveedor», refutada después (es el 96 % de los pagos, $338M, según PO §10). Quien busca el pago de un gasto concluye que no se pagó. | §1.4 · §1.6 | Subtítulo fijo: «Pagos a proveedores de mercancía. No incluye gastos, créditos bancarios ni nómina». Se corrige la línea de `XD2601` en este plan. |
+| CC.UI.11 | 🟡 | **«Validación visual manual pendiente» desde el 4-ago, y los pendientes apuntan a la prod vieja.** La lista habla de redeploy a Railway y de los batch 158/161 de Railway; prod vive en `md` desde el 22-sep. Por el plan no se sabe qué parte de CC.3–CC.7 y SP.1–SP.5 llegó a la pantalla que se usa. | método §4 · §2.4 | Revisión en nivel A con `auditoria-diseno` de las tres pantallas (claro, oscuro y `forced-colors`) y los pendientes reescritos contra `md`, con lo verificado en `/api/health` y en la pantalla. |
+
+**Lo que esta revisión no cubre:** la exactitud del OCR por campo (el plan no la mide), el texto
+definitivo de los avisos (se valida con Crédito y Cobranza) y la pantalla viva.

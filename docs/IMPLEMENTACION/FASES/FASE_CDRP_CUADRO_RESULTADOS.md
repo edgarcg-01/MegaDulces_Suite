@@ -255,3 +255,47 @@ meses lo revienta. Es una **tercera consulta separada**, no una tercera ventana.
 (`manual_lock`: el auto-calibrador no pisa al humano) · `ADR-057` (la precedencia vive en un solo
 lugar) · `ADR-061` / Fase SN (el mapa de espacios) · `[SN.30]` (si no respondés de una cola, no la
 ves) · `[JZ.6]` (la portada toma el número de donde lo toma la pantalla).
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre. **La pantalla existe: cada
+> observación es un criterio a verificar en ella, no un defecto medido.** Para lo que sigue en ⬜
+> (CDRP.4–CDRP.6), es criterio de construcción. Apoyo leído en lo que toca pantalla:
+> [`ESPEC_CDRP_DIRECCION_2026-09-17.md`](ESPEC_CDRP_DIRECCION_2026-09-17.md) (no se edita; los
+> desacuerdos van aquí).
+
+**La pregunta que contesta (prueba de la frase, §4.0b):** *«¿Qué tengo que atender hoy **y** cómo
+voy contra mi meta?»* — dos preguntas, y la especificación pide siete (§15). No es una conflación que
+se cure partiendo en pantallas: es una portada. Se resuelve con secciones de orden fijo, y el orden
+lo da el principio de la propia especificación —«primero muestra desviaciones que requieren
+acción»—, que contradice su §1, donde las tarjetas KPI van antes que el foco (`CDRP.UI.7`).
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):** primario = **foco de hoy y decisiones que esperan
+firma** (excepción, monto, desde cuándo) · secundario = los KPI con su estado de cinco valores ·
+terciario = periodo, fuente, edad del dato y propósito del puesto.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| CDRP.UI.1 | 🔴 | **El estado general («EN META · ATENCIÓN · CRÍTICO», spec §1.1) no tiene regla para lo que no se puede juzgar.** El plan define cinco estados por KPI, no cómo se agregan. `analytics.kpi_thresholds` no tiene un solo umbral directivo: sus 5 filas son de cierre contable (plan de Presupuestos, 10-oct), así que todo KPI sale `sin_meta`. Si el agregado toma el peor de `ok/warn/bad` e ignora las ausencias, la portada de Dirección dice «EN META» sin haber comparado nada. | §1.3 · ADR-056 · ADR-076 | El estado general sólo se calcula si todos los KPI primarios tienen umbral; si no: «Sin meta registrada en N de M indicadores: el estado general no se calcula». `sin_meta` y `sin_medir` nunca suman a `ok`, con una prueba que lo rompa a propósito. |
+| CDRP.UI.2 | 🔴 | **Las decisiones que esperan a Dirección existen y pueden no llegarle.** La spec pide «Decisiones pendientes» aparte (§1.5) y este plan no las lista, pero ya tienen fuente: las dos bandejas de Presupuestos (PVI.17), **156 obligaciones · $74,809,091.57** esperando desde el 7-oct. Se repartieron al puesto `direccion`, que tenía 0 personas (§4.1, 21-sep), y el puente por persona de `CDRP.3` no incluye `finanzas.presupuesto`. | §2.4 · §3.1 · spec §1.5 | La sección de decisiones de la portada muestra esas bandejas con monto, quién lo pide y antigüedad, ordenadas por dinero, y les llega a las dos personas de Dirección (por puesto o por persona). Aceptación visual: quien firma entra a `/projects` y las ve. Ver `PU.UI.8`. |
+| CDRP.UI.3 | 🔴 | **«Ventas vs presupuesto» compararía contra una meta que nadie firmó y que vale $0 en temporada.** La meta saldrá de `budget.sales_plan_lines` (§4.2): un plan escrito por el motor, sin firma, con 99 renglones en $0.00 en P11–P13 de FY2027 (Halloween, Navidad y Reyes, $219.2M en FY2026). Este plan ya dijo que el porcentaje «se rompe con meta 0». Y Análisis pinta otro «objetivo» desde `sales_targets` (mes, repartido por días). | §1.5 · §1.6 · §1.3 | El KPI dice el folio y el estado del plan: «Plan PRE-2027-002 · sin firma». Un periodo con meta en $0.00 por falta de base sale `sin_meta`, nunca 0 % ni infinito. Una sola fuente de meta para la portada y Análisis. Ver `PU.UI.7`. |
+| CDRP.UI.4 | 🔴 | **«28.19 MDP +12.0 %» no dice contra qué ni sobre quién.** El crecimiento por zona compara la ventana de `ventanaComparable()` (~2 meses) sin declarar el periodo ni si las mismas entidades vendieron en las dos ventanas (21-sep). Presupuestos midió que el crecimiento que ve el motor es **cobertura del pipeline entrando al fact**: +26.67 % publicado contra −2.95 % comparable (PVI, 8-oct). Una sucursal que entró al fact dentro de la ventana se lee como crecimiento de la zona. | §1.6 · §3.2 | Cada porcentaje dice su ventana: «+12.0 % contra [periodo]». Se calcula sólo sobre entidades con venta en las dos ventanas y declara las que quedaron fuera: «sin comparar: [sucursales por nombre]». El mismo pareo que PVI.1, no uno propio. |
+| CDRP.UI.5 | 🔴 | **«89.7 % de cartera vencida» se publicaría en rojo sin que nadie haya validado el criterio.** $50,970,764 de $56,844,201 (21-sep), con el aging por vencimiento de Kepler; el plan dice que o es una emergencia o el criterio no es el del negocio (decisión 2, sin dueño). Y `CSU.11` movió la cartera +$165,615.07 al dejar de contar cobros cancelados (21-oct): la cifra depende de qué vista se lea. | §1.6 · §1.5 · §1.3 | El bloque de CDRP.4 dice «vencido según la fecha de vencimiento de Kepler · criterio sin validar por Finanzas», con `snapshot_date` y días de rezago, y toma la cifra del mismo resolvedor que `/finanzas/cartera`. Sin semáforo hasta que haya umbral registrado. |
+| CDRP.UI.6 | 🟠 | **Una pared de «sin meta» enseña a ignorar la portada.** La torre de Presupuestos lo dejó escrito: «si se arman 16 mosaicos y 13 dicen sin meta, la torre enseña a ignorarse en una semana». La spec pide de 5 a 8 tarjetas, cada una con semáforo. | §4.0 B · §4.1 · ADR-076 | Los KPI sin umbral no ocupan tarjeta: van en una sola línea («Sin meta registrada: ventas contra presupuesto, margen, …») con acceso a quién la registra. La tarjeta con estado se reserva a lo que se puede juzgar. |
+| CDRP.UI.7 | 🟠 | **La spec se contradice en el orden, y la portada abriría con mosaicos.** Su principio («dirección por excepción: primero las desviaciones que requieren acción») pone el foco arriba; su §1 ordena propósito → KPI → metas → foco. | §3.1 · DESIGN §Q.1 | Orden de secciones: foco y decisiones → KPI → metas. Se expone a Edgar como conflicto con la especificación, que no se edita. |
+| CDRP.UI.8 | 🟠 | **Un error de configuración deja la zona en blanco.** Si la clave de responsabilidad se escribe mal, `medirZona` devuelve vacío con `motivo: null`: «pantalla muda, sin mensaje de error» (§4.1). Un bloque vacío se lee «no hay nada que ver». | §1.3 · §3.5 | `app-load-state` separa: sin responsabilidades («No tienes zonas asignadas: pídelo en Personas»), falla («No se pudo leer la venta de tu zona») y vacío real. Un resultado vacío con `motivo: null` se trata como falla. |
+| CDRP.UI.9 | 🟠 | **El consolidado de N zonas (`JZ.7`) puede promediar lo que el bloque separó.** Ticket: tienda ~$86, ruta ~$586, vecinal ~$1,675 —«el promedio de zona no es el de nadie»—; margen: ruta sin costo en el 100 %. El plan decidió publicar por bloque (§1.1); el consolidado es donde esa decisión se pierde. | §1.6 · §1.3 | El consolidado muestra ticket y margen por bloque, nunca uno solo, y el margen dice «sobre X % de la venta con costo». Prueba negativa: un consolidado que promedie bloques se pone rojo. |
+| CDRP.UI.10 | 🟠 | **`falta_liquidez` no es liquidez.** El plan lo advierte (§4.4): esa alerta de `budget-cashflow` es flujo prospectivo sobre el saldo proyectado de un plan sin firma; la spec pide «liquidez disponible» como KPI primario de Dirección. | §1.1 · §3.9 | Si esa alerta llega a la portada, se rotula «Flujo proyectado insuficiente (según el plan)», nunca «Liquidez». El KPI de liquidez queda `sin_medir` hasta que exista el mapa de cuentas circulantes. |
+| CDRP.UI.11 | 🟡 | **«Mi trabajo se llama…» se retiró de la pantalla y es el criterio 1 de aceptación de la spec** (§15: «¿qué resultado debo producir?»). El dato sigue en `identity.positions`. | §1.4 · spec §15 | Conflicto para Edgar: o la spec se da por cumplida sin él, y se dice, o vuelve como una línea terciaria, no como encabezado. |
+| CDRP.UI.12 | 🟡 | **Este plan dice 🔨 y el roadmap 🟢; la aceptación que el plan fijó es visual y no está registrada.** «El criterio de cierre es *entró a `/projects` y ve las 6 zonas + el consolidado*» (§4.1). | método §4 | Registrar esa revisión en nivel A con `auditoria-diseno` (claro, oscuro, `forced-colors` y teléfono) y alinear el estado del plan con el roadmap. |
+
+**Lo que esta revisión no cubre:** los perfiles de Fase 2 y 3 de la spec (Compras, Zona, RH,
+Auditoría, Sistemas…), que no tienen diseño en el plan; contraste, pliegue, foco y teclado reales
+(exigen nivel A), y si `direccion` ya tiene personas hoy, que es un dato de base y no del plan.

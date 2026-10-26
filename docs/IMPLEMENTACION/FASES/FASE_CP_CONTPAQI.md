@@ -583,3 +583,55 @@ conversación con él pasa de *"decime todas las cuentas"* a *"confirmá estas 5
 > regla, y la derivación de arriba lo excluyó **a propósito** para encontrar el gasto. Hay que
 > medirlo aparte antes de armar la primera póliza: una póliza a la que le falta el IVA **no
 > cuadra**, y ContPAQi la rechaza — que es justamente lo que queremos que haga.
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+> La pantalla existe: cada observación es un criterio a verificar en ella, no un defecto medido.
+> Cubre este plan y lo que toca pantalla en [`FASE_CP8_PUENTE_CONTPAQI.md`](FASE_CP8_PUENTE_CONTPAQI.md)
+> y en el tracker (`[CP.8.xx]`); [`FASE_CP9_COBERTURA_TOTAL.md`](FASE_CP9_COBERTURA_TOTAL.md) no
+> tiene capa de interfaz propia (sus olas son lectura).
+
+**La pregunta que contesta (prueba de la frase, §4.0b):**
+
+- **Puente (`/contabilidad/contpaqi-puente`):** *«¿Qué egresos del mes ya pueden ir a ContPAQi, y
+  qué los traba?»* — lo que traba es la otra cara de la misma pregunta, con su dueño: una pregunta,
+  y el asistente de cuatro pasos (`[CP.8.76]`) le da una sub-pregunta a cada paso. Bien partido,
+  siempre que el veredicto use el universo de la contadora (CP.UI.1).
+- **Libros (`/contabilidad/contpaqi`):** contesta cuatro preguntas — balanza, bancos, proveedores
+  en listas del SAT y libros contra operación. Conflación (§4.0 A). Corte: una pestaña por pregunta
+  con `app-page-tabs`, y las listas del SAT a Hallazgos, que es donde se actúa.
+- **«vs ContPAQi» en `/finanzas/bancos` (CP.2):** *«¿El banco del Excel cuadra con la 102 de
+  ContPAQi, cuenta por cuenta?»* — la misma pregunta que ya contesta «Cuadre 3 vías» de CB
+  (CP.UI.5).
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):**
+
+- Puente: primario = cuánto de lo que capturó contabilidad arma solo el puente, y de cuánto ·
+  secundario = lo que traba, por dueño y monto · terciario = la póliza, sus renglones y sus UUID.
+- Libros: primario = la cifra del libro con su fecha de corte · secundario = el desglose por
+  cuenta y mes · terciario = la póliza.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| CP.UI.1 | 🔴 | **El veredicto del puente mide contra el banco, no contra lo que capturó contabilidad.** De **4,625 pólizas de egreso** (ene–sep) el puente cubre **899 (19.4 %)**; el 91.1 % del A/B es precisión, no cobertura — «por eso se escapó la de Oscar Hernández» (`[CP.8.83]`). Y **527 pólizas ($31.0 M)** sin movimiento de banco no existen en la bandeja (`[CP.8.85]`): el mismo defecto que el denominador recortado en 37.3 % de `FASE_CP8` §31.2, del otro lado. | §1.6 · §1.2 · §1.5 | El veredicto declara los dos universos: «De 4,625 pólizas de egreso que capturó contabilidad, el puente arma 899 (19.4 %)» y «De 18,193 egresos del banco, arma solo 1,069». El 91 % se rotula «de las que arma, iguales a las de contabilidad». Un bloque «Sin movimiento de banco: 527 pólizas, $31.0 M» con su causa (faltan estados de cuenta: ver CB.UI.3 en `FASE_CB`). |
+| CP.UI.2 | 🔴 | **«Libros vs operación» (CP.4) explica una brecha que nadie midió.** La herramienta obliga a narrar ~$12 M/mes como «estructural (IVA / alcance / timing)». Pero octubre en ContPAQi es un **provisional** (31 días, **$26.5 M** asentados el 8-oct con 4–5 importes repetidos, §9.3), a los libros llegan **sólo 6 puntos de venta**, y el lado Kepler se rotula «CEDIS 00» cuando la 00 es **Oficinas**. La brecha del mes en curso compara venta real contra un provisional. | §1.1 · §1.6 · §3.2 · DESIGN §X.3 | La cifra declara su universo («Kepler: [sucursales] · ContPAQi: 6 puntos de venta, entidad consolidada»). Un mes con la venta provisional en ContPAQi dice «ContPAQi aún no tiene la venta real de octubre (provisional)» y no publica brecha. La causa se afirma sólo si está medida; si no, «causa sin medir». «Oficinas», nunca «CEDIS 00». El mismo texto lo usa el chat de Maat. |
+| CP.UI.3 | 🟠 | **«Entregada» no es «en ContPAQi».** El circuito tiene tres estados —archivo generado, cargado según la persona («¿Ya lo cargaste en ContPAQi?», `[CP.8.54]`), visto por el cuadre de vuelta—, y `poliza_exports` sigue en 0 filas con el latido en `ok`, que es silencio y no salud (`FASE_CP8` §38.6). Si la pantalla pinta el segundo como el tercero, afirma lo que todavía no se midió. | §1.1 · §1.3 | Tres rótulos literales: «Archivo generado — no se ha cargado» · «Cargada según [persona], [fecha] — ContPAQi aún no la muestra (se revisa a los 5 días)» · «En ContPAQi (verificada)». Con cero entregas, la tira dice «Nunca se ha cargado un archivo» con `state: 'no_medido'`. |
+| CP.UI.4 | 🟠 | **El paso 1 ofrece «Firmar» reglas de gasto que la medición ya descartó.** Hay **6 reglas firmables que traban 9,757 movimientos ($16.6 M)** (`[CP.8.53]`), pero `[CP.8.83]`/`[CP.8.86]` midieron que la cuenta 52xx la decide **el proveedor** (93.0 %), no la categoría, y piden rediseñar antes de firmar. Una cuenta equivocada «cuadra igual» y no se ve hasta la balanza (`FASE_CP8` §35.3). **Conflicto para Edgar** (D7 del puente y `[CP.8.86]`). | §1.1 · Poka-yoke · DESIGN §X.1 | Mientras `[CP.8.86]` no se decida, «Firmar» de las reglas de gasto queda deshabilitado con el motivo a la vista: «En rediseño: la cuenta de gasto la decide el proveedor, no la categoría». Revocar guarda y muestra quién revocó (hoy no: deuda de `[CP.8.53]`). |
+| CP.UI.5 | 🟠 | **«vs ContPAQi» duplica a «Cuadre 3 vías»** (CB.24 compone el mismo `contpaqiCompare`), y «Enlazar cuentas» casa por número contenido en el nombre (16 de 18) sin decir a qué cuenta enlazó. Un enlace equivocado compara el banco contra los libros de otra cuenta y se ve como un descuadre real. | §1.5 · §5.4 · §1.1 | Una sola vista por cuenta. Cada fila dice «BBVA 6721 ↔ [cuenta 102 de ContPAQi con su nombre] (enlazada automáticamente)», y el enlace lo confirma una persona antes de contar en el veredicto. |
+| CP.UI.6 | 🟠 | **«Lista negra (EFOS)» junta dos listas distintas.** De **109 proveedores**, 103 están en el **69** (incumplidos: no es EFOS) y 6 en el **69-B**, que tiene situaciones (presunto, definitivo, desvirtuado) que el plan no dice que viajen. Un proveedor desvirtuado marcado «crítico» es una acusación falsa. | §1.1 · §3.6 · §3.8 | Rótulos «69-B — operaciones simuladas ([situación])» y «69 — incumplido». Severidad por situación (desvirtuado no es crítico). Fecha de publicación de la lista del SAT a la vista. Definiciones en `app-context-help`. |
+| CP.UI.7 | 🟠 | **«Categorizar en Bancos» mandaba a una pantalla de sólo lectura.** `[CP.8.80]` lo arregla dentro del puente (sep: **457 egresos, $8.70 M** sin categoría, `[CP.8.79]`), pero «fuera del puente» quedan Caja General y Factoraje (**5,281 movimientos, 33.9 %**), y los **4,504 de Caja General ($12.5 M)** no tienen pantalla donde categorizarse. | §3.4 · §2.4 | El motivo dice el lugar real («Categorizar aquí»). El bloque «fuera del puente» nombra la pantalla dueña de Caja General (CGA) o la deuda. CB y CP no construyen dos categorizadores: uno, y el otro enlaza. |
+| CP.UI.8 | 🟠 | **La página de los libros no dice de cuándo es el libro.** CP.1 dejó pendiente el carril nocturno y `sync_state`; las pólizas de CP.0 llegaban al 31-jul. Una balanza vieja se lee como la de hoy, y el chat de Maat la cita igual. | §3.6 · §1.3 | `app-freshness-pill` con `measures: 'data'` por carril (balanza, pólizas, bancos, proveedores, CFDI), con la fecha de la última póliza leída. Si un carril no late, la cifra lo dice, también cuando la consulta el chat. |
+| CP.UI.9 | 🟡 | **CP.6 describe una pantalla que ya no va a existir:** «bandeja `/finanzas/contpaqi`: estado de sync + balanza + pólizas generadas + diff libros-vs-operación» — cuatro preguntas —, cuando la realidad son dos páginas en `/contabilidad/…` con permisos distintos (`FISCAL_CONTAB_VER` en 8 roles; el puente, en 5). | §4.0b · §1.4 | CP.6 se reescribe o se retira. Cada página, una pregunta; el nombre en el menú cubre lo que contiene («Libros de ContPAQi» · «Puente a ContPAQi»). |
+| CP.UI.10 | 🟡 | **«Aplicar» por SDK (§7.6) escribirá en un tercero.** Hoy es plan; cuando llegue, el botón que dice «descargar TXT» pasa a mover pólizas dentro de ContPAQi. | DESIGN §X.1 · §X.5 · §4.4 · idempotencia visual | Plan en llano antes de aplicar («88 pólizas, $36,718,975.48, enero; no se deshace desde aquí»). Botón deshabilitado al primer clic, en otro lugar y con otra forma que «Generar». Si el agente no late: «El agente no responde desde hh:mm: descarga el archivo», con el TXT como reversa. |
+| CP.UI.11 | 🟡 | **El asistente del puente no se ha visto.** `[CP.8.54]`, `[CP.8.76]`, `[CP.8.77]` y `[CP.8.78]` dicen «sin validación visual», y `[CP.8.75]` dejó el tiempo en el pod **NO MEDIDO** (el mes tardaba 4.4 s). La fase está en 🚀. | método §4 · Doherty | Nivel A del asistente (claro, oscuro y `forced-colors`) y tiempo medido en el navegador al abrir un mes, contra la regla de 1 s, antes de dar por ✅ la capa C3 del puente. |
+
+**Lo que esta revisión no cubre:** el layout del TXT y el SDK fuera de su botón, las olas de lectura
+de CP9, y todo lo que sólo se comprueba con la contadora (las reglas firmadas, la lista de alias).
