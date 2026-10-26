@@ -561,3 +561,31 @@ Se copian a `01_TRACKER_PROGRESO.md` **el día que la fase pase a 🔨**, no ant
 (contraste, foco, teclado y pliegue exigen nivel A con `auditoria-diseno`), el texto exacto del plan
 en llano de PGP.UI.1 (se valida con Tesorería y Contabilidad) y el conciliador E3.4, que el plan
 todavía no describe como pantalla.
+
+### Revisión de la maqueta PGP.11 y rediseño v2 (2026-10-26)
+
+> **Con qué se miró:** la maqueta estática [`docs/maquetas/PGP11-pagos-rediseno.html`](../../maquetas/PGP11-pagos-rediseno.html)
+> abierta en el navegador (contraste y anchos medidos, con control de 21:1) y cruzada contra D2,
+> el código de `[TP.16]` y las observaciones de arriba. No es la app. La propuesta está en
+> [`PGP11-pagos-rediseno-v2.html`](../../maquetas/PGP11-pagos-rediseno-v2.html); su desglose dice
+> qué cambió y por qué.
+> ⚠️ La implementación de PGP.11 en `finanzas-calendario-pagos.component.ts` sigue la v1: las 🔴
+> de abajo aplican a ese código.
+
+| # | Sev | En la v1 | Ley | En la v2 |
+|---|---|---|---|---|
+| PGP11.M1 | 🔴 | «Arriba de $100,000 pide **dos firmas** de personas distintas», calculado sobre **la suma del día**, firmantes «Gerencia de Finanzas» y «Dirección General». No lo dice ni el código (`[TP.16]`: autoriza el día Gerencia o Dirección) ni D2 (por pago: hasta $100,000 Tesorería, arriba Dirección). | §1.1 · PGP.UI.6 | Firma por pago según D2, el paso partido por firmante con su monto, «0 de 2 firmados». |
+| PGP11.M2 | 🔴 | La CLABE se teclea en la fila del pago y con eso el pago queda listo («Capturar otra…»): una cuenta destino que nadie aprobó. | PGP.UI.7 · §4.5 | Se captura y se valida igual de rápido (dígito de control, banco), pero va a aprobación de otra persona y el pago espera. |
+| PGP11.M3 | 🔴 | Las dos notas de cargo **en dictamen ($14.0M)** encabezan la deuda en rojo con «Agregar al lunes» a un clic. | §1.3 · capa 5 | Grupo «no programables hasta que se resuelvan», sin botón. |
+| PGP11.M4 | 🔴 | «CEDIS» para la sucursal 00, sabiendo que es Oficinas (la propia v1 lo declara). | §1.1 · sucursal por nombre | «Oficinas». |
+| PGP11.M5 | 🔴 | El paso 4 dice «Autorizado $495,977.49» con el día sin autorizar. | §1.1 · PGP.UI.3 | «Autorizado $0.00 · 0 de 2», y «enviado al banco» separado de «confirmado en el estado de cuenta». |
+| PGP11.M6 | 🟠 | La cifra de cada día en la cola es lo comprometido si hay pagos y lo libre si no: el lunes ($496.0K) se lee más apretado que el miércoles ($1.87M), y tiene más espacio. | §1.1 | Siempre lo libre del tope, con leyenda. |
+| PGP11.M7 | 🟠 | Nada sobre las facturas de sucursal anteriores al 1-oct ($59.9M por confirmar, ECA). | PGP.UI.4 | La propuesta no las toma; el cajón las nombra como grupo. |
+| PGP11.M8 | 🟠 | Contraste medido: encabezados y rol 2.52:1 (claro) / 3.65:1 (oscuro); botón principal 3.56:1 / 2.26:1. Viene de los tokens del sistema (`--text-faint`, `--action` con texto blanco). | DESIGN §Ing.UI 3 · `[AUD.4]` | Todo ≥ 5.18:1 en los dos temas. Arreglarlo en `tokens.css` lo decide Edgar. |
+| PGP11.M9 | 🟠 | «Mi trabajo 4» contra «3 pagos sin preparar»; el veredicto es el mismo para los tres roles. | §1.5 · PGP.UI.5 | Conteo y veredicto de quien mira (Tesorería 3, Dirección 0, Caja 0). |
+| PGP11.M10 | 🟠 | A 390 px el veredicto empieza en 724 px; la tabla se recorta; 19 de 19 controles < 44 px. | Fitts · Doherty | La cola es una tira de un renglón (veredicto a 475 px), el pago es un bloque rotulado y los controles miden 44 px con el dedo. |
+| PGP11.M11 | 🟡 | Orden sólo arrastrando; «?» en un `title`; «Lunes 26 De Octubre». | §2.2 · §3.8 | Subir/bajar y `Alt`+flechas escrito en pantalla, quitar con deshacer, ayuda en pantalla. |
+
+**Decisiones abiertas que la v2 deja escritas:** D2 hace que Tesorería prepare **y** firme el 75.3 %
+de los pagos (separación de funciones) · «tope del día» como nombre único · contraste en los tokens
+del sistema · cuándo se escribe el `X-D-26` · `warehouseName('00')`.
