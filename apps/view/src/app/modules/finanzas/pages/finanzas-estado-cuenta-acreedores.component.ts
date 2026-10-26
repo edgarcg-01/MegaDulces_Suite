@@ -18,6 +18,8 @@ import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { money, dmy } from './finanzas-format';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { DEUDA_PROVEEDORES_TABS } from '../deuda-proveedores-tabs';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary';
 
@@ -52,7 +54,7 @@ const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
   selector: 'app-finanzas-estado-cuenta-acreedores',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, DatePickerModule, ToggleSwitchModule, TagModule, MetricStripComponent, SucursalPipe],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, DatePickerModule, ToggleSwitchModule, TagModule, MetricStripComponent, SucursalPipe, PageTabsComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -64,6 +66,8 @@ const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       @if (err(); as e) { <div class="ec-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="ec-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()"><span class="p-button-label">Reintentar</span></button></div> }
 
@@ -269,6 +273,8 @@ const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
   `],
 })
 export class FinanzasEstadoCuentaAcreedoresComponent implements OnInit {
+  /** [NAV.7] La barra del apartado «Deuda con proveedores» del sidebar de Finanzas: la pintan todas sus páginas. */
+  readonly apartadoTabs = DEUDA_PROVEEDORES_TABS;
   private readonly http = inject(HttpClient);
   private readonly destroyRef = inject(DestroyRef);
   private readonly base = `${environment.apiUrl}/finance/creditor-statements`;

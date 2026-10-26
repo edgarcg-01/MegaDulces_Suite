@@ -9,6 +9,8 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { CuadreService, Discrepancy, DiscStats, RuleHealth, DiscPlano, CuadreOverview, CashCut, StockMovement, BlindCountResult, BlindCountRow, Foco, ReconAction, ActionPalanca } from '../cuadre.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { CORTES_ARQUEOS_TABS } from '../../finanzas/cortes-arqueos-tabs';
 
 type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones' | 'descuadres';
 
@@ -20,7 +22,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
 @Component({
   selector: 'app-almacen-cuadre',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, MetricStripComponent, SucursalPipe],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, MetricStripComponent, SucursalPipe, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -35,6 +37,8 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear ahora</span></button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
     
       <!-- Tabs -->
       <div class="cd-tabs">
@@ -515,6 +519,8 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
   `],
 })
 export class AlmacenCuadreComponent implements OnInit {
+  /** [NAV.7] La barra del apartado «Cortes y arqueos» del sidebar de Finanzas: la pintan todas sus páginas. */
+  readonly apartadoTabs = CORTES_ARQUEOS_TABS;
   private readonly svc = inject(CuadreService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

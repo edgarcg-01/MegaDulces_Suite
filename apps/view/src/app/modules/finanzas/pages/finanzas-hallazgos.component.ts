@@ -16,6 +16,8 @@ import { FindingsService, Finding, FindingsStats, RuleHealth, FindingClase, Cove
 import { BancosSocketService, FinanceJobEvent, JobAccepted } from '../bancos-socket.service';
 import { FinanceJobsClient } from '../finance-jobs.client';
 import { ActionsService, ProposedAction } from '../actions.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MAAT_TABS } from '../maat-tabs';
 
 /**
  * MAAT.2 — Bandeja de hallazgos (motor de patrones). Superficie Operations:
@@ -26,7 +28,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
 @Component({
   selector: 'app-finanzas-hallazgos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, MetricStripComponent, ContextHelpComponent, LoadStateComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -43,6 +45,8 @@ import { ActionsService, ProposedAction } from '../actions.service';
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear ahora</span></button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <!-- Switcher de vistas (MAAT-IQ) -->
       <div class="fh-viewseg" role="radiogroup">
@@ -365,6 +369,8 @@ import { ActionsService, ProposedAction } from '../actions.service';
   `],
 })
 export class FinanzasHallazgosComponent implements OnInit {
+  /** [NAV.7] La barra del apartado «Maat» del sidebar de Finanzas: la pintan todas sus páginas. */
+  readonly apartadoTabs = MAAT_TABS;
   private readonly svc = inject(FindingsService);
   /** COMM-P0 — el namespace `/bancos` es el canal WS de Finanzas (no sólo del tablero). */
   private readonly sock = inject(BancosSocketService);

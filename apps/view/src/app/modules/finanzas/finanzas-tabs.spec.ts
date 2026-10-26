@@ -3,6 +3,11 @@ import { FINANZAS_TABS } from './finanzas-tabs';
 import { GASTOS_TABS } from './gastos-tabs';
 import { PAGOS_TABS } from './pagos-tabs';
 import { CAJA_TABS } from './caja-tabs';
+import { CORTES_ARQUEOS_TABS } from './cortes-arqueos-tabs';
+import { BANCOS_CONCILIACION_TABS } from './bancos-conciliacion-tabs';
+import { DEUDA_PROVEEDORES_TABS } from './deuda-proveedores-tabs';
+import { LIBROS_CONTABLES_TABS } from './libros-contables-tabs';
+import { MAAT_TABS } from './maat-tabs';
 import { Permission } from '../../core/constants/permissions';
 
 /**
@@ -415,6 +420,13 @@ describe('[IG.2] toda pestaña de Finanzas tiene su entrada en el sidebar', () =
       ...(fuente.includes('tabs: GASTOS_TABS') ? GASTOS_TABS.map((t) => t.route) : []),
       ...(fuente.includes('tabs: PAGOS_TABS') ? PAGOS_TABS.map((t) => t.route) : []),
       ...(fuente.includes('tabs: CAJA_TABS') ? CAJA_TABS.map((t) => t.route) : []),
+      // `[NAV.7]` Los cinco apartados que pliegan el resto del sidebar de Finanzas, misma regla:
+      // cuentan sólo si su entrada `tabs:` existe de verdad en el fuente.
+      ...(fuente.includes('tabs: CORTES_ARQUEOS_TABS') ? CORTES_ARQUEOS_TABS.map((t) => t.route) : []),
+      ...(fuente.includes('tabs: BANCOS_CONCILIACION_TABS') ? BANCOS_CONCILIACION_TABS.map((t) => t.route) : []),
+      ...(fuente.includes('tabs: DEUDA_PROVEEDORES_TABS') ? DEUDA_PROVEEDORES_TABS.map((t) => t.route) : []),
+      ...(fuente.includes('tabs: LIBROS_CONTABLES_TABS') ? LIBROS_CONTABLES_TABS.map((t) => t.route) : []),
+      ...(fuente.includes('tabs: MAAT_TABS') ? MAAT_TABS.map((t) => t.route) : []),
     ];
     const ausentes = FINANZAS_TABS
       .map((t) => t.route)

@@ -42,6 +42,11 @@ import { GASTOS_TABS } from '../../finanzas/gastos-tabs';
 import { PAGOS_VIAJE_TABS } from '../../logistica/pagos-viaje-tabs';
 import { CAJA_TABS } from '../../finanzas/caja-tabs';
 import { PAGOS_TABS } from '../../finanzas/pagos-tabs';
+import { CORTES_ARQUEOS_TABS, CORTES_ARQUEOS_LABEL } from '../../finanzas/cortes-arqueos-tabs';
+import { BANCOS_CONCILIACION_TABS, BANCOS_CONCILIACION_LABEL } from '../../finanzas/bancos-conciliacion-tabs';
+import { DEUDA_PROVEEDORES_TABS, DEUDA_PROVEEDORES_LABEL } from '../../finanzas/deuda-proveedores-tabs';
+import { LIBROS_CONTABLES_TABS, LIBROS_CONTABLES_LABEL } from '../../finanzas/libros-contables-tabs';
+import { MAAT_TABS, MAAT_LABEL } from '../../finanzas/maat-tabs';
 import { REPORTES_GENERALES_TABS } from '../../comercial/reports-tabs';
 import { RUTA_DIRECTA_TABS, RUTA_DIRECTA_LABEL } from '../../comercial/ruta-directa-tabs';
 import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
@@ -698,54 +703,27 @@ export class LayoutComponent implements OnInit, OnDestroy {
     },
   ];
 
-  // Orden alineado a FINANZAS_TABS (finanzas-tabs.ts): mismo orden en sidebar y pestañas.
+  // `[NAV.7]` (2026-10-26) **El sidebar de Finanzas cabe sin scroll**, con el mismo método que
+  // Compras (`[NAV.6]`). Eran 17 renglones en 5 grupos (~1,254 px); ahora 10 en 4 (~878 px), que caben
+  // en un 1920×1080 al 100 %. Los grupos siguen el camino del dinero (docs/FLUJO_VENTA_A_COBRO.md y
+  // docs/FLUJO_COMPRA_A_PAGO.md): lo que ENTRA → dónde se GUARDA → lo que SALE → cómo se REGISTRA.
+  //
+  // Cómo se plegó: cada conjunto con más de una pantalla es UNA entrada con su barra (`tabs:`), y la
+  // barra la pintan TODAS sus páginas antes de quitar sus renglones (`[NAV.2]` lo hizo al revés).
+  // Cada pestaña conserva su permiso. Quedan como renglón propio las de uso alto (30 días: Gastos 810
+  // visitas, Caja 517, Crédito 67) y Control (histórico), que se retira en CG.16 y no se mezcla con Caja.
+  // ⛔ `PAGOS_TABS` NO creció: `[PGP.7]` lo dejó en el ciclo vivo de dos pantallas; la deuda va aparte.
+  // Uso: telemetría de la suite (visitas = persona+sesión+día; proxy: dónde se cargó la página o se dejó
+  // la pestaña).
   private finanzasNavGroups: { title: string; items: NavItem[] }[] = [
     {
-      title: 'Egresos y bancos',
-      items: [
-        { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
-        { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
-        // `[CGA-A.38]` Era «Caja General», y ése es el nombre que el árbol de permisos le da al motor
-        // NUEVO (`/finanzas/caja-general`). Esta es el espejo del Access Control: movimientos hasta
-        // el 10-oct; desde el 12 la caja se opera en «Caja».
-        { label: 'Control (histórico)', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
-        /**
-         * `[CG.121]` **UNA entrada para las tres pantallas del efectivo** (pedido de Edgar,
-         * 2026-10-19): Captura · Expediente · Caja Fuerte. Adentro se cambia con la barra de
-         * pestañas: `CAJA_TABS`, la MISMA lista que leen la barra y esta entrada.
-         *
-         * Eran dos renglones sueltos acá —«Caja (captura)» y «Caja Fuerte»— y el **Expediente
-         * no tenía ninguno**: se llegaba sólo escribiendo la URL. Es lo que `[IG.2]` ya había
-         * cobrado con Caja Fuerte, repetido en la pantalla de al lado.
-         *
-         * ⚠️ `route` queda como valor por omisión: `conDestino()` la reemplaza por la PRIMERA
-         * pestaña que la persona ve, así que quien sólo tiene `FINANCE_CAOS_VER` entra por Caja
-         * Fuerte y no rebota contra `/sin-acceso`.
-         *
-         * ⛔ NO se toca «Caja General» (`/finanzas/caja`), el renglón de arriba: es otra
-         * pantalla —la LECTURA del espejo del Access, de Tesorería— y se retira en `CG.16`.
-         * Nombres parecidos, circuitos distintos.
-         */
-        { label: 'Caja', icon: 'pi pi-money-bill', route: '/finanzas/caja-general', tabs: CAJA_TABS },
-        { label: 'Cancelados', icon: 'pi pi-ban', route: '/finanzas/cancelados', permission: Permission.FINANCE_BANK_VER },
-        { label: 'Tareas de conciliación', icon: 'pi pi-check-square', route: '/finanzas/tareas', permission: Permission.FINANCE_BANK_VER },
-        /**
-         * `[SM.9]` Llegó de Almacén. Cuadra el arqueo ciego contra el corte de caja
-         * (ADR-029) — dinero con una pata en inventario, no al revés. Su permiso
-         * `RECONCILIATION_*` es de dominio propio y no cambió al mudarse.
-         */
-        { label: 'Cuadre de movimientos', icon: 'pi pi-sliders-h', route: '/finanzas/cuadre', permission: Permission.RECONCILIATION_VER },
-      ],
-    },
-    {
-      // [CSU.2] Sección propia para el lado ingreso (decisión de Francisco, 2026-10-05): lo que
-      // vendieron las cajas, el libro de ingresos y lo que deben/pagaron los clientes.
+      // [CSU.2] El lado ingreso (decisión de Francisco, 2026-10-05): lo que vendieron las cajas y lo
+      // que deben/pagaron los clientes.
       title: 'Ingresos',
       items: [
-        { label: 'Cortes / Sucursales', icon: 'pi pi-shop', route: '/finanzas/cortes-sucursales', permission: Permission.FINANCE_CORTES_VER },
-        // [IG.2] Permiso PROPIO: hay roles que ven la venta y no el gasto, así que no se cuelga
-        // de FINANCE_EXPENSES_VER.
-        { label: 'Ingresos contables', icon: 'pi pi-arrow-down-left', route: '/finanzas/ingresos', permission: Permission.FINANCE_INCOME_VER },
+        // `[NAV.7]` Cortes / Sucursales + Cuadre de movimientos: la misma caja de sucursal, del corte
+        // al arqueo ciego (ver `cortes-arqueos-tabs.ts`).
+        { label: CORTES_ARQUEOS_LABEL, icon: 'pi pi-shop', route: '/finanzas/cortes-sucursales', tabs: CORTES_ARQUEOS_TABS },
         /**
          * UNA entrada para Cartera y Cobranza: son las dos mitades del mismo oficio (lo
          * que te deben / lo que te pagaron) y adentro se cambia con el selector. `anyOf`
@@ -758,56 +736,52 @@ export class LayoutComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      title: 'Pagos',
+      // `[NAV.7]` Donde se guarda el dinero: el efectivo (Caja) y el banco.
+      title: 'Caja y bancos',
       items: [
         /**
-         * `[TP.20.3]` **UNA entrada para las cuatro pantallas del ciclo de pago** (objetivo O5).
-         *
-         * Eran cuatro renglones con nombres que se parecen —*Pagos a proveedor*, *Pronto pago*,
-         * *Calendario de pagos*, *Programa de pagos*— y que hacen cosas distintas: dos miran lo ya
-         * pagado, una el plazo que vence y una lo que se va a pagar. Juntarlas dice que son un
-         * ciclo, no cuatro reportes sueltos.
-         *
-         * Lleva a la **primera pestaña que la persona ve** y queda marcada en las cuatro. La lista
-         * es `PAGOS_TABS`, la MISMA que pinta la barra de arriba de cada pantalla.
-         *
-         * ⚠️ A diferencia de «Gastos» no hay shell de ruta: `/finanzas` sólo admite un padre con
-         * `path: ''` al final y ya lo ocupa el área Gastos. El porqué, en `pagos-tabs.ts`.
+         * `[CG.121]` **UNA entrada para las pantallas del efectivo** (pedido de Edgar, 2026-10-19):
+         * Captura · Arqueos · Caja Fuerte. Adentro se cambia con la barra: `CAJA_TABS`, la MISMA
+         * lista que leen la barra y esta entrada. `route` queda como valor por omisión:
+         * `conDestino()` la reemplaza por la PRIMERA pestaña que la persona ve.
          */
-        // `[PGP.7]` Lleva al Calendario, que es donde se hace el pago. Antes entraba por Pronto
-        // pago, que salió de las pestañas: su mitad útil vive adentro del Calendario desde
-        // `[TP.20.4]` y su mitad retrospectiva llevaba 55 días sin producir (medido 2026-10-23).
-        { label: 'Pagos', icon: 'pi pi-send', route: '/finanzas/calendario-pagos', tabs: PAGOS_TABS },
-        { label: 'Cuadre y deuda', icon: 'pi pi-wallet', route: '/finanzas/cuadre-proveedor', permission: Permission.FINANCE_PAYMENTS_VER },
-        // [ECA.2] Junto a "Cuadre y deuda" (decisión de Francisco, 2026-10-07): el mismo tema
-        // —cuánto se debe— visto documento por documento y para todos los tipos de acreedor.
-        { label: 'Estado de cuenta acreedores', icon: 'pi pi-book', route: '/finanzas/estado-cuenta-acreedores', permission: Permission.FINANCE_PAYMENTS_VER },
-        { label: 'Cuentas por pagar', icon: 'pi pi-chart-bar', route: '/finanzas/pagos-control', permission: Permission.FINANCE_AI_CHAT },
+        { label: 'Caja', icon: 'pi pi-money-bill', route: '/finanzas/caja-general', tabs: CAJA_TABS },
+        // `[CGA-A.38]` El espejo del Access Control: movimientos hasta el 10-oct; desde el 12 la caja
+        // se opera en «Caja». ⛔ Otra pantalla y otro circuito: se retira en `CG.16`, no se mete en Caja.
+        { label: 'Control (histórico)', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
+        // `[NAV.7]` Bancos + Tareas de conciliación + Cancelados (ver `bancos-conciliacion-tabs.ts`).
+        { label: BANCOS_CONCILIACION_LABEL, icon: 'pi pi-building-columns', route: '/finanzas/bancos', tabs: BANCOS_CONCILIACION_TABS },
       ],
     },
     {
-      title: 'Gastos',
+      // `[NAV.7]` Lo que sale: la deuda con proveedores, el pago y el gasto.
+      title: 'Egresos',
       items: [
         /**
-         * `[GX.80]` **UNA entrada para las cuatro pantallas de Gastos** (pedido del usuario,
-         * 2026-10-09). Adentro se cambia con la barra de pestañas: `GASTOS_TABS`, la MISMA lista
-         * que pinta `GastosAreaShellComponent`. La entrada lleva a la primera pestaña que la
-         * persona ve —quien firma cae en Aprobación, quien sólo captura en Mis gastos— y queda
-         * marcada en las cuatro. El permiso de cada pantalla sigue en su pestaña y en su ruta.
-         *
-         * Lo que sigue valiendo de antes: «Levantamiento de gasto» (`[GX.42]`) y el «Tablero de
-         * gastos» (`[GX.18]`) salieron del menú pero sus RUTAS siguen vivas — a la primera lleva
-         * el botón «Subir evidencia» y la segunda está en marcadores. Historial se conserva
-         * (`[GX.59]`): 14 personas con `_VER` y sin `_COMPROBAR` no tendrían otra vista de empresa.
+         * `[TP.20.3]` **UNA entrada para el ciclo de pago** (objetivo O5). La lista es `PAGOS_TABS`,
+         * la MISMA que pinta la barra de arriba de cada pantalla. `[PGP.7]` Lleva al Calendario, que
+         * es donde se hace el pago.
+         */
+        { label: 'Pagos', icon: 'pi pi-send', route: '/finanzas/calendario-pagos', tabs: PAGOS_TABS },
+        // `[NAV.7]` Estado de cuenta acreedores + Cuadre y deuda + Cuentas por pagar: la deuda que se
+        // mira antes de pagar, junto a Pagos (ver `deuda-proveedores-tabs.ts`).
+        { label: DEUDA_PROVEEDORES_LABEL, icon: 'pi pi-book', route: '/finanzas/estado-cuenta-acreedores', tabs: DEUDA_PROVEEDORES_TABS },
+        /**
+         * `[GX.80]` **UNA entrada para las pantallas de Gastos** (pedido del usuario, 2026-10-09):
+         * `GASTOS_TABS`, la MISMA lista que pinta `GastosAreaShellComponent`. Lleva a la primera
+         * pestaña que la persona ve. «Levantamiento de gasto» (`[GX.42]`) y el «Tablero de gastos»
+         * (`[GX.18]`) salieron del menú pero sus RUTAS siguen vivas.
          */
         { label: 'Gastos', icon: 'pi pi-wallet', route: '/finanzas/mis-gastos', tabs: GASTOS_TABS },
       ],
     },
     {
-      title: 'Inteligencia',
+      // `[NAV.7]` Cómo queda registrado y qué encontró la inteligencia. Libros contables va justo
+      // después de Gastos: Egresos contables + Gastos es el par que más se abre junto (26 visitas).
+      title: 'Registro y análisis',
       items: [
-        { label: 'Hallazgos', icon: 'pi pi-flag', route: '/finanzas/hallazgos', permission: Permission.FINANCE_AI_CHAT },
-        { label: 'Pregúntale a Maat', icon: 'pi pi-sparkles', route: '/finanzas/maat', permission: Permission.FINANCE_AI_CHAT },
+        { label: LIBROS_CONTABLES_LABEL, icon: 'pi pi-book', route: '/finanzas/egresos', tabs: LIBROS_CONTABLES_TABS },
+        { label: MAAT_LABEL, icon: 'pi pi-sparkles', route: '/finanzas/hallazgos', tabs: MAAT_TABS },
       ],
     },
   ];
