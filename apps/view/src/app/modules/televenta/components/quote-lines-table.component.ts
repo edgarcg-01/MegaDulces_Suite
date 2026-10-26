@@ -45,6 +45,11 @@ export interface RenglonTabla {
   /** Qué descuento es, concreto: «Precio por volumen de 10 a más PAQ», «50% desde 1 PAQ · vigente hasta 22/11/2026». */
   explicacion: string;
   importe: number | null;
+  /**
+   * `[E.29]` El importe con el % del cliente, repartido como en la hoja (`totalesCotizacion().netos`:
+   * Σ netos = total al centavo). null = sin % de cliente o renglón sin precio.
+   */
+  neto: number | null;
 }
 
 export interface CambioCantidad {
@@ -154,7 +159,16 @@ export interface CambioCantidad {
             @if (r.explicacion) { <span class="explica">{{ r.explicacion }}</span> }
             @if (r.pasos) { <span class="pasos">{{ r.pasos }}</span> }
           </td>
-          <td class="num dt-num" role="cell" data-label="Importe">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+          <!-- [E.29] Con % de cliente, el importe es el de la hoja (ya con su parte del descuento) y
+               dice de dónde sale: el renglón de Kepler, antes del %, es el de abajo. -->
+          <td class="num dt-num" role="cell" data-label="Importe">
+            @if (r.neto !== null && r.neto !== r.importe) {
+              <span class="p-unit-main">{{ r.neto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+              <span class="imp-antes">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }} − {{ clientePct() }} % cliente</span>
+            } @else {
+              {{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}
+            }
+          </td>
           <td class="num dt-actions" role="cell">
             @if (r.editable && r.regaloDe === null) {
               <p-button
@@ -199,6 +213,7 @@ export interface CambioCantidad {
       .p-unit-cell { display: flex; align-items: baseline; justify-content: flex-end; gap: 0.35rem; white-space: nowrap; }
       .p-unit-main { font-weight: 700; }
       .p-unit-sub-breakdown { font-size: var(--fs-micro); color: var(--text-muted); font-weight: 500; }
+      .imp-antes { display: block; font-size: var(--fs-micro); color: var(--text-muted); white-space: nowrap; }
       .inline-qty-box { display: flex; justify-content: flex-end; }
       .qty-inline { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; }
       .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
@@ -209,6 +224,8 @@ export class QuoteLinesTableComponent {
   readonly renglones = input.required<RenglonTabla[]>();
   /** Mientras se guarda: la cantidad y el quitar quedan deshabilitados. */
   readonly bloqueado = input(false);
+  /** `[E.29]` El % del cliente de la cotización (para rotular el neto); null = sin descuento. */
+  readonly clientePct = input<number | null>(null);
   readonly cantidad = output<CambioCantidad>();
   readonly quitar = output<string>();
 

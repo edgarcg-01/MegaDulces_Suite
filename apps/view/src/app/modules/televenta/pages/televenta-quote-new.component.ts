@@ -726,6 +726,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
             <app-quote-lines-table
               [renglones]="renglonesBandeja()"
               [bloqueado]="guardando()"
+              [clientePct]="descuentoClientePct() || null"
               (cantidad)="onCantidadBandeja($event)"
               (quitar)="quitarDeBandeja($event)"
             />
@@ -1298,6 +1299,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
   readonly renglonesBandeja = computed<RenglonTabla[]>(() => {
     const ex = this.existencias();
     const cargando = this.cargandoExistencia();
+    // [E.29] Con % de cliente, el importe del renglón es el de la hoja (mismo reparto, Σ = total).
+    const netos = this.descuentoClientePct() > 0 ? this.totalesBandeja().netos : null;
     return this.bandeja().map((it, i) => {
       const base = it.sku && ex ? ex.get(it.sku) : undefined;
       const existencia: RenglonTabla['existencia'] = !it.sku ? null
@@ -1325,6 +1328,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         pasos: it.pasos ?? '',
         explicacion: it.explicacion ?? '',
         importe: it.sku && it.unit_price !== null ? it.line_total : null,
+        neto: netos && it.sku ? netos[i] : null,
       };
     });
   });
