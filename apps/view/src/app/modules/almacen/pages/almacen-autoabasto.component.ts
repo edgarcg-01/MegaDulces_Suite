@@ -86,6 +86,8 @@ type Vista = 'pedido' | 'todos' | Exclude<EstadoRenglon, 'en_politica' | 'sin_pe
 const ESPERA_GUARDADO_MS = 700;
 /** Renglones por tabla antes de «Ver los N». */
 const VISIBLES_TABLA = 150;
+/** `[AB.42]` Por qué un renglón no suma al dinero (antes era un aviso aparte arriba de la pantalla). */
+const SIN_VALUAR = 'su costo de compra no coincide con su unidad, así que su dinero no se mide. Las cantidades sí son válidas.';
 
 /** Estado local de un renglón mientras la persona lo mueve. */
 interface Edicion {
@@ -112,11 +114,7 @@ interface Edicion {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Autoabasto</h1>
-          <p class="surf-page-sub">
-            Qué le falta a tu almacén, qué ya viene y a quién se le pide. El sistema ya armó tu pedido: corrige sólo
-            lo que haga falta con − / + (si te alejas más de {{ umbralPct }}% de lo sugerido, elige el motivo) y
-            mándalo a Compras. Todo se guarda solo.
-          </p>
+          <p class="surf-page-sub">Tu pedido ya está armado: corrige lo que haga falta y mándalo a Compras. Todo se guarda solo.</p>
         </div>
         <div class="ab-actions">
           <app-context-help topic="almacen-autoabasto" />
@@ -166,6 +164,8 @@ interface Edicion {
         </p>
       }
 
+      <!-- [AB.42] Almacén y sello del cálculo en una sola fila: es contexto, no trabajo. -->
+      <div class="ab-ctx">
       @if (warehouses().length > 1) {
         <div class="ab-almacen">
           <p-select [options]="warehouses()" optionLabel="name" optionValue="id"
@@ -179,6 +179,14 @@ interface Edicion {
       } @else if (almacenSel(); as a) {
         <span class="ab-scope"><i class="pi pi-building" aria-hidden="true"></i> {{ a.name }}</span>
       }
+      @if (data(); as d0) {
+        <p class="ab-stamp">
+          Calculado el {{ d0.fecha_mx }} a las {{ d0.hora_mx }} · cobertura {{ d0.cobertura_dias }} días ·
+          en cajas, salvo «A pedir», que va en la unidad en que se captura
+          <app-freshness-pill measures="fetch" [since]="cargadoEn()" />
+        </p>
+      }
+      </div>
 
       @if (data(); as d) {
         @if (!d.puede_ajustar) {
@@ -199,13 +207,6 @@ interface Edicion {
             <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
             Este almacén no tiene cliente de traspaso en Kepler: lo ya pedido a la matriz, lo atorado y lo negado
             <strong>no se pudo medir</strong> (no es lo mismo que cero). «Ya viene» puede quedarse corto.
-          </p>
-        }
-        @if (resumen()?.sin_valuar; as n) {
-          <p class="ab-note" role="note">
-            <i class="pi pi-info-circle" aria-hidden="true"></i>
-            <strong>{{ n }}</strong> producto(s) no entran en los importes: su costo de compra no coincide con su unidad,
-            así que el dinero <strong>no se está midiendo</strong>. Las cantidades sí son válidas.
           </p>
         }
         @if (aviso(); as a) {
@@ -253,21 +254,17 @@ interface Edicion {
         }
 
         <app-metric-strip [items]="kpis()" ariaLabel="Lo que le falta al almacén y lo que se pide"></app-metric-strip>
-        <p class="ab-stamp">
-          Calculado el {{ d.fecha_mx }} a las {{ d.hora_mx }} (hora de México) · cobertura {{ d.cobertura_dias }} días ·
-          cantidades en cajas, salvo «A pedir», que va en la unidad en que se captura.
-          <app-freshness-pill measures="fetch" [since]="cargadoEn()" />
-        </p>
 
         <!-- [AB.23] Lo que te va a llegar: para no pedir dos veces lo que ya viene. Lo de la ventana ya
              se restó de «A pedir»; lo más viejo se muestra para reclamarlo, no se resta. -->
         @if (viene(); as v) {
           <section class="ab-viene" aria-labelledby="ab-viene-h">
-            <h2 id="ab-viene-h" class="ab-viene-h">Lo que te va a llegar</h2>
             @if (!v.docs.length) {
-              <p class="ab-dim">No hay pedidos de traspaso abiertos ni embarques en camino hacia {{ d.almacen.code | sucursal }}.</p>
+              <p class="ab-viene-res"><strong id="ab-viene-h" class="ab-viene-h">Lo que te va a llegar:</strong>
+                <span class="ab-dim">No hay pedidos de traspaso abiertos ni embarques en camino hacia {{ d.almacen.code | sucursal }}.</span></p>
             } @else {
               <p class="ab-viene-res">
+                <strong id="ab-viene-h" class="ab-viene-h">Lo que te va a llegar:</strong>
                 @if (v.embarques) { <strong>{{ v.embarques }} {{ v.embarques === 1 ? 'embarque en camino' : 'embarques en camino' }}</strong> }
                 @if (v.embarques && v.pedidos) { y }
                 @if (v.pedidos) { <strong>{{ v.pedidos }} {{ v.pedidos === 1 ? 'pedido en preparación' : 'pedidos en preparación' }}</strong> }
@@ -277,8 +274,14 @@ interface Edicion {
                 @if (v.porAprobar) { <span class="ab-chip ab-chip-warn">{{ v.porAprobar }} {{ v.porAprobar === 1 ? 'requisición tuya' : 'requisiciones tuyas' }} por aprobar en Compras</span> }
                 @if (v.rechazadas) { <span class="ab-chip ab-chip-bad">{{ v.rechazadas }} {{ v.rechazadas === 1 ? 'rechazada' : 'rechazadas' }}: mira el motivo</span> }
                 @if (v.planes) { <span class="ab-chip" pTooltip="Compras ya decidió mandártelo, pero todavía no existe el pedido de traspaso en Kepler: la matriz no lo surte hasta que exista. No se resta." tooltipPosition="top">{{ v.planes }} {{ v.planes === 1 ? 'requisición' : 'requisiciones' }} de Compras sin llegar a Kepler</span> }
+                <button type="button" class="ab-link ab-viene-todos" (click)="verTodoViene.set(!verTodoViene())"
+                        [attr.aria-expanded]="verTodoViene()" aria-controls="ab-viene-docs">
+                  <i class="pi" [class.pi-chevron-right]="!verTodoViene()" [class.pi-chevron-down]="verTodoViene()" aria-hidden="true"></i>
+                  {{ verTodoViene() ? 'Ocultar los documentos' : 'Ver los ' + v.docs.length + (v.docs.length === 1 ? ' documento' : ' documentos') }}
+                </button>
               </p>
-              <ul class="ab-viene-l">
+              @if (verTodoViene()) {
+              <ul class="ab-viene-l" id="ab-viene-docs">
                 @for (doc of v.visibles; track doc.tipo + doc.origen + doc.serie + doc.folio) {
                   <li class="ab-viene-i" [class.ab-viene-viejo]="!doc.se_resta">
                     <span class="ab-viene-et" [class.ab-viene-camino]="doc.tipo === 'embarque'">{{ etapa(doc) }}</span>
@@ -342,10 +345,6 @@ interface Edicion {
                   </li>
                 }
               </ul>
-              @if (v.docs.length > v.visibles.length || verTodoViene()) {
-                <button type="button" class="ab-link" (click)="verTodoViene.set(!verTodoViene())">
-                  {{ verTodoViene() ? 'Ver menos' : 'Ver los ' + v.docs.length }}
-                </button>
               }
               @if (d.viene?.renglones_sin_unidad) {
                 <p class="ab-dim">{{ d.viene!.renglones_sin_unidad }} renglón(es) vienen en una unidad que la ficha del producto no conoce: no se restaron.</p>
@@ -367,14 +366,14 @@ interface Edicion {
           @if (!posiciones().size) {
             <span class="ab-dim">Elige al menos una para armar el pedido.</span>
           }
+          @if (debajoMinimo(); as n) {
+            <span class="ab-chip ab-pos-nota" role="note">
+              <i class="pi pi-filter" aria-hidden="true"></i>
+              {{ n }} {{ n === 1 ? 'renglón' : 'renglones' }} en unidad menor no llegan a
+              {{ minimoMenor | currency:'MXN':'symbol-narrow':'1.0-0' }} y no se piden (míralos en «Todos»)
+            </span>
+          }
         </fieldset>
-        @if (debajoMinimo(); as n) {
-          <p class="ab-note" role="note">
-            <i class="pi pi-filter" aria-hidden="true"></i>
-            {{ n }} {{ n === 1 ? 'renglón' : 'renglones' }} en unidad menor no llegan a
-            {{ minimoMenor | currency:'MXN':'symbol-narrow':'1.0-0' }} y no se piden. Para verlos, elige «Todos».
-          </p>
-        }
 
         <div class="ab-filters">
           <app-segmented [options]="vistaOpts()" [value]="vista()" (valueChange)="setVista($event)" ariaLabel="Qué renglones ver" />
@@ -622,6 +621,10 @@ interface Edicion {
     .ab-page { display: flex; flex-direction: column; gap: var(--sp-4); }
     .ab-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
     .ab-almacen { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+    .ab-ctx { display: flex; align-items: center; gap: var(--sp-2) var(--sp-4); flex-wrap: wrap; }
+    .ab-pos-nota { margin-left: auto; }
+    .ab-viene-todos { display: inline-flex; align-items: center; gap: .3rem; }
+    .ab-viene-todos .pi { font-size: .7rem; }
     .ab-scope { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); }
 
     .ab-note { display: flex; gap: var(--sp-2); align-items: flex-start; margin: 0; padding: var(--sp-2) var(--sp-3);
@@ -642,9 +645,9 @@ interface Edicion {
 
     /* [AB.23] Lo que te va a llegar */
     .ab-viene { border: 1px solid var(--border-color); border-radius: var(--r-lg); padding: var(--sp-2) var(--sp-3); background: var(--card-bg); }
-    .ab-viene-h { margin: 0 0 var(--sp-1); font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
-    .ab-viene-res { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); align-items: baseline; }
-    .ab-viene-l { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-1); }
+    .ab-viene-h { margin: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+    .ab-viene-res { margin: 0; font-size: var(--fs-sm); color: var(--text-main); display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); align-items: baseline; }
+    .ab-viene-l { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: grid; gap: var(--sp-1); }
     .ab-viene-i { display: grid; grid-template-columns: 6.5rem minmax(9rem, 1.4fr) minmax(7rem, 1fr) 6rem 6.5rem minmax(7rem, 1fr);
       gap: var(--sp-2); align-items: baseline; font-size: var(--fs-sm); padding: var(--sp-1) 0; border-top: 1px solid var(--border-color); }
     .ab-viene-i:first-child { border-top: 0; }
@@ -774,9 +777,8 @@ export class AlmacenAutoabastoComponent {
   readonly surteOpts = (Object.keys(SURTE_LABEL) as SurteRenglon['tipo'][]).map((value) => ({ value, label: SURTE_LABEL[value] }));
   readonly hayFiltro = computed(() => this.vista() !== 'pedido' || !!this.surte() || !!this.busqueda());
 
-  /** `[AB.23]` Lo que te va a llegar: los primeros, y «ver los N» para el resto (nunca se esconde sin decirlo). */
+  /** `[AB.23]` → `[AB.42]` Lo que te va a llegar: el resumen siempre; los documentos, al abrirlo («Ver los N documentos»). */
   readonly verTodoViene = signal(false);
-  private static readonly VIENE_VISIBLES = 6;
   readonly viene = computed(() => {
     const v = this.data()?.viene;
     const todo = this.verTodoViene();
@@ -787,7 +789,8 @@ export class AlmacenAutoabastoComponent {
     const restan = docs.filter((x) => x.se_resta);
     return {
       docs,
-      visibles: todo ? docs : docs.slice(0, AlmacenAutoabastoComponent.VIENE_VISIBLES),
+      // `[AB.42]` Cerrado por defecto: el resumen de arriba ya dice cuántos son, cuánto valen y qué reclamar.
+      visibles: todo ? docs : [],
       embarques: restan.filter((x) => x.tipo === 'embarque').length,
       pedidos: restan.filter((x) => x.tipo === 'pedido').length,
       monto: restan.reduce((s, x) => s + (x.monto ?? 0), 0),
@@ -893,7 +896,6 @@ export class AlmacenAutoabastoComponent {
   readonly faltaNetaPorQue = faltaNetaPorQue;
   readonly estadoPorQue = estadoPorQue;
   readonly motivos = MOTIVOS_AJUSTE;
-  readonly umbralPct = Math.round(UMBRAL_MOTIVO * 100);
   readonly minimoMenor = MINIMO_VALOR_MENOR;
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -979,8 +981,9 @@ export class AlmacenAutoabastoComponent {
       let sin = 0;
       for (const l of ls) { const v = this.valor(l); if (v == null) sin++; else valor = (valor ?? 0) + v; }
       const sub = `${ls.length} ${ls.length === 1 ? 'renglón' : 'renglones'}${sin ? ` · ${sin} sin valuar` : ''}`;
-      if (ls.length && valor == null) return { label, value: '—', format: 'text', sub: 'sin medir' };
-      return { label, value: valor ?? 0, format: 'currency-short', sub };
+      if (ls.length && valor == null) return { label, value: '—', format: 'text', sub: 'sin medir', state: 'no_medido', stateNote: SIN_VALUAR };
+      // `[AB.42]` Lo que no se pudo valuar se declara en la cifra (estado parcial), no en un aviso aparte.
+      return { label, value: valor ?? 0, format: 'currency-short', sub, ...(sin ? { state: 'parcial' as const, stateNote: `${sin} sin valuar: ${SIN_VALUAR}` } : {}) };
     };
     const items: MetricStripItem[] = [
       { label: 'Falta por pedir', value: r.por_estado.sin_pedir, tone: r.por_estado.sin_pedir > 0 ? 'bad' : 'ok',
