@@ -399,3 +399,36 @@ se niega a escribir adentro):
 - `kepler-push-ops.js` lee el maestro, **incluidas las líneas comentadas**, así que `revisar` funciona
   antes de encender un servidor en prod.
 - ⚠️ En Windows el modo `600` no aplica. Respaldar la carpeta en el gestor de contraseñas del equipo.
+
+---
+
+## 11. ⛔ Estado al 2026-10-26: APAGADA en los nueve servidores
+
+El canario de Yurécuaro (24-oct) hizo su trabajo: encontró tres defectos antes de que se
+escribiera un documento que importara, y la vuelta atrás se ejerció de punta a punta.
+
+| qué | resultado |
+|---|---|
+| P0 en 00–08 | ✅ rol, `pg_hba` y `revisar` sin fallas en los nueve |
+| Freno por proveedor desconocido | ✅ `RQ-2026-01374` (`CC002`) rebotó sin escribir |
+| `KR.16` mismo parámetro a `c12` numeric y `c57` varchar | ❌→✅ falló en todos los servidores sin escribir; corregido |
+| Tope diario | ✅ `RQ-2026-01392` rebotó con «1 de 1» |
+| Primer documento real `04/0000122` | ✅ negocio idéntico a la Suite · ❌ **la baja desde Kepler dijo «Documento referenciado»** |
+| `KR.17` columnas heredadas de la plantilla (`c24` pendiente, `c56`, `c25`, `c32`, `c18`, `c14`/`c15`, RFC/domicilio, capturista/hora) | corregido en código (`ea9603bd1`), ensayo 15/15 con ROLLBACK · **sin desplegar** |
+| `deshacer` real sobre `04/0000122` | ✅ borrado con respaldo · ❌ la Suite no se pudo actualizar (usuario de sólo lectura) y el mensaje mentía → corregido (`60b3a6b1c`) |
+| Limpieza de la Suite | ✅ cinco requisiciones de prueba canceladas con nota «PRUEBA KR» |
+
+**Apagada** con `kubectl -n prod delete secret kepler-push` (el `api` lo lee `optional`). El maestro
+tiene todas las líneas comentadas.
+
+### Lo que falta ANTES de volver a encender un solo servidor
+
+1. Desplegar `ea9603bd1` y `60b3a6b1c`, y confirmar el commit servido.
+2. Canario nuevo en Yurécuaro. ⛔ **El criterio que decide es que la BAJA desde la UI de Kepler
+   funcione** — la prueba de §7, que esta vez sí se puede contestar.
+3. Mirar el documento en Kepler campo por campo, incluida la pestaña de totales: el ensayo verifica
+   las columnas que se midieron, no las que nadie ha comparado contra la pantalla.
+4. Sólo después: un servidor a la vez, §9.2 P1–P5.
+
+⚠️ Lo que el ensayo NO cubre: columnas cuyo valor de plantilla es común (`kdm1.c90`, `kdm2.c17`/`c18`)
+y que nadie ha decodificado. Se dejaron como vienen; si Compras ve algo raro, empezar por ahí.
