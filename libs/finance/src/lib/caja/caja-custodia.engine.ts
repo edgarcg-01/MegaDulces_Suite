@@ -235,6 +235,118 @@ export function custodiaPermiteCerrar(p: PiernasCustodia | null | undefined):
   return { ok: false, motivo: 'retiros_sin_clasificar', retiros: p.sin_clasificar.retiros, monto: p.sin_clasificar.monto };
 }
 
+// ── `[CGA-A.55]` Los billetes del retiro ────────────────────────────────────────────────────
+
+/** Piezas por `denom_key` del catálogo (`'500'`, `'200'`, … billetes; `'20m'`, `'10'`, … monedas). */
+export type Piezas = Record<string, number>;
+
+/** Valor de una llave del catálogo. `'20m'` es la moneda de $20. `null` si no es una llave. */
+export function valorDeLlave(k: string): number | null {
+  return /^[0-9]+(\.[0-9]+)?m?$/.test(k) ? Number(k.replace('m', '')) : null;
+}
+
+/** Las únicas llaves que la máquina entrega: billetes. */
+export const LLAVES_BILLETE_CAOS = ['1000', '500', '200', '100', '50', '20'] as const;
+
+export function valorDePiezas(p: Piezas | null | undefined): number {
+  return r2(Object.entries(p ?? {}).reduce((a, [k, n]) => a + (valorDeLlave(k) ?? 0) * Number(n || 0), 0));
+}
+
+export interface RemanenteRetiro {
+  /** Lo que debe quedar, por llave. Sólo llaves con piezas > 0. */
+  remanente: Piezas;
+  valor: number;
+  /** Llaves donde se entregó más de lo que había. La base lo impide; si aparece, se declara. */
+  faltan: Array<{ llave: string; faltan: number }>;
+  /**
+   * `false` si algún enlace no dice qué billetes salieron (los anteriores al 2026-10-26): entonces
+   * el remanente por denominación NO se puede afirmar — sólo el monto.
+   */
+  completo: boolean;
+}
+
+/**
+ * Lo que debe quedar de un retiro, por denominación (Edgar: *«ese movimiento tenía 100, los 4
+ * movimientos usaron 80, deberían existir 20 en caja con cierta denominación»*):
+ *
+ *     remanente[d] = lo que trajo el retiro[d] (máquina) + el cambio que regresó[d] − lo entregado[d]
+ */
+export function remanenteDeRetiro(
+  retiro: Piezas,
+  enlaces: Array<{ billetes?: Piezas | null; cambio?: Piezas | null }>,
+): RemanenteRetiro {
+  const saldo = new Map<string, number>();
+  const suma = (p: Piezas | null | undefined, signo: 1 | -1) => {
+    for (const [k, n] of Object.entries(p ?? {})) saldo.set(k, (saldo.get(k) ?? 0) + signo * Number(n || 0));
+  };
+  suma(retiro, 1);
+  let completo = true;
+  for (const e of enlaces) {
+    if (!e.billetes) completo = false;
+    suma(e.billetes, -1);
+    suma(e.cambio, 1);
+  }
+  const remanente: Piezas = {};
+  const faltan: RemanenteRetiro['faltan'] = [];
+  for (const [k, n] of [...saldo.entries()].sort((a, b) => (valorDeLlave(b[0]) ?? 0) - (valorDeLlave(a[0]) ?? 0))) {
+    if (n > 0) remanente[k] = n;
+    if (n < 0) faltan.push({ llave: k, faltan: -n });
+  }
+  return { remanente, valor: valorDePiezas(remanente), faltan, completo };
+}
+
+/**
+ * ¿El depósito de CAOS es EXACTAMENTE lo que le quedaba al retiro? Se compara billete por billete:
+ * la máquina contó el depósito, así que esto es el único cuadre de billetes que no declara nadie.
+ * Las monedas del remanente no pueden volver a la máquina: si hay, el regreso no es completo.
+ */
+export function regresoCuadra(remanente: Piezas, deposito: Piezas):
+  { ok: true } | { ok: false; diferencias: Array<{ llave: string; quedaba: number; regreso: number }> } {
+  const llaves = new Set([...Object.keys(remanente), ...Object.keys(deposito)]);
+  const diferencias: Array<{ llave: string; quedaba: number; regreso: number }> = [];
+  for (const k of llaves) {
+    const q = Number(remanente[k] ?? 0);
+    const d = Number(deposito[k] ?? 0);
+    if (q !== d) diferencias.push({ llave: k, quedaba: q, regreso: d });
+  }
+  return diferencias.length ? { ok: false, diferencias } : { ok: true };
+}
+
+// ── `[CGA-A.56]` De dónde salió el efectivo de un egreso ──────────────────────────────────────
+
+export type OrigenEfectivo = 'caos' | 'cajon';
+export type MotivoOrigen = 'falta_origen' | 'origen_invalido' | 'cajon_con_retiros' | 'caos_sin_retiro';
+
+export const TEXTO_ORIGEN: Record<MotivoOrigen, string> = {
+  falta_origen: 'Falta decir de dónde salió el dinero de este egreso: de qué retiro(s) de CAOS, o del cajón.',
+  origen_invalido: 'El origen del dinero sólo puede ser retiros de CAOS o el cajón.',
+  cajon_con_retiros: 'Dijiste que salió del cajón, pero el egreso tiene retiros de CAOS enlazados. Es uno u otro.',
+  caos_sin_retiro: 'Dijiste que salió de CAOS: falta elegir de qué retiro(s).',
+};
+
+/**
+ * Edgar: *«todo egreso se vincule a un movimiento de CAOS»*, con la opción explícita de cajón.
+ *
+ *  · con retiros enlazados → `caos` (aunque la morralla salga del cajón: el billete vino de la máquina);
+ *  · sin retiros y declarado `cajon` → `cajon`;
+ *  · sin nada, en un egreso desde `desde` → se rechaza. Antes de `desde` (o sin `desde`) no se
+ *    exige: el freno nace apagado, como `[CGS.3]` y `CAJA_CUSTODIA_DESDE`.
+ *
+ * Sólo los EGRESOS. Un ingreso no sale de ningún lado.
+ */
+export function origenDelEgreso(i: {
+  tipo: string; fecha: string; retiros: number; declarado?: string | null; desde: string | null;
+}): { ok: true; origen: OrigenEfectivo | null } | { ok: false; motivo: MotivoOrigen } {
+  if (i.tipo !== 'gasto') return { ok: true, origen: null };
+  const d = i.declarado == null || i.declarado === '' ? null : String(i.declarado);
+  if (d !== null && d !== 'caos' && d !== 'cajon') return { ok: false, motivo: 'origen_invalido' };
+  if (i.retiros > 0) return d === 'cajon' ? { ok: false, motivo: 'cajon_con_retiros' } : { ok: true, origen: 'caos' };
+  if (d === 'caos') return { ok: false, motivo: 'caos_sin_retiro' };
+  if (d === 'cajon') return { ok: true, origen: 'cajon' };
+  const exige = !!i.desde && /^\d{4}-\d{2}-\d{2}$/.test(i.fecha) && i.fecha >= i.desde;
+  return exige ? { ok: false, motivo: 'falta_origen' } : { ok: true, origen: null };
+}
+
 /** La frase del freno: cuántos retiros y cuánto dinero, para que se sepa qué buscar. */
 export function textoRetirosSinClasificar(retiros: number, monto: number): string {
   const pesos = `$${Number(monto).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

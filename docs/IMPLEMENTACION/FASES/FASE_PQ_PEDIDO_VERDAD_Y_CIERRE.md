@@ -390,15 +390,156 @@ actividad excluye; 1 SKU fuera del catálogo. Detalle en `VERDAD_ABSOLUTA` §17.
 nosotros publicamos: el filtro de actividad **replica** el resultado de Kepler sin que sepamos su regla.
 El join a `kdil` por SKU es por `c3` (no `c2`), ya corregido en el instrumento.
 
+### 12.2 El factor de caja del catálogo venía de un importer y se corrigió a mano (2026-10-26)
+
+El PM avisó que la base que medíamos **fue editada**: la unidad de los productos venía de un importer y
+eso producía **desfases al insertar en Kepler**. Medido en prod (sólo lectura, `system_identifier`
+verificado):
+
+| Hecho | Cifra |
+|---|---|
+| `catalog.products` editados el 2026-10-26 09:00 UTC, `updated_by` NULL (lote, no pantalla) | **9,241** |
+| de esos, `factor_sale` = `c84` de la escalera de Kepler (`kdii`, sucursal 00) | **8,519 / 9,149** (93 %) |
+| sin escalera en Kepler (no comparables) | 434 |
+| los 2,179 que NO tocó el lote: `factor_sale` = Kepler | 63 (2,086 sin escalera) |
+| `source` del catálogo: `kepler` 9,038 · `manual` 1,144 · `wincaja` 1,141 | el importer que se retira |
+| requisiciones aprobadas en 14 d / con folio de Kepler / con error de Kepler | 386 / **1** / 162 |
+
+**Qué toca y qué no, de lo ya medido en esta fase:**
+
+- **M2 (§11.1) hay que releerla.** El adaptador manda la línea a Kepler como `CJA`, `por_caja: 1`,
+  `cantidad: cajas` (`kepler-requisition-sink.adapter.ts`); nuestra `final_qty` sale de cajas × **nuestro**
+  factor. Si el factor difería del de Kepler, «cantidad cambiada» (38.3 % / 30.5 %) mezcla dos cosas:
+  corrección del comprador **y** desfase de unidad. Las requisiciones medidas son anteriores al lote de hoy
+  → **M2 se vuelve a correr sólo sobre requisiciones creadas después del 2026-10-26 09:00 UTC**, y la
+  cifra de §11.1 queda rotulada «pre-corrección de unidades».
+- **M1 (§11.2)** convierte cajas→piezas con `v_warehouse_box_factor`; en el 00, 977 SKUs resuelven por
+  `factor_sale` (fuente que cambió hoy). Ya estaba NO MEDIDO a escala: se repite con la fuente corregida.
+- **Agenda (PQ.4), aviso (PQ.5), bandeja (PQ.1):** cuentan canales, proveedores y documentos, no unidades
+  → no cambian.
+- **Paridad de existencia (§12.1):** `kdil` está en piezas de Kepler, sin factor nuestro → no cambia.
+
+⛔ **Lo que sigue sin cumplir la regla «misma fórmula de Kepler»:** el resolvedor canónico
+`v_product_box_factor` prefiere la **etiquetera** (5,244 SKUs en el 00) sobre el `c84` de Kepler
+(2,544), y `factor_sale` del catálogo es apenas su cuarta entrada. La corrección de hoy alinea el
+catálogo con Kepler, pero el número que usa el pedido sigue saliendo de otra fuente en 2 de cada 3 SKUs.
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| D20 | ¿Para almacenes de Kepler, el factor de caja del pedido es el `c84` de Kepler y nada más? | **Sí**: la etiquetera y el catálogo quedan como rótulo «difiere de Kepler», no como fuente. Cambia número → antes/después, y se mide contra OCs reales de Kepler (`c58`) antes de publicar. ⚠️ No en esta fase sin cupo: va a `libs/` (ADR-056) y lo comparte con AB |
+
+**NO MEDIDO:** el valor de `factor_sale` *antes* del lote (no hay historial de la columna), así que no
+se puede cuantificar cuántas requisiciones ya enviadas llevaron el desfase; sólo se sabe que 162 de 386
+aprobadas en 14 d tienen error de Kepler y 1 tiene folio.
+
+### 12.3 D20 medida contra las OCs reales de Kepler: el resolvedor YA da el número de Kepler (2026-10-26)
+
+«Resolvámoslo» → antes de tocar la vista se midió el árbitro: el `c58` (unidades por caja) de las
+**órdenes de compra reales** de Kepler (`XA3501`, 90 días, 19,367 líneas, 7,198 pares sucursal×SKU),
+contra el resolvedor que lee el pedido (`mv_warehouse_box_factor`) y contra la escalera de Kepler
+(`v_kepler_unit_ladder`). Instrumento: `d20-medir3.js` (scratchpad; los joins en Node porque el plan
+SQL con las tres vistas no termina en 10 min).
+
+| Líneas de OC | n | resolvedor actual = `c58` | escalera Kepler (`c84`) = `c58` |
+|---|---:|---:|---:|
+| todas con `c58` | 7,119 | 6,226 (87.5 %) | 5,965 (83.8 %) |
+| **capturadas en caja (`c58` > 1)** | **5,635** | **5,594 (99.3 %)** | 5,561 (98.7 %) |
+| por fuente, en caja: etiquetera / `kepler_c84` / override / `factor_sale` | 2,615 / 2,635 / 327 / 30 | 2,610 / 2,609 / 321 / 30 | — |
+| `c58` que no está en ningún peldaño de la ficha de Kepler (`kdii`) | 78 (1.4 %) | | |
+
+**Lo que el número dice:**
+
+- **D20 tal como se propuso queda refutada.** Reemplazar el resolvedor por el `c84` de Kepler
+  daría 33 aciertos **menos**, no más: el resolvedor ya es «la fórmula de Kepler» en 99.3 % de las
+  líneas en caja, y la etiquetera coincide con el `c84` en 2,609 de 2,615. No hay vista que cambiar
+  → no hay commit que mueva un número.
+- **`c58` no es el factor del producto: es el factor del peldaño en que se capturó esa línea
+  (`c55`).** 770 líneas se capturaron en unidad base (`c58` = 1 con producto que sí tiene caja): ahí
+  ningún factor «acierta» porque no se usó. Los 856 «ninguno» de la primera pasada son eso, no un
+  error de unidad.
+- **Dónde sí estaba el desfase al insertar en Kepler:** el adaptador escribe `c11 = c55 = 'CJA'`,
+  `c58 = '1'` desde el 2026-10-14 (`kepler-requisition-sink.adapter.ts`), mientras Kepler expresa
+  la línea en la unidad del producto (PAQ 64 %, PZA 28 %) y declara la caja aparte en `c55`/`c58`.
+  La corrección de hoy al catálogo (`factor_sale` = `c84`) alinea el testigo de la Suite con la
+  ficha del ERP; el renglón que se escribe sigue siendo otra decisión, y es de **KR** (escritura
+  apagada).
+- **Lo que se declara, no se arregla:** 41 líneas en caja (0.7 %) donde el resolvedor ≠ `c58`
+  (muestra: 14004 etiqueta 32 vs OC 35; 38033 `c84` 108 vs OC 12 — compras en empaque distinto al
+  de la ficha) y 78 líneas cuyo `c58` no existe en la ficha de Kepler. Van como rótulo «empaque de
+  la OC ≠ ficha», no como cambio de fórmula.
+
+| # | Decisión | Resultado |
+|---|---|---|
+| D20 | ¿Factor de caja del pedido = `c84` de Kepler y nada más? | **No procede: medido, el resolvedor ya entrega el `c58` de Kepler (99.3 % en caja) y el `c84` solo daría 98.7 %.** Queda: (a) rótulo «empaque de la OC ≠ ficha» para los 41 + 78; (b) la unidad del renglón que se ESCRIBE en Kepler (`c11`/`c55`/`c58`) se decide en KR con esta misma medición como testigo |
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-26 | «Resolvámoslo» (D20): medido contra 19,367 líneas de OC reales de Kepler (90 d). **El resolvedor ya da el `c58` de Kepler en 99.3 % de las líneas en caja; el `c84` solo daría 98.7 %** → D20 refutada, sin vista que cambiar. `c58` es el factor del peldaño capturado (`c55`), no del producto. El desfase al escribir está en el adaptador (escribe `CJA`/`c58=1`); va a KR (§12.3) | PM + sesión PQ |
+| 2026-10-26 | El PM avisó que la base fue editada: la unidad del catálogo venía de un importer y desfasaba lo insertado en Kepler. Medido (§12.2): 9,241 productos en lote, 93 % ahora = `c84` de Kepler. **M2 se relee** (cantidad cambiada mezcla comprador + unidad) y se repite sobre requisiciones posteriores al lote; M1 se repite; PQ.1/4/5 y la paridad no cambian. Nace **D20** (factor = `c84` de Kepler para almacenes Kepler) | PM + sesión PQ |
 | 2026-10-23 | Auditoría del flujo (nivel B+C), jerarquía, agenda medida, M1/M2 definidas, doc creado en ⬜. Consultas en el scratchpad de la sesión; cifras en §1 | sesión Claude + PM |
 | 2026-10-24 | «El CEDIS no recomienda comprar nada»: medido y cruzado con el reporte de existencia de Kepler (§12). Nuestra existencia = la de Kepler; la de Kepler = 127 SKUs contados el 30-sep y el resto en cero. **PQ.12** (demanda de red + D14 + compra del CEDIS) queda ⬜ dependiente del inventario físico del CEDIS. La sesión AB propuso D14/D15; PQ los acepta con cuatro ajustes (una sola regla de tránsito en `libs/`, D10 sin `eff_daily` en hubs mixtos, D15 sobre la bandeja existente, el número en un commit con antes/después) | PM + sesión PQ |
 | 2026-10-23 | **PQ.1, PQ.5 y PQ.4 en 🧪** (commits `61cbe15`, `ea81144`, `da0b005`): la bandeja distingue «aprobada» de «escrita en Kepler»; Pedido avisa «hoy te toca pedirle a N proveedores»; el Ciclo abre por **agenda de proveedores** (237 filas, 227 ms, cruzada al centavo contra la vista por canal con el servicio real) y declara el tope de la lista por canal (639 activos, 500 mostrados). ⛔ **Bloqueo nuevo:** los items que ESCRIBEN (PQ.2, PQ.3, PQ.7, PQ.8, PQ.9, PQ.11) exigen prueba contra base real con el payload de la pantalla y **Docker Desktop no responde** en la máquina de trabajo: sin base de pruebas no se arrancan. Dueño: quien levante el stack `dev:up`. Otra sesión avanzó KR.12/KR.13 (encendido de Kepler servidor por servidor): revisar antes de PQ.2 | sesión Claude |
 | 2026-10-23 | **Fase abierta 🔨**: el PM pasó **PO → ⏸️** (20 d sin commit, 0 items) y PQ ocupa su cupo. Fila en el roadmap. Dueño y fecha meta siguen sin nombrar. Arranca F1 (PQ.1) | PM |
 | 2026-10-23 | PQ.M2 ✅ (rótulos revisados, nivel C). El PM firmó **D1 (c), D2 (b)+(c), D3 (c), D5 (b)**. Pendientes D4, D6 (espera M1) y D7. F1–F3 siguen sin cupo: 4/4 🔨 | PM |
 | 2026-10-23 | «Hagámoslo»: M2 y M1 corridas contra prod con sus scripts y controles (§11). M2 🧪: el costo es el de Kepler (89–92 % vía `c58`), cambia la cantidad; M1 🧪 instrumento con control pero **28 renglones juzgables: NO MEDIDO a escala**. Dos defectos del instrumento tirados por el control (foto como árbitro de «llegó»; CEDIS sin foto leído como cero) | sesión Claude + PM |
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+> `/compras/pedido` y `/compras/requisiciones` ya existen (PQ.1, PQ.4 y PQ.5 en 🧪): ahí cada
+> observación es un criterio a verificar en la pantalla, no un defecto medido. En PQ.2, PQ.3 y
+> PQ.7–PQ.11 es requisito de diseño. Las cifras son las del plan (y las de la Fase AB donde se
+> dice), con su fecha.
+
+**La pregunta que contesta (prueba de la frase, §4.0b):**
+
+- **Pedido** (`/compras/pedido`): *«¿Cuánto le pido hoy a este proveedor para cada sucursal?»* — una
+  pregunta. Bien partida; lo que falla es la verdad de sus cifras (PQ.UI.1–PQ.UI.4).
+- **Agenda** (pestaña Ciclo, PQ.4): *«¿A qué proveedores me toca pedirles hoy?»* — una pregunta,
+  contestada hoy con una fecha que el dato no sostiene (PQ.UI.5).
+- **Requisiciones** (`/compras/requisiciones`, PQ.1 / PQ.2 / PQ.9): *«¿Qué de lo aprobado todavía no
+  está en Kepler?»* — una pregunta.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):**
+
+- Pedido: primario = lo que hay que pedirle a este proveedor (valor y cajas), con la cobertura con
+  que se calculó · secundario = la celda por sucursal con su porqué (lo que ya viene, el freno, la
+  venta) · terciario = colchón, clase ABC, costo vigente y su fecha.
+- Agenda: primario = proveedores que tocan hoy **con fecha confiable** · secundario = vencidos y
+  estimados, con su regularidad · terciario = historial de entregas.
+- Requisiciones: primario = aprobadas sin documento en Kepler (cuántas, cuánto, la más vieja) ·
+  secundario = la lista con su edad y su salida · terciario = folio, renglones y error técnico.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| PQ.UI.1 | 🔴 | **V30d y el «a pedir» salen de `analytics.sales_daily`, que AB midió mal en dos sentidos** (FASE_AB §16.17.1, 26-oct; este plan no lo menciona): las camionetas de Padre Hidalgo entran **dos veces** (~$2.75 M de más en 30 d, ~16 % de su demanda) y los productos con base de gramaje quedan **a la mitad** (500 g: 180 de 226 pares) o a la cuarta parte (250 g), ~$552 K en 30 d. El comprador pide de más para Padre Hidalgo y de menos en granel, con una cifra que la pantalla presenta como venta. Y Productos (PF) y Productos nuevos (NP) publican **otra** venta del mismo producto (ODS, sin las camionetas de Canindo): tres pestañas de Compras, dos ventas. | §1.3 · §1.5 · §1.6 | Item con número en §6 (hoy no hay). Mientras el cambio de fuente de AB (D17, C2) no se publique, V30d marca los renglones afectados con `p-tag` y su porqué: «Incluye dos veces la venta de las camionetas de Padre Hidalgo (~16 % de más)» · «Venta en kilos contra existencia en la base de Kepler: sale a la mitad». La cabecera dice de qué venta habla: «Venta de 30 días: tiendas y camionetas». Mismas marcas que la mesa de AB (AB.UI.2). |
+| PQ.UI.2 | 🔴 | **La celda de una sucursal en Pedido y la mesa de esa sucursal en Autoabasto publican dos faltas del mismo producto.** Pedido calcula con 30 días, aplica el factor de cumplimiento y **no** resta lo que ya viene; la mesa usa 21 días en las cinco sucursales que no son matriz (AB.22) y sí lo resta. Sólo por la cobertura, en La Piedad Abastos Compras ve ~3,695 cajas donde la sucursal ve 2,072 (AB.22, 13-oct). Hay $1.53 M en documentos que ya vienen (hasta 777 renglones, AB §16.3, 23-oct) que una cuenta sin «ya viene» vuelve a pedir. D14 se aceptó el 24-oct, pero **el item que la consume no tiene número en este plan** («PQ.12» ya es el CEDIS). | §1.5 · §1.6 · §3.2 | Item con número en §6 para restar lo que ya viene (la función de AB.34), con su commit de antes/después. En la celda: «Falta 32 · ya vienen 20 (pedido 0450, embarque 0391) → 12». El subtítulo dice con cuántos días se calculó y, si la sucursal ve otra cobertura, la suya. **Conflicto (decide Edgar):** una cobertura para las dos pantallas o dos, declaradas (AB.UI.3). |
+| PQ.UI.3 | 🔴 | **La «caja» del pedido no es la de Kepler en 2 de cada 3 SKUs del CEDIS** (`v_product_box_factor` prefiere la etiquetera, 5,244, sobre el `c84`, 2,544; §12.2, 26-oct) y el adaptador escribe en Kepler `CJA` con `por_caja: 1`. La pantalla dice «cajas» sin decir de cuántas, y la «cantidad cambiada» de M2 (38.3 % / 30.5 %) mezcla la corrección del comprador con el desfase de unidad. Productos nuevos (NP.16) y el redondeo de Autoabasto ya cuentan con la escalera de Kepler: el mismo producto sale en dos cajas según la pestaña. | §1.1 · §1.5 · §4.5 | Toda cantidad en cajas dice su contenido: «12 CJA de 24 PAQ». Donde la caja de la pantalla ≠ `c84`, `p-tag` «Caja distinta a Kepler» en la celda y en la requisición. La cifra de M2 se cita como «previa a la corrección de unidades» hasta re-correrla. **Conflicto (decide Edgar):** D20 sin firma — un solo resolvedor en `libs/`, compartido con AB (AB.UI.4). |
+| PQ.UI.4 | 🔴 | **Filtrado al CEDIS, Pedido dice «A comprar $0 · SKUs 0 · Sin datos en los puntos de compra»** junto a «A traspasar $2.89 M desde CEDIS». No es cero: el CEDIS no vende (la fórmula da 0 por construcción) y su existencia es un artefacto del corte (127 SKUs contados el 30-sep; ~900 de los 1,264 que embarca viven en cero o negativo). §12 escribe lo honesto («existencia no medida para N SKUs») pero **ningún item cambia el texto**: PQ.12 espera un inventario físico sin fecha. Y 45 negativos que Kepler publica se ven como 0 (D8 sin firma). | §1.3 · §3.2 | Item C3 que no espere a PQ.12. Con el CEDIS elegido: «El CEDIS no vende: su compra no se puede calcular hasta que tenga existencia contada. Sin contar: N de los 1,264 productos que embarcó en 30 días». Nunca «$0». Negativo con `p-tag` «Negativo en Kepler» (D8). |
+| PQ.UI.5 | 🔴 | **La agenda (PQ.4) y el aviso «hoy te toca pedirle a N proveedores» (PQ.5), los dos en 🧪, publican fechas que el dato no sostiene:** sólo 221 de 886 canales de compra son regulares (25 %), el lead time está en 0 en los 1,049 y la captura (PQ.3) está bloqueada sin base de pruebas. Resultado: **637 de 1,049 canales «vencidos»** (61 %). Una lista donde 6 de cada 10 están vencidos no es señal, y el aviso que iba a medir «si el Ciclo sirve cuando está enfrente» medirá una fecha equivocada. | §1.3 · §1.1 · §4.0 B · DESIGN §X.4 | Cada fila dice de dónde sale su fecha y cuánto aguanta: «Capturada» o «Estimada: entregas cada 27 a 79 días, poco confiable». El aviso separa: «Hoy te toca: 3 con fecha confiable · 21 estimadas». «Vencido» sólo con fecha capturada o canal regular. Lead time 0 se muestra «sin capturar», nunca «0 días». |
+| PQ.UI.6 | 🟠 | **PQ.1 distingue «aprobada» de «escrita en Kepler», y el plan pide mostrarlas «con su edad y su `kepler_error`»:** 134 requisiciones dicen «KEPLER_PUSH_URL sin configurar», una variable de entorno, no algo que el comprador pueda resolver. Y la misma requisición aprobada sin documento sale en Autoabasto como «Compras lo planeó», dentro de «Lo que te llega» (AB.UI.1): dos rótulos para el mismo estado, y uno de ellos dice que llega. Son 680 por $19.05 M. | §3.9 · §1.5 · §3.4 | El estado en el idioma de quien lo lee: «Aprobada · sin documento en Kepler · hace 12 días», con su salida al lado (registrar el folio, PQ.2 / PQ.7). El error técnico va al detalle, no a la fila. «Aprobada» sin documento nunca lleva el color de éxito. Mismo rótulo y misma edad en la pantalla de la sucursal. |
+| PQ.UI.7 | 🟠 | **PQ.2 y PQ.7 piden capturar la coordenada de Kepler al cerrar, y M2 ya dice lo que va a encontrar quien la capture:** en traspasos el total cuadra en **3 de 296** pares y la cantidad cambia en el 30.5 % de los renglones (38.3 % en compras). Si el formulario sólo valida que el folio exista, se ligan documentos que no corresponden; si exige que cuadre, nadie cierra los 602 traspasos ($12.81 M). | §4.5 · §3.2 · §3.3 | Al salir del campo del folio, la pantalla trae el documento de Kepler y lo pone junto a la requisición, renglón por renglón: «pediste 12 · Kepler registró 10». Un folio de otro destino o de otra sucursal se rechaza antes de guardar. Se cierra con las diferencias a la vista, ni ocultas ni bloqueantes. Prueba contra base real con el payload de la pantalla. |
+| PQ.UI.8 | 🟠 | **El duplicado entre días (PQ.8) se le va a avisar a quien está armando el pedido, con prisa:** 84 grupos vivos, 388 renglones, $3.30 M. D4 recomienda aviso con confirmación (juntar pedidos es legítimo) y sigue sin firma. Un aviso genérico («ya existe una requisición») se acepta por reflejo. | §4.4 · §3.2 | El aviso nombra lo que ya lo pide: «RQ-2026-00760 · 18-oct · 24 CJA · aprobada sin documento». «Pedir de todos modos» no usa el color de acción, va separado de «Quitar del pedido» y pide motivo de la lista de PQ.UI.9. Los repetidos vivos se re-miden después. |
+| PQ.UI.9 | 🟠 | **El motivo obligatorio (PQ.9) y el rechazo con motivo que AB ya construyó (§16.16 de AB, con `CHECK`) van a compartir columnas.** Si uno es texto libre y el otro lista, las 395 canceladas por $34.72 M se seguirán sin poder agrupar por porqué: AB ya aprendió que «un texto libre no se aprende» (AB.18). | §4.5 · §5.4 | Una lista cerrada en `libs/contracts` (con «Otro» + texto), la misma para cancelar y rechazar en Compras y en Autoabasto. El motivo se ve en la bandeja y en la pantalla de la sucursal, con quién y cuándo. |
+| PQ.UI.10 | 🟠 | **El freno de fin de pico (motor común, AB.17) baja el sugerido y la pantalla no lo dice:** «la venta de 30 días que se muestra no cambia; sólo baja el objetivo». Son 725 pares (pedido de $718 mil → $162 mil). El comprador ve V30d alta y sugerido bajo, y lo sube: ya sube el sugerido en 2,726 de 7,111 renglones en 30 d. | §3.2 · DESIGN §X.3 | `season_src = 'fin_pico'` llega a la celda: `p-tag` «Fin de pico» y «Se pide para la venta normal: la semana pasada vendió menos del 40 % de su semana más alta». Igual que la mesa de AB (AB.UI.7). |
+| PQ.UI.11 | 🟠 | **Con D3 de AB, el sobrante de la red quedó del lado de Compras, y Compras abre Sobrante 5 veces en 30 días** (Flujo, otras 5; Pedido, 3,734). La decisión de traspasar en vez de comprar vive en una pestaña que nadie abre. | §3.4 · §4.0c · §2.1 | Donde hay falta y otra sucursal tiene de más, la celda de Pedido dice la comparación: «Padre Hidalgo tiene 40 cajas sobre su máximo: traspásalo antes de comprar», con enlace a Sobrante filtrado a ese producto. Se mide si el uso sube. |
+| PQ.UI.12 | 🟠 | **La aprobación es un segundo clic: 849 de 863 aprobaciones son de una persona, 484 (56 %) sobre lo que ella misma creó, mediana 20 h.** PQ.11 quiere guardar «lo que la persona vio»; eso sólo es verdad si la pantalla se lo muestra antes del clic. | DESIGN §X.1 · §4.0c | Antes de aprobar, el resumen en llano: «Sugerido 120 · final 180 (+50 %) · costo vigente al 21-oct · 3 renglones subieron más del 20 %». Si quien aprueba la creó: «La creaste tú», visible; con god-mode, que se vea. Lo mostrado es lo que se guarda. |
+| PQ.UI.13 | 🟠 | **`/compras/pedido` decía el 22-oct «consolida en 01», «todo a 00» y «entrega en 01, 08»** (skill `diseno` §4). La agenda (PQ.4, «sucursales que le tocan») y el cierre manual (PQ.2, la sucursal de la coordenada) suman dos lugares nuevos para un código crudo. | regla PM 2026-10-22 · DESIGN skill §4 | Ninguna cadena visible —celda, opción, título, `aria-label`, nota que se guarda, PDF— lleva «00» u «01»: pipe `\| sucursal` en plantilla, `warehouseName()` en código. La sucursal de la coordenada se elige por nombre. |
+
+**Lo que esta revisión no cubre:** contraste, densidad de la tabla de Pedido y teclado reales (exigen
+nivel A); la velocidad (PQ.10: `workbook` con pico de 11.4 s, XLSX con pico de 121 s), salvo que la
+pantalla conserve lo último mientras recalcula y que un segundo clic en el XLSX no relance la
+consulta; M1 y M2, que se quedan en C0 sin pantalla; y PQ.12 contra AB.31 («cuánto le van a sacar a
+la matriz»): dos construcciones de la misma pregunta que hay que asignar antes de que alguna llegue a
+pantalla.

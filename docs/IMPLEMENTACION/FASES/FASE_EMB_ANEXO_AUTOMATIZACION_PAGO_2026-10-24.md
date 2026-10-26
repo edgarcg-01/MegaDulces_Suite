@@ -430,8 +430,154 @@ respuesta tardía), contracts 33.
 más cara), pero en Kepler la comisión se captura por centro de costo de cada destino. ¿Se reparte
 entre los destinos o va al de la ruta que puso la tarifa?
 
+### EMB.52 · Filtros y orden (🧪, 2026-10-26)
+
+Edgar: *«faltan filtros en la interfaz principal y ordenamiento en las cards»*. **Operaciones**: además de
+estado/sucursal/búsqueda, filtros por **tipo**, **estado** (falta chofer · horario · quién cargó · ruta
+sin tarifa · sin cajas de Kepler · lleva sueltas), **persona** (cualquiera que cobra, maneja, ayuda o
+carga) y **día**, y un **«Ordenar por»** (lo que más falta · recientes · antiguas · cajas · carga ·
+comisión · asignado · guía) que manda también en la vista de tarjetas (en estrecho la tabla se apila y
+no hay encabezados que cliquear). A igualdad, sucursal y guía: la lista no baila entre recargas.
+**Por persona**: filtro por papel y orden (total · nombre · operaciones · comisión · viático · carga).
+
+### EMB.53 · El formato de la solicitud de gasto, como el X-A-15 (🧪, 2026-10-26)
+
+Edgar: *«hagamos un formato para que pasen sus comisiones a solicitudes de gastos para que se les
+pague»*. Antes de diseñarlo se leyó la solicitud real de Logística en Kepler (X-A-15 0010438, Antonio
+Méndez, 22-oct) y las de 90 días (sólo lectura):
+
+| Dato del X-A-15 | Medido | En el formato |
+|---|---|---|
+| Proveedor | **siempre** `GNFC002` «COMISION Y VIATICOS LOGISTICA» | Cabecera |
+| Beneficiario (`c24`) · área (`c30`) · moneda | la persona · FINANZAS · PESOS | Cabecera |
+| Cuenta por renglón (`kdm6.c8`) | 054 y 027 → **514-001** (429/374); 075 y 128 → **602-015** (193/165; 2 en blanco) | Columna «Cuenta» |
+| Centro de costo (`kdm6.c16`) | el **piso de la sucursal destino** (1-01-40-00 = 8 Esquinas) | Columna «Centro de costo», derivado |
+
+**El centro se deriva sin adivinar:** `TI###` → sucursal (`pv_suc_ip`, la regla de
+`erp_shipment_stop_closure`) → piso `1-0P-NN-00` del catálogo `kdc3` con NN = el código MD de la
+sucursal (verificado contra los 9 nombres). Si el catálogo da cero o dos candidatos, no hay centro.
+**No se resuelve, y se dice:** entrega a cliente (en Kepler va a TLMK o a Fletes según quién sabe
+qué) y traspaso a varias sucursales. Con centro, el renglón agrupa por centro: «TRASPASO 8 ESQUINAS»
+y «SUCURSAL 8 ESQUINAS» son el mismo renglón, como en el X-A-15.
+
+**Verificado contra prod (código real, sólo lectura):** de 80 operaciones de la catorcena, **48 con
+centro**, 25 de cliente y 7 de varios destinos. En la solicitud de Antonio Méndez los dos viajes a
+Morelia Abastos salen en UN renglón `054 · 514-001 · 1-02-30-00 · $360`, como lo captura Kepler.
+Las dos consultas nuevas cuestan 1–3 ms. ⚠️ La vista de viajes de Kepler (`erp_shipment_trips`, ya
+existente) varía en prod de 0.2 a 5 s según la carga (misma consulta: 214 / 4,965 / 419 ms): el
+reporte llegó a 3.8 s. NO MEDIDO como arreglarla.
+
+**El formato** (PDF por persona, y Excel): cabecera del X-A-15 (proveedor, beneficiario, área,
+moneda, periodo, total), **renglones para capturar** (#, cuenta, concepto, descripción, centro de
+costo, importe), «de dónde sale» con el cálculo de cada peso, y firmas **Solicita · Autoriza ·
+Recibí**. El Excel trae proveedor, beneficiario, cuenta, concepto, centro y nombre del centro por
+renglón.
+
+**Pruebas:** logistics 199 (lib completa; 4 nuevas de centro de costo, 2 negativas), contracts 34,
+pantallas 136 (filtros, orden). Mutación en rojo: quitar la regla de «varios destinos» → 1 roja.
+
+**Abiertas:** (a) entregas a cliente: ¿a qué centro va cada una (TLMK de la plaza o Fletes 1-09-63)?
+(b) viajes a varias sucursales: ¿la comisión se reparte entre sus centros? (c) la vista de viajes de
+Kepler, lenta bajo carga.
+
+### EMB.37 · Primera medición: el reporte contra lo pagado (catorcena 8–21 oct, 2026-10-26)
+
+Sonda temporal de sólo lectura contra prod (`system_identifier` verificado; borrada al terminar):
+`TripClosureService.reporte('2026-10-08','2026-10-21')` contra las solicitudes `X-A-15` del
+proveedor `GNFC002` fechadas 22–25 oct. ⚠️ Que ese pago cubra exactamente 8–21 oct es un supuesto:
+la solicitud no trae el periodo.
+
+| | Comisión (054+075) | Viático (027+128) | Personas |
+|---|---:|---:|---:|
+| Pagado en Kepler | **$61,063** | **$24,190** | 13 |
+| Calculado por el reporte | **$15,307** (25 %) | **$0** | 7 choferes |
+
+Causas, de mayor a menor:
+
+1. **Falta quién fue.** 206 de 303 operaciones no tienen chofer (Kepler no lo trae y nadie lo
+   capturó), y los ayudantes no existen en Kepler: Cristian Rizo cobró $10,780 y no aparece en
+   ninguna guía. Es la captura irreducible que ya se había medido.
+2. **Los traspasos locales SÍ se pagan.** Antonio Méndez, Raúl Galván y Rafa González cobraron 054
+   al centro de Padre Hidalgo ($1,630 / $1,770 / $1,560), y también a 8 Esquinas y Yurécuaro. Las
+   rutas «LA PIEDAD», «SANTA ANA» y «SANTA ANA PACUECO» están «sin comisión» (EMB.33) → confirma
+   que hay que quitarles esa marca y ponerles tarifa (decisión pendiente de Edgar).
+3. **Morelia se cuenta de más.** A Antonio Méndez el reporte le calcula 10 viajes al centro de
+   Morelia Madero ($1,800: 4 que salen de CEDIS y 6 de Morelia Abastos y Canindo) y Kepler no le
+   pagó ninguno a ese centro; sí le pagó $1,630 a Morelia Abastos. Hipótesis sin confirmar: Morelia
+   se paga como un solo destino, o es el mismo viaje en dos guías (CEDIS→Abastos y Abastos→Madero).
+4. **Viático en cero.** El reporte sólo lo tiene si se captura; falta la regla D4 (los montos
+   pagados son chicos y redondos por destino).
+5. **Datos de demostración en el padrón:** «Chofer Demo» sale como cargador con $30 (EMB.46).
+
+Donde el chofer sí se conoce, los montos no coinciden en ninguno de los dos sentidos: Antonio
+$6,600 calculado contra $5,540 pagado; Raúl $4,022 contra $5,410.
+
+### EMB.54 · Las rutas locales pagan comisión, y el centro de costo va por plaza (🧪, 2026-10-26)
+
+Decisiones de Edgar: *«sí, quítalas»* (la marca «sin comisión») y, sobre Morelia, *«no sé,
+investígalo»*. Medido en las `X-A-15` del proveedor `GNFC002` (sólo lectura, prod):
+
+- **Rutas locales.** EMB.33 midió sólo el concepto 075; en el 054 los traspasos locales sí se pagan:
+  6 catorcenas (13-ago → 22-oct) suman $93,963 al centro de Padre Hidalgo, $15,210 al de 8 Esquinas,
+  $11,520 al de La Piedad Abastos y $13,820 al de Yurécuaro. La migración `20261026131430` quita la
+  marca a «LA PIEDAD», «SANTA ANA» y «SANTA ANA PACUECO» (las únicas 3 marcadas) y lo anota en
+  `tariff_changes`. **No inventa tarifa:** lo pagado no sale de un monto fijo por viaje (por guía da
+  ~$100 de tripulación a 8 Esquinas y a La Piedad Abastos, ~$140 a Yurécuaro y ~$292 a Padre
+  Hidalgo, que además recibe cargos que no son de un viaje). Quedan «sin tarifa» —declarado, no $0—
+  hasta que Logística la capture en Configuración. ⚠️ Mientras tanto, un embarque **manual** a esas
+  rutas no crea su guía; los de Kepler no se frenan.
+- **Morelia y Zamora, un centro por plaza.** De marzo a octubre (054 y 027, 1,147 renglones):
+  **0** a Morelia Madero contra 305 a Morelia Abastos, aunque CEDIS mandó 34 guías sólo a Madero; y
+  2 a Zamora Centro contra 337 a Canindo, con 44 guías de CEDIS a Zamora Centro. Regla nueva en
+  `libs/contracts` (`SUCURSAL_QUE_PAGA_EL_CENTRO`): Madero → centro de Abastos, Zamora Centro →
+  centro de Canindo, y las dos sucursales de una plaza son UN destino (ya no «varios destinos»).
+  Pruebas: 3 nuevas (1 negativa); con la regla quitada, 2 en rojo.
+- **Lo que NO se pudo resolver: cuántas comisiones paga un viaje.** Un mismo camión genera varias
+  guías en un viaje (el 12-oct, el International 3 lleva 6: CEDIS → Morelia Abastos, Abastos →
+  Madero ×3 y dos de regreso). El reporte cuenta cada guía; Logística parece pagar por viaje. La
+  hipótesis «un viaje = unidad × día de salida» cuadra exacto con Antonio Méndez el 22-oct (9 viajes
+  × $180 = $1,620 contra $1,630 pagados) pero **no** con sus dos catorcenas anteriores (3 viajes →
+  $330; 6 → $710), y el chofer de Kepler no es confiable para probarla (Antonio figura en dos
+  camiones el mismo día). Pregunta abierta para Leonardo: ¿se paga por viaje o por guía, y las guías
+  que salen de Morelia o Canindo de regreso pagan?
+
+### EMB.55 · Hino y Freightliner ligados a su GPS (🧪, 2026-10-26)
+
+Pedido: *«sí, lígalos pero adecuadamente»*. Los rastreadores «HINO 500-67BB9C» y «FREIGHTLINER
+882EW9» existen desde el 17-sep (6,697 y 5,898 posiciones) y nunca se ligaron a sus unidades de
+Kepler (00006 y 00005, con 53 y 42 guías en 2026).
+
+- **Identidad verificada, no supuesta:** día por día, cuando la unidad de Kepler tiene guías a
+  Morelia o a Zamora, ese GPS llega a Morelia (lat ≈ 19.70) o a Zamora (≈ 19.94) al día siguiente
+  de la fecha de la guía (que es cuando sale el camión).
+- **La F-350 NO se fusionó:** la misma prueba la contradice (Kepler le carga 27 guías a 7 sucursales
+  el 7-oct mientras el GPS `MZ0108A` recorrió 7 km). En Kepler la unidad 00007 se usa para guías de
+  varios camiones.
+- **Migración `20261026131431`:** placa del Hino en la Suite `69BB9C` → `67BB9C` (la física: GPS y
+  hoja de costos de Transportes; Kepler sigue diciendo 69BB9C y la diferencia queda a la vista) y
+  cada rastreador a su unidad, sólo si sigue suelto.
+- **Causa de fondo, en código:** `matchVehicle` compara la placa sin guiones (`882EW9` = `882-EW9`)
+  y no adivina si empata con dos unidades (3 pruebas, 2 negativas; con la normalización quitada, 2
+  en rojo).
+- **La historia de antes del enlace:** el ciclo nocturno sólo armaba AYER, así que los 40 días
+  previos nunca habrían entrado al resumen. Ahora, tras armar ayer, `rellenarHuecos` arma los
+  (vehículo, día) con posiciones y sin resumen de los últimos 90 días (tope 300 por noche). El SQL
+  se ejerció en prod en sólo lectura con el texto del servicio: 0 huecos hoy (90 d), los 3 de julio
+  ya medidos (120 d), ~2.7 s.
+
+**Las dos migraciones** se ensayaron en el Postgres local con filas sintéticas dentro de una
+transacción revertida: 13 de 13 comprobaciones (up, segundo up idempotente, down exacto, 3
+negativas). Contra prod no se pudo: la conexión es de sólo lectura. Los `WHERE`, corridos en sólo
+lectura en prod, tocan exactamente 3 rutas, 1 unidad y 2 rastreadores. Son sólo UPDATE/INSERT: se
+aplican a mano en prod **antes** de soltar.
+
 ## Bitácora
 
+- **2026-10-26** — EMB.54/55: rutas locales sin la marca «sin comisión»; centro por plaza (Madero → Abastos, Zamora Centro → Canindo); Hino y Freightliner ligados a su GPS con su historia; la F-350 no se fusionó (el GPS lo contradice).
+
+- **2026-10-26** — EMB.37, primera medición: el reporte calcula el 25 % de la comisión pagada y 0 % del viático de la catorcena 8–21 oct (causas arriba).
+
+- **2026-10-26** — EMB.52/53: filtros y orden; el formato de la solicitud igual al X-A-15 (proveedor GNFC002, cuenta y centro de costo derivados).
 - **2026-10-26** — EMB.51: cada importe con su cálculo; renglones, guías y personas se abren (ligas entre pestañas).
 - **2026-10-26** — EMB.50: desglose por documento (cajas, surtió/checó/embarcó, recepción en destino). Pedido: «quién hizo recepciones».
 - **2026-10-26** — EMB.49: la tarifa por caja rige desde el 22-oct (decisión de Edgar), con «rige desde» en la bitácora.

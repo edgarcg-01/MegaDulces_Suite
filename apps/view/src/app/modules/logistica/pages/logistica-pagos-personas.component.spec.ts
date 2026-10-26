@@ -18,7 +18,7 @@ const op = (x: Partial<OperacionDelReporte>): OperacionDelReporte => ({
   sucursal: '00', guia: '0000001', fecha: '2026-09-30', paradas: 1, destinos: 'YURECUARO', tipo: 'traspaso', chofer_kepler: null,
   importe: 0, shipment_id: 's1', shipment_folio: null, guide_id: 'g1', driver_id: 'd1', helper1_id: null, helper2_id: null,
   departure_time: '06:00', arrival_time: '15:00', overnight: false, cargadores: 1, faltan: [], cajas: 100, tarifa_por_caja: 0.2,
-  carga_total: 20, cargador_ids: ['c1'], renglones: [], repartido: 0, sueltos: 0, chofer_kepler_id: null,
+  carga_total: 20, cargador_ids: ['c1'], renglones: [], repartido: 0, sueltos: 0, chofer_kepler_id: null, centro: null, sin_centro: null,
   comision_ruta: { chofer: 129, ayudante: 0, ruta: 'LA PIEDAD', sin_tarifa: [] }, ...x,
 });
 const REPORTE: ReporteDePagos = {

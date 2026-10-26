@@ -199,11 +199,22 @@ import { RouteCreditComponent } from './comercial-route-credit.component';
                 @if (d.cancelada) {
                   <p-tag severity="secondary" value="Cancelada" styleClass="tg" />
                 } @else {
-                  <p-button icon="pi pi-print" [text]="true" size="small" ariaLabel="Imprimir anexo"
-                            pTooltip="Imprimir" [loading]="busy() === d.folio_digital"
+                  <!--
+                    [AX.14] UN botón, no dos. Hasta el 2026-10-26 había dos iconos —impresora y
+                    PDF— que pedían el MISMO blob (anexoBlob del folio, con pagaré) y abrían la
+                    MISMA pestaña: verPdf hacía window.open, e imprimir hacía lo mismo y además
+                    llamaba a print(). Para quien mira la tabla eran dos caminos al mismo PDF, y
+                    el de la izquierda no hacía nada que el otro no hiciera.
+
+                    Queda el que cubre los dos trabajos: abre el PDF en su pestaña —donde se ve— y
+                    ofrece el diálogo de impresión, que es a lo que viene esta pantalla («imprime el
+                    detalle desglosado para el cliente»). Quien sólo quería verlo cierra el diálogo
+                    y el PDF sigue ahí.
+                  -->
+                  <p-button icon="pi pi-print" [text]="true" size="small"
+                            ariaLabel="Abrir el anexo en PDF e imprimirlo"
+                            pTooltip="Abrir el PDF e imprimir" [loading]="busy() === d.folio_digital"
                             (onClick)="imprimir(d, $event)" />
-                  <p-button icon="pi pi-file-pdf" [text]="true" size="small" ariaLabel="Ver PDF del anexo"
-                            (onClick)="verPdf(d, $event)" />
                 }
               </td>
             </tr>
@@ -726,11 +737,9 @@ export class ComercialDocumentosComponent {
     });
   }
 
-  verPdf(d: SalesDocRow, ev?: Event): void {
-    ev?.stopPropagation();
-    this.conBlob(d.folio_digital, true, (url) => window.open(url, '_blank'));
-  }
-
+  // `[AX.14]` Acá vivía `verPdf`, que pedía el MISMO blob y abría la MISMA pestaña que
+  // `imprimir` — sólo que sin llamar a `print()`. Se retira con su botón: un método muerto
+  // detrás de una pantalla es el que la próxima persona vuelve a cablear sin saber por qué.
   imprimir(d: SalesDocRow, ev?: Event): void {
     ev?.stopPropagation();
     this.imprimirFolio(d.folio_digital, true);

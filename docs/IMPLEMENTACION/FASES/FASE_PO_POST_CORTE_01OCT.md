@@ -287,3 +287,41 @@ Los universos de pago, por prefijo de `c10` (documentado en `FASE_CC`):
 | `GG*` | caja chica / gastos | el de gastos |
 | `GB*` | banco | amortizaciones / créditos |
 | `GN*` | nómina | sin dueño definido |
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+> La fase no tiene pantalla propia: cada observación es un criterio para las pantallas que leen las
+> cuatro vistas (3 + 16 + 11 + 3 archivos consumidores) y para `PO.6`.
+
+**La pregunta que contesta (prueba de la frase, §4.0b):** PO no tiene pantalla, y está bien que no
+la tenga: su efecto en la interfaz es una propiedad de cada cifra, no un lugar. Lo que cada cifra
+afectada tiene que poder contestar es *«¿esta cifra trae a todos los centros de costo desde el
+1-oct?»*, y junto a ella, su comparabilidad con antes del corte. No es conflación: son dos marcas que
+viajan con el número, no dos pantallas.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5), para cualquier cifra que cruce el 1-oct:** primario = la
+cifra · secundario = su marca de universo y de comparabilidad, en texto («no comparable con
+septiembre: cambió la cobertura») · terciario = qué centros de costo trae y desde cuándo.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| PO.UI.1 | 🔴 | **Las cancelaciones de las plazas nuevas se pintarían como documentos vivos.** `kepler_cancelled_docs` (4 anclas, 3 consumidores) sólo ve las de Oficinas. Es la única de las cuatro que **afirma de más** (§5.1): una factura cancelada en otro centro de costo sigue sumando en un saldo, una venta o un pendiente, y nada en la pantalla lo delata. | §1.1 · §1.3 | Hasta `PO.1`, cada pantalla que lea esa vista declara junto a su total: «Cancelaciones: desde el 1-oct sólo se leen las de Oficinas». Al cerrar `PO.1`, la compuerta de `PO.5` se rompe a propósito una vez y la marca se retira. |
+| PO.UI.2 | 🔴 | **«Menos filas» no se distingue de «no hubo»: tres causas, una sola pantalla.** El plan lo nombra (§2 y §6.1): la vista anclada, la ingesta que no trae la réplica y la plaza que no operó producen la misma lista corta, sin un solo error. Quien abre la cobranza o los pagos de octubre lee «esa plaza no tuvo movimiento». | §1.3 · §1.6 · §3.5 | Las pantallas que leen las cuatro vistas muestran la cobertura por sucursal (por nombre) en el periodo; una plaza con cero filas desde el 1-oct aparece con «sin datos desde el 1-oct (no medido)», nunca se omite ni se pinta en cero. El estado sale de lo que mida `check-corte-01oct.js`, que ya declara NO MEDIDO. |
+| PO.UI.3 | 🔴 | **El salto de cobertura se va a leer como crecimiento** (§6.3). Toda comparación «este mes contra el anterior» que cruce el 1-oct sube cuando las vistas empiecen a traer todas las plazas, y lo primero que se hace con un salto así es presentarlo en una junta. `PO.6` lo prevé con `comparable:false`, pero no dice cómo se ve. | §1.6 · §3.2 · §2.3 | Con `comparable:false`, la pantalla **no publica la variación** (ni %, ni flecha, ni color) y en su lugar dice: «No comparable con septiembre: desde el 1-oct se suman los centros de costo». La marca va en texto, no sólo en gris (Alto Contraste). Se ejerce con una prueba que cruce sep→oct. |
+| PO.UI.4 | 🟠 | **El rótulo «Oficinas» nombra dos cosas según la fecha.** Hasta el 30-sep, la fila de Oficinas era *toda* la operación (concentradora); desde el 1-oct es CEDIS, logística y corporativo. En un rango que cruza el corte, la misma fila mezcla las dos, y comparar Oficinas de septiembre contra octubre compara un todo contra una parte. | §1.1 · §1.6 · regla PM 2026-10-22 | La sucursal se nombra con la pipe `\| sucursal` (nunca «00»), y en rangos con fechas anteriores al 1-oct la fila lleva: «Oficinas: concentró a todas las plazas hasta el 30-sep». En rangos que cruzan el corte, Oficinas no se compara contra sí misma. |
+| PO.UI.5 | 🟠 | **El filtro de periodo tiene que decir qué fecha usa.** `kdm1.c9` puede venir en el futuro (medido hasta 2026-12-31); un periodo por fecha de documento mete en octubre documentos de septiembre y corre el corte. | §1.6 · §4.5 | Junto al selector de periodo: «por fecha de captura». Si alguna pantalla filtra por fecha de documento, lo dice igual de claro y declara cuántos documentos vienen fechados en el futuro. |
+| PO.UI.6 | 🟠 | **Los centros fuera de catálogo caerían a «sin clasificar» o a vacío y se leerían como «sin problema».** `finance.kepler_accounts` (1 ancla, 3 consumidores) no conoce las cuentas de los centros nuevos, y las otras tres vistas no tienen `centro_fuera_de_catalogo` (§6.4). Un «sin clasificar» que crece en octubre parece desorden de captura, y no lo es. | §1.3 · §3.3 · §3.4 | «Centro fuera del catálogo» y «Sin centro» son categorías visibles con conteo y monto, cada una navegable a sus documentos. El «sin clasificar» dice por qué: «la cuenta pertenece a un centro de costo que el catálogo no tiene». |
+| PO.UI.7 | 🟠 | **Dos pantallas de este lote cruzan el corte con estas vistas.** `erp_supplier_payments` (16 consumidores) sostiene la lista de `[PGP.1]` («37 proveedores cubren el 80 % de $129.3M», jul–oct); `erp_collections` (11) sostiene `/finanzas/cobranza`, cuyo plan todavía dice «Fuente = CEDIS `md_00` (centraliza la cobranza)»: la premisa del régimen que terminó. | §1.5 · §1.6 | Ver PGP.UI.8 y CC.UI.5: las dos pantallas declaran su universo y la falta posible desde el 1-oct hasta que `PO.2`/`PO.3` se midan en prod. |
+| PO.UI.8 | 🟡 | **El plan lleva 24 días sin su medición base, y su estado no coincide en tres lugares.** `PO.0` (re-correr el escaneo contra prod, ~30 min) no consta como corrido; este doc dice «🔨 DISEÑADO», el roadmap ⏸️ y PGP §6 la cuenta entre las 4 fases 🔨. Mientras tanto, ninguna pantalla tiene con qué declarar su cobertura de octubre. | §1.3 · método | `PO.0` corrido contra prod y su salida (vistas ancladas + documentos post-corte fuera de Oficinas, por sucursal) anotada aquí con fecha; el estado se iguala en los tres documentos. |
+
+**Lo que esta revisión no cubre:** cuáles son los 33 archivos consumidores (el plan da el conteo, no la
+lista: sale de un `grep` de las cuatro vistas al abrir C3) y si las vistas siguen ancladas en prod, que
+es `PO.0` y no diseño.

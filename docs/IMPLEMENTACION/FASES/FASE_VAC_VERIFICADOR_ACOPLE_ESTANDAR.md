@@ -287,3 +287,43 @@ grep -rln "KpService\|kp.service" apps libs --include=*.spec.ts                 
 | **L10 (mensaje por 5xx), L12, mapear()** | Menores; ya hay deuda con nombre | — |
 
 ⛔ **Cómo se verificó el arranque en este ciclo:** nunca. Es lo que enseña el incidente. Hasta que el CI levante la API (VP.5), todo cambio que toque decoradores, constructores o providers de Nest se acompaña de una prueba de `design:paramtypes` o declara «arranque no verificado» en el PR (`ONBOARDING.md` §8.0b, puntos 30–31).
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre. La pantalla existe (en prod desde
+> el 2026-10-15): cada observación es un criterio a verificar en ella, no un defecto medido.
+>
+> **La misma pantalla tiene dos planes.** `/tienda/verificador` nació en la Fase CV (CV.24) y se acopló
+> aquí. Las observaciones que nacen de decisiones de CV.24 que esta fase no revisó —sucursal en la
+> franja, edad del respaldo, ayuda en hover, contador, borrado a los 20 s— están en la sección
+> equivalente de [`FASE_CV`](FASE_CV_CATALOGO_TIENDA_MAYOREO.md), para no duplicarlas.
+
+**La pregunta que contesta (prueba de la frase, §4.0b):** *«¿Cuánto cuesta esto aquí, hoy, y cuánto
+si llevo más?»* — dos preguntas en una tarjeta, por decisión firmada (el mayoreo es protagonista,
+DESIGN §O.3). No es un defecto a partir, pero obliga a dos cosas: que cada cifra lleve pegada su unidad
+y su umbral, y que el ahorro compare precios de la **misma** fuente y la misma edad (VAC.UI.1).
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):** primario = **precio de la unidad escaneada y el bloque de
+mayoreo** (decisión de 0Sistemas) · secundario = el umbral de cada escalón en la unidad escaneada y su
+equivalencia · terciario = franja de sucursal, frescura, respaldo y nota de IVA.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| VAC.UI.1 | 🔴 | **La tarjeta junta dos edades del dato, y el ahorro —la cifra protagonista— puede salir de las dos.** El precio unitario sale vivo de `kepler_ods.kdii` (~1–2 min) y el mayoreo y el gramaje de la tabla batch `product_label_prices` (hasta 32 min) (§0). D1, el paso a una sola fuente, quedó ⏸️. En esa ventana, tras un cambio de precio en Kepler, «Ahorras $X por unidad (N % menos)» compara un precio nuevo con uno viejo: puede inflarse, encogerse o salir negativo, dentro de la caja enmarcada con `--action` que se decidió que mande. | §1.6 · §3.6 · §1.5 | Mientras D1 no esté, el ahorro sólo se publica si los dos precios vienen de la misma lectura; si no, el bloque dice «Mayoreo actualizado hace N min» y no calcula ahorro. D1 (leer de `analytics.v_label_prices`) es condición para ✅. |
+| VAC.UI.2 | 🔴 | **Precios con unidad dudosa se publican como firmes.** L5 sigue ⏸️ y el plan cita **3,570 filas y 102 SKUs** que hoy salen sin aviso, donde el precio de la plaza contradice su propio `c84` o el SKU es pallet o granel. H3 agregó «Equivale a 144 piezas», que el servidor calcula con ese mismo factor: en esas filas la equivalencia afirma un conteo falso, en letra grande y a 1–2 m. | §1.3 · §1.1 · §4.5 | Con `unidad_dudosa`, la tarjeta no publica «Equivale a N piezas» y dice, sin datos internos: «Confirma en caja el contenido de esta presentación». L5 se mide contra prod antes de ✅. |
+| VAC.UI.3 | 🔴 | **El bloque protagonista puede promover la presentación más cara.** H1 sigue abierto: en el ejemplo de la auditoría (precios del mockup, sin verificar contra el SKU real), desde 3 piezas comprar suelto a mayoreo sale **$114.80 más barato que la caja** y $51.20 más que el paquete, y los chips de paquete y caja se presentan como mayoreo. Nadie ha medido cuántos SKUs lo tienen. La auditoría lo dejó a Precios; mientras tanto, la pantalla no tiene por qué afirmarlo: el sistema puede hacer la cuenta. | §1.1 · §4.0c · conflicto a decidir por Edgar con Precios/Comercial | El servidor compara el precio por pieza de cada presentación contra el mayoreo de umbral menor; si la presentación sale más cara, el chip lo dice («Por pieza sale más caro que llevar 3 o más sueltas») o deja de presentarse como oferta. H1 se mide en prod (sólo lectura) antes de ✅. |
+| VAC.UI.4 | 🟠 | **En kiosco la tarjeta ya no avisa que un precio acaba de cambiar, y la nota «es el mismo que sale en la etiqueta del anaquel» puede no serlo.** U12.1(c) quitó del kiosco el aviso de precio cambiado y DESIGN §O.3 lo declara como compromiso. Justo en kiosco la clienta compara contra la etiqueta: si el precio cambió hoy, pantalla y etiqueta discrepan y la discusión llega a la caja. Y con override manual (D2 sin firmar; última medición: 0 filas, ~9-sep, a re-medir) el verificador aplica un precio que la etiquetera ya no imprime, con esa nota encima. | §1.3 · ADR-056 · conflicto con una decisión firmada | **Para Edgar:** en kiosco, una línea neutra sin datos internos —«Precio actualizado hoy: puede no coincidir con la etiqueta»— conserva la declaración sin el detalle. La nota «es el mismo que sale en la etiqueta» sólo aparece cuando el origen es el ERP vivo. D2 se re-mide antes de ✅. |
+| VAC.UI.5 | 🟠 | **«Frescura sin medir» lleva siete semanas encendida y ya no informa.** `datos_al` es nulo desde el 8-sep (D3 sin firmar, VAC.D4 ⏸️). Un aviso que nunca se apaga se aprende a ignorar, y comparte la franja con el aviso de respaldo, que sí cambia y sí importa: el operador deja de leer los dos. | §3.6 · §2.1 | D3 se resuelve midiendo en prod qué latido existe. Mientras tanto, «sin medir» va en tono neutro y nivel terciario, y el respaldo conserva el tono de aviso: que se distingan sin leerlos. |
+| VAC.UI.6 | 🟠 | **Lo que el operador toca cuando falla la red no llega a 44 px, y el botón de cámara no llega al contraste.** El plan lo declara sin resolver: los `p-button-sm` del respaldo «no llegan a 44 px» y el texto blanco sobre `--action` mide 3.39:1. El mostrador se opera con el dedo cuando no hay pistola. | DESIGN §3d Fitts (en `coarse` gana el objetivo de 44 px) · §2.3 | Con `pointer: coarse`, los controles del respaldo miden 44 px o más (sin `p-button-sm`). El contraste del botón de cámara se resuelve en el token o el texto pasa a tamaño grande; si es del token, se escala como tema de toda la Suite. |
+| VAC.UI.7 | 🟠 | **El roadmap dice 🟢 y el propio plan dice que no puede marcarse ✅.** §12 concluye «no se marca ✅ hasta tener la validación visual en el monitor real» y que la fase «queda 🧪»; el encabezado sigue en «🔨 EN CURSO». La piel nueva sólo se vio en renders estáticos («no es la app corriendo») y está en prod desde el 15-oct: la cifra a 1–2 m, el lector, la cámara, la pantalla completa y Alto Contraste no los ha visto nadie en el mostrador. | método §4–§5 · §2.3 | La fila del roadmap vuelve a 🧪 y el encabezado se alinea con §12. Revisión en nivel A con `auditoria-diseno` en el mostrador real (claro, oscuro, `forced-colors`, `pointer: coarse`, lectura a 1–2 m) antes de ✅. |
+
+**Lo que esta revisión no cubre:** contraste y tamaño reales en el monitor de mostrador (nivel A); la
+cámara compartida (U2) y la descomposición del componente (U1), que no cambian lo que la pantalla
+afirma; y las decisiones de CV.24 que siguen vivas, en la sección de la Fase CV.

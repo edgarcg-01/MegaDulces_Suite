@@ -12,11 +12,11 @@ import { CheckboxModule } from 'primeng/checkbox';
 import { DatePickerModule } from 'primeng/datepicker';
 import type {
   AltaRapidaResultado, CompletarGuiaBody, DesgloseDeOperacion, FaltaDelViaje, OperacionDelReporte, PersonaDelPadron,
-  ReporteDePagos,
+  ReporteDePagos, SinCentro,
 } from '@megadulces/contracts';
 // Por subruta, no por el barrel: ver tsconfig.base.json (bundle inicial).
 import {
-  corteVecino, esFecha, FALTA_LABEL, repartoDeCarga, ROL_LABEL, TIPO_VIAJE_LABEL, totalDeCarga,
+  corteVecino, esFecha, FALTA_LABEL, SIN_CENTRO_LABEL, repartoDeCarga, ROL_LABEL, TIPO_VIAJE_LABEL, totalDeCarga,
 } from '@megadulces/contracts/http/cierre-viaje';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -33,6 +33,58 @@ import { AltaPersonaComponent } from '../components/alta-persona.component';
 import { DesgloseOperacionComponent } from '../components/desglose-operacion.component';
 
 type Vista = 'pendientes' | 'completas' | 'todas';
+/** `[EMB.52]` Qué le pasa a la operación (el filtro «Cualquier estado»). */
+type EstadoFiltro = FaltaDelViaje | 'sin_tarifa' | 'sin_cajas' | 'sueltas';
+type Orden = 'falta' | 'fecha_desc' | 'fecha_asc' | 'cajas' | 'carga' | 'comision' | 'asignado' | 'guia';
+
+const ESTADOS_FILTRO: ReadonlyArray<{ value: EstadoFiltro; label: string }> = [
+  { value: 'chofer', label: 'Falta el chofer' },
+  { value: 'horario', label: 'Falta el horario' },
+  { value: 'cargadores', label: 'Falta quién cargó' },
+  { value: 'sin_tarifa', label: 'Ruta sin tarifa' },
+  { value: 'sin_cajas', label: 'Sin cajas de Kepler' },
+  { value: 'sueltas', label: 'Lleva unidades sueltas' },
+];
+const ORDENES: ReadonlyArray<{ value: Orden; label: string }> = [
+  { value: 'falta', label: 'Orden: lo que más falta' },
+  { value: 'fecha_desc', label: 'Orden: más recientes' },
+  { value: 'fecha_asc', label: 'Orden: más antiguas' },
+  { value: 'cajas', label: 'Orden: más cajas' },
+  { value: 'carga', label: 'Orden: mayor carga' },
+  { value: 'comision', label: 'Orden: mayor comisión' },
+  { value: 'asignado', label: 'Orden: mayor asignado' },
+  { value: 'guia', label: 'Orden: por guía' },
+];
+
+/** `[EMB.52]` Si la operación cumple el estado del filtro. */
+export function cumpleEstado(o: OperacionDelReporte, e: EstadoFiltro): boolean {
+  if (e === 'sin_tarifa') return o.comision_ruta.chofer == null;
+  if (e === 'sin_cajas') return o.cajas == null;
+  if (e === 'sueltas') return (o.sueltos ?? 0) > 0;
+  return o.faltan.includes(e);
+}
+
+/** Todos los que tocan la operación: cobran algo, la manejan, ayudan o cargan. */
+function personasDe(o: OperacionDelReporte): string[] {
+  return [...o.renglones.map((r) => r.persona_id), o.driver_id, o.chofer_kepler_id, o.helper1_id, o.helper2_id, ...o.cargador_ids]
+    .filter((x): x is string => !!x);
+}
+
+/** `[EMB.52]` El orden elegido; a igualdad, sucursal y guía, para que la lista no baile entre recargas. */
+export function ordenar<T extends OperacionDelReporte>(xs: T[], orden: Orden): T[] {
+  const n = (v: number | null | undefined): number => v ?? -1;
+  const cmp: Record<Orden, (a: T, b: T) => number> = {
+    falta: (a, b) => b.faltan.length - a.faltan.length || a.fecha.localeCompare(b.fecha),
+    fecha_desc: (a, b) => b.fecha.localeCompare(a.fecha),
+    fecha_asc: (a, b) => a.fecha.localeCompare(b.fecha),
+    cajas: (a, b) => n(b.cajas) - n(a.cajas),
+    carga: (a, b) => n(b.carga_total) - n(a.carga_total),
+    comision: (a, b) => n(b.comision_ruta.chofer) - n(a.comision_ruta.chofer),
+    asignado: (a, b) => b.repartido - a.repartido,
+    guia: () => 0,
+  };
+  return [...xs].sort((a, b) => cmp[orden](a, b) || a.sucursal.localeCompare(b.sucursal) || a.guia.localeCompare(b.guia));
+}
 type Operacion = OperacionDelReporte & { clave: string };
 
 const llave = (o: Pick<OperacionDelReporte, 'sucursal' | 'guia'>): string => `${o.sucursal}|${o.guia}`;
@@ -97,6 +149,21 @@ const mensaje = (e: unknown, def: string): string => {
           <p-select [options]="sucursales()" optionLabel="label" optionValue="value" [ngModel]="sucursal()"
                     (ngModelChange)="sucursal.set($event)" [showClear]="true" placeholder="Todas las sucursales"
                     ariaLabel="Sucursal" appendTo="body" class="pv-sel" />
+          <!-- [EMB.52] Filtros de la pantalla principal y el orden, que también manda en la vista de tarjetas. -->
+          <p-select [options]="tipos" optionLabel="label" optionValue="value" [ngModel]="tipoFiltro()"
+                    (ngModelChange)="tipoFiltro.set($event)" [showClear]="true" placeholder="Todos los tipos"
+                    ariaLabel="Tipo de operación" appendTo="body" class="pv-sel-chico" />
+          <p-select [options]="estados" optionLabel="label" optionValue="value" [ngModel]="estadoFiltro()"
+                    (ngModelChange)="estadoFiltro.set($event)" [showClear]="true" placeholder="Cualquier estado"
+                    ariaLabel="Qué le falta" appendTo="body" class="pv-sel-chico" />
+          <p-select [options]="personasFiltro()" optionLabel="label" optionValue="value" [ngModel]="personaFiltro()" [filter]="true"
+                    (ngModelChange)="personaFiltro.set($event)" [showClear]="true" placeholder="Cualquier persona"
+                    ariaLabel="Persona" appendTo="body" class="pv-sel" />
+          <p-select [options]="dias()" optionLabel="label" optionValue="value" [ngModel]="diaFiltro()"
+                    (ngModelChange)="diaFiltro.set($event)" [showClear]="true" placeholder="Todos los días"
+                    ariaLabel="Día" appendTo="body" class="pv-sel-chico" />
+          <p-select [options]="ordenes" optionLabel="label" optionValue="value" [ngModel]="orden()"
+                    (ngModelChange)="orden.set($event ?? 'falta')" ariaLabel="Ordenar por" appendTo="body" class="pv-sel" />
           <label class="pv-buscar">
             <span class="sr-only">Buscar operación</span>
             <input type="search" [value]="busqueda()" (input)="busqueda.set($any($event.target).value)"
@@ -178,6 +245,7 @@ const mensaje = (e: unknown, def: string): string => {
               <div><dt>Cajas</dt><dd>{{ o.cajas == null ? 'Kepler no las trae todavía' : (o.cajas | number:'1.0-0') }}</dd></div>
               <div><dt>Carga</dt><dd>{{ textoCarga(o) }}</dd></div>
               <div><dt>Comisión de la ruta</dt><dd>{{ textoComision(o) }}</dd></div>
+              <div><dt>Centro de costo</dt><dd>{{ o.centro ? o.centro.codigo + ' · ' + o.centro.nombre : sinCentro(o.sin_centro) }}</dd></div>
               <div><dt>Chofer en Kepler</dt><dd>{{ o.chofer_kepler || 'Kepler no lo trae' }}</dd></div>
             </dl>
             @if (o.sueltos) {
@@ -317,6 +385,7 @@ const mensaje = (e: unknown, def: string): string => {
     .pv-titular { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); color: var(--fg-1); }
     .pv-barra { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
     .pv-sel { min-width: 14rem; }
+    .pv-sel-chico { min-width: 10rem; }
     .pv-buscar input { min-width: 16rem; padding: var(--sp-2); border: 1px solid var(--border-color); border-radius: var(--r-md); background: transparent; color: inherit; font: inherit; }
     .pv-buscar input:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
     .pv-cuenta { margin-left: auto; font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
@@ -415,16 +484,48 @@ export class LogisticaPagosViajesComponent {
     return m;
   });
 
+  // `[EMB.52]` Filtros de la pantalla principal y el orden (también ordena la vista de tarjetas).
+  readonly tipoFiltro = signal<OperacionDelReporte['tipo'] | null>(null);
+  readonly estadoFiltro = signal<EstadoFiltro | null>(null);
+  readonly personaFiltro = signal<string | null>(null);
+  readonly diaFiltro = signal<string | null>(null);
+  readonly orden = signal<Orden>('falta');
+  readonly tipos = (['traspaso', 'cliente', 'mixto'] as const).map((value) => ({ value, label: TIPO_VIAJE_LABEL[value] }));
+  // Copias: p-select pide un arreglo mutable.
+  readonly estados = [...ESTADOS_FILTRO];
+  readonly ordenes = [...ORDENES];
+
   readonly filtrados = computed(() => {
     const vista = this.vista();
     const suc = this.sucursal();
     const q = this.busqueda();
-    return this.operaciones().filter((o) =>
+    const tipo = this.tipoFiltro();
+    const estado = this.estadoFiltro();
+    const persona = this.personaFiltro();
+    const dia = this.diaFiltro();
+    const lista = this.operaciones().filter((o) =>
       (vista === 'todas' || (vista === 'completas' ? !o.faltan.length : o.faltan.length > 0))
       && (!suc || o.sucursal === suc)
+      && (!tipo || o.tipo === tipo)
+      && (!estado || cumpleEstado(o, estado))
+      && (!persona || personasDe(o).includes(persona))
+      && (!dia || o.fecha === dia)
       && coincideBusqueda(q, o.guia, o.destinos, o.chofer_kepler, this.sucursalPipe.transform(o.sucursal),
         ...o.renglones.map((r) => r.persona)));
+    return ordenar(lista, this.orden());
   });
+
+  /** Quienes aparecen en la catorcena (cobran algo, manejan, ayudan o cargan), por nombre. */
+  readonly personasFiltro = computed(() => {
+    const m = new Map<string, string>();
+    for (const o of this.operaciones()) {
+      for (const r of o.renglones) m.set(r.persona_id, r.persona);
+      for (const id of personasDe(o)) if (!m.has(id)) m.set(id, this.nombre(id));
+    }
+    return [...m].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, 'es'));
+  });
+  readonly dias = computed(() => [...new Set(this.operaciones().map((o) => o.fecha))].sort()
+    .map((value) => ({ value, label: this.fechaCorta(value) })));
 
   private readonly cuenta = computed(() => {
     const os = this.operaciones();
@@ -703,6 +804,10 @@ export class LogisticaPagosViajesComponent {
     if (o.driver_id) return { nombre: this.nombre(o.driver_id), deKepler: false };
     if (o.chofer_kepler_id) return { nombre: this.nombre(o.chofer_kepler_id), deKepler: true };
     return null;
+  }
+
+  sinCentro(m: SinCentro | null): string {
+    return m ? SIN_CENTRO_LABEL[m] : '—';
   }
 
   textoComision(o: OperacionDelReporte): string {

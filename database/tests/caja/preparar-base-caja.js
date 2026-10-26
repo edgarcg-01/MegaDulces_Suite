@@ -77,7 +77,35 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
   // `caos_cash_links` (un retiro, muchos gastos): sin esta línea `test-newdb-caja-custodia` sale
   // NO MEDIDO y el trigger que lo reemplaza nunca se ejerce.
   'finance.caos_retiro_custodia'];
+/**
+ * `[CGA-A.55]` Migraciones que ALTERAN una tabla de `LEE_EL_SERVICIO` con REGLAS (no con datos).
+ * De esas tablas sólo se trae la migración que las crea; una regla agregada después no entraba, y
+ * su prueba salía NO MEDIDO para siempre. Lista explícita a propósito: traer «todo lo que altere
+ * `caos_cash_links`» arrastra migraciones de DATOS de prod (`cga_a10`, `a18`, `a24`, `a31`) que
+ * abortan en una base vacía, como abortaba `[CGS.52]`.
+ */
+const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_retiro.js'];
 const MAX_REMEDIOS = 200;
+
+/**
+ * `[CGP-D.1.2]` Migraciones que, ADEMÁS de cambiar la estructura del corte, corrigen FILAS DE PROD
+ * medidas a mano, y abortan a propósito si esas filas no están. En esta base vacía las filas nunca
+ * están: la migración corre entera (columnas, candados, guardia) y al llegar a su plan de datos
+ * aborta. Como knex aplica el lote en UNA transacción, ese aborto deshacía TODO el núcleo y el job
+ * quedaba rojo con `finance.cash_ledger_cuts does not exist` en cada suite (desde e059ad6be,
+ * 2026-10-23, cuando entró `[CGS.52]`).
+ *
+ * ⛔ Esto NO es saltar: la migración CORRE, su SQL de estructura se aplica y queda registrada. Sólo
+ * se acepta el aborto EXACTO que dice «no hay ninguna de las filas de prod que se midieron»
+ * (cero, no «otro número»): el aborto llega por un `throw` de JS después de un SELECT que salió
+ * bien, así que la transacción no queda envenenada y nada del plan de datos llegó a escribirse.
+ * Cualquier otro aborto (una cifra distinta, otro conteo, un error de SQL) sigue deteniendo todo.
+ * Lo que no se midió se DECLARA: queda en `_caja_test_base` como `datos_de_prod_no_medidos`.
+ */
+const CORRIGEN_FILAS_DE_PROD = {
+  '20261023095246_cgs52_recalcular_cortes_con_el_conteo_fisico_y_el_libro_atado.js':
+    /^\[CGS\.52\] hay 0 cortes del \d{4}-\d{2}-\d{2} al \d{4}-\d{2}-\d{2}, se midieron \d+ -- migracion abortada, sin tocar ninguna fila\.$/,
+};
 
 // ── utilidades ──────────────────────────────────────────────────────────────────────────────
 function argumentos(argv) {
@@ -205,6 +233,10 @@ async function main() {
       if (!creador) throw new Error(`ninguna migración crea ${obj}, que lee el servicio del corte.`);
       conjunto.add(creador);
     }
+    for (const f of REGLAS_SOBRE_LO_QUE_LEE) {
+      if (!todos.includes(f)) throw new Error(`la migración de reglas ${f} no existe en ${DIR}.`);
+      conjunto.add(f);
+    }
     const snapshot = cargarSnapshot();
 
     // `[CGP-L.6]` `dev_ro`, el rol de sólo lectura, también: varias migraciones le dan GRANT (la de los
@@ -229,13 +261,31 @@ async function main() {
 
     const moldes = [];
     const traidas = [];
+    const sinFilasDeProd = [];   // `[CGP-D.1.2]` se rehace en cada intento: el lote anterior se deshizo entero
     for (let intento = 0; ; intento++) {
       if (intento > MAX_REMEDIOS) throw new Error(`más de ${MAX_REMEDIOS} remedios: algo se repite, revisar.`);
+      sinFilasDeProd.length = 0;
       const lista = [...conjunto].sort();
       const fuente = {
         getMigrations: async () => lista,
         getMigrationName: (m) => m,
-        getMigration: async (m) => require(path.join(DIR, m)),
+        getMigration: async (m) => {
+          const mod = require(path.join(DIR, m));
+          const vacio = CORRIGEN_FILAS_DE_PROD[m];
+          if (!vacio) return mod;
+          return {
+            ...mod,
+            up: async (k) => {
+              try {
+                await mod.up(k);
+              } catch (e) {
+                const msg = String((e && e.message) || e);
+                if (!vacio.test(msg)) throw e;
+                sinFilasDeProd.push(`${m}: ${msg}`);
+              }
+            },
+          };
+        },
       };
       try {
         await knex.migrate.latest({ migrationSource: fuente, tableName: 'knex_migrations', schemaName: 'public' });
@@ -295,6 +345,14 @@ async function main() {
     const aplicadas = await knex('knex_migrations').count('* as n').first();
     console.log(`\n══ LISTO: ${aplicadas.n} migraciones aplicadas, ninguna saltada.`);
     if (traidas.length) console.log(`   traídas por dependencia (${traidas.length}): ${traidas.join(', ')}`);
+    for (const s of sinFilasDeProd) {
+      const [mig, ...resto] = s.split(': ');
+      await anotar('datos_de_prod_no_medidos', mig, resto.join(': '));
+    }
+    if (sinFilasDeProd.length) {
+      console.log(`   ⚠️ NO MEDIDO — corrección de filas de prod sin sus filas (${sinFilasDeProd.length}; la estructura SÍ se aplicó):`);
+      for (const s of sinFilasDeProd) console.log(`      · ${s}`);
+    }
     if (moldes.length) console.log(`   tablas ajenas vacías desde el snapshot (${moldes.length}): ${moldes.join(', ')}`);
     console.log('   ⛔ Esta base NO es prod: valida estructura y reglas del corte, no datos.');
   } finally {

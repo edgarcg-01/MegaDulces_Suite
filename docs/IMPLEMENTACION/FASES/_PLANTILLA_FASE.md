@@ -55,6 +55,7 @@ ESTADO:    ⬜ | 🔨 | 🧪 | 🚀 | ✅ | ⏸️ | ❌
 | XX.3.1 | <pantalla> | ⬜ | <N → N, sin fallas nuevas> |
 
 ⛔ Cargar la skill `diseno` **antes** de tocar el primer archivo. Permiso propio + entrada de sidebar. <500 ms.
+⛔ **Antes del primer item C3:** sección «Observaciones de diseño UI — revisión del plan» al final de este doc ([`auditoria-diseno` §9](../../../.claude/skills/auditoria-diseno/SKILL.md)). Sus 🔴 se vuelven items de esta tabla.
 
 ---
 
