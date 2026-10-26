@@ -390,12 +390,55 @@ actividad excluye; 1 SKU fuera del catálogo. Detalle en `VERDAD_ABSOLUTA` §17.
 nosotros publicamos: el filtro de actividad **replica** el resultado de Kepler sin que sepamos su regla.
 El join a `kdil` por SKU es por `c3` (no `c2`), ya corregido en el instrumento.
 
+### 12.2 El factor de caja del catálogo venía de un importer y se corrigió a mano (2026-10-26)
+
+El PM avisó que la base que medíamos **fue editada**: la unidad de los productos venía de un importer y
+eso producía **desfases al insertar en Kepler**. Medido en prod (sólo lectura, `system_identifier`
+verificado):
+
+| Hecho | Cifra |
+|---|---|
+| `catalog.products` editados el 2026-10-26 09:00 UTC, `updated_by` NULL (lote, no pantalla) | **9,241** |
+| de esos, `factor_sale` = `c84` de la escalera de Kepler (`kdii`, sucursal 00) | **8,519 / 9,149** (93 %) |
+| sin escalera en Kepler (no comparables) | 434 |
+| los 2,179 que NO tocó el lote: `factor_sale` = Kepler | 63 (2,086 sin escalera) |
+| `source` del catálogo: `kepler` 9,038 · `manual` 1,144 · `wincaja` 1,141 | el importer que se retira |
+| requisiciones aprobadas en 14 d / con folio de Kepler / con error de Kepler | 386 / **1** / 162 |
+
+**Qué toca y qué no, de lo ya medido en esta fase:**
+
+- **M2 (§11.1) hay que releerla.** El adaptador manda la línea a Kepler como `CJA`, `por_caja: 1`,
+  `cantidad: cajas` (`kepler-requisition-sink.adapter.ts`); nuestra `final_qty` sale de cajas × **nuestro**
+  factor. Si el factor difería del de Kepler, «cantidad cambiada» (38.3 % / 30.5 %) mezcla dos cosas:
+  corrección del comprador **y** desfase de unidad. Las requisiciones medidas son anteriores al lote de hoy
+  → **M2 se vuelve a correr sólo sobre requisiciones creadas después del 2026-10-26 09:00 UTC**, y la
+  cifra de §11.1 queda rotulada «pre-corrección de unidades».
+- **M1 (§11.2)** convierte cajas→piezas con `v_warehouse_box_factor`; en el 00, 977 SKUs resuelven por
+  `factor_sale` (fuente que cambió hoy). Ya estaba NO MEDIDO a escala: se repite con la fuente corregida.
+- **Agenda (PQ.4), aviso (PQ.5), bandeja (PQ.1):** cuentan canales, proveedores y documentos, no unidades
+  → no cambian.
+- **Paridad de existencia (§12.1):** `kdil` está en piezas de Kepler, sin factor nuestro → no cambia.
+
+⛔ **Lo que sigue sin cumplir la regla «misma fórmula de Kepler»:** el resolvedor canónico
+`v_product_box_factor` prefiere la **etiquetera** (5,244 SKUs en el 00) sobre el `c84` de Kepler
+(2,544), y `factor_sale` del catálogo es apenas su cuarta entrada. La corrección de hoy alinea el
+catálogo con Kepler, pero el número que usa el pedido sigue saliendo de otra fuente en 2 de cada 3 SKUs.
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| D20 | ¿Para almacenes de Kepler, el factor de caja del pedido es el `c84` de Kepler y nada más? | **Sí**: la etiquetera y el catálogo quedan como rótulo «difiere de Kepler», no como fuente. Cambia número → antes/después, y se mide contra OCs reales de Kepler (`c58`) antes de publicar. ⚠️ No en esta fase sin cupo: va a `libs/` (ADR-056) y lo comparte con AB |
+
+**NO MEDIDO:** el valor de `factor_sale` *antes* del lote (no hay historial de la columna), así que no
+se puede cuantificar cuántas requisiciones ya enviadas llevaron el desfase; sólo se sabe que 162 de 386
+aprobadas en 14 d tienen error de Kepler y 1 tiene folio.
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-26 | El PM avisó que la base fue editada: la unidad del catálogo venía de un importer y desfasaba lo insertado en Kepler. Medido (§12.2): 9,241 productos en lote, 93 % ahora = `c84` de Kepler. **M2 se relee** (cantidad cambiada mezcla comprador + unidad) y se repite sobre requisiciones posteriores al lote; M1 se repite; PQ.1/4/5 y la paridad no cambian. Nace **D20** (factor = `c84` de Kepler para almacenes Kepler) | PM + sesión PQ |
 | 2026-10-23 | Auditoría del flujo (nivel B+C), jerarquía, agenda medida, M1/M2 definidas, doc creado en ⬜. Consultas en el scratchpad de la sesión; cifras en §1 | sesión Claude + PM |
 | 2026-10-24 | «El CEDIS no recomienda comprar nada»: medido y cruzado con el reporte de existencia de Kepler (§12). Nuestra existencia = la de Kepler; la de Kepler = 127 SKUs contados el 30-sep y el resto en cero. **PQ.12** (demanda de red + D14 + compra del CEDIS) queda ⬜ dependiente del inventario físico del CEDIS. La sesión AB propuso D14/D15; PQ los acepta con cuatro ajustes (una sola regla de tránsito en `libs/`, D10 sin `eff_daily` en hubs mixtos, D15 sobre la bandeja existente, el número en un commit con antes/después) | PM + sesión PQ |
 | 2026-10-23 | **PQ.1, PQ.5 y PQ.4 en 🧪** (commits `61cbe15`, `ea81144`, `da0b005`): la bandeja distingue «aprobada» de «escrita en Kepler»; Pedido avisa «hoy te toca pedirle a N proveedores»; el Ciclo abre por **agenda de proveedores** (237 filas, 227 ms, cruzada al centavo contra la vista por canal con el servicio real) y declara el tope de la lista por canal (639 activos, 500 mostrados). ⛔ **Bloqueo nuevo:** los items que ESCRIBEN (PQ.2, PQ.3, PQ.7, PQ.8, PQ.9, PQ.11) exigen prueba contra base real con el payload de la pantalla y **Docker Desktop no responde** en la máquina de trabajo: sin base de pruebas no se arrancan. Dueño: quien levante el stack `dev:up`. Otra sesión avanzó KR.12/KR.13 (encendido de Kepler servidor por servidor): revisar antes de PQ.2 | sesión Claude |
