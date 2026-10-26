@@ -11,6 +11,8 @@ import {
   type Faltante, type ResumenFaltantes, type StockoutDecision, type StockoutDestino,
   type StockoutKind,
 } from '../../tienda/faltantes.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ALERTAS_ABASTO_TABS } from '../alertas-abasto-tabs';
 
 /**
  * `[FLT.12]` FALTANTES DE PISO — la bandeja de Compras (`/compras/faltantes`).
@@ -41,7 +43,7 @@ import {
 @Component({
   selector: 'app-compras-faltantes',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TagModule, DialogModule, TextareaModule],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TagModule, DialogModule, TextareaModule, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="cf-page">
@@ -53,6 +55,8 @@ import {
         <p-button icon="pi pi-refresh" label="Actualizar" severity="secondary" [outlined]="true"
                   (onClick)="cargar()" [loading]="cargando()" />
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <!-- Veredicto primero. Cada cifra con su lectura en llano al lado. -->
       @if (resumen(); as r) {
@@ -296,6 +300,8 @@ import {
   `],
 })
 export class ComprasFaltantesComponent implements OnInit {
+  /** [NAV.6] La barra del apartado «Alertas de abasto» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = ALERTAS_ABASTO_TABS;
   private readonly api = inject(FaltantesService);
 
   readonly resumen = signal<ResumenFaltantes | null>(null);

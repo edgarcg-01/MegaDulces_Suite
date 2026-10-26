@@ -23,6 +23,8 @@ import { ComercialService } from '../../comercial/comercial.service';
 import {
   ReceivingClaimsService, ReceivingClaim, ReceivingClaimKpis, TransferOriginPending,
 } from '../receiving-claims.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
 
 /**
  * **WMS-REC.8 (ADR-053) — Reclamos de recepción.**
@@ -49,7 +51,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, ToastModule,
     SelectModule, InputTextModule, TextareaModule,
-    MetricStripComponent, SidePeekComponent, LoadStateComponent, SucursalPipe,
+    MetricStripComponent, SidePeekComponent, LoadStateComponent, SucursalPipe, PageTabsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -72,6 +74,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <span class="p-button-label">Actualizar</span>
         </button>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de reclamos abiertos"></app-metric-strip>
 
@@ -426,6 +430,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   `],
 })
 export class ComprasReclamosComponent implements OnInit {
+  /** [NAV.6] La barra del apartado «Control de entradas» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = ENTRADAS_CONTROL_TABS;
   private readonly api = inject(ReceivingClaimsService);
   private readonly comercial = inject(ComercialService);
   private readonly toast = inject(MessageService);

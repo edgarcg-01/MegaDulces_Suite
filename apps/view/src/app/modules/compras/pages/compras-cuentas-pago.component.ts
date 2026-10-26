@@ -20,6 +20,8 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import type { CuentaPagoFaltante, CuentasPagoFaltantesResponse } from '@megadulces/contracts';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PAGO_PROVEEDOR_TABS } from '../pago-proveedor-tabs';
 
 interface SupplierOpt { id: string; name: string; code: string }
 interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; notes: string | null; attachment_url: string | null; es_favorita: boolean; status: string }
@@ -39,7 +41,7 @@ interface ChangeRequest {
   selector: 'app-compras-cuentas-pago',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, DialogModule, CheckboxModule, TagModule, ToastModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, DialogModule, CheckboxModule, TagModule, ToastModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, PageTabsComponent],
   providers: [MessageService],
   template: `
     <div class="surf-page in cta-page">
@@ -51,6 +53,8 @@ interface ChangeRequest {
         </div>
         <button pButton type="button" (click)="openNewSupplierPick()"><span class="pi pi-plus"></span>&nbsp;Solicitar cuenta</button>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <section class="cta-section">
         <div class="cta-section-head">
@@ -247,6 +251,8 @@ interface ChangeRequest {
   `],
 })
 export class ComprasCuentasPagoComponent implements OnInit {
+  /** [NAV.6] La barra del apartado «Pago a proveedor» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = PAGO_PROVEEDOR_TABS;
   private readonly http = inject(HttpClient);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

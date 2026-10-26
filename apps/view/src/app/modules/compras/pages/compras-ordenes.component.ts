@@ -16,6 +16,8 @@ import { SegmentedComponent, SegOption } from '../../../shared/components/segmen
 import { AuthService } from '../../../core/services/auth.service';
 import { generarOrdenProveedorPdf } from '../orden-proveedor-pdf';
 import { descargarCsvPedidoProveedor } from '../orden-proveedor-csv';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { SEGUIMIENTO_COMPRA_TABS } from '../seguimiento-compra-tabs';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -27,7 +29,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-ordenes',
   standalone: true,
-  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, SegmentedComponent, SucursalPipe],
+  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, SegmentedComponent, SucursalPipe, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -38,6 +40,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <p class="surf-page-sub">Lo que se pide al proveedor. La recepción (orden de entrada) se registra en el detalle y mueve existencia.</p>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <div class="oc-filters">
         <app-segmented [options]="vistaOpts" [value]="vista()" ariaLabel="Agrupación"
@@ -162,6 +166,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   `],
 })
 export class ComprasOrdenesComponent implements OnInit {
+  /** [NAV.6] La barra del apartado «Seguimiento de compra» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = SEGUIMIENTO_COMPRA_TABS;
   /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
   readonly multitarea = inject(MultitareaService);
   private readonly api = inject(ComprasService);

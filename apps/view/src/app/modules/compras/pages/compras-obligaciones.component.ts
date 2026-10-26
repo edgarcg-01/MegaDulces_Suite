@@ -20,6 +20,8 @@ import { ComprasEntregaPendientesComponent } from './compras-entrega-pendientes.
 import { ComprasEntregasComponent } from './compras-entregas.component';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PAGO_PROVEEDOR_TABS } from '../pago-proveedor-tabs';
 
 interface SupplierObligation {
   id: string; supplier_id: string; supplier_name: string; supplier_critical: boolean; supplier_critical_reason: string | null;
@@ -39,7 +41,7 @@ interface SupplierOpt{ id: string; name: string; code: string; is_critical: bool
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, TagModule, ToastModule,
-    SegmentedComponent, ComprasPlazosPagoComponent, ComprasEntregaPendientesComponent, ComprasEntregasComponent],
+    SegmentedComponent, ComprasPlazosPagoComponent, ComprasEntregaPendientesComponent, ComprasEntregasComponent, PageTabsComponent],
   providers: [MessageService],
   template: `
     <div class="surf-page in obl-page">
@@ -53,6 +55,8 @@ interface SupplierOpt{ id: string; name: string; code: string; is_critical: bool
           <button pButton type="button" (click)="openNew()"><span class="pi pi-plus"></span>&nbsp;Nueva obligación</button>
         }
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <!-- [RE.32] El orden es el del trabajo: entregar → lo entregado → plazos → la excepción manual. -->
       @if (tabOpts().length > 1) {
@@ -142,6 +146,8 @@ interface SupplierOpt{ id: string; name: string; code: string; is_critical: bool
   `],
 })
 export class ComprasObligacionesComponent implements OnInit {
+  /** [NAV.6] La barra del apartado «Pago a proveedor» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = PAGO_PROVEEDOR_TABS;
   private readonly http = inject(HttpClient);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

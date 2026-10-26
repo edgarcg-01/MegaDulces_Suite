@@ -26,6 +26,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 // medidos** en el arranque de las TRES apps Angular, porque lo importa el chunk inicial y los
 // ~80 kB del catálogo sólo los necesita una pantalla lazy.
 import { Permission } from '@megadulces/contracts/authz/permissions';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { SEGUIMIENTO_COMPRA_TABS } from '../seguimiento-compra-tabs';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -33,7 +35,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-requisiciones',
   standalone: true,
-  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, TagModule, TabsModule, ToastModule, DialogModule, TextareaModule, MetricStripComponent, SegmentedComponent, InputTextModule, IconFieldModule, InputIconModule, SucursalPipe],
+  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, TagModule, TabsModule, ToastModule, DialogModule, TextareaModule, MetricStripComponent, SegmentedComponent, InputTextModule, IconFieldModule, InputIconModule, SucursalPipe, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -45,6 +47,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <p class="surf-page-sub">Gestión de abastecimiento interno entre sucursales y compras a proveedores.</p>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <!-- [RQ.2] Antes de esto la pantalla devolvía una lista plana: ni un conteo, ni la
            antigüedad, con el filtro en "todos los estados" y 50 por página ordenadas por fecha.
@@ -520,6 +524,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   `],
 })
 export class ComprasRequisicionesComponent implements OnInit {
+  /** [NAV.6] La barra del apartado «Seguimiento de compra» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = SEGUIMIENTO_COMPRA_TABS;
   /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
   readonly multitarea = inject(MultitareaService);
   private readonly api = inject(ComprasService);
