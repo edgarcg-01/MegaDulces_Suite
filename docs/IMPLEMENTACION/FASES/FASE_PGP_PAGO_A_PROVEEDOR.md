@@ -768,6 +768,22 @@ sucursal en vez de duplicarlo; los 10 `p-select` con `appendTo="body"` (medido: 
 del diálogo) y `[fluid]`/`size` en lugar de `styleClass` (474 de 510 px). ⚠️ **No ejercido contra base
 real:** agregar a un día de otra semana (dos GET más y el mismo `POST` de siempre).
 
+**Corte al abrir «Agregar facturas» (reporte de Edgar, mismo día) — medido y corregido.** Abrir el
+cajón **congelaba la pantalla 15.9 s** (tarea larga de 14,827 ms; 18.6 s la segunda vez): pintaba
+954 renglones de golpe, con 13,300 nodos y **1,908 `pButton` con su `pTooltip`**, y cada renglón
+formateaba fecha e importe creando un formateador nuevo (`toLocaleString`) en cada ciclo. Ahora:
+botones nativos (`title` + `aria-label`); formateadores creados una vez (`PESOS`, fechas con
+memoria); los textos de cada renglón en un modelo de vista (`filasDeuda`) que sólo se recalcula si
+cambia la lista o el día; y se pintan primero 50 renglones y el resto en tandas de 50 por cuadro
+—el cajón dice «Mostrando N de M…» mientras tanto y al final están **los 954**. Medido con la
+pestaña al frente (control: 146 cuadros/s en reposo, antes y después): **renglones visibles a
+19–40 ms del clic, los 954 a 329–434 ms, el cuadro más largo de 20–40 ms y ninguno arriba de
+100 ms**; con el cajón abierto, cada clic en la tabla responde en 16–26 ms. ⚠️ **Descartadas por
+falla del instrumento:** una medición de 9.5–20 s con la pestaña en segundo plano (el control dio
+2–4 cuadros/s: el navegador la estaba limitando) y una tarea de 2,318 ms de una traza que era el
+propio perfilador arrancando (`CpuProfiler::StartProfiling`). Medido en el servidor de desarrollo;
+en producción debe ser más rápido, no medido.
+
 **Deuda con nombre:**
 
 - **`PGP.15.D1`** — proponer el día cuesta **2.3 MB y 931 ms** (lee las 2,858 facturas una vez por
