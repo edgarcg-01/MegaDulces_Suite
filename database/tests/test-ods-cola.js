@@ -68,19 +68,31 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
       ['c5', 'numeric'], ['c6', 'character varying'], ['c9', 'date'], ['c43', 'character varying'], ['c68', 'date']]
       .map(([column_name, data_type]) => ({ column_name, data_type }));
     const META = { cols: COLS, pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] };
-    const correr = async (opts) => {
+    const correr = async (code, opts) => {
       const consultas = [];
       const p = { async query(sql) { consultas.push(String(sql)); return /SELECT last_ctid FROM ods\.ctl/.test(sql) ? { rows: [{ last_ctid: '(0,0)' }] } : { rows: [], rowCount: 0 }; } };
-      await syncCtid(p, '06', 'kdm1', META, { apply: true, full: false, ...opts });
+      await syncCtid(p, code, 'kdm1', META, { apply: true, full: false, ...opts });
       return consultas;
     };
-    const conCola = await correr({ colaActiva: true });
-    const sinCola = await correr({ colaActiva: false });
     const red = (qs) => qs.some((s) => /current_date - 3/.test(s));
     const estado = (qs) => qs.some((s) => /"c1" = \$1 AND/.test(s));
+    // ⛔ La puesta al día: medido en el piloto de la 06, dos facturas capturadas segundos ANTES del
+    // trigger quedaron fuera de la cola Y fuera de la red (que ya se saltaba). La primera pasada con
+    // la cola activa tiene que correr las dos redes completas.
+    const primera = await correr('06', { colaActiva: true });
+    A(red(primera) && estado(primera), '⛔ PRIMERA pasada con cola: corre las dos redes una vez (cubre lo de antes del trigger)');
+    const conCola = await correr('06', { colaActiva: true });
     A(conCola.some((s) => /ctid > \$1::tid/.test(s)), 'con cola, el ctid SIGUE corriendo (es barato y mantiene `ods.ctl` al día)');
-    A(!red(conCola) && !estado(conCola), 'con cola, NI la red de 3 días NI la de estado (eran el ciclo de ~1.5 s cada 5 min)');
+    A(!red(conCola) && !estado(conCola), 'ya puesta al día: NI la red de 3 días NI la de estado (eran el ciclo de ~1.5 s cada 5 min)');
+    const sinCola = await correr('07', { colaActiva: false });
     A(red(sinCola) && estado(sinCola), 'CONTROL: sin cola, las dos redes corren como siempre');
+    // El caso real de una instalación: la rama corrió su red hace un momento (SIN cola) y en ese
+    // instante se activa la cola. La puesta al día no puede esperar su turno de 5 min, ni darse por
+    // hecha porque la red ya había corrido sin cola.
+    await correr('08', { colaActiva: false });
+    const recienActivada = await correr('08', { colaActiva: true });
+    A(red(recienActivada) && estado(recienActivada),
+      '⛔ recién activada la cola, la puesta al día corre YA aunque la red haya corrido hace segundos sin cola');
     const full = []; const pf = { async query(sql) { full.push(String(sql)); return /last_ctid/.test(sql) ? { rows: [{ last_ctid: '(0,0)' }] } : { rows: [], rowCount: 0 }; } };
     await syncCtid(pf, '06', 'kdm1', META, { apply: true, full: true, colaActiva: true });
     A(red(full), '`--full` corre la red aunque haya cola (una reparación no se salta nada)');

@@ -205,6 +205,13 @@ const { estadoCola, profundidadCola, drenarCola } = require('../lib/ods-cola');
 const COLA_TABLES = (process.env.ODS_COLA_TABLES || '').split(',').map((s) => s.trim()).filter(Boolean);
 const COLA_ESTADO_MS = 60 * 1000;
 const _colaEstado = new Map(); // code → { en, activas: Set, faltan: string[] }
+// ⛔ LA COLA SÓLO VE LO QUE PASÓ DESPUÉS DE EXISTIR. Medido en el piloto de la 06 (2026-10-26):
+// dos facturas capturadas a las 16:19, segundos ANTES del trigger, cayeron debajo del watermark
+// (página 1,982 contra 2,497) — el ctid no las vio, la cola no las tenía, y la red de 5 min que
+// las habría rescatado ya se saltaba porque la cola estaba activa. Quedaban esperando al
+// reconciliador de 15 min. Por eso, cuando la cola de una tabla se ACTIVA en una rama (o el
+// proceso arranca), la red corre UNA vez completa —la «puesta al día»— y recién después se salta.
+const _redConCola = new Set(); // `${code}/${table}` que ya hicieron su puesta al día con la cola activa
 
 // RED DE SEGURIDAD del carril HASH (bug 2026-09-02): el shadow se marca para TODAS las filas
 // enviadas, sin poder confirmar que el destino las aplicó — y NO se puede validar por `rowCount`,
@@ -549,7 +556,10 @@ async function syncCtid(p, code, table, meta, { apply, full, colaActiva = false 
        rows_last=EXCLUDED.rows_last, changed_last=EXCLUDED.changed_last, last_run_at=now()`,
     [table, lastCtid, seen, changed]);
   if (seen) console.log(`  ✓ ${code}/${table} [ctid]: ${seen} leídas · ${changed} escritas · ctid→${lastCtid}`);
-  if (colaActiva && !full) return { suc: code, tabla: table, carril: 'ctid', leidas: seen, escritas: changed, redes: 'cola' };
+  // [OBS.15] Con la cola activa, las redes se saltan — salvo la primera vez (la puesta al día).
+  const llaveRed = `${code}/${table}`;
+  if (colaActiva && !full && _redConCola.has(llaveRed)) return { suc: code, tabla: table, carril: 'ctid', leidas: seen, escritas: changed, redes: 'cola' };
+  const puestaAlDia = colaActiva && !full;
 
   // RED DE SEGURIDAD: re-envía la ventana reciente por fecha (recupera filas que el ctid saltó).
   // Idempotente (raw-upsert) → re-enviar filas ya presentes es inofensivo. Throttle a SAFETY_INTERVAL.
@@ -560,7 +570,8 @@ async function syncCtid(p, code, table, meta, { apply, full, colaActiva = false 
   if (ventana) {
     const key = `${code}/${table}`;
     const nowMs = Date.now();
-    if (full || (nowMs - (_lastSafety.get(key) || 0)) >= SAFETY_INTERVAL_MS) {
+    // La puesta al día no espera su turno de 5 min: es lo que cubre el instante antes del trigger.
+    if (full || puestaAlDia || (nowMs - (_lastSafety.get(key) || 0)) >= SAFETY_INTERVAL_MS) {
       _lastSafety.set(key, nowMs);
       let sbuf = [], sSeen = 0, sChanged = 0;
       const rows = (await p.query(
@@ -572,12 +583,14 @@ async function syncCtid(p, code, table, meta, { apply, full, colaActiva = false 
         if (sbuf.length >= SHIP_BATCH) { const r = await ship(sbuf, shipMeta); sChanged += Number(r.rowCount || 0); sbuf = []; }
       }
       if (sbuf.length) { const r = await ship(sbuf, shipMeta); sChanged += Number(r.rowCount || 0); }
-      if (sChanged) console.log(`  ⛑ ${code}/${table} [safety ${SAFETY_DAYS}d]: ${sSeen} revisadas · ${sChanged} recuperadas/actualizadas`);
+      if (sChanged || puestaAlDia) console.log(`  ⛑ ${code}/${table} [safety ${SAFETY_DAYS}d${puestaAlDia ? ' · puesta al día con la cola' : ''}]: ${sSeen} revisadas · ${sChanged} recuperadas/actualizadas`);
     }
   }
 
   // [GX.73] Y los documentos que todavía cambian de estado, sin importar su fecha.
-  await reenviarAbiertos(p, code, table, meta, { full });
+  await reenviarAbiertos(p, code, table, meta, { full: full || puestaAlDia });
+  // Se marca AL FINAL: si la puesta al día tiró a medias, la próxima pasada la repite entera.
+  if (puestaAlDia) _redConCola.add(llaveRed);
   return { suc: code, tabla: table, carril: 'ctid', leidas: seen, escritas: changed };
 }
 
@@ -760,6 +773,9 @@ async function colaDe(p, code) {
   if (hit && Date.now() - hit.en < COLA_ESTADO_MS) return hit;
   const e = await estadoCola(p, COLA_TABLES);
   const activas = new Set(COLA_TABLES.filter((t) => e.tablas[t] === 'activa'));
+  // Una tabla que NO estaba activa y ahora sí (se instaló, o se reinstaló tras quitarla) vuelve
+  // a necesitar su puesta al día: lo que cambió mientras no había trigger no está en la cola.
+  for (const t of COLA_TABLES) if (!activas.has(t) || !hit?.activas.has(t)) _redConCola.delete(`${code}/${t}`);
   const v = { en: Date.now(), activas, faltan: COLA_TABLES.filter((t) => !activas.has(t)).map((t) => `${t}:${e.tablas[t]}`) };
   _colaEstado.set(code, v);
   return v;
