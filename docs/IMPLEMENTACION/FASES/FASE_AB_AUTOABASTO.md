@@ -2215,7 +2215,7 @@ rutas) contra 535 del pedido y 72.5 de la política; las demás sucursales, el p
 
 | | Máximos que no alcanzan ni 14 días | Máximos de más de 90 días | Productos con existencia ≤ reorden |
 |---|---:|---:|---:|
-| Sucursales | 523 → 0 | 1,774 → 660 | 4,829 → 5,027 |
+| Sucursales | 483 → 0 | 1,574 → 571 | 4,829 → 5,027 |
 | Matrices (01, 06, 08) | 238 → 0 | 1,102 → 718 | 4,967 → 5,170 |
 
 Mr Beast en Padre Hidalgo: máximo 4,029 → 14,951 pz (23 días de su demanda de red). La posición (agotado / bajo mínimo / bajo
