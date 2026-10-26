@@ -151,7 +151,21 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               </td>
               <td class="rq-r" [class.rq-viejo]="g.dias > 30">{{ g.dias }}</td>
               <td class="rq-muted">{{ g.autor || '—' }}</td>
-              <td><i class="pi pi-angle-right rq-muted"></i></td>
+              <!-- [PQ.15] Aprobar el lote COMPLETO desde su fila (pedido del PM, 2026-10-26): antes había
+                   que abrir el lote, marcar sus documentos de a página (50) y aprobar. Dos pasos a
+                   propósito (poka-yoke): el primer clic muestra cuántos va a aprobar; el segundo lo hace. -->
+              <td class="rq-lote-acc" (click)="$event.stopPropagation()">
+                @if (g.pendientes > 0 && canAutorizar) {
+                  @if (loteAConfirmar()?.lote === g.lote) {
+                    <button pButton type="button" class="p-button-sm" [disabled]="busy()" (click)="aprobarLote(g)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Sí, aprobar {{ g.pendientes }}</span></button>
+                    <button pButton type="button" class="p-button-sm p-button-text" [disabled]="busy()" (click)="loteAConfirmar.set(null)"><span class="p-button-label">Cancelar</span></button>
+                  } @else {
+                    <button pButton type="button" class="p-button-sm p-button-outlined" [disabled]="busy()" (click)="loteAConfirmar.set(g)"
+                            [attr.aria-label]="'Aprobar completo el lote ' + (g.batch_folio || 'sin folio') + ': ' + g.pendientes + ' pendiente(s)'"><span class="p-button-icon p-button-icon-left pi pi-check-square" aria-hidden="true"></span><span class="p-button-label">Aprobar lote ({{ g.pendientes }})</span></button>
+                  }
+                }
+                <i class="pi pi-angle-right rq-muted" aria-hidden="true"></i>
+              </td>
             </tr>
           </ng-template>
           <ng-template #emptymessage>
@@ -489,6 +503,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .rq-sub { font-size: var(--fs-xs); }
     .rq-strong { font-weight: 700; }
     .rq-lote-que { display: flex; gap: .3rem; flex-wrap: wrap; }
+    /* [PQ.15] Aprobar el lote desde su fila: los botones no abren el lote al hacer clic. */
+    .rq-lote-acc { white-space: nowrap; display: flex; align-items: center; justify-content: flex-end; gap: .3rem; }
     .rq-pill { font-size: var(--fs-micro); font-weight: 700; padding: .1rem .4rem; border-radius: 999px;
                border: 1px solid var(--surface-border); }
     .rq-pill-buy { color: var(--action); border-color: var(--action); }
@@ -965,12 +981,61 @@ export class ComprasRequisicionesComponent implements OnInit {
   lote(accion: 'approve' | 'reject', motivo: string | null = null): void {
     const ids = [...this.sel()];
     if (!ids.length) return;
+    this.aplicarLote(ids, accion, motivo);
+  }
+
+  /** `[PQ.15]` El lote cuya aprobación completa está pidiendo confirmación (un solo lote a la vez). */
+  loteAConfirmar = signal<RequisitionBatchRow | null>(null);
+  /** Tope del servidor (`bulkEstado`): más de esto no lo acepta en una llamada. */
+  static readonly TOPE_LOTE = 200;
+
+  /**
+   * `[PQ.15]` Aprobar un lote COMPLETO de golpe. Se piden al servidor los documentos del lote que
+   * siguen `pending_approval` (hasta el tope de 200, que es el mismo que acepta el bulk) y se mandan
+   * al mismo endpoint que ya usa «Aprobar» con casillas: cada documento va en su propia
+   * transacción y lo que no pasa se dice por folio (RQ.4). ⚠️ Igual que ese camino, el lote NO
+   * empuja a Kepler (KR.5): quedan «sin empujar a Kepler», que la bandeja ya sabe mostrar.
+   */
+  aprobarLote(g: RequisitionBatchRow): void {
+    if (!g || g.pendientes <= 0 || this.busy()) return;
+    if (g.pendientes > ComprasRequisicionesComponent.TOPE_LOTE) {
+      this.toast.add({ severity: 'warn', summary: `El lote tiene ${g.pendientes} pendientes`, life: 10000,
+        detail: `El servidor acepta hasta ${ComprasRequisicionesComponent.TOPE_LOTE} por llamada. Abrí el lote y aprobalo por páginas.` });
+      return;
+    }
+    this.busy.set(true);
+    this.api.listRequisitions({ batch_id: g.lote, estado: 'pending_approval', pageSize: ComprasRequisicionesComponent.TOPE_LOTE })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          const ids = (r.rows || []).map((x) => x.id);
+          if (!ids.length) {
+            this.busy.set(false); this.loteAConfirmar.set(null);
+            this.toast.add({ severity: 'info', summary: 'Nada que aprobar', detail: 'El lote ya no tiene documentos pendientes.', life: 6000 });
+            this.reload();
+            return;
+          }
+          this.loteAConfirmar.set(null);
+          this.aplicarLote(ids, 'approve', null, g.batch_folio || undefined);
+        },
+        error: (e) => {
+          this.busy.set(false);
+          this.toast.add({ severity: 'error', summary: 'No se pudo leer el lote', detail: e?.error?.message || 'Intenta de nuevo.' });
+        },
+      });
+  }
+
+  private aplicarLote(ids: string[], accion: 'approve' | 'reject', motivo: string | null, loteFolio?: string): void {
     this.busy.set(true);
     this.api.bulkRequisiciones(ids, accion, motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.busy.set(false);
         const verbo = accion === 'approve' ? 'aprobada(s)' : 'rechazada(s)';
-        if (r.hechas) this.toast.add({ severity: 'success', summary: `${r.hechas} ${verbo}`, life: 5000 });
+        if (r.hechas) this.toast.add({
+          severity: 'success', life: accion === 'approve' ? 9000 : 5000,
+          summary: `${r.hechas} ${verbo}${loteFolio ? ` del lote ${loteFolio}` : ''}`,
+          // `[PQ.15]` Aprobar en masa no escribe en Kepler (KR.5): se dice, no se deja suponer.
+          detail: accion === 'approve' ? 'Quedan «sin empujar a Kepler»: el lote no escribe en el ERP; se empuja desde cada requisición cuando la escritura esté encendida.' : undefined,
+        });
         if (r.fallas.length) {
           const folios = new Map(this.rows().map((x) => [x.id, x.folio]));
           const det = r.fallas.slice(0, 3).map((f) => `${folios.get(f.id) || f.id.slice(0, 8)}: ${f.motivo}`).join(' · ');
