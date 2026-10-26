@@ -1,0 +1,838 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pagos — rediseño v2</title>
+<style>
+/* ──────────────────────────────────────────────────────────────────────────
+   PGP.11 — v2, sobre la maqueta de la sesión de PGP.11 (PGP11-pagos-rediseno.html).
+   Conserva su esqueleto (cola de días + el lote como hoja de trabajo con cuatro
+   pasos) y corrige lo que la v1 AFIRMABA mal: la regla de firma, la sucursal
+   00, una cifra de la cola con dos significados, una CLABE que se tecleaba sin
+   aprobación y $14M programables en un clic.
+   Superficie Operations: sin display font, sin ilustraciones, densidad compacta.
+   Tokens inline sólo porque es una maqueta suelta; en la app salen de
+   libs/design-tokens/tokens.css. Datos: los de la v1 (prod, 26-oct-2026).
+   ────────────────────────────────────────────────────────────────────────── */
+:root{
+  --bg:#fafaf9; --card-bg:#ffffff; --surface-2:#f5f5f4; --surface-3:#eeedeb;
+  --text-main:#1c1917; --text-muted:#6b6560; --text-faint:#a8a29e;
+  --border-color:#e7e5e4; --border-strong:#d6d3d1;
+  --action:#ea580c; --action-strong:#c2410c; --on-action:#ffffff;
+  --action-ring:#fdba74; --action-soft:#fff7ed;
+  --ok-fg:#15803d; --ok-soft:#f0fdf4;
+  --warn-fg:#a14a06; --warn-soft:#fffbeb;
+  --bad-fg:#b91c1c; --bad-soft:#fef2f2;
+  --info-fg:#1d4ed8; --info-soft:#eff6ff;
+  --r-sm:4px; --r-md:8px; --r-lg:12px; --r-pill:999px;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px;
+  --fs-nano:.69rem; --fs-micro:.73rem; --fs-xs:.79rem; --fs-sm:.87rem;
+  --fs-body:.95rem; --fs-md:1.05rem; --fs-lg:1.2rem; --fs-xl:1.5rem;
+  --tap:32px; color-scheme:light;
+  --font-sans:"Hanken Grotesk",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#111111; --card-bg:#1c1917; --surface-2:#232020; --surface-3:#2c2826;
+    --text-main:#fafaf9; --text-muted:#b5aea8; --text-faint:#78716c;
+    --border-color:#332f2d; --border-strong:#44403c;
+    --action:#fb923c; --action-strong:#fb923c; --on-action:#1c1917;
+    --action-ring:#c2410c; --action-soft:#2a1a0d;
+    --ok-fg:#4ade80; --ok-soft:#0f2417; --warn-fg:#fbbf24; --warn-soft:#2a2008;
+    --bad-fg:#f87171; --bad-soft:#2a1313; --info-fg:#93c5fd; --info-soft:#0f1a2e;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#111111; --card-bg:#1c1917; --surface-2:#232020; --surface-3:#2c2826;
+  --text-main:#fafaf9; --text-muted:#b5aea8; --text-faint:#78716c;
+  --border-color:#332f2d; --border-strong:#44403c;
+  --action:#fb923c; --action-strong:#fb923c; --on-action:#1c1917;
+  --action-ring:#c2410c; --action-soft:#2a1a0d;
+  --ok-fg:#4ade80; --ok-soft:#0f2417; --warn-fg:#fbbf24; --warn-soft:#2a2008;
+  --bad-fg:#f87171; --bad-soft:#2a1313; --info-fg:#93c5fd; --info-soft:#0f1a2e;
+}
+@media (pointer:coarse){ :root{ --tap:44px } }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text-main);font-family:var(--font-sans);
+  font-size:var(--fs-body);line-height:1.45;-webkit-font-smoothing:antialiased}
+svg{display:block;flex-shrink:0}
+.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--text-muted)} .warn{color:var(--warn-fg)} .bad{color:var(--bad-fg)} .ok{color:var(--ok-fg)}
+.wrap{max-width:1520px;margin:0 auto;padding:var(--sp-4) 16px 64px}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ── barra de la maqueta (no es parte de la pantalla) ─────────────────── */
+.mockbar{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);flex-wrap:wrap;
+  margin-bottom:var(--sp-4);padding:var(--sp-2) var(--sp-3);border:1px dashed var(--border-strong);
+  border-radius:var(--r-md);font-size:var(--fs-xs);color:var(--text-muted)}
+.mockbar b{color:var(--text-main)}
+.mockbar .grp{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
+.tbtn{font:inherit;font-size:var(--fs-xs);min-height:var(--tap);padding:0 var(--sp-3);border:1px solid var(--border-strong);
+  border-radius:var(--r-pill);background:var(--card-bg);color:var(--text-main);cursor:pointer}
+.tbtn:hover{background:var(--surface-2)}
+.tbtn[aria-pressed="true"]{border-color:var(--action-strong);color:var(--action-strong);font-weight:700}
+.tbtn:focus-visible{outline:2px solid var(--action-ring);outline-offset:2px}
+
+/* ── cabecera ─────────────────────────────────────────────────────────── */
+.phead{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);flex-wrap:wrap;margin-bottom:var(--sp-3)}
+.phead-l{display:flex;align-items:baseline;gap:var(--sp-3);min-width:0;flex-wrap:wrap}
+.phead h1{font-size:var(--fs-xl);font-weight:700;margin:0;letter-spacing:-.015em;display:flex;align-items:center;gap:6px}
+.crumbs{font-size:var(--fs-xs);color:var(--text-muted);white-space:nowrap}
+.help{all:unset;display:inline-grid;place-items:center;width:20px;height:20px;border:1px solid var(--border-strong);
+  border-radius:var(--r-pill);font-size:var(--fs-micro);font-weight:700;color:var(--text-muted);cursor:pointer}
+.help:focus-visible{outline:2px solid var(--action-ring);outline-offset:2px}
+.helpbox{margin:0 0 var(--sp-3);padding:var(--sp-3) var(--sp-4);border:1px solid var(--border-color);border-radius:var(--r-md);
+  background:var(--card-bg);font-size:var(--fs-xs);color:var(--text-muted);display:grid;gap:var(--sp-2)}
+.helpbox[hidden]{display:none}
+.helpbox dt{font-weight:700;color:var(--text-main)} .helpbox dd{margin:0}
+.helpbox dl{margin:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));gap:var(--sp-2) var(--sp-4)}
+.modes{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--border-color);border-radius:var(--r-pill);background:var(--surface-2)}
+.mode{display:flex;align-items:center;gap:6px;min-height:var(--tap);padding:0 var(--sp-4);border-radius:var(--r-pill);
+  font-size:var(--fs-sm);color:var(--text-muted);cursor:pointer;border:0;background:transparent;font-family:inherit;white-space:nowrap}
+.mode:hover{color:var(--text-main)}
+.mode:focus-visible{outline:2px solid var(--action-ring);outline-offset:1px}
+.mode.is-on{background:var(--card-bg);color:var(--text-main);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.07)}
+.mode .cnt{font-family:var(--font-mono);font-size:var(--fs-nano);font-weight:700;padding:0 5px;
+  border-radius:var(--r-pill);background:var(--warn-soft);color:var(--warn-fg);border:1px solid currentColor}
+.mode .cnt.is-zero{background:transparent;color:var(--text-muted);border-color:var(--border-strong)}
+
+.btn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:var(--fs-sm);min-height:var(--tap);
+  padding:0 var(--sp-3);border:1px solid var(--border-strong);border-radius:var(--r-md);
+  background:var(--card-bg);color:var(--text-main);cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--surface-2)}
+.btn:focus-visible{outline:2px solid var(--action-ring);outline-offset:2px}
+.btn-primary{background:var(--action-strong);border-color:var(--action-strong);color:var(--on-action);font-weight:700}
+.btn-primary:hover{filter:brightness(1.06);background:var(--action-strong)}
+.btn-lg{font-size:var(--fs-body);min-height:max(var(--tap),40px);padding:0 var(--sp-4)}
+.btn-ghost{border-color:transparent;background:transparent;color:var(--text-muted)}
+.btn-ghost:hover{background:var(--surface-2);color:var(--text-main)}
+.btn-danger-ghost{border-color:transparent;background:transparent;color:var(--bad-fg)}
+.btn-danger-ghost:hover{background:var(--bad-soft)}
+.btn[disabled]{opacity:.5;cursor:not-allowed;filter:none}
+.why-off{font-size:var(--fs-xs);color:var(--text-muted)}
+
+/* ══ LIENZO ═════════════════════════════════════════════════════════════ */
+.shell{display:grid;grid-template-columns:15.5rem minmax(0,1fr);gap:var(--sp-3);align-items:start}
+
+/* ── COLA: la cifra de la derecha SIEMPRE es lo libre del día ─────────── */
+.queue{border:1px solid var(--border-color);border-radius:var(--r-lg);background:var(--card-bg);
+  overflow:hidden;position:sticky;top:var(--sp-2)}
+.queue-h{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-1);
+  padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--border-color)}
+.queue-h h2{margin:0;font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)}
+.queue-legend{display:flex;justify-content:space-between;padding:3px var(--sp-3);font-size:var(--fs-nano);
+  color:var(--text-muted);border-bottom:1px solid var(--border-color);background:var(--surface-2)}
+.qdays{display:block}
+.qday{all:unset;box-sizing:border-box;cursor:pointer;display:block;width:100%;min-height:var(--tap);
+  padding:6px var(--sp-3);border-bottom:1px solid var(--border-color);border-left:3px solid transparent}
+.qday:hover{background:var(--surface-2)}
+.qday:focus-visible{outline:2px solid var(--action-ring);outline-offset:-2px}
+.qday.is-sel{background:var(--action-soft);border-left-color:var(--action-strong)}
+.qday-t{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-2)}
+.qday-n{font-size:var(--fs-sm);font-weight:700}
+.qday.is-sel .qday-n{color:var(--action-strong)}
+.qday-n .t{font-weight:400;color:var(--text-muted);font-size:var(--fs-micro)}
+.qday-amt{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-xs);font-weight:700}
+.qday-b{display:flex;align-items:center;gap:5px;font-size:var(--fs-micro);color:var(--text-muted);line-height:1.3;flex-wrap:wrap}
+.dot{width:7px;height:7px;border-radius:var(--r-pill);background:var(--text-faint);flex-shrink:0}
+.dot.s-work{background:var(--warn-fg)} .dot.s-ok{background:var(--ok-fg)}
+.dot.s-free{background:transparent;border:1.5px solid var(--text-muted)}
+.qday.is-nocap .qday-n,.qday.is-nocap .qday-amt{color:var(--text-muted)}
+.queue-f{padding:var(--sp-2) var(--sp-3);background:var(--surface-2);border-top:1px solid var(--border-color);
+  font-size:var(--fs-micro);color:var(--text-muted);line-height:1.5}
+.queue-f b{font-family:var(--font-mono);font-variant-numeric:tabular-nums;color:var(--text-main);font-weight:700}
+
+/* ── EL VEREDICTO ─────────────────────────────────────────────────────── */
+.lot{display:grid;gap:var(--sp-2)}
+.vd{border:1px solid var(--border-color);border-left:4px solid var(--warn-fg);
+  border-radius:var(--r-lg);background:var(--card-bg);padding:var(--sp-3) var(--sp-4)}
+.vd.v-idle{border-left-color:var(--border-strong)}
+.vd-id{display:flex;align-items:baseline;gap:var(--sp-2);flex-wrap:wrap;margin-bottom:2px}
+.vd-id h2{margin:0;font-size:var(--fs-sm);font-weight:700;color:var(--text-muted)}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:var(--fs-nano);font-weight:700;
+  text-transform:uppercase;letter-spacing:.03em;padding:1px 7px;border-radius:var(--r-pill);
+  border:1px solid var(--border-strong);color:var(--text-muted);background:var(--surface-2)}
+.pill.s-work{color:var(--warn-fg);background:var(--warn-soft);border-color:currentColor}
+.vd-main{display:flex;align-items:center;gap:var(--sp-4);flex-wrap:wrap}
+.vd-txt{flex:1;min-width:15rem}
+.vd-say{margin:0;font-size:var(--fs-md);font-weight:700;letter-spacing:-.008em;line-height:1.3}
+.vd-why{margin:2px 0 0;font-size:var(--fs-xs);color:var(--text-muted)}
+.vd-why b{color:var(--text-main)}
+.cap{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;margin-top:var(--sp-3);
+  padding-top:var(--sp-2);border-top:1px solid var(--border-color)}
+.cap-bar{flex:1;min-width:9rem;display:block;height:6px;border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden}
+.cap-bar i{display:block;height:100%;background:var(--action);border-radius:inherit}
+.cap-say{font-size:var(--fs-xs);color:var(--text-muted);white-space:nowrap}
+.cap-say b{font-family:var(--font-mono);font-variant-numeric:tabular-nums;color:var(--text-main);font-weight:700}
+.src{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-nano);font-weight:700;padding:0 6px;
+  border-radius:var(--r-pill);border:1px solid currentColor;color:var(--warn-fg);background:var(--warn-soft)}
+
+/* ── PASOS ────────────────────────────────────────────────────────────── */
+.steps{display:grid;gap:6px}
+.step{border:1px solid var(--border-color);border-radius:var(--r-lg);background:var(--card-bg);overflow:hidden}
+.step.is-now{border-color:var(--action-strong);box-shadow:0 0 0 1px var(--action-strong)}
+.step-h{all:unset;box-sizing:border-box;cursor:pointer;width:100%;display:flex;align-items:center;
+  gap:var(--sp-3);min-height:max(var(--tap),40px);padding:var(--sp-2) var(--sp-3)}
+.step-h:hover{background:var(--surface-2)}
+.step-h:focus-visible{outline:2px solid var(--action-ring);outline-offset:-2px}
+.sn{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:var(--r-pill);
+  border:1.5px solid var(--border-strong);font-family:var(--font-mono);font-size:var(--fs-micro);
+  font-weight:700;color:var(--text-muted);flex-shrink:0}
+.step.is-done .sn{border-color:var(--ok-fg);background:var(--ok-fg);color:var(--card-bg)}
+.step.is-now .sn{border-color:var(--action-strong);background:var(--action-strong);color:var(--on-action)}
+.step-t{flex:1;min-width:0;display:flex;align-items:baseline;gap:var(--sp-2);flex-wrap:wrap}
+.step-name{font-size:var(--fs-sm);font-weight:700;white-space:nowrap}
+.step-who{font-size:var(--fs-nano);font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--text-muted);border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:0 4px}
+.step-say{font-size:var(--fs-xs);color:var(--text-muted);min-width:0}
+.step.is-done .step-say{color:var(--ok-fg)}
+.step.is-now .step-say{color:var(--warn-fg);font-weight:700}
+.chev{color:var(--text-muted);transition:transform .15s ease-out}
+@media (prefers-reduced-motion:reduce){ .chev{transition:none} }
+.step.is-open .chev{transform:rotate(90deg)}
+.step-body{padding:var(--sp-3);border-top:1px solid var(--border-color)}
+.step:not(.is-open) .step-body{display:none}
+
+/* ── tablas ───────────────────────────────────────────────────────────── */
+table{width:100%;border-collapse:collapse}
+th{font-size:var(--fs-nano);font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);
+  text-align:left;padding:4px var(--sp-2);border-bottom:1px solid var(--border-color);white-space:nowrap}
+td{padding:6px var(--sp-2);border-bottom:1px solid var(--border-color);font-size:var(--fs-sm);vertical-align:top}
+th.r,td.r{text-align:right}
+tbody tr:last-child td{border-bottom:0}
+tr.row-wait td{background:var(--warn-soft)}
+.benef{font-weight:700;line-height:1.3;display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3)}
+.benef .amt{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.sub{font-size:var(--fs-micro);color:var(--text-muted);line-height:1.35;display:flex;gap:4px 6px;flex-wrap:wrap;align-items:center;margin-top:2px}
+.suc{display:inline-block;font-size:var(--fs-nano);font-weight:700;border:1px solid var(--border-strong);
+  border-radius:var(--r-sm);padding:0 4px;color:var(--text-main)}
+.signer{display:inline-flex;align-items:center;gap:3px;font-size:var(--fs-nano);font-weight:700;padding:0 6px;
+  border-radius:var(--r-pill);border:1px solid var(--border-strong);color:var(--text-main);background:var(--surface-2)}
+.signer.dir{border-color:var(--info-fg);color:var(--info-fg);background:var(--info-soft)}
+.ord{display:flex;align-items:center;gap:2px}
+.ordn{font-family:var(--font-mono);font-weight:700;font-size:var(--fs-sm);min-width:1.2em;text-align:center}
+.ord .iconbtn{width:22px;height:22px}
+.inp,.sel{font:inherit;font-size:var(--fs-xs);min-height:var(--tap);padding:0 6px;border:1px solid var(--border-strong);
+  border-radius:var(--r-sm);background:var(--card-bg);color:var(--text-main);width:100%;min-width:0}
+.inp:focus,.sel:focus{outline:2px solid var(--action-ring);outline-offset:-1px;border-color:var(--action-strong)}
+.inp.is-bad{border-color:var(--bad-fg)} .inp.is-good{border-color:var(--ok-fg)}
+.inp.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.fieldnote{font-size:var(--fs-micro);margin-top:3px;display:flex;align-items:flex-start;gap:4px;line-height:1.3}
+.fieldnote.bad{color:var(--bad-fg)} .fieldnote.ok{color:var(--ok-fg)} .fieldnote.wait{color:var(--warn-fg)}
+.applyall{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;padding:6px var(--sp-3);
+  margin-bottom:var(--sp-2);border:1px dashed var(--border-strong);border-radius:var(--r-md);background:var(--surface-2)}
+.applyall .lb{font-size:var(--fs-xs);font-weight:700;white-space:nowrap}
+.applyall .f{display:flex;align-items:center;gap:6px;min-width:10rem;flex:1}
+.applyall .f span{font-size:var(--fs-micro);color:var(--text-muted);white-space:nowrap}
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-nano);font-weight:700;padding:0 6px;
+  border-radius:var(--r-pill);background:var(--surface-2);border:1px solid var(--border-strong);color:var(--text-muted)}
+.tag.warn{color:var(--warn-fg);background:var(--warn-soft);border-color:currentColor}
+.tag.bad{color:var(--bad-fg);background:var(--bad-soft);border-color:currentColor}
+.prop{display:grid;gap:4px}
+.prop-why{margin:0 0 var(--sp-2);font-size:var(--fs-xs);color:var(--text-muted)}
+.prop-why b{color:var(--text-main)}
+.prop-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--sp-3);align-items:center;
+  min-height:var(--tap);padding:5px var(--sp-2);border:1px solid var(--border-color);border-radius:var(--r-md);cursor:pointer}
+.prop-row:hover{background:var(--surface-2)}
+.prop-row.is-off .prop-amt,.prop-row.is-off .benef{color:var(--text-muted)}
+.prop-amt{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:700;font-size:var(--fs-sm)}
+.pp{display:inline-flex;align-items:center;gap:3px;font-size:var(--fs-nano);color:var(--warn-fg);font-weight:700}
+.stepacts{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)}
+.stepacts-l,.stepacts-r{display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center}
+.kbd{font-family:var(--font-mono);font-size:var(--fs-nano);border:1px solid var(--border-strong);border-bottom-width:2px;
+  border-radius:3px;padding:0 4px;color:var(--text-main);background:var(--card-bg)}
+.undo{display:none;align-items:center;justify-content:space-between;gap:var(--sp-2);margin-top:var(--sp-2);
+  padding:6px var(--sp-3);border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--surface-2);font-size:var(--fs-xs)}
+.undo.is-on{display:flex}
+
+/* firmas por pago (D2) */
+.signrule{display:flex;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);border:1px solid var(--border-color);
+  border-radius:var(--r-md);background:var(--surface-2);font-size:var(--fs-xs);color:var(--text-muted);margin-bottom:var(--sp-2)}
+.signrule b{color:var(--text-main)}
+.sigs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,17rem),1fr));gap:var(--sp-2)}
+.sig{border:1px solid var(--border-color);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3);display:grid;gap:4px}
+.sig-h{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-2)}
+.sig-r{font-size:var(--fs-sm);font-weight:700}
+.sig-a{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:700}
+.sig-s{font-size:var(--fs-micro);color:var(--text-muted)}
+.recon{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10.5rem),1fr));gap:var(--sp-2)}
+.rc{border:1px solid var(--border-color);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3)}
+.rc.is-other{border-style:dashed}
+.rc-l{font-size:var(--fs-nano);text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);font-weight:700}
+.rc-v{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-md);font-weight:700}
+.rc-s{font-size:var(--fs-micro);color:var(--text-muted)}
+.note{display:flex;gap:var(--sp-2);align-items:flex-start;margin-top:var(--sp-2);padding:var(--sp-2) var(--sp-3);
+  border-radius:var(--r-md);background:var(--surface-2);font-size:var(--fs-xs);color:var(--text-muted)}
+.note b{color:var(--text-main)}
+
+/* cajón de la deuda */
+.drawer{margin-top:var(--sp-3);border:1px solid var(--border-color);border-radius:var(--r-md);overflow:hidden}
+.drawer-h{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;padding:6px var(--sp-3);
+  background:var(--surface-2);border-bottom:1px solid var(--border-color)}
+.drawer-h .inp,.drawer-h .sel{width:auto}
+.drawer-h .grow{flex:1;min-width:9rem}
+.chk{display:flex;align-items:center;gap:4px;font-size:var(--fs-micro);color:var(--text-muted);white-space:nowrap;cursor:pointer;min-height:var(--tap)}
+.drawer-b{max-height:16rem;overflow:auto}
+.drawer-n{padding:4px var(--sp-3);font-size:var(--fs-micro);color:var(--text-muted);background:var(--surface-2);border-bottom:1px solid var(--border-color)}
+.drawer-n b{color:var(--text-main)}
+.drawer-g{padding:5px var(--sp-3);font-size:var(--fs-micro);font-weight:700;color:var(--warn-fg);background:var(--warn-soft);
+  border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;gap:var(--sp-2);flex-wrap:wrap}
+.drawer-g span{font-weight:400;color:var(--text-muted)}
+.iconbtn{all:unset;cursor:pointer;display:inline-grid;place-items:center;width:max(26px,var(--tap));height:max(26px,var(--tap));
+  border-radius:var(--r-sm);color:var(--text-muted)}
+.iconbtn:hover{background:var(--surface-3);color:var(--text-main)}
+.iconbtn:focus-visible{outline:2px solid var(--action-ring);outline-offset:-1px}
+.iconbtn.danger:hover{color:var(--bad-fg)}
+.iconbtn[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
+.due{font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:var(--fs-xs)}
+.due.over{color:var(--bad-fg)}
+.addwhy{font-size:var(--fs-nano);color:var(--text-muted);white-space:nowrap}
+
+/* marcadores (sólo maqueta) */
+.mk{display:inline-grid;place-items:center;min-width:16px;height:16px;padding:0 3px;border-radius:var(--r-pill);
+  background:var(--info-fg);color:var(--card-bg);font-size:9px;font-weight:700;font-family:var(--font-mono);
+  vertical-align:middle;margin-left:5px;flex-shrink:0}
+body.no-mk .mk{display:none}
+
+/* desglose */
+.break{margin-top:56px;border-top:1px solid var(--border-color);padding-top:var(--sp-5)}
+.break h2{font-size:var(--fs-lg);margin:0 0 var(--sp-2)}
+.break>p{font-size:var(--fs-sm);color:var(--text-muted);max-width:80ch;margin:0 0 var(--sp-4)}
+table.cmp{border:1px solid var(--border-color);border-radius:var(--r-md)}
+table.cmp th,table.cmp td{font-size:var(--fs-xs);white-space:normal;padding:6px var(--sp-3)}
+table.cmp td:first-child{white-space:nowrap}
+.decl{margin-top:var(--sp-4);border:1px solid var(--border-color);border-left:4px solid var(--warn-fg);
+  border-radius:var(--r-md);padding:var(--sp-4);background:var(--surface-2)}
+.decl.ask{border-left-color:var(--info-fg)}
+.decl h3{margin:0 0 var(--sp-2);font-size:var(--fs-sm)}
+.decl ul,.decl ol{margin:0;padding-left:1.1rem;font-size:var(--fs-xs);color:var(--text-muted)}
+.decl li{margin-bottom:var(--sp-2)} .decl b{color:var(--text-main)}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--surface-3);padding:0 4px;border-radius:3px}
+
+/* ── angosto: la cola se vuelve una tira de un renglón, el veredicto queda arriba ── */
+@media (max-width:73.75rem){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .queue{position:static}
+  .qdays{display:flex;overflow-x:auto;scroll-snap-type:x proximity}
+  .qday{min-width:9.5rem;border-bottom:0;border-left:0;border-right:1px solid var(--border-color);border-top:3px solid transparent;scroll-snap-align:start}
+  .qday.is-sel{border-top-color:var(--action-strong)}
+  .queue-legend{display:none}
+}
+/* ── teléfono: cada pago es un bloque con sus campos rotulados ─────────── */
+@media (max-width:47.5rem){
+  .prep thead{display:none}
+  .prep tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px var(--sp-2);padding:var(--sp-2) 0;border-bottom:1px solid var(--border-color)}
+  .prep td{display:block;border:0;padding:2px 0}
+  .prep td[data-l]::before{content:attr(data-l);display:block;font-size:var(--fs-nano);font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)}
+  .prep td.c-ord{grid-column:1 / -1;order:-1}
+  .prep td.c-ben{grid-column:1 / -1}
+  .prep td.c-f{grid-column:1 / -1}
+  .prep td.c-x{position:absolute;right:0}
+  .prep tr{position:relative}
+  .applyall .f{min-width:100%}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="mockbar">
+    <span><b>Maqueta PGP.11 — v2</b> · <b>/finanzas/pagos</b> · datos de la v1 (prod, 26-oct-2026) · sólo el lunes 26 tiene detalle</span>
+    <span class="grp">
+      <span>Ver como:</span>
+      <button class="tbtn" type="button" data-role="tes" aria-pressed="true">Tesorería</button>
+      <button class="tbtn" type="button" data-role="dir" aria-pressed="false">Dirección</button>
+      <button class="tbtn" type="button" data-role="caja" aria-pressed="false">Caja General</button>
+      <button class="tbtn" id="t-theme" type="button">Tema oscuro</button>
+      <button class="tbtn" id="t-mk" type="button" aria-pressed="true">Marcadores</button>
+    </span>
+  </div>
+
+  <header class="phead">
+    <div class="phead-l">
+      <h1>Pagos <button class="help" type="button" aria-expanded="false" aria-controls="helpbox" aria-label="Qué es esta pantalla">?</button></h1>
+      <span class="crumbs">Administración y Finanzas / Finanzas</span>
+    </div>
+    <div class="modes" role="tablist" aria-label="Qué ver">
+      <button class="mode is-on" role="tab" aria-selected="true" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Mi trabajo <span class="cnt" id="mode-cnt" aria-label="3 pendientes tuyos">3</span><span class="mk">5</span></button>
+      <button class="mode" role="tab" aria-selected="false" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h12"/></svg>
+        Lo que debo</button>
+      <button class="mode" role="tab" aria-selected="false" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+        Lo que salió</button>
+    </div>
+  </header>
+
+  <!-- La definición vive en la pantalla, no en un title (§3.8): se abre con teclado y con el dedo -->
+  <div class="helpbox" id="helpbox" hidden>
+    <dl>
+      <div><dt>Qué es</dt><dd>El ciclo de los pagos de cada día en cuatro pasos: armar, preparar, firmar y dispersar. Cada paso dice quién lo hace.</dd></div>
+      <div><dt>Tope del día</dt><dd>Lo máximo que puede salir ese día. Lo fija Finanzas el día anterior; mientras no lo confirme, se ve como <b>estimado</b>.</dd></div>
+      <div><dt>Quién firma</dt><dd>Por pago, según su monto: <b>hasta $100,000.00 firma Tesorería; arriba, Dirección</b> (decisión D2).</dd></div>
+      <div><dt>Preparar</dt><dd>Decir con qué sale cada pago: método, cuenta de origen y cuenta destino <b>aprobada</b>.</dd></div>
+    </dl>
+  </div>
+
+  <div class="shell">
+
+    <!-- ── COLA ──────────────────────────────────────────────────────── -->
+    <aside class="queue" aria-label="Días por pagar">
+      <div class="queue-h">
+        <h2>Días por pagar</h2>
+        <span style="display:flex;gap:1px">
+          <button class="iconbtn" type="button" aria-label="Semana anterior"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <button class="iconbtn" type="button" aria-label="Semana siguiente"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+        </span>
+      </div>
+      <div class="queue-legend"><span>día</span><span>libre del tope<span class="mk">1</span></span></div>
+
+      <div class="qdays">
+        <button class="qday is-sel" type="button" aria-current="true"
+          aria-label="lunes 26, hoy. Libres 3.48 millones del tope. 2 pagos por 496 mil. Falta preparar 1.">
+          <span class="qday-t"><span class="qday-n">lun 26 <span class="t">· hoy</span></span><span class="qday-amt">$3.48M</span></span>
+          <span class="qday-b"><i class="dot s-work" aria-hidden="true"></i> 2 pagos · $496.0K · <b class="warn">falta preparar 1</b></span>
+        </button>
+        <button class="qday" type="button" aria-label="martes 27. Libres 2.52 millones. 2 pagos por 622 mil. Faltan preparar 2.">
+          <span class="qday-t"><span class="qday-n">mar 27</span><span class="qday-amt">$2.52M</span></span>
+          <span class="qday-b"><i class="dot s-work" aria-hidden="true"></i> 2 pagos · $622.1K · <b class="warn">falta preparar 2</b></span>
+        </button>
+        <button class="qday" type="button" aria-label="miércoles 28. Libres 1.87 millones. Sin pagos.">
+          <span class="qday-t"><span class="qday-n">mié 28</span><span class="qday-amt">$1.87M</span></span>
+          <span class="qday-b"><i class="dot s-free" aria-hidden="true"></i> sin pagos</span>
+        </button>
+        <button class="qday" type="button" aria-label="jueves 29. Libres 2.09 millones. Sin pagos.">
+          <span class="qday-t"><span class="qday-n">jue 29</span><span class="qday-amt">$2.09M</span></span>
+          <span class="qday-b"><i class="dot s-free" aria-hidden="true"></i> sin pagos</span>
+        </button>
+        <button class="qday" type="button" aria-label="viernes 30. Libres 2.15 millones. Sin pagos.">
+          <span class="qday-t"><span class="qday-n">vie 30</span><span class="qday-amt">$2.15M</span></span>
+          <span class="qday-b"><i class="dot s-free" aria-hidden="true"></i> sin pagos</span>
+        </button>
+        <button class="qday is-nocap" type="button" aria-label="sábado 31. Sin tope fijado.">
+          <span class="qday-t"><span class="qday-n">sáb 31</span><span class="qday-amt">—</span></span>
+          <span class="qday-b"><i class="dot" aria-hidden="true"></i> sin tope fijado</span>
+        </button>
+        <button class="qday is-nocap" type="button" aria-label="domingo 1 de noviembre. Sin tope fijado.">
+          <span class="qday-t"><span class="qday-n">dom 1</span><span class="qday-amt">—</span></span>
+          <span class="qday-b"><i class="dot" aria-hidden="true"></i> sin tope fijado</span>
+        </button>
+      </div>
+
+      <div class="queue-f">
+        <b>$12.12M</b> libres de <b>$13.23M</b> esta semana<br>
+        <span class="warn"><b class="warn">3</b> pagos sin preparar en 2 días</span>
+      </div>
+    </aside>
+
+    <!-- ── EL LOTE ───────────────────────────────────────────────────── -->
+    <main class="lot">
+
+      <div class="vd" id="vd" role="status" aria-live="polite">
+        <div class="vd-id">
+          <h2>lunes 26 de octubre · hoy</h2>
+          <span class="pill s-work"><i class="dot s-work" aria-hidden="true"></i> En armado</span>
+          <span class="muted" style="font-size:var(--fs-micro)">sin folio · 0 de 2 firmados</span>
+        </div>
+        <div class="vd-main">
+          <div class="vd-txt">
+            <p class="vd-say" id="vd-say">Falta la cuenta destino de 1 pago para mandar el día a firma.<span class="mk">2</span></p>
+            <p class="vd-why" id="vd-why"><b>Distribuidora de la Rosa · Zamora Centro · $25,526.46</b>. Con eso firman Tesorería (1 pago, $25,526.46) y Dirección (1 pago, $470,451.03).</p>
+          </div>
+          <button class="btn btn-primary btn-lg" type="button" id="vd-cta" data-go="clabe-2">
+            Capturar la cuenta
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="cap">
+          <span class="cap-say"><b>$495,977.49</b> comprometido</span>
+          <span class="cap-bar" role="img" aria-label="12 por ciento del tope del día comprometido"><i style="width:12%"></i></span>
+          <span class="cap-say"><b>$3,479,205.51</b> libres del tope de <b>$3,975,183.00</b></span>
+          <span class="src">tope estimado · sin confirmar<span class="mk">3</span></span>
+        </div>
+      </div>
+
+      <div class="steps">
+
+        <!-- ① ARMAR -->
+        <section class="step is-done" id="step-1">
+          <button class="step-h" type="button" aria-expanded="false" aria-controls="b1" data-step="1">
+            <span class="sn" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M20 6 9 17l-5-5"/></svg></span>
+            <span class="step-t">
+              <span class="step-name">Armar el día</span><span class="step-who">Tesorería</span>
+              <span class="step-say">2 pagos · $495,977.49 · cabe en el tope · se puede cambiar hasta mandar a firma</span>
+            </span>
+            <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <div class="step-body" id="b1">
+            <p class="prop-why">La propuesta toma lo vencido o que vence este día, <b>un pago por proveedor y sucursal</b>, lo más viejo primero, hasta donde alcance el tope. <b>No propone</b> lo que está en dictamen ni las facturas de sucursal anteriores al 1-oct que pueden estar pagadas desde Oficinas.<span class="mk">7</span></p>
+            <div class="prop">
+              <label class="prop-row">
+                <input type="checkbox" checked />
+                <span>
+                  <span class="benef">DISTRIBUIDORA DE LA ROSA SA DE CV</span>
+                  <span class="sub"><span class="suc">Oficinas</span> 2 facturas · la más vieja venció el 12 sep · <span class="signer dir">firma Dirección</span></span>
+                </span>
+                <span class="prop-amt">$470,451.03</span>
+              </label>
+              <label class="prop-row">
+                <input type="checkbox" checked />
+                <span>
+                  <span class="benef">DISTRIBUIDORA DE LA ROSA SA DE CV</span>
+                  <span class="sub"><span class="suc">Zamora Centro</span> 1 factura · venció el 2 oct · <span class="signer">firma Tesorería</span></span>
+                </span>
+                <span class="prop-amt">$25,526.46</span>
+              </label>
+              <label class="prop-row is-off">
+                <input type="checkbox" />
+                <span>
+                  <span class="benef">GRUPO NACIONAL DE CONFITERIA</span>
+                  <span class="sub"><span class="suc">Morelia Abastos</span> vence el 4 nov · <span class="pp">pierde 2.5 % ($1,042) si no se paga antes del 28 oct</span></span>
+                </span>
+                <span class="prop-amt">$41,690.40</span>
+              </label>
+            </div>
+
+            <div class="drawer">
+              <div class="drawer-h">
+                <input class="inp grow" type="search" placeholder="Buscar en las 2,899 facturas: proveedor, folio, RFC…" aria-label="Buscar en lo que debo" />
+                <select class="sel" aria-label="Tipo"><option>Todos los tipos</option><option>Proveedor</option><option>Gasto</option><option>Compromiso financiero</option></select>
+                <select class="sel" aria-label="Ordenar por"><option>Vence primero</option><option>Pierde descuento primero</option><option>Mayor monto</option></select>
+              </div>
+              <div class="drawer-n">La búsqueda llega a <b>las 2,899</b> facturas de <b>368 acreedores</b>; la lista muestra las <b>1,000</b> más próximas a vencer.</div>
+              <div class="drawer-g">No programables hasta que se resuelvan <span>se ven, no se agregan</span></div>
+              <div class="drawer-b">
+                <table>
+                  <tbody>
+                    <tr>
+                      <td><span class="benef">ACREEDOR ARTURO LOPEZ OROZCO <span class="amt">$8,000,000.00</span></span>
+                        <span class="sub"><span class="suc">Oficinas</span> Nota de cargo 0000304 · Compromiso financiero · <span class="tag bad">en dictamen de Contabilidad</span><span class="mk">6</span></span></td>
+                      <td class="due" style="width:5.4rem">1 ene 2025</td>
+                      <td style="width:6.5rem" class="r"><span class="addwhy">no programable</span></td>
+                    </tr>
+                    <tr>
+                      <td><span class="benef">ACREEDOR EDUARDO LOPEZ OROZCO <span class="amt">$6,000,000.00</span></span>
+                        <span class="sub"><span class="suc">Oficinas</span> Nota de cargo 0000301 · Compromiso financiero · <span class="tag bad">en dictamen de Contabilidad</span></span></td>
+                      <td class="due">1 ene 2025</td>
+                      <td class="r"><span class="addwhy">no programable</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="drawer-g">Facturas de sucursal anteriores al 1-oct · por confirmar <span>$59.9M en toda la deuda de mercancía (ECA, 7-oct): muchas se pagaron desde Oficinas sin aplicarse en la sucursal. Se revisan con Finanzas antes de programarlas.</span></div>
+              <div class="drawer-n">Programables</div>
+              <div class="drawer-b">
+                <table>
+                  <tbody>
+                    <tr>
+                      <td><span class="benef">ARTURO VILLARRUEL SAINZ <span class="amt">$255,480.00</span></span>
+                        <span class="sub"><span class="suc">Oficinas</span> 6 facturas · Proveedor · <span class="signer dir">firma Dirección</span></span></td>
+                      <td class="due over" style="width:5.4rem">25 abr 2025</td>
+                      <td class="r" style="width:6.5rem"><button class="iconbtn" type="button" aria-label="Agregar Arturo Villarruel Sainz al lunes 26"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></td>
+                    </tr>
+                    <tr>
+                      <td><span class="benef">RICO PAY SA DE CV <span class="amt">$18,300.00</span></span>
+                        <span class="sub"><span class="suc">Yurécuaro</span> Factura A-2291 · Proveedor · <span class="signer">firma Tesorería</span></span></td>
+                      <td class="due">11 nov 2026</td>
+                      <td class="r"><button class="iconbtn" type="button" aria-label="Agregar Rico Pay al lunes 26"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="stepacts">
+              <span class="stepacts-l"><button class="btn btn-primary" type="button">Guardar el armado</button></span>
+              <span class="stepacts-r"><button class="btn btn-danger-ghost" type="button">Descartar la propuesta…</button></span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ② PREPARAR -->
+        <section class="step is-now is-open" id="step-2">
+          <button class="step-h" type="button" aria-expanded="true" aria-controls="b2" data-step="2">
+            <span class="sn" aria-hidden="true">2</span>
+            <span class="step-t">
+              <span class="step-name">Ordenar y preparar</span><span class="step-who">Tesorería</span>
+              <span class="step-say" id="s2-say">1 de 2 listos · al de Zamora Centro le falta la cuenta destino</span>
+            </span>
+            <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <div class="step-body" id="b2">
+
+            <div class="applyall">
+              <span class="lb">Para los 2 pagos</span>
+              <span class="f"><span>Método</span>
+                <select class="sel" aria-label="Método para todos"><option>Transferencia</option><option>Cheque</option><option>Efectivo</option><option>Cargo automático</option></select></span>
+              <span class="f"><span>Sale de</span>
+                <select class="sel" aria-label="Cuenta de origen para todos"><option>Elegir cuenta…</option><option>BBVA · 0145 — saldo $8.4M</option><option>Banorte · 7732 — saldo $2.1M</option></select></span>
+              <button class="btn" type="button">Aplicar a los 2</button>
+            </div>
+
+            <table class="prep" id="prep">
+              <thead>
+                <tr>
+                  <th style="width:5.2rem">Orden<span class="mk">8</span></th>
+                  <th>Beneficiario, importe y quién firma</th>
+                  <th style="width:8rem">Método</th>
+                  <th style="width:11rem">Sale de</th>
+                  <th style="width:15rem">Llega a<span class="mk">4</span></th>
+                  <th style="width:2.6rem"><span class="vh">Quitar</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-name="Distribuidora de la Rosa · Oficinas">
+                  <td class="c-ord"><span class="ord">
+                    <button class="iconbtn" type="button" data-mv="-1" aria-label="Subir"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
+                    <b class="ordn">1</b>
+                    <button class="iconbtn" type="button" data-mv="1" aria-label="Bajar"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></span></td>
+                  <td class="c-ben"><span class="benef">DISTRIBUIDORA DE LA ROSA <span class="amt">$470,451.03</span></span>
+                    <span class="sub"><span class="suc">Oficinas</span> 2 facturas · F-2436 y F-62435 · <span class="signer dir">firma Dirección</span></span></td>
+                  <td class="c-f" data-l="Método"><select class="sel" aria-label="Método del pago 1"><option>Transferencia</option><option>Cheque</option><option>Efectivo</option></select></td>
+                  <td class="c-f" data-l="Sale de"><select class="sel" aria-label="Cuenta de origen del pago 1"><option>BBVA · 0145 — $8.4M</option><option>Banorte · 7732 — $2.1M</option></select></td>
+                  <td class="c-f" data-l="Llega a"><select class="sel" aria-label="Cuenta destino del pago 1"><option>BBVA · CLABE …7891 · aprobada</option></select></td>
+                  <td class="c-x"><button class="iconbtn danger" type="button" data-rm aria-label="Quitar a Distribuidora de la Rosa Oficinas del día"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></td>
+                </tr>
+                <tr class="row-wait" data-name="Distribuidora de la Rosa · Zamora Centro">
+                  <td class="c-ord"><span class="ord">
+                    <button class="iconbtn" type="button" data-mv="-1" aria-label="Subir"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
+                    <b class="ordn">2</b>
+                    <button class="iconbtn" type="button" data-mv="1" aria-label="Bajar"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></span></td>
+                  <td class="c-ben"><span class="benef">DISTRIBUIDORA DE LA ROSA <span class="amt">$25,526.46</span></span>
+                    <span class="sub"><span class="suc">Zamora Centro</span> Entrada 05-0000240 · Fact. 54-2233 · <span class="signer">firma Tesorería</span></span></td>
+                  <td class="c-f" data-l="Método"><select class="sel" aria-label="Método del pago 2"><option>Transferencia</option><option>Cheque</option><option>Efectivo</option></select></td>
+                  <td class="c-f" data-l="Sale de"><select class="sel" aria-label="Cuenta de origen del pago 2"><option>BBVA · 0145 — $8.4M</option><option>Banorte · 7732 — $2.1M</option></select></td>
+                  <td class="c-f" data-l="Llega a">
+                    <label class="vh" for="clabe-2">CLABE destino del pago 2</label>
+                    <input class="inp mono is-bad" id="clabe-2" type="text" inputmode="numeric" autocomplete="off" value="0121800012345678" aria-describedby="clabe-2-note" aria-invalid="true" />
+                    <span class="fieldnote bad" id="clabe-2-note">Faltan 2 dígitos · banco: BBVA (012)</span>
+                    <span class="fieldnote wait" id="clabe-2-next">Cuenta nueva: otra persona la aprueba antes de pagar</span></td>
+                  <td class="c-x"><button class="iconbtn danger" type="button" data-rm aria-label="Quitar a Distribuidora de la Rosa Zamora Centro del día"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="undo" id="undo" role="status"><span id="undo-t"></span><button class="btn" type="button" id="undo-b">Deshacer</button></div>
+
+            <div class="stepacts">
+              <span class="stepacts-l">
+                <button class="btn btn-ghost" type="button">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M7 12h10M10 18h4"/></svg>
+                  Proponer orden</button>
+                <span class="why-off">Reordenar con teclado: <span class="kbd">Alt</span> + <span class="kbd">↑</span> / <span class="kbd">↓</span> sobre la fila</span>
+              </span>
+              <span class="stepacts-r">
+                <span class="why-off" id="send-why">1 pago sin cuenta destino</span>
+                <button class="btn btn-primary" type="button" id="send" disabled>Mandar a firma</button>
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ③ FIRMAR (D2: por pago, según monto) -->
+        <section class="step" id="step-3">
+          <button class="step-h" type="button" aria-expanded="false" aria-controls="b3" data-step="3">
+            <span class="sn" aria-hidden="true">3</span>
+            <span class="step-t">
+              <span class="step-name">Firmar</span><span class="step-who">Tesorería · Dirección</span>
+              <span class="step-say">0 de 2 firmados · espera el paso 2</span>
+            </span>
+            <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <div class="step-body" id="b3">
+            <div class="signrule">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-top:2px" aria-hidden="true"><path d="M12 2 3 7v6c0 5 3.8 8.6 9 9 5.2-.4 9-4 9-9V7z"/></svg>
+              <span>Cada pago lo firma <b>una</b> persona según su monto: <b>hasta $100,000.00, Tesorería; arriba, Dirección</b>. El día sale cuando están firmados todos sus pagos.<span class="mk">9</span></span>
+            </div>
+            <div class="sigs">
+              <div class="sig">
+                <div class="sig-h"><span class="sig-r">Tesorería</span><span class="sig-a">$25,526.46</span></div>
+                <span class="sig-s">1 pago · Zamora Centro · pendiente</span>
+                <button class="btn btn-primary" type="button" disabled data-sign="tes">Firmar mis pagos</button>
+              </div>
+              <div class="sig">
+                <div class="sig-h"><span class="sig-r">Dirección</span><span class="sig-a">$470,451.03</span></div>
+                <span class="sig-s">1 pago · Oficinas · pendiente</span>
+                <button class="btn btn-primary" type="button" disabled data-sign="dir">Firmar mis pagos</button>
+              </div>
+            </div>
+            <div class="stepacts">
+              <span class="stepacts-l"><button class="btn btn-ghost" type="button">Ver el preliminar</button></span>
+              <span class="why-off">Se habilita cuando Tesorería manda el día a firma.</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ④ DISPERSAR Y CERRAR -->
+        <section class="step" id="step-4">
+          <button class="step-h" type="button" aria-expanded="false" aria-controls="b4" data-step="4">
+            <span class="sn" aria-hidden="true">4</span>
+            <span class="step-t">
+              <span class="step-name">Dispersar y cerrar</span><span class="step-who">Caja General</span>
+              <span class="step-say">Nada autorizado todavía · después cuadra contra el banco</span>
+            </span>
+            <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <div class="step-body" id="b4">
+            <div class="recon">
+              <div class="rc"><span class="rc-l">Autorizado</span><span class="rc-v">$0.00</span><span class="rc-s">0 de 2 · de $495,977.49<span class="mk">10</span></span></div>
+              <div class="rc"><span class="rc-l">Enviado al banco</span><span class="rc-v">$0.00</span><span class="rc-s">lo marca Caja General</span></div>
+              <div class="rc"><span class="rc-l">Confirmado en el estado de cuenta</span><span class="rc-v">—</span><span class="rc-s">se ve al día siguiente</span></div>
+              <div class="rc is-other"><span class="rc-l">El ERP registra ese día</span><span class="rc-v">$1,000.00</span><span class="rc-s">2 pagos · suma por fecha, no casa renglones: es otro universo</span></div>
+            </div>
+            <div class="note">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-top:2px" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+              <span><b>Kepler: el pago (X-D-26) se sigue capturando a mano.</b> La escritura automática está apagada; cuando se encienda, cada pago dirá aquí si la Suite lo escribió completo.<span class="mk">11</span></span>
+            </div>
+            <div class="stepacts">
+              <span class="stepacts-l"><button class="btn" type="button" disabled>Instrucción a Caja General</button></span>
+              <span class="stepacts-r"><span class="why-off">Se marca pago por pago: uno puede rebotar y los demás no.</span><button class="btn btn-primary" type="button" disabled>Marcar los elegidos como enviados</button></span>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ═══════════════ DESGLOSE ═══════════════ -->
+  <section class="break">
+    <h2>Qué cambió contra la v1, y por qué</h2>
+    <p>El esqueleto de la v1 se queda: cola de días a la izquierda, el día como hoja de trabajo con sus cuatro pasos. Era la decisión correcta. Lo que cambia es lo que la v1 <b>afirmaba</b> sin que fuera cierto, y dos lugares donde un clic podía mover dinero sin control. Los números de los marcadores van a esta tabla.</p>
+
+    <table class="cmp">
+      <thead><tr><th>#</th><th style="width:22%">v1</th><th style="width:34%">v2</th><th>Por qué (ley)</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td class="bad">La cifra de cada día era <b>lo comprometido</b> si había pagos y <b>lo libre</b> si no: el lunes decía $496.0K y el miércoles $1.87M.</td><td>Siempre <b>lo libre del tope</b>, con su leyenda; lo comprometido baja al renglón del trabajo. El lunes tiene más espacio ($3.48M) que el miércoles, y ahora se ve.</td><td>Estándar §1.1: una columna, un significado. Quien busca dónde meter un pago leía el lunes como el día más apretado.</td></tr>
+        <tr><td>2</td><td>«Falta 1 pago por preparar para que Dirección pueda firmar» y un botón que abría un paso ya abierto.</td><td>Nombra <b>el renglón</b> (proveedor, sucursal, importe), dice qué pasa después (quién firma qué) y el botón lleva el foco al campo que falta.</td><td>§3.3 se señala la fila · §3.4 el dato lleva al arreglo · DESIGN §Q.1.</td></tr>
+        <tr><td>3</td><td>«Presupuesto del día» sin decir si alguien lo fijó.</td><td>«<b>Tope del día</b>» con su estado (<b>estimado</b> / confirmado). «Presupuesto» ya es otro módulo y otra cifra.</td><td>§1.6 el número dice con qué se calculó · conflicto TP.UI.2 / PU.UI.9 (el mismo valor se llama de dos formas).</td></tr>
+        <tr><td>4</td><td class="bad">La CLABE se tecleaba en la fila del pago y con eso el pago quedaba listo. «Capturar otra…» en el selector.</td><td>Capturar sigue siendo barato y se valida mientras escribes (dígito de control, banco deducido de los 3 primeros dígitos, espacios y guiones se limpian), pero <b>la cuenta nueva va a aprobación de otra persona</b> y el pago espera. La fila con cuenta aprobada dice cuándo se aprobó y el último pago real.</td><td>PGP.UI.7: cambiar la cuenta destino es la vía clásica de fraude · §4.5 prevenir · Postel.</td></tr>
+        <tr><td>5</td><td class="bad">«Mi trabajo 4» junto a «3 pagos sin preparar».</td><td>El conteo es <b>de quien mira</b>: Tesorería 3, Dirección y Caja General 0 hoy. Prueba los tres con «Ver como».</td><td>§1.5 dos cifras del mismo hecho · PGP.UI.5 (tres roles, una pantalla).</td></tr>
+        <tr><td>6</td><td class="bad">Dos notas de cargo por <b>$14.0M en dictamen</b> encabezaban la deuda en rojo, con «Agregar al lunes» a un clic, y el día tiene $3.48M libres.</td><td>Grupo propio «no programables hasta que se resuelvan», visible y sin botón de agregar.</td><td>§1.3 lo no resuelto se declara · capa 5: un clic no debe poder programar $8M en disputa.</td></tr>
+        <tr><td>7</td><td>Nada sobre las facturas de sucursal anteriores al 1-oct.</td><td>La propuesta <b>no</b> las toma y el cajón las nombra como grupo «por confirmar», con la cifra de ECA y su fecha.</td><td>PGP.UI.4 · ECA.UI.2: ordenar por antigüedad las pone arriba y <b>se pagan dos veces</b>.</td></tr>
+        <tr><td>8</td><td>Orden sólo arrastrando.</td><td>Botones subir/bajar en la fila y <span class="kbd">Alt</span>+<span class="kbd">↑</span>/<span class="kbd">↓</span>, con el atajo escrito en pantalla. Quitar un pago se deshace.</td><td>§2.2 todo con teclado, y el atajo se escribe · §5.1 no se pierde lo capturado.</td></tr>
+        <tr><td>9</td><td class="bad">«Arriba de $100,000 pide <b>dos firmas</b> de personas distintas» sobre <b>la suma del día</b>, firmantes «Gerencia de Finanzas» y «Dirección General».</td><td>La regla firmada: <b>por pago</b>, una firma según su monto — hasta $100,000.00 Tesorería, arriba Dirección. El paso se parte por firmante con su monto, y el día dice «0 de 2 firmados».</td><td>§1.1: la v1 mostraba una regla que <b>no dice ni el código</b> (TP.16: autoriza el día Gerencia o Dirección) <b>ni la decisión D2</b>. PGP.UI.6.</td></tr>
+        <tr><td>10</td><td class="bad">El paso 4 decía «Autorizado $495,977.49» con el día sin autorizar.</td><td>«Autorizado $0.00 · 0 de 2 · de $495,977.49», y dos estados distintos: <b>enviado al banco</b> (lo marca Caja) y <b>confirmado en el estado de cuenta</b> (al día siguiente). Se marca pago por pago.</td><td>§1.1 · PGP.UI.3: «pagado» afirmaba que el dinero salió · DESIGN §10 fallos parciales.</td></tr>
+        <tr><td>11</td><td>La v1 lo decía en su desglose, no en la pantalla.</td><td>El paso 4 dice que el X-D-26 se sigue capturando a mano.</td><td>PGP.UI.11: si no se dice, quien captura deja de hacerlo creyendo que la Suite lo escribe.</td></tr>
+        <tr><td>—</td><td class="bad"><b>«CEDIS»</b> para la sucursal 00, sabiendo (lo declaraba la propia v1) que es Oficinas.</td><td><b>Oficinas.</b></td><td>§1.1 · regla de sucursal por nombre. La v1 lo dejaba para después; un rótulo que se sabe falso no se publica.</td></tr>
+        <tr><td>—</td><td class="bad">Contraste medido en la v1: encabezados y rol a 11 px en <b>2.52:1</b> (claro) y <b>3.65:1</b> (oscuro); el botón principal en <b>3.56:1</b> y <b>2.26:1</b>.</td><td>Lo que hay que leer va en <code>--text-muted</code>; <code>--text-faint</code> sólo para lo decorativo. El botón principal: fondo más oscuro en claro y texto oscuro en oscuro.</td><td>DESIGN §Ing.UI 3 (AA piso). <b>Ojo:</b> es del sistema, no sólo de la maqueta; ver «Decisiones».</td></tr>
+        <tr><td>—</td><td>A 390 px la cola de 7 días empujaba el veredicto a 724 px y la tabla se recortaba; 19 de 19 controles medían menos de 44 px.</td><td>Angosto: la cola es una tira de un renglón y el veredicto queda arriba. Teléfono: cada pago es un bloque con sus campos rotulados. Con dedo, 44 px.</td><td>DESIGN Fitts (gana el puntero) · §Safe-area · Dirección puede firmar desde el teléfono.</td></tr>
+        <tr><td>—</td><td>El «?» era un <code>title</code>; la fecha salía «Lunes 26 De Octubre».</td><td>El «?» abre la definición en la pantalla. «lunes 26 de octubre».</td><td>§3.8 la jerga no vive en un title · ortografía del español.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="decl ask">
+      <h3>Decisiones para Edgar</h3>
+      <ol>
+        <li><b>D2 contra la separación de funciones de TP.16.</b> Con D2, Tesorería <b>prepara y firma</b> el 75.3 % de los pagos (3,632 de 4,824 en 2026). Si es la misma persona, nadie revisa esos pagos. Recomendación: la firma de Tesorería la da una persona distinta de quien preparó, y la pantalla lo impide (no lo pide). Hoy el código autoriza el <b>día</b> (TP.16), no el pago: D2 es trabajo de backend (`PGP.1.1`, ⬜).</li>
+        <li><b>El nombre de la cifra: «tope del día».</b> Hoy el Calendario dice «presupuesto» y Presupuestos dice «capacidad» para el mismo valor. Recomendación: «tope del día» en las dos pantallas.</li>
+        <li><b>El contraste de los tokens del sistema.</b> En <code>tokens.css</code>, <code>--text-faint</code> en claro es <code>neutral-400</code> y <code>--action</code> es <code>#F05A28</code> con texto blanco; los dos quedan debajo de AA en texto chico. Arreglarlo en el token cambia todas las pantallas a la vez (deuda <code>[AUD.4]</code>).</li>
+        <li><b>Cuándo se escribe el X-D-26</b> (heredado de PGP.UI.3): al marcar «enviado al banco» o al confirmarlo en el estado de cuenta. Lo segundo es un día más lento y no deja en Kepler un pago que rebotó.</li>
+        <li><b>La sucursal 00 en el resolvedor compartido.</b> <code>warehouseName('00')</code> contesta «CEDIS»; aquí se pintó «Oficinas» a mano. Corregirlo cambia <code>/compras/pedido</code>; va con tu visto bueno, como ya pedía la v1.</li>
+      </ol>
+    </div>
+
+    <div class="decl">
+      <h3>Lo que esta maqueta NO afirma</h3>
+      <ul>
+        <li><b>Nivel de evidencia:</b> maqueta estática medida en el navegador (contraste y anchos), no la app. Lo medido es de <b>este</b> CSS.</li>
+        <li><b>«Tope estimado · sin confirmar»</b> ilustra el estado; la maqueta no sabe si los $3,975,183.00 del lunes los confirmó alguien. La pantalla real lo toma del dato.</li>
+        <li><b>Lo libre del martes ($2.52M)</b> se dedujo de los totales de la v1 (semana $13.23M / $12.12M y los días redondeados): margen de ±$10K.</li>
+        <li><b>La cuenta aprobada del pago 1</b> debería mostrar, al abrir el selector, su fecha de aprobación y el último pago real al proveedor (PGP.UI.7). La v1 no traía ese dato y aquí no se inventa.</li>
+        <li><b>Densidad:</b> el día de la maqueta tiene 2 pagos. En 2026 salieron 4,824 pagos, unos 16 por día hábil; el diseño se tiene que validar con un día de 16 y con el peor día del año, no con éste.</li>
+        <li><b>No están construidos:</b> la firma por pago (D2), la aprobación de cuentas nuevas desde la fila, los estados «enviado» y «confirmado» por pago, y el reordenar con teclado.</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  var r=document.documentElement,b=document.body;
+  // tema y marcadores
+  var bt=document.getElementById('t-theme'),bm=document.getElementById('t-mk');
+  bt.addEventListener('click',function(){
+    var dark=r.getAttribute('data-theme')==='dark'||(!r.getAttribute('data-theme')&&matchMedia('(prefers-color-scheme: dark)').matches);
+    r.setAttribute('data-theme',dark?'light':'dark'); bt.textContent=dark?'Tema oscuro':'Tema claro';
+  });
+  bm.addEventListener('click',function(){var off=b.classList.toggle('no-mk');bm.setAttribute('aria-pressed',off?'false':'true');});
+  // ayuda en pantalla
+  var hb=document.querySelector('.help'),box=document.getElementById('helpbox');
+  hb.addEventListener('click',function(){var o=box.hasAttribute('hidden');if(o)box.removeAttribute('hidden');else box.setAttribute('hidden','');hb.setAttribute('aria-expanded',o?'true':'false');});
+  // pasos
+  function setOpen(n,on){var s=document.getElementById('step-'+n);if(!s)return;s.classList.toggle('is-open',on);s.querySelector('.step-h').setAttribute('aria-expanded',on?'true':'false');}
+  document.querySelectorAll('.step-h').forEach(function(h){h.addEventListener('click',function(){var s=h.parentElement;setOpen(h.dataset.step,!s.classList.contains('is-open'));});});
+  // el veredicto lleva al campo exacto
+  var cta=document.getElementById('vd-cta');
+  cta.addEventListener('click',function(){
+    var go=cta.dataset.go;
+    if(go==='clabe-2'){setOpen(2,true);var f=document.getElementById('clabe-2');f.scrollIntoView({block:'center'});f.focus();f.select();}
+    else if(go==='step-3'){setOpen(3,true);document.getElementById('step-3').scrollIntoView({block:'center'});}
+  });
+  // vista por rol: el veredicto, el conteo y el paso abierto son de quien mira
+  var roles={
+    tes:{say:'Falta la cuenta destino de 1 pago para mandar el día a firma.',
+         why:'<b>Distribuidora de la Rosa · Zamora Centro · $25,526.46</b>. Con eso firman Tesorería (1 pago, $25,526.46) y Dirección (1 pago, $470,451.03).',
+         cta:'Capturar la cuenta',go:'clabe-2',cnt:3,open:2,idle:false},
+    dir:{say:'Te toca firmar 1 pago por $470,451.03, pero todavía no está listo.',
+         why:'Tesorería tiene 1 pago del día sin preparar. «Mi trabajo» te lo muestra cuando el día esté en firma.',
+         cta:'Ver lo que vas a firmar',go:'step-3',cnt:0,open:3,idle:true},
+    caja:{say:'Nada que dispersar hoy: el día no está firmado.',
+         why:'Faltan 1 pago por preparar y las firmas de Tesorería y Dirección. Lo firmado aparece aquí con su instrucción.',
+         cta:'',go:'',cnt:0,open:4,idle:true}
+  };
+  var mk2='<span class="mk">2</span>';
+  document.querySelectorAll('[data-role]').forEach(function(x){
+    x.addEventListener('click',function(){
+      var k=x.dataset.role,o=roles[k];
+      document.querySelectorAll('[data-role]').forEach(function(y){y.setAttribute('aria-pressed',y===x?'true':'false');});
+      document.getElementById('vd-say').innerHTML=o.say+mk2;
+      document.getElementById('vd-why').innerHTML=o.why;
+      document.getElementById('vd').classList.toggle('v-idle',o.idle);
+      if(o.cta){cta.style.display='';cta.firstChild.nodeValue=o.cta+' ';cta.dataset.go=o.go;}else{cta.style.display='none';}
+      var c=document.getElementById('mode-cnt');c.textContent=o.cnt;c.classList.toggle('is-zero',o.cnt===0);c.setAttribute('aria-label',o.cnt+' pendientes tuyos');
+      [1,2,3,4].forEach(function(n){setOpen(n,n===o.open);document.getElementById('step-'+n).classList.toggle('is-now',n===2);});
+    });
+  });
+  // CLABE: liberal al recibir (espacios, guiones), estricta al validar (18 dígitos + dígito de control)
+  var BANCOS={'002':'Banamex','012':'BBVA','014':'Santander','021':'HSBC','030':'Bajío','036':'Inbursa','044':'Scotiabank','058':'Banregio','072':'Banorte','127':'Azteca','137':'BanCoppel'};
+  function ctrl(d){var w=[3,7,1],s=0;for(var i=0;i<17;i++)s+=(+d[i]*w[i%3])%10;return (10-s%10)%10;}
+  var inp=document.getElementById('clabe-2'),note=document.getElementById('clabe-2-note'),next=document.getElementById('clabe-2-next'),
+      send=document.getElementById('send'),sendWhy=document.getElementById('send-why'),s2=document.getElementById('s2-say');
+  function check(){
+    var d=inp.value.replace(/[\s-]/g,''),banco=BANCOS[d.slice(0,3)],msg,ok=false;
+    if(/\D/.test(d)){msg='Sólo números';}
+    else if(d.length<18){msg='Faltan '+(18-d.length)+' dígito'+(18-d.length===1?'':'s');}
+    else if(d.length>18){msg='Sobran '+(d.length-18)+' dígito'+(d.length-18===1?'':'s');}
+    else if(ctrl(d)!==+d[17]){msg='El dígito de control no cuadra: revisa la CLABE';}
+    else{ok=true;msg='CLABE válida';}
+    var dudosa=ok&&!banco;
+    msg+=banco?' · banco: '+banco+' ('+d.slice(0,3)+')':(d.length>=3?' · el banco '+d.slice(0,3)+' no está en el catálogo: confírmalo con el proveedor':'');
+    note.textContent=msg; note.className='fieldnote '+(dudosa?'wait':(ok?'ok':'bad'));
+    inp.classList.toggle('is-bad',!ok); inp.classList.toggle('is-good',ok); inp.setAttribute('aria-invalid',ok?'false':'true');
+    next.textContent=ok?'Va a aprobación al guardar; el pago espera':'Cuenta nueva: otra persona la aprueba antes de pagar';
+    sendWhy.textContent=ok?'1 pago espera que aprueben su cuenta':'1 pago sin cuenta destino';
+    s2.textContent=ok?'1 de 2 listos · el de Zamora Centro espera que aprueben su cuenta':'1 de 2 listos · al de Zamora Centro le falta la cuenta destino';
+    send.disabled=true;
+  }
+  inp.addEventListener('input',check);
+  // ordenar: botones y Alt+flechas
+  var tb=document.querySelector('#prep tbody');
+  function renum(){tb.querySelectorAll('tr').forEach(function(tr,i){tr.querySelector('.ordn').textContent=i+1;});}
+  function mv(tr,dir){var sib=dir<0?tr.previousElementSibling:tr.nextElementSibling;if(!sib)return;if(dir<0)tb.insertBefore(tr,sib);else tb.insertBefore(sib,tr);renum();}
+  tb.addEventListener('click',function(e){var bmv=e.target.closest('[data-mv]');if(bmv){mv(bmv.closest('tr'),+bmv.dataset.mv);bmv.focus();}});
+  tb.addEventListener('keydown',function(e){if(e.altKey&&(e.key==='ArrowUp'||e.key==='ArrowDown')){e.preventDefault();var tr=e.target.closest('tr');mv(tr,e.key==='ArrowUp'?-1:1);e.target.focus();}});
+  // quitar con deshacer
+  var undo=document.getElementById('undo'),undoT=document.getElementById('undo-t'),undoB=document.getElementById('undo-b'),last=null;
+  tb.addEventListener('click',function(e){var x=e.target.closest('[data-rm]');if(!x)return;var tr=x.closest('tr');last={tr:tr,next:tr.nextElementSibling};tr.remove();renum();undoT.textContent='Se quitó del día: '+tr.dataset.name+'.';undo.classList.add('is-on');undoB.focus();});
+  undoB.addEventListener('click',function(){if(!last)return;tb.insertBefore(last.tr,last.next);renum();undo.classList.remove('is-on');last=null;});
+})();
+</script>
+</body>
+</html>
