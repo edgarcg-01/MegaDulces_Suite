@@ -42,6 +42,50 @@ function invNorm(p) {
 }
 const Z = invNorm(CEDIS_SERVICE);
 
+/**
+ * `[AB.40]` LA DEMANDA DE RED ES LA DEL PEDIDO, Y DE TODA LA RED. Hasta hoy la media de un punto de abasto
+ * era Σ `inventory_health.avg_daily_units` de sus hijas DIRECTAS + la propia: (1) esa media es otra serie
+ * que la del pedido (90 días de unidades crudas, con los quiebres como venta cero); (2) no era recursiva —
+ * el CEDIS (00) no veía a las sucursales que surten Padre Hidalgo, Canindo y Morelia Abastos; (3) las rutas
+ * no existían, porque `inventory_health` sólo tiene almacenes con existencia. Reproducido el 2026-10-26:
+ * Padre Hidalgo, Mr Beast = 72.46 + 42.73 + 24.14 + 16.17 = 155.5 pz/día, contra 535 del pedido.
+ *
+ * Ahora: media = `product_demand` (30 días) propia + la de TODO lo que surte, a cualquier profundidad,
+ * rutas incluidas; σ de red = √Σ(media × `demand_cv`)² de cada almacén (sin `demand_cv`, ese almacén aporta
+ * su media y no su varianza). Es el `SELECT`; el `INSERT` lo envuelve. La medición del antes y el después
+ * ejecuta ESTE texto en sólo lectura.
+ */
+const CALC_RED = `
+      pd AS (
+        SELECT warehouse_id, product_id, daily_pieces
+          FROM analytics.product_demand
+         WHERE tenant_id=$1 AND window_days=30 AND daily_pieces > 0
+      ), arbol AS (
+        SELECT w.source_warehouse_id AS hub_id, w.id AS desc_id
+          FROM commercial.warehouses w
+         WHERE w.tenant_id=$1 AND w.source_warehouse_id IS NOT NULL AND w.deleted_at IS NULL
+        UNION
+        SELECT a.hub_id, w.id
+          FROM arbol a
+          JOIN commercial.warehouses w ON w.tenant_id=$1 AND w.source_warehouse_id = a.desc_id AND w.deleted_at IS NULL
+      ), branch AS (
+        SELECT a.hub_id AS cedis_id, d.product_id, d.daily_pieces AS adu,
+               d.daily_pieces * COALESCE(ih.demand_cv, 0) AS sd
+          FROM arbol a
+          JOIN pd d ON d.warehouse_id = a.desc_id
+          LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=$1 AND ih.warehouse_id=d.warehouse_id AND ih.product_id=d.product_id
+      ), bagg AS (
+        SELECT cedis_id, product_id, sum(adu) badu, sum(sd*sd) bvar FROM branch GROUP BY cedis_id, product_id
+      ), agg AS (
+        SELECT ba.cedis_id, ba.product_id,
+               ba.badu + COALESCE(o.daily_pieces,0) AS net_mean,
+               sqrt( ba.bvar + power(COALESCE(o.daily_pieces,0) * COALESCE(oh.demand_cv,0), 2) ) AS net_sigma
+          FROM bagg ba
+          LEFT JOIN pd o ON o.warehouse_id=ba.cedis_id AND o.product_id=ba.product_id
+          LEFT JOIN analytics.inventory_health oh ON oh.tenant_id=$1 AND oh.warehouse_id=ba.cedis_id AND oh.product_id=ba.product_id
+      )`;
+
+
 (async () => {
   const db = new Client({ connectionString: DST });
   await db.connect();
@@ -64,22 +108,7 @@ const Z = invNorm(CEDIS_SERVICE);
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
 
     const res = await db.query(`
-      WITH branch AS (
-        SELECT w.source_warehouse_id AS cedis_id, ih.product_id,
-               ih.avg_daily_units adu, COALESCE(ih.stddev_daily_units,0) sd
-          FROM commercial.warehouses w
-          JOIN analytics.inventory_health ih ON ih.tenant_id=$1 AND ih.warehouse_id=w.id
-         WHERE w.tenant_id=$1 AND w.source_warehouse_id IS NOT NULL AND w.deleted_at IS NULL
-           AND ih.avg_daily_units > 0
-      ), bagg AS (
-        SELECT cedis_id, product_id, sum(adu) badu, sum(sd*sd) bvar FROM branch GROUP BY cedis_id, product_id
-      ), agg AS (
-        SELECT ba.cedis_id, ba.product_id,
-               ba.badu + COALESCE(o.avg_daily_units,0) AS net_mean,
-               sqrt( ba.bvar + COALESCE(power(o.stddev_daily_units,2),0) ) AS net_sigma
-          FROM bagg ba
-          LEFT JOIN analytics.inventory_health o ON o.tenant_id=$1 AND o.warehouse_id=ba.cedis_id AND o.product_id=ba.product_id
-      ), calc AS (
+      WITH RECURSIVE ${CALC_RED}, calc AS (
         SELECT a.cedis_id, a.product_id, a.net_mean, a.net_sigma,
                COALESCE(s.lead_time_days, $2) AS lead,
                -- [KE.4b] La clase sale de la VISTA analytics.v_abc_class, no de la tabla.
