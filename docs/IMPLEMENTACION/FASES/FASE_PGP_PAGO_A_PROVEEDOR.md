@@ -754,6 +754,20 @@ ajustar: que `reprogramar` rechace un día destino ya autorizado (el diálogo lo
 previene) y que `cerrar` —que el backend no valida— se ofrezca sólo cuando no quedan pendientes (lo
 cuida la pantalla, no el servidor).
 
+**Corrección tras la revisión de Edgar (mismo día):** el diálogo «Otro importe u otro día» se
+rompía y sólo dejaba elegir la semana cargada. Causas medidas: (1) el día era un desplegable con los
+7 días de `week()`; (2) los `p-select` se abren dentro de su contenedor por default y el diálogo —y
+las secciones del día, con `overflow:hidden`— los recortaban (barra de desplazamiento interna, el
+panel tapaba el importe); (3) `styleClass` **tampoco existe en `p-select` v22** (no está entre sus
+inputs): los selectores de los diálogos medían ~130 px en vez del ancho del diálogo. Ahora: fecha
+libre desde hoy, con **lo que cabe ese día leído de `days/:date/summary`** (sólo lectura) y el exceso
+dicho antes de agregar (control: $6,160,497.16 libres el mar 3-nov + $1,839,502.84 de exceso =
+$8,000,000.00, la factura); día autorizado o importe mayor a lo que se debe → «Agregar» deshabilitado;
+`assign()` lee los pagos de un día fuera de la semana para sumar al pago del mismo proveedor y
+sucursal en vez de duplicarlo; los 10 `p-select` con `appendTo="body"` (medido: el panel queda fuera
+del diálogo) y `[fluid]`/`size` en lugar de `styleClass` (474 de 510 px). ⚠️ **No ejercido contra base
+real:** agregar a un día de otra semana (dos GET más y el mismo `POST` de siempre).
+
 **Deuda con nombre:**
 
 - **`PGP.15.D1`** — proponer el día cuesta **2.3 MB y 931 ms** (lee las 2,858 facturas una vez por
