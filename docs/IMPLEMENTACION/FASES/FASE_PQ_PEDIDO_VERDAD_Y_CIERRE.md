@@ -494,12 +494,39 @@ Por eso el 100 % tiene dos árbitros distintos y hay que nombrar cuál:
 |---|---|---|
 | D20 (final) | ¿Factor de caja en almacenes Kepler = ficha de Kepler? | **Sí (PQ.13)**: manda la ficha de esa sucursal cuando trae factor; donde calla, la fuente previa con su nombre. El PM firma al aplicar la migración, que es el antes/después |
 
+## 13. Auditoría del flujo generar → aprobar (2026-10-26) — nivel C + B; nivel A bloqueado
+
+Pedido del PM: recorrer con Playwright desde que se genera el pedido hasta la bandeja, contar la
+interacción humana y juzgar el diseño. **Nivel A no se pudo**: los dos navegadores MCP (Playwright y
+Chrome DevTools) estaban tomados por otra sesión y no hay login de prueba. Lo que sigue es código
+(C) y prod (B); nada visual está medido (ADR-056).
+
+**Interacción humana mínima para un pedido de un proveedor (nivel C):** ~7 clics + 1 texto para
+generar (proveedor, cantidades o «agregar todos», «Generar», diálogo, «Generar los N»), 2 clics por
+menú para llegar a la bandeja, 3–4 para aprobar, y la recaptura completa en Kepler fuera de la Suite
+(no medida). «Marcar como ordenada»: 1 clic + 2 campos + 1 clic.
+
+| # | Hallazgo | Medido | Costo | Regla | Estado |
+|---|---|---|---|---|---|
+| 1 | Un apagado sistémico (KR) se pintaba en rojo fila por fila como falla del documento | B: 172/173 `kepler_error` en 30 d = «escritura apagada» | 784 aprobadas leídas como error | §10.10 fallos parciales | ✅ **PQ.14** (`ffe073b74`) |
+| 2 | `ordered` sin folio de OC: no se puede seguir a la entrada | B: 203 en 30 d, 0 con folio legible | $24.6 M sin hilo | Cruce 2 | ⬜ previos a RQ.15; el camino nuevo ya exige folio |
+| 3 | Traspasos aprobados sin camino de cierre | B: 703 aprobados, 0 recibidos | $13.7 M | Tesler | ⬜ PQ.3 |
+| 4 | El lazo se corta al generar: toast sin folio ni enlace | C | la persona navega por menú y busca | Doherty/Jakob | ✅ **PQ.14**: aviso persistente con lote y «Ver en Requisiciones» (`?q=<lote>`) |
+| 5 | 9 acciones planas en el detalle | C | sin curaduría | Hick | ⬜ necesita nivel A |
+| 6 | Pedido: 4 modos + lentes + ~20 columnas, botón «Generar» duplicado | C | carga cognitiva | Cruce 4 | ⬜ NO MEDIDO qué se ve al abrir |
+| 7 | `check:pantalla`: sin `LoadState` (§2) en las dos; requisiciones sin frescura (§9) ni `@container` (#9) | estático | deuda declarada previa; **0 fallas nuevas** por PQ.1/PQ.4/PQ.14 | contrato de producto | ⬜ deuda con nombre |
+
+**Para cerrar el nivel A:** que la otra sesión suelte el navegador de Playwright, o un usuario de
+prueba con acceso a Compras. Con eso se recorre el flujo completo (una requisición de prueba que se
+cancela con motivo al terminar) y se miden pliegue, jerarquía, contraste y foco.
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-26 | Auditoría del flujo generar → aprobar (§13): nivel A bloqueado (navegadores tomados, sin login); nivel C+B con 7 hallazgos. **PQ.14 🧪** (`ffe073b74`): apagado de Kepler como estado de la bandeja, no falla por fila; lo generado queda a la vista con su lote y enlace a la bandeja. 130/130 vitest | PM + sesión PQ |
 | 2026-10-26 | «Necesito un 100 %»: las 268 líneas fuera de la ficha son 162 por etiqueta (cuadran por factor) + 106 unidades elegidas a mano en Kepler. **PQ.13 🧪**: migración que hace mandar la ficha de Kepler en sus almacenes (867 celdas, 568 a 1 por `unidad_unica`); cuerpo ejercido en prod sólo lectura, **sin aplicar** (§12.4) | PM + sesión PQ |
 | 2026-10-26 | «Resolvámoslo» (D20): medido contra 19,367 líneas de OC reales de Kepler (90 d). **El resolvedor ya da el `c58` de Kepler en 99.3 % de las líneas en caja; el `c84` solo daría 98.7 %** → D20 refutada, sin vista que cambiar. `c58` es el factor del peldaño capturado (`c55`), no del producto. El desfase al escribir está en el adaptador (escribe `CJA`/`c58=1`); va a KR (§12.3) | PM + sesión PQ |
 | 2026-10-26 | El PM avisó que la base fue editada: la unidad del catálogo venía de un importer y desfasaba lo insertado en Kepler. Medido (§12.2): 9,241 productos en lote, 93 % ahora = `c84` de Kepler. **M2 se relee** (cantidad cambiada mezcla comprador + unidad) y se repite sobre requisiciones posteriores al lote; M1 se repite; PQ.1/4/5 y la paridad no cambian. Nace **D20** (factor = `c84` de Kepler para almacenes Kepler) | PM + sesión PQ |
