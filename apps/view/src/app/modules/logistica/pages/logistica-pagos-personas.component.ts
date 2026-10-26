@@ -332,7 +332,7 @@ export class LogisticaPagosPersonasComponent {
   readonly papel = signal<RolDelReparto | null>(null);
   readonly orden = signal<OrdenPersonas>('total');
   readonly papeles = (['chofer', 'ayudante', 'cargador'] as const).map((value) => ({ value, label: ROL_LABEL[value] }));
-  readonly ordenes = ORDENES_PERSONAS;
+  readonly ordenes = [...ORDENES_PERSONAS];   // copia: p-select pide un arreglo mutable
 
   readonly filtradas = computed(() => {
     const q = this.busqueda();

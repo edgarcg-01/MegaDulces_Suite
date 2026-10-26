@@ -491,8 +491,9 @@ export class LogisticaPagosViajesComponent {
   readonly diaFiltro = signal<string | null>(null);
   readonly orden = signal<Orden>('falta');
   readonly tipos = (['traspaso', 'cliente', 'mixto'] as const).map((value) => ({ value, label: TIPO_VIAJE_LABEL[value] }));
-  readonly estados = ESTADOS_FILTRO;
-  readonly ordenes = ORDENES;
+  // Copias: p-select pide un arreglo mutable.
+  readonly estados = [...ESTADOS_FILTRO];
+  readonly ordenes = [...ORDENES];
 
   readonly filtrados = computed(() => {
     const vista = this.vista();
