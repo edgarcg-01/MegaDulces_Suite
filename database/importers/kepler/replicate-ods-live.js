@@ -73,7 +73,21 @@ const WATCH_ARG = process.argv.find((a) => a === '--watch' || a.startsWith('--wa
 // ⛔ El piso NO se retira del todo. 1 s es el mínimo porque por debajo el latido a
 // `analytics.cron_runs` escribiría más de una vez por segundo contra prod, y el carril dejaría de
 // ser gratis del lado del destino — que es la pata que nadie estaba midiendo.
-const WATCH_SEC = WATCH_ARG ? Math.max(1, Number(WATCH_ARG.split('=')[1] || 10)) : 0;
+//
+// `[OBS.15]` MODO TIEMPO REAL (`ODS_TIEMPO_REAL=1`, sólo el carril de caja). El objetivo es que
+// cabecera y renglones lleguen al ODS en MENOS DE 1 s. Con el ciclo de antes no daba: cada pasada
+// abría 9 conexiones, corría el DDL de `ods.*`, leía el catálogo de columnas y escribía DOS latidos
+// a prod (medido: 431 ms por ciclo + 1 s de pausa = un dato podía esperar ~1.5 s). En este modo:
+//   · las conexiones a las réplicas quedan ABIERTAS entre ciclos (y se reabren si se caen);
+//   · el DDL de `ods.*` corre una vez por conexión y el catálogo de columnas se guarda 10 min;
+//   · el latido sale cada `ODS_HB_CADA_SEC` (10 s) con lo acumulado, no en cada ciclo — y con eso
+//     cae la razón del piso de 1 s, que era justamente el latido: el piso baja a 0.2 s;
+//   · `--watch` pasa a ser el PERIODO, no la pausa: se duerme lo que falta para completarlo.
+// Los otros carriles no lo prenden y se comportan exactamente igual que antes.
+const TIEMPO_REAL = /^(1|true|yes)$/i.test(String(process.env.ODS_TIEMPO_REAL || ''));
+const HB_CADA_MS = TIEMPO_REAL ? Math.max(1, Number(process.env.ODS_HB_CADA_SEC) || 10) * 1000 : 0;
+const PISO_WATCH_SEC = TIEMPO_REAL ? 0.2 : 1;
+const WATCH_SEC = WATCH_ARG ? Math.max(PISO_WATCH_SEC, Number(WATCH_ARG.split('=')[1] || 10)) : 0;
 
 // [INFRA.3] SIN LISTA POR DEFECTO, A PROPOSITO. Aca vivia la CUARTA copia a mano del conjunto
 // de tablas; el comentario de ops/vl/docker-compose.yml:160 ya la habia nombrado "el hallazgo
@@ -179,6 +193,18 @@ const { openDocsSql } = require('../lib/ods-open-docs');
 const OPEN_DOCS_DIAS = Number(process.env.ODS_OPEN_DOCS_DAYS || 120);
 const OPEN_DOCS_INTERVAL_MS = Number(process.env.ODS_OPEN_DOCS_INTERVAL_SEC || process.env.ODS_SAFETY_INTERVAL_SEC || 300) * 1000;
 const _lastOpenDocs = new Map();
+
+// `[OBS.15]` COLA DE CAMBIOS (ver ../lib/ods-cola.js). `ODS_COLA_TABLES` = las tablas que este
+// carril vacía de `ods.cola` en cada réplica donde el trigger está ACTIVO. Va aparte de
+// `KP_ODS_TABLES` a propósito: la cola no toca `ods.ctl` ni `ods.shadow`, así que no compite por el
+// watermark de nadie (la regla de dueño único, OBS.8) — `kdm2` sigue siendo del carril caliente, que
+// es el que dispara el recálculo de precio de venta. Donde la cola está activa, la red de seguridad
+// y la de estado de ESA tabla se saltan: la cola ya ve cada INSERT y cada UPDATE, y la red costaba
+// un ciclo de ~1.5 s cada 5 min. Donde NO está instalada, todo sigue como antes, y se declara.
+const { estadoCola, profundidadCola, drenarCola } = require('../lib/ods-cola');
+const COLA_TABLES = (process.env.ODS_COLA_TABLES || '').split(',').map((s) => s.trim()).filter(Boolean);
+const COLA_ESTADO_MS = 60 * 1000;
+const _colaEstado = new Map(); // code → { en, activas: Set, faltan: string[] }
 
 // RED DE SEGURIDAD del carril HASH (bug 2026-09-02): el shadow se marca para TODAS las filas
 // enviadas, sin poder confirmar que el destino las aplicó — y NO se puede validar por `rowCount`,
@@ -484,8 +510,9 @@ function shipMetaOf(table, meta) {
   return { table, pk: meta.pk, columns: [{ name: 'sucursal', type: 'text' }, ...meta.cols.map((c) => ({ name: c.column_name, type: mapType(c.data_type) }))] };
 }
 
-/** Carril CTID: append-only grandes. Lee ctid>watermark, empuja, avanza watermark. */
-async function syncCtid(p, code, table, meta, { apply, full }) {
+/** Carril CTID: append-only grandes. Lee ctid>watermark, empuja, avanza watermark.
+ *  `colaActiva` (OBS.15): la cola de cambios ya cubre esta tabla en esta rama → sin redes. */
+async function syncCtid(p, code, table, meta, { apply, full, colaActiva = false }) {
   const selList = meta.cols.map((c) => qid(c.column_name)).join(', ');
   const shipMeta = shipMetaOf(table, meta);
   const wmRow = (await p.query(`SELECT last_ctid FROM ods.ctl WHERE table_name=$1`, [table])).rows[0];
@@ -522,6 +549,7 @@ async function syncCtid(p, code, table, meta, { apply, full }) {
        rows_last=EXCLUDED.rows_last, changed_last=EXCLUDED.changed_last, last_run_at=now()`,
     [table, lastCtid, seen, changed]);
   if (seen) console.log(`  ✓ ${code}/${table} [ctid]: ${seen} leídas · ${changed} escritas · ctid→${lastCtid}`);
+  if (colaActiva && !full) return { suc: code, tabla: table, carril: 'ctid', leidas: seen, escritas: changed, redes: 'cola' };
 
   // RED DE SEGURIDAD: re-envía la ventana reciente por fecha (recupera filas que el ctid saltó).
   // Idempotente (raw-upsert) → re-enviar filas ya presentes es inofensivo. Throttle a SAFETY_INTERVAL.
@@ -690,6 +718,80 @@ async function primeCtid() {
  *  entera podía shipear CERO (las 7 ramas sin conectar) e imprimir "APPLY hecho." igual. Es la misma
  *  falla silenciosa que tuvo Wincaja 4 días en cero con los dos carriles "online" — ahí se resolvió
  *  agregando las fallas al error del latido (replicate-wincaja-live.js:200-207) y se copia acá. */
+// `[OBS.15]` Conexiones de las réplicas en modo TIEMPO_REAL: abiertas entre ciclos, con el DDL de
+// `ods.*` hecho y el catálogo de columnas guardado. Fuera de ese modo, una por ciclo como siempre.
+const _conexiones = new Map(); // code → Client conectado
+const _caidas = new Map();     // code → instante del último fallo al conectar
+const META_TTL_MS = 10 * 60 * 1000;
+// Una réplica caída no puede frenar a las otras ocho: con un sondeo cada 250 ms, reintentar en cada
+// ciclo la tendría a ella marcando el paso (el `connect` espera hasta 15 s antes de rendirse).
+const REINTENTO_CAIDA_MS = 30 * 1000;
+
+async function abrirRama(b) {
+  if (TIEMPO_REAL && _conexiones.has(b.code)) return _conexiones.get(b.code);
+  const p = new Client({ connectionString: b.url, ssl: false, ...CONN });
+  // Sin este oyente, una conexión ociosa que se corta emite un 'error' sin manejar y mata el proceso.
+  p.on('error', () => { if (_conexiones.get(b.code) === p) _conexiones.delete(b.code); });
+  await p.connect();
+  if (TIEMPO_REAL) { p._meta = new Map(); _conexiones.set(b.code, p); }
+  return p;
+}
+
+/** Fuera de TIEMPO_REAL cierra siempre; dentro, sólo si la conexión quedó en duda. */
+async function soltarRama(code, p, { rota = false } = {}) {
+  if (TIEMPO_REAL && !rota) return;
+  if (_conexiones.get(code) === p) _conexiones.delete(code);
+  await cerrar(p);
+}
+
+async function metaDe(p, table) {
+  if (!p._meta) return tableMeta(p, table);
+  const hit = p._meta.get(table);
+  if (hit && Date.now() - hit.en < META_TTL_MS) return hit.meta;
+  const meta = await tableMeta(p, table);
+  p._meta.set(table, { en: Date.now(), meta });
+  return meta;
+}
+
+/** Dónde está activa la cola en esta rama. Se re-pregunta cada minuto: si alguien la apaga, las
+ *  redes de seguridad vuelven solas en ≤ 60 s. */
+async function colaDe(p, code) {
+  const hit = _colaEstado.get(code);
+  if (hit && Date.now() - hit.en < COLA_ESTADO_MS) return hit;
+  const e = await estadoCola(p, COLA_TABLES);
+  const activas = new Set(COLA_TABLES.filter((t) => e.tablas[t] === 'activa'));
+  const v = { en: Date.now(), activas, faltan: COLA_TABLES.filter((t) => !activas.has(t)).map((t) => `${t}:${e.tablas[t]}`) };
+  _colaEstado.set(code, v);
+  return v;
+}
+
+/** `[OBS.15]` Vacía la cola de esta rama (o, en seco, sólo la mide). Devuelve la fila del resumen. */
+async function pasarCola(p, code, cola, { apply }) {
+  const tablas = COLA_TABLES.filter((t) => cola.activas.has(t));
+  if (!apply) {
+    const prof = await profundidadCola(p, tablas);
+    return { suc: code, tabla: 'cola', carril: 'cola', candidatas: prof.reduce((a, r) => a + r.n, 0),
+      espera_max_ms: prof.reduce((m, r) => Math.max(m, r.espera_max_ms), 0) };
+  }
+  const rc = await drenarCola(p, {
+    tablas,
+    metaDe: (t) => metaDe(p, t),
+    // ⛔ `normalize: false`: el recálculo de precio de `kdm2` se COALESCE en el proceso que embarca
+    // (`apply-handlers.js`, [DB-MEM.20]) y gasta hasta 10 s por minuto. En ESTE proceso frenaría la
+    // cola 10 s de cada 60. El precio no se pierde: el carril caliente sigue embarcando `kdm2`
+    // (ctid + red) y ahí se recalcula, igual que hoy.
+    enviar: (t, meta, filas) => ship(filas.map((row) => ({ sucursal: code, ...row })),
+      { ...shipMetaOf(t, meta), normalize: false }),
+  });
+  const espera = rc.leidas ? rc.espera_max_ms + rc.ms : 0;
+  if (rc.leidas) {
+    const det = Object.entries(rc.porTabla).map(([t, v]) => `${t} ${v.llaves}`).join(' · ');
+    console.log(`  ⚡ ${code}/cola: ${det} · ${rc.escritas} escritas`
+      + `${rc.borradas ? ` · ${rc.borradas} borradas en origen (no se propagan)` : ''} · réplica→ODS ≤ ${espera} ms`);
+  }
+  return { suc: code, tabla: 'cola', carril: 'cola', leidas: rc.llaves, escritas: rc.escritas, borradas: rc.borradas, espera_max_ms: espera };
+}
+
 async function cycleAll({ apply, full }) {
   const summary = [];
   const fallas = [];
@@ -697,11 +799,20 @@ async function cycleAll({ apply, full }) {
   // [OBS.3.2] Una marca por rama, para que la deriva de configuración deje de ser invisible.
   const marcas = [];
   summary.marcas = marcas;
+  // [OBS.15] En cuántas ramas está activa la cola, para el latido: un carril que dice «tiempo
+  // real» con la cola apagada en tres sucursales tiene que decirlo.
+  summary.cola = { activas: 0, ramas: 0, faltan: [] };
   for (const b of BRANCHES) {
     if (ONLY_BRANCH && b.code !== ONLY_BRANCH) continue;
-    const p = new Client({ connectionString: b.url, ssl: false, ...CONN });
-    try { await p.connect(); }
+    if (TIEMPO_REAL && Date.now() - (_caidas.get(b.code) || 0) < REINTENTO_CAIDA_MS) {
+      fallas.push(`${b.code}: en espera tras no conectar`);
+      marcas.push({ suc: b.code, tablas: 0, filas: 0, error: 'en espera tras no conectar' });
+      continue;
+    }
+    let p;
+    try { p = await abrirRama(b); _caidas.delete(b.code); }
     catch (e) {
+      if (TIEMPO_REAL) _caidas.set(b.code, Date.now());
       console.log(`  ⚠ replica ${b.code} (${localDbName(b.code)}): no conecta (${e.message.slice(0, 50)}) — skip`);
       fallas.push(`${b.code}: ${e.message.slice(0, 40)}`);
       // Con error: la marca NO avanza. Esta rama no se revisó, y decir que sí la volvería invisible.
@@ -710,15 +821,34 @@ async function cycleAll({ apply, full }) {
     }
     let tablas = 0, filas = 0, errTablas = 0;
     try {
-      await ensureLocalCtl(p, b.code, apply);
+      if (!p._ctlListo) { await ensureLocalCtl(p, b.code, apply); if (TIEMPO_REAL) p._ctlListo = true; }
+      // La cola va PRIMERO: es el camino rápido, y la cabecera con sus renglones salen juntos.
+      let cola = null;
+      if (COLA_TABLES.length) {
+        summary.cola.ramas++;
+        try {
+          cola = await colaDe(p, b.code);
+          if (cola.activas.size) {
+            const r = await pasarCola(p, b.code, cola, { apply });
+            summary.push(r);
+            filas += Number(r.escritas || 0);
+          }
+          if (cola.activas.size === COLA_TABLES.length) summary.cola.activas++;
+          else summary.cola.faltan.push(`${b.code}(${cola.faltan.join(',')})`);
+        } catch (e) {
+          console.log(`  ✗ ${b.code}/cola: ${e.message.slice(0, 90)}`);
+          summary.push({ suc: b.code, tabla: 'cola', error: e.message.slice(0, 45) });
+          errTablas++;
+        }
+      }
       const tables = await tablesFor(p);
       for (const table of tables) {
         try {
-          const meta = await tableMeta(p, table);
+          const meta = await metaDe(p, table);
           if (!meta) { summary.push({ suc: b.code, tabla: table, skip: 'no existe' }); continue; }
           if (!meta.pk.length) { summary.push({ suc: b.code, tabla: table, skip: 'sin PK' }); continue; }
           const fn = isHashTable(table) ? syncHash : syncCtid;
-          const r = await fn(p, b.code, table, meta, { apply, full });
+          const r = await fn(p, b.code, table, meta, { apply, full, colaActiva: !!cola && cola.activas.has(table) });
           summary.push(r);
           tablas++; filas += Number(r?.escritas || 0);
         } catch (e) { console.log(`  ✗ ${b.code}/${table}: ${e.message.slice(0, 90)}`); summary.push({ suc: b.code, tabla: table, error: e.message.slice(0, 45) }); errTablas++; }
@@ -730,9 +860,74 @@ async function cycleAll({ apply, full }) {
       // Falló ANTES de poder recorrer las tablas (ctl, listado): la rama no se revisó.
       marcas.push({ suc: b.code, tablas, filas, error: e.message.slice(0, 120) });
       fallas.push(`${b.code}: ${e.message.slice(0, 40)}`);
-    } finally { await cerrar(p); }
+      errTablas++;
+    } finally {
+      // Con cualquier error la conexión queda en duda: en TIEMPO_REAL se tira y se reabre al
+      // ciclo siguiente, en vez de seguir preguntándole a un socket que quizá ya no contesta.
+      await soltarRama(b.code, p, { rota: errTablas > 0 });
+    }
   }
   return summary;
+}
+
+/** Lo que el latido dice de UN ciclo. */
+function resumir(summary) {
+  const wrote = summary.reduce((a, r) => a + (r.escritas || 0), 0);
+  const errs = summary.filter((r) => r.error).length;
+  const fallas = summary.fallas || [];
+  // [OBS.15] La peor espera réplica → ODS que midió la cola en este ciclo (0 = no hubo nada).
+  const espera = summary.reduce((m, r) => (r.carril === 'cola' ? Math.max(m, r.espera_max_ms || 0) : m), 0);
+  return { wrote, errs, fallas, espera, cola: summary.cola, marcas: summary.marcas || [] };
+}
+/** `[OBS.15]` Texto de la cola para el latido: dónde está activa y la peor espera medida. */
+function notaCola(cola, espera) {
+  if (!COLA_TABLES.length || !cola) return '';
+  return ` · cola ${cola.activas}/${cola.ramas} ramas${cola.faltan.length ? ` (sin cola: ${cola.faltan.join(' ')})` : ''}`
+    + ` · peor réplica→ODS ${espera} ms`;
+}
+function textoError({ fallas, errs }) {
+  return [fallas.length ? `${fallas.length}/${BRANCHES.length} ramas no conectan — ${fallas.join(' · ')}` : null,
+    errs ? `${errs} tablas con error` : null].filter(Boolean).join(' · ');
+}
+
+/**
+ * `[OBS.15]` El ciclo con latido de TIEMPO_REAL: mismo contrato que `ciclarConLatido`, pero el
+ * latido sale cada `cadaMs` con lo acumulado. Con un ciclo cada 250 ms, dos renglones a prod por
+ * ciclo serían ~8 escrituras por segundo para decir «sigo vivo». El latido reporta la VENTANA:
+ * filas de todos sus ciclos, el PEOR ciclo y la peor espera de la cola — y queda en `error` si
+ * CUALQUIER ciclo de la ventana falló, no sólo el último (un error entre latidos no se esconde).
+ * `begin` sale una sola vez (es el que fija `host`, que la sonda de salud usa para saber de quién
+ * es el pulso). Dependencias inyectadas para la prueba (`test-ods-cola.js`, bloque 5).
+ */
+function crearCicloTiempoReal({ ciclo, latir: latirFn, marcarRamas: marcarFn, cadaMs, late = true, ahora = Date.now }) {
+  const hb = { abierto: false, desde: ahora(), ciclos: 0, wrote: 0, peorMs: 0, espera: 0, error: null, ultimo: null };
+  return async ({ full }) => {
+    const t0 = ahora();
+    if (late && !hb.abierto) { await latirFn('begin'); hb.abierto = true; }
+    let r = null, falla = null;
+    try { r = resumir(await ciclo({ full })); } catch (e) { falla = e; }
+    const ms = ahora() - t0;
+    hb.ciclos++; hb.peorMs = Math.max(hb.peorMs, ms);
+    if (r) {
+      hb.wrote += r.wrote; hb.espera = Math.max(hb.espera, r.espera); hb.ultimo = r;
+      if (r.fallas.length || r.errs) hb.error = textoError(r);
+    } else hb.error = falla.message;
+    if (late && ahora() - hb.desde >= cadaMs) {
+      const u = hb.ultimo || { fallas: [], errs: 0, cola: null, marcas: [] };
+      if (u.marcas.length) await marcarFn(u.marcas);
+      await latirFn('end', {
+        status: hb.error ? 'error' : 'ok',
+        rows: hb.wrote,
+        ms: hb.peorMs,
+        note: `${BRANCHES.length - u.fallas.length}/${BRANCHES.length} ramas · ${hb.wrote} filas en ${hb.ciclos} ciclos`
+          + ` · peor ciclo ${hb.peorMs} ms${notaCola(u.cola, hb.espera)}`,
+        error: hb.error,
+      });
+      Object.assign(hb, { desde: ahora(), ciclos: 0, wrote: 0, peorMs: 0, espera: 0, error: null });
+    }
+    if (falla) throw falla;
+    return { wrote: r.wrote, ms };
+  };
 }
 
 // ─── [NORM.3b] EJECUTAR SÓLO COMO SCRIPT ────────────────────────────────────────────────────
@@ -822,30 +1017,32 @@ if (require.main === module) {
       if (WATCH_SEC) process.exit(1);
     }
 
+    // `[OBS.15]` En TIEMPO_REAL el latido sale por ventana (ver `crearCicloTiempoReal`).
+    const ciclarTiempoReal = crearCicloTiempoReal({
+      ciclo: ({ full }) => cycleAll({ apply: true, full }), latir, marcarRamas, cadaMs: HB_CADA_MS, late,
+    });
+
     /** Un ciclo con latido: begin → cycleAll → end(ok|error). Reporta ENTREGA, no "el proceso corre". */
     const ciclarConLatido = async ({ full }) => {
       const t0 = Date.now();
+      if (HB_CADA_MS) return ciclarTiempoReal({ full });
       if (late) await latir('begin');
       try {
         const summary = await cycleAll({ apply: true, full });
-        const wrote = summary.reduce((a, r) => a + (r.escritas || 0), 0);
-        const errs = summary.filter((r) => r.error).length;
-        const fallas = summary.fallas || [];
+        const r = resumir(summary);
+        const { wrote, errs, fallas } = r;
         // Una rama ilegible o una tabla en error es un ERROR del carril, aunque el proceso siga vivo.
         const malo = fallas.length > 0 || errs > 0;
         // [OBS.3.2] La marca por rama va ANTES del latido agregado: si el proceso muere entre las
         // dos, es preferible tener el detalle por sucursal y que falte el resumen que al revés.
-        if (late) await marcarRamas(summary.marcas || []);
+        if (late) await marcarRamas(r.marcas);
         if (late) {
           await latir('end', {
             status: malo ? 'error' : 'ok',
             rows: wrote,
             ms: Date.now() - t0,
-            note: `${BRANCHES.length - fallas.length}/${BRANCHES.length} ramas · ${wrote} filas · ${errs} tablas con error`,
-            error: malo
-              ? [fallas.length ? `${fallas.length}/${BRANCHES.length} ramas no conectan — ${fallas.join(' · ')}` : null,
-                errs ? `${errs} tablas con error` : null].filter(Boolean).join(' · ')
-              : null,
+            note: `${BRANCHES.length - fallas.length}/${BRANCHES.length} ramas · ${wrote} filas · ${errs} tablas con error${notaCola(r.cola, r.espera)}`,
+            error: malo ? textoError(r) : null,
           });
         }
         return { wrote, ms: Date.now() - t0 };
@@ -855,11 +1052,13 @@ if (require.main === module) {
       }
     };
 
+
     if (!WATCH_SEC) {
       if (!APPLY) {
         const summary = await cycleAll({ apply: false, full: FULL });
         console.log('\n=== Resumen ===');
         console.table(summary.slice(0, 200));
+        if (COLA_TABLES.length) console.log(`  cola (${COLA_TABLES.join(',')}):${notaCola(summary.cola, resumir(summary).espera)}`);
         console.log('DRY-RUN — nada cambió. Corré con --apply.');
         if (DEST) await cerrar(DEST);
         return;
@@ -871,16 +1070,19 @@ if (require.main === module) {
     }
 
     console.log(`  watch activo (latido → ${HB_KEY}) — Ctrl+C para salir.`);
+    if (TIEMPO_REAL) console.log(`  [OBS.15] tiempo real: periodo ${WATCH_SEC * 1000} ms · latido cada ${HB_CADA_MS / 1000} s · cola: ${COLA_TABLES.join(',') || '(ninguna)'}`);
     let cycle = 0;
     for (;;) {
       cycle++;
+      const tCiclo = Date.now();
       try {
         const { wrote, ms } = await ciclarConLatido({ full: FULL && cycle === 1 });
         if (wrote) console.log(`  ── ciclo ${cycle}: ${wrote} filas escritas (${ms}ms) ──`);
       } catch (e) {
         console.error(`  ✗ ciclo ${cycle}: ${e.message.slice(0, 120)}`);
       }
-      await sleep(WATCH_SEC * 1000);
+      // En TIEMPO_REAL `--watch` es el PERIODO: se duerme lo que falta. Fuera, la pausa de siempre.
+      await sleep(TIEMPO_REAL ? Math.max(0, WATCH_SEC * 1000 - (Date.now() - tCiclo)) : WATCH_SEC * 1000);
     }
   })().catch((e) => { console.error('\nERROR:', e.message); process.exit(1); });
 }
@@ -903,4 +1105,6 @@ module.exports.__test = {
   reenviarAbiertos,
   OPEN_DOCS_INTERVAL_MS,
   syncCtid,
+  // [OBS.15] El latido por ventana de TIEMPO_REAL (test-ods-cola.js, bloque 5).
+  crearCicloTiempoReal,
 };
