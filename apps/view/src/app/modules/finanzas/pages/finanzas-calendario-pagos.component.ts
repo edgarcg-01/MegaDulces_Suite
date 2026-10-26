@@ -325,6 +325,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           <span class="pg-prop-main">
                             <span class="cal-benef">{{ g.beneficiary }}</span>
                             <span class="pg-sub"><span class="cal-suc">{{ branchLabel(g.branch) }}</span> {{ facturas(g.items.length) }} · la más vieja venció el {{ shortDate(g.oldest) }}</span>
+                            <!-- [PGP.14] Acá es donde de verdad se decide: la propuesta ya eligió a
+                                 este proveedor. Si trae saldo a favor sin aplicar, se dice ANTES de
+                                 marcar la casilla, no después de pagar. -->
+                            @if (creditoDeGrupo(g); as c) {
+                              <span class="pg-favor"><i class="pi pi-replay" aria-hidden="true"></i>trae {{ money(c.a_favor) }} a favor sin aplicar ({{ c.clases.toLowerCase() }}) — revisá si hay que netear</span>
+                            }
                           </span>
                           <span class="pg-prop-amt comm-num">{{ money(g.total) }}</span>
                         </label>
@@ -521,6 +527,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                     <i class="pi" [class.pi-bolt]="p.urge" [class.pi-tag]="!p.urge" aria-hidden="true"></i>{{ p.texto }}
                                   </span>
                                 }
+                                <!-- [PGP.14] El credito a favor que NADIE aplico. No bloquea el pago -netear
+                                     es una decision de Finanzas con el proveedor, no una regla automatica-
+                                     pero no se puede decidir lo que no se ve. Medido: 54 acreedores con deuda
+                                     viva traen $4,484,249 a favor; varios quedarian en CERO. -->
+                                @if (f.credito; as c) { <span class="pg-favor"><i class="pi pi-replay" aria-hidden="true"></i>{{ c }}</span> }
                               </span>
                             </span>
                             <span class="pg-dr-due">{{ f.vence }}</span>
@@ -726,6 +737,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* [TP.20.4] Pronto pago: lo urgente se marca con PESO e icono (rayo), no con ambar. */
     .cal-pp { display:inline-flex; align-items:center; gap:.25rem; margin-left:var(--sp-1); font-size:var(--fs-xs); color:var(--text-muted); }
     .cal-pp-urge { color:var(--text-main); font-weight:700; }
+    /* [PGP.14] El credito a favor sin aplicar. Toma color de aviso porque es dinero NUESTRO que
+       se puede perder pagando de mas, y lleva icono Y palabra: el color nunca es unico portador
+       (regla #5 de DESIGN.md, y lo unico que sobrevive a forced-colors). */
+    .pg-favor { display:inline-flex; align-items:center; gap:4px; margin-left:var(--sp-1);
+      font-size:var(--fs-nano); font-weight:700; color:var(--warn-fg); }
 
     /* ── Encabezado y lienzo ─────────────────────────────────────────── */
     .pg-head { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; }
@@ -1120,8 +1136,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       const pronto = o.pronto_beneficio && (urge || o.pronto_estado === 'capturable')
         ? { urge, texto: ` pierde ${this.money(o.pronto_beneficio)}${o.pronto_tasa ? ` (${this.pct(o.pronto_tasa)})` : ''}${o.pronto_fecha_limite ? ` si no se paga antes del ${this.shortDate(o.pronto_fecha_limite)}` : ''}` }
         : null;
+      // [PGP.14] El credito a favor se precalcula aca, como todo lo demas de este renglon: son
+      // ~1,000 filas y formatear en cada ciclo es lo que congelaba la pantalla 15.9 s.
+      const cr = this.creditoDe(o);
       return {
         o, pronto,
+        credito: cr ? `trae ${this.money(cr.a_favor)} a favor sin aplicar (${cr.clases.toLowerCase()})` : null,
         sucursal: this.branchLabel(o.branch_code),
         vence: this.venceTxt(o),
         importe: this.money(o.available_amount),
@@ -1160,6 +1180,46 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (!suc || suc === '00') return false; // Oficinas no tiene el problema: es desde donde se pagó
     const f = (o.original_due_date ?? '').slice(0, 10);
     return !!f && f < this.CORTE;
+  }
+
+  /**
+   * `[PGP.14]` **El crédito a favor que nadie aplicó, en el renglón donde se decide pagar.**
+   *
+   * Medido contra prod el 2026-10-26: **$8,264,176 sin aplicar en 201 documentos**, de los cuales
+   * **$4,484,249 son de 54 acreedores a los que además les debemos** — ésos son los neteables.
+   * Casos reales: PRODUCTOS FRUTI FRESK debe $149,640 y trae **$2,000,820** a favor; SALSA MAGA
+   * debe $294,687 y trae exactamente $294,687.
+   *
+   * ⛔ Sin esto, la pantalla deja programar la factura completa y el crédito se queda ahí. No se
+   * BLOQUEA el pago —netear es una decisión de Finanzas con el proveedor, no una regla automática—
+   * pero **no se puede decidir lo que no se ve**.
+   *
+   * ⚠️ Es un PISO, no un dictamen: `kdxf` sobre-cuenta lo aplicado (el control de cheques da
+   * 105 %), y sobre-contar lo aplicado sub-cuenta lo pendiente.
+   */
+  readonly creditos = signal<ReadonlyMap<string, { a_favor: number; docs: number; clases: string }>>(new Map());
+  creditoDe(o: Obligation | { payee_code?: string | null }): { a_favor: number; docs: number; clases: string } | null {
+    const code = (o.payee_code ?? '').trim();
+    return code ? this.creditos().get(code) ?? null : null;
+  }
+  /**
+   * El crédito del grupo que la propuesta armó. ⚠️ Se busca por el código del acreedor de sus
+   * facturas, **no por el nombre**: dos proveedores pueden llamarse igual y netear contra el
+   * equivocado es peor que no avisar nada.
+   */
+  creditoDeGrupo(g: ArmadoGrupo<Obligation>): { a_favor: number; docs: number; clases: string } | null {
+    for (const it of g.items) { const c = this.creditoDe(it); if (c) return c; }
+    return null;
+  }
+  private loadCreditos(): void {
+    this.http.get<Array<{ proveedor: string; a_favor: number; docs: number; clases: string; con_deuda_viva: boolean }>>(`${this.base}/creditos-a-favor`)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (rows) => this.creditos.set(new Map((rows ?? []).filter((r) => r.con_deuda_viva)
+          .map((r) => [r.proveedor, { a_favor: Number(r.a_favor), docs: r.docs, clases: r.clases }]))),
+        // ⛔ Que falle esto NO puede tumbar la pantalla: es un aviso, no el dato con el que se paga.
+        // Se declara en consola y la lista queda vacía, que se lee como «sin avisos» y no como «sin crédito».
+        error: () => this.creditos.set(new Map()),
+      });
   }
 
   /** El orden de la lista de deuda, como una sola decisión en vez de dos casillas sueltas. */
@@ -1370,6 +1430,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.destroyRef.onDestroy(() => cancelAnimationFrame(this.rampaId));
     this.recuperarPreparacion();
     this.reload();
+    // [PGP.14] El credito a favor sin aplicar: se pide UNA vez y se guarda por acreedor.
+    this.loadCreditos();
     this.http.get<PaymentOriginAccount[]>(`${this.base}/origin-accounts`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (rows) => {
         this.originOpts.set(rows.map((r) => ({ id: r.id, label: r.alias ? `${r.alias} (${r.bank})` : `${r.bank} ${r.account_label}` })));
