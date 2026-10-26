@@ -325,6 +325,56 @@ export class PaymentCalendarService {
   }
 
   // ── Obligaciones disponibles (UNION de los 3 orígenes; nunca escribe) ────────────────
+  /**
+   * `[PGP.14]` **El crédito a favor que nadie aplicó, por acreedor.**
+   *
+   * Nace de una pregunta de Edgar (2026-10-26): *«¿cómo sabemos cuándo debemos aplicar una nota de
+   * crédito o alguna devolución?»*. Medido: **Kepler ya las aplica** —`kdxf` casa el abono contra
+   * el cargo y la deuda viva nace neteada—, así que la pantalla pagaba bien… salvo por lo que
+   * **nadie aplicó**, que era invisible: `v_supplier_payables` sólo deja pasar cargos.
+   *
+   * | | medido el 2026-10-26 |
+   * |---|---|
+   * | sin aplicar, total | **$8,264,176** en 201 documentos |
+   * | de eso, **neteable hoy** | **$4,484,249** en **54 acreedores con deuda viva** |
+   * | el resto | 15 acreedores sin deuda viva ($2.95 M): no hay contra qué aplicarlo |
+   *
+   * ⭐ Las **notas de crédito sí se aplican** (1,801 docs, $110.6 M, ~100 %). Lo que se queda son
+   * **anticipos** ($6.99 M) y **devoluciones** ($1.25 M, 6 de cada 10 sin netear).
+   *
+   * ⚠️ **Es un PISO, no un dictamen**: el control de cheques da 105 % aplicado (`kdxf` sobre-cuenta
+   * por replicación de sucursal), y sobre-contar lo aplicado **sub-cuenta** lo pendiente.
+   *
+   * Sale en su propio endpoint y no dentro de `listObligations` a propósito: esa consulta tiene un
+   * presupuesto de 500 ms y corre en 325-377: meterle este join la empuja contra el techo sin que
+   * nadie lo necesite en la misma respuesta. Medido: 135-143 ms por separado.
+   */
+  async listUnappliedCredits(): Promise<Array<{
+    proveedor: string; proveedor_nombre: string | null; a_favor: number;
+    docs: number; clases: string; mas_vieja: string | null; con_deuda_viva: boolean;
+  }>> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT c.proveedor,
+                max(c.proveedor_nombre) AS proveedor_nombre,
+                sum(c.a_favor)::float8 AS a_favor,
+                count(*)::int AS docs,
+                string_agg(DISTINCT c.clase, ', ' ORDER BY c.clase) AS clases,
+                to_char(min(c.fecha), 'YYYY-MM-DD') AS mas_vieja,
+                EXISTS (SELECT 1 FROM analytics.v_supplier_payables p
+                         WHERE p.proveedor = c.proveedor AND p.pendiente > 0
+                           AND p.proveedor NOT LIKE 'TI%' AND p.tenant_id = ?) AS con_deuda_viva
+           FROM analytics.v_supplier_unapplied_credits c
+          WHERE c.tenant_id = ?
+          GROUP BY c.proveedor
+          ORDER BY sum(c.a_favor) DESC`,
+        [tenantId, tenantId],
+      );
+      return rows;
+    });
+  }
+
   async listObligations(q: {
     source?: ObligationSource; classification?: string; search?: string;
     dueFrom?: string; dueTo?: string; onlyCritical?: boolean; onlyAvailable?: boolean;

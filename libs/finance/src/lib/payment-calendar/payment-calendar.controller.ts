@@ -26,6 +26,17 @@ export class PaymentCalendarController {
     private readonly docs: PaymentCalendarDocumentService,
   ) {}
 
+  /**
+   * `[PGP.14]` El crédito a favor SIN aplicar, por acreedor. Va aparte de `obligations` porque esa
+   * consulta tiene presupuesto de 500 ms y corre en 325-377; ésta cuesta 135-143 ms sola.
+   */
+  @Get('creditos-a-favor')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'Notas de crédito, devoluciones, bonificaciones y anticipos que todavía NO se aplicaron contra ninguna factura, agrupados por acreedor. Medido el 2026-10-26: $8,264,176 en 201 documentos, de los cuales $4,484,249 son de 54 acreedores a los que además les debemos (eso es lo neteable). ⚠️ Es un PISO: kdxf sobre-cuenta lo aplicado por replicación de sucursal.' })
+  listUnappliedCredits() {
+    return this.svc.listUnappliedCredits();
+  }
+
   @Get('obligations')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'Obligaciones disponibles (UNION de los 4 orígenes: gasto, compromiso, factura capturada y deuda viva de Kepler). Devuelve { rows, total, limit, offset }: el total dice cuántas hay aunque el techo recorte. No se acota por día.' })
