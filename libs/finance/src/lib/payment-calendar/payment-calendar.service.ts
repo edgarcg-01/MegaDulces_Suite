@@ -367,6 +367,18 @@ export class PaymentCalendarService {
         // [TP.20.5] el ref de la ficha. NULL en los orígenes que no tienen documento de Kepler
         // detrás: un ref inventado abriría un panel que no existe.
         'entity_ref',
+        /**
+         * `[PGP.12]` **La referencia del proveedor y el código del acreedor, para VER y BUSCAR.**
+         *
+         * `doc_ref` es lo que `/compras/obligaciones` llama «Referencia» (`0-F-2525`, `30-1402`):
+         * verificado contra las 38 obligaciones capturadas a mano, **38 de 38 exactas** y control
+         * placebo de **0 de 38**. ⚠️ Es captura LIBRE: 92.6 % trae algo, y entre ese algo hay
+         * `LPA`, `DAMASO`, `S/R`. Por eso se rotula «Referencia», nunca «Factura».
+         *
+         * `payee_code` es el código del acreedor (`CNFR001`, `AE002`): Tesorería conoce a varios
+         * proveedores por código y hasta hoy no se podía buscar por él.
+         */
+        'doc_ref', 'payee_code',
       ];
       const legBudget = trx('budget.expense_obligations as o').select(
         trx.raw(`'budget_expense'::text AS obligation_source`), 'o.id AS obligation_id',
@@ -376,6 +388,9 @@ export class PaymentCalendarService {
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
         'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
         trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_tasa'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
+        // [PGP.12] Un gasto presupuestado no tiene documento de proveedor ni código de acreedor.
+        // Se declaran NULL: la columna sale vacía, que es distinto de salir con un hueco inventado.
+        trx.raw('NULL::text AS doc_ref'), trx.raw('NULL::text AS payee_code'),
       ).whereNotIn('o.status', ['cancelled', 'propuesta']); // propuesta = sin autorizar → fuera del Calendario (PR.3)
 
       const legCommitment = trx('finance.financial_commitments as o').select(
@@ -386,6 +401,8 @@ export class PaymentCalendarService {
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
         'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
         trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_tasa'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
+        // [PGP.12] Un compromiso financiero tampoco tiene documento de proveedor detrás.
+        trx.raw('NULL::text AS doc_ref'), trx.raw('NULL::text AS payee_code'),
       ).whereNotIn('o.status', ['cancelled']);
 
       const legSupplier = trx('commercial.supplier_payment_obligations as o')
@@ -404,6 +421,10 @@ export class PaymentCalendarService {
           trx.raw(`CASE WHEN o.kepler_sucursal IS NOT NULL AND o.kepler_folio IS NOT NULL
                         THEN 'oblig:' || o.kepler_sucursal || '|' || o.kepler_doc_tipo || '|'
                                       || o.kepler_doc_sub || '|' || btrim(o.kepler_folio) END AS entity_ref`),
+          // [PGP.12] Acá la referencia ya existía con otro nombre: es la factura que Compras
+          // capturó al recibir. Las 38 filas vivas la traen, y son las mismas con las que se
+          // verificó que `kdxe.c16` es este dato (38 de 38 exactas).
+          trx.raw(`nullif(btrim(o.invoice_folio), '') AS doc_ref`), 's.code AS payee_code',
         ).whereNotIn('o.status', ['cancelled']);
 
       /**
@@ -482,6 +503,10 @@ export class PaymentCalendarService {
           // las cuatro partes de la clave natural (sucursal, tipo, subtipo, folio).
           trx.raw(`'oblig:' || v.sucursal || '|' || v.doc_tipo || '|' || v.doc_sub
                              || '|' || btrim(v.folio) AS entity_ref`),
+          // [PGP.12] La referencia del proveedor (`kdxe.c16`, publicada por la vista en la
+          // migración 20261026122438) y el código del acreedor. Esta es la pata que importa:
+          // trae el 98.7 % de la deuda y era la única sin referencia.
+          trx.raw(`v.referencia AS doc_ref`), trx.raw('v.proveedor AS payee_code'),
         );
 
       const unionSql = `(${legBudget.toQuery()} UNION ALL ${legCommitment.toQuery()} UNION ALL ${legSupplier.toQuery()} UNION ALL ${legKepler.toQuery()}) AS ob`;
@@ -491,9 +516,24 @@ export class PaymentCalendarService {
       if (q.onlyCritical) base.where('ob.is_critical', true);
       // [TP.20.4] El filtro que faltaba para armar el dia mirando lo que caduca.
       if (q.prontoPago) base.where('ob.pronto_estado', q.prontoPago);
+      /**
+       * `[PGP.12]` **Qué alcanza el buscador.** Era `beneficiary` + `concept`, y `concept` para la
+       * deuda de Kepler es el folio interno pelado — así que por folio **sí** se podía buscar, pero
+       * por la referencia del proveedor (`0-F-2525`) y por el código del acreedor (`CNFR001`) no.
+       *
+       * ⛔ Y el folio solo **no identifica**: medido el 2026-10-26 sobre los 2,897 documentos que
+       * la pantalla muestra, **769 (26.5 %) comparten folio con otro**, hasta 5 documentos con el
+       * mismo número. Buscar `0000304` devuelve el de $8,000,000 de ACREEDOR ARTURO LOPEZ OROZCO
+       * **y** uno de $45,343.77 de MEGA ALIMENTOS en Morelia Abastos. Por eso la referencia no es
+       * un adorno: en 92.6 % de los casos es lo que desempata.
+       */
       if (q.search?.trim()) {
         const s = q.search.trim();
-        base.andWhere((w: any) => w.whereILike('ob.beneficiary', `%${s}%`).orWhereILike('ob.concept', `%${s}%`));
+        base.andWhere((w: any) => w
+          .whereILike('ob.beneficiary', `%${s}%`)
+          .orWhereILike('ob.concept', `%${s}%`)
+          .orWhereILike('ob.doc_ref', `%${s}%`)
+          .orWhereILike('ob.payee_code', `%${s}%`));
       }
       if (q.dueFrom) base.where('ob.original_due_date', '>=', q.dueFrom);
       if (q.dueTo) base.where('ob.original_due_date', '<=', q.dueTo);
