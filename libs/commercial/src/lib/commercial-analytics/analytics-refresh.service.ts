@@ -31,6 +31,11 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // desglose tres veces. Poblarla es un solo pase de la vista (~968 ms), así que entra al array
   // de 15 min sin `everyMin`: es barata y el costo unitario sí se mueve en el día (recepciones).
   { name: 'analytics.mv_erp_unit_cost' },
+  // `[AB.36]` (mig 20261024134443) Copia materializada de `analytics.v_product_unit_ladder` (la
+  // escalera de unidades de Kepler, 9,697 SKU). La lee la mesa de Autoabasto / «Mi pedido» y la
+  // cuenta de «lo que ya pidió la sucursal» para la red: viva, por SKU, costaba 185–340 ms en la
+  // ruta crítica de una pantalla con techo de 500. Es configuración de producto: cambia rara vez.
+  { name: 'analytics.mv_product_unit_ladder' },
   { name: 'analytics.mv_sales_overview_30d' },
   { name: 'analytics.mv_top_customers_30d' },
   { name: 'analytics.mv_top_products_30d' },

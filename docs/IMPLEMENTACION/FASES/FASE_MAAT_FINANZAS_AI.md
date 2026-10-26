@@ -356,3 +356,55 @@ El tool `maat_red_proveedores` ahora prefiere un **grafo Neo4j** para el recorri
 ---
 
 *Relación con lo existente: Maat NO toca `commercial-intelligence` (Thot) ni `libs/trade` (Horus). Reusa: infra AI Fase K (`ANTHROPIC_API_KEY`, patrón fetch), patrón chat de Fase TC, patrón learning de Horus L, feeds GX. Los endpoints `/commercial/analytics/expenses*` actuales siguen siendo la fuente del frontend de egresos — Maat los consume vía su propio query-service, no los duplica hacia fuera.*
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md), con su contrato de superficies con IA (§X).
+> Severidad: 🔴 la pantalla afirmaría algo falso, escondería lo que importa o perdería trabajo —
+> **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro de la fase · 🟡 mejora; si no entra, queda
+> como deuda con nombre.
+> El chat (`/finanzas/maat`) y la bandeja (`/finanzas/hallazgos`) ya existen: ahí cada observación
+> es un criterio a verificar, no un defecto medido. Alertas, acciones propuestas y simulación (P2,
+> P3 y P4 de §7.bis) están en código local, sin desplegar.
+
+**La pregunta que contesta (prueba de la frase, §4.0b):**
+
+- **Chat (`/finanzas/maat`):** un chat no contesta una pregunta: es el lugar para hacerlas. Lo que
+  sí contesta preguntas fijas es su **briefing** de entrada (gasto 30 días, hallazgos, sin
+  recepción, saldo top): cuatro preguntas en un tablero dentro del chat (§4.0 A). Corte: esas
+  tarjetas son de Hallazgos; el chat abre con «Pregúntame» y las sugerencias (MAAT.UI.6).
+- **Hallazgos (`/finanzas/hallazgos`):** *«¿Qué tengo que revisar hoy y cuánto dinero hay en
+  juego?»* — «cuánto» es atributo de lo mismo: una pregunta. Bien partido, mientras los totales no
+  sumen motores distintos (ver VP.UI.9 en `FASE_VP`).
+- **Parte semanal (MAAT.6):** *«¿Qué pasó esta semana que importe?»* — una pregunta.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):**
+
+- Chat: primario = la respuesta con su cifra, salida de una herramienta · secundario = de dónde sale
+  (herramienta, filtros, periodo) y la evidencia enlazada · terciario = las sugerencias de
+  seguimiento.
+- Hallazgos: primario = pendientes por clase con el dinero en juego · secundario = la lista por
+  monto, con su regla y su confianza · terciario = la evidencia (filas, póliza).
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| MAAT.UI.1 | 🔴 | **Las cifras del chat las escribe el modelo.** El plan garantiza que los números salen de herramientas («nunca calcula, siempre llama tools»), pero la respuesta es `narrative` en texto, y ahí el modelo transcribe, redondea, suma o resta: «ingresos mar-2026 $61.8M», «631 facturas $52.2M». La regla vive en el prompt y su prueba fueron 2 turnos («0 inventos»); las golden questions «quedan para el cierre de fase». | DESIGN §X («cero cifras del LLM en pantalla») · §1.3 | Toda cifra de la respuesta la pinta el host desde el resultado de la herramienta (bloque de datos o marcador que el host resuelve). Un verificador compara cada número de la prosa contra los resultados del turno; si no está, lo sustituye por «[cifra sin verificar]» y lo registra. Prueba negativa: la herramienta devuelve 52.2 y la prosa dice 52.3 → rojo. Igual para el parte semanal (MAAT.6). |
+| MAAT.UI.2 | 🔴 | **«Sin recepción» es «no la encontré».** `cadena_incompleta` (crítico: «pagar sin recibir») se arma sobre una cadena que se reconstruye **91.5 % exacta en sucursales y 57 % en la que el plan llama «CEDIS»** — la 00 de Kepler es Oficinas y el CEDIS real recibe en Wincaja. «631 facturas, $52.2 M» y «48 facturas de BOLSAS DE LOS ALTOS, $5.5 M» se publican como red flag de auditoría, y con P2 llegarían por push al gerente. | §1.1 · §1.3 · DESIGN §X.4 | Rótulo «Recepción no encontrada en Kepler». La cifra separa `exact` de `inferred` y dice la cobertura de la cadena de esa sucursal («en Oficinas la cadena se reconstruye en 57 %: puede ser falta de dato»). Crítico sólo con cobertura medida arriba de un umbral. «Oficinas», nunca «CEDIS 00». |
+| MAAT.UI.3 | 🔴 | **El estado de resultados del chat sale de una fuente que no sirve para margen.** `maat_pnl` lee `analytics.ledger_monthly`, y el proyecto midió el 29-sep que ahí **$352 M de venta de mercancía están en 401-002 «VENTA FLETES A TERCEROS»** (Oficinas) desde ene-2026 y que el costo mensual lo dominan los inventarios 509/516. Una tabla de resultados en el chat afirmaría un margen falso. | §1.6 · §1.1 | La herramienta no devuelve margen mensual desde la balanza; si devuelve la balanza, va con la declaración literal: «La balanza no sirve para margen mensual: parte de la venta está registrada como fletes y el costo lo dominan los inventarios». La respuesta remite al Motor de Rentabilidad (MR) o a la venta del ERP. Prueba: «margen de enero» no produce un porcentaje sin esa declaración. |
+| MAAT.UI.4 | 🔴 | **Tres respuestas a «¿cuánto le debo a este proveedor?».** El chat usa `ap_provider` (auxiliar 201, 729 proveedores); ECA, `kdxe − kdxf` (676 acreedores); la pestaña de efectivo de CGA podría usar `v_supplier_payables`, que ya difiere de ECA en **$171,832.92**. Nadie midió `ap_provider` contra ECA: hoy no se sabe cuánto discrepan. | §1.5 · §1.6 | El chat usa el resolvedor que decida D5 de CGA (recomendado: el de ECA). Si conserva el 201, la respuesta dice «saldo según la cuenta 201 (contable), no el estado de cuenta» y enlaza a ECA. Prueba de cruce: para los 20 proveedores de mayor saldo, chat y ECA dan lo mismo o la diferencia se declara. |
+| MAAT.UI.5 | 🟠 | **La confianza se usa sólo por dentro.** Los hallazgos traen `score` y las reglas `precision_score`; la autosupresión (precisión < 0.3 con 10 veredictos o más) apaga reglas sin que la bandeja diga cuánto dejó de verse. DESIGN §X lo lista como antipatrón. Y un hallazgo de banco (`[CB.7]`) que casó después sigue pendiente si nada lo cierra. | DESIGN §X.4 · §1.2 · §2.1 | Cada fila dice la precisión de su regla en llano («esta regla acierta 7 de 10»). La bandeja dice «2 reglas suprimidas por baja precisión no muestran 37 hallazgos · ver». El botón de opinión declara su efecto: «Si sigue fallando, dejaré de mostrar esta regla». Lo que la fuente ya no detecta sale de pendientes con su fecha. |
+| MAAT.UI.6 | 🟠 | **Lo importante vive sólo en el chat, y con otra lógica.** El briefing (gasto 30 días, hallazgos, sin recepción, saldo top) y `maat_alertas` —un «detector-lite» que adelanta MAAT.2 con su propia lógica de duplicados, salto de precio, DPO y sin recepción— pueden contar distinto que la bandeja. | DESIGN §X («nada crítico vive sólo dentro del chat») · §1.5 · §5.4 | `maat_alertas` lee `finance.findings`: una implementación. Las tarjetas del briefing son las de Hallazgos, con la misma cifra; cada una navega a su lista con el filtro puesto. |
+| MAAT.UI.7 | 🟠 | **«Aprobar» una acción propuesta (P3, `maat_proponer_accion`) no dice qué hace.** El plan dice que ejecuta «en NUESTRAS tablas + audit», sin decir qué efectos ni si se pueden revertir. | DESIGN §X.1 · §X.5 · §4.4 · idempotencia visual | Antes de aprobar, el plan de la acción en llano con «Proceder · Editar · Lo hago yo». Si no se puede revertir, se dice antes. El botón se deshabilita al primer clic. Cada acción queda en un registro consultable desde la pantalla, con quién la aprobó. |
+| MAAT.UI.8 | 🟠 | **«Realista» afirma una probabilidad que nadie midió (P4, `maat_simular_flujo`).** La proyección de flujo a tres escenarios usa un DPO aproximado (saldo / compra) y no dice sus supuestos. | §1.6 · DESIGN §X.3 | Cada escenario nombra sus supuestos («pagos 15 días después; cobranza igual al promedio de 3 meses»). La cifra lleva el rótulo «Proyección» y se distingue en peso y estilo del dato real. Sin base medida, «Escenario A · B · C», no «optimista / realista / pesimista». |
+| MAAT.UI.9 | 🟠 | **Las alertas push de críticos (P2) heredarían el ruido de `cadena_incompleta`.** Sin precisión medida, el gerente recibiría por push lo que en buena parte es falta de dato (MAAT.UI.2). | DESIGN §X.4 · §X.6 | Sólo empujan las reglas con precisión medida arriba de un umbral y un número mínimo de veredictos. La alerta lleva monto, regla y enlace al hallazgo. Un mismo hallazgo no se empuja dos veces entre escaneos. |
+| MAAT.UI.10 | 🟡 | **El chat traduce sucursales con su propio catálogo** («catálogo sucursal código→nombre» en el prompt, MAAT.3.1): una copia que ya diverge («CEDIS 00» en CP.4). | nombres, no códigos · §5.4 | Las herramientas devuelven el nombre resuelto con `warehouseName()` de `@megadulces/contracts`; el prompt no trae catálogo. Prueba: la 00 sale «Oficinas». |
+| MAAT.UI.11 | 🟡 | **`/finanzas/maat` es una «réplica fiel» de `/thot-chat`**, no la misma pieza: el hilo, los bloques de datos y las gráficas existen dos veces y van a divergir. | §5.4 · DESIGN §X (identidad ember) | El hilo y los bloques de datos se extraen a una pieza compartida por Thot y Maat. Identidad de IA en ember, nunca morado ni azul. El export CSV/Excel de un bloque trae la misma cifra que el bloque. |
+
+**Lo que esta revisión no cubre:** la decisión abierta de privacidad (mandar filas financieras a la
+API), el costo del modelo, el grafo de proveedores (P5, sin datos forenses todavía) y lo que sólo
+se ve en la pantalla viva (nivel A).

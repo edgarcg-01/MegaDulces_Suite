@@ -7,6 +7,10 @@
  * Definiciones ancladas al comportamiento real del sistema (backend libs/fiscal, etc.),
  * no inventadas.
  */
+// `[E.29]` Los tipos de descuento salen de UNA fuente (quote-units), la misma que la leyenda del papel
+// de la cotización: la ayuda y el PDF no pueden explicar distinto el mismo descuento.
+import { FUENTE_PRECIO, TIPOS_DE_DESCUENTO } from '../../modules/televenta/quote-units';
+
 export interface HelpEntry { term: string; def: string; }
 export interface HelpGroup { heading: string; entries: HelpEntry[]; }
 /** Bloque "cómo se resuelve": pasos accionables. kind='fix' = se corrige (en Kepler/aquí);
@@ -15,6 +19,59 @@ export interface HelpResolveBlock { heading: string; kind?: 'fix' | 'info'; intr
 export interface HelpTopic { title: string; intro?: string; groups?: HelpGroup[]; resolve?: HelpResolveBlock[]; }
 
 export const CONTEXT_HELP: Record<string, HelpTopic> = {
+  // `[E.29]` Los renglones de una cotización (alta y detalle: la misma tabla). Lo lee el operador de
+  // telemarketing y, a veces, el cliente por encima de su hombro: palabra llana.
+  'cotizacion-descuentos': {
+    title: 'Cotización — de dónde sale cada precio',
+    intro: 'Cada renglón se cotiza como lo cobraría Kepler: con la presentación que se captura (pieza, paquete, caja), su precio de lista, su precio por volumen y su promoción. La columna «De dónde sale» dice cuál se aplicó y, abajo, qué es en concreto. El descuento del cliente no va en el renglón: se resta del total.',
+    groups: [
+      {
+        heading: 'Tipos de descuento (columna «De dónde sale»)',
+        entries: TIPOS_DE_DESCUENTO.map((t) => ({ term: FUENTE_PRECIO[t.clave] ?? t.clave, def: t.def })),
+      },
+      {
+        heading: 'Las columnas',
+        entries: [
+          { term: 'Existencia hoy', def: 'Lo que la sucursal tiene en Kepler, convertido a la presentación del renglón, con la edad del dato arriba. «Faltan N» es lo que no alcanza para surtir lo pedido; «sin dato» es que Kepler no lo tiene registrado, que no es lo mismo que cero.' },
+          { term: 'Lista', def: 'El precio de la presentación antes de cualquier descuento. Contra él se calcula el porcentaje.' },
+          { term: 'Precio', def: 'Lo que se cobra por unidad de la presentación, ya con volumen o promoción. Entre paréntesis, lo que sale cada unidad menor (por ejemplo, cada paquete dentro de la caja).' },
+          { term: 'Porcentaje', def: 'Cuánto baja el precio contra la lista: (lista − precio) ÷ lista. Es la misma cuenta antes y después de guardar la cotización.' },
+          { term: 'Línea gris', def: 'Los pasos del precio, de la lista al precio final: «lista $26.94 → volumen $24.79».' },
+          { term: 'Importe', def: 'Cantidad por precio, a centavos como Kepler (el precio se guarda por unidad base). La suma de los importes, menos el descuento del cliente, es el total.' },
+        ],
+      },
+    ],
+  },
+  // `[AB.28]` La mesa de Autoabasto (`/almacen/autoabasto`). La lee el almacenista y el encargado de
+  // sucursal: palabra llana, nada de nombres de columna. Cada definición está anclada a la cuenta real
+  // (`armarRenglon` en libs/contracts y FASE_AB §16.8), no a lo que la etiqueta sugiere.
+  'almacen-autoabasto': {
+    title: 'Autoabasto — qué le falta a tu almacén',
+    intro: 'La mesa muestra, producto por producto, cuánto le falta a tu almacén para llegar a su objetivo, qué parte ya viene en camino y a quién se le pide. Es la misma cuenta que «Mi pedido»: las dos pantallas no pueden dar cifras distintas del mismo producto.',
+    groups: [
+      {
+        heading: 'Las columnas',
+        entries: [
+          { term: 'Objetivo', def: 'Lo que el almacén debería tener: la venta diaria del producto por los días de cobertura del almacén (21 en sucursales, 30 en matrices y CEDIS), ajustada por temporada.' },
+          { term: 'Falta', def: 'Objetivo menos existencia. Es lo que falta antes de contar lo que ya viene en camino.' },
+          { term: 'Ya viene', def: 'Lo que ya está pedido a tu matriz (pedido abierto de 7 días o menos) más lo que ya se embarcó y todavía no recibes. Se resta de lo que falta.' },
+          { term: 'Falta neta', def: 'Lo que falta después de restar lo que ya viene. Es lo que de verdad hay que pedir.' },
+          { term: 'Surte', def: 'A quién se le pide este producto: tu matriz (traspaso) o el proveedor (compra), según el canal configurado. «Sin ruta» quiere decir que no hay canal: no se sabe a quién pedírselo.' },
+          { term: 'Posición', def: 'Dónde está la existencia contra la política del almacén: agotado, bajo mínimo, bajo reorden, sano o sobrestock. Decide qué tan urgente es.' },
+        ],
+      },
+      {
+        heading: 'Los estados',
+        entries: [
+          { term: 'Falta por pedir', def: 'Le falta y lo que ya viene no alcanza: lo que queda nadie lo ha pedido todavía (ni pedido abierto, ni embarque en camino, ni plan de Compras). Puede que ya venga una parte; la explicación del renglón dice cuánto. Es lo primero que hay que revisar.' },
+          { term: 'Lo pediste a Compras', def: 'La sucursal ya lo mandó a Compras con «Enviar a Compras» y la requisición sigue viva: por aprobar, o aprobada hace 7 días o menos. No se resta (cuenta hasta que esté en Kepler) y no se puede volver a mandar. Si Compras la rechaza, vuelve a «Falta por pedir» y en «Lo que te llega» se ve el motivo.' },
+          { term: 'Compras lo planeó', def: 'Le falta y Compras ya lo planeó en su pedido general, pero todavía no es un pedido en Kepler. No se resta: mientras no esté en Kepler, la matriz no lo surte.' },
+          { term: 'Estado «Ya viene»', def: 'Lo que ya está pedido o en camino cubre todo lo que falta. No hay que hacer nada más que recibirlo.' },
+          { term: 'Valor sin medir', def: 'Cuando el costo de compra de un producto no cuadra con su unidad, su valor no se suma: se cuenta aparte. Las cantidades sí son válidas.' },
+        ],
+      },
+    ],
+  },
   // `[PR.V4]` El motor habla con siete verbos y cinco grados de certeza, y ninguno es obvio.
   // Siete roles lo leen (compras, finanzas, marketing, direccion, gerente_compras y dos mas) y
   // ninguno es tecnico, asi que el registro de TODO este topico es palabra llana: nada de
@@ -2363,6 +2420,54 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Por banco', def: 'El medio se toma de la cuenta de tesorería con la que se registró el pago, no del tipo de documento. Es la diferencia entre decir «transferencia» y que de verdad haya salido del banco.' },
           { term: 'Proveedores fuera del catálogo', def: 'Si a alguien se le pagó por banco y su clave no existe en el catálogo de la plataforma, su dinero se sigue contando en el total pero no se le puede abrir la solicitud desde aquí. Se avisa en el pie en vez de esconderlo.' },
           { term: 'Toda alta pasa por autorización', def: 'Quien solicita la cuenta no es quien la aprueba. El botón de cada renglón abre la solicitud con el proveedor ya puesto; la cuenta queda activa cuando alguien con permiso de autorizar la aprueba.' },
+        ],
+      },
+    ],
+  },
+
+  // `[PGP.7]` La pantalla absorbió a Pronto pago y quedó como el único lugar donde se hace un
+  // pago. Sin esta entrada, lo absorbido llega sin explicación: el chip del descuento vivía con
+  // su definición metida en un `title`, que sólo existe para quien tiene mouse (regla P).
+  'calendario-de-pagos': {
+    title: 'Calendario de pagos — todo el pago, en un solo lugar',
+    intro:
+      'Acá se arma el día de pago, se prepara cada transferencia, se autoriza el lote y se liga con el documento del ERP. Desde octubre de 2026 también muestra qué factura está por perder su descuento por pronto pago, que antes era una pantalla aparte: el dato es el mismo y la decisión es la misma, así que se toma sin cambiar de lugar.',
+    groups: [
+      {
+        heading: 'Los pasos, y de quién es cada uno',
+        entries: [
+          { term: '1 · Armar el día', def: 'Elegís qué facturas se pagan y a qué día. Una factura puede venir de cuatro lugares: la deuda viva del ERP, una obligación de compra, un gasto autorizado por Presupuestos o un compromiso financiero. Un pago es UNA transferencia a UNA cuenta, así que no se pueden juntar facturas de beneficiarios distintos.' },
+          { term: '2 · Preparar', def: 'Le pones el método, la cuenta de donde sale el dinero y la cuenta a donde llega. Es de Tesorería. Mientras un solo pago del día quede sin preparar, el día entero NO se puede autorizar.' },
+          { term: '3 · Autorizar el día', def: 'Lo hace quien tiene el permiso de autorizar, que no es quien preparó: esa separación es el control. Al autorizar, el día recibe su folio y Caja General ya puede dispersar.' },
+          { term: '4 · Ejecutar y ligar', def: 'Caja General paga y marca el pago como ejecutado. Después se liga con su documento del ERP, que es lo que permite volver a cruzarlo contra la contabilidad. Va aparte porque el dinero sale antes de que el ERP capture el documento.' },
+        ],
+      },
+      {
+        heading: 'El descuento por pronto pago',
+        entries: [
+          { term: 'Ahorra $X (Y %)', def: 'Lo que se dejaría de pagar si esa factura se liquida dentro de la ventana. El monto dice cuánto se gana; el porcentaje sirve para compararlo contra lo que cuesta adelantar el dinero.' },
+          { term: 'Antes del <fecha>', def: 'La fecha límite estimada. ⚠️ Es OBSERVADA, no pactada: sale de los pagos a ese proveedor que de hecho obtuvieron descuento, no de una condición acordada. El acuerdo con el proveedor no existe como dato en ningún sistema. Es una guía defendible, no una promesa.' },
+          { term: 'Por vencer', def: 'Le quedan cinco días o menos de ventana. Es un aviso para que no se pierda por olvido, no una regla de negocio.' },
+          { term: 'Fuera de ventana', def: 'Se pasó la mediana de lo que históricamente funcionó con ese proveedor. ⚠️ NO quiere decir «perdido»: todavía se puede pedir, y tratarlo como perdido haría que nadie lo intente.' },
+          { term: 'Sin medir', def: 'No hay observaciones suficientes de ese proveedor para estimar una ventana. ⚠️ No es lo mismo no saber que saber que no da descuento: por eso el renglón no muestra nada en vez de mostrar cero.' },
+          { term: 'Ordenar por descuento', def: 'Cambia el orden de la lista: en vez de por fecha de pago, por fecha límite del descuento y, a igualdad, por lo que se gana. Es el orden que tenía la pantalla de Pronto pago, porque cada factura pierde el privilegio en su propio día y agruparlas esconde la que vence mañana.' },
+        ],
+      },
+      {
+        heading: 'Lo que ya no está acá, y dónde quedó',
+        entries: [
+          { term: 'Pronto pago (la pantalla)', def: 'Salió del menú en octubre de 2026. Lo que servía para decidir —cuánto se gana, hasta cuándo y en qué estado está la ventana— está en esta pantalla. Su otra mitad, los hallazgos de descuento ya perdido, llevaba 55 días sin producirse. La dirección sigue funcionando si la tenés guardada.' },
+          { term: 'Programa de pagos', def: 'Salió del menú en octubre de 2026: era el Excel de Tesorería importado y su última carga fue del 8 de agosto. Lo que de verdad se pagó se consulta en «Pagos a proveedor», que sale del ERP y está al día. La dirección sigue funcionando si la tenés guardada.' },
+          { term: 'Cuánto se debe', def: 'Esta pantalla muestra lo que se va a pagar. Para ver la deuda documento por documento, con sus pagos y notas aplicadas, está «Estado de cuenta acreedores»; para el cuadre contable, «Cuadre y deuda».' },
+        ],
+      },
+      {
+        heading: 'Lo que ya salió ese día',
+        entries: [
+          { term: 'Salió $X · N', def: 'Lo que el ERP registra que de verdad se pagó ese día, con cuántos pagos fueron. ⚠️ Es OTRO universo que lo de arriba: se suma por fecha, no se casa renglón por renglón con los pagos del calendario. Sirve para comparar totales, no para dar por cuadrado un pago.' },
+          { term: 'Un día sin nada', def: 'Si el día ya pasó y no aparece ningún monto, es que no salió dinero ese día — un sábado, por ejemplo. El dato viene del ERP y se actualiza solo, así que el cero significa cero.' },
+          { term: 'Sin medir', def: 'Aparece sólo si el espejo del ERP no trae fecha de corte. Entonces el cero no se puede leer: no se sabe si no hubo pagos o si el dato no se actualizó. Se avisa en vez de pintar un cero que nadie midió.' },
+          { term: 'Antes lo traía un Excel', def: 'Hasta octubre de 2026 este contraste salía del libro de Tesorería, que alguien cargaba a mano: llevaba 77 días sin cargarse y, cuando estaba al día, registraba menos de la mitad (en agosto, 157 pagos contra los 530 del ERP). Ahora sale del ERP y no depende de que nadie lo cargue.' },
         ],
       },
     ],

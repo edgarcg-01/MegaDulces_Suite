@@ -1,49 +1,50 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 341 KB, 5109 líneas, 37 secciones.
+> **Índice navegable** — 352 KB, 5237 líneas, 38 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 50 | 65 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
-| 66 | 82 | 1 | 0. Qué es este documento, y qué NO es |
-| 83 | 191 | 6 | 1. Las siete reglas |
-| 192 | 226 | 8 | 2. El estado, en una tabla |
-| 227 | 389 | 10 | 3. Existencia |
-| 390 | 614 | 12 | 4. Ventas y unidades |
-| 615 | 646 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
-| 647 | 723 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
-| 724 | 794 | 5 | 6. Las trampas que ya cobraron |
-| 795 | 852 | 30 | 7. Los huecos declarados, con nombre y monto |
-| 853 | 897 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
-| 898 | 1099 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
-| 1100 | 1205 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
-| 1206 | 1406 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
-| 1407 | 1723 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
-| 1724 | 1743 | 2 | 10. Cómo se verifica |
-| 1744 | 1766 | 1 | 11. Lo que este documento no cubre |
-| 1767 | 1842 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
-| 1843 | 2002 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
-| 2003 | 2386 | 23 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
-| 2387 | 2627 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
-| 2628 | 2820 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
-| 2821 | 2863 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
-| 2864 | 2962 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
-| 2963 | 3436 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
-| 3437 | 3544 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
-| 3545 | 3699 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
-| 3700 | 3851 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
-| 3852 | 4057 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
-| 4058 | 4147 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
-| 4148 | 4337 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
-| 4338 | 4406 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
-| 4407 | 4701 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
-| 4702 | 4919 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
-| 4920 | 5029 | 7 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
-| 5030 | 5075 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
-| 5076 | 5158 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
+| 51 | 66 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
+| 67 | 83 | 1 | 0. Qué es este documento, y qué NO es |
+| 84 | 192 | 6 | 1. Las siete reglas |
+| 193 | 227 | 8 | 2. El estado, en una tabla |
+| 228 | 390 | 10 | 3. Existencia |
+| 391 | 615 | 12 | 4. Ventas y unidades |
+| 616 | 647 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
+| 648 | 724 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
+| 725 | 795 | 5 | 6. Las trampas que ya cobraron |
+| 796 | 853 | 30 | 7. Los huecos declarados, con nombre y monto |
+| 854 | 898 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
+| 899 | 1100 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
+| 1101 | 1206 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
+| 1207 | 1407 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
+| 1408 | 1724 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
+| 1725 | 1744 | 2 | 10. Cómo se verifica |
+| 1745 | 1767 | 1 | 11. Lo que este documento no cubre |
+| 1768 | 1843 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
+| 1844 | 2003 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
+| 2004 | 2418 | 25 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
+| 2419 | 2659 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
+| 2660 | 2852 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
+| 2853 | 2895 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
+| 2896 | 2994 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
+| 2995 | 3468 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
+| 3469 | 3576 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
+| 3577 | 3731 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
+| 3732 | 3883 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
+| 3884 | 4089 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
+| 4090 | 4179 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
+| 4180 | 4369 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
+| 4370 | 4438 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
+| 4439 | 4733 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 4734 | 4951 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
+| 4952 | 5061 | 7 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
+| 5062 | 5107 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
+| 5108 | 5192 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
+| 5193 | 5287 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -2093,6 +2094,37 @@ dar por supuesto.
 publica desde `kdil` sin un segundo testigo que la respalde. No es un problema del CEDIS; es del
 dato de existencia completo. Si `kdil` está mal, está mal para todas — y eso es una fase aparte, no
 un motivo para dejar un almacén en blanco.
+
+### 17.4b ⭐⭐ El árbitro que faltaba: el REPORTE de Kepler, cruzado SKU por SKU (PQ.12, 2026-10-24)
+
+El PM trajo el **«Reporte de existencia por productos»** de Kepler para el CEDIS (24-oct 11:55,
+8,954 productos) y fijó la regla: *«nada inventado ni importado; la misma fórmula de Kepler y los
+mismos resultados»*. Cruzado contra `v_erp_stock_on_hand` del `00` con
+[`pq-paridad-existencia-reporte-kepler.js`](../database/scripts/pq-paridad-existencia-reporte-kepler.js)
+(control: 11 cifras leídas a ojo en las páginas 10 y 18; ⛔ `pdftotext -layout` **corría los renglones
+un SKU** y daba 155 «diferencias» falsas, `-raw` acierta 11 de 11):
+
+| | Kepler (reporte) | nuestra vista | veredicto |
+|---|---:|---:|---|
+| SKUs con existencia positiva | 303 (369,572 u) | 296 (372,335 u) | **289 idénticos** |
+| distintos | 2 | | movimientos de HOY después de las 11:55 (`X-A-40` 0010073: 360 y 2,090 u) |
+| sólo Kepler | 12 | | 1 fuera del catálogo (`99225`) · **11 con último movimiento ANTES del corte** (22-sep, 10-abr, dic-25; saldos 2–224 u) que el filtro «actividad posterior al corte» excluye y Kepler publica |
+| sólo nuestra vista | 11 | | movimientos de hoy después de las 11:55 |
+| **negativos** | **45 (−55,174 u)** | 0 | `GREATEST(…,0)` los recorta; `kdil c4+c8−c9` crudo los reproduce **45 de 45** |
+
+⭐ **La fórmula es la misma y el resultado es el mismo**: la existencia del CEDIS que publicamos
+**es la de Kepler**. Las dos desviaciones son **nuestras** y se vuelven decisiones del PM, no
+defaults: (a) recortar negativos (§3.1b) esconde 45 SKUs que Kepler muestra en rojo; (b) el filtro
+de actividad deja fuera 11 SKUs que Kepler sí lista. ⚠️ **NO MEDIDO:** por qué Kepler publica esos
+11 y no los otros ~3,800 con saldo positivo en `kdil` sin actividad desde el corte (el crudo sin
+filtro reproduce sólo 1,202 de 8,954 renglones del reporte): el filtro de actividad **replica** el
+resultado de Kepler sin que sepamos la regla exacta del ERP.
+
+⛔ **Y lo que el reporte confirma del lado del negocio:** Kepler mismo tiene existencia para
+**352 SKUs** en el CEDIS mientras el CEDIS **embarcó 1,264 SKUs en 30 días** (`U-D-41`, 1.18 M u).
+El único saldo inicial es el inventario físico `N-A-30` del 30-sep: **127 SKUs, 340,077 u**;
+`kdil.c4` es 0 en el 100 %. El CEDIS opera con mercancía que su kardex no tiene; ningún motor
+puede calcular su compra hasta un conteo completo (bloqueo con dueño en `FASE_PQ` §8).
 
 ### 17.5 ⛔ La cobertura REAL del árbitro: 2.8% nominal, **0% independiente**
 
@@ -5155,3 +5187,100 @@ compuerta `test-newdb-truth-parity.js` ni en CI (necesita el carril ssh a prod).
 > lo que falta tiene nombre.** Lo que NO se puede afirmar todavía: que se cotice lo mismo en producción —
 > nada de E.23–E.28 está desplegado— y que `reprice` (escribe) funcione contra la API: su prueba existe
 > y no se ha corrido.
+
+---
+
+## 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24)
+
+**Encargo de Edgar:** *«armar la automatización de todo el proceso de pago a proveedor»*, y después,
+mirando la pantalla: *«¿la información que nos muestra ya es confiable? ¿de dónde sale?»*.
+
+Actualiza la **§27** (2026-10-10), que midió el circuito con todo en cero. Catorce días después el
+circuito arrancó y dejó de ser «nunca corrió» para ser algo más preciso: **corre el 16 % del dinero**.
+
+### 35.1 Qué ARBITRA cada número
+
+| La pregunta | El árbitro | De dónde sale | Medido el 2026-10-24 |
+|---|---|---|---|
+| **¿Cuánto se debe?** | `analytics.v_supplier_payables` | `kepler_ods.kdxe` (documentos de CxP) casado con `kdxf` (qué cargo se aplicó a qué abono) | **$138.4 M** · mercancía `C*` **$92.7 M**, de ella **62.5 % ya vencida** |
+| **¿Cuánto se pagó?** | `analytics.erp_supplier_payments` | `kdm1` con `c2='X' · c3='D' · c4=26` | **$42–48 M/mes** · 346–583 pagos |
+| **¿Con qué medio salió?** | **`c45`**, la cuenta de tesorería | el catálogo `kdb1` | octubre: banco 102/$20.2 M · caja 49/$1.93 M · puente 4/$0.63 M |
+| **¿Qué se va a pagar?** | `finance.payment_allocations` | lo que Tesorería armó en el Calendario | **$1.12 M** en la semana del 19-oct |
+| **¿Cuánto se puede pagar hoy?** | `budget.daily_capacity` | lo fija Presupuestos, derivado del estimado de ingreso | $13.23 M esa semana, en 5 días de 7 |
+
+⛔ **El medio de pago NO es `c31`.** `metodo_pago` sale del **tipo de documento** y marca como
+«Transferencia» **2,682 pagos / $52.26 M que salieron en efectivo**. Quien quiera separar banco de
+caja lee `c45` y nada más.
+
+### 35.2 ⛔ El hueco, con monto: el circuito ve el 16 % del dinero
+
+La semana del 19 al 25 de octubre, las tres cifras del mismo período:
+
+```
+presupuesto fijado por Presupuestos ....... $13,234,187   (5 días de 7)
+comprometido en el Calendario .............  $1,123,000
+salió de verdad, según el ERP .............  $7,079,659
+```
+
+⇒ **$5.96 M se pagaron por fuera**: capturados directo en Kepler, sin preparar ni autorizar. El
+Calendario no es el proceso todavía; es una parte del proceso.
+
+Y el detalle de por qué, medido pago por pago: de los 13 pagos armados, **10 están sin preparar**
+—sin método, sin cuenta de origen y sin destino—, **6 lotes llevan desde el 16-oct en borrador** y
+**ninguno se autorizó jamás**. No falta la firma: `releaseLot()` rechaza el día si queda **un solo**
+pago sin preparar, así que la firma habría devuelto `400`. Y no se puede preparar porque
+`commercial.supplier_payment_accounts` tiene **cero filas**: sin cuenta destino no hay transferencia
+que preparar.
+
+### 35.3 Las trampas que ya cobraron acá
+
+| La trampa | Lo que costó |
+|---|---|
+| ⛔ **Tomar `finance.payment_program` como testigo de lo pagado** | El Excel de Tesorería llevaba **77 días sin cargarse**, y **cuando estaba vivo ya cubría un tercio**: agosto, **157 pagos / $17.9 M** contra **530 / $45.2 M** del ERP; septiembre y octubre, **cero**. La pantalla publicaba «libro sin cargar» en los cinco días de la semana. El testigo de lo que salió es `erp_supplier_payments`, que llega solo (`[PGP.9]`) |
+| ⛔ **Medir el presupuesto contra lo real sin acotar al pasado** | Primero dio «el presupuesto es **361 %** de lo real» — incluía días de diciembre donde todavía no salió nada. Sobre los **28 días ya pasados** se invierte: **$38.8 M presupuestados contra $49.5 M reales = 78 %**. El promedio tampoco describe: el 30-sep se fijaron $442,558 y salieron **$3,530,229** (8×), y esta semana sobra casi el doble cada día. **El tope diario no se parece a lo real en ninguna dirección** |
+| ⛔ **Reproducir un costo con una consulta más simple** | Filtrar `v_supplier_payables` por sucursal cuesta **43.6–47.7 s** contra **450–550 ms** sin filtro (3 corridas de cada una). Un `count(*)` de control dio 668 ms y pareció desmentirlo: **no era la misma consulta**. La causa exacta queda **NO DETERMINADA**; lo accionable está medido: por ahí no se filtra |
+| ⛔ **Medir la tabla en vez de lo que la pantalla ofrece** | Se midió `supplier_payment_obligations` (33 de 1,740 documentos = 2.9 %) y se concluyó que la deuda vieja «no tenía camino». **Falso**: el Calendario ya tiene un cuarto origen, `kepler_payable`, que lee `v_supplier_payables` directo y ofrece el 100 %. Se construyó un segundo camino para algo que existía |
+
+### 35.4 Hipótesis refutadas — no las reconstruyas
+
+- ⛔ **«Un trigger de Kepler deriva `kdxe`/`kdxf` cuando se inserta el pago en `kdm1`.»** **No hay
+  ningún trigger ni regla**, y las dos son tablas reales, no vistas. Un pago `X-D-26` escribe en
+  **tres** tablas: `kdm1` (cabecera, **sin renglones en `kdm2`**: 0 de 3,513), `kdxe` y `kdxf`. La
+  correspondencia `kdm1` con `kdxe` es exacta —**3,513 de 3,513 casan por folio**—, así que un pago
+  escrito a medias se detecta comparando los dos conteos. Insertar sólo en `kdm1` dejaría un pago
+  que **no baja la deuda del proveedor**.
+- ⛔ **«La CLABE del proveedor se puede derivar del estado de cuenta.»** De **14,456** salidas
+  bancarias desde julio, **24 traen 18 dígitos seguidos en el concepto (0.17 %)**. El banco guarda
+  el **nombre** del beneficiario, no su cuenta. La CLABE la captura una persona.
+- ⛔ **«El nombre del beneficiario del banco identifica al proveedor de Kepler.»** Cruzar por las
+  primeras tres palabras normalizadas casa el **36.1 % (61 de 169)** — y **sin control placebo eso
+  no se distingue de ruido**. Es la misma familia que el cruce folio-entrada (86.7 % de señal
+  contra 83.7 % de placebo).
+
+### 35.5 Los huecos declarados, con nombre y monto
+
+| Hueco | Monto | Qué lo destraba |
+|---|---|---|
+| **El circuito no ejecuta**: 0 pagos ejecutados en toda su historia | el proceso mueve **$42–48 M/mes** | **38 cuentas de proveedor** dadas de alta: medido, cubren el **80 % del dinero que sale por banco** ($129.3 M jul–oct). Hoy hay **0** |
+| **No se puede escribir el pago en Kepler** | O3 entero | `kepler_push` puede tocar **3 de las 360 tablas** de `md`: tiene `INSERT` en `kdm1`/`kdm2` y **nada** en `kdxe`/`kdxf`. Dos `GRANT` del dueño (`sa`) |
+| **$14.0 M mezclados con la deuda del mes** | **$14,000,000** en **5 documentos** | Son «Nota cargo a proveedor» de claves `AE*` con fecha **01/01/2025** e importes redondos ($8 M y $6 M, apellido de los socios): tienen forma de **saldo de apertura o préstamo**, no de factura por pagar. Son los únicos 5 documentos con más de un año vencidos. **Contabilidad debe decir qué son antes de que alguien los programe** |
+| **La doble captura sigue** | Δ **30 movimientos / $185,812** en 2026 | Carmen en Access Control y Mayra en Kepler `X-D-26`, sin llave que las una |
+| **El `POST` que crea obligaciones nunca se ejerció** | — | Levantar el backend local está prohibido y no hay entorno de pruebas con base sembrada. Es la deuda **VP.5** (65 suites HTTP), no una omisión de la fase |
+
+### 35.6 Lo que esto corrige de la §27
+
+- La §27 decía **«ni un pago pasó jamás por el circuito»** con las cuatro tablas en cero. Hoy hay
+  **13 asignaciones, 25 renglones y 6 lotes**: el circuito **sí arrancó**, y lo que no ocurre es más
+  específico —nadie preparó un pago— y por eso accionable.
+- La §27 publicó `finance.payment_program` como **«la bitácora del proceso real»**. Ya no lo es, y
+  medido no lo era: cubría un tercio cuando se cargaba. Se retiró del menú (`[PGP.7]`) y dejó de ser
+  el testigo del Calendario (`[PGP.9]`).
+- La §27 anotó que `budget.daily_capacity` tenía **22 filas**; hoy tiene **74**, puestas por
+  `superoot` y `jesus_carrillo`, con la nota *«Capacidad desde el estimado de…»* — o sea **derivadas
+  de un estimado de ingreso**, no tecleadas. El hueco que señalaba sigue abierto en otra forma: **2
+  de cada 7 días de la semana no tienen tope**, y sin tope el día no se puede autorizar.
+
+**Medición reproducible:** consultas de sólo lectura contra `pg-prod` (`system_identifier
+7688376744939610156`) el 2026-10-22 y el 2026-10-24, más tres guiones que **leen su SQL del
+servicio** y se pueden volver a correr: `verify-pgp1-cuentas-faltantes.js`,
+`verify-pgp6-deuda-programable.js` y `verify-pgp9-testigo-del-dia.js`.

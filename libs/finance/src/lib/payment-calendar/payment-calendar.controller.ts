@@ -40,12 +40,14 @@ export class PaymentCalendarController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
     @Query('prontoPago') prontoPago?: 'por_vencer' | 'capturable',
+    /** `[PGP.7]` El orden de Pronto pago, dentro del Calendario: por fecha limite del descuento. */
+    @Query('orden') orden?: 'vencimiento' | 'descuento',
   ) {
     return this.svc.listObligations({
       source, classification, search, dueFrom, dueTo,
       onlyCritical: onlyCritical === 'true', onlyAvailable: all !== 'true',
       limit: limit ? Number(limit) : undefined, offset: offset ? Number(offset) : undefined,
-      prontoPago,
+      prontoPago, orden,
     });
   }
 

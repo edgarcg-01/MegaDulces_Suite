@@ -4,10 +4,23 @@ import type {
   KeplerRequisitionSinkPort,
   KeplerRequisitionEntrada,
   KeplerRequisitionResultado,
-  KeplerDoctipo,
 } from '@megadulces/contracts';
 
 import { DOCTIPOS, coordenada } from './kepler-doctipo';
+import { MARCA_SUITE, plantillaDe, servidoresEncendidos, topeDiario, urlDeServidor } from './kepler-servidores';
+
+/**
+ * `[KR.16]` Número → texto como Kepler lo guarda en sus columnas `varchar` de importe (`c57`):
+ * sin relleno, hasta dos decimales, sin ceros de sobra. Medido: `791`, `373.76`, `1083`.
+ */
+export const textoKepler = (v: number): string => String(Math.round((Number(v) || 0) * 100) / 100);
+
+/** `[KR.17]` Quién capturó (`kdm1.c67`, varchar(23)): lo escribió la Suite, no una persona. */
+export const CAPTURISTA_SUITE = 'SUITE';
+
+/** `[KR.17]` Hora de captura como la guarda Kepler (`kdm1.c69`, varchar(5)): `HH:MM`, hora de México. */
+export const horaMx = (d: Date = new Date()): string =>
+  new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Mexico_City', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
 
 /** Número de Kepler (texto con formato) → number. `0` si viene vacío. */
 const num = (v: unknown): number =>
@@ -73,53 +86,69 @@ const num = (v: unknown): number =>
 @Injectable()
 export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, OnModuleDestroy {
   private readonly logger = new Logger(KeplerRequisitionSinkAdapter.name);
-  private readonly pool: Pool | null;
-
   /**
-   * Coordenada del documento plantilla, **una por tipo**. Override por env para no recompilar.
-   *
-   * ⚠️ La del traspaso **no tiene default**: hay que elegir a mano un `U-D-40` en estado
-   * `AUTORIZADO`. Clonar uno procesado arrastra `c100`/`c102`/`c103` —quién surtió, checó y
-   * embarcó— y pare un pedido que nace diciendo que ya lo trabajó alguien. El adapter igual los
-   * limpia (`DOCTIPOS.traspaso.limpiar`), pero el default vacío obliga a mirar cuál se eligió.
+   * `[KR.11]` **Un pool por servidor Kepler**, creado al primer uso. Cada sucursal escribe en SU
+   * base (`md_NN`); la regla de qué variable abre qué servidor vive en `kepler-servidores.ts`.
+   * ⛔ Un servidor sin `KEPLER_PUSH_URL_NN` queda apagado — nunca se redirige a oficinas.
    */
-  private plantilla(tipo: KeplerDoctipo): { serie: string; folio: string } {
-    const d = DOCTIPOS[tipo];
-    return {
-      serie: process.env[d.envSerie] || '1',
-      folio: process.env[d.envFolio] || (tipo === 'compra' ? '0000424' : ''),
-    };
+  private readonly pools = new Map<string, Pool>();
+
+  private poolDe(url: string): Pool {
+    let p = this.pools.get(url);
+    if (!p) {
+      p = new Pool({ connectionString: url, max: 2, connectionTimeoutMillis: 8000, statement_timeout: 30000 });
+      this.pools.set(url, p);
+    }
+    return p;
   }
 
   constructor() {
-    const url = process.env.KEPLER_PUSH_URL;
-    this.pool = url
-      ? new Pool({ connectionString: url, max: 2, connectionTimeoutMillis: 8000, statement_timeout: 30000 })
-      : null;
-    if (!url) this.logger.warn('KEPLER_PUSH_URL sin definir — la escritura a Kepler queda apagada.');
+    const encendidos = servidoresEncendidos(process.env);
+    if (!encendidos.length) this.logger.warn('Ningún KEPLER_PUSH_URL_NN definido — la escritura a Kepler queda apagada.');
+    else this.logger.log(`Escritura a Kepler encendida para: ${encendidos.map((s) => s.sucursal).join(', ')}`);
   }
 
-  async onModuleDestroy() { await this.pool?.end().catch(() => undefined); }
+  async onModuleDestroy() {
+    await Promise.all([...this.pools.values()].map((p) => p.end().catch(() => undefined)));
+  }
 
+  /** `true` si al menos un servidor está configurado y responde. */
   async disponible(): Promise<boolean> {
-    if (!this.pool) return false;
-    try { await this.pool.query('SELECT 1'); return true; }
-    catch (e) { this.logger.warn(`Kepler no responde: ${(e as Error).message}`); return false; }
+    for (const s of servidoresEncendidos(process.env)) {
+      try { await this.poolDe(s.url).query('SELECT 1'); return true; }
+      catch (e) { this.logger.warn(`Kepler ${s.sucursal} no responde: ${(e as Error).message}`); }
+    }
+    return false;
   }
 
+
+  /**
+   * `[KR.16]` El único paso que ESCRIBE en el ERP: pasar las tablas temporales a `md.kdm1` /
+   * `md.kdm2` y confirmar. Aparte para que el ensayo (`kepler-requisition-sink.ensayo.spec.ts`)
+   * corra TODO el SQL real contra cada servidor —plantilla, proveedor, tope, folio, tipos— y
+   * termine en `ROLLBACK` en vez de aquí.
+   */
+  protected async confirmar(c: PoolClient): Promise<void> {
+    await c.query('INSERT INTO md.kdm1 SELECT * FROM _h');
+    await c.query('INSERT INTO md.kdm2 SELECT * FROM _l');
+    await c.query('COMMIT');
+  }
 
   async entregar(e: KeplerRequisitionEntrada): Promise<KeplerRequisitionResultado> {
-    if (!this.pool) return { estado: 'rechazada', motivo: 'KEPLER_PUSH_URL sin configurar' };
     if (!e.lineas?.length) return { estado: 'rechazada', motivo: 'La requisición no tiene renglones' };
 
     const tipo = e.tipo ?? 'compra';
     const d = DOCTIPOS[tipo];
-    const tmpl = this.plantilla(tipo);
-    if (!tmpl.folio) {
-      return { estado: 'rechazada', motivo: `Falta ${d.envFolio}: no hay documento plantilla elegido para ${coordenada(tipo)}` };
-    }
+    // El documento se crea en el servidor de `e.sucursal` (en el traspaso, el ORIGEN).
+    const srv = urlDeServidor(e.sucursal, process.env);
+    if (!srv.ok) return { estado: 'rechazada', motivo: srv.motivo };
+    // ⚠️ La plantilla del traspaso **no tiene default** en ningún servidor: hay que elegir a mano
+    // un `U-D-40` en `AUTORIZADO`. Clonar uno procesado arrastra quién surtió, checó y embarcó.
+    const pl = plantillaDe(tipo, e.sucursal, process.env);
+    if (!pl.ok) return { estado: 'rechazada', motivo: `${pl.motivo} (${coordenada(tipo)})` };
+    const tmpl = pl.valor;
 
-    const c = await this.pool.connect();
+    const c = await this.poolDe(srv.valor).connect();
     try {
       // ── La CONTRAPARTE de `c10`, que es distinta en cada tipo ─────────────────────────────
       // ⛔ En los dos casos tiene que existir EN KEPLER. Un código válido en la Suite pero
@@ -158,6 +187,18 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
         c32 = nom.rows[0]?.nombre || ti.rows[0].nombre;
       }
 
+      // ⛔ `[KR.17]` RFC y domicilio de la CONTRAPARTE (`c22`, `c33`–`c35`): del último documento
+      // del mismo tipo con ese `c10` en ESTE servidor. Antes se heredaban de la plantilla, y el
+      // canario de Yurécuaro (2026-10-24) salió a nombre de Cueritos Lupita con el domicilio del
+      // proveedor de la plantilla. Si no hay precedente, vacío — nunca el de otro.
+      const fiscal = (await c.query(
+        `SELECT coalesce(c22,'') AS c22, coalesce(c33,'') AS c33, coalesce(c34,'') AS c34, coalesce(c35,'') AS c35
+           FROM md.kdm1
+          WHERE c1=$1 AND c2=$2 AND c3=$3 AND btrim(c4::text) = ANY($4::text[]) AND btrim(c10)=$5
+          ORDER BY c9 DESC, c6 DESC LIMIT 1`,
+        [e.sucursal, d.genero, d.naturaleza, tipo === 'compra' ? ['30', '35'] : ['40'], c10])).rows[0]
+        ?? { c22: '', c33: '', c34: '', c35: '' };
+
       // ⭐ `[KR.6]` **No hay resolución de unidad: se escribe en `CJA`, tal cual.**
       // La versión anterior leía el precedente del ERP y convertía cajas → `PAQ`, contrastando
       // dos factores de caja. Se retiró el 2026-10-14 tras medir que (a) Kepler **no convierte
@@ -167,6 +208,21 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
       const resueltas = e.lineas.map((l) => ({
         sku: l.sku, unidad: 'CJA', unidad_caja: 'CJA', por_caja: 1, cantidad: l.cajas,
       }));
+
+      // ⛔ `[KR.12]` El tope diario del servidor: cuántos documentos con marca de la Suite ya
+      // tienen esta fecha en ESTE servidor. Se cuenta en Kepler, no en la Suite: lo que importa
+      // es lo que el ERP ya tiene, incluido lo que escribió otro proceso o un reintento.
+      // ⚠️ Dos aprobaciones simultáneas pueden pasar las dos (no hay candado): el pool es de 2.
+      const tope = topeDiario(e.sucursal, process.env);
+      const hoy = await c.query(
+        `SELECT count(*)::int AS n FROM md.kdm1
+          WHERE c1=$1 AND c9::date = $2::date
+            AND ((c2='X' AND c3='A' AND btrim(c4::text)='30' AND btrim(c11) LIKE $3)
+              OR (c2='U' AND c3='D' AND btrim(c4::text)='40' AND btrim(c24) LIKE $3))`,
+        [e.sucursal, e.fecha, `${MARCA_SUITE}%`]);
+      if (hoy.rows[0].n >= tope) {
+        return { estado: 'rechazada', motivo: `Tope diario del servidor ${e.sucursal} alcanzado: ${hoy.rows[0].n} de ${tope} documentos hoy (KEPLER_PUSH_MAX_DIA_${e.sucursal})` };
+      }
 
       await c.query('BEGIN');
 
@@ -194,6 +250,18 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
           e.fecha, c10, c32, e.total,
           d.c11 === 'referencia' ? e.folio_suite : d.c11,
           d.marca === 'c24' ? e.folio_suite : '']);
+
+      // ⛔ `[KR.17]` Lo que la plantilla arrastraba y es del documento, no del molde. Medido sobre
+      // 3,061 requisiciones de oficinas, 1,050 de La Piedad y 338 de 8 Esquinas (2026-10-24):
+      //   `c18` fecha de entrega = fecha del documento en 64-75 % (y ≥ en 97-100 %) — se usa la
+      //         fecha; la plantilla traía la suya (07-mar) y así se veía en pantalla.
+      //   `c14`/`c15` importes accesorios: 0 en 36-73 % de compras y 99 % de traspasos. La Suite no
+      //         los calcula: 0, nunca el importe de otro documento.
+      //   `c69` hora de captura · `c67` quién capturó: la plantilla los atribuía a una persona que
+      //         no capturó nada. `SUITE` dice quién lo escribió.
+      await c.query(
+        `UPDATE _h SET c18 = $1, c14 = 0, c15 = 0, c69 = $2, c67 = $3, c22 = $4, c33 = $5, c34 = $6, c35 = $7`,
+        [e.fecha, horaMx(), CAPTURISTA_SUITE, fiscal.c22, fiscal.c33, fiscal.c34, fiscal.c35]);
 
       // `c27` sólo lo usa el traspaso (`SUCURSAL`); la compra no tiene esa columna en juego.
       if (d.c27) await c.query('UPDATE _h SET c27 = $1', [d.c27]);
@@ -232,16 +300,31 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
         // Las dos invariantes que Kepler cumple en ~99-100% de sus 17,810 renglones quedan
         // satisfechas POR CONSTRUCCIÓN: `c9×c12 = c13` y `c12×c58 = c57`. Es la misma forma que
         // tienen los 22 documentos `CJA` históricos que llegaron a entrada de inventario.
+        //
+        // ⛔ `[KR.16]` `c57` y `c58` son TEXTO (`varchar`) y `c12` es `numeric`, en los nueve
+        // servidores (medido 2026-10-24). La versión anterior mandaba el MISMO `$5` a `c12` y a
+        // `c57` y Postgres rechazaba la sentencia entera («tipos de dato inconsistentes para el
+        // parámetro $5») — en el canario de Yurécuaro, sin escribir nada. Cada columna lleva su
+        // propio parámetro y el texto va con el formato que Kepler ya usa: `791`, `373.76`.
+        //
+        // ⛔ `[KR.17]` Y cuatro columnas del renglón que la plantilla arrastraba (medido sobre
+        // 17,810 renglones de oficinas, 15,753 de La Piedad, 4,499 de 8 Esquinas y los U-D-40):
+        //   `c24` cantidad PENDIENTE = cantidad en el 100 % de los documentos sin hijo, 0 en los
+        //         ya convertidos. La plantilla traía 0 → Kepler la daba por REFERENCIADA y la UI
+        //         se negaba a darla de baja («Documento referenciado, no se canceló»).
+        //   `c56` cantidad en la presentación capturada (`c55`): con `c55=c11='CJA'` es la misma.
+        //         La plantilla traía 5 y era lo que la pantalla de Kepler mostraba como cantidad.
+        //   `c25` contraparte del renglón = `c10` del encabezado (96-100 %).
+        //   `c32` fecha del renglón = fecha del documento (96-100 %).
         await c.query(
           `UPDATE _l SET c6=$1, c8=$2, c9=$3, c10=$4, c11='CJA', c12=$5, c13=$6,
-                         c55='CJA', c57=$5, c58=1
+                         c55='CJA', c57=$8, c58='1', c24=$3, c56=$9, c25=$10, c32=$11
             WHERE c7=$7`,
-          [folio, ln.sku, ln.cajas, ln.nombre, ln.costo_caja, ln.importe, i + 1]);
+          [folio, ln.sku, ln.cajas, ln.nombre, ln.costo_caja, ln.importe, i + 1, textoKepler(ln.costo_caja),
+            textoKepler(ln.cajas), c10, e.fecha]);
       }
 
-      await c.query('INSERT INTO md.kdm1 SELECT * FROM _h');
-      await c.query('INSERT INTO md.kdm2 SELECT * FROM _l');
-      await c.query('COMMIT');
+      await this.confirmar(c);
 
       this.logger.log(`Requisición ${e.folio_suite} → Kepler ${e.sucursal}/${folio} (${n} renglones)`);
       return { estado: 'entregada', kepler: { sucursal: e.sucursal, folio, renglones: n }, lineas: resueltas };

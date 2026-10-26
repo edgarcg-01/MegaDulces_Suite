@@ -9,7 +9,67 @@ import {
   fechaVigencia,
   lineaControl,
   paraExcel,
+  etiquetaDescuento,
+  cabeEnWinAnsi,
 } from './quote-deliverable-export';
+import { TIPOS_DE_DESCUENTO } from './quote-units';
+
+/** [E.29] Todo lo que se escribe en el PDF cabe en su fuente (Helvetica/WinAnsi). */
+describe('hoja de la cotización — caracteres que el PDF sí puede pintar', () => {
+  it('NEGATIVO: el menos tipográfico, la flecha y el ≥ NO caben (por eso se rompía el texto)', () => {
+    for (const t of ['−54%', 'lista → volumen', '≥ 10']) expect(cabeEnWinAnsi(t), t).toBe(false);
+    expect(cabeEnWinAnsi('Válida hasta el 07/11/2026 · «Padre Hidalgo» — ñ $1,234.50 -54.24%')).toBe(true);
+  });
+
+  it('condiciones, leyenda de descuentos, columna Descuento y línea de control caben', () => {
+    const d: QuoteDeliverableData = {
+      quoteCode: 'COT-2026-00028', customerCode: '00027', customerName: 'ARTHA ORTEGA', branchCode: '01',
+      branchName: 'Padre Hidalgo', validUntil: '2026-11-07', discountPct: 3, paymentDays: 0,
+      notes: 'Entregar el jueves', actualizada: new Date(2026, 9, 23, 13, 5), elaboro: 'Cinthia Yared Del Valle',
+      items: [
+        { sku: '44141', name: 'GALL CHAVALIN', unit_label: 'PAQ', quantity: 3, unit_price: 36.49, list_price: 79.75, line_total: 109.47, price_source: 'Promo por cantidad' },
+        { sku: '17499', name: 'BOLSA ROLLO', unit_label: 'KG', quantity: 1, unit_price: 44, list_price: 44, line_total: 44, price_source: 'Lista' },
+      ],
+    };
+    const m = modeloEntregable(d);
+    const textos = [
+      ...condiciones(d, m),
+      ...m.filas.flatMap((f) => etiquetaDescuento(f, m)),
+      lineaControl(d),
+      ...TIPOS_DE_DESCUENTO.map((t) => t.def),
+    ];
+    for (const t of textos) expect({ t, cabe: cabeEnWinAnsi(t) }).toEqual({ t, cabe: true });
+  });
+});
+
+/** [E.29] El papel desglosa el descuento renglón por renglón, como la pantalla (captura COT-2026-00027). */
+describe('hoja de la cotización — desglose del descuento', () => {
+  const items = [
+    { sku: '04110', name: 'GALL SANDWICH JR CHOCOLATE', unit_label: 'PAQ', quantity: 7, unit_price: 24.79, list_price: 26.94, line_total: 173.53, price_source: 'Volumen' },
+    { sku: '44141', name: 'GALL CHAVALIN 560GR', unit_label: 'PAQ', quantity: 1, unit_price: 39.88, list_price: 79.75, line_total: 39.88, price_source: 'Promo por cantidad' },
+    { sku: '00001', name: 'DE LISTA', unit_label: 'PZA', quantity: 1, unit_price: 10, list_price: 10, line_total: 10, price_source: 'Lista' },
+    { sku: '00002', name: 'SIN PRECIO', unit_label: 'PZA', quantity: 1, unit_price: null, list_price: null, line_total: 0, price_source: 'Sin precio' },
+  ];
+  const base: QuoteDeliverableData = {
+    customerCode: 'C1', customerName: 'Cliente', branchCode: '01', branchName: 'Padre Hidalgo',
+    validUntil: '2026-11-07', discountPct: null, items,
+  };
+
+  it('cada renglón lleva su lista y su descuento del producto (la cuenta del servidor)', () => {
+    const m = modeloEntregable(base);
+    expect(m.filas.map((f) => [f.lista, f.dtoProducto])).toEqual([[26.94, 7.98], [79.75, 49.99], [10, 0], [null, null]]);
+    expect(m.filas.map((f) => etiquetaDescuento(f, m))).toEqual([
+      ['Volumen -7.98%'], ['Promo por cantidad -49.99%'], ['—'], ['—'],
+    ]);
+  });
+
+  it('con % del cliente, el renglón dice los dos descuentos', () => {
+    const m = modeloEntregable({ ...base, discountPct: 3 });
+    expect(etiquetaDescuento(m.filas[0], m)).toEqual(['Volumen -7.98%', 'Cliente -3%']);
+    expect(etiquetaDescuento(m.filas[2], m)).toEqual(['Cliente -3%']);
+    expect(etiquetaDescuento(m.filas[3], m)).toEqual(['—']);
+  });
+});
 
 describe('QuoteDeliverableExport — Estándares Comerciales y Entregables', () => {
   const dummyQuote: QuoteDeliverableData = {
@@ -86,12 +146,12 @@ describe('modeloEntregable — la cuenta que se le promete al cliente', () => {
 
   it('el descuento del renglón es SÓLO el del cliente: el volumen no se aplica dos veces (C2)', () => {
     const m = modeloEntregable(base);
-    // $90 con 3 % del cliente = $87.30; el defecto imprimía $90 × (1 − 10 %) = $81
+    // $90 con 3 % del cliente = $87.30; el defecto imprimía $90 × (1 - 10 %) = $81
     expect(m.filas[0].unitario).toBeCloseTo(87.3, 2);
     expect(m.filas[0].importe).toBe(873);
   });
 
-  it('importe − descuento = total, y la columna de netos suma ese total al centavo (C1)', () => {
+  it('importe - descuento = total, y la columna de netos suma ese total al centavo (C1)', () => {
     const m = modeloEntregable(base);
     expect(m.totales.importe).toBe(1000);
     expect(m.totales.descuento).toBe(30);

@@ -64,6 +64,8 @@
 
 ⛔⛔ **NADA DE WORKTREES NI RAMAS — SE TRABAJA SOBRE `main` EN EL CHECKOUT COMPARTIDO** (Edgar, 2026-10-12; deroga el `[PROC.2]` de 2026-10-07 que pedía un worktree por sesión). El árbol es compartido por varias sesiones: **commiteá SIEMPRE con pathspec** (`git commit -- <rutas>`), nunca `git add -A`, nunca `--amend`. Onboarding de máquina en [`ONBOARDING.md`](ONBOARDING.md) — **§8.0 `npm run hooks:install` es obligatorio por máquina**. Reglas duras en [`docs/GOTCHAS.md`](docs/GOTCHAS.md).
 
+> ⭐⭐ **EL CARRIL COMPLETO —PR, pull, push y SOLTAR— vive en la skill [`entrega`](.claude/skills/entrega/SKILL.md)**, y se carga **antes** de tocar `git pull`, `git push`, `gh pr merge`, `soltar.sh` o `aplicar-migracion.sh`. Nace el 2026-10-24 de una semana medida: producción estuvo **23 horas** sin actualizarse con dos tramos ya sellados detrás, y cada vez que alguien dijo «ya lo solté» la causa real estaba **una compuerta más abajo**. Lo que la skill fija y acá no cabía: **soltar NO es desplegar** (`soltar.sh` mueve `prod-release`; el vigía ejecuta, y frena con UNA migración pendiente) · la mergeabilidad que reporta GitHub es una **caché contra una base vieja** y hay que medirla con `git merge-tree` · el `pre-push` lee el **árbol** y el CI lee el **commit**, así que un archivo sin versionar de otra sesión frena el push de todos · y el único testigo de que algo llegó es **`/api/health`**, nunca el `auto-deploy.log` (un despliegue manual no deja renglón).
+
 > ⭐⭐ **DESDE EL 2026-10-14 DOS REGLAS SE EJECUTAN, YA NO SE PIDEN.** Las declara
 > [`.claude/settings.json`](.claude/settings.json) (versionado: los tiene todo el equipo) y el
 > código vive en [`scripts/hooks/`](scripts/hooks/):
@@ -218,6 +220,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **VR** | Venta en Ruta (autoventa offline-first, lap/móvil) | ⏸️ |
 | **Maat** | AI de Finanzas (conocimiento + chat + patrones) | ⏸️ |
 | **RA** | Compras / Reabastecimiento (punto de reorden + existencia crítica + sugerido) | 🟢 |
+| **AB** | Autoabasto: Compras decide el traspaso, cada sucursal ve su mesa (ADR-100) | 🔨 |
 | **CB** | Conciliación bancaria (interfaz reemplaza el Excel) | 🚀 |
 | **CP** | Conector ContPAQi (SoR contable externo) | 🚀 |
 | **CC** | Comprobantes de Cobranza (ficha de depósito + OCR) | ⏸️ |
@@ -238,10 +241,10 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **PU** | Presupuestos (motor de planeación y control) | 🧪 |
 | **IC** | Inventario Continuo (3 ritmos) | 🚀 |
 | **CE** | Costo estándar de Kepler (el que fija el precio) | 🚀 |
-| **PO** | Post-corte del 1-oct-2026 (el `00` dejó de concentrar) | 🔨 |
+| **PO** | Post-corte del 1-oct-2026 (el `00` dejó de concentrar) | ⏸️ |
 | **NP** | Productos nuevos (seguimiento a 30/60/90 días) | 🧪 |
 | **PF** | Flujo de venta de cualquier producto (Compras › Catálogo › Productos) | 🧪 |
-| **MS** | Mesa de Servicio (tickets de servicio) | 🔨 |
+| **MS** | Mesa de Servicio (tickets de servicio) | ⏸️ |
 | **CSU** | Cortes/Sucursales (corte de caja → cobro → ingreso) | 🟢 |
 | **CGA** | Caja General: cazar el ingreso/egreso pendiente (ruta detalle, vecinal, proveedores en efectivo) | 🔨 |
 | **ECA** | Estado de cuenta de acreedores (por tipo) | 🧪 |
@@ -249,6 +252,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **GP** | Gestión de pedidos en almacén (surtido/checado/embarque sin papel) | 🧪 |
 | **VAC** | Acople del verificador de precios al estándar (`/tienda/verificador`) | 🟢 |
 | **PGP** | Pago a proveedor de punta a punta (firma → ejecución → `X-D-26` escrito en Kepler) | ⬜ |
+| **PQ** | `/compras/pedido`: del sugerido al ERP sin inventar nada (lo aprobado sale, agenda de proveedores, lazo cerrado; M1/M2 medidas) | 🔨 |
 
 ---
 

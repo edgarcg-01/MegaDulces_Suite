@@ -5,13 +5,16 @@ import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { TooltipModule } from 'primeng/tooltip';
 import { CheckboxModule } from 'primeng/checkbox';
+import { DialogModule } from 'primeng/dialog';
+import { TextareaModule } from 'primeng/textarea';
 import {
   necesitaMotivo, pasoAjuste, MOTIVOS_AJUSTE, MOTIVO_AJUSTE_LABEL, UMBRAL_MOTIVO,
   posicionPedido, POSICIONES_PEDIDO, POSICIONES_PEDIDO_DEFAULT, POSICION_PEDIDO_LABEL,
   CLASES_UNIDAD, CLASE_UNIDAD_LABEL, MINIMO_VALOR_MENOR, warehouseCodeAndName,
   type ClaseUnidad, type PosicionPedido,
   type MotivoAjuste, type AutoabastoPedidoGrupo, type AutoabastoPedidoLinea, type AutoabastoPedidoResponse,
-  type AutoabastoVieneDoc,
+  type AutoabastoVieneDoc, type AutoabastoEnviarResponse,
+  esEnviable, yaSeMandoACompras,
 } from '@megadulces/contracts';
 
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
@@ -60,7 +63,7 @@ interface Renglon {
 @Component({
   selector: 'app-almacen-autoabasto-pedido',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TooltipModule, CheckboxModule,
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TooltipModule, CheckboxModule, DialogModule, TextareaModule,
     LoadStateComponent, MetricStripComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -71,6 +74,7 @@ interface Renglon {
           <p class="mp-sub">
             El sistema ya armó tu pedido. Revisa por grupo y corrige sólo lo que haga falta con − / +;
             si te alejas más de {{ umbralPct }}% de lo sugerido, elige el motivo. Todo se guarda solo.
+            Cuando esté listo, mándalo a Compras.
           </p>
         </div>
         <div class="mp-actions">
@@ -78,7 +82,17 @@ interface Renglon {
                     [ngModel]="warehouseId()" (ngModelChange)="setWarehouse($event)"
                     placeholder="Elige tu almacén" [filter]="warehouses().length > 6"
                     [disabled]="warehouses().length <= 1" class="mp-wh"></p-select>
-          <button pButton type="button" class="p-button-sm"
+          @if (data()?.puede_ajustar) {
+            <!-- [AB.29] La acción principal: lo que falta por pedir sale como requisición a Compras. -->
+            <button pButton type="button" class="p-button-sm"
+                    (click)="abrirEnvio()" [disabled]="loading() || enviando() || !porEnviar().renglones || sinGuardar() > 0"
+                    [pTooltip]="porQueNoEnviar() ?? 'Manda a Compras lo que te falta por pedir: una requisición por origen, para que la aprueben.'"
+                    tooltipPosition="bottom">
+              <span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span>
+              <span class="p-button-label">Enviar a Compras</span>
+            </button>
+          }
+          <button pButton type="button" class="p-button-sm p-button-outlined"
                   (click)="pdf()" [disabled]="loading() || !hayQuePedir() || imprimiendo()"
                   pTooltip="Un PDF con todo el pedido, cada origen en su hoja, para capturarlo en Kepler." tooltipPosition="bottom">
             <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
@@ -126,6 +140,43 @@ interface Renglon {
             <button type="button" class="mp-link" (click)="aviso.set(null)">cerrar</button>
           </p>
         }
+        @if (enviado(); as e) {
+          <!-- [AB.29] Lo que pasó al enviar: los folios, a quién le llegó y lo que no se mandó (con su porqué). -->
+          <div class="mp-note" [class.mp-ok]="e.requisiciones.length && e.le_llega_a.length"
+               [class.mp-warn]="!e.requisiciones.length || !e.le_llega_a.length" role="status">
+            <i class="pi" [class.pi-check-circle]="e.requisiciones.length" [class.pi-info-circle]="!e.requisiciones.length" aria-hidden="true"></i>
+            <div>
+              @if (e.requisiciones.length) {
+                <strong>Se mandó a Compras:</strong>
+                @for (q of e.requisiciones; track q.id; let ult = $last) {
+                  {{ q.folio }} ({{ q.surte.tipo === 'matriz' ? 'traspaso de ' + (q.surte.clave | sucursal) : 'compra a ' + q.surte.nombre }},
+                  {{ q.renglones }} {{ q.renglones === 1 ? 'producto' : 'productos' }}){{ ult ? '.' : ';' }}
+                }
+                @if (e.le_llega_a.length) {
+                  Le llegó a <strong>{{ e.le_llega_a.join(', ') | titlecase }}</strong> para aprobarla o rechazarla con motivo.
+                } @else {
+                  <strong>Nadie tiene asignado recibirlas</strong>: avísale a Compras que la revise en Requisiciones.
+                }
+              } @else {
+                <strong>No se mandó nada nuevo.</strong>
+              }
+              @if (e.omitidos.length) {
+                <span class="mp-dim">
+                  {{ e.omitidos.length }} {{ e.omitidos.length === 1 ? 'producto no se mandó' : 'productos no se mandaron' }}:
+                  {{ resumenOmitidos(e) }}.
+                </span>
+              }
+            </div>
+            <button type="button" class="mp-link" (click)="enviado.set(null)">cerrar</button>
+          </div>
+        }
+        @if (yaMandados(); as n) {
+          <p class="mp-note" role="note">
+            <i class="pi pi-send" aria-hidden="true"></i>
+            {{ n }} {{ n === 1 ? 'producto ya lo pediste' : 'productos ya los pediste' }} a Compras: no entran a este pedido
+            para no pedirlos dos veces. Su requisición está abajo, en «Lo que te va a llegar».
+          </p>
+        }
         <app-metric-strip [items]="kpis()" ariaLabel="Resumen del pedido"></app-metric-strip>
         <!-- [AB.23] Lo que te va a llegar: para no pedir dos veces lo que ya viene. Lo de la ventana ya
              se restó de «A pedir»; lo más viejo se muestra para reclamarlo, no se resta. -->
@@ -140,19 +191,28 @@ interface Renglon {
                 @if (v.embarques && v.pedidos) { y }
                 @if (v.pedidos) { <strong>{{ v.pedidos }} {{ v.pedidos === 1 ? 'pedido en preparación' : 'pedidos en preparación' }}</strong> }
                 @if (v.monto) { · {{ v.monto | currency:'MXN':'symbol-narrow':'1.0-0' }} }
-                <span class="mp-dim">— ya se restaron de lo que te toca pedir.</span>
+                @if (v.embarques || v.pedidos) { <span class="mp-dim">— ya se restaron de lo que te toca pedir.</span> }
                 @if (v.viejos) { <span class="mp-chip mp-chip-warn">{{ v.viejos }} sin llegar desde hace días: no se restan, reclámalos</span> }
+                @if (v.porAprobar) { <span class="mp-chip mp-chip-warn">{{ v.porAprobar }} {{ v.porAprobar === 1 ? 'requisición tuya' : 'requisiciones tuyas' }} por aprobar en Compras</span> }
+                @if (v.rechazadas) { <span class="mp-chip mp-chip-bad">{{ v.rechazadas }} {{ v.rechazadas === 1 ? 'rechazada' : 'rechazadas' }}: mira el motivo</span> }
                 @if (v.planes) { <span class="mp-chip" pTooltip="Compras ya decidió mandártelo, pero todavía no existe el pedido de traspaso en Kepler: la matriz no lo surte hasta que exista. No se resta." tooltipPosition="top">{{ v.planes }} {{ v.planes === 1 ? 'requisición' : 'requisiciones' }} de Compras sin llegar a Kepler</span> }
               </p>
               <ul class="mp-viene-l">
                 @for (doc of v.visibles; track doc.tipo + doc.origen + doc.serie + doc.folio) {
                   <li class="mp-viene-i" [class.mp-viene-viejo]="!doc.se_resta">
                     <span class="mp-viene-et" [class.mp-viene-camino]="doc.tipo === 'embarque'">{{ etapa(doc) }}</span>
-                    <span class="mp-viene-de">desde <strong>{{ doc.origen | sucursal }}</strong></span>
-                    <span class="mp-dim">{{ doc.tipo === 'embarque' ? 'Embarque' : doc.tipo === 'plan' ? 'Requisición' : 'Pedido' }} {{ doc.folio }}</span>
+                    @if (doc.tipo === 'requisicion' && doc.proveedor) {
+                      <span class="mp-viene-de">a <strong>{{ doc.proveedor }}</strong></span>
+                    } @else {
+                      <span class="mp-viene-de">desde <strong>{{ doc.origen | sucursal }}</strong></span>
+                    }
+                    <span class="mp-dim">{{ doc.tipo === 'embarque' ? 'Embarque' : doc.tipo === 'pedido' ? 'Pedido' : 'Requisición' }} {{ doc.folio }}</span>
                     <span class="mp-dim">{{ doc.renglones }} {{ doc.renglones === 1 ? 'producto' : 'productos' }}</span>
                     <span class="mp-num">{{ doc.monto == null ? '—' : (doc.monto | currency:'MXN':'symbol-narrow':'1.0-0') }}</span>
-                    <span [class.mp-warn-t]="!doc.se_resta">{{ hace(doc.dias) }}@if (doc.tipo === 'plan') { · aún no está en Kepler } @else if (!doc.se_resta) { · no se resta }</span>
+                    <span [class.mp-warn-t]="!doc.se_resta && doc.tipo !== 'requisicion'">{{ hace(doc.dias) }}@if (doc.tipo === 'plan') { · aún no está en Kepler } @else if (doc.tipo === 'requisicion') { · la pediste tú } @else if (!doc.se_resta) { · no se resta }</span>
+                    @if (doc.motivo) {
+                      <span class="mp-viene-motivo"><i class="pi pi-comment" aria-hidden="true"></i> Motivo de Compras: «{{ doc.motivo }}»</span>
+                    }
                   </li>
                 }
               </ul>
@@ -344,9 +404,45 @@ interface Renglon {
         }
       </app-load-state>
 
+      <!-- [AB.29] Confirmar el envío: qué sale, a quién se le pide y quién lo aprueba. -->
+      <p-dialog [visible]="envioAbierto()" (visibleChange)="envioAbierto.set($event)" [modal]="true"
+                [style]="{ width: '34rem' }" [breakpoints]="{ '40rem': '95vw' }" header="Enviar a Compras" [dismissableMask]="!enviando()">
+        @let pe = porEnviar();
+        <p class="mp-env-p">
+          Se mandan <strong>{{ pe.renglones }} {{ pe.renglones === 1 ? 'producto' : 'productos' }}</strong> que te faltan por pedir,
+          en {{ pe.grupos.length }} {{ pe.grupos.length === 1 ? 'requisición' : 'requisiciones' }} (una por a quién se le pide):
+        </p>
+        <ul class="mp-env-l">
+          @for (g of pe.grupos; track g.llave) {
+            <li>
+              <span>{{ g.tipo === 'matriz' ? 'Traspaso de' : 'Compra a' }} <strong>{{ g.tipo === 'matriz' ? (g.nombre | sucursal) : g.nombre }}</strong></span>
+              <span class="mp-dim">{{ g.renglones }} {{ g.renglones === 1 ? 'producto' : 'productos' }}</span>
+              <span class="mp-num">{{ g.valor == null ? '—' : (g.valor | currency:'MXN':'symbol-narrow':'1.0-0') }}</span>
+            </li>
+          }
+        </ul>
+        <p class="mp-env-p mp-dim">
+          Van con las cantidades que dejaste y sólo lo marcado en «¿Hasta dónde pides?». Le llegan a Compras para
+          aprobarlas o rechazarlas con motivo; mientras tanto no se vuelven a pedir.
+        </p>
+        <label class="mp-env-lab" for="mp-env-nota">Nota para Compras <span class="mp-dim">(opcional)</span></label>
+        <textarea pTextarea id="mp-env-nota" class="mp-env-nota" rows="3" maxlength="500"
+                  [ngModel]="notaEnvio()" (ngModelChange)="notaEnvio.set($event)"
+                  placeholder="Por ejemplo: viene una promoción la otra semana"></textarea>
+        <ng-template #footer>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="envioAbierto.set(false)" [disabled]="enviando()">
+            <span class="p-button-label">Cancelar</span>
+          </button>
+          <button pButton type="button" class="p-button-sm" (click)="enviar()" [disabled]="enviando() || !pe.renglones">
+            <span class="p-button-icon p-button-icon-left pi" [class.pi-send]="!enviando()" [class.pi-spin]="enviando()" [class.pi-spinner]="enviando()" aria-hidden="true"></span>
+            <span class="p-button-label">{{ enviando() ? 'Enviando…' : 'Enviar' }}</span>
+          </button>
+        </ng-template>
+      </p-dialog>
+
       <p class="mp-foot">
-        Tu pedido se guarda en la Suite con cada ajuste. El envío a tu matriz y a Compras llega en la
-        siguiente etapa. Cantidades en cajas salvo A pedir, que va en la unidad en que se captura.
+        Tu pedido se guarda en la Suite con cada ajuste. «Enviar a Compras» manda lo que te falta por pedir
+        como requisición, para que Compras la apruebe. Cantidades en cajas salvo A pedir, que va en la unidad en que se captura.
       </p>
     </section>
   `,
@@ -374,6 +470,16 @@ interface Renglon {
     .mp-note { display: flex; gap: .55rem; align-items: flex-start; margin: 0; padding: .6rem .8rem; border-radius: 8px;
       font-size: var(--fs-sm); line-height: 1.45; background: var(--surface-100); color: var(--text-muted); }
     .mp-warn { background: var(--warn-soft-bg); color: var(--text-main); }
+    /* [AB.29] Enviar a Compras */
+    .mp-ok { background: var(--ok-soft-bg); color: var(--text-main); }
+    .mp-viene-motivo { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--bad-soft-fg); }
+    .mp-env-p { margin: 0 0 .5rem; font-size: var(--fs-sm); line-height: 1.45; color: var(--text-main); }
+    .mp-env-l { list-style: none; margin: 0 0 .6rem; padding: 0; display: grid; gap: .2rem; }
+    .mp-env-l li { display: grid; grid-template-columns: 1fr auto 6.5rem; gap: .6rem; align-items: baseline;
+      font-size: var(--fs-sm); padding: .25rem 0; border-top: 1px solid var(--border-color); }
+    .mp-env-l li:first-child { border-top: 0; }
+    .mp-env-lab { display: block; margin: .2rem 0 .25rem; font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+    .mp-env-nota { width: 100%; }
     .mp-tools { display: flex; justify-content: space-between; align-items: center; gap: .75rem; flex-wrap: wrap; }
     .mp-pos { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.1rem; margin: 0; padding: .55rem .8rem;
       border: 1px solid var(--surface-200); border-radius: 8px; background: var(--surface-card); }
@@ -462,7 +568,7 @@ export class AlmacenAutoabastoPedidoComponent {
     const v = this.data()?.viene;
     if (!v) return null;
     // En camino primero (lo que llega antes), después los pedidos y al final lo planeado por Compras.
-    const orden = { embarque: 0, pedido: 1, plan: 2 } as const;
+    const orden = { embarque: 0, pedido: 1, plan: 2, requisicion: 3 } as const;
     const docs = [...v.documentos].sort((a, b) => orden[a.tipo] - orden[b.tipo] || a.dias - b.dias);
     const restan = docs.filter((x) => x.se_resta);
     return {
@@ -471,12 +577,16 @@ export class AlmacenAutoabastoPedidoComponent {
       embarques: restan.filter((x) => x.tipo === 'embarque').length,
       pedidos: restan.filter((x) => x.tipo === 'pedido').length,
       monto: restan.reduce((s, x) => s + (x.monto ?? 0), 0),
-      viejos: docs.filter((x) => !x.se_resta && x.tipo !== 'plan').length,
+      viejos: docs.filter((x) => !x.se_resta && x.tipo !== 'plan' && x.tipo !== 'requisicion').length,
       planes: docs.filter((x) => x.tipo === 'plan').length,
+      // `[AB.29]` Lo que la sucursal mandó a Compras.
+      porAprobar: docs.filter((x) => x.tipo === 'requisicion' && x.estado === 'POR APROBAR').length,
+      rechazadas: docs.filter((x) => x.tipo === 'requisicion' && x.estado === 'RECHAZADA').length,
     };
   });
   etapa(doc: AutoabastoVieneDoc): string {
-    return ({ EMBARCADO: 'En camino', AUTORIZADO: 'Autorizado', SURTIDO: 'Surtido', CHECADO: 'Checado', PLANEADO: 'Lo planeó Compras' } as Record<string, string>)[doc.estado] ?? doc.estado;
+    return ({ EMBARCADO: 'En camino', AUTORIZADO: 'Autorizado', SURTIDO: 'Surtido', CHECADO: 'Checado', PLANEADO: 'Lo planeó Compras',
+      'POR APROBAR': 'Por aprobar', APROBADA: 'Aprobada', RECHAZADA: 'Rechazada' } as Record<string, string>)[doc.estado] ?? doc.estado;
   }
   hace(dias: number): string { return dias <= 0 ? 'hoy' : dias === 1 ? 'ayer' : `hace ${dias} días`; }
   /** `[AB.23]` Lo que ya viene y se restó: pedido abierto + embarcado sin recibir. */
@@ -498,6 +608,11 @@ export class AlmacenAutoabastoPedidoComponent {
   private posTimer: ReturnType<typeof setTimeout> | null = null;
   /** Error de una acción que no debe tapar el pedido (guardar posiciones, aceptar grupo). */
   readonly aviso = signal<string | null>(null);
+  /** `[AB.29]` Enviar a Compras: el diálogo, la nota, el envío en curso y lo que contestó el servidor. */
+  readonly envioAbierto = signal(false);
+  readonly notaEnvio = signal('');
+  readonly enviando = signal(false);
+  readonly enviado = signal<AutoabastoEnviarResponse | null>(null);
 
   readonly qty = qty;
   readonly motivos = MOTIVOS_AJUSTE;
@@ -554,7 +669,7 @@ export class AlmacenAutoabastoPedidoComponent {
     const n: Record<PosicionPedido, number> = { agotado: 0, bajo_minimo: 0, bajo_reorden: 0, otros: 0 };
     this.estado();
     for (const g of this.data()?.grupos ?? []) {
-      for (const l of g.lineas) if (this.cantidad(l) > 0) n[posicionPedido(l.posicion)]++;
+      for (const l of g.lineas) if (this.cantidad(l) > 0 && !yaSeMandoACompras(l)) n[posicionPedido(l.posicion)]++;
     }
     return n;
   });
@@ -587,6 +702,7 @@ export class AlmacenAutoabastoPedidoComponent {
 
   setWarehouse(id: string | null): void {
     this.warehouseId.set(id);
+    this.enviado.set(null);
     if (id) this.cargar();
   }
 
@@ -744,6 +860,81 @@ export class AlmacenAutoabastoPedidoComponent {
     if (t) { clearTimeout(t); this.timers.delete(productId); }
   }
 
+  // ── [AB.29] Enviar a Compras ───────────────────────────────────────────────────────────────
+
+  /** `[AB.29]` Productos que ya se mandaron a Compras (requisición viva): no entran a este pedido. */
+  readonly yaMandados = computed<number>(() =>
+    (this.data()?.grupos ?? []).reduce((s, g) => s + g.lineas.filter((l) => yaSeMandoACompras(l)).length, 0));
+
+  /**
+   * `[AB.29]` Renglones movidos que todavía no están guardados (esperando, guardándose, con error o
+   * esperando motivo). El servidor manda lo GUARDADO: con uno solo pendiente, lo que se enviaría no
+   * sería lo que se ve, así que el botón espera.
+   */
+  readonly sinGuardar = computed<number>(() => Object.values(this.estado()).filter((r) => !r.guardado).length);
+
+  /**
+   * `[AB.29]` Lo que sale con «Enviar a Compras»: lo marcado en «¿Hasta dónde pides?», con cantidad y
+   * que de verdad falte por pedir. La regla es la del contrato (`esEnviable`), la misma que aplica el
+   * servidor, evaluada con la cantidad que se ve en pantalla.
+   */
+  readonly porEnviar = computed(() => {
+    this.estado();
+    this.posiciones();
+    const grupos: Array<{ llave: string; tipo: AutoabastoPedidoGrupo['tipo']; nombre: string; renglones: number; valor: number | null; ids: string[] }> = [];
+    for (const g of this.data()?.grupos ?? []) {
+      const ls = g.lineas.filter((l) => this.incluida(l)
+        && esEnviable({ ...l, ajuste: null, a_pedir: { ...l.a_pedir, cantidad: this.cantidad(l) } }));
+      if (!ls.length) continue;
+      let valor: number | null = null;
+      for (const l of ls) { const v = this.valor(l); if (v != null) valor = (valor ?? 0) + v; }
+      grupos.push({ llave: this.llaveGrupo(g), tipo: g.tipo, nombre: g.tipo === 'matriz' ? (g.clave ?? g.nombre) : g.nombre,
+        renglones: ls.length, valor, ids: ls.map((l) => l.product_id) });
+    }
+    return { grupos, renglones: grupos.reduce((s, g) => s + g.renglones, 0), ids: grupos.flatMap((g) => g.ids) };
+  });
+
+  /** `[AB.29]` Por qué el botón está apagado, dicho en el botón. `null` = se puede enviar. */
+  porQueNoEnviar(): string | null {
+    const n = this.sinGuardar();
+    if (n > 0) return `Espera a que se guarden tus cambios (${n} ${n === 1 ? 'renglón' : 'renglones'}): se manda lo guardado.`;
+    if (!this.porEnviar().renglones) return 'No te falta nada por pedir con lo que tienes marcado.';
+    return null;
+  }
+
+  abrirEnvio(): void {
+    if (this.porQueNoEnviar()) return;
+    this.notaEnvio.set('');
+    this.envioAbierto.set(true);
+  }
+
+  /** `[AB.29]` El botón se apaga en el primer clic (idempotencia visual); el servidor además tiene su candado. */
+  enviar(): void {
+    const id = this.warehouseId();
+    const ids = this.porEnviar().ids;
+    if (!id || !ids.length || this.enviando()) return;
+    this.enviando.set(true);
+    this.svc.enviar({ warehouse_id: id, product_ids: ids, nota: this.notaEnvio().trim() || null }).subscribe({
+      next: (r) => {
+        this.enviando.set(false);
+        this.envioAbierto.set(false);
+        this.enviado.set(r);
+        this.cargar(); // lo mandado pasa a «Lo pediste a Compras» y aparece en «Lo que te va a llegar»
+      },
+      error: (e) => {
+        this.enviando.set(false);
+        this.aviso.set(e?.error?.message ?? 'No se pudo mandar a Compras. Intenta de nuevo.');
+      },
+    });
+  }
+
+  /** «3 ya lo pediste a Compras · 1 no tiene a quién pedírselo». */
+  resumenOmitidos(e: AutoabastoEnviarResponse): string {
+    const n = new Map<string, number>();
+    for (const o of e.omitidos) n.set(o.motivo, (n.get(o.motivo) ?? 0) + 1);
+    return [...n].map(([m, c]) => `${c} ${m.charAt(0).toLowerCase()}${m.slice(1)}`).join(' · ');
+  }
+
   /**
    * `[AB.21]` PDF para la captura manual en Kepler: de un origen (`g`) o de todo el pedido. Lleva
    * exactamente lo que se ve: posiciones marcadas, ajustes (guardados o en curso) y el mínimo de $200.
@@ -803,7 +994,8 @@ export class AlmacenAutoabastoPedidoComponent {
 
   /** `[AB.19]` El renglón entra al pedido si su posición está marcada. */
   incluida(l: AutoabastoPedidoLinea): boolean {
-    return this.posiciones().has(posicionPedido(l.posicion));
+    // `[AB.29]` Lo que ya se mandó a Compras no entra: ni a los grupos, ni a los totales, ni al PDF.
+    return this.posiciones().has(posicionPedido(l.posicion)) && !yaSeMandoACompras(l);
   }
 
   lineasVisibles(g: AutoabastoPedidoGrupo): AutoabastoPedidoLinea[] {

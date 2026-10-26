@@ -32,10 +32,13 @@ import {
 import {
   exportQuotePdf,
   exportQuoteXlsx,
+  fechaVigencia,
   type QuoteDeliverableData,
 } from '../quote-deliverable-export';
 import { totalesCotizacion } from '@megadulces/contracts';
-import { desgloseDescuento, ETIQUETA_PASO } from '../quote-discount-breakdown';
+import { desgloseDescuento, pasosDelPrecio, explicacionDelPrecio } from '../quote-discount-breakdown';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { branchName } from '../../../core/constants/store-branches';
 
@@ -69,16 +72,6 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
   { rung: 'box', label: 'Caja' },
 ];
 
-const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'secondary'> = {
-  list: 'secondary',
-  volume_qty: 'info',
-  volume_amount: 'info',
-  promo_qty: 'success',
-  promo_amount: 'success',
-  free_goods: 'success',
-  unknown: 'warn',
-};
-
 @Component({
   selector: 'app-televenta-quote-detail',
   standalone: true,
@@ -92,6 +85,8 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
     ToastModule,
     ProgressSpinnerModule,
     FreshnessPillComponent,
+    QuoteLinesTableComponent,
+    ContextHelpComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -161,7 +156,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
         <!-- Las condiciones CONGELADAS, en una tira. Un precio tiene que ser explicable, y estas
              son la mitad de la explicacion: el descuento del cliente entra sobre el subtotal. -->
         <div class="card terms-line">
-          <span class="tl"><span class="tl-lbl">Sucursal:</span> <b>{{ q.source_branch || '—' }}</b>@if (q.source_branch) { — {{ nombreSucursal(q.source_branch) }} }</span>
+          <span class="tl"><span class="tl-lbl">Sucursal:</span> <b>{{ q.source_branch ? nombreSucursal(q.source_branch) : '—' }}</b></span>
           <span class="tl-sep" aria-hidden="true"></span>
           <span class="tl"><span class="tl-lbl">Descuento cliente:</span>
             @if (num(q.terms_discount_pct) !== null) {
@@ -174,7 +169,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
           <span class="tl-sep" aria-hidden="true"></span>
           <span class="tl"><span class="tl-lbl">Plazo:</span> <b>{{ q.terms_payment_days !== null ? q.terms_payment_days + ' días' : '—' }}</b></span>
           <span class="tl-sep" aria-hidden="true"></span>
-          <span class="tl"><span class="tl-lbl">Vigencia:</span> <b [class.vencida]="q.days_to_expiry < 0">{{ q.valid_until }}</b> <span class="t-sub">{{ vigenciaHint(q) }}</span></span>
+          <span class="tl"><span class="tl-lbl">Vigencia:</span> <b [class.vencida]="q.days_to_expiry < 0">{{ fechaCorta(q.valid_until) }}</b> <span class="t-sub">{{ vigenciaHint(q) }}</span></span>
           <span class="tl-sep" aria-hidden="true"></span>
           <span class="tl"><span class="tl-lbl">Condiciones:</span> {{ fuenteTerms(q.terms_source) }}</span>
           @if (vendedorAsignado(q); as vend) {
@@ -196,7 +191,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
           <div class="aviso" role="note">
             <i class="pi pi-lock" aria-hidden="true"></i>
             <span>
-              Puedes ver esta cotización, pero es de la sucursal <strong>{{ q.source_branch }}</strong> y tu
+              Puedes ver esta cotización, pero es de <strong>{{ nombreSucursal(q.source_branch) }}</strong> y tu
               alcance no incluye editar ahí.
             </span>
           </div>
@@ -208,7 +203,8 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
             <div class="captura-body">
               <!-- COT.18: el título comparte fila con el buscador (antes: encabezado + subtítulo +
                    etiqueta = 3 renglones antes de poder escribir). -->
-              <div class="search-step">
+              <!-- [E.29] Como el alta: la lista se abre al teclear, se cierra con Esc o al salir. -->
+              <div class="search-step" (focusout)="alSalirDelBuscador($event)">
                 <label class="captura-lbl" for="prodSearchInput">
                   <i class="pi pi-plus-circle" aria-hidden="true"></i> Agregar artículo
                 </label>
@@ -222,6 +218,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                     [(ngModel)]="termino"
                     (ngModelChange)="onTermino($event)"
                     (focus)="onFoco()"
+                    (keydown.escape)="catalogoAbierto.set(false)"
                     placeholder="Escribe código SKU, código de barras o nombre del producto..."
                     autocorrect="off"
                     spellcheck="false"
@@ -264,7 +261,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                   </ul>
                 } @else if (catalogoAbierto() && termino.trim().length > 0 && !buscando()) {
                   <p class="search-hint">
-                    Ningún producto de la sucursal {{ cot()?.source_branch }} coincide con <strong>"{{ termino }}"</strong>.
+                    Ningún producto de {{ nombreSucursal(cot()?.source_branch ?? null) }} coincide con <strong>«{{ termino }}»</strong>.
                     Puedes guardarlo como no casado para registrar la demanda rechazada.
                   </p>
                 }
@@ -520,6 +517,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
         <div class="card table-card dt-scope">
           <div class="card-head">
             <h2>Renglones</h2>
+            <app-context-help topic="cotizacion-descuentos" />
             <span class="badge-count">{{ q.lines.length }}</span>
             @if (revision()?.stock_as_of; as al) {
               <app-freshness-pill measures="data" [since]="al" label="Existencia"></app-freshness-pill>
@@ -531,114 +529,13 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
               <p class="empty-hint">Busca artículos arriba, en "Agregar artículo", y agrégalos uno a uno.</p>
             </div>
           } @else {
-            <p-table [value]="q.lines" styleClass="p-datatable-sm dt-stack" [tableStyle]="{ 'min-width': '70rem' }">
-              <ng-template #header>
-                <tr>
-                  <th class="num">#</th>
-                  <th>Producto</th>
-                  <th>Presentación</th>
-                  <th class="num">Cantidad</th>
-                  <th class="num">Existencia hoy</th>
-                  <th class="num">Lista</th>
-                  <th class="num">Precio</th>
-                  <th>De dónde sale</th>
-                  <th class="num">Importe</th>
-                  <th><span class="sr-only">Acciones</span></th>
-                </tr>
-              </ng-template>
-              <ng-template #body let-l>
-                <tr [class.row-gift]="l.parent_line_number !== null">
-                  <td class="num mono dt-num" role="cell" data-label="Renglón">{{ l.line_number }}</td>
-                  <td class="dt-id" role="cell">
-                    @if (l.parent_line_number !== null) {
-                      <span class="gift"><i class="pi pi-gift" aria-hidden="true"></i> regalo del {{ l.parent_line_number }}</span>
-                    }
-                    <span class="p-name" [title]="l.product_name || l.requested_text || ''">{{ l.product_name || l.requested_text || '—' }}</span>
-                    @if (!l.product_id) {
-                      <span class="sin-casar">sin casar con el catálogo</span>
-                    }
-                  </td>
-                  <td role="cell" data-label="Presentación">
-                    @if (l.qty_unit) {
-                      {{ l.qty_unit }}
-                      @if (num(l.qty_factor)) { <span class="factor">x{{ num(l.qty_factor) }}</span> }
-                    } @else {
-                      <span class="t-none">sin registrar</span>
-                    }
-                  </td>
-                  <td class="num dt-num" role="cell" data-label="Cantidad">
-                    @if (editable() && l.parent_line_number === null) {
-                      <div class="inline-qty-box">
-                        <!-- [E.20] Se guarda al CONFIRMAR (Enter o salir del campo), no con cada
-                             tecla: antes «48» mandaba un PATCH con 4, el campo se deshabilitaba y
-                             el 8 se perdía (auditoría A3). -->
-                        <input
-                          type="text"
-                          class="input num qty-inline"
-                          [value]="num(l.quantity)"
-                          (change)="pedirCambio(l, $any($event.target))"
-                          (keydown.enter)="$any($event.target).blur()"
-                          (focus)="$any($event.target).select()"
-                          [attr.inputmode]="admiteFraccionLinea(l) ? 'decimal' : 'numeric'"
-                          [disabled]="guardando()"
-                          [attr.aria-label]="'Cantidad del renglón ' + l.line_number"
-                        />
-                      </div>
-                    } @else {
-                      {{ num(l.quantity) }}
-                    }
-                  </td>
-                  <td class="num dt-num" role="cell" data-label="Existencia hoy">
-                    @if (l.parent_line_number === null) {
-                      @if (revisionDe(l); as rv) {
-                        @if (rv.stock; as st) {
-                          <span [class.falta]="faltante(rv) > 0">{{ st.in_line_unit | number:'1.0-2' }} {{ st.line_unit || st.base_unit }}</span>
-                          @if (faltante(rv) > 0) { <span class="falta-nota">faltan {{ faltante(rv) | number:'1.0-2' }}</span> }
-                        } @else {
-                          <span class="t-none">sin dato</span>
-                        }
-                      } @else if (revisando()) {
-                        <span class="t-none">…</span>
-                      }
-                    }
-                  </td>
-                  <td class="num muted dt-num" role="cell" data-label="Lista">{{ dinero(l.list_price) }}</td>
-                  <td class="num dt-num" role="cell" data-label="Precio">
-                    @if (num(l.unit_price) !== null) {
-                      <div class="p-unit-cell">
-                        <span class="p-unit-main">{{ num(l.unit_price) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                        @if (desgloseDeLinea(l); as pasos) {
-                          @if (pasos.length) {
-                            <span class="p-unit-sub-breakdown">(@for (p of pasos; track p.unidad; let ultimo = $last) {<span>{{ p.cantidad }} {{ p.unidad }} {{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>@if (!ultimo) { · }})</span>
-                          }
-                        }
-                      </div>
-                    } @else {
-                      <span class="t-none">sin precio</span>
-                    }
-                  </td>
-                  <td role="cell" data-label="De dónde sale">
-                    <p-tag [value]="fuenteLabel(l.price_source)" [severity]="fuenteTono(l.price_source)"></p-tag>
-                    @if (num(l.discount_pct)) { <span class="dto">−{{ num(l.discount_pct) }}%</span> }
-                    @if (pasosDe(l); as pasos) { <span class="pasos">{{ pasos }}</span> }
-                  </td>
-                  <td class="num dt-num" role="cell" data-label="Importe">{{ num(l.line_total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="num dt-actions" role="cell">
-                    @if (editable() && l.parent_line_number === null) {
-                      <button
-                        pButton
-                        severity="danger"
-                        [text]="true"
-                        size="small"
-                        [disabled]="guardando()"
-                        (click)="quitar(l)"
-                        [attr.aria-label]="'Quitar el renglón ' + l.line_number"
-                      ><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
-                    }
-                  </td>
-                </tr>
-              </ng-template>
-            </p-table>
+            <!-- [E.29] La misma tabla que la bandeja del alta: se ve igual antes y después de crear. -->
+            <app-quote-lines-table
+              [renglones]="renglonesVista()"
+              [bloqueado]="guardando()"
+              (cantidad)="onCantidadTabla($event)"
+              (quitar)="onQuitarTabla($event)"
+            />
           }
         </div>
         </div>
@@ -807,9 +704,6 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .aviso-bad i { color: var(--bad-fg); }
       .aviso-accion { margin-left: auto; flex-shrink: 0; }
       /* [E.27] existencia que no alcanza, y los pasos del precio bajo la etiqueta */
-      .falta { color: var(--bad-fg); font-weight: 600; }
-      .falta-nota { display: block; font-size: var(--fs-xs); color: var(--bad-fg); }
-      .pasos { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
       .rail-desglose { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border-color); }
 
       /* Condiciones congeladas en UNA tira (antes 5–6 tarjetas de ~75 px de alto) */
@@ -1033,25 +927,9 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .sin-casar-hint { font-size: var(--fs-xs); color: var(--text-muted); }
 
       /* Tabla de renglones */
-      /* Tabla de renglones: una línea por renglón */
+      /* [E.29] La tabla de renglones es app-quote-lines-table (compartida con el alta): su CSS vive allá. */
       .table-card { overflow-x: auto; }
-      /* Sin cortes de línea sólo cuando la tabla NO está apilada (dense-table.css: 34rem). */
-      @container densetable (min-width: 34rem) {
-        .table-card :is(th, td) { white-space: nowrap; padding: 0.3rem 0.55rem; font-size: var(--fs-sm); }
-        .table-card th { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
-      }
-      .num { text-align: right; }
-      .mono { font-family: var(--font-mono, monospace); }
-      .muted { color: var(--text-muted); }
-      .row-gift { background: var(--surface-ground); }
       .p-name { display: inline-block; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
-      .gift { font-size: 0.7rem; color: var(--ok-fg); margin-right: 0.35rem; }
-      .sin-casar { font-size: 0.7rem; color: var(--warn-fg); margin-left: 0.35rem; }
-      .factor { margin-left: 0.25rem; font-size: 0.7rem; color: var(--text-muted); }
-      .dto { font-size: 0.7rem; color: var(--ok-fg); margin-left: 0.3rem; }
-      .inline-qty-box { display: flex; justify-content: flex-end; }
-      /* .input (más abajo) trae 36px de alto: con dos clases gana el campo compacto del renglón. */
-      .input.qty-inline { width: 4.5rem; min-height: 28px; padding: 0.1rem 0.4rem; font-size: var(--fs-sm); }
 
       .empty { padding: 1.5rem 1rem; text-align: center; }
       .empty-title { margin: 0 0 0.35rem; font-weight: 600; }
@@ -1065,10 +943,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
       .input { width: 100%; padding: 0.45rem 0.7rem; box-sizing: border-box; border: 1px solid var(--border-color);
                border-radius: 6px; font-size: var(--fs-body); background: var(--card-bg); color: var(--text-main); min-height: 36px; }
       .input:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
-      .input.num { text-align: right; font-variant-numeric: tabular-nums; }
 
-      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
-                 clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
     `,
   ],
 })
@@ -1113,7 +988,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   readonly elegido = signal<QuoteCatalogRow | null>(null);
   /** El buscador de artículo: al agregar un renglón el cursor vuelve acá para el siguiente. */
   private readonly buscadorArticulo = viewChild<ElementRef<HTMLInputElement>>('buscadorArticulo');
-  private focoSinAbrirCatalogo = false;
+  /** [E.29] El foco está en el buscador: sólo entonces una respuesta puede abrir la lista. */
+  private buscadorEnFoco = false;
 
   termino = '';
   cantidad = 1;
@@ -1125,6 +1001,55 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   // COT.19: editable = borrador Y el usuario puede escribir en su sucursal. `branch_writable`
   // ausente (API vieja) se trata como `true`: el servidor valida igual y responde 403.
   readonly editable = computed(() => this.cot()?.status === 'draft' && this.cot()?.branch_writable !== false);
+
+  /** [E.29] Los renglones como los pinta la tabla compartida con el alta (app-quote-lines-table). */
+  readonly renglonesVista = computed<RenglonTabla[]>(() => {
+    const q = this.cot();
+    if (!q) return [];
+    const editable = this.editable();
+    const revisando = this.revisando();
+    this.revisionPorRenglon(); // dependencia explícita: la existencia llega después de la cotización
+    return q.lines.map((l) => {
+      const rv = this.revisionDe(l);
+      const existencia: RenglonTabla['existencia'] = l.parent_line_number !== null ? null
+        : rv ? (rv.stock && rv.stock.in_line_unit !== null
+          ? { cantidad: rv.stock.in_line_unit, unidad: rv.stock.line_unit || rv.stock.base_unit || '', faltan: this.faltante(rv) }
+          : 'sin-dato')
+        : revisando ? 'cargando' : null;
+      return {
+        id: l.id,
+        numero: l.line_number,
+        nombre: l.product_name || l.requested_text || '—',
+        sinCasar: !l.product_id,
+        regaloDe: l.parent_line_number,
+        notaRegalo: null,
+        unidad: l.qty_unit,
+        factor: this.num(l.qty_factor),
+        cantidad: this.num(l.quantity) ?? 0,
+        editable,
+        admiteFraccion: this.admiteFraccionLinea(l),
+        existencia,
+        lista: this.num(l.list_price),
+        precio: this.num(l.unit_price),
+        desglose: this.desgloseDeLinea(l),
+        fuente: l.price_source,
+        dtoPct: this.num(l.discount_pct),
+        pasos: this.pasosDe(l),
+        explicacion: this.explicacionDe(l),
+        importe: this.num(l.line_total),
+      };
+    });
+  });
+
+  onCantidadTabla(e: CambioCantidad): void {
+    const l = this.cot()?.lines.find((x) => x.id === e.id);
+    if (l) this.pedirCambio(l, e.input);
+  }
+
+  onQuitarTabla(id: string): void {
+    const l = this.cot()?.lines.find((x) => x.id === id);
+    if (l) this.quitar(l);
+  }
 
   /** [E.27] La cotización contra Kepler HOY (precio, pasos del descuento, existencia). No escribe. */
   readonly revision = signal<QuoteCheck | null>(null);
@@ -1223,7 +1148,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         });
         this.resultados.set(ordenados);
         this.buscando.set(false);
-        this.catalogoAbierto.set(true);
+        // [E.29] Sólo si la persona sigue en el buscador: una respuesta tardía no la reabre encima.
+        this.catalogoAbierto.set(this.buscadorEnFoco);
 
         const t = this.termino.trim();
         if (ordenados.length === 1 && t && (ordenados[0].sku.toUpperCase() === t.toUpperCase() || ordenados[0].barcode === t)) {
@@ -1272,10 +1198,17 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.buscar$.next();
   }
 
+  /** Entrar al campo NO abre la lista (E.29): se abre al teclear. */
   onFoco(): void {
-    if (this.focoSinAbrirCatalogo) return;
-    this.catalogoAbierto.set(true);
-    if (this.resultados().length === 0) this.buscar$.next();
+    this.buscadorEnFoco = true;
+  }
+
+  /** Salir del buscador cierra la lista; moverse a una opción de la lista, no. */
+  alSalirDelBuscador(e: FocusEvent): void {
+    const destino = e.relatedTarget as Node | null;
+    if (destino && (e.currentTarget as HTMLElement).contains(destino)) return;
+    this.buscadorEnFoco = false;
+    this.catalogoAbierto.set(false);
   }
 
   elegir(p: QuoteCatalogRow): void {
@@ -1287,7 +1220,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   limpiarEleccion(): void {
     this.elegido.set(null);
     this.previa.set(null);
-    this.catalogoAbierto.set(true);
+    // [E.29] Vuelve al buscador; la lista se abre cuando se teclee, no sola.
+    this.volverAlBuscador();
   }
 
   setRung(r: Rung): void {
@@ -1319,6 +1253,11 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   /** "Padre Hidalgo" para la tira de condiciones (mismo catálogo que rotula el entregable). */
   nombreSucursal(code: string | null): string {
     return branchName(code);
+  }
+
+  /** [E.29] dd/mm/aaaa, como el papel (antes la vigencia salía en AAAA-MM-DD). */
+  fechaCorta(iso: string | null | undefined): string {
+    return fechaVigencia(iso).texto;
   }
 
   /** Lo mismo, para un renglón ya guardado (la unidad base viene del JOIN del detalle). */
@@ -1480,14 +1419,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
    * la pantalla lo vuelva a habilitar, si no el `focus()` cae sobre un control deshabilitado.
    */
   private volverAlBuscador(): void {
-    this.focoSinAbrirCatalogo = true;
-    afterNextRender(
-      () => {
-        this.buscadorArticulo()?.nativeElement.focus();
-        this.focoSinAbrirCatalogo = false;
-      },
-      { injector: this.injector },
-    );
+    afterNextRender(() => this.buscadorArticulo()?.nativeElement.focus(), { injector: this.injector });
   }
 
   private limpiarAlta(): void {
@@ -1547,8 +1479,14 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   pasosDe(l: QuoteLine): string {
     const rv = this.revisionDe(l);
     if (!rv?.now || rv.price_changed) return '';
-    const pasos = rv.now.applied.filter((p) => p.after !== null);
-    return pasos.length > 1 ? pasos.map((p) => (ETIQUETA_PASO[p.step] ?? p.step) + ' ' + this.dinero(p.after)).join(' → ') : '';
+    return pasosDelPrecio(rv.now.applied, (n) => this.dinero(n));
+  }
+
+  /** [E.29] Qué descuento es, concreto; como los pasos, sólo si el precio de hoy es el guardado. */
+  explicacionDe(l: QuoteLine): string {
+    const rv = this.revisionDe(l);
+    if (!rv?.now || rv.price_changed) return '';
+    return explicacionDelPrecio(rv.now.applied);
   }
 
   pedirRecotizar(r: QuoteCheck): void {
@@ -1592,9 +1530,6 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   }
 
   fuenteLabel(s: string): string { return etiquetaFuentePrecio(s); }
-  fuenteTono(s: string): 'success' | 'info' | 'warn' | 'danger' | 'secondary' {
-    return FUENTE_TONO[s] ?? 'secondary';
-  }
 
   fuenteTerms(s: string): string {
     if (s === 'kepler_kdud') return 'Congeladas del ERP';
@@ -1657,6 +1592,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       iva_rate: this.num(l.iva_rate),
       ieps_rate: this.num(l.ieps_rate),
       price_source: this.fuenteLabel(l.price_source),
+      // [E.29] La lista: con ella el papel desglosa el descuento del producto, como la pantalla.
+      list_price: this.num(l.list_price),
       free_goods: null,
       // [E.19] El regalo del ERP se imprime «Regalo», no $0.00. Y ya no viaja un descuento por
       // renglón: el de volumen/promo YA está en `unit_price`, y pasarlo lo aplicaba dos veces

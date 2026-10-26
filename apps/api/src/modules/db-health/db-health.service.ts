@@ -1639,6 +1639,21 @@ export const CRON_JOBS: CronCfg[] = [
   // El script se pone en `error` solo si tras podar el disco libre queda bajo el piso.
   { key: 'poda_disco',          label: 'Poda de imágenes y caché de construcción', cadence: 'tras cada despliegue + 04:30 (md)', warnH: 30, critH: 72 },
 
+  // [RH.1.8] Relojes: la ingesta late con cada lote y con cada latido del agente (minutos, aunque nadie cheque).
+  // Una sola llave para los 12 relojes: un reloj caído NO la pone roja — eso lo dice el semáforo de /rh/relojes.
+  //
+  // ⭐ El PR #402 se cerró sin mergear reservando esto «para el día del corte», porque «antes, sin
+  // agente, saldría rojo». Medido el 2026-10-23: NO sale rojo. `veredictoSinLatido` manda un job
+  // declarado que nunca reportó a **`warn`** —no `critical`— con la nota «DECLARADO Y NUNCA
+  // REPORTÓ … o no está desplegado, o no corre, o corre y no late» (`[DBH.5]`, el mismo arreglo
+  // que cazó `stock_snapshot`). Y ninguna de las dos llaves ha escrito un latido en prod.
+  //
+  // ⛔ Dejarlas fuera NO era «sin ruido»: era SILENCIO. Si el lector se cae hoy, nadie se entera.
+  // Un `warn` que dice lo que no sabe vale más que un tablero verde que no mira.
+  { key: 'hr_attendance_ingest', label: 'Relojes checadores: entrada de checadas', cadence: 'continuo (latido del agente)', warnH: 0.5, critH: 2, maxRunH: 0.1 },
+  // [RH.1.5] Agente de alertas de asistencia, cada 30 min en el worker (ENABLE_HR_ATTENDANCE_AGENT).
+  { key: 'hr_attendance_agent', label: 'Asistencia: agente de alertas', cadence: 'cada 30 min', warnH: 1.5, critH: 3, maxRunH: 0.5 },
+
 ];
 
 export interface SourceHealth {

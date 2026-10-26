@@ -545,3 +545,47 @@ fallan las 10 combinaciones sembradas. Prueba 161/161, pantalla 38/38, lógica 6
 
 ⚠️ La regla de la existencia queda escrita en dos lugares (la vista y esta consulta); el candado avisa si se
 separan. El arreglo de fondo sería que la vista no calcule el factor de caja para quien no lo pide.
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+> La pantalla existe: cada observación es un criterio a verificar en ella, no un defecto medido. Las
+> cifras son las del plan (y las de las fases AB, PQ y PF donde se dice), con su fecha.
+
+**La pregunta que contesta (prueba de la frase, §4.0b):**
+
+- **Productos nuevos** (`/compras/catalogo/nuevos`): *«¿Los códigos nuevos que catalogamos están
+  devolviendo lo invertido, y cuáles conviene volver a comprar?»* — dos preguntas: una del portafolio
+  (inversión y retorno, la que pidió Compras) y una por producto (recompra). No hace falta otra
+  pantalla, pero sí dos bloques con su universo dicho: los KPIs de la cohorte arriba, como respuesta
+  del portafolio, y la lista con su veredicto como respuesta por producto (NP.UI.2).
+- **Panel por sucursal**: *«¿En qué sucursales conviene volver a comprar este producto?»* — una
+  pregunta; el ranking, los márgenes y el reparto son su evidencia.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):** primario = cuántos productos nuevos piden decisión hoy
+(recomprar / revisar) y el retorno de la cohorte **con su universo** · secundario = la lista con su
+veredicto y su venta por semana · terciario = márgenes, reparto, unidades por corte y fechas de
+llegada.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| NP.UI.1 | 🔴 | **«Venta por cada $1 invertido» sale entre 8 % y 16 % alta** (venta con IVA/IEPS contra compra sin impuestos; hallazgo de NP.15, 8-oct, «se deja para decidirlo aparte») **y alimenta el veredicto:** «Recomprar» se dispara con $0.80 o más. Un producto con IVA que recuperó $0.69 se publica como $0.80 y sale «Recomprar». Lleva 18 días así, en una pantalla que usan los jefes de Compras. | §1.6 · §1.1 | Las dos puntas en la misma base (sin impuestos). Mientras no se decida, el rótulo lo dice: «Venta con IVA por cada $1 de compra sin IVA (sale 8–16 % alta)», y «Recomprar» no se dispara sólo por esa cifra. **Conflicto (decide Edgar):** corregirlo cambia recomendaciones que Compras ya vio. |
+| NP.UI.2 | 🔴 | **Los KPIs de inversión y retorno se publican sobre un universo que el plan sabe sucio y ya no se puede limpiar:** el plan dice «antes de publicar cifras: [NP.0]», y NP.0 sigue ⬜ (fecha de alta de Kepler sin decodificar; el corte de carga masiva medido sólo en local, que mueve los «dados de alta sin recibir» de 1,821 a 116); 97 productos aparecen primero por un ajuste de inventario («es probable que no sean nuevos») y 145 nunca se compraron en Kepler; y desde NP.12 las recodificaciones y lo que no es mercancía **cuentan como lanzamiento**. La pantalla está en prod desde el 8-oct: «¿cuánto nos devuelve catalogar códigos nuevos?» —la pregunta de Compras— se contesta con códigos que no son nuevos. | §1.6 · §1.3 · §3.2 | El bloque de KPIs dice su universo en la misma línea: «~1,220 códigos · incluye 97 que aparecieron por un ajuste y N posibles recodificaciones que ya no se excluyen». Hasta cerrar NP.0, `p-tag` «Preliminar: fecha de alta de Kepler sin decodificar» junto a las cifras. Los 97 y las recodificaciones se pueden sacar con un clic, y el KPI se recalcula sin ellos. |
+| NP.UI.3 | 🔴 | **Dos pestañas del mismo Catálogo de Compras le dan al mismo producto dos veredictos de compra con criterios distintos:** Productos nuevos dice «Recomprar / Esperar / No recomprar» por rotación y recuperación (`CRITERIO_RECOMPRA`); Productos (PF) dice «Comprar / Esperar / No comprar» por días de cobertura (menos de 15, o de 21 si es líder); y `/compras/pedido` calcula otra cantidad con 30 días. Las palabras se parecen; las preguntas no. Nada avisa cuando se contradicen, y los dos umbrales siguen como «propuesta a calibrar con Compras». | §1.5 · §1.1 · §3.9 | Cada veredicto dice su pregunta: NP «Vale la pena recomprarlo (por rotación)»; PF «Hace falta comprar (cobertura menor a 15 días)». En el panel de un producto nuevo, el otro veredicto a la vista cuando difiere: «En Productos: Esperar (alcanza para 40 días)». Los dos llevan «Propuesta sin calibrar» hasta que Compras firme sus umbrales (NP.6 ⬜, PF.UI.1). |
+| NP.UI.4 | 🟠 | **«Posible recodificación» se sigue mostrando y ya no hay dónde resolverla** (NP.12: «sigue apareciendo como aviso, pero no hay dónde resolverla»), y el código sigue sumando como lanzamiento. Un aviso que no lleva a ningún lado se aprende a ignorar. | §3.4 · §4.6 | **Conflicto (decide Edgar; el usuario pidió quitar la clasificación):** o el aviso lleva a donde se resuelve (el endpoint `PUT …/classification` sigue vivo, sin consumidor), o la exclusión es automática y se dice: «Fuera de las cifras: mismo código de barras que [SKU anterior]». Lo que no va es un aviso sin salida. |
+| NP.UI.5 | 🟠 | **«¿Dónde se mueve mejor?» y el veredicto miden sólo la venta registrada en Kepler** (NP.13, por pedido del usuario): las camionetas de Canindo no existen en Kepler (~$428 K por semana) y a las de Padre Hidalgo les faltan 27 días desde el 1-sep (FASE_AB §16.17, 26-oct). Un producto nuevo que se mueve en ruta sale con poca rotación —«Revisar» o «No recomprar»— y Canindo baja en el ranking. Pedido cuenta esa misma venta, en Padre Hidalgo dos veces (PQ.UI.1). | §1.6 · §1.5 | El universo se dice donde se lee el número: «Venta registrada en Kepler; no incluye camionetas de Canindo». Un producto con salidas a ruta (la función ya trae `salida_ruta`) no recibe «No recomprar» sin la nota «Se mueve por camioneta: su venta no se ve aquí». |
+| NP.UI.6 | 🟠 | **El seguimiento cuenta los días desde la compra aplicada (`X-A-20`) y «Llegó a la empresa» sale del kardex (`X-A-40`):** en 33 productos la mercancía llegó antes; en uno, 3 meses antes (NP.16, decisión abierta). «Nuevo · día N», «Aún es pronto» (antes del día 21) y los cortes 30 · 60 · 90 usan una fecha; el bloque de llegada, otra, a un centímetro. | §1.6 · §1.1 | Una sola fecha de arranque, decidida. Mientras tanto, cuando difieren, se dice: «El seguimiento cuenta desde el 14-oct (compra aplicada); la mercancía llegó el 2-oct». |
+| NP.UI.7 | 🟠 | **El plan tiene dos reglas de unidad que se contradicen:** NP.11, «nunca se convierte ni se suman rótulos distintos: "23 cajas · 86 piezas" son dos cifras»; NP.16, «las cantidades van en cajas completas y lo demás en paquetes o piezas» (178 paquetes y 2 piezas → 29 cajas, 4 paquetes y 2 piezas), salvo 89 de 1,214 productos con fichas distintas, que van «como los registró Kepler». La pantalla mezcla los dos formatos sin marcar cuál es cuál. Y la caja es la de la ficha de Kepler, mientras Pedido usa otra en 2 de cada 3 SKUs del CEDIS (PQ.UI.3). | §1.1 · §1.5 · §4.5 | Una regla escrita, y la misma en «Cómo se decide». La cantidad convertida dice su caja («29 CJA de 6 PAQ, 4 PAQ y 2 PZA»); la no convertida lleva `p-tag` «Como la registró Kepler: fichas distintas por sucursal». El factor es el `c84` de Kepler, el mismo que adopte Pedido con D20. |
+| NP.UI.8 | 🟠 | **La existencia en duda está bien resuelta (NP.16), pero la lectura directa de `kdil` (NP.17) recorta los negativos a cero** («piso en cero»): un negativo de Kepler se lee como agotado, y «agotado en una sucursal que lo vende» dispara «Recomprar». | §1.3 | Un negativo se muestra como negativo, con `p-tag` «Negativo en Kepler», y no cuenta como agotado (D8 de PQ). Existencia en duda: las dos cifras en el `app-side-peek` («Kepler suma 180 · el kardex estima ~1,500 piezas: cambió de paquete a pieza el 18-sep»). |
+| NP.UI.9 | 🟡 | **El encabezado del plan dice «sin push, sin PR, nada aplicado a prod» (7-oct) y la pantalla está en prod desde el 8-oct** (NP.13; NP.17 atiende quejas de los jefes sobre la pantalla en producción). Ninguna de las nueve entregas registra una revisión en nivel A. | método §4 · §1.1 | Encabezado al día con lo que está en prod. NP no sube de 🧪 sin `auditoria-diseno` en nivel A (claro, oscuro, `forced-colors`), con foco en el panel por sucursal y la gráfica semanal. |
+
+**Lo que esta revisión no cubre:** contraste, panel lateral y gráfica semanal en pantalla real (exigen
+nivel A); los umbrales de `CRITERIO_RECOMPRA`, que calibra Compras (NP.6); y el destino de
+`catalog.new_product_reviews`, sin consumidor desde NP.12.

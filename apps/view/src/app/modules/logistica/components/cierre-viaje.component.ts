@@ -12,7 +12,7 @@ import type {
 } from '@megadulces/contracts';
 // Por subruta, no por el barrel: ver tsconfig.base.json (bundle inicial).
 import {
-  CONCEPTO_KEPLER, erroresDeCierreDeParada, ESTADO_VIAJE_LABEL, MOTIVO_NO_ENTREGA_LABEL, seCierraEnLaSuite,
+  CONCEPTO_KEPLER, erroresDeCierreDeParada, ESTADO_VIAJE_LABEL, MOTIVO_NO_ENTREGA_LABEL, repartoDeCarga, seCierraEnLaSuite,
 } from '@megadulces/contracts/http/cierre-viaje';
 import { Driver, LogisticaService } from '../logistica.service';
 import { AltaPersonaComponent } from './alta-persona.component';
@@ -108,13 +108,22 @@ const TIPO_LABEL: Record<string, string> = {
       <section class="cv-block">
         <header class="cv-head">
           <h3>Quién cargó</h3>
-          @if (d.tarifa_carga) {
-            <span class="cv-sub">{{ d.tarifa_carga | currency:'MXN':'symbol-narrow':'1.2-2' }} por persona · se libera porque el embarque ya está en Kepler</span>
+          @if (d.carga.total != null) {
+            <span class="cv-carga">
+              <strong>{{ d.carga.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong>
+              <span class="cv-sub">{{ d.carga.cajas | number:'1.0-2' }} cajas × {{ d.carga.tarifa_por_caja | currency:'MXN':'symbol-narrow':'1.2-4' }} por caja · se reparte en partes iguales</span>
+            </span>
           }
         </header>
-        @if (!d.tarifa_carga) {
-          <div class="cv-msg cv-msg-warn">Falta capturar la tarifa de carga por persona en Logística › Configuración. Sin tarifa no se registran cargadores: un cero sería no pagar.</div>
+        @if (d.carga.tarifa_por_caja == null) {
+          <div class="cv-msg cv-msg-warn">No hay tarifa de carga por caja vigente para la fecha de este embarque. Captúrala en Logística › Configuración › Maniobras (tarifa_carga_caja). Sin tarifa no se registran cargadores: un cero sería no pagar.</div>
+        } @else if (d.carga.cajas == null) {
+          <div class="cv-msg cv-msg-warn">No se sabe cuántas cajas lleva el embarque: si salió de Kepler, todavía no trae sus renglones; si es manual, captúralas en «Información». Sin cajas no se puede repartir la carga.</div>
         } @else {
+          <p class="cv-sub cv-fuente">
+            {{ d.carga.fuente_cajas === 'kepler' ? 'Cajas de Kepler: cajas y bultos de todas las paradas de la guía; las piezas sueltas no cuentan.' : 'Cajas capturadas en «Información».' }}
+            @if (d.carga.cajas === 0) { <strong>Este embarque no lleva cajas: quien cargó queda registrado, pero la carga no paga.</strong> }
+          </p>
           <div class="cv-loaders">
             <label class="sr-only" for="cv-cargadores">Cargadores</label>
             <div class="cv-ms">
@@ -133,6 +142,9 @@ const TIPO_LABEL: Record<string, string> = {
             <button pButton type="button" [loading]="guardandoCarga()"
               [disabled]="cargaPagada()" (click)="guardarCargadores()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar cargadores</span></button>
           </div>
+          @if (seleccion.length && d.carga.total) {
+            <div class="cv-sub" role="status">{{ textoReparto(d.carga.total, seleccion.length) }}</div>
+          }
           @if (cargaPagada()) { <div class="cv-sub">La carga ya está en un vale: no se puede cambiar.</div> }
           @if (aviso(); as a) { <div class="cv-sub" role="status">{{ a }}</div> }
         }
@@ -231,6 +243,9 @@ const TIPO_LABEL: Record<string, string> = {
     .cv-pill[data-estado="cerrado_con_diferencia"], .cv-pill[data-estado="diferencia"] { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .cv-pill[data-estado="pendiente"], .cv-pill[data-estado="abierto"], .cv-pill[data-estado="retenido"], .cv-pill[data-estado="guia_incompleta"] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .cv-pill[data-estado="en_vale"] { background: var(--info-soft-bg); color: var(--info-soft-fg); }
+    .cv-carga { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+    .cv-carga strong { font-size: var(--fs-md, 1rem); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
+    .cv-fuente { margin: 0 0 .5rem; }
     .cv-loaders { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
     .cv-ms { min-width: 18rem; max-width: 100%; }
     .cv-ms ::ng-deep .p-multiselect { width: 100%; }
@@ -349,6 +364,21 @@ export class CierreViajeComponent {
     if (!this.seleccion.includes(d.id)) this.seleccion = [...this.seleccion, d.id];
     this.filtroCargador.set('');
     this.aviso.set(r.mensaje + ' Falta «Guardar cargadores».');
+  }
+
+  /**
+   * `[EMB.39]` Cuánto le toca a cada quien con los que están elegidos, con la MISMA regla que usa
+   * el servidor al guardar (`repartoDeCarga`): lo que se ve es lo que se va a pagar.
+   */
+  textoReparto(total: number, personas: number): string {
+    const partes = repartoDeCarga(total, personas);
+    const fmt = (v: number) => v.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+    const max = Math.max(...partes);
+    const min = Math.min(...partes);
+    const quien = personas === 1 ? 'quien cargó' : `cada uno de los ${personas}`;
+    return max === min
+      ? `Al guardar: ${fmt(max)} para ${quien}.`
+      : `Al guardar: ${fmt(max)} o ${fmt(min)} para ${quien} (el centavo que no divide exacto va a los primeros de la lista).`;
   }
 
   tipoLabel(t: string) { return TIPO_LABEL[t] ?? t; }

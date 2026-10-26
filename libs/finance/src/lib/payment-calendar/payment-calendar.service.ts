@@ -331,6 +331,18 @@ export class PaymentCalendarService {
     limit?: number; offset?: number;
     /** [TP.20.4] Solo facturas cuyo descuento por pronto pago esta por vencer o aun es capturable. */
     prontoPago?: 'por_vencer' | 'capturable';
+    /**
+     * `[PGP.7]` **Con qué urgencia se lee la lista.** Era la ultima razon para tener Pronto pago
+     * como pantalla aparte: el inventario de §23 midio que las dos listas ordenan al reves y
+     * concluyo que fusionarlas rompia una. Lo que rompia era imponer UN orden; ofrecer los dos
+     * no rompe ninguno.
+     *
+     *  · `vencimiento` (default) — cuando hay que pagar. El orden de siempre, intacto.
+     *  · `descuento` — cuando se pierde el privilegio. Es el orden de Pronto pago, y su encabezado
+     *    decia que «el orden ES la mitad del valor»: por fecha limite del descuento y, a igualdad,
+     *    por lo que se gana.
+     */
+    orden?: 'vencimiento' | 'descuento';
   }) {
     // `[TP.17.2]` 1000 era el techo fijo de antes: se conserva como default para no cambiar lo que
     // ya veía la pantalla, pero ahora se puede mover y, sobre todo, se sabe cuánto quedó afuera.
@@ -351,10 +363,22 @@ export class PaymentCalendarService {
         'paid_amount', 'available_amount', 'is_critical', 'critical_reason', 'authorized_by',
         'authorized_at', 'status', 'notes', 'created_at', 'branch_code', 'payee_id',
         // [TP.20.4] la ventana de pronto pago viaja con la fila
-        'pronto_fecha_limite', 'pronto_beneficio', 'pronto_estado',
+        'pronto_fecha_limite', 'pronto_tasa', 'pronto_beneficio', 'pronto_estado',
         // [TP.20.5] el ref de la ficha. NULL en los orígenes que no tienen documento de Kepler
         // detrás: un ref inventado abriría un panel que no existe.
         'entity_ref',
+        /**
+         * `[PGP.12]` **La referencia del proveedor y el código del acreedor, para VER y BUSCAR.**
+         *
+         * `doc_ref` es lo que `/compras/obligaciones` llama «Referencia» (`0-F-2525`, `30-1402`):
+         * verificado contra las 38 obligaciones capturadas a mano, **38 de 38 exactas** y control
+         * placebo de **0 de 38**. ⚠️ Es captura LIBRE: 92.6 % trae algo, y entre ese algo hay
+         * `LPA`, `DAMASO`, `S/R`. Por eso se rotula «Referencia», nunca «Factura».
+         *
+         * `payee_code` es el código del acreedor (`CNFR001`, `AE002`): Tesorería conoce a varios
+         * proveedores por código y hasta hoy no se podía buscar por él.
+         */
+        'doc_ref', 'payee_code',
       ];
       const legBudget = trx('budget.expense_obligations as o').select(
         trx.raw(`'budget_expense'::text AS obligation_source`), 'o.id AS obligation_id',
@@ -363,7 +387,10 @@ export class PaymentCalendarService {
         'o.reserved_amount', 'o.paid_amount',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
         'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
-        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
+        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_tasa'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
+        // [PGP.12] Un gasto presupuestado no tiene documento de proveedor ni código de acreedor.
+        // Se declaran NULL: la columna sale vacía, que es distinto de salir con un hueco inventado.
+        trx.raw('NULL::text AS doc_ref'), trx.raw('NULL::text AS payee_code'),
       ).whereNotIn('o.status', ['cancelled', 'propuesta']); // propuesta = sin autorizar → fuera del Calendario (PR.3)
 
       const legCommitment = trx('finance.financial_commitments as o').select(
@@ -373,7 +400,9 @@ export class PaymentCalendarService {
         'o.reserved_amount', 'o.paid_amount',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
         'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
-        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
+        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_tasa'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
+        // [PGP.12] Un compromiso financiero tampoco tiene documento de proveedor detrás.
+        trx.raw('NULL::text AS doc_ref'), trx.raw('NULL::text AS payee_code'),
       ).whereNotIn('o.status', ['cancelled']);
 
       const legSupplier = trx('commercial.supplier_payment_obligations as o')
@@ -386,12 +415,16 @@ export class PaymentCalendarService {
           'o.reserved_amount', 'o.paid_amount',
           trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
           's.is_critical', 's.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw("nullif(btrim(o.kepler_sucursal), '') AS branch_code"), 'o.supplier_id AS payee_id',
-          trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"),
+          trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_tasa'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"),
           // [TP.20.5] La obligacion CAPTURADA por Entregas tambien tiene ficha, pero solo si
           // alguien le anoto el documento de Kepler. Sin esos cuatro campos no hay a que apuntar.
           trx.raw(`CASE WHEN o.kepler_sucursal IS NOT NULL AND o.kepler_folio IS NOT NULL
                         THEN 'oblig:' || o.kepler_sucursal || '|' || o.kepler_doc_tipo || '|'
                                       || o.kepler_doc_sub || '|' || btrim(o.kepler_folio) END AS entity_ref`),
+          // [PGP.12] Acá la referencia ya existía con otro nombre: es la factura que Compras
+          // capturó al recibir. Las 38 filas vivas la traen, y son las mismas con las que se
+          // verificó que `kdxe.c16` es este dato (38 de 38 exactas).
+          trx.raw(`nullif(btrim(o.invoice_folio), '') AS doc_ref`), 's.code AS payee_code',
         ).whereNotIn('o.status', ['cancelled']);
 
       /**
@@ -470,6 +503,10 @@ export class PaymentCalendarService {
           // las cuatro partes de la clave natural (sucursal, tipo, subtipo, folio).
           trx.raw(`'oblig:' || v.sucursal || '|' || v.doc_tipo || '|' || v.doc_sub
                              || '|' || btrim(v.folio) AS entity_ref`),
+          // [PGP.12] La referencia del proveedor (`kdxe.c16`, publicada por la vista en la
+          // migración 20261026122438) y el código del acreedor. Esta es la pata que importa:
+          // trae el 98.7 % de la deuda y era la única sin referencia.
+          trx.raw(`v.referencia AS doc_ref`), trx.raw('v.proveedor AS payee_code'),
         );
 
       const unionSql = `(${legBudget.toQuery()} UNION ALL ${legCommitment.toQuery()} UNION ALL ${legSupplier.toQuery()} UNION ALL ${legKepler.toQuery()}) AS ob`;
@@ -479,9 +516,27 @@ export class PaymentCalendarService {
       if (q.onlyCritical) base.where('ob.is_critical', true);
       // [TP.20.4] El filtro que faltaba para armar el dia mirando lo que caduca.
       if (q.prontoPago) base.where('ob.pronto_estado', q.prontoPago);
+      /**
+       * `[PGP.12]` **Qué alcanza el buscador.** Era `beneficiary` + `concept`, y `concept` para la
+       * deuda de Kepler es el folio interno pelado — así que por folio **sí** se podía buscar, pero
+       * por la referencia del proveedor (`0-F-2525`) y por el código del acreedor (`CNFR001`) no.
+       *
+       * ⛔ Y el folio solo **no identifica**: medido el 2026-10-26 sobre los 2,897 documentos que
+       * la pantalla muestra, **769 (26.5 %) comparten folio con otro**, hasta 5 documentos con el
+       * mismo número. Buscar `0000304` devuelve el de $8,000,000 de ACREEDOR ARTURO LOPEZ OROZCO
+       * **y** uno de $45,343.77 de MEGA ALIMENTOS en Morelia Abastos. Por eso la referencia no es
+       * un adorno: en 92.6 % de los casos es lo que desempata.
+       */
       if (q.search?.trim()) {
         const s = q.search.trim();
-        base.andWhere((w: any) => w.whereILike('ob.beneficiary', `%${s}%`).orWhereILike('ob.concept', `%${s}%`));
+        // `[PGP.12]` El tipo sale del USO: a `w` se le encadenan `whereILike`/`orWhereILike`,
+        // o sea que es el constructor de consultas de Knex, no un `any`. Mismo patrón que
+        // `commission-padron.service.ts`.
+        base.andWhere((w: Knex.QueryBuilder) => w
+          .whereILike('ob.beneficiary', `%${s}%`)
+          .orWhereILike('ob.concept', `%${s}%`)
+          .orWhereILike('ob.doc_ref', `%${s}%`)
+          .orWhereILike('ob.payee_code', `%${s}%`));
       }
       if (q.dueFrom) base.where('ob.original_due_date', '>=', q.dueFrom);
       if (q.dueTo) base.where('ob.original_due_date', '<=', q.dueTo);
@@ -503,54 +558,75 @@ export class PaymentCalendarService {
        */
       const [{ total }] = await base.clone().clearSelect().clearOrder()
         .count<{ total: string }[]>({ total: '*' });
-      const rows = await base
-        .orderByRaw('ob.original_due_date ASC NULLS LAST, ob.available_amount DESC')
-        .limit(limit).offset(offset);
+      /*
+       * `[PGP.7]` Dos ordenes, uno por pregunta. ⛔ `NULLS LAST` en los dos campos del descuento:
+       * una factura sin ventana medible NO es urgente, es desconocida, y ponerla arriba mandaria
+       * a Tesoreria a mirar primero lo que nadie midio.
+       */
+      const orderBy = q.orden === 'descuento'
+        ? 'ob.pronto_fecha_limite ASC NULLS LAST, ob.pronto_beneficio DESC NULLS LAST'
+        : 'ob.original_due_date ASC NULLS LAST, ob.available_amount DESC';
+      const rows = await base.orderByRaw(orderBy).limit(limit).offset(offset);
       return { rows, total: Number(total), limit, offset };
     });
   }
 
   /**
-   * `[TP.21.1]` **El libro de Tesorería, sumado por día, para una semana.**
+   * `[PGP.9]` **Lo que de verdad salió cada día, del ERP — ya no del Excel de Tesorería.**
    *
-   * El *Programa de pagos* y el *Calendario* son la misma línea de tiempo —el día en que sale el
-   * dinero— cortada en dos: el pasado lo lleva un Excel y el futuro lo lleva el sistema. Medido el
-   * 2026-10-20: el libro llega al **2026-08-28**, el calendario empieza el **2026-10-16**, hay
-   * **0 días en común** y **53 días** en medio de los que ninguna pantalla dice nada.
+   * ── Por qué cambió la fuente ────────────────────────────────────────────────────────────
+   * Pedido de Edgar el 2026-10-24: *«no debemos depender de que se esté cargando un libro»*.
+   * Tenía razón, y la medición es contundente. Las dos fuentes, el mismo día:
    *
-   * ⛔ **No casa renglones.** El libro no guarda el folio del pago de Kepler; casarlo por
-   * monto+mes es lo de `[PP.4]` ($273 M indefendibles). Acá se suma por `pay_date`, que es la
-   * única llave que las dos comparten de verdad, y el resultado se publica como **otro universo**,
-   * no como la misma fila.
+   *     libro de Tesorería (Excel)    último pago 2026-08-28 · última carga 2026-08-08 · 77 días
+   *     ERP (erp_supplier_payments)   último pago 2026-12-01 · recalculado HOY      ·  0 días
    *
-   * ⚠️ `mes_cargado` es la mitad del valor: un día de un mes que el Excel no tiene da `0` por
-   * ausencia, no porque no se haya pagado. Es el mismo defecto que `[PP.10]` encontró escondiendo
-   * $91,720,679 — pintarlos igual es dibujar un cero que nadie midió (ADR-056).
+   * Y no es sólo que se haya detenido: **cuando estaba vivo ya cubría un tercio**. Agosto, mes
+   * a mes: el libro registró **157 pagos / $17.9 M** contra **530 / $45.2 M** del ERP. En
+   * septiembre y octubre el libro tiene **cero**, el ERP tiene 346 y 179.
+   *
+   * ⇒ Un testigo que alguien carga a mano no es un testigo: es una tarea que se olvida, y
+   * mientras se olvida la pantalla publica «libro sin cargar» en todos los días. El ERP es el
+   * mismo hecho —qué dinero salió ese día— y llega solo.
+   *
+   * ── Lo que se conserva de `[TP.21.1]` ───────────────────────────────────────────────────
+   * ⛔ **Sigue sin casar renglones.** Se suma por fecha de pago, que es la llave que las dos
+   * líneas comparten de verdad, y se publica como **otro universo**: el calendario dice lo que
+   * se va a pagar, esto dice lo que el ERP registra que salió. Casarlos fila por fila es lo de
+   * `[PP.4]` ($273 M indefendibles).
+   *
+   * ⭐ **Y la lección de ADR-056 se conserva cambiando de eje.** Antes un día sin filas podía
+   * ser «el Excel no tiene ese mes»; ahora puede ser «el espejo del ERP no se ha recalculado».
+   * Por eso en vez de `mes_cargado` viaja `data_as_of`: con el espejo fresco, un cero significa
+   * **no se pagó** (un sábado, por ejemplo); con el espejo viejo, significa **no sabemos**. El
+   * cero sin su fecha al lado es el mismo cero dibujado de siempre.
    */
-  private async weekBook(from: string, to: string): Promise<Record<string, { monto: number; n: number; mes_cargado: boolean }>> {
+  private async weekBook(from: string, to: string): Promise<Record<string, { monto: number; n: number; data_as_of: string | null }>> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const porDia = await trx('finance.payment_program')
-        .select(trx.raw(`to_char(pay_date,'YYYY-MM-DD') AS dia`))
-        .sum({ monto: 'amount' }).count({ n: '*' })
+      const porDia = await trx('analytics.erp_supplier_payments')
+        .select(trx.raw(`to_char(pago_date,'YYYY-MM-DD') AS dia`))
+        .sum({ monto: 'monto' }).count({ n: '*' })
+        .max({ as_of: 'computed_at' })
         .where({ tenant_id: tenantId })
-        .whereBetween('pay_date', [from, to])
+        .whereBetween('pago_date', [from, to])
         .groupByRaw('1');
-      // Qué MESES tiene el libro. Se pregunta aparte porque la respuesta para un día sin filas
-      // depende de esto: sin mes no es "no se pagó", es "no sabemos".
-      const meses = await trx('finance.payment_program')
-        .distinct('source_month').where({ tenant_id: tenantId })
-        .whereNotNull('source_month');
-      const cargados = (meses as { source_month: string }[]).map((m) => m.source_month);
 
-      const out: Record<string, { monto: number; n: number; mes_cargado: boolean }> = {};
+      /*
+       * La frescura del ESPEJO, no la del día: un día sin pagos no tiene `computed_at` propio y
+       * aun así hace falta saber si el espejo está al día para leer ese cero. Se pregunta aparte,
+       * sobre la ventana reciente, que es lo que indica si el feed sigue llegando.
+       */
+      const [fresco] = await trx('analytics.erp_supplier_payments')
+        .max({ as_of: 'computed_at' })
+        .where({ tenant_id: tenantId });
+      const asOf = (fresco as { as_of: Date | string | null })?.as_of;
+      const asOfIso = asOf ? new Date(asOf).toISOString() : null;
+
+      const out: Record<string, { monto: number; n: number; data_as_of: string | null }> = {};
       for (const d of weekDates(from)) {
         const fila = (porDia as { dia: string; monto: string | null; n: string }[]).find((x) => x.dia === d);
-        out[d] = {
-          monto: Number(fila?.monto ?? 0),
-          n: Number(fila?.n ?? 0),
-          mes_cargado: cargados.indexOf(d.slice(0, 7)) >= 0,
-        };
+        out[d] = { monto: Number(fila?.monto ?? 0), n: Number(fila?.n ?? 0), data_as_of: asOfIso };
       }
       return out;
     });

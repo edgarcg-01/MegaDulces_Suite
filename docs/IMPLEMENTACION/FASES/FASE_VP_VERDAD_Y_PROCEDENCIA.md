@@ -246,3 +246,50 @@ De los ~11 importers que los escriben, **cero** tienen latido, **cero** setean `
 | VP.3 | Cambiar un precio por importer → fila en `master_data_history` con valor anterior y `source`. |
 | VP.4 | Cerrar jul-2026, alterar una fuente, correr el comparador → hallazgo que nombra el watermark. |
 | VP.5 | `node database/run-all-tests.js` verde local; CI rojo al romper una aserción de datos. |
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+> Lo de VP.0 ya está en pantalla (las 24 píldoras de frescura, la etiquetera): ahí cada observación
+> es un criterio a verificar, no un defecto medido. De VP.2.2 en adelante todavía no hay interfaz:
+> esto es diseño previo, y por eso es barato corregirlo aquí.
+
+**La pregunta que contesta (prueba de la frase, §4.0b):**
+
+- **La procedencia en cada cifra:** VP no tiene una pantalla: es lo que cada número lleva consigo.
+  Lo que contesta, en cada cifra, es *«¿Puedo usar este número tal como está?»* — una pregunta. El
+  riesgo del plan es contestar además *«¿de dónde sale?»* en el mismo lugar: es otra pregunta
+  (§4.0 A). Corte: la primera se contesta en la cifra, de un vistazo y sólo cuando la respuesta es
+  «no del todo»; la segunda vive a un gesto (VP.UI.2).
+- **Cierre de mes (VP.4):** *«¿Por qué cambió esta cifra desde que se cerró el mes?»* — una
+  pregunta, y se hace mirando la cifra, no la bandeja.
+- **Historial de datos maestros (VP.3):** *«¿Cuánto valía esto antes y quién lo cambió?»* — «quién»
+  es atributo del mismo cambio: una pregunta.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):** primario = el número del negocio · secundario = su
+excepción de procedencia, pegada al número (atrasado, parcial, sin medir, mes cerrado que hoy
+recalcula distinto) · terciario = la procedencia completa (fuentes, edad por carril, cobertura,
+definición), a un gesto.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| VP.UI.1 | 🔴 | **El contrato tiene compuerta en el servidor y ninguna en la pantalla.** VP.2.3 pone rojo un endpoint sin envelope; nada pone rojo una pantalla que recibe `status: 'unknown'` y pinta la cifra limpia — la mentira que VP nació a parar (21 de 24 píldoras medían el reloj del navegador). Es el defecto de `Q.1`, que mide que exista `MetricStrip`: presencia de un lado, nada del otro. | §1.3 · Cruce 6 (lo que viaja contra lo que se pinta) · ADR-056 regla 6 | Item C3 con compuerta de frontend, con trinquete como `check:pantalla`: todo tipo de respuesta que trae `freshness` o `coverage` tiene un consumidor que lo pinta con la pieza compartida. Prueba negativa: quitar el `app-freshness-pill` de un consumidor la pone en rojo. |
+| VP.UI.2 | 🔴 | **El plan no dice cómo se pinta la procedencia, y aplicada a 171 endpoints satura.** Una píldora por cifra en una pantalla de 28 montos son 28 píldoras; con todo marcado, la que dice «sin medir» se pierde entre las que dicen «al día» (§4.0 B: ruido) y la jerarquía se aplana (§3.7). Un aviso que nadie distingue es un aviso escondido. | §4.0 B · §3.7 · §2.1 | Regla escrita en el plan y en `DESIGN.md`: (1) una sola píldora por pantalla, en el encabezado, compuesta con `composeFreshness()` (gana la peor); (2) en la cifra sólo aparece la **excepción** que cambia su lectura —«atrasado 9 h», «parcial: faltan 2 de 8 sucursales», «sin medir»—, con texto; (3) la procedencia completa en `app-side-peek` «De dónde sale este número»; (4) fresco y completo = nada en la cifra. |
+| VP.UI.3 | 🔴 | **Un total parcial se lee como el de la red.** `coverage` trae `branches_missing`, pero el plan no dice qué le pasa a la cifra cuando falta una sucursal. Un sell-out —«el reporte más consultado del negocio»— que suma 6 de 8 sucursales se lee como completo; VP.0.6 ya corrigió el caso de los dos arreglos vacíos que afirmaban que no faltaba ninguna. | §1.6 · §1.3 · nombres, no códigos | Total con cobertura incompleta lleva junto a la cifra «Parcial: sin Zamora y Yurécuaro» (nombres con la pipe `\| sucursal`); con `measured: false`, «Sin saber si faltan sucursales». El PDF y el export llevan la misma leyenda (§1.5). |
+| VP.UI.4 | 🟠 | **La unidad no está en el contrato.** `provenance.contract.ts` trae `Freshness` y `Coverage`; la unidad «que viaja con el número» está en **9 de 264** servicios y VP.2.2 no la incluye. Es la familia de error más cara del proyecto: ADR-051 (3.3 pp de margen falso por mezclar pieza y caja) y CANON.0.1 (costos 32×). | §1.6 | `unit` (pieza · caja · paquete; con o sin IVA; costo o precio) entra al envelope y a la compuerta de VP.2.3. La pantalla imprime la unidad en el encabezado de la columna o junto a la cifra siempre que no sea un conteo. |
+| VP.UI.5 | 🟠 | **Las píldoras de «carga» se confunden con las de dato.** 21 de 24 son `fetch` y dicen «cargado hace N» con un aro hueco, en el mismo lugar y forma que una de dato: «cargado hace 2 min» se lee como «dato de hace 2 min». La diferencia aro/punto es justo la que desaparece en Alto Contraste. | §1.1 · §2.3 · §3.6 | La píldora `fetch` dice literal «Consultado a las 10:42 · edad del dato sin medir». Meta medible: de 21 a 0 conforme VP.2.2 trae `data_as_of`. Revisión en nivel A de las 24, con `forced-colors`. |
+| VP.UI.6 | 🟠 | **Un mes cerrado puede mostrar dos cifras en dos lugares (VP.4).** La pantalla sirve el congelado y el comparador abre un hallazgo en otra bandeja: quien recalcula, exporta o mira otra pantalla ve otro número para el mismo mes, y junto a la cifra nada lo dice. | §1.5 · §3.2 | La cifra de un mes cerrado lleva «Cerrado el 05-ago». Si el recálculo difiere, un chip secundario junto a la cifra: «Recalculado hoy: $X (Δ $Y) — cambió [la fuente · la definición]», con enlace al hallazgo. PDF y export usan el congelado, con la misma nota. |
+| VP.UI.7 | 🟠 | **El historial (VP.3) no tiene puerta, y `updated_by` miente hoy.** La pregunta de Edgar —«¿por qué cambió este número?»— se hace mirando el número (un punto de reorden que pasó de 40 a 12). Si una pantalla muestra hoy «Actualizado por», muestra un autor que no es. | §3.4 · §1.1 · §1.3 | En cada pantalla que muestra un dato maestro (precio, costo, punto de reorden, factor de caja), «Ver historial» abre `app-side-peek` con valor anterior, fecha y origen (`importer:<nombre>` o persona). Hasta VP.3.2, todo «Actualizado por» dice «Sin autor registrado». |
+| VP.UI.8 | 🟠 | **«Atrasado» no dice qué carril ni a quién avisar.** `db-health` lo consume **1 de 187** rutas, así que la píldora sabe que algo está viejo y no puede decir qué. | §3.4 · DESIGN §X.6 | La píldora en `stale`/`unknown` nombra el eslabón («Ventas de Wincaja sin correr desde las 03:10») y lleva al estado de carriles con el filtro puesto. Conserva la distinción de `db-health` entre «sin umbral» y «sin correr». |
+| VP.UI.9 | 🟡 | **Una bandeja, no la novena (VP.4.4), pero con motores que no se suman:** a `/finanzas/hallazgos` ya llegan diferencias de banco (`[CB.7]`), listas del SAT (`[CP.3]`) y detectores de Maat, y llegará el comparador de cierre. | §1.6 · §4.0 A | Cada hallazgo dice su motor, su regla y la fecha de su última medición. Los totales se parten por motor y clase; nunca un «N hallazgos · $X» que suma un retiro sin casar con un proveedor en lista. Lo que la fuente ya no detecta sale de pendientes con «Ya no se detecta (dd-mmm)». |
+| VP.UI.10 | 🟡 | **Cada pantalla dice «viejo» a su manera:** la etiquetera «viejo» / «no se pudo medir», Bancos «desactualizado», el contrato `fresh \| stale \| unknown`. | §3.8 · §5.4 | Tres rótulos únicos, desde la pieza compartida: «Al día» · «Atrasado (hace N)» · «Sin medir», definidos en el diccionario con `app-context-help`. Ningún componente escribe el suyo. |
+
+**Lo que esta revisión no cubre:** VP.5 (pruebas, sin interfaz), el cálculo de `composeFreshness()`
+y los umbrales de `CRON_JOBS`, y cómo se ven hoy las 24 píldoras en la pantalla viva (nivel A).

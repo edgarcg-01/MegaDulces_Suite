@@ -173,3 +173,46 @@ manda sobre el mes. Costo medido: un mes completo (106 cortes), **630–750 ms e
 3. Re-login de los usuarios para que el permiso llegue al token.
 4. **Validación visual pendiente**: no se levantó la app en local (regla del 2026-10-02); la
    consulta y el motor sí se ejecutaron contra prod en solo lectura.
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre. **La pantalla existe: cada
+> observación es un criterio a verificar en ella, no un defecto medido.** Para lo que sigue en ⬜
+> (CSU.3–CSU.5), es criterio de construcción.
+
+**La pregunta que contesta (prueba de la frase, §4.0b):** *«¿Qué cortes de este periodo no tienen
+su cobro aplicado en Kepler **y** cuáles no cuadran con su arqueo?»* — dos preguntas sobre el mismo
+renglón, con dueños distintos (cobranza y la sucursal). No piden dos pantallas: piden dos veredictos
+separados arriba y un filtro de un clic para cada uno. La tercera —«¿llegó el dinero?»— el módulo la
+promete y todavía no la contesta (`CSU.UI.1`).
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):** primario = **sin cobro en Kepler y faltante en arqueo
+del periodo, como dos cifras separadas** · secundario = la tabla por sucursal · terciario = el
+detalle por forma de pago, folios y devoluciones.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| CSU.UI.1 | 🔴 | **«Pendiente» se lee como dinero que no llegó, y es un cobro que no se capturó.** Del 1 al 5 de octubre: 105 cortes por $4,531,431.68, cobrado en Kepler $66,210.22 (1.5 %), pendiente **$4,465,221.46**. Eso mide el paso 2 (que alguien registró el cobro en Kepler), no el 3 (que el dinero llegó): el cruce con banco y Caja Fuerte (CSU.3, CSU.4) no existe. Y la pantalla vive en la sección «Ingresos», con un pedido de origen que dice «que el dinero llegue como ingreso a la empresa». | §1.1 · §1.4 | La columna y el KPI se llaman «Sin cobro en Kepler». Una línea fija bajo el título: «Todavía no se mide si el dinero llegó al banco o a Caja Fuerte (entrega 2)». Se retira cuando CSU.3 y CSU.4 estén en prod. |
+| CSU.UI.2 | 🔴 | **Si la consulta falla, la pantalla no puede decir «0 cortes».** En prod la versión vieja tardaba 82–95 s y la petición fallaba (el navegador la mostró en rojo); el personal reporta que «no sirve». La nueva mide 192 ms en banco local y está **NO MEDIDA en prod** (CSU.10). El estándar trae este caso literal: «0 corte(s)» con el endpoint devolviendo 1. | §1.3 · §3.5 | `app-load-state` con los tres estados: un error dice «No se pudieron leer los cortes (la consulta tardó más de N s): reintenta». Nunca KPIs en $0.00 ni tabla vacía después de una falla. Medición en prod con `csu-cortes-paridad-prod.js` antes de cerrar. |
+| CSU.UI.3 | 🔴 | **El «corte» es lo que se contó, no lo que se vendió, y el faltante del arqueo no entra en «pendiente».** Caja 5-151 de Zamora Centro (2-oct): corte $1,203.36 contra $10,203.36 vendidos; faltan $9,000.00 y el corte los arrastra (hallazgo 1). Como pendiente = corte − cobros, ese faltante no aparece en la cifra grande: 25 cortes con diferencia en cinco días quedan fuera del total. | §1.1 · §4.0c | Rótulos «Contado (corte)» y «Esperado (venta del turno)». El encabezado publica aparte «Faltante en arqueos: $X en N turnos», con filtro de un clic a esos renglones. |
+| CSU.UI.4 | 🔴 | **«Cuadra» puede ser un verde sin comprobar.** Cuando hay devolución y Kepler no la descontó (Madero 2-23), el motor acepta el corte contra el bruto, y ese respaldo va **antes** del chequeo contra lo contado: un faltante en ese turno no se ve (CSU.7). | §1.3 · §2.3 | Estado propio, con texto y no sólo color: «Cuadra contra el bruto · contado sin verificar». Prueba negativa: ese caso con un faltante sembrado no sale como «Cuadra». |
+| CSU.UI.5 | 🟠 | **«Corte distinto» suena a culpa y no tiene causa.** Quedan 9, casi todos con el corte **arriba** de lo esperado (Abastos, hasta +$18,141.81): «otra causa, sin investigar» (CSU.7). | §1.1 · §3.2 | El estado dice «Corte arriba de lo esperado · causa sin investigar» y no suma a faltantes. Cuando la causa se conozca, la causa reemplaza al texto. |
+| CSU.UI.6 | 🟠 | **La Piedad parece no cobrar lo que sí cobró.** Cobró $38,363.81 de contado y sólo $113.45 quedó en cortes (CSU.5, «pendiente decidir si se muestra»). La pantalla la dibuja casi sin cobro. | §1.3 · §1.5 | Por sucursal, una línea: «Cobros de contado aplicados a otros documentos: $X (no entran a los cortes)». CSU.5 se decide antes de dar la fase por cerrada. |
+| CSU.UI.7 | 🟠 | **Un cobro aplicado al corte equivocado deja dos renglones mal y no señala ninguno.** En Zamora, $1,907.62 y $421.63 de tarjeta y transferencia del turno 5-149 se aplicaron al corte de la caja 4-199 (hallazgo 5): uno sale sobrecobrado, el otro pendiente, y nada los une. | §3.3 · §3.4 | En el detalle, el cobro cuya forma de pago no aparece en el arqueo de su turno lleva «posiblemente de otro turno: [caja-turno]» con enlace a ese corte. Si el motor no puede detectarlo, se declara como límite conocido en `app-context-help`. |
+| CSU.UI.8 | 🟠 | **Con una sucursal elegida, el encabezado puede seguir hablando de las ocho.** CSU.14 reduce la tabla a la elegida («N ocultas · ver todas»); el plan no dice qué pasa con los KPI de arriba. | §1.5 · §1.4 | El resumen dice de qué universo es («Resumen: Zamora Centro» / «Resumen: 8 sucursales») y cambia con la selección, o no cambia y lo dice. |
+| CSU.UI.9 | 🟠 | **La sucursal aparece con su código.** El texto de alcance que fija CSU.6 es «Viendo sólo tu sucursal: 05 Zamora Centro». | regla PM 2026-10-22 · DESIGN skill §4 | «Viendo sólo tu sucursal: Zamora Centro», con la pipe `\| sucursal`; igual en la tabla, el buscador y los `aria-label`. |
+| CSU.UI.10 | 🟠 | **Las devoluciones que no casan con ningún corte desaparecen.** 38 devoluciones POS sin caja o sin turno desde el 24-sep (una de Yurécuaro por $937.06), y las devoluciones sólo se pintan cuando el corte tiene arqueo (CSU.7). | §1.3 · §1.2 | Un contador por periodo: «N devoluciones · $X sin corte al que aplicarse», que abre su lista. |
+| CSU.UI.11 | 🟡 | **El cobro cancelado se distingue con un tachado.** «Cancelado en Kepler — no suma», con el monto tachado (CSU.13). En Alto Contraste el tachado puede perderse. | §2.3 | Verificar en `forced-colors` que la etiqueta «Cancelado» queda visible y que el monto no se lee como sumado. |
+| CSU.UI.12 | 🟡 | **CSU.11 y CSU.12 cambiaron cifras que publican otras pantallas, y ellas no lo dicen.** Cartera +$165,615.07 y 13 facturas «pagadas» que no lo estaban; Pronto pago sin 101 pagos cancelados ($1,450,384.26 de descuento que no existió). Quien compare antes y después del 21-oct ve dos números sin explicación. | §1.6 | Las pantallas afectadas (cartera, Pronto pago, Calendario de pagos) declaran junto a la cifra la fecha del cambio de regla. Ver `TP.UI.3` y `CDRP.UI.5`. |
+| CSU.UI.13 | 🟡 | **El roadmap dice 🟢 y el plan no lo sostiene.** Todos los items están en 🧪, §6 dice «validación visual pendiente» y CSU.10 dice «no se cierra ✅ hasta correr el de prod». | método §4 | Revisión en nivel A con `auditoria-diseno` (claro, oscuro y `forced-colors`) y la medición de prod de CSU.10 antes de declarar la fase cerrada. |
+
+**Lo que esta revisión no cubre:** la entrega 2 (CSU.3–CSU.4), que no tiene diseño en el plan;
+contraste, alto de fila, foco y teclado reales (exigen nivel A), y el texto exacto de los avisos, que
+se valida con Francisco.

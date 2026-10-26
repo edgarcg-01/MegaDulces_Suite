@@ -6,6 +6,7 @@ import { environment } from '../../../environments/environment';
 import type {
   KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody, RevisionGps, CompletarGuiaBody, GuiaCompletada,
   CierreDeEmbarque, CerrarParadaBody, ParadaCierre, AltaRapidaBody, AltaRapidaResultado,
+  ReporteDePagos, DesgloseDeOperacion,
 } from '@megadulces/contracts';
 
 // ── Tipos ────────────────────────────────────────────────────────────────
@@ -79,6 +80,22 @@ export interface ConfigItem {
   value: number;
   unit?: string | null;
   active: boolean;
+}
+
+/** `[EMB.28.1]` Un cambio de tarifa en la bitácora (`logistics.tariff_changes`). */
+export interface TariffChange {
+  id: string;
+  entity: 'route' | 'config';
+  entity_id: string;
+  entity_label: string;
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  autorizado: boolean;
+  changed_by_username: string | null;
+  changed_at: string;
+  /** `[EMB.49]` Desde qué día rige, si no es el del registro (YYYY-MM-DD). */
+  effective_from?: string | null;
 }
 
 export interface Shipment {
@@ -1265,6 +1282,25 @@ export class LogisticaService {
   }
   setCargadores(shipmentId: string, driverIds: string[]) {
     return this.http.put<CierreDeEmbarque>(`${this.base}/trip-closure/shipments/${shipmentId}/cargadores`, { driver_ids: driverIds });
+  }
+
+  // ── `[EMB.47]` Logística › Pagos de viaje ───────────────────────────────
+  /** La catorcena operación por operación: cajas, quién fue y cuánto le toca a cada quien. */
+  getReportePagos(corte?: { desde: string; hasta: string }, sucursal?: string | null): Observable<ReporteDePagos> {
+    let p = new HttpParams();
+    if (corte) p = p.set('desde', corte.desde).set('hasta', corte.hasta);
+    if (sucursal) p = p.set('sucursal', sucursal);
+    return this.http.get<ReporteDePagos>(`${this.base}/trip-closure/reporte`, { params: p });
+  }
+  /** `[EMB.50]` Una operación documento por documento: cajas, quién surtió/checó/embarcó, recepción. */
+  getDesgloseOperacion(sucursal: string, guia: string): Observable<DesgloseDeOperacion> {
+    return this.http.get<DesgloseDeOperacion>(
+      `${this.base}/trip-closure/operaciones/${encodeURIComponent(sucursal)}/${encodeURIComponent(guia)}/desglose`);
+  }
+  /** `[EMB.28.1]` Quién cambió una tarifa, cuándo, y qué tenía antes. */
+  historialTarifa(entity: 'config' | 'route', id: string): Observable<TariffChange[]> {
+    const ruta = entity === 'route' ? `config/routes/${id}/historial` : `config/${id}/historial`;
+    return this.http.get<TariffChange[]>(`${this.base}/${ruta}`);
   }
 
   // ── Expenses ─────────────────────────────────────────────────────────────

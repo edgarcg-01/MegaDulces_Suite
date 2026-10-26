@@ -1101,3 +1101,57 @@ re-login.** Declarado y no construido: ordenar `Ctrl+K` por uso, y el reporte de
 ## 12. Etapa 3 y siguientes (fuera de esta fase)
 
 Indicadores con ficha (P-06) y "Esto ve Dirección General de mi gestión"; renombre `/projects` → `/mi-trabajo`; Operación por zonas (la zona ya es eje de alcance); decisión P-14 (dónde vive `trade`) y P-03 (Auditoría como espacio propio); alinear árbol ↔ guards para ir vaciando `DEUDA`; unificar los `*NavGroups` del layout con el árbol.
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+>
+> La fase está 🧪 y la landing ya es el destino por defecto de todos en producción (SN.40 midió
+> 3,677 aperturas de 84 personas): **la pantalla existe: cada observación es un criterio a verificar
+> en ella, no un defecto medido.** Un error de navegación cobra en las 267 pantallas, por eso esta
+> revisión mira también el layout (sidebar, migaja) y el buscador, no sólo `/projects`.
+
+**La pregunta que contesta cada pantalla (prueba de la frase, §4.0b):**
+
+- `/projects` («Mi trabajo»): *«¿Qué me toca hacer **y** a dónde voy?»* — **dos preguntas**,
+  partidas a propósito en dos columnas (Tu trabajo · Tus espacios; SN.11, con Fiori de referencia).
+  El corte es válido sólo si el nombre de la pantalla cubre las dos; hoy no (SN.UI.5).
+- Layout (sidebar + migaja): *«¿Dónde estoy dentro de la suite?»* — una pregunta; hoy puede
+  contestarla mal (SN.UI.1).
+- Buscador `Ctrl/⌘ K`: *«¿Dónde está la pantalla que busco?»* — una pregunta; hoy contesta «en qué
+  proyecto», no «en qué pantalla» (SN.UI.4).
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):**
+
+- `/projects`: primario = **lo tuyo que se puede terminar** (el titular de 40 px: asignado +
+  borradores, SN.29) · secundario = las colas de las que respondes, con su veredicto · terciario =
+  puertas, accesos y contexto. ⚠️ Para 84 de 122 personas (14-sep) el primario es un 0 declarado: la
+  jerarquía tiene que seguir siendo legible con el primario vacío.
+- Layout: primario = el título de la página · secundario = la migaja Espacio › Proyecto › Página ·
+  terciario = el sidebar del proyecto.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| SN.UI.1 | 🔴 | **Una página que no está en el mapa se viste de Trade Marketing.** `currentProject` cae por defecto a `trademk` (§4.4, «default preservado») y los `*NavGroups` del sidebar siguen a mano, una tercera lista fuera del árbol (§9). El plan de la Mesa lo confirma desde el otro lado: «sin `PROJECT_KEY`… el sidebar cae al de Trade Marketing». Cada módulo nuevo nace afirmando, con migaja y menú, que vive en otro proyecto hasta que alguien edita la lista a mano. Las listas a mano ya cobraron `[AUTHZ.6]` e `[IDG.9.6]` (§2.1). | §1.1 · §1.4 · §2.4 | Sin proyecto resuelto, el layout pinta un sidebar neutro y la migaja dice sólo la página, nunca otro proyecto. Un spec recorre `app.routes.ts`: toda ruta con guard resuelve a un proyecto de `suite-map` y tiene su grupo de navegación; si no, rojo. Prueba negativa: una ruta nueva sin `PROJECT_KEY` lo pone rojo. |
+| SN.UI.2 | 🔴 | **Una cola viva sin dueño desaparece de la portada de todos, y sólo un script lo sabe.** Con la regla de SN.30, `logistica.flota` (7,204 alertas entradas en 30 días al 14-sep, la cola más sana de la empresa) y el libro de compras dejan de pedir atención en cualquier pantalla; lo mismo la bandeja «Sin asignar» de la Mesa (`servicio.atender` sin repartir) y las de RH, que no declaran responsabilidad. El hueco lo ve `sn-responsabilidad-huecos.js`, no una persona. | §1.3 · §2.4 · §3.4 | Un bloque «Colas sin responsable» en Configuración de la suite (y en «Mi trabajo» de quien administra responsabilidades), con cada cola, sus pendientes y el enlace a `/admin/personas` con la responsabilidad puesta. Con 0 colas no se pinta; si no se pudo medir, lo dice. |
+| SN.UI.3 | 🟠 | **«Estás al día» puede convivir con una cola que no se pudo contar.** De los cuatro estados del bloque vacío (SN.30), «Estás al día» es el resto: respondes de algo y nada tiene pendientes. Si una de esas colas cae en `no_medido`, el titular afirma «al día» sobre un dato que no existe. | §1.3 · ADR-056 | «Estás al día» sólo cuando **todas** las colas de las que respondes se midieron; con alguna en `no_medido`: «No se pudo contar {cola}; lo demás está al día». Prueba de componente con un `no_medido` (negativa). |
+| SN.UI.4 | 🟠 | **El buscador vive sólo en la landing y encuentra proyectos, no pantallas.** `Ctrl/⌘ K` y `/` enfocan el campo de `/projects`; el texto de cada tarjeta incluye sus módulos, así que «bancos» encuentra **Finanzas** y `Enter` abre el inicio de Finanzas, no Bancos. Para ir de una pantalla de Compras a una de Finanzas hay que volver a la portada. Con 22 destinos para el superadmin y 267 pantallas, el atajo que la gente conoce de Linear o Slack funciona desde cualquier lado. | §4.2 Hick · §4.3 Jakob · §1.1 | `Ctrl/⌘ K` en el layout, desde cualquier pantalla. Cada resultado es una pantalla, rotulado «Finanzas › Bancos», y `Enter` abre esa ruta. El atajo se anuncia en el header con la tecla de la plataforma (SN.14). La visibilidad la sigue decidiendo `visibleSuiteMap`. |
+| SN.UI.5 | 🟠 | **«Mi trabajo» nombra una de sus dos columnas.** La página se titula «Mi trabajo» y contiene «Tu trabajo» **y** «Tus espacios» con 22 puertas: es el caso «Tu jornada» del estándar. Para 84 de 122 personas (14-sep) la columna que da nombre a la página está en blanco, así que lo primero que leen es «Mi trabajo: nada». **Conflicto para Edgar:** el nombre viene de la especificación de Dirección (§6). | §1.4 · §3.9 | La página se nombra por lo que cubre (p. ej. «Inicio») y sus secciones conservan «Tu trabajo» y «Tus espacios». O, si Dirección mantiene «Mi trabajo», las puertas salen de la página y viven en el sidebar y en `Ctrl/⌘ K` (SN.UI.4). |
+| SN.UI.6 | 🟠 | **«Tus accesos» muestra lo que abren otros.** Desde SN.40 la fila se completa con lo que usa el puesto y luego el departamento, porque 64 de 148 personas no tienen un solo clic (5-oct). El servidor manda el `origen` de cada atajo, pero el plan no dice que se pinte: la fila titulada «Tus» afirmaría que son tuyos. Y en un puesto de dos personas, el relleno dice qué abre la otra. | §1.1 · Capa 5 respeto | Cada atajo de relleno se distingue en pantalla («Lo usan en tu puesto»). El relleno por puesto, sólo con al menos 3 personas que aporten —el mismo mínimo de casos que la Mesa aplica a RH—; si no, departamento; si no, menos atajos. |
+| SN.UI.7 | 🟠 | **La edad del conteo no cambia de aspecto.** Las bandejas dicen «contado a las 12:04» como hora absoluta (SN.11, para no restar el reloj del navegador), y `/projects` es la pestaña que se queda abierta: a las 17:00, «contado a las 08:02» se ve igual que un conteo fresco y la persona actúa sobre un número de nueve horas. | §3.6 · DESIGN §9 | `app-freshness-pill` con la hora del servidor: cambia de tono pasado un umbral declarado (p. ej. 30 min) y ofrece «Actualizar» ahí mismo. La hora absoluta se queda; lo que cambia es que lo viejo se vea viejo. |
+| SN.UI.8 | 🟠 | **Hay permisos que se otorgan en `/admin/roles` y no abren ninguna pantalla.** §9 los enumera: `USUARIOS_VER` y `USUARIOS_PASSWORDS` no abren ruta; `REPARTO_ENTREGAR` apunta a `/reparto`, que exige `DESPACHAR`; `televenta` sólo con `VER` rebota; `cartaporte` y `receiving-auditor` apuntan a rutas que piden otra clave. Quien administra roles los marca creyendo que entrega una puerta, y la persona no ve nada o ve un 403. | §2.4 · §1.1 | En `/admin/roles`, junto a cada clave, `app-permission-preview` dice qué pantalla abre; las de la deuda llevan «Todavía no abre ninguna pantalla» con su motivo, leído del mismo `gate`/`DEUDA` que usan los specs. Arreglar una la saca de la lista (como ya hace `landing-guards.spec`). |
+| SN.UI.9 | 🟠 | **La migaja funde etiquetas iguales y obliga a renombrar proyectos.** Recursos Humanos llamó a su proyecto «Personal» para que la migaja no perdiera el enlace al inicio del proyecto (RH §5.3). Es el código dictando el nombre del dominio, y va a repetirse en cada espacio con un solo proyecto. | §3.9 · §4.3 Jakob | Cuando espacio y proyecto se llaman igual, la migaja muestra una sola miga que **enlaza** al inicio del proyecto. Prueba con un espacio y un proyecto homónimos. |
+| SN.UI.10 | 🟡 | **Las insignias hablan en códigos de la especificación.** «Propuesta · P-06» y P-14 aparecen en tarjetas que ve cualquiera con el permiso; P-xx es el código de una decisión pendiente de Dirección, no un dato para quien trabaja. | §3.8 · §3.9 | «Ubicación por confirmar», con `app-context-help` que explica qué falta decidir y quién lo decide. |
+| SN.UI.11 | 🟡 | **El alcance de una bandeja tiene que nombrar la sucursal.** `ambito: 'sucursal'` acota por la ficha de la persona, y Morelia guarda `MD-30`/`MD-32` (SN.15). Si la fila dice «sucursal 30» o sólo «red», nadie sabe de qué tienda es el número. | regla PM 2026-10-22 · DESIGN skill §4 | La fila dice «En {sucursal por nombre}» con `\| sucursal`, o «En toda la red: tu ficha no tiene sucursal» para `red_sin_ficha`. |
+| SN.UI.12 | 🟡 | **La landing es el destino de todos y su validación visual sigue pendiente desde el 10-sep.** El encabezado del plan lo dice desde SN.0; SN.29, SN.30 y SN.40 cierran con «validación visual» pendiente. Los cuatro estados del bloque vacío, el `--tono` al señalar y las insignias de veredicto nunca se vieron en `forced-colors`. | método §4 · §2.3 | Nivel A con `auditoria-diseno` en claro, oscuro y `forced-colors`, con tres personas reales (una cajera que auto-entra, una auxiliar con reparto, un superadmin), antes de cerrar la fase; el encabezado del plan se actualiza con la fecha. |
+
+**Lo que esta revisión no cubre:** el rendimiento real (INP, la espera de `me/work` antes de la
+auto-entrada); lo que hay dentro de cada espacio, que revisa su propia fase; las decisiones P-03 y
+P-14, que son de Dirección; contraste, foco y teclado reales, que exigen nivel A.

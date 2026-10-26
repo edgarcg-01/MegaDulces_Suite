@@ -1042,3 +1042,69 @@ Talento todavía; están probados sólo con unitarias (`horas-extra.spec.ts`, co
 2. ¿El número de WhatsApp de RH es distinto del comercial? (Se asume que sí.)
 3. ¿Qué pantallas de Mega Talento se usan de verdad? (`[RH.0.5]`)
 4. ¿Se conserva el historial completo de mensajes del bot (99k) o sólo el de candidatos vivos?
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+>
+> La fase está 🔨, pero sus pantallas ya están construidas (`/rh/asistencia` con sus pestañas,
+> `/rh/incidencias`, `/rh/relojes`, `/rh/reclutamiento`, `/empleo` y las ligas personales): **la
+> pantalla existe: cada observación es un criterio a verificar en ella, no un defecto medido.** No
+> se repite la [auditoría del corte del 15-oct](AUDITORIA_RH_CORTE_ASISTENCIA_2026-10-15.md), que
+> mira el procedimiento del corte y no la interfaz; donde una observación se apoya en ella, la cita.
+
+**La pregunta que contesta cada pantalla (prueba de la frase, §4.0b):**
+
+- `/rh/asistencia`: *«¿Quién de esta plaza faltó, llegó tarde o se pasó de su comida en esta semana
+  de nómina?»* — una pregunta; Tolerancia, Faltas y Horas extra son cortes de ella. Incidencias y
+  Relojes viven en el mismo marco y contestan otras dos: es conflación resuelta con selector
+  (pestañas con ruta propia), aceptable porque así la conoce RH en Mega Talento (Jakob).
+- `/rh/incidencias`: *«¿Qué falta calificar antes de cerrar la semana del jueves?»* — una pregunta;
+  el cierre es su consecuencia. Bien partido.
+- `/rh/relojes`: *«¿Qué relojes no están reportando **y** qué códigos checan sin persona?»* — **dos
+  preguntas**: la salud del reloj y el padrón de personas. La segunda quedó dentro de un contenedor
+  que no la nombra (RH.UI.9).
+- `/rh/reclutamiento`: *«¿Qué candidatos esperan una acción de RH, por etapa?»* — una pregunta en
+  Candidatos; Vacantes y Revisiones son pestañas con la suya. Bien partido.
+- `/empleo`: *«¿Hay una vacante para mí en mi ciudad?»* — una pregunta; postularse es la acción.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):**
+
+- Asistencia: primario = **lo que impide pagar bien la semana** (faltas, retardos, códigos sin
+  persona y días sin dato del reloj, con su conteo) · secundario = la rejilla semanal por
+  departamento · terciario = pausas, D/C y horas por día.
+- Incidencias: primario = **lo que falta calificar y si la semana se puede cerrar** · secundario = la
+  lista por estado · terciario = la bitácora.
+- Relojes: primario = **relojes sin señal** · secundario = la franja por reloj · terciario = lotes y
+  hora corrida.
+- Reclutamiento: primario = **candidatos atrasados contra la meta de su etapa** · secundario = la
+  tabla por etapa · terciario = historia y expediente.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| RH.UI.1 | 🔴 | **Un reloj sin señal pinta faltas.** La rejilla dibuja la falta como `0 - 0` en rojo y la cuenta en Faltas; la franja de Relojes muestra casos como «sin señal desde el 17 jul». Un día sin dato del reloj produce un `0 - 0` **idéntico** al de alguien que no fue: en una plaza del tamaño real (70 personas, §5.1) son hasta 70 faltas por día en el papel que se firma para nómina. El plan resolvió esto para el día en curso («·», no cuenta), no para los días en que el reloj de la plaza no reportó. | §1.3 · §1.6 | Los días posteriores a la última señal de los relojes donde la persona está enrolada se pintan «sin dato del reloj», no cuentan en Faltas ni en irregulares, y el PDF y el Excel lo dicen: «Reloj {nombre} sin señal desde {fecha}: estos días no se pueden calificar». Prueba con un reloj apagado a propósito y su control (con señal, la falta sí cuenta). |
+| RH.UI.2 | 🔴 | **El PDF «para firmar» no distingue una semana abierta de una cerrada ni dice todos sus filtros.** Es el papel que RH firma y manda a prenómina, pero se exporta en cualquier momento: impreso el martes, la semana sigue cambiando con cada incidencia calificada, y el número firmado deja de ser el de la foto del cierre (que se toma dentro de la transacción, §5.1). El plan cubre «· solo SISTEMAS» (regla 8), no «Solo irregulares», planta/promotoras ni «Ver solo a esta persona». | §1.5 · §1.6 | El encabezado del PDF y del Excel lleva plaza por nombre, semana, **todos** los filtros activos y la hora de generación. Semana sin cerrar: «Borrador — la semana no está cerrada y puede cambiar» en cada hoja. Semana cerrada: se imprime **de la foto del cierre**, no de un recálculo, y lo dice. |
+| RH.UI.3 | 🔴 | **Quien checa sin persona no aparece en Faltas ni en el PDF, y nada lo dice.** El motor descarta el código sin ligar (auditoría del 15-oct §4–§5): sus ausencias y retardos no se cuentan. En Mega Talento entran **3 a 11 personas por semana** (medido 17-ago → 12-oct). El cierre se frena con ellas (`[RH.1.6b]`), pero durante la semana la rejilla y su contador se leen completos. Y el nombre que les pone la ingesta, «Empleado 214», se lee como el de una persona registrada. | §1.3 · §1.1 · §1.2 | En todas las pestañas de Asistencia y en el PDF, sobre la rejilla: «{N} códigos de {plaza} checan sin persona: sus faltas y retardos no se cuentan», con enlace a la bandeja con la plaza puesta. Ninguna pantalla pinta «Empleado N»: dice «Código 214 · {reloj por nombre} · sin persona». Con N = 0 la línea no aparece; si no se pudo contar, lo dice. |
+| RH.UI.4 | 🔴 | **`/empleo` pide aceptar un aviso de privacidad que no existe.** El plan lo declara borrador («no publicar `/empleo` en prod sin el texto oficial»), pero la página es una ruta pública de `apps/view` que viaja con cualquier despliegue de `main`. Quien se postula marcaría que acepta un texto que no es el oficial, y entrega CV, teléfono, ciudad y licencia. Para lo sensible de la solicitud del bot el plan ya hizo lo correcto (borrador apagado por bandera); `/empleo` no tiene ese candado. | §1.1 · §1.3 | Mismo patrón que PRV.2 de la Mesa: sin aviso **vigente**, el servidor rechaza la postulación (409) y la página no muestra formulario: «La bolsa de trabajo abre pronto. Mientras, escríbenos por WhatsApp al {número}». Prueba negativa: sin aviso vigente, ningún envío crea candidato. |
+| RH.UI.5 | 🟠 | **La ficha del candidato concentra datos sensibles y la tabla busca por teléfono.** Teléfono, RFC, NSS, INE, el puntaje del cuestionario, la evaluación del jefe, el motivo de la lista negra y —con consentimiento— salud, familia y economía. La tabla de 1,656 candidatos (12-oct) busca por teléfono, así que lo más probable es que lo muestre; y «quien sólo recluta también entra a Personal». Una lista con teléfonos completos o con el motivo de «no recontratable» a la vista es una fuga por pantalla aunque el servidor proteja la ficha. | Capa 5 respeto · §5.5 · LFPDPPP arts. 3 y 9 (los cita el plan) | La lista no baja ni pinta RFC ni NSS y enmascara el teléfono salvo los últimos 4 (la búsqueda sigue en el servidor). «No recontratable» sin motivo en la lista; el motivo, sólo en la ficha. Lo sensible, en un bloque propio de la ficha rotulado «Datos sensibles · consentimiento del {fecha}, versión {v}», sólo con `HR_RECRUITMENT_GESTIONAR`, y nunca en exportes. |
+| RH.UI.6 | 🟠 | **«Buscar en todas las plazas» y el selector de plaza no declaran alcance.** El plan acota la captura («primero el alcance por sitio») y deja el rol Promotoría a ADR-050, pero no dice qué plazas ve quien tiene `HR_ATTENDANCE_VER`: hoy, horarios, faltas y horas extra de los 484 activos en 12 plazas. El día que se reparta a un encargado, el selector le ofrecería todo. | Capa 2 alcance · §4.6 · ADR-050 | El selector y el directorio ofrecen sólo las plazas del alcance de la persona, por nombre (`\| sucursal` o `app-sucursal-picker`); con una sola plaza no hay selector. Encabezado: «Ves: {plaza}». Prueba negativa: alguien de una plaza no encuentra a nadie de otra en la búsqueda. |
+| RH.UI.7 | 🟠 | **La entrada tarde y el D/C excedido se distinguen sólo por el color.** La falta se lee por su `0 - 0`, pero «08:12» en rojo y un D/C en ámbar son texto normal sin el color, y la fila irregular sólo es roja. El papel que se firma suele salir de una láser en blanco y negro, y la flota es Windows con Alto Contraste: en los dos casos desaparece justo lo que descuenta nómina. | §2.3 · DESIGN skill §4 (`forced-colors`) | Cada celda irregular lleva además una marca de texto («R +12», «D/C +8») o un icono; la fila irregular, un icono en la primera columna. Verificado impreso en B/N y en `forced-colors`. |
+| RH.UI.8 | 🟠 | **La insignia de la pestaña calla igual el cero que el «no se pudo medir».** `[RH.1.7c]` lo dice textual: en `app-page-tabs`, «cero o "no se pudo medir" no se dibujan». Una pestaña Faltas sin insignia se lee «sin faltas» aunque la medición haya fallado. | §1.3 · ADR-056 | Con 0 no hay insignia; con medición fallida la insignia dice «—» y su `aria-label` «No se pudo contar». Prueba de componente con la lectura fallida (negativa). |
+| RH.UI.9 | 🟠 | **Las dos bandejas de RH no tienen puerta.** «Códigos sin persona» vive en Relojes, un nombre que no la cubre: RH busca a una persona que «no sale», no la salud de un reloj. «Por calificar» frena el cierre del jueves sin excepción (§5.5). Ninguna está declarada en «Mi trabajo», y con la regla de SN.30 (una cola se muestra sólo a quien responde de ella) no le aparecen a nadie. Sin puerta, los 3 a 11 códigos por semana se acumulan hasta el cierre. | §2.4 · §1.4 · §3.4 | Las dos, en `me-work.ts` con su responsabilidad (p. ej. `rh.padron`, `rh.incidencias`) y su `umbral_dias` (el jueves de cierre); conteo en la pestaña (`app-page-tabs` ya trae `badge`). «Códigos sin persona» pasa a una sección **Padrón** (donde también entra el alta de `[RH.1.13]`), con enlace desde Relojes. |
+| RH.UI.10 | 🟠 | **Lo que decide el motor se ve como decisión de RH.** La visión acomoda documentos en su casillero y de ahí sale `documentos_faltantes`; un CV que no se pudo revisar «se acepta y se marca»; el cuestionario y la evaluación de aptitudes **mueven de etapa solos**. Si la ficha pinta igual lo que acomodó el motor y lo que confirmó una persona, una INE archivada como comprobante deja un expediente «completo» que no lo está. | DESIGN §X · §1.1 | Todo documento acomodado por el motor lleva la marca de motor (ember, texto «Lo acomodó el motor» + motivo) y la acción «Mover a otro casillero». «No se pudo revisar» es un filtro de la tabla. En la historia, el avance automático se lee como tal: «Avanzó solo: calificó 72 % (mínimo 66 %)». |
+| RH.UI.11 | 🟠 | **Los conteos por etapa y la tabla pueden contar universos distintos.** La tabla tiene cinco apartados (postulados, en proceso, no recontratables, spam, papelera) y «la etapa con su conteo arriba». Si el conteo es del total y la lista del apartado, la cifra de arriba no cuadra con las filas. Y el plan no declara tope para 1,656 candidatos que crecen 300–700 al mes. | §1.2 · §1.6 | El conteo de cada etapa es del apartado elegido y lo dice («En postulados: Aptitudes 48»). La lista llega a N o declara el tope; `npm run check:cifra` en verde. `p-table` + `surf-table` con orden en el encabezado y búsqueda con `coincideBusqueda`. |
+| RH.UI.12 | 🟠 | **«Renombrar en el reloj», «Cerrar semana» y «Reabrir» conviven con las acciones del día.** Renombrar escribe en el reloj físico de toda la plaza (§4.1 lo llama irreversible; el reloj de comida de corporativo numera distinto); cerrar fija la foto que va a prenómina; reabrir cambia una semana que puede estar pagada. Un doble clic encola dos órdenes al reloj. | §4.4 Von Restorff · idempotencia visual | Las tres en `--bad-fg`, separadas de Calificar/Capturar, con diálogo que nombra lo afectado («Se cambiará el nombre de {persona} en 2 relojes de {plaza}»; «Cerrar la semana de {plaza}: {N} personas, {M} incidencias, {K} sin identificar»). El botón se deshabilita en el primer clic. |
+| RH.UI.13 | 🟡 | **El proyecto se llama «Personal» para esquivar un defecto de la migaja**, que funde etiquetas iguales (§5.3). «Personal» no cubre Reclutamiento ni la bolsa de trabajo (candidatos, no personal), y el propio bot de RH habla de «Capital Humano». | §3.9 · §1.4 | El nombre lo decide RH con sus palabras; la migaja se corrige en SN (SN.UI.9), no el nombre del proyecto. |
+| RH.UI.14 | 🟡 | **Ninguna pantalla de RH tiene nivel A con RH y datos reales.** `[RH.1.7]`: «validación visual pendiente»; `[RH.1.7c]`: navegador con datos simulados, «no probado con un usuario real de RH»; `[RH.2.3]`: pendiente. El plan de trabajo la agenda el 3-nov, cuatro días antes del corte. | método §4 · §2.3 | Ninguna pasa a 🚀 sin revisión nivel A con `auditoria-diseno` y una persona de RH, con datos reales: claro, oscuro, `forced-colors`, el PDF impreso, y `/empleo` a 390 px con objetivos de 44 px. |
+
+**Lo que esta revisión no cubre:** contraste, alto de fila, pliegue, foco y teclado reales (exigen
+nivel A); los textos del bot de WhatsApp (no son pantalla; los valida RH); la cola de alertas
+(10,429 sugeridas, 0 decididas), que no se construyó; el procedimiento del corte (auditoría del
+15-oct) y la nómina (RH.5).

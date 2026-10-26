@@ -1,8 +1,8 @@
 # FASE AB — Autoabasto y Nivelación de Inventarios
 
-> **Estado:** 🔨 DISEÑADO (planeación) · 2026-09-19 · **ADR-075 propuesto**
+> **Estado:** 🔨 ABIERTA 2026-10-23 (toma el cupo de MS) · diseñada 2026-09-19 · **ADR-075 propuesto** · **ADR-100** (Compras decide el traspaso) · ver §16
 > **Superficie:** `/almacen/autoabasto` y `/almacen/nivelacion` — dos submódulos nuevos del proyecto Almacén.
-> **Dueño operativo:** almacenista y encargado de sucursal. **El comprador NO opera este módulo**: recibe la solicitud.
+> **Dueño operativo:** almacenista y encargado de sucursal. ⛔ **Desde ADR-100 (2026-10-23) el pedido de traspaso lo decide Compras**: la sucursal ve su mesa y lo que le llega, y marca excepciones. Lo que abajo dice «el comprador NO opera este módulo: recibe la solicitud» quedó derogado (§16).
 
 ---
 
@@ -1282,3 +1282,860 @@ de ingesta, no en la API.
 
 **Abierto:** temporalidad por sucursal y sin piso de 0.5 (el ANTES del pico: pedir más cuando se acerca
 septiembre), con prueba contra el historial.
+
+---
+
+## 16. Anexo — Compras decide, la sucursal ve su mesa: la mesa y «Mi pedido» dicen lo mismo (2026-10-23)
+
+```text
+OBJETIVO:  que cada sucursal vea, en SU mesa y en «Mi pedido», la MISMA cuenta de lo que le falta y de
+           lo que ya le viene, salida de una sola función en el servidor; y que el pedido de traspaso
+           lo decida Compras, no cada tienda.
+MÉTRICA:   renglones que la mesa lista y en los que la mesa y «Mi pedido» no pueden coincidir —
+           HOY (AB.25, 2026-10-23): 393 que ya vienen y la mesa vuelve a pedir + 3,264 cuya «Acción»
+           contradice a quién se le pide, de 8,534 listados → META: 0 por construcción al cerrar AB.27.
+           (Universo de lo que ya viene: hasta 777 renglones en documentos por $1,533,966.)
+CAPA TOPE: C3
+ÁREA:      Comercial (Almacén)
+DUEÑO:     Edgar (2026-10-23) · cierre comprometido: sin fecha todavía
+ESTADO:    🔨 ABIERTA 2026-10-23 por decisión de Edgar. Toma el cupo de MS, que pasa a ⏸️.
+```
+
+Medido en `pg-prod` (`system_identifier` 7688376744939610156), transacción `READ ONLY`, 2026-10-23,
+con la misma ventana de 7 días que usa «Mi pedido».
+
+### 16.1 En una pantalla
+
+Las dos pestañas parten del mismo motor (`criticalStock`, base `'demanda'`) y después cada una sigue
+su camino. El controlador promete «dos audiencias, un solo número»; eso se cumple **sólo hasta el motor**.
+
+| | Mesa (hoy) | «Mi pedido» (hoy) |
+|---|---|---|
+| Cuánto falta | objetivo − existencia | eso − **ya pedido** (`U-D-40` abiertos ≤ 7 d) − **en camino** (`U-D-41` sin `U-A-50`, ≤ 7 d) |
+| A quién | **Acción** según el sobrante de TODA la red (traspaso / parcial / comprar) | el **canal** configurado (`replenishment_channel`): su matriz o el proveedor |
+| Qué entra | todo lo que está fuera de política | las posiciones elegidas (default agotado · bajo mínimo · bajo reorden), menos lo de unidad menor < $200 |
+| Cantidad | cajas con decimal | redondeada a como se captura en Kepler, o el ajuste guardado |
+| Almacenes | varios a la vez | uno |
+
+Consecuencia: para el mismo producto la mesa puede decir «Comprar 12 cajas» mientras «Mi pedido» dice
+«ya viene, no pidas».
+
+Y por encima de las dos pantallas, **el pedido de una sucursal se decide hoy en tres lugares**: Compras lo planea en `/compras/pedido`, «Mi pedido» lo sugiere (nadie de tienda lo usa,
+§16.3) y lo que se ejecuta es lo que se captura en Kepler (`U-D-40` en la base de la matriz que surte).
+⚠️ *Corregido el 2026-10-23 (§16.12): el pedido de la Suite SÍ se pasa a Kepler, a mano; lo que falta es
+que la Suite sepa qué se pasó.*
+
+### 16.2 El pedido y cómo cambió
+
+| # | Lo que se pidió | Efecto |
+|---|---|---|
+| 1 | «analiza /almacen/autoabasto y dime cuál es su función» | — |
+| 2 | «¿ya considera el producto que se le va a traspasar?» | La mesa no resta lo que ya viene; «Mi pedido» sí |
+| 3 | «si en Mi pedido ya se hace un pedido para cada sucursal, ¿por qué seguir haciendo un pedido de cada tienda?» | El pedido de una sucursal se decide en tres lugares → D1 |
+| 4 | «hay que reestructurar Autoabasto para que funcione en sincronía con Mi pedido» | Primera versión de este anexo (mesa de varios almacenes) |
+| 5 | «compras decide · no, cada sucursal ve sólo su mesa · d3 no entendí · ¿cuáles rutas? · hagámoslo cupo y documentemos el plan» | D1 = Compras, D2 = mesa por sucursal, D3 explicada otra vez, D4 con la lista de rutas, AB entra a 🔨 y MS pasa a ⏸️. **Deroga** la mesa de varios almacenes de la versión 4 |
+| 6 | «rd se surte ellos por ahora pero dejémoslo documentado. lo demás sí lo autorizo» | D3, D4 y D6 firmados; las camionetas RD quedan fuera y se surten solas por ahora (§16.6) |
+| 7 | «y en caso de que la sucursal necesite generar un pedido, en base al motor de Mi pedido vs lo que se le va a traspasar y existencia… por si es necesario poder generar una requisición, no está de más que vean una mini pantalla tipo Mi pedido» | D7: la «excepción» de AB.29 pasa a ser **«Generar requisición»**, una mini «Mi pedido» que Compras aprueba |
+
+### 16.3 Lo medido hoy
+
+**Lo que ya viene a cada sucursal y la mesa no resta** (documentos de Kepler, 7 días):
+
+| Sucursal | Pedidos abiertos | SKUs | Importe | Embarques sin recibir | SKUs | Importe |
+|---|---:|---:|---:|---:|---:|---:|
+| 00 | — | — | — | 6 | 12 | $31,072 |
+| 01 | 3 | 26 | $58,142 | 6 | 14 | $89,598 |
+| 02 | 11 | 193 | $151,174 | 4 | 5 | $3,244 |
+| 03 | 8 | 52 | $82,472 | 6 | 25 | $17,711 |
+| 04 | 5 | 109 | $53,291 | 3 | 9 | $3,852 |
+| 05 | 3 | 19 | $26,323 | 10 | 63 | $129,531 |
+| 06 | 7 | 67 | $156,999 | 16 | 79 | $474,430 |
+| 07 | 10 | 87 | $124,565 | 2 | 2 | $866 |
+| 08 | 5 | 2 | $81,364 | 8 | 12 | $48,778 |
+| **Total** | **52** (+1 sin sucursal, $554) | **555** | **$734,330** | **61** | **221** | **$799,082** |
+
+⚠️ El importe es `c16` del documento, **sin arbitrar si lleva IVA**. Los SKUs se cuentan por sucursal y
+tipo; un mismo SKU puede estar en un pedido y en un embarque, por eso 777 es un tope, no una suma exacta.
+
+**Uso de las pantallas:**
+- «Mi pedido»: **23 eventos de huella en total; 22 son de UNA persona con rol `direccion`** y 1 es de un
+  almacenista (una apertura, 14-oct). Último evento: 15-oct. **Ninguna tienda pide desde ahí.**
+- La mesa: uso **NO MEDIDO** (no deja huella).
+- En Kepler se capturan pedidos de traspaso casi a diario, **en la base de la matriz que surte** (no en
+  la tienda): en 30 días, 01←00 143 pedidos en 24 días, 07←08 169 en 28, 02←01 95 en 17 (§16.12).
+- Compras: **675 traspasos planeados** vivos en 30 días (aprobados, ordenados o por aprobar), **0 con
+  folio de Kepler registrado**. ⚠️ Eso NO quiere decir que no se pasaron: se pasan a mano y la Suite no
+  guarda el folio (§16.12). Buscándolos por destino y producto, aparece el **12.0 %** de los renglones
+  en 0–3 días, contra **7.8 %** de un placebo (AB.24 había medido 11.8 % contra 8.1 %).
+
+### 16.4 Universo y trabajo — y cuánto dinero hay de verdad
+
+- **Universo:** hasta 777 renglones sucursal × producto con documentos por **$1.53 M** que ya los cubren.
+- **Trabajo:** los de ésos que la mesa además lista con Falta > 0 — **NO MEDIDO** (hay que correr el
+  motor; es el item AB.25).
+- **Dinero en juego:** lo que se pierde HOY por la diferencia entre pantallas es **NO MEDIDO y
+  probablemente bajo**, porque las tiendas no piden desde ellas. Tarjeta: **Medio (estimado) × L →
+  prioridad 3, abierta por decisión de Edgar (2026-10-23)**. El dinero grande no está en la mesa: está
+  en que la Suite no sabe qué de su pedido ya se pasó a Kepler (§16.12, AB.30).
+
+### 16.5 Lo que creíamos y cayó
+
+| # | Lo que decía | Lo que midió prod / el código |
+|---|---|---|
+| 1 | «Dos audiencias, un solo número» (`autoabasto.controller.ts`) | Se cumple hasta el motor; después divergen en cuánto, a quién, qué entra y redondeo |
+| 2 | `/mesa`: «sugerido ya neto de tránsito» (`@ApiOperation`) | No resta nada: la política es `'ignorar'`, y el tránsito que lee son OC a proveedor, no traspasos |
+| 3 | Ruta: «Hoy sólo LEE; solicitar y autorizar entran en el PR siguiente» | «Mi pedido» ya escribe (AB.18); solicitar y autorizar no existen |
+| 4 | «Mi pedido» en uso | 22 de 23 eventos son de Dirección |
+| 6 | §15.7: el motor de `/compras/pedido` trabaja «con demanda dependiente en las matrices» | **No en el código:** cada almacén se calcula con su propia venta; `eff_daily` sólo lo usa la lista de sobrestock (§16.13 A) |
+| 5 | El plan de Compras es lo que la sucursal necesita | Cubre el 4.5 % de las cajas que el motor marca como falta (AB.25); sin el folio de Kepler no se sabe cuánto se pasó (§16.12) |
+
+### 16.6 Decisiones
+
+| # | Decisión | Resultado | Firma |
+|---|---|---|---|
+| **D1** | ¿Quién decide el pedido de traspaso de una sucursal? | **Compras**, en el pedido general. La sucursal ve lo que le llega y marca excepciones; ya no arma pedido. Deroga el modelo del 12-oct («el sistema arma el pedido de la sucursal y el almacenista corrige») | ✅ Edgar, 2026-10-23 · ⚠️ **falta comunicárselo a Francisco**, que firmó el modelo anterior. ADR-100 |
+| **D2** | ¿Qué ve cada quién en la mesa? | **Cada sucursal ve sólo su mesa** (un almacén). Quien alcanza varios elige uno, como en «Mi pedido». Se descarta la mesa de varios almacenes a la vez | ✅ Edgar, 2026-10-23 |
+| **D3** | La columna «Acción» (ver abajo) | **Sale de la mesa**; en su lugar **«Surte»** = la matriz o el proveedor que tiene configurado. El sobrante de la red se queda del lado de Compras | ✅ Edgar, 2026-10-23 |
+| **D4** | Las rutas (ver abajo) | **Fuera de Autoabasto.** Las camionetas RD se surten ellas mismas por ahora (documentado abajo) | ✅ Edgar, 2026-10-23 |
+| **D5** | Cupo | **AB entra a 🔨; MS pasa a ⏸️** con su doc intacto | ✅ Edgar, 2026-10-23 |
+| **D6** | Nombre de la pestaña «Mi pedido» | **«Lo que te llega»**, porque con D1 la sucursal ya no arma pedido | ✅ Edgar, 2026-10-23 |
+| **D7** | ¿La sucursal puede pedir algo por su cuenta? | **Sí, como requisición que Compras aprueba**, desde una mini pantalla tipo «Mi pedido» prellenada con el mismo motor (lo que falta, menos lo que ya viene y lo que Compras ya planeó). No es un pedido directo a Kepler | ✅ Edgar, 2026-10-23 (AB.29) |
+| ~~**D8**~~ | ~~¿Cuándo se apaga el pedido de la tienda en Kepler?~~ | **Retirada (Edgar, 2026-10-23):** las requisiciones y los traspasos se hacen en Kepler y el pedido de la Suite se pasa a Kepler. No hay un «pedido de la tienda» que apagar: Kepler es donde se ejecuta todo | ❌ retirada |
+| **D9** | ¿Cómo sabe la Suite qué de su pedido ya se pasó a Kepler? | (a) quien captura en Kepler registra el folio en la Suite (para compras ya existe `oc_folio`, con 0 usos en 273 requisiciones) · (b) emparejar por destino + producto + fecha (medido: 12.0 % contra 7.8 % de placebo, no sirve de regla) · (c) el envío automático (Fase KR). Recomendación: **(a) ahora, (c) después** — sin la liga, el plan de Compras y su copia en Kepler se cuentan como dos cosas (§16.12). Item AB.30 | ⬜ falta firma |
+
+**D3 en palabras simples.** Hoy cada renglón de la mesa tiene una columna «Acción» que dice *Traspaso*,
+*Traspaso parcial* o *Comprar*. La mesa la decide mirando si **cualquier** almacén de la empresa tiene de
+más ese producto. Ejemplo de cómo funciona (ilustrativo, sin cifras): 02 se surte de 01; si a 02 le falta
+un producto y a 07 le sobra, la mesa le dice a 02 «Traspaso», aunque 02 nunca le pide a 07 y no existe
+forma de pedírselo. «Mi pedido», en cambio, le dice «pídeselo a 01», porque ése es su canal. Con D1
+(Compras decide) la sucursal tampoco elige de dónde sale la mercancía, así que la columna sobra. Se
+cambia por **«Surte»** (su matriz o el proveedor, igual que «Mi pedido»), y el sobrante de la red se queda
+del lado de Compras, que es quien puede moverlo: `/compras/existencia` usa el mismo cálculo. Los KPI
+«Se cubre con la red / Hay que comprar» pasan a **«Lo surte la matriz / Lo surte el proveedor»**.
+
+**D4 — cuáles rutas.** Son **las camionetas de venta en ruta**, registradas como almacenes en
+`commercial.warehouses`:
+
+| Grupo | Almacenes | Carga de | Pedidos `U-D-40` en 30 días |
+|---|---|---|---|
+| Camionetas de 01 | `RUTA-21`, `-22`, `-23`, `-26`, `-27`, `-28` | 01 | 23–28 cada una, 1,286–2,411 renglones |
+| Camionetas de 06 | `RUTA-501` a `-505` | 06 | 5–30 cada una, 257–2,460 renglones |
+| Otras dos | `RUTA-321`, `RUTA-322` | — | ninguno en 30 días |
+| Duplicados con tipo `central` | `01-002` a `01-006` («Ruta 22 (PH)»…) | — | — |
+
+Las 18 tienen **0 políticas de reorden y ningún canal configurado**, así que hoy su mesa sale vacía o en
+cero (ya declarado en AB.22). Su abasto es la **carga diaria de la camioneta**, otro proceso. Además, el
+catálogo de destinos de Kepler no las mapea (llegan como `RUTA 21` / `RD 501`), así que lo que se les
+pidió no se puede restar.
+
+**Firmado (Edgar, 2026-10-23):** las rutas quedan **fuera de Autoabasto** — no aparecen en el selector de
+la mesa ni de «Lo que te llega». ⭐ **Las camionetas RD (`RUTA-501` a `-505`, cargan de 06) se surten
+ellas mismas por ahora**: piden su carga por su cuenta, sin pasar por Compras ni por esta mesa. Queda
+documentado para cuando se decida meterlas al modelo de ADR-100; entonces harán falta (1) su política de
+reorden y su canal, que hoy no tienen, y (2) mapear `RD 50x` en el catálogo de destinos para que lo pedido
+se reste.
+
+### 16.7 Qué NO incluye
+
+- No cambia el motor (`criticalStock`) ni el cálculo de `/compras/pedido`.
+- **No enciende el envío a Kepler (Fase KR).** Kepler sigue siendo donde se capturan requisiciones y
+  traspasos: la Suite decide y arma el pedido, Kepler lo ejecuta.
+- No toca los traspasos aprobados viejos de Compras.
+- No crea un flujo de solicitar / autorizar traspasos entre plazas.
+- No asigna almacén a los almacenistas (12-oct: 5 de 6 sin almacén, **sin re-medir**), pero sin eso
+  ninguna de las dos pantallas les sirve.
+- No borra tablas: las de AB.18 (`autoabasto_pedidos`, `_lineas`, `_huella`) se reusan para el
+  borrador de la requisición de la sucursal (AB.29).
+- Ningún importer ni tabla nueva: todo sale de `kepler_ods`, del plan de Compras
+  (`purchase_requisitions`) y de las tablas que ya existen.
+
+### 16.8 El modelo y las capas
+
+**El flujo con D1:** Compras decide el traspaso de cada sucursal → el plan llega a Kepler (KR) → la
+matriz surte → la sucursal recibe. La sucursal **no arma el pedido de rutina**: ve su mesa y lo que le
+llega. Si de verdad necesita algo que nadie planeó, **genera una requisición** desde una mini pantalla
+tipo «Mi pedido» (D7), y **Compras la aprueba o la rechaza**: Compras sigue siendo quien decide.
+
+**Cómo se cuenta «ya viene» en las dos pantallas** (una sola regla):
+
+| Documento | ¿Se resta de la falta? |
+|---|---|
+| Pedido de traspaso abierto en Kepler, ≤ 7 días | Sí (como hoy en «Mi pedido») |
+| Embarque sin recibir, ≤ 7 días | Sí (como hoy en «Mi pedido») |
+| Plan de Compras que **ya está** en Kepler | Sí: es un pedido abierto más |
+| Plan de Compras que **todavía no está** en Kepler | **No**: se muestra «Compras lo planeó · aún no está en Kepler». Restarlo diría «cubierto» de algo que todavía nadie capturó. ⚠️ Hoy la Suite no puede distinguir «ya está» de «todavía no está» porque no guarda el folio (D9 / AB.30); hasta entonces, todo lo planeado cae en esta fila |
+| Pedido abierto de más de 7 días | No: se muestra como atorado, para reclamarlo |
+
+**Estado de cada renglón** (mesa y «Lo que te llega» usan los mismos): *Ya viene* · *Compras lo planeó* ·
+*Nadie lo ha pedido* · *En política*. *Nadie lo ha pedido* es justo el porqué que AB.3b dejó abierto
+(«¿por qué NO propone pedir?»), ahora contestado.
+
+**C0 — AB.25 Medir antes de construir.** En sólo lectura (SQL del motor, como AB.17; nunca un backend
+en la laptop), por sucursal:
+1. Renglones donde la mesa y «Mi pedido» difieren en cantidad, y donde la Acción contradice el canal.
+2. ⭐ **Cuánto de la falta neta de cada sucursal cubre el plan de Compras.** Con D1, si Compras no planea
+   lo que la sucursal necesita, la sucursal se queda sin mercancía. Es el árbitro de D1.
+3. Tiempo de la cuenta por almacén.
+Lo que no se pueda correr se declara NO MEDIDO.
+
+**C1 — AB.26 Una sola cuenta del renglón, por almacén.** 🧪 *En código 2026-10-23: `armarRenglon` / `estadoRenglon` / `surteDe` en `libs/contracts`, 20 pruebas con su negativa vista en rojo; antes/después en prod NO MEDIDO hasta desplegar.* Sacar de `AutoabastoPedidoService.pedido()`
+la función que arma la línea: falta · ya pedido · en camino · planeado por Compras · falta neta · surte ·
+estado · excepción guardada. El tipo vive en `libs/contracts`. La mesa y «Lo que te llega» la consumen.
+- «Mi pedido» devuelve lo mismo que antes en los 9 almacenes (antes/después en sólo lectura), salvo lo
+  que cambia a propósito (el plan de Compras ya en Kepler pasa a restarse).
+- Prueba negativa: un renglón con embarque sin recibir sale con falta neta menor; quitando la resta, rojo.
+- Un almacén sin cliente de traspaso declara «sin medir», nunca 0.
+
+**C2 — AB.27 La mesa sirve esas líneas.** 🧪 *En código 2026-10-23, como endpoint NUEVO
+`GET /commercial/autoabasto/renglones` (un almacén, sólo lectura) que convive con `/mesa` hasta que la
+pantalla cambie en AB.28: así ningún despliegue intermedio rompe la mesa actual. Sale del mismo
+`armarAlmacen()` que «Mi pedido» (misma cuenta por construcción); filtros por estado, posición, «surte» y
+búsqueda, orden de lectura, resumen del almacén entero con la regla de los grupos. Tiempo: el mismo de
+«Mi pedido» (3.7 s, sin re-medir) — NO MEDIDO contra la meta de 500 ms; bajarlo va en commit aparte.* `GET /mesa`, `/mesa/resumen` y `/reporte` exigen **un**
+almacén dentro del alcance (D2) y salen de la función de C1.
+- Para el mismo almacén, la falta neta de la mesa = la de «Lo que te llega», renglón por renglón.
+- `/mesa` responde en < 500 ms. «Mi pedido» tarda **3.7 s** (medido el 2026-10-12 en AB.16, **sin
+  re-medir**). Si no se alcanza, se declara.
+
+**C1–C3 — AB.29 «Generar requisición»: la mini «Mi pedido» de la sucursal (D7).** Reemplaza a la
+«excepción» de la versión anterior. Nada se construye de cero:
+
+| Pieza | Ya existe | Lo nuevo |
+|---|---|---|
+| Qué se le sugiere pedir | la cuenta de AB.26 | sólo los renglones *Nadie lo ha pedido*, prellenados con su falta neta |
+| Ajustar con − / + y motivo | AB.18 (pasos por unidad de captura, motivo al pasar ±20 %, huella) | se mudan de «Mi pedido» a esta pantalla |
+| Redondeo y mínimo de $200 | AB.19 / AB.20 (`libs/contracts`) | — |
+| Agrupar por a quién se le pide | grupos de «Mi pedido» (matriz / proveedor) | una requisición por grupo |
+| La requisición | `insertRequisition()` → `purchase_requisitions` en `pending_approval`, folio `RQ-` | un endpoint de Autoabasto con `AUTOABASTO_SOLICITAR` que llama a **esa misma función** |
+| Que la apruebe Compras | su bandeja y su autorización actuales | — |
+| Tope y facultades | claves `AUTOABASTO_AUTORIZAR` / `_EXCEDER_TOPE` (escalera §6.1, repartidas desde la migración `20260919160000`) | el tope en pesos de la requisición |
+| PDF para capturar en Kepler | AB.21 | lo imprime la requisición aprobada mientras KR esté apagado |
+
+Reglas:
+
+- **Al prellenar se resta también lo que Compras ya planeó**, aunque todavía no esté en Kepler. En la
+  mesa no se resta (diría «cubierto» de algo que no llega); en la requisición sí, porque pedirlo otra
+  vez sería duplicar una decisión que Compras ya tomó. Si la sucursal cree que el plan no le va a llegar,
+  lo pide igual **con motivo**.
+- **El servidor recalcula los renglones**: el navegador manda producto, cantidad y motivo; existencia,
+  sugerido, costo y origen los pone el servidor con la cuenta de AB.26. Nada de la pantalla se toma por
+  bueno.
+- **Contra duplicados**, dos redes que ya existen: (1) lo que Compras ya planeó se resta al prellenar
+  (regla de arriba); (2) el doble clic lo frena `lote-repetido.ts` (409 con lo encontrado y «generar de
+  todos modos»). ⚠️ Esa red hoy **sólo mira renglones de COMPRA** de la misma persona en minutos: para
+  las requisiciones de traspaso de la sucursal hay que extenderla, aditiva, con su prueba.
+- El almacén tiene que estar en el alcance de la persona (la misma comprobación de `almacenEnAlcance`).
+- Hoy **0** requisiciones las crea alguien de sucursal: en 30 días, las 1,013 las crearon roles de
+  Compras y Dirección (medido 2026-10-23, sólo lectura). Si Compras necesita filtrar «las que pidió una
+  sucursal», sale de `created_by`; una columna de origen sólo si eso no alcanza (migración aditiva).
+- Prueba contra base real con el payload de la pantalla (regla del endpoint que escribe), incluida la
+  negativa: un almacén fuera del alcance → 403; un renglón con cantidad que el servidor no reconoce → 400.
+
+**C3 — AB.28 Las pantallas.** Partido en dos (decisión 2026-10-23): **AB.28a** la mesa nueva, sin
+dependencias; **AB.28b** renombrar «Mi pedido» y quitarle los − / +, que espera a AB.29 (sin «Generar
+requisición», quitar los − / + dejaría a la sucursal sin forma de decir lo que necesita).
+
+🧪 *AB.28a en código 2026-10-23:* la mesa lee `/renglones` (un almacén; con varios, pide elegir y no
+adivina); columnas Producto · Posición · Existencia · Mín · Reorden · Máx · Falta · Ya viene · Falta neta ·
+Surte · Estado · Entrega; KPI primario «Nadie lo ha pedido», después lo que se pide a la matriz y al
+proveedor; filtros por estado (con su conteo dentro del control), posición, «surte» y búsqueda en el
+servidor; ayuda en el diccionario (`almacen-autoabasto`); la sucursal por nombre en la celda «Surte» y en
+el PDF. El PDF sale de la misma respuesta (`todos=1`). `check:pantalla`: la mesa pasa de 3 fallas a 1
+(queda §9 frescura, deuda declarada: la respuesta trae la hora del cálculo, no la edad del dato). La
+prueba cazó una **doble carga** (cada una ~3.7 s) que ya tenía la pantalla vieja. ⚠️ **Sin validación
+visual** (no se levanta la app local): lo más probable de ajustar es el ancho de columnas, el control de
+estado en pantallas angostas y la posición de los tooltips. `/mesa`, `/mesa/resumen` y `/reporte` quedan
+sin uso en la pantalla: se retiran cuando AB.28a esté en prod.
+- **Mesa:** un almacén; columnas Posición · Venta 30 d · Existencia · Mín / Reorden / Máx · Falta ·
+  Ya viene · Falta neta · Surte · Estado. Salen Acción, De la red y A comprar (D3). Un renglón abre «Lo
+  que te llega» en ese producto. El PDF imprime lo mismo.
+- **«Lo que te llega»** (D6, firmada): lo que viene por documento (plan de Compras, pedidos, embarques) y por
+  producto; salen los − / + y «Aceptar grupo» de la vista principal, y entra el botón **«Generar
+  requisición»**, que abre la mini pantalla de AB.29.
+- Se corrigen los textos rancios (§16.5 #2 y #3, y el pie «Solicitar y autorizar llegan en la siguiente
+  entrega»).
+- Skill `diseno` y `npm run check:pantalla -- almacen` antes y después.
+
+**C2/C3 — AB.30 La liga del folio: la Suite sabe qué de su pedido ya está en Kepler (D9).** Quien captura
+en Kepler el pedido de la Suite (requisición de compra → `X-A-30`/OC, traspaso → `U-D-40`) registra el
+folio en la Suite. Para compras la columna ya existe (`oc_folio`, `oc_capturada_at`, `oc_capturada_por`)
+y tiene **0 usos en 273 requisiciones**: hay que averiguar por qué no se usa antes de construir otra
+pantalla. Para traspasos se agrega lo equivalente (migración aditiva). Con el folio:
+- la cuenta de AB.26 deja de contar el plan y su copia en Kepler como dos cosas;
+- AB.25 se vuelve a medir y separa «Compras planea poco» de «se pasó y no se ligó».
+- Prueba contra base real con el payload de la pantalla; negativa: un folio que no existe en Kepler para
+  ese destino se rechaza.
+
+**Orden:** ~~AB.25~~ ✅ → AB.26 → AB.30 → AB.27 → AB.29 → AB.28. AB.30 entra antes que la mesa porque sin el
+folio la cuenta única no puede saber qué del plan ya está en Kepler (§16.12).
+
+### 16.9 Riesgos y bloqueos
+
+| Bloqueo | Dueño | Causa | Qué lo destraba |
+|---|---|---|---|
+| ⛔ **La Suite no sabe qué de su pedido ya se pasó a Kepler** | Edgar | Se pasa a mano y nadie guarda el folio: 0 de 273 compras con `oc_folio`, 0 traspasos con folio | D9 / AB.30. Después, encender KR (`RUNBOOKS/KEPLER_PUSH_DESPLIEGUE.md`) |
+| ⛔ **El plan de Compras cubre poco de lo que el motor marca** | Edgar (PM) | 4.5 % de las cajas (AB.25) | Primero AB.30 (sin folio no se separa «planea poco» de «no se ligó»); después preguntarle a Compras por qué, con la cifra re-medida |
+| D1 cambia el modelo que firmó el dueño | Edgar | Francisco firmó el 12-oct que la sucursal arma el pedido | Comunicárselo antes de AB.28 |
+| Almacenistas sin almacén asignado | **sin dueño — pregunta** (¿quién administra Personas?) | 5 de 6 sin asignar (12-oct) | Asignarlos |
+| AB sin fecha de cierre comprometida | Edgar (dueño desde 2026-10-23) | Abierta hoy | Ponerla; sin ella la fase cae a ⏸️ (método §3) |
+| La requisición de sucursal se vuelve la vía de rutina (y regresan los tres lugares) | Edgar (PM) | Pedir es fácil; cada tienda hoy pide casi a diario | Medir cada semana: requisiciones de sucursal por almacén y cuántas rechaza Compras. Si una sucursal pide casi a diario, el plan de Compras no la está cubriendo: se corrige el plan, no se aprueba en automático |
+| Requisición aprobada + su captura en Kepler = contada dos veces | Edgar | Sin folio, la Suite ve el plan y el `U-D-40` capturado como dos cosas | La requisición aprobada se imprime (AB.21), se captura UNA vez y se registra su folio (AB.30); entonces deja de contarse como plan |
+
+### 16.11 ✅ [AB.25] Lo que midió el C0 — 2026-10-23
+
+Script versionado y repetible: `node database/scripts/ab25-mesa-vs-pedido.js [--ventana=7|30]`
+(`pg-prod`, `system_identifier` 7688376744939610156, transacción `READ ONLY`, 7.1–9.3 s para toda la
+red). Reproduce con el **texto** de las expresiones del motor (`demandTarget`, `onHand('plan')`,
+`networkSurplus`, `transferIn`, `accionExpr`, `cajaFactor`) y el agrupado de «Mi pedido». **No corre el
+servicio**, así que el cruce contra la API queda **NO MEDIDO**.
+
+**El instrumento se probó contra un control antes de publicar.** La primera corrida dio que el plan de
+Compras cubría 36,104 de 36,786 cajas en 01 con sólo 101 renglones planeados: imposible. Causa:
+`LEAST(plan, falta)` en Postgres **ignora el NULL** y devolvía la falta entera donde no había plan. Se
+corrigió con `COALESCE(plan, 0)`. Control de consistencia que sí pasa: los renglones «ya viene» por
+sucursal quedan siempre por debajo de los SKUs en documentos medidos en §16.3 (p. ej. 02: 104 ≤ 198).
+
+**Por almacén (plan de Compras de 7 días, como «Mi pedido»):**
+
+| Almacén | La mesa lista | Ya viene y la mesa lo pide | «Traspaso» pero surte otro | «Comprar» pero surte su matriz | Nadie lo ha pedido | …de ésos, Compras lo planeó | Falta (cajas) | Cubierto por el plan (cajas) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 01 | 1,630 | 34 | 367 | 210 | 1,596 | 101 | 36,786 | 1,089 |
+| 02 | 880 | 104 | 36 | 164 | 776 | 87 | 1,730 | 168 |
+| 03 | 1,035 | 51 | 33 | 153 | 984 | 147 | 3,919 | 400 |
+| 04 | 554 | 58 | 3 | 107 | 496 | 53 | 403 | 87 |
+| 05 | 481 | 38 | 7 | 114 | 443 | 44 | 1,096 | 191 |
+| 06 | 1,245 | 59 | 481 | 112 | 1,186 | 92 | 16,792 | 539 |
+| 07 | 983 | 39 | 45 | 184 | 944 | 104 | 5,898 | 173 |
+| 08 | 1,726 | 10 | 1,236 | 12 | 1,716 | 211 | 29,719 | 1,645 |
+| **Total** | **8,534** | **393 (4.6 %)** | **2,208** | **1,056** | **8,141** | **839 (10.3 %)** | **96,343** | **4,292 (4.5 %)** |
+
+(00 no lista nada: su objetivo sale en 0. Compras le planeó 25 renglones, todos sin falta.)
+
+**Lo que dice:**
+
+1. **La sincronía es un problema real y mayormente de «a quién», no de «cuánto».** 393 renglones
+   (4.6 %) se piden de nuevo aunque ya vienen; pero **3,264 (38.2 %)** tienen una «Acción» que contradice
+   a quién se le pide en «Mi pedido»: 2,208 dicen «Traspaso» cuando su canal es un proveedor (1,236 sólo
+   en 08) y 1,056 dicen «Comprar» cuando su canal es su matriz. D3 corrige más de un tercio de la mesa.
+2. ⛔ **El plan de Compras cubre muy poco de lo que el motor dice que falta.** De los 8,141 renglones que
+   nadie ha pedido, Compras planeó **839 (10.3 %)**, y en cajas cubre **4.5 %** (sucursales 02–07:
+   **7.8 %**; matrices 01, 06, 08: 3.9 %). Con la ventana de 30 días e incluyendo `ordered`: **22.7 %** de
+   los renglones y **13.6 %** de las cajas (sucursales 12.2 %). **No depende de la ventana.**
+3. **Y lo que planea no siempre hace falta:** de 1,329 renglones planeados en 7 días, **394 (29.6 %)**
+   son de productos con falta 0 según el mismo motor.
+
+**Lo que esto NO prueba (y no se adivina):**
+
+- **Por qué** Compras planea tan poco: puede ser que planee por ciclo de proveedor, que corrija el
+  objetivo a la baja, o que el objetivo (21–30 días de cobertura) esté alto para cómo se surte hoy una
+  sucursal (pide casi a diario). **NO MEDIDO**: es la pregunta para Compras.
+- En las **matrices** (01, 06, 08) parte de su falta se cubre con OC a proveedor que ninguna de las dos
+  pantallas resta (política de tránsito `'ignorar'`), así que su cobertura está subestimada.
+- El tiempo **por almacén** del servicio: NO MEDIDO (sólo el SQL de la red entera: 7–9 s).
+
+**Consecuencia para ADR-100** (corregida el mismo día, §16.12): el plan de Compras cubre poco de lo que
+el motor marca como falta. D1 sigue firmada y el orden queda así:
+
+- AB.26 / AB.27 (una sola cuenta, mesa sincronizada) **siguen igual**: valen con cualquier modelo.
+- AB.29 («Generar requisición»): lo que pide la sucursal entra a la Suite, Compras lo aprueba y **se pasa
+  a Kepler igual que el pedido de Compras**.
+- **AB.30 (nuevo): la liga del folio.** Sin ella no se puede medir de verdad la cobertura del plan (lo
+  ya capturado se ve como «ya viene», lo planeado como plan, y la Suite no sabe que son lo mismo).
+
+### 16.12 ⚠️ Corrección — en Kepler se ejecuta todo; el pedido de la Suite se pasa a mano (2026-10-23)
+
+**Lo que dijo Edgar:** *«las requisiciones y traspasos se hacen en Kepler hoy; el pedido de Suite se
+pasa a Kepler»*. Dos afirmaciones de este anexo estaban mal planteadas:
+
+| # | Lo que decía este anexo | Lo correcto, medido (`pg-prod`, sólo lectura, 30 días) |
+|---|---|---|
+| 1 | «Compras planeó 675 traspasos y **0** llegaron a Kepler» | El 0 es sólo el **envío automático** (`kepler_folio`, Fase KR apagada). El pedido de la Suite se captura **a mano** en Kepler y **nadie registra el folio**: 0 de 273 requisiciones de compra tienen `oc_folio` aunque la columna existe. La Suite no sabe qué se pasó |
+| 2 | «La tienda pide en Kepler por su cuenta, casi a diario» | Los pedidos de traspaso `U-D-40` viven **en la base de la matriz que surte** y los captura gente de ahí: 00 → 571 (481 un mismo usuario), 01 → 437, 08 → 345, 06 → 180. Las **requisiciones de compra** `X-A-30` sí las hacen las sucursales: 07 → 40, 02 → 39, 03 → 27 |
+| 3 | D8: «apagar el pedido de la tienda en Kepler» | No hay nada que apagar: Kepler es donde se ejecuta. D8 se retira |
+
+**Lo que se midió para contrastarlo:** si el pedido de la Suite se pasa a Kepler, sus renglones de
+traspaso deberían aparecer en un `U-D-40` al mismo destino y del mismo producto poco después.
+
+| Estado en la Suite | Renglones (30 d) | En un `U-D-40` 0–3 días después | Placebo (57–60 días antes) |
+|---|---:|---:|---:|
+| approved | 2,718 | 327 (12.0 %) | 213 (7.8 %) |
+| ordered | 456 | 38 (8.3 %) | 18 (3.9 %) |
+| cancelled | 126 | 37 (29.4 %) | 4 (3.2 %) |
+| pending_approval | 99 | 6 | 5 |
+
+**Lo que eso dice y lo que no:** el emparejamiento por destino + producto + fecha encuentra poco por
+encima del placebo. Puede ser que se capture más tarde, en otro documento, con otra clave de producto, o
+que una parte no se capture. **NO MEDIDO cuál.** Sólo con el folio se puede saber, y por eso D9 / AB.30.
+(Los cancelados que sí aparecen en Kepler, 29.4 %, sugieren que a veces se cancela en la Suite lo que ya se
+capturó por otro lado; sin verificar.)
+
+**Qué cambia en el plan:**
+
+- **D1 no cambia:** Compras decide; la Suite arma el pedido; Kepler lo ejecuta.
+- **D8 se retira**; entra **D9** (cómo sabe la Suite qué ya se pasó) y el item **AB.30** (registrar el
+  folio de Kepler al pasar el pedido).
+- **AB.25 sigue válido en lo que mide** (la mesa contra «Mi pedido», y cuánto del faltante tiene un
+  documento o un plan), pero la lectura «el plan de Compras no llega» se cambia por **«la Suite no
+  sabe si llegó»**.
+- **AB.26 tiene una regla nueva:** mientras no haya folio, lo planeado por Compras y su copia capturada
+  en Kepler pueden ser lo mismo. La cuenta no puede restar los dos.
+
+### 16.13 El flujo de la requisición de sucursal, de punta a punta (2026-10-23)
+
+**El pedido de Edgar:** *«al generar su requisición, ¿de dónde obtendrá la mercancía? ¿cómo afectará
+al pedido? ¿lo afectará en algo? No dejemos nada a la duda: resolvamos o tengamos un flujo adecuado de
+comunicación.»*
+
+Se revisó el código del motor y del ciclo de las requisiciones, y se midió en `pg-prod` (sólo lectura,
+30 días). Primero **cómo está hoy**, después **cómo debe quedar**.
+
+#### A. Cómo está hoy (medido y leído en el código)
+
+**La red, configurada en prod:** 02, 03 y 04 se surten de 01; 05 de 06; 07 de 08; y 01, 06 y 08 de 00.
+Centros de compra: 00, 01, 06, 08. Cada sucursal tiene **los dos canales según el proveedor**: unos
+productos le llegan por traspaso de su matriz y otros los compra directo (`replenishment_channel`).
+
+| Pregunta | Respuesta hoy | Evidencia |
+|---|---|---|
+| ¿De dónde sale la mercancía? | Del **canal** de ese producto en esa sucursal: su matriz (traspaso) o el proveedor (compra). El servidor ya obliga a **una requisición por origen**: no mezcla traspaso y compra, ni dos proveedores | `insertRequisition()` (`commercial-replenishment.service.ts:3799-3818`) |
+| ¿La matriz aparta lo que le pidió su sucursal? | ⛔ **No.** La existencia de la matriz se ve completa hasta que sale el embarque (`U-D-41`). Ni los pedidos de traspaso abiertos (`U-D-40`) ni las requisiciones aprobadas la comprometen | `transferPlan` toma la existencia ENTERA del origen (`:3093`); el plan no lee `U-D-40` |
+| ¿El pedido de Compras para la matriz incluye lo que necesitan sus sucursales? | ⛔ **No.** Cada almacén se calcula con **su propia venta**. La «demanda dependiente en las matrices» que afirmaba §15.7 **no existe en el código**: `eff_daily` sólo lo usa la lista de sobrestock | `workbook` usa `daily_pieces` por almacén (`:2024, 2105`); `eff_daily` sólo en `overstockList` (`:3219-3259`) |
+| ¿Qué pasa si la matriz no tiene? | El traspaso se reparte en proporción entre las sucursales y lo que no alcanza queda como faltante; **no protege la venta de la propia matriz** (sin regla de punto de reorden). La «bajada» (comprar a la matriz y bajarlo) sólo pasa si el comprador consolida a mano | `transferPlan` (`:3125-3150`); `compras-pedido-real.component.ts:3104-3137` |
+| ¿La matriz surte lo que le piden? | Casi siempre. Renglones embarcados con faltante, 30 días: **00: 0.3 %** · **01: 6.5 %** · **06: 11.4 %** · **08: 5.2 %** (en cantidad: 0.1 / 4.9 / 10.0 / 4.6 %). ⚠️ Que `c51` sea lo pedido originalmente es la hipótesis de FASE_DN, sin arbitrar | `kepler_ods`, `U-D-40` embarcados |
+| ¿Quién aprueba? | `gerente_compras`: 648 de 649 traspasos y 192 de 205 compras en 30 días | `approved_by` |
+| ¿Cuánto tarda? | Aprobar un traspaso: mediana **46 h**. **590 traspasos aprobados llevan una semana sin pasar a «ordenado»** (no hay dónde registrar su folio). Compras aprobadas sin ordenar: 78, con 17 días de mediana | `purchase_requisitions` |
+| ¿Quién se entera de cada paso? | ⛔ **Nadie.** Crear, aprobar o rechazar no avisa a nadie: no hay tarea en «Mi trabajo», ni evento, ni correo. Compras tiene que entrar a `/compras/requisiciones` a ver | Sin `emit`, sin bandeja, sin fuente de tarea (`me-work.ts`, `task.contract.ts:117-124`) |
+| ¿Se sabe quién la creó? | En la lista, **no** (no se selecciona `created_by`); en el detalle sale el id sin nombre | `listRequisitions` (`:4097-4119`), `getRequisition` (`:4265`) |
+| ¿Se sabe quién la rechazó? | ⛔ **No.** Rechazar sólo cambia el estado; no guarda quién, cuándo ni por qué | `setEstado` (`:4387-4403`) |
+| ¿Se puede cancelar una aprobada? | **No** | — |
+
+**Defectos que salieron de paso (verificados en el código):**
+1. **«Capturar OC»** (lista de requisiciones, pestaña Proveedor) se habilita con `COMPRAS_REQUISICIONES_AUTORIZAR`,
+   pero el servidor exige `…_GESTIONAR` (`compras-requisiciones.component.ts:260, 520` contra el controlador `:519`).
+2. **Aprobar / Rechazar** (detalle) se muestran con `…_GESTIONAR`, pero el servidor exige `…_AUTORIZAR`
+   (`compras-requisicion-detalle.component.ts:57-66, 232` contra `:489, 508`). Un botón que parece funcionar y da 403.
+3. **Los traspasos no tienen dónde registrar su folio de Kepler** (sólo la pestaña Proveedor tiene «Capturar OC»).
+
+#### B. Cómo debe quedar: el flujo, paso por paso
+
+| # | Paso | Quién | Qué pasa con el pedido | Quién se entera y cómo |
+|---|---|---|---|---|
+| 1 | La sucursal ve que le falta algo que **nadie ha pedido** (estado de AB.26) y pulsa «Generar requisición» | Almacenista | Nada todavía | — |
+| 2 | Se arma: cada renglón ya trae a quién se le pide («Surte»); **sale una requisición por origen** (su matriz / cada proveedor), en `pending_approval`, marcada como **pedida por sucursal** | Almacenista | En la sucursal, esos renglones pasan a **«Pedido a Compras · por aprobar»** y no se vuelven a sugerir. En la matriz, si es traspaso, **queda comprometido** (D10) | **Compras: tarea en «Mi trabajo»** «Requisiciones de sucursal por aprobar» (D12) |
+| 3 | Compras revisa: si es traspaso, ve **cuánto tiene la matriz después de lo comprometido**; si no alcanza, decide comprar a la matriz (bajada) o al proveedor | Comprador | Si se agrega compra a la matriz, entra al pedido general de esa matriz | — |
+| 4a | **Aprueba** (todo o con cantidades ajustadas) | Comprador | La requisición queda aprobada; sigue comprometida en la matriz | **Sucursal: aviso en «Mi trabajo»** «Aprobada: se pasa a Kepler» |
+| 4b | **Rechaza** con motivo obligatorio | Comprador | Se libera lo comprometido; los renglones vuelven a «Nadie lo ha pedido» | **Sucursal: aviso con el motivo**; se guarda quién y cuándo (hoy no) |
+| 5 | **Se pasa a Kepler** (`U-D-40` en la matriz si es traspaso; `X-A-30`/OC si es compra) y **se registra el folio** (AB.30) | Quien captura (matriz o Compras) | Pasa a «ordenado»; el renglón deja de contarse como plan y cuenta como **«ya viene»** (sin doble conteo) | La sucursal lo ve en «Lo que te llega» con su folio |
+| 6 | La matriz embarca (`U-D-41`) | Matriz | **«En camino»**; se libera lo comprometido (ya salió) | «Lo que te llega» |
+| 7 | La sucursal recibe (`U-A-50`) | Almacenista | Sube la existencia | — |
+| 8 | Si la matriz no surtió todo (**negado**) | — | El faltante vuelve a aparecer como falta en la sucursal | Sucursal y Compras ven el negado (ya existe en «Mi pedido») |
+
+**Respuesta directa a «¿afecta al pedido?»:** sí, en tres lugares, y hoy ninguno está resuelto:
+
+1. **A la sucursal:** lo que pidió no se debe volver a sugerir. Hoy su propia requisición de **compra** ni
+   siquiera aparece en «Mi pedido» (`PLANEADO_COMPRAS_SQL` sólo lee traspasos).
+2. **A la matriz:** lo que le piden sus sucursales tiene que restarse de lo que tiene disponible (D10).
+   Si no, el mismo inventario se cuenta para la venta de la matriz y para el traspaso, y se le promete
+   a dos sucursales lo mismo.
+3. **Al pedido general de Compras:** cuando la matriz no alcanza, el faltante tiene que convertirse en
+   compra para la matriz. Hoy sólo pasa si el comprador consolida a mano (D11).
+
+#### C. Decisiones a firmar
+
+| # | Decisión | Recomendación | Por qué |
+|---|---|---|---|
+| **D10** | ¿Lo que una sucursal pide a su matriz se aparta de la existencia de la matriz? | **Sí:** los pedidos de traspaso abiertos y las requisiciones de traspaso aprobadas (no las pendientes) se restan de lo disponible de la matriz en el plan de traspasos y en el sobrante de la red | Sin esto la matriz se compromete dos veces. ⚠️ Cambia cifras de `/compras/pedido`: va en commit aparte con su antes/después |
+| **D11** | Cuando la matriz no alcanza, ¿el faltante se vuelve compra para la matriz sola? | **Sí, como sugerencia en el pedido de Compras** («la matriz necesita X para surtir a sus sucursales»), no como compra automática | Hoy depende de que el comprador lo note y consolide a mano |
+| **D12** | ¿Quién se entera de cada paso? | **Compras:** tarea en «Mi trabajo» por cada requisición de sucursal por aprobar. **Sucursal:** aviso al aprobarse o rechazarse, con el motivo. Con el contrato de tarea que ya existe (ADR-061/081), sin canal nuevo | Hoy nadie se entera de nada; 590 traspasos aprobados llevan una semana parados sin que nadie lo vea |
+| **D13** | ¿Quién aprueba la requisición de sucursal? | **El comprador** (`gerente_compras`, que ya aprueba 648 de 649) con `AUTOABASTO_AUTORIZAR`; si pasa el tope de inventario en pesos, **Dirección** con `AUTOABASTO_EXCEDER_TOPE` (escalera §6.1). La banda «se aprueba sola» queda para después, con volumen medido | Las llaves ya están repartidas y ningún endpoint las usa |
+
+#### D. Items nuevos
+
+- **AB.31 — Lo comprometido en la matriz** (D10). C1, motor; cambia cifras de Compras → antes/después.
+- **AB.32 — Avisos del flujo** (D12): tarea de Compras por aprobar y aviso a la sucursal; rechazo con
+  motivo, quién y cuándo.
+- **AB.33 — Arreglos del flujo de requisiciones que ya existe**: los dos botones con permiso cruzado,
+  registrar el folio también en traspasos (va con AB.30), mostrar quién creó la requisición, y que la
+  requisición de compra de la sucursal aparezca en «Mi pedido».
+- AB.29 se amplía: la requisición queda **marcada como pedida por sucursal** (columna de origen,
+  migración aditiva) y sus renglones dejan de sugerirse mientras esté viva.
+
+**Lo que NO se pudo determinar:** si hay algo fuera de estos archivos que aparte existencia en la
+matriz; y el estado vivo del envío automático (el último dato, 22-oct, decía apagado).
+
+#### E. Lo que ya cubre la fase PQ — no se duplica
+
+El mismo 2026-10-23 otra sesión abrió **PQ** (`FASE_PQ_PEDIDO_VERDAD_Y_CIERRE.md`, «del sugerido al
+ERP sin inventar nada»), que pasó PO a ⏸️. Ataca el mismo hueco desde el lado de Compras, y su medición
+(M2) es más fina que la de §16.12: **el 54.8 % de los traspasos aprobados no tiene ningún `U-D-40` con
+sus SKUs en 15 días**, y de lo que sí llega, el comprador cambia la cantidad en Kepler en el 31 %. O sea
+que hoy el pedido de la Suite se pasa a Kepler **sólo en parte**.
+
+| Lo que AB necesita | Lo construye | Item |
+|---|---|---|
+| Registrar el folio del traspaso pasado a mano | PQ | PQ.2 (cierre manual con la coordenada del `U-D-40`/`U-D-41`) |
+| Registrar el folio de la compra | PQ | PQ.7 (la OC exige la coordenada de Kepler) |
+| Envío automático a Kepler | KR | KR.9 / KR.11 (cada sucursal escribe en su servidor) |
+| Rechazo y cancelación con motivo | PQ | PQ.9 |
+| Quién aprobó y qué vio | PQ | PQ.11 |
+| Duplicado entre días | PQ | PQ.8 |
+| Permisos cruzados de los botones y quién creó la requisición | **se entregan a PQ** (su pantalla, que está editando) | AB.33 (1)–(3) |
+| La cuenta única de la sucursal, la mesa, «Lo que te llega» | AB | AB.26–AB.28 |
+| La requisición nacida en la sucursal y sus avisos | AB | AB.29, AB.32 |
+| Lo comprometido en la matriz | AB, **acordado con PQ** (toca el número de `/compras/pedido`, que PQ dice que sólo mueve PQ.6) | AB.31 |
+
+**Orden:** AB.26 ✅ → AB.27 (la mesa sobre la cuenta única) → AB.28 (pantallas) → AB.29 + AB.32 juntos,
+**cuando PQ.2 y PQ.9 estén** (la requisición de sucursal no sale sin folio, sin motivo de rechazo ni
+avisos) → AB.31 (con PQ). AB.30 se cierra solo cuando PQ.2/PQ.7 escriban el folio.
+
+### 16.14 El pedido de una sucursal (no matriz), de punta a punta — ejemplo y lo que falta (2026-10-24)
+
+El PM pidió un ejercicio desde cero para ver cómo se **informa** y cómo se **genera** el pedido de una
+sucursal que no es matriz. Le gustó el plan; queda escrito así. **Números ilustrativos**: muestran la
+mecánica, no son datos de prod.
+
+**Escenario:** La Piedad Abastos, que se surte de su matriz Padre Hidalgo. Lunes 8 am, cajas.
+
+| Producto | Surte | Objetivo | Existencia | Falta | Ya viene | Falta neta |
+|---|---|---:|---:|---:|---|---:|
+| Mazapán | Padre Hidalgo (traspaso) | 42 | 10 | 32 | pedido abierto 12 + embarque 8 = 20 | **12** |
+| Chicle | Padre Hidalgo (traspaso) | 30 | 5 | 25 | nada en Kepler; Compras planeó 25 en la Suite (no se resta) | **25** |
+| Paleta | Padre Hidalgo (traspaso) | 20 | 6 | 14 | embarque 14 | **0** |
+| Agua | Proveedor X (compra) | 50 | 20 | 30 | nada | **30** |
+| Cacahuate | Proveedor Y (compra) | 25 | 40 | 0 | — | no aparece |
+
+| Paso | Qué pasa | Quién se entera | Existe hoy |
+|---|---|---|---|
+| **1. Se informa** | La mesa: falta por pedir 2 (Mazapán, Agua) · Compras lo planeó 1 (Chicle) · ya viene 1 (Paleta). «Lo que te llega» lista el pedido 0450, el embarque 0391 y el plan RQ-2026-00123 «aún no en Kepler» | La sucursal, sin llamar a nadie | ✅ en código (AB.26–AB.28a) |
+| **2. Se genera** | «Generar requisición» prellenada sólo con la falta por pedir: Mazapán 12 (traspaso) · Agua 30 → la sucursal deja 24 con motivo «espacio en bodega». El Chicle no se prellena (ya lo planeó Compras). Salen **RQ-201** (traspaso) y **RQ-202** (compra), pendientes, marcadas «pedida por sucursal»; en la mesa pasan a «Pedido a Compras · por aprobar» | — | ⬜ AB.29 |
+| **3. Compras se entera** | Tarea en «Mi trabajo»: «2 requisiciones de La Piedad Abastos». En `/compras/pedido`, celda La Piedad × Mazapán: falta 32 − ya viene 20 = **12** (hoy diría 32: planearía 20 de más) y el aviso «la sucursal pidió 12 (RQ-201, por aprobar)», que no se resta | Compras | ⬜ AB.32 + D14/D15 |
+| **4. Compras decide** | Aprueba RQ-201: en Padre Hidalgo quedan apartados 12 (si tenía 100, quedan 76 disponibles, D10). RQ-202: aprueba, cambia o rechaza **con motivo** | La sucursal recibe aviso con el motivo | ⬜ AB.31 + PQ.9 |
+| **5. Se pasa a Kepler** | Padre Hidalgo captura el pedido de traspaso y registra el folio en la Suite; Compras captura la OC del agua y registra su folio. Desde ahí cuenta como «ya viene», una sola vez | La sucursal lo ve con su folio | ⬜ PQ.2 / PQ.7 |
+| **6. Embarque y recepción** | «En camino» y se libera lo apartado; al recibir sube la existencia. Si la matriz manda 10 de 12, los 2 vuelven como falta y el faltante de surtido se ve | Sucursal y Compras | ✅ el faltante de surtido ya existe en «Mi pedido» |
+
+#### D14 y D15 — con los ajustes que pidió la sesión de PQ (2026-10-23)
+
+| # | Decisión | Forma acordada entre AB y PQ | Firma |
+|---|---|---|---|
+| **D14** | ¿Lo que pidió la sucursal cambia el sugerido de Compras? | **Resta** en la celda de la sucursal sólo lo que es mercancía en movimiento: pedido de traspaso abierto de 7 días o menos y embarque sin recibir, **contados desde el documento de Kepler**, nunca desde la requisición aprobada en la Suite (PQ M2: el 55 % de esas no tiene ningún `U-D-40`). Las requisiciones de la sucursal **se muestran y no se restan**. Al aprobarse, la requisición se liga a su origen | ✅ PM, 2026-10-24 («sigamos con lo pendiente») |
+| **D15** | ¿Dónde atiende Compras lo que pide la sucursal? | **No es bandeja nueva:** `/compras/requisiciones` con el filtro «pedida por sucursal», más la tarea en «Mi trabajo» (AB.32). La liga origen → atención ya existe desde `[RQ.8]` | ✅ PM, 2026-10-24 |
+
+**Los cuatro ajustes de PQ, aceptados:**
+1. **Una sola regla de «ya viene».** La cuenta de traspasos abiertos y embarques sin recibir sale de UNA función compartida en `libs/` (al lado de `transito.ts`), con las ventanas de 7 días, la conversión de unidades de AB.23 y una consulta para toda la red. «Mi pedido», la mesa y `/compras/pedido` la consumen; nadie la reescribe (ADR-056).
+2. **La matriz con su venta propia + lo comprometido**, nunca con la suma de la venta de sus sucursales (`eff_daily`): sería contar dos veces junto con D10.
+3. **D15 sin bandeja nueva** (arriba).
+4. **El número de `/compras/pedido` cambia en UN commit con antes/después, y no espera a M1:** restar lo que ya viene es un hecho, no una calibración.
+
+**Dos condiciones de AB:**
+- La medición antes/después que corre el código del servicio desde una laptop contra prod sólo es aceptable con conexión de sólo lectura (`default_transaction_read_only = on`) y `system_identifier` impreso, y así se escribe en el commit. Si no, roza la regla de no levantar el backend local.
+- Extraer la cuenta (AB.34) no puede cambiar lo que devuelve «Mi pedido»: se prueba contra prod en sólo lectura antes de que PQ la use.
+
+**El reparto:**
+
+| Quién | Qué |
+|---|---|
+| **AB.34** | La función compartida «lo que la sucursal ya pidió»: traspaso abierto ≤ 7 d + embarque sin recibir, en unidad base, para toda la red, con su prueba contra prod |
+| **PQ** | Consumirla en `workbook` y `transferPlan` como descuento por celda, mostrar «la sucursal ya pidió» y hacer **el commit del número** con su antes/después. ⚠️ **Número de item por asignar:** PQ propuso «PQ.12», pero ese número ya lo usa PQ para «la matriz pide lo que sus sucursales le van a sacar» (CEDIS) |
+| **AB.31 / D10–D11** | Lo comprometido en la matriz, coordinado con PQ. ⚠️ Se cruza con ese PQ.12 del CEDIS: es la misma pregunta («cuánto le van a sacar a la matriz») vista desde 00. Hay que decidir quién la responde antes de que los dos la construyan |
+
+🧪 *AB.34 en código 2026-10-24 (`624060d10`): `ya-pedido-sucursal.ts`; prueba contra prod 12/12 (SQL idéntico al de «Mi pedido», red = sucursal por sucursal en 9 bases, control negativo). ⚠️ `leerYaPedidoRed` tarda **5.2 s** para la red: no entra así a `/compras/pedido`; bajarlo va aparte, antes de que PQ lo consuma.*
+
+#### Un error que el ejercicio destapó — AB.35 — 🧪 *corregido 2026-10-24 (`716a3e828`): «Falta por pedir», y la explicación dice cuánto ya viene.*
+
+En el Mazapán, la mesa (AB.28a) dice **«Nadie lo ha pedido»** aunque ya vienen 20 de 32: el rótulo
+afirma algo falso cuando la cobertura es parcial (ley 0 del estándar de interfaces). `estadoRenglon`
+devuelve `sin_pedir` siempre que quede falta neta, venga algo o no. Arreglo: el estado se llama
+**«Falta por pedir»** y su explicación dice cuánto falta y cuánto ya viene. Es texto del contrato y de
+la pantalla, con su prueba (un renglón con cobertura parcial no puede decir «nadie»).
+
+### 16.15 🧪 [AB.36] La mesa en menos de 500 ms (2026-10-24)
+
+Pedido del PM: *«todo debe durar menos de medio segundo la carga de la interfaz completa»*. Medido en
+prod en sólo lectura (servicio real, mediana de 3, viejo y nuevo intercalados): **la mesa tardaba
+4.2–5.9 s por sucursal**, y ~5 s eran UNA consulta del motor (`criticalStock`), no lo de AB.
+
+| Dónde se iba el tiempo (La Piedad, la consulta del motor) | ms |
+|---|---:|
+| tal cual (vistas vivas de costo y factor de caja) | 4,240 |
+| + matviews `mv_warehouse_box_factor` / `mv_erp_unit_cost` | 1,434 |
+| + JIT apagado | 1,006 |
+| + etiquetera fuera del listado (se lee aparte, 145 ms) | 522 |
+| + `ligero`: sin el sobrante de la red (~60 % en Padre Hidalgo; la mesa no pinta Acción desde D3) | ~300 |
+
+Además: las lecturas de AB en paralelo con el motor (3 conexiones), el conteo omitido cuando se
+exporta todo, el ranking de venta acotado al almacén, y el control de alcance con sólo los almacenes
+(`filters()` entero eran 157–193 ms de proveedores, marcas y categorías que nadie pintaba).
+
+**Resultado (commit `05b738153`):** `/renglones` **0.24–0.66 s**; carga completa (filtros → renglones)
+**247–577 ms**. La prueba `test-newdb-mesa-rapida.js` compara el servicio viejo (cargado desde git)
+contra el nuevo en los 22 almacenes: mismos renglones, mismo orden, mismos campos (25/25, con control
+negativo y la compuerta vista en rojo).
+
+**Lo que falta para cerrar:**
+
+- ⚠️ **Padre Hidalgo sigue en ~577 ms** (y Morelia Abastos roza 500 en algunas corridas). Lo que queda
+  en su ruta crítica es la escalera de unidades (185–340 ms viva). La migración `20261024134443` la
+  materializa (`mv_product_unit_ladder`, `SELECT *` de la vista, refresco de 15 min). **Estimado** con
+  la escalera precargada: Padre Hidalgo 448 ms, Morelia Abastos 336. **NO MEDIDO** hasta aplicarla en
+  prod. ⛔ **Orden: la migración ANTES del código** (el refresco de 15 min la nombra y, si no existe,
+  pone en error su latido).
+- **Declarado:** el costo de la mesa sale de una copia de hasta ~15 min (27 de 249,194 pares diferían
+  de la vista viva al medirlo). La vista viva cuesta ~1 s aunque se filtre a un almacén.
+- **No medido:** red y pintado del navegador (prod está en la LAN, se espera poco); sin validación visual.
+- `leerYaPedidoRed` (para PQ) re-medido en esta sesión: **0.77–0.99 s** (el 5.2 s anterior fue una
+  corrida en frío o con carga). Sigue sobre 500: con la escalera materializada baja ~0.25 s; el resto
+  (el anti-join de embarques sin recibir) va aparte, antes de que PQ lo consuma.
+
+### 16.16 🧪 [AB.29] + [AB.32] «Enviar a Compras»: la requisición le llega a la jefa de Compras (2026-10-26)
+
+Pedido del PM: *«en Autoabasto, para generar el pedido, que se mande la requisición a la jefa de
+Compras (Arizbeth)»*. Firmado con él ese día (cierra **D12** y **D13** de §16.13):
+
+| # | Decisión | Firma |
+|---|---|---|
+| D12 | Compras se entera con una bandeja en «Mi trabajo»; le llega **sólo a Arizbeth, por persona** (`user_responsibilities`), no por puesto: el puesto `gerente_compras` lo tienen dos personas y sólo ella aprueba (738 de 739 traspasos en 30 días, medido). Si mañana cambia, se reasigna el dato en `/admin/personas`, no el código | ✅ PM, 2026-10-26 |
+| D13 | La aprueba quien ya aprueba: `COMPRAS_REQUISICIONES_AUTORIZAR`, en `/compras/requisiciones` (D15) | ✅ PM, 2026-10-26 |
+| — | El rechazo con motivo lo hace AB ahora (no se espera a PQ.9); PQ.9 reusa las columnas para hacerlo obligatorio en todas | ✅ PM, 2026-10-26 |
+
+**Cómo quedó (commits `6d8ca6c4a`, `e138af460`; la parte del motor entró dentro de `2db37ae49`):**
+
+1. **La sucursal**, en «Mi pedido», pulsa **«Enviar a Compras»**. Sale lo marcado en «¿Hasta dónde
+   pides?» que falta por pedir. La pantalla manda QUÉ productos; la cantidad (lo guardado), a quién
+   se le pide (el canal) y el costo los pone el servidor. Una requisición por origen, por aprobar,
+   marcada `requested_by_branch`. El botón espera si hay un renglón sin guardar.
+2. **Compras (Arizbeth)** ve la bandeja «Requisiciones de sucursal por aprobar» (umbral 1 día) y la
+   atiende en `/compras/requisiciones` (marca «DE SUCURSAL», filtro). Aprueba como siempre;
+   **rechazar exige motivo** (servidor 400, CHECK en la base, diálogo) y queda quién y cuándo.
+3. **La sucursal** ve sus requisiciones en «Lo que te va a llegar»: por aprobar, aprobada, o
+   rechazada **con el motivo**. Lo que mandó queda «Lo pediste a Compras»: no se vuelve a pedir ni
+   suma como «a pedir», y no se resta del sugerido de Compras (D14: cuenta hasta que esté en Kepler).
+
+**Lo que falta / declarado:**
+
+- ⛔ **La migración `20261026084306` no está aplicada en prod** y va **antes** del código: sin ella
+  el envío contesta 503 (lo dice) y la bandeja de «Mi trabajo» sale como no medida.
+- La prueba de escritura corrió contra la **base local de pruebas**, no contra prod; lo único
+  simulado fue la lectura del motor (esa base no tiene plan de reabasto). **Sin validación visual.**
+- Unidad: `final_qty` en cajas de la mesa (= `display_bf` del plan en el 100 % de los productos con
+  venta) y `unit_cost` = `caja_cost`, como las de Compras. Donde la caja de compra (`bf`) difiere de
+  la de exhibición (~10 productos por sucursal) el costo por caja puede no corresponder: sin medir.
+- Sigue abierto: aviso a la sucursal en «Mi trabajo» (hoy lo ve en su pantalla); lo comprometido en
+  la matriz (AB.31/D10); el folio del traspaso pasado a Kepler (PQ.2); el permiso cruzado del botón
+  «Rechazar» del detalle (`GESTIONAR` contra `AUTORIZAR`, de PQ).
+
+### 16.17 ⛔ El motor sale del ODS: «absolutamente nada debe venir de importers» (2026-10-26)
+
+**Pedido del PM:** *«absolutamente nada debe venir de importers»*. Al preguntar de dónde salen la
+existencia y las ventas de la mesa, se midió (prod, sólo lectura) que la mesa, «Mi pedido» y la
+requisición dependen de **ocho tablas llenas por scripts de `database/importers`**, y que
+`/compras/pedido` lee las mismas:
+
+| Lo que usa | Tabla | La escribe |
+|---|---|---|
+| Existencia y venta diaria | `analytics.replenishment_plan` | `import-replenishment-plan.js` |
+| Demanda limpia | `analytics.product_demand` | `import-demand-clean.js` |
+| Venta por día | `analytics.sales_daily` | `import-sales-fact.js` (+3) |
+| Mínimo / reorden / máximo | `commercial.reorder_policy` | `import-computed-reorder.js`, `import-network-reorder.js` |
+| A quién se le pide y cada cuándo | `commercial.replenishment_channel` | `import-replenishment-cadence.js` |
+| Ranking de venta | `analytics.inventory_health` | `import-inventory-health.js` |
+| Productos / proveedores | `catalog.products` / `catalog.suppliers` | ~15 / 3 scripts |
+
+Lo que ya sale directo del ODS: lo ya pedido y lo en camino (`kdm1/kdm2`), la escalera (`kdii`),
+costo y factor de caja (vistas del ODS, leídas por su matview). La existencia ya existe como vista del
+ODS (`v_erp_stock_on_hand`), pero el motor lee la copia del importer.
+
+**Decisiones del PM (2026-10-26):**
+
+| # | Decisión | Firma |
+|---|---|---|
+| D16 | Se permite una **matview que sea `SELECT *` de una vista del ODS**, refrescada por la app con su latido y con la edad a la vista. No es un importer: ningún script carga datos | ✅ PM |
+| D17 | **Alcance: el motor completo** — la mesa, «Mi pedido» y `/compras/pedido` leen las mismas vistas del ODS y siguen dando la misma cifra. Se coordina con PQ. Catálogo y proveedores quedan **fuera** (los usa toda la Suite: proyecto aparte, con su fase) | ✅ PM |
+
+**Plan (C0 → C3, cada número que cambia en su commit con antes/después):**
+
+1. **C0** — inventario de lo que calcula cada importer y de las vistas del ODS que ya existen; paridad
+   de cada candidata contra lo de hoy, almacén × producto (en curso).
+2. **C0/C1** — las vistas que falten: demanda por almacén × producto, existencia directa de
+   `v_erp_stock_on_hand`, la política (mínimo / reorden / máximo) como vista o función, el canal.
+3. **C1/C2** — el motor (AB y Compras a la vez) lee las vistas; matviews de esas vistas donde haga
+   falta para los 500 ms.
+4. **Cierre** — los scripts salen de la agenda de feeds (`ops/vl/crontab.feeds`) sólo después de la
+   paridad medida; el código de `database/importers` correspondiente se retira o queda como deuda con nombre.
+
+#### 16.17.1 La raíz: la venta de TODA la Suite sale del ODS (PM, 2026-10-26: «sí, corrígelo»)
+
+`analytics.sales_daily` la escribe `import-sales-fact.js` (cada 60 s y cada noche) desde
+`mart.ventas_enriched`, una vista de la base `kepler_consolidado` en `md` que se recarga borrando e
+insertando desde las réplicas de cada sucursal **más el envío de las camionetas**: copia sobre copia.
+La leen **17 vistas/matviews y ~20 archivos**: Reabasto, Rentabilidad, Presupuestos, sell-out,
+promociones, ABC, «Mi trabajo», Thot. Por eso se corrige la tabla, no una vista sólo para Reabasto
+(dos ventas distintas contradirían la regla de una sola fuente).
+
+**C0 medido (prod, sólo lectura, 7 días cerrados, prototipo `U-D-8/10/12` del ODS):**
+
+| | Resultado |
+|---|---|
+| Mayoreo | igual (−0.31 % a 0.00 %) |
+| Tienda + crédito por sucursal | igual (±0.4 %). El reparto tienda/crédito se copia del consolidado: `kdm1.c10` = forma de pago (`CONTADO` → tienda; cliente → crédito; doc 8 → mayoreo; doc 12 → crédito) |
+| Rutas de Padre Hidalgo (21–28) | **exactamente el doble en `sales_daily`**: la venta entra al consolidado por el Kepler de 01 (almacén `01-00N`) **y** por el envío de la camioneta (`ruta_NN`), y el importer manda las dos al mismo RUTA-NN. ~$2.75 M de más en 30 d, plegados en la demanda de Padre Hidalgo (~16 %). ⚠️ Se dijo primero que era el corte de camioneta `U-D-23`: **falso**, el consolidado sólo carga docs 8/10/12 (`mart_refresh_ventas.sql:56,85`); el corte sólo suma lo mismo que los tickets |
+| Rutas de Canindo (501–505) | **no existen en Kepler** (sin documentos `06-00N`): sólo en el envío de la camioneta, ~$428 K/semana |
+| Peso | `sales_daily` convierte a kilos y la existencia/caja están en la base de Kepler: base 500 g → demanda a la **mitad** (180 de 226 pares), base 250 g → a la **cuarta parte** (53 de 58); ~$552 K/30 d. Además 169 SKU con base de gramaje llegan a la escalera sin nombre de unidad |
+| Costo actual | **no es del ERP**: importe ÷ (1 + margen del catálogo) |
+| Datos | el ODS trae documentos con **fecha futura** (00 hasta 31-dic, 02 hasta 14-dic, 04 hasta 29-oct) y `sales_daily` 4 renglones del 6-dic (Ruta 22): la vista corta en hoy |
+| Tiempo | 2.4 s por 7 días de toda la red → matview (D16) |
+
+**Decisiones del PM (2026-10-26):**
+
+| # | Decisión | Firma |
+|---|---|---|
+| D18 | La venta de las camionetas de Canindo **entra primero al ODS** (como Wincaja con WR) y la vista la lee de ahí. ⚠️ Cada camioneta tiene su Kepler local (`md_06-0NN`, Wi-Fi `192.168.50.x`) y hoy sólo empuja tickets ya transformados a `kepler_consolidado`; replicar su `kdm1/kdm2` crudo al ODS es trabajo de campo en las 5 laptops. **Dueño por asignar.** Mientras no exista, el cambio de fuente (C2) no se publica | ✅ PM |
+| D19 | El **costo sale de Kepler** (cantidad en base × costo unitario de Kepler), con antes/después de Rentabilidad y Presupuestos antes de publicarlo | ✅ PM |
+
+**Orden:** C1 = la vista `v_sales_daily_ods` (misma forma que `sales_daily`, más `units_base` en la unidad de
+Kepler) + su matview + prueba de paridad por almacén × canal × día · C2 = el cambio de fuente para los 37
+consumidores, **cuando D18 exista**, con antes/después por módulo y fuera de horario · cierre = el
+importer sale de `livefast` y `nightly`. ⛔ *Corregido en §16.17.2: la vista nueva NO se crea.*
+
+#### 16.17.2 Lo que cambió el plan al medir (2026-10-26)
+
+**1 · La venta del ODS YA existe: no se crea `v_sales_daily_ods`.** `analytics.mv_kepler_sales_daily`
+(sep-2026, 443 MB, al día) deriva de `kepler_ods.kdm1 ⋈ kdm2`, y es la base del sell-out
+(`v_sellout_daily`), del margen (`mv_sales_blended`) y de ~40 objetos más. Crear otra sería la copia
+que prohíbe la regla 2. **C1 pasa a ser extender esa**, y C2 a que el motor la lea en lugar de `sales_daily`.
+
+**2 · La regla de unidades, medida (14 días cerrados, venta de sucursales):** `sales_daily.units` es
+exactamente `sum(kdm2.c9)`, la cantidad en la unidad base de Kepler, en 4,266 de 4,343 SKU (PAQ 2,887/2,921;
+PZA 1,131/1,140; KG 195/195; CJA 10/10). Sólo se aparta en las bases de peso, que el importer pasa a kilos
+(500 → ×0.5, 58 SKU; 250 → ×0.25, 10; 400 → ×0.4, 3), y en CUB/BTO (gramaje, 6). **Regla: `units = c9`**,
+en la unidad de Kepler, que es la de la existencia y la caja. ⚠️ `mv_kepler_sales_daily` multiplica la
+base CJA por el factor de caja (10 SKU, 0.43 % de la venta) y con eso se aparta de Kepler: se corrige al extenderla.
+
+**3 · Las rutas de Padre Hidalgo tampoco están completas en el ODS. Corrige lo dicho en §16.17.1.**
+Kepler 01 guarda sus documentos (`01-00N`) **sólo desde el 20-ago**, y cuando tiene el día coincide con el
+envío al peso. Pero le faltan **27 días enteros** desde el 1-sep (~$476 K): días que nunca subieron de la
+camioneta. La fuente completa es el envío, igual que en Canindo. **D18 se extiende a las 6 camionetas de
+Padre Hidalgo (21–28).**
+
+**4 · El sell-out publica las rutas dos veces → [AB.37].** Su tramo 3 lee `sales_daily` en `RUTA-%` (que
+ya trae la venta al doble) y su tramo 4 vuelve a sumar Canindo desde el envío.
+
+| Mes | Sell-out de rutas hoy | Con el arreglo | De más |
+|---|---:|---:|---:|
+| jun | $4,967,540 | $4,967,540 | 0 |
+| jul | $5,051,175 | $5,044,797 | $6,378 |
+| ago | $7,108,360 | $4,943,097 | $2,165,263 |
+| sep | $9,259,969 | $4,785,269 | $4,474,700 |
+| oct (al 25) | $7,447,575 | $3,805,967 | $3,641,608 |
+
+La venta que no es de ruta no se mueve ni un peso. Medido ejecutando en prod, en sólo lectura, **el texto exacto**
+de la migración `20261026104753_sellout_rutas_sin_doble_conteo.js` (`up` y `down`); el `down` reproduce la
+vista viva fila por fila y las columnas son idénticas. Las rutas quedan = el envío (Padre Hidalgo desde el
+1-jul, Canindo desde el 13-ago; antes, Wincaja, sin cambio).
+
+**5 · El margen tiene el mismo defecto → [AB.38]** (🧪 en código el mismo día; medido abajo, en §16.17.3). `mv_sales_blended` (1.8 GB) une `sales_daily` en
+`RUTA-%`: las rutas de Padre Hidalgo salen al doble en Rentabilidad (~$0.81 M ago, ~$2.46 M sep, ~$2.09 M oct;
+Canindo una sola vez, porque ahí no hay tramo de envío). Arreglarlo exige recrear la matview y sus dependientes:
+escritura pesada, **fuera de horario**, y con el antes/después de Rentabilidad (D19).
+
+#### 16.17.3 🧪 [AB.38] Rentabilidad cuenta cada venta de ruta una vez (2026-10-26)
+
+Migración `20261026113559_margen_rutas_sin_doble_conteo.js`: el tramo de rutas de `mv_sales_blended` deja
+`sales_daily` y lee el envío de cada camioneta, con las mismas reglas que `sales_daily` (canal `tienda` sin
+cliente / `credito` con cliente, medidas al peso en Canindo sep–oct; costo = venta ÷ (1 + margen del catálogo);
+tickets = folios). **El costo no se toca: eso es D19**, aparte.
+
+| Mes | Venta de ruta antes | Después | Venta total antes | Después | Margen % antes | Después |
+|---|---:|---:|---:|---:|---:|---:|
+| jul | $2,841,330 | $2,834,952 | $54.66 M | $54.66 M | 11.627 | 11.627 |
+| ago | $4,981,875 | $4,134,669 | $55.70 M | $54.85 M | 11.532 | 11.535 |
+| sep | $7,242,483 | $4,785,269 | $57.38 M | $54.93 M | 11.070 | 11.071 |
+| oct (al 25) | $5,898,106 | $3,805,967 | $50.45 M | $48.36 M | 10.657 | 10.632 |
+
+⭐ **El margen % casi no se mueve, y eso explica por qué nadie lo vio:** el costo de ese tramo es proporcional a la
+venta, así que al duplicarla se duplicaba también el costo. Lo inflado eran los **pesos** (venta y utilidad de
+ruta: ~$270 K de utilidad de más en septiembre). Los tickets salen iguales antes y después (sep 47,338 → 47,330):
+el importer no los duplicaba, y es el testigo de que el tramo nuevo cuenta los mismos documentos.
+
+**Por qué nadie lo detectó:** el candado SD.1 (`test-newdb-sales-lineage-parity.js`) exigía
+`ruta(mv_sales_blended) == ruta(sales_daily)`, y las dos traían el doble: **dos derivaciones que comparten el
+error se confirman entre sí.** Corregido: la ruta se arbitra contra el envío; la paridad total y los tickets, sin
+camionetas. Contra prod: 11 ✓ · 2 NO MEDIDO (la migración sin aplicar); **negativa** (dándola por aplicada sobre
+la matview de hoy): rojo con el doble exacto (sep $2,457,214; ago $847,205). De paso, la comprobación 4 estaba
+roja desde el 19-sep porque no conocía la sucursal 08 (Morelia Abastos): era la regla, no un hallazgo.
+
+**Verificación de la migración:** `up` → `down` en la base local de pruebas, con siembra sintética dentro de una
+transacción revertida (la base local no tiene datos): la ruta pasa de 600 al envío (300) y vuelve; canal, tickets
+y costo correctos; índices, lectores, comentario y el rollup `mv_profitability_sales_agg` (re-creado, al centavo)
+se conservan; la compuerta se niega a reemplazar si no hay meses con qué comparar. **No ejercida en prod**: escribe
+1.8 GB. ⛔ **Se aplica FUERA DE HORARIO.** Tiempo de construcción en prod: NO MEDIDO (lo imprime la migración).
+
+### 16.10 Definición de Terminado
+
+- [ ] Métrica re-medida con la misma consulta, antes/después publicado.
+- [ ] Carga completa de la mesa y de «Mi pedido» bajo 500 ms en todas las sucursales, medida en prod (AB.36).
+- [ ] C0–C3 verificadas o declaradas NO MEDIDO.
+- [ ] «Generar requisición» (AB.29) ejercida contra base real con el payload de la pantalla, con sus negativas (fuera de alcance → 403).
+- [ ] La prueba negativa de AB.26 vista en rojo.
+- [ ] La línea del renglón vive en `libs/contracts` (sin segundo cálculo en el front).
+- [ ] Tracker, `03_LOG_REVISIONES.md`, fila de AB en el roadmap y ADR-100 al día.
+- [ ] En prod, o escrito por qué no.
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+> La mesa y «Mi pedido» ya existen (AB.14–AB.36, 🧪 y parte en prod): ahí cada observación es un
+> criterio a verificar en la pantalla, no un defecto medido. En lo que falta construir (AB.28b, la
+> pantalla aparte de AB.29, nivelación, AB.4–AB.6, AB.10) es requisito de diseño. Las cifras son
+> las del plan, con su fecha.
+
+**La pregunta que contesta (prueba de la frase, §4.0b):**
+
+- **Mesa** (`/almacen/autoabasto`): *«¿Qué le falta a esta sucursal que todavía nadie ha pedido?»* —
+  una pregunta; «ya viene» y «Compras lo planeó» son su evidencia. Bien partida, salvo Mín / Reorden /
+  Máx, que contestan otra («¿están bien los parámetros?», que §15.7 deja al módulo del PM): ruido
+  (§4.0 B), ver AB.UI.11.
+- **«Mi pedido» / «Lo que te llega»**: *«¿Qué me va a llegar, y qué le pido a Compras, y cómo van mis
+  requisiciones?»* — tres preguntas: conflación (§4.0 A). Corte propuesto, el mismo de D7: «Lo que te
+  llega» sólo lee; «Pedir a Compras» arma, envía y sigue las requisiciones. Ver AB.UI.10.
+- **`/almacen/nivelacion`** (sin construir): *«¿Qué me sobra que otra sucursal necesita?»* — con D3
+  esa pregunta dejó de ser del almacén: es de Compras. Ver AB.UI.8.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):**
+
+- Mesa: primario = **«Falta por pedir: N productos · X cajas»** de este almacén · secundario = los
+  renglones con su falta neta y a quién se le pide («Surte») · terciario = existencia, venta 30 d,
+  mín / reorden / máx y entrega.
+- «Lo que te llega»: primario = lo que llega **con documento en Kepler** y para cuándo · secundario =
+  lo planeado por Compras sin documento y lo atorado, con su edad · terciario = folio y renglones.
+- «Pedir a Compras»: primario = lo que se va a enviar, por origen, contra el tope en pesos ·
+  secundario = los renglones ajustados con su motivo · terciario = sugerido original y escalera de
+  unidades.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| AB.UI.1 | 🔴 | **«Lo que te llega» (o «Lo que te va a llegar», §16.16) contiene cosas que no llegan:** el plan de Compras sin documento en Kepler, las requisiciones por aprobar y las **rechazadas**. PQ midió (M2, 23-oct) que **el 54.8 % de los traspasos aprobados no tiene ningún `U-D-40` en 15 días**, y hay 602 aprobados por **$12.81 M** sin salida, el más viejo de 25 días. Encima, «Enviar a Compras» sólo manda lo que está en «Falta por pedir»: un renglón que Compras planeó en los últimos 7 días no sale, la sucursal lee «ya lo planearon», no lo pide, y más de la mitad de las veces ese traspaso no llega a Kepler. | §1.4 · §1.1 · §1.3 | El título cubre todo lo que contiene, o el contenedor se parte (AB.UI.10). Cada renglón de plan dice su edad y si está en Kepler: «Compras lo planeó el 21-oct · aún no está en Kepler», y se puede pedir con un clic y el motivo «El plan de Compras no ha llegado a Kepler». Una requisición rechazada nunca aparece bajo «te llega»: sus renglones vuelven a «Falta por pedir» con «Compras rechazó RQ-…: [motivo]». **Conflicto (decide Edgar):** si un plan sin documento en Kepler debe frenar el pedido de la sucursal (hoy, hasta 7 días) cuando M2 mide que más de la mitad no llega. |
+| AB.UI.2 | 🔴 | **«Venta 30 d» y la falta salen de una venta que el propio plan midió mal** (§16.17.1, 26-oct): las camionetas de Padre Hidalgo entran **dos veces** (~$2.75 M de más en 30 d, ~16 % de su demanda) y los productos con base de gramaje quedan **a la mitad** (500 g: 180 de 226 pares) o a la cuarta parte (250 g), ~$552 K en 30 d. Padre Hidalgo pide de más y el granel de menos, y la mesa, el PDF y la requisición que llega a Compras lo publican como dato firme. D18 no tiene dueño, así que la corrección (C2) no tiene fecha. `/compras/pedido` lee la misma tabla; Productos (PF) y Productos nuevos (NP) leen otra venta, la del ODS, sin las camionetas de Canindo: dos ventas del mismo producto en la Suite. | §1.3 · §1.6 · §1.5 | Mientras C2 no se publique, los renglones afectados lo dicen en la celda y en el porqué de la falta: «Incluye dos veces la venta de las camionetas de Padre Hidalgo (~16 % de más)» · «Venta en kilos contra existencia en la base de Kepler: la falta sale a la mitad». Las mismas marcas en `/compras/pedido` (PQ.UI.1). Se retiran sólo con la paridad de §16.17 medida. |
+| AB.UI.3 | 🔴 | **La falta de una sucursal en la mesa y su celda en `/compras/pedido` son dos números con el mismo nombre.** La mesa usa 21 días de cobertura en las cinco sucursales que no son matriz y resta lo que ya viene; Pedido usa 30 días, aplica el factor de cumplimiento y **no** resta lo que ya viene (D14 aceptada el 24-oct; en PQ el item no tiene número). Sólo por la cobertura, en La Piedad Abastos Compras ve ~**3,695 cajas** de falta donde la sucursal ve **2,072**; en Morelia Madero, 9,673 contra 6,103 (AB.22, 13-oct). El ejemplo de §16.14 («falta 32 − ya viene 20 = 12» en las dos pantallas) supone una cuenta que hoy no existe: es la discusión que la mesa promete evitar («dos audiencias, un solo número»). | §1.5 · §1.6 | Las dos pantallas dicen su cobertura junto a la cifra: «Falta para 21 días de venta» / «para 30 días». La celda de la sucursal en Pedido muestra lo que la sucursal ve: «La Piedad Abastos ve falta 12: 21 días, ya restado lo que viene». **Conflicto (decide Edgar):** una cobertura por almacén para las dos pantallas (la decisión de Francisco del 13-oct) o dos, declaradas; PQ.6 (cadencia + lead) sería la tercera. |
+| AB.UI.4 | 🔴 | **«Cajas» no es la misma caja en la mesa, en el redondeo y en Kepler.** La mesa cuenta con la caja del motor de Compras (`display_bf`, AB.15 y §16.16), del resolvedor que prefiere la etiquetera sobre el `c84` de Kepler en 2 de cada 3 SKUs del CEDIS (PQ §12.2); «Mi pedido» redondea con la escalera de Kepler (`v_product_unit_ladder`); la requisición sale con `final_qty` en cajas de la mesa y el adaptador la escribe en Kepler como `CJA` con `por_caja: 1`. Donde la caja de compra difiere de la de exhibición (~10 productos por sucursal) el costo por caja está «sin medir», y la mesa todavía rotula «cajas» a productos que sólo tienen pieza (AB.16). Lo que la sucursal pide en una caja puede capturarse en Kepler en otra. | §1.1 · §1.5 · §4.5 | Toda cantidad lleva la unidad de Kepler y, si es caja, su contenido: «12 CJA de 24 PAQ». Un producto de factor 1 nunca dice «cajas». Donde la caja de la pantalla ≠ `c84`, `p-tag` «Caja distinta a Kepler» en el renglón y en la requisición. A verificar: que el redondeo no reste una falta en cajas de etiquetera con cajas de Kepler. Un solo resolvedor en `libs/`, con D20 de PQ (sin firma). |
+| AB.UI.5 | 🔴 | **«Existencia 0» significa tres cosas y las tres se pintan igual:** agotado; **negativo en Kepler** recortado a 0 (45 SKUs del CEDIS, PQ §12.1; el agua 59108 en −13,410, AB.15); o **nunca contado** (CEDIS: 127 SKUs contados el 30-sep, ~900 de los 1,264 que embarca en cero o negativo, PQ §12). Elegido el CEDIS, la mesa sale **vacía** («su objetivo sale en 0», AB.25), que se lee «no falta nada». Y en la misma área, Inventario › Existencia (el componente de `/compras/existencia`) lee otra copia (`commercial.stock`, con el CEDIS en la foto de Wincaja del 29-sep; AB.15, 12-oct, sin re-medir): dos existencias del mismo producto a dos pestañas de distancia. | §1.3 · §1.5 | Un negativo se publica como negativo con `p-tag` «Negativo en Kepler» (D8 de PQ). El CEDIS sale del selector o abre con «El CEDIS no vende: su falta no se calcula con venta propia. Existencia sin contar en N productos desde el corte del 30-sep». Las dos pantallas de existencia del área leen la misma fuente o dicen cuál leen. |
+| AB.UI.6 | 🔴 | **«Enviar a Compras» escribe varias requisiciones de un golpe (una por origen) y el plan no dice qué pasa con el doble clic ni con un envío a medias.** La red contra duplicados `lote-repetido.ts` «sólo mira renglones de COMPRA … para las requisiciones de traspaso de la sucursal hay que extenderla» (AB.29), y §16.16 no dice que se extendió. Una requisición doble es un pedido que Compras aprueba dos veces: ya hay **84 grupos repetidos vivos, 388 renglones, $3.30 M** (PQ, 23-oct). Y si de cuatro orígenes falla uno (el 503 de antes de la migración, por ejemplo), un «falló» sin más hace que la sucursal reenvíe los cuatro. | §5 (idempotencia visual · fallos parciales) · DESIGN §X.1 | El botón se deshabilita en el primer clic, antes de la respuesta. Antes de enviar, el plan en llano: «Se van a crear 3 requisiciones: Padre Hidalgo (traspaso, 14 renglones, $X) · Proveedor Y (…)», con Enviar / Revisar. El resultado parcial se dice: «2 enviadas (RQ-…, RQ-…) · 1 falló: Proveedor Y — reintentar», y lo fallido queda marcado. Prueba contra base real: dos envíos simultáneos dejan una requisición por origen. |
+| AB.UI.7 | 🟠 | **El freno de fin de pico baja la falta y la pantalla no lo dice.** «La venta de 30 días que se muestra no cambia; sólo baja el objetivo» (AB.17): el bombón 70012 en La Piedad Abastos muestra la venta del pico y pide 3.2 cajas en lugar de 45.6. Son **725 pares** frenados (pedido de $718 mil → $162 mil). Quien ve la venta alta y la falta chica la sube con + y motivo, y deshace el freno renglón por renglón; Compras ve la misma cifra en Pedido (motor común). | §3.2 · DESIGN §X.3 (razón en llano) | `season_src = 'fin_pico'` llega a la pantalla: `p-tag` «Fin de pico» y en el porqué «Se pide para la venta normal (X al día): la semana pasada vendió menos del 40 % de su semana más alta». Lo mismo en `/compras/pedido` (PQ.UI.10). |
+| AB.UI.8 | 🟠 | **`/almacen/nivelacion` sigue en el encabezado del plan, y D3 ya mandó el sobrante de la red a Compras** («que es quien puede moverlo»). Pero Compras abre Sobrante **5 veces en 30 días** contra 3,734 de Pedido (PQ §1, 23-oct). El sobrante —10,973 renglones en la red, AB.14, 12-oct— pasa de la pantalla de quien lo necesita a una que nadie abre. | §3.4 · §2.4 · §4.0c | Se decide y se escribe: `/almacen/nivelacion` sale del encabezado o se redefine. El sobrante que cubre una falta aparece donde Compras decide —la celda de Pedido—: «Padre Hidalgo tiene 40 cajas sobre su máximo: traspásalo antes de comprar» (PQ.UI.11). |
+| AB.UI.9 | 🟠 | **Para 5 de 6 almacenistas la pantalla es un callejón:** «No tienes almacén asignado» (AB.20, 12-oct, sin re-medir) no dice quién lo asigna, y §16.9 deja ese bloqueo «sin dueño». El permiso está repartido; la puerta no abre. | §2.4 · §3.4 | El aviso dice qué hacer y a quién: «No tienes almacén asignado. Pídele a [puesto que administra Personas] que te lo asigne». Con permiso de Personas, enlace a `/admin/personas` con la persona puesta. AB no cierra sin el conteo de almacenistas sin almacén re-medido. |
+| AB.UI.10 | 🟠 | **Una pestaña con tres nombres y una acción con dos:** «Mi pedido» (ruta `/almacen/autoabasto/pedido`), «Lo que te llega» (D6) y «Lo que te va a llegar» (§16.16); «Generar requisición» (D7, mini pantalla aparte) y «Enviar a Compras» (lo construido, dentro de «Mi pedido»). Adentro conviven lectura (lo que viene, atorados, negados, plan de Compras), captura (− / +, motivo, «¿Hasta dónde pides?») y seguimiento (sus requisiciones). Con D1 la tienda ya no arma pedido y la pantalla sigue llamándose «pedido»; hoy no la usa ninguna tienda (22 de 23 eventos son de Dirección). | §4.0 A · §3.9 · §1.4 | Un nombre por superficie, sustantivo del dominio, igual en ruta, pestaña, migaja, «Mi trabajo» y PDF. El corte de D7 se respeta: «Lo que te llega» sólo lee; «Pedir a Compras» arma, envía y sigue. AB.28b no cierra con «Mi pedido» en ningún texto visible. |
+| AB.UI.11 | 🟠 | **12 columnas seguidas (13 con «Venta 30 d», §16.8), y dos se contradicen:** «Entrega» (días de cobertura) usa la venta de **90 días** (`inventory_health`, pendiente desde AB.15 y sin cierre en el plan) al lado de «Venta 30 d»: quien divide la existencia entre la venta que ve saca otros días que los de la columna. Mín / Reorden / Máx son tres números del módulo del PM que «Posición» ya resume, y Falta − Ya viene = Falta neta son tres números para que la persona reste. | §4.1 · §4.0c · §1.6 | Columnas en grupos con título (ninguno de más de 6) en `p-table` + `surf-table`. «Falta neta» es la cifra; la resta va en su explicación en llano: «Faltan 32; ya vienen 20 (pedido 0450, embarque 0391) → faltan 12». Mín / Reorden / Máx pasan al `app-side-peek` del renglón. «Entrega» usa la venta de la columna de al lado o dice la suya: «días, con la venta de 90 días». |
+| AB.UI.12 | 🟠 | **La falta mezcla datos de edades distintas y la mesa no declara ninguna:** existencia del plan (nocturno + carril de existencia), costo de una copia de hasta ~15 min (AB.36), venta de un importer, «ya viene» del ODS en vivo, y las matviews que D16 permite «con la edad a la vista». `check:pantalla` lo deja como deuda (§9: «la respuesta trae la hora del cálculo, no la edad del dato»). Un «ya viene» al minuto junto a una existencia de anoche es lo que hace pedir dos veces. | §3.6 · DESIGN §9 | `app-freshness-pill` con la edad del dato **más viejo** que entra a la falta, leída de su latido (nunca del reloj del navegador, VP.0); pasado el umbral se pinta distinto. En el porqué del renglón: «existencia de las 03:36 · ya viene de hace 2 min». |
+| AB.UI.13 | 🟡 | **La última revisión en pantalla es la de AB.14 (12-oct, la mesa anterior).** «Mi pedido» está en prod desde AB.18–AB.20 sin nivel A; AB.28a, AB.29/AB.32 y AB.36 dicen «sin validación visual», y el plan mismo nombra lo más probable de ajustar (el ancho de las columnas, el control de estado en pantallas angostas, los tooltips). | método §4 · §2.3 | Nada pasa a 🚀 sin `auditoria-diseno` en nivel A: claro, oscuro y `forced-colors`. Los cuatro estados del renglón (Ya viene · Compras lo planeó · Falta por pedir · En política) se distinguen sin color. |
+
+**Lo que esta revisión no cubre:** contraste, alto de fila y teclado reales (exigen nivel A); el texto
+exacto de los avisos, que se valida con quien opera la sucursal; AB.4–AB.6 y AB.10, que todavía no
+tienen pantalla descrita; y quién contesta «cuánto le van a sacar a la matriz» (AB.31 contra PQ.12),
+que es una decisión de modelo antes que de pantalla: si las dos fases la construyen, habrá dos
+«disponible de la matriz».

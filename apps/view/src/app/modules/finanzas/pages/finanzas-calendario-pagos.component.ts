@@ -19,6 +19,7 @@ import type {
   PaymentCalendarAllocation, PaymentCalendarWeek, PaymentCalendarWeekDay,
   PaymentObligationSource, PaymentOriginAccount,
 } from '@megadulces/contracts';
+import { warehouseName } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -26,11 +27,20 @@ import { EntityInspectorComponent } from '../../../shared/components/entity-insp
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { agruparObligaciones, allocationKey, filasAgrupadas, obligationKey, sugerirArmado, vencimiento, type ArmadoGrupo } from './calendario-pagos-grupos';
+import { agruparObligaciones, allocationKey, fechaCorta, filasAgrupadas, obligationKey, sugerirArmado, vencimiento, type ArmadoGrupo } from './calendario-pagos-grupos';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
 type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto' | 'presupuesto_recortado' | 'otro';
+
+/**
+ * `[PGP.11]` La única acción que el veredicto ofrece: la que destraba el paso en el que el día
+ * está parado. Es una unión cerrada a propósito — `runVerdict()` tiene que seguir siendo
+ * exhaustiva, y agregar un paso sin su acción tiene que romper la compilación, no pasar de largo.
+ */
+type VerdictActionKind = 'armar' | 'ordenar' | 'preparar' | 'autorizar' | 'caja';
+interface VerdictAction { kind: VerdictActionKind; label: string; icon: string }
 
 interface Obligation {
   obligation_source: PaymentObligationSource; obligation_id: string; beneficiary: string; concept: string;
@@ -50,6 +60,12 @@ interface Obligation {
    */
   pronto_fecha_limite?: string | null;
   pronto_beneficio?: number | null;
+  /**
+   * `[PGP.7]` La tasa observada. Era la última columna por la que había que ir a Pronto pago:
+   * el beneficio en pesos dice cuánto se gana, pero no si conviene adelantar el dinero — para
+   * eso hace falta el %. `null` = sin observaciones suficientes, que **no** es 0 %.
+   */
+  pronto_tasa?: number | null;
   pronto_estado?: 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir';
   /**
    * `[TP.20.5]` **El ref de la ficha de esta factura.** Lo arma el backend, que es el único que
@@ -59,6 +75,19 @@ interface Obligation {
    * **no se pinta como enlace**, que es la única forma honesta de decirlo.
    */
   entity_ref?: string | null;
+  /**
+   * `[PGP.12]` **La referencia del proveedor** — lo que `/compras/obligaciones` ya muestra en su
+   * columna «Referencia» (`0-F-2525`, `30-1402`). Verificada contra las 38 obligaciones que
+   * Compras capturó a mano: **38 de 38 exactas**, control placebo **0 de 38**.
+   *
+   * ⚠️ Es captura LIBRE en el ERP: 92.6 % de los documentos traen algo, y entre ese algo hay
+   * `LPA`, `DAMASO`, `S/R`, `jmea`. Por eso la columna se rotula **«Referencia»** y nunca
+   * «Factura del proveedor»: en 2,705 documentos no es una factura. `null` = el ERP no trae nada,
+   * que se pinta como raya y no como vacío ambiguo.
+   */
+  doc_ref?: string | null;
+  /** `[PGP.12]` El código del acreedor en Kepler (`CNFR001`, `AE002`). Buscable; no se pinta solo. */
+  payee_code?: string | null;
 }
 interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; es_favorita: boolean }
 /**
@@ -114,7 +143,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, TagModule, MessageModule, CheckboxModule, ToastModule, TooltipModule, MetricStripComponent, LoadStateComponent, EntityInspectorComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, TagModule, MessageModule, CheckboxModule, ToastModule, TooltipModule, MetricStripComponent, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent],
   providers: [MessageService],
   template: `
     <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
@@ -124,8 +153,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       <p-toast></p-toast>
       <header class="surf-page-head cal-head">
         <div class="surf-page-head-text">
-          <h1>Calendario de pagos</h1>
-          <p class="surf-page-sub">Elige el día arriba, agrégale obligaciones desde la izquierda y ordénalo y prepáralo a la derecha.</p>
+          <!-- [PGP.7] El «about» de que esta pantalla ya incluye todo el ciclo: desde que absorbio
+               a Pronto pago es el unico lugar donde se hace un pago, y lo absorbido llegaba sin
+               explicacion. La jerga va al diccionario versionado, no a un title (regla P). -->
+          <h1>Calendario de pagos <app-context-help topic="calendario-de-pagos" /></h1>
+          <p class="surf-page-sub">Elige el día en el riel, agrégale facturas desde la izquierda, y a la derecha ordénalo, prepáralo y autorízalo. Incluye el descuento por pronto pago de cada factura.</p>
         </div>
         <div class="cal-nav">
           <button pButton type="button" class="p-button-sm p-button-outlined" (click)="shiftWeek(-1)" aria-label="Semana anterior"><span class="pi pi-angle-left" aria-hidden="true"></span></button>
@@ -139,9 +171,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         </div>
       </header>
 
-      @if (week()) { <app-metric-strip [items]="weekKpis()" density="compact" ariaLabel="Resumen de la semana" /> }
+      <!-- [PGP.11] La franja contesta las CUATRO preguntas del DIA ELEGIDO, no las de la semana.
+           Antes traia presupuesto/comprometido/disponible de la semana... y esas mismas tres
+           cifras volvian a salir en la tarjeta del dia y otra vez en el panel derecho: once
+           numeros para una sola idea (cuanto puedo pagar hoy). Cuando todo pesa igual, nada es
+           primario (DESIGN.md Q.5). La semana baja a UNA linea bajo el riel: no se pierde, deja
+           de competir. -->
+      @if (week()) { <app-metric-strip [items]="dayKpis()" density="compact" [ariaLabel]="'Resumen del ' + dayLong(selectedDate())" (drill)="irAlTrabajo($event)" /> }
 
-      <!-- ── La semana: una franja compacta; el día se elige aquí ─────────── -->
+      <!-- ── La semana: un riel compacto; el día se elige aquí ─────────────── -->
       <app-load-state [loading]="loadingWeek() && !week()" [error]="weekError()" [skeletonRows]="2" (retry)="loadWeek()">
         <div class="cal-week" role="group" aria-label="Días de la semana">
           @for (d of week()?.days ?? []; track d.date) {
@@ -153,9 +191,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 @if (d.summary.lot_status) { <span [class]="'cal-day-lot is-' + lotTone(d.summary.lot_status)">{{ lotLabel(d.summary.lot_status) }}</span> }
               </span>
               @if (d.summary.capacity_defined) {
-                <span class="cal-day-avail comm-num" [class.cal-neg]="(d.summary.remaining_amount ?? 0) < 0">{{ moneyShort(d.summary.remaining_amount) }}</span>
-                <span class="cal-day-cap">disponible de {{ moneyShort(d.summary.authorized_amount) }}</span>
-                <span class="cal-bar" aria-hidden="true"><span class="cal-bar-fill" [class.is-over]="d.summary.exceeded" [style.width.%]="usedPct(d)"></span></span>
+                <!-- [PGP.11] El rotulo ya no miente. La cifra grande ERA remaining y debajo decia
+                     "disponible de $X" apuntando al presupuesto: dos rotulos para dos numeros
+                     distintos usando la misma palabra, y el panel derecho llamaba "Presupuesto" a
+                     ese mismo $X. Ahora se dice entero y en un renglon (Cruce 2). -->
+                <span class="cal-day-line">
+                  <span class="cal-bar" aria-hidden="true"><span class="cal-bar-fill" [class.is-over]="d.summary.exceeded" [style.width.%]="usedPct(d)"></span></span>
+                  <span class="cal-day-avail comm-num" [class.cal-neg]="(d.summary.remaining_amount ?? 0) < 0">{{ moneyShort(d.summary.remaining_amount) }}</span>
+                  <span class="cal-day-cap">libres de {{ moneyShort(d.summary.authorized_amount) }}</span>
+                </span>
               } @else {
                 <span class="cal-day-nocap">Sin presupuesto</span>
               }
@@ -165,25 +209,39 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   @if (dayUnprepared(d) > 0) { <span class="cal-warn-txt"> · {{ dayUnprepared(d) }} sin preparar</span> }
                 } @else { <span class="cal-muted">Sin pagos</span> }
               </span>
-              <!-- [TP.21.2] LA COSTURA. El libro de Tesoreria y este calendario son la misma
-                   linea de tiempo partida en dos: el pasado en un Excel, el futuro aqui. Medido:
-                   cero dias en comun y 53 dias en medio que ninguna pantalla contaba. Esta linea
-                   es ese pasado, en el mismo dia, declarado como OTRO universo (suma por fecha,
-                   no casa renglones: casar por monto+mes es lo de PP.4). -->
+              <!-- [PGP.9] LA COSTURA, ahora contra el ERP. Antes la traia el Excel de Tesoreria y
+                   eso obligaba a que alguien lo cargara: llevaba 77 dias sin hacerlo, asi que la
+                   pantalla decia "libro sin cargar" todos los dias. El ERP es el mismo hecho -que
+                   dinero salio ese dia- y llega solo. Sigue siendo OTRO universo: suma por fecha,
+                   no casa renglones (casar por monto+mes es lo de PP.4). -->
               @if (d.libro; as lb) {
-                @if (!lb.mes_cargado && isPast(d.date)) {
-                  <span class="cal-day-libro is-gap" title="El Excel de Tesoreria no tiene ese mes. NO quiere decir que no se haya pagado.">
-                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> libro sin cargar
+                @if (lb.n > 0) {
+                  <span class="cal-day-libro" [title]="'Segun el ERP salieron ' + money(lb.monto) + ' en ' + lb.n + ' pago(s) — ver el about'">
+                    <i class="pi pi-building-columns" aria-hidden="true"></i> salió: <span class="comm-num">{{ moneyShort(lb.monto) }}</span> · {{ lb.n }}
                   </span>
-                } @else if (lb.n > 0) {
-                  <span class="cal-day-libro" [title]="'Segun el LIBRO de Tesoreria salieron ' + money(lb.monto) + ' en ' + lb.n + ' pago(s) ese dia. Es otro universo que lo de arriba: se suma por fecha, no se casa renglon por renglon.'">
-                    <i class="pi pi-book" aria-hidden="true"></i> libro: <span class="comm-num">{{ moneyShort(lb.monto) }}</span> · {{ lb.n }}
+                } @else if (isPast(d.date) && !lb.data_as_of) {
+                  <!-- ⛔ Un cero SIN fecha de corte no se puede leer: no se sabe si no se pago o si
+                       el espejo no se recalculo. Se declara en vez de pintar el cero (ADR-056). -->
+                  <span class="cal-day-libro is-gap" title="El espejo del ERP no trae fecha de corte: no se puede saber si ese dia no hubo pagos — ver el about">
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> sin medir
                   </span>
                 }
               }
             </button>
           }
         </div>
+        <!-- [PGP.11] La semana, entera, en un renglon. Las tres cifras que estaban en la franja
+             siguen aqui con el mismo valor: lo que cambio es el PESO, no el dato. La semana es un
+             tope que no pide hacer nada; el dia es donde se trabaja. -->
+        @if (week(); as w) {
+          <p class="cal-weekline">
+            <span>Semana: <b class="comm-num">{{ moneyShort(weekBudget()) }}</b> de presupuesto</span>
+            <span><b class="comm-num">{{ moneyShort(weekAssigned()) }}</b> comprometido</span>
+            <span><b class="comm-num" [class.cal-neg]="weekAvailable() < 0">{{ moneyShort(weekAvailable()) }}</b> disponible</span>
+            @if (weekNoCapDays() > 0) { <span class="cal-warn-txt">{{ weekNoCapDays() }} día(s) sin presupuesto</span> }
+            @if (weekUnprepared() > 0) { <span class="cal-warn-txt">{{ weekUnprepared() }} sin preparar en la semana</span> }
+          </p>
+        }
       </app-load-state>
 
       <div class="cal-work">
@@ -192,7 +250,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           <div class="cal-panel-head">
             <!-- [TP.17.2] Cuando el techo recorta, el contador dice "N de M": un "1,000 facturas"
                  a secas sobre 2,931 es el numero que miente, no el que falta. -->
-            <h2>Obligaciones disponibles <span class="cal-count">@if (obligationsTruncated()) { {{ obligations().length | number }} de {{ obligationsTotal() | number }} } @else { {{ obligations().length | number }} }{{ obligations().length === 1 && !obligationsTruncated() ? ' factura' : ' facturas' }} · {{ obligationGroups().length | number }} {{ obligationGroups().length === 1 ? 'proveedor' : 'proveedores' }}</span></h2>
+            <!-- [PGP.10] El conteo de proveedores dice de QUE universo es. Antes se leia
+                 "1,000 de 2,876 facturas · 186 proveedores" y el "de 2,876" parecia alcanzar a los
+                 dos: las facturas declaraban su recorte y los proveedores no. Medido contra prod:
+                 son 368 acreedores en el universo y 186 en las 1,000 cargadas. Decir "186" a secas
+                 se lee como "le debo a 186", que es la mitad de la verdad. -->
+            <h2>Obligaciones disponibles <span class="cal-count">@if (obligationsTruncated()) { {{ obligations().length | number }} de {{ obligationsTotal() | number }} } @else { {{ obligations().length | number }} }{{ obligations().length === 1 && !obligationsTruncated() ? ' factura' : ' facturas' }} · {{ obligationGroups().length | number }} {{ obligationGroups().length === 1 ? 'proveedor' : 'proveedores' }}@if (obligationsTruncated()) { <span class="cal-muted"> de las cargadas</span> }</span></h2>
           </div>
           <!-- [TP.17.2] El techo se DECLARA (ADR-056). Medido el 2026-10-16: con la deuda derivada
                el corte de 1,000 dejaba fuera 1,895 documentos por $105,683,725 -el 79% del dinero-
@@ -207,11 +270,19 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             </p-message>
           }
           <div class="cal-filters">
-            <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadObligations()" placeholder="Buscar beneficiario o factura…" class="p-inputtext-sm cal-search" aria-label="Buscar beneficiario o factura" />
+            <!-- [PGP.12] El marcador dice QUE se puede teclear. Antes decia «beneficiario o
+                 factura» y la busqueda no alcanzaba ni la referencia ni el codigo del acreedor:
+                 un marcador que promete mas de lo que el backend hace es la peor clase de rotulo. -->
+            <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadObligations()" placeholder="Nombre, folio, referencia o código…" class="p-inputtext-sm cal-search" aria-label="Buscar por nombre del beneficiario, folio interno, referencia del proveedor o código del acreedor" />
             <p-select [options]="classificationOpts" [(ngModel)]="classificationFilter" (onChange)="loadObligations()" optionLabel="label" optionValue="value" placeholder="Tipo" [showClear]="true" styleClass="cal-sel p-inputtext-sm" />
             <label class="cal-check"><p-checkbox [(ngModel)]="onlyCritical" [binary]="true" (onChange)="loadObligations()" />Críticos</label>
             <!-- [TP.20.4] Armar el dia mirando lo que CADUCA, sin salir a otra pantalla. -->
             <label class="cal-check" title="Solo facturas cuyo descuento por pronto pago vence en 5 dias o menos"><p-checkbox [(ngModel)]="soloPorVencer" [binary]="true" (onChange)="loadObligations()" />Descuento por vencer</label>
+            <!-- [PGP.7] El orden de Pronto pago, aqui. El inventario de TP §23 midio que las dos
+                 listas ordenan al reves y concluyo que fusionarlas rompia una; lo que rompia era
+                 imponer UN orden. Ofrecer los dos no rompe ninguno: por omision manda la fecha de
+                 pago, y quien persigue el descuento lee por fecha limite del privilegio. -->
+            <label class="cal-check" title="Ordena por la fecha limite del descuento y, a igualdad, por lo que se gana"><p-checkbox [(ngModel)]="ordenDescuento" [binary]="true" (onChange)="loadObligations()" />Ordenar por descuento</label>
           </div>
           <p-table [value]="obligationRows()" [loading]="loadingObligations()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm surf-table cal-table cal-oblig-table">
             <ng-template #header>
@@ -246,20 +317,28 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   <td class="cal-c-name">
                     <!-- [TP.20.5] La factura abre su FICHA: deuda + ventana + lo programado +
                          el pago que la liquido + su comprobante, sin salir de aqui. -->
+                    <!-- [PGP.12] El folio interno y la REFERENCIA del proveedor, juntos y en el
+                         mismo renglon. No es una columna nueva a proposito: este panel tiene
+                         cuatro y una quinta lo rompe (el mismo motivo que TP.20.4). El folio solo
+                         NO identifica -769 de 2,897 documentos comparten numero-, asi que la
+                         referencia es lo que desempata en el 92.6% de los casos. -->
                     @if (r.o.entity_ref) {
-                      <button type="button" class="cal-item-concept cal-reflink" [title]="'Ver la ficha completa de ' + r.o.concept"
-                              (click)="inspect.set(r.o.entity_ref!)">{{ r.o.concept }}</button>
+                      <button type="button" class="cal-item-concept cal-reflink" [title]="'Ver la ficha completa de ' + docLabel(r.o)"
+                              (click)="inspect.set(r.o.entity_ref!)">{{ r.o.concept }}@if (r.o.doc_ref) { <span class="cal-ref">{{ r.o.doc_ref }}</span> }</button>
                     } @else {
-                      <div class="cal-item-concept" [title]="r.o.concept">{{ r.o.concept }}</div>
+                      <div class="cal-item-concept" [title]="docLabel(r.o)">{{ r.o.concept }}@if (r.o.doc_ref) { <span class="cal-ref">{{ r.o.doc_ref }}</span> }</div>
                     }
                     <!-- [TP.20.4] La urgencia del DESCUENTO, aqui y no en una columna nueva: esta
                          tabla es un panel estrecho de cuatro columnas y tres mas la romperian.
                          Solo aparece cuando hay algo que ganar; lo demas no dice nada. -->
                     @if (r.o.pronto_beneficio && (r.o.pronto_estado === 'por_vencer' || r.o.pronto_estado === 'capturable')) {
+                      <!-- [PGP.7] La definicion ya NO vive en este title: un title solo existe
+                           para quien tiene mouse. Esta en el diccionario, abierta desde el about
+                           del encabezado. Lo que queda aqui es una pista, no la definicion. -->
                       <span class="cal-pp" [class.cal-pp-urge]="r.o.pronto_estado === 'por_vencer'"
-                            [title]="'Descuento por pronto pago estimado. La fecha limite es OBSERVADA, no pactada.'">
+                            [title]="'Descuento estimado — ver el about de la pantalla'">
                         <i class="pi" [class.pi-bolt]="r.o.pronto_estado === 'por_vencer'" [class.pi-tag]="r.o.pronto_estado === 'capturable'" aria-hidden="true"></i>
-                        ahorra {{ money(r.o.pronto_beneficio) }}
+                        ahorra {{ money(r.o.pronto_beneficio) }}@if (r.o.pronto_tasa) { <span class="cal-muted"> ({{ pct(r.o.pronto_tasa) }})</span> }
                         @if (r.o.pronto_fecha_limite) { <span class="cal-muted">· antes del {{ shortDate(r.o.pronto_fecha_limite) }}</span> }
                       </span>
                     }
@@ -273,11 +352,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 <tr [class.cal-row-critical]="r.critical">
                   <td class="cal-c-name">
                     <div class="cal-benef" [title]="r.o.beneficiary">@if (r.critical) { <i class="pi pi-flag cal-crit-flag" aria-label="Crítico"></i> }{{ r.o.beneficiary }}</div>
-                    <div class="cal-concept" [title]="r.o.concept"><span class="cal-suc">{{ branchLabel(r.o.branch_code) }}</span>
+                    <div class="cal-concept" [title]="docLabel(r.o)"><span class="cal-suc">{{ branchLabel(r.o.branch_code) }}</span>
                       @if (r.o.entity_ref) {
-                        <button type="button" class="cal-reflink" [title]="'Ver la ficha completa de ' + r.o.concept"
+                        <button type="button" class="cal-reflink" [title]="'Ver la ficha completa de ' + docLabel(r.o)"
                                 (click)="inspect.set(r.o.entity_ref!)">{{ r.o.concept }}</button>
                       } @else { {{ r.o.concept }} }
+                      <!-- [PGP.12] La referencia del proveedor: lo que /compras/obligaciones ya
+                           muestra en su columna «Referencia». Va fuera del enlace para que se
+                           pueda leer sin invitar a abrir la ficha. -->
+                      @if (r.o.doc_ref) { <span class="cal-ref">{{ r.o.doc_ref }}</span> }
                     </div>
                   </td>
                   <td class="cal-c-due cal-mono" [class.cal-overdue]="isOverdue(vence(r.o))">{{ shortDate(vence(r.o)) }}@if (r.o.negotiated_date) { <span class="cal-muted" aria-label="fecha renegociada">*</span> }</td>
@@ -303,26 +386,33 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 @if (day.lot_folio) { <span class="cal-folio">Folio {{ day.lot_folio }}</span> }
               </span>
             </div>
-            <dl class="cal-sum">
-              <div><dt>Presupuesto</dt><dd class="comm-num">@if (day.summary.capacity_defined) { {{ money(day.summary.authorized_amount) }} } @else { <span class="cal-warn-txt">sin definir</span> }</dd></div>
-              <div><dt>Comprometido</dt><dd class="comm-num">{{ money(day.summary.assigned_amount) }}</dd></div>
-              <div><dt>Disponible</dt><dd class="comm-num is-strong" [class.cal-neg]="(day.summary.remaining_amount ?? 0) < 0">@if (day.summary.capacity_defined) { {{ money(day.summary.remaining_amount) }} } @else { — }</dd></div>
-              <div><dt>Ejecutado</dt><dd class="comm-num">{{ money(day.summary.executed_amount) }}</dd></div>
-            </dl>
-            @if (!day.summary.capacity_defined) {
-              <div class="cal-banner cal-banner-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Presupuestos no fijó capacidad para este día: no se puede autorizar hasta que la fije.</div>
-            } @else if (day.summary.exceeded) {
-              <div class="cal-banner cal-banner-danger"><i class="pi pi-ban" aria-hidden="true"></i> Lo comprometido excede el presupuesto del día. Reprograma o cancela pagos, o pide a Presupuestos ampliarlo.</div>
-            }
-
-            @if (pendingCount() > 0 || isReleased()) {
-              <ol class="cal-steps" aria-label="Pasos para que Caja General disperse">
-                <li [class.is-ok]="unrankedCount() === 0"><span class="cal-step-n">1</span>Ordenar @if (unrankedCount() > 0) { <span class="cal-step-miss">faltan {{ unrankedCount() }}</span> } @else { <i class="pi pi-check" aria-label="listo"></i> }</li>
-                <li [class.is-ok]="unpreparedCount() === 0"><span class="cal-step-n">2</span>Preparar @if (unpreparedCount() > 0) { <span class="cal-step-miss">faltan {{ unpreparedCount() }}</span> } @else { <i class="pi pi-check" aria-label="listo"></i> }</li>
-                <li [class.is-ok]="isReleased()"><span class="cal-step-n">3</span>Autorizar <span class="cal-muted">(Gerencia/Dirección)</span> @if (isReleased()) { <i class="pi pi-check" aria-label="listo"></i> }</li>
-                <li><span class="cal-step-n">4</span>Caja General dispersa</li>
-              </ol>
-            }
+            <!-- [PGP.11] EL VEREDICTO: una frase que dice que falta, y al lado el boton que lo
+                 destraba (DESIGN.md Q.1 answer-first + Q.4 el numero lleva a su arreglo).
+                 Reemplaza a las cuatro celdas de cal-sum -cuyas cifras subieron a la franja, sin
+                 perder ninguna- y absorbe los dos banners, que decian lo mismo por otro lado.
+                 Antes el paso que faltaba estaba dicho en CUATRO lugares (franja, tarjeta del
+                 dia, pasos, y junto a "Autorizar dia") y el boton que lo resolvia estaba al final
+                 de cada fila de la tabla: lo ultimo del recorrido. -->
+            <div class="cal-verdict" role="status"
+                 [class.is-ok]="verdict().tone === 'ok'" [class.is-warn]="verdict().tone === 'warn'" [class.is-bad]="verdict().tone === 'bad'">
+              <div class="cal-verdict-top">
+                <i class="pi" [ngClass]="verdict().icon" aria-hidden="true"></i>
+                <p class="cal-verdict-say">{{ verdict().say }}</p>
+                @if (verdict().action; as act) {
+                  <button pButton type="button" class="p-button-sm cal-verdict-btn" [disabled]="saving()" [loading]="printing() && act.kind === 'caja'" (click)="runVerdict(act.kind)">
+                    <span class="pi" [ngClass]="act.icon" aria-hidden="true"></span>&nbsp;{{ act.label }}
+                  </button>
+                }
+              </div>
+              @if (pendingCount() > 0 || isReleased()) {
+                <ol class="cal-steps" aria-label="Pasos para que Caja General disperse">
+                  <li [class.is-ok]="unrankedCount() === 0" [class.is-now]="pasoActivo() === 1"><span class="cal-step-n">1</span>Ordenar @if (unrankedCount() > 0) { <span class="cal-step-miss">faltan {{ unrankedCount() }}</span> } @else { <i class="pi pi-check" aria-label="listo"></i> }</li>
+                  <li [class.is-ok]="unpreparedCount() === 0" [class.is-now]="pasoActivo() === 2"><span class="cal-step-n">2</span>Preparar @if (unpreparedCount() > 0) { <span class="cal-step-miss">faltan {{ unpreparedCount() }}</span> } @else { <i class="pi pi-check" aria-label="listo"></i> }</li>
+                  <li [class.is-ok]="isReleased()" [class.is-now]="pasoActivo() === 3"><span class="cal-step-n">3</span>Autorizar <span class="cal-muted">(Gerencia/Dirección)</span> @if (isReleased()) { <i class="pi pi-check" aria-label="listo"></i> }</li>
+                  <li [class.is-now]="pasoActivo() === 4"><span class="cal-step-n">4</span>Caja General dispersa</li>
+                </ol>
+              }
+            </div>
 
             <!-- [TP.16.4] Armado sugerido: lo vencido, un pago por proveedor y sucursal, hasta el disponible. -->
             @if (armado(); as arm) {
@@ -430,11 +520,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   <button pButton type="button" class="p-button-sm p-button-text" [loading]="printing()" (click)="printPreliminar()"><span class="pi pi-file-pdf" aria-hidden="true"></span>&nbsp;Preliminar</button>
                   @if (day.lot_folio) { <button pButton type="button" class="p-button-sm p-button-text" [loading]="printing()" (click)="printCajaGeneral()"><span class="pi pi-print" aria-hidden="true"></span>&nbsp;Instrucción a Caja General</button> }
                 </span>
-                @if (canAuthorize() && !isReleased()) {
-                  <span class="cal-auth">
-                    @if (authorizeBlocker(); as why) { <span class="cal-auth-why">{{ why }}</span> }
-                    <button pButton type="button" class="p-button-sm" [disabled]="!!authorizeBlocker()" (click)="releaseLot()"><span class="pi pi-lock" aria-hidden="true"></span>&nbsp;Autorizar día</button>
-                  </span>
+                <!-- [PGP.11] «Autorizar dia» ya NO vive aqui: subio al veredicto, pegado a la
+                     frase que dice por que se puede o no. Tenerlo en los dos lados obligaba a
+                     leer el motivo arriba y apretar abajo, y repetia el mismo bloqueo dos veces. -->
+                @if (canAuthorize() && !isReleased() && authorizeBlocker()) {
+                  <span class="cal-auth-why">Para autorizar: {{ authorizeBlocker() }}</span>
                 }
               </div>
             }
@@ -583,9 +673,19 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-warn-txt { color:var(--warn-fg); }
     .cal-cap { text-transform:capitalize; font-weight:400; color:var(--text-muted); }
 
-    /* ── Franja de la semana: los 7 días caben en una fila; fin de semana sin presupuesto se atenúa. */
-    .cal-week { display:grid; grid-template-columns:repeat(7, minmax(7.5rem, 1fr)); gap:var(--sp-2); overflow-x:auto; padding:2px; }
+    /* ── Riel de la semana: los 7 días caben en una fila; fin de semana sin presupuesto se atenúa.
+       [PGP.11] La tarjeta pasó de cinco renglones a tres y de ~120px a ~68px, SIN perder ningún
+       dato: la cifra grande y su "disponible de $X" se juntaron en un renglón que se dice entero
+       ("$3.48M libres de $3.98M"), y la barra se corrió a la izquierda de esa misma línea. Lo que
+       se recupera de alto es lo que antes empujaba el trabajo abajo del pliegue. */
+    .cal-week { display:grid; grid-template-columns:repeat(7, minmax(8.5rem, 1fr)); gap:var(--sp-2); overflow-x:auto; padding:2px; }
     .cal-day { all:unset; box-sizing:border-box; cursor:pointer; display:flex; flex-direction:column; gap:var(--sp-1); padding:var(--sp-2) var(--sp-3); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); min-width:0; }
+    .cal-day-line { display:flex; align-items:baseline; gap:var(--sp-1); min-width:0; flex-wrap:wrap; }
+    .cal-day-line .cal-bar { flex:0 0 100%; margin-bottom:.15rem; }
+    /* La semana entera en un renglón: contexto, no trabajo. Terciario por tamaño Y por contraste
+       (DESIGN.md Q.5), nunca sólo por color. */
+    .cal-weekline { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-3); margin:var(--sp-2) 0 0; font-size:var(--fs-xs); color:var(--text-muted); }
+    .cal-weekline b { font-weight:600; color:var(--text-main); }
     .cal-day:hover { background:var(--overlay-hover); }
     .cal-day:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
     .cal-day.is-selected { border-color:var(--action); box-shadow:inset 0 0 0 1px var(--action); }
@@ -596,7 +696,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-day-lot { font-size:var(--fs-nano); font-weight:600; color:var(--text-muted); white-space:nowrap; }
     .cal-day-lot.is-ok { color:var(--ok-fg); }
     .cal-day-lot.is-info { color:var(--info-fg); }
-    .cal-day-avail { font-size:var(--fs-lg); font-weight:600; color:var(--text-main); line-height:1.2; }
+    .cal-day-avail { font-size:var(--fs-body); font-weight:700; color:var(--text-main); line-height:1.2; }
     .cal-day-cap, .cal-day-foot { font-size:var(--fs-xs); color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .cal-day-nocap { font-size:var(--fs-sm); color:var(--text-faint); line-height:1.2; padding:var(--sp-1) 0; }
     .cal-bar { display:block; height:4px; border-radius:var(--r-pill); background:var(--border-color); overflow:hidden; }
@@ -662,23 +762,43 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* Sucursal = centro de costo: va visible en cada grupo y factura suelta (texto, no sólo color). */
     .cal-suc { display:inline-block; font-family:var(--font-mono); font-size:var(--fs-nano); font-weight:600; color:var(--text-main); border:1px solid var(--border-color); border-radius:var(--r-sm); padding:0 var(--sp-1); margin-right:var(--sp-1); }
     .cal-item-concept { padding-left:calc(var(--sp-2) + var(--fs-xs) + var(--sp-2)); font-size:var(--fs-xs); color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    /* [PGP.12] La referencia del proveedor: monoespaciada porque es un identificador que se coteja
+       caracter por caracter contra un papel, y atenuada porque es el SEGUNDO dato del renglon
+       -manda el folio-. Mismo tratamiento que la columna «Referencia» de /compras/obligaciones. */
+    .cal-ref { font-family:var(--font-mono); font-size:var(--fs-nano); color:var(--text-muted); margin-left:var(--sp-1); }
+    .cal-ref::before { content:'· '; }
     .cal-empty { text-align:center; color:var(--text-faint); padding:var(--sp-4); white-space:normal; }
 
     /* ── Ordenar y pagar */
     .cal-pay-state { display:flex; align-items:center; gap:var(--sp-2); }
     .cal-folio { font-family:var(--font-mono); font-size:var(--fs-xs); color:var(--text-main); border:1px solid var(--border-color); border-radius:var(--r-sm); padding:0 var(--sp-1); }
-    .cal-sum { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:var(--sp-3); margin:0 0 var(--sp-2); padding:var(--sp-2) 0; border-top:1px solid var(--border-color); border-bottom:1px solid var(--border-color); }
-    .cal-sum dt { font-size:var(--fs-xs); color:var(--text-muted); }
-    .cal-sum dd { margin:0; font-size:var(--fs-body); text-align:left; }
-    .cal-banner { display:flex; align-items:center; gap:var(--sp-2); padding:var(--sp-2) var(--sp-3); margin:0 0 var(--sp-2); border-radius:var(--r-md); font-size:var(--fs-sm); }
-    .cal-banner-warn { background:var(--warn-soft-bg); color:var(--warn-soft-fg); border:1px solid var(--warn-border); }
-    .cal-banner-danger { background:var(--bad-soft-bg); color:var(--bad-soft-fg); border:1px solid var(--bad-border); }
-    .cal-steps { display:flex; flex-wrap:wrap; gap:var(--sp-2) var(--sp-4); list-style:none; padding:0; margin:0 0 var(--sp-2); font-size:var(--fs-sm); color:var(--text-muted); }
+    /* ── [PGP.11] El veredicto: lo PRIMERO del panel, y lo único enfatizado.
+       Toma el lugar de cal-sum (4 celdas de cifras que ya subieron a la franja) y de los dos
+       banners. El tono viaja en el borde izquierdo Y en el icono Y en la palabra: nunca sólo en
+       color (regla #5 de DESIGN.md, y lo único que sobrevive a forced-colors). */
+    .cal-verdict { border:1px solid var(--border-color); border-left:3px solid var(--border-color); border-radius:var(--r-md);
+      padding:var(--sp-3); margin:0 0 var(--sp-3); display:grid; gap:var(--sp-2); background:var(--surface-2); }
+    .cal-verdict.is-ok { border-left-color:var(--ok-fg); }
+    .cal-verdict.is-warn { border-left-color:var(--warn-fg); }
+    .cal-verdict.is-bad { border-left-color:var(--bad-fg); }
+    .cal-verdict-top { display:flex; align-items:flex-start; gap:var(--sp-2); }
+    .cal-verdict-top > .pi { font-size:var(--fs-body); line-height:1.5; color:var(--text-muted); flex-shrink:0; }
+    .cal-verdict.is-ok .cal-verdict-top > .pi { color:var(--ok-fg); }
+    .cal-verdict.is-warn .cal-verdict-top > .pi { color:var(--warn-fg); }
+    .cal-verdict.is-bad .cal-verdict-top > .pi { color:var(--bad-fg); }
+    .cal-verdict-say { margin:0; flex:1; min-width:0; font-size:var(--fs-sm); color:var(--text-main); }
+    :host ::ng-deep .cal-verdict-btn { flex-shrink:0; }
+    @container (max-width: 34rem) { .cal-verdict-top { flex-wrap:wrap; } }
+    /* Los 4 pasos: la espina del circuito. El paso ACTIVO se marca con peso, no con otro color
+       -el color ya lo usa el tono del veredicto y dos codificaciones encima colapsan (Q.6). */
+    .cal-steps { display:flex; flex-wrap:wrap; gap:var(--sp-2) var(--sp-4); list-style:none; padding:0; margin:0; font-size:var(--fs-sm); color:var(--text-muted); }
     .cal-steps li { display:flex; align-items:center; gap:var(--sp-1); }
     .cal-step-n { display:inline-grid; place-items:center; width:1.25rem; height:1.25rem; border-radius:var(--r-pill); border:1px solid var(--border-color); font-size:var(--fs-nano); font-weight:700; color:var(--text-muted); }
     .cal-steps li.is-ok { color:var(--ok-fg); }
     .cal-steps li.is-ok .cal-step-n { border-color:var(--ok-fg); color:var(--ok-fg); }
-    .cal-step-miss { font-size:var(--fs-xs); color:var(--warn-fg); }
+    .cal-steps li.is-now { color:var(--text-main); font-weight:700; }
+    .cal-steps li.is-now .cal-step-n { border-color:var(--text-main); color:var(--text-main); border-width:2px; }
+    .cal-step-miss { font-size:var(--fs-xs); color:var(--warn-fg); font-weight:600; }
     .cal-order-input { width:3rem; text-align:center; }
     .cal-how-method { font-size:var(--fs-sm); }
     .cal-how-route { display:flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); color:var(--text-muted); min-width:0; }
@@ -691,7 +811,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-c-act { white-space:nowrap; }
     .cal-pay-actions { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); flex-wrap:wrap; margin-top:var(--sp-2); }
     .cal-pay-actions-l { display:flex; gap:var(--sp-1); flex-wrap:wrap; }
-    .cal-auth { display:flex; align-items:center; gap:var(--sp-2); }
     .cal-auth-why { font-size:var(--fs-xs); color:var(--text-muted); }
     .cal-foot { font-size:var(--fs-xs); color:var(--text-faint); margin:var(--sp-2) 0 0; }
 
@@ -750,21 +869,128 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * Totales de la SEMANA (la tarjeta de cada día ya dice lo suyo; aquí no se repite el día).
    * El presupuesto sólo suma días con capacidad fijada, y cuántos faltan se dice en la nota.
    */
-  readonly weekKpis = computed<MetricStripItem[]>(() => {
-    const days = this.week()?.days ?? [];
-    const withCap = days.filter((d) => d.summary.capacity_defined);
-    const budget = withCap.reduce((s, d) => s + Number(d.summary.authorized_amount ?? 0), 0);
-    const assigned = days.reduce((s, d) => s + Number(d.summary.assigned_amount), 0);
-    const available = withCap.reduce((s, d) => s + Number(d.summary.remaining_amount ?? 0), 0);
-    const pending = days.flatMap((d) => d.allocations).filter((a) => a.status === 'pending');
-    const unprepared = pending.filter((a) => !isPrepared(a)).length;
-    const missing = days.length - withCap.length;
+  // ── La semana, como CONTEXTO: las mismas cifras que traía la franja, ahora en un renglón.
+  private readonly weekDays = computed(() => this.week()?.days ?? []);
+  private readonly weekWithCap = computed(() => this.weekDays().filter((d) => d.summary.capacity_defined));
+  readonly weekBudget = computed(() => this.weekWithCap().reduce((s, d) => s + Number(d.summary.authorized_amount ?? 0), 0));
+  readonly weekAssigned = computed(() => this.weekDays().reduce((s, d) => s + Number(d.summary.assigned_amount), 0));
+  readonly weekAvailable = computed(() => this.weekWithCap().reduce((s, d) => s + Number(d.summary.remaining_amount ?? 0), 0));
+  readonly weekNoCapDays = computed(() => this.weekDays().length - this.weekWithCap().length);
+  private readonly weekPending = computed(() => this.weekDays().flatMap((d) => d.allocations).filter((a) => a.status === 'pending'));
+  readonly weekUnprepared = computed(() => this.weekPending().filter((a) => !isPrepared(a)).length);
+
+  /**
+   * `[PGP.11]` **La franja contesta por el DÍA ELEGIDO, no por la semana.**
+   *
+   * Lo que había (`[PGP.10]`) ya tenía el trabajo primero, y eso se conserva. Lo que no se había
+   * visto es que las otras tres tarjetas —presupuesto, comprometido, disponible **de la semana**—
+   * volvían a aparecer en la tarjeta del día y **otra vez** en el `cal-sum` del panel derecho:
+   * **once cifras para una sola idea**, *cuánto puedo pagar hoy*. Cuando todo pesa lo mismo, nada
+   * es primario (`DESIGN.md` §Q.5).
+   *
+   * ⛔ Nada se perdió, se movió el peso: la semana baja al renglón de abajo del riel con sus tres
+   * cifras intactas, y `Ejecutado` —que sólo estaba en `cal-sum`— viaja en el `sub` de lo que sale
+   * ese día, y sólo cuando hay algo ejecutado (un «$0.00 ejecutado» fijo es ruido, no dato).
+   *
+   * ⚠️ Un día sin capacidad **no se dibuja en $0**: sale como `no_medido` con su motivo (ADR-056).
+   */
+  readonly dayKpis = computed<MetricStripItem[]>(() => {
+    const day = this.selectedDay();
+    const cuando = day ? this.dayShort(day.date) : 'el día';
+    if (!day) return [];
+    const s = day.summary;
+    const pend = this.pendingCount();
+    const falta = this.unrankedCount() + this.unpreparedCount();
+    const ejecutado = Number(s.executed_amount ?? 0);
+    const usado = this.usedPct(day);
+
+    const paso: MetricStripItem = this.isReleased()
+      ? { label: `Para autorizar el ${cuando}`, value: 'Autorizado', format: 'text', tone: 'ok',
+          sub: day.lot_folio ? `Folio ${day.lot_folio} · Caja General dispersa` : 'Caja General dispersa' }
+      : falta > 0
+        ? { label: `Para autorizar el ${cuando}`, value: falta, format: 'number', tone: 'warn',
+            sub: [this.unrankedCount() ? `${this.unrankedCount()} por ordenar` : '', this.unpreparedCount() ? `${this.unpreparedCount()} por preparar` : '']
+              .filter(Boolean).join(' · '), drill: 'trabajo', drillLabel: 'Ir a los pagos que faltan' }
+        : pend > 0
+          ? { label: `Para autorizar el ${cuando}`, value: 'Listo', format: 'text', tone: 'ok', sub: `${pend} pago(s) esperan la firma` }
+          : { label: `Para autorizar el ${cuando}`, value: 'Sin pagos', format: 'text', tone: 'muted', sub: 'este día no tiene nada armado' };
+
     return [
-      { label: 'Presupuesto de la semana', value: budget, format: 'currency-short', tone: 'default', sub: missing ? `${missing} día(s) sin presupuesto` : undefined },
-      { label: 'Comprometido', value: assigned, format: 'currency-short', tone: 'default' },
-      { label: 'Disponible', value: available, format: 'currency-short', tone: available < 0 ? 'bad' : 'default' },
-      { label: 'Pagos por preparar', value: unprepared, format: 'number', tone: unprepared > 0 ? 'warn' : 'default', sub: pending.length ? `de ${pending.length} pendiente(s)` : 'sin pagos pendientes' },
+      paso,
+      { label: 'Sale ese día', value: Number(s.assigned_amount ?? 0), format: 'currency-short', tone: 'default',
+        sub: [`${day.allocations.length} pago(s)`, ejecutado > 0 ? `${this.money(ejecutado)} ya ejecutado` : ''].filter(Boolean).join(' · '),
+        drill: day.allocations.length ? 'trabajo' : undefined, drillLabel: 'Ver los pagos del día' },
+      s.capacity_defined
+        ? { label: 'Te queda ese día', value: Number(s.remaining_amount ?? 0), format: 'currency-short',
+            tone: s.exceeded || Number(s.remaining_amount ?? 0) < 0 ? 'bad' : 'default',
+            sub: `de ${this.money(s.authorized_amount)} · ${Math.round(usado)}% comprometido` }
+        : { label: 'Te queda ese día', value: 'Sin presupuesto', format: 'text', tone: 'muted',
+            state: 'no_medido', stateNote: 'Presupuestos no fijó capacidad para este día: no se puede autorizar hasta que la fije' },
+      this.weekUnprepared() > 0
+        ? { label: 'Sin preparar en la semana', value: this.weekUnprepared(), format: 'number', tone: 'warn',
+            sub: `de ${this.weekPending().length} pendientes · ningún día se autoriza así` }
+        : { label: 'Sin preparar en la semana', value: 0, format: 'number', tone: 'ok',
+            sub: this.weekPending().length ? `los ${this.weekPending().length} pendientes están listos` : 'sin pagos pendientes' },
     ];
+  });
+
+  /** El paso del circuito en el que está parado el día (1 ordenar · 2 preparar · 3 autorizar · 4 dispersa). */
+  readonly pasoActivo = computed<1 | 2 | 3 | 4>(() => {
+    if (this.isReleased()) return 4;
+    if (this.unrankedCount() > 0) return 1;
+    if (this.unpreparedCount() > 0) return 2;
+    return 3;
+  });
+
+  /**
+   * `[PGP.11]` **El veredicto: qué falta, dicho en una frase, con el botón que lo destraba.**
+   *
+   * Antes el bloqueo se decía en cuatro lugares —la franja, la tarjeta del día, los pasos y el
+   * texto junto a «Autorizar día»— y el botón que lo resolvía («Preparar») estaba al final de cada
+   * fila de la tabla, lo último del recorrido. Cuatro avisos y ninguna salida es el defecto que
+   * `§Q.4` nombra: *el número denuncia y no lleva a arreglarlo*.
+   */
+  readonly verdict = computed<{ tone: 'ok' | 'warn' | 'bad' | 'muted'; icon: string; say: string; action: VerdictAction | null }>(() => {
+    const day = this.selectedDay();
+    if (!day) return { tone: 'muted', icon: 'pi-calendar', say: 'Elegí un día en el riel de arriba.', action: null };
+    const cuando = this.dayLong(day.date);
+    const s = day.summary;
+
+    if (this.isReleased()) {
+      return { tone: 'ok', icon: 'pi-lock',
+        say: `Autorizado${day.lot_folio ? ' con folio ' + day.lot_folio : ''}. Caja General dispersa con la instrucción impresa y después marca cada pago como ejecutado.`,
+        action: day.lot_folio ? { kind: 'caja', label: 'Instrucción a Caja General', icon: 'pi-print' } : null };
+    }
+    if (!s.capacity_defined) {
+      return { tone: 'warn', icon: 'pi-exclamation-triangle',
+        say: `Presupuestos no fijó capacidad para el ${cuando}: se pueden armar pagos, pero el día no se autoriza hasta que la fije.`, action: null };
+    }
+    if (s.exceeded) {
+      return { tone: 'bad', icon: 'pi-ban',
+        say: `Lo comprometido excede el presupuesto del ${cuando} por ${this.money(Math.abs(Number(s.remaining_amount ?? 0)))}. Reprogramá o cancelá pagos, o pedí a Presupuestos ampliarlo.`, action: null };
+    }
+    if (this.pendingCount() === 0) {
+      return { tone: 'muted', icon: 'pi-inbox',
+        say: `El ${cuando} no tiene pagos armados. «Sugerir armado» toma lo vencido hasta donde alcance el disponible; también podés agregar facturas desde la izquierda.`,
+        action: { kind: 'armar', label: 'Sugerir armado', icon: 'pi-sparkles' } };
+    }
+    if (this.unrankedCount() > 0) {
+      return { tone: 'warn', icon: 'pi-sort-amount-down',
+        say: `Faltan ${this.unrankedCount()} de ${this.pendingCount()} pagos por ordenar: Caja General dispersa en ese turno, así que sin orden el día no se autoriza.`,
+        action: { kind: 'ordenar', label: 'Proponer orden', icon: 'pi-sort-amount-down' } };
+    }
+    if (this.unpreparedCount() > 0) {
+      return { tone: 'warn', icon: 'pi-credit-card',
+        say: `Faltan ${this.unpreparedCount()} de ${this.pendingCount()} pagos por preparar: método, cuenta de origen y cuenta destino. Sin esto el ${cuando} no se autoriza.`,
+        action: { kind: 'preparar', label: `Preparar los ${this.unpreparedCount()}`, icon: 'pi-credit-card' } };
+    }
+    if (this.canAuthorize()) {
+      return { tone: 'ok', icon: 'pi-check-circle',
+        say: `Listo para autorizar: ${this.pendingCount()} pago(s) por ${this.money(s.assigned_amount)}, dentro del presupuesto del ${cuando}.`,
+        action: { kind: 'autorizar', label: 'Autorizar día', icon: 'pi-lock' } };
+    }
+    return { tone: 'ok', icon: 'pi-check-circle',
+      say: `Los ${this.pendingCount()} pagos del ${cuando} están ordenados y preparados. Falta que Gerencia o Dirección autorice el día.`, action: null };
   });
   /** Lo que impide autorizar, dicho en una frase; null si se puede. */
   readonly authorizeBlocker = computed<string | null>(() => {
@@ -793,6 +1019,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   onlyCritical = false;
   /** `[TP.20.4]` Filtra a lo que pierde descuento en 5 días o menos. */
   soloPorVencer = false;
+  /** [PGP.7] Lee la misma lista por urgencia de descuento en vez de por fecha de pago. */
+  ordenDescuento = false;
 
   obligations = signal<Obligation[]>([]);
   /** Proveedores plegados (por clave de grupo). */
@@ -886,7 +1114,19 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   }
   dayShort(iso: string): string { return this.fmt(iso, { weekday: 'short', day: 'numeric' }); }
   dayLong(iso: string): string { return this.fmt(iso, { weekday: 'long', day: 'numeric', month: 'short' }); }
-  shortDate(iso: string | null): string { return iso ? this.fmt(iso.slice(0, 10), { day: 'numeric', month: 'short' }) : '—'; }
+  /**
+   * `[PGP.10]` **La fecha lleva año cuando NO es de este año.**
+   *
+   * ⛔ Antes formateaba siempre `{ día, mes }`, y en una lista de deuda eso borra la diferencia
+   * entre una factura que vence el mes que viene y una de hace dos años. Medido el 2026-10-24
+   * contra prod: los **dos renglones que la pantalla pone primero** —los de más monto y más
+   * vencidos— son «Nota cargo a proveedor» del **01/01/2025** por **$8 M y $6 M**, y se leían
+   * «1 ene», igual que un vencimiento próximo. Son $14.0 M con forma de saldo de apertura o
+   * préstamo a los socios, y Contabilidad todavía no dictaminó qué son.
+   *
+   * El año va en dos dígitos para no ensanchar la columna, que vive en un panel angosto.
+   */
+  shortDate(iso: string | null): string { return fechaCorta(iso, this.todayIso); }
   isOverdue(iso: string | null): boolean { return !!iso && iso.slice(0, 10) < this.todayIso; }
 
   /** `[TP.21.2]` Un dia ya pasado. Solo ahi un libro vacio dice algo: hacia adelante no hay nada que registrar. */
@@ -942,6 +1182,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (this.search.trim()) p.set('search', this.search.trim());
     if (this.onlyCritical) p.set('onlyCritical', 'true');
     if (this.soloPorVencer) p.set('prontoPago', 'por_vencer');
+    if (this.ordenDescuento) p.set('orden', 'descuento');
     this.http.get<ObligationPage>(`${this.base}/obligations?${p.toString()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.obligations.set(r.rows); this.obligationsTotal.set(r.total); this.loadingObligations.set(false); },
       error: () => { this.loadingObligations.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las obligaciones.' }); },
@@ -970,13 +1211,47 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   }
 
   classLabel(c: string): string { return CLASSIFICATION_LABEL[c] || c; }
-  branchLabel(b: string | null | undefined): string { return b ? `Suc. ${b}` : 'Sin sucursal'; }
+  /**
+   * `[PGP.11]` La sucursal se NOMBRA. Decía `Suc. 00` / `Suc. 08`, y «08» no le dice a nadie que
+   * es Morelia Abastos (regla del PM, 2026-10-22). Resuelve con `warehouseName()` de
+   * `libs/contracts` —el MISMO resolvedor que usan Compras, Almacén y Comercial— para que las
+   * cuatro pantallas digan lo mismo; un código que no conoce lo devuelve tal cual, nunca en blanco
+   * ni adivinado.
+   *
+   * ⚠️ **Declarado, no corregido acá:** para `00` el resolvedor contesta «CEDIS» y el CEDIS real
+   * vive en Wincaja (`BPIRAPUATO`) — `sucursal='00'` de Kepler es **Oficinas**
+   * (`docs/ERP_KEPLER.md` §2.3). Arreglarlo es partir la entrada de `WAREHOUSE_DISPLAY_ORDER`, y
+   * eso le cambia el comportamiento a `/compras/pedido`, que busca ese grupo por su `label`.
+   * Va aparte: un rediseño de pantalla no renombra centros de costo de toda la suite.
+   */
+  branchLabel(b: string | null | undefined): string { return b ? (warehouseName(b) || b) : 'Sin sucursal'; }
+  /**
+   * `[PGP.12]` **Cómo se nombra un documento cuando hace falta decirlo entero** (títulos, aria).
+   *
+   * ⛔ El folio solo **no identifica**: medido contra prod el 2026-10-26, **769 de los 2,897**
+   * documentos que esta pantalla muestra (26.5 %) comparten folio con otro, y hay hasta **cinco**
+   * con el mismo número. Buscar `0000304` devuelve la nota de $8,000,000 de ACREEDOR ARTURO LOPEZ
+   * OROZCO **y** una de $45,343.77 de MEGA ALIMENTOS. Ni sucursal + folio alcanza (214 docs).
+   *
+   * Por eso acá se dice todo lo que se tiene: sucursal, folio, referencia y código del acreedor.
+   * Lo que falte **se omite**, no se rellena.
+   */
+  docLabel(o: Obligation): string {
+    return [this.branchLabel(o.branch_code), o.concept, o.doc_ref, o.payee_code].filter(Boolean).join(' · ');
+  }
   statusLabel(s: string): string { return STATUS_LABEL[s] || s; }
   statusSeverity(s: string) { return STATUS_SEVERITY[s] || 'secondary'; }
   lotLabel(s: string): string { return LOT_LABEL[s] || s; }
   lotSeverity(s: string): 'success' | 'info' | 'secondary' | 'warn' { return s === 'released' || s === 'executing' ? 'success' : s === 'closed' ? 'secondary' : 'info'; }
   methodLabel(m: string): string { return METHOD_LABEL[m] || m; }
   money(n: number | string | null | undefined): string { return Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 }); }
+  /**
+   * `[PGP.7]` La tasa observada, en %. Llega como fracción (`0.0741` = 7.41 %) y los `numeric`
+   * de Postgres viajan como **string** por JSON, así que `Number()` antes de formatear.
+   */
+  pct(n: number | string | null | undefined): string {
+    return Number(n || 0).toLocaleString('es-MX', { style: 'percent', maximumFractionDigits: 2 });
+  }
   allocationTitle(a: PaymentCalendarAllocation): string {
     const first = a.items[0]?.beneficiary ?? '—';
     return a.items.length > 1 ? `${first} +${a.items.length - 1}` : first;
@@ -1125,6 +1400,35 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const next = new Set(this.bulkSel());
     if (next.has(id)) next.delete(id); else next.add(id);
     this.bulkSel.set(next);
+  }
+  /**
+   * `[PGP.11]` **La acción del veredicto.** Cada rama reusa el camino que ya existía —no hay un
+   * segundo modo de ordenar ni de preparar—; lo que agrega es que la acción esté donde se lee el
+   * bloqueo, y no al final de cada fila de la tabla.
+   */
+  runVerdict(kind: VerdictActionKind): void {
+    switch (kind) {
+      case 'armar': this.openArmado(); break;
+      case 'ordenar': this.suggestOrder(); break;
+      case 'preparar': this.prepararFaltantes(); break;
+      case 'autorizar': this.releaseLot(); break;
+      case 'caja': this.printCajaGeneral(); break;
+    }
+  }
+  /**
+   * Selecciona los pagos SIN preparar del día y abre el diálogo de a varios. Es el atajo que
+   * faltaba: preparar de a uno obligaba a abrir, llenar y cerrar un diálogo por pago, y el método
+   * y la cuenta de origen casi siempre son los mismos (el destino sigue siendo de cada proveedor).
+   */
+  prepararFaltantes(): void {
+    const faltan = this.allocations().filter((a) => a.status === 'pending' && !isPrepared(a));
+    if (!faltan.length) return;
+    this.bulkSel.set(new Set(faltan.map((a) => a.id)));
+    this.openBulkPrepare();
+  }
+  /** Desde una tarjeta de la franja al panel donde se trabaja (regla Q.4: el número lleva a su arreglo). */
+  irAlTrabajo(_key: string): void {
+    this.payPanel?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   openBulkPrepare(): void {
     const rows = this.bulkRows();

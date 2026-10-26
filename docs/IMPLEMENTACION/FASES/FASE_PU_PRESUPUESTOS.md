@@ -642,3 +642,55 @@ anterior, antes de que el día pase a Pagos**.
 | Pantalla | Propuesta con ingreso del día, arrastre, origen y «Ya en Pagos»; ajuste manual que arranca en mañana y muestra el estimado del día. |
 
 La lectura del ingreso es **la misma** que usa `/presupuesto/ingresos` (`income-forecast.sql.ts`).
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre. **La pantalla existe: cada
+> observación es un criterio a verificar en ella, no un defecto medido.** Para lo que sigue en ⬜
+> (PVI.0–PVI.8), es criterio de construcción. Apoyo leído en lo que toca pantalla:
+> [`FASE_PU_PLAN_PRESUPUESTO.md`](FASE_PU_PLAN_PRESUPUESTO.md) y
+> [`FASE_PU_TORRE_DIRECCION.md`](FASE_PU_TORRE_DIRECCION.md).
+
+**La pregunta que contesta (prueba de la frase, §4.0b):**
+
+- *`/presupuesto` hoy:* *«¿Qué planeamos para el ejercicio **y** qué tope de pago tiene cada día **y**
+  qué obligaciones esperan firma?»* — tres preguntas (§4.0 A); los dos grupos de navegación
+  («armar» y «programación de pagos») ya lo confiesan. Corte propuesto en `PU.UI.9`.
+- *Plan del ejercicio (Ejercicio · Ventas · Gastos · Resultado):* *«¿Qué plan firmado tiene este
+  ejercicio?»* — una. Hoy la respuesta honesta es «ninguno: es una propuesta del motor», y la
+  pantalla tiene que poder decirla.
+- *`/presupuesto/ingresos`:* *«¿Cuánto se espera que entre cada día hasta diciembre, frente a lo que
+  ya entró?»* — una.
+- *Bandejas en «Mi trabajo» (PVI.17):* *«¿Qué espera mi firma?»* — una.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):** Plan: primario = **estado de firma + total del
+ejercicio con su cobertura** («propuesta del motor, sin firma · cubre 10 de 13 periodos») ·
+secundario = renglones por canal o partida con su origen · terciario = método, crecimiento, base y
+folio del ejercicio. Ingresos: primario = estimado contra real del mes en curso · secundario = la
+rejilla semana × día · terciario = los parámetros del método.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| PU.UI.1 | 🔴 | **La pantalla presenta como «presupuesto» lo que escribió un motor y nadie firmó.** 1,287 renglones de venta, 374 de gasto y 139 del libro los escribió `autopilot`; `authorized_by` NULL en los 3 ejercicios (10-oct). PR.5 hizo que la página «arranque en el resultado automático» con partidas de sólo lectura: nada en ella distingue una propuesta de una meta. Costo: **$604,775,116** de meta FY2027 que se leen como compromiso de Dirección. | §1.1 · DESIGN §X.1–X.4 | Mientras el ejercicio no tenga `authorized_by`, el encabezado dice «Propuesta del motor · sin firma» en ember, con el folio (`PRE-2027-002`) y la fecha del cálculo, y cada cifra hereda esa marca. «Presupuesto», sola, sólo aparece después de la firma. Ninguna pantalla consumidora (Análisis, «Mi trabajo», Calendario) muestra esas cifras como meta sin la misma marca. |
+| PU.UI.2 | 🔴 | **«Supuestos del año» publica un crecimiento por defecto como si fuera medido.** Mayoreo +26.67 % es exactamente el `default_growth_pct`; mostrador +21.05 % contra un comparable de −2.82 %; el negocio comparable se contrae 2.95 % (PVI, 8-oct). Los supuestos son de las 00:16 Z y el arreglo del canal entró a las 14:15 Z: nunca se recomputaron. `growth_by_channel` guarda números pelados (PVI.3). Costo: «$0 de los $604,775,116 de meta descansan sobre un crecimiento defendible». | §1.6 · §3.2 · §1.3 | Junto a cada crecimiento, su base en llano: «+26.67 % · valor por defecto: no hubo periodos comparables» / «−2.82 % · contra el año anterior, N periodos apareados». Fecha y hora del cálculo a la vista; si la fuente cambió después: «Calculado antes del último cambio de la fuente: recalcular». Sin `growth_provenance`: «sin procedencia registrada», nunca «sin respaldo». |
+| PU.UI.3 | 🔴 | **Las celdas sin base se ven igual que las medidas.** Dos casos medidos: **99 renglones en $0.00** en P11–P13 de FY2027 —Halloween, Navidad y Reyes, que en FY2026 valían **$219.2M, el 27.2 % del año** (10-oct)— y `proxy_canal`, que reparte **$197,160,564** parejo entre 8 entidades cuya historia suma $19,063,383 (10.3×; una recibe 2,860× lo suyo) con `base_amount` NULL (8-oct). El total anual suma 10 periodos y se rotula como un año. | §1.3 · §1.6 · DESIGN §X.4 | El badge de origen por celda (PVA.4) distingue con texto «sin meta: no se proyectó» (nunca $0.00) y «repartido parejo, sin historia propia». El total dice «cubre 10 de 13 periodos» mientras falten. La tira de cobertura cuenta esas celdas aparte. |
+| PU.UI.4 | 🔴 | **«Resultado» resta gasto a la venta sin costo de ventas.** PR.4 publica plan de ventas − plan de gastos; `costo_ventas` tiene cero partidas en los tres ejercicios, así que el resultado sale en **87.62 %** contra un margen medido de **11.87 %** (PVI.7). Además quedan fuera **$7,382,153.07** de impuestos y gastos financieros (familias 7 y 8, torre §4). | §1.1 · §1.4 · §1.6 | Mientras falte el costo de ventas el bloque no se llama «Resultado»: «Venta menos gasto operativo (sin costo de ventas ni gastos financieros)», y no publica porcentaje de margen. Lo que falta se dice arriba de la cifra, no en un pie. |
+| PU.UI.5 | 🔴 | **«Disponible» dice que hay dinero porque nadie operó el libro.** Las 26 partidas tienen reservado, comprometido, ejercido y pagado en $0.00: «Disponible» = original y «Ocupación» = 0.0 % en todas, mientras el ritmo dice que debieron devengarse **$13,653,449.54** (torre §2.3). PU.VG.10 dejó una línea a nivel de pestaña, pero la distinción por celda vive en un `title`, que sólo existe para quien tiene mouse. | §1.3 · §3.8 · DESIGN §Q.7 | Con el libro sin movimientos, la celda dice «sin movimientos registrados», no 0.0 %, y la columna se rotula «Sin operar» en vez de «Disponible». La definición va en `app-context-help` desde el diccionario, no en `title`. |
+| PU.UI.6 | 🔴 | **La pestaña Obligaciones puede mostrar una autorización que no existe, y contar el doble.** `authorized_at` es `NOT NULL DEFAULT now()`: las 312 filas lo tienen lleno estando las 312 en `propuesta` (igual a `created_at`). Y 312 es el doble: **156 · $74,809,091.57** son reales y el resto es la copia `is_test` (PVI.17). El arreglo se aplicó a la bandeja de «Mi trabajo»; la pestaña con «generar/autorizar» (PR.5) no lo declara, y el plan del Calendario cita 312 (TP, 16-oct). | §1.1 · §1.5 | Ninguna columna ni ficha muestra `authorized_at` mientras el estado sea `propuesta`: «Propuesta · sin autorizar». Los conteos usan `obligacionNoEsDePruebaSql`; pestaña, bandeja y Calendario dicen 156 el mismo día. Ver `TP.UI.10`. |
+| PU.UI.7 | 🔴 | **Análisis ya muestra un «objetivo» que sale de un plan sin firma, y la portada de Dirección leerá otra meta.** `commercial.sales_targets` tiene 572 filas escritas por `projectToSalesTargets` (10-oct) sobre ejercicios en borrador: el «vs objetivo» de Análisis compara contra la propuesta del motor. CDRP decidió leer la meta de `sales_plan_lines` (periodo de 4 semanas), no de `sales_targets` (mes, repartido por días). Dos superficies directivas, dos granos de «la misma» meta. | §1.5 · §1.6 | Una sola fuente de meta para Análisis y la portada, escrita en ADR-072. Mientras el ejercicio no esté firmado, el objetivo en Análisis dice «Plan PRE-2027-002 · sin firma» o no se pinta. Ver `CDRP.UI.3`. |
+| PU.UI.8 | 🔴 | **La bandeja de firmas puede no llegarle a quien firma.** PVI.17 repartió `finanzas.presupuesto` al puesto `direccion`, que tenía **0 personas** (CDRP, 21-sep); a los dos directivos los cubre un puente por persona que sólo trae `comercial.venta_zonas` y `comercial.thot`. `[SN.30]` filtra por responsabilidad: si el puesto sigue vacío, la cola de 156 obligaciones por $74.8M es invisible para Dirección. Y quien la recibe por `jefe_finanzas` no tiene `PRESUPUESTOS_VER`: vería un contador que no puede abrir. | §2.4 · §3.4 | Prueba con usuario real: quien firma entra a `/projects` y ve las dos bandejas con su monto. Si el puesto sigue vacío, la responsabilidad va por persona como en `CDRP.3`. Nadie ve un contador que no puede abrir. Ver `CDRP.UI.2`. |
+| PU.UI.9 | 🟠 | **`/presupuesto` mezcla el plan del ejercicio con el tope de pago del día.** El tope se decide el día anterior (decisión de Francisco, PU.14) y se consume en el Calendario, donde se llama «presupuesto»; aquí se llama «capacidad». Dos nombres, dos pantallas, una cifra. | §4.0 A · §3.9 · §1.5 | El tope del día se ajusta y confirma desde la tarjeta de día del Calendario —donde se decide—, con el mismo resolvedor y un solo nombre («Tope del día») en las dos fases; las obligaciones por firmar viven en la bandeja de «Mi trabajo». `/presupuesto` queda como el plan del ejercicio. Ver `TP.UI.2`. |
+| PU.UI.10 | 🟠 | **El estimado de ingresos descansa en una relación que nadie ha explicado, y es el tope de pago por default.** Bancos ÷ venta bajó de 1.12 (oct-25) a 0.87 (jul–sep-26) con la venta creciendo ~16 %, y «lo tiene que explicar Tesorería» (PU.13). PU.14 convierte ese estimado en el tope de cada día. | §1.6 · §3.2 | Arriba de la rejilla, en llano: «Este estimado supone que por cada peso vendido entran $0.87 al banco, como en jul–sep. En oct-25 entraban $1.12 y la causa no está explicada». La misma nota viaja con el tope a la tarjeta de día del Calendario. |
+| PU.UI.11 | 🟠 | **Dos FY2027 idénticos.** El duplicado `is_test` es copia byte a byte; agrupar por `fiscal_year` publica **$1,209,550,232** en vez de $604,775,116 (PVI.6). Quien elige ejercicio por año puede abrir la copia. | §1.5 · §4.6 | El selector muestra el folio («PRE-2027-002») y oculta los ejercicios `is_test` o los marca «copia de prueba». Ningún total agrupa por año fiscal sin ese filtro. |
+| PU.UI.12 | 🟡 | **Cinco entregas de pantalla con «verificación HTTP pendiente» o «validación visual» sin hacer desde el 18-sep.** PV.5, PVA.4, PVR.3, PR.5 y PVI.17 se marcaron con builds verdes, sin ver la pantalla ni llamar al endpoint. | método §4 | Ninguna sube de estado sin una revisión en nivel A con `auditoria-diseno` (claro, oscuro y `forced-colors`) que recorra `PU.UI.1`–`PU.UI.8`. |
+
+**Lo que esta revisión no cubre:** la pestaña «Campañas» (Capa 4, sin diseño en el plan) y la de
+«Conciliación» más allá de su universo; contraste, pliegue, foco y teclado reales (exigen nivel A), y
+si el puesto `direccion` ya tiene personas hoy, que es un dato de base y no del plan.

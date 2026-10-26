@@ -49,6 +49,20 @@ describe('planearVuelta', () => {
     ]);
   });
 
+  it('⛔ [CGA-A.19] NO asienta solo con la cuenta del TIPO de documento: espera la póliza', () => {
+    // La persona puede confirmarlo con un clic viendo la procedencia; el motor sin supervisión
+    // reintenta hasta que llegue la póliza del propio documento.
+    const plan = planearVuelta([
+      fila({ origen_ref: 'sin-poliza', confirmable: true, cuenta_fuente: 'tipo_documento', monto: 1430.95 }),
+      fila({ origen_ref: 'con-poliza', confirmable: true, cuenta_fuente: 'documento', monto: 90 }),
+    ], { piso: PISO, hoy: HOY });
+
+    expect(plan.aplicar).toEqual(['con-poliza']);
+    expect(plan.excluidos).toEqual([
+      { origen_ref: 'sin-poliza', motivo: 'sin_resolver', detalle: 'espera_poliza', monto: 1430.95 },
+    ]);
+  });
+
   it('⛔ NUNCA aplica un documento fechado después de hoy, aunque el resolvedor lo dé por bueno', () => {
     // El caso real: 7 documentos que Kepler fechó en diciembre. Con la cuenta ya resuelta, el
     // único freno que queda es éste — y `[CG.24]` demostró que un aviso que no frena es

@@ -100,8 +100,11 @@ function rubro(cargos) {
       // Cada renglón de banco → su movimiento; la póliza toma el «peor» destino de sus renglones.
       const destinos = [];
       for (const b of p.bancos) {
-        const c = (porBanco.get(`${b.cuenta}|${cent(b.importe)}`) ?? []).filter((e) => !usados.has(e.id) && Math.abs(dias(e.fecha, p.f)) <= 3)
-          .sort((x, y) => Math.abs(dias(x.fecha, p.f)) - Math.abs(dias(y.fecha, p.f)));
+        const libres = (porBanco.get(`${b.cuenta}|${cent(b.importe)}`) ?? []).filter((e) => !usados.has(e.id));
+        let c = libres.filter((e) => Math.abs(dias(e.fecha, p.f)) <= 3).sort((x, y) => Math.abs(dias(x.fecha, p.f)) - Math.abs(dias(y.fecha, p.f)));
+        // `[CP.8.85]` La póliza que AGRUPA (comisiones del mes, combustible de la semana) lleva la fecha del cierre:
+        // sus movimientos están entre el día 1 del mes y esa fecha.
+        if (!c.length && p.bancos.length > 1) c = libres.filter((e) => e.fecha.slice(0, 7) === p.f.slice(0, 7) && e.fecha <= p.f).sort((x, y) => (x.fecha < y.fecha ? -1 : 1));
         if (!c.length) { destinos.push('sin movimiento de banco que case'); continue; }
         usados.add(c[0].id);
         const st = estados.get(String(c[0].id));

@@ -180,6 +180,18 @@ correr(async () => {
       assert(true, 'al dejar de estar vigente, el renglón entra al vale nuevo');
 
       assert(ld.id && (await items()).find((i) => i.rol === 'cargador').amount == 30, 'la carga se paga a la tarifa registrada ($30)');
+
+      // [EMB.39] Carga por caja: 531 cajas × $0.20 = $106.20 entre dos → $53.10 cada quien. El
+      // renglón guarda con qué cajas y qué tarifa se calculó; la vista paga lo que dice `rate`.
+      const cargador2 = await persona('PRUEBA CARGADOR 2 EMB', 'cargador');
+      await q(`DELETE FROM logistics.load_details WHERE shipment_id=$1`, [s.id]);
+      await q(`INSERT INTO logistics.load_details (tenant_id, shipment_id, driver_id, rate, boxes, rate_per_box, role_at_time)
+        VALUES ($1,$2,$3,53.10,531,0.2,'cargador'), ($1,$2,$4,53.10,531,0.2,'cargador')`, [M, s.id, cargador, cargador2]);
+      const cargas = (await items()).filter((i) => i.rol === 'cargador');
+      assert(cargas.length === 2 && cargas.every((i) => Number(i.amount) === 53.1), 'por caja: cada cargador cobra su parte ($53.10)');
+      assert(Math.round(cargas.reduce((a, i) => a + Number(i.amount), 0) * 100) === 10620, 'las partes suman el total de la carga ($106.20)');
+      await q(`UPDATE logistics.load_details SET rate=0 WHERE shipment_id=$1 AND driver_id=$2`, [s.id, cargador2]);
+      assert((await items()).filter((i) => i.rol === 'cargador').length === 1, 'PRUEBA NEGATIVA: una carga de $0 (puras piezas sueltas) no genera pago');
     } finally {
       await db.query('ROLLBACK');
     }

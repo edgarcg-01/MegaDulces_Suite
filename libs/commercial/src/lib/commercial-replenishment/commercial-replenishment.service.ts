@@ -24,6 +24,7 @@ import { armarSenales } from './pedido-senales';
 import { AVISO_TRANSITO, POLITICA_TRANSITO, type PoliticaTransito, transitoDescontado, transitoMostrado } from './transito';
 import { mensajeFraccion, renglonesConFraccion } from './fraccion-caja';
 import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lote-repetido';
+import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -206,6 +207,74 @@ export interface CriticalStockQuery {
   page?: number;
   pageSize?: number;
   export?: boolean;  // interno: sube el cap de filas para exportar TODO (XLSX). No expuesto por query param.
+  /**
+   * `[AB.36]` Interno, no expuesto por query param: la mesa de Autoabasto y «Mi pedido» NO leen el
+   * reparto de la red (`transfer_in`, `buy_qty`, `buy_cost`, `surplus_network`, `accion` — desde D3
+   * el traspaso lo decide Compras) ni la etiquetera (`box_size`, `pack_size`). Con `ligero` esas
+   * columnas salen `null` («no se calculó», nunca cero) y la consulta se ahorra el sobrante de la red,
+   * un agregado sobre TODO el tenant que era ~60 % de su tiempo (medido 2026-10-24, Padre Hidalgo).
+   * Nada de lo que sí se devuelve depende de él: ni el sugerido, ni la posición, ni el orden.
+   * Con un filtro por `accion` se ignora (ese filtro necesita el reparto).
+   */
+  ligero?: boolean;
+}
+
+/**
+ * `[PQ.4]` Una fila de la agenda POR PROVEEDOR: el mismo universo que `worklist`, pero colapsado
+ * a un renglón por proveedor en vez de uno por almacén×proveedor (237 contra 639 canales).
+ *
+ * ⚠️ Los `numeric` llegan como **string**: node-pg entrega `numeric` como texto. `cadence_days`
+ * y `suggested_cost` se declaran `string | number` a propósito — tiparlos de `number` invita a
+ * sumarlos sin convertirlos, que es como se fabrica un total equivocado que se lee bien.
+ * Los `::int` del `select` sí llegan como número.
+ */
+export interface WorklistProveedorRow {
+  supplier_id: string;
+  supplier_name: string | null;
+  n_canales: number;
+  n_vencidos: number;
+  n_hoy: number;
+  n_prox7: number;
+  next_due_date: Date | string | null;
+  days_to_due: number | null;
+  last_delivery_date: Date | string | null;
+  cadence_days: string | number | null;
+  lead_time_days: number | null;
+  /** Las sucursales que TOCAN (vencidas u hoy), con su id para que «Armar» las deje puestas. */
+  sucursales_tocan: { id: string; code: string; days_to_due: number }[];
+  n_skus: number;
+  n_below: number;
+  suggested_cost: string | number;
+}
+
+/** `[PQ.4]` Lo que devuelve la agenda por proveedor. `total` es lo devuelto, con `LIMIT 1000`. */
+export interface WorklistProveedoresResponse {
+  total: number;
+  rows: WorklistProveedorRow[];
+}
+
+/** `[RQ.4]` El acuse de un cambio de estado de UNA requisición: lo que quedó, no lo que se pidió. */
+export interface RequisicionEstadoCambiado {
+  id: string;
+  estado: string;
+}
+
+/**
+ * `[RQ.4]` El acuse de un «aprobar/rechazar» en LOTE.
+ *
+ * ⭐ Las cuatro cifras existen porque `pedidas ≠ hechas` es lo normal, no la excepción: cada
+ * requisición va en su propia transacción y lo que no pasa se informa con su motivo en vez de
+ * tirar abajo el resto. Publicar sólo `hechas` dejaría a quien aprueba sin saber cuál falló.
+ */
+export interface RequisicionesLoteResultado {
+  /** Cuántas se pidieron, ya deduplicadas. */
+  pedidas: number;
+  /** Cuántas quedaron en el estado nuevo. */
+  hechas: number;
+  /** Los ids que sí pasaron. */
+  ok: string[];
+  /** Los que no, cada uno con su motivo — nunca una lista de ids a secas. */
+  fallas: Array<{ id: string; motivo: string }>;
 }
 
 // RA-PRO.8 — worklist "qué toca" (ciclos de reabasto por almacén×proveedor).
@@ -340,7 +409,7 @@ interface ReceiveLineDto { line_id: string; received_qty: number; }
  */
 /**
  * `[RQ.8]` Lo que devuelve un «Armar» en lote: el folio bajo el que entraron todas y el
- * desglose de lo creado. `batch_folio` es `string | null` porque el folio del lote solo se
+ * desglose de lo creado. `batch_folio` es `string | null` porque el folio del lote sólo se
  * emite cuando las columnas del lote ya existen en la base (`loteColsListas`); sin ellas el
  * lote entra igual y se identifica por `batch_id`.
  */
@@ -378,6 +447,11 @@ export interface RequisitionListRowDto {
   oc_folio?: string | null;
   source_warehouse_code: string | null;
   source_warehouse_name: string | null;
+  /** `[AB.29]` La pidió una sucursal desde Autoabasto. `false` también si la migración no se ha aplicado. */
+  requested_by_branch?: boolean;
+  /** `[AB.32]` Por qué se rechazó. `null` = no se rechazó, o se rechazó antes de que existiera la constancia. */
+  rejection_reason?: string | null;
+  rejected_at?: string | null;
 }
 
 /**
@@ -409,6 +483,18 @@ export interface RequisitionResumenDto {
   /** `[RQ.2]` Las que pasaron los 30 días — el escalón donde el costo deja de ser el de hoy. */
   n_mas_30: number;
   monto_mas_30: number;
+  /**
+   * `[PQ.1]` Dentro del estado, ¿cuántas tienen DOCUMENTO en Kepler? Medido el 2026-10-23: 680
+   * `approved` sin salida por $19.05 M (602 traspasos) y la bandeja las contaba igual que una
+   * escrita en el ERP. Tres ausencias distintas (ADR-056): `n_kepler` salió · `n_kepler_error`
+   * salió mal, lo arregla una persona · `n_sin_empujar` nunca se intentó.
+   */
+  n_kepler: number;
+  n_kepler_error: number;
+  n_sin_empujar: number;
+  /** Monto y antigüedad de las que NO tienen documento en Kepler (error + sin empujar). */
+  monto_sin_kepler: number;
+  dias_max_sin_kepler: number;
 }
 
 /** `[MT.6]` Pagina de requisiciones. */
@@ -1101,6 +1187,31 @@ export class CommercialReplenishmentService {
     const whIds = await this.whIds(q, area);
 
     return this.tk.run(async (trx) => {
+      // `[AB.36]` La mesa de Autoabasto y «Mi pedido» salen de esta consulta, y tardaba 4–6 s por
+      // sucursal (medido en prod el 2026-10-24, La Piedad: 4,240 ms de mediana). Tres cambios, cada
+      // uno medido contra la consulta REAL capturada del servicio, con el resultado comparado fila por
+      // fila (755 renglones, mismo orden, ninguna columna distinta):
+      //  · el factor de caja y el costo se leen de sus copias MATERIALIZADAS (abajo, `mv`);
+      //  · el JIT se apaga: compilaba ~0.3–0.4 s en cada llamada para una consulta que corre una vez;
+      //  · los precios de etiqueta (`lbl`) se leen DESPUÉS, sólo para los renglones devueltos.
+      // Juntos: 4,240 → ~500 ms la consulta, + ~145 ms la decoración.
+      await trx.raw('SET LOCAL jit = off');
+      // Se pregunta si EXISTEN en vez de asumirlo (mismo patrón que `[RA-PERF.1]` en `workbook()`).
+      //  · `mv_warehouse_box_factor` = la vista, 0 y 0 filas de diferencia en los dos sentidos
+      //    (249,194 filas, 2026-10-24).
+      //  · ⚠️ `mv_erp_unit_cost` NO es idéntica todo el tiempo: se refresca cada 15 min (grupo
+      //    `analytics_refresh` de `AnalyticsRefreshService`, latido en `analytics.cron_runs`) y el
+      //    2026-10-24 difería de la vista en 27 de 249,194 pares (costos que cambiaron después del
+      //    último refresco). O sea: el $ de la mesa puede usar un costo de hasta ~15 min de antigüedad.
+      //    La vista viva cuesta ~1 s aunque se filtre a un solo almacén, así que no cabe en 500 ms.
+      //    Rentabilidad ya lee la misma copia.
+      const mv = (await trx.raw(
+        `SELECT to_regclass('analytics.mv_warehouse_box_factor') AS vbf, to_regclass('analytics.mv_erp_unit_cost') AS euc`,
+      )).rows?.[0] ?? {};
+      const vbfSrc = mv.vbf ? 'analytics.mv_warehouse_box_factor' : 'analytics.v_warehouse_box_factor';
+      const eucSrc = mv.euc ? 'analytics.mv_erp_unit_cost' : 'analytics.v_erp_unit_cost';
+      // `[AB.36]` Sin el reparto de la red ni la etiquetera (ver `CriticalStockQuery.ligero`).
+      const ligero = !!q.ligero && !(ACCIONES as readonly string[]).includes(q.accion ?? '');
       // Ranking POR DINERO (venta/mes est.) RELATIVO al filtro activo: cuando se selecciona
       // un proveedor (o hay búsqueda), #1 = el producto de ESE proveedor que más VENDE EN $
       // en la sucursal — no el rank global. Antes ordenaba por unidades/día, pero la demanda
@@ -1115,6 +1226,9 @@ export class CommercialReplenishmentService {
       if (q.category_id && UUID_RX.test(q.category_id)) { rankFilter += ' AND p2.category_id = ?'; rankBind.push(q.category_id); }
       const rankTerm = (q.search || '').trim();
       if (rankTerm) { rankFilter += ' AND (p2.sku ILIKE ? OR p2.nombre ILIKE ?)'; rankBind.push(`%${rankTerm}%`, `%${rankTerm}%`); }
+      // `[AB.36]` El ranking es POR almacén (`PARTITION BY warehouse_id`): acotarlo a los almacenes de
+      // la consulta no mueve ningún rango, y deja de ordenar la venta de toda la red para uno solo.
+      if (whIds) { rankFilter += ' AND ih2.warehouse_id = ANY(?::uuid[])'; rankBind.push(whIds); }
       const rankSub = trx.raw(
         `(SELECT ih2.warehouse_id, ih2.product_id,
                  DENSE_RANK() OVER (PARTITION BY ih2.warehouse_id ORDER BY ${rankMoney} DESC, ih2.avg_daily_units DESC) AS sales_rank
@@ -1133,7 +1247,7 @@ export class CommercialReplenishmentService {
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
         // [VA.4] el costo del ARBITRO, al grano almacen x producto. Ver costUnit() para el CASE
         // por ERP y para por que Wincaja se queda con el catalogo.
-        .leftJoin('analytics.v_erp_unit_cost as euc', (j) =>
+        .leftJoin(`${eucSrc} as euc`, (j) =>
           j.on('euc.tenant_id', 'rp.tenant_id').andOn('euc.warehouse_id', 'rp.warehouse_id').andOn('euc.product_id', 'rp.product_id'))
         // RA.5 — tránsito desde el fact (sin RLS → tenant_id explícito en el ON)
         .leftJoin('analytics.replenishment_plan as rpl', (j) =>
@@ -1146,16 +1260,19 @@ export class CommercialReplenishmentService {
           j.on('rc.tenant_id', 'rp.tenant_id').andOn('rc.warehouse_id', 'rp.warehouse_id').andOn('rc.supplier_id', 'pr.supplier_id'))
         .leftJoin('commercial.warehouses as srcw', (j) =>
           j.on('srcw.tenant_id', 'rp.tenant_id').andOn('srcw.id', 'rc.source_warehouse_id'))
-        // Box factor de la etiquetera (fallback de factor_sale para uxc canónico; ver reference_box_factor_factor_sale)
-        .leftJoin(
-          trx.raw(`(SELECT tenant_id, product_id, max(box_size) AS bs, max(pack_size) AS ps FROM commercial.v_product_label_prices GROUP BY tenant_id, product_id) as lbl`),
-          (j: any) => j.on('lbl.tenant_id', 'rp.tenant_id').andOn('lbl.product_id', 'rp.product_id'))
+        // `[AB.36]` El box factor de la etiquetera (`lbl`) ya NO se une aquí: se lee después del
+        // listado, sólo para sus renglones (ver abajo).
         // ADR-055 — factor de caja POR ALMACÉN para display (resolvedor canónico único).
-        .leftJoin('analytics.v_warehouse_box_factor as vbf', (j) =>
+        .leftJoin(`${vbfSrc} as vbf`, (j) =>
           j.on('vbf.tenant_id', 'rp.tenant_id').andOn('vbf.warehouse_id', 'rp.warehouse_id').andOn('vbf.product_id', 'rp.product_id'))
         // RA-PRO.16 — SUPERÁVIT DE RED por producto, y [AB.12] lo que la red le PIDE. Ver networkSurplus().
-        .leftJoin(this.networkSurplus(trx, tenantId, target, basis === 'cadence', oh),
-          (j: any) => j.on('sbp.product_id', 'rp.product_id'))
+        // `[AB.36]` Con `ligero` no se une: ninguna columna que se devuelve lo nombra.
+        .modify((b: Knex.QueryBuilder) => {
+          if (!ligero) {
+            b.leftJoin(this.networkSurplus(trx, tenantId, target, basis === 'cadence', oh),
+              (j: Knex.JoinClause) => j.on('sbp.product_id', 'rp.product_id'));
+          }
+        })
         // Ranking POR VENTAS relativo al filtro (rankSub arriba): #1 = el que más vende
         // en la sucursal dentro del universo seleccionado. Solo los que venden reciben
         // rank (demanda 0 → NULL vía el leftJoin).
@@ -1186,6 +1303,10 @@ export class CommercialReplenishmentService {
       const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
       const surH = `GREATEST(0, ${oh} - rp.max_stock)`;
       const tin = this.transferIn(sug, surH);
+      // `[AB.36]` Una columna que depende del reparto de la red: con `ligero` sale NULL («no se
+      // calculó»), nunca cero, y la consulta no nombra `sbp`.
+      const deRed = (expr: string, alias: string, tipo = 'numeric') =>
+        trx.raw(ligero ? `NULL::${tipo} AS ${alias}` : `${expr} AS ${alias}`);
 
       // `[AB.14]` El filtro por acción va en el SERVIDOR. Antes la pantalla recortaba la página
       // ya cargada: con 50 renglones por página, «Traspaso» mostraba los traspasos de ESA página
@@ -1241,8 +1362,12 @@ export class CommercialReplenishmentService {
         conteo.andWhereRaw(`${sug} > 0`);
       }
 
-      const totalRow: any = await conteo.count('* as c').first();
-      const total = Number(totalRow?.c || 0);
+      // `[AB.36]` Con `ligero` y exportando todo, el conteo se pide sólo si el listado llegó al tope:
+      // por debajo, el total ES el número de renglones (mismos filtros, uniones 1:1 — el candado de
+      // eso es test-newdb-critical-stock-count.js). Ahorra una consulta en la ruta de la mesa.
+      const contar = async () => Number(((await conteo.count('* as c').first()) as { c?: string | number } | undefined)?.c || 0);
+      const contarDespues = ligero && !!q.export;
+      let total = contarDespues ? 0 : await contar();
 
       // [EC.U] Las MISMAS cantidades, sin dividir — en la unidad NATIVA del almacén.
       //
@@ -1281,8 +1406,8 @@ export class CommercialReplenishmentService {
           trx.raw(`ROUND(rp.max_stock::numeric, 2)       AS max_stock_nat`),
           trx.raw(`ROUND(rp.safety_stock::numeric, 2)    AS safety_stock_nat`),
           trx.raw(`ROUND((${sug})::numeric, 2)           AS suggested_qty_nat`),
-          trx.raw(`ROUND((${tin})::numeric, 2)           AS transfer_in_nat`),
-          trx.raw(`ROUND(GREATEST(0, ${sug} - ${tin})::numeric, 2) AS buy_qty_nat`),
+          deRed(`ROUND((${tin})::numeric, 2)`, 'transfer_in_nat'),
+          deRed(`ROUND(GREATEST(0, ${sug} - ${tin})::numeric, 2)`, 'buy_qty_nat'),
           'rp.source',
           // RA-PRO.1/2 — política profesional: safety stock por nivel de servicio + segmentación XYZ
           trx.raw(`ROUND(rp.safety_stock / (${cf}), 1) AS safety_stock`),
@@ -1314,8 +1439,7 @@ export class CommercialReplenishmentService {
           trx.raw('sup.min_order_amount AS supplier_min_amount'),
           trx.raw('pr.factor_purchase AS factor_purchase'),
           trx.raw('pr.factor_sale AS factor_sale'), // piezas/caja REAL (factor_purchase está roto); ver reference_box_factor_factor_sale
-          trx.raw('lbl.bs AS box_size'),            // fallback de factor_sale para uxc (etiquetera)
-          trx.raw('lbl.ps AS pack_size'),           // RA-PRO.30 — Pz/Paq; prueba box_size=factor_sale×pack_size
+          // `box_size` y `pack_size` (etiquetera) se agregan después del listado: ver `[AB.36]` abajo.
 
           trx.raw('COALESCE(abc.abc_class, rp.abc_class) AS abc_class'),
           trx.raw(`${this.costUnit()} AS unit_cost`),
@@ -1329,13 +1453,13 @@ export class CommercialReplenishmentService {
           trx.raw('vbf.base_label AS rung_base_label'),
           // RA-PRO.16 — Redistribución: cubrir el sugerido con sobrante de OTRA sucursal antes de comprar.
           trx.raw(`ROUND(GREATEST(0, ${oh} - rp.max_stock) / (${cf}), 1) AS surplus_here`),                                  // sobrante en ESTE almacén (traspasar a otra)
-          trx.raw(`ROUND(GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)) / (${cf}), 1) AS surplus_network`), // sobrante del producto en OTRAS sucursales
+          deRed(`ROUND(GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)) / (${cf}), 1)`, 'surplus_network'), // sobrante del producto en OTRAS sucursales
           // [AB.12] `transfer_in` es la PARTE que le toca a esta sucursal del sobrante de la red, no
           // el sobrante entero — ver transferIn(). `surplus_network` sigue siendo el total disponible.
-          trx.raw(`ROUND((${tin}) / (${cf}), 1) AS transfer_in`), // cubrible por traspaso
-          trx.raw(`ROUND(GREATEST(0, ${sug} - ${tin}) / (${cf}), 1) AS buy_qty`), // compra REAL (residual)
-          trx.raw(`CASE WHEN ${this.rungMedible()} THEN ROUND(GREATEST(0, ${sug} - ${tin}) * ${this.costUnit()}, 2) END AS buy_cost`),
-          trx.raw(`${this.accionExpr(sug, surH, tin)} AS accion`),
+          deRed(`ROUND((${tin}) / (${cf}), 1)`, 'transfer_in'), // cubrible por traspaso
+          deRed(`ROUND(GREATEST(0, ${sug} - ${tin}) / (${cf}), 1)`, 'buy_qty'), // compra REAL (residual)
+          deRed(`CASE WHEN ${this.rungMedible()} THEN ROUND(GREATEST(0, ${sug} - ${tin}) * ${this.costUnit()}, 2) END`, 'buy_cost'),
+          deRed(this.accionExpr(sug, surH, tin), 'accion', 'text'),
         )
         // Dinero primero: el sugerido valorizado ($) manda. Sin esto, los 3k+
         // agotados (muchos SKUs admin/insumo con costo 0) acaparan 60+ páginas
@@ -1360,6 +1484,27 @@ export class CommercialReplenishmentService {
           }
         })
         .limit(pageSize).offset((page - 1) * pageSize);
+      if (contarDespues) total = rows.length < pageSize ? rows.length : await contar();
+
+      // `[AB.36]` Box factor de la etiquetera (fallback de factor_sale para uxc canónico; ver
+      // reference_box_factor_factor_sale), sólo de los productos del listado. Unido arriba, agrupaba la
+      // vista ENTERA (79 mil precios de todo el tenant, ~0.5 s) para decorar dos columnas que ningún
+      // filtro ni orden usa. Mismo `max()` por producto: el resultado no cambia (probado fila por fila
+      // en `database/tests/test-newdb-mesa-rapida.js`). Sin dato queda `null`, como con el LEFT JOIN.
+      const ids: string[] = [...new Set((rows as Array<{ product_id: string }>).map((r) => r.product_id))];
+      const etiquetas = new Map<string, { bs: unknown; ps: unknown }>();
+      // Con `ligero` no se lee: quien lo pide no la usa, y sale `null` («no se leyó»).
+      if (ids.length && !ligero) {
+        const lbl = await trx.raw(
+          `SELECT product_id, max(box_size) AS bs, max(pack_size) AS ps FROM commercial.v_product_label_prices
+            WHERE tenant_id = ? AND product_id = ANY(?::uuid[]) GROUP BY product_id`, [tenantId, ids]);
+        for (const e of lbl.rows ?? []) etiquetas.set(e.product_id, { bs: e.bs, ps: e.ps });
+      }
+      for (const r of rows as Array<Record<string, unknown>>) {
+        const e = etiquetas.get(String(r['product_id']));
+        r['box_size'] = e?.bs ?? null;   // fallback de factor_sale para uxc (etiquetera)
+        r['pack_size'] = e?.ps ?? null;  // RA-PRO.30 — Pz/Paq; prueba box_size=factor_sale×pack_size
+      }
 
       return {
         total, page, pageSize, target_basis: basis, rows,
@@ -3437,12 +3582,113 @@ export class CommercialReplenishmentService {
                count(*) FILTER (WHERE rc.next_due_date < CURRENT_DATE)::int vencidos,
                count(*) FILTER (WHERE rc.next_due_date = CURRENT_DATE)::int hoy,
                count(*) FILTER (WHERE rc.next_due_date > CURRENT_DATE AND rc.next_due_date <= CURRENT_DATE + 7)::int prox7,
+               -- [PQ.5] El comprador piensa en PROVEEDORES, no en canales (proveedor × sucursal):
+               -- medido el 2026-10-23, 1,049 canales de compra para 301 proveedores. El aviso de
+               -- Pedido dice «te toca pedirle a N proveedores», y ese N es éste.
+               count(DISTINCT rc.supplier_id) FILTER (WHERE rc.next_due_date < CURRENT_DATE)::int prov_vencidos,
+               count(DISTINCT rc.supplier_id) FILTER (WHERE rc.next_due_date = CURRENT_DATE)::int prov_hoy,
                COALESCE(SUM(rc.cadence_days),0) AS _dummy
           FROM commercial.replenishment_channel rc
           LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
          WHERE ${where}`, binds)).rows[0];
 
-      return { total: Number(kpi.total), vencidos: Number(kpi.vencidos), hoy: Number(kpi.hoy), prox7: Number(kpi.prox7), page, pageSize, rows };
+      return { total: Number(kpi.total), vencidos: Number(kpi.vencidos), hoy: Number(kpi.hoy), prox7: Number(kpi.prox7),
+        prov_vencidos: Number(kpi.prov_vencidos), prov_hoy: Number(kpi.prov_hoy), page, pageSize, rows };
+    });
+  }
+
+  /**
+   * `[PQ.4]` LA AGENDA: una fila por PROVEEDOR, no por canal.
+   *
+   * El comprador pregunta «¿a quién le toca?» y el `worklist` contesta en canales (proveedor ×
+   * sucursal): 1,049 filas de compra para 301 proveedores, medido el 2026-10-23 — y la pestaña
+   * las pedía de a 500 sin decir que se topaba. Acá el universo cabe entero (301) y cada fila
+   * dice cuándo toca (la fecha más urgente de sus canales), en qué sucursales, cuánto sugiere
+   * el motor sumando sus canales y cuántos SKUs tiene bajo reorden.
+   *
+   * ⚠️ Misma álgebra que `worklist`: mismos filtros (`where`), mismo `agg`. Si esto diera otro
+   * sugerido que la vista por canal, serían dos números para el mismo hecho. Se reusa el SQL
+   * por composición, no copiándolo.
+   */
+  async worklistProveedores(q: WorklistQuery): Promise<WorklistProveedoresResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const whIds = await this.whIds(q);
+    return this.tk.run(async (trx) => {
+      const oh = 'COALESCE(rpl.stock_pz,0)';
+      const it = this.transitDescuento();
+      const basis = this.basis(q.target_basis);
+      const target = basis === 'cadence' ? this.cadenceTarget() : this.targetCol(basis);
+      const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
+      const cost = `COALESCE(rpl.caja_cost / NULLIF(GREATEST(COALESCE(rpl.display_bf, rpl.bf, 1), 1), 0), pr.cost_with_tax, pr.cost_base, 0)`;
+      const catFrag = q.category_id && UUID_RX.test(q.category_id) ? 'AND pr.category_id = :cat' : '';
+      const filters: string[] = [
+        `rc.tenant_id = :t`,
+        `rc.cadence_days IS NOT NULL`,
+        `rc.last_delivery_date >= CURRENT_DATE - GREATEST(rc.cadence_days*2, 60)::int`,
+      ];
+      const binds: Record<string, unknown> = { t: tenantId };
+      if (whIds) {
+        if (!whIds.length) filters.push('false');
+        else { filters.push(`rc.warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`); whIds.forEach((w, i) => { binds[`w${i}`] = w; }); }
+      }
+      if (q.via && ['purchase', 'transfer'].includes(q.via)) { filters.push(`rc.via = :via`); binds.via = q.via; }
+      if (q.status === 'due') filters.push(`rc.next_due_date <= CURRENT_DATE`);
+      if (q.search && q.search.trim()) { filters.push(`sup.name ILIKE :s`); binds.s = `%${q.search.trim()}%`; }
+      if (catFrag) {
+        filters.push(`EXISTS (SELECT 1 FROM commercial.reorder_policy rpc JOIN catalog.products prc ON prc.tenant_id=rpc.tenant_id AND prc.id=rpc.product_id WHERE rpc.tenant_id=rc.tenant_id AND rpc.warehouse_id=rc.warehouse_id AND prc.supplier_id=rc.supplier_id AND prc.category_id=:cat)`);
+        binds.cat = q.category_id;
+      }
+      const where = filters.join(' AND ');
+      const rows = (await trx.raw(`
+        WITH canales AS (
+          SELECT rc.*
+            FROM commercial.replenishment_channel rc
+            LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
+           WHERE ${where}
+        ),
+        agg AS (
+          SELECT warehouse_id, supplier_id,
+                 count(*)::int n_skus,
+                 count(*) FILTER (WHERE below)::int n_below,
+                 COALESCE(ROUND(SUM(sug*unit_cost)::numeric,2),0) AS suggested_cost
+            FROM (
+              SELECT rc.warehouse_id, rc.supplier_id,
+                     (${oh} <= rp.reorder_point) AS below, ${sug} AS sug, ${cost} AS unit_cost
+                FROM canales rc
+                LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
+                JOIN catalog.products pr ON pr.tenant_id=rc.tenant_id
+                     AND pr.supplier_id=rc.supplier_id AND pr.activo=true ${catFrag}
+                JOIN commercial.reorder_policy rp ON rp.tenant_id=rc.tenant_id
+                     AND rp.warehouse_id=rc.warehouse_id AND rp.product_id=pr.id
+                LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
+                LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id=rp.tenant_id AND rpl.warehouse_id=rp.warehouse_id AND rpl.product_id=rp.product_id
+            ) x
+           GROUP BY 1, 2
+        )
+        SELECT rc.supplier_id, sup.name AS supplier_name,
+               count(*)::int AS n_canales,
+               count(*) FILTER (WHERE rc.next_due_date < CURRENT_DATE)::int AS n_vencidos,
+               count(*) FILTER (WHERE rc.next_due_date = CURRENT_DATE)::int AS n_hoy,
+               count(*) FILTER (WHERE rc.next_due_date > CURRENT_DATE AND rc.next_due_date <= CURRENT_DATE + 7)::int AS n_prox7,
+               min(rc.next_due_date) AS next_due_date,
+               (min(rc.next_due_date) - CURRENT_DATE)::int AS days_to_due,
+               max(rc.last_delivery_date) AS last_delivery_date,
+               ROUND(AVG(rc.cadence_days)::numeric, 1) AS cadence_days,
+               COALESCE(MAX(COALESCE(rc.lead_time_days, sup.lead_time_days)), NULL) AS lead_time_days,
+               -- Las sucursales que TOCAN (vencidas u hoy), con su id para que «Armar» las deje puestas.
+               COALESCE(json_agg(json_build_object('id', w.id, 'code', w.code, 'days_to_due', (rc.next_due_date - CURRENT_DATE)::int)
+                 ORDER BY rc.next_due_date) FILTER (WHERE rc.next_due_date <= CURRENT_DATE), '[]'::json) AS sucursales_tocan,
+               COALESCE(SUM(agg.n_skus), 0)::int AS n_skus,
+               COALESCE(SUM(agg.n_below), 0)::int AS n_below,
+               COALESCE(SUM(agg.suggested_cost), 0)::numeric AS suggested_cost
+          FROM canales rc
+          JOIN commercial.warehouses w ON w.tenant_id=rc.tenant_id AND w.id=rc.warehouse_id
+          LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
+          LEFT JOIN agg ON agg.warehouse_id=rc.warehouse_id AND agg.supplier_id=rc.supplier_id
+         GROUP BY rc.supplier_id, sup.name
+         ORDER BY min(rc.next_due_date) ASC NULLS LAST, SUM(agg.suggested_cost) DESC NULLS LAST
+         LIMIT 1000`, binds)).rows;
+      return { total: rows.length, rows };
     });
   }
 
@@ -3620,36 +3866,55 @@ export class CommercialReplenishmentService {
    * devolvían vacío. Una pantalla que ofrece una sucursal y después la muestra en cero se lee
    * como «ahí no falta nada», que es peor que no ofrecerla.
    */
+  /**
+   * `[AB.36]` Sólo los almacenes que la persona alcanza: la MISMA lista que `filters()`, sin
+   * proveedores, marcas ni categorías. La usa el control de alcance de Autoabasto, que antes pedía
+   * `filters()` entero (157–193 ms, medido 2026-10-24) para leer 6 ms de almacenes en cada carga.
+   */
+  async almacenes(area: string = AREA): Promise<ReplenishmentFilters['warehouses']> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const permitidos = await this.whIds({}, area);
+    return this.tk.run((trx) => this.almacenesDe(trx, tenantId, permitidos));
+  }
+
+  /**
+   * RA-PRO.48 — el alcance era "almacenes CON reorder_policy", y eso dejaba la lista corta: el
+   * pedido se arma sobre `analytics.replenishment_plan`, que tiene 9 almacenes, mientras la
+   * política sólo cubría 4. Los otros 5 llegaban al front sin nombre (`nameOf` devolvía '') y
+   * el desglose los mostraba con el renglón en blanco. Ahora cubre lo que la pantalla muestra:
+   * con política, o presentes en el fact, o CEDIS de consolidación.
+   * `purchase_zone` / `is_purchase_hub` (mig 20260910120000) alimentan el agrupado por zona y
+   * el selector "Consolidado ▸ ¿en qué CEDIS?". Se leen de la tabla, no se deducen de códigos.
+   * `[AB.36]` En un solo lugar para `filters()` y `almacenes()`: si fueran dos, el selector y el
+   * control de alcance podrían ofrecer y aceptar listas distintas.
+   */
+  private async almacenesDe(trx: Knex.Transaction, tenantId: string, permitidos: string[] | null): Promise<ReplenishmentFilters['warehouses']> {
+    return (await trx('commercial.warehouses as w')
+      .where('w.tenant_id', tenantId)
+      .andWhere('w.active', true)
+      .whereNull('w.deleted_at')
+      .andWhere((q) => q
+        .whereExists(trx.select(trx.raw('1')).from('commercial.reorder_policy as rp')
+          .whereRaw('rp.tenant_id = w.tenant_id AND rp.warehouse_id = w.id'))
+        .orWhereExists(trx.select(trx.raw('1')).from('analytics.replenishment_plan as pl')
+          .whereRaw('pl.tenant_id = w.tenant_id AND pl.warehouse_id = w.id'))
+        .orWhere('w.is_purchase_hub', true))
+      .modify((q) => { if (permitidos) q.whereIn('w.id', permitidos); })
+      .select('w.id as id', 'w.code as code', 'w.name as name', 'w.kind as kind',
+        'w.purchase_zone as purchase_zone', 'w.is_purchase_hub as is_purchase_hub',
+        'w.display_order as display_order'))
+      // Orden canónico de tiendas para el multiselect (mismo que las columnas del workbook).
+      // ⚠️ Al fusionar con `[RA-PRO.32.2]`: este alcance ampliado traía `.orderBy('w.code')`, que
+      // es JUSTO el alfabético que ese contrato retiró ("00,01,…,MD-30 no es como el negocio
+      // piensa la red"). Se ordena acá, en JS, igual que el otro consumidor de este servicio.
+      .sort((a: { code: string }, b: { code: string }) => compareWarehouseCodes(a.code, b.code));
+  }
+
   async filters(area: string = AREA): Promise<ReplenishmentFilters> {
     const tenantId = this.tenantCtx.requireTenantId();
     const permitidos = await this.whIds({}, area);
     return this.tk.run(async (trx) => {
-      // RA-PRO.48 — el alcance era "almacenes CON reorder_policy", y eso dejaba la lista corta: el
-      // pedido se arma sobre `analytics.replenishment_plan`, que tiene 9 almacenes, mientras la
-      // política sólo cubría 4. Los otros 5 llegaban al front sin nombre (`nameOf` devolvía '') y
-      // el desglose los mostraba con el renglón en blanco. Ahora cubre lo que la pantalla muestra:
-      // con política, o presentes en el fact, o CEDIS de consolidación.
-      // `purchase_zone` / `is_purchase_hub` (mig 20260910120000) alimentan el agrupado por zona y
-      // el selector "Consolidado ▸ ¿en qué CEDIS?". Se leen de la tabla, no se deducen de códigos.
-      const warehouses = (await trx('commercial.warehouses as w')
-        .where('w.tenant_id', tenantId)
-        .andWhere('w.active', true)
-        .whereNull('w.deleted_at')
-        .andWhere((q) => q
-          .whereExists(trx.select(trx.raw('1')).from('commercial.reorder_policy as rp')
-            .whereRaw('rp.tenant_id = w.tenant_id AND rp.warehouse_id = w.id'))
-          .orWhereExists(trx.select(trx.raw('1')).from('analytics.replenishment_plan as pl')
-            .whereRaw('pl.tenant_id = w.tenant_id AND pl.warehouse_id = w.id'))
-          .orWhere('w.is_purchase_hub', true))
-        .modify((q) => { if (permitidos) q.whereIn('w.id', permitidos); })
-        .select('w.id as id', 'w.code as code', 'w.name as name', 'w.kind as kind',
-          'w.purchase_zone as purchase_zone', 'w.is_purchase_hub as is_purchase_hub',
-          'w.display_order as display_order'))
-        // Orden canónico de tiendas para el multiselect (mismo que las columnas del workbook).
-        // ⚠️ Al fusionar con `[RA-PRO.32.2]`: este alcance ampliado traía `.orderBy('w.code')`, que
-        // es JUSTO el alfabético que ese contrato retiró ("00,01,…,MD-30 no es como el negocio
-        // piensa la red"). Se ordena acá, en JS, igual que el otro consumidor de este servicio.
-        .sort((a: { code: string }, b: { code: string }) => compareWarehouseCodes(a.code, b.code));
+      const warehouses = await this.almacenesDe(trx, tenantId, permitidos);
       const suppliers = await trx('commercial.reorder_policy as rp')
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
@@ -3784,13 +4049,59 @@ export class CommercialReplenishmentService {
   }
 
   /**
+   * `[AB.29]` Las requisiciones que manda UNA sucursal desde Autoabasto («Enviar a Compras»): una por
+   * origen, todas en una transacción (entran todas o ninguna), marcadas `requested_by_branch`.
+   *
+   * ⚠️ Dos candados contra pedir lo mismo dos veces:
+   *  · `pg_advisory_xact_lock` por almacén: dos clics (o dos personas) de la misma sucursal se forman
+   *    en fila en vez de crear las dos;
+   *  · dentro de esa fila se vuelve a mirar lo que ya está vivo (por aprobar, o aprobado de 7 días o
+   *    menos — la misma ventana que la pantalla, `VENTANA_YA_PEDIDO_DIAS`) y esos productos se quitan
+   *    y se devuelven en `ya_pedidos`. Una requisición que se queda sin renglones no se crea.
+   *
+   * Sin la migración `20261026084306` no hay dónde marcarla: se dice (503), no se crea una requisición
+   * de sucursal que nadie podría distinguir de una de Compras.
+   */
+  async crearRequisicionesDeSucursal(
+    warehouseId: string, dtos: CreateRequisitionDto[],
+  ): Promise<{ creadas: Array<{ id: string; folio: string; indice: number; renglones: number; total_units: number }>; ya_pedidos: string[] }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const lista = (await trx.raw(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'commercial' AND table_name = 'purchase_requisitions' AND column_name = 'requested_by_branch'`,
+      )).rows.length > 0;
+      if (!lista) throw new ServiceUnavailableException('Falta aplicar la migración de las requisiciones de sucursal (20261026084306): todavía no se pueden mandar a Compras.');
+      await trx.raw('SELECT pg_advisory_xact_lock(hashtext(?))', [`ab29:${tenantId}:${warehouseId}`]);
+      const ids = [...new Set(dtos.flatMap((d) => d.lines.map((l) => l.product_id)))];
+      const vivos = new Set<string>((await trx.raw(`
+        SELECT DISTINCT l.product_id
+          FROM commercial.purchase_requisitions r
+          JOIN commercial.purchase_requisition_lines l ON l.tenant_id = r.tenant_id AND l.requisition_id = r.id
+         WHERE r.tenant_id = ? AND r.warehouse_id = ? AND r.requested_by_branch
+           AND (r.estado = 'pending_approval'
+                OR (r.estado = 'approved' AND COALESCE(r.approved_at, r.created_at) >= now() - make_interval(days => ?)))
+           AND l.product_id = ANY(?::uuid[])`,
+        [tenantId, warehouseId, VENTANA_YA_PEDIDO_DIAS, ids])).rows.map((r: { product_id: string }) => r.product_id));
+      const creadas: Array<{ id: string; folio: string; indice: number; renglones: number; total_units: number }> = [];
+      for (const [indice, dto] of dtos.entries()) {
+        const lines = dto.lines.filter((l) => !vivos.has(l.product_id));
+        if (!lines.length) continue;
+        const r = await this.insertRequisition(trx, tenantId, { ...dto, lines }, { deSucursal: true });
+        creadas.push({ id: r.id, folio: r.folio, indice, renglones: r.total_lines, total_units: r.total_units });
+      }
+      return { creadas, ya_pedidos: [...vivos] };
+    });
+  }
+
+  /**
    * `[RQ.8]` El insert de UNA requisición, con sus validaciones, **recibiendo la transacción**.
    *
    * Se extrajo de `createRequisition` para que la creación suelta y la del lote compartan
    * exactamente el mismo código. ⚠️ No abre su propia transacción a propósito: anidar
    * `tk.run()` dentro de otro `tk.run()` es un error conocido de este repo.
    */
-  private async insertRequisition(trx: Knex.Transaction, tenantId: string, dto: CreateRequisitionDto) {
+  private async insertRequisition(trx: Knex.Transaction, tenantId: string, dto: CreateRequisitionDto, opts?: { deSucursal?: boolean }) {
     const userId = this.tenantCtx.get()?.userId ?? null;
     if (!dto?.warehouse_id || !UUID_RX.test(dto.warehouse_id)) throw new BadRequestException('warehouse_id inválido');
     const basis = this.basis(dto.target_basis);
@@ -3837,6 +4148,8 @@ export class CommercialReplenishmentService {
           folio, estado: 'pending_approval', target_basis: basis,
           total_lines: lines.length, total_units: totalUnits, total_cost: Number(totalCost.toFixed(4)),
           notes: dto.notes ?? null, created_by: userId,
+          // `[AB.29]` Sólo la escribe `crearRequisicionesDeSucursal`, que antes verificó que la columna existe.
+          ...(opts?.deSucursal ? { requested_by_branch: true } : {}),
         })
         .returning(['id', 'folio', 'estado']);
 
@@ -4044,7 +4357,7 @@ export class CommercialReplenishmentService {
   }
 
   async listRequisitions(
-    q: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; page?: number; pageSize?: number },
+    q: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; kepler?: string; de_sucursal?: string; page?: number; pageSize?: number },
   ): Promise<RequisitionListDto> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
@@ -4066,6 +4379,11 @@ export class CommercialReplenishmentService {
       }
       // `[RQ.8]` Los documentos de UN lote. Es lo que abre la fila de la bandeja agrupada.
       if (q.batch_id && UUID_RX.test(q.batch_id)) base.andWhere('r.batch_id', q.batch_id);
+      // `[AB.32]` Sólo lo que pidieron las sucursales (D15: Compras lo atiende aquí, no en otra bandeja).
+      // Por `to_jsonb` por lo mismo que la OC de abajo: sin la migración la marca no existe y no hay ninguna.
+      if (q.de_sucursal === '1' || q.de_sucursal === 'true') {
+        base.andWhereRaw(`(to_jsonb(r) ->> 'requested_by_branch') = 'true'`);
+      }
       // `[RQ.9]` Buscar por folio o por proveedor. Hasta acá el ÚNICO filtro de la pantalla era
       // el estado: con 670 requisiciones y 50 por página, encontrar un folio eran 14 páginas.
       if (q.search && q.search.trim()) {
@@ -4091,6 +4409,14 @@ export class CommercialReplenishmentService {
       // lote) **sí** la acotan: ésos son el universo del que se pregunta.
       const baseResumen = base.clone();
       if (q.estado) base.andWhere('r.estado', q.estado);
+      // `[PQ.1]` Las aprobadas que NO tienen documento en Kepler: es el drill de la casilla del
+      // tablero (regla Q.4: el número que denuncia lleva a su lugar de arreglo con el filtro
+      // puesto). Mismo `to_jsonb` que el SELECT: la columna puede faltar si el deploy llega
+      // antes que su migración. Sólo tiene sentido sobre `approved`: en los demás estados el
+      // documento del ERP es otro (la OC) y no se mide acá.
+      if (q.kepler === 'sin_documento') {
+        base.andWhere('r.estado', 'approved').andWhereRaw(`to_jsonb(r) ->> 'kepler_folio' IS NULL`);
+      }
 
       const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
       const rows = await base.clone()
@@ -4111,6 +4437,10 @@ export class CommercialReplenishmentService {
           trx.raw(`to_jsonb(r) ->> 'kepler_sucursal' AS kepler_sucursal`),
           trx.raw(`to_jsonb(r) ->> 'kepler_folio'    AS kepler_folio`),
           trx.raw(`to_jsonb(r) ->> 'kepler_error'    AS kepler_error`),
+          // `[AB.29]` / `[AB.32]` Pedida por sucursal y, si se rechazó, por qué. Mismo `to_jsonb`.
+          trx.raw(`COALESCE((to_jsonb(r) ->> 'requested_by_branch')::boolean, false) AS requested_by_branch`),
+          trx.raw(`to_jsonb(r) ->> 'rejection_reason' AS rejection_reason`),
+          trx.raw(`to_jsonb(r) ->> 'rejected_at'      AS rejected_at`),
           trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'),
           // `[RQ.2]` La ANTIGUEDAD viaja en la fila. Sin ella la lista ordena por fecha y el
           // lector tiene que restar de cabeza para darse cuenta de que esa requisicion lleva
@@ -4142,11 +4472,21 @@ export class CommercialReplenishmentService {
           // de 8-30 días y en el 83.5 % de los de 31-60 — ahí es donde la requisición deja de ser
           // verdad y hay que recalcularla antes de aprobar.
           trx.raw(`count(*) FILTER (WHERE r.created_at < now() - interval '30 days')::int AS n_mas_30`),
-          trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE r.created_at < now() - interval '30 days'), 0) AS monto_mas_30`));
+          trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE r.created_at < now() - interval '30 days'), 0) AS monto_mas_30`),
+          // `[PQ.1]` ¿Salió a Kepler? Tres ausencias que no son la misma. Se cuentan dentro de
+          // CADA estado; la pantalla las lee sólo en `approved`, donde la salida es el `X-A-30`
+          // / `U-D-40` que escribe la Suite. Con `to_jsonb` por la misma razón que el SELECT.
+          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NOT NULL)::int AS n_kepler`),
+          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL AND to_jsonb(r) ->> 'kepler_error' IS NOT NULL)::int AS n_kepler_error`),
+          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL AND to_jsonb(r) ->> 'kepler_error' IS NULL)::int AS n_sin_empujar`),
+          trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL), 0) AS monto_sin_kepler`),
+          trx.raw(`COALESCE(max(floor(extract(epoch FROM now() - r.created_at) / 86400)) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL), 0)::int AS dias_max_sin_kepler`));
       const resumen = (resumenRows as any[]).map((x) => ({
         estado: String(x.estado), n: Number(x.n) || 0, monto: Number(x.monto) || 0,
         dias_prom: Number(x.dias_prom) || 0, dias_max: Number(x.dias_max) || 0,
         n_mas_30: Number(x.n_mas_30) || 0, monto_mas_30: Number(x.monto_mas_30) || 0,
+        n_kepler: Number(x.n_kepler) || 0, n_kepler_error: Number(x.n_kepler_error) || 0, n_sin_empujar: Number(x.n_sin_empujar) || 0,
+        monto_sin_kepler: Number(x.monto_sin_kepler) || 0, dias_max_sin_kepler: Number(x.dias_max_sin_kepler) || 0,
       }));
       return { total: Number(totalRow?.c || 0), page, pageSize, rows, resumen };
     });
@@ -4384,7 +4724,7 @@ export class CommercialReplenishmentService {
     });
   }
 
-  private async setEstado(id: string, from: string, to: string, extra?: Record<string, unknown>) {
+  private async setEstado(id: string, from: string, to: string, extra?: Record<string, unknown>): Promise<RequisicionEstadoCambiado> {
     const tenantId = this.tenantCtx.requireTenantId();
     const userId = this.tenantCtx.get()?.userId ?? null;
     if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
@@ -4432,7 +4772,35 @@ export class CommercialReplenishmentService {
     // `[KR.5]` El empuje cuelga de aprobar. `empujar:false` lo apaga para el lote (ver bulkEstado).
     return { ...r, kepler: empujar ? await this.pushKeplerTrasAprobar(id) : { estado: 'en_lote' } };
   }
-  reject(id: string) { return this.setEstado(id, 'pending_approval', 'cancelled'); }
+  /**
+   * Rechaza (pending_approval → cancelled).
+   *
+   * `[AB.32]` Una requisición que generó una SUCURSAL exige motivo, y se guarda quién, cuándo y por
+   * qué: la sucursal lo ve en «Lo que te llega» y sabe si volver a pedirlo o no. Sin motivo, la
+   * sucursal sólo vería «rechazada» y volvería a mandarla. Las demás aceptan motivo y lo guardan si
+   * viene (hacerlo obligatorio para todas es `[PQ.9]`, que reusa estas columnas).
+   * Sin la migración `20261026084306` se rechaza como antes, sin constancia: no hay dónde guardarla.
+   */
+  async reject(id: string, motivo?: string | null): Promise<RequisicionEstadoCambiado> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
+    const porque = String(motivo ?? '').trim().slice(0, 500);
+    const conConstancia = await this.tk.run(async (trx) => {
+      const col = (await trx.raw(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'commercial' AND table_name = 'purchase_requisitions' AND column_name = 'requested_by_branch'`,
+      )).rows.length > 0;
+      if (!col) return false;
+      const r = await trx('commercial.purchase_requisitions').where({ tenant_id: tenantId, id }).first('requested_by_branch');
+      if (r?.requested_by_branch && !porque) {
+        throw new BadRequestException('Esta requisición la pidió una sucursal: para rechazarla escribe el motivo. La sucursal lo va a ver.');
+      }
+      return true;
+    });
+    if (!conConstancia || !porque) return this.setEstado(id, 'pending_approval', 'cancelled');
+    const userId = this.tenantCtx.get()?.userId ?? null;
+    return this.setEstado(id, 'pending_approval', 'cancelled', { rejection_reason: porque, rejected_by: userId, rejected_at: new Date() });
+  }
 
   /**
    * `[KR.5]` — **El empuje a Kepler cuelga de APROBAR, y no puede voltear la aprobación.**
@@ -4479,7 +4847,7 @@ export class CommercialReplenishmentService {
    * transacción para todas haría que un renglón con el costo movido tirara abajo las otras 49, y
    * quien aprueba se quedaría sin saber cuál falló. Lo que no pasa, se dice con su motivo.
    */
-  async bulkEstado(ids: string[], accion: 'approve' | 'reject') {
+  async bulkEstado(ids: string[], accion: 'approve' | 'reject', motivo?: string | null): Promise<RequisicionesLoteResultado> {
     const unicos = [...new Set((ids || []).filter((x) => typeof x === 'string' && UUID_RX.test(x)))];
     if (!unicos.length) throw new BadRequestException('No se recibió ninguna requisición válida');
     if (unicos.length > 200) throw new BadRequestException('Máximo 200 requisiciones por lote');
@@ -4492,7 +4860,7 @@ export class CommercialReplenishmentService {
         // la duda de cuáles salieron. Las requisiciones quedan aprobadas con `kepler_folio` en
         // NULL, que es exactamente el estado "todavía no salió" que la bandeja sabe mostrar y
         // reintentar. Se declara, no se dibuja como entregado.
-        await (accion === 'approve' ? this.approve(id, false) : this.reject(id));
+        await (accion === 'approve' ? this.approve(id, false) : this.reject(id, motivo));
         ok.push(id);
       } catch (e: unknown) {
         fallas.push({ id, motivo: (e as { message?: string })?.message || 'no se pudo' });

@@ -194,3 +194,241 @@ puede crear.** Yo resolvería esto **antes** del paso 1.
 **Y sigue abierto** qué es el `74,439` de `md.kdfolio` fila `PD-`, cuando el folio máximo real de
 `U-D-40` es `0001081`. La secuencia observada es densa desde 1 y `MAX+1` reproduce lo que el ERP
 hace, pero nadie sabe para qué sirve ese contador.
+
+---
+
+## 8. ⭐ `[KR.11]` Encender cada servidor de Kepler (2026-10-23)
+
+### 8.1 Por qué una conexión no alcanza
+
+Medido en `kepler_ods.kdm1` el 2026-10-23: los `X-A-30` y `U-D-40` de cada sucursal viven **en su
+propio servidor** (`sucursal = c1` en los nueve). `md_00` sólo guarda los de oficinas. La versión
+anterior del adapter tenía una sola conexión a `md_00` y escribía ahí `c1 = sucursal`: una
+requisición de `02` habría quedado en un ERP que La Piedad no mira. No pasaba sólo porque la
+plantilla `02/1/0000424` no existe en `md_00` y el adapter rechazaba.
+
+Desde KR.11 el adapter abre **un pool por servidor**, con estas reglas (prueba en
+`kepler-servidores.spec.ts`, rota a propósito y vista en rojo):
+
+| variable | qué hace |
+|---|---|
+| `KEPLER_PUSH_URL_NN` | conexión del servidor `NN` |
+| `KEPLER_PUSH_URL` | sólo para `00`, compatibilidad con §3. ⛔ **No es comodín** |
+| `KEPLER_REQ_TEMPLATE_FOLIO_NN` / `_SERIE_NN` | plantilla de compra en ese servidor |
+| `KEPLER_PED_TEMPLATE_FOLIO_NN` / `_SERIE_NN` | plantilla de traspaso en ese servidor, **sin default** |
+
+Un servidor sin su variable queda **apagado** y la requisición lo dice en `kepler_error`.
+
+### 8.2 Lo que espera salir, por servidor (prod, 2026-10-23)
+
+Requisiciones `approved` sin `kepler_folio`. El traspaso se crea en el servidor de **origen**.
+
+| servidor | host | compras | importe | traspasos | importe |
+|---|---|---:|---:|---:|---:|
+| `00` | `192.168.9.95:5432/md_00` | 31 | $5,131,936 | 371 | $10,916,246 |
+| `01` | `192.168.10.10:1977/md_01` | 9 | $222,935 | 135 | $952,281 |
+| `02` | `192.168.42.42:5432/md_02` | 3 | $19,975 | — | — |
+| `03` | `192.168.40.40:5432/md_03` | 3 | $5,557 | — | — |
+| `04` | `192.168.44.44:5432/md_04` | 3 | $9,333 | — | — |
+| `05` | `192.168.54.54:5432/md_05` | 3 | $24,092 | — | — |
+| `06` | `192.168.50.50:1977/md_06` | 4 | $52,638 | 29 | $201,692 |
+| `07` | `192.168.32.32:1977/md_07` | 7 | $88,691 | — | — |
+| `08` | `192.168.30.30:1977/md_08` (Morelia Abastos; de `database/importers/lib/kepler-branches.js`) | 15 | $681,880 | 67 | $742,583 |
+
+⚠️ Encender **no** empuja este rezago: sólo `approve()` empuja, y el lote no (§7 c de FASE_KR).
+Las ya aprobadas salen con el botón de reintento de la ficha, una por una.
+
+### 8.3 Plantillas candidatas (de `kepler_ods`, sólo lectura)
+
+Criterio: compra = `X-A-30` del propio servidor con más renglones en 400 días; traspaso =
+`U-D-40` en `AUTORIZADO`, `c43='N'`, `c27='SUCURSAL'`, responsables vacíos. **Control:** el mismo
+criterio devuelve en `00` exactamente las plantillas ya elegidas a mano (`0000424`, `0000450`).
+
+| servidor | compra | renglones | traspaso | renglones |
+|---|---|---:|---|---:|
+| `00` | `0000424` | 103 | `0000450` | 4 |
+| `01` | `0000092` | 48 | ⛔ ninguna sana: `0003384` pasó a EMBARCADO el mismo día; todo AUTORIZADO se procesa en <3 días | — |
+| `02` | `0000101` | 286 | `0002124` | 1 |
+| `03` | `0000158` | 262 | `0000002` | 1 |
+| `04` | `0000059` | 154 | ninguna sana | — |
+| `05` | `0000007` | 49 | ⛔ ninguna sana: la reciente puede procesarse y las antiguas van a clientes, no a `TI###` | — |
+| `06` | `0000001` | 10 | `0000895` (22-sep, sin procesar) | 4 |
+| `07` | `0000035` | 59 | ninguna sana | — |
+| `08` | `0000005` | 53 | `0000028` | 44 |
+
+⚠️ Un pedido `AUTORIZADO` de hoy todavía se va a surtir. Si alguien lo da de baja, ese servidor
+deja de poder escribir traspasos y lo dice. Antes de fijarlas, **abrir cada una en Kepler**.
+
+### 8.4 Por cada servidor, en este orden
+
+Como superusuario de ese servidor (`sa` en `.42.42`, `postgres` en los demás):
+
+```sql
+CREATE ROLE kepler_push LOGIN PASSWORD '<contraseña propia de este servidor>';
+GRANT CONNECT, TEMPORARY ON DATABASE md_NN TO kepler_push;
+GRANT USAGE ON SCHEMA md TO kepler_push;
+GRANT SELECT ON md.kdm1, md.kdm2, md.pv_suc_ip TO kepler_push;
+GRANT INSERT ON md.kdm1, md.kdm2 TO kepler_push;
+```
+
+Verificación con la consulta de §1.3. **Esperado: `escribe=2 · lee=3 · modifica=0`.**
+`TEMPORARY` es necesario: el adapter clona la plantilla en una tabla temporal.
+
+Luego la línea de `pg_hba.conf` y `SELECT pg_reload_conf();`:
+
+```
+host  md_NN  kepler_push  192.168.0.222/32  scram-sha-256
+```
+
+Y en el entorno del deployment `api` de prod, por cada servidor encendido:
+
+```bash
+KEPLER_PUSH_URL_NN=postgresql://kepler_push:<LA CONTRASEÑA>@<host>:<puerto>/md_NN
+KEPLER_REQ_TEMPLATE_FOLIO_NN=<de §8.3>
+KEPLER_PED_TEMPLATE_FOLIO_NN=<de §8.3, sólo si ese servidor origina traspasos>
+```
+
+Al arrancar, el log del API dice `Escritura a Kepler encendida para: 00, 01, …`. Si un servidor
+falta en esa línea, su variable no llegó.
+
+Después, §5.2 a §5.6 **en ese servidor**, con una compra de pocos renglones.
+
+### 8.5 Lo que sigue abierto
+
+- **§7 sin resolver.** La baja desde la UI de Kepler no se probó. Vale igual para los nueve.
+- ~~**IP del servidor `08`.**~~ Resuelto: `192.168.30.30:1977`, registrada en `database/importers/lib/kepler-branches.js`.
+- **Red desde el pod.** Que `md` replique de los ocho no prueba que el pod `api` llegue a
+  `.50.50` o `.32.32`. Se prueba con `disponible()` tras encender.
+- **`md.pv_suc_ip` en cada servidor.** Medido sólo en `md_00`. Si falta, el traspaso rechaza con
+  su motivo; no escribe nada.
+
+---
+
+## 9. ⭐⭐ Protocolo de encendido servidor por servidor, con vuelta atrás (2026-10-23)
+
+Pedido: *«vayamos una por una habilitando la inserción … me gustaría tener algún protocolo de
+seguridad o especie de rollback»*.
+
+### 9.1 Las palancas, de la más fina a la más gruesa
+
+Cada una basta sola para frenar. Se usan **de arriba hacia abajo**.
+
+| nivel | qué se hace | qué frena | cuánto tarda | quién |
+|---|---|---|---|---|
+| **N0 · tipo** | quitar `KEPLER_REQ_TEMPLATE_FOLIO_NN` o `KEPLER_PED_TEMPLATE_FOLIO_NN` y reiniciar `api` | sólo compra o sólo traspaso de ese servidor | ~1 min | Edgar |
+| **N0 · tope** | `KEPLER_PUSH_MAX_DIA_NN` (default **1**) | más de N documentos por día en ese servidor | ~1 min | Edgar |
+| **N1 · servidor** | quitar `KEPLER_PUSH_URL_NN` y reiniciar `api` | todo ese servidor | ~1 min | Edgar |
+| **N2 · red** | comentar la línea de `pg_hba` + `SELECT pg_reload_conf();` | todo ese servidor, **sin reiniciar la Suite** | segundos | quien tenga el servidor |
+| **N3 · base** | `REVOKE INSERT ON md.kdm1, md.kdm2 FROM kepler_push;` | todo, aunque alguien vuelva a poner la variable | segundos | superusuario del servidor |
+| **N4 · documento** | `kepler-push-ops.js deshacer … --apply` | borra UN documento ya escrito, con respaldo | segundos | Edgar, con `KEPLER_ADMIN_URL_NN` |
+| **N4' · rehacer** | `kepler-push-ops.js restaurar --archivo … --apply` | vuelve a poner lo que N4 quitó | segundos | idem |
+
+⛔ **Lo que N4 NO hace:** borrar algo que la Suite no escribió (la marca `RQ-` tiene que ser
+exactamente su folio), algo que Kepler ya procesó (`c43` ≠ `N`), algo que ya tiene hijos (una
+orden de compra o un embarque apuntándole) ni un traspaso que alguien ya surtió. Esos casos se
+cancelan en Kepler como cualquier documento: ya son de Compras, no de la Suite.
+
+⚠️ **Lo que N4 deja atrás:** el ODS puede conservar el encabezado borrado. Medido hoy: los 4
+documentos de la prueba del 13-oct ya no existen en `md_00` y siguen en `kepler_ods`. `listar
+--fuente ods` los muestra.
+
+⚠️ **N4 no se pudo ensayar fuera del ERP** (sin base de pruebas disponible). Por eso el paso P2
+lo ejerce sobre el canario, con alguien mirando, antes de abrir nada.
+
+### 9.2 Los pasos de UN servidor
+
+`NN` = el servidor que se enciende. No se pasa al siguiente paso sin cumplir el criterio.
+
+| paso | qué | criterio para seguir |
+|---|---|---|
+| **P0 · pre-vuelo** | §8.4 (rol, `pg_hba`) y `node database/scripts/kepler-push-ops.js revisar --sucursal NN` | **cero FALLA** |
+| **P1 · canario** | variables con **sólo la plantilla de compra** y `KEPLER_PUSH_MAX_DIA_NN=1`. Reintentar UNA requisición chica desde su ficha | `listar` muestra 1 documento; en Kepler, proveedor, renglones y total iguales a la Suite |
+| **P2 · ensayo de vuelta atrás** | (a) intentar la **Baja** desde la UI de Kepler — §7. (b) `deshacer` sin `--apply`, luego con `--apply`. (c) `listar` en 0 y la ficha sin folio. (d) reintentar: sale con folio nuevo | las cuatro cosas pasan. Si (a) falla, se anota y se decide; (b)–(d) son obligatorias |
+| **P3 · un día** | `KEPLER_PUSH_MAX_DIA_NN=5`. Al cierre: `revisar` + `listar` + Compras confirma en Kepler | cero duplicados, cero diferencias, Compras de acuerdo |
+| **P4 · abrir compra** | subir el tope a ~2× el máximo diario de aprobaciones de ese servidor | `revisar` limpio una semana |
+| **P5 · traspaso** | `GRANT SELECT ON md.pv_suc_ip`, poner la plantilla de traspaso, y repetir P1–P4. En P1, verificar que el destino `TI###` sea el correcto | igual que arriba |
+
+**Se para y se baja a N1 en cuanto pase cualquiera de estas cosas:** un documento duplicado, un
+total o un renglón distinto al de la Suite, `revisar` en FALLA, o alguien de Compras que dice
+que algo se ve raro. Después se investiga.
+
+### 9.3 Orden de los servidores
+
+| orden | servidor | por qué |
+|---|---|---|
+| 1 | `00` oficinas | el rol ya existe, es el 84 % del dinero pendiente, y es donde se probó KR |
+| 2 | `01` · `08` · `06` | tienen compras **y** traspasos pendientes |
+| 3 | `02` · `03` · `04` · `05` · `07` | sólo compras, 3 a 7 requisiciones cada uno |
+
+### 9.4 El estado real de `00` hoy (medido con `revisar`, 2026-10-23)
+
+| | |
+|---|---|
+| ⛔ FALLA | `kepler_push` todavía tiene `UPDATE` sobre `md.kdfolio`: el `REVOKE` de §1.2 no se corrió |
+| AVISO | sin `SELECT` sobre `md.pv_suc_ip`: el traspaso rebotaría. §1.1 tampoco se corrió |
+| AVISO | la Suite apunta `RQ-2026-00807 → 0003114`, que ya no existe (resto de la prueba del 13-oct) |
+| OK | escribe sólo `kdm1`/`kdm2`, lee, tablas temporales, plantilla de compra `0000424` con 103 renglones |
+
+Canario sugerido para `00`: `RQ-2026-00775` (proveedor `CA022`, 1 renglón, $5,565) o
+`RQ-2026-00759` (`CV004`, 1 renglón, $12,500).
+
+### 9.5 Antes del P0 de cualquier servidor
+
+El código de KR.11–KR.13 está en commits locales. Hasta que se empuje y se despliegue, las
+variables nuevas no hacen nada: el `api` de prod todavía corre el adapter de una sola conexión.
+
+---
+
+## 10. `[KR.14]` Dónde viven las contraseñas: un archivo maestro y un secreto propio
+
+Nadie tiene que recordar ni teclear una contraseña. `node ops/prod/kepler-push-secretos.js` arma
+todo en `%USERPROFILE%\kepler-push-secretos\`, **fuera del repo** (el repo es público; el script
+se niega a escribir adentro):
+
+| archivo | qué es | adónde va |
+|---|---|---|
+| `kepler-push.env` | **el maestro**: por servidor, URL con su contraseña, plantillas y tope | al secreto k3s `kepler-push`, que el `api` lee con `envFrom` (`optional`: sin él arranca y no escribe) |
+| `roles/md_NN.sql` | `CREATE ROLE kepler_push` con la contraseña de ESE servidor + `GRANT` + línea de `pg_hba` | se corre una vez en cada servidor, como superusuario |
+| `kepler-admin.env` | plantilla de URL de superusuario para el rollback | ⛔ sólo en la máquina de quien opera; **nunca** al clúster |
+
+- **Línea comentada = servidor apagado.** Encender = descomentar sus líneas, recrear el secreto y
+  reiniciar `api` (los comandos están al final del maestro). Apagar todo = borrar el secreto.
+- `00` reusa la contraseña que ya existía. Los demás tienen una nueva de 32 caracteres.
+- Volver a correr el script **no cambia ninguna contraseña** (verificado por hash); sólo agrega
+  lo que falte.
+- `kepler-push-ops.js` lee el maestro, **incluidas las líneas comentadas**, así que `revisar` funciona
+  antes de encender un servidor en prod.
+- ⚠️ En Windows el modo `600` no aplica. Respaldar la carpeta en el gestor de contraseñas del equipo.
+
+---
+
+## 11. ⛔ Estado al 2026-10-26: APAGADA en los nueve servidores
+
+El canario de Yurécuaro (24-oct) hizo su trabajo: encontró tres defectos antes de que se
+escribiera un documento que importara, y la vuelta atrás se ejerció de punta a punta.
+
+| qué | resultado |
+|---|---|
+| P0 en 00–08 | ✅ rol, `pg_hba` y `revisar` sin fallas en los nueve |
+| Freno por proveedor desconocido | ✅ `RQ-2026-01374` (`CC002`) rebotó sin escribir |
+| `KR.16` mismo parámetro a `c12` numeric y `c57` varchar | ❌→✅ falló en todos los servidores sin escribir; corregido |
+| Tope diario | ✅ `RQ-2026-01392` rebotó con «1 de 1» |
+| Primer documento real `04/0000122` | ✅ negocio idéntico a la Suite · ❌ **la baja desde Kepler dijo «Documento referenciado»** |
+| `KR.17` columnas heredadas de la plantilla (`c24` pendiente, `c56`, `c25`, `c32`, `c18`, `c14`/`c15`, RFC/domicilio, capturista/hora) | corregido en código (`ea9603bd1`), ensayo 15/15 con ROLLBACK · **sin desplegar** |
+| `deshacer` real sobre `04/0000122` | ✅ borrado con respaldo · ❌ la Suite no se pudo actualizar (usuario de sólo lectura) y el mensaje mentía → corregido (`60b3a6b1c`) |
+| Limpieza de la Suite | ✅ cinco requisiciones de prueba canceladas con nota «PRUEBA KR» |
+
+**Apagada** con `kubectl -n prod delete secret kepler-push` (el `api` lo lee `optional`). El maestro
+tiene todas las líneas comentadas.
+
+### Lo que falta ANTES de volver a encender un solo servidor
+
+1. Desplegar `ea9603bd1` y `60b3a6b1c`, y confirmar el commit servido.
+2. Canario nuevo en Yurécuaro. ⛔ **El criterio que decide es que la BAJA desde la UI de Kepler
+   funcione** — la prueba de §7, que esta vez sí se puede contestar.
+3. Mirar el documento en Kepler campo por campo, incluida la pestaña de totales: el ensayo verifica
+   las columnas que se midieron, no las que nadie ha comparado contra la pantalla.
+4. Sólo después: un servidor a la vez, §9.2 P1–P5.
+
+⚠️ Lo que el ensayo NO cubre: columnas cuyo valor de plantilla es común (`kdm1.c90`, `kdm2.c17`/`c18`)
+y que nadie ha decodificado. Se dejaron como vienen; si Compras ve algo raro, empezar por ahí.

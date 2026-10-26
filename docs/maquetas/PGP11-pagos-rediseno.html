@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pagos — rediseño total</title>
+<style>
+/* ──────────────────────────────────────────────────────────────────────────
+   PGP.11 — Rediseño TOTAL de /finanzas/pagos, pasada de densidad.
+   Metáfora: cola de lotes a la izquierda; el lote abierto como hoja de
+   trabajo con los cuatro pasos como columna vertebral.
+   Superficie Operations del sistema Mercado: sin display font, sin ilustra-
+   ciones, densidad compacta. Tokens inline sólo porque esto es una maqueta
+   suelta; en la app salen de libs/design-tokens/tokens.css.
+   Datos: los de la captura de prod del 2026-10-26. Ninguna cifra inventada.
+   ────────────────────────────────────────────────────────────────────────── */
+:root{
+  --bg:#fafaf9; --card-bg:#ffffff; --surface-2:#f5f5f4; --surface-3:#eeedeb;
+  --text-main:#1c1917; --text-muted:#78716c; --text-faint:#a8a29e;
+  --border-color:#e7e5e4; --border-strong:#d6d3d1;
+  --action:#ea580c; --action-ring:#fdba74; --action-soft:#fff7ed;
+  --ok-fg:#15803d; --ok-soft:#f0fdf4;
+  --warn-fg:#b45309; --warn-soft:#fffbeb;
+  --bad-fg:#b91c1c; --bad-soft:#fef2f2;
+  --r-sm:4px; --r-md:8px; --r-lg:12px; --r-pill:999px;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px;
+  --fs-nano:.69rem; --fs-micro:.73rem; --fs-xs:.79rem; --fs-sm:.87rem;
+  --fs-body:.95rem; --fs-md:1.05rem; --fs-lg:1.2rem; --fs-xl:1.5rem;
+  --font-sans:"Hanken Grotesk",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#111111; --card-bg:#1c1917; --surface-2:#232020; --surface-3:#2c2826;
+    --text-main:#fafaf9; --text-muted:#a8a29e; --text-faint:#78716c;
+    --border-color:#332f2d; --border-strong:#44403c;
+    --action:#fb923c; --action-ring:#9a3412; --action-soft:#2a1a0d;
+    --ok-fg:#4ade80; --ok-soft:#0f2417; --warn-fg:#fbbf24; --warn-soft:#2a2008;
+    --bad-fg:#f87171; --bad-soft:#2a1313;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111111; --card-bg:#1c1917; --surface-2:#232020; --surface-3:#2c2826;
+  --text-main:#fafaf9; --text-muted:#a8a29e; --text-faint:#78716c;
+  --border-color:#332f2d; --border-strong:#44403c;
+  --action:#fb923c; --action-ring:#9a3412; --action-soft:#2a1a0d;
+  --ok-fg:#4ade80; --ok-soft:#0f2417; --warn-fg:#fbbf24; --warn-soft:#2a2008;
+  --bad-fg:#f87171; --bad-soft:#2a1313;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text-main);font-family:var(--font-sans);
+  font-size:var(--fs-body);line-height:1.45;-webkit-font-smoothing:antialiased}
+svg{display:block;flex-shrink:0}
+.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--text-faint)} .warn{color:var(--warn-fg)} .bad{color:var(--bad-fg)} .ok{color:var(--ok-fg)}
+.wrap{max-width:1520px;margin:0 auto;padding:var(--sp-4) 16px 64px}
+
+.mockbar{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);flex-wrap:wrap;
+  margin-bottom:var(--sp-4);padding:var(--sp-2) var(--sp-3);border:1px dashed var(--border-strong);
+  border-radius:var(--r-md);font-size:var(--fs-xs);color:var(--text-muted)}
+.mockbar b{color:var(--text-main)}
+.tbtn{font:inherit;font-size:var(--fs-xs);padding:var(--sp-1) var(--sp-3);border:1px solid var(--border-strong);
+  border-radius:var(--r-pill);background:var(--card-bg);color:var(--text-main);cursor:pointer}
+.tbtn:hover{background:var(--surface-2)}
+.tbtn[aria-pressed="true"]{border-color:var(--action);color:var(--action)}
+
+/* ── cabecera: migas + título + modos, TODO en una banda ──────────────── */
+.phead{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);
+  flex-wrap:wrap;margin-bottom:var(--sp-3)}
+.phead-l{display:flex;align-items:baseline;gap:var(--sp-3);min-width:0}
+.phead h1{font-size:var(--fs-xl);font-weight:700;margin:0;letter-spacing:-.015em;display:flex;align-items:center;gap:6px}
+.crumbs{font-size:var(--fs-xs);color:var(--text-faint);white-space:nowrap}
+.help{display:inline-grid;place-items:center;width:17px;height:17px;border:1px solid var(--border-strong);
+  border-radius:var(--r-pill);font-size:var(--fs-nano);color:var(--text-muted);cursor:help}
+.modes{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--border-color);
+  border-radius:var(--r-pill);background:var(--surface-2)}
+.mode{display:flex;align-items:center;gap:6px;padding:5px var(--sp-4);border-radius:var(--r-pill);
+  font-size:var(--fs-sm);color:var(--text-muted);cursor:pointer;border:0;background:transparent;
+  font-family:inherit;white-space:nowrap}
+.mode:hover{color:var(--text-main)}
+.mode.is-on{background:var(--card-bg);color:var(--text-main);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.07)}
+.mode .cnt{font-family:var(--font-mono);font-size:var(--fs-nano);font-weight:700;padding:0 5px;
+  border-radius:var(--r-pill);background:var(--warn-soft);color:var(--warn-fg);border:1px solid currentColor}
+
+.btn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:var(--fs-sm);
+  padding:6px var(--sp-3);border:1px solid var(--border-strong);border-radius:var(--r-md);
+  background:var(--card-bg);color:var(--text-main);cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--surface-2)}
+.btn:focus-visible{outline:2px solid var(--action-ring);outline-offset:2px}
+.btn-primary{background:var(--action);border-color:var(--action);color:#fff;font-weight:600}
+.btn-primary:hover{filter:brightness(1.08)}
+.btn-lg{font-size:var(--fs-body);padding:9px var(--sp-4)}
+.btn-ghost{border-color:transparent;background:transparent;color:var(--text-muted)}
+.btn-ghost:hover{background:var(--surface-2);color:var(--text-main)}
+.btn[disabled]{opacity:.42;cursor:not-allowed}
+
+/* ══ LIENZO ═════════════════════════════════════════════════════════════ */
+.shell{display:grid;grid-template-columns:15rem minmax(0,1fr);gap:var(--sp-3);align-items:start}
+
+/* ── COLA ─────────────────────────────────────────────────────────────── */
+.queue{border:1px solid var(--border-color);border-radius:var(--r-lg);background:var(--card-bg);
+  overflow:hidden;position:sticky;top:var(--sp-2)}
+.queue-h{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-1);
+  padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--border-color)}
+.queue-h h2{margin:0;font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)}
+.qday{all:unset;box-sizing:border-box;cursor:pointer;display:block;width:100%;
+  padding:6px var(--sp-3);border-bottom:1px solid var(--border-color);border-left:3px solid transparent}
+.qday:hover{background:var(--surface-2)}
+.qday:focus-visible{outline:2px solid var(--action-ring);outline-offset:-2px}
+.qday.is-sel{background:var(--action-soft);border-left-color:var(--action)}
+.qday-t{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-2)}
+.qday-n{font-size:var(--fs-sm);font-weight:700;text-transform:capitalize}
+.qday.is-sel .qday-n{color:var(--action)}
+.qday-n .t{font-weight:400;color:var(--text-muted);font-size:var(--fs-micro)}
+.qday-amt{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-xs);font-weight:600}
+.qday-b{display:flex;align-items:center;gap:5px;font-size:var(--fs-micro);color:var(--text-muted);line-height:1.3}
+.dot{width:6px;height:6px;border-radius:var(--r-pill);background:var(--text-faint);flex-shrink:0}
+.dot.s-work{background:var(--warn-fg)} .dot.s-ok{background:var(--ok-fg)}
+.dot.s-free{background:transparent;border:1px solid var(--border-strong)}
+.qday.is-free .qday-amt{font-weight:400;color:var(--text-faint)}
+.qday.is-nocap{opacity:.55}
+.queue-f{padding:var(--sp-2) var(--sp-3);background:var(--surface-2);border-top:1px solid var(--border-color);
+  font-size:var(--fs-micro);color:var(--text-muted);line-height:1.5}
+.queue-f b{font-family:var(--font-mono);font-variant-numeric:tabular-nums;color:var(--text-main);font-weight:700}
+.queue-more{padding:5px var(--sp-3);font-size:var(--fs-micro);color:var(--text-muted);text-align:center;cursor:pointer}
+.queue-more:hover{background:var(--surface-2);color:var(--text-main)}
+
+/* ── EL VEREDICTO: identidad + estado + frase + acción + capacidad, UN bloque */
+.lot{display:grid;gap:var(--sp-2)}
+.vd{border:1px solid var(--border-color);border-left:4px solid var(--border-strong);
+  border-radius:var(--r-lg);background:var(--card-bg);padding:var(--sp-3) var(--sp-4)}
+.vd.v-warn{border-left-color:var(--warn-fg)}
+.vd.v-ok{border-left-color:var(--ok-fg)}
+.vd.v-bad{border-left-color:var(--bad-fg)}
+.vd-id{display:flex;align-items:baseline;gap:var(--sp-2);flex-wrap:wrap;margin-bottom:2px}
+.vd-id h2{margin:0;font-size:var(--fs-sm);font-weight:700;text-transform:capitalize;color:var(--text-muted)}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:var(--fs-nano);font-weight:700;
+  text-transform:uppercase;letter-spacing:.03em;padding:1px 7px;border-radius:var(--r-pill);
+  border:1px solid var(--border-strong);color:var(--text-muted);background:var(--surface-2)}
+.pill.s-work{color:var(--warn-fg);background:var(--warn-soft);border-color:currentColor}
+.vd-main{display:flex;align-items:center;gap:var(--sp-4);flex-wrap:wrap}
+.vd-txt{flex:1;min-width:15rem}
+.vd-say{margin:0;font-size:var(--fs-md);font-weight:700;letter-spacing:-.008em;line-height:1.3}
+.vd-why{margin:1px 0 0;font-size:var(--fs-xs);color:var(--text-muted)}
+/* la capacidad: la barra ES el renglón, los números se leen encima */
+.cap{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;margin-top:var(--sp-3);
+  padding-top:var(--sp-2);border-top:1px solid var(--border-color)}
+.cap-bar{flex:1;min-width:9rem;display:block;height:6px;border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden}
+.cap-bar i{display:block;height:100%;background:var(--action);border-radius:inherit}
+.cap-bar i.is-over{background:var(--bad-fg)}
+.cap-say{font-size:var(--fs-xs);color:var(--text-muted);white-space:nowrap}
+.cap-say b{font-family:var(--font-mono);font-variant-numeric:tabular-nums;color:var(--text-main);font-weight:700}
+
+/* ── PASOS ────────────────────────────────────────────────────────────── */
+.steps{display:grid;gap:6px}
+.step{border:1px solid var(--border-color);border-radius:var(--r-lg);background:var(--card-bg);overflow:hidden}
+.step.is-now{border-color:var(--action);box-shadow:0 0 0 1px var(--action)}
+.step.is-blocked{opacity:.6}
+.step-h{all:unset;box-sizing:border-box;cursor:pointer;width:100%;display:flex;align-items:center;
+  gap:var(--sp-3);padding:var(--sp-2) var(--sp-3)}
+.step-h:hover{background:var(--surface-2)}
+.step-h:focus-visible{outline:2px solid var(--action-ring);outline-offset:-2px}
+.sn{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:var(--r-pill);
+  border:1.5px solid var(--border-strong);font-family:var(--font-mono);font-size:var(--fs-micro);
+  font-weight:700;color:var(--text-muted);flex-shrink:0}
+.step.is-done .sn{border-color:var(--ok-fg);background:var(--ok-fg);color:#fff}
+.step.is-now .sn{border-color:var(--action);background:var(--action);color:#fff}
+/* el nombre y su veredicto en UN renglón: el paso cerrado cuesta 36px, no 56 */
+.step-t{flex:1;min-width:0;display:flex;align-items:baseline;gap:var(--sp-2);flex-wrap:wrap}
+.step-name{font-size:var(--fs-sm);font-weight:700;white-space:nowrap}
+.step-who{font-size:var(--fs-nano);font-weight:600;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--text-faint);border:1px solid var(--border-color);border-radius:var(--r-sm);padding:0 4px}
+.step-say{font-size:var(--fs-xs);color:var(--text-muted);min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step.is-done .step-say{color:var(--ok-fg)}
+.step.is-now .step-say{color:var(--warn-fg);font-weight:600}
+.chev{color:var(--text-faint);transition:transform .15s}
+.step.is-open .chev{transform:rotate(90deg)}
+.step-body{padding:var(--sp-3);border-top:1px solid var(--border-color)}
+.step:not(.is-open) .step-body{display:none}
+
+/* ── tablas ───────────────────────────────────────────────────────────── */
+table{width:100%;border-collapse:collapse}
+th{font-size:var(--fs-nano);font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);
+  text-align:left;padding:4px var(--sp-2);border-bottom:1px solid var(--border-color);white-space:nowrap}
+td{padding:6px var(--sp-2);border-bottom:1px solid var(--border-color);font-size:var(--fs-sm);vertical-align:middle}
+th.r,td.r{text-align:right}
+tbody tr:last-child td{border-bottom:0}
+tr.row-bad td{background:var(--bad-soft)}
+.benef{font-weight:600;line-height:1.3;display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3)}
+.benef .amt{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.sub{font-size:var(--fs-micro);color:var(--text-muted);line-height:1.3}
+.suc{display:inline-block;font-size:var(--fs-nano);font-weight:700;border:1px solid var(--border-color);
+  border-radius:var(--r-sm);padding:0 4px;margin-right:3px;color:var(--text-muted)}
+.drag{cursor:grab;color:var(--text-faint);display:inline-flex;align-items:center;gap:5px}
+.ordn{font-family:var(--font-mono);font-weight:700;font-size:var(--fs-sm)}
+
+.inp,.sel{font:inherit;font-size:var(--fs-xs);padding:4px 6px;border:1px solid var(--border-strong);
+  border-radius:var(--r-sm);background:var(--card-bg);color:var(--text-main);width:100%;min-width:0}
+.inp:focus,.sel:focus{outline:2px solid var(--action-ring);outline-offset:-1px;border-color:var(--action)}
+.inp.is-bad{border-color:var(--bad-fg)}
+.inp.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.fieldnote{font-size:var(--fs-nano);margin-top:2px;display:flex;align-items:center;gap:3px}
+.fieldnote.bad{color:var(--bad-fg)}
+.applyall{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;padding:6px var(--sp-3);
+  margin-bottom:var(--sp-2);border:1px dashed var(--action);border-radius:var(--r-md);background:var(--action-soft)}
+.applyall .lb{font-size:var(--fs-xs);font-weight:700;color:var(--action);white-space:nowrap}
+.applyall .f{display:flex;align-items:center;gap:6px;min-width:10rem;flex:1}
+.applyall .f span{font-size:var(--fs-nano);color:var(--text-muted);white-space:nowrap}
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-nano);font-weight:700;padding:1px 6px;
+  border-radius:var(--r-pill);background:var(--surface-2);border:1px solid var(--border-color);color:var(--text-muted)}
+.tag.ok{color:var(--ok-fg);background:var(--ok-soft);border-color:currentColor}
+
+.prop{display:grid;gap:4px}
+.prop-why{margin:0 0 var(--sp-2);font-size:var(--fs-xs);color:var(--text-muted)}
+.prop-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--sp-3);align-items:center;
+  padding:5px var(--sp-2);border:1px solid var(--border-color);border-radius:var(--r-md);cursor:pointer}
+.prop-row:hover{background:var(--surface-2)}
+.prop-row.is-off{opacity:.55}
+.prop-amt{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:700;font-size:var(--fs-sm)}
+.pp{display:inline-flex;align-items:center;gap:3px;font-size:var(--fs-nano);color:var(--warn-fg);font-weight:700}
+.stepacts{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-2)}
+.stepacts-l{display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center}
+
+.signrule{display:flex;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);border:1px solid var(--border-color);
+  border-radius:var(--r-md);background:var(--surface-2);font-size:var(--fs-xs);color:var(--text-muted);margin-bottom:var(--sp-2)}
+.signrule b{color:var(--text-main)}
+.sigs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr));gap:var(--sp-2)}
+.sig{border:1px dashed var(--border-strong);border-radius:var(--r-md);padding:var(--sp-2);text-align:center}
+.sig-r{font-size:var(--fs-nano);text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);font-weight:700}
+.sig-n{font-size:var(--fs-sm);font-weight:700;margin-top:1px}
+.sig-s{font-size:var(--fs-nano);color:var(--text-muted)}
+.recon{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,11rem),1fr));gap:var(--sp-2)}
+.rc{border:1px solid var(--border-color);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3)}
+.rc-l{font-size:var(--fs-nano);text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);font-weight:700}
+.rc-v{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-md);font-weight:700}
+.rc-s{font-size:var(--fs-nano);color:var(--text-muted)}
+
+/* ── cajón de la deuda ────────────────────────────────────────────────── */
+.drawer{margin-top:var(--sp-2);border:1px solid var(--border-color);border-radius:var(--r-md);overflow:hidden}
+.drawer-h{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;padding:6px var(--sp-3);
+  background:var(--surface-2);border-bottom:1px solid var(--border-color)}
+.drawer-h .inp,.drawer-h .sel{width:auto}
+.drawer-h .grow{flex:1;min-width:9rem}
+.chk{display:flex;align-items:center;gap:4px;font-size:var(--fs-nano);color:var(--text-muted);white-space:nowrap;cursor:pointer}
+.drawer-b{max-height:14rem;overflow:auto}
+.drawer-n{padding:4px var(--sp-3);font-size:var(--fs-nano);color:var(--text-muted);background:var(--surface-2);
+  border-bottom:1px solid var(--border-color)}
+.drawer-n b{color:var(--text-main)}
+.iconbtn{all:unset;cursor:pointer;display:inline-grid;place-items:center;width:26px;height:26px;
+  border-radius:var(--r-sm);color:var(--text-faint)}
+.iconbtn:hover{background:var(--surface-3);color:var(--text-main)}
+.iconbtn.danger:hover{color:var(--bad-fg)}
+.due{font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:var(--fs-xs)}
+.due.over{color:var(--bad-fg)}
+
+/* ── marcadores + desglose ────────────────────────────────────────────── */
+.mk{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:var(--r-pill);
+  background:var(--action);color:#fff;font-size:9px;font-weight:700;font-family:var(--font-mono);
+  vertical-align:middle;margin-left:5px;flex-shrink:0}
+body.no-mk .mk{display:none}
+.break{margin-top:56px;border-top:1px solid var(--border-color);padding-top:var(--sp-5)}
+.break h2{font-size:var(--fs-lg);margin:0 0 var(--sp-2)}
+.break>p{font-size:var(--fs-sm);color:var(--text-muted);max-width:78ch;margin:0 0 var(--sp-4)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,23rem),1fr));gap:var(--sp-3)}
+.card{border:1px solid var(--border-color);border-radius:var(--r-lg);background:var(--card-bg);padding:var(--sp-4)}
+.card h3{font-size:var(--fs-sm);margin:0 0 var(--sp-3);display:flex;align-items:flex-start;gap:4px;line-height:1.35}
+.card dl{margin:0;display:grid;gap:var(--sp-2)}
+.card dt{font-size:var(--fs-nano);text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);font-weight:700}
+.card dd{margin:0;font-size:var(--fs-xs);color:var(--text-muted)}
+.card dd b{color:var(--text-main)}
+table.cmp{margin-top:var(--sp-3);border:1px solid var(--border-color);border-radius:var(--r-md)}
+table.cmp th,table.cmp td{font-size:var(--fs-xs);white-space:normal;padding:6px var(--sp-3)}
+.decl{margin-top:var(--sp-4);border:1px solid var(--border-color);border-left:4px solid var(--warn-fg);
+  border-radius:var(--r-md);padding:var(--sp-4);background:var(--surface-2)}
+.decl h3{margin:0 0 var(--sp-2);font-size:var(--fs-sm)}
+.decl ul{margin:0;padding-left:1.1rem;font-size:var(--fs-xs);color:var(--text-muted)}
+.decl li{margin-bottom:var(--sp-2)} .decl b{color:var(--text-main)}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--surface-3);padding:0 4px;border-radius:3px}
+
+@media (max-width:1180px){ .shell{grid-template-columns:minmax(0,1fr)} .queue{position:static} }
+@media (max-width:720px){ .applyall .f{min-width:100%} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="mockbar">
+    <span><b>Maqueta PGP.11 — rediseño total, pasada de densidad</b> · <b>/finanzas/pagos</b> · datos de prod del 26-oct-2026 · los pasos se abren al hacer clic</span>
+    <span style="display:flex;gap:var(--sp-2)">
+      <button class="tbtn" id="t-theme" type="button">Tema oscuro</button>
+      <button class="tbtn" id="t-mk" type="button" aria-pressed="true">Marcadores</button>
+    </span>
+  </div>
+
+  <!-- UNA banda: migas + título + modos. Antes eran tres renglones. -->
+  <header class="phead">
+    <div class="phead-l">
+      <h1>Pagos <span class="help" title="Qué incluye esta pantalla">?</span></h1>
+      <span class="crumbs">Administración y Finanzas / Finanzas</span>
+    </div>
+    <div class="modes" role="tablist" aria-label="Modo">
+      <button class="mode is-on" role="tab" aria-selected="true" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Mi trabajo <span class="cnt">4</span></button>
+      <button class="mode" role="tab" aria-selected="false" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h12"/></svg>
+        Lo que debo</button>
+      <button class="mode" role="tab" aria-selected="false" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+        Lo que salió</button>
+    </div>
+  </header>
+
+  <div class="shell">
+
+    <!-- ── COLA ──────────────────────────────────────────────────────── -->
+    <aside class="queue" aria-label="Días por pagar">
+      <div class="queue-h">
+        <h2>Días por pagar<span class="mk">1</span></h2>
+        <span style="display:flex;gap:1px">
+          <button class="iconbtn" type="button" aria-label="Semana anterior"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <button class="iconbtn" type="button" aria-label="Semana siguiente"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></button>
+        </span>
+      </div>
+
+      <button class="qday is-sel" type="button" aria-current="true"
+        aria-label="lunes 26, hoy. 2 pagos por $496.0K. Paso 2 de 4: falta 1 por preparar. El ERP ya registra $1,000.00 en 2 pagos.">
+        <span class="qday-t"><span class="qday-n">lun 26 <span class="t">· hoy</span></span><span class="qday-amt">$496.0K</span></span>
+        <span class="qday-b"><i class="dot s-work"></i> 2 pagos · <b class="warn">falta preparar 1</b></span>
+        <span class="qday-b muted">el ERP ya registra $1,000.00 · 2</span>
+      </button>
+
+      <button class="qday" type="button" aria-label="martes 27. 2 pagos por $622.1K. Paso 2 de 4: faltan 2 por preparar.">
+        <span class="qday-t"><span class="qday-n">mar 27</span><span class="qday-amt">$622.1K</span></span>
+        <span class="qday-b"><i class="dot s-work"></i> 2 pagos · <b class="warn">falta preparar 2</b></span>
+      </button>
+
+      <button class="qday is-free" type="button" aria-label="miércoles 28. Sin pagos. Libre $1.87M.">
+        <span class="qday-t"><span class="qday-n">mié 28</span><span class="qday-amt">$1.87M</span></span>
+        <span class="qday-b"><i class="dot s-free"></i> libre</span>
+      </button>
+      <button class="qday is-free" type="button" aria-label="jueves 29. Sin pagos. Libre $2.09M.">
+        <span class="qday-t"><span class="qday-n">jue 29</span><span class="qday-amt">$2.09M</span></span>
+        <span class="qday-b"><i class="dot s-free"></i> libre</span>
+      </button>
+      <button class="qday is-free" type="button" aria-label="viernes 30. Sin pagos. Libre $2.15M.">
+        <span class="qday-t"><span class="qday-n">vie 30</span><span class="qday-amt">$2.15M</span></span>
+        <span class="qday-b"><i class="dot s-free"></i> libre</span>
+      </button>
+      <button class="qday is-nocap" type="button" aria-label="sábado 31. Sin presupuesto fijado. El espejo del ERP no trae fecha de corte para este día.">
+        <span class="qday-t"><span class="qday-n">sáb 31</span><span class="qday-amt muted">—</span></span>
+        <span class="qday-b"><i class="dot"></i> sin presupuesto · <span class="warn">sin medir</span><span class="mk">2</span></span>
+      </button>
+      <button class="qday is-nocap" type="button" aria-label="domingo 1 de noviembre. Sin presupuesto fijado.">
+        <span class="qday-t"><span class="qday-n">dom 1</span><span class="qday-amt muted">—</span></span>
+        <span class="qday-b"><i class="dot"></i> sin presupuesto</span>
+      </button>
+
+      <div class="queue-more" role="button" tabindex="0">Semana siguiente</div>
+
+      <div class="queue-f">
+        <b>$12.12M</b> libres de <b>$13.23M</b> esta semana<br>
+        <span class="warn"><b class="warn">3</b> pagos sin preparar en 2 días</span><span class="mk">3</span>
+      </div>
+    </aside>
+
+    <!-- ── EL LOTE ───────────────────────────────────────────────────── -->
+    <main class="lot">
+
+      <!-- VEREDICTO: identidad, estado, frase, acción y capacidad en UN bloque -->
+      <div class="vd v-warn" role="status">
+        <div class="vd-id">
+          <h2>Lunes 26 de octubre · hoy</h2>
+          <span class="pill s-work"><i class="dot s-work"></i> En armado</span>
+          <span class="muted" style="font-size:var(--fs-nano)">sin folio</span>
+        </div>
+        <div class="vd-main">
+          <div class="vd-txt">
+            <p class="vd-say">Falta 1 pago por preparar para que Dirección pueda firmar.<span class="mk">4</span></p>
+            <p class="vd-why">Preparar es decir con qué sale cada pago: método, cuenta de origen y cuenta destino. Mientras falte uno, el día entero no se autoriza.</p>
+          </div>
+          <button class="btn btn-primary btn-lg" type="button" data-open="2">
+            Completar el que falta
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="cap">
+          <span class="cap-say"><b>$495,977.49</b> comprometido</span>
+          <span class="cap-bar" role="img" aria-label="12% del presupuesto del día comprometido"><i style="width:12%"></i></span>
+          <span class="cap-say"><b>$3,479,205.51</b> libres de <b>$3,975,183.00</b><span class="mk">5</span></span>
+        </div>
+      </div>
+
+      <div class="steps">
+
+        <!-- ① ARMAR -->
+        <section class="step is-done" id="step-1">
+          <button class="step-h" type="button" aria-expanded="false" aria-controls="b1" data-step="1">
+            <span class="sn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M20 6 9 17l-5-5"/></svg></span>
+            <span class="step-t">
+              <span class="step-name">Armar el día</span><span class="step-who">Tesorería</span>
+              <span class="step-say">2 pagos · $495,977.49 · entra en el presupuesto</span>
+            </span>
+            <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <div class="step-body" id="b1">
+            <p class="prop-why">La propuesta toma lo vencido o que vence este día, <b>un pago por proveedor y sucursal</b>, lo más viejo primero, hasta donde alcance el disponible.</p>
+            <div class="prop">
+              <label class="prop-row">
+                <input type="checkbox" checked />
+                <span>
+                  <span class="benef">DISTRIBUIDORA DE LA ROSA SA DE CV <span class="suc">CEDIS</span></span>
+                  <span class="sub">2 facturas · la más vieja venció el 12 sep</span>
+                </span>
+                <span class="prop-amt">$470,451.03</span>
+              </label>
+              <label class="prop-row">
+                <input type="checkbox" checked />
+                <span>
+                  <span class="benef">DISTRIBUIDORA DE LA ROSA SA DE CV <span class="suc">Zamora Centro</span></span>
+                  <span class="sub">1 factura · venció el 2 oct</span>
+                </span>
+                <span class="prop-amt">$25,526.46</span>
+              </label>
+              <label class="prop-row is-off">
+                <input type="checkbox" />
+                <span>
+                  <span class="benef">GRUPO NACIONAL DE CONFITERIA <span class="suc">Morelia Abastos</span></span>
+                  <span class="sub">vence el 4 nov · <span class="pp">pierde 2.5% ($1,042) el 28 oct</span><span class="mk">6</span></span>
+                </span>
+                <span class="prop-amt muted">$41,690.40</span>
+              </label>
+            </div>
+
+            <div class="drawer">
+              <div class="drawer-h">
+                <input class="inp grow" type="text" placeholder="Buscar en las 2,899 facturas…" aria-label="Buscar en lo que debo" />
+                <select class="sel" aria-label="Tipo"><option>Todos los tipos</option><option>Proveedor</option><option>Gasto</option><option>Compromiso financiero</option></select>
+                <select class="sel" aria-label="Ordenar por"><option>Vence primero</option><option>Pierde descuento primero</option><option>Mayor monto</option></select>
+                <label class="chk"><input type="checkbox" /> Críticos</label>
+              </div>
+              <div class="drawer-n">La búsqueda llega a <b>las 2,899</b> de <b>368 acreedores</b>; la lista muestra las <b>1,000</b> más próximas a vencer.</div>
+              <div class="drawer-b">
+                <table>
+                  <tbody>
+                    <tr>
+                      <td><span class="benef">ACREEDOR ARTURO LOPEZ OROZCO <span class="amt">$8,000,000.00</span></span>
+                        <span class="sub"><span class="suc">CEDIS</span> Nota cargo a proveedor 0000304 · Compromiso financiero</span></td>
+                      <td class="due over" style="width:4.6rem">1 ene 25<span class="mk">7</span></td>
+                      <td style="width:2.2rem"><button class="iconbtn" aria-label="Agregar al lunes 26"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button></td>
+                    </tr>
+                    <tr>
+                      <td><span class="benef">ACREEDOR EDUARDO LOPEZ OROZCO <span class="amt">$6,000,000.00</span></span>
+                        <span class="sub"><span class="suc">CEDIS</span> Nota cargo a proveedor 0000301 · Compromiso financiero</span></td>
+                      <td class="due over">1 ene 25</td>
+                      <td><button class="iconbtn" aria-label="Agregar al lunes 26"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button></td>
+                    </tr>
+                    <tr>
+                      <td><span class="benef">ARTURO VILLARRUEL SAINZ <span class="amt">$255,480.00</span></span>
+                        <span class="sub"><span class="suc">CEDIS</span> 6 facturas · Proveedor</span></td>
+                      <td class="due over">25 abr 25</td>
+                      <td><button class="iconbtn" aria-label="Agregar al lunes 26"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button></td>
+                    </tr>
+                    <tr>
+                      <td><span class="benef">RICO PAY SA DE CV <span class="amt">$18,300.00</span></span>
+                        <span class="sub"><span class="suc">Yurécuaro</span> Factura A-2291 · Proveedor</span></td>
+                      <td class="due">11 nov</td>
+                      <td><button class="iconbtn" aria-label="Agregar al lunes 26"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="stepacts">
+              <span class="stepacts-l"><button class="btn btn-ghost" type="button">Descartar la propuesta</button></span>
+              <button class="btn btn-primary" type="button">Guardar el armado</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ② ORDENAR Y PREPARAR -->
+        <section class="step is-now is-open" id="step-2">
+          <button class="step-h" type="button" aria-expanded="true" aria-controls="b2" data-step="2">
+            <span class="sn">2</span>
+            <span class="step-t">
+              <span class="step-name">Ordenar y preparar</span><span class="step-who">Tesorería</span>
+              <span class="step-say">1 de 2 listos · al otro le falta la cuenta destino</span>
+            </span>
+            <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <div class="step-body" id="b2">
+
+            <div class="applyall">
+              <span class="lb">Aplicar a los 2<span class="mk">8</span></span>
+              <span class="f"><span>Método</span>
+                <select class="sel" aria-label="Método para todos"><option>Transferencia</option><option>Cheque</option><option>Efectivo</option><option>Cargo automático</option></select></span>
+              <span class="f"><span>Sale de</span>
+                <select class="sel" aria-label="Cuenta de origen para todos"><option>Elegir cuenta…</option><option>BBVA · 0145 — saldo $8.4M</option><option>Banorte · 7732 — saldo $2.1M</option></select></span>
+              <button class="btn" type="button">Aplicar</button>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:3.4rem">Orden</th>
+                  <th>Beneficiario e importe</th>
+                  <th style="width:8rem">Método</th>
+                  <th style="width:11rem">Sale de</th>
+                  <th style="width:13rem">Llega a</th>
+                  <th style="width:2.2rem"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="drag" title="Arrastrar para reordenar">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="18" r="1"/></svg>
+                    <b class="ordn">1</b></span></td>
+                  <td><span class="benef">DISTRIBUIDORA DE LA ROSA <span class="amt">$470,451.03</span></span>
+                    <span class="sub"><span class="suc">CEDIS</span> 2 facturas · F-2436 y F-62435</span></td>
+                  <td><select class="sel" aria-label="Método del pago 1"><option>Transferencia</option><option>Cheque</option><option>Efectivo</option></select></td>
+                  <td><select class="sel" aria-label="Cuenta de origen del pago 1"><option>BBVA · 0145 — $8.4M</option><option>Banorte · 7732 — $2.1M</option></select></td>
+                  <td><select class="sel" aria-label="Cuenta destino del pago 1"><option>BBVA · CLABE …7891 (catálogo)</option><option>Capturar otra…</option></select></td>
+                  <td><button class="iconbtn danger" aria-label="Quitar del día" title="Quitar del día"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button></td>
+                </tr>
+                <tr class="row-bad">
+                  <td><span class="drag" title="Arrastrar para reordenar">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="18" r="1"/></svg>
+                    <b class="ordn">2</b></span></td>
+                  <td><span class="benef">DISTRIBUIDORA DE LA ROSA <span class="amt">$25,526.46</span></span>
+                    <span class="sub"><span class="suc">Zamora Centro</span> Entrada 05-0000240 · Fact. 54-2233</span></td>
+                  <td><select class="sel" aria-label="Método del pago 2"><option>Transferencia</option><option>Cheque</option><option>Efectivo</option></select></td>
+                  <td><select class="sel" aria-label="Cuenta de origen del pago 2"><option>BBVA · 0145 — $8.4M</option><option>Banorte · 7732 — $2.1M</option></select></td>
+                  <td><input class="inp mono is-bad" type="text" value="0121800012345678" aria-label="CLABE destino del pago 2" aria-invalid="true" />
+                    <span class="fieldnote bad">
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5M12 16h.01"/></svg>
+                      faltan 2 dígitos · sin cuenta en el catálogo<span class="mk">9</span></span></td>
+                  <td><button class="iconbtn danger" aria-label="Quitar del día" title="Quitar del día"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="stepacts">
+              <span class="stepacts-l">
+                <button class="btn btn-ghost" type="button">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M7 12h10M10 18h4"/></svg>
+                  Proponer orden</button>
+              </span>
+              <button class="btn btn-primary" type="button" disabled>Mandar a firma</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ③ AUTORIZAR -->
+        <section class="step is-blocked" id="step-3">
+          <button class="step-h" type="button" aria-expanded="false" aria-controls="b3" data-step="3">
+            <span class="sn">3</span>
+            <span class="step-t">
+              <span class="step-name">Autorizar el día</span><span class="step-who">Gerencia / Dirección</span>
+              <span class="step-say">Espera el paso 2 · $495,977.49 pide dos firmas</span>
+            </span>
+            <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <div class="step-body" id="b3">
+            <div class="signrule">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-top:2px"><path d="M12 2 3 7v6c0 5 3.8 8.6 9 9 5.2-.4 9-4 9-9V7z"/></svg>
+              <span>Suma <b>$495,977.49</b>, arriba del umbral de <b>$100,000</b>: pide <b>dos firmas</b> de personas distintas, y ninguna puede ser quien lo preparó.<span class="mk">10</span></span>
+            </div>
+            <div class="sigs">
+              <div class="sig"><span class="sig-r">Primera firma</span><span class="sig-n">Gerencia de Finanzas</span><span class="sig-s">pendiente</span></div>
+              <div class="sig"><span class="sig-r">Segunda firma</span><span class="sig-n">Dirección General</span><span class="sig-s">pendiente</span></div>
+            </div>
+            <div class="stepacts">
+              <span class="stepacts-l"><button class="btn btn-ghost" type="button">Ver el preliminar</button></span>
+              <button class="btn btn-primary" type="button" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                Firmar y autorizar</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ④ DISPERSAR Y CERRAR -->
+        <section class="step is-blocked" id="step-4">
+          <button class="step-h" type="button" aria-expanded="false" aria-controls="b4" data-step="4">
+            <span class="sn">4</span>
+            <span class="step-t">
+              <span class="step-name">Dispersar y cerrar</span><span class="step-who">Caja General</span>
+              <span class="step-say">Espera la firma · después cuadra contra el ERP</span>
+            </span>
+            <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <div class="step-body" id="b4">
+            <p class="prop-why">Caja General dispersa con la instrucción impresa y marca cada pago. <b>Ejecutar no vuelve a liberar capacidad</b>; un pago fallido regresa su saldo al día y se reprograma o se cancela.</p>
+            <div class="recon">
+              <div class="rc"><span class="rc-l">Autorizado</span><span class="rc-v">$495,977.49</span><span class="rc-s">2 pagos</span></div>
+              <div class="rc"><span class="rc-l">Marcado como pagado</span><span class="rc-v muted">$0.00</span><span class="rc-s">0 de 2</span></div>
+              <div class="rc"><span class="rc-l">El ERP registra ese día</span><span class="rc-v">$1,000.00</span><span class="rc-s">suma por fecha, no casa renglones<span class="mk">11</span></span></div>
+            </div>
+            <div class="stepacts">
+              <span class="stepacts-l"><button class="btn" type="button" disabled>Instrucción a Caja General</button></span>
+              <button class="btn btn-primary" type="button" disabled>Marcar los 2 como pagados</button>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ═══════════════ DESGLOSE ═══════════════ -->
+  <section class="break">
+    <h2>La pasada de densidad</h2>
+    <p>La estructura no cambió: sigue siendo <b>cola de lotes + el lote como hoja de trabajo</b>. Lo que se apretó es cuánto espacio cuesta cada cosa, y qué se decía dos veces. <b>El trabajo del día ahora entra entero sin desplazar</b> en una pantalla de 900&nbsp;px.</p>
+
+    <table class="cmp">
+      <thead><tr><th style="width:26%">Qué</th><th style="width:30%">Versión anterior</th><th style="width:30%">Ahora</th><th>Qué se ganó</th></tr></thead>
+      <tbody>
+        <tr><td><b>Cabecera de la página</b></td><td>migas, título y modos en 3 renglones</td><td class="ok">una banda</td><td>−48 px</td></tr>
+        <tr><td><b>Cabecera del lote</b></td><td class="bad">un bloque aparte (título, pill, 2 botones, barra, frase de 3 partes) <b>encima</b> del veredicto</td><td class="ok">fusionada <b>dentro</b> del veredicto</td><td>−96 px y se va una competencia por la atención</td></tr>
+        <tr><td><b>El conteo de lo que falta</b></td><td class="bad">en 3 lugares, y dos no coincidían («0 de 2» contra «1 de 2»)</td><td class="ok">el veredicto lo dice; el paso lo detalla</td><td>se va una contradicción</td></tr>
+        <tr><td><b>Fila de cada paso cerrado</b></td><td>nombre y veredicto en 2 renglones</td><td class="ok">un renglón</td><td>−20 px × 3 pasos</td></tr>
+        <tr><td><b>Tabla de preparar</b></td><td>7 columnas; «saldo $8.4M» como nota bajo el campo</td><td class="ok">6 columnas; el saldo va <b>dentro</b> de la opción; el importe sube al nombre</td><td>−1 columna y −18 px por fila</td></tr>
+        <tr><td><b>Pie de la cola</b></td><td>4 renglones de cifras de la semana</td><td class="ok">una frase: <i>«$12.12M libres de $13.23M · 3 sin preparar en 2 días»</i></td><td>−42 px, y dice <b>dónde</b> está el trabajo</td></tr>
+        <tr><td><b>Modos</b></td><td class="bad">4 — incluía «Pronto pago» aparte</td><td class="ok">3 — el pronto pago vive <b>dentro</b> del armado y del orden de la deuda</td><td>se corrige una contradicción con el pedido original</td></tr>
+        <tr><td><b>Botones de la cabecera del lote</b></td><td class="bad">«Preliminar» y «Agregar factura» sueltos arriba</td><td class="ok">cada uno dentro del paso que los usa</td><td>−1 renglón de acciones huérfanas</td></tr>
+      </tbody>
+    </table>
+
+    <h2 style="margin-top:40px">Lo que sostiene el rediseño</h2>
+    <div class="cards">
+
+      <div class="card">
+        <h3><span class="mk">1</span><span class="mk">3</span> La semana: de 7 tarjetas a una cola</h3>
+        <dl>
+          <dt>El defecto</dt><dd>7 tarjetas de ~120 px gastaban todo el ancho, y <b>5 decían «Sin pagos»</b>. El 71% del espacio más caro mostraba ausencia.</dd>
+          <dt>La cura</dt><dd>Cola vertical: el día con trabajo cuesta 3 renglones, el libre cuesta 1. Cabe más de una semana sin paginar.</dd>
+          <dt>Y el pie dice dónde está el trabajo</dt><dd>No «4 sin preparar» a secas, sino <b>«3 sin preparar en 2 días»</b> — el dato que te manda a un día concreto.</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3><span class="mk">2</span> Lo no medido se declara</h3>
+        <dl>
+          <dt>Qué se conserva</dt><dd>El testigo del ERP y el hueco («sin medir»), por día. Un día sin presupuesto sale <b>«sin presupuesto»</b>, nunca $0.</dd>
+          <dt>La regla</dt><dd><b>ADR-056</b>. Un cero sin fecha de corte no se puede leer: no se sabe si no se pagó o si el espejo no se recalculó.</dd>
+          <dt>Los fines de semana no se esconden</dt><dd>El sábado 24 el ERP registra <b>$45,192 pagados</b>. Se atenúan, no se borran.</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3><span class="mk">4</span> El veredicto es el bloque, no un bloque</h3>
+        <dl>
+          <dt>El defecto original</dt><dd>El paso que faltaba se decía en <b>cuatro lugares</b> y el botón que lo resolvía estaba al final de cada fila: lo último del recorrido.</dd>
+          <dt>La cura, apretada</dt><dd>Identidad del día, estado, la frase, la acción y la capacidad son <b>un solo bloque</b>. Antes la cabecera del lote competía con él desde arriba.</dd>
+          <dt>La regla</dt><dd><b>§Q.1</b> answer-first y <b>§Q.4</b>: el número que denuncia lleva a su arreglo.</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3><span class="mk">5</span> La capacidad: la barra ES el renglón</h3>
+        <dl>
+          <dt>El defecto</dt><dd>Presupuesto, comprometido y disponible salían <b>tres veces</b> —franja, tarjeta, panel—: <b>once cifras para una idea</b>. Y el rótulo mentía: la cifra grande era el disponible y debajo decía «disponible de $3.98M» apuntando al presupuesto.</dd>
+          <dt>La cura</dt><dd>Un renglón: <i>comprometido · [barra] · libres de X</i>. La barra deja de ser un adorno debajo del número y pasa a separar las dos cifras que compara.</dd>
+          <dt>La regla</dt><dd><b>§Q.5</b> y el <b>Cruce 2</b>: todo rótulo dice lo que su celda muestra.</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3><span class="mk">6</span> El pronto pago, donde se decide</h3>
+        <dl>
+          <dt>El error que corregí</dt><dd>Lo había puesto como <b>cuarto modo</b>, re-partiendo justo lo que el pedido original mandaba juntar.</dd>
+          <dt>Dónde vive ahora</dt><dd>En la fila de la propuesta que vas a marcar (<i>«pierde 2.5% ($1,042) el 28 oct»</i>) y como <b>orden</b> de la lista de deuda. Nada más.</dd>
+          <dt>Declarado</dt><dd>Esto <b>no</b> mete el descuento al motor. Medido: en 877 documentos el descuento vence <b>38 días después</b> que la factura.</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3><span class="mk">7</span> La deuda deja de ser mobiliario</h3>
+        <dl>
+          <dt>El defecto</dt><dd>Las 2,899 facturas ocupaban <b>el 40% del ancho, siempre</b>. De cada 1,000 renglones, 2 son trabajo de hoy.</dd>
+          <dt>La cura</dt><dd>Cajón dentro del paso ①, con búsqueda sobre <b>las 2,899</b> y no sobre las 1,000 cargadas. Alcanzable aparte desde el modo <b>«Lo que debo»</b>.</dd>
+          <dt>Y la fecha distingue el año</dt><dd>Los dos renglones de arriba son del <b>01/01/2025</b> por $8M y $6M. Se leían «1 ene».</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3><span class="mk">8</span> El cuello real: preparar sin diálogo</h3>
+        <dl>
+          <dt>El defecto, medido</dt><dd><b>0 de 10 pagos preparados</b>, parados <b>6 días</b>, y por eso <b>6 lotes en borrador</b>. La interfaz pone ese cuello detrás de un modal, <b>uno por pago</b>.</dd>
+          <dt>La cura</dt><dd>Edición <b>en línea</b> en la tabla, y arriba <b>«Aplicar a los 2»</b> para método y origen, que casi siempre son los mismos. El destino queda por fila: es de cada proveedor.</dd>
+          <dt>Ordenar se fusiona acá</dt><dd>Lo hace la misma persona sobre la misma tabla. El orden es arrastrar la fila.</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3><span class="mk">9</span> El error se previene en el campo</h3>
+        <dl>
+          <dt>La cura</dt><dd>La CLABE valida su dígito de control <b>mientras se escribe</b> y la fila se marca. Debajo, el motivo real: <i>«faltan 2 dígitos · sin cuenta en el catálogo»</i>.</dd>
+          <dt>La regla</dt><dd><b>Poka-yoke</b>: el error es el último recurso. <b>Postel</b>: liberal al recibir (espacios y guiones), estricto al emitir.</dd>
+          <dt>Por qué pega acá</dt><dd>Medido: <code>supplier_payment_accounts</code> tenía <b>cero filas</b> y faltan <b>38 CLABEs</b>. Capturarlas tiene que ser barato.</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3><span class="mk">10</span> La doble firma se ve antes de pedirla</h3>
+        <dl>
+          <dt>La decisión</dt><dd><b>D2, ya firmada</b>: dos firmas por monto, umbral recomendado <b>$100,000</b>, de personas distintas, y ninguna puede ser quien preparó.</dd>
+          <dt>La cura</dt><dd>El paso ③ dice <b>qué regla</b> impuso la segunda firma (su monto contra el umbral) y quién falta. No es una sorpresa al apretar.</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3><span class="mk">11</span> El cierre cuadra contra el ERP</h3>
+        <dl>
+          <dt>La cura</dt><dd>El paso ④ pone lado a lado <b>lo autorizado</b>, <b>lo que Caja marcó</b> y <b>lo que el ERP registra</b>. Sin ir a otra pantalla.</dd>
+          <dt>Declarado en la tarjeta</dt><dd>El testigo del ERP <b>suma por fecha, no casa renglones</b>: son dos universos. Decirlo evita leer una diferencia como un faltante.</dd>
+          <dt>Lo que reemplazó</dt><dd>Antes lo traía el Excel de Tesorería, que llevaba <b>77 días sin cargarse</b>.</dd>
+        </dl>
+      </div>
+
+    </div>
+
+    <div class="decl">
+      <h3>Lo que esta maqueta NO afirma</h3>
+      <ul>
+        <li><b>Nivel de evidencia.</b> Maqueta estática, no la app corriendo. No se midió contraste real, scroll, orden de foco ni INP. Las ganancias en px son de <b>este</b> CSS, no de la pantalla viva.</li>
+        <li><b>Arrastrar para ordenar y la edición en línea no están construidos.</b> Hoy el orden es un campo numérico y preparar es un diálogo. Es el trabajo de fondo, y el que más código mueve.</li>
+        <li><b>El umbral de $100,000 es recomendación, no medición.</b> La decisión D2 está firmada; el número lo fija Dirección.</li>
+        <li><b>La sucursal «00» dice «CEDIS» y es Oficinas.</b> El resolvedor compartido (<code>warehouseName</code>) contesta CEDIS; <code>sucursal='00'</code> de Kepler es <b>Oficinas</b> — el CEDIS real es <code>BPIRAPUATO</code>, en Wincaja (<code>docs/ERP_KEPLER.md</code> §2.3). Arreglarlo parte la entrada de <code>WAREHOUSE_DISPLAY_ORDER</code> y le cambia el comportamiento a <code>/compras/pedido</code>. <b>Va aparte y necesita tu visto bueno.</b></li>
+        <li><b>Los $14.0M del tope de la deuda</b> (dos notas de cargo del 01/01/2025) siguen esperando el dictamen de Contabilidad.</li>
+        <li><b>«Lo que salió» no se fusiona con el lote</b>: el libro no guarda el folio del pago de Kepler, así que no hay llave para casar renglón con renglón. Por eso es un modo y no una sección.</li>
+        <li><b>La escritura a Kepler está apagada en prod</b>: los pods del 26-oct no traen <code>KEPLER_PUSH_URL_NN</code>. Esta pantalla no lo necesita todavía; el <code>X-D-26</code> de O3 sí.</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  var r=document.documentElement,b=document.body;
+  var bt=document.getElementById('t-theme'),bm=document.getElementById('t-mk');
+  bt.addEventListener('click',function(){
+    var d=r.getAttribute('data-theme')==='dark';
+    r.setAttribute('data-theme',d?'light':'dark');
+    bt.textContent=d?'Tema oscuro':'Tema claro';
+  });
+  bm.addEventListener('click',function(){
+    var on=b.classList.toggle('no-mk');
+    bm.setAttribute('aria-pressed',on?'false':'true');
+  });
+  function abrir(n){
+    var s=document.getElementById('step-'+n);if(!s)return;
+    var h=s.querySelector('.step-h'),on=s.classList.toggle('is-open');
+    h.setAttribute('aria-expanded',on?'true':'false');
+  }
+  document.querySelectorAll('.step-h').forEach(function(h){
+    h.addEventListener('click',function(){abrir(h.dataset.step);});
+  });
+  document.querySelectorAll('[data-open]').forEach(function(x){
+    x.addEventListener('click',function(){
+      var n=x.dataset.open,s=document.getElementById('step-'+n);
+      if(!s.classList.contains('is-open'))abrir(n);
+      s.scrollIntoView({behavior:'smooth',block:'center'});
+    });
+  });
+})();
+</script>
+</body>
+</html>

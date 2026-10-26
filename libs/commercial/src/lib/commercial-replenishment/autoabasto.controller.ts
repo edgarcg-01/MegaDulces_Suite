@@ -5,7 +5,10 @@ import type {
   AutoabastoPedidoResponse, AutoabastoAjusteRequest, AutoabastoAjusteResponse,
   AutoabastoRestablecerRequest, AutoabastoAceptarGrupoRequest, AutoabastoAbrirRequest,
   AutoabastoPosicionesRequest, PosicionPedido,
+  AutoabastoRenglonesResponse, EstadoRenglon, SurteRenglon, OrdenMesa,
+  AutoabastoEnviarRequest, AutoabastoEnviarResponse,
 } from '@megadulces/contracts';
+import { ESTADOS_RENGLON, ORDENES_MESA } from '@megadulces/contracts';
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
 import { AutoabastoPedidoService } from './autoabasto-pedido.service';
 
@@ -18,7 +21,8 @@ import { AutoabastoPedidoService } from './autoabasto-pedido.service';
  */
 type AutoabastoMesa = Awaited<ReturnType<CommercialReplenishmentService['criticalStock']>>;
 type AutoabastoResumen = Awaited<ReturnType<CommercialReplenishmentService['summary']>>;
-type AutoabastoFiltros = Awaited<ReturnType<CommercialReplenishmentService['filters']>>;
+/** `[AB.36]` Sólo los almacenes: ninguna pantalla de Autoabasto pinta proveedores, marcas ni categorías. */
+type AutoabastoFiltros = { warehouses: Awaited<ReturnType<CommercialReplenishmentService['almacenes']>> };
 
 /**
  * `[AB.13]` El reporte imprimible: las MISMAS filas y el MISMO resumen que la mesa, completos y
@@ -156,12 +160,16 @@ export class AutoabastoController {
     return this.svc.summary({ warehouse_id, warehouse_ids, supplier_id, category_id, product_search: search, target_basis: target_basis || BASE_AUTOABASTO }, AREA_AUTOABASTO);
   }
 
-  /** Los almacenes (ya recortados al alcance de la persona) y proveedores para filtrar la mesa. */
+  /**
+   * Los almacenes ya recortados al alcance de la persona. `[AB.36]` Antes devolvía `filters()` entero
+   * (proveedores, marcas y categorías de toda la red: 157–193 ms, medido 2026-10-24) y la pantalla lo
+   * espera ANTES de pedir la mesa; sólo usaba los almacenes.
+   */
   @Get('filtros')
   @RequirePermissions(Permission.AUTOABASTO_VER)
   @ApiOperation({ summary: 'Catálogos para los filtros de la mesa' })
-  filtros(): Promise<AutoabastoFiltros> {
-    return this.svc.filters(AREA_AUTOABASTO);
+  async filtros(): Promise<AutoabastoFiltros> {
+    return { warehouses: await this.svc.almacenes(AREA_AUTOABASTO) };
   }
 
   /**
@@ -182,6 +190,46 @@ export class AutoabastoController {
   }
 
   /**
+   * `[AB.27]` La mesa de UN almacén sobre la cuenta única del renglón: los mismos renglones que «Mi
+   * pedido» (estado, a quién se le pide, lo que ya viene, falta neta) más mínimo, reorden, máximo y
+   * entrega. Sólo lee. Mismo control de alcance que «Mi pedido»: el almacén se busca en la lista que la
+   * persona alcanza. Convive con `/mesa` hasta que la pantalla se cambie (AB.28).
+   */
+  @Get('renglones')
+  @RequirePermissions(Permission.AUTOABASTO_VER)
+  @ApiOperation({ summary: '[AB.27] Mesa de un almacén sobre la cuenta única de «Mi pedido»: estado, a quién se le pide, lo que ya viene y falta neta' })
+  async renglones(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('estado') estado?: string,
+    @Query('posicion') posicion?: string,
+    @Query('surte') surte?: string,
+    @Query('search') search?: string,
+    @Query('sort_by') sort_by?: string,
+    @Query('sort_dir') sort_dir?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('todos') todos?: string,
+  ): Promise<AutoabastoRenglonesResponse> {
+    const almacen = await this.almacenEnAlcance(warehouse_id);
+    // Un filtro que no existe se dice, no se ignora: ignorarlo devolvería la lista entera como si fuera el filtro.
+    if (estado && !(ESTADOS_RENGLON as readonly string[]).includes(estado)) throw new BadRequestException('Estado inválido.');
+    if (surte && !['matriz', 'proveedor', 'sin_ruta'].includes(surte)) throw new BadRequestException('«Surte» inválido.');
+    if (sort_by && !(ORDENES_MESA as readonly string[]).includes(sort_by)) throw new BadRequestException('Orden inválido.');
+    return this.pedidos.renglones(almacen, AREA_AUTOABASTO, {
+      estado: (estado as EstadoRenglon | undefined) ?? null,
+      posicion: posicion || null,
+      surte: (surte as SurteRenglon['tipo'] | undefined) ?? null,
+      search: search || null,
+      sort_by: (sort_by as OrdenMesa | undefined) ?? 'lectura',
+      sort_dir: sort_dir === 'asc' ? 'asc' : 'desc',
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+      // El PDF: todo lo del almacén con el filtro, sin paginar.
+      todos: todos === '1' || todos === 'true',
+    });
+  }
+
+  /**
    * `[AB.18]` El almacén tiene que estar dentro del alcance de la persona, en el área Almacén. Se
    * comprueba contra la MISMA lista que alimenta el filtro, nunca se confía en lo que manda el cliente.
    */
@@ -189,7 +237,8 @@ export class AutoabastoController {
     if (!warehouse_id || !UUID_RX.test(warehouse_id)) {
       throw new BadRequestException('El pedido es por almacén: elige uno.');
     }
-    const { warehouses } = await this.svc.filters(AREA_AUTOABASTO);
+    // `[AB.36]` Sólo los almacenes: `filters()` entero costaba ~175 ms más de proveedores y marcas.
+    const warehouses = await this.svc.almacenes(AREA_AUTOABASTO);
     const almacen = (warehouses as { id: string; code: string; name: string }[]).find((w) => w.id === warehouse_id);
     if (!almacen) throw new ForbiddenException('Ese almacén no está dentro de tu alcance.');
     return { id: almacen.id, code: almacen.code, name: almacen.name };
@@ -203,6 +252,19 @@ export class AutoabastoController {
     const almacen = await this.almacenEnAlcance(body?.warehouse_id);
     if (!body?.product_id || !UUID_RX.test(body.product_id)) throw new BadRequestException('Falta el producto.');
     return this.pedidos.ajustar(almacen.id, body);
+  }
+
+  /**
+   * `[AB.29]` «Enviar a Compras»: lo que le falta por pedir a la sucursal sale como requisición (una
+   * por origen) y le llega a quien tiene la responsabilidad `compras.requisiciones_sucursal`. Mismo
+   * permiso y mismo control de alcance que ajustar: quien arma el pedido de su sucursal lo manda.
+   */
+  @Post('pedido/enviar')
+  @RequirePermissions(Permission.AUTOABASTO_SOLICITAR)
+  @ApiOperation({ summary: '[AB.29] Mi pedido: mandar a Compras lo que falta por pedir (una requisición por origen, por aprobar)' })
+  async enviar(@Body() body: AutoabastoEnviarRequest): Promise<AutoabastoEnviarResponse> {
+    const almacen = await this.almacenEnAlcance(body?.warehouse_id);
+    return this.pedidos.enviar(almacen, AREA_AUTOABASTO, body);
   }
 
   /** `[AB.18]` Vuelve el renglón al sugerido. */
@@ -265,7 +327,8 @@ export class AutoabastoController {
     if (!warehouse_id || !UUID_RX.test(warehouse_id)) {
       throw new BadRequestException('El reporte es por almacén: elige uno.');
     }
-    const { warehouses } = await this.svc.filters(AREA_AUTOABASTO);
+    // `[AB.36]` Sólo los almacenes: `filters()` entero costaba ~175 ms más de proveedores y marcas.
+    const warehouses = await this.svc.almacenes(AREA_AUTOABASTO);
     const almacen = (warehouses as { id: string; code: string; name: string }[]).find((w) => w.id === warehouse_id);
     if (!almacen) throw new ForbiddenException('Ese almacén no está dentro de tu alcance.');
 

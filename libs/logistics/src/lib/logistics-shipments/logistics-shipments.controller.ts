@@ -52,7 +52,8 @@ export class LogisticsShipmentsController {
   }
 
   @Post('from-kepler/:sucursal/:guia')
-  @RequirePermissions(Permission.LOGISTICS_SHIPMENTS_GESTIONAR)
+  // [EMB.43] También lo toma Logística › Pagos de viaje, desde su bandeja, con su permiso propio.
+  @RequireAnyPermission(Permission.LOGISTICS_SHIPMENTS_GESTIONAR, Permission.LOGISTICS_PAGOS_GESTIONAR)
   @ApiOperation({ summary: 'EMB.12 — Tomar un viaje de Kepler: crea el embarque con la llave de la guía, la guía de entrega y un destinatario por parada. Sólo se captura lo que Kepler no tiene.' })
   createFromKepler(
     @Param('sucursal') sucursal: string,

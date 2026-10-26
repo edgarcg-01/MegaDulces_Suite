@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agruparObligaciones, allocationKey, filasAgrupadas, obligationKey, sugerirArmado, type GroupableObligation } from './calendario-pagos-grupos';
+import { agruparObligaciones, allocationKey, fechaCorta, filasAgrupadas, obligationKey, sugerirArmado, type GroupableObligation } from './calendario-pagos-grupos';
 
 describe('[TP.16.4] sugerirArmado — lo vencido, un pago por proveedor y sucursal, hasta el disponible', () => {
   const g = (id: string, suc: string, due: string, amt: number, sup = 'GONAC') => ({ ...ob(id, sup, due, amt), branch_code: suc });
@@ -121,5 +121,51 @@ describe('[TP.16.2] filasAgrupadas — encabezado + facturas, salvo plegado', ()
   });
   it('un proveedor plegado deja sólo su encabezado', () => {
     expect(filasAgrupadas(gs, new Set(['proveedor_mercancia|b:FERRERO|-'])).map((r) => r.kind)).toEqual(['single', 'group']);
+  });
+});
+
+/**
+ * `[PGP.10]` **La fecha de la columna «Vence» distingue el año — o $14 M se leen como del mes.**
+ *
+ * El caso real, medido contra prod el 2026-10-24: los dos renglones que el Calendario pone
+ * primero son del **01/01/2025** por $8 M y $6 M, y se pintaban «1 ene». La auditoría los
+ * encontró mirando la pantalla, no el código: en el fuente «1 ene» se ve perfectamente bien.
+ */
+describe('[PGP.10] fechaCorta', () => {
+  const HOY = '2026-10-24';
+
+  it('⛔ el caso real: un documento de 2025 NO se lee como uno de este año', () => {
+    // El mismo día y mes, dos años distintos: lo que se pinta tiene que diferir.
+    expect(fechaCorta('2025-01-01', HOY)).toBe('1 ene 25');
+    expect(fechaCorta('2026-01-01', HOY)).toBe('1 ene');
+  });
+
+  it('una fecha de este año se queda corta: día y mes, sin ensanchar la columna', () => {
+    expect(fechaCorta('2026-03-05', HOY)).toBe('5 mar');
+  });
+
+  it('una fecha de otro año lleva el año en DOS dígitos', () => {
+    expect(fechaCorta('2025-01-01', HOY)).toBe('1 ene 25');
+    expect(fechaCorta('2027-12-31', HOY)).toBe('31 dic 27');
+  });
+
+  it('sin fecha devuelve una raya, no «hoy» ni una cadena vacía', () => {
+    expect(fechaCorta(null, HOY)).toBe('—');
+  });
+
+  it('⛔ no se corre un día por zona horaria: el 1 de enero es el 1, no el 31 de diciembre', () => {
+    expect(fechaCorta('2025-01-01', HOY)).toContain('1 ene');
+    expect(fechaCorta('2026-01-01', HOY)).toBe('1 ene');
+  });
+
+  it('acepta un ISO con hora y se queda con el día', () => {
+    expect(fechaCorta('2025-01-01T06:00:00.000Z', HOY)).toBe('1 ene 25');
+  });
+
+  it('el año de corte es el de HOY, no uno fijo', () => {
+    // Con el presente en 2025, el documento de 2025 ya no necesita año…
+    expect(fechaCorta('2025-01-01', '2025-06-01')).toBe('1 ene');
+    // …y el de 2026 sí.
+    expect(fechaCorta('2026-01-01', '2025-06-01')).toBe('1 ene 26');
   });
 });

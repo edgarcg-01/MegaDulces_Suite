@@ -93,13 +93,13 @@ export const routes: Routes = [
   // un teléfono que se le pasa a quien viene a firmar un recibo. Las dos cosas estaban mal.
   //
   // Mismo molde que `captura/:token` de arriba: al tope del árbol, fuera del layout y sin guard.
-  // ⛔ Y "sin guard" NO es "sin autorización": el QR trae un **pase** firmado por el servidor que
-  // vive 3 minutos, es de un solo uso y queda atado a UN código (`[CG.84]` en
-  // `caja-firma-remota.engine.ts`). La puerta no se quitó: se cambió por una llave que la caja
-  // entrega en el momento, en vez de pedir que la persona sea empleada de finanzas.
+  // ⛔ Y "sin guard" NO es "sin autorización": el QR trae un **token** firmado por el servidor con
+  // el id de UN pedido de firma, y la autoridad es la fila de ese pedido (estado y vencimiento),
+  // releída en cada uso (`[CG.201]`, `caja-firma.service.ts`). La puerta no se quitó: se cambió por
+  // una llave que la caja entrega en el momento, en vez de pedir que la persona sea empleada de finanzas.
   //
-  // ⚠️ La ruta vieja se CONSERVA: un teléfono con sesión sigue entrando por ahí y tecleando el
-  // código, que es el respaldo cuando no se puede escanear.
+  // ⚠️ `[CG.207]` La ruta vieja (`/finanzas/caja-general/firma`, con sesión y código tecleado) ya
+  // NO es respaldo: redirige acá. Se firma sólo por QR.
   {
     path: 'firmar',
     loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-firma.component').then(m => m.FinanzasCajaFirmaComponent),
@@ -687,15 +687,13 @@ export const routes: Routes = [
         pathMatch: 'full',
       },
       {
-        // `[CG.68]` La pantalla del TELÉFONO del mostrador: acá se firma el movimiento que la
-        // caja está capturando en la PC. Se teclea el código de seis que la caja muestra.
-        //
-        // ⚠️ Con `FINANCE_CAJA_VER` alcanza, y es a propósito: el teléfono se le pasa a otras
-        // personas para que firmen. Aportar evidencia no es escribir el libro — quien guarda es
-        // la PC, y para eso sí hace falta `GESTIONAR`.
+        // `[CG.68]` Acá vivía la pantalla del TELÉFONO con sesión, que tecleaba el código de seis.
+        // ⭐ `[CG.207]` Edgar, 2026-10-23: *«no necesitamos el código, solo el qr»*. Sin código
+        // tecleado esta entrada no tiene nada propio: se firma sólo por QR, en `/firmar`, sin
+        // sesión. Se REDIRIGE en vez de borrarse: un favorito o un enlace viejo no da 404.
         path: 'caja-general/firma',
-        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-firma.component').then(m => m.FinanzasCajaFirmaComponent),
-        canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR)]
+        redirectTo: '/firmar',
+        pathMatch: 'full',
       },
       {
         // CS.2 — Caja Fuerte (CAOS): reporte de movimientos de efectivo del dispositivo AST700.
@@ -822,8 +820,11 @@ export const routes: Routes = [
       {
         // `[EMB.29]` Comisiones y viáticos de logística por corte de 14 días (ADR-091): un vale
         // por persona con SÓLO viajes cerrados y cargas en Kepler. Mismo par de permisos que la API.
+        // `[EMB.43]` Es la MISMA pantalla que Logística › Pagos de viaje › Por persona: una sola
+        // implementación en los dos lugares (antes eran dos). Aquí lleva su título de Finanzas.
         path: 'comisiones-logistica',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-comisiones-logistica.component').then(m => m.FinanzasComisionesLogisticaComponent),
+        loadComponent: () => import('./modules/logistica/pages/logistica-pagos-personas.component').then(m => m.LogisticaPagosPersonasComponent),
+        data: { titulo: 'Comisiones de logística' },
         canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR)]
       },
         ],
@@ -2263,6 +2264,31 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/logistica/pages/logistica-config.component').then(m => m.LogisticaConfigComponent),
         // [EMB.28.1] También el autorizador de tarifas (dirección), que no siempre configura.
         canActivate: [anyPermissionGuard(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)]
+      },
+      {
+        // [EMB.43] Pagos de viaje: comisión, viáticos y carga por caja, con permiso propio. Tres
+        // pestañas (Por completar · Por persona · Tarifas) bajo un shell; cada una con su guard.
+        path: 'pagos',
+        loadComponent: () => import('./modules/logistica/pagos-viaje-area-shell.component').then(m => m.PagosViajeAreaShellComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_PAGOS_VER)],
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'viajes' },
+          {
+            path: 'viajes',
+            loadComponent: () => import('./modules/logistica/pages/logistica-pagos-viajes.component').then(m => m.LogisticaPagosViajesComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_PAGOS_VER)]
+          },
+          {
+            path: 'personas',
+            loadComponent: () => import('./modules/logistica/pages/logistica-pagos-personas.component').then(m => m.LogisticaPagosPersonasComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_PAGOS_VER)]
+          },
+          {
+            path: 'tarifas',
+            loadComponent: () => import('./modules/logistica/pages/logistica-pagos-tarifas.component').then(m => m.LogisticaPagosTarifasComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_PAGOS_VER)]
+          },
+        ]
       },
     ]
   },

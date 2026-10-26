@@ -15,6 +15,7 @@ import type { RastroLimpiado } from '@megadulces/ui-web';
 // llega por `await import()` allá abajo, que es lo único que de verdad la saca del arranque.
 import type { OfflineDatabaseService } from './offline-database.service';
 import { decidirBorradoOffline } from './offline-wipe';
+import { enRutaPublica } from '../auth/rutas-publicas';
 
 export interface JwtPayload {
   sub: string;
@@ -110,7 +111,9 @@ export class AuthService {
    * cero permisos).
    */
   refreshAccess(): void {
-    if (!this.token()) return;
+    // `[CG.203]` En una pantalla pública no se pregunta por la sesión: un token vencido que el
+    // teléfono arrastra daría 401 y el interceptor mandaría al login a quien vino a firmar.
+    if (!this.token() || enRutaPublica()) return;
     this.http
       .get<{ permissions: Record<string, boolean> }>(`${this.apiUrl}/users/me/access`)
       .subscribe({
@@ -136,7 +139,8 @@ export class AuthService {
    * viene a resolver.
    */
   async resolverAccesoInicial(): Promise<void> {
-    if (!this.token()) return;
+    // `[CG.203]` Ídem `refreshAccess`: el arranque sobre `/firmar` no toca la sesión.
+    if (!this.token() || enRutaPublica()) return;
     try {
       const res = await firstValueFrom(
         this.http

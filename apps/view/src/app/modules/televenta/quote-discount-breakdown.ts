@@ -50,6 +50,33 @@ export const ETIQUETA_PASO: Record<string, string> = {
   gratis_cantidad: 'regalo',
 };
 
+/**
+ * [E.29] Los pasos del precio en una línea: «lista $26.94 → volumen $24.79». Vacío si el precio no
+ * pasó por más de un paso (la lista sola no se explica). El alta y el detalle lo escriben igual.
+ */
+export function pasosDelPrecio(
+  aplicados: ReadonlyArray<{ step: string; after: number | null }> | null | undefined,
+  dinero: (n: number) => string,
+): string {
+  const pasos = (aplicados ?? []).filter((p): p is { step: string; after: number } => p.after !== null);
+  return pasos.length > 1 ? pasos.map((p) => (ETIQUETA_PASO[p.step] ?? p.step) + ' ' + dinero(p.after)).join(' → ') : '';
+}
+
+/**
+ * `[E.29]` Qué descuento es, concreto, en este renglón: el texto que el motor ya escribe en cada
+ * paso que no es la lista («Precio por volumen de 10 a más PAQ», «50% desde 1 PAQ · vigente hasta
+ * 22/11/2026», «Desde 6 PAQ se regalan 1 de 88219»). Las fechas AAAA-MM-DD del servidor salen en
+ * dd/mm/aaaa, como el resto de la pantalla.
+ */
+export function explicacionDelPrecio(
+  aplicados: ReadonlyArray<{ step: string; detail?: string | null }> | null | undefined,
+): string {
+  return (aplicados ?? [])
+    .filter((p) => p.step !== 'lista' && !!p.detail)
+    .map((p) => String(p.detail).replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, '$3/$2/$1'))
+    .join(' · ');
+}
+
 const cent = (n: number): number => Math.round(n * 100);
 
 export function desgloseDescuento(renglones: RenglonParaDesglose[]): DesgloseDescuento {

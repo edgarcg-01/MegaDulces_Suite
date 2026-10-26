@@ -1,6 +1,6 @@
 ---
 name: auditoria-diseno
-description: Protocolo para AUDITAR una pantalla ya construida de esta suite (no para construirla — eso es la skill `diseno`). Los seis cruces que ninguna compuerta hace, la disciplina de instrumento y los tres niveles de evidencia. OBLIGATORIO antes de decir que una pantalla está bien, mal, "es un asco" o "quedó limpia". Se invoca con auditar, auditoría, revisar pantalla, review de UI, "está feo", "no se entiende", "qué le falta a esta pantalla", legibilidad, QA de frontend.
+description: Protocolo para AUDITAR una pantalla ya construida de esta suite (no para construirla — eso es la skill `diseno`). Los seis cruces que ninguna compuerta hace, la disciplina de instrumento y los tres niveles de evidencia. OBLIGATORIO antes de decir que una pantalla está bien, mal, "es un asco" o "quedó limpia". También (§9) para revisar el PLAN de una fase antes de construir su interfaz: observaciones de diseño con severidad que se agregan al doc de fase. Se invoca con auditar, auditoría, revisar pantalla, review de UI, "está feo", "no se entiende", "qué le falta a esta pantalla", legibilidad, QA de frontend, observaciones de diseño al plan, revisión de diseño de una fase, rediseño.
 ---
 
 # Auditoría de diseño — el protocolo
@@ -27,6 +27,7 @@ tiene su caso medido: si alguien la quiere borrar, que primero explique el caso.
 |---|---|
 | escribir o cambiar un componente | `diseno` |
 | **juzgar una pantalla que ya existe** | **ésta**, y después `diseno` para arreglarla |
+| **revisar el PLAN de una fase antes de construir su C3** | **ésta, §9** — sin tocar la pantalla |
 
 ⛔ **No se audita leyendo el código y llamándolo UX.** Eso es revisión de código con otro nombre, y
 es exactamente cómo se pasó por alto una columna rotulada «Origen» que mostraba otra cosa: el
@@ -323,3 +324,58 @@ Declarado para que nadie lo dé por hecho:
   · Hick: `⌘K` con 20+ destinos) y ninguna tiene instrumento.
   ⭐ **El primer candidato ya está nombrado por el Cruce 1**: *toda cifra publicada en un encabezado
   tiene que poder recorrerse en su lista*. Esa sola habría cazado las 148 filas invisibles.
+
+---
+
+## 9. Revisión de diseño de un PLAN — antes de que exista la pantalla
+
+Nace el **2026-10-26** de un pedido de Edgar: *«toma el rol [de diseñador UI crítico] y a cada plan
+de cada módulo genérale las observaciones y agrégalas a las fases»*. La razón es de costo: una
+columna rotulada «Origen» que muestra otra cosa se corrige en el plan con una línea; en la pantalla,
+después de que alguien la creyó, cuesta una auditoría y una reescritura.
+
+**Cuándo:** al escribir el plan (paso 2 de [`METODO_DE_TRABAJO.md`](../../../docs/METODO_DE_TRABAJO.md))
+y **antes del primer item C3**; otra vez si cambia el alcance de C3.
+
+**Qué es y qué no:**
+
+- Es **nivel C por definición**: se lee el plan, no la pantalla. Nada visual se afirma como medido.
+- ⛔ **No se audita la pantalla en esta pasada** — ni `check:*`, ni navegador, ni base. Eso es §5.
+- Si la fase ya está construida, cada observación es **un criterio a verificar** en la pantalla, no
+  un defecto medido, y así se escribe.
+
+**Dónde y con qué forma:** al final del plan principal de la fase, una sección
+`## Observaciones de diseño UI — revisión del plan (AAAA-MM-DD)`. El ejemplo canónico es la de
+[`FASE_ECA_ESTADO_CUENTA_ACREEDORES.md`](../../../docs/IMPLEMENTACION/FASES/FASE_ECA_ESTADO_CUENTA_ACREEDORES.md):
+
+1. La nota de evidencia (nivel C) y la escala de severidad.
+2. **La prueba de la frase** (estándar §4.0b): la pregunta que contesta cada pantalla, en una
+   oración. Si necesita «y», es conflación y se propone el corte.
+3. **La jerarquía propuesta** (§Q.5): primario · secundario · terciario, en una línea.
+4. Una tabla `# · Sev · Observación y costo · Ley · Criterio de aceptación`, con ids `XX.UI.n`,
+   **6 a 14 por plan**, la más cara primero.
+
+| Sev | Qué significa |
+|---|---|
+| 🔴 | la pantalla afirmaría algo falso, escondería lo que importa o perdería/duplicaría trabajo → **bloquea pasar C3 a 🚀** |
+| 🟠 | se resuelve dentro de la fase |
+| 🟡 | mejora; si no entra, deuda con nombre |
+
+**La vara**, la misma de §7 adaptada al papel:
+
+- ⛔ **Si la observación serviría igual para cualquier otro plan, no va.** «Agregar `LoadState`»
+  sólo entra si el plan describe algo que lo contradice, citando dónde.
+- El costo va **con las cifras que el propio plan midió**, y con su fecha si son viejas. No se
+  inventan cifras.
+- La ley se cita **por su mecanismo**, nunca como etiqueta.
+- El criterio nombra **la pieza del sistema** que lo resuelve y, si hay texto para la pantalla, el
+  texto literal en tuteo mexicano.
+- Orden de búsqueda: **veracidad primero** (rótulos, cifras recorribles, ceros que son «no medido»,
+  universos y **unidades**), después alcance, comprensión, sencillez y respeto, y al final los no
+  negociables (sucursal por nombre, dark + `forced-colors`, IA que se ve como propuesta de un
+  motor, ≥44 px en `coarse`).
+- Lo que el plan **declara como hueco o hipótesis** es el lugar más probable de una 🔴: la pregunta
+  es si la pantalla lo va a declarar o lo va a dibujar como dato firme.
+
+**Después:** las 🔴 se vuelven items de C3 al abrir esa capa, y la revisión en nivel A (§5) es la que
+las da por cerradas — nunca la revisión del plan.

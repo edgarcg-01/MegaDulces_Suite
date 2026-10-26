@@ -297,6 +297,13 @@ export enum Permission {
   LOGISTICS_PAYROLL_VER = 'LOGISTICS_PAYROLL_VER',
   LOGISTICS_PAYROLL_GESTIONAR = 'LOGISTICS_PAYROLL_GESTIONAR',
 
+  // [EMB.43] Módulo: Logística — Pagos de viaje (comisión, viáticos y carga por caja). Permiso
+  // propio: quien arma la catorcena (Logística) no es quien administra embarques ni gastos.
+  // VER = la bandeja, la catorcena y las tarifas; GESTIONAR = capturar tripulación, horario y
+  // cargadores, y armar el vale de cada persona.
+  LOGISTICS_PAGOS_VER = 'LOGISTICS_PAGOS_VER',
+  LOGISTICS_PAGOS_GESTIONAR = 'LOGISTICS_PAGOS_GESTIONAR',
+
   // Módulo: Logística — Configuración financiera (factores, costo km)
   LOGISTICS_CONFIG_GESTIONAR = 'LOGISTICS_CONFIG_GESTIONAR',
   // [EMB.28.1] Cambiar una tarifa YA FIJADA (comisión por ruta, viático, maniobra de carga):

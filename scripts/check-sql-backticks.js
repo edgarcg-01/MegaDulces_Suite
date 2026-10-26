@@ -33,6 +33,21 @@
  * Medido el 2026-10-02 sobre el repo entero: 0 ocurrencias con el arreglo puesto, y la
  * version rota que el CI compilo da exactamente 1. Ver la prueba negativa abajo.
  *
+ * ── ⛔ EL HUECO QUE SIGUE ABIERTO (2026-10-23) ───────────────────────────────────────────
+ * Esta compuerta mira SOLO comentarios SQL de linea (`--`). El mismo bug entra igual por un
+ * comentario de BLOQUE dentro de un template literal, y ese dia mordio dos veces:
+ *
+ *      const SQL = `SELECT 1 \/* [X.1] con `acentos` adentro *\/ FROM t`;
+ *
+ * La segunda vez esta compuerta dio VERDE, que es justo el defecto que su propia cabecera
+ * describe: una compuerta que pasa sobre un caso que no inspecciona se lee como que lo aprobo.
+ *
+ * ⚠️ **Se intento cerrarlo con un escaner de estado y se RETIRO**: distinguir ese comentario
+ * del JSDoc normal —legitimo y con miles de casos en el repo— exige seguir cadenas, regex y
+ * escapes, y la version casera dio **1,973 falsos positivos**. Una compuerta ruidosa se apaga
+ * el primer dia, asi que el hueco se DECLARA en vez de taparse mal. Cerrarlo bien pide un
+ * parser de verdad (el propio TypeScript), no un recorredor de caracteres.
+ *
  *   node scripts/check-sql-backticks.js
  */
 const fs = require('fs');

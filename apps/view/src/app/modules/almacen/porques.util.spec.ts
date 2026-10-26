@@ -2,7 +2,9 @@ import {
   fechaCorta, diasHasta, diasDeCobertura,
   origenTexto, origenCls, origenPorQue,
   cuandoTexto, cuandoPorQue, cantidadPorQue, objetivoDemandaTexto, PorqueRow,
+  surteTexto, surtePorQue, faltaNetaPorQue, estadoPorQue,
 } from './porques.util';
+import type { AutoabastoMesaRenglon } from '@megadulces/contracts';
 
 /** Renglón sano: compra al proveedor, con calendario y venta medida. */
 const base: PorqueRow = {
@@ -216,5 +218,68 @@ describe('cantidad — "por qué esa cantidad"', () => {
   it('[AB.14] con una política que sí resta, conserva la resta completa', () => {
     expect(cantidadPorQue(base, 'crudo')).toBe(
       'Objetivo 40 − existencia 12 − en camino 3 = faltan 25 caja(s).');
+  });
+});
+
+describe('[AB.28] los porqués de la mesa sobre la cuenta única', () => {
+  const renglon = (p: Partial<AutoabastoMesaRenglon> = {}): AutoabastoMesaRenglon => ({
+    product_id: 'p', sku: '70056', nombre: 'MAZAPÁN', venta_30d: 10, existencia: 2, objetivo: 12, falta: 10,
+    ya_pedido: 2, atorado: 0, negado_30d: 0, en_camino: 3, planeado_compras: 0, pedido_sucursal: 0, falta_neta: 5,
+    a_pedir: { cantidad: 5, unidad: 'CJA', factor: 12, cantidad_base: 60, regla: 'cajas' } as never,
+    ajuste: null, valor: 90, costo_base: 1.5, posicion: 'bajo_minimo', minimo_menor: 'no_aplica' as never, valor_menor: null,
+    estado: 'sin_pedir', surte: { tipo: 'matriz', clave: '01', nombre: '01' },
+    diagnostico: { min_stock: 1, reorder_point: 3, max_stock: 12, oc_en_camino: 0, venta_diaria: 0.4, next_due_date: null,
+      lead_time_days: null, cadence_days: null, abc_class: null, rung_veredicto: null, sales_rank: 3 },
+    ...p,
+  });
+
+  it('⛔ la matriz se NOMBRA, nunca se numera', () => {
+    expect(surteTexto({ tipo: 'matriz', clave: '01', nombre: '01' })).toBe('Padre Hidalgo');
+    expect(surtePorQue({ tipo: 'matriz', clave: '08', nombre: '08' })).toContain('Morelia Abastos');
+    expect(surtePorQue({ tipo: 'matriz', clave: '08', nombre: '08' })).not.toMatch(/\b0[0-9]\b/);
+  });
+
+  it('⛔ sin ruta no se disfraza de compra', () => {
+    expect(surteTexto({ tipo: 'sin_ruta', clave: null, nombre: 'Sin ruta configurada' })).toBe('Sin ruta');
+    expect(surtePorQue({ tipo: 'sin_ruta', clave: null, nombre: '' })).toContain('no se supone que sea compra');
+  });
+
+  it('la falta neta explica la resta completa con lo que ya viene', () => {
+    expect(faltaNetaPorQue(renglon())).toBe(
+      'Objetivo 12 − existencia 2 = falta 10 caja(s). Ya viene: pedido abierto 2 + en camino 3 → falta neta 5.');
+  });
+
+  it('lo planeado por Compras y lo atorado se DICEN, y se dice que no se restan', () => {
+    const t = faltaNetaPorQue(renglon({ planeado_compras: 4, atorado: 1 }));
+    expect(t).toContain('Compras planeó 4 que todavía no está en Kepler: se muestra, no se resta.');
+    expect(t).toContain('Hay 1 en pedidos de más de 7 días: reclámalos; no se restan.');
+  });
+
+  it('⛔ si lo ya pedido no se pudo medir, lo dice en vez de afirmar que no hay nada', () => {
+    const t = faltaNetaPorQue(renglon({ ya_pedido: 0, en_camino: 0, falta_neta: 10 }), false);
+    expect(t).toContain('NO se pudo medir');
+    expect(t).not.toContain('No hay pedido abierto');
+  });
+
+  it('cada estado tiene su explicación', () => {
+    for (const e of ['sin_pedir', 'compras_lo_planeo', 'ya_viene', 'en_politica'] as const) {
+      expect(estadoPorQue(renglon({ estado: e })).length).toBeGreaterThan(20);
+    }
+  });
+
+  it('⛔ [AB.35] con cobertura parcial NO dice «nadie lo ha pedido»: dice cuánto ya viene', () => {
+    // El caso del ejercicio del PM: faltan 32, ya vienen 20, quedan 12.
+    const t = estadoPorQue(renglon({ estado: 'sin_pedir', falta: 32, ya_pedido: 12, en_camino: 8, falta_neta: 12 }));
+    expect(t).toBe('Faltan 12 caja(s) por pedir: ya vienen 20 de 32, y nadie ha pedido el resto.');
+    expect(t).not.toMatch(/nadie lo ha pedido/i);
+  });
+
+  it('sin nada en camino sí dice que nadie lo ha pedido', () => {
+    expect(estadoPorQue(renglon({ estado: 'sin_pedir', ya_pedido: 0, en_camino: 0 }))).toContain('nadie lo ha pedido');
+  });
+
+  it('cuandoPorQue acepta sólo los campos que usa (la mesa nueva no trae el renglón viejo)', () => {
+    expect(cuandoPorQue({ next_due_date: null, cadence_days: null, lead_time_days: null, on_hand: 2, avg_daily_units: 0 }))
+      .toContain('Sin calendario de entregas');
   });
 });

@@ -1322,3 +1322,79 @@ Candado: 18 aserciones (7 nuevas sobre la pantalla), **mutado a rojo** quitando 
 
 ⚠️ Mi extractor del candado volvió a nacer mal: `indexOf('guardarOc(')` agarraba la aparición del
 **template** (`(keyup.enter)="guardarOc()"`) en vez del método. Anclado a la definición.
+
+
+---
+
+## RA-MED — Medición previa al motor (2026-10-23) ✅ medido · ⬜ RA-MED.3–6
+
+Brief de Edgar: *cómo influyen los pedidos (mejor, normal o peor) vs sugerido, y si las requisiciones
+son idénticas en costos e información a las de Kepler, para que no haya información inventada de
+nuestro lado.* Medido en prod, sólo lectura, con placebo donde aplica:
+**[`MEDICION_RA_SUGERIDO_Y_CUADRE_KEPLER_2026-10-23.md`](MEDICION_RA_SUGERIDO_Y_CUADRE_KEPLER_2026-10-23.md)**.
+
+- 1,008 renglones de compra: **499 mejor · 199 peor · 91 igual · 219 sin medir** contra la salida
+  posterior; el sugerido dejaba **1.6 d** de cobertura, lo pedido **10.2 d**, objetivo **19 d**; **51.8 %
+  de los renglones nacieron con sugerido 0**.
+- Compras contra Kepler: cuando hay documento, **392 de 399 renglones al centavo**; cantidad y costo
+  sólo difieren de unidad (`c58`). `c16` trae IVA. Traspasos: **11.9 % contra placebo 2.9 %** — no es el
+  mismo documento.
+- Deuda con nombre: la línea de requisición **no guarda la base del sugerido** (`[RA-MED.3]`).
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre. La pantalla existe: cada
+> observación es un criterio a verificar en ella, no un defecto medido.
+
+**La pregunta que contesta cada pantalla (prueba de la frase, §4.0b):**
+
+- `/compras/pedido` — *«¿Cuánto le pido hoy a cada proveedor, para cada sucursal?»* — una pregunta;
+  el porqué de cada cantidad es su evidencia. Bien partida, **si** la razón viaja en el renglón (RA.UI.1).
+- `/compras/existencia-critica` — *«¿Qué SKUs están bajo su mínimo o su punto de reorden?»* — una, pero
+  su botón «Generar requisición» la vuelve una **segunda** respuesta a «¿qué pido?», con otro sugerido
+  (RA.UI.2). Como superficie de compra sobra: queda como lente de diagnóstico o se retira.
+- `/compras/pedido` › Sobrante y la autopsia (RA.PM) — *«¿Qué compramos que no volvió a salir?»* —
+  **la misma pregunta en dos lugares**, con ventanas distintas (RA.UI.12).
+- `/compras/oc-abiertas` — *«¿Qué órdenes de compra abiertas en Kepler hay que cerrar o cancelar?»* — una.
+- `/compras/requisiciones` — *«¿Qué requisiciones me toca aprobar o completar con su folio de OC?»* —
+  una; la bandeja por estado es su forma.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):**
+
+- Pedido: primario = **pesos a pedir por proveedor** (con su base de IVA dicha) y el conteo de renglones
+  con aviso (sin medir · tope · OC reciente) · secundario = el renglón SKU × sucursal con su cantidad
+  **en su unidad** y su motivo · terciario = existencia, demanda, estacional, tránsito crudo y folio.
+- Sobrante / autopsia: primario = **pesos parados** por tramo · secundario = los renglones · terciario =
+  fechas y documentos.
+- OC abiertas: primario = **pesos y número de OC con más de 60 días** · secundario = la lista por
+  antigüedad · terciario = estatus del ERP y folio.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| RA.UI.1 | 🔴 | **El sugerido no dice por qué vale lo que vale, y lo que el motor no pudo medir se ve igual que lo medido.** RA.45D decide que `sin_medir` «no se pinta»: son los renglones sin venta o con el peldaño de unidad contradicho (`[U.2]`), donde **la existencia en cajas que se restó no es verdad** y el tope de 45 d no se aplicó. Y **51.8 % de los renglones de requisición nacieron con sugerido 0 y el comprador pidió igual** (RA-MED, 1,008 renglones, 23-oct): un 0 que no dice si es «no hace falta», «tope 45 d», «la existencia ya cubre» o «sin medir» no convence a nadie. Además la requisición no guarda la base del sugerido (`[RA-MED.3]`): quien aprueba firma un número sin su cálculo. | §1.3 · §3.2 · DESIGN §X.3 (razón en llano) y §X.4 («esto lo leí / esto lo estimo») | Cada renglón lleva su motivo como `p-tag` con texto, nunca sólo color: «Sin medir: unidad contradicha», «Sin venta», «Tope 45 d», «Ya cubre N d», «Pide N cajas = N d». En `sin_medir`, días de cobertura «—» y sugerido atenuado. Arriba, «N renglones sin medir · $X» con filtro de un clic. La requisición guarda y muestra la base de cada línea («19 d de demanda − 7 de existencia»). |
+| RA.UI.2 | 🔴 | **El mismo SKU × sucursal tiene tres «sugeridos» y ninguna pantalla dice cuál es el bueno.** Existencia Crítica (RA.4) calcula `objetivo − existencia − tránsito` con objetivo = máximo de la política y en la unidad base; el Pedido calcula demanda × cobertura × estacional, en cajas, ignora el tránsito (RA.TR) y aplica el tope de 45 d **sólo en su frontend** (`pedido-tope.ts`); Hallazgos valúa con `COALESCE(cost_with_tax, cost_base)` (corrección del 27-jul) mientras el Pedido costea con «Costo Uni Mayor» de Kepler (RA-PRO.46), y ninguna dice si es con o sin IVA. Una requisición generada desde Existencia Crítica pide lo que el Pedido habría topado. ⚠️ AB y PQ consumen este sugerido: si leen el del backend, heredan la versión **sin** tope. | §1.5 · §1.6 · §5.4 | Una sola definición del sugerido en el backend (`libs/`), con tope, política de tránsito y base de costo juntos; las pantallas y AB/PQ sólo la leen. Si Existencia Crítica se conserva, su encabezado dice «Umbrales de Kepler: no es el sugerido del Pedido» y su botón lleva al Pedido con el filtro puesto en vez de crear requisición propia. Todo encabezado de pesos dice «con IVA» o «sin IVA». Una prueba compara el sugerido de un SKU en las tres superficies. |
+| RA.UI.3 | 🔴 | **Con el tránsito ignorado, el Pedido vuelve a pedir lo que ya viene, y no dice en qué renglón.** El plan lo llama «compra doble conocida y aceptada» y la mide en **38 OC de menos de 7 días, $6.6M** (8-oct), donde la curva da 76–86 % de que lleguen. El aviso del servidor (`aviso_transito`) es uno para toda la pantalla: aceptar el riesgo no obliga a esconder dónde está. De paso, `/compras/oc-abiertas` sigue publicando «probabilidad de llegar», una cifra que el motor ya no usa. | §3.3 · §4.5 · §1.1 | El renglón con OC abierta de 7 días o menos muestra junto al sugerido: «Ya viene: N cajas en la OC [folio] de [sucursal], abierta hace N d (llega 86 %)», con enlace al diálogo «En camino» filtrado. Arriba: «N renglones con OC reciente · $X que se pueden pedir dos veces». En OC abiertas, la probabilidad se rotula «estimada por la curva; el pedido ya no la descuenta» y lleva su muestra (n = 43–50 en los tramos de más de 30 d). |
+| RA.UI.4 | 🔴 | **«Recibido» y «fill rate» afirmarían que el proveedor surtió todo, sobre cantidades que nadie comparó.** RA.13b decide «mostrar el fill rate» y la lista de órdenes enseña «avance recibido/pedido»; pero RA.15.1 cierra la OC por **presencia** del SKU en un `X-A-40` y «se marca recibido = pendiente», porque la cantidad de Kepler viene en otra unidad. §2.5 ya midió que el cerrado es ~100 % artificial (13,368 pares, 99.4 % exactos, por captura de golpe). Ningún proveedor se va a ver corto. La Fase MR planea la misma columna por proveedor. | §1.1 · §1.3 | Una recepción con `source='kepler'` se rotula «Cerrada por Kepler: cantidad no comparada» y su fill rate dice «—», nunca 100 %. El fill rate sólo se publica sobre recepciones con cantidad capturada y dice su universo: «sobre N de M recepciones». |
+| RA.UI.5 | 🔴 | **Las cantidades cambian de unidad entre pantallas sin decirlo.** Existencia Crítica rotula existencia, mínimo, reorden y máximo como piezas (RA.0: «unidad = piezas, sin conversión»), pero RA-PRO.46 midió el 31-ago que **79.1 % de los SKUs no tiene base PZA** (PAQ domina, 74.9 %): «40» son 40 paquetes en tres de cada cuatro renglones. El Pedido trabaja en cajas. Y el mínimo de pedido (RA.13a) se suma en cajas con `factor_purchase`, que la Fase MR midió en **0 de 11,185** productos (31-ago): si sigue así, el aviso de mínimo se calcula contra nada y calla. | §1.1 · §4.5 (unidades explícitas) | Toda cantidad lleva su unidad de la escalera de Kepler (`u1_label`), nunca «pz» fijo ni la «u» genérica: «40 PAQ», «3 CJA». El mínimo de pedido usa el resolvedor canónico del factor de caja; si falta factor, dice «Mínimo de pedido sin medir: falta el contenido de la caja», nunca silencio. |
+| RA.UI.6 | 🔴 | **La autopsia tiene pantalla y su fuente no existe en prod.** La matvista no se aplicó y el endpoint responde `42P01` (RA.PM, 9-oct). Si el manejador de error vacía la lista, la pestaña afirma «nada se quedó sin rendir», que es justo lo que vino a medir. Además compara «comprado» con «volvió a salir» en pesos sin decir a qué valor pesa la salida: en sucursales salió **$218.7M contra $166.9M comprado**; si la salida va a precio de venta, toda compra «rinde» por el puro margen. Y **$66.4M `sin_resolver`** tienen que estar en el total o declarados fuera de él. | §1.3 · §3.5 · §1.6 | Con la vista ausente o la petición fallida, `app-load-state` en error: «La autopsia no está disponible todavía: falta la vista nocturna. No significa que todo se haya vendido.» Comprado y salido en la misma base, dicha en el encabezado («a costo, sin IVA»). El total separa lo juzgable de los $66.4M sin destino, éstos en neutro. `app-freshness-pill` con la hora del último refresco. |
+| RA.UI.7 | 🟠 | **Las sucursales se nombran con el código del importer.** El plan habla de `KEPLER-03`, `MD-10`, `MD-30`/`MD-50` —con «cuál-es-cuál TBD» desde RA.0, Yurécuaro o Zamora—, `MD-CEDIS` y rutas `WIN-⟨n⟩`. Ese vocabulario llega al `p-multiSelect` de sucursales (RA.12), al diálogo «Capturar OC» que **propone la sucursal** (RQ.15.1), al origen de un traspaso (RA.11) y al PDF de la requisición. Con `MD-30`/`MD-50` sin resolver, un comprador puede surtir Zamora creyendo que surte Yurécuaro. | regla del PM (2026-10-22) · skill `diseno` §4 · §3.9 | Toda sucursal y almacén por nombre con la pipe `\| sucursal` / `warehouseName()`: celda, opción del selector, `aria-label`, PDF y nota guardada. Un código que no resuelve se muestra tal cual y con aviso; no se adivina. Antes, cerrar el pendiente de RA.0 (04/05 → `MD-30`/`MD-50`). |
+| RA.UI.8 | 🟠 | **El tope de 45 d avisa en un tooltip y calla donde garantiza un faltante.** Si el comprador sube la cantidad por encima del tope, el único aviso es el tooltip de la columna Días (RA.45D): sin mouse no existe. Y en **133 de 737 canales (18 %)** la cadencia + lead pasa de 45 d (el peor, 146.5 d): ahí el tope deja la sucursal sin producto entre pedidos. El plan lo reconoce («el arreglo de fondo es la cadencia, no el pedido») y lo deja a la memoria del comprador. | §4.5 · §3.8 · §3.2 | Al capturar arriba del tope, el renglón dice en línea: «Queda con 120 d de cobertura: arriba del tope de 45 d». En los canales con cadencia + lead > 45 d: «A este proveedor se le compra cada 90 d; con el tope quedan ~45 d sin producto», con enlace a la cadencia. **Conflicto para Edgar:** ¿el tope se ajusta a la cadencia, o la cadencia al tope? |
+| RA.UI.9 | 🟠 | **La deuda que ve el comprador no separa lo seguro de lo que quizá ya se pagó, y cuando falla, calla.** «Le debemos $480,000 · $310,000 vencido» reusa el saldo de ECA, que incluye **$59.9M de facturas de sucursal anteriores al 1-oct que probablemente se pagaron desde el 00** (ECA, 7-oct). Con 80.7 % de lo pendiente marcado como vencido (9-oct), el comprador puede frenar un pedido por dinero que no se debe. Y si la llamada falla, el plan elige silencio: indistinguible de «no hay proveedor elegido». | §1.6 · §3.5 · ECA.UI.2 | El renglón separa «deuda segura» y «por confirmar» con el mismo resolvedor que ECA, con la edad del dato. Si la llamada falla: «No se pudo leer la deuda de este proveedor», en tono de aviso, nunca vacío. |
+| RA.UI.10 | 🟠 | **Dos columnas «Origen» con significados distintos.** En la requisición, «Origen» es de dónde se surte (Proveedor/Sucursal, RA.11); en RA.10.8, «Origen "Forecast"» es de dónde salió el umbral (Kepler, calculado, manual, pronóstico). Es el caso «Origen» de Caja General, por partida doble. Y los umbrales calculados —el **100 % del CEDIS**, que tiene 0 configurados en Kepler— se ven igual que los leídos de Kepler. | §1.1 · §3.9 · DESIGN §X.4 | Rótulos «Surte desde» y «Umbral fijado por» (Kepler / motor / a mano). El umbral que propuso el motor lleva la marca ember con el texto «calculado por el motor», distinto del que se leyó de Kepler. |
+| RA.UI.11 | 🟠 | **Un clic crea N requisiciones y el plan no dice qué pasa si una falla.** Con multi-sucursal, «Generar requisición» crea una por almacén (RA.12). Reportar un fallo parcial como total invita a reintentar y duplicar las que sí se crearon; un doble clic crea 2N. Con 191 requisiciones pendientes por $6.57M en la bandeja (9-oct), un duplicado no salta a la vista. | DESIGN §10 (fallos parciales · idempotencia visual) · §5.1 | El botón se deshabilita en el primer clic, antes de la respuesta. El resultado dice «3 de 4 creadas: RQ-2026-00123… · falló Zamora: [motivo]» y deja seleccionados los renglones que fallaron. |
+| RA.UI.12 | 🟠 | **«¿Qué compramos que no salió?» tiene dos respuestas con universos distintos.** Sobrante: compra de los últimos 90 d con cero salidas después, **1,272 pares, $4,046,958** (9-oct). Autopsia: 180 d con destino resuelto, **$3,407,973 en sucursales + $4,435,816 en CEDIS**. Además Sobrante es una pestaña de «Pedido», un contenedor cuyo nombre no la cubre. | §1.5 · §1.4 · §4.0 A | Una sola superficie «Compra que no rindió», con la ventana como control (`app-segmented` 90 / 180 d) y un solo criterio de destino. Si quedan dos, cada una dice ventana y criterio en el encabezado y enlaza a la otra; la pestaña sale de «Pedido» o el apartado se renombra. |
+| RA.UI.13 | 🟡 | **El plan dice «CERRADA» y lo que hoy decide la compra está en 🧪.** El encabezado marca 🟢 desde el 2026-07-09, pero RA.TR, RA.45D, RA.SOB, RA.CAP, RA.PM y RQ.15.1 —tránsito, tope, sobrante, deuda, autopsia y folio de OC— entraron después, siguen en 🧪 desde el 9-oct y ninguno menciona una revisión visual. | §1.4 · método de trabajo | Ninguno pasa a 🚀 sin una revisión en nivel A con `auditoria-diseno` (claro, oscuro y `forced-colors`). El encabezado del plan deja de decir «CERRADA» mientras tenga items 🧪. |
+
+**Lo que esta revisión no cubre:** contraste, alto de fila, pliegue, foco y teclado reales (exigen
+nivel A); el asistente conversacional (`/compras/asistente`), que el plan sólo nombra —si publica
+cifras, cada una tiene que venir de una consulta determinista (DESIGN §X, «cero cifras del LLM»)—;
+`/compras/proveedores`, `/compras/red` y `/compras/categorias`, sin decisiones de pantalla en el plan;
+y el Pedido tal como lo rediseña la Fase PQ (misma pantalla, otro plan): las observaciones que tocan
+`/compras/pedido` le aplican igual.

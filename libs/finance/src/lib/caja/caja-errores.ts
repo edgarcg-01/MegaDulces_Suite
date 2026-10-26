@@ -58,6 +58,28 @@ const POR_CONSTRAINT: Record<string, string> = {
     'Este movimiento ya está en un corte cerrado: no se edita ni se borra. Si estaba mal, se corrige con un ajuste en la jornada abierta.',
   // La carrera de dos aperturas a la vez: el servicio ya lo revisa antes, esto es lo que queda.
   ux_cash_cut_abierto: 'Esta sucursal ya tiene un corte abierto: hay que cerrarlo antes de abrir otro.',
+  // `[CGA-A.50]` Un retiro de CAOS paga muchos gastos, y la custodia de quien se lo llevó.
+  caos_link_excede_movimiento:
+    'Ese retiro de CAOS ya no alcanza: lo que le queda es menos de lo que quieres tomar. Toma sólo lo que le queda o usa otro retiro.',
+  caos_link_excede_captura: 'Lo que tomas de los retiros de CAOS pasa del monto de este movimiento.',
+  caos_link_sin_movimiento: 'Ese movimiento de CAOS no existe (o todavía no llega del equipo).',
+  caos_link_sin_captura: 'El movimiento de caja al que quieres enlazar el retiro no existe.',
+  caos_link_custodia_cerrada:
+    'Ese retiro de CAOS ya se cerró: no se le pueden cargar más gastos. Si el gasto se pagó con él, el cierre estuvo mal.',
+  ux_caos_link_par_vivo: 'Ese retiro de CAOS ya está enlazado a este mismo movimiento.',
+  caos_custodia_no_es_retiro: 'Sólo un retiro (Dispensar) de CAOS puede quedar a cargo de alguien.',
+  caos_custodia_regreso_no_es_deposito: 'El regreso a CAOS tiene que ser un depósito de la máquina.',
+  caos_custodia_regreso_monto: 'El regreso vale lo que contó la máquina en ese depósito, no otra cifra.',
+  caos_cust_responsable_chk: 'Un retiro a cargo de alguien necesita el nombre de esa persona.',
+  caos_cust_regreso_con_deposito_chk: 'Un regreso a CAOS necesita el depósito de la máquina que lo regresó.',
+  caos_cust_cierre_completo_chk: 'El cierre necesita su tipo, su monto y su día.',
+  ux_caos_cust_retiro_vivo: 'Ese retiro de CAOS ya está clasificado.',
+  ux_caos_cust_deposito_vivo: 'Ese depósito de CAOS ya es el regreso de otro retiro.',
+  // `[CGA-A.55]` Los billetes de cada pedazo del retiro.
+  caos_link_billetes_no_suman: 'Los billetes que tomas del retiro, menos el cambio, no suman el monto que tomas.',
+  caos_link_billetes_insuficientes:
+    'Ese retiro de CAOS no tenía esos billetes (o ya se entregaron en otro pago). Revisa la denominación.',
+  caos_link_billetes_forma: 'Los billetes van como denominación y número de piezas (entero mayor que cero).',
 };
 
 /** Códigos de Postgres que SÍ son culpa de lo que se mandó, no del servidor. */

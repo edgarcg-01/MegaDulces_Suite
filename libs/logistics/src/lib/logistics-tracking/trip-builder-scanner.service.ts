@@ -24,11 +24,34 @@ export class TripBuilderScannerService {
       const day = y.toISOString().slice(0, 10);
       const res = await this.trips.buildForDate(day);
       this.logger.log(`nightly trips ${day}: ${res.length} vehículos reconstruidos`);
+      await this.rellenarHuecos();
     } catch (e: any) {
       this.logger.error(`nightly trips falló: ${e?.message || e}`);
     } finally {
       this.running = false;
     }
+  }
+
+  /**
+   * `[EMB.55]` Arma los días que un rastreador ligado tarde ya tenía con posiciones y sin resumen
+   * (sin esto, ligar un GPS dejaba fuera todo lo anterior al enlace). Un día que falla se registra y
+   * no frena a los demás; el tope de `diasSinResumen` acota la noche.
+   */
+  async rellenarHuecos(): Promise<{ armados: number; fallidos: number }> {
+    const huecos = await this.trips.diasSinResumen();
+    let armados = 0;
+    let fallidos = 0;
+    for (const h of huecos) {
+      try {
+        await this.trips.buildForVehicleDay(h.vehicle_id, h.day);
+        armados++;
+      } catch (e: unknown) {
+        fallidos++;
+        this.logger.error(`resumen ${h.vehicle_id} ${h.day} falló: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (huecos.length) this.logger.log(`huecos de resumen: ${armados} armados, ${fallidos} fallidos (vehículo × día)`);
+    return { armados, fallidos };
   }
 
   /**

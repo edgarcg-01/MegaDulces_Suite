@@ -552,7 +552,14 @@ export function extractBrand(name: string | null): string | null {
   return toks.find((t) => KNOWN_BRANDS.includes(t)) || toks[0] || null;
 }
 
-/** Empareja por placa: si algún token del nombre === placa de un vehículo. */
+/**
+ * Empareja por placa: un token del nombre del GPS contra la placa de un vehículo.
+ *
+ * `[EMB.55]` La placa se compara SIN guiones ni espacios: el GPS escribe `882EW9` y Kepler
+ * `882-EW9`, y comparar literal dejó al Freightliner 40 días sin ligar (5,898 posiciones fuera de su
+ * unidad). Es el mismo defecto que EMB.5 corrigió en el importer. Si la placa normalizada empata
+ * con DOS vehículos vivos, no se adivina: queda sin ligar para que lo decida una persona.
+ */
 export function matchVehicle(
   name: string,
   vehicles: Array<{ id: string; plate: string }>,
@@ -564,8 +571,8 @@ export function matchVehicle(
       .split(/[^A-Z0-9]+/)
       .filter((t) => t.length >= 5),
   );
-  for (const v of vehicles) {
-    if (v.plate && tokens.has(v.plate.toUpperCase())) return v.id;
-  }
-  return null;
+  const ids = new Set(
+    vehicles.filter((v) => v.plate && tokens.has(v.plate.toUpperCase().replace(/[^A-Z0-9]/g, ''))).map((v) => v.id),
+  );
+  return ids.size === 1 ? [...ids][0] : null;
 }
