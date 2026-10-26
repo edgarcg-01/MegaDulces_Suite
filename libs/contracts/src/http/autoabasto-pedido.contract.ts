@@ -8,6 +8,10 @@
  * pantalla sólo la pinta; si la recalculara, el pedido impreso y el de la tabla podrían no cuadrar.
  */
 
+// Sólo el tipo: la mesa importa valores de este archivo, y un `import type` se borra al compilar,
+// así que no arma un ciclo en tiempo de ejecución.
+import type { DiagnosticoRenglon } from './autoabasto-mesa.contract';
+
 /** La escalera de unidades de Kepler de un producto (`analytics.v_product_unit_ladder`). */
 export interface EscaleraUnidades {
   /** Rótulo de la unidad base (PZA, PAQ, KG…); la existencia y la venta vienen en ésta. */
@@ -401,6 +405,12 @@ export interface AutoabastoPedidoLinea {
   estado: EstadoRenglon;
   /** `[AB.26]` A quién se le pide, según el canal configurado. Es el mismo dato que agrupa «Mi pedido». */
   surte: SurteRenglon;
+  /**
+   * `[AB.39]` Mínimo, reorden, máximo y entrega: lo que explica la posición. Lo trae `GET /pedido`
+   * desde que la mesa y «Mi pedido» son UNA pantalla. Opcional: un servidor anterior no lo manda, y
+   * la pantalla lo dice («—») en vez de dibujar ceros.
+   */
+  diagnostico?: DiagnosticoRenglon;
 }
 
 // ── [AB.26] Una sola cuenta del renglón ──────────────────────────────────────────────────────

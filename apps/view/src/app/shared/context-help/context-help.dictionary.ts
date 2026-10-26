@@ -46,9 +46,19 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // sucursal: palabra llana, nada de nombres de columna. Cada definición está anclada a la cuenta real
   // (`armarRenglon` en libs/contracts y FASE_AB §16.8), no a lo que la etiqueta sugiere.
   'almacen-autoabasto': {
-    title: 'Autoabasto — qué le falta a tu almacén',
-    intro: 'La mesa muestra, producto por producto, cuánto le falta a tu almacén para llegar a su objetivo, qué parte ya viene en camino y a quién se le pide. Es la misma cuenta que «Mi pedido»: las dos pantallas no pueden dar cifras distintas del mismo producto.',
+    title: 'Autoabasto — qué le falta a tu almacén y qué pides',
+    intro: 'Una sola pantalla: producto por producto, cuánto le falta a tu almacén para llegar a su objetivo, qué parte ya viene en camino, a quién se le pide y cuánto va en tu pedido. El sistema ya armó el pedido; tú corriges con − / + lo que haga falta y lo mandas a Compras.',
     groups: [
+      {
+        heading: 'Tu pedido',
+        entries: [
+          { term: 'A pedir', def: 'Lo que falta neto, redondeado a la unidad en que se captura en Kepler (cajas completas si es media caja o más; si no, la unidad menor). Lo puedes mover con − / +; si te alejas más de 20% de lo sugerido, eliges el motivo. Cada cambio se guarda solo.' },
+          { term: '¿Hasta dónde pides?', def: 'Qué posiciones entran al pedido: agotado, bajo mínimo, bajo reorden u otros. Lo que no marques se ve en «Todos», pero no se pide ni se manda.' },
+          { term: 'En tu pedido', def: 'Lo que entra al pedido ahora: posición marcada, con cantidad y que no hayas mandado ya a Compras. Es lo que sale con «Enviar a Compras» y en el PDF del pedido.' },
+          { term: 'Mínimo, reorden y máximo', def: 'La política del almacén para ese producto, en cajas. Debajo del mínimo está en riesgo; debajo del reorden toca pedir; arriba del máximo sobra. Explican la posición.' },
+          { term: 'Entrega', def: 'Cuándo vuelve a surtir quien se lo pide, según la cadencia de su canal. Sirve para saber si alcanza lo que hay hasta entonces.' },
+        ],
+      },
       {
         heading: 'Las columnas',
         entries: [

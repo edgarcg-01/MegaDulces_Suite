@@ -2069,7 +2069,45 @@ y costo correctos; índices, lectores, comentario y el rollup `mv_profitability_
 se conservan; la compuerta se niega a reemplazar si no hay meses con qué comparar. **No ejercida en prod**: escribe
 1.8 GB. ⛔ **Se aplica FUERA DE HORARIO.** Tiempo de construcción en prod: NO MEDIDO (lo imprime la migración).
 
-### 16.10 Definición de Terminado
+### 16.18 🧪 [AB.39] La mesa y «Mi pedido» son UNA pantalla (2026-10-26)
+
+PM: *«fusionemos la vista de autoabasto y mi pedido, ya que es lo mismo y mantener dos interfaces iguales en dos
+lados diferentes es un anti-patrón de diseño»*. Desde AB.27 las dos leían la misma cuenta del renglón
+(`armarRenglon`); eran la misma información pintada dos veces. Queda `/almacen/autoabasto`;
+`/almacen/autoabasto/pedido` **redirige** (un marcador viejo no termina en 404) y el tab «Mi pedido» se va.
+
+**La base es «Mi pedido»** porque ahí se toma la decisión (se ajusta, se manda, se imprime). Inventario función por
+función, para que unificar no pierda nada:
+
+| Venía de | Qué | Dónde quedó |
+|---|---|---|
+| Mi pedido | grupos por origen y lista de surtido, − / + con motivo y guardado, Aceptar grupo, mínimo del proveedor y de $200 | igual |
+| Mi pedido | «Lo que te va a llegar», «¿Hasta dónde pides?», Enviar a Compras, PDF por origen y de todo | igual |
+| Mi pedido | avisos de consulta, sin guardado, no medido, ya mandados, resultado del envío | igual |
+| Mi pedido | «Ver también lo que ya está cubierto» | lo reemplaza el filtro de estado («Todos») |
+| Mesa | filtro de estado con su conteo en el control | segmentado: En tu pedido · Ya viene · Lo pediste a Compras · Compras lo planeó · Todos |
+| Mesa | «A quién se le pide», búsqueda por SKU o nombre | igual (búsqueda canónica `coincideBusqueda`) |
+| Mesa | filtro de posición | es el mismo dato que «¿Hasta dónde pides?»: un solo control |
+| Mesa | Falta neta y Estado con su porqué | columnas nuevas de la tabla |
+| Mesa | mínimo, reorden, máximo | terciario bajo la existencia (`/pedido` ahora trae `diagnostico`) |
+| Mesa | Entrega | aviso del renglón, con su porqué |
+| Mesa | KPI «Falta por pedir», «Se pide a la matriz / al proveedor», «Sin ruta», «—» sin medir | KPIs; los importes ahora son **en vivo** con lo ajustado |
+| Mesa | aviso de productos sin valuar, reporte PDF del almacén, ayuda contextual | igual |
+| Mesa | orden por columna y paginación | **se van**: el renglón va como en el pedido (lo que hay que pedir primero, por valor) y cada tabla pinta hasta 150 con «Se ven 150 de N · Ver los N» |
+
+Lo que la fusión garantiza y su prueba cuida (con negativa en rojo): **los filtros cambian lo que se VE, nunca lo que
+se PIDE** — «Enviar a Compras» y el PDF del pedido no dependen de la vista. En «Todos» se ven también los renglones
+que no entran al pedido, de sólo lectura y con su porqué («Ya lo pediste a Compras», «su posición no está marcada»).
+
+De paso, la pantalla única **salda la deuda de las dos**: `check:pantalla` 10 de 10 (antes: §9 frescura en las dos,
+O.4 tabla sin `p-table` y P sin ayuda en «Mi pedido»); se quitan sus entradas de `check-pantalla.deuda.json`. Y el
+pie del PDF del pedido dejaba la sucursal por código («Pedido 01»): ahora por nombre.
+
+**Verificado:** pantalla 35/35 (las pruebas de las dos viejas, más las de la fusión); `almacen` + ayuda + guardas
+620/620; contracts 797/797; reabasto 250/250; `check:pantalla` 0 fallas; compuertas de UI verdes salvo `primeng`, roja
+por +2 `styleClass` en archivos de otras sesiones. **Sin validación visual** (no se levanta la app en local): lo más
+probable de ajustar es el ancho de la tabla de 9 columnas en pantallas angostas y el peso de la franja de filtros.
+
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
 - [ ] Carga completa de la mesa y de «Mi pedido» bajo 500 ms en todas las sucursales, medida en prod (AB.36).
