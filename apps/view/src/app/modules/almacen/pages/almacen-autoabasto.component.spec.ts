@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import type { AutoabastoPedidoGrupo, AutoabastoPedidoLinea, AutoabastoPedidoResponse, AutoabastoVieneDoc } from '@megadulces/contracts';
 import { AlmacenAutoabastoComponent } from './almacen-autoabasto.component';
@@ -299,11 +299,130 @@ describe('[AB.39] la ayuda de la pantalla existe en el diccionario', () => {
   const topic = CONTEXT_HELP['almacen-autoabasto'];
   const terminos = topic.groups!.flatMap((g) => g.entries.map((e) => e.term));
   it.each(['A pedir', '¿Hasta dónde pides?', 'En tu pedido', 'Mínimo, reorden y máximo', 'Entrega',
-    'Falta', 'Ya viene', 'Falta neta', 'Surte', 'Posición', 'Falta por pedir', 'Compras lo planeó', 'Valor sin medir'])(
+    'Falta', 'Ya viene', 'Falta neta', 'Venta por mes', 'Surte', 'Posición', 'Falta por pedir', 'Compras lo planeó', 'Valor sin medir'])(
     'documenta «%s»', (t) => {
       expect(terminos).toContain(t);
     });
   it('no repite términos', () => {
     expect(new Set(terminos).size).toBe(terminos.length);
+  });
+});
+
+describe('[AB.41] lo que te va a llegar se abre: qué productos trae cada documento', () => {
+  const RENGLONES = { renglones: [
+    { sku: '70056', nombre: 'MAZAPÁN', cantidad: 72, unidad: 'CJA', cantidad_base: 1296, unidad_base: 'PZA' },
+    { sku: '99999', nombre: null, cantidad: null, unidad: null, cantidad_base: 50, unidad_base: 'PAQ' },
+  ] };
+
+  it('al abrir un embarque pide SUS renglones y los muestra: presentación, base y si lo pides', () => {
+    const pedidos: unknown[] = [];
+    const { f, c } = montar(RESP([doc({ folio: '0001229', renglones: 2 })]), {
+      vieneRenglones: (w: string, d: AutoabastoVieneDoc) => { pedidos.push([w, d.tipo, d.origen, d.serie, d.folio]); return of(RENGLONES); },
+    });
+    expect(texto(f)).not.toContain('MAZAPÁN 72');
+    c.abrirDoc(c.viene()!.docs[0]);
+    f.detectChanges();
+    expect(pedidos).toEqual([['w-01', 'embarque', '00', 2, '0001229']]);
+    const t = texto(f);
+    expect(t).toContain('72 CJA');
+    expect(t).toContain('1,296 PZA');
+    expect(t).toContain('Pides 5 cj');                       // el 70056 también está en tu pedido
+    expect(t).toContain('sin presentación');                 // ⛔ sin c51 no se inventa: se declara
+    expect(t).toContain('No está en el catálogo de la Suite');
+    c.abrirDoc(c.viene()!.docs[0]);                          // cerrar
+    f.detectChanges();
+    expect(texto(f)).not.toContain('72 CJA');
+  });
+
+  it('⛔ si no se pudo leer el documento lo dice y deja reintentar (no lo pinta vacío)', () => {
+    const { f, c } = montar(RESP([doc({})]), {
+      vieneRenglones: () => throwError(() => ({ error: { message: 'Kepler no contestó' } })),
+    });
+    c.abrirDoc(c.viene()!.docs[0]);
+    f.detectChanges();
+    expect(texto(f)).toContain('Kepler no contestó');
+    expect(texto(f)).toContain('Reintentar');
+    expect(texto(f)).not.toContain('ya no tiene productos');
+  });
+
+  it('una requisición de la Suite se abre por su id; sin id no ofrece abrirla', () => {
+    const ids: unknown[] = [];
+    const { f, c } = montar(RESP([doc({ tipo: 'requisicion', estado: 'POR APROBAR', id: 'r-1', folio: 'REQ-1' }), doc({ tipo: 'plan', estado: 'PLANEADO', folio: 'P-2', id: null })]), {
+      vieneRenglones: (_w: string, d: AutoabastoVieneDoc) => { ids.push(d.id); return of({ renglones: [] }); },
+    });
+    const botones = (f.nativeElement as HTMLElement).querySelectorAll('.ab-viene-ver');
+    expect(botones).toHaveLength(1);
+    (botones[0] as HTMLButtonElement).click();
+    f.detectChanges();
+    expect(ids).toEqual(['r-1']);
+    expect(texto(f)).toContain('ya no tiene productos');
+  });
+});
+
+describe('[AB.41] A pedir se captura con el teclado, como en /compras/pedido', () => {
+  const dos = () => RESP([], { puede_ajustar: true, grupos: [grupo([linea(), linea({ product_id: 'p-2', sku: '70057', nombre: 'COCADA' })])] });
+  const ev = (key: string, target: EventTarget, m: Partial<KeyboardEvent> = {}) =>
+    ({ key, target, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, preventDefault: vi.fn(), ...m }) as unknown as KeyboardEvent;
+
+  it('cada renglón editable tiene su campo, y lo tecleado queda como cantidad (entera)', () => {
+    const { f, c } = montar(dos(), { ajustar: () => of(null) });
+    const campos = (f.nativeElement as HTMLElement).querySelectorAll<HTMLInputElement>('input.ab-qty');
+    expect(campos).toHaveLength(2);
+    const g = c.data()!.grupos[0], l = g.lineas[0];
+    campos[0].value = '7';
+    c.teclear(g, l, { target: campos[0] } as unknown as Event);
+    expect(c.cantidad(l)).toBe(7);
+    campos[0].value = '2.6';
+    c.teclear(g, l, { target: campos[0] } as unknown as Event);
+    expect(c.cantidad(l)).toBe(3);                            // el servidor sólo acepta enteros
+  });
+
+  it('⛔ un campo vacío o negativo no cambia nada; al salir muestra lo que quedó', () => {
+    const { f, c } = montar(dos(), { ajustar: () => of(null) });
+    const campo = (f.nativeElement as HTMLElement).querySelector<HTMLInputElement>('input.ab-qty')!;
+    const g = c.data()!.grupos[0], l = g.lineas[0];
+    for (const v of ['', '-4', 'abc']) {
+      campo.value = v;
+      c.teclear(g, l, { target: campo } as unknown as Event);
+      expect(c.cantidad(l)).toBe(5);
+    }
+    c.normalizar({ target: campo } as unknown as Event, l);
+    expect(campo.value).toBe('5');
+  });
+
+  it('← → suben y bajan un paso (el movimiento entre renglones se prueba en captura-teclado.util.spec)', () => {
+    const { f, c } = montar(dos(), { ajustar: () => of(null) });
+    const campo = (f.nativeElement as HTMLElement).querySelector<HTMLInputElement>('input.ab-qty')!;
+    const g = c.data()!.grupos[0];
+    const e = ev('ArrowRight', campo);
+    c.teclaCantidad(e, g, g.lineas[0]);
+    expect(c.cantidad(g.lineas[0])).toBe(6);
+    expect(campo.value).toBe('6');
+    expect(e.preventDefault).toHaveBeenCalled();
+    c.teclaCantidad(ev('ArrowLeft', campo), g, g.lineas[0]);
+    expect(c.cantidad(g.lineas[0])).toBe(5);
+    c.teclaCantidad(ev('ArrowLeft', campo, { shiftKey: true }), g, g.lineas[0]);   // Shift+← selecciona texto
+    expect(c.cantidad(g.lineas[0])).toBe(5);
+  });
+});
+
+describe('[AB.41] la venta por mes del producto, en este almacén', () => {
+  const pop = () => { const v = { on: false }; return {
+    overlayVisible: () => v.on, show: vi.fn(() => { v.on = true; }), hide: vi.fn(() => { v.on = false; }) }; };
+  const MESES = { product: { sku: '70056', nombre: 'MAZAPÁN' }, warehouse: '01', bf: 16, months: [{ mes: '2026-09', venta: 1000, cajas: 4, cajas_parcial: false }], window: null };
+
+  it('la pide con el almacén y el producto, y con el mismo producto otra vez se cierra sin volver a pedir', () => {
+    const llamadas: unknown[] = [];
+    const { c } = montar(RESP(), { ventaMensual: (w: string, p: string) => { llamadas.push([w, p]); return of(MESES); } });
+    const op = pop();
+    const l = c.data()!.grupos[0].lineas[0];
+    const e = { currentTarget: document.createElement('button') } as unknown as Event;
+    c.abrirVentaMes(e, l, op as never);
+    expect(llamadas).toEqual([['w-01', 'p-1']]);
+    expect(c.ventaMes()).toMatchObject({ cargando: false, titulo: '70056 · Padre Hidalgo', vta: 10, mx: 12 });
+    expect(c.ventaMes()!.data).toBe(MESES);
+    c.abrirVentaMes(e, l, op as never);
+    expect(op.hide).toHaveBeenCalled();
+    expect(llamadas).toHaveLength(1);
   });
 });

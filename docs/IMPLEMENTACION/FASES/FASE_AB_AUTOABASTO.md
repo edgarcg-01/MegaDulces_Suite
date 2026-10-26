@@ -2231,6 +2231,43 @@ de la red (+5–8 %, MR.7.1).
 sesión). Orden: función de cantidad única en `libs/contracts` con su candado → antes/después por almacén y por proveedor →
 coordinar en la tarjeta de PQ → publicar fuera de horario.
 
+### 16.19 🧪 [AB.41] Lo que en «Pedido» de Compras sí se podía y en Autoabasto no (2026-10-26)
+
+El PM, con la pantalla única en la mano, señaló tres faltas: **(1)** «Lo que te va a llegar» decía «Embarque 0001229 ·
+1 producto» y **no dejaba ver cuál**; **(2)** «A pedir» sólo se movía con − / +, sin poder teclear ni **recorrer los
+renglones con las flechas** como en `/compras/pedido`; **(3)** no había **historial de ventas** del producto (el globo de
+venta por mes de Compras).
+
+**(1) Los productos de cada documento.** Cada pedido o embarque se abre y lee sus renglones en ese momento
+(`GET /commercial/autoabasto/pedido/viene`, no viaja con el pedido: 63 documentos de Padre Hidalgo con sus renglones
+cargarían la pantalla entera para algo que se consulta de uno en uno). Kepler guarda el renglón dos veces, y se muestran
+las dos: la **presentación capturada** (`kdm2.c51` en `c55`, p. ej. 72 CJA) y la **unidad base** (`c9` en `c11`, 1,296 KG),
+que es la que se resta. Medido en prod el 2026-10-26 sobre 30 días de traspasos: en los embarques `c51 = c54` en los
+**28,616** renglones; en los pedidos, **871 de 29,341** no traen `c51` — ahí se declara «sin presentación» y se lee la base,
+no se inventa. Cada renglón dice además si ese producto **también lo estás pidiendo** («Pides 16 CJA» / «No lo pides»).
+Las requisiciones de la Suite (lo que planeó Compras o mandó la sucursal) se abren por su `id`, en cajas.
+**Candado de alcance:** el almacén tiene que estar en el alcance de la persona *y* el documento tiene que ir al cliente de
+traspaso de ese almacén; el mismo folio pedido desde otra sucursal devuelve vacío.
+`test-newdb-autoabasto-viene-renglones.js` (prod, sólo lectura, texto exacto del servicio): 9/9 — embarque y pedido reales
+cuadran con `kdm2` leída aparte, 2–11 ms; **negativa:** sin el filtro de destino, el folio ajeno devuelve 5 renglones (rojo).
+
+**(2) Captura con teclado.** «A pedir» es un campo: ↑ ↓ y Enter cambian de renglón (sin dar la vuelta en el borde),
+← → (y Alt + ↑ ↓) suben o bajan uno, y al llegar el valor queda seleccionado para que teclear reemplace. Sólo enteros de 0
+en adelante (lo que el servidor acepta); vacío o negativo no cambia nada y al salir se muestra lo que quedó. La regla de
+teclas **se movió** de `compras/pedido-redondeo.ts` a `shared/util/captura-teclado.util.ts` (Compras la reexporta, sin
+cambio); el movimiento entre campos es nuevo y vive ahí también. Negativa: si Alt + ↑ también moviera, 2 de 8 en rojo.
+
+**(3) Venta por mes.** La venta de 30 días abre el globo de 13 meses contra el año anterior, del producto **en ese
+almacén**: es `monthlySales` de RA-PRO.65, servido por `GET /commercial/autoabasto/pedido/venta-mensual` con la llave
+`AUTOABASTO_VER` y el mismo alcance (el almacenista no tiene `COMPRAS_PEDIDO_VER` y no se le abre Compras para esto).
+El contenido del globo es una pieza nueva compartida, `shared/components/venta-por-mes`, con la cuenta de las barras en
+una función pura probada.
+
+⚠️ **Deuda con nombre (AB.41b):** Compras todavía tiene su propio globo dentro de `compras-pedido-real.component.ts` y su
+propio recorrido de teclado (`onQtyKey`). Adoptar `app-venta-por-mes` y `moverEntreCampos` va con PQ, en su tarjeta: es su
+archivo y hoy lo está trabajando. ⚠️ **Sin validación visual:** el ancho del campo «A pedir» (3.6 rem) y la tabla que se
+abre dentro de «Lo que te va a llegar» son lo más probable de ajustar.
+
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
 - [ ] Carga completa de la mesa y de «Mi pedido» bajo 500 ms en todas las sucursales, medida en prod (AB.36).

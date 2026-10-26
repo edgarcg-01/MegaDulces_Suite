@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -11,15 +12,16 @@ import { TagModule } from 'primeng/tag';
 import { CheckboxModule } from 'primeng/checkbox';
 import { DialogModule } from 'primeng/dialog';
 import { TextareaModule } from 'primeng/textarea';
+import { PopoverModule, type Popover } from 'primeng/popover';
 import {
   necesitaMotivo, pasoAjuste, MOTIVOS_AJUSTE, MOTIVO_AJUSTE_LABEL, UMBRAL_MOTIVO,
   posicionPedido, POSICIONES_PEDIDO, POSICIONES_PEDIDO_DEFAULT, POSICION_PEDIDO_LABEL,
-  CLASES_UNIDAD, CLASE_UNIDAD_LABEL, MINIMO_VALOR_MENOR, warehouseCodeAndName,
+  CLASES_UNIDAD, CLASE_UNIDAD_LABEL, MINIMO_VALOR_MENOR, warehouseCodeAndName, warehouseName,
   ESTADO_RENGLON_LABEL, resumirRenglones, esEnviable, motivoNoEnviable, yaSeMandoACompras,
   TOPE_COBERTURA_DIAS, textoTopeBase,
   type ClaseUnidad, type PosicionPedido, type EstadoRenglon, type SurteRenglon, type ResumenMesa,
   type MotivoAjuste, type AutoabastoPedidoGrupo, type AutoabastoPedidoLinea, type AutoabastoPedidoResponse,
-  type AutoabastoVieneDoc, type AutoabastoEnviarResponse,
+  type AutoabastoVieneDoc, type AutoabastoEnviarResponse, type AutoabastoVieneRenglon, type MonthlySalesResponse,
 } from '@megadulces/contracts';
 import { coincideBusqueda } from '@megadulces/ui-web';
 
@@ -31,6 +33,8 @@ import { SegmentedComponent, SegOption } from '../../../shared/components/segmen
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { makeDebouncedSearch } from '../../../shared/util/debounced-search.util';
+import { moverEntreCampos, pasoPorTecla } from '../../../shared/util/captura-teclado.util';
+import { VentaPorMesComponent } from '../../../shared/components/venta-por-mes/venta-por-mes.component';
 import { AutoabastoService, AutoabastoWarehouseOpt } from '../autoabasto.service';
 import { qty, cuandoTexto, cuandoPorQue, surtePorQue, faltaNetaPorQue, estadoPorQue } from '../porques.util';
 import { descargarPdfMiPedido, type MiPedidoPdfGrupo } from '../mi-pedido-pdf';
@@ -99,7 +103,7 @@ interface Edicion {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, InputTextModule, TooltipModule, TagModule,
-    CheckboxModule, DialogModule, TextareaModule,
+    CheckboxModule, DialogModule, TextareaModule, PopoverModule, VentaPorMesComponent,
     LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, ContextHelpComponent, SucursalPipe,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -284,11 +288,56 @@ interface Edicion {
                       <span>desde <strong>{{ doc.origen | sucursal }}</strong></span>
                     }
                     <span class="ab-dim">{{ doc.tipo === 'embarque' ? 'Embarque' : doc.tipo === 'pedido' ? 'Pedido' : 'Requisición' }} {{ doc.folio }}</span>
-                    <span class="ab-dim">{{ doc.renglones }} {{ doc.renglones === 1 ? 'producto' : 'productos' }}</span>
+                    @let ab = docAbierto()[llaveDoc(doc)];
+                    @if (doc.renglones > 0 && (doc.tipo === 'pedido' || doc.tipo === 'embarque' || doc.id)) {
+                      <button type="button" class="ab-link ab-viene-ver" (click)="abrirDoc(doc)"
+                              [attr.aria-expanded]="!!ab" [attr.aria-controls]="'ab-doc-' + llaveDoc(doc)">
+                        <i class="pi" [class.pi-chevron-right]="!ab" [class.pi-chevron-down]="!!ab" aria-hidden="true"></i>
+                        {{ doc.renglones }} {{ doc.renglones === 1 ? 'producto' : 'productos' }}
+                      </button>
+                    } @else {
+                      <span class="ab-dim">{{ doc.renglones }} {{ doc.renglones === 1 ? 'producto' : 'productos' }}</span>
+                    }
                     <span class="ab-num">{{ doc.monto == null ? '—' : (doc.monto | currency:'MXN':'symbol-narrow':'1.0-0') }}</span>
                     <span [class.ab-warn-t]="!doc.se_resta && doc.tipo !== 'requisicion'">{{ hace(doc.dias) }}@if (doc.tipo === 'plan') { · aún no está en Kepler } @else if (doc.tipo === 'requisicion') { · la pediste tú } @else if (!doc.se_resta) { · no se resta }</span>
                     @if (doc.motivo) {
                       <span class="ab-viene-motivo"><i class="pi pi-comment" aria-hidden="true"></i> Motivo de Compras: «{{ doc.motivo }}»</span>
+                    }
+                    <!-- [AB.41] Los productos del documento, al abrirlo: qué viene, en qué cantidad y unidad. -->
+                    @if (ab) {
+                      <div class="ab-viene-det" [id]="'ab-doc-' + llaveDoc(doc)">
+                        @if (ab.cargando) {
+                          <span class="ab-dim"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Leyendo el documento…</span>
+                        } @else if (ab.error) {
+                          <span class="ab-err">{{ ab.error }}</span>
+                          <button type="button" class="ab-link" (click)="cargarDoc(doc)">Reintentar</button>
+                        } @else if (!ab.renglones.length) {
+                          <span class="ab-dim">El documento ya no tiene productos en Kepler (se canceló o se recibió).</span>
+                        } @else {
+                          <p-table [value]="ab.renglones" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '100%' }">
+                            <ng-template #header>
+                              <tr>
+                                <th>Producto</th>
+                                <th class="comm-num" [pTooltip]="doc.tipo === 'plan' || doc.tipo === 'requisicion' ? 'En cajas, como se pidió en la Suite.' : 'Como se capturó en Kepler (su presentación).'" tooltipPosition="top">Cantidad</th>
+                                @if (doc.tipo === 'pedido' || doc.tipo === 'embarque') {
+                                  <th class="comm-num" pTooltip="En unidad base: es lo que se resta de lo que te toca pedir." tooltipPosition="top">En unidad base</th>
+                                }
+                                <th>En tu pedido</th>
+                              </tr>
+                            </ng-template>
+                            <ng-template #body let-r>
+                              <tr>
+                                <td><span class="ab-sku">{{ r.sku }}</span> <span class="ab-name">{{ r.nombre ?? 'No está en el catálogo de la Suite' }}</span></td>
+                                <td class="comm-num">@if (r.cantidad != null) { {{ qty(r.cantidad) }} <span class="ab-unit">{{ r.unidad }}</span> } @else { <span class="ab-dim" pTooltip="Kepler no trae la presentación capturada de este renglón: se lee la unidad base." tooltipPosition="top">sin presentación</span> }</td>
+                                @if (doc.tipo === 'pedido' || doc.tipo === 'embarque') {
+                                  <td class="comm-num">@if (r.cantidad_base != null) { {{ qty(r.cantidad_base) }} <span class="ab-unit">{{ r.unidad_base }}</span> } @else { — }</td>
+                                }
+                                <td>@if (loPides(r.sku); as ep) { <span class="ab-chip">{{ ep }}</span> } @else { <span class="ab-dim">—</span> }</td>
+                              </tr>
+                            </ng-template>
+                          </p-table>
+                        }
+                      </div>
                     }
                   </li>
                 }
@@ -410,7 +459,13 @@ interface Edicion {
                       <span class="ab-sku">{{ l.sku }}</span>
                       <span class="ab-name">{{ l.nombre }}</span>
                     </td>
-                    <td class="comm-num" data-label="Venta 30 d">{{ l.venta_30d == null ? '—' : qty(l.venta_30d) }}</td>
+                    <td class="comm-num" data-label="Venta 30 d">
+                      <!-- [AB.41] El mismo globo de venta por mes que /compras/pedido. -->
+                      <button type="button" class="ab-link ab-vm" (click)="abrirVentaMes($event, l, vmPop)"
+                              [attr.aria-label]="'Venta por mes de ' + l.nombre" pTooltip="Ver la venta por mes" tooltipPosition="top">
+                        {{ l.venta_30d == null ? '—' : qty(l.venta_30d) }} <i class="pi pi-chart-bar" aria-hidden="true"></i>
+                      </button>
+                    </td>
                     <td class="comm-num" data-label="Existencia">
                       {{ qty(l.existencia) }}
                       @if (l.diagnostico; as dg) {
@@ -422,10 +477,15 @@ interface Edicion {
                     <td class="comm-num ab-c-pedir" data-label="A pedir" [pTooltip]="porQueAPedir(l)" tooltipPosition="left">
                       @if (editable(l)) {
                         <span class="ab-step">
-                          <button type="button" class="ab-stepbtn" (click)="mover(g, l, -1)" [disabled]="!c"
+                          <button type="button" class="ab-stepbtn" (click)="mover(g, l, -1)" [disabled]="!c" tabindex="-1"
                                   [attr.aria-label]="'Bajar ' + l.nombre">−</button>
-                          <span class="ab-val">{{ qty(c) }}</span>
-                          <button type="button" class="ab-stepbtn" (click)="mover(g, l, 1)"
+                          <!-- [AB.41] Se captura como en /compras/pedido: ↑ ↓ y Enter cambian de renglón, ← → suben o bajan. -->
+                          <input type="number" min="0" step="1" inputmode="numeric" class="ab-qty" [value]="c"
+                                 (focus)="seleccionar($event)" (keydown)="teclaCantidad($event, g, l)"
+                                 (input)="teclear(g, l, $event)" (blur)="normalizar($event, l)"
+                                 aria-keyshortcuts="ArrowUp ArrowDown Enter ArrowLeft ArrowRight"
+                                 [attr.aria-label]="'A pedir de ' + l.nombre + (l.a_pedir.unidad ? ' en ' + l.a_pedir.unidad : '')" />
+                          <button type="button" class="ab-stepbtn" (click)="mover(g, l, 1)" tabindex="-1"
                                   [attr.aria-label]="'Subir ' + l.nombre">+</button>
                           <span class="ab-unit">{{ l.a_pedir.unidad ?? '' }}</span>
                         </span>
@@ -547,6 +607,14 @@ interface Edicion {
         recibir). Lo que Compras planeó y todavía no está en Kepler se muestra, pero no se resta. Tu pedido se guarda en la
         Suite con cada ajuste; «Enviar a Compras» lo manda como requisición para que la aprueben.
       </p>
+
+      <!-- [AB.41] Venta por mes del producto (la pieza compartida; el globo lo pone esta pantalla). -->
+      <p-popover #vmPop appendTo="body" (onHide)="ventaMes.set(null)" ariaLabel="Venta por mes">
+        @if (ventaMes(); as vm) {
+          <app-venta-por-mes [titulo]="vm.titulo" [data]="vm.data" [cargando]="vm.cargando" [error]="vm.error"
+                             [vta]="vm.vta" [mx]="vm.mx" rotuloColumna="Venta 30 d de la tabla (demanda × 30)" />
+        }
+      </p-popover>
     </section>
   `,
   styles: [`
@@ -583,6 +651,11 @@ interface Edicion {
     .ab-viene-et { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
     .ab-viene-et.ab-viene-camino { color: var(--info-fg); }
     .ab-viene-viejo { color: var(--text-muted); }
+    /* [AB.41] Los productos del documento, al abrirlo. */
+    .ab-viene-ver { display: inline-flex; align-items: center; gap: .3rem; text-align: left; }
+    .ab-viene-ver .pi { font-size: .7rem; }
+    .ab-viene-det { grid-column: 1 / -1; display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; padding: var(--sp-1) 0 var(--sp-2) var(--sp-3); }
+    .ab-viene-det p-table { width: 100%; }
     .ab-viene-motivo { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--bad-soft-fg); }
     .ab-warn-t { color: var(--warn-fg); }
     @container (max-width: 40rem) { .ab-viene-i { grid-template-columns: 1fr 1fr; } }
@@ -631,6 +704,15 @@ interface Edicion {
     .ab-stepbtn:disabled { opacity: .4; cursor: default; }
     @media (pointer: coarse) { .ab-stepbtn { width: 2.75rem; height: 2.75rem; } }
     .ab-val { min-width: 2.4rem; text-align: center; font-weight: 650; }
+    /* [AB.41] La cantidad se teclea: campo numérico sin flechas nativas (las flechas mueven de renglón). */
+    .ab-qty { width: 3.6rem; height: 1.9rem; text-align: right; font: inherit; font-weight: 650; font-variant-numeric: tabular-nums;
+      border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); padding: 0 .4rem; appearance: textfield; -moz-appearance: textfield; }
+    .ab-qty::-webkit-outer-spin-button, .ab-qty::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .ab-qty:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; border-color: var(--action); }
+    @media (pointer: coarse) { .ab-qty { height: 2.75rem; } }
+    .ab-vm { display: inline-flex; align-items: center; gap: .3rem; font-variant-numeric: tabular-nums; color: inherit; }
+    .ab-vm .pi { font-size: .7rem; color: var(--text-faint); }
+    .ab-vm:hover .pi { color: var(--action); }
     .ab-unit { font-size: var(--fs-micro); font-weight: 500; color: var(--text-muted); margin-left: var(--sp-1); }
     .ab-sug { display: block; font-size: var(--fs-micro); color: var(--text-muted); margin-top: var(--sp-1); }
     .ab-save { display: block; font-size: var(--fs-nano); margin-top: var(--sp-1); }
@@ -666,6 +748,7 @@ export class AlmacenAutoabastoComponent {
   private readonly svc = inject(AutoabastoService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly auth = inject(AuthService);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
@@ -715,6 +798,75 @@ export class AlmacenAutoabastoComponent {
       rechazadas: docs.filter((x) => x.tipo === 'requisicion' && x.estado === 'RECHAZADA').length,
     };
   });
+
+  /** `[AB.41]` Los documentos abiertos de «Lo que te va a llegar», con sus productos (se leen al abrir). */
+  readonly docAbierto = signal<Record<string, { cargando: boolean; error: string | null; renglones: AutoabastoVieneRenglon[] }>>({});
+  llaveDoc(d: AutoabastoVieneDoc): string { return [d.tipo, d.origen, d.serie, d.folio, d.id ?? ''].join('-').replace(/[^A-Za-z0-9-]/g, ''); }
+
+  /** Abre o cierra un documento; la primera vez lee sus productos. */
+  abrirDoc(d: AutoabastoVieneDoc): void {
+    const k = this.llaveDoc(d);
+    if (this.docAbierto()[k]) {
+      this.docAbierto.update((s) => { const n = { ...s }; delete n[k]; return n; });
+      return;
+    }
+    this.cargarDoc(d);
+  }
+
+  cargarDoc(d: AutoabastoVieneDoc): void {
+    const id = this.warehouseId();
+    if (!id) return;
+    const k = this.llaveDoc(d);
+    this.docAbierto.update((s) => ({ ...s, [k]: { cargando: true, error: null, renglones: [] } }));
+    this.svc.vieneRenglones(id, d).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.docAbierto.update((s) => (s[k] ? { ...s, [k]: { cargando: false, error: null, renglones: r.renglones } } : s)),
+      error: (e) => this.docAbierto.update((s) => (s[k]
+        ? { ...s, [k]: { cargando: false, error: e?.error?.message ?? 'No se pudo leer el documento.', renglones: [] } } : s)),
+    });
+  }
+
+  /** Por SKU, el renglón de esta pantalla: para decir si lo que viene también lo estás pidiendo. */
+  private readonly lineaPorSku = computed(() => {
+    const m = new Map<string, AutoabastoPedidoLinea>();
+    for (const g of this.data()?.grupos ?? []) for (const l of g.lineas) m.set(l.sku, l);
+    return m;
+  });
+
+  loPides(sku: string): string | null {
+    const l = this.lineaPorSku().get(sku);
+    if (!l) return null;
+    const c = this.cantidad(l);
+    return this.incluida(l) && c > 0 ? `Pides ${qty(c)} ${l.a_pedir.unidad ?? ''}`.trim() : 'No lo pides';
+  }
+
+  /** `[AB.41]` El globo de venta por mes del producto, en ESTE almacén. */
+  readonly ventaMes = signal<{ key: string; titulo: string; data: MonthlySalesResponse | null; cargando: boolean; error: boolean; vta: number | null; mx: number | null } | null>(null);
+  private readonly ventaMesCache = new Map<string, MonthlySalesResponse>();
+
+  abrirVentaMes(ev: Event, l: AutoabastoPedidoLinea, op: Popover): void {
+    const id = this.warehouseId();
+    if (!id) return;
+    const key = id + '|' + l.product_id;
+    const target = ev.currentTarget as HTMLElement;
+    // El mismo producto otra vez = cerrar (como un globo normal).
+    if (this.ventaMes()?.key === key && op.overlayVisible()) { op.hide(); return; }
+    const cached = this.ventaMesCache.get(key);
+    const almacen = this.data()?.almacen;
+    this.ventaMes.set({
+      key, titulo: `${l.sku} · ${almacen ? warehouseName(almacen.code) : ''}`,
+      data: cached ?? null, cargando: !cached, error: false,
+      vta: l.venta_30d, mx: l.diagnostico?.max_stock ?? null,
+    });
+    if (op.overlayVisible()) { op.hide(); setTimeout(() => op.show(ev, target)); } else op.show(ev, target);
+    if (cached) return;
+    this.svc.ventaMensual(id, l.product_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => {
+        this.ventaMesCache.set(key, d);
+        if (this.ventaMes()?.key === key) this.ventaMes.update((m) => m && ({ ...m, cargando: false, data: d }));
+      },
+      error: () => { if (this.ventaMes()?.key === key) this.ventaMes.update((m) => m && ({ ...m, cargando: false, error: true })); },
+    });
+  }
 
   /** Lo que la persona va moviendo, por producto. Manda sobre el sugerido y sobre lo guardado. */
   readonly edicion = signal<Record<string, Edicion>>({});
@@ -894,6 +1046,7 @@ export class AlmacenAutoabastoComponent {
     this.edicion.set({});
     this.aceptados.set(new Set());
     this.expandidas.set(new Set());
+    this.docAbierto.set({});
     this.svc.pedido(id).subscribe({
       next: (d) => {
         this.data.set(d);
@@ -1056,6 +1209,54 @@ export class AlmacenAutoabastoComponent {
     const cantidad = pasoAjuste(this.cantidad(l), dir);
     this.patch(l.product_id, {
       cantidad,
+      motivo: prev?.motivo ?? l.ajuste?.motivo ?? null,
+      guardando: false, guardado: false, error: null,
+      desde: prev?.desde ?? performance.now(),
+    });
+    this.programarGuardado(g, l);
+  }
+
+  // ── [AB.41] Capturar con el teclado, como en /compras/pedido ─────────────────────────────
+
+  /** Al llegar al campo, el valor queda seleccionado: teclear reemplaza. */
+  seleccionar(ev: Event): void { (ev.target as HTMLInputElement).select(); }
+
+  /** ↑ ↓ y Enter cambian de renglón; ← → (y Alt + ↑ ↓) suben o bajan un paso. */
+  teclaCantidad(ev: KeyboardEvent, g: AutoabastoPedidoGrupo, l: AutoabastoPedidoLinea): void {
+    const paso = pasoPorTecla(ev);
+    if (paso) {
+      ev.preventDefault();
+      this.mover(g, l, paso);
+      const el = ev.target as HTMLInputElement;
+      el.value = String(this.cantidad(l));
+      el.select();
+      return;
+    }
+    moverEntreCampos(ev, this.host.nativeElement, 'input.ab-qty');
+  }
+
+  /**
+   * Lo tecleado. Sólo enteros de 0 en adelante (el servidor rechaza otra cosa): un campo vacío o a
+   * medio escribir no cambia nada todavía; al salir se normaliza (`normalizar`).
+   */
+  teclear(g: AutoabastoPedidoGrupo, l: AutoabastoPedidoLinea, ev: Event): void {
+    const raw = (ev.target as HTMLInputElement).value;
+    const v = Number(raw);
+    if (raw.trim() === '' || !Number.isFinite(v) || v < 0) return;
+    this.fijar(g, l, Math.round(v));
+  }
+
+  /** Al salir del campo, muestra lo que de verdad quedó (vacío o decimal → el entero vigente). */
+  normalizar(ev: Event, l: AutoabastoPedidoLinea): void {
+    (ev.target as HTMLInputElement).value = String(this.cantidad(l));
+  }
+
+  /** Deja una cantidad en el renglón: misma huella y mismo guardado diferido que el − / +. */
+  fijar(g: AutoabastoPedidoGrupo, l: AutoabastoPedidoLinea, cantidad: number): void {
+    if (!this.editable(l) || cantidad === this.cantidad(l)) return;
+    const prev = this.edicion()[l.product_id];
+    this.patch(l.product_id, {
+      cantidad: Math.max(0, cantidad),
       motivo: prev?.motivo ?? l.ajuste?.motivo ?? null,
       guardando: false, guardado: false, error: null,
       desde: prev?.desde ?? performance.now(),

@@ -8,6 +8,7 @@ import type {
   AutoabastoPosicionesRequest, PosicionPedido,
   AutoabastoRenglonesResponse, EstadoRenglon, SurteRenglon, OrdenMesa,
   AutoabastoEnviarRequest, AutoabastoEnviarResponse,
+  AutoabastoVieneDoc, AutoabastoVieneRenglonesResponse, MonthlySalesResponse,
 } from '@megadulces/contracts';
 
 /** `[AB.27]` Filtros de `GET /commercial/autoabasto/renglones`. El almacén es obligatorio: una mesa por sucursal. */
@@ -267,6 +268,21 @@ export class AutoabastoService {
   /** `[AB.16]` «Mi pedido» de un almacén: por origen, con ya pedido / atorado / negado y redondeo. */
   pedido(warehouseId: string): Observable<AutoabastoPedidoResponse> {
     return this.http.get<AutoabastoPedidoResponse>(`${this.base}/pedido`, { params: this.params({ warehouse_id: warehouseId }) });
+  }
+
+  /** `[AB.41]` Los productos de un documento de «Lo que te va a llegar»: Kepler por serie y folio, la Suite por id. */
+  vieneRenglones(warehouseId: string, d: AutoabastoVieneDoc): Observable<AutoabastoVieneRenglonesResponse> {
+    const q: Record<string, string> = d.tipo === 'plan' || d.tipo === 'requisicion'
+      ? { warehouse_id: warehouseId, tipo: d.tipo, id: d.id ?? '' }
+      : { warehouse_id: warehouseId, tipo: d.tipo, origen: d.origen, serie: String(d.serie), folio: d.folio };
+    return this.http.get<AutoabastoVieneRenglonesResponse>(`${this.base}/pedido/viene`, { params: new HttpParams({ fromObject: q }) });
+  }
+
+  /** `[AB.41]` Venta por mes de un producto en el almacén (el globo de «Venta 30 d», como en /compras/pedido). */
+  ventaMensual(warehouseId: string, productId: string): Observable<MonthlySalesResponse> {
+    return this.http.get<MonthlySalesResponse>(`${this.base}/pedido/venta-mensual`, {
+      params: new HttpParams({ fromObject: { warehouse_id: warehouseId, product_id: productId } }),
+    });
   }
 
   /** `[AB.18]` Guarda lo que la persona dejó en un renglón (con la foto de lo que vio). */

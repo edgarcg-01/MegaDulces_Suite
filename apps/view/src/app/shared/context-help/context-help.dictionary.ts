@@ -52,7 +52,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Tu pedido',
         entries: [
-          { term: 'A pedir', def: 'Lo que falta neto, redondeado a la unidad en que se captura en Kepler (cajas completas si es media caja o más; si no, la unidad menor). Lo puedes mover con − / +; si te alejas más de 20% de lo sugerido, eliges el motivo. Cada cambio se guarda solo.' },
+          { term: 'A pedir', def: 'Lo que falta neto, redondeado a la unidad en que se captura en Kepler (cajas completas si es media caja o más; si no, la unidad menor). Lo puedes teclear o mover con − / +. Con el teclado, como en el pedido de Compras: ↑ ↓ o Enter cambian de renglón y ← → suben o bajan uno. Si te alejas más de 20% de lo sugerido, eliges el motivo. Cada cambio se guarda solo.' },
+          { term: 'Venta por mes', def: 'Al tocar la venta de 30 días se abre la venta de los últimos 13 meses de ese producto en tu almacén, contra el mismo mes del año anterior: la barra es la venta en pesos y el número, las cajas. Es el mismo globo que usa Compras en su pedido.' },
           { term: '¿Hasta dónde pides?', def: 'Qué posiciones entran al pedido: agotado, bajo mínimo, bajo reorden u otros. Lo que no marques se ve en «Todos», pero no se pide ni se manda.' },
           { term: 'En tu pedido', def: 'Lo que entra al pedido ahora: posición marcada, con cantidad y que no hayas mandado ya a Compras. Es lo que sale con «Enviar a Compras» y en el PDF del pedido.' },
           { term: 'Mínimo, reorden y máximo', def: 'La política del almacén para ese producto, en cajas. Debajo del mínimo está en riesgo; debajo del reorden toca pedir; arriba del máximo sobra. Explican la posición.' },
@@ -64,7 +65,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         entries: [
           { term: 'Objetivo', def: 'Lo que el almacén debería tener: la venta diaria del producto por los días de cobertura del almacén (21 en sucursales, 30 en matrices y CEDIS), ajustada por temporada.' },
           { term: 'Falta', def: 'Objetivo menos existencia. Es lo que falta antes de contar lo que ya viene en camino.' },
-          { term: 'Ya viene', def: 'Lo que ya está pedido a tu matriz (pedido abierto de 7 días o menos) más lo que ya se embarcó y todavía no recibes. Se resta de lo que falta.' },
+          { term: 'Ya viene', def: 'Lo que ya está pedido a tu matriz (pedido abierto de 7 días o menos) más lo que ya se embarcó y todavía no recibes. Se resta de lo que falta. En «Lo que te va a llegar», cada pedido o embarque se abre para ver qué productos trae y cuánto, como se capturó en Kepler.' },
           { term: 'Falta neta', def: 'Lo que falta después de restar lo que ya viene. Es lo que de verdad hay que pedir.' },
           { term: 'Surte', def: 'A quién se le pide este producto: tu matriz (traspaso) o el proveedor (compra), según el canal configurado. «Sin ruta» quiere decir que no hay canal: no se sabe a quién pedírselo.' },
           { term: 'Posición', def: 'Dónde está la existencia contra la política del almacén: agotado, bajo mínimo, bajo reorden, sano o sobrestock. Decide qué tan urgente es.' },
