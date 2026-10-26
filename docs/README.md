@@ -16,6 +16,7 @@
 - [`MODELO_CANONICO_DATOS.md`](MODELO_CANONICO_DATOS.md) — fuente única por entidad, patrón anti-desync.
 - [`ERP_KEPLER.md`](ERP_KEPLER.md) — decode de Kepler + pipeline `kepler_ods` (intro; detalle en `IMPLEMENTACION/ERP_KEPLER_SCHEMA.md`).
 - [`FLUJO_COMPRAS_PEDIDO.md`](FLUJO_COMPRAS_PEDIDO.md) — el **flujo** de la compra: `/compras/pedido` → requisición → aprobación → Kepler, comparado con la cadena del ERP (`X-A-30`→`X-A-35`→`X-A-40`→XA2001). No el motor del sugerido.
+- [`FLUJO_COMPRA_A_PAGO.md`](FLUJO_COMPRA_A_PAGO.md) — el flujo **completo, de la compra al pago**: pedido → requisición → OC → vale → orden de entrada → aplica (nace la deuda) → factura y notas → obligación → calendario → autorización → pago → póliza → conciliación. Quién, en qué sistema, qué documento, cuánto se liga cada tramo y qué está roto, medido contra prod (2026-10-26).
 - [`PROCEDIMIENTOS/COMPRAS/`](PROCEDIMIENTOS/COMPRAS/README.md) — **un procedimiento oficial por cada paso** de ese flujo (9 fichas: responsable, controles, evidencia medida, qué hacer cuando falla) + el diseño de qué documento debería emitir cada paso.
 
 ## Diseño
