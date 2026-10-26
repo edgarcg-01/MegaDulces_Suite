@@ -694,6 +694,34 @@ export interface AutoabastoVieneDoc {
   monto: number | null;
   /** ¿Se resta del pedido? Lo de más días que su ventana se muestra para reclamarlo, no se resta. */
   se_resta: boolean;
+  /** `[AB.41]` La requisición de la Suite (`plan`, `requisicion`), para abrir sus productos. `null` en Kepler. */
+  id?: string | null;
+}
+
+/**
+ * `[AB.41]` Un producto de un documento de «Lo que te va a llegar».
+ *
+ * Kepler guarda el renglón dos veces (medido en prod el 2026-10-26 sobre 30 días de traspasos):
+ * en la presentación con que se CAPTURÓ (`kdm2.c51` en `c55`, p. ej. 72 CJA) y en unidad BASE
+ * (`c9` en `c11`, 1,296 KG), que es la que se resta del pedido. En los embarques `c51` = `c54` en
+ * los 28,616 renglones; en los pedidos, 871 de 29,341 no traen `c51`: ahí `cantidad` es `null` y
+ * se lee la base. En una requisición de la Suite la cantidad va en cajas de la mesa y no hay base.
+ */
+export interface AutoabastoVieneRenglon {
+  sku: string;
+  /** `null` = el SKU no está en el catálogo de la Suite. */
+  nombre: string | null;
+  /** Lo capturado, en su presentación. `null` = Kepler no la trae. */
+  cantidad: number | null;
+  unidad: string | null;
+  /** En unidad base (lo que se resta). `null` en una requisición de la Suite. */
+  cantidad_base: number | null;
+  unidad_base: string | null;
+}
+
+/** `GET /commercial/autoabasto/pedido/viene` */
+export interface AutoabastoVieneRenglonesResponse {
+  renglones: AutoabastoVieneRenglon[];
 }
 
 // ── [AB.29] «Enviar a Compras»: la requisición que genera la sucursal ──────────────────────────

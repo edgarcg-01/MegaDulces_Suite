@@ -38,6 +38,8 @@ import {
   type AutoabastoEnviarRequest,
   type AutoabastoEnviarResponse,
   type SurteRenglon,
+  type AutoabastoVieneRenglon,
+  type AutoabastoVieneRenglonesResponse,
 } from '@megadulces/contracts';
 import { CommercialReplenishmentService, type CreateRequisitionDto } from './commercial-replenishment.service';
 import {
@@ -97,6 +99,52 @@ SELECT d.tipo, d.origen, d.serie, d.folio, d.estado, to_char(d.f, 'YYYY-MM-DD') 
            AND btrim(x.c1) = btrim(x.sucursal) AND NULLIF(btrim(x.c8::text), '') IS NOT NULL)::int AS renglones
   FROM docs d
  ORDER BY d.f DESC, d.origen, d.folio DESC`;
+
+/**
+ * `[AB.41]` Los productos de UN documento de Kepler de «Lo que te va a llegar» (pedido `U-D-40` o
+ * embarque `U-D-41`): la versión vigente del documento y su renglón ancla, como `VIENE_DOCS_SQL`.
+ * El candado de alcance es el destino: si el documento no va al cliente de traspaso de ESTA
+ * sucursal, no devuelve nada (pedir el folio de otra sucursal da vacío, no sus renglones).
+ * Medido en prod el 2026-10-26: 1 ms (índice `ix_kdm1_venta_doc` + `kdm2_pkey`).
+ */
+const VIENE_RENGLONES_SQL = `
+WITH dest AS (
+  SELECT dest_code FROM analytics.v_erp_branch_catalog WHERE tenant_id = :t AND suc_code = :suc
+),
+h AS (
+  SELECT DISTINCT ON (k.sucursal, k.c5, k.c6) k.sucursal, k.c2, k.c3, k.c4, k.c5, k.c6
+    FROM kepler_ods.kdm1 k
+   WHERE k.c2 = 'U' AND k.c3 = 'D' AND (k.c4)::int = :doctype AND btrim(k.c1) = btrim(k.sucursal)
+     AND btrim(k.sucursal) = :origen AND (k.c5)::int = :serie AND btrim(k.c6::text) = :folio
+     AND k.c9 >= current_date - ${VENTANA_VIENE_DIAS}
+     AND btrim(k.c10::text) IN (SELECT dest_code FROM dest)
+   ORDER BY k.sucursal, k.c5, k.c6, k.c9 DESC
+)
+SELECT btrim(x.c8::text) AS sku, max(p.nombre) AS nombre,
+       NULLIF(upper(btrim(x.c55::text)), '') AS unidad, sum(NULLIF(btrim(x.c51::text), '')::numeric) AS cantidad,
+       NULLIF(upper(btrim(x.c11::text)), '') AS unidad_base, sum(NULLIF(btrim(x.c9::text), '')::numeric) AS cantidad_base
+  FROM h
+  JOIN kepler_ods.kdm2 x
+    ON x.sucursal = h.sucursal AND x.c2 = h.c2 AND x.c3 = h.c3 AND x.c4 = h.c4 AND x.c5 = h.c5 AND x.c6 = h.c6
+   AND btrim(x.c1) = btrim(x.sucursal)
+  LEFT JOIN catalog.products p ON p.tenant_id = :t AND p.sku = btrim(x.c8::text)
+ WHERE NULLIF(btrim(x.c8::text), '') IS NOT NULL
+ GROUP BY 1, 3, 5
+ ORDER BY 1`;
+
+/**
+ * `[AB.41]` Los productos de UNA requisición de la Suite (lo planeado por Compras o lo que mandó la
+ * sucursal). Candado de alcance: la requisición tiene que ser de ESTE almacén. Cantidades en cajas
+ * de la mesa, como en `REQ_SUCURSAL_SQL`.
+ */
+const REQ_RENGLONES_SQL = `
+SELECT p.sku, p.nombre, sum(l.final_qty) AS cantidad
+  FROM commercial.purchase_requisitions r
+  JOIN commercial.purchase_requisition_lines l ON l.requisition_id = r.id AND l.tenant_id = r.tenant_id
+  JOIN catalog.products p ON p.id = l.product_id AND p.tenant_id = r.tenant_id
+ WHERE r.tenant_id = :t AND r.id = :id AND r.warehouse_id = :wh AND COALESCE(l.final_qty, 0) > 0
+ GROUP BY p.sku, p.nombre
+ ORDER BY p.sku`;
 
 /**
  * `[AB.24]` Lo que Compras planeó mandarle a ESTA sucursal desde `/compras/pedido` (requisición de
@@ -405,7 +453,7 @@ export class AutoabastoPedidoService {
           })),
           ...[...planDocs.values()].map((p) => ({
             tipo: 'plan' as const, origen: p.origen ?? '', serie: 0, folio: p.folio ?? '', estado: 'PLANEADO', fecha: p.fecha,
-            dias: Number(p.dias), renglones: p.renglones, monto: numONull(p.monto), se_resta: false,
+            dias: Number(p.dias), renglones: p.renglones, monto: numONull(p.monto), se_resta: false, id: p.id,
           })),
           // `[AB.29]` Lo que la sucursal mandó a Compras: por aprobar, aprobado o rechazado (con motivo).
           ...[...reqDocs.values()].map((q) => ({
@@ -414,7 +462,7 @@ export class AutoabastoPedidoService {
             proveedor: q.source_type === 'branch' ? null : (q.proveedor ?? 'Proveedor'),
             serie: 0, folio: q.folio, estado: ESTADO_REQ[q.estado] ?? q.estado.toUpperCase(), fecha: q.fecha,
             dias: Number(q.dias), renglones: q.renglones, monto: numONull(q.monto), se_resta: false,
-            motivo: q.estado === 'cancelled' ? (q.motivo ?? null) : null,
+            motivo: q.estado === 'cancelled' ? (q.motivo ?? null) : null, id: q.id,
           })),
         ],
         renglones_sin_unidad: sinUnidad,
@@ -443,6 +491,42 @@ export class AutoabastoPedidoService {
    * requisiciones de Compras y que revisa la aprobación (`[RQ.3]`). Lo que no se puede mandar se
    * devuelve en `omitidos` con su porqué (`motivoNoEnviable`), no se calla.
    */
+  /**
+   * `[AB.41]` Los productos de UN documento de «Lo que te va a llegar». Se piden al abrir el documento,
+   * no con el pedido: 63 documentos de Padre Hidalgo con sus renglones harían más pesada la pantalla
+   * entera para algo que se consulta de uno en uno.
+   */
+  async vieneRenglones(
+    almacen: Almacen,
+    doc: { tipo: 'pedido' | 'embarque'; origen: string; serie: number; folio: string } | { tipo: 'plan' | 'requisicion'; id: string },
+  ): Promise<AutoabastoVieneRenglonesResponse> {
+    const t = this.tenantCtx.requireTenantId();
+    const suite = doc.tipo === 'plan' || doc.tipo === 'requisicion' ? doc : null;
+    const kepler = doc.tipo === 'pedido' || doc.tipo === 'embarque' ? doc : null;
+    const filas = await this.tk.run(async (trx: Knex.Transaction) => {
+      if (suite || !kepler) {
+        const r = await trx.raw(REQ_RENGLONES_SQL, { t, id: suite?.id ?? null, wh: almacen.id });
+        return ((r.rows ?? []) as Array<{ sku: string; nombre: string | null; cantidad: string | number }>).map((f): AutoabastoVieneRenglon => ({
+          sku: f.sku, nombre: f.nombre, cantidad: numONull(f.cantidad), unidad: 'cajas', cantidad_base: null, unidad_base: null,
+        }));
+      }
+      const r = await trx.raw(VIENE_RENGLONES_SQL, {
+        t, suc: almacen.code, doctype: kepler.tipo === 'pedido' ? 40 : 41, origen: kepler.origen, serie: kepler.serie, folio: kepler.folio,
+      });
+      return ((r.rows ?? []) as Array<Record<string, string | number | null>>).map((f): AutoabastoVieneRenglon => {
+        const cantidad = numONull(f['cantidad']);
+        return {
+          sku: String(f['sku']), nombre: f['nombre'] == null ? null : String(f['nombre']),
+          // Sin presentación capturada (3 % de los pedidos) se declara `null` y se lee la base.
+          cantidad: cantidad != null && cantidad > 0 && f['unidad'] ? cantidad : null,
+          unidad: cantidad != null && cantidad > 0 && f['unidad'] ? String(f['unidad']) : null,
+          cantidad_base: numONull(f['cantidad_base']), unidad_base: f['unidad_base'] == null ? null : String(f['unidad_base']),
+        };
+      });
+    });
+    return { renglones: filas };
+  }
+
   async enviar(almacen: Almacen, area: string, req: AutoabastoEnviarRequest): Promise<AutoabastoEnviarResponse> {
     const tenantId = this.tenantCtx.requireTenantId();
     const ids = [...new Set((Array.isArray(req?.product_ids) ? req.product_ids : [])
