@@ -213,7 +213,7 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
           for (const l of quitarSql(TABLAS, op)) for (const s of l) await c.query(s);
           A((await estadoCola(c, ['kdm1', 'kdm2'], op)).tablas.kdm1 === 'ausente', 'retirada: estado `ausente`');
         } finally {
-          await c.query('ROLLBACK').catch(() => {});
+          await c.query('ROLLBACK').catch(() => { /* la transacción ya terminó: nada que deshacer */ });
         }
       }
       await c.end();
@@ -254,7 +254,7 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
     };
     const tick = crearCicloTiempoReal({ ciclo, latir: async (f, d) => latidos.push({ f, d }), marcarRamas: async (m) => marcas.push(m), cadaMs: 10000, ahora });
     // Un ciclo cada 250 ms: 50 de trabajo + 200 de espera.
-    const correr = async (n) => { for (let i = 0; i < n; i++) { await tick({ full: false }).catch(() => {}); reloj += 200; } };
+    const correr = async (n) => { for (let i = 0; i < n; i++) { await tick({ full: false }).catch(() => { /* el error se mide en su propia aserción */ }); reloj += 200; } };
 
     await correr(1);
     A(latidos.length === 1 && latidos[0].f === 'begin', 'el primer ciclo abre la corrida (`begin` fija el host que mira la sonda)');
@@ -281,7 +281,7 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
     A(tiro, 'si el ciclo tira, el error sube al bucle (que lo registra y sigue)');
     A(latidos.filter((l) => l.f === 'begin').length === 1, '`begin` sale UNA sola vez en toda la vida del proceso');
 
-    const mudo = crearCicloTiempoReal({ ciclo, latir: async () => { throw new Error('no debía latir'); }, marcarRamas: async () => {}, cadaMs: 10000, ahora, late: false });
+    const mudo = crearCicloTiempoReal({ ciclo, latir: async () => { throw new Error('no debía latir'); }, marcarRamas: async () => { /* sin latido tampoco hay marca */ }, cadaMs: 10000, ahora, late: false });
     let callado = true;
     try { for (let i = 0; i < 60; i++) { await mudo({ full: false }); reloj += 200; } } catch { callado = false; }
     A(callado, 'sin destino de latido (`late=false`) no intenta latir');
