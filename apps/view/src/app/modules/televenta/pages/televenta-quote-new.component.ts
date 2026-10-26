@@ -1324,7 +1324,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         dtoPct: descuentoDerivado(it.list_price, it.unit_price),
         pasos: it.pasos ?? '',
         explicacion: it.explicacion ?? '',
-        importe: it.sku ? it.line_total : null,
+        importe: it.sku && it.unit_price !== null ? it.line_total : null,
       };
     });
   });
@@ -1545,9 +1545,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
       // COT.19: sólo se sugiere una sucursal en la que el usuario pueda cotizar.
       const sugerida = c.branches.find((b) => this.sucursalesPermitidas().some((s) => s.code === b.sucursal));
       if (!match && sugerida) {
-        const nuevaSuc = sugerida.sucursal;
-        this.sucursal.set(nuevaSuc);
-        this.cargarVendedores(nuevaSuc);
+        // El mismo camino que el selector: existencia, previa y bandeja con la sucursal nueva.
+        this.onSucursalChange(sugerida.sucursal);
         return;
       }
     }
@@ -1571,6 +1570,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.sucursal.set(s);
     this.cargarVendedores(s);
     this.revisarExistencia();
+    this.repreciarBandeja();
     // Al cambiar de sucursal, refrescar precio previo del artículo si hay uno seleccionado
     if (this.articuloElegido()) {
       this.previa$.next();
@@ -1946,32 +1946,55 @@ export class TeleventaQuoteNewComponent implements OnInit {
     );
     if (!actual.sku) return; // renglón no manejado: no hay precio que recalcular
 
-    this.svc
-      .pricePreview({ branch: this.sucursal(), sku: actual.sku, quantity: nuevaQty, rung: actual.rung })
-      .subscribe({
-        next: (p) => {
-          this.bandeja.update((items) =>
-            items.map((it) => {
-              if (it.id !== id || it.quantity !== nuevaQty) return it;
-              return {
-                ...it,
-                unit_price: p.unit_price,
-                line_total: p.line_total ?? ((p.unit_price || 0) * nuevaQty),
-                iva_rate: p.iva_rate ?? null,
-                ieps_rate: p.ieps_rate ?? null,
-                price_source: p.price_source,
-                free_goods: p.free_goods ? { sku: p.free_goods.sku, quantity: p.free_goods.quantity } : null,
-                list_price: p.list_price ?? null,
-                pasos: this.pasosDe(p),
-                explicacion: explicacionDelPrecio(p.applied),
-              };
-            }),
-          );
-        },
-        error: () => {
-          // Sin respuesta del motor: la cantidad ya quedó; el precio unitario es el anterior.
-        },
-      });
+    this.preciarRenglon(id, actual.sku, nuevaQty, actual.rung);
+  }
+
+  /**
+   * Pide el precio de un renglón con la sucursal activa y lo aplica sólo si el renglón sigue con
+   * esa cantidad y la sucursal no volvió a cambiar (si llegan fuera de orden, la vieja no pisa).
+   * Sin respuesta del motor el precio se DECLARA desconocido: dejar el anterior mostraría el de
+   * otra cantidad u otra sucursal como si fuera éste.
+   */
+  private preciarRenglon(id: string, sku: string, qty: number, rung: Rung): void {
+    const suc = this.sucursal();
+    if (!suc) return;
+    const aplicar = (cambios: Partial<ItemBandeja>) => {
+      if (this.sucursal() !== suc) return;
+      this.bandeja.update((items) => items.map((it) => (it.id !== id || it.quantity !== qty ? it : { ...it, ...cambios })));
+    };
+    this.svc.pricePreview({ branch: suc, sku, quantity: qty, rung }).subscribe({
+      next: (p) =>
+        aplicar({
+          unit_price: p.unit_price,
+          line_total: p.line_total ?? ((p.unit_price || 0) * qty),
+          iva_rate: p.iva_rate ?? null,
+          ieps_rate: p.ieps_rate ?? null,
+          price_source: p.price_source,
+          free_goods: p.free_goods ? { sku: p.free_goods.sku, quantity: p.free_goods.quantity } : null,
+          list_price: p.list_price ?? null,
+          pasos: this.pasosDe(p),
+          explicacion: explicacionDelPrecio(p.applied),
+        }),
+      error: () =>
+        aplicar({
+          unit_price: null,
+          line_total: 0,
+          price_source: 'unknown',
+          free_goods: null,
+          list_price: null,
+          pasos: '',
+          explicacion: 'El motor de precios no respondió; al generar, el servidor lo cotiza.',
+        }),
+    });
+  }
+
+  /**
+   * [E.29] Cambió la sucursal: TODA la bandeja se vuelve a preciar con la nueva. Antes cada
+   * renglón conservaba el precio de la anterior — OSITOS 99686 se veía «Lista $132.46» y la
+   * cotización salía con la promoción de Padre Hidalgo, $124.51 (COT-2026-00030).
+   */
+  private repreciarBandeja(): void {
+    for (const it of this.bandeja()) if (it.sku) this.preciarRenglon(it.id, it.sku, it.quantity, it.rung);
   }
 
   quitarDeBandeja(id: string): void {
