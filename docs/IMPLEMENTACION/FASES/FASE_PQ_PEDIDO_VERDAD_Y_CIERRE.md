@@ -472,12 +472,35 @@ SQL con las tres vistas no termina en 10 min).
 |---|---|---|
 | D20 | ¿Factor de caja del pedido = `c84` de Kepler y nada más? | **No procede: medido, el resolvedor ya entrega el `c58` de Kepler (99.3 % en caja) y el `c84` solo daría 98.7 %.** Queda: (a) rótulo «empaque de la OC ≠ ficha» para los 41 + 78; (b) la unidad del renglón que se ESCRIBE en Kepler (`c11`/`c55`/`c58`) se decide en KR con esta misma medición como testigo |
 
+### 12.4 «Necesito un 100 %»: contra qué, y cómo se alcanza (misma tarde)
+
+Se bajó a las **268 líneas** (1.39 %) que no cuadraban con la ficha de Kepler por etiqueta + factor:
+
+| Qué son | Líneas | Veredicto |
+|---|---:|---|
+| factor de la ficha, otra etiqueta (la ficha renombró la unidad base `PAQ`→`PZA` después de la OC; `c58` = 1 en los dos lados) | 162 | cuadran **por factor** |
+| unidad que la ficha NO tiene: el comprador capturó `PZA` a 96/caja donde la ficha dice `PAQ` 12/caja (SKUs 480xx, 30540, 89137…); el costo de la línea cuadra con su propio `c58` en las 106 | 106 | elección humana en Kepler; **ninguna ficha las reproduce** |
+
+Por eso el 100 % tiene dos árbitros distintos y hay que nombrar cuál:
+
+1. **Contra la ficha de Kepler (lo que Kepler usaría para una línea nueva): 100 % por construcción**,
+   leyendo la ficha de esa sucursal y nada más. Es **PQ.13** (migración
+   `20261026125709_pq_factor_caja_ficha_kepler.js`): 867 celdas cambian (0.51 %), 568 de ellas a 1
+   porque la ficha dice `unidad_unica`. Cuerpo ejercido en prod sólo lectura; migración sin aplicar.
+2. **Contra las líneas históricas de OC: 99.45 % es el techo de cualquier catálogo**, también del de
+   Kepler. El 0.55 % restante se lee de la línea misma (`c57 ÷ c12`), que es lo que M2 ya hace.
+
+| # | Decisión | Resultado |
+|---|---|---|
+| D20 (final) | ¿Factor de caja en almacenes Kepler = ficha de Kepler? | **Sí (PQ.13)**: manda la ficha de esa sucursal cuando trae factor; donde calla, la fuente previa con su nombre. El PM firma al aplicar la migración, que es el antes/después |
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-26 | «Necesito un 100 %»: las 268 líneas fuera de la ficha son 162 por etiqueta (cuadran por factor) + 106 unidades elegidas a mano en Kepler. **PQ.13 🧪**: migración que hace mandar la ficha de Kepler en sus almacenes (867 celdas, 568 a 1 por `unidad_unica`); cuerpo ejercido en prod sólo lectura, **sin aplicar** (§12.4) | PM + sesión PQ |
 | 2026-10-26 | «Resolvámoslo» (D20): medido contra 19,367 líneas de OC reales de Kepler (90 d). **El resolvedor ya da el `c58` de Kepler en 99.3 % de las líneas en caja; el `c84` solo daría 98.7 %** → D20 refutada, sin vista que cambiar. `c58` es el factor del peldaño capturado (`c55`), no del producto. El desfase al escribir está en el adaptador (escribe `CJA`/`c58=1`); va a KR (§12.3) | PM + sesión PQ |
 | 2026-10-26 | El PM avisó que la base fue editada: la unidad del catálogo venía de un importer y desfasaba lo insertado en Kepler. Medido (§12.2): 9,241 productos en lote, 93 % ahora = `c84` de Kepler. **M2 se relee** (cantidad cambiada mezcla comprador + unidad) y se repite sobre requisiciones posteriores al lote; M1 se repite; PQ.1/4/5 y la paridad no cambian. Nace **D20** (factor = `c84` de Kepler para almacenes Kepler) | PM + sesión PQ |
 | 2026-10-23 | Auditoría del flujo (nivel B+C), jerarquía, agenda medida, M1/M2 definidas, doc creado en ⬜. Consultas en el scratchpad de la sesión; cifras en §1 | sesión Claude + PM |
