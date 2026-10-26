@@ -24,7 +24,7 @@ import type {
 } from '@megadulces/contracts';
 import {
   conceptoDelReparto, corteDe, erroresDeCargadores, erroresDeCierreDeParada, esFecha, faltasDelViaje, repartoDeCarga,
-  SKUS_SIN_CARGA, TARIFA_CARGA_CAJA_KEY, tipoDeParadaKepler, tipoDelViaje, totalDeCarga, WAREHOUSE_DISPLAY_ORDER,
+  SKUS_SIN_CARGA, SUCURSAL_QUE_PAGA_EL_CENTRO, TARIFA_CARGA_CAJA_KEY, tipoDeParadaKepler, tipoDelViaje, totalDeCarga, WAREHOUSE_DISPLAY_ORDER,
 } from '@megadulces/contracts';
 import { CambioRegistrado, tarifaVigenteEl } from '../logistics-config/tarifas-fijas.logic';
 import {
@@ -250,6 +250,9 @@ export function centrosDePiso(kdc3: Array<{ codigo: string; nombre: string | nul
  * `[EMB.53]` El centro de costo de UNA operación. Un traspaso va al piso de su sucursal destino
  * (`TI###` → sucursal por `pv_suc_ip`, la misma regla que `erp_shipment_stop_closure`). Una entrega
  * a cliente, o un traspaso a varias sucursales, NO se resuelve aquí: se dice por qué.
+ *
+ * `[EMB.54]` Morelia Madero se carga a Morelia Abastos y Zamora Centro a Canindo (así lo captura
+ * Logística: `SUCURSAL_QUE_PAGA_EL_CENTRO`), y las dos sucursales de una plaza cuentan como UN destino.
  */
 export function centroDeOperacion(
   paradas: FilaParadaKepler[],
@@ -260,7 +263,7 @@ export function centroDeOperacion(
   if (pagan.some((p) => tipoDeParadaKepler(p.serie, p.cliente_code) === 'cliente')) return { centro: null, sin_centro: 'cliente' };
   const sucursales = pagan.map((p) => tiASucursal.get((p.cliente_code ?? '').trim()) ?? null);
   if (!sucursales.length || sucursales.some((x) => x == null)) return { centro: null, sin_centro: 'sin_catalogo' };
-  const distintas = [...new Set(sucursales as string[])];
+  const distintas = [...new Set((sucursales as string[]).map((s) => SUCURSAL_QUE_PAGA_EL_CENTRO[s] ?? s))];
   if (distintas.length > 1) return { centro: null, sin_centro: 'varios_destinos' };
   const centro = centros.get(distintas[0]) ?? null;
   return centro ? { centro, sin_centro: null } : { centro: null, sin_centro: 'sin_catalogo' };

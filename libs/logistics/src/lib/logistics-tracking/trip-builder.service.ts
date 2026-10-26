@@ -99,6 +99,36 @@ export class TripBuilderService {
     });
   }
 
+  /**
+   * `[EMB.55]` Los (vehículo, día) que YA tienen posiciones por su rastreador y no tienen resumen.
+   * Pasa cuando un rastreador se liga tarde: sus posiciones viejas existen (van por `tracker_id`),
+   * pero el ciclo nocturno sólo reconstruye AYER, así que la historia previa al enlace no se armaba
+   * nunca. El día en curso no entra: lo arma el ciclo de cada 10 minutos.
+   * Medido 2026-10-26 (sólo lectura, 120 días): 3 pares en toda la flota, todos de julio.
+   */
+  async diasSinResumen(dias = 90, tope = 300, tenantId: string = DEFAULT_TENANT_ID): Promise<Array<{ vehicle_id: string; day: string }>> {
+    return this.tk.run(tenantId, async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT d.vehicle_id, to_char(d.dia, 'YYYY-MM-DD') AS day
+           FROM (SELECT t.vehicle_id, (p.captured_at AT TIME ZONE 'America/Mexico_City')::date AS dia
+                   FROM logistics.vehicle_positions p
+                   JOIN logistics.trackers t ON t.id = p.tracker_id
+                  WHERE p.tenant_id = public.current_tenant_id()
+                    AND t.vehicle_id IS NOT NULL
+                    AND p.captured_at >= now() - make_interval(days => ?::int)
+                  GROUP BY 1, 2) d
+          WHERE d.dia < (now() AT TIME ZONE 'America/Mexico_City')::date
+            AND NOT EXISTS (SELECT 1 FROM logistics.vehicle_day_summary s
+                             WHERE s.tenant_id = public.current_tenant_id()
+                               AND s.vehicle_id = d.vehicle_id AND s.day = d.dia)
+          ORDER BY d.dia, d.vehicle_id
+          LIMIT ?::int`,
+        [dias, tope],
+      );
+      return rows as Array<{ vehicle_id: string; day: string }>;
+    });
+  }
+
   private async loadCustomers(trx: Knex.Transaction): Promise<Array<{ id: string; lat: number; lng: number }>> {
     const rows = await trx('commercial.customers')
       .whereNotNull('latitude')

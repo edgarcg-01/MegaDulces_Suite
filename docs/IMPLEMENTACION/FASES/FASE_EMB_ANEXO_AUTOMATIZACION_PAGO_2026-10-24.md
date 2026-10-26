@@ -512,7 +512,68 @@ Causas, de mayor a menor:
 Donde el chofer sí se conoce, los montos no coinciden en ninguno de los dos sentidos: Antonio
 $6,600 calculado contra $5,540 pagado; Raúl $4,022 contra $5,410.
 
+### EMB.54 · Las rutas locales pagan comisión, y el centro de costo va por plaza (🧪, 2026-10-26)
+
+Decisiones de Edgar: *«sí, quítalas»* (la marca «sin comisión») y, sobre Morelia, *«no sé,
+investígalo»*. Medido en las `X-A-15` del proveedor `GNFC002` (sólo lectura, prod):
+
+- **Rutas locales.** EMB.33 midió sólo el concepto 075; en el 054 los traspasos locales sí se pagan:
+  6 catorcenas (13-ago → 22-oct) suman $93,963 al centro de Padre Hidalgo, $15,210 al de 8 Esquinas,
+  $11,520 al de La Piedad Abastos y $13,820 al de Yurécuaro. La migración `20261026131430` quita la
+  marca a «LA PIEDAD», «SANTA ANA» y «SANTA ANA PACUECO» (las únicas 3 marcadas) y lo anota en
+  `tariff_changes`. **No inventa tarifa:** lo pagado no sale de un monto fijo por viaje (por guía da
+  ~$100 de tripulación a 8 Esquinas y a La Piedad Abastos, ~$140 a Yurécuaro y ~$292 a Padre
+  Hidalgo, que además recibe cargos que no son de un viaje). Quedan «sin tarifa» —declarado, no $0—
+  hasta que Logística la capture en Configuración. ⚠️ Mientras tanto, un embarque **manual** a esas
+  rutas no crea su guía; los de Kepler no se frenan.
+- **Morelia y Zamora, un centro por plaza.** De marzo a octubre (054 y 027, 1,147 renglones):
+  **0** a Morelia Madero contra 305 a Morelia Abastos, aunque CEDIS mandó 34 guías sólo a Madero; y
+  2 a Zamora Centro contra 337 a Canindo, con 44 guías de CEDIS a Zamora Centro. Regla nueva en
+  `libs/contracts` (`SUCURSAL_QUE_PAGA_EL_CENTRO`): Madero → centro de Abastos, Zamora Centro →
+  centro de Canindo, y las dos sucursales de una plaza son UN destino (ya no «varios destinos»).
+  Pruebas: 3 nuevas (1 negativa); con la regla quitada, 2 en rojo.
+- **Lo que NO se pudo resolver: cuántas comisiones paga un viaje.** Un mismo camión genera varias
+  guías en un viaje (el 12-oct, el International 3 lleva 6: CEDIS → Morelia Abastos, Abastos →
+  Madero ×3 y dos de regreso). El reporte cuenta cada guía; Logística parece pagar por viaje. La
+  hipótesis «un viaje = unidad × día de salida» cuadra exacto con Antonio Méndez el 22-oct (9 viajes
+  × $180 = $1,620 contra $1,630 pagados) pero **no** con sus dos catorcenas anteriores (3 viajes →
+  $330; 6 → $710), y el chofer de Kepler no es confiable para probarla (Antonio figura en dos
+  camiones el mismo día). Pregunta abierta para Leonardo: ¿se paga por viaje o por guía, y las guías
+  que salen de Morelia o Canindo de regreso pagan?
+
+### EMB.55 · Hino y Freightliner ligados a su GPS (🧪, 2026-10-26)
+
+Pedido: *«sí, lígalos pero adecuadamente»*. Los rastreadores «HINO 500-67BB9C» y «FREIGHTLINER
+882EW9» existen desde el 17-sep (6,697 y 5,898 posiciones) y nunca se ligaron a sus unidades de
+Kepler (00006 y 00005, con 53 y 42 guías en 2026).
+
+- **Identidad verificada, no supuesta:** día por día, cuando la unidad de Kepler tiene guías a
+  Morelia o a Zamora, ese GPS llega a Morelia (lat ≈ 19.70) o a Zamora (≈ 19.94) al día siguiente
+  de la fecha de la guía (que es cuando sale el camión).
+- **La F-350 NO se fusionó:** la misma prueba la contradice (Kepler le carga 27 guías a 7 sucursales
+  el 7-oct mientras el GPS `MZ0108A` recorrió 7 km). En Kepler la unidad 00007 se usa para guías de
+  varios camiones.
+- **Migración `20261026131431`:** placa del Hino en la Suite `69BB9C` → `67BB9C` (la física: GPS y
+  hoja de costos de Transportes; Kepler sigue diciendo 69BB9C y la diferencia queda a la vista) y
+  cada rastreador a su unidad, sólo si sigue suelto.
+- **Causa de fondo, en código:** `matchVehicle` compara la placa sin guiones (`882EW9` = `882-EW9`)
+  y no adivina si empata con dos unidades (3 pruebas, 2 negativas; con la normalización quitada, 2
+  en rojo).
+- **La historia de antes del enlace:** el ciclo nocturno sólo armaba AYER, así que los 40 días
+  previos nunca habrían entrado al resumen. Ahora, tras armar ayer, `rellenarHuecos` arma los
+  (vehículo, día) con posiciones y sin resumen de los últimos 90 días (tope 300 por noche). El SQL
+  se ejerció en prod en sólo lectura con el texto del servicio: 0 huecos hoy (90 d), los 3 de julio
+  ya medidos (120 d), ~2.7 s.
+
+**Las dos migraciones** se ensayaron en el Postgres local con filas sintéticas dentro de una
+transacción revertida: 13 de 13 comprobaciones (up, segundo up idempotente, down exacto, 3
+negativas). Contra prod no se pudo: la conexión es de sólo lectura. Los `WHERE`, corridos en sólo
+lectura en prod, tocan exactamente 3 rutas, 1 unidad y 2 rastreadores. Son sólo UPDATE/INSERT: se
+aplican a mano en prod **antes** de soltar.
+
 ## Bitácora
+
+- **2026-10-26** — EMB.54/55: rutas locales sin la marca «sin comisión»; centro por plaza (Madero → Abastos, Zamora Centro → Canindo); Hino y Freightliner ligados a su GPS con su historia; la F-350 no se fusionó (el GPS lo contradice).
 
 - **2026-10-26** — EMB.37, primera medición: el reporte calcula el 25 % de la comisión pagada y 0 % del viático de la catorcena 8–21 oct (causas arriba).
 
