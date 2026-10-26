@@ -9186,6 +9186,14 @@ TP.6-TP.8+TP.10".
 >   autollenado); obligatoria desde `CAJA_EGRESO_ORIGEN_DESDE` (APAGADA). El lote declara `cajon`
 >   para todos sus egresos. ⚠️ Con el freno prendido, el autollenado deja sus egresos para una persona
 >   (no sabe de dónde salió el dinero). 30 pruebas del motor; `libs/finance` 1,743 ✓; `lint:boundary` ✓.
+>   **Pantalla (2026-10-26):** en la captura de un egreso, «¿De dónde salió el dinero?» (`app-segmented`:
+>   Retiro de CAOS · Cajón). El retiro **sólo se vincula** (Edgar: *«solo vinculemos y ya»*): no se
+>   dice cuánto le queda, no se copian sus billetes y no cambia el monto — antes un retiro de $200,000
+>   volvía de $200,000 un gasto de $13,803. Al guardar se toma de cada retiro sólo lo que el gasto
+>   necesita (`linksDeEgreso`). «Cajón» suelta los retiros. El botón se apaga con su frase si falta el
+>   origen (`motivosDeBloqueo`). El ingreso conserva su panel. 456 pruebas de caja-general ✓ (4
+>   nuevas + 3 movidas a ingreso); mutación: apagar el vínculo en egreso pone 2 en rojo;
+>   `check:pantalla` 0 nuevas. ⚠️ **Sin validación visual.**
 > - **[CGA-A.57]** ⬜ **Ligar el historial con propuestas + confirmación** (decisión de Edgar). Octubre
 >   en adelante contra los gastos del libro; mayo–sep ($16.5 M, 326 retiros) contra los egresos de
 >   Kepler (cuenta `0011`), porque el libro empieza el 25-sep. Nada se liga solo (1 de cada 3 parejas

@@ -395,6 +395,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.bloqueos().length).toBeGreaterThan(0);
 
     comp.setF('kepler_cuenta', '601-001');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56]
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
     // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
@@ -411,6 +412,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     montar();
     comp.abrirCaptura();
     comp.setF('kepler_cuenta', '601-001');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56]
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
     // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
@@ -801,6 +803,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.firmaPide()).toBe(false);
 
     comp.setF('tipo', 'gasto');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56] un egreso dice de dónde salió el dinero
     fx.detectChanges();
     expect(comp.firmaPide()).toBe(true);
     expect(fx.nativeElement.querySelector('.cg-firma'), 'el gasto tiene que pedirla').not.toBeNull();
@@ -813,6 +816,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const fx = montar({ crear });
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56] un egreso dice de dónde salió el dinero
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
@@ -848,6 +852,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const fx = montar();
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56] un egreso dice de dónde salió el dinero
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
@@ -876,6 +881,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const fx = montar({ crear });
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56] un egreso dice de dónde salió el dinero
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
@@ -919,6 +925,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56] un egreso dice de dónde salió el dinero
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
@@ -970,6 +977,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const fx = montar();
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');          // la firma sólo se pide en el egreso
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56] un egreso dice de dónde salió el dinero
     fx.detectChanges();
     await comp.firmaPedirEnTelefono();
     await esperarQr(fx);
@@ -994,6 +1002,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const fx = montar();
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56] un egreso dice de dónde salió el dinero
     fx.detectChanges();
     await comp.firmaPedirEnTelefono();
     await esperarQr(fx);
@@ -1010,6 +1019,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const fx = montar();
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56] un egreso dice de dónde salió el dinero
     fx.detectChanges();
     return fx;
   }
@@ -1110,6 +1120,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const fx = montar({ crear });
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56] un egreso dice de dónde salió el dinero
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
@@ -1132,6 +1143,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const fx = montar();
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56] un egreso dice de dónde salió el dinero
     fx.detectChanges();
     comp.firmaSolicitudId.set('s1');
     comp.firmaRemotaId.set('s0');
@@ -1152,6 +1164,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const fx = montar();
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56] un egreso dice de dónde salió el dinero
     fx.detectChanges();
 
     comp.firmaHecha.set(true);
@@ -1222,6 +1235,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     // puede caer con una flecha en un control que no se puede apretar. Así que la prueba llega
     // al estado guardable de verdad — si no, mediría el caso en el que el salto no debe ocurrir.
     comp.setF('kepler_cuenta', '601-001');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56]
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
     // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
@@ -1313,6 +1327,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     // y `pedirConfirmacion` sale sin hacer nada — una prueba que no los limpiara pasaría por la
     // rama equivocada y diría «no guardó» sobre un botón que ni se podía apretar.
     comp.setF('kepler_cuenta', '601-001');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56]
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
     // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
@@ -1505,6 +1520,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
     comp.capturarDesde(GASTO_TRABADO);
     comp.setF('kepler_cuenta', '601-001');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56]
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'gasto de caja chica');
     // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
@@ -1542,6 +1558,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
     comp.capturarDesde(GASTO_TRABADO);
     comp.setF('kepler_cuenta', '601-001');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56]
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'gasto de caja chica');
     // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
@@ -2319,8 +2336,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   function capturaDeGastoLista() {
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56] un egreso dice de dónde salió el dinero
     comp.setF('beneficiario', 'GASTOS GENERALES CAJA CHICA MORELIA ABASTOS');
     comp.setF('kepler_cuenta', '601-001');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56]
     comp.setF('kepler_concepto', 'VIATICOS');
     comp.setF('glosa', 'gasto de caja chica');
     // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
@@ -2386,6 +2405,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     montar();
     comp.abrirCaptura();
     comp.setF('kepler_cuenta', '601-001');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56]
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'gasto suelto');
     // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
@@ -2547,6 +2567,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       montar({ crear });
       comp.abrirCaptura();
       comp.setF('kepler_cuenta', '601-001');
+      comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56]
       comp.setF('kepler_concepto', 'PAPELERIA');
       comp.setF('glosa', 'entrega de ruta');
     // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
@@ -2891,6 +2912,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.abrirCaptura();
     comp.elegirCaos({ value: CAOS_DEP } as any);
     comp.setF('kepler_cuenta', '601-001');
+    comp.elegirOrigenEfectivo('cajon');  // [CGA-A.56]
     comp.setF('kepler_concepto', 'VENTAS');
     comp.setF('glosa', 'deposito de ruta 28');
     // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
@@ -2972,10 +2994,13 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(svc['caosCandidatos']).toHaveBeenCalled();
   });
 
+  // ⚠️ `[CGA-A.56]` Las tres que siguen son del INGRESO (el candidato es un DEPÓSITO): ahí los
+  // billetes sí se fueron a la bóveda y el panel de siempre se queda. En un egreso el retiro sólo se
+  // vincula — lo prueban las de `[CGA-A.56]`, más abajo.
   it('CS.3.7 — vincular un retiro pone su efectivo APARTE (no en la reja) y lo FUSIONA al guardar', () => {
     montar({ caosCandidatos: vi.fn(() => of({ rows: [CANDIDATO], fecha: '2026-09-24', datos_al: null })) });
     comp.abrirCaptura();
-    comp.setF('tipo', 'gasto');
+    comp.setF('tipo', 'ingreso');
     comp.setF('sucursal', '00');
     comp.buscarEnCajero();
     comp.vincularCaos(comp.caosSugeridos()[0] as any);
@@ -3004,6 +3029,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   it('[negativa] soltar un retiro vinculado RESTA su efectivo del arqueo', () => {
     montar({ caosCandidatos: vi.fn(() => of({ rows: [CANDIDATO], fecha: '2026-09-24', datos_al: null })) });
     comp.abrirCaptura();
+    comp.setF('tipo', 'ingreso');
     comp.buscarEnCajero();
     comp.vincularCaos(comp.caosSugeridos()[0] as any);
     expect(comp.f().monto).toBe(1300);
@@ -3028,6 +3054,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   it('⛔ [CG.70] el apartado del arqueo nombra al cajero UNA sola vez, con y sin efectivo vinculado', async () => {
     const fx = montar({ caosCandidatos: vi.fn(() => of({ rows: [CANDIDATO], fecha: '2026-09-24', datos_al: null })) });
     comp.abrirCaptura();
+    comp.setF('tipo', 'ingreso');
     fx.detectChanges();
     await Promise.resolve();
     fx.detectChanges();
@@ -3062,6 +3089,96 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     // El monto del cajero sigue dicho (la fusión no lo tiró al unir los dos rótulos).
     expect((fx.nativeElement.querySelector('.cg-ap-arqueo') as HTMLElement).textContent)
       .toContain(comp.money(comp.aporteCajero()));
+  });
+
+  // ── [CGA-A.56] · EN UN EGRESO EL RETIRO SÓLO SE VINCULA ─────────────────────────────────────
+  // Edgar: «solo vinculemos y ya» — sin decir cuánto le queda, sin copiar sus billetes, sin cambiar
+  // el monto del gasto. El caso que lo motiva: un retiro de $200,000 que paga varios gastos chicos.
+  const retiro = (external_id: number, monto: number) => ({
+    ...CAOS_DEP, origen_ref: `AST700-19758|${external_id}`, external_id, tipo: 'gasto' as const,
+    type_label: 'Dispensar', ref: 'pagos semana', user_external: 'Maria (003)', monto, total: 200000,
+    denominaciones: [{ denominacion: 500, piezas: 400 }], score: 90, motivos: ['mismo día'], confianza: 'alta' as const,
+  });
+  const egresoListo = () => {
+    comp.setF('sucursal', '00');
+    comp.setF('kepler_cuenta', '601-001'); comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'pago con el retiro de la semana');
+    comp.sinDocumentoMotivo.set('pago en efectivo sin documento en Kepler');
+    comp.setF('fecha', todayMx());
+  };
+
+  it('[CGA-A.56] vincular un retiro de $200,000 a un gasto de $1,300 NO vuelve el gasto de $200,000', () => {
+    montar({ caosCandidatos: vi.fn(() => of({ rows: [retiro(1720, 200000)], fecha: '2026-09-24', datos_al: null })) });
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    comp.setPiezas(den(500), 2); comp.setPiezas(den(100), 3);
+    expect(comp.f().monto).toBe(1300);
+    comp.elegirOrigenEfectivo('caos');
+    expect(comp.bloqueos(), 'CAOS sin retiro no se guarda').toContain('caos_sin_retiro');
+    comp.buscarEnCajero();
+    comp.vincularCaos(comp.caosSugeridos()[0] as any);
+    expect(comp.f().monto, 'el monto es el del gasto, no el del retiro').toBe(1300);
+    expect(comp.hayCajero(), 'los billetes del retiro NO se copian al gasto').toBe(false);
+    egresoListo();
+    expect(comp.bloqueos()).toEqual([]);
+    comp.guardar();
+    const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(body['origen_efectivo']).toBe('caos');
+    expect(body['caos_links']).toEqual([{ device: 'AST700-19758', external_id: 1720, monto: 1300, senales: expect.anything() }]);
+  });
+
+  it('[CGA-A.56] con dos retiros, de cada uno se toma sólo lo que le queda (lo dice el servidor) y lo que falta del gasto', () => {
+    montar({ caosCandidatos: vi.fn(() => of({ rows: [retiro(1, 1000), retiro(2, 5000)], fecha: '2026-09-24', datos_al: null })) });
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    comp.setPiezas(den(500), 2); comp.setPiezas(den(100), 3);
+    comp.elegirOrigenEfectivo('caos');
+    comp.buscarEnCajero();
+    comp.vincularCaos(comp.caosSugeridos().find((c) => c.external_id === 1) as any);
+    comp.vincularCaos(comp.caosSugeridos().find((c) => c.external_id === 2) as any);
+    egresoListo();
+    comp.guardar();
+    const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    const links = body['caos_links'] as Array<{ external_id: number; monto: number }>;
+    expect(links.map((l) => [l.external_id, l.monto])).toEqual([[1, 1000], [2, 300]]);
+  });
+
+  it('[CGA-A.56] NEGATIVA: un egreso sin origen no se guarda; elegir «Cajón» suelta los retiros', () => {
+    montar({ caosCandidatos: vi.fn(() => of({ rows: [retiro(1720, 200000)], fecha: '2026-09-24', datos_al: null })) });
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    expect(comp.bloqueos()).toContain('falta_origen_efectivo');
+    comp.elegirOrigenEfectivo('caos');
+    comp.buscarEnCajero();
+    comp.vincularCaos(comp.caosSugeridos()[0] as any);
+    comp.elegirOrigenEfectivo('cajon');
+    expect(comp.caosVinculados()).toEqual([]);
+    expect(comp.bloqueos()).not.toContain('falta_origen_efectivo');
+    comp.setPiezas(den(100), 1);
+    egresoListo();
+    comp.guardar();
+    const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(body['origen_efectivo']).toBe('cajon');
+    expect(body['caos_links']).toBeUndefined();
+  });
+
+  it('[CGA-A.56] la pantalla del egreso pregunta de dónde salió y NO dice cuánto le queda al retiro', async () => {
+    const fx = montar({ caosCandidatos: vi.fn(() => of({ rows: [retiro(1720, 186196.95)], fecha: '2026-09-24', datos_al: null })) });
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    comp.elegirOrigenEfectivo('caos');
+    comp.buscarEnCajero();
+    fx.detectChanges();
+    await Promise.resolve();
+    fx.detectChanges();
+    const ap = fx.nativeElement.querySelector('.cg-ap-arqueo') as HTMLElement | null;
+    expect(ap, 'no hay apartado de arqueo').not.toBeNull();
+    const texto = ap!.textContent ?? '';
+    expect(texto).toContain('¿De dónde salió el dinero?');
+    expect(texto, 'en el egreso el panel viejo del cajero ya no va').not.toMatch(/[Dd]el cajero \(CAOS\)/);
+    expect(texto).toContain('pagos semana');
+    expect(texto, 'no se dice cuánto le queda').not.toContain(comp.money(186196.95));
+    expect(texto, 'ni cuánto salió').not.toContain(comp.money(200000));
   });
 
   // ── CS.3.13 · VENTA A CRÉDITO (cliente de crédito) ──────────────────────────────────────────
