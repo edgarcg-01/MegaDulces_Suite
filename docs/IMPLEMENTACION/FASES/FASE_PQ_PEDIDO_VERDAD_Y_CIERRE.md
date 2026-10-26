@@ -615,7 +615,7 @@ crea una **orden de entrada propia** (`commercial.goods_receipts`, folio OE) y *
 
 | # | Decisión | Recomendación |
 |---|---|---|
-| D21 | ¿La Suite deja de emitir OC y OE propias y sigue sólo las de Kepler? | **Sí.** Apagar «Generar orden de compra» y «Registrar recepción» (quedan como lectura), y leer X-A-35/X-A-40. Es ADR-040 aplicado a Compras |
+| D21 | ¿La Suite deja de emitir OC y OE propias y sigue sólo las de Kepler? | **Sí — en código (PQ.16, `87e8adc93`).** «Generar orden de compra» y «Registrar recepción» apagados (409 en el backend, lectura en pantalla); la requisición se ordena con el folio de Kepler. Es ADR-040 aplicado a Compras. Pendiente: «de qué requisición» en la lista de Kepler |
 
 **NO MEDIDO:** cuántas de las 136 OE propias tienen su X-A-40 gemela en Kepler (cruce por
 proveedor + fecha + SKU, instrumento pendiente); y por qué sólo 2 de 136 aplicaron stock.
@@ -626,6 +626,7 @@ proveedor + fecha + SKU, instrumento pendiente); y por qué sólo 2 de 136 aplic
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-26 | «Resolvámoslo» (D21) → **PQ.16 🧪** (`87e8adc93`): from-requisition y receipts responden 409; el detalle de requisición captura el folio de Kepler (RQ.15) en vez de generar OC propia; OC interna en solo lectura; la lista interna se rotula histórico y las pestañas suben «Órdenes de compra (Kepler)». 43/43 vitest. Falta: «de qué requisición» en la lista de Kepler por `oc_folio` y congelar 235/136 en VERDAD_ABSOLUTA | PM + sesión PQ |
 | 2026-10-26 | `/compras/ordenes` tras aprobar (§13.2): la Suite emite OC y OE **propias** (235 OC $26.6 M, 136 OE) y la recepción mueve `commercial.stock`, que el Pedido no lee y Kepler no tiene; 0 requisiciones con `oc_folio` de Kepler. Nace **D21**: la Suite deja de emitir OC/OE y sigue sólo las de Kepler (X-A-35/X-A-40) | PM + sesión PQ |
 | 2026-10-26 | «Que se pueda aceptar todo un lote de golpe» → **PQ.15 🧪** (`bbd691066`): en «Por lote», «Aprobar lote (N)» con confirmación en dos clics; manda al bulk ya probado sólo los pendientes del lote (tope 200) y declara que el lote no empuja a Kepler. 34/34 vitest, sin endpoint nuevo. Sin validación visual del botón | PM + sesión PQ |
 | 2026-10-26 | **Nivel A hecho** (§13.1) con Chromium propio y el usuario de prueba del PM: 11 hallazgos nuevos medidos en pantalla (A1 «Armar» abre vacío · A2 KPI de red con filtro · A3 casilla 1 vs lista 27 · sucursal por código · Ñ como «?» · aprobada con 0 unidades · «Limpiar» no vacía el carrito…). La requisición de prueba no se creó: el clasificador bloqueó la escritura en prod | PM + sesión PQ |
