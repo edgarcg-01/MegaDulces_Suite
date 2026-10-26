@@ -1962,6 +1962,40 @@ ODS (`v_erp_stock_on_hand`), pero el motor lee la copia del importer.
 4. **Cierre** — los scripts salen de la agenda de feeds (`ops/vl/crontab.feeds`) sólo después de la
    paridad medida; el código de `database/importers` correspondiente se retira o queda como deuda con nombre.
 
+#### 16.17.1 La raíz: la venta de TODA la Suite sale del ODS (PM, 2026-10-26: «sí, corrígelo»)
+
+`analytics.sales_daily` la escribe `import-sales-fact.js` (cada 60 s y cada noche) desde
+`mart.ventas_enriched`, una vista de la base `kepler_consolidado` en `md` que se recarga borrando e
+insertando desde las réplicas de cada sucursal **más el envío de las camionetas**: copia sobre copia.
+La leen **17 vistas/matviews y ~20 archivos**: Reabasto, Rentabilidad, Presupuestos, sell-out,
+promociones, ABC, «Mi trabajo», Thot. Por eso se corrige la tabla, no una vista sólo para Reabasto
+(dos ventas distintas contradirían la regla de una sola fuente).
+
+**C0 medido (prod, sólo lectura, 7 días cerrados, prototipo `U-D-8/10/12` del ODS):**
+
+| | Resultado |
+|---|---|
+| Mayoreo | igual (−0.31 % a 0.00 %) |
+| Tienda + crédito por sucursal | igual (±0.4 %). El reparto tienda/crédito se copia del consolidado: `kdm1.c10` = forma de pago (`CONTADO` → tienda; cliente → crédito; doc 8 → mayoreo; doc 12 → crédito) |
+| Rutas de Padre Hidalgo (21–28) | **exactamente el doble en `sales_daily`**: la venta entra al consolidado por el Kepler de 01 (almacén `01-00N`) **y** por el envío de la camioneta (`ruta_NN`), y el importer manda las dos al mismo RUTA-NN. ~$2.75 M de más en 30 d, plegados en la demanda de Padre Hidalgo (~16 %). ⚠️ Se dijo primero que era el corte de camioneta `U-D-23`: **falso**, el consolidado sólo carga docs 8/10/12 (`mart_refresh_ventas.sql:56,85`); el corte sólo suma lo mismo que los tickets |
+| Rutas de Canindo (501–505) | **no existen en Kepler** (sin documentos `06-00N`): sólo en el envío de la camioneta, ~$428 K/semana |
+| Peso | `sales_daily` convierte a kilos y la existencia/caja están en la base de Kepler: base 500 g → demanda a la **mitad** (180 de 226 pares), base 250 g → a la **cuarta parte** (53 de 58); ~$552 K/30 d. Además 169 SKU con base de gramaje llegan a la escalera sin nombre de unidad |
+| Costo actual | **no es del ERP**: importe ÷ (1 + margen del catálogo) |
+| Datos | el ODS trae documentos con **fecha futura** (00 hasta 31-dic, 02 hasta 14-dic, 04 hasta 29-oct) y `sales_daily` 4 renglones del 6-dic (Ruta 22): la vista corta en hoy |
+| Tiempo | 2.4 s por 7 días de toda la red → matview (D16) |
+
+**Decisiones del PM (2026-10-26):**
+
+| # | Decisión | Firma |
+|---|---|---|
+| D18 | La venta de las camionetas de Canindo **entra primero al ODS** (como Wincaja con WR) y la vista la lee de ahí. ⚠️ Cada camioneta tiene su Kepler local (`md_06-0NN`, Wi-Fi `192.168.50.x`) y hoy sólo empuja tickets ya transformados a `kepler_consolidado`; replicar su `kdm1/kdm2` crudo al ODS es trabajo de campo en las 5 laptops. **Dueño por asignar.** Mientras no exista, el cambio de fuente (C2) no se publica | ✅ PM |
+| D19 | El **costo sale de Kepler** (cantidad en base × costo unitario de Kepler), con antes/después de Rentabilidad y Presupuestos antes de publicarlo | ✅ PM |
+
+**Orden:** C1 = la vista `v_sales_daily_ods` (misma forma que `sales_daily`, más `units_base` en la unidad de
+Kepler) + su matview + prueba de paridad por almacén × canal × día · C2 = el cambio de fuente para los 37
+consumidores, **cuando D18 exista**, con antes/después por módulo y fuera de horario · cierre = el
+importer sale de `livefast` y `nightly`.
+
 ### 16.10 Definición de Terminado
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
