@@ -9,6 +9,8 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { EntradasService, VencimientosReport, VencimientoRow } from '../entradas.service';
 import { branchName } from '../../../core/constants/store-branches';
 import { money } from '../../../shared/util';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PAGO_PROVEEDOR_TABS } from '../pago-proveedor-tabs';
 
 /**
  * `[RE.3]` — **Qué vence.** El calendario de pago a proveedores.
@@ -28,7 +30,7 @@ import { money } from '../../../shared/util';
 @Component({
   selector: 'app-compras-vencimientos',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TagModule, MetricStripComponent, SegmentedComponent, LoadStateComponent],
+  imports: [CommonModule, ButtonModule, TagModule, MetricStripComponent, SegmentedComponent, LoadStateComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="cv-wrap">
@@ -46,6 +48,8 @@ import { money } from '../../../shared/util';
           </button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <app-load-state [loading]="loading()" [error]="error()"
                       [isEmpty]="!loading() && !error() && !rows().length"
@@ -145,6 +149,8 @@ import { money } from '../../../shared/util';
   `],
 })
 export class ComprasVencimientosComponent {
+  /** [NAV.6] La barra del apartado «Pago a proveedor» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = PAGO_PROVEEDOR_TABS;
   private readonly svc = inject(EntradasService);
   private readonly destroyRef = inject(DestroyRef);
 

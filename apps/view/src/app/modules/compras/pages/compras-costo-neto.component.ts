@@ -17,6 +17,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { DATE_PRESET_OPTIONS, datePresetRange } from '../../../shared/util';
 import { ComprasService, LandedCostResponse } from '../compras.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { COSTOS_COMPRA_TABS } from '../costos-compra-tabs';
 
 /**
  * CXP.4 — "Costo neto" (landed cost) por proveedor. El costo REAL de comprarle a cada
@@ -30,7 +32,7 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule, FormsModule, RouterLink, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
-    TableModule, CheckboxModule, SelectModule, DatePickerModule, SkeletonModule, MetricStripComponent, ContextHelpComponent,
+    TableModule, CheckboxModule, SelectModule, DatePickerModule, SkeletonModule, MetricStripComponent, ContextHelpComponent, PageTabsComponent,
   ],
   template: `
     <div class="surf-page in">
@@ -43,6 +45,8 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <div class="cn-filters">
         <p-iconfield class="cn-search">
@@ -160,6 +164,8 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
   `],
 })
 export class ComprasCostoNetoComponent implements OnInit {
+  /** [NAV.6] La barra del apartado «Costos de compra» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = COSTOS_COMPRA_TABS;
   /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
   readonly multitarea = inject(MultitareaService);
   private readonly svc = inject(ComprasService);

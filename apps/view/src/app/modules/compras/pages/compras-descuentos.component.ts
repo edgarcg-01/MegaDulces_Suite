@@ -16,6 +16,8 @@ import { MetricStripComponent, MetricStripItem, MetricTone } from '../../../shar
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { ComprasService, AdjustmentsSummary, AdjustmentRow, AdjustmentsSupplierRow, DuplicateGroup, DiscountReconRow, DiscountReconResponse, DiscountLeakageRow, DiscountLeakageResponse } from '../compras.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { COSTOS_COMPRA_TABS } from '../costos-compra-tabs';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
@@ -30,7 +32,7 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
 @Component({
   selector: 'app-compras-descuentos',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, ToastModule, SelectModule, TagModule, InputTextModule, SkeletonModule, ButtonModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent],
+  imports: [CommonModule, FormsModule, TableModule, ToastModule, SelectModule, TagModule, InputTextModule, SkeletonModule, ButtonModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -43,6 +45,8 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
         </div>
         <app-segmented [options]="viewOpts" [value]="view()" (valueChange)="setView($event)" ariaLabel="Vistas de descuentos y apoyos" />
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       @if (err(); as e) {
         <div class="dx-errbox" role="alert">
@@ -271,6 +275,8 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
   `],
 })
 export class ComprasDescuentosComponent implements OnInit {
+  /** [NAV.6] La barra del apartado «Costos de compra» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = COSTOS_COMPRA_TABS;
   private readonly api = inject(ComprasService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
