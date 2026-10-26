@@ -15,7 +15,7 @@
 
 import type jsPDFType from 'jspdf';
 import { totalesCotizacion, type QuoteTotals } from '@megadulces/contracts';
-import { desglose, descuentoDerivado, definicionDescuento, etiquetaFuentePrecio } from './quote-units';
+import { desglose, descuentoDelMecanismo, definicionDescuento, etiquetaFuentePrecio, textoDescuento } from './quote-units';
 import { PALETA_DOCUMENTO as P, rgb, argb } from '../../shared/util/paleta-documento';
 
 export type JsPDFCtor = typeof jsPDFType;
@@ -176,7 +176,7 @@ export function modeloEntregable(data: QuoteDeliverableData): ModeloEntregable {
     const unitario = conDescuento
       ? (it.quantity > 0 ? importe / it.quantity : null)
       : it.unit_price;
-    return { n: i + 1, item: it, tipo, unitario, importe, lista, dtoProducto: descuentoDerivado(lista, it.unit_price), mecanismo };
+    return { n: i + 1, item: it, tipo, unitario, importe, lista, dtoProducto: descuentoDelMecanismo(lista, it.unit_price, it.price_source), mecanismo };
   });
   // `[E.29]` `AAAA-MM-DD` (lo que manda el servidor) se lee en hora LOCAL: `new Date(iso)` es la
   // medianoche UTC, que en México todavía es el día ANTERIOR, y el papel imprimía la emisión un
@@ -200,7 +200,7 @@ export function etiquetaDescuento(f: FilaEntregable, m: ModeloEntregable): strin
   const out: string[] = [];
   // Guion ASCII, no «−» (U+2212): la fuente del PDF (Helvetica, WinAnsi) no lo tiene y jsPDF pintaba
   // «Promo por c a n t i d a d " 5 4» (visto en COT-2026-00028).
-  if (f.dtoProducto) out.push(`${f.mecanismo || 'Descuento'} -${f.dtoProducto}%`);
+  if (f.dtoProducto) out.push(`${f.mecanismo || 'Descuento'} ${textoDescuento(f.dtoProducto, '-')}`);
   if (m.conDescuento && m.totales.descuento_pct) out.push(`Cliente -${m.totales.descuento_pct}%`);
   return out.length ? out : ['—'];
 }

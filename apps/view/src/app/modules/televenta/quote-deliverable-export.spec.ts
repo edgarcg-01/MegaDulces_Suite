@@ -57,10 +57,23 @@ describe('hoja de la cotización — desglose del descuento', () => {
 
   it('cada renglón lleva su lista y su descuento del producto (la cuenta del servidor)', () => {
     const m = modeloEntregable(base);
-    expect(m.filas.map((f) => [f.lista, f.dtoProducto])).toEqual([[26.94, 7.98], [79.75, 49.99], [10, 0], [null, null]]);
+    // A lista no hay mecanismo: null, no 0 % (la diferencia, si la hay, es el redondeo de Kepler).
+    expect(m.filas.map((f) => [f.lista, f.dtoProducto])).toEqual([[26.94, 7.98], [79.75, 49.99], [10, null], [null, null]]);
     expect(m.filas.map((f) => etiquetaDescuento(f, m))).toEqual([
       ['Volumen -7.98%'], ['Promo por cantidad -49.99%'], ['—'], ['—'],
     ]);
+  });
+
+  it('el centavo del redondeo no es descuento y un tramo arriba de la lista es recargo (ALTOS CAM, 2026-10-26)', () => {
+    const m = modeloEntregable({
+      ...base,
+      items: [
+        // Lista $1,169.91, Kepler cobra 20 KG × $58.50 = $1,170.00: antes salía «Lista --0.01%».
+        { sku: '61021', name: 'ALTOS CAM GRANDE COLOR 1KG', unit_label: 'BTO', quantity: 1, unit_price: 1170, list_price: 1169.91, line_total: 1170, price_source: 'Lista' },
+        { sku: '00003', name: 'TRAMO CARO', unit_label: 'PAQ', quantity: 6, unit_price: 50.2, list_price: 50, line_total: 301.2, price_source: 'Volumen' },
+      ],
+    });
+    expect(m.filas.map((f) => etiquetaDescuento(f, m))).toEqual([['—'], ['Volumen +0.4%']]);
   });
 
   it('con % del cliente, el renglón dice los dos descuentos', () => {
