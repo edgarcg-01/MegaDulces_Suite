@@ -1331,3 +1331,54 @@ mayoreo contra una DB con `commercial.product_label_prices` real.
 - Los dos hallazgos de lógica de CV.23 siguen abiertos y son del backend, no de esta
   pantalla: factor de caja crudo de `c84` (debería usar `v_product_box_factor`) y el
   resolve ambiguo por `sku OR barcode`.
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre. La pantalla existe: cada
+> observación es un criterio a verificar en ella, no un defecto medido.
+>
+> **Qué superficie es cada cosa.** Desde CV.23 (2026-09-05) la Suite sólo conserva el verificador
+> (`/tienda/verificador`, `apps/view`, Operations, sector Mostrador de DESIGN §O.3). La tienda
+> mayorista (`apps/tienda`, autoservicio de clientes) vive en el repo `0SistemasMD/Ecommerce-Mayorista`;
+> si vuelve, entra como **Storefront**, no como Operations. El estado vigente del verificador lo lleva
+> la Fase VAC: aquí van las observaciones que nacen de decisiones de CV.24 que VAC no revisó; las de
+> VAC están en su plan, para no duplicarlas.
+
+**La pregunta que contesta cada pantalla (prueba de la frase, §4.0b):**
+
+- `/tienda/verificador` — *«¿Cuánto cuesta esto aquí, hoy?»* — una pregunta; el mayoreo contesta
+  «¿y si llevo más?», que 0Sistemas decidió poner al mismo nivel (DESIGN §O.3). Es conflación aceptada
+  por decisión firmada: obliga a que cada cifra lleve pegada su unidad.
+- Tienda mayorista — *«¿Qué puedo comprar, en qué presentación y a qué precio?»* — una; el checkout es
+  su flujo, no otra pregunta.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):**
+
+- Verificador: primario = **precio de la unidad escaneada con su unidad pegada** · secundario = el
+  mayoreo con su umbral en la misma unidad · terciario = sucursal, frescura, código y procedencia.
+- Tienda: primario = **precio por presentación con su contenido real** · secundario = disponibilidad ·
+  terciario = código y existencia.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| CV.UI.1 | 🔴 | **La tienda rotula «piezas» lo que son paquetes.** `agregarBase()` le da `piezas: 1` a la unidad base aunque sea PAQ, y la presentación mayor se nombra con ese conteo: AVILA MAZAPAN `07303` salió como «Paquete individual $75.15» y «**Caja de 20 piezas** $1,361.12», que son 20 **paquetes** ($68.06 c/u). Un mayorista paga creyendo que lleva 20 mazapanes. No es un caso aislado: la base es PAQ en 74.9 % de los SKUs (Fase RA, 31-ago). CV.12 lo dio por correcto. | §1.1 · §4.5 (unidades explícitas) | Cada presentación nombra la unidad que contiene, tomada de la escalera de Kepler: «Caja de 20 paquetes». El contenido en piezas sólo se dice con factor verificado. Aplica donde viva hoy la tienda (`Ecommerce-Mayorista`) y es condición para que regrese a la Suite. |
+| CV.UI.2 | 🟠 | **Un mostrador configurado con la sucursal equivocada publica precios de otra plaza con toda seguridad.** La ruta acepta `?sucursal=NN` para una máquina sin cuenta y el respaldo se guarda como `verificador-precios:NN`. **712 de 9,348 códigos (7.6 %) tienen precio distinto entre plazas** (9-sep; CV.24 decía 385). Si la franja muestra «03», o la sucursal no se lee a distancia, nadie nota el error hasta la caja. | regla del PM (2026-10-22) · §1.6 | La franja dice el nombre de la sucursal con la pipe `\| sucursal`, legible a 1–2 m, también en modo kiosco y en el banner de respaldo: «Precios de Morelia Madero». El parámetro de la URL nunca se muestra como texto. |
+| CV.UI.3 | 🟠 | **El respaldo no dice su edad.** El snapshot vive 12 h y se vuelve a bajar **sólo cuando hay red**: sin red puede tener días. El banner dice «respaldo» (y desde VAC.L10, por qué), pero no **de cuándo** es el precio que la clienta lee en grande. | §3.6 · §1.3 | El banner lleva la edad del snapshot desde su `generado`: «Precios del respaldo de hace 3 h 20 min». Pasadas 12 h cambia de tono y lo dice: «El respaldo tiene más de 12 h: algunos precios pueden haber cambiado». |
+| CV.UI.4 | 🟠 | **La explicación de «Frescura del ERP sin medir» vive en un hover, en un kiosco sin mouse.** CV.24 decidió explicarla «al hover», y el propio checkpoint registra que en el kiosco real «el único periférico es la pistola». `datos_al` llegaba nulo para las 7 sucursales (8-sep): la advertencia está siempre puesta y su porqué nunca se puede leer. | §3.8 · §2.2 · DESIGN §P | La frase se entiende sola en la franja: «Frescura sin medir: no sabemos hace cuánto llegó el último precio del ERP». El detalle va en `app-context-help` (tema `verificador`), alcanzable con teclado fuera del modo kiosco. |
+| CV.UI.5 | 🟠 | **El nombre de la fase promete tres superficies y la Suite tiene una.** La fila del roadmap dice «Catálogo, verificador de precios y tienda mayorista» 🟢, y el encabezado de este plan afirma que `.163` corre catálogo y tienda «desde este monorepo». Desde CV.23 (5-sep) la Suite sólo conserva el verificador; catálogo, tienda y «Actualizar Wix» viven en tres repos aparte. Quien busque la tienda en la Suite no la va a encontrar. | §1.4 · §2.4 | El encabezado del plan y la fila del roadmap dicen «verificador de precios (catálogo y tienda fuera de la Suite desde CV.23)», con el enlace a los repos donde viven. |
+| CV.UI.6 | 🟠 | **Dos tiendas para el mismo mayorista, con precios de fuentes distintas, y la misma palabra para dos cosas.** La tienda de CV vende al precio `kdii.c90` de una sucursal fija (`SUC_TIENDA`, Padre Hidalgo); el Portal B2B de la Fase D le muestra al cliente **su** lista de precios. El plan no dice cuál es la tienda del mayorista ni cómo se relacionan. Y «/tienda» nombra a la vez el autoservicio de clientes y el proyecto interno de Operations (verificador, etiquetera). | §1.5 · §3.9 · conflicto a decidir por Edgar | Decisión escrita de cuál es la tienda del cliente mayorista; si conviven, cada una dice de qué lista sale su precio. Si la tienda vuelve a la Suite, entra como Storefront (`apps/portal` o su propia fila en la tabla de Surfaces de `DESIGN.md`) con una ruta que no choque con el proyecto interno. |
+| CV.UI.7 | 🟡 | **La tienda esconde 937 productos sin decirlo.** CV.12 oculta «TEMPORAL» los `* DESC` (descuento por volumen), 937 de 9,485 en Padre Hidalgo, y son **la única fila de su producto**: el cliente no ve que existen ni que hay descuento por volumen. El catálogo publica «5,908 productos» sin ese aviso. | §1.2 · §2.1 | El conteo del catálogo dice cuántos quedan fuera y por qué, o el descuento por volumen se modela como escalón del producto normal (la pregunta que CV.12 dejó abierta). El «temporal» lleva fecha de revisión. |
+| CV.UI.8 | 🟡 | **El contador «Productos escaneados: N» no tiene universo y en kiosco no sirve a nadie.** CV.27 retiró el historial por privacidad y dejó el contador: no dice desde cuándo cuenta, sigue visible en kiosco y su reinicio es un control más al alcance de la clienta. | §1.6 · §4.0 B · §4.4 | En kiosco, sin contador ni botón de reinicio. Fuera de kiosco, con su universo: «Escaneos desde las 8:00 de hoy». |
+| CV.UI.9 | 🟡 | **La tarjeta se borra sola a los 20 s sin avisar.** Se subió de 15 a 20 s porque con mayoreo no alcanzaba para leer; la cifra no se midió y la clienta no ve que el tiempo corre. | §5.1 · §3.5 | Indicador visible del tiempo restante (barra con `transform`, sin bucle, con `prefers-reduced-motion`); cualquier escaneo o tecla lo reinicia. El tiempo se fija midiendo en el mostrador real cuánto tarda alguien en leer una tarjeta con mayoreo. |
+
+**Lo que esta revisión no cubre:** contraste, alto de fila, pliegue, foco y teclado reales (exigen
+nivel A, y aquí en el monitor de mostrador); el checkout de la tienda (4 pasos, OXXO/SPEI) y
+«Actualizar Wix», que viven fuera de la Suite y sólo se revisaron en lo que este plan describe; y lo
+que la Fase VAC cambió del verificador después de CV.24, que tiene su sección en su plan.

@@ -520,3 +520,55 @@ renumerar la de LM (aún sin aplicar) al arrancar LM-K.
 - `libs/commercial/src/lib/commercial-televenta/` (patrón `call_logs` 6 outcomes, `lead_reservations`)
 - `libs/commercial/src/lib/commercial-route-control/` (patrón OCR + liquidación visual)
 - `libs/platform-core/src/lib/constants/permissions.ts` (enum permisos)
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+> **La pantalla existe** (app del repartidor, despacho en tienda, `/reparto/seguimiento` y
+> `/comercial/cortes`, en código desde 2026-07-03/08): cada observación es un criterio a verificar
+> en ella, no un defecto medido.
+
+**La pregunta que contesta (prueba de la frase, §4.0b):**
+
+- App del repartidor (`rider-route-run`): *«¿Qué tengo que hacer en esta parada?»* — una pregunta
+  por paso; el flujo guiado (pendientes → mapa → entregar → siguiente → arqueo) está bien partido.
+- Despacho en tienda (`/comercial/domicilio`, que el plan también llama `/reparto/asignar`):
+  *«¿Este ticket sale a domicilio, con quién y cobrando cuánto?»* — una decisión con tres datos.
+  Bien.
+- `/reparto/seguimiento`: *«¿Dónde va cada entrega ahora?»* — una pregunta. Bien.
+- `/comercial/cortes`: *«¿Cuadra el efectivo de cada repartidor hoy?»* — pero el plan le cuelga los
+  KPIs del servicio (tiempo, éxito, incidencias, metas §13), que contestan *«¿cómo va el servicio
+  este mes?»*: **conflación** (§4.0 A). Los KPIs van a su propia pestaña (`app-page-tabs`).
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):** corte: primario = **la diferencia del arqueo,
+revelada después del conteo** · secundario = lo esperado por método (efectivo · transferencias por
+verificar · tarjeta registrada) · terciario = entregas, incidencias y folio `LIQ`. Parada del
+repartidor: primario = **«Cobrar $X» o «Ya pagado»** · secundario = dirección y qué cargar ·
+terciario = folio del ticket.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| LM.UI.1 | 🔴 | **Un cobro en efectivo reintentado se registra dos veces.** LM.6.1 quedó **online-first** (lo offline se dejó para LM.6.2, sin estado) y la idempotencia del cobro es por `(order_id, reference)` o folio + referencia: un cobro en efectivo no tiene referencia, así que el reintento tras un timeout en la puerta inserta un segundo pago. El esperado del corte sube y el arqueo ciego le marca al repartidor un faltante del monto de esa entrega. El plan lo nombra como riesgo (§9.6) y no lo cierra. | DESIGN Idempotencia visual · §1.3 · DESIGN §PWA.5 | Llave de idempotencia generada en el teléfono al abrir «Entregar» (como el `client_uuid` de Fase VR, I1). «Entregar y cobrar» se deshabilita al primer toque. Sin red: «Sin señal: la entrega quedó guardada en este teléfono y se enviará sola ([N] pendiente)». Prueba: dos envíos del mismo cobro = un pago. |
+| LM.UI.2 | 🔴 | **Un ticket a crédito cobrado en la puerta sigue debiéndose en Kepler.** El cobro en la entrega se deriva de `forma_pago`: `CONTADO` ⇒ ya pagado; cualquier otro ⇒ el repartidor cobra (el smoke lo prueba con un ticket a CRÉDITO). Un ticket a crédito ya es cuenta por cobrar del cliente en Kepler y el regreso del efectivo a Kepler está diferido: después de que el repartidor cobró, Kepler sigue mostrando la deuda viva y Cobranza puede volver a cobrarla. | §1.5 · §1.3 · regla «nunca adivinar una fuente» | El despacho no preselecciona el cobro en silencio: «Ticket a crédito en Kepler: si lo cobra el repartidor, Kepler no se entera (falta el regreso)», con elección explícita. El corte declara «$[X] cobrados contra folios de Kepler, aún sin registrar en Kepler». |
+| LM.UI.3 | 🔴 | **El encargado cuenta viendo cuánto le falta para cuadrar.** LM.11 hizo ciego el cierre del repartidor, pero el panel del encargado (LM.7) sigue con «preview (esperado…) → arqueo por denominación con diferencia en vivo», y LM.5 «bloquea el cierre si no coincide con lo capturado» — un total tecleado más un desglose, dos versiones de la verdad. El KPI «Diferencias de efectivo» (meta 0) deja de medir el control; la Fase VR planea reusar este corte como «arqueo ciego obligatorio» (lección SM: 73 % de los arqueos no ciegos cuadran «exacto»). | §4.0c · §1.1 | El esperado y la diferencia se revelan sólo después de confirmar el conteo. Se capturan sólo piezas por denominación y el importe se deriva; ningún total tecleado. Prueba: el panel no expone el esperado antes del conteo. |
+| LM.UI.4 | 🔴 | **«Qué cargar» y el aviso de CEDIS sin unidad.** `items_snapshot` trae la cantidad de `kdm2.c9` y LM.3 «calcula unidades vs `vehicle.capacity_boxes`»: el plan no prueba si esa cantidad está en pieza o en caja. Si es pieza, 3 cajas de 24 cuentan como 72 «cajas» → aviso «requiere CEDIS» falso y una moto que no sale; el repartidor ve «72» sin saber de qué. | §1.6 · regla «probar la unidad» ([`UNIDADES_DE_MEDIDA.md`](../../UNIDADES_DE_MEDIDA.md)) | Cada renglón dice la unidad («3 cajas · 72 pzas»). La capacidad se compara en la misma unidad, con el factor canónico. Prueba con un ticket real capturado en caja. |
+| LM.UI.5 | 🔴 | **«Tiempo promedio» con meta ≤1 h mide otra cosa.** §5.6 lo define como `delivered_at − departure_at` (el del SOP); LM.8 lo construyó como `delivered_at − created_at`, que incluye surtido y espera en tienda. La meta en rojo culpa al repartidor por la espera. Además «% éxito = entregadas / total de paradas» cuenta las que siguen en ruta a media jornada, y «Satisfacción» no tiene fuente. | §1.1 · §1.6 · §1.3 · §2.3 | Dos tiempos rotulados: «de la salida a la entrega» (con la meta) y «del pedido a la entrega». El % dice «sobre paradas cerradas». Satisfacción: «sin medición: falta la encuesta». Meta cumplida o no con icono y texto, no sólo rojo. |
+| LM.UI.6 | 🟠 | **Transferencias y tarjeta se suman como cobradas sin que nadie las verifique.** La verificación de transferencias quedó diferida (LM.7) y la tarjeta es «sólo registro», sin validar contra el banco: el corte cierra con `transfer_total` y `card_total` como si el dinero hubiera llegado. | §1.3 · §1.6 | El corte separa «Efectivo contado» · «Transferencias por verificar $[X] ([N])» · «Tarjeta registrada, sin validar $[X] ([N])». Un corte con transferencias sin verificar no se ve «cuadrado». |
+| LM.UI.7 | 🟠 | **El diálogo «Entregar» pide un monto que el repartidor no decide.** LM.6.1 junta método, monto, cambio, referencia y evidencia (firma + quién recibe) en un diálogo, con una mano y en la puerta; LM.11 fija «precio fijo del ticket (repartidor no decide monto)». El campo «monto» contradice la regla e invita a teclear otro. | §4.0c · §4.5 · Fitts (≥44 px en `coarse`) · Miller | El monto viene fijo y grande («Cobrar $[X]»); el repartidor captura sólo «¿Con cuánto te pagó?» y el cambio se deriva. Método en control segmentado de cuatro opciones; cobro y firma en pasos separados; objetivos ≥44 px; contraste comprobado a sol directo. |
+| LM.UI.8 | 🟠 | **«Firma obligatoria» no es la regla que aplica el servidor.** LM.11 y la Fase F dicen «firma obligatoria»; §5.3-bis y LM.4 aceptan firma, foto o confirmación por WhatsApp. O el repartidor cree que no puede cerrar sin firma y se queda en la puerta, o la tienda cree que toda entrega tiene firma. | §1.1 · conflicto para Edgar | Edgar decide la regla y pantalla, servidor y Fase F dicen la misma. Si se acepta la excepción, el botón dice «Sin firma: foto de la entrega» y la parada queda marcada así en el corte. |
+| LM.UI.9 | 🟠 | **La posición del repartidor no dice su edad.** `/reparto/seguimiento` siembra posiciones por consulta cada 15 s más WS; un teléfono sin señal deja su último punto, que se pinta igual que uno de hace 10 s. La tienda le dice al cliente «ya va llegando» con un punto de hace 20 minutos. | §3.6 · DESIGN Datos añejos · §2.3 | Cada repartidor muestra «hace [N] min»; pasado un umbral, el pin cambia de forma y dice «sin señal desde las [hora]». Estados de destino con texto en `app-map-legend`, no sólo color. |
+| LM.UI.10 | 🟠 | **«Cortes de caja» ya es el nombre de otra cosa.** `/comercial/cortes` (nav «Cortes de caja») choca con el corte de caja de sucursal (Fase CSU) y con el arqueo de Caja; la tabla y el SOP lo llaman liquidación (§12). La Fase VR lo va a generalizar a vendedores de ruta, y el nombre cubriría sólo una parte. El despacho tiene dos nombres en el plan (`/comercial/domicilio` con nav «A domicilio», y `/reparto/asignar`). | §3.9 · §1.4 · §2.4 | «Liquidación de repartidores» (o «Liquidación de ruta», con filtro por tipo, si VR lo comparte). Una sola puerta en el menú para el despacho. |
+| LM.UI.11 | 🟠 | **Sucursales por código.** El plan habla de `md_01`/`md_02`/`md_03` y `kepler_warehouse_code`; el despacho captura «sucursal + folio» y rechaza las no habilitadas. Un rechazo que diga «md_04 no habilitada» no le dice nada a la persona de tienda. | regla PM 2026-10-22 · skill `diseno` §4 | Selector con `app-sucursal-picker` y pipe `\| sucursal`. Rechazo: «Yurécuaro todavía no tiene entrega a domicilio (sólo Padre Hidalgo, La Piedad Abastos y 8 Esquinas)». Nombre también en notas guardadas y avisos de CEDIS. |
+| LM.UI.12 | 🟡 | **Rechazar cancela el pedido desde el teléfono, en el mismo menú que «no lo encontré».** `customer_rejected` cancela el pedido y libera la reserva (intake propio); en un folio de Kepler no hay movimiento y el plan no dice quién registra la devolución en Kepler. | §4.4 · §1.5 | El rechazo pide motivo y confirma: «Esto cancela el pedido [folio] y regresa la mercancía al inventario». En folio de Kepler: «La devolución en Kepler la registra la tienda», y queda en una bandeja de la tienda. |
+| LM.UI.13 | 🟡 | **Sin puerta para quien despacha.** Los roles `jefe_de_tienda`, `auxiliar_de_tienda` y `gerente_de_zona` están «aún NO creados» (2026-07-03); los pendientes de producción apuntan a Railway (congelada desde el 23-sep) y la validación GPS en dispositivo y la visual siguen pendientes desde 2026-07-08. | §2.4 · método §4 | Roles creados y `LOGISTICS_HOME_DISPATCH` repartido en prod (`MATRIZ_ACCESOS` regenerada). Nivel A con `auditoria-diseno` en teléfono real (claro, oscuro, sol) antes de 🚀. |
+
+**Lo que esta revisión no cubre:** contraste real, tamaño de objetivos y uso con una mano (exigen
+nivel A en teléfono); el texto de los avisos al cliente, que depende de Fase F; y si la geocerca es
+de 40 m (este plan) o de 20 m (como la cita la Fase F) — hay que fijar una sola cifra.

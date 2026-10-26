@@ -1510,3 +1510,55 @@ qué se pidió y qué sigue sin llegar.
 Propuesta: *pendiente* desde el pago, *atrasado* desde el día 6 del mes siguiente.
 
 **No incluye:** emitir nuestros complementos a clientes (lo timbra Kepler: `kdfe33pagm1`).
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+> La pantalla existe (`/contabilidad/movimientos-no-asociados`, `/contabilidad/libro-de-compras`, el
+> visor de `LC.20` y los desgloses de `LC.21`): cada observación es un criterio a verificar en ella, no
+> un defecto medido. «Complementos de pago» (`CPAG.3`) y la pantalla de `LC.13` todavía no existen.
+
+**La pregunta que contesta (prueba de la frase, §4.0b):**
+
+- *`/contabilidad/movimientos-no-asociados`:* *«¿Qué facturas de compra de este mes van en el TXT de
+  la póliza?»* — una sola; el rail de meses es su selector. Bien. Pero desde `LC.18` esa pantalla arma
+  **el libro del mes** (folio 1), no sólo un complemento: su nombre ya no cubre lo que hace (LC.UI.6).
+- *`/contabilidad/libro-de-compras`:* desde `LC.10` ya no genera; contesta *«¿qué compras entraron al
+  libro de este mes, por tasa?»*, que es la misma pregunta que la pestaña de al lado, vista después de
+  entregar. Dos pantallas para un mes.
+- *«Complementos de pago» (`CPAG.3`, por construir):* *«¿Qué facturas PPD ya pagadas siguen sin su
+  complemento, y desde cuándo?»* — una sola («desde cuándo» es su atributo, no otra pregunta). Bien.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):**
+
+- *Libro del mes:* primario = **«N facturas propuestas para el TXT · $X» con su veredicto (listo, o
+  qué lo bloquea)** · secundario = la tabla con sus cuatro grupos (entran · sin cuenta · revisar · ya
+  en el libro) · terciario = UUID, referencia, cuentas 212/501/502.
+- *Complementos:* primario = **pagado sin complemento: monto y proveedores, separado en «pendiente» y
+  «atrasado»** · secundario = la lista por proveedor · terciario = folio fiscal de la factura y del pago.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| LC.UI.1 | 🔴 | **El banner dice «revísalas antes de generar» y la pantalla genera el archivo sola al abrir el mes.** `LC.19.6` arma el archivo del mes que toca sin clic si el SAT no tiene pendientes y no hay bloqueantes; las propuestas entran por una regla de historial que en jul/ago/sep metió 67, 48 y 58 facturas ($494k, $448k, $761k) que el libro manual nunca llevó. «Descargar todo» queda a un clic de un archivo que nadie revisó, y ese archivo se importa a ContPAQi. | §1.1 · DESIGN §X.1 · §4.5 | El archivo armado sin revisión se rotula «Borrador armado por el sistema: N propuestas sin revisar», y «Descargar todo» pide confirmar contra ese número. Cada fila distingue «propuesta por la regla» de «marcada por ti», y el encabezado lleva el avance: «revisadas N de 275». |
+| LC.UI.2 | 🔴 | **La cobertura del anti-duplicado quedó plegada, contra la regla que el propio plan escribió.** `LC.14`: «la cobertura va siempre en pantalla… un no-op se lee igual que "no hay duplicados"». `LC.16.6` la metió en «un renglón que se abre». Y es lo que más importa ahora: la prueba exacta por UUID llega hasta jul-2026 y la puerta (d) es «código muerto», así que ago, sep y oct sólo los protege el importe — sep tenía 142 de 392 facturas ($20.3M) ya posteadas sin marca. | §2.1 (plegar no es esconder) · §1.3 | Cerrado, el renglón dice: «Este mes el anti-duplicado sólo compara importes: la prueba exacta por folio fiscal llega hasta julio de 2026». Se retira cuando la puerta (c) o la (d) cubra el mes. |
+| LC.UI.3 | 🔴 | **Dos pantallas dicen lo contrario del mismo IEPS.** El libro acredita sólo el IEPS al 8 % y manda el de cuota y el de 26.5 % al costo (decisión de Edgar, 21-oct); el expediente de Recepción (Fase RE) dice del IEPS por cuota «se acredita (no va al costo)». En el ADD hay 47 facturas con IEPS por cuota en 2025–26 por $69,587.97 (EURO CANDY sola, $38,519.05). Contabilidad lee una cosa en una pantalla y la contraria en otra. | §1.5 · §1.1 | ⚠️ **Conflicto para Edgar + Contabilidad:** una sola regla, en `libs/`, que lean las dos pantallas. Mientras no se decida, las dos muestran el mismo aviso: «IEPS por cuota: criterio en revisión (Libro de compras lo manda al costo; Recepción lo acredita)». |
+| LC.UI.4 | 🔴 | **«Complementos de pago» (`CPAG.3`) nacería diciendo que faltan casi todos.** Desde el 17-jul no entra ningún complemento recibido (el carril no pide tipo `P`), y contra eso hay 2,475 facturas PPD por $166.5M (jul–oct). Construida antes de `CPAG.1`, la pantalla pintaría casi todo como «atrasado» y la contadora le pediría complementos a proveedores que ya los emitieron. | §1.3 · §1.1 | La pantalla no sube de C2 sin `CPAG.1` medido. Si un periodo no tiene complementos leídos, lo declara en vez de listar: «No traemos complementos desde el 17-jul: no se puede saber cuáles faltan». El monto es el del pago (la parcialidad), no el total de la factura, y el encabezado de la columna lo dice. |
+| LC.UI.5 | 🟠 | **Abrir el mes escribe, y lo que escribió el sistema no se distingue de lo que hizo una persona.** `preparar` marca **aplicado** (estado terminal) cuando ContPAQi casa renglón por renglón, asigna cuentas `auto_lc` por nombre idéntico y arma el archivo. Lo dispara quien abra la pantalla con `_GESTIONAR`: según el reparto de `LC.6.2` (2-sep), seis roles, incluidos `marketing` y `gerente_compras`. | DESIGN §X.5 · §X.2 · §2.4 | Una línea al pie del veredicto, con hora y quién abrió: «Al abrir el mes, el sistema marcó aplicado el folio 1 (casa los N renglones) y asignó la cuenta 212… a ‹proveedor› (nombre idéntico)», cada parte navegable a su evidencia. Revisar con Contabilidad si `marketing` debe tener `_GESTIONAR`: el reparto se calcó del permiso hermano, no de quién hace el trámite. |
+| LC.UI.6 | 🟠 | **La pantalla que arma el libro se llama «Movimientos no asociados», y la que se llama «Libro de compras» ya no lo arma.** Desde `LC.18` la corrida nace en folio 1 con «REGISTRO DE COMPRAS DEL MES DE…»; la contadora armó ago y sep a mano (625 y 428 renglones) mientras el módulo los reproduce al centavo (1,650 de 1,650). El nombre no es la única causa posible, pero es la más barata de descartar. | §3.9 · §1.4 | La pestaña que genera se llama «Libro de compras» y su título dice «Registro de compras de ‹mes› · póliza de Diario folio 1»; la otra pasa a sección de consulta o se retira. Antes, la pregunta a la contadora que `LC.17` dejó pendiente. |
+| LC.UI.7 | 🟠 | **«Gravado 16 %» puede decir un número en la tabla y otro en el visor de la factura.** La columna es la cuenta `502`, que desde `LC.18` se calcula como `IVA ÷ 0.16` con tope; el visor de `LC.20` lee la base del XML tal cual. Con IEPS dentro de la base del IVA, las dos cifras difieren con el mismo rótulo, a un clic de distancia. | §1.6 · §1.5 · §3.2 | Encabezado «Cuenta 502 (IVA ÷ 0.16)»; en el visor, «base del IVA según la factura». Si difieren, la fila lo dice en llano: «la póliza carga $X a 502; la factura declara base $Y; la diferencia es IEPS». |
+| LC.UI.8 | 🟠 | **«Asignar cuenta» rechaza como «inexistente» una cuenta que sólo falta en nuestra copia.** `analytics.contpaqi_accounts` es una foto del 2026-10-09 que llena un script sin agenda. Cada mes entran proveedores nuevos (1, 5 y 4 facturas en jul/ago/sep, $767k): la contadora da de alta la 212 en ContPAQi y la Suite le dice que no existe. | §1.1 · §1.3 · §3.6 | El rechazo dice «No está en el catálogo de cuentas que tenemos de ContPAQi (copia del 9-oct)», con la edad visible en el diálogo. |
+| LC.UI.9 | 🟡 | **El visor diría «todavía no se copia» de XML que nunca van a llegar.** De 2017 a mediados de 2022 el ADD archivó el XML a disco (157,363 comprobantes de 2017–2021 sin contenido en la base), y traerlos no se pidió. | §1.1 · §1.3 | Para esos años: «El XML de esta factura está archivado en el servidor de ContPAQi; la Suite no lo trae». «Todavía no se copia» queda para lo que el cursor sí va a alcanzar. |
+| LC.UI.10 | 🟡 | **«Cancelar entrega» vive en la misma barra que «Generar» y «Descargar».** Devuelve todo el mes a pendientes (276 facturas en el e2e de `LC.18.1`); el propio plan dice que lo más probable de ajustar es el lugar del botón rojo. | §4.4 · DESIGN Von Restorff | El botón va separado de la barra diaria (fuera del grupo o en «más acciones»), en `--bad-fg` fantasma, con el diálogo de motivo obligatorio que ya tiene. |
+| LC.UI.11 | 🟡 | **El rail de meses tarda 630–800 ms y es lo primero que se pinta.** El plan lo declara como deuda: ~500 ms se los llevan 24 meses de CFDIs y de cargos 501/502. | DESIGN Doherty · §3.5 | Esqueleto dimensionado del rail mientras carga; el mes que toca se pinta primero y el resto después (`@defer`), o el rail se mide bajo 500 ms. |
+| LC.UI.12 | 🟡 | **`LC.19`–`LC.21` cambiaron lo que la pantalla afirma y no se vieron.** La suite e2e (`LC.18.3`) cubre hasta `LC.18`; lo de después —bloqueo por SAT, frescura, «Descargar todo», el visor, los desgloses— dice «sin validación visual» o «correrlo espera el despliegue». | método §4 · auditoría nivel A | La suite e2e ampliada corrida contra prod y una revisión en nivel A con `auditoria-diseno` (claro, oscuro y `forced-colors`) antes de dar por cerrado `LC.19`. |
+
+**Lo que esta revisión no cubre:** la pantalla viva (contraste, alto de fila, foco y teclado), las
+pantallas de Contabilidad que `LC.21` tocó fuera de este módulo (pólizas, balanza, cierre: cada una
+merece su propia revisión) y el texto exacto de los avisos, que se valida con la contadora.

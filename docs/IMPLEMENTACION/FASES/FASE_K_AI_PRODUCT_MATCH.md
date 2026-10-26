@@ -240,3 +240,41 @@ Requiere: Docker Desktop running + `pg_dump.exe` en `C:\Program Files\PostgreSQL
 | **Total mensual estimado** | | **~$1 USD** |
 
 Para 10 tenants: ~$10/mes. Despreciable.
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+> **La pantalla existe** (`<app-ai-product-picker>` en el paso 5 del wizard de captura, desde
+> 2026-05-27): cada observación es un criterio a verificar en ella, no un defecto medido. ⚠️ El plan
+> está rancio frente a lo que corre hoy: describe 1,278 SKUs en la base legacy; el matcher vive
+> ahora en `pg-rag` y su KNN filtra `in_planogram = true` ([GOTCHAS §83](../../GOTCHAS.md)).
+
+**La pregunta que contesta (prueba de la frase, §4.0b):** *«¿Cuáles productos del catálogo son los
+que escribí?»* — una sola pregunta. Bien partido: el modal propone y la persona confirma.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):** primario = **cuántos renglones quedan por revisar**
+(los dudosos, no los confirmados) · secundario = cada renglón: lo que escribió → producto propuesto ·
+terciario = alternativas y su grado.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| K.UI.1 | 🔴 | **Índice vacío = «no encontrado».** Del 2026-09-22 al 2026-10-16 el corpus vectorial no existía y todo match volvía `no_match`: 24 días de listas enteras pintadas como productos inexistentes ([GOTCHAS §83](../../GOTCHAS.md)). El backend ya responde 503 con causa (`[K.VEC.1]`), pero el plan del modal sólo tiene un estado `error` genérico, y su mitigación escrita es «degradación silenciosa al search clásico». | §1.3 · §3.5 | El 503 de corpus ausente se pinta como falla con causa: «La búsqueda con IA no está disponible ahora (el índice de productos está vacío). Usa la búsqueda normal.», nunca como lista de «no encontrados». Prueba negativa con corpus vacío. |
+| K.UI.2 | 🔴 | **Tres umbrales para la misma decisión.** El backend auto-confirma con 0.40 (K.1.7); la vista pinta verde ≥0.50, amarillo 0.35–0.50 y rojo <0.35 (K.2.3); y «Riesgos» dice que el ambiguo «no auto-confirma». Un match de 0.45 puede quedar pre-marcado mientras se pinta «revisar», o al revés: lo que se ve no es lo que se agrega. | §1.1 · DESIGN §X.4 | Un solo umbral en `libs/contracts`: el que pre-marca es el que colorea. Prueba que cruza la marca del servidor con el grado pintado. |
+| K.UI.3 | 🟠 | **«score %» se lee como probabilidad.** El tag pinta el coseno como porcentaje; el propio plan registra coincidencias exactas en 0.38–0.39 (K.0.4, K.1.7). Quien captura lee «38 % de seguro» y descarta lo correcto. | DESIGN §X.4 (confianza con forma perceptual y su alcance, sin inventar precisión) · §2.3 | Sin «%»: tres grados en palabras («coincide» · «revisa» · «sin coincidencia») con icono y texto, no sólo verde/amarillo/rojo. Las alternativas son objetivos ≥44 px en `coarse`: el paso 5 se captura en el teléfono, en la tienda. |
+| K.UI.4 | 🟠 | **«No encontrado» sin su universo.** El KNN busca sólo en productos de planograma; un producto que existe pero no está en planograma sale en rojo como «no encontrado» y se lee «no existe». | §1.6 · §1.1 | El grupo se rotula «Sin coincidencia en el planograma» y dice contra cuántos productos buscó. El plan se actualiza al universo vigente. |
+| K.UI.5 | 🟠 | **El respaldo heurístico se ve igual que la IA.** Si Haiku falla o no hay llave, la lista se parte por comas y renglones y la vista previa luce idéntica; la persona cree que el modelo entendió su lista. | §1.1 · DESIGN §X (estado de trabajo honesto) | Aviso visible: «No se pudo usar la IA para separar tu lista; se separó por comas y renglones. Revisa cada renglón.». |
+| K.UI.6 | 🟠 | **Se espera mucho y se puede perder lo pegado.** Haiku (15 s) más Voyage (10 s, hasta 3 intentos) pueden dejar el modal girando más de 40 s con señal débil, donde el navegador sigue diciendo «en línea». Sin red el botón desaparece (la persona no sabe que existe), y el plan no dice que el texto pegado sobreviva a una falla, a cancelar o a «Otra lista». | §5.1 · Doherty · §2.1 | Botón visible y deshabilitado sin red: «Sin conexión: usa la búsqueda». Carga honesta: «Leyendo tu lista…» con Cancelar. El texto pegado sobrevive a falla, cancelación y «Otra lista». |
+| K.UI.7 | 🟠 | **La IA con el color de acción, en inglés, y sin rastro.** «Agregar varios con AI» lleva gradiente sunset (el color de acción) arriba del buscador y compite con la acción primaria del paso. Después de «Agregar N», lo que propuso el motor ya no se distingue de lo que marcó la persona. | DESIGN §IA (ember + sello) · Von Restorff (una sola primaria) · §3.9 | Botón secundario en variante ember con su sello: «Agregar varios con IA». En la lista del paso 5, lo que vino del motor conserva su marca hasta que la persona lo toca. |
+| K.UI.8 | 🟡 | **Duplicados del catálogo en las alternativas.** K.0 encontró `PALETA PAYASO 20PZ` y `Paleta Payaso 20pz` y pidió deduplicar en la vista; lo que se hizo en K.2.3 es otra cosa (detectar lo ya marcado). Elegir uno u otro reparte las exhibiciones entre dos ids, y el `planogram_present` de Horus las cuenta separadas. | §1.5 | Alternativas deduplicadas por nombre normalizado, o con el dato que las distingue (marca, código). |
+| K.UI.9 | 🟡 | **Fase 🟢 sin su verificación.** K.3.1–K.3.4 siguen ⬜: sin prueba E2E, sin precisión medida y sin telemetría (K.6 diferido); el umbral se calibró con 5 consultas y un smoke. K.3.2 pide levantar `nx serve` en local, hoy prohibido. | método §4 · ley del instrumento | Nivel A con `auditoria-diseno` contra prod (teléfono real, claro, oscuro) y una muestra de 20 listas reales con precisión medida antes de mover el umbral. K.3.2 reescrito sin backend local. |
+
+**Lo que esta revisión no cubre:** el alto real de los objetivos, el contraste y el foco (exigen
+nivel A), y la Fase F, que planea usar este matcher para pedidos por WhatsApp contra un corpus de
+planograma (ver F.UI.5).

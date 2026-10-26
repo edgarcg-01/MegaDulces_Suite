@@ -154,3 +154,47 @@ Bloquean **producción real**, NO el desarrollo con simulador:
 - ADR-006 / ADR-007 / ADR-034 en [`02_DECISIONES_ARQUITECTURA.md`](../02_DECISIONES_ARQUITECTURA.md).
 - [`ANALISIS_COMUNICACIONES.md`](../ANALISIS_COMUNICACIONES.md) — por qué Redis+BullMQ ahora.
 - [`FASE_LM_ULTIMA_MILLA.md`](FASE_LM_ULTIMA_MILLA.md) — la cadena de reparto que consume esta fase.
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+> **Aquí la interfaz principal es la conversación**: cada mensaje del bot es una afirmación ante el
+> cliente y se juzga con las mismas capas (no afirma lo que no es, declara lo que no sabe, no pide ni
+> cobra dos veces, tuteo mexicano).
+
+**La pregunta que contesta (prueba de la frase, §4.0b):**
+
+- Conversación: *«¿Qué quieres pedir y a dónde te lo llevamos?»* — una tarea con dos datos. Bien.
+- Bandeja `/reparto/pedidos-whatsapp`: *«¿Qué pedidos entendió bien el bot y puedo mandar a
+  reparto?»* — una pregunta; pero el pedido confirmado se despacha en otra pantalla
+  (`/reparto/asignar`). Ver F.UI.8.
+- Panel de conversaciones (F.4): *«¿Dónde se atora el bot?»* — una pregunta. Bien.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):** bandeja: primario = **el pedido propuesto, con los
+renglones dudosos marcados** · secundario = lo que escribió el cliente, junto a cada renglón ·
+terciario = teléfono, hora, hilo. Mensaje de resumen al cliente: primario = **total y forma de
+pago** · secundario = renglones con presentación · terciario = domicilio.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| F.UI.1 | 🔴 | **«Pedido confirmado» que nadie ha confirmado.** `confirmar_pedido` crea el pedido en `pending_approval`; una persona lo confirma después en la bandeja. Si el bot responde «¡Listo, tu pedido va en camino!», le miente a cada cliente que pide. Y el plan no tiene ningún mensaje de salida cuando la persona confirma, corrige o rechaza: el cliente se queda sin saber si su pedido existe. | DESIGN §X.1 (nunca «listo, ya lo hice» como primer contacto) · §1.1 | El bot responde «Recibimos tu pedido por $[X]. Una persona de la tienda lo revisa y te escribe para confirmártelo; todavía no sale.». Confirmar, corregir o rechazar en la bandeja le manda su mensaje al cliente (dentro de la ventana de 24 h o con plantilla aprobada). Ninguna hora de llegada antes de la confirmación humana. |
+| F.UI.2 | 🔴 | **El carrito no tiene unidad.** `cart` guarda `{product_id, sku, name, qty, unit_price}`: «mándame 2 de mazapanes» puede ser 2 piezas, 2 paquetes o 2 cajas, y el precio cambia por el factor de la caja. Si el bot elige, adivina el significado y se cobra en la puerta. | §1.6 · DESIGN Postel (liberal en la forma, nunca en el significado) · DESIGN §X.6 | Todo renglón del resumen dice la presentación y su contenido: «2 cajas de [producto] ([N] pzas c/u) × $[X] = $[Y]». Si la presentación es ambigua, el bot pregunta con botones (`sendInteractive`) antes de agregar. |
+| F.UI.3 | 🔴 | **Cifras escritas por el modelo.** La respuesta sale de Haiku; si el modelo escribe un precio o el total en su texto, el cliente acepta una cifra que no salió del motor (ADR-016: el motor decide el dinero), y es la que el repartidor cobrará contra otra. | DESIGN §X (cero cifras del LLM en pantalla) | El resumen del carrito y el total son una plantilla fija armada desde `cart`. El texto libre del modelo no lleva importes (prueba que rechaza o reemplaza una respuesta con dinero escrito por el modelo). |
+| F.UI.4 | 🔴 | **Un «sí» de más crea otro pedido.** El webhook deduplica por `message_id`, pero el cliente puede escribir «sí» dos veces o «confirmar» otra vez minutos después; el plan no dice qué hace el hilo en `done`. Dos `createIntake` = dos repartos y dos cobros contra entrega. | DESIGN Idempotencia visual · §5 | Un hilo en `done` no crea otro pedido: «Tu pedido [folio] ya está registrado. ¿Quieres agregar algo?». La bandeja marca dos pedidos del mismo teléfono en menos de [N] minutos. Prueba: dos «confirmar» seguidos = un pedido. |
+| F.UI.5 | 🟠 | **«No lo tenemos» contra el catálogo equivocado.** El plan apoya el producto por lenguaje natural en Match-AI (Fase K), cuyo corpus filtra `in_planogram = true` ([GOTCHAS §83](../../GOTCHAS.md)): el catálogo de exhibición, no lo vendible con precio. El bot no encontraría productos que la tienda sí vende. | §1.1 · §1.5 · cruce con Fase K | Decidir el corpus del bot (el vendible por SKU, o `CommercialCatalogSearchService` como primario) y medirlo con 20 pedidos reales. El bot nunca dice «no lo tenemos»: «No lo encontré en el catálogo; te comunico con la tienda». |
+| F.UI.6 | 🟠 | **Lo que el bot no tiene cómo saber.** Costo de envío, hora de llegada, existencia en la sucursal, si el repartidor acepta tarjeta (en LM la tarjeta es «sólo registro» con terminal externa) y si el domicilio está en zona: el piloto de LM cubre sólo Padre Hidalgo, La Piedad Abastos y 8 Esquinas, y el número por sucursal o central está sin decidir. Sin herramienta para eso, el modelo lo inventa o lo calla. | DESIGN §X.6 · §1.3 | Pregunta sin herramienta → «Eso te lo confirma la tienda» + `handoff_humano`. Cobertura verificada antes de armar el carrito: «Por ahora llevamos a domicilio desde Padre Hidalgo, La Piedad Abastos y 8 Esquinas». Sucursal siempre por su nombre, nunca su código. |
+| F.UI.7 | 🟠 | **Pasar a una persona sin decir cuándo.** «No entendí» → handoff; fuera de horario nadie contesta, la ventana de 24 h de Meta se cierra y la respuesta del operador ya no llega sin plantilla. | DESIGN §X.6 (escalar con a quién y cuándo) · §5 | El mensaje dice cuándo: «Te comunico con una persona de la tienda. Atendemos de [hora] a [hora]; te escribimos en cuanto lo vea.». La bandeja muestra por hilo el tiempo que queda de la ventana («quedan [N] h para responder sin plantilla»). |
+| F.UI.8 | 🟠 | **La bandeja no dice qué ve el operador, y es una segunda puerta.** «Revisar → confirmar» sin la frase original del cliente junto al producto elegido obliga a releer el chat entero. Y el pedido confirmado se despacha en `/reparto/asignar`: dos pantallas para una sola cola de pedidos a domicilio (más `/comercial/domicilio` de LM). | DESIGN §X.3 · §X.4 · §3.3 · §4.0 A | Cada renglón muestra «"[lo que escribió]" → [producto]», con la confianza del match en palabras y en ember lo que propuso el motor; los dudosos primero. Conflicto para Edgar: la bandeja como sección «Por confirmar (WhatsApp)» de `/reparto/asignar`, no como pantalla aparte. |
+| F.UI.9 | 🟠 | **El cliente no sabe que habla con un programa, ni en qué registro.** Nada en el plan hace que el bot se presente como automático; Haiku cambia de registro (usted, voseo) según el mensaje que recibe. | DESIGN §X (que se vea que lo propone un motor) · idioma (español de México, tuteo) | Primer mensaje: «Soy el asistente automático de Mega Dulces. Puedo tomar tu pedido; una persona de la tienda lo confirma.». Prompt y plantillas en tuteo mexicano; una prueba con 20 conversaciones del simulador busca voseo y «usted». |
+
+**Lo que esta revisión no cubre:** las plantillas que apruebe Meta (su texto exacto se valida con la
+tienda), el panel de conversaciones de F.4 (sólo nombrado en el plan) y la bandeja en nivel A. Dos
+cifras chocan con la Fase LM y hay que fijarlas antes de que el bot las prometa: la geocerca (20 m
+aquí, 40 m en LM.11) y «firma obligatoria» (LM acepta firma, foto o WhatsApp; ver LM.UI.8).

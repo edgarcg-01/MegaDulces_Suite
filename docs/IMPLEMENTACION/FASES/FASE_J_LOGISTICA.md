@@ -225,3 +225,59 @@
 ## Próximo paso accionable
 
 Cerrar este doc y arrancar **J.0.1** — crear migración `20260527XXXXXX_logistics_schema_create.js`.
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre. La pantalla existe: cada
+> observación es un criterio a verificar en ella, no un defecto medido. Se leyó también
+> [`FASE_J13_LOGISTICA_UI_REDESIGN.md`](FASE_J13_LOGISTICA_UI_REDESIGN.md), sólo en lo de pantalla.
+
+**La pregunta que contesta cada pantalla (prueba de la frase, §4.0b):**
+
+- **Embarques** (lista): *«¿Qué embarques tengo que mover hoy?»* — una pregunta. Bien.
+- **Detalle de embarque**: *«¿Este embarque puede salir, y si no, qué le falta?»* — una pregunta (el
+  «si no» es su evidencia); hoy la contesta un porcentaje (J.UI.9).
+- **Tablero y Reportes**: *«¿Qué embarques, unidades y rutas dejan dinero?»* — una pregunta vista
+  desde varios ángulos; las cuatro pestañas están bien partidas si las cuatro usan el mismo universo
+  (J.UI.8).
+- **Liquidaciones**: *«¿Cuánto le pago a cada chofer en este periodo?»* — una pregunta.
+- **Mis entregas / asistente de entrega** (chofer): *«¿Qué me falta entregar hoy?»* y *«¿Quedó
+  constancia de esta entrega?»* — dos pantallas, dos preguntas: bien separadas.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):**
+
+- Embarques: primario = **los que requieren acción hoy** (por salir sin estar listos, en ruta
+  pasados de hora) · secundario = la lista por estado con su conteo · terciario = folio, unidad,
+  origen y destino.
+- Detalle: primario = **¿puede salir?, con lo que falta nombrado** · secundario = guías y
+  destinatarios · terciario = gastos y datos de captura.
+- Reportes: primario = **margen del periodo con su universo** · secundario = embarques y unidades
+  que pierden dinero · terciario = desglose del costo.
+- Liquidaciones: primario = **total a pagar por chofer** · secundario = desglose (comisión, viáticos,
+  carga y descarga, bonos − deducciones) · terciario = embarques que lo componen.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| J.UI.1 | 🔴 | **«Rentabilidad por embarque» enseña los que más ganan y esconde los que pierden.** El endpoint es «top N embarques por margen» con `limit` (J.5.1): ordenado de mayor a menor y topado, los embarques con margen negativo —lo único accionable de esa pestaña— quedan del otro lado del tope, sin aviso. El PDF de Reportes (jsPDF, J13) exporta lo que se cargó: hereda el mismo corte. | §1.2 · §1.4 · auditoría Cruce 1 | La pestaña llega a todos los embarques del periodo o dice «Los N de mayor margen de M embarques». Orden por defecto: margen ascendente (los que pierden primero), con orden por encabezado como en Excel. El PDF trae el mismo universo y lo imprime («M embarques, del 1 al 31 de octubre»). `npm run check:cifra` en verde. |
+| J.UI.2 | 🔴 | **El costo por km se calcula con el costo por km.** Con `apply_config_km=true`, `total_cost` suma `actual_km × costo_km_estandar` (J.1.4) y después el tablero divide entre km (J.5.1): el indicador devuelve, en buena parte, el estándar que alguien tecleó en Configuración. El «margen» mezcla gasto real con costo estimado sin decirlo, y es la cifra con la que se decide si una ruta o una unidad deja dinero. Si `actual_km` sale del GPS, los 7 vehículos con dos rastreadores lo traen inflado 3–14 % (Fase LT §LT.9). | §1.6 · §3.2 · ADR-056 | Cada costo y margen declara su composición: «$X gasto capturado + $Y estimado (Z km × $W/km estándar)». El costo por km se calcula sólo con gasto capturado, o se rotula «incluye estándar». Prueba: con estándar en $0 y en $10, el costo por km capturado no cambia (caso negativo). El origen de `actual_km` queda escrito en el plan. |
+| J.UI.3 | 🔴 | **La constancia de entrega del chofer no tiene contrato fuera de línea.** El asistente captura foto, GPS y destinatario en la calle (J.1.3; J13 arquetipo D), y ningún plan dice qué pasa sin señal: si la foto y la firma viven sólo en memoria, se pierden al cerrar la app y la entrega se queda sin evidencia para cobranza. Además J.3 marca esas pantallas ⬜ mientras J13 las da por vivas: el plan no dice cuál es cierto. | §5.1 · DESIGN §PWA 5 · Fitts | Lo capturado sobrevive a la pérdida de red y al cierre de la app; `app-offline-status` dice «Sin conexión: tu entrega quedó guardada en el teléfono y se enviará al volver la señal (N pendientes)». La pantalla nunca dice «Entregado» antes de que el servidor lo confirme. Botones de ≥44 px en táctil. J.3 se actualiza a su estado real. |
+| J.UI.4 | 🔴 | **En el pedido, «no se pudo leer» se ve igual que «no tiene embarque», y eso invita a crear otro.** `loadShipments()` es «silencioso en error» (J.4): si Logística no responde, la sección queda vacía junto al botón «Crear embarque». Ese botón abre `/logistica/shipments?order_id=X`, que **auto-abre el diálogo** con el pedido: volver atrás después de crear lo reabre. Son dos caminos a un embarque duplicado del mismo pedido. | §1.3 · §3.5 · Idempotencia visual | La sección usa `app-load-state`: si falla, «No se pudieron leer los embarques de este pedido — Reintentar», y «Crear embarque» se deshabilita mientras no se sepa cuántos hay. El diálogo no se reabre al volver (el `order_id` sale de la URL al crear); «Crear» se deshabilita en el primer clic; si el pedido ya tiene embarques abiertos, el diálogo los nombra antes de crear otro. |
+| J.UI.5 | 🔴 | **El aviso verde promete algo que no siempre pasa.** Dice «Al cerrarse, el pedido pasará a entregado», pero el pedido sólo cambia cuando se cierra **el último** embarque abierto (J.4.3): al crear un segundo embarque, el aviso es falso. El plan además se contradice (Decisiones: «cuando todas estén `delivered`»; J.4.3: «cerradas»), y «entregado» nombra dos cosas: el estado del embarque, que **no** mueve el pedido, y el del pedido. | §1.1 · §3.9 · §2.3 | El aviso se arma con el dato: «Este embarque se liga al pedido PD-…. El pedido pasa a entregado cuando se cierren sus N embarques (faltan M)». Tono informativo con icono, no el verde de éxito. El plan resuelve la contradicción entre `delivered` y cerrado. |
+| J.UI.6 | 🟠 | **«Calcular» liquidaciones reescribe lo que se le paga a cada chofer sin enseñar qué cambia.** El cálculo recorre los choferes y recompone comisiones, carga, descarga y viáticos (J.1.5); es idempotente y respeta bonos manuales, pero la pantalla no dice qué movió. Un recálculo con un viaje mal capturado cambia el pago de alguien y nadie lo ve antes de pagar. | §4.4 · §3.2 · Fallos parciales | Antes de aplicar, vista previa por chofer: «antes $X → después $Y», los que cambian primero, con «Aplicar» y «Cancelar». Después: «12 recalculadas · 3 cambiaron · bonos y deducciones manuales intactos»; si alguna falla, se nombra y las demás no se reportan como fallidas. |
+| J.UI.7 | 🟠 | **Cerrar y Cancelar viven junto a las acciones diarias, y nada prueba que escriban bien.** La barra del detalle pone «Marcar en ruta / Marcar entregado / Cerrar / Cancelar» en fila, y la lista los repite en línea. «Cerrar» puede pasar el pedido a entregado y descontar inventario (Fase B.2.3); «Cancelar» no se deshace. El E2E que ejerce esas transiciones (J.1.8, 33 checks) quedó «escrito — esperando restart» y es de las suites HTTP que hoy no corren en CI. | §4.4 (Von Restorff) · CLAUDE.md regla 13 | «Cancelar» en `--bad-fg`, separado de las transiciones, con confirmación que nombra la consecuencia; «Cerrar» confirma «El pedido PD-… pasa a entregado y se descuenta el inventario» sólo cuando sea cierto. Botones deshabilitados en el primer clic. Una prueba ejerce `depart/deliver/close/cancel` contra base real con el payload de la pantalla. |
+| J.UI.8 | 🟠 | **Las cifras de Logística no declaran su universo.** La tira de la lista cuenta todos los estados (`/shipments/counts`), mientras ingreso, costo y margen sólo cuentan entregados y cerrados (J.5.1): a un centímetro, «N embarques» y «margen X %» hablan de conjuntos distintos. Y ningún plan dice si `logistics.shipments` trae los embarques de Kepler (`U/D/41`, la cadena Pedido → Embarque → Factura que Fase AX midió en 1,355 de 1,355) o sólo los capturados en la Suite. | §1.6 · §1.5 | Cada cifra dice de qué conjunto sale («de N embarques entregados o cerrados»; «en curso: programados y en ruta», aparte). El encabezado del tablero nombra la fuente de los embarques; si no son los de Kepler, el tablero no se presenta como la logística de la empresa. |
+| J.UI.9 | 🟠 | **«Listo para salir» es un porcentaje que no dice qué falta.** La preparación se volvió «% + barra» (`readinessPct` = checks bien / total) para igualar el anillo de 87 % de la maqueta. Con 7 de 8 en orden la barra dice 87 %, y si el que falta es la carta porte la unidad no puede salir. El número se diseñó para parecerse a la maqueta, no para contestar la pregunta. | §3.1 · §3.3 · §4.0c | La tarjeta abre con el veredicto («Puede salir» / «No puede salir: falta carta porte») y la lista de pendientes por nombre, los que bloquean primero, cada uno con enlace al lugar donde se arregla. El % queda como terciario o se quita. |
+| J.UI.10 | 🟠 | **Hay dos mapas de la flota «en vivo» y ningún plan dice en qué se diferencian.** J13 rediseñó `live` («Flota en vivo», con lista de unidades) el 2026-06-22 y Fase LT agregó `/logistica/rastreo` el 2026-07-27. Si leen fuentes distintas, la misma camioneta está en dos lugares según la pantalla que se abra. | §1.5 · §4.0 A | El plan dice la fuente y la pregunta de cada mapa. Si contestan lo mismo, queda uno y el otro redirige; si no, cada encabezado nombra su fuente. Registrado también en Fase LT (LT.UI.5). |
+| J.UI.11 | 🟠 | **El rediseño J13 se dio por completo midiendo pintura.** Sus criterios de «done» son 0 hex, organismos y build verde; ninguno pide los tres estados (el shimmer pasó a `p-skeleton`: sólo *cargando*), la edad del dato en tablero y mapas, ni §Q. Eligió clases CSS (`metric-tile`, `comm-pill`) donde la skill pide `app-metric-strip` y `p-tag`. La verificación en navegador de las 13 pantallas y del modo oscuro sigue pendiente desde el 2026-06-22. | §3.5 · §3.6 · §5.4 · método §4 | Cada pantalla de `/logistica` con `app-load-state` (cargando / vacío / falló) y `app-freshness-pill` donde el dato es volátil; `check:pantalla -- logistica` sin fallas nuevas. **Conflicto para Edgar:** `metric-tile` y `comm-pill` (J13) contra `app-metric-strip` y `p-tag` (skill `diseno` §5). Revisión en nivel A con `auditoria-diseno` antes de dar el barrido por cerrado. |
+| J.UI.12 | 🟡 | **Origen y destino del embarque no dicen cómo se nombran.** El alta pide «fecha/unidad/origen/destino» (J.4) y el plan no fija si son sucursales por nombre o códigos. | regla PM 2026-10-22 · skill `diseno` §4 | Origen y destino con `app-sucursal-picker`, y en la lista con la pipe `\| sucursal`; nunca «01» ni «00» en opción, celda, PDF ni `aria-label`. |
+
+**Lo que esta revisión no cubre:** las pantallas que J13 enumera y estos planes casi no describen
+(guías, costos, personal, configuración, planeador), contraste y teclado reales (nivel A), y el mapa
+de rastreo, que se revisa en Fase LT.

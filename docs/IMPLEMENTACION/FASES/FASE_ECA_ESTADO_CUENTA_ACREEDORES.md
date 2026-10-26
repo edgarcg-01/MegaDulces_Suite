@@ -82,3 +82,39 @@ aplicaciones): **38 ms**.
 - [ ] **[ECA.5]** Replicar al ODS el catálogo de nombres de grupo (hoy deducidos en código).
 - [ ] **[ECA.6]** Revisar con Finanzas las facturas de sucursal anteriores al 1-oct ($59.9M) y decidir si se aplican en Kepler.
 - [x] **[ECA.7]** Documentos cancelados en Kepler (`kdm1.c43='C'`): Kepler deja el importe en 0 en `kdxe` pero la aplicación sigue en `kdxf`, así que una nota de crédito cancelada rebajaba doble (caso de Francisco: Distribuidora de la Rosa CD015, NC 0000010 de la 03 cancelada y reemplazada por la 0000011 → entradas "Pagadas de más"). Ahora la aplicación cancelada se muestra tachada con etiqueta **Cancelada** y no cuenta; la factura cancelada sale con estado **Cancelado** y su pago vuelve a "sin aplicar". Medido en prod: **319 aplicaciones de 187 cargos cancelados ($10.99M, 63 acreedores) + 16 sobre facturas canceladas ($133k)**; saldo total $89.76M → $100.75M; CD015 $7,424,917.53 → $9,690,501.64. Resumen 0.54 s (⚠️ con `btrim(c43)` el planificador estima 3 cancelados y tarda 52 s: se compara `c43 = 'C'`, valores limpios medidos). 4 pruebas nuevas (1 negativa, mutación verificada); 49/49; build api+view OK. **Revisado 2026-10-12 por tipo de movimiento:** la cancelación es la misma marca en todos (`c43='C'` + importe 0 en `kdxe`): transferencias 239 apps/$7.92M · cheques 21/$1.19M · notas de crédito 60/$1.89M · devoluciones 2/$3k — todas cubiertas. Tras el arreglo: 0 pagos aplicados por más de su importe, 0 aplicaciones huérfanas, 0 duplicadas (`kdxf.c11` = `c10` en el 100%, no es descuento). La marca `R` (23 entradas, $1.54M) NO es cancelación: el importe sigue vivo. Único sobreaplicado restante: GFS001 0006287, **pago doble real** (transferencias 0015878 y 0015879 del 24-jul, $1,149.47 cada una) — es para recuperar, no un error de datos. Validación visual pendiente. 🧪 2026-10-10
+
+---
+
+## Observaciones de diseño UI — revisión del plan (2026-10-26)
+
+> **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
+> sólo se comprueba con la pantalla viva va como criterio a verificar. La ley es
+> [`ESTANDAR_DE_INTERFACES.md`](../../ESTANDAR_DE_INTERFACES.md) (§ = sus secciones) y su
+> implementación [`DESIGN.md`](../../../DESIGN.md). Severidad: 🔴 la pantalla afirmaría algo falso,
+> escondería lo que importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro
+> de la fase · 🟡 mejora; si no entra, queda como deuda con nombre.
+
+**La pregunta que contesta (prueba de la frase, §4.0b):** *«¿Cuánto le debo a cada acreedor de
+este tipo, y qué parte de eso es deuda segura?»* — una sola pregunta; el estado de cuenta casado es
+su evidencia, no otra pregunta. Bien partido.
+
+**Jerarquía propuesta (§3.7 · DESIGN §Q.5):** primario = **saldo del tipo, separado en deuda
+segura / por confirmar** · secundario = la lista de acreedores ordenada por saldo · terciario =
+folio, referencia y fechas del documento.
+
+| # | Sev | Observación (desde la silla de quien la usa) y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| ECA.UI.1 | 🔴 | **«Financieros» afirma que la deuda financiera es $4.4M** y faltan ~$26M de créditos bancarios que sólo viven en la 2140 de ContPAQi. Quien abra el segmento lee «debemos $4.4M a bancos y financieras», que es falso por 6×. | §1.1 · §1.4 · §1.3 | El segmento dice, cerrado y abierto: «No incluye créditos bancarios (~$26M en ContPAQi 2140): aún no están en Kepler (Decisión 2)». El aviso se retira sólo cuando el alta en Kepler esté medida. |
+| ECA.UI.2 | 🔴 | **«Pendiente $138.8M» de mercancía no es deuda:** $59.9M son facturas de sucursal anteriores al 1-oct que muy probablemente se pagaron desde el 00. El plan dice que se suman aparte; la cifra primaria tiene que ser la que se puede defender, no la suma. | §1.6 · §3.2 · §4.0c | Primario = deuda segura; el bloque «por confirmar $59.9M» va a la par, con su porqué en llano. Mostrar la comparación derivada, no dos cifras para que alguien las reste: *«Kepler $138.8M − por confirmar $59.9M = $78.9M · ContPAQi 2120 $79.4M → difieren $0.5M»* (cifras del 7-oct, **antes** de ECA.7, que movió el saldo +$11M: el ejemplo ilustra la forma, la cifra se recalcula). |
+| ECA.UI.3 | 🔴 | **Vencimiento `1800` = «sin fecha»** (decode de `kdxe.c10`). Si una comparación ingenua lo trata como fecha, cada documento sin vencimiento cuenta como **vencido hace 226 años** e infla «Vencido $108.5M» sin que nadie lo note. | §1.3 | Prueba que demuestre que `c10=1800` no suma a Vencido (con caso negativo). En la celda: «sin vencimiento», nunca `01/01/1800` ni vacío. |
+| ECA.UI.4 | 🟠 | **Los 9 acreedores internos ($38.6M) desaparecen sin decirlo.** Quien sume el reporte de Kepler no va a cuadrar con la pantalla y no sabrá por qué. | §1.5 | Una línea fija bajo el selector: «No se listan 9 acreedores internos (sucursales dadas de alta como proveedor), $38.6M: no son deuda». |
+| ECA.UI.5 | 🟠 | **El selector de tipo cerrado no dice cuánto hay en cada tipo.** Hay que entrar a cada uno para saber dónde está el dinero, y «Sin clasificar» (3 acreedores, $6k) se ignora porque no pesa. | §2.1 · §4.2 · DESIGN `app-segmented` | `app-segmented` con conteo y saldo por opción. «Sin clasificar» siempre visible aunque sume poco: es la señal de que la regla de tipo dejó algo afuera. |
+| ECA.UI.6 | 🟠 | **El pago doble de GFS001 y los «pagados de más» se encuentran sólo si alguien abre al acreedor correcto.** El sistema ya sabe cuáles son; la lista de 676 no lo dice. | §3.3 · §3.4 · §4.0c | Columna o chip de anomalía en la lista (pagado de más · pago sin aplicar · factura anterior al 1-oct) con filtro de un clic. El chip lleva texto, no sólo color (§2.3). |
+| ECA.UI.7 | 🟠 | **676 acreedores en una lista: se tiene que poder llegar a los 676** y ordenar como en Excel. Hoy el plan no declara tope ni orden por defecto. | §1.2 · §4.3 · DESIGN D.8 | `p-table` con orden por saldo descendente, búsqueda por clave/nombre/RFC con `coincideBusqueda` (nunca `.includes()`), y si el servidor topa, el aviso de tope a la vista. `npm run check:cifra` en verde. |
+| ECA.UI.8 | 🟠 | **El saldo sale del ODS y no declara su edad.** Un pago que Francisco aplicó hace una hora en Kepler puede no verse, y la pantalla lo dibujaría como deuda viva. | §3.6 · DESIGN §9 | `app-freshness-pill` con la edad del ODS de cuentas por pagar, en el encabezado. |
+| ECA.UI.9 | 🟠 | **La sucursal del documento sale de `c1`** y la réplica cruzada trae documentos de la 02 en la 03. Si la columna muestra «02», nadie sabe qué sucursal es. | regla PM 2026-10-22 · DESIGN skill §4 | Sucursal por nombre con la pipe `\| sucursal`, en celda, filtro y `aria-label`. |
+| ECA.UI.10 | 🟡 | **ECA.3 (imprimir) y ECA.4 (lente ContPAQi) nacerían como segunda y tercera vista del mismo saldo.** Si el PDF no aplica la misma regla de cancelados y la misma separación pre-1-oct, imprime otro universo. | §1.5 · §3.2 | El PDF lleva fecha y hora de corte y los mismos tres bloques que la pantalla. La lente ContPAQi muestra la diferencia leída en llano, no dos columnas para restar. |
+| ECA.UI.11 | 🟡 | **ECA.2 y ECA.7 llevan 19 días con «validación visual pendiente».** Lo que cerró ECA.7 —tachado + etiqueta «Cancelada»— es exactamente lo que sólo se comprueba viéndolo, incluido Alto Contraste, donde un tachado puede desaparecer. | método §4 · §2.3 | Ninguno pasa a 🚀 sin una revisión en nivel A con `auditoria-diseno` (claro, oscuro y `forced-colors`). |
+
+**Lo que esta revisión no cubre:** contraste, alto de fila, pliegue, foco y teclado reales (exigen
+nivel A), y el texto exacto de los avisos, que se valida con Francisco.
