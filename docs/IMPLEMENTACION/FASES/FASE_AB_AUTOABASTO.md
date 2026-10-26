@@ -1994,7 +1994,48 @@ promociones, ABC, «Mi trabajo», Thot. Por eso se corrige la tabla, no una vist
 **Orden:** C1 = la vista `v_sales_daily_ods` (misma forma que `sales_daily`, más `units_base` en la unidad de
 Kepler) + su matview + prueba de paridad por almacén × canal × día · C2 = el cambio de fuente para los 37
 consumidores, **cuando D18 exista**, con antes/después por módulo y fuera de horario · cierre = el
-importer sale de `livefast` y `nightly`.
+importer sale de `livefast` y `nightly`. ⛔ *Corregido en §16.17.2: la vista nueva NO se crea.*
+
+#### 16.17.2 Lo que cambió el plan al medir (2026-10-26)
+
+**1 · La venta del ODS YA existe: no se crea `v_sales_daily_ods`.** `analytics.mv_kepler_sales_daily`
+(sep-2026, 443 MB, al día) deriva de `kepler_ods.kdm1 ⋈ kdm2`, y es la base del sell-out
+(`v_sellout_daily`), del margen (`mv_sales_blended`) y de ~40 objetos más. Crear otra sería la copia
+que prohíbe la regla 2. **C1 pasa a ser extender esa**, y C2 a que el motor la lea en lugar de `sales_daily`.
+
+**2 · La regla de unidades, medida (14 días cerrados, venta de sucursales):** `sales_daily.units` es
+exactamente `sum(kdm2.c9)`, la cantidad en la unidad base de Kepler, en 4,266 de 4,343 SKU (PAQ 2,887/2,921;
+PZA 1,131/1,140; KG 195/195; CJA 10/10). Sólo se aparta en las bases de peso, que el importer pasa a kilos
+(500 → ×0.5, 58 SKU; 250 → ×0.25, 10; 400 → ×0.4, 3), y en CUB/BTO (gramaje, 6). **Regla: `units = c9`**,
+en la unidad de Kepler, que es la de la existencia y la caja. ⚠️ `mv_kepler_sales_daily` multiplica la
+base CJA por el factor de caja (10 SKU, 0.43 % de la venta) y con eso se aparta de Kepler: se corrige al extenderla.
+
+**3 · Las rutas de Padre Hidalgo tampoco están completas en el ODS. Corrige lo dicho en §16.17.1.**
+Kepler 01 guarda sus documentos (`01-00N`) **sólo desde el 20-ago**, y cuando tiene el día coincide con el
+envío al peso. Pero le faltan **27 días enteros** desde el 1-sep (~$476 K): días que nunca subieron de la
+camioneta. La fuente completa es el envío, igual que en Canindo. **D18 se extiende a las 6 camionetas de
+Padre Hidalgo (21–28).**
+
+**4 · El sell-out publica las rutas dos veces → [AB.37].** Su tramo 3 lee `sales_daily` en `RUTA-%` (que
+ya trae la venta al doble) y su tramo 4 vuelve a sumar Canindo desde el envío.
+
+| Mes | Sell-out de rutas hoy | Con el arreglo | De más |
+|---|---:|---:|---:|
+| jun | $4,967,540 | $4,967,540 | 0 |
+| jul | $5,051,175 | $5,044,797 | $6,378 |
+| ago | $7,108,360 | $4,943,097 | $2,165,263 |
+| sep | $9,259,969 | $4,785,269 | $4,474,700 |
+| oct (al 25) | $7,447,575 | $3,805,967 | $3,641,608 |
+
+La venta que no es de ruta no se mueve ni un peso. Medido ejecutando en prod, en sólo lectura, **el texto exacto**
+de la migración `20261026104753_sellout_rutas_sin_doble_conteo.js` (`up` y `down`); el `down` reproduce la
+vista viva fila por fila y las columnas son idénticas. Las rutas quedan = el envío (Padre Hidalgo desde el
+1-jul, Canindo desde el 13-ago; antes, Wincaja, sin cambio).
+
+**5 · El margen tiene el mismo defecto → [AB.38].** `mv_sales_blended` (1.8 GB) une `sales_daily` en
+`RUTA-%`: las rutas de Padre Hidalgo salen al doble en Rentabilidad (~$0.81 M ago, ~$2.46 M sep, ~$2.09 M oct;
+Canindo una sola vez, porque ahí no hay tramo de envío). Arreglarlo exige recrear la matview y sus dependientes:
+escritura pesada, **fuera de horario**, y con el antes/después de Rentabilidad (D19).
 
 ### 16.10 Definición de Terminado
 
