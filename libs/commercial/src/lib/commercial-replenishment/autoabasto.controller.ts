@@ -6,6 +6,7 @@ import type {
   AutoabastoRestablecerRequest, AutoabastoAceptarGrupoRequest, AutoabastoAbrirRequest,
   AutoabastoPosicionesRequest, PosicionPedido,
   AutoabastoRenglonesResponse, EstadoRenglon, SurteRenglon, OrdenMesa,
+  AutoabastoEnviarRequest, AutoabastoEnviarResponse,
 } from '@megadulces/contracts';
 import { ESTADOS_RENGLON, ORDENES_MESA } from '@megadulces/contracts';
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
@@ -251,6 +252,19 @@ export class AutoabastoController {
     const almacen = await this.almacenEnAlcance(body?.warehouse_id);
     if (!body?.product_id || !UUID_RX.test(body.product_id)) throw new BadRequestException('Falta el producto.');
     return this.pedidos.ajustar(almacen.id, body);
+  }
+
+  /**
+   * `[AB.29]` «Enviar a Compras»: lo que le falta por pedir a la sucursal sale como requisición (una
+   * por origen) y le llega a quien tiene la responsabilidad `compras.requisiciones_sucursal`. Mismo
+   * permiso y mismo control de alcance que ajustar: quien arma el pedido de su sucursal lo manda.
+   */
+  @Post('pedido/enviar')
+  @RequirePermissions(Permission.AUTOABASTO_SOLICITAR)
+  @ApiOperation({ summary: '[AB.29] Mi pedido: mandar a Compras lo que falta por pedir (una requisición por origen, por aprobar)' })
+  async enviar(@Body() body: AutoabastoEnviarRequest): Promise<AutoabastoEnviarResponse> {
+    const almacen = await this.almacenEnAlcance(body?.warehouse_id);
+    return this.pedidos.enviar(almacen, AREA_AUTOABASTO, body);
   }
 
   /** `[AB.18]` Vuelve el renglón al sugerido. */

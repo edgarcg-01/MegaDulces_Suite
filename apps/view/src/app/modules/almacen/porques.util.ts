@@ -265,6 +265,7 @@ export function estadoPorQue(
     case 'sin_pedir': return viene > 0
       ? `Faltan ${qty(r.falta_neta)} caja(s) por pedir: ya vienen ${qty(viene)} de ${qty(r.falta)}, y nadie ha pedido el resto.`
       : 'Le falta y nadie lo ha pedido: ni un pedido abierto a la matriz, ni un embarque en camino, ni un plan de Compras.';
+    case 'lo_pediste': return 'Le falta y ya lo mandaste a Compras: espera a que lo aprueben y se pase a Kepler. No se vuelve a pedir.';
     case 'compras_lo_planeo': return 'Le falta, y Compras ya lo planeó, pero todavía no es un pedido en Kepler.';
     case 'ya_viene': return 'Lo que falta ya está pedido o en camino.';
     case 'en_politica': return 'No le falta: está dentro de su objetivo.';

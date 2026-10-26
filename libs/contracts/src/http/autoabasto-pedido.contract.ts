@@ -376,6 +376,12 @@ export interface AutoabastoPedidoLinea {
    * como «ya pedido» y se resta solo. En cajas, la unidad en que captura `/compras/pedido`.
    */
   planeado_compras: number;
+  /**
+   * `[AB.29]` Lo que ESTA sucursal ya pidió a Compras con «Enviar a Compras» (requisición por aprobar,
+   * o aprobada de 7 días o menos), en cajas. **NO se resta** (D14: se cuenta el documento de Kepler,
+   * nunca la requisición): sólo cambia el estado a «Lo pediste a Compras» para que no se pida dos veces.
+   */
+  pedido_sucursal: number;
   /** `falta − ya_pedido − en_camino`, sin redondear. */
   falta_neta: number;
   /** La cantidad a capturar, ya redondeada con la regla de §15.2. */
@@ -425,12 +431,14 @@ export function surteDe(via: unknown, origen: unknown, supplierId: unknown, supp
 }
 
 /** `[AB.26]` Qué pasa con el renglón. El orden es el de lectura: primero lo que nadie ha pedido. */
-export const ESTADOS_RENGLON = ['sin_pedir', 'compras_lo_planeo', 'ya_viene', 'en_politica'] as const;
+export const ESTADOS_RENGLON = ['sin_pedir', 'lo_pediste', 'compras_lo_planeo', 'ya_viene', 'en_politica'] as const;
 export type EstadoRenglon = typeof ESTADOS_RENGLON[number];
 
 export const ESTADO_RENGLON_LABEL: Record<EstadoRenglon, string> = {
   // [AB.35] No «Nadie lo ha pedido»: con cobertura parcial (20 de 32 en camino) eso afirmaba algo falso.
   sin_pedir: 'Falta por pedir',
+  // [AB.29] La sucursal ya lo mandó a Compras y la requisición sigue viva (por aprobar o recién aprobada).
+  lo_pediste: 'Lo pediste a Compras',
   compras_lo_planeo: 'Compras lo planeó',
   ya_viene: 'Ya viene',
   en_politica: 'En política',
@@ -440,14 +448,18 @@ export const ESTADO_RENGLON_LABEL: Record<EstadoRenglon, string> = {
  * `[AB.26]` El estado sale de las cantidades, no de un juicio:
  *  · sin falta → `en_politica`;
  *  · lo que ya viene (pedido abierto + embarque sin recibir) cubre la falta → `ya_viene`;
+ *  · queda falta y la sucursal ya la mandó a Compras → `lo_pediste` (AB.29; tampoco se resta, D14);
  *  · queda falta y Compras la planeó → `compras_lo_planeo` (el plan NO se resta: AB.24 / §16.8);
  *  · queda falta y nadie la pidió → `sin_pedir`. Es el porqué que AB.3b dejó abierto.
  * ⚠️ `ya_viene` gana sobre el plan: sin el folio de Kepler (AB.30) un plan ya capturado aparece también
  * como pedido abierto, y contarlo dos veces diría que hay más en camino de lo que hay.
+ * `lo_pediste` gana sobre el plan de Compras: es lo que la sucursal hizo, y es lo que le impide volver
+ * a mandarlo (`esEnviable`).
  */
-export function estadoRenglon(faltaBase: number, netaBase: number, planeadoCajas: number): EstadoRenglon {
+export function estadoRenglon(faltaBase: number, netaBase: number, planeadoCajas: number, pedidoSucursalCajas = 0): EstadoRenglon {
   if (!(faltaBase > 0)) return 'en_politica';
   if (!(netaBase > 0)) return 'ya_viene';
+  if (pedidoSucursalCajas > 0) return 'lo_pediste';
   if (planeadoCajas > 0) return 'compras_lo_planeo';
   return 'sin_pedir';
 }
@@ -487,6 +499,8 @@ export interface EntradaRenglon {
   viene: VieneBase | null;
   /** Lo planeado por Compras para este almacén, en cajas. */
   planeado_compras: number;
+  /** `[AB.29]` Lo que esta sucursal ya pidió a Compras (requisición viva), en cajas. No se resta. */
+  pedido_sucursal: number;
   escalera: EscaleraUnidades | null;
   /** Lo que la persona dejó guardado, con su cantidad en base. */
   ajuste: (AjusteLinea & { cantidad_base: number }) | null;
@@ -541,6 +555,7 @@ export function armarRenglon(e: EntradaRenglon): RenglonArmado {
       negado_30d: r1((e.viene?.negado ?? 0) / cf),
       en_camino: r1(caminoBase / cf),
       planeado_compras: r1(e.planeado_compras),
+      pedido_sucursal: r1(e.pedido_sucursal),
       falta_neta: r1(netaBase / cf),
       a_pedir: aPedir,
       ajuste,
@@ -549,7 +564,7 @@ export function armarRenglon(e: EntradaRenglon): RenglonArmado {
       posicion: e.posicion,
       minimo_menor: minimo.estado,
       valor_menor: minimo.valor_menor,
-      estado: estadoRenglon(e.falta_base, netaBase, e.planeado_compras),
+      estado: estadoRenglon(e.falta_base, netaBase, e.planeado_compras, e.pedido_sucursal),
       surte: e.surte,
     },
     efectivo_base: efectivoBase,
@@ -589,14 +604,24 @@ export interface AutoabastoPedidoGrupo {
  * (U-D-40: autorizado, surtido o checado) o un embarque todavía sin recibir (U-D-41).
  */
 export interface AutoabastoVieneDoc {
-  /** `plan` = traspaso que decidió Compras y todavía no está en Kepler (`[AB.24]`): nunca se resta. */
-  tipo: 'pedido' | 'embarque' | 'plan';
-  /** Código de la sucursal que manda. La pantalla la NOMBRA. */
+  /**
+   * `plan` = traspaso que decidió Compras y todavía no está en Kepler (`[AB.24]`): nunca se resta.
+   * `requisicion` = `[AB.29]` lo que ESTA sucursal mandó a Compras con «Enviar a Compras»: nunca se resta.
+   */
+  tipo: 'pedido' | 'embarque' | 'plan' | 'requisicion';
+  /** Código de la sucursal que manda. La pantalla la NOMBRA. En una requisición a proveedor, `''`. */
   origen: string;
+  /** `[AB.29]` En una requisición a proveedor, a quién se le compra. `null` en los demás. */
+  proveedor?: string | null;
   serie: number;
   folio: string;
-  /** `AUTORIZADO` · `SURTIDO` · `CHECADO` (pedido) · `EMBARCADO` (embarque sin recibir) · `PLANEADO` (plan). */
+  /**
+   * `AUTORIZADO` · `SURTIDO` · `CHECADO` (pedido) · `EMBARCADO` (embarque sin recibir) · `PLANEADO` (plan).
+   * `[AB.29]` Requisición: `POR APROBAR` · `APROBADA` · `RECHAZADA`.
+   */
   estado: string;
+  /** `[AB.32]` Por qué Compras rechazó la requisición. Sólo en `RECHAZADA`. */
+  motivo?: string | null;
   fecha: string;
   dias: number;
   renglones: number;
@@ -604,6 +629,65 @@ export interface AutoabastoVieneDoc {
   monto: number | null;
   /** ¿Se resta del pedido? Lo de más días que su ventana se muestra para reclamarlo, no se resta. */
   se_resta: boolean;
+}
+
+// ── [AB.29] «Enviar a Compras»: la requisición que genera la sucursal ──────────────────────────
+
+/**
+ * `[AB.29]` ¿Este renglón se puede mandar a Compras? La MISMA regla en la pantalla (qué renglones
+ * cuenta el botón) y en el servidor (qué renglones acepta). Sólo lo que de verdad falta por pedir:
+ * no lo que ya viene, ni lo que la sucursal ya pidió, ni lo que Compras ya planeó; con a quién
+ * pedírselo (sin ruta no hay a quién) y con una cantidad que llevar.
+ */
+export function esEnviable(l: Pick<AutoabastoPedidoLinea, 'estado' | 'surte' | 'ajuste' | 'a_pedir'>): boolean {
+  return motivoNoEnviable(l) === null;
+}
+
+/**
+ * `[AB.29]` El renglón ya se mandó a Compras: sigue a la vista con su estado, pero NO suma como «a
+ * pedir» en la sucursal (ni en los grupos de «Mi pedido», ni en el resumen de la mesa, ni en el PDF
+ * para Kepler). Si sumara, la sucursal lo pediría dos veces: en la requisición y capturado en Kepler.
+ */
+export function yaSeMandoACompras(l: Pick<AutoabastoPedidoLinea, 'estado'>): boolean {
+  return l.estado === 'lo_pediste';
+}
+
+/** `[AB.29]` Por qué un renglón NO se manda a Compras, en palabras de la sucursal. `null` = sí se manda. */
+export function motivoNoEnviable(l: Pick<AutoabastoPedidoLinea, 'estado' | 'surte' | 'ajuste' | 'a_pedir'>): string | null {
+  if (l.estado === 'lo_pediste') return 'Ya lo pediste a Compras';
+  if (l.estado === 'compras_lo_planeo') return 'Compras ya lo planeó';
+  if (l.estado === 'ya_viene') return 'Ya viene lo que falta';
+  if (l.estado === 'en_politica') return 'No le falta';
+  if (l.surte.tipo === 'sin_ruta') return 'No tiene a quién pedírselo (sin ruta configurada)';
+  const cantidad = l.ajuste ? l.ajuste.cantidad : l.a_pedir.cantidad;
+  if (!(cantidad > 0)) return 'La cantidad a pedir es 0';
+  return null;
+}
+
+/** `[AB.29]` Lo que manda la pantalla: QUÉ renglones. Las cantidades y a quién se le pide los pone el servidor. */
+export interface AutoabastoEnviarRequest {
+  warehouse_id: string;
+  product_ids: string[];
+  /** Nota para Compras (opcional). */
+  nota?: string | null;
+}
+
+/** `[AB.29]` Una requisición creada: una por origen (su matriz, o cada proveedor). */
+export interface AutoabastoRequisicionCreada {
+  id: string;
+  folio: string;
+  surte: SurteRenglon;
+  renglones: number;
+  /** Suma en cajas de la mesa. */
+  total_cajas: number;
+}
+
+export interface AutoabastoEnviarResponse {
+  requisiciones: AutoabastoRequisicionCreada[];
+  /** Lo que se pidió y NO se mandó, con el porqué (ya no falta, ya lo pediste, sin ruta…). */
+  omitidos: Array<{ product_id: string; motivo: string }>;
+  /** A quién le llega: los nombres de quien tiene la responsabilidad. Vacío = nadie la tiene repartida. */
+  le_llega_a: string[];
 }
 
 export interface AutoabastoViene {
