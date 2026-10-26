@@ -244,6 +244,26 @@ export function descuentoDerivado(lista: number | null | undefined, precio: numb
 }
 
 /**
+ * `[E.29]` El descuento de un MECANISMO (volumen, promoción) contra la lista. A lista no hay
+ * mecanismo: la diferencia es el redondeo de Kepler por unidad base (ALTOS CAM 1 BTO: lista
+ * $1,169.91, cobra 20 × $58.50 = $1,170.00) y pintarla como «−0.01 %» afirmaba un descuento que
+ * no existe. Recibe el código (`list`) o el rótulo («Lista»): la hoja recibe el rótulo.
+ * Negativo = el tramo cuesta MÁS que la lista (Kepler lo cobra igual): recargo, no se esconde.
+ */
+export function descuentoDelMecanismo(
+  lista: number | null | undefined,
+  precio: number | null | undefined,
+  fuente: string | null | undefined,
+): number | null {
+  return fuente === 'list' || fuente === FUENTE_PRECIO['list'] ? null : descuentoDerivado(lista, precio);
+}
+
+/** `[E.29]` «−7.98%», o «+0.40%» si es recargo. `menos` = «-» ASCII para el PDF (WinAnsi). */
+export function textoDescuento(pct: number, menos = '−'): string {
+  return pct > 0 ? `${menos}${pct}%` : `+${-pct}%`;
+}
+
+/**
  * [E.29] La existencia de la sucursal (viene en la unidad BASE de Kepler) en la unidad del
  * renglón, y cuánto falta para surtir la cantidad pedida. Misma regla que checkQuote.
  */

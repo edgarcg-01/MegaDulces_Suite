@@ -4,7 +4,7 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
-import { etiquetaFuentePrecio, tonoFuentePrecio, type PasoDesglose } from '../quote-units';
+import { etiquetaFuentePrecio, textoDescuento, tonoFuentePrecio, type PasoDesglose } from '../quote-units';
 import { notaRedondeo } from '../quote-discount-breakdown';
 
 /**
@@ -158,7 +158,7 @@ export interface CambioCantidad {
           </td>
           <td role="cell" data-label="De dónde sale">
             <p-tag [value]="etiqueta(r.fuente)" [severity]="tono(r.fuente)" />
-            @if (r.dtoPct) { <span class="dto">−{{ r.dtoPct }}%</span> }
+            @if (r.dtoPct) { <span class="dto" [class.recargo]="r.dtoPct < 0">{{ textoDto(r.dtoPct) }}</span> }
             @if (r.explicacion) { <span class="explica">{{ r.explicacion }}</span> }
             @if (r.pasos) { <span class="pasos">{{ r.pasos }}</span> }
             @if (redondeo(r); as nota) { <span class="pasos">{{ nota }}</span> }
@@ -216,6 +216,7 @@ export interface CambioCantidad {
       .sin-casar { font-size: 0.7rem; color: var(--warn-soft-fg); margin-left: 0.35rem; }
       .factor { margin-left: 0.25rem; font-size: 0.7rem; color: var(--text-muted); }
       .dto { font-size: 0.7rem; color: var(--ok-soft-fg); margin-left: 0.3rem; }
+      .dto.recargo { color: var(--bad-fg); }
       .explica { display: block; font-size: var(--fs-xs); color: var(--text-main); }
       .cliente { display: block; margin-top: 0.25rem; }
       .pasos { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
@@ -251,6 +252,7 @@ export class QuoteLinesTableComponent {
 
   etiqueta(s: string): string { return etiquetaFuentePrecio(s); }
   tono(s: string): 'success' | 'info' | 'warn' | 'danger' | 'secondary' { return tonoFuentePrecio(s); }
+  textoDto(p: number): string { return textoDescuento(p); }
 
   dinero(v: number | null): string {
     return v === null ? '—' : v.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });

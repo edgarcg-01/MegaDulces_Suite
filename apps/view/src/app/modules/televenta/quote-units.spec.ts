@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { abrevUnidadBase, desglose, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, existenciaEnUnidad, tonoFuentePrecio } from './quote-units';
+import { abrevUnidadBase, desglose, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, descuentoDelMecanismo, textoDescuento, existenciaEnUnidad, tonoFuentePrecio } from './quote-units';
 import { pasosDelPrecio } from './quote-discount-breakdown';
 import { etiquetaDesglose } from './quote-deliverable-export';
 import type { QuoteCatalogRow } from './quotes.service';
@@ -146,6 +146,20 @@ describe('renglón antes de guardar = renglón guardado', () => {
 
   it('sin lista o sin precio NO es 0 %: es null', () => {
     for (const [l, p] of [[null, 10], [0, 10], [10, null], [undefined, 1]] as const) expect(descuentoDerivado(l, p)).toBeNull();
+  });
+
+  it('[E.29] a lista no hay descuento de mecanismo: el centavo es el redondeo de Kepler (código o rótulo)', () => {
+    expect(descuentoDerivado(1169.91, 1170)).toBe(-0.01); // control: la cuenta cruda sí da «−0.01 %»
+    expect(descuentoDelMecanismo(1169.91, 1170, 'list')).toBeNull();
+    expect(descuentoDelMecanismo(1169.91, 1170, 'Lista')).toBeNull();
+    expect(descuentoDelMecanismo(26.94, 24.79, 'volume_qty')).toBe(7.98);
+    expect(descuentoDelMecanismo(50, 50.2, 'volume_qty')).toBe(-0.4);
+  });
+
+  it('[E.29] el texto del descuento dice recargo con «+», y el PDF lleva guion ASCII', () => {
+    expect(textoDescuento(7.98)).toBe('−7.98%');
+    expect(textoDescuento(-0.4)).toBe('+0.4%');
+    expect(textoDescuento(7.98, '-')).toBe('-7.98%');
   });
 
   it('la existencia en la unidad del renglón y lo que falta (60 base en PAQ de 10, piden 7: hay 6, faltan 1)', () => {
