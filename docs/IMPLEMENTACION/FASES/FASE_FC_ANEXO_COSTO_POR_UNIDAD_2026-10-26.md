@@ -10,7 +10,7 @@ MÉTRICA:  gasto de flota de Transportes del mes ASIGNADO Y CONFIRMADO a una uni
 CAPA TOPE: C3
 ÁREA:      Logística
 DUEÑO:     (PM asigna) · operación: Leonardo Cazares / Juan (embarques)
-ESTADO:    ⬜ — sin cupo (4/4 🔨: AB · CGA · RH · PQ). Ver D1.
+ESTADO:    🔨 — abierta por el PM el 2026-10-26 como 5ª fase en curso («sí, agrupemos todo como debe ser correcto»).
 ```
 
 > Pedido (Edgar, 2026-10-26): *«este Excel se dejará de usar, pero necesitamos abarcar todo lo que
