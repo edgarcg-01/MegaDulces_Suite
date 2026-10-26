@@ -9160,6 +9160,28 @@ TP.6-TP.8+TP.10".
 > - **[CGA-A.52]** ⬜ **C3.** Captura: «¿de dónde salió el dinero?» obligatorio; al enlazar un retiro
 >   se toma **una parte** (≤ disponible, ≤ lo que falta del gasto) y ya no se copian sus billetes.
 >   Bandeja «retiros de hoy» para clasificar, y saldo a cargo por persona con antigüedad.
+> - [x] **[CGA-A.55]** 🔨 **Los billetes de cada pedazo del retiro (C0–C2, sin desplegar).** Edgar:
+>   *«un egreso de CAOS de 100,000 se puede vincular a 4 movimientos, pero debe conciliar los
+>   billetes… deberían existir 20 en caja con cierta denominación + el fondo»*. Migración
+>   `20261026110741`: `caos_cash_links.billetes` / `.cambio` y trigger que exige que sumen el monto y
+>   que **ningún gasto entregue un billete que el retiro no traía** (lo que contó la máquina + el
+>   cambio que regresó − lo entregado ≥ 0, por denominación). Motor `remanenteDeRetiro` /
+>   `regresoCuadra`: el regreso a CAOS cuadra billete por billete (mismo monto en otros billetes se
+>   rechaza). `GET …/retiros` trae `billetes_quedan` de cada custodia abierta. Enlaces viejos sin
+>   billetes: el remanente por denominación se declara NO afirmable, sólo el monto. Base real:
+>   sección 6b de `test-newdb-caja-custodia.js` (4 negativas + mutación); el preparador de `caja-db`
+>   trae la migración por lista explícita (`REGLAS_SOBRE_LO_QUE_LEE`).
+> - [x] **[CGA-A.56]** 🔨 **Todo egreso dice de dónde salió el dinero: retiros de CAOS o cajón (C0–C2,
+>   sin desplegar).** Edgar eligió permitir «cajón» explícito. Migración `20261026111610`:
+>   `cash_ledger.origen_efectivo` (`caos` | `cajon`, nullable: lo viejo no se inventa). Regla pura
+>   `origenDelEgreso` en el único `insert` del libro (`create`, al que llegan captura, lote y
+>   autollenado); obligatoria desde `CAJA_EGRESO_ORIGEN_DESDE` (APAGADA). El lote declara `cajon`
+>   para todos sus egresos. ⚠️ Con el freno prendido, el autollenado deja sus egresos para una persona
+>   (no sabe de dónde salió el dinero). 30 pruebas del motor; `libs/finance` 1,743 ✓; `lint:boundary` ✓.
+> - **[CGA-A.57]** ⬜ **Ligar el historial con propuestas + confirmación** (decisión de Edgar). Octubre
+>   en adelante contra los gastos del libro; mayo–sep ($16.5 M, 326 retiros) contra los egresos de
+>   Kepler (cuenta `0011`), porque el libro empieza el 25-sep. Nada se liga solo (1 de cada 3 parejas
+>   por monto es azar); lo que nadie confirma queda declarado «sin egreso» con monto y responsable.
 > - **[CGA-A.53]** ⬜ Prueba de un tercero por gasto (CFDI forma de pago 01, o factura + recepción en
 >   Kepler), usada una sola vez. Sin esto un gasto inventado se enlaza y cuadra.
 > - **[CGA-A.54]** ⬜ `analytics.caos_cash_counts` tiene **0 filas** en prod: el conteo propio de la
