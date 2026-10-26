@@ -24,6 +24,7 @@ import { armarSenales } from './pedido-senales';
 import { AVISO_TRANSITO, POLITICA_TRANSITO, type PoliticaTransito, transitoDescontado, transitoMostrado } from './transito';
 import { mensajeFraccion, renglonesConFraccion } from './fraccion-caja';
 import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lote-repetido';
+import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -252,6 +253,30 @@ export interface WorklistProveedoresResponse {
   rows: WorklistProveedorRow[];
 }
 
+/** `[RQ.4]` El acuse de un cambio de estado de UNA requisición: lo que quedó, no lo que se pidió. */
+export interface RequisicionEstadoCambiado {
+  id: string;
+  estado: string;
+}
+
+/**
+ * `[RQ.4]` El acuse de un «aprobar/rechazar» en LOTE.
+ *
+ * ⭐ Las cuatro cifras existen porque `pedidas ≠ hechas` es lo normal, no la excepción: cada
+ * requisición va en su propia transacción y lo que no pasa se informa con su motivo en vez de
+ * tirar abajo el resto. Publicar sólo `hechas` dejaría a quien aprueba sin saber cuál falló.
+ */
+export interface RequisicionesLoteResultado {
+  /** Cuántas se pidieron, ya deduplicadas. */
+  pedidas: number;
+  /** Cuántas quedaron en el estado nuevo. */
+  hechas: number;
+  /** Los ids que sí pasaron. */
+  ok: string[];
+  /** Los que no, cada uno con su motivo — nunca una lista de ids a secas. */
+  fallas: Array<{ id: string; motivo: string }>;
+}
+
 // RA-PRO.8 — worklist "qué toca" (ciclos de reabasto por almacén×proveedor).
 export interface WorklistQuery {
   warehouse_id?: string;
@@ -422,6 +447,11 @@ export interface RequisitionListRowDto {
   oc_folio?: string | null;
   source_warehouse_code: string | null;
   source_warehouse_name: string | null;
+  /** `[AB.29]` La pidió una sucursal desde Autoabasto. `false` también si la migración no se ha aplicado. */
+  requested_by_branch?: boolean;
+  /** `[AB.32]` Por qué se rechazó. `null` = no se rechazó, o se rechazó antes de que existiera la constancia. */
+  rejection_reason?: string | null;
+  rejected_at?: string | null;
 }
 
 /**
@@ -4019,13 +4049,59 @@ export class CommercialReplenishmentService {
   }
 
   /**
+   * `[AB.29]` Las requisiciones que manda UNA sucursal desde Autoabasto («Enviar a Compras»): una por
+   * origen, todas en una transacción (entran todas o ninguna), marcadas `requested_by_branch`.
+   *
+   * ⚠️ Dos candados contra pedir lo mismo dos veces:
+   *  · `pg_advisory_xact_lock` por almacén: dos clics (o dos personas) de la misma sucursal se forman
+   *    en fila en vez de crear las dos;
+   *  · dentro de esa fila se vuelve a mirar lo que ya está vivo (por aprobar, o aprobado de 7 días o
+   *    menos — la misma ventana que la pantalla, `VENTANA_YA_PEDIDO_DIAS`) y esos productos se quitan
+   *    y se devuelven en `ya_pedidos`. Una requisición que se queda sin renglones no se crea.
+   *
+   * Sin la migración `20261026084306` no hay dónde marcarla: se dice (503), no se crea una requisición
+   * de sucursal que nadie podría distinguir de una de Compras.
+   */
+  async crearRequisicionesDeSucursal(
+    warehouseId: string, dtos: CreateRequisitionDto[],
+  ): Promise<{ creadas: Array<{ id: string; folio: string; indice: number; renglones: number; total_units: number }>; ya_pedidos: string[] }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const lista = (await trx.raw(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'commercial' AND table_name = 'purchase_requisitions' AND column_name = 'requested_by_branch'`,
+      )).rows.length > 0;
+      if (!lista) throw new ServiceUnavailableException('Falta aplicar la migración de las requisiciones de sucursal (20261026084306): todavía no se pueden mandar a Compras.');
+      await trx.raw('SELECT pg_advisory_xact_lock(hashtext(?))', [`ab29:${tenantId}:${warehouseId}`]);
+      const ids = [...new Set(dtos.flatMap((d) => d.lines.map((l) => l.product_id)))];
+      const vivos = new Set<string>((await trx.raw(`
+        SELECT DISTINCT l.product_id
+          FROM commercial.purchase_requisitions r
+          JOIN commercial.purchase_requisition_lines l ON l.tenant_id = r.tenant_id AND l.requisition_id = r.id
+         WHERE r.tenant_id = ? AND r.warehouse_id = ? AND r.requested_by_branch
+           AND (r.estado = 'pending_approval'
+                OR (r.estado = 'approved' AND COALESCE(r.approved_at, r.created_at) >= now() - make_interval(days => ?)))
+           AND l.product_id = ANY(?::uuid[])`,
+        [tenantId, warehouseId, VENTANA_YA_PEDIDO_DIAS, ids])).rows.map((r: { product_id: string }) => r.product_id));
+      const creadas: Array<{ id: string; folio: string; indice: number; renglones: number; total_units: number }> = [];
+      for (const [indice, dto] of dtos.entries()) {
+        const lines = dto.lines.filter((l) => !vivos.has(l.product_id));
+        if (!lines.length) continue;
+        const r = await this.insertRequisition(trx, tenantId, { ...dto, lines }, { deSucursal: true });
+        creadas.push({ id: r.id, folio: r.folio, indice, renglones: r.total_lines, total_units: r.total_units });
+      }
+      return { creadas, ya_pedidos: [...vivos] };
+    });
+  }
+
+  /**
    * `[RQ.8]` El insert de UNA requisición, con sus validaciones, **recibiendo la transacción**.
    *
    * Se extrajo de `createRequisition` para que la creación suelta y la del lote compartan
    * exactamente el mismo código. ⚠️ No abre su propia transacción a propósito: anidar
    * `tk.run()` dentro de otro `tk.run()` es un error conocido de este repo.
    */
-  private async insertRequisition(trx: Knex.Transaction, tenantId: string, dto: CreateRequisitionDto) {
+  private async insertRequisition(trx: Knex.Transaction, tenantId: string, dto: CreateRequisitionDto, opts?: { deSucursal?: boolean }) {
     const userId = this.tenantCtx.get()?.userId ?? null;
     if (!dto?.warehouse_id || !UUID_RX.test(dto.warehouse_id)) throw new BadRequestException('warehouse_id inválido');
     const basis = this.basis(dto.target_basis);
@@ -4072,6 +4148,8 @@ export class CommercialReplenishmentService {
           folio, estado: 'pending_approval', target_basis: basis,
           total_lines: lines.length, total_units: totalUnits, total_cost: Number(totalCost.toFixed(4)),
           notes: dto.notes ?? null, created_by: userId,
+          // `[AB.29]` Sólo la escribe `crearRequisicionesDeSucursal`, que antes verificó que la columna existe.
+          ...(opts?.deSucursal ? { requested_by_branch: true } : {}),
         })
         .returning(['id', 'folio', 'estado']);
 
@@ -4279,7 +4357,7 @@ export class CommercialReplenishmentService {
   }
 
   async listRequisitions(
-    q: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; kepler?: string; page?: number; pageSize?: number },
+    q: { estado?: string; warehouse_id?: string; source_type?: string; batch_id?: string; search?: string; kepler?: string; de_sucursal?: string; page?: number; pageSize?: number },
   ): Promise<RequisitionListDto> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
@@ -4301,6 +4379,11 @@ export class CommercialReplenishmentService {
       }
       // `[RQ.8]` Los documentos de UN lote. Es lo que abre la fila de la bandeja agrupada.
       if (q.batch_id && UUID_RX.test(q.batch_id)) base.andWhere('r.batch_id', q.batch_id);
+      // `[AB.32]` Sólo lo que pidieron las sucursales (D15: Compras lo atiende aquí, no en otra bandeja).
+      // Por `to_jsonb` por lo mismo que la OC de abajo: sin la migración la marca no existe y no hay ninguna.
+      if (q.de_sucursal === '1' || q.de_sucursal === 'true') {
+        base.andWhereRaw(`(to_jsonb(r) ->> 'requested_by_branch') = 'true'`);
+      }
       // `[RQ.9]` Buscar por folio o por proveedor. Hasta acá el ÚNICO filtro de la pantalla era
       // el estado: con 670 requisiciones y 50 por página, encontrar un folio eran 14 páginas.
       if (q.search && q.search.trim()) {
@@ -4354,6 +4437,10 @@ export class CommercialReplenishmentService {
           trx.raw(`to_jsonb(r) ->> 'kepler_sucursal' AS kepler_sucursal`),
           trx.raw(`to_jsonb(r) ->> 'kepler_folio'    AS kepler_folio`),
           trx.raw(`to_jsonb(r) ->> 'kepler_error'    AS kepler_error`),
+          // `[AB.29]` / `[AB.32]` Pedida por sucursal y, si se rechazó, por qué. Mismo `to_jsonb`.
+          trx.raw(`COALESCE((to_jsonb(r) ->> 'requested_by_branch')::boolean, false) AS requested_by_branch`),
+          trx.raw(`to_jsonb(r) ->> 'rejection_reason' AS rejection_reason`),
+          trx.raw(`to_jsonb(r) ->> 'rejected_at'      AS rejected_at`),
           trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'),
           // `[RQ.2]` La ANTIGUEDAD viaja en la fila. Sin ella la lista ordena por fecha y el
           // lector tiene que restar de cabeza para darse cuenta de que esa requisicion lleva
@@ -4637,7 +4724,7 @@ export class CommercialReplenishmentService {
     });
   }
 
-  private async setEstado(id: string, from: string, to: string, extra?: Record<string, unknown>) {
+  private async setEstado(id: string, from: string, to: string, extra?: Record<string, unknown>): Promise<RequisicionEstadoCambiado> {
     const tenantId = this.tenantCtx.requireTenantId();
     const userId = this.tenantCtx.get()?.userId ?? null;
     if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
@@ -4685,7 +4772,35 @@ export class CommercialReplenishmentService {
     // `[KR.5]` El empuje cuelga de aprobar. `empujar:false` lo apaga para el lote (ver bulkEstado).
     return { ...r, kepler: empujar ? await this.pushKeplerTrasAprobar(id) : { estado: 'en_lote' } };
   }
-  reject(id: string) { return this.setEstado(id, 'pending_approval', 'cancelled'); }
+  /**
+   * Rechaza (pending_approval → cancelled).
+   *
+   * `[AB.32]` Una requisición que generó una SUCURSAL exige motivo, y se guarda quién, cuándo y por
+   * qué: la sucursal lo ve en «Lo que te llega» y sabe si volver a pedirlo o no. Sin motivo, la
+   * sucursal sólo vería «rechazada» y volvería a mandarla. Las demás aceptan motivo y lo guardan si
+   * viene (hacerlo obligatorio para todas es `[PQ.9]`, que reusa estas columnas).
+   * Sin la migración `20261026084306` se rechaza como antes, sin constancia: no hay dónde guardarla.
+   */
+  async reject(id: string, motivo?: string | null): Promise<RequisicionEstadoCambiado> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
+    const porque = String(motivo ?? '').trim().slice(0, 500);
+    const conConstancia = await this.tk.run(async (trx) => {
+      const col = (await trx.raw(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'commercial' AND table_name = 'purchase_requisitions' AND column_name = 'requested_by_branch'`,
+      )).rows.length > 0;
+      if (!col) return false;
+      const r = await trx('commercial.purchase_requisitions').where({ tenant_id: tenantId, id }).first('requested_by_branch');
+      if (r?.requested_by_branch && !porque) {
+        throw new BadRequestException('Esta requisición la pidió una sucursal: para rechazarla escribe el motivo. La sucursal lo va a ver.');
+      }
+      return true;
+    });
+    if (!conConstancia || !porque) return this.setEstado(id, 'pending_approval', 'cancelled');
+    const userId = this.tenantCtx.get()?.userId ?? null;
+    return this.setEstado(id, 'pending_approval', 'cancelled', { rejection_reason: porque, rejected_by: userId, rejected_at: new Date() });
+  }
 
   /**
    * `[KR.5]` — **El empuje a Kepler cuelga de APROBAR, y no puede voltear la aprobación.**
@@ -4732,7 +4847,7 @@ export class CommercialReplenishmentService {
    * transacción para todas haría que un renglón con el costo movido tirara abajo las otras 49, y
    * quien aprueba se quedaría sin saber cuál falló. Lo que no pasa, se dice con su motivo.
    */
-  async bulkEstado(ids: string[], accion: 'approve' | 'reject') {
+  async bulkEstado(ids: string[], accion: 'approve' | 'reject', motivo?: string | null): Promise<RequisicionesLoteResultado> {
     const unicos = [...new Set((ids || []).filter((x) => typeof x === 'string' && UUID_RX.test(x)))];
     if (!unicos.length) throw new BadRequestException('No se recibió ninguna requisición válida');
     if (unicos.length > 200) throw new BadRequestException('Máximo 200 requisiciones por lote');
@@ -4745,7 +4860,7 @@ export class CommercialReplenishmentService {
         // la duda de cuáles salieron. Las requisiciones quedan aprobadas con `kepler_folio` en
         // NULL, que es exactamente el estado "todavía no salió" que la bandeja sabe mostrar y
         // reintentar. Se declara, no se dibuja como entregado.
-        await (accion === 'approve' ? this.approve(id, false) : this.reject(id));
+        await (accion === 'approve' ? this.approve(id, false) : this.reject(id, motivo));
         ok.push(id);
       } catch (e: unknown) {
         fallas.push({ id, motivo: (e as { message?: string })?.message || 'no se pudo' });

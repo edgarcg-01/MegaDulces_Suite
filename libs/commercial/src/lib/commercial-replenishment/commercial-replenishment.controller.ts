@@ -3,7 +3,7 @@ import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import { MonthlySalesResponse, OcDetalleDto, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
-import { CommercialReplenishmentService, CreateRequisitionDto, LoteRequisicionesCreado, parseSoloQuedado, ReceiveRequisitionDto, WorklistProveedoresResponse } from './commercial-replenishment.service';
+import { CommercialReplenishmentService, CreateRequisitionDto, LoteRequisicionesCreado, parseSoloQuedado, ReceiveRequisitionDto, RequisicionEstadoCambiado, RequisicionesLoteResultado, WorklistProveedoresResponse } from './commercial-replenishment.service';
 import { ReplenishmentExportService, PedidoExport } from './replenishment-export.service';
 
 const REQ_ESTADO_LABEL: Record<string, string> = {
@@ -464,7 +464,7 @@ export class CommercialReplenishmentController {
 
   @Get('requisitions')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_VER)
-  @ApiOperation({ summary: '[RQ.9] Lista de requisiciones. Filtros: estado, warehouse_id, source_type, batch_id (los documentos de un lote), search (folio, proveedor o folio de lote) y kepler=sin_documento ([PQ.1] aprobadas sin documento en el ERP).' })
+  @ApiOperation({ summary: '[RQ.9] Lista de requisiciones. Filtros: estado, warehouse_id, source_type, batch_id (los documentos de un lote), search (folio, proveedor o folio de lote), kepler=sin_documento ([PQ.1] aprobadas sin documento en el ERP) y de_sucursal=1 ([AB.32] las que pidió una sucursal desde Autoabasto).' })
   listRequisitions(
     @Query('estado') estado?: string,
     @Query('warehouse_id') warehouse_id?: string,
@@ -472,10 +472,11 @@ export class CommercialReplenishmentController {
     @Query('batch_id') batch_id?: string,
     @Query('search') search?: string,
     @Query('kepler') kepler?: string,
+    @Query('de_sucursal') de_sucursal?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.listRequisitions({ estado, warehouse_id, source_type, batch_id, search, kepler, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.listRequisitions({ estado, warehouse_id, source_type, batch_id, search, kepler, de_sucursal, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('requisitions/:id')
@@ -515,16 +516,17 @@ export class CommercialReplenishmentController {
   @Post('requisitions/bulk')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_AUTORIZAR)
   @ApiOperation({ summary: '[RQ.4] Aprueba o rechaza varias requisiciones de una (máx. 200). Cada una va en su propia transacción: lo que no pasa se informa con su motivo, sin tirar abajo el resto.' })
-  bulk(@Body() dto: { ids?: string[]; accion?: 'approve' | 'reject' }) {
-    return this.svc.bulkEstado(dto?.ids || [], dto?.accion === 'reject' ? 'reject' : 'approve');
+  bulk(@Body() dto: { ids?: string[]; accion?: 'approve' | 'reject'; motivo?: string | null }): Promise<RequisicionesLoteResultado> {
+    // `[AB.32]` El motivo (opcional) aplica a todas las rechazadas; una de sucursal sin motivo falla sola.
+    return this.svc.bulkEstado(dto?.ids || [], dto?.accion === 'reject' ? 'reject' : 'approve', dto?.motivo ?? null);
   }
 
   // Rechazar es la OTRA CARA de la misma decisión: si alguien más pudiera rechazar, podría matar
   // lo que ella tenía que autorizar. Va con `approve`, no con la operación.
   @Post('requisitions/:id/reject')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_AUTORIZAR)
-  @ApiOperation({ summary: 'Rechaza una requisición (pending_approval → cancelled).' })
-  reject(@Param('id') id: string) { return this.svc.reject(id); }
+  @ApiOperation({ summary: 'Rechaza una requisición (pending_approval → cancelled). Body { motivo }: OBLIGATORIO si la pidió una sucursal [AB.32]; se guarda con quién y cuándo.' })
+  reject(@Param('id') id: string, @Body() body?: { motivo?: string | null }): Promise<RequisicionEstadoCambiado> { return this.svc.reject(id, body?.motivo ?? null); }
 
   /**
    * `[RQ.15]` ⚠️ **Cambio de contrato:** el cuerpo con la OC de Kepler ahora es OBLIGATORIO.
