@@ -86,7 +86,9 @@ export type ResponsabilidadKey =
    * día** (Dirección). Son dos pasos distintos de la misma responsabilidad, igual que
    * `finanzas.presupuesto`, y van en dos bandejas porque el conteo de uno esconde al del otro.
    */
-  | 'finanzas.pagos';
+  | 'finanzas.pagos'
+  /** `[AB.32]` Lo que pidieron las sucursales desde Autoabasto, por aprobar (mig `20261026084306`). */
+  | 'compras.requisiciones_sucursal';
 
 /**
  * `[SN.15]` Lo que cada conteo necesita saber de quién pregunta.
@@ -1052,6 +1054,51 @@ export const BANDEJAS: readonly BandejaDef[] = [
      * no dice quién pagó— así que una lista de importes en la portada no decide nada: el trabajo
      * es abrir la pantalla, ver el candidato y ligarlo.
      */
+  },
+
+  // ── `[AB.32]` Compras: lo que pidieron las sucursales ──────────────────────────────────────
+  /*
+   * La sucursal manda lo que le falta desde Autoabasto («Enviar a Compras», `[AB.29]`) y le tiene
+   * que LLEGAR a alguien. Medido el 2026-10-23 (FASE_AB §16.13): crear, aprobar o rechazar una
+   * requisición no avisaba a nadie, y 590 traspasos aprobados llevaban una semana parados sin que
+   * nadie lo viera. Decisión del PM (2026-10-26): le llega a la jefa de Compras, POR PERSONA — la
+   * responsabilidad se reparte en `user_responsibilities` (mig `20261026084306`), no por puesto,
+   * porque hay dos personas con el puesto y sólo una aprueba (738 de 739 traspasos en 30 días).
+   */
+  {
+    id: 'requisiciones-de-sucursal',
+    label: 'Requisiciones de sucursal por aprobar',
+    detalle: 'una sucursal pidió lo que le falta desde Autoabasto · apruébala o recházala con motivo',
+    ruta: '/compras/requisiciones',
+    icono: 'pi pi-inbox',
+    alcance: 'bandeja',
+    responsabilidad: 'compras.requisiciones_sucursal',
+    // La aprueba Compras para toda la red: no hay eje de sucursal que acotar para quien la recibe.
+    acotablePorSucursal: false,
+    /*
+     * **1 día.** Política, no medición: la sucursal la manda porque YA le falta, y cada día que
+     * espera es venta que no ocurre. La mediana de aprobación de un traspaso hoy es 46 h (§16.13):
+     * nace `atrasada` si se trabaja al ritmo de hoy, y eso es lo que tiene que verse.
+     */
+    umbral_dias: 1,
+    /*
+     * `COMPRAS_REQUISICIONES_VER`: es el permiso que gatea `/compras/requisiciones` (regla dura 1 de
+     * este registro). Aprobar o rechazar lo sigue gateando el servidor con `_AUTORIZAR`.
+     */
+    anyOf: [Permission.COMPRAS_REQUISICIONES_VER],
+    medir: (knex, { tenantId }) =>
+      medirCola(knex, knex('commercial.purchase_requisitions').where({ tenant_id: tenantId, requested_by_branch: true }), {
+        estadoCol: 'estado',
+        estadoAbierto: 'pending_approval',
+        fecha: 'created_at',
+        /*
+         * ⚠️ `updated_at` como cierre, igual que otras colas: salir de `pending_approval` (aprobar o
+         * rechazar) la mueve. Pasado eso también la mueven ordenar o recalcular, así que
+         * `cerradas_30d` puede contar de más una requisición tocada dos veces — se acepta: el
+         * veredicto se apoya en la antigüedad de la más vieja, que es exacta.
+         */
+        cierre: 'updated_at',
+      }),
   },
 
   // ── `[SN.39]` Compras: el comprobante de las entradas ──────────────────────────────────────

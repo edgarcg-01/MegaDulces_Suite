@@ -7,6 +7,7 @@ import type {
   AutoabastoRestablecerRequest, AutoabastoAceptarGrupoRequest, AutoabastoAbrirRequest,
   AutoabastoPosicionesRequest, PosicionPedido,
   AutoabastoRenglonesResponse, EstadoRenglon, SurteRenglon, OrdenMesa,
+  AutoabastoEnviarRequest, AutoabastoEnviarResponse,
 } from '@megadulces/contracts';
 
 /** `[AB.27]` Filtros de `GET /commercial/autoabasto/renglones`. El almacén es obligatorio: una mesa por sucursal. */
@@ -279,6 +280,11 @@ export class AutoabastoService {
   }
 
   /** `[AB.18]` La persona revisó un grupo y lo acepta como está. */
+  /** `[AB.29]` «Enviar a Compras»: QUÉ productos; la cantidad, a quién y el costo los pone el servidor. */
+  enviar(req: AutoabastoEnviarRequest): Observable<AutoabastoEnviarResponse> {
+    return this.http.post<AutoabastoEnviarResponse>(`${this.base}/pedido/enviar`, req);
+  }
+
   aceptarGrupo(req: AutoabastoAceptarGrupoRequest): Observable<{ ok: true }> {
     return this.http.post<{ ok: true }>(`${this.base}/pedido/aceptar-grupo`, req);
   }

@@ -1,5 +1,5 @@
 import {
-  armarRenglon, estadoRenglon, surteDe, ESTADOS_RENGLON, ESTADO_RENGLON_LABEL,
+  armarRenglon, estadoRenglon, surteDe, ESTADOS_RENGLON, ESTADO_RENGLON_LABEL, esEnviable, motivoNoEnviable,
   type EntradaRenglon, type EscaleraUnidades,
 } from './autoabasto-pedido.contract';
 
@@ -17,7 +17,7 @@ const matriz = surteDe('transfer', '01', 'prov-1', 'DULCES SA');
 const entrada = (p: Partial<EntradaRenglon> = {}): EntradaRenglon => ({
   product_id: 'p-1', sku: '70056', nombre: 'MAZAPÁN', venta_30d: 10, existencia: 1, objetivo: 3,
   falta: 2, falta_base: 24, caja_factor: 12, costo_base: 1.5, rung_veredicto: null, posicion: 'bajo_minimo',
-  viene: null, planeado_compras: 0, escalera: cajaDe12, ajuste: null, surte: matriz, ...p,
+  viene: null, planeado_compras: 0, pedido_sucursal: 0, escalera: cajaDe12, ajuste: null, surte: matriz, ...p,
 });
 const viene = (v: Partial<{ ya: number; atorado: number; negado: number; camino: number }>) =>
   ({ ya: 0, atorado: 0, negado: 0, camino: 0, ...v });
@@ -94,6 +94,16 @@ describe('[AB.26] estadoRenglon', () => {
     expect(estadoRenglon(falta, neta, plan)).toBe(esperado);
   });
 
+  // `[AB.29]` Lo que la sucursal ya mandó a Compras.
+  it.each([
+    [10, 4, 0, 2, 'lo_pediste'],
+    [10, 4, 3, 2, 'lo_pediste'], // gana sobre el plan de Compras: es lo que ella hizo
+    [10, 0, 0, 2, 'ya_viene'],   // lo que ya viene gana sobre todo
+    [0, 0, 0, 2, 'en_politica'],
+  ])('falta %s, neta %s, plan %s, pedido por la sucursal %s → %s', (falta, neta, plan, pedido, esperado) => {
+    expect(estadoRenglon(falta, neta, plan, pedido)).toBe(esperado);
+  });
+
   it('cada estado tiene su rótulo', () => {
     for (const e of ESTADOS_RENGLON) expect(ESTADO_RENGLON_LABEL[e]).toBeTruthy();
   });
@@ -111,5 +121,36 @@ describe('[AB.26] surteDe — a quién se le pide (reemplaza a la «Acción» de
   });
   it('⛔ sin canal ni proveedor se dice «sin ruta», no se inventa un origen', () => {
     expect(surteDe(null, null, null, null)).toEqual({ tipo: 'sin_ruta', clave: null, nombre: 'Sin ruta configurada' });
+  });
+});
+
+describe('[AB.29] esEnviable — qué se manda a Compras (la misma regla en pantalla y servidor)', () => {
+  it('CONTROL: lo que falta por pedir, con ruta y cantidad, se manda', () => {
+    const { linea } = armarRenglon(entrada());
+    expect(esEnviable(linea)).toBe(true);
+    expect(motivoNoEnviable(linea)).toBeNull();
+  });
+
+  it('lo que la sucursal ya pidió no se vuelve a mandar, y el renglón lo dice', () => {
+    const { linea } = armarRenglon(entrada({ pedido_sucursal: 2 }));
+    expect(linea).toMatchObject({ estado: 'lo_pediste', pedido_sucursal: 2, falta_neta: 2 });
+    expect(motivoNoEnviable(linea)).toBe('Ya lo pediste a Compras');
+  });
+
+  it('lo que ya viene, lo que Compras planeó y lo que no falta tampoco se manda', () => {
+    expect(motivoNoEnviable(armarRenglon(entrada({ viene: viene({ ya: 24 }) })).linea)).toBe('Ya viene lo que falta');
+    expect(motivoNoEnviable(armarRenglon(entrada({ planeado_compras: 2 })).linea)).toBe('Compras ya lo planeó');
+    expect(motivoNoEnviable(armarRenglon(entrada({ falta: 0, falta_base: 0 })).linea)).toBe('No le falta');
+  });
+
+  it('⛔ sin ruta no hay a quién pedírselo: no se manda aunque falte', () => {
+    const { linea } = armarRenglon(entrada({ surte: surteDe(null, null, null, null) }));
+    expect(linea.estado).toBe('sin_pedir');
+    expect(motivoNoEnviable(linea)).toBe('No tiene a quién pedírselo (sin ruta configurada)');
+  });
+
+  it('un ajuste a 0 lo saca del envío', () => {
+    const ajuste = { cantidad: 0, unidad: 'CJA', motivo: 'espacio_bodega' as const, ajustado_por: 'ana', ajustado_at: '2026-10-26T10:00:00.000Z', cantidad_base: 0 };
+    expect(motivoNoEnviable(armarRenglon(entrada({ ajuste })).linea)).toBe('La cantidad a pedir es 0');
   });
 });

@@ -32,8 +32,13 @@ import {
   type AutoabastoRestablecerRequest,
   type AutoabastoAceptarGrupoRequest,
   type AutoabastoAbrirRequest,
+  motivoNoEnviable,
+  yaSeMandoACompras,
+  type AutoabastoEnviarRequest,
+  type AutoabastoEnviarResponse,
+  type SurteRenglon,
 } from '@megadulces/contracts';
-import { CommercialReplenishmentService } from './commercial-replenishment.service';
+import { CommercialReplenishmentService, type CreateRequisitionDto } from './commercial-replenishment.service';
 import {
   VENTANA_YA_PEDIDO_DIAS, VENTANA_NEGADO_DIAS, VENTANA_EN_CAMINO_DIAS, VENTANA_VIENE_DIAS,
   PEDIDOS_SUCURSAL_SQL, EMBARCADO_SIN_RECIBIR_SQL, sumarYaPedido, leerEscaleras,
@@ -109,12 +114,61 @@ SELECT r.id, r.folio, r.estado, coalesce(wo.kepler_code, wo.code) AS origen, to_
    AND r.created_at >= now() - interval '${VENTANA_YA_PEDIDO_DIAS} days'
    AND COALESCE(l.final_qty, 0) > 0`;
 
+/**
+ * `[AB.29]` Lo planeado por Compras SIN lo que pidió la propia sucursal: una requisición de traspaso
+ * que la sucursal mandó también es `source_type='branch'`, y sin este filtro saldría dos veces (como
+ * «Compras lo planeó» y como «Lo pediste a Compras»). Sin la columna (migración sin aplicar) no hay
+ * requisiciones de sucursal que excluir.
+ */
+const planeadoComprasSql = (marca: boolean): string => PLANEADO_COMPRAS_SQL + (marca ? ' AND NOT r.requested_by_branch' : '');
+
+/**
+ * `[AB.29]` Lo que ESTA sucursal mandó a Compras («Enviar a Compras»), renglón por renglón:
+ *  · VIVA (cuenta como «Lo pediste a Compras», no se vuelve a sugerir): por aprobar, o aprobada de
+ *    `VENTANA_YA_PEDIDO_DIAS` o menos (pasado eso debería estar en Kepler y contarse como «ya pedido»);
+ *  · RECHAZADA de esa misma ventana: sólo se muestra, con su motivo, para que la sucursal sepa por qué.
+ * Nunca se resta (D14). Las cantidades están en cajas de la mesa.
+ */
+const REQ_SUCURSAL_SQL = `
+SELECT r.id, r.folio, r.estado, r.source_type, coalesce(wo.kepler_code, wo.code) AS origen, s.name AS proveedor,
+       to_char(r.created_at::date, 'YYYY-MM-DD') AS fecha, (current_date - r.created_at::date)::int AS dias,
+       r.total_cost AS monto, r.rejection_reason AS motivo,
+       (r.estado = 'pending_approval'
+        OR (r.estado = 'approved' AND COALESCE(r.approved_at, r.created_at) >= now() - interval '${VENTANA_YA_PEDIDO_DIAS} days')) AS viva,
+       l.product_id, l.final_qty
+  FROM commercial.purchase_requisitions r
+  JOIN commercial.purchase_requisition_lines l ON l.requisition_id = r.id AND l.tenant_id = r.tenant_id
+  LEFT JOIN commercial.warehouses wo ON wo.id = r.source_warehouse_id AND wo.tenant_id = r.tenant_id
+  LEFT JOIN catalog.suppliers s ON s.id = r.supplier_id AND s.tenant_id = r.tenant_id
+ WHERE r.tenant_id = :t AND r.warehouse_id = :wh AND r.requested_by_branch
+   AND (r.estado = 'pending_approval'
+        OR (r.estado = 'approved' AND COALESCE(r.approved_at, r.created_at) >= now() - interval '${VENTANA_YA_PEDIDO_DIAS} days')
+        OR (r.estado = 'cancelled' AND r.rejected_at >= now() - interval '${VENTANA_YA_PEDIDO_DIAS} days'))`;
+
+/** `[AB.29]` ¿Ya está la marca «pedida por sucursal»? (la migración viaja aparte del código). */
+const MARCA_SUCURSAL_SQL = `SELECT 1 FROM information_schema.columns
+  WHERE table_schema = 'commercial' AND table_name = 'purchase_requisitions' AND column_name = 'requested_by_branch'`;
+
+/** `[AB.29]` Quién recibe las requisiciones de sucursal: la responsabilidad repartida por persona. */
+const LE_LLEGA_A_SQL = `
+SELECT u.nombre FROM identity.user_responsibilities ur
+  JOIN identity.users u ON u.id = ur.user_id AND u.tenant_id = ur.tenant_id AND u.deleted_at IS NULL AND u.activo
+ WHERE ur.tenant_id = :t AND ur.responsibility_key = 'compras.requisiciones_sucursal' AND ur.accion = 'suma'
+   AND ur.deleted_at IS NULL AND (ur.valid_to IS NULL OR ur.valid_to >= current_date)
+ ORDER BY u.nombre`;
+
+const ESTADO_REQ: Record<string, string> = { pending_approval: 'POR APROBAR', approved: 'APROBADA', cancelled: 'RECHAZADA' };
+
 /** ¿Hay cliente de traspaso para esta sucursal? Sin él, lo pedido NO se mide (≠ «cero»). */
 const TIENE_DESTINO_SQL = `SELECT 1 FROM analytics.v_erp_branch_catalog WHERE tenant_id = :t AND suc_code = :suc LIMIT 1`;
 
 
+/** `[AB.29]` Un renglón de una requisición que mandó la sucursal (ver `REQ_SUCURSAL_SQL`). */
+interface FilaReqSucursal { id: string; folio: string; estado: string; source_type: string; origen: string | null; proveedor: string | null; fecha: string; dias: number; monto: string | number | null; motivo: string | null; viva: boolean; product_id: string; final_qty: string | number }
 interface FilaPlan { id: string; folio: string | null; estado: string; origen: string | null; fecha: string; dias: number; monto: string | number | null; product_id: string; final_qty: string | number }
 interface FilaDoc { tipo: 'pedido' | 'embarque'; origen: string; serie: number; folio: string; estado: string; fecha: string; dias: number; monto: string | number | null; renglones: number }
+
+const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const num = (v: unknown): number => {
   const n = Number(v);
@@ -202,17 +256,22 @@ export class AutoabastoPedidoService {
         const destino = await trx.raw(TIENE_DESTINO_SQL, binds);
         const medidos = (destino.rows ?? []).length > 0;
         // `[AB.24]` Lo planeado por Compras no depende de Kepler: se lee siempre.
-        const planes = ((await trx.raw(PLANEADO_COMPRAS_SQL, { t: tenantId, wh: almacen.id })).rows ?? []) as FilaPlan[];
+        const marca = (await trx.raw(MARCA_SUCURSAL_SQL)).rows.length > 0;
+        const planes = ((await trx.raw(planeadoComprasSql(marca), { t: tenantId, wh: almacen.id })).rows ?? []) as FilaPlan[];
+        // `[AB.29]` Lo que la propia sucursal mandó a Compras.
+        const deSucursal = marca
+          ? ((await trx.raw(REQ_SUCURSAL_SQL, { t: tenantId, wh: almacen.id })).rows ?? []) as FilaReqSucursal[]
+          : [];
         // `[AB.23]` Por (producto, unidad): se convierte a base más abajo, con la escalera.
         const pedidos = await kepler<FilaPedidos>(trx, PEDIDOS_SUCURSAL_SQL);
-        return { medidos, planes, pedidos, borrador, ajustes, guardable, posiciones };
+        return { medidos, planes, deSucursal, pedidos, borrador, ajustes, guardable, posiciones };
       }),
       this.tk.run(async (trx: Knex.Transaction) => ({
         enCamino: await kepler<FilaEnCamino>(trx, EMBARCADO_SIN_RECIBIR_SQL),
         docs: await kepler<FilaDoc>(trx, VIENE_DOCS_SQL),
       })),
     ]);
-    const { medidos, planes, borrador, ajustes, guardable, posiciones } = propio;
+    const { medidos, planes, deSucursal, borrador, ajustes, guardable, posiciones } = propio;
     // Sin cliente de traspaso, lo pedido NO se mide (≠ «cero»): se descarta, como antes.
     const pedidos = medidos ? propio.pedidos : [];
     const enCamino = medidos ? llega.enCamino : [];
@@ -222,6 +281,14 @@ export class AutoabastoPedidoService {
     // (`ya-pedido-sucursal.ts`). Una unidad que la escalera no conoce no se suma: se cuenta.
     const { viene, sinUnidad } = sumarYaPedido(pedidos, enCamino, escaleras, new Set(skus));
     // `[AB.24]` Lo planeado por Compras, por producto (cajas) y por documento.
+    // `[AB.29]` Lo que la sucursal pidió (sólo lo VIVO cuenta para el estado) y sus documentos.
+    const pedidoSucursal = new Map<string, number>();
+    const reqDocs = new Map<string, FilaReqSucursal & { renglones: number }>();
+    for (const q of deSucursal) {
+      if (q.viva) pedidoSucursal.set(q.product_id, (pedidoSucursal.get(q.product_id) ?? 0) + num(q.final_qty));
+      const d = reqDocs.get(q.id);
+      if (d) d.renglones++; else reqDocs.set(q.id, { ...q, renglones: 1 });
+    }
     const planPorProducto = new Map<string, number>();
     const planDocs = new Map<string, FilaPlan & { renglones: number }>();
     for (const p of planes) {
@@ -251,16 +318,17 @@ export class AutoabastoPedidoService {
         posicion: String(f['bucket'] ?? ''),
         viene: viene.get(sku) ?? null,
         planeado_compras: planPorProducto.get(productId) ?? 0,
+        pedido_sucursal: pedidoSucursal.get(productId) ?? 0,
         escalera: escaleras.get(sku) ?? null,
         ajuste: ajustes.get(productId) ?? null,
         surte: surteDe(f['replenish_via'], f['source_warehouse_code'], f['supplier_id'], f['supplier_name']),
       }) };
     });
-    return { renglones, docs, planDocs, sinUnidad, medidos, borrador, guardable, posiciones };
+    return { renglones, docs, planDocs, reqDocs, sinUnidad, medidos, borrador, guardable, posiciones };
   }
 
   async pedido(almacen: Almacen, area: string, puedeAjustar = false): Promise<AutoabastoPedidoResponse> {
-    const { renglones, docs, planDocs, sinUnidad, medidos, borrador, guardable, posiciones } = await this.armarAlmacen(almacen, area);
+    const { renglones, docs, planDocs, reqDocs, sinUnidad, medidos, borrador, guardable, posiciones } = await this.armarAlmacen(almacen, area);
     const grupos = new Map<string, AutoabastoPedidoGrupo>();
     for (const { fila: f, cf, linea, efectivo_base: efectivoBase, efectivo_cantidad: efectivoCant } of renglones) {
       const aPedir = linea.a_pedir;
@@ -285,7 +353,8 @@ export class AutoabastoPedidoService {
         grupos.set(llave, g);
       }
       g.lineas.push(linea);
-      if (efectivoCant > 0) {
+      // `[AB.29]` Lo que la sucursal ya mandó a Compras se ve, pero no suma como «a pedir».
+      if (efectivoCant > 0 && !yaSeMandoACompras(linea)) {
         g.renglones_a_pedir++;
         // Cajas sólo de lo que tiene caja: lo pedido en cajas, o en la menor con un factor de caja
         // real en el almacén. Lo demás (piezas sin caja, kilos) se cuenta aparte, no se suma.
@@ -320,7 +389,7 @@ export class AutoabastoPedidoService {
       ventana_ya_pedido_dias: VENTANA_YA_PEDIDO_DIAS,
       ventana_negado_dias: VENTANA_NEGADO_DIAS,
       ventana_en_camino_dias: VENTANA_EN_CAMINO_DIAS,
-      viene: medidos || planDocs.size ? {
+      viene: medidos || planDocs.size || reqDocs.size ? {
         documentos: [
           ...docs.map((d) => ({
             tipo: d.tipo, origen: d.origen, serie: Number(d.serie), folio: d.folio, estado: d.estado, fecha: d.fecha,
@@ -331,6 +400,15 @@ export class AutoabastoPedidoService {
             tipo: 'plan' as const, origen: p.origen ?? '', serie: 0, folio: p.folio ?? '', estado: 'PLANEADO', fecha: p.fecha,
             dias: Number(p.dias), renglones: p.renglones, monto: numONull(p.monto), se_resta: false,
           })),
+          // `[AB.29]` Lo que la sucursal mandó a Compras: por aprobar, aprobado o rechazado (con motivo).
+          ...[...reqDocs.values()].map((q) => ({
+            tipo: 'requisicion' as const,
+            origen: q.source_type === 'branch' ? (q.origen ?? '') : '',
+            proveedor: q.source_type === 'branch' ? null : (q.proveedor ?? 'Proveedor'),
+            serie: 0, folio: q.folio, estado: ESTADO_REQ[q.estado] ?? q.estado.toUpperCase(), fecha: q.fecha,
+            dias: Number(q.dias), renglones: q.renglones, monto: numONull(q.monto), se_resta: false,
+            motivo: q.estado === 'cancelled' ? (q.motivo ?? null) : null,
+          })),
         ],
         renglones_sin_unidad: sinUnidad,
       } : null,
@@ -340,6 +418,109 @@ export class AutoabastoPedidoService {
       puede_ajustar: puedeAjustar,
       guardado_disponible: guardable,
       posiciones,
+    };
+  }
+
+  /**
+   * `[AB.29]` «Enviar a Compras»: la sucursal manda lo que le falta por pedir y le llega a quien tiene
+   * la responsabilidad `compras.requisiciones_sucursal` (hoy, la jefa de Compras), que la aprueba o la
+   * rechaza con motivo en `/compras/requisiciones` (D15).
+   *
+   * ⛔ La pantalla manda QUÉ productos, nada más. La cantidad (el ajuste guardado o lo sugerido
+   * redondeado), a quién se le pide (el canal) y el costo los pone el servidor con su propia cuenta
+   * (`armarAlmacen`): un navegador no decide de dónde sale la mercancía ni cuánto vale.
+   *
+   * Sale una requisición por origen (su matriz o cada proveedor), en `pending_approval`, con base
+   * `demanda`. Cantidades en CAJAS de la mesa — la misma caja que `display_bf` del plan (100 % de los
+   * productos con venta, medido 2026-10-24) — y costo `caja_cost` del plan, el mismo que usan las
+   * requisiciones de Compras y que revisa la aprobación (`[RQ.3]`). Lo que no se puede mandar se
+   * devuelve en `omitidos` con su porqué (`motivoNoEnviable`), no se calla.
+   */
+  async enviar(almacen: Almacen, area: string, req: AutoabastoEnviarRequest): Promise<AutoabastoEnviarResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const ids = [...new Set((Array.isArray(req?.product_ids) ? req.product_ids : [])
+      .filter((x): x is string => typeof x === 'string' && UUID_RX.test(x)))];
+    if (!ids.length) throw new BadRequestException('Elige al menos un producto para mandar a Compras.');
+    if (ids.length > 2000) throw new BadRequestException('Son demasiados productos para un solo envío (máximo 2,000).');
+    const nota = String(req?.nota ?? '').trim().slice(0, 500);
+
+    const { renglones } = await this.armarAlmacen(almacen, area);
+    const porId = new Map(renglones.map((r) => [r.linea.product_id, r]));
+    const omitidos: AutoabastoEnviarResponse['omitidos'] = [];
+    const grupos = new Map<string, RenglonInterno[]>();
+    for (const id of ids) {
+      const r = porId.get(id);
+      if (!r) { omitidos.push({ product_id: id, motivo: 'No le falta a esta sucursal' }); continue; }
+      const porque = motivoNoEnviable(r.linea);
+      if (porque) { omitidos.push({ product_id: id, motivo: porque }); continue; }
+      const llave = `${r.linea.surte.tipo}:${r.linea.surte.clave ?? ''}`;
+      const g = grupos.get(llave);
+      if (g) g.push(r); else grupos.set(llave, [r]);
+    }
+    if (!grupos.size) {
+      throw new BadRequestException(`Ninguno de los productos se puede mandar a Compras: ${omitidos[0]?.motivo ?? 'no le faltan'}.`);
+    }
+
+    const matrices = [...grupos.values()].map((g) => g[0].linea.surte).filter((s) => s.tipo === 'matriz').map((s) => String(s.clave));
+    const { origenes, costos, leLlegaA } = await this.tk.run(async (trx: Knex.Transaction) => {
+      const ws: Array<{ id: string; code: string }> = matrices.length
+        ? await trx('commercial.warehouses').where({ tenant_id: tenantId }).whereIn('code', matrices).whereNull('deleted_at').select('id', 'code')
+        : [];
+      const cs: Array<{ product_id: string; caja_cost: string | number | null }> = await trx('analytics.replenishment_plan')
+        .where({ tenant_id: tenantId, warehouse_id: almacen.id }).whereIn('product_id', ids).select('product_id', 'caja_cost');
+      const quien: Array<{ nombre: string }> = (await trx.raw(LE_LLEGA_A_SQL, { t: tenantId })).rows ?? [];
+      return {
+        origenes: new Map(ws.map((w) => [w.code, w.id])),
+        costos: new Map(cs.map((c) => [c.product_id, num(c.caja_cost)])),
+        leLlegaA: quien.map((q) => q.nombre),
+      };
+    });
+
+    const r3 = (n: number) => Math.round(n * 1000) / 1000;
+    const dtos: CreateRequisitionDto[] = [];
+    const surtes: SurteRenglon[] = [];
+    for (const g of grupos.values()) {
+      const s = g[0].linea.surte;
+      const origenId = s.tipo === 'matriz' ? origenes.get(String(s.clave)) ?? null : null;
+      if (s.tipo === 'matriz' && !origenId) {
+        for (const r of g) omitidos.push({ product_id: r.linea.product_id, motivo: `No se encontró su matriz (${s.clave}) entre los almacenes` });
+        continue;
+      }
+      const deMatriz = s.tipo === 'matriz';
+      dtos.push({
+        warehouse_id: almacen.id,
+        source_type: deMatriz ? 'branch' : 'supplier',
+        source_warehouse_id: origenId,
+        supplier_id: deMatriz ? null : s.clave,
+        target_basis: 'demanda',
+        notes: `Pedida por la sucursal ${almacen.name} desde Autoabasto.${nota ? ` Nota: ${nota}` : ''}`,
+        lines: g.map((r) => ({
+          product_id: r.linea.product_id,
+          supplier_id: deMatriz ? null : s.clave,
+          source_type: deMatriz ? 'branch' : 'supplier',
+          source_warehouse_id: origenId,
+          on_hand: num(r.fila['on_hand']),
+          in_transit: num(r.fila['in_transit']),
+          min_stock: num(r.fila['min_stock']),
+          reorder_point: num(r.fila['reorder_point']),
+          max_stock: num(r.fila['max_stock']),
+          suggested_qty: r3(r.linea.a_pedir.cantidad_base / r.cf),
+          final_qty: r3(r.efectivo_base / r.cf),
+          unit_cost: costos.get(r.linea.product_id) ?? 0,
+        })),
+      });
+      surtes.push(s);
+    }
+    if (!dtos.length) throw new BadRequestException(`Ninguno de los productos se puede mandar a Compras: ${omitidos[0]?.motivo ?? ''}.`);
+
+    const { creadas, ya_pedidos } = await this.motor.crearRequisicionesDeSucursal(almacen.id, dtos);
+    for (const id of ya_pedidos) omitidos.push({ product_id: id, motivo: 'Ya lo pediste a Compras' });
+    return {
+      requisiciones: creadas.map((c) => ({
+        id: c.id, folio: c.folio, surte: surtes[c.indice], renglones: c.renglones, total_cajas: r1(c.total_units),
+      })),
+      omitidos,
+      le_llega_a: leLlegaA,
     };
   }
 
@@ -604,6 +785,8 @@ interface AlmacenArmado {
   renglones: RenglonInterno[];
   docs: FilaDoc[];
   planDocs: Map<string, FilaPlan & { renglones: number }>;
+  /** `[AB.29]` Las requisiciones que mandó la sucursal (vivas y rechazadas recientes), por id. */
+  reqDocs: Map<string, FilaReqSucursal & { renglones: number }>;
   sinUnidad: number;
   medidos: boolean;
   borrador: string | null;

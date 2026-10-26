@@ -68,6 +68,7 @@ export async function descargarPdfAutoabasto(rep: AutoabastoRenglonesResponse, o
   const pesos = (v: number | null) => (v == null ? 'sin medir' : money(v));
   const cajas: [string, string][] = [
     ['Falta por pedir', String(r.por_estado.sin_pedir)],
+    ['Lo pediste a Compras', String(r.por_estado.lo_pediste)],
     ['Compras lo planeó', String(r.por_estado.compras_lo_planeo)],
     ['Ya viene', String(r.por_estado.ya_viene)],
     ['Se pide a la matriz', pesos(r.por_surte.matriz.valor)],

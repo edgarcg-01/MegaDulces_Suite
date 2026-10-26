@@ -13,7 +13,7 @@ import { filtrarRenglones, ordenarRenglones, resumirRenglones, cantidadEfectiva 
 const cajaDe12: EscaleraUnidades = { unit_base: 'PZA', u2_label: 'CJA', u3_label: null, f2: 12, f3: null, is_weight: false };
 const base: EntradaRenglon = {
   product_id: 'p', sku: '0', nombre: '', venta_30d: 10, existencia: 1, objetivo: 3, falta: 2, falta_base: 24,
-  caja_factor: 12, costo_base: 1.5, rung_veredicto: null, posicion: 'bajo_minimo', viene: null, planeado_compras: 0,
+  caja_factor: 12, costo_base: 1.5, rung_veredicto: null, posicion: 'bajo_minimo', viene: null, planeado_compras: 0, pedido_sucursal: 0,
   escalera: cajaDe12, ajuste: null, surte: surteDe('transfer', '01', 'prov-1', 'DULCES SA'),
 };
 const renglon = (p: Partial<EntradaRenglon>): AutoabastoPedidoLinea => armarRenglon({ ...base, ...p }).linea;
@@ -29,7 +29,7 @@ describe('[AB.27] resumirRenglones — la misma suma que los grupos de «Mi pedi
   it('CONTROL: cuenta los estados y suma sólo lo que lleva algo', () => {
     const r = resumirRenglones(todos);
     expect(r.renglones).toBe(4);
-    expect(r.por_estado).toEqual({ sin_pedir: 2, compras_lo_planeo: 1, ya_viene: 1, en_politica: 0 });
+    expect(r.por_estado).toEqual({ sin_pedir: 2, lo_pediste: 0, compras_lo_planeo: 1, ya_viene: 1, en_politica: 0 });
     expect(r.valor_a_pedir).toBe(90);   // 54 + 36; «ya viene» no lleva nada y «sin valor» no se suma
     expect(r.sin_valuar).toBe(1);
   });
@@ -89,5 +89,15 @@ describe('[AB.27] ordenarRenglones', () => {
     const a = renglon({ product_id: 'x', sku: '900' });
     const b = renglon({ product_id: 'y', sku: '800' });
     expect(ordenarRenglones([a, b], 'falta_neta').map((r) => r.sku)).toEqual(['800', '900']);
+  });
+});
+
+describe('[AB.29] lo que la sucursal ya mandó a Compras', () => {
+  it('se cuenta en su estado pero NO como «a pedir» ni en el valor', () => {
+    const mandado = { ...renglon({ product_id: 'z', sku: '900', nombre: 'MANDADO' }), estado: 'lo_pediste' as const };
+    const r = resumirRenglones([mandado]);
+    expect(r.por_estado.lo_pediste).toBe(1);
+    expect(r.por_surte.matriz).toMatchObject({ renglones: 1, a_pedir: 0, valor: null });
+    expect(r.valor_a_pedir).toBeNull();
   });
 });

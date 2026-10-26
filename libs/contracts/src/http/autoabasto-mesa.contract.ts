@@ -1,5 +1,6 @@
 import {
   ESTADOS_RENGLON,
+  yaSeMandoACompras,
   type AutoabastoPedidoLinea,
   type EstadoRenglon,
   type SurteRenglon,
@@ -120,7 +121,8 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 /**
  * `[AB.27]` El resumen se suma con la MISMA regla que los grupos de «Mi pedido»: sólo cuenta lo que
  * lleva algo, el valor es la suma de `linea.valor` y lo que no se pudo valuar se cuenta aparte, nunca
- * como $0 (ADR-056).
+ * como $0 (ADR-056). `[AB.29]` Lo que la sucursal ya mandó a Compras se cuenta en su estado, pero no
+ * como «a pedir» (`yaSeMandoACompras`).
  */
 export function resumirRenglones(rs: readonly AutoabastoPedidoLinea[]): ResumenMesa {
   const vacio = (): ResumenSurte => ({ renglones: 0, a_pedir: 0, valor: null, sin_valuar: 0 });
@@ -132,7 +134,7 @@ export function resumirRenglones(rs: readonly AutoabastoPedidoLinea[]): ResumenM
     por_estado[r.estado]++;
     const g = por_surte[r.surte.tipo];
     g.renglones++;
-    if (cantidadEfectiva(r) > 0) {
+    if (cantidadEfectiva(r) > 0 && !yaSeMandoACompras(r)) {
       g.a_pedir++;
       if (r.valor != null) {
         g.valor = (g.valor ?? 0) + r.valor;

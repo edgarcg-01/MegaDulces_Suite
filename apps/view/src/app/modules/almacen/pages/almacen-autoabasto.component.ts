@@ -58,6 +58,7 @@ const POSICION: Record<string, { label: string; severity: 'danger' | 'warn' | 'i
 
 const ESTADO_SEVERIDAD: Record<EstadoRenglon, 'danger' | 'warn' | 'success' | 'secondary'> = {
   sin_pedir: 'danger',
+  lo_pediste: 'warn',
   compras_lo_planeo: 'warn',
   ya_viene: 'success',
   en_politica: 'secondary',
@@ -336,6 +337,7 @@ export class AlmacenAutoabastoComponent {
       v == null ? { label, value: '—', format: 'text', sub: 'sin medir' } : { label, value: v, format: 'currency-short', sub };
     const items: MetricStripItem[] = [
       { label: 'Falta por pedir', value: r.por_estado.sin_pedir, tone: r.por_estado.sin_pedir > 0 ? 'bad' : 'ok', sub: 'lo que ya viene no alcanza' },
+      { label: 'Lo pediste a Compras', value: r.por_estado.lo_pediste, tone: 'warn', sub: 'por aprobar o recién aprobado' },
       { label: 'Compras lo planeó', value: r.por_estado.compras_lo_planeo, tone: 'warn', sub: 'aún no está en Kepler' },
       { label: 'Ya viene', value: r.por_estado.ya_viene, tone: 'ok', sub: 'pedido o en camino' },
       dinero('Se pide a la matriz', r.por_surte.matriz.valor, `${r.por_surte.matriz.a_pedir} renglones`),
