@@ -80,9 +80,17 @@ export function celdasCambiadas(original: PresupuestoAnio, editado: Map<string, 
 
       <app-load-state [loading]="cargando() && !data()" [error]="error()" [isEmpty]="!!data() && !data()!.unidades.length"
                       emptyIcon="pi-table" emptyTitle="Ninguna unidad de Transportes" emptyHint="Marca el área «Transportes» en la ficha de cada unidad." (retry)="cargar()">
+        <!--
+          dt-matrix-ok: las columnas NO son campos de la unidad, son otra DIMENSIÓN (los rubros de
+          costo, agrupados). Apilarla con dt-stack convertiría cada unidad en una lista de ~30
+          pares etiqueta/valor y rompería lo único que hace útil a esta pantalla: comparar el mismo
+          rubro entre unidades de un vistazo, y capturarlo en la rejilla. El eje NO se pierde en
+          estrecho porque la columna «Unidad» va congelada (surf-table--frozen-first) y el
+          desplazamiento horizontal vive acotado a dt-scope. Regla: DESIGN_TABLES.md §"Tabla estrecha".
+        -->
         <div class="dt-scope cb-scroll">
           <p-table [value]="data()?.unidades ?? []" dataKey="vehicle_id" size="small"
-                   class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first" [tableStyle]="{ 'min-width': '150rem' }">
+                   class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-matrix-ok" [tableStyle]="{ 'min-width': '150rem' }">
             <ng-template #header>
               <tr>
                 <th scope="col" rowspan="2">Unidad</th>

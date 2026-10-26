@@ -45,6 +45,38 @@ const EXT = new Set(['.js', '.ts', '.mjs', '.cjs', '.yml', '.yaml']);
  */
 const LISTA_A_MANO = /['"]\s*\d{2}\s*(?:,\s*\d{2}\s*){2,}['"]/;
 
+/**
+ * ⭐ **Los códigos de la lista tienen que SER sucursales.** El patrón de arriba sólo ve la FORMA
+ * —tres o más números de dos dígitos entre comillas— y esa forma la tiene cualquier lista de
+ * códigos de Kepler.
+ *
+ * Medido el 2026-10-26: marcó `const CRED = '30,35,40,45,50,55,56,60'` en las dos migraciones de
+ * `[PGP.14]`/`[PGP.17]`, que son **tipos de documento** —la columna `c4`, la que distingue una nota
+ * de crédito de una devolución de compra—, no ramas. La sucursal en esa misma consulta viaja por
+ * `k.sucursal`, aparte. La compuerta pedía derivar tipos de documento de `kepler-branches.js`:
+ * imposible, son otro universo. ⛔ Y un rojo imposible de cumplir enseña a usar `--no-verify`, que
+ * es justo la puerta que esta compuerta existe para cerrar.
+ *
+ * Por eso ahora se exige que al menos TRES de los códigos estén en el catálogo canónico. Una lista
+ * de sucursales a mano los tiene por definición —ése es el defecto que se persigue—; una lista de
+ * otro universo no tiene ninguno. ⚠️ No se exige que estén TODOS: un dedazo (`'00,01,02,99'`)
+ * sigue siendo una lista a mano, y dejarla pasar por su propio error sería premiarlo.
+ */
+const MINIMO_REALES = 3;
+
+/** Los códigos del catálogo canónico, para contrastar contra ellos. */
+function codigosDelCatalogo() {
+  const { BRANCHES } = require(path.join(RAIZ, CATALOGO));
+  return new Set(BRANCHES.map((b) => String(b.code)));
+}
+
+/** ¿Cuántos de los códigos del literal (`'00,01,06'`) son sucursales de verdad? */
+function cuantasSonSucursales(literal, catalogo) {
+  return literal.replace(/['"]/g, '').split(',')
+    .map((c) => c.trim())
+    .filter((c) => catalogo.has(c)).length;
+}
+
 /** Rutas que pueden tener la lista literal, con el motivo. Nada entra acá sin una razón escrita. */
 const PERMITIDO = [
   // El catálogo canónico ES la lista. Es el único lugar donde los códigos se escriben.
@@ -87,6 +119,7 @@ function archivos(dir) {
 /** Devuelve los hallazgos: {archivo, linea, texto}. `leer` se inyecta para poder probar en negativo. */
 function buscar(leer = (p) => fs.readFileSync(p, 'utf8')) {
   const hallazgos = [];
+  const catalogo = codigosDelCatalogo();
   for (const d of DIRS) {
     for (const abs of archivos(path.join(RAIZ, d))) {
       const rel = path.relative(RAIZ, abs);
@@ -98,9 +131,11 @@ function buscar(leer = (p) => fs.readFileSync(p, 'utf8')) {
         // borrar la cita borraría la evidencia de por qué existe esta compuerta.
         if (/^\s*(\/\/|\*|#)/.test(linea)) return;
         const m = LISTA_A_MANO.exec(linea);
-        if (m && !enComentario(linea, m.index)) {
-          hallazgos.push({ archivo: rel, linea: i + 1, texto: linea.trim().slice(0, 110) });
-        }
+        if (!m || enComentario(linea, m.index)) return;
+        // La FORMA no alcanza: los códigos tienen que ser sucursales de verdad (ver `MINIMO_REALES`).
+        const reales = cuantasSonSucursales(m[0], catalogo);
+        if (reales < MINIMO_REALES) return;
+        hallazgos.push({ archivo: rel, linea: i + 1, reales, texto: linea.trim().slice(0, 110) });
       });
     }
   }
@@ -123,6 +158,20 @@ function main() {
       process.exit(1);
     }
     console.log(`✔ prueba negativa OK — la compuerta se puso roja con la lista inyectada (${inyectado.length} hallazgo).`);
+
+    // ⭐ El otro lado de la prueba: una lista con la MISMA forma pero de otro universo NO se marca.
+    // Sin este caso, la corrección del 2026-10-26 sería una intención: nada verificaría que la
+    // compuerta dejó de pedir lo imposible. Son los tipos de documento de `[PGP.17]`.
+    const otroUniverso = buscar((p) => (p === falso
+      ? "const CRED = '30,35,40,45,50,55,56,60';   // k.c4::int IN (...) -- tipos de documento"
+      : fs.readFileSync(p, 'utf8')));
+    const enElFalso = otroUniverso.filter((h) => path.join(RAIZ, h.archivo) === falso);
+    if (enElFalso.length) {
+      console.error('✖ PRUEBA NEGATIVA FALLÓ al revés: la compuerta marcó una lista que NO son sucursales');
+      console.error(`   (${enElFalso[0].texto}). Pedir derivar eso del catálogo es imposible de cumplir.`);
+      process.exit(1);
+    }
+    console.log('✔ prueba negativa OK (al revés) — una lista de dos dígitos que NO son sucursales pasa limpia.');
     return;
   }
 
