@@ -16,6 +16,9 @@
 > se probó contra un placebo. Las cifras con otra fecha vienen del doc de fase citado; la deducción
 > se marca **INFERIDO**.
 >
+> **El espejo** —de la venta al cobro— está en [`FLUJO_VENTA_A_COBRO.md`](FLUJO_VENTA_A_COBRO.md). Los dos se
+> tocan en Caja General: el efectivo que entra por cobranza de rutas es el que sale a pagar proveedores.
+>
 > **«Oficinas»** es el servidor central de Kepler, que concentra la compra y el pago (el sistema lo
 > rotula «CEDIS»; el CEDIS físico vivía en Wincaja hasta el 30-sep, ver [`ERP_KEPLER.md`](ERP_KEPLER.md)
 > §2.3). **«Sucursales»** son las otras ocho plazas.
@@ -548,6 +551,12 @@ Encontrados al armar este doc; no se corrigieron aquí.
 ---
 
 ## 11. Dónde mirar
+
+**Para re-medir (seguimiento mensual):**
+`node database/scripts/medir-flujo-compra-a-pago.js --desde 2026-01-01 --hasta 2026-10-25 --maduro 2026-08-31 --json <ruta>`
+reproduce las cifras de este doc; sin argumentos mide del 1-ene a ayer. Sólo lectura, aborta si el destino
+no es prod. ⚠️ Kepler captura con fecha pasada: re-correr la MISMA ventana horas después mueve las
+cifras unos documentos (11,335 → 11,343 aplica de compra entre la mañana y la tarde del 26-oct).
 
 | Para | Archivo |
 |---|---|
