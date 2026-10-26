@@ -276,6 +276,17 @@ exports.up = async function up(knex) {
     .whereBetween('fecha', [DESDE, HASTA])
     .orderBy('fecha')
     .select('*', knex.raw(`to_char(fecha, 'YYYY-MM-DD') AS dia`));
+  // [CGS.52.1] Una base SIN NINGÚN corte de la sucursal (la que el CI arma desde cero) no tiene nada que
+  // recalcular: columnas y candados ya quedaron arriba, y el plan sólo vale para prod. Si hay cortes
+  // pero no son los 10 medidos, se sigue abortando: eso sí es una desviación.
+  if (!cortes.length) {
+    const hay = await knex('finance.cash_ledger_cuts').where({ tenant_id: TENANT, sucursal: SUCURSAL }).first('id');
+    if (!hay) {
+      // eslint-disable-next-line no-console
+      console.log(`  ↷ [CGS.52] la base no tiene cortes de la sucursal ${SUCURSAL}: nada que recalcular (base nueva).`);
+      return;
+    }
+  }
   if (cortes.length !== Object.keys(PLAN).length) abortar(`hay ${cortes.length} cortes del ${DESDE} al ${HASTA}, se midieron ${Object.keys(PLAN).length}`);
 
   let quedo = null;         // lo que quedó en caja en el corte anterior (su conteo físico)
