@@ -589,3 +589,134 @@ todavía no describe como pantalla.
 **Decisiones abiertas que la v2 deja escritas:** D2 hace que Tesorería prepare **y** firme el 75.3 %
 de los pagos (separación de funciones) · «tope del día» como nombre único · contraste en los tokens
 del sistema · cuándo se escribe el `X-D-26` · `warehouseName('00')`.
+
+**Lo que firmó Edgar el 2026-10-26:** (1) **se separan funciones**: quien prepara un pago no lo firma ·
+(2) el nombre es **«tope del día»** · (3) el contraste **se corrige en los tokens** (`[AUD.4]`) ·
+(4) «**ya tenemos acceso al `X-D-26`**» — queda abierto **cuándo** se escribe (al enviar o al confirmar
+en el estado de cuenta) · (5) «**00 es CEDIS/Oficinas**»: corrige lo que la v2 y PGP11.M4 afirmaban
+(«es Oficinas, no CEDIS»).
+
+### Diagnóstico general de `/finanzas/calendario-pagos` (2026-10-26, nivel A) — estructura, color, jerarquía
+
+> Pedido de Edgar: *«revisa el diseño en general, estructura, colores, jerarquía de información; no
+> puedes basar tu diseño en pequeñas cosas»*. Esto va **antes** que la lista CAL.A de abajo: casi
+> todo lo de esa lista es síntoma de lo que se dice aquí. Medido en la app (1440×1600 y 1366×768),
+> escala tipográfica leída de los estilos computados con el H1 como control (30 px · 700).
+
+**1 · La jerarquía está invertida.** Lo que contesta la pantalla es lo más chico; lo que la rodea, lo
+más grande.
+
+| Elemento | Tamaño · peso medidos | Lo que debería ser |
+|---|---|---|
+| H1 «Pagos» (no dice nada que el menú no diga) | 30 px · 700 | 20 px |
+| Encabezados de la tabla («Orden», «Beneficiario e importe») | **16 px · 600** | 11 px versales, apagados |
+| Cada renglón de la deuda en el paso 1 | **16 px · 600/700** | 14 px |
+| **El veredicto** («Faltan 5 de 5 pagos por preparar») | **14 px · 700** | **20 px · 600, lo primero que se lee** |
+| Su detalle (a quién y qué le falta) | 12 px · 400 | 14 px |
+| **Comprometido / libres del tope** (la segunda pregunta: ¿cabe?) | **12 px · 700** | 18 px mono |
+
+El ojo recorre: «Pagos» → encabezados de columna → importes → y al final el veredicto. Cuando todo
+lo que importa es secundario, nada es primario (estándar §3.7 · DESIGN §Q.1 / §Q.5).
+
+**2 · La estructura gasta el primer 38 % de la pantalla en marco.** Barra global, migas, una barra de
+pestañas a todo el ancho **encima** del título (el orden convencional es título → pestañas), el título
+con dos renglones de instrucciones, y un navegador de semana que **repite** el de la cola. El trabajo
+empieza en y=295 de 768: de 5 pagos se ven 2. Una sola banda de encabezado (título + pestañas + nada
+más) devuelve ~200 px al trabajo (§3.1 · §4.6).
+
+**3 · El color dejó de significar.** Con el paso 1 abierto hay **47 textos en naranja de acción y 34 en
+rojo**. El naranja hace de botón principal, de vínculos secundarios («Esta semana», «Proponer orden»,
+«Preliminar»), de día elegido, de borde del paso, de número de paso, de flechas de orden, de rótulo
+(«Para los 5 pagos»), de borde punteado y de barra de avance. El ámbar de «falta» es vecino del
+naranja y se confunde con él; el rojo marca a la vez «quitar» y «vencido» en cada renglón; y todas
+las filas llevan fondo durazno. Resultado: la única acción que importa («Preparar los 5») no
+destaca, porque todo destaca (Von Restorff · DESIGN «marca sólo en CTA / activo / seleccionado /
+foco»). Presupuesto de color propuesto: naranja = **un** botón principal + el día elegido + foco;
+ámbar = lo que falta, **en el campo que falta**; rojo = sólo error o vencido; lo demás, neutro.
+
+**4 · Se agrupa con cajas, no con espacio.** El lote tiene **11 cajas con borde y radio**: tarjeta del
+paso › caja punteada de «Para los 5 pagos» › tabla con filas teñidas › chips de sucursal con borde.
+Tres niveles de contenedor para una sola tabla. Gestalt: el grupo se forma con espaciado; el borde es
+el último recurso (DESIGN §Ing.UI 1).
+
+**5 · La fila no dice qué le falta.** La celda de nombre (395 px) carga nombre + importe + sucursal en
+chip mono + 1 a 4 folios (por eso filas de 55 y 71 px); «Método» es un selector gris igual a uno
+lleno; «Sale de» dice «elegi el metodo» y «Llega a» un guion. Lo que falta no se ve en la fila: se lee
+arriba en una frase. Debería verse al revés: la fila marca su hueco y la frase lo resume (§3.3).
+
+**6 · El acordeón exclusivo parte el trabajo en dos.** Abrir «Armar el día» cierra «Ordenar y
+preparar». Tesorería agrega facturas y las prepara en la misma sentada, así que tiene que recordar lo
+de un panel mientras ve el otro (Tesler: la complejidad se pasó a la persona). Y los pasos 3 y 4 —el
+trabajo de Dirección y de Caja— son dos renglones al fondo, iguales para todos los roles.
+
+**Dirección del rediseño (lo que sí se hace):**
+1. **Una banda de encabezado** (título 20 px + pestañas a la derecha); instrucciones al «?»; la
+   semana se navega sólo desde la cola.
+2. **El veredicto manda:** frase a 20 px, su detalle a 14 px, **un** botón; debajo, *comprometido ·
+   libre · tope* como tira de métricas mono a 18 px (`app-metric-strip`).
+3. **La tabla de preparar es el organismo principal:** encabezados quietos, filas de 44 px, el importe
+   en su columna numérica, la sucursal como texto, los folios plegados («4 facturas», detalle en
+   `app-side-peek`), y **el campo que falta marcado en la fila** (contorno ámbar + «falta»); las filas
+   completas, neutras con su check.
+4. **Agregar facturas no cierra la tabla:** la deuda se abre como panel lateral sobre el lote, no
+   como paso que reemplaza al otro.
+5. **El rol decide qué se abre:** Tesorería entra al paso 2; Dirección, a firmar; Caja General, a
+   dispersar. Los otros pasos quedan como renglón de estado.
+6. **Presupuesto de color** del punto 3, y en el teléfono una columna (CAL.A1).
+
+**`[PGP.14]` Aplicado el 2026-10-26 (🧪, validado en la app con datos reales; escrituras bloqueadas
+en el navegador porque la API local apuntaba a prod).** Medido a 1366×768 antes → después:
+
+| | Antes | Después |
+|---|---|---|
+| Veredicto | 14 px, en y=295 | **20 px, en y=251** |
+| Encabezados de columna | 16 px · 600 | **11 px versales** |
+| Pagos visibles antes del pliegue | 2 de 5 | **3 de 6** |
+| Teléfono (390 px) | lote cortado, tabla 827 px en 251 | **una columna, tabla 307 = 307, pago en bloque** |
+| `check:pantalla` | 2 fallas (Q.1, §9) | **1 (§9)**, 0 nuevas |
+
+Qué se cambió: encabezado de una banda; veredicto y `app-metric-strip` (comprometido · libre · tope
+del día); tabla con columna de importe, sucursal y folios en una línea, «falta» en el campo, sin tinte
+de fila, quitar y ordenar en neutro; pasos 1 y 2 abiertos a la vez; texto de estado en `--*-soft-fg`;
+«tope del día» (D5); acentos, plurales y tuteo; el pie de la cola no dibuja $0.00 sin semana.
+**Dos causas raíz que no eran de diseño:** (1) `styleClass` en `p-table` **se descarta en PrimeNG
+v22** —esta tabla nunca tuvo `surf-table` ni su `table-layout:fixed`— y hay **110 tablas más** con el
+mismo patrón; (2) las reglas `@container` de la pantalla no aplicaban nunca (ningún ancestro declara
+`container-type`). Y una tercera, **global**: `styles.css` esconde con `!important` las columnas 4+ de
+**todo** `p-datatable` a ≤30 rem; aquí se anuló sólo para esta tabla.
+**Pendiente:** la vista por rol (no hay permiso de «preparar» ni de «dispersar», sólo `AUTORIZAR`), el
+cajón de la deuda como panel lateral, los $14.0M en dictamen todavía programables (necesita la marca
+en el dato), y la edad del dato (§9).
+
+### Auditoría de la pantalla viva `/finanzas/calendario-pagos` (2026-10-26, nivel A)
+
+> **Con qué se miró:** la app corriendo (`localhost:4200`, Playwright) contra una API local
+> conectada a la base de **producción**: datos reales. Por eso **no se apretó nada que escriba**
+> (preparar, aplicar, quitar, proponer orden, autorizar). Contraste medido con dos controles de
+> respuesta conocida (19.06 y 7.41:1); a 1366×768, 1024×768 y 390×844. Los tokens de `[AUD.4]`
+> ya estaban aplicados en el árbol, así que esta medición **los valida en la app**: texto tenue
+> 5.28:1 (antes 2.56) y botón principal 5.00:1 (antes 3.39).
+> **Descartado por falla del instrumento:** un desplegable que apareció abierto (lo abrió la
+> captura; con recarga y 8 s sin tocar no se abre) y una primera lista de contraste medida a media
+> transición de color. **No medido:** el modo oscuro de los componentes PrimeNG (cambiar de tema
+> con el botón guarda la preferencia en prod), el recorrido con teclado y lo que hace cada botón
+> que escribe.
+
+| # | Sev | Lo que se ve | Medido | Ley | Qué exige |
+|---|---|---|---|---|---|
+| CAL.A1 | 🔴 | **En el teléfono la pantalla no se acomoda:** la cola y el lote siguen lado a lado y el lote queda cortado — se lee «Faltan 5 de…» y «Prepara…». La tabla mide 827 px dentro de 251. Dirección firma desde el teléfono. | 390×844 | §2 alcance · DESIGN §R | Debajo de ~74 rem una columna; la cola como tira de un renglón y cada pago como bloque rotulado (v2). |
+| CAL.A2 | 🔴 | **Los mensajes que dicen QUÉ FALTA son los que menos se leen:** «falta preparar 5», «0 de 5 listos · le falta el método» y «2 días sin tope fijado» en `--warn-fg` `#F59E0B` a **2.15 y 1.95:1**; «cabe en el tope» en `--ok-fg` `#16A34A` a **3.3:1**. Son 6 de los 105 textos visibles, y son los seis de estado. | claro, con control | §3.5 · DESIGN §Ing.UI 3 | Tokens de texto semántico (ámbar ~`#B45309` 5.0:1, verde ~`#15803D` 5.0:1); `--warn-fg`/`--ok-fg` quedan para puntos y barras. Es la siguiente pasada de `[AUD.4]`. |
+| CAL.A3 | 🟠 | **Ortografía y registro:** ~15 rótulos sin acento («Metodo», «Dias por pagar», «Tesoreria», «Armar el dia», «Direccion», «todavia», «despues») y **«elegi el metodo»** en cada fila — voseo, y sin acento, así que `check-voseo` no lo atrapa. | árbol de accesibilidad | §3.9 · regla de tuteo | «Elige el método», acentos completos; correr `check-voseo` con la forma sin acento como caso. |
+| CAL.A4 | 🟠 | **El paso 1 plegado carga el 94 % de la página:** 10,827 de 11,517 nodos y 58,637 caracteres (el cajón de la deuda) existen con `display:none`. | DOM | DESIGN Doherty · §5.5 | El cuerpo del paso se crea al abrirlo (`@if`/`@defer`), no se esconde. |
+| CAL.A5 | 🟠 | **El encabezado se come el trabajo:** el veredicto empieza en y=295 de 768 (38 %); de los 5 pagos del día se ven 2 a 1366×768 y 1 a 1024×768. Pestañas + título + instrucción de dos renglones + **dos navegadores de semana** (arriba y en la cola). | geometría | §3.1 · §4.6 · Q.1 | Un solo navegador de semana (el de la cola); la instrucción va al «?»; el lote sube. |
+| CAL.A6 | 🟠 | **La instrucción describe otra pantalla:** «agrégale facturas desde la izquierda, y a la derecha ordénalo…». A la izquierda están los días; las facturas viven dentro del paso 1. | lectura | §1.1 | Reescribirla al recorrido real, o quitarla (los pasos ya dicen qué sigue). |
+| CAL.A7 | 🟠 | **«GAMAHUBIN SA DE CV +3», «… +1»:** el «+N» no dice qué suma (¿documentos? ¿proveedores?). | lectura | §1.1 | «4 facturas» bajo el nombre, no un sufijo. |
+| CAL.A8 | 🟠 | **El paso 3 dice «Autorizar el día · Gerencia / Dirección»**: es lo que hace el código (`[TP.16]`), pero ya no es la regla firmada (D2 por pago + separación de funciones). | lectura | §1.1 · PGP11.M1 | Al construir D2: firma por pago y por monto, y el que preparó no firma. |
+| CAL.A9 | 🟠 | **«×» de quitar en rojo, siempre, en cada fila** y pegada al último campo: lo destructivo es lo más llamativo de la fila. No se probó si deshace (escribe en prod). | vista | §4.4 · Von Restorff | Ícono neutro, rojo sólo al pasar; deshacer o confirmar. |
+| CAL.A10 | 🟡 | **30 textos a 10 px** (`--fs-nano`, «último recurso» según la escala): sucursal, folios, «sin folio», «elegi el metodo». | estilos computados | DESIGN §Typography | Sucursal y folio a 11–12 px; 10 px sólo para lo prescindible. |
+| CAL.A11 | 🟡 | **«CEDIS» ×4 en la misma fila** (una por factura) y «el ERP ya registra $1,000.00 · 2» en la cola sin decir qué es el «2» ni que es otro universo. | lectura | §4.0 B · §1.5 | Agrupar por sucursal; el testigo del ERP sólo en el paso 4, con su aclaración. |
+| CAL.A12 | 🟡 | «5 pago(s)», «2 dia(s)» con el número conocido; 21 de 45 controles del área miden menos de 24 px. | árbol · geometría | §3.9 · WCAG 2.5.8 | Plural real; objetivos ≥ 24 px (44 px con dedo). |
+
+**Lo que ya funciona y no se toca:** el veredicto nombra el renglón que falta y su importe; la cola
+dice «libre del tope» en todos los días; un día sin tope dice «sin tope fijado», no $0; el lote
+cuadra con la cola ($2.86M = $2,863,347.69) y la semana cuadra con los días ($10.84M).
