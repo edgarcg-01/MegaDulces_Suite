@@ -1886,6 +1886,43 @@ negativo y la compuerta vista en rojo).
   corrida en frío o con carga). Sigue sobre 500: con la escalera materializada baja ~0.25 s; el resto
   (el anti-join de embarques sin recibir) va aparte, antes de que PQ lo consuma.
 
+### 16.16 🧪 [AB.29] + [AB.32] «Enviar a Compras»: la requisición le llega a la jefa de Compras (2026-10-26)
+
+Pedido del PM: *«en Autoabasto, para generar el pedido, que se mande la requisición a la jefa de
+Compras (Arizbeth)»*. Firmado con él ese día (cierra **D12** y **D13** de §16.13):
+
+| # | Decisión | Firma |
+|---|---|---|
+| D12 | Compras se entera con una bandeja en «Mi trabajo»; le llega **sólo a Arizbeth, por persona** (`user_responsibilities`), no por puesto: el puesto `gerente_compras` lo tienen dos personas y sólo ella aprueba (738 de 739 traspasos en 30 días, medido). Si mañana cambia, se reasigna el dato en `/admin/personas`, no el código | ✅ PM, 2026-10-26 |
+| D13 | La aprueba quien ya aprueba: `COMPRAS_REQUISICIONES_AUTORIZAR`, en `/compras/requisiciones` (D15) | ✅ PM, 2026-10-26 |
+| — | El rechazo con motivo lo hace AB ahora (no se espera a PQ.9); PQ.9 reusa las columnas para hacerlo obligatorio en todas | ✅ PM, 2026-10-26 |
+
+**Cómo quedó (commits `6d8ca6c4a`, `e138af460`; la parte del motor entró dentro de `2db37ae49`):**
+
+1. **La sucursal**, en «Mi pedido», pulsa **«Enviar a Compras»**. Sale lo marcado en «¿Hasta dónde
+   pides?» que falta por pedir. La pantalla manda QUÉ productos; la cantidad (lo guardado), a quién
+   se le pide (el canal) y el costo los pone el servidor. Una requisición por origen, por aprobar,
+   marcada `requested_by_branch`. El botón espera si hay un renglón sin guardar.
+2. **Compras (Arizbeth)** ve la bandeja «Requisiciones de sucursal por aprobar» (umbral 1 día) y la
+   atiende en `/compras/requisiciones` (marca «DE SUCURSAL», filtro). Aprueba como siempre;
+   **rechazar exige motivo** (servidor 400, CHECK en la base, diálogo) y queda quién y cuándo.
+3. **La sucursal** ve sus requisiciones en «Lo que te va a llegar»: por aprobar, aprobada, o
+   rechazada **con el motivo**. Lo que mandó queda «Lo pediste a Compras»: no se vuelve a pedir ni
+   suma como «a pedir», y no se resta del sugerido de Compras (D14: cuenta hasta que esté en Kepler).
+
+**Lo que falta / declarado:**
+
+- ⛔ **La migración `20261026084306` no está aplicada en prod** y va **antes** del código: sin ella
+  el envío contesta 503 (lo dice) y la bandeja de «Mi trabajo» sale como no medida.
+- La prueba de escritura corrió contra la **base local de pruebas**, no contra prod; lo único
+  simulado fue la lectura del motor (esa base no tiene plan de reabasto). **Sin validación visual.**
+- Unidad: `final_qty` en cajas de la mesa (= `display_bf` del plan en el 100 % de los productos con
+  venta) y `unit_cost` = `caja_cost`, como las de Compras. Donde la caja de compra (`bf`) difiere de
+  la de exhibición (~10 productos por sucursal) el costo por caja puede no corresponder: sin medir.
+- Sigue abierto: aviso a la sucursal en «Mi trabajo» (hoy lo ve en su pantalla); lo comprometido en
+  la matriz (AB.31/D10); el folio del traspaso pasado a Kepler (PQ.2); el permiso cruzado del botón
+  «Rechazar» del detalle (`GESTIONAR` contra `AUTORIZAR`, de PQ).
+
 ### 16.10 Definición de Terminado
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
