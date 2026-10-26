@@ -729,6 +729,9 @@ export interface RequisitionDetail extends RequisitionRow {
   lines: RequisitionLine[];
   purchase_order_id: string | null;   // RA.15 — OC generada desde esta requisición
   purchase_order_folio: string | null;
+  /** `[PQ.16]`/RQ.15 — el documento de Kepler con el que se ordenó (sucursal + folio); null si se marcó sin él. */
+  oc_sucursal?: string | null;
+  oc_folio?: string | null;
   /** `[RQ.2]` Días parada. Lo calcula el SERVIDOR, no el reloj del navegador (VP.0). */
   dias?: number;
   vigencia?: RequisitionVigencia | null;

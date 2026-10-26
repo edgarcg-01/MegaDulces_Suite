@@ -8,6 +8,7 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { DialogModule } from 'primeng/dialog';
+import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
 import { FormsModule } from '@angular/forms';
 import { MessageService } from 'primeng/api';
@@ -23,7 +24,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-requisicion-detalle',
   standalone: true,
-  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, TagModule, ToastModule, DialogModule, TextareaModule, MetricStripComponent, SucursalPipe],
+  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, TagModule, ToastModule, DialogModule, InputTextModule, TextareaModule, MetricStripComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -72,9 +73,17 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="abrirRechazo()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
                 <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="approve()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
               } @else if (r.estado === 'approved') {
-                <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="generatePO()"><span class="p-button-icon p-button-icon-left pi" [ngClass]="r.source_type === 'branch' ? 'pi-send' : 'pi-shopping-cart'" aria-hidden="true"></span><span class="p-button-label">{{ r.source_type === 'branch' ? 'Generar orden de traspaso' : 'Generar orden de compra' }}</span></button>
+                <!-- [PQ.16] D21: la Suite ya no genera su propia OC. El documento es el de Kepler
+                     (X-A-35 compra · U-D-40 traspaso) y acá se captura su folio (RQ.15). -->
+                <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="abrirOc()"><span class="p-button-icon p-button-icon-left pi" [ngClass]="r.source_type === 'branch' ? 'pi-send' : 'pi-shopping-cart'" aria-hidden="true"></span><span class="p-button-label">{{ r.source_type === 'branch' ? 'Capturar el traspaso de Kepler' : 'Capturar la OC de Kepler' }}</span></button>
               } @else if (r.estado === 'ordered' || r.estado === 'received') {
-                <button pButton type="button" class="p-button-sm p-button-outlined" (click)="goToPO()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">{{ r.source_type === 'branch' ? 'Ver orden de traspaso' : 'Ver orden de compra' }}</span></button>
+                @if (r.oc_folio) {
+                  <span class="rd-oc" [attr.aria-label]="'Documento en Kepler: sucursal ' + r.oc_sucursal + ' folio ' + r.oc_folio">Kepler {{ r.oc_sucursal }}·{{ r.oc_folio }}</span>
+                } @else if (r.purchase_order_id) {
+                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" (click)="goToPO()"><span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span><span class="p-button-label">Ver documento interno (histórico)</span></button>
+                } @else {
+                  <span class="rd-oc rd-oc-sin" title="Se marcó como ordenada antes de que existiera la columna del folio. No se puede seguir hasta la entrada de mercancía.">sin folio de Kepler</span>
+                }
               }
             }
           </div>
@@ -200,9 +209,37 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           </button>
         </ng-template>
       </p-dialog>
+
+      <!-- [PQ.16] D21 / RQ.15: el documento de Kepler se captura con sus DOS coordenadas (el folio
+           se repite entre sucursales). Mismo diálogo que la bandeja. -->
+      <p-dialog [visible]="ocVisible()" (visibleChange)="ocVisible.set($event)" [modal]="true" [style]="{ width: '28rem' }"
+                [header]="req()?.source_type === 'branch' ? '¿Con qué traspaso de Kepler salió?' : '¿Con qué orden de compra de Kepler se ordenó?'" [draggable]="false">
+        @if (req(); as r) {
+          <p class="rd-muted rd-oc-sub">{{ r.folio }} · {{ money(r.total_cost) }} · {{ r.supplier_name || 'sin proveedor' }}</p>
+          <div class="rd-oc-form">
+            <label class="rd-oc-lbl" for="rdOcSuc">Sucursal donde se capturó en Kepler</label>
+            <input id="rdOcSuc" pInputText type="text" [(ngModel)]="ocSucursal" class="rd-oc-in" placeholder="00" autocomplete="off" />
+            <label class="rd-oc-lbl" for="rdOcFol">Folio en Kepler</label>
+            <input id="rdOcFol" pInputText type="text" [(ngModel)]="ocFolio" class="rd-oc-in" placeholder="0007103" autocomplete="off" (keyup.enter)="guardarOc()" />
+            <p class="rd-oc-hint">Es el folio con el que Kepler identifica el documento. Con él, la requisición se sigue hasta la entrada de mercancía (X-A-40) y la factura. La Suite ya no genera su propia orden (D21).</p>
+          </div>
+        }
+        <ng-template #footer>
+          <button pButton type="button" class="p-button-text" (click)="ocVisible.set(false)"><span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" [disabled]="!ocSucursal.trim() || !ocFolio.trim() || busy()" (click)="guardarOc()"><span class="p-button-label">Marcar como ordenada</span></button>
+        </ng-template>
+      </p-dialog>
     </div>
   `,
   styles: [`
+    /* [PQ.16] folio de Kepler en el detalle */
+    .rd-oc { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-muted); align-self: center; }
+    .rd-oc-sin { font-family: inherit; }
+    .rd-oc-sub { margin: 0 0 .6rem; }
+    .rd-oc-form { display: grid; gap: .35rem; }
+    .rd-oc-lbl { font-size: var(--fs-xs); color: var(--text-muted); }
+    .rd-oc-in { width: 100%; }
+    .rd-oc-hint { margin: .5rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
     /* [AB.32] Rechazar con motivo */
     .rd-rech-p { margin: 0 0 .6rem; font-size: var(--fs-sm); line-height: 1.45; }
     .rd-rech-lab { display: block; margin-bottom: .25rem; font-size: var(--fs-sm); font-weight: 600; }
@@ -431,17 +468,40 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
       error: (e) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo rechazar', detail: e?.error?.message || 'Intenta de nuevo.' }); },
     });
   }
-  /** RA.15 — genera la OC desde la requisición aprobada y navega a ella. */
-  generatePO(): void {
+  // ── [PQ.16] D21: el documento es el de Kepler; acá se captura su folio (RQ.15) ─────────────
+  // RA.15 generaba una OC propia (`createPOFromRequisition`) y navegaba a ella. Medido el
+  // 2026-10-26: 235 OC propias por $26.6 M y 0 requisiciones con folio de Kepler. Se retira.
+  readonly ocVisible = signal(false);
+  ocSucursal = '';
+  ocFolio = '';
+
+  abrirOc(): void {
+    const r = this.req();
+    if (!r) return;
+    // Se propone la sucursal de la requisición, no se impone (la OC puede capturarse en otra plaza).
+    this.ocSucursal = String(r.warehouse_code || '').trim();
+    this.ocFolio = '';
+    this.ocVisible.set(true);
+  }
+
+  guardarOc(): void {
+    const r = this.req();
+    const suc = this.ocSucursal.trim();
+    const fol = this.ocFolio.trim();
+    if (!r || !suc || !fol) return;
     this.busy.set(true);
-    this.api.createPOFromRequisition(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => {
-        this.busy.set(false);
-        const summary = this.req()?.source_type === 'branch' ? 'Orden de traspaso generada' : 'Orden de compra generada';
-        this.toast.add({ severity: 'success', summary, detail: r.folio });
-        this.router.navigate(['/compras/ordenes', r.id]);
+    this.api.markOrdered(this.id, { oc_sucursal: suc, oc_folio: fol }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.busy.set(false); this.ocVisible.set(false);
+        this.toast.add({ severity: 'success', life: 5000, summary: `${r.folio} ordenada`, detail: `Documento de Kepler ${suc}·${fol}` });
+        this.load();
       },
-      error: (e) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo generar la OC.' }); },
+      error: (e) => {
+        // No se cierra el diálogo: lo capturado sigue en pantalla para corregirlo (409 = folio repetido).
+        this.busy.set(false);
+        this.toast.add({ severity: 'error', life: 12000, summary: 'No se pudo marcar como ordenada',
+          detail: e?.error?.message || (e?.status === 409 ? 'Ese documento ya está capturado en otra requisición.' : 'Intenta de nuevo.') });
+      },
     });
   }
   /** Navega a la OC ya generada desde esta requisición. */

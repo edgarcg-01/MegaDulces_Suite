@@ -97,6 +97,17 @@ describe('[OC.1] /compras/ordenes agrupadas por proveedor', () => {
   });
 });
 
+describe('[PQ.16] D21: la lista interna se declara histórica', () => {
+  it('arriba de la lista dice que son documentos internos, que ya no se generan, y enlaza a las de Kepler', async () => {
+    const f = await montar(doble());
+    const aviso = (f.nativeElement as HTMLElement).querySelector('.oc-d21');
+    expect(aviso).not.toBeNull();
+    expect(aviso!.textContent).toContain('Documentos internos (histórico)');
+    expect(aviso!.textContent).toContain('X-A-35');
+    expect(aviso!.querySelector('a')?.getAttribute('href')).toBe('/compras/oc-abiertas');
+  });
+});
+
 describe('[OC.3] imprimir el pedido del proveedor', () => {
   it('⛔ sin renglones pendientes AVISA, y no baja un papel en blanco', async () => {
     const api = doble();

@@ -26,17 +26,21 @@ export const SEGUIMIENTO_COMPRA_TABS: PageTab[] = [
     permission: Permission.COMPRAS_REQUISICIONES_VER,
   },
   {
-    label: 'Órdenes de compra',
-    route: '/compras/ordenes',
-    icon: 'pi pi-shopping-cart',
-    permission: Permission.COMPRAS_ORDENES_VER,
-  },
-  {
+    // `[PQ.16]` D21 (2026-10-26): la orden de compra ES la de Kepler (X-A-35). Esta pestaña sube al
+    // segundo lugar y toma el nombre del documento; la lista interna baja a «histórico».
     // RA-PRO.45 — las OCs de Kepler que quedaron abiertas: lo que hay que cerrar o cancelar para
     // que dejen de tapar el pedido. Mismo permiso que Pedido (es la otra cara del dato).
-    label: 'Abiertas en Kepler',
+    label: 'Órdenes de compra (Kepler)',
     route: '/compras/oc-abiertas',
-    icon: 'pi pi-hourglass',
+    icon: 'pi pi-shopping-cart',
     permission: Permission.COMPRAS_PEDIDO_VER,
+  },
+  {
+    // `[PQ.16]` Documentos internos de la Suite: 235 OC propias y 136 OE emitidas entre el 28-sep y
+    // el 26-oct, cuando la Suite todavía generaba su propia OC. Quedan en solo lectura.
+    label: 'Internas (histórico)',
+    route: '/compras/ordenes',
+    icon: 'pi pi-history',
+    permission: Permission.COMPRAS_ORDENES_VER,
   },
 ];
