@@ -98,7 +98,7 @@ export class CommercialPurchaseOrdersController {
 
   @Post('from-requisition/:requisitionId')
   @RequirePermissions(Permission.COMPRAS_ORDENES_GESTIONAR)
-  @ApiOperation({ summary: 'Genera la OC desde una requisición aprobada (RQ→ordered). body opcional { expected_date, notes }.' })
+  @ApiOperation({ summary: '[PQ.16] APAGADO por D21 (2026-10-26): responde 409. La Suite ya no genera OC propias; la orden real es la X-A-35 de Kepler y la requisición se marca ordenada con su folio (RQ.15).' })
   fromRequisition(@Param('requisitionId') requisitionId: string, @Body() body?: { expected_date?: string | null; notes?: string }) {
     return this.svc.createFromRequisition(requisitionId, body);
   }
@@ -110,6 +110,6 @@ export class CommercialPurchaseOrdersController {
 
   @Post(':id/receipts')
   @RequirePermissions(Permission.COMPRAS_ORDENES_GESTIONAR)
-  @ApiOperation({ summary: 'Registra una recepción (OE) contra la OC. Permite parciales. Al confirmar MUEVE stock. body { lines:[{po_line_id, received_qty, unit_cost?}], notes?, received_at? }.' })
+  @ApiOperation({ summary: '[PQ.16] APAGADO por D21 (2026-10-26): responde 409. La recepción real es la orden de entrada X-A-40 de Kepler; la Suite ya no mueve existencia propia.' })
   receive(@Param('id') id: string, @Body() dto: CreateReceiptDto) { return this.svc.createReceipt(id, dto); }
 }
