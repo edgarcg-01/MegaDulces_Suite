@@ -5,7 +5,7 @@ import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledg
 import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
-import type { PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount } from '@megadulces/contracts';
+import type { PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 
@@ -349,10 +349,7 @@ export class PaymentCalendarService {
    * presupuesto de 500 ms y corre en 325-377: meterle este join la empuja contra el techo sin que
    * nadie lo necesite en la misma respuesta. Medido: 135-143 ms por separado.
    */
-  async listUnappliedCredits(): Promise<Array<{
-    proveedor: string; proveedor_nombre: string | null; a_favor: number;
-    docs: number; clases: string; mas_vieja: string | null; con_deuda_viva: boolean;
-  }>> {
+  async listUnappliedCredits(): Promise<SupplierUnappliedCreditRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       /*
@@ -405,10 +402,7 @@ export class PaymentCalendarService {
    *
    * ⛔ Pagos (cheque `X-D-25`, transferencia `X-D-26`) quedan fuera: no son descuentos.
    */
-  async listSupplierCredits(proveedor: string): Promise<Array<{
-    sucursal: string; clase: string; folio: string; referencia: string | null;
-    fecha: string | null; importe: number; aplicado: number; a_favor: number; pendiente: boolean;
-  }>> {
+  async listSupplierCredits(proveedor: string): Promise<SupplierCreditRow[]> {
     const code = String(proveedor ?? '').trim();
     if (!code) return [];
     const tenantId = this.tenantCtx.requireTenantId();

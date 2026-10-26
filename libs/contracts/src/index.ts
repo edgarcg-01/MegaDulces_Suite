@@ -58,6 +58,7 @@ export * from './http/kpi-threshold.contract';
 export * from './http/identity-org.contract';
 // [RE.30] Plazo de pago por proveedor (días exactos + desde factura/recepción) — /compras/obligaciones.
 export * from './http/supplier-credit-terms.contract';
+export * from './http/supplier-credits.contract';
 // [RE.32] Entrega de compras recibidas a Finanzas (folio ENT-YYYY-NNNNN, quién entrega y quién recibe).
 export * from './http/purchase-delivery.contract';
 // [TP.16] Calendario de Pagos: semana completa, «Ordenar y pagar» y cuentas de origen.
