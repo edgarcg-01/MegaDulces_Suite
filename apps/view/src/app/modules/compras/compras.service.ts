@@ -720,6 +720,8 @@ export interface RequisitionResumen {
   n_kepler?: number;
   n_kepler_error?: number;
   n_sin_empujar?: number;
+  /** `[PQ.14]` De las `n_kepler_error`, cuántas son «escritura apagada» (KR), no una falla propia. */
+  n_kepler_apagado?: number;
   monto_sin_kepler?: number;
   dias_max_sin_kepler?: number;
 }

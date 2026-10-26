@@ -492,6 +492,14 @@ export interface RequisitionResumenDto {
   n_kepler: number;
   n_kepler_error: number;
   n_sin_empujar: number;
+  /**
+   * `[PQ.14]` De las `n_kepler_error`, cuántas NO fallaron: el motivo es que la escritura a Kepler
+   * está APAGADA (KR: «KEPLER_PUSH_URL sin configurar» / «escritura … apagada»). Medido el
+   * 2026-10-26: 172 de 173 errores en 30 d eran ese motivo, y la bandeja los pintaba en rojo fila
+   * por fila como si cada requisición hubiera fallado. Un apagado sistémico no es un error del
+   * documento (DESIGN.md §10.10, fallos parciales).
+   */
+  n_kepler_apagado: number;
   /** Monto y antigüedad de las que NO tienen documento en Kepler (error + sin empujar). */
   monto_sin_kepler: number;
   dias_max_sin_kepler: number;
@@ -4489,6 +4497,9 @@ export class CommercialReplenishmentService {
           trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NOT NULL)::int AS n_kepler`),
           trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL AND to_jsonb(r) ->> 'kepler_error' IS NOT NULL)::int AS n_kepler_error`),
           trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL AND to_jsonb(r) ->> 'kepler_error' IS NULL)::int AS n_sin_empujar`),
+          // `[PQ.14]` El apagado (KR) se separa de la falla real: mismo texto que escribe
+          // `pushToKepler` cuando no hay KEPLER_PUSH_URL / KEPLER_PUSH_URL_NN.
+          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL AND to_jsonb(r) ->> 'kepler_error' ~* '(apagad|sin configurar)')::int AS n_kepler_apagado`),
           trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL), 0) AS monto_sin_kepler`),
           trx.raw(`COALESCE(max(floor(extract(epoch FROM now() - r.created_at) / 86400)) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL), 0)::int AS dias_max_sin_kepler`));
       const resumen = (resumenRows as any[]).map((x) => ({
@@ -4496,6 +4507,7 @@ export class CommercialReplenishmentService {
         dias_prom: Number(x.dias_prom) || 0, dias_max: Number(x.dias_max) || 0,
         n_mas_30: Number(x.n_mas_30) || 0, monto_mas_30: Number(x.monto_mas_30) || 0,
         n_kepler: Number(x.n_kepler) || 0, n_kepler_error: Number(x.n_kepler_error) || 0, n_sin_empujar: Number(x.n_sin_empujar) || 0,
+        n_kepler_apagado: Number(x.n_kepler_apagado) || 0,
         monto_sin_kepler: Number(x.monto_sin_kepler) || 0, dias_max_sin_kepler: Number(x.dias_max_sin_kepler) || 0,
       }));
       return { total: Number(totalRow?.c || 0), page, pageSize, rows, resumen };

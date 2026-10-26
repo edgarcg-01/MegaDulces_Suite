@@ -185,6 +185,17 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
            title="Lo que se genera acá espera aprobación en Requisiciones"><span class="p-button-icon p-button-icon-left pi pi-inbox" aria-hidden="true"></span><span class="p-button-label">Requisiciones</span></a>
       </header>
 
+      <!-- [PQ.14] Lo que acabás de generar no se va con el toast: queda acá con su lote y el
+           camino a la bandeja, hasta que lo cierres. Antes la persona navegaba por menú y buscaba. -->
+      @if (ultimoLote(); as ul) {
+        <div class="pr-ultimo-lote" role="status">
+          <i class="pi pi-check-circle" aria-hidden="true"></i>
+          <span><strong>{{ ul.nombre }}</strong> generado: {{ ul.compras }} compra(s) + {{ ul.traspasos }} traspaso(s). Esperan aprobación en Requisiciones; hasta entonces no se le pide nada a nadie.</span>
+          <a pButton routerLink="/compras/requisiciones" [queryParams]="ul.batch_folio ? { q: ul.batch_folio } : {}" class="p-button-sm p-button-text"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Ver en Requisiciones</span></a>
+          <button pButton type="button" class="p-button-sm p-button-text" aria-label="Cerrar este aviso" (click)="ultimoLote.set(null)"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
+        </div>
+      }
+
       <!-- [VP.0] Acá había una píldora hecha a mano que decía "Datos actualizados hace N min"
            midiendo 'Date.now()' del NAVEGADOR al terminar el fetch. O sea: prometía la edad del
            DATO y medía la de la CONSULTA. Es el mismo bug que VP.0 corrigió en 21 de 24 píldoras
@@ -1929,6 +1940,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-zname { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-main); }
     .pr-zhub { font-size: var(--fs-micro); color: var(--text-muted); margin-left: .5rem; }
     .pr-zlink { font-size: var(--fs-micro); border: 0; background: transparent; color: var(--action); cursor: pointer; padding: .1rem .3rem; border-radius: var(--r-sm, 8px); }
+    /* [PQ.14] Lo recién generado, a la vista hasta que se cierre. */
+    .pr-ultimo-lote { display: flex; align-items: center; gap: .6rem; margin: 0 0 .6rem; padding: .45rem .7rem; border: 1px solid var(--ok-border); border-radius: var(--r-md); background: var(--ok-soft-bg); font-size: var(--fs-sm); }
+    .pr-ultimo-lote > span { flex: 1 1 auto; }
+    .pr-ultimo-lote .pi-check-circle { color: var(--ok-fg); }
     /* [RA-PRO.64] Leyendas de lo que le falta a la sucursal: texto chico neutro, no alarma. */
     .pr-bflag { display: inline-block; margin-left: .3rem; font-size: var(--fs-nano); color: var(--text-muted);
       border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); padding: 0 .4rem; vertical-align: middle; white-space: nowrap; }
@@ -2378,6 +2393,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private reqGen = 0;
   dl = signal(false);
   saving = signal(false);
+  /** `[PQ.14]` Lo último que se generó desde esta pantalla, a la vista hasta que la persona lo cierre. */
+  ultimoLote = signal<{ nombre: string; compras: number; traspasos: number; batch_folio: string | null } | null>(null);
   mode = signal<Mode>('pedido');
   deadValue = signal(0);
 
@@ -5763,6 +5780,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         // vivas — 93 renglones, $264,619, dos de ellos ya con OC las dos veces.
         const n = this.limpiarArmado(dtos);
         const nombre = r.batch_folio ? `Lote ${r.batch_folio}` : `${r.total} requisición(es)`;
+        // `[PQ.14]` El lazo no se corta: el toast se va solo y no lleva a ningún lado. Lo generado
+        // queda a la vista, con su lote, hasta que la persona lo cierre o vaya a la bandeja.
+        this.ultimoLote.set({ nombre, compras: r.compras, traspasos: r.traspasos, batch_folio: r.batch_folio ?? null });
         this.toast.add({
           severity: 'success', life: 12000,
           summary: `${nombre}: ${r.compras} compra(s) + ${r.traspasos} traspaso(s)`,
