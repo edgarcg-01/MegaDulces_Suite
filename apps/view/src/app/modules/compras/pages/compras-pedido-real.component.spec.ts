@@ -631,6 +631,27 @@ describe('[RA-UX] auditoría de interacción 2026-10-21: lo que la persona hace,
     expect(c.hasUnsavedChanges()).toBe(false);
   });
 
+  // ── [PQ.14] el lazo no se corta al generar ──
+  it('[PQ.14] tras generar, lo creado queda a la vista con su lote y el camino a la bandeja, hasta cerrarlo', () => {
+    const f = montar(VACIO);
+    const c = f.componentInstance;
+    expect(c.ultimoLote()).toBeNull();
+    c.setDispOf(fila('p-1') as never, suc('01') as never, 5);
+    c.plan.set(plan('p-1') as never);
+    c.confirmarPlan();
+    f.detectChanges();
+    expect(c.ultimoLote()?.batch_folio).toBe('RQ-LOTE-TEST');
+    const aviso = f.nativeElement.querySelector('.pr-ultimo-lote') as HTMLElement;
+    expect(aviso).not.toBeNull();
+    expect(aviso.textContent).toContain('Lote RQ-LOTE-TEST');
+    expect(aviso.textContent).toContain('1 compra(s) + 0 traspaso(s)');
+    const link = aviso.querySelector('a[href]') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/compras/requisiciones?q=RQ-LOTE-TEST');
+    (aviso.querySelector('button[aria-label="Cerrar este aviso"]') as HTMLButtonElement).click();
+    f.detectChanges();
+    expect(f.nativeElement.querySelector('.pr-ultimo-lote')).toBeNull();
+  });
+
   it('⛔ NEGATIVA: al salir de la pantalla NO reescribe el borrador de un pedido ya armado', () => {
     // Era la segunda puerta al duplicado: borradorCleanup volvía a guardar las cantidades y la
     // siguiente visita decía «Recuperé tu pedido a medio capturar» de algo ya generado.
