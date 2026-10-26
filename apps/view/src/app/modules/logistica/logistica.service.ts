@@ -94,6 +94,8 @@ export interface TariffChange {
   autorizado: boolean;
   changed_by_username: string | null;
   changed_at: string;
+  /** `[EMB.49]` Desde qué día rige, si no es el del registro (YYYY-MM-DD). */
+  effective_from?: string | null;
 }
 
 export interface Shipment {

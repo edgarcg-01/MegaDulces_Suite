@@ -356,8 +356,33 @@ sin validación visual de las columnas nuevas.
 que ponerles comisión en Configuración (Leonardo) o no se sabe cuánto pagan; (b) ¿las unidades en
 **paquete/pieza** cuentan como caja (convertidas con su factor) o no pagan carga?
 
+### EMB.49 · Los $0.20 por caja rigen desde el 22-oct (🧪, 2026-10-26)
+
+Ya en producción, Edgar: *«sigue en ceros»*. Corrí el código desplegado contra prod (sólo lectura,
+591 ms): el total no era cero ($5,882.16 de comisión, $2,386.32 asignado), pero **la tarifa por
+caja nació el 24-oct a las 12:36** y la regla de vigencia la aplica desde el día del registro: las
+**62 operaciones del 22 y 23 de octubre** (de 78) salían «sin tarifa» y la carga sumaba $449.80
+en vez de $1,729.20. Decisión de Edgar: *«aplícala»* — rige desde el 22-oct, inicio de la catorcena.
+
+**Cómo, sin reescribir la auditoría:** `logistics.tariff_changes.effective_from` (mig
+`20261026092618`, aditiva): desde qué día aplica un cambio cuando no es el de su registro. Se pone
+`2026-10-22` en los dos movimientos de EMB.39 y la decisión queda como un movimiento más
+(`rige_desde`, con quién la tomó). `tarifaVigenteEl` usa `diaEnQueRige` (el declarado, o el del
+registro); la pestaña Tarifas muestra «Rige desde…». El servicio lee la bitácora con `select *`:
+funciona igual antes y después de aplicar la migración (el orden del despliegue no importa).
+
+**Verificado:** logistics 79 ✓ (5 nuevas de vigencia, dos negativas), view logística 127 ✓, tsgo 0,
+`check:migrations` y `check:mig-colisiones` verdes. **NO MEDIDO:** la migración no se ejerció contra
+una base real (no hay base de prueba con la bitácora); su `UPDATE` toca exactamente las 2 filas que
+se leyeron en prod.
+
+**Sigue abierto (no se tocó):** las 3 rutas locales «sin comisión» (EMB.33). Esa decisión se
+midió sólo contra el concepto 075; en Kepler los traspasos locales sí cobran por 054 (p. ej. 22-oct:
+Antonio Méndez $1,630 al centro de Padre Hidalgo). Espera respuesta de Edgar.
+
 ## Bitácora
 
+- **2026-10-26** — EMB.49: la tarifa por caja rige desde el 22-oct (decisión de Edgar), con «rige desde» en la bitácora.
 - **2026-10-26** — EMB.48: el reporte muestra carga y comisión de ruta sin capturar; tiempo aire fuera (7 guías). Pedido: «todos los viajes salen en 0».
 - **2026-10-24** — EMB.47: el módulo pasa a ser un reporte de reparto (Operaciones + solicitudes por persona en PDF/Excel); D1 (conceptos) firmada, D6 superada. Migraciones de EMB.39/43 aplicadas en prod.
 - **2026-10-24** — EMB.43: módulo Logística › Pagos de viaje (3 pestañas, permiso propio repartido a Leonardo y Juan).

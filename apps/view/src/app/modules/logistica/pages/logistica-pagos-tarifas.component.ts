@@ -136,6 +136,7 @@ interface Historia { titulo: string; entity: 'config' | 'route'; id: string }
               <li>
                 <span class="pt-cuando">{{ cuando(c.changed_at) }}</span>
                 <span>{{ campo(c.field) }}: <strong>{{ c.old_value ?? '—' }}</strong> → <strong>{{ c.new_value ?? 'borrada' }}</strong></span>
+                @if (c.effective_from) { <span class="pt-sub">Rige desde el {{ diaCorto(c.effective_from) }}</span> }
                 <span class="pt-sub">{{ c.changed_by_username || 'sin usuario' }}@if (c.autorizado) { · autorizado }</span>
               </li>
             }
@@ -279,7 +280,13 @@ export class LogisticaPagosTarifasComponent {
   }
   campo(f: string): string {
     return ({ value: 'Valor', active: 'Prendida', driver_commission: 'Comisión chofer', helper_commission: 'Comisión ayudante',
-      name: 'Nombre', sin_comision: 'Sin comisión', borrado: 'Borrada', key: 'Clave', category: 'Categoría' } as Record<string, string>)[f] ?? f;
+      name: 'Nombre', sin_comision: 'Sin comisión', borrado: 'Borrada', key: 'Clave', category: 'Categoría', rige_desde: 'Rige desde' } as Record<string, string>)[f] ?? f;
+  }
+  /** `[EMB.49]` «22 oct 2026» de un `date` (YYYY-MM-DD), sin pasar por zona horaria. */
+  diaCorto(ymd: string): string {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ymd));
+    const meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    return m ? `${Number(m[3])} ${meses[Number(m[2]) - 1]} ${m[1]}` : String(ymd);
   }
   cuando(iso: string): string {
     const d = new Date(iso);

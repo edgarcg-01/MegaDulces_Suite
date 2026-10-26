@@ -3,7 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { Permission } from '@megadulces/platform-core';
 import { actorDe } from './logistics-config.controller';
 import { ActorTarifas, LogisticsConfigService } from './logistics-config.service';
-import { CambioRegistrado, cambiosDeConfig, cambiosDeRuta, configFijada, rutaFijada, tarifaVigenteEl } from './tarifas-fijas.logic';
+import { CambioRegistrado, cambiosDeConfig, cambiosDeRuta, configFijada, diaEnQueRige, rutaFijada, tarifaVigenteEl } from './tarifas-fijas.logic';
 
 /**
  * `[EMB.28.1]` Tarifas fijas: capturar la primera vez es de quien configura; cambiar, borrar o
@@ -231,5 +231,38 @@ describe('[EMB.39] la tarifa vigente un día sale de la bitácora', () => {
 
   it('volver a prender una tarifa queda en la bitácora (si no, la vigencia la daría por prendida antes)', () => {
     expect(cambiosDeConfig({ active: false }, { active: true })).toEqual([{ field: 'active', old_value: 'false', new_value: 'true' }]);
+  });
+});
+
+describe('[EMB.49] un cambio puede regir desde otro día que el de su registro', () => {
+  // Lo que pasó de verdad: la tarifa se registró el 24-oct a las 12:36 (México) y Edgar decidió que
+  // rige desde el 22-oct, el inicio de la catorcena. La bitácora conserva la hora real.
+  const alta: CambioRegistrado = { field: 'value', old_value: null, new_value: '0.2', changed_at: '2026-10-24T18:36:59Z' };
+  const hoy = { value: '0.2000', active: true };
+
+  it('con «rige desde» el 22-oct, el 22 y el 23 ya pagan $0.20', () => {
+    const conFecha = [{ ...alta, effective_from: '2026-10-22' }];
+    expect(tarifaVigenteEl(hoy, conFecha, '2026-10-22')).toBe(0.2);
+    expect(tarifaVigenteEl(hoy, conFecha, '2026-10-23')).toBe(0.2);
+  });
+
+  it('PRUEBA NEGATIVA: sin «rige desde», el 22 y el 23 siguen sin tarifa (la regla de siempre)', () => {
+    expect(tarifaVigenteEl(hoy, [alta], '2026-10-23')).toBeNull();
+    expect(tarifaVigenteEl(hoy, [alta], '2026-10-24')).toBe(0.2);
+  });
+
+  it('PRUEBA NEGATIVA: antes del «rige desde» tampoco hay tarifa', () => {
+    expect(tarifaVigenteEl(hoy, [{ ...alta, effective_from: '2026-10-22' }], '2026-10-21')).toBeNull();
+  });
+
+  it('pg entrega la columna date como Date a la medianoche LOCAL: se lee ese día, no el anterior', () => {
+    expect(diaEnQueRige({ changed_at: alta.changed_at, effective_from: new Date(2026, 9, 22) })).toBe('2026-10-22');
+    expect(diaEnQueRige({ changed_at: alta.changed_at, effective_from: null })).toBe('2026-10-24');
+  });
+
+  it('un movimiento que no es valor ni activa (la anotación «rige_desde») no cambia la tarifa', () => {
+    const anotada = [{ ...alta, effective_from: '2026-10-22' },
+      { field: 'rige_desde', old_value: '2026-10-24', new_value: '2026-10-22', changed_at: '2026-10-26T15:30:00Z' }];
+    expect(tarifaVigenteEl(hoy, anotada, '2026-10-22')).toBe(0.2);
   });
 });

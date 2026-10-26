@@ -683,7 +683,8 @@ export class TripClosureService {
     if (!row) return null;
     const cambios: CambioRegistrado[] = await trx('logistics.tariff_changes')
       .where({ entity: 'config', entity_id: row.id })
-      .select('field', 'old_value', 'new_value', 'changed_at');
+      // `*` y no la lista: `effective_from` (EMB.49) puede no existir todavía; así no truena antes ni después.
+      .select('*');
     return { row, cambios };
   }
 
