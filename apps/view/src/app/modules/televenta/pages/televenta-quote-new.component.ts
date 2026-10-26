@@ -49,7 +49,7 @@ function esPesable(it: { base_unit: string | null; rung: Rung }): boolean {
 import { totalesCotizacion } from '@megadulces/contracts';
 import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
-import { pasosDelPrecio, explicacionDelPrecio } from '../quote-discount-breakdown';
+import { pasosDelPrecio, explicacionDelPrecio, precioSinRedondear } from '../quote-discount-breakdown';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
 /**
@@ -91,6 +91,8 @@ export interface ItemBandeja {
   pasos?: string;
   /** `[E.29]` Qué descuento es, concreto («Precio por volumen de 10 a más PAQ»). */
   explicacion?: string;
+  /** `[E.29]` Precio de la presentación antes del redondeo de Kepler por unidad base. */
+  sin_redondear?: number | null;
 }
 
 const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
@@ -1329,6 +1331,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         explicacion: it.explicacion ?? '',
         importe: it.sku && it.unit_price !== null ? it.line_total : null,
         neto: netos && it.sku ? netos[i] : null,
+        sinRedondear: it.sin_redondear ?? null,
       };
     });
   });
@@ -1816,6 +1819,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         list_price: prev!.list_price ?? null,
         pasos: this.pasosDe(prev!),
         explicacion: explicacionDelPrecio(prev!.applied),
+        sin_redondear: precioSinRedondear(prev!.applied),
       };
       this.bandeja.update((items) => [...items, item]);
       this.revisarExistencia();
@@ -1978,6 +1982,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
           list_price: p.list_price ?? null,
           pasos: this.pasosDe(p),
           explicacion: explicacionDelPrecio(p.applied),
+          sin_redondear: precioSinRedondear(p.applied),
         }),
       error: () =>
         aplicar({
@@ -1988,6 +1993,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
           list_price: null,
           pasos: '',
           explicacion: 'El motor de precios no respondió; al generar, el servidor lo cotiza.',
+          sin_redondear: null,
         }),
     });
   }

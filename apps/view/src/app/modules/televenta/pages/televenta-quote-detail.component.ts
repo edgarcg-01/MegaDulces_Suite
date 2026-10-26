@@ -36,7 +36,7 @@ import {
   type QuoteDeliverableData,
 } from '../quote-deliverable-export';
 import { totalesCotizacion } from '@megadulces/contracts';
-import { desgloseDescuento, pasosDelPrecio, explicacionDelPrecio } from '../quote-discount-breakdown';
+import { desgloseDescuento, pasosDelPrecio, explicacionDelPrecio, precioSinRedondear } from '../quote-discount-breakdown';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -1042,6 +1042,9 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         explicacion: this.explicacionDe(l),
         importe: this.num(l.line_total),
         neto: netos ? netos[i] : null,
+        // A lista, lo guardado basta; con descuento, los pasos de hoy sólo si el precio no cambió.
+        sinRedondear: l.price_source === 'list' ? this.num(l.list_price)
+          : rv?.now && !rv.price_changed ? precioSinRedondear(rv.now.applied) : null,
       };
     });
   });

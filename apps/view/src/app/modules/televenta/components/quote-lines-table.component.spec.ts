@@ -12,8 +12,19 @@ const PEELERZ: RenglonTabla = {
   id: 'r1', numero: 1, nombre: 'GOMA PEELERZ UVA 85G / 1', sinCasar: false, regaloDe: null, notaRegalo: null,
   unidad: 'CJA', factor: 24, cantidad: 1, editable: false, admiteFraccion: false, existencia: null,
   lista: 739.21, precio: 739.2, desglose: [], fuente: 'list', dtoPct: null, pasos: '', explicacion: '',
-  importe: 739.2, neto: null,
+  importe: 739.2, neto: null, sinRedondear: null,
 };
+
+function deDondeSale(renglones: RenglonTabla[], clientePct: number | null): string {
+  TestBed.resetTestingModule();
+  TestBed.configureTestingModule({ imports: [QuoteLinesTableComponent], providers: [provideZonelessChangeDetection()] });
+  const f = TestBed.createComponent(QuoteLinesTableComponent);
+  f.componentRef.setInput('renglones', renglones);
+  f.componentRef.setInput('clientePct', clientePct);
+  f.detectChanges();
+  const celda = (f.nativeElement as HTMLElement).querySelector('td[data-label="De dónde sale"]');
+  return Array.from(celda?.querySelectorAll('.p-tag-label, .dto, .pasos') ?? []).map((e) => (e.textContent ?? '').trim()).join(' | ');
+}
 
 function pintar(renglones: RenglonTabla[], clientePct: number | null): string {
   TestBed.configureTestingModule({ imports: [QuoteLinesTableComponent], providers: [provideZonelessChangeDetection()] });
@@ -35,5 +46,18 @@ describe('QuoteLinesTableComponent — Importe con el % del cliente', () => {
 
   it('sin % de cliente pinta el importe tal cual', () => {
     expect(pintar([PEELERZ], null)).toBe('$739.20');
+  });
+
+  it('«De dónde sale» dice el centavo de Kepler y, si hay, el descuento del cliente', () => {
+    const r: RenglonTabla = {
+      ...PEELERZ, neto: 724.42, sinRedondear: 739.21, desglose: [{ cantidad: 24, unidad: 'PAQ', precio: 30.8 }],
+    };
+    expect(deDondeSale([r], 2)).toBe(
+      'Lista | Kepler redondea por PAQ a centavos: $739.21 → 24 × $30.80 = $739.20 | Descuento del cliente | −2%',
+    );
+    // Sin % de cliente: sólo la lista y el redondeo.
+    expect(deDondeSale([{ ...r, neto: null }], null)).toBe(
+      'Lista | Kepler redondea por PAQ a centavos: $739.21 → 24 × $30.80 = $739.20',
+    );
   });
 });
