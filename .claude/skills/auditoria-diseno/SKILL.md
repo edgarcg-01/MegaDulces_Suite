@@ -248,6 +248,19 @@ cosas»*). Antes de cualquier acento o ratio suelto, contesta con la pantalla vi
    escrituras** (`page.route`: todo lo que no sea GET → 403). *El caso: en `/finanzas/calendario-pagos`
    la vista de entrada se veía bien; con datos, la tabla se encimaba, el botón principal no hacía nada
    y un pago rebotado no aparecía en el veredicto.*
+7. **Los cuatro principios del PM** (Edgar, 2026-10-26: *«la menor cantidad de interacción humana, la
+   menor cantidad de colores innecesarios, accesibilidad y visibilidad de información en todo
+   momento, opción de desglose»*). La ley está en `ESTANDAR_DE_INTERFACES.md` §2.5, §3.10 y §4.7;
+   aquí, cómo se mide cada uno:
+   - **Interacción:** cuenta los clics para terminar el proceso con N registros (no con uno) y
+     separa los que DECIDEN de los que sólo confirman algo que el sistema ya sabía. Y compara los
+     endpoints del controlador contra los que la pantalla llama: *en Pagos, `fallo` y `cerrar`
+     existían y la pantalla no los ofrecía — el proceso no se podía terminar.*
+   - **Color:** cuenta elementos con color por tono y los papeles que cumple cada tono. Presupuesto:
+     neutro + acción (sólo el botón principal) + rojo (sólo lo que está mal).
+   - **Visibilidad:** cuenta lo que está plegado al entrar y cuánto texto esconde; el texto cortado
+     con «…»; y las cifras que animan (un conteo de 900 ms publica montos que no existen).
+   - **Desglose:** todo total tiene que abrirse a sus renglones sin salir de la pantalla.
 
 Los detalles (acentos, un ratio, 10 px) van **después**, como síntomas de esto. *El caso:
 `/finanzas/calendario-pagos` — se entregaron 12 detalles y no se dijo que el veredicto medía 14 px

@@ -714,6 +714,60 @@ dato los marque; (4) D2 + separación de funciones en backend; (5) **dos defecto
 pantalla destapó y que se anularon sólo aquí: `styleClass` en `p-table` ignorado en PrimeNG v22 (110
 tablas) y `styles.css` escondiendo con `!important` las columnas 4+ de todo `p-datatable` en móvil.
 
+### `[PGP.15]` Los cuatro principios del PM, aplicados (2026-10-26, nivel A) — 🧪
+
+> Pedido de Edgar: *«debe existir la menor cantidad de interacción humana, la menor cantidad de
+> colores en interfaz innecesarios, accesibilidad y visibilidad de información en todo momento,
+> opción de desglose de información»*. Quedaron como ley en `ESTANDAR_DE_INTERFACES.md` §2.5, §3.10
+> y §4.7 (con estos casos) y como paso 7 del recorrido de `auditoria-diseno`. Medido en la app
+> (`localhost:4200`, datos reales del lun 26-oct) con **escrituras bloqueadas en el navegador**
+> —control: el bloqueo atrapó el `POST` de login la primera vez que la excepción no lo cubría— y los
+> estados que no existen hoy (preparado, autorizado, rebote, por cerrar, cerrado) **simulados**
+> transformando la respuesta GET de la semana. Lista de escrituras que salieron del navegador: **vacía**.
+
+| Principio | Antes (medido) | Después (medido) |
+|---|---|---|
+| **Interacción** — un día de 7 transferencias, de armar a cerrar | **30 clics**, y el proceso **no se podía terminar**: el backend tenía `fallo` y `cerrar` y la pantalla no los ofrecía | **6 clics** si cada proveedor tiene cuenta favorita (10 la primera vez; +2 por proveedor sin favorita). La propuesta aparece sola; el orden se pone solo; «Aplicar a los N» pone la cuenta favorita de cada proveedor; «Marcar los N pagados» de una vez; «Rebotó…» marca y mueve en un paso; «Cerrar el día» |
+| **Color** | **44 elementos con color, 3 tonos, 16 papeles** | **3 elementos, 1 papel** (el botón principal). Rojo sólo en el rebote y el tope excedido. Las 30 casillas marcadas de la propuesta salían naranjas por default de PrimeNG: neutralizadas |
+| **Visibilidad** | 3 de 4 pasos plegados al entrar (uno con 68,433 caracteres: toda la deuda); 2 pagos con folios tras «…»; la tira de cifras decía **$84,410.38** de un día con **$1,850,235.43** mientras contaba | Avance en una línea sin clic; **0 textos cortados**; la tira nace con su valor final (`instant`, aditivo en `MetricStrip`/`CountUp`); «46 por confirmar» dice ahora **«entre las 1,000 listadas»** (era una cifra del universo recortado sin aviso) |
+| **Desglose** | Las facturas de un pago, en una línea cortada | Cada pago se abre a sus facturas con lo aplicado (control: 4 facturas = $327,006.41 = importe del pago); la propuesta muestra los 30 que caben y **los 459 que no caben en una línea con su total ($89,596,996.03) y desglosable** — antes eran 489 renglones (459 deshabilitados) y ~1.4 s de pantalla congelada |
+
+**Defecto de dato corregido de paso:** la propuesta de armado **no excluía las facturas «por
+confirmar»** (sucursal, anteriores al corte del 1-oct, posiblemente pagadas desde Oficinas) y, como
+ordena por antigüedad, las ponía primero. Con una réplica de su regla en el navegador: **55 en 2 de
+los 46 pagos** propuestos para el 26-oct (hoy suman $24, pero el filtro no existía). Ahora `proponer()`
+filtra con el mismo `enRevision()` del cajón.
+
+**Verificado:** `ngc --noEmit` 0 errores · `check:templates` · `check:estilos` · `check:pantalla`
+(1 falla, la §9 ya declarada; **0 nuevas**) · voseo 0 en los archivos tocados · `vitest` de
+`metric-strip` y `calendario-pagos-grupos` 39/39 · los cinco estados del día en la pantalla viva ·
+diálogos «Marcar como pagados» (control: 4 pagos = $1,009,657.16) y «El pago rebotó» (fecha
+propuesta: siguiente día hábil; botón deshabilitado sin motivo) · teléfono sin desborde horizontal.
+
+⛔ **NO ejercido contra una base real (regla 13) — por eso 🧪 y no 🚀:** todo lo que escribe y es
+nuevo en esta pantalla usa endpoints que ya existían, pero **con un orden o un cuerpo que la pantalla
+no mandaba antes**: el orden automático (`proponer-orden` / `orden` = máx+1 tras agregar o mover),
+«Aplicar a los N» con `supplier_payment_account_id` de la favorita, «Marcar los N pagados» (N
+`ejecutar` seguidos), «Rebotó…» (`fallo` y luego `reprogramar`), «Cerrar el día» (`cerrar`) y el
+«+» que agrega directo. Ninguna se probó; la API local apunta a producción. Lo más probable de
+ajustar: que `reprogramar` rechace un día destino ya autorizado (el diálogo lo dice como error, no lo
+previene) y que `cerrar` —que el backend no valida— se ofrezca sólo cuando no quedan pendientes (lo
+cuida la pantalla, no el servidor).
+
+**Deuda con nombre:**
+
+- **`PGP.15.D1`** — proponer el día cuesta **2.3 MB y 931 ms** (lee las 2,858 facturas una vez por
+  visita). Va al backend: un `GET days/:date/propuesta` o, al menos, sólo las columnas del armado.
+- **`PGP.15.D2`** — el conteo animado de `MetricStrip` publica montos falsos en **116 pantallas**;
+  aquí se apagó con `instant`. Que el default cambie es decisión de diseño de Edgar.
+- **`PGP.15.D3`** — `cerrar` no valida nada en el backend (ni pendientes ni rebotes).
+- **`PGP.15.D4`** — el método y la cuenta de origen recordados viven en el navegador
+  (`localStorage`, por persona): es una comodidad, no una regla de Tesorería.
+- Sigue pendiente de la lista de arriba: el enlace de cada pago marcado a su comprobante en «Pagos
+  a proveedor» (el cierre del día ya existe), la vista por rol, los $14.0M en dictamen —la propuesta
+  ahora los **nombra** («el primero que no cabe es ACREEDOR ARTURO LOPEZ OROZCO por $8,480,000.00»)—,
+  D2 + separación de funciones en backend y los dos defectos globales.
+
 ### Auditoría de la pantalla viva `/finanzas/calendario-pagos` (2026-10-26, nivel A)
 
 > **Con qué se miró:** la app corriendo (`localhost:4200`, Playwright) contra una API local
