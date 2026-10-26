@@ -2108,6 +2108,47 @@ pie del PDF del pedido dejaba la sucursal por código («Pedido 01»): ahora por
 por +2 `styleClass` en archivos de otras sesiones. **Sin validación visual** (no se levanta la app en local): lo más
 probable de ajustar es el ancho de la tabla de 9 columnas en pantallas angostas y el peso de la franja de filtros.
 
+#### 16.18.1 Autocrítica con la captura del PM (2026-10-26) — D20 y D21
+
+El PM mandó la pantalla de Padre Hidalgo y pidió revisarla con ojo crítico y «tener más control como en el pedido de
+Compras». Lo que se vio y se midió (prod, sólo lectura):
+
+| Se veía | Qué era |
+|---|---|
+| «Traspaso de **00** · CEDIS» | código en pantalla: lo trajo «Mi pedido» (`sucursal:'con-codigo'`) y la fusión no lo quitó |
+| Agua Members Mark: «Compras lo planeó» 553 y aun así 548 «en tu pedido» | el total, el PDF y los KPIs sumaban lo que «Enviar a Compras» deja fuera (`motivoNoEnviable`): la pantalla contaba un pedido que no iba a salir |
+| Mr Beast: máx 22.4 y falta neta 143.6 | el objetivo de Autoabasto (venta × 30 d en matriz × temporada 1.61) **no tiene tope**; el máximo de la política se pinta al lado sin gobernar nada |
+| $2,083 por caja de Mr Beast | **correcto**: la caja es de 180 piezas y Kepler la cobra a $2,610 (no era un error de unidad) |
+| 1,240 de 1,387 renglones en el pedido | sin curaduría: por default entraba también «bajo reorden» |
+| encabezados en mono partidos en dos líneas | estilo de `comm-num` en el `<th>` |
+
+**Medido:** el 26 % del valor sugerido de la red rebasa el máximo de la política ($3.76 M de $14.68 M; Padre Hidalgo
+30 %, Canindo 27 %, Morelia Abastos 24 %).
+
+**Comparación de los dos motores** (código leído, citas en la sesión): Compras pide demanda × días del comprador (30 por
+defecto) con **tope de 45 días** tras redondear, ajusta por cumplimiento del proveedor (hasta ×1.30), **no resta** lo ya
+pedido ni lo embarcado (la función existe y nadie la llama), no pide cuando la unidad es dudosa y valúa con
+`caja_cost`. Autoabasto pide demanda × 21/30 días **sin tope**, sí resta lo que ya viene, pide aunque la unidad sea
+dudosa, y **muestra un costo y manda otro**. Ninguno de los dos topa por el máximo de la política.
+
+| # | Decisión del PM | Firma |
+|---|---|---|
+| D20 | **Un solo motor de cantidad** para Autoabasto y Compras: demanda × días con **tope de 45 días**. El mín/reorden/máx de la política deja de pintarse como si mandara. Lo mejor de cada uno: la resta de lo que ya viene (de Autoabasto) va también a Compras; no pedir con unidad dudosa y un solo costo (de Compras) van a Autoabasto; el ×1.30 por proveedor no aplica a traspasos; los 21 días de sucursales (AB.22) se respetan | ✅ PM |
+| D21 | Arreglar ya los defectos de la pantalla: sin código, el pedido cuenta lo mismo que se manda, encabezados, y default de posiciones = agotado + bajo mínimo | ✅ PM |
+
+**D21, hecho (🧪):** origen por nombre; `incluida` usa la misma regla que el envío (`motivoNoEnviable`): lo planeado por
+Compras, lo que ya viene y lo sin ruta se ven en «Todos» con su porqué y no suman; encabezados en la letra del texto y en
+una línea; `POSICIONES_PEDIDO_DEFAULT` = agotado + bajo mínimo, y el borrador nace con esas posiciones **explícitas** (la
+columna de la base trae su propio default con «bajo reorden»). Efecto del default, medido: sólo cambia en las 4 sucursales
+sin posiciones guardadas (las 4 que las guardaron ya habían quitado «bajo reorden») — sale del pedido Padre Hidalgo 193
+renglones / $1.04 M, Morelia Abastos 250 / $1.34 M, Morelia Madero 73 / $0.18 M, 8 Esquinas 85 / $0.13 M. Pruebas: pantalla
+36/36 (negativa de la regla del pedido en rojo), `test-localdb-autoabasto-borrador.js` 4/4 contra base real (negativa: el
+INSERT viejo nace con «bajo reorden»), contracts 797, reabasto 250.
+
+**D20 queda como [AB.40]**, sin construir: mueve un número que decide ~$14.7 M y toca el motor de PQ (otra fase, otra
+sesión). Orden: función de cantidad única en `libs/contracts` con su candado → antes/después por almacén y por proveedor →
+coordinar en la tarjeta de PQ → publicar fuera de horario.
+
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
 - [ ] Carga completa de la mesa y de «Mi pedido» bajo 500 ms en todas las sucursales, medida en prod (AB.36).

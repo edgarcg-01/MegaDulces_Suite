@@ -626,12 +626,14 @@ export class AutoabastoPedidoService {
     if (actual) return actual;
     const ctx = this.tenantCtx.get();
     await trx.raw(
-      `INSERT INTO commercial.autoabasto_pedidos (tenant_id, warehouse_id, motor, abierto_por, abierto_por_username)
-       VALUES (?, ?, ?::jsonb, ?, ?)
+      // `[AB.39]` Las posiciones van EXPLÍCITAS: el default de la columna en la base trae también
+      // «bajo reorden», y el borrador nacería distinto de lo que la persona veía marcado al ajustar.
+      `INSERT INTO commercial.autoabasto_pedidos (tenant_id, warehouse_id, motor, abierto_por, abierto_por_username, posiciones)
+       VALUES (?, ?, ?::jsonb, ?, ?, ?::text[])
        ON CONFLICT (tenant_id, warehouse_id) WHERE estado = 'borrador' DO NOTHING`,
       [tenantId, warehouseId, JSON.stringify({ base: 'demanda', cobertura_por_almacen: COBERTURA_AUTOABASTO, cobertura_default: COBERTURA_AUTOABASTO_DEFAULT,
         ventana_ya_pedido_dias: VENTANA_YA_PEDIDO_DIAS, ventana_negado_dias: VENTANA_NEGADO_DIAS }),
-      ctx?.userId ?? null, ctx?.username ?? null]);
+      ctx?.userId ?? null, ctx?.username ?? null, [...POSICIONES_PEDIDO_DEFAULT]]);
     const creado = await this.borradorDe(trx, tenantId, warehouseId);
     if (!creado) throw new Error('No se pudo abrir el borrador del pedido.');
     return creado;
