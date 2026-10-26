@@ -533,6 +533,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
             <app-quote-lines-table
               [renglones]="renglonesVista()"
               [bloqueado]="guardando()"
+              [clientePct]="num(q.terms_discount_pct) || null"
               (cantidad)="onCantidadTabla($event)"
               (quitar)="onQuitarTabla($event)"
             />
@@ -552,8 +553,8 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
               <div class="tot-row tot-final"><span>Total</span><b>{{ num(q.total) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
               @if (num(q.terms_discount_pct)) {
                 <p class="tot-nota">
-                  Incluye el {{ num(q.terms_discount_pct) }}% del cliente, aplicado sobre el subtotal —
-                  no sobre el precio de cada renglón.
+                  Incluye el {{ num(q.terms_discount_pct) }}% del cliente, calculado sobre la suma y repartido
+                  en el importe de cada renglón; el precio unitario es el de Kepler, antes del %.
                 </p>
               }
               @if (impuestos()?.impuesto_asumido) {
@@ -1009,7 +1010,10 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     const editable = this.editable();
     const revisando = this.revisando();
     this.revisionPorRenglon(); // dependencia explícita: la existencia llega después de la cotización
-    return q.lines.map((l) => {
+    // Con % de cliente, el importe del renglón es el de la hoja (mismo reparto, Σ = total).
+    const t = this.impuestos();
+    const netos = t && (this.num(q.terms_discount_pct) ?? 0) > 0 ? t.netos : null;
+    return q.lines.map((l, i) => {
       const rv = this.revisionDe(l);
       const existencia: RenglonTabla['existencia'] = l.parent_line_number !== null ? null
         : rv ? (rv.stock && rv.stock.in_line_unit !== null
@@ -1037,6 +1041,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         pasos: this.pasosDe(l),
         explicacion: this.explicacionDe(l),
         importe: this.num(l.line_total),
+        neto: netos ? netos[i] : null,
       };
     });
   });

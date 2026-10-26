@@ -37,7 +37,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Precio', def: 'Lo que se cobra por unidad de la presentación, ya con volumen o promoción. Entre paréntesis, lo que sale cada unidad menor (por ejemplo, cada paquete dentro de la caja).' },
           { term: 'Porcentaje', def: 'Cuánto baja el precio contra la lista: (lista − precio) ÷ lista. Es la misma cuenta antes y después de guardar la cotización.' },
           { term: 'Línea gris', def: 'Los pasos del precio, de la lista al precio final: «lista $26.94 → volumen $24.79».' },
-          { term: 'Importe', def: 'Cantidad por precio, a centavos como Kepler (el precio se guarda por unidad base). La suma de los importes, menos el descuento del cliente, es el total.' },
+          { term: 'Importe', def: 'Cantidad por precio, a centavos como Kepler (el precio se guarda por unidad base). Si el cliente tiene descuento, el importe ya trae su parte —repartida para que la suma sea el total, igual que en la hoja— y abajo se ve el de Kepler antes del %.' },
         ],
       },
     ],
