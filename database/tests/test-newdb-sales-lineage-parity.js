@@ -26,6 +26,13 @@
  * asentamiento de mes reciente: la rama 02 llega a 1.95% en ago y baja a 0.30% en jul al asentarse).
  * La ruta empata EXACTA ($0) → umbral $1. La venta de truck en la tabla: ~$4.4M/mes → material.
  *
+ * ⛔ [AB.38] (2026-10-26) — LA PREGUNTA 3 CERTIFICABA UN ERROR. «La ruta del twin == la de la tabla»
+ * empataba al peso porque las DOS traían Padre Hidalgo al doble (Kepler 01 `01-00N` + el envío, desde
+ * el 20-ago): dos derivaciones que comparten el error se confirman entre sí. La ruta ya no se arbitra
+ * contra `sales_daily` sino contra el ENVÍO de cada camioneta (`route_push_lines`, desde el corte de su
+ * plaza), y la intercambiabilidad (2) y los tickets (5) se miden SIN camionetas. La tabla contra el
+ * envío queda como dato (se espera ~2× en Padre Hidalgo mientras `sales_daily` exista).
+ *
  *   node database/tests/test-newdb-sales-lineage-parity.js   (cae a FLEET_DB_URL del .env si no hay env)
  */
 const { Client } = require('pg');
@@ -91,46 +98,58 @@ const noMedido = (label, motivo) => { nm++; console.log(`  ⓘ NO MEDIDO · ${la
      GROUP BY 1 ORDER BY 1 DESC LIMIT 2`, [T]) : [];
   if (!meses.length) { noMedido('paridad de meses cerrados', 'mv_sales_blended sin meses cerrados con dato'); }
 
-  // ── 2. el twin ODS empata con la tabla (intercambiable) ──────────────────────────────────────
-  console.log('\n2 · INTERCAMBIABILIDAD (tabla ↔ mv_sales_blended, meses cerrados)');
+  // ── 2. el twin ODS empata con la tabla (intercambiable) — SIN camionetas ([AB.38]: ahí la tabla duplica)
+  console.log('\n2 · INTERCAMBIABILIDAD (tabla ↔ mv_sales_blended, meses cerrados, sin camionetas)');
   for (const { mes } of meses) {
     const r = (await q(`
+      WITH trucks AS (SELECT id FROM commercial.warehouses WHERE tenant_id=$1 AND kind='truck')
       SELECT
         (SELECT COALESCE(sum(revenue),0) FROM analytics.sales_daily
-          WHERE tenant_id=$1 AND to_char(sale_date,'YYYY-MM')=$2)::numeric AS tabla,
+          WHERE tenant_id=$1 AND to_char(sale_date,'YYYY-MM')=$2 AND warehouse_id NOT IN (SELECT id FROM trucks))::numeric AS tabla,
         (SELECT COALESCE(sum(revenue),0) FROM analytics.mv_sales_blended
-          WHERE tenant_id=$1 AND to_char(sale_date,'YYYY-MM')=$2)::numeric AS blended`, [T, mes]))[0];
+          WHERE tenant_id=$1 AND to_char(sale_date,'YYYY-MM')=$2 AND warehouse_id NOT IN (SELECT id FROM trucks))::numeric AS blended`, [T, mes]))[0];
     const tabla = Number(r.tabla), blended = Number(r.blended);
     const pct = tabla ? Math.abs(tabla - blended) / tabla * 100 : 999;
     check(`${mes}: |tabla − blended| ≤ ${UMBRAL_TOTAL_PCT}% (Δ ${pct.toFixed(3)}%)`, pct <= UMBRAL_TOTAL_PCT,
       `tabla $${Math.round(tabla).toLocaleString()} blended $${Math.round(blended).toLocaleString()}`);
   }
 
-  // ── 3. el twin trae la RUTA idéntica (la pierna que el target viejo perdía) ───────────────────
-  console.log('\n3 · COBERTURA DE RUTA en el twin (los almacenes kind=truck empatan al peso)');
+  // ── 3. el twin trae la RUTA una vez: = el ENVÍO de cada camioneta ([AB.38]) ──────────────────
+  // El árbitro es el envío desde el corte de su plaza (Padre Hidalgo 1-jul, Canindo 13-ago), con las
+  // filas de Kepler/envío del twin (las `wincaja_*` son de antes del corte y no son envío).
+  console.log('\n3 · RUTA en el twin = el envío de cada camioneta (no la tabla, que la duplica)');
   if (!meses.length) { noMedido('cobertura de ruta', 'sin meses cerrados'); }
+  const aplicada = (await q(`SELECT coalesce(obj_description('analytics.mv_sales_blended'::regclass), '') ~ 'AB\\.38' a`))[0].a;
   for (const { mes } of meses) {
     const r = (await q(`
       WITH trucks AS (SELECT id FROM commercial.warehouses WHERE tenant_id=$1 AND kind='truck')
       SELECT
         (SELECT COALESCE(sum(revenue),0) FROM analytics.sales_daily s
-           WHERE s.tenant_id=$1 AND to_char(s.sale_date,'YYYY-MM')=$2 AND s.warehouse_id IN (SELECT id FROM trucks))::numeric AS t_ruta,
+           WHERE s.tenant_id=$1 AND to_char(s.sale_date,'YYYY-MM')=$2 AND s.channel !~~ 'wincaja_%' AND s.warehouse_id IN (SELECT id FROM trucks))::numeric AS t_ruta,
         (SELECT COALESCE(sum(revenue),0) FROM analytics.mv_sales_blended b
-           WHERE b.tenant_id=$1 AND to_char(b.sale_date,'YYYY-MM')=$2 AND b.warehouse_id IN (SELECT id FROM trucks))::numeric AS b_ruta`, [T, mes]))[0];
-    const tr = Number(r.t_ruta), br = Number(r.b_ruta);
-    check(`${mes}: ruta(truck) blended == tabla (Δ $${Math.round(Math.abs(tr - br)).toLocaleString()})`, Math.abs(tr - br) <= UMBRAL_RUTA_$,
-      `tabla $${Math.round(tr).toLocaleString()} blended $${Math.round(br).toLocaleString()}`);
-    check(`${mes}: la venta de ruta es material (> $${(RUTA_MATERIAL_$ / 1e6).toFixed(0)}M) → migrar mal la perdería`, tr > RUTA_MATERIAL_$,
-      `ruta tabla $${Math.round(tr).toLocaleString()}`);
+           WHERE b.tenant_id=$1 AND to_char(b.sale_date,'YYYY-MM')=$2 AND b.channel !~~ 'wincaja_%' AND b.warehouse_id IN (SELECT id FROM trucks))::numeric AS b_ruta,
+        (SELECT COALESCE(sum(rpl.importe),0) FROM analytics.route_push_lines rpl
+           JOIN commercial.warehouses w ON w.tenant_id = rpl.tenant_id AND w.deleted_at IS NULL AND w.code = 'RUTA-' || rpl.route_no
+           JOIN catalog.products p ON p.tenant_id = rpl.tenant_id AND btrim(p.sku::text) = btrim(rpl.sku) AND p.deleted_at IS NULL
+          WHERE rpl.tenant_id=$1 AND to_char(rpl.business_date,'YYYY-MM')=$2
+            AND rpl.business_date >= CASE WHEN rpl.route_no ~ '^50[0-9]$' THEN DATE '2026-08-13' ELSE DATE '2026-07-01' END)::numeric AS envio`, [T, mes]))[0];
+    const tr = Number(r.t_ruta), br = Number(r.b_ruta), en = Number(r.envio);
+    if (!aplicada) noMedido(`${mes}: ruta del twin = envío`, 'la migración [AB.38] 20261026113559 no está aplicada en este destino');
+    else check(`${mes}: ruta(truck) blended == envío (Δ $${Math.round(Math.abs(en - br)).toLocaleString()})`, Math.abs(en - br) <= UMBRAL_RUTA_$,
+      `envío $${Math.round(en).toLocaleString()} blended $${Math.round(br).toLocaleString()}`);
+    check(`${mes}: la venta de ruta es material (> $${(RUTA_MATERIAL_$ / 1e6).toFixed(0)}M) → migrar mal la perdería`, en > RUTA_MATERIAL_$,
+      `envío $${Math.round(en).toLocaleString()}`);
+    console.log(`     · dato: la tabla trae ${(tr / (en || 1)).toFixed(2)}× el envío ($${Math.round(tr).toLocaleString()} vs $${Math.round(en).toLocaleString()})`);
   }
 
   // ── 4. PRUEBA NEGATIVA: mv_kepler_sales_daily es ciego a la ruta ──────────────────────────────
-  // El target viejo. Su source_branch es SÓLO ramas fijas (00-07): estructuralmente no puede
+  // El target viejo. Su source_branch es SÓLO ramas fijas (00-08): estructuralmente no puede
   // representar un truck. Si mañana aparece un truck acá, o el hueco desaparece, este bloque avisa.
   console.log('\n4 · PRUEBA NEGATIVA · mv_kepler_sales_daily NO puede ver la ruta (target equivocado)');
   const brs = (await q(`SELECT DISTINCT source_branch FROM analytics.mv_kepler_sales_daily WHERE tenant_id=$1`, [T])).map((r) => r.source_branch);
-  const soloRamasFijas = brs.every((b) => /^0[0-7]$/.test(String(b)));
-  check('mv_kepler_sales_daily sólo tiene ramas fijas 00-07 (ningún truck)', soloRamasFijas,
+  // 08 = Morelia Abastos (sucursal fija desde 2026-09-19): la regla vieja decía 00-07 y se puso roja sola.
+  const soloRamasFijas = brs.every((b) => /^0[0-8]$/.test(String(b)));
+  check('mv_kepler_sales_daily sólo tiene ramas fijas 00-08 (ningún truck)', soloRamasFijas,
     `source_branch = ${brs.join(',')}`);
   // y existe venta de truck material que por lo tanto le es invisible
   const truckRev = Number((await q(`
@@ -146,9 +165,9 @@ const noMedido = (label, motivo) => { nm++; console.log(`  ⓘ NO MEDIDO · ${la
   // sales_daily le imponía al Command Center. Si un destino no aplicó SD.4b, tickets=0 → NO MEDIDO.
   console.log('\n5 · TICKETS/FOLIOS (mv_sales_blended cuenta folios del ODS — SD.4b)');
   for (const { mes } of meses) {
-    const r = (await q(`SELECT
-      (SELECT COALESCE(sum(tickets),0) FROM analytics.sales_daily     WHERE tenant_id=$1 AND to_char(sale_date,'YYYY-MM')=$2)::bigint sd,
-      (SELECT COALESCE(sum(tickets),0) FROM analytics.mv_sales_blended WHERE tenant_id=$1 AND to_char(sale_date,'YYYY-MM')=$2)::bigint mb`, [T, mes]))[0];
+    const r = (await q(`WITH trucks AS (SELECT id FROM commercial.warehouses WHERE tenant_id=$1 AND kind='truck') SELECT
+      (SELECT COALESCE(sum(tickets),0) FROM analytics.sales_daily     WHERE tenant_id=$1 AND to_char(sale_date,'YYYY-MM')=$2 AND warehouse_id NOT IN (SELECT id FROM trucks))::bigint sd,
+      (SELECT COALESCE(sum(tickets),0) FROM analytics.mv_sales_blended WHERE tenant_id=$1 AND to_char(sale_date,'YYYY-MM')=$2 AND warehouse_id NOT IN (SELECT id FROM trucks))::bigint mb`, [T, mes]))[0];
     const sd = Number(r.sd), mb = Number(r.mb);
     if (mb === 0) { noMedido(`paridad de tickets ${mes}`, 'mv_sales_blended.tickets = 0 (SD.4b no aplicado en este destino)'); continue; }
     const off = sd ? Math.abs(sd - mb) / sd * 100 : 999;
