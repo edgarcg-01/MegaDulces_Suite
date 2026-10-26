@@ -102,6 +102,10 @@ if (!URL) {
         expect(r.unidades.find((u) => u.vehicle_id === HINO)!.rubros.find((x) => x.rubro === 'combustible')!.real).toBe(3695.25);
         expect(r.pendientes.ambiguo.renglones).toBe(0);
         expect(r.pendientes.sin_unidad.renglones).toBe(0);
+        // «Ya decididos» los trae para deshacerlos; «todos» (por confirmar) ya no.
+        expect((await svc.pendientes(...OCT, 'decididos')).lineas.map((l) => [l.folio, l.estado]).sort())
+          .toEqual([['ZZ9003', 'confirmado'], ['ZZ9004', 'no_es_flota']]);
+        expect((await svc.pendientes(...OCT, 'todos')).lineas.map((l) => l.folio)).not.toContain('ZZ9003');
         await svc.asignar([{ linea_clave: amb.linea_clave, decision: 'quitar', vehicle_id: null }], yo);
         expect((await svc.resumen(...OCT, true)).pendientes.ambiguo.renglones).toBe(1);
         await expect(svc.asignar([{ linea_clave: 'x', decision: 'unidad', vehicle_id: HINO }], yo)).rejects.toThrow(/Renglón inválido/);

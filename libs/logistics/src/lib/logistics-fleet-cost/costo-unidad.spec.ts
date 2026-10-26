@@ -60,6 +60,11 @@ describe('[FCU.1] armarUnidad', () => {
     const sal = u.rubros.find((r) => r.rubro === 'salarios')!;
     const adm = u.rubros.find((r) => r.rubro === 'sueldos_admin')!;
     expect([sal.real, sal.presupuesto, adm.real]).toEqual([null, null, null]);
+    // Se rotula «Restringido» (no «Capturado» ni «Falta capturar») y no cuenta como rubro sin dato.
+    expect([sal.procedencia, adm.procedencia]).toEqual(['restringido', 'restringido']);
+    expect(u.rubros.filter((r) => r.procedencia === 'sin_dato' || r.procedencia === 'sin_medir').length).toBe(u.rubros_sin_dato);
+    expect(armarUnidad(datos({ nomina: { sueldos_admin: 5000, gastos_directos: 100, razon: 'x' } }), OCT, '2026-10-26', true).rubros_sin_dato)
+      .toBe(u.rubros_sin_dato);
     expect(u.rubros.find((r) => r.rubro === 'gastos_directos')!.real).toBe(100);
     expect(u.real).toBe(100);
   });
@@ -76,11 +81,14 @@ describe('[FCU.1] armarUnidad', () => {
       .toMatchObject({ real: 11465.75, procedencia: 'calculado' });
     expect(armarUnidad(datos(), OCT, '2026-10-26', true).rubros.find((r) => r.rubro === 'arrendamiento_depreciacion'))
       .toMatchObject({ real: null, procedencia: 'sin_dato' });
+    // Arrendada sin pagos de renta que la nombren: «Sin medir», nunca $0 ni «Kepler» vacío.
+    expect(armarUnidad(datos({ ficha: ficha({ ownership: 'arrendada' }) }), OCT, '2026-10-26', true).rubros.find((r) => r.rubro === 'arrendamiento_depreciacion'))
+      .toMatchObject({ real: null, procedencia: 'sin_medir' });
   });
 
   it('PRUEBA NEGATIVA: lo sin dato NO suma al total, y se cuenta', () => {
     const u = armarUnidad(datos({ ficha: ficha({ driver_monthly_salary: null }) }), OCT, '2026-10-26', true);
-    expect(u.rubros_sin_dato).toBeGreaterThanOrEqual(3); // salario, arrendamiento, nómina (x2)
+    expect(u.rubros_sin_dato).toBe(4); // salario, arrendamiento, nómina (sueldos y gastos directos)
     expect(u.real).toBe(0);
   });
 

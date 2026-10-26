@@ -2,8 +2,8 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import type { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
 import {
-  CENTROS_DE_LOGISTICA, CONCEPTOS_DE_FLOTA, LINEA_CLAVE_RE, normalizarAlias, RUBROS_COSTO_UNIDAD, rubroDeLinea,
-  type AreaFlota, type AsignacionGasto, type CambiosFicha, type CeldaPresupuesto, type DetalleUnidadCosto, type EstadoLineaFlota,
+  CONCEPTOS_DE_FLOTA, enBandeja, LINEA_CLAVE_RE, normalizarAlias, RUBROS_COSTO_UNIDAD, rubroDeLinea,
+  type AlcanceBandeja, type AreaFlota, type AsignacionGasto, type CambiosFicha, type CeldaPresupuesto, type DetalleUnidadCosto, type EstadoLineaFlota,
   type FichaUnidad, type GuiaDeUnidad, type KmDeUnidad, type LecturaOdometro, type LineaGastoFlota, type MetodoReparto,
   type NominaAdministrativaMes, type PeriodoCosto, type PresupuestoAnio, type Propiedad, type ResumenCostoUnidad, type RubroCodigo,
   type UnidadCosto,
@@ -122,8 +122,8 @@ export class CostoUnidadService {
     };
   }
 
-  /** La bandeja: gastos de flota del periodo que nadie ha confirmado (o todos, si se pide). */
-  async pendientes(desde: string | undefined, hasta: string | undefined, alcance: 'logistica' | 'todos'): Promise<{
+  /** La bandeja: gastos de flota del periodo sin decidir (de Logística o todos), o los ya decididos. */
+  async pendientes(desde: string | undefined, hasta: string | undefined, alcance: AlcanceBandeja): Promise<{
     periodo: PeriodoCosto; lineas: LineaGastoFlota[]; unidades: Array<{ vehicle_id: string; nombre: string; plate: string; economic_number: string | null }>;
   }> {
     const p = periodoDe(desde, hasta, hoyMx());
@@ -131,11 +131,7 @@ export class CostoUnidadService {
       const filas = await this.lineasDe(trx, p);
       const unidades = await this.unidadesDeFlota(trx, null);
       const deTransportes = new Set(unidades.map((u) => u.id));
-      const lineas = filas.map(aLinea).filter((l) => alcance === 'todos'
-        ? l.estado !== 'no_es_flota'
-        : l.estado === 'ambiguo'
-          || (l.estado === 'sugerido' && !!l.vehicle_id && deTransportes.has(l.vehicle_id))
-          || (l.estado === 'sin_unidad' && !!l.centro && CENTROS_DE_LOGISTICA.includes(l.centro)));
+      const lineas = filas.map(aLinea).filter((l) => enBandeja(l, alcance, deTransportes));
       return {
         periodo: p,
         lineas: lineas.sort((a, b) => b.importe - a.importe),
@@ -425,11 +421,9 @@ export class CostoUnidadService {
 
     // La bandeja, contada como la ve Logística por defecto.
     const pendientes = { sugerido: { renglones: 0, importe: 0 }, ambiguo: { renglones: 0, importe: 0 }, sin_unidad: { renglones: 0, importe: 0 } };
+    const deTransportes = new Set(transportes);
     for (const l of lineas) {
-      const cuenta = l.estado === 'ambiguo'
-        || (l.estado === 'sugerido' && !!l.vehicle_id && transportes.includes(l.vehicle_id))
-        || (l.estado === 'sin_unidad' && !!l.centro && CENTROS_DE_LOGISTICA.includes(l.centro));
-      if (!cuenta || l.estado === 'confirmado' || l.estado === 'no_es_flota') continue;
+      if (!enBandeja(l, 'logistica', deTransportes) || l.estado === 'confirmado' || l.estado === 'no_es_flota') continue;
       const e = pendientes[l.estado];
       e.renglones++;
       e.importe = Math.round((e.importe + l.importe) * 100) / 100;

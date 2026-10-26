@@ -119,7 +119,8 @@ export function armarUnidad(d: DatosUnidad, p: PeriodoCosto, hoy: string, verSal
         const dep = f.ownership === 'propia' ? depreciacionAnual(f) : null;
         const depPeriodo = dep != null ? redondea((dep * p.dias) / 365) : 0;
         if (!deKepler.length && dep == null) {
-          return { ...base, real: null, procedencia: f.ownership === 'propia' ? 'sin_dato' : f.ownership === 'arrendada' ? 'kepler' : 'sin_dato',
+          // Arrendada sin pagos que la nombren: no es $0 (la renta existe), es que no se pudo atribuir.
+          return { ...base, real: null, procedencia: f.ownership === 'arrendada' ? 'sin_medir' : 'sin_dato',
             calculo: f.ownership === 'propia' ? 'Propia: falta valor de compra y vida útil en la ficha para calcular la depreciación'
               : f.ownership === 'arrendada' ? 'Arrendada: ningún pago de renta en Kepler (115) en el periodo nombra esta unidad'
                 : 'Falta decir en la ficha si es propia (para su depreciación) o arrendada (su renta en Kepler)' };
@@ -142,13 +143,13 @@ export function armarUnidad(d: DatosUnidad, p: PeriodoCosto, hoy: string, verSal
       }
       case 'captura': {
         if (r.codigo === 'salarios') {
-          if (!verSalarios) return { ...base, presupuesto_anual: null, presupuesto: null, real: null, procedencia: 'captura', calculo: 'Restringido: sólo quien gestiona Costo por unidad ve salarios' };
+          if (!verSalarios) return { ...base, presupuesto_anual: null, presupuesto: null, real: null, procedencia: 'restringido', calculo: 'Restringido: sólo quien gestiona Costo por unidad ve salarios' };
           if (f.driver_monthly_salary == null) return { ...base, real: null, procedencia: 'sin_dato', calculo: 'Falta el salario mensual del chofer en la ficha' };
           const real = redondea((Number(f.driver_monthly_salary) * 12 * p.dias) / 365);
           return { ...base, real, procedencia: 'captura', calculo: `${pesos(Number(f.driver_monthly_salary))} al mes (ficha) × ${p.dias} días` };
         }
         const llave = r.codigo === 'sueldos_admin' ? 'sueldos_admin' : 'gastos_directos';
-        if (llave === 'sueldos_admin' && !verSalarios) return { ...base, presupuesto_anual: null, presupuesto: null, real: null, procedencia: 'captura', calculo: 'Restringido: sólo quien gestiona Costo por unidad ve la nómina administrativa' };
+        if (llave === 'sueldos_admin' && !verSalarios) return { ...base, presupuesto_anual: null, presupuesto: null, real: null, procedencia: 'restringido', calculo: 'Restringido: sólo quien gestiona Costo por unidad ve la nómina administrativa' };
         if (!d.nomina) return { ...base, real: null, procedencia: 'sin_dato', calculo: 'Falta capturar la nómina administrativa del periodo' };
         const v = d.nomina[llave];
         return { ...base, real: v, procedencia: v == null ? 'sin_dato' : 'captura', calculo: d.nomina.razon };
@@ -175,7 +176,8 @@ export function armarUnidad(d: DatosUnidad, p: PeriodoCosto, hoy: string, verSal
     presupuesto,
     real,
     sugerido,
-    rubros_sin_dato: rubros.filter((r) => r.real == null).length,
+    // Lo restringido no es «sin dato»: existe, sólo que no se muestra a quien consulta.
+    rubros_sin_dato: rubros.filter((r) => r.procedencia === 'sin_dato' || r.procedencia === 'sin_medir').length,
     por_km_real: porKm(real, d.km.km),
     // El $/km de la hoja: su total anual entre sus km por año.
     por_km_presupuesto: presupuestoAnual > 0 ? porKm(presupuestoAnual, f.budget_km_year) : null,

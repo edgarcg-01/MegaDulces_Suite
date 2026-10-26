@@ -217,7 +217,11 @@ export function repartir(total: number, unidades: Array<{ vehicle_id: string; km
 // ── Lo que viaja por la API ───────────────────────────────────────────────────────────────
 
 /** De dónde sale una cifra. `sin_dato` = falta capturarla; `sin_medir` = todavía no hay regla. */
-export type Procedencia = 'kepler' | 'captura' | 'calculado' | 'sin_dato' | 'sin_medir';
+/**
+ * `restringido` = el dato existe pero quien consulta no puede verlo (salarios y nómina administrativa
+ * sin GESTIONAR): no es «falta capturar» ni «capturado», y no cuenta como rubro sin dato.
+ */
+export type Procedencia = 'kepler' | 'captura' | 'calculado' | 'sin_dato' | 'sin_medir' | 'restringido';
 
 export const PROCEDENCIA_LABEL: Record<Procedencia, string> = {
   kepler: 'Kepler',
@@ -225,6 +229,7 @@ export const PROCEDENCIA_LABEL: Record<Procedencia, string> = {
   calculado: 'Calculado',
   sin_dato: 'Falta capturar',
   sin_medir: 'Sin medir',
+  restringido: 'Restringido',
 };
 
 export type EstadoLineaFlota = 'confirmado' | 'sugerido' | 'ambiguo' | 'sin_unidad' | 'no_es_flota';
@@ -420,6 +425,25 @@ export const LINEA_CLAVE_RE = /^\d{2}\|\d{2}\|\d+\|[A-Z0-9-]{1,20}\|\d+$/;
  * lo demás sin unidad es, casi todo, de otras flotillas (reparto, ventas, oficinas).
  */
 export const CENTROS_DE_LOGISTICA: readonly string[] = ['1-08-12-00', '1-09-63'];
+
+/**
+ * Qué muestra la bandeja «Gastos sin unidad»: lo de Logística sin decidir (por defecto), todo lo sin
+ * decidir (también otras flotillas), o lo YA decidido —asignado a una unidad o «no es de flota»—
+ * para poder deshacerlo.
+ */
+export type AlcanceBandeja = 'logistica' | 'todos' | 'decididos';
+export const ALCANCES_BANDEJA: readonly AlcanceBandeja[] = ['logistica', 'todos', 'decididos'];
+
+/** Si un renglón entra a la bandeja. La misma regla cuenta los pendientes del tablero. */
+export function enBandeja(l: Pick<LineaGastoFlota, 'estado' | 'vehicle_id' | 'centro'>, alcance: AlcanceBandeja, deTransportes: ReadonlySet<string>): boolean {
+  const decidido = l.estado === 'confirmado' || l.estado === 'no_es_flota';
+  if (alcance === 'decididos') return decidido;
+  if (decidido) return false;
+  if (alcance === 'todos') return true;
+  return l.estado === 'ambiguo'
+    || (l.estado === 'sugerido' && !!l.vehicle_id && deTransportes.has(l.vehicle_id))
+    || (l.estado === 'sin_unidad' && !!l.centro && CENTROS_DE_LOGISTICA.includes(l.centro));
+}
 
 /** Normaliza un alias como lo compara la vista: MAYÚSCULAS, sin acentos, un solo espacio. */
 export function normalizarAlias(a: string): string {

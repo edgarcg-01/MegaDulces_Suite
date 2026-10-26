@@ -1,5 +1,5 @@
 import {
-  anualEnCorte, avisosDeUnidad, CONCEPTOS_DE_FLOTA, depreciacionAnual, porKm, rangoEnCorte, repartir,
+  anualEnCorte, avisosDeUnidad, CONCEPTOS_DE_FLOTA, depreciacionAnual, enBandeja, porKm, rangoEnCorte, repartir,
   RUBROS_COSTO_UNIDAD, rubroDeLinea, simularReposicion,
 } from './costo-unidad.contract';
 
@@ -122,5 +122,32 @@ describe('costo-unidad · avisos', () => {
     expect(avisosDeUnidad({ ...base, km: { km: 500, fuente: 'gps', dias_gps: 10 } }, '2026-10-26').map((a) => a.tipo)).toEqual(['gps_parcial']);
     expect(avisosDeUnidad({ ...base, guias: 0, tienePresupuesto: false, sugerido: 1234.5 }, '2026-10-26').map((a) => a.tipo))
       .toEqual(['sin_guias', 'sin_presupuesto', 'por_confirmar']);
+  });
+});
+
+describe('costo-unidad · la bandeja «Gastos sin unidad»', () => {
+  const T = new Set(['t1']);
+  const l = (estado: 'confirmado' | 'sugerido' | 'ambiguo' | 'sin_unidad' | 'no_es_flota', vehicle_id: string | null = null, centro: string | null = null) => ({ estado, vehicle_id, centro });
+
+  it('Logística: ambiguos, sugeridos a una unidad de Transportes y sin unidad de sus centros', () => {
+    expect(enBandeja(l('ambiguo'), 'logistica', T)).toBe(true);
+    expect(enBandeja(l('sugerido', 't1'), 'logistica', T)).toBe(true);
+    expect(enBandeja(l('sugerido', 'otra'), 'logistica', T)).toBe(false);
+    expect(enBandeja(l('sin_unidad', null, '1-09-63'), 'logistica', T)).toBe(true);
+    expect(enBandeja(l('sin_unidad', null, '1-01-01'), 'logistica', T)).toBe(false);
+  });
+
+  it('PRUEBA NEGATIVA: lo ya decidido NO entra a «por confirmar», ni con «Todos»', () => {
+    for (const a of ['logistica', 'todos'] as const) {
+      expect(enBandeja(l('confirmado', 't1'), a, T)).toBe(false);
+      expect(enBandeja(l('no_es_flota'), a, T)).toBe(false);
+    }
+    expect(enBandeja(l('sin_unidad', null, '1-01-01'), 'todos', T)).toBe(true);
+  });
+
+  it('«Ya decididos» trae sólo lo asignado o marcado como no de flota (para deshacerlo)', () => {
+    expect(enBandeja(l('confirmado', 'otra'), 'decididos', T)).toBe(true);
+    expect(enBandeja(l('no_es_flota'), 'decididos', T)).toBe(true);
+    expect(enBandeja(l('sugerido', 't1'), 'decididos', T)).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { isPlatformAdminRole, Permission, RequirePermissions } from '@megadulces/platform-core';
+import { ALCANCES_BANDEJA, type AlcanceBandeja } from '@megadulces/contracts';
 import type {
   AsignacionGasto, CambiosFicha, CeldaPresupuesto, DetalleUnidadCosto, FichaUnidad, LecturaOdometro, LineaGastoFlota,
   NominaAdministrativaMes, PeriodoCosto, PresupuestoAnio, ResumenCostoUnidad,
@@ -45,11 +46,12 @@ export class CostoUnidadController {
 
   @Get('pendientes')
   @RequirePermissions(Permission.LOGISTICS_COSTO_UNIDAD_VER)
-  @ApiOperation({ summary: 'FCU: gastos de flota de Kepler sin unidad confirmada (por defecto, los de Logística)' })
+  @ApiOperation({ summary: 'FCU: gastos de flota de Kepler sin decidir (por defecto, los de Logística) o ya decididos (alcance=decididos)' })
   pendientes(@Query('desde') desde: string | undefined, @Query('hasta') hasta: string | undefined, @Query('alcance') alcance: string | undefined): Promise<{
     periodo: PeriodoCosto; lineas: LineaGastoFlota[]; unidades: Array<{ vehicle_id: string; nombre: string; plate: string; economic_number: string | null }>;
   }> {
-    return this.service.pendientes(desde, hasta, alcance === 'todos' ? 'todos' : 'logistica');
+    const a: AlcanceBandeja = ALCANCES_BANDEJA.find((x) => x === alcance) ?? 'logistica';
+    return this.service.pendientes(desde, hasta, a);
   }
 
   @Put('asignaciones')
