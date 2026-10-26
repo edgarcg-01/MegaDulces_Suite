@@ -430,8 +430,59 @@ respuesta tardía), contracts 33.
 más cara), pero en Kepler la comisión se captura por centro de costo de cada destino. ¿Se reparte
 entre los destinos o va al de la ruta que puso la tarifa?
 
+### EMB.52 · Filtros y orden (🧪, 2026-10-26)
+
+Edgar: *«faltan filtros en la interfaz principal y ordenamiento en las cards»*. **Operaciones**: además de
+estado/sucursal/búsqueda, filtros por **tipo**, **estado** (falta chofer · horario · quién cargó · ruta
+sin tarifa · sin cajas de Kepler · lleva sueltas), **persona** (cualquiera que cobra, maneja, ayuda o
+carga) y **día**, y un **«Ordenar por»** (lo que más falta · recientes · antiguas · cajas · carga ·
+comisión · asignado · guía) que manda también en la vista de tarjetas (en estrecho la tabla se apila y
+no hay encabezados que cliquear). A igualdad, sucursal y guía: la lista no baila entre recargas.
+**Por persona**: filtro por papel y orden (total · nombre · operaciones · comisión · viático · carga).
+
+### EMB.53 · El formato de la solicitud de gasto, como el X-A-15 (🧪, 2026-10-26)
+
+Edgar: *«hagamos un formato para que pasen sus comisiones a solicitudes de gastos para que se les
+pague»*. Antes de diseñarlo se leyó la solicitud real de Logística en Kepler (X-A-15 0010438, Antonio
+Méndez, 22-oct) y las de 90 días (sólo lectura):
+
+| Dato del X-A-15 | Medido | En el formato |
+|---|---|---|
+| Proveedor | **siempre** `GNFC002` «COMISION Y VIATICOS LOGISTICA» | Cabecera |
+| Beneficiario (`c24`) · área (`c30`) · moneda | la persona · FINANZAS · PESOS | Cabecera |
+| Cuenta por renglón (`kdm6.c8`) | 054 y 027 → **514-001** (429/374); 075 y 128 → **602-015** (193/165; 2 en blanco) | Columna «Cuenta» |
+| Centro de costo (`kdm6.c16`) | el **piso de la sucursal destino** (1-01-40-00 = 8 Esquinas) | Columna «Centro de costo», derivado |
+
+**El centro se deriva sin adivinar:** `TI###` → sucursal (`pv_suc_ip`, la regla de
+`erp_shipment_stop_closure`) → piso `1-0P-NN-00` del catálogo `kdc3` con NN = el código MD de la
+sucursal (verificado contra los 9 nombres). Si el catálogo da cero o dos candidatos, no hay centro.
+**No se resuelve, y se dice:** entrega a cliente (en Kepler va a TLMK o a Fletes según quién sabe
+qué) y traspaso a varias sucursales. Con centro, el renglón agrupa por centro: «TRASPASO 8 ESQUINAS»
+y «SUCURSAL 8 ESQUINAS» son el mismo renglón, como en el X-A-15.
+
+**Verificado contra prod (código real, sólo lectura):** de 80 operaciones de la catorcena, **48 con
+centro**, 25 de cliente y 7 de varios destinos. En la solicitud de Antonio Méndez los dos viajes a
+Morelia Abastos salen en UN renglón `054 · 514-001 · 1-02-30-00 · $360`, como lo captura Kepler.
+Las dos consultas nuevas cuestan 1–3 ms. ⚠️ La vista de viajes de Kepler (`erp_shipment_trips`, ya
+existente) varía en prod de 0.2 a 5 s según la carga (misma consulta: 214 / 4,965 / 419 ms): el
+reporte llegó a 3.8 s. NO MEDIDO como arreglarla.
+
+**El formato** (PDF por persona, y Excel): cabecera del X-A-15 (proveedor, beneficiario, área,
+moneda, periodo, total), **renglones para capturar** (#, cuenta, concepto, descripción, centro de
+costo, importe), «de dónde sale» con el cálculo de cada peso, y firmas **Solicita · Autoriza ·
+Recibí**. El Excel trae proveedor, beneficiario, cuenta, concepto, centro y nombre del centro por
+renglón.
+
+**Pruebas:** logistics 199 (lib completa; 4 nuevas de centro de costo, 2 negativas), contracts 34,
+pantallas 136 (filtros, orden). Mutación en rojo: quitar la regla de «varios destinos» → 1 roja.
+
+**Abiertas:** (a) entregas a cliente: ¿a qué centro va cada una (TLMK de la plaza o Fletes 1-09-63)?
+(b) viajes a varias sucursales: ¿la comisión se reparte entre sus centros? (c) la vista de viajes de
+Kepler, lenta bajo carga.
+
 ## Bitácora
 
+- **2026-10-26** — EMB.52/53: filtros y orden; el formato de la solicitud igual al X-A-15 (proveedor GNFC002, cuenta y centro de costo derivados).
 - **2026-10-26** — EMB.51: cada importe con su cálculo; renglones, guías y personas se abren (ligas entre pestañas).
 - **2026-10-26** — EMB.50: desglose por documento (cajas, surtió/checó/embarcó, recepción en destino). Pedido: «quién hizo recepciones».
 - **2026-10-26** — EMB.49: la tarifa por caja rige desde el 22-oct (decisión de Edgar), con «rige desde» en la bitácora.

@@ -211,6 +211,7 @@ describe('[EMB.47] el reporte de reparto: conceptos de Kepler y solicitudes por 
     shipment_id: 's', shipment_folio: null, guide_id: 'g', driver_id: null, helper1_id: null, helper2_id: null,
     departure_time: null, arrival_time: null, overnight: false, cargadores: 0, faltan: [],
     cajas: null, sueltos: null, comision_ruta: { chofer: null, ayudante: null, ruta: null, sin_tarifa: [] }, chofer_kepler_id: null,
+    centro: null, sin_centro: null,
     tarifa_por_caja: null, carga_total: null, cargador_ids: [], renglones, repartido: 0,
   });
 
@@ -226,10 +227,11 @@ describe('[EMB.47] el reporte de reparto: conceptos de Kepler y solicitudes por 
     expect(a.operaciones).toBe(3);
     expect(a.roles).toEqual(['chofer', 'ayudante']);
     expect(a.por_concepto).toEqual({ comision: 250.3, viatico: 80, carga: 0 });
+    const sin = { centro: null, sin_centro: null };
     expect(a.renglones).toEqual([
-      { codigo: '027', nombre_concepto: 'C-027', destino: 'YURECUARO', operaciones: 1, importe: 80 },
-      { codigo: '054', nombre_concepto: 'C-054', destino: 'LA PIEDAD', operaciones: 1, importe: 50 },
-      { codigo: '054', nombre_concepto: 'C-054', destino: 'YURECUARO', operaciones: 2, importe: 200.3 },
+      { codigo: '027', nombre_concepto: 'C-027', cuenta: '514-001', ...sin, destino: 'YURECUARO', operaciones: 1, importe: 80 },
+      { codigo: '054', nombre_concepto: 'C-054', cuenta: '514-001', ...sin, destino: 'LA PIEDAD', operaciones: 1, importe: 50 },
+      { codigo: '054', nombre_concepto: 'C-054', cuenta: '514-001', ...sin, destino: 'YURECUARO', operaciones: 2, importe: 200.3 },
     ]);
     // El detalle va por fecha: de dónde sale cada peso.
     expect(a.detalle.map((d) => d.guia)).toEqual(['G2', 'G1', 'G1', 'G3']);
@@ -243,6 +245,19 @@ describe('[EMB.47] el reporte de reparto: conceptos de Kepler y solicitudes por 
     ]);
     expect(s[0].renglones.reduce((t, x) => t + x.importe, 0)).toBeCloseTo(s[0].total, 10);
     expect(s[0].total).toBe(1);
+  });
+
+  it('[EMB.53] con centro de costo el renglón es el del centro: dos nombres del mismo piso van juntos', () => {
+    const piso = { codigo: '1-01-40-00', nombre: 'OCHO ESQUINAS PISO DE VENTA.' };
+    const s = solicitudesDelReporte([
+      { ...op('G1', '2026-10-09', 'TRASPASO 8 ESQUINAS', [r('a', 'chofer', 'comision', '054', 100)]), centro: piso },
+      { ...op('G2', '2026-10-10', 'SUCURSAL 8 ESQUINAS', [r('a', 'chofer', 'comision', '054', 80)]), centro: piso },
+      { ...op('G3', '2026-10-10', 'CLIENTE X', [r('a', 'chofer', 'comision', '075', 50)]), tipo: 'cliente', sin_centro: 'cliente' },
+    ]);
+    expect(s[0].renglones.map((x) => [x.codigo, x.cuenta, x.centro?.codigo ?? null, x.sin_centro, x.destino, x.operaciones, x.importe])).toEqual([
+      ['054', '514-001', '1-01-40-00', null, 'OCHO ESQUINAS PISO DE VENTA.', 2, 180],
+      ['075', '602-015', null, 'cliente', 'CLIENTE X', 1, 50],
+    ]);
   });
 
   it('PRUEBA NEGATIVA: un renglón en cero no crea persona ni renglón', () => {

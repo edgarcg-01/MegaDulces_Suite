@@ -556,6 +556,36 @@ export interface ComisionDeRuta {
  */
 export const SKUS_SIN_CARGA: readonly string[] = ['00022'];
 
+// ── [EMB.53] La solicitud de gasto como la captura Kepler (X-A-15) ─────────────────────────────
+//
+// Edgar (2026-10-26): «hagamos un formato para que pasen sus comisiones a solicitudes de gastos para
+// que se les pague». Medido en las X-A-15 de Logística de 90 días (sólo lectura, prod):
+//  · proveedor SIEMPRE `GNFC002` «COMISION Y VIATICOS LOGISTICA», área FINANZAS (la pide Leonardo);
+//  · la cuenta va por concepto: 054 y 027 → 514-001 (429 y 374 renglones); 075 y 128 → 602-015
+//    (193 y 165; 2 en blanco);
+//  · cada renglón lleva el centro de costo del PISO de la sucursal destino (1-01-40-00 = 8 Esquinas).
+
+/** El proveedor y el área con que Logística pide sus comisiones y viáticos en Kepler. */
+export const PROVEEDOR_DE_LA_SOLICITUD = { codigo: 'GNFC002', nombre: 'COMISION Y VIATICOS LOGISTICA', area: 'FINANZAS', moneda: 'PESOS' } as const;
+
+/** La cuenta contable de cada concepto (`kdm6.c8`), medida en las X-A-15 de Logística. */
+export const CUENTA_DEL_CONCEPTO: Readonly<Record<string, string>> = { '054': '514-001', '027': '514-001', '075': '602-015', '128': '602-015' };
+
+/** Un centro de costo del catálogo de Kepler (`kdc3`). */
+export interface CentroDeCosto {
+  codigo: string;
+  nombre: string;
+}
+
+/** Por qué una operación no tiene centro de costo derivado. */
+export type SinCentro = 'cliente' | 'varios_destinos' | 'sin_catalogo';
+
+export const SIN_CENTRO_LABEL: Record<SinCentro, string> = {
+  cliente: 'Entrega a cliente: el centro se elige al capturar',
+  varios_destinos: 'Varios destinos: se reparte al capturar',
+  sin_catalogo: 'El destino no tiene centro de costo en Kepler',
+};
+
 /** Una operación del reporte: el viaje de Kepler, sus cajas y cómo se reparte. */
 export interface OperacionDelReporte extends ViajePorCompletar {
   /** Cajas de las paradas que pagan (sin las cargas a ruta). `null` = Kepler no trae renglones. */
@@ -569,6 +599,10 @@ export interface OperacionDelReporte extends ViajePorCompletar {
   comision_ruta: ComisionDeRuta;
   /** `[EMB.48]` El chofer que trae Kepler, ya casado con el padrón activo por su clave. */
   chofer_kepler_id: string | null;
+  /** `[EMB.53]` El centro de costo al que va el gasto de esta operación (piso de la sucursal destino). */
+  centro: CentroDeCosto | null;
+  /** `[EMB.53]` Por qué no hay centro: se dice, no se adivina. */
+  sin_centro: SinCentro | null;
   /** La tarifa por caja vigente ese día. `null` = no hay tarifa activa. */
   tarifa_por_caja: number | null;
   /** Lo que paga la carga (cajas × tarifa, o lo ya guardado). `null` = no se puede saber. */
@@ -597,6 +631,12 @@ export interface ReporteDePagos {
 export interface RenglonDeSolicitud {
   codigo: string;
   nombre_concepto: string;
+  /** `[EMB.53]` La cuenta contable de Kepler para ese concepto (`kdm6.c8`). */
+  cuenta: string | null;
+  /** `[EMB.53]` Centro de costo del renglón; `null` con su motivo cuando no se puede derivar. */
+  centro: CentroDeCosto | null;
+  sin_centro: SinCentro | null;
+  /** El nombre del centro, o los destinos de Kepler si no hay centro. */
   destino: string;
   operaciones: number;
   importe: number;
@@ -640,7 +680,10 @@ export function solicitudesDelReporte(operaciones: OperacionDelReporte[]): Solic
   const porPersona = new Map<string, SolicitudDePersona & { _ops: Set<string>; _renglon: Map<string, RenglonDeSolicitud & { _ops: Set<string> }> }>();
   for (const op of operaciones) {
     const llaveOp = `${op.sucursal}|${op.guia}`;
-    const destino = op.destinos || '—';
+    // [EMB.53] Con centro de costo, el renglón es el del centro (como se captura en Kepler): dos
+    // nombres de destino del mismo piso («TRASPASO 8 ESQUINAS», «SUCURSAL 8 ESQUINAS») van juntos.
+    const destino = op.centro ? op.centro.nombre : op.destinos || '—';
+    const llaveCentro = op.centro ? `c:${op.centro.codigo}` : `d:${destino}`;
     for (const r of op.renglones) {
       if (!(r.importe > 0)) continue;
       let s = porPersona.get(r.persona_id);
@@ -656,10 +699,13 @@ export function solicitudesDelReporte(operaciones: OperacionDelReporte[]): Solic
       s._ops.add(llaveOp);
       s.por_concepto[r.concepto] = alCentavo(s.por_concepto[r.concepto] + r.importe);
       s.total = alCentavo(s.total + r.importe);
-      const k = `${r.codigo}|${destino}`;
+      const k = `${r.codigo}|${llaveCentro}`;
       let rs = s._renglon.get(k);
       if (!rs) {
-        rs = { codigo: r.codigo, nombre_concepto: r.nombre_concepto, destino, operaciones: 0, importe: 0, _ops: new Set() };
+        rs = {
+          codigo: r.codigo, nombre_concepto: r.nombre_concepto, cuenta: CUENTA_DEL_CONCEPTO[r.codigo] ?? null,
+          centro: op.centro, sin_centro: op.sin_centro, destino, operaciones: 0, importe: 0, _ops: new Set(),
+        };
         s._renglon.set(k, rs);
       }
       rs._ops.add(llaveOp);

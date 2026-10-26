@@ -4,7 +4,8 @@ import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { ANY_PERMISSIONS_KEY, Permission, PERMISSIONS_KEY } from '@megadulces/platform-core';
 import { TripClosureController } from './trip-closure.controller';
 import {
-  cajasPorGuia, calculoDeCarga, calculoDeViatico, documentosDelDesglose, pesos, renglonesDeLaOperacion, TripClosureService,
+  cajasPorGuia, calculoDeCarga, calculoDeViatico, centroDeOperacion, centrosDePiso, documentosDelDesglose, pesos,
+  renglonesDeLaOperacion, TripClosureService,
 } from './trip-closure.service';
 
 /**
@@ -53,9 +54,15 @@ function baseFalsa(r: Respuestas) {
   // `lista['__raw']`; la del tiempo aire sobre `kdm2`, `lista['__sin_carga']`.
   trx.raw = (sql: string) => ({
     sql,
-    then: (ok: any, ko: any) => Promise.resolve({
-      rows: (String(sql).includes('kepler_ods.kdm2') ? r.lista?.['__sin_carga'] : r.lista?.['__raw']) ?? [],
-    }).then(ok, ko),
+    then: (ok: any, ko: any) => {
+      const q = String(sql);
+      const clave = q.includes('kepler_ods.kdm2') ? '__sin_carga'
+        : q.includes('kepler_ods.pv_suc_ip') ? '__ti'
+          : q.includes('kepler_ods.kdc3') ? '__centros'
+            : q.includes('kepler_ods.kdii') || q.includes('kepler_ods.kdm1') ? '__kepler_otro'
+              : '__raw';
+      return Promise.resolve({ rows: r.lista?.[clave] ?? [] }).then(ok, ko);
+    },
   });
   const tk: any = { run: async (fn: (t: any) => any) => fn(trx) };
   const ctx: any = {
@@ -761,5 +768,45 @@ describe('[EMB.51] cada importe dice cómo salió', () => {
     expect(calculoDeViatico(null, 'driver')).toBe('Viático de la guía (sin desglose guardado)');
     expect(calculoDeCarga({ shipment_id: 's', driver_id: 'c1', rate: '30', boxes: null, rate_per_box: null }, 1))
       .toBe('Carga por persona (regla anterior a la tarifa por caja)');
+  });
+});
+
+describe('[EMB.53] el centro de costo de cada operación', () => {
+  // El catálogo de Kepler (kdc3) con los pisos reales y un intruso que no es piso.
+  const KDC3 = [
+    { codigo: '1-01-10-00', nombre: 'PADRE HIDALGO PISO.' },
+    { codigo: '1-01-40-00', nombre: 'OCHO ESQUINAS PISO DE VENTA.' },
+    { codigo: '1-01-42-00', nombre: 'LA PIEDAD ABASTOS PISO.' },
+    { codigo: '1-02-30-00', nombre: 'MORELIA ABASTOS.' },
+    { codigo: '1-08-00-00', nombre: 'CEDIS.' },
+  ];
+  const centros = centrosDePiso(KDC3);
+  const ti = new Map([['TI001', '01'], ['TI002', '03'], ['TI008', '02'], ['TI004', '08']]);
+  const p = (cliente_code: string, serie = 2) => ({ sucursal: '00', guia_embarque: 'G', serie, folio: 'F', cliente_code, destino_nombre: null });
+
+  it('cada sucursal a su piso por su código MD (MD-42 La Piedad Abastos → 1-01-42-00)', () => {
+    expect(centros.get('01')?.codigo).toBe('1-01-10-00');
+    expect(centros.get('03')).toEqual({ codigo: '1-01-40-00', nombre: 'OCHO ESQUINAS PISO DE VENTA.' });
+    expect(centros.get('02')?.codigo).toBe('1-01-42-00');
+    expect(centros.get('08')?.codigo).toBe('1-02-30-00');
+    expect(centros.get('00')?.codigo).toBe('1-08-00-00');
+  });
+
+  it('PRUEBA NEGATIVA: si el catálogo trae dos candidatos para un piso, esa sucursal se queda SIN centro', () => {
+    const doble = centrosDePiso([...KDC3, { codigo: '1-02-10-00', nombre: 'OTRO PISO 10' }]);
+    expect(doble.get('01')).toBeUndefined();
+    expect(doble.get('03')?.codigo).toBe('1-01-40-00');
+  });
+
+  it('un traspaso a una sola sucursal va a su piso; la carga a ruta de la misma guía no cuenta', () => {
+    expect(centroDeOperacion([p('TI002'), p('TI002'), p('RUTA21')], ti, centros))
+      .toEqual({ centro: { codigo: '1-01-40-00', nombre: 'OCHO ESQUINAS PISO DE VENTA.' }, sin_centro: null });
+  });
+
+  it('PRUEBA NEGATIVA: varios destinos, cliente o un TI desconocido NO se adivinan', () => {
+    expect(centroDeOperacion([p('TI001'), p('TI002')], ti, centros)).toEqual({ centro: null, sin_centro: 'varios_destinos' });
+    expect(centroDeOperacion([p('C0001', 1)], ti, centros)).toEqual({ centro: null, sin_centro: 'cliente' });
+    expect(centroDeOperacion([p('TI001'), p('C0001', 1)], ti, centros)).toEqual({ centro: null, sin_centro: 'cliente' });
+    expect(centroDeOperacion([p('TI999')], ti, centros)).toEqual({ centro: null, sin_centro: 'sin_catalogo' });
   });
 });
