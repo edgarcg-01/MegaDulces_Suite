@@ -34,6 +34,21 @@ medido, porque **una regla sin su caso se racionaliza en la primera discusión**
 ⚠️ Y por eso esto **no es una guía de estética**. Una pantalla fea que no miente es corregible; una
 pantalla hermosa que publica un número falso ya hizo daño y nadie lo sabe.
 
+> ### Los cuatro principios del PM (Edgar, 2026-10-26)
+>
+> *«Debe existir la menor cantidad de interacción humana, la menor cantidad de colores en interfaz
+> innecesarios, accesibilidad y visibilidad de información en todo momento, opción de desglose de
+> información.»*
+>
+> | Principio | Dónde vive | En una línea |
+> |---|---|---|
+> | Menor interacción humana | **§4.7** | lo que el sistema ya sabe, lo hace; la persona decide la excepción |
+> | Menor color innecesario | **§3.10** | neutro por default; color sólo para la acción principal y para lo que está mal |
+> | Visibilidad en todo momento | **§2.5** (y §2.1) | lo que define el estado se ve sin clic, completo y con su valor final |
+> | Opción de desglose | **§2.5** | todo total se abre a sus renglones sin salir de la pantalla |
+>
+> Su primer caso es `/finanzas/calendario-pagos` (`[PGP.15]`); las cifras de abajo son de ahí.
+
 ---
 
 ## Capa 1 · Veracidad — la interfaz no miente
@@ -128,6 +143,26 @@ Si no está en el menú, para quien la necesita **no existe**. Y el permiso tien
 > escribiendo la URL. Y un paso de autorización existía en el código, en la pantalla y en el
 > enum — **sin ningún rol que pudiera ejercerlo**: cero veces ejecutado en producción.
 
+### 2.5 Lo que define el estado se ve siempre; el detalle, a pedido (visibilidad y desglose)
+
+Tres formas de esconder sin querer, y las tres se miden:
+
+- **Un acordeón que nace cerrado** con algo que la persona necesita para saber dónde está.
+- **Texto cortado con «…»** donde lo cortado era un dato (un folio, una razón social).
+- **Una cifra que anima.** Un conteo de 0 al monto publica, durante su animación, montos que no
+  existen; una captura o un vistazo en ese lapso los lee.
+
+Y la contraparte: **todo total se desglosa**. Un «4 facturas · $327,006.41» se abre, ahí mismo, a
+las cuatro facturas que suman eso. El resumen no reemplaza al detalle; el detalle no reemplaza al
+resumen.
+
+> **Costó** (Pagos, 2026-10-26): el avance del día eran **cuatro acordeones** y al entrar **3 de 4
+> estaban cerrados**, uno con **toda la deuda** adentro; al autorizar, la tabla de pagos se plegaba
+> y volvía a medias en otro paso. **2 de 7 pagos** escondían sus folios tras un «…». Y la tira de
+> cifras publicó **«Comprometido $84,410.38»** de un día con **$1,850,235.43** mientras contaba.
+> Ahora el avance es una línea sin clic, cada pago se desglosa en sus facturas, hay **0 textos
+> cortados** y la tira nace con su valor final (`instant`).
+
 ---
 
 ## Capa 3 · Comprensión — se entiende sin que te la expliquen
@@ -178,6 +213,26 @@ Una definición fija escondida en un `title` sólo existe para quien tiene mouse
 
 El estado es *Por revisar* → la pantalla se llama **Revisión**. Sustantivo del dominio, no un
 verbo ni un guion explicativo.
+
+### 3.10 Presupuesto de color: neutro por default
+
+El color es la señal más cara de la pantalla: cada uso le quita fuerza a los demás. Se gasta en
+**dos** cosas y nada más:
+
+| Color | Para qué | Nunca para |
+|---|---|---|
+| **acción** (`--action`) | el **único** botón principal de la vista | lo elegido, lo marcado, el día de hoy, un paso, una barra |
+| **mal** (`--bad`) | lo que está mal y pide hacer algo (un rebote, un tope excedido) | lo urgente que no es error (un crítico, un descuento por vencer) |
+
+«Bien» y «falta» **no llevan tono**: lo dice la palabra y el icono (✓, !, reloj). Lo pendiente se
+marca con **peso** (negrita), no con ámbar. Lo elegido, con el color del texto.
+
+> **Costó** (Pagos, 2026-10-26): **44 elementos con color en tres tonos** —naranja, ámbar y
+> verde— cumpliendo **16 papeles**: el día elegido, el punto de hoy, el paso activo, el paso hecho,
+> la barra del tope, cada «falta», cada aviso… El botón que destrababa el día era un naranja más
+> entre catorce. Después: **3 elementos con color, un solo papel** (el botón principal). Y 30
+> casillas marcadas de una propuesta salían naranjas por default de la librería: se miden también
+> los estados que no son el de entrada.
 
 ---
 
@@ -260,6 +315,30 @@ guiados, unidades explícitas. **El mensaje de error es el último recurso, no e
 ### 4.6 Un control que no elige, no va
 
 Un selector de una sola opción ocupa lugar y sugiere que hay algo más.
+
+### 4.7 La persona decide; el sistema hace lo que ya sabe
+
+Cuenta los clics para **terminar el proceso con N registros** —no con uno— y separa los que
+**deciden** de los que sólo **confirman algo que el sistema ya sabía**. Los segundos sobran: se
+calculan, se proponen ya hechos o se aplican en lote. La persona queda para la excepción, y la
+excepción se dice **por nombre** («a 2 les falta la cuenta destino: X, Y»), nunca se adivina.
+
+Y antes de contar clics, una pregunta más barata: **¿el sistema ya sabe hacer algo que la pantalla
+no ofrece?** Compara los endpoints del controlador con los que la pantalla llama.
+
+> **Costó** (Pagos, 2026-10-26), un día de 7 transferencias de punta a punta: **30 clics** —
+> «Sugerir armado» para ver una propuesta que el sistema ya calculaba, «Proponer orden» cada vez,
+> y **un diálogo por pago sólo para aceptar la cuenta favorita del proveedor**, que el diálogo ya
+> proponía sola— y aun así **el proceso no se podía terminar**: el backend tenía `fallo` y `cerrar`
+> y la pantalla no los ofrecía. Después: **6 clics** si cada proveedor tiene cuenta favorita (10
+> la primera vez, hasta que se recuerda el método y la cuenta de origen; +2 por cada proveedor sin
+> favorita): guardar la propuesta, aplicar a todos, autorizar, marcar los pagados (con
+> confirmación) y cerrar.
+>
+> ⛔ **Automatizar no es adivinar.** La propuesta de armado de Pagos —la que ahora aparece sola—
+> no excluía las facturas «por confirmar» (posiblemente ya pagadas desde Oficinas): medido con una
+> réplica de su regla en el navegador, **55 de ellas en 2 de los 46 pagos** propuestos para ese día.
+> Lo que el sistema hace solo tiene que respetar las mismas exclusiones que la persona respetaría.
 
 ---
 

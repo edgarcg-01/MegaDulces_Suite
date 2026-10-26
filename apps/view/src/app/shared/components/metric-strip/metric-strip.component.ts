@@ -115,7 +115,7 @@ export interface MetricStripItem {
           <div class="ms-leg">
             @for (it of items(); track it.label) {
               <span><i [class]="'tone-' + (it.tone || 'brand')"></i>{{ it.label }}
-              <b [appCountUp]="num(it)" [countUpFormat]="cu(it)"></b></span>
+              <b [appCountUp]="num(it)" [countUpFormat]="cu(it)" [countUpOff]="instant()"></b></span>
             }
           </div>
         </div>
@@ -134,13 +134,13 @@ export interface MetricStripItem {
             @if (mode() === 'ring') {
               <div class="ms-ring-row">
                 <app-ring-gauge [value]="it.pct ?? num(it)" [max]="100" [size]="46" [color]="toneColor(it)"></app-ring-gauge>
-                <b class="ms-v" [appCountUp]="num(it)" [countUpFormat]="cu(it)"
+                <b class="ms-v" [appCountUp]="num(it)" [countUpFormat]="cu(it)" [countUpOff]="instant()"
                    [attr.aria-live]="it.live ? 'polite' : null"></b>
               </div>
             } @else {
               <div class="ms-row">
                 @if (isText(it)) { <b class="ms-v is-text">{{ it.value }}</b> }
-                @else { <b class="ms-v" [appCountUp]="num(it)" [countUpFormat]="cu(it)"
+                @else { <b class="ms-v" [appCountUp]="num(it)" [countUpFormat]="cu(it)" [countUpOff]="instant()"
                            [attr.aria-live]="it.live ? 'polite' : null"></b> }
                 @if (it.delta !== null && it.delta !== undefined) {
                   <span class="ms-delta" [class.up]="it.delta! > 0" [class.down]="it.delta! < 0">
@@ -323,6 +323,16 @@ export class MetricStripComponent implements AfterViewInit {
    * `strip`; los demás modos ignoran la densidad.
    */
   readonly density = input<'normal' | 'compact'>('normal');
+  /**
+   * `[PGP.15]` Las cifras aparecen con su valor final, sin contar desde 0. **Aditivo**: el default
+   * (`false`) deja el count-up como siempre en las demás pantallas.
+   *
+   * Nace de una medición en `/finanzas/calendario-pagos`: durante los ~900 ms del conteo la tira
+   * publicaba «Comprometido $84,410.38» de un día con $1,850,235.43 — una captura o un vistazo en
+   * ese lapso lee un monto que no existe. Donde la cifra se usa para DECIDIR (cuánto cabe hoy), la
+   * regla del PM manda: la información visible en todo momento.
+   */
+  readonly instant = input(false);
   /** total para composición (default = suma de valores). */
   readonly total = input<number | null>(null);
   /** [LC.21] La llave de la tarjeta que se abrió (sólo las que traen `drill`). */

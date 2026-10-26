@@ -37,7 +37,7 @@ export class CountUpDirective implements OnInit, OnDestroy {
     if (this.done) {
       // Ya animó una vez. Live (J17): re-anima el cambio (número que "rueda").
       // Default (refresh normal): valor final instantáneo.
-      if (this.appCountUpLive && !this.reduce()) this.tween(this.current, this.target, 600);
+      if (this.appCountUpLive && !this.reduce() && !this.countUpOff) this.tween(this.current, this.target, 600);
       else this.render(this.target);
     } else {
       this.maybeStart();
@@ -48,6 +48,13 @@ export class CountUpDirective implements OnInit, OnDestroy {
   @Input() appCountUpLive = false;
 
   @Input() countUpFormat: CountUpFormat = 'int';
+
+  /**
+   * `[PGP.15]` Sin animación: el valor final desde el primer cuadro, igual que con
+   * `prefers-reduced-motion`. Aditivo (default `false`). Para cifras con las que se decide, donde
+   * un valor intermedio leído en ese lapso es un monto que no existe.
+   */
+  @Input() countUpOff = false;
 
   /**
    * `[TDA.7]` La compuerta on-view NO puede decidir si el número es correcto.
@@ -68,7 +75,8 @@ export class CountUpDirective implements OnInit, OnDestroy {
    * no trae `IntersectionObserver`, se anima igual en vez de quedarse mudo.
    */
   ngOnInit(): void {
-    if (this.appCountUpLive || typeof IntersectionObserver === 'undefined') {
+    // [PGP.15] Sin animación no hay nada que esperar: ni la intersección ni el primer cuadro en 0.
+    if (this.countUpOff || this.appCountUpLive || typeof IntersectionObserver === 'undefined') {
       this.visible = true;
       this.maybeStart();
       return;
@@ -98,7 +106,7 @@ export class CountUpDirective implements OnInit, OnDestroy {
     this.done = true;
     this.io?.disconnect();
 
-    if (this.reduce() || this.target === 0) {
+    if (this.countUpOff || this.reduce() || this.target === 0) {
       this.render(this.target);
       return;
     }
