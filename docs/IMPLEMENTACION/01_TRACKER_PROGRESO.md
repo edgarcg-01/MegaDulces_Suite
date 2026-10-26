@@ -5175,38 +5175,30 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
-### 🔨 [GX.86] · horario para dar de alta un vale: lunes a viernes, 8:30–10:00 y 17:00–18:00 — 2026-10-22
+### 🔨 [GX.86] · aviso de las rondas de revisión de gastos (sin bloqueo) — 2026-10-26
 
-- [x] **[GX.86]** 🧪 Decisión del usuario: a quienes dan de alta sus gastos se les bloquea el alta durante el
-  día; el horario es **8:30–10:00 y 17:00–18:00, lunes a viernes** (hora de México), sábado y domingo cerrado.
-  Alcance decidido: **sólo el alta** (subir la factura de un vale aprobado sigue abierto todo el día) y **los
-  aprobadores no tienen horario** (`FINANCE_EXPENSES_COMPROBAR` o rol de plataforma). ⚠️ **Sin respuesta todavía:
-  qué problema resuelve** — sin eso no hay cómo medir si funcionó.
-  - **Medido antes (prod, 30 días al 22-oct):** 972 vales de 46 personas; **784 (81 %) se levantaron fuera** de
-    este horario; la hora pico era las 10:00 (128). Sábados: 96 al mes. Ninguno por link.
-  - **Criterios (Dado/Cuando/Entonces):** dado un capturista sin `COMPROBAR`, cuando da de alta un lunes a las
-    12:00, entonces el servidor responde **403** con «Abre hoy a las 17:00» · dado el mismo a las 9:00 o 17:30,
-    entonces entra · dado un aprobador, a cualquier hora entra · dado el link de captura fuera de horario,
-    entonces 403 · dado un vale aprobado, subir su factura no tiene horario.
-  - **Regla** en `libs/contracts` (`horario-alta-gastos.contract.ts`: ventanas, días, próxima apertura, quién
-    está exento), la misma para servidor y pantalla; hora siempre de `America/Mexico_City`.
-  - **Servidor** (el que bloquea): `asegurarHorarioAlta()` en `create()` y en el `submit` del link; si el
-    llamador no dice que está exento, **no lo está** (falla cerrado). El controller decide la excepción con los
-    permisos del token.
-  - **Pantallas** (avisan): `/finanzas/gastos` y el link muestran el horario **arriba, antes de elegir folio o
-    tomar fotos**; el botón dice «Cerrado: abre hoy a las 17:00»; se recalcula cada 30 s y otra vez al enviar,
-    para no subir archivos que el servidor ya no aceptaría.
-  - **Pruebas:** contrato 23 (bordes 8:29/8:30/9:59/10:00…, fin de semana, viernes→lunes) y en 3 zonas horarias
-    del proceso · servidor 7 (mutación: controller siempre exento → 2 en rojo) · pantalla 4 + link 4 (mutación:
-    sin el freno en `puedeEnviar` → 1 en rojo) · finance expense-proofs 249/249 · contracts 755/755 · view
-    finanzas 1057/1057. Las 43 specs existentes de la captura fijan la hora (sólo `Date`) para no depender de la
-    hora del CI.
-  - **[GX.86.1]** (auditoría, 2026-10-23) el diálogo «Adjuntar evidencia» de `/finanzas/gastos-tablero` también
-    da de alta: fuera de horario ahora frena en `enviar()` ANTES de subir archivos. 2 pruebas (mutación sin el
-    freno → 1 en rojo) · view finanzas 1063/1063.
-- [ ] **[GX.86.x]** Declarado: (1) `test-newdb-expense-capture-link.js` (HTTP) recibe 403 fuera de la ventana en
-  lugar de sus validaciones; (2) los días festivos no se contemplan (sólo lunes–viernes); (3) quien empieza a las
-  9:58 y manda a las 10:01 queda fuera — no hay gracia; (4) el horario vive en código: cambiarlo es un PR.
+- [x] **[GX.86]** 🧪 **Cambió de bloqueo a aviso.** Primera versión (22-oct): bloquear el alta fuera de
+  8:30–10:00 y 17:00–18:00. Decisión del usuario el 26-oct: *«hay que quitar la regla, solamente hay que agregar un
+  aviso»* y *«pueden estar subiéndolos sin problema durante el día»*. El bloqueo se retiró entero (servidor, link y
+  diálogo; el código de esos archivos vuelve a ser el de `main`) y queda un aviso.
+  - **La idea (aprobada en maqueta):** el aviso no es un cartel fijo. Primero dice **«Puedes subir tus gastos a
+    cualquier hora del día, sin problema»** y la segunda línea cambia con la hora: *«Ahorita estamos revisando: el
+    tuyo entra en esta ronda, que termina a las 10:00 am»* / *«Lo que subas ahora se revisa en la ronda de hoy a las
+    5:00 pm»* / *«… del lunes a las 8:30 am»*. Abajo, en gris, el horario completo. Al mandar, el acuse repite la
+    ronda. Un cartel fijo deja de leerse; éste habla del gasto de esa persona.
+  - **Regla** en `libs/contracts/src/finance/rondas-revision-gastos.contract.ts` (`rondaDeRevision`, `horaAmPm`):
+    rondas, días, próxima ronda y los textos; hora siempre de `America/Mexico_City`.
+  - **Pieza compartida** `app-aviso-ronda-gastos` en las tres puertas de alta: `/finanzas/gastos`, el link de captura
+    (`[publico]`, sin sesión) y el diálogo «Adjuntar evidencia». Quien aprueba (`COMPROBAR`) no lo ve. Se recalcula
+    cada 30 s. Acuse con la ronda en la captura (toast) y en el link (pantalla «Listo»).
+  - **Pruebas:** contrato 25 (bordes 8:29/8:30/9:59/10:00, fin de semana, viernes→lunes, `horaAmPm`, y que ninguna
+    línea diga «cerrado»/«no se puede») en 3 zonas horarias del proceso · pieza 4 + **regresión del bloqueo** (lunes
+    12:00 el vale completo SE PUEDE ENVIAR) · mutación (aviso visible para aprobadores → 1 en rojo) · view finanzas
+    1073/1073. check:templates, reactividad, boundary-gate, check:pantalla (0 nuevas), tokens y estilos en verde.
+- [ ] **[GX.86.x]** Declarado: (1) **supuesto sin confirmar**: que en esas horas de verdad se revisa y que no hay
+  ronda en fin de semana — si no, el aviso diría algo falso (se cambia sólo en el contrato); (2) días festivos no se
+  contemplan; (3) el diálogo «Adjuntar evidencia» muestra el aviso pero su acuse lo pinta la pantalla que lo abre y
+  no se tocó; (4) sin validación visual en navegador (maqueta en `Documents\gastos-aviso-ronda-maqueta.html`).
 
 ### 🔨 [GX.85] · cuando Kepler aplica la solicitud (`F`), el vale se cierra y pasa a Historial — 2026-10-13
 

@@ -24,10 +24,9 @@ import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ExpenseP
 import { FORMAS_PAGO, faltaParaMandar, type FormaPagoId, type Faltante } from '@megadulces/contracts';
 import { MAX_ARCHIVO_GASTO_BYTES, MAX_ARCHIVO_GASTO_MB } from '@megadulces/contracts';
 import { MAX_DETALLES_PAGO, unirDetallesDePago } from '@megadulces/contracts';
-import { horarioAltaGastos, HORARIO_ALTA_GASTOS_TEXTO, type EstadoHorarioAlta } from '@megadulces/contracts';
-import { PermissionsService } from '../../../core/services/permissions.service';
-import { Permission } from '../../../core/constants/permissions';
 import { CapturaEnVivoComponent } from '../components/captura-en-vivo.component';
+import { AvisoRondaGastosComponent } from '../components/aviso-ronda-gastos.component';
+import { rondaDeRevision } from '@megadulces/contracts';
 
 /** En qué momento del ciclo está la solicitud elegida, y por tanto qué muestra la página. */
 type CapMode = 'checking' | 'capturar' | 'evidencia' | 'esperando' | 'revision' | 'cerrada';
@@ -50,7 +49,7 @@ interface SelSolicitud {
 @Component({
   selector: 'app-finanzas-capturar-gasto',
   standalone: true,
-  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, SelectButtonModule, ToastModule, DialogModule, CapturaEnVivoComponent],
+  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, SelectButtonModule, ToastModule, DialogModule, CapturaEnVivoComponent, AvisoRondaGastosComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -82,20 +81,8 @@ interface SelSolicitud {
           </div>
         }
 
-        <!--
-          [GX.86] El horario de alta va ARRIBA, antes de elegir el folio: avisarlo hasta el botón
-          haría llenar todo para nada. Quien aprueba no tiene horario y no ve este aviso.
-          El servidor es el que bloquea; esto sólo avisa.
-        -->
-        @if (!exentoHorario()) {
-          @if (horario().abierto) {
-            <div class="cap-val info" role="status"><i class="pi pi-clock" aria-hidden="true"></i>
-              <span>{{ horario().mensaje }} Horario de alta: {{ horarioTexto }}.</span></div>
-          } @else {
-            <div class="cap-val warn" role="status"><i class="pi pi-lock" aria-hidden="true"></i>
-              <span>{{ horario().mensaje }} Subir la factura de un vale ya aprobado sí se puede a cualquier hora.</span></div>
-          }
-        }
+        <!-- [GX.86] El aviso de las rondas: informa, no bloquea. Arriba, antes de elegir el folio. -->
+        <app-aviso-ronda-gastos class="cap-ronda" />
 
         <!-- 1) Folio del gasto -->
         @if (!gasto()) {
@@ -749,19 +736,6 @@ export class FinanzasCapturarGastoComponent {
   private readonly cdr = inject(ChangeDetectorRef);
   // `[GX.41]` Para llegar con el folio ya puesto desde «Mis gastos».
   private readonly route = inject(ActivatedRoute);
-  private readonly perms = inject(PermissionsService);
-
-  /**
-   * `[GX.86]` El horario de alta. Se recalcula cada 30 s: con la pantalla abierta desde las 9:50,
-   * el aviso y el botón tienen que cerrarse solos a las 10:00. La regla es la misma del servidor
-   * (contrato), y el servidor es el que bloquea; esto avisa a tiempo.
-   */
-  readonly horario = signal<EstadoHorarioAlta>(horarioAltaGastos());
-  readonly horarioTexto = HORARIO_ALTA_GASTOS_TEXTO;
-  /** Quien aprueba no tiene horario (los roles de plataforma pasan dentro de `has`). */
-  readonly exentoHorario = computed(() => this.perms.has(Permission.FINANCE_EXPENSES_COMPROBAR));
-  /** El alta está cerrada PARA ESTA PERSONA ahora. Sólo frena el alta, nunca la evidencia. */
-  readonly altaCerrada = computed(() => !this.exentoHorario() && !this.horario().abierto);
 
   readonly gasto = signal<SelSolicitud | null>(null);
   readonly sug = signal<(SolicitudSug & { label: string })[]>([]);
@@ -889,8 +863,6 @@ export class FinanzasCapturarGastoComponent {
     if (!this.gasto()) return false;
     if (this.modo() === 'evidencia') return !!this.names()['comprobante_1'];
     if (this.modo() !== 'capturar') return false;
-    // `[GX.86]` Fuera del horario no se da de alta (la evidencia, arriba, no se toca).
-    if (this.altaCerrada()) return false;
     if (!this.clasificacion()) return false;
     // `[GX.31]` Acá había un `if (!this.names()['solicitud_kepler']) return false;`.
     // GX.18 retiró la ÚNICA pantalla que subía ese archivo, así que la condición no se
@@ -925,11 +897,6 @@ export class FinanzasCapturarGastoComponent {
 
   enviarTitle(): string {
     if (this.modo() === 'evidencia') return this.names()['comprobante_1'] ? 'Enviar evidencia' : 'Falta capturar la evidencia';
-    // `[GX.86]` El botón apagado dice por qué y cuándo abre: un botón muerto sin motivo es un callejón.
-    if (this.altaCerrada()) {
-      const a = this.horario().abre;
-      return a ? `Cerrado: abre ${a.dia} a las ${a.hora.replace(/^0/, '')}` : 'Fuera del horario de alta';
-    }
     // [GX.18] El paso de la solicitud firmada se retiro: el boton ya no lo puede pedir.
     if (!this.clasificacion()) return 'Elige el tipo de gasto';
     // [GX.14] El primer faltante de la compuerta manda el texto: es el que hay que
@@ -1065,9 +1032,6 @@ export class FinanzasCapturarGastoComponent {
   readonly mineLoading = signal(false);
 
   constructor() {
-    // `[GX.86]` El aviso y el botón se cierran solos al terminar la ventana, sin recargar.
-    const reloj = setInterval(() => this.horario.set(horarioAltaGastos()), 30_000);
-    this.destroyRef.onDestroy(() => clearInterval(reloj));
     this.loadMine();
     this.loadListas();
     this.abrirDesdeLaUrl();
@@ -1274,10 +1238,6 @@ export class FinanzasCapturarGastoComponent {
     if (!g) { this.formError.set('Elige el gasto.'); return; }
     if (this.modo() === 'evidencia') { this.submitEvidencia(g); return; }
     if (this.modo() !== 'capturar') return;
-    // `[GX.86]` Se recalcula AHORA, no se confía en el reloj de 30 s: si la ventana cerró hace
-    // segundos, subir los archivos para que el servidor rechace el alta los dejaría huérfanos.
-    this.horario.set(horarioAltaGastos());
-    if (this.altaCerrada()) { this.formError.set(this.horario().mensaje); return; }
     // MOMENTO 1 — capturar la solicitud (firmada + clasificación). Sin evidencia.
     if (!this.clasificacion()) { this.formError.set('Elige el tipo de gasto.'); return; }
     // [GX.18] Se fue el freno de la solicitud firmada: ese paso ya no existe en la pantalla.
@@ -1371,7 +1331,8 @@ export class FinanzasCapturarGastoComponent {
        */
       comentarios: this.comentarios().trim(), files,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.saving.set(false); this.toast.add({ severity: 'success', summary: 'Enviada a aprobación', detail: `Solicitud ${g.folio}` }); this.uploaded = {}; this.reset(); this.loadMine(); },
+      // `[GX.86]` El acuse repite cuándo se revisa (la ronda se calcula AHORA, al mandarlo).
+      next: () => { this.saving.set(false); this.toast.add({ severity: 'success', summary: 'Enviada a aprobación', detail: `Solicitud ${g.folio}. ${rondaDeRevision().acuse}` }); this.uploaded = {}; this.reset(); this.loadMine(); },
       error: (e) => { this.saving.set(false); this.formError.set(e?.error?.message || 'No se pudo enviar.'); },
     });
   }

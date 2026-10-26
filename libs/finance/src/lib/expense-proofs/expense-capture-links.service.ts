@@ -3,7 +3,6 @@ import { JwtService } from '@nestjs/jwt';
 import { createHash } from 'node:crypto';
 import { TenantKnexService, TenantContextService, ObjectStorageService, LlmExtractorService } from '@megadulces/platform-core';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
-import { asegurarHorarioAlta } from './horario-alta';
 import { PROOF_FILE_ROLES, ProofFileRole, ProofFile, EXPENSE_CLASIFICACIONES, ExpenseClasificacion, requiereEvidencia } from './expense-proofs.service';
 
 /**
@@ -262,9 +261,6 @@ export class ExpenseCaptureLinksService {
    */
   async submit(token: string, dto: CaptureSubmitDto) {
     const link = await this.resolveLink(token);
-    // `[GX.86]` El link también es un alta, y quien entra por link no tiene permisos: no hay
-    // excepción posible. Va DESPUÉS de validar el token (un link inválido sigue diciendo eso).
-    asegurarHorarioAlta(false);
 
     const importe = Number(dto.importe) || 0;
     if (!(importe > 0)) throw new BadRequestException('¿de cuánto fue el gasto?');

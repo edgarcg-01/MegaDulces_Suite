@@ -9,7 +9,8 @@ import { CameraShotComponent } from '../components/camera-shot.component';
 import { ProofFile, ProofFileRole, ExpenseClasificacion, requiereEvidencia } from '../comprobaciones.service';
 import { money } from '../../../shared/util';
 import { dmy } from './finanzas-format';
-import { horarioAltaGastos, type EstadoHorarioAlta } from '@megadulces/contracts';
+import { AvisoRondaGastosComponent } from '../components/aviso-ronda-gastos.component';
+import { rondaDeRevision } from '@megadulces/contracts';
 
 /** Una foto pendiente de subir, con lo que hace falta para mostrarla y mandarla. */
 interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; }
@@ -35,7 +36,7 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
 @Component({
   selector: 'app-captura-gasto-link',
   standalone: true,
-  imports: [CommonModule, FormsModule, CameraShotComponent],
+  imports: [CommonModule, FormsModule, CameraShotComponent, AvisoRondaGastosComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="cg">
@@ -61,13 +62,11 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
           <div class="cg-ok" role="status">
             <i class="pi pi-check-circle" aria-hidden="true"></i>
             <h2>Listo, ya lo recibimos</h2>
-            <p>Lo va a revisar Finanzas. Si falta algo te lo devuelven y lo vas a ver acá mismo.</p>
+            <!-- [GX.86] La ronda se fija al mandarlo: el acuse dice cuándo, no sólo quién. -->
+            <p>Lo va a revisar Finanzas. {{ acuseRonda() }} Si falta algo te lo devuelven y lo vas a ver acá mismo.</p>
             <button type="button" class="cg-btn" (click)="otro()">Subir otro gasto</button>
           </div>
         } @else {
-
-          <!-- [GX.86] Fuera del horario de alta se dice ARRIBA, antes de tomar las fotos. -->
-          @if (!horario().abierto) { <p class="cg-err" role="status">{{ horario().mensaje }}</p> }
 
           <!-- ── Lo devuelto, antes que nada ──────────────────────────────── -->
           @if (devueltas().length) {
@@ -86,6 +85,10 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
               <p class="cg-back-how">Súbelo de nuevo con la corrección, aquí abajo.</p>
             </section>
           }
+
+          <!-- [GX.86] Las rondas de revisión: informa, no bloquea. Va después de lo devuelto
+               (eso sigue siendo lo primero) y antes de empezar a capturar. Pública: sin sesión. -->
+          <app-aviso-ronda-gastos [publico]="true" />
 
           <!-- ── Paso 1: el tipo ──────────────────────────────────────────────
                Va PRIMERO porque decide los dos pasos que siguen: si hay ticket que
@@ -395,6 +398,8 @@ export class CapturaGastoLinkComponent {
   readonly error = signal<string>('');
   readonly enviando = signal(false);
   readonly enviado = signal(false);
+  /** `[GX.86]` La ronda en que se revisa lo que acaba de mandar; se fija al mandarlo. */
+  readonly acuseRonda = signal('');
 
   readonly clasificacion = signal<ExpenseClasificacion | null>(null);
   private readonly tomas = signal<Record<string, Toma>>({});
@@ -416,12 +421,7 @@ export class CapturaGastoLinkComponent {
     { value: 'no_comprobable', label: 'Sin comprobante' },
   ];
 
-  /** `[GX.86]` El horario de alta (la misma regla que bloquea el servidor). Se recalcula cada 30 s. */
-  readonly horario = signal<EstadoHorarioAlta>(horarioAltaGastos());
-
   constructor() {
-    const reloj = setInterval(() => this.horario.set(horarioAltaGastos()), 30_000);
-    this.destroyRef.onDestroy(() => clearInterval(reloj));
     this.token = this.route.snapshot.paramMap.get('token') || '';
     this.cargar();
   }
@@ -523,8 +523,6 @@ export class CapturaGastoLinkComponent {
 
   /** ¿Se puede mandar? Mismas reglas que valida el servidor, dichas antes de tocar el botón. */
   readonly listo = computed(() => {
-    // `[GX.86]` Fuera del horario de alta no se manda (el servidor también lo rechaza).
-    if (!this.horario().abierto) return false;
     if (!this.clasificacion()) return false;
     if (!this.tomas()['solicitud_kepler']) return false;
     if (this.llevaTicket() && !this.tomas()['comprobante_1']) return false;
@@ -532,17 +530,12 @@ export class CapturaGastoLinkComponent {
   });
   /** Qué falta, en el orden en que se llena. */
   falta(): string {
-    if (!this.horario().abierto) return this.horario().mensaje;
     if (!this.clasificacion()) return 'Elige qué tipo de gasto es';
     if (!this.tomas()['solicitud_kepler']) return 'Falta la foto de la solicitud firmada';
     return 'Falta la foto del ticket';
   }
 
   enviar(): void {
-    // `[GX.86]` Se recalcula ahora: si la ventana cerró hace segundos, no se suben fotos que el
-    // servidor ya no va a aceptar.
-    this.horario.set(horarioAltaGastos());
-    if (!this.horario().abierto) { this.error.set(this.horario().mensaje); return; }
     if (!this.listo() || this.enviando()) return;
 
     const imp = Number(this.importe) || 0;
@@ -586,7 +579,7 @@ export class CapturaGastoLinkComponent {
         captured_at: new Date().toISOString(),
         user_agent: navigator.userAgent,
       }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => { this.enviando.set(false); this.enviado.set(true); },
+        next: () => { this.enviando.set(false); this.acuseRonda.set(rondaDeRevision().acuse); this.enviado.set(true); },
         error: (e) => {
           this.enviando.set(false);
           this.error.set(e?.error?.message || 'No se pudo mandar. Revisa tu señal y vuelve a intentar.');
