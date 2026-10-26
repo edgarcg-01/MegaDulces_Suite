@@ -2194,6 +2194,39 @@ más, **no elige**: valor «sin medir». Medido con el servicio real: valor del 
 un número de cualquiera de los dos). Pruebas: `cantidad-pedido.spec.ts` 15 (con los SKUs reales del defecto); contracts 812.
 ⚠️ Deuda con nombre: el `caja_cost` por pieza de la familia 33xxx está mal en el plan (`replenishment_plan`), y eso es de Compras.
 
+#### 16.18.3 🧪 [AB.40] La venta de ruta una vez y la política con la demanda del pedido (2026-10-26)
+
+**El árbitro (Kepler) contra las dos demandas, Mr Beast 97245, piezas/día:** Padre Hidalgo 325 (137 de mostrador + 188 de
+rutas) contra 535 del pedido y 72.5 de la política; las demás sucursales, el pedido a 5–15 % de Kepler y la política de 0.2× a
+2×. Dos defectos distintos:
+
+1. **`sales_daily` traía la venta de las rutas de Padre Hidalgo dos veces** (Kepler 01 `01-00N` + el envío) y de ahí el plan: 137
+   + 2 × 188 ≈ 535. `import-sales-fact.js` ahora toma, de un almacén de ruta que empuja, sólo lo que trae el envío. SQL exacto
+   ejercido en base local (`test-localdb-sales-fact-rutas-una-vez.js` 7/7, negativa: sin el filtro la ruta sale al doble).
+   Efecto en `sales_daily`, rutas de Padre Hidalgo: ago $3.62 M → $2.82 M · sep $5.22 M → $2.77 M · oct $4.35 M → $2.26 M
+   (= el envío). Canindo no cambia. Lo corrige para sus 37 consumidores en la corrida nocturna de 13 meses (UPSERT).
+2. **La política leía otra demanda** (`inventory_health`: 90 días de unidades crudas, quiebres como venta cero, sin rutas, y en
+   matrices sólo las hijas directas). Root cause medido por un agente sobre 19,604 pares: mediana 0.87 contra el pedido, 1 de
+   cada 5 bajo la mitad, 1 de cada 9 sobre el doble. Ahora `import-computed-reorder.js` e `import-network-reorder.js` leen
+   `product_demand` (30 días, la del pedido); la de red es **recursiva** (el CEDIS ve todo lo que surte) y **suma las rutas**;
+   σ = media × el `demand_cv` de siempre.
+
+**Antes → después (texto exacto de los importers, prod en sólo lectura, `test-newdb-politica-misma-demanda.js` 13/13):**
+
+| | Máximos que no alcanzan ni 14 días | Máximos de más de 90 días | Productos con existencia ≤ reorden |
+|---|---:|---:|---:|
+| Sucursales | 523 → 0 | 1,774 → 660 | 4,829 → 5,027 |
+| Matrices (01, 06, 08) | 238 → 0 | 1,102 → 718 | 4,967 → 5,170 |
+
+Mr Beast en Padre Hidalgo: máximo 4,029 → 14,951 pz (23 días de su demanda de red). La posición (agotado / bajo mínimo / bajo
+reorden) se calcula con esta política, así que se corrige sola. Escritura ejercida con los dos importers reales contra la base
+local (`test-localdb-politica-misma-demanda.js` 5/5, cifras exactas a la cuenta a mano; la negativa va sembrada:
+`inventory_health` con una venta equivocada que, si se leyera, daría otras cifras).
+
+⚠️ Lo medido usa la demanda de hoy, que en Padre Hidalgo aún trae las rutas al doble: tras la corrida nocturna del importer
+corregido, la demanda (y la política) de Padre Hidalgo bajan. ⚠️ Deuda con nombre: `product_demand` usa el precio de pieza MÍNIMO
+de la red (+5–8 %, MR.7.1).
+
 **D20 queda como [AB.40]**, sin construir: mueve un número que decide ~$14.7 M y toca el motor de PQ (otra fase, otra
 sesión). Orden: función de cantidad única en `libs/contracts` con su candado → antes/después por almacén y por proveedor →
 coordinar en la tarjeta de PQ → publicar fuera de horario.
