@@ -688,6 +688,32 @@ mismo patrón; (2) las reglas `@container` de la pantalla no aplicaban nunca (ni
 cajón de la deuda como panel lateral, los $14.0M en dictamen todavía programables (necesita la marca
 en el dato), y la edad del dato (§9).
 
+### Recorrido de punta a punta — de entrar al módulo a cerrar el día (2026-10-26, nivel A)
+
+> Pedido de Edgar: *«revisa el diseño desde que entro al módulo hasta que termino el proceso»*. Se
+> recorrió en la app con datos reales y **escrituras bloqueadas en el navegador** (la API local apunta
+> a prod). Los estados que hoy no existen en el dato —un pago a medio preparar, un día autorizado con
+> un pago marcado y otro rebotado— se **simularon** transformando en el navegador la respuesta real de
+> la semana; nada se escribió. Abajo, cada etapa con lo que se encontró y lo que se hizo.
+
+| Etapa | Lo que estaba mal (medido) | Qué se hizo |
+|---|---|---|
+| Entrar | Finanzas abre en «Egresos contables»; la barra lateral sólo tiene íconos: Pagos es un avión de papel entre 16. | **No se tocó** (navegación global, fase SN). |
+| Veredicto | 🔴 El botón principal («Preparar los 7») **no hacía nada visible**: desplazaba a `#payPanel`, que la plantilla ya no tenía (también rompía `openDay()` en angosto). | `#payPanel` restaurado; el botón dice lo que hace: «Elegir el método de los N» lleva el foco a «Para los N pagos»; si falta otra cosa, abre ese pago. |
+| Armar | Deuda: lo no programable abría la lista; importes sin columna (el borde se movía fila a fila); fechas sueltas en rojo; tres barras de desplazamiento anidadas; «Sugerir armado» perdido. «Armar» cerraba «Preparar». | Tabla con columnas (proveedor · vencimiento · importe a la derecha · agregar), «vencida hace N meses», lo no programable **al final, plegado, con su cuenta y su total** (eran **46** facturas y se veían 3), «Sugerir armado» arriba a la derecha, pasos 1 y 2 abiertos a la vez. |
+| Preparar | 🔴 Con datos, la tabla **se rompía**: tres controles por fila encimados; la cuenta destino como botón naranja aunque ya estuviera capturada; fila lista igual que incompleta. 🔴 Si el guardado fallaba, el selector **se quedaba mostrando el valor no guardado**. | Una fila = un pago con **«Cómo sale»** en una línea y su estado («Listo» / «Falta la cuenta destino» / «Falta el método»), con la misma regla que `isPrepared()`; «Preparar»/«Cambiar» abre el diálogo (que ya valida la CLABE y lee el catálogo); método y origen de todos, arriba. |
+| Autorizar | Dice «Autorizar el día · Gerencia / Dirección»: es el código de hoy (TP.16), no D2. | Sin cambio de regla (D2 + separación de funciones son backend: `PGP.1.1`). |
+| Dispersar | 🔴 El veredicto **ignoraba un pago rebotado**; la fila decía «Falló» **sin el motivo**; «5 listos» con 7 pagos y «6 pagos» con el monto de 7; tres nombres para el mismo estado; sin folio; dos botones naranjas iguales. | El rebote **encabeza el veredicto** con su motivo y «Mover a otro día»; la cola dice «1 rebotó»; filas con folio, cómo sale, importe, estado y motivo; un solo nombre: **«Marcado pagado»**; conteos del mismo universo; la instrucción a Caja, secundaria. |
+| Diálogos | Sin «Cancelar», «Guardar» a la izquierda. | «Cancelar» y acciones a la derecha en preparar, agregar y mover. |
+| Cerrar / comprobante | El proceso **no tiene final**: no hay «cerrar el día» y el paso 4 no lleva a «Pagos a proveedor», donde se adjunta el comprobante. Esa pestaña usa otro lenguaje de encabezado y no cargó (API caída). | **Pendiente** (abajo). |
+
+**Pendiente, con dueño de decisión:** (1) **cierre del día** y enlace de cada pago marcado a su
+comprobante en «Pagos a proveedor» —es diseño del proceso, no de pantalla—; (2) la **vista por rol**
+(sólo existe el permiso `AUTORIZAR`); (3) los **$14.0M en dictamen** siguen programables hasta que el
+dato los marque; (4) D2 + separación de funciones en backend; (5) **dos defectos globales** que esta
+pantalla destapó y que se anularon sólo aquí: `styleClass` en `p-table` ignorado en PrimeNG v22 (110
+tablas) y `styles.css` escondiendo con `!important` las columnas 4+ de todo `p-datatable` en móvil.
+
 ### Auditoría de la pantalla viva `/finanzas/calendario-pagos` (2026-10-26, nivel A)
 
 > **Con qué se miró:** la app corriendo (`localhost:4200`, Playwright) contra una API local

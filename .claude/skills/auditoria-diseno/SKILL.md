@@ -240,6 +240,14 @@ cosas»*). Antes de cualquier acento o ratio suelto, contesta con la pantalla vi
 3. **Color:** ¿cuántos roles cumple el color de acción? Cuenta los elementos. Si son decenas, no significa nada.
 4. **Agrupación:** ¿se agrupa con espacio o con cajas? Cuenta los contenedores anidados.
 5. **Flujo por rol:** ¿qué ve primero cada persona que entra, y es lo suyo?
+6. **El proceso ENTERO, no la vista de entrada** (Edgar, 2026-10-26: *«desde que entro al módulo
+   hasta que termino el proceso»*). Cada paso, cada diálogo, **el botón principal apretado** (¿hace
+   algo visible?), **un guardado que falla** (¿la pantalla sigue mostrando lo que no se guardó?) y
+   **cada estado del dato** — a medio preparar, autorizado, con un pago rebotado. Si el estado no
+   existe hoy, se **simula** transformando la respuesta GET en el navegador y se **bloquean las
+   escrituras** (`page.route`: todo lo que no sea GET → 403). *El caso: en `/finanzas/calendario-pagos`
+   la vista de entrada se veía bien; con datos, la tabla se encimaba, el botón principal no hacía nada
+   y un pago rebotado no aparecía en el veredicto.*
 
 Los detalles (acentos, un ratio, 10 px) van **después**, como síntomas de esto. *El caso:
 `/finanzas/calendario-pagos` — se entregaron 12 detalles y no se dijo que el veredicto medía 14 px
