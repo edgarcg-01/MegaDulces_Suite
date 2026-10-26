@@ -326,6 +326,8 @@ export class AutoabastoPedidoService {
         // `[AB.40]` El tope de 45 días se mide en unidad base, con lo que el motor ya trae.
         venta_30d_base: numONull(f['venta_30d_nat']),
         existencia_base: numONull(f['on_hand_nat']),
+        // `[AB.40c]` Un solo costo: el de la caja que viaja a Compras (`enviar` manda este mismo).
+        caja_cost: numONull(f['caja_cost']),
       }) };
     });
     return { renglones, docs, planDocs, reqDocs, sinUnidad, medidos, borrador, guardable, posiciones };

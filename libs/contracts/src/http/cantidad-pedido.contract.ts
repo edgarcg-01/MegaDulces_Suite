@@ -122,6 +122,37 @@ export function toparRedondeo(r: RedondeoPedido, esc: EscaleraUnidades | null, e
     : sinNada();
 }
 
+// ── [AB.40c] Un solo costo ────────────────────────────────────────────────────────────────────
+
+/** Más allá de esta razón entre los dos costos, ninguno se cree: el valor se declara sin medir. */
+export const RAZON_COSTO_CONTRADICHO = 2;
+
+/**
+ * El costo por unidad BASE con que se valúa un renglón: el de la caja del plan (`caja_cost ÷ factor`),
+ * que es el mismo que viaja a Compras en la requisición y el que usa `/compras/pedido`. Medido el
+ * 2026-10-26 sobre 19,289 renglones con venta: el 80 % cuadra a ±3 % con el costo de existencia de
+ * Kepler (`kdik.c16`), el 17 % difiere 3–18 % (dos costos válidos) y **106 difieren 2× o más**, por
+ * dos defectos distintos — un `kdik.c16` roto ($0.0005 la pieza) o un `caja_cost` que en realidad es
+ * por pieza (la familia 33xxx, caja de 100). Como ninguno de los dos es siempre el bueno, cuando se
+ * contradicen así **no se elige**: `null`, y el renglón dice «sin medir» (ADR-056).
+ *
+ * @param cajaCost  costo de una caja del plan (`replenishment_plan.caja_cost`).
+ * @param factor    unidades base por esa caja en el almacén.
+ * @param costoErp  costo por unidad base de Kepler (testigo). `null` = sin testigo: se usa la caja.
+ */
+export function costoUnicoBase(cajaCost: number | null, factor: number, costoErp: number | null): number | null {
+  const cc = Number(cajaCost);
+  const f = Math.max(1, Number(factor) || 0);
+  if (!(cc > 0)) return null;
+  const porBase = cc / f;
+  const testigo = Number(costoErp);
+  if (testigo > 0) {
+    const r = porBase / testigo;
+    if (r > RAZON_COSTO_CONTRADICHO || r < 1 / RAZON_COSTO_CONTRADICHO) return null;
+  }
+  return porBase;
+}
+
 /** La frase del renglón: un recorte sin motivo a la vista se lee como error y se «corrige» a mano. */
 export function textoTopeBase(
   t: Pick<RedondeoTopado, 'antes_base' | 'dias' | 'dias_hoy'> & { motivo: MotivoTope | 'unidad_dudosa' },

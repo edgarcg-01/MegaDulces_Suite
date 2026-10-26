@@ -1450,6 +1450,9 @@ export class CommercialReplenishmentService {
 
           trx.raw('COALESCE(abc.abc_class, rp.abc_class) AS abc_class'),
           trx.raw(`${this.costUnit()} AS unit_cost`),
+          // `[AB.40c]` El costo de la caja del plan: el MISMO que Autoabasto manda a Compras en la
+          // requisición y el que usa /compras/pedido. Con él se valúa lo que se muestra (D20: un solo costo).
+          trx.raw('rpl.caja_cost AS caja_cost'),
           trx.raw(`${this.bucketExpr(oh)} AS bucket`),
           trx.raw(`ROUND(GREATEST(0, ${target} - ${oh} - ${it}) / (${cf}), 1) AS suggested_qty`),
           // U.2 — el $ del sugerido sólo si el costo de compra NO contradice el peldaño de la
