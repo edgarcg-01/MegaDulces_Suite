@@ -571,6 +571,7 @@ PQ.14 todavía no está en prod (el toast sigue sin enlace).
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-26 | «Que se pueda aceptar todo un lote de golpe» → **PQ.15 🧪** (`bbd691066`): en «Por lote», «Aprobar lote (N)» con confirmación en dos clics; manda al bulk ya probado sólo los pendientes del lote (tope 200) y declara que el lote no empuja a Kepler. 34/34 vitest, sin endpoint nuevo. Sin validación visual del botón | PM + sesión PQ |
 | 2026-10-26 | **Nivel A hecho** (§13.1) con Chromium propio y el usuario de prueba del PM: 11 hallazgos nuevos medidos en pantalla (A1 «Armar» abre vacío · A2 KPI de red con filtro · A3 casilla 1 vs lista 27 · sucursal por código · Ñ como «?» · aprobada con 0 unidades · «Limpiar» no vacía el carrito…). La requisición de prueba no se creó: el clasificador bloqueó la escritura en prod | PM + sesión PQ |
 | 2026-10-26 | Auditoría del flujo generar → aprobar (§13): nivel A bloqueado (navegadores tomados, sin login); nivel C+B con 7 hallazgos. **PQ.14 🧪** (`ffe073b74`): apagado de Kepler como estado de la bandeja, no falla por fila; lo generado queda a la vista con su lote y enlace a la bandeja. 130/130 vitest | PM + sesión PQ |
 | 2026-10-26 | «Necesito un 100 %»: las 268 líneas fuera de la ficha son 162 por etiqueta (cuadran por factor) + 106 unidades elegidas a mano en Kepler. **PQ.13 🧪**: migración que hace mandar la ficha de Kepler en sus almacenes (867 celdas, 568 a 1 por `unidad_unica`); cuerpo ejercido en prod sólo lectura, **sin aplicar** (§12.4) | PM + sesión PQ |
