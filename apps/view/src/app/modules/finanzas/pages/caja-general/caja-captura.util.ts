@@ -256,12 +256,21 @@ export interface FormularioCaja {
   origen_ref?: string | null;
   /** `[CG.160]` Por qué este movimiento NO se puede enlazar. Lo exige el servidor desde `[CG.124]`. */
   sin_documento_motivo?: string | null;
+  /**
+   * `[CGA-A.56]` De dónde salió el dinero de un EGRESO: retiros de CAOS o el cajón. Sólo se exige
+   * cuando `exige_origen` viene en `true` (lo pone la pantalla para un gasto): así una regla nueva
+   * no cambia el veredicto de quien no la pidió.
+   */
+  exige_origen?: boolean;
+  origen_efectivo?: 'caos' | 'cajon' | null;
+  /** Cuántos retiros de CAOS quedaron vinculados. */
+  retiros_vinculados?: number;
 }
 
 export type MotivoBloqueo =
   | 'falta_tipo' | 'falta_fecha' | 'falta_sucursal' | 'fecha_futura'
   | 'falta_concepto' | 'falta_concepto_de_cuenta' | 'glosa_corta' | 'monto_invalido' | 'falta_desglose' | 'arqueo_no_cuadra'
-  | 'falta_motivo_sin_documento';
+  | 'falta_motivo_sin_documento' | 'falta_origen_efectivo' | 'caos_sin_retiro';
 
 /**
  * ⛔⛔ `[CG.160]` **Largo mínimo del motivo, ESPEJADO del servidor.**
@@ -294,6 +303,8 @@ export const TEXTO_BLOQUEO: Record<MotivoBloqueo, string> = {
     `Este movimiento no está enlazado a un documento de Kepler ni a uno del cajero. `
     + `Di por qué, con al menos ${MOTIVO_SIN_DOC_MIN} caracteres `
     + `(por ejemplo: cobranza de ruta que nadie registró en Kepler).`,
+  falta_origen_efectivo: 'Di de dónde salió el dinero: de un retiro de CAOS o del cajón.',
+  caos_sin_retiro: 'Elige de qué retiro de CAOS salió el dinero (busca los retiros y agrega uno).',
 };
 
 /**
@@ -358,6 +369,12 @@ export function motivosDeBloqueo(f: FormularioCaja, hoy?: string | null): Motivo
   const tieneOrigen = String(f.origen_ref ?? '').trim().length > 0;
   const motivo = String(f.sin_documento_motivo ?? '').trim();
   if (!tieneOrigen && motivo.length < MOTIVO_SIN_DOC_MIN) m.push('falta_motivo_sin_documento');
+
+  // `[CGA-A.56]` Todo egreso dice de dónde salió el dinero (Edgar, 2026-10-26).
+  if (f.exige_origen && f.tipo === 'gasto') {
+    if (!f.origen_efectivo) m.push('falta_origen_efectivo');
+    else if (f.origen_efectivo === 'caos' && !(Number(f.retiros_vinculados) > 0)) m.push('caos_sin_retiro');
+  }
 
   return m;
 }

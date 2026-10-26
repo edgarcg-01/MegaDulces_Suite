@@ -709,3 +709,26 @@ describe('[CGP-V.3b] puedeSellarUI — la jornada atrasada se declara', () => {
       .toBe(false);
   });
 });
+
+describe('[CGA-A.56] un egreso dice de dónde salió el dinero', () => {
+  const gasto = (o: Partial<FormularioCaja> = {}) => formOk({ tipo: 'gasto', exige_origen: true, ...o });
+
+  it('NEGATIVA: un egreso sin origen no se guarda, con su frase', () => {
+    expect(motivosDeBloqueo(gasto())).toContain('falta_origen_efectivo');
+  });
+  it('NEGATIVA: «retiro de CAOS» sin vincular ninguno no se guarda', () => {
+    expect(motivosDeBloqueo(gasto({ origen_efectivo: 'caos', retiros_vinculados: 0 }))).toContain('caos_sin_retiro');
+  });
+  it('con un retiro vinculado, o del cajón, sí', () => {
+    const m1 = motivosDeBloqueo(gasto({ origen_efectivo: 'caos', retiros_vinculados: 1 }));
+    const m2 = motivosDeBloqueo(gasto({ origen_efectivo: 'cajon' }));
+    for (const m of [m1, m2]) {
+      expect(m).not.toContain('falta_origen_efectivo');
+      expect(m).not.toContain('caos_sin_retiro');
+    }
+  });
+  it('sin `exige_origen` (quien no la pidió) y en un ingreso, la regla no existe', () => {
+    expect(motivosDeBloqueo(formOk({ tipo: 'gasto' }))).not.toContain('falta_origen_efectivo');
+    expect(motivosDeBloqueo(formOk({ tipo: 'ingreso', exige_origen: true }))).not.toContain('falta_origen_efectivo');
+  });
+});
