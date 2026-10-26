@@ -875,15 +875,26 @@ function resumir(summary) {
   const wrote = summary.reduce((a, r) => a + (r.escritas || 0), 0);
   const errs = summary.filter((r) => r.error).length;
   const fallas = summary.fallas || [];
-  // [OBS.15] La peor espera réplica → ODS que midió la cola en este ciclo (0 = no hubo nada).
-  const espera = summary.reduce((m, r) => (r.carril === 'cola' ? Math.max(m, r.espera_max_ms || 0) : m), 0);
-  return { wrote, errs, fallas, espera, cola: summary.cola, marcas: summary.marcas || [] };
+  // [OBS.15] La peor espera réplica → ODS que midió la cola en este ciclo, y cuántas entradas
+  // drenó: sin entradas no hay espera que medir, y eso NO es «0 ms».
+  const cola = summary.filter((r) => r.carril === 'cola');
+  const espera = cola.reduce((m, r) => Math.max(m, r.espera_max_ms || 0), 0);
+  const drenadas = cola.reduce((a, r) => a + (r.leidas || 0), 0);
+  return { wrote, errs, fallas, espera, drenadas, cola: summary.cola, marcas: summary.marcas || [] };
 }
-/** `[OBS.15]` Texto de la cola para el latido: dónde está activa y la peor espera medida. */
-function notaCola(cola, espera) {
+/**
+ * `[OBS.15]` Texto de la cola para el latido: dónde está activa y la peor espera medida.
+ * ⛔ Lo que no se midió se DECLARA (regla 11): la primera versión escribía «peor réplica→ODS
+ * 0 ms» con la cola apagada en las 9 ramas — un cero dibujado donde no había medición. Medido en
+ * prod el 2026-10-26 a minutos de desplegar.
+ */
+function notaCola(cola, espera, drenadas) {
   if (!COLA_TABLES.length || !cola) return '';
+  const medida = !cola.activas ? 'sin medir (no hay cola activa)'
+    : !drenadas ? 'sin movimientos en la ventana'
+      : `${espera} ms`;
   return ` · cola ${cola.activas}/${cola.ramas} ramas${cola.faltan.length ? ` (sin cola: ${cola.faltan.join(' ')})` : ''}`
-    + ` · peor réplica→ODS ${espera} ms`;
+    + ` · peor réplica→ODS ${medida}`;
 }
 function textoError({ fallas, errs }) {
   return [fallas.length ? `${fallas.length}/${BRANCHES.length} ramas no conectan — ${fallas.join(' · ')}` : null,
@@ -900,7 +911,7 @@ function textoError({ fallas, errs }) {
  * es el pulso). Dependencias inyectadas para la prueba (`test-ods-cola.js`, bloque 5).
  */
 function crearCicloTiempoReal({ ciclo, latir: latirFn, marcarRamas: marcarFn, cadaMs, late = true, ahora = Date.now }) {
-  const hb = { abierto: false, desde: ahora(), ciclos: 0, wrote: 0, peorMs: 0, espera: 0, error: null, ultimo: null };
+  const hb = { abierto: false, desde: ahora(), ciclos: 0, wrote: 0, peorMs: 0, espera: 0, drenadas: 0, error: null, ultimo: null };
   return async ({ full }) => {
     const t0 = ahora();
     if (late && !hb.abierto) { await latirFn('begin'); hb.abierto = true; }
@@ -909,7 +920,7 @@ function crearCicloTiempoReal({ ciclo, latir: latirFn, marcarRamas: marcarFn, ca
     const ms = ahora() - t0;
     hb.ciclos++; hb.peorMs = Math.max(hb.peorMs, ms);
     if (r) {
-      hb.wrote += r.wrote; hb.espera = Math.max(hb.espera, r.espera); hb.ultimo = r;
+      hb.wrote += r.wrote; hb.espera = Math.max(hb.espera, r.espera); hb.drenadas += r.drenadas; hb.ultimo = r;
       if (r.fallas.length || r.errs) hb.error = textoError(r);
     } else hb.error = falla.message;
     if (late && ahora() - hb.desde >= cadaMs) {
@@ -920,10 +931,10 @@ function crearCicloTiempoReal({ ciclo, latir: latirFn, marcarRamas: marcarFn, ca
         rows: hb.wrote,
         ms: hb.peorMs,
         note: `${BRANCHES.length - u.fallas.length}/${BRANCHES.length} ramas · ${hb.wrote} filas en ${hb.ciclos} ciclos`
-          + ` · peor ciclo ${hb.peorMs} ms${notaCola(u.cola, hb.espera)}`,
+          + ` · peor ciclo ${hb.peorMs} ms${notaCola(u.cola, hb.espera, hb.drenadas)}`,
         error: hb.error,
       });
-      Object.assign(hb, { desde: ahora(), ciclos: 0, wrote: 0, peorMs: 0, espera: 0, error: null });
+      Object.assign(hb, { desde: ahora(), ciclos: 0, wrote: 0, peorMs: 0, espera: 0, drenadas: 0, error: null });
     }
     if (falla) throw falla;
     return { wrote: r.wrote, ms };
@@ -1041,7 +1052,7 @@ if (require.main === module) {
             status: malo ? 'error' : 'ok',
             rows: wrote,
             ms: Date.now() - t0,
-            note: `${BRANCHES.length - fallas.length}/${BRANCHES.length} ramas · ${wrote} filas · ${errs} tablas con error${notaCola(r.cola, r.espera)}`,
+            note: `${BRANCHES.length - fallas.length}/${BRANCHES.length} ramas · ${wrote} filas · ${errs} tablas con error${notaCola(r.cola, r.espera, r.drenadas)}`,
             error: malo ? textoError(r) : null,
           });
         }
@@ -1058,7 +1069,7 @@ if (require.main === module) {
         const summary = await cycleAll({ apply: false, full: FULL });
         console.log('\n=== Resumen ===');
         console.table(summary.slice(0, 200));
-        if (COLA_TABLES.length) console.log(`  cola (${COLA_TABLES.join(',')}):${notaCola(summary.cola, resumir(summary).espera)}`);
+        if (COLA_TABLES.length) console.log(`  cola (${COLA_TABLES.join(',')}):${notaCola(summary.cola, resumir(summary).espera, resumir(summary).drenadas)}`);
         console.log('DRY-RUN — nada cambió. Corré con --apply.');
         if (DEST) await cerrar(DEST);
         return;
