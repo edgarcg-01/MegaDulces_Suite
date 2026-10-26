@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
@@ -11,12 +11,12 @@ import { TagModule } from 'primeng/tag';
 import { CheckboxModule } from 'primeng/checkbox';
 import { DatePickerModule } from 'primeng/datepicker';
 import type {
-  AltaRapidaResultado, CompletarGuiaBody, DesgloseDeOperacion, EstadoRecepcion, FaltaDelViaje, OperacionDelReporte,
-  PersonaDelPadron, ReporteDePagos, ResponsableKepler, TipoParadaKepler,
+  AltaRapidaResultado, CompletarGuiaBody, DesgloseDeOperacion, FaltaDelViaje, OperacionDelReporte, PersonaDelPadron,
+  ReporteDePagos,
 } from '@megadulces/contracts';
 // Por subruta, no por el barrel: ver tsconfig.base.json (bundle inicial).
 import {
-  corteVecino, ESTADO_RECEPCION_LABEL, FALTA_LABEL, repartoDeCarga, ROL_LABEL, TIPO_VIAJE_LABEL, totalDeCarga,
+  corteVecino, esFecha, FALTA_LABEL, repartoDeCarga, ROL_LABEL, TIPO_VIAJE_LABEL, totalDeCarga,
 } from '@megadulces/contracts/http/cierre-viaje';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -30,6 +30,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LogisticaService } from '../logistica.service';
 import { AltaPersonaComponent } from '../components/alta-persona.component';
+import { DesgloseOperacionComponent } from '../components/desglose-operacion.component';
 
 type Vista = 'pendientes' | 'completas' | 'todas';
 type Operacion = OperacionDelReporte & { clave: string };
@@ -61,7 +62,7 @@ const mensaje = (e: unknown, def: string): string => {
   imports: [
     CurrencyPipe, DecimalPipe, FormsModule, RouterLink, TableModule, SelectModule, MultiSelectModule, ButtonModule, TagModule,
     CheckboxModule, DatePickerModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent, SidePeekComponent,
-    SegmentedComponent, SucursalPipe, AltaPersonaComponent,
+    SegmentedComponent, SucursalPipe, AltaPersonaComponent, DesgloseOperacionComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -192,50 +193,7 @@ const mensaje = (e: unknown, def: string): string => {
               <app-load-state [loading]="cargandoDesglose()" [error]="errorDesglose()"
                               [isEmpty]="!!desglose() && !desglose()!.documentos.length" [skeletonRows]="3"
                               emptyIcon="pi-file" emptyTitle="Kepler no trae documentos de esta guía" (retry)="cargarDesglose(o)">
-                @if (desglose(); as d) {
-                  <p class="pv-sub">{{ d.documentos.length }} documento{{ d.documentos.length === 1 ? '' : 's' }} ·
-                    {{ d.cajas | number:'1.0-2' }} cajas@if (d.sueltos) { · {{ d.sueltos | number:'1.0-2' }} sueltas }</p>
-                  <ul class="pv-docs">
-                    @for (doc of d.documentos; track doc.serie + '|' + doc.folio) {
-                      <li class="pv-doc">
-                        <div class="pv-doc-cab">
-                          <span><span class="pv-guia">{{ doc.folio }}</span> · {{ tipoParada(doc.tipo) }} · {{ doc.destino || '—' }}</span>
-                          <span class="pv-doc-num">{{ doc.cajas | number:'1.0-2' }} cajas@if (doc.sueltos) { · {{ doc.sueltos | number:'1.0-2' }} sueltas }</span>
-                        </div>
-                        <dl class="pv-doc-quien">
-                          <div><dt>Surtió</dt><dd>{{ persona(doc.surtio) }}</dd></div>
-                          <div><dt>Checó</dt><dd>{{ persona(doc.checo) }}</dd></div>
-                          <div><dt>Embarcó</dt><dd>{{ persona(doc.embarco) }}</dd></div>
-                          <div><dt>Capturó en Kepler</dt><dd>{{ doc.capturo ? 'usuario ' + doc.capturo : '—' }}@if (doc.hora_captura) { · {{ doc.hora_captura }} }</dd></div>
-                        </dl>
-                        @if (doc.recepcion; as r) {
-                          <p class="pv-doc-rec">
-                            <span [class]="'pv-rec pv-rec-' + r.estado">{{ estadoRecepcion(r.estado) }}</span>
-                            Recepción en {{ r.sucursal ? (r.sucursal | sucursal) : 'destino desconocido' }}@if (r.folio) {: folio {{ r.folio }} del {{ fechaCorta(r.fecha!) }}, capturó el usuario {{ r.capturo || '—' }} }@if (r.diferencia) { · diferencia {{ r.diferencia | currency:'MXN':'symbol-narrow':'1.2-2' }} }
-                          </p>
-                        }
-                        <details class="pv-doc-det">
-                          <summary>{{ doc.renglones.length }} producto{{ doc.renglones.length === 1 ? '' : 's' }}</summary>
-                          <div class="dt-scope">
-                            <p-table [value]="doc.renglones" size="small" class="surf-table surf-table--plain dt-stack">
-                              <ng-template #header>
-                                <tr><th scope="col">Producto</th><th scope="col" class="comm-num">Cantidad</th><th scope="col">Presentación</th><th scope="col" class="comm-num">Cajas</th></tr>
-                              </ng-template>
-                              <ng-template #body let-r>
-                                <tr>
-                                  <td data-label="Producto">{{ r.producto || r.sku }}<span class="pv-sub">{{ r.sku }}@if (r.sin_carga) { · no se carga }</span></td>
-                                  <td data-label="Cantidad" class="comm-num">{{ r.cantidad == null ? '—' : (r.cantidad | number:'1.0-2') }}</td>
-                                  <td data-label="Presentación">{{ r.presentacion || 'sin presentación' }}</td>
-                                  <td data-label="Cajas" class="comm-num">{{ r.cajas | number:'1.0-2' }}</td>
-                                </tr>
-                              </ng-template>
-                            </p-table>
-                          </div>
-                        </details>
-                      </li>
-                    }
-                  </ul>
-                }
+                <app-desglose-operacion [desglose]="desglose()" />
               </app-load-state>
             </section>
 
@@ -323,7 +281,10 @@ const mensaje = (e: unknown, def: string): string => {
                     </ng-template>
                     <ng-template #body let-r>
                       <tr>
-                        <td data-label="Persona">{{ r.persona }}@if (r.fuente === 'kepler') { <span class="pv-sub">De Kepler: la tarifa de la ruta. Se confirma al guardar el horario.</span> }</td>
+                        <td data-label="Persona">
+                          <a [routerLink]="['/logistica/pagos/personas']" [queryParams]="{ persona: r.persona_id }" class="pv-link">{{ r.persona }}</a>
+                          <span class="pv-sub">{{ r.calculo }}</span>
+                        </td>
                         <td data-label="Papel">{{ rolLabel(r.rol) }}</td>
                         <td data-label="Concepto en Kepler"><span class="pv-guia">{{ r.codigo }}</span> <span class="pv-sub">{{ r.nombre_concepto }}</span></td>
                         <td data-label="Importe" class="comm-num">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
@@ -387,20 +348,6 @@ const mensaje = (e: unknown, def: string): string => {
     .pv-msg-bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .pv-msg-warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .pv-link { font-size: var(--fs-sm); }
-    .pv-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
-    .pv-doc { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); }
-    .pv-doc-cab { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--sp-2); font-size: var(--fs-sm); }
-    .pv-doc-num { font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
-    .pv-doc-quien { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: var(--sp-1) var(--sp-3); margin: var(--sp-2) 0 0; }
-    .pv-doc-quien dt { font-size: var(--fs-xs); color: var(--text-muted); }
-    .pv-doc-quien dd { margin: 0; font-size: var(--fs-sm); }
-    .pv-doc-rec { margin: var(--sp-2) 0 0; font-size: var(--fs-sm); }
-    .pv-rec { font-weight: var(--fw-medium); margin-right: var(--sp-1); }
-    .pv-rec-cerrada { color: var(--ok-soft-fg); }
-    .pv-rec-faltante, .pv-rec-sobrante, .pv-rec-pendiente, .pv-rec-destino_desconocido { color: var(--warn-soft-fg); }
-    .pv-doc-det { margin-top: var(--sp-2); }
-    .pv-doc-det summary { cursor: pointer; font-size: var(--fs-sm); color: var(--text-muted); }
-    .pv-doc-det summary:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     @container (max-width: 40rem) { .pv-cuenta { margin-left: 0; } }
   `],
@@ -409,6 +356,12 @@ export class LogisticaPagosViajesComponent {
   private readonly api = inject(LogisticaService);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
+  private readonly ruta = inject(ActivatedRoute);
+  /**
+   * `[EMB.51]` `?op=SUCURSAL|GUIA&desde=&hasta=`: llegar desde otra pantalla (la solicitud de una
+   * persona) con la operación ya abierta, en SU catorcena.
+   */
+  private ligaPendiente: string | null = this.ruta.snapshot.queryParamMap.get('op');
   private readonly sucursalPipe = new SucursalPipe();
 
   readonly data = signal<ReporteDePagos | null>(null);
@@ -531,7 +484,10 @@ export class LogisticaPagosViajesComponent {
   });
 
   constructor() {
-    this.cargar();
+    const q = this.ruta.snapshot.queryParamMap;
+    const desde = q.get('desde');
+    const hasta = q.get('hasta');
+    this.cargar(esFecha(desde) && esFecha(hasta) ? { desde, hasta } : undefined);
   }
 
   private corteActual(): { desde: string; hasta: string } | undefined {
@@ -543,9 +499,20 @@ export class LogisticaPagosViajesComponent {
     this.cargando.set(true);
     this.error.set(null);
     this.api.getReportePagos(corte ?? this.corteActual()).subscribe({
-      next: (d) => { this.data.set(d); this.cargando.set(false); },
+      next: (d) => { this.data.set(d); this.cargando.set(false); this.abrirLiga(); },
       error: (e) => { this.cargando.set(false); this.error.set(mensaje(e, 'No se pudieron leer las operaciones de Kepler.')); },
     });
+  }
+
+  /** `[EMB.51]` Abre la operación de la liga, una vez. Si no está en la catorcena cargada, no abre nada. */
+  private abrirLiga(): void {
+    const liga = this.ligaPendiente;
+    if (!liga) return;
+    this.ligaPendiente = null;
+    const o = this.operaciones().find((x) => x.clave === liga);
+    if (!o) return;
+    if (o.faltan.length === 0) this.vista.set('todas');
+    this.abrir(o);
   }
 
   /** Relee el reporte y devuelve la operación abierta tal como quedó. */
@@ -604,17 +571,6 @@ export class LogisticaPagosViajesComponent {
     });
   }
 
-  tipoParada(t: TipoParadaKepler): string {
-    return ({ cliente: 'Entrega a cliente', traspaso: 'Traspaso', carga_ruta: 'Carga a ruta (no paga)' } as const)[t];
-  }
-  /** Una persona de un catálogo de Kepler; sin nombre se dice la clave, no se inventa. */
-  persona(p: ResponsableKepler): string {
-    if (p.nombre) return p.nombre;
-    return p.codigo ? `clave ${p.codigo} (sin nombre en Kepler)` : '—';
-  }
-  estadoRecepcion(e: EstadoRecepcion): string {
-    return ESTADO_RECEPCION_LABEL[e] ?? e;
-  }
 
   cerrar(): void {
     this.peek.set(false);

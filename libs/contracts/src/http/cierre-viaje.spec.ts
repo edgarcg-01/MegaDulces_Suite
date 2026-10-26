@@ -204,7 +204,7 @@ describe('[EMB.47] el reporte de reparto: conceptos de Kepler y solicitudes por 
   });
 
   const r = (persona_id: string, rol: RenglonDelReparto['rol'], concepto: RenglonDelReparto['concepto'], codigo: string, importe: number): RenglonDelReparto => ({
-    persona_id, persona: `P-${persona_id}`, rol, concepto, codigo, nombre_concepto: `C-${codigo}`, importe, fuente: 'captura',
+    persona_id, persona: `P-${persona_id}`, rol, concepto, codigo, nombre_concepto: `C-${codigo}`, importe, fuente: 'captura', calculo: `C-${codigo}`,
   });
   const op = (guia: string, fecha: string, destinos: string, renglones: RenglonDelReparto[]): OperacionDelReporte => ({
     sucursal: '00', guia, fecha, paradas: 1, destinos, tipo: 'traspaso', chofer_kepler: null, importe: 0,

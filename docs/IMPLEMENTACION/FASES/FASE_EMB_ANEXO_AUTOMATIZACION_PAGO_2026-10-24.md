@@ -406,8 +406,33 @@ ya registra quién **embarcó** cada documento; con eso los cargadores podrían 
 que Edgar diga si «embarcó» = quien cargó el camión. **Fuera de esto:** la descarga en la recepción de
 compras (entradas de proveedor) sigue siendo el item pendiente.
 
+### EMB.51 · Todo se abre y cada peso dice de dónde sale (🧪, 2026-10-26)
+
+Edgar, viendo la solicitud de un chofer: *«desglosemos… por qué la cantidad de cada uno, y cliquear
+las guías para ver movimientos; pensemos en que todo sea cliqueable y desglosable»*.
+
+| Dónde | Qué se abre |
+|---|---|
+| Cada renglón (Operaciones y Por persona) | **Su cálculo en llano**, armado en el servidor con lo guardado: «Tarifa de la ruta YURECUARO: $61.92 al chofer», «Salida 05:30, llegada 16:10: café $25 + desayuno $100 + comida $100», «42 cajas × $0.20 = $8.40 entre 2 cargadores». Sin desglose guardado, se dice |
+| Por persona › «Para capturar en Kepler» | Clic en un renglón → «De dónde sale» muestra sólo sus operaciones («ver todas» lo quita) |
+| Por persona › una guía | Se abre en el mismo panel: lo que la persona tiene de esa guía y su **movimiento** (el desglose de EMB.50); «volver» regresa. Desde Logística, liga «Abrir en Operaciones» |
+| Operaciones › una persona | Liga a su solicitud (`?persona=`) |
+| Ligas | `?op=SUCURSAL|GUIA&desde&hasta` abre la operación en SU catorcena; `?persona=` abre la solicitud |
+| PDF | «De dónde sale» lleva el cálculo de cada peso (es lo que la persona firma) |
+
+El desglose de una operación salió a una pieza compartida (`app-desglose-operacion`): se pinta igual
+desde las dos pestañas. **Verificado contra prod (sólo lectura):** el $61.92 es la tarifa de la ruta
+YURECUARO; una guía a 5 sucursales cobra la de CANINDO ZAMORA (la mayor de sus rutas). Pruebas:
+logistics 64 (5 nuevas de cálculo), pantallas 70 (ligas, filtro, guía abierta y su negativa de
+respuesta tardía), contracts 33.
+
+**Pregunta que esto deja a la vista:** una guía a varias sucursales cobra UNA comisión (la de su ruta
+más cara), pero en Kepler la comisión se captura por centro de costo de cada destino. ¿Se reparte
+entre los destinos o va al de la ruta que puso la tarifa?
+
 ## Bitácora
 
+- **2026-10-26** — EMB.51: cada importe con su cálculo; renglones, guías y personas se abren (ligas entre pestañas).
 - **2026-10-26** — EMB.50: desglose por documento (cajas, surtió/checó/embarcó, recepción en destino). Pedido: «quién hizo recepciones».
 - **2026-10-26** — EMB.49: la tarifa por caja rige desde el 22-oct (decisión de Edgar), con «rige desde» en la bitácora.
 - **2026-10-26** — EMB.48: el reporte muestra carga y comisión de ruta sin capturar; tiempo aire fuera (7 guías). Pedido: «todos los viajes salen en 0».

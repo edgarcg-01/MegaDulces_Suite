@@ -3,7 +3,7 @@ import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { ActivatedRoute, provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import type { OperacionDelReporte, ReporteDePagos } from '@megadulces/contracts';
 import { LogisticaPagosPersonasComponent } from './logistica-pagos-personas.component';
 
@@ -26,9 +26,9 @@ const REPORTE: ReporteDePagos = {
   operaciones: [
     op({
       renglones: [
-        { persona_id: 'd1', persona: 'CHOFER PRUEBA', rol: 'chofer', concepto: 'comision', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 129, fuente: 'kepler' },
-        { persona_id: 'd1', persona: 'CHOFER PRUEBA', rol: 'chofer', concepto: 'viatico', codigo: '027', nombre_concepto: 'VIATICOS TRASPASO DE MERCANCIA', importe: 200, fuente: 'captura' },
-        { persona_id: 'c1', persona: 'CARGADOR PRUEBA', rol: 'cargador', concepto: 'carga', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 20, fuente: 'captura' },
+        { persona_id: 'd1', persona: 'CHOFER PRUEBA', rol: 'chofer', concepto: 'comision', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 129, fuente: 'kepler', calculo: 'Tarifa de la ruta YURECUARO: $129.00 al chofer' },
+        { persona_id: 'd1', persona: 'CHOFER PRUEBA', rol: 'chofer', concepto: 'viatico', codigo: '027', nombre_concepto: 'VIATICOS TRASPASO DE MERCANCIA', importe: 200, fuente: 'captura', calculo: 'CALCULO PRUEBA' },
+        { persona_id: 'c1', persona: 'CARGADOR PRUEBA', rol: 'cargador', concepto: 'carga', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 20, fuente: 'captura', calculo: 'CALCULO PRUEBA' },
       ],
     }),
     op({ guia: '0000002', shipment_id: null, driver_id: null, faltan: ['chofer', 'horario', 'cargadores'], cargador_ids: [], cargadores: 0 }),
@@ -36,12 +36,12 @@ const REPORTE: ReporteDePagos = {
   fuera_de_alcance: 0, solo_tiempo_aire: 0, personas: [], leido_at: '2026-10-08T12:00:00.000Z',
 };
 
-function montar(titulo?: string) {
+function montar(titulo?: string, query: Record<string, string> = {}) {
   TestBed.configureTestingModule({
     imports: [LogisticaPagosPersonasComponent],
     providers: [
       provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
-      { provide: ActivatedRoute, useValue: { snapshot: { data: titulo ? { titulo } : {} } } },
+      { provide: ActivatedRoute, useValue: { snapshot: { data: titulo ? { titulo } : {}, queryParamMap: convertToParamMap(query) } } },
     ],
   });
   const f = TestBed.createComponent(LogisticaPagosPersonasComponent);
@@ -92,6 +92,52 @@ describe('LogisticaPagosPersonasComponent', () => {
     expect(req.request.params.get('hasta')).toBe('2026-09-23');
     req.flush({ ...REPORTE, corte: { desde: '2026-09-10', hasta: '2026-09-23', pago: '2026-09-25' }, operaciones: [] });
     expect(c.sel()).toBeNull();
+  });
+
+  it('[EMB.51] un renglón de Kepler filtra «De dónde sale» a sus operaciones; «ver todas» lo quita', () => {
+    const { c, http } = montar();
+    reporte(http).flush(REPORTE);
+    c.alSeleccionar(c.solicitudes().find((s) => s.persona === 'CHOFER PRUEBA'));
+    expect(c.detalleVisible()).toHaveLength(2);
+    c.alFiltrar(c.renglonesDeSel().find((r) => r.codigo === '027'));
+    expect(c.detalleVisible().map((d) => [d.codigo, d.calculo])).toEqual([['027', 'CALCULO PRUEBA']]);
+    c.filtro.set(null);
+    expect(c.detalleVisible()).toHaveLength(2);
+  });
+
+  it('[EMB.51] una guía se abre en el mismo panel: lo que le toca de ella y su movimiento; «volver» regresa', () => {
+    const { f, c, http } = montar();
+    reporte(http).flush(REPORTE);
+    c.alSeleccionar(c.solicitudes().find((s) => s.persona === 'CHOFER PRUEBA'));
+    c.verOperacion(c.sel()!.detalle[0]);
+    const req = http.expectOne((r) => r.url.endsWith('/trip-closure/operaciones/00/0000001/desglose'));
+    expect(c.lineasDeOperacion().map((l) => l.codigo)).toEqual(['054', '027']);
+    req.flush({ sucursal: '00', guia: '0000001', cajas: 100, sueltos: 0, leido_at: '2026-10-26T15:00:00.000Z', documentos: [] });
+    f.detectChanges();
+    expect(c.desgloseOp()?.cajas).toBe(100);
+    c.cerrarOperacion();
+    expect(c.opAbierta()).toBeNull();
+  });
+
+  it('[EMB.51] PRUEBA NEGATIVA: si llega tarde el movimiento de OTRA guía, no pisa el de la abierta', () => {
+    const { c, http } = montar();
+    reporte(http).flush(REPORTE);
+    c.alSeleccionar(c.solicitudes().find((s) => s.persona === 'CHOFER PRUEBA'));
+    c.verOperacion(c.sel()!.detalle[0]);
+    const vieja = http.expectOne((r) => r.url.includes('/desglose'));
+    c.verOperacion({ ...c.sel()!.detalle[0], guia: '0000009' });
+    const nueva = http.expectOne((r) => r.url.includes('/0000009/desglose'));
+    nueva.flush({ sucursal: '00', guia: '0000009', cajas: 9, sueltos: 0, leido_at: 'x', documentos: [] });
+    vieja.flush({ sucursal: '00', guia: '0000001', cajas: 100, sueltos: 0, leido_at: 'x', documentos: [] });
+    expect(c.desgloseOp()?.guia).toBe('0000009');
+  });
+
+  it('[EMB.51] la liga desde «Operaciones» abre la catorcena pedida con la solicitud de esa persona', () => {
+    const { c, http } = montar(undefined, { persona: 'c1', desde: '2026-09-24', hasta: '2026-10-07' });
+    const req = reporte(http);
+    expect(req.request.params.get('desde')).toBe('2026-09-24');
+    req.flush(REPORTE);
+    expect(c.sel()?.persona).toBe('CARGADOR PRUEBA');
   });
 
   it('desde Finanzas lleva su título y NO enlaza a Operaciones (allá puede no tener permiso); dentro de Pagos de viaje, al revés', () => {
