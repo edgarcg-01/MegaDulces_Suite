@@ -265,6 +265,24 @@ describe('[AB.29] Enviar a Compras', () => {
   });
 });
 
+describe('[AB.40] el motor único dice lo que le hizo a la cantidad', () => {
+  it('un renglón recortado por el tope de 45 días lo dice en el aviso y en el porqué', () => {
+    const recortada = linea({ tope: { motivo: 'recortado', antes_base: 25920, dias: 44.6, dias_hoy: 0 } });
+    const { f, c } = montar(RESP([], { grupos: [grupo([recortada])] }));
+    expect(c.avisoTope(recortada)).toBe('Tope 45 días');
+    expect(c.porQueAPedir(recortada)).toContain('Recortado por el tope de 45 días');
+    expect(texto(f)).toContain('Tope 45 días');
+  });
+
+  it('con la unidad en duda dice que no se pide y por qué; sin tope medido, no inventa aviso', () => {
+    const { c } = montar(RESP());
+    expect(c.avisoTope(linea({ tope: { motivo: 'unidad_dudosa', antes_base: 80, dias: null, dias_hoy: null } }))).toBe('Unidad en duda');
+    expect(c.textoTope(linea({ tope: { motivo: 'unidad_dudosa', antes_base: 80, dias: null, dias_hoy: null } }))).toContain('No se pide');
+    expect(c.avisoTope(linea({ tope: { motivo: 'sin_medir', antes_base: 80, dias: null, dias_hoy: null } }))).toBeNull();
+    expect(c.avisoTope(linea())).toBeNull();
+  });
+});
+
 describe('[AB.39] la tabla nunca esconde renglones sin decirlo', () => {
   it('con más de 150, pinta 150, dice cuántos son y «Ver los N» los trae todos', () => {
     const muchas = Array.from({ length: 160 }, (_, i) => linea({ product_id: `p-${i}`, sku: String(1000 + i) }));
