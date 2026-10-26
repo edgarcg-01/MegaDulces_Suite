@@ -901,6 +901,27 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   // Compras / Reabastecimiento (Fase RA — ADR-030). Existencia crítica → sugerido →
   // requisición (HITL). Proyecto propio; cada submódulo gateado por su permiso COMPRAS_*.
+  //
+  // `[NAV.4]` (2026-10-26) Los grupos siguen el FLUJO de la compra hasta el pago
+  // (docs/FLUJO_COMPRA_A_PAGO.md): Planeación → Compra → Recepción → Pago a proveedor, y al
+  // final lo que se consulta o se mantiene (Catálogo, Costos). Sólo cambian grupo y orden: las
+  // 21 pantallas siguen siendo renglones propios, con su ruta, icono, permiso y nombre.
+  // ⛔ No se pliegan en `tabs:` — eso fue `[NAV.2]` y dejó 19 pantallas sin camino (ver
+  // `check-sidebar-tabs.js`). Lo que se movió, y por qué:
+  //   · Hallazgos y Faltantes de piso → Planeación: son SEÑALES de demanda que se planean
+  //     (agotado/bajo reorden; lo que el mostrador pidió y no había), no análisis.
+  //   · Reclamos → Recepción: es el faltante que el andén detectó AL RECIBIR.
+  //   · Qué vence (estaba en Recepción), Obligaciones a proveedor y Cuentas de pago (estaban
+  //     en Catálogo) → «Pago a proveedor»: son la entrega de la compra a Finanzas, no datos
+  //     maestros. Quien sólo tiene el permiso de obligaciones (Tesorería, Finanzas) veía un
+  //     grupo «Catálogo» con una pantalla de pago adentro.
+  //   · «Análisis» → «Costos»: sin las tres bandejas, lo que queda es el costo.
+  // Uso medido en prod (telemetría de la suite, 30 días, visitas = persona+sesión+día):
+  // Pedido 316 · Control de entradas 182 · Catálogo 127 · Requisiciones 51 · Existencia 47 ·
+  // Obligaciones 27 · Órdenes 21 · Abiertas en Kepler 17 · Revisión de facturas 12 · el resto
+  // ≤5, y NUEVE en cero (Asistente, Red, los tres de Costos, Reclamos, Proveedores, Cuentas de
+  // pago, Categorías). ⚠️ Es un proxy: cuenta la pantalla donde se cargó la página o se dejó la
+  // pestaña; una que se cruza de paso puede no dejar evento. Por eso nada se quitó.
   private comprasNavGroups: { title: string; items: NavItem[] }[] = [
     {
       title: 'Planeación',
@@ -909,6 +930,14 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // decidís qué comprar. Es el mismo componente que /almacen/inventory/existencia.
         { label: 'Existencia',       icon: 'pi pi-box',       route: '/compras/existencia', permission: Permission.EXISTENCIA_VER },
         { label: 'Pedido',           icon: 'pi pi-cart-plus', route: '/compras/pedido',    permission: Permission.COMPRAS_PEDIDO_VER },
+        // `[NAV.4]` Las dos señales que alimentan el pedido, justo después de él. Hallazgos =
+        // el barrido nocturno (agotados clase A, bajo reorden); Faltantes de piso = la demanda
+        // que ningún feed ve.
+        { label: 'Hallazgos',           icon: 'pi pi-flag',       route: '/compras/hallazgos',   permission: Permission.COMPRAS_HALLAZGOS_VER },
+        // `[FLT.14]` Lo que el mostrador reportó: la demanda que ningún feed puede ver, porque una
+        // venta que no ocurrió no deja rastro en el ERP. Mismo permiso que Hallazgos y Reclamos —
+        // las tres bandejas las trabaja el mismo comprador.
+        { label: 'Faltantes de piso',   icon: 'pi pi-megaphone',  route: '/compras/faltantes',   permission: Permission.COMPRAS_HALLAZGOS_VER },
         { label: 'Asistente (Thot)', icon: 'pi pi-comments',  route: '/compras/asistente', permission: Permission.COMPRAS_PEDIDO_GESTIONAR },
         { label: 'Red de abasto',    icon: 'pi pi-sitemap',   route: '/compras/red',       permission: Permission.COMPRAS_RED_VER },
       ],
@@ -949,31 +978,25 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // 2026-09-01** — el día antes de retirar la puerta. Vuelve con el nombre del trabajo, a la
         // MISMA lista (no es otra pantalla), y desde Recepción, donde vive el flujo.
         { label: 'Revisión de facturas', icon: 'pi pi-check-square', route: '/compras/revision-facturas', permission: Permission.COMPRAS_ENTRADAS_VER },
-        // RE.3 — el compromiso de pago que la orden de entrada ya traía y nadie veía.
-        { label: 'Qué vence',            icon: 'pi pi-calendar-clock', route: '/compras/vencimientos', permission: Permission.COMPRAS_ENTRADAS_VER },
+        // WMS-REC.8 — el faltante del andén con responsable y seguimiento. Mismo permiso
+        // que Hallazgos: es la bandeja del mismo comprador. `[NAV.4]` Vive en Recepción porque
+        // el faltante se detecta AL RECIBIR.
+        { label: 'Reclamos',            icon: 'pi pi-inbox',      route: '/compras/reclamos',    permission: Permission.COMPRAS_HALLAZGOS_VER },
       ],
     },
     {
-      // RE.20.5 — las cuatro son el MISMO dinero cortado distinto, y lo único que las
-      // distingue es la unidad de la fila. Los nombres lo dicen: "por compra" y "por
-      // proveedor" son la misma cifra a dos granularidades y se leen de un vistazo.
-      // `Compras 360` era vocabulario del backend (execution_360, Customer 360): decía algo
-      // al que lo construyó y nada al comprador.
-      title: 'Análisis',
+      // `[NAV.4]` La etapa que sigue a la recepción: lo recibido se le entrega a Finanzas como
+      // deuda a pagar. En el orden en que se trabaja: qué se entrega (Obligaciones), cuándo vence
+      // (Qué vence) y a qué cuenta se paga (Cuentas de pago). El Calendario de pagos vive en
+      // Finanzas; este grupo es lo que Compras le pasa.
+      title: 'Pago a proveedor',
       items: [
-        // `[RE.47]` «Costo por compra» se fue a Recepción como «Revisión de facturas»: abría en
-        // la cola de revisión, no en un análisis. El neto por compra sigue en sus columnas.
-        { label: 'Costo por proveedor', icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
-        { label: 'Costo estándar',     icon: 'pi pi-book',       route: '/compras/costo-estandar', permission: Permission.COMPRAS_COSTO_ESTANDAR_VER },
-        { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_DESCUENTOS_VER },
-        { label: 'Hallazgos',           icon: 'pi pi-flag',       route: '/compras/hallazgos',   permission: Permission.COMPRAS_HALLAZGOS_VER },
-        // `[FLT.14]` Lo que el mostrador reportó: la demanda que ningún feed puede ver, porque una
-        // venta que no ocurrió no deja rastro en el ERP. Mismo permiso que Hallazgos y Reclamos —
-        // las tres bandejas las trabaja el mismo comprador.
-        { label: 'Faltantes de piso',   icon: 'pi pi-megaphone',  route: '/compras/faltantes',   permission: Permission.COMPRAS_HALLAZGOS_VER },
-        // WMS-REC.8 — el faltante del andén con responsable y seguimiento. Mismo permiso
-        // que Hallazgos: es la bandeja del mismo comprador.
-        { label: 'Reclamos',            icon: 'pi pi-inbox',      route: '/compras/reclamos',    permission: Permission.COMPRAS_HALLAZGOS_VER },
+        { label: 'Obligaciones a proveedor', icon: 'pi pi-calendar', route: '/compras/obligaciones', permission: Permission.COMPRAS_OBLIGACIONES_VER },
+        // RE.3 — el compromiso de pago que la orden de entrada ya traía y nadie veía.
+        { label: 'Qué vence',            icon: 'pi pi-calendar-clock', route: '/compras/vencimientos', permission: Permission.COMPRAS_ENTRADAS_VER },
+        // TP.7 — sin la cuenta del proveedor no se prepara la transferencia, y sin preparar no se
+        // libera el día del Calendario (0 cuentas cargadas al 2026-10-22, `[PGP]`).
+        { label: 'Cuentas de pago',          icon: 'pi pi-credit-card', route: '/compras/cuentas-pago', permission: Permission.COMPRAS_OBLIGACIONES_VER },
       ],
     },
     {
@@ -983,9 +1006,23 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // [NAV.1] El catálogo entero en UNA entrada. Eran DIEZ renglones hermanos: `/compras/catalogo` y sus nueve hijas. ⚠️ Ahora aterriza en «Resumen», que es la primera pestaña, no en «Productos» como antes.
         { label: 'Catálogo', icon: 'pi pi-shopping-bag', route: '/compras/catalogo', tabs: CATALOGO_TABS },
         { label: 'Proveedores', icon: 'pi pi-truck', route: '/compras/proveedores', permission: Permission.COMPRAS_PROVEEDORES_VER },
-        { label: 'Obligaciones a proveedor', icon: 'pi pi-calendar', route: '/compras/obligaciones', permission: Permission.COMPRAS_OBLIGACIONES_VER },
-        { label: 'Cuentas de pago',          icon: 'pi pi-credit-card', route: '/compras/cuentas-pago', permission: Permission.COMPRAS_OBLIGACIONES_VER },
         { label: 'Categorías',  icon: 'pi pi-tags',  route: '/compras/categorias',  permission: Permission.COMPRAS_CATEGORIAS_VER },
+      ],
+    },
+    {
+      // RE.20.5 — el MISMO dinero cortado distinto, y lo único que las distingue es la unidad de
+      // la fila. `Compras 360` era vocabulario del backend (execution_360, Customer 360): decía
+      // algo al que lo construyó y nada al comprador.
+      // `[NAV.4]` Se llamaba «Análisis» y mezclaba estas tres con tres bandejas de trabajo
+      // (Hallazgos, Faltantes de piso, Reclamos), que se fueron a la etapa donde se trabajan.
+      // Lo que queda es el costo, y el título lo dice. Va al final: se consulta, no se opera.
+      title: 'Costos',
+      items: [
+        // `[RE.47]` «Costo por compra» se fue a Recepción como «Revisión de facturas»: abría en
+        // la cola de revisión, no en un análisis. El neto por compra sigue en sus columnas.
+        { label: 'Costo por proveedor', icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
+        { label: 'Costo estándar',     icon: 'pi pi-book',       route: '/compras/costo-estandar', permission: Permission.COMPRAS_COSTO_ESTANDAR_VER },
+        { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_DESCUENTOS_VER },
       ],
     },
   ];
