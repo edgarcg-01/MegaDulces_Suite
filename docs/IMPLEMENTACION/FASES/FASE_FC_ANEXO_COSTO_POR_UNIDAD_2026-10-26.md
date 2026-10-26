@@ -140,7 +140,24 @@ mecanismo les sirve.
 | FCU.3.3 | Avisos: seguro por vencer, unidad sin GPS, unidad sin viajes (hoy City Star, Kodiak y Nissan JV05705: 0 guías en 2026), gasto sin unidad del mes | ⬜ | |
 | FCU.3.4 | Ficha y presupuesto editables (sustituye capturar la hoja) | ⬜ | |
 
-⛔ Skill `diseno` antes del primer archivo; permiso propio + sidebar; observaciones de diseño al plan antes del primer C3.
+⛔ Skill `diseno` antes del primer archivo; observaciones de diseño al plan antes del primer C3.
+
+**⭐ Dónde vive en el sidebar (pedido de Edgar, 2026-10-26: «recuerda adjuntarlo a un módulo del
+sidebar»).** Una sola entrada en **Logística › Costos y reportes**, junto a «Costos» y «Gasto de
+ruta» (`logisticaNavGroups` en `apps/view/src/app/modules/dashboard/layout/layout.component.ts`),
+con pestañas como «Pagos de viaje» (`*-tabs.ts`):
+
+| Entrada del sidebar | Pestañas | Ruta |
+|---|---|---|
+| **Costo por unidad** (`pi pi-truck`) | Por unidad · Gastos sin unidad · Fichas y presupuesto | `/logistica/costo-unidad/…` |
+
+| # | Item | Estado |
+|---|---|---|
+| FCU.3.5 | Permiso propio `LOGISTICS_COSTO_UNIDAD_VER` (ver) y `LOGISTICS_COSTO_UNIDAD_GESTIONAR` (asignar, ficha, presupuesto) — no se reusa `LOGISTICS_EXPENSES_VER` ni `FLEET_VER` | ⬜ |
+| FCU.3.6 | Ruta gateada (`permissionGuard`), item del sidebar con `permission`, pestañas en `costo-unidad-tabs.ts`, entrada en `permission.guard.ts` (destino por permiso) | ⬜ |
+| FCU.3.7 | **Repartir** el permiso en prod (migración anclada a un hermano, idempotente, con re-login): Leonardo (`encargado_bodega`), Juan (`coordinador_embarques`), jefatura de CEDIS; ver a Finanzas si lo pide | ⬜ |
+
+⛔ El módulo no está entregado hasta que el permiso está **repartido** en prod (regla 20 de `CLAUDE.md`).
 
 ---
 
