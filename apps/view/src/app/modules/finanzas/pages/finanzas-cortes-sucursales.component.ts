@@ -21,6 +21,8 @@ import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { money, dmy } from './finanzas-format';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { CORTES_ARQUEOS_TABS } from '../cortes-arqueos-tabs';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary';
 
@@ -171,7 +173,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DatePickerModule, ToggleSwitchModule, TagModule,
-    InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, SucursalPipe],
+    InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, SucursalPipe, PageTabsComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -183,6 +185,8 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <div class="cs-filters">
         <!-- [CSU.13] Buscador sobre la lista COMPLETA del periodo (no paginada en el servidor): token por
@@ -482,6 +486,8 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
   `],
 })
 export class FinanzasCortesSucursalesComponent implements OnInit {
+  /** [NAV.7] La barra del apartado «Cortes y arqueos» del sidebar de Finanzas: la pintan todas sus páginas. */
+  readonly apartadoTabs = CORTES_ARQUEOS_TABS;
   private readonly http = inject(HttpClient);
   private readonly destroyRef = inject(DestroyRef);
   private readonly base = `${environment.apiUrl}/finance/cortes-sucursales`;

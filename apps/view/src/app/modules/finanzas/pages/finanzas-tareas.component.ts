@@ -17,6 +17,8 @@ import { MarkdownPipe } from '../../../shared/pipes/markdown.pipe';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceUser, ReconTaskMessage, ReconTaskDetail, ReconCausa } from '../recon-tasks.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
 
 /**
  * MA — Tareas de conciliación (Maat). Superficie Operations: los movimientos sin
@@ -28,7 +30,7 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
   selector: 'app-finanzas-tareas',
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule, SelectModule,
-    InputTextModule, TooltipModule, ToastModule, MetricStripComponent, LoadStateComponent, MarkdownPipe],
+    InputTextModule, TooltipModule, ToastModule, MetricStripComponent, LoadStateComponent, MarkdownPipe, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -50,6 +52,8 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
           }
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       @if (stats(); as s) {
         <app-metric-strip [items]="kpiItems(s)" ariaLabel="Resumen de tareas de conciliación" />
@@ -381,6 +385,8 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
   `],
 })
 export class FinanzasTareasComponent implements OnInit {
+  /** [NAV.7] La barra del apartado «Bancos y conciliación» del sidebar de Finanzas: la pintan todas sus páginas. */
+  readonly apartadoTabs = BANCOS_CONCILIACION_TABS;
   private readonly svc = inject(ReconTasksService);
   private readonly toast = inject(MessageService);
   private readonly auth = inject(AuthService);

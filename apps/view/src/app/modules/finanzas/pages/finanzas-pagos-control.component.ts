@@ -8,6 +8,8 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { DATE_PRESET_OPTIONS, datePresetRange } from '../../../shared/util';
 import { PagosControlService, PagosControl, Conciliacion, ConciliacionRow } from '../pagos-control.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { DEUDA_PROVEEDORES_TABS } from '../deuda-proveedores-tabs';
 
 /**
  * CXP.2 — Tablero maestro de Cuentas por Pagar / Tesorería. Answer-first: "¿qué
@@ -19,7 +21,7 @@ import { PagosControlService, PagosControl, Conciliacion, ConciliacionRow } from
   selector: 'app-finanzas-pagos-control',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, DatePickerModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, DatePickerModule, MetricStripComponent, PageTabsComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -31,6 +33,8 @@ import { PagosControlService, PagosControl, Conciliacion, ConciliacionRow } from
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <div class="pc-filters">
         <span class="pc-filters-label">Periodo del flujo de dinero</span>
@@ -177,6 +181,8 @@ import { PagosControlService, PagosControl, Conciliacion, ConciliacionRow } from
   `],
 })
 export class FinanzasPagosControlComponent implements OnInit {
+  /** [NAV.7] La barra del apartado «Deuda con proveedores» del sidebar de Finanzas: la pintan todas sus páginas. */
+  readonly apartadoTabs = DEUDA_PROVEEDORES_TABS;
   private readonly svc = inject(PagosControlService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
