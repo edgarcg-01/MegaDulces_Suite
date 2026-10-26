@@ -4,7 +4,7 @@ import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import type { DesgloseDeOperacion, OperacionDelReporte, ReporteDePagos } from '@megadulces/contracts';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -28,7 +28,7 @@ const o = (x: Partial<OperacionDelReporte>): OperacionDelReporte => ({
 const SIN_HOJA = o({
   chofer_kepler: 'PERSONA DOS', chofer_kepler_id: 'd2', faltan: ['horario', 'cargadores'], sueltos: 40,
   comision_ruta: { chofer: 150, ayudante: 100, ruta: 'LA PIEDAD', sin_tarifa: [] }, repartido: 150,
-  renglones: [{ persona_id: 'd2', persona: 'PERSONA DOS', rol: 'chofer', concepto: 'comision', codigo: '075', nombre_concepto: 'COMISIONES LOGISTICAS TLMKT', importe: 150, fuente: 'kepler' }],
+  renglones: [{ persona_id: 'd2', persona: 'PERSONA DOS', rol: 'chofer', concepto: 'comision', codigo: '075', nombre_concepto: 'COMISIONES LOGISTICAS TLMKT', importe: 150, fuente: 'kepler', calculo: 'Tarifa de la ruta LA PIEDAD: $150.00 al chofer' }],
 });
 const SIN_HORARIO = o({
   sucursal: '01', guia: '0000004', tipo: 'mixto', chofer_kepler: 'PERSONA DOS', shipment_id: 's-d', shipment_folio: 'EMB-D',
@@ -41,8 +41,8 @@ const COMPLETA = o({
   cajas: 500, carga_total: 100, cargador_ids: ['c1'], repartido: 400,
   comision_ruta: { chofer: 300, ayudante: 150, ruta: 'YURECUARO', sin_tarifa: [] },
   renglones: [
-    { persona_id: 'd1', persona: 'PERSONA UNO', rol: 'chofer', concepto: 'comision', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 300, fuente: 'captura' },
-    { persona_id: 'c1', persona: 'CARGADOR PRUEBA', rol: 'cargador', concepto: 'carga', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 100, fuente: 'captura' },
+    { persona_id: 'd1', persona: 'PERSONA UNO', rol: 'chofer', concepto: 'comision', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 300, fuente: 'captura', calculo: 'CALCULO PRUEBA' },
+    { persona_id: 'c1', persona: 'CARGADOR PRUEBA', rol: 'cargador', concepto: 'carga', codigo: '054', nombre_concepto: 'COMISION ARRASTRE MERCANCIA', importe: 100, fuente: 'captura', calculo: 'CALCULO PRUEBA' },
   ],
 });
 const REPORTE: ReporteDePagos = {
@@ -72,13 +72,17 @@ const CON_HOJA: ReporteDePagos = {
   operaciones: [o({ ...SIN_HOJA, shipment_id: 's-b', shipment_folio: 'EMB-B', guide_id: 'g-b', driver_id: 'd2', faltan: ['horario', 'cargadores'] }), SIN_HORARIO, COMPLETA],
 };
 
-function montar(permisos: Partial<Record<Permission, boolean>> = { [Permission.LOGISTICS_PAGOS_GESTIONAR]: true }) {
+function montar(
+  permisos: Partial<Record<Permission, boolean>> = { [Permission.LOGISTICS_PAGOS_GESTIONAR]: true },
+  query: Record<string, string> | null = null,
+) {
   TestBed.configureTestingModule({
     imports: [LogisticaPagosViajesComponent],
     providers: [
       provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
       { provide: AuthService, useValue: { user: signal({ permissions: permisos }) } },
       { provide: PermissionsService, useValue: { isAdmin: () => false } },
+      ...(query ? [{ provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(query) } } }] : []),
     ],
   });
   const f = TestBed.createComponent(LogisticaPagosViajesComponent);
@@ -255,6 +259,16 @@ describe('LogisticaPagosViajesComponent', () => {
     nueva.flush({ ...DESGLOSE, guia: '0000004', sucursal: '01' });
     vieja.flush(DESGLOSE);
     expect(c.desglose()?.guia).toBe('0000004');
+  });
+
+  it('[EMB.51] la liga ?op= abre la catorcena pedida con esa operación abierta (aunque esté completa)', () => {
+    const { c, http } = montar(undefined, { op: '00|0000001', desde: '2026-10-08', hasta: '2026-10-21' });
+    const req = reporte(http);
+    expect(req.request.params.get('desde')).toBe('2026-10-08');
+    req.flush(REPORTE);
+    desglose(http).flush(DESGLOSE);
+    expect(c.op()?.guia).toBe('0000001');
+    expect(c.vista()).toBe('todas');
   });
 
   it('moverse de catorcena pide las fechas 14 días antes', () => {

@@ -98,13 +98,15 @@ export async function descargarPdfSolicitudes(solicitudes: SolicitudDePersona[],
     autoTable(doc, {
       ...tablaBase,
       startY: y + 6,
-      head: [['Fecha', 'Guía', 'Destino', 'Papel', 'Concepto', 'Importe']],
+      head: [['Fecha', 'Guía', 'Destino', 'Cómo se calcula', 'Importe']],
       body: s.detalle.map((d) => [
-        fechaCorta(d.fecha), `${warehouseName(d.sucursal)} ${d.guia}`, d.destino, ROL_LABEL[d.rol] + (d.fuente === 'kepler' ? ' (Kepler)' : ''), d.codigo, money(d.importe),
+        fechaCorta(d.fecha), `${warehouseName(d.sucursal)} ${d.guia}`, d.destino,
+        `${ROL_LABEL[d.rol]} · ${d.codigo}${d.fuente === 'kepler' ? ' (Kepler)' : ''}: ${d.calculo}`, money(d.importe),
       ]),
-      styles: { ...tablaBase.styles, fontSize: 7.5 },
-      columnStyles: { 0: { cellWidth: 44 }, 4: { cellWidth: 48 }, 5: { halign: 'right', cellWidth: 70 } },
-      didParseCell: alinearTitulos([5]),
+      styles: { ...tablaBase.styles, fontSize: 7 },
+      // `[EMB.51]` Cada peso con su cálculo: es lo que la persona firma.
+      columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: 70 }, 2: { cellWidth: 120 }, 4: { halign: 'right', cellWidth: 62 } },
+      didParseCell: alinearTitulos([4]),
     });
     y = lastY(doc, y);
 

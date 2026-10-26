@@ -3,9 +3,11 @@ import { CurrencyPipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
-import type { ReporteDePagos, RolDelReparto, SolicitudDePersona } from '@megadulces/contracts';
+import type {
+  DesgloseDeOperacion, DetalleDeSolicitud, RenglonDeSolicitud, ReporteDePagos, RolDelReparto, SolicitudDePersona,
+} from '@megadulces/contracts';
 // Por subruta, no por el barrel: ver tsconfig.base.json (bundle inicial).
-import { corteVecino, ROL_LABEL, solicitudesDelReporte } from '@megadulces/contracts/http/cierre-viaje';
+import { corteVecino, esFecha, ROL_LABEL, solicitudesDelReporte } from '@megadulces/contracts/http/cierre-viaje';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -14,6 +16,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { LogisticaService } from '../logistica.service';
 import { descargarCsvSolicitudes, descargarPdfSolicitudes } from '../pagos-viaje-documentos';
+import { DesgloseOperacionComponent } from '../components/desglose-operacion.component';
 
 /**
  * `[EMB.47]` — **Por persona: la solicitud de gasto de cada quien en la catorcena.**
@@ -34,7 +37,7 @@ import { descargarCsvSolicitudes, descargarPdfSolicitudes } from '../pagos-viaje
   standalone: true,
   imports: [
     CurrencyPipe, RouterLink, TableModule, ButtonModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent,
-    SidePeekComponent, SucursalPipe,
+    SidePeekComponent, SucursalPipe, DesgloseOperacionComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -134,52 +137,84 @@ import { descargarCsvSolicitudes, descargarPdfSolicitudes } from '../pagos-viaje
                      [title]="sel()?.persona ?? ''" [subtitle]="sel() ? roles(sel()!.roles) : null">
         @if (sel(); as s) {
           <div class="pp-peek">
-            <div class="pp-peek-head">
-              <div>
-                <span class="pp-sub">Total a pedir</span>
-                <span class="pp-total">{{ s.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+            @if (opAbierta(); as op) {
+              <!-- [EMB.51] Una guía de la solicitud, abierta aquí mismo: qué le toca de ella y su movimiento. -->
+              <button pButton type="button" [text]="true" size="small" class="pp-volver" (click)="cerrarOperacion()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Volver a la solicitud</span></button>
+              <h3>Guía {{ op.guia }} · {{ op.sucursal | sucursal }} · {{ fechaCorta(op.fecha) }}</h3>
+              <ul class="pp-lineas">
+                @for (l of lineasDeOperacion(); track $index) {
+                  <li>
+                    <span><strong>{{ l.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong> · {{ rol(l.rol) }} · {{ l.codigo }}</span>
+                    <span class="pp-sub">{{ l.calculo }}</span>
+                  </li>
+                }
+              </ul>
+              @if (!titulo && data(); as d) {
+                <a class="pp-link" [routerLink]="['/logistica/pagos/viajes']"
+                   [queryParams]="{ op: op.sucursal + '|' + op.guia, desde: d.corte.desde, hasta: d.corte.hasta }">Abrir en Operaciones (para capturar quién fue)</a>
+              }
+              <h3>Movimiento</h3>
+              <app-load-state [loading]="cargandoOp()" [error]="errorOp()" [isEmpty]="!!desgloseOp() && !desgloseOp()!.documentos.length"
+                              emptyIcon="pi-file" emptyTitle="Kepler no trae documentos de esta guía" [skeletonRows]="3" (retry)="verOperacion(op)">
+                <app-desglose-operacion [desglose]="desgloseOp()" />
+              </app-load-state>
+            } @else {
+              <div class="pp-peek-head">
+                <div>
+                  <span class="pp-sub">Total a pedir</span>
+                  <span class="pp-total">{{ s.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                </div>
+                <div class="pp-acciones">
+                  <button pButton type="button" size="small" [disabled]="generando()" (click)="pdf([s])"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF de la solicitud</span></button>
+                  <button pButton type="button" size="small" [outlined]="true" (click)="excel([s])"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
+                </div>
               </div>
-              <div class="pp-acciones">
-                <button pButton type="button" size="small" [disabled]="generando()" (click)="pdf([s])"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF de la solicitud</span></button>
-                <button pButton type="button" size="small" [outlined]="true" (click)="excel([s])"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
+
+              <h3>Para capturar en Kepler</h3>
+              <p class="pp-sub">Haz clic en un renglón para ver de qué operaciones sale.</p>
+              <div class="dt-scope">
+                <p-table [value]="renglonesDeSel()" dataKey="clave" selectionMode="single" [selection]="renglonSel()"
+                         (onRowSelect)="alFiltrar($event.data)" (onRowUnselect)="filtro.set(null)"
+                         size="small" class="surf-table surf-table--plain dt-stack">
+                  <ng-template #header>
+                    <tr><th scope="col">Concepto</th><th scope="col">Destino</th><th scope="col" class="comm-num">Operaciones</th><th scope="col" class="comm-num">Importe</th></tr>
+                  </ng-template>
+                  <ng-template #body let-r>
+                    <tr [pSelectableRow]="r" [attr.aria-label]="'Ver las operaciones de ' + r.codigo + ' a ' + r.destino">
+                      <td data-label="Concepto"><span class="pp-codigo">{{ r.codigo }}</span><span class="pp-sub">{{ r.nombre_concepto }}</span></td>
+                      <td data-label="Destino">{{ r.destino }}</td>
+                      <td data-label="Operaciones" class="comm-num">{{ r.operaciones }}</td>
+                      <td data-label="Importe" class="comm-num">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                    </tr>
+                  </ng-template>
+                </p-table>
               </div>
-            </div>
 
-            <h3>Para capturar en Kepler</h3>
-            <div class="dt-scope">
-              <p-table [value]="s.renglones" size="small" class="surf-table surf-table--plain dt-stack">
-                <ng-template #header>
-                  <tr><th scope="col">Concepto</th><th scope="col">Destino</th><th scope="col" class="comm-num">Operaciones</th><th scope="col" class="comm-num">Importe</th></tr>
-                </ng-template>
-                <ng-template #body let-r>
-                  <tr>
-                    <td data-label="Concepto"><span class="pp-codigo">{{ r.codigo }}</span><span class="pp-sub">{{ r.nombre_concepto }}</span></td>
-                    <td data-label="Destino">{{ r.destino }}</td>
-                    <td data-label="Operaciones" class="comm-num">{{ r.operaciones }}</td>
-                    <td data-label="Importe" class="comm-num">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  </tr>
-                </ng-template>
-              </p-table>
-            </div>
-
-            <h3>De dónde sale</h3>
-            <div class="dt-scope">
-              <p-table [value]="s.detalle" size="small" class="surf-table surf-table--plain dt-stack">
-                <ng-template #header>
-                  <tr><th scope="col">Fecha</th><th scope="col">Guía</th><th scope="col">Destino</th><th scope="col">Papel</th><th scope="col">Concepto</th><th scope="col" class="comm-num">Importe</th></tr>
-                </ng-template>
-                <ng-template #body let-d>
-                  <tr>
-                    <td data-label="Fecha">{{ fechaCorta(d.fecha) }}</td>
-                    <td data-label="Guía"><span class="pp-codigo">{{ d.guia }}</span><span class="pp-sub">{{ d.sucursal | sucursal }}</span></td>
-                    <td data-label="Destino">{{ d.destino }}</td>
-                    <td data-label="Papel">{{ rol(d.rol) }}@if (d.fuente === 'kepler') { <span class="pp-sub">de Kepler</span> }</td>
-                    <td data-label="Concepto">{{ d.codigo }}</td>
-                    <td data-label="Importe" class="comm-num">{{ d.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  </tr>
-                </ng-template>
-              </p-table>
-            </div>
+              <h3>De dónde sale</h3>
+              @if (renglonSel(); as r) {
+                <p class="pp-filtro">Sólo {{ r.codigo }} · {{ r.destino }} ({{ detalleVisible().length }} de {{ s.detalle.length }})
+                  <button pButton type="button" [text]="true" size="small" (click)="filtro.set(null)"><span class="p-button-label">Ver todas</span></button></p>
+              }
+              <div class="dt-scope">
+                <p-table [value]="detalleVisible()" size="small" class="surf-table surf-table--plain dt-stack">
+                  <ng-template #header>
+                    <tr><th scope="col">Fecha</th><th scope="col">Guía</th><th scope="col">Destino</th><th scope="col">Cómo se calcula</th><th scope="col" class="comm-num">Importe</th></tr>
+                  </ng-template>
+                  <ng-template #body let-d>
+                    <tr>
+                      <td data-label="Fecha">{{ fechaCorta(d.fecha) }}</td>
+                      <td data-label="Guía">
+                        <button type="button" class="pp-guia" (click)="verOperacion(d)" [attr.aria-label]="'Ver el movimiento de la guía ' + d.guia">{{ d.guia }}</button>
+                        <span class="pp-sub">{{ d.sucursal | sucursal }}</span>
+                      </td>
+                      <td data-label="Destino">{{ d.destino }}</td>
+                      <td data-label="Cómo se calcula">{{ rol(d.rol) }} · {{ d.codigo }}@if (d.fuente === 'kepler') { · de Kepler }<span class="pp-sub">{{ d.calculo }}</span></td>
+                      <td data-label="Importe" class="comm-num">{{ d.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                    </tr>
+                  </ng-template>
+                </p-table>
+              </div>
+            }
           </div>
         }
       </app-side-peek>
@@ -206,6 +241,12 @@ import { descargarCsvSolicitudes, descargarPdfSolicitudes } from '../pagos-viaje
     .pp-peek-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--sp-3); }
     .pp-total { display: block; font-size: var(--fs-h2); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
     .pp-peek h3 { margin: var(--sp-3) 0 var(--sp-1); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+    .pp-volver { align-self: flex-start; }
+    .pp-lineas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+    .pp-link { font-size: var(--fs-sm); }
+    .pp-filtro { margin: 0; font-size: var(--fs-sm); display: flex; align-items: center; gap: var(--sp-2); }
+    .pp-guia { padding: 0; border: 0; background: none; color: var(--action); font: inherit; font-family: var(--font-mono); font-weight: var(--fw-medium); text-decoration: underline; cursor: pointer; }
+    .pp-guia:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     @container (max-width: 40rem) { .pp-cuenta { margin-left: 0; } }
   `],
@@ -213,7 +254,10 @@ import { descargarCsvSolicitudes, descargarPdfSolicitudes } from '../pagos-viaje
 export class LogisticaPagosPersonasComponent {
   private readonly api = inject(LogisticaService);
   /** Dentro de Logística › Pagos de viaje el título lo pone el shell; desde Finanzas, la ruta. */
-  readonly titulo: string | null = inject(ActivatedRoute).snapshot.data?.['titulo'] ?? null;
+  private readonly ruta = inject(ActivatedRoute);
+  readonly titulo: string | null = this.ruta.snapshot.data?.['titulo'] ?? null;
+  /** `[EMB.51]` `?persona=ID`: llegar desde «Operaciones» con su solicitud ya abierta. */
+  private ligaPersona: string | null = this.ruta.snapshot.queryParamMap.get('persona');
 
   readonly data = signal<ReporteDePagos | null>(null);
   readonly cargando = signal(false);
@@ -221,6 +265,15 @@ export class LogisticaPagosPersonasComponent {
   readonly busqueda = signal('');
   private readonly selId = signal<string | null>(null);
   readonly generando = signal(false);
+
+  // `[EMB.51]` Todo se abre: un renglón filtra sus operaciones; una guía muestra su movimiento.
+  /** El renglón de Kepler elegido (`codigo|destino`): filtra «De dónde sale». */
+  readonly filtro = signal<string | null>(null);
+  /** La guía abierta dentro del panel, con lo que le toca a la persona de ella. */
+  readonly opAbierta = signal<DetalleDeSolicitud | null>(null);
+  readonly desgloseOp = signal<DesgloseDeOperacion | null>(null);
+  readonly cargandoOp = signal(false);
+  readonly errorOp = signal<string | null>(null);
 
   /** Una sola regla con «Operaciones»: las solicitudes salen de los renglones de las operaciones. */
   readonly solicitudes = computed<SolicitudDePersona[]>(() => solicitudesDelReporte(this.data()?.operaciones ?? []));
@@ -230,6 +283,19 @@ export class LogisticaPagosPersonasComponent {
   });
   readonly sel = computed(() => this.solicitudes().find((s) => s.persona_id === this.selId()) ?? null);
   readonly seleccion = computed(() => this.sel());
+  readonly renglonesDeSel = computed<Array<RenglonDeSolicitud & { clave: string }>>(() =>
+    (this.sel()?.renglones ?? []).map((r) => ({ ...r, clave: `${r.codigo}|${r.destino}` })));
+  readonly renglonSel = computed(() => this.renglonesDeSel().find((r) => r.clave === this.filtro()) ?? null);
+  readonly detalleVisible = computed(() => {
+    const r = this.renglonSel();
+    const d = this.sel()?.detalle ?? [];
+    return r ? d.filter((x) => x.codigo === r.codigo && x.destino === r.destino) : d;
+  });
+  /** Lo que la persona abierta tiene de la guía abierta (puede ser comisión Y viático). */
+  readonly lineasDeOperacion = computed(() => {
+    const op = this.opAbierta();
+    return op ? (this.sel()?.detalle ?? []).filter((x) => x.sucursal === op.sucursal && x.guia === op.guia) : [];
+  });
   readonly total = computed(() => Math.round(this.solicitudes().reduce((a, s) => a + s.total, 0) * 100) / 100);
 
   /** Lo que todavía no se puede pedir porque nadie dijo quién fue (se declara, no se esconde). */
@@ -257,7 +323,10 @@ export class LogisticaPagosPersonasComponent {
   });
 
   constructor() {
-    this.cargar();
+    const q = this.ruta.snapshot.queryParamMap;
+    const desde = q.get('desde');
+    const hasta = q.get('hasta');
+    this.cargar(esFecha(desde) && esFecha(hasta) ? { desde, hasta } : undefined);
   }
 
   cargar(corte?: { desde: string; hasta: string }): void {
@@ -265,7 +334,12 @@ export class LogisticaPagosPersonasComponent {
     this.error.set(null);
     const d = this.data();
     this.api.getReportePagos(corte ?? (d ? { desde: d.corte.desde, hasta: d.corte.hasta } : undefined)).subscribe({
-      next: (r) => { this.data.set(r); this.cargando.set(false); },
+      next: (r) => {
+        this.data.set(r);
+        this.cargando.set(false);
+        // La liga se usa una vez: la persona que pidió quien llegó desde «Operaciones».
+        if (this.ligaPersona) { this.selId.set(this.ligaPersona); this.ligaPersona = null; }
+      },
       error: (e) => { this.cargando.set(false); this.error.set(e?.error?.message ?? 'No se pudo leer la catorcena.'); },
     });
   }
@@ -281,11 +355,42 @@ export class LogisticaPagosPersonasComponent {
 
   /** La tabla entrega una fila, varias o ninguna: aquí la selección es de UNA fila. */
   alSeleccionar(s: SolicitudDePersona | SolicitudDePersona[] | undefined): void {
-    if (s && !Array.isArray(s)) this.selId.set(s.persona_id);
+    if (s && !Array.isArray(s)) {
+      this.selId.set(s.persona_id);
+      this.filtro.set(null);
+      this.cerrarOperacion();
+    }
   }
 
   cerrar(): void {
     this.selId.set(null);
+    this.filtro.set(null);
+    this.cerrarOperacion();
+  }
+
+  alFiltrar(r: (RenglonDeSolicitud & { clave: string }) | Array<RenglonDeSolicitud & { clave: string }> | undefined): void {
+    if (r && !Array.isArray(r)) this.filtro.set(r.clave);
+  }
+
+  /** `[EMB.51]` Abre una guía de la solicitud en el mismo panel. Una respuesta tardía de otra guía se descarta. */
+  verOperacion(d: DetalleDeSolicitud): void {
+    this.opAbierta.set(d);
+    this.desgloseOp.set(null);
+    this.errorOp.set(null);
+    this.cargandoOp.set(true);
+    const pedida = `${d.sucursal}|${d.guia}`;
+    const sigue = () => { const o = this.opAbierta(); return !!o && `${o.sucursal}|${o.guia}` === pedida; };
+    this.api.getDesgloseOperacion(d.sucursal, d.guia).subscribe({
+      next: (x) => { if (!sigue()) return; this.desgloseOp.set(x); this.cargandoOp.set(false); },
+      error: (e) => { if (!sigue()) return; this.cargandoOp.set(false); this.errorOp.set(e?.error?.message ?? 'No se pudo leer el movimiento de Kepler.'); },
+    });
+  }
+
+  cerrarOperacion(): void {
+    this.opAbierta.set(null);
+    this.desgloseOp.set(null);
+    this.errorOp.set(null);
+    this.cargandoOp.set(false);
   }
 
   async pdf(ss: SolicitudDePersona[]): Promise<void> {

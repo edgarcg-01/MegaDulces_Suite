@@ -531,6 +531,8 @@ export interface RenglonDelReparto {
   nombre_concepto: string;
   importe: number;
   fuente: FuenteDelRenglon;
+  /** `[EMB.51]` Cómo salió el importe, en llano («Tarifa de la ruta MORELIA: $180.00 al chofer»). */
+  calculo: string;
 }
 
 /**
@@ -611,6 +613,7 @@ export interface DetalleDeSolicitud {
   codigo: string;
   importe: number;
   fuente: FuenteDelRenglon;
+  calculo: string;
 }
 
 /** Lo que una persona pide en la catorcena. */
@@ -663,7 +666,7 @@ export function solicitudesDelReporte(operaciones: OperacionDelReporte[]): Solic
       rs.importe = alCentavo(rs.importe + r.importe);
       s.detalle.push({
         fecha: op.fecha, sucursal: op.sucursal, guia: op.guia, destino, rol: r.rol,
-        concepto: r.concepto, codigo: r.codigo, importe: r.importe, fuente: r.fuente,
+        concepto: r.concepto, codigo: r.codigo, importe: r.importe, fuente: r.fuente, calculo: r.calculo,
       });
     }
   }

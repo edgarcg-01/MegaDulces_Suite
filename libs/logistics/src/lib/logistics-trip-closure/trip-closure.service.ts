@@ -87,6 +87,8 @@ interface FilaSuite {
   guide_id: string | null; driver_id: string | null; helper1_id: string | null; helper2_id: string | null;
   driver_commission: Num; helper1_commission: Num; helper2_commission: Num;
   viatico_driver: Num; viatico_helper1: Num; viatico_helper2: Num;
+  /** `[EMB.51]` El desglose del viático que guardó la guía (horario, tarifas, comidas). */
+  per_diem_breakdown?: unknown;
   departure_time: string | null; arrival_time: string | null; overnight: boolean | null;
 }
 interface FilaCarga { shipment_id: string; driver_id: string; rate: Num; boxes: Num; rate_per_box: Num }
@@ -191,31 +193,73 @@ export function renglonesDeLaOperacion(
   s: FilaSuite | null,
   cargas: FilaCarga[],
   nombre: (id: string) => string,
-  deKepler: { chofer_id: string | null; comision: number | null } = { chofer_id: null, comision: null },
+  deKepler: { chofer_id: string | null; comision: number | null; ruta?: string | null } = { chofer_id: null, comision: null },
 ): RenglonDelReparto[] {
   const out: RenglonDelReparto[] = [];
-  const poner = (id: string | null, rol: RolDelReparto, concepto: ConceptoDelReparto, monto: Num, fuente: RenglonDelReparto['fuente'] = 'captura') => {
+  const poner = (
+    id: string | null, rol: RolDelReparto, concepto: ConceptoDelReparto, monto: Num, calculo: string,
+    fuente: RenglonDelReparto['fuente'] = 'captura',
+  ) => {
     const importe = centavos(Number(monto ?? 0));
     if (!id || !(importe > 0)) return;
     const c = conceptoDelReparto(tipo, concepto);
-    out.push({ persona_id: id, persona: nombre(id), rol, concepto, codigo: c.codigo, nombre_concepto: c.nombre, importe, fuente });
+    out.push({ persona_id: id, persona: nombre(id), rol, concepto, codigo: c.codigo, nombre_concepto: c.nombre, importe, fuente, calculo });
   };
+  const ruta = deKepler.ruta ? `la ruta ${deKepler.ruta}` : 'la ruta del viaje';
   // La guía completa trae su comisión calculada; mientras no, la de la ruta para el chofer que se sabe.
   // ⚠️ «Completa» = chofer + salida + llegada (`pendientesDeLaGuia`), NO la comisión: la columna es
   // NOT NULL con 0 por default y la guía que nace al tomar el viaje la trae en 0.
   const guiaCompleta = !!s?.driver_id && !!s?.departure_time && !!s?.arrival_time;
   if (!guiaCompleta) {
-    poner(s?.driver_id ?? deKepler.chofer_id, 'chofer', 'comision', deKepler.comision, 'kepler');
+    poner(s?.driver_id ?? deKepler.chofer_id, 'chofer', 'comision', deKepler.comision,
+      `Tarifa de ${ruta}: ${pesos(Number(deKepler.comision ?? 0))} al chofer (el que trae Kepler; se confirma al guardar el horario)`, 'kepler');
   } else if (s) {
-    poner(s.driver_id, 'chofer', 'comision', s.driver_commission);
-    poner(s.driver_id, 'chofer', 'viatico', s.viatico_driver);
-    poner(s.helper1_id, 'ayudante', 'comision', s.helper1_commission);
-    poner(s.helper1_id, 'ayudante', 'viatico', s.viatico_helper1);
-    poner(s.helper2_id, 'ayudante', 'comision', s.helper2_commission);
-    poner(s.helper2_id, 'ayudante', 'viatico', s.viatico_helper2);
+    const comision = (quien: string) => `Comisión de la guía: tarifa de ${ruta} para ${quien}`;
+    poner(s.driver_id, 'chofer', 'comision', s.driver_commission, comision('el chofer'));
+    poner(s.driver_id, 'chofer', 'viatico', s.viatico_driver, calculoDeViatico(s.per_diem_breakdown, 'driver'));
+    poner(s.helper1_id, 'ayudante', 'comision', s.helper1_commission, comision('el ayudante'));
+    poner(s.helper1_id, 'ayudante', 'viatico', s.viatico_helper1, calculoDeViatico(s.per_diem_breakdown, 'helper1'));
+    poner(s.helper2_id, 'ayudante', 'comision', s.helper2_commission, comision('el ayudante'));
+    poner(s.helper2_id, 'ayudante', 'viatico', s.viatico_helper2, calculoDeViatico(s.per_diem_breakdown, 'helper2'));
   }
-  for (const c of cargas) poner(c.driver_id, 'cargador', 'carga', c.rate);
+  for (const c of cargas) poner(c.driver_id, 'cargador', 'carga', c.rate, calculoDeCarga(c, cargas.length));
   return out;
+}
+
+/** `[EMB.51]` Pesos para leer: «$1,234.50». Sin Intl: el resultado es el mismo en cualquier servidor. */
+export function pesos(n: number): string {
+  const [ent, dec] = Math.abs(n).toFixed(2).split('.');
+  return `${n < 0 ? '-' : ''}$${ent.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${dec}`;
+}
+
+const COMIDA_LABEL: Record<string, string> = { cafe: 'café', desayuno: 'desayuno', comida: 'comida', cena: 'cena' };
+
+/**
+ * `[EMB.51]` Cómo salió el viático de una persona, del desglose que guardó la guía al completarse
+ * (`per_diem_breakdown`: horario, tarifas y qué comidas tocaron). Sin desglose, se dice.
+ */
+export function calculoDeViatico(breakdown: unknown, persona: 'driver' | 'helper1' | 'helper2'): string {
+  const b = (breakdown && typeof breakdown === 'object' ? breakdown : null) as {
+    horario?: { salida?: string | null; llegada?: string | null; duerme_fuera?: boolean };
+    tarifas?: Record<string, number>;
+  } & Record<string, unknown> | null;
+  const p = b?.[persona] as Record<string, unknown> | undefined;
+  if (!b || !p) return 'Viático de la guía (sin desglose guardado)';
+  const comidas = Object.keys(COMIDA_LABEL).filter((m) => p[m] === true)
+    .map((m) => `${COMIDA_LABEL[m]} ${pesos(Number(b.tarifas?.[m] ?? 0))}`);
+  const h = b.horario ?? {};
+  const cuando = `Salida ${h.salida ?? '—'}, llegada ${h.llegada ?? '—'}${h.duerme_fuera ? ', durmió fuera' : ''}`;
+  return `${cuando}: ${comidas.length ? comidas.join(' + ') : 'ninguna comida'}`;
+}
+
+/** `[EMB.51]` Cómo salió la carga de un cargador, con lo que se guardó al registrarlo. */
+export function calculoDeCarga(c: FilaCarga, cargadores: number): string {
+  if (c.boxes == null || c.rate_per_box == null) return 'Carga por persona (regla anterior a la tarifa por caja)';
+  const cajas = Number(c.boxes);
+  const tarifa = Number(c.rate_per_box);
+  const total = centavos(cajas * tarifa);
+  const entre = cargadores > 1 ? ` entre ${cargadores} cargadores` : '';
+  return `${cajas.toLocaleString('en-US')} cajas × ${pesos(tarifa)} = ${pesos(total)}${entre}`;
 }
 const dia = (v: unknown): string | null => {
   if (v == null) return null;
@@ -466,6 +510,7 @@ export class TripClosureService {
                 NULLIF(g.per_diem_breakdown -> 'driver'  ->> 'subtotal', '')::numeric AS viatico_driver,
                 NULLIF(g.per_diem_breakdown -> 'helper1' ->> 'subtotal', '')::numeric AS viatico_helper1,
                 NULLIF(g.per_diem_breakdown -> 'helper2' ->> 'subtotal', '')::numeric AS viatico_helper2,
+                g.per_diem_breakdown,
                 g.departure_time::text AS departure_time, g.arrival_time::text AS arrival_time, g.overnight
            FROM logistics.shipments s
            LEFT JOIN LATERAL (
@@ -512,7 +557,9 @@ export class TripClosureService {
       const cajasOp = guardada ? Number(guardada.boxes) : deKepler ? deKepler.cajas : null;
       const comisionRuta = comisiones.get(k) ?? { chofer: null, ayudante: null, ruta: null, sin_tarifa: [] };
       const choferKeplerId = v.chofer_code?.trim() ? choferPorClave.get(v.chofer_code.trim()) ?? null : null;
-      const renglones = renglonesDeLaOperacion(tipo, s, deCarga, nombre, { chofer_id: choferKeplerId, comision: comisionRuta.chofer });
+      const renglones = renglonesDeLaOperacion(tipo, s, deCarga, nombre, {
+        chofer_id: choferKeplerId, comision: comisionRuta.chofer, ruta: comisionRuta.ruta,
+      });
       return {
         sucursal: v.sucursal,
         guia: v.guia_embarque,

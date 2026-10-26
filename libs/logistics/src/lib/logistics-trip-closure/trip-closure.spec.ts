@@ -3,7 +3,9 @@ import { BadRequestException, ConflictException, NotFoundException, RequestMetho
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { ANY_PERMISSIONS_KEY, Permission, PERMISSIONS_KEY } from '@megadulces/platform-core';
 import { TripClosureController } from './trip-closure.controller';
-import { cajasPorGuia, documentosDelDesglose, renglonesDeLaOperacion, TripClosureService } from './trip-closure.service';
+import {
+  cajasPorGuia, calculoDeCarga, calculoDeViatico, documentosDelDesglose, pesos, renglonesDeLaOperacion, TripClosureService,
+} from './trip-closure.service';
 
 /**
  * `[EMB.24]` `[EMB.27]` — Cierre de parada y registro de cargadores (ADR-091).
@@ -712,5 +714,52 @@ describe('[EMB.50] TripClosureService.desglose — entradas', () => {
     } });
     const d = await svc.desglose('00', '0000001');
     expect(d).toEqual(expect.objectContaining({ sucursal: '00', guia: '0000001', cajas: 7, sueltos: 0 }));
+  });
+});
+
+describe('[EMB.51] cada importe dice cómo salió', () => {
+  const nombre = (id: string) => `N-${id}`;
+  const breakdown = {
+    horario: { salida: '05:30', llegada: '16:10', duerme_fuera: false },
+    tarifas: { cafe: 25, desayuno: 100, comida: 100, cena: 100 },
+    driver: { va: true, cafe: true, desayuno: true, comida: true, cena: false, subtotal: 225 },
+    helper1: { va: true, cafe: true, desayuno: true, comida: true, cena: false, subtotal: 225 },
+  };
+  const suite = {
+    shipment_id: 's', folio: 'F', kepler_sucursal: '00', kepler_guia: 'G', guide_id: 'g', driver_id: 'd1', helper1_id: 'h1', helper2_id: null,
+    driver_commission: '180', helper1_commission: '120', helper2_commission: '0', viatico_driver: '225', viatico_helper1: '225', viatico_helper2: null,
+    departure_time: '05:30:00', arrival_time: '16:10:00', overnight: false, per_diem_breakdown: breakdown,
+  };
+
+  it('pesos con miles y dos decimales, igual en cualquier servidor', () => {
+    expect(pesos(61.92)).toBe('$61.92');
+    expect(pesos(1729.2)).toBe('$1,729.20');
+    expect(pesos(-12.5)).toBe('-$12.50');
+  });
+
+  it('comisión de Kepler: la tarifa y la ruta', () => {
+    const r = renglonesDeLaOperacion('traspaso', null, [], nombre, { chofer_id: 'd1', comision: 61.92, ruta: 'YURECUARO' });
+    expect(r[0].calculo).toBe('Tarifa de la ruta YURECUARO: $61.92 al chofer (el que trae Kepler; se confirma al guardar el horario)');
+  });
+
+  it('viático: el horario y las comidas que tocaron, con su tarifa', () => {
+    const r = renglonesDeLaOperacion('traspaso', suite, [], nombre, { chofer_id: 'd1', comision: 180, ruta: 'MORELIA' });
+    const viatico = r.find((x) => x.persona_id === 'd1' && x.concepto === 'viatico');
+    expect(viatico?.calculo).toBe('Salida 05:30, llegada 16:10: café $25.00 + desayuno $100.00 + comida $100.00');
+    expect(r.find((x) => x.persona_id === 'h1' && x.concepto === 'comision')?.calculo).toBe('Comisión de la guía: tarifa de la ruta MORELIA para el ayudante');
+  });
+
+  it('carga: cajas × tarifa = total, entre cuántos', () => {
+    const cargas = [
+      { shipment_id: 's', driver_id: 'c1', rate: '4.2', boxes: '42', rate_per_box: '0.2' },
+      { shipment_id: 's', driver_id: 'c2', rate: '4.2', boxes: '42', rate_per_box: '0.2' },
+    ];
+    expect(renglonesDeLaOperacion('traspaso', null, cargas, nombre)[0].calculo).toBe('42 cajas × $0.20 = $8.40 entre 2 cargadores');
+  });
+
+  it('PRUEBA NEGATIVA: sin desglose de viático o sin cajas guardadas, se DICE, no se inventa', () => {
+    expect(calculoDeViatico(null, 'driver')).toBe('Viático de la guía (sin desglose guardado)');
+    expect(calculoDeCarga({ shipment_id: 's', driver_id: 'c1', rate: '30', boxes: null, rate_per_box: null }, 1))
+      .toBe('Carga por persona (regla anterior a la tarifa por caja)');
   });
 });
