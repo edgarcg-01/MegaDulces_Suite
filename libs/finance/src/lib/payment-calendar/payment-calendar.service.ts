@@ -355,21 +355,74 @@ export class PaymentCalendarService {
   }>> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      /*
+       * ⛔ `[PGP.17]` **El `EXISTS` correlacionado costaba 882 ms; este `LEFT JOIN`, 394.**
+       *
+       * Medido contra prod el 2026-10-26, 4 corridas cada uno. La versión con `EXISTS (…)` dentro
+       * del `SELECT` lo evaluaba **una vez por acreedor** —73 veces— contra una vista derivada que
+       * no tiene índice que ayude. Pre-agregar los acreedores con deuda a un conjunto y unirlo lo
+       * deja en una sola pasada.
+       *
+       * ⚠️ 394 ms sigue siendo cerca del techo de 500. Se banca porque corre **una vez al abrir la
+       * pantalla** y en paralelo con las obligaciones, no por interacción. Si la deuda crece, el
+       * siguiente paso es materializar `ap` — no subir el techo.
+       */
       const { rows } = await trx.raw(
-        `SELECT c.proveedor,
+        `WITH deudores AS (
+           SELECT DISTINCT p.proveedor
+             FROM analytics.v_supplier_payables p
+            WHERE p.pendiente > 0 AND p.proveedor NOT LIKE 'TI%' AND p.tenant_id = ?
+         )
+         SELECT c.proveedor,
                 max(c.proveedor_nombre) AS proveedor_nombre,
                 sum(c.a_favor)::float8 AS a_favor,
                 count(*)::int AS docs,
                 string_agg(DISTINCT c.clase, ', ' ORDER BY c.clase) AS clases,
                 to_char(min(c.fecha), 'YYYY-MM-DD') AS mas_vieja,
-                EXISTS (SELECT 1 FROM analytics.v_supplier_payables p
-                         WHERE p.proveedor = c.proveedor AND p.pendiente > 0
-                           AND p.proveedor NOT LIKE 'TI%' AND p.tenant_id = ?) AS con_deuda_viva
-           FROM analytics.v_supplier_unapplied_credits c
-          WHERE c.tenant_id = ?
+                bool_or(d.proveedor IS NOT NULL) AS con_deuda_viva
+           FROM analytics.v_supplier_credits c
+           LEFT JOIN deudores d ON d.proveedor = c.proveedor
+          WHERE c.tenant_id = ? AND c.pendiente
           GROUP BY c.proveedor
           ORDER BY sum(c.a_favor) DESC`,
         [tenantId, tenantId],
+      );
+      return rows;
+    });
+  }
+
+  /**
+   * `[PGP.17]` **El desglose de UN acreedor, con los DOS casos.** Pedido de Edgar: *«especificando
+   * todo tipo de descuento para que sepan qué aplicar desde Suite»*.
+   *
+   * El aviso de `[PGP.14]` dice *cuánto* hay a favor; esto dice **de qué tipo, de qué documento y
+   * si ya se aplicó o no** — que es lo único con lo que alguien puede ir a actuar.
+   *
+   * ⭐ Devuelve también lo YA APLICADO, a propósito. Sin eso, quien mira cree que el sistema no
+   * hace nada: el caso real de `CL005` es una nota de crédito de $2,649,765.94 de la que Kepler
+   * aplicó $2,173,299.73 **solo**, y por eso esa factura nunca apareció en la pantalla de Pagos.
+   * Ver sólo lo pendiente convierte un proceso que funciona en una sospecha.
+   *
+   * ⛔ Pagos (cheque `X-D-25`, transferencia `X-D-26`) quedan fuera: no son descuentos.
+   */
+  async listSupplierCredits(proveedor: string): Promise<Array<{
+    sucursal: string; clase: string; folio: string; referencia: string | null;
+    fecha: string | null; importe: number; aplicado: number; a_favor: number; pendiente: boolean;
+  }>> {
+    const code = String(proveedor ?? '').trim();
+    if (!code) return [];
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT c.sucursal, c.clase, c.folio, c.referencia,
+                to_char(c.fecha, 'YYYY-MM-DD') AS fecha,
+                c.importe::float8 AS importe, c.aplicado::float8 AS aplicado,
+                c.a_favor::float8 AS a_favor, c.pendiente
+           FROM analytics.v_supplier_credits c
+          WHERE c.tenant_id = ? AND c.proveedor = ?
+          ORDER BY c.pendiente DESC, c.fecha DESC NULLS LAST, c.a_favor DESC
+          LIMIT 200`,
+        [tenantId, code],
       );
       return rows;
     });

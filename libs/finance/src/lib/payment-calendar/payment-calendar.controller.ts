@@ -37,6 +37,17 @@ export class PaymentCalendarController {
     return this.svc.listUnappliedCredits();
   }
 
+  /**
+   * `[PGP.17]` El desglose de UN acreedor, con los DOS casos: lo que Kepler ya aplicó y lo que
+   * no. Medido: 62 ms (el predicado por acreedor sí baja a la vista).
+   */
+  @Get('creditos-a-favor/:proveedor')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'Todos los descuentos de un acreedor por tipo —nota de crédito, nota de crédito CFDI, devolución de compra, bonificación, anticipo, ajuste de abono— con su importe, lo que Kepler ya aplicó y lo que queda a favor. Incluye los YA APLICADOS a propósito: sin eso, un proceso que funciona (las notas de crédito se netean casi al 100%) se lee como que el sistema no hace nada. ⛔ Cheque y transferencia quedan fuera: son pagos, no descuentos.' })
+  listSupplierCredits(@Param('proveedor') proveedor: string) {
+    return this.svc.listSupplierCredits(proveedor);
+  }
+
   @Get('obligations')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'Obligaciones disponibles (UNION de los 4 orígenes: gasto, compromiso, factura capturada y deuda viva de Kepler). Devuelve { rows, total, limit, offset }: el total dice cuántas hay aunque el techo recorte. No se acota por día.' })
