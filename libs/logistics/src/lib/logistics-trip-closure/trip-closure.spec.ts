@@ -3,7 +3,7 @@ import { BadRequestException, ConflictException, NotFoundException, RequestMetho
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { ANY_PERMISSIONS_KEY, Permission, PERMISSIONS_KEY } from '@megadulces/platform-core';
 import { TripClosureController } from './trip-closure.controller';
-import { cajasPorGuia, renglonesDeLaOperacion, TripClosureService } from './trip-closure.service';
+import { cajasPorGuia, documentosDelDesglose, renglonesDeLaOperacion, TripClosureService } from './trip-closure.service';
 
 /**
  * `[EMB.24]` `[EMB.27]` — Cierre de parada y registro de cargadores (ADR-091).
@@ -332,6 +332,13 @@ describe('TripClosureController — rutas y permisos', () => {
     });
   });
 
+  it('[EMB.50] el desglose se lee con las mismas llaves que el reporte, y sólo se LEE', () => {
+    expect(meta(TripClosureController.prototype.desglose)).toEqual({
+      ruta: 'operaciones/:sucursal/:guia/desglose', verbo: RequestMethod.GET, permisos: undefined,
+      alguno: [Permission.LOGISTICS_PAGOS_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR],
+    });
+  });
+
   it('ver el cierre: VER embarques o VER del módulo Pagos de viaje', () => {
     expect(meta(TripClosureController.prototype.cierre)).toEqual({
       ruta: 'shipments/:id', verbo: RequestMethod.GET, permisos: undefined,
@@ -622,5 +629,88 @@ describe('[EMB.48] el reporte dice lo que ya se sabe sin capturar nada', () => {
     const { por } = await reporte();
     expect(por['0000013'].renglones.map((r) => [r.concepto, r.importe, r.fuente])).toEqual([['comision', 150, 'captura'], ['viatico', 100, 'captura']]);
     expect(por['0000013'].repartido).toBe(250);
+  });
+});
+
+describe('[EMB.50] documentosDelDesglose — la operación documento por documento', () => {
+  const paradas = [
+    { serie: 2, folio: 'F1', cliente_code: 'TI001', destino_nombre: 'TRASPASO A SUCURSAL PRUEBA', usuario_captura: '9ABC', hora_captura: '10:39' },
+    { serie: 2, folio: 'F1', cliente_code: 'TI001', destino_nombre: 'TRASPASO A SUCURSAL PRUEBA', usuario_captura: '9ABC', hora_captura: '10:39' },
+    { serie: 1, folio: 'F2', cliente_code: 'C0001', destino_nombre: 'CLIENTE PRUEBA', usuario_captura: null, hora_captura: null },
+    { serie: 2, folio: 'F3', cliente_code: 'RUTA21', destino_nombre: 'R.D. 21', usuario_captura: null, hora_captura: null },
+  ];
+  const cabeceras = [{ serie: 2, folio: 'F1', resp_surtido: '01', resp_checado: '001', resp_embarque: '01' }];
+  const cierres = [
+    { serie: 2, folio: 'F1', destino_sucursal: '01', recepcion_folio: 'R9', recepcion_fecha: new Date(2026, 9, 22), diferencia: '-12.5', cierre_kepler: 'faltante' },
+    { serie: 1, folio: 'F2', destino_sucursal: null, recepcion_folio: null, recepcion_fecha: null, diferencia: null, cierre_kepler: 'la_cierra_la_suite' },
+  ];
+  const renglones = [
+    { serie: 2, folio: 'F1', linea: '2', sku: '100', cantidad: '3', presentacion: 'CJA' },
+    { serie: 2, folio: 'F1', linea: '1', sku: '200', cantidad: '536.94', presentacion: 'KG' },
+    { serie: 2, folio: 'F1', linea: '3', sku: '00022', cantidad: '1000', presentacion: 'PZA' },
+    { serie: 2, folio: 'F1', linea: '4', sku: '300', cantidad: '2', presentacion: 'BTO' },
+    { serie: 2, folio: 'F1', linea: '5', sku: '400', cantidad: '9', presentacion: null },
+    { serie: 1, folio: 'F2', linea: '1', sku: '100', cantidad: '4', presentacion: 'PAQ' },
+    { serie: 2, folio: 'F3', linea: '1', sku: '100', cantidad: '50', presentacion: 'CJA' },
+  ];
+  const catalogo = {
+    surtido: [{ codigo: '01', nombre: 'SURTIDOR PRUEBA' }],
+    checado: [{ codigo: '1', nombre: 'UNO' }, { codigo: '01', nombre: 'OTRO' }],
+    embarque: [{ codigo: '01', nombre: 'EMBARCADOR PRUEBA' }],
+  };
+  const productos = new Map([['100', 'PRODUCTO CIEN'], ['00022', 'TIEMPO AIRE']]);
+  const docs = documentosDelDesglose(paradas, cabeceras, cierres, renglones, catalogo, productos, new Map([['01|R9', '10XYZ']]));
+  const por = Object.fromEntries(docs.map((d) => [d.folio, d]));
+
+  it('un documento repetido en la guía sale una vez', () => {
+    expect(docs.map((d) => d.folio)).toEqual(['F2', 'F1', 'F3']);
+  });
+
+  it('cajas = CJA y BTO; sueltas = otra presentación; sin presentación no cuenta; el tiempo aire no cuenta', () => {
+    expect(por['F1']).toEqual(expect.objectContaining({ cajas: 5, sueltos: 536.94 }));
+    expect(por['F1'].renglones.map((r) => [r.linea, r.sku, r.cajas, r.sin_carga])).toEqual([
+      [1, '200', 0, false], [2, '100', 3, false], [3, '00022', 0, true], [4, '300', 2, false], [5, '400', 0, false],
+    ]);
+    expect(por['F1'].renglones[1].producto).toBe('PRODUCTO CIEN');
+    expect(por['F2']).toEqual(expect.objectContaining({ cajas: 0, sueltos: 4 }));
+  });
+
+  it('PRUEBA NEGATIVA: una carga a ruta no paga: 0 cajas aunque lleve 50, pero sus renglones se ven', () => {
+    expect(por['F3']).toEqual(expect.objectContaining({ tipo: 'carga_ruta', cajas: 0, sueltos: 0 }));
+    expect(por['F3'].renglones).toHaveLength(1);
+  });
+
+  it('quién surtió/checó/embarcó con el catálogo de Kepler; una clave ambigua NO se adivina', () => {
+    expect(por['F1'].surtio).toEqual({ codigo: '01', nombre: 'SURTIDOR PRUEBA' });
+    expect(por['F1'].embarco).toEqual({ codigo: '01', nombre: 'EMBARCADOR PRUEBA' });
+    expect(por['F1'].checo).toEqual({ codigo: '001', nombre: null });
+    expect(por['F2'].surtio).toEqual({ codigo: null, nombre: null });
+  });
+
+  it('la recepción del traspaso: folio, día, quién la capturó y si llegó completa', () => {
+    expect(por['F1'].recepcion).toEqual({ sucursal: '01', folio: 'R9', fecha: '2026-10-22', capturo: '10XYZ', diferencia: -12.5, estado: 'faltante' });
+    expect(por['F1'].capturo).toBe('9ABC');
+  });
+
+  it('PRUEBA NEGATIVA: una entrega a cliente no tiene recepción de sucursal', () => {
+    expect(por['F2'].recepcion).toBeNull();
+  });
+});
+
+describe('[EMB.50] TripClosureService.desglose — entradas', () => {
+  it('sucursal o guía mal formadas: 400; guía que Kepler no tiene: 404', async () => {
+    const { svc } = baseFalsa({ lista: {} });
+    await expect(svc.desglose('Morelia', '0001')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.desglose('00', 'G-1')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.desglose('00', '0009999')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('suma del desglose = suma de sus documentos que pagan', async () => {
+    const { svc } = baseFalsa({ lista: {
+      'analytics.erp_shipment_stops': [{ serie: 2, folio: 'F1', cliente_code: 'TI001', destino_nombre: 'X', usuario_captura: null, hora_captura: null }],
+      __sin_carga: [{ serie: 2, folio: 'F1', linea: '1', sku: '100', cantidad: '7', presentacion: 'CJA' }],
+    } });
+    const d = await svc.desglose('00', '0000001');
+    expect(d).toEqual(expect.objectContaining({ sucursal: '00', guia: '0000001', cajas: 7, sueltos: 0 }));
   });
 });

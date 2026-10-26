@@ -5,7 +5,7 @@ import localeEsMx from '@angular/common/locales/es-MX';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
-import type { OperacionDelReporte, ReporteDePagos } from '@megadulces/contracts';
+import type { DesgloseDeOperacion, OperacionDelReporte, ReporteDePagos } from '@megadulces/contracts';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -52,6 +52,20 @@ const REPORTE: ReporteDePagos = {
     { id: 'a1', full_name: 'AYUDANTE PRUEBA', roles: ['ayudante'] }, { id: 'c1', full_name: 'CARGADOR PRUEBA', roles: ['cargador'] }],
   leido_at: '2026-10-24T18:00:00.000Z',
 };
+/** `[EMB.50]` El desglose de una operación: un traspaso con su recepción y un documento sin nombre de surtidor. */
+const DESGLOSE: DesgloseDeOperacion = {
+  sucursal: '00', guia: '0000001', cajas: 105, sueltos: 536.94, leido_at: '2026-10-26T15:00:00.000Z',
+  documentos: [{
+    serie: 2, folio: '0001153', tipo: 'traspaso', destino: 'TRASPASO A SUCURSAL PRUEBA', cajas: 105, sueltos: 536.94,
+    surtio: { codigo: '01', nombre: 'SURTIDOR PRUEBA' }, checo: { codigo: '07', nombre: null }, embarco: { codigo: '01', nombre: 'EMBARCADOR PRUEBA' },
+    capturo: '9ABC', hora_captura: '10:39',
+    recepcion: { sucursal: '01', folio: '0000518', fecha: '2026-10-22', capturo: '10XYZ', diferencia: 0, estado: 'cerrada' },
+    renglones: [
+      { linea: 1, sku: '83002', producto: 'PASTA PRUEBA GRANEL', cantidad: 536.94, presentacion: 'KG', cajas: 0, sin_carga: false },
+      { linea: 2, sku: '89155', producto: 'DULCE PRUEBA / 20', cantidad: 105, presentacion: 'CJA', cajas: 105, sin_carga: false },
+    ],
+  }],
+};
 /** El reporte después de que la hoja nació: Kepler resolvió al chofer contra el padrón. */
 const CON_HOJA: ReporteDePagos = {
   ...REPORTE,
@@ -71,6 +85,7 @@ function montar(permisos: Partial<Record<Permission, boolean>> = { [Permission.L
   const http = TestBed.inject(HttpTestingController);
   return { f, c: f.componentInstance, http, el: f.nativeElement as HTMLElement };
 }
+const desglose = (http: HttpTestingController) => http.expectOne((r) => r.method === 'GET' && r.url.includes('/trip-closure/operaciones/'));
 const reporte = (http: HttpTestingController) => http.expectOne((r) => r.method === 'GET' && r.url.endsWith('/logistics/trip-closure/reporte'));
 /** Deja correr las promesas de `firstValueFrom` entre una respuesta y la siguiente. */
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -119,6 +134,7 @@ describe('LogisticaPagosViajesComponent', () => {
     const { c, http } = montar();
     reporte(http).flush(REPORTE);
     c.abrir(c.operaciones()[0]);
+    desglose(http).flush(DESGLOSE);
     c.ayudante1.set('a1');
     c.salida.set(new Date(2026, 9, 10, 5, 7));
     c.llegada.set(new Date(2026, 9, 10, 16, 45));
@@ -145,6 +161,7 @@ describe('LogisticaPagosViajesComponent', () => {
     const fuera = o({ chofer_kepler: 'NO ESTA EN EL PADRON', chofer_kepler_id: null });
     reporte(http).flush({ ...REPORTE, operaciones: [fuera, SIN_HORARIO, COMPLETA] });
     c.abrir(c.operaciones()[0]);
+    desglose(http).flush(DESGLOSE);
     c.salida.set(new Date(2026, 9, 10, 6, 0));
     c.llegada.set(new Date(2026, 9, 10, 14, 0));
     expect(c.erroresTripulacion(c.op()!)).toContain('Elige al chofer.');
@@ -156,6 +173,7 @@ describe('LogisticaPagosViajesComponent', () => {
     const { c, http } = montar();
     reporte(http).flush(REPORTE);
     c.abrir(SIN_HORARIO);
+    desglose(http).flush(DESGLOSE);
     expect(c.erroresTripulacion(SIN_HORARIO)).toContain('Captura la hora de salida.');
     await c.guardarTripulacion(c.op()!);
     c.salida.set(new Date(2026, 9, 10, 6, 0));
@@ -170,6 +188,7 @@ describe('LogisticaPagosViajesComponent', () => {
     const { c, http } = montar();
     reporte(http).flush(REPORTE);
     c.abrir(c.operaciones()[0]);
+    desglose(http).flush(DESGLOSE);
     c.cargadoresSel.set(['c1', 'a1']);
     expect(c.textoReparto(c.op()!)).toBe('Al guardar: $1.50 para cada uno de los 2.');
     const listo = c.guardarCargadores(c.op()!);
@@ -192,6 +211,7 @@ describe('LogisticaPagosViajesComponent', () => {
     const { c, http } = montar();
     reporte(http).flush(REPORTE);
     c.abrir(COMPLETA);
+    desglose(http).flush(DESGLOSE);
     c.cargadorCreado({ accion: 'creada', driver: { id: 'n1', full_name: 'PERSONA NUEVA', roles: ['cargador'], active: true, status: 'activo' }, mensaje: 'Se dio de alta.' });
     expect(c.cargadoresSel()).toEqual(['c1', 'n1']);
     expect(c.opciones().map((p) => p.id)).toContain('n1');
@@ -206,6 +226,35 @@ describe('LogisticaPagosViajesComponent', () => {
     const g = montar();
     reporte(g.http).flush(REPORTE);
     expect(g.c.puedeCapturar()).toBe(true);
+  });
+
+  it('[EMB.50] al abrir una operación pide su desglose y lo pinta: cajas, quién surtió/embarcó y la recepción', () => {
+    const { f, c, http, el } = montar();
+    reporte(http).flush(REPORTE);
+    c.abrir(COMPLETA);
+    const req = desglose(http);
+    expect(req.request.url).toContain('/trip-closure/operaciones/00/0000001/desglose');
+    req.flush(DESGLOSE);
+    f.detectChanges();
+    const texto = document.body.textContent ?? el.textContent ?? '';
+    expect(texto).toContain('SURTIDOR PRUEBA');
+    expect(texto).toContain('EMBARCADOR PRUEBA');
+    expect(texto).toContain('clave 07 (sin nombre en Kepler)');
+    expect(texto).toContain('Recibido completo');
+    expect(texto).toContain('capturó el usuario 10XYZ');
+    expect(texto).toContain('2 productos');
+  });
+
+  it('[EMB.50] PRUEBA NEGATIVA: si llega tarde el desglose de OTRA operación, no pisa el de la abierta', () => {
+    const { c, http } = montar();
+    reporte(http).flush(REPORTE);
+    c.abrir(COMPLETA);
+    const vieja = desglose(http);
+    c.abrir(SIN_HORARIO);
+    const nueva = desglose(http);
+    nueva.flush({ ...DESGLOSE, guia: '0000004', sucursal: '01' });
+    vieja.flush(DESGLOSE);
+    expect(c.desglose()?.guia).toBe('0000004');
   });
 
   it('moverse de catorcena pide las fechas 14 días antes', () => {

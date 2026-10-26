@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequireAnyPermission } from '@megadulces/platform-core';
-import type { CargadoresBody, CerrarParadaBody, CierreDeEmbarque, ParadaCierre, ReporteDePagos } from '@megadulces/contracts';
+import type {
+  CargadoresBody, CerrarParadaBody, CierreDeEmbarque, DesgloseDeOperacion, ParadaCierre, ReporteDePagos,
+} from '@megadulces/contracts';
 import { TripClosureService } from './trip-closure.service';
 
 /**
@@ -28,6 +30,13 @@ export class TripClosureController {
     @Query('sucursal') sucursal?: string,
   ): Promise<ReporteDePagos> {
     return this.service.reporte(desde, hasta, sucursal);
+  }
+
+  @Get('operaciones/:sucursal/:guia/desglose')
+  @RequireAnyPermission(Permission.LOGISTICS_PAGOS_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'EMB.50: una operación documento por documento — cajas, quién surtió/checó/embarcó y la recepción en destino' })
+  desglose(@Param('sucursal') sucursal: string, @Param('guia') guia: string): Promise<DesgloseDeOperacion> {
+    return this.service.desglose(sucursal, guia);
   }
 
   @Get('shipments/:id')

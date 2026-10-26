@@ -18,15 +18,18 @@ import type {
   ParadaCierre,
 } from '@megadulces/contracts';
 import type {
-  ComisionDeRuta, Corte, OperacionDelReporte, PersonaDelPadron, RenglonDelReparto, ReporteDePagos, RolDelReparto,
-  TipoParadaKepler, TipoViajePago, ConceptoDelReparto,
+  ComisionDeRuta, Corte, DesgloseDeOperacion, DocumentoDeLaOperacion, EstadoRecepcion, OperacionDelReporte,
+  PersonaDelPadron, RenglonDelReparto, ReporteDePagos, RolDelReparto, TipoParadaKepler, TipoViajePago,
+  ConceptoDelReparto,
 } from '@megadulces/contracts';
 import {
   conceptoDelReparto, corteDe, erroresDeCargadores, erroresDeCierreDeParada, esFecha, faltasDelViaje, repartoDeCarga,
   SKUS_SIN_CARGA, TARIFA_CARGA_CAJA_KEY, tipoDeParadaKepler, tipoDelViaje, totalDeCarga,
 } from '@megadulces/contracts';
 import { CambioRegistrado, tarifaVigenteEl } from '../logistics-config/tarifas-fijas.logic';
-import { comisionSugerida, RutaSuite } from '../logistics-erp-shipments/nuevo-embarque.logic';
+import {
+  comisionSugerida, EntradaCatalogo, fechaISO, resolverPorCodigo, RutaSuite,
+} from '../logistics-erp-shipments/nuevo-embarque.logic';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -219,6 +222,106 @@ const dia = (v: unknown): string | null => {
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   return String(v).slice(0, 10);
 };
+
+/** `[EMB.50]` Filas crudas del desglose. */
+export interface FilaParadaDesglose {
+  serie: number | string; folio: string; cliente_code: string | null; destino_nombre: string | null;
+  usuario_captura: string | null; hora_captura: string | null;
+}
+export interface FilaCabeceraDesglose { serie: number | string; folio: string; resp_surtido: string | null; resp_checado: string | null; resp_embarque: string | null }
+export interface FilaCierreDesglose {
+  serie: number | string; folio: string; destino_sucursal: string | null; recepcion_folio: string | null;
+  recepcion_fecha: string | Date | null; diferencia: Num; cierre_kepler: string | null;
+}
+export interface FilaRenglonDesglose { serie: number | string; folio: string; linea: Num; sku: string | null; cantidad: Num; presentacion: string | null }
+export interface CatalogoResponsables { surtido: EntradaCatalogo[]; checado: EntradaCatalogo[]; embarque: EntradaCatalogo[] }
+
+const CAJA = new Set(['CJA', 'BTO']);
+const ESTADOS_RECEPCION = new Set<EstadoRecepcion>(['cerrada', 'faltante', 'sobrante', 'pendiente', 'destino_desconocido']);
+
+/**
+ * `[EMB.50]` Arma el desglose de una guía, documento por documento, con la MISMA regla de cajas
+ * que el reporte (`erp_shipment_stop_load`): cuenta la cantidad capturada en CJA/BTO; lo demás
+ * con presentación son sueltas; el tiempo aire no cuenta; una carga a ruta no paga (0 y 0).
+ */
+export function documentosDelDesglose(
+  paradas: FilaParadaDesglose[],
+  cabeceras: FilaCabeceraDesglose[],
+  cierres: FilaCierreDesglose[],
+  renglones: FilaRenglonDesglose[],
+  catalogo: CatalogoResponsables,
+  productos: Map<string, string>,
+  capturoRecepcion: Map<string, string>,
+): DocumentoDeLaOperacion[] {
+  const llave = (r: { serie: number | string; folio: string }) => `${Number(r.serie)}|${String(r.folio).trim()}`;
+  const cab = new Map(cabeceras.map((c) => [llave(c), c]));
+  const cie = new Map(cierres.map((c) => [llave(c), c]));
+  const porDoc = new Map<string, FilaRenglonDesglose[]>();
+  for (const r of renglones) porDoc.set(llave(r), [...(porDoc.get(llave(r)) ?? []), r]);
+  const quien = (code: string | null | undefined, cat: EntradaCatalogo[]) => {
+    const r = resolverPorCodigo(code, cat);
+    return { codigo: r.codigo, nombre: r.nombre };
+  };
+  const cantidad = (v: Num): number | null => {
+    const x = Number(String(v ?? '').replace(/[^0-9.-]/g, ''));
+    return v == null || String(v).trim() === '' || !Number.isFinite(x) ? null : x;
+  };
+  const vistos = new Set<string>();
+  const out: DocumentoDeLaOperacion[] = [];
+  for (const p of paradas) {
+    const k = llave(p);
+    if (vistos.has(k)) continue;
+    vistos.add(k);
+    const tipo = tipoDeParadaKepler(p.serie, p.cliente_code);
+    const pagan = tipo !== 'carga_ruta';
+    const lineas = (porDoc.get(k) ?? [])
+      .map((r) => {
+        const pres = r.presentacion?.trim().toUpperCase() || null;
+        const cant = cantidad(r.cantidad);
+        const sku = String(r.sku ?? '').trim();
+        return {
+          linea: num(r.linea),
+          sku,
+          producto: productos.get(sku) ?? null,
+          cantidad: cant,
+          presentacion: pres,
+          cajas: pres && CAJA.has(pres) && cant != null ? cant : 0,
+          sin_carga: SKUS_SIN_CARGA.includes(sku),
+        };
+      })
+      .sort((a, b) => (a.linea ?? 0) - (b.linea ?? 0));
+    const cuentan = pagan ? lineas.filter((l) => !l.sin_carga) : [];
+    const c = cab.get(k);
+    const ci = cie.get(k);
+    const estado = ci?.cierre_kepler as EstadoRecepcion | undefined;
+    out.push({
+      serie: Number(p.serie),
+      folio: String(p.folio).trim(),
+      tipo,
+      destino: p.destino_nombre?.trim() || null,
+      cajas: centavos(cuentan.reduce((a, l) => a + l.cajas, 0)),
+      sueltos: centavos(cuentan.filter((l) => l.presentacion && !CAJA.has(l.presentacion)).reduce((a, l) => a + (l.cantidad ?? 0), 0)),
+      surtio: quien(c?.resp_surtido, catalogo.surtido),
+      checo: quien(c?.resp_checado, catalogo.checado),
+      embarco: quien(c?.resp_embarque, catalogo.embarque),
+      capturo: p.usuario_captura?.trim() || null,
+      hora_captura: p.hora_captura?.trim() || null,
+      recepcion: tipo === 'traspaso' && ci && estado && ESTADOS_RECEPCION.has(estado)
+        ? {
+            sucursal: ci.destino_sucursal,
+            folio: ci.recepcion_folio,
+            fecha: fechaISO(ci.recepcion_fecha as Date | string | null),
+            capturo: ci.destino_sucursal && ci.recepcion_folio
+              ? capturoRecepcion.get(`${ci.destino_sucursal}|${ci.recepcion_folio}`) ?? null : null,
+            diferencia: num(ci.diferencia),
+            estado,
+          }
+        : null,
+      renglones: lineas,
+    });
+  }
+  return out.sort((a, b) => a.serie - b.serie || a.folio.localeCompare(b.folio));
+}
 
 /**
  * `[EMB.24]` `[EMB.26]` `[EMB.27]` — Cierre del viaje y registro de cargadores (ADR-091).
@@ -453,6 +556,77 @@ export class TripClosureService {
       personas: base.personas.map((p) => ({ id: p.id, full_name: p.full_name, roles: Array.isArray(p.roles) ? p.roles : [] })),
       leido_at: new Date().toISOString(),
     };
+  }
+
+  /**
+   * `[EMB.50]` El desglose de UNA operación: sus documentos con cajas, quién surtió/checó/embarcó
+   * (catálogos de Kepler) y, en los traspasos, la recepción en destino con quién la capturó.
+   * Todo de Kepler en vivo, con constantes (sin JOIN contra kdm2). Medido 2026-10-26 sobre la guía
+   * más grande de la catorcena (27 paradas, 233 renglones): ~200 ms entre las seis lecturas.
+   */
+  async desglose(sucursal: string, guia: string): Promise<DesgloseDeOperacion> {
+    if (!/^[0-9]{2}$/.test(sucursal ?? '')) throw new BadRequestException('La sucursal va como su código de Kepler de dos dígitos.');
+    if (!/^[0-9]{1,10}$/.test(guia ?? '')) throw new BadRequestException('La guía va como el folio de Kepler (sólo dígitos).');
+    return this.tk.run(async (trx) => {
+      const tenant = trx.raw('public.current_tenant_id()');
+      const paradas: FilaParadaDesglose[] = await trx('analytics.erp_shipment_stops')
+        .where('tenant_id', tenant).where({ sucursal, guia_embarque: guia })
+        .select('serie', 'folio', 'cliente_code', 'destino_nombre', 'usuario_captura', 'hora_captura');
+      if (!paradas.length) throw new NotFoundException(`Kepler no tiene la guía ${guia}.`);
+      const cabeceras: FilaCabeceraDesglose[] = await trx('analytics.erp_shipment_headers')
+        .where('tenant_id', tenant).where({ sucursal, guia_embarque: guia })
+        .select('serie', 'folio', 'resp_surtido', 'resp_checado', 'resp_embarque');
+      const catalogo: Array<{ rol: string; codigo: string; nombre: string | null }> = await trx('analytics.v_kepler_responsables')
+        .where({ sucursal }).select('rol', 'codigo', 'nombre');
+      const cierres: FilaCierreDesglose[] = await trx('analytics.erp_shipment_stop_closure')
+        .where('tenant_id', tenant).where({ sucursal, guia_embarque: guia })
+        .select('serie', 'folio', 'destino_sucursal', 'recepcion_folio', 'recepcion_fecha', 'diferencia', 'cierre_kepler');
+      const series = [...new Set(paradas.map((p) => Number(p.serie)))];
+      const folios = [...new Set(paradas.map((p) => String(p.folio).trim()))];
+      const { rows: renglones } = await trx.raw<{ rows: FilaRenglonDesglose[] }>(
+        `SELECT c5::int AS serie, btrim(c6) AS folio, c7::text AS linea, btrim(c8::text) AS sku,
+                c54::text AS cantidad, nullif(btrim(c55::text), '') AS presentacion
+           FROM kepler_ods.kdm2
+          WHERE c2 = 'U' AND c3 = 'D' AND c4::int = 41 AND btrim(c1) = btrim(sucursal)
+            AND btrim(sucursal) = ? AND c5::int = ANY(?::int[]) AND btrim(c6) = ANY(?::text[])`,
+        [sucursal, series, folios],
+      );
+      // Sólo los renglones de ESTA guía: el mismo folio puede existir en otra serie.
+      const deLaGuia = new Set(paradas.map((p) => `${Number(p.serie)}|${String(p.folio).trim()}`));
+      const propios = renglones.filter((r) => deLaGuia.has(`${Number(r.serie)}|${String(r.folio).trim()}`));
+      const skus = [...new Set(propios.map((r) => String(r.sku ?? '').trim()).filter(Boolean))];
+      const productos = new Map<string, string>();
+      if (skus.length) {
+        const { rows } = await trx.raw<{ rows: Array<{ sku: string; nombre: string | null }> }>(
+          `SELECT btrim(c1) AS sku, btrim(c2::text) AS nombre FROM kepler_ods.kdii
+            WHERE btrim(sucursal) = ? AND btrim(c1) = ANY(?::text[])`, [sucursal, skus]);
+        for (const r of rows) if (r.nombre) productos.set(r.sku, r.nombre);
+      }
+      // Quién capturó cada recepción en destino (`kdm1.c67` del U-A-50): una clave de usuario.
+      const conRecepcion = cierres.filter((c) => c.destino_sucursal && c.recepcion_folio);
+      const capturoRecepcion = new Map<string, string>();
+      if (conRecepcion.length) {
+        const { rows } = await trx.raw<{ rows: Array<{ sucursal: string; folio: string; usuario: string | null }> }>(
+          `SELECT btrim(sucursal) AS sucursal, btrim(c6) AS folio, nullif(btrim(c67::text), '') AS usuario
+             FROM kepler_ods.kdm1
+            WHERE c2 = 'U' AND c3 = 'A' AND c4 = 50 AND btrim(c1) = btrim(sucursal)
+              AND btrim(sucursal) = ANY(?::text[]) AND btrim(c6) = ANY(?::text[])`,
+          [[...new Set(conRecepcion.map((c) => c.destino_sucursal as string))], [...new Set(conRecepcion.map((c) => c.recepcion_folio as string))]],
+        );
+        for (const r of rows) if (r.usuario) capturoRecepcion.set(`${r.sucursal}|${r.folio}`, r.usuario);
+      }
+      const cat = (rol: string): EntradaCatalogo[] => catalogo.filter((c) => c.rol === rol).map((c) => ({ codigo: c.codigo, nombre: c.nombre }));
+      const documentos = documentosDelDesglose(paradas, cabeceras, cierres, propios,
+        { surtido: cat('surtido'), checado: cat('checado'), embarque: cat('embarque') }, productos, capturoRecepcion);
+      return {
+        sucursal,
+        guia,
+        documentos,
+        cajas: centavos(documentos.reduce((a, d) => a + d.cajas, 0)),
+        sueltos: centavos(documentos.reduce((a, d) => a + d.sueltos, 0)),
+        leido_at: new Date().toISOString(),
+      };
+    });
   }
 
   /** `[EMB.43]` El corte pedido, o la catorcena que va corriendo (la que contiene hoy). */
