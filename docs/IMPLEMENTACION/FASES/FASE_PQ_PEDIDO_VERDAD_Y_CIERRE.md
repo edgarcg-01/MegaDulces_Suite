@@ -432,12 +432,53 @@ catálogo con Kepler, pero el número que usa el pedido sigue saliendo de otra f
 se puede cuantificar cuántas requisiciones ya enviadas llevaron el desfase; sólo se sabe que 162 de 386
 aprobadas en 14 d tienen error de Kepler y 1 tiene folio.
 
+### 12.3 D20 medida contra las OCs reales de Kepler: el resolvedor YA da el número de Kepler (2026-10-26)
+
+«Resolvámoslo» → antes de tocar la vista se midió el árbitro: el `c58` (unidades por caja) de las
+**órdenes de compra reales** de Kepler (`XA3501`, 90 días, 19,367 líneas, 7,198 pares sucursal×SKU),
+contra el resolvedor que lee el pedido (`mv_warehouse_box_factor`) y contra la escalera de Kepler
+(`v_kepler_unit_ladder`). Instrumento: `d20-medir3.js` (scratchpad; los joins en Node porque el plan
+SQL con las tres vistas no termina en 10 min).
+
+| Líneas de OC | n | resolvedor actual = `c58` | escalera Kepler (`c84`) = `c58` |
+|---|---:|---:|---:|
+| todas con `c58` | 7,119 | 6,226 (87.5 %) | 5,965 (83.8 %) |
+| **capturadas en caja (`c58` > 1)** | **5,635** | **5,594 (99.3 %)** | 5,561 (98.7 %) |
+| por fuente, en caja: etiquetera / `kepler_c84` / override / `factor_sale` | 2,615 / 2,635 / 327 / 30 | 2,610 / 2,609 / 321 / 30 | — |
+| `c58` que no está en ningún peldaño de la ficha de Kepler (`kdii`) | 78 (1.4 %) | | |
+
+**Lo que el número dice:**
+
+- **D20 tal como se propuso queda refutada.** Reemplazar el resolvedor por el `c84` de Kepler
+  daría 33 aciertos **menos**, no más: el resolvedor ya es «la fórmula de Kepler» en 99.3 % de las
+  líneas en caja, y la etiquetera coincide con el `c84` en 2,609 de 2,615. No hay vista que cambiar
+  → no hay commit que mueva un número.
+- **`c58` no es el factor del producto: es el factor del peldaño en que se capturó esa línea
+  (`c55`).** 770 líneas se capturaron en unidad base (`c58` = 1 con producto que sí tiene caja): ahí
+  ningún factor «acierta» porque no se usó. Los 856 «ninguno» de la primera pasada son eso, no un
+  error de unidad.
+- **Dónde sí estaba el desfase al insertar en Kepler:** el adaptador escribe `c11 = c55 = 'CJA'`,
+  `c58 = '1'` desde el 2026-10-14 (`kepler-requisition-sink.adapter.ts`), mientras Kepler expresa
+  la línea en la unidad del producto (PAQ 64 %, PZA 28 %) y declara la caja aparte en `c55`/`c58`.
+  La corrección de hoy al catálogo (`factor_sale` = `c84`) alinea el testigo de la Suite con la
+  ficha del ERP; el renglón que se escribe sigue siendo otra decisión, y es de **KR** (escritura
+  apagada).
+- **Lo que se declara, no se arregla:** 41 líneas en caja (0.7 %) donde el resolvedor ≠ `c58`
+  (muestra: 14004 etiqueta 32 vs OC 35; 38033 `c84` 108 vs OC 12 — compras en empaque distinto al
+  de la ficha) y 78 líneas cuyo `c58` no existe en la ficha de Kepler. Van como rótulo «empaque de
+  la OC ≠ ficha», no como cambio de fórmula.
+
+| # | Decisión | Resultado |
+|---|---|---|
+| D20 | ¿Factor de caja del pedido = `c84` de Kepler y nada más? | **No procede: medido, el resolvedor ya entrega el `c58` de Kepler (99.3 % en caja) y el `c84` solo daría 98.7 %.** Queda: (a) rótulo «empaque de la OC ≠ ficha» para los 41 + 78; (b) la unidad del renglón que se ESCRIBE en Kepler (`c11`/`c55`/`c58`) se decide en KR con esta misma medición como testigo |
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-26 | «Resolvámoslo» (D20): medido contra 19,367 líneas de OC reales de Kepler (90 d). **El resolvedor ya da el `c58` de Kepler en 99.3 % de las líneas en caja; el `c84` solo daría 98.7 %** → D20 refutada, sin vista que cambiar. `c58` es el factor del peldaño capturado (`c55`), no del producto. El desfase al escribir está en el adaptador (escribe `CJA`/`c58=1`); va a KR (§12.3) | PM + sesión PQ |
 | 2026-10-26 | El PM avisó que la base fue editada: la unidad del catálogo venía de un importer y desfasaba lo insertado en Kepler. Medido (§12.2): 9,241 productos en lote, 93 % ahora = `c84` de Kepler. **M2 se relee** (cantidad cambiada mezcla comprador + unidad) y se repite sobre requisiciones posteriores al lote; M1 se repite; PQ.1/4/5 y la paridad no cambian. Nace **D20** (factor = `c84` de Kepler para almacenes Kepler) | PM + sesión PQ |
 | 2026-10-23 | Auditoría del flujo (nivel B+C), jerarquía, agenda medida, M1/M2 definidas, doc creado en ⬜. Consultas en el scratchpad de la sesión; cifras en §1 | sesión Claude + PM |
 | 2026-10-24 | «El CEDIS no recomienda comprar nada»: medido y cruzado con el reporte de existencia de Kepler (§12). Nuestra existencia = la de Kepler; la de Kepler = 127 SKUs contados el 30-sep y el resto en cero. **PQ.12** (demanda de red + D14 + compra del CEDIS) queda ⬜ dependiente del inventario físico del CEDIS. La sesión AB propuso D14/D15; PQ los acepta con cuatro ajustes (una sola regla de tránsito en `libs/`, D10 sin `eff_daily` en hubs mixtos, D15 sobre la bandeja existente, el número en un commit con antes/después) | PM + sesión PQ |
