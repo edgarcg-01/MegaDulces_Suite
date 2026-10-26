@@ -2598,6 +2598,26 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   `/logistica/payroll`); comida a $100. Clientes: la remisión firmada la sube Logística (sin app del chofer).
   Pantallas: pestaña «Cierre y pago» del embarque y `/finanzas/comisiones-logistica`. Plan en
   [`FASE_EMB_PAGO_POR_VIAJE`](FASES/FASE_EMB_PAGO_POR_VIAJE.md).
+- [ ] **[EMB.54]** 🧪 **Rutas locales sin comisión y centro por plaza** (2026-10-26, contra la hoja
+  «TRANSPORTES 2026»). Las 3 rutas locales dejan de ser «sin comisión» (mig `20261026131430`); Morelia
+  y Zamora se cargan al centro de la sucursal que paga (`SUCURSAL_QUE_PAGA_EL_CENTRO`, derivado de
+  1,147 renglones). Abierto con Leonardo: ¿por viaje o por guía?, tarifas locales, viático.
+  ⛔ Migración sin aplicar en prod.
+- [ ] **[EMB.55]** 🧪 **Trackers ligados por identidad, no por parecido** (2026-10-26). Hino y
+  Freightliner ligados a su IMEI (mig `20261026131431`, verificado GPS contra guías); la placa se
+  compara normalizada y con dos candidatas no se adivina; `rellenarHuecos` reconstruye los días sin
+  resumen. ⛔ Migración sin aplicar en prod.
+- [ ] **[FCU.0–FCU.3]** 🧪 **Costo por unidad: la hoja «TRANSPORTES 2026» con pantalla** (anexo de FC,
+  2026-10-26, Edgar: «TODO DEBE TENER PANTALLA»). Plan: `FASES/FASE_FC_ANEXO_COSTO_POR_UNIDAD_2026-10-26.md`.
+  C0 vista `analytics.v_fleet_expense_lines` (derive-no-copy sobre `kdm1`/`kdm6`) + ficha, alias,
+  asignaciones, presupuesto (carga de la hoja), nómina administrativa y odómetro (migs `20261026161917`,
+  `…161918`, `20261026163931` permiso) · C1 `armarUnidad` con procedencia por rubro · C2
+  `/logistics/costo-unidad/*` · C3 Logística › Costos y reportes › **Costo por unidad**: Unidades ·
+  Gastos sin unidad (con «Ya decididos» y Deshacer) · Presupuesto · Nómina administrativa · Reposición
+  (`b087fb151`). Pruebas: vista 26, contracts 20, lógica 18, servicio contra Postgres local con
+  rollback; `check:pantalla` 10/10 en las 5. Abiertas: D9 (tabla de odómetro, a firmar), FCU.0.6
+  (retirar `config_finance.costo_km_*`), que Flotilla abra la misma ficha. ⛔ **No entregado**: 3
+  migraciones sin aplicar y permiso sin repartir en prod; sin validación visual.
 - [ ] **[EMB.8]** ⬜ `analytics.erp_shipments.route` **no es una ruta**: dos valores en todo el
   histórico (`'40'` 102,310 · `'35'` 44) = el tipo de documento padre, 0/10 match contra
   `kdm_rutas`. Lo pintan como ruta la pantalla de analytics de logística y una tool de Thot.
