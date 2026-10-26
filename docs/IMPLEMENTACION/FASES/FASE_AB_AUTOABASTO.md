@@ -2268,6 +2268,23 @@ propio recorrido de teclado (`onQtyKey`). Adoptar `app-venta-por-mes` y `moverEn
 archivo y hoy lo está trabajando. ⚠️ **Sin validación visual:** el ancho del campo «A pedir» (3.6 rem) y la tabla que se
 abre dentro de «Lo que te va a llegar» son lo más probable de ajustar.
 
+### 16.20 🧪 [AB.42] El espacio es para el pedido (2026-10-26)
+
+El PM, con Padre Hidalgo abierta: «el 100 % de la pantalla lo ocupa información que no influye con el pedido» — la tabla
+empezaba abajo del pliegue (~1,130 px de alto en su captura). Se partió por lo que cada bloque es:
+
+| Bloque | Qué era | Ahora |
+|---|---|---|
+| Subtítulo (2 líneas) | instrucciones de − / + y del 20 % | 1 línea; el detalle sigue en la ayuda (ⓘ) |
+| Selector de almacén (fila sola) + «Calculado el…» (otra fila) | contexto | una sola fila |
+| «14 productos no entran en los importes» | **repetía** el «N sin valuar» de las cifras de dinero | se quita; la cifra se marca *parcial* con el porqué (ADR-056: se declara en el número) |
+| «Lo que te va a llegar» (6 documentos + «Ver los 35») | ya restado del pedido | queda el resumen en una línea (cuántos, cuánto, qué reclamar); «Ver los N documentos» abre todos |
+| «63 renglones en unidad menor…» (fila sola) | aviso del filtro | chip en la fila de «¿Hasta dónde pides?» |
+
+Nada se esconde sin decirlo: el resumen dice cuántos documentos hay y cuánto valen, y lo que hay que reclamar sigue en
+chips a la vista. Pantalla 49/49 (negativa: sin valuar → la cifra NO se marca parcial). ⚠️ **Sin validación visual:**
+cuánto alto se ganó es estimado (~450 px), no medido en navegador.
+
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
 - [ ] Carga completa de la mesa y de «Mi pedido» bajo 500 ms en todas las sucursales, medida en prod (AB.36).

@@ -62,6 +62,8 @@ function montar(resp: AutoabastoPedidoResponse, extra: Record<string, unknown> =
   f.detectChanges();
   return { f, c: f.componentInstance, pedidos };
 }
+/** `[AB.42]` «Lo que te va a llegar» arranca cerrado: abre la lista de documentos. */
+const abrirViene = <M extends ReturnType<typeof montar>>(m: M): M => { m.c.verTodoViene.set(true); m.f.detectChanges(); return m; };
 const texto = (f: ReturnType<typeof montar>['f']) => ((f.nativeElement as HTMLElement).textContent || '').replace(/\s+/g, ' ');
 
 describe('[AB.39] una sola pantalla: un almacén a la vez (D2)', () => {
@@ -139,7 +141,7 @@ describe('[AB.39] lo que traía la mesa sigue en la pantalla única', () => {
 
 describe('[AB.23] lo que te va a llegar', () => {
   it('arriba dice cuántos embarques y pedidos vienen, por NOMBRE de sucursal, y que ya se restaron', () => {
-    const { f } = montar(RESP([doc({}), doc({ folio: '0002', origen: '08' }), doc({ tipo: 'pedido', estado: 'SURTIDO', folio: '0450', origen: '01', dias: 2 })]));
+    const { f } = abrirViene(montar(RESP([doc({}), doc({ folio: '0002', origen: '08' }), doc({ tipo: 'pedido', estado: 'SURTIDO', folio: '0450', origen: '01', dias: 2 })])));
     const t = texto(f);
     expect(t).toContain('Lo que te va a llegar');
     expect(t).toContain('2 embarques en camino');
@@ -157,7 +159,7 @@ describe('[AB.23] lo que te va a llegar', () => {
   });
 
   it('lo que planeó Compras y no está en Kepler se muestra aparte y nunca se resta', () => {
-    const { f, c } = montar(RESP([doc({}), doc({ tipo: 'plan', estado: 'PLANEADO', folio: 'RQ-1', se_resta: false, origen: '00' })]));
+    const { f, c } = abrirViene(montar(RESP([doc({}), doc({ tipo: 'plan', estado: 'PLANEADO', folio: 'RQ-1', se_resta: false, origen: '00' })])));
     expect(c.viene()!.planes).toBe(1);
     expect(c.viene()!.viejos).toBe(0);
     expect(texto(f)).toContain('aún no está en Kepler');
@@ -171,12 +173,17 @@ describe('[AB.23] lo que te va a llegar', () => {
     expect(c.porQueAPedir(l)).toContain('Falta 10 − ya pedido 2 − en camino 3 = 5 cajas.');
   });
 
-  it('nunca esconde documentos sin decirlo: muestra 6 y ofrece «Ver los N»', () => {
+  it('[AB.42] los documentos arrancan cerrados, pero el resumen dice cuántos son y «Ver los N documentos» los abre todos', () => {
     const { f, c } = montar(RESP(Array.from({ length: 9 }, (_, i) => doc({ folio: String(i) }))));
-    expect(c.viene()!.visibles.length).toBe(6);
-    expect(texto(f)).toContain('Ver los 9');
-    c.verTodoViene.set(true);
+    expect(c.viene()!.visibles.length).toBe(0);
+    expect(texto(f)).toContain('9 embarques en camino');                // el resumen no se esconde
+    expect(texto(f)).toContain('Ver los 9 documentos');
+    expect((f.nativeElement as HTMLElement).querySelector('#ab-viene-docs')).toBeNull();
+    ((f.nativeElement as HTMLElement).querySelector('.ab-viene-todos') as HTMLButtonElement).click();
+    f.detectChanges();
     expect(c.viene()!.visibles.length).toBe(9);
+    expect((f.nativeElement as HTMLElement).querySelectorAll('#ab-viene-docs li')).toHaveLength(9);
+    expect(texto(f)).toContain('Ocultar los documentos');
   });
 });
 
@@ -255,8 +262,8 @@ describe('[AB.29] Enviar a Compras', () => {
   });
 
   it('una requisición rechazada se ve con el motivo de Compras', () => {
-    const { f, c } = montar(conCasos([doc({ tipo: 'requisicion', estado: 'RECHAZADA', folio: 'RQ-2026-00009', origen: '00', se_resta: false,
-      motivo: 'Hay existencia en la matriz para la otra semana' })]));
+    const { f, c } = abrirViene(montar(conCasos([doc({ tipo: 'requisicion', estado: 'RECHAZADA', folio: 'RQ-2026-00009', origen: '00', se_resta: false,
+      motivo: 'Hay existencia en la matriz para la otra semana' })])));
     const t = texto(f);
     expect(c.viene()!.rechazadas).toBe(1);
     expect(t).toContain('Rechazada');
@@ -308,6 +315,27 @@ describe('[AB.39] la ayuda de la pantalla existe en el diccionario', () => {
   });
 });
 
+describe('[AB.42] el espacio es para el pedido', () => {
+  it('el dinero que no se pudo valuar se declara EN la cifra (parcial, con el porqué), sin aviso aparte', () => {
+    const r = RESP();
+    const { f, c } = montar({ ...r, grupos: [grupo([linea(), linea({ product_id: 'p-2', sku: '70057', valor: null, costo_base: null })])] });
+    const k = c.kpis().find((x) => x.label === 'Se pide a la matriz')!;
+    expect(k).toMatchObject({ state: 'parcial', sub: '2 renglones · 1 sin valuar' });
+    expect(k.stateNote).toContain('su costo de compra no coincide con su unidad');
+    expect(texto(f)).not.toContain('no entran en los importes');
+  });
+  it('⛔ sin renglones sin valuar, la cifra no se marca parcial', () => {
+    const { c } = montar(RESP());
+    expect(c.kpis().find((x) => x.label === 'Se pide a la matriz')!.state).toBeUndefined();
+  });
+  it('el sello del cálculo sigue a la vista, en la fila del almacén', () => {
+    const { f } = montar(RESP());
+    const ctx = (f.nativeElement as HTMLElement).querySelector('.ab-ctx');
+    expect(ctx?.textContent).toContain('Calculado el 2026-10-22 a las 13:00');
+    expect(ctx?.textContent).toContain('cobertura 15 días');
+  });
+});
+
 describe('[AB.41] lo que te va a llegar se abre: qué productos trae cada documento', () => {
   const RENGLONES = { renglones: [
     { sku: '70056', nombre: 'MAZAPÁN', cantidad: 72, unidad: 'CJA', cantidad_base: 1296, unidad_base: 'PZA' },
@@ -316,9 +344,9 @@ describe('[AB.41] lo que te va a llegar se abre: qué productos trae cada docume
 
   it('al abrir un embarque pide SUS renglones y los muestra: presentación, base y si lo pides', () => {
     const pedidos: unknown[] = [];
-    const { f, c } = montar(RESP([doc({ folio: '0001229', renglones: 2 })]), {
+    const { f, c } = abrirViene(montar(RESP([doc({ folio: '0001229', renglones: 2 })]), {
       vieneRenglones: (w: string, d: AutoabastoVieneDoc) => { pedidos.push([w, d.tipo, d.origen, d.serie, d.folio]); return of(RENGLONES); },
-    });
+    }));
     expect(texto(f)).not.toContain('MAZAPÁN 72');
     c.abrirDoc(c.viene()!.docs[0]);
     f.detectChanges();
@@ -335,9 +363,9 @@ describe('[AB.41] lo que te va a llegar se abre: qué productos trae cada docume
   });
 
   it('⛔ si no se pudo leer el documento lo dice y deja reintentar (no lo pinta vacío)', () => {
-    const { f, c } = montar(RESP([doc({})]), {
+    const { f, c } = abrirViene(montar(RESP([doc({})]), {
       vieneRenglones: () => throwError(() => ({ error: { message: 'Kepler no contestó' } })),
-    });
+    }));
     c.abrirDoc(c.viene()!.docs[0]);
     f.detectChanges();
     expect(texto(f)).toContain('Kepler no contestó');
@@ -347,9 +375,9 @@ describe('[AB.41] lo que te va a llegar se abre: qué productos trae cada docume
 
   it('una requisición de la Suite se abre por su id; sin id no ofrece abrirla', () => {
     const ids: unknown[] = [];
-    const { f, c } = montar(RESP([doc({ tipo: 'requisicion', estado: 'POR APROBAR', id: 'r-1', folio: 'REQ-1' }), doc({ tipo: 'plan', estado: 'PLANEADO', folio: 'P-2', id: null })]), {
+    const { f } = abrirViene(montar(RESP([doc({ tipo: 'requisicion', estado: 'POR APROBAR', id: 'r-1', folio: 'REQ-1' }), doc({ tipo: 'plan', estado: 'PLANEADO', folio: 'P-2', id: null })]), {
       vieneRenglones: (_w: string, d: AutoabastoVieneDoc) => { ids.push(d.id); return of({ renglones: [] }); },
-    });
+    }));
     const botones = (f.nativeElement as HTMLElement).querySelectorAll('.ab-viene-ver');
     expect(botones).toHaveLength(1);
     (botones[0] as HTMLButtonElement).click();
