@@ -571,6 +571,22 @@ export const PROVEEDOR_DE_LA_SOLICITUD = { codigo: 'GNFC002', nombre: 'COMISION 
 /** La cuenta contable de cada concepto (`kdm6.c8`), medida en las X-A-15 de Logística. */
 export const CUENTA_DEL_CONCEPTO: Readonly<Record<string, string>> = { '054': '514-001', '027': '514-001', '075': '602-015', '128': '602-015' };
 
+/**
+ * `[EMB.54]` En dos plazas Logística carga todo al centro de UNA sucursal. Medido en las X-A-15 de
+ * Logística de mar–oct 2026 (conceptos 054 y 027, 1,147 renglones, sólo lectura en prod):
+ *  · Morelia: 305 renglones a Morelia Abastos (1-02-30-00) y CERO a Morelia Madero (1-02-32-00),
+ *    aunque CEDIS mandó 34 guías sólo a Madero entre el 30-jul y el 21-oct;
+ *  · Zamora: 337 a Canindo (1-03-50-00) y 2 a Zamora Centro (1-03-54-00), con 44 guías de CEDIS a
+ *    Zamora Centro en el mismo periodo.
+ * Un viaje a Madero va al centro de Abastos y uno a Zamora Centro al de Canindo; un viaje a las dos
+ * sucursales de la misma plaza es UN destino, no «varios». Clave = sucursal destino; valor = la
+ * sucursal cuyo centro se carga.
+ */
+export const SUCURSAL_QUE_PAGA_EL_CENTRO: Readonly<Record<string, string>> = {
+  '07': '08', // Morelia Madero → Morelia Abastos
+  '05': '06', // Zamora Centro → Canindo
+};
+
 /** Un centro de costo del catálogo de Kepler (`kdc3`). */
 export interface CentroDeCosto {
   codigo: string;

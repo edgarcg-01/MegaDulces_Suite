@@ -809,4 +809,31 @@ describe('[EMB.53] el centro de costo de cada operación', () => {
     expect(centroDeOperacion([p('TI001'), p('C0001', 1)], ti, centros)).toEqual({ centro: null, sin_centro: 'cliente' });
     expect(centroDeOperacion([p('TI999')], ti, centros)).toEqual({ centro: null, sin_centro: 'sin_catalogo' });
   });
+
+  describe('[EMB.54] el centro de la plaza: Morelia Madero → Morelia Abastos, Zamora Centro → Canindo', () => {
+    const abastos = { codigo: '1-02-30-00', nombre: 'MORELIA ABASTOS.' };
+    const canindo = { codigo: '1-03-50-00', nombre: 'CANINDO .' };
+    const ocho = { codigo: '1-01-40-00', nombre: 'OCHO ESQUINAS PISO DE VENTA.' };
+    const plazas = new Map([
+      ['08', abastos], ['07', { codigo: '1-02-32-00', nombre: 'MORELIA MADERO PISO VENTAS.' }],
+      ['06', canindo], ['05', { codigo: '1-03-54-00', nombre: 'ZAMORA CENTRO PISO DE VENT' }], ['03', ocho],
+    ]);
+    const tis = new Map([['TI004', '08'], ['TI007', '07'], ['TI006', '06'], ['TI005', '05'], ['TI002', '03']]);
+
+    it('un traspaso sólo a Madero va al centro de Abastos; sólo a Zamora Centro, al de Canindo', () => {
+      expect(centroDeOperacion([p('TI007')], tis, plazas)).toEqual({ centro: abastos, sin_centro: null });
+      expect(centroDeOperacion([p('TI005')], tis, plazas)).toEqual({ centro: canindo, sin_centro: null });
+    });
+
+    it('las dos sucursales de la plaza son UN destino, no «varios»', () => {
+      expect(centroDeOperacion([p('TI007'), p('TI004')], tis, plazas)).toEqual({ centro: abastos, sin_centro: null });
+      expect(centroDeOperacion([p('TI005'), p('TI006')], tis, plazas)).toEqual({ centro: canindo, sin_centro: null });
+    });
+
+    it('PRUEBA NEGATIVA: dos plazas distintas siguen siendo varios destinos, y 8 Esquinas conserva su centro', () => {
+      expect(centroDeOperacion([p('TI007'), p('TI002')], tis, plazas)).toEqual({ centro: null, sin_centro: 'varios_destinos' });
+      expect(centroDeOperacion([p('TI004'), p('TI006')], tis, plazas)).toEqual({ centro: null, sin_centro: 'varios_destinos' });
+      expect(centroDeOperacion([p('TI002')], tis, plazas)).toEqual({ centro: ocho, sin_centro: null });
+    });
+  });
 });
