@@ -246,7 +246,7 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
     const ciclo = async () => {
       reloj += 50; // el ciclo tarda 50 ms
       if (modo === 'tira') throw new Error('réplica caída');
-      const s = [{ suc: '06', tabla: 'cola', carril: 'cola', escritas: 2, espera_max_ms: 120 }];
+      const s = [{ suc: '06', tabla: 'cola', carril: 'cola', leidas: 2, escritas: 2, espera_max_ms: 120 }];
       s.fallas = modo === 'falla' ? ['07: no conecta'] : [];
       s.marcas = [{ suc: '06', tablas: 1, filas: 2, error: null }];
       s.cola = { activas: 9, ramas: 9, faltan: [] };
@@ -285,6 +285,22 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
     let callado = true;
     try { for (let i = 0; i < 60; i++) { await mudo({ full: false }); reloj += 200; } } catch { callado = false; }
     A(callado, 'sin destino de latido (`late=false`) no intenta latir');
+
+    // ⛔ Lo no medido se DECLARA. La primera versión escribía «peor réplica→ODS 0 ms» con la cola
+    // apagada en las 9 ramas (medido en prod a minutos de desplegar).
+    const notaDe = async (cola, filasCola) => {
+      const notas = [];
+      const t = crearCicloTiempoReal({
+        ciclo: async () => { reloj += 50; const s = [...filasCola]; s.fallas = []; s.marcas = []; s.cola = cola; return s; },
+        latir: async (f, d) => { if (f === 'end') notas.push(d.note); }, marcarRamas: async () => { /* sin marcas en este caso */ }, cadaMs: 1000, ahora,
+      });
+      for (let i = 0; i < 6; i++) { await t({ full: false }); reloj += 200; }
+      return notas[0] || '';
+    };
+    const apagada = await notaDe({ activas: 0, ramas: 9, faltan: ['06(kdm1:ausente,kdm2:ausente)'] }, []);
+    A(/peor réplica→ODS sin medir/.test(apagada) && !/réplica→ODS 0 ms/.test(apagada), '⛔ sin cola activa la espera dice «sin medir», no «0 ms»');
+    const quieta = await notaDe({ activas: 1, ramas: 9, faltan: [] }, [{ carril: 'cola', leidas: 0, escritas: 0, espera_max_ms: 0 }]);
+    A(/sin movimientos en la ventana/.test(quieta) && !/réplica→ODS 0 ms/.test(quieta), '⛔ con cola pero sin entradas, dice «sin movimientos», no «0 ms»');
   }
 
   console.log(`\n${fail ? '✖' : '✔'} ${ok} ok · ${fail} fallas · ${noMedido} NO MEDIDO`);
