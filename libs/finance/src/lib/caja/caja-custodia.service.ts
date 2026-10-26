@@ -8,6 +8,7 @@ import {
   saldoDeRetiro, piernasDeCustodia, saldoPorResponsable,
   type RetiroCaos, type CustodiaRetiro, type EnlaceRetiro, type PiernasCustodia, type SaldoRetiro,
   type DestinoRetiro, type CierreCustodia,
+  remanenteDeRetiro, regresoCuadra, type Piezas, type RemanenteRetiro,
 } from './caja-custodia.engine';
 
 /** Tipos de CAOS que usa la custodia. Los mismos de `CAOS` en `cash-cut.service`. */
@@ -30,6 +31,15 @@ export function plazoCustodiaHoras(): { horas: number; origen: 'env' | 'pendient
  */
 export function arranqueCustodia(): string | null {
   const d = String(process.env['CAJA_CUSTODIA_DESDE'] ?? '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+}
+
+/**
+ * `[CGA-A.56]` Desde qué fecha un egreso sin origen (retiros de CAOS o cajón) no se guarda. Sin
+ * fecha no se exige: prenderlo antes de que la pantalla pregunte dejaría a la caja sin capturar.
+ */
+export function arranqueOrigenEgreso(): string | null {
+  const d = String(process.env['CAJA_EGRESO_ORIGEN_DESDE'] ?? '').trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
 }
 
@@ -82,6 +92,11 @@ export interface RetiroConSaldo extends SaldoRetiro {
   ref: string | null;
   destino: DestinoRetiro | null;
   cierre: CustodiaRetiro['cierre'];
+  /**
+   * `[CGA-A.55]` Lo que debe quedar, por denominación, de una custodia abierta. `null` si algún
+   * gasto no dijo qué billetes entregó: entonces sólo se puede afirmar el monto.
+   */
+  billetes_quedan?: Piezas | null;
 }
 
 export interface CustodiaListado {
@@ -191,6 +206,11 @@ export class CajaCustodiaService {
           ref: filas[i].ref ?? null, destino: c?.destino ?? null, cierre: c?.cierre ?? null,
         };
       });
+      for (const r of conSaldo) {
+        if (r.estado !== 'abierto' && r.estado !== 'vencido') continue;
+        const rem = await remanenteDe(trx, tenantId, r.device, r.external_id);
+        r.billetes_quedan = rem?.completo ? rem.remanente : null;
+      }
       return { ...base, medido: true, retiros: conSaldo, por_responsable: saldoPorResponsable(conSaldo) };
     });
   }
@@ -318,6 +338,20 @@ export class CajaCustodiaService {
         if (yaUsado) {
           throw new BadRequestException('Ese depósito ya se repartió a cobros de Kepler: no puede ser el regreso de un retiro. Al depositar un regreso, pon «regreso» en la referencia de CAOS.');
         }
+        /**
+         * `[CGA-A.55]` Billete por billete, cuando se puede. Si TODOS los gastos del retiro dijeron
+         * qué billetes entregaron, lo que quedó por denominación tiene que ser EXACTAMENTE lo que la
+         * máquina contó en el depósito: mismo monto con otros billetes es otro dinero.
+         */
+        const rem = await remanenteDe(trx, tenantId, c.caos_device, Number(c.caos_external_id));
+        if (rem?.completo) {
+          const dep = await billetesDeMovimiento(trx, tenantId, c.caos_device, depositoId);
+          const cuadre = regresoCuadra(rem.remanente, dep);
+          if (!cuadre.ok) {
+            const txt = cuadre.diferencias.map((x) => `$${x.llave}: quedaban ${x.quedaba}, regresaron ${x.regreso}`).join(' · ');
+            throw new BadRequestException(`El depósito no trae los billetes que le quedaban al retiro (${txt}).`);
+          }
+        }
         monto = r2(Math.abs(Number(d.total)));
         // El regreso entra al corte del día en que la MÁQUINA lo recibió.
         return this.escribirCierre(trx, c.id, tipo, monto, d.dia, depositoId, input.nota, u);
@@ -428,4 +462,47 @@ export async function piernasDeCustodiaDeLaJornada(trx: Knex.Transaction, tenant
   const { retiros, custodias } = aHechos(filas);
   const enlaces = await enlacesDe(trx, tenantId, retiros);
   return piernasDeCustodia(dia, retiros, custodias, enlaces);
+}
+
+// ── `[CGA-A.55]` Billetes ─────────────────────────────────────────────────────────────────────
+
+/** Los billetes de un movimiento de CAOS, por llave del catálogo. Los contó la MÁQUINA. */
+export async function billetesDeMovimiento(
+  trx: Knex.Transaction, tenantId: string, device: string, externalId: number,
+): Promise<Piezas> {
+  const rows: Array<{ denom: string | number; quantity: string | number }> = await trx('analytics.caos_cash_denominations as d')
+    .join('analytics.caos_cash_movements as m', 'm.id', 'd.movement_id')
+    .where({ 'm.tenant_id': tenantId, 'm.device': device, 'm.external_id': externalId })
+    .where('d.pieza_tipo', 'B')
+    .select('d.denom', 'd.quantity');
+  const p: Piezas = {};
+  for (const r of rows) {
+    const k = String(Number(r.denom));
+    p[k] = (p[k] ?? 0) + Number(r.quantity);
+  }
+  return p;
+}
+
+/** ¿Existe ya la columna? El código puede ir por delante de la migración `20261026110741`. */
+async function hayBilletesPorEnlace(trx: Knex.Transaction): Promise<boolean> {
+  const r = await trx.raw(`SELECT count(*)::int AS n FROM information_schema.columns
+    WHERE table_schema = 'finance' AND table_name = 'caos_cash_links' AND column_name = 'billetes'`);
+  return Number(r.rows?.[0]?.n ?? 0) > 0;
+}
+
+/**
+ * Lo que debe quedar de un retiro, por denominación. `null` si la migración no está aplicada;
+ * `completo: false` si algún gasto no dijo qué billetes entregó (entonces sólo vale el monto).
+ */
+export async function remanenteDe(
+  trx: Knex.Transaction, tenantId: string, device: string, externalId: number,
+): Promise<RemanenteRetiro | null> {
+  if (!(await hayBilletesPorEnlace(trx))) return null;
+  const retiro = await billetesDeMovimiento(trx, tenantId, device, externalId);
+  const enl: Array<{ billetes: Piezas | null; cambio: Piezas | null }> = await trx('finance.caos_cash_links as k')
+    .join('finance.cash_ledger as l', 'l.id', 'k.cash_ledger_id')
+    .where({ 'k.tenant_id': tenantId, 'k.caos_device': device, 'k.caos_external_id': externalId })
+    .whereNull('k.deleted_at').whereNull('l.deleted_at').whereNot('l.estado', 'cancelado')
+    .select('k.billetes', 'k.cambio');
+  return remanenteDeRetiro(retiro, enl);
 }

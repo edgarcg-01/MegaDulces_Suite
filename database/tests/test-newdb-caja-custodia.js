@@ -149,6 +149,48 @@ const rechaza = (err, code, nombre) => !!err && err.code === code && (err.constr
       ok(Number(ajenas.n) === 0 || !hayRol, 'otro tenant no ve la custodia');
       await comoApp(T);
 
+      console.log('\n── 6b. [CGA-A.55] Los billetes de cada pedazo del retiro ──');
+      const hayBilletes = (await trx.raw(`SELECT count(*)::int n FROM information_schema.columns
+        WHERE table_schema='finance' AND table_name='caos_cash_links' AND column_name='billetes'`)).rows[0].n > 0;
+      if (!hayBilletes) {
+        skip('la migración 20261026110741 (billetes por enlace) no está aplicada en esta base');
+      } else {
+        // El ejemplo de Edgar: $100,000 = 200 × $500, contados por la máquina.
+        const [r3] = await trx('analytics.caos_cash_movements').insert(mov(4, 100000)).returning('*');
+        await trx('analytics.caos_cash_denominations').insert({ tenant_id: T, movement_id: r3.id, denom: 500, pieza_tipo: 'B', quantity: 200 });
+        const [ga] = await trx('finance.cash_ledger').insert(gasto(25000)).returning('*');
+        const [gb] = await trx('finance.cash_ledger').insert(gasto(500)).returning('*');
+        const [gc] = await trx('finance.cash_ledger').insert(gasto(500)).returning('*');
+        const [gd] = await trx('finance.cash_ledger').insert(gasto(5000)).returning('*');
+        const conB = (g, monto, billetes, cambio) => ({ ...enlace(r3, g, monto), billetes, cambio: cambio || null });
+
+        ok(!(await intento(trx, () => trx('finance.caos_cash_links').insert(conB(ga, 25000, { 500: 50 })))),
+          '50 × $500 = $25,000 de un retiro de 200 × $500: entra');
+        await trx('finance.caos_cash_links').insert(conB(ga, 25000, { 500: 50 }));
+        const b1 = await intento(trx, () => trx('finance.caos_cash_links').insert(conB(gd, 5000, { 500: 9 })));
+        ok(rechaza(b1, '23514', 'caos_link_billetes_no_suman'), 'NEGATIVA: 9 × $500 no son $5,000');
+        const b2 = await intento(trx, () => trx('finance.caos_cash_links').insert(conB(gd, 1000, { 200: 5 })));
+        ok(rechaza(b2, '23514', 'caos_link_billetes_insuficientes'), 'NEGATIVA: el retiro no traía billetes de $200');
+        const b3 = await intento(trx, () => trx('finance.caos_cash_links').insert(conB(gd, 500, { 500: -1 })));
+        ok(rechaza(b3, '23514', 'caos_link_billetes_forma'), 'NEGATIVA: piezas negativas no existen');
+        // El cambio regresa a la custodia y se puede volver a entregar.
+        await trx('finance.caos_cash_links').insert(conB(gb, 500, { 500: 2 }, { 100: 5 }));
+        ok(!(await intento(trx, () => trx('finance.caos_cash_links').insert(conB(gc, 500, { 100: 5 })))),
+          'los 5 × $100 del cambio se pueden entregar en otro pago');
+        await trx('finance.caos_cash_links').insert(conB(gc, 500, { 100: 5 }));
+        const b4 = await intento(trx, () => trx('finance.caos_cash_links').insert(conB(gd, 100, { 100: 1 })));
+        ok(rechaza(b4, '23514', 'caos_link_billetes_insuficientes'), 'NEGATIVA: ya no queda ningún $100 del cambio');
+
+        await trx.raw('RESET ROLE');
+        await trx.raw('ALTER TABLE finance.caos_cash_links DISABLE TRIGGER trg_caos_link_billetes');
+        await comoApp(T);
+        const m3 = await intento(trx, () => trx('finance.caos_cash_links').insert(conB(gd, 1000, { 200: 5 })));
+        ok(!m3, 'MUTACIÓN: sin trg_caos_link_billetes un billete que el retiro no traía SÍ entra: la regla es el trigger');
+        await trx.raw('RESET ROLE');
+        await trx.raw('ALTER TABLE finance.caos_cash_links ENABLE TRIGGER trg_caos_link_billetes');
+        await comoApp(T);
+      }
+
       console.log('\n── 7. Mutaciones: con el trigger apagado, la violación SÍ pasa ──');
       await trx.raw('RESET ROLE');
       await trx.raw('ALTER TABLE finance.caos_cash_links DISABLE TRIGGER trg_caos_link_no_excede');

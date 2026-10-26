@@ -5,6 +5,8 @@
  */
 import {
   saldoDeRetiro, piernasDeCustodia, ajusteDeCustodia, custodiaPermiteCerrar, saldoPorResponsable,
+  remanenteDeRetiro, regresoCuadra, valorDePiezas, valorDeLlave,
+  origenDelEgreso,
   type RetiroCaos, type CustodiaRetiro, type EnlaceRetiro,
 } from './caja-custodia.engine';
 import { calcularCorte, type MovimientoDelCorte } from './cash-cut.engine';
@@ -150,5 +152,87 @@ describe('saldoPorResponsable', () => {
       saldoDeRetiro(ret(3, 10000, '2026-10-23'), cus(3, 'custodia'), [enl(3, 'b', 10000, '2026-10-23')], AHORA, 72),
     ];
     expect(saldoPorResponsable(s)).toEqual([{ responsable: '003', abiertos: 1, vencidos: 1, monto: 80000, mas_viejo_horas: 102 }]);
+  });
+});
+
+describe('[CGA-A.55] los billetes del retiro', () => {
+  // El ejemplo de Edgar: un retiro de $100,000 = 200 × $500, cuatro movimientos de caja.
+  const RETIRO = { '500': 200 };
+
+  it('el ejemplo: 200 billetes, se entregan 180, deben quedar 20 × $500 más el cambio', () => {
+    const r = remanenteDeRetiro(RETIRO, [
+      { billetes: { '500': 50 } },
+      { billetes: { '500': 60 }, cambio: { '200': 1, '100': 3 } },
+      { billetes: { '500': 40 } },
+      { billetes: { '500': 30 } },
+    ]);
+    expect(r.remanente).toEqual({ '500': 20, '200': 1, '100': 3 });
+    expect(r.valor).toBe(10500);
+    expect(r.faltan).toEqual([]);
+    expect(r.completo).toBe(true);
+  });
+
+  it('NEGATIVA: entregar un billete que el retiro no traía se declara como faltante', () => {
+    const r = remanenteDeRetiro({ '200': 100 }, [{ billetes: { '500': 10 } }]);
+    expect(r.faltan).toEqual([{ llave: '500', faltan: 10 }]);
+  });
+
+  it('el cambio que regresa SÍ se puede volver a entregar', () => {
+    const r = remanenteDeRetiro({ '500': 2 }, [
+      { billetes: { '500': 1 }, cambio: { '100': 2 } },
+      { billetes: { '100': 2 } },
+    ]);
+    expect(r.faltan).toEqual([]);
+    expect(r.remanente).toEqual({ '500': 1 });
+  });
+
+  it('NEGATIVA: un enlace sin billetes (los viejos) deja el remanente por denominación SIN AFIRMAR', () => {
+    expect(remanenteDeRetiro(RETIRO, [{ billetes: null }]).completo).toBe(false);
+  });
+
+  it('el regreso a CAOS cuadra sólo billete por billete', () => {
+    expect(regresoCuadra({ '500': 20 }, { '500': 20 })).toEqual({ ok: true });
+    // NEGATIVA: mismo monto, otros billetes ($10,000 en 50 × $200 en lugar de 20 × $500).
+    expect(regresoCuadra({ '500': 20 }, { '200': 50 })).toEqual({
+      ok: false, diferencias: [{ llave: '500', quedaba: 20, regreso: 0 }, { llave: '200', quedaba: 0, regreso: 50 }],
+    });
+    // NEGATIVA: la morralla del remanente no puede entrar a la máquina.
+    expect(regresoCuadra({ '500': 20, '10': 3 }, { '500': 20 }).ok).toBe(false);
+  });
+
+  it('las llaves del catálogo: la moneda de $20 no es el billete de $20', () => {
+    expect(valorDeLlave('20m')).toBe(20);
+    expect(valorDeLlave('B20')).toBeNull();
+    expect(valorDePiezas({ '20': 2, '20m': 1, '0.5': 2 })).toBe(61);
+  });
+});
+
+describe('[CGA-A.56] de dónde salió el dinero de un egreso', () => {
+  const DESDE = '2026-11-01';
+  const g = (o: Partial<Parameters<typeof origenDelEgreso>[0]>) =>
+    origenDelEgreso({ tipo: 'gasto', fecha: '2026-11-05', retiros: 0, declarado: null, desde: DESDE, ...o });
+
+  it('con retiros enlazados es CAOS, y sin retiros puede declararse cajón', () => {
+    expect(g({ retiros: 2 })).toEqual({ ok: true, origen: 'caos' });
+    expect(g({ declarado: 'cajon' })).toEqual({ ok: true, origen: 'cajon' });
+  });
+  it('NEGATIVA: desde el arranque, un egreso sin origen no se guarda', () => {
+    expect(g({})).toEqual({ ok: false, motivo: 'falta_origen' });
+  });
+  it('antes del arranque (o sin arranque) no se exige: el freno nace apagado', () => {
+    expect(g({ fecha: '2026-10-31' })).toEqual({ ok: true, origen: null });
+    expect(g({ desde: null })).toEqual({ ok: true, origen: null });
+  });
+  it('NEGATIVA: «cajón» con retiros enlazados es una contradicción', () => {
+    expect(g({ retiros: 1, declarado: 'cajon' })).toEqual({ ok: false, motivo: 'cajon_con_retiros' });
+  });
+  it('NEGATIVA: «CAOS» sin decir qué retiro no alcanza', () => {
+    expect(g({ declarado: 'caos' })).toEqual({ ok: false, motivo: 'caos_sin_retiro' });
+  });
+  it('NEGATIVA: otro origen no existe', () => {
+    expect(g({ declarado: 'banco' })).toEqual({ ok: false, motivo: 'origen_invalido' });
+  });
+  it('un ingreso no sale de ningún lado: no se le exige', () => {
+    expect(g({ tipo: 'ingreso' })).toEqual({ ok: true, origen: null });
   });
 });

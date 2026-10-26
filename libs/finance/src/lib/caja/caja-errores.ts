@@ -75,6 +75,11 @@ const POR_CONSTRAINT: Record<string, string> = {
   caos_cust_cierre_completo_chk: 'El cierre necesita su tipo, su monto y su día.',
   ux_caos_cust_retiro_vivo: 'Ese retiro de CAOS ya está clasificado.',
   ux_caos_cust_deposito_vivo: 'Ese depósito de CAOS ya es el regreso de otro retiro.',
+  // `[CGA-A.55]` Los billetes de cada pedazo del retiro.
+  caos_link_billetes_no_suman: 'Los billetes que tomas del retiro, menos el cambio, no suman el monto que tomas.',
+  caos_link_billetes_insuficientes:
+    'Ese retiro de CAOS no tenía esos billetes (o ya se entregaron en otro pago). Revisa la denominación.',
+  caos_link_billetes_forma: 'Los billetes van como denominación y número de piezas (entero mayor que cero).',
 };
 
 /** Códigos de Postgres que SÍ son culpa de lo que se mandó, no del servidor. */

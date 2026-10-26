@@ -77,6 +77,14 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
   // `caos_cash_links` (un retiro, muchos gastos): sin esta línea `test-newdb-caja-custodia` sale
   // NO MEDIDO y el trigger que lo reemplaza nunca se ejerce.
   'finance.caos_retiro_custodia'];
+/**
+ * `[CGA-A.55]` Migraciones que ALTERAN una tabla de `LEE_EL_SERVICIO` con REGLAS (no con datos).
+ * De esas tablas sólo se trae la migración que las crea; una regla agregada después no entraba, y
+ * su prueba salía NO MEDIDO para siempre. Lista explícita a propósito: traer «todo lo que altere
+ * `caos_cash_links`» arrastra migraciones de DATOS de prod (`cga_a10`, `a18`, `a24`, `a31`) que
+ * abortan en una base vacía, como abortaba `[CGS.52]`.
+ */
+const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_retiro.js'];
 const MAX_REMEDIOS = 200;
 
 // ── utilidades ──────────────────────────────────────────────────────────────────────────────
@@ -204,6 +212,10 @@ async function main() {
       const creador = creadorDeRelacion(s, n, todos);
       if (!creador) throw new Error(`ninguna migración crea ${obj}, que lee el servicio del corte.`);
       conjunto.add(creador);
+    }
+    for (const f of REGLAS_SOBRE_LO_QUE_LEE) {
+      if (!todos.includes(f)) throw new Error(`la migración de reglas ${f} no existe en ${DIR}.`);
+      conjunto.add(f);
     }
     const snapshot = cargarSnapshot();
 

@@ -37,8 +37,9 @@ import { tomarFirmaParaMovimiento, marcarFirmaUsada } from './caja-firma.service
 import { diaDe } from './caja-autollenado.engine';
 import { traducirErrorDeCaja } from './caja-errores';
 import {
-  CajaCustodiaService, sqlDisponibleCaos, sqlCustodiaCerrada, sqlRetiroClasificado,
+  CajaCustodiaService, sqlDisponibleCaos, sqlCustodiaCerrada, sqlRetiroClasificado, arranqueOrigenEgreso,
 } from './caja-custodia.service';
+import { origenDelEgreso, TEXTO_ORIGEN } from './caja-custodia.engine';
 import { conciliacion } from './caja-conciliacion.engine';
 import { relacionExiste } from './caja-db.util';
 import {
@@ -234,7 +235,15 @@ export interface CreateMovementInput {
    * `finance.caos_cash_links`: consumen el movimiento (no se cuenta dos veces) y alimentan el
    * aprendizaje del detector.
    */
-  caos_links?: Array<{ device: string; external_id: number; monto: number; senales?: Record<string, unknown> }>;
+  caos_links?: Array<{
+    device: string; external_id: number; monto: number; senales?: Record<string, unknown>;
+    /**
+     * `[CGA-A.55]` Qué billetes se tomaron de ESE retiro y qué cambio regresó, `{denom_key: piezas}`.
+     * Si vienen, la base exige que sumen `monto` y que el retiro los tuviera (ADR-101).
+     */
+    billetes?: Record<string, number> | null;
+    cambio?: Record<string, number> | null;
+  }>;
   origen_tipo?: string;
   origen_ref?: string;
   origen_uuid?: string;
@@ -252,6 +261,11 @@ export interface CreateMovementInput {
    * $211,548.14** — lo cuenta `npm run check:cobro-escondido`.
    */
   declared_doc_ref?: string;
+  /**
+   * `[CGA-A.56]` De dónde salió el efectivo de un EGRESO: `cajon`, o `caos` con sus `caos_links`.
+   * Con retiros enlazados se toma `caos` aunque no venga. Obligatorio desde `CAJA_EGRESO_ORIGEN_DESDE`.
+   */
+  origen_efectivo?: 'caos' | 'cajon' | null;
   autofill?: Record<string, unknown>;
   client_uuid?: string;
   legacy_cuenta_access?: string;
@@ -1159,6 +1173,17 @@ export class CashLedgerService {
       if (!conc.ok) throw new BadRequestException(conc.texto);
 
       /**
+       * ⭐ `[CGA-A.56]` **De dónde salió el dinero de un egreso**: retiros de CAOS o cajón (Edgar,
+       * 2026-10-26). Puro y antes de tocar la base, igual que la conciliación. Obligatorio sólo
+       * desde `CAJA_EGRESO_ORIGEN_DESDE`: el freno nace apagado.
+       */
+      const origen = origenDelEgreso({
+        tipo: input.tipo, fecha: String(input.fecha ?? ''), retiros: (input.caos_links ?? []).length,
+        declarado: input.origen_efectivo ?? null, desde: arranqueOrigenEgreso(),
+      });
+      if (!origen.ok) throw new BadRequestException(TEXTO_ORIGEN[origen.motivo]);
+
+      /**
        * ⛔⛔ `[CGS.14]` **SIN CORTE DE AYER, HOY NO SE CAPTURA** (D1 de Edgar, 2026-10-21).
        *
        * Medido ese día: el 20-oct quedó con 30 movimientos y sin corte, y el 21 ya se capturaban
@@ -1290,6 +1315,8 @@ export class CashLedgerService {
         // haría casar `declared_doc_ref = origen_ref` con nada y, peor, apagaría la rama del
         // `LIKE` — una captura dejaría de descontar sin que nadie lo pidiera.
         declared_doc_ref: input.declared_doc_ref?.trim() || null,
+        // `[CGA-A.56]` Sólo si se sabe: lo que no se dijo queda NULL, no se inventa un origen.
+        ...(origen.origen && await this.hayOrigenEfectivo(trx) ? { origen_efectivo: origen.origen } : {}),
         /**
          * `[CG.124]` Sólo se guarda cuando de verdad explicó algo: si el movimiento quedó
          * enlazado, el motivo sobra y escribirlo ensuciaría la columna que sirve para ENCONTRAR
@@ -1342,6 +1369,9 @@ export class CashLedgerService {
           caos_external_id: k.external_id,
           monto_enlazado: k.monto,
           senales: k.senales ? JSON.stringify(k.senales) : null,
+          // `[CGA-A.55]` Sólo si vinieron: un enlace sin billetes declara que no se sabe cuáles.
+          ...(k.billetes ? { billetes: JSON.stringify(k.billetes) } : {}),
+          ...(k.cambio ? { cambio: JSON.stringify(k.cambio) } : {}),
           confirmed_by: user.id,
         })));
       }
@@ -2065,6 +2095,19 @@ export class CashLedgerService {
       this.caosLinksTabla = !!(r?.rows?.[0]?.t);
     } catch { this.caosLinksTabla = false; }
     return this.caosLinksTabla;
+  }
+
+  /**
+   * `[CGA-A.56]` ¿Existe ya `cash_ledger.origen_efectivo`? Se cachea sólo el SÍ: un «no» leído antes
+   * de aplicar la migración no puede quedarse pegado hasta el siguiente reinicio.
+   */
+  private origenEfectivoColumna = false;
+  private async hayOrigenEfectivo(trx: Knex.Transaction): Promise<boolean> {
+    if (this.origenEfectivoColumna) return true;
+    const r = await trx.raw(`SELECT count(*)::int AS n FROM information_schema.columns
+      WHERE table_schema = 'finance' AND table_name = 'cash_ledger' AND column_name = 'origen_efectivo'`);
+    this.origenEfectivoColumna = Number(r?.rows?.[0]?.n ?? 0) > 0;
+    return this.origenEfectivoColumna;
   }
 
   /**
@@ -2982,7 +3025,11 @@ export class CashLedgerService {
    * rechazo.
    */
   async crearLote(
-    input: { items: Array<{ origen_ref: string; fecha?: string; sucursal?: string; client_uuid?: string }> },
+    input: {
+      items: Array<{ origen_ref: string; fecha?: string; sucursal?: string; client_uuid?: string }>;
+      /** `[CGA-A.56]` El origen del efectivo de los EGRESOS del lote (un lote no enlaza retiros: sólo cajón). */
+      origen_efectivo?: 'cajon' | null;
+    },
     user: { id?: string; username?: string },
   ): Promise<ResumenLote> {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -3059,6 +3106,7 @@ export class CashLedgerService {
           origen_tipo: pend.origen_tipo,
           origen_ref: pend.origen_ref,
           client_uuid: it.client_uuid,
+          origen_efectivo: input.origen_efectivo ?? null,
           /**
            * ⭐ `[CG.196]` **CADA FILA DECLARA DE DÓNDE SALIÓ SU CUENTA.** ADR-056: *un campo
            * lleno sin saber de dónde salió es indistinguible de uno inventado.*
