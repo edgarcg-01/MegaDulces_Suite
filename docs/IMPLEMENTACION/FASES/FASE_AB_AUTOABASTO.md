@@ -2032,10 +2032,42 @@ de la migración `20261026104753_sellout_rutas_sin_doble_conteo.js` (`up` y `dow
 vista viva fila por fila y las columnas son idénticas. Las rutas quedan = el envío (Padre Hidalgo desde el
 1-jul, Canindo desde el 13-ago; antes, Wincaja, sin cambio).
 
-**5 · El margen tiene el mismo defecto → [AB.38].** `mv_sales_blended` (1.8 GB) une `sales_daily` en
+**5 · El margen tiene el mismo defecto → [AB.38]** (🧪 en código el mismo día; medido abajo, en §16.17.3). `mv_sales_blended` (1.8 GB) une `sales_daily` en
 `RUTA-%`: las rutas de Padre Hidalgo salen al doble en Rentabilidad (~$0.81 M ago, ~$2.46 M sep, ~$2.09 M oct;
 Canindo una sola vez, porque ahí no hay tramo de envío). Arreglarlo exige recrear la matview y sus dependientes:
 escritura pesada, **fuera de horario**, y con el antes/después de Rentabilidad (D19).
+
+#### 16.17.3 🧪 [AB.38] Rentabilidad cuenta cada venta de ruta una vez (2026-10-26)
+
+Migración `20261026113559_margen_rutas_sin_doble_conteo.js`: el tramo de rutas de `mv_sales_blended` deja
+`sales_daily` y lee el envío de cada camioneta, con las mismas reglas que `sales_daily` (canal `tienda` sin
+cliente / `credito` con cliente, medidas al peso en Canindo sep–oct; costo = venta ÷ (1 + margen del catálogo);
+tickets = folios). **El costo no se toca: eso es D19**, aparte.
+
+| Mes | Venta de ruta antes | Después | Venta total antes | Después | Margen % antes | Después |
+|---|---:|---:|---:|---:|---:|---:|
+| jul | $2,841,330 | $2,834,952 | $54.66 M | $54.66 M | 11.627 | 11.627 |
+| ago | $4,981,875 | $4,134,669 | $55.70 M | $54.85 M | 11.532 | 11.535 |
+| sep | $7,242,483 | $4,785,269 | $57.38 M | $54.93 M | 11.070 | 11.071 |
+| oct (al 25) | $5,898,106 | $3,805,967 | $50.45 M | $48.36 M | 10.657 | 10.632 |
+
+⭐ **El margen % casi no se mueve, y eso explica por qué nadie lo vio:** el costo de ese tramo es proporcional a la
+venta, así que al duplicarla se duplicaba también el costo. Lo inflado eran los **pesos** (venta y utilidad de
+ruta: ~$270 K de utilidad de más en septiembre). Los tickets salen iguales antes y después (sep 47,338 → 47,330):
+el importer no los duplicaba, y es el testigo de que el tramo nuevo cuenta los mismos documentos.
+
+**Por qué nadie lo detectó:** el candado SD.1 (`test-newdb-sales-lineage-parity.js`) exigía
+`ruta(mv_sales_blended) == ruta(sales_daily)`, y las dos traían el doble: **dos derivaciones que comparten el
+error se confirman entre sí.** Corregido: la ruta se arbitra contra el envío; la paridad total y los tickets, sin
+camionetas. Contra prod: 11 ✓ · 2 NO MEDIDO (la migración sin aplicar); **negativa** (dándola por aplicada sobre
+la matview de hoy): rojo con el doble exacto (sep $2,457,214; ago $847,205). De paso, la comprobación 4 estaba
+roja desde el 19-sep porque no conocía la sucursal 08 (Morelia Abastos): era la regla, no un hallazgo.
+
+**Verificación de la migración:** `up` → `down` en la base local de pruebas, con siembra sintética dentro de una
+transacción revertida (la base local no tiene datos): la ruta pasa de 600 al envío (300) y vuelve; canal, tickets
+y costo correctos; índices, lectores, comentario y el rollup `mv_profitability_sales_agg` (re-creado, al centavo)
+se conservan; la compuerta se niega a reemplazar si no hay meses con qué comparar. **No ejercida en prod**: escribe
+1.8 GB. ⛔ **Se aplica FUERA DE HORARIO.** Tiempo de construcción en prod: NO MEDIDO (lo imprime la migración).
 
 ### 16.10 Definición de Terminado
 
