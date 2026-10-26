@@ -2453,6 +2453,18 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         ],
       },
       {
+        // [PGP.13] El vocabulario que cambió al rediseñar, y lo que la pantalla TODAVÍA no hace.
+        // Declararlo acá es lo que impide que alguien lea la pantalla como si ya lo hiciera.
+        heading: 'El tope del día, y lo que falta construir',
+        entries: [
+          { term: 'Tope del día', def: 'Lo máximo que puede salir ese día. Lo fija Presupuestos a partir del ingreso esperado. ⚠️ Antes esta pantalla lo llamaba «presupuesto» y Presupuestos lo llama «capacidad»: es el MISMO valor con tres nombres, y por eso acá se dice «tope» en todos lados. Un día sin tope fijado no es un día con tope cero: se puede armar, pero no se puede autorizar.' },
+          { term: 'Libre del tope', def: 'El tope menos lo ya comprometido. Es la cifra que la cola de días muestra a la derecha de cada día, SIEMPRE — antes mostraba lo comprometido cuando el día tenía pagos y lo libre cuando no, así que el día con más espacio se leía como el más apretado.' },
+          { term: 'Por confirmar antes de programar', def: 'Facturas de sucursal anteriores al corte del 1 de octubre de 2026. Varias se pagaron desde Oficinas sin que la sucursal las aplicara, así que programarlas puede pagarlas dos veces. Se ven, no se agregan, hasta que Finanzas las revise. ⚠️ El grupo se arma por FECHA, no con una marca del ERP: es una aproximación conservadora, no un dictamen.' },
+          { term: 'Quién autoriza (y qué falta)', def: 'Hoy se autoriza EL DÍA COMPLETO, y lo hace quien tiene el permiso de autorizar — nunca quien preparó. ⚠️ La decisión D2 —una firma por pago según su monto, hasta $100,000 Tesorería y arriba Dirección— está firmada pero NO está construida: mientras tanto, un pago chico y uno grande los autoriza la misma persona en el mismo clic.' },
+          { term: 'Kepler (X-D-26)', def: 'El pago se sigue capturando A MANO en el ERP. La escritura automática está apagada. Si la pantalla no lo dijera, quien captura dejaría de hacerlo creyendo que la Suite lo escribe.' },
+        ],
+      },
+      {
         heading: 'El descuento por pronto pago',
         entries: [
           { term: 'Ahorra $X (Y %)', def: 'Lo que se dejaría de pagar si esa factura se liquida dentro de la ventana. El monto dice cuánto se gana; el porcentaje sirve para compararlo contra lo que cuesta adelantar el dinero.' },
