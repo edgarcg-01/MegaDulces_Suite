@@ -276,6 +276,19 @@ exports.up = async function up(knex) {
     .whereBetween('fecha', [DESDE, HASTA])
     .orderBy('fecha')
     .select('*', knex.raw(`to_char(fecha, 'YYYY-MM-DD') AS dia`));
+  /**
+   * ⭐ `[CGA-A.51]` (2026-10-26) **Una base SIN ninguno de estos cortes no tiene nada que recalcular.**
+   * El esquema de arriba (columnas, candados, guardia) sí aplica; el recálculo es de los 10 cortes
+   * de prod y ahí ya corrió (ledger de `pg-prod`: 2026-10-23 11:37). Antes abortaba también con
+   * CERO, y en la base que arma el CI desde cero (`preparar-base-caja.js`) eso detenía el armado:
+   * `caja-db` quedó sin `finance.cash_ledger_cuts` y todas sus suites en rojo o NO MEDIDO (medido en
+   * la corrida de `2db37ae49`, 2026-10-26). ⛔ Con ALGUNOS pero no todos sigue abortando: eso sí es una base que divergió.
+   */
+  if (cortes.length === 0) {
+    // eslint-disable-next-line no-console
+    console.log(`  ↷ [CGS.52] sin cortes del ${DESDE} al ${HASTA} en esta base: esquema aplicado, nada que recalcular.`);
+    return;
+  }
   if (cortes.length !== Object.keys(PLAN).length) abortar(`hay ${cortes.length} cortes del ${DESDE} al ${HASTA}, se midieron ${Object.keys(PLAN).length}`);
 
   let quedo = null;         // lo que quedó en caja en el corte anterior (su conteo físico)
