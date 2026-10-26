@@ -14,6 +14,8 @@ export * from './lib/logistics-guides/logistics-guides.module';
 // [EMB.24]-[EMB.27] Cierre del viaje: paradas con la remisión firmada y cargadores.
 export * from './lib/logistics-trip-closure/logistics-trip-closure.module';
 export * from './lib/logistics-expenses/logistics-expenses.module';
+// [FCU] Costo por unidad: lo que hacía la hoja «TRANSPORTES 2026», con pantalla.
+export * from './lib/logistics-fleet-cost/logistics-fleet-cost.module';
 export * from './lib/logistics-payroll/logistics-payroll.module';
 export * from './lib/logistics-route-expenses/logistics-route-expenses.module';
 export * from './lib/logistics-route-expenses/logistics-route-expenses.service';
