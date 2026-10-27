@@ -119,3 +119,33 @@ export interface PaymentOriginAccount {
   alias: string | null;
   kind: string;
 }
+
+/**
+ * `[PGP.19]` La MEJOR prueba documental de un documento por pagar, salga de donde salga.
+ *
+ * No es un carril: es el resultado de puntuar todos los candidatos (papel adjunto en Compras +
+ * CFDI recibido) por cuántas de las 5 señales coinciden —importe, fecha, folio, referencia,
+ * RFC— exigiendo siempre un ancla (importe o RFC) y un puntaje mínimo de 3.
+ *
+ * Medido contra prod el 2026-10-27 sobre 2,917 documentos exigibles: 774 con PDF del proveedor,
+ * 367 con sólo UUID fiscal, 1,776 sin nada. Placebo del umbral 3 = 0 (precisión 100%); bajar a
+ * umbral 2 sube la cobertura a 59.7% pero el placebo salta a 958, o sea 45% de precisión.
+ */
+export interface PayableEvidenceRow {
+  sucursal: string;
+  doc_tipo: string;
+  doc_sub: string;
+  folio: string;
+  proveedor: string;
+  pendiente: number;
+  /** `pdf` = el documento de verdad · `uuid` = sólo el identificador fiscal, sin archivo. */
+  evidencia: 'pdf' | 'uuid' | 'ninguna';
+  /** Id del comprobante en `finance.goods_receipt_proofs` (pdf) o UUID del CFDI (uuid). */
+  ref_evidencia: string | null;
+  /** 3 a 5. Cuántas señales independientes coincidieron. */
+  puntaje: number;
+  /** Las señales que coincidieron, para poder explicar en pantalla POR QUÉ es ésta. */
+  senales: string[];
+  /** Por qué no hay evidencia. `null` cuando sí la hay. Nunca se deja el hueco mudo (ADR-056). */
+  motivo: string | null;
+}

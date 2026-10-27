@@ -5,7 +5,7 @@ import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledg
 import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
-import type { PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 
@@ -439,6 +439,33 @@ export class PaymentCalendarService {
           WHERE c.tenant_id = ? AND c.proveedor = ?
           ORDER BY c.pendiente DESC, c.fecha DESC NULLS LAST, c.a_favor DESC
           LIMIT 200`,
+        [tenantId, code],
+      );
+      return rows;
+    });
+  }
+
+  /**
+   * `[PGP.19]` La evidencia documental de los documentos de UN acreedor.
+   *
+   * ⛔ Va aparte de `obligations` y se pide en diferido: la vista tiene un piso de ~350 ms que
+   *    NO baja al filtrar (es el costo de armar el hash sobre los 169 mil CFDI recibidos), y
+   *    `obligations` ya consume 325-377 ms de su presupuesto de 500 ms.
+   * ⛔ No se expone el filtro por sucursal: medido en 1,082-1,179 ms, pasa el tope.
+   */
+  async listPayableEvidence(proveedor: string): Promise<PayableEvidenceRow[]> {
+    const code = String(proveedor ?? '').trim();
+    if (!code) return [];
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT e.sucursal, e.doc_tipo, e.doc_sub, e.folio, e.proveedor,
+                e.pendiente::float8 AS pendiente, e.evidencia, e.ref_evidencia,
+                e.puntaje, e.senales, e.motivo
+           FROM analytics.v_payable_evidence e
+          WHERE e.tenant_id = ? AND e.proveedor = ?
+          ORDER BY e.evidencia, e.puntaje DESC, e.pendiente DESC
+          LIMIT 500`,
         [tenantId, code],
       );
       return rows;

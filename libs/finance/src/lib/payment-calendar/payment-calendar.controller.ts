@@ -7,7 +7,7 @@ import {
   PrepareAllocationDto, CreateAgreementDto, ReprogramReason,
 } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { PayableEvidenceRow, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -46,6 +46,17 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: 'Todos los descuentos de un acreedor por tipo —nota de crédito, nota de crédito CFDI, devolución de compra, bonificación, anticipo, ajuste de abono— con su importe, lo que Kepler ya aplicó y lo que queda a favor. Incluye los YA APLICADOS a propósito: sin eso, un proceso que funciona (las notas de crédito se netean casi al 100%) se lee como que el sistema no hace nada. ⛔ Cheque y transferencia quedan fuera: son pagos, no descuentos.' })
   listSupplierCredits(@Param('proveedor') proveedor: string): Promise<SupplierCreditRow[]> {
     return this.svc.listSupplierCredits(proveedor);
+  }
+
+  /**
+   * `[PGP.19]` La prueba documental de los documentos de un acreedor. Se pide EN DIFERIDO: la
+   * vista tiene un piso de ~350 ms que no baja al filtrar.
+   */
+  @Get('evidencia/:proveedor')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'La MEJOR prueba documental de cada documento por pagar de un acreedor: el PDF que Compras adjuntó, o el UUID fiscal del CFDI, o la razón por la que no hay ninguna. No elige un carril: puntúa todos los candidatos por cuántas de 5 señales coinciden (importe, fecha, folio, referencia, RFC), exige ancla de importe o RFC, y corta en puntaje 3. Medido 2026-10-27 sobre 2,917 documentos exigibles: 774 con PDF, 367 con sólo UUID, 1,776 sin nada; placebo del umbral = 0 (precisión 100%). ⛔ El umbral 2 daría 59.7% de cobertura con 45% de precisión: se descartó, serían facturas ajenas pegadas al pago.' })
+  listPayableEvidence(@Param('proveedor') proveedor: string): Promise<PayableEvidenceRow[]> {
+    return this.svc.listPayableEvidence(proveedor);
   }
 
   @Get('obligations')
