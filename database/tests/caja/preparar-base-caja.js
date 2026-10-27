@@ -83,8 +83,16 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
  * su prueba salía NO MEDIDO para siempre. Lista explícita a propósito: traer «todo lo que altere
  * `caos_cash_links`» arrastra migraciones de DATOS de prod (`cga_a10`, `a18`, `a24`, `a31`) que
  * abortan en una base vacía, como abortaba `[CGS.52]`.
+ *
+ * El orden lo da el nombre (`[...conjunto].sort()`), no la posición en esta lista.
+ * `[CGA-A.55.1]` reescribe `finance.caos_denom_valor()`, que la `a55` dejó rota (knex cambió los
+ * `?` de su regex por `$1`/`$2`). No nombra ninguna tabla del núcleo, así que sin esta línea la base
+ * de CI se queda con la función rota y `test-newdb-caja-custodia` §6a sale en rojo.
  */
-const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_retiro.js'];
+const REGLAS_SOBRE_LO_QUE_LEE = [
+  '20261026110741_cga_a55_billetes_por_enlace_de_retiro.js',
+  '20261026175222_cga_a55_1_regex_denom_sin_signo.js',
+];
 const MAX_REMEDIOS = 200;
 
 /**

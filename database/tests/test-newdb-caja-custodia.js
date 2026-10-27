@@ -162,6 +162,32 @@ const rechaza = (err, code, nombre) => !!err && err.code === code && (err.constr
       ok(Number(ajenas.n) === 0 || !hayRol, 'otro tenant no ve la custodia');
       await comoApp(T);
 
+      console.log('\n── 6a. [CGA-A.55.1] Cada llave de denominación vale lo que dice ──');
+      // `finance.caos_denom_valor` decide si una llave de billete existe. La `a55` la dejó rota en
+      // prod: knex cambió los `?` de su regex por `$1`/`$2`, devolvía NULL para TODA llave y el
+      // trigger rechazaba cualquier enlace con billetes (CAOS_LINK_BILLETES_FORMA). Se mide la
+      // función sola, antes que 6b, para que el rojo nombre la causa y no sólo el síntoma.
+      const hayValor = (await trx.raw(`SELECT to_regprocedure('finance.caos_denom_valor(text)') AS f`)).rows[0].f;
+      if (!hayValor) {
+        skip('no existe finance.caos_denom_valor (migración 20261026110741)');
+      } else {
+        const valor = async (k) => (await trx.raw('SELECT finance.caos_denom_valor(?::text) AS v', [k])).rows[0].v;
+        const fallasAntes = fail;
+        for (const [k, esperado] of [['500', 500], ['1000', 1000], ['20', 20], ['0.5m', 0.5], ['10m', 10], ['2.5m', 2.5]]) {
+          const v = await valor(k);
+          ok(v !== null && Number(v) === esperado, `'${k}' vale ${esperado} (devolvió ${v})`);
+        }
+        for (const k of ['', 'abc', 'm', '5.', '-5', '500x']) {
+          const v = await valor(k);
+          ok(v === null, `NEGATIVA: '${k}' no es una llave → NULL (devolvió ${v})`);
+        }
+        if (fail > fallasAntes) {
+          const { r } = (await trx.raw(`SELECT substring(prosrc from '~ ''[^'']*''') AS r FROM pg_proc
+            WHERE oid = to_regprocedure('finance.caos_denom_valor(text)')`)).rows[0];
+          console.log(`     regex guardada en la base: ${r} — si trae $1/$2, knex se comió un signo de interrogación`);
+        }
+      }
+
       console.log('\n── 6b. [CGA-A.55] Los billetes de cada pedazo del retiro ──');
       const hayBilletes = (await trx.raw(`SELECT count(*)::int n FROM information_schema.columns
         WHERE table_schema='finance' AND table_name='caos_cash_links' AND column_name='billetes'`)).rows[0].n > 0;

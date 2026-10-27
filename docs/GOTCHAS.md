@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 274 KB, 4853 líneas, 103 secciones.
+> **Índice navegable** — 276 KB, 4876 líneas, 103 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/GOTCHAS.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -89,27 +89,27 @@
 | 3730 | 3787 | 3 | 68. `nx build` verde no dice NADA sobre si la app arranca — el grafo de inyección se resuelve al levantar el p |
 | 3788 | 3834 | 2 | 69. Dos `SAVEPOINT` concurrentes sobre la misma transacción: `Promise.all` deja la medición ciega y filtra un  |
 | 3835 | 3878 | 2 | 70. Una interfaz declarada a mano NO puede atrapar un desajuste de wire — y el spec tampoco, porque su fixture |
-| 3879 | 3938 | 3 | 71. `knex.raw()` se come los `?` de una REGEX y los convierte en `$1`, `$2` — aunque no le pases bindings |
-| 3939 | 3970 | 2 | 72. El gate de tipado es un comando APARTE: `tsc` y los dos `nx build` pasan en verde con violaciones adentro |
-| 3971 | 4025 | 3 | 73. En LOCAL todos los websockets fallan: el proxy de dev enruta `/socket.io` y la app pide `/reports/socket.i |
-| 4026 | 4067 | 3 | 74. Un `mv` sobre un archivo montado como *bind mount* desengancha el montaje PARA SIEMPRE — el contenedor sig |
-| 4068 | 4145 | 6 | 75. `npm run migrate:new` sobre una base VACÍA no llega al final: se detiene en la migración 88, y otra vez en |
-| 4146 | 4177 | 2 | 76. `diff -rq` SIGUE los symlinks: dos directorios "idénticos" pueden ser uno solo y catorce enlaces |
-| 4178 | 4209 | 1 | 77. `git commit -- <ruta>` DESHACE un `git rm --cached` de esa misma ruta, y sale exit 0 |
-| 4210 | 4250 | 2 | 78. Un commit de RESTAURACIÓN se lleva la autoría de cada línea que toca: el `git blame` posterior apunta a qu |
-| 4251 | 4302 | 3 | 79. ⛔ Nada de Python — y el costo de que la regla viviera sólo en la memoria de UNA sesión |
-| 4303 | 4358 | 3 | 80. ⛔⛔ Un ENSAYO que no usa el rol del que EJECUTA no ensayó nada — y `LEFT JOIN` convierte eso en `NULL` sin  |
-| 4359 | 4396 | 2 | 81. ⛔ `updated_at` no dice cuándo cambió el dato: dice cuándo pasó el importer — y eso es el 91.4% del catálog |
-| 4397 | 4464 | 4 | 82. ⛔⛔ `String(fecha).slice(0,10)` sobre una columna `date` da `"Wed May 27"` — y publicó una acusación de $18 |
-| 4465 | 4544 | 4 | 83. ⛔⛔ Un corpus vectorial AUSENTE se ve EXACTAMENTE igual que «este producto no está en el catálogo» — 24 día |
-| 4545 | 4607 | 3 | 84. ⛔⛔ Un shipper VERDE con `rows_affected = 0` puede ser que murió el ORIGEN, no la tubería — y el carril her |
-| 4608 | 4637 | 3 | 85. ⛔⛔ Un parámetro DECORADO tipado con un nombre que también es un VALOR mata el arranque de la API — y todo  |
-| 4638 | 4695 | 3 | 86. ⛔⛔ `doc_tipo + folio` NO identifica un cobro: el folio de camioneta es consecutivo POR UNIDAD — capturar u |
-| 4696 | 4849 | 7 | 87. ⛔⛔ Un latido escrito por el CONSUMIDOR dice «ok» mientras el dato del productor está atascado — y mi propi |
-| 4850 | 4859 | 2 | 88. ⛔⛔ `@Throttle({ default: … })` NO limita nada: los tiers se llaman `short`, `medium` y `long` |
-| 4860 | 4905 | 3 | 89. ⛔⛔ Un documento CANCELADO en Kepler deja su aplicación VIVA en `kdm5` — quien suma `kdm5.c13` cuenta diner |
-| 4906 | 4936 | 2 | 90. ⛔ `styleClass` en `p-inputicon` dibuja una lupa de 0 px, y `track i` sobre un esqueleto repite la llave (N |
-| 4937 | 4968 | 4 | 91. ⛔ Seis trampas de HERRAMIENTA que no avisan — y las seis cobraron en el ciclo de Caducidades (2026-10-16) |
+| 3879 | 3961 | 4 | 71. `knex.raw()` se come los `?` de una REGEX y los convierte en `$1`, `$2` — aunque no le pases bindings |
+| 3962 | 3993 | 2 | 72. El gate de tipado es un comando APARTE: `tsc` y los dos `nx build` pasan en verde con violaciones adentro |
+| 3994 | 4048 | 3 | 73. En LOCAL todos los websockets fallan: el proxy de dev enruta `/socket.io` y la app pide `/reports/socket.i |
+| 4049 | 4090 | 3 | 74. Un `mv` sobre un archivo montado como *bind mount* desengancha el montaje PARA SIEMPRE — el contenedor sig |
+| 4091 | 4168 | 6 | 75. `npm run migrate:new` sobre una base VACÍA no llega al final: se detiene en la migración 88, y otra vez en |
+| 4169 | 4200 | 2 | 76. `diff -rq` SIGUE los symlinks: dos directorios "idénticos" pueden ser uno solo y catorce enlaces |
+| 4201 | 4232 | 1 | 77. `git commit -- <ruta>` DESHACE un `git rm --cached` de esa misma ruta, y sale exit 0 |
+| 4233 | 4273 | 2 | 78. Un commit de RESTAURACIÓN se lleva la autoría de cada línea que toca: el `git blame` posterior apunta a qu |
+| 4274 | 4325 | 3 | 79. ⛔ Nada de Python — y el costo de que la regla viviera sólo en la memoria de UNA sesión |
+| 4326 | 4381 | 3 | 80. ⛔⛔ Un ENSAYO que no usa el rol del que EJECUTA no ensayó nada — y `LEFT JOIN` convierte eso en `NULL` sin  |
+| 4382 | 4419 | 2 | 81. ⛔ `updated_at` no dice cuándo cambió el dato: dice cuándo pasó el importer — y eso es el 91.4% del catálog |
+| 4420 | 4487 | 4 | 82. ⛔⛔ `String(fecha).slice(0,10)` sobre una columna `date` da `"Wed May 27"` — y publicó una acusación de $18 |
+| 4488 | 4567 | 4 | 83. ⛔⛔ Un corpus vectorial AUSENTE se ve EXACTAMENTE igual que «este producto no está en el catálogo» — 24 día |
+| 4568 | 4630 | 3 | 84. ⛔⛔ Un shipper VERDE con `rows_affected = 0` puede ser que murió el ORIGEN, no la tubería — y el carril her |
+| 4631 | 4660 | 3 | 85. ⛔⛔ Un parámetro DECORADO tipado con un nombre que también es un VALOR mata el arranque de la API — y todo  |
+| 4661 | 4718 | 3 | 86. ⛔⛔ `doc_tipo + folio` NO identifica un cobro: el folio de camioneta es consecutivo POR UNIDAD — capturar u |
+| 4719 | 4872 | 7 | 87. ⛔⛔ Un latido escrito por el CONSUMIDOR dice «ok» mientras el dato del productor está atascado — y mi propi |
+| 4873 | 4882 | 2 | 88. ⛔⛔ `@Throttle({ default: … })` NO limita nada: los tiers se llaman `short`, `medium` y `long` |
+| 4883 | 4928 | 3 | 89. ⛔⛔ Un documento CANCELADO en Kepler deja su aplicación VIVA en `kdm5` — quien suma `kdm5.c13` cuenta diner |
+| 4929 | 4959 | 2 | 90. ⛔ `styleClass` en `p-inputicon` dibuja una lupa de 0 px, y `track i` sobre un esqueleto repite la llave (N |
+| 4960 | 4991 | 4 | 91. ⛔ Seis trampas de HERRAMIENTA que no avisan — y las seis cobraron en el ciclo de Caducidades (2026-10-16) |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -3933,6 +3933,29 @@ El barrido se corrió el 2026-09-25 contra prod: **una sola función afectada**,
 ⚠️ **Y la lección que vale más que el bug:** el candado de paridad comparaba el TOTAL y también
 **por canal**. El total salió verde. Si sólo hubiera comparado totales, esto entraba a producción
 sin un solo ruido — y el número grande de la pantalla habría estado bien todo el tiempo.
+
+⛔ **Segunda vez, 2026-10-26 (`[CGA-A.55.1]`), y ese barrido se quedaba corto.** `20261026110741`
+decía en su cabecera «⛔ Ni un `?` en el SQL» y aun así instaló `finance.caos_denom_valor` con
+`'^[0-9]+(\.[0-9]+)$1m$2$'`: NULL para toda llave de billete, y el trigger de enlaces de CAOS
+rechazando cualquier enlace con billetes. Lo cazó la base real del CI (`caja-db`), no la revisión:
+**una regla que se cumple a ojo no es una compuerta.** Y el barrido de arriba sólo mira
+**funciones**. Ampliado a **vistas** (cualquier literal con `$N`), en prod salieron **5 más**, todas
+con `?` en su migración de origen y sin medir su impacto:
+
+| vista | guardado en prod | efecto |
+|---|---|---|
+| `analytics.v_product_unit_ladder` | `u1_raw ~ '^[0-9]+(\.[0-9]+)$1$'` | nunca casa (`'12'` → false) |
+| `analytics.v_logistics_expense_channel` | `…\|RUTAS$1 +DIRECTAS$2` | esa alternativa nunca casa |
+| `analytics.customer_receivables` | `COALESCE(cliente_code, '?')` → `'$1'`, `'$2'`, `'$3'` | sin cliente, el JOIN `'$1' = '$3'` ya no empareja |
+| `analytics.mv_product_margins_30d` | `'?'` → `'$1'` y `'$2'` | la unidad desconocida sale `'$1'`/`'$2'`, no `'?'` |
+| `analytics.v_caja_arqueos` | `coalesce(m.capturo, '?')` → `'$1'` | `quien` sale «Control $1» sin capturista |
+
+```sql
+-- barrido de vistas: revisá cada hit a mano («$19.5M» o «$1 peso» en un texto son falsos positivos)
+SELECT n.nspname||'.'||c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE c.relkind IN ('v','m') AND n.nspname NOT IN ('pg_catalog','information_schema')
+   AND pg_get_viewdef(c.oid) ~ '''[^'']*[$][0-9][^'']*''';
+```
 
 ---
 
