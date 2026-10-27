@@ -102,7 +102,9 @@ const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_
   '20261027120749_le19_cashbook_conteos_hallazgos_y_excepciones.js',
   // `[LE.4.8]` La alerta de permisos de caja: triggers sobre las cuatro tablas de `identity`, que
   // aquí llegan vacías desde el snapshot (sin políticas ni triggers propios: basta su forma).
-  '20261027132017_le48_cashbook_alerta_de_permisos_de_caja.js'];
+  '20261027132017_le48_cashbook_alerta_de_permisos_de_caja.js',
+  // `[LE.4.9]` En la caja firma un puesto: lee `identity.users` y `identity.position_responsibilities`.
+  '20261027162407_le49_cashbook_firma_de_caja_por_puesto.js'];
 const MAX_REMEDIOS = 200;
 /** Los GRANT de prod a `app_runtime` sobre tablas que llegan vacías del snapshot y una prueba escribe. */
 const GRANTS_DE_PROD = {
@@ -110,6 +112,15 @@ const GRANTS_DE_PROD = {
   'identity.user_permissions': 'SELECT, INSERT, UPDATE, DELETE',
   'identity.user_roles': 'SELECT, INSERT, UPDATE, DELETE',
   'identity.users': 'SELECT, INSERT, UPDATE, DELETE',
+  'identity.position_responsibilities': 'SELECT, INSERT, UPDATE, DELETE',
+};
+/**
+ * `[LE.4.9]` Columnas que prod tiene y el snapshot (`esquema-bd-prod-columnas.csv`, 2026-10-06) no:
+ * se agregan al molde apenas se crea, con el tipo medido en prod el 2026-10-27. Sin esto la
+ * migración de la firma por puesto no puede ni crear su trigger (`UPDATE OF position_code`).
+ */
+const COLUMNAS_POSTERIORES_AL_SNAPSHOT = {
+  'identity.users': [['position_code', 'varchar(50)'], ['kind', `varchar(20) NOT NULL DEFAULT 'interno'`]],
 };
 
 /**
@@ -352,6 +363,11 @@ async function main() {
             await knex.raw(`CREATE TABLE ${schema}.${nombre} (${defs})`);
             moldes.push(`${schema}.${nombre}`);
             await anotar('tabla_vacia', `${schema}.${nombre}`, `desde el snapshot de prod; la pidió ${mig}`);
+            for (const [col, tipo] of COLUMNAS_POSTERIORES_AL_SNAPSHOT[`${schema}.${nombre}`] || []) {
+              if (cols.some((c) => c.columna === col)) continue;   // el snapshot ya la trae: manda el snapshot
+              await knex.raw(`ALTER TABLE ${schema}.${nombre} ADD COLUMN ${col} ${tipo}`);
+              await anotar('columna_posterior_al_snapshot', `${schema}.${nombre}.${col}`, `${tipo} (medido en prod)`);
+            }
             continue;
           }
           const creador = creadorDeRelacion(schema, nombre, todos);

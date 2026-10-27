@@ -14,6 +14,7 @@
 const crypto = require('crypto');
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-cashbook-libro');
+const { sembrarFirmantes } = require('./caja/firmantes');
 
 const uuid = () => crypto.randomUUID();
 const TT = uuid();          // tenant de las secciones con rollback
@@ -94,6 +95,9 @@ async function preparar(trx, tenant) {
   hayRol = (await knex.raw(`SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime'`)).rows.length > 0;
   if (!hayRol) skip('no existe app_runtime: los privilegios no se prueban');
   const hayDdl = (await knex.raw(`SELECT 1 FROM pg_event_trigger WHERE evtname = 'cashbook_ddl_fin'`)).rows.length > 0;
+  // `[LE.4.9]` U2 autoriza y firma en los dos tenants: tiene que tener un puesto que firma caja.
+  await sembrarFirmantes(knex, TT, [U2]);
+  await sembrarFirmantes(knex, TC, [U2]);
 
   try {
     await knex.transaction(async (trx) => {
@@ -373,6 +377,7 @@ async function concurrencia() {
 async function rendimiento() {
   console.log('\n── 12. Rendimiento (--rendimiento): 2,000 asientos uno tras otro ──');
   const T = uuid();
+  await sembrarFirmantes(knex, T, [U2]);
   await confirmado(T, (t) => preparar(t, T));
   const tiempos = [];
   for (let i = 0; i < 2000; i++) {
