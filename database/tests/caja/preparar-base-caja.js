@@ -350,6 +350,22 @@ async function main() {
       }
     }
 
+    // ⛔ `[CGP-D.1.4]` El permiso de `app_runtime` sobre `identity`, ESPEJO DE PROD. Lo leen el sensor
+    // del corte abierto (a quién avisar) y la llave de emergencia (`darLlave`), y sólo con SELECT. Acá
+    // `identity.users` la crea un remedio, vacía desde el snapshot y como `postgres`, sin el permiso que
+    // en prod da `20260603140000_move_identity_tables_to_schema.js` (que mueve tres tablas de `public`:
+    // traerla arrastraría su historia). Sin él, el sensor daba «permission denied for schema identity»:
+    // 4 de las 17 fallas de «Servicio real del corte». Medido en prod en sólo lectura el 2026-10-26:
+    // `USAGE` en `identity` y `SELECT, INSERT, UPDATE, DELETE` en `identity.users`, directo de `postgres`.
+    // Se da lo que caja lee y NUNCA más que prod: si caja empieza a escribir ahí, que lo diga un rojo.
+    if (!(await knex.raw(`SELECT to_regclass('identity.users') AS t`)).rows[0].t) {
+      throw new Error('identity.users no existe en la base armada: la leen el sensor del corte abierto y la llave de emergencia.');
+    }
+    await knex.raw('GRANT USAGE ON SCHEMA identity TO app_runtime');
+    await knex.raw('GRANT SELECT ON identity.users TO app_runtime');
+    await anotar('permiso', 'identity.users',
+      'app_runtime: USAGE en identity + SELECT en identity.users, como en prod (prod da además INSERT/UPDATE/DELETE; caja sólo lee)');
+
     const aplicadas = await knex('knex_migrations').count('* as n').first();
     console.log(`\n══ LISTO: ${aplicadas.n} migraciones aplicadas, ninguna saltada.`);
     if (traidas.length) console.log(`   traídas por dependencia (${traidas.length}): ${traidas.join(', ')}`);
