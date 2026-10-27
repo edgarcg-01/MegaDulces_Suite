@@ -8,7 +8,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { PRECIOS_TABS } from '../precios-tabs';
+import { PRECIOS_APARTADO_TABS } from '../precios-apartado-tabs';
 import { MotorMargenService, type CompetenciaMotor } from '../motor-margen.service';
 
 /**
@@ -295,7 +295,7 @@ export class ComercialCompetenciaComponent {
   private readonly svc = inject(MotorMargenService);
   private readonly destroyRef = inject(DestroyRef);
 
-  readonly tabs = PRECIOS_TABS;
+  readonly tabs = PRECIOS_APARTADO_TABS; // [NAV.8] la barra del apartado «Precios» (Listas + Control de margen)
   readonly cargando = signal(true);
   readonly error = signal<string | null>(null);
   readonly d = signal<CompetenciaMotor | null>(null);

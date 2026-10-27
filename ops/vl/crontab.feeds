@@ -28,7 +28,10 @@
 # barato: el matview llevaba dos columnas de reloj, así que REFRESH CONCURRENTLY reescribía la
 # tabla ENTERA cada minuto -- 12,294 DELETE+INSERT para 0 cambios reales, 12.3 GB de WAL por día.
 # Va cada minuto y no mas seguido a proposito: esa es la frescura real del ODS que lo alimenta.
-* * * * *   /app/ops/vl/run-feed.sh caja-mv   "node /app/database/importers/kepler/refresh-caja-matview.js --apply"
+# ⛔ RETIRADO 2026-10-27 [OPS-AUD.11.5] (ADR-104): mv_caja_movimientos dejó de ser materializada; la
+# mantiene un trigger al escribir kdm1 y el aviso a la pantalla (NOTIFY caja_movimientos) lo emite
+# ese trigger. Este refresco costaba 35,730 s en 27 h (el 68 % de todo lo que la base gastaba en
+# refrescar) para ~130 cambios por hora.
 
 # [CPA.0.2] El semaforo de cierre contable (/contabilidad/cierre). La consulta real del servicio
 # medía 889 ms contra la vista y mide 3 contra la matvista -- 296x, y el gate del proyecto son 500.

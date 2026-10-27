@@ -6,14 +6,14 @@ import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TableModule } from 'primeng/table';
-import { TagModule } from 'primeng/tag';
+import { RouterLink } from '@angular/router';
 import { DialogModule } from 'primeng/dialog';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { TextareaModule } from 'primeng/textarea';
-import { DENOMINACIONES_CAOS, type CaosConteoFisicoDto } from '@megadulces/contracts';
+import { DENOMINACIONES_CAOS, type CaosConteoFisicoDto, type PosicionCajaDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../../../core/services/permissions.service';
 import { Permission } from '../../../../core/constants/permissions';
-import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
+import { MetricCardComponent, type MetricTone } from '../../../../shared/components/metric-card/metric-card.component';
 import { SegmentedComponent, type SegOption } from '../../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
@@ -26,6 +26,8 @@ import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion, type CaosIngresosEstado, type CaosTipo, type CaosSaldo, type CaosTipoEfecto } from '../../caos.service';
 import { CaosSocketService } from '../../caos-socket.service';
 import { CajaSocketService } from '../../caja-socket.service';
+import { CashLedgerService } from '../../cash-ledger.service';
+import { desgloseRubro, etiquetaPosicion, plural, type RenglonDesglose } from '../caja-general/posicion-caja.util';
 
 /**
  * CS.2 — Reporte de movimientos de la caja fuerte CAOS (sistema externo, ADR Fase CS).
@@ -48,15 +50,25 @@ import { CajaSocketService } from '../../caja-socket.service';
  *    indistinguible de un rango sin movimientos. Así estuvo **oculto en producción** el 500 de
  *    `[CG.161]`. Cada panel declara ahora su propio fallo con un reintento (ADR-056).
  */
-interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal?: number | null }
+interface FilaUI extends CaosMovimiento {
+  denom?: CaosDenominacion[]; denomTotal?: number | null;
+  /** `[CGS.55]` El detalle no se pudo leer: se dice y se reintenta — no se pinta «sin desglose». */
+  denomError?: string | null;
+}
+
+/** `[CGS.55]` Una tarjeta de la respuesta: la cifra, con qué se midió y de dónde sale. */
+interface TarjetaCaos {
+  clave: 'saldo' | 'pendientes' | 'conteo'; label: string; valor: string; estado: string;
+  desglose: RenglonDesglose[]; nota: string | null; tone: MetricTone;
+}
 
 @Component({
   selector: 'app-finanzas-caos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, ButtonModule, InputTextModule, SelectModule, DatePickerModule, TableModule, TagModule,
+  imports: [FormsModule, RouterLink, ButtonModule, InputTextModule, SelectModule, DatePickerModule, TableModule,
     DialogModule, InputNumberModule, TextareaModule,
-    MetricStripComponent, SegmentedComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent,
+    MetricCardComponent, SegmentedComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent,
     CajaTabsComponent],
   template: `
     <!-- [CG.121] Captura / Expediente / Caja Fuerte son UN area, no tres reportes sueltos. -->
@@ -65,10 +77,7 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Caja Fuerte (CAOS)</h1>
-          <p class="surf-page-sub">
-            Cuánto efectivo hay en la caja fuerte, y qué de lo que entra y sale falta registrar en
-            Caja General. Sólo lectura.
-          </p>
+          <p class="surf-page-sub">Cuánto efectivo hay en la caja fuerte y qué de lo que entra y sale falta registrar en Caja General.</p>
         </div>
         <!-- DESIGN §P — la jerga de esta pantalla va al diccionario versionado, no redactada
              acá: «sin respaldo», «grano» y «cobertura» se leyeron al revés en la auditoría. -->
@@ -90,16 +99,39 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
         <app-load-state [loading]="saldoCargando() && !saldoResp()" [error]="saldoError()" [isEmpty]="false"
                         [skeletonRows]="1" errorTitle="No se pudo leer el estado de la caja fuerte"
                         (retry)="cargarSaldo()">
-          <app-metric-strip [items]="saldoKpis()" ariaLabel="Estado de la caja fuerte"></app-metric-strip>
-          <!-- [CGS.22] El testigo que faltaba: una persona cuenta la maquina, a ciegas. Lo cuenta quien
-               supervisa, no la caja. -->
-          @if (puedeContar()) {
-            <div class="cs-conteo-acc">
-              <p-button label="Contar la caja fuerte" icon="pi pi-calculator" size="small" severity="secondary" [outlined]="true"
-                        (onClick)="abrirConteo()"></p-button>
-              <small class="cs-conteo-hint">Se cuenta a ciegas: lo que dice la máquina aparece hasta guardar.</small>
-            </div>
-          }
+          <!-- [CGS.55] Tres tarjetas, como las de Arqueos: cuánto hay, qué falta registrar y quién lo
+               contó. Cada una con su cifra, con qué se midió y de dónde sale. Antes «En la caja fuerte»
+               decía «sin medir» mientras Arqueos, a un clic, decía $83,650.00 del mismo dato: cuando la
+               máquina no reporta, aquí se publica el MISMO cálculo de /posicion, con su estado. -->
+          <ul class="cs-cards" aria-label="Estado de la caja fuerte">
+            @for (t of tarjetas(); track t.clave) {
+              <li>
+                <app-metric-card [label]="t.label" format="text" [valueText]="t.valor" [tone]="t.tone" [compact]="true">
+                  <span class="cs-card-est" [class.cs-mal]="t.tone === 'bad'" [class.cs-card-aviso]="t.tone === 'warn'">
+                    @if (t.tone !== 'default') { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
+                    {{ t.estado }}
+                  </span>
+                  @if (t.desglose.length) {
+                    <ul class="cs-card-des" [attr.aria-label]="'De dónde sale: ' + t.label">
+                      @for (d of t.desglose; track $index) {
+                        <li><span>{{ d.texto }}</span>@if (d.monto) { <span class="comm-num" [class.fin-entra]="d.monto.startsWith('+')" [class.fin-sale]="d.monto.startsWith('−')">{{ d.monto }}</span> }</li>
+                      }
+                    </ul>
+                  }
+                  @if (t.nota) { <span class="cs-card-nota">{{ t.nota }}</span> }
+                  <!-- [CGS.22] El testigo que faltaba: una persona cuenta la maquina, a ciegas. Lo cuenta
+                       quien supervisa, no la caja. -->
+                  @if (t.clave === 'conteo' && puedeContar()) {
+                    <span class="cs-conteo-acc">
+                      <p-button label="Contar la caja fuerte" icon="pi pi-calculator" size="small" severity="secondary" [outlined]="true"
+                                (onClick)="abrirConteo()"></p-button>
+                      <small class="cs-conteo-hint">A ciegas: lo que dice la máquina aparece hasta guardar.</small>
+                    </span>
+                  }
+                </app-metric-card>
+              </li>
+            }
+          </ul>
           @if (saldoResp(); as s) {
             <!-- Estandar 2.1 — una falla se ve sin abrir nada. Solo aparece si hay algo que decir. -->
             @for (a of avisos(); track a) {
@@ -165,7 +197,7 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
                  (onRowExpand)="alExpandir($event.data)"
                  size="small" class="cs-grid surf-table surf-table--sticky"
                  [scrollable]="true" scrollHeight="flex"
-                 [paginator]="rows().length > 25" [rows]="25"
+                 [paginator]="rows().length > 25" [rows]="porPagina()" (onPage)="porPagina.set($event.rows)"
                  [rowsPerPageOptions]="[25, 50, 100]"
                  [showCurrentPageReport]="true"
                  currentPageReportTemplate="{first}–{last} de {totalRecords}">
@@ -179,14 +211,17 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
                    la columna que responde la pregunta de trabajo: si ya esta en Caja General. -->
               <th scope="col" style="width:2.5rem"><span class="sr-only">Denominaciones</span></th>
               <th scope="col" style="width:9rem">Fecha y hora</th>
-              <th scope="col" style="width:8rem">Tipo</th>
-              <th scope="col" class="comm-num" style="width:9rem">Monto</th>
+              <th scope="col" style="width:9rem">Tipo</th>
+              <th scope="col" class="cs-th-num" style="width:10rem">Monto</th>
               <th scope="col">Referencia</th>
               <th scope="col">Operador</th>
               <th scope="col" style="width:10rem">Caja General</th>
             </tr>
           </ng-template>
-          <ng-template #body let-r let-expanded="expanded">
+          <!-- [CGS.55] Sin etiquetas de color: eran dos por renglón (110 en 55 renglones). La DIRECCION
+               va en el signo del monto (+ entra / − sale), el tipo en texto, y «Caja General» dice el
+               folio o lleva a registrarlo — no repite «Sin registrar» en una vista que ya es eso. -->
+          <ng-template #body let-r let-expanded="expanded" let-i="rowIndex">
             <!-- Sin pSelectableRow: sin selectionMode no hace nada, y el recorrido con
                  teclado lo da el botón de cada fila (mismo criterio que almacen-movimientos). -->
             <tr>
@@ -201,18 +236,38 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
               </td>
               <!-- [CGA-A.33] el instante viaja en UTC: dmy() le cortaba la fecha en UTC y lo de despues de
                    las 18:00 salia con el dia SIGUIENTE (10 movimientos, $307,860 en 30 dias). Hora de Mexico. -->
-              <td class="mono">{{ fechaHoraMx(r.occurred_at) }}</td>
-              <!-- [CGA-A.33] el color dice la DIRECCION (entra / sale / lectura / sin decodificar) con
-                   el mismo mapa que suma el neto. -->
-              <td><p-tag [value]="r.type_label" [severity]="sev(r.type_id)"></p-tag></td>
-              <td class="comm-num">{{ money(r.total) }}</td>
+              <td class="cs-nowrap">{{ fechaHoraMx(r.occurred_at) }}</td>
+              <!-- [CGA-A.33] La dirección sale del mismo mapa que suma el neto; un tipo sin decodificar
+                   se dice con un aviso, no con un color. -->
+              <td>
+                {{ tipoTexto(r.type_label) }}
+                @if (efectoDe(r.type_id)?.efecto === 'indeterminado') {
+                  <span class="cs-card-aviso"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> sin decodificar</span>
+                }
+              </td>
+              <!-- [CGS.56] Edgar: «rojo si es egreso, verde si es ingreso». El color va en el TEXTO del monto y
+                   acompaña al signo: sin el color, el + / − sigue diciendo la dirección. -->
+              <td class="comm-num cs-monto" [class.fin-entra]="signo(r.type_id) === '+ '" [class.fin-sale]="signo(r.type_id) === '− '">{{ signo(r.type_id) }}{{ money(r.total) }}</td>
               <td>{{ r.ref || '—' }}</td>
-              <td class="fin-dim">{{ operador(r.user_external) }}</td>
+              <!-- El operador se dice cuando cambia: 24 de 25 renglones repetían el mismo nombre. -->
+              <td class="fin-dim">
+                @if (i % porPagina() === 0 || operador(rows()[i - 1]?.user_external) !== operador(r.user_external)) {
+                  {{ operador(r.user_external) }}
+                } @else {
+                  <span aria-hidden="true">″</span><span class="sr-only">{{ operador(r.user_external) }}</span>
+                }
+              </td>
               <td>
                 @if (r.folio_caja_general) {
-                  <span class="mono"><i class="pi pi-check" aria-hidden="true"></i> {{ r.folio_caja_general }}</span>
+                  <span><i class="pi pi-check" aria-hidden="true"></i> {{ r.folio_caja_general }}</span>
                 } @else if (r.type_id === 0 || r.type_id === 4) {
-                  <p-tag value="Sin registrar" severity="warn" icon="pi pi-exclamation-circle"></p-tag>
+                  <!-- [CGS.55] La pantalla dice qué falta registrar: también lleva a registrarlo, con el
+                       movimiento ya puesto en la captura (Captura lo busca por su identidad). -->
+                  <a class="cs-registrar" routerLink="/finanzas/caja-general"
+                     [queryParams]="{ caos: r.device + '|' + r.external_id, caos_dia: diaMx(r.occurred_at) }"
+                     [attr.aria-label]="'Registrar en Caja General el movimiento ' + r.external_id">
+                    Registrar <i class="pi pi-arrow-right" aria-hidden="true"></i>
+                  </a>
                 } @else {
                   <span class="fin-dim">no aplica</span>
                 }
@@ -253,6 +308,10 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
                       corrige ninguno.
                     </p>
                   }
+                } @else if (r.denomError) {
+                  <!-- [CGS.55] Un fallo NO es «sin desglose»: se dice y se reintenta. -->
+                  <span class="cs-mal">{{ r.denomError }}</span>
+                  <p-button label="Reintentar" size="small" [text]="true" (onClick)="alExpandir(r)"></p-button>
                 } @else if (r.denom) {
                   <span class="fin-dim">Sin desglose por denominación en este movimiento.</span>
                 } @else {
@@ -529,7 +588,7 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
     </p-dialog>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
-    .cs-conteo-acc { display:flex; gap:var(--sp-3); align-items:center; flex-wrap:wrap; margin-top:var(--sp-2); }
+    .cs-conteo-acc { display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap; margin-top:var(--sp-2); }
     .cs-conteo-hint { color:var(--text-muted); font-size:var(--fs-sm); }
     .cs-conteo-reja { display:grid; grid-template-columns:6rem 1fr; gap:var(--sp-2) var(--sp-3); align-items:center; margin-block:var(--sp-3); }
     .cs-conteo-total { font-size:var(--fs-lg); }
@@ -563,6 +622,25 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
     .cs-grano { font-size:var(--fs-xs); color:var(--text-muted); font-variant-numeric:tabular-nums; }
     .cs-grano-flojo { color:var(--warn-fg); }
     .cs-respuesta { margin:0 0 var(--sp-4); }
+    /* [CGS.55] Las tarjetas: las mismas piezas que Arqueos. */
+    .cs-cards { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(16rem, 1fr)); gap:var(--sp-3); }
+    .cs-cards > li { min-width:0; display:flex; }
+    .cs-cards app-metric-card { flex:1 1 auto; }
+    :host ::ng-deep .cs-cards .mc { height:100%; }
+    .cs-card-est { font-size:var(--fs-xs); color:var(--text-muted); display:flex; gap:var(--sp-1); align-items:baseline; }
+    .cs-card-aviso { color:var(--warn-fg); font-weight:600; }
+    .cs-card-des { list-style:none; margin:var(--sp-1) 0 0; padding:var(--sp-2) 0 0; border-top:1px solid var(--border-color); display:flex; flex-direction:column; gap:2px; font-size:var(--fs-xs); color:var(--text-muted); line-height:1.35; }
+    .cs-card-des li { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:var(--sp-2); align-items:baseline; }
+    .cs-card-des .comm-num { color:var(--text-main); white-space:nowrap; text-align:right; }
+    /* [CGS.56] La dirección del dinero en el texto del monto: verde entra, rojo sale. */
+    .fin-entra, .cs-card-des .comm-num.fin-entra { color:var(--ok-soft-fg); }
+    .fin-sale, .cs-card-des .comm-num.fin-sale { color:var(--bad-soft-fg); }
+    .cs-card-nota { font-size:var(--fs-xs); color:var(--text-muted); line-height:1.35; }
+    .cs-nowrap { white-space:nowrap; }
+    .cs-th-num { text-align:right; }
+    .cs-monto { white-space:nowrap; text-align:right; }
+    .cs-registrar { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); font-weight:600; color:var(--text-main); text-decoration:underline; text-underline-offset:2px; }
+    .cs-registrar:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .cs-aviso { font-size:var(--fs-sm); color:var(--warn-fg); margin:.4rem 0 0; }
     .cs-trabajo { margin-top:var(--sp-2); }
     .cs-barra { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); margin-bottom:var(--sp-2); }
@@ -669,13 +747,16 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
     const k = this.kpi();
     const n = k ? Number(k.movimientos) || 0 : this.rows().length;
     if (this.vista() === 'sin_registrar') {
+      // `[CGS.55]` Con la carga caída esta línea afirmaba «todavía no se ha registrado ninguno» (había 55).
+      if (this.saldoError() || this.err()) return 'No se pudo leer lo que falta registrar.';
       const p = this.saldoResp()?.pendientes;
+      if (!this.saldoResp()) return '';
       if (!p?.medido) return 'Sin medir: todavía no se ha registrado ningún movimiento de CAOS en Caja General.';
-      return `${n} movimiento(s) de la caja fuerte sin folio en Caja General desde el ${dmy(p.desde)} — `
+      return `${plural(n, 'movimiento', 'movimientos')} de la caja fuerte sin folio en Caja General desde el ${dmy(p.desde)} — `
         + 'el día en que se registró el primero; antes de esa fecha la práctica no existía.';
     }
     if (!k) return `Del ${dmy(this.from)} al ${dmy(this.to)}.`;
-    return `Del ${dmy(this.from)} al ${dmy(this.to)}: ${n} movimiento(s) · entró ${money(Number(k.depositos) + Number(k.dotado))}`
+    return `Del ${dmy(this.from)} al ${dmy(this.to)}: ${plural(n, 'movimiento', 'movimientos')} · entró ${money(Number(k.depositos) + Number(k.dotado))}`
       + ` · salió ${money(Number(k.dispensado) + Number(k.vaciado))}`
       + (Number(k.indeterminados_n) ? ` · ${k.indeterminados_n} sin decodificar` : '');
   });
@@ -688,70 +769,136 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
   readonly efectos = signal<Record<string, CaosTipoEfecto>>({});
 
   /**
-   * ⭐ `[CGA-A.41]` La respuesta, en tres cifras: cuánto hay, qué falta registrar y si alguien lo
-   * contó. El cuadre contra los movimientos va DENTRO de la primera (es su verificación, no una
-   * cuarta pregunta).
+   * ⭐ `[CGA-A.41]` `[CGS.55]` La respuesta, en tres tarjetas: cuánto hay, qué falta registrar y
+   * si alguien lo contó. El cuadre contra los movimientos va DENTRO de la primera (es su
+   * verificación, no una cuarta pregunta).
    */
-  readonly saldoKpis = computed<MetricStripItem[]>(() => {
-    const s = this.saldoResp();
-    const items: MetricStripItem[] = [];
+  readonly tarjetas = computed<TarjetaCaos[]>(() => [this.tarjetaSaldo(), this.tarjetaPendientes(), this.tarjetaConteo()]);
 
-    if (!s || s.estado !== 'medido' || !s.saldo || !s.maquina || !s.cuadre || !s.posteriores) {
-      items.push({
-        label: 'En la caja fuerte', value: 'sin medir', state: 'no_medido',
-        stateNote: s?.estado === 'sin_tabla'
-          ? 'La suite todavía no guarda las lecturas de «Contenidos» de la máquina: falta aplicar su migración.'
-          : 'La máquina todavía no ha reportado su contenido a la suite.',
-      });
-    } else {
+  /**
+   * Cuánto hay. Primero lo que dice la máquina; si todavía no reporta su contenido, el MISMO cálculo
+   * que Arqueos (`/posicion`: último arqueo + depositado − dispensado) con su estado. Sólo si no hay
+   * ninguno de los dos se declara «sin medir».
+   */
+  private tarjetaSaldo(): TarjetaCaos {
+    const s = this.saldoResp();
+    if (s && s.estado === 'medido' && s.saldo && s.maquina && s.cuadre && s.posteriores) {
       const { maquina: m, saldo, cuadre: c, posteriores: p } = s;
       const notas: string[] = [];
       if (m.con_miscount) notas.push('La máquina marca conteo dudoso en algún casete.');
       if (saldo.parcial) notas.push(`Después de la lectura hay movimientos sin decodificar: ${p.ambiguos.join(' · ')}`);
       const cuadre = !c.pares ? 'sin segunda lectura para cuadrar'
-        : c.descuadres.length ? `${c.descuadres.length} descuadre(s) con sus movimientos`
+        : c.descuadres.length ? plural(c.descuadres.length, 'descuadre con sus movimientos', 'descuadres con sus movimientos')
         : `cuadra con sus movimientos (${c.cuadran} de ${c.pares})`;
-      items.push({
-        label: 'En la caja fuerte',
-        value: money(saldo.total),
-        sub: `según la máquina · ${this.horaMx(saldo.origen === 'maquina' ? m.confirmada_at : m.tomada_at)}`
-          + (saldo.origen === 'maquina' ? '' : ` + ${p.movimientos} mov.`) + ` · ${cuadre}`,
-        state: notas.length ? 'parcial' : 'medido',
-        stateNote: notas.length ? notas.join(' ') : undefined,
-        tone: c.descuadres.length ? 'bad' : m.con_miscount ? 'warn' : undefined,
-      });
+      return {
+        clave: 'saldo', label: 'En la caja fuerte', valor: money(saldo.total),
+        estado: `según la máquina · ${this.horaMx(saldo.origen === 'maquina' ? m.confirmada_at : m.tomada_at)}`,
+        desglose: [
+          ...(saldo.origen === 'maquina' ? [] : [{ monto: null, texto: `lectura + ${plural(p.movimientos, 'movimiento', 'movimientos')} después` }]),
+          { monto: null, texto: cuadre },
+        ],
+        nota: notas.length ? notas.join(' ') : null,
+        tone: c.descuadres.length ? 'bad' : (m.con_miscount || saldo.parcial) ? 'warn' : 'default',
+      };
     }
+    const r = this.posicion()?.rubros.find((x) => x.rubro === 'caja_fuerte');
+    if (r && r.ahora.monto !== null) {
+      const e = r.ahora.estado;
+      return {
+        clave: 'saldo', label: 'En la caja fuerte', valor: money(r.ahora.monto),
+        estado: `${etiquetaPosicion(e)} · la máquina no reporta su contenido`,
+        desglose: desgloseRubro(r, (n) => money(n), (iso) => this.fechaHoraMx(iso)),
+        nota: e === 'parcial' || e === 'imposible' ? r.ahora.nota : null,
+        tone: e === 'parcial' ? 'warn' : e === 'imposible' ? 'bad' : 'default',
+      };
+    }
+    return {
+      clave: 'saldo', label: 'En la caja fuerte', valor: 'sin medir', estado: 'sin medir', desglose: [], tone: 'default',
+      nota: s?.estado === 'sin_tabla'
+        ? 'La suite todavía no guarda las lecturas de «Contenidos» de la máquina: falta aplicar su migración.'
+        : this.posicionError() ?? 'La máquina no reporta su contenido y no hay un arqueo del que partir.',
+    };
+  }
 
-    const pe = s?.pendientes;
-    items.push(pe?.medido
-      ? {
-          label: 'Sin registrar en Caja General',
-          value: money(pe.monto),
-          sub: `${pe.movimientos} mov. desde el ${dmy(pe.desde)} · ${pe.depositos.n} depósitos ${money(pe.depositos.monto)}`
-            + ` · ${pe.dispensaciones.n} dispensaciones ${money(pe.dispensaciones.monto)}`,
-          tone: pe.movimientos ? 'warn' : 'ok',
-        }
-      : { label: 'Sin registrar en Caja General', value: 'sin medir', state: 'no_medido',
-          stateNote: 'Todavía no se registró ningún movimiento de CAOS en Caja General: no hay desde cuándo contar.' });
+  /**
+   * Qué falta registrar. La cifra es CUÁNTOS movimientos: sumar depósitos y dispensaciones daba
+   * $2,487,010.00, que se leía como dinero faltante y era volumen en los dos sentidos (el neto,
+   * +$25,630.00). Cada sentido va en su renglón, y el neto al final.
+   */
+  private tarjetaPendientes(): TarjetaCaos {
+    const pe = this.saldoResp()?.pendientes;
+    if (!pe?.medido) {
+      return {
+        clave: 'pendientes', label: 'Sin registrar en Caja General', valor: 'sin medir', estado: 'sin medir', desglose: [], tone: 'default',
+        nota: this.saldoResp()
+          ? 'Todavía no se registró ningún movimiento de CAOS en Caja General: no hay desde cuándo contar.'
+          : 'No se pudo leer el estado de la caja fuerte.',
+      };
+    }
+    const neto = Number(pe.depositos.monto) - Number(pe.dispensaciones.monto);
+    return {
+      clave: 'pendientes', label: 'Sin registrar en Caja General',
+      valor: plural(pe.movimientos, 'movimiento', 'movimientos'),
+      estado: `desde el ${dmy(pe.desde)}`,
+      desglose: [
+        { monto: `+ ${money(pe.depositos.monto)}`, texto: plural(pe.depositos.n, 'depósito', 'depósitos') },
+        { monto: `− ${money(pe.dispensaciones.monto)}`, texto: plural(pe.dispensaciones.n, 'dispensación', 'dispensaciones') },
+        { monto: this.firmado(neto), texto: 'neto' },
+      ],
+      nota: null,
+      tone: pe.movimientos ? 'warn' : 'default',
+    };
+  }
 
-    // `[CGS.22]` El último conteo físico, si existe. Sin él se declara, no se pinta en cero.
+  /** `[CGS.22]` El último conteo físico, si existe. Sin él se declara, no se pinta en cero. */
+  private tarjetaConteo(): TarjetaCaos {
     const cf = this.conteoUltimo();
-    if (cf) {
-      items.push({
-        label: 'Conteo físico', value: money(cf.total), state: 'medido',
-        sub: `${dmy(cf.contado_at)} · ${cf.contado_por ?? '—'} · `
-          + (cf.diferencia === null ? 'sin lectura de la máquina contra qué compararlo'
-            : cf.diferencia === 0 ? 'cuadró con la máquina' : `difiere ${this.firmado(cf.diferencia)} de la máquina`),
-        tone: cf.diferencia === null ? 'warn' : cf.diferencia === 0 ? 'ok' : 'bad',
-      });
-    } else {
-      items.push({
-        label: 'Conteo físico', value: 'sin medir', state: 'no_medido',
-        stateNote: 'Nunca se ha contado a mano: el saldo de la caja fuerte sólo lo afirma la máquina.',
-      });
+    if (!cf && this.conteoError()) {
+      return {
+        clave: 'conteo', label: 'Conteo físico', valor: 'sin medir', estado: 'no se pudo leer el último conteo', desglose: [], tone: 'default',
+        nota: null,
+      };
     }
-    return items;
-  });
+    if (!cf) {
+      return {
+        clave: 'conteo', label: 'Conteo físico', valor: 'sin medir', estado: 'nunca se ha contado a mano', desglose: [], tone: 'default',
+        nota: 'El saldo de la caja fuerte sólo lo afirma la máquina.',
+      };
+    }
+    return {
+      clave: 'conteo', label: 'Conteo físico', valor: money(cf.total),
+      estado: `${dmy(cf.contado_at)} · ${cf.contado_por ?? '—'}`,
+      desglose: [{
+        monto: cf.diferencia === null || cf.diferencia === 0 ? null : this.firmado(cf.diferencia),
+        texto: cf.diferencia === null ? 'sin lectura de la máquina contra qué compararlo'
+          : cf.diferencia === 0 ? 'cuadró con la máquina' : 'contra la máquina',
+      }],
+      nota: null,
+      tone: cf.diferencia === null || cf.diferencia === 0 ? 'default' : 'bad',
+    };
+  }
+
+  // ── `[CGS.55]` Lo que hay en la caja fuerte según /posicion (el mismo cálculo que Arqueos) ──
+  private ledger = inject(CashLedgerService);
+  readonly posicion = signal<PosicionCajaDto | null>(null);
+  readonly posicionError = signal<string | null>(null);
+  cargarPosicion(): void {
+    this.ledger.posicion().subscribe({
+      next: (p) => { this.posicion.set(p); this.posicionError.set(null); },
+      error: () => this.posicionError.set('No se pudo calcular la caja fuerte a partir del último arqueo.'),
+    });
+  }
+
+  /** La dirección del movimiento en el signo del monto, con el mapa del backend. */
+  signo(typeId: number): string {
+    const e = this.efectoDe(typeId)?.efecto;
+    return e === 'suma' ? '+ ' : e === 'resta' ? '− ' : '';
+  }
+  /** La máquina escribe «Deposito»: se dice con su acento. */
+  tipoTexto(t: string | null | undefined): string { return (t ?? '—').replace(/^Deposito\b/, 'Depósito'); }
+  /** El día de México del movimiento, para la liga a Captura. */
+  diaMx(v: string | null | undefined): string { return v ? toMxDateKey(new Date(v)) : ''; }
+  readonly porPagina = signal(25);
 
   /**
    * Estándar 2.1 — las fallas de los carriles se dicen ARRIBA y sin abrir nada. Sólo aparecen
@@ -838,11 +985,20 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
     return this.efectos()[String(typeId)] ?? null;
   }
 
-  cargarSaldo(): void {
+  /**
+   * @param silencioso El aviso y el repaso no borran lo que se ve si fallan: un tropiezo de 5 s no
+   *   convierte las tarjetas en «sin medir». El fallo se declara sólo si no había nada.
+   */
+  cargarSaldo(silencioso = false): void {
+    this.cargarPosicion();
     this.saldoCargando.set(true);
     this.svc.saldo().subscribe({
       next: (s) => { this.saldoResp.set(s); this.saldoError.set(null); this.saldoCargando.set(false); },
-      error: (e) => { this.saldoResp.set(null); this.saldoError.set(this.textoError(e)); this.saldoCargando.set(false); },
+      error: (e) => {
+        this.saldoCargando.set(false);
+        if (silencioso && this.saldoResp()) return;
+        this.saldoResp.set(null); this.saldoError.set(this.textoError(e));
+      },
     });
   }
 
@@ -871,8 +1027,13 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
     if (n == null) delete p[d]; else p[d] = n;
     this.conteoPiezas.set(p);
   }
+  /** `[CGS.55]` Si la lectura falla no se dice «nunca se ha contado»: se dice que no se pudo leer. */
+  readonly conteoError = signal(false);
   cargarConteoUltimo(): void {
-    this.svc.conteoFisicoUltimo().subscribe({ next: (c) => this.conteoUltimo.set(c), error: () => this.conteoUltimo.set(null) });
+    this.svc.conteoFisicoUltimo().subscribe({
+      next: (c) => { this.conteoUltimo.set(c); this.conteoError.set(false); },
+      error: () => this.conteoError.set(true),
+    });
   }
   abrirConteo(): void {
     this.conteoPiezas.set({}); this.notaConteo.set(''); this.conteoGuardado.set(null); this.errConteo.set(null);
@@ -906,9 +1067,17 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void { this.sock.disconnect(); this.sockCaja.disconnect(); }
 
-  /** La consulta barata: es la única que corre al entrar y en cada repaso. */
-  cargar(): void {
-    this.cargando.set(true);
+  /**
+   * La consulta barata: es la única que corre al entrar y en cada repaso.
+   *
+   * @param silencioso `[CGS.55]` El aviso y el repaso NO repintan el esqueleto ni cierran lo abierto.
+   *   Medido el 2026-10-27: la tabla se recargaba 3 veces en 10 s (los avisos del feed de Kepler) y
+   *   cada vez cambiaba la tabla por el esqueleto: un renglón abierto se cerraba solo a los segundos.
+   *   Las filas que siguen conservan su desglose ya leído, y un fallo no borra lo que se ve.
+   */
+  cargar(silencioso = false): void {
+    const conDatos = this.rows().length > 0;
+    if (!(silencioso && conDatos)) this.cargando.set(true);
     this.svc.movimientos({
       from: this.from, to: this.to, limit: this.limite,
       estado: this.vista() === 'sin_registrar' ? 'sin_registrar' : undefined,
@@ -917,18 +1086,27 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
     })
       .subscribe({
         next: (r) => {
-          this.rows.set((r.rows || []) as FilaUI[]);
+          const previas = new Map(this.rows().map((x) => [x.id, x]));
+          const nuevas = ((r.rows || []) as FilaUI[]).map((x) => {
+            const p = previas.get(x.id);
+            return p?.denom ? { ...x, denom: p.denom, denomTotal: p.denomTotal } : x;
+          });
+          this.rows.set(nuevas);
           this.kpi.set(r.kpi ?? null);
           this.tipos.set(r.tipos || []);
           this.efectos.set(r.efectos ?? {});
           this.hasMore.set(!!r.has_more);
-          this.expandidas = {};
+          // Lo abierto sigue abierto si la fila sigue en la lista.
+          const ids = new Set(nuevas.map((x) => x.id));
+          this.expandidas = silencioso ? Object.fromEntries(Object.entries(this.expandidas).filter(([k]) => ids.has(k))) : {};
           this.err.set(null);
           this.cargando.set(false);
         },
         error: (e) => {
+          this.cargando.set(false);
+          if (silencioso && conDatos) return;
           this.rows.set([]); this.kpi.set(null);
-          this.err.set(this.textoError(e)); this.cargando.set(false);
+          this.err.set(this.textoError(e));
         },
       });
     // Los paneles sólo se re-piden si están ABIERTOS: cerrados no cuestan nada.
@@ -1012,28 +1190,17 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
   /** El detalle por denominación se pide una sola vez por fila, al expandirla. */
   alExpandir(r: FilaUI): void {
     if (r.denom) return;
+    r.denomError = null;
     this.svc.detalle(r.id).subscribe({
       next: (d) => {
         r.denom = d.denominaciones || [];
         r.denomTotal = d.denominaciones_total ?? null;
         this.rows.set([...this.rows()]);
       },
-      error: () => { r.denom = []; r.denomTotal = null; this.rows.set([...this.rows()]); },
+      // `[CGS.55]` Antes `r.denom = []`: un 500 se leía «Sin desglose por denominación» y, como la
+      // fila ya tenía `denom`, no se volvía a pedir nunca. Se vio en vivo el 2026-10-27.
+      error: (e) => { r.denomError = this.textoError(e); this.rows.set([...this.rows()]); },
     });
-  }
-
-  /**
-   * `[CGA-A.33]` El color dice la dirección, con el mapa del backend: antes `Vaciar Stocks`
-   * salía igual que `Dotar` (los dos «info») y la etiqueta no decía que uno saca y otro mete.
-   */
-  sev(typeId: number): 'success' | 'danger' | 'info' | 'warn' | 'secondary' {
-    switch (this.efectoDe(typeId)?.efecto) {
-      case 'suma': return 'success';
-      case 'resta': return 'danger';
-      case 'foto': return 'secondary';
-      case 'indeterminado': return 'warn';
-      default: return 'info';               // el mapa todavía no llegó
-    }
   }
 
   private enVivo(): void {
@@ -1044,9 +1211,9 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
         const firma = e.firma ?? `${e.filas}|${e.max_id}`;
         if (firma === this.firmaVista) return;
         this.firmaVista = firma;
-        this.cargar();
+        this.cargar(true);
         // Un movimiento o una foto nueva cambian el saldo; el rango de abajo no lo filtra.
-        this.cargarSaldo();
+        this.cargarSaldo(true);
       });
       /**
        * [CGA-A.43] «Sin registrar en Caja General» baja cuando alguien registra el movimiento EN
@@ -1054,15 +1221,18 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
        * hasta 60 s (el repaso) en reflejar un registro hecho en la otra pestaña.
        */
       this.sockCaja.connect();
-      this.sockCaja.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
-        this.cargarSaldo();
-        if (this.vista() === 'sin_registrar') this.cargar();
+      this.sockCaja.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
+        // `[CGS.55]` Sólo un registro en el LIBRO cambia lo que falta registrar. Los avisos del feed
+        // de Kepler llegan cada ~5 s y no mueven nada de esta pantalla.
+        if (e.origen !== 'libro') return;
+        this.cargarSaldo(true);
+        if (this.vista() === 'sin_registrar') this.cargar(true);
       });
     } catch (e) {
       console.warn('[caos] sin avisos en vivo; queda el repaso:', e);
     }
     // Red de seguridad: NOTIFY no se persiste, un socket caído no deja rastro.
-    encuestarVisible(60000, () => { this.cargar(); this.cargarSaldo(); }, { destroyRef: this.destroyRef, zone: this.zone });
+    encuestarVisible(60000, () => { this.cargar(true); this.cargarSaldo(true); }, { destroyRef: this.destroyRef, zone: this.zone });
   }
 
   private textoError(e: unknown): string {

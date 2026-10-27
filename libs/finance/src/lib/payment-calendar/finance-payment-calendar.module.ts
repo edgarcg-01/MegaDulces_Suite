@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CloudinaryModule } from '@megadulces/platform-core';
 import { BudgetCapacityService } from './budget-capacity.service';
 import { BudgetCapacityController } from './budget-capacity.controller';
 import { BudgetExpenseObligationsService } from './budget-expense-obligations.service';
@@ -24,7 +25,10 @@ import { BUDGET_LEDGER_PORT } from '../budget/budget-ledger.port';
 @Module({
   // Importa FinanceBudgetModule sólo para el puerto del ledger (unificar el gasto — ADR-066). Sin ciclo:
   // FinanceBudgetModule no importa nada de payment-calendar.
-  imports: [FinanceBudgetModule],
+  // `[PGP.21]` `CloudinaryModule` EXPORTA `ObjectStorageService`, que firma la URL del PDF de la
+  // factura. Se importa el modulo en vez de declarar el servicio en `providers`: asi se comparte
+  // la instancia en lugar de crear una segunda en este inyector (mismo patron que TP.7).
+  imports: [FinanceBudgetModule, CloudinaryModule],
   controllers: [
     BudgetCapacityController,
     BudgetExpenseObligationsController,

@@ -30,12 +30,9 @@ export const PAGO_PROVEEDOR_TABS: PageTab[] = [
     icon: 'pi pi-calendar-clock',
     permission: Permission.COMPRAS_ENTRADAS_VER,
   },
-  {
-    // TP.7 — sin la cuenta del proveedor no se prepara la transferencia, y sin preparar no se
-    // libera el día del Calendario (0 cuentas cargadas al 2026-10-22, `[PGP]`).
-    label: 'Cuentas de pago',
-    route: '/compras/cuentas-pago',
-    icon: 'pi pi-credit-card',
-    permission: Permission.COMPRAS_OBLIGACIONES_VER,
-  },
 ];
+
+// `[PGP.20]` «Cuentas de pago» SALIÓ de aquí el 2026-10-27 y vive en Finanzas › Pagos, pegada al
+// Calendario. El motivo es el orden del trabajo, no la categoría: sin la cuenta del proveedor no
+// se prepara la transferencia, y quien prepara es Tesorería, no Compras.
+// Conserva `COMPRAS_OBLIGACIONES_VER` para que nadie gane ni pierda acceso con la mudanza.

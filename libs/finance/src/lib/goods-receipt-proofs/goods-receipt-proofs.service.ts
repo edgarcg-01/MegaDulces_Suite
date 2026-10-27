@@ -6,7 +6,7 @@ import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine }
 // `[RE.25]` El cuadre del documento. Puro y medido — ver el encabezado de `receipt-match.ts`.
 // `CUADRE_SQL` vive allá y no acá a propósito: es la MISMA regla que `evaluarCuadre()`, y
 // tenerlas pegadas es lo que hace visible cambiar una sin la otra.
-import { GoodsReceiptExpedienteService } from './goods-receipt-expediente.service';
+import { GoodsReceiptExpedienteService, enPares } from './goods-receipt-expediente.service';
 import { REGLA_EXPEDIENTE } from './expediente-verdict';
 import type { ExpedienteConteos, ExpedienteResumenFila } from '@megadulces/contracts';
 import {
@@ -248,6 +248,12 @@ export interface ListReceiptsQuery {
   bandeja?: 'auto' | 'revisar' | 'sin_cfdi_aun';
   /** `[RE.35.5]` El Hallazgo: qué hacer y con quién. */
   hallazgo?: 'cobrar_nc' | 'mal_emitida' | 'incompleta' | 'sin_oc' | 'nc_aplicada' | 'comercial';
+  /**
+   * `[RE.51]` De qué entradas se calcula el expediente. `todo` (default) = todo el universo, con los
+   * conteos de la Bandeja · `pagina` = sólo los renglones de la página, y `expediente` (los conteos)
+   * sale nulo: se piden aparte. Con `bandeja` o `hallazgo` se calcula todo igual — filtran por él.
+   */
+  expediente_lote?: 'pagina' | 'todo';
   /** `rezago` = lo anterior a `reception_start` · `al_dia` (default) = de la fecha de arranque en adelante. */
   carril?: 'al_dia' | 'rezago' | 'todo';
   /**
@@ -338,6 +344,39 @@ export interface ReconciledLine {
 
 const QTY_TOL = 0.02;   // 2% de tolerancia en cantidad (normalizada a piezas)
 const PRICE_TOL = 0.05; // 5% de tolerancia en precio unitario
+
+/**
+ * `[RE.50]` La fila **CRUDA** que devuelve la consulta de comprobantes, antes de convertirla.
+ *
+ * ⚠️ Cada importe es `string | number`, nunca `number`: los `numeric` de Postgres llegan como
+ * **texto** por el driver, y por eso cada uno pasa por `Number(...)` en el `map` de abajo. Si
+ * alguien los declarara `number`, el tipo diría que la conversión sobra — y sin ella la tabla
+ * suma dinero concatenando (`[RE.20.1]`).
+ *
+ * El índice de cadena existe porque el `map` hace `...r`: la consulta trae más columnas de las
+ * que se nombran acá (y `dinero` agrega otras cinco), y todas viajan al renglón de salida.
+ */
+type FilaComprobanteCruda = {
+  sucursal: string;
+  folio: string;
+  /** Cuántos comprobantes tiene el renglón. `0` = todavía sin documento. */
+  deposits: number;
+  monto: string | number;
+  dias: string | number;
+  dias_espera: string | number | null;
+  gemela_monto: string | number | null;
+  gemela_delta: string | number | null;
+  gemela_score: string | number | null;
+  discrepancy_amount: string | number | null;
+  /** Sólo con el lente de dinero (`dinero`); si no, no vienen. */
+  factura?: string | number;
+  ajuste?: string | number;
+  neto?: string | number;
+  n_ajuste?: string | number;
+  ajuste_comercial?: string | number;
+  ajuste_operativo?: string | number;
+  [columna: string]: unknown;
+};
 
 @Injectable()
 export class GoodsReceiptProofsService {
@@ -604,8 +643,20 @@ export class GoodsReceiptProofsService {
     const { visibles, filtrado: alcance } = await this.alcanceSucursales(q.warehouse_codes);
     const pageSize = Math.min(1000, Math.max(1, Number(q.pageSize) || Number(q.limit) || 300));
     const page = Math.max(1, Number(q.page) || 1);
+    // `[RE.50]` La frescura corre en PARALELO, en su propia conexión: no depende de la lista.
+    const frescuraP = this.frescuraCacheada(tenantId);
+    frescuraP.catch(() => undefined); // si la lista truena antes de esperarla, no queda colgada
 
     return this.tk.run(async (trx) => {
+      /*
+       * ⛔ `[RE.50]` La temporal de abajo exige una transacción de lectura-escritura, y las cuentas
+       * personales que leen prod desde desarrollo abren en sólo lectura por default: la lista
+       * respondía 500 en ~20 ms. Se pide aquí, ANTES de cualquier consulta (después ya no se puede;
+       * el `SET LOCAL` del tenant no cuenta como consulta). No abre escrituras: esas cuentas no
+       * tienen privilegio sobre ninguna tabla real (medido: 0 de 802), y el control negativo —un
+       * UPDATE en esta misma transacción— responde «permission denied». En prod es un no-op.
+       */
+      await trx.raw('SET TRANSACTION READ WRITE');
       const cfg = await this.settings(trx);
       const conMotivoCol = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'motivo_codigo');
       // `[RE.25]` Sin la migración aplicada la lista sigue viva: el cuadre queda en `sin_datos`
@@ -646,17 +697,39 @@ export class GoodsReceiptProofsService {
        * ⛔ No es una copia de la tabla (regla 2): vive lo que dura la petición y se arma de la vista
        * viva en cada una — la frescura es la misma de antes (ADR de «al momento» intacto).
        */
-      const universo = `tmp_gr_${process.pid}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-      const uq = trx('analytics.erp_goods_receipts as c').select('c.*')
-        .where('c.tenant_id', tenantId).whereRaw('c.dup_of_folio IS NULL');
-      if (alcance) { if (alcance.length) uq.whereIn('c.sucursal', alcance); else uq.whereRaw('false'); }
-      if (q.carril === 'rezago') uq.where('c.receipt_date', '<', cfg.reception_start);
-      else if (q.carril !== 'todo') uq.where('c.receipt_date', '>=', cfg.reception_start);
-      if (q.from) uq.where('c.receipt_date', '>=', q.from);
-      if (q.to) uq.where('c.receipt_date', '<=', q.to);
-      const { sql: uSql, bindings: uBind } = uq.toSQL();
-      await trx.raw(`CREATE TEMP TABLE ?? ON COMMIT DROP AS ${uSql}`, [universo, ...uBind]);
-      await trx.raw('ANALYZE ??', [universo]);
+      /*
+       * ⛔ `[RE.50]` En una transacción de SÓLO LECTURA Postgres rechaza todo `CREATE`, también el
+       * de una temporal: «cannot execute CREATE TABLE AS in a read-only transaction». Las cuentas
+       * personales que leen prod desde desarrollo (`edgar`, `david`… — REP.0.6) abren así por
+       * default, y la lista entera respondía 500 en ~20 ms (medido el 2026-10-27). No se apaga el
+       * candado: sin temporal, cada consulta lee la vista con sus mismos filtros (lo de antes de
+       * RE.49 — más lento, igual de correcto). En prod (`app_runtime`) la temporal sigue.
+       */
+      const soloLectura = Boolean((await trx.raw(`SELECT current_setting('transaction_read_only') = 'on' AS ro`)).rows?.[0]?.ro);
+      let universo = 'analytics.erp_goods_receipts';
+      if (!soloLectura) {
+        universo = `tmp_gr_${process.pid}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+        const uq = trx('analytics.erp_goods_receipts as c').select('c.*')
+          .where('c.tenant_id', tenantId).whereRaw('c.dup_of_folio IS NULL');
+        if (alcance) { if (alcance.length) uq.whereIn('c.sucursal', alcance); else uq.whereRaw('false'); }
+        if (q.carril === 'rezago') uq.where('c.receipt_date', '<', cfg.reception_start);
+        else if (q.carril !== 'todo') uq.where('c.receipt_date', '>=', cfg.reception_start);
+        if (q.from) uq.where('c.receipt_date', '>=', q.from);
+        if (q.to) uq.where('c.receipt_date', '<=', q.to);
+        const { sql: uSql, bindings: uBind } = uq.toSQL();
+        /*
+         * ⭐ `[RE.50]` Sin ciclos anidados SÓLO al armar el universo. El planificador estima 1 fila
+         * donde la vista da ~3,000 y recorre el CTE `pc` (148 filas) una vez POR ENTRADA. Medido
+         * contra prod el 2026-10-27, alternado 3+3: 514/438/389 ms → 246/201/244 ms, con el MISMO
+         * resultado (md5 de las 3,002 filas idéntico en los dos modos; control: dos corridas del mismo
+         * modo empatan). Se regresa al default enseguida: las consultas de abajo leen la temporal, que
+         * ya tiene `ANALYZE`, y no se tocan.
+         */
+        await trx.raw('SET LOCAL enable_nestloop = off');
+        await trx.raw(`CREATE TEMP TABLE ?? ON COMMIT DROP AS ${uSql}`, [universo, ...uBind]);
+        await trx.raw('SET LOCAL enable_nestloop = on');
+        await trx.raw('ANALYZE ??', [universo]);
+      }
       const fuente = `${universo} as c`;
 
       /**
@@ -722,7 +795,16 @@ export class GoodsReceiptProofsService {
        */
       let resumen: { filas: Map<string, ExpedienteResumenFila>; conteos: ExpedienteConteos } | null = null;
       let filtroLlaves: string[][] | null = null;
-      if (dinero) {
+      /*
+       * ⭐ `[RE.51]` Con `expediente_lote=pagina` (y sin filtrar por Bandeja ni Hallazgo) el expediente
+       * se calcula SÓLO para los renglones de la página: el de cada entrada no depende del lote (ve sólo
+       * los CFDI de su ventana). Medido en frío el 2026-10-27: el lote completo (~1,400 entradas) eran
+       * ~5 s de los ~5.3 de la petición. Los conteos de la Bandeja, que sí necesitan todo, se piden
+       * aparte y aquí salen nulos — no unos conteos de la página que se leerían como los de todo.
+       */
+      const expPorPagina = dinero && q.expediente_lote === 'pagina' && !q.bandeja && !q.hallazgo;
+      /** Las llaves que juzga el expediente: universo + esperando decisión + no descartadas. */
+      const llavesDelExpediente = () => {
         const u = trx(fuente)
           .join(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
           .where('c.tenant_id', tenantId).whereRaw('c.dup_of_folio IS NULL')
@@ -735,7 +817,10 @@ export class GoodsReceiptProofsService {
         if (hayDesc) {
           u.whereNotExists(trx('finance.goods_receipt_discards as x').whereRaw('x.tenant_id = c.tenant_id AND x.sucursal = c.sucursal AND x.folio = c.folio'));
         }
-        const llaves = (await u.select('c.sucursal', 'c.folio')) as { sucursal: string; folio: string }[];
+        return u;
+      };
+      if (dinero && !expPorPagina) {
+        const llaves = (await llavesDelExpediente().select('c.sucursal', 'c.folio')) as { sucursal: string; folio: string }[];
         // `[RE.49]` Las llaves salen del universo: el expediente lee sus entradas de la misma temporal.
         resumen = await this.expediente.resumenLote(trx, tenantId, llaves, universo);
         if (q.bandeja || q.hallazgo) {
@@ -942,7 +1027,17 @@ export class GoodsReceiptProofsService {
       else porFecha(asc('ASC')); // `antiguedad` (default) y `fecha`
       b.orderBy('c.folio', 'desc');
 
-      const rows = (await b).map((r: any) => ({
+      const crudas = await b as FilaComprobanteCruda[];
+      if (expPorPagina) {
+        // `[RE.51]` Las llaves de la página que el expediente juzga: la misma consulta de siempre,
+        // restringida a estos renglones (así «esperando decisión / no descartada» se decide igual).
+        const pares = crudas.filter((r) => r.deposits > 0).map((r) => [String(r.sucursal), String(r.folio)]);
+        const llaves = pares.length
+          ? ((await enPares(llavesDelExpediente(), 'c.sucursal', 'c.folio', pares).select('c.sucursal', 'c.folio')) as { sucursal: string; folio: string }[])
+          : [];
+        resumen = await this.expediente.resumenLote(trx, tenantId, llaves, universo);
+      }
+      const rows = crudas.map((r) => ({
         ...r,
         monto: Number(r.monto),
         gemela_monto: r.gemela_monto == null ? null : Number(r.gemela_monto),
@@ -1064,11 +1159,13 @@ export class GoodsReceiptProofsService {
         total: Number(total), page, pageSize,
         // `[RE.35.5]` Conteos de la Bandeja y del Hallazgo. Las que no tienen documento se cuentan
         // desde los KPIs (no pasan por el motor: no hay papel que juzgar).
-        expediente: resumen ? {
+        // `[RE.51]` Con el expediente de la página, los conteos NO se publican (serían los de 100 renglones).
+        expediente_lote: expPorPagina ? 'pagina' : 'todo',
+        expediente: resumen && !expPorPagina ? {
           ...resumen.conteos,
           por_cubo: { ...resumen.conteos.por_cubo, sin_documento: Math.max(0, Number(k.entradas) - Number(k.con_comprobante)) },
         } : null,
-        frescura: await this.frescuraPorFuente(trx, tenantId),
+        frescura: await frescuraP,
         rows,
       };
     });
@@ -1431,6 +1528,28 @@ export class GoodsReceiptProofsService {
    * una sucursal chica cada varios días). Se compara los días sin recepción contra la **mediana de
    * su propio hueco** en 90 días, con piso de 3 días, así una rama de bajo volumen no grita sola.
    */
+  /**
+   * ⭐ `[RE.50]` La frescura vuelve a evaluar la vista viva entera (90 días, todas las sucursales):
+   * medida contra prod el 2026-10-27, 566–794 ms — más que todo el resto de la lista junto. Es una
+   * medida en DÍAS por fuente, así que:
+   *   · se calcula sin ciclos anidados (416–464 ms, resultado idéntico en 6 corridas alternadas);
+   *   · en su propia transacción, en paralelo con la lista (no lee la temporal ni sus filtros);
+   *   · y se guarda 60 s por tenant: en un minuto no cambia cuántos días lleva una fuente sin datos.
+   * Una falla no se guarda: la siguiente petición la vuelve a intentar.
+   */
+  private readonly frescuraCache = new Map<string, { at: number; v: ReturnType<GoodsReceiptProofsService['frescuraPorFuente']> }>();
+  private frescuraCacheada(tenantId: string): ReturnType<GoodsReceiptProofsService['frescuraPorFuente']> {
+    const hit = this.frescuraCache.get(tenantId);
+    if (hit && Date.now() - hit.at < 60_000) return hit.v;
+    const v = this.tk.run(async (trx) => {
+      await trx.raw('SET LOCAL enable_nestloop = off');
+      return this.frescuraPorFuente(trx, tenantId);
+    });
+    this.frescuraCache.set(tenantId, { at: Date.now(), v });
+    v.catch(() => this.frescuraCache.delete(tenantId));
+    return v;
+  }
+
   private async frescuraPorFuente(trx: any, tenantId: string) {
     const r = await trx.raw(`
       WITH d AS (

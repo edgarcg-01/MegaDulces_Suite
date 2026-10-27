@@ -7,6 +7,7 @@
 - [`../ONBOARDING.md`](../ONBOARDING.md) — de cero a API + frontend corriendo.
 - [`../CLAUDE.md`](../CLAUDE.md) — **fuente de verdad**: contexto, fases, reglas. Se auto-carga en Claude Code.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — arquitectura de código: apps, dominios (libs), módulos, DBs, feeds.
+- [`HISTORIA_DE_LAS_REGLAS.md`](HISTORIA_DE_LAS_REGLAS.md) — el texto íntegro de cómo se ganó cada regla del `CLAUDE.md` (incidentes y cifras), condensado de ahí el 2026-10-27; lo vigente es el `CLAUDE.md`.
 - [`MAPA_DE_MODULOS.md`](MAPA_DE_MODULOS.md) — **la suite completa en un mapa**: capas físicas (fuente → ingesta en `md` → `pg-prod` → api → apps), cómo se implementa un módulo (C0→C3), los 14 puertos entre dominios, espacios del frontend → dominio, y el flujo de negocio interconectado (compra→pago, venta→cobro, caja→banco→ContPAQi). Medido contra el código (2026-10-27).
 - [`GLOSSARY.md`](GLOSSARY.md) — términos de dominio y nombres internos (Thot/Horus/Maat, Kepler, fases).
 - [`GOTCHAS.md`](GOTCHAS.md) — trampas técnicas ya vividas (RLS, migraciones, permisos). **Antes de tocar DB.**

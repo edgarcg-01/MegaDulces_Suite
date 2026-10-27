@@ -15,7 +15,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { environment } from '../../../../../environments/environment';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
-import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
+import { MetricCardComponent, type MetricTone as TonoTarjeta } from '../../../../shared/components/metric-card/metric-card.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { SegmentedComponent, type SegOption } from '../../../../shared/components/segmented/segmented.component';
@@ -31,8 +31,9 @@ import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { forkJoin } from 'rxjs';
 import { CashLedgerService, type ArqueoMovimientoDia, type CandadoCaja, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
-import type { PosicionCajaDto, PosicionRubro, EstadoPosicion, ArqueoCajaDto, ArqueoGuardadoDto, NuevoArqueoCajaInput, TipoArqueoCaja } from '@megadulces/contracts';
+import type { PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, NuevoArqueoCajaInput, TipoArqueoCaja } from '@megadulces/contracts';
 import { CajaSocketService } from '../../caja-socket.service';
+import { desgloseRubro, etiquetaPosicion, plural } from './posicion-caja.util';
 import { CaosSocketService } from '../../caos-socket.service';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import { AuthService } from '../../../../core/services/auth.service';
@@ -93,6 +94,16 @@ interface Expediente {
  * —el arqueo es del libro, los movimientos son del espejo de Control— y unirlos en una consulta
  * obligaría a que uno esperara al otro para pintar nada.
  */
+/** `[CGS.54]` Una tarjeta de lo que hay en caja: el total o un rubro. */
+interface TarjetaCaja {
+  clave: string; label: string; valor: string;
+  /** Con qué se midió, en palabras, y para un rubro su parte del total. */
+  estado: string; pct: number | null; tone: TonoTarjeta;
+  /** De qué conteo parte y qué entró y salió después, renglón por renglón. */
+  desglose: Array<{ monto: string | null; texto: string }>;
+  nota: string | null;
+}
+
 interface DiaFila {
   fecha: string;
   /** El arqueo del libro. `null` = ese día nadie selló un corte en la Suite. */
@@ -177,7 +188,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, TextareaModule, SelectModule,
     DialogModule, InputNumberModule, InputTextModule,
-    LoadStateComponent, SidePeekComponent, MetricStripComponent, FreshnessPillComponent,
+    LoadStateComponent, SidePeekComponent, MetricCardComponent, FreshnessPillComponent,
     ContextHelpComponent, CajaTabsComponent, SegmentedComponent],
   template: `
     <app-caja-tabs />
@@ -210,61 +221,56 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
       </header>
 
       <!-- [CGA-A.43] La pregunta de quien abre esto a medio dia no es «cuanto se conto ayer» sino
-           «cuanto hay AHORA». [CGS.35] Todo lo que hay en caja, rubro por rubro, en UNA tira; de dónde
-           sale cada cifra se abre debajo. Lo que no se puede afirmar se dice; no entra como cero. -->
+           «cuanto hay AHORA». [CGS.54] Edgar, 2026-10-27: «cards dinámicas de lo que hay de dinero en
+           cada tipo de apartado». Una tarjeta por rubro que publique el servidor (si mañana trae otro,
+           sale otra tarjeta), cada una con su cifra, con qué se midió, su parte del total y de dónde
+           sale. Lo que no se puede afirmar se dice; no entra al total como cero. -->
       <section class="cq-ahora" aria-labelledby="cq-h-ahora">
         <div class="cq-ahora-cab">
           <h2 id="cq-h-ahora" class="cq-h2">¿Qué hay en caja ahora?</h2>
           <app-freshness-pill measures="fetch" [since]="cajonAl()" [staleAfterSec]="180" label="calculado" />
-          @if (posicion()) {
-            <button type="button" class="cq-link" [attr.aria-expanded]="verDesglose()" aria-controls="cq-desglose"
-                    (click)="verDesglose.set(!verDesglose())">
-              <i class="pi" [class.pi-chevron-down]="!verDesglose()" [class.pi-chevron-up]="verDesglose()" aria-hidden="true"></i>
-              {{ verDesglose() ? 'Ocultar de dónde sale cada cifra' : 'De dónde sale cada cifra' }}
-            </button>
-          }
         </div>
         <app-load-state [loading]="cajonCargando() && !cajonSaldo()" [error]="cajonError()" [isEmpty]="false"
                         [skeletonRows]="1" errorTitle="No se pudo calcular el cajón" (retry)="cargarCajon()">
-          <app-metric-strip [items]="cajaKpis()" ariaLabel="Lo que hay en caja" [instant]="true" />
+          <ul class="cq-cards" aria-label="Lo que hay en caja, por rubro">
+            @for (t of tarjetasCaja(); track t.clave) {
+              <li>
+                <app-metric-card [label]="t.label" format="text" [valueText]="t.valor" [tone]="t.tone" [compact]="true">
+                  <span class="cq-card-est" [class.cq-est-mal]="t.tone === 'bad'" [class.cq-card-aviso]="t.tone === 'warn'">
+                    @if (t.tone !== 'default') { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
+                    {{ t.estado }}
+                  </span>
+                  @if (t.pct !== null) {
+                    <span class="cq-card-bar" role="img" [attr.aria-label]="t.pct + ' por ciento de lo que hay en caja'">
+                      <span class="cq-card-fill" [style.width.%]="t.pct"></span>
+                    </span>
+                  }
+                  @if (t.desglose.length) {
+                    <ul class="cq-card-des" [attr.aria-label]="'De dónde sale: ' + t.label">
+                      @for (d of t.desglose; track $index) {
+                        <li><span>{{ d.texto }}</span>@if (d.monto) { <span class="comm-num" [class.fin-entra]="d.monto.startsWith('+')" [class.fin-sale]="d.monto.startsWith('−')">{{ d.monto }}</span> }</li>
+                      }
+                    </ul>
+                  }
+                  @if (t.nota) { <span class="cq-card-de" [class.cq-est-mal]="t.tone === 'bad'">{{ t.nota }}</span> }
+                </app-metric-card>
+              </li>
+            }
+          </ul>
           @if (posicionError()) { <p class="cq-nota cq-mal" role="alert">{{ posicionError() }}</p> }
+          @if (sinMovimientos(); as nota) { <p class="cq-nota">{{ nota }}</p> }
           @if (cajonNota(); as nota) { <p class="cq-nota">{{ nota }}</p> }
+          @if (arqRecientes().length || controlUltimo()?.diferencia) {
+            <p class="cq-nota">
+              <button type="button" class="cq-link" [attr.aria-expanded]="verDesglose()" aria-controls="cq-desglose"
+                      (click)="verDesglose.set(!verDesglose())">
+                <i class="pi" [class.pi-chevron-down]="!verDesglose()" [class.pi-chevron-up]="verDesglose()" aria-hidden="true"></i>
+                {{ verDesglose() ? 'Ocultar los últimos arqueos completos' : 'Ver los últimos arqueos completos' }}
+              </button>
+            </p>
+          }
           @if (verDesglose()) {
             <div id="cq-desglose" class="cq-desglose">
-              @if (posicion(); as p) {
-                <!-- Edgar, 2026-10-27: eran 4 columnas con la prosa en letra de máquina, la misma cifra dos
-                     veces por renglón y «la Suite no lleva sus movimientos» seis veces. -->
-                <p-table [value]="p.rubros" size="small" dataKey="rubro" class="surf-table surf-table--plain cq-pos">
-                  <ng-template #header>
-                    <tr>
-                      <th scope="col">Rubro</th>
-                      <th scope="col">Hay ahora</th>
-                      <th scope="col">De dónde sale</th>
-                    </tr>
-                  </ng-template>
-                  <ng-template #body let-r>
-                    <tr>
-                      <td>{{ r.etiqueta }}</td>
-                      <td class="cq-nowrap">
-                        @if (r.ahora.monto !== null) {
-                          <b class="comm-num">@if (r.ahora.usd != null) { USD {{ usd(r.ahora.usd) }} · }{{ mx(r.ahora.monto) }}</b>
-                        }
-                        <span class="cq-pos-est" [class.cq-mal]="r.ahora.estado === 'imposible'" [class.cq-warn]="r.ahora.estado === 'parcial'">
-                          @if (r.ahora.estado === 'parcial' || r.ahora.estado === 'imposible') { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
-                          {{ etiquetaPosicion(r.ahora.estado) }}
-                        </span>
-                      </td>
-                      <td class="cq-pos-de">
-                        {{ comoSeLlega(r) }}
-                        @if (r.ahora.estado === 'parcial' || r.ahora.estado === 'imposible' || r.ahora.estado === 'no_medido') {
-                          <span class="cq-pos-sub">{{ r.ahora.nota }}</span>
-                        }
-                      </td>
-                    </tr>
-                  </ng-template>
-                </p-table>
-              }
-              @if (sinMovimientos(); as nota) { <p class="cq-nota">{{ nota }}</p> }
               <!-- [CGA-A.48] Lo que Control contó y está en la caja fuerte, no en el cajón. -->
               @if (controlUltimo(); as cu) {
                 @if (cu.diferencia) {
@@ -904,12 +910,26 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
     .cq-rev-ayuda { margin:0; padding-left:var(--sp-4); font-size:var(--fs-sm); color:var(--text-muted); }
 
     .cq-ahora { margin-block:var(--sp-4) var(--sp-2); }
-    .cq-pos { margin-top:var(--sp-3); }
+    /* [CGS.54] Las tarjetas de lo que hay en caja: tantas columnas como quepan, sin scroll de lado. */
+    .cq-cards { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(13rem, 1fr)); gap:var(--sp-3); }
+    .cq-cards > li { min-width:0; display:flex; }
+    .cq-cards app-metric-card { flex:1 1 auto; }
+    :host ::ng-deep .cq-cards .mc { height:100%; }
+    .cq-card-bar { display:block; height:4px; margin-top:var(--sp-1); border-radius:var(--r-pill); background:var(--border-color); overflow:hidden; }
+    .cq-card-fill { display:block; height:100%; background:var(--text-muted); border-radius:inherit; }
+    /* En pantalla ancha: el total a la izquierda y los rubros en UNA fila, cuantos publique el servidor. */
+    @media (min-width: 80rem) { .cq-cards { grid-template-columns:minmax(15rem, 1.2fr); grid-auto-flow:column; grid-auto-columns:minmax(0, 1fr); } }
+    .cq-card-est { font-size:var(--fs-xs); color:var(--text-muted); display:flex; gap:var(--sp-1); align-items:baseline; }
+    .cq-card-aviso { color:var(--warn-fg); font-weight:600; }
+    .cq-card-des { list-style:none; margin:var(--sp-1) 0 0; padding:var(--sp-2) 0 0; border-top:1px solid var(--border-color); display:flex; flex-direction:column; gap:2px; font-size:var(--fs-xs); color:var(--text-muted); line-height:1.35; }
+    .cq-card-des li { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:var(--sp-2); align-items:baseline; }
+    .cq-card-des .comm-num { text-align:right; }
+    .cq-card-des .comm-num { color:var(--text-main); white-space:nowrap; }
+    /* [CGS.56] La dirección del dinero en el texto del monto: verde entra, rojo sale. */
+    .cq-card-des .comm-num.fin-entra { color:var(--ok-soft-fg); }
+    .cq-card-des .comm-num.fin-sale { color:var(--bad-soft-fg); }
+    .cq-card-de { font-size:var(--fs-xs); color:var(--text-muted); line-height:1.35; }
     .cq-pos-sub { display:block; color:var(--text-muted); font-size:var(--fs-sm); font-weight:400; }
-    .cq-pos-est { display:block; font-family:var(--font-body); font-size:var(--fs-xs); color:var(--text-muted); }
-    .cq-pos-est.cq-warn { color:var(--warn-fg); }
-    .cq-pos-est.cq-mal { color:var(--bad-fg); }
-    .cq-pos-de { color:var(--text-muted); font-size:var(--fs-sm); }
     .cq-ahora-cab { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); margin:0 0 var(--sp-2); }
     /* [CGS.53] Un enlace de texto, no un botón con caja: abre un desglose, no hace una acción. */
     .cq-link { all:unset; cursor:pointer; display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); color:var(--text-main); text-decoration:underline; text-underline-offset:2px; }
@@ -1120,7 +1140,7 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   }
 
   /** `3 cortes`, `1 corte`: el número con su palabra, sin «(s)». */
-  protected plural(n: number, uno: string, varios: string): string { return `${n} ${n === 1 ? uno : varios}`; }
+  protected readonly plural = plural;
 
   // ── `[CGS.53]` Una sola tabla de cortes, con la revisión como filtro ─────────────────────
   readonly filtroElegido = signal<'revisar' | 'cortes' | 'todo' | null>(null);
@@ -1385,61 +1405,54 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Q.1: la cifra que se puede afirmar, y en la misma línea lo que NO entra. */
-  readonly posicionKpis = computed<MetricStripItem[]>(() => {
+  /**
+   * ⭐ `[CGS.54]` Las tarjetas de lo que hay en caja: el total y una por rubro, en el orden en que
+   * el servidor los publica. El estado va en palabras en un chip («Contado», «Calculado,
+   * incompleto»); la barra dice qué parte del total es; la última línea, de dónde sale la cifra.
+   * Sin conteo animado: un monto que cuenta desde cero publica cifras que no existen.
+   */
+  readonly tarjetasCaja = computed<TarjetaCaja[]>(() => {
     const p = this.posicion();
-    if (!p) return [{ label: 'Lo que hay en caja', value: 'sin medir', state: 'no_medido', stateNote: 'Todavía no se calculó.' }];
+    if (!p) return [{ clave: 'total', label: 'Lo que hay en caja', valor: 'sin medir', estado: 'todavía no se calcula', pct: null, tone: 'default', desglose: [], nota: null }];
     const fuera = p.rubros.filter((r) => p.total.fuera.includes(r.rubro)).map((r) => r.etiqueta.toLowerCase());
-    // Un total que suma un rubro «incompleto» lo dice en el total, no sólo en su renglón.
+    // Un total que suma un rubro «incompleto» lo dice en el total, no sólo en su tarjeta.
     const parciales = p.rubros.filter((r) => r.ahora.estado === 'parcial').map((r) => r.etiqueta.charAt(0).toLowerCase() + r.etiqueta.slice(1));
     const avisos = [fuera.length ? `sin ${fuera.join(', ')}` : '', parciales.length ? `incluye ${parciales.join(', ')} incompleta` : ''].filter(Boolean);
-    return [{
+    const total: TarjetaCaja = {
+      clave: 'total',
       label: p.total.completo ? 'Lo que hay en caja' : 'Lo que se puede afirmar',
-      value: money(p.total.monto),
-      state: 'derivado',
-      method: 'suma de los rubros',
-      sub: avisos.length ? avisos.join(' · ') : 'todos los rubros',
+      valor: money(p.total.monto),
+      estado: `suma de los rubros · ${avisos.length ? avisos.join(' · ') : 'todos medidos'}`,
+      pct: null, desglose: [], nota: null,
       tone: avisos.length ? 'warn' : 'default',
-    }];
+    };
+    const base = p.total.monto > 0 ? p.total.monto : null;
+    return [total, ...p.rubros.map((r): TarjetaCaja => {
+      const e = r.ahora.estado;
+      const pct = base !== null && r.ahora.monto !== null ? Math.round((r.ahora.monto / base) * 1000) / 10 : null;
+      return {
+        clave: r.rubro,
+        label: r.etiqueta,
+        valor: r.ahora.monto === null ? 'sin medir' : r.ahora.usd != null ? `USD ${this.usd(r.ahora.usd)}` : money(r.ahora.monto),
+        pct,
+        estado: [
+          this.etiquetaPosicion(e),
+          r.ahora.usd != null && r.ahora.monto !== null ? `${this.mx(r.ahora.monto)} en pesos` : '',
+          pct !== null ? `${pct} % del total` : '',
+        ].filter(Boolean).join(' · '),
+        desglose: desgloseRubro(r, this.mx, (iso) => this.cuando(iso)),
+        nota: e === 'parcial' || e === 'imposible' || e === 'no_medido' ? r.ahora.nota : null,
+        tone: e === 'parcial' ? 'warn' : e === 'imposible' ? 'bad' : 'default',
+      };
+    })];
   });
 
-  /** `[CGS.53]` El total y los cinco rubros en UNA tira; de dónde sale cada uno, a pedido. */
+  /** `[CGS.53]` El historial de arqueos completos y la nota de Control, a pedido. */
   readonly verDesglose = signal(false);
   readonly verLimites = signal(false);
   /** `[CGS.53]` El apéndice del cajón del día: plegado al abrir cada día. */
   readonly verLibro = signal(false);
   readonly verMovsCtl = signal(false);
-  readonly cajaKpis = computed<MetricStripItem[]>(() => {
-    const p = this.posicion();
-    if (!p) return this.posicionKpis();
-    return [...this.posicionKpis(), ...p.rubros.map((r): MetricStripItem => {
-      const e = r.ahora.estado;
-      const cuando = r.ultimo?.at ? this.cuando(r.ultimo.at) : null;
-      const sub = e === 'medido'
-        ? (r.ahora.usd != null && r.ahora.monto !== null ? `${this.mx(r.ahora.monto)}${r.ultimo?.tipo_cambio != null ? ' a ' + r.ultimo.tipo_cambio : ''}` : `contado${cuando ? ' el ' + cuando : ''}`)
-        : this.etiquetaPosicion(e).toLowerCase();
-      return {
-        label: r.etiqueta,
-        value: r.ahora.monto === null ? 'sin medir' : r.ahora.usd != null ? `USD ${this.usd(r.ahora.usd)}` : money(r.ahora.monto),
-        sub,
-        tone: e === 'parcial' ? 'warn' : e === 'imposible' ? 'bad' : r.ahora.monto === null ? 'muted' : 'default',
-      };
-    })];
-  });
-
-  /** Una línea: de qué conteo parte el rubro y qué se movió después. */
-  comoSeLlega(r: PosicionRubro): string {
-    const u = r.ultimo;
-    if (!u) return '—';
-    const donde = `${u.at ? ' el ' + this.cuando(u.at) : ''} en el ${u.fuente.replace(/\s*\(.*\)$/, '')}`;
-    if (!r.desde) return `Contado${donde}${u.tipo_cambio != null ? `, a ${u.tipo_cambio} por dólar` : ''}`;
-    const base = `${u.monto === null ? 'sin medir' : this.mx(u.monto)} contado${donde}`;
-    const { entra, sale, detalle } = r.desde;
-    if (Math.abs(entra) < 0.005 && Math.abs(sale) < 0.005) return `${base}; sin movimientos desde entonces`;
-    if (r.rubro === 'caja_fuerte') return `${base} + ${this.mx(entra)} depositado − ${this.mx(sale)} dispensado en la máquina`;
-    const det = detalle.replace(/(\d+) movimiento\(s\)/, (_, n) => (n === '1' ? '1 movimiento' : `${n} movimientos`));
-    return `${base} + ${this.mx(entra)} − ${this.mx(sale)} (${det})`;
-  }
 
   /** Los rubros que la Suite no mueve, dichos UNA vez y no en cada renglón. */
   readonly sinMovimientos = computed<string | null>(() => {
@@ -1449,9 +1462,7 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
     return `La Suite no lleva movimientos de ${lista}: vale lo del último arqueo.`;
   });
 
-  etiquetaPosicion(e: EstadoPosicion): string {
-    return ({ medido: 'Contado', derivado: 'Calculado', parcial: 'Calculado, incompleto', imposible: 'No se puede afirmar', no_medido: 'Sin medir' } as const)[e];
-  }
+  readonly etiquetaPosicion = etiquetaPosicion;
   usd(n: number): string { return Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   /** Instante ISO → «20/10/26 18:12» en hora de México. */
   cuando(iso: string): string {

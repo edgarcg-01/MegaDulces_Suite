@@ -116,13 +116,13 @@ describe('[VL.14] veredictoRetirada', () => {
 describe('[CG.119] CRON_JOBS — el carril que late declara su tope de cuelgue', () => {
   const porLlave = (k: string) => CRON_JOBS.find((j) => j.key === k);
 
-  it('mv_caja_push tiene maxRunH: sin él, morirse se ve igual que estar ocupado', () => {
-    const j = porLlave('mv_caja_push');
-    expect(j).toBeDefined();
-    expect(j!.maxRunH).toBeDefined();
-    // Late cada 60 s, así que 15 min son quince latidos perdidos: holgado para un reinicio de
-    // pod e imposible de alcanzar mientras el oyente respire.
-    expect(j!.maxRunH).toBeLessThanOrEqual(0.5);
+  // [OPS-AUD.11.5, 2026-10-27] `mv_caja_push` y `mv_caja_refresh` se RETIRARON: la caja ya no se
+  // refresca, la mantiene un trigger (ADR-104). Si vuelven a la lista, alguien prendió de nuevo un
+  // refresco que no tiene nada que hacer — y esta prueba lo dice. La lección de `[CG.119]` sigue
+  // candadeada por la prueba de abajo, que vale para todo carril con `maxRunH`.
+  it('los carriles del refresco de caja están retirados (la caja se mantiene por trigger)', () => {
+    expect(porLlave('mv_caja_push')).toBeUndefined();
+    expect(porLlave('mv_caja_refresh')).toBeUndefined();
   });
 
   it('⭐ maxRunH siempre por DEBAJO de critH: si no, el veredicto COLGADO nunca llegaría primero', () => {

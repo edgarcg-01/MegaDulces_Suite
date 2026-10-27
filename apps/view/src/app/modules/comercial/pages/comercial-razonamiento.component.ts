@@ -15,6 +15,8 @@ import {
   CommercialIntelligenceService, CommercialFinding, CommercialDiagnosis,
   CommercialAction, RuleStat, AutonomyPolicy, ActionExplain,
 } from '../commercial-intelligence.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ANALYTICS_TABS } from '../analytics-tabs';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -27,7 +29,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-comercial-razonamiento',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, TagModule, TabsModule, DialogModule, InputNumberModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, TagModule, TabsModule, DialogModule, InputNumberModule, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -39,6 +41,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <p class="surf-page-sub">Del hallazgo a la acción: el motor detecta y propone; tú confirmas y apruebas. El LLM comunica, nunca decide sobre el dinero.</p>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <p-tabs [value]="0" (valueChange)="onTab($any($event))">
         <p-tablist>
@@ -228,6 +232,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   `],
 })
 export class ComercialRazonamientoComponent implements OnInit {
+  /** [NAV.8] La barra del apartado «Analítica comercial» del sidebar de Comercial: la pintan todas sus páginas. */
+  readonly apartadoTabs = ANALYTICS_TABS;
   private readonly api = inject(CommercialIntelligenceService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

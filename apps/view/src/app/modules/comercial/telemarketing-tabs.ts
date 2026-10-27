@@ -10,8 +10,8 @@ import { Permission } from '../../core/constants/permissions';
  * tiene nada que ver con esos tableros: la tira vieja ofrecía cinco salidas y ninguna
  * entrada a lo que sigue.
  *
- * `REPORTS_TABS` **no se toca**: desde Sell-Out se sigue llegando a Facturación TM, que es
- * como se entra al área.
+ * Desde Sell-Out se sigue llegando a Facturación TM (`REPORTES_GENERALES_TABS` la incluye), que
+ * es como se entra al área.
  */
 export const TELEMARKETING_TABS: PageTab[] = [
   {

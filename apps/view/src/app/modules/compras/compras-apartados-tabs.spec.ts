@@ -51,7 +51,7 @@ describe('[NAV.6] apartados del sidebar de Compras', () => {
     const plegadas = [
       '/compras/requisiciones', '/compras/ordenes', '/compras/oc-abiertas',
       '/compras/hallazgos', '/compras/faltantes',
-      '/compras/obligaciones', '/compras/vencimientos', '/compras/cuentas-pago',
+      '/compras/obligaciones', '/compras/vencimientos',
       '/compras/costo-neto', '/compras/costo-estandar', '/compras/descuentos',
       '/compras/proveedores', '/compras/categorias', '/compras/red',
       '/compras/reclamos',

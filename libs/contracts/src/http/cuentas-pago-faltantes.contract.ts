@@ -1,6 +1,6 @@
 /**
  * `[PGP.1]` La FORMA del wire de **«a quién le falta cuenta de pago»**
- * (`GET /commercial/supplier-payment-accounts/faltantes`).
+ * (`GET /finance/supplier-payment-accounts/faltantes`).
  *
  * ── Por qué existe ──────────────────────────────────────────────────────────────────────────
  *

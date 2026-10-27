@@ -1,13 +1,11 @@
 import { PageTab } from '../../shared/components/page-tabs/page-tabs.component';
 import { Permission } from '../../core/constants/permissions';
-import { RUTA_DIRECTA_TABS } from './ruta-directa-tabs';
 
 /**
  * Los reportes de venta GENERAL: los que no son del sub-módulo de Ruta Directa.
  *
- * ⛔ Existe aparte de `REPORTS_TABS` por una razón concreta: el sidebar agrupa Ruta Directa por
- * su lado, y si el grupo «Reportes» se derivara de la tira COMPLETA, las siete de RD saldrían
- * **dos veces** — `dedupeByRoute` dedupe dentro de un grupo, no entre grupos.
+ * Es la barra de la entrada «Reportes de venta» y la pintan sus páginas (Sell-Out, Análisis,
+ * Salidas). Ruta Directa tiene la suya (`RUTA_DIRECTA_TABS`): no se mezclan (`[NAV.8.1]`, abajo).
  */
 export const REPORTES_GENERALES_TABS: PageTab[] = [
   {
@@ -44,15 +42,9 @@ export const REPORTES_GENERALES_TABS: PageTab[] = [
   // reportes de VENTA (aquí solo la familia sell-out/salidas/ruta).
 ];
 
-/**
- * La tira completa de la superficie de reportes de venta. **No cambia de orden ni de contenido**
- * respecto de cómo estaba: los tres de sell-out, las siete de Ruta Directa, y Facturación TM al
- * final. Lo único que cambió es que ahora el conjunto de RD tiene nombre propio, así que las dos
- * superficies que lo necesitan —esta tira y el grupo del sidebar— salen de la MISMA lista.
- */
-export const REPORTS_TABS: PageTab[] = [
-  ...REPORTES_GENERALES_TABS.slice(0, 3),
-  ...RUTA_DIRECTA_TABS,
-  // Facturación TM va al final, como estaba.
-  ...REPORTES_GENERALES_TABS.slice(3),
-];
+// ⛔ `[NAV.8.1]` (2026-10-27) Aquí vivía `REPORTS_TABS`: la tira COMBINADA (los tres de sell-out +
+// las seis de Ruta Directa + Facturación TM = 11 pestañas). La pintaban Sell-Out, Análisis, Salidas,
+// Ventas por ruta e Inventario de ruta, mientras Comisiones, Rentabilidad, Gasto y Flota RD pintaban
+// sólo las de RD: la MISMA entrada del sidebar mostraba dos barras distintas según la pestaña, y en
+// Ventas por ruta se mezclaban dos apartados («Reportes de venta» y «Ruta Directa»). Edgar lo marcó
+// con una captura. Ahora cada página pinta la barra de SU entrada: ésta, o `RUTA_DIRECTA_TABS`.

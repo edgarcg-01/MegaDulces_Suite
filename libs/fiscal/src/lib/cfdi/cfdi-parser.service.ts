@@ -96,6 +96,10 @@ export class CfdiParserService {
       const fechaPago = this.attr(p, 'FechaPago');
       const formaPago = this.attr(p, 'FormaDePagoP');
       const monedaP = this.attr(p, 'MonedaP');
+      // [PGP.23] La cuenta del proveedor vive en el nodo Pago, NO en DoctoRelacionado: por eso
+      // este extractor la venia tirando aunque el complemento si se leia.
+      const ctaBen = this.attr(p, 'CtaBeneficiario');
+      const rfcBancoBen = this.attr(p, 'RfcEmisorCtaBen');
       for (const dr of this.arr(p?.DoctoRelacionado)) {
         const doctoUuid = this.attr(dr, 'IdDocumento');
         if (!doctoUuid) continue;
@@ -108,6 +112,8 @@ export class CfdiParserService {
           impSaldoAnt: this.num(this.attr(dr, 'ImpSaldoAnt')),
           impPagado: this.num(this.attr(dr, 'ImpPagado')),
           impSaldoInsoluto: this.num(this.attr(dr, 'ImpSaldoInsoluto')),
+          ctaBeneficiario: ctaBen ? String(ctaBen).trim() || null : null,
+          rfcBancoBeneficiario: rfcBancoBen ? String(rfcBancoBen).trim() || null : null,
         });
       }
     }

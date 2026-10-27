@@ -9,6 +9,7 @@ import type {
 import {
   CfdiCandidato, HistorialEmisor, NotaCredito, REGLA_EXPEDIENTE, TOLERANCIA_ABS, TOLERANCIA_PCT, Veredicto,
   cuadra, extraerUuid, hallazgosDe, ligarCfdi, notaQueExplica, promoverRfcImporte, proveedorEnContpaqi, veredictoExpediente,
+  indexarCandidatos, candidatosPosibles,
   UMBRAL_NOMBRE_CONTPAQI,
 } from './expediente-verdict';
 import { COMERCIAL_CATS, parecidoNombre, rfcBienFormado, rfcComparable } from './receipt-match';
@@ -66,6 +67,19 @@ export interface ExpedienteCalculado {
 export interface LlaveEntrada { sucursal: string; folio: string }
 
 const llave = (s: string, f: string) => `${s}/${f}`;
+
+/**
+ * ⭐ `[RE.50]` `(colA, colB) IN (pares)` con DOS arreglos y `unnest`, no con una lista de tuplas.
+ * Knex arma `whereIn(['sucursal','folio'], pares)` como `(a, b) IN ((?, ?), (?, ?), …)`: con el lote
+ * del listado (~1,400 entradas, ~2,800 parámetros) Postgres la evalúa fila por fila. Medido contra
+ * prod el 2026-10-27 en `goods_receipt_proofs`, 2,054 pares, alternado 3+3: 2,548/3,164/2,692 ms
+ * → 340/336/321 ms, con el resultado idéntico (md5 de las 1,470 filas). Con `unnest` es un semi-join
+ * por hash. Sin pares no trae nada, igual que `whereIn` con lista vacía.
+ */
+export function enPares<Q extends Knex.QueryBuilder>(qb: Q, colA: string, colB: string, pares: string[][]): Q {
+  return qb.whereRaw('(??, ??) IN (SELECT * FROM unnest(?::text[], ?::text[]))',
+    [colA, colB, pares.map((p) => p[0]), pares.map((p) => p[1])]) as Q;
+}
 
 /** `[RE.35.7]` La lectura cruda del OCR (JSON en `ocr_raw`); null si es texto viejo o no parsea. */
 function lecturaCruda(raw: unknown): Record<string, unknown> | null {
@@ -195,9 +209,8 @@ export class GoodsReceiptExpedienteService {
 
     // 1. Entradas
     const tieneRecepcion = await this.existeColumna(trx, 'analytics', 'erp_goods_receipts', 'fecha_recepcion');
-    const entradas: EntradaFila[] = await trx(fuente)
-      .where({ tenant_id: tenantId })
-      .whereIn(['sucursal', 'folio'], pares)
+    const entradas: EntradaFila[] = await enPares(trx(fuente)
+      .where({ tenant_id: tenantId }), 'sucursal', 'folio', pares)
       .select(
         'sucursal', 'folio', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc', 'oc_folio',
         trx.raw(`to_char(receipt_date, 'YYYY-MM-DD') AS receipt_date`),
@@ -213,8 +226,7 @@ export class GoodsReceiptExpedienteService {
     const internos = await this.internos(trx, tenantId, entradas.map((e) => e.proveedor_code).filter((c): c is string => !!c));
 
     // 3. Documentos subidos: el último que no fue devuelto (si todos, el último) + todos los roles
-    const proofs: (ProofFila & { created_at: string })[] = await trx('finance.goods_receipt_proofs')
-      .whereIn(['sucursal', 'folio'], pares)
+    const proofs: (ProofFila & { created_at: string })[] = await enPares(trx('finance.goods_receipt_proofs'), 'sucursal', 'folio', pares)
       .orderBy('created_at', 'desc')
       .select('sucursal', 'folio', 'status', 'files', 'ocr_folio', 'ocr_rfc', 'ocr_status', 'created_at',
         trx.raw('ocr_monto::float8 AS ocr_monto'), trx.raw(`to_char(ocr_fecha, 'YYYY-MM-DD') AS ocr_fecha`),
@@ -225,9 +237,8 @@ export class GoodsReceiptExpedienteService {
     // 4. Asignaciones ya confirmadas por una persona
     const asignados = new Map<string, string>();
     if (await this.existeTabla(trx, 'fiscal', 'cfdi_assignments')) {
-      const rows = await trx('fiscal.cfdi_assignments')
-        .where({ tenant_id: tenantId, status: 'confirmed' })
-        .whereIn(['sucursal', 'doc_folio'], pares)
+      const rows = await enPares(trx('fiscal.cfdi_assignments')
+        .where({ tenant_id: tenantId, status: 'confirmed' }), 'sucursal', 'doc_folio', pares)
         .orderBy('created_at', 'asc')
         .select('sucursal', 'doc_folio', 'cfdi_id');
       for (const r of rows as { sucursal: string; doc_folio: string; cfdi_id: string }[]) asignados.set(llave(r.sucursal, r.doc_folio), r.cfdi_id);
@@ -297,19 +308,59 @@ export class GoodsReceiptExpedienteService {
     // 6. Ligar cada factura con los CFDI de SU ventana
     interface Liga { cfdi: CfdiCandidato | null; liga: ExpedienteLiga | null; ambiguos: number; enContpaqi?: boolean }
     const ligas = new Map<string, Liga>();
+    /*
+     * `[RE.50]` Lo que una factura ve FUERA de su ventana (su CFDI asignado o el de su UUID) se busca
+     * por índice. Antes `vistos.filter(...)` recorría TODOS los candidatos por factura: medido en frío
+     * contra prod el 2026-10-27, 532 ms de 2.2 s del paso (1,305 facturas × 5,403 candidatos). Mismo
+     * resultado: los que coinciden por id o por UUID exacto, sin los que ya están en la ventana, en el
+     * orden de `vistos`.
+     */
+    const ordenDe = new Map(vistos.map((c, i) => [c, i] as const));
+    const porId = new Map<string, typeof vistos>();
+    const porUuid = new Map<string, typeof vistos>();
+    for (const c of vistos) {
+      (porId.get(c.id) ?? porId.set(c.id, []).get(c.id)!).push(c);
+      (porUuid.get(c.uuid) ?? porUuid.set(c.uuid, []).get(c.uuid)!).push(c);
+    }
+    /*
+     * `[RE.50]` «¿el proveedor factura en ContPAQi?» depende sólo del proveedor y de su ventana, y la
+     * ventana sólo del día pivote: se memoriza por (nombre, RFC, día) cuando la factura no trae CFDI de
+     * fuera de su ventana. Medido: 456 ms del paso, la misma pregunta repetida por cada factura.
+     */
+    const memoContpaqi = new Map<string, boolean>();
+    // `[RE.50]` `ligarCfdi` recibe sólo los candidatos que alguna llave puede elegir (ver
+    // `candidatosPosibles`): mismo resultado que con la ventana entera, sin recorrerla en cada filtro.
+    const indice = indexarCandidatos(vistos);
+    const diaDeCfdi = new Map(porDia.map((x) => [x.c as CfdiCandidato, x.d] as const));
     for (const p of facturas) {
       const asig = asignados.get(p.k) ?? null;
       const ventana = enVentana(p.pivote);
-      const extra = vistos.filter((c) => (c.id === asig || (!!p.lectura?.uuid && c.uuid === p.lectura.uuid)) && !ventana.includes(c));
+      const uuidLeido = p.lectura?.uuid;
+      const cerca = new Set([...(asig ? porId.get(asig) ?? [] : []), ...(uuidLeido ? porUuid.get(uuidLeido) ?? [] : [])]);
+      const extra = [...cerca].filter((c) => !ventana.includes(c)).sort((a, b) => ordenDe.get(a)! - ordenDe.get(b)!);
       const suyos = extra.length ? [...ventana, ...extra] : ventana;
-      const r = ligarCfdi({
+      const d0 = diaDe(p.pivote);
+      const deFuera = new Set<CfdiCandidato>(extra);
+      const esSuyo = (c: CfdiCandidato) => {
+        const d = diaDeCfdi.get(c);
+        return (d !== undefined && !Number.isNaN(d0) && d >= d0 - VENTANA_BUSQUEDA && d <= d0 + VENTANA_BUSQUEDA) || deFuera.has(c);
+      };
+      const llaves = {
         uuidLeido: p.lectura?.uuid ?? null, folioLeido: p.lectura?.folio ?? null, rfcLeido: p.lectura?.rfc ?? null,
         totalLeido: p.lectura?.total ?? null, fechaLeida: p.lectura?.fecha ?? null,
         rfcKepler: p.e.proveedor_rfc ?? null, montoEntrada: Number(p.e.monto), fechaEntrada: p.e.receipt_date,
         asignadoId: asig,
-      }, suyos);
+      };
+      const r = ligarCfdi(llaves, candidatosPosibles(llaves, suyos, indice, esSuyo, [...cerca]));
       // Sin CFDI: ¿el proveedor factura en ContPAQi? Si no, su papel se revisa como remisión.
-      ligas.set(p.k, { ...r, enContpaqi: r.cfdi ? undefined : proveedorEnContpaqi(p.e.proveedor_nombre ?? null, p.e.proveedor_rfc ?? null, suyos) });
+      let enContpaqi: boolean | undefined;
+      if (!r.cfdi) {
+        const clave = extra.length ? null : `${p.e.proveedor_nombre ?? ''}\u0000${p.e.proveedor_rfc ?? ''}\u0000${diaDe(p.pivote)}`;
+        const hit = clave === null ? undefined : memoContpaqi.get(clave);
+        enContpaqi = hit ?? proveedorEnContpaqi(p.e.proveedor_nombre ?? null, p.e.proveedor_rfc ?? null, suyos);
+        if (clave !== null && hit === undefined) memoContpaqi.set(clave, enContpaqi);
+      }
+      ligas.set(p.k, { ...r, enContpaqi });
     }
 
     // 7. RFC + importe: ¿hay otra entrada del proveedor con ese importe? (una consulta)
@@ -359,8 +410,8 @@ export class GoodsReceiptExpedienteService {
     // 10. Ajustes de Kepler ligados a cada entrada (devolución = operativo; descuento/apoyo = comercial)
     const ajustes = new Map<string, { operativo: number; comercial: number }>();
     if (await this.existeTabla(trx, 'analytics', 'erp_purchase_adjustments')) {
-      const rows: AjusteFila[] = await trx('analytics.erp_purchase_adjustments')
-        .where({ tenant_id: tenantId }).whereIn(['sucursal', 'entrada_folio'], pares)
+      const rows: AjusteFila[] = await enPares(trx('analytics.erp_purchase_adjustments')
+        .where({ tenant_id: tenantId }), 'sucursal', 'entrada_folio', pares)
         .groupBy('sucursal', 'entrada_folio')
         .select('sucursal', 'entrada_folio',
           trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria IS NULL OR NOT (categoria = ANY(?))), 0)::float8 AS operativo`, [COMERCIAL_CATS]),

@@ -8,6 +8,8 @@ import { ButtonModule } from 'primeng/button';
 import { TooltipModule } from 'primeng/tooltip';
 import { catchError, of } from 'rxjs';
 import { ComercialService, WincajaBranchKpi } from '../comercial.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { VENTAS_RENTABILIDAD_TABS } from '../ventas-rentabilidad-tabs';
 
 /**
  * Fase W — Overview Wincaja (POS Access). Operations surface, tabla densa.
@@ -17,7 +19,7 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
 @Component({
   selector: 'app-comercial-wincaja',
   standalone: true,
-  imports: [TableModule, TagModule, ButtonModule, TooltipModule, SucursalPipe],
+  imports: [TableModule, TagModule, ButtonModule, TooltipModule, SucursalPipe, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
@@ -31,6 +33,8 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
         </div>
         <button pButton type="button" [text]="true" aria-label="Recargar" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       @if (error()) {
         <div class="wcj-banner" role="alert">
@@ -114,6 +118,8 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
   `],
 })
 export class ComercialWincajaComponent {
+  /** [NAV.8] La barra del apartado «Ventas y rentabilidad» del sidebar de Comercial: la pintan todas sus páginas. */
+  readonly apartadoTabs = VENTAS_RENTABILIDAD_TABS;
   private readonly api = inject(ComercialService);
   private readonly destroyRef = inject(DestroyRef);
 

@@ -2,7 +2,11 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { PgListenService } from '@megadulces/platform-core';
 import { CajaGateway } from './caja.gateway';
 
-/** El canal de Postgres. Lo emite `database/importers/kepler/refresh-caja-matview.js`. */
+/**
+ * El canal de Postgres. Lo emite el trigger `tg_bml_avisa_*` de `analytics.bank_movement_legs`
+ * (`[OPS-AUD.11.4]`, ADR-104) cuando cambia una pierna de caja; antes lo emitía el refresco de la
+ * materializada, retirado. Payload: `analytics.caja_aviso_payloads()`.
+ */
 export const CANAL_CAJA = 'caja_movimientos';
 
 /**

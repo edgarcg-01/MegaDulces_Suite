@@ -90,8 +90,27 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
 const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_retiro.js',
   // `[CGA-A.37]` el candado «Σ por cobro ≤ su monto» del reparto, y `[LE.0.0]` «cada peso, una explicación».
   '20261020110022_caos_atribucion_cobro_partido.js',
-  '20261027101810_le00_baja_atribuciones_dobles_de_caos.js'];
+  '20261027101810_le00_baja_atribuciones_dobles_de_caos.js',
+  // `[LE.0.0a]` el candado por movimiento en los tres caminos que explican un depósito (entraba sola
+  // por su trigger sobre `cash_ledger`; explícita para que no dependa de eso), y `[LE.0.0e]` la
+  // función de denominaciones de A.55, que no toca ninguna tabla y por eso nunca entraría sola.
+  '20261027105608_le00a_una_explicacion_sin_carrera.js',
+  '20261027110325_le00e_caos_denom_valor_sin_signo_de_pregunta.js',
+  // `[LE.1]` El libro de partida doble: esquema propio (`cashbook`), no toca el núcleo del corte.
+  '20261027111930_le1_cashbook_libro_de_partida_doble.js',
+  // `[LE.1.9]` Conteos, hallazgos y excepciones del libro (mismo esquema propio).
+  '20261027120749_le19_cashbook_conteos_hallazgos_y_excepciones.js',
+  // `[LE.4.8]` La alerta de permisos de caja: triggers sobre las cuatro tablas de `identity`, que
+  // aquí llegan vacías desde el snapshot (sin políticas ni triggers propios: basta su forma).
+  '20261027132017_le48_cashbook_alerta_de_permisos_de_caja.js'];
 const MAX_REMEDIOS = 200;
+/** Los GRANT de prod a `app_runtime` sobre tablas que llegan vacías del snapshot y una prueba escribe. */
+const GRANTS_DE_PROD = {
+  'identity.role_permissions': 'SELECT, INSERT, UPDATE, DELETE',
+  'identity.user_permissions': 'SELECT, INSERT, UPDATE, DELETE',
+  'identity.user_roles': 'SELECT, INSERT, UPDATE, DELETE',
+  'identity.users': 'SELECT, INSERT, UPDATE, DELETE',
+};
 
 /**
  * `[CGP-D.1.2]` Migraciones que, ADEMÁS de cambiar la estructura del corte, corrigen FILAS DE PROD
@@ -360,6 +379,14 @@ async function main() {
       for (const s of sinFilasDeProd) console.log(`      · ${s}`);
     }
     if (moldes.length) console.log(`   tablas ajenas vacías desde el snapshot (${moldes.length}): ${moldes.join(', ')}`);
+    // `[LE.4.8]` Una tabla del snapshot nace sin GRANT. Las que una prueba escribe COMO `app_runtime`
+    // llevan los de prod (medidos el 2026-10-27: SELECT, INSERT, UPDATE y DELETE en las cuatro de
+    // permisos): sin eso la alerta de permisos sólo se probaría como superusuario, que salta la RLS.
+    for (const t of Object.keys(GRANTS_DE_PROD).filter((x) => moldes.includes(x))) {
+      await knex.raw(`GRANT USAGE ON SCHEMA ${t.split('.')[0]} TO app_runtime`);
+      await knex.raw(`GRANT ${GRANTS_DE_PROD[t]} ON ${t} TO app_runtime`);
+      await anotar('grant_de_prod', t, `app_runtime: ${GRANTS_DE_PROD[t]}`);
+    }
     console.log('   ⛔ Esta base NO es prod: valida estructura y reglas del corte, no datos.');
   } finally {
     await knex.destroy();

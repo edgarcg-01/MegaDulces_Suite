@@ -109,6 +109,15 @@ spec:
 #
 # ⚠️ Necesita `sh -c` y no `command:` directo, porque la lista de tablas se calcula en el
 # momento: son los kdc2YYMM de los ultimos cuatro meses, y el nombre cambia cada mes.
+#
+# ⭐ `[OPS-AUD.12]` (2026-10-27) TAMBIEN BORRA SOBRANTES. Cuando Contabilidad cambia la CUENTA de
+# un renglon de poliza, la cuenta es parte de la PK: el ODS lo recibe como renglon NUEVO y el
+# viejo se queda (118 renglones de sobra jun-sep, todos de las correcciones del SUA). El dedup
+# por hora no los ve: su llave por dia NO existe en el origen, asi que no son duplicados sino
+# sobrantes. Frenos: comparacion contra la tabla COMPLETA del replica (--full), tope
+# MAX_DELETE_FRAC por tabla x sucursal, y nunca borra si el replica devuelve 0 filas.
+# ⛔ Antes de encenderlo se corrigio que el camino de sobrantes mandaba la fecha de la PK como
+#    Date de JS: borraba la copia de las 06:00 al pedir la de las 00:00 (lib/ods-pk.js).
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -139,7 +148,7 @@ spec:
               args:
                 - >-
                   node database/importers/kepler/reconcile-ods-window.js
-                  --full --dedupe-fecha --apply
+                  --full --dedupe-fecha --delete-sobrantes --apply
                   --tables=$(node -e "const d=new Date();console.log([0,1,2,3].map(n=>{const x=new Date(d.getFullYear(),d.getMonth()-n,1);return 'kdc2'+String(x.getFullYear()).slice(2)+String(x.getMonth()+1).padStart(2,'0')}).join(','))")
               envFrom:
                 - secretRef:

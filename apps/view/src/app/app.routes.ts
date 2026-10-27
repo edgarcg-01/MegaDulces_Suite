@@ -625,6 +625,15 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
+        // `[PGP.20]` TP.7 — las cuentas bancarias del proveedor. Vino de /compras/cuentas-pago el
+        // 2026-10-27: es el paso SIGUIENTE del Calendario (sin cuenta no se prepara la
+        // transferencia), y quien prepara es Tesoreria. Conserva su permiso de Compras para que
+        // la mudanza no le cambie el acceso a nadie.
+        path: 'cuentas-pago',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cuentas-pago.component').then(m => m.FinanzasCuentasPagoComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_OBLIGACIONES_VER)]
+      },
+      {
         /**
          * SM.4 — Supervisor de Movimientos: bandeja de descuadres (caja/inventario/cruce).
          * `[SM.9]` Llegó de `/almacen/cuadre` (redirect allá). El componente se queda en
@@ -1332,12 +1341,6 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/compras/pages/compras-obligaciones.component').then(m => m.ComprasObligacionesComponent),
         // [RE.32] Finanzas entra a confirmar lo que Compras le entregó (sólo ve la pestaña Entregas).
         canActivate: [anyPermissionGuard(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_GESTIONAR)]
-      },
-      {
-        // TP.7 — cuentas bancarias de pago a proveedor (alta/cambio por solicitud). Mismo permiso.
-        path: 'cuentas-pago',
-        loadComponent: () => import('./modules/compras/pages/compras-cuentas-pago.component').then(m => m.ComprasCuentasPagoComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_OBLIGACIONES_VER)]
       },
       {
         path: 'red',

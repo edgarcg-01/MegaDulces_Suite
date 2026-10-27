@@ -32,6 +32,18 @@ en `~/ops/vl/`). Los secretos en `~/secrets/{feeds,ingest}.env`, permisos `600`,
 
 ### 2.1 Contenedores
 
+> ⛔⛔ **`docker volume prune` (o `docker system prune --volumes`) en `md` BORRA PRODUCCIÓN.**
+> Medido el 2026-10-27 `[OPS-AUD.2]`: `docker system df` reporta **73 GB de volúmenes
+> «reclaimable»** y son `prod_pg-prod-data` y `pgvector-md-data` — las bases de prod y de la fuente
+> del ODS. Desde el corte a k3s (2026-10-01) los monta el kubelet por `hostPath`, así que Docker
+> los ve **sin contenedor que los use** y los ofrece para borrar. `podar-disco.sh` no los toca
+> (verificado: nunca llama a `volume prune`); a mano, nadie debe hacerlo.
+>
+> ⚠️ Esta tabla describe los contenedores de **Compose**, que desde el 2026-10-01 están
+> `Exited` (parada limpia, `restart=no`). Lo vivo son los deployments del namespace `ingesta` de
+> k3s, uno por carril con el mismo nombre (manifiestos en [`k3s/`](k3s/)); `ods-autoheal` no tiene
+> equivalente en k3s porque el kubelet ya reinicia lo que falla su sonda.
+
 | Contenedor | Qué hace | Cadencia | Latido |
 |---|---|---|---|
 | `pgvector-md` | **La fuente**: Postgres 18 con las 8 réplicas lógicas de las sucursales + `kepler_consolidado`. Publica `:5433` | — | healthcheck `pg_isready` |
@@ -68,7 +80,6 @@ revisa en un diff, que es justo lo que el Programador de Windows no permitía.
 
 ```
 * * * * *          contpaqi
-* * * * *          caja-mv               (refresh-caja-matview; latido `mv_caja_refresh`)
 */2 * * * *        refresh-consolidado   ⭐ [NORM.3] era el ÚNICO mudo — ya late (`consolidado_refresh`)
 */5 * * * *        watchdog
 3-58/5 * * * *     contpaqi-cfdis        (incremental del ADD)

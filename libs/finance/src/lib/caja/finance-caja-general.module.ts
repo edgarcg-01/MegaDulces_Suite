@@ -8,6 +8,7 @@ import { CashCutService } from './cash-cut.service';
 import { CajaFechaFuturaScannerService } from './caja-fecha-futura-scanner.service';
 import { CajaCorteAbiertoScannerService } from './caja-corte-abierto-scanner.service';
 import { CajaAutofillRefreshService } from './caja-autofill-refresh.service';
+import { ArbitroPorCambioService } from './arbitro-por-cambio.service';
 import { CajaAutollenadoService } from './caja-autollenado.service';
 import { CajaRealtimeModule } from './caja-realtime.module';
 import { CajaControlService } from './caja-control.service';
@@ -20,6 +21,11 @@ import { CajaFirmaController, CajaFirmaPublicController } from './caja-firma.con
 // `[CGA-A.51]` El retiro de CAOS que se lleva una persona (ADR-101).
 import { CajaCustodiaService } from './caja-custodia.service';
 import { CajaCustodiaController } from './caja-custodia.controller';
+// `[LE.4]` El libro de efectivo de partida doble (ADR-102/103): corre en sombra junto al libro viejo (E5).
+import { CashbookService } from '../cashbook/cashbook.service';
+import { CashbookController } from '../cashbook/cashbook.controller';
+// `[LE.4.4]` El carril máquina → libro: corre por @Cron, APAGADO por default (LE_LIBRO_CAOS=on).
+import { CashbookCaosCarril } from '../cashbook/cashbook-caos.carril';
 
 /**
  * Caja General. Dos mitades que conviven durante el traslape (ADR-070):
@@ -36,7 +42,7 @@ import { CajaCustodiaController } from './caja-custodia.controller';
   // CG.23.2 — el tiempo real va en su propio módulo (namespace `/caja` + puente NOTIFY→WS).
   imports: [CajaRealtimeModule],
   controllers: [CajaGeneralController, CashLedgerController, CajaControlController, CajaArqueoController,
-    CajaFirmaController, CajaFirmaPublicController, CajaCustodiaController],
+    CajaFirmaController, CajaFirmaPublicController, CajaCustodiaController, CashbookController],
   // [CG.25] El vigilante de la fecha adelantada: avisa, y cuando Kepler corrige, sigue. Va acá y
   // no en el controller porque corre por `@Cron`, sin request — con su propia advertencia de RLS.
   // [CG.141] El carril que refresca `mv_caja_autofill_entidad`. Va acá, y NO en el array
@@ -50,7 +56,9 @@ import { CajaCustodiaController } from './caja-custodia.controller';
   // `ENABLE_CAJA_AUTOLLENADO=true` lo prende, y la migración de la cuenta de servicio va antes.
   providers: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
     CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
-    CajaAutollenadoService, CajaArqueoService, CajaFirmaService, CajaCustodiaService],
+    CajaAutollenadoService, CajaArqueoService, CajaFirmaService, CajaCustodiaService, CashbookService, CashbookCaosCarril,
+    // [OPS-AUD.11.6] La alarma de lo que mantienen los triggers (ADR-104): tesorería y pólizas.
+    ArbitroPorCambioService],
   exports: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
     CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
     CajaAutollenadoService, CajaArqueoService, CajaCustodiaService],

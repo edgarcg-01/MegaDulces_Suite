@@ -30,7 +30,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
-import { REPORTS_TABS } from '../reports-tabs';
+import { REPORTES_GENERALES_TABS } from '../reports-tabs';
 
 type PeriodMode = 'month' | 'quarter' | 'year' | 'range';
 type Measure = 'cajas' | 'monto' | 'ambas';
@@ -857,7 +857,7 @@ const CHANNEL_SEL_OPTS = [
   `],
 })
 export class ComercialSellOutComponent {
-  readonly reportTabs = REPORTS_TABS;
+  readonly reportTabs = REPORTES_GENERALES_TABS; // [NAV.8.1] la barra de SU apartado, no la tira combinada de 11
   readonly channelOpts = CHANNEL_OPTS;
   readonly modes: { key: PeriodMode; label: string }[] = [
     { key: 'month', label: 'Mes' },

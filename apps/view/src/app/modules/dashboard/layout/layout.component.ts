@@ -50,9 +50,11 @@ import { LIBROS_CONTABLES_TABS, LIBROS_CONTABLES_LABEL } from '../../finanzas/li
 import { MAAT_TABS, MAAT_LABEL } from '../../finanzas/maat-tabs';
 import { REPORTES_GENERALES_TABS } from '../../comercial/reports-tabs';
 import { RUTA_DIRECTA_TABS, RUTA_DIRECTA_LABEL } from '../../comercial/ruta-directa-tabs';
-import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
+import { ANALYTICS_TABS, ANALYTICS_LABEL } from '../../comercial/analytics-tabs';
 import { CUSTOMERS_TABS } from '../../comercial/customers-tabs';
-import { PRECIOS_TABS } from '../../comercial/precios-tabs';
+import { PRECIOS_APARTADO_TABS, PRECIOS_APARTADO_LABEL } from '../../comercial/precios-apartado-tabs';
+import { VENDEDORES_TABS, VENDEDORES_LABEL } from '../../comercial/vendedores-tabs';
+import { VENTAS_RENTABILIDAD_TABS, VENTAS_RENTABILIDAD_LABEL } from '../../comercial/ventas-rentabilidad-tabs';
 import { PROMOS_TABS } from '../../comercial/promos-tabs';
 import { TELEMARKETING_TABS } from '../../comercial/telemarketing-tabs';
 import { CATALOGO_TABS } from '../../compras/catalogo-tabs';
@@ -432,11 +434,19 @@ export class LayoutComponent implements OnInit, OnDestroy {
   ];
 
   // Comercial agrupado por dominio (el shell renderiza una sección por grupo).
+  // ⭐ `[NAV.8]` (2026-10-27, pedido de Edgar: «rediseñemos también los módulos de /comercial/»):
+  // de 18 renglones a 11, para que el sidebar quepa sin scroll (~1,262 px → ~926 px), las mismas
+  // pantallas. Uso medido (telemetría de la suite, 30 días, 750 visitas): Reportes de venta 554 ·
+  // Ruta Directa 100 · Centro de Control 36 · Pedidos 18 · Rentabilidad 15; cinco renglones con 0.
+  // Lo que se plegó, cada pestaña con SU permiso (la entrada se ve si ves alguna, y lleva a la
+  // primera visible): Precios = Listas + Control de margen · Vendedores = Cartera + Cierre de ruta +
+  // Ventas de vendedor · Ventas y rentabilidad · Analítica comercial absorbe al Centro de Control
+  // (era la misma pantalla que su pestaña «En vivo») y a Razonamiento. Las barras las pintan las
+  // páginas ANTES de plegar (lección de `[NAV.2]`); cada conjunto tiene nombre propio (`[AUD-A5]`).
   private comercialNavGroups: { title: string; items: NavItem[] }[] = [
     {
       title: 'Ventas',
       items: [
-        { label: 'Centro de Control', icon: 'pi pi-compass',   route: '/comercial/command-center', permission: Permission.COMMERCIAL_ORDERS_VER },
         { label: 'Pedidos',           icon: 'pi pi-file-edit',  route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
         // [NAV.1] Clientes y Clientes 360 son la misma ficha en dos vistas: una entrada, dos pestañas.
         { label: 'Clientes', icon: 'pi pi-users', route: '/comercial/customers', tabs: CUSTOMERS_TABS },
@@ -446,7 +456,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // cartera y éste busca cualquier folio de cualquier canal — por eso tienen permisos
         // distintos.
         { label: 'Tickets',           icon: 'pi pi-receipt',    route: '/comercial/tickets',        permission: Permission.COMMERCIAL_TICKETS_VER },
-        { label: 'Razonamiento (Thot)', icon: 'pi pi-lightbulb', route: '/comercial/razonamiento', permission: Permission.COMMERCIAL_THOT_VER },
       ],
     },
     {
@@ -455,22 +464,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
       // buscarlo justo donde ya no está.
       title: 'Precios y promociones',
       items: [
-        { label: 'Listas de precios', icon: 'pi pi-tag',          route: '/comercial/pricing',    permission: Permission.COMMERCIAL_PRICING_VER },
-        // `[PR.V2]` Eran DOS renglones que responden la misma pregunta en dos tiempos: el motor
-        // dice qué precio conviene mover, y el experimento es lo único que puede convertir esa
-        // acción de «efecto no medido» a medida. Ahora es una entrada con selector segmentado.
-        // ⛔ `[NAV.1]` El `anyOf` que acá vivía se RETIRÓ, y no por limpieza: con `tabs`,
-        //    `hasPermFor` ignora `permission`/`anyOf` y deriva la visibilidad de las pestañas
-        //    (`tabs.some(pestanaVisible)`). Dejarlo escrito declaraba una compuerta que el
-        //    código ya no consulta. Verificado que el gate NO cambia: Motor y Competencia piden
-        //    MARGIN_ENGINE_VER y Experimentos trae su propio `anyOf` con los dos de
-        //    experimentos — exactamente las tres perms que el item listaba.
-        // `[NAV.1]` UNA entrada para Motor + Competencia + Experimentos. Antes el padre y sus
-        //    tres pestañas eran CUATRO renglones hermanos: `/comercial/precios` y
-        //    `/comercial/precios/*`. ⭐ El padre no era pantalla: `preciosHomeGuard` siempre
-        //    devuelve un `UrlTree`, o sea que ya despachaba a la primera pestaña visible — que
-        //    es lo mismo que hace `conDestino`. El destino no cambia.
-        { label: 'Control de margen', icon: 'pi pi-sliders-h', route: '/comercial/precios', tabs: PRECIOS_TABS },
+        // `[NAV.8]` Listas de precios + Control de margen (`[PR.V2]`: Motor · Competencia ·
+        // Experimentos) en UNA entrada. ⛔ Con `tabs`, `hasPermFor` ignora `permission`/`anyOf`
+        // y deriva la visibilidad de las pestañas: no se escribe un gate que el código no consulta.
+        { label: PRECIOS_APARTADO_LABEL, icon: 'pi pi-tag', route: '/comercial/pricing', tabs: PRECIOS_APARTADO_TABS },
+        // ⚠️ `/comercial/promotions` sólo redirige a `/mkt/promotions`, que pinta la barra de MKT:
+        // no se puede plegar en un apartado de Comercial sin pintarle otra barra a una página ajena.
         { label: 'Promociones',       icon: 'pi pi-gift',         route: '/comercial/promotions', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
         { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',         route: '/comercial/empuje',     permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },
       ],
@@ -478,10 +477,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Ruta y vendedores',
       items: [
-        { label: 'Cartera de ventas',  icon: 'pi pi-sitemap',    route: '/comercial/cartera',       permission: Permission.USUARIOS_ASIGNAR_RUTA },
-        // [MCP.3.7] «Visitas del día» es la primera pestaña de Cartera de ventas, no otra entrada.
-        { label: 'Cierre de ruta',     icon: 'pi pi-receipt',    route: '/comercial/route-tickets', permission: Permission.ROUTE_CONTROL_VER },
-        { label: 'Ventas de vendedor', icon: 'pi pi-money-bill', route: '/comercial/vendor-sales',  permission: Permission.COMMERCIAL_VENDOR_SALES_VER },
+        // `[NAV.8]` Cartera de ventas + Cierre de ruta + Ventas de vendedor: 1 visita entre las
+        // tres en 30 días. [MCP.3.7] «Visitas del día» sigue siendo la primera vista de Cartera.
+        { label: VENDEDORES_LABEL, icon: 'pi pi-sitemap', route: '/comercial/cartera', tabs: VENDEDORES_TABS },
         // ⭐ UNA entrada para las SIETE pantallas de Ruta Directa, con el patrón de `[GX.80]`:
         // lleva a la primera que la persona puede ver y queda activa en cualquiera de ellas.
         // Primero las puse como siete items sueltos dentro de «Reportes» y era la forma
@@ -504,13 +502,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Reportes',
       items: [
-        { label: 'Ventas generales', icon: 'pi pi-sparkles', route: '/comercial/ventas-generales', permission: Permission.COMMERCIAL_ANALYTICS_VER },
-        { label: 'Rentabilidad', icon: 'pi pi-percentage', route: '/comercial/rentabilidad', permission: Permission.COMMERCIAL_PROFITABILITY_VER },
-        { label: 'Sucursales Wincaja', icon: 'pi pi-building', route: '/comercial/wincaja', permission: Permission.COMMERCIAL_ANALYTICS_VER },
         // [NAV.1] Los reportes de venta general en UNA entrada. «Documentos» era un item suelto Y la pestaña «Facturación TM»: la misma pantalla, dos renglones.
         { label: 'Reportes de venta', icon: 'pi pi-chart-bar', route: '/comercial/sell-out', tabs: REPORTES_GENERALES_TABS },
-        // [NAV.1] La analítica comercial (Thot, en vivo, histórico ERP, curaduría) en UNA entrada.
-        { label: 'Analítica comercial', icon: 'pi pi-chart-line', route: '/comercial/thot-chat', tabs: ANALYTICS_TABS },
+        // `[NAV.8]` Rentabilidad + Ventas generales + Sucursales Wincaja.
+        { label: VENTAS_RENTABILIDAD_LABEL, icon: 'pi pi-percentage', route: '/comercial/rentabilidad', tabs: VENTAS_RENTABILIDAD_TABS },
+        // [NAV.1] La analítica comercial (en vivo, Thot, histórico ERP, curaduría) en UNA entrada.
+        // `[NAV.8]` «En vivo» (el Centro de Control) va primero y absorbe su renglón suelto.
+        { label: ANALYTICS_LABEL, icon: 'pi pi-chart-line', route: '/comercial/command-center', tabs: ANALYTICS_TABS },
       ],
     },
   ];
@@ -715,7 +713,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // barra la pintan TODAS sus páginas antes de quitar sus renglones (`[NAV.2]` lo hizo al revés).
   // Cada pestaña conserva su permiso. Quedan como renglón propio las de uso alto (30 días: Gastos 810
   // visitas, Caja 517, Crédito 67) y Control (histórico), que se retira en CG.16 y no se mezcla con Caja.
-  // ⛔ `PAGOS_TABS` NO creció: `[PGP.7]` lo dejó en el ciclo vivo de dos pantallas; la deuda va aparte.
+  // `PAGOS_TABS` tiene TRES pestañas desde `[PGP.20]` (2026-10-27): «Cuentas de pago» llegó de
+  // Compras y se puso a la derecha del Calendario. ⛔ Sigue en pie lo que fijó `[PGP.7]`: sólo entra
+  // lo que es PASO del ciclo vivo de pago. La deuda a proveedor va aparte (ver `deuda-proveedores-tabs`),
+  // y esta entró por ser el paso siguiente —sin la cuenta no se prepara la transferencia—, no por tema.
   // Uso: telemetría de la suite (visitas = persona+sesión+día; proxy: dónde se cargó la página o se dejó
   // la pestaña).
   private finanzasNavGroups: { title: string; items: NavItem[] }[] = [

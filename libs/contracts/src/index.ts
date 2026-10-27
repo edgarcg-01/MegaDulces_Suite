@@ -40,6 +40,7 @@ export * from './http/codigo-simbolico.contract';
 // billete y la moneda de $20 valen lo mismo y son cosas distintas.
 export * from './money/denominations';
 export * from './money/quote-totals';
+export * from './money/centavos';
 // [CG.38] El cambio en Caja General: todo acto tiene una pila que ENTRA y otra que SALE, y el
 // neto es la resta. Un canje cuyas dos mitades no coinciden es un descuadre, no un canje.
 export * from './work/caja-cambio.contract';
@@ -172,6 +173,7 @@ export * from './finance/jornadas-pendientes.contract';
 export * from './finance/caja-sucursal.contract';
 export * from './finance/dia-negocio.contract';
 export * from './finance/corte-caja.contract';
+export * from './finance/libro-efectivo.contract';
 export * from './finance/protocolo-gasto.contract';
 // `[GX.75]` La transferencia XD2601 que pagó el gasto: tercer número del expediente.
 export * from './finance/transferencia-gasto.contract';

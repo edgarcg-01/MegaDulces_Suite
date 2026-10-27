@@ -72,6 +72,8 @@ export class GoodsReceiptProofsController {
         ? (query['bandeja'] as ListReceiptsQuery['bandeja']) : undefined,
       hallazgo: ['cobrar_nc', 'mal_emitida', 'incompleta', 'sin_oc', 'nc_aplicada', 'comercial'].includes(String(query['hallazgo']))
         ? (query['hallazgo'] as ListReceiptsQuery['hallazgo']) : undefined,
+      // `[RE.51]` Lista blanca: cualquier otra cosa es `todo`, el comportamiento de siempre.
+      expediente_lote: query['expediente_lote'] === 'pagina' ? 'pagina' : undefined,
       page: query['page'] ? Number(query['page']) : undefined,
       pageSize: query['pageSize'] ? Number(query['pageSize']) : undefined,
     };

@@ -176,7 +176,10 @@ const STEPS = {
   ],
   stock:   [
     path.join(K, 'import-branch-stock-live.js'),
-    path.join(DIR, 'wincaja', 'import-cedis-stock-wincaja.js'), // RA-PRO.24 CEDIS '00' = Wincaja Irapuato (NO Kepler) — tras stock Kepler, ANTES del fact (guard: no borra si Irapuato vacío)
+    // RETIRADO 2026-10-27 [OPS-AUD.3]: import-cedis-stock-wincaja — el CEDIS vive en Kepler desde el
+    // corte del 2026-09-30 y Wincaja Irapuato queda sólo para históricos. El guard ya lo frenaba
+    // (`cutover_done`), pero corría 2× por ciclo y su MERGE con DELETE revivía si alguien vaciaba
+    // `kepler_code`.
     // `[RA-PERF.8]` `--hb=stock`: llave de latido PROPIA de este carril. Sin el sufijo, este paso y
     // el del nightly se pisarían el renglón de `analytics.cron_runs` (PK sin host) y fabricarían
     // falsos "la corrida anterior no reportó cierre" cada vez que se cruzaran.
@@ -240,7 +243,6 @@ const STEPS = {
     path.join(K, 'import-sales-stats.js'),   // KV.2 ABC/share (lee prod sales_daily) — tras sales-fact
     path.join(K, 'import-sales-monthly.js'), // HVT.1 rollup mensual durable (sales_daily → sales_monthly, serie larga + calibración demanda) — tras sales-fact
     [path.join(K, 'import-demand-clean.js'), '--hb=nightly'],  // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand — tras sales-fact `[RA.VA.6]` --hb: llave de latido propia de este carril (corre en live y nightly).
-    path.join(DIR, 'wincaja', 'import-cedis-stock-wincaja.js'), // RA-PRO.24 CEDIS '00' = Wincaja Irapuato (NO Kepler) — ANTES de inventory-health/DRP/fact (guard: no borra si Irapuato vacío)
     path.join(K, 'import-inventory-health.js'), // KV.5 días cobertura/status (stock × sales_daily); demanda en PIEZAS crudas (canónico, ver import-inventory-health)
     path.join(K, 'import-reorder-policy.js'),   // RA.2 umbrales reorden Kepler (kdii.c33/34/35 → reorder_policy source=kepler)
     path.join(K, 'import-computed-reorder.js'), // RA.3/RA-PRO.1 reorden por demanda + safety stock por nivel de servicio + XYZ — tras inventory-health
@@ -302,7 +304,10 @@ const STEPS = {
     path.join(K, 'import-ledger-chain.js'),      // MAAT.1 — balanza fam 1-9 + cadena de gasto → Maat P&L / fiscal / impuestos provisionales
     path.join(K, 'import-expense-requests.js'),  // GX.6 — vínculo solicitud↔gasto (expense_documents.solicitud_*) + hallazgos. `expense_requests` es VISTA (mig 20260819160000); lee de kepler_ods (local, sin timeout) — TRAS expenses-polizas
     path.join(K, 'import-sales-by-channel.js'),  // venta contable 401 reclasificada por canal real (solo CEDIS)
-    path.join(K, 'import-cash-cuts.js'),         // SM.1 — cortes/arqueos de caja POS (kdpv_folio_caja)
+    // RETIRADO 2026-10-27 [OPS-AUD.10]: import-cash-cuts.js — 2º escritor de analytics.cash_cuts.
+    // El dueño único es el @Cron de 10 min de libs/reconciliation/cash-cuts-sync.service.ts, que lee
+    // kepler_ods.kdpv_folio_caja (misma base, más columnas). Éste leía las BD por sucursal y ya murió
+    // 12 noches (sep-16→28) sin que la tabla se resintiera: era redundante.
     // RETIRADO 2026-09-03: import-bank-postings.js → analytics.bank_postings ahora es MATERIALIZED VIEW
     // derive-no-copy sobre kepler_ods.kdc2YYMM vía analytics.bank_postings_src() (mig 20260903130000).
     // La refresca AnalyticsRefreshService (cron 15m). Cero importer.
@@ -311,7 +316,10 @@ const STEPS = {
     // Queda sólo en el modo `finance`, que se lanza desde `.249`.
     // path.join(DIR, 'movimientos-caja', 'import-caja-general.js'), // CG — arqueo caja 20 VIVO (BMovimientosCajas, al día) + Base Movimientos (histórico). Idempotente (UPSERT). REQUIERE Z: (.245 \\D) montado en el host del feed + PowerShell/ACE.OLEDB.
     // Feeds antes HUÉRFANOS (nunca agendados → se quedaban viejos). Cadencia diaria correcta.
-    path.join(K, 'import-kepler-polizas.js'),    // pólizas contables Kepler (kdc2) → analytics.gl_poliza_*
+    // RETIRADO 2026-10-27 [OPS-AUD.14]: import-kepler-polizas.js — el reporte de pólizas de Kepler
+    // (analytics.gl_polizas / gl_poliza_lines, source='kepler') se mantiene POR CAMBIO desde el ODS
+    // (triggers en cada kdc2YYMM, mig 20261027135745). El importer nunca borraba: un cambio de cuenta
+    // dejaba el renglón viejo para siempre, y num_movto cambiaba de una noche a otra.
     path.join(K, 'import-sales-boxes-monthly.js'), // venta en cajas mensual → analytics.sales_boxes_monthly
     path.join(DIR, 'wincaja', 'import-sales-by-vendor-monthly.js'), // AUDIT 2026-08-20 — era HUÉRFANO (648k filas sell-out x vendedor, sin modo ni latido). Al nightly + hereda heartbeat feed_nightly. Idempotente (UPSERT + DELETE-orphan + Canindo remap).
     path.join(K, 'import-pos-cashiers.js'),      // dim cajeros POS → analytics.pos_cashiers
@@ -418,7 +426,6 @@ const STEPS = {
     path.join(K, 'import-ledger-chain.js'),
     path.join(K, 'import-expense-requests.js'), // tras expenses-polizas (UPDATE a expense_documents)
     path.join(K, 'import-sales-by-channel.js'),
-    path.join(K, 'import-cash-cuts.js'),
     // RETIRADO 2026-09-03: import-bank-postings.js → analytics.bank_postings es MATERIALIZED VIEW (mig 20260903130000).
 
     // [CG.9c] El carril NUEVO de la caja general, y va ANTES del importer viejo a propósito.

@@ -9,10 +9,10 @@
 ---
 
 ## [Unreleased]
-### Added — Vender de otras sucursales de la zona: «pedido agrupado» (MCP.3.12–3.13, ADR-102, 2026-10-23)
+### Added — Vender de otras sucursales de la zona: «pedido agrupado» (MCP.3.12–3.13, ADR-105, 2026-10-23)
 - **El vendedor ve un solo pedido** (MCP.3.14): en Hoy, Notificaciones y el inicio, un renglón con el total del grupo; si lo surten 2+ sucursales, dice en qué va cada una («LPA · Surtido  PH · Por surtir»).
 - **Indicaciones para el surtidor** (MCP.3.15): el vendedor escribe o dicta en un recuadro, antes de agendar, cómo quiere el cliente su mercancía; el surtidor lo ve en grande y marca «Cumplí las indicaciones» antes de terminar.
-- **Cada pedido le llega al surtidor en cuanto se levanta** (MCP.3.15, ADR-103): ya no espera a «Finalizar ruta»; la ruta deja de surtirse junta.
+- **Cada pedido le llega al surtidor en cuanto se levanta** (MCP.3.15, ADR-106): ya no espera a «Finalizar ruta»; la ruta deja de surtirse junta.
 - **App del vendedor:** en cada producto, una tira chica con la existencia de las sucursales de su zona (La Piedad = PH, LPA, 8ES, YU · Zamora = DAMASO, CAN · Morelia = MM, MA). Tocar una sucursal = de ahí se surte ese producto, con su precio. El carrito dice «Se surte en LPA (3) · PH (1)» y el pedido agendado «Se surte en LPA y PH».
 - **Un pedido, varias sucursales:** al mandarlo, cada sucursal recibe SU parte (mismo grupo). Cada parte se surte, se cobra en el Kepler de su sucursal y el repartidor la recoge ahí.
 - **Surtido:** cada sucursal empieza y termina su parte de la ruta; las tarjetas dicen «Parte de P-xxxx · también surte PH».

@@ -2,7 +2,7 @@
 // Dominio Comercial: clientes, almacenes, pricing, inventario, órdenes
 // (state machine + reserva/consumo atómico), analytics, alerts, recomendaciones,
 // promociones, productos, catalog-search, televenta, portal AI order,
-// ticket OCR e ingesta ERP (mega-dulces-sync). Depende solo de platform-core
+// ticket OCR. Depende solo de platform-core
 // + contracts. NO importa trade ni logistics.
 
 export * from './lib/commercial-customers/commercial-customers.module';
@@ -77,14 +77,11 @@ export * from './lib/commercial-vendor-routes/commercial-vendor-routes.module';
 export * from './lib/commercial-tracking/commercial-tracking.module';
 export * from './lib/portal-ai-order/portal-ai-order.module';
 export * from './lib/ticket-extractor/ticket-extractor.module';
-export * from './lib/mega-dulces-sync/mega-dulces-sync.module';
 export * from './lib/commercial-telemetry/commercial-telemetry.module';
 export * from './lib/commercial-push/commercial-push.module';
 export * from './lib/commercial-push/commercial-push.service';
 export * from './lib/supplier-payment-obligations/commercial-supplier-payment-obligations.module';
 export * from './lib/supplier-payment-obligations/supplier-payment-obligations.service';
-export * from './lib/supplier-payment-accounts/commercial-supplier-payment-accounts.module';
-export * from './lib/supplier-payment-accounts/supplier-payment-accounts.service';
 
 // Servicios expuestos para el composition root (binding modules de los Ports).
 export * from './lib/commercial-orders/commercial-orders.service';

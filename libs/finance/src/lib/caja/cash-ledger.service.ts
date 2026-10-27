@@ -19,7 +19,9 @@ import {
 const ETIQUETA_CARRIL: Record<string, string> = {
   ods_live_hot: 'Carril del ODS (caliente)',
   ods_live_mirror: 'Carril del ODS (espejo)',
-  mv_caja_refresh: 'Refresco de la cola de caja',
+  // [OPS-AUD.11.4] Ya no hay refresco de la cola: la mantiene un trigger al escribir kdm1, así que
+  // su edad es la del carril que escribe kdm1.
+  ods_live_caja: 'Carril de caja del ODS (kdm1)',
 };
 import { CajaGateway } from './caja.gateway';
 import { leerCandado } from './caja-candado.query';
@@ -1599,10 +1601,15 @@ export class CashLedgerService {
       // último cierre bueno — o sea "estos datos son de hace 1 h", que es información. La columna
       // habría devuelto la hora del último refresh exitoso también, pero sólo mientras el matview
       // existiera; acá ni siquiera hace falta que exista.
+      //
+      // ⛔ [OPS-AUD.11.4] Ya NO es `mv_caja_refresh`: la cola dejó de ser materializada y se
+      // mantiene por trigger al escribir `kdm1` (ADR-104). El dato tiene la edad del carril que
+      // escribe `kdm1` — `ods_live_caja`, que cierra un `ok` cada 10 s. Leer el latido del
+      // refresco retirado haría que la pantalla dijera «datos de hace N horas» sobre datos al día.
       const r = await trx('analytics.cron_run_log')
         .where({
           tenant_id: this.tenantCtx.requireTenantId(),
-          job_key: 'mv_caja_refresh',
+          job_key: 'ods_live_caja',
           status: 'ok',
         })
         .max({ al: 'finished_at' })
@@ -3418,7 +3425,7 @@ export class CashLedgerService {
   private async frescuraCobertura(trx: Knex.Transaction): Promise<Freshness> {
     try {
       const filas = await trx('analytics.cron_runs')
-        .whereIn('job_key', ['ods_live_hot', 'ods_live_mirror', 'mv_caja_refresh'])
+        .whereIn('job_key', ['ods_live_hot', 'ods_live_mirror', 'ods_live_caja'])
         .select('job_key', 'last_finish');
       if (!filas.length) {
         return composeFreshness([

@@ -61,6 +61,22 @@ describe('[NAV.7] apartados del sidebar de Finanzas', () => {
   });
 
   it('[PGP.7] Pagos sigue siendo sólo el ciclo vivo: la deuda NO se metió en su barra', () => {
-    expect(PAGOS_TABS.map((t) => t.route)).toEqual(['/finanzas/calendario-pagos', '/finanzas/pagos-comprobantes']);
+    // `[PGP.20]` (2026-10-27) sumó «Cuentas de pago», que llegó de Compras. Entra porque es un
+    // PASO del ciclo —sin la cuenta del proveedor no se prepara la transferencia—, no por tema.
+    // Lo que `[PGP.7]` prohíbe sigue prohibido, y es lo que de verdad vigila esta prueba.
+    expect(PAGOS_TABS.map((t) => t.route)).toEqual([
+      '/finanzas/calendario-pagos',
+      '/finanzas/cuentas-pago',
+      '/finanzas/pagos-comprobantes',
+    ]);
+    // ⛔ La guarda que no se puede aflojar: ninguna pantalla de DEUDA entra a esta barra.
+    for (const t of DEUDA_PROVEEDORES_TABS) {
+      expect(PAGOS_TABS.map((x) => x.route)).not.toContain(t.route);
+    }
+  });
+
+  it('[PGP.20] «Cuentas de pago» va pegada al Calendario, que es de quien es el paso siguiente', () => {
+    const rutas = PAGOS_TABS.map((t) => t.route);
+    expect(rutas.indexOf('/finanzas/cuentas-pago')).toBe(rutas.indexOf('/finanzas/calendario-pagos') + 1);
   });
 });

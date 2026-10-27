@@ -11,6 +11,8 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { SalesBlockComponent } from '../ventas-generales/sales-block.component';
 import { DashboardSpec, SalesBlock, VgFilters } from '../ventas-generales/dashboard-spec';
 import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_LABEL, DIMENSION_LABEL } from '../ventas-generales.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { VENTAS_RENTABILIDAD_TABS } from '../ventas-rentabilidad-tabs';
 
 /**
  * Fase VG.0/1 — "Ventas Generales": tablero de venta global dirigido por `spec`. El usuario
@@ -22,7 +24,7 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
   selector: 'app-ventas-generales',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, SelectModule, ButtonModule, InputTextModule, DatePickerModule, ContextHelpComponent, SalesBlockComponent],
+  imports: [CommonModule, FormsModule, SelectModule, ButtonModule, InputTextModule, DatePickerModule, ContextHelpComponent, SalesBlockComponent, PageTabsComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -34,6 +36,8 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
           <button pButton type="button" class="p-button-sm p-button-outlined" (click)="rebuild()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <!-- Answer-first (DESIGN §15): los KPIs primero, los controles después. -->
       @if (kpiBlock(); as k) { <app-sales-block [block]="k" /> }
@@ -129,6 +133,8 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
   `],
 })
 export class VentasGeneralesComponent implements OnInit {
+  /** [NAV.8] La barra del apartado «Ventas y rentabilidad» del sidebar de Comercial: la pintan todas sus páginas. */
+  readonly apartadoTabs = VENTAS_RENTABILIDAD_TABS;
   private readonly svc = inject(VentasGeneralesService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);

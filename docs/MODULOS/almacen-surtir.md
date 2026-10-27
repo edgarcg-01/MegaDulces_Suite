@@ -26,7 +26,7 @@ vendedoras y preventa en la app) y **Telemarketing** (lo que llega de Kepler). L
 
 - `orders.notes` por `place()`; `presale-picking` lo lee y lo manda como `instructions` en el renglón de la bandeja.
 - `SURTIDO_DE_RUTA = false` (`presale-route.engine.ts`): sin retener el aviso, sin `NOT EXISTS` de la ruta en la
-  bandeja, sin rutas que listar, `routeStart` rechaza y «Finalizar ruta» no avisa. ADR-103.
+  bandeja, sin rutas que listar, `routeStart` rechaza y «Finalizar ruta» no avisa. ADR-106.
 
 ### Por qué se hizo así
 

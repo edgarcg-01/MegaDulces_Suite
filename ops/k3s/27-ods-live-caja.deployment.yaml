@@ -170,11 +170,17 @@ spec:
             # Donde la cola no está instalada no pasa nada distinto: el latido lo DECLARA
             # («sin cola: …») y las redes de seguridad siguen como hoy.
             # ⛔ UN solo manifiesto puede declarar esta variable (lo candadea test-ods-cola.js).
+            # `[OPS-AUD.13]` + las pólizas (`kdc2*`, una tabla por mes; se resuelve por rama). Así una
+            # corrección contable —incluida la de CUENTA, que cambia la llave y la cola anota la
+            # vieja como borrado— llega al ODS en segundos y no a las 02:25. La cola se pone sola en
+            # la tabla del mes nuevo (event trigger, `ods-cola-instalar.js --auto=kdc2*`).
             - name: ODS_COLA_TABLES
-              value: kdm1,kdm2
+              value: kdm1,kdm2,kdc2*
             # `[OBS.15.10]` Los borrados que la cola ve se propagan al ODS (decisión del PM,
             # 2026-10-27): sólo filas con fecha de negocio de los últimos 7 días y nunca más de 500
             # por tabla en una pasada (eso es una poda, no una edición). Apagarlo = quitar esto.
+            # `[OPS-AUD.13]` En pólizas (`kdc2*`) SIN freno de edad, con el mismo tope (decisión
+            # del PM, 2026-10-27): una corrección de un mes pasado es legítima.
             - name: ODS_COLA_BORRAR
               value: "1"
           # ⛔ La sonda mide ENTREGA contra `analytics.cron_runs`, no "el proceso existe". El

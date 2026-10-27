@@ -36,7 +36,7 @@ todo el sistema (precio, surtido, ticket de Kepler, guía, liquidación) suponí
 - `place()` separa: los renglones de otra sucursal pasan a una parte (`orders.group_id` = principal); si todo era
   de otra sucursal, el principal toma esa sucursal (no queda pedido vacío).
 - Surtido de ruta por sucursal (`seller_route_day_picks`), clave Kepler del cliente por sucursal
-  (`customer_branch_keys`), reparto con las partes del grupo y liquidación en una sola caja. ADR-102.
+  (`customer_branch_keys`), reparto con las partes del grupo y liquidación en una sola caja. ADR-105.
 
 ### Después: el vendedor ve UN pedido (MCP.3.14, 2026-10-26)
 

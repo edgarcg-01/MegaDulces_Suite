@@ -32,7 +32,7 @@ interface ChatMsg {
 }
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { REPORTS_TABS } from '../reports-tabs';
+import { REPORTES_GENERALES_TABS } from '../reports-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -479,7 +479,7 @@ export class ComercialAnalisisComponent {
       });
   }
 
-  readonly reportTabs = REPORTS_TABS;
+  readonly reportTabs = REPORTES_GENERALES_TABS; // [NAV.8.1] la barra de SU apartado, no la tira combinada de 11
   readonly dimOpts = DIM_OPTS;
   readonly cmpOpts = CMP_OPTS;
   monthDate: Date = new Date(new Date().getFullYear(), new Date().getMonth(), 1);

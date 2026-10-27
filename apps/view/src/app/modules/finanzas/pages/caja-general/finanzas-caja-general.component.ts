@@ -1338,7 +1338,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                dejar de llamar "tu jornada" a cosas que no lo son. -->
           <app-segmented [options]="seccionesJornada()" [value]="seccionJornada()"
                          (valueChange)="seccionJornada.set($any($event))"
-                         ariaLabel="Qué parte de la jornada querés ver"></app-segmented>
+                         ariaLabel="Qué parte de la jornada quieres ver"></app-segmented>
 
           <!-- ⛔⛔ [CG.123] LO QUE DECLARA UN HUECO NO ENTRA AL SELECTOR, Y ESTO LO CAZARON LAS
                PRUEBAS, NO YO.
@@ -2190,7 +2190,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       @if (libroTopado()) {
         <p-message severity="warn" class="cg-full">
           La lista está topada en 500 movimientos y este periodo tiene más. Lo de arriba cuenta
-          TODO el periodo; la lista no. Achicá el rango de fechas o usá los filtros.
+          TODO el periodo; la lista no. Achica el rango de fechas o usa los filtros.
         </p-message>
       }
 
@@ -6320,6 +6320,30 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.cargarArqueo();
     this.cargarRecurrentes();
     this.enVivo();
+    // `[CGS.55]` Desde Caja Fuerte (`/finanzas/caos`), «Registrar» trae el movimiento en la liga.
+    const qCaos = qp.get('caos');
+    const qCaosDia = qp.get('caos_dia');
+    if (qCaos) this.abrirDesdeLigaCaos(qCaos, qCaosDia && RX_FECHA_ISO.test(qCaosDia) ? qCaosDia : undefined);
+  }
+
+  /**
+   * `[CGS.55]` Abre la captura con ESE movimiento de la caja fuerte puesto, por el mismo camino que
+   * la bandeja (`capturarDesdeCaos`). Se busca por su identidad (`device|external_id`) entre los
+   * capturables de su día: si ya no está, alguien lo registró o lo vinculó, y se dice así — no se
+   * abre una captura vacía como si la liga hubiera funcionado.
+   */
+  private abrirDesdeLigaCaos(ref: string, dia?: string): void {
+    this.svc.caosCapturables({ from: dia, to: dia, limit: 500 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        const m = (r.rows ?? []).find((x) => x.origen_ref === ref);
+        if (m) this.capturarDesdeCaos(m);
+        else this.toast.add({
+          severity: 'warn', summary: 'Ese movimiento de la caja fuerte ya no está pendiente',
+          detail: 'Alguien lo registró o lo vinculó a otro movimiento.', life: 7000,
+        });
+      },
+      error: (err) => this.avisarError(err, 'No se pudo abrir el movimiento de la caja fuerte'),
+    });
   }
 
   /**

@@ -15,7 +15,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import type {
   PaymentCalendarAllocation, PaymentCalendarDaySummary, PaymentCalendarWeek, PaymentCalendarWeekDay,
-  PaymentObligationSource, PaymentOriginAccount,
+  PayableEvidenceRow, PaymentObligationSource, PaymentOriginAccount,
 } from '@megadulces/contracts';
 import { warehouseName } from '@megadulces/contracts';
 import type { SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
@@ -39,7 +39,7 @@ type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto
  * está parado. Es una unión cerrada a propósito — `runVerdict()` tiene que seguir siendo
  * exhaustiva, y agregar un paso sin su acción tiene que romper la compilación, no pasar de largo.
  */
-type VerdictActionKind = 'armar' | 'proponer' | 'ordenar' | 'preparar' | 'autorizar' | 'pagar' | 'cerrar' | 'rebote';
+type VerdictActionKind = 'armar' | 'proponer' | 'ordenar' | 'autorizar' | 'pagar' | 'cerrar' | 'rebote';
 interface VerdictAction { kind: VerdictActionKind; label: string; icon: string }
 /** `[PGP.15]` El veredicto: «bien» y «falta» no llevan tono (lo dice la frase); sólo lo que está mal. */
 interface Verdict { tone: 'ok' | 'bad' | 'muted'; say: string; why: string | null; action: VerdictAction | null }
@@ -151,7 +151,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, MetricStripComponent, SidePeekComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, SidePeekComponent, MetricStripComponent],
   providers: [MessageService],
   template: `
     <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
@@ -159,97 +159,87 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     <div class="surf-page in cal-page">
       <app-entity-inspector [(ref)]="inspect" />
       <p-toast></p-toast>
-      <!-- [PGP.14] UNA banda de encabezado. Las instrucciones viven en el «?» (diccionario versionado,
-           regla P) y la semana se navega desde la cola, que es donde estan los dias. -->
-      <header class="pg-head">
-        <h1>Pagos <app-context-help topic="calendario-de-pagos" /></h1>
-        <!-- [RE.32] Lo que Compras entrega a Finanzas se confirma alla; Finanzas no ve el menu de Compras. -->
-        <a pButton class="p-button-sm p-button-text p-button-secondary" routerLink="/compras/obligaciones" [queryParams]="{ tab: 'entregas' }">
-          <span class="p-button-icon p-button-icon-left pi pi-inbox" aria-hidden="true"></span><span class="p-button-label">Entregas de Compras</span>
-        </a>
-      </header>
+      <!-- [PGP.15] Cuatro principios del PM (2026-10-26): la menor interaccion humana, el menor color
+           posible, todo visible en todo momento y todo total desglosable.
+           [PGP.15] Y UNA PANTALLA (Edgar: «que todo entre en la pantalla con la menor cantidad de
+           scroll»). Medido a 1442×902: la pagina media 1,914 px dentro de un panel de 814 -casi 2.5
+           pantallas-; la cola de dias ocupaba una columna de 520 px de alto para 7 renglones. Ahora:
+           los dias en UNA tira arriba, el veredicto compacto, y dos paneles que llenan lo que queda
+           -a la izquierda agregar facturas, a la derecha los pagos del dia-, cada uno con su
+           desplazamiento propio. El titulo «Pagos» repetia la pestaña: queda para lectores de pantalla. -->
+      <h1 class="sr-only">Pagos</h1>
 
-      <!-- [PGP.15] Cuatro principios del PM (2026-10-26), y esta pantalla es su primer caso:
-           (1) la menor interaccion humana -lo que el sistema ya sabe, lo hace-; (2) el menor color
-           posible -neutro por default, naranja SOLO para la accion principal y rojo SOLO para lo que
-           esta mal-; (3) todo visible en todo momento -nada vital detras de un acordeon-; (4) todo
-           total se puede desglosar. -->
-      <div class="pg-shell">
-
-        <!-- ── LA COLA: los dias por pagar ──────────────────────────────── -->
-        <aside class="pg-queue" aria-label="Días por pagar">
-          <div class="pg-queue-h">
-            <div class="pg-queue-tt">
-              <h2>Días por pagar</h2>
-              <span class="pg-queue-wk comm-num" aria-live="polite">{{ weekLabel() }}</span>
-            </div>
-            <span class="pg-queue-nav">
-              <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ico" (click)="shiftWeek(-1)" aria-label="Semana anterior"><span class="pi pi-angle-left" aria-hidden="true"></span></button>
-              <!-- [PGP.15] «Hoy» con su palabra: era un punto naranja, el unico color de la cola que no decia nada. -->
-              <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-hoy" [disabled]="selectedDate() === todayIso" (click)="goToday()">Hoy</button>
-              <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ico" (click)="shiftWeek(1)" aria-label="Semana siguiente"><span class="pi pi-angle-right" aria-hidden="true"></span></button>
-            </span>
-          </div>
-          <!-- [PGP.13] La cifra de la derecha SIEMPRE es lo libre del tope. Una columna, un significado. -->
-          <div class="pg-queue-leg"><span>día</span><span>libre del tope</span></div>
-
-          <app-load-state [loading]="loadingWeek() && !week()" [error]="weekError()" [skeletonRows]="3" (retry)="loadWeek()">
-            <div class="pg-days">
-              @for (d of week()?.days ?? []; track d.date) {
-                <button type="button" class="pg-day"
-                        [class.is-sel]="d.date === selectedDate()" [class.is-nocap]="!d.summary.capacity_defined"
-                        [attr.aria-current]="d.date === selectedDate() ? 'true' : null"
-                        [attr.aria-label]="dayAria(d)" (click)="openDay(d.date)">
-                  <span class="pg-day-t">
-                    <span class="pg-day-n">{{ dayShort(d.date) }}@if (d.date === todayIso) { <span class="pg-t"> · hoy</span> }</span>
-                    <span class="pg-day-amt comm-num" [class.cal-neg]="(d.summary.remaining_amount ?? 0) < 0">
-                      @if (d.summary.capacity_defined) { {{ moneyShort(d.summary.remaining_amount) }} } @else { — }
-                    </span>
-                  </span>
-                  <span class="pg-day-b">
-                    @if (d.allocations.length) {
-                      <i class="pg-dot is-work" aria-hidden="true"></i>
-                      {{ pagos(d.allocations.length) }} · <span class="comm-num">{{ moneyShort(dayTotal(d)) }}</span>
-                      @if (dayFailed(d) > 0) { · <b class="cal-bad-txt">{{ dayFailed(d) === 1 ? '1 rebotó' : dayFailed(d) + ' rebotaron' }}</b> }
-                      @else if (dayUnprepared(d) > 0) { · <b>falta preparar {{ dayUnprepared(d) }}</b> }
-                      @else if (d.summary.lot_status === 'closed') { · cerrado }
-                      @else if (d.summary.lot_status === 'released' || d.summary.lot_status === 'executing') { · autorizado }
-                    } @else if (!d.summary.capacity_defined) {
-                      <i class="pg-dot" aria-hidden="true"></i> sin tope fijado
-                    } @else {
-                      <i class="pg-dot is-free" aria-hidden="true"></i> sin pagos
-                    }
-                  </span>
-                </button>
-              }
-            </div>
-          </app-load-state>
-
-          <!-- [PGP.14] Sin semana cargada no hay pie: un cero dibujado donde no hubo medicion (ADR-056). -->
+      <!-- ── LOS DIAS POR PAGAR: una tira, no una columna ─────────────────── -->
+      <nav class="pg-top" aria-label="Días por pagar">
+        <div class="pg-week">
+          <span class="pg-week-nav">
+            <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ico" (click)="shiftWeek(-1)" aria-label="Semana anterior"><span class="pi pi-angle-left" aria-hidden="true"></span></button>
+            <span class="pg-queue-wk comm-num" aria-live="polite">{{ weekLabel() }}</span>
+            <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ico" (click)="shiftWeek(1)" aria-label="Semana siguiente"><span class="pi pi-angle-right" aria-hidden="true"></span></button>
+            <!-- [PGP.15] «Hoy» con su palabra: era un punto naranja, el unico color de la cola que no decia nada. -->
+            <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-hoy" [disabled]="selectedDate() === todayIso" (click)="goToday()">Hoy</button>
+            <app-context-help topic="calendario-de-pagos" />
+          </span>
+          <!-- [PGP.14] Sin semana cargada no hay resumen: un cero dibujado donde no hubo medicion (ADR-056). -->
           @if (week()) {
-          <div class="pg-queue-f">
-            <span><b class="comm-num">{{ moneyShort(weekAvailable()) }}</b> libres del tope de <b class="comm-num">{{ moneyShort(weekBudget()) }}</b> esta semana</span>
-            @if (weekNoCapDays() > 0) { <span>{{ dias(weekNoCapDays()) }} sin tope fijado</span> }
-            @if (weekUnprepared() > 0) { <span><b>{{ weekUnprepared() }}</b> {{ weekUnprepared() === 1 ? 'pago' : 'pagos' }} sin preparar en {{ dias(weekDaysWithWork()) }}</span> }
-          </div>
+            <span class="pg-week-f"><b class="comm-num">{{ moneyShort(weekAvailable()) }}</b> libres de <b class="comm-num">{{ moneyShort(weekBudget()) }}</b> esta semana@if (weekUnprepared() > 0) { · <b>{{ weekUnprepared() }}</b> sin preparar }@if (weekNoCapDays() > 0) { · {{ dias(weekNoCapDays()) }} sin tope }</span>
           }
-        </aside>
+        </div>
+        <app-load-state class="pg-days-ls" [loading]="loadingWeek() && !week()" [error]="weekError()" [skeletonRows]="1" (retry)="loadWeek()">
+          <div class="pg-days">
+            @for (d of week()?.days ?? []; track d.date) {
+              <!-- [PGP.13] La cifra de cada dia SIEMPRE es lo libre del tope, y lo dice. -->
+              <button type="button" class="pg-day"
+                      [class.is-sel]="d.date === selectedDate()" [class.is-nocap]="!d.summary.capacity_defined"
+                      [attr.aria-current]="d.date === selectedDate() ? 'true' : null"
+                      [attr.aria-label]="dayAria(d)" (click)="openDay(d.date)">
+                <span class="pg-day-t">
+                  <span class="pg-day-n">{{ dayShort(d.date) }}@if (d.date === todayIso) { <span class="pg-t"> · hoy</span> }</span>
+                  <span class="pg-day-amt comm-num" [class.cal-neg]="(d.summary.remaining_amount ?? 0) < 0">
+                    @if (d.summary.capacity_defined) { {{ moneyShort(d.summary.remaining_amount) }}<span class="pg-day-l"> libre</span> } @else { sin tope }
+                  </span>
+                </span>
+                <span class="pg-day-b">
+                  @if (d.allocations.length) {
+                    <i class="pg-dot is-work" aria-hidden="true"></i>{{ pagos(d.allocations.length) }}
+                    <!-- [PGP.19] El color dice el estado, siempre con su palabra: ámbar = falta algo que
+                         destraba el día, verde = listo o hecho, rojo = algo está mal. -->
+                    @if (dayFailed(d) > 0) { · <b class="cal-bad-txt">{{ dayFailed(d) === 1 ? '1 rebotó' : dayFailed(d) + ' rebotaron' }}</b> }
+                    @else if (dayUnprepared(d) > 0) { · <b class="cal-warn-txt">faltan {{ dayUnprepared(d) }}</b> }
+                    @else if (d.summary.lot_status === 'closed') { · <b class="cal-ok-txt">cerrado</b> }
+                    @else if (d.summary.lot_status === 'released' || d.summary.lot_status === 'executing') { · <b class="cal-ok-txt">autorizado</b> }
+                    @else { · <b class="cal-ok-txt">listos</b> }
+                  } @else if (d.summary.capacity_defined) {
+                    <i class="pg-dot is-free" aria-hidden="true"></i> sin pagos
+                  } @else {
+                    <i class="pg-dot" aria-hidden="true"></i> —
+                  }
+                </span>
+              </button>
+            }
+          </div>
+        </app-load-state>
+      </nav>
 
-        <!-- ── EL DIA ABIERTO ──────────────────────────────────────────── -->
-        <main class="pg-lot" #payPanel>
+      <!-- ── EL DIA ABIERTO ──────────────────────────────────────────── -->
+      <main class="pg-lot" #payPanel>
           @if (selectedDay(); as day) {
 
-            <!-- EL VEREDICTO: que pasa, que sigue, el boton que lo hace, el tope y el avance. UN bloque. -->
+            <!-- EL VEREDICTO: que pasa, que sigue, el boton que lo hace, el tope y el avance. UN bloque.
+                 [PGP.15] Compacto (Edgar: «me sigue necesitando mucho espacio»): medía ~160 px. El día ya
+                 está marcado en la tira de arriba (queda como encabezado para lectores de pantalla); el
+                 estado del lote va al final del motivo; el tope es UNA línea de texto con su barra, y el
+                 avance va en el mismo renglón, cada paso en una línea («quién» al pasar el mouse). -->
             <div class="pg-vd" [class.is-bad]="verdict().tone === 'bad'">
-              <div class="pg-vd-id">
-                <h2>{{ dayLong(day.date) }}@if (day.date === todayIso) { · hoy }</h2>
-                @if (day.summary.lot_status) { <span class="pg-pill">{{ lotLabel(day.summary.lot_status) }}</span> }
-                @if (day.lot_folio) { <span class="pg-vd-sub comm-num">folio {{ day.lot_folio }}</span> }
-              </div>
+              <h2 class="sr-only">{{ dayLong(day.date) }}@if (day.date === todayIso) { · hoy }</h2>
               <div class="pg-vd-main" role="status" aria-live="polite">
                 <div class="pg-vd-txt">
                   <p class="pg-vd-say">@if (verdict().tone === 'bad') { <i class="pi pi-times-circle pg-vd-ico" aria-hidden="true"></i> }{{ verdict().say }}</p>
-                  @if (verdict().why) { <p class="pg-vd-why" [innerText]="verdict().why!"></p> }
+                  <p class="pg-vd-why">
+                    @if (verdict().why) { <span [innerText]="verdict().why!"></span> }
+                    @if (day.summary.lot_status) { <span class="pg-pill">{{ lotLabel(day.summary.lot_status) }}</span> }
+                    @if (day.lot_folio) { <span class="pg-vd-sub comm-num">folio {{ day.lot_folio }}</span> }
+                  </p>
                 </div>
                 @if (verdict().action; as act) {
                   <button pButton type="button" class="pg-vd-cta" [disabled]="saving()" [loading]="saving()" (click)="runVerdict(act.kind)">
@@ -257,12 +247,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   </button>
                 }
               </div>
+              <div class="pg-vd-row2">
               <div class="pg-cap">
                 @if (day.summary.capacity_defined) {
-                  <!-- [PGP.15] instant: la tira contaba de 0 al monto en ~900 ms; medido, en ese lapso decia
-                       «Comprometido $84,410.38» de un dia con $1,850,235.43. Una cifra que se lee mal un
-                       segundo no esta visible «en todo momento». -->
-                  <app-metric-strip [items]="capKpis(day)" ariaLabel="El tope del día" density="compact" [instant]="true" />
+                  <!-- [PGP.15] La tira de métricas compartida (Q.1; no se reimplementa, §5.4), compacta y con
+                       las cifras a tamaño de texto: a 20 px ocupaba dos renglones del veredicto. instant: sin
+                       el conteo de 0 al monto (publicaba «4,410.38» de un día con ,850,235.43). -->
+                  <app-metric-strip class="pg-cap-ms" [items]="capKpis(day)" ariaLabel="El tope del día" density="compact" [instant]="true" />
                   <span class="pg-cap-bar" role="img" [attr.aria-label]="usedPctRound(day) + ' por ciento del tope del día comprometido'">
                     <span class="pg-cap-fill" [class.is-over]="day.summary.exceeded" [style.width.%]="usedPct(day)"></span>
                   </span>
@@ -270,17 +261,17 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   <span class="pg-cap-say">Presupuestos no fijó el tope de este día: se pueden armar pagos, pero el día no se autoriza.</span>
                 }
               </div>
-              <!-- [PGP.15] EL AVANCE DEL DIA, siempre a la vista y sin clic. Eran cuatro acordeones: al
-                   autorizar, la tabla de pagos se plegaba y su contenido volvia a medias en otro paso;
-                   medido, 3 de 4 pasos cerrados al entrar, uno de ellos con TODA la deuda adentro. -->
+              <!-- [PGP.15] EL AVANCE DEL DIA, siempre a la vista y sin clic (eran cuatro acordeones). -->
               <ol class="pg-prog" aria-label="Avance del día">
                 @for (e of etapas(); track e.n) {
-                  <li class="pg-pe" [class.is-done]="e.estado === 'hecho'" [class.is-now]="e.estado === 'ahora'" [attr.aria-current]="e.estado === 'ahora' ? 'step' : null">
+                  <li class="pg-pe" [class.is-done]="e.estado === 'hecho'" [class.is-now]="e.estado === 'ahora'" [attr.aria-current]="e.estado === 'ahora' ? 'step' : null"
+                     >
                     <span class="pg-pe-n" aria-hidden="true">@if (e.estado === 'hecho') { <i class="pi pi-check"></i> } @else { {{ e.n }} }</span>
-                    <span class="pg-pe-t"><b>{{ e.nombre }}</b>@if (e.quien) { <span class="pg-pe-who">{{ e.quien }}</span> }<span class="pg-pe-say">{{ e.dice }}</span></span>
+                    <span class="pg-pe-t"><b>{{ e.nombre }}@if (e.quien && e.estado === 'ahora') { <span class="pg-pe-who"> · {{ e.quien }}</span> }</b>@if (e.dice) { <span class="pg-pe-say">{{ e.dice }}</span> }@if (e.quien && e.estado !== 'ahora') { <span class="sr-only">, lo hace {{ e.quien }}</span> }</span>
                   </li>
                 }
               </ol>
+              </div>
               @if (pasoActivo() === 3) {
                 <!-- [PGP.13] Lo que la pantalla NO puede afirmar todavia: D2 (firma por monto) y la
                      separacion de funciones (PGP.1.1) estan decididas pero el codigo no las aplica. -->
@@ -292,6 +283,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               }
             </div>
 
+            <div class="pg-work" #pgWork [class.is-solo]="isReleased()">
             <!-- ── AGREGAR FACTURAS: el carril que mas se usa (Edgar: «el 80% es el buscador y agregar
                  facturas de proveedores»). [PGP.15] Medido antes: el buscador vivia DENTRO de un plegable
                  cerrado, 1.3 pantallas abajo; escribir no buscaba (hacia falta Enter, y nada lo decia);
@@ -313,12 +305,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   </span>
                   <span id="pg-buscar-dice" class="pg-sec-n" aria-live="polite">
                     @if (buscando()) { Buscando… }
-                    @else if (busquedaAplicada()) { {{ facturas(obligacionesProgramables().length) }} con «{{ busquedaAplicada() }}»@if (gruposBusqueda().length > 1) { · {{ gruposBusqueda().length }} proveedores } }
-                    @else { {{ obligationsTotal() | number }} por pagar@if (obligacionesEnRevision().length) { · {{ obligacionesEnRevision().length }} por confirmar@if (obligationsTruncated()) { entre las {{ obligations().length | number }} listadas } } }
+                    <!-- [PGP.15] El universo de la lista, en la misma línea (era un renglón aparte): si vino
+                         topada se dice cuántas de cuántas, también con búsqueda. -->
+                    @else if (busquedaAplicada()) { @if (obligationsTruncated()) { {{ obligations().length | number }} de {{ obligationsTotal() | number }} facturas } @else { {{ facturas(obligacionesProgramables().length) }} } con «{{ busquedaAplicada() }}»@if (gruposBusqueda().length > 1) { · {{ gruposBusqueda().length }} proveedores } }
+                    @else { @if (obligationsTruncated()) { {{ obligations().length | number }} de {{ obligationsTotal() | number }} por pagar, las más próximas a vencer } @else { {{ obligationsTotal() | number }} por pagar }@if (obligacionesEnRevision().length) { · {{ obligacionesEnRevision().length }} por confirmar } }
                   </span>
-                  <button type="button" class="pg-sec-tg pg-lista-tg" [attr.aria-expanded]="verDeuda()" aria-controls="pg-add-b" (click)="toggleDeuda()">
-                    {{ verDeuda() ? 'Ocultar la lista' : 'Ver la lista' }}<span class="pi" [class.pi-angle-up]="verDeuda()" [class.pi-angle-down]="!verDeuda()" aria-hidden="true"></span>
-                  </button>
                 </div>
                 @if (avisoAlta(); as av) {
                   <p class="pg-alta" role="status"><i class="pi pi-check" aria-hidden="true"></i>{{ av }}</p>
@@ -329,6 +320,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       <p-select appendTo="body" [options]="classificationOpts" [(ngModel)]="classificationFilter" (onChange)="loadObligations()" optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true" size="small" class="cal-sel" ariaLabel="Tipo de obligación" />
                       <p-select appendTo="body" [options]="ordenOpts" [(ngModel)]="ordenSel" (onChange)="onOrden()" optionLabel="label" optionValue="value" size="small" class="cal-sel" ariaLabel="Orden de la lista" />
                       <label class="cal-check"><p-checkbox [(ngModel)]="onlyCritical" [binary]="true" (onChange)="loadObligations()" />Críticos</label>
+                      <!-- [RE.32] Lo que Compras entrega a Finanzas se confirma alla; Finanzas no ve el menu de Compras. -->
+                      <a pButton class="p-button-sm p-button-text p-button-secondary pg-entregas" routerLink="/compras/obligaciones" [queryParams]="{ tab: 'entregas' }">
+                        <span class="p-button-icon p-button-icon-left pi pi-inbox" aria-hidden="true"></span><span class="p-button-label">Entregas de Compras</span>
+                      </a>
                     </div>
                     <!-- [PGP.15] Con una busqueda, cada proveedor y sucursal es UN pago: se agrega entero
                          de un clic (eran N clics, uno por factura). Sus facturas siguen abajo, una por una. -->
@@ -353,9 +348,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                         }
                       </div>
                     }
-                    @if (obligationsTruncated()) {
-                      <p class="pg-drawer-n">La búsqueda llega a <b>las {{ obligationsTotal() | number }}</b> facturas; aquí se listan las <b>{{ obligations().length | number }}</b> más próximas a vencer.</p>
-                    }
+                    <!-- [PGP.15] Lo topado de la lista ya lo dice el resumen junto al buscador («1,000 de 2,848…»). -->
                     <div class="pg-dr-hd" aria-hidden="true"><span>Proveedor y documento</span><span>Vencimiento</span><span class="r">Importe</span><span></span></div>
                     <div class="pg-drawer-b">
                       <app-load-state [loading]="loadingObligations()" [skeletonRows]="4">
@@ -397,6 +390,22 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                      el 17.9% del dinero sale antes de tiempo, 6 dias en promedio.
                                      Se calla cuando el pronto pago gana mas de lo que cuesta. -->
                                 @if (f.adelanto; as a) { <span class="pg-pronto-no"><i class="pi pi-clock" aria-hidden="true"></i>{{ a }}</span> }
+                                <!-- [PGP.21] La factura, acá, para no ir a buscarla a mano. Con PDF
+                                     es un boton (Q.4: el dato lleva a su accion); con solo UUID o
+                                     sin nada es texto que DICE POR QUE, nunca un hueco mudo. -->
+                                @if (evidenciaDe(f.o); as e) {
+                                  @if (e.evidencia === 'pdf') {
+                                    <button type="button" class="pg-ev pg-ev-pdf"
+                                            [attr.aria-label]="'Ver la factura de ' + f.o.beneficiary + ' ' + f.o.concept"
+                                            (click)="abrirFactura(e)">
+                                      <i class="pi pi-file-pdf" aria-hidden="true"></i>Ver la factura
+                                    </button>
+                                  } @else if (e.evidencia === 'uuid') {
+                                    <span class="pg-ev pg-ev-uuid"><i class="pi pi-id-card" aria-hidden="true"></i>sin archivo; hay UUID fiscal</span>
+                                  } @else {
+                                    <span class="pg-ev pg-ev-no"><i class="pi pi-info-circle" aria-hidden="true"></i>sin factura: {{ e.motivo }}</span>
+                                  }
+                                }
                               </span>
                             </span>
                             <span class="pg-dr-due">{{ f.vence }}</span>
@@ -423,11 +432,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     @if (obligacionesEnRevision().length) {
                       <button type="button" class="pg-rev-h" [attr.aria-expanded]="verRevision()" (click)="verRevision.set(!verRevision())">
                         <span class="pi pi-lock" aria-hidden="true"></span>
-                        <span class="pg-rev-t"><b>{{ facturas(obligacionesEnRevision().length) }} por confirmar · <span class="comm-num">{{ money(revisionTotal()) }}</span>@if (obligationsTruncated()) { <span class="pg-rev-u">entre las {{ obligations().length | number }} listadas</span> }</b>
-                          <span>De sucursal, anteriores al corte del 1-oct: varias se pagaron desde Oficinas sin aplicarse en la sucursal. Se revisan con Finanzas antes de programarlas.</span></span>
+                        <span class="pg-rev-t"><b>{{ facturas(obligacionesEnRevision().length) }} por confirmar · <span class="comm-num">{{ money(revisionTotal()) }}</span>@if (obligationsTruncated()) { <span class="pg-rev-u"> · entre las {{ obligations().length | number }} listadas</span> }</b>
+                          <span>De sucursal, antes del 1-oct: pueden estar pagadas desde Oficinas; se revisan con Finanzas.</span></span>
                         <span class="pi pg-chev" [class.pi-angle-down]="verRevision()" [class.pi-angle-right]="!verRevision()" aria-hidden="true"></span>
                       </button>
                       @if (verRevision()) {
+                        <div class="pg-rev-list">
                         @for (o of obligacionesEnRevision(); track o.obligation_id) {
                           <div class="pg-dr-row is-locked">
                             <span class="pg-dr-main">
@@ -439,6 +449,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                             <span class="pg-dr-acts"><i class="pi pi-lock" aria-label="No se puede programar"></i></span>
                           </div>
                         }
+                        </div>
                       }
                     }
                   </div>
@@ -452,6 +463,26 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 <h3 class="pg-sec-t" id="pg-pagos-h">Pagos del día
                   @if (allocations().length) { <span class="pg-sec-n comm-num">{{ pagos(allocations().length) }} · {{ money(dayTotal(day)) }}</span> }
                 </h3>
+                @if (!isReleased() && pendingCount() > 0) {
+                  <!-- [PGP.15] En el ENCABEZADO del panel (era un renglon propio) y como el boton principal del paso:
+                       el veredicto repetia «Elegir el metodo de los N» con otro boton.
+                       Metodo y origen para todos, y el DESTINO lo pone el sistema: la cuenta
+                       favorita del catalogo del proveedor (aprobada por Gerencia). Antes habia que abrir
+                       un dialogo por pago solo para aceptar una cuenta que el sistema ya conocia. -->
+                  <div class="pg-applyall">
+                    <span class="pg-aa-lb">Para los {{ pendingCount() }} pagos</span>
+                    <span class="pg-aa-f"><label for="pg-bulk-method">Método</label>
+                      <p-select appendTo="body" inputId="pg-bulk-method" [options]="methodOpts" [(ngModel)]="bulkMethod" optionLabel="label" optionValue="value" placeholder="Elegir…" size="small" class="cal-sel" /></span>
+                    @if (bulkMethod !== 'efectivo') {
+                      <span class="pg-aa-f"><label for="pg-bulk-origin">Sale de</label>
+                        <p-select appendTo="body" inputId="pg-bulk-origin" [options]="originOpts()" [(ngModel)]="bulkOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta…" [filter]="true" filterBy="label" size="small" class="cal-sel" /></span>
+                    }
+                    <button pButton type="button" class="p-button-sm" [disabled]="!bulkMethod || (bulkMethod !== 'efectivo' && !bulkOriginId) || saving()" [loading]="saving()" (click)="aplicarATodos()">Aplicar a los {{ pendingCount() }}</button>
+                    @if (bulkMethod === 'transferencia' || bulkMethod === 'cargo_automatico') {
+                      <span class="pg-aa-note">El destino de cada uno sale solo de la cuenta favorita de su proveedor; los que no tengan, quedan marcados.</span>
+                    }
+                  </div>
+                }
                 <span class="pg-sec-acts">
                   @if (allocations().length) {
                     <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [loading]="printing()" (click)="printPreliminar()"><span class="pi pi-file-pdf" aria-hidden="true"></span>&nbsp;Preliminar</button>
@@ -521,38 +552,19 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   <p class="cal-empty">Sin pagos este día.</p>
                 }
               } @else {
-                @if (!isReleased() && pendingCount() > 0) {
-                  <!-- [PGP.15] Metodo y origen para todos, y el DESTINO lo pone el sistema: la cuenta
-                       favorita del catalogo del proveedor (aprobada por Gerencia). Antes habia que abrir
-                       un dialogo por pago solo para aceptar una cuenta que el sistema ya conocia. -->
-                  <div class="pg-applyall">
-                    <span class="pg-aa-lb">Para los {{ pendingCount() }} pagos</span>
-                    <span class="pg-aa-f"><label for="pg-bulk-method">Método</label>
-                      <p-select appendTo="body" inputId="pg-bulk-method" [options]="methodOpts" [(ngModel)]="bulkMethod" optionLabel="label" optionValue="value" placeholder="Elegir…" size="small" class="cal-sel" /></span>
-                    @if (bulkMethod !== 'efectivo') {
-                      <span class="pg-aa-f"><label for="pg-bulk-origin">Sale de</label>
-                        <p-select appendTo="body" inputId="pg-bulk-origin" [options]="originOpts()" [(ngModel)]="bulkOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta…" [filter]="true" filterBy="label" size="small" class="cal-sel" /></span>
-                    }
-                    <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!bulkMethod || (bulkMethod !== 'efectivo' && !bulkOriginId) || saving()" [loading]="saving()" (click)="aplicarATodos()">Aplicar a los {{ pendingCount() }}</button>
-                    @if (bulkMethod === 'transferencia' || bulkMethod === 'cargo_automatico') {
-                      <span class="pg-aa-note">El destino de cada uno sale solo de la cuenta favorita de su proveedor; los que no tengan, quedan marcados.</span>
-                    }
-                  </div>
-                }
 
                 <!-- [PGP.14] class=, no styleClass=: en PrimeNG v22 styleClass se descarta en silencio.
                      [PGP.15] UNA tabla para todo el ciclo: preparar, autorizar, pagar y lo que rebota. Antes
                      el mismo dia se veia en dos tablas distintas segun el paso, y una de las dos estaba
                      siempre plegada. Cada pago se DESGLOSA en sus facturas (antes: una linea cortada con
                      «…» que escondia folios). -->
-                <p-table [value]="allocations()" size="small" dataKey="id" [expandedRowKeys]="abiertos()" class="surf-table surf-table--plain pg-prep">
+                <p-table [value]="allocations()" size="small" dataKey="id" [expandedRowKeys]="abiertos()" [scrollable]="true" scrollHeight="flex" class="surf-table surf-table--plain pg-prep">
                   <ng-template #header>
                     <tr>
                       <th class="pg-c-tg"><span class="sr-only">Desglose</span></th>
                       <th class="pg-c-ord" [class.is-folio]="isReleased()">@if (isReleased()) { Folio } @else { Orden }</th>
-                      <th class="pg-c-ben">Beneficiario</th>
+                      <th class="pg-c-ben">Beneficiario y cómo sale</th>
                       <th class="pg-c-amt">Importe</th>
-                      <th class="pg-c-how">Cómo sale</th>
                       <th class="pg-c-act"><span class="sr-only">Acciones</span></th>
                     </tr>
                   </ng-template>
@@ -579,16 +591,18 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                         <span class="cal-benef">{{ allocationTitle(a) }}</span>
                         <span class="pg-sub"><span class="cal-suc">{{ itemsBranches(a) }}</span>{{ itemsResumen(a) }}</span>
                         @if (a.notes) { <span class="cal-notes">{{ a.notes }}</span> }
-                      </td>
-                      <td class="pg-c-amt comm-num" data-l="Importe">{{ money(a.amount_assigned) }}</td>
-                      <td class="pg-c-how" data-l="Cómo sale">
+                        <!-- [PGP.15] Cómo sale, DEBAJO del beneficiario: en el panel de la derecha una columna
+                             propia de 21rem dejaba al nombre en ~10 px (medido: se partía letra por letra). -->
                         @if (comoSale(a); as cs) {
-                          @if (cs.texto) { <span class="pg-how-t">{{ cs.texto }}</span> }
-                          <span class="pg-st" [class.is-bad]="a.status === 'failed'" [class.is-todo]="a.status === 'pending' && !!cs.falta">
-                            <i class="pi" [ngClass]="estadoIcono(a)" aria-hidden="true"></i>{{ estadoTexto(a) }}
+                          <span class="pg-how">
+                            @if (cs.texto) { <span class="pg-how-t">{{ cs.texto }}</span> }
+                            <span class="pg-st" [class.is-bad]="a.status === 'failed'" [class.is-todo]="a.status === 'pending' && !!cs.falta">
+                              <i class="pi" [ngClass]="estadoIcono(a)" aria-hidden="true"></i>{{ estadoTexto(a) }}
+                            </span>
                           </span>
                         }
                       </td>
+                      <td class="pg-c-amt comm-num" data-l="Importe">{{ money(a.amount_assigned) }}</td>
                       <td class="pg-c-act">
                         @if (a.status === 'pending' && !isReleased()) {
                           <button pButton type="button" class="p-button-sm p-button-secondary" [class.p-button-outlined]="!prepared(a)" [class.p-button-text]="prepared(a)"
@@ -605,7 +619,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   </ng-template>
                   <ng-template #expandedrow let-a>
                     <tr class="pg-xrow">
-                      <td colspan="6">
+                      <td colspan="5">
                         <!-- [PGP.15] El desglose: cada factura que cubre el pago, con su sucursal y lo que se le aplica. -->
                         <table class="pg-items-t">
                           <caption class="sr-only">Facturas del pago de {{ allocationTitle(a) }}</caption>
@@ -635,10 +649,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 }
               }
             </section>
-
+            </div>
           }
-        </main>
-      </div>
+      </main>
     </div>
 
     <!-- ── [PGP.17] Los descuentos de un acreedor: LOS DOS CASOS ──────────────────────────
@@ -838,37 +851,53 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-date-input { padding:var(--sp-1) var(--sp-2); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:var(--fs-sm); }
     .cal-muted { color:var(--text-faint); }
     .cal-neg, .cal-bad-txt { color:var(--bad-soft-fg); }
-    .cal-check { display:flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); color:var(--text-muted); white-space:nowrap; }
+    /* [PGP.19] Tres tonos con UN significado cada uno (y siempre con su palabra al lado): ámbar = falta
+       algo que destraba el día · verde = listo o hecho · rojo = algo está mal. El naranja es sólo del
+       botón principal. Tonos «soft»: pasan AA en texto chico en los dos modos. */
+    /* El ámbar va en PASTILLA (fondo + texto): en claro el texto ámbar solo (#92400E) se lee naranja y se
+       confunde con el botón principal; con su fondo se lee amarillo y pasa AA. */
+    .cal-warn-txt { color:var(--warn-soft-fg); background:var(--warn-soft-bg); border-radius:var(--r-pill); padding:0 6px; }
+    .cal-ok-txt { color:var(--ok-soft-fg); }
+    .cal-check { display:flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; }
     :host ::ng-deep .cal-sel { width:9rem; }
     .cal-benef { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:var(--sp-1); color:var(--text-main); }
     /* Sucursal = centro de costo: texto, no chip. */
-    .cal-suc { display:inline; font-size:var(--fs-xs); font-weight:600; color:var(--text-main); margin-right:var(--sp-1); }
+    .cal-suc { display:inline; font-size:var(--fs-sm); font-weight:600; color:var(--text-main); margin-right:var(--sp-1); }
     /* [PGP.12] La referencia del proveedor: monoespaciada porque se coteja contra un papel. */
-    .cal-ref { font-family:var(--font-mono); font-size:var(--fs-nano); color:var(--text-muted); margin-left:var(--sp-1); }
+    .cal-ref { font-family:var(--font-mono); font-size:var(--fs-sm); color:var(--text-muted); margin-left:var(--sp-1); }
     .cal-ref::before { content:'· '; }
     .cal-empty { text-align:center; color:var(--text-muted); padding:var(--sp-4); white-space:normal; margin:0; }
-    .cal-notes { display:block; font-size:var(--fs-xs); color:var(--text-faint); margin-top:var(--sp-1); }
+    .cal-notes { display:block; font-size:var(--fs-sm); color:var(--text-faint); margin-top:var(--sp-1); }
     /* [TP.20.5] La factura es un enlace a su ficha: sin color en reposo; subrayado al pasar y al foco. */
     .cal-reflink { border:0; background:transparent; color:inherit; cursor:pointer; padding:0; font:inherit; text-align:left; }
     .cal-reflink:hover { text-decoration:underline; }
     .cal-reflink:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm); }
     /* [TP.20.4] Pronto pago: lo urgente se marca con PESO e icono (rayo), no con ambar. */
-    .cal-pp { display:inline-flex; align-items:center; gap:.25rem; margin-left:var(--sp-1); font-size:var(--fs-xs); color:var(--text-muted); }
+    .cal-pp { display:inline-flex; align-items:center; gap:.25rem; margin-left:var(--sp-1); font-size:var(--fs-sm); color:var(--text-muted); }
     .cal-pp-urge { color:var(--text-main); font-weight:700; }
     /* [PGP.14] El credito a favor sin aplicar. Toma color de aviso porque es dinero NUESTRO que
        se puede perder pagando de mas, y lleva icono Y palabra: el color nunca es unico portador
        (regla #5 de DESIGN.md, y lo unico que sobrevive a forced-colors). */
     .pg-favor { display:inline-flex; align-items:center; gap:4px; margin-left:var(--sp-1);
-      font-size:var(--fs-nano); font-weight:700; color:var(--warn-fg); }
+      font-size:var(--fs-sm); font-weight:700; color:var(--warn-fg); }
     /* [PGP.17] El aviso es un BOTON: dice cuanto, y abre de que tipo y de que documento. */
-    .pg-favor-btn { border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-nano);
+    .pg-favor-btn { border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-sm);
       font-weight:700; color:var(--warn-fg); padding:0 2px; border-radius:var(--r-sm); }
     .pg-favor-btn:hover { text-decoration:underline; }
     .pg-favor-btn:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    /* [PGP.21] La evidencia de la factura. Tres estados y NINGUNO depende solo del color:
+       cada uno lleva su icono y su texto, que es lo que exige el modo de alto contraste. */
+    .pg-ev { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); }
+    .pg-ev-pdf { border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-sm);
+      color:var(--action); padding:0; text-align:left; }
+    .pg-ev-pdf:hover { text-decoration:underline; }
+    .pg-ev-pdf:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-ev-uuid { color:var(--fg-2); }
+    .pg-ev-no { color:var(--fg-3); }
     /* El cajon del desglose. Lo PENDIENTE lleva el peso; lo ya aplicado es contexto. */
     .pg-cr { display:grid; gap:var(--sp-2); }
     .pg-cr-tot { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-3); padding:var(--sp-2) var(--sp-3);
-      border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--surface-2); font-size:var(--fs-xs); }
+      border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--surface-2); font-size:var(--fs-sm); }
     .pg-cr-tot b { color:var(--text-main); font-weight:700; }
     .pg-cr-h { font-size:var(--fs-xs); font-weight:700; text-transform:uppercase; letter-spacing:.04em;
       color:var(--text-muted); margin:var(--sp-2) 0 0; }
@@ -876,110 +905,143 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       padding:var(--sp-2) var(--sp-3); border:1px solid var(--border-color); border-radius:var(--r-sm); }
     .pg-cr-row.is-pend { border-left:3px solid var(--warn-fg); }
     .pg-cr-main { display:flex; flex-direction:column; min-width:0; }
-    .pg-cr-part { font-size:var(--fs-nano); color:var(--warn-fg); }
-    .pg-cr-ok { display:flex; align-items:center; gap:6px; font-size:var(--fs-xs); color:var(--ok-fg); margin:0; }
-    .pg-cr-decl { display:flex; gap:var(--sp-2); font-size:var(--fs-nano); color:var(--text-muted);
+    .pg-cr-part { font-size:var(--fs-sm); color:var(--warn-fg); }
+    .pg-cr-ok { display:flex; align-items:center; gap:6px; font-size:var(--fs-sm); color:var(--ok-fg); margin:0; }
+    .pg-cr-decl { display:flex; gap:var(--sp-2); font-size:var(--fs-sm); color:var(--text-muted);
       border-top:1px solid var(--border-color); padding-top:var(--sp-2); margin:var(--sp-2) 0 0; }
     .pg-cr-decl b { color:var(--text-main); }
     /* [PGP.16] El costo de adelantar: terciario a proposito. Es un dato para decidir, no una
        alarma -la propuesta ya no adelanta nada por su cuenta-. */
     .pg-pronto-no { display:inline-flex; align-items:center; gap:4px; margin-left:var(--sp-1);
-      font-size:var(--fs-nano); color:var(--text-muted); }
+      font-size:var(--fs-sm); color:var(--text-muted); }
 
-    /* ── Encabezado y lienzo ─────────────────────────────────────────── */
-    .pg-head { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; }
-    .pg-head h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.01em; color:var(--text-main); display:flex; align-items:center; gap:var(--sp-1); }
-    /* ⛔ [PGP.14] @media y no @container: ningun ancestro declara container-type. */
-    .pg-shell { display:grid; grid-template-columns:15rem minmax(0, 1fr); gap:var(--sp-3); align-items:start; }
-    @media (max-width: 64rem) { .pg-shell { grid-template-columns:minmax(0, 1fr); } }
+    /* ══ [PGP.15] UNA PANTALLA: tira de dias arriba, veredicto compacto y dos paneles que llenan lo
+       que queda (izquierda: agregar facturas; derecha: los pagos del dia). Medido antes a 1442×902: la
+       pagina media 1,914 px en un panel de 814. ⛔ [PGP.14] @media y no @container: ningun ancestro
+       declara container-type. ══ */
 
-    /* ── La cola ─────────────────────────────────────────────────────── */
-    .pg-queue { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); overflow:hidden; }
-    @media (min-width: 64.01rem) { .pg-queue { position:sticky; top:var(--sp-2); } }
-    /* La semana y su navegacion no caben en 15rem lado a lado (medido: «‹ Hoy ›» encima del año): bajan. */
-    .pg-queue-h { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--sp-1); padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border-color); }
-    .pg-queue-nav { margin-left:auto; }
-    .pg-rev-u { font-weight:400; color:var(--text-muted); }
-    .pg-queue-tt { display:grid; gap:1px; min-width:0; }
-    .pg-queue-h h2 { margin:0; font-size:var(--fs-micro); font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); }
-    .pg-queue-wk { font-size:var(--fs-sm); font-weight:600; color:var(--text-main); white-space:nowrap; }
-    .pg-queue-nav { display:flex; align-items:center; gap:1px; }
+    /* ── Los dias por pagar: una tira ──────────────────────────────── */
+    .pg-top { display:grid; grid-template-columns:minmax(0, 1fr); gap:4px; align-items:center;
+      padding:0; }
+    /* La semana y su resumen en UN renglon; las fichas abajo, a todo lo ancho (medido: lado a lado las fichas se enciman). */
+    .pg-week { display:flex; align-items:center; gap:var(--sp-1) var(--sp-3); flex-wrap:wrap; min-width:0; }
+    .pg-week-nav { display:flex; align-items:center; gap:2px; }
+    .pg-queue-wk { font-size:var(--fs-sm); font-weight:600; color:var(--text-main); white-space:nowrap; padding:0 2px; }
+    .pg-week-f { font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; padding-left:var(--sp-1); }
+    .pg-week-f b { color:var(--text-main); font-weight:700; }
     :host ::ng-deep .pg-ico.p-button { padding:var(--sp-1); min-width:auto; }
     :host ::ng-deep .pg-hoy.p-button { padding:var(--sp-1) var(--sp-2); font-size:var(--fs-xs); }
-    .pg-queue-leg { display:flex; justify-content:space-between; padding:2px var(--sp-3); font-size:var(--fs-nano); color:var(--text-muted); border-bottom:1px solid var(--border-color); }
-    .pg-day { all:unset; box-sizing:border-box; cursor:pointer; display:block; width:100%; padding:6px var(--sp-3); border-bottom:1px solid var(--border-color); border-left:3px solid transparent; }
+    .pg-days-ls { display:block; min-width:0; }
+    /* Los 7 dias en una fila; si no caben, la FILA se desplaza de lado: la pantalla no crece. */
+    .pg-days { display:flex; gap:var(--sp-1); overflow-x:auto; scroll-snap-type:x proximity; }
+    .pg-day { all:unset; box-sizing:border-box; cursor:pointer; flex:1 1 0; min-width:10.5rem; display:grid; gap:1px;
+      padding:5px var(--sp-2); border:1px solid transparent; border-radius:var(--r-sm); scroll-snap-align:start; }
     .pg-day:hover { background:var(--overlay-hover); }
-    .pg-day:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; }
+    .pg-day:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     /* El dia elegido: fondo y borde del color del TEXTO, no naranja. El naranja es del boton principal. */
-    .pg-day.is-sel { background:var(--overlay-selected); border-left-color:var(--text-main); }
+    .pg-day.is-sel { background:var(--overlay-selected); border-color:var(--text-main); box-shadow:inset 0 -2px 0 var(--text-main); }
     .pg-day.is-nocap { opacity:.7; }
     .pg-day-t { display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-2); }
-    .pg-day-n { font-size:var(--fs-sm); font-weight:700; text-transform:capitalize; color:var(--text-main); }
-    .pg-t { font-weight:400; color:var(--text-muted); font-size:var(--fs-xs); }
-    .pg-day-amt { font-size:var(--fs-xs); font-weight:600; color:var(--text-main); }
-    .pg-day-b { display:flex; align-items:center; gap:5px; font-size:var(--fs-micro); color:var(--text-muted); line-height:1.3; flex-wrap:wrap; }
+    .pg-day-n { font-size:var(--fs-sm); font-weight:700; text-transform:capitalize; color:var(--text-main); white-space:nowrap; }
+    .pg-t { font-weight:400; color:var(--text-muted); font-size:var(--fs-sm); }
+    .pg-day-amt { font-size:var(--fs-sm); font-weight:700; color:var(--text-main); white-space:nowrap; }
+    .pg-day-l { font-weight:400; color:var(--text-muted); }
+    .pg-day-b { display:flex; align-items:center; gap:4px; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.3; white-space:nowrap; }
     .pg-day-b b { color:var(--text-main); font-weight:700; }
     .pg-day-b b.cal-bad-txt { color:var(--bad-soft-fg); }
+    .pg-day-b b.cal-warn-txt { color:var(--warn-soft-fg); background:var(--warn-soft-bg); }
+    .pg-day-b b.cal-ok-txt { color:var(--ok-soft-fg); }
     /* El estado del dia viaja en FORMA (punto lleno / hueco), nunca solo en color. */
     .pg-dot { width:6px; height:6px; border-radius:var(--r-pill); background:var(--text-faint); flex-shrink:0; }
     .pg-dot.is-work { background:var(--text-main); }
     .pg-dot.is-free { background:transparent; border:1px solid var(--text-muted); }
-    .pg-queue-f { display:grid; gap:2px; padding:var(--sp-2) var(--sp-3); background:var(--surface-2); border-top:1px solid var(--border-color); font-size:var(--fs-micro); color:var(--text-muted); }
-    .pg-queue-f b { color:var(--text-main); font-weight:700; }
+    .pg-rev-u { font-weight:400; color:var(--text-muted); }
 
-    /* ── El veredicto ────────────────────────────────────────────────── */
-    .pg-lot { display:grid; gap:var(--sp-3); min-width:0; }
-    .pg-vd { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); padding:var(--sp-3) var(--sp-4); }
+    /* ── El veredicto, compacto: frase y boton; tope y avance lado a lado ── */
+    .pg-lot { display:grid; gap:var(--sp-2); min-width:0; }
+    .pg-vd { display:grid; gap:0; padding:var(--sp-1) 0; border-block:1px solid var(--border-color); }
     /* Rojo SOLO cuando algo esta mal. «Bien» y «falta» no llevan tono: lo dice la frase. */
-    .pg-vd.is-bad { border-left:4px solid var(--bad-fg); }
+    .pg-vd.is-bad { border-left:4px solid var(--bad-fg); padding-left:var(--sp-3); }
     .pg-vd-ico { color:var(--bad-soft-fg); margin-right:var(--sp-2); font-size:var(--fs-lg); }
-    .pg-vd-id { display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; margin-bottom:var(--sp-1); }
+    .pg-vd-id { display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; }
     .pg-vd-id h2 { margin:0; font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); }
-    .pg-vd-sub { font-size:var(--fs-micro); color:var(--text-muted); }
+    .pg-vd-sub { font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-pill { display:inline-flex; align-items:center; font-size:var(--fs-micro); font-weight:700; text-transform:uppercase; letter-spacing:.03em; padding:0 7px; border-radius:var(--r-pill); color:var(--text-muted); background:var(--surface-2); }
     .pg-vd-main { display:flex; align-items:center; gap:var(--sp-4); flex-wrap:wrap; }
     .pg-vd-txt { flex:1; min-width:15rem; }
     /* [PGP.14] La respuesta de la pantalla es lo primero que se lee: la frase mas grande. */
     .pg-vd-say { margin:0; font-size:var(--fs-h2); font-weight:600; line-height:1.25; letter-spacing:-.01em; color:var(--text-main); }
-    .pg-vd-why { margin:var(--sp-1) 0 0; font-size:var(--fs-body); color:var(--text-muted); }
+    .pg-vd-why { margin:2px 0 0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-2); font-size:var(--fs-sm); color:var(--text-muted); }
     :host ::ng-deep .pg-vd-cta.p-button { flex-shrink:0; }
-    .pg-cap { display:grid; gap:var(--sp-2); margin-top:var(--sp-3); padding-top:var(--sp-3); border-top:1px solid var(--border-color); }
+    .pg-vd-row2 { display:grid; grid-template-columns:minmax(0, auto) minmax(26rem, 1fr); gap:var(--sp-2) var(--sp-5); align-items:center;
+      margin-top:6px; padding-top:6px; border-top:1px solid var(--border-color); }
+    @media (max-width: 90rem) { .pg-vd-row2 { grid-template-columns:minmax(0, 1fr); } }
+    .pg-cap { display:grid; gap:4px; min-width:0; }
+    /* El tope en UNA linea de texto (era una tira de cifras de 20 px que ocupaba dos renglones). */
+    .pg-cap-line { display:flex; flex-wrap:wrap; gap:2px var(--sp-4); font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; }
+    .pg-cap-line b { color:var(--text-main); font-weight:700; }
+    .pg-cap-line b.cal-neg { color:var(--bad-soft-fg); }
+    .pg-cap-pct { font-size:var(--fs-sm); }
     .pg-cap-say { font-size:var(--fs-sm); font-weight:600; color:var(--text-main); }
-    .pg-cap-bar { display:block; height:6px; border-radius:var(--r-pill); background:var(--border-color); overflow:hidden; }
+    .pg-cap-bar { display:block; height:4px; border-radius:var(--r-pill); background:var(--border-color); overflow:hidden; }
     .pg-cap-fill { display:block; height:100%; background:var(--text-muted); border-radius:inherit; }
     .pg-cap-fill.is-over { background:var(--bad-fg); }
 
     /* [PGP.15] El avance: cinco etapas en una linea, sin clic. Hecho = palomita; ahora = numero
        invertido y nombre en negro; pendiente = apagado. Ningun tono. */
-    .pg-prog { list-style:none; margin:var(--sp-3) 0 0; padding:var(--sp-3) 0 0; border-top:1px solid var(--border-color);
-      display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:var(--sp-2); }
-    .pg-pe { display:flex; align-items:flex-start; gap:var(--sp-2); min-width:0; color:var(--text-muted); }
+    .pg-prog { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:var(--sp-2); }
+    .pg-pe { display:flex; align-items:flex-start; gap:6px; min-width:0; color:var(--text-muted); }
     .pg-pe-n { display:inline-grid; place-items:center; width:20px; height:20px; border-radius:var(--r-pill); border:1.5px solid var(--border-color);
       font-family:var(--font-mono); font-size:var(--fs-micro); font-weight:700; flex-shrink:0; }
-    .pg-pe.is-done .pg-pe-n { border-color:var(--text-muted); }
+    .pg-pe.is-done .pg-pe-n { border-color:var(--ok-soft-fg); color:var(--ok-soft-fg); }
     .pg-pe.is-now .pg-pe-n { border-color:var(--text-main); background:var(--text-main); color:var(--card-bg); }
-    .pg-pe-t { display:grid; min-width:0; font-size:var(--fs-xs); line-height:1.3; }
+    /* Cada paso en UNA linea: nombre y lo que dice. */
+    .pg-pe { align-items:center; }
+    .pg-pe-t { display:flex; flex-wrap:wrap; align-items:baseline; gap:0 6px; min-width:0; font-size:var(--fs-sm); line-height:1.3; }
     .pg-pe-t b { font-size:var(--fs-sm); color:var(--text-main); font-weight:600; }
     .pg-pe.is-now .pg-pe-t b { font-weight:700; }
     .pg-pe:not(.is-done):not(.is-now) .pg-pe-t b { color:var(--text-muted); font-weight:600; }
-    .pg-pe-who { font-size:var(--fs-micro); color:var(--text-muted); }
+    .pg-pe-who { font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-pe-say { color:var(--text-muted); overflow-wrap:anywhere; }
     .pg-pe.is-now .pg-pe-say { color:var(--text-main); }
-    .pg-note { display:flex; gap:var(--sp-2); align-items:flex-start; margin:var(--sp-3) 0 0; padding:var(--sp-2) var(--sp-3);
-      border-radius:var(--r-md); background:var(--surface-2); font-size:var(--fs-xs); color:var(--text-muted); }
+    .pg-note { display:flex; gap:var(--sp-2); align-items:flex-start; margin:var(--sp-1) 0 0; padding:6px var(--sp-3);
+      border-radius:var(--r-md); background:var(--surface-2); font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-note b { color:var(--text-main); }
     .pg-note > .pi { margin-top:2px; }
 
+    /* ── Los dos paneles: llenan la pantalla (--pg-alto lo mide ajustarAlto) y cada uno se desplaza solo ── */
+    .pg-work { display:grid; grid-template-columns:minmax(0, 5fr) minmax(0, 7fr); gap:var(--sp-3); height:var(--pg-alto, auto); min-height:0; }
+    .pg-work.is-solo { grid-template-columns:minmax(0, 1fr); }
+    .pg-work > .pg-sec { display:flex; flex-direction:column; min-height:0; border:0; border-radius:0; background:transparent; }
+    /* [PGP.18] Los dos paneles se separan con UNA línea entre ellos, no con dos recuadros. */
+    .pg-work > .pg-sec + .pg-sec { border-left:1px solid var(--border-color); padding-left:var(--sp-3); }
+    .pg-work .pg-drawer { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+    .pg-work .pg-drawer-b { flex:1 1 auto; min-height:0; max-height:none; }
+    .pg-work .pg-grupos { flex:0 1 auto; max-height:40%; overflow:auto; }
+    .pg-work .pg-rev-list { flex:0 1 auto; max-height:35%; overflow:auto; }
+    .pg-work .pg-prop { flex:1 1 auto; min-height:0; overflow:auto; }
+    :host ::ng-deep .pg-work p-table.pg-prep { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+    :host ::ng-deep .pg-work .pg-prep .p-datatable-thead > tr > th { background:var(--card-bg); }
+    @media (max-width: 75rem) { .pg-work { grid-template-columns:minmax(0, 1fr); height:auto; } }
+    :host ::ng-deep .pg-entregas.p-button { margin-left:auto; }
+    .pg-work .pg-dr-hd { display:none; }
+    :host ::ng-deep .pg-work .pg-drawer-h .cal-sel { width:8.5rem; }
+    .pg-work .pg-dr-row { grid-template-columns:minmax(0, 1fr) auto auto; grid-template-areas:"main amt acts" "main due acts"; gap:0 var(--sp-3); }
+    .pg-work .pg-dr-row > .pg-dr-main { grid-area:main; }
+    .pg-work .pg-dr-row > .pg-dr-amt { grid-area:amt; }
+    .pg-work .pg-dr-row > .pg-dr-due { grid-area:due; text-align:right; }
+    .pg-work .pg-dr-row > .pg-dr-acts { grid-area:acts; }
+    .pg-work .cal-benef { white-space:normal; overflow:visible; }
     /* ── Secciones del dia ───────────────────────────────────────────── */
     .pg-sec { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); overflow:hidden; }
     .pg-sec-h { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); flex-wrap:wrap; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border-color); }
     .pg-sec-t { margin:0; display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; font-size:var(--fs-sm); font-weight:700; color:var(--text-main); }
-    .pg-sec-n { font-size:var(--fs-xs); font-weight:400; color:var(--text-muted); }
+    .pg-sec-n { font-size:var(--fs-sm); font-weight:400; color:var(--text-muted); }
     .pg-sec-acts { display:flex; gap:var(--sp-1); flex-wrap:wrap; }
     .pg-sec-tg { all:unset; box-sizing:border-box; cursor:pointer; display:inline-flex; align-items:center; gap:var(--sp-2); font-weight:700; color:var(--text-main); border-radius:var(--r-sm); }
     .pg-sec-tg:hover { text-decoration:underline; }
     .pg-sec-tg:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
-    .pg-sub { display:block; font-size:var(--fs-xs); color:var(--text-muted); line-height:1.35; }
+    .pg-sub { display:block; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.35; }
 
     /* ── [PGP.15] El buscador: siempre a la vista, el control mas grande de su seccion ── */
     .pg-add-h { gap:var(--sp-2) var(--sp-3); }
@@ -989,7 +1051,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-kbd { position:absolute; right:var(--sp-2); font-family:var(--font-mono); font-size:var(--fs-micro); color:var(--text-muted);
       border:1px solid var(--border-color); border-radius:var(--r-sm); padding:0 5px; line-height:1.5; pointer-events:none; }
     .pg-buscar:focus-within .pg-kbd { display:none; }
-    .pg-lista-tg { margin-left:auto; font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); gap:var(--sp-1); }
+    .pg-lista-tg { margin-left:auto; font-size:var(--fs-sm); font-weight:600; color:var(--text-muted); gap:var(--sp-1); }
     .pg-alta { display:flex; align-items:center; gap:var(--sp-2); margin:0; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border-color);
       font-size:var(--fs-sm); font-weight:600; color:var(--text-main); background:var(--surface-2); }
     /* Los proveedores encontrados: cada uno es un pago y se agrega entero. */
@@ -1000,7 +1062,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
     /* La propuesta: una caja punteada NEUTRA -es una propuesta, no una alarma-. */
     .pg-prop { display:grid; gap:4px; margin:var(--sp-3); padding:var(--sp-2); border:1px dashed var(--text-faint); border-radius:var(--r-md); }
-    .pg-prop-why { margin:0 0 var(--sp-1); font-size:var(--fs-xs); color:var(--text-muted); }
+    .pg-prop-why { margin:0 0 var(--sp-1); font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-prop-why b { color:var(--text-main); }
     .pg-prop-row { display:grid; grid-template-columns:auto minmax(0, 1fr) auto; gap:var(--sp-2); align-items:center; padding:5px var(--sp-2);
       border:1px solid var(--border-color); border-radius:var(--r-sm); cursor:pointer; background:var(--card-bg); }
@@ -1018,10 +1080,16 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
     /* Metodo y origen para todos: agrupado con FONDO, no con otra caja. */
     .pg-applyall { display:flex; align-items:center; gap:var(--sp-2) var(--sp-3); flex-wrap:wrap; padding:var(--sp-2) var(--sp-3); background:var(--surface-2); border-bottom:1px solid var(--border-color); }
-    .pg-aa-lb { font-size:var(--fs-xs); font-weight:700; color:var(--text-main); white-space:nowrap; }
+    .pg-aa-lb { font-size:var(--fs-sm); font-weight:700; color:var(--text-main); white-space:nowrap; }
     .pg-aa-f { display:flex; align-items:center; gap:6px; }
-    .pg-aa-f > label { font-size:var(--fs-xs); color:var(--text-muted); white-space:nowrap; }
-    .pg-aa-note { flex-basis:100%; font-size:var(--fs-xs); color:var(--text-muted); }
+    .pg-aa-f > label { font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; }
+    .pg-aa-note { flex-basis:100%; font-size:var(--fs-sm); color:var(--text-muted); }
+    /* [PGP.15] En el encabezado del panel: sin fondo propio ni renglon aparte. */
+    .pg-sec-h > .pg-applyall { flex:1 1 auto; padding:0; background:none; border-bottom:0; gap:var(--sp-1) var(--sp-2); }
+    :host ::ng-deep .pg-sec-h > .pg-applyall .cal-sel { width:8.5rem; }
+    /* Anclado en .pg-vd: con el encapsulamiento, la regla de MetricStrip empataba (0,4,0) y ganaba por orden de carga. */
+    :host ::ng-deep .pg-vd .pg-cap-ms .ms--compact .ms-v { font-size:var(--fs-sm); font-weight:700; }
+    :host ::ng-deep .pg-vd .pg-cap-ms .ms--compact .ms-item { padding-top:0; padding-bottom:0; }
 
     /* La tabla del dia */
     :host ::ng-deep .pg-prep .p-datatable-table { table-layout:fixed; width:100%; }
@@ -1030,7 +1098,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     :host ::ng-deep .pg-prep .p-datatable-tbody > tr > td { font-size:var(--fs-sm); vertical-align:middle; }
     /* El folio autorizado («261026-01-01») partia en dos renglones a 4.5rem; «Como sale» en tres a 19rem. */
     .pg-c-tg { width:2.5rem; } .pg-c-ord { width:4.5rem; } .pg-c-ord.is-folio { width:7.5rem; } .pg-c-amt { width:8.5rem; text-align:right; }
-    .pg-c-how { width:21rem; } .pg-c-act { width:10rem; text-align:right; white-space:nowrap; }
+    .pg-c-act { width:9.5rem; text-align:right; white-space:nowrap; }
+    /* Como sale va DEBAJO del beneficiario: una linea de texto y su estado. */
+    .pg-how { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-2); margin-top:2px; font-size:var(--fs-sm); }
     td.pg-c-ord .pg-ordn { white-space:nowrap; }
     /* El nombre del beneficiario parte renglon antes que cortarse con «…»: medido, a 25rem de «Como
        sale» se leia «DISTRIBUIDORA DE LA ROSA» sin su razon social. Visible en todo momento. */
@@ -1040,10 +1110,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-tg { all:unset; box-sizing:border-box; cursor:pointer; display:inline-grid; place-items:center; width:28px; height:28px; border-radius:var(--r-sm); color:var(--text-muted); }
     .pg-tg:hover { background:var(--overlay-hover); color:var(--text-main); }
     .pg-tg:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
-    .pg-how-t { display:block; color:var(--text-main); overflow-wrap:anywhere; }
+    .pg-how-t { color:var(--text-main); overflow-wrap:anywhere; }
     /* El estado del pago: palabra + icono. Solo el rebote lleva color. */
-    .pg-st { display:inline-flex; align-items:center; gap:4px; margin-top:2px; font-size:var(--fs-xs); color:var(--text-muted); }
-    .pg-st.is-todo { color:var(--text-main); font-weight:700; }
+    .pg-st { display:inline-flex; align-items:center; gap:4px; margin-top:2px; font-size:var(--fs-sm); color:var(--text-muted); }
+    .pg-st.is-todo { color:var(--warn-soft-fg); background:var(--warn-soft-bg); border-radius:var(--r-pill); padding:0 8px 0 6px; font-weight:700; }
     .pg-st.is-bad { color:var(--bad-soft-fg); font-weight:700; }
     .pg-ord { display:inline-flex; align-items:center; gap:1px; }
     .pg-ordn { min-width:1.2rem; text-align:center; font-weight:700; color:var(--text-main); }
@@ -1052,12 +1122,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     :host ::ng-deep .pg-x.p-button { color:var(--text-muted); }
     /* El desglose: las facturas del pago, a la escala de la tabla y sin otra caja. */
     :host ::ng-deep .pg-prep .p-datatable-tbody > tr.pg-xrow > td { background:var(--surface-2); padding:var(--sp-2) var(--sp-3) var(--sp-2) 3rem; }
-    .pg-items-t { width:100%; border-collapse:collapse; font-size:var(--fs-xs); color:var(--text-main); }
+    .pg-items-t { width:100%; border-collapse:collapse; font-size:var(--fs-sm); color:var(--text-main); }
     .pg-items-t th { text-align:left; font-size:var(--fs-micro); font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); padding:2px var(--sp-2); }
     .pg-items-t td { padding:3px var(--sp-2); border-top:1px solid var(--border-color); }
     .pg-items-t .r { text-align:right; white-space:nowrap; }
     .pg-items-t tfoot td { font-weight:700; color:var(--text-main); }
-    .pg-erp { margin:0; padding:var(--sp-2) var(--sp-3); border-top:1px solid var(--border-color); font-size:var(--fs-xs); color:var(--text-muted); }
+    .pg-erp { margin:0; padding:var(--sp-2) var(--sp-3); border-top:1px solid var(--border-color); font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-erp-l { font-weight:600; color:var(--text-main); margin-right:var(--sp-1); }
     .pg-erp b { color:var(--text-main); }
 
@@ -1065,7 +1135,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-drawer { overflow:hidden; }
     .pg-drawer-h { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; padding:6px var(--sp-3); background:var(--surface-2); border-bottom:1px solid var(--border-color); }
     .pg-grow { flex:1; min-width:11rem; }
-    .pg-drawer-n { margin:0; padding:4px var(--sp-3); font-size:var(--fs-micro); color:var(--text-muted); background:var(--surface-2); border-bottom:1px solid var(--border-color); }
+    .pg-drawer-n { margin:0; padding:4px var(--sp-3); font-size:var(--fs-sm); color:var(--text-muted); background:var(--surface-2); border-bottom:1px solid var(--border-color); }
     .pg-drawer-n b { color:var(--text-main); }
     .pg-drawer-b { max-height:22rem; overflow:auto; }
     .pg-dr-row, .pg-dr-hd { display:grid; grid-template-columns:minmax(0, 1fr) 10rem 8.5rem 4.5rem; gap:var(--sp-3);
@@ -1074,7 +1144,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-dr-hd .r { text-align:right; }
     .pg-dr-main { display:flex; flex-direction:column; min-width:0; }
     .pg-dr-amt { text-align:right; font-weight:700; white-space:nowrap; color:var(--text-main); }
-    .pg-dr-due { font-size:var(--fs-xs); white-space:nowrap; color:var(--text-muted); }
+    .pg-dr-due { font-size:var(--fs-sm); white-space:nowrap; color:var(--text-muted); }
     .pg-dr-acts { display:flex; justify-content:flex-end; gap:2px; color:var(--text-muted); }
     /* [PGP.15] Boton nativo del cajon (ver la plantilla: 1,908 pButton congelaban 15.9 s). */
     .pg-icobtn { all:unset; box-sizing:border-box; cursor:pointer; display:inline-grid; place-items:center; width:28px; height:28px;
@@ -1089,7 +1159,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-crit { display:inline-flex; align-items:center; gap:3px; font-size:var(--fs-micro); font-weight:700; text-transform:uppercase; letter-spacing:.03em;
       color:var(--text-main); border:1px solid var(--border-color); border-radius:var(--r-sm); padding:0 4px; }
     .pg-rev-h { all:unset; box-sizing:border-box; cursor:pointer; width:100%; display:flex; align-items:flex-start; gap:var(--sp-2);
-      padding:var(--sp-2) var(--sp-3); background:var(--surface-2); border-top:1px solid var(--border-color); font-size:var(--fs-xs); color:var(--text-muted); }
+      padding:var(--sp-2) var(--sp-3); background:var(--surface-2); border-top:1px solid var(--border-color); font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-rev-h:hover { background:var(--overlay-hover); }
     .pg-rev-h:focus-visible { outline:2px solid var(--focus-ring); outline-offset:-2px; }
     .pg-rev-h > .pi { margin-top:2px; }
@@ -1099,10 +1169,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
     /* Dialogos */
     .cal-dlg-p { font-size:var(--fs-sm); margin:0 0 var(--sp-2); }
-    .cal-dlg-hint { font-size:var(--fs-xs); color:var(--text-muted); margin:0 0 var(--sp-2); }
+    .cal-dlg-hint { font-size:var(--fs-sm); color:var(--text-muted); margin:0 0 var(--sp-2); }
     .cal-dlg-full { width:100%; margin-bottom:var(--sp-2); }
     .cal-dlg-actions { display:flex; gap:var(--sp-2); align-items:center; justify-content:flex-end; margin-top:var(--sp-3); }
-    .cal-dlg-label { display:block; font-size:var(--fs-xs); color:var(--text-muted); margin:var(--sp-2) 0 var(--sp-1); }
+    .cal-dlg-label { display:block; font-size:var(--fs-sm); color:var(--text-muted); margin:var(--sp-2) 0 var(--sp-1); }
     :host ::ng-deep .cal-dlg-sel { width:100%; margin-bottom:var(--sp-2); }
     /* Lo que cabe el dia destino, a la escala del dialogo; solo el exceso lleva color. */
     .pg-dlg-cap { margin:0; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.45; }
@@ -1110,15 +1180,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-dlg-cap b.cal-bad-txt { color:var(--bad-soft-fg); }
     .pg-dlg-list { list-style:none; margin:0; padding:0; max-height:16rem; overflow:auto; border-top:1px solid var(--border-color); }
     .pg-dlg-list li { display:flex; justify-content:space-between; gap:var(--sp-3); padding:4px 0; border-bottom:1px solid var(--border-color); font-size:var(--fs-sm); }
-    .pg-dlg-fol { color:var(--text-muted); font-size:var(--fs-xs); margin-right:var(--sp-1); }
+    .pg-dlg-fol { color:var(--text-muted); font-size:var(--fs-sm); margin-right:var(--sp-1); }
 
     /* ⛔ Angosto: la cola es UNA tira horizontal, para que el veredicto quede arriba. */
-    @media (max-width: 64rem) {
-      .pg-days { display:flex; overflow-x:auto; scroll-snap-type:x proximity; }
-      .pg-day { min-width:9.5rem; border-bottom:0; border-left:0; border-right:1px solid var(--border-color); border-top:3px solid transparent; scroll-snap-align:start; }
-      .pg-day.is-sel { border-left-color:transparent; border-top-color:var(--text-main); }
-      .pg-queue-leg { display:none; }
-    }
     @media (max-width: 56rem) { .pg-prog { grid-template-columns:repeat(auto-fit, minmax(9rem, 1fr)); } }
     /* Telefono: cada pago es un bloque con sus campos rotulados (data-l). */
     @media (max-width: 47.5rem) {
@@ -1134,7 +1198,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       /* Folio u orden a la izquierda e importe a la derecha, en el mismo renglon. */
       :host ::ng-deep .pg-prep td.pg-c-ord { grid-column:1 / 3; grid-row:2; align-self:end; }
       :host ::ng-deep .pg-prep td.pg-c-amt { grid-column:3; grid-row:2; text-align:right; }
-      :host ::ng-deep .pg-prep td.pg-c-how, :host ::ng-deep .pg-prep td.pg-c-act { grid-column:1 / -1; text-align:left; }
+      :host ::ng-deep .pg-prep td.pg-c-act { grid-column:1 / -1; text-align:left; }
       :host ::ng-deep .pg-prep .p-datatable-tbody > tr.pg-xrow { display:block; }
       :host ::ng-deep .pg-prep .p-datatable-tbody > tr.pg-xrow > td { padding:var(--sp-2); }
       /* ⛔ styles.css trae dos reglas GLOBALES con !important para todo p-datatable en movil (a ≤30rem
@@ -1171,7 +1235,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly base = `${environment.apiUrl}/finance/payment-calendar`;
-  private readonly accountsBase = `${environment.apiUrl}/commercial/supplier-payment-accounts`;
+  private readonly accountsBase = `${environment.apiUrl}/finance/supplier-payment-accounts`;
 
   @ViewChild('payPanel') private payPanel?: ElementRef<HTMLElement>;
 
@@ -1242,24 +1306,58 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       { n: 1, nombre: 'Armar', quien: 'Tesorería', estado: est(1),
         dice: n ? `${this.pagos(n)} · ${this.moneyShort(this.dayTotal(day))}` : this.armadoChosen().length ? 'propuesta lista' : 'sin pagos' },
       { n: 2, nombre: 'Preparar', quien: 'Tesorería', estado: est(2),
-        dice: rel ? 'listos' : pend ? `${pend - this.unpreparedCount()} de ${pend} listos` : 'después de armar' },
+        dice: rel ? 'listos' : pend ? `${pend - this.unpreparedCount()} de ${pend} listos` : '' },
       { n: 3, nombre: 'Autorizar', quien: 'Gerencia o Dirección', estado: est(3),
-        dice: rel ? (day.lot_folio ? `folio ${day.lot_folio}` : 'autorizado') : paso === 3 ? (this.canAuthorize() ? 'listo para tu firma' : 'listo, espera la firma') : 'después de preparar' },
+        dice: rel ? (day.lot_folio ? `folio ${day.lot_folio}` : 'autorizado') : paso === 3 ? (this.canAuthorize() ? 'listo para tu firma' : 'listo, espera la firma') : '' },
       { n: 4, nombre: 'Pagar', quien: 'Caja General', estado: est(4),
-        dice: rel ? `${this.executedCount()} de ${n} pagados${reb ? ` · ${reb === 1 ? '1 rebotó' : reb + ' rebotaron'}` : ''}` : 'después de autorizar' },
+        dice: rel ? `${this.executedCount()} de ${n} pagados${reb ? ` · ${reb === 1 ? '1 rebotó' : reb + ' rebotaron'}` : ''}` : '' },
       { n: 5, nombre: 'Cerrar', quien: null, estado: est(5),
-        dice: paso === 6 ? 'cerrado' : paso === 5 ? 'falta cerrar' : 'al final' },
+        dice: paso === 6 ? 'cerrado' : paso === 5 ? 'falta cerrar' : '' },
     ];
   });
 
   /**
-   * `[PGP.15]` La deuda («Agregar facturas») se ve SIEMPRE resumida —cuántas hay por pagar y por
-   * confirmar— y su lista se abre a pedido. Abierta por default sólo cuando el día está vacío y no
-   * hay propuesta: es cuando hace falta buscar a mano.
+   * `[PGP.15]` La lista de la deuda está SIEMPRE con el día abierto: en el acomodo de una pantalla
+   * es el panel izquierdo, y plegarla dejaba el panel vacío. Sólo un día autorizado no la tiene
+   * (ya no recibe pagos).
    */
-  private readonly deudaOverride = signal<boolean | null>(null);
-  readonly verDeuda = computed(() => this.deudaOverride() ?? (this.pasoActivo() === 1 && !this.armado()?.length));
-  toggleDeuda(): void { this.deudaOverride.set(!this.verDeuda()); }
+  readonly verDeuda = computed(() => !this.isReleased());
+
+  /**
+   * `[PGP.15]` **Los dos paneles llenan lo que queda de pantalla.** El desplazamiento de la página
+   * lo hace el marco de la app (`section.pane`), no la ventana: se mide cuánto queda visible de ese
+   * contenedor debajo del área de trabajo y se fija como alto. Se re-mide al cambiar el tamaño de la
+   * ventana o de lo que está ARRIBA (la tira de días, el veredicto). Piso de 26rem: en una pantalla
+   * baja la página se desplaza un poco en vez de dejar paneles inútiles. Angosto: sin alto fijo.
+   */
+  private altoObs?: ResizeObserver;
+  private trabajoEl?: HTMLElement;
+  @ViewChild('pgWork') set pgWorkRef(r: ElementRef<HTMLElement> | undefined) {
+    this.altoObs?.disconnect();
+    this.trabajoEl = r?.nativeElement;
+    if (!this.trabajoEl || typeof ResizeObserver === 'undefined') return;
+    const el = this.trabajoEl;
+    this.altoObs = new ResizeObserver(() => this.ajustarAlto());
+    for (const arriba of [el.previousElementSibling, document.querySelector('.pg-top')]) if (arriba) this.altoObs.observe(arriba);
+    this.ajustarAlto();
+  }
+  @HostListener('window:resize') ajustarAlto(): void {
+    const el = this.trabajoEl;
+    if (!el) return;
+    if (window.matchMedia('(max-width: 75rem)').matches) { el.style.removeProperty('--pg-alto'); return; }
+    let pane: HTMLElement | null = el.parentElement;
+    while (pane && !/(auto|scroll)/.test(getComputedStyle(pane).overflowY)) pane = pane.parentElement;
+    const caja = pane ? pane.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+    const desplazado = pane ? pane.scrollTop : window.scrollY;
+    const arriba = el.getBoundingClientRect().top - caja.top + desplazado;
+    const visible = (pane ? pane.clientHeight : window.innerHeight) - arriba - 16;
+    const piso = 26 * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+    let alto = Math.max(piso, Math.floor(visible));
+    el.style.setProperty('--pg-alto', `${alto}px`);
+    // Lo que todavía sobresale (el relleno inferior de la página) se descuenta: medido, quedaban 16 px de desplazamiento.
+    const sobra = pane ? pane.scrollHeight - pane.clientHeight : 0;
+    if (sobra > 0 && sobra < 120 && alto - sobra >= piso) { alto -= sobra; el.style.setProperty('--pg-alto', `${alto}px`); }
+  }
 
   /** `[PGP.15]` Los pagos desglosados (abiertos a sus facturas). */
   readonly abiertos = signal<Record<string, boolean>>({});
@@ -1342,6 +1440,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         if (n < total) this.rampaId = requestAnimationFrame(paso);
       };
       if (n < total) this.rampaId = requestAnimationFrame(paso);
+      // [PGP.21] La evidencia se pide de lo que YA se ve, en una sola llamada y sin bloquear.
+      this.cargarEvidencias();
     });
   });
   private enRevision(o: Obligation): boolean {
@@ -1381,6 +1481,89 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     for (const it of g.items) { const c = this.creditoDe(it); if (c) return c; }
     return null;
   }
+  /**
+   * `[PGP.21]` **La factura del proveedor, en el renglón donde se decide pagar.**
+   *
+   * Lo pedido era no ir a buscarla a mano. Lo que hay detrás no es un carril sino un motor:
+   * `analytics.v_payable_evidence` junta TODO lo que podría probar el documento —el PDF que
+   * Compras adjunta y el CFDI recibido— y puntúa cada candidato por cuántas de 5 señales
+   * coinciden (importe, fecha, folio, referencia, RFC), exigiendo siempre un ancla de importe
+   * o RFC y un puntaje mínimo de 3.
+   *
+   * Medido contra prod el 2026-10-27 sobre 2,917 documentos exigibles: **774 traen el PDF del
+   * proveedor**, 369 sólo el UUID fiscal, 1,809 nada. Placebo del umbral: **0** (precisión
+   * 100 %). Bajar a puntaje 2 subiría la cobertura a 59.7 % con **45 % de precisión**, o sea
+   * más de la mitad de las facturas pegadas al pago equivocado: por eso no se baja.
+   *
+   * ⛔ Los que no tienen evidencia **dicen por qué** (ADR-056) y nunca quedan en blanco: 778 son
+   * acreedores sin RFC capturado en Kepler, 556 son anteriores al 2026-08-04 (cuando todavía no
+   * se adjuntaba papel) y 409 no cruzan por ningún camino.
+   */
+  readonly evidencias = signal<ReadonlyMap<string, PayableEvidenceRow>>(new Map());
+  evidenciaDe(o: Obligation): PayableEvidenceRow | null {
+    const ref = (o.entity_ref ?? '').trim();
+    return ref ? this.evidencias().get(ref) ?? null : null;
+  }
+  /** Qué se puede decir del documento en una línea, sin prometer lo que no hay. */
+  evidenciaTexto(e: PayableEvidenceRow): string {
+    if (e.evidencia === 'pdf') return 'Ver la factura del proveedor';
+    if (e.evidencia === 'uuid') return 'Sin archivo; hay UUID fiscal del CFDI';
+    return e.motivo ?? 'sin evidencia';
+  }
+
+  /**
+   * Pide la evidencia de los documentos QUE SE VEN, en una sola llamada.
+   *
+   * ⛔ Una llamada por acreedor sería lo natural y está mal: la vista tiene un piso MEDIDO de ~2.2-2.5 s
+   *    que no baja al filtrar, así que ese piso se multiplicaría por cada acreedor en pantalla.
+   * ⛔ COSTO MEDIDO 2026-10-27, y pasa el tope: ~2.2-2.5 s. NINGUN filtro empuja a la vista
+   *    (concatenada 2,886-3,722 ms · por columnas 2,135-2,599 ms · por acreedor 2,419-2,506 ms),
+   *    probablemente por el DISTINCT ON, que es barrera de optimizacion. Un 371 ms que medi
+   *    antes era CACHE CALIENTE y lo cite como costo: estaba mal.
+   *    Por eso esta llamada es DIFERIDA y NO bloquea: la tabla se pinta completa y la marca de
+   *    la factura aparece despues. Mientras no se materialice la vista, es la unica forma
+   *    honesta de ofrecerla sin romper la regla de >500 ms.
+   * ⚠️ No bloquea nada. Si falla, los renglones se quedan sin la marca y el resto de la pantalla
+   *    sigue funcionando — la factura es una ayuda, no un requisito para programar el pago.
+   */
+  private cargarEvidencias(): void {
+    const refs = this.filasDeuda().slice(0, this.deudaVisible())
+      .map((f) => (f.o.entity_ref ?? '').trim())
+      .filter((r) => r.startsWith('oblig:') && !this.evidencias().has(r))
+      .slice(0, 200);
+    if (!refs.length) return;
+    firstValueFrom(this.http.get<PayableEvidenceRow[]>(
+      `${this.base}/evidencia`, { params: { refs: refs.join(',') } },
+    )).then((rows) => {
+      const m = new Map(this.evidencias());
+      for (const r of rows ?? []) if (r?.entity_ref) m.set(r.entity_ref, r);
+      this.evidencias.set(m);
+    }).catch(() => { /* sin marca; la pantalla sigue */ });
+  }
+
+  /**
+   * Abre el PDF en una pestaña nueva, con URL prefirmada de 600 s.
+   *
+   * ⛔ Lo sirve el endpoint de PAGOS, no el de Compras: medido el 2026-10-27, de los 32 roles con
+   *    `FINANCE_PAYMENTS_VER` hay **3 sin `COMPRAS_ENTRADAS_VER`** —`finanzas_operativo`
+   *    (Tesorería), `contabilidad` y `auditor_externo`—, así que enlazar allá le habría dado 403
+   *    justo a quien hace el pago.
+   */
+  abrirFactura(e: PayableEvidenceRow): void {
+    if (e.evidencia !== 'pdf' || !e.ref_evidencia) return;
+    firstValueFrom(this.http.get<Array<{ url: string; role: string | null }>>(
+      `${this.base}/evidencia/archivo/${encodeURIComponent(e.ref_evidencia)}`,
+    )).then((files) => {
+      // La factura primero; si no viene rotulada, el primer archivo que haya.
+      const f = (files ?? []).find((x) => x.role === 'factura') ?? (files ?? [])[0];
+      if (f?.url) window.open(f.url, '_blank', 'noopener');
+      else this.toast.add({ severity: 'warn', summary: 'Sin archivo', detail: 'El comprobante existe pero no trae un archivo que pueda abrir.' });
+    }).catch(() => this.toast.add({
+      severity: 'error', summary: 'No pude abrir la factura',
+      detail: 'El enlace se firma al momento y expira en 10 minutos. Probá de nuevo.',
+    }));
+  }
+
   // ── [PGP.17] El desglose: qué aplicar, de qué tipo, y qué ya se aplicó ──────────────────────
   readonly creditoAbierto = signal<{ code: string; nombre: string } | null>(null);
   readonly creditoDetalle = signal<Array<{ sucursal: string; clase: string; folio: string; referencia: string | null; fecha: string | null; importe: number; aplicado: number; a_favor: number; pendiente: boolean }>>([]);
@@ -1523,14 +1706,16 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // [PGP.13] El veredicto NOMBRA el renglón y su botón lleva a arreglarlo (DESIGN §Q.3 y §Q.4).
       const a = this.primerIncompleto()!;
       const n = this.unpreparedCount();
-      // [PGP.14] Si a varios les falta el método, el camino corto es «Para los N pagos»; si no, se abre el que falta.
+      // [PGP.15] SIN botón aquí: repetía lo que ya hace «Para los N pagos» (Edgar: «estás repitiendo dos
+      // veces el botón de elegir método»). La frase dice dónde se resuelve; el botón principal del paso es
+      // «Aplicar a los N», en la barra de los pagos, y lo de un solo pago es «Preparar» en su fila.
       const sinMetodo = this.allocations().filter((x) => x.status === 'pending' && !x.payment_method).length;
-      const label = n === 1 ? 'Completar ese pago' : sinMetodo > 1 ? `Elegir el método de los ${sinMetodo}` : 'Preparar el siguiente';
+      const donde = sinMetodo > 1 ? `Elige método y cuenta de origen en «Para los ${this.pendingCount()} pagos»` : `Usa «Preparar» en su fila`;
       return { tone: 'ok',
         say: n === 1 ? `Falta ${this.faltaDe(a)} de 1 pago para poder autorizar el día.`
                      : `Faltan ${n} de ${this.pendingCount()} pagos por preparar.`,
-        why: `${this.allocationTitle(a)} · ${this.money(a.amount_assigned)} — le falta ${this.faltaDe(a)}.`,
-        action: { kind: 'preparar', label, icon: 'pi-credit-card' } };
+        why: `${donde}. ${this.allocationTitle(a)} · ${this.money(a.amount_assigned)} — le falta ${this.faltaDe(a)}.`,
+        action: null };
     }
     if (this.unrankedCount() > 0) {
       // [PGP.15] Ya no deberia pasar: armar y agregar ordenan solos. Si una escritura de orden fallo, se ofrece aqui.
@@ -1635,7 +1820,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   readonly reboteReasonOpts = REPROGRAM_REASON_OPTS.filter((o) => o.value !== 'presupuesto_recortado');
 
   ngOnInit(): void {
-    this.destroyRef.onDestroy(() => cancelAnimationFrame(this.rampaId));
+    this.destroyRef.onDestroy(() => { cancelAnimationFrame(this.rampaId); this.altoObs?.disconnect(); });
     this.recuperarPreparacion();
     this.reload();
     // [PGP.14] El credito a favor sin aplicar: se pide UNA vez y se guarda por acreedor.
@@ -1771,14 +1956,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   alEscribir(v: string): void {
     this.busqueda.set(v ?? '');
     this.avisoAlta.set(null);
-    this.deudaOverride.set(true);
     if (this.busquedaTimer) clearTimeout(this.busquedaTimer);
     this.busquedaTimer = setTimeout(() => this.loadObligations({ silencioso: true }), 300);
   }
   /** Enter busca ya, sin esperar. */
   buscarYa(): void {
     if (this.busquedaTimer) clearTimeout(this.busquedaTimer);
-    this.deudaOverride.set(true);
     this.loadObligations({ silencioso: true });
   }
   /** Esc limpia la búsqueda (y si ya estaba vacía, no hace nada: no cierra nada por sorpresa). */
@@ -1838,9 +2021,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   dias(n: number): string { return `${n} ${n === 1 ? 'día' : 'días'}`; }
   facturas(n: number): string { return `${n} ${n === 1 ? 'factura' : 'facturas'}`; }
   /**
-   * `[PGP.14]` **El tope del día como tira de métricas** (`DESIGN.md` Q.1): comprometido, libre y
-   * tope, con el peso de la segunda pregunta de la pantalla —¿cabe?—. Antes eran tres cifras de
-   * 12 px dentro de un renglón de texto. El libre en negativo se pinta `bad`; lo demás no juzga.
+   * El tope del día en la tira de métricas compartida (`DESIGN.md` Q.1): comprometido, libre y tope.
+   * El libre en negativo se pinta `bad`; lo demás no juzga.
    */
   capKpis(d: PaymentCalendarWeekDay): MetricStripItem[] {
     const s = d.summary;
@@ -2212,7 +2394,6 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       case 'armar': void this.applyArmado(); break;
       case 'proponer': this.invalidarDeuda(); void this.proponer(); break;
       case 'ordenar': this.suggestOrder(); break;
-      case 'preparar': this.prepararFaltantes(); break;
       case 'autorizar': this.releaseLot(); break;
       case 'pagar': this.pagarVisible = true; break;
       case 'cerrar': this.closeLot(); break;
@@ -2338,25 +2519,6 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       cash_register_text: m === 'efectivo' ? base['cash_register_text'] || undefined : undefined,
     };
   }
-  /**
-   * La acción «preparar» del veredicto: si a varios les falta el método, el foco va a «Para los N
-   * pagos», que lo resuelve de un golpe; si no, se abre el pago que falta.
-   */
-  prepararFaltantes(): void {
-    const a = this.primerIncompleto();
-    if (!a) return;
-    const sinMetodo = this.allocations().filter((x) => x.status === 'pending' && !x.payment_method).length;
-    if (sinMetodo > 1) {
-      setTimeout(() => {
-        const el = document.getElementById('pg-bulk-method');
-        el?.scrollIntoView({ block: 'center' });
-        el?.focus();
-      });
-      return;
-    }
-    this.openPrepare(a);
-  }
-
   private errMsg(e: unknown, fallback: string): string {
     const m = (e as { error?: { message?: string | string[] } })?.error?.message;
     return (Array.isArray(m) ? m.join(' ') : m) || (e instanceof Error && !('error' in e) ? e.message : '') || fallback;

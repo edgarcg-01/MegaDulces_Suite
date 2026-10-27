@@ -742,12 +742,40 @@ Observado en esa pantalla y no tocado (no es de esta fase): folio y cantidad de 
 (un movimiento normal pintado como alarma), rótulo «Traspaso a sucursal» sobre un embarque, y
 «Auditar» en color de acción en cada fila.
 
+### 14.4 Cómo queda un traspaso en cada sucursal, y la unidad del renglón (2026-10-27)
+
+Caso real trazado en el ODS: Padre Hidalgo → Yurécuaro, 26-oct.
+
+| Paso | Dónde | Documento | Contraparte (`c10`) | Liga con el anterior |
+|---|---|---|---|---|
+| 1 Pedido | la que **manda** (01) | `U-D-40` serie 1, folio `0003466` | `TI003` «SUCURSAL YURECUARO» | — |
+| 2 Embarque (sale inventario) | la que **manda** (01) | `U-D-41` serie 2, folio `0003354` | `TI003` | `c37/c38/c39 = 40/1/0003466` |
+| 3 Recepción (entra inventario) | la que **recibe** (04) | `U-A-50` serie 1, folio `0000339`, al día siguiente | `TI001` «SUCURSAL PADRE HIDALGO» | `c37/c38/c39 = 41/2/0003354` |
+
+Los tres: 18 renglones, 457 unidades, $11,683.42, idénticos renglón por renglón (mismo SKU,
+cantidad, unidad y costo). Cada sucursal ve a la otra como su `TI###`, y los folios **no**
+coinciden entre documentos: la liga es el back-pointer `c37/c38/c39`.
+
+⛔ **Hallazgo — la unidad del renglón.** En los `U-D-40` de traspaso a sucursal de Kepler (60 días,
+57,188 renglones) el renglón va en la **unidad base del producto** (`kdii.c11`) en el **99.2 %**:
+PAQ 66.7 % · PZA 24.5 % · KG 7.7 %; `CJA` sólo **0.1 %** (82 renglones). La recepción `U-A-50`
+copia la unidad (CJA en 134 de ~40 mil). El adaptador escribe las cajas enteras en `CJA` (KR.6) y
+sólo las fracciones en unidad base (PQ.17): un traspaso escrito así viaja por el embarque y la
+recepción **en una unidad que Kepler casi no usa**, y la sucursal que recibe lo vería distinto a
+todos sus demás traspasos.
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| D24 | ¿El traspaso se escribe en la unidad base (`cajas × piezas_por_caja`, `kdii.c11`, costo por unidad base), como el 99.2 % de los de Kepler? | **Sí**, para traspasos. Ya existe el camino (PQ.17 lo usa para fracciones) y el factor es la ficha de Kepler (PQ.13). Sin factor → rechazo con el SKU. Antes de encender: canario de traspaso con una línea entera y una en piezas, y ver que el `U-D-41` y el `U-A-50` la copien igual. Para compras (`X-A-30`) queda como está hasta medirlo aparte |
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-27 | «¿Cómo sale el traspaso en cada sucursal?» (§14.4): pedido `U-D-40` + embarque `U-D-41` en la que manda, recepción `U-A-50` en la que recibe, idénticos al centavo, ligados por `c37/c38/c39`. Hallazgo: Kepler escribe el traspaso en unidad base (99.2 %), nosotros en CJA → **D24** | PM + sesión PQ |
+| 2026-10-27 | «Generar el apartado para ver los pedidos de sucursal» → **PQ.18 🧪** (`ffea99b38`): tercera pestaña en Requisiciones con lo que mandan las sucursales (compras y traspasos), quién pidió y qué, aprobar/rechazar con motivo, contador de pendientes. En prod hay 0 todavía (la función nació el 26-oct) | PM + sesión PQ |
 | 2026-10-27 | El PM señaló `/almacen/movimientos` (§14.3): el cierre `U-D-41 → U-A-50` ya existe (DM.3, con estado por documento y cuadre contable); falta el eslabón requisición → `U-D-40` → `U-D-41` (los folios no coinciden entre 40 y 41). PQ.3 se re-define para reusar ese servicio. Plantilla de la 01: `U-D-40 1/0003333` (el adaptador reescribe estado y limpia responsables) | PM + sesión PQ |
 | 2026-10-27 | «Tú corrígelo» (los 21 con fracción) → **no se corrigió ningún dato**: los 42 renglones son piezas enteras. Regla «cajas enteras o piezas enteras» en la mesa, el lote, el empuje y el adaptador (escribe en unidad base) (`7fc107f6c`). Simulacro con las reglas vigentes: **853/853 (100 %)**, 0 riesgos (`131f21afd`). 22/22 lib · 102/102 pedido | PM + sesión PQ |
 | 2026-10-27 | «Resolvamos todo lo que no nos deje» → D22 y D23 en código (`219e13736`): proveedor contra `kdxd` (0 rebotes de datos en 853) y fracción frenada al generar. Lo demás es configuración por servidor: plantillas de traspaso medidas (00/06/08; la 01 sin candidato SUCURSAL; el 04 sin U-D-40 sano) y topes propuestos (§14.1) | PM + sesión PQ |

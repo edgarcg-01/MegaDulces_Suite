@@ -248,6 +248,86 @@ async function drenarCola(p, { tablas, metaDe, enviar, borrar = null, lote = LOT
   return res;
 }
 
+/**
+ * `[OPS-AUD.13]` LA COLA SE PONE SOLA EN LAS TABLAS NUEVAS — sin cron.
+ *
+ * Kepler crea una tabla de pólizas POR MES (`kdc2YYMM`). Instalar la cola a mano (o con un cron)
+ * deja cada mes nuevo sin cola hasta que alguien se acuerde. Un EVENT TRIGGER en la réplica la pone
+ * en el instante en que la tabla aparece (la crea `kepler-replica-refresh.js`, DDL en una sesión
+ * normal: el apply worker no ejecuta DDL, así que no hay riesgo de que esto corra dentro de él).
+ *
+ * `patrones` son prefijos con `*` final (`kdc2*`) o nombres exactos. Sólo tablas de `esquemaFuente`
+ * con PK. Si la tabla ya tiene la cola, no hace nada (también corta la recursión: el
+ * `ENABLE ALWAYS` de adentro vuelve a disparar el evento como ALTER TABLE).
+ *
+ * ⛔ A diferencia de `encolar()`, ESTA función SÍ lleva EXCEPTION: corre una vez por DDL (no por
+ *    fila, así que no hay caché de subtransacciones que desbordar), y si tirara haría fallar el
+ *    CREATE TABLE de `kepler-replica-refresh` — o sea, la tabla nueva ni siquiera se suscribiría.
+ *    Un error se avisa con WARNING y la tabla queda sin cola: `estadoCola` lo ve como 'ausente'.
+ */
+function autoSql(patrones, { esquemaFuente = 'md', esquemaCola = 'ods' } = {}) {
+  const q = qid(esquemaCola);
+  const likes = patrones.map((p) => lit(p.endsWith('*') ? p.slice(0, -1).replace(/[\\%_]/g, '\\$&') + '%' : p.replace(/[\\%_]/g, '\\$&')));
+  return [[
+    `CREATE OR REPLACE FUNCTION ${q}.cola_auto() RETURNS event_trigger LANGUAGE plpgsql AS $f$
+     DECLARE
+       r   record;
+       pk  text;
+     BEGIN
+       FOR r IN SELECT c.oid, c.relname
+                  FROM pg_event_trigger_ddl_commands() d
+                  JOIN pg_class c ON c.oid = d.objid
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE d.object_type = 'table' AND n.nspname = ${lit(esquemaFuente)}
+                   AND c.relname LIKE ANY (ARRAY[${likes.join(', ')}]) LOOP
+         BEGIN
+           IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = r.oid AND tgname = ${lit(TRIGGER)}) THEN CONTINUE; END IF;
+           SELECT string_agg(quote_literal(a.attname), ', ' ORDER BY array_position(i.indkey, a.attnum)) INTO pk
+             FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+            WHERE i.indrelid = r.oid AND i.indisprimary;
+           IF pk IS NULL THEN CONTINUE; END IF;
+           EXECUTE format('CREATE TRIGGER %I AFTER INSERT OR UPDATE OR DELETE ON %s FOR EACH ROW EXECUTE FUNCTION ${q}.encolar(%s)',
+                          ${lit(TRIGGER)}, r.oid::regclass, pk);
+           EXECUTE format('ALTER TABLE %s ENABLE ALWAYS TRIGGER %I', r.oid::regclass, ${lit(TRIGGER)});
+         EXCEPTION WHEN OTHERS THEN
+           RAISE WARNING 'ods cola_auto: % sin cola (%)', r.relname, SQLERRM;
+         END;
+       END LOOP;
+     END $f$`,
+    `DROP EVENT TRIGGER IF EXISTS ${qid('ods_cola_auto_' + esquemaFuente)}`,
+    `CREATE EVENT TRIGGER ${qid('ods_cola_auto_' + esquemaFuente)} ON ddl_command_end
+       WHEN TAG IN ('CREATE TABLE', 'CREATE TABLE AS', 'ALTER TABLE')
+       EXECUTE FUNCTION ${q}.cola_auto()`,
+  ]];
+}
+
+/** Retira el event trigger de `autoSql` (no toca las colas ya puestas). */
+function quitarAutoSql({ esquemaFuente = 'md', esquemaCola = 'ods' } = {}) {
+  return [[
+    `DROP EVENT TRIGGER IF EXISTS ${qid('ods_cola_auto_' + esquemaFuente)}`,
+    `DROP FUNCTION IF EXISTS ${qid(esquemaCola)}.cola_auto()`,
+  ]];
+}
+
+/**
+ * `[OPS-AUD.13]` Resuelve una lista con patrones (`kdc2*`) contra las tablas que EXISTEN en la
+ * réplica. Los nombres exactos se devuelven tal cual (exista o no la tabla: `estadoCola` dirá
+ * 'ausente'); los patrones, sólo lo que existe, en orden alfabético.
+ */
+async function expandirTablas(p, nombres, { esquemaFuente = 'md' } = {}) {
+  const out = [];
+  for (const n of nombres) {
+    if (!n.endsWith('*')) { out.push(n); continue; }
+    const { rows } = await p.query(
+      `SELECT c.relname FROM pg_class c JOIN pg_namespace s ON s.oid = c.relnamespace
+        WHERE s.nspname = $1 AND c.relkind IN ('r', 'p') AND starts_with(c.relname, $2)
+        ORDER BY c.relname`, [esquemaFuente, n.slice(0, -1)]);
+    for (const r of rows) out.push(r.relname);
+  }
+  return [...new Set(out)];
+}
+
 module.exports = {
   TRIGGER, LOTE_DEFAULT, instalarSql, quitarSql, estadoCola, profundidadCola, leerPorLlave, drenarCola,
+  autoSql, quitarAutoSql, expandirTablas,
 };

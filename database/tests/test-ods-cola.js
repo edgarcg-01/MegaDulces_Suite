@@ -30,7 +30,7 @@ const path = require('path');
 const { Client } = require('pg');
 // Antes del require: el carril lee la lista de la cola al cargar, y el bloque 5 mide su nota.
 process.env.ODS_COLA_TABLES = 'kdm1,kdm2';
-const { instalarSql, quitarSql, estadoCola, drenarCola, TRIGGER } = require('../importers/lib/ods-cola');
+const { instalarSql, quitarSql, estadoCola, drenarCola, TRIGGER, autoSql, quitarAutoSql, expandirTablas } = require('../importers/lib/ods-cola');
 const { syncCtid, crearCicloTiempoReal, borrarEnVivo } = require('../importers/kepler/replicate-ods-live').__test;
 
 let ok = 0, fail = 0, noMedido = 0;
@@ -244,7 +244,7 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
     const caja = conCola[0]?.t || '';
     A(/27-ods-live-caja/.test(conCola[0]?.f || ''), 'y es el carril de caja');
     const valor = (k) => ((caja.match(new RegExp(`name: ${k}\\s*\\n\\s*value: "?([^"\\n]*)"?`)) || [])[1] || '').trim();
-    A(valor('ODS_COLA_TABLES') === 'kdm1,kdm2', 'vacía kdm1 y kdm2 (cabecera y renglones)');
+    A(valor('ODS_COLA_TABLES') === 'kdm1,kdm2,kdc2*', 'vacía kdm1 y kdm2 (cabecera antes que renglones) y las pólizas kdc2* [OPS-AUD.13]');
     A(/^(1|true|yes)$/i.test(valor('ODS_TIEMPO_REAL')), 'con ODS_TIEMPO_REAL (sin él el piso del sondeo vuelve a 1 s)');
     // De la línea `command:`, no del texto: el encabezado del YAML cita `--watch=1` en su historia.
     const w = Number((caja.match(/^\s*command:.*--watch=([0-9.]+)/m) || [])[1]);
@@ -320,6 +320,95 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
     A(r3.borradas === 0 && !enviados.length && /sin fecha/.test(r3.nota || ''), 'una tabla sin fecha declarada (kdij, el kárdex que se poda): NUNCA');
     const r4 = await borrarEnVivo({ code: '01', tabla: 'kdm2', meta: META, llaves: ll(2), dest: null, shipFn });
     A(r4.borradas === 0 && !enviados.length && /sin destino/.test(r4.nota || ''), 'sin destino pg: no borra (y lo dice)');
+  }
+
+  console.log('\n[7b] [OPS-AUD.13] Pólizas kdc2YYMM: sin freno de edad, con tope, y la fecha de la PK como texto');
+  {
+    const cols = [
+      { column_name: 'c1', data_type: 'character varying' }, { column_name: 'c2', data_type: 'timestamp without time zone' },
+      { column_name: 'c3', data_type: 'character varying' }, { column_name: 'c4', data_type: 'character varying' },
+      { column_name: 'c5', data_type: 'numeric' }];
+    const META = { cols, pk: ['c1', 'c2', 'c3', 'c4', 'c5'] };
+    const ll = (n) => Array.from({ length: n }, (_, i) => ({ c1: '762-001', c2: '2026-07-16T00:00:00', c3: 'D', c4: '18779', c5: i + 1 }));
+    // El ODS devuelve la fecha como Date (timestamptz) Y como texto en `_t_c2`.
+    const delOds = (n) => Array.from({ length: n }, (_, i) => ({
+      c1: '762-001', c2: new Date('2026-07-16T06:00:00Z'), _t_c2: '2026-07-16 00:00:00-06', c3: 'D', c4: '18779', c5: i + 1 }));
+    const dest = (filas) => { const q = []; return { q, async query(sql, params) { q.push({ sql: String(sql), params }); return { rows: filas }; } }; };
+    let enviados = [];
+    const shipFn = async (rows) => { enviados.push(...rows); return { rowCount: rows.length }; };
+
+    const d1 = dest(delOds(2));
+    const r1 = await borrarEnVivo({ code: '00', tabla: 'kdc22607', meta: META, llaves: ll(2), dest: d1, shipFn });
+    A(!/current_date/.test(d1.q[0]?.sql || '') && d1.q[0]?.params.length === 2,
+      'kdc2YYMM NO lleva freno de edad (una corrección de julio se propaga)');
+    A(/"c2"::text AS "_t_c2"/.test(d1.q[0]?.sql || ''), 'y lee la fecha de la PK como texto');
+    A(r1.borradas === 2 && enviados.every((x) => x.c2 === '2026-07-16 00:00:00-06' && !('_t_c2' in x) && x.sucursal === '00'),
+      '⛔ lo que viaja al borrado es el TEXTO de la fecha, no el Date (que caería sobre la copia de las 06:00)');
+    enviados = [];
+    const d2 = dest(delOds(501));
+    const r2 = await borrarEnVivo({ code: '00', tabla: 'kdc22607', meta: META, llaves: ll(501), dest: d2, shipFn });
+    A(r2.borradas === 0 && !d2.q.length && !enviados.length, '⛔ el TOPE sigue: 501 borrados de pólizas en una pasada no se tocan (poda)');
+    const r3 = await borrarEnVivo({ code: '00', tabla: 'kdc3', meta: META, llaves: ll(1), dest: dest(delOds(1)), shipFn });
+    A(r3.borradas === 0 && /sin fecha/.test(r3.nota || ''), 'el prefijo es exacto: kdc3 (no es póliza) sigue sin borrar');
+  }
+
+  console.log('\n[8] [OPS-AUD.13] La cola se pone SOLA en la tabla del mes (event trigger), sin cron');
+  {
+    const url = process.env.ODS_COLA_TEST_URL || process.env.DATABASE_URL_NEW || '';
+    if (!/@(127\.0\.0\.1|localhost)(:\d+)?\//.test(url)) {
+      NM('sin Postgres local con superusuario: el event trigger no se puede ejercer.');
+    } else {
+      const c = new Client({ connectionString: url.replace('localhost', '127.0.0.1'), statement_timeout: 30000 });
+      await c.connect();
+      const sfx = String(process.pid);
+      const F = `zz_mdauto_${sfx}`, Q = `zz_odsauto_${sfx}`;
+      const op = { esquemaFuente: F, esquemaCola: Q };
+      const tg = async (t) => (await c.query(
+        `SELECT t.tgenabled::text en FROM pg_trigger t JOIN pg_class r ON r.oid = t.tgrelid JOIN pg_namespace n ON n.oid = r.relnamespace
+          WHERE n.nspname = $1 AND r.relname = $2 AND t.tgname = $3`, [F, t, TRIGGER])).rows[0]?.en || null;
+      await c.query('BEGIN');
+      try {
+        await c.query(`CREATE SCHEMA ${F}`);
+        for (const l of instalarSql([], op)) for (const s of l) await c.query(s);
+        for (const l of autoSql(['kdc2*'], op)) for (const s of l) await c.query(s);
+
+        await c.query(`CREATE TABLE ${F}.kdc22611 (c1 varchar, c2 timestamp, c3 varchar, c4 varchar, c5 numeric, c6 numeric,
+                         PRIMARY KEY (c1, c2, c3, c4, c5))`);
+        A(await tg('kdc22611') === 'A', 'CREATE TABLE kdc22611 → la cola queda puesta y en ENABLE ALWAYS, en el mismo instante');
+        await c.query(`INSERT INTO ${F}.kdc22611 VALUES ('762-001','2026-11-02','D','1',1,100)`);
+        const n = (await c.query(`SELECT count(*)::int n FROM ${Q}.cola WHERE tabla = 'kdc22611'`)).rows[0].n;
+        A(n === 1, 'y la primera póliza del mes ya entra a la cola');
+
+        await c.query(`CREATE TABLE ${F}.kdc3 (c1 varchar PRIMARY KEY)`);
+        A(await tg('kdc3') === null, 'una tabla que no es del patrón (kdc3) no se toca');
+        await c.query(`CREATE TABLE ${F}.kdc22612 (c1 varchar, c2 timestamp)`);
+        A(await tg('kdc22612') === null, 'sin PK no hay cola (no se podría leer por llave) — y el CREATE no falla');
+        await c.query(`ALTER TABLE ${F}.kdc22612 ADD PRIMARY KEY (c1, c2)`);
+        A(await tg('kdc22612') === 'A', 'cuando gana su PK (ALTER TABLE), la cola se pone sola');
+
+        const tablas = await expandirTablas(c, ['kdm1', 'kdc2*'], op);
+        A(JSON.stringify(tablas) === JSON.stringify(['kdm1', 'kdc22611', 'kdc22612']),
+          `expandirTablas resuelve kdc2* contra lo que existe (${tablas.join(',')})`);
+
+        // ⛔ NEGATIVA: si poner la cola falla, el CREATE TABLE NO debe fallar (si no, la tabla del mes
+        //    ni siquiera se suscribiría). Se rompe la función encolar() a propósito.
+        await c.query(`SAVEPOINT rota`);
+        await c.query(`DROP FUNCTION ${Q}.encolar() CASCADE`);
+        let creo = true;
+        try { await c.query(`CREATE TABLE ${F}.kdc22701 (c1 varchar PRIMARY KEY)`); } catch { creo = false; }
+        A(creo && await tg('kdc22701') === null, '⛔ si poner la cola falla, el CREATE TABLE igual pasa (sin cola, y estadoCola lo verá ausente)');
+        await c.query(`ROLLBACK TO SAVEPOINT rota`);
+
+        for (const l of quitarAutoSql(op)) for (const s of l) await c.query(s);
+        await c.query(`CREATE TABLE ${F}.kdc22702 (c1 varchar PRIMARY KEY)`);
+        A(await tg('kdc22702') === null, 'quitarAutoSql retira el event trigger (las tablas nuevas ya no la reciben)');
+      } catch (e) {
+        A(false, `bloque 8 tiró: ${e.message}`);
+      } finally {
+        await c.query('ROLLBACK').catch(() => { /* la conexión pudo caer: nada que deshacer */ });
+        await c.end();
+      }
+    }
   }
 
   console.log('\n[5] El latido por ventana (TIEMPO_REAL): una escritura cada 10 s, no dos por ciclo');
