@@ -1004,6 +1004,9 @@ jobs:
       #    (asume la sucursal vacía). Medido en local: con el servicio antes, esa suite da 41 ✓ / 2 ✗.
       # `[CGP-L.10]` Y el SENSOR del corte abierto: siembra un corte trabado y jornadas sin corte, y
       # comprueba que los ve, deja su latido y avisa sin repetir. Probado en rojo con dos mutaciones.
+      # `[CGA-A.56.1]` Y el ALTA de un egreso por HTTP con el cuerpo de la pantalla: de dónde salió el
+      # dinero (pedazos de retiros de CAOS, o cajón). Sin ella, `origen_efectivo` y los enlaces parciales
+      # no los escribía ninguna prueba contra base (regla 13). Probada en rojo con seis mutaciones.
       - name: Servicio real del corte
         # Corre aunque fallen las suites: un rojo no tiene que esconder el otro resultado.
         if: ${{ !cancelled() }}
@@ -1026,7 +1029,8 @@ jobs:
                  libs/finance/src/lib/caja/caja-db.util-real.spec.ts \
                  libs/finance/src/lib/caos/caos-ingreso-cron.granos-real.spec.ts \
                  libs/finance/src/lib/caja/caja-firma.servicio-real.spec.ts \
-                 libs/finance/src/lib/caja/caja-custodia.servicio-real.spec.ts 2>&1 | tee servicio.log; then
+                 libs/finance/src/lib/caja/caja-custodia.servicio-real.spec.ts \
+                 libs/finance/src/lib/caja/cash-ledger.origen-efectivo.http-real.spec.ts 2>&1 | tee servicio.log; then
             echo "::error title=Servicio real del corte::$(grep -E 'FAIL|Error|×' servicio.log | head -6 | tr '\n' ' ' | cut -c1-900)"
             exit 1
           fi
