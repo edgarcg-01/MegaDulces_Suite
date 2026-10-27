@@ -8,6 +8,11 @@ import type {
 
 import { DOCTIPOS, coordenada } from './kepler-doctipo';
 import { MARCA_SUITE, plantillaDe, servidoresEncendidos, topeDiario, urlDeServidor } from './kepler-servidores';
+import { piezasEnteras } from './fraccion-caja';
+
+/** `[PQ.17]` Piezas enteras de un renglón con fracción de caja, o `null` (misma regla que la mesa y el lote). */
+const piezasEnterasDe = (l: { sku: string; cajas: number; piezas_por_caja?: number | null }): number | null =>
+  piezasEnteras({ sku: l.sku, final_qty: l.cajas, piezas_por_caja: l.piezas_por_caja ?? null });
 
 /**
  * `[KR.16]` Número → texto como Kepler lo guarda en sus columnas `varchar` de importe (`c57`):
@@ -210,9 +215,33 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
       // entre documentos** —copia el renglón, razón 1.0000— y (b) el factor para convertir no se
       // pudo fijar: `kdm2.c58` es el empaque de esa compra, no la caja del producto. Convertir
       // con un factor no verificado es el modo de fallar que esto existe para evitar.
-      const resueltas = e.lineas.map((l) => ({
-        sku: l.sku, unidad: 'CJA', unidad_caja: 'CJA', por_caja: 1, cantidad: l.cajas,
-      }));
+      // `[PQ.17]` **La excepción, medida:** una fracción de caja que es un número ENTERO de
+      // piezas (la mesa deja capturar en piezas: 0.4 cj × 10 = 4 pz) se escribe en la **unidad
+      // base** del producto en ESTE servidor (`kdii.c11`), con `c58 = 1` y el costo por pieza
+      // (`costo_caja ÷ piezas_por_caja`). Es lo que Kepler hace en el 64 % de sus propias líneas
+      // (PAQ/PZA, plan PQ §12.3). Los 42 renglones vivos con fracción (2026-10-27) eran todos
+      // piezas enteras; redondear a caja inventaba compra (×2.5) y a cero borraba lo pedido.
+      // ⛔ Ni cajas ni piezas enteras → se rechaza con el SKU (fail-closed, como siempre).
+      const enPiezas = e.lineas.filter((l) => l.cajas !== Math.round(l.cajas));
+      const sinUnidad = enPiezas.filter((l) => piezasEnterasDe(l) === null);
+      if (sinUnidad.length) {
+        return { estado: 'rechazada', motivo: `${sinUnidad.length} renglón(es) no son cajas enteras ni piezas enteras: ${sinUnidad.slice(0, 5).map((l) => `${l.sku}=${l.cajas}`).join(', ')}` };
+      }
+      const unidadBase = new Map<string, string>();
+      if (enPiezas.length) {
+        const u = await c.query(`SELECT btrim(c1) AS sku, NULLIF(upper(btrim(c11)), '') AS u1 FROM md.kdii WHERE btrim(c1) = ANY($1::text[])`, [enPiezas.map((l) => l.sku)]);
+        for (const r of u.rows) if (r.u1) unidadBase.set(r.sku, r.u1);
+        const sinFicha = enPiezas.filter((l) => !unidadBase.has(l.sku));
+        if (sinFicha.length) {
+          return { estado: 'rechazada', motivo: `Kepler (sucursal ${e.sucursal}) no tiene unidad base en la ficha (kdii.c11) para ${sinFicha.slice(0, 5).map((l) => l.sku).join(', ')}: no se puede escribir en piezas` };
+        }
+      }
+      const resueltas = e.lineas.map((l) => {
+        const pz = l.cajas !== Math.round(l.cajas) ? piezasEnterasDe(l) : null;
+        return pz === null
+          ? { sku: l.sku, unidad: 'CJA', unidad_caja: 'CJA', por_caja: 1, cantidad: l.cajas }
+          : { sku: l.sku, unidad: unidadBase.get(l.sku)!, unidad_caja: unidadBase.get(l.sku)!, por_caja: 1, cantidad: pz };
+      });
 
       // ⛔ `[KR.12]` El tope diario del servidor: cuántos documentos con marca de la Suite ya
       // tienen esta fecha en ESTE servidor. Se cuenta en Kepler, no en la Suite: lo que importa
@@ -321,12 +350,18 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
         //         La plantilla traía 5 y era lo que la pantalla de Kepler mostraba como cantidad.
         //   `c25` contraparte del renglón = `c10` del encabezado (96-100 %).
         //   `c32` fecha del renglón = fecha del documento (96-100 %).
+        // `[PQ.17]` Cajas enteras → `CJA` con el costo de la caja; piezas enteras → unidad base
+        // con el costo por pieza. En los dos casos `c9×c12 = c13` y `c12×c58 = c57` (c58 = 1).
+        const rs = resueltas[i];
+        const enBase = rs.unidad !== 'CJA';
+        const cantidad = enBase ? rs.cantidad : ln.cajas;
+        const costoUnit = enBase ? Number((ln.costo_caja / (ln.piezas_por_caja as number)).toFixed(4)) : ln.costo_caja;
         await c.query(
-          `UPDATE _l SET c6=$1, c8=$2, c9=$3, c10=$4, c11='CJA', c12=$5, c13=$6,
-                         c55='CJA', c57=$8, c58='1', c24=$3, c56=$9, c25=$10, c32=$11
+          `UPDATE _l SET c6=$1, c8=$2, c9=$3, c10=$4, c11=$12, c12=$5, c13=$6,
+                         c55=$12, c57=$8, c58='1', c24=$3, c56=$9, c25=$10, c32=$11
             WHERE c7=$7`,
-          [folio, ln.sku, ln.cajas, ln.nombre, ln.costo_caja, ln.importe, i + 1, textoKepler(ln.costo_caja),
-            textoKepler(ln.cajas), c10, e.fecha]);
+          [folio, ln.sku, cantidad, ln.nombre, costoUnit, ln.importe, i + 1, textoKepler(costoUnit),
+            textoKepler(cantidad), c10, e.fecha, rs.unidad]);
       }
 
       await this.confirmar(c);

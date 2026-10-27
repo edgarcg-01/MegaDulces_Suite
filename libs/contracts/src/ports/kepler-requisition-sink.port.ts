@@ -60,6 +60,12 @@ export interface KeplerRequisitionLine {
   nombre: string;
   /** Cantidad **en cajas** — `purchase_requisition_lines.final_qty`, que ya viene en cajas. */
   cajas: number;
+  /**
+   * `[PQ.17]` Piezas por caja del producto (resolvedor canónico). Si `cajas` trae fracción y
+   * `cajas × piezas_por_caja` es entero, el adapter escribe el renglón en la **unidad base** de
+   * Kepler (la mesa deja capturar en piezas). Sin factor, sólo valen cajas enteras.
+   */
+  piezas_por_caja?: number | null;
   /** Costo de UNA caja (`unit_cost`). */
   costo_caja: number;
   /** Importe del renglón (`line_cost`). El adapter no lo re-deriva. */

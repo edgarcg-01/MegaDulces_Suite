@@ -340,7 +340,7 @@ describe('[RA-PEND.2] el lote se frena ANTES del clic, no después de perder el 
     c.plan.set([doc({ lines: [{ product_id: 'p-1', supplier_id: 's-1', source_type: 'supplier', final_qty: 0.2, unit_cost: 100 }] })]);
     const bl = c.planBloqueos();
     expect(bl.length).toBe(1);
-    expect(bl[0]).toContain('fracción de caja');
+    expect(bl[0]).toContain('no son cajas enteras ni piezas enteras');
     expect(bl[0]).toContain('Kepler no los acepta');
     // NEGATIVA: 3 cajas enteras no frenan.
     c.plan.set([doc()]);
