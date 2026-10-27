@@ -18,6 +18,9 @@
 - **Surtido:** cada sucursal empieza y termina su parte de la ruta; las tarjetas dicen «Parte de P-xxxx · también surte PH».
 - **Mesa y caja:** «Parte de … · se cobra en …», ligar la clave Kepler del cliente en otra sucursal, y la caja del pedido principal liquida también las guías de recolección de otras sucursales, con desglose por sucursal.
 - ⚠️ 3 migraciones aditivas que van **antes** del código. Sin permisos nuevos.
+### Added — Finanzas › Gastos: aviso de las rondas de revisión (GX.86, 2026-10-26)
+- Al dar de alta un gasto, un aviso dice «Puedes subir tus gastos a cualquier hora del día, sin problema» y en qué ronda se revisa el tuyo («hoy a las 5:00 pm», «el lunes a las 8:30 am»…). Rondas: lunes a viernes, 8:30–10:00 am y 5:00–6:00 pm.
+- No bloquea nada: se puede subir a cualquier hora. Sale en la captura, en el link del celular y en «Adjuntar evidencia»; los aprobadores no lo ven. El acuse al mandarlo repite la ronda.
 ### Changed — Cartera de ventas: «Asignar rutas» es un menú de vendedores y el tablero se simplifica (MCP.3.10–3.11, 2026-10-22)
 - **Mis vendedores:** sólo Vendedor · Ruta de hoy («En ruta · desde 9:32», «Terminó · 8:12 – 14:37», «Sin iniciar») · Visitados · Venta hoy. Pestañas, «Ordenar», fecha y la frescura «Venta Kepler» van en una sola barra. Fuera los totales, la meta, el avance y el detalle por cliente.
 - **Asignar rutas:** menú de vendedores; al elegir uno, **Resumen** (meta de la catorcena contra lo cobrado y sus días) y **Configurar** (ruta de la semana, sucursal de surtido, meta y clientes a visitar). Se quitaron «Sucursal por ruta» y el orden de visita.

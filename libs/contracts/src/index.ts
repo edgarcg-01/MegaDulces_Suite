@@ -182,6 +182,8 @@ export * from './finance/ver-expediente.contract';
 export * from './finance/coincidencia-pago.contract';
 // `[GX.79]` el tope de un archivo de evidencia de gasto (20 MB): pantalla, API y proxy.
 export * from './finance/archivo-gasto.contract';
+// `[GX.86]` las rondas de revision de gastos (se informan, no bloquean el alta).
+export * from './finance/rondas-revision-gastos.contract';
 // `[PVI.17]` qué lados tiene un ejercicio de presupuesto y cuáles hacen falta para declarar un
 // resultado. Lo leen la pantalla del módulo y el desglose de la cola en «Mi trabajo».
 export * from './finance/budget-lados.contract';
