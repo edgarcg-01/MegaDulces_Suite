@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 279 KB, 4933 líneas, 104 secciones.
+> **Índice navegable** — 280 KB, 4933 líneas, 104 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/GOTCHAS.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -3951,7 +3951,7 @@ con `?` en su migración de origen (filas medidas en sólo lectura el mismo día
 
 | vista | guardado en prod | efecto |
 |---|---|---|
-| `analytics.v_product_unit_ladder` | `u1_raw ~ '^[0-9]+(\.[0-9]+)$1$'` | nunca casa: **65 de 9,701 SKU** con unidad numérica quedan `is_weight = false` HOY; de ella cuelgan `mv_product_unit_ladder`, `product_units`, `v_erp_sales_line_units`, `v_unit_rung_audit` y `v_unit_truth` |
+| `analytics.v_product_unit_ladder` | `u1_raw ~ '^[0-9]+(\.[0-9]+)$1$'` | nunca casa: **65 de los 119 SKU con unidad base numérica** (de 9,704 en la vista, medido 2026-10-26 en sólo lectura) quedan `is_weight = false` HOY; de ella cuelgan `mv_product_unit_ladder`, `product_units`, `v_erp_sales_line_units`, `v_unit_rung_audit` y `v_unit_truth` |
 | `analytics.v_logistics_expense_channel` | `…\|RUTAS$1 +DIRECTAS$2` | esa alternativa nunca casa; 0 gastos afectados hoy (latente) |
 | `analytics.customer_receivables` | `COALESCE(cliente_code, '?')` → `'$1'`, `'$2'`, `'$3'` | sin cliente, el JOIN `'$1' = '$3'` ya no empareja; 0 de 59,094 documentos sin cliente hoy (latente) |
 | `analytics.mv_product_margins_30d` | `'?'` → `'$1'` y `'$2'` | la unidad desconocida sale `'$1'`/`'$2'`, no `'?'` |
@@ -5045,4 +5045,4 @@ México 4 ✗ / 44 ✓.
 ```
 
 ⚠️ No «arregles» el CI poniendo su Postgres en hora de México: escondería el defecto en vez de quitarlo.
-Seguimiento: `[CGP-D.1.4]` (seis copias del predicado en `libs/finance/src/lib/caja`).
+Arreglado en `[CGP-D.1.4]` (9c4b7e9f1): las seis copias del predicado en `libs/finance/src/lib/caja` quedaron en una sola definición, `enJornadaLibro` (el día pasa por `::timestamp` antes del `AT TIME ZONE`). Fuera de caja quedan copias latentes del mismo defecto (barrido del 2026-10-26: `customer-360.service.ts`, `autonomy.service.ts`, `outcome-verifier.service.ts` y la vista `analytics.v_pos_void_capture_rate`); sin ticket todavía.

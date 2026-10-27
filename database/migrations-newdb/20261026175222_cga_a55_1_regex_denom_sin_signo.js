@@ -40,8 +40,12 @@
  * ⚠️ Sólo reemplaza una función: `ops/prod/compuerta-migraciones.sh` no extrae objetos de un
  *    `CREATE FUNCTION` («objetos que crean: 0»), así que mientras esté pendiente la clasifica
  *    NO_MEDIDO y FRENA el despliegue de `main`: el de todo el equipo, no sólo el de este commit.
- *    Aplicala en prod con `apply-one-migration-prod.js` ANTES de mergear, como pide la plantilla
- *    de `scripts/nueva-migracion.js`.
+ *    Orden: mergear PRIMERO y, en seguida, aplicarla en prod con `ops/prod/aplicar-migracion.sh`
+ *    (RUNBOOK-despliegue §3), antes del siguiente despliegue. ⛔ NO con `apply-one-migration-prod.js`
+ *    antes de mergear: `[OPS.MIG]` (7b9f4e2fa, 2026-10-08) lo prohíbe, porque deja el
+ *    `knex_migrations` de prod nombrando un archivo que la imagen no tiene y frena la siguiente
+ *    migración de cualquiera. La plantilla de `scripts/nueva-migracion.js` todavía dice «antes de
+ *    mergear»: contradicción declarada, para Edgar.
  *
  * La prueba: `test-newdb-caja-custodia.js` §6a llama la función con las 12 llaves del catálogo (las
  * lee del fuente), la cruza con `valorDeLlave` del motor TS y exige que ninguna función de

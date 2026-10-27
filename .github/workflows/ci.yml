@@ -1063,10 +1063,11 @@ jobs:
             #    fallas (10 ✗ / 22 ✓), escondidas. No era estado: el predicado de la jornada del libro
             #    (`(?::date) AT TIME ZONE ...`) depende de la TimeZone de la SESION, y este Postgres
             #    corre en UTC (el de prod, en hora de Mexico). Dejar las -real fuera de este bucle
-            #    sigue siendo correcto (tienen estado); la causa la sigue `[CGP-D.1.4]`.
+            #    sigue siendo correcto (tienen estado); la causa la corrigio `[CGP-D.1.4]`
+            #    (`enJornadaLibro`: el dia pasa por ::timestamp antes del AT TIME ZONE).
             #    Lo que ESTE paso debe probar es que el dia no dependa de la zona -- eso vive en
-            #    `dia-negocio.spec.ts` y en las 24 pruebas sin base. Verificado en local: 24
-            #    archivos / 450 pruebas verdes en Mexico Y en Tokio.
+            #    `dia-negocio.spec.ts` y en las pruebas sin base. Medido en local el 2026-10-26:
+            #    37 archivos / 634 pruebas verdes en Mexico Y en Tokio (antes decia 24 / 450).
             TZ=$tz npx vitest run --config libs/finance/vitest.config.ts --no-file-parallelism --exclude '**/*-real.spec.ts' libs/finance/src/lib/caja || exit 1
           done
 

@@ -291,7 +291,7 @@ de que estaba DESPLEGADO (lote 1017, `/api/health` = `71b5c7975`), no de que esc
 - Ninguna prueba contra base pasaba por `create()` con `origen_efectivo` ni con un enlace parcial (regla
   13): la única `-real` que toca `caos_cash_links` escribe directo en la tabla.
 - `71b5c7975` no trae la pantalla (`acadc2f31`): el bundle de prod tiene «buscar retiros» y ningún texto de
-  la pregunta. Los 340 gastos del libro tienen `origen_efectivo` NULL (sólo lectura, 21:25 MX).
+  la pregunta. Los 337 gastos vivos del libro (340 con 3 borrados) tienen `origen_efectivo` NULL (sólo lectura, 21:25 MX).
 - En `71b5c7975` el job `caja-db` estaba rojo (run 40379208629: custodia 16 ✓ / 4 ✗; «Servicio real del
   corte» verde con «Failed Tests 17» en su anotación).
 - «El lote declara `cajon` para todos sus egresos» no era cierto: ni la pantalla ni el autollenado lo mandan.
@@ -309,7 +309,7 @@ declara el lote.
 
 ## 2026-10-26 — `[CGA-A.55.1]`/`[CGP-D.1.3]` Revisión: el job de caja no quedaba verde — «Servicio real del corte» escondía fallas desde el 15-oct
 
-**Qué se revisó:** el arreglo de la regex de denominaciones (`718883801`, `2ce755ef4`). La migración, la
+**Qué se revisó:** el arreglo de la regex de denominaciones (`2c188716c`, `b52af5986`; antes del rebase eran `718883801`/`2ce755ef4`, que no quedan en la historia). La migración, la
 prueba y el preparador estaban bien; lo que no era cierto era el anuncio «el job `caja-db` vuelve a verde».
 
 **Medido:**
