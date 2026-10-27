@@ -28,22 +28,16 @@ export const REPORTES_GENERALES_TABS: PageTab[] = [
     icon: 'pi pi-box',
     permission: Permission.COMMERCIAL_SALIDAS_VER,
   },
-  {
-    // AX.2 — el documento que se le entrega al cliente (anexo imprimible + pagaré).
-    // AX.9: se llamaba "Documentos", más ancho de lo que muestra — la pantalla trae SÓLO
-    // facturas de telemarketing (U/D/8, canal TELEMARK en el 100%). El tab va corto por el
-    // ancho de la tira; el nombre completo vive en el encabezado de la página.
-    label: 'Facturación TM',
-    route: '/comercial/documentos',
-    icon: 'pi pi-file',
-    permission: Permission.COMMERCIAL_SALES_DOCS_VER,
-  },
+  // ⛔ `[NAV.8.2]` «Facturación TM» (`/comercial/documentos`) ya NO va acá. Su página pinta la barra
+  // de Telemarketing (`TELEMARKETING_TABS`: Facturación TM · Expedientes, `[GT.3]`), así que entrar
+  // por esta pestaña dejaba el sidebar en «Reportes de venta» y la barra en otro apartado. Ahora es
+  // su propia entrada «Facturación» en el sidebar de Comercial, con la barra que su página pinta.
   // Traspasos vive en Logística y Egresos en Finanzas — fuera de los tabs de
-  // reportes de VENTA (aquí solo la familia sell-out/salidas/ruta).
+  // reportes de VENTA (aquí solo la familia sell-out/salidas).
 ];
 
 // ⛔ `[NAV.8.1]` (2026-10-27) Aquí vivía `REPORTS_TABS`: la tira COMBINADA (los tres de sell-out +
-// las seis de Ruta Directa + Facturación TM = 11 pestañas). La pintaban Sell-Out, Análisis, Salidas,
+// las seis de Ruta Directa + Facturación TM = 10 pestañas). La pintaban Sell-Out, Análisis, Salidas,
 // Ventas por ruta e Inventario de ruta, mientras Comisiones, Rentabilidad, Gasto y Flota RD pintaban
 // sólo las de RD: la MISMA entrada del sidebar mostraba dos barras distintas según la pestaña, y en
 // Ventas por ruta se mezclaban dos apartados («Reportes de venta» y «Ruta Directa»). Edgar lo marcó
