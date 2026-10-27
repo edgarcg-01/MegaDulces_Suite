@@ -201,7 +201,8 @@ const _lastOpenDocs = new Map();
 // es el que dispara el recálculo de precio de venta. Donde la cola está activa, la red de seguridad
 // y la de estado de ESA tabla se saltan: la cola ya ve cada INSERT y cada UPDATE, y la red costaba
 // un ciclo de ~1.5 s cada 5 min. Donde NO está instalada, todo sigue como antes, y se declara.
-const { estadoCola, profundidadCola, drenarCola } = require('../lib/ods-cola');
+const { estadoCola, profundidadCola, drenarCola, expandirTablas } = require('../lib/ods-cola');
+const { pkParaEnviar } = require('../lib/ods-pk');
 const COLA_TABLES = (process.env.ODS_COLA_TABLES || '').split(',').map((s) => s.trim()).filter(Boolean);
 // `[OBS.15.12]` Tablas que este carril embarca pero cuyo DATO ya entrega la cola de OTRO carril
 // (`ods-live-caja` vacía `kdm2`). Donde la cola está activa, su red de seguridad deja de re-embarcar
@@ -230,6 +231,14 @@ const COLA_BORRAR = /^(1|true|yes)$/i.test(String(process.env.ODS_COLA_BORRAR ||
 const BORRADO_DIAS = Math.max(1, Number(process.env.ODS_COLA_BORRADO_DIAS) || 7);
 const BORRADO_TOPE = Math.max(1, Number(process.env.ODS_COLA_BORRADO_TOPE) || 500);
 const FECHA_BORRADO = Object.freeze({ kdm1: 'c68', kdm2: 'c32' }); // captura de la cabecera · fecha del renglón
+// `[OPS-AUD.13]` Pólizas (`kdc2YYMM`): SIN freno de edad (decisión del PM, 2026-10-27). Una
+// corrección contable de un mes pasado es legítima —las del SUA son de julio— y el freno de 7 días
+// la dejaba publicada para siempre. La poda se sigue distinguiendo por el TOPE: llega en miles de
+// golpe, una corrección en decenas. Se declara por prefijo porque el nombre cambia cada mes.
+const BORRADO_SIN_EDAD = Object.freeze(['kdc2']);
+const reglaBorrado = (tabla) => (FECHA_BORRADO[tabla]
+  ? { col: FECHA_BORRADO[tabla] }
+  : BORRADO_SIN_EDAD.some((p) => tabla.startsWith(p)) ? { col: null } : null);
 const COLA_ESTADO_MS = 60 * 1000;
 const _colaEstado = new Map(); // code → { en, activas: Set, faltan: string[] }
 // ⛔ LA COLA SÓLO VE LO QUE PASÓ DESPUÉS DE EXISTIR. Medido en el piloto de la 06 (2026-10-26):
@@ -823,12 +832,15 @@ async function metaDe(p, table) {
 async function colaDe(p, code) {
   const hit = _colaEstado.get(code);
   if (hit && Date.now() - hit.en < COLA_ESTADO_MS) return hit;
-  const e = await estadoCola(p, COLA_VIGILADAS);
-  const activas = new Set(COLA_VIGILADAS.filter((t) => e.tablas[t] === 'activa'));
+  // `[OPS-AUD.13]` `kdc2*` se resuelve contra las tablas que EXISTEN en esta rama (una por mes).
+  const tablas = await expandirTablas(p, COLA_TABLES);
+  const vigiladas = [...new Set([...tablas, ...COLA_CUBRE])];
+  const e = await estadoCola(p, vigiladas);
+  const activas = new Set(vigiladas.filter((t) => e.tablas[t] === 'activa'));
   // Una tabla que NO estaba activa y ahora sí (se instaló, o se reinstaló tras quitarla) vuelve
   // a necesitar su puesta al día: lo que cambió mientras no había trigger no está en la cola.
-  for (const t of COLA_VIGILADAS) if (!activas.has(t) || !hit?.activas.has(t)) _redConCola.delete(`${code}/${t}`);
-  const v = { en: Date.now(), activas, faltan: COLA_TABLES.filter((t) => !activas.has(t)).map((t) => `${t}:${e.tablas[t]}`) };
+  for (const t of vigiladas) if (!activas.has(t) || !hit?.activas.has(t)) _redConCola.delete(`${code}/${t}`);
+  const v = { en: Date.now(), tablas, activas, faltan: tablas.filter((t) => !activas.has(t)).map((t) => `${t}:${e.tablas[t]}`) };
   _colaEstado.set(code, v);
   return v;
 }
@@ -841,8 +853,9 @@ async function colaDe(p, code) {
  */
 async function borrarEnVivo({ code, tabla, meta, llaves, dest = DEST, dias = BORRADO_DIAS, tope = BORRADO_TOPE,
   shipFn = (rows, m) => sink.ship('raw-delete', { rows, tenantId: TENANT, meta: m, client: dest }) }) {
-  const col = FECHA_BORRADO[tabla];
-  if (!col) return { borradas: 0, nota: 'sin fecha de negocio declarada: no se borra' };
+  const regla = reglaBorrado(tabla);
+  if (!regla) return { borradas: 0, nota: 'sin fecha de negocio declarada: no se borra' };
+  const col = regla.col; // null = sin freno de edad (pólizas)
   if (!dest) return { borradas: 0, nota: 'sin destino pg: no se borra' };
   if (llaves.length > tope) {
     console.log(`  ⛔ ${code}/${tabla}: ${llaves.length} borrados en una pasada (> ${tope}) — NO se propagan: `
@@ -852,21 +865,24 @@ async function borrarEnVivo({ code, tabla, meta, llaves, dest = DEST, dias = BOR
   const tipos = new Map(meta.cols.map((c) => [c.column_name, mapType(c.data_type)]));
   const def = meta.pk.map((k) => `${qid(k)} ${tipos.get(k) || 'text'}`).join(', ');
   const on = meta.pk.map((k) => `t.${qid(k)} = k.${qid(k)}`).join(' AND ');
+  // ⛔ [OPS-AUD.12/13] Una fecha de la PK (c2 en kdc2YYMM) se lee también como TEXTO (`_t_<col>`) y
+  // es la que viaja al borrado: el Date de JS se corre de huso y cae sobre la OTRA copia.
+  const fechasPk = meta.pk.filter((k) => /^timestamp|^date$/.test(String(tipos.get(k))));
   const { rows } = await dest.query(
-    `SELECT ${meta.pk.map((k) => `t.${qid(k)}`).join(', ')}
+    `SELECT ${meta.pk.map((k) => `t.${qid(k)}`).join(', ')}${fechasPk.map((k) => `, t.${qid(k)}::text AS ${qid('_t_' + k)}`).join('')}
        FROM kepler_ods.${qid(tabla)} t
        JOIN jsonb_to_recordset($1::jsonb) AS k(${def}) ON ${on}
-      WHERE t.sucursal = $2 AND t.${qid(col)} >= current_date - $3::int`,
-    [JSON.stringify(llaves), code, dias]);
+      WHERE t.sucursal = $2${col ? ` AND t.${qid(col)} >= current_date - $3::int` : ''}`,
+    col ? [JSON.stringify(llaves), code, dias] : [JSON.stringify(llaves), code]);
   const viejas = llaves.length - rows.length;
   if (!rows.length) return { borradas: 0, ...(viejas ? { nota: `${viejas} viejas o ya ausentes: no se tocan` } : {}) };
-  const r = await shipFn(rows.map((x) => ({ sucursal: code, ...x })), shipMetaOf(tabla, meta));
+  const r = await shipFn(rows.map((x) => pkParaEnviar(x, meta.pk, code)), shipMetaOf(tabla, meta));
   return { borradas: Number(r?.rowCount || 0), ...(viejas ? { nota: `${viejas} viejas o ya ausentes: no se tocan` } : {}) };
 }
 
 /** `[OBS.15]` Vacía la cola de esta rama (o, en seco, sólo la mide). Devuelve la fila del resumen. */
 async function pasarCola(p, code, cola, { apply }) {
-  const tablas = COLA_TABLES.filter((t) => cola.activas.has(t));
+  const tablas = cola.tablas.filter((t) => cola.activas.has(t));
   if (!apply) {
     const prof = await profundidadCola(p, tablas);
     return { suc: code, tabla: 'cola', carril: 'cola', candidatas: prof.reduce((a, r) => a + r.n, 0),
@@ -932,12 +948,12 @@ async function cycleAll({ apply, full }) {
         try {
           cola = await colaDe(p, b.code);
           if (COLA_TABLES.length) {
-            if (COLA_TABLES.some((t) => cola.activas.has(t))) {
+            if (cola.tablas.some((t) => cola.activas.has(t))) {
               const r = await pasarCola(p, b.code, cola, { apply });
               summary.push(r);
               filas += Number(r.escritas || 0);
             }
-            if (COLA_TABLES.every((t) => cola.activas.has(t))) summary.cola.activas++;
+            if (cola.tablas.length && cola.tablas.every((t) => cola.activas.has(t))) summary.cola.activas++;
             else summary.cola.faltan.push(`${b.code}(${cola.faltan.join(',')})`);
           }
         } catch (e) {
@@ -956,7 +972,7 @@ async function cycleAll({ apply, full }) {
           const activa = !!cola && cola.activas.has(table);
           const r = await fn(p, b.code, table, meta, {
             apply, full,
-            colaActiva: activa && COLA_TABLES.includes(table),   // esta cola la vacía ESTE carril
+            colaActiva: activa && cola.tablas.includes(table),   // esta cola la vacía ESTE carril
             colaCubre: activa && COLA_CUBRE.includes(table),     // [OBS.15.12] la vacía otro carril
           });
           summary.push(r);
