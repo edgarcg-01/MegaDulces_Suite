@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1987 KB, 12770 líneas, 72 secciones.
+> **Índice navegable** — 1990 KB, 12808 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -57,28 +57,28 @@
 | 8307 | 8469 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
 | 8470 | 8753 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
 | 8754 | 8921 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8922 | 11167 | 171 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11168 | 11176 | 1 | Fase RR — Ventas por ruta |
-| 11177 | 11472 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11473 | 11483 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11484 | 11504 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11505 | 11515 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11516 | 11527 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11528 | 11587 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11588 | 12015 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 12016 | 12030 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 12031 | 12072 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 12073 | 12218 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12219 | 12249 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12250 | 12297 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12298 | 12321 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12322 | 12351 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12358 | 12367 | 1 | 📝 Convenciones |
-| 12368 | 12404 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12405 | 12423 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12424 | 12476 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12477 | 12833 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12834 | 12854 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 8922 | 11205 | 174 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11206 | 11214 | 1 | Fase RR — Ventas por ruta |
+| 11215 | 11510 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11511 | 11521 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11522 | 11542 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11543 | 11553 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11554 | 11565 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11566 | 11625 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11626 | 12053 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 12054 | 12068 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 12069 | 12110 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12111 | 12256 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12257 | 12287 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12288 | 12335 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12336 | 12359 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12360 | 12389 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12396 | 12405 | 1 | 📝 Convenciones |
+| 12406 | 12442 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12443 | 12461 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12462 | 12514 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12515 | 12871 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12872 | 12892 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -9283,22 +9283,60 @@ TP.6-TP.8+TP.10".
 >   `client.positionBindings` del dialecto pg y frenar si una sentencia cambia, con su prueba
 >   negativa (la `20261026110741` tiene que salir roja). Es la tercera vez de la familia (`[IG.0.1]`,
 >   `[CG.163]`, esta); una regla que se cumple a ojo no es una compuerta.
-> - [x] **[CGA-A.56]** ✅ **Todo egreso dice de dónde salió el dinero: retiros de CAOS o cajón (C0–C2
->   en prod desde el 2026-10-26: migración en el lote 1017 y código en `71b5c7975`, sólo lectura).**
+> - [ ] **[CGA-A.56]** 🧪 **Todo egreso dice de dónde salió el dinero: retiros de CAOS o cajón. C0–C2
+>   DESPLEGADOS (migración en el lote 1017, servicio en `71b5c7975`); la pantalla NO; y su escritura
+>   recién se ejerce contra base en `[CGA-A.56.1]`, en local — en el CI, NO MEDIDO.** ⚠️ Corrección de
+>   la revisión (2026-10-26): decía ✅ [x] con pruebas de que estaba DESPLEGADO, no de que escribía bien
+>   (regla 13): ninguna prueba contra base pasaba por `create()` con `origen_efectivo` ni con un enlace
+>   parcial — la única `-real` que toca `caos_cash_links` (`caja-custodia.servicio-real`) escribe directo
+>   en la tabla. Es el criterio con que se bajó `[CGA-A.55]`. Re-medido en sólo lectura (clúster
+>   7688376744939610156, 2026-10-26 21:25 MX): `20261026111610` en el lote 1017 (18:37Z) y la columna
+>   existe; `/api/health` sirve `71b5c7975`, que NO contiene la pantalla (`acadc2f31`): de los 452
+>   archivos JS que sirve prod, uno trae «buscar retiros» (el control) y ninguno «Retiro de CAOS» ni
+>   `falta_origen_efectivo`. Los 340 gastos del libro tienen `origen_efectivo` NULL (los 5 de hoy,
+>   anclados a un pago y sin enlaces). Y en `71b5c7975` el job `caja-db` estaba ROJO (run 40379208629,
+>   leído en la API de GitHub: «Suites del corte» en rojo con custodia 16 ✓ / 4 ✗, y «Servicio real del
+>   corte» en verde con «Failed Tests 17» en su propia anotación). ⛔ **Para cerrarlo:**
+>   `[CGA-A.56.1]` verde en el CI, la pantalla desplegada y validada a ojo, y decidir qué declara el lote.
 >   Edgar eligió permitir «cajón» explícito. Migración `20261026111610`:
 >   `cash_ledger.origen_efectivo` (`caos` | `cajon`, nullable: lo viejo no se inventa). Regla pura
 >   `origenDelEgreso` en el único `insert` del libro (`create`, al que llegan captura, lote y
->   autollenado); obligatoria desde `CAJA_EGRESO_ORIGEN_DESDE` (APAGADA). El lote declara `cajon`
->   para todos sus egresos. ⚠️ Con el freno prendido, el autollenado deja sus egresos para una persona
->   (no sabe de dónde salió el dinero). 30 pruebas del motor; `libs/finance` 1,743 ✓; `lint:boundary` ✓.
->   **Pantalla (2026-10-26):** en la captura de un egreso, «¿De dónde salió el dinero?» (`app-segmented`:
->   Retiro de CAOS · Cajón). El retiro **sólo se vincula** (Edgar: *«solo vinculemos y ya»*): no se
->   dice cuánto le queda, no se copian sus billetes y no cambia el monto — antes un retiro de $200,000
->   volvía de $200,000 un gasto de $13,803. Al guardar se toma de cada retiro sólo lo que el gasto
->   necesita (`linksDeEgreso`). «Cajón» suelta los retiros. El botón se apaga con su frase si falta el
->   origen (`motivosDeBloqueo`). El ingreso conserva su panel. 456 pruebas de caja-general ✓ (4
->   nuevas + 3 movidas a ingreso); mutación: apagar el vínculo en egreso pone 2 en rojo;
->   `check:pantalla` 0 nuevas. ⚠️ **Sin validación visual.**
+>   autollenado); obligatoria desde `CAJA_EGRESO_ORIGEN_DESDE` (APAGADA). ⚠️ Corrección: aquí decía
+>   «el lote declara `cajon` para todos sus egresos», y no es cierto: `crearLote` lo ACEPTA, pero ni
+>   `confirmarLote` de la pantalla ni el autollenado lo mandan (leído en el código), así que esos
+>   egresos quedan NULL; con el freno prendido se rechazarían, y el autollenado dejaría los suyos para
+>   una persona. 30 pruebas del motor; `libs/finance` 1,743 ✓; `lint:boundary` ✓.
+>   **Pantalla (2026-10-26, `acadc2f31`, SIN desplegar):** en la captura de un egreso, «¿De dónde
+>   salió el dinero?» (`app-segmented`: Retiro de CAOS · Cajón). El retiro **sólo se vincula** (Edgar:
+>   *«solo vinculemos y ya»*): no se dice cuánto le queda, no se copian sus billetes y no cambia el
+>   monto — antes un retiro de $200,000 volvía de $200,000 un gasto de $13,803. Al guardar se toma de
+>   cada retiro sólo lo que el gasto necesita (`linksDeEgreso`). «Cajón» suelta los retiros. El botón
+>   se apaga con su frase si falta el origen (`motivosDeBloqueo`). El ingreso conserva su panel. 456
+>   pruebas de caja-general ✓ (4 nuevas + 3 movidas a ingreso); mutación: apagar el vínculo en egreso
+>   pone 2 en rojo; `check:pantalla` 0 nuevas. ⚠️ **Sin validación visual.**
+> - [ ] **[CGA-A.56.1]** 🧪 **La escritura de `[CGA-A.56]` contra Postgres: `POST /finance/cash-ledger`
+>   con el cuerpo de la pantalla (regla 13).** `cash-ledger.origen-efectivo.http-real.spec.ts`, en la
+>   lista de «Servicio real del corte». Controlador real → `createTraducido` → `create`, como
+>   `app_runtime`, con el cuerpo que arma `guardar()` en los casos de su propia prueba. 7 casos: gasto
+>   de $1,300 con retiros de $1,000 y $5,000 → enlaces 1,000 + 300, origen `caos`, y al segundo le
+>   quedan 4,700 (`sqlDisponibleCaos`, la expresión con que se ofrecen); lo que queda paga otro gasto,
+>   y una pantalla vieja que pide más → 400 «ya no alcanza», nada escrito y el folio sin avanzar; el
+>   retiro ENTERO a un gasto chico (la pantalla de antes) → 400; «cajón» sin enlaces; «cajón» con
+>   retiros y «CAOS» sin retiro → 400 con su frase; freno prendido → sin origen 400, y antes del
+>   arranque NULL; sólo VER → 403. **En rojo** con seis mutaciones: `create()` sin escribir el origen
+>   2 ✗; trigger `trg_caos_link_no_excede` apagado 2 ✗; sin la columna 3 ✗ (el código por delante de
+>   su migración guarda SIN origen y contesta 201); «cajón» con retiros aceptado 1 ✗; freno ignorado
+>   1 ✗; ruta sin `@RequirePermissions` 1 ✗. **Job reproducido** (pasos de `ci.yml` con `bash -e`,
+>   `pgvector:pg18` desechable en UTC, base nueva): base 35 migraciones; suites 28 ✓ · 44 ✓ / 4 NO
+>   MEDIDO · 30 ✓ · 56 ✓; «Servicio real del corte» **55 ✓ / 0 ✗, código 0** (antes 48 ✓; otra vez
+>   sobre la misma base, 55 ✓); con la primera mutación, código 1 y la anotación nombra las 2 pruebas;
+>   «Fechas de caja en tres zonas» código 0 (Tokio desde PowerShell, porque Git Bash le borra `TZ` a
+>   `node`: 6 + 634 ✓; la prueba nueva queda fuera por ser `-real`). **Declarado en la prueba:** el
+>   catálogo (`v_kepler_conceptos` vive sobre el ODS y esta base no lo trae) se reemplaza SÓLO en esa
+>   lectura y se comprueba que le llegó el par de la pantalla; candado de captura apagado con su
+>   interruptor; guardia con la misma metadata; sucursal, equipo y año propios de la corrida.
+>   ⛔ NO MEDIDO: la corrida del CI (sin push); typecheck en local (lo hace `Build & typecheck`); el
+>   lote y el autollenado.
 > - **[CGA-A.57]** ⬜ **Ligar el historial con propuestas + confirmación** (decisión de Edgar). Octubre
 >   en adelante contra los gastos del libro; mayo–sep ($16.5 M, 326 retiros) contra los egresos de
 >   Kepler (cuenta `0011`), porque el libro empieza el 25-sep. Nada se liga solo (1 de cada 3 parejas
