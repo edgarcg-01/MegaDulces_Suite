@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import knexLib from 'knex';
 import { SQL_RANGO, SQL_FALTANTES } from './supplier-payment-accounts.service';
 
