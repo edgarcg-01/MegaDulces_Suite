@@ -172,6 +172,24 @@ const positivo = (monto: string | bigint, que: string): bigint => {
 /** El monto de unas piezas que ENTRAN (todas positivas). */
 const montoDe = (p: PiezasTexto, moneda: Moneda = 'MXN'): bigint => valorDePiezas(aNumeros(p), moneda);
 
+/**
+ * `[LE · D16]` El efectivo que entra (signo +1) o sale (−1) de la caja: las piezas al cajón y la
+ * morralla sin desglose a su propia cuenta física. Devuelve las piernas y el total con signo. Al
+ * menos una de las dos tiene que mover dinero.
+ */
+function efectivoDeCaja(signo: 1n | -1n, piezas: PiezasTexto | undefined, morralla: string | undefined, que: string): { piernas: Pierna[]; total: bigint } {
+  const mor = morralla === undefined || morralla === '' ? 0n : centavos(morralla);
+  if (mor < 0n) throw new ReglaInvalida('cashbook_monto_invalido', `${que}: la morralla es un importe, no negativo`);
+  const hayPiezas = !!piezas && Object.keys(piezas).length > 0;
+  if (!hayPiezas && mor === 0n) piezasValidas(piezas, que);
+  const mp = hayPiezas ? montoDe(piezas as PiezasTexto) : 0n;
+  if (mp === 0n && mor === 0n) throw new ReglaInvalida('cashbook_linea_no_cero', `${que}: el efectivo suma cero`);
+  const piernas: Pierna[] = [];
+  if (mp !== 0n) piernas.push({ cuenta: F.CAJA_MXN, monto: signo * mp, piezas: signo > 0n ? piezas : negarPiezas(piezas as PiezasTexto) });
+  if (mor !== 0n) piernas.push({ cuenta: CUENTA.morralla(), monto: signo * mor });
+  return { piernas, total: signo * (mp + mor) };
+}
+
 // ── E-01 · Kepler reconoce la cobranza de una ruta ────────────────────────────────────────────
 
 export function cobranzaRuta(h: { ruta: string; origenRef: string; monto: string; fecha: string; version?: number }, ctx: Contexto): Propuesta {
@@ -278,24 +296,19 @@ export function clasificarSuspenso(h: { eventRefOriginal: string; monto: string;
 
 // ── E-04 · La ruta entrega efectivo al cajón, contado por pieza ───────────────────────────────
 
-export function entregaRuta(h: { ruta: string; piezas: PiezasTexto }, ctx: Contexto): Propuesta {
-  const m = montoDe(piezasValidas(h.piezas, 'entrega_ruta'));
-  return armar('entrega_ruta', ctx, [
-    { cuenta: F.CAJA_MXN, monto: m, piezas: h.piezas },
-    { cuenta: CUENTA.porRendirRuta(h.ruta), monto: -m },
-  ]);
+export function entregaRuta(h: { ruta: string; piezas: PiezasTexto; morralla?: string }, ctx: Contexto,
+  extra: { event_ref?: string; meta?: MetaAsiento } = {}): Propuesta {
+  const e = efectivoDeCaja(1n, h.piezas, h.morralla, 'entrega_ruta');
+  return armar('entrega_ruta', ctx, [...e.piernas, { cuenta: CUENTA.porRendirRuta(h.ruta), monto: -e.total }], extra);
 }
 
 // ── E-09, E-10, E-24 · Un gasto: sale del cajón (con piezas) o de una custodia ───────────────
 
-export function gasto(h: { concepto: string; desde: { tipo: 'cajon'; piezas: PiezasTexto } | { tipo: 'custodia'; empleado: string; nombre: string; monto: string } },
-  ctx: Contexto): Propuesta {
+export function gasto(h: { concepto: string; desde: { tipo: 'cajon'; piezas: PiezasTexto; morralla?: string } | { tipo: 'custodia'; empleado: string; nombre: string; monto: string } },
+  ctx: Contexto, extra: { event_ref?: string; meta?: MetaAsiento } = {}): Propuesta {
   if (h.desde.tipo === 'cajon') {
-    const m = montoDe(piezasValidas(h.desde.piezas, 'gasto'));
-    return armar('gasto', ctx, [
-      { cuenta: CUENTA.egreso(h.concepto), monto: m },
-      { cuenta: F.CAJA_MXN, monto: -m, piezas: negarPiezas(h.desde.piezas) },
-    ]);
+    const e = efectivoDeCaja(-1n, h.desde.piezas, h.desde.morralla, 'gasto');
+    return armar('gasto', ctx, [{ cuenta: CUENTA.egreso(h.concepto), monto: -e.total }, ...e.piernas], extra);
   }
   const m = positivo(h.desde.monto, 'gasto');
   return armar('gasto', ctx, [
@@ -392,12 +405,10 @@ export function chequeDevuelto(h: { ruta: string; folio: string; monto: string; 
 
 // ── E-23 · Un ingreso que no es cobro de ruta ─────────────────────────────────────────────────
 
-export function otroIngreso(h: { concepto: string; piezas: PiezasTexto }, ctx: Contexto): Propuesta {
-  const m = montoDe(piezasValidas(h.piezas, 'otro_ingreso'));
-  return armar('otro_ingreso', ctx, [
-    { cuenta: F.CAJA_MXN, monto: m, piezas: h.piezas },
-    { cuenta: CUENTA.otrosIngresos(h.concepto), monto: -m },
-  ]);
+export function otroIngreso(h: { concepto: string; piezas: PiezasTexto; morralla?: string }, ctx: Contexto,
+  extra: { event_ref?: string; meta?: MetaAsiento } = {}): Propuesta {
+  const e = efectivoDeCaja(1n, h.piezas, h.morralla, 'otro_ingreso');
+  return armar('otro_ingreso', ctx, [...e.piernas, { cuenta: CUENTA.otrosIngresos(h.concepto), monto: -e.total }], extra);
 }
 
 // ── E-27 · Apertura: lo contado en cada cuenta física, contra Apertura ────────────────────────

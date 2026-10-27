@@ -129,6 +129,15 @@ export const CUENTA = {
     code: `POR_RENDIR:PLAZA:${parteDeCodigo(plaza)}`, name: `Por rendir · plaza ${plaza}`, class: 'por_rendir', currency: 'MXN',
     tracks_pieces: false, allows_negative: true, holder_kind: 'ruta', holder_ref: `plaza:${plaza.toLowerCase()}`, witness: 'cobranza de Kepler',
   }),
+  /**
+   * `[LE · D16]` Las monedas que la caja recibe o entrega SIN contarlas por pieza (la «morralla» de
+   * la captura vieja). Física y nunca negativa, pero sin desglose: un importe tecleado no ensucia el
+   * cajón, que se cuenta por pieza. Su testigo es la morralla del corte.
+   */
+  morralla: (): CuentaPropuesta => ({
+    code: 'MORRALLA_MXN', name: 'Morralla sin desglose', class: 'fisica', currency: 'MXN',
+    tracks_pieces: false, allows_negative: false, holder_kind: 'ninguno', witness: 'morralla del corte',
+  }),
   custodia: (empleado: string, nombre: string): CuentaPropuesta => ({
     code: `CUSTODIA:${parteDeCodigo(empleado)}`, name: `En custodia · ${nombre}`, class: 'custodia', currency: 'MXN',
     tracks_pieces: false, allows_negative: false, holder_kind: 'empleado', holder_ref: empleado, witness: 'rendición con comprobantes',
