@@ -4,396 +4,388 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { NEVER, of, throwError } from 'rxjs';
 import { vi } from 'vitest';
-import { ComercialService } from '../../comercial/comercial.service';
-import { ProductosNuevosService } from '../productos-nuevos.service';
-import {
-  CuidarRespuesta, FilaProveedor, FlujoLista, FlujoResumen, ProductosFlujoService, ProductosProveedorRespuesta, ProveedoresRespuesta,
-} from '../productos-flujo.service';
-import { ComprasCatalogoComponent, alertasTexto, caducidadTexto, sinVenderTexto } from './compras-catalogo.component';
-
-const producto = (id: string, nombre: string) => ({
-  id, nombre, sku: id.toUpperCase(), barcode: null, brand_name: 'FERRERO', supplier_name: 'FERRERO SA', category_name: null,
-  location: null, cost_base: null, price_customer: 18, price_min_qty: 1, unit_sale: 'PZA', factor_sale: 1, activo: true, description: null,
-});
-
-const resumen = (id: string, over: Partial<FlujoResumen> = {}): FlujoResumen => ({
-  product_id: id, mes: 15000, mes_anterior_mismo: 12000, mes_anterior_total: 46000, variacion: 0.25, venta_dia: 1500,
-  estancadas: [], frenadas: [], agotadas: [],
-  compra: { veredicto: 'esperar', titulo: 'Esperar: alcanza para 40 días', motivos: [], impacto: [], traspasos: [],
-    cobertura_dias: 40, se_acaba: null, venta_en_riesgo_dia: 1500, inmovilizado: null },
-  lider: null, caducidad: null,
-  ...over,
-});
-
-const CRITERIO = { ventanaRitmo: 30, ventanaHistoria: 120, diasEstancado: 14, caidaFrenado: 0.5, diasMinimosComparar: 7,
-  coberturaComprar: 15, coberturaSobra: 60, coberturaQueSeQueda: 30, ventanaReparto: 90,
-  lideresCorte: 0.5, coberturaComprarLider: 21, caducidadAviso: 30,
-  diasSinVenta: 30, ventanaSinVenta: 365, ventanaNuevos: 90, limiteNoSeVenden: 300, ventanaMargen: 30 };
-const PERIODOS = { hoy: '2026-10-09', mesIni: '2026-10-01', dias: 9, prevIni: '2026-09-01', prevFin: '2026-09-10', desde30: '2026-09-10', desdeHistoria: '2026-06-11' };
-
-/** Para cuidar hoy: dos líderes (por su lugar), dos que no se venden y un producto con un lote que no alcanza. */
-const CUIDAR: CuidarRespuesta = {
-  periodos: PERIODOS, corte: '2026-10-09', en_vivo_al: '2026-10-09T18:00:00Z', costo_visible: false, criterio: CRITERIO,
-  lideres: {
-    total: 245, calculado: '2026-10-09T17:30:00Z',
-    por_motivo: { agotado: 1, comprar: 1, mover: 0, se_freno: 0 },
-    lista: [
-      { sku: '70001', nombre: 'MAZAPAN', motivos: ['agotado'], en_juego_dia: 900,
-        resumen: resumen('l-1', { lider: { rank: 2, participacion: 0.02 }, agotadas: [{ plaza: '04', nombre: 'Yurécuaro', venta_dia: 900 }],
-          compra: { ...resumen('l-1').compra, veredicto: 'traspasar', titulo: 'No comprar: mover entre sucursales' } }) },
-      { sku: '17085', nombre: 'ALTOS CAM', motivos: ['comprar'], en_juego_dia: 0,
-        resumen: resumen('l-2', { lider: { rank: 7, participacion: 0.01 },
-          compra: { ...resumen('l-2').compra, veredicto: 'comprar', titulo: 'Comprar: alcanza para 12 días' } }) },
-    ],
-  },
-  no_se_venden: {
-    nuevos_excluidos: true, total: 3, valor_total: null, por_tramo: { mes: 1, trimestre: 0, anio: 2 },
-    productos: [
-      { product_id: 'n-1', sku: '90037', nombre: 'BOTA TUTSI', existencia: 130, valor: null, valor_incompleto: false,
-        plazas: [{ plaza: '01', nombre: 'Padre Hidalgo' }], ultima_venta: null, dias_sin_venta: null, tramo: 'anio',
-        escalera: [{ abr: 'pz', nombre: 'Pieza', factor: 1, rotulo: 'PZA' }, { abr: 'cj', nombre: 'Caja', factor: 60, rotulo: 'CJA' }],
-        caducidad: null },
-      { product_id: 'n-2', sku: '40115', nombre: 'PELOTA', existencia: 7, valor: null, valor_incompleto: false,
-        plazas: [{ plaza: '06', nombre: 'Canindo' }, { plaza: '08', nombre: 'Morelia Abastos' }], ultima_venta: '2026-09-02', dias_sin_venta: 37,
-        tramo: 'mes', escalera: null,
-        caducidad: { vencido: 0, en_riesgo: 5, por_caducar: 0, proxima: '2026-10-20', plazas_vencido: [], plazas_en_riesgo: ['Canindo'], lotes: 1 } },
-    ],
-  },
-  caducidad: {
-    productos: [{ sku: '88219', nombre: 'GALLETAS KREMAS', resumen: resumen('c-1', { caducidad: {
-      vencido: 0, en_riesgo: 59, por_caducar: 1, proxima: '2026-11-03', plazas_vencido: [], plazas_en_riesgo: ['Padre Hidalgo'], lotes: 1 } }) }],
-    cobertura: { lotes: 60, productos: 60, sucursales: [{ plaza: '00', nombre: 'CEDIS' }, { plaza: '01', nombre: 'Padre Hidalgo' }] },
-  },
-};
-
-const LISTA = (productos: FlujoResumen[]): FlujoLista => ({
-  periodos: { hoy: '2026-10-09', mesIni: '2026-10-01', dias: 9, prevIni: '2026-09-01', prevFin: '2026-09-10', desde30: '2026-09-10', desdeHistoria: '2026-06-11' },
-  corte: '2026-10-09', en_vivo_al: '2026-10-09T18:00:00Z', costo_visible: false,
-  criterio: CRITERIO,
-  productos,
-});
-
-const PROVEEDORES: ProveedoresRespuesta = {
-  periodos: PERIODOS,
-  proveedores: [
-    { supplier_id: 's-rosa', nombre: 'DULCES LA ROSA, S.A. DE C.V.', productos: 269, mes: 1_250_000, mes_anterior_mismo: 1_000_000, variacion: 0.25, con_venta: 200 },
-    { supplier_id: 's-barcel', nombre: 'BARCEL SA DE CV', productos: 50, mes: 300_000, mes_anterior_mismo: 400_000, variacion: -0.25, con_venta: 40 },
-  ],
-  sin_proveedor: { supplier_id: null, nombre: 'Sin proveedor asignado', productos: 591, mes: 8401, mes_anterior_mismo: 0, variacion: null, con_venta: 13 },
-};
-
-const fila = (id: string, over: Partial<FilaProveedor> = {}): FilaProveedor => ({
-  product_id: id, sku: id.toUpperCase(), nombre: 'PALETA DE DULCE 40G', mes: 15000, variacion: 0.25, cobertura_dias: 40,
-  veredicto: 'esperar', titulo: 'Esperar: alcanza para 40 días', motivo: 'Revisar en unos 25 días', lider: null, margen_real: null, caducidad: null,
-  ...over,
-});
-
-const DE = (supplierId: string | null, productos: FilaProveedor[], over: Partial<ProductosProveedorRespuesta> = {}): ProductosProveedorRespuesta => ({
-  periodos: PERIODOS, corte: '2026-10-09', en_vivo_al: '2026-10-09T18:00:00Z', costo_visible: false, criterio: CRITERIO,
-  proveedor: { supplier_id: supplierId, nombre: supplierId ? 'DULCES LA ROSA, S.A. DE C.V.' : 'Sin proveedor asignado' },
-  resumen: {
-    productos: productos.length, mes: productos.reduce((a, f) => a + f.mes, 0), mes_anterior_mismo: 0, variacion: 0.12,
-    por_veredicto: { comprar: productos.filter((f) => f.veredicto === 'comprar').length, traspasar: 0, esperar: 0, sobra: 0, no_comprar: 0, sin_movimiento: 0 },
-    lideres: productos.filter((f) => f.lider).length, agotados: 1, estancados: 0,
-  },
-  productos,
-  ...over,
-});
-
-const ROSA = DE('s-rosa', [
-  fila('p-1', { nombre: 'MAZAPAN DE LA ROSA 30G', mes: 90000, veredicto: 'comprar', titulo: 'Comprar: alcanza para 5 días', motivo: 'Agotado en Yurécuaro',
-    cobertura_dias: 5, lider: { rank: 2, participacion: 0.02 } }),
-  fila('p-2', { nombre: 'PALETA PICOSITA', mes: 15000, veredicto: 'sobra', titulo: 'Sobra', motivo: 'Hay para 120 días', cobertura_dias: 120 }),
-  fila('p-3', { nombre: 'BOMBON GIGANTE', mes: 0, variacion: null, veredicto: 'no_comprar', titulo: 'No comprar', motivo: 'No se vende y hay existencia', cobertura_dias: null }),
-]);
+import { ProductosFlujoService } from '../productos-flujo.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { CatalogoLista, CatalogoListaDetallada, CatalogoProductosService } from '../catalogo-productos.service';
+import { ComprasCatalogoComponent, claveVista, equivaleTexto, siguienteOrden } from './compras-catalogo.component';
 
 const tick = async (fix: ComponentFixture<unknown>) => { fix.detectChanges(); await fix.whenStable(); fix.detectChanges(); };
 const texto = (el: Element | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 
-type Flujo = Partial<Record<'listar' | 'detalle' | 'cuidar' | 'proveedores' | 'productosProveedor', ReturnType<typeof vi.fn>>>;
+/** La lista de Sencillo como la manda el servidor (conteos de la búsqueda entera). */
+const LISTA_S = (over: Partial<CatalogoLista> = {}): CatalogoLista => ({
+  sucursal: '01', total: 2, calculado_al: '2026-10-26T18:00:00Z', mostrar: 'todos',
+  conteos: { todos: 2, variosCodigos: 1, sinCodigo: 0, sinPrecio: 1 },
+  filas: [
+    { id: 'q-1', sku: '70001', nombre: 'LA ROSA MAZAPAN /30', proveedor: { id: 's-rosa', nombre: 'DISTRIBUIDORA DE LA ROSA SA DE CV' },
+      nCodigos: 1, razon: null,
+      unidades: [
+        { unidad: 'PAQ', equivale: null, factorBase: 1, precio: 87.14, mayoreo: null },
+        { unidad: 'CJA', equivale: { cantidad: 20, unidad: 'PAQ' }, factorBase: 20, precio: 1594.96, mayoreo: null },
+      ] },
+    { id: 'q-2', sku: '17083', nombre: 'ALTOS CAM CHICA COLOR 1KG', proveedor: null, nCodigos: 2, razon: 'código de barras adicional 4510000170833',
+      unidades: [
+        { unidad: 'KG', equivale: null, factorBase: 1, precio: 63.99, mayoreo: null },
+        { unidad: 'BTO', equivale: { cantidad: 20, unidad: 'KG' }, factorBase: 20, precio: null, mayoreo: null },
+      ] },
+  ],
+  ...over,
+});
 
-async function montar(over: Flujo = {}) {
-  const flujo = {
-    cuidar: vi.fn(() => of(CUIDAR)),
-    proveedores: vi.fn(() => of(PROVEEDORES)),
-    productosProveedor: vi.fn((id: string) => of(id === 'sin' ? DE(null, [fila('x-1', { nombre: 'SUELTO' })]) : ROSA)),
-    listar: vi.fn(() => of(LISTA([]))),
-    detalle: vi.fn(() => NEVER),
+const CONTEOS_D: CatalogoListaDetallada['conteos'] = {
+  comprar: null, traspasar: null, esperar: null, sobra: null, no_comprar: null,
+  lideres_pendiente: 51, no_se_venden: 300, caducidad: 5, nuevos: 140,
+  todos: 3, varios_codigos: 1, sin_codigo: 0, sin_precio: null, sin_proveedor: 1,
+};
+const NOTA_GRANDE = 'Busca un proveedor, una marca o un producto: se calcula para 200 productos o menos (la búsqueda tiene 11,008)';
+
+/** La lista de Detallado: las mismas filas de Sencillo + venta del mes y etiquetas. */
+const LISTA_D = (over: Partial<CatalogoListaDetallada> = {}): CatalogoListaDetallada => {
+  const [a, b] = LISTA_S().filas;
+  return {
+    vista: 'detallado', sucursal: '01', total: 3, calculado_al: '2026-10-26T18:00:00Z', mostrar: 'todos', orden: 'mes', dir: 'desc',
+    conteos: CONTEOS_D,
+    notas: { comprar: NOTA_GRANDE, traspasar: NOTA_GRANDE, esperar: NOTA_GRANDE, sobra: NOTA_GRANDE, no_comprar: NOTA_GRANDE,
+      sin_precio: 'No se puede medir: esta base no tiene el precio por sucursal', no_se_venden: 'Los 300 de más dinero detenido, de 969 en la red' },
+    venta: { medida: true, calculado_al: '2026-10-26T17:59:00Z', periodos: { hoy: '2026-10-26', mesIni: '2026-10-01', prevIni: '2026-09-01', prevFin: '2026-09-27', dias: 26 } },
+    etiquetas: { lider: true, caducidad: true, nuevo: true },
+    cuidar: { fuente: 'foto', calculado_at: '2026-10-26T17:59:00Z' },
+    filas: [
+      { ...a, mes: 138483, mesAnterior: 261288, variacion: -0.47, lider: 4, nuevo: null, caducidad: 'caducado' },
+      { ...b, mes: 0, mesAnterior: 0, variacion: null, lider: null, nuevo: 'Nuevo · día 12', caducidad: null },
+      { ...a, id: 'q-3', sku: '99940', nombre: 'SET WEATHER STORM / 1 ROSI', mes: null, mesAnterior: null, variacion: null, lider: null, nuevo: null, caducidad: 'pronto' },
+    ],
     ...over,
   };
-  const comercial = {
-    listProducts: vi.fn(() => of({ data: [producto('p-9', 'KINDER DELICE')], pagination: { total: 1 } })),
-    productStats: vi.fn(() => of({ total: 2, brands: 1, categories: 0, active: 2, with_cost: 0, with_price: 2, top_brands: [], price_updated_at: null })),
-    productSuppliers: vi.fn(() => of([])),
-    findProduct: vi.fn((id: string) => of(producto(id, 'KINDER DELICE'))),
-    updateProduct: vi.fn(() => of({})),
+};
+
+/** Monta en Sencillo (modo null: sin elección previa) o en Detallado. */
+async function montar(_over: Record<string, never> = {}, opts: {
+  modo?: 'sencillo' | 'detallado' | null; lista?: ReturnType<typeof vi.fn>; detallado?: ReturnType<typeof vi.fn>;
+} = {}) {
+  const modo = opts.modo === undefined ? 'detallado' : opts.modo;
+  if (modo) localStorage.setItem(claveVista('u-1'), modo);
+  const catalogo = {
+    lista: opts.lista ?? vi.fn(() => of(LISTA_S())),
+    detallado: opts.detallado ?? vi.fn(() => of(LISTA_D())),
+    ficha: vi.fn(() => NEVER as unknown as ReturnType<CatalogoProductosService['ficha']>),
+    compras: vi.fn(() => NEVER),
   };
+  const flujo = { detalle: vi.fn(() => NEVER), margenes: vi.fn(() => NEVER) };
   await TestBed.configureTestingModule({
     imports: [ComprasCatalogoComponent],
     providers: [
       provideRouter([]), provideHttpClient(), provideHttpClientTesting(),
-      { provide: ComercialService, useValue: comercial },
-      { provide: ProductosNuevosService, useValue: { listar: vi.fn(() => of(null)) } },
       { provide: ProductosFlujoService, useValue: flujo },
+      { provide: CatalogoProductosService, useValue: catalogo },
+      { provide: AuthService, useValue: { user: () => ({ sub: 'u-1', permissions: { COMMERCIAL_PRODUCTS_VER: true } }) } },
+      { provide: PermissionsService, useValue: { isAdmin: () => false, has: () => true } },
     ],
   }).compileComponents();
   const fix = TestBed.createComponent(ComprasCatalogoComponent);
   await tick(fix);
-  return { fix, comercial, flujo };
+  return { fix, flujo, catalogo };
 }
 
-const filas = (fix: ComponentFixture<ComprasCatalogoComponent>) => Array.from(fix.nativeElement.querySelectorAll('.cp-fila')) as HTMLElement[];
 const limpiar = () => { TestBed.resetTestingModule(); try { localStorage.clear(); } catch { /* */ } };
 
-describe('[PF.9] Catálogo por proveedor', () => {
+describe('Detallado (rediseño aprobado): lo de Sencillo + Este mes, etiquetas y «Mostrar» de compra', () => {
   afterEach(limpiar);
-
-  it('⭐ la barra trae los proveedores por venta, con nombre legible y aparte los sin proveedor', async () => {
-    const { fix } = await montar();
-    const provs = Array.from(fix.nativeElement.querySelectorAll('.cp-prov')) as HTMLElement[];
-    expect(texto(provs[0])).toContain('Sin proveedor asignado');
-    expect(texto(provs[0])).toContain('591 productos · 13 vendieron este mes');
-    expect(texto(provs[1].querySelector('.cp-prov-nom'))).toBe('Dulces la Rosa');
-    expect(texto(provs[2].querySelector('.cp-prov-nom'))).toBe('Barcel');
-    expect(texto(provs[2].querySelector('.cp-prov-var'))).toBe('−25%');
-  });
-
-  it('⭐ sin elección previa abre el que más vende y pide sus productos', async () => {
-    const { fix, flujo } = await montar();
-    expect(flujo.productosProveedor).toHaveBeenCalledWith('s-rosa');
-    expect(texto(fix.nativeElement.querySelector('.cp-h2'))).toBe('Dulces la Rosa');
-    expect(fix.nativeElement.querySelector('.cp-prov.is-on .cp-prov-nom')?.textContent).toBe('Dulces la Rosa');
-  });
-
-  it('⭐ cada renglón dice en palabras: nombre, venta del mes, para cuántos días alcanza y qué hacer con el porqué', async () => {
-    const { fix } = await montar();
-    const [a, , c] = filas(fix);
-    expect(texto(a.querySelector('.cp-prod-nom'))).toBe('Mazapan de la Rosa 30G');
-    expect(texto(a.querySelector('.cp-tag.is-lider'))).toBe('Líder #2');
-    expect(texto(a.querySelector('.cp-mes'))).toContain('$90,000');
-    expect(texto(a.querySelector('.cp-cob-txt'))).toBe('5 días');
-    expect(texto(a.querySelector('.cp-ver'))).toBe('Comprar');
-    expect(texto(a.querySelector('.cp-motivo'))).toBe('Agotado en Yurécuaro');
-    // Sin venta no hay ritmo: se dice, no se dibuja una barra vacía.
-    expect(texto(c.querySelector('.cp-cob-txt'))).toBe('No se vende');
-    expect(c.querySelector('.cp-cob-barra')).toBeNull();
-    expect(texto(c.querySelector('.cp-mes'))).toBe('—');
-  });
-
-  it('los chips cuentan por situación y filtran; los que no tienen productos no se ofrecen', async () => {
-    const { fix } = await montar();
-    const chips = () => Array.from(fix.nativeElement.querySelectorAll('.cp-chip')) as HTMLButtonElement[];
-    expect(chips().map((c) => texto(c))).toEqual(['Todos 3', 'Comprar 1', 'No comprar 2', 'Líderes 1']);
-    chips()[2].click();
+  const filasD = (fix: ComponentFixture<ComprasCatalogoComponent>) => Array.from(fix.nativeElement.querySelectorAll('.cd .cs-fila')) as HTMLElement[];
+  const opciones = (fix: ComponentFixture<ComprasCatalogoComponent>) => Array.from(fix.nativeElement.querySelectorAll('.cs-op')) as HTMLButtonElement[];
+  const abrirMostrar = async (fix: ComponentFixture<ComprasCatalogoComponent>) => {
+    (fix.nativeElement.querySelector('.cs-sel') as HTMLButtonElement).click();
     await tick(fix);
-    expect(filas(fix).map((f) => texto(f.querySelector('.cp-prod-nom')))).toEqual(['Paleta Picosita', 'Bombon Gigante']);
+  };
+
+  it('⭐ pide la lista al servidor (vista=detallado, lo que más vende primero) y quita lo que el usuario pidió quitar', async () => {
+    const { fix, catalogo } = await montar();
+    const el = fix.nativeElement as HTMLElement;
+    expect(catalogo.detallado).toHaveBeenCalledWith({ search: '', mostrar: 'todos', orden: 'mes', dir: 'desc', page: 1, pageSize: 50 });
+    expect(catalogo.lista).not.toHaveBeenCalled();
+    // Quitados: renglón de conteos, aviso BASE-MXN, barra de proveedores, selector Por proveedor / Para cuidar hoy.
+    for (const sel of ['.surf-page-sub', '.cp-aviso', '.cp-rail', '.cp-seg', '[role="tablist"]', 'app-producto-flujo-panel']) expect(el.querySelector(sel)).toBeNull();
+    expect(texto(el.querySelector('.cp-vista-btn'))).toBe('Sencillo');
+    expect(el.querySelector('.cp-buscar input')).not.toBeNull();
   });
 
-  it('elegir otro proveedor lo pide, lo recuerda y no muestra los productos del anterior mientras carga', async () => {
-    let n = 0;
-    const { fix, flujo } = await montar({ productosProveedor: vi.fn((id: string) => (id === 's-rosa' ? of(ROSA) : (n++, NEVER))) });
-    (fix.nativeElement.querySelectorAll('.cp-prov')[2] as HTMLButtonElement).click();
-    // El nuevo nunca llega (NEVER): whenStable no se cumpliría; basta con pintar.
-    fix.detectChanges();
-    await Promise.resolve();
-    fix.detectChanges();
-    expect(flujo.productosProveedor).toHaveBeenLastCalledWith('s-barcel');
-    expect(filas(fix)).toHaveLength(0);
-    expect(fix.nativeElement.querySelectorAll('.cp-sk').length).toBeGreaterThan(0);
-    expect(localStorage.getItem('compras.catalogo.proveedor')).toBe('s-barcel');
-  });
-
-  it('⛔ si falla la carga del proveedor, lo dice (no una tabla vacía que parezca "sin productos")', async () => {
-    const { fix } = await montar({ productosProveedor: vi.fn(() => throwError(() => new Error('x'))) });
-    expect(fix.nativeElement.textContent).toContain('No se pudieron cargar los productos de este proveedor');
-  });
-
-  it('⭐ una recarga que falla no borra lo que ya se veía', async () => {
-    let n = 0;
-    const { fix, flujo } = await montar({ productosProveedor: vi.fn(() => (++n === 1 ? of(ROSA) : throwError(() => new Error('x')))) });
-    fix.componentInstance.refresh();
-    await tick(fix);
-    expect(flujo.productosProveedor).toHaveBeenCalledTimes(2);
-    expect(filas(fix)).toHaveLength(3);
-  });
-
-  it('los sin proveedor se avisan como lo que son: nadie los está pidiendo', async () => {
+  it('⭐ columnas: Producto, Proveedor, Unidades, Precio y Este mes — sin Alcanza para, Margen ni Qué hacer', async () => {
     const { fix } = await montar();
-    (fix.nativeElement.querySelector('.cp-prov.is-sin') as HTMLButtonElement).click();
+    const ths = Array.from(fix.nativeElement.querySelectorAll('.cd thead th')).map((th) => texto(th as Element));
+    expect(ths).toEqual(['Producto', 'Proveedor', 'Unidades de medida', 'Precio', 'Este mes']);
+  });
+
+  it('⭐ el renglón: nombre + SKU + etiquetas, y las MISMAS celdas de unidades y precio que Sencillo', async () => {
+    const { fix } = await montar();
+    const [a, b, c] = filasD(fix);
+    expect(texto(a.querySelector('.cs-nom'))).toBe('La Rosa Mazapan /30');
+    expect(texto(a.querySelector('.cs-sku'))).toBe('70001');
+    expect(Array.from(a.querySelectorAll('.cd-tag')).map((t) => texto(t))).toEqual(['Líder #4', 'Caducado']);
+    expect(Array.from(b.querySelectorAll('.cd-tag')).map((t) => texto(t))).toEqual(['Nuevo · día 12']);
+    expect(Array.from(c.querySelectorAll('.cd-tag')).map((t) => texto(t))).toEqual(['Caduca pronto']);
+    expect(texto(a.querySelector('.cs-prov'))).toBe('Distribuidora de la Rosa');
+    expect(Array.from(a.querySelectorAll('.cs-ud .cs-lin')).map((l) => texto(l.querySelector('.cs-chip')) + ' ' + texto(l.querySelector('.cs-eq'))))
+      .toEqual(['PAQ base', 'CJA 20 PAQ']);
+    expect(Array.from(b.querySelectorAll('.cs-pre .cs-lin')).map((l) => texto(l))).toEqual(['$63.99', 'Sin precio']);
+    expect(texto(b.querySelector('.cs-razon'))).toBe('Coincide por código de barras adicional 4510000170833');
+  });
+
+  it('⭐ Este mes: monto y ▲▼% contra los mismos días; ⛔ sin venta y sin dato se dicen, nunca $0', async () => {
+    const { fix } = await montar();
+    const [a, b, c] = filasD(fix);
+    expect(texto(a.querySelector('.cd-mes-v'))).toBe('$138,483');
+    expect(texto(a.querySelector('.cd-var'))).toBe('▼ 47%');
+    expect(a.querySelector('.cd-var--baja')).not.toBeNull();
+    expect(a.querySelector('.cd-mes')?.getAttribute('title')).toBe('Contra los mismos días de septiembre (1 al 26): $261,288');
+    expect(texto(b.querySelector('.cd-mes'))).toBe('Sin venta');
+    expect(texto(c.querySelector('.cd-mes'))).toBe('Sin dato');
+    for (const f of [b, c]) expect(texto(f.querySelector('.cd-mes'))).not.toContain('$0');
+  });
+
+  it('⭐ orden por columna con aria-sort: Este mes se invierte, Producto empieza de la A; vuelve a la página 1', async () => {
+    const { fix, catalogo } = await montar();
+    const [thProd, , , , thMes] = Array.from(fix.nativeElement.querySelectorAll('.cd thead th')) as HTMLElement[];
+    expect(thMes.getAttribute('aria-sort')).toBe('descending');
+    expect(thProd.getAttribute('aria-sort')).toBe('none');
+    fix.componentInstance.paginaD.set(3);
+    (thMes.querySelector('button') as HTMLButtonElement).click();
     await tick(fix);
-    expect(texto(fix.nativeElement.querySelector('.cp-h2'))).toBe('Sin proveedor asignado');
-    expect(fix.nativeElement.querySelector('.cp-alerta-sin')?.textContent).toContain('nadie los está pidiendo');
+    expect(catalogo.detallado).toHaveBeenLastCalledWith({ search: '', mostrar: 'todos', orden: 'mes', dir: 'asc', page: 1, pageSize: 50 });
+    (thProd.querySelector('button') as HTMLButtonElement).click();
+    await tick(fix);
+    expect(catalogo.detallado).toHaveBeenLastCalledWith({ search: '', mostrar: 'todos', orden: 'producto', dir: 'asc', page: 1, pageSize: 50 });
+    expect(siguienteOrden({ col: 'producto', dir: 'asc' }, 'mes')).toEqual({ col: 'mes', dir: 'desc' });
   });
 
-  it('⭐ el clic en el renglón abre el panel del producto con su proveedor; editar va dentro', async () => {
-    const { fix, flujo, comercial } = await montar();
-    filas(fix)[0].click();
-    fix.detectChanges();
-    expect(fix.componentInstance.abierto()).toEqual({ id: 'p-1', nombre: 'Mazapan de la Rosa 30G', sku: 'P-1', proveedor: 'Dulces la Rosa' });
-    expect(flujo.detalle).toHaveBeenCalledWith('p-1');
-    expect(comercial.findProduct).not.toHaveBeenCalled();
-    fix.componentInstance.openEdit('p-1');
-    expect(comercial.findProduct).toHaveBeenCalledWith('p-1');
+  it('⛔ sin venta medida, Este mes no se ofrece para ordenar (el servidor ya cayó a Producto)', async () => {
+    const { fix } = await montar({}, { detallado: vi.fn(() => of(LISTA_D({ orden: 'producto', dir: 'asc', venta: { medida: false, calculado_al: null, periodos: null } }))) });
+    const ths = Array.from(fix.nativeElement.querySelectorAll('.cd thead th')) as HTMLElement[];
+    expect(ths[4].querySelector('button')).toBeNull();
+    expect(ths[0].getAttribute('aria-sort')).toBe('ascending');
   });
 
-  it('[PF.5] con permiso de costo sale la columna de margen con su cobertura; sin permiso no', async () => {
-    const conCosto = DE('s-rosa', [fila('p-1', { margen_real: { pct: 13.6, cobertura: 0.64 } }), fila('p-2', { margen_real: null })], { costo_visible: true });
-    const { fix } = await montar({ productosProveedor: vi.fn(() => of(conCosto)) });
-    const th = Array.from(fix.nativeElement.querySelectorAll('.cp-th [role=columnheader]')).map((t) => texto(t as Element));
-    expect(th).toContain('Margen');
-    expect(texto(filas(fix)[0].querySelector('.cp-margen'))).toBe('13.6%');
-    expect(filas(fix)[0].textContent).toContain('cubre 64%');
+  it('⭐ «Mostrar» agrupado con conteos; lo sin medir dice por qué UNA vez y no se elige; lo medido filtra en el servidor', async () => {
+    const { fix, catalogo } = await montar();
+    await abrirMostrar(fix);
+    const el = fix.nativeElement as HTMLElement;
+    expect(Array.from(el.querySelectorAll('.cd-grupo-t')).map((g) => texto(g))).toEqual(['Qué hacer', 'Para cuidar hoy', 'Catálogo']);
+    // La nota de «Qué hacer» va una sola vez, bajo su título (no cinco veces).
+    expect(Array.from(el.querySelectorAll('.cd-menu .cd-nota')).filter((n) => texto(n) === NOTA_GRANDE)).toHaveLength(1);
+    const comprar = opciones(fix)[0];
+    expect(texto(comprar)).toBe('Comprar sin medir');
+    expect(comprar.getAttribute('aria-disabled')).toBe('true');
+    const n = catalogo.detallado.mock.calls.length;
+    comprar.click();
+    await tick(fix);
+    expect(catalogo.detallado.mock.calls.length).toBe(n);
+    const noVenden = opciones(fix).find((o) => texto(o).startsWith('No se venden'))!;
+    expect(texto(noVenden.querySelector('.cd-nota'))).toBe('Los 300 de más dinero detenido, de 969 en la red');
+    expect(texto(noVenden.querySelector('.cs-n'))).toBe('300');
+    const cad = opciones(fix).find((o) => texto(o).startsWith('Por caducar'))!;
+    cad.click();
+    await tick(fix);
+    expect(catalogo.detallado).toHaveBeenLastCalledWith({ search: '', mostrar: 'caducidad', orden: 'mes', dir: 'desc', page: 1, pageSize: 50 });
+    expect(fix.nativeElement.querySelector('.cs-menu')).toBeNull();
+  });
+
+  it('⭐ clic (o Enter) abre la ficha DETALLADA con las etiquetas del renglón; sin «Editar producto»', async () => {
+    const { fix, flujo, catalogo } = await montar();
+    const pintar = async () => { fix.detectChanges(); await Promise.resolve(); fix.detectChanges(); };
+    filasD(fix)[0].click();
+    await pintar();
+    expect(fix.componentInstance.abierto()).toEqual({
+      id: 'q-1', nombre: 'La Rosa Mazapan /30', sku: '70001', proveedor: 'Distribuidora de la Rosa', tipo: 'detallado',
+      etiquetas: { lider: 4, nuevo: null, caducidad: 'caducado' },
+    });
+    expect(document.querySelector('app-producto-ficha-detallada')).not.toBeNull();
+    expect(document.querySelector('app-producto-ficha')).toBeNull();
+    expect(flujo.detalle).toHaveBeenCalledWith('q-1');
+    expect(catalogo.ficha).toHaveBeenCalledWith('q-1', null);
+    expect(document.body.textContent).not.toContain('Editar producto');
+    fix.componentInstance.cerrarFlujo();
+    await pintar();
+    filasD(fix)[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await pintar();
+    expect(fix.componentInstance.abierto()?.id).toBe('q-2');
+  });
+
+  it('⛔ si una familia de etiquetas no se pudo medir, lo dice (un renglón sin etiqueta no quiere decir «no es»)', async () => {
+    const { fix } = await montar({}, { detallado: vi.fn(() => of(LISTA_D({ etiquetas: { lider: false, caducidad: false, nuevo: true } }))) });
+    expect(texto(fix.nativeElement.querySelector('.cd-aviso'))).toContain('Sin etiquetas de líder, caducidad');
     limpiar();
-    const sin = await montar();
-    expect(Array.from(sin.fix.nativeElement.querySelectorAll('.cp-th [role=columnheader]')).map((t) => texto(t as Element))).not.toContain('Margen');
+    const bien = await montar();
+    expect(bien.fix.nativeElement.querySelector('.cd-aviso')).toBeNull();
   });
-});
 
-describe('[PF.9] Buscar en todo el catálogo', () => {
-  afterEach(limpiar);
+  it('⛔ error sin datos se dice como error (no una tabla vacía)', async () => {
+    const { fix } = await montar({}, { detallado: vi.fn(() => throwError(() => new Error('x'))) });
+    expect(fix.nativeElement.textContent).toContain('No se pudo cargar el catálogo');
+  });
 
-  it('⭐ con texto, la tabla muestra lo encontrado con su flujo (no el proveedor)', async () => {
+  it('el buscador es el mismo: lo escrito pasa a Detallado y vuelve a la página 1', async () => {
     vi.useFakeTimers();
     try {
-      const { fix, comercial, flujo } = await montar({ listar: vi.fn(() => of(LISTA([
-        resumen('p-9', { agotadas: [{ plaza: '04', nombre: 'Yurécuaro', venta_dia: 10 }] }),
-      ]))) });
-      fix.componentInstance.onBusqueda('kinder');
+      const { fix, catalogo } = await montar();
+      fix.componentInstance.paginaD.set(4);
+      fix.componentInstance.onBusqueda('mazapan');
       vi.advanceTimersByTime(1000);
       vi.useRealTimers();
       await tick(fix);
-      expect(comercial.listProducts).toHaveBeenCalledWith({ page: 1, pageSize: 50, search: 'kinder' });
-      expect(flujo.listar).toHaveBeenCalledWith(['p-9']);
-      expect(texto(fix.nativeElement.querySelector('.cp-h2'))).toBe('Resultados de «kinder»');
-      expect(filas(fix).map((f) => texto(f.querySelector('.cp-prod-nom')))).toEqual(['Kinder Delice']);
-      expect(texto(filas(fix)[0].querySelector('.cp-motivo'))).toBe('Agotado en 1');
-      fix.componentInstance.limpiarBusqueda();
-      await tick(fix);
-      expect(texto(fix.nativeElement.querySelector('.cp-h2'))).toBe('Dulces la Rosa');
+      expect(catalogo.detallado).toHaveBeenLastCalledWith({ search: 'mazapan', mostrar: 'todos', orden: 'mes', dir: 'desc', page: 1, pageSize: 50 });
     } finally {
       vi.useRealTimers();
     }
   });
 });
 
-describe('[PF.2]/[PF.4] Para cuidar hoy: líderes de un lado, lo que no se vende del otro', () => {
+describe('Sencillo (la vista nueva, la de default)', () => {
   afterEach(limpiar);
-  const enCuidar = async (over: Flujo = {}) => {
-    const r = await montar(over);
-    r.fix.componentInstance.vista.set('cuidar');
-    await tick(r.fix);
-    return r;
+  const sencillo = (lista?: ReturnType<typeof vi.fn>) => montar({}, { modo: null, lista });
+  const filasS = (fix: ComponentFixture<ComprasCatalogoComponent>) => Array.from(fix.nativeElement.querySelectorAll('.cs-fila')) as HTMLElement[];
+  const opciones = (fix: ComponentFixture<ComprasCatalogoComponent>) => Array.from(fix.nativeElement.querySelectorAll('.cs-op')) as HTMLButtonElement[];
+  const opcionTexto = (o: HTMLElement) => Array.from(o.children).map((c) => texto(c)).join(' ');
+  const abrirMostrar = async (fix: ComponentFixture<ComprasCatalogoComponent>) => {
+    (fix.nativeElement.querySelector('.cs-sel') as HTMLButtonElement).click();
+    await tick(fix);
   };
-  const tarjetas = (fix: ComponentFixture<ComprasCatalogoComponent>) => Array.from(fix.nativeElement.querySelectorAll('.pc-card')) as HTMLElement[];
 
-  it('es una vista aparte: no estorba al trabajo por proveedor', async () => {
-    const { fix } = await montar();
-    // El número de la pestaña: 2 líderes con motivo + 1 que caduca (no los 245 líderes).
-    expect(texto(fix.nativeElement.querySelector('.cp-seg-n'))).toBe('3');
-    expect(tarjetas(fix)).toHaveLength(0);
-    fix.componentInstance.vista.set('cuidar');
+  it('⭐ sin elección previa abre en Sencillo, sin lo que el usuario pidió quitar, y no pide lo de Detallado', async () => {
+    const { fix, catalogo } = await sencillo();
+    const el = fix.nativeElement as HTMLElement;
+    expect(el.querySelector('.cs')).not.toBeNull();
+    expect(texto(el.querySelector('.cp-vista-btn'))).toBe('Detallado');
+    expect(el.querySelector('.cp-vista-btn')?.getAttribute('aria-pressed')).toBe('false');
+    // Quitados: renglón de conteos, aviso BASE-MXN, barra de proveedores, selector Por proveedor / Para cuidar hoy, pestañas.
+    for (const sel of ['.surf-page-sub', '.cp-aviso', '.cp-rail', '.cp-seg', 'app-page-tabs']) expect(el.querySelector(sel)).toBeNull();
+    expect(el.querySelector('app-catalogo-menu')).not.toBeNull();
+    expect(catalogo.lista).toHaveBeenCalledWith({ search: '', mostrar: 'todos', page: 1, pageSize: 50 });
+    expect(catalogo.detallado).not.toHaveBeenCalled();
+  });
+
+  it('⭐ cada renglón: nombre legible + SKU, proveedor, una línea por unidad y su precio alineado; «Sin precio» nunca $0', async () => {
+    const { fix } = await sencillo();
+    const [a, b] = filasS(fix);
+    expect(texto(a.querySelector('.cs-nom'))).toBe('La Rosa Mazapan /30');
+    expect(texto(a.querySelector('.cs-sku'))).toBe('70001');
+    expect(texto(a.querySelector('.cs-prov'))).toBe('Distribuidora de la Rosa');
+    expect(Array.from(a.querySelectorAll('.cs-ud .cs-lin')).map((l) => texto(l.querySelector('.cs-chip')) + ' ' + texto(l.querySelector('.cs-eq'))))
+      .toEqual(['PAQ base', 'CJA 20 PAQ']);
+    expect(Array.from(a.querySelectorAll('.cs-pre .cs-lin')).map((l) => texto(l))).toEqual(['$87.14', '$1,594.96']);
+    expect(Array.from(b.querySelectorAll('.cs-pre .cs-lin')).map((l) => texto(l))).toEqual(['$63.99', 'Sin precio']);
+    expect(texto(b.querySelector('.cs-razon'))).toBe('Coincide por código de barras adicional 4510000170833');
+    expect(texto(b.querySelector('.cs-prov'))).toBe('Sin proveedor');
+    expect(b.textContent).not.toContain('$0');
+  });
+
+  it('⭐ el botón cambia a Detallado, lo recuerda por persona, y al volver a entrar abre en Detallado', async () => {
+    const { fix, catalogo } = await sencillo();
+    (fix.nativeElement.querySelector('.cp-vista-btn') as HTMLButtonElement).click();
     await tick(fix);
-    expect(tarjetas(fix).map((t) => texto(t.querySelector('.pc-t')))).toEqual(['Líderes', 'No se venden']);
-    expect(fix.nativeElement.querySelector('.cp-rail')).toBeNull();
+    expect(texto(fix.nativeElement.querySelector('.cp-vista-btn'))).toBe('Sencillo');
+    expect(fix.nativeElement.querySelector('.cp-vista-btn')?.getAttribute('aria-pressed')).toBe('true');
+    expect(fix.nativeElement.querySelector('.cd')).not.toBeNull();
+    expect(fix.nativeElement.querySelector('.cs:not(.cd)')).toBeNull();
+    expect(catalogo.detallado).toHaveBeenCalled();
+    expect(localStorage.getItem(claveVista('u-1'))).toBe('detallado');
+    TestBed.resetTestingModule();
+    const otra = await montar({}, { modo: null });
+    expect(otra.fix.nativeElement.querySelector('.cd')).not.toBeNull();
+    expect(texto(otra.fix.nativeElement.querySelector('.cp-vista-btn'))).toBe('Sencillo');
   });
 
-  it('⭐ los líderes, TODOS y por su lugar, con su venta del mes y lo que piden', async () => {
-    const { fix } = await enCuidar();
-    const [lid] = tarjetas(fix);
-    expect(texto(lid.querySelector('.pc-n'))).toBe('245 productos hacen la mitad de la venta');
-    const items = Array.from(lid.querySelectorAll('.pc-item')) as HTMLElement[];
-    expect(items.map((i) => i.querySelector('.pc-rank')?.textContent)).toEqual(['#2', '#7']);
-    expect(texto(items[0].querySelector('.pc-nom'))).toBe('Mazapan');
-    expect(items[0].textContent).toContain('Agotado en Yurécuaro');
-    expect(texto(items[0].querySelector('.pc-dinero'))).toContain('+25% este mes');
+  it('⭐ el buscador (uno solo, con debounce) manda search al servidor y vuelve a la página 1', async () => {
+    vi.useFakeTimers();
+    try {
+      const { fix, catalogo } = await sencillo();
+      const input = fix.nativeElement.querySelector('.cp-buscar input') as HTMLInputElement;
+      expect(input.placeholder).toBe('Busca por nombre, SKU, cualquier código de barras, proveedor o unidad (caja, kilo…)');
+      fix.componentInstance.pagina.set(3);
+      fix.componentInstance.onBusqueda('mazapan rosa');
+      vi.advanceTimersByTime(1000);
+      vi.useRealTimers();
+      await tick(fix);
+      expect(catalogo.lista).toHaveBeenLastCalledWith({ search: 'mazapan rosa', mostrar: 'todos', page: 1, pageSize: 50 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('el filtro de líderes por motivo; los motivos sin líderes no se ofrecen', async () => {
-    const { fix } = await enCuidar();
-    const [lid] = tarjetas(fix);
-    const chips = Array.from(lid.querySelectorAll('.pc-chip')) as HTMLButtonElement[];
-    expect(chips.map((c) => texto(c))).toEqual(['Todos · 2', 'Agotado en alguna sucursal · 1', 'Comprar · 1']);
-    chips[2].click();
-    fix.detectChanges();
-    expect(Array.from(lid.querySelectorAll('.pc-rank')).map((r) => r.textContent)).toEqual(['#7']);
+  it('⭐ «Mostrar» pinta los conteos de la búsqueda y filtra EN EL SERVIDOR', async () => {
+    const { fix, catalogo } = await sencillo();
+    await abrirMostrar(fix);
+    expect(opciones(fix).map(opcionTexto)).toEqual(['Todos 2', 'Con varios códigos 1', 'Sin código de barras 0', 'Alguna unidad sin precio 1']);
+    opciones(fix)[1].click();
+    await tick(fix);
+    expect(catalogo.lista).toHaveBeenLastCalledWith({ search: '', mostrar: 'varios_codigos', page: 1, pageSize: 50 });
+    expect(fix.nativeElement.querySelector('.cs-menu')).toBeNull();
+    expect(texto(fix.nativeElement.querySelector('.cs-sel'))).toContain('Con varios códigos');
   });
 
-  it('⭐ lo que no se vende: cuánto lleva sin venderse, dónde hay, en cajas, y si además caduca', async () => {
-    const { fix } = await enCuidar();
-    const [, nv] = tarjetas(fix);
-    expect(texto(nv.querySelector('.pc-n'))).toBe('3 productos');
-    const items = Array.from(nv.querySelectorAll('.pc-item')) as HTMLElement[];
-    expect(texto(items[0].querySelector('.pc-sin'))).toBe('Sin una venta en el último año');
-    expect(items[0].textContent).toContain('Hay en Padre Hidalgo');
-    expect(texto(items[0].querySelector('.pc-dinero'))).toBe('2 cajas y 10 piezas');
-    expect(texto(items[1].querySelector('.pc-cad'))).toBe('No alcanza a venderse en Canindo');
+  it('⛔ sin precio por sucursal, «Alguna unidad sin precio» dice «sin medir» (no 0) y no se puede elegir', async () => {
+    const { fix, catalogo } = await sencillo(vi.fn(() => of(LISTA_S({ conteos: { todos: 2, variosCodigos: 1, sinCodigo: 0, sinPrecio: null } }))));
+    await abrirMostrar(fix);
+    const sp = opciones(fix)[3];
+    expect(opcionTexto(sp)).toBe('Alguna unidad sin precio sin medir');
+    expect(sp.getAttribute('aria-disabled')).toBe('true');
+    const n = catalogo.lista.mock.calls.length;
+    sp.click();
+    await tick(fix);
+    expect(catalogo.lista.mock.calls.length).toBe(n);
+    expect(fix.componentInstance.mostrar()).toBe('todos');
   });
 
-  it('el filtro por tramo; y «Caducan antes de venderse» muestra los lotes con su fecha y la cobertura', async () => {
-    const { fix } = await enCuidar();
-    const [, nv] = tarjetas(fix);
-    const chips = () => Array.from(nv.querySelectorAll('.pc-chip')) as HTMLButtonElement[];
-    expect(chips().map((c) => texto(c))).toEqual(['Todos · 3', '30 a 89 días · 1', 'Sin venta en el año · 2', 'Caducan antes de venderse · 1']);
-    chips()[1].click();
-    fix.detectChanges();
-    expect(Array.from(nv.querySelectorAll('.pc-nom')).map((n) => n.textContent)).toEqual(['Pelota']);
-    chips()[3].click();
-    fix.detectChanges();
-    const item = nv.querySelector('.pc-item') as HTMLElement;
-    expect(texto(item.querySelector('.pc-cad'))).toBe('No alcanza a venderse en Padre Hidalgo');
-    expect(texto(item.querySelector('.pc-fecha'))).toContain('en 25 días');
-    expect(texto(nv.querySelector('.pc-meta'))).toContain('60 lotes de 60 productos en CEDIS, Padre Hidalgo');
+  it('el menú «Mostrar» se maneja con teclado: flechas y Esc (que devuelve el foco al botón)', async () => {
+    const { fix } = await sencillo();
+    await abrirMostrar(fix);
+    await new Promise((r) => setTimeout(r));
+    const menu = fix.nativeElement.querySelector('.cs-menu') as HTMLElement;
+    expect(document.activeElement).toBe(opciones(fix)[0]);
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(opciones(fix)[1]);
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await tick(fix);
+    expect(fix.nativeElement.querySelector('.cs-menu')).toBeNull();
+    expect(document.activeElement).toBe(fix.nativeElement.querySelector('.cs-sel'));
   });
 
-  it('⭐ el clic abre el mismo panel del producto', async () => {
-    const { fix, flujo } = await enCuidar();
-    (tarjetas(fix)[1].querySelector('.pc-item') as HTMLElement).click();
-    fix.detectChanges();
-    expect(fix.componentInstance.abierto()).toEqual({ id: 'n-1', nombre: 'Bota Tutsi', sku: '90037' });
-    expect(flujo.detalle).toHaveBeenCalledWith('n-1');
+  it('⭐ clic (o Enter) en un renglón abre la ficha del producto en el panel, sin «Editar producto»', async () => {
+    const { fix, catalogo } = await sencillo();
+    // La ficha nunca llega (NEVER): whenStable no se cumpliría; basta con pintar.
+    const pintar = async () => { fix.detectChanges(); await Promise.resolve(); fix.detectChanges(); };
+    filasS(fix)[0].click();
+    await pintar();
+    expect(fix.componentInstance.abierto()).toEqual({ id: 'q-1', nombre: 'La Rosa Mazapan /30', sku: '70001', proveedor: 'Distribuidora de la Rosa', tipo: 'ficha' });
+    expect(catalogo.ficha).toHaveBeenCalledWith('q-1', null);
+    expect(document.body.textContent).not.toContain('Editar producto');
+    fix.componentInstance.cerrarFlujo();
+    await pintar();
+    filasS(fix)[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await pintar();
+    expect(fix.componentInstance.abierto()?.id).toBe('q-2');
   });
 
-  it('[PF.6] dice si salió de la foto del servidor o del cálculo en vivo', async () => {
-    const foto = await enCuidar({ cuidar: vi.fn(() => of({ ...CUIDAR, origen: { fuente: 'foto' as const, calculado_at: '2026-10-09T18:05:00-06:00' } })) });
-    expect(texto(foto.fix.nativeElement.querySelector('.pc-origen'))).toMatch(/^Calculado a las .*se actualiza cada minuto\.$/);
+  it('⛔ error sin datos se dice como error; búsqueda sin resultados se dice como tal (no una tabla vacía)', async () => {
+    const mal = await sencillo(vi.fn(() => throwError(() => new Error('x'))));
+    expect(mal.fix.nativeElement.textContent).toContain('No se pudo cargar el catálogo');
     limpiar();
-    const vivo = await enCuidar({ cuidar: vi.fn(() => of({ ...CUIDAR, origen: { fuente: 'en_vivo' as const, calculado_at: '2026-10-09T18:05:00-06:00' } })) });
-    const el = vivo.fix.nativeElement.querySelector('.pc-origen') as HTMLElement;
-    expect(el.classList).toContain('is-vivo');
-    expect(el.textContent).toContain('la foto del servidor no está al día');
+    vi.useFakeTimers();
+    try {
+      const { fix } = await sencillo(vi.fn((p: { search?: string }) => of(p.search
+        ? LISTA_S({ total: 0, filas: [], conteos: { todos: 0, variosCodigos: 0, sinCodigo: 0, sinPrecio: 0 } })
+        : LISTA_S())));
+      fix.componentInstance.onBusqueda('zzz');
+      vi.advanceTimersByTime(1000);
+      vi.useRealTimers();
+      await tick(fix);
+      expect(fix.nativeElement.textContent).toContain('«zzz» no está en el catálogo');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('[negativa] si falla, lo dice; el catálogo por proveedor sigue', async () => {
-    const { fix } = await enCuidar({ cuidar: vi.fn(() => throwError(() => new Error('x'))) });
-    expect(tarjetas(fix)).toHaveLength(0);
-    expect(fix.nativeElement.textContent).toContain('No se pudo cargar «Para cuidar hoy»');
-    fix.componentInstance.vista.set('proveedor');
-    await tick(fix);
-    expect(filas(fix)).toHaveLength(3);
-  });
-});
-
-describe('[PF.4] días sin vender en palabras', () => {
-  it('con fecha, cuántos días; sin venta en el año, se dice', () => {
-    expect(sinVenderTexto({ dias_sin_venta: 45 }, 365)).toBe('Sin vender hace 45 días');
-    expect(sinVenderTexto({ dias_sin_venta: null }, 365)).toBe('Sin una venta en el último año');
-  });
-});
-
-describe('[PF.3] caducidad en una frase', () => {
-  it('primero lo caducado, luego lo que no alcanza, luego lo que caduca pronto', () => {
-    const base = { vencido: 0, en_riesgo: 0, por_caducar: 0, proxima: null, plazas_vencido: [], plazas_en_riesgo: [], lotes: 1 };
-    expect(caducidadTexto({ ...base, vencido: 5, en_riesgo: 3, plazas_vencido: ['CEDIS'], plazas_en_riesgo: ['8 Esquinas'] }).texto)
-      .toBe('Caducado según el registro en CEDIS');
-    expect(caducidadTexto({ ...base, en_riesgo: 3, plazas_en_riesgo: ['8 Esquinas'] })).toEqual({ estado: 'no_alcanza', texto: 'No alcanza a venderse en 8 Esquinas' });
-    expect(caducidadTexto({ ...base, por_caducar: 1 }).estado).toBe('justo');
-  });
-});
-
-describe('[PF.1] alertas', () => {
-  it('dice en cuántas sucursales está estancado, agotado o se frenó; si todo se mueve, nada', () => {
-    expect(alertasTexto({ estancadas: [], agotadas: [], frenadas: [] })).toBeNull();
-    expect(alertasTexto({ estancadas: [{ plaza: '06', nombre: null, dias_sin_venta: 20 }], agotadas: [],
-      frenadas: [{ plaza: '01', nombre: null, variacion: -0.6 }] })).toBe('Estancado en 1 · Se frenó en 1');
+  it('equivale: la base dice «base»; las demás, a cuánto equivalen', () => {
+    expect(equivaleTexto({ equivale: null })).toBe('base');
+    expect(equivaleTexto({ equivale: { cantidad: 18, unidad: 'PAQ' } })).toBe('18 PAQ');
   });
 });
