@@ -204,6 +204,13 @@ async function runCycle(src, db) {
   /** Una ventana [desde, hasta) de punta a punta: leer, convertir y cargar. */
   async function cargarVentana(desde, hasta) {
   if (ventanas.length > 1) console.log(`\n── ventana ${desde} → ${hasta} ──`);
+  // [AB.40] LA VENTA DE RUTA ENTRA UNA SOLA VEZ: por el envío de la camioneta. Desde el 2026-08-20 el
+  // Kepler de Padre Hidalgo también guarda los documentos de sus rutas (almacén 01-00N), y los dos
+  // caminos caían en el MISMO RUTA-NN: medido en prod el 2026-10-26, las 6 rutas de Padre Hidalgo al
+  // doble (sep $5.22 M contra $2.77 M del envío; Ruta 21 = Kepler $395,857 + envío $490,698 al peso).
+  // El envío es la fuente completa (al Kepler de 01 le faltan 27 días enteros desde el 1-sep), así que
+  // de un almacén de ruta que empuja sólo se toma lo que trae el envío (sucursal ruta_NN).
+  const almacenesDeRuta = Object.keys(ROUTE_MAP);
   // Origen: agregado POR unidad de venta real (para poder convertir cada bucket).
   // PH ('01'): Wincaja manda `< 2026-07-01` (venta real ene–jun), Kepler desde jul 1
   // (Kepler recién tomó PH). Excluir el pre-julio de PH aquí cierra el solape de junio
@@ -216,7 +223,8 @@ async function runCycle(src, db) {
       WHERE fecha >= $1::date
         AND fecha <  $2::date
         AND NOT (almacen = '01' AND fecha < DATE '2026-07-01')
-      GROUP BY almacen, sku, channel, fecha, upper(btrim(coalesce(unidad,'')))`, [desde, hasta]);
+        AND NOT (almacen = ANY($3::text[]) AND COALESCE(sucursal, '') NOT LIKE 'ruta\\_%')
+      GROUP BY almacen, sku, channel, fecha, upper(btrim(coalesce(unidad,'')))`, [desde, hasta, almacenesDeRuta]);
   // Tickets: aparte, SIN unidad, para no sobrecontar folios con varias unidades.
   const { rows: tk } = await src.query(
     `SELECT almacen, sku, channel, fecha, count(DISTINCT folio)::int AS tickets
@@ -224,7 +232,8 @@ async function runCycle(src, db) {
       WHERE fecha >= $1::date
         AND fecha <  $2::date
         AND NOT (almacen = '01' AND fecha < DATE '2026-07-01')
-      GROUP BY almacen, sku, channel, fecha`, [desde, hasta]);
+        AND NOT (almacen = ANY($3::text[]) AND COALESCE(sucursal, '') NOT LIKE 'ruta\\_%')
+      GROUP BY almacen, sku, channel, fecha`, [desde, hasta, almacenesDeRuta]);
   const tkMap = new Map(tk.map((r) => [`${mapAlmacen(r.almacen)}|${r.sku}|${r.channel}|${r.fecha.toISOString().slice(0, 10)}`, r.tickets]));
   console.log(`  origen: ${agg.length} filas (almacen×sku×canal×día×unidad) · ${tk.length} grupos de tickets`);
 

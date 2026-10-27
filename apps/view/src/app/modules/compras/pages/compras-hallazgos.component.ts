@@ -10,6 +10,8 @@ import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { ComprasService, ReplenishmentFinding, FindingSeverity, FindingKind } from '../compras.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ALERTAS_ABASTO_TABS } from '../alertas-abasto-tabs';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -21,7 +23,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-hallazgos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, TagModule, SucursalPipe],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, TagModule, SucursalPipe, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -36,6 +38,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear ahora</span></button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <div class="hz-filters">
         <p-select [options]="statusOpts" [(ngModel)]="fStatus" (onChange)="reload()" optionLabel="label" optionValue="value" styleClass="hz-sel" appendTo="body"></p-select>
@@ -98,6 +102,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   `],
 })
 export class ComprasHallazgosComponent implements OnInit {
+  /** [NAV.6] La barra del apartado «Alertas de abasto» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = ALERTAS_ABASTO_TABS;
   private readonly api = inject(ComprasService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

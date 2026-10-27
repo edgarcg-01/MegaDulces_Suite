@@ -10,6 +10,8 @@ import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { ComprasService, NetworkNode } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PARAMETROS_COMPRA_TABS } from '../parametros-compra-tabs';
 
 /**
  * RA-PRO.6 — Red de abasto (DRP). Define el árbol CEDIS→sucursal: de qué almacén se
@@ -20,7 +22,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 @Component({
   selector: 'app-compras-red',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, TagModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, TagModule, MetricStripComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -32,6 +34,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
           <p class="surf-page-sub">De qué almacén se surte cada sucursal. Los almacenes sin origen son CEDIS: compran a proveedores y el motor los planea sobre la demanda de la red que abastecen.</p>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="tabs" />
 
       <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de la red de abasto" />
 
@@ -84,6 +88,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
   `],
 })
 export class ComprasRedComponent implements OnInit {
+  /** `[NAV.5]` La barra del apartado «Parámetros de compra»: la pinta esta página y sus dos hermanas. */
+  readonly tabs = PARAMETROS_COMPRA_TABS;
   private readonly api = inject(ComprasService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

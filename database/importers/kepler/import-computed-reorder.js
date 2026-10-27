@@ -4,7 +4,8 @@
  * (source='computed'). Ver FASE_RA_BENCHMARK_ENTERPRISE.md.
  *
  * Rellena los huecos que Kepler no configura (~82% del catálogo; CEDIS = 100%).
- * Transform 100% dentro de la plataforma (no toca Kepler): lee analytics.inventory_health
+ * Transform 100% dentro de la plataforma (no toca Kepler): la MEDIA sale de analytics.product_demand
+ * ([AB.40], la misma del pedido) y la forma de la variabilidad (demand_cv, XYZ) de analytics.inventory_health
  * (avg_daily_units + σ + clase XYZ, poblado por import-inventory-health.js) + lead time
  * del proveedor + clase ABC (analytics.v_abc_class -- VISTA, ver la nota del JOIN).
  *
@@ -59,6 +60,80 @@ function invNorm(p) {
 }
 const Z = { A: invNorm(SERVICE.A), B: invNorm(SERVICE.B), C: invNorm(SERVICE.C) };
 
+/**
+ * `[AB.40]` LA DEMANDA DE LA POLÍTICA ES LA MISMA QUE LA DEL PEDIDO. Hasta hoy la media salía de
+ * `analytics.inventory_health` (90 días de `sales_daily.units` crudas, con los días sin existencia contados
+ * como venta cero) y el pedido de Autoabasto y de Compras salía de `analytics.product_demand` (30 días, en
+ * piezas por ingreso). Medido el 2026-10-26 sobre 19,604 pares de 01–08: 1 de cada 5 políticas usaba menos
+ * de la mitad de la demanda del pedido y 1 de cada 9 más del doble (mediana 0.87). Ejemplo, Mr Beast 97245:
+ * Kepler 67 pz/día en La Piedad Abastos, el pedido 72, la política 42.7; en 8 Esquinas 12 / 14 / 24.1.
+ *
+ * Ahora la media es `product_demand` (30 días) — la que arbitra contra Kepler a 5–15 % — y la variabilidad
+ * conserva la forma que ya medía `inventory_health`: σ = media × su coeficiente de variación (`demand_cv`).
+ * Sin `demand_cv` (no hay serie con qué medirla), σ = 0 y queda el piso de días de seguridad de A/B.
+ *
+ * Es el `SELECT` de lo que se escribe; el `INSERT` lo envuelve. Vive aparte para que la medición del antes
+ * y el después ejecute ESTE texto en sólo lectura (`test-newdb-politica-misma-demanda.js`).
+ */
+const CALC = `
+      pd AS (
+        SELECT warehouse_id, product_id, daily_pieces
+          FROM analytics.product_demand
+         WHERE tenant_id=$1 AND window_days=30 AND daily_pieces > 0
+      ), base AS (
+        SELECT ih.warehouse_id, ih.product_id, d.daily_pieces AS adu,
+               d.daily_pieces * COALESCE(ih.demand_cv, 0) AS sigma, ih.demand_cv, ih.xyz_class,
+               COALESCE(s.lead_time_days, $2) AS lead,
+               COALESCE(abc.abc_class, 'C') AS abc_class
+          FROM analytics.inventory_health ih
+          JOIN pd d ON d.warehouse_id = ih.warehouse_id AND d.product_id = ih.product_id
+          JOIN catalog.products p ON p.tenant_id=$1 AND p.id=ih.product_id
+          LEFT JOIN catalog.suppliers s ON s.tenant_id=$1 AND s.id=p.supplier_id
+          -- [KE.4] La clase sale de la VISTA analytics.v_abc_class, no de la tabla, y el motivo
+          -- es de RELOJ: la tabla la recalcula un cron a las 3:30 AM MX y este importer corre a
+          -- las 3:04, o sea consumia la clase del DIA ANTERIOR, todos los dias (medido en prod:
+          -- inventory_health 09:04:09 -> reorder_policy 09:04:28 -> abc_classification 09:30:00).
+          -- Una vista no puede llegar tarde: se calcula cuando se lee. Y es la MISMA definicion
+          -- que puebla la tabla, no una segunda implementacion.
+          LEFT JOIN analytics.v_abc_class abc
+                 ON abc.tenant_id=$1 AND abc.warehouse_id=ih.warehouse_id AND abc.product_id=ih.product_id
+         WHERE ih.tenant_id=$1
+           -- ⛔ [AUD-DAT.15] NO tocar los pares que planea import-network-reorder.js.
+           -- Medido en prod la noche del 2026-09-28, con el log de cambios de VP.3.1: los dos
+           -- importers cambiaban 7,197 filas en común (79 % de la segunda pasada) y el mismo renglón
+           -- valía dos cosas cada noche (max_stock 112 → 92 → 112). Gana el de red porque su demanda
+           -- es un SUPERCONJUNTO (la propia más la de todo lo que abastece).
+           --
+           -- ⛔ SE EXCLUYE EL PAR (almacén, producto), NO EL ALMACÉN ENTERO: el filtro grueso dejaba
+           -- 2,801 productos SIN DUEÑO (se mueven en el punto de abasto y en ninguna hija).
+           --
+           -- [AB.40] Se cede si CUALQUIER almacén que este abastece vende el producto — rutas incluidas.
+           -- Antes se miraba inventory_health, donde las rutas no existen (su universo es la
+           -- existencia y las RUTA-* no tienen), así que la venta de las camionetas no contaba para
+           -- nadie: ~10,600 piezas/día de la red. La de red ahora las suma (es recursiva).
+           AND NOT EXISTS (
+             SELECT 1
+               FROM commercial.warehouses n
+               JOIN pd dc ON dc.warehouse_id = n.id AND dc.product_id = ih.product_id
+              WHERE n.tenant_id = $1 AND n.source_warehouse_id = ih.warehouse_id
+                AND n.deleted_at IS NULL)
+      ), calc AS (
+        SELECT warehouse_id, product_id, lead, abc_class, demand_cv, xyz_class, adu,
+               CASE abc_class WHEN 'A' THEN $3::numeric WHEN 'B' THEN $4::numeric ELSE $5::numeric END AS service_level,
+               GREATEST(
+                 ceil( (CASE abc_class WHEN 'A' THEN $6::numeric WHEN 'B' THEN $7::numeric ELSE $8::numeric END) * sigma * sqrt(lead) ),
+                 CASE WHEN abc_class IN ('A','B') THEN ceil(adu * $9) ELSE 0 END
+               )::numeric AS safety,
+               ceil(adu * lead)::numeric  AS lead_demand,
+               ceil(adu * $10)::numeric   AS cycle_demand
+          FROM base
+      ), nueva AS (
+        SELECT warehouse_id, product_id, lead, abc_class, demand_cv, xyz_class, service_level,
+               safety AS min_stock, lead_demand + safety AS reorder_point, lead_demand + safety + cycle_demand AS max_stock
+          FROM calc
+      )`;
+
+
 (async () => {
   const db = new Client({ connectionString: DST });
   await db.connect();
@@ -72,84 +147,14 @@ const Z = { A: invNorm(SERVICE.A), B: invNorm(SERVICE.B), C: invNorm(SERVICE.C) 
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
 
     const res = await db.query(`
-      WITH base AS (
-        SELECT ih.warehouse_id, ih.product_id, ih.avg_daily_units AS adu,
-               COALESCE(ih.stddev_daily_units,0) AS sigma, ih.demand_cv, ih.xyz_class,
-               COALESCE(s.lead_time_days, $2) AS lead,
-               COALESCE(abc.abc_class, 'C') AS abc_class
-          FROM analytics.inventory_health ih
-          JOIN catalog.products p ON p.tenant_id=$1 AND p.id=ih.product_id
-          LEFT JOIN catalog.suppliers s ON s.tenant_id=$1 AND s.id=p.supplier_id
-          -- [KE.4] La clase sale de la VISTA analytics.v_abc_class, no de la tabla, y el motivo
-          -- es de RELOJ: la tabla la recalcula un cron a las 3:30 AM MX y este importer corre a
-          -- las 3:04, o sea consumia la clase del DIA ANTERIOR, todos los dias (medido en prod:
-          -- inventory_health 09:04:09 -> reorder_policy 09:04:28 -> abc_classification 09:30:00).
-          -- Una vista no puede llegar tarde: se calcula cuando se lee. Y es la MISMA definicion
-          -- que puebla la tabla, no una segunda implementacion.
-          LEFT JOIN analytics.v_abc_class abc
-                 ON abc.tenant_id=$1 AND abc.warehouse_id=ih.warehouse_id AND abc.product_id=ih.product_id
-         WHERE ih.tenant_id=$1 AND ih.avg_daily_units > 0
-           -- ⛔ [AUD-DAT.15] NO tocar los almacenes que planea import-network-reorder.js.
-           -- Medido en prod la noche del 2026-09-28, con el log de cambios de VP.3.1:
-           --
-           --     03:02:23  este importer        cambió 9,132 filas
-           --     03:02:28  import-network-reorder  cambió 8,717 filas
-           --     SOLAPE ................................ 7,197  (79 % de la segunda pasada)
-           --
-           -- O sea que durante cinco segundos cada noche el mismo renglón valía dos cosas. Un
-           -- ejemplo real, mismo registro y mismo minuto: max_stock 112 → 92 → 112. El valor
-           -- publicado dependía de quién corriera último, y analytics.master_data_history
-           -- quedaba con dos cambios contradictorios por noche por SKU: la historia que la Fase
-           -- VP existe para poder leer se volvía ilegible justo donde más se la necesita.
-           --
-           -- ⭐ Gana el de red, y no por orden de ejecución sino porque su demanda es un
-           -- SUPERCONJUNTO: media_red = Sigma avg(sucursales) + propio (RA-PRO.6), mientras acá se
-           -- mira sólo la demanda propia del almacén. Planear un CEDIS con su consumo de
-           -- mostrador es justo el error que la fase DRP vino a corregir.
-           --
-           -- El filtro es sobre la TOPOLOGÍA VIVA, no una lista: si nadie declara
-           -- source_warehouse_id, el conjunto excluido es vacío y este importer vuelve a
-           -- cubrirlos — el respaldo se conserva solo, sin una constante que mantener.
-           --
-           -- ⛔ SE EXCLUYE EL PAR (almacén, producto), NO EL ALMACÉN ENTERO, y la diferencia
-           -- son 2,801 filas. El filtro grueso —"si este almacén abastece a alguien, no lo
-           -- toques"— se midió antes de escribirlo y dejaba SIN DUEÑO a los productos que se
-           -- mueven en el punto de abasto pero en NINGUNA de sus hijas: el rollup DRP arma su
-           -- universo desde la demanda de las hijas, así que esos renglones no existen para él
-           -- y su política se habría congelado en silencio. Medido en prod (2026-09-28):
-           --
-           --     excluidos por el filtro grueso .... 10,121
-           --     cubiertos por import-network ......  7,320
-           --     SIN DUENO .........................  2,801   ← se habrían congelado
-           --
-           -- Con el par, esos 2,801 siguen siendo de este importer (su demanda propia es lo
-           -- único con que se pueden planear) y sólo se ceden los 7,320 que el otro sí planea.
-           AND NOT EXISTS (
-             SELECT 1
-               FROM commercial.warehouses n
-               JOIN analytics.inventory_health ihc
-                 ON ihc.tenant_id = $1 AND ihc.warehouse_id = n.id
-                AND ihc.product_id = ih.product_id AND ihc.avg_daily_units > 0
-              WHERE n.tenant_id = $1 AND n.source_warehouse_id = ih.warehouse_id
-                AND n.deleted_at IS NULL)
-      ), calc AS (
-        SELECT warehouse_id, product_id, lead, abc_class, demand_cv, xyz_class, adu,
-               CASE abc_class WHEN 'A' THEN $3::numeric WHEN 'B' THEN $4::numeric ELSE $5::numeric END AS service_level,
-               GREATEST(
-                 ceil( (CASE abc_class WHEN 'A' THEN $6::numeric WHEN 'B' THEN $7::numeric ELSE $8::numeric END) * sigma * sqrt(lead) ),
-                 CASE WHEN abc_class IN ('A','B') THEN ceil(adu * $9) ELSE 0 END
-               )::numeric AS safety,
-               ceil(adu * lead)::numeric  AS lead_demand,
-               ceil(adu * $10)::numeric   AS cycle_demand
-          FROM base
-      )
+      WITH ${CALC}
       INSERT INTO commercial.reorder_policy
         (id, tenant_id, warehouse_id, product_id, min_stock, reorder_point, max_stock, source,
          lead_time_days, safety_stock, service_level, abc_class, xyz_class, demand_cv, policy_method, computed_at, updated_at)
       SELECT gen_random_uuid(), $1, warehouse_id, product_id,
-             safety, lead_demand + safety, lead_demand + safety + cycle_demand,
-             'computed', lead, safety, service_level, abc_class, xyz_class, demand_cv, 'service_level', now(), now()
-        FROM calc
+             min_stock, reorder_point, max_stock,
+             'computed', lead, min_stock, service_level, abc_class, xyz_class, demand_cv, 'service_level', now(), now()
+        FROM nueva
       ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE
         SET min_stock=EXCLUDED.min_stock, reorder_point=EXCLUDED.reorder_point, max_stock=EXCLUDED.max_stock,
             lead_time_days=EXCLUDED.lead_time_days, safety_stock=EXCLUDED.safety_stock,

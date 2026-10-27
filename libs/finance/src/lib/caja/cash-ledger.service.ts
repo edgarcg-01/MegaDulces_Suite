@@ -1178,7 +1178,9 @@ export class CashLedgerService {
        * desde `CAJA_EGRESO_ORIGEN_DESDE`: el freno nace apagado.
        */
       const origen = origenDelEgreso({
-        tipo: input.tipo, fecha: String(input.fecha ?? ''), retiros: (input.caos_links ?? []).length,
+        // Una captura que ES un movimiento de CAOS (`origen_tipo = 'caos'`) ya trae su retiro.
+        tipo: input.tipo, fecha: String(input.fecha ?? ''),
+        retiros: (input.caos_links ?? []).length + (input.origen_tipo === 'caos' ? 1 : 0),
         declarado: input.origen_efectivo ?? null, desde: arranqueOrigenEgreso(),
       });
       if (!origen.ok) throw new BadRequestException(TEXTO_ORIGEN[origen.motivo]);

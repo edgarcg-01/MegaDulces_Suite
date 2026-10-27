@@ -77,6 +77,35 @@ export function explicacionDelPrecio(
     .join(' · ');
 }
 
+/**
+ * `[E.29]` El precio de la presentación ANTES del redondeo de Kepler: el último paso del motor con
+ * precio (la lista si no hubo descuento). null = no hay pasos con qué saberlo.
+ */
+export function precioSinRedondear(
+  aplicados: ReadonlyArray<{ after: number | null }> | null | undefined,
+): number | null {
+  const conPrecio = (aplicados ?? []).filter((p) => p.after !== null);
+  return conPrecio.length ? (conPrecio[conPrecio.length - 1].after as number) : null;
+}
+
+/**
+ * `[E.29]` El centavo de Kepler, dicho: guarda el precio POR UNIDAD BASE a centavos, así que la
+ * presentación puede quedar un centavo arriba o abajo de su precio («Kepler redondea por PAQ a
+ * centavos: $739.21 → 24 × $30.80 = $739.20»). Vacío si no hubo diferencia o no se puede saber.
+ */
+export function notaRedondeo(
+  sinRedondear: number | null,
+  precio: number | null,
+  base: PasoDesgloseBase | undefined,
+  dinero: (n: number) => string,
+): string {
+  if (sinRedondear === null || precio === null || !base || Math.abs(sinRedondear - precio) < 0.005) return '';
+  return `Kepler redondea por ${base.unidad} a centavos: ${dinero(sinRedondear)} → ${base.cantidad} × ${dinero(base.precio)} = ${dinero(precio)}`;
+}
+
+/** La entrada de la unidad base del desglose «(24 PAQ $30.80)» (la última). */
+interface PasoDesgloseBase { cantidad: number; unidad: string; precio: number }
+
 const cent = (n: number): number => Math.round(n * 100);
 
 export function desgloseDescuento(renglones: RenglonParaDesglose[]): DesgloseDescuento {

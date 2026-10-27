@@ -10,6 +10,11 @@
 > caja negra que propone un número; lo que se documenta es el **camino del documento**.
 >
 > **Fecha de corte: 2026-10-16.** Lo que está medido trae su fecha. Lo que no se midió se dice.
+>
+> ⭐ **El flujo completo, hasta el pago** (recepción, deuda, calendario, pago, póliza y conciliación),
+> medido el 2026-10-26, está en [`FLUJO_COMPRA_A_PAGO.md`](FLUJO_COMPRA_A_PAGO.md). Este doc queda como
+> el detalle del tramo pedido → requisición. ⚠️ Lo que cambió desde su corte (el empuje a Kepler se
+> apagó el 2026-10-26; `c16` trae IVA) está en aquel §4.2 y §10.
 
 ---
 

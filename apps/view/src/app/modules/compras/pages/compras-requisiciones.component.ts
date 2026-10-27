@@ -26,6 +26,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 // medidos** en el arranque de las TRES apps Angular, porque lo importa el chunk inicial y los
 // ~80 kB del catálogo sólo los necesita una pantalla lazy.
 import { Permission } from '@megadulces/contracts/authz/permissions';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { SEGUIMIENTO_COMPRA_TABS } from '../seguimiento-compra-tabs';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -33,7 +35,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-requisiciones',
   standalone: true,
-  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, TagModule, TabsModule, ToastModule, DialogModule, TextareaModule, MetricStripComponent, SegmentedComponent, InputTextModule, IconFieldModule, InputIconModule, SucursalPipe],
+  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, TagModule, TabsModule, ToastModule, DialogModule, TextareaModule, MetricStripComponent, SegmentedComponent, InputTextModule, IconFieldModule, InputIconModule, SucursalPipe, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -46,11 +48,21 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         </div>
       </header>
 
+      <app-page-tabs [tabs]="apartadoTabs" />
+
       <!-- [RQ.2] Antes de esto la pantalla devolvía una lista plana: ni un conteo, ni la
            antigüedad, con el filtro en "todos los estados" y 50 por página ordenadas por fecha.
            Medido en prod el 2026-10-06: 610 pendientes por $42.7 M, 24 días de promedio y 77 la
            más vieja — todo invisible desde acá, porque las viejas caen en la página 12. -->
       <app-metric-strip [items]="kpis()" ariaLabel="Requisiciones por estado" (drill)="onDrill($event)" />
+      <!-- [PQ.14] El apagado se dice UNA vez, como estado de la bandeja, y no en rojo fila por fila:
+           172 de 173 «errores» en 30 d eran «escritura apagada» (KR), no una falla del documento. -->
+      @if (keplerApagadoResumen(); as ka) {
+        <div class="rq-lote-cab rq-apagado" role="status">
+          <i class="pi pi-power-off" aria-hidden="true"></i>
+          <span><strong>La escritura a Kepler está apagada</strong> (KR): {{ ka.n_kepler_apagado }} aprobada(s) esperan a que se encienda. No son errores de captura; se reintentan al encenderla.</span>
+        </div>
+      }
       <!-- [PQ.1] El filtro que puso la casilla se ve y se quita: un filtro escondido deja una
            lista acotada que no dice por qué (el mismo defecto que [RQ.8] arregló para el lote). -->
       @if (fKepler) {
@@ -139,7 +151,21 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               </td>
               <td class="rq-r" [class.rq-viejo]="g.dias > 30">{{ g.dias }}</td>
               <td class="rq-muted">{{ g.autor || '—' }}</td>
-              <td><i class="pi pi-angle-right rq-muted"></i></td>
+              <!-- [PQ.15] Aprobar el lote COMPLETO desde su fila (pedido del PM, 2026-10-26): antes había
+                   que abrir el lote, marcar sus documentos de a página (50) y aprobar. Dos pasos a
+                   propósito (poka-yoke): el primer clic muestra cuántos va a aprobar; el segundo lo hace. -->
+              <td class="rq-lote-acc" (click)="$event.stopPropagation()">
+                @if (g.pendientes > 0 && canAutorizar) {
+                  @if (loteAConfirmar()?.lote === g.lote) {
+                    <button pButton type="button" class="p-button-sm" [disabled]="busy()" (click)="aprobarLote(g)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Sí, aprobar {{ g.pendientes }}</span></button>
+                    <button pButton type="button" class="p-button-sm p-button-text" [disabled]="busy()" (click)="loteAConfirmar.set(null)"><span class="p-button-label">Cancelar</span></button>
+                  } @else {
+                    <button pButton type="button" class="p-button-sm p-button-outlined" [disabled]="busy()" (click)="loteAConfirmar.set(g)"
+                            [attr.aria-label]="'Aprobar completo el lote ' + (g.batch_folio || 'sin folio') + ': ' + g.pendientes + ' pendiente(s)'"><span class="p-button-icon p-button-icon-left pi pi-check-square" aria-hidden="true"></span><span class="p-button-label">Aprobar lote ({{ g.pendientes }})</span></button>
+                  }
+                }
+                <i class="pi pi-angle-right rq-muted" aria-hidden="true"></i>
+              </td>
             </tr>
           </ng-template>
           <ng-template #emptymessage>
@@ -469,12 +495,16 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .rq-search input { min-width: 15rem; }
     .rq-vista { display: flex; align-items: center; gap: .75rem; margin: .5rem 0 .75rem; flex-wrap: wrap; }
     .rq-vista-warn { color: var(--text-muted); font-size: var(--fs-xs); display: inline-flex; align-items: center; gap: .35rem; }
+    .rq-apagado { color: var(--text-muted); }
+    .rq-apagado .pi { color: var(--text-muted); }
     .rq-lote-cab { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem;
                    padding: .4rem .6rem; border-radius: var(--radius-md);
                    border: 1px solid var(--surface-border); background: var(--surface-card); font-size: var(--fs-sm); }
     .rq-sub { font-size: var(--fs-xs); }
     .rq-strong { font-weight: 700; }
     .rq-lote-que { display: flex; gap: .3rem; flex-wrap: wrap; }
+    /* [PQ.15] Aprobar el lote desde su fila: los botones no abren el lote al hacer clic. */
+    .rq-lote-acc { white-space: nowrap; display: flex; align-items: center; justify-content: flex-end; gap: .3rem; }
     .rq-pill { font-size: var(--fs-micro); font-weight: 700; padding: .1rem .4rem; border-radius: 999px;
                border: 1px solid var(--surface-border); }
     .rq-pill-buy { color: var(--action); border-color: var(--action); }
@@ -510,6 +540,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   `],
 })
 export class ComprasRequisicionesComponent implements OnInit {
+  /** [NAV.6] La barra del apartado «Seguimiento de compra» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = SEGUIMIENTO_COMPRA_TABS;
   /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
   readonly multitarea = inject(MultitareaService);
   private readonly api = inject(ComprasService);
@@ -610,6 +642,11 @@ export class ComprasRequisicionesComponent implements OnInit {
       this.tab.set('branch');
     }
     this.fDeSucursal = this.route.snapshot.queryParamMap.get('de_sucursal') === '1';
+    // `[PQ.14]` «Ver en Requisiciones» desde Pedido llega con el lote en `q`: la bandeja abre ya
+    // buscándolo (el buscador acepta folio, proveedor o lote). Un enlace que no aterriza afirma
+    // algo que no es.
+    const q = this.route.snapshot.queryParamMap.get('q');
+    if (q) this.fBuscar = q;
     // `[RQ.9]` El catálogo de sucursales sale del MISMO /filters que usa Pedido. No se traga el
     // error: sin lista, el selector queda mudo y nadie sabe por qué (DESIGN §Ing.UI 6).
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -739,6 +776,15 @@ export class ComprasRequisicionesComponent implements OnInit {
    * `Number('—') || 0` pinta un **0**, que acá se leería "no hay nada pendiente" — justo el cero
    * dibujado que ADR-056 prohíbe.
    */
+  /** `[PQ.14]` Fallas reales = errores menos el apagado. Sin el desglose del servidor, los errores tal cual. */
+  keplerSalioMal(a: RequisitionResumen): number {
+    return Math.max(0, (a.n_kepler_error ?? 0) - (a.n_kepler_apagado ?? 0));
+  }
+  /** `[PQ.14]` La cinta del apagado: cuántas aprobadas esperan a que KR encienda la escritura. */
+  keplerApagadoResumen(): RequisitionResumen | null {
+    const a = this.deResumen('approved');
+    return a && (a.n_kepler_apagado ?? 0) > 0 ? a : null;
+  }
   kpis(): MetricStripItem[] {
     const p = this.deResumen('pending_approval');
     const a = this.deResumen('approved');
@@ -754,7 +800,10 @@ export class ComprasRequisicionesComponent implements OnInit {
         ? { label: 'Aprobadas sin documento en Kepler', value: '—', format: 'text', sub: `${a.n} aprobada(s) · sin medir: el servidor no reporta el estado en Kepler` }
         : { label: 'Aprobadas sin documento en Kepler', value: a ? a.n - (a.n_kepler ?? 0) : 0,
             tone: a && a.n - (a.n_kepler ?? 0) > 0 ? 'warn' : undefined,
-            sub: a ? `${this.money(a.monto_sin_kepler ?? 0)} · ${a.n_kepler_error ?? 0} salió mal · ${a.n_sin_empujar ?? 0} sin empujar · hasta ${a.dias_max_sin_kepler ?? 0} d` : 'ninguna',
+            // `[PQ.14]` «salió mal» ya no incluye el apagado: ése se dice aparte y en la cinta.
+            sub: a ? `${this.money(a.monto_sin_kepler ?? 0)} · ${this.keplerSalioMal(a)} salió mal`
+              + (a.n_kepler_apagado != null ? ` · ${a.n_kepler_apagado} con Kepler apagado` : '')
+              + ` · ${a.n_sin_empujar ?? 0} sin empujar · hasta ${a.dias_max_sin_kepler ?? 0} d` : 'ninguna',
             drill: 'kepler_sin_documento', drillLabel: 'Ver las aprobadas sin documento en Kepler' },
       { label: 'Ordenadas', value: o?.n ?? 0, sub: o ? this.money(o.monto) : 'ninguna' },
       { label: 'Recibidas', value: rc?.n ?? 0, sub: rc ? this.money(rc.monto) : 'ninguna' },
@@ -800,20 +849,31 @@ export class ComprasRequisicionesComponent implements OnInit {
    * Tres etiquetas para tres ausencias que no son la misma (ADR-056): salió · salió mal · nunca
    * se empujó. Si la fila no trae las columnas (servidor viejo) se dice «sin medir», no «sin empujar».
    */
+  /**
+   * `[PQ.14]` Un apagado sistémico no es una falla de la fila. Medido el 2026-10-26: 172 de 173
+   * `kepler_error` en 30 d decían «KEPLER_PUSH_URL sin configurar» / «escritura … apagada» (KR), y
+   * 784 aprobadas se leían en rojo como si cada una hubiera fallado (DESIGN.md §10.10).
+   */
+  keplerApagado(r: RequisitionRow): boolean {
+    return !r.kepler_folio && !!r.kepler_error && /apagad|sin configurar/i.test(r.kepler_error);
+  }
   keplerLabel(r: RequisitionRow): string {
     if (r.kepler_folio) return `en Kepler ${r.kepler_sucursal ? (r.kepler_sucursal + '/') : ''}${r.kepler_folio}`;
+    if (this.keplerApagado(r)) return 'Kepler apagado';
     if (r.kepler_error) return 'no salió a Kepler';
     if (r.kepler_folio === undefined && r.kepler_error === undefined) return 'Kepler: sin medir';
     return 'sin empujar a Kepler';
   }
   keplerSev(r: RequisitionRow): Sev {
     if (r.kepler_folio) return 'secondary';
+    if (this.keplerApagado(r)) return 'secondary';
     if (r.kepler_error) return 'danger';
     if (r.kepler_folio === undefined && r.kepler_error === undefined) return 'secondary';
     return 'warn';
   }
   keplerTitle(r: RequisitionRow): string {
     if (r.kepler_folio) return 'La Suite ya escribió esta requisición en Kepler con ese folio.';
+    if (this.keplerApagado(r)) return 'La escritura a Kepler está apagada para esta sucursal (KR). No es una falla de esta requisición: se reintenta cuando se encienda.';
     if (r.kepler_error) return `No se pudo escribir en Kepler: ${r.kepler_error}. Abrí la requisición para reintentar.`;
     if (r.kepler_folio === undefined && r.kepler_error === undefined) return 'El servidor no reporta si salió a Kepler.';
     return 'Aprobada, pero todavía no se intentó escribirla en Kepler. Sin documento en el ERP, no compra nada.';
@@ -921,12 +981,61 @@ export class ComprasRequisicionesComponent implements OnInit {
   lote(accion: 'approve' | 'reject', motivo: string | null = null): void {
     const ids = [...this.sel()];
     if (!ids.length) return;
+    this.aplicarLote(ids, accion, motivo);
+  }
+
+  /** `[PQ.15]` El lote cuya aprobación completa está pidiendo confirmación (un solo lote a la vez). */
+  loteAConfirmar = signal<RequisitionBatchRow | null>(null);
+  /** Tope del servidor (`bulkEstado`): más de esto no lo acepta en una llamada. */
+  static readonly TOPE_LOTE = 200;
+
+  /**
+   * `[PQ.15]` Aprobar un lote COMPLETO de golpe. Se piden al servidor los documentos del lote que
+   * siguen `pending_approval` (hasta el tope de 200, que es el mismo que acepta el bulk) y se mandan
+   * al mismo endpoint que ya usa «Aprobar» con casillas: cada documento va en su propia
+   * transacción y lo que no pasa se dice por folio (RQ.4). ⚠️ Igual que ese camino, el lote NO
+   * empuja a Kepler (KR.5): quedan «sin empujar a Kepler», que la bandeja ya sabe mostrar.
+   */
+  aprobarLote(g: RequisitionBatchRow): void {
+    if (!g || g.pendientes <= 0 || this.busy()) return;
+    if (g.pendientes > ComprasRequisicionesComponent.TOPE_LOTE) {
+      this.toast.add({ severity: 'warn', summary: `El lote tiene ${g.pendientes} pendientes`, life: 10000,
+        detail: `El servidor acepta hasta ${ComprasRequisicionesComponent.TOPE_LOTE} por llamada. Abrí el lote y aprobalo por páginas.` });
+      return;
+    }
+    this.busy.set(true);
+    this.api.listRequisitions({ batch_id: g.lote, estado: 'pending_approval', pageSize: ComprasRequisicionesComponent.TOPE_LOTE })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          const ids = (r.rows || []).map((x) => x.id);
+          if (!ids.length) {
+            this.busy.set(false); this.loteAConfirmar.set(null);
+            this.toast.add({ severity: 'info', summary: 'Nada que aprobar', detail: 'El lote ya no tiene documentos pendientes.', life: 6000 });
+            this.reload();
+            return;
+          }
+          this.loteAConfirmar.set(null);
+          this.aplicarLote(ids, 'approve', null, g.batch_folio || undefined);
+        },
+        error: (e) => {
+          this.busy.set(false);
+          this.toast.add({ severity: 'error', summary: 'No se pudo leer el lote', detail: e?.error?.message || 'Intenta de nuevo.' });
+        },
+      });
+  }
+
+  private aplicarLote(ids: string[], accion: 'approve' | 'reject', motivo: string | null, loteFolio?: string): void {
     this.busy.set(true);
     this.api.bulkRequisiciones(ids, accion, motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.busy.set(false);
         const verbo = accion === 'approve' ? 'aprobada(s)' : 'rechazada(s)';
-        if (r.hechas) this.toast.add({ severity: 'success', summary: `${r.hechas} ${verbo}`, life: 5000 });
+        if (r.hechas) this.toast.add({
+          severity: 'success', life: accion === 'approve' ? 9000 : 5000,
+          summary: `${r.hechas} ${verbo}${loteFolio ? ` del lote ${loteFolio}` : ''}`,
+          // `[PQ.15]` Aprobar en masa no escribe en Kepler (KR.5): se dice, no se deja suponer.
+          detail: accion === 'approve' ? 'Quedan «sin empujar a Kepler»: el lote no escribe en el ERP; se empuja desde cada requisición cuando la escritura esté encendida.' : undefined,
+        });
         if (r.fallas.length) {
           const folios = new Map(this.rows().map((x) => [x.id, x.folio]));
           const det = r.fallas.slice(0, 3).map((f) => `${folios.get(f.id) || f.id.slice(0, 8)}: ${f.motivo}`).join(' · ');

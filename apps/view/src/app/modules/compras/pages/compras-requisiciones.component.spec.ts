@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { MessageService } from 'primeng/api';
 import { ComprasRequisicionesComponent } from './compras-requisiciones.component';
@@ -386,7 +386,7 @@ describe('[PQ.1] aprobada ≠ escrita en Kepler', () => {
     const c = montarCon([]).componentInstance;
     expect(c.keplerLabel(APROBADA({ kepler_sucursal: '00', kepler_folio: '0003114', kepler_error: null }) as any)).toBe('en Kepler 00/0003114');
     expect(c.keplerSev(APROBADA({ kepler_folio: '0003114' }) as any)).toBe('secondary');
-    expect(c.keplerLabel(APROBADA({ kepler_folio: null, kepler_error: 'KEPLER_PUSH_URL sin configurar' }) as any)).toBe('no salió a Kepler');
+    expect(c.keplerLabel(APROBADA({ kepler_folio: null, kepler_error: 'Kepler (sucursal 04) no conoce al proveedor CA027' }) as any)).toBe('no salió a Kepler');
     expect(c.keplerSev(APROBADA({ kepler_folio: null, kepler_error: 'x' }) as any)).toBe('danger');
     expect(c.keplerLabel(APROBADA({ kepler_folio: null, kepler_error: null }) as any)).toBe('sin empujar a Kepler');
     expect(c.keplerSev(APROBADA({ kepler_folio: null, kepler_error: null }) as any)).toBe('warn');
@@ -398,7 +398,7 @@ describe('[PQ.1] aprobada ≠ escrita en Kepler', () => {
   });
 
   it('la aprobada pinta la segunda etiqueta; la pendiente no', () => {
-    const fix = montarCon([APROBADA({ kepler_folio: null, kepler_error: 'KEPLER_PUSH_URL sin configurar' }), FILA]);
+    const fix = montarCon([APROBADA({ kepler_folio: null, kepler_error: 'Kepler (sucursal 04) no conoce al proveedor CA027' }), FILA]);
     const tags = etiquetas(fix);
     expect(tags).toContain('no salió a Kepler');
     // Las dos pestañas montan sus rejillas: una etiqueta de Kepler por cada «Aprobada» pintada,
@@ -448,6 +448,153 @@ describe('[PQ.1] aprobada ≠ escrita en Kepler', () => {
   });
 });
 
+
+describe('[PQ.14] el apagado de Kepler es un estado de la bandeja, no una falla por fila', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const APROBADA = (over: Record<string, unknown>) => ({ ...FILA, id: '9f3c1a2b-0000-4000-8000-0000000000b1', folio: 'RQ-2026-00901', estado: 'approved', kepler_folio: null, ...over });
+  const RESUMEN = (over: Record<string, unknown> = {}) => [{
+    estado: 'approved', n: 10, monto: 100000, dias_prom: 5, dias_max: 25, n_mas_30: 0, monto_mas_30: 0,
+    n_kepler: 1, n_kepler_error: 6, n_kepler_apagado: 5, n_sin_empujar: 3, monto_sin_kepler: 90000, dias_max_sin_kepler: 25, ...over,
+  }];
+  function montarCon(rows: unknown[], resumen: unknown[] = []) {
+    TestBed.configureTestingModule({
+      imports: [ComprasRequisicionesComponent],
+      providers: [provideRouter([]), { provide: ComprasService, useValue: apiFalsa({ listRequisitions: () => of({ rows, total: rows.length, resumen }) }) }],
+    });
+    return porDocumento(TestBed.createComponent(ComprasRequisicionesComponent));
+  }
+
+  it('los dos textos reales del apagado se etiquetan «Kepler apagado», en gris, no en rojo', () => {
+    const c = montarCon([]).componentInstance;
+    for (const motivo of ['KEPLER_PUSH_URL sin configurar', 'La escritura a Kepler de la sucursal 00 está apagada (falta KEPLER_PUSH_URL_00)']) {
+      const r = APROBADA({ kepler_error: motivo }) as never;
+      expect(c.keplerApagado(r)).toBe(true);
+      expect(c.keplerLabel(r)).toBe('Kepler apagado');
+      expect(c.keplerSev(r)).toBe('secondary');
+      expect(c.keplerTitle(r)).toContain('No es una falla de esta requisición');
+    }
+  });
+
+  it('NEGATIVA: una falla real sigue en rojo, y una escrita en Kepler no es «apagado» aunque el texto lo diga', () => {
+    const c = montarCon([]).componentInstance;
+    expect(c.keplerApagado(APROBADA({ kepler_error: 'Kepler (sucursal 04) no conoce al proveedor CA027' }) as never)).toBe(false);
+    expect(c.keplerSev(APROBADA({ kepler_error: 'Kepler (sucursal 04) no conoce al proveedor CA027' }) as never)).toBe('danger');
+    expect(c.keplerApagado(APROBADA({ kepler_folio: '0003114', kepler_error: 'apagada' }) as never)).toBe(false);
+  });
+
+  it('la casilla separa «salió mal» del apagado, y la cinta lo dice una sola vez con su conteo', () => {
+    const fix = montarCon([], RESUMEN());
+    const c = fix.componentInstance;
+    const casilla = c.kpis().find((k) => k.label === 'Aprobadas sin documento en Kepler')!;
+    expect(casilla.sub).toContain('1 salió mal');
+    expect(casilla.sub).toContain('5 con Kepler apagado');
+    const cinta = fix.nativeElement.querySelector('.rq-apagado') as HTMLElement;
+    expect(cinta).not.toBeNull();
+    expect(cinta.textContent).toContain('La escritura a Kepler está apagada');
+    expect(cinta.textContent).toContain('5 aprobada(s)');
+  });
+
+  it('NEGATIVA: sin apagado no hay cinta, y sin el desglose del servidor «salió mal» son los errores tal cual', () => {
+    const fix = montarCon([], RESUMEN({ n_kepler_apagado: 0 }));
+    expect(fix.nativeElement.querySelector('.rq-apagado')).toBeNull();
+    TestBed.resetTestingModule();
+    const viejo = montarCon([], RESUMEN({ n_kepler_apagado: undefined }));
+    const casilla = viejo.componentInstance.kpis().find((k) => k.label === 'Aprobadas sin documento en Kepler')!;
+    expect(casilla.sub).toContain('6 salió mal');
+    expect(casilla.sub).not.toContain('con Kepler apagado');
+  });
+
+  it('llega desde Pedido con el lote en ?q= y la bandeja abre buscándolo', () => {
+    TestBed.configureTestingModule({
+      imports: [ComprasRequisicionesComponent],
+      providers: [provideRouter([]), { provide: ComprasService, useValue: apiFalsa({ listRequisitions: () => of({ rows: [], total: 0, resumen: [] }) }) },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({ q: 'RQ-LOTE-7' }) } } }],
+    });
+    const fix = TestBed.createComponent(ComprasRequisicionesComponent);
+    fix.detectChanges();
+    expect(fix.componentInstance.fBuscar).toBe('RQ-LOTE-7');
+  });
+});
+
+describe('[PQ.15] aprobar un lote completo de golpe, desde su fila', () => {
+  afterEach(() => TestBed.resetTestingModule());
+  const LOTE = (over: Record<string, unknown> = {}) => ({
+    lote: '7a1b2c3d-0000-4000-8000-00000000000a', batch_folio: 'RQ-LOTE-2026-00141', documentos: 10, compras: 0, traspasos: 10,
+    almacenes: 6, proveedores: 0, renglones: 73, monto: 281201, created_at: '2026-10-26T14:02:00Z', dias: 0,
+    estado: 'pending_approval', pendientes: 10, autor: 'arizbeth_gonzalez', ...over,
+  });
+  type Llamada = { list?: Record<string, unknown>; bulk?: [string[], string, string | null] };
+  function montar(lote: Record<string, unknown>, pendientesEnServidor = 3, llamadas: Llamada[] = [], permiso = true) {
+    TestBed.configureTestingModule({
+      imports: [ComprasRequisicionesComponent],
+      providers: [provideRouter([]), { provide: ComprasService, useValue: apiFalsa({
+        listRequisitionBatches: () => of({ rows: [lote], total: 1, page: 1, pageSize: 25, disponible: true, con_lote: 1 }),
+        listRequisitions: (q: Record<string, unknown>) => {
+          llamadas.push({ list: q });
+          const rows = Array.from({ length: pendientesEnServidor }, (_, i) => ({ ...FILA, id: `9f3c1a2b-0000-4000-8000-0000000000${(10 + i).toString(16)}`, folio: `RQ-${i}` }));
+          return of({ rows, total: rows.length, resumen: [] });
+        },
+        bulkRequisiciones: (ids: string[], accion: string, motivo: string | null) => { llamadas.push({ bulk: [ids, accion, motivo] }); return of({ pedidas: ids.length, hechas: ids.length, ok: ids, fallas: [] }); },
+      }) }],
+    });
+    const fix = TestBed.createComponent(ComprasRequisicionesComponent);
+    fix.componentInstance.canAutorizar = permiso;
+    fix.detectChanges();
+    fix.componentInstance.vista.set('lote');
+    fix.detectChanges();
+    return fix;
+  }
+  const boton = (fix: { nativeElement: HTMLElement }, texto: RegExp) =>
+    Array.from(fix.nativeElement.querySelectorAll('button')).find((b) => texto.test(b.textContent || '')) as HTMLButtonElement | undefined;
+
+  it('el lote con pendientes ofrece «Aprobar lote (N)»; el primer clic pide confirmación y el segundo manda al servidor SOLO los pendientes del lote', () => {
+    const llamadas: Llamada[] = [];
+    const fix = montar(LOTE(), 3, llamadas);
+    const b = boton(fix, /Aprobar lote \(10\)/);
+    expect(b).toBeDefined();
+    b!.click(); fix.detectChanges();
+    expect(llamadas.filter((l) => l.bulk)).toEqual([]);          // todavía nada: pide confirmación
+    const si = boton(fix, /Sí, aprobar 10/);
+    expect(si).toBeDefined();
+    si!.click(); fix.detectChanges();
+    const list = llamadas.find((l) => l.list && l.list['batch_id'])!.list!;
+    expect(list['batch_id']).toBe('7a1b2c3d-0000-4000-8000-00000000000a');
+    expect(list['estado']).toBe('pending_approval');
+    expect(list['pageSize']).toBe(200);
+    const bulk = llamadas.find((l) => l.bulk)!.bulk!;
+    expect(bulk[0].length).toBe(3);
+    expect(bulk[1]).toBe('approve');
+    expect(fix.componentInstance.loteAConfirmar()).toBeNull();
+  });
+
+  it('NEGATIVA: sin pendientes no hay botón', () => {
+    const fix = montar(LOTE({ pendientes: 0, estado: 'approved' }));
+    expect(boton(fix, /Aprobar lote/)).toBeUndefined();
+  });
+
+  it('NEGATIVA: sin permiso de autorizar no hay botón', () => {
+    const fix = montar(LOTE(), 3, [], false);
+    expect(boton(fix, /Aprobar lote/)).toBeUndefined();
+  });
+
+  it('NEGATIVA: un lote con más de 200 pendientes no manda nada y lo dice (tope del servidor)', () => {
+    const llamadas: Llamada[] = [];
+    const fix = montar(LOTE({ pendientes: 201, documentos: 201 }), 201, llamadas);
+    fix.componentInstance.aprobarLote(LOTE({ pendientes: 201, documentos: 201 }) as never);
+    // La bandeja pide su propia lista al abrir; lo que NO debe existir es la lectura del lote ni el bulk.
+    expect(llamadas.filter((l) => l.bulk || (l.list && l.list['batch_id']))).toEqual([]);
+  });
+
+  it('Cancelar en la confirmación no manda nada', () => {
+    const llamadas: Llamada[] = [];
+    const fix = montar(LOTE(), 3, llamadas);
+    boton(fix, /Aprobar lote/)!.click(); fix.detectChanges();
+    boton(fix, /^\s*Cancelar\s*$/)!.click(); fix.detectChanges();
+    expect(llamadas.filter((l) => l.bulk)).toEqual([]);
+    expect(boton(fix, /Aprobar lote \(10\)/)).toBeDefined();
+  });
+});
 
 describe('[AB.32] rechazar lo que pidió una sucursal exige motivo', () => {
   const DE_SUCURSAL = { ...FILA, id: '9f3c1a2b-0000-4000-8000-000000000002', folio: 'RQ-2026-00043', requested_by_branch: true };

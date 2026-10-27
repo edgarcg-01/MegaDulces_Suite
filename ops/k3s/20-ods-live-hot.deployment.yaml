@@ -65,6 +65,23 @@ spec:
               value: kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
             - name: ODS_HASH_TABLES
               value: kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
+            # `[OBS.15.8]` EL PRECIO DE VENTA SE RECALCULA DE UNA SOLA VEZ, NO EN LOTES DE 25.
+            # El costo de `normalizeSalePrice` es PLANO (PERF.3), y lo medido en prod el 2026-10-26
+            # con la misma cadena de CTEs, en sólo lectura y dos corridas por tamaño:
+            #     lote 25 ...... 4.3–4.9 s  (evaluó 3 SKUs)
+            #     lote 100 ..... 3.6–3.9 s
+            #     lote 3,806 ... 5.6–6.1 s  (evaluó 3,744: la bolsa ENTERA)
+            # Con el default de 25 la ventana gastaba ~11 s por minuto para avanzar 100 SKUs y la
+            # bolsa no bajaba nunca de ~3,650 (un precio esperaba hasta ~38 min). Con el lote entero,
+            # cada ventana cubre todo por ~6 s. El tope de presupuesto (10 s) sigue igual.
+            - name: ODS_PRICE_COALESCE_CHUNK
+              value: "5000"
+            # `[OBS.15.12]` Los renglones de `kdm2` los entrega la cola (`ods-live-caja`). Donde está
+            # activa, la red de 3 días de este carril deja de re-embarcar la ventana (~82k renglones
+            # cada 5 min; con tienda abierta el ciclo llegó a mediana 16.3 s y máx 134 s) y sólo junta
+            # sus SKUs para el recálculo de precio. NO vacía la cola: eso lo hace sólo el de caja.
+            - name: ODS_COLA_CUBRE
+              value: kdm2
           # ⭐ ACÁ SE DISUELVE EL PUNTO 3. Esta sonda ES el brazo: cuando falla, el kubelet
           # reinicia el contenedor. No hace falta `ods-autoheal`, y por lo tanto no hace falta
           # montar `/var/run/docker.sock` —que equivale a root en el host— en una imagen de

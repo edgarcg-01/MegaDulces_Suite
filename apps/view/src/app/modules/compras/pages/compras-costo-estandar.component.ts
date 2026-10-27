@@ -23,6 +23,8 @@ import {
   ResumenCostoEstandar,
   VeredictoCostoEstandar,
 } from '../costo-estandar.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { COSTOS_COMPRA_TABS } from '../costos-compra-tabs';
 
 /**
  * `[CE.6]` — **Costo estándar**: con qué costo está poniendo precio Kepler, y si se parece a lo
@@ -116,7 +118,7 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
   imports: [
     CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
     TableModule, SelectModule, CheckboxModule, SkeletonModule, TagModule, MetricStripComponent,
-    SegmentedComponent, ContextHelpComponent, SucursalPipe,
+    SegmentedComponent, ContextHelpComponent, SucursalPipe, PageTabsComponent,
   ],
   template: `
     <div class="surf-page in">
@@ -139,6 +141,8 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
           </button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       @if (error(); as e) {
         <div class="ce-err" role="alert">
@@ -629,6 +633,8 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
   `],
 })
 export class ComprasCostoEstandarComponent implements OnInit {
+  /** [NAV.6] La barra del apartado «Costos de compra» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = COSTOS_COMPRA_TABS;
   private readonly svc = inject(CostoEstandarService);
   private readonly destroyRef = inject(DestroyRef);
 

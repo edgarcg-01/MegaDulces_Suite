@@ -5,7 +5,7 @@ import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledg
 import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
-import type { PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount } from '@megadulces/contracts';
+import type { PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 
@@ -33,14 +33,37 @@ const KEPLER_PAYABLE_ID = sqlKeplerPayableId('v');
  *
  * ⚠️ Lo que **sí** es decisión de esta fase, y queda dicha: `servicios` y `sin_clasificar` van a
  * `proveedor_mercancia`. No es que sean mercancía — es que **se pagan por el mismo circuito** (una
- * factura del ERP a un tercero), mientras que `gasto` está reservado para lo que autorizó
- * Presupuestos por su propio camino. Los `interno` (`TI*`) ya quedaron fuera: no son deuda.
+ * factura del ERP a un tercero). Los `interno` (`TI*`) ya quedaron fuera: no son deuda.
+ *
+ * ── `[PGP.18]` **El gasto deja de ser una categoría vacía** ───────────────────────────────────
+ *
+ * Esta nota decía que `gasto` quedaba *«reservado para lo que autorizó Presupuestos por su propio
+ * camino»*. Medido el 2026-10-26, ese camino está **vacío**: `budget.expense_obligations` tiene
+ * **312 filas y las 312 son `propuesta`** —proyecciones mensuales del presupuesto hasta 2027
+ * («GASTOS DE VENTA 2027-11»), $149,664,685, ninguna autorizada— y el Calendario las excluye, con
+ * razón: no son deuda, son un plan.
+ *
+ * ⛔ El resultado era que **el filtro «Gasto» nunca devolvía nada** mientras **1,089 gastos reales
+ * por $5,991,839** —ARRENDAMEX, caja chica, SERVICIOS LA QUEMADA— salían rotulados «Proveedor».
+ * Un filtro que siempre está vacío y una etiqueta que nombra otra cosa: el defecto que
+ * `auditoria-diseno` llama Cruce 2.
+ *
+ * El criterio **no se inventa**: es el nombre que el propio ERP le da al documento. `kdmm` del
+ * módulo `X` dice que `X-A-10` se llama **«Gastos»**, igual que `X-A-20` es «Aplica Orden Entrada»
+ * (mercancía) y `X-A-45` «Nota Cargo a Proveedor».
+ *
+ * ⚠️ El orden de las ramas importa y está medido: un crédito BBVA llega como `X-A-10` (intereses)
+ * y tiene que seguir siendo `compromiso_financiero`. Por eso lo financiero se evalúa **primero**;
+ * con ese orden, los 72 documentos financieros ($34,635,405) no se mueven.
  */
-function sqlClassificationKepler(codigo: string, grupo: string): string {
+function sqlClassificationKepler(codigo: string, grupo: string, docTipo?: string): string {
   const porPrefijo = PREFIJOS_FINANCIEROS.map((p) => `upper(btrim(${codigo})) LIKE '${p}%'`).join(' OR ');
   const porGrupo = GRUPOS_FINANCIEROS.map((g) => `btrim(coalesce(${grupo}, '')) = '${g}'`).join(' OR ');
+  // `[PGP.18]` X-A-10 = «Gastos» en el catálogo kdmm del ERP. Sin `docTipo` el comportamiento es
+  // exactamente el de antes: la rama no existe y todo lo no financiero cae a proveedor.
+  const ramaGasto = docTipo ? `WHEN ${docTipo}::int = 10 THEN 'gasto'::text ` : '';
   return `CASE WHEN (${porGrupo}) OR (${porPrefijo})
-               THEN 'compromiso_financiero'::text ELSE 'proveedor_mercancia'::text END`;
+               THEN 'compromiso_financiero'::text ${ramaGasto}ELSE 'proveedor_mercancia'::text END`;
 }
 
 /**
@@ -298,7 +321,7 @@ export class PaymentCalendarService {
         trx.raw('v.pendiente AS original_amount'),
         // `[TP.17.1b]` La clasificación viaja con la fila: para este origen NO sale de
         // `CLASSIFICATION_BY_SOURCE`, porque depende del acreedor y no del origen.
-        trx.raw(`${sqlClassificationKepler('v.proveedor', 'v.grupo')} AS classification`),
+        trx.raw(`${sqlClassificationKepler('v.proveedor', 'v.grupo', 'v.doc_tipo')} AS classification`),
         's.id AS supplier_id',
         trx.raw(`coalesce(s.name, v.proveedor_nombre, v.proveedor) AS beneficiary`),
         trx.raw(`coalesce(nullif(btrim(v.folio), ''), 'Factura') AS concept`),
@@ -325,6 +348,103 @@ export class PaymentCalendarService {
   }
 
   // ── Obligaciones disponibles (UNION de los 3 orígenes; nunca escribe) ────────────────
+  /**
+   * `[PGP.14]` **El crédito a favor que nadie aplicó, por acreedor.**
+   *
+   * Nace de una pregunta de Edgar (2026-10-26): *«¿cómo sabemos cuándo debemos aplicar una nota de
+   * crédito o alguna devolución?»*. Medido: **Kepler ya las aplica** —`kdxf` casa el abono contra
+   * el cargo y la deuda viva nace neteada—, así que la pantalla pagaba bien… salvo por lo que
+   * **nadie aplicó**, que era invisible: `v_supplier_payables` sólo deja pasar cargos.
+   *
+   * | | medido el 2026-10-26 |
+   * |---|---|
+   * | sin aplicar, total | **$8,264,176** en 201 documentos |
+   * | de eso, **neteable hoy** | **$4,484,249** en **54 acreedores con deuda viva** |
+   * | el resto | 15 acreedores sin deuda viva ($2.95 M): no hay contra qué aplicarlo |
+   *
+   * ⭐ Las **notas de crédito sí se aplican** (1,801 docs, $110.6 M, ~100 %). Lo que se queda son
+   * **anticipos** ($6.99 M) y **devoluciones** ($1.25 M, 6 de cada 10 sin netear).
+   *
+   * ⚠️ **Es un PISO, no un dictamen**: el control de cheques da 105 % aplicado (`kdxf` sobre-cuenta
+   * por replicación de sucursal), y sobre-contar lo aplicado **sub-cuenta** lo pendiente.
+   *
+   * Sale en su propio endpoint y no dentro de `listObligations` a propósito: esa consulta tiene un
+   * presupuesto de 500 ms y corre en 325-377: meterle este join la empuja contra el techo sin que
+   * nadie lo necesite en la misma respuesta. Medido: 135-143 ms por separado.
+   */
+  async listUnappliedCredits(): Promise<SupplierUnappliedCreditRow[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      /*
+       * ⛔ `[PGP.17]` **El `EXISTS` correlacionado costaba 882 ms; este `LEFT JOIN`, 394.**
+       *
+       * Medido contra prod el 2026-10-26, 4 corridas cada uno. La versión con `EXISTS (…)` dentro
+       * del `SELECT` lo evaluaba **una vez por acreedor** —73 veces— contra una vista derivada que
+       * no tiene índice que ayude. Pre-agregar los acreedores con deuda a un conjunto y unirlo lo
+       * deja en una sola pasada.
+       *
+       * ⚠️ 394 ms sigue siendo cerca del techo de 500. Se banca porque corre **una vez al abrir la
+       * pantalla** y en paralelo con las obligaciones, no por interacción. Si la deuda crece, el
+       * siguiente paso es materializar `ap` — no subir el techo.
+       */
+      const { rows } = await trx.raw(
+        `WITH deudores AS (
+           SELECT DISTINCT p.proveedor
+             FROM analytics.v_supplier_payables p
+            WHERE p.pendiente > 0 AND p.proveedor NOT LIKE 'TI%' AND p.tenant_id = ?
+         )
+         SELECT c.proveedor,
+                max(c.proveedor_nombre) AS proveedor_nombre,
+                sum(c.a_favor)::float8 AS a_favor,
+                count(*)::int AS docs,
+                string_agg(DISTINCT c.clase, ', ' ORDER BY c.clase) AS clases,
+                to_char(min(c.fecha), 'YYYY-MM-DD') AS mas_vieja,
+                bool_or(d.proveedor IS NOT NULL) AS con_deuda_viva
+           FROM analytics.v_supplier_credits c
+           LEFT JOIN deudores d ON d.proveedor = c.proveedor
+          WHERE c.tenant_id = ? AND c.pendiente
+          GROUP BY c.proveedor
+          ORDER BY sum(c.a_favor) DESC`,
+        [tenantId, tenantId],
+      );
+      return rows;
+    });
+  }
+
+  /**
+   * `[PGP.17]` **El desglose de UN acreedor, con los DOS casos.** Pedido de Edgar: *«especificando
+   * todo tipo de descuento para que sepan qué aplicar desde Suite»*.
+   *
+   * El aviso de `[PGP.14]` dice *cuánto* hay a favor; esto dice **de qué tipo, de qué documento y
+   * si ya se aplicó o no** — que es lo único con lo que alguien puede ir a actuar.
+   *
+   * ⭐ Devuelve también lo YA APLICADO, a propósito. Sin eso, quien mira cree que el sistema no
+   * hace nada: el caso real de `CL005` es una nota de crédito de $2,649,765.94 de la que Kepler
+   * aplicó $2,173,299.73 **solo**, y por eso esa factura nunca apareció en la pantalla de Pagos.
+   * Ver sólo lo pendiente convierte un proceso que funciona en una sospecha.
+   *
+   * ⛔ Pagos (cheque `X-D-25`, transferencia `X-D-26`) quedan fuera: no son descuentos.
+   */
+  async listSupplierCredits(proveedor: string): Promise<SupplierCreditRow[]> {
+    const code = String(proveedor ?? '').trim();
+    if (!code) return [];
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT c.sucursal, c.clase, c.folio, c.referencia,
+                to_char(c.fecha, 'YYYY-MM-DD') AS fecha,
+                c.importe::float8 AS importe, c.aplicado::float8 AS aplicado,
+                c.a_favor::float8 AS a_favor, c.pendiente
+           FROM analytics.v_supplier_credits c
+          WHERE c.tenant_id = ? AND c.proveedor = ?
+          ORDER BY c.pendiente DESC, c.fecha DESC NULLS LAST, c.a_favor DESC
+          LIMIT 200`,
+        [tenantId, code],
+      );
+      return rows;
+    });
+  }
+
   async listObligations(q: {
     source?: ObligationSource; classification?: string; search?: string;
     dueFrom?: string; dueTo?: string; onlyCritical?: boolean; onlyAvailable?: boolean;
@@ -481,9 +601,13 @@ export class PaymentCalendarService {
           trx.raw(`coalesce(nullif(btrim(v.folio), ''), 'Factura') AS concept`),
           // `[TP.17.1b]` La clasificación sale de QUIÉN es el acreedor, no del origen: un crédito
           // bancario y una factura de dulces llegan por la misma vista y no se pagan igual.
-          trx.raw(`${sqlClassificationKepler('v.proveedor', 'v.grupo')} AS classification`),
-          trx.raw(`CASE WHEN ${sqlClassificationKepler('v.proveedor', 'v.grupo')} = 'compromiso_financiero'
-                        THEN 'financiero'::text ELSE 'mercancia'::text END AS subtype`),
+          trx.raw(`${sqlClassificationKepler('v.proveedor', 'v.grupo', 'v.doc_tipo')} AS classification`),
+          // `[PGP.18]` El subtipo sigue a la clasificación: un gasto no es «mercancía». Si no lo
+          // siguiera, el filtro diría «Gasto» y el renglón seguiría diciendo mercancía debajo.
+          trx.raw(`CASE ${sqlClassificationKepler('v.proveedor', 'v.grupo', 'v.doc_tipo')}
+                        WHEN 'compromiso_financiero' THEN 'financiero'::text
+                        WHEN 'gasto' THEN 'operativo'::text
+                        ELSE 'mercancia'::text END AS subtype`),
           trx.raw('v.proveedor AS area_code'), trx.raw('v.vencimiento AS original_due_date'),
           trx.raw('NULL::date AS negotiated_date'), trx.raw('v.pendiente AS original_amount'),
           // ⚠️ `coalesce` acá y no dentro del agregado: con LEFT JOIN, una factura SIN reserva no

@@ -37,7 +37,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Precio', def: 'Lo que se cobra por unidad de la presentación, ya con volumen o promoción. Entre paréntesis, lo que sale cada unidad menor (por ejemplo, cada paquete dentro de la caja).' },
           { term: 'Porcentaje', def: 'Cuánto baja el precio contra la lista: (lista − precio) ÷ lista. Es la misma cuenta antes y después de guardar la cotización.' },
           { term: 'Línea gris', def: 'Los pasos del precio, de la lista al precio final: «lista $26.94 → volumen $24.79».' },
-          { term: 'Importe', def: 'Cantidad por precio, a centavos como Kepler (el precio se guarda por unidad base). La suma de los importes, menos el descuento del cliente, es el total.' },
+          { term: 'Importe', def: 'Cantidad por precio, a centavos como Kepler (el precio se guarda por unidad base). Si el cliente tiene descuento, el importe ya trae su parte —repartida para que la suma sea el total, igual que en la hoja— y abajo se ve el de Kepler antes del %.' },
         ],
       },
     ],
@@ -46,15 +46,26 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // sucursal: palabra llana, nada de nombres de columna. Cada definición está anclada a la cuenta real
   // (`armarRenglon` en libs/contracts y FASE_AB §16.8), no a lo que la etiqueta sugiere.
   'almacen-autoabasto': {
-    title: 'Autoabasto — qué le falta a tu almacén',
-    intro: 'La mesa muestra, producto por producto, cuánto le falta a tu almacén para llegar a su objetivo, qué parte ya viene en camino y a quién se le pide. Es la misma cuenta que «Mi pedido»: las dos pantallas no pueden dar cifras distintas del mismo producto.',
+    title: 'Autoabasto — qué le falta a tu almacén y qué pides',
+    intro: 'Una sola pantalla: producto por producto, cuánto le falta a tu almacén para llegar a su objetivo, qué parte ya viene en camino, a quién se le pide y cuánto va en tu pedido. El sistema ya armó el pedido; tú corriges con − / + lo que haga falta y lo mandas a Compras.',
     groups: [
+      {
+        heading: 'Tu pedido',
+        entries: [
+          { term: 'A pedir', def: 'Lo que falta neto, redondeado a la unidad en que se captura en Kepler (cajas completas si es media caja o más; si no, la unidad menor). Lo puedes teclear o mover con − / +. Con el teclado, como en el pedido de Compras: ↑ ↓ o Enter cambian de renglón y ← → suben o bajan uno. Si te alejas más de 20% de lo sugerido, eliges el motivo. Cada cambio se guarda solo.' },
+          { term: 'Venta por mes', def: 'Al tocar la venta de 30 días se abre la venta de los últimos 13 meses de ese producto en tu almacén, contra el mismo mes del año anterior: la barra es la venta en pesos y el número, las cajas. Es el mismo globo que usa Compras en su pedido.' },
+          { term: '¿Hasta dónde pides?', def: 'Qué posiciones entran al pedido: agotado, bajo mínimo, bajo reorden u otros. Lo que no marques se ve en «Todos», pero no se pide ni se manda.' },
+          { term: 'En tu pedido', def: 'Lo que entra al pedido ahora: posición marcada, con cantidad y que no hayas mandado ya a Compras. Es lo que sale con «Enviar a Compras» y en el PDF del pedido.' },
+          { term: 'Mínimo, reorden y máximo', def: 'La política del almacén para ese producto, en cajas. Debajo del mínimo está en riesgo; debajo del reorden toca pedir; arriba del máximo sobra. Explican la posición.' },
+          { term: 'Entrega', def: 'Cuándo vuelve a surtir quien se lo pide, según la cadencia de su canal. Sirve para saber si alcanza lo que hay hasta entonces.' },
+        ],
+      },
       {
         heading: 'Las columnas',
         entries: [
           { term: 'Objetivo', def: 'Lo que el almacén debería tener: la venta diaria del producto por los días de cobertura del almacén (21 en sucursales, 30 en matrices y CEDIS), ajustada por temporada.' },
           { term: 'Falta', def: 'Objetivo menos existencia. Es lo que falta antes de contar lo que ya viene en camino.' },
-          { term: 'Ya viene', def: 'Lo que ya está pedido a tu matriz (pedido abierto de 7 días o menos) más lo que ya se embarcó y todavía no recibes. Se resta de lo que falta.' },
+          { term: 'Ya viene', def: 'Lo que ya está pedido a tu matriz (pedido abierto de 7 días o menos) más lo que ya se embarcó y todavía no recibes. Se resta de lo que falta. En «Lo que te va a llegar», cada pedido o embarque se abre para ver qué productos trae y cuánto, como se capturó en Kepler.' },
           { term: 'Falta neta', def: 'Lo que falta después de restar lo que ya viene. Es lo que de verdad hay que pedir.' },
           { term: 'Surte', def: 'A quién se le pide este producto: tu matriz (traspaso) o el proveedor (compra), según el canal configurado. «Sin ruta» quiere decir que no hay canal: no se sabe a quién pedírselo.' },
           { term: 'Posición', def: 'Dónde está la existencia contra la política del almacén: agotado, bajo mínimo, bajo reorden, sano o sobrestock. Decide qué tan urgente es.' },
@@ -755,6 +766,43 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         entries: [
           { term: 'Km/entrega', def: 'Kilómetros recorridos ÷ paradas con cliente. Más bajo = ruta más eficiente (menos km por entrega).' },
           { term: 'Reconstruir día', def: 'Recalcula paradas y resumen desde el rastro GPS crudo. Útil si el proceso nocturno aún no corrió o si acaban de llegar posiciones.' },
+        ],
+      },
+    ],
+  },
+  // `[FCU.3]` Logística › Costo por unidad: reemplaza la hoja «TRANSPORTES 2026 - COSTOS DE TRANSPORTE».
+  // Lo leen Logística y Finanzas. Cada definición está anclada a `armarUnidad`
+  // (libs/logistics/.../costo-unidad.logic.ts) y a RUBROS_COSTO_UNIDAD (libs/contracts), no a la hoja.
+  'costo-unidad': {
+    title: 'Costo por unidad — de dónde sale cada peso',
+    intro: 'Por cada unidad de Transportes: lo que costó en el periodo contra lo presupuestado, rubro por rubro. El gasto sale de Kepler (los gastos X-A-10 de los conceptos de flota), los km del GPS (o del odómetro si no tiene GPS) y las comisiones de sus guías. Lo que no existe en ninguna fuente —salario del chofer, nómina administrativa, valor de compra— se captura aquí.',
+    groups: [
+      {
+        heading: 'De dónde sale (cada rubro lo dice)',
+        entries: [
+          { term: 'Kepler', def: 'La suma de los gastos de Kepler de ese rubro que son de esta unidad: los confirmados y los sugeridos por el texto. Si ninguno la nombra, el real es $0 y el rubro te manda a «Gastos sin unidad».' },
+          { term: 'Calculado', def: 'Comisiones: cada guía de la unidad por la tarifa de su ruta para el chofer (la misma regla de Pagos de viaje, sin ayudantes). Depreciación de una unidad propia: (valor de compra − residual) ÷ vida útil, por los días del periodo.' },
+          { term: 'Capturado', def: 'Lo que se escribió aquí: el salario mensual del chofer (ficha) o la nómina administrativa del mes, repartida entre las unidades.' },
+          { term: 'Falta capturar', def: 'El dato no está en ninguna fuente y nadie lo ha escrito (por ejemplo, el salario del chofer o la nómina de un mes). No suma al real y se cuenta arriba como «faltan datos».' },
+          { term: 'Sin medir', def: 'Debería haber un gasto y no se pudo atribuir: una unidad arrendada sin ningún pago de renta en Kepler que la nombre en el periodo. No suma al real.' },
+          { term: 'Restringido', def: 'El salario y la nómina administrativa sólo los ve quien gestiona Costo por unidad. Para los demás no suman ni al real ni al presupuesto, y se avisa arriba.' },
+        ],
+      },
+      {
+        heading: 'Los gastos de Kepler',
+        entries: [
+          { term: 'Sugerido por el texto', def: 'Kepler no tiene un campo de unidad. El sistema lee el texto del gasto y lo compara con los nombres de la ficha («Cómo se escribe en los gastos de Kepler»). Suma al real, pero queda por confirmar en «Gastos sin unidad».' },
+          { term: 'Nombra dos unidades', def: 'El texto coincide con más de una unidad: no se adivina. No suma a ninguna hasta que alguien la asigne.' },
+          { term: 'No es de flota', def: 'Alguien dijo que ese gasto no es de una unidad (por ejemplo, una refacción de montacargas). Ya no aparece en la bandeja.' },
+        ],
+      },
+      {
+        heading: 'Las cifras',
+        entries: [
+          { term: 'Presupuesto del periodo', def: 'El presupuesto anual de cada rubro (pestaña Presupuesto) por los días del periodo ÷ 365.' },
+          { term: 'Expresado por mes, catorcena, día…', def: 'Las columnas de la hoja: el monto del periodo llevado a ese corte (monto × 365 ÷ días del periodo ÷ cortes por año). Sirve para comparar un mes contra lo que la hoja dice por mes.' },
+          { term: '$/km real', def: 'El real del periodo ÷ los km del periodo. Sin km (sin GPS ni lecturas de odómetro) no se calcula: no se divide entre un supuesto.' },
+          { term: '$/km hoja', def: 'El presupuesto anual de la unidad ÷ los km presupuestados al año de su ficha. Es el número que traía la hoja.' },
         ],
       },
     ],
@@ -2440,6 +2488,22 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: '2 · Preparar', def: 'Le pones el método, la cuenta de donde sale el dinero y la cuenta a donde llega. Es de Tesorería. Mientras un solo pago del día quede sin preparar, el día entero NO se puede autorizar.' },
           { term: '3 · Autorizar el día', def: 'Lo hace quien tiene el permiso de autorizar, que no es quien preparó: esa separación es el control. Al autorizar, el día recibe su folio y Caja General ya puede dispersar.' },
           { term: '4 · Ejecutar y ligar', def: 'Caja General paga y marca el pago como ejecutado. Después se liga con su documento del ERP, que es lo que permite volver a cruzarlo contra la contabilidad. Va aparte porque el dinero sale antes de que el ERP capture el documento.' },
+        ],
+      },
+      {
+        // [PGP.13] El vocabulario que cambió al rediseñar, y lo que la pantalla TODAVÍA no hace.
+        // Declararlo acá es lo que impide que alguien lea la pantalla como si ya lo hiciera.
+        heading: 'El tope del día, y lo que falta construir',
+        entries: [
+          { term: 'Tope del día', def: 'Lo máximo que puede salir ese día. Lo fija Presupuestos a partir del ingreso esperado. ⚠️ Antes esta pantalla lo llamaba «presupuesto» y Presupuestos lo llama «capacidad»: es el MISMO valor con tres nombres, y por eso acá se dice «tope» en todos lados. Un día sin tope fijado no es un día con tope cero: se puede armar, pero no se puede autorizar.' },
+          { term: 'Libre del tope', def: 'El tope menos lo ya comprometido. Es la cifra que la cola de días muestra a la derecha de cada día, SIEMPRE — antes mostraba lo comprometido cuando el día tenía pagos y lo libre cuando no, así que el día con más espacio se leía como el más apretado.' },
+          { term: 'Por confirmar antes de programar', def: 'Facturas de sucursal anteriores al corte del 1 de octubre de 2026. Varias se pagaron desde Oficinas sin que la sucursal las aplicara, así que programarlas puede pagarlas dos veces. Se ven, no se agregan, hasta que Finanzas las revise. ⚠️ El grupo se arma por FECHA, no con una marca del ERP: es una aproximación conservadora, no un dictamen.' },
+          { term: 'Quién autoriza (y qué falta)', def: 'Hoy se autoriza EL DÍA COMPLETO, y lo hace quien tiene el permiso de autorizar — nunca quien preparó. ⚠️ La decisión D2 —una firma por pago según su monto, hasta $100,000 Tesorería y arriba Dirección— está firmada pero NO está construida: mientras tanto, un pago chico y uno grande los autoriza la misma persona en el mismo clic.' },
+          { term: 'Kepler (X-D-26)', def: 'El pago se sigue capturando A MANO en el ERP. La escritura automática está apagada. Si la pantalla no lo dijera, quien captura dejaría de hacerlo creyendo que la Suite lo escribe.' },
+          { term: 'Trae $X a favor sin aplicar', def: 'Ese acreedor tiene notas de crédito, devoluciones, bonificaciones o anticipos que Kepler todavía NO neteó contra ninguna factura. ⛔ No bloquea el pago —netear es una decisión de Finanzas con el proveedor, no una regla automática—, pero pagar la factura completa deja ese dinero ahí. Medido el 2026-10-26: $8,264,176 sin aplicar en 201 documentos, de los cuales $4,484,249 son de 54 acreedores a los que además les debemos. Varios quedarían en CERO: un proveedor debe $149,640 y trae $2,000,820 a favor. ⚠️ Es un PISO, no un dictamen: el casamiento del ERP sobre-cuenta lo aplicado, así que lo pendiente real puede ser mayor.' },
+          { term: 'Qué SÍ se aplica solo', def: 'Las notas de crédito: 1,801 documentos por $110.6M, prácticamente todas neteadas por Kepler. Ese proceso funciona y la deuda que ves ya nace con el descuento hecho. Lo que se queda sin aplicar son los ANTICIPOS (58% aplicado) y las DEVOLUCIONES (40%): 6 de cada 10 devoluciones nunca se netearon contra una factura.' },
+          { term: 'Se adelanta N días: cuesta $X', def: 'Lo que cuesta pagar una factura ANTES de su vencimiento: el dinero sale de la cuenta antes de tiempo. La regla es pagar lo más cerca posible del vencimiento. Medido el 2026-10-26 (Oficinas, 90 días, 8,835 pagos casados contra el vencimiento de su factura): el 17.9% del dinero —$29,714,126— sale antes de tiempo, 6 días antes en promedio, lo que cuesta unos $73,704 por trimestre. La mediana sí está bien: 1 día después del vencimiento. ⛔ No bloquea nada, y se calla cuando el descuento por pronto pago gana más de lo que cuesta adelantar: ahí adelantar es lo correcto. ⚠️ La tasa con la que se calcula (12% anual) es un SUPUESTO para comparar, no el costo real del dinero de Mega Dulces.' },
+          { term: 'Lo que compone el importe', def: 'En Kepler, el total de la factura trae su subtotal, su IVA (16%) y, en los dulces, el IEPS (8% sobre el subtotal, por ser alimento de alta densidad calórica). Eso NO es un descuento: es la composición del documento. Lo que reduce lo que sale del banco son otras cuatro cosas: el pronto pago, el crédito a favor sin aplicar, lo que Kepler ya neteó, y no adelantar el pago.' },
         ],
       },
       {

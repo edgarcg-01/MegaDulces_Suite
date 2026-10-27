@@ -846,7 +846,10 @@ export interface CaosCandidato {
   sucursal: string;
   user_external: string | null;
   ref: string | null;
+  /** `[CGA-A.51]` Lo que le QUEDA al retiro. Se usa para repartir; no se muestra (Edgar). */
   monto: number;
+  /** `[CGA-A.51]` Lo que salió de la máquina. */
+  total?: number;
   denominaciones: Array<{ denominacion: number; piezas: number }>;
   score: number;
   motivos: string[];

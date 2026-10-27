@@ -472,12 +472,292 @@ SQL con las tres vistas no termina en 10 min).
 |---|---|---|
 | D20 | ¿Factor de caja del pedido = `c84` de Kepler y nada más? | **No procede: medido, el resolvedor ya entrega el `c58` de Kepler (99.3 % en caja) y el `c84` solo daría 98.7 %.** Queda: (a) rótulo «empaque de la OC ≠ ficha» para los 41 + 78; (b) la unidad del renglón que se ESCRIBE en Kepler (`c11`/`c55`/`c58`) se decide en KR con esta misma medición como testigo |
 
+### 12.4 «Necesito un 100 %»: contra qué, y cómo se alcanza (misma tarde)
+
+Se bajó a las **268 líneas** (1.39 %) que no cuadraban con la ficha de Kepler por etiqueta + factor:
+
+| Qué son | Líneas | Veredicto |
+|---|---:|---|
+| factor de la ficha, otra etiqueta (la ficha renombró la unidad base `PAQ`→`PZA` después de la OC; `c58` = 1 en los dos lados) | 162 | cuadran **por factor** |
+| unidad que la ficha NO tiene: el comprador capturó `PZA` a 96/caja donde la ficha dice `PAQ` 12/caja (SKUs 480xx, 30540, 89137…); el costo de la línea cuadra con su propio `c58` en las 106 | 106 | elección humana en Kepler; **ninguna ficha las reproduce** |
+
+Por eso el 100 % tiene dos árbitros distintos y hay que nombrar cuál:
+
+1. **Contra la ficha de Kepler (lo que Kepler usaría para una línea nueva): 100 % por construcción**,
+   leyendo la ficha de esa sucursal y nada más. Es **PQ.13** (migración
+   `20261026125709_pq_factor_caja_ficha_kepler.js`): 867 celdas cambian (0.51 %), 568 de ellas a 1
+   porque la ficha dice `unidad_unica`. Cuerpo ejercido en prod sólo lectura; migración sin aplicar.
+2. **Contra las líneas históricas de OC: 99.45 % es el techo de cualquier catálogo**, también del de
+   Kepler. El 0.55 % restante se lee de la línea misma (`c57 ÷ c12`), que es lo que M2 ya hace.
+
+| # | Decisión | Resultado |
+|---|---|---|
+| D20 (final) | ¿Factor de caja en almacenes Kepler = ficha de Kepler? | **Sí (PQ.13)**: manda la ficha de esa sucursal cuando trae factor; donde calla, la fuente previa con su nombre. El PM firma al aplicar la migración, que es el antes/después |
+
+## 13. Auditoría del flujo generar → aprobar (2026-10-26) — nivel C + B; nivel A bloqueado
+
+Pedido del PM: recorrer con Playwright desde que se genera el pedido hasta la bandeja, contar la
+interacción humana y juzgar el diseño. **Nivel A no se pudo**: los dos navegadores MCP (Playwright y
+Chrome DevTools) estaban tomados por otra sesión y no hay login de prueba. Lo que sigue es código
+(C) y prod (B); nada visual está medido (ADR-056).
+
+**Interacción humana mínima para un pedido de un proveedor (nivel C):** ~7 clics + 1 texto para
+generar (proveedor, cantidades o «agregar todos», «Generar», diálogo, «Generar los N»), 2 clics por
+menú para llegar a la bandeja, 3–4 para aprobar, y la recaptura completa en Kepler fuera de la Suite
+(no medida). «Marcar como ordenada»: 1 clic + 2 campos + 1 clic.
+
+| # | Hallazgo | Medido | Costo | Regla | Estado |
+|---|---|---|---|---|---|
+| 1 | Un apagado sistémico (KR) se pintaba en rojo fila por fila como falla del documento | B: 172/173 `kepler_error` en 30 d = «escritura apagada» | 784 aprobadas leídas como error | §10.10 fallos parciales | ✅ **PQ.14** (`ffe073b74`) |
+| 2 | `ordered` sin folio de OC: no se puede seguir a la entrada | B: 203 en 30 d, 0 con folio legible | $24.6 M sin hilo | Cruce 2 | ⬜ previos a RQ.15; el camino nuevo ya exige folio |
+| 3 | Traspasos aprobados sin camino de cierre | B: 703 aprobados, 0 recibidos | $13.7 M | Tesler | ⬜ PQ.3 |
+| 4 | El lazo se corta al generar: toast sin folio ni enlace | C | la persona navega por menú y busca | Doherty/Jakob | ✅ **PQ.14**: aviso persistente con lote y «Ver en Requisiciones» (`?q=<lote>`) |
+| 5 | 9 acciones planas en el detalle | C | sin curaduría | Hick | ⬜ necesita nivel A |
+| 6 | Pedido: 4 modos + lentes + ~20 columnas, botón «Generar» duplicado | C | carga cognitiva | Cruce 4 | ⬜ NO MEDIDO qué se ve al abrir |
+| 7 | `check:pantalla`: sin `LoadState` (§2) en las dos; requisiciones sin frescura (§9) ni `@container` (#9) | estático | deuda declarada previa; **0 fallas nuevas** por PQ.1/PQ.4/PQ.14 | contrato de producto | ⬜ deuda con nombre |
+
+**Para cerrar el nivel A:** que la otra sesión suelte el navegador de Playwright, o un usuario de
+prueba con acceso a Compras. Con eso se recorre el flujo completo (una requisición de prueba que se
+cancela con motivo al terminar) y se miden pliegue, jerarquía, contraste y foco.
+
+### 13.1 Nivel A — pantalla viva, medida (2026-10-26, tarde)
+
+Chromium propio (Playwright, perfil limpio) contra `https://megadulcessuite.com` con el usuario de
+prueba que dio el PM; 1366×768 y 1920×1080. Instrumento `scratchpad/pw/driver.js` (comandos por
+archivo); **control**: el `h1` existe y está arriba del pliegue (Pedido: «Pedido», y=121, 30 px ✓;
+Bandeja: «Requisiciones y Traspasos», y=105, 30 px ✓). ⛔ **La requisición de prueba NO se creó**:
+el clasificador de auto mode bloqueó la escritura en prod («Modify Shared Resources»); el flujo se
+recorrió hasta el diálogo de confirmación y se canceló.
+
+**Pedido (`/compras/pedido`), 1366×768:**
+
+| Medida | Valor |
+|---|---:|
+| carga hasta red quieta · llamadas API | 3.0 s · 12 (la más lenta `purchase-suggestion` 1,884 ms; el workbook de un proveedor 1,612 ms) |
+| dónde empieza la tabla · filas en el pliegue | y=594 · **2 de 20** (1920×1080: 7) |
+| con el aviso de «Instalar Mega Dulces» abierto | **0 filas** y la barra de «Generar» tapada |
+| interactivos arriba del pliegue | 52 (de 118) |
+| encabezados de columna · celdas · `body` | **16 px semibold** · 14 px · 16 px |
+| textos en color de acción arriba del pliegue | 7, uno de ellos la cifra **«A comprar $23,722,982»** |
+| casillas por sucursal al abrir una fila | 8 inputs de 64×26 px (por debajo de 44 px en `coarse`) |
+
+**Bandeja (`/compras/requisiciones`), 1366×768:** carga 1.2 s; `requisitions` y `batches` se piden
+**dos veces** cada una al abrir (Cruce 6). Vista «por documento» con el drill de Kepler: la tabla
+empieza en **y=545** (cinta de KPI + cinta del filtro + Por lote/documento + pestañas + filtros = 5
+capas) y entran **3 de 50 filas**; el folio se parte en **3 renglones**; cada fila mide ~85 px por las
+dos etiquetas apiladas (PQ.1). Etiquetas en pantalla: 47 «sin empujar» (ámbar) · 3 «no salió» (rojo).
+
+| # | Hallazgo nuevo (nivel A) | Costo | Regla |
+|---|---|---|---|
+| A1 | **Las dos vistas del mismo dato no traen el mismo universo**: la agenda del Ciclo dice SABOR Y ALEGRIA «1 de 1 bajo reorden · $263»; «Armar» abre el workbook **vacío** («Sin datos en los puntos de compra»), con o sin filtro de sucursal y de alcance. TOSTADAS GUADALUPE: agenda $12,825, workbook 4 productos $4,175 | el botón «Armar» (PQ.4, mío) promete algo que la pantalla destino no tiene | Cruce 5 |
+| A2 | **La cinta de KPI no sigue al filtro cuando el resultado es vacío**: con SABOR Y ALEGRIA elegido muestra «A comprar $23,399,972» (la red entera) | una cifra de red leída como del proveedor | Cruce 2 / veracidad |
+| A3 | Bandeja: «Esperando aprobación **1** · $39,459» mientras la lista «por lote» muestra **4 lotes pendientes, 27 documentos, $876,066** (la casilla cuenta sólo la pestaña Compra) | el encabezado no se puede recorrer en su lista | Cruce 1 |
+| A4 | Sucursales **por código** en la lista de lotes («6 sucursales: 01, 02, 03, 04, 06, 07») y en el detalle («entrega en 04 (Yurécuaro)») | regla dura: sucursal por nombre | GOTCHAS / memoria |
+| A5 | «FERNANDO ZERME?O MU?OZ»: la Ñ llega como «?» desde el ODS a la pantalla | nombre de proveedor mal escrito en el documento | veracidad |
+| A6 | Requisición aprobada con **1 línea · 0 unidades · $38** (RQ-2026-01390) a la vista en la bandeja | un documento vacío aprobado | poka-yoke |
+| A7 | «Limpiar» en los filtros no toca la requisición en armado: cancelé un plan de 14 documentos, limpié, y los 11 productos siguieron marcados (el siguiente plan salió de **16 documentos**) | duplicado a un clic | §10.8 estado sucio |
+| A8 | «Ver» ambiguo: «Ver el ciclo» y «Ver» (carrito) a la vez; en la barra el «Ver» no es botón | la automatización y el teclado lo confunden | Jakob |
+| A9 | Detalle: 3 cintas apiladas antes de las cifras; «Sugerido 1 · Pedir 176» en 4 renglones sin señal del cambio ×176 (M1) | la corrección más grande de la requisición no se ve | Von Restorff |
+| A10 | Pedido: 2 filas visibles en el pliegue y el aviso PWA tapa «Generar» | el trabajo empieza en el 77 % de la altura | §5 estructura |
+| A11 | Carrito: «0 de 71 cajas de su pedido típico» para 0.2 cj; «Generar los 1» | redondeo que dice cero y plural forzado | veracidad / texto |
+
+Lo que **sí** se confirmó en vivo: PQ.5 (aviso «Hoy te toca pedirle a 196 proveedores…»), PQ.4
+(agenda con «Armar») y PQ.1 (dos etiquetas por fila) ya están en prod y se ven como se diseñaron.
+PQ.14 todavía no está en prod (el toast sigue sin enlace).
+
+### 13.2 Después de aprobar: `/compras/ordenes` (2026-10-26, nivel A en `localhost:4200` + B en prod)
+
+El PM aprobó una requisición en su entorno local y pidió revisar cómo debe interactuar esa pantalla.
+Recorrido con el mismo Chromium (login con el usuario de prueba; ⚠️ en ese entorno
+`/api/users/me/context` responde **500** y un `F5` tira la sesión — se navegó dentro de la app).
+
+**Lo que hay hoy (medido):** la requisición aprobada (RQ-2026-01465, FERNANDO ZERMEÑO, $39,459)
+aparece como **OC-2026-00231 «Abierta»** porque alguien pulsó «Generar orden de compra» en su
+detalle (`POST purchase-orders/from-requisition/:id`). Es una OC **propia de la Suite**
+(`commercial.purchase_orders`), con folio propio, sin folio de Kepler. En su detalle, «Registrar
+recepción» abre un diálogo con cantidad y costo real por línea, default = pendiente, y al confirmar
+crea una **orden de entrada propia** (`commercial.goods_receipts`, folio OE) y **mueve
+`commercial.stock`**. La pestaña «Abiertas en Kepler» es otro universo: 305 OC del ERP (266
+«Pendiente», «Falta orden de entrada»).
+
+| Prod, sólo lectura | |
+|---|---:|
+| OC propias desde el 28-sep (todas nacidas de una requisición) | 235 · $26.6 M (160 abiertas, 49 parciales, 26 recibidas) |
+| recepciones propias (OE) | 136 · 13,179 u · $163,522 · **con stock aplicado: 2** |
+| requisiciones con folio de OC **de Kepler** (RQ.15) | **0** |
+| quién lee `commercial.stock` | alertas, Thot, catálogo, caducidades, ubicaciones — **no el Pedido** (lee `v_erp_stock_on_hand`, Kepler) |
+
+**El veredicto, bajo la regla «nada inventado; la fórmula de Kepler»:**
+
+1. 🔴 **La recepción propia inventa existencia.** «Al confirmar suma a existencia del almacén
+   destino» — pero esa existencia vive en `commercial.stock`, el Pedido no la ve y Kepler no la
+   tiene. La entrada real es la **orden de entrada `X-A-40` de Kepler** (RE: Recepción 360 ya la lee).
+   Dos verdades de existencia es exactamente lo que la regla prohíbe.
+2. 🔴 **Dos OC por el mismo pedido.** La Suite emite OC-2026-NNNNN y Kepler emite su X-A-35 cuando
+   el comprador la recaptura; nada las junta (0 requisiciones con `oc_folio`). El seguimiento de
+   «Falta / Avance» se hace sobre la copia, no sobre el documento que el proveedor y Contabilidad ven.
+3. 🟠 «Abiertas en Kepler» —el universo real— es la tercera pestaña; la copia propia es la segunda y
+   abre por default.
+
+**Cómo debe interactuar (propuesta, a firmar):**
+
+- Al aprobar, la requisición **no genera una OC propia**: sale a Kepler como X-A-30 (KR) y la
+  pantalla de órdenes muestra **la X-A-35 de Kepler** que nace de ella, enlazada por `oc_folio`
+  (RQ.15 ya exige sucursal + folio). Mientras KR esté apagada: «Marcar como ordenada» con el folio
+  de Kepler, y la fila dice «sin OC en Kepler» hasta entonces.
+- **«Registrar recepción» desaparece** de la Suite: la recepción es la `X-A-40` de Kepler y la
+  pantalla la **lee** (fill rate = recibido/pedido en Kepler, que `mv_supplier_fill_rate` ya calcula).
+  Lo que la Suite agrega es lo que Kepler no tiene: la foto/firma/incidencia (RE), nunca la cantidad.
+- `/compras/ordenes` queda con **una sola lista**, la de Kepler, con tres estados que ya existen:
+  pedida (X-A-35 sin X-A-40) · parcial · recibida; y la columna «de qué requisición» por `oc_folio`.
+- Las 235 OC propias y 136 OE se **congelan** (solo lectura, rotuladas «documento interno, no está
+  en Kepler») y se declaran en VERDAD_ABSOLUTA como universo paralelo hasta migrar.
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| D21 | ¿La Suite deja de emitir OC y OE propias y sigue sólo las de Kepler? | **Sí — en código (PQ.16, `87e8adc93`).** «Generar orden de compra» y «Registrar recepción» apagados (409 en el backend, lectura en pantalla); la requisición se ordena con el folio de Kepler. Es ADR-040 aplicado a Compras. Pendiente: «de qué requisición» en la lista de Kepler |
+
+**NO MEDIDO:** cuántas de las 136 OE propias tienen su X-A-40 gemela en Kepler (cruce por
+proveedor + fecha + SKU, instrumento pendiente); y por qué sólo 2 de 136 aplicaron stock.
+
+## 14. ¿Pasa el 100 % a Kepler? El simulacro (2026-10-27)
+
+Pregunta del PM: «la inserción en Kepler ya está armada, ¿cómo validamos que el 100 % de las
+requisiciones y traspasos van a pasar?». No con una promesa: con un **simulacro** que corre, sin
+escribir, las mismas comprobaciones del adaptador (`kepler-requisition-sink.adapter.ts`) sobre
+TODO el universo y cuenta por motivo. Instrumento: `database/scripts/pq-simulacro-escritura-kepler.js`
+(sólo lectura; **control**: reproduce el rechazo real de RQ-2026-01391, «no conoce al proveedor
+CA027» en la 04 — coincide).
+
+| Prod, 2026-10-27 | |
+|---|---:|
+| universo: aprobadas sin folio + pendientes de aprobación | **853** (81 compras · 772 traspasos) · $20.98 M |
+| pasan las comprobaciones de datos del adaptador | **819 (96.0 %)** · $20.28 M |
+| rebotan | 34 · $0.70 M — **todos** por «Kepler (sucursal NN) no conoce al proveedor» |
+| de esos 34, el proveedor SÍ está en el catálogo de proveedores de Kepler (`kdxd`) de esa sucursal | **34 de 34** |
+
+**Lo que el número dice:** el único rebote de datos es una regla **nuestra** más estricta que
+Kepler: el adaptador acepta un proveedor sólo si **ya tiene una X-A-30/X-A-35 en esa sucursal**, y
+después del corte del 1-oct las sucursales compran a proveedores nacionales (Mondelez CM009, AJEMEX
+CA027, CA010…) por primera vez. Kepler los conoce (`kdxd`); nosotros no. Con el catálogo como
+testigo, **pasa el 100 % de los 853**.
+
+**Lo que el simulacro NO puede medir desde la base, y es lo que de verdad decide (KR, runbook):**
+
+| Bloqueo | Qué pasa si falta | Dueño |
+|---|---|---|
+| `KEPLER_PUSH_URL_NN` por servidor | rebota todo ese servidor («escritura apagada») | KR |
+| **plantilla del TRASPASO por servidor** (sin default a propósito) | rebotan los **772 traspasos** | KR (elegir un `U-D-40` en AUTORIZADO) |
+| tope diario `KEPLER_PUSH_MAX_DIA_NN` (default **1**) | el 00 tardaría **470 días** en vaciar su cola; 01, 198; 08, 107 | KR: subirlo con el canario en verde |
+| la BAJA desde la UI de Kepler (criterio del canario) | no se enciende ningún servidor | KR |
+
+**Riesgos que el adaptador NO detiene (se declaran, no se dibujan):** 21 documentos ($2.87 M, 39
+renglones) con **cajas fraccionadas** (Kepler acepta numérico; el comprador en Kepler no captura 0.2
+cj); SKU sin ficha en la sucursal: **0**.
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| D22 | ¿El testigo de «proveedor conocido» es el catálogo de Kepler (`kdxd` por sucursal) y no «ya le compró»? | **Sí — en código (`219e13736`)**: el adaptador lee `md.kdxd`. Simulacro: 0 rebotes de datos |
+| D23 | ¿Cajas fraccionadas se redondean antes de escribir o se frenan? | **Se frenan — en código (`219e13736`)**: en la mesa (`planBloqueos`) y en el servidor (`createRequisitionBatch`), con el producto; nunca se redondea |
+
+**Protocolo propuesto para «el 100 %»:** (1) D22 en el adaptador; (2) simulacro = 0 rebotes de datos;
+(3) canario por servidor con la baja desde UI; (4) tope diario subido por servidor; (5) el simulacro
+corre **antes de cada encendido** y queda en la bitácora con su cifra.
+
+### 14.1 «Resolvamos todo lo que no nos deje» — qué quedó resuelto y qué es configuración (2026-10-27)
+
+| Bloqueo | Resuelto | Cómo |
+|---|---|---|
+| D22 · proveedor «no conocido» (34 docs) | ✅ código `219e13736` | el adaptador consulta el catálogo `md.kdxd` (c2 código · c3 nombre), no una compra previa. **Simulacro re-corrido con la regla vigente (`131f21afd`): 853 de 853 pasan (100 %)**; el control exige que la regla anterior reproduzca el rechazo real y que la vigente lo deje pasar |
+| D23 · cajas fraccionadas (42 renglones vivos en 24 docs) | ✅ código `7fc107f6c` | **No se corrigió ningún dato: los 42 son PIEZAS enteras** (0.4 cj × 10 = 4 pz; la mesa deja capturar en piezas). Regla única `piezasEnteras` (tolerancia 0.02): la mesa, el lote y el empuje dejan pasar cajas enteras o piezas enteras; el adaptador escribe las piezas en la **unidad base de Kepler** (`kdii.c11`, `c58=1`, costo por pieza) y frena sólo lo que no es ni lo uno ni lo otro (hoy: **0**). Redondear a caja inventaba compra ×2.5; a cero borraba lo pedido |
+| plantilla del TRASPASO por servidor | ⬜ **configuración (KR)** | sólo cuatro servidores originan traspasos. Candidatos sanos medidos en el ODS (U-D-40 `AUTORIZADO`, `c43='N'`, `c27='SUCURSAL'`, responsables vacíos): **00 → `1/0001240`** (20-oct, 7 ren; o el `0000450` del runbook) · **06 → `1/0001479`** (20-oct, 11 ren) · **08 → `1/0000847`** (23-oct, 5 ren) · **01 → ninguno con `c27='SUCURSAL'`** (sus 12 sanos son `TELEMARK`; hay que elegir uno a mano o aceptar `TELEMARK`). El 04 no tiene ningún U-D-40 sano |
+| tope diario `KEPLER_PUSH_MAX_DIA_NN` = 1 | ⬜ **configuración (KR)** | cola que pasa: 00 → 470 · 01 → 198 · 08 → 107 · 06 → 42. Propuesta para vaciar en ≤ 10 días hábiles tras el canario: `00=50 · 01=25 · 08=15 · 06=10 · 04=07=5` |
+| `KEPLER_PUSH_URL_NN` y `pg_hba` | ⬜ configuración (KR, runbook §1–3) | — |
+| baja desde la UI de Kepler | ⬜ humano (canario) | — |
+
+Variables propuestas (el nombre exacto lo fija `kepler-servidores.ts`: `KEPLER_PED_TEMPLATE_FOLIO_NN`, `KEPLER_PUSH_MAX_DIA_NN`):
+
+```bash
+KEPLER_PED_TEMPLATE_FOLIO_00=0001240   KEPLER_PUSH_MAX_DIA_00=50
+KEPLER_PED_TEMPLATE_FOLIO_06=0001479   KEPLER_PUSH_MAX_DIA_06=10
+KEPLER_PED_TEMPLATE_FOLIO_08=0000847   KEPLER_PUSH_MAX_DIA_08=15
+# 01: elegir a mano (ningún U-D-40 sano con c27='SUCURSAL')   KEPLER_PUSH_MAX_DIA_01=25
+```
+
+**Después de cada cambio de configuración:** `node database/scripts/pq-simulacro-escritura-kepler.js`
+tiene que dar **0 rebotes de datos**; lo de configuración lo prueba el canario (runbook §9, P0–P5).
+
+### 14.2 ¿Y los traspasos? (2026-10-27)
+
+Medido en el ODS, con las comprobaciones que el adaptador hace **en el servidor de origen**:
+
+| Comprobación | Resultado |
+|---|---|
+| `pv_suc_ip` (sucursal destino → `TI###`) existe en los 9 servidores | **sí**, mapa idéntico en los 9 (01→TI001 · 02→TI008 · 03→TI002 · 04→TI003 · 05→TI007 · 06→TI006 · 07→TI009 · 08→TI004) |
+| 772 traspasos vivos, 20 pares origen→destino (00, 01, 06 y 08 originan) | **20 de 20** con el TI del destino en el servidor origen |
+| líneas que irían en piezas (fracción de caja): 29 | **29 de 29** con unidad base en la ficha `kdii` del origen |
+| simulacro (reglas vigentes) | 772 de 772 pasan los datos |
+
+Lo único que falta para un traspaso es **la plantilla `U-D-40` por servidor origen** (sin default a
+propósito): 00 `1/0001240`, 06 `1/0001479`, 08 `1/0000847` medidas en §14.1; **la 01 no tiene un
+`U-D-40` sano con `c27='SUCURSAL'`** (sus 12 sanos son `TELEMARK`) — hay que elegirla a mano o
+aceptar una `TELEMARK` (el adaptador limpia responsables y pone `c27='SUCURSAL'` igual). Y el canario
+de traspaso (runbook §9) todavía no se ha corrido en ningún servidor.
+
+### 14.3 Lo que ya existe para seguir un traspaso: `/almacen/movimientos` (2026-10-27, nivel A en local)
+
+El PM señaló `/almacen/movimientos?dest=sucursal&doc=TrsfShip`. Recorrido con el usuario de prueba:
+
+- **Diario:** los embarques `U-D-41` a sucursal por día (1,130 documentos, $32.91 M, 1.59 M pz de
+  salida en el rango) y, al abrir un día, cada documento con su estado **En tránsito / Completado /
+  Con diferencia**. El estado sale del servicio de movimientos (DM.3): parea el `TrsfShip`
+  (`U-D-41`) con su `TrsfRcv` (`U-A-50`) por cantidad y fecha; sin recepción = en tránsito. El
+  26-oct: 47 docs, 17 en tránsito, 31 completados (verificado contra el ODS: `U-D-41 0003354`
+  Padre Hidalgo → Yurécuaro, 18 líneas, $11,683 — coincide). «Auditar» marca el documento.
+- **Cuadre de traspasos:** mayor 515 (descuadre acumulado +$13.72 M), 224 pólizas sin rastro,
+  Kepler→Wincaja +$6.15 M; hallazgos: 49 traspasos sin acuse ($730,889, el más viejo 20 días),
+  233 cargas a ruta y 1,102 entregas a cliente separadas para no inflar el hueco.
+
+**Qué significa para PQ:** el cierre del traspaso **ya existe de `U-D-41` a `U-A-50`**. Lo que falta
+es el eslabón anterior: **requisición → `U-D-40` (pedido) → `U-D-41`**. El `U-D-40` y el `U-D-41`
+**no comparten folio** (medido: `U-D-40 0003354` de la 01 es RUTA 27 y el `U-D-41 0003354` es
+Yurécuaro `TI003`); la junta `40→41` hay que medirla en `kdm1`/`kdm2` (referencia) antes de
+dibujarla. **PQ.3 se re-define**: no construir otro cierre, sino (1) `oc_folio` del `U-D-40` en la
+requisición (RQ.15, ya exige sucursal + folio), (2) medir y usar la referencia `40→41` de Kepler,
+(3) leer el estado del embarque desde el mismo servicio de movimientos (sin segunda implementación).
+
+**Plantilla de la 01 (cierra §14.1):** `U-D-40 1/0003333` de Padre Hidalgo (`SUCURSAL` → 8
+Esquinas `TI002`, 13 renglones). Está `EMBARCADO`, y eso no importa: el adaptador reescribe
+`c11='AUTORIZADO'`, `c43='N'`, `c27='SUCURSAL'` y limpia `c100/c102/c103`
+(`kepler-doctipo.ts`). Mi criterio de «sano» era más estricto que el adaptador.
+
+```bash
+KEPLER_PED_TEMPLATE_FOLIO_00=0001240
+KEPLER_PED_TEMPLATE_FOLIO_01=0003333
+KEPLER_PED_TEMPLATE_FOLIO_06=0001479
+KEPLER_PED_TEMPLATE_FOLIO_08=0000847
+```
+
+Observado en esa pantalla y no tocado (no es de esta fase): folio y cantidad de salida en **rojo**
+(un movimiento normal pintado como alarma), rótulo «Traspaso a sucursal» sobre un embarque, y
+«Auditar» en color de acción en cada fila.
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-27 | El PM señaló `/almacen/movimientos` (§14.3): el cierre `U-D-41 → U-A-50` ya existe (DM.3, con estado por documento y cuadre contable); falta el eslabón requisición → `U-D-40` → `U-D-41` (los folios no coinciden entre 40 y 41). PQ.3 se re-define para reusar ese servicio. Plantilla de la 01: `U-D-40 1/0003333` (el adaptador reescribe estado y limpia responsables) | PM + sesión PQ |
+| 2026-10-27 | «Tú corrígelo» (los 21 con fracción) → **no se corrigió ningún dato**: los 42 renglones son piezas enteras. Regla «cajas enteras o piezas enteras» en la mesa, el lote, el empuje y el adaptador (escribe en unidad base) (`7fc107f6c`). Simulacro con las reglas vigentes: **853/853 (100 %)**, 0 riesgos (`131f21afd`). 22/22 lib · 102/102 pedido | PM + sesión PQ |
+| 2026-10-27 | «Resolvamos todo lo que no nos deje» → D22 y D23 en código (`219e13736`): proveedor contra `kdxd` (0 rebotes de datos en 853) y fracción frenada al generar. Lo demás es configuración por servidor: plantillas de traspaso medidas (00/06/08; la 01 sin candidato SUCURSAL; el 04 sin U-D-40 sano) y topes propuestos (§14.1) | PM + sesión PQ |
+| 2026-10-27 | «¿Cómo validamos que el 100 % pasa a Kepler?» → **PQ.17 🧪** (`71db08ae5`): simulacro con control; 853 documentos, **96.0 % pasan**; los 34 que rebotan son proveedores que Kepler SÍ tiene en `kdxd` → la regla nuestra es más estricta que Kepler (**D22**). Lo que decide está en configuración (plantilla de traspaso, tope diario 1 = 470 días para el 00) (§14) | PM + sesión PQ |
+| 2026-10-26 | «Resolvámoslo» (D21) → **PQ.16 🧪** (`87e8adc93`): from-requisition y receipts responden 409; el detalle de requisición captura el folio de Kepler (RQ.15) en vez de generar OC propia; OC interna en solo lectura; la lista interna se rotula histórico y las pestañas suben «Órdenes de compra (Kepler)». 43/43 vitest. Falta: «de qué requisición» en la lista de Kepler por `oc_folio` y congelar 235/136 en VERDAD_ABSOLUTA | PM + sesión PQ |
+| 2026-10-26 | `/compras/ordenes` tras aprobar (§13.2): la Suite emite OC y OE **propias** (235 OC $26.6 M, 136 OE) y la recepción mueve `commercial.stock`, que el Pedido no lee y Kepler no tiene; 0 requisiciones con `oc_folio` de Kepler. Nace **D21**: la Suite deja de emitir OC/OE y sigue sólo las de Kepler (X-A-35/X-A-40) | PM + sesión PQ |
+| 2026-10-26 | «Que se pueda aceptar todo un lote de golpe» → **PQ.15 🧪** (`bbd691066`): en «Por lote», «Aprobar lote (N)» con confirmación en dos clics; manda al bulk ya probado sólo los pendientes del lote (tope 200) y declara que el lote no empuja a Kepler. 34/34 vitest, sin endpoint nuevo. Sin validación visual del botón | PM + sesión PQ |
+| 2026-10-26 | **Nivel A hecho** (§13.1) con Chromium propio y el usuario de prueba del PM: 11 hallazgos nuevos medidos en pantalla (A1 «Armar» abre vacío · A2 KPI de red con filtro · A3 casilla 1 vs lista 27 · sucursal por código · Ñ como «?» · aprobada con 0 unidades · «Limpiar» no vacía el carrito…). La requisición de prueba no se creó: el clasificador bloqueó la escritura en prod | PM + sesión PQ |
+| 2026-10-26 | Auditoría del flujo generar → aprobar (§13): nivel A bloqueado (navegadores tomados, sin login); nivel C+B con 7 hallazgos. **PQ.14 🧪** (`ffe073b74`): apagado de Kepler como estado de la bandeja, no falla por fila; lo generado queda a la vista con su lote y enlace a la bandeja. 130/130 vitest | PM + sesión PQ |
+| 2026-10-26 | «Necesito un 100 %»: las 268 líneas fuera de la ficha son 162 por etiqueta (cuadran por factor) + 106 unidades elegidas a mano en Kepler. **PQ.13 🧪**: migración que hace mandar la ficha de Kepler en sus almacenes (867 celdas, 568 a 1 por `unidad_unica`); cuerpo ejercido en prod sólo lectura, **sin aplicar** (§12.4) | PM + sesión PQ |
 | 2026-10-26 | «Resolvámoslo» (D20): medido contra 19,367 líneas de OC reales de Kepler (90 d). **El resolvedor ya da el `c58` de Kepler en 99.3 % de las líneas en caja; el `c84` solo daría 98.7 %** → D20 refutada, sin vista que cambiar. `c58` es el factor del peldaño capturado (`c55`), no del producto. El desfase al escribir está en el adaptador (escribe `CJA`/`c58=1`); va a KR (§12.3) | PM + sesión PQ |
 | 2026-10-26 | El PM avisó que la base fue editada: la unidad del catálogo venía de un importer y desfasaba lo insertado en Kepler. Medido (§12.2): 9,241 productos en lote, 93 % ahora = `c84` de Kepler. **M2 se relee** (cantidad cambiada mezcla comprador + unidad) y se repite sobre requisiciones posteriores al lote; M1 se repite; PQ.1/4/5 y la paridad no cambian. Nace **D20** (factor = `c84` de Kepler para almacenes Kepler) | PM + sesión PQ |
 | 2026-10-23 | Auditoría del flujo (nivel B+C), jerarquía, agenda medida, M1/M2 definidas, doc creado en ⬜. Consultas en el scratchpad de la sesión; cifras en §1 | sesión Claude + PM |

@@ -37,6 +37,8 @@ import { BancosThreeWayComponent } from './bancos/bancos-three-way.component';
 import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
 import { BANCOS_STYLES } from './bancos/bancos.styles';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
 
 /**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
@@ -46,7 +48,7 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent],
+  imports: [DatePipe, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -69,6 +71,8 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="uploading()" (click)="fileInput.click()"><span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span><span class="p-button-label">Subir estado de cuenta</span></button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <!-- Barra de estado del cierre (answer-first: dónde va el periodo de un vistazo) -->
       <div class="fb-status" aria-label="Estado del cierre">
@@ -251,6 +255,8 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
   `],
 })
 export class FinanzasBancosComponent implements OnInit {
+  /** [NAV.7] La barra del apartado «Bancos y conciliación» del sidebar de Finanzas: la pintan todas sus páginas. */
+  readonly apartadoTabs = BANCOS_CONCILIACION_TABS;
   private readonly api = inject(BankService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

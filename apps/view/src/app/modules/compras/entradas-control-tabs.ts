@@ -72,4 +72,14 @@ export const ENTRADAS_CONTROL_TABS: PageTab[] = [
     // dictaminar, no el de mirar.
     permission: Permission.COMPRAS_ENTRADAS_VALIDAR,
   },
+  {
+    // `[NAV.6]` WMS-REC.8 — el faltante que el andén detecta AL RECIBIR, con responsable y
+    // seguimiento. Era un renglón suelto del sidebar; es parte del control de la recepción.
+    // Conserva su permiso (el de Hallazgos: la bandeja la trabaja el comprador), así que sólo lo
+    // ve quien ya lo veía. La página pinta esta misma barra.
+    label: 'Reclamos',
+    route: '/compras/reclamos',
+    icon: 'pi pi-inbox',
+    permission: Permission.COMPRAS_HALLAZGOS_VER,
+  },
 ];

@@ -17,6 +17,8 @@ import { TagModule } from 'primeng/tag';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { DATE_PRESET_OPTIONS, datePresetRange } from '../../../shared/util';
 import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedgerMove, SupplierInvoiceLedgerResponse, SupplierInvoiceTotals, InvoiceEstado, SupplierFiscalLedgerResponse, ContpaqiPayablesResponse, ContpaqiPayableRow } from '../compras.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { DEUDA_PROVEEDORES_TABS } from '../../finanzas/deuda-proveedores-tabs';
 
 /**
  * CXP.7 — "Cuadre contable por proveedor": estado de cuenta de la 201 (Proveedores) según
@@ -31,7 +33,7 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
-    TableModule, SelectModule, DatePickerModule, SkeletonModule, DialogModule, TagModule, MetricStripComponent, SucursalPipe,
+    TableModule, SelectModule, DatePickerModule, SkeletonModule, DialogModule, TagModule, MetricStripComponent, SucursalPipe, PageTabsComponent,
   ],
   template: `
     <div class="surf-page in">
@@ -44,6 +46,8 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <div class="cq-modebar" role="radiogroup" aria-label="Vista de entrada">
         <button type="button" role="radio" class="cq-mode" [class.is-active]="entryMode()==='debe'" [attr.aria-checked]="entryMode()==='debe'" (click)="setMode('debe')"><span class="pi pi-wallet" aria-hidden="true"></span>&nbsp;Lo que se debe (ContPAQi)</button>
@@ -439,6 +443,8 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
   `],
 })
 export class ComprasCuadreProveedorComponent implements OnInit {
+  /** [NAV.7] La barra del apartado «Deuda con proveedores» del sidebar de Finanzas: la pintan todas sus páginas. */
+  readonly apartadoTabs = DEUDA_PROVEEDORES_TABS;
   private readonly svc = inject(ComprasService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);

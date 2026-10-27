@@ -8,6 +8,13 @@
  * pantalla sólo la pinta; si la recalculara, el pedido impreso y el de la tabla podrían no cuadrar.
  */
 
+// Sólo el tipo: la mesa importa valores de este archivo, y un `import type` se borra al compilar,
+// así que no arma un ciclo en tiempo de ejecución.
+import type { DiagnosticoRenglon } from './autoabasto-mesa.contract';
+// `[AB.40]` El motor único de cantidad (tope de 45 días). Este archivo le presta sólo TIPOS
+// (`import type`), así que no hay ciclo en tiempo de ejecución.
+import { costoUnicoBase, toparRedondeo, type MotivoTope } from './cantidad-pedido.contract';
+
 /** La escalera de unidades de Kepler de un producto (`analytics.v_product_unit_ladder`). */
 export interface EscaleraUnidades {
   /** Rótulo de la unidad base (PZA, PAQ, KG…); la existencia y la venta vienen en ésta. */
@@ -226,7 +233,13 @@ export function aplicarMinimoMenor(
 export const POSICIONES_PEDIDO = ['agotado', 'bajo_minimo', 'bajo_reorden', 'otros'] as const;
 export type PosicionPedido = typeof POSICIONES_PEDIDO[number];
 
-export const POSICIONES_PEDIDO_DEFAULT: readonly PosicionPedido[] = ['agotado', 'bajo_minimo', 'bajo_reorden'];
+/**
+ * `[AB.39]` Lo que entra por default: agotado y bajo mínimo (PM, 2026-10-26). Hasta hoy entraba también
+ * «bajo reorden», y las 4 sucursales que guardaron sus posiciones lo habían quitado. Medido ese día en las
+ * otras 4: sale el 18–30 % del valor del pedido (Padre Hidalgo 193 renglones / $1.04 M, Morelia Abastos
+ * 250 / $1.34 M). Quien lo quiera, lo marca y se guarda en su borrador.
+ */
+export const POSICIONES_PEDIDO_DEFAULT: readonly PosicionPedido[] = ['agotado', 'bajo_minimo'];
 
 export const POSICION_PEDIDO_LABEL: Record<PosicionPedido, string> = {
   agotado: 'Agotado',
@@ -401,6 +414,24 @@ export interface AutoabastoPedidoLinea {
   estado: EstadoRenglon;
   /** `[AB.26]` A quién se le pide, según el canal configurado. Es el mismo dato que agrupa «Mi pedido». */
   surte: SurteRenglon;
+  /**
+   * `[AB.39]` Mínimo, reorden, máximo y entrega: lo que explica la posición. Lo trae `GET /pedido`
+   * desde que la mesa y «Mi pedido» son UNA pantalla. Opcional: un servidor anterior no lo manda, y
+   * la pantalla lo dice («—») en vez de dibujar ceros.
+   */
+  diagnostico?: DiagnosticoRenglon;
+  /**
+   * `[AB.40]` Qué le hizo el motor único a la cantidad después de la cuenta: el tope de 45 días
+   * (`recortado`, `ya_pasa_sin_pedir`, `no_cabe`), `unidad_dudosa` (no se pide), `sin_medir` (no se topó)
+   * o `null` (cabía). Opcional: un servidor anterior no lo manda.
+   */
+  tope?: {
+    motivo: MotivoTope | 'unidad_dudosa';
+    /** Lo que daba la cuenta antes del tope, en unidad base. */
+    antes_base: number;
+    dias: number | null;
+    dias_hoy: number | null;
+  };
 }
 
 // ── [AB.26] Una sola cuenta del renglón ──────────────────────────────────────────────────────
@@ -505,6 +536,17 @@ export interface EntradaRenglon {
   /** Lo que la persona dejó guardado, con su cantidad en base. */
   ajuste: (AjusteLinea & { cantidad_base: number }) | null;
   surte: SurteRenglon;
+  /**
+   * `[AB.40]` Venta de 30 días y existencia en unidad BASE, para el tope de 45 días. Opcionales: sin
+   * ellas el tope se declara «sin medir» y no recorta (nunca se topa con un número que no se tiene).
+   */
+  venta_30d_base?: number | null;
+  existencia_base?: number | null;
+  /**
+   * `[AB.40c]` Costo de una caja del plan: el que viaja a Compras. Si llega, se valúa con él
+   * (`costoUnicoBase`, con `costo_base` de testigo); si no llega (un llamador anterior), con `costo_base`.
+   */
+  caja_cost?: number | null;
 }
 
 export interface RenglonArmado {
@@ -532,8 +574,24 @@ export function armarRenglon(e: EntradaRenglon): RenglonArmado {
   const caminoBase = e.viene?.camino ?? 0;
   const netaBase = Math.max(0, e.falta_base - yaBase - caminoBase);
   // Se valúa sólo si el peldaño no está contradicho (U.2) y hay costo.
-  const valuable = e.rung_veredicto == null && e.costo_base != null;
-  const minimo = aplicarMinimoMenor(redondearPedido(netaBase, e.escalera), valuable ? e.costo_base : null, e.posicion);
+  const unidadDudosa = e.rung_veredicto != null;
+  // `[AB.40c]` Un solo costo: el de la caja que se manda a Compras, con el de Kepler de testigo.
+  const costo = e.caja_cost === undefined ? e.costo_base : costoUnicoBase(e.caja_cost, cf, e.costo_base);
+  const valuable = !unidadDudosa && costo != null;
+  // `[AB.40]` D20 — el motor único: redondeo §15.2 → tope de 45 días (contando lo que ya viene) →
+  // mínimo de $200 en unidad menor. Y con la unidad en duda no se pide (como /compras/pedido): la
+  // existencia en esa unidad no es verdad, así que lo que «falta» tampoco.
+  const redondeo = redondearPedido(netaBase, e.escalera);
+  const topado = toparRedondeo(redondeo, e.escalera, {
+    venta30Base: e.venta_30d_base ?? null,
+    existenciaBase: e.existencia_base ?? 0,
+    vieneBase: yaBase + caminoBase,
+    noConfiable: unidadDudosa,
+  });
+  const sinPedir = unidadDudosa && topado.redondeo.cantidad > 0
+    ? { ...topado.redondeo, regla: 'nada' as const, cantidad: 0, cantidad_base: 0 }
+    : topado.redondeo;
+  const minimo = aplicarMinimoMenor(sinPedir, valuable ? costo : null, e.posicion);
   const aPedir = minimo.redondeo;
   const g = e.ajuste;
   const efectivoBase = g ? g.cantidad_base : aPedir.cantidad_base;
@@ -559,13 +617,20 @@ export function armarRenglon(e: EntradaRenglon): RenglonArmado {
       falta_neta: r1(netaBase / cf),
       a_pedir: aPedir,
       ajuste,
-      valor: valuable && efectivoBase > 0 ? r2(efectivoBase * (e.costo_base as number)) : null,
-      costo_base: valuable ? e.costo_base : null,
+      valor: valuable && efectivoBase > 0 ? r2(efectivoBase * (costo as number)) : null,
+      costo_base: valuable ? costo : null,
       posicion: e.posicion,
       minimo_menor: minimo.estado,
       valor_menor: minimo.valor_menor,
       estado: estadoRenglon(e.falta_base, netaBase, e.planeado_compras, e.pedido_sucursal),
       surte: e.surte,
+      // `[AB.40]` Por qué la cantidad no es la que daba la cuenta, dicho en el renglón.
+      tope: {
+        motivo: unidadDudosa && redondeo.cantidad > 0 ? 'unidad_dudosa' : topado.motivo,
+        antes_base: redondeo.cantidad_base,
+        dias: topado.dias,
+        dias_hoy: topado.dias_hoy,
+      },
     },
     efectivo_base: efectivoBase,
     efectivo_cantidad: efectivoCant,
@@ -629,6 +694,34 @@ export interface AutoabastoVieneDoc {
   monto: number | null;
   /** ¿Se resta del pedido? Lo de más días que su ventana se muestra para reclamarlo, no se resta. */
   se_resta: boolean;
+  /** `[AB.41]` La requisición de la Suite (`plan`, `requisicion`), para abrir sus productos. `null` en Kepler. */
+  id?: string | null;
+}
+
+/**
+ * `[AB.41]` Un producto de un documento de «Lo que te va a llegar».
+ *
+ * Kepler guarda el renglón dos veces (medido en prod el 2026-10-26 sobre 30 días de traspasos):
+ * en la presentación con que se CAPTURÓ (`kdm2.c51` en `c55`, p. ej. 72 CJA) y en unidad BASE
+ * (`c9` en `c11`, 1,296 KG), que es la que se resta del pedido. En los embarques `c51` = `c54` en
+ * los 28,616 renglones; en los pedidos, 871 de 29,341 no traen `c51`: ahí `cantidad` es `null` y
+ * se lee la base. En una requisición de la Suite la cantidad va en cajas de la mesa y no hay base.
+ */
+export interface AutoabastoVieneRenglon {
+  sku: string;
+  /** `null` = el SKU no está en el catálogo de la Suite. */
+  nombre: string | null;
+  /** Lo capturado, en su presentación. `null` = Kepler no la trae. */
+  cantidad: number | null;
+  unidad: string | null;
+  /** En unidad base (lo que se resta). `null` en una requisición de la Suite. */
+  cantidad_base: number | null;
+  unidad_base: string | null;
+}
+
+/** `GET /commercial/autoabasto/pedido/viene` */
+export interface AutoabastoVieneRenglonesResponse {
+  renglones: AutoabastoVieneRenglon[];
 }
 
 // ── [AB.29] «Enviar a Compras»: la requisición que genera la sucursal ──────────────────────────

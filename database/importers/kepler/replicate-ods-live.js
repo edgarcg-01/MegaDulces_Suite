@@ -203,8 +203,42 @@ const _lastOpenDocs = new Map();
 // un ciclo de ~1.5 s cada 5 min. Donde NO está instalada, todo sigue como antes, y se declara.
 const { estadoCola, profundidadCola, drenarCola } = require('../lib/ods-cola');
 const COLA_TABLES = (process.env.ODS_COLA_TABLES || '').split(',').map((s) => s.trim()).filter(Boolean);
+// `[OBS.15.12]` Tablas que este carril embarca pero cuyo DATO ya entrega la cola de OTRO carril
+// (`ods-live-caja` vacía `kdm2`). Donde la cola está activa, su red de seguridad deja de re-embarcar
+// la ventana de 3 días —medido: ~82k renglones cada 5 min, y huecos de 23–61 s sin log en el ciclo
+// del caliente con tienda abierta— y sólo junta los SKUs de esa ventana para el recálculo de precio,
+// que es lo único que la red seguía aportando. Sin cola en la rama, la red de siempre.
+const COLA_CUBRE = (process.env.ODS_COLA_CUBRE || '').split(',').map((s) => s.trim()).filter(Boolean);
+const COLA_VIGILADAS = [...new Set([...COLA_TABLES, ...COLA_CUBRE])];
+/** Los SKUs van al recálculo por el mismo `sink` que embarca filas (feed `raw-normalize`): -1 = la
+ *  tabla no es enteramente coalescible y hay que seguir embarcando. */
+/** Columna del SKU en las tablas que COLA_CUBRE puede cubrir (la misma `skuCol` que declara
+ *  `ODS_NORMALIZERS` en apply-handlers). Una tabla que no esté acá nunca se da por cubierta. */
+const COLUMNA_SKU = Object.freeze({ kdm2: 'c8' });
+const encolarPorSink = async (table, skus) => (await sink.ship('raw-normalize',
+  { rows: skus.map((k) => ({ k })), tenantId: TENANT, meta: { table }, client: DEST })).rowCount;
+// `[OBS.15.10]` BORRADOS EN VIVO (decisión del PM, 2026-10-27). La cola ve cada DELETE del origen;
+// hasta hoy sólo se contaba y el renglón seguía publicado hasta las 02:10 (medido: 296 en ~40 min,
+// y en la 08 tres facturas vaciadas en Kepler con 69 renglones fantasma por $13,125.75). Con
+// `ODS_COLA_BORRAR=1` se propagan, con los dos frenos que separan una baja de una PODA (el corte de
+// Oficinas borró meses de kárdex de golpe, y ese historial el ODS lo conserva a propósito):
+//   · sólo filas cuya fecha de negocio en el ODS sea de los últimos `ODS_COLA_BORRADO_DIAS` (7);
+//   · si una pasada trae más de `ODS_COLA_BORRADO_TOPE` (500) borrados de una tabla, no se toca
+//     ninguno y se avisa: eso no es una edición, es una limpieza. Queda para la reconciliación.
+// Sólo tablas con su columna de fecha DECLARADA abajo; cualquier otra, nunca.
+const COLA_BORRAR = /^(1|true|yes)$/i.test(String(process.env.ODS_COLA_BORRAR || ''));
+const BORRADO_DIAS = Math.max(1, Number(process.env.ODS_COLA_BORRADO_DIAS) || 7);
+const BORRADO_TOPE = Math.max(1, Number(process.env.ODS_COLA_BORRADO_TOPE) || 500);
+const FECHA_BORRADO = Object.freeze({ kdm1: 'c68', kdm2: 'c32' }); // captura de la cabecera · fecha del renglón
 const COLA_ESTADO_MS = 60 * 1000;
 const _colaEstado = new Map(); // code → { en, activas: Set, faltan: string[] }
+// ⛔ LA COLA SÓLO VE LO QUE PASÓ DESPUÉS DE EXISTIR. Medido en el piloto de la 06 (2026-10-26):
+// dos facturas capturadas a las 16:19, segundos ANTES del trigger, cayeron debajo del watermark
+// (página 1,982 contra 2,497) — el ctid no las vio, la cola no las tenía, y la red de 5 min que
+// las habría rescatado ya se saltaba porque la cola estaba activa. Quedaban esperando al
+// reconciliador de 15 min. Por eso, cuando la cola de una tabla se ACTIVA en una rama (o el
+// proceso arranca), la red corre UNA vez completa —la «puesta al día»— y recién después se salta.
+const _redConCola = new Set(); // `${code}/${table}` que ya hicieron su puesta al día con la cola activa
 
 // RED DE SEGURIDAD del carril HASH (bug 2026-09-02): el shadow se marca para TODAS las filas
 // enviadas, sin poder confirmar que el destino las aplicó — y NO se puede validar por `rowCount`,
@@ -512,7 +546,11 @@ function shipMetaOf(table, meta) {
 
 /** Carril CTID: append-only grandes. Lee ctid>watermark, empuja, avanza watermark.
  *  `colaActiva` (OBS.15): la cola de cambios ya cubre esta tabla en esta rama → sin redes. */
-async function syncCtid(p, code, table, meta, { apply, full, colaActiva = false }) {
+async function syncCtid(p, code, table, meta, {
+  apply, full, colaActiva = false, colaCubre = false,
+  // [OBS.15.12] inyectables sólo para la prueba (test-ods-cola.js, bloque 6)
+  encolarFn = encolarPorSink, modoPg = sink.sinkMode() === 'pg',
+}) {
   const selList = meta.cols.map((c) => qid(c.column_name)).join(', ');
   const shipMeta = shipMetaOf(table, meta);
   const wmRow = (await p.query(`SELECT last_ctid FROM ods.ctl WHERE table_name=$1`, [table])).rows[0];
@@ -549,7 +587,10 @@ async function syncCtid(p, code, table, meta, { apply, full, colaActiva = false 
        rows_last=EXCLUDED.rows_last, changed_last=EXCLUDED.changed_last, last_run_at=now()`,
     [table, lastCtid, seen, changed]);
   if (seen) console.log(`  ✓ ${code}/${table} [ctid]: ${seen} leídas · ${changed} escritas · ctid→${lastCtid}`);
-  if (colaActiva && !full) return { suc: code, tabla: table, carril: 'ctid', leidas: seen, escritas: changed, redes: 'cola' };
+  // [OBS.15] Con la cola activa, las redes se saltan — salvo la primera vez (la puesta al día).
+  const llaveRed = `${code}/${table}`;
+  if (colaActiva && !full && _redConCola.has(llaveRed)) return { suc: code, tabla: table, carril: 'ctid', leidas: seen, escritas: changed, redes: 'cola' };
+  const puestaAlDia = colaActiva && !full;
 
   // RED DE SEGURIDAD: re-envía la ventana reciente por fecha (recupera filas que el ctid saltó).
   // Idempotente (raw-upsert) → re-enviar filas ya presentes es inofensivo. Throttle a SAFETY_INTERVAL.
@@ -560,24 +601,48 @@ async function syncCtid(p, code, table, meta, { apply, full, colaActiva = false 
   if (ventana) {
     const key = `${code}/${table}`;
     const nowMs = Date.now();
-    if (full || (nowMs - (_lastSafety.get(key) || 0)) >= SAFETY_INTERVAL_MS) {
+    // La puesta al día no espera su turno de 5 min: es lo que cubre el instante antes del trigger.
+    if (full || puestaAlDia || (nowMs - (_lastSafety.get(key) || 0)) >= SAFETY_INTERVAL_MS) {
       _lastSafety.set(key, nowMs);
-      let sbuf = [], sSeen = 0, sChanged = 0;
-      const rows = (await p.query(
-        `SELECT ${selList} FROM md.${qid(table)} WHERE ${ventana}`)).rows;
-      for (const row of rows) {
-        const o = { sucursal: code };
-        for (const c of meta.cols) o[c.column_name] = row[c.column_name];
-        sbuf.push(o); sSeen++;
-        if (sbuf.length >= SHIP_BATCH) { const r = await ship(sbuf, shipMeta); sChanged += Number(r.rowCount || 0); sbuf = []; }
+      const tRed = Date.now();
+      // [OBS.15.12] La cola de otro carril ya entrega estas filas: sólo los SKUs, al recálculo.
+      // Sólo en modo pg (el coalescedor vive en ESTE proceso) y si TODOS los normalizadores de la
+      // tabla se coalescen (el handler responde -1 si no); si no, la red de siempre, porque es la
+      // que hace llegar las llaves.
+      const skuCol = COLUMNA_SKU[table];
+      let cubierta = false;
+      if (colaCubre && !full && modoPg && skuCol) {
+        const skus = (await p.query(
+          `SELECT DISTINCT btrim(${qid(skuCol)}::text) AS k FROM md.${qid(table)} WHERE ${ventana}`)).rows.map((r) => r.k);
+        const n = await encolarFn(table, skus);
+        if (n >= 0) {
+          cubierta = true;
+          console.log(`  ⛑ ${code}/${table} [safety ${SAFETY_DAYS}d · cubierta por la cola]: ${n} SKUs al recálculo · 0 filas re-embarcadas · ${Date.now() - tRed} ms`);
+        }
       }
-      if (sbuf.length) { const r = await ship(sbuf, shipMeta); sChanged += Number(r.rowCount || 0); }
-      if (sChanged) console.log(`  ⛑ ${code}/${table} [safety ${SAFETY_DAYS}d]: ${sSeen} revisadas · ${sChanged} recuperadas/actualizadas`);
+      if (!cubierta) {
+        let sbuf = [], sSeen = 0, sChanged = 0;
+        const rows = (await p.query(
+          `SELECT ${selList} FROM md.${qid(table)} WHERE ${ventana}`)).rows;
+        for (const row of rows) {
+          const o = { sucursal: code };
+          for (const c of meta.cols) o[c.column_name] = row[c.column_name];
+          sbuf.push(o); sSeen++;
+          if (sbuf.length >= SHIP_BATCH) { const r = await ship(sbuf, shipMeta); sChanged += Number(r.rowCount || 0); sbuf = []; }
+        }
+        if (sbuf.length) { const r = await ship(sbuf, shipMeta); sChanged += Number(r.rowCount || 0); }
+        // [OBS.15.12] Se imprime SIEMPRE, con su duración. Antes sólo si recuperaba algo, y por eso
+        // su costo (re-embarcar la ventana entera) no se veía en el log: se le cargaba a la línea
+        // siguiente.
+        console.log(`  ⛑ ${code}/${table} [safety ${SAFETY_DAYS}d${puestaAlDia ? ' · puesta al día con la cola' : ''}]: ${sSeen} revisadas · ${sChanged} recuperadas/actualizadas · ${Date.now() - tRed} ms`);
+      }
     }
   }
 
   // [GX.73] Y los documentos que todavía cambian de estado, sin importar su fecha.
-  await reenviarAbiertos(p, code, table, meta, { full });
+  await reenviarAbiertos(p, code, table, meta, { full: full || puestaAlDia });
+  // Se marca AL FINAL: si la puesta al día tiró a medias, la próxima pasada la repite entera.
+  if (puestaAlDia) _redConCola.add(llaveRed);
   return { suc: code, tabla: table, carril: 'ctid', leidas: seen, escritas: changed };
 }
 
@@ -758,11 +823,45 @@ async function metaDe(p, table) {
 async function colaDe(p, code) {
   const hit = _colaEstado.get(code);
   if (hit && Date.now() - hit.en < COLA_ESTADO_MS) return hit;
-  const e = await estadoCola(p, COLA_TABLES);
-  const activas = new Set(COLA_TABLES.filter((t) => e.tablas[t] === 'activa'));
+  const e = await estadoCola(p, COLA_VIGILADAS);
+  const activas = new Set(COLA_VIGILADAS.filter((t) => e.tablas[t] === 'activa'));
+  // Una tabla que NO estaba activa y ahora sí (se instaló, o se reinstaló tras quitarla) vuelve
+  // a necesitar su puesta al día: lo que cambió mientras no había trigger no está en la cola.
+  for (const t of COLA_VIGILADAS) if (!activas.has(t) || !hit?.activas.has(t)) _redConCola.delete(`${code}/${t}`);
   const v = { en: Date.now(), activas, faltan: COLA_TABLES.filter((t) => !activas.has(t)).map((t) => `${t}:${e.tablas[t]}`) };
   _colaEstado.set(code, v);
   return v;
+}
+
+/**
+ * `[OBS.15.10]` Propaga al ODS los borrados que la cola vio, con los dos frenos (ver `COLA_BORRAR`).
+ * `llaves` = las que el origen ya no tiene. Se le pregunta al ODS cuáles de ésas existen con fecha
+ * de negocio reciente, y sólo ésas se borran (`raw-delete`, por llave). Devuelve `{ borradas, nota }`.
+ * `dest`/`shipFn` inyectables para la prueba (test-ods-cola.js, bloque 7).
+ */
+async function borrarEnVivo({ code, tabla, meta, llaves, dest = DEST, dias = BORRADO_DIAS, tope = BORRADO_TOPE,
+  shipFn = (rows, m) => sink.ship('raw-delete', { rows, tenantId: TENANT, meta: m, client: dest }) }) {
+  const col = FECHA_BORRADO[tabla];
+  if (!col) return { borradas: 0, nota: 'sin fecha de negocio declarada: no se borra' };
+  if (!dest) return { borradas: 0, nota: 'sin destino pg: no se borra' };
+  if (llaves.length > tope) {
+    console.log(`  ⛔ ${code}/${tabla}: ${llaves.length} borrados en una pasada (> ${tope}) — NO se propagan: `
+      + 'parece una poda, no una edición. Los resuelve la reconciliación nocturna.');
+    return { borradas: 0, nota: `${llaves.length} retenidos (> tope ${tope})` };
+  }
+  const tipos = new Map(meta.cols.map((c) => [c.column_name, mapType(c.data_type)]));
+  const def = meta.pk.map((k) => `${qid(k)} ${tipos.get(k) || 'text'}`).join(', ');
+  const on = meta.pk.map((k) => `t.${qid(k)} = k.${qid(k)}`).join(' AND ');
+  const { rows } = await dest.query(
+    `SELECT ${meta.pk.map((k) => `t.${qid(k)}`).join(', ')}
+       FROM kepler_ods.${qid(tabla)} t
+       JOIN jsonb_to_recordset($1::jsonb) AS k(${def}) ON ${on}
+      WHERE t.sucursal = $2 AND t.${qid(col)} >= current_date - $3::int`,
+    [JSON.stringify(llaves), code, dias]);
+  const viejas = llaves.length - rows.length;
+  if (!rows.length) return { borradas: 0, ...(viejas ? { nota: `${viejas} viejas o ya ausentes: no se tocan` } : {}) };
+  const r = await shipFn(rows.map((x) => ({ sucursal: code, ...x })), shipMetaOf(tabla, meta));
+  return { borradas: Number(r?.rowCount || 0), ...(viejas ? { nota: `${viejas} viejas o ya ausentes: no se tocan` } : {}) };
 }
 
 /** `[OBS.15]` Vacía la cola de esta rama (o, en seco, sólo la mide). Devuelve la fila del resumen. */
@@ -782,14 +881,18 @@ async function pasarCola(p, code, cola, { apply }) {
     // (ctid + red) y ahí se recalcula, igual que hoy.
     enviar: (t, meta, filas) => ship(filas.map((row) => ({ sucursal: code, ...row })),
       { ...shipMetaOf(t, meta), normalize: false }),
+    borrar: COLA_BORRAR ? (t, meta, llaves) => borrarEnVivo({ code, tabla: t, meta, llaves }) : null,
   });
   const espera = rc.leidas ? rc.espera_max_ms + rc.ms : 0;
   if (rc.leidas) {
-    const det = Object.entries(rc.porTabla).map(([t, v]) => `${t} ${v.llaves}`).join(' · ');
-    console.log(`  ⚡ ${code}/cola: ${det} · ${rc.escritas} escritas`
-      + `${rc.borradas ? ` · ${rc.borradas} borradas en origen (no se propagan)` : ''} · réplica→ODS ≤ ${espera} ms`);
+    const det = Object.entries(rc.porTabla).map(([t, v]) => `${t} ${v.llaves}${v.nota ? ` (${v.nota})` : ''}`).join(' · ');
+    const bor = !rc.borradas ? ''
+      : COLA_BORRAR ? ` · ${rc.borradas} borradas en origen, ${rc.propagadas || 0} propagadas`
+        : ` · ${rc.borradas} borradas en origen (no se propagan)`;
+    console.log(`  ⚡ ${code}/cola: ${det} · ${rc.escritas} escritas${bor} · réplica→ODS ≤ ${espera} ms`);
   }
-  return { suc: code, tabla: 'cola', carril: 'cola', leidas: rc.llaves, escritas: rc.escritas, borradas: rc.borradas, espera_max_ms: espera };
+  return { suc: code, tabla: 'cola', carril: 'cola', leidas: rc.llaves, escritas: rc.escritas, borradas: rc.borradas,
+    propagadas: rc.propagadas || 0, espera_max_ms: espera };
 }
 
 async function cycleAll({ apply, full }) {
@@ -824,17 +927,19 @@ async function cycleAll({ apply, full }) {
       if (!p._ctlListo) { await ensureLocalCtl(p, b.code, apply); if (TIEMPO_REAL) p._ctlListo = true; }
       // La cola va PRIMERO: es el camino rápido, y la cabecera con sus renglones salen juntos.
       let cola = null;
-      if (COLA_TABLES.length) {
-        summary.cola.ramas++;
+      if (COLA_VIGILADAS.length) {
+        if (COLA_TABLES.length) summary.cola.ramas++;
         try {
           cola = await colaDe(p, b.code);
-          if (cola.activas.size) {
-            const r = await pasarCola(p, b.code, cola, { apply });
-            summary.push(r);
-            filas += Number(r.escritas || 0);
+          if (COLA_TABLES.length) {
+            if (COLA_TABLES.some((t) => cola.activas.has(t))) {
+              const r = await pasarCola(p, b.code, cola, { apply });
+              summary.push(r);
+              filas += Number(r.escritas || 0);
+            }
+            if (COLA_TABLES.every((t) => cola.activas.has(t))) summary.cola.activas++;
+            else summary.cola.faltan.push(`${b.code}(${cola.faltan.join(',')})`);
           }
-          if (cola.activas.size === COLA_TABLES.length) summary.cola.activas++;
-          else summary.cola.faltan.push(`${b.code}(${cola.faltan.join(',')})`);
         } catch (e) {
           console.log(`  ✗ ${b.code}/cola: ${e.message.slice(0, 90)}`);
           summary.push({ suc: b.code, tabla: 'cola', error: e.message.slice(0, 45) });
@@ -848,7 +953,12 @@ async function cycleAll({ apply, full }) {
           if (!meta) { summary.push({ suc: b.code, tabla: table, skip: 'no existe' }); continue; }
           if (!meta.pk.length) { summary.push({ suc: b.code, tabla: table, skip: 'sin PK' }); continue; }
           const fn = isHashTable(table) ? syncHash : syncCtid;
-          const r = await fn(p, b.code, table, meta, { apply, full, colaActiva: !!cola && cola.activas.has(table) });
+          const activa = !!cola && cola.activas.has(table);
+          const r = await fn(p, b.code, table, meta, {
+            apply, full,
+            colaActiva: activa && COLA_TABLES.includes(table),   // esta cola la vacía ESTE carril
+            colaCubre: activa && COLA_CUBRE.includes(table),     // [OBS.15.12] la vacía otro carril
+          });
           summary.push(r);
           tablas++; filas += Number(r?.escritas || 0);
         } catch (e) { console.log(`  ✗ ${b.code}/${table}: ${e.message.slice(0, 90)}`); summary.push({ suc: b.code, tabla: table, error: e.message.slice(0, 45) }); errTablas++; }
@@ -1118,4 +1228,6 @@ module.exports.__test = {
   syncCtid,
   // [OBS.15] El latido por ventana de TIEMPO_REAL (test-ods-cola.js, bloque 5).
   crearCicloTiempoReal,
+  // [OBS.15.10] Los borrados en vivo y sus frenos (test-ods-cola.js, bloque 7).
+  borrarEnVivo,
 };

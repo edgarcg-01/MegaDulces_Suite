@@ -335,6 +335,18 @@ describe('[RA-PEND.2] el lote se frena ANTES del clic, no después de perder el 
     expect(c.planBloqueos()).toEqual([]);
   });
 
+  it('[PQ.17] ⛔ una fracción de caja se frena ANTES de generar y dice cuál producto', () => {
+    const c = montar(VACIO).componentInstance;
+    c.plan.set([doc({ lines: [{ product_id: 'p-1', supplier_id: 's-1', source_type: 'supplier', final_qty: 0.2, unit_cost: 100 }] })]);
+    const bl = c.planBloqueos();
+    expect(bl.length).toBe(1);
+    expect(bl[0]).toContain('no son cajas enteras ni piezas enteras');
+    expect(bl[0]).toContain('Kepler no los acepta');
+    // NEGATIVA: 3 cajas enteras no frenan.
+    c.plan.set([doc()]);
+    expect(c.planBloqueos()).toEqual([]);
+  });
+
   it('⛔ pasarse del tope del lote se dice acá, no en un 400 después de armar todo', () => {
     const c = montar(VACIO).componentInstance;
     c.plan.set(Array.from({ length: 301 }, () => doc()));
@@ -629,6 +641,27 @@ describe('[RA-UX] auditoría de interacción 2026-10-21: lo que la persona hace,
     expect(c.qtyOf(fila('p-1') as never, suc('01') as never)).toBe(0);
     expect(c.selected().has('p-1')).toBe(false);
     expect(c.hasUnsavedChanges()).toBe(false);
+  });
+
+  // ── [PQ.14] el lazo no se corta al generar ──
+  it('[PQ.14] tras generar, lo creado queda a la vista con su lote y el camino a la bandeja, hasta cerrarlo', () => {
+    const f = montar(VACIO);
+    const c = f.componentInstance;
+    expect(c.ultimoLote()).toBeNull();
+    c.setDispOf(fila('p-1') as never, suc('01') as never, 5);
+    c.plan.set(plan('p-1') as never);
+    c.confirmarPlan();
+    f.detectChanges();
+    expect(c.ultimoLote()?.batch_folio).toBe('RQ-LOTE-TEST');
+    const aviso = f.nativeElement.querySelector('.pr-ultimo-lote') as HTMLElement;
+    expect(aviso).not.toBeNull();
+    expect(aviso.textContent).toContain('Lote RQ-LOTE-TEST');
+    expect(aviso.textContent).toContain('1 compra(s) + 0 traspaso(s)');
+    const link = aviso.querySelector('a[href]') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/compras/requisiciones?q=RQ-LOTE-TEST');
+    (aviso.querySelector('button[aria-label="Cerrar este aviso"]') as HTMLButtonElement).click();
+    f.detectChanges();
+    expect(f.nativeElement.querySelector('.pr-ultimo-lote')).toBeNull();
   });
 
   it('⛔ NEGATIVA: al salir de la pantalla NO reescribe el borrador de un pedido ya armado', () => {

@@ -4,7 +4,8 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
-import { etiquetaFuentePrecio, tonoFuentePrecio, type PasoDesglose } from '../quote-units';
+import { etiquetaFuentePrecio, textoDescuento, tonoFuentePrecio, type PasoDesglose } from '../quote-units';
+import { notaRedondeo } from '../quote-discount-breakdown';
 
 /**
  * `[E.29]` Un renglón de cotización como lo ve el operador, YA resuelto. Lo arman el alta (la
@@ -45,6 +46,13 @@ export interface RenglonTabla {
   /** Qué descuento es, concreto: «Precio por volumen de 10 a más PAQ», «50% desde 1 PAQ · vigente hasta 22/11/2026». */
   explicacion: string;
   importe: number | null;
+  /**
+   * `[E.29]` El importe con el % del cliente, repartido como en la hoja (`totalesCotizacion().netos`:
+   * Σ netos = total al centavo). null = sin % de cliente o renglón sin precio.
+   */
+  neto: number | null;
+  /** `[E.29]` Precio de la presentación antes del redondeo de Kepler por unidad base; null = no se sabe. */
+  sinRedondear: number | null;
 }
 
 export interface CambioCantidad {
@@ -150,11 +158,28 @@ export interface CambioCantidad {
           </td>
           <td role="cell" data-label="De dónde sale">
             <p-tag [value]="etiqueta(r.fuente)" [severity]="tono(r.fuente)" />
-            @if (r.dtoPct) { <span class="dto">−{{ r.dtoPct }}%</span> }
+            @if (r.dtoPct) { <span class="dto" [class.recargo]="r.dtoPct < 0">{{ textoDto(r.dtoPct) }}</span> }
             @if (r.explicacion) { <span class="explica">{{ r.explicacion }}</span> }
             @if (r.pasos) { <span class="pasos">{{ r.pasos }}</span> }
+            @if (redondeo(r); as nota) { <span class="pasos">{{ nota }}</span> }
+            <!-- [E.29] El % del cliente también es de dónde sale el importe: se dice en el renglón. -->
+            @if (r.neto !== null && r.neto !== r.importe) {
+              <span class="cliente">
+                <p-tag [value]="etiqueta('customer_terms')" [severity]="tono('customer_terms')" />
+                <span class="dto">−{{ clientePct() }}%</span>
+              </span>
+            }
           </td>
-          <td class="num dt-num" role="cell" data-label="Importe">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+          <!-- [E.29] Con % de cliente, el importe es el de la hoja (ya con su parte del descuento) y
+               dice de dónde sale: el renglón de Kepler, antes del %, es el de abajo. -->
+          <td class="num dt-num" role="cell" data-label="Importe">
+            @if (r.neto !== null && r.neto !== r.importe) {
+              <span class="p-unit-main">{{ r.neto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+              <span class="imp-antes">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }} − {{ clientePct() }} % cliente</span>
+            } @else {
+              {{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}
+            }
+          </td>
           <td class="num dt-actions" role="cell">
             @if (r.editable && r.regaloDe === null) {
               <p-button
@@ -191,7 +216,9 @@ export interface CambioCantidad {
       .sin-casar { font-size: 0.7rem; color: var(--warn-soft-fg); margin-left: 0.35rem; }
       .factor { margin-left: 0.25rem; font-size: 0.7rem; color: var(--text-muted); }
       .dto { font-size: 0.7rem; color: var(--ok-soft-fg); margin-left: 0.3rem; }
+      .dto.recargo { color: var(--bad-fg); }
       .explica { display: block; font-size: var(--fs-xs); color: var(--text-main); }
+      .cliente { display: block; margin-top: 0.25rem; }
       .pasos { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
       .falta { color: var(--bad-fg); font-weight: 600; }
       .falta-nota { display: block; font-size: var(--fs-xs); color: var(--bad-fg); }
@@ -199,6 +226,7 @@ export interface CambioCantidad {
       .p-unit-cell { display: flex; align-items: baseline; justify-content: flex-end; gap: 0.35rem; white-space: nowrap; }
       .p-unit-main { font-weight: 700; }
       .p-unit-sub-breakdown { font-size: var(--fs-micro); color: var(--text-muted); font-weight: 500; }
+      .imp-antes { display: block; font-size: var(--fs-micro); color: var(--text-muted); white-space: nowrap; }
       .inline-qty-box { display: flex; justify-content: flex-end; }
       .qty-inline { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; }
       .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
@@ -209,6 +237,8 @@ export class QuoteLinesTableComponent {
   readonly renglones = input.required<RenglonTabla[]>();
   /** Mientras se guarda: la cantidad y el quitar quedan deshabilitados. */
   readonly bloqueado = input(false);
+  /** `[E.29]` El % del cliente de la cotización (para rotular el neto); null = sin descuento. */
+  readonly clientePct = input<number | null>(null);
   readonly cantidad = output<CambioCantidad>();
   readonly quitar = output<string>();
 
@@ -222,8 +252,14 @@ export class QuoteLinesTableComponent {
 
   etiqueta(s: string): string { return etiquetaFuentePrecio(s); }
   tono(s: string): 'success' | 'info' | 'warn' | 'danger' | 'secondary' { return tonoFuentePrecio(s); }
+  textoDto(p: number): string { return textoDescuento(p); }
 
   dinero(v: number | null): string {
     return v === null ? '—' : v.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+  }
+
+  /** `[E.29]` «Kepler redondea por PAQ a centavos: …» cuando el precio no es el de su último paso. */
+  redondeo(r: RenglonTabla): string {
+    return notaRedondeo(r.sinRedondear, r.precio, r.desglose[r.desglose.length - 1], (n) => this.dinero(n));
   }
 }

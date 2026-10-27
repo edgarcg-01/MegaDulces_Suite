@@ -9,6 +9,8 @@ import { ButtonModule } from 'primeng/button';
 import { ChartModule } from 'primeng/chart';
 import { MaatService, MaatChatTurn, MaatToolTrace, MaatBriefing, MaatChatResult } from '../maat.service';
 import { ThotAiInputComponent, ThotAsk, ThotImage } from '../../comercial/components/thot-ai-input.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MAAT_TABS } from '../maat-tabs';
 
 /** Mensaje en la UI: turno + (para assistant) bloques de datos de las tools. */
 interface ChatMsg {
@@ -64,7 +66,7 @@ const SUGGESTIONS = [
 @Component({
   selector: 'app-finanzas-maat-chat',
   standalone: true,
-  imports: [FormsModule, ButtonModule, ChartModule, ThotAiInputComponent],
+  imports: [FormsModule, ButtonModule, ChartModule, ThotAiInputComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in tc-page">
@@ -78,6 +80,8 @@ const SUGGESTIONS = [
           <button pButton [text]="true" severity="secondary" size="small" (click)="reset()"><span class="p-button-icon p-button-icon-left pi pi-eraser" aria-hidden="true"></span><span class="p-button-label">Nueva consulta</span></button>
         }
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <div class="tc-thread" #thread (scroll)="onScroll()" (click)="onThreadClick($event)">
         @if (messages().length === 0) {
@@ -498,6 +502,8 @@ const SUGGESTIONS = [
   `],
 })
 export class FinanzasMaatChatComponent implements OnInit {
+  /** [NAV.7] La barra del apartado «Maat» del sidebar de Finanzas: la pintan todas sus páginas. */
+  readonly apartadoTabs = MAAT_TABS;
   private readonly svc = inject(MaatService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
