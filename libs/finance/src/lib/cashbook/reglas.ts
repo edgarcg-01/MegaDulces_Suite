@@ -189,18 +189,13 @@ export function cobranzaRuta(h: { ruta: string; origenRef: string; monto: string
 export type ClasificacionCaos =
   | { tipo: 'cajon' }
   | { tipo: 'custodia'; empleado: string; nombre: string }
-  | { tipo: 'banco' }
-  | { tipo: 'cambio_con_cajon'; direccionConfirmada: true };
+  | { tipo: 'banco' };
 
 export function movimientoCaos(m: MovimientoCaos, ctx: Contexto, clasificacion?: ClasificacionCaos): ResultadoRegla {
   const id = identidadDeCaos(m);
   const efecto = efectoDeTipo(m.type_id);
-  const leidas = piezasQueEntranALaMaquina(m);
-  if (!leidas) return { sinRegla: true, motivo: `${m.type_label}: ${efecto.motivo}`, event_ref: id.event_ref };
-  if (!leidas.direccionProbada && clasificacion?.tipo !== 'cambio_con_cajon') {
-    return { sinRegla: true, motivo: `${m.type_label}: la dirección por denominación no está confirmada; una persona la confirma`, event_ref: id.event_ref };
-  }
-  const piezas = leidas.piezas;
+  const piezas = piezasQueEntranALaMaquina(m);
+  if (!piezas) return { sinRegla: true, motivo: `${m.type_label}: ${efecto.motivo}`, event_ref: id.event_ref };
   const neto = valorDePiezas(aNumeros(piezas), 'MXN');
   const total = pesosACentavos(String(m.total));
   if (neto !== total * BigInt(efecto.signo || 1) && m.type_id !== 7) {
@@ -209,15 +204,22 @@ export function movimientoCaos(m: MovimientoCaos, ctx: Contexto, clasificacion?:
   const extra = { ...id, meta: { origen: 'caos', motivo: m.type_label } as MetaAsiento };
 
   if (m.type_id === 7) {
+    // La máquina recibe billetes grandes y entrega chicos (dirección probada en LE.3.4). Quién
+    // estuvo del otro lado lo dice una persona (el cajón); mientras no lo diga, Suspenso.
     const { entra, sale } = porSigno(piezas);
+    if (!Object.keys(entra).length || !Object.keys(sale).length) {
+      return { sinRegla: true, motivo: `${m.type_label}: un cambio sin una de sus dos mitades`, event_ref: id.event_ref };
+    }
     const vEntra = montoDe(entra);
     const vSale = -montoDe(sale);
+    const otro = clasificacion?.tipo === 'cajon' ? F.CAJA_MXN : F.SUSPENSO_MXN;
+    const piezasDelOtro = (p: PiezasTexto) => (otro.tracks_pieces ? { piezas: negarPiezas(p) } : {});
     return armar('cambio', ctx, [
       { cuenta: F.BOVEDA_CAOS, monto: vEntra, piezas: entra },
-      { cuenta: F.CAJA_MXN, monto: -vEntra, piezas: negarPiezas(entra) },
+      { cuenta: otro, monto: -vEntra, ...piezasDelOtro(entra) },
       { cuenta: F.BOVEDA_CAOS, monto: -vSale, piezas: sale },
-      { cuenta: F.CAJA_MXN, monto: vSale, piezas: negarPiezas(sale) },
-    ], extra);
+      { cuenta: otro, monto: vSale, ...piezasDelOtro(sale) },
+    ], otro === F.SUSPENSO_MXN ? { ...extra, meta: { ...extra.meta, motivo: 'cambio: falta quién estuvo del otro lado' } } : extra);
   }
 
   // La pierna de la máquina: entra (+) o sale (−) con sus piezas.

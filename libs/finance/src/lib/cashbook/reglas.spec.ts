@@ -73,10 +73,10 @@ describe('[LE.2.4] identidad de los hechos de la máquina', () => {
 
   it('dirección: depósito y dotar entran, dispensar y vaciar salen; fin de día y contenido modificado no mueven', () => {
     const p = [B(500, 2)];
-    expect(piezasQueEntranALaMaquina(mov({ type_id: 0, type_label: 'Deposito', total: '1000', piezas: p }))?.piezas).toEqual({ 500: '2' });
-    expect(piezasQueEntranALaMaquina(mov({ type_id: 8, type_label: 'Dotar', total: '1000', piezas: p }))?.piezas).toEqual({ 500: '2' });
-    expect(piezasQueEntranALaMaquina(mov({ type_id: 4, type_label: 'Dispensar', total: '1000', piezas: p }))?.piezas).toEqual({ 500: '-2' });
-    expect(piezasQueEntranALaMaquina(mov({ type_id: 5, type_label: 'Vaciar Stocks', total: '1000', piezas: p }))?.piezas).toEqual({ 500: '-2' });
+    expect(piezasQueEntranALaMaquina(mov({ type_id: 0, type_label: 'Deposito', total: '1000', piezas: p }))).toEqual({ 500: '2' });
+    expect(piezasQueEntranALaMaquina(mov({ type_id: 8, type_label: 'Dotar', total: '1000', piezas: p }))).toEqual({ 500: '2' });
+    expect(piezasQueEntranALaMaquina(mov({ type_id: 4, type_label: 'Dispensar', total: '1000', piezas: p }))).toEqual({ 500: '-2' });
+    expect(piezasQueEntranALaMaquina(mov({ type_id: 5, type_label: 'Vaciar Stocks', total: '1000', piezas: p }))).toEqual({ 500: '-2' });
     expect(piezasQueEntranALaMaquina(mov({ type_id: 2, type_label: 'Fin de Dia', total: '1000', piezas: p }))).toBeNull();
     expect(piezasQueEntranALaMaquina(mov({ type_id: 13, type_label: 'Contenido Modificado', total: '-25420', piezas: [] }))).toBeNull();
   });
@@ -144,12 +144,14 @@ describe('[LE.2.3] reglas: lo que hace la máquina', () => {
     expect(linea(banco, 'TRANSITO_BANCO').amount_minor).toBe('100000');
   });
 
-  it('sin regla: Fin de Día (es una lectura, no un movimiento), Contenido Modificado y un Cambio sin confirmar', () => {
+  it('sin regla: Fin de Día (es una lectura, no un movimiento) y Contenido Modificado; el Cambio se asienta siempre (dirección probada en LE.3.4)', () => {
     expect(esSinRegla(movimientoCaos(mov({ type_id: 2, type_label: 'Fin de Dia', total: '279110', piezas: [B(500, 292)] }), FEED))).toBe(true);
     expect(esSinRegla(movimientoCaos(mov({ type_id: 13, type_label: 'Contenido Modificado', total: '-25420', piezas: [] }), FEED))).toBe(true);
     const cambio = mov({ type_id: 7, type_label: 'Cambio', total: '0', piezas: [B(500, 2), B(-100, 10)] });
-    expect(esSinRegla(movimientoCaos(cambio, FEED))).toBe(true);
-    const ok = propuesta(movimientoCaos(cambio, CAJERA, { tipo: 'cambio_con_cajon', direccionConfirmada: true }));
+    const sinQuien = propuesta(movimientoCaos(cambio, FEED));
+    verificar(sinQuien);
+    expect(sinQuien.asiento.lines.filter((l) => l.account === 'SUSPENSO_MXN')).toHaveLength(2);
+    const ok = propuesta(movimientoCaos(cambio, CAJERA, { tipo: 'cajon' }));
     verificar(ok);
     expect(ok.asiento.lines).toHaveLength(4);
   });
@@ -265,7 +267,7 @@ describe('[LE.2.7] propiedad: todo asiento cuadra por moneda y conserva cada pie
     () => {
       const entra = B(unoDe(BILLETES), entre(1, 20));
       const sale = B(-unoDe(BILLETES), entre(1, 20));
-      return movimientoCaos(mov({ type_id: 7, type_label: 'Cambio', total: '0', piezas: [entra, sale] }), CAJERA, { tipo: 'cambio_con_cajon', direccionConfirmada: true });
+      return movimientoCaos(mov({ type_id: 7, type_label: 'Cambio', total: '0', piezas: [entra, sale] }), CAJERA, { tipo: 'cajon' });
     },
     () => cobranzaRuta({ ruta: String(entre(1, 40)), origenRef: `d-${entre(1, 1e6)}`, monto: String(entre(1, 9e8)), fecha: '2026-10-26' }, FEED),
     () => entregaRuta({ ruta: String(entre(1, 40)), piezas: piezasAlAzar() }, CAJERA),
