@@ -119,6 +119,65 @@ Semana 3 (nov 10–14)    OPS-AUD.9 (con autorización) · OPS-AUD.10 · DOCS-AU
 Después de Fase 0       SD-b → SD-c
 ```
 
+## 7bis. Análisis: refrescar y re-escanear (PM, 2026-10-27)
+
+> Pedido del PM: *«caja general necesita la información de inmediato, pero refrescar no es una
+> solución. Todo lo que sea refrescar, re-escanear, etc. que sea un proceso de miles de consultas
+> es ineficiente»*. Esto es el análisis previo al diseño. Medido en prod en sólo lectura.
+> `pg_stat_statements` desde el 2026-10-26 09:13 (~27 h); `pg_stat_user_tables` desde el reinicio
+> del 2026-10-22 (~5 días).
+
+### Cuánto cuesta refrescar, todo junto
+
+28 vistas materializadas se refrescaron en la ventana: **~52,400 s en 27 h ≈ 46,000 s/día ≈ 0.53
+núcleos sostenidos** (sólo el proceso líder; los paralelos no se suman).
+
+| Vista | Corridas en 27 h | Costo | Parte del total |
+|---|---:|---:|---:|
+| `mv_caja_movimientos` | 4,765 (~3 por minuto) | 35,730 s · 7.5 s c/u | **68 %** |
+| grupo existencia-aux (`mv_warehouse_box_factor`, `mv_price_truth`, `mv_kepler_unit_cost`, `mv_product_box_factor`) | 328 c/u (cada 5 min) | 6,619 s | 13 % |
+| `mv_new_products` | 55 (cada 30 min) | 3,708 s · 67 s c/u | 7 % |
+| las otras 21 | — | ~6,300 s | 12 % |
+
+### La caja: se recalcula más veces de las que cambia el dato
+
+- `kepler_ods.kdm1` recibió **15,592 cambios en ~5 días** (6,581 altas, 8,977 cambios, 34 bajas):
+  **~130 por hora**, de **todos** los tipos de documento, no sólo de caja.
+- La vista se refrescó **~175 veces por hora**. Cada refresco recorre los ~651 mil renglones de
+  `kdm1` para reflejar, en promedio, **menos de un cambio**.
+- `kdb1` (catálogo de cuentas): **0 cambios en 5 días**. `kdfe33pagm1` (complemento): 43 altas.
+- Cada movimiento depende **sólo de su propio renglón** de `kdm1` más catálogos chicos: no hay
+  saldos acumulados, ventanas ni agregados en la vista. ⇒ mantenerlo por cambio es posible sin
+  recalcular nada más.
+- La cadena ya es por evento hasta el ODS: réplica → cola (`ODS_COLA_TABLES=kdm1,kdm2`) →
+  `ods-live-caja` cada 0.25 s → `feeds-ingest` (UPSERT sin churn, sabe qué filas cambió) →
+  `NOTIFY caja_fuente`. **El único eslabón que recalcula todo es el `REFRESH`.**
+- Estimación a validar: ~3,100 cambios/día × pocos ms ≈ **segundos al día**, contra ~31,000 s/día
+  de hoy. Y la latencia baja de 5–10 s (lo que tarda el refresco) a lo que tarda la ingesta.
+- ⚠️ El complemento de pago (`v_kepler_payment_complement`) y las cuentas de `finance.bank_accounts`
+  hoy quedan congelados dentro de la vista entre refrescos; en el diseño se cruzan al leer.
+
+### Lo demás que recalcula sin preguntar (inventario del código)
+
+- 14 vistas se refrescan cada ≤ 15 min y **sólo la de caja pregunta antes si algo cambió**.
+- La foto «Para cuidar hoy» (`product-flow.service.ts:554`) recalcula el universo de productos
+  **cada minuto**, sin compuerta y sin medición escrita. Es cálculo, no vista: no aparece arriba.
+- `import-pos-ticket-sales` agrupa **toda la historia de `kdm1`** cada hora y reescribe todas las
+  filas (`merge` sin `IS DISTINCT FROM`).
+- El vigilante de recepciones (cada 5 min) y `publish-tienda` (cada 10 min) recorren tablas
+  completas sólo para detectar lo nuevo, cuando `feeds-ingest` ya sabe qué cambió.
+- `mv_caja_autofill_entidad` se refresca **sin** `CONCURRENTLY`: bloquea a los lectores cada hora.
+
+### Conclusión del análisis
+
+1. **La caja es el 68 % de todo el costo de refrescar** y el dato cambia menos veces de las que se
+   recalcula. Mantenerla por cambio es posible y es lo de mayor retorno.
+2. El primitivo que falta es **«avisar qué cambió»**: `feeds-ingest` ya lo sabe por tabla y por
+   fila, pero sólo avisa para `kdm1`/`kdb1`. Con ese aviso general, los demás procesos pueden
+   reaccionar a cambios en vez de recorrer todo (ADR-056: va a `libs/`, no a cada proceso).
+3. Lo que no se puede hacer por cambio (agregados de 30/90/365 días, rankings) necesita al menos
+   la compuerta «¿cambió algo desde la última vez?» que ya existe en la caja.
+
 ## 8. Bitácora
 
 | Fecha | Qué pasó | Quién |
