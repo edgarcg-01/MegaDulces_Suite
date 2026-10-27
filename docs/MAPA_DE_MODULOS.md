@@ -116,9 +116,13 @@ sidebar no da ni quita acceso: sólo muestra lo que el permiso ya permite.
 
 `apps/api` es **delgado**: trae la plataforma (`auth`, `auth-mt`, `cron`, `db-health`,
 `kepler-consolidado`, `kp`, `store`, `tenants-admin`, `catalogo-interno`, `dev-projects`) y cablea los
-dominios. **Los dominios no se importan entre sí**: cuando uno necesita algo de otro, declara un
-**puerto** en `libs/contracts` y `apps/api/src/composition/*.binding.module.ts` le conecta la
-implementación.
+dominios. **En el código, los dominios no se importan entre sí**: cuando uno necesita *ejecutar* algo
+de otro, declara un **puerto** en `libs/contracts` y `apps/api/src/composition/*.binding.module.ts` le
+conecta la implementación.
+
+⚠️ **En SQL sí se cruzan, y mucho**: los puertos son la costura del *código*, pero casi todo el acople
+real entre módulos es **un dominio leyendo directo la tabla de otro** (§5). No es un defecto en sí
+—todos comparten la misma base—, pero es lo que hay que recorrer antes de cambiar una tabla.
 
 ### 3.1 Los dominios (`libs/`)
 
@@ -259,10 +263,144 @@ puertos de `commercial` y `finance`).
 
 ---
 
-## 5. Cómo se interconecta el negocio (el flujo completo)
+## 5. Cómo conviven los módulos (medido en el código)
+
+> Medido el 2026-10-27 recorriendo `libs/*/src` (sin `.spec.ts`): por cada dominio, qué tablas de
+> **otro** dominio nombra en su SQL. Script de sólo lectura, sin tocar la base. Es acople por
+> **lectura/escritura de tabla** —el que de verdad ata a dos módulos—, más los puertos del §3.2.
+
+### 5.1 Las tres formas en que dos módulos se conectan
+
+1. **Comparten el ERP.** Todos leen el mismo `kepler_ods`: es el piso común y por eso dos pantallas
+   de espacios distintos pueden coincidir sin hablarse. Las tablas más leídas: `kdm1`/`kdm2`
+   (movimientos, 101 menciones), `kdii` (existencia, 34), `kdxe`/`kdxf` (deuda y pago a proveedor, 30),
+   `kduv`/`kdud` (venta y clientes, 20), `kdm5`/`kdue` (cobro y cartera, 8).
+2. **Uno lee (o escribe) la tabla propia del otro.** Es el acople directo; la tabla de §5.3.
+3. **Uno le pide al otro que haga algo, por un puerto** (§3.2): facturar, marcar un pedido surtido,
+   dejar un hallazgo, avisar.
+
+### 5.2 El mapa de convivencia
+
+Cada flecha es **lo que pasa** de un módulo a otro, con la tabla o el puerto que lo lleva.
+
+```mermaid
+flowchart LR
+    classDef op fill:#fff7ed,stroke:#ea580c,color:#1c1917
+    classDef din fill:#ecfdf5,stroke:#059669,color:#1c1917
+    classDef cam fill:#eff6ff,stroke:#64748b,color:#1c1917
+    classDef hub fill:#fafaf9,stroke:#1c1917,stroke-width:2px,color:#1c1917
+
+    ERP[("Kepler → kepler_ods<br/>el piso común")]:::hub
+    MT["MI TRABAJO<br/>bandeja de cada persona"]:::hub
+
+    COMPRAS["COMPRAS<br/>pedido · entradas · pago a prov."]:::op
+    ALM["ALMACÉN<br/>existencia · surtido · conteos"]:::op
+    COM["COMERCIAL<br/>pedidos · clientes · precios"]:::op
+    TEL["TELEMARKETING"]:::op
+    TRADE["TRADE MARKETING<br/>visitas · capturas · Horus"]:::cam
+    LOG["LOGÍSTICA<br/>embarques · flota · rutas"]:::cam
+    REP["REPARTO<br/>última milla"]:::cam
+    TIE["TIENDA<br/>cajas · arqueo · etiquetas"]:::cam
+    FIN["FINANZAS<br/>caja · bancos · pagos · crédito"]:::din
+    CON["CONTABILIDAD / FISCAL<br/>CFDI · pólizas · SAT"]:::din
+    WA["WHATSAPP"]:::cam
+    RH["RH"]
+    SD["SERVICIO"]
+
+    ERP --> COMPRAS & ALM & COM & FIN & LOG & TIE
+
+    COMPRAS -- "obligaciones, cuentas de pago,<br/>descuento pronto pago" --> FIN
+    FIN -- "comprobante de recepción<br/>(goods_receipt_proofs)" --> COMPRAS
+    COMPRAS -- "factura del proveedor<br/>(fiscal.cfdis)" --> CON
+    FIN -- "CFDI + lista 69-B<br/>del proveedor" --> CON
+    ALM -- "existencia, costo,<br/>conteos" --> COMPRAS
+    ALM -- "existencia y precio" --> COM
+
+    TRADE -- "tienda → cliente<br/>(CUSTOMER_PROVISIONING)" --> COM
+    COM -- "clientes, visitas y venta<br/>del vendedor" --> TRADE
+    TRADE -- "tiendas, zonas,<br/>catálogo de exhibición" --> COM
+    TEL -- "cotización → pedido" --> COM
+    WA -- "pedido por chat" --> COM
+    WA -- "ficha de depósito<br/>(BANK_CAPTURE)" --> FIN
+    WA -- "candidato" --> RH
+
+    COM -- "pedido, renglones,<br/>cliente, almacén" --> LOG
+    LOG -- "embarque entregado<br/>(ORDER_FULFILLMENT)" --> COM
+    LOG -- "costo de flete<br/>→ rentabilidad" --> COM
+    LOG -- "chofer, guías, GPS" --> TRADE
+    LOG -- "pago de viaje,<br/>comprobantes de gasto" --> FIN
+    COM -- "vehículos, almacenes<br/>de entrega" --> REP
+    REP -- "liquidación del repartidor" --> LOG
+
+    TIE -- "corte y arqueo<br/>(reconciliation)" --> FIN
+    COM -- "factura de venta<br/>(INVOICE_ISSUER)" --> CON
+    FIN -- "pólizas, pedidos de venta<br/>→ ContPAQi" --> CON
+
+    COMPRAS & ALM & FIN & LOG & TRADE -. "tareas y hallazgos" .-> MT
+    COMPRAS & FIN & CON -. "hallazgos<br/>(FINDINGS_SINK)" .-> FIN
+```
+
+**Cómo se lee:**
+
+- **Compras y Finanzas son el par más atado**: comparten la deuda con el proveedor de punta a punta
+  (Compras la origina, Finanzas la paga) y se pasan los comprobantes en las dos direcciones.
+- **Comercial es el centro de la operación**: la mayoría de los demás leen sus tablas `commercial.*`.
+  Logística lee sus pedidos, Trade sus clientes, Finanzas sus almacenes.
+- **Trade Marketing convive con Comercial por el cliente**: la tienda auditada y el cliente que
+  compra son la misma persona en dos tablas (`trade.stores` ↔ `commercial.customers`). El puerto
+  `CUSTOMER_PROVISIONING` convierte una en la otra. Horus (Supervisor IA) además cruza lo que el
+  vendedor visitó y vendió con lo que Logística entregó.
+- **Contabilidad es el destino**: recibe facturas de los dos lados (compra y venta) y las pólizas,
+  y sólo devuelve validaciones (vigencia del CFDI, lista 69-B).
+- **RH y Servicio viven casi aislados**: sólo leen `identity` (quién es quién). RH se conecta con
+  el resto únicamente por WhatsApp (reclutamiento).
+- **Mi trabajo no produce nada: junta** las tareas de todos en la bandeja de cada persona.
+
+### 5.3 Quién lee la tabla de quién (el acople directo)
+
+Total de tablas distintas de **otro** dominio que nombra cada lib (sin contar `analytics`, `kepler_ods`
+ni `identity`, que son de todos):
+
+| Lib ↓ lee de → | commercial | finance | fiscal | trade | logistics |
+|---|---:|---:|---:|---:|---:|
+| **commercial** | — | 9 | 12 | 4 | 7 |
+| **finance** | 9 | — | 4 | — | 2 |
+| **fiscal** | 1 | 1 | — | — | — |
+| **trade** | 31 | 15 | 1 | — | 6 |
+| **logistics** | 8 | 2 | — | — | — |
+| **reconciliation** | 2 | — | — | — | — |
+
+Los cruces que importan, con su tabla y el módulo que la usa:
+
+| De → a | Tabla | Quién la usa | Qué significa en el negocio |
+|---|---|---|---|
+| Compras → Finanzas | `commercial.supplier_payment_obligations` | finance: payment-calendar, creditor-statements, pronto-pago, budget | la deuda que nace en Compras es la que Finanzas programa y paga |
+| Compras → Finanzas | `commercial.supplier_payment_accounts` | finance: payment-calendar | sin cuenta del proveedor no se prepara el pago |
+| Compras → Finanzas | `commercial.supplier_discount_policy` | finance: pronto-pago | cuánto se ahorra pagando antes |
+| Finanzas → Compras | `finance.goods_receipt_proofs` | commercial: replenishment, obligations | el comprobante de la recepción respalda la obligación |
+| Compras/Finanzas → Fiscal | `fiscal.cfdis`, `fiscal.sat_list_rfcs` | commercial-replenishment; finance: goods-receipt-proofs, purchase-book, caja, maat | la factura del proveedor existe, está vigente y el RFC no está en 69-B |
+| Comercial → Logística | `commercial.orders`, `order_lines`, `customers`, `warehouses` | logistics: shipments, routing, guides, cartaporte, tracking | lo que se vendió es lo que se embarca |
+| Logística → Comercial | `logistics.shipments`, `routes`, `vehicles`, `shipment_expenses` | commercial: orders, customers, profitability, route-profit | estado de entrega y costo de flete en la rentabilidad |
+| Logística → Finanzas | `logistics.drivers`, `v_trip_pay_items` ↔ `finance.trip_pay_lines`, `expense_proofs` | finance: trip-pay · logistics: trip-closure | el viaje cerrado se vuelve pago al chofer y gasto comprobado |
+| Comercial ↔ Trade | `commercial.customers`, `vendor_visits`, `vendor_sale_lines`, `route_tickets` ↔ `trade.stores`, `catalogs`, `zones` | trade: daily-captures, commercial-map, reports, supervisor-ai · commercial: vendor-routes, vendor-sales | la visita de ejecución y la venta del vendedor se cruzan por tienda |
+| Trade → Logística | `logistics.delivery_guides`, `drivers`, `trackers`, `vehicle_stops` | trade: supervisor-ai | Horus contrasta lo visitado con lo entregado |
+| Comercial → Fiscal | `fiscal.cfdis`, `issuer_config` + datos fiscales del cliente | commercial: orders, sales-documents, tickets | facturar la venta |
+| Finanzas → Comercial | `commercial.orders` | finance: contpaqi | la venta que va a póliza |
+| Tienda → Comercial | `commercial.warehouses`, `route_warehouses` | reconciliation: blind-count, cash-cuts-sync | el corte y el arqueo se cuadran por almacén |
+
+⚠️ **Hallazgo: la bandeja de «Mi trabajo» vive en `libs/trade`** (`users/me-work.ts`, `me-tasks.ts`)
+y por eso `trade` aparece leyendo **15 tablas de finanzas** y 31 de comercial
+(`recon_tasks`, `payment_calendar_lots`, `cash_ledger_cuts`, `purchase_requisitions`,
+`inventory_counts`, `fleet_alerts`…). No es que Trade Marketing dependa de Finanzas: es que la
+bandeja de todos quedó alojada en el lib de Trade por historia. Si se mueve, hay que llevarse esos
+dos archivos (deuda con nombre, no se tocó).
+
+---
+
+## 6. Cómo se interconecta el negocio (el flujo completo)
 
 Las cajas grises son **Kepler** (el ERP donde se asienta la operación). Las de color son **pantallas
-de la suite**. La suite **lee** a Kepler por el ODS; hoy **no escribe** en él (§6).
+de la suite**. La suite **lee** a Kepler por el ODS; hoy **no escribe** en él (§7).
 
 ```mermaid
 flowchart LR
@@ -322,7 +460,7 @@ otro, y por eso donde más se ha roto algo):
 
 ---
 
-## 6. Lo que la suite escribe hacia afuera
+## 7. Lo que la suite escribe hacia afuera
 
 | Destino | Estado | Cómo |
 |---|---|---|
@@ -334,9 +472,9 @@ otro, y por eso donde más se ha roto algo):
 
 ---
 
-## 7. Mantener este mapa vivo
+## 8. Mantener este mapa vivo
 
 - Un **puerto nuevo** = un renglón en §3.2 (de dónde sale: `ls apps/api/src/composition`).
 - Un **espacio o grupo nuevo del sidebar** = un renglón en §4 (de dónde sale: `layout.component.ts`).
 - Un **carril de ingesta nuevo** va en [`ops/README.md`](../ops/README.md), no acá; acá sólo si cambia la forma del §1.
-- Un **eslabón de negocio nuevo** (una cifra que pasa de un módulo a otro) = un renglón en la tabla del §5.
+- Un **eslabón de negocio nuevo** (una cifra que pasa de un módulo a otro) = un renglón en la tabla del §6.
