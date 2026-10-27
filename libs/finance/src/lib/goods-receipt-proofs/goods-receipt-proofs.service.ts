@@ -604,8 +604,20 @@ export class GoodsReceiptProofsService {
     const { visibles, filtrado: alcance } = await this.alcanceSucursales(q.warehouse_codes);
     const pageSize = Math.min(1000, Math.max(1, Number(q.pageSize) || Number(q.limit) || 300));
     const page = Math.max(1, Number(q.page) || 1);
+    // `[RE.50]` La frescura corre en PARALELO, en su propia conexión: no depende de la lista.
+    const frescuraP = this.frescuraCacheada(tenantId);
+    frescuraP.catch(() => undefined); // si la lista truena antes de esperarla, no queda colgada
 
     return this.tk.run(async (trx) => {
+      /*
+       * ⛔ `[RE.50]` La temporal de abajo exige una transacción de lectura-escritura, y las cuentas
+       * personales que leen prod desde desarrollo abren en sólo lectura por default: la lista
+       * respondía 500 en ~20 ms. Se pide aquí, ANTES de cualquier consulta (después ya no se puede;
+       * el `SET LOCAL` del tenant no cuenta como consulta). No abre escrituras: esas cuentas no
+       * tienen privilegio sobre ninguna tabla real (medido: 0 de 802), y el control negativo —un
+       * UPDATE en esta misma transacción— responde «permission denied». En prod es un no-op.
+       */
+      await trx.raw('SET TRANSACTION READ WRITE');
       const cfg = await this.settings(trx);
       const conMotivoCol = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'motivo_codigo');
       // `[RE.25]` Sin la migración aplicada la lista sigue viva: el cuadre queda en `sin_datos`
@@ -646,17 +658,39 @@ export class GoodsReceiptProofsService {
        * ⛔ No es una copia de la tabla (regla 2): vive lo que dura la petición y se arma de la vista
        * viva en cada una — la frescura es la misma de antes (ADR de «al momento» intacto).
        */
-      const universo = `tmp_gr_${process.pid}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-      const uq = trx('analytics.erp_goods_receipts as c').select('c.*')
-        .where('c.tenant_id', tenantId).whereRaw('c.dup_of_folio IS NULL');
-      if (alcance) { if (alcance.length) uq.whereIn('c.sucursal', alcance); else uq.whereRaw('false'); }
-      if (q.carril === 'rezago') uq.where('c.receipt_date', '<', cfg.reception_start);
-      else if (q.carril !== 'todo') uq.where('c.receipt_date', '>=', cfg.reception_start);
-      if (q.from) uq.where('c.receipt_date', '>=', q.from);
-      if (q.to) uq.where('c.receipt_date', '<=', q.to);
-      const { sql: uSql, bindings: uBind } = uq.toSQL();
-      await trx.raw(`CREATE TEMP TABLE ?? ON COMMIT DROP AS ${uSql}`, [universo, ...uBind]);
-      await trx.raw('ANALYZE ??', [universo]);
+      /*
+       * ⛔ `[RE.50]` En una transacción de SÓLO LECTURA Postgres rechaza todo `CREATE`, también el
+       * de una temporal: «cannot execute CREATE TABLE AS in a read-only transaction». Las cuentas
+       * personales que leen prod desde desarrollo (`edgar`, `david`… — REP.0.6) abren así por
+       * default, y la lista entera respondía 500 en ~20 ms (medido el 2026-10-27). No se apaga el
+       * candado: sin temporal, cada consulta lee la vista con sus mismos filtros (lo de antes de
+       * RE.49 — más lento, igual de correcto). En prod (`app_runtime`) la temporal sigue.
+       */
+      const soloLectura = Boolean((await trx.raw(`SELECT current_setting('transaction_read_only') = 'on' AS ro`)).rows?.[0]?.ro);
+      let universo = 'analytics.erp_goods_receipts';
+      if (!soloLectura) {
+        universo = `tmp_gr_${process.pid}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+        const uq = trx('analytics.erp_goods_receipts as c').select('c.*')
+          .where('c.tenant_id', tenantId).whereRaw('c.dup_of_folio IS NULL');
+        if (alcance) { if (alcance.length) uq.whereIn('c.sucursal', alcance); else uq.whereRaw('false'); }
+        if (q.carril === 'rezago') uq.where('c.receipt_date', '<', cfg.reception_start);
+        else if (q.carril !== 'todo') uq.where('c.receipt_date', '>=', cfg.reception_start);
+        if (q.from) uq.where('c.receipt_date', '>=', q.from);
+        if (q.to) uq.where('c.receipt_date', '<=', q.to);
+        const { sql: uSql, bindings: uBind } = uq.toSQL();
+        /*
+         * ⭐ `[RE.50]` Sin ciclos anidados SÓLO al armar el universo. El planificador estima 1 fila
+         * donde la vista da ~3,000 y recorre el CTE `pc` (148 filas) una vez POR ENTRADA. Medido
+         * contra prod el 2026-10-27, alternado 3+3: 514/438/389 ms → 246/201/244 ms, con el MISMO
+         * resultado (md5 de las 3,002 filas idéntico en los dos modos; control: dos corridas del mismo
+         * modo empatan). Se regresa al default enseguida: las consultas de abajo leen la temporal, que
+         * ya tiene `ANALYZE`, y no se tocan.
+         */
+        await trx.raw('SET LOCAL enable_nestloop = off');
+        await trx.raw(`CREATE TEMP TABLE ?? ON COMMIT DROP AS ${uSql}`, [universo, ...uBind]);
+        await trx.raw('SET LOCAL enable_nestloop = on');
+        await trx.raw('ANALYZE ??', [universo]);
+      }
       const fuente = `${universo} as c`;
 
       /**
@@ -1068,7 +1102,7 @@ export class GoodsReceiptProofsService {
           ...resumen.conteos,
           por_cubo: { ...resumen.conteos.por_cubo, sin_documento: Math.max(0, Number(k.entradas) - Number(k.con_comprobante)) },
         } : null,
-        frescura: await this.frescuraPorFuente(trx, tenantId),
+        frescura: await frescuraP,
         rows,
       };
     });
@@ -1431,6 +1465,28 @@ export class GoodsReceiptProofsService {
    * una sucursal chica cada varios días). Se compara los días sin recepción contra la **mediana de
    * su propio hueco** en 90 días, con piso de 3 días, así una rama de bajo volumen no grita sola.
    */
+  /**
+   * ⭐ `[RE.50]` La frescura vuelve a evaluar la vista viva entera (90 días, todas las sucursales):
+   * medida contra prod el 2026-10-27, 566–794 ms — más que todo el resto de la lista junto. Es una
+   * medida en DÍAS por fuente, así que:
+   *   · se calcula sin ciclos anidados (416–464 ms, resultado idéntico en 6 corridas alternadas);
+   *   · en su propia transacción, en paralelo con la lista (no lee la temporal ni sus filtros);
+   *   · y se guarda 60 s por tenant: en un minuto no cambia cuántos días lleva una fuente sin datos.
+   * Una falla no se guarda: la siguiente petición la vuelve a intentar.
+   */
+  private readonly frescuraCache = new Map<string, { at: number; v: ReturnType<GoodsReceiptProofsService['frescuraPorFuente']> }>();
+  private frescuraCacheada(tenantId: string): ReturnType<GoodsReceiptProofsService['frescuraPorFuente']> {
+    const hit = this.frescuraCache.get(tenantId);
+    if (hit && Date.now() - hit.at < 60_000) return hit.v;
+    const v = this.tk.run(async (trx) => {
+      await trx.raw('SET LOCAL enable_nestloop = off');
+      return this.frescuraPorFuente(trx, tenantId);
+    });
+    this.frescuraCache.set(tenantId, { at: Date.now(), v });
+    v.catch(() => this.frescuraCache.delete(tenantId));
+    return v;
+  }
+
   private async frescuraPorFuente(trx: any, tenantId: string) {
     const r = await trx.raw(`
       WITH d AS (

@@ -174,6 +174,68 @@ export function ligarCfdi(k: LlavesLiga, candidatos: CfdiCandidato[]): Resultado
 }
 
 /**
+ * ⭐ `[RE.50]` Índice de candidatos para `ligarCfdi`, armado UNA vez por lote.
+ *
+ * `ligarCfdi` sólo puede elegir un candidato que coincida con la entrada por id asignado, por UUID
+ * (exacto o casi), por RFC, por folio o por importe (±$1 contra lo leído o contra la entrada), y su
+ * resultado depende de CUÁNTOS pasan cada filtro, no del orden. Darle sólo esos candidatos da lo
+ * mismo que darle toda la ventana. Medido en frío contra prod el 2026-10-27: el lote del listado
+ * (1,305 facturas × ~3,400 CFDI por ventana) gastaba 1.1–2.6 s de CPU recorriendo ventanas enteras.
+ */
+export interface IndiceCandidatos {
+  porRfc: Map<string, CfdiCandidato[]>;
+  porFolio: Map<string, CfdiCandidato[]>;
+  /** Por importe redondeado: con ±$1 de tolerancia, la pareja cae en la cubeta de al lado a lo más. */
+  porImporte: Map<number, CfdiCandidato[]>;
+}
+
+export function indexarCandidatos(cs: readonly CfdiCandidato[]): IndiceCandidatos {
+  const porRfc = new Map<string, CfdiCandidato[]>();
+  const porFolio = new Map<string, CfdiCandidato[]>();
+  const porImporte = new Map<number, CfdiCandidato[]>();
+  const poner = <K>(m: Map<K, CfdiCandidato[]>, k: K, c: CfdiCandidato) => { const l = m.get(k); if (l) l.push(c); else m.set(k, [c]); };
+  for (const c of cs) {
+    const r = rfcComparable(c.emisor_rfc);
+    if (r) poner(porRfc, r, c);
+    const f = folioNumero(c.folio);
+    if (f) poner(porFolio, f, c);
+    if (c.total != null && Number.isFinite(c.total)) poner(porImporte, Math.round(c.total), c);
+  }
+  return { porRfc, porFolio, porImporte };
+}
+
+/**
+ * Los candidatos de `suyos` que alguna llave de `k` puede elegir. `ligarCfdi(k, esto)` da lo mismo
+ * que `ligarCfdi(k, suyos)` (lo prueba `expediente-verdict.spec.ts` contra la lista completa).
+ * `esSuyo` dice si un candidato del índice está en `suyos` (su ventana o lo que trae de fuera), y
+ * `cerca` son los que ya coinciden por id asignado o UUID exacto (todos están en `suyos`).
+ */
+export function candidatosPosibles(
+  k: LlavesLiga, suyos: readonly CfdiCandidato[], indice: IndiceCandidatos,
+  esSuyo: (c: CfdiCandidato) => boolean, cerca: readonly CfdiCandidato[] = [],
+): CfdiCandidato[] {
+  const out = new Set<CfdiCandidato>(cerca);
+  if (k.asignadoId) for (const c of suyos) if (c.id === k.asignadoId) out.add(c);
+  if (k.uuidLeido) {
+    // El UUID «casi igual» no se indexa: se recorre la ventana, pero sólo para quien trae UUID leído.
+    const u = k.uuidLeido.toUpperCase();
+    for (const c of suyos) if (c.uuid.toUpperCase() === u || diferenciasUuid(u, c.uuid) <= UUID_MAX_DIFERENCIAS) out.add(c);
+  }
+  const agregar = (lista: CfdiCandidato[] | undefined, pasa: (c: CfdiCandidato) => boolean = () => true) => {
+    if (lista) for (const c of lista) if (esSuyo(c) && pasa(c)) out.add(c);
+  };
+  for (const r of [k.rfcLeido, k.rfcKepler]) if (rfcBienFormado(r)) agregar(indice.porRfc.get(rfcComparable(r)!));
+  const folio = folioNumero(k.folioLeido);
+  if (folio) agregar(indice.porFolio.get(folio));
+  for (const t of [k.totalLeido, k.montoEntrada]) {
+    if (t == null || !Number.isFinite(t)) continue;
+    const b = Math.round(t);
+    for (const cub of [b - 1, b, b + 1]) agregar(indice.porImporte.get(cub), (c) => igual(c.total, t));
+  }
+  return [...out];
+}
+
+/**
  * `[RE.35.2]` RFC + importe pasa de sugerencia a EXACTA cuando la llave no tiene gemelos de ningún lado:
  * un solo CFDI del emisor con ese importe en la ventana, y una sola entrada del mismo proveedor con ese
  * importe. Medido sobre las 643 entradas con documento: 68 de 69 ligas por RFC + importe cumplen, y en

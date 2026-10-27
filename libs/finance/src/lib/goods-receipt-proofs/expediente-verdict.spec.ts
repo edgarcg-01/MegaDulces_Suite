@@ -1,6 +1,6 @@
 import {
   CfdiCandidato, EntradaVeredicto, LlavesLiga, cuadra, diferenciasUuid, extraerUuid, hallazgosDe, ligarCfdi, notaQueExplica,
-  promoverRfcImporte, proveedorEnContpaqi, veredictoExpediente,
+  promoverRfcImporte, proveedorEnContpaqi, veredictoExpediente, indexarCandidatos, candidatosPosibles,
 } from './expediente-verdict';
 
 const UUID = '6F2C1A9E-0B3D-4C55-9A10-7E21B44C09A1';
@@ -327,5 +327,58 @@ describe('[RE.35.5] hallazgo', () => {
   });
   it('sin documento no tiene hallazgo', () => {
     expect(hallazgosDe(veredictoExpediente(base({ docTipo: 'ninguno' })), sinAj)).toEqual([]);
+  });
+});
+
+describe('[RE.50] candidatosPosibles: ligarCfdi da lo mismo con el índice que con la ventana entera', () => {
+  // Generador determinista (sin Math.random): la prueba falla igual cada vez que falla.
+  let s = 7;
+  const rnd = () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+  const de = <T>(xs: T[]) => xs[Math.floor(rnd() * xs.length)];
+  const RFCS = ['ACO101112411', 'BIM011108DJ5', 'GAM9905137Y6', 'XAXX010101000', 'aco-101112-411'];
+  const uuid = (i: number) => UUID.slice(0, 30) + String(100000 + i).slice(-6);
+  const ventana = Array.from({ length: 400 }, (_, i) => cfdi({
+    id: 'c' + i, uuid: uuid(i), folio: de(['5521', 'A-5521', '0007', '12', null as unknown as string]),
+    emisor_rfc: de(RFCS), total: de([48210.5, 48211.2, 48209.6, 1500, 1499.4, 99.5, 100.49]),
+    fecha: de(['2026-09-01', '2026-09-21', '2026-10-15', null as unknown as string]),
+  }));
+  const indice = indexarCandidatos(ventana);
+  const enVentana = new Set(ventana);
+
+  it('600 llaves al azar: mismo CFDI, misma liga y mismo «ambiguos»', () => {
+    let conLiga = 0;
+    for (let i = 0; i < 600; i++) {
+      const k: LlavesLiga = {
+        uuidLeido: rnd() < 0.3 ? (rnd() < 0.5 ? uuid(Math.floor(rnd() * 400)) : uuid(Math.floor(rnd() * 400)).replace(/.$/, 'Z').toLowerCase()) : null,
+        folioLeido: rnd() < 0.6 ? de(['5521', 'FAC 5521', '7', '0012', 'X']) : null,
+        rfcLeido: rnd() < 0.6 ? de([...RFCS, 'NO-ES-RFC']) : null,
+        totalLeido: rnd() < 0.6 ? de([48210.5, 48210, 1500.9, 100, 7]) : null,
+        fechaLeida: rnd() < 0.5 ? de(['2026-09-20', '2026-10-14', null as unknown as string]) : null,
+        rfcKepler: rnd() < 0.7 ? de(RFCS) : null,
+        montoEntrada: de([48210.5, 1500, 99, 5]),
+        fechaEntrada: de(['2026-09-21', '2026-10-01', null as unknown as string]),
+        asignadoId: rnd() < 0.1 ? 'c' + Math.floor(rnd() * 400) : null,
+      };
+      const todo = ligarCfdi(k, ventana);
+      const indexado = ligarCfdi(k, candidatosPosibles(k, ventana, indice, (c) => enVentana.has(c)));
+      expect(indexado).toEqual(todo);
+      if (todo.cfdi) conLiga++;
+    }
+    // Control: la prueba no es trivial — una buena parte de las llaves sí liga algo.
+    expect(conLiga).toBeGreaterThan(100);
+  });
+
+  it('control negativo: sin la cubeta de importe de al lado, alguna liga cambia', () => {
+    const k: LlavesLiga = { uuidLeido: null, folioLeido: null, rfcLeido: null, totalLeido: 100, fechaLeida: '2026-09-21',
+      rfcKepler: null, montoEntrada: 100, fechaEntrada: '2026-09-21', asignadoId: null };
+    const solos = [cfdi({ id: 'z', uuid: uuid(999), total: 99.5, fecha: '2026-09-21', emisor_rfc: 'XAXX010101000' })];
+    // 99.5 redondea a 100 (misma cubeta) y 100.49 a 100; el que prueba la cubeta de al lado es 100.9 → 101.
+    const vecino = [cfdi({ id: 'v', uuid: uuid(998), total: 100.9, fecha: '2026-09-21', emisor_rfc: 'XAXX010101000' })];
+    const idx = indexarCandidatos(vecino);
+    expect(ligarCfdi(k, candidatosPosibles(k, vecino, idx, () => true))).toEqual(ligarCfdi(k, vecino));
+    // Si la función sólo mirara la cubeta exacta, el vecino se perdería y la liga cambiaría:
+    const sinVecina = { ...idx, porImporte: new Map([[100, idx.porImporte.get(100) ?? []]]) };
+    expect(ligarCfdi(k, candidatosPosibles(k, vecino, sinVecina, () => true))).not.toEqual(ligarCfdi(k, vecino));
+    expect(ligarCfdi(k, solos).cfdi?.id).toBe('z');
   });
 });
