@@ -52,10 +52,15 @@ describe('[CG.160] el cierre ata EXACTAMENTE lo que el conteo suma', () => {
      * ⛔ El rango va sobre la columna, nunca `(created_at AT TIME ZONE …)::date = …`: envolverla
      * la saca del índice (`[LC.9]`). Por eso se comprueban **las dos** fronteras: si alguien
      * «simplifica» a un `::date =`, esto se pone rojo.
+     *
+     * `[CGP-D.1.4]` Y cada frontera pasa por `::timestamp`: sin él la medianoche sale en la zona de
+     * la SESIÓN (el Postgres del CI corre en UTC y la ventana se corría 12 h). Que el rango CAIGA
+     * bien en una sesión UTC lo prueban las `*-real.spec.ts` contra la base del job `caja-db`.
      */
     expect(sql).not.toMatch(/"fecha"\s*=/);
-    expect(sql).toContain(`created_at >= ('${DIA}'::date) AT TIME ZONE 'America/Mexico_City'`);
-    expect(sql).toContain(`created_at <  (('${DIA}'::date) + 1) AT TIME ZONE 'America/Mexico_City'`);
+    expect(sql).toContain(`created_at >= ('${DIA}'::date)::timestamp AT TIME ZONE 'America/Mexico_City'`);
+    expect(sql).toContain(`created_at <  (('${DIA}'::date) + 1)::timestamp AT TIME ZONE 'America/Mexico_City'`);
+    expect(sql).not.toMatch(/::date\)\s*(\+\s*1\)\s*)?AT TIME ZONE/);
     expect(sql).toContain('"corte_id" is null');
     expect(sql).toContain('"deleted_at" is null');
   });

@@ -40,7 +40,11 @@ const PORFECHA = `
     FROM finance.cash_ledger
    WHERE tenant_id = $1 AND sucursal = '00' AND fecha = $2::date AND deleted_at IS NULL`;
 
-/** La jornada NUEVA: por el día en que se registró. Rango sargable, sin cast sobre la columna. */
+/**
+ * La jornada NUEVA: por el día en que se registró. Rango sargable, sin cast sobre la columna.
+ * `[CGP-D.1.4]` Mismo rango que `enJornadaLibro` (`caja-jornadas.query.ts`): el día pasa por
+ * `::timestamp` antes del `AT TIME ZONE`, o la medianoche sale en la zona de la SESIÓN.
+ */
 const PORREGISTRO = `
   SELECT count(*) FILTER (WHERE estado <> 'cancelado')::int AS n,
          coalesce(sum(monto) FILTER (WHERE estado <> 'cancelado' AND tipo='gasto'),0)::numeric AS gastos,
@@ -48,8 +52,8 @@ const PORREGISTRO = `
                    AND fecha <> (created_at AT TIME ZONE 'America/Mexico_City')::date)::int AS otro_dia
     FROM finance.cash_ledger
    WHERE tenant_id = $1 AND sucursal = '00' AND deleted_at IS NULL
-     AND created_at >= ($2::date) AT TIME ZONE 'America/Mexico_City'
-     AND created_at <  (($2::date) + 1) AT TIME ZONE 'America/Mexico_City'`;
+     AND created_at >= ($2::date)::timestamp AT TIME ZONE 'America/Mexico_City'
+     AND created_at <  (($2::date) + 1)::timestamp AT TIME ZONE 'America/Mexico_City'`;
 
 (async () => {
   console.log('\n=== [CG.82] el cierre de jornada y su reloj ===\n');
@@ -104,8 +108,8 @@ const PORREGISTRO = `
       SELECT count(*)::int AS fuera
         FROM finance.cash_ledger
        WHERE tenant_id = $1 AND sucursal = '00' AND deleted_at IS NULL
-         AND created_at >= ($2::date) AT TIME ZONE 'America/Mexico_City'
-         AND created_at <  (($2::date) + 1) AT TIME ZONE 'America/Mexico_City'
+         AND created_at >= ($2::date)::timestamp AT TIME ZONE 'America/Mexico_City'
+         AND created_at <  (($2::date) + 1)::timestamp AT TIME ZONE 'America/Mexico_City'
          AND (created_at AT TIME ZONE 'America/Mexico_City')::date <> $2::date`, [TENANT, '2026-09-28']);
     A(Number(borde.rows[0].fuera) === 0,
       'todo lo que cae en el rango pertenece a ese día en hora de México (si esto falla, el huso está mal)');

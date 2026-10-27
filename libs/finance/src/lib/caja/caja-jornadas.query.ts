@@ -40,11 +40,20 @@ export const JORNADA_LIBRO = `(created_at AT TIME ZONE 'America/Mexico_City')::d
  * ⚠️ Nunca `(created_at AT TIME ZONE …)::date = ?`: envolver la columna en una expresión la saca de
  * cualquier índice. Es el defecto que en `[LC.9]` convirtió un `to_char(fecha)` en un seq scan de
  * 167k filas. Acá el predicado se escribe al revés: se convierte el DÍA, no la columna.
+ *
+ * ⛔ `[CGP-D.1.4]` **El día pasa a `::timestamp` ANTES del `AT TIME ZONE`.** Sin ese cast,
+ * `(?::date) AT TIME ZONE …` toma la variante de `timestamptz`: lee el día como la medianoche de la
+ * zona de la SESIÓN, la pasa a hora de pared y el `>=` contra `created_at` la relee en esa zona.
+ * Prod arranca su Postgres en `America/Mexico_City` y cuadraba (medido en sólo lectura: las mismas
+ * filas en los últimos 30 días); el Postgres del CI corre en UTC y la ventana se corría 12 h, así
+ * que el movimiento de la tarde caía en el día siguiente (13 de las 17 fallas de «Servicio real del
+ * corte»). Con `::timestamp` la frontera es la medianoche de México en cualquier sesión.
+ * Es la ÚNICA definición del rango: `arqueoDelDia` tenía dos copias con la forma vieja.
  */
 export function enJornadaLibro<Q extends Knex.QueryBuilder>(q: Q, dia: string): Q {
   return q
-    .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
-    .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia]) as Q;
+    .whereRaw(`created_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia])
+    .whereRaw(`created_at <  ((?::date) + 1)::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]) as Q;
 }
 
 /**

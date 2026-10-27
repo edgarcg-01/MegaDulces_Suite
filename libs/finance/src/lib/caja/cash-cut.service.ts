@@ -2123,8 +2123,9 @@ export class CashCutService {
         .where({ tenant_id: tenantId })
         // `[CG.98]` La caja general es UNA: en oficinas se ven todas las plazas.
         .where((b: any) => aplicarAlcanceCaja(b, sucursal))
-        .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
-        .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia])
+        // `[CGP-D.1.4]` La jornada sale de `enJornadaLibro`, la única definición del rango. Acá había
+        // una copia con `(?::date) AT TIME ZONE …`, que depende de la zona de la sesión.
+        .modify((q: Knex.QueryBuilder) => { enJornadaLibro(q, dia); })
         .select(
           trx.raw(`count(*) FILTER (WHERE estado <> 'cancelado')::int AS movimientos`),
           trx.raw(`count(*) FILTER (WHERE estado = 'cancelado')::int AS cancelados`),
@@ -2354,8 +2355,8 @@ export class CashCutService {
         // `[CG.98]` Mismo alcance que el cuadro de arriba: si la lista mostrara otro universo que
         // el total, el pie no sumaría lo que el cuadro dice y nada se podría revisar.
         .where((b: any) => aplicarAlcanceCaja(b, sucursal))
-        .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
-        .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia])
+        // `[CGP-D.1.4]` El mismo rango que el cuadro, de la misma definición (`enJornadaLibro`).
+        .modify((q: Knex.QueryBuilder) => { enJornadaLibro(q, dia); })
         .whereNull('deleted_at')
         .orderBy('created_at', 'desc')
         .limit(200)
