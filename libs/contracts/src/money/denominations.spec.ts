@@ -7,6 +7,8 @@ import {
   denomKeyDeValor,
   totalDenominaciones,
   valorDe,
+  BILLETES_CAOS,
+  pagableConBilletesCaos,
 } from './denominations';
 
 /**
@@ -149,5 +151,35 @@ describe('[CG.152] denomKeyDeValor — la llave canonica de un valor suelto', ()
   it('acepta el valor como texto, que es como llega de la base', () => {
     expect(denomKeyDeValor('100')).toBe('100');
     expect(denomKeyDeValor('0.50')).toBe('0.5');
+  });
+});
+
+describe('[CGA-A.56.1] lo que un retiro de CAOS puede pagar con sus billetes', () => {
+  // Segunda implementación, a propósito distinta: búsqueda exhaustiva con los billetes reales.
+  const formable = (decenas: number): boolean => {
+    const ok = new Array<boolean>(decenas + 1).fill(false);
+    ok[0] = true;
+    for (let v = 1; v <= decenas; v++) ok[v] = BILLETES_CAOS.some((b) => b / 10 <= v && ok[v - b / 10]);
+    return ok[decenas];
+  };
+
+  it('coincide con la búsqueda exhaustiva hasta $2,000, peso por peso', () => {
+    for (let pesos = 0; pesos <= 2000; pesos++) {
+      let esperado = Math.floor(pesos / 10);
+      while (esperado > 0 && !formable(esperado)) esperado--;
+      expect(pagableConBilletesCaos(pesos)).toBe(esperado * 10);
+    }
+  });
+
+  it('los pesos sueltos y los centavos quedan para el cajón', () => {
+    expect(pagableConBilletesCaos(803)).toBe(800);
+    expect(pagableConBilletesCaos(13803.05)).toBe(13800);
+    expect(pagableConBilletesCaos(35.5)).toBe(20);
+    expect(pagableConBilletesCaos(30)).toBe(20);
+    expect(pagableConBilletesCaos(19.99)).toBe(0);
+  });
+
+  it('la bóveda no maneja monedas ni billetes de $1,000', () => {
+    expect([...BILLETES_CAOS].sort((a, b) => a - b)).toEqual([20, 50, 100, 200, 500]);
   });
 });

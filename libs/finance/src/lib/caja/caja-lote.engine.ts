@@ -44,6 +44,7 @@ export const LOTE_EPSILON = 0.005;
  * `libs/trade` —la bandeja de «Mi trabajo»— y no se pueden importar entre sí. Escribirlo dos veces
  * haría que la pantalla y el tablero contaran colas distintas sin que nadie lo notara.
  */
+import { pagableConBilletesCaos } from '@megadulces/contracts';
 
 export type MotivoNoConfirmable =
   | 'sin_mapa'        // la ruta no está en `finance.route_customer_map`
@@ -636,7 +637,9 @@ export function evaluarArqueoDeEgreso(
   epsilon = LOTE_EPSILON,
 ): VeredictoArqueo & { cubierto: number } {
   const cubierto = egreso.tipo === 'gasto' && egreso.origen_efectivo === 'caos'
-    ? redondea2((egreso.caos_links ?? []).reduce((a, k) => a + (Number(k.monto) || 0), 0))
+    // Cada enlace acredita sólo lo que la bóveda puede dar en sus billetes: los pesos sueltos y
+    // los centavos de un enlace mal armado no los pagó CAOS, y tienen que estar en la reja.
+    ? redondea2((egreso.caos_links ?? []).reduce((a, k) => a + pagableConBilletesCaos(Number(k.monto) || 0), 0))
     : 0;
   const credito = Math.max(0, Number(ventaCredito) || 0);
   const nuevo = evaluarArqueo(monto, morralla, dens, credito + cubierto, hayConteo, epsilon);

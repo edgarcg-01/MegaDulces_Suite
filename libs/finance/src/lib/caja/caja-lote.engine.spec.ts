@@ -436,6 +436,16 @@ describe('[CGA-A.56.1] evaluarArqueoDeEgreso — lo que paga el retiro de CAOS n
     expect(evaluarArqueoDeEgreso(800, 0, [b(500, 1), b(100, 3)], 0, false, caos(800))).toEqual({ ok: true, motivo: 'cuadra', suma: 800, cubierto: 0 });
   });
 
+  it('CAOS no da monedas: de un egreso de $803 el retiro paga $800 y el cajón cuenta los $3', () => {
+    expect(evaluarArqueoDeEgreso(803, 3, [], 0, false, caos(800))).toMatchObject({ ok: true, cubierto: 800 });
+  });
+
+  it('⛔ [negativa] un enlace de $803 no acredita los $3: la bóveda no tiene monedas', () => {
+    const v = evaluarArqueoDeEgreso(803, 0, [], 0, false, caos(803));
+    expect(v.ok).toBe(false);
+    expect(v.cubierto).toBe(800);
+  });
+
   it('el crédito y el retiro se suman: los dos son parte del monto que no está en la reja', () => {
     expect(evaluarArqueoDeEgreso(800, 0, [b(100, 1)], 200, false, caos(500)).ok).toBe(true);
   });

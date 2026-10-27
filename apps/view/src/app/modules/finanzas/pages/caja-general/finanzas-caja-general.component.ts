@@ -19,7 +19,7 @@ import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { textoFalloFirma, type ContextoFirma } from '@megadulces/contracts';
-import { evaluarCambio, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS, leerCorte, type LecturaCorte } from '@megadulces/contracts';
+import { evaluarCambio, pagableConBilletesCaos, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS, leerCorte, type LecturaCorte } from '@megadulces/contracts';
 import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
 /**
@@ -4626,7 +4626,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const out: Array<{ device: string; external_id: number; monto: number; senales: Record<string, unknown> }> = [];
     for (const v of this.caosVinculados()) {
       if (falta <= 0.005) break;
-      const toma = Math.round(Math.min(falta, Number(v.monto || 0)) * 100) / 100;
+      // `[CGA-A.56.1]` Sólo lo que la bóveda puede dar en SUS billetes ($20–$500): los pesos sueltos
+      // y los centavos los pone el cajón y se cuentan en la reja.
+      const toma = pagableConBilletesCaos(Math.min(falta, Number(v.monto || 0)));
       if (toma <= 0.005) continue;
       out.push({ device: v.device, external_id: v.external_id, monto: toma, senales: v.senales });
       falta = Math.round((falta - toma) * 100) / 100;
