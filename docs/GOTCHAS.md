@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 278 KB, 4922 líneas, 104 secciones.
+> **Índice navegable** — 279 KB, 4933 líneas, 104 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/GOTCHAS.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -89,28 +89,28 @@
 | 3731 | 3788 | 3 | 68. `nx build` verde no dice NADA sobre si la app arranca — el grafo de inyección se resuelve al levantar el p |
 | 3789 | 3835 | 2 | 69. Dos `SAVEPOINT` concurrentes sobre la misma transacción: `Promise.all` deja la medición ciega y filtra un  |
 | 3836 | 3879 | 2 | 70. Una interfaz declarada a mano NO puede atrapar un desajuste de wire — y el spec tampoco, porque su fixture |
-| 3880 | 3962 | 5 | 71. `knex.raw()` se come los `?` de una REGEX y los convierte en `$1`, `$2` — aunque no le pases bindings |
-| 3963 | 3994 | 2 | 72. El gate de tipado es un comando APARTE: `tsc` y los dos `nx build` pasan en verde con violaciones adentro |
-| 3995 | 4049 | 3 | 73. En LOCAL todos los websockets fallan: el proxy de dev enruta `/socket.io` y la app pide `/reports/socket.i |
-| 4050 | 4091 | 3 | 74. Un `mv` sobre un archivo montado como *bind mount* desengancha el montaje PARA SIEMPRE — el contenedor sig |
-| 4092 | 4169 | 6 | 75. `npm run migrate:new` sobre una base VACÍA no llega al final: se detiene en la migración 88, y otra vez en |
-| 4170 | 4201 | 2 | 76. `diff -rq` SIGUE los symlinks: dos directorios "idénticos" pueden ser uno solo y catorce enlaces |
-| 4202 | 4233 | 1 | 77. `git commit -- <ruta>` DESHACE un `git rm --cached` de esa misma ruta, y sale exit 0 |
-| 4234 | 4274 | 2 | 78. Un commit de RESTAURACIÓN se lleva la autoría de cada línea que toca: el `git blame` posterior apunta a qu |
-| 4275 | 4326 | 3 | 79. ⛔ Nada de Python — y el costo de que la regla viviera sólo en la memoria de UNA sesión |
-| 4327 | 4382 | 3 | 80. ⛔⛔ Un ENSAYO que no usa el rol del que EJECUTA no ensayó nada — y `LEFT JOIN` convierte eso en `NULL` sin  |
-| 4383 | 4420 | 2 | 81. ⛔ `updated_at` no dice cuándo cambió el dato: dice cuándo pasó el importer — y eso es el 91.4% del catálog |
-| 4421 | 4488 | 4 | 82. ⛔⛔ `String(fecha).slice(0,10)` sobre una columna `date` da `"Wed May 27"` — y publicó una acusación de $18 |
-| 4489 | 4568 | 4 | 83. ⛔⛔ Un corpus vectorial AUSENTE se ve EXACTAMENTE igual que «este producto no está en el catálogo» — 24 día |
-| 4569 | 4631 | 3 | 84. ⛔⛔ Un shipper VERDE con `rows_affected = 0` puede ser que murió el ORIGEN, no la tubería — y el carril her |
-| 4632 | 4661 | 3 | 85. ⛔⛔ Un parámetro DECORADO tipado con un nombre que también es un VALOR mata el arranque de la API — y todo  |
-| 4662 | 4719 | 3 | 86. ⛔⛔ `doc_tipo + folio` NO identifica un cobro: el folio de camioneta es consecutivo POR UNIDAD — capturar u |
-| 4720 | 4873 | 7 | 87. ⛔⛔ Un latido escrito por el CONSUMIDOR dice «ok» mientras el dato del productor está atascado — y mi propi |
-| 4874 | 4883 | 2 | 88. ⛔⛔ `@Throttle({ default: … })` NO limita nada: los tiers se llaman `short`, `medium` y `long` |
-| 4884 | 4929 | 3 | 89. ⛔⛔ Un documento CANCELADO en Kepler deja su aplicación VIVA en `kdm5` — quien suma `kdm5.c13` cuenta diner |
-| 4930 | 4960 | 2 | 90. ⛔ `styleClass` en `p-inputicon` dibuja una lupa de 0 px, y `track i` sobre un esqueleto repite la llave (N |
-| 4961 | 4994 | 4 | 91. ⛔ Seis trampas de HERRAMIENTA que no avisan — y las seis cobraron en el ciclo de Caducidades (2026-10-16) |
-| 4995 | 5038 | 2 | 92. ⛔⛔ Un paso de CI con `cmd \| tee log` sale VERDE aunque `cmd` falle — y ese verde se citó como prueba |
+| 3880 | 3968 | 5 | 71. `knex.raw()` se come los `?` de una REGEX y los convierte en `$1`, `$2` — aunque no le pases bindings |
+| 3969 | 4000 | 2 | 72. El gate de tipado es un comando APARTE: `tsc` y los dos `nx build` pasan en verde con violaciones adentro |
+| 4001 | 4055 | 3 | 73. En LOCAL todos los websockets fallan: el proxy de dev enruta `/socket.io` y la app pide `/reports/socket.i |
+| 4056 | 4097 | 3 | 74. Un `mv` sobre un archivo montado como *bind mount* desengancha el montaje PARA SIEMPRE — el contenedor sig |
+| 4098 | 4175 | 6 | 75. `npm run migrate:new` sobre una base VACÍA no llega al final: se detiene en la migración 88, y otra vez en |
+| 4176 | 4207 | 2 | 76. `diff -rq` SIGUE los symlinks: dos directorios "idénticos" pueden ser uno solo y catorce enlaces |
+| 4208 | 4239 | 1 | 77. `git commit -- <ruta>` DESHACE un `git rm --cached` de esa misma ruta, y sale exit 0 |
+| 4240 | 4280 | 2 | 78. Un commit de RESTAURACIÓN se lleva la autoría de cada línea que toca: el `git blame` posterior apunta a qu |
+| 4281 | 4332 | 3 | 79. ⛔ Nada de Python — y el costo de que la regla viviera sólo en la memoria de UNA sesión |
+| 4333 | 4388 | 3 | 80. ⛔⛔ Un ENSAYO que no usa el rol del que EJECUTA no ensayó nada — y `LEFT JOIN` convierte eso en `NULL` sin  |
+| 4389 | 4426 | 2 | 81. ⛔ `updated_at` no dice cuándo cambió el dato: dice cuándo pasó el importer — y eso es el 91.4% del catálog |
+| 4427 | 4494 | 4 | 82. ⛔⛔ `String(fecha).slice(0,10)` sobre una columna `date` da `"Wed May 27"` — y publicó una acusación de $18 |
+| 4495 | 4574 | 4 | 83. ⛔⛔ Un corpus vectorial AUSENTE se ve EXACTAMENTE igual que «este producto no está en el catálogo» — 24 día |
+| 4575 | 4637 | 3 | 84. ⛔⛔ Un shipper VERDE con `rows_affected = 0` puede ser que murió el ORIGEN, no la tubería — y el carril her |
+| 4638 | 4667 | 3 | 85. ⛔⛔ Un parámetro DECORADO tipado con un nombre que también es un VALOR mata el arranque de la API — y todo  |
+| 4668 | 4725 | 3 | 86. ⛔⛔ `doc_tipo + folio` NO identifica un cobro: el folio de camioneta es consecutivo POR UNIDAD — capturar u |
+| 4726 | 4879 | 7 | 87. ⛔⛔ Un latido escrito por el CONSUMIDOR dice «ok» mientras el dato del productor está atascado — y mi propi |
+| 4880 | 4889 | 2 | 88. ⛔⛔ `@Throttle({ default: … })` NO limita nada: los tiers se llaman `short`, `medium` y `long` |
+| 4890 | 4935 | 3 | 89. ⛔⛔ Un documento CANCELADO en Kepler deja su aplicación VIVA en `kdm5` — quien suma `kdm5.c13` cuenta diner |
+| 4936 | 4966 | 2 | 90. ⛔ `styleClass` en `p-inputicon` dibuja una lupa de 0 px, y `track i` sobre un esqueleto repite la llave (N |
+| 4967 | 5000 | 4 | 91. ⛔ Seis trampas de HERRAMIENTA que no avisan — y las seis cobraron en el ciclo de Caducidades (2026-10-16) |
+| 5001 | 5049 | 3 | 92. ⛔⛔ Un paso de CI con `cmd \| tee log` sale VERDE aunque `cmd` falle — y ese verde se citó como prueba |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -3935,7 +3935,13 @@ El barrido se corrió el 2026-09-25 contra prod: **una sola función afectada**,
 **por canal**. El total salió verde. Si sólo hubiera comparado totales, esto entraba a producción
 sin un solo ruido — y el número grande de la pantalla habría estado bien todo el tiempo.
 
-⛔ **Segunda vez, 2026-10-26 (`[CGA-A.55.1]`), y ese barrido se quedaba corto.** `20261026110741`
+⛔ **Segunda vez, 2026-10-15 (`[CG.163]`), y no en una migración sino en una consulta del código:**
+`/finance/caos/resumen` llevaba `substring(lower(ref) from '(?:rd|ruta|r)…')` en el `SELECT` y en el
+`GROUP BY`; knex los mandó como `'($1:…'` y `'($5:…'` y el endpoint dio **500 en prod** (`42803`) cada
+vez que alguien abría el arqueo. Ésa sí hizo ruido, y la regex se fue (detalle en
+`libs/finance/src/lib/caos/caos.service.ts`).
+
+⛔ **Tercera vez, 2026-10-26 (`[CGA-A.55.1]`), y ese barrido se quedaba corto.** `20261026110741`
 decía en su cabecera «⛔ Ni un `?` en el SQL» y aun así instaló `finance.caos_denom_valor` con
 `'^[0-9]+(\.[0-9]+)$1m$2$'`: NULL para toda llave de billete, y el trigger de enlaces de CAOS
 rechazando cualquier enlace con billetes. Lo cazó la base real del CI (`caja-db`), no la revisión:
@@ -4994,8 +5000,12 @@ Las pruebas `*-real.spec.ts` avisan con `console.warn` cuando falta la variable 
 
 ## 92. ⛔⛔ Un paso de CI con `cmd | tee log` sale VERDE aunque `cmd` falle — y ese verde se citó como prueba
 
-**Vivido en `caja-db` del 15 al 26-oct (`[CGP-D.1.3]`).** El `run:` de Actions en Linux corre con
-`bash -e`, **sin `pipefail`**: el código de un pipe es el del ÚLTIMO comando, y `tee` siempre sale 0.
+**Vivido en `caja-db` del 15 al 26-oct (`[CGP-D.1.3]`).** Un `run:` de Actions en Linux **que no
+declara `shell:`** (ni lo hereda de `defaults.run.shell` del job o del workflow) corre con
+`bash -e {0}`, **sin `pipefail`**: el código de un pipe es el del ÚLTIMO comando, y `tee` siempre sale
+0. Con `shell: bash` explícito, Actions corre `bash --noprofile --norc -eo pipefail {0}` y el mismo pipe
+sí sale rojo (docs de GitHub, «Workflow syntax», tabla de `shell`). `ci.yml` no declara `shell:` ni
+`defaults:` en ningún lado: todos sus `run:` van sin pipefail.
 
 ```bash
 if ! npx vitest run … 2>&1 | tee servicio.log; then exit 1; fi   # nunca entra al rojo
@@ -5009,8 +5019,9 @@ anotación de vitest («Failed Tests 17») que nadie abre en un paso verde.
 «Servicio real del corte … success» contra el paso de zonas, que fallaba con las mismas pruebas, y
 concluyó «es ESTADO, no lógica». El paso «verde» tenía las MISMAS 10 fallas.
 
-**La regla:** todo `run:` con un pipe cuyo código importa arranca con `set -o pipefail`, o lee
-`${PIPESTATUS[0]}`. Ojo: `echo "rc=$?"` después de `| tee` también lee el de `tee`. La prueba negativa
+**La regla:** todo `run:` con un pipe cuyo código importa arranca con `set -o pipefail` (o el paso
+declara `shell: bash`, que ya lo trae), o lee `${PIPESTATUS[0]}`. Ojo: `echo "rc=$?"` después de
+`| tee` también lee el de `tee`. La prueba negativa
 cuesta un segundo y no necesita CI:
 
 ```bash

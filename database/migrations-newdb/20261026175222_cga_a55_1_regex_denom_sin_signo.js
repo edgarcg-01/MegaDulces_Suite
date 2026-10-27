@@ -15,8 +15,9 @@
  *      escrito : k ~ '^[0-9]+(\.[0-9]+)?m?$'
  *      guardado: k ~ '^[0-9]+(\.[0-9]+)$1m$2$'      ← no casa con ninguna llave
  *
- *  Es la trampa de `docs/GOTCHAS.md` §71, por segunda vez: aquella migración ya advertía «ni un
- *  `?` en el SQL» y el `?` se coló en la regex.
+ *  Es la trampa de `docs/GOTCHAS.md` §71, por TERCERA vez (`[IG.0.1]` el 2026-09-25, `[CG.163]` el
+ *  2026-10-15 y ésta): aquella migración ya advertía «ni un `?` en el SQL» y el `?` se coló en la
+ *  regex.
  *
  * ── Lo medido antes (prod, sólo lectura, 2026-10-26) ───────────────────────────────────────
  *  · `caos_denom_valor` de las 12 llaves del catálogo (`libs/contracts/src/money/denominations.ts`:
@@ -37,9 +38,10 @@
  *  `CREATE OR REPLACE` conserva el dueño y los permisos.
  *
  * ⚠️ Sólo reemplaza una función: `ops/prod/compuerta-migraciones.sh` no extrae objetos de un
- *    `CREATE FUNCTION`, así que mientras esté pendiente la clasifica NO_MEDIDO y FRENA el
- *    despliegue. Aplicala en prod con `apply-one-migration-prod.js` ANTES de desplegar el commit
- *    que la trae.
+ *    `CREATE FUNCTION` («objetos que crean: 0»), así que mientras esté pendiente la clasifica
+ *    NO_MEDIDO y FRENA el despliegue de `main`: el de todo el equipo, no sólo el de este commit.
+ *    Aplicala en prod con `apply-one-migration-prod.js` ANTES de mergear, como pide la plantilla
+ *    de `scripts/nueva-migracion.js`.
  *
  * La prueba: `test-newdb-caja-custodia.js` §6a llama la función con las 12 llaves del catálogo (las
  * lee del fuente), la cruza con `valorDeLlave` del motor TS y exige que ninguna función de
