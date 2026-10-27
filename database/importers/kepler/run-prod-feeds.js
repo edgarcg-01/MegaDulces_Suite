@@ -176,7 +176,10 @@ const STEPS = {
   ],
   stock:   [
     path.join(K, 'import-branch-stock-live.js'),
-    path.join(DIR, 'wincaja', 'import-cedis-stock-wincaja.js'), // RA-PRO.24 CEDIS '00' = Wincaja Irapuato (NO Kepler) — tras stock Kepler, ANTES del fact (guard: no borra si Irapuato vacío)
+    // RETIRADO 2026-10-27 [OPS-AUD.3]: import-cedis-stock-wincaja — el CEDIS vive en Kepler desde el
+    // corte del 2026-09-30 y Wincaja Irapuato queda sólo para históricos. El guard ya lo frenaba
+    // (`cutover_done`), pero corría 2× por ciclo y su MERGE con DELETE revivía si alguien vaciaba
+    // `kepler_code`.
     // `[RA-PERF.8]` `--hb=stock`: llave de latido PROPIA de este carril. Sin el sufijo, este paso y
     // el del nightly se pisarían el renglón de `analytics.cron_runs` (PK sin host) y fabricarían
     // falsos "la corrida anterior no reportó cierre" cada vez que se cruzaran.
@@ -240,7 +243,6 @@ const STEPS = {
     path.join(K, 'import-sales-stats.js'),   // KV.2 ABC/share (lee prod sales_daily) — tras sales-fact
     path.join(K, 'import-sales-monthly.js'), // HVT.1 rollup mensual durable (sales_daily → sales_monthly, serie larga + calibración demanda) — tras sales-fact
     [path.join(K, 'import-demand-clean.js'), '--hb=nightly'],  // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand — tras sales-fact `[RA.VA.6]` --hb: llave de latido propia de este carril (corre en live y nightly).
-    path.join(DIR, 'wincaja', 'import-cedis-stock-wincaja.js'), // RA-PRO.24 CEDIS '00' = Wincaja Irapuato (NO Kepler) — ANTES de inventory-health/DRP/fact (guard: no borra si Irapuato vacío)
     path.join(K, 'import-inventory-health.js'), // KV.5 días cobertura/status (stock × sales_daily); demanda en PIEZAS crudas (canónico, ver import-inventory-health)
     path.join(K, 'import-reorder-policy.js'),   // RA.2 umbrales reorden Kepler (kdii.c33/34/35 → reorder_policy source=kepler)
     path.join(K, 'import-computed-reorder.js'), // RA.3/RA-PRO.1 reorden por demanda + safety stock por nivel de servicio + XYZ — tras inventory-health
