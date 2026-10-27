@@ -135,8 +135,6 @@ import { LogisticsCartaporteModule } from '@megadulces/logistics';
 import { LogisticsRoutingModule } from '@megadulces/logistics';
 // Fase LT — Rastreo de flota GPS (MagniTracking / GPS-Server.net)
 import { LogisticsTrackingModule } from '@megadulces/logistics';
-// Sprint M — sync ERP Mega_Dulces (.245) → postgres_platform (nightly cron + admin endpoints)
-import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // MAAT (ADR-028) — AI de Finanzas: base de conocimiento (+ motor/chat en sprints siguientes)
 import { FinanceMaatModule, FinanceExpenseProofsModule, FinanceExpenseComprobacionesModule, FinanceExpedienteGastoModule, FinanceExpenseAreasModule, FinanceBankModule, FinancePolizasModule, FinancePurchaseBookModule, FinanceCollectionDepositsModule, FinanceCustomerLedgerModule, FinanceSupplierPaymentProofsModule, FinanceGoodsReceiptProofsModule, FinancePaymentProgramModule, FinanceCajaGeneralModule, FinanceCancelledDocsModule, FinanceCortesSucursalesModule, FinanceCreditorStatementsModule, FinanceTripPayModule, FinanceFeedNotifyModule, FinancePaymentCalendarModule, FinanceBudgetModule, FinanceCaosModule, FinanceContpaqiModule } from '@megadulces/finance';
 import { FiscalListasModule } from '@megadulces/fiscal';
@@ -278,7 +276,6 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       LogisticsCartaporteModule,
       LogisticsRoutingModule,
       LogisticsTrackingModule,
-      MegaDulcesSyncModule,
       FinanceNotifierBindingModule,
       ReconNotifierBindingModule,
       // DBH.3 — correo saliente. @Global(): va ANTES de quien lo inyecta (db-health), igual que el
