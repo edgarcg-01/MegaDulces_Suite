@@ -1356,6 +1356,10 @@ export const CRON_JOBS: CronCfg[] = [
   // la frescura de este MISMO carril en `GET /cobertura`. Dos umbrales a mano para el mismo hecho
   // se separan en silencio, y el día que se separan el tablero y la pantalla se contradicen.
   { key: 'caja_autofill_entidad', label: 'Caja — autollenado por entidad (mv)', cadence: 'cada hora :07 MX', warnH: CAJA_AUTOFILL_FRESCURA_H, critH: 8, maxRunH: 0.25 },
+  // [OPS-AUD.11.6] El árbitro de lo que mantienen los triggers (ADR-104): tesorería y pólizas de
+  // Kepler contra la regla aplicada a todo el ODS. Una diferencia sale como `error` aunque se haya
+  // reparado (el trigger tiene un hueco). Diario 07:20 MX: warn si se saltó un día, crítico a dos.
+  { key: 'arbitro_por_cambio',  label: 'Árbitro de tesorería y pólizas por trigger', cadence: 'diario 07:20 MX', warnH: 26, critH: 50, maxRunH: 0.5 },
   // [CS.1] Feed de CAOS (caja fuerte) → analytics.caos_cash_movements. Corre cada 2 min on-prem.
   // Sin esta entrada el latido caería en `cfg ? classify : 'ok'` = verde incondicional. La caja
   // mueve ~8/día; el rezago se tolera holgado (warn a ~2 h) porque un hueco no es urgente como el

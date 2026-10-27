@@ -8,6 +8,7 @@ import { CashCutService } from './cash-cut.service';
 import { CajaFechaFuturaScannerService } from './caja-fecha-futura-scanner.service';
 import { CajaCorteAbiertoScannerService } from './caja-corte-abierto-scanner.service';
 import { CajaAutofillRefreshService } from './caja-autofill-refresh.service';
+import { ArbitroPorCambioService } from './arbitro-por-cambio.service';
 import { CajaAutollenadoService } from './caja-autollenado.service';
 import { CajaRealtimeModule } from './caja-realtime.module';
 import { CajaControlService } from './caja-control.service';
@@ -55,7 +56,9 @@ import { CashbookCaosCarril } from '../cashbook/cashbook-caos.carril';
   // `ENABLE_CAJA_AUTOLLENADO=true` lo prende, y la migración de la cuenta de servicio va antes.
   providers: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
     CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
-    CajaAutollenadoService, CajaArqueoService, CajaFirmaService, CajaCustodiaService, CashbookService, CashbookCaosCarril],
+    CajaAutollenadoService, CajaArqueoService, CajaFirmaService, CajaCustodiaService, CashbookService, CashbookCaosCarril,
+    // [OPS-AUD.11.6] La alarma de lo que mantienen los triggers (ADR-104): tesorería y pólizas.
+    ArbitroPorCambioService],
   exports: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
     CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
     CajaAutollenadoService, CajaArqueoService, CajaCustodiaService],
