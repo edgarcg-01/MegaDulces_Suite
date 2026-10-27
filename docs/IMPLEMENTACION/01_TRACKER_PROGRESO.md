@@ -2,6 +2,7 @@
 
 > **Índice navegable** — 1973 KB, 12623 líneas, 72 secciones.
 > **Índice navegable** — 1961 KB, 12602 líneas, 72 secciones.
+> **Índice navegable** — 1966 KB, 12659 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -129,28 +130,28 @@
 | 8278 | 8440 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
 | 8441 | 8724 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
 | 8725 | 8892 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8893 | 10999 | 158 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11000 | 11008 | 1 | Fase RR — Ventas por ruta |
-| 11009 | 11304 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11305 | 11315 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11316 | 11336 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11337 | 11347 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11348 | 11359 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11360 | 11419 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11420 | 11847 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 11848 | 11862 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 11863 | 11904 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 11905 | 12050 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12051 | 12081 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12082 | 12129 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12130 | 12153 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12154 | 12183 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12190 | 12199 | 1 | 📝 Convenciones |
-| 12200 | 12236 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12237 | 12255 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12256 | 12308 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12309 | 12665 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12666 | 12686 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 8893 | 11056 | 163 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11057 | 11065 | 1 | Fase RR — Ventas por ruta |
+| 11066 | 11361 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11362 | 11372 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11373 | 11393 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11394 | 11404 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11405 | 11416 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11417 | 11476 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11477 | 11904 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 11905 | 11919 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 11920 | 11961 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 11962 | 12107 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12108 | 12138 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12139 | 12186 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12187 | 12210 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12211 | 12240 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12247 | 12256 | 1 | 📝 Convenciones |
+| 12257 | 12293 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12294 | 12312 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12313 | 12365 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12366 | 12722 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12723 | 12743 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -9261,7 +9262,10 @@ TP.6-TP.8+TP.10".
 > - **[CGA-A.52]** ⬜ **C3.** Captura: «¿de dónde salió el dinero?» obligatorio; al enlazar un retiro
 >   se toma **una parte** (≤ disponible, ≤ lo que falta del gasto) y ya no se copian sus billetes.
 >   Bandeja «retiros de hoy» para clasificar, y saldo a cargo por persona con antigüedad.
-> - [x] **[CGA-A.55]** 🔨 **Los billetes de cada pedazo del retiro (C0–C2, sin desplegar).** Edgar:
+> - [x] **[CGA-A.55]** ✅ **Los billetes de cada pedazo del retiro (C0–C2 en prod desde el 2026-10-26,
+>   con un defecto latente: ver [CGA-A.55.1]).** En prod (sólo lectura, clúster 7688376744939610156):
+>   migración `20261026110741` en el lote 1016 (18:37Z) y código en `71b5c7975` (lo que sirve
+>   `/api/health`). Edgar:
 >   *«un egreso de CAOS de 100,000 se puede vincular a 4 movimientos, pero debe conciliar los
 >   billetes… deberían existir 20 en caja con cierta denominación + el fondo»*. Migración
 >   `20261026110741`: `caos_cash_links.billetes` / `.cambio` y trigger que exige que sumen el monto y
@@ -9272,7 +9276,10 @@ TP.6-TP.8+TP.10".
 >   billetes: el remanente por denominación se declara NO afirmable, sólo el monto. Base real:
 >   sección 6b de `test-newdb-caja-custodia.js` (4 negativas + mutación); el preparador de `caja-db`
 >   trae la migración por lista explícita (`REGLAS_SOBRE_LO_QUE_LEE`).
-> - [x] **[CGA-A.55.1]** 🧪 **La regex de las denominaciones, sin `?`: el job `caja-db` vuelve a verde.**
+> - [x] **[CGA-A.55.1]** 🧪 **La regex de las denominaciones, sin `?`: «Suites del corte» vuelve a
+>   verde (custodia 54 ✓ / 0 ✗); el job NO queda verde: «Servicio real del corte» escondía 17 fallas
+>   por falta de pipefail** (`[CGP-D.1.3]` / `[CGP-D.1.4]`). ⚠️ Corrección de la revisión: este título
+>   decía «el job `caja-db` vuelve a verde», y no era cierto.
 >   `finance.caos_denom_valor()` devolvía NULL para TODA llave y el trigger rechazaba con
 >   `CAOS_LINK_BILLETES_FORMA` cualquier enlace con billetes. **Causa:** knex pasa toda sentencia por
 >   `positionBindings()` aunque no haya bindings y convirtió los `?` de la regex de `20261026110741`
@@ -9284,12 +9291,35 @@ TP.6-TP.8+TP.10".
 >   §6a de `test-newdb-caja-custodia.js` (6 llaves + 6 negativas). Job reproducido en `pgvector:pg18`
 >   desechable: antes custodia 19 ✓ / 2 ✗ (igual que CI); después 28 ✓ · 44 ✓ / 4 NO MEDIDO · 30 ✓ ·
 >   40 ✓ / 0 ✗ (6b y §7 corren por primera vez). Mutaciones: sin la línea de la lista → 25 ✓ / 8 ✗;
->   con `?` de vuelta → 25 ✓ / 8 ✗. ⏳ **Pendiente: aplicar la migración en prod con
->   `apply-one-migration-prod.js`**, ANTES de desplegar el commit (sólo reemplaza una función:
->   `compuerta-migraciones.sh` la clasifica NO_MEDIDO y frena) y antes de que la pantalla mande billetes.
->   ⚠️ El barrido de prod encontró **5 vistas** con la misma huella (GOTCHAS §71): fuera de este item.
-> - [x] **[CGA-A.56]** 🔨 **Todo egreso dice de dónde salió el dinero: retiros de CAOS o cajón (C0–C2,
->   sin desplegar).** Edgar eligió permitir «cajón» explícito. Migración `20261026111610`:
+>   con `?` de vuelta → 25 ✓ / 8 ✗. **Tras la revisión, la §6a se amplió** (54 ✓ / 0 ✗): positivas =
+>   las 12 llaves del catálogo leídas de `libs/contracts` (las 12 que usa
+>   `cash_ledger_denominations` en prod; antes probaba '0.5m', '10m', '2.5m', que no existen),
+>   negativas '5x5' y '5,5' (cazan un punto sin escapar), cruce con `valorDeLlave` del motor TS
+>   (dos implementaciones) y candado estructural de GOTCHAS §71 (ninguna función de `finance` con
+>   `$N` en una regex). Mutaciones: regex de prod → 31 ✓ / 16 ✗; punto sin escapar → 3 ✗; sin
+>   ceros a la izquierda → 1 ✗ (sólo lo ve el cruce con TS); otra función con `$1` → 1 ✗ (sólo el
+>   candado); catálogo ilegible → ✗; motor con otra firma → NO MEDIDO, no verde. El comentario de
+>   la función nombra llaves reales (500, 1000, 20m, 0.5). ⏳ **Pendiente: aplicar la migración en
+>   prod con `apply-one-migration-prod.js`**, ANTES de desplegar el commit (sólo reemplaza una
+>   función: `compuerta-migraciones.sh` la clasifica NO_MEDIDO y frena) y antes de que la pantalla
+>   mande billetes. Re-medido en sólo lectura: las 12 llaves del catálogo dan NULL hoy en prod.
+> - **[CGA-A.55.2]** ⬜ **La forma del trigger acepta llaves fuera del catálogo** ('0', '05', '7',
+>   '0.5m'…), y en `cambio` pasan todos los chequeos (el 2 sólo recorre las llaves de `billetes`):
+>   `cambio {'0':3}` o `{'05':2}` entran. Validar contra las 12 llaves de `libs/contracts` (y así se
+>   va la regex). Cambia alcance: va aparte (regla 15).
+> - **[CGA-A.55.3]** ⬜ **Las otras 5 huellas de GOTCHAS §71 — dueño por decidir, escalar a Edgar.**
+>   `analytics.v_product_unit_ladder` es un defecto ACTIVO: 65 SKU con unidad numérica quedan
+>   `is_weight = false` y de ella cuelgan `product_units` y las conversiones de unidad (toca dinero;
+>   pesos NO medidos). `analytics.v_caja_arqueos` firma «Control $1» sin capturista. Latentes:
+>   `customer_receivables`, `v_logistics_expense_channel`, `mv_product_margins_30d`. Cada una con su
+>   migración nueva, sin un solo `?`.
+> - **[CGA-A.55.4]** ⬜ **Compuerta mecánica de §71**: pasar cada migración nueva por
+>   `client.positionBindings` del dialecto pg y frenar si una sentencia cambia, con su prueba
+>   negativa (la `20261026110741` tiene que salir roja). Es la tercera vez de la familia (`[IG.0.1]`,
+>   `[CG.163]`, esta); una regla que se cumple a ojo no es una compuerta.
+> - [x] **[CGA-A.56]** ✅ **Todo egreso dice de dónde salió el dinero: retiros de CAOS o cajón (C0–C2
+>   en prod desde el 2026-10-26: migración en el lote 1017 y código en `71b5c7975`, sólo lectura).**
+>   Edgar eligió permitir «cajón» explícito. Migración `20261026111610`:
 >   `cash_ledger.origen_efectivo` (`caos` | `cajon`, nullable: lo viejo no se inventa). Regla pura
 >   `origenDelEgreso` en el único `insert` del libro (`create`, al que llegan captura, lote y
 >   autollenado); obligatoria desde `CAJA_EGRESO_ORIGEN_DESDE` (APAGADA). El lote declara `cajon`
@@ -10915,6 +10945,34 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   reemplaza por un preparador propio, `database/tests/caja/preparar-base-caja.js`: migraciones
   REALES del corte, tablas ajenas vacías desde el snapshot, **cero saltadas**. Local (PG 18.4):
   14 migraciones aplicadas. Falta su primera corrida verde en el CI.
+- [ ] 🧪 **`[CGP-D.1.3]`** (2026-10-26) **`set -o pipefail` en «Servicio real del corte»: el paso
+  estaba verde con pruebas rojas.** `if ! npx vitest … | tee` en `bash -e` sin pipefail toma el
+  código de `tee` (siempre 0). Medido en la API de GitHub: el paso nació 26/26 de verdad
+  (`b3a5ee99c`, 15-oct) y desde `09b1a36cd` (15-oct, 23:22Z) salió **verde en TODAS las corridas de
+  main** con 9 a 20 pruebas rojas, y el job entero quedó verde casi todo el 15 al 23-oct. ⛔ Y ese
+  verde falso sostuvo una conclusión: `[CGP-D.4]` (`ab42d3100`) leyó «Servicio real… success» como
+  prueba de que la falla del paso de zonas era ESTADO, cuando el paso tenía las MISMAS 10 fallas
+  escondidas (corregido en el comentario de `ci.yml`). Misma trampa que `[CGP-D.1.2]` cerró en
+  «Base de caja desde cero». **Prueba negativa** (base del job en `pgvector:pg18` desechable): sin
+  la línea, 17 ✗ / 31 ✓ y código **0**; con ella, las mismas 17 y código **1** con su anotación.
+  ⏳ Falta la corrida del CI: tiene que salir ROJA en ese paso hasta que cierre `[CGP-D.1.4]`.
+- [ ] ⬜ **`[CGP-D.1.4]`** **Las 17 fallas que escondía «Servicio real del corte».** Reproducidas en
+  local título por título (17 ✗ / 31 ✓, igual que la corrida 40422432878), también sobre base nueva
+  SIN correr antes las suites: no es estado que dejen ellas. Dos causas medidas:
+  - **13 del corte** (`cash-cut.servicio-real` 11, `cash-ledger.http-real` 2; síntoma: el corte no
+    suma los movimientos sembrados, «esperado 500 donde iba 1500»): el predicado de la jornada del
+    libro, `(?::date) AT TIME ZONE 'America/Mexico_City'`, convierte el `date` a `timestamptz` con
+    la TimeZone de la SESIÓN. El Postgres del CI corre en UTC → la ventana del día se corre 12 h y el
+    movimiento de mediodía cae fuera. **La misma base con la TimeZone de prod (`America/Mexico_City`,
+    leída en sólo lectura; la fija `ops/k3s/52-pg-prod.deployment.yaml`) da 4 ✗ / 44 ✓.** En prod
+    hoy la ventana es la correcta; es latente: depende de una opción del servidor, no del código. Seis copias: `caja-jornadas.query.ts:46-47` y
+    `cash-cut.service.ts:2126-2127, 2357-2358`. Arreglo propuesto: `(?::date)::timestamp AT TIME
+    ZONE …` en UNA definición, y la prueba en una sesión UTC. Llegó al universo del corte con
+    `[CGP-L.12]` (`003a190e8`, que entró entre la última corrida 26/26 y la primera con fallas); las
+    copias de `cash-cut.service.ts` vienen de `[CG.82]`/`[CG.91]` (12-oct, el arqueo del día).
+  - **4 del sensor** (`caja-corte-abierto.scanner-real`): `permission denied for schema identity`
+    — el preparador crea `identity.users` vacía pero `app_runtime` no tiene `USAGE` en `identity`.
+  ⚠️ No cambiar el Postgres del CI a hora de México para que pase: eso escondería el defecto.
 - [ ] 🧪 **`[CGP-D.2]`** `cash-ledger-cuts` reparada: 43 ✓ / 0 ✗ / 4 NO MEDIDO en local.
   `cash-ledger` reparada pero fuera de la base del corte (**`[CGP-D.2b]`**, declarada).
 - [ ] 🧪 **`[CGP-D.3]`** Migración `20261014212702` + suite `test-newdb-caja-invariantes.js`:
