@@ -687,6 +687,23 @@ KEPLER_PED_TEMPLATE_FOLIO_08=0000847   KEPLER_PUSH_MAX_DIA_08=15
 **Después de cada cambio de configuración:** `node database/scripts/pq-simulacro-escritura-kepler.js`
 tiene que dar **0 rebotes de datos**; lo de configuración lo prueba el canario (runbook §9, P0–P5).
 
+### 14.2 ¿Y los traspasos? (2026-10-27)
+
+Medido en el ODS, con las comprobaciones que el adaptador hace **en el servidor de origen**:
+
+| Comprobación | Resultado |
+|---|---|
+| `pv_suc_ip` (sucursal destino → `TI###`) existe en los 9 servidores | **sí**, mapa idéntico en los 9 (01→TI001 · 02→TI008 · 03→TI002 · 04→TI003 · 05→TI007 · 06→TI006 · 07→TI009 · 08→TI004) |
+| 772 traspasos vivos, 20 pares origen→destino (00, 01, 06 y 08 originan) | **20 de 20** con el TI del destino en el servidor origen |
+| líneas que irían en piezas (fracción de caja): 29 | **29 de 29** con unidad base en la ficha `kdii` del origen |
+| simulacro (reglas vigentes) | 772 de 772 pasan los datos |
+
+Lo único que falta para un traspaso es **la plantilla `U-D-40` por servidor origen** (sin default a
+propósito): 00 `1/0001240`, 06 `1/0001479`, 08 `1/0000847` medidas en §14.1; **la 01 no tiene un
+`U-D-40` sano con `c27='SUCURSAL'`** (sus 12 sanos son `TELEMARK`) — hay que elegirla a mano o
+aceptar una `TELEMARK` (el adaptador limpia responsables y pone `c27='SUCURSAL'` igual). Y el canario
+de traspaso (runbook §9) todavía no se ha corrido en ningún servidor.
+
 ---
 
 ## 10. Bitácora
