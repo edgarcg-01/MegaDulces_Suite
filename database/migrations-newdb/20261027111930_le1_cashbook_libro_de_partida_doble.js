@@ -333,7 +333,10 @@ DECLARE
   v_req uuid := nullif(p->>'request_id', '')::uuid;
   -- La huella la calcula la BASE sobre el contenido (jsonb normaliza orden y espacios): si la
   -- mandara el cliente, un reintento con otro monto y la misma huella pasaría como «el mismo».
-  v_rhash text := CASE WHEN v_req IS NOT NULL THEN cashbook._huella((p - 'request_hash')::text) END;
+  -- SIN value_at: en un registro de persona la hora la pone el SERVIDOR en cada intento, y con
+  -- ella adentro el reintento idéntico se rechazaba (lo encontró cashbook.servicio-real.spec.ts).
+  -- Los hechos de fuera no dependen de esto: van por event_ref + event_hash.
+  v_rhash text := CASE WHEN v_req IS NOT NULL THEN cashbook._huella((p - 'request_hash' - 'value_at')::text) END;
   v_actor jsonb := coalesce(p->'actor', '{}'::jsonb);
   v_actor_kind text := coalesce(v_actor->>'kind', 'persona');
   v_user uuid := nullif(v_actor->>'user_id', '')::uuid;
@@ -535,7 +538,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, cashbook, pg_tem
 DECLARE
   v_t uuid := cashbook._tenant();
   v_req uuid := nullif(p->>'request_id', '')::uuid;
-  v_rhash text := cashbook._huella((p - 'request_hash')::text);
+  v_rhash text := cashbook._huella((p - 'request_hash' - 'value_at')::text);   -- igual que en _post
   v_user uuid := nullif(p->'actor'->>'user_id', '')::uuid;
   v_kind text := coalesce(p->>'event_kind', CASE WHEN nullif(p->>'reverses_entry_id', '') IS NOT NULL THEN 'reversa' END);
   v_existe record; v_id uuid; v_gross bigint;

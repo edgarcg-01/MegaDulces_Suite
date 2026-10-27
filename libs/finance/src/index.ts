@@ -94,3 +94,7 @@ export * from './lib/payment-calendar/budget-expense-obligations.service';
 export * from './lib/payment-calendar/financial-commitments.service';
 export * from './lib/payment-calendar/payment-calendar.service';
 export * from './lib/payment-calendar/payment-calendar-document.service';
+// [LE.4] El libro de efectivo de partida doble (ADR-102/103): el servicio y su controlador. Las
+// reglas puras (`lib/cashbook/reglas.ts`) no se exportan aquí: sus nombres son genéricos.
+export { CashbookService, type UsuarioDelLibro } from './lib/cashbook/cashbook.service';
+export { CashbookController } from './lib/cashbook/cashbook.controller';
