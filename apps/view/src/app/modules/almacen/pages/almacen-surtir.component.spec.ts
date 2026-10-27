@@ -391,6 +391,79 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(boton('Tomar siguiente')).toBeFalsy();
   });
 
+  // ── [MCP.3.15] Indicaciones del vendedor ───────────────────────────────────────────────
+  const IND = 'Las Sabritas con caducidad de diciembre en adelante. Bajar por la puerta de atrás.';
+  const conIndicaciones = (): void => {
+    pv['inbox'].mockReturnValue(of(BANDEJA([PV({ instructions: IND }), PV({ order_id: 'o-vero', code: 'PD-2026-00070', customer_name: 'VERO VASCO' })])));
+    pv['detail'].mockReturnValue(of({ ...DETALLE(), order: { ...DETALLE().order, instructions: IND } }));
+  };
+
+  it('[MCP.3.15] en la bandeja, el pedido con indicaciones lo dice; el que no trae, no', async () => {
+    conIndicaciones();
+    await montar();
+    clic('Sucursal');
+    const tarjetas = Array.from(el().querySelectorAll('.sr-ped')).map((n) => (n.textContent ?? '').replace(/\s+/g, ' '));
+    expect(tarjetas.find((t) => t.includes('ABARROTES ROSY'))).toContain('Con indicaciones del vendedor');
+    expect(tarjetas.find((t) => t.includes('VERO VASCO'))).not.toContain('Con indicaciones');
+  });
+
+  it('[MCP.3.15] al surtir, las indicaciones salen completas en el recuadro de arriba de la lista', async () => {
+    conIndicaciones();
+    await montar();
+    clic('Sucursal');
+    clic('Surtir este');
+    const caja = el().querySelector('.sr-ind');
+    expect(caja).toBeTruthy();
+    expect(caja?.getAttribute('role')).toBe('note');
+    expect(caja?.querySelector('.sr-ind-txt')?.textContent).toBe(IND);
+    // Va antes que los renglones: lo primero que lee el surtidor.
+    const primerRenglon = el().querySelector('.sr-cant');
+    expect(caja && primerRenglon && (caja.compareDocumentPosition(primerRenglon) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy();
+  });
+
+  it('[MCP.3.15] con indicaciones, «Terminé de surtir» espera a «Cumplí las indicaciones»', async () => {
+    conIndicaciones();
+    await montar();
+    clic('Sucursal');
+    clic('Surtir este');
+    clic('Completo');
+    clic('Completo');
+    expect(c.pendientesTotal()).toBe(0);
+    expect(boton('Terminé de surtir')?.disabled).toBe(true);
+    expect(texto()).toContain('Falta marcar «Cumplí las indicaciones»');
+    const marca = el().querySelector<HTMLInputElement>('#sr-ind-ok');
+    marca!.click();
+    fix.detectChanges();
+    expect(boton('Terminé de surtir')?.disabled).toBe(false);
+    clic('Terminé de surtir');
+    expect(pv['finish']).toHaveBeenCalled();
+  });
+
+  it('[MCP.3.15] prueba negativa: sin indicaciones no hay recuadro ni marca que pedir', async () => {
+    await montar();
+    clic('Sucursal');
+    clic('Surtir este');
+    expect(el().querySelector('.sr-ind')).toBeNull();
+    clic('Completo');
+    clic('Completo');
+    expect(boton('Terminé de surtir')?.disabled).toBe(false);
+    expect(texto()).not.toContain('Cumplí las indicaciones');
+  });
+
+  it('[MCP.3.15] la marca no se arrastra al siguiente pedido', async () => {
+    conIndicaciones();
+    await montar();
+    clic('Sucursal');
+    clic('Surtir este');
+    el().querySelector<HTMLInputElement>('#sr-ind-ok')!.click();
+    fix.detectChanges();
+    expect(c.indicacionesOk()).toBe(true);
+    c['abrirPedido']({ ...DETALLE(), order: { ...DETALLE().order, order_id: 'o-otro', instructions: 'Otra cosa' } });
+    fix.detectChanges();
+    expect(c.indicacionesOk()).toBe(false);
+    expect(c.faltaMarcarIndicaciones()).toBe(true);
+  });
+
   it('prueba negativa: no deja cerrar con renglones sin tocar', async () => {
     await montar();
     clic('Sucursal');

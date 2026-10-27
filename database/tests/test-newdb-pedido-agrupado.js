@@ -15,6 +15,8 @@
  *   3. Si TODO se pidió de otra sucursal, no queda un pedido vacío: el principal toma esa sucursal.
  *   4. Mover un renglón de sucursal (updateLine) lo re-tarifica y no choca con otro igual.
  *   5. place() es idempotente: un reintento no crea otra parte.
+ *   7. [MCP.3.15] Las indicaciones del vendedor viajan con place() (también a la parte de otra
+ *      sucursal) y el aviso al surtidor sale aunque la ruta del vendedor siga ABIERTA.
  *   6. [MCP.3.14] La lista con `group` da UN renglón por pedido agrupado, con el total del grupo y el
  *      surtido de cada sucursal; sin `group` (almacén, mesa) siguen saliendo las partes.
  *
@@ -198,6 +200,27 @@ function servicio(Svc, trx, userId) {
         'NEGATIVA: mover a una sucursal donde ya está ese producto se RECHAZA');
       ok(await rechaza(() => svc.updateLine(o3.id, a.id, { quantity: 2, source_warehouse_id: OTRA }), /no es de la zona/),
         'NEGATIVA: mover a otra zona se RECHAZA');
+
+      console.log('\n[7] [MCP.3.15] Indicaciones y aviso al momento con la ruta abierta');
+      // La ruta del vendedor está EN CURSO (antes de MCP.3.15 esto retenía el aviso hasta finalizar).
+      await trx('commercial.seller_route_days').where({ user_id: user.id }).whereNull('finished_at').del();
+      const hoyMx = (await trx.raw(`SELECT (now() AT TIME ZONE 'America/Mexico_City')::date::text AS d`)).rows[0].d;
+      await trx('commercial.seller_route_days').insert({ tenant_id: T, user_id: user.id, work_date: hoyMx, kind: 'ruta' });
+      const o7 = await borrador();
+      await svc.addLine(o7.id, { product_id: p1, quantity: 1 });
+      await svc.addLine(o7.id, { product_id: p2, quantity: 1, source_warehouse_id: PH });
+      const IND = 'Las Sabritas con caducidad de diciembre en adelante. Bajar por la puerta de atrás.';
+      await svc.place(o7.id, { notes: IND });
+      const g7 = await trx('commercial.orders').where({ group_id: o7.id }).select('id', 'notes', 'warehouse_id');
+      ok(g7.length === 2 && g7.every((g) => g.notes === IND),
+        `las indicaciones quedan en el principal Y en la parte de PH (${g7.map((g) => JSON.stringify(g.notes)).join(' · ')})`);
+      const avisos = await trx('commercial.order_notifications').whereIn('order_id', g7.map((g) => g.id)).count('* as n').first();
+      ok(Number(avisos.n) === 2, `con la ruta ABIERTA, cada sucursal recibe su aviso al momento (${avisos.n} de 2)`);
+      const o8 = await borrador();
+      await svc.addLine(o8.id, { product_id: p1, quantity: 1 });
+      await svc.place(o8.id, { notes: '   ' });
+      const o8f = await trx('commercial.orders').where({ id: o8.id }).first('notes');
+      ok(o8f.notes === null, 'sólo espacios = sin indicaciones (null, no un texto vacío)');
 
       throw new Error(RB);
     });

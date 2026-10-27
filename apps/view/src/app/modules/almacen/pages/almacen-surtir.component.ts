@@ -211,6 +211,8 @@ function plural(n: number, uno: string, varios: string): string {
                 @if (sinClave().has(p.order_id)) { <span class="sr-tag-nuevo">Cliente nuevo · sin clave de Kepler</span> }
                 <!-- [MCP.3.13] Parte de un pedido agrupado: el resto se surte en otra sucursal. -->
                 @if (textoParte(p); as tp) { <span class="sr-tag-parte">{{ tp }}</span> }
+                <!-- [MCP.3.15] Trae indicaciones del vendedor: se ven completas al abrirlo. -->
+                @if (p.instructions) { <span class="sr-tag-ind"><i class="pi pi-megaphone" aria-hidden="true"></i> Con indicaciones del vendedor</span> }
                 <div class="sr-datos">
                   <span class="sr-dato"><i class="pi pi-user" aria-hidden="true"></i>{{ p.seller_name || 'Sin vendedor' }}</span>
                   <span class="sr-dato">{{ plural(p.lines, 'producto', 'productos') }}</span>
@@ -282,6 +284,18 @@ function plural(n: number, uno: string, varios: string): string {
             <span class="sr-ola-ped"><i class="pi pi-clock" aria-hidden="true"></i> {{ existenciaAlTexto(o.existencia_al) }}</span>
           }
         </section>
+
+        <!-- [MCP.3.15] Indicaciones del vendedor: un solo recuadro por pedido, en grande, arriba de la lista. -->
+        @if (pedidoSucursal()?.instructions; as ind) {
+          <section class="sr-ind" role="note" aria-labelledby="sr-ind-t">
+            <span class="sr-ind-eye" id="sr-ind-t"><i class="pi pi-megaphone" aria-hidden="true"></i> Indicaciones del vendedor</span>
+            <p class="sr-ind-txt">{{ ind }}</p>
+            <label class="sr-ind-chk">
+              <input type="checkbox" id="sr-ind-ok" [checked]="indicacionesOk()" (change)="indicacionesOk.set($any($event.target).checked)" />
+              Cumplí las indicaciones
+            </label>
+          </section>
+        }
 
         <section class="sr-buscar">
           <i class="pi pi-search" aria-hidden="true"></i>
@@ -402,8 +416,9 @@ function plural(n: number, uno: string, varios: string): string {
               <span class="sr-pend sr-pend-cero">Todos tocados</span>
             }
             @if (conFaltante()) { · <span class="sr-falt">{{ plural(conFaltante(), 'con faltante', 'con faltante') }}</span> }
+            @if (faltaMarcarIndicaciones()) { · <span class="sr-falt">Falta marcar «Cumplí las indicaciones»</span> }
           </div>
-          <button type="button" class="sr-btn sr-btn-go sr-btn-fin" [disabled]="pendientesTotal() > 0 || cerrando()" (click)="cerrar()">
+          <button type="button" class="sr-btn sr-btn-go sr-btn-fin" [disabled]="pendientesTotal() > 0 || faltaMarcarIndicaciones() || cerrando()" (click)="cerrar()">
             <i class="pi" [class.pi-check]="!cerrando()" [class.pi-spin]="cerrando()" [class.pi-spinner]="cerrando()" aria-hidden="true"></i>
             <span>Terminé de surtir</span>
           </button>
@@ -601,6 +616,16 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-tag-nuevo { font-size: var(--fs-xs); font-weight: 700; color: var(--info-fg); }
     /* [MCP.3.13] Discreto: informa, no pide acción. */
     .sr-tag-parte { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
+    /* [MCP.3.15] Indicaciones del vendedor: el surtidor las tiene que ver sin buscarlas. */
+    .sr-tag-ind { display: inline-flex; align-items: center; gap: .35rem; width: fit-content; font-size: var(--fs-xs); font-weight: 700;
+      color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-radius: 999px; padding: .15rem .6rem; }
+    .sr-ind { display: grid; gap: .5rem; margin-bottom: .75rem; padding: var(--sp-4) var(--sp-5); border: 2px solid var(--warn-fg);
+      border-radius: var(--r-lg); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .sr-ind-eye { display: inline-flex; align-items: center; gap: .4rem; font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .sr-ind-txt { margin: 0; font-size: var(--fs-h3); font-weight: 700; line-height: 1.4; white-space: pre-line; color: var(--text-main); }
+    .sr-ind-chk { display: inline-flex; align-items: center; gap: .5rem; padding-top: .5rem; border-top: 1px solid var(--warn-fg);
+      font-weight: 700; cursor: pointer; min-height: 2.75rem; }
+    .sr-ind-chk input { width: 1.25rem; height: 1.25rem; accent-color: var(--ok-fg); }
     .sr-btn-ped { min-height: 3.25rem; font-size: var(--fs-lg); flex-direction: row; gap: .5rem; margin-top: .2rem; }
     .sr-btn-ped i { font-size: var(--fs-lg); }
     .sr-ver-lista { align-self: flex-start; }
@@ -650,6 +675,14 @@ export class AlmacenSurtirComponent implements OnInit {
   readonly tomandoId = signal<string | null>(null);
   /** El pedido de Sucursal que se está surtiendo; null = se surte una ola de Telemarketing. */
   readonly pedidoSucursal = signal<PresalePickInboxRow | null>(null);
+  /** [MCP.3.15] El surtidor marcó que cumplió las indicaciones del vendedor (sólo en pantalla, decisión de David). */
+  readonly indicacionesOk = signal(false);
+  /** [MCP.3.15] Hay indicaciones y todavía no se marcan: «Terminé de surtir» espera. */
+  readonly faltaMarcarIndicaciones = computed(() => {
+    const ind = this.pedidoSucursal()?.instructions;
+    const ok = this.indicacionesOk();
+    return !!ind && !ok;
+  });
   /** Lo que el cierre de un pedido de Sucursal quitó o ajustó. */
   readonly reporte = signal<PresalePickReport | null>(null);
   /** [MCP.3.6] Cuántas rutas hay hoy (las pinta su propia pieza): rotula «Pedidos sueltos». */
@@ -833,6 +866,7 @@ export class AlmacenSurtirComponent implements OnInit {
     this.error.set(null);
     this.reporte.set(null);
     this.pedidoSucursal.set(d.order);
+    this.indicacionesOk.set(false);
     this.ola.set(ola);
     this.busqueda.set('');
     this.editando.set(null);

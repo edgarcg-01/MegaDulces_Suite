@@ -55,6 +55,11 @@ export interface PresalePickInboxRow {
   group_parts?: number | null;
   /** Etiqueta corta (`warehouses.short_label`, si no el nombre) de las sucursales de las OTRAS partes. `[]` = suelto. */
   group_other_warehouses?: string[];
+  /**
+   * `[MCP.3.15]` Indicaciones del vendedor para el surtidor (un solo texto por pedido; `orders.notes`).
+   * `null` = sin indicaciones. Opcional por compatibilidad.
+   */
+  instructions?: string | null;
 }
 
 export interface PresalePickInboxResponse {

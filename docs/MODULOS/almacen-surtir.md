@@ -6,6 +6,36 @@ vendedoras y preventa en la app) y **Telemarketing** (lo que llega de Kepler). L
 
 ---
 
+## Indicaciones del vendedor y llegada pedido por pedido (MCP.3.15, 2026-10-26)
+
+### El problema
+
+- Hay pedidos que llevan condiciones («las Sabritas con caducidad de diciembre», «bajar por la puerta de atrás») y
+  el surtidor no tenía dónde verlas: el pedido ya tenía campo de notas, pero nadie podía escribirlo ni verlo
+  (0 de 60 pedidos de 30 días con nota).
+- Con la ruta abierta, el surtidor no recibía nada hasta «Finalizar ruta»: en un día de ejemplo, 3 h 43 min de
+  espera promedio por pedido.
+
+### La solución
+
+- El vendedor escribe o dicta UN recuadro por pedido antes de agendar. El surtidor lo ve en grande arriba de la
+  lista y no puede terminar sin marcar «Cumplí las indicaciones».
+- Cada pedido llega al momento, suelto, como el método anterior.
+
+### Cómo se implementó
+
+- `orders.notes` por `place()`; `presale-picking` lo lee y lo manda como `instructions` en el renglón de la bandeja.
+- `SURTIDO_DE_RUTA = false` (`presale-route.engine.ts`): sin retener el aviso, sin `NOT EXISTS` de la ruta en la
+  bandeja, sin rutas que listar, `routeStart` rechaza y «Finalizar ruta» no avisa. ADR-103.
+
+### Por qué se hizo así
+
+- Las notas ya existían en el pedido y viajan a las partes de otra sucursal: no hizo falta migración.
+- La marca vive sólo en pantalla por decisión de David; el día que se quiera saber quién la cumplió, es una columna.
+- La ruta junta se apaga con una constante, no se borra: si se decide volver, es un cambio de una línea.
+
+---
+
 ## La ruta del vendedor llega como UN pedido global (MCP.3.6, 2026-10-22)
 
 ### El problema

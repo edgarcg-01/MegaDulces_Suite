@@ -36,7 +36,7 @@ import {
   planearCierre,
   sumarDias,
 } from './presale-picking.engine';
-import { PEDIDO_EN_RUTA_SQL } from './presale-route.engine';
+import { PEDIDO_EN_RUTA_SQL, SURTIDO_DE_RUTA } from './presale-route.engine';
 
 /**
  * `[MCP.3.13]` Pedido agrupado, en SQL sobre `o` = `commercial.orders`: folio del principal, partes
@@ -397,7 +397,8 @@ export class PresalePickingService {
     if (f.almacenes !== null) qb.whereIn('o.warehouse_id', f.almacenes);
     if (f.orderId) qb.where('o.id', f.orderId);
     // Lo confirmado sin ruta, o después de finalizarla, sigue llegando suelto como siempre.
-    if (!f.incluirRutas) {
+    // [MCP.3.15] Con el surtido pedido por pedido, lo levantado en una ruta abierta también llega suelto.
+    if (!f.incluirRutas && SURTIDO_DE_RUTA) {
       qb.whereRaw(`NOT EXISTS (SELECT 1 FROM commercial.seller_route_days rd WHERE ${PEDIDO_EN_RUTA_SQL})`);
     }
     if (f.desde) {
@@ -408,7 +409,7 @@ export class PresalePickingService {
     }
     return qb
       .select(
-        'o.id', 'o.code', 'o.total', 'o.warehouse_id', 'o.confirmed_at', 'o.user_id',
+        'o.id', 'o.code', 'o.total', 'o.warehouse_id', 'o.confirmed_at', 'o.user_id', 'o.notes',
         trx.raw(`to_char(o.requested_delivery_date, 'YYYY-MM-DD') AS requested_delivery_date`),
         'w.name as warehouse_name', 'c.name as customer_name',
         trx.raw(`coalesce(nullif(btrim(u.nombre), ''), u.username) AS seller_name`),
@@ -453,6 +454,8 @@ export class PresalePickingService {
       group_code: (f['group_code'] as string | null | undefined) ?? null,
       group_parts: f['group_parts'] == null ? null : Number(f['group_parts']),
       group_other_warehouses: Array.isArray(f['group_other_warehouses']) ? (f['group_other_warehouses'] as unknown[]).map(String) : [],
+      // [MCP.3.15] Lo que el vendedor dictó o escribió para el surtidor; vacío = sin indicaciones.
+      instructions: typeof f['notes'] === 'string' && f['notes'].trim() ? f['notes'].trim() : null,
     };
   }
 

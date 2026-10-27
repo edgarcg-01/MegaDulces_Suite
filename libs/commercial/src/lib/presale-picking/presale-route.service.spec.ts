@@ -4,6 +4,14 @@ import { PresaleRouteService } from './presale-route.service';
 import { PresalePickingService } from './presale-picking.service';
 import type { RenglonDeRuta } from './presale-route.engine';
 
+// [MCP.3.15] El surtido de ruta está APAGADO (pedido por pedido, David 2026-10-26). Estas pruebas
+// siguen cuidando el modo ruta para el día que se vuelva a encender: aquí la constante va en `true`.
+// El modo vigente se prueba en presale-route.pedido-por-pedido.spec.ts.
+vi.mock('./presale-route.engine', async (original) => ({
+  ...(await original<typeof import('./presale-route.engine')>()),
+  SURTIDO_DE_RUTA: true,
+}));
+
 /**
  * `[MCP.3.6]` Las decisiones del servicio de la ruta, con dobles (sin base de datos): quién puede
  * finalizar la ruta y cerrar su surtido, qué pedidos se cierran y a quién se avisa. El reparto está

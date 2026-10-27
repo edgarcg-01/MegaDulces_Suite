@@ -5,6 +5,17 @@ unidad (pieza, paquete, caja) y agenda el pedido. Las entradas más nuevas van a
 
 ---
 
+## Indicaciones para el surtidor (MCP.3.15, 2026-10-26)
+
+- **Problema:** el vendedor no tenía dónde decir cómo quiere el cliente su mercancía.
+- **Solución:** en «Tu pedido», antes de agendar, un recuadro «Indicaciones para el surtidor» (una sola para todo
+  el pedido; nombrar el producto) con botón **Dictar**. Si habla de sabores, avisa que cada sabor es otro producto
+  en Kepler y hay que agregarlo por sabor. El «Agendar» de la barra abre «Tu pedido» para que el recuadro se vea.
+- **Cómo:** `notes` en `placeOrder`; dictado con la Web Speech API (`apps/vendor/.../dictado.ts`).
+- **Por qué:** un solo recuadro por pedido (decisión de David). Sin conexión las indicaciones no viajan y se avisa.
+
+---
+
 ## Vender de otras sucursales de la zona: «pedido agrupado» (MCP.3.12–3.13, 2026-10-23)
 
 ### El problema

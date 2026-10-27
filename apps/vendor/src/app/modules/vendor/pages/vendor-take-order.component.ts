@@ -27,6 +27,7 @@ import { VendorService, VendorCustomer, VendorOrder, FrequentProduct, type Catal
 import { type OrigenCatalogo, edadCatalogo, hayQueRefrescar } from '../catalogo-al-abrir';
 import type { VendorZoneStockResponse } from '@megadulces/contracts';
 import { type ChipZona, chipsDeZona, edadZona } from '../zona-existencias';
+import { dictar, mencionaSabores, puedeDictar, unirDictado } from '../dictado';
 import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
@@ -414,7 +415,8 @@ const foldText = (s: string | null | undefined): string =>
                 </span>
                 <i class="pi pi-chevron-up"></i>
               </button>
-              <button class="cb-go" [disabled]="submitting() || settling()" (click)="submit()">
+              <!-- [MCP.3.15] Abre «Tu pedido»: las indicaciones para el surtidor se ven antes de agendar. -->
+              <button class="cb-go" [disabled]="submitting() || settling()" (click)="cartOpen.set(true)">
                 {{ settling() ? 'Calculando…' : (isEditing() ? 'Guardar' : 'Agendar') }}
                 <i class="pi" [ngClass]="(submitting() || settling()) ? 'pi-spin pi-spinner' : 'pi-arrow-right'"></i>
               </button>
@@ -459,6 +461,29 @@ const foldText = (s: string | null | undefined): string =>
                 }
               </div>
               <div class="sh-foot">
+                <!-- [MCP.3.15] Indicaciones para el surtidor: una sola por pedido; se pueden dictar. -->
+                <div class="ind">
+                  <label class="ind-l" for="to-ind">Indicaciones para el surtidor<span>Opcional · una para todo el pedido; nombra el producto</span></label>
+                  <textarea id="to-ind" class="ind-t" rows="3" maxlength="500" [ngModel]="indicaciones()" (ngModelChange)="indicaciones.set($event)"
+                            placeholder="Ej. las Sabritas con caducidad larga, que no vengan golpeadas…"></textarea>
+                  <div class="ind-row">
+                    @if (dictadoDisponible) {
+                      <button type="button" class="ind-mic" [class.on]="escuchando()" [attr.aria-pressed]="escuchando()" (click)="alternarDictado()">
+                        <i class="pi" [ngClass]="escuchando() ? 'pi-stop-circle' : 'pi-microphone'" aria-hidden="true"></i>
+                        {{ escuchando() ? 'Escuchando… toca para parar' : 'Dictar' }}
+                      </button>
+                    } @else {
+                      <span class="ind-n">Este navegador no puede dictar: escríbelas.</span>
+                    }
+                    <span class="ind-n">{{ indicaciones().length }}/500</span>
+                  </div>
+                  @if (dictadoError(); as de) { <p class="ind-err" role="alert">{{ de }}</p> }
+                  @if (avisoSabores()) {
+                    <p class="ind-warn" role="note"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                      <span><b>Eso cambia el producto.</b> Cada sabor es otro producto en Kepler: agrégalo por sabor desde el catálogo. Como texto, el ticket dirá un producto distinto del que se entrega.</span></p>
+                  }
+                  @if (offlineMode() && indicaciones().trim()) { <p class="ind-err">Sin conexión: las indicaciones sólo se mandan con conexión.</p> }
+                </div>
                 @if (surteEn(); as se) {
                   <p class="se" role="note"><i class="pi pi-building" aria-hidden="true"></i> Se surte en
                     @for (g of se; track g.label) { <span class="se-g" [class.ajena]="g.ajena">{{ g.label }} ({{ g.n }})</span> }
@@ -768,6 +793,21 @@ const foldText = (s: string | null | undefined): string =>
       .cart-sheet .sh-lines { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; min-height: 0; }
       .cart-sheet .sh-foot { border-top: 1px solid var(--border-color); padding-top: 0.6rem; flex-shrink: 0; }
       .cart-sheet .totals { margin: 0 0 0.7rem 0; max-width: 100%; }
+      /* [MCP.3.15] Indicaciones para el surtidor */
+      .ind { display: grid; gap: 0.4rem; margin: 0 0 0.75rem; }
+      .ind-l { font-size: 0.86rem; font-weight: 700; color: var(--text-main); display: grid; gap: 0.1rem; }
+      .ind-l span { font-size: 0.72rem; font-weight: 500; color: var(--text-muted); }
+      .ind-t { width: 100%; min-height: 4.5rem; resize: vertical; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px);
+        padding: 0.6rem 0.7rem; font: inherit; font-size: 0.9rem; color: var(--text-main); background: var(--surface-ground); }
+      .ind-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+      .ind-mic { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 2.5rem; padding: 0 0.9rem; border: 1px solid var(--border-color);
+        border-radius: 999px; background: var(--card-bg, var(--surface-ground)); color: var(--text-main); font-weight: 700; font-size: 0.82rem; }
+      .ind-mic.on { border-color: var(--action); color: var(--action); }
+      .ind-n { font-size: 0.72rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+      .ind-err { margin: 0; font-size: 0.76rem; color: var(--bad-fg); }
+      .ind-warn { margin: 0; display: flex; gap: 0.45rem; align-items: flex-start; font-size: 0.78rem; line-height: 1.4; padding: 0.55rem 0.65rem;
+        border-radius: var(--r-md, 12px); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+      .ind-warn i { margin-top: 0.1rem; }
       .cart-sheet .sh-go { width: 100%; height: 3.1rem; border: none; border-radius: var(--r-md, 12px); background: var(--action); color: #fff; font-weight: 800; font-size: 1rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: transform 0.07s var(--ease, ease); }
       .cart-sheet .sh-go:active { transform: scale(0.99); } .cart-sheet .sh-go:disabled { opacity: 0.7; }
       .cart-sheet .cancel { margin: 0.5rem auto 0; display: block; }
@@ -960,6 +1000,27 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   });
   readonly cartLines = signal<OrderLine[]>([]);
   readonly cartOrderId = signal<string | null>(null);
+  /** [MCP.3.15] Indicaciones del vendedor para el surtidor: un solo texto por pedido (`orders.notes`). */
+  readonly indicaciones = signal('');
+  readonly escuchando = signal(false);
+  readonly dictadoError = signal<string | null>(null);
+  readonly dictadoDisponible = puedeDictar();
+  /** Hablan de sabores: cada sabor es otro producto en Kepler (David: sólo avisar, no partir solo). */
+  readonly avisoSabores = computed(() => mencionaSabores(this.indicaciones()));
+  private pararDictado: (() => void) | null = null;
+
+  /** Empieza o para el dictado; lo dictado se suma a lo que ya estaba escrito. */
+  alternarDictado(): void {
+    if (this.escuchando()) { this.pararDictado?.(); return; }
+    const base = this.indicaciones();
+    this.dictadoError.set(null);
+    this.escuchando.set(true);
+    this.pararDictado = dictar(
+      (texto) => this.indicaciones.set(unirDictado(base, texto).slice(0, 500)),
+      (error) => { this.escuchando.set(false); this.dictadoError.set(error); this.pararDictado = null; },
+    );
+    if (!this.pararDictado && !this.dictadoError()) this.escuchando.set(false);
+  }
   /**
    * Almacén de SURTIDO del pedido: de dónde sale la mercancía cuando se reparte.
    * Lo fija la carga (la sucursal del vendedor) y NO lo mueve el toggle de abajo —
@@ -1545,6 +1606,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           if (existingDraft) {
             // Hay borrador en curso → se respeta tal cual (no se pisa con el predicho).
             this.cartOrderId.set(existingDraft.id);
+            this.indicaciones.set(existingDraft.notes ?? '');
             if (this.editingOrderId()) {
               this.editingCode.set(existingDraft.code || null);
               // Corrigiendo: se conserva la fecha de entrega que ya tenía, para no
@@ -2183,7 +2245,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         // quedar a medias).
         this.flushQty()
           .pipe(
-            switchMap(() => this.api.placeOrder(orderId, { requested_delivery_date: this.requestedDate })),
+            // [MCP.3.15] Las indicaciones viajan con el pedido (vacío = sin indicaciones).
+            switchMap(() => this.api.placeOrder(orderId, { requested_delivery_date: this.requestedDate, notes: this.indicaciones().trim() })),
             takeUntilDestroyed(this.destroyRef),
           )
           .subscribe({

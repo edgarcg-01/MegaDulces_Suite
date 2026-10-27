@@ -24,7 +24,7 @@ import { AlertsService } from '../commercial-alerts/alerts.service';
 import { CommercialPushService } from '../commercial-push/commercial-push.service';
 import { CierreInvalido, cantidadMostrada, sumarDias } from './presale-picking.engine';
 import {
-  PEDIDO_EN_RUTA_SQL, consolidar, etiquetaSucursal, otrasSucursales, repartirRuta, surtidoVisto,
+  PEDIDO_EN_RUTA_SQL, SURTIDO_DE_RUTA, consolidar, etiquetaSucursal, otrasSucursales, repartirRuta, surtidoVisto,
   type CierreDePedido, type ParteDeGrupo, type RenglonDeRuta, type SurtidoDeSucursal,
 } from './presale-route.engine';
 import { PresalePickingService } from './presale-picking.service';
@@ -127,7 +127,8 @@ export class PresaleRouteService {
       return { dia: await this.diaDe(trx, userId, hoy), id: actual.id };
     });
     // Fuera de la transacción: el aviso nunca tumba el «Finalizar ruta».
-    await this.avisarSurtidores(id, dia);
+    // [MCP.3.15] Pedido por pedido: el surtidor ya recibió cada pedido; no hay ruta que avisar.
+    if (SURTIDO_DE_RUTA) await this.avisarSurtidores(id, dia);
     return dia;
   }
 
@@ -138,6 +139,8 @@ export class PresaleRouteService {
     const hoy = relojMx(new Date()).fecha;
     const almacenes = await this.scope.warehouseIds(query, AREA);
     if (almacenes !== null && almacenes.length === 0) return { today: hoy, data: [], scope: 'ninguno' };
+    // [MCP.3.15] Sin surtido de ruta, sus pedidos están en la bandeja suelta: listar la ruta los duplicaría.
+    if (!SURTIDO_DE_RUTA) return { today: hoy, data: [], scope: almacenes === null ? 'todos' : 'propios' };
     return this.tk.run(async (trx) => {
       const filas = await this.leerRutas(trx, { almacenes, hoy });
       return { today: hoy, data: filas.map((f) => aRenglon(f)), scope: almacenes === null ? 'todos' : 'propios' };
@@ -168,6 +171,7 @@ export class PresaleRouteService {
     const almacenes = await this.alcance(query);
     return this.tk.run(async (trx) => {
       const rd = await this.bloquear(trx, id);
+      if (!SURTIDO_DE_RUTA) throw new ConflictException('El surtido es pedido por pedido: cada pedido de la ruta está en la bandeja de Surtir.');
       if (rd.kind !== 'fuera_de_ruta' && !rd.finished_at) throw new ConflictException('La ruta sigue abierta: el vendedor todavía no la finaliza.');
       const renglones = await this.renglonesDeRuta(trx, id, almacenes);
       const pedidos = pedidosDe(renglones);

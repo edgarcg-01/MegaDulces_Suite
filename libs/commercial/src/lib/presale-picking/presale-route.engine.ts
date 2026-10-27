@@ -24,6 +24,16 @@ const PESABLE = /^(KG|GR|LT|LTS|L|ML)$/i;
  * Lo usan la bandeja de siempre (NOT EXISTS: lo de una ruta no sale suelto) y la ruta (para leer
  * sus pedidos), para que las dos no puedan discrepar.
  */
+/**
+ * `[MCP.3.15]` Cómo le llega la preventa al surtidor. Decisión de David (2026-10-26): **pedido por
+ * pedido, en cuanto el vendedor lo manda**, como el método anterior; el surtidor no espera a que
+ * se finalice la ruta (en un día de ejemplo, 3 h 43 min de espera promedio por pedido).
+ * `false` apaga el surtido de ruta consolidado de `[MCP.3.6]`: no se retiene el aviso, la bandeja
+ * muestra cada pedido suelto, no se listan rutas para surtir y «Finalizar ruta» ya no avisa al
+ * surtidor. El código de la ruta consolidada se queda: volver es cambiar esta constante.
+ */
+export const SURTIDO_DE_RUTA = false;
+
 export const PEDIDO_EN_RUTA_SQL = `rd.tenant_id = o.tenant_id
   AND rd.user_id = o.user_id
   AND rd.deleted_at IS NULL

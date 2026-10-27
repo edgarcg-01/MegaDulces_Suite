@@ -19,6 +19,7 @@ import { CommercialPushService } from '../commercial-push/commercial-push.servic
 import { OrderStockService } from './order-stock.service';
 import { QuotePricingService, rungDeRotulo, type Rung } from '../commercial-quotes/quote-pricing.service';
 import type { Knex } from 'knex';
+import { SURTIDO_DE_RUTA } from '../presale-picking/presale-route.engine';
 import { INVOICE_ISSUER_PORT, InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult } from '@megadulces/contracts';
 
 // ─────────── tipos ───────────
@@ -1468,7 +1469,8 @@ export class CommercialOrdersService {
       // Header (fecha de entrega / notes / delivery_type): solo editable en draft.
       if (order.status === 'draft') {
         const patch: Record<string, any> = {};
-        if (dto.notes !== undefined) patch.notes = dto.notes || null;
+        // [MCP.3.15] Las indicaciones al surtidor: sólo espacios = sin indicaciones.
+        if (dto.notes !== undefined) patch.notes = (typeof dto.notes === 'string' ? dto.notes.trim() : '') || null;
         if (dto.delivery_type !== undefined) {
           if (!['route', 'long_trip'].includes(dto.delivery_type))
             throw new BadRequestException(`delivery_type inválido: ${dto.delivery_type}`);
@@ -1695,7 +1697,8 @@ export class CommercialOrdersService {
     // de la tanda), no al pedido suelto, que la bandeja ya no muestra. Va en SAVEPOINT: si la tabla
     // todavía no existe, falla sólo la lectura y el aviso de siempre sale igual.
     let tanda: 'ruta' | 'fuera_de_ruta' | null = null;
-    try {
+    // [MCP.3.15] Pedido por pedido: no se pregunta por la ruta, el aviso sale siempre al momento.
+    if (SURTIDO_DE_RUTA) try {
       tanda = await trx.transaction(async (sp) => {
         const { rows } = await sp.raw(
           `SELECT rd.kind

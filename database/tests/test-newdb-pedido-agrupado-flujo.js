@@ -91,6 +91,8 @@ module.exports = { TenantKnexService: class {}, TenantContextService: class {}, 
     LoadGuideService: lib('presale-control/load-guide.service.ts').LoadGuideService,
     PresalePickingService: lib('presale-picking/presale-picking.service.ts').PresalePickingService,
     PresaleRouteService: lib('presale-picking/presale-route.service.ts').PresaleRouteService,
+    // [MCP.3.15] Si el surtido de ruta está apagado (pedido por pedido), §5 mide eso y no el modo ruta.
+    SURTIDO_DE_RUTA: lib('presale-picking/presale-route.engine.ts').SURTIDO_DE_RUTA,
   };
 }
 
@@ -430,6 +432,16 @@ module.exports = { TenantKnexService: class {}, TenantContextService: class {}, 
           WHERE rd.id = ? AND o.id = ANY(?::uuid[])`, [ruta, [principal, parte, suelto]],
       );
       ok(enRuta.rows[0].n === 3, 'prerrequisito: los 3 pedidos caen en la ventana de la ruta');
+
+      if (!S.SURTIDO_DE_RUTA) {
+        // [MCP.3.15] Pedido por pedido (David, 2026-10-26): la ruta no se surte junta.
+        r = await falla(A, () => rutas.routeStart(ruta, { __wh: [W01.id] }), 409, /pedido por pedido/);
+        ok(r.ok, `[MCP.3.15] empezar a surtir una ruta se rechaza: el surtido es pedido por pedido (${r.msg})`);
+        const suelto5 = await como(A, () => picking.leer(cur.trx, { almacenes: null, orderId: principal }));
+        ok(suelto5.length === 1, '[MCP.3.15] el pedido de la ruta sale en la bandeja suelta del surtidor (sin incluirRutas)');
+        noMedido('surtido de ruta por sucursal (seller_route_day_picks): apagado por MCP.3.15; se mide el día que SURTIDO_DE_RUTA vuelva a true');
+        throw new Error(RB);
+      }
 
       r = await falla(A, () => rutas.routeStart(ruta, {}), 409, /pedidos de 2 sucursales/);
       ok(r.ok, `NEGATIVA: modo dios (sin recorte) con pedidos de 2 sucursales se rechaza (${r.msg})`);
