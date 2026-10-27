@@ -37,7 +37,10 @@ const t = (name, cond, extra) => {
   await c.connect();
   console.log('\n=== [OPS-AUD.12] la llave de borrado lleva el timestamp como texto ===\n');
   try {
-    await c.query(`CREATE TEMP TABLE kdc2_prueba (sucursal text, c1 text, c2 timestamp, c3 text, importe numeric)`);
+    // Los tipos REALES: el ODS guarda la fecha como timestamptz ([NORM.3c]) y la sesión que escribe
+    // fija hora de México; la temporal del raw-delete toma el tipo del RÉPLICA (timestamp ingenuo).
+    await c.query(`SET TIME ZONE 'America/Mexico_City'`);
+    await c.query(`CREATE TEMP TABLE kdc2_prueba (sucursal text, c1 text, c2 timestamptz, c3 text, importe numeric)`);
     const sembrar = () => c.query(`TRUNCATE kdc2_prueba; INSERT INTO kdc2_prueba VALUES
       ('00','D','2026-09-20 00:00','25097', 0),
       ('00','D','2026-09-20 06:00','25097', 25755.15)`);
@@ -51,7 +54,7 @@ const t = (name, cond, extra) => {
         `DELETE FROM kdc2_prueba t USING (SELECT $1::text sucursal, $2::text c1, $3::timestamp c2, $4::text c3) d
           WHERE t.sucursal=d.sucursal AND t.c1=d.c1 AND t.c2=d.c2 AND t.c3=d.c3`,
         [viaje.sucursal, viaje.c1, viaje.c2, viaje.c3]);
-      const quedan = (await c.query(`SELECT c2::text FROM kdc2_prueba ORDER BY c2`)).rows.map((x) => x.c2);
+      const quedan = (await c.query(`SELECT to_char(c2, 'YYYY-MM-DD HH24:MI:SS') AS c2 FROM kdc2_prueba ORDER BY c2`)).rows.map((x) => x.c2);
       return { borradas: r.rowCount, quedan };
     };
     const PK = ['c1', 'c2', 'c3'];
