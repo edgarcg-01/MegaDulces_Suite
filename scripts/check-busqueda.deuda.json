@@ -3,7 +3,6 @@
   "apps/view/src/app/modules/contabilidad/pages/contabilidad-diot.component.ts",
   "apps/view/src/app/modules/contabilidad/pages/contabilidad-listas-sat.component.ts",
   "apps/view/src/app/modules/dashboard/admin-planograma/admin-planograma.component.ts",
-  "apps/view/src/app/modules/dashboard/admin-users/admin-users.component.ts",
   "apps/view/src/app/modules/dashboard/admin-users/areas-gasto.component.ts",
   "apps/view/src/app/modules/dashboard/commercial-map/commercial-map.component.ts",
   "apps/view/src/app/modules/dashboard/live-map/live-map.component.ts",

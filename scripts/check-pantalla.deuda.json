@@ -476,9 +476,6 @@
     "Q.1",
     "O.4"
   ],
-  "apps/view/src/app/modules/compras/pages/compras-entradas-revision.component.ts": [
-    "Q.1"
-  ],
   "apps/view/src/app/modules/compras/pages/compras-entradas-sin-oc.component.ts": [
     "O.4"
   ],
@@ -489,9 +486,6 @@
   "apps/view/src/app/modules/compras/pages/compras-entregas.component.ts": [
     "Q.1",
     "§9"
-  ],
-  "apps/view/src/app/modules/compras/pages/compras-existencia-critica.component.ts": [
-    "§2"
   ],
   "apps/view/src/app/modules/compras/pages/compras-faltantes.component.ts": [
     "Q.1",

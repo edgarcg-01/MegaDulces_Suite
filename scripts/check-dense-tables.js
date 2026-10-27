@@ -120,7 +120,6 @@ const DEUDA_COLUMNAS = new Set([
   'apps/view/src/app/modules/compras/pages/compras-cuadre-proveedor.component.ts',
   'apps/view/src/app/modules/compras/pages/compras-entradas-control.component.ts',
   'apps/view/src/app/modules/compras/pages/compras-entradas.component.ts',
-  'apps/view/src/app/modules/compras/pages/compras-existencia-critica.component.ts',
   'apps/view/src/app/modules/compras/pages/compras-flujo.component.ts',
   'apps/view/src/app/modules/compras/pages/compras-hallazgos.component.ts',
   'apps/view/src/app/modules/compras/pages/compras-oc-abiertas.component.ts',
