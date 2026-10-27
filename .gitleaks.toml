@@ -10,6 +10,16 @@ title = "Trade Marketing gitleaks"
 [extend]
 useDefault = true
 
+# [PURGA.9] Lo que se purgó del historial (2026-10-27) no vuelve a entrar. El historial público guardaba
+# volcados de prod (identity.users, commercial.customers), .env.cloudinary, archivos de scratchpad y
+# baselines con usernames reales. Si alguien empuja una rama con la historia VIEJA, esta regla la frena
+# en el `Secret scan` obligatorio del CI (check:basura mira el árbol, no los commits empujados).
+[[rules]]
+id = "archivo-purgado-del-historial"
+description = "Archivo que se purgó del historial público: volcado, .env real, scratchpad o baseline con usuarios"
+path = '''(^|/)database/backups/|\.(dump|mdb|accdb)$|(^|/)\.env\.cloudinary$|scratchpad|fixtures/(priv|scope)-baseline\.json$'''
+tags = ["purga", "datos-personales"]
+
 [[rules]]
 id = "db-connection-string-with-password"
 description = "Connection string (postgres/mysql/redis/mongo) con password embebido"
