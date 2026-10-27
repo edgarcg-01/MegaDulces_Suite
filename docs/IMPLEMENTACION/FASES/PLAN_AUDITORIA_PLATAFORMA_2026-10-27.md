@@ -210,6 +210,28 @@ sin recorrer la tabla. **Métrica:** costo de mantener la caja — HOY 35,730 s 
 ⛔ 11.1 y 11.4 son migraciones: se generan con `node scripts/nueva-migracion.js` y se aplican en
 prod una por una, fuera de horario. 11.4 no entra hasta que 11.2 dé cero y 11.3 esté medido.
 
+## 10. Retiro de crons: el dato se mantiene por EVENTO (PM, 2026-10-27)
+
+> *«No deberían existir casi ningún cron.»* Regla: el camino del dato es por cambio (cola en la
+> réplica, trigger en la base, `NOTIFY` a la pantalla). Un barrido periódico sólo sobrevive como
+> **árbitro que alarma** (debe dar 0) y con fecha de retiro. Cada fila sale con su medición antes y
+> después (`pg_stat_statements` / latido).
+
+| Cron hoy | Cadencia | Reemplazo por evento | Estado |
+|---|---|---|---|
+| `REFRESH mv_caja_movimientos` + `caja-mv-push` | 1 min + aviso | Tabla mantenida por trigger desde `kdm1` (ADR-104) | 🔨 11.1 en código |
+| Reconciliación y dedup nocturnos de pólizas (`kdc2*`) | 02:25 | Cola de cambios en vivo + event trigger por mes (`[OPS-AUD.13]`) | 🔨 en código; el nocturno queda de puente → alarma |
+| `kepler-replica-refresh` (suscribe la tabla del mes) | diario 06:22 | ⬜ por resolver: el aviso de tabla nueva nace en el POS (publicador), fuera de nuestro alcance hoy | ⬜ |
+| Grupo existencia-aux (4 MVs) | 5 min | ⬜ derivar de la cola de `kdik`/`kdil` (mismo patrón que la caja) | ⬜ medir |
+| `mv_new_products`, `mv_rd_route_*`, 8 MVs de 15 min | 15–30 min | ⬜ por cada una: ¿se mantiene por fila (trigger) o es agregado? Los agregados, compuerta «¿cambió?» como mínimo | ⬜ |
+| Foto «Para cuidar hoy» (`product-flow.service.ts:554`) | 1 min | ⬜ recalcular sólo al llegar un cambio de existencia o venta | ⬜ medir |
+| `pos-ticket-sales` (toda la historia de `kdm1`) | 1 h | ⬜ por trigger desde `kdm1` (misma vía que 11.1) | ⬜ |
+| Vigilante de recepciones · `publish-tienda` | 5 · 10 min | ⬜ `NOTIFY` por tabla desde `feeds-ingest`, que ya sabe qué cambió (primitivo a `libs/`) | ⬜ |
+| `ods-reconcile` (ventana 3 días) | 15 min | Árbitro: la cola cubre `kdm1`/`kdm2`/`kdc2*`; queda para las tablas sin cola | → alarma |
+| `ods-reconcile-full` (`kdpord`, `kdm2`, `kdij`) | 02:10 | ⬜ cola en esas tablas (borra 6,151 filas por noche: medir por qué) | ⬜ |
+| `import-replenishment-plan`, `sales-stats`, `demand-clean` | 15–30 min | Agregados de ventana: compuerta «¿cambió?» y, a la larga, fase SD | ⬜ |
+| `nightly` (~50 pasos, 69–99 min) | 03:00 | Se desarma con la fase SD (importers → vistas) | ⬜ |
+
 ## 8. Bitácora
 
 | Fecha | Qué pasó | Quién |
