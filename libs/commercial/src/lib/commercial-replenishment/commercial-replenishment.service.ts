@@ -4215,6 +4215,16 @@ export class CommercialReplenishmentService {
     const entrada = dto?.requisitions || [];
     if (!entrada.length) throw new BadRequestException('El lote no trae requisiciones');
     if (entrada.length > 300) throw new BadRequestException('Máximo 300 requisiciones por lote');
+    // `[PQ.17]` D23: la fracción de caja se frena al GENERAR, no al empujar. El adaptador ya la
+    // rechazaba (RA-FIX.3), pero eso ocurre después de aprobar, y mientras tanto el documento se
+    // ve perfecto. Medido 2026-10-27: 21 requisiciones vivas ($2.87 M, 39 renglones) iban a
+    // rebotar en Kepler por esto. Nunca se redondea: se dice cuáles y se devuelve el lote entero.
+    for (let i = 0; i < entrada.length; i++) {
+      const frac = renglonesConFraccion((entrada[i].lines || []).map((l) => ({ sku: String(l.product_id), final_qty: l.final_qty })));
+      if (frac.length) {
+        throw new BadRequestException(`Documento ${i + 1} de ${entrada.length}: ${frac.length} renglón(es) con fracción de caja (producto ${frac.slice(0, 3).map((f) => f.sku.slice(0, 8)).join(', ')}${frac.length > 3 ? '…' : ''}). Kepler no acepta fracciones: déjalos en cajas enteras o quítalos. No se creó ningún documento del lote.`);
+      }
+    }
     // Las compras primero: una bajada no puede apuntar a algo que todavía no se insertó.
     const orden = entrada.map((r, i) => ({ r, i }))
       .sort((a, b) => (a.r.source_type === 'branch' ? 1 : 0) - (b.r.source_type === 'branch' ? 1 : 0));

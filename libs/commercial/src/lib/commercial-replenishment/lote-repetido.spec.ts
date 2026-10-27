@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { buscarLoteRepetido, mensajeLoteRepetido, renglonesDeCompra, VENTANA_LOTE_REPETIDO_MIN } from './lote-repetido';
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
 
@@ -71,6 +71,16 @@ function servicio(raw: (...a: unknown[]) => unknown, userId: string | null = U(8
 
 describe('[RA-UX.1b] createRequisitionBatch — frena, confirma y falla abierto', () => {
   const repetido = () => ({ rows: [{ renglones: 1, lotes: ['RQ-LOTE-2026-00103'], ultimo: new Date().toISOString() }] });
+
+  it('[PQ.17] ⛔ D23: una fracción de caja se frena al GENERAR con 400, dice cuál y no inserta NADA', async () => {
+    const { s, insert, sp } = servicio(repetido);
+    const e = await s.createRequisitionBatch({ requisitions: [compra(3), compra(0.2)] as never, allow_duplicate: true }).catch((x) => x);
+    expect(e).toBeInstanceOf(BadRequestException);
+    expect(String((e as BadRequestException).message)).toContain('Documento 2 de 2');
+    expect(String((e as BadRequestException).message)).toContain('fracción de caja');
+    expect(insert).not.toHaveBeenCalled();
+    expect(sp.raw).not.toHaveBeenCalled();   // se frena antes de tocar la base
+  });
 
   it('⛔ un lote repetido se FRENA con 409 LOTE_REPETIDO y no se inserta NADA', async () => {
     const { s, insert } = servicio(repetido);

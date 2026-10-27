@@ -335,6 +335,18 @@ describe('[RA-PEND.2] el lote se frena ANTES del clic, no después de perder el 
     expect(c.planBloqueos()).toEqual([]);
   });
 
+  it('[PQ.17] ⛔ una fracción de caja se frena ANTES de generar y dice cuál producto', () => {
+    const c = montar(VACIO).componentInstance;
+    c.plan.set([doc({ lines: [{ product_id: 'p-1', supplier_id: 's-1', source_type: 'supplier', final_qty: 0.2, unit_cost: 100 }] })]);
+    const bl = c.planBloqueos();
+    expect(bl.length).toBe(1);
+    expect(bl[0]).toContain('fracción de caja');
+    expect(bl[0]).toContain('Kepler no los acepta');
+    // NEGATIVA: 3 cajas enteras no frenan.
+    c.plan.set([doc()]);
+    expect(c.planBloqueos()).toEqual([]);
+  });
+
   it('⛔ pasarse del tope del lote se dice acá, no en un 400 después de armar todo', () => {
     const c = montar(VACIO).componentInstance;
     c.plan.set(Array.from({ length: 301 }, () => doc()));

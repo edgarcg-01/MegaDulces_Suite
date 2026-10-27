@@ -3392,6 +3392,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   readonly selected = signal<Set<string>>(new Set());
   /** Renglones de productos seleccionados que no están en la página abierta. */
   private readonly rowCache = signal<Map<string, WorkbookRow>>(new Map());
+  /** `[PQ.17]` SKU para rotular un bloqueo del plan; si la fila no está en caché, el id corto. */
+  skuDe(productId: string): string {
+    const r = this.rowCache().get(productId);
+    return r?.sku ? String(r.sku) : String(productId).slice(0, 8);
+  }
   /** Productos con pedido de TODA la consulta, cuando ya se trajeron con la casilla general. */
   private readonly queryEligible = signal<string[] | null>(null);
   readonly selAllBusy = signal(false);
@@ -5736,6 +5741,14 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         out.push(`El ${quien} mezcla más de un proveedor.`);
       }
       if (x.source_type === 'branch' && !x.source_warehouse_id) out.push(`El ${quien} no dice desde dónde sale.`);
+      // `[PQ.17]` D23: una fracción de caja no sale a Kepler (el adaptador la rechaza al empujar).
+      // Se frena ACÁ, antes de generar, y se dice cuáles: redondear en silencio cambiaría lo que
+      // la persona decidió. Medido 2026-10-27: 21 documentos ($2.87 M) iban a rebotar por esto.
+      const frac = lineas.filter((l) => { const n = Number(l.final_qty); return Number.isFinite(n) && n !== Math.round(n); });
+      if (frac.length) {
+        const skus = frac.slice(0, 4).map((l) => this.skuDe(l.product_id)).join(', ');
+        out.push(`El ${quien} trae ${frac.length} renglón(es) con fracción de caja (${skus}${frac.length > 4 ? '…' : ''}): Kepler no los acepta. Déjalos en cajas enteras o quítalos.`);
+      }
     });
     return out.slice(0, 6);
   });
