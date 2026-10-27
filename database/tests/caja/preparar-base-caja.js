@@ -90,7 +90,12 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
 const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_retiro.js',
   // `[CGA-A.37]` el candado «Σ por cobro ≤ su monto» del reparto, y `[LE.0.0]` «cada peso, una explicación».
   '20261020110022_caos_atribucion_cobro_partido.js',
-  '20261027101810_le00_baja_atribuciones_dobles_de_caos.js'];
+  '20261027101810_le00_baja_atribuciones_dobles_de_caos.js',
+  // `[LE.0.0a]` el candado por movimiento en los tres caminos que explican un depósito (entraba sola
+  // por su trigger sobre `cash_ledger`; explícita para que no dependa de eso), y `[LE.0.0e]` la
+  // función de denominaciones de A.55, que no toca ninguna tabla y por eso nunca entraría sola.
+  '20261027105608_le00a_una_explicacion_sin_carrera.js',
+  '20261027110325_le00e_caos_denom_valor_sin_signo_de_pregunta.js'];
 const MAX_REMEDIOS = 200;
 
 /**
