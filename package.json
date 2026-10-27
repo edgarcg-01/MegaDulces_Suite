@@ -25,6 +25,8 @@
     "check:sql-backticks": "node scripts/check-sql-backticks.js",
     "check:tables": "node scripts/check-dense-tables.js",
     "check:tokens": "node scripts/check-css-tokens.js",
+    "check:basura": "node scripts/check-basura.js",
+    "check:basura:self": "node scripts/check-basura.js --self",
     "check:motion": "node scripts/check-motion.js",
     "check:motion:self": "node scripts/check-motion.js --self-test",
     "check:pantalla": "node scripts/check-pantalla.js",
