@@ -36,7 +36,10 @@ function valorDeLlaveDelMotor() {
   const src = fs.readFileSync(path.join(RAIZ, 'libs', 'finance', 'src', 'lib', 'caja', 'caja-custodia.engine.ts'), 'utf8');
   const m = src.match(/export function valorDeLlave\(k: string\): number \| null \{\r?\n([^\r\n]+)\r?\n\}/);
   if (!m) return null;
-  try { return vm.runInNewContext(`(function (k) {${m[1]}})`); } catch { return null; }
+  // Sonar S1523 (código dinámico): lo único que se ejecuta es el cuerpo de `valorDeLlave` leído del
+  // fuente del propio repo (`libs/finance`), nunca una entrada externa, y en un contexto nuevo de
+  // `vm`, sin `require` ni `process`.
+  try { return vm.runInNewContext(`(function (k) {${m[1]}})`); } catch { return null; } // NOSONAR S1523: sólo código del propio repo
 }
 
 const T = '00000000-0000-0000-0000-00000000d01c';
@@ -198,15 +201,34 @@ const rechaza = (err, code, nombre) => !!err && err.code === code && (err.constr
       if (!hayValor) {
         skip('no existe finance.caos_denom_valor (migración 20261026110741)');
       } else {
-        const valor = async (k) => (await trx.raw('SELECT finance.caos_denom_valor(?::text) AS v', [k])).rows[0].v;
+        // Cada llamada en su SAVEPOINT. Una regex que deja pasar algo que no es número no devuelve un
+        // valor: REVIENTA el cast (`'1.2.3'::numeric` → 22P02). Sin esto el error abortaba la
+        // transacción como 💥 y se llevaba el resto de 6a, 6b y §7 (medido con la mutación del punto
+        // sin escapar: 38 ✓ / 1 ✗, la suite cortada en '5x5'). Así sale como un ✗ con nombre.
+        const valor = async (k) => {
+          await trx.raw('SAVEPOINT sp_valor');
+          try {
+            const { v } = (await trx.raw('SELECT finance.caos_denom_valor(?::text) AS v', [k])).rows[0];
+            await trx.raw('RELEASE SAVEPOINT sp_valor');
+            return v;
+          } catch (e) {
+            await trx.raw('ROLLBACK TO SAVEPOINT sp_valor');
+            return `ERROR ${e.code}`;
+          }
+        };
         const catalogo = llavesDelCatalogo();
         ok(catalogo.length >= 12, `se leyeron ${catalogo.length} llaves de libs/contracts/src/money/denominations.ts (hoy son 12)`);
         for (const [k, esperado] of catalogo) {
           const v = await valor(k);
           ok(v !== null && Number(v) === esperado, `'${k}' vale ${esperado} (devolvió ${v})`);
         }
-        // '5x5' y '5,5': un punto SIN escapar (`.` donde va `[.]`) las dejaría pasar como llaves.
-        const negativas = ['', 'abc', 'm', '5.', '-5', '500x', '5x5', '5,5', '.5', '10M', ' 500'];
+        // Cada una de estas caza una mutación de la regex:
+        //   '5x5', '5,5' → un punto SIN escapar (`.` donde va `[.]`);
+        //   '5mm'        → `m*` donde va `m{0,1}`;
+        //   '1.2.3'      → `([.][0-9]+)*` donde va `([.][0-9]+){0,1}`.
+        // Sin las dos últimas, esas dos mutaciones salían 54 ✓ / 0 ✗; con ellas, 54 ✓ / 2 ✗ cada una
+        // (la negativa y el cruce con el motor TS). Medido en Postgres desechable el 2026-10-26.
+        const negativas = ['', 'abc', 'm', '5.', '-5', '500x', '5x5', '5,5', '5mm', '1.2.3', '.5', '10M', ' 500'];
         for (const k of negativas) {
           const v = await valor(k);
           ok(v === null, `NEGATIVA: '${k}' no es una llave → NULL (devolvió ${v})`);
@@ -231,8 +253,13 @@ const rechaza = (err, code, nombre) => !!err && err.code === code && (err.constr
           console.log(`     regex guardada en la base: ${r} — si trae $1/$2, knex se comió un signo de interrogación`);
         }
       }
-      // ⛔ Estructural (GOTCHAS §71): ninguna función de `finance` guarda `$N` dentro de una regex.
-      // Caza el próximo signo de interrogación que knex convierta, en CUALQUIER función de la caja.
+      // ⛔ Estructural (GOTCHAS §71): la huella que deja knex cuando se come el `?` de una regex.
+      // Lo que SÍ caza: una función de `finance` (`pg_proc`, `prokind = 'f'`) de ESTA base —en el CI,
+      // sólo las que trae el preparador de caja— con `$<dígito>` dentro del literal que sigue a un
+      // `~` o `~*`. Lo que NO ve: vistas ni otros esquemas (el barrido de §71 va aparte); un `?`
+      // convertido fuera de ese literal (`coalesce(x, '?')` → `'$1'`, `regexp_match`,
+      // `substring … from`, `SIMILAR TO`); ni el `?` que knex convierte en una consulta del código
+      // en tiempo de ejecución (`[CG.163]`). La compuerta sobre las migraciones es `[CGA-A.55.4]`.
       const conDolar = (await trx.raw(`SELECT n.nspname || '.' || p.proname AS f FROM pg_proc p
           JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'finance' AND p.prokind = 'f'
