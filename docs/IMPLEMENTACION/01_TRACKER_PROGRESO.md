@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1990 KB, 12808 líneas, 72 secciones.
+> **Índice navegable** — 1991 KB, 12810 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -57,28 +57,28 @@
 | 8307 | 8469 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
 | 8470 | 8753 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
 | 8754 | 8921 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8922 | 11205 | 174 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11206 | 11214 | 1 | Fase RR — Ventas por ruta |
-| 11215 | 11510 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11511 | 11521 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11522 | 11542 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11543 | 11553 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11554 | 11565 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11566 | 11625 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11626 | 12053 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 12054 | 12068 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 12069 | 12110 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 12111 | 12256 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12257 | 12287 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12288 | 12335 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12336 | 12359 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12360 | 12389 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12396 | 12405 | 1 | 📝 Convenciones |
-| 12406 | 12442 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12443 | 12461 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12462 | 12514 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12515 | 12871 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12872 | 12892 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 8922 | 11207 | 175 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11208 | 11216 | 1 | Fase RR — Ventas por ruta |
+| 11217 | 11512 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11513 | 11523 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11524 | 11544 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11545 | 11555 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11556 | 11567 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11568 | 11627 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11628 | 12055 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 12056 | 12070 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 12071 | 12112 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12113 | 12258 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12259 | 12289 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12290 | 12337 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12338 | 12361 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12362 | 12391 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12398 | 12407 | 1 | 📝 Convenciones |
+| 12408 | 12444 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12445 | 12463 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12464 | 12516 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12517 | 12873 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12874 | 12894 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -9336,7 +9336,9 @@ TP.6-TP.8+TP.10".
 >   lectura y se comprueba que le llegó el par de la pantalla; candado de captura apagado con su
 >   interruptor; guardia con la misma metadata; sucursal, equipo y año propios de la corrida.
 >   ⛔ NO MEDIDO: la corrida del CI (sin push); typecheck en local (lo hace `Build & typecheck`); el
->   lote y el autollenado.
+>   lote y el autollenado. ⚠️ El mensaje de `61848ef23` dice que `[CGA-A.56]` «llegó a prod con … 456
+>   [pruebas] de la pantalla»: la pantalla NO llegó a prod (ver arriba). No se reescribe (sin
+>   `--amend`); la corrección queda acá.
 > - **[CGA-A.57]** ⬜ **Ligar el historial con propuestas + confirmación** (decisión de Edgar). Octubre
 >   en adelante contra los gastos del libro; mayo–sep ($16.5 M, 326 retiros) contra los egresos de
 >   Kepler (cuenta `0011`), porque el libro empieza el 25-sep. Nada se liga solo (1 de cada 3 parejas
