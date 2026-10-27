@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { veredictoArbitro } from './arbitro-por-cambio.engine';
 
 describe('[OPS-AUD.11.6] veredicto del árbitro por cambio', () => {
