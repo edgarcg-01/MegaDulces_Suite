@@ -76,6 +76,12 @@ spec:
             # cada ventana cubre todo por ~6 s. El tope de presupuesto (10 s) sigue igual.
             - name: ODS_PRICE_COALESCE_CHUNK
               value: "5000"
+            # `[OBS.15.12]` Los renglones de `kdm2` los entrega la cola (`ods-live-caja`). Donde está
+            # activa, la red de 3 días de este carril deja de re-embarcar la ventana (~82k renglones
+            # cada 5 min; con tienda abierta el ciclo llegó a mediana 16.3 s y máx 134 s) y sólo junta
+            # sus SKUs para el recálculo de precio. NO vacía la cola: eso lo hace sólo el de caja.
+            - name: ODS_COLA_CUBRE
+              value: kdm2
           # ⭐ ACÁ SE DISUELVE EL PUNTO 3. Esta sonda ES el brazo: cuando falla, el kubelet
           # reinicia el contenedor. No hace falta `ods-autoheal`, y por lo tanto no hace falta
           # montar `/var/run/docker.sock` —que equivale a root en el host— en una imagen de
