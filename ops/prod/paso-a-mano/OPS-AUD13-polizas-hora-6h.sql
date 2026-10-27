@@ -7,9 +7,16 @@
 -- DUPLICADO que suma dos veces. Con esto, una edición vuelve a pisar su renglón.
 --
 -- MEDIDO en prod el 2026-10-27 (sólo lectura):
---   · ~297 mil filas a las 06:00 en kdc22408 → kdc22612, NINGUNA a otra hora (sólo 00:00/06:00);
---   · 27 de ellas con gemela a las 00:00 (kdc22601 6 · 2602 2 · 2606 6 · 2607 6 · 2608 7);
+--   · 290,595 filas a las 06:00 en kdc22408 → kdc22612, NINGUNA a otra hora (sólo 00:00/06:00);
+--   · 36 de ellas con gemela a las 00:00, buscadas por las columnas de la PK:
+--       kdc22601 6 · 2602 2 · 2604 3 · 2605 4 · 2606 6 · 2607 8 · 2608 7
 --   · el origen (réplica) guarda c2 SIEMPRE a medianoche ([OBS.12], re-medido cada noche).
+--
+-- ⛔ Acá decía «~297 mil» y «27 … (kdc22601 6 · 2602 2 · 2606 6 · 2607 6 · 2608 7)», y las DOS
+-- cifras estaban mal porque se midieron con el predicado viejo, el que comparaba `c4`/`c5`
+-- (ver `[OPS-AUD.13.1]` abajo). Faltaban 2604, 2605 y dos de 2607: **nueve gemelas**, las
+-- únicas que de verdad importaban, porque son las que CAMBIARON. Una cifra medida con el
+-- instrumento roto describe el instrumento, no la base.
 --
 -- QUÉ HACE, por tabla kdc2YYMM de kepler_ods:
 --   1. borra la copia de las 06:00 que TIENE gemela a las 00:00 (la de las 00:00 es la versión
@@ -64,11 +71,26 @@ BEGIN
       RAISE EXCEPTION '% tiene % filas a una hora que no es 00:00 ni 06:00 — el supuesto no vale, no se toca nada', t, rara;
     END IF;
 
+    -- ⛔ `[OPS-AUD.13.1]` (2026-10-27) La gemela se busca por las columnas de la PK —
+    -- `(sucursal, c3, c2, c8, c1, c10)`, verificada igual en las 25 tablas— y NO por
+    -- `c4`/`c5`, que es lo que hacía antes.
+    --
+    -- Por qué importaba: `c5` es el IMPORTE. Exigir que coincida sólo encontraba las gemelas
+    -- que NO cambiaron, o sea justo las que no interesan; las que sí cambiaron se escapaban y
+    -- después el `UPDATE` de abajo chocaba contra la PK. **Medido en seco el 2026-10-27**:
+    -- abortó en `kdc22604` con `duplicate key … (00, 201, 2026-04-17 00:00:00, D, 10053, 1)`.
+    --
+    -- Lo que destapó: eran 36 gemelas, no las 27 que decía el encabezado. Las 27 son copias
+    -- idénticas (`c4`,`c5`,`c6` iguales); las 9 que faltaban son BAJAS — la versión de las
+    -- 00:00 trae `c5 = 0.00` y `c6 = 'BAJA - <folio>'`, y la de las 06:00 conserva el importe
+    -- viejo. Entre las nueve suman **$394,664.02**. Dejarlas a las dos no es prudente: hace
+    -- que el reporte sume la póliza anulada Y su propia baja.
     EXECUTE format($q$DELETE FROM kepler_ods.%1$I v
                       WHERE (v.c2 AT TIME ZONE 'America/Mexico_City')::time = '06:00'
                         AND EXISTS (SELECT 1 FROM kepler_ods.%1$I g
-                                     WHERE g.sucursal = v.sucursal AND g.c1 = v.c1 AND g.c3 = v.c3 AND g.c4 = v.c4
-                                       AND g.c5 = v.c5 AND g.c2 = v.c2 - interval '6 hours')$q$, t);
+                                     WHERE g.sucursal = v.sucursal AND g.c3 = v.c3 AND g.c8 = v.c8
+                                       AND g.c1 = v.c1 AND g.c10 = v.c10
+                                       AND g.c2 = v.c2 - interval '6 hours')$q$, t);
     GET DIAGNOSTICS borradas = ROW_COUNT;
 
     EXECUTE format($q$UPDATE kepler_ods.%I SET c2 = c2 - interval '6 hours'
