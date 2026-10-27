@@ -202,10 +202,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 <span class="pg-day-b">
                   @if (d.allocations.length) {
                     <i class="pg-dot is-work" aria-hidden="true"></i>{{ pagos(d.allocations.length) }}
+                    <!-- [PGP.19] El color dice el estado, siempre con su palabra: ámbar = falta algo que
+                         destraba el día, verde = listo o hecho, rojo = algo está mal. -->
                     @if (dayFailed(d) > 0) { · <b class="cal-bad-txt">{{ dayFailed(d) === 1 ? '1 rebotó' : dayFailed(d) + ' rebotaron' }}</b> }
-                    @else if (dayUnprepared(d) > 0) { · <b>faltan {{ dayUnprepared(d) }}</b> }
-                    @else if (d.summary.lot_status === 'closed') { · cerrado }
-                    @else if (d.summary.lot_status === 'released' || d.summary.lot_status === 'executing') { · autorizado }
+                    @else if (dayUnprepared(d) > 0) { · <b class="cal-warn-txt">faltan {{ dayUnprepared(d) }}</b> }
+                    @else if (d.summary.lot_status === 'closed') { · <b class="cal-ok-txt">cerrado</b> }
+                    @else if (d.summary.lot_status === 'released' || d.summary.lot_status === 'executing') { · <b class="cal-ok-txt">autorizado</b> }
+                    @else { · <b class="cal-ok-txt">listos</b> }
                   } @else if (d.summary.capacity_defined) {
                     <i class="pg-dot is-free" aria-hidden="true"></i> sin pagos
                   } @else {
@@ -832,6 +835,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-date-input { padding:var(--sp-1) var(--sp-2); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:var(--fs-sm); }
     .cal-muted { color:var(--text-faint); }
     .cal-neg, .cal-bad-txt { color:var(--bad-soft-fg); }
+    /* [PGP.19] Tres tonos con UN significado cada uno (y siempre con su palabra al lado): ámbar = falta
+       algo que destraba el día · verde = listo o hecho · rojo = algo está mal. El naranja es sólo del
+       botón principal. Tonos «soft»: pasan AA en texto chico en los dos modos. */
+    /* El ámbar va en PASTILLA (fondo + texto): en claro el texto ámbar solo (#92400E) se lee naranja y se
+       confunde con el botón principal; con su fondo se lee amarillo y pasa AA. */
+    .cal-warn-txt { color:var(--warn-soft-fg); background:var(--warn-soft-bg); border-radius:var(--r-pill); padding:0 6px; }
+    .cal-ok-txt { color:var(--ok-soft-fg); }
     .cal-check { display:flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; }
     :host ::ng-deep .cal-sel { width:9rem; }
     .cal-benef { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:var(--sp-1); color:var(--text-main); }
@@ -914,6 +924,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-day-b { display:flex; align-items:center; gap:4px; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.3; white-space:nowrap; }
     .pg-day-b b { color:var(--text-main); font-weight:700; }
     .pg-day-b b.cal-bad-txt { color:var(--bad-soft-fg); }
+    .pg-day-b b.cal-warn-txt { color:var(--warn-soft-fg); background:var(--warn-soft-bg); }
+    .pg-day-b b.cal-ok-txt { color:var(--ok-soft-fg); }
     /* El estado del dia viaja en FORMA (punto lleno / hueco), nunca solo en color. */
     .pg-dot { width:6px; height:6px; border-radius:var(--r-pill); background:var(--text-faint); flex-shrink:0; }
     .pg-dot.is-work { background:var(--text-main); }
@@ -956,7 +968,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-pe { display:flex; align-items:flex-start; gap:6px; min-width:0; color:var(--text-muted); }
     .pg-pe-n { display:inline-grid; place-items:center; width:20px; height:20px; border-radius:var(--r-pill); border:1.5px solid var(--border-color);
       font-family:var(--font-mono); font-size:var(--fs-micro); font-weight:700; flex-shrink:0; }
-    .pg-pe.is-done .pg-pe-n { border-color:var(--text-muted); }
+    .pg-pe.is-done .pg-pe-n { border-color:var(--ok-soft-fg); color:var(--ok-soft-fg); }
     .pg-pe.is-now .pg-pe-n { border-color:var(--text-main); background:var(--text-main); color:var(--card-bg); }
     /* Cada paso en UNA linea: nombre y lo que dice. */
     .pg-pe { align-items:center; }
@@ -1076,7 +1088,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-how-t { color:var(--text-main); overflow-wrap:anywhere; }
     /* El estado del pago: palabra + icono. Solo el rebote lleva color. */
     .pg-st { display:inline-flex; align-items:center; gap:4px; margin-top:2px; font-size:var(--fs-sm); color:var(--text-muted); }
-    .pg-st.is-todo { color:var(--text-main); font-weight:700; }
+    .pg-st.is-todo { color:var(--warn-soft-fg); background:var(--warn-soft-bg); border-radius:var(--r-pill); padding:0 8px 0 6px; font-weight:700; }
     .pg-st.is-bad { color:var(--bad-soft-fg); font-weight:700; }
     .pg-ord { display:inline-flex; align-items:center; gap:1px; }
     .pg-ordn { min-width:1.2rem; text-align:center; font-weight:700; color:var(--text-main); }
