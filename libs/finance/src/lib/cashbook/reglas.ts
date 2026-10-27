@@ -37,7 +37,7 @@ import { efectoDeTipo } from '../caos/caos-saldo';
 import { identidadDeCaos, identidadDeCobroKepler, piezasQueEntranALaMaquina, type MovimientoCaos } from './identidad';
 
 /** Cambia cada vez que cambie QUÉ asiento produce un hecho. Va en cada asiento (B22). */
-export const REGLAS_VERSION = 'le2-2026-10-27.1';
+export const REGLAS_VERSION = 'le2-2026-10-27.2';
 
 export class ReglaInvalida extends Error {
   constructor(readonly codigo: string, mensaje: string) {
@@ -236,6 +236,10 @@ export function movimientoCaos(m: MovimientoCaos, ctx: Contexto, clasificacion?:
     const a = atribuirDeposito(m.ref, m.occurred_at);
     if ((a.grano === 'ruta' || a.grano === 'ruta_dia') && a.ruta) {
       return armar('deposito_caos', ctx, [maquina, espejo(CUENTA.porRendirRuta(a.ruta))], { ...extra, meta: { ...extra.meta, grano: a.grano } });
+    }
+    // D15 (PM, 2026-10-27): la plaza sin ruta abona a la plaza, no a Suspenso ni a una ruta elegida.
+    if (a.grano === 'plaza' && a.plaza) {
+      return armar('deposito_caos', ctx, [maquina, espejo(CUENTA.porRendirPlaza(a.plaza))], { ...extra, meta: { ...extra.meta, grano: a.grano } });
     }
     return armar('deposito_caos', ctx, [maquina, espejo(F.SUSPENSO_MXN)], { ...extra, meta: { ...extra.meta, grano: a.grano, motivo: a.motivo } });
   }

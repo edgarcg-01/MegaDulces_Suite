@@ -101,10 +101,15 @@ describe('[LE.2.3] reglas: lo que hace la máquina', () => {
     expect(p.asiento.meta?.grano).toBe('sin_declarar');
   });
 
-  it('E-02 · la plaza sin ruta tampoco se inventa una ruta: Suspenso', () => {
+  it('E-02 · D15: la plaza sin ruta abona a la PLAZA, sin inventarse una ruta ni pasar por Suspenso', () => {
     const p = propuesta(movimientoCaos(mov({ type_id: 0, type_label: 'Deposito', total: '500.00', ref: 'rd can', piezas: [B(500, 1)] }), FEED));
-    expect(linea(p, 'SUSPENSO_MXN')).toBeDefined();
+    verificar(p);
+    expect(linea(p, 'POR_RENDIR:PLAZA:CANINDO').amount_minor).toBe('-50000');
+    expect(linea(p, 'SUSPENSO_MXN')).toBeUndefined();
+    expect(p.asiento.lines.some((l) => l.account.startsWith('POR_RENDIR:RUTA:'))).toBe(false);
     expect(p.asiento.meta?.grano).toBe('plaza');
+    const mor = propuesta(movimientoCaos(mov({ type_id: 0, type_label: 'Deposito', total: '200.00', ref: 'rd morelia', piezas: [B(200, 1)] }), FEED));
+    expect(linea(mor, 'POR_RENDIR:PLAZA:MORELIA').amount_minor).toBe('-20000');
   });
 
   it('E-02 · la vecinal declara su dueño: su propia cuenta por rendir', () => {

@@ -120,6 +120,15 @@ export const CUENTA = {
     code: 'POR_RENDIR:VECINAL', name: 'Por rendir · vecinal', class: 'por_rendir', currency: 'MXN',
     tracks_pieces: false, allows_negative: true, holder_kind: 'ruta', holder_ref: 'vecinal', witness: 'cobranza de Kepler',
   }),
+  /**
+   * `[LE · D15]` El depósito que sólo nombra la plaza (Canindo, Morelia) abona a la PLAZA: el texto
+   * es exacto a ese nivel y elegir una de sus rutas sería inventar. Sus rutas siguen debiendo cada
+   * una lo suyo; la plaza neta contra ellas cuando se mida qué rutas son de cuál plaza.
+   */
+  porRendirPlaza: (plaza: string): CuentaPropuesta => ({
+    code: `POR_RENDIR:PLAZA:${parteDeCodigo(plaza)}`, name: `Por rendir · plaza ${plaza}`, class: 'por_rendir', currency: 'MXN',
+    tracks_pieces: false, allows_negative: true, holder_kind: 'ruta', holder_ref: `plaza:${plaza.toLowerCase()}`, witness: 'cobranza de Kepler',
+  }),
   custodia: (empleado: string, nombre: string): CuentaPropuesta => ({
     code: `CUSTODIA:${parteDeCodigo(empleado)}`, name: `En custodia · ${nombre}`, class: 'custodia', currency: 'MXN',
     tracks_pieces: false, allows_negative: false, holder_kind: 'empleado', holder_ref: empleado, witness: 'rendición con comprobantes',
