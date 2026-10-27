@@ -65,8 +65,10 @@ const CONTROL_MOTIVO = /no conoce al proveedor CA027/;
      ORDER BY r.created_at`, [estados])).rows;
 
   const lineas = (await c.query(`
-    SELECT l.requisition_id, btrim(p.sku::text) AS sku, l.final_qty::numeric AS cajas
+    SELECT l.requisition_id, btrim(p.sku::text) AS sku, l.final_qty::numeric AS cajas,
+           (SELECT max(b.box_factor) FROM analytics.mv_warehouse_box_factor b WHERE b.warehouse_id = r.warehouse_id AND b.product_id = l.product_id) AS uxc
       FROM commercial.purchase_requisition_lines l
+      JOIN commercial.purchase_requisitions r ON r.id = l.requisition_id
       JOIN catalog.products p ON p.tenant_id = l.tenant_id AND p.id = l.product_id
      WHERE l.requisition_id = ANY($1) AND COALESCE(l.final_qty, 0) > 0`, [cab.map((r) => r.id)])).rows;
   const porReq = new Map(); for (const l of lineas) { if (!porReq.has(l.requisition_id)) porReq.set(l.requisition_id, []); porReq.get(l.requisition_id).push(l); }
@@ -75,6 +77,11 @@ const CONTROL_MOTIVO = /no conoce al proveedor CA027/;
   const provKepler = new Set((await c.query(`
     SELECT DISTINCT btrim(sucursal) || '|' || btrim(c10) AS k FROM kepler_ods.kdm1
      WHERE c2 = 'X' AND c3 = 'A' AND btrim(c4::text) IN ('30', '35') AND btrim(coalesce(c10, '')) <> ''`)).rows.map((r) => r.k));
+  // C' · [PQ.17] D22: la regla VIGENTE del adaptador es el catálogo de proveedores de Kepler (kdxd).
+  //      La anterior («ya le compró en esa sucursal») se conserva para el CONTROL, que es un rechazo
+  //      real producido con ella.
+  const provCat = new Set((await c.query(`
+    SELECT DISTINCT btrim(sucursal::text) || '|' || btrim(c2) AS k FROM kepler_ods.kdxd WHERE btrim(coalesce(c2, '')) <> ''`)).rows.map((r) => r.k));
   // D · TI### por sucursal destino.
   const tiPorSuc = new Set((await c.query(`SELECT DISTINCT btrim(c1) AS s FROM kepler_ods.pv_suc_ip WHERE btrim(coalesce(c7, '')) <> ''`)).rows.map((r) => r.s));
   // E · SKU en la ficha de la sucursal.
@@ -94,23 +101,33 @@ const CONTROL_MOTIVO = /no conoce al proveedor CA027/;
     else if (tipo === 'traspaso' && !r.origen_kepler_code) motivo = 'A · el traspaso no tiene sucursal ORIGEN con kepler_code';
     else if (!ls.length) motivo = 'B · sin renglones con cantidad > 0';
     else if (tipo === 'compra' && !(r.prov_code || '').trim()) motivo = 'C · sin código de proveedor Kepler';
-    else if (tipo === 'compra' && !provKepler.has(`${servidor}|${r.prov_code.trim()}`)) motivo = `C · Kepler (sucursal ${servidor}) no conoce al proveedor ${r.prov_code.trim()}`;
+    else if (tipo === 'compra' && !provCat.has(`${servidor}|${r.prov_code.trim()}`)) motivo = `C · Kepler (sucursal ${servidor}) no tiene al proveedor ${r.prov_code.trim()} en su catálogo (kdxd)`;
     else if (tipo === 'traspaso' && !tiPorSuc.has(r.kepler_code)) motivo = `D · pv_suc_ip no tiene el TI### de la sucursal ${r.kepler_code}`;
-    if (motivo) { cuenta(motivos, motivo.replace(/proveedor \S+$/, 'proveedor <código>').replace(/sucursal \d+/, 'sucursal NN')); }
+    // Regla ANTERIOR (sólo para el control y para medir cuánto rebotaba): compra previa en la sucursal.
+    const motivoViejo = (tipo === 'compra' && (r.prov_code || '').trim() && !provKepler.has(`${servidor}|${r.prov_code.trim()}`))
+      ? `C · Kepler (sucursal ${servidor}) no conoce al proveedor ${r.prov_code.trim()}` : null;
+    if (motivo) { cuenta(motivos, motivo.replace(/proveedor \S+ en/, 'proveedor <código> en').replace(/sucursal \d+/, 'sucursal NN')); }
     else { pasan++; cuenta(colaPorServidor, servidor); }
     cuenta(porSuc, `${servidor || '?'} · ${tipo} · ${motivo ? 'rebota' : 'pasa'}`);
     const sinFicha = ls.filter((l) => servidor && !skuSuc.has(`${servidor}|${l.sku}`)).length;
     if (!motivo && sinFicha) riesgoSku++;
-    const frac = ls.filter((l) => Number(l.cajas) % 1 !== 0).length;
+    // [PQ.17] Misma regla que `fraccion-caja.ts`: una fracción de caja que es PIEZAS enteras se
+    // escribe en la unidad base; sólo cuenta como riesgo lo que no es ni cajas ni piezas enteras.
+    const frac = ls.filter((l) => { const cj = Number(l.cajas); if (cj % 1 === 0) return false; const uxc = Number(l.uxc) || 0; const pz = cj * uxc; return !(uxc > 0 && Math.round(pz) > 0 && Math.abs(pz - Math.round(pz)) <= 0.02); }).length;
     if (!motivo && frac) fraccion++;
-    detalle.push({ folio: r.folio, estado: r.estado, tipo, servidor, proveedor: r.prov_code, destino: r.kepler_code, renglones: ls.length, monto: Math.round(Number(r.total_cost) || 0), motivo: motivo || 'pasa', sku_sin_ficha: sinFicha, cajas_fraccion: frac, kepler_error_real: r.kepler_error });
+    detalle.push({ folio: r.folio, estado: r.estado, tipo, servidor, proveedor: r.prov_code, destino: r.kepler_code, renglones: ls.length, monto: Math.round(Number(r.total_cost) || 0), motivo: motivo || 'pasa', motivo_regla_anterior: motivoViejo || 'pasa', sku_sin_ficha: sinFicha, cajas_fraccion: frac, kepler_error_real: r.kepler_error });
   }
 
   // ── CONTROL ──────────────────────────────────────────────────────────────────────────────
+  // El rechazo real de RQ-2026-01391 lo produjo la regla ANTERIOR (compra previa). El control exige
+  // dos cosas: que la regla anterior lo reproduzca, y que la vigente (catálogo kdxd) lo deje pasar
+  // — porque CA027 (AJEMEX) SÍ está en el catálogo de la 04 (medido 2026-10-27).
   const ctl = detalle.find((d) => d.folio === CONTROL_FOLIO);
-  const ctlOk = !!ctl && CONTROL_MOTIVO.test(ctl.motivo) && CONTROL_MOTIVO.test(ctl.kepler_error_real || '');
-  console.log(`CONTROL ${CONTROL_FOLIO}: simulacro → «${ctl ? ctl.motivo : 'NO ESTÁ EN EL UNIVERSO'}» · adaptador real → «${ctl ? ctl.kepler_error_real : '—'}» → ${ctlOk ? '✓ coincide' : '✗ NO COINCIDE: el instrumento se tira'}`);
+  const ctlOk = !!ctl && CONTROL_MOTIVO.test(ctl.motivo_regla_anterior) && CONTROL_MOTIVO.test(ctl.kepler_error_real || '') && ctl.motivo === 'pasa';
+  console.log(`CONTROL ${CONTROL_FOLIO}: regla anterior → «${ctl ? ctl.motivo_regla_anterior : 'NO ESTÁ EN EL UNIVERSO'}» · adaptador real → «${ctl ? ctl.kepler_error_real : '—'}» · regla vigente (kdxd) → «${ctl ? ctl.motivo : '—'}» → ${ctlOk ? '✓ coincide' : '✗ NO COINCIDE: el instrumento se tira'}`);
   if (!ctlOk) process.exit(2);
+  const rebotabanAntes = detalle.filter((d) => d.motivo_regla_anterior !== 'pasa').length;
+  console.log(`Con la regla ANTERIOR («ya le compró en la sucursal») rebotaban ${rebotabanAntes}; con el catálogo kdxd (D22) rebotan ${detalle.filter((d) => d.motivo !== 'pasa').length}.`);
 
   const n = detalle.length;
   console.log(`\nUniverso: ${n} documentos (${estados.join(' + ')}, sin folio de Kepler) · compras ${detalle.filter((d) => d.tipo === 'compra').length} · traspasos ${detalle.filter((d) => d.tipo === 'traspaso').length}`);
@@ -119,7 +136,7 @@ const CONTROL_MOTIVO = /no conoce al proveedor CA027/;
   console.table([...motivos.entries()].sort((a, b) => b[1] - a[1]).map(([motivo, docs]) => ({ motivo, docs })));
   console.log('\n== Por servidor donde se escribiría');
   console.table([...porSuc.entries()].sort().map(([k, docs]) => ({ servidor_tipo_resultado: k, docs })));
-  console.log(`\n== Riesgos que el adaptador NO detiene (se declaran)\n  · documentos que pasan pero traen SKU sin ficha en esa sucursal (kdii): ${riesgoSku}\n  · documentos que pasan con cajas fraccionadas: ${fraccion}`);
+  console.log(`\n== Riesgos que el adaptador NO detiene (se declaran)\n  · documentos que pasan pero traen SKU sin ficha en esa sucursal (kdii): ${riesgoSku}\n  · documentos que pasan con una cantidad que NO es ni cajas enteras ni piezas enteras (se frenan al empujar): ${fraccion}`);
   console.log('\n== Tope diario con el default KEPLER_PUSH_MAX_DIA_NN = 1 (días para vaciar la cola de los que pasan)');
   console.table([...colaPorServidor.entries()].sort().map(([s, docs]) => ({ servidor: s, docs_que_pasan: docs, dias_con_tope_1: docs })));
   console.log('\n== NO MEDIDO desde la base: KEPLER_PUSH_URL_NN por servidor, plantilla de compra y de TRASPASO por servidor (la del traspaso no tiene default: sin ella TODOS los traspasos rebotan), pg_hba y la BAJA desde la UI de Kepler (criterio del canario).');
