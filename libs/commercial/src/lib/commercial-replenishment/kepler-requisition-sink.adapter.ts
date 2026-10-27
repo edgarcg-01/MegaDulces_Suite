@@ -158,12 +158,17 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
 
       if (tipo === 'compra') {
         if (!e.proveedor_code?.trim()) return { estado: 'rechazada', motivo: 'Sin código de proveedor Kepler (kdm1.c10 es obligatorio)' };
+        // `[PQ.17]` D22 (PM, 2026-10-27): el testigo de «proveedor conocido» es el CATÁLOGO de
+        // proveedores de Kepler (`kdxd`: c2 código · c3 nombre), no «ya le compró en esta
+        // sucursal». La regla anterior (X-A-30/35 previo con ese c10) rebotaba 34 de 853
+        // documentos ($0.70 M) cuyo proveedor SÍ está en el catálogo de esa sucursal: después del
+        // corte del 1-oct las sucursales le compran por primera vez a proveedores nacionales.
+        // Kepler sólo exige el catálogo; nosotros exigíamos historia. Medido con el simulacro
+        // `database/scripts/pq-simulacro-escritura-kepler.js`.
         const prov = await c.query(
-          `SELECT btrim(c32) AS nombre FROM md.kdm1
-            WHERE c1=$1 AND c2='X' AND c3='A' AND btrim(c4::text) IN ('30','35') AND btrim(c10)=$2
-            GROUP BY 1 ORDER BY count(*) DESC LIMIT 1`,
-          [e.sucursal, e.proveedor_code.trim()]);
-        if (!prov.rowCount) return { estado: 'rechazada', motivo: `Kepler (sucursal ${e.sucursal}) no conoce al proveedor ${e.proveedor_code}` };
+          `SELECT btrim(c3) AS nombre FROM md.kdxd WHERE btrim(c2)=$1 LIMIT 1`,
+          [e.proveedor_code.trim()]);
+        if (!prov.rowCount) return { estado: 'rechazada', motivo: `Kepler (sucursal ${e.sucursal}) no tiene al proveedor ${e.proveedor_code} en su catálogo (kdxd)` };
         c10 = e.proveedor_code.trim();
         c32 = e.proveedor_nombre?.trim() || prov.rows[0].nombre;
       } else {
