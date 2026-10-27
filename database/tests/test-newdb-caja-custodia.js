@@ -13,8 +13,31 @@
  * Todo en UNA transacción con rollback: cero efecto en la base.
  * Uso: DATABASE_URL_NEW=postgresql://...@127.0.0.1:5432/postgres_platform node database/tests/test-newdb-caja-custodia.js
  */
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-caja-custodia');
+
+const RAIZ = path.resolve(__dirname, '..', '..');
+
+/** `[CGA-A.55.1]` Las llaves del catálogo de denominaciones, leídas del FUENTE: `[llave, valor]`. */
+function llavesDelCatalogo() {
+  const src = fs.readFileSync(path.join(RAIZ, 'libs', 'contracts', 'src', 'money', 'denominations.ts'), 'utf8');
+  return [...src.matchAll(/\{\s*key:\s*'([^']+)',\s*valor:\s*([0-9.]+)\s*,/g)].map((m) => [m[1], Number(m[2])]);
+}
+
+/**
+ * `[CGA-A.55.1]` `valorDeLlave` del motor TS, ejecutado tal cual (su cuerpo es JS sin tipos): la
+ * OTRA implementación de la regla que la base aplica en `finance.caos_denom_valor`. `null` si cambió
+ * de forma; entonces el cruce se declara NO MEDIDO, no se da por bueno.
+ */
+function valorDeLlaveDelMotor() {
+  const src = fs.readFileSync(path.join(RAIZ, 'libs', 'finance', 'src', 'lib', 'caja', 'caja-custodia.engine.ts'), 'utf8');
+  const m = src.match(/export function valorDeLlave\(k: string\): number \| null \{\r?\n([^\r\n]+)\r?\n\}/);
+  if (!m) return null;
+  try { return vm.runInNewContext(`(function (k) {${m[1]}})`); } catch { return null; }
+}
 
 const T = '00000000-0000-0000-0000-00000000d01c';
 const OTRO_T = '00000000-0000-0000-0000-0000000000ff';
@@ -167,19 +190,40 @@ const rechaza = (err, code, nombre) => !!err && err.code === code && (err.constr
       // prod: knex cambió los `?` de su regex por `$1`/`$2`, devolvía NULL para TODA llave y el
       // trigger rechazaba cualquier enlace con billetes (CAOS_LINK_BILLETES_FORMA). Se mide la
       // función sola, antes que 6b, para que el rojo nombre la causa y no sólo el síntoma.
+      // Las positivas son las llaves del CATÁLOGO leídas del fuente (una denominación nueva entra
+      // sola) y cada llave se cruza con `valorDeLlave` del motor TS: dos implementaciones de la misma
+      // regla. Medir la función sólo contra lo que uno cree que debe dar deja pasar el defecto común.
+      const fallasAntes = fail;
       const hayValor = (await trx.raw(`SELECT to_regprocedure('finance.caos_denom_valor(text)') AS f`)).rows[0].f;
       if (!hayValor) {
         skip('no existe finance.caos_denom_valor (migración 20261026110741)');
       } else {
         const valor = async (k) => (await trx.raw('SELECT finance.caos_denom_valor(?::text) AS v', [k])).rows[0].v;
-        const fallasAntes = fail;
-        for (const [k, esperado] of [['500', 500], ['1000', 1000], ['20', 20], ['0.5m', 0.5], ['10m', 10], ['2.5m', 2.5]]) {
+        const catalogo = llavesDelCatalogo();
+        ok(catalogo.length >= 12, `se leyeron ${catalogo.length} llaves de libs/contracts/src/money/denominations.ts (hoy son 12)`);
+        for (const [k, esperado] of catalogo) {
           const v = await valor(k);
           ok(v !== null && Number(v) === esperado, `'${k}' vale ${esperado} (devolvió ${v})`);
         }
-        for (const k of ['', 'abc', 'm', '5.', '-5', '500x']) {
+        // '5x5' y '5,5': un punto SIN escapar (`.` donde va `[.]`) las dejaría pasar como llaves.
+        const negativas = ['', 'abc', 'm', '5.', '-5', '500x', '5x5', '5,5', '.5', '10M', ' 500'];
+        for (const k of negativas) {
           const v = await valor(k);
           ok(v === null, `NEGATIVA: '${k}' no es una llave → NULL (devolvió ${v})`);
+        }
+        const motor = valorDeLlaveDelMotor();
+        if (!motor) {
+          skip('no se pudo leer valorDeLlave de caja-custodia.engine.ts: el cruce base contra motor TS no se midió');
+        } else {
+          const difieren = [];
+          for (const k of [...catalogo.map(([c]) => c), ...negativas, '05', '0', '2.50', '0.5m']) {
+            const enBase = await valor(k);
+            const enMotor = motor(k);
+            if ((enBase === null) !== (enMotor === null) || (enBase !== null && Number(enBase) !== enMotor)) {
+              difieren.push(`'${k}': base ${enBase}, motor ${enMotor}`);
+            }
+          }
+          ok(difieren.length === 0, `la base y el motor TS dan el mismo valor en cada llave${difieren.length ? ` — difieren ${difieren.join('; ')}` : ''}`);
         }
         if (fail > fallasAntes) {
           const { r } = (await trx.raw(`SELECT substring(prosrc from '~ ''[^'']*''') AS r FROM pg_proc
@@ -187,6 +231,13 @@ const rechaza = (err, code, nombre) => !!err && err.code === code && (err.constr
           console.log(`     regex guardada en la base: ${r} — si trae $1/$2, knex se comió un signo de interrogación`);
         }
       }
+      // ⛔ Estructural (GOTCHAS §71): ninguna función de `finance` guarda `$N` dentro de una regex.
+      // Caza el próximo signo de interrogación que knex convierta, en CUALQUIER función de la caja.
+      const conDolar = (await trx.raw(`SELECT n.nspname || '.' || p.proname AS f FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'finance' AND p.prokind = 'f'
+           AND p.prosrc ~ '~[*]{0,1} *''[^'']*[$][0-9]'`)).rows.map((r) => r.f);
+      ok(conDolar.length === 0, `ninguna función de finance guarda $N dentro de una regex${conDolar.length ? ` — la traen: ${conDolar.join(', ')}` : ''}`);
 
       console.log('\n── 6b. [CGA-A.55] Los billetes de cada pedazo del retiro ──');
       const hayBilletes = (await trx.raw(`SELECT count(*)::int n FROM information_schema.columns
