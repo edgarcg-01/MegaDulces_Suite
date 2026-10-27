@@ -458,6 +458,52 @@ otro, y por eso donde más se ha roto algo):
 | Corte → caja → banco | `U-D-23`, arqueo | Caja General → Bancos | efectivo entregado, depositado, conciliado |
 | Movimiento → póliza | bancos, compras, gastos | ContPAQi | asiento contable (la suite arma el TXT, no escribe en ContPAQi) |
 
+### 6.1 Caso trazado: de Pedido al Calendario de pagos
+
+> Trazado el 2026-10-27 con el grafo de graphify sobre `libs/` (19,536 nodos) y verificado a mano
+> en el código. **En el código, `commercial/replenishment` (Pedido) y `finance/payment-calendar`
+> (Calendario) NO se conectan**: ningún import ni llamada real los une. Se conectan por **Kepler y
+> por tablas compartidas**.
+
+```
+Compras › Pedido (commercial/replenishment)
+   │  aprueba → se recaptura en Kepler (la escritura Suite→Kepler está apagada)
+   ▼
+Kepler: X-A-30 requisición → 35 → 37 OC → 40 vale → 20 orden de entrada
+   │  nace la deuda en kdxe
+   ▼
+kepler_ods.kdxe ──► analytics.v_supplier_payables (vista)
+   │                       │
+   │                       └─► llave sqlKeplerPayableId()  (libs/contracts/src/finance/kepler-payable-key.contract.ts)
+   ▼                                   │
+commercial.supplier_payment_obligations ┤   ← tablas que finance lee por SQL
+commercial.supplier_payment_accounts    ┤
+   ▼                                   ▼
+finance/payment-calendar  ◄── finance/pronto-pago (qué factura conviene adelantar)
+   │
+   ▼  pago en la banca en línea → Kepler X-D-26 → kdxf aplica el pago a la factura
+```
+
+**El único acople de código** son dos primitivos de `libs/contracts`: `sqlKeplerPayableId()` (la
+llave determinística de una factura de Kepler sin tabla propia, `[TP.18.7]`) y
+`sqlVentanaProntoPago()`. Los usan `finance/payment-calendar`, `finance/pronto-pago` y
+`commercial/entity-ref` (que pinta qué factura es cada renglón del Calendario). **Pedido no los usa.**
+
+**Lo que implica:**
+1. **Un cambio en Pedido no rompe el Calendario por código; lo rompe por datos.** Si cambia cómo se
+   forma la deuda (la vista, la llave o la tabla de obligaciones), ningún import lo delata: hay que
+   recorrer las tres piezas del diagrama.
+2. **El eslabón Pedido → OC lo cierra una persona recapturando en Kepler.** Es el hueco que la fase
+   `PQ` quiere cerrar con la escritura a Kepler.
+
+⚠️ **graphify da caminos falsos entre módulos.** Los 8 caminos más cortos que devolvió (sin la
+plomería `Param`/`TenantKnexService`/`Permission`) eran: 4 por llamadas **inferidas por nombre**
+(`.create()`, `.row()`: «se llaman igual», no «se llaman entre sí») y 2 por los `index.ts` de
+reexportación. Con la plomería incluida, todo se une en 2 saltos vía `contracts/index.ts`. Y no ve el
+SQL. **Para preguntar cómo se conectan dos módulos, manda el acople por tabla del §5.3**; el grafo
+sirve para navegar *dentro* de un dominio. Si se usa, descartar las aristas `INFERRED` y los saltos
+por `index.ts`.
+
 ---
 
 ## 7. Lo que la suite escribe hacia afuera
