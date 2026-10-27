@@ -5,10 +5,8 @@
       "Bash(curl -s -i \"http://localhost:3334/\")",
       "Bash(curl -s -i \"http://localhost:3334/socket.io/?EIO=4&transport=polling\")",
       "Bash(node -e ' *)",
-      "Bash(python -c \"import sys,json; r=json.load\\(sys.stdin\\); items = r if isinstance\\(r,list\\) else r.get\\('data',[]\\); print\\('total:', len\\(items\\)\\); print\\('keys[0]:', list\\(items[0].keys\\(\\)\\) if items else 'empty'\\); imgs=[i for i in items if i.get\\('image_url'\\)]; print\\('with image:', len\\(imgs\\)\\)\")",
       "Bash(awk '/async listAllProducts/,/const selects = \\\\[/' dist/apps/api/main.js)",
       "Bash(curl -s http://localhost:9229/json/list)",
-      "Bash(python -c \"import sys,json; r=json.load\\(sys.stdin\\); items = r if isinstance\\(r,list\\) else r.get\\('data',[]\\); print\\('total:', len\\(items\\)\\); print\\('keys:', list\\(items[0].keys\\(\\)\\) if items else 'empty'\\); print\\('has image_url:', 'image_url' in \\(items[0] if items else {}\\)\\); imgs=[i for i in items if i.get\\('image_url'\\)]; print\\('with image:', len\\(imgs\\)\\)\")",
       "Bash(awk '/const selects = \\\\[/{flag=1} flag{print; if\\(/^\\\\s*if \\\\\\(paginated\\\\\\)/\\){exit}}' dist/apps/api/main.js)",
       "Bash(sed -n '740,770p' libs/commercial/src/lib/commercial-catalog-search/commercial-catalog-search.service.ts)",
       "Bash(sed -n '825,855p' libs/commercial/src/lib/commercial-catalog-search/commercial-catalog-search.service.ts)",
@@ -57,7 +55,6 @@
       "Bash(cd \"C:/Users/Sistemas/.claude/projects/c--Users-Sistemas-CascadeProjects-Trade-marketing/ff5cd8f0-b5e1-4283-b4c5-25dcb2f0915f\" 2>/dev/null && find . -path '*wf_09cf8506*' -newer /dev/null 2>/dev/null | head -50; echo \"---- workflows dir ----\"; ls -la workflows/ 2>/dev/null; echo \"---- subagents/workflows ----\"; ls -la subagents/workflows/ 2>/dev/null)",
       "Read(//dev/**)",
       "Bash(node --check database/scripts/seed-bank-capture-senders.js)",
-      "Bash(python -c ' *)",
       "Bash(powershell -NoProfile -Command 'foreach\\($t in '\\\\''OdsReplicate'\\\\'','\\\\''OdsReplicateCatalog'\\\\''\\){ $a=\\(Get-ScheduledTask -TaskName $t -EA SilentlyContinue\\); if\\($a\\){ $a.Actions | ForEach-Object { $t+'\\\\'' -> '\\\\''+$_.Execute+'\\\\'' '\\\\''+$_.Arguments }; \\($a.Triggers | ForEach-Object { '\\\\'' trigger: '\\\\''+$_.CimClass.CimClassName }\\) } }')",
       "Bash(powershell -NoProfile -Command \"\\(Get-ScheduledTask -TaskName 'OdsReplicate'\\).Triggers | Format-List Repetition,*\")",
       "Bash(node database/importers/_diag-kp-c90.js)",
@@ -82,6 +79,35 @@
       "\\tmp",
       "c:\\Users\\Sistemas\\CascadeProjects\\Portal_MegaDulces",
       "C:\\Users\\Sistemas\\.gstack\\projects\\edgarcg-01-Trade_marketing\\designs\\design-audit-20260605-logistica"
+    ],
+    "deny": [
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(pip:*)",
+      "Bash(py:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/bloquea-python.js\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/verifica-al-cerrar.js\""
+          }
+        ]
+      }
     ]
   }
 }
