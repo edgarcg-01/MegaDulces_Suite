@@ -100,6 +100,10 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
      */
     const DE_PAGOS = [
       '/finanzas/calendario-pagos',
+      // `[PGP.20]` (2026-10-27) llegó de `/compras/cuentas-pago`: es el PASO siguiente del
+      // Calendario —sin la cuenta del proveedor no se prepara la transferencia— y quien prepara
+      // es Tesorería, no Compras. Entra por el orden del trabajo, no por categoría.
+      '/finanzas/cuentas-pago',
       '/finanzas/pagos-comprobantes',
     ] as const;
 
@@ -160,6 +164,7 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
     it('las pantallas del menú embeben la barra de pestañas', () => {
       const ARCHIVOS: Record<string, string> = {
         '/finanzas/calendario-pagos': 'finanzas-calendario-pagos.component.ts',
+        '/finanzas/cuentas-pago': 'finanzas-cuentas-pago.component.ts',
         '/finanzas/pagos-comprobantes': 'finanzas-pagos-comprobantes.component.ts',
       };
       for (const ruta of DE_PAGOS) {

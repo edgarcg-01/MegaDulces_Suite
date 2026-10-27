@@ -715,7 +715,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // barra la pintan TODAS sus páginas antes de quitar sus renglones (`[NAV.2]` lo hizo al revés).
   // Cada pestaña conserva su permiso. Quedan como renglón propio las de uso alto (30 días: Gastos 810
   // visitas, Caja 517, Crédito 67) y Control (histórico), que se retira en CG.16 y no se mezcla con Caja.
-  // ⛔ `PAGOS_TABS` NO creció: `[PGP.7]` lo dejó en el ciclo vivo de dos pantallas; la deuda va aparte.
+  // `PAGOS_TABS` tiene TRES pestañas desde `[PGP.20]` (2026-10-27): «Cuentas de pago» llegó de
+  // Compras y se puso a la derecha del Calendario. ⛔ Sigue en pie lo que fijó `[PGP.7]`: sólo entra
+  // lo que es PASO del ciclo vivo de pago. La deuda a proveedor va aparte (ver `deuda-proveedores-tabs`),
+  // y esta entró por ser el paso siguiente —sin la cuenta no se prepara la transferencia—, no por tema.
   // Uso: telemetría de la suite (visitas = persona+sesión+día; proxy: dónde se cargó la página o se dejó
   // la pestaña).
   private finanzasNavGroups: { title: string; items: NavItem[] }[] = [

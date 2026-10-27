@@ -1198,7 +1198,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly base = `${environment.apiUrl}/finance/payment-calendar`;
-  private readonly accountsBase = `${environment.apiUrl}/commercial/supplier-payment-accounts`;
+  private readonly accountsBase = `${environment.apiUrl}/finance/supplier-payment-accounts`;
 
   @ViewChild('payPanel') private payPanel?: ElementRef<HTMLElement>;
 

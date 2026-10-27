@@ -111,7 +111,6 @@ import { CommercialPushModule } from '@megadulces/commercial';
 // Fase TP (ADR-064) — Obligaciones a proveedor de mercancía (Compras), alimenta Calendario de Pagos
 import { CommercialSupplierPaymentObligationsModule } from '@megadulces/commercial';
 // Fase TP.7 (ADR-064) — Catálogo de cuentas de pago a proveedor + workflow de aprobación
-import { CommercialSupplierPaymentAccountsModule } from '@megadulces/commercial';
 // Fase J — Logística
 import { LogisticsFleetModule } from '@megadulces/logistics';
 import { LogisticsConfigModule } from '@megadulces/logistics';
@@ -136,7 +135,7 @@ import { LogisticsRoutingModule } from '@megadulces/logistics';
 // Fase LT — Rastreo de flota GPS (MagniTracking / GPS-Server.net)
 import { LogisticsTrackingModule } from '@megadulces/logistics';
 // MAAT (ADR-028) — AI de Finanzas: base de conocimiento (+ motor/chat en sprints siguientes)
-import { FinanceMaatModule, FinanceExpenseProofsModule, FinanceExpenseComprobacionesModule, FinanceExpedienteGastoModule, FinanceExpenseAreasModule, FinanceBankModule, FinancePolizasModule, FinancePurchaseBookModule, FinanceCollectionDepositsModule, FinanceCustomerLedgerModule, FinanceSupplierPaymentProofsModule, FinanceGoodsReceiptProofsModule, FinancePaymentProgramModule, FinanceCajaGeneralModule, FinanceCancelledDocsModule, FinanceCortesSucursalesModule, FinanceCreditorStatementsModule, FinanceTripPayModule, FinanceFeedNotifyModule, FinancePaymentCalendarModule, FinanceBudgetModule, FinanceCaosModule, FinanceContpaqiModule } from '@megadulces/finance';
+import { FinanceSupplierPaymentAccountsModule, FinanceMaatModule, FinanceExpenseProofsModule, FinanceExpenseComprobacionesModule, FinanceExpedienteGastoModule, FinanceExpenseAreasModule, FinanceBankModule, FinancePolizasModule, FinancePurchaseBookModule, FinanceCollectionDepositsModule, FinanceCustomerLedgerModule, FinanceSupplierPaymentProofsModule, FinanceGoodsReceiptProofsModule, FinancePaymentProgramModule, FinanceCajaGeneralModule, FinanceCancelledDocsModule, FinanceCortesSucursalesModule, FinanceCreditorStatementsModule, FinanceTripPayModule, FinanceFeedNotifyModule, FinancePaymentCalendarModule, FinanceBudgetModule, FinanceCaosModule, FinanceContpaqiModule } from '@megadulces/finance';
 import { FiscalListasModule } from '@megadulces/fiscal';
 import { FiscalVaultModule } from '@megadulces/fiscal';
 import { FiscalJobsModule } from '@megadulces/fiscal';
@@ -254,7 +253,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialTelemetryModule,
       CommercialPushModule,
       CommercialSupplierPaymentObligationsModule,
-      CommercialSupplierPaymentAccountsModule,
+      FinanceSupplierPaymentAccountsModule,
       // Binding del Port ANTES de logística (provee el token global que inyecta).
       OrderFulfillmentBindingModule,
       // Binding del Port de provisioning de clientes (StoresService lo inyecta @Optional).

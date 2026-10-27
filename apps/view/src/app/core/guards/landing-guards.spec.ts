@@ -119,6 +119,12 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   // Mismo caso que los 20 «manage sin view» de arriba: quien sólo autoriza no tiene la vista.
   { perm: Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR, url: '/finanzas/calendario-pagos', motivo: 'autorizar sin view: la ruta exige FINANCE_PAYMENTS_VER' },
   { perm: Permission.FINANCE_RECON_ASIGNAR, url: '/finanzas/tareas', motivo: 'la ruta exige BANK_VER' },
+  // `[PGP.20]` «Cuentas de pago» pasó de Compras a Finanzas el 2026-10-27 (es el paso siguiente
+  // del Calendario). ⚠️ Se mudó CONSERVANDO sus dos claves de Compras, a propósito: así la
+  // mudanza no le da ni le quita acceso a nadie. Por eso aparece acá — mismo caso «manage sin
+  // view» que los de arriba, no una clave nueva. Si algún día se le pone una clave de Finanzas,
+  // esta línea se borra y hay que medir ANTES quién gana y quién pierde la pantalla.
+  { perm: Permission.COMPRAS_OBLIGACIONES_GESTIONAR, url: '/finanzas/cuentas-pago', motivo: 'manage sin view: la ruta exige COMPRAS_OBLIGACIONES_VER' },
   { perm: Permission.FINANCE_RECON_RECIBIR, url: '/finanzas/tareas', motivo: 'la ruta exige BANK_VER (es un marcador para repartir tareas, no un permiso de pantalla)' },
   // `[GX.17]` Las TRES deudas de `/finanzas/gastos` se saldaron solas: esa ruta dejó de
   // exigir permiso (la sección se partió y ésta es la de capturar, abierta a todos), así

@@ -20,8 +20,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import type { CuentaPagoFaltante, CuentasPagoFaltantesResponse } from '@megadulces/contracts';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { PAGO_PROVEEDOR_TABS } from '../pago-proveedor-tabs';
+import { PagosTabsComponent } from '../pagos-tabs.component';
 
 interface SupplierOpt { id: string; name: string; code: string }
 interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; notes: string | null; attachment_url: string | null; es_favorita: boolean; status: string }
@@ -38,10 +37,10 @@ interface ChangeRequest {
  * el MISMO permiso que autoriza el Calendario de Pagos (separación real de quien pide el cambio).
  */
 @Component({
-  selector: 'app-compras-cuentas-pago',
+  selector: 'app-finanzas-cuentas-pago',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, DialogModule, CheckboxModule, TagModule, ToastModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, DialogModule, CheckboxModule, TagModule, ToastModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, PagosTabsComponent],
   providers: [MessageService],
   template: `
     <div class="surf-page in cta-page">
@@ -54,7 +53,7 @@ interface ChangeRequest {
         <button pButton type="button" (click)="openNewSupplierPick()"><span class="pi pi-plus"></span>&nbsp;Solicitar cuenta</button>
       </header>
 
-      <app-page-tabs [tabs]="apartadoTabs" />
+      <app-pagos-tabs />
 
       <section class="cta-section">
         <div class="cta-section-head">
@@ -250,15 +249,14 @@ interface ChangeRequest {
     .cta-sin-edad { display:inline-block; font-size:var(--fs-xs); margin-bottom:.4rem; }
   `],
 })
-export class ComprasCuentasPagoComponent implements OnInit {
+export class FinanzasCuentasPagoComponent implements OnInit {
   /** [NAV.6] La barra del apartado «Pago a proveedor» del sidebar de Compras: la pintan todas sus páginas. */
-  readonly apartadoTabs = PAGO_PROVEEDOR_TABS;
   private readonly http = inject(HttpClient);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
-  private readonly base = `${environment.apiUrl}/commercial/supplier-payment-accounts`;
+  private readonly base = `${environment.apiUrl}/finance/supplier-payment-accounts`;
 
   readonly canAuthorize = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR] === true);
 

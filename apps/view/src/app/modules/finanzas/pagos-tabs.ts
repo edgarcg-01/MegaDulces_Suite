@@ -61,6 +61,18 @@ export const PAGOS_TABS: readonly PageTab[] = [
     permission: Permission.FINANCE_PAYMENTS_VER,
   },
   {
+    // `[PGP.20]` TP.7 — vino de Compras el 2026-10-27. Va pegada al Calendario porque es su paso
+    // SIGUIENTE, no porque sea de la misma categoría: sin la cuenta del proveedor no se prepara
+    // la transferencia, y sin preparar no se libera el día.
+    // ⛔ Medido ese día: 0 cuentas cargadas, 0 solicitudes, y los 50 pagos del calendario con
+    // `payment_method` NULL — o sea que el paso de preparar nunca se completó ni una vez.
+    // ⚠️ Conserva su permiso de Compras a propósito: mudarla no le cambia el acceso a nadie.
+    label: 'Cuentas de pago',
+    route: '/finanzas/cuentas-pago',
+    icon: 'pi pi-credit-card',
+    permission: Permission.COMPRAS_OBLIGACIONES_VER,
+  },
+  {
     // Fase CC (ext.) — el expediente de evidencia de lo que ya salió. NO se absorbe: es la otra
     // mitad del ciclo (comprobar), y su fusión con el libro sigue bloqueada por falta de llave
     // (el libro no guarda el folio del pago de Kepler — `FASE_TP` §23).

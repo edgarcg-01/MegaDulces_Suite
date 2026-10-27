@@ -375,10 +375,6 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // Fase TP (ADR-064) — la "cuenta por pagar" a proveedor de mercancía que
           // alimenta el Calendario de Pagos de Finanzas. Permiso propio.
           { id: 'compras-obligaciones', label: 'Obligaciones a proveedor', route: '/compras/obligaciones', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.COMPRAS_PLAZOS_AUTORIZAR] },
-          // TP.7 — catálogo de cuentas de pago a proveedor. Solicitar (crear/cambiar) usa el
-          // mismo permiso que Obligaciones; aprobar la solicitud exige FINANCE_PAYMENT_CALENDAR_
-          // AUTORIZAR (nodo de Finanzas) — el propio endpoint lo exige, no este nodo.
-          { id: 'compras-cuentas-pago', label: 'Cuentas de pago a proveedor', route: '/compras/cuentas-pago', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
         ],
       },
       {
@@ -420,6 +416,11 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // se muestra la casilla, no qué concede.
           { id: 'cuadre', label: 'Cuadre / Supervisor de movimientos', route: '/finanzas/cuadre', view: [Permission.RECONCILIATION_VER], manage: [Permission.RECONCILIATION_GESTIONAR] },
           { id: 'calendario-pagos', label: 'Calendario de pagos', route: '/finanzas/calendario-pagos', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR] },
+          // `[PGP.20]` TP.7 — vino del nodo de Compras el 2026-10-27, junto con la ruta: es el paso
+          // siguiente del Calendario. CONSERVA los permisos de Compras a proposito, para que la
+          // mudanza no le de ni le quite acceso a nadie. Aprobar la solicitud exige ademas
+          // FINANCE_PAYMENT_CALENDAR_AUTORIZAR — lo exige el endpoint, no este nodo.
+          { id: 'finanzas-cuentas-pago', label: 'Cuentas de pago a proveedor', route: '/finanzas/cuentas-pago', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
           // Presupuestos se movió a su PROPIO proyecto top-level (`presupuestos`, /presupuesto):
           // es responsable distinto de Tesorería/Finanzas (decisión usuario 2026-09-17). Ver el nodo abajo.
           // `[AUTHZ.5]` `FINANCE_RECON_RECIBIR` estaba en el enum y **fuera del árbol**: no se podía
