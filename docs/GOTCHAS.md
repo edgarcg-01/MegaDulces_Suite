@@ -89,7 +89,7 @@
 | 3730 | 3787 | 3 | 68. `nx build` verde no dice NADA sobre si la app arranca — el grafo de inyección se resuelve al levantar el p |
 | 3788 | 3834 | 2 | 69. Dos `SAVEPOINT` concurrentes sobre la misma transacción: `Promise.all` deja la medición ciega y filtra un  |
 | 3835 | 3878 | 2 | 70. Una interfaz declarada a mano NO puede atrapar un desajuste de wire — y el spec tampoco, porque su fixture |
-| 3879 | 3961 | 4 | 71. `knex.raw()` se come los `?` de una REGEX y los convierte en `$1`, `$2` — aunque no le pases bindings |
+| 3879 | 3961 | 5 | 71. `knex.raw()` se come los `?` de una REGEX y los convierte en `$1`, `$2` — aunque no le pases bindings |
 | 3962 | 3993 | 2 | 72. El gate de tipado es un comando APARTE: `tsc` y los dos `nx build` pasan en verde con violaciones adentro |
 | 3994 | 4048 | 3 | 73. En LOCAL todos los websockets fallan: el proxy de dev enruta `/socket.io` y la app pide `/reports/socket.i |
 | 4049 | 4090 | 3 | 74. Un `mv` sobre un archivo montado como *bind mount* desengancha el montaje PARA SIEMPRE — el contenedor sig |
@@ -3940,13 +3940,13 @@ decía en su cabecera «⛔ Ni un `?` en el SQL» y aun así instaló `finance.c
 rechazando cualquier enlace con billetes. Lo cazó la base real del CI (`caja-db`), no la revisión:
 **una regla que se cumple a ojo no es una compuerta.** Y el barrido de arriba sólo mira
 **funciones**. Ampliado a **vistas** (cualquier literal con `$N`), en prod salieron **5 más**, todas
-con `?` en su migración de origen y sin medir su impacto:
+con `?` en su migración de origen (filas medidas en sólo lectura el mismo día; pesos NO medidos):
 
 | vista | guardado en prod | efecto |
 |---|---|---|
-| `analytics.v_product_unit_ladder` | `u1_raw ~ '^[0-9]+(\.[0-9]+)$1$'` | nunca casa (`'12'` → false) |
-| `analytics.v_logistics_expense_channel` | `…\|RUTAS$1 +DIRECTAS$2` | esa alternativa nunca casa |
-| `analytics.customer_receivables` | `COALESCE(cliente_code, '?')` → `'$1'`, `'$2'`, `'$3'` | sin cliente, el JOIN `'$1' = '$3'` ya no empareja |
+| `analytics.v_product_unit_ladder` | `u1_raw ~ '^[0-9]+(\.[0-9]+)$1$'` | nunca casa: **65 de 9,701 SKU** con unidad numérica quedan `is_weight = false` HOY; de ella cuelgan `mv_product_unit_ladder`, `product_units`, `v_erp_sales_line_units`, `v_unit_rung_audit` y `v_unit_truth` |
+| `analytics.v_logistics_expense_channel` | `…\|RUTAS$1 +DIRECTAS$2` | esa alternativa nunca casa; 0 gastos afectados hoy (latente) |
+| `analytics.customer_receivables` | `COALESCE(cliente_code, '?')` → `'$1'`, `'$2'`, `'$3'` | sin cliente, el JOIN `'$1' = '$3'` ya no empareja; 0 de 59,094 documentos sin cliente hoy (latente) |
 | `analytics.mv_product_margins_30d` | `'?'` → `'$1'` y `'$2'` | la unidad desconocida sale `'$1'`/`'$2'`, no `'?'` |
 | `analytics.v_caja_arqueos` | `coalesce(m.capturo, '?')` → `'$1'` | `quien` sale «Control $1» sin capturista |
 
