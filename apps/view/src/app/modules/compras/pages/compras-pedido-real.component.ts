@@ -5741,13 +5741,20 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         out.push(`El ${quien} mezcla más de un proveedor.`);
       }
       if (x.source_type === 'branch' && !x.source_warehouse_id) out.push(`El ${quien} no dice desde dónde sale.`);
-      // `[PQ.17]` D23: una fracción de caja no sale a Kepler (el adaptador la rechaza al empujar).
-      // Se frena ACÁ, antes de generar, y se dice cuáles: redondear en silencio cambiaría lo que
-      // la persona decidió. Medido 2026-10-27: 21 documentos ($2.87 M) iban a rebotar por esto.
-      const frac = lineas.filter((l) => { const n = Number(l.final_qty); return Number.isFinite(n) && n !== Math.round(n); });
+      // `[PQ.17]` D23: una cantidad que no es ni cajas enteras ni PIEZAS enteras no se puede
+      // escribir en Kepler (el adaptador escribe cajas enteras en CJA y piezas enteras en la
+      // unidad base). Se frena ACÁ, antes de generar, y se dice cuáles: redondear en silencio
+      // cambiaría lo que la persona decidió. Misma regla que `fraccion-caja.ts` (piezasEnteras).
+      const frac = lineas.filter((l) => {
+        const cajas = Number(l.final_qty);
+        if (!Number.isFinite(cajas) || cajas === Math.round(cajas)) return false;
+        const uxc = this.packOf(l.product_id)?.uxc ?? 0;
+        const pz = cajas * uxc;
+        return !(uxc > 0 && Math.round(pz) > 0 && Math.abs(pz - Math.round(pz)) <= 0.02);
+      });
       if (frac.length) {
         const skus = frac.slice(0, 4).map((l) => this.skuDe(l.product_id)).join(', ');
-        out.push(`El ${quien} trae ${frac.length} renglón(es) con fracción de caja (${skus}${frac.length > 4 ? '…' : ''}): Kepler no los acepta. Déjalos en cajas enteras o quítalos.`);
+        out.push(`El ${quien} trae ${frac.length} renglón(es) que no son cajas enteras ni piezas enteras (${skus}${frac.length > 4 ? '…' : ''}): Kepler no los acepta así. Déjalos en cajas o piezas completas.`);
       }
     });
     return out.slice(0, 6);

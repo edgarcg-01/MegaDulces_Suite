@@ -72,14 +72,30 @@ function servicio(raw: (...a: unknown[]) => unknown, userId: string | null = U(8
 describe('[RA-UX.1b] createRequisitionBatch — frena, confirma y falla abierto', () => {
   const repetido = () => ({ rows: [{ renglones: 1, lotes: ['RQ-LOTE-2026-00103'], ultimo: new Date().toISOString() }] });
 
-  it('[PQ.17] ⛔ D23: una fracción de caja se frena al GENERAR con 400, dice cuál y no inserta NADA', async () => {
+  it('[PQ.17] ⛔ D23: una fracción que NO es piezas enteras se frena al GENERAR con 400, dice cuál y no inserta NADA', async () => {
     const { s, insert, sp } = servicio(repetido);
-    const e = await s.createRequisitionBatch({ requisitions: [compra(3), compra(0.2)] as never, allow_duplicate: true }).catch((x) => x);
+    Object.assign(s, { uxcDeProductos: async () => new Map([[U(10), 7]]) });   // 0.3 cj × 7 = 2.1 pz
+    const e = await s.createRequisitionBatch({ requisitions: [compra(3), compra(0.3)] as never, allow_duplicate: true }).catch((x) => x);
     expect(e).toBeInstanceOf(BadRequestException);
     expect(String((e as BadRequestException).message)).toContain('Documento 2 de 2');
-    expect(String((e as BadRequestException).message)).toContain('fracción de caja');
+    expect(String((e as BadRequestException).message)).toContain('cajas enteras ni piezas enteras');
     expect(insert).not.toHaveBeenCalled();
     expect(sp.raw).not.toHaveBeenCalled();   // se frena antes de tocar la base
+  });
+
+  it('[PQ.17] una fracción que SÍ es piezas enteras (0.2 cj × 5 = 1 pz) pasa y se crea', async () => {
+    const { s, insert } = servicio(repetido);
+    Object.assign(s, { uxcDeProductos: async () => new Map([[U(10), 5]]) });
+    await s.createRequisitionBatch({ requisitions: [compra(0.2)] as never, allow_duplicate: true });
+    expect(insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('[PQ.17] NEGATIVA: sin factor conocido, la fracción se frena (sólo valen cajas enteras)', async () => {
+    const { s, insert } = servicio(repetido);
+    Object.assign(s, { uxcDeProductos: async () => new Map() });
+    const e = await s.createRequisitionBatch({ requisitions: [compra(0.2)] as never, allow_duplicate: true }).catch((x) => x);
+    expect(e).toBeInstanceOf(BadRequestException);
+    expect(insert).not.toHaveBeenCalled();
   });
 
   it('⛔ un lote repetido se FRENA con 409 LOTE_REPETIDO y no se inserta NADA', async () => {

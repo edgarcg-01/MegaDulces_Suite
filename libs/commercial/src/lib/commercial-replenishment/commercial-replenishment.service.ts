@@ -22,7 +22,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
 import { AVISO_TRANSITO, POLITICA_TRANSITO, type PoliticaTransito, transitoDescontado, transitoMostrado } from './transito';
-import { mensajeFraccion, renglonesConFraccion } from './fraccion-caja';
+import { mensajeFraccion, renglonesSinUnidadEntera } from './fraccion-caja';
 import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lote-repetido';
 import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
@@ -4210,6 +4210,18 @@ export class CommercialReplenishmentService {
    * apuntar. El `link` que manda el front es un índice dentro de este mismo arreglo, no un id:
    * los ids todavía no existen cuando el navegador arma el pedido.
    */
+  /** `[PQ.17]` Piezas por caja (resolvedor canónico) de los productos que traen fracción, para juzgarlos en piezas. */
+  private async uxcDeProductos(productIds: string[]): Promise<Map<string, number>> {
+    const ids = productIds.filter((x) => UUID_RX.test(x));
+    const m = new Map<string, number>();
+    if (!ids.length) return m;
+    const tenantId = this.tenantCtx.requireTenantId();
+    const filas = await this.tk.run(async (trx) => trx('analytics.v_product_box_factor')
+      .where({ tenant_id: tenantId }).whereIn('product_id', ids).select('product_id', 'box_factor')) as Array<{ product_id: string; box_factor: string | number | null }>;
+    for (const f of filas) m.set(String(f.product_id), Number(f.box_factor) || 0);
+    return m;
+  }
+
   async createRequisitionBatch(dto: { requisitions?: CreateRequisitionDto[]; allow_duplicate?: boolean }): Promise<LoteRequisicionesCreado> {
     const tenantId = this.tenantCtx.requireTenantId();
     const entrada = dto?.requisitions || [];
@@ -4219,10 +4231,14 @@ export class CommercialReplenishmentService {
     // rechazaba (RA-FIX.3), pero eso ocurre después de aprobar, y mientras tanto el documento se
     // ve perfecto. Medido 2026-10-27: 21 requisiciones vivas ($2.87 M, 39 renglones) iban a
     // rebotar en Kepler por esto. Nunca se redondea: se dice cuáles y se devuelve el lote entero.
+    // Una fracción de caja que SÍ es un número entero de piezas pasa: el adaptador la escribe en
+    // la unidad base (misma regla que `piezasEnteras`). El factor sale del resolvedor canónico.
+    const conFraccion = entrada.flatMap((r) => (r.lines || []).filter((l) => { const n = Number(l.final_qty); return Number.isFinite(n) && n !== Math.round(n); }).map((l) => String(l.product_id)));
+    const uxcPorProducto = conFraccion.length ? await this.uxcDeProductos([...new Set(conFraccion)]) : new Map<string, number>();
     for (let i = 0; i < entrada.length; i++) {
-      const frac = renglonesConFraccion((entrada[i].lines || []).map((l) => ({ sku: String(l.product_id), final_qty: l.final_qty })));
+      const frac = renglonesSinUnidadEntera((entrada[i].lines || []).map((l) => ({ sku: String(l.product_id), final_qty: l.final_qty, piezas_por_caja: uxcPorProducto.get(String(l.product_id)) ?? null })));
       if (frac.length) {
-        throw new BadRequestException(`Documento ${i + 1} de ${entrada.length}: ${frac.length} renglón(es) con fracción de caja (producto ${frac.slice(0, 3).map((f) => f.sku.slice(0, 8)).join(', ')}${frac.length > 3 ? '…' : ''}). Kepler no acepta fracciones: déjalos en cajas enteras o quítalos. No se creó ningún documento del lote.`);
+        throw new BadRequestException(`Documento ${i + 1} de ${entrada.length}: ${frac.length} renglón(es) que no son cajas enteras ni piezas enteras (producto ${frac.slice(0, 3).map((f) => f.sku.slice(0, 8)).join(', ')}${frac.length > 3 ? '…' : ''}). Kepler no los acepta así: déjalos en cajas o piezas completas. No se creó ningún documento del lote.`);
       }
     }
     // Las compras primero: una bajada no puede apuntar a algo que todavía no se insertó.
@@ -5058,7 +5074,9 @@ export class CommercialReplenishmentService {
     // `[RA-FIX.3]` ⛔ **Una fracción de caja no se le escribe al ERP.** El criterio y el mensaje
     // viven en `fraccion-caja.ts` —con la medición que los justifica— para que no se repitan
     // escritos a mano el día que otro camino escriba al ERP. Fail-closed, nombrando los SKUs.
-    const fraccion = renglonesConFraccion(lineas);
+    // `[PQ.17]` …salvo que la fracción sea un número ENTERO de piezas: entonces el adapter la
+    // escribe en la unidad base de Kepler (los 42 renglones vivos con fracción lo eran).
+    const fraccion = renglonesSinUnidadEntera(lineas.map((l) => ({ sku: l.sku, final_qty: l.final_qty, piezas_por_caja: l.box_factor })));
     if (fraccion.length) throw new BadRequestException(mensajeFraccion(fraccion));
 
     const res = await this.keplerSink.entregar({
@@ -5075,6 +5093,9 @@ export class CommercialReplenishmentService {
       lineas: lineas.map((l) => ({
         sku: String(l.sku), nombre: String(l.nombre),
         cajas: Number(l.final_qty),
+        // `[PQ.17]` El factor viaja para que una fracción de caja que es piezas enteras se
+        // escriba en la unidad base; con cajas enteras el adapter lo ignora.
+        piezas_por_caja: Number(l.box_factor) > 0 ? Number(l.box_factor) : null,
         costo_caja: Number(l.unit_cost) || 0,
         importe: Number(l.line_cost) || 0,
       })),
