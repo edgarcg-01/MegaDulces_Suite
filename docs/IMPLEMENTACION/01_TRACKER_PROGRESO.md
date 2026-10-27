@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1973 KB, 12623 líneas, 72 secciones.
+> **Índice navegable** — 1988 KB, 12646 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -22,63 +22,63 @@
 | 3870 | 3932 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
 | 3933 | 4005 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
 | 4006 | 4057 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 4058 | 4767 | 80 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 4768 | 4781 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 4782 | 4806 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 4807 | 4829 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 4830 | 4868 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 4869 | 5497 | 56 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 5498 | 5682 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 5683 | 5725 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 5726 | 5803 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 5804 | 5897 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 5898 | 6033 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 6034 | 6050 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 6051 | 6099 | 87 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 6100 | 6167 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 6168 | 6420 | 20 | Fase CH — Checadores / Control de asistencia |
-| 6421 | 6486 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 6487 | 6514 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 6515 | 6681 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 6682 | 7029 | 119 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 7030 | 7092 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 7093 | 7200 | 31 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 7201 | 7263 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 7264 | 7424 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 7425 | 7495 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 7496 | 7544 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 7545 | 7577 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 7578 | 7967 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 7968 | 8099 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 8100 | 8146 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 8147 | 8186 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 8187 | 8239 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 8240 | 8306 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 8307 | 8469 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 8470 | 8753 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 8754 | 8921 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8922 | 11020 | 157 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11021 | 11029 | 1 | Fase RR — Ventas por ruta |
-| 11030 | 11325 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11326 | 11336 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11337 | 11357 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11358 | 11368 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11369 | 11380 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11381 | 11440 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11441 | 11868 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 11869 | 11883 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 11884 | 11925 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 11926 | 12071 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12072 | 12102 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12103 | 12150 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12151 | 12174 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12175 | 12204 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12211 | 12220 | 1 | 📝 Convenciones |
-| 12221 | 12257 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12258 | 12276 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12277 | 12329 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12330 | 12686 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12687 | 12707 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 4058 | 4768 | 83 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 4769 | 4782 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 4783 | 4807 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 4808 | 4830 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 4831 | 4869 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 4870 | 5498 | 56 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 5499 | 5683 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 5684 | 5726 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 5727 | 5804 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 5805 | 5898 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 5899 | 6034 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 6035 | 6051 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 6052 | 6100 | 87 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 6101 | 6168 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 6169 | 6421 | 20 | Fase CH — Checadores / Control de asistencia |
+| 6422 | 6487 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 6488 | 6515 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6516 | 6682 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 6683 | 7030 | 119 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 7031 | 7093 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 7094 | 7223 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7224 | 7286 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 7287 | 7447 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7448 | 7518 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7519 | 7567 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 7568 | 7600 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 7601 | 7990 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 7991 | 8122 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 8123 | 8169 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 8170 | 8209 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 8210 | 8262 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8263 | 8329 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8330 | 8492 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8493 | 8776 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8777 | 8944 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8945 | 11043 | 157 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11044 | 11052 | 1 | Fase RR — Ventas por ruta |
+| 11053 | 11348 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11349 | 11359 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11360 | 11380 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11381 | 11391 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11392 | 11403 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11404 | 11463 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11464 | 11891 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 11892 | 11906 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 11907 | 11948 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 11949 | 12094 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12095 | 12125 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12126 | 12173 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12174 | 12197 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12198 | 12227 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12234 | 12243 | 1 | 📝 Convenciones |
+| 12244 | 12280 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12281 | 12299 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12300 | 12352 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12353 | 12709 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12710 | 12730 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -7174,6 +7174,28 @@ dry-run 2026-09-04: rama 01 **4,709**/9.07 %, rama 00 **312**/3.21 %, rama 06 **
 guarda de 20 %). El script existe y tiene guardas, **nunca se agendó**, y borra en prod → espera
 decisión · `FEEDS_INGEST_KEY` en texto plano en los launchers (→ INFRA.1.4) · `FeedGuardian` mata por
 mtime de log (ver OBS.8.2).
+
+### OBS.15 — Cabecera y renglones en menos de 1 s (la cola de cambios) 🔨 2026-10-26
+Disparador: reportaron en `/comercial/documentos` el **01 UD0801-0001853** (ALBAGRO) con «Detalle no replicado». Capturado en Kepler **14:13**, abierto **14:14**, su renglón llegó al ODS **14:18:34**. No se perdió: llegó tarde. **Objetivo fijado por el PM: la interacción entre movimientos (cabecera ↔ renglones, Kepler → plataforma) en < 1 s.**
+
+📏 **Medido ANTES (2026-10-26, sólo lectura contra prod, las 9 réplicas y los logs de k3s):**
+- El carril CTID busca filas por **posición física** y en el suscriptor el heap reusa espacio: réplica 01, `md.kdm2` con watermark en la página **46,868** y las **2,934** filas de hoy en las páginas **25,688–27,318** → `ctid > wm` = 0, siempre.
+- En 90 min, `kdm2` de **00/01/06/08** no embarcó **ni una** fila por ctid (todo por la red de 5 min); en 2 h, `kdm1` de **06/07**: **0** por ctid contra **235** por la red. En total, **327 de 1,315** cabeceras (25 %) dependían de la red.
+- Resultado: cabecera en 1–1.5 s, renglones **0–5.6 min** después en las ramas ciegas. El reconciliador (cada 15 min) reponía **50–212** filas por corrida que nadie más vio.
+- Efecto colateral: la red re-embarca ~82k filas cada 5 min (01: 29k · 08: 38k · 06: 15k), cada SKU entra al recálculo de precio (`kdm2:normalizeSalePrice`), la bolsa queda saturada en ~3,600 y gasta **10–13 s por minuto con «0 filas»** dentro del ciclo del carril caliente (25–40 s).
+
+- [x] 🧪 **OBS.15.1 La cola de cambios** — `database/importers/lib/ods-cola.js`: trigger `ENABLE ALWAYS` que anota la llave en `ods.cola` (el apply worker corre con `session_replication_role = replica`; sin el ALWAYS no dispara y la cola quedaría vacía PARA SIEMPRE). No puede romper la replicación: sin `ods.cola` sale sin error, sin bloque `EXCEPTION` (una subtransacción por fila desbordaría la caché del clúster), y al retirar van los triggers antes que la tabla. Drenado sin watermark (con `streaming = parallel` dos transacciones confirman fuera de orden), cabecera antes que renglones, **borra sólo después de entregar**. Instalador en seco por defecto con guarda de identidad (se niega si la base no es suscriptor): `database/scripts/ods-cola-instalar.js`. Corrido en seco: las 9 réplicas pasan la guarda, cola `ausente` en todas.
+- [x] 🧪 **OBS.15.2 Carril de caja en tiempo real** — `replicate-ods-live.js` con `ODS_TIEMPO_REAL=1` (sólo `27-ods-live-caja`): conexiones a las réplicas abiertas entre ciclos (con reconexión y 30 s de espera ante una caída, para que una réplica no marque el paso de las otras ocho), DDL de `ods.*` una vez por conexión, catálogo de columnas 10 min, latido cada 10 s con lo acumulado (peor ciclo, peor espera de la cola, error de cualquier ciclo de la ventana), `--watch=0.25` como PERIODO. `ODS_COLA_TABLES=kdm1,kdm2`: donde la cola está activa se saltan la red de 3 días y la de estado de esa tabla (la red era el ciclo de ~1.5 s cada 5 min); donde no, todo sigue como hoy y el latido lo declara («sin cola: …»). La cola se embarca con `normalize: false` (el coalescedor de precio frenaría este proceso 10 s de cada 60); `kdm2` sigue siendo del carril caliente, que recalcula el precio. Los demás carriles no cambian de comportamiento.
+- [x] 🧪 **OBS.15.3 Candado** — `database/tests/test-ods-cola.js` (registrado en `run-all-tests.js`, `needsApi: false`): 32 aserciones; **5 mutaciones, cada una en rojo** (sin ALWAYS · redes con cola activa · borrar antes de entregar · latido en cada ciclo · error de mitad de ventana pisado). ⚠️ El bloque contra Postgres real (la negativa del ALWAYS con `session_replication_role = replica`, el drenado de verdad, «sin cola la fila se aplica igual») quedó **NO MEDIDO en la máquina** (no hay Postgres local con superusuario configurado); corre en CI `pruebas-db`. Verde también: `test-ods-open-docs` 31/31, `test-ods-lane-partition` 18/18, `test-ods-dest-fingerprint` 12/12, compuerta k3s limpia para `27-ods-live-caja` (sus 7 rojos son de dozzle/glitchtip/garage/reconcile-ancho, ajenos). Carril corrido en seco contra las 9 réplicas: sin error, 454 ms.
+- [x] ✅ **OBS.15.4 Cola instalada en las 9 réplicas** 2026-10-26 — piloto 06 ~16:19; las otras 8 ~16:43, ya con OBS.15.5b desplegado (`kdm1:activa kdm2:activa` en las 9). Tras instalar: las 9 suscripciones `enabled`, **0 errores de aplicación**, último mensaje 0–11 s. Puesta al día corrida en las 9 (06 recuperó 2; las demás 0). Reversa por rama: `ods-cola-instalar.js --branch=XX --quitar --apply`.
+- [x] 🚀 **OBS.15.5 Desplegado** 2026-10-26 ~16:18 — `push` de `22aa705be` + `fa2f45c7e` (lint) armados sobre `origin/main` con índice temporal (los 21 commits locales de otras sesiones NO subieron); `ci-green` sellado en `fa2f45c7e`; imagen `trade-ingest:fa2f45c7e` construida desde `git archive` del commit en `~/build-ingest-obs15` y aplicado SÓLO `27-ods-live-caja` (por el PM: el permiso de despliegue le toca a una persona). Los otros carriles siguen en `71a66e18f` — su código de ejecución es idéntico (verificado por diff). ⚠️ `ops/vl/deploy.sh` se descartó a propósito: archiva el `HEAD` LOCAL (traería los 21 commits ajenos) y reaplica TODOS los carriles.
+- [x] ✅ **OBS.15.5b Redesplegado** 2026-10-26 ~16:40 (`trade-ingest:6cf11859d`, aplicado por el PM, sólo `27-ods-live-caja`) con dos correcciones — `ce2c71a30`: la nota decía «peor réplica→ODS **0 ms**» con la cola apagada (un cero dibujado, regla 11); ahora «sin medir» / «sin movimientos en la ventana». `6cf11859d`: **la puesta al día** — medido en el piloto, las facturas 06 UD0801-0001131/-0001132 (capturadas 16:19, segundos ANTES del trigger) cayeron debajo del watermark, no estaban en la cola y la red ya se saltaba: llegaron con el reconciliador a las 16:25:37 (6 min). Ahora la red corre UNA vez al activarse la cola. 36/36, 8 mutaciones en rojo.
+- [x] ✅ **OBS.15.6 Medido DESPUÉS — META CUMPLIDA (< 1 s)** — 📏 **las 9 sucursales, régimen estable 16:46–16:51 (2026-10-26):** 78 drenados, **réplica→ODS mediana 253 ms · p95 363 ms · máx 448 ms**, ninguno > 1 s; 34 de 78 con cabecera y renglones en la misma pasada; 0 errores; la red del carril de caja corrió 0 veces. **Completitud de hoy, réplica vs ODS: 4,126/4,126 cabeceras y 20,066/20,066 renglones, 0 faltantes en las 9.** Latido: `cola 9/9 ramas · peor réplica→ODS 133 ms`, peor ciclo 139 ms. Los primeros drenados tras instalar tardaron hasta 27 s: es la detección (el estado de la cola se re-pregunta cada 60 s), una sola vez por rama. Ambos carriles leen fechas en `America/Mexico_City` (verificado en los procesos: no se pisan valores). Antes: renglones 0–5.6 min en 00/01/06/08, cabeceras 0–5 min en 06/07. — 📏 **piloto 06, 2026-10-26 16:20–16:21:** 8 drenados, **réplica→ODS 69–313 ms**, cabecera y renglones en la MISMA pasada (`kdm1 1 · kdm2 30`); renglones de hoy de la 06 **3,635/3,635** en el ODS; latido en prod: `cola 1/9 ramas · peor réplica→ODS 320 ms`, 40 ciclos en 10 s, peor ciclo 360 ms. Bloque contra Postgres real del candado: **48 ok · 0 fallas · 0 NO MEDIDO** en CI `pruebas-db`. Falta: las 9 ramas y sostenerlo. No cubre el tramo Kepler → réplica (2–9 ms medido en CG.78; se mira en `pg_stat_subscription`).
+- [ ] 🧪 **OBS.15.7 Pantalla honesta** (`/comercial/documentos`) — `f05e0269f` (sellado en `ci-green`; sale con el próximo `soltar`). «Detalle no replicado / Kepler tiene los renglones» (no medido) → «Renglones sin llegar · volviendo a consultar…»; reintenta UNA vez a los 3 s sin vaciar el panel; si siguen sin llegar, lo dice y pide avisar a Sistemas con el folio. Spec `comercial-documentos.reintento.spec.ts` 6/6 con reloj falso; 2 mutaciones en rojo. `check:pantalla` igual (2 en deuda, 0 nuevas). ⚠️ Sin validación visual en navegador.
+- [x] ✅ **OBS.15.8 Coalescedor de precio — APLICADO 2026-10-26 ~17:25** (PM, `20-ods-live-hot` con `71a66e18f` + `CHUNK=5000`). 📏 Después: la primera ventana recalculó la bolsa ENTERA (3,826 SKUs) en **6.2 s**; las siguientes 0.2–5.0 s según lo juntado; **nunca más «quedan N»**. Ciclo del caliente: **mediana 20.8 s → 8.5 s**, p90 13 s (el ciclo 1 de 69.6 s es el arranque, que corre todas las redes de golpe). 0 errores. ⚠️ **CORRECCIÓN 2026-10-27 08:30:** esos 8.5 s eran de poca actividad. Con tienda abierta (07:30–08:30): **mediana 16.3 s · p90 44.7 s · máx 134 s**, coalescedor sano (3.9–9.2 s por corrida, bolsa vacía cada ventana). El tiempo se va ANTES de cada corrida, en huecos de 23–61 s sin línea de log: hipótesis fuerte = la red de `kdm2` del caliente re-embarcando ~82k renglones cada 5 min (no imprime cuando no cambia nada). Desde OBS.15 esa red es redundante para el DATO; sólo sigue alimentando el recálculo de precio en las ramas ciegas. 🧪 **OBS.15.12 (2026-10-27, en código, falta desplegar):** la red imprime SIEMPRE su duración; y con `ODS_COLA_CUBRE=kdm2` en `20-ods-live-hot`, donde la cola está activa la red de `kdm2` deja de re-embarcar la ventana y sólo junta sus SKUs para el recálculo (`encolarNormalizacion` en `apply-handlers.js`; sólo en sink pg y si todos los normalizadores de la tabla se coalescen; si no, la red de siempre). El caliente pasa a una imagen nueva: su código de ejecución sólo cambia por esto (verificado por diff contra `71a66e18f`). ⬜ Medir después: mediana y p90 del ciclo con tienda abierta. — 📏 medido en prod (sólo lectura, la misma cadena de CTEs): lote 25 = 4.3–4.9 s · 100 = 3.6–3.9 s · **la bolsa entera (3,806) = 5.6–6.1 s**: el costo es plano. Antes: 11 s de cada 60 (127.7 s en 14.5 min) para 100 SKUs, bolsa estancada en ~3,650 (un precio esperaba ~38 min). Arreglo SIN código: `ODS_PRICE_COALESCE_CHUNK=5000` en `20-ods-live-hot` (`7ea29b89d`), aplicado con la imagen que ya corre (`71a66e18f`). ⬜ Aplicar y medir el ciclo del caliente (antes: mediana 20.8 s, máx 67.6 s). Hallazgo aparte: los normalizadores de `kdii` (etiquetas) corren al momento ~84 veces en 14.5 min a 1.2–2.6 s por UN SKU (~25 % del carril).
+- [ ] 🔨 **OBS.15.9 `00/kdij` (kárdex de Oficinas)** — 📏 el origen se CORTÓ: la réplica sólo tiene kárdex desde el **22-sep / 1-oct** (127 ajustes `N-A-30` el 30-sep; fase PO, «el 00 dejó de concentrar»), el ODS conserva ene–sep (5–8k por mes). Los 61k «sobrantes» son HISTORIA, no basura. ⭐ **El arreglo ya existía y nunca se desplegó:** `d3ce5563e` (`[OPS.LIMPIEZA.10]`, corte por cobertura) es del 20-oct 09:22 y la imagen de ingesta (`71a66e18f`) de las 09:12 — por 10 min; por eso aborta cada noche. En seco con `main`: corte **2026-09-22**, **61,478 conservadas**, **24 bajas reales** (0.04 %), sin abortar. ✅ Watermark repuesto con `--prime`: `(1860,21)` → `(155,10)`, y ya avanza (`(155,11)`). 🚀 Aplicado 2026-10-26 ~17:25 (PM): `ods-reconcile-full` (02:10) y `ods-dedupe-fecha` (02:25, mismo script, tablas `kdc2*`: el corte sólo aplica a `00/kdij`) en `6cf11859d`. ✅ **Verificado 2026-10-27 02:10:** `cdc_reconcile_full` en **`ok`, sin abortar** (la primera noche en días); `00/kdij`: **24 borrados, 61,478 conservadas**, el ODS queda con 66,604. Borrados totales 6,151 = rotación normal (`kdpord` 5,385 · `kdm2` 739 · `kdij` 27), en línea con noches previas (25-oct, tras el sábado: 2,390; 26-oct, tras el domingo: 0). `d3ce5563e` sólo cambia la rama de tablas declaradas como podadas (hoy sólo `00/kdij`): el borrado del resto es el de siempre.
+- [ ] 🧪 **OBS.15.10 Borrados en vivo — DECIDIDO por el PM 2026-10-27: sí, con frenos.** En código (falta desplegar): `ODS_COLA_BORRAR=1` en `27-ods-live-caja`; `borrarEnVivo` propaga por `raw-delete` sólo las llaves que la cola vio desaparecer, que el ODS tenga con fecha de negocio de los últimos 7 días (`kdm1.c68` · `kdm2.c32`; otra tabla nunca) y nunca más de 500 por tabla en una pasada (se retienen y se avisa). Apagar = quitar la variable. `test-ods-cola.js` 51/51, 11 mutaciones en rojo. Lo medido que lo motivó — 📏 la cola vio **296 borrados en ~40 min** (01: 131 · 08: 133 · 02: 23 · 00: 9). Casi todos renglones de pedido `U-D-40`; pero en la 08 **tres facturas** (`UD0801-0000555/563/566`) quedaron vacías en Kepler (0 renglones, total $0.00) y el ODS conserva **69 renglones fantasma por $13,125.75** hasta las 02:10. La cabecera sí llegó (la vista las marca canceladas, sin anexo); si algún reporte que suma renglones los cuenta como venta: NO MEDIDO. Propuesta: propagar el borrado en vivo SÓLO de renglones con fecha de negocio reciente (≤ 7 días) y con tope por pasada (si una pasada trae > 500 borrados, no se propaga y se alerta: es una poda, como el corte de Oficinas).
+- [ ] ⬜ **OBS.15.11 La ingesta no se despliega desde el 20-oct** — los 13 carriles corrían `71a66e18f`; en `main` esperan 9 archivos de ejecución (reconciliación, CAOS, ContPAQi, `route-push`, y OBS.15, que ya corre en caja). `ops/vl/deploy.sh` archiva el `HEAD` LOCAL (en el árbol compartido arrastra commits ajenos sin empujar) y reaplica TODOS los carriles: falta un carril de despliegue de ingesta desde `origin/main` sellado, como el de prod.
 
 ### OPS.LIMPIEZA — Procesos con latido en rojo sin dato malo (diagnóstico 2026-10-19, 11 procesos)
 > 📄 **Registro completo —qué se cambió, evidencia, cómo verificar y cómo revertir cada item—:** [`OPS_LIMPIEZA_PROCESOS.md`](OPS_LIMPIEZA_PROCESOS.md). Migración `20261019144127`: ✅ **aplicada en prod** 2026-10-19 15:16:37, lote 960 (la aplicó otra sesión); verificado 0 filas huérfanas.

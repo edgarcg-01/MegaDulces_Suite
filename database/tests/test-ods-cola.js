@@ -31,7 +31,7 @@ const { Client } = require('pg');
 // Antes del require: el carril lee la lista de la cola al cargar, y el bloque 5 mide su nota.
 process.env.ODS_COLA_TABLES = 'kdm1,kdm2';
 const { instalarSql, quitarSql, estadoCola, drenarCola, TRIGGER } = require('../importers/lib/ods-cola');
-const { syncCtid, crearCicloTiempoReal } = require('../importers/kepler/replicate-ods-live').__test;
+const { syncCtid, crearCicloTiempoReal, borrarEnVivo } = require('../importers/kepler/replicate-ods-live').__test;
 
 let ok = 0, fail = 0, noMedido = 0;
 const A = (cond, msg) => { if (cond) { ok++; console.log(`  ✔ ${msg}`); } else { fail++; console.log(`  ✖ ${msg}`); } };
@@ -195,8 +195,11 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
           // DELETE: se cuenta, NO se entrega (el origen poda historia que el ODS conserva).
           llamadas.length = 0;
           await c.query(`DELETE FROM ${F}.kdm2 WHERE c7 = 3`);
-          const r3 = await drenar();
-          A(r3.borradas === 1 && llamadas.length === 0, '⛔ un borrado se CUENTA y no se entrega ni se propaga');
+          const pedidosDeBorrar = [];
+          const r3 = await drenar({ borrar: async (t, m, ll) => { pedidosDeBorrar.push(...ll); return { borradas: ll.length }; } });
+          A(r3.borradas === 1 && llamadas.length === 0, '⛔ un borrado se CUENTA y no se entrega como fila');
+          A(pedidosDeBorrar.length === 1 && Number(pedidosDeBorrar[0].c7) === 3 && r3.propagadas === 1,
+            '[OBS.15.10] y a `borrar` le llega EXACTAMENTE la llave que el origen ya no tiene');
 
           // Si entregar falla, nada se pierde.
           await c.query(`UPDATE ${F}.kdm2 SET c13 = 999 WHERE c7 = 2`);
@@ -247,6 +250,76 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
     const w = Number((caja.match(/^\s*command:.*--watch=([0-9.]+)/m) || [])[1]);
     A(w > 0 && w < 1, `--watch por debajo de 1 s (es ${w})`);
     A(valor('KP_ODS_TABLES') === 'kdm1', 'y su KP_ODS_TABLES sigue siendo SÓLO kdm1 (kdm2 es del carril caliente: el recálculo de precio vive ahí)');
+    A(/^(1|true|yes)$/i.test(valor('ODS_COLA_BORRAR')), '[OBS.15.10] el carril de caja propaga los borrados (decisión del PM)');
+    const hot = yamls.find((y) => /20-ods-live-hot/.test(y.f))?.t || '';
+    const valorHot = (k) => ((hot.match(new RegExp(`name: ${k}\\s*\\n\\s*value: "?([^"\\n]*)"?`)) || [])[1] || '').trim();
+    A(valorHot('ODS_COLA_CUBRE') === 'kdm2', '[OBS.15.12] el caliente sabe que kdm2 la cubre la cola (no re-embarca su ventana)');
+    A(!valorHot('ODS_COLA_TABLES'), 'y NO vacía la cola: ese sigue siendo el de caja');
+  }
+
+  console.log('\n[6] [OBS.15.12] Con la cola de otro carril, la red de kdm2 manda SKUs al recálculo, no filas');
+  {
+    const cols = [['c1', 'character varying'], ['c2', 'character varying'], ['c3', 'character varying'], ['c4', 'numeric'],
+      ['c5', 'numeric'], ['c6', 'character varying'], ['c7', 'numeric'], ['c8', 'character varying'], ['c10', 'timestamp without time zone'],
+      ['c32', 'date']].map(([column_name, data_type]) => ({ column_name, data_type }));
+    const META = { cols, pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'] };
+    const correr = async (code, table, opts) => {
+      const consultas = [], encolados = [];
+      const p = { async query(sql) {
+        const s = String(sql); consultas.push(s);
+        if (/SELECT last_ctid FROM ods\.ctl/.test(s)) return { rows: [{ last_ctid: '(0,0)' }] };
+        if (/SELECT DISTINCT btrim/.test(s)) return { rows: [{ k: '17804' }, { k: '17805' }] };
+        return { rows: [], rowCount: 0 };
+      } };
+      await syncCtid(p, code, table, META, { apply: true, full: false, encolarFn: (t, k) => { encolados.push(...k); return k.length; }, ...opts });
+      return { consultas, encolados, reembarca: consultas.some((s) => /current_date - 3/.test(s) && !/DISTINCT/.test(s)) };
+    };
+    const cub = await correr('01', 'kdm2', { colaCubre: true, modoPg: true });
+    A(cub.encolados.join(',') === '17804,17805', 'cubierta: los SKUs de la ventana van al recálculo de precio');
+    A(!cub.reembarca, '⛔ cubierta: NO re-embarca la ventana (eran ~82k renglones cada 5 min)');
+    const ctl = await correr('02', 'kdm2', { colaCubre: false, modoPg: true });
+    A(ctl.reembarca && !ctl.encolados.length, 'CONTROL: sin cola en la rama, la red de siempre');
+    const http = await correr('03', 'kdm2', { colaCubre: true, modoPg: false });
+    A(http.reembarca && !http.encolados.length, 'sin sink pg (el coalescedor no vive en este proceso): la red de siempre');
+    const kdij = await correr('04', 'kdij', { colaCubre: true, modoPg: true });
+    A(kdij.reembarca && !kdij.encolados.length, 'una tabla sin columna de SKU declarada: la red de siempre');
+    const noCoal = await correr('05', 'kdm2', { colaCubre: true, modoPg: true, encolarFn: () => -1 });
+    A(noCoal.reembarca, 'si el recálculo responde -1 (no coalescible), vuelve a la red de siempre');
+
+    // El handler REAL del feed `raw-normalize` (el que corre en el proceso del caliente).
+    const { HANDLERS } = require(path.resolve(__dirname, '../../services/feeds-ingest/apply-handlers.js'));
+    const T = '00000000-0000-0000-0000-00000000d01c';
+    const n1 = await HANDLERS['raw-normalize'](null, T, [{ k: ' 17804 ' }, { k: '17804' }, { k: '' }, { k: '17805' }], { table: 'kdm2' });
+    A(n1 === 2, `raw-normalize sobre kdm2: deduplica y limpia (2 SKUs de 4 llegadas, dio ${n1})`);
+    const n2 = await HANDLERS['raw-normalize'](null, T, [{ k: 'X' }], { table: 'kdii' });
+    A(n2 === -1, 'raw-normalize sobre kdii (su precio va AL MOMENTO, [TDA.1]): -1, no se junta');
+  }
+
+  console.log('\n[7] [OBS.15.10] Borrados en vivo: sólo lo reciente, nunca una poda');
+  {
+    const cols = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'].map((n) => ({ column_name: n, data_type: /c[457]/.test(n) ? 'numeric' : 'character varying' }));
+    const META = { cols, pk: cols.map((c) => c.column_name) };
+    const ll = (n) => Array.from({ length: n }, (_, i) => ({ c1: '08', c2: 'U', c3: 'D', c4: 8, c5: 1, c6: '0000555', c7: i + 1 }));
+    const dest = (filas) => { const q = []; return { q, async query(sql, params) { q.push({ sql: String(sql), params }); return { rows: filas }; } }; };
+    let enviados = [];
+    const shipFn = async (rows) => { enviados.push(...rows); return { rowCount: rows.length }; };
+
+    const d1 = dest(ll(501));
+    const r1 = await borrarEnVivo({ code: '08', tabla: 'kdm2', meta: META, llaves: ll(501), dest: d1, shipFn });
+    A(r1.borradas === 0 && !d1.q.length && !enviados.length, '⛔ 501 borrados en una pasada (> 500): NO se toca ninguno — es una poda');
+    const d2 = dest(ll(2));
+    const r2 = await borrarEnVivo({ code: '08', tabla: 'kdm2', meta: META, llaves: ll(3), dest: d2, shipFn });
+    A(/current_date - \$3::int/.test(d2.q[0]?.sql || '') && d2.q[0].params[1] === '08' && d2.q[0].params[2] === 7,
+      'le pregunta al ODS por SU sucursal y por fecha de negocio de los últimos 7 días');
+    A(/"c32" >= current_date/.test(d2.q[0]?.sql || ''), 'en kdm2 la fecha es la del renglón (c32)');
+    A(r2.borradas === 2 && enviados.length === 2 && enviados.every((x) => x.sucursal === '08'),
+      'borra SÓLO las que el ODS tiene con fecha reciente (2 de 3)');
+    A(/1 viejas/.test(r2.nota || ''), 'y declara cuántas dejó sin tocar');
+    enviados = [];
+    const r3 = await borrarEnVivo({ code: '01', tabla: 'kdij', meta: META, llaves: ll(2), dest: dest(ll(2)), shipFn });
+    A(r3.borradas === 0 && !enviados.length && /sin fecha/.test(r3.nota || ''), 'una tabla sin fecha declarada (kdij, el kárdex que se poda): NUNCA');
+    const r4 = await borrarEnVivo({ code: '01', tabla: 'kdm2', meta: META, llaves: ll(2), dest: null, shipFn });
+    A(r4.borradas === 0 && !enviados.length && /sin destino/.test(r4.nota || ''), 'sin destino pg: no borra (y lo dice)');
   }
 
   console.log('\n[5] El latido por ventana (TIEMPO_REAL): una escritura cada 10 s, no dos por ciclo');
