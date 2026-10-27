@@ -46,6 +46,11 @@ const LATERAL_BANCO_DEL_PAGO = `LEFT JOIN LATERAL (
        AND m.flujo = 'salida'
      LIMIT 1) kb ON true`;
 
+/** `[PC.6]` Lo que las cuatro coincidencias necesitan del pago de Kepler. */
+type PagoParaCoincidir = {
+  monto: string | null; pago_dia: string | null; proveedor_nombre: string | null; clave_banco: string | null; account_label: string | null; banco_nombre: string | null;
+};
+
 /** `[PC.6]` Quién firma una validación automática. */
 export const VALIDADOR_AUTOMATICO = 'Sistema · 4 coincidencias';
 
@@ -486,8 +491,10 @@ export class SupplierPaymentProofsService {
     sucursal: string; docPrefix: string; folio: string;
     lectura: { monto: number | null; fecha: string | null | undefined; cuenta_origen: string | null | undefined; beneficiario: string | null | undefined };
     verificada: boolean; ocrStatus: string; refDuplicada: boolean; excluirProofId?: string;
+    /** Pago ya leído en lote (`recheck`). `undefined` = leerlo aquí; `null` = no está en Kepler. */
+    pago?: PagoParaCoincidir | null;
   }): Promise<{ coincidencias: CoincidenciasPago; validar: boolean; motivo: string }> {
-    const pagoK = await this.pagoParaCoincidir(trx, a.sucursal, a.docPrefix, a.folio);
+    const pagoK = a.pago !== undefined ? a.pago : await this.pagoParaCoincidir(trx, a.sucursal, a.docPrefix, a.folio);
     const k = coincidenciasPago(a.lectura, pagoK ?? { monto: null });
     const faltan = diferenciasPago(k);
     if (!pagoK) return { coincidencias: k, validar: false, motivo: 'el pago no está en Kepler' };
@@ -504,15 +511,39 @@ export class SupplierPaymentProofsService {
   }
 
   /** `[PC.6]` Lo que las cuatro coincidencias necesitan del pago: monto, día, proveedor y banco. */
-  private async pagoParaCoincidir(trx: Knex, sucursal: string, docPrefix: string, folio: string): Promise<{
-    monto: string | null; pago_dia: string | null; proveedor_nombre: string | null; clave_banco: string | null; account_label: string | null; banco_nombre: string | null;
-  } | null> {
+  private async pagoParaCoincidir(trx: Knex, sucursal: string, docPrefix: string, folio: string): Promise<PagoParaCoincidir | null> {
     const r = await trx('analytics.erp_supplier_payments as c')
       .joinRaw(LATERAL_BANCO_DEL_PAGO)
       .where({ 'c.tenant_id': this.tenantCtx.requireTenantId(), 'c.sucursal': sucursal, 'c.doc_prefix': docPrefix, 'c.folio': folio })
       .first(trx.raw('c.monto::numeric AS monto'), trx.raw(`to_char(c.pago_date, 'YYYY-MM-DD') AS pago_dia`),
         'c.proveedor_nombre', 'kb.clave_banco', 'kb.account_label', 'kb.banco_nombre');
     return r ?? null;
+  }
+
+  /**
+   * `[OPS-AUD.4]` **Lo mismo que `pagoParaCoincidir`, para muchos pagos en UNA consulta.**
+   * `recheck()` lo llamaba una vez por comprobante (hasta 500, cada 20 min desde el autopiloto):
+   * medido en prod el 2026-10-27, **39,000 llamadas × 523 ms = 20,400 s** en ~3 días — la 2ª
+   * consulta más cara de `pg-prod`. Llave `sucursal|doc_prefix|folio`; un pago que no vuelve no
+   * está en Kepler. ⚠️ Sólo llaves con `doc_prefix`: una tupla con NULL no matchea en un `IN`,
+   * mientras que `pagoParaCoincidir` la compara con `IS NULL` — esas se siguen leyendo una por una.
+   */
+  private async pagosParaCoincidir(trx: Knex, llaves: { sucursal: string; docPrefix: string; folio: string }[]): Promise<Map<string, PagoParaCoincidir>> {
+    const out = new Map<string, PagoParaCoincidir>();
+    if (!llaves.length) return out;
+    const rows: (PagoParaCoincidir & { sucursal: string; doc_prefix: string; folio: string })[] = await trx('analytics.erp_supplier_payments as c')
+      .joinRaw(LATERAL_BANCO_DEL_PAGO)
+      .where('c.tenant_id', this.tenantCtx.requireTenantId())
+      .whereIn(['c.sucursal', 'c.doc_prefix', 'c.folio'], llaves.map((l) => [l.sucursal, l.docPrefix, l.folio]))
+      .select('c.sucursal', 'c.doc_prefix', 'c.folio',
+        trx.raw('c.monto::numeric AS monto'), trx.raw(`to_char(c.pago_date, 'YYYY-MM-DD') AS pago_dia`),
+        'c.proveedor_nombre', 'kb.clave_banco', 'kb.account_label', 'kb.banco_nombre');
+    // `.first()` se quedaba con la primera fila: aquí también gana la primera por llave.
+    for (const { sucursal, doc_prefix, folio, ...pago } of rows) {
+      const k = `${sucursal}|${doc_prefix}|${folio}`;
+      if (!out.has(k)) out.set(k, pago);
+    }
+    return out;
   }
 
   /**
@@ -538,6 +569,9 @@ export class SupplierPaymentProofsService {
       // cuenta en el CENTRO). Sin migración: con la lectura vieja (sólo «0201») no hay cuenta que
       // reconocer, y eso sigue saliendo como no verificable/ajena hasta que se relea el comprobante.
       const tails = await this.ownBankTails(trx);
+      const pagos = await this.pagosParaCoincidir(trx, pendientes
+        .filter((p: { doc_prefix: string | null }) => p.doc_prefix != null)
+        .map((p: { sucursal: string; doc_prefix: string; folio: string }) => ({ sucursal: p.sucursal, docPrefix: p.doc_prefix, folio: p.folio })));
       for (const p of pendientes) {
         const refDuplicada = p.ref_norm
           ? !!(await trx('finance.supplier_payment_proofs').where('ref_norm', p.ref_norm).whereNot('status', 'rechazado')
@@ -548,6 +582,7 @@ export class SupplierPaymentProofsService {
           sucursal: p.sucursal, docPrefix: p.doc_prefix, folio: p.folio,
           lectura: { monto: p.ocr_monto != null ? Number(p.ocr_monto) : null, fecha: p.ocr_fecha, cuenta_origen: p.ocr_cuenta_origen, beneficiario: p.ocr_ordenante },
           verificada: p.lectura_verificada === true, ocrStatus: p.ocr_status, refDuplicada, excluirProofId: p.id,
+          pago: p.doc_prefix != null ? (pagos.get(`${p.sucursal}|${p.doc_prefix}|${p.folio}`) ?? null) : undefined,
         });
         await trx('finance.supplier_payment_proofs').where({ id: p.id, status: 'recibido' }).update({
           coincidencias: JSON.stringify(auto.coincidencias), updated_at: trx.fn.now(),
