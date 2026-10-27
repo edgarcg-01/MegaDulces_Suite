@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Changed — Compras › Catálogo › Productos: vistas Sencillo y Detallado (PF.12, 2026-10-26)
+- Botón **Sencillo / Detallado**. Sencillo: Producto · Proveedor · Unidades de medida (con equivalencia) · Precio por unidad. Detallado: + Este mes ▲▼ y etiquetas Líder/Nuevo/Caducidad.
+- **Ficha lateral**: códigos, unidades y precio, venta y existencia por sucursal en unidades compuestas, última entrada; en Detallado además Qué hacer y traspasos, venta del mes en palabras, margen y compras (con permiso de costo) y caducidad por lote.
+- Un solo buscador (acentos, todos los códigos de barras, proveedor, unidad). Menú «Ver» agrupado en lugar de la fila de pestañas; menú «Mostrar» con conteos.
+- Removed: barra de proveedores, selector «Por proveedor / Para cuidar hoy», conteos, aviso BASE-MXN y el diálogo «Editar producto».
+- Sin migraciones ni permisos nuevos → sin re-login.
 ### Added — Finanzas › Gastos: aviso de las rondas de revisión (GX.86, 2026-10-26)
 - Al dar de alta un gasto, un aviso dice «Puedes subir tus gastos a cualquier hora del día, sin problema» y en qué ronda se revisa el tuyo («hoy a las 5:00 pm», «el lunes a las 8:30 am»…). Rondas: lunes a viernes, 8:30–10:00 am y 5:00–6:00 pm.
 - No bloquea nada: se puede subir a cualquier hora. Sale en la captura, en el link del celular y en «Adjuntar evidencia»; los aprobadores no lo ven. El acuse al mandarlo repite la ronda.

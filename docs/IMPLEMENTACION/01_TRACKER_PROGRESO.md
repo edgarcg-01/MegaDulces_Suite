@@ -1,5 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
+> **Índice navegable** — 1989 KB, 12647 líneas, 72 secciones.
 > **Índice navegable** — 1991 KB, 12671 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
@@ -27,6 +28,58 @@
 | 4783 | 4807 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
 | 4808 | 4830 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
 | 4831 | 4869 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 4870 | 5498 | 56 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 5499 | 5683 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 5684 | 5726 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 5727 | 5804 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 5805 | 5898 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 5899 | 6034 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 6035 | 6051 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 6052 | 6100 | 87 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 6101 | 6168 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 6169 | 6421 | 20 | Fase CH — Checadores / Control de asistencia |
+| 6422 | 6487 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 6488 | 6515 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6516 | 6682 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 6683 | 7030 | 119 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 7031 | 7093 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 7094 | 7223 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7224 | 7286 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 7287 | 7447 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7448 | 7518 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7519 | 7567 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 7568 | 7600 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 7601 | 7990 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 7991 | 8122 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 8123 | 8169 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 8170 | 8209 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 8210 | 8262 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8263 | 8329 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8330 | 8492 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8493 | 8776 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8777 | 8944 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8945 | 11043 | 157 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11044 | 11052 | 1 | Fase RR — Ventas por ruta |
+| 11053 | 11348 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11349 | 11359 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11360 | 11380 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11381 | 11391 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11392 | 11403 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11404 | 11463 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11464 | 11891 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 11892 | 11906 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 11907 | 11948 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 11949 | 12094 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12095 | 12125 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12126 | 12173 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12174 | 12197 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12198 | 12227 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12234 | 12243 | 1 | 📝 Convenciones |
+| 12244 | 12281 | 13 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12282 | 12300 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12301 | 12353 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12354 | 12710 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12711 | 12731 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 | 4870 | 5523 | 59 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
 | 5524 | 5708 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
 | 5709 | 5751 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
@@ -12313,6 +12366,7 @@ Plan y decisiones en [`FASE_NP_PRODUCTOS_NUEVOS.md`](FASES/FASE_NP_PRODUCTOS_NUE
 - [x] 🧪 `[PF.9]` Catálogo por proveedor: barra de proveedores por venta (aparte los sin proveedor), encabezado con 4 cifras, chips por situación y renglones en palabras (alcanza para / qué hacer y por qué); «Para cuidar hoy» como vista aparte. Endpoints `flow/proveedores` y `flow/proveedores/:id` en vivo con memo de 1 min, sin migración. Prod: 0.3 s / 1.1–1.9 s (2026-10-12)
 - [x] 🧪 `[PF.10]` Columna **«Última modificación»** en `/compras/catalogo`: la fecha en que el producto se tocó de verdad, más orden «Falta revisar» (sin cambio arriba, después del más viejo al más nuevo, y a igual fecha el que más vende). Derivada de `analytics.master_data_history` (VP.3.1/ADR-056) — **sin tabla nueva ni migración**; es su **primer consumidor en TS**: la escribían los triggers y nadie la sacaba a pantalla. ⛔ **No se usó `catalog.products.updated_at`, que era el camino obvio y es CHURN**: medido en prod 2026-10-15 sobre el universo de la pantalla (9,971 activos con SKU), **9,115 (91.4%) traen la marca de HOY** y `updated_by` está NULL en el 100% — con esa columna nada aparecería jamás como pendiente. La derivada fecha **2,857 (28.7%)**; el resto dice «Sin cambios» con el **piso del log (7-sep-2026) declarado en pantalla**, nunca «nunca» (ADR-056). SQL 65 ms con 591 ids (el proveedor más grande = el techo real). 471 pruebas de `compras` y 165 de `commercial-products` en verde; `check:pantalla` sin fallas nuevas. **Deuda con nombre**: el único cambio registrado por una PERSONA es cero — los 7,040 son de importers; si lo que se quiere es «quién lo revisó», eso es HITL y necesita su propia tabla. 2026-10-15.
 - [x] 🧪 `[PF.11]` **Orden por columna, en los dos sentidos** en `/compras/catalogo`: los 6 encabezados son botones (ícono + `aria-sort`; 2º clic invierte) y la barra conserva `<select>` de columna + botón de sentido — **un solo estado**, porque dos controles para lo mismo sin estado compartido se contradicen en pantalla. El botón de sentido es lo que hace que el orden **siga existiendo en angosto**, donde el encabezado se oculta. Sobre `shared/util/table-sort.util` (`toggleSort`/`sortIcon`/`ariaSort`/`sortRows`), que ya usaban 3 pantallas: **no se escribió un ordenador nuevo**. Cada columna arranca del lado útil (`DIR_INICIAL`: dinero desc, nombre asc, cobertura/margen/urgencia/modificación asc) y cada sentido se dice **en palabras** («Lo que se acaba primero»), nunca «ascendente». ⭐ **El nulo no es uno solo**: `cobertura` y `margen` ausentes van al final en LOS DOS sentidos (un dato que no se midió no compite por el primer lugar), mientras que «Sin cambios» de `[PF.10]` **no es nulo sino cota inferior** y compite con la fecha del piso del log — pero **sin piso vuelve a ser nulo y va al final**, con prueba. «Qué hacer» ordena por urgencia, no por abecedario. 479 pruebas de `compras` en verde (+8); `check:pantalla`, `templates-types`, `estilos`, `motion`, `teclado` y `tables` sin fallas nuevas. ⚠️ **Sin validación visual** (no se levanta nada en local): lo más probable de ajustar es el ancho de la barra al envolver el botón de sentido en pantallas medianas. 2026-10-15.
+- [x] 🧪 `[PF.12]` **Productos en dos vistas, Sencillo / Detallado** en `/compras/catalogo` (2026-10-26). Sencillo: Producto · Proveedor · Unidades de medida (una por renglón, con equivalencia) · Precio por unidad, y ficha lateral con códigos, unidades y precio, venta y existencia por sucursal en unidades compuestas («65 CJA 5 PAQ») y última entrada. Detallado: + Este mes (▲▼) y etiquetas (Líder/Nuevo/Caducidad), ficha con Qué hacer y traspasos del motor PF, sucursales, venta del mes en palabras, margen y compras 90 d (con permiso de costo) y caducidad por lote. Un buscador (acentos, todos los códigos, proveedor, unidad), menú «Ver» agrupado (oculta las 4 pestañas vacías) y «Mostrar» con conteos en el servidor. Endpoints aditivos `catalogo`, `catalogo/:id/ficha`, `catalogo/:id/compras`; **sin migración**. «Qué hacer» sólo con ≤ 200 resultados (si no, «sin medir»: un proveedor grande tardaba 1.1–1.9 s en prod). Quita barra de proveedores (PF.9), «Para cuidar hoy» como selector y **«Editar producto»** (falta decidir dónde vive). view 584/584 · commercial-products 277/277. Local 48–307 ms; **falta medir en prod, validación visual y arranque de la API**. Doc `docs/MODULOS/compras-catalogo-productos.md`
 - [x] 🧪 `[NP.14]` El primer cálculo de la matvista en prod no terminaba (plan cuadrático: la serie por sucursal se unía con un ciclo anidado sobre estimaciones de 1 fila). Mig `20261008111426`: series buscando cada día en un mapa, sin unir tablas; `fn_new_products_movimientos` a `plpgsql` con `force_custom_plan` (misma consulta, leída de `pg_proc`). Servicio: tope de 3 min al REFRESH y una matvista vacía no espera su cadencia. Mismo resultado (147 filas, 0 diferencias), candado 134/134. Pendiente: aplicar la mig en prod y medir el refresco.
 
 ---
