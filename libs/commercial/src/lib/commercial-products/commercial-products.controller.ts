@@ -24,6 +24,10 @@ import {
 import { ProductFlowService } from './product-flow.service';
 import { FichaSucursalesService } from './ficha-sucursales.service';
 import { PreciosCatalogoService } from './precios-catalogo.service';
+import { CatalogoFichaService } from './catalogo-ficha.service';
+import type { CatalogoLista, FichaProducto } from './catalogo-ficha';
+import { CatalogoDetalladoService } from './catalogo-detallado.service';
+import type { CatalogoListaDetallada, Compras90 } from './catalogo-detallado';
 import type {
   CampoFicha,
   CampoSinClasificar,
@@ -51,6 +55,8 @@ export class CommercialProductsController {
     private readonly flow: ProductFlowService,
     private readonly ficha: FichaSucursalesService,
     private readonly precios: PreciosCatalogoService,
+    private readonly catalogo: CatalogoFichaService,
+    private readonly detallado: CatalogoDetalladoService,
   ) {}
 
   @Get()
@@ -270,6 +276,66 @@ export class CommercialProductsController {
       only_with_price: onlyWithPrice === 'true',
       limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  // Compras › Catálogo: lista y ficha. Van ANTES de `@Get(':id')` para que Nest no tome «catalogo» como id.
+  @Get('catalogo')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: 'Catálogo: productos activos con sus unidades y el precio de UNA sucursal (default 01). '
+      + 'Búsqueda por palabras sobre nombre, SKU, códigos, proveedor y unidades. pageSize máx 200. '
+      + 'mostrar=todos|varios_codigos|sin_codigo|sin_precio filtra en el servidor; los conteos son de la búsqueda '
+      + 'entera (conteos.sinPrecio null = no medible: la base no tiene precio por sucursal). '
+      + 'vista=detallado (aditivo; sin él, la respuesta de siempre): + venta del mes, etiquetas y mostrar=comprar|traspasar|'
+      + 'esperar|sobra|no_comprar|lideres_pendiente|no_se_venden|caducidad|nuevos|sin_proveedor; orden=producto|mes, dir=asc|desc. '
+      + 'Un conteo null = no medido (su porqué en notas).',
+  })
+  catalogoLista(
+    @Query('search') search?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('mostrar') mostrar?: string,
+    @Query('vista') vista?: string,
+    @Query('orden') orden?: string,
+    @Query('dir') dir?: string,
+  ): Promise<CatalogoLista | CatalogoListaDetallada> {
+    if (vista === 'detallado') {
+      return this.detallado.lista({ search, sucursal, page: Number(page), pageSize: Number(pageSize), mostrar, orden, dir });
+    }
+    return this.catalogo.lista({ search, sucursal, page: Number(page), pageSize: Number(pageSize), mostrar });
+  }
+
+  @Get('catalogo/:id/compras')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: 'Ficha detallada: compras (entradas XA20) de los últimos 90 días y la última entrada; el costo sólo con permiso de costo.',
+  })
+  catalogoCompras(
+    @Param('id') id: string,
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<Compras90> {
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.detallado.compras(id, { puedeVerCosto });
+  }
+
+  @Get('catalogo/:id/ficha')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: 'Ficha de catálogo de un producto: unidades y precios de la sucursal, rango de la red, existencia '
+      + 'y venta del mes por sucursal, última entrada (el costo sólo con permiso de costo).',
+  })
+  catalogoFicha(
+    @Param('id') id: string,
+    @Query('sucursal') sucursal?: string,
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<FichaProducto> {
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.catalogo.ficha(id, { sucursal, puedeVerCosto });
   }
 
   // `[NP.2]` Productos nuevos. Van ANTES de `@Get(':id')` por la misma razón que `price-report`.
