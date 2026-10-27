@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1980 KB, 12699 líneas, 72 secciones.
+> **Índice navegable** — 1983 KB, 12731 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -57,28 +57,28 @@
 | 8307 | 8469 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
 | 8470 | 8753 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
 | 8754 | 8921 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8922 | 11096 | 164 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11097 | 11105 | 1 | Fase RR — Ventas por ruta |
-| 11106 | 11401 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11402 | 11412 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11413 | 11433 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11434 | 11444 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11445 | 11456 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11457 | 11516 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11517 | 11944 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 11945 | 11959 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 11960 | 12001 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 12002 | 12147 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12148 | 12178 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12179 | 12226 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12227 | 12250 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12251 | 12280 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12287 | 12296 | 1 | 📝 Convenciones |
-| 12297 | 12333 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12334 | 12352 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12353 | 12405 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12406 | 12762 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12763 | 12783 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 8922 | 11128 | 167 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11129 | 11137 | 1 | Fase RR — Ventas por ruta |
+| 11138 | 11433 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11434 | 11444 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11445 | 11465 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11466 | 11476 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11477 | 11488 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11489 | 11548 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11549 | 11976 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 11977 | 11991 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 11992 | 12033 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12034 | 12179 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12180 | 12210 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12211 | 12258 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12259 | 12282 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12283 | 12312 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12319 | 12328 | 1 | 📝 Convenciones |
+| 12329 | 12365 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12366 | 12384 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12385 | 12437 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12438 | 12794 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12795 | 12815 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -10882,8 +10882,9 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   escondidas (corregido en el comentario de `ci.yml`). Misma trampa que `[CGP-D.1.2]` cerró en
   «Base de caja desde cero». **Prueba negativa** (base del job en `pgvector:pg18` desechable): sin
   la línea, 17 ✗ / 31 ✓ y código **0**; con ella, las mismas 17 y código **1** con su anotación.
-  ⏳ Falta la corrida del CI: tiene que salir ROJA en ese paso hasta que cierre `[CGP-D.1.4]`.
-- [ ] ⬜ **`[CGP-D.1.4]`** **Las 17 fallas que escondía «Servicio real del corte».** Reproducidas en
+  ⏳ Falta la corrida del CI. ⚠️ `[CGP-D.1.4]` va en la MISMA rama: esa corrida ya no puede salir
+  ROJA en ese paso, así que la prueba negativa de esta línea sigue siendo la local.
+- [ ] 🧪 **`[CGP-D.1.4]`** **Las 17 fallas que escondía «Servicio real del corte».** Reproducidas en
   local título por título (17 ✗ / 31 ✓, igual que la corrida 40422432878), también sobre base nueva
   SIN correr antes las suites: no es estado que dejen ellas. Dos causas medidas:
   - **13 del corte** (`cash-cut.servicio-real` 11, `cash-ledger.http-real` 2; síntoma: el corte no
@@ -10902,6 +10903,37 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   Con las dos corregidas SÓLO en una base desechable (zona de prod + `GRANT USAGE`/`SELECT` en
   `identity`), el paso da **48 ✓ / 0 ✗ y código 0**: no hay una tercera causa escondida, y es el
   control de `[CGP-D.1.3]` (con pipefail, un vitest verde sigue saliendo 0).
+  **Arreglo (2026-10-26), en el código y no en el servidor:**
+  - **Jornada:** `enJornadaLibro` (`caja-jornadas.query.ts`) pasa el día por `::timestamp` antes del
+    `AT TIME ZONE` y queda como la ÚNICA definición del rango: las dos copias de `arqueoDelDia`
+    (cuadro y lista, `cash-cut.service.ts`) la llaman con `.modify()`. Barrido de
+    `libs/finance/src/lib/caja`: no queda otra; el resto convierte `timestamptz` o `date + time`, que
+    no dependen de la sesión (tipos leídos en prod: `created_at`, `closed_at`, `occurred_at`,
+    `counted_at` son `timestamptz`; `fecha` y `accounting_date`, `date`). El espejo de
+    `test-newdb-arqueo-reloj.js` pasa a la misma forma; `cash-cut.alcance.spec.ts` fija la nueva y
+    rechaza la vieja.
+  - **Sensor:** el preparador da a `app_runtime` `USAGE` en `identity` y `SELECT` en `identity.users`.
+    Prod (sólo lectura): `USAGE` + `SELECT/INSERT/UPDATE/DELETE`, otorgados directo por `postgres`, sin
+    roles heredados. Acá sólo lo que caja lee (el sensor y `darLlave`): nunca más que prod.
+  **Equivalencia en prod** (sólo lectura, `system_identifier 7688376744939610156`): la sesión está en
+  `America/Mexico_City` (fuente `command line`; `app_runtime` no tiene zona propia en
+  `pg_db_role_setting`). Ahí la frontera vieja y la nueva coinciden en **2,922 de 2,922 días**
+  (2020–2027), y en los últimos 30 (27-sep a 26-oct) dan **las mismas filas**, por conteo y md5 de los
+  ids, que el testigo `(created_at AT TIME ZONE …)::date`: `finance.cash_ledger` 504 filas en 16 días,
+  `analytics.v_caja_reparto_movimiento` 501 en 15, **0 días distintos**. Con `SET TimeZone = 'UTC'` la
+  vieja se corre de 10 a 12 h en los 2,922 días y se aparta del testigo en **20 de 30** días (libro;
+  suma 491 filas contra 504) y 19 de 30 (vista); la nueva, en **0**.
+  **Pruebas** (pasos del job `caja-db` sacados de `ci.yml`, `bash -e`, `pgvector:pg18` desechable en
+  `Etc/UTC`): antes, «Servicio real del corte» **17 ✗ / 31 ✓, código 1**; después, base 35 migraciones ·
+  suites 28 ✓ · 44 ✓ / 4 NO MEDIDO · 30 ✓ · 54 ✓ (0 ✗) · «Servicio real del corte» **48 ✓ / 0 ✗,
+  código 0** · «Fechas de caja en tres zonas» código 0 (6 + 634 ✓ en México y en Tokio; Tokio corrido
+  desde PowerShell porque Git Bash borra `TZ` al lanzar `node`). **Negativas:** la definición con la
+  forma vieja → **13 ✗ / 35 ✓, código 1** (y el paso de zonas en rojo por `cash-cut.alcance.spec.ts`);
+  sin el `GRANT` → **4 ✗ / 44 ✓, código 1** (`permission denied for schema identity`). `arqueoDelDia` no
+  lo ejerce ninguna prueba del repo: un arnés de scratchpad contra la misma base UTC da 3/3 con el
+  arreglo y 2 ✗ con la forma vieja (el día trae 1 movimiento de 3). `vitest src/lib/caja`: 634 ✓ /
+  48 omitidas (las `*-real`, sin base).
+  ⏳ Falta la corrida del CI. ⚠️ Typecheck NO MEDIDO en local (lo hace `Build & typecheck`).
   ⚠️ No cambiar el Postgres del CI a hora de México para que pase: eso escondería el defecto.
 - [ ] 🧪 **`[CGP-D.2]`** `cash-ledger-cuts` reparada: 43 ✓ / 0 ✗ / 4 NO MEDIDO en local.
   `cash-ledger` reparada pero fuera de la base del corte (**`[CGP-D.2b]`**, declarada).
