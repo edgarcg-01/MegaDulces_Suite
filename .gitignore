@@ -188,3 +188,7 @@ Thumbs.db
 .DS_Store
 ~$*
 database/scripts/out/
+
+# [PURGA.P3] Instantaneas de privilegios/alcance por usuario (nombres de usuario reales): las
+# generan database/scripts/snapshot-user-{privileges,scope}.js --write; son locales, el repo es PUBLICO.
+database/tests/fixtures/*-baseline.json
