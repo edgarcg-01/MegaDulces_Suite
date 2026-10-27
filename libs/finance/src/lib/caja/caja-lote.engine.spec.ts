@@ -8,7 +8,7 @@
  *     volvería a capturar de a una y toda la fase sería inútil.
  */
 import {
-  esConfirmable, cuentaPorRegla, aplicaPatron, resumirLote, evaluarDescuadre, evaluarArqueo, desgloseNeto, rankearFrecuentes,
+  esConfirmable, cuentaPorRegla, aplicaPatron, resumirLote, evaluarDescuadre, evaluarArqueo, evaluarArqueoDeEgreso, desgloseNeto, rankearFrecuentes,
   esFechaFutura, cvDe, propuestaDe, rutaCodigo, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS, LOTE_EPSILON, REGLA_MAX_PATRON,
   cuentaDelTipoDeDocumento,
   type MapaRuta, type FilaLote, type UsoGasto, type ReglaGasto,
@@ -404,6 +404,42 @@ describe('propuestaDe — la cuenta que la contabilidad ya usó', () => {
 // debe generar un arqueo a todo y este botón no cumple esa función"*. La regla vivía como método
 // privado del servicio y por eso NO tenía ni una prueba: probarla exigía un doble de Knex, y un
 // doble de Knex no ejecuta SQL. Acá es pura, y las que mandan son las negativas.
+
+describe('[CGA-A.56.1] evaluarArqueoDeEgreso — lo que paga el retiro de CAOS no se cuenta en el cajón', () => {
+  const b = (v: number, p: number) => ({ denominacion: v, piezas: p });
+  const caos = (...montos: number[]) => ({ tipo: 'gasto', origen_efectivo: 'caos', caos_links: montos.map((monto) => ({ monto })) });
+
+  it('el retiro paga el gasto entero: la reja en cero cuadra', () => {
+    expect(evaluarArqueoDeEgreso(800, 0, [b(500, 0)], 0, false, caos(800))).toEqual({ ok: true, motivo: 'cuadra', suma: 800, cubierto: 800 });
+  });
+
+  it('el retiro alcanza para parte: el cajón cuenta SÓLO lo que falta', () => {
+    expect(evaluarArqueoDeEgreso(800, 0, [b(100, 3)], 0, false, caos(500))).toMatchObject({ ok: true, motivo: 'cuadra', cubierto: 500 });
+  });
+
+  it('⛔ [negativa] el cajón cuenta de menos: no cuadra, y la diferencia es lo que falta', () => {
+    const v = evaluarArqueoDeEgreso(800, 0, [b(100, 2)], 0, false, caos(500));
+    expect(v.ok).toBe(false);
+    if (v.motivo === 'no_cuadra') expect(v.diferencia).toBe(-100);
+  });
+
+  it('⛔ [negativa] sin origen CAOS (cajón) o en un INGRESO, los enlaces no descuentan nada', () => {
+    expect(evaluarArqueoDeEgreso(800, 0, [], 0, true, { tipo: 'gasto', origen_efectivo: 'cajon', caos_links: [{ monto: 800 }] }).ok).toBe(false);
+    expect(evaluarArqueoDeEgreso(800, 0, [b(100, 3)], 0, false, { tipo: 'ingreso', origen_efectivo: 'caos', caos_links: [{ monto: 500 }] }).ok).toBe(false);
+  });
+
+  it('⛔ [negativa] un enlace que pide más de lo que cuesta el gasto no cuadra', () => {
+    expect(evaluarArqueoDeEgreso(800, 0, [], 0, false, caos(1000)).ok).toBe(false);
+  });
+
+  it('la pantalla ANTERIOR (contó el gasto entero en la reja con el retiro vinculado) sigue entrando, sin descontar', () => {
+    expect(evaluarArqueoDeEgreso(800, 0, [b(500, 1), b(100, 3)], 0, false, caos(800))).toEqual({ ok: true, motivo: 'cuadra', suma: 800, cubierto: 0 });
+  });
+
+  it('el crédito y el retiro se suman: los dos son parte del monto que no está en la reja', () => {
+    expect(evaluarArqueoDeEgreso(800, 0, [b(100, 1)], 200, false, caos(500)).ok).toBe(true);
+  });
+});
 
 describe('evaluarArqueo — un conteo sin desglose no es un arqueo', () => {
   const b = (v: number, p: number) => ({ denominacion: v, piezas: p });

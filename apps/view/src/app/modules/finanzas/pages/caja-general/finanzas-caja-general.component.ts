@@ -3391,6 +3391,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                                   (onRemove)="desvincularCaos(v.external_id)"></p-chip>
                         }
                       </div>
+                      @if (cubiertoPorRetiros() > 0) {
+                        <span class="fin-dim">El retiro paga {{ money(cubiertoPorRetiros()) }} del documento: cuenta abajo sólo lo que salió del cajón.</span>
+                      } @else if (!cobroElegido()) {
+                        <span class="fin-dim">Sin documento no hay cifra que el retiro cubra: cuenta abajo lo que se pagó.</span>
+                      }
                     }
                   } @else if (origenEfectivo() === 'cajon') {
                     <span class="fin-dim">Sale del efectivo del cajón: cuéntalo abajo.</span>
@@ -3615,8 +3620,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                        [class.es-ok]="v.estado === 'cuadra'"
                        [class.es-warn]="v.estado === 'sobra' || v.estado === 'falta'">
                     <div class="cg-total-izq">
-                      <div class="cg-lbl-micro">{{ hayCajero() ? 'Contado · cajero + a mano' : 'Contado' }}</div>
+                      <div class="cg-lbl-micro">{{ hayCajero() ? 'Contado · cajero + a mano' : cubiertoPorRetiros() > 0 ? 'Retiro de CAOS + cajón' : 'Contado' }}</div>
                       <div class="cg-total-n mono">{{ money(f().monto) }}</div>
+                      <!-- [CGA-A.56.1] El total se arma de dos partes y se dicen las dos: lo que paga
+                           el retiro no se cuenta en la reja, y sin decirlo el numero parece tecleado. -->
+                      @if (cubiertoPorRetiros() > 0) {
+                        <div class="mono cg-total-esp">retiro de CAOS {{ money(cubiertoPorRetiros()) }} · cajón {{ money(f().monto - cubiertoPorRetiros()) }}</div>
+                      }
                     </div>
                     <span class="cg-bandeja-sp"></span>
                     <div class="cg-total-der">
@@ -4604,6 +4614,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       this.caosVinculados.set([]);
       this.caosSugeridos.set([]);
     }
+    this.recomputarMonto();   // `[CGA-A.56.1]` lo que cubría el retiro deja (o vuelve a) descontarse
   }
   /**
    * `[CGA-A.56]` Lo que se toma de cada retiro: el monto del gasto, repartido en el orden en que se
@@ -4622,6 +4633,27 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     }
     return out;
   }
+  /**
+   * ⭐ `[CGA-A.56.1]` Lo que los retiros vinculados PAGAN de este egreso, y por eso SE DESCUENTA de
+   * lo que hay que contar en el cajón (Edgar, 2026-10-27: *«al asociar a un egreso no se descuenta
+   * del total»*). Desde A.56 el retiro sólo se vinculaba y la reja seguía pidiendo el gasto
+   * completo: el egreso quedaba DOS veces — como billetes que salen del cajón y como dinero de la
+   * bóveda (`en_boveda` del corte, `[CG.95]`). La regla del corte es «CAOS pone los billetes, el
+   * cajón la morralla»; la reja cuenta sólo lo que el retiro no alcanza.
+   *
+   * ⚠️ Sólo con un documento anclado: sin él el monto SALE del conteo y no hay cifra que cubrir.
+   * Los enlaces que se mandan al guardar son ESTOS (del documento, no del total contado): si se
+   * contara de más, el retiro no se consume de más — la diferencia sale como sobrante.
+   */
+  linksCubiertos = computed(() => {
+    const tipo = this.f().tipo;
+    const origen = this.origenEfectivo();
+    const doc = this.cobroElegido();
+    const vinculados = this.caosVinculados();
+    if (tipo !== 'gasto' || origen !== 'caos' || !doc || !vinculados.length) return [];
+    return this.linksDeEgreso(Number(doc.monto));
+  });
+  cubiertoPorRetiros = computed(() => redondea(this.linksCubiertos().reduce((a, l) => a + Number(l.monto || 0), 0)));
   buscandoCajero = signal(false);
 
   /**
@@ -5945,7 +5977,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   // probable con un día fijo. Ver `motivosDeBloqueo`.
   bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo(
     {
-      ...this.f(), denominaciones: this.denominacionesParaGuardar(), venta_credito: this.ventaCredito(),
+      // `[CGA-A.56.1]` Lo que paga un retiro de CAOS cuenta para el arqueo como el crédito: es parte
+      // del monto que NO se cuenta en el cajón. El servidor lo cuenta igual (`caos_links` del egreso).
+      ...this.f(), denominaciones: this.denominacionesParaGuardar(),
+      venta_credito: (Number(this.ventaCredito()) || 0) + this.cubiertoPorRetiros(),
       // ⛔ [CG.38] Sin esto, devolver cambio trababa el guardado con `arqueo_no_cuadra`: el
       // desglose sumaba lo que ENTRÓ y el monto ya era el NETO, así que la diferencia era
       // exactamente el cambio. El botón quedaba apagado justo en el caso que la fase vino a
@@ -7790,6 +7825,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       }]);
       this.caosSugeridos.update((s) => s.filter((x) => x.external_id !== c.external_id));
       this.origenEfectivo.set('caos');
+      this.recomputarMonto();   // `[CGA-A.56.1]` lo que paga el retiro se descuenta de lo que hay que contar
       return;
     }
     this.caosVinculados.update((v) => [...v, {
@@ -8493,7 +8529,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // ⭐ [CG.38] El cambio que se devolvió SE RESTA. Sin esto, un cobro de $4,830 con un billete
     // de $5,000 se guardaba como $5,000 y los $170 que volvieron al cliente quedaban dentro del
     // movimiento: la caja declaraba tener efectivo que ya no estaba.
-    this.onMonto(efectivo - this.totalDevuelto() + (Number(this.ventaCredito()) || 0));
+    // ⭐ `[CGA-A.56.1]` + lo que pagan los retiros de CAOS vinculados a un egreso: tampoco se cuenta
+    // en el cajón, igual que el crédito.
+    this.onMonto(efectivo - this.totalDevuelto() + (Number(this.ventaCredito()) || 0) + this.cubiertoPorRetiros());
   }
 
   // ── [CG.38] El cambio que se devuelve ───────────────────────────────────────────────────────
@@ -8700,7 +8738,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // ⭐ `[CGA-A.56]` En un EGRESO se toma de los retiros sólo lo que el gasto necesita (no el
       // retiro entero), y se dice de dónde salió el dinero.
       caos_links: !this.caosVinculados().length ? undefined
-        : f.tipo === 'gasto' ? this.linksDeEgreso(Number(f.monto))
+        // `[CGA-A.56.1]` Con documento: lo que el retiro paga del DOCUMENTO (lo mismo que se descontó
+        // del conteo). Sin documento queda como en A.56: el monto contado.
+        : f.tipo === 'gasto' ? (this.cobroElegido() ? this.linksCubiertos() : this.linksDeEgreso(Number(f.monto)))
         : this.caosVinculados().map((v) => ({ device: v.device, external_id: v.external_id, monto: v.monto, senales: v.senales })),
       origen_efectivo: f.tipo === 'gasto' ? (this.origenEfectivo() ?? undefined) : undefined,
       // La procedencia viaja con el movimiento: qué campo propuso el motor y con qué respaldo.
