@@ -832,37 +832,37 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-date-input { padding:var(--sp-1) var(--sp-2); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:var(--fs-sm); }
     .cal-muted { color:var(--text-faint); }
     .cal-neg, .cal-bad-txt { color:var(--bad-soft-fg); }
-    .cal-check { display:flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); color:var(--text-muted); white-space:nowrap; }
+    .cal-check { display:flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; }
     :host ::ng-deep .cal-sel { width:9rem; }
     .cal-benef { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:var(--sp-1); color:var(--text-main); }
     /* Sucursal = centro de costo: texto, no chip. */
-    .cal-suc { display:inline; font-size:var(--fs-xs); font-weight:600; color:var(--text-main); margin-right:var(--sp-1); }
+    .cal-suc { display:inline; font-size:var(--fs-sm); font-weight:600; color:var(--text-main); margin-right:var(--sp-1); }
     /* [PGP.12] La referencia del proveedor: monoespaciada porque se coteja contra un papel. */
-    .cal-ref { font-family:var(--font-mono); font-size:var(--fs-nano); color:var(--text-muted); margin-left:var(--sp-1); }
+    .cal-ref { font-family:var(--font-mono); font-size:var(--fs-sm); color:var(--text-muted); margin-left:var(--sp-1); }
     .cal-ref::before { content:'· '; }
     .cal-empty { text-align:center; color:var(--text-muted); padding:var(--sp-4); white-space:normal; margin:0; }
-    .cal-notes { display:block; font-size:var(--fs-xs); color:var(--text-faint); margin-top:var(--sp-1); }
+    .cal-notes { display:block; font-size:var(--fs-sm); color:var(--text-faint); margin-top:var(--sp-1); }
     /* [TP.20.5] La factura es un enlace a su ficha: sin color en reposo; subrayado al pasar y al foco. */
     .cal-reflink { border:0; background:transparent; color:inherit; cursor:pointer; padding:0; font:inherit; text-align:left; }
     .cal-reflink:hover { text-decoration:underline; }
     .cal-reflink:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm); }
     /* [TP.20.4] Pronto pago: lo urgente se marca con PESO e icono (rayo), no con ambar. */
-    .cal-pp { display:inline-flex; align-items:center; gap:.25rem; margin-left:var(--sp-1); font-size:var(--fs-xs); color:var(--text-muted); }
+    .cal-pp { display:inline-flex; align-items:center; gap:.25rem; margin-left:var(--sp-1); font-size:var(--fs-sm); color:var(--text-muted); }
     .cal-pp-urge { color:var(--text-main); font-weight:700; }
     /* [PGP.14] El credito a favor sin aplicar. Toma color de aviso porque es dinero NUESTRO que
        se puede perder pagando de mas, y lleva icono Y palabra: el color nunca es unico portador
        (regla #5 de DESIGN.md, y lo unico que sobrevive a forced-colors). */
     .pg-favor { display:inline-flex; align-items:center; gap:4px; margin-left:var(--sp-1);
-      font-size:var(--fs-nano); font-weight:700; color:var(--warn-fg); }
+      font-size:var(--fs-sm); font-weight:700; color:var(--warn-fg); }
     /* [PGP.17] El aviso es un BOTON: dice cuanto, y abre de que tipo y de que documento. */
-    .pg-favor-btn { border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-nano);
+    .pg-favor-btn { border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-sm);
       font-weight:700; color:var(--warn-fg); padding:0 2px; border-radius:var(--r-sm); }
     .pg-favor-btn:hover { text-decoration:underline; }
     .pg-favor-btn:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     /* El cajon del desglose. Lo PENDIENTE lleva el peso; lo ya aplicado es contexto. */
     .pg-cr { display:grid; gap:var(--sp-2); }
     .pg-cr-tot { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-3); padding:var(--sp-2) var(--sp-3);
-      border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--surface-2); font-size:var(--fs-xs); }
+      border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--surface-2); font-size:var(--fs-sm); }
     .pg-cr-tot b { color:var(--text-main); font-weight:700; }
     .pg-cr-h { font-size:var(--fs-xs); font-weight:700; text-transform:uppercase; letter-spacing:.04em;
       color:var(--text-muted); margin:var(--sp-2) 0 0; }
@@ -870,15 +870,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       padding:var(--sp-2) var(--sp-3); border:1px solid var(--border-color); border-radius:var(--r-sm); }
     .pg-cr-row.is-pend { border-left:3px solid var(--warn-fg); }
     .pg-cr-main { display:flex; flex-direction:column; min-width:0; }
-    .pg-cr-part { font-size:var(--fs-nano); color:var(--warn-fg); }
-    .pg-cr-ok { display:flex; align-items:center; gap:6px; font-size:var(--fs-xs); color:var(--ok-fg); margin:0; }
-    .pg-cr-decl { display:flex; gap:var(--sp-2); font-size:var(--fs-nano); color:var(--text-muted);
+    .pg-cr-part { font-size:var(--fs-sm); color:var(--warn-fg); }
+    .pg-cr-ok { display:flex; align-items:center; gap:6px; font-size:var(--fs-sm); color:var(--ok-fg); margin:0; }
+    .pg-cr-decl { display:flex; gap:var(--sp-2); font-size:var(--fs-sm); color:var(--text-muted);
       border-top:1px solid var(--border-color); padding-top:var(--sp-2); margin:var(--sp-2) 0 0; }
     .pg-cr-decl b { color:var(--text-main); }
     /* [PGP.16] El costo de adelantar: terciario a proposito. Es un dato para decidir, no una
        alarma -la propuesta ya no adelanta nada por su cuenta-. */
     .pg-pronto-no { display:inline-flex; align-items:center; gap:4px; margin-left:var(--sp-1);
-      font-size:var(--fs-nano); color:var(--text-muted); }
+      font-size:var(--fs-sm); color:var(--text-muted); }
 
     /* ══ [PGP.15] UNA PANTALLA: tira de dias arriba, veredicto compacto y dos paneles que llenan lo
        que queda (izquierda: agregar facturas; derecha: los pagos del dia). Medido antes a 1442×902: la
@@ -887,12 +887,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
     /* ── Los dias por pagar: una tira ──────────────────────────────── */
     .pg-top { display:grid; grid-template-columns:minmax(0, 1fr); gap:4px; align-items:center;
-      padding:6px var(--sp-3); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); }
+      padding:0; }
     /* La semana y su resumen en UN renglon; las fichas abajo, a todo lo ancho (medido: lado a lado las fichas se enciman). */
     .pg-week { display:flex; align-items:center; gap:var(--sp-1) var(--sp-3); flex-wrap:wrap; min-width:0; }
     .pg-week-nav { display:flex; align-items:center; gap:2px; }
     .pg-queue-wk { font-size:var(--fs-sm); font-weight:600; color:var(--text-main); white-space:nowrap; padding:0 2px; }
-    .pg-week-f { font-size:var(--fs-micro); color:var(--text-muted); white-space:nowrap; padding-left:var(--sp-1); }
+    .pg-week-f { font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; padding-left:var(--sp-1); }
     .pg-week-f b { color:var(--text-main); font-weight:700; }
     :host ::ng-deep .pg-ico.p-button { padding:var(--sp-1); min-width:auto; }
     :host ::ng-deep .pg-hoy.p-button { padding:var(--sp-1) var(--sp-2); font-size:var(--fs-xs); }
@@ -900,7 +900,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* Los 7 dias en una fila; si no caben, la FILA se desplaza de lado: la pantalla no crece. */
     .pg-days { display:flex; gap:var(--sp-1); overflow-x:auto; scroll-snap-type:x proximity; }
     .pg-day { all:unset; box-sizing:border-box; cursor:pointer; flex:1 1 0; min-width:10.5rem; display:grid; gap:1px;
-      padding:5px var(--sp-2); border:1px solid var(--border-color); border-radius:var(--r-sm); scroll-snap-align:start; }
+      padding:5px var(--sp-2); border:1px solid transparent; border-radius:var(--r-sm); scroll-snap-align:start; }
     .pg-day:hover { background:var(--overlay-hover); }
     .pg-day:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     /* El dia elegido: fondo y borde del color del TEXTO, no naranja. El naranja es del boton principal. */
@@ -908,10 +908,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-day.is-nocap { opacity:.7; }
     .pg-day-t { display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-2); }
     .pg-day-n { font-size:var(--fs-sm); font-weight:700; text-transform:capitalize; color:var(--text-main); white-space:nowrap; }
-    .pg-t { font-weight:400; color:var(--text-muted); font-size:var(--fs-xs); }
-    .pg-day-amt { font-size:var(--fs-xs); font-weight:700; color:var(--text-main); white-space:nowrap; }
+    .pg-t { font-weight:400; color:var(--text-muted); font-size:var(--fs-sm); }
+    .pg-day-amt { font-size:var(--fs-sm); font-weight:700; color:var(--text-main); white-space:nowrap; }
     .pg-day-l { font-weight:400; color:var(--text-muted); }
-    .pg-day-b { display:flex; align-items:center; gap:4px; font-size:var(--fs-micro); color:var(--text-muted); line-height:1.3; white-space:nowrap; }
+    .pg-day-b { display:flex; align-items:center; gap:4px; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.3; white-space:nowrap; }
     .pg-day-b b { color:var(--text-main); font-weight:700; }
     .pg-day-b b.cal-bad-txt { color:var(--bad-soft-fg); }
     /* El estado del dia viaja en FORMA (punto lleno / hueco), nunca solo en color. */
@@ -922,13 +922,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
     /* ── El veredicto, compacto: frase y boton; tope y avance lado a lado ── */
     .pg-lot { display:grid; gap:var(--sp-2); min-width:0; }
-    .pg-vd { display:grid; gap:0; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); padding:var(--sp-2) var(--sp-4); }
+    .pg-vd { display:grid; gap:0; padding:var(--sp-1) 0; border-block:1px solid var(--border-color); }
     /* Rojo SOLO cuando algo esta mal. «Bien» y «falta» no llevan tono: lo dice la frase. */
-    .pg-vd.is-bad { border-left:4px solid var(--bad-fg); }
+    .pg-vd.is-bad { border-left:4px solid var(--bad-fg); padding-left:var(--sp-3); }
     .pg-vd-ico { color:var(--bad-soft-fg); margin-right:var(--sp-2); font-size:var(--fs-lg); }
     .pg-vd-id { display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; }
     .pg-vd-id h2 { margin:0; font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); }
-    .pg-vd-sub { font-size:var(--fs-micro); color:var(--text-muted); }
+    .pg-vd-sub { font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-pill { display:inline-flex; align-items:center; font-size:var(--fs-micro); font-weight:700; text-transform:uppercase; letter-spacing:.03em; padding:0 7px; border-radius:var(--r-pill); color:var(--text-muted); background:var(--surface-2); }
     .pg-vd-main { display:flex; align-items:center; gap:var(--sp-4); flex-wrap:wrap; }
     .pg-vd-txt { flex:1; min-width:15rem; }
@@ -944,7 +944,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-cap-line { display:flex; flex-wrap:wrap; gap:2px var(--sp-4); font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; }
     .pg-cap-line b { color:var(--text-main); font-weight:700; }
     .pg-cap-line b.cal-neg { color:var(--bad-soft-fg); }
-    .pg-cap-pct { font-size:var(--fs-xs); }
+    .pg-cap-pct { font-size:var(--fs-sm); }
     .pg-cap-say { font-size:var(--fs-sm); font-weight:600; color:var(--text-main); }
     .pg-cap-bar { display:block; height:4px; border-radius:var(--r-pill); background:var(--border-color); overflow:hidden; }
     .pg-cap-fill { display:block; height:100%; background:var(--text-muted); border-radius:inherit; }
@@ -960,22 +960,24 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-pe.is-now .pg-pe-n { border-color:var(--text-main); background:var(--text-main); color:var(--card-bg); }
     /* Cada paso en UNA linea: nombre y lo que dice. */
     .pg-pe { align-items:center; }
-    .pg-pe-t { display:flex; flex-wrap:wrap; align-items:baseline; gap:0 6px; min-width:0; font-size:var(--fs-xs); line-height:1.3; }
+    .pg-pe-t { display:flex; flex-wrap:wrap; align-items:baseline; gap:0 6px; min-width:0; font-size:var(--fs-sm); line-height:1.3; }
     .pg-pe-t b { font-size:var(--fs-sm); color:var(--text-main); font-weight:600; }
     .pg-pe.is-now .pg-pe-t b { font-weight:700; }
     .pg-pe:not(.is-done):not(.is-now) .pg-pe-t b { color:var(--text-muted); font-weight:600; }
-    .pg-pe-who { font-size:var(--fs-micro); color:var(--text-muted); }
+    .pg-pe-who { font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-pe-say { color:var(--text-muted); overflow-wrap:anywhere; }
     .pg-pe.is-now .pg-pe-say { color:var(--text-main); }
     .pg-note { display:flex; gap:var(--sp-2); align-items:flex-start; margin:var(--sp-1) 0 0; padding:6px var(--sp-3);
-      border-radius:var(--r-md); background:var(--surface-2); font-size:var(--fs-xs); color:var(--text-muted); }
+      border-radius:var(--r-md); background:var(--surface-2); font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-note b { color:var(--text-main); }
     .pg-note > .pi { margin-top:2px; }
 
     /* ── Los dos paneles: llenan la pantalla (--pg-alto lo mide ajustarAlto) y cada uno se desplaza solo ── */
     .pg-work { display:grid; grid-template-columns:minmax(0, 5fr) minmax(0, 7fr); gap:var(--sp-3); height:var(--pg-alto, auto); min-height:0; }
     .pg-work.is-solo { grid-template-columns:minmax(0, 1fr); }
-    .pg-work > .pg-sec { display:flex; flex-direction:column; min-height:0; }
+    .pg-work > .pg-sec { display:flex; flex-direction:column; min-height:0; border:0; border-radius:0; background:transparent; }
+    /* [PGP.18] Los dos paneles se separan con UNA línea entre ellos, no con dos recuadros. */
+    .pg-work > .pg-sec + .pg-sec { border-left:1px solid var(--border-color); padding-left:var(--sp-3); }
     .pg-work .pg-drawer { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
     .pg-work .pg-drawer-b { flex:1 1 auto; min-height:0; max-height:none; }
     .pg-work .pg-grupos { flex:0 1 auto; max-height:40%; overflow:auto; }
@@ -997,12 +999,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-sec { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); overflow:hidden; }
     .pg-sec-h { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); flex-wrap:wrap; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border-color); }
     .pg-sec-t { margin:0; display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; font-size:var(--fs-sm); font-weight:700; color:var(--text-main); }
-    .pg-sec-n { font-size:var(--fs-xs); font-weight:400; color:var(--text-muted); }
+    .pg-sec-n { font-size:var(--fs-sm); font-weight:400; color:var(--text-muted); }
     .pg-sec-acts { display:flex; gap:var(--sp-1); flex-wrap:wrap; }
     .pg-sec-tg { all:unset; box-sizing:border-box; cursor:pointer; display:inline-flex; align-items:center; gap:var(--sp-2); font-weight:700; color:var(--text-main); border-radius:var(--r-sm); }
     .pg-sec-tg:hover { text-decoration:underline; }
     .pg-sec-tg:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
-    .pg-sub { display:block; font-size:var(--fs-xs); color:var(--text-muted); line-height:1.35; }
+    .pg-sub { display:block; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.35; }
 
     /* ── [PGP.15] El buscador: siempre a la vista, el control mas grande de su seccion ── */
     .pg-add-h { gap:var(--sp-2) var(--sp-3); }
@@ -1012,7 +1014,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-kbd { position:absolute; right:var(--sp-2); font-family:var(--font-mono); font-size:var(--fs-micro); color:var(--text-muted);
       border:1px solid var(--border-color); border-radius:var(--r-sm); padding:0 5px; line-height:1.5; pointer-events:none; }
     .pg-buscar:focus-within .pg-kbd { display:none; }
-    .pg-lista-tg { margin-left:auto; font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); gap:var(--sp-1); }
+    .pg-lista-tg { margin-left:auto; font-size:var(--fs-sm); font-weight:600; color:var(--text-muted); gap:var(--sp-1); }
     .pg-alta { display:flex; align-items:center; gap:var(--sp-2); margin:0; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border-color);
       font-size:var(--fs-sm); font-weight:600; color:var(--text-main); background:var(--surface-2); }
     /* Los proveedores encontrados: cada uno es un pago y se agrega entero. */
@@ -1023,7 +1025,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
     /* La propuesta: una caja punteada NEUTRA -es una propuesta, no una alarma-. */
     .pg-prop { display:grid; gap:4px; margin:var(--sp-3); padding:var(--sp-2); border:1px dashed var(--text-faint); border-radius:var(--r-md); }
-    .pg-prop-why { margin:0 0 var(--sp-1); font-size:var(--fs-xs); color:var(--text-muted); }
+    .pg-prop-why { margin:0 0 var(--sp-1); font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-prop-why b { color:var(--text-main); }
     .pg-prop-row { display:grid; grid-template-columns:auto minmax(0, 1fr) auto; gap:var(--sp-2); align-items:center; padding:5px var(--sp-2);
       border:1px solid var(--border-color); border-radius:var(--r-sm); cursor:pointer; background:var(--card-bg); }
@@ -1041,10 +1043,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
     /* Metodo y origen para todos: agrupado con FONDO, no con otra caja. */
     .pg-applyall { display:flex; align-items:center; gap:var(--sp-2) var(--sp-3); flex-wrap:wrap; padding:var(--sp-2) var(--sp-3); background:var(--surface-2); border-bottom:1px solid var(--border-color); }
-    .pg-aa-lb { font-size:var(--fs-xs); font-weight:700; color:var(--text-main); white-space:nowrap; }
+    .pg-aa-lb { font-size:var(--fs-sm); font-weight:700; color:var(--text-main); white-space:nowrap; }
     .pg-aa-f { display:flex; align-items:center; gap:6px; }
-    .pg-aa-f > label { font-size:var(--fs-xs); color:var(--text-muted); white-space:nowrap; }
-    .pg-aa-note { flex-basis:100%; font-size:var(--fs-xs); color:var(--text-muted); }
+    .pg-aa-f > label { font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; }
+    .pg-aa-note { flex-basis:100%; font-size:var(--fs-sm); color:var(--text-muted); }
     /* [PGP.15] En el encabezado del panel: sin fondo propio ni renglon aparte. */
     .pg-sec-h > .pg-applyall { flex:1 1 auto; padding:0; background:none; border-bottom:0; gap:var(--sp-1) var(--sp-2); }
     :host ::ng-deep .pg-sec-h > .pg-applyall .cal-sel { width:8.5rem; }
@@ -1061,7 +1063,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-c-tg { width:2.5rem; } .pg-c-ord { width:4.5rem; } .pg-c-ord.is-folio { width:7.5rem; } .pg-c-amt { width:8.5rem; text-align:right; }
     .pg-c-act { width:9.5rem; text-align:right; white-space:nowrap; }
     /* Como sale va DEBAJO del beneficiario: una linea de texto y su estado. */
-    .pg-how { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-2); margin-top:2px; font-size:var(--fs-xs); }
+    .pg-how { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-2); margin-top:2px; font-size:var(--fs-sm); }
     td.pg-c-ord .pg-ordn { white-space:nowrap; }
     /* El nombre del beneficiario parte renglon antes que cortarse con «…»: medido, a 25rem de «Como
        sale» se leia «DISTRIBUIDORA DE LA ROSA» sin su razon social. Visible en todo momento. */
@@ -1073,7 +1075,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-tg:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     .pg-how-t { color:var(--text-main); overflow-wrap:anywhere; }
     /* El estado del pago: palabra + icono. Solo el rebote lleva color. */
-    .pg-st { display:inline-flex; align-items:center; gap:4px; margin-top:2px; font-size:var(--fs-xs); color:var(--text-muted); }
+    .pg-st { display:inline-flex; align-items:center; gap:4px; margin-top:2px; font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-st.is-todo { color:var(--text-main); font-weight:700; }
     .pg-st.is-bad { color:var(--bad-soft-fg); font-weight:700; }
     .pg-ord { display:inline-flex; align-items:center; gap:1px; }
@@ -1083,12 +1085,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     :host ::ng-deep .pg-x.p-button { color:var(--text-muted); }
     /* El desglose: las facturas del pago, a la escala de la tabla y sin otra caja. */
     :host ::ng-deep .pg-prep .p-datatable-tbody > tr.pg-xrow > td { background:var(--surface-2); padding:var(--sp-2) var(--sp-3) var(--sp-2) 3rem; }
-    .pg-items-t { width:100%; border-collapse:collapse; font-size:var(--fs-xs); color:var(--text-main); }
+    .pg-items-t { width:100%; border-collapse:collapse; font-size:var(--fs-sm); color:var(--text-main); }
     .pg-items-t th { text-align:left; font-size:var(--fs-micro); font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); padding:2px var(--sp-2); }
     .pg-items-t td { padding:3px var(--sp-2); border-top:1px solid var(--border-color); }
     .pg-items-t .r { text-align:right; white-space:nowrap; }
     .pg-items-t tfoot td { font-weight:700; color:var(--text-main); }
-    .pg-erp { margin:0; padding:var(--sp-2) var(--sp-3); border-top:1px solid var(--border-color); font-size:var(--fs-xs); color:var(--text-muted); }
+    .pg-erp { margin:0; padding:var(--sp-2) var(--sp-3); border-top:1px solid var(--border-color); font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-erp-l { font-weight:600; color:var(--text-main); margin-right:var(--sp-1); }
     .pg-erp b { color:var(--text-main); }
 
@@ -1096,7 +1098,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-drawer { overflow:hidden; }
     .pg-drawer-h { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; padding:6px var(--sp-3); background:var(--surface-2); border-bottom:1px solid var(--border-color); }
     .pg-grow { flex:1; min-width:11rem; }
-    .pg-drawer-n { margin:0; padding:4px var(--sp-3); font-size:var(--fs-micro); color:var(--text-muted); background:var(--surface-2); border-bottom:1px solid var(--border-color); }
+    .pg-drawer-n { margin:0; padding:4px var(--sp-3); font-size:var(--fs-sm); color:var(--text-muted); background:var(--surface-2); border-bottom:1px solid var(--border-color); }
     .pg-drawer-n b { color:var(--text-main); }
     .pg-drawer-b { max-height:22rem; overflow:auto; }
     .pg-dr-row, .pg-dr-hd { display:grid; grid-template-columns:minmax(0, 1fr) 10rem 8.5rem 4.5rem; gap:var(--sp-3);
@@ -1105,7 +1107,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-dr-hd .r { text-align:right; }
     .pg-dr-main { display:flex; flex-direction:column; min-width:0; }
     .pg-dr-amt { text-align:right; font-weight:700; white-space:nowrap; color:var(--text-main); }
-    .pg-dr-due { font-size:var(--fs-xs); white-space:nowrap; color:var(--text-muted); }
+    .pg-dr-due { font-size:var(--fs-sm); white-space:nowrap; color:var(--text-muted); }
     .pg-dr-acts { display:flex; justify-content:flex-end; gap:2px; color:var(--text-muted); }
     /* [PGP.15] Boton nativo del cajon (ver la plantilla: 1,908 pButton congelaban 15.9 s). */
     .pg-icobtn { all:unset; box-sizing:border-box; cursor:pointer; display:inline-grid; place-items:center; width:28px; height:28px;
@@ -1120,7 +1122,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-crit { display:inline-flex; align-items:center; gap:3px; font-size:var(--fs-micro); font-weight:700; text-transform:uppercase; letter-spacing:.03em;
       color:var(--text-main); border:1px solid var(--border-color); border-radius:var(--r-sm); padding:0 4px; }
     .pg-rev-h { all:unset; box-sizing:border-box; cursor:pointer; width:100%; display:flex; align-items:flex-start; gap:var(--sp-2);
-      padding:var(--sp-2) var(--sp-3); background:var(--surface-2); border-top:1px solid var(--border-color); font-size:var(--fs-xs); color:var(--text-muted); }
+      padding:var(--sp-2) var(--sp-3); background:var(--surface-2); border-top:1px solid var(--border-color); font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-rev-h:hover { background:var(--overlay-hover); }
     .pg-rev-h:focus-visible { outline:2px solid var(--focus-ring); outline-offset:-2px; }
     .pg-rev-h > .pi { margin-top:2px; }
@@ -1130,10 +1132,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
     /* Dialogos */
     .cal-dlg-p { font-size:var(--fs-sm); margin:0 0 var(--sp-2); }
-    .cal-dlg-hint { font-size:var(--fs-xs); color:var(--text-muted); margin:0 0 var(--sp-2); }
+    .cal-dlg-hint { font-size:var(--fs-sm); color:var(--text-muted); margin:0 0 var(--sp-2); }
     .cal-dlg-full { width:100%; margin-bottom:var(--sp-2); }
     .cal-dlg-actions { display:flex; gap:var(--sp-2); align-items:center; justify-content:flex-end; margin-top:var(--sp-3); }
-    .cal-dlg-label { display:block; font-size:var(--fs-xs); color:var(--text-muted); margin:var(--sp-2) 0 var(--sp-1); }
+    .cal-dlg-label { display:block; font-size:var(--fs-sm); color:var(--text-muted); margin:var(--sp-2) 0 var(--sp-1); }
     :host ::ng-deep .cal-dlg-sel { width:100%; margin-bottom:var(--sp-2); }
     /* Lo que cabe el dia destino, a la escala del dialogo; solo el exceso lleva color. */
     .pg-dlg-cap { margin:0; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.45; }
@@ -1141,7 +1143,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-dlg-cap b.cal-bad-txt { color:var(--bad-soft-fg); }
     .pg-dlg-list { list-style:none; margin:0; padding:0; max-height:16rem; overflow:auto; border-top:1px solid var(--border-color); }
     .pg-dlg-list li { display:flex; justify-content:space-between; gap:var(--sp-3); padding:4px 0; border-bottom:1px solid var(--border-color); font-size:var(--fs-sm); }
-    .pg-dlg-fol { color:var(--text-muted); font-size:var(--fs-xs); margin-right:var(--sp-1); }
+    .pg-dlg-fol { color:var(--text-muted); font-size:var(--fs-sm); margin-right:var(--sp-1); }
 
     /* ⛔ Angosto: la cola es UNA tira horizontal, para que el veredicto quede arriba. */
     @media (max-width: 56rem) { .pg-prog { grid-template-columns:repeat(auto-fit, minmax(9rem, 1fr)); } }
