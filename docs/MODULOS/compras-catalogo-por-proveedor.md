@@ -1,5 +1,8 @@
 # Compras › Catálogo › Productos — revisión por proveedor (PF.9)
 
+> ⚠️ **Reemplazado por PF.12 (2026-10-26)**: la barra de proveedores y el selector se quitaron; ver
+> [`compras-catalogo-productos.md`](compras-catalogo-productos.md). Se conserva como historia.
+
 ## Problema
 
 Compras revisa muchos productos de un mismo proveedor. La pestaña era un listado paginado de 13 columnas con los

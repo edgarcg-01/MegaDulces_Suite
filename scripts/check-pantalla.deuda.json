@@ -379,6 +379,10 @@
     "§2",
     "§9"
   ],
+  "apps/view/src/app/modules/compras/pages/catalogo-menu.component.ts": [
+    "Q.1",
+    "§2"
+  ],
   "apps/view/src/app/modules/compras/pages/compras-asistente.component.ts": [
     "Q.1",
     "§2",
@@ -420,10 +424,7 @@
     "§9"
   ],
   "apps/view/src/app/modules/compras/pages/compras-catalogo.component.ts": [
-    "Q.1",
-    "§2",
-    "§9",
-    "D.4c"
+    "Q.1"
   ],
   "apps/view/src/app/modules/compras/pages/compras-categorias.component.ts": [
     "§2",
@@ -550,6 +551,12 @@
   "apps/view/src/app/modules/compras/pages/compras-vencimientos.component.ts": [
     "§9",
     "O.4"
+  ],
+  "apps/view/src/app/modules/compras/pages/producto-ficha-detallada.component.ts": [
+    "Q.1"
+  ],
+  "apps/view/src/app/modules/compras/pages/producto-ficha.component.ts": [
+    "Q.1"
   ],
   "apps/view/src/app/modules/compras/pages/producto-flujo-panel.component.ts": [
     "Q.1",
