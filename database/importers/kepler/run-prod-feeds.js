@@ -304,7 +304,10 @@ const STEPS = {
     path.join(K, 'import-ledger-chain.js'),      // MAAT.1 — balanza fam 1-9 + cadena de gasto → Maat P&L / fiscal / impuestos provisionales
     path.join(K, 'import-expense-requests.js'),  // GX.6 — vínculo solicitud↔gasto (expense_documents.solicitud_*) + hallazgos. `expense_requests` es VISTA (mig 20260819160000); lee de kepler_ods (local, sin timeout) — TRAS expenses-polizas
     path.join(K, 'import-sales-by-channel.js'),  // venta contable 401 reclasificada por canal real (solo CEDIS)
-    path.join(K, 'import-cash-cuts.js'),         // SM.1 — cortes/arqueos de caja POS (kdpv_folio_caja)
+    // RETIRADO 2026-10-27 [OPS-AUD.10]: import-cash-cuts.js — 2º escritor de analytics.cash_cuts.
+    // El dueño único es el @Cron de 10 min de libs/reconciliation/cash-cuts-sync.service.ts, que lee
+    // kepler_ods.kdpv_folio_caja (misma base, más columnas). Éste leía las BD por sucursal y ya murió
+    // 12 noches (sep-16→28) sin que la tabla se resintiera: era redundante.
     // RETIRADO 2026-09-03: import-bank-postings.js → analytics.bank_postings ahora es MATERIALIZED VIEW
     // derive-no-copy sobre kepler_ods.kdc2YYMM vía analytics.bank_postings_src() (mig 20260903130000).
     // La refresca AnalyticsRefreshService (cron 15m). Cero importer.
@@ -420,7 +423,6 @@ const STEPS = {
     path.join(K, 'import-ledger-chain.js'),
     path.join(K, 'import-expense-requests.js'), // tras expenses-polizas (UPDATE a expense_documents)
     path.join(K, 'import-sales-by-channel.js'),
-    path.join(K, 'import-cash-cuts.js'),
     // RETIRADO 2026-09-03: import-bank-postings.js → analytics.bank_postings es MATERIALIZED VIEW (mig 20260903130000).
 
     // [CG.9c] El carril NUEVO de la caja general, y va ANTES del importer viejo a propósito.
