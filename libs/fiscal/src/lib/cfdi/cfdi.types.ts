@@ -11,6 +11,14 @@ export interface CfdiPaymentLink {
   impSaldoAnt: number | null;
   impPagado: number | null;
   impSaldoInsoluto: number | null;
+  /**
+   * `[PGP.23]` `CtaBeneficiario` del nodo `Pago`: LA CUENTA DEL PROVEEDOR, declarada por el
+   * proveedor mismo. TEXTO CRUDO — 18 digitos = CLABE, 10 = cuenta de banco (no sirve sola
+   * para SPEI). Es OPCIONAL en el CFDI: medido, solo el 37% de los emisores la llena.
+   */
+  ctaBeneficiario: string | null;
+  /** `RfcEmisorCtaBen`: el banco del proveedor. Da el banco de una cuenta de 10 digitos. */
+  rfcBancoBeneficiario: string | null;
 }
 
 /**

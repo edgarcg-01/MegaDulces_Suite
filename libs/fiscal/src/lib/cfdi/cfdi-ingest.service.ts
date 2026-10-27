@@ -55,7 +55,14 @@ export class CfdiIngestService {
       if (linkBatch.length) {
         const rows = linkBatch; linkBatch = [];
         await this.tk.run(tenantId, async (trx) =>
-          trx('fiscal.cfdi_payment_links').insert(rows).onConflict(['tenant_id', 'rep_uuid', 'docto_uuid', 'num_parcialidad']).ignore());
+          // `[PGP.23]` Pasa de `.ignore()` a `.merge()` de SOLO las dos columnas de la cuenta —
+          // mismo criterio que el `merge(['xml'])` de arriba. Con `.ignore()`, una re-descarga
+          // de un periodo ya ingerido NO habría rellenado la cuenta de las filas existentes, que
+          // es justo lo que queremos que ocurra. Los importes no se tocan: si el REP cambió de
+          // monto, eso es otro problema y no se resuelve pisándolo en silencio.
+          trx('fiscal.cfdi_payment_links').insert(rows)
+            .onConflict(['tenant_id', 'rep_uuid', 'docto_uuid', 'num_parcialidad'])
+            .merge(['cta_beneficiario', 'rfc_banco_beneficiario']));
       }
     };
 
@@ -133,6 +140,11 @@ export class CfdiIngestService {
       imp_saldo_ant: pl.impSaldoAnt,
       imp_pagado: pl.impPagado,
       imp_saldo_insoluto: pl.impSaldoInsoluto,
+      // `[PGP.23]` La cuenta que el proveedor declaró al cobrarnos. Es lo que deja dar de alta
+      // su cuenta de pago con SU comprobante timbrado como evidencia, en vez de teclear 18
+      // dígitos desde un Excel.
+      cta_beneficiario: pl.ctaBeneficiario,
+      rfc_banco_beneficiario: pl.rfcBancoBeneficiario,
     };
   }
 }
