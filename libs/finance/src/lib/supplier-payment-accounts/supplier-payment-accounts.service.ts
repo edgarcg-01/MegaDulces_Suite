@@ -54,8 +54,8 @@ export interface CreateAccountChangeRequestDto {
 }
 
 /** La ventana real que se midió, para que la pantalla la pueda decir. Siempre devuelve una fila. */
-const SQL_RANGO = `
-  SELECT to_char(((now() AT TIME ZONE 'America/Mexico_City')::date - ($1::int || ' days')::interval)::date, 'YYYY-MM-DD') AS desde,
+export const SQL_RANGO = `
+  SELECT to_char(((now() AT TIME ZONE 'America/Mexico_City')::date - (?::int || ' days')::interval)::date, 'YYYY-MM-DD') AS desde,
          to_char((now() AT TIME ZONE 'America/Mexico_City')::date, 'YYYY-MM-DD')                                          AS hasta`;
 
 /**
@@ -69,7 +69,7 @@ const SQL_RANGO = `
  * ⚠️ `LEFT JOIN` a propósito: el proveedor que no resuelve al catálogo se CUENTA y se declara.
  * Con `JOIN` desaparecería en silencio y la lista diría que no falta nadie más.
  */
-const SQL_FALTANTES = `
+export const SQL_FALTANTES = `
   WITH pagos AS (
     SELECT p.proveedor_code,
            max(p.proveedor_nombre)                                        AS nombre,
@@ -79,7 +79,7 @@ const SQL_FALTANTES = `
            max(p.computed_at)                                             AS computed_at,
            (array_agg(p.monto ORDER BY p.pago_date DESC, p.folio DESC))[1] AS ultimo_pago_monto
       FROM analytics.erp_supplier_payments p
-     WHERE p.pago_date >= ((now() AT TIME ZONE 'America/Mexico_City')::date - ($1::int || ' days')::interval)::date
+     WHERE p.pago_date >= ((now() AT TIME ZONE 'America/Mexico_City')::date - (?::int || ' days')::interval)::date
        AND p.pago_date <= (now() AT TIME ZONE 'America/Mexico_City')::date
        AND p.medio_pago = 'banco'
      GROUP BY 1
@@ -90,7 +90,7 @@ const SQL_FALTANTES = `
                   WHERE a.supplier_id = s.id AND a.status = 'activa') AS tiene_cuenta
     FROM pagos pg
     LEFT JOIN catalog.suppliers s
-           ON btrim(s.code) = btrim(pg.proveedor_code) AND s.tenant_id = $2
+           ON btrim(s.code) = btrim(pg.proveedor_code) AND s.tenant_id = ?
    ORDER BY pg.monto DESC`;
 
 /**
