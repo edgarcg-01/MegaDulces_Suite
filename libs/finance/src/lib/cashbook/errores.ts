@@ -49,6 +49,8 @@ const FRASES: Readonly<Record<string, string>> = {
   cashbook_divisas_sin_tipo_de_cambio: 'Falta el tipo de cambio, su fuente o quién lo fijó.',
   cashbook_conteo_sorpresa_con_testigo: 'Un arqueo sorpresa lleva un testigo distinto de quien cuenta.',
   cashbook_hallazgo_se_cierra_con_algo: 'Un hallazgo se cierra con un movimiento o con una nota que firma otra persona.',
+  cashbook_permiso_lo_revisa_otro: 'Un cambio de permisos de caja lo revisa alguien distinto de quien lo hizo y de quien lo recibió.',
+  cashbook_alerta_solo_por_trigger: 'La alerta de permisos la abre el cambio de permisos, no una llamada.',
   cashbook_estado_final: 'Eso ya quedó cerrado y no cambia.',
   cashbook_inmutable: 'El libro no se edita: se corrige con una reversa.',
   cashbook_cuenta_distinta: 'Esa cuenta ya existe con otra forma.',

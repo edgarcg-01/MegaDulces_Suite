@@ -230,7 +230,13 @@ export class CashbookService {
         await trx.raw('SELECT cashbook.close_finding(?, ?, NULL, ?, NULL, NULL)', [id, quien, input.entry_id]);
         return;
       }
-      const f = (await trx.raw('SELECT created_by FROM cashbook.findings WHERE id = ?', [id])).rows[0] as { created_by: string | null } | undefined;
+      const f = (await trx.raw('SELECT created_by, source FROM cashbook.findings WHERE id = ?', [id])).rows[0] as
+        { created_by: string | null; source: string } | undefined;
+      // `[LE.4.8]` Una alerta de permisos la revisa UNA persona que no hizo el cambio ni lo recibió (lo exige la base).
+      if (f?.source === 'permiso') {
+        await trx.raw('SELECT cashbook.close_finding(?, ?, NULL, NULL, ?, NULL)', [id, quien, input.nota ?? null]);
+        return;
+      }
       if (!f?.created_by) {
         throw new UnprocessableEntityException({ codigo: 'cashbook_hallazgo_sin_registrante',
           mensaje: 'Ese hallazgo no dice quién lo registró: se cierra con un movimiento, no con una nota.' });
