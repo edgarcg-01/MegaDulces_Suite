@@ -20,6 +20,8 @@ import {
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { makeDebouncedSearch, type LazyTableEvent } from '../../../shared/util';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { VENTAS_RENTABILIDAD_TABS } from '../ventas-rentabilidad-tabs';
 
 // Producto primero: es el foco de la pantalla. Los agregados son el resumen.
 // Sucursal y canal van al final porque cortan por DÓNDE se vendió, no por qué.
@@ -51,7 +53,7 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
     DrawerModule,
     RouterLink,
     MetricStripComponent,
-    ContextHelpComponent,
+    ContextHelpComponent, PageTabsComponent,
   ],
   providers: [MessageService],
   template: `
@@ -87,6 +89,8 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
           <app-context-help topic="rentabilidad" />
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <!-- ── Veredicto primero: dónde estamos y cuánto falta ──────────────── -->
       @if (overview(); as o) {
@@ -1002,6 +1006,8 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialRentabilidadComponent {
+  /** [NAV.8] La barra del apartado «Ventas y rentabilidad» del sidebar de Comercial: la pintan todas sus páginas. */
+  readonly apartadoTabs = VENTAS_RENTABILIDAD_TABS;
   private readonly api = inject(ProfitabilityService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);

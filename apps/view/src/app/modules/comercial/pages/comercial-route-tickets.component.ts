@@ -12,6 +12,8 @@ import {
 } from '../comercial.service';
 import { todayMx, toMxDateKey } from '../../../core/utils/mx-date';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { VENDEDORES_TABS } from '../vendedores-tabs';
 
 /**
  * Cierre de ruta (admin) — control de los tickets que suben los vendedores:
@@ -21,7 +23,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
 @Component({
   selector: 'app-comercial-route-tickets',
   standalone: true,
-  imports: [FormsModule, TableModule, TagModule, ButtonModule, SelectModule, MetricCardComponent],
+  imports: [FormsModule, TableModule, TagModule, ButtonModule, SelectModule, MetricCardComponent, PageTabsComponent],
   template: `
     <div class="surf-page rt">
       <header class="surf-page-head">
@@ -30,6 +32,8 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           <p class="surf-page-sub">Tickets de venta, carga y combustible que suben los vendedores</p>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
     
       <div class="filters">
         <input type="date" [(ngModel)]="dateFrom" (change)="reload()" />
@@ -124,6 +128,8 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialRouteTicketsComponent implements OnInit {
+  /** [NAV.8] La barra del apartado «Vendedores» del sidebar de Comercial: la pintan todas sus páginas. */
+  readonly apartadoTabs = VENDEDORES_TABS;
   private readonly api = inject(ComercialService);
 
   readonly tickets = signal<RouteTicketAdmin[]>([]);

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { PRECIOS_TABS } from '../precios-tabs';
+import { PRECIOS_APARTADO_TABS } from '../precios-apartado-tabs';
 import { CommonModule } from '@angular/common';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
@@ -470,7 +470,7 @@ export class ComercialExperimentosPrecioComponent {
   }
   /** `[PR.V2]` El selector segmentado: el motor y sus experimentos, bajo una sola
    *  entrada del sidebar. `PageTabs` esconde la barra si el rol sólo alcanza una. */
-  readonly tabs = PRECIOS_TABS;
+  readonly tabs = PRECIOS_APARTADO_TABS; // [NAV.8] la barra del apartado «Precios» (Listas + Control de margen)
 
   private readonly api = inject(ExperimentosPrecioService);
   private readonly toast = inject(MessageService);

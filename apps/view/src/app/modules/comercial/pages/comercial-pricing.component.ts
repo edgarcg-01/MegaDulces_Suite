@@ -25,6 +25,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { makeDebouncedSearch, type LazyTableEvent } from '../../../shared/util';
 import { exportXlsx, type XlsxCol } from '../../../shared/export/xlsx-export';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PRECIOS_APARTADO_TABS } from '../precios-apartado-tabs';
 
 /** Fila lista para pintar: el diagnóstico ya viene resuelto, el template no calcula. */
 interface PriceRow extends ProductPrice {
@@ -83,7 +85,7 @@ const STALE_DAYS = 14;
     CheckboxModule,
     ToastModule,
     TooltipModule,
-    ConfirmDialogModule,
+    ConfirmDialogModule, PageTabsComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -113,6 +115,8 @@ const STALE_DAYS = 14;
           }
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <div class="pl-grid">
         <!-- ── ÍNDICE DE LISTAS ─────────────────────────────────────────── -->
@@ -699,6 +703,8 @@ const STALE_DAYS = 14;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialPricingComponent {
+  /** [NAV.8] La barra del apartado «Precios» del sidebar de Comercial: la pintan todas sus páginas. */
+  readonly apartadoTabs = PRECIOS_APARTADO_TABS;
   private readonly api = inject(ComercialService);
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(MessageService);

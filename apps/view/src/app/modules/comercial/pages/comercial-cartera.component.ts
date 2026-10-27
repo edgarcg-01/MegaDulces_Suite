@@ -9,6 +9,8 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { BoardSort, ComercialSupervisorBoardComponent, ymdMx } from './comercial-supervisor-board.component';
 import { ComercialVendorMenuComponent } from './comercial-vendor-menu.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { VENDEDORES_TABS } from '../vendedores-tabs';
 
 type CarteraView = 'tablero' | 'vendedores';
 
@@ -29,7 +31,7 @@ type CarteraView = 'tablero' | 'vendedores';
   standalone: true,
   imports: [
     FormsModule, ButtonModule, DatePickerModule, ToastModule,
-    FreshnessPillComponent, SegmentedComponent, ComercialSupervisorBoardComponent, ComercialVendorMenuComponent,
+    FreshnessPillComponent, SegmentedComponent, ComercialSupervisorBoardComponent, ComercialVendorMenuComponent, PageTabsComponent,
   ],
   providers: [MessageService],
   template: `
@@ -40,6 +42,8 @@ type CarteraView = 'tablero' | 'vendedores';
           <h1>Cartera de ventas</h1>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <div class="ca-bar" role="toolbar" aria-label="Cartera de ventas">
         <app-segmented [options]="views" [value]="view()" (valueChange)="setView($any($event))" ariaLabel="Apartado" />
@@ -76,6 +80,8 @@ type CarteraView = 'tablero' | 'vendedores';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialCarteraComponent implements OnInit {
+  /** [NAV.8] La barra del apartado «Vendedores» del sidebar de Comercial: la pintan todas sus páginas. */
+  readonly apartadoTabs = VENDEDORES_TABS;
   private readonly ruta = inject(ActivatedRoute);
   private readonly boardRef = viewChild(ComercialSupervisorBoardComponent);
   private readonly menuRef = viewChild(ComercialVendorMenuComponent);

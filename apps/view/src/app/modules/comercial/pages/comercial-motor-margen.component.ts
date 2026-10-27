@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { etiquetaAccion, glosaAccion, textoCerteza } from '../precios-vocabulario';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { PRECIOS_TABS } from '../precios-tabs';
+import { PRECIOS_APARTADO_TABS } from '../precios-apartado-tabs';
 import { agruparCola, type FilaCola } from '../agrupar-cola';
 import { CommonModule } from '@angular/common';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
@@ -559,7 +559,7 @@ import {
 export class ComercialMotorMargenComponent {
   /** `[PR.V2]` El selector segmentado: el motor y sus experimentos, bajo una sola
    *  entrada del sidebar. `PageTabs` esconde la barra si el rol sólo alcanza una. */
-  readonly tabs = PRECIOS_TABS;
+  readonly tabs = PRECIOS_APARTADO_TABS; // [NAV.8] la barra del apartado «Precios» (Listas + Control de margen)
 
   private readonly api = inject(MotorMargenService);
   private readonly destroyRef = inject(DestroyRef);

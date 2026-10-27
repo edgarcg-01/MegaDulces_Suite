@@ -8,6 +8,8 @@ import { DialogModule } from 'primeng/dialog';
 import { ComercialService, VendorSaleCapture, VendorSaleLine } from '../comercial.service';
 import { todayMx, toMxDateKey } from '../../../core/utils/mx-date';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { VENDEDORES_TABS } from '../vendedores-tabs';
 
 /**
  * Ventas de vendedor (admin) — la parte "comercial" del ticket OCR de la captura
@@ -18,7 +20,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
 @Component({
   selector: 'app-comercial-vendor-sales',
   standalone: true,
-  imports: [FormsModule, TableModule, TagModule, ButtonModule, DialogModule, MetricCardComponent],
+  imports: [FormsModule, TableModule, TagModule, ButtonModule, DialogModule, MetricCardComponent, PageTabsComponent],
   template: `
     <div class="surf-page vs">
       <header class="surf-page-head">
@@ -27,6 +29,8 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           <p class="surf-page-sub">Tickets de venta capturados por OCR en la visita del vendedor</p>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
     
       <div class="filters">
         <input type="date" [(ngModel)]="dateFrom" (change)="reload()" aria-label="Desde" />
@@ -153,6 +157,8 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialVendorSalesComponent implements OnInit {
+  /** [NAV.8] La barra del apartado «Vendedores» del sidebar de Comercial: la pintan todas sus páginas. */
+  readonly apartadoTabs = VENDEDORES_TABS;
   private readonly api = inject(ComercialService);
 
   readonly captures = signal<VendorSaleCapture[]>([]);
