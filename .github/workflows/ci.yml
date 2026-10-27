@@ -1010,6 +1010,12 @@ jobs:
         env:
           CAJA_TEST_DB_URL: postgresql://app_runtime:app_runtime@127.0.0.1:5432/postgres_platform
         run: |
+          set -o pipefail
+          # `[CGP-D.1.3]` Sin pipefail, `if ! npx vitest ... | tee` mira el código de `tee` (siempre 0). Este
+          # paso salió VERDE con pruebas rojas en TODAS las corridas de main desde 09b1a36cd (2026-10-15):
+          # de 9 a 20 fallas, y el job entero en verde casi todo el 15 al 23-oct. Es la misma trampa que
+          # `[CGP-D.1.2]` cerró en «Base de caja desde cero». Reproducido en local con la base del job:
+          # sin esta línea, 17 fallas y código 0; con ella, las mismas 17 y código 1.
           # --no-file-parallelism: los dos archivos escriben en la MISMA caja (la 00). En paralelo uno
           # absorbía los movimientos sembrados por el otro y dejaba un corte abierto (medido en local).
           if ! npx vitest run --config libs/finance/vitest.config.ts --no-file-parallelism \
@@ -1048,6 +1054,12 @@ jobs:
             #    = es ESTADO, no logica. Freno un despliegue por leerlo como un defecto del corte.
             #    ⭐ No se pierde cobertura: las seis corren una vez en `Servicio real del corte`,
             #    sobre la base recien preparada, que es donde tienen sentido.
+            #    ⚠️ `[CGP-D.1.3]` Correccion del 2026-10-26: «ese paso paso en verde» era el verde FALSO
+            #    del `tee` sin pipefail. En 09b1a36cd `Servicio real del corte` tenia las MISMAS 10
+            #    fallas (10 ✗ / 22 ✓), escondidas. No era estado: el predicado de la jornada del libro
+            #    (`(?::date) AT TIME ZONE ...`) depende de la TimeZone de la SESION, y este Postgres
+            #    corre en UTC (el de prod, en hora de Mexico). Dejar las -real fuera de este bucle
+            #    sigue siendo correcto (tienen estado); la causa la sigue `[CGP-D.1.4]`.
             #    Lo que ESTE paso debe probar es que el dia no dependa de la zona -- eso vive en
             #    `dia-negocio.spec.ts` y en las 24 pruebas sin base. Verificado en local: 24
             #    archivos / 450 pruebas verdes en Mexico Y en Tokio.
