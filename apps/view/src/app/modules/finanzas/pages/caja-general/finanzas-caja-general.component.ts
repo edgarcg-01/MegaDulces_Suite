@@ -3625,7 +3625,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       <!-- [CGA-A.56.1] El total se arma de dos partes y se dicen las dos: lo que paga
                            el retiro no se cuenta en la reja, y sin decirlo el numero parece tecleado. -->
                       @if (cubiertoPorRetiros() > 0) {
-                        <div class="mono cg-total-esp">retiro de CAOS {{ money(cubiertoPorRetiros()) }} · cajón {{ money(f().monto - cubiertoPorRetiros()) }}</div>
+                        <div class="mono cg-total-esp">retiro de CAOS {{ money(cubiertoPorRetiros()) }} · cajón {{ money((f().monto ?? 0) - cubiertoPorRetiros()) }}</div>
                       }
                     </div>
                     <span class="cg-bandeja-sp"></span>
