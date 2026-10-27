@@ -247,6 +247,8 @@ async function tableMeta(src, table) {
 // Con una PK que traiga timestamp, la MISMA fila cuenta como ausente Y como sobrante — y con
 // `--delete-sobrantes` encendido eso BORRA FILAS VIVAS. Por eso `pkComparable()` lo frena abajo.
 const keyOf = (pk, row) => pk.map((k) => String(row[k] ?? '\x00')).join('|');
+// La llave que se MANDA a borrar, con el timestamp como TEXTO — `[OPS-AUD.12]`, ver la lib.
+const { pkParaEnviar } = require('../lib/ods-pk');
 
 /**
  * `[ODS.2]` LA LLAVE LA ARMA POSTGRES, NO `String()` DE JS.
@@ -467,7 +469,11 @@ async function reconcile(local, prod, code, table) {
       const delMeta = { table, pk: meta.pk, columns: [{ name: 'sucursal', type: 'text' }, ...meta.cols.map((c) => ({ name: c.column_name, type: mapType(c.data_type) }))] };
       let borrados = 0;
       for (let i = 0; i < confirmadas.length; i += SHIP_BATCH) {
-        const chunk = confirmadas.slice(i, i + SHIP_BATCH).map((r) => { const o = { sucursal: code }; for (const k of meta.pk) o[k] = r[k]; return o; });
+        // ⛔ [OPS-AUD.12] El timestamp de la PK va como TEXTO (`_t_<col>`), igual que en el dedup de
+        // abajo. Este camino mandaba `r[k]`, que para un `timestamp` es un Date de JS: viaja con huso
+        // y puede caer sobre la OTRA copia de la misma póliza (00:00 contra 06:00). No se notaba
+        // porque hasta hoy sólo borraba en tablas sin fecha en la llave (kdpord, kdm2, kdij).
+        const chunk = confirmadas.slice(i, i + SHIP_BATCH).map((r) => pkParaEnviar(r, meta.pk, code));
         await sink.ship('raw-delete', { rows: chunk, tenantId: TENANT, meta: delMeta, client: prod });
         borrados += chunk.length;
       }
@@ -512,13 +518,7 @@ async function reconcile(local, prod, code, table) {
         const dupMeta = { table, pk: meta.pk, columns: [{ name: 'sucursal', type: 'text' }, ...meta.cols.map((c) => ({ name: c.column_name, type: mapType(c.data_type) }))] };
         let borrados = 0;
         for (let i = 0; i < stale.length; i += SHIP_BATCH) {
-          const chunk = stale.slice(i, i + SHIP_BATCH).map((r) => {
-            const o = { sucursal: code };
-            // El timestamp va como TEXTO (`_t_<col>`): Postgres lo castea del literal y no hay huso
-            // de por medio. Mandar el Date de JS reintroduciría el corrimiento que venimos a limpiar.
-            for (const k of meta.pk) o[k] = Object.prototype.hasOwnProperty.call(r, '_t_' + k) ? r['_t_' + k] : r[k];
-            return o;
-          });
+          const chunk = stale.slice(i, i + SHIP_BATCH).map((r) => pkParaEnviar(r, meta.pk, code));
           await sink.ship('raw-delete', { rows: chunk, tenantId: TENANT, meta: dupMeta, client: prod });
           borrados += chunk.length;
         }
