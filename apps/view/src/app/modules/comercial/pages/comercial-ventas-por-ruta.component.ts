@@ -35,7 +35,7 @@ import {
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { REPORTS_TABS } from '../reports-tabs';
+import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { RouteClosureReconComponent } from './comercial-route-closure-recon.component';
 import { VecinalReconComponent } from './comercial-vecinal-recon.component';
@@ -1152,7 +1152,7 @@ const MES: Record<string, string> = {
   `],
 })
 export class ComercialVentasPorRutaComponent {
-  readonly reportTabs = REPORTS_TABS;
+  readonly reportTabs = RUTA_DIRECTA_TABS; // [NAV.8.1] la barra de SU apartado, no la tira combinada de 11
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

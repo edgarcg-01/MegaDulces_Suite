@@ -11,9 +11,9 @@ import { Permission } from '../../core/constants/permissions';
  * que cargó, lo que cobra el chofer, su objetivo, su resultado, su gasto y su camioneta).
  * Aplanarlas las escondía entre cosas que no tienen que ver.
  *
- * ⭐ `REPORTS_TABS` las sigue incluyendo en el MISMO orden, así que la tira de pestañas no
- * cambia. Lo que cambia es que ahora hay un nombre para el conjunto, y el sidebar puede
- * agruparlas como lo que son sin que nadie tenga que mantener una segunda lista.
+ * ⭐ `[NAV.8.1]` (2026-10-27) Es la ÚNICA barra de sus pantallas. Hasta ese día Ventas por ruta e
+ * Inventario de ruta pintaban además la tira combinada con Sell-Out (`REPORTS_TABS`, 11 pestañas)
+ * mientras las otras cuatro pintaban ésta: la misma entrada mostraba dos barras distintas.
  */
 /**
  * ⛔ `[AUD-A5]` **El conjunto se llama «Ruta Directa»; «Ventas por ruta» es UNA de sus siete.**

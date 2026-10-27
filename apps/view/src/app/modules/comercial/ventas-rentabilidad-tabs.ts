@@ -8,8 +8,8 @@ import { Permission } from '../../core/constants/permissions';
  * Ventas generales 1, Sucursales Wincaja 0 (telemetría de la suite, 2026-10-27). Rentabilidad va
  * primero porque es la que se abre: la entrada lleva a la primera pestaña visible.
  *
- * ⚠️ No se metieron en «Reportes de venta»: esa barra (`REPORTS_TABS`) ya trae 11 pestañas
- * (Sell-Out, Ruta Directa, Facturación TM) y la pintan sus páginas; con dos más no cabría.
+ * ⚠️ No se metieron en «Reportes de venta»: son otra pregunta (cuánto vende la red y cuánto deja,
+ * no el detalle por empresa o producto), y Rentabilidad es la que más se abre de las tres.
  * ⛔ La barra la pintan las TRES páginas (lección de `[NAV.2]`).
  */
 /** ⛔ `[AUD-A5]` El conjunto no se llama como ninguna de sus pestañas: la migaja toma este nombre. */

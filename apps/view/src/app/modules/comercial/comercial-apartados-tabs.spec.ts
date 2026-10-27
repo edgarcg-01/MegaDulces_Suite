@@ -2,7 +2,7 @@ import { PRECIOS_APARTADO_LABEL, PRECIOS_APARTADO_TABS } from './precios-apartad
 import { VENDEDORES_LABEL, VENDEDORES_TABS } from './vendedores-tabs';
 import { VENTAS_RENTABILIDAD_LABEL, VENTAS_RENTABILIDAD_TABS } from './ventas-rentabilidad-tabs';
 import { ANALYTICS_LABEL, ANALYTICS_TABS } from './analytics-tabs';
-import { REPORTS_TABS } from './reports-tabs';
+import { REPORTES_GENERALES_TABS } from './reports-tabs';
 import { CUSTOMERS_TABS } from './customers-tabs';
 import { RUTA_DIRECTA_TABS } from './ruta-directa-tabs';
 import { Permission } from '../../core/constants/permissions';
@@ -68,8 +68,13 @@ describe('[NAV.8] apartados del sidebar de Comercial', () => {
   });
 
   it('ninguna pestaña nueva se repite en las barras que ya existían (Clientes, Ruta Directa, Reportes de venta)', () => {
-    const existentes = [...CUSTOMERS_TABS, ...RUTA_DIRECTA_TABS, ...REPORTS_TABS].map((t) => t.route);
+    const existentes = [...CUSTOMERS_TABS, ...RUTA_DIRECTA_TABS, ...REPORTES_GENERALES_TABS].map((t) => t.route);
     for (const [, tabs] of APARTADOS) for (const t of tabs) expect(existentes).not.toContain(t.route);
+  });
+
+  it('[NAV.8.1] ⛔ NEGATIVA — Reportes de venta y Ruta Directa no comparten pestañas (una barra por entrada)', () => {
+    const rd = RUTA_DIRECTA_TABS.map((t) => t.route);
+    for (const t of REPORTES_GENERALES_TABS) expect(rd).not.toContain(t.route);
   });
 
   it('«En vivo» (el Centro de Control) es la PRIMERA de Analítica: la entrada sigue llevando ahí', () => {

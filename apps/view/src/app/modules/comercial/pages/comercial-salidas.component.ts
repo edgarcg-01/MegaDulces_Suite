@@ -23,7 +23,7 @@ import {
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
-import { REPORTS_TABS } from '../reports-tabs';
+import { REPORTES_GENERALES_TABS } from '../reports-tabs';
 
 type PeriodMode = 'year' | 'd7' | 'd15' | 'd21' | 'range';
 
@@ -230,7 +230,7 @@ const MES: Record<string, string> = {
   `],
 })
 export class ComercialSalidasComponent {
-  readonly reportTabs = REPORTS_TABS;
+  readonly reportTabs = REPORTES_GENERALES_TABS; // [NAV.8.1] la barra de SU apartado, no la tira combinada de 11
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

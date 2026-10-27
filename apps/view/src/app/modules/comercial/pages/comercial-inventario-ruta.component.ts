@@ -26,7 +26,7 @@ import {
   RouteShipmentLine,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { REPORTS_TABS } from '../reports-tabs';
+import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -855,7 +855,7 @@ export class ComercialInventarioRutaComponent {
   private readonly router = inject(Router);
   private readonly ruta = inject(ActivatedRoute);
 
-  readonly tabs = REPORTS_TABS;
+  readonly tabs = RUTA_DIRECTA_TABS; // [NAV.8.1] la barra de SU apartado, no la tira combinada de 11
   /** Centinela que el backend devuelve cuando no se acotó el rango. */
   readonly TODO = '2000-01-01';
   readonly VALUACIONES = [
