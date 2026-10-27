@@ -25,6 +25,8 @@ import { FORMAS_PAGO, faltaParaMandar, type FormaPagoId, type Faltante } from '@
 import { MAX_ARCHIVO_GASTO_BYTES, MAX_ARCHIVO_GASTO_MB } from '@megadulces/contracts';
 import { MAX_DETALLES_PAGO, unirDetallesDePago } from '@megadulces/contracts';
 import { CapturaEnVivoComponent } from '../components/captura-en-vivo.component';
+import { AvisoRondaGastosComponent } from '../components/aviso-ronda-gastos.component';
+import { rondaDeRevision } from '@megadulces/contracts';
 
 /** En qué momento del ciclo está la solicitud elegida, y por tanto qué muestra la página. */
 type CapMode = 'checking' | 'capturar' | 'evidencia' | 'esperando' | 'revision' | 'cerrada';
@@ -47,7 +49,7 @@ interface SelSolicitud {
 @Component({
   selector: 'app-finanzas-capturar-gasto',
   standalone: true,
-  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, SelectButtonModule, ToastModule, DialogModule, CapturaEnVivoComponent],
+  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, SelectButtonModule, ToastModule, DialogModule, CapturaEnVivoComponent, AvisoRondaGastosComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -78,6 +80,9 @@ interface SelSolicitud {
             <p class="cap-nohallado-q">Si el folio es correcto, búscalo acá abajo o avisa a Sistemas.</p>
           </div>
         }
+
+        <!-- [GX.86] El aviso de las rondas: informa, no bloquea. Arriba, antes de elegir el folio. -->
+        <app-aviso-ronda-gastos class="cap-ronda" />
 
         <!-- 1) Folio del gasto -->
         @if (!gasto()) {
@@ -1326,7 +1331,8 @@ export class FinanzasCapturarGastoComponent {
        */
       comentarios: this.comentarios().trim(), files,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.saving.set(false); this.toast.add({ severity: 'success', summary: 'Enviada a aprobación', detail: `Solicitud ${g.folio}` }); this.uploaded = {}; this.reset(); this.loadMine(); },
+      // `[GX.86]` El acuse repite cuándo se revisa (la ronda se calcula AHORA, al mandarlo).
+      next: () => { this.saving.set(false); this.toast.add({ severity: 'success', summary: 'Enviada a aprobación', detail: `Solicitud ${g.folio}. ${rondaDeRevision().acuse}` }); this.uploaded = {}; this.reset(); this.loadMine(); },
       error: (e) => { this.saving.set(false); this.formError.set(e?.error?.message || 'No se pudo enviar.'); },
     });
   }
