@@ -114,7 +114,7 @@ interface TarjetaCaos {
                   @if (t.desglose.length) {
                     <ul class="cs-card-des" [attr.aria-label]="'De dónde sale: ' + t.label">
                       @for (d of t.desglose; track $index) {
-                        <li><span>{{ d.texto }}</span>@if (d.monto) { <span class="comm-num">{{ d.monto }}</span> }</li>
+                        <li><span>{{ d.texto }}</span>@if (d.monto) { <span class="comm-num" [class.fin-entra]="d.monto.startsWith('+')" [class.fin-sale]="d.monto.startsWith('−')">{{ d.monto }}</span> }</li>
                       }
                     </ul>
                   }
@@ -245,7 +245,9 @@ interface TarjetaCaos {
                   <span class="cs-card-aviso"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> sin decodificar</span>
                 }
               </td>
-              <td class="comm-num cs-monto">{{ signo(r.type_id) }}{{ money(r.total) }}</td>
+              <!-- [CGS.56] Edgar: «rojo si es egreso, verde si es ingreso». El color va en el TEXTO del monto y
+                   acompaña al signo: sin el color, el + / − sigue diciendo la dirección. -->
+              <td class="comm-num cs-monto" [class.fin-entra]="signo(r.type_id) === '+ '" [class.fin-sale]="signo(r.type_id) === '− '">{{ signo(r.type_id) }}{{ money(r.total) }}</td>
               <td>{{ r.ref || '—' }}</td>
               <!-- El operador se dice cuando cambia: 24 de 25 renglones repetían el mismo nombre. -->
               <td class="fin-dim">
@@ -630,6 +632,9 @@ interface TarjetaCaos {
     .cs-card-des { list-style:none; margin:var(--sp-1) 0 0; padding:var(--sp-2) 0 0; border-top:1px solid var(--border-color); display:flex; flex-direction:column; gap:2px; font-size:var(--fs-xs); color:var(--text-muted); line-height:1.35; }
     .cs-card-des li { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:var(--sp-2); align-items:baseline; }
     .cs-card-des .comm-num { color:var(--text-main); white-space:nowrap; text-align:right; }
+    /* [CGS.56] La dirección del dinero en el texto del monto: verde entra, rojo sale. */
+    .fin-entra, .cs-card-des .comm-num.fin-entra { color:var(--ok-soft-fg); }
+    .fin-sale, .cs-card-des .comm-num.fin-sale { color:var(--bad-soft-fg); }
     .cs-card-nota { font-size:var(--fs-xs); color:var(--text-muted); line-height:1.35; }
     .cs-nowrap { white-space:nowrap; }
     .cs-th-num { text-align:right; }

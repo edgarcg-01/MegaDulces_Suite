@@ -248,7 +248,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                   @if (t.desglose.length) {
                     <ul class="cq-card-des" [attr.aria-label]="'De dónde sale: ' + t.label">
                       @for (d of t.desglose; track $index) {
-                        <li><span>{{ d.texto }}</span>@if (d.monto) { <span class="comm-num">{{ d.monto }}</span> }</li>
+                        <li><span>{{ d.texto }}</span>@if (d.monto) { <span class="comm-num" [class.fin-entra]="d.monto.startsWith('+')" [class.fin-sale]="d.monto.startsWith('−')">{{ d.monto }}</span> }</li>
                       }
                     </ul>
                   }
@@ -925,6 +925,9 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
     .cq-card-des li { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:var(--sp-2); align-items:baseline; }
     .cq-card-des .comm-num { text-align:right; }
     .cq-card-des .comm-num { color:var(--text-main); white-space:nowrap; }
+    /* [CGS.56] La dirección del dinero en el texto del monto: verde entra, rojo sale. */
+    .cq-card-des .comm-num.fin-entra { color:var(--ok-soft-fg); }
+    .cq-card-des .comm-num.fin-sale { color:var(--bad-soft-fg); }
     .cq-card-de { font-size:var(--fs-xs); color:var(--text-muted); line-height:1.35; }
     .cq-pos-sub { display:block; color:var(--text-muted); font-size:var(--fs-sm); font-weight:400; }
     .cq-ahora-cab { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); margin:0 0 var(--sp-2); }
