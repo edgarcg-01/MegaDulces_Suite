@@ -9152,6 +9152,20 @@ TP.6-TP.8+TP.10".
 >   dos comandos míos**, y commitear la etiqueta exigió `git apply --cached` de un solo hunk para no
 >   llevarse 5 hunks ajenos. ⛔ **No se abre como fase** (Fase 0 en curso, §7 del método).
 
+> ### 🔨 2026-10-27 — **Fase LE · Libro de efectivo de partida doble (reemplaza a CGA)**
+>
+> PM: *«rehagamos el motor de caja… es como un banco»*. Plan, 38 reglas de banco (B1–B38) y medición:
+> [`FASE_LE_LIBRO_DE_EFECTIVO.md`](FASES/FASE_LE_LIBRO_DE_EFECTIVO.md). D1 (reemplaza a CGA) y D2 (una caja
+> física: pesos, dólares y documentos; el grueso en CAOS) firmadas el 2026-10-27; D3 pendiente.
+> ⚠️ `CGA-A.50`–`A.57` (abajo) quedan **absorbidos**: la custodia es una bolsa y los enlaces son asientos.
+>
+> - [x] **[LE.0.0]** 🔨 **Contención de `CG.58`** (sin desplegar): reparto automático APAGADO por default
+>   (`CAOS_INGRESO_CONCILIAR=on`), sin tocar depósitos que el libro explica; migración `20261027101810`
+>   con la regla B4 en la base y la baja lógica de las dobles (medidas: 86 depósitos · 162 atribuciones ·
+>   $1,703,230, todas contra cobros del 21–28 jul). Pruebas: `caos-ingreso-recon.libro-real.spec.ts`,
+>   `test-newdb-caja-una-explicacion.js`. ⚠️ Pruebas de base **sin correr** (sin base de prueba en .222).
+> - **[LE.0.1]–[LE.2.4]** ⬜ Ver el plan.
+
 > ### 🔨 2026-10-23 — **CGA-A.50 · El retiro de CAOS que se lleva una persona queda a su cargo (ADR-101)**
 >
 > Edgar: *«hoy sacan 200 mil del cajero porque saben que se van a pagar 200 mil»* · *«necesito que
