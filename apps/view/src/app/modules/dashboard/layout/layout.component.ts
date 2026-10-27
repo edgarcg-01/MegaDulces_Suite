@@ -40,8 +40,14 @@ import type { PageTab } from '../../../shared/components/page-tabs/page-tabs.com
 import { pestanaVisible, primeraPestanaVisible, urlEnPestanas } from '../../../shared/components/page-tabs/pestanas-de-area';
 import { GASTOS_TABS } from '../../finanzas/gastos-tabs';
 import { PAGOS_VIAJE_TABS } from '../../logistica/pagos-viaje-tabs';
+import { COSTO_UNIDAD_TABS } from '../../logistica/costo-unidad-tabs';
 import { CAJA_TABS } from '../../finanzas/caja-tabs';
 import { PAGOS_TABS } from '../../finanzas/pagos-tabs';
+import { CORTES_ARQUEOS_TABS, CORTES_ARQUEOS_LABEL } from '../../finanzas/cortes-arqueos-tabs';
+import { BANCOS_CONCILIACION_TABS, BANCOS_CONCILIACION_LABEL } from '../../finanzas/bancos-conciliacion-tabs';
+import { DEUDA_PROVEEDORES_TABS, DEUDA_PROVEEDORES_LABEL } from '../../finanzas/deuda-proveedores-tabs';
+import { LIBROS_CONTABLES_TABS, LIBROS_CONTABLES_LABEL } from '../../finanzas/libros-contables-tabs';
+import { MAAT_TABS, MAAT_LABEL } from '../../finanzas/maat-tabs';
 import { REPORTES_GENERALES_TABS } from '../../comercial/reports-tabs';
 import { RUTA_DIRECTA_TABS, RUTA_DIRECTA_LABEL } from '../../comercial/ruta-directa-tabs';
 import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
@@ -51,6 +57,11 @@ import { PROMOS_TABS } from '../../comercial/promos-tabs';
 import { TELEMARKETING_TABS } from '../../comercial/telemarketing-tabs';
 import { CATALOGO_TABS } from '../../compras/catalogo-tabs';
 import { ENTRADAS_CONTROL_TABS } from '../../compras/entradas-control-tabs';
+import { PARAMETROS_COMPRA_TABS, PARAMETROS_COMPRA_LABEL } from '../../compras/parametros-compra-tabs';
+import { SEGUIMIENTO_COMPRA_TABS, SEGUIMIENTO_COMPRA_LABEL } from '../../compras/seguimiento-compra-tabs';
+import { ALERTAS_ABASTO_TABS, ALERTAS_ABASTO_LABEL } from '../../compras/alertas-abasto-tabs';
+import { PAGO_PROVEEDOR_TABS, PAGO_PROVEEDOR_LABEL } from '../../compras/pago-proveedor-tabs';
+import { COSTOS_COMPRA_TABS, COSTOS_COMPRA_LABEL } from '../../compras/costos-compra-tabs';
 import { ANALISIS_TABS } from '../../tienda/analisis/analisis-tabs';
 import { ARQUEO_TABS } from '../../tienda/arqueo-tabs';
 import { ETIQUETAS_TABS } from '../../tienda/etiquetas-tabs';
@@ -545,6 +556,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Costos',        icon: 'pi pi-money-bill', route: '/logistica/costs',     permission: Permission.LOGISTICS_EXPENSES_VER },
         { label: 'Gasto de ruta', icon: 'pi pi-car',        route: '/logistica/gasto-ruta', permission: Permission.LOGISTICS_ROUTE_EXPENSES_VER },
+        // [FCU.3] Reemplaza la hoja «TRANSPORTES 2026»: una entrada, cinco pestañas.
+        { label: 'Costo por unidad', icon: 'pi pi-truck', route: '/logistica/costo-unidad/unidades', tabs: COSTO_UNIDAD_TABS },
         { label: 'Traspasos',     icon: 'pi pi-sync',       route: '/logistica/traspasos', permission: Permission.LOGISTICS_TRANSFERS_VER },
         { label: 'Reportes',      icon: 'pi pi-chart-bar',  route: '/logistica/reports',   permission: Permission.LOGISTICS_SHIPMENTS_VER },
         { label: 'Configuración', icon: 'pi pi-cog',        route: '/logistica/config',    permission: Permission.LOGISTICS_CONFIG_GESTIONAR },
@@ -693,54 +706,27 @@ export class LayoutComponent implements OnInit, OnDestroy {
     },
   ];
 
-  // Orden alineado a FINANZAS_TABS (finanzas-tabs.ts): mismo orden en sidebar y pestañas.
+  // `[NAV.7]` (2026-10-26) **El sidebar de Finanzas cabe sin scroll**, con el mismo método que
+  // Compras (`[NAV.6]`). Eran 17 renglones en 5 grupos (~1,254 px); ahora 10 en 4 (~878 px), que caben
+  // en un 1920×1080 al 100 %. Los grupos siguen el camino del dinero (docs/FLUJO_VENTA_A_COBRO.md y
+  // docs/FLUJO_COMPRA_A_PAGO.md): lo que ENTRA → dónde se GUARDA → lo que SALE → cómo se REGISTRA.
+  //
+  // Cómo se plegó: cada conjunto con más de una pantalla es UNA entrada con su barra (`tabs:`), y la
+  // barra la pintan TODAS sus páginas antes de quitar sus renglones (`[NAV.2]` lo hizo al revés).
+  // Cada pestaña conserva su permiso. Quedan como renglón propio las de uso alto (30 días: Gastos 810
+  // visitas, Caja 517, Crédito 67) y Control (histórico), que se retira en CG.16 y no se mezcla con Caja.
+  // ⛔ `PAGOS_TABS` NO creció: `[PGP.7]` lo dejó en el ciclo vivo de dos pantallas; la deuda va aparte.
+  // Uso: telemetría de la suite (visitas = persona+sesión+día; proxy: dónde se cargó la página o se dejó
+  // la pestaña).
   private finanzasNavGroups: { title: string; items: NavItem[] }[] = [
     {
-      title: 'Egresos y bancos',
-      items: [
-        { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
-        { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
-        // `[CGA-A.38]` Era «Caja General», y ése es el nombre que el árbol de permisos le da al motor
-        // NUEVO (`/finanzas/caja-general`). Esta es el espejo del Access Control: movimientos hasta
-        // el 10-oct; desde el 12 la caja se opera en «Caja».
-        { label: 'Control (histórico)', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
-        /**
-         * `[CG.121]` **UNA entrada para las tres pantallas del efectivo** (pedido de Edgar,
-         * 2026-10-19): Captura · Expediente · Caja Fuerte. Adentro se cambia con la barra de
-         * pestañas: `CAJA_TABS`, la MISMA lista que leen la barra y esta entrada.
-         *
-         * Eran dos renglones sueltos acá —«Caja (captura)» y «Caja Fuerte»— y el **Expediente
-         * no tenía ninguno**: se llegaba sólo escribiendo la URL. Es lo que `[IG.2]` ya había
-         * cobrado con Caja Fuerte, repetido en la pantalla de al lado.
-         *
-         * ⚠️ `route` queda como valor por omisión: `conDestino()` la reemplaza por la PRIMERA
-         * pestaña que la persona ve, así que quien sólo tiene `FINANCE_CAOS_VER` entra por Caja
-         * Fuerte y no rebota contra `/sin-acceso`.
-         *
-         * ⛔ NO se toca «Caja General» (`/finanzas/caja`), el renglón de arriba: es otra
-         * pantalla —la LECTURA del espejo del Access, de Tesorería— y se retira en `CG.16`.
-         * Nombres parecidos, circuitos distintos.
-         */
-        { label: 'Caja', icon: 'pi pi-money-bill', route: '/finanzas/caja-general', tabs: CAJA_TABS },
-        { label: 'Cancelados', icon: 'pi pi-ban', route: '/finanzas/cancelados', permission: Permission.FINANCE_BANK_VER },
-        { label: 'Tareas de conciliación', icon: 'pi pi-check-square', route: '/finanzas/tareas', permission: Permission.FINANCE_BANK_VER },
-        /**
-         * `[SM.9]` Llegó de Almacén. Cuadra el arqueo ciego contra el corte de caja
-         * (ADR-029) — dinero con una pata en inventario, no al revés. Su permiso
-         * `RECONCILIATION_*` es de dominio propio y no cambió al mudarse.
-         */
-        { label: 'Cuadre de movimientos', icon: 'pi pi-sliders-h', route: '/finanzas/cuadre', permission: Permission.RECONCILIATION_VER },
-      ],
-    },
-    {
-      // [CSU.2] Sección propia para el lado ingreso (decisión de Francisco, 2026-10-05): lo que
-      // vendieron las cajas, el libro de ingresos y lo que deben/pagaron los clientes.
+      // [CSU.2] El lado ingreso (decisión de Francisco, 2026-10-05): lo que vendieron las cajas y lo
+      // que deben/pagaron los clientes.
       title: 'Ingresos',
       items: [
-        { label: 'Cortes / Sucursales', icon: 'pi pi-shop', route: '/finanzas/cortes-sucursales', permission: Permission.FINANCE_CORTES_VER },
-        // [IG.2] Permiso PROPIO: hay roles que ven la venta y no el gasto, así que no se cuelga
-        // de FINANCE_EXPENSES_VER.
-        { label: 'Ingresos contables', icon: 'pi pi-arrow-down-left', route: '/finanzas/ingresos', permission: Permission.FINANCE_INCOME_VER },
+        // `[NAV.7]` Cortes / Sucursales + Cuadre de movimientos: la misma caja de sucursal, del corte
+        // al arqueo ciego (ver `cortes-arqueos-tabs.ts`).
+        { label: CORTES_ARQUEOS_LABEL, icon: 'pi pi-shop', route: '/finanzas/cortes-sucursales', tabs: CORTES_ARQUEOS_TABS },
         /**
          * UNA entrada para Cartera y Cobranza: son las dos mitades del mismo oficio (lo
          * que te deben / lo que te pagaron) y adentro se cambia con el selector. `anyOf`
@@ -753,56 +739,52 @@ export class LayoutComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      title: 'Pagos',
+      // `[NAV.7]` Donde se guarda el dinero: el efectivo (Caja) y el banco.
+      title: 'Caja y bancos',
       items: [
         /**
-         * `[TP.20.3]` **UNA entrada para las cuatro pantallas del ciclo de pago** (objetivo O5).
-         *
-         * Eran cuatro renglones con nombres que se parecen —*Pagos a proveedor*, *Pronto pago*,
-         * *Calendario de pagos*, *Programa de pagos*— y que hacen cosas distintas: dos miran lo ya
-         * pagado, una el plazo que vence y una lo que se va a pagar. Juntarlas dice que son un
-         * ciclo, no cuatro reportes sueltos.
-         *
-         * Lleva a la **primera pestaña que la persona ve** y queda marcada en las cuatro. La lista
-         * es `PAGOS_TABS`, la MISMA que pinta la barra de arriba de cada pantalla.
-         *
-         * ⚠️ A diferencia de «Gastos» no hay shell de ruta: `/finanzas` sólo admite un padre con
-         * `path: ''` al final y ya lo ocupa el área Gastos. El porqué, en `pagos-tabs.ts`.
+         * `[CG.121]` **UNA entrada para las pantallas del efectivo** (pedido de Edgar, 2026-10-19):
+         * Captura · Arqueos · Caja Fuerte. Adentro se cambia con la barra: `CAJA_TABS`, la MISMA
+         * lista que leen la barra y esta entrada. `route` queda como valor por omisión:
+         * `conDestino()` la reemplaza por la PRIMERA pestaña que la persona ve.
          */
-        // `[PGP.7]` Lleva al Calendario, que es donde se hace el pago. Antes entraba por Pronto
-        // pago, que salió de las pestañas: su mitad útil vive adentro del Calendario desde
-        // `[TP.20.4]` y su mitad retrospectiva llevaba 55 días sin producir (medido 2026-10-23).
-        { label: 'Pagos', icon: 'pi pi-send', route: '/finanzas/calendario-pagos', tabs: PAGOS_TABS },
-        { label: 'Cuadre y deuda', icon: 'pi pi-wallet', route: '/finanzas/cuadre-proveedor', permission: Permission.FINANCE_PAYMENTS_VER },
-        // [ECA.2] Junto a "Cuadre y deuda" (decisión de Francisco, 2026-10-07): el mismo tema
-        // —cuánto se debe— visto documento por documento y para todos los tipos de acreedor.
-        { label: 'Estado de cuenta acreedores', icon: 'pi pi-book', route: '/finanzas/estado-cuenta-acreedores', permission: Permission.FINANCE_PAYMENTS_VER },
-        { label: 'Cuentas por pagar', icon: 'pi pi-chart-bar', route: '/finanzas/pagos-control', permission: Permission.FINANCE_AI_CHAT },
+        { label: 'Caja', icon: 'pi pi-money-bill', route: '/finanzas/caja-general', tabs: CAJA_TABS },
+        // `[CGA-A.38]` El espejo del Access Control: movimientos hasta el 10-oct; desde el 12 la caja
+        // se opera en «Caja». ⛔ Otra pantalla y otro circuito: se retira en `CG.16`, no se mete en Caja.
+        { label: 'Control (histórico)', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
+        // `[NAV.7]` Bancos + Tareas de conciliación + Cancelados (ver `bancos-conciliacion-tabs.ts`).
+        { label: BANCOS_CONCILIACION_LABEL, icon: 'pi pi-building-columns', route: '/finanzas/bancos', tabs: BANCOS_CONCILIACION_TABS },
       ],
     },
     {
-      title: 'Gastos',
+      // `[NAV.7]` Lo que sale: la deuda con proveedores, el pago y el gasto.
+      title: 'Egresos',
       items: [
         /**
-         * `[GX.80]` **UNA entrada para las cuatro pantallas de Gastos** (pedido del usuario,
-         * 2026-10-09). Adentro se cambia con la barra de pestañas: `GASTOS_TABS`, la MISMA lista
-         * que pinta `GastosAreaShellComponent`. La entrada lleva a la primera pestaña que la
-         * persona ve —quien firma cae en Aprobación, quien sólo captura en Mis gastos— y queda
-         * marcada en las cuatro. El permiso de cada pantalla sigue en su pestaña y en su ruta.
-         *
-         * Lo que sigue valiendo de antes: «Levantamiento de gasto» (`[GX.42]`) y el «Tablero de
-         * gastos» (`[GX.18]`) salieron del menú pero sus RUTAS siguen vivas — a la primera lleva
-         * el botón «Subir evidencia» y la segunda está en marcadores. Historial se conserva
-         * (`[GX.59]`): 14 personas con `_VER` y sin `_COMPROBAR` no tendrían otra vista de empresa.
+         * `[TP.20.3]` **UNA entrada para el ciclo de pago** (objetivo O5). La lista es `PAGOS_TABS`,
+         * la MISMA que pinta la barra de arriba de cada pantalla. `[PGP.7]` Lleva al Calendario, que
+         * es donde se hace el pago.
+         */
+        { label: 'Pagos', icon: 'pi pi-send', route: '/finanzas/calendario-pagos', tabs: PAGOS_TABS },
+        // `[NAV.7]` Estado de cuenta acreedores + Cuadre y deuda + Cuentas por pagar: la deuda que se
+        // mira antes de pagar, junto a Pagos (ver `deuda-proveedores-tabs.ts`).
+        { label: DEUDA_PROVEEDORES_LABEL, icon: 'pi pi-book', route: '/finanzas/estado-cuenta-acreedores', tabs: DEUDA_PROVEEDORES_TABS },
+        /**
+         * `[GX.80]` **UNA entrada para las pantallas de Gastos** (pedido del usuario, 2026-10-09):
+         * `GASTOS_TABS`, la MISMA lista que pinta `GastosAreaShellComponent`. Lleva a la primera
+         * pestaña que la persona ve. «Levantamiento de gasto» (`[GX.42]`) y el «Tablero de gastos»
+         * (`[GX.18]`) salieron del menú pero sus RUTAS siguen vivas.
          */
         { label: 'Gastos', icon: 'pi pi-wallet', route: '/finanzas/mis-gastos', tabs: GASTOS_TABS },
       ],
     },
     {
-      title: 'Inteligencia',
+      // `[NAV.7]` Cómo queda registrado y qué encontró la inteligencia. Libros contables va justo
+      // después de Gastos: Egresos contables + Gastos es el par que más se abre junto (26 visitas).
+      title: 'Registro y análisis',
       items: [
-        { label: 'Hallazgos', icon: 'pi pi-flag', route: '/finanzas/hallazgos', permission: Permission.FINANCE_AI_CHAT },
-        { label: 'Pregúntale a Maat', icon: 'pi pi-sparkles', route: '/finanzas/maat', permission: Permission.FINANCE_AI_CHAT },
+        { label: LIBROS_CONTABLES_LABEL, icon: 'pi pi-book', route: '/finanzas/egresos', tabs: LIBROS_CONTABLES_TABS },
+        { label: MAAT_LABEL, icon: 'pi pi-sparkles', route: '/finanzas/hallazgos', tabs: MAAT_TABS },
       ],
     },
   ];
@@ -901,91 +883,78 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   // Compras / Reabastecimiento (Fase RA — ADR-030). Existencia crítica → sugerido →
   // requisición (HITL). Proyecto propio; cada submódulo gateado por su permiso COMPRAS_*.
+  //
+  // `[NAV.6]` (2026-10-26) **El sidebar de Compras cabe sin scroll.** Medido en el template:
+  // cabecera 57 px + pie 165 px + márgenes 32 px fijos; cada renglón 48 px y cada título de
+  // grupo 44 px. Con 19 renglones en 6 grupos pedía ~1,390 px — no cabía en ninguna pantalla.
+  // Ahora son 11 renglones en 3 grupos: ~886 px, que caben en un 1920×1080 al 100 % (~920 px
+  // útiles en Chrome). ⚠️ Una laptop 1920×1080 al 125 % deja ~740 px y todavía hace scroll; eso
+  // ya no se arregla agrupando: las palancas son el alto del renglón con mouse y los botones del pie,
+  // que repiten el menú del avatar.
+  //
+  // Cómo se plegó: cada etapa con más de una pantalla es UNA entrada con su barra (`tabs:`), y la
+  // barra la pintan TODAS sus páginas antes de quitar sus renglones — `[NAV.2]` lo hizo al revés y
+  // dejó 19 pantallas sin camino (`check-sidebar-tabs.js` lo vigila). Cada pestaña conserva su
+  // permiso: la entrada se ve si la persona ve al menos una y la lleva a la primera que puede ver.
+  // Las de uso alto siguen siendo renglón propio (Pedido 316 visitas en 30 días, Control de
+  // entradas 182, Catálogo 127, Existencia 47); la que se pliega con uso alto (Requisiciones, 51)
+  // es la PRIMERA pestaña de su apartado, que queda justo debajo de Pedido.
+  //
+  // Historia: `[NAV.4]` agrupó por etapa del flujo (docs/FLUJO_COMPRA_A_PAGO.md) · `[NAV.4.1]`
+  // pegó el seguimiento al Pedido · `[NAV.5]` plegó Parámetros de compra · `[NAV.6]` pliega el resto.
+  // Uso: telemetría de la suite (visitas = persona+sesión+día). ⚠️ Es un proxy: cuenta la pantalla
+  // donde se cargó la página o se dejó la pestaña.
   private comprasNavGroups: { title: string; items: NavItem[] }[] = [
     {
-      title: 'Planeación',
-      items: [
-        // Existencia va ANTES de Pedido, y el orden es la tesis: primero ves qué hay, después
-        // decidís qué comprar. Es el mismo componente que /almacen/inventory/existencia.
-        { label: 'Existencia',       icon: 'pi pi-box',       route: '/compras/existencia', permission: Permission.EXISTENCIA_VER },
-        { label: 'Pedido',           icon: 'pi pi-cart-plus', route: '/compras/pedido',    permission: Permission.COMPRAS_PEDIDO_VER },
-        { label: 'Asistente (Thot)', icon: 'pi pi-comments',  route: '/compras/asistente', permission: Permission.COMPRAS_PEDIDO_GESTIONAR },
-        { label: 'Red de abasto',    icon: 'pi pi-sitemap',   route: '/compras/red',       permission: Permission.COMPRAS_RED_VER },
-      ],
-    },
-    {
-      // RE.20.0 — el grupo dice la ETAPA del proceso, no el tipo de documento. Se llamaba
-      // "Órdenes" y adentro convivían "Órdenes de compra" (lo que pedimos) con las facturas de
-      // entrada (lo que llega): dos cosas opuestas bajo el mismo sustantivo, y con dos rutas
-      // casi idénticas (`/compras/ordenes` vs `/compras/entradas/control/ordenes`).
+      // De lo que se mira para decidir hasta lo que pasa con el pedido. Planeación y Compra eran
+      // dos grupos; el título entre ellos separaba el Pedido de su paso siguiente.
       title: 'Compra',
       items: [
-        { label: 'Requisiciones',     icon: 'pi pi-file-edit',     route: '/compras/requisiciones', permission: Permission.COMPRAS_REQUISICIONES_VER },
-        { label: 'Órdenes de compra', icon: 'pi pi-shopping-cart', route: '/compras/ordenes',       permission: Permission.COMPRAS_ORDENES_VER },
-        // RA-PRO.45 — las OCs de Kepler que quedaron abiertas: lo que hay que cerrar o cancelar
-        // para que dejen de tapar el pedido. Mismo permiso que Pedido (es la otra cara del dato).
-        { label: 'Abiertas en Kepler', icon: 'pi pi-hourglass',    route: '/compras/oc-abiertas',   permission: Permission.COMPRAS_PEDIDO_VER },
+        // Existencia va ANTES de Pedido, y el orden es la tesis: primero ves qué hay, después
+        // decides qué comprar. Es el mismo componente que /almacen/inventory/existencia.
+        { label: 'Existencia',       icon: 'pi pi-box',       route: '/compras/existencia', permission: Permission.EXISTENCIA_VER },
+        // `[NAV.6]` Hallazgos + Faltantes de piso: las dos señales de demanda que se miran ANTES de
+        // pedir (ver `alertas-abasto-tabs.ts`).
+        { label: ALERTAS_ABASTO_LABEL, icon: 'pi pi-flag', route: '/compras/hallazgos', tabs: ALERTAS_ABASTO_TABS },
+        { label: 'Pedido',           icon: 'pi pi-cart-plus', route: '/compras/pedido',    permission: Permission.COMPRAS_PEDIDO_VER },
+        // `[NAV.4.1]`/`[NAV.6]` El paso siguiente del pedido, pegado a él: Requisiciones → Órdenes de
+        // compra → Abiertas en Kepler, en el orden en que avanza el documento. Pedido + Requisiciones
+        // es el par que más se abre junto (28 visitas en 30 días). Ver `seguimiento-compra-tabs.ts`.
+        { label: SEGUIMIENTO_COMPRA_LABEL, icon: 'pi pi-file-edit', route: '/compras/requisiciones', tabs: SEGUIMIENTO_COMPRA_TABS },
+        { label: 'Asistente (Thot)', icon: 'pi pi-comments',  route: '/compras/asistente', permission: Permission.COMPRAS_PEDIDO_GESTIONAR },
       ],
     },
     {
-      // RE.20.0 — la otra etapa. Los nombres son SUSTANTIVOS, como el resto del sidebar
-      // (Ventas · Existencias · Pagos · Conteo físico), y cada uno usa **la palabra de la
-      // máquina de estados**: el estado es "Por revisar" → la pantalla es "Revisión". Antes la
-      // misma pantalla se llamaba de tres formas (sidebar "Revisión", título "Bandeja de
-      // revisión", permiso `_VALIDAR`) y quien la abría no sabía qué iba a hacer ahí.
-      title: 'Recepción',
+      // RE.20.0 — los nombres son SUSTANTIVOS y usan **la palabra de la máquina de estados**: el
+      // estado es "Por revisar" → la pantalla es "Revisión". `[NAV.6]` Recepción y Pago a proveedor
+      // eran dos grupos: lo que llega y la deuda que eso deja son la misma etapa vista de dos lados.
+      title: 'Recepción y pago',
       items: [
-        // `[RE.48]` «Captura de facturas» ya no es item propio: es la primera pestaña de Control de
-        // entradas (selector tipo iOS). Quien sube aterriza ahí; quien sólo observa, en Cobertura.
-        // Control va PRIMERO en Recepción (decisión del PM): el proceso empieza en la captura que
-        // vive adentro.
+        // `[RE.48]` «Captura de facturas» es la primera pestaña de Control de entradas: quien sube
+        // aterriza ahí; quien sólo observa, en Cobertura. `[NAV.6]` Reclamos (el faltante que el andén
+        // detecta al recibir) es ahora su última pestaña.
         // [NAV.1] El control de entradas en UNA entrada: su padre era también la pestaña «Cobertura por sucursal».
         { label: 'Control de entradas', icon: 'pi pi-sitemap', route: '/compras/entradas/control', tabs: ENTRADAS_CONTROL_TABS },
-        // `[RE.24]` La pantalla aparte "Revisión de facturas" salió de uso (2026-09-02): validar y
-        // rechazar viven en la lista de órdenes — un solo lugar donde se decide. Eso se mantiene.
-        // ⭐ `[RE.47]` Lo que se perdió fue la PUERTA: la lista se llegaba por Control o por un
-        // item llamado «Costo por compra» que abría en «Por revisar». Medido en prod (2026-10-21):
-        // 1,201 facturas en «recibido», **8 validadas en toda la historia, la última el
-        // 2026-09-01** — el día antes de retirar la puerta. Vuelve con el nombre del trabajo, a la
-        // MISMA lista (no es otra pantalla), y desde Recepción, donde vive el flujo.
+        // ⭐ `[RE.47]` Renglón PROPIO a propósito, aunque es la misma lista que Control › Listado: cuando
+        // sólo se llegaba por Control, la validación se detuvo (1,201 facturas en «recibido», **8
+        // validadas en toda la historia, la última el 2026-09-01**, el día antes de retirar la puerta).
         { label: 'Revisión de facturas', icon: 'pi pi-check-square', route: '/compras/revision-facturas', permission: Permission.COMPRAS_ENTRADAS_VER },
-        // RE.3 — el compromiso de pago que la orden de entrada ya traía y nadie veía.
-        { label: 'Qué vence',            icon: 'pi pi-calendar-clock', route: '/compras/vencimientos', permission: Permission.COMPRAS_ENTRADAS_VER },
+        // `[NAV.6]` Obligaciones → Qué vence → Cuentas de pago: lo que Compras le entrega a Finanzas.
+        // Ver `pago-proveedor-tabs.ts`.
+        { label: PAGO_PROVEEDOR_LABEL, icon: 'pi pi-wallet', route: '/compras/obligaciones', tabs: PAGO_PROVEEDOR_TABS },
       ],
     },
     {
-      // RE.20.5 — las cuatro son el MISMO dinero cortado distinto, y lo único que las
-      // distingue es la unidad de la fila. Los nombres lo dicen: "por compra" y "por
-      // proveedor" son la misma cifra a dos granularidades y se leen de un vistazo.
-      // `Compras 360` era vocabulario del backend (execution_360, Customer 360): decía algo
-      // al que lo construyó y nada al comprador.
-      title: 'Análisis',
+      // Lo que se consulta o se mantiene, no lo que se opera.
+      title: 'Catálogo y costos',
       items: [
-        // `[RE.47]` «Costo por compra» se fue a Recepción como «Revisión de facturas»: abría en
-        // la cola de revisión, no en un análisis. El neto por compra sigue en sus columnas.
-        { label: 'Costo por proveedor', icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
-        { label: 'Costo estándar',     icon: 'pi pi-book',       route: '/compras/costo-estandar', permission: Permission.COMPRAS_COSTO_ESTANDAR_VER },
-        { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_DESCUENTOS_VER },
-        { label: 'Hallazgos',           icon: 'pi pi-flag',       route: '/compras/hallazgos',   permission: Permission.COMPRAS_HALLAZGOS_VER },
-        // `[FLT.14]` Lo que el mostrador reportó: la demanda que ningún feed puede ver, porque una
-        // venta que no ocurrió no deja rastro en el ERP. Mismo permiso que Hallazgos y Reclamos —
-        // las tres bandejas las trabaja el mismo comprador.
-        { label: 'Faltantes de piso',   icon: 'pi pi-megaphone',  route: '/compras/faltantes',   permission: Permission.COMPRAS_HALLAZGOS_VER },
-        // WMS-REC.8 — el faltante del andén con responsable y seguimiento. Mismo permiso
-        // que Hallazgos: es la bandeja del mismo comprador.
-        { label: 'Reclamos',            icon: 'pi pi-inbox',      route: '/compras/reclamos',    permission: Permission.COMPRAS_HALLAZGOS_VER },
-      ],
-    },
-    {
-      title: 'Catálogo',
-      items: [
-        // [CAT.1] Vino de Ventas. Adentro trae su pestaña de códigos repetidos.
-        // [NAV.1] El catálogo entero en UNA entrada. Eran DIEZ renglones hermanos: `/compras/catalogo` y sus nueve hijas. ⚠️ Ahora aterriza en «Resumen», que es la primera pestaña, no en «Productos» como antes.
+        // [CAT.1] Vino de Ventas. [NAV.1] El catálogo entero en UNA entrada (eran DIEZ renglones); aterriza en «Resumen».
         { label: 'Catálogo', icon: 'pi pi-shopping-bag', route: '/compras/catalogo', tabs: CATALOGO_TABS },
-        { label: 'Proveedores', icon: 'pi pi-truck', route: '/compras/proveedores', permission: Permission.COMPRAS_PROVEEDORES_VER },
-        { label: 'Obligaciones a proveedor', icon: 'pi pi-calendar', route: '/compras/obligaciones', permission: Permission.COMPRAS_OBLIGACIONES_VER },
-        { label: 'Cuentas de pago',          icon: 'pi pi-credit-card', route: '/compras/cuentas-pago', permission: Permission.COMPRAS_OBLIGACIONES_VER },
-        { label: 'Categorías',  icon: 'pi pi-tags',  route: '/compras/categorias',  permission: Permission.COMPRAS_CATEGORIAS_VER },
+        // `[NAV.5]` Proveedores, Categorías y Red de abasto: configuran el motor del pedido.
+        { label: PARAMETROS_COMPRA_LABEL, icon: 'pi pi-sliders-h', route: '/compras/proveedores', tabs: PARAMETROS_COMPRA_TABS },
+        // RE.20.5 — el MISMO dinero cortado distinto. `[NAV.6]` Costo por proveedor, Costo estándar y
+        // Descuentos y apoyos en una entrada (ver `costos-compra-tabs.ts`).
+        { label: COSTOS_COMPRA_LABEL, icon: 'pi pi-dollar', route: '/compras/costo-neto', tabs: COSTOS_COMPRA_TABS },
       ],
     },
   ];

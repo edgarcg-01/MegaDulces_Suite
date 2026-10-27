@@ -22,7 +22,7 @@ const renglon = (p: Partial<EntradaRenglon>): AutoabastoPedidoLinea => armarReng
 const sinPedir = renglon({ product_id: 'a', sku: '100', nombre: 'MAZAPÁN', falta_base: 36, falta: 3 });               // 3 cajas · $54
 const planeado = renglon({ product_id: 'b', sku: '200', nombre: 'CHICLE', planeado_compras: 1, surte: surteDe('purchase', null, 'prov-2', 'GOMAS SA') }); // 2 cajas · $36
 const yaViene = renglon({ product_id: 'c', sku: '300', nombre: 'PALETA', viene: { ya: 24, atorado: 0, negado: 0, camino: 0 } });     // 0 · null
-const sinValor = renglon({ product_id: 'd', sku: '400', nombre: 'CACAHUATE', rung_veredicto: 'x1_inflada' });       // 2 cajas · sin valor
+const sinValor = renglon({ product_id: 'd', sku: '400', nombre: 'CACAHUATE', costo_base: null });       // 2 cajas · sin valor (sin costo; [AB.40] con la unidad en duda ya no se pide)
 const todos = [yaViene, sinValor, planeado, sinPedir];
 
 describe('[AB.27] resumirRenglones — la misma suma que los grupos de «Mi pedido»', () => {

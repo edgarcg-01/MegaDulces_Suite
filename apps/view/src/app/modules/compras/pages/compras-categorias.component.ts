@@ -17,6 +17,8 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { ComprasService, CategoryAdmin } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PARAMETROS_COMPRA_TABS } from '../parametros-compra-tabs';
 
 /**
  * RA-PRO.12 — Normalización de categorías de compra (sourcing: Guadalajara/Arandas/plazas).
@@ -28,7 +30,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 @Component({
   selector: 'app-compras-categorias',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, TagModule, DialogModule, InputTextModule, CheckboxModule, IconFieldModule, InputIconModule, TooltipModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, TagModule, DialogModule, InputTextModule, CheckboxModule, IconFieldModule, InputIconModule, TooltipModule, MetricStripComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -43,6 +45,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="deduping()" (click)="dedupeVisible.set(true)"><span class="p-button-icon p-button-icon-left pi pi-clone" aria-hidden="true"></span><span class="p-button-label">Auto-fusionar duplicados</span></button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="tabs" />
 
       <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de categorías" />
 
@@ -160,6 +164,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
   `],
 })
 export class ComprasCategoriasComponent implements OnInit {
+  /** `[NAV.5]` La barra del apartado «Parámetros de compra»: la pinta esta página y sus dos hermanas. */
+  readonly tabs = PARAMETROS_COMPRA_TABS;
   private readonly api = inject(ComprasService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

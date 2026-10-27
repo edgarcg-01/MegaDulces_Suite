@@ -720,6 +720,8 @@ export interface RequisitionResumen {
   n_kepler?: number;
   n_kepler_error?: number;
   n_sin_empujar?: number;
+  /** `[PQ.14]` De las `n_kepler_error`, cuántas son «escritura apagada» (KR), no una falla propia. */
+  n_kepler_apagado?: number;
   monto_sin_kepler?: number;
   dias_max_sin_kepler?: number;
 }
@@ -727,6 +729,9 @@ export interface RequisitionDetail extends RequisitionRow {
   lines: RequisitionLine[];
   purchase_order_id: string | null;   // RA.15 — OC generada desde esta requisición
   purchase_order_folio: string | null;
+  /** `[PQ.16]`/RQ.15 — el documento de Kepler con el que se ordenó (sucursal + folio); null si se marcó sin él. */
+  oc_sucursal?: string | null;
+  oc_folio?: string | null;
   /** `[RQ.2]` Días parada. Lo calcula el SERVIDOR, no el reloj del navegador (VP.0). */
   dias?: number;
   vigencia?: RequisitionVigencia | null;

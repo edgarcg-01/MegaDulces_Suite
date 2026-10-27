@@ -3,7 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
 import { KNEX_NEW_DB, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { diaMxDeInstante } from '@megadulces/contracts';
-import { CaosIngresoReconService } from './caos-ingreso-recon.service';
+import { CaosIngresoReconService, conciliadorEncendido } from './caos-ingreso-recon.service';
 import { atribuirDeposito } from './caos-deposito-grano';
 import { causaDelError } from './causa-del-error';
 
@@ -87,20 +87,28 @@ export class CaosIngresoCronService {
     let cubiertos = 0;
     let pendientes = 0;
     let motivo: string | null = null;
+    /**
+     * ⛔ `[LE.0.0]` Con el reparto apagado (default) no se reparte NI se late: un latido «ok» de un
+     * carril que no corrió diría que la atribución está al día. El sensor ve el latido viejo y lo
+     * dice, que es la verdad. El grano de abajo sí sigue: sólo lee el `ref` y lo usará LE.1.2.
+     */
+    const encendido = conciliadorEncendido();
 
-    try {
-      /**
-       * ⚠️ El servicio resuelve el tenant por `TenantContextService`, que en una petición HTTP
-       * lo pone el interceptor. Acá NO hay petición: el cron corre en el worker, fuera de
-       * cualquier request, así que hay que abrir el alcance a mano o `requireTenantId()` revienta.
-       * Es el mismo patrón del refresco nocturno de recomendaciones (Fase D.4).
-       */
-      const r = await this.tenantCtx.run({ tenantId: MEGA }, () => this.recon.conciliar(null, {}));
-      cubiertos = r.cubiertos ?? 0;
-      pendientes = r.sin_respaldo ?? 0;
-    } catch (e) {
-      motivo = causaDelError(e);
-      this.logger.error(`[CG.58.5] la atribución de CAOS falló: ${motivo}`);
+    if (encendido) {
+      try {
+        /**
+         * ⚠️ El servicio resuelve el tenant por `TenantContextService`, que en una petición HTTP
+         * lo pone el interceptor. Acá NO hay petición: el cron corre en el worker, fuera de
+         * cualquier request, así que hay que abrir el alcance a mano o `requireTenantId()` revienta.
+         * Es el mismo patrón del refresco nocturno de recomendaciones (Fase D.4).
+         */
+        const r = await this.tenantCtx.run({ tenantId: MEGA }, () => this.recon.conciliar(null, {}));
+        cubiertos = r.cubiertos ?? 0;
+        pendientes = r.sin_respaldo ?? 0;
+      } catch (e) {
+        motivo = causaDelError(e);
+        this.logger.error(`[CG.58.5] la atribución de CAOS falló: ${motivo}`);
+      }
     }
 
     /**
@@ -118,6 +126,10 @@ export class CaosIngresoCronService {
       motivo = motivo ? `${motivo} · grano: ${m}` : `grano: ${m}`;
     }
 
+    if (!encendido) {
+      this.logger.warn(`[LE.0.0] reparto de depósitos APAGADO (CAOS_INGRESO_CONCILIAR≠on): no se atribuye nada · grano ${granos}`);
+      return { cubiertos: 0, pendientes: 0, motivo: 'apagado' };
+    }
     await this.latir(cubiertos, pendientes, Date.now() - t0, motivo, granos);
     return { cubiertos, pendientes, motivo };
   }

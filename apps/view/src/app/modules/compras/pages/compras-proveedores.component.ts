@@ -15,6 +15,8 @@ import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, ReplenishmentSettings } from '../compras.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PARAMETROS_COMPRA_TABS } from '../parametros-compra-tabs';
 
 /**
  * RA-PRO.3/10 — Parámetros de pedido por proveedor. Kepler NO codifica lead time real; se
@@ -26,7 +28,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
 @Component({
   selector: 'app-compras-proveedores',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, InputTextModule, InputNumberModule, IconFieldModule, InputIconModule, DialogModule, TagModule, SucursalPipe],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, InputTextModule, InputNumberModule, IconFieldModule, InputIconModule, DialogModule, TagModule, SucursalPipe, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -34,10 +36,13 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
       <p-toast></p-toast>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Parámetros de compra</h1>
+          <!-- [NAV.5] «Parámetros de compra» es ahora el nombre del apartado (esta pantalla y sus dos hermanas); ésta es la de cada proveedor. -->
+          <h1>Parámetros por proveedor</h1>
           <p class="surf-page-sub">El motor <strong>analiza y fija solo</strong> el fill rate, la cobertura y el colchón por proveedor (del histórico de recepciones, cadencia de compra y variabilidad de demanda). Los campos muestran el valor <em>auto</em> como placeholder; captura solo si quieres <strong>forzar</strong> un override manual.</p>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="tabs" />
 
       <!-- RA-PRO.27 — parámetros globales del fill rate (aplican a todo el pedido) -->
       @if (settings(); as s) {
@@ -202,6 +207,8 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
   `],
 })
 export class ComprasProveedoresComponent implements OnInit {
+  /** `[NAV.5]` La barra del apartado «Parámetros de compra»: la pinta esta página y sus dos hermanas. */
+  readonly tabs = PARAMETROS_COMPRA_TABS;
   private readonly api = inject(ComprasService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

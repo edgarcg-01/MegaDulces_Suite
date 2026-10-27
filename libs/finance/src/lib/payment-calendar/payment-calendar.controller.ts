@@ -7,7 +7,7 @@ import {
   PrepareAllocationDto, CreateAgreementDto, ReprogramReason,
 } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { PaymentCalendarWeek, PaymentOriginAccount } from '@megadulces/contracts';
+import type { PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -25,6 +25,28 @@ export class PaymentCalendarController {
     private readonly svc: PaymentCalendarService,
     private readonly docs: PaymentCalendarDocumentService,
   ) {}
+
+  /**
+   * `[PGP.14]` El crédito a favor SIN aplicar, por acreedor. Va aparte de `obligations` porque esa
+   * consulta tiene presupuesto de 500 ms y corre en 325-377; ésta cuesta 135-143 ms sola.
+   */
+  @Get('creditos-a-favor')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'Notas de crédito, devoluciones, bonificaciones y anticipos que todavía NO se aplicaron contra ninguna factura, agrupados por acreedor. Medido el 2026-10-26: $8,264,176 en 201 documentos, de los cuales $4,484,249 son de 54 acreedores a los que además les debemos (eso es lo neteable). ⚠️ Es un PISO: kdxf sobre-cuenta lo aplicado por replicación de sucursal.' })
+  listUnappliedCredits(): Promise<SupplierUnappliedCreditRow[]> {
+    return this.svc.listUnappliedCredits();
+  }
+
+  /**
+   * `[PGP.17]` El desglose de UN acreedor, con los DOS casos: lo que Kepler ya aplicó y lo que
+   * no. Medido: 62 ms (el predicado por acreedor sí baja a la vista).
+   */
+  @Get('creditos-a-favor/:proveedor')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'Todos los descuentos de un acreedor por tipo —nota de crédito, nota de crédito CFDI, devolución de compra, bonificación, anticipo, ajuste de abono— con su importe, lo que Kepler ya aplicó y lo que queda a favor. Incluye los YA APLICADOS a propósito: sin eso, un proceso que funciona (las notas de crédito se netean casi al 100%) se lee como que el sistema no hace nada. ⛔ Cheque y transferencia quedan fuera: son pagos, no descuentos.' })
+  listSupplierCredits(@Param('proveedor') proveedor: string): Promise<SupplierCreditRow[]> {
+    return this.svc.listSupplierCredits(proveedor);
+  }
 
   @Get('obligations')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)

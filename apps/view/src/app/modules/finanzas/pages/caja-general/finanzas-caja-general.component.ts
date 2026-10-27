@@ -3346,7 +3346,57 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    ⚠️ Cuando aparece NO cambio: el panel se muestra en los mismos estados en que se
                    mostraba alguno de los dos. Queda el recuadro NEUTRO de CS.3.7 ([CG.37] ya habia
                    retirado el naranja por competir con Guardar) y se va el punteado de CS.3.4. -->
-              @if (hayCajero() || !caosElegido()) {
+              <!-- ⭐ [CGA-A.56] UN EGRESO DICE DE DONDE SALIO EL DINERO: de un retiro de CAOS o del
+                   cajon (Edgar, 2026-10-26: "todo egreso se vincule a un movimiento de CAOS", con
+                   cajon explicito). El retiro solo se VINCULA ("solo vinculemos y ya"): no se dice
+                   cuanto le queda, no se copian sus billetes y no cambia el monto del gasto. Antes
+                   vincular un retiro de $200,000 a un gasto de $13,803 volvia el gasto de $200,000.
+                   Si la captura ES un movimiento de CAOS, el origen ya es la maquina y no se pregunta.
+                   El ingreso sigue con el panel de abajo: ahi los billetes si se fueron a la boveda. -->
+              @if (f().tipo === 'gasto' && !caosElegido()) {
+                <div class="fin-row fin-row-col cg-caja-aparte">
+                  <div class="cg-caja-aparte-top">
+                    <strong>¿De dónde salió el dinero?</strong>
+                    <app-segmented [options]="opcionesOrigenEfectivo" [value]="origenEfectivo() ?? ''"
+                                   (valueChange)="elegirOrigenEfectivo($event)"
+                                   ariaLabel="De dónde salió el dinero de este egreso"></app-segmented>
+                    @if (origenEfectivo() === 'caos') {
+                      <span class="cg-bandeja-sp"></span>
+                      <p-button label="buscar retiros" icon="pi pi-search" size="small"
+                                severity="secondary" [text]="true" [loading]="buscandoCajero()"
+                                (onClick)="buscarEnCajero()"></p-button>
+                    }
+                  </div>
+                  @if (origenEfectivo() === 'caos') {
+                    @if (caosSugeridos().length) {
+                      <div class="cg-caos-list">
+                        @for (c of caosSugeridos(); track c.external_id) {
+                          <p-button severity="secondary" [text]="true" [fluid]="true"
+                                    [ariaLabel]="'Vincular el retiro ' + (c.ref || 'sin referencia') + ' del ' + dmy(c.fecha_valor)"
+                                    (onClick)="vincularCaos(c)">
+                            <span class="cg-caos-row">
+                              <span class="cg-caos-tag" [class.cg-caos-alta]="c.confianza === 'alta'">{{ c.confianza }}</span>
+                              <span class="fin-dim cg-caos-ref">{{ c.ref || 'sin ref' }} · {{ dmy(c.fecha_valor) }}{{ c.user_external ? ' · ' + c.user_external : '' }}</span>
+                              <span class="cg-caos-go" aria-hidden="true">vincular <i class="pi pi-arrow-right"></i></span>
+                            </span>
+                          </p-button>
+                        }
+                      </div>
+                    }
+                    @if (caosVinculados().length) {
+                      <div class="cg-chips">
+                        @for (v of caosVinculados(); track v.external_id) {
+                          <p-chip [label]="(v.ref || 's/ref') + (v.fecha ? ' · ' + dmy(v.fecha) : '')" class="cg-caos-in"
+                                  [removable]="true" removeIcon="pi pi-times"
+                                  (onRemove)="desvincularCaos(v.external_id)"></p-chip>
+                        }
+                      </div>
+                    }
+                  } @else if (origenEfectivo() === 'cajon') {
+                    <span class="fin-dim">Sale del efectivo del cajón: cuéntalo abajo.</span>
+                  }
+                </div>
+              } @else if (hayCajero() || !caosElegido()) {
                 <div class="fin-row fin-row-col cg-caja-aparte">
                   <div class="cg-caja-aparte-top">
                     <span class="cg-caja-ico mono" aria-hidden="true">⇄</span>
@@ -4536,7 +4586,42 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * los que el capturista ya vinculó (su efectivo se suma al arqueo y se enlaza al guardar).
    */
   caosSugeridos = signal<CaosCandidato[]>([]);
-  caosVinculados = signal<Array<{ device: string; external_id: number; monto: number; ref: string | null; denominaciones: Array<{ denominacion: number; piezas: number }>; senales: Record<string, unknown> }>>([]);
+  caosVinculados = signal<Array<{ device: string; external_id: number; monto: number; ref: string | null; denominaciones: Array<{ denominacion: number; piezas: number }>; senales: Record<string, unknown>; fecha?: string; operador?: string | null }>>([]);
+  /**
+   * ⭐ `[CGA-A.56]` De dónde salió el dinero de un EGRESO: retiros de CAOS o el cajón (Edgar,
+   * 2026-10-26). `null` = todavía no se dijo, y el botón de guardar lo pide.
+   */
+  origenEfectivo = signal<'caos' | 'cajon' | null>(null);
+  readonly opcionesOrigenEfectivo: SegOption[] = [
+    { label: 'Retiro de CAOS', value: 'caos' },
+    { label: 'Cajón', value: 'cajon' },
+  ];
+  /** Cambiar a «Cajón» suelta los retiros: es uno u otro, como lo exige el servidor. */
+  elegirOrigenEfectivo(v: string): void {
+    const o = v === 'cajon' ? 'cajon' : v === 'caos' ? 'caos' : null;
+    this.origenEfectivo.set(o);
+    if (o === 'cajon') {
+      this.caosVinculados.set([]);
+      this.caosSugeridos.set([]);
+    }
+  }
+  /**
+   * `[CGA-A.56]` Lo que se toma de cada retiro: el monto del gasto, repartido en el orden en que se
+   * vincularon, sin pasar de lo que le queda a cada uno (lo dice el servidor; no se muestra). Lo que
+   * no alcance lo pone el cajón, como la morralla.
+   */
+  private linksDeEgreso(monto: number): Array<{ device: string; external_id: number; monto: number; senales: Record<string, unknown> }> {
+    let falta = Math.round(Number(monto || 0) * 100) / 100;
+    const out: Array<{ device: string; external_id: number; monto: number; senales: Record<string, unknown> }> = [];
+    for (const v of this.caosVinculados()) {
+      if (falta <= 0.005) break;
+      const toma = Math.round(Math.min(falta, Number(v.monto || 0)) * 100) / 100;
+      if (toma <= 0.005) continue;
+      out.push({ device: v.device, external_id: v.external_id, monto: toma, senales: v.senales });
+      falta = Math.round((falta - toma) * 100) / 100;
+    }
+    return out;
+  }
   buscandoCajero = signal(false);
 
   /**
@@ -5871,6 +5956,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // que en `guardar()`: si acá se leyera distinto, el botón diría una cosa y el envío otra.
       origen_ref: this.caosElegido()?.origen_ref ?? this.cobroElegido()?.origen_ref ?? null,
       sin_documento_motivo: this.sinDocumentoMotivo(),
+      // `[CGA-A.56]` Un egreso dice de dónde salió el dinero. Si la captura ES un movimiento de
+      // CAOS, el origen ya es la máquina y no se pregunta. Leídos incondicionales (regla de signals).
+      exige_origen: !this.caosElegido(),
+      origen_efectivo: this.origenEfectivo(),
+      retiros_vinculados: this.caosVinculados().length,
     },
     todayMx(),
   ));
@@ -7304,6 +7394,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.caosSugeridos.set([]);
     this.caosVinculados.set([]);
     this.buscandoCajero.set(false);
+    // `[CGA-A.56]` Ni el origen del dinero: cada egreso lo dice de nuevo.
+    this.origenEfectivo.set(null);
     // ⛔ `[CG.67]` La firma TAMPOCO sobrevive al movimiento anterior. Sin esto, la firma de un
     // gasto se guardaría en el siguiente: evidencia atribuida a quien no firmó, y en silencio
     // porque el trazo ya está dibujado en el canvas y se ve igual que uno recién hecho.
@@ -7660,6 +7752,22 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * aporte del cajero (mostrado aparte) y suma al monto. La reja de abajo queda para la diferencia.
    */
   vincularCaos(c: CaosCandidato): void {
+    /**
+     * ⭐ `[CGA-A.56]` En un EGRESO el retiro sólo se VINCULA (Edgar: *«solo vinculemos y ya»*).
+     * Antes sumaba el retiro ENTERO al monto y copiaba todos sus billetes: un retiro de $200,000 que
+     * pagaba un gasto de $13,803 volvía el gasto de $200,000. Ahora el monto y la reja son los del
+     * gasto, y del retiro sólo se toma lo que el gasto necesita (`linksDeEgreso`, al guardar).
+     */
+    if (this.f().tipo === 'gasto') {
+      this.caosVinculados.update((v) => [...v, {
+        device: c.device, external_id: c.external_id, monto: c.monto, ref: c.ref, denominaciones: [],
+        senales: { score: c.score, confianza: c.confianza, motivos: c.motivos },
+        fecha: c.fecha_valor, operador: c.user_external,
+      }]);
+      this.caosSugeridos.update((s) => s.filter((x) => x.external_id !== c.external_id));
+      this.origenEfectivo.set('caos');
+      return;
+    }
     this.caosVinculados.update((v) => [...v, {
       device: c.device, external_id: c.external_id, monto: c.monto, ref: c.ref,
       denominaciones: c.denominaciones,
@@ -8565,9 +8673,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       venta_credito: this.ventaCredito() || undefined,
       // CS.3.4 — los retiros del cajero (CAOS) que financiaron este gasto: el servidor los enlaza
       // (consume, no se cuentan dos veces) y aprende de ellos. Sólo si el capturista vinculó alguno.
-      caos_links: this.caosVinculados().length
-        ? this.caosVinculados().map((v) => ({ device: v.device, external_id: v.external_id, monto: v.monto, senales: v.senales }))
-        : undefined,
+      // ⭐ `[CGA-A.56]` En un EGRESO se toma de los retiros sólo lo que el gasto necesita (no el
+      // retiro entero), y se dice de dónde salió el dinero.
+      caos_links: !this.caosVinculados().length ? undefined
+        : f.tipo === 'gasto' ? this.linksDeEgreso(Number(f.monto))
+        : this.caosVinculados().map((v) => ({ device: v.device, external_id: v.external_id, monto: v.monto, senales: v.senales })),
+      origen_efectivo: f.tipo === 'gasto' ? (this.origenEfectivo() ?? undefined) : undefined,
       // La procedencia viaja con el movimiento: qué campo propuso el motor y con qué respaldo.
       autofill: this.propuesta()?.provenance ?? null,
       // `crypto.randomUUID` sólo existe en contexto seguro: por http:// en la LAN `guardar()`

@@ -73,6 +73,9 @@ describe('[CGS.52] leerCorte', () => {
   it('con el esperado negativo pero la diferencia ATESTIGUADA, la cifra sí vale; «sin confirmar» no alcanza', () => {
     const neg = { contado: 100, esperado: -50, diferencia: 150, fondo_inicial: 0, sin_medir_motivo: null };
     expect(leerCorte(neg, fmt, { valor: 120, nota: 'confirmada por los testigos', atestiguada: true }).dif.texto).toBe('+$120.00');
+    // [CGS.53] …pero no se lee como sobrante: el «debería haber» del mismo renglón es «no calculable».
+    expect(leerCorte(neg, fmt, { valor: 120, nota: 'confirmada por los testigos', atestiguada: true }).dif.sub)
+      .toBe('el libro no la explica · confirmada por los testigos');
     expect(leerCorte(neg, fmt, { valor: 150, nota: 'sin confirmar', atestiguada: false }).dif.texto).toBe('no calculable');
   });
 

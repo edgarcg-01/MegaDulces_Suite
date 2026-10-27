@@ -119,6 +119,7 @@ import { LogisticsShipmentsModule } from '@megadulces/logistics';
 import { LogisticsErpShipmentsModule } from '@megadulces/logistics';
 import { LogisticsGuidesModule } from '@megadulces/logistics';
 import { LogisticsTripClosureModule } from '@megadulces/logistics';
+import { LogisticsFleetCostModule } from '@megadulces/logistics';
 import { LogisticsExpensesModule } from '@megadulces/logistics';
 import { LogisticsPayrollModule } from '@megadulces/logistics';
 // RD.4 — gasto de flota de Ruta Directa
@@ -266,6 +267,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       LogisticsErpShipmentsModule,
       LogisticsGuidesModule,
       LogisticsTripClosureModule,
+      LogisticsFleetCostModule,
       LogisticsExpensesModule,
       LogisticsPayrollModule,
       LogisticsRouteExpensesModule,

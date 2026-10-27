@@ -58,6 +58,7 @@ export * from './http/kpi-threshold.contract';
 export * from './http/identity-org.contract';
 // [RE.30] Plazo de pago por proveedor (días exactos + desde factura/recepción) — /compras/obligaciones.
 export * from './http/supplier-credit-terms.contract';
+export * from './http/supplier-credits.contract';
 // [RE.32] Entrega de compras recibidas a Finanzas (folio ENT-YYYY-NNNNN, quién entrega y quién recibe).
 export * from './http/purchase-delivery.contract';
 // [TP.16] Calendario de Pagos: semana completa, «Ordenar y pagar» y cuentas de origen.
@@ -97,6 +98,8 @@ export * from './http/warehouse-orders.contract';
 export * from './http/autoabasto-pedido.contract';
 // [AB.27] La mesa de Autoabasto sobre la cuenta única del renglón.
 export * from './http/autoabasto-mesa.contract';
+// [AB.40] El motor único de cantidad (tope de 45 días) para Autoabasto y Compras.
+export * from './http/cantidad-pedido.contract';
 export * from './http/warehouse-locations.contract';
 // [GP.2] Pool de surtido con pedidos de Kepler (U-D-40) y armado de olas por tamaño.
 export * from './http/warehouse-picking-kepler.contract';
@@ -146,6 +149,8 @@ export * from './http/viaticos-guia.contract';
 export * from './http/revision-gps.contract';
 // [EMB.24]–[EMB.29] Pago por viaje cerrado: cierre de paradas, cargadores y lo que se libera.
 export * from './http/cierre-viaje.contract';
+// [FCU] Costo por unidad: lo que hacía la hoja «TRANSPORTES 2026», con pantalla.
+export * from './http/costo-unidad.contract';
 // [EMB.32] Alta rápida de ayudantes y cargadores desde la guía y el cierre.
 export * from './http/alta-persona.contract';
 // [RE.35] El expediente de la factura de una orden de entrada (el papel identifica, el CFDI informa).

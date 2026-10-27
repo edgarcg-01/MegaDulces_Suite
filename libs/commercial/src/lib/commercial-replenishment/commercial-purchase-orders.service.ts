@@ -167,9 +167,23 @@ export class CommercialPurchaseOrdersService {
    * RA.15 — genera la OC desde una requisición APROBADA (una RQ = un proveedor/origen,
    * ya viene partida). Marca la requisición 'ordered' (convertida) y enlaza la OC.
    */
+  /**
+   * `[PQ.16]` D21 (PM, 2026-10-26): **la Suite deja de emitir órdenes de compra propias.** La OC
+   * real es la `X-A-35` de Kepler, que nace cuando la requisición sale al ERP (KR) o cuando el
+   * comprador la captura; la Suite la SIGUE por `oc_sucursal` + `oc_folio` (RQ.15). Medido antes
+   * de apagarlo: 235 OC propias desde el 28-sep ($26.6 M) y **0 requisiciones con folio de
+   * Kepler**: el seguimiento vivía sobre la copia, no sobre el documento que ven proveedor y
+   * Contabilidad. Las OC ya creadas quedan en solo lectura.
+   */
+  static readonly D21_OC = 'Desde el 2026-10-26 la Suite no genera órdenes de compra propias (D21): la orden real es la X-A-35 de Kepler. Marcá la requisición como ordenada con la sucursal y el folio de Kepler.';
+  static readonly D21_OE = 'Desde el 2026-10-26 la Suite no registra recepciones propias (D21): la entrada real es la orden de entrada X-A-40 de Kepler, y la existencia la lee de ahí.';
+  /** El interruptor es explícito y está prendido: si D21 se revierte, se apaga acá con su ADR. */
+  static readonly D21_APAGA_DOCUMENTOS_PROPIOS = true;
+
   async createFromRequisition(requisitionId: string, opts?: { expected_date?: string | null; notes?: string }) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!UUID_RX.test(requisitionId)) throw new BadRequestException('requisition_id inválido');
+    if (CommercialPurchaseOrdersService.D21_APAGA_DOCUMENTOS_PROPIOS) throw new ConflictException(CommercialPurchaseOrdersService.D21_OC);
     return this.tk.run(async (trx) => {
       const req: any = await trx('commercial.purchase_requisitions')
         .where({ tenant_id: tenantId, id: requisitionId }).forUpdate().first();
@@ -447,6 +461,9 @@ export class CommercialPurchaseOrdersService {
     const tenantId = this.tenantCtx.requireTenantId();
     const userId = this.tenantCtx.get()?.userId ?? null;
     if (!UUID_RX.test(poId)) throw new BadRequestException('purchase_order_id inválido');
+    // `[PQ.16]` D21: la recepción propia movía `commercial.stock`, una existencia que el Pedido no
+    // lee y Kepler no tiene (136 OE, 13,179 u, sólo 2 con stock aplicado). La entrada es la X-A-40.
+    if (CommercialPurchaseOrdersService.D21_APAGA_DOCUMENTOS_PROPIOS) throw new ConflictException(CommercialPurchaseOrdersService.D21_OE);
     const inLines = (dto?.lines || []).filter((l) => l && UUID_RX.test(l.po_line_id) && Number(l.received_qty) > 0);
     if (!inLines.length) throw new BadRequestException('La recepción no tiene líneas con cantidad > 0');
 

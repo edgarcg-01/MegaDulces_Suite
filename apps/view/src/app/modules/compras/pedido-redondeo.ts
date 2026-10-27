@@ -262,23 +262,6 @@ export function dineroCorto(v: number): string {
   return `${s}$${miles.toLocaleString('es-MX')} mil`;
 }
 
-/** Lo que importa de una tecla para decidir el paso (subconjunto de `KeyboardEvent`, para probarlo sin DOM). */
-export interface TeclaPaso { key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; }
-
-/**
- * `[RA-PRO.57]` Qué paso hace una tecla en la columna de captura del pedido: +1, −1 o nada (0).
- *  - `→` / `←` SIN modificadores: +1 / −1. Con Shift/Ctrl/Alt/Meta se deja lo nativo
- *    (Shift+← selecciona texto, Ctrl+← salta palabra…).
- *  - `Alt + ↑` / `Alt + ↓`: +1 / −1 (el atajo de antes, se conserva).
- *  - `↑ ↓` solas y `Enter` NO son paso: mueven de renglón (regla D.5), las resuelve el componente.
- */
-export function pasoPorTecla(t: TeclaPaso): 1 | -1 | 0 {
-  const mod = t.altKey || t.ctrlKey || t.metaKey || t.shiftKey;
-  if (!mod && t.key === 'ArrowRight') return 1;
-  if (!mod && t.key === 'ArrowLeft') return -1;
-  if (t.altKey && !t.ctrlKey && !t.metaKey && !t.shiftKey) {
-    if (t.key === 'ArrowUp') return 1;
-    if (t.key === 'ArrowDown') return -1;
-  }
-  return 0;
-}
+// `[AB.41]` La regla de teclas vive en la utilidad compartida (Autoabasto captura igual); se reexporta
+// para no cambiar a quien la importaba de aquí.
+export { pasoPorTecla, type TeclaPaso } from '../../shared/util/captura-teclado.util';

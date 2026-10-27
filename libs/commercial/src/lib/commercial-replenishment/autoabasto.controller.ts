@@ -7,6 +7,7 @@ import type {
   AutoabastoPosicionesRequest, PosicionPedido,
   AutoabastoRenglonesResponse, EstadoRenglon, SurteRenglon, OrdenMesa,
   AutoabastoEnviarRequest, AutoabastoEnviarResponse,
+  AutoabastoVieneRenglonesResponse, MonthlySalesResponse,
 } from '@megadulces/contracts';
 import { ESTADOS_RENGLON, ORDENES_MESA } from '@megadulces/contracts';
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
@@ -227,6 +228,52 @@ export class AutoabastoController {
       // El PDF: todo lo del almacén con el filtro, sin paginar.
       todos: todos === '1' || todos === 'true',
     });
+  }
+
+  /**
+   * `[AB.41]` Los productos de un documento de «Lo que te va a llegar»: un pedido o embarque de Kepler
+   * (`origen` + `serie` + `folio`) o una requisición de la Suite (`id`). Además del almacén en alcance,
+   * la consulta exige que el documento vaya a ESTE almacén: un folio ajeno devuelve vacío.
+   */
+  @Get('pedido/viene')
+  @RequirePermissions(Permission.AUTOABASTO_VER)
+  @ApiOperation({ summary: '[AB.41] Los productos de un documento de «Lo que te va a llegar» (pedido, embarque o requisición)' })
+  async vieneRenglones(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('tipo') tipo?: string,
+    @Query('origen') origen?: string,
+    @Query('serie') serie?: string,
+    @Query('folio') folio?: string,
+    @Query('id') id?: string,
+  ): Promise<AutoabastoVieneRenglonesResponse> {
+    const almacen = await this.almacenEnAlcance(warehouse_id);
+    if (tipo === 'plan' || tipo === 'requisicion') {
+      if (!id || !UUID_RX.test(id)) throw new BadRequestException('Falta la requisición.');
+      return this.pedidos.vieneRenglones(almacen, { tipo, id });
+    }
+    if (tipo !== 'pedido' && tipo !== 'embarque') throw new BadRequestException('Tipo de documento inválido.');
+    const s = Number(serie);
+    if (!origen || !/^[A-Za-z0-9]{1,6}$/.test(origen) || !Number.isInteger(s) || s < 0 || !folio || !/^[A-Za-z0-9-]{1,20}$/.test(folio)) {
+      throw new BadRequestException('Documento inválido.');
+    }
+    return this.pedidos.vieneRenglones(almacen, { tipo, origen, serie: s, folio });
+  }
+
+  /**
+   * `[AB.41]` La venta por mes de un producto en ESTE almacén: el mismo cálculo que el globo de
+   * «Venta 30 d» de `/compras/pedido` (`monthlySales`, RA-PRO.65), con la llave y el alcance de
+   * Autoabasto — el almacenista no tiene `COMPRAS_PEDIDO_VER`, y no se le abre Compras para esto.
+   */
+  @Get('pedido/venta-mensual')
+  @RequirePermissions(Permission.AUTOABASTO_VER)
+  @ApiOperation({ summary: '[AB.41] Venta por mes de un producto en el almacén (13 meses contra el año anterior)' })
+  async ventaMensual(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('product_id') product_id?: string,
+  ): Promise<MonthlySalesResponse> {
+    const almacen = await this.almacenEnAlcance(warehouse_id);
+    if (!product_id || !UUID_RX.test(product_id)) throw new BadRequestException('Falta el producto.');
+    return this.svc.monthlySales(product_id, almacen.code);
   }
 
   /**

@@ -7,7 +7,16 @@ import type {
   KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody, RevisionGps, CompletarGuiaBody, GuiaCompletada,
   CierreDeEmbarque, CerrarParadaBody, ParadaCierre, AltaRapidaBody, AltaRapidaResultado,
   ReporteDePagos, DesgloseDeOperacion,
+  ResumenCostoUnidad, DetalleUnidadCosto, LineaGastoFlota, PeriodoCosto, AsignacionGasto, CambiosFicha, FichaUnidad,
+  PresupuestoAnio, CeldaPresupuesto, NominaAdministrativaMes, LecturaOdometro, AlcanceBandeja,
 } from '@megadulces/contracts';
+
+/** `[FCU]` La bandeja de gastos sin unidad: los renglones y las unidades a las que se pueden asignar. */
+export interface PendientesCostoUnidad {
+  periodo: PeriodoCosto;
+  lineas: LineaGastoFlota[];
+  unidades: Array<{ vehicle_id: string; nombre: string; plate: string; economic_number: string | null }>;
+}
 
 // ── Tipos ────────────────────────────────────────────────────────────────
 
@@ -1297,6 +1306,41 @@ export class LogisticaService {
     return this.http.get<DesgloseDeOperacion>(
       `${this.base}/trip-closure/operaciones/${encodeURIComponent(sucursal)}/${encodeURIComponent(guia)}/desglose`);
   }
+  // ── `[FCU]` Logística › Costo por unidad ─────────────────────────────────
+  costoUnidadResumen(desde: string, hasta: string): Observable<ResumenCostoUnidad> {
+    return this.http.get<ResumenCostoUnidad>(`${this.base}/costo-unidad/resumen`, { params: new HttpParams().set('desde', desde).set('hasta', hasta) });
+  }
+  costoUnidadDetalle(vehicleId: string, desde: string, hasta: string): Observable<DetalleUnidadCosto> {
+    return this.http.get<DetalleUnidadCosto>(`${this.base}/costo-unidad/unidades/${encodeURIComponent(vehicleId)}`, { params: new HttpParams().set('desde', desde).set('hasta', hasta) });
+  }
+  costoUnidadPendientes(desde: string, hasta: string, alcance: AlcanceBandeja): Observable<PendientesCostoUnidad> {
+    return this.http.get<PendientesCostoUnidad>(`${this.base}/costo-unidad/pendientes`, { params: new HttpParams().set('desde', desde).set('hasta', hasta).set('alcance', alcance) });
+  }
+  costoUnidadAsignar(items: AsignacionGasto[]): Observable<{ guardadas: number }> {
+    return this.http.put<{ guardadas: number }>(`${this.base}/costo-unidad/asignaciones`, { items });
+  }
+  costoUnidadGuardarFicha(vehicleId: string, cambios: CambiosFicha): Observable<FichaUnidad> {
+    return this.http.put<FichaUnidad>(`${this.base}/costo-unidad/unidades/${encodeURIComponent(vehicleId)}/ficha`, cambios);
+  }
+  costoUnidadPresupuesto(anio: number): Observable<PresupuestoAnio> {
+    return this.http.get<PresupuestoAnio>(`${this.base}/costo-unidad/presupuesto`, { params: new HttpParams().set('anio', String(anio)) });
+  }
+  costoUnidadGuardarPresupuesto(anio: number, celdas: CeldaPresupuesto[]): Observable<PresupuestoAnio> {
+    return this.http.put<PresupuestoAnio>(`${this.base}/costo-unidad/presupuesto/${anio}`, { celdas });
+  }
+  costoUnidadNomina(anio: number): Observable<NominaAdministrativaMes[]> {
+    return this.http.get<NominaAdministrativaMes[]>(`${this.base}/costo-unidad/nomina`, { params: new HttpParams().set('anio', String(anio)) });
+  }
+  costoUnidadGuardarNomina(mes: NominaAdministrativaMes): Observable<NominaAdministrativaMes[]> {
+    return this.http.put<NominaAdministrativaMes[]>(`${this.base}/costo-unidad/nomina`, mes);
+  }
+  costoUnidadRegistrarLectura(vehicleId: string, lectura: { read_on: string; odometer_km: number; notes?: string | null }): Observable<LecturaOdometro[]> {
+    return this.http.post<LecturaOdometro[]>(`${this.base}/costo-unidad/unidades/${encodeURIComponent(vehicleId)}/odometro`, lectura);
+  }
+  costoUnidadBorrarLectura(vehicleId: string, lecturaId: string): Observable<LecturaOdometro[]> {
+    return this.http.delete<LecturaOdometro[]>(`${this.base}/costo-unidad/unidades/${encodeURIComponent(vehicleId)}/odometro/${encodeURIComponent(lecturaId)}`);
+  }
+
   /** `[EMB.28.1]` Quién cambió una tarifa, cuándo, y qué tenía antes. */
   historialTarifa(entity: 'config' | 'route', id: string): Observable<TariffChange[]> {
     const ruta = entity === 'route' ? `config/routes/${id}/historial` : `config/${id}/historial`;

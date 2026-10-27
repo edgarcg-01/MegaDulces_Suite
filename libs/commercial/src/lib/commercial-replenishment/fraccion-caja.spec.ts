@@ -1,4 +1,4 @@
-import { mensajeFraccion, renglonesConFraccion } from './fraccion-caja';
+import { mensajeFraccion, piezasEnteras, renglonesConFraccion, renglonesSinUnidadEntera } from './fraccion-caja';
 
 /**
  * `[RA-FIX.3]` El freno que impide escribirle una fracción de caja al ERP.
@@ -41,6 +41,31 @@ describe('[RA-FIX.3] fracción de caja', () => {
     // Un valor no numérico NO se declara fracción: no se midió nada, y rechazar por eso daría un
     // motivo falso. Que lo frene quien valide la cantidad, no este freno.
     expect(renglonesConFraccion([{ sku: 'A', final_qty: 'n/a' }])).toEqual([]);
+  });
+
+  it('[PQ.17] piezasEnteras: una fracción de caja que es piezas enteras se reconoce (los casos reales de prod)', () => {
+    // 0.4 cj × 10 = 4 pz · 0.489 × 45 = 22.005 (tolerancia 0.02) · 0.007 × 144 = 1.008 · 2.083 × 24 = 49.99
+    expect(piezasEnteras({ sku: 'a', final_qty: 0.4, piezas_por_caja: 10 })).toBe(4);
+    expect(piezasEnteras({ sku: 'b', final_qty: '0.489', piezas_por_caja: '45' })).toBe(22);
+    expect(piezasEnteras({ sku: 'c', final_qty: 0.007, piezas_por_caja: 144 })).toBe(1);
+    expect(piezasEnteras({ sku: 'd', final_qty: 2.083, piezas_por_caja: 24 })).toBe(50);
+  });
+
+  it('[PQ.17] NEGATIVA: sin factor, factor 0, o piezas no enteras → null; y cero piezas no es una cantidad', () => {
+    expect(piezasEnteras({ sku: 'a', final_qty: 0.4 })).toBeNull();
+    expect(piezasEnteras({ sku: 'a', final_qty: 0.4, piezas_por_caja: 0 })).toBeNull();
+    expect(piezasEnteras({ sku: 'a', final_qty: 0.3, piezas_por_caja: 7 })).toBeNull();   // 2.1 pz
+    expect(piezasEnteras({ sku: 'a', final_qty: 0.001, piezas_por_caja: 10 })).toBeNull(); // 0.01 pz → 0
+  });
+
+  it('[PQ.17] renglonesSinUnidadEntera: deja pasar cajas enteras y piezas enteras; frena lo demás', () => {
+    const out = renglonesSinUnidadEntera([
+      { sku: 'caja', final_qty: 3, piezas_por_caja: 12 },
+      { sku: 'piezas', final_qty: 0.25, piezas_por_caja: 8 },
+      { sku: 'ni', final_qty: 0.3, piezas_por_caja: 7 },
+      { sku: 'sinfactor', final_qty: 0.5 },
+    ]);
+    expect(out.map((l) => l.sku)).toEqual(['ni', 'sinfactor']);
   });
 
   it('el mensaje dice CUÁNTOS y CUÁLES, y corta la lista larga', () => {

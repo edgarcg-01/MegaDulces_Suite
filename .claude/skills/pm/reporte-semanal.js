@@ -82,6 +82,15 @@ async function saludProcesos() {
   const avance = enCurso.map((i) => { const cod = i.content.title.match(/^\[([^\]]+)\]/)?.[1]; return { i, cod, n: cod ? commitsDe(cod) : null }; });
   const sinAvance = avance.filter((a) => a.n === 0);
   const salud = await saludProcesos();
+  // [PM.13] Embudo de módulos: refresca las columnas automáticas del Project «Módulos» y cuenta por etapa.
+  let modulos = 'NO MEDIDO';
+  try {
+    execFileSync(process.execPath, [path.join(__dirname, 'modulos.js')], { cwd: raiz, stdio: 'ignore', timeout: 20 * 60000 });
+    const ms = JSON.parse(gh(['project', 'item-list', '3', '--owner', OWNER, '--limit', '400', '--format', 'json'])).items;
+    const porEtapa = {};
+    for (const m of ms) { const e = m.etapa || 'sin etapa'; porEtapa[e] = (porEtapa[e] || 0) + 1; }
+    modulos = `${ms.length} submódulos · ` + Object.entries(porEtapa).sort().map(([e, n]) => `${e}: ${n}`).join(' · ') + ` → https://github.com/users/${OWNER}/projects/3`;
+  } catch (e) { anota('modulos NO MEDIDO ' + e.message); }
   const lineas = [
     `**Semana del ${hoy} — reporte automático (medido, no redactado).**`,
     '',
@@ -102,6 +111,7 @@ async function saludProcesos() {
     '',
     `**En curso sin revisión hace más de 14 días (${viejas.length}):** ${viejas.length ? viejas.map((i) => '#' + i.content.number).join(', ') + ' → discutir en la junta' : 'ninguna'}`,
     `**Procesos de ingesta (prod):** ${salud}`,
+    `**Módulos (en prod → permiso → capacitado → aceptado → en uso):** ${modulos}`,
     '',
     'Lo marcado NO MEDIDO no se pudo leer esta vez; no significa cero.',
   ];

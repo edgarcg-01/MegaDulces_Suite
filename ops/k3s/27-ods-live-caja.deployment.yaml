@@ -172,6 +172,11 @@ spec:
             # ⛔ UN solo manifiesto puede declarar esta variable (lo candadea test-ods-cola.js).
             - name: ODS_COLA_TABLES
               value: kdm1,kdm2
+            # `[OBS.15.10]` Los borrados que la cola ve se propagan al ODS (decisión del PM,
+            # 2026-10-27): sólo filas con fecha de negocio de los últimos 7 días y nunca más de 500
+            # por tabla en una pasada (eso es una poda, no una edición). Apagarlo = quitar esto.
+            - name: ODS_COLA_BORRAR
+              value: "1"
           # ⛔ La sonda mide ENTREGA contra `analytics.cron_runs`, no "el proceso existe". El
           # cuelgue del 04-09-2026 fue exactamente eso: proceso vivo, CPU 0 %, latido envejeciendo.
           livenessProbe:

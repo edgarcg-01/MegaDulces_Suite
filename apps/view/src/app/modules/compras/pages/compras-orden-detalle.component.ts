@@ -33,8 +33,13 @@ interface RecvLine {
 
 /**
  * RA.15 (ADR-031) — Detalle de OC + recepción (OE). El detalle muestra pedido vs
- * recibido por línea; "Registrar recepción" abre el diálogo que captura lo que llegó
- * (permite parciales) y al confirmar MUEVE stock (movimiento 'in'; Kepler reconcilia).
+ * recibido por línea.
+ *
+ * `[PQ.16]` D21 (PM, 2026-10-26): **solo lectura.** «Registrar recepción» movía
+ * `commercial.stock`, una existencia que el Pedido no lee y Kepler no tiene (136 OE, 13,179 u,
+ * sólo 2 con stock aplicado); «Cancelar OC» cancelaba una copia. La entrada real es la X-A-40 de
+ * Kepler. El diálogo de recepción sigue en el archivo pero ya no hay botón que lo abra; el backend
+ * responde 409 si alguien lo llama por su cuenta.
  */
 @Component({
   selector: 'app-compras-orden-detalle',
@@ -61,17 +66,15 @@ interface RecvLine {
         @if (po(); as p) {
           <div class="od-actions">
             <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [loading]="exporting()" (click)="exportXlsx()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Exportar Excel</span></button>
-            @if (canManage) {
-              @if (p.estado === 'open' || p.estado === 'partial') {
-                <button pButton type="button" class="p-button-sm" (click)="openReceive()"><span class="p-button-icon p-button-icon-left pi pi-inbox" aria-hidden="true"></span><span class="p-button-label">Registrar recepción</span></button>
-              }
-              @if (p.estado === 'open' && p.received_units === 0) {
-                <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="cancel()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cancelar OC</span></button>
-              }
-            }
+            <!-- [PQ.16] D21: ni «Registrar recepción» ni «Cancelar OC». La recepción es la X-A-40 de
+                 Kepler y este documento es interno; el aviso de abajo lo dice. -->
           </div>
         }
       </header>
+      <div class="od-d21" role="status">
+        <i class="pi pi-history" aria-hidden="true"></i>
+        <span><strong>Documento interno de la Suite: no está en Kepler.</strong> Desde el 26 de octubre de 2026 aquí no se registra recepción ni se cancela: la entrada real es la orden de entrada <strong>X-A-40</strong> de Kepler y la existencia se lee de ahí. Lo recibido que ves abajo es lo que se capturó aquí antes de esa fecha.</span>
+      </div>
 
       @if (po(); as p) {
         <app-metric-strip [items]="kpiItems(p)" ariaLabel="Resumen de la orden de compra" />
@@ -144,6 +147,8 @@ interface RecvLine {
     .od-back { margin-bottom: .25rem; margin-left: -.5rem; }
     .surf-page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
     .od-actions { display: flex; gap: .5rem; }
+    /* [PQ.16] D21: el documento es interno y se dice una vez, arriba. */
+    .od-d21 { display: flex; align-items: flex-start; gap: .6rem; margin: .6rem 0 .8rem; padding: .5rem .75rem; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); color: var(--text-muted); font-size: var(--fs-sm); }
     .od-link { color: var(--action); text-decoration: none; } .od-link:hover { text-decoration: underline; }
     app-metric-strip { display:block; margin: 1rem 0; }
     .od-h2 { font-size: .95rem; font-weight: 700; margin: 1.25rem 0 .5rem; }

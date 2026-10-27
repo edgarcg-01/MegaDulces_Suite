@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { desgloseDescuento, type RenglonParaDesglose } from './quote-discount-breakdown';
+import { desgloseDescuento, notaRedondeo, precioSinRedondear, type RenglonParaDesglose } from './quote-discount-breakdown';
 
 /**
  * `[E.27]`/`[E.28]` Renglones reales, capturados como los captura Kepler (por presentación):
@@ -56,5 +56,29 @@ describe('desgloseDescuento', () => {
     const d = desgloseDescuento([{ quantity: 4, unit_price: null, list_price: null, line_total: 0, pasos: null }, r70001]);
     expect(d.renglones).toBe(1);
     expect(d.importe).toBe(241.41);
+  });
+});
+
+describe('[E.29] el centavo de Kepler, dicho', () => {
+  const dinero = (n: number): string => '$' + n.toFixed(2);
+
+  it('la lista de la CJA y lo que cobra Kepler por PAQ a centavos (GOMA PEELERZ, 2026-10-26)', () => {
+    const antes = precioSinRedondear([{ after: 739.21 }]);
+    expect(notaRedondeo(antes, 739.2, { cantidad: 24, unidad: 'PAQ', precio: 30.8 }, dinero))
+      .toBe('Kepler redondea por PAQ a centavos: $739.21 → 24 × $30.80 = $739.20');
+  });
+
+  it('con promoción, el redondeo es sobre el precio YA con la promo (78401: 1 CJA a $402.74 con 3 %)', () => {
+    const antes = precioSinRedondear([{ after: 402.74 }, { after: 390.6578 }, { after: null }]);
+    expect(antes).toBe(390.6578);
+    expect(notaRedondeo(antes, 390.72, { cantidad: 12, unidad: 'PZA', precio: 32.56 }, dinero))
+      .toBe('Kepler redondea por PZA a centavos: $390.66 → 12 × $32.56 = $390.72');
+  });
+
+  it('sin diferencia, o sin con qué saberlo, no dice nada', () => {
+    expect(notaRedondeo(87.14, 87.14, { cantidad: 6, unidad: 'PZA', precio: 14.52 }, dinero)).toBe('');
+    expect(notaRedondeo(null, 739.2, { cantidad: 24, unidad: 'PAQ', precio: 30.8 }, dinero)).toBe('');
+    expect(notaRedondeo(739.21, 739.2, undefined, dinero)).toBe('');
+    expect(precioSinRedondear([])).toBeNull();
   });
 });

@@ -206,7 +206,7 @@ export const TIPOS_DE_DESCUENTO: ReadonlyArray<{ clave: string; def: string }> =
   { clave: 'volume_qty', def: 'Precio más bajo por comprar más de la MISMA presentación: Kepler fija rangos (por ejemplo, de 10 paquetes en adelante) y cobra el del rango en que cae la cantidad. Cuenta por presentación: 36 paquetes no reciben el precio de 3 cajas; para eso se capturan en caja.' },
   { clave: 'promo_qty', def: 'Promoción vigente en Kepler para esa presentación: un porcentaje sobre el precio, a partir de la cantidad que fija la promoción y hasta su fecha de fin.' },
   { clave: 'free_goods', def: 'Al pedir cierta cantidad, Kepler regala otro producto. El regalo va en su propio renglón, a precio cero.' },
-  { clave: 'customer_terms', def: 'El porcentaje del cliente en esa sucursal (su ficha en Kepler). No cambia el precio de cada renglón: se resta del total, como lo hace Kepler. En el papel, precio e importe ya salen netos.' },
+  { clave: 'customer_terms', def: 'El porcentaje del cliente en esa sucursal (su ficha en Kepler). Kepler no lo pone en el precio del renglón: lo calcula sobre la suma. Aquí el renglón lo dice («Descuento del cliente» con su porcentaje) y su importe ya trae su parte, repartida para que la suma sea el total; en el papel, precio e importe salen netos.' },
   { clave: 'volume_amount', def: 'Descuento de Kepler por monto de compra. La cotización todavía no lo aplica: su regla no se ha podido comprobar contra lo que Kepler cobra, así que se declara en vez de calcularse.' },
   { clave: 'promo_amount', def: 'Promoción de Kepler por monto de compra. Igual que el volumen por monto: se declara, todavía no se aplica.' },
   { clave: 'unknown', def: 'El producto no tiene precio en esa sucursal o no se encontró en el catálogo. No suma al total: se cotiza aparte.' },
@@ -241,6 +241,26 @@ export function tonoFuentePrecio(s: string | null | undefined): 'success' | 'inf
 export function descuentoDerivado(lista: number | null | undefined, precio: number | null | undefined): number | null {
   if (lista === null || lista === undefined || !(lista > 0) || precio === null || precio === undefined) return null;
   return Math.round(((lista - precio) / lista) * 100 * 100) / 100;
+}
+
+/**
+ * `[E.29]` El descuento de un MECANISMO (volumen, promoción) contra la lista. A lista no hay
+ * mecanismo: la diferencia es el redondeo de Kepler por unidad base (ALTOS CAM 1 BTO: lista
+ * $1,169.91, cobra 20 × $58.50 = $1,170.00) y pintarla como «−0.01 %» afirmaba un descuento que
+ * no existe. Recibe el código (`list`) o el rótulo («Lista»): la hoja recibe el rótulo.
+ * Negativo = el tramo cuesta MÁS que la lista (Kepler lo cobra igual): recargo, no se esconde.
+ */
+export function descuentoDelMecanismo(
+  lista: number | null | undefined,
+  precio: number | null | undefined,
+  fuente: string | null | undefined,
+): number | null {
+  return fuente === 'list' || fuente === FUENTE_PRECIO['list'] ? null : descuentoDerivado(lista, precio);
+}
+
+/** `[E.29]` «−7.98%», o «+0.40%» si es recargo. `menos` = «-» ASCII para el PDF (WinAnsi). */
+export function textoDescuento(pct: number, menos = '−'): string {
+  return pct > 0 ? `${menos}${pct}%` : `+${-pct}%`;
 }
 
 /**

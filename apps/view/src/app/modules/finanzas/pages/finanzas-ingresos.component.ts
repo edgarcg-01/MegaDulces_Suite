@@ -27,6 +27,8 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ThemeService } from '../../../core/services/theme.service';
 import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egresos-chart-opts';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { LIBROS_CONTABLES_TABS } from '../libros-contables-tabs';
 
 /**
  * `[IG.2]` Ingresos contables — el otro lado del libro de `/finanzas/egresos`.
@@ -55,7 +57,7 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
     CommonModule, FormsModule, ButtonModule, DialogModule, MultiSelectModule, SelectModule,
     DatePickerModule, InputNumberModule, InputTextModule, ToggleSwitchModule,
     TableModule, TreeTableModule, ChartModule,
-    SegmentedComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent,
+    SegmentedComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, PageTabsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -70,6 +72,8 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
         </div>
         <button pButton type="button" class="p-button-sm p-button-outlined" (click)="exportCsv()" [disabled]="!report()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar CSV</span></button>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <div class="in-filters card-premium card-flat">
         <div class="in-field"><label>Canal</label>
@@ -689,6 +693,8 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
   `],
 })
 export class FinanzasIngresosComponent {
+  /** [NAV.7] La barra del apartado «Libros contables» del sidebar de Finanzas: la pintan todas sus páginas. */
+  readonly apartadoTabs = LIBROS_CONTABLES_TABS;
   private readonly svc = inject(ComercialService);
   private readonly theme = inject(ThemeService);
   private readonly destroyRef = inject(DestroyRef);

@@ -20,6 +20,8 @@ import { Permission } from '../../../core/constants/permissions';
 import { ComprasService, OpenOcRow, OpenOcResponse } from '../compras.service';
 import { generarOcPdf, OcDetalle } from '../oc-kepler-pdf';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { SEGUIMIENTO_COMPRA_TABS } from '../seguimiento-compra-tabs';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -45,7 +47,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
 @Component({
   selector: 'app-compras-oc-abiertas',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, SidePeekComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, SidePeekComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in oa-page">
@@ -55,6 +57,8 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
           <p class="surf-page-sub">Órdenes de compra sin orden de entrada. En Kepler la orden se captura al recibir, así que una que lleva semanas abierta casi nunca se surte: hay que cerrarla o cancelarla.</p>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <!-- [RA-PRO.70] Aca habia una tira de CINCO mosaicos. Medido sobre esta misma pantalla:
              · "Ordenes abiertas" repetia un numero que ya estaba en otros CINCO lugares
@@ -578,6 +582,8 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
   `],
 })
 export class ComprasOcAbiertasComponent implements OnInit {
+  /** [NAV.6] La barra del apartado «Seguimiento de compra» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = SEGUIMIENTO_COMPRA_TABS;
   private readonly api = inject(ComprasService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);

@@ -908,9 +908,50 @@ const HANDLERS = {
   'cdc-heartbeat': applyCdcHeartbeat,
 };
 
+/**
+ * `[OBS.15.12]` Columna de la llave de normalización de `table`, SÓLO si TODOS sus normalizadores
+ * se coalescen. `null` = la tabla no tiene normalizadores, o alguno corre al momento: quien llama
+ * tiene que seguir embarcando las filas para que se normalicen.
+ */
+function normalizacionCoalescible(table) {
+  const cfg = ODS_NORMALIZERS[table];
+  if (!cfg || !cfg.fns.length) return null;
+  if (!cfg.fns.every((fn) => COALESCIBLES.has(`${table}:${fn.name}`))) return null;
+  return { skuCol: cfg.skuCol || null };
+}
+
+/**
+ * `[OBS.15.12]` Junta llaves en la bolsa de los normalizadores coalescibles de `table` SIN embarcar
+ * filas. Existe para el carril caliente: desde OBS.15 los renglones de `kdm2` los entrega la cola,
+ * y la red de seguridad sólo seguía re-embarcando ~82k renglones cada 5 min para que sus SKUs
+ * llegaran al recálculo de precio. Con esto le basta mandar los SKUs. La bolsa la vacía el mismo
+ * `vaciarCoalescidos` de siempre, en el próximo embarque de cualquier tabla de este proceso.
+ * @returns {number} cuántas llaves entraron (0 si la tabla no es enteramente coalescible)
+ */
+function encolarNormalizacion(table, keys) {
+  if (!normalizacionCoalescible(table)) return 0;
+  const limpias = [...new Set((keys || []).map((k) => (k == null ? '' : String(k).trim())).filter(Boolean))];
+  for (const fn of ODS_NORMALIZERS[table].fns) acumular(`${table}:${fn.name}`, fn, limpias);
+  return limpias.length;
+}
+
+/**
+ * feed 'raw-normalize' — `[OBS.15.12]` llaves al recálculo coalescido SIN filas (ver
+ * `encolarNormalizacion`). rows: `[{ k }]`. meta: `{ table }`. Devuelve cuántas entraron, o **-1**
+ * si la tabla no es enteramente coalescible: quien llama tiene que seguir embarcando las filas.
+ */
+async function applyRawNormalize(_client, tenantId, rows, meta) {
+  assertTenant(tenantId);
+  const table = odsIdent(meta && meta.table);
+  if (!normalizacionCoalescible(table)) return -1;
+  return encolarNormalizacion(table, (rows || []).map((r) => r && r.k));
+}
+HANDLERS['raw-normalize'] = applyRawNormalize;
+
 module.exports = {
   HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyRawUpsert,
   applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE,
+  normalizacionCoalescible, encolarNormalizacion,
   // [DB-MEM.20] Expuesto SOLO para `database/tests/test-newdb-price-coalesce.js`. Nada de
   // producción lo importa: el coalescedor se usa desde `applyRawUpsert`, que está arriba. Se
   // expone porque la alternativa era probarlo a través de un `applyRawUpsert` con Postgres real,

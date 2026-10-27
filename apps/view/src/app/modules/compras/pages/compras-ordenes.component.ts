@@ -16,6 +16,8 @@ import { SegmentedComponent, SegOption } from '../../../shared/components/segmen
 import { AuthService } from '../../../core/services/auth.service';
 import { generarOrdenProveedorPdf } from '../orden-proveedor-pdf';
 import { descargarCsvPedidoProveedor } from '../orden-proveedor-csv';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { SEGUIMIENTO_COMPRA_TABS } from '../seguimiento-compra-tabs';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -27,7 +29,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-ordenes',
   standalone: true,
-  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, SegmentedComponent, SucursalPipe],
+  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, SegmentedComponent, SucursalPipe, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -38,6 +40,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <p class="surf-page-sub">Lo que se pide al proveedor. La recepción (orden de entrada) se registra en el detalle y mueve existencia.</p>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <div class="oc-filters">
         <app-segmented [options]="vistaOpts" [value]="vista()" ariaLabel="Agrupación"
@@ -53,6 +57,12 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       </div>
 
       @if (vista() === 'proveedor') {
+        <!-- [PQ.16] D21: esta lista son documentos INTERNOS de la Suite y ya no crece. Se dice una
+             vez, arriba, para que nadie siga «Falta / Avance» sobre la copia. -->
+        <div class="oc-d21" role="status">
+          <i class="pi pi-history" aria-hidden="true"></i>
+          <span><strong>Documentos internos (histórico).</strong> Desde el 26 de octubre de 2026 la Suite no genera órdenes de compra ni recepciones propias: la orden real es la <strong>X-A-35</strong> y la entrada la <strong>X-A-40</strong> de Kepler. Lo de aquí queda en solo lectura; el seguimiento vivo está en <a routerLink="/compras/oc-abiertas">Órdenes de compra (Kepler)</a>.</span>
+        </div>
         <!-- [OC.1] Agrupado en el SERVIDOR: la lista viene paginada de 50 sobre 152 órdenes, así
              que agrupar la página mostraría totales incompletos sin avisar. -->
         <p-table [value]="grupos()" [loading]="loadingGrupos()" [scrollable]="true" scrollHeight="flex"
@@ -154,6 +164,9 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .oc-sel-prov { min-width: 20rem; }
     .oc-prov { font-weight: 600; }
     .oc-table { font-size: .84rem; }
+    /* [PQ.16] D21: lista interna, histórica. */
+    .oc-d21 { display: flex; align-items: flex-start; gap: .6rem; margin: 0 0 .8rem; padding: .5rem .75rem; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); color: var(--text-muted); font-size: var(--fs-sm); }
+    .oc-d21 a { color: var(--action); }
     .oc-r { text-align: right; font-variant-numeric: tabular-nums; }
     .oc-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .8rem; font-weight: 600; }
     .oc-muted { color: var(--text-muted); }
@@ -162,6 +175,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   `],
 })
 export class ComprasOrdenesComponent implements OnInit {
+  /** [NAV.6] La barra del apartado «Seguimiento de compra» del sidebar de Compras: la pintan todas sus páginas. */
+  readonly apartadoTabs = SEGUIMIENTO_COMPRA_TABS;
   /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
   readonly multitarea = inject(MultitareaService);
   private readonly api = inject(ComprasService);

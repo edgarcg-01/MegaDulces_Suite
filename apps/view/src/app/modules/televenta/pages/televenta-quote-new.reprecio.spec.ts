@@ -89,6 +89,22 @@ describe('TeleventaQuoteNewComponent — la bandeja sigue a la sucursal', () => 
     expect(c.bandeja()[0]).toMatchObject({ unit_price: 132.46, price_source: 'list' });
   });
 
+  it('con % de cliente, el importe del renglón es el de la hoja: su parte del %, y la suma da el total al centavo', () => {
+    const c = conBandeja('01');
+    const peelerz: ItemBandeja = { ...OSITOS, id: 'r2', sku: '43103', unit_label: 'CJA', unit_price: 739.2, line_total: 739.2, list_price: 739.21 };
+    c.bandeja.set([peelerz, { ...OSITOS }]);
+    const terminos = (sucursal: string, pct: string | null) =>
+      ({ sucursal, credit_limit: null, payment_days: null, discount_1_pct: pct, discount_2_pct: null, zone_code: null, group_code: null });
+    c.cliente.set({ customer_code: 'C1088', name: 'SUPER DE LA PAZ', phone: null, rfc: null, address_1: null, state: null,
+      branches: [terminos('01', '2'), terminos('02', null)], terms_vary_by_branch: true } as WholesaleCustomer);
+    // 871.66 × 0.98 = 854.2268 → 854.23; pisos 724.41 + 129.81 = 854.22 y el centavo va a la fracción mayor.
+    expect(c.renglonesBandeja().map((r) => r.neto)).toEqual([724.42, 129.81]);
+    expect(c.totalBandeja()).toBe(854.23);
+    // El % es el de la sucursal: en una sin descuento, el importe es el del renglón.
+    c.sucursal.set('02');
+    expect(c.renglonesBandeja().map((r) => r.neto)).toEqual([null, null]);
+  });
+
   it('elegir un cliente de otra sucursal también vuelve a preciar (antes cambiaba la sucursal en silencio)', () => {
     const c = conBandeja('02');
     c.misRamas.set({ mode: 'all', branches: null, writable: null, default_branch: null, resolvable: true });

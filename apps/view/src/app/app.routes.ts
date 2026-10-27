@@ -1682,12 +1682,12 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.AUTOABASTO_SOLICITAR)]
       },
       {
-        // [AB.16] «Mi pedido» — el pedido de la semana de un almacén, agrupado por a quién se le
-        // pide, con lo ya pedido a la matriz y la cantidad redondeada a como se captura en Kepler.
-        // Misma puerta que la mesa: es la misma audiencia y sólo lee.
+        // [AB.39] «Mi pedido» y la mesa son UNA pantalla desde el 2026-10-26 (eran la misma cuenta
+        // pintada dos veces). La ruta vieja se queda como redirección: un marcador o un enlace viejo
+        // no puede terminar en 404.
         path: 'autoabasto/pedido',
-        loadComponent: () => import('./modules/almacen/pages/almacen-autoabasto-pedido.component').then(m => m.AlmacenAutoabastoPedidoComponent),
-        canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.AUTOABASTO_SOLICITAR)]
+        redirectTo: '/almacen/autoabasto',
+        pathMatch: 'full'
       },
       {
         // Análisis BI — espacio de indicadores cruzados del almacén. Arranca SIN indicadores
@@ -2287,6 +2287,41 @@ export const routes: Routes = [
             path: 'tarifas',
             loadComponent: () => import('./modules/logistica/pages/logistica-pagos-tarifas.component').then(m => m.LogisticaPagosTarifasComponent),
             canActivate: [permissionGuard(Permission.LOGISTICS_PAGOS_VER)]
+          },
+        ]
+      },
+      {
+        // [FCU.3] Costo por unidad: lo que hacía la hoja «TRANSPORTES 2026», con pantalla. Cinco
+        // pestañas (COSTO_UNIDAD_TABS), cada una con su guard; la nómina administrativa es dato
+        // sensible y pide GESTIONAR.
+        path: 'costo-unidad',
+        canActivate: [permissionGuard(Permission.LOGISTICS_COSTO_UNIDAD_VER)],
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'unidades' },
+          {
+            path: 'unidades',
+            loadComponent: () => import('./modules/logistica/pages/logistica-costo-unidad.component').then(m => m.LogisticaCostoUnidadComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_COSTO_UNIDAD_VER)]
+          },
+          {
+            path: 'pendientes',
+            loadComponent: () => import('./modules/logistica/pages/logistica-costo-unidad-pendientes.component').then(m => m.LogisticaCostoUnidadPendientesComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_COSTO_UNIDAD_VER)]
+          },
+          {
+            path: 'presupuesto',
+            loadComponent: () => import('./modules/logistica/pages/logistica-costo-unidad-presupuesto.component').then(m => m.LogisticaCostoUnidadPresupuestoComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_COSTO_UNIDAD_VER)]
+          },
+          {
+            path: 'nomina',
+            loadComponent: () => import('./modules/logistica/pages/logistica-costo-unidad-nomina.component').then(m => m.LogisticaCostoUnidadNominaComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_COSTO_UNIDAD_GESTIONAR)]
+          },
+          {
+            path: 'reposicion',
+            loadComponent: () => import('./modules/logistica/pages/logistica-costo-unidad-reposicion.component').then(m => m.LogisticaCostoUnidadReposicionComponent),
+            canActivate: [permissionGuard(Permission.LOGISTICS_COSTO_UNIDAD_VER)]
           },
         ]
       },

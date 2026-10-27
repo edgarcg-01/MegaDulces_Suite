@@ -2069,7 +2069,240 @@ y costo correctos; índices, lectores, comentario y el rollup `mv_profitability_
 se conservan; la compuerta se niega a reemplazar si no hay meses con qué comparar. **No ejercida en prod**: escribe
 1.8 GB. ⛔ **Se aplica FUERA DE HORARIO.** Tiempo de construcción en prod: NO MEDIDO (lo imprime la migración).
 
-### 16.10 Definición de Terminado
+### 16.18 🧪 [AB.39] La mesa y «Mi pedido» son UNA pantalla (2026-10-26)
+
+PM: *«fusionemos la vista de autoabasto y mi pedido, ya que es lo mismo y mantener dos interfaces iguales en dos
+lados diferentes es un anti-patrón de diseño»*. Desde AB.27 las dos leían la misma cuenta del renglón
+(`armarRenglon`); eran la misma información pintada dos veces. Queda `/almacen/autoabasto`;
+`/almacen/autoabasto/pedido` **redirige** (un marcador viejo no termina en 404) y el tab «Mi pedido» se va.
+
+**La base es «Mi pedido»** porque ahí se toma la decisión (se ajusta, se manda, se imprime). Inventario función por
+función, para que unificar no pierda nada:
+
+| Venía de | Qué | Dónde quedó |
+|---|---|---|
+| Mi pedido | grupos por origen y lista de surtido, − / + con motivo y guardado, Aceptar grupo, mínimo del proveedor y de $200 | igual |
+| Mi pedido | «Lo que te va a llegar», «¿Hasta dónde pides?», Enviar a Compras, PDF por origen y de todo | igual |
+| Mi pedido | avisos de consulta, sin guardado, no medido, ya mandados, resultado del envío | igual |
+| Mi pedido | «Ver también lo que ya está cubierto» | lo reemplaza el filtro de estado («Todos») |
+| Mesa | filtro de estado con su conteo en el control | segmentado: En tu pedido · Ya viene · Lo pediste a Compras · Compras lo planeó · Todos |
+| Mesa | «A quién se le pide», búsqueda por SKU o nombre | igual (búsqueda canónica `coincideBusqueda`) |
+| Mesa | filtro de posición | es el mismo dato que «¿Hasta dónde pides?»: un solo control |
+| Mesa | Falta neta y Estado con su porqué | columnas nuevas de la tabla |
+| Mesa | mínimo, reorden, máximo | terciario bajo la existencia (`/pedido` ahora trae `diagnostico`) |
+| Mesa | Entrega | aviso del renglón, con su porqué |
+| Mesa | KPI «Falta por pedir», «Se pide a la matriz / al proveedor», «Sin ruta», «—» sin medir | KPIs; los importes ahora son **en vivo** con lo ajustado |
+| Mesa | aviso de productos sin valuar, reporte PDF del almacén, ayuda contextual | igual |
+| Mesa | orden por columna y paginación | **se van**: el renglón va como en el pedido (lo que hay que pedir primero, por valor) y cada tabla pinta hasta 150 con «Se ven 150 de N · Ver los N» |
+
+Lo que la fusión garantiza y su prueba cuida (con negativa en rojo): **los filtros cambian lo que se VE, nunca lo que
+se PIDE** — «Enviar a Compras» y el PDF del pedido no dependen de la vista. En «Todos» se ven también los renglones
+que no entran al pedido, de sólo lectura y con su porqué («Ya lo pediste a Compras», «su posición no está marcada»).
+
+De paso, la pantalla única **salda la deuda de las dos**: `check:pantalla` 10 de 10 (antes: §9 frescura en las dos,
+O.4 tabla sin `p-table` y P sin ayuda en «Mi pedido»); se quitan sus entradas de `check-pantalla.deuda.json`. Y el
+pie del PDF del pedido dejaba la sucursal por código («Pedido 01»): ahora por nombre.
+
+**Verificado:** pantalla 35/35 (las pruebas de las dos viejas, más las de la fusión); `almacen` + ayuda + guardas
+620/620; contracts 797/797; reabasto 250/250; `check:pantalla` 0 fallas; compuertas de UI verdes salvo `primeng`, roja
+por +2 `styleClass` en archivos de otras sesiones. **Sin validación visual** (no se levanta la app en local): lo más
+probable de ajustar es el ancho de la tabla de 9 columnas en pantallas angostas y el peso de la franja de filtros.
+
+#### 16.18.1 Autocrítica con la captura del PM (2026-10-26) — D20 y D21
+
+El PM mandó la pantalla de Padre Hidalgo y pidió revisarla con ojo crítico y «tener más control como en el pedido de
+Compras». Lo que se vio y se midió (prod, sólo lectura):
+
+| Se veía | Qué era |
+|---|---|
+| «Traspaso de **00** · CEDIS» | código en pantalla: lo trajo «Mi pedido» (`sucursal:'con-codigo'`) y la fusión no lo quitó |
+| Agua Members Mark: «Compras lo planeó» 553 y aun así 548 «en tu pedido» | el total, el PDF y los KPIs sumaban lo que «Enviar a Compras» deja fuera (`motivoNoEnviable`): la pantalla contaba un pedido que no iba a salir |
+| Mr Beast: máx 22.4 y falta neta 143.6 | el objetivo de Autoabasto (venta × 30 d en matriz × temporada 1.61) **no tiene tope**; el máximo de la política se pinta al lado sin gobernar nada |
+| $2,083 por caja de Mr Beast | **correcto**: la caja es de 180 piezas y Kepler la cobra a $2,610 (no era un error de unidad) |
+| 1,240 de 1,387 renglones en el pedido | sin curaduría: por default entraba también «bajo reorden» |
+| encabezados en mono partidos en dos líneas | estilo de `comm-num` en el `<th>` |
+
+**Medido:** el 26 % del valor sugerido de la red rebasa el máximo de la política ($3.76 M de $14.68 M; Padre Hidalgo
+30 %, Canindo 27 %, Morelia Abastos 24 %).
+
+**Comparación de los dos motores** (código leído, citas en la sesión): Compras pide demanda × días del comprador (30 por
+defecto) con **tope de 45 días** tras redondear, ajusta por cumplimiento del proveedor (hasta ×1.30), **no resta** lo ya
+pedido ni lo embarcado (la función existe y nadie la llama), no pide cuando la unidad es dudosa y valúa con
+`caja_cost`. Autoabasto pide demanda × 21/30 días **sin tope**, sí resta lo que ya viene, pide aunque la unidad sea
+dudosa, y **muestra un costo y manda otro**. Ninguno de los dos topa por el máximo de la política.
+
+| # | Decisión del PM | Firma |
+|---|---|---|
+| D20 | **Un solo motor de cantidad** para Autoabasto y Compras: demanda × días con **tope de 45 días**. El mín/reorden/máx de la política deja de pintarse como si mandara. Lo mejor de cada uno: la resta de lo que ya viene (de Autoabasto) va también a Compras; no pedir con unidad dudosa y un solo costo (de Compras) van a Autoabasto; el ×1.30 por proveedor no aplica a traspasos; los 21 días de sucursales (AB.22) se respetan | ✅ PM |
+| D21 | Arreglar ya los defectos de la pantalla: sin código, el pedido cuenta lo mismo que se manda, encabezados, y default de posiciones = agotado + bajo mínimo | ✅ PM |
+
+**D21, hecho (🧪):** origen por nombre; `incluida` usa la misma regla que el envío (`motivoNoEnviable`): lo planeado por
+Compras, lo que ya viene y lo sin ruta se ven en «Todos» con su porqué y no suman; encabezados en la letra del texto y en
+una línea; `POSICIONES_PEDIDO_DEFAULT` = agotado + bajo mínimo, y el borrador nace con esas posiciones **explícitas** (la
+columna de la base trae su propio default con «bajo reorden»). Efecto del default, medido: sólo cambia en las 4 sucursales
+sin posiciones guardadas (las 4 que las guardaron ya habían quitado «bajo reorden») — sale del pedido Padre Hidalgo 193
+renglones / $1.04 M, Morelia Abastos 250 / $1.34 M, Morelia Madero 73 / $0.18 M, 8 Esquinas 85 / $0.13 M. Pruebas: pantalla
+36/36 (negativa de la regla del pedido en rojo), `test-localdb-autoabasto-borrador.js` 4/4 contra base real (negativa: el
+INSERT viejo nace con «bajo reorden»), contracts 797, reabasto 250.
+
+#### 16.18.2 🧪 [AB.40a] El motor único, primer paso: la pieza común y Autoabasto (2026-10-26)
+
+`libs/contracts/src/http/cantidad-pedido.contract.ts` — el tope de 45 días en **unidad base** (`cabeBajoTope`,
+`toparRedondeo`, `textoTopeBase`), con las reglas de `[RA.45D]` (recortar hacia abajo en la escalera: mayor entera →
+menor entera → nada; no topar lo que no se mide) y lo que Autoabasto aporta (**lo que ya viene cuenta como
+existencia** para el tope). `armarRenglon` aplica: redondeo §15.2 → tope → mínimo de $200; y con la unidad en duda
+(`rung_veredicto`) **no se pide**, como en Compras. El renglón trae `tope` (motivo, lo de antes, días) y la pantalla lo
+dice («Tope 45 días», «Ya cubre 45 días», «Unidad en duda», con su porqué). El motor publica `venta_30d_nat` (la misma
+demanda en base que el objetivo, sin temporada).
+
+**Antes → después, servicio real contra prod (sólo lectura), sugerido sin ajustes:**
+
+| | Renglones con algo que pedir | Recortados | No se piden por unidad en duda | Valor |
+|---|---:|---:|---:|---:|
+| Padre Hidalgo | 1,329 → 1,206 | 135 | 18 | $5.97 M → $5.79 M (−3 %) |
+| Canindo | 906 → 803 | 103 | 17 | $3.05 M → $2.93 M (−4 %) |
+| Morelia Abastos | 1,266 → 1,168 | 102 | 32 | $4.72 M → $4.55 M (−4 %) |
+| Las otras 5 | 3,165 → 2,553 | 44 | 53 | $2.41 M → $2.36 M (−2 a −6 %) |
+| **Red** | **6,666 → 5,730** | **384** | **120** | **$16.15 M → $15.63 M (−3 %)** |
+
+(Los renglones bajan más que los recortes porque un recorte a la unidad menor puede quedar debajo del mínimo de $200.)
+
+⛔ **Lo que esta medición dice, sin adornos:** el tope de 45 días casi no toca a Autoabasto, porque su objetivo ya es
+de 21 o 30 días; sólo muerde con temporada alta o redondeo grande (Mr Beast en Padre Hidalgo: 144 → 131 cajas, todavía
+~6× el máximo de la política). **El sobrepedido de la captura (26 % del valor sobre el máximo) NO lo resuelve D20**: viene
+de que el objetivo por demanda y la política (mín/reorden/máx) dan números muy distintos para el mismo producto. Eso es
+una pregunta abierta para el PM, no un defecto de código.
+
+Pruebas: `cantidad-pedido.spec.ts` 11 (casos con su cuenta a mano; **negativa**: sin el tope, 6 en rojo); contracts 808
+(dos pruebas viejas cambiaron a la regla nueva: con la unidad en duda ya no se pide); pantalla 38; reabasto 250.
+
+**Pendiente de AB.40:** (b) Compras adopta la pieza común en lugar de `pedido-tope.ts` y resta lo que ya viene (motor de
+PQ: coordinar en su tarjeta).
+
+**(d) no existía — corrección.** Se dijo que Compras y Autoabasto leían el veredicto de unidad de fuentes distintas. Es la
+**misma** columna (`replenishment_plan.rung_veredicto`): Compras la lee como `COALESCE(…, 'sin_dato')` y da por buenos `ok`,
+`sin_dato` y `z_no_arbitrable`; Autoabasto da por bueno el nulo. Valores reales en prod: nulo 49,293, `x2_deflactada` 409,
+`x1_inflada` 55 — los dos bloquean exactamente lo mismo. La regla de AB.40a coincide con Compras.
+
+**(c) 🧪 Un solo costo.** Autoabasto valuaba con el costo de existencia de Kepler (`kdik.c16`, por unidad base) y a Compras
+le mandaba `caja_cost` del plan. Medido sobre 19,289 renglones con venta: 80 % cuadran a ±3 %, 17 % difieren 3–18 % (dos
+costos válidos), **106 difieren 2× o más** por dos defectos distintos — `kdik.c16` roto (95040 en Morelia Abastos: $0.0005 la
+pieza contra $57 de compra real) o `caja_cost` que es por pieza y no por caja (familia 33xxx, caja de 100; **`/compras/pedido`
+lo valúa igual de mal hoy**). Ahora `costoUnicoBase` valúa con la caja que viaja a Compras y, si contradice al de Kepler 2× o
+más, **no elige**: valor «sin medir». Medido con el servicio real: valor del sugerido de la red **$15.63 M → $15.13 M (−3.2 %)**
+— lo que se mostraba era más caro que lo que se manda — y **62 renglones** quedan sin medir por contradicción (antes salían con
+un número de cualquiera de los dos). Pruebas: `cantidad-pedido.spec.ts` 15 (con los SKUs reales del defecto); contracts 812.
+⚠️ Deuda con nombre: el `caja_cost` por pieza de la familia 33xxx está mal en el plan (`replenishment_plan`), y eso es de Compras.
+
+#### 16.18.3 🧪 [AB.40] La venta de ruta una vez y la política con la demanda del pedido (2026-10-26)
+
+**El árbitro (Kepler) contra las dos demandas, Mr Beast 97245, piezas/día:** Padre Hidalgo 325 (137 de mostrador + 188 de
+rutas) contra 535 del pedido y 72.5 de la política; las demás sucursales, el pedido a 5–15 % de Kepler y la política de 0.2× a
+2×. Dos defectos distintos:
+
+1. **`sales_daily` traía la venta de las rutas de Padre Hidalgo dos veces** (Kepler 01 `01-00N` + el envío) y de ahí el plan: 137
+   + 2 × 188 ≈ 535. `import-sales-fact.js` ahora toma, de un almacén de ruta que empuja, sólo lo que trae el envío. SQL exacto
+   ejercido en base local (`test-localdb-sales-fact-rutas-una-vez.js` 7/7, negativa: sin el filtro la ruta sale al doble).
+   Efecto en `sales_daily`, rutas de Padre Hidalgo: ago $3.62 M → $2.82 M · sep $5.22 M → $2.77 M · oct $4.35 M → $2.26 M
+   (= el envío). Canindo no cambia. Lo corrige para sus 37 consumidores en la corrida nocturna de 13 meses (UPSERT).
+2. **La política leía otra demanda** (`inventory_health`: 90 días de unidades crudas, quiebres como venta cero, sin rutas, y en
+   matrices sólo las hijas directas). Root cause medido por un agente sobre 19,604 pares: mediana 0.87 contra el pedido, 1 de
+   cada 5 bajo la mitad, 1 de cada 9 sobre el doble. Ahora `import-computed-reorder.js` e `import-network-reorder.js` leen
+   `product_demand` (30 días, la del pedido); la de red es **recursiva** (el CEDIS ve todo lo que surte) y **suma las rutas**;
+   σ = media × el `demand_cv` de siempre.
+
+**Antes → después (texto exacto de los importers, prod en sólo lectura, `test-newdb-politica-misma-demanda.js` 13/13):**
+
+| | Máximos que no alcanzan ni 14 días | Máximos de más de 90 días | Productos con existencia ≤ reorden |
+|---|---:|---:|---:|
+| Sucursales | 483 → 0 | 1,574 → 571 | 4,829 → 5,027 |
+| Matrices (01, 06, 08) | 238 → 0 | 1,102 → 718 | 4,967 → 5,170 |
+
+Mr Beast en Padre Hidalgo: máximo 4,029 → 14,951 pz (23 días de su demanda de red). La posición (agotado / bajo mínimo / bajo
+reorden) se calcula con esta política, así que se corrige sola. Escritura ejercida con los dos importers reales contra la base
+local (`test-localdb-politica-misma-demanda.js` 5/5, cifras exactas a la cuenta a mano; la negativa va sembrada:
+`inventory_health` con una venta equivocada que, si se leyera, daría otras cifras).
+
+⚠️ Lo medido usa la demanda de hoy, que en Padre Hidalgo aún trae las rutas al doble: tras la corrida nocturna del importer
+corregido, la demanda (y la política) de Padre Hidalgo bajan. ⚠️ Deuda con nombre: `product_demand` usa el precio de pieza MÍNIMO
+de la red (+5–8 %, MR.7.1).
+
+**D20 queda como [AB.40]**, sin construir: mueve un número que decide ~$14.7 M y toca el motor de PQ (otra fase, otra
+sesión). Orden: función de cantidad única en `libs/contracts` con su candado → antes/después por almacén y por proveedor →
+coordinar en la tarjeta de PQ → publicar fuera de horario.
+
+### 16.19 🧪 [AB.41] Lo que en «Pedido» de Compras sí se podía y en Autoabasto no (2026-10-26)
+
+El PM, con la pantalla única en la mano, señaló tres faltas: **(1)** «Lo que te va a llegar» decía «Embarque 0001229 ·
+1 producto» y **no dejaba ver cuál**; **(2)** «A pedir» sólo se movía con − / +, sin poder teclear ni **recorrer los
+renglones con las flechas** como en `/compras/pedido`; **(3)** no había **historial de ventas** del producto (el globo de
+venta por mes de Compras).
+
+**(1) Los productos de cada documento.** Cada pedido o embarque se abre y lee sus renglones en ese momento
+(`GET /commercial/autoabasto/pedido/viene`, no viaja con el pedido: 63 documentos de Padre Hidalgo con sus renglones
+cargarían la pantalla entera para algo que se consulta de uno en uno). Kepler guarda el renglón dos veces, y se muestran
+las dos: la **presentación capturada** (`kdm2.c51` en `c55`, p. ej. 72 CJA) y la **unidad base** (`c9` en `c11`, 1,296 KG),
+que es la que se resta. Medido en prod el 2026-10-26 sobre 30 días de traspasos: en los embarques `c51 = c54` en los
+**28,616** renglones; en los pedidos, **871 de 29,341** no traen `c51` — ahí se declara «sin presentación» y se lee la base,
+no se inventa. Cada renglón dice además si ese producto **también lo estás pidiendo** («Pides 16 CJA» / «No lo pides»).
+Las requisiciones de la Suite (lo que planeó Compras o mandó la sucursal) se abren por su `id`, en cajas.
+**Candado de alcance:** el almacén tiene que estar en el alcance de la persona *y* el documento tiene que ir al cliente de
+traspaso de ese almacén; el mismo folio pedido desde otra sucursal devuelve vacío.
+`test-newdb-autoabasto-viene-renglones.js` (prod, sólo lectura, texto exacto del servicio): 9/9 — embarque y pedido reales
+cuadran con `kdm2` leída aparte, 2–11 ms; **negativa:** sin el filtro de destino, el folio ajeno devuelve 5 renglones (rojo).
+
+**(2) Captura con teclado.** «A pedir» es un campo: ↑ ↓ y Enter cambian de renglón (sin dar la vuelta en el borde),
+← → (y Alt + ↑ ↓) suben o bajan uno, y al llegar el valor queda seleccionado para que teclear reemplace. Sólo enteros de 0
+en adelante (lo que el servidor acepta); vacío o negativo no cambia nada y al salir se muestra lo que quedó. La regla de
+teclas **se movió** de `compras/pedido-redondeo.ts` a `shared/util/captura-teclado.util.ts` (Compras la reexporta, sin
+cambio); el movimiento entre campos es nuevo y vive ahí también. Negativa: si Alt + ↑ también moviera, 2 de 8 en rojo.
+
+**(3) Venta por mes.** La venta de 30 días abre el globo de 13 meses contra el año anterior, del producto **en ese
+almacén**: es `monthlySales` de RA-PRO.65, servido por `GET /commercial/autoabasto/pedido/venta-mensual` con la llave
+`AUTOABASTO_VER` y el mismo alcance (el almacenista no tiene `COMPRAS_PEDIDO_VER` y no se le abre Compras para esto).
+El contenido del globo es una pieza nueva compartida, `shared/components/venta-por-mes`, con la cuenta de las barras en
+una función pura probada.
+
+⚠️ **Deuda con nombre (AB.41b):** Compras todavía tiene su propio globo dentro de `compras-pedido-real.component.ts` y su
+propio recorrido de teclado (`onQtyKey`). Adoptar `app-venta-por-mes` y `moverEntreCampos` va con PQ, en su tarjeta: es su
+archivo y hoy lo está trabajando. ⚠️ **Sin validación visual:** el ancho del campo «A pedir» (3.6 rem) y la tabla que se
+abre dentro de «Lo que te va a llegar» son lo más probable de ajustar.
+
+### 16.20 🧪 [AB.42] El espacio es para el pedido (2026-10-26)
+
+El PM, con Padre Hidalgo abierta: «el 100 % de la pantalla lo ocupa información que no influye con el pedido» — la tabla
+empezaba abajo del pliegue (~1,130 px de alto en su captura). Se partió por lo que cada bloque es:
+
+| Bloque | Qué era | Ahora |
+|---|---|---|
+| Subtítulo (2 líneas) | instrucciones de − / + y del 20 % | 1 línea; el detalle sigue en la ayuda (ⓘ) |
+| Selector de almacén (fila sola) + «Calculado el…» (otra fila) | contexto | una sola fila |
+| «14 productos no entran en los importes» | **repetía** el «N sin valuar» de las cifras de dinero | se quita; la cifra se marca *parcial* con el porqué (ADR-056: se declara en el número) |
+| «Lo que te va a llegar» (6 documentos + «Ver los 35») | ya restado del pedido | queda el resumen en una línea (cuántos, cuánto, qué reclamar); «Ver los N documentos» abre todos |
+| «63 renglones en unidad menor…» (fila sola) | aviso del filtro | chip en la fila de «¿Hasta dónde pides?» |
+
+Nada se esconde sin decirlo: el resumen dice cuántos documentos hay y cuánto valen, y lo que hay que reclamar sigue en
+chips a la vista. Pantalla 49/49 (negativa: sin valuar → la cifra NO se marca parcial). ⚠️ **Sin validación visual:**
+cuánto alto se ganó es estimado (~450 px), no medido en navegador.
+
+### 16.21 🧪 [AB.43] Una sola acción principal (2026-10-26)
+
+El PM: «¿para qué tantos botones?». Arriba había cinco (ayuda, Enviar a Compras, PDF del pedido, Reporte del almacén,
+Recalcular) y en cada grupo dos más (PDF, **Aceptar grupo** en naranja). Uso medido en prod, 30 días (`autoabasto_huella`):
+abrir 14 · ajustar 6 · posiciones 4 · aceptar grupo 3 · requisiciones enviadas 0. Los PDF y «Recalcular» no dejan huella:
+su uso **no está medido**. Se decidió por lo que hace cada uno:
+
+- **Enviar a Compras** queda como el único primario de la pantalla (Von Restorff: una primaria por pantalla).
+- **Un botón «PDF ▾»** reúne los papeles: el pedido completo (una hoja por origen), cada origen por separado (sólo si hay
+  más de uno: con uno sería el mismo papel) y el reporte del almacén.
+- **Recalcular** pasa a la fila del sello, junto a «cargado hace…»: es donde se lee la edad del dato.
+- **«Aceptar grupo» sale de la pantalla:** sólo pintaba «Revisado» y dejaba huella; no cambiaba lo que se manda, y competía
+  como primario con «Enviar a Compras», que es el acto que de verdad cierra el pedido. El endpoint
+  `POST /pedido/aceptar-grupo` y sus huellas se quedan (nada se borra); si nadie lo vuelve a pedir, se retira aparte.
+
+Pantalla 53/53; negativa: la prueba de «un solo primario» corrida contra el componente anterior da rojo
+(«Enviar a Compras» + 2 «Aceptar grupo»). Sin validación visual.
+
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
 - [ ] Carga completa de la mesa y de «Mi pedido» bajo 500 ms en todas las sucursales, medida en prod (AB.36).

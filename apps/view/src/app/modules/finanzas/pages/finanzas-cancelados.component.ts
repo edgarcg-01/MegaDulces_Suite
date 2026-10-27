@@ -15,6 +15,8 @@ import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { money, dmy } from './finanzas-format';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
 
 interface CancRow { sucursal: string; doc_tipo: string; doc_prefix: string | null; categoria: string | null; folio: string; fecha: string; monto: number; contraparte_code: string | null; contraparte_nombre: string | null; concepto: string | null; metodo: string | null }
 interface CancResp { period: { from: string; to: string }; totals: { n: number }; by_categoria: Record<string, { n: number; monto: number }>; rows: CancRow[] }
@@ -32,7 +34,7 @@ const CAT_LABEL: Record<string, string> = { pago: 'Pago a proveedor', entrada: '
   selector: 'app-finanzas-cancelados',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule, TableModule, SelectModule, TagModule, MetricStripComponent, SucursalPipe],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule, TableModule, SelectModule, TagModule, MetricStripComponent, SucursalPipe, PageTabsComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -45,6 +47,8 @@ const CAT_LABEL: Record<string, string> = { pago: 'Pago a proveedor', entrada: '
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <div class="cg-filters">
         <p-select [options]="catOpts" optionLabel="label" optionValue="value" [ngModel]="categoria()" (onChange)="onCat($event.value)" placeholder="Categoría" [showClear]="true" styleClass="cg-sel" ariaLabel="Categoría" />
@@ -99,6 +103,8 @@ const CAT_LABEL: Record<string, string> = { pago: 'Pago a proveedor', entrada: '
   `],
 })
 export class FinanzasCanceladosComponent implements OnInit {
+  /** [NAV.7] La barra del apartado «Bancos y conciliación» del sidebar de Finanzas: la pintan todas sus páginas. */
+  readonly apartadoTabs = BANCOS_CONCILIACION_TABS;
   private readonly http = inject(HttpClient);
   private readonly destroyRef = inject(DestroyRef);
   private readonly base = `${environment.apiUrl}/finance/cancelled-docs`;
