@@ -97,7 +97,9 @@ const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_
   '20261027105608_le00a_una_explicacion_sin_carrera.js',
   '20261027110325_le00e_caos_denom_valor_sin_signo_de_pregunta.js',
   // `[LE.1]` El libro de partida doble: esquema propio (`cashbook`), no toca el núcleo del corte.
-  '20261027111930_le1_cashbook_libro_de_partida_doble.js'];
+  '20261027111930_le1_cashbook_libro_de_partida_doble.js',
+  // `[LE.1.9]` Conteos, hallazgos y excepciones del libro (mismo esquema propio).
+  '20261027120749_le19_cashbook_conteos_hallazgos_y_excepciones.js'];
 const MAX_REMEDIOS = 200;
 
 /**
