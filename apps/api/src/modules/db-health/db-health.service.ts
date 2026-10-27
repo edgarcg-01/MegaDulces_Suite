@@ -1340,11 +1340,12 @@ export const CRON_JOBS: CronCfg[] = [
   // El histórico (30,268 arqueos, 2013 → 2026-10-22) se queda CONGELADO en `caja_general_ods` y se
   // lee por `analytics.v_caja_arqueos`. Se sacan de esta lista como manda la nota de `CronCfg`
   // (`[NORM.3]`): si alguien vuelve a prender un carril, su latido cae en `unknown` y se ve.
-  // [CG.22.3] `mv_caja_refresh`: el corte de caja materializado que lee la bandeja de
-  // /finanzas/caja-general. Va con umbral CORTO porque su modo de falla es el peor de todos —
-  // un matview que dejó de refrescarse **no da error**: sirve la foto vieja, y una bandeja de caja
-  // congelada se lee como "no hay trabajo pendiente". Corre cada minuto; warn al saltarse ~6.
-  { key: 'mv_caja_refresh',     label: 'Caja — refresca mv_caja_movimientos', cadence: 'cada minuto', warnH: 0.25, critH: 1 },
+  // ⛔ [OPS-AUD.11.5, 2026-10-27] RETIRADOS `mv_caja_refresh` (cada minuto) y `mv_caja_push` (oyente
+  // de `caja_fuente`): `analytics.mv_caja_movimientos` dejó de ser materializada y la mantiene un
+  // trigger al escribir `kdm1` (ADR-104), así que ya no hay nada que refrescar. Se sacan de la lista
+  // como manda `[NORM.3]`: si alguien vuelve a prender esos carriles, su latido cae en `unknown`.
+  // La edad del dato de la caja es ahora la de `ods_live_caja`, y los fallos del trigger quedan en
+  // `analytics.bank_movement_legs_errors` (su árbitro con latido es el paso 11.6).
   // ⛔⛔ [CG.141] `caja_autofill_entidad`: la matvista que alimenta el autollenado por entidad.
   // Nació el 2026-10-13 **con cero filas y sin nadie que la refrescara** — ni un `REFRESH` en el
   // repo, ni `job_key`, ni umbral. Su modo de falla es el de `mv_caja_refresh` pero peor de leer:
@@ -1355,44 +1356,6 @@ export const CRON_JOBS: CronCfg[] = [
   // la frescura de este MISMO carril en `GET /cobertura`. Dos umbrales a mano para el mismo hecho
   // se separan en silencio, y el día que se separan el tablero y la pantalla se contradicen.
   { key: 'caja_autofill_entidad', label: 'Caja — autollenado por entidad (mv)', cadence: 'cada hora :07 MX', warnH: CAJA_AUTOFILL_FRESCURA_H, critH: 8, maxRunH: 0.25 },
-  // ── [CG.76] El refresco OÍDO, que adelanta al cron cuando llega un movimiento ──────────────
-  //
-  // Sin este renglón el carril caería en `cfg ? classify : 'ok'` = **verde incondicional**, que es
-  // lo que la Fase VP midió sobre tres matvistas del sell-out y OBS.1 en cinco huérfanos. Un
-  // carril que nace mudo nace roto.
-  //
-  // `services/feeds-ingest` emite `NOTIFY caja_fuente` cuando su UPSERT —sin churn— cambió filas
-  // de `kdm1`/`kdb1`; este carril lo oye y refresca. ⚠️ Late con llave PROPIA a propósito: si
-  // escribiera en `mv_caja_refresh`, el piso de 30 min del cron —medido contra la última corrida
-  // con `note IS NULL` de ESA llave— quedaría satisfecho para siempre y la protección se volvería
-  // un adorno, en silencio.
-  //
-  // ⚠️ Umbral HOLGADO, y no es descuido: el carril late cada minuto aunque no refresque, y si se
-  // cae **el cron de cada minuto sigue cubriendo** — se pierde velocidad, no datos. Un rojo acá
-  // NO es una bandeja vieja, y por eso warn a 1 h y no a 15 min.
-  /**
-   * ⛔⛔ `[CG.119]` **LE FALTABA `maxRunH`, y por eso un carril MUERTO salía en AMARILLO.**
-   *
-   * Medido en prod el 2026-10-13: esta llave llevaba **99.5 horas en `running`** desde el
-   * 2026-10-09 16:33, en el pod `ods-reconcile-67df444dbd-mn2jn`, con el `last_finish`
-   * **anterior** al `last_start` — la firma de un proceso que murió entre `hb.begin()` y
-   * `hb.end()`. Sin `maxRunH` la rama de arriba cae en `runH >= critH` y eso da **`warn`**, no
-   * `critical`. Cuatro días de amarillo sobre algo que no existe.
-   *
-   * ⭐ Y el umbral correcto NO es una duración de lote: este carril es un **oyente** que vive en
-   * `running` por diseño. Lo que sí se puede juzgar es que **late cada 60 s** (el `setInterval`
-   * de `refresh-caja-matview.js`), y cada latido reescribe `last_start`. O sea que con el proceso
-   * vivo `now − last_start` nunca pasa de un minuto, y en cuanto muere crece sin tope.
-   *
-   * `maxRunH: 0.25` = 15 minutos: quince latidos perdidos. Holgado para un reinicio de pod, y
-   * **imposible de alcanzar** mientras el oyente respire. *A un proceso de larga vida no se le
-   * pregunta cuánto lleva corriendo, se le pregunta cuándo latió por última vez.*
-   *
-   * ⚠️ El `warnH: 1` / `critH: 4` se conservan: miden otra cosa (el rezago cuando el carril SÍ
-   * cierra sus ciclos) y siguen siendo holgados a propósito — si esto se cae, el cron de cada
-   * minuto sigue cubriendo y se pierde velocidad, no datos.
-   */
-  { key: 'mv_caja_push',        label: 'Caja — refresco oído por NOTIFY', cadence: 'por evento', warnH: 1, critH: 4, maxRunH: 0.25 },
   // [CS.1] Feed de CAOS (caja fuerte) → analytics.caos_cash_movements. Corre cada 2 min on-prem.
   // Sin esta entrada el latido caería en `cfg ? classify : 'ok'` = verde incondicional. La caja
   // mueve ~8/día; el rezago se tolera holgado (warn a ~2 h) porque un hueco no es urgente como el

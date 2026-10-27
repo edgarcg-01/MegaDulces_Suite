@@ -80,7 +80,6 @@ revisa en un diff, que es justo lo que el Programador de Windows no permitía.
 
 ```
 * * * * *          contpaqi
-* * * * *          caja-mv               (refresh-caja-matview; latido `mv_caja_refresh`)
 */2 * * * *        refresh-consolidado   ⭐ [NORM.3] era el ÚNICO mudo — ya late (`consolidado_refresh`)
 */5 * * * *        watchdog
 3-58/5 * * * *     contpaqi-cfdis        (incremental del ADD)
