@@ -118,4 +118,21 @@ describe.skipIf(!URL)('[LE.4.7] la API del libro de efectivo contra Postgres', (
     expect((await svc.saldos(false)).cuentas.every((x) => x.piezas === undefined)).toBe(true);
     expect((await svc.mayor(0, 1000)).length).toBeGreaterThanOrEqual(6);
   });
+
+  it('[LE.4.8] la alerta de un permiso de caja: llega a la bandeja y la cierra otra persona', async () => {
+    const t = (await knex.raw(`SELECT to_regprocedure('cashbook.alerta_de_permiso()') IS NOT NULL AS ok`)).rows[0].ok;
+    if (!t) { console.warn('[LE.4.8] NO MEDIDO: la base no tiene la migración de la alerta'); return; }
+    const BENEFICIARIA = randomUUID();
+    // Como lo escribe la pantalla de usuarios: con quién lo dio. Sin tenant en la sesión (lo pone el trigger).
+    await knex.raw(`INSERT INTO identity.user_permissions (tenant_id, user_id, permission_key, allow, granted_by, created_at, updated_at)
+      VALUES (?, ?, 'FINANCE_CAJA_AUTORIZAR', true, ?, now(), now())`, [T, BENEFICIARIA, CAJERA.id]);
+    const alerta = (await svc.hallazgos()).find((h) => h['source'] === 'permiso');
+    expect(alerta).toMatchObject({ source: 'permiso', amount_minor: '0', detail: { usuario: BENEFICIARIA, actor: CAJERA.id } });
+    const id = String(alerta?.['id']);
+    expect(await rechazo(svc.cerrarHallazgo(id, { nota: 'yo lo di' }, CAJERA))).toEqual({ status: 422, codigo: 'cashbook_permiso_lo_revisa_otro' });
+    expect(await rechazo(svc.cerrarHallazgo(id, { nota: 'me lo dieron' }, { id: BENEFICIARIA, username: 'beneficiaria' })))
+      .toEqual({ status: 422, codigo: 'cashbook_permiso_lo_revisa_otro' });
+    await svc.cerrarHallazgo(id, { nota: 'Visto: lo pidió Dirección por la ausencia de María' }, MARIAZ);
+    expect((await svc.hallazgos()).some((h) => h['id'] === id)).toBe(false);
+  });
 });
