@@ -31,8 +31,9 @@ import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { forkJoin } from 'rxjs';
 import { CashLedgerService, type ArqueoMovimientoDia, type CandadoCaja, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
-import type { PosicionCajaDto, PosicionRubro, EstadoPosicion, ArqueoCajaDto, ArqueoGuardadoDto, NuevoArqueoCajaInput, TipoArqueoCaja } from '@megadulces/contracts';
+import type { PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, NuevoArqueoCajaInput, TipoArqueoCaja } from '@megadulces/contracts';
 import { CajaSocketService } from '../../caja-socket.service';
+import { desgloseRubro, etiquetaPosicion, plural } from './posicion-caja.util';
 import { CaosSocketService } from '../../caos-socket.service';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import { AuthService } from '../../../../core/services/auth.service';
@@ -1136,7 +1137,7 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   }
 
   /** `3 cortes`, `1 corte`: el número con su palabra, sin «(s)». */
-  protected plural(n: number, uno: string, varios: string): string { return `${n} ${n === 1 ? uno : varios}`; }
+  protected readonly plural = plural;
 
   // ── `[CGS.53]` Una sola tabla de cortes, con la revisión como filtro ─────────────────────
   readonly filtroElegido = signal<'revisar' | 'cortes' | 'todo' | null>(null);
@@ -1436,7 +1437,7 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
           r.ahora.usd != null && r.ahora.monto !== null ? `${this.mx(r.ahora.monto)} en pesos` : '',
           pct !== null ? `${pct} % del total` : '',
         ].filter(Boolean).join(' · '),
-        desglose: this.desgloseRubro(r),
+        desglose: desgloseRubro(r, this.mx, (iso) => this.cuando(iso)),
         nota: e === 'parcial' || e === 'imposible' || e === 'no_medido' ? r.ahora.nota : null,
         tone: e === 'parcial' ? 'warn' : e === 'imposible' ? 'bad' : 'default',
       };
@@ -1450,35 +1451,6 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   readonly verLibro = signal(false);
   readonly verMovsCtl = signal(false);
 
-  /**
-   * `[CGS.54]` De dónde sale la cifra del rubro, renglón por renglón: el último conteo (cuándo y en
-   * qué), y lo que entró y salió después. Los rubros que la Suite no mueve sólo tienen el conteo.
-   */
-  desgloseRubro(r: PosicionRubro): Array<{ monto: string | null; texto: string }> {
-    const u = r.ultimo;
-    if (!u) return [];
-    // La última línea dice de dónde y cuándo; los renglones con monto van arriba, cortos.
-    const deDonde = `${u.at ? this.cuando(u.at) + ' · ' : ''}${u.fuente.replace(/\s*\(.*\)$/, '')}`;
-    if (!r.desde) {
-      return [{ monto: null, texto: `contado el ${deDonde}${u.tipo_cambio != null ? ` · a ${u.tipo_cambio} por dólar` : ''}` }];
-    }
-    const cf = r.rubro === 'caja_fuerte';
-    const out: Array<{ monto: string | null; texto: string }> = [
-      { monto: u.monto === null ? 'sin medir' : this.mx(u.monto), texto: cf ? 'último arqueo' : 'último conteo' },
-    ];
-    const { entra, sale, detalle } = r.desde;
-    if (Math.abs(entra) < 0.005 && Math.abs(sale) < 0.005) {
-      out.push({ monto: null, texto: 'sin movimientos desde entonces' });
-    } else {
-      out.push({ monto: `+ ${this.mx(entra)}`, texto: cf ? 'depositado' : 'entró' });
-      out.push({ monto: `− ${this.mx(sale)}`, texto: cf ? 'dispensado' : 'salió' });
-    }
-    // Del detalle del servidor sólo el conteo: lo demás («la caja fuerte dio $X») ya es el «entró».
-    const movs = /(\d+) movimiento/.exec(detalle)?.[1];
-    out.push({ monto: null, texto: `${deDonde}${!cf && movs ? ' · ' + this.plural(Number(movs), 'movimiento', 'movimientos') + ' del libro' : ''}` });
-    return out;
-  }
-
   /** Los rubros que la Suite no mueve, dichos UNA vez y no en cada renglón. */
   readonly sinMovimientos = computed<string | null>(() => {
     const r = (this.posicion()?.rubros ?? []).filter((x) => x.ultimo && !x.desde).map((x) => x.etiqueta.toLowerCase());
@@ -1487,9 +1459,7 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
     return `La Suite no lleva movimientos de ${lista}: vale lo del último arqueo.`;
   });
 
-  etiquetaPosicion(e: EstadoPosicion): string {
-    return ({ medido: 'Contado', derivado: 'Calculado', parcial: 'Calculado, incompleto', imposible: 'No se puede afirmar', no_medido: 'Sin medir' } as const)[e];
-  }
+  readonly etiquetaPosicion = etiquetaPosicion;
   usd(n: number): string { return Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   /** Instante ISO → «20/10/26 18:12» en hora de México. */
   cuando(iso: string): string {
