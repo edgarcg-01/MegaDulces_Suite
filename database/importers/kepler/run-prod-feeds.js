@@ -316,7 +316,10 @@ const STEPS = {
     // Queda sólo en el modo `finance`, que se lanza desde `.249`.
     // path.join(DIR, 'movimientos-caja', 'import-caja-general.js'), // CG — arqueo caja 20 VIVO (BMovimientosCajas, al día) + Base Movimientos (histórico). Idempotente (UPSERT). REQUIERE Z: (.245 \\D) montado en el host del feed + PowerShell/ACE.OLEDB.
     // Feeds antes HUÉRFANOS (nunca agendados → se quedaban viejos). Cadencia diaria correcta.
-    path.join(K, 'import-kepler-polizas.js'),    // pólizas contables Kepler (kdc2) → analytics.gl_poliza_*
+    // RETIRADO 2026-10-27 [OPS-AUD.14]: import-kepler-polizas.js — el reporte de pólizas de Kepler
+    // (analytics.gl_polizas / gl_poliza_lines, source='kepler') se mantiene POR CAMBIO desde el ODS
+    // (triggers en cada kdc2YYMM, mig 20261027135745). El importer nunca borraba: un cambio de cuenta
+    // dejaba el renglón viejo para siempre, y num_movto cambiaba de una noche a otra.
     path.join(K, 'import-sales-boxes-monthly.js'), // venta en cajas mensual → analytics.sales_boxes_monthly
     path.join(DIR, 'wincaja', 'import-sales-by-vendor-monthly.js'), // AUDIT 2026-08-20 — era HUÉRFANO (648k filas sell-out x vendedor, sin modo ni latido). Al nightly + hereda heartbeat feed_nightly. Idempotente (UPSERT + DELETE-orphan + Canindo remap).
     path.join(K, 'import-pos-cashiers.js'),      // dim cajeros POS → analytics.pos_cashiers
