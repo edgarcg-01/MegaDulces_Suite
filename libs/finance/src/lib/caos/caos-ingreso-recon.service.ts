@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { diaDeFecha } from '@megadulces/contracts';
@@ -27,6 +27,21 @@ import {
  * `finance.caos_ingreso_atribucion`, y el candado `ux_caos_atrib_cobro_vivo` impide **en la base**
  * que un cobro se use dos veces. Sin ese candado el 100% sería de mentira.
  */
+/**
+ * ⛔⛔ `[LE.0.0]` **El reparto automático de depósitos está APAGADO por default** (Fase LE,
+ * 2026-10-27). Reparte por antigüedad (`fifo_anterior`): con $18 M de cobros pendientes siempre
+ * encuentra con qué «conciliar», así que su «100 %» no mide nada, le cuelga a un depósito de
+ * octubre cobros de julio y **tapa jineteo**. Se reemplaza por el emparejador por ruta y fecha de
+ * LE.1.2. Se enciende sólo a propósito, con `CAOS_INGRESO_CONCILIAR=on`.
+ */
+export function conciliadorEncendido(): boolean {
+  return String(process.env['CAOS_INGRESO_CONCILIAR'] ?? '').trim().toLowerCase() === 'on';
+}
+
+export const TEXTO_CONCILIADOR_APAGADO =
+  'El reparto automático de depósitos de CAOS está apagado: repartía por antigüedad y llegó a explicar '
+  + 'dos veces el mismo depósito. Lo reemplaza el emparejador por ruta y fecha (Fase LE).';
+
 @Injectable()
 export class CaosIngresoReconService {
   private readonly log = new Logger(CaosIngresoReconService.name);
@@ -144,6 +159,8 @@ export class CaosIngresoReconService {
   ): Promise<ResumenReparto & { escritos: number }> {
     const tenantId = this.tenantCtx.requireTenantId();
     const desde = q.from || '2026-05-27';
+    // ⛔ `[LE.0.0]` Apagado mientras no se encienda a propósito: ver `conciliadorEncendido`.
+    if (!conciliadorEncendido()) throw new ConflictException(TEXTO_CONCILIADOR_APAGADO);
 
     return this.tk.run(async (trx) => {
       const hayCustodia = !!(await trx.raw(`SELECT to_regclass('finance.caos_retiro_custodia') AS t`)).rows?.[0]?.t;
@@ -166,6 +183,26 @@ export class CaosIngresoReconService {
          * corrida de cada hora). Medido el 2026-10-23: 0 depósitos con esa referencia hasta hoy.
          */
         .whereRaw(`coalesce(m.ref, '') !~* '^[[:space:]]*regres'`)
+        /**
+         * ⛔⛔ `[LE.0.0]` **Un depósito que el libro ya explica no se vuelve a explicar.** Medido el
+         * 2026-10-27: 86 depósitos ($1,703,230) tenían DOS explicaciones — el libro los ligaba al
+         * cobro de su ruta y su día, y este reparto, por antigüedad, a cobros de otra ruta y de
+         * meses antes (ej. #1723 «ruta 27 261026» = ruta 27 del 26-oct en el libro; rutas 21 y 22
+         * del 28-jul acá). Cada peso, una explicación (Fase LE, regla B4).
+         */
+        .whereNotExists(function (this: Knex.QueryBuilder) {
+          this.select(1).from('finance.caos_cash_links as k')
+            .join('finance.cash_ledger as l', 'l.id', 'k.cash_ledger_id')
+            .whereRaw(`k.tenant_id = m.tenant_id AND k.caos_device = m.device
+               AND k.caos_external_id = m.external_id AND k.deleted_at IS NULL
+               AND l.deleted_at IS NULL AND l.estado <> 'cancelado'`);
+        })
+        .whereNotExists(function (this: Knex.QueryBuilder) {
+          this.select(1).from('finance.cash_ledger as l')
+            .whereRaw(`l.tenant_id = m.tenant_id AND l.origen_tipo = 'caos'
+               AND l.origen_ref = m.device || '|' || m.external_id
+               AND l.deleted_at IS NULL AND l.estado <> 'cancelado'`);
+        })
         .modify((qb: Knex.QueryBuilder) => {
           if (hayCustodia) {
             qb.whereNotExists(function (this: Knex.QueryBuilder) {

@@ -980,7 +980,7 @@ jobs:
         run: |
           set +e
           rc=0
-          for s in test-newdb-caja-invariantes.js test-newdb-cash-ledger-cuts.js test-newdb-caja-supervision.js test-newdb-caja-custodia.js; do
+          for s in test-newdb-caja-invariantes.js test-newdb-cash-ledger-cuts.js test-newdb-caja-supervision.js test-newdb-caja-custodia.js test-newdb-caja-una-explicacion.js; do
             echo "::group::$s"
             node "database/tests/$s" 2>&1 | tee "$s.log"
             r=${PIPESTATUS[0]}
@@ -1020,7 +1020,8 @@ jobs:
                  libs/finance/src/lib/caja/caja-db.util-real.spec.ts \
                  libs/finance/src/lib/caos/caos-ingreso-cron.granos-real.spec.ts \
                  libs/finance/src/lib/caja/caja-firma.servicio-real.spec.ts \
-                 libs/finance/src/lib/caja/caja-custodia.servicio-real.spec.ts 2>&1 | tee servicio.log; then
+                 libs/finance/src/lib/caja/caja-custodia.servicio-real.spec.ts \
+                 libs/finance/src/lib/caos/caos-ingreso-recon.libro-real.spec.ts 2>&1 | tee servicio.log; then
             echo "::error title=Servicio real del corte::$(grep -E 'FAIL|Error|×' servicio.log | head -6 | tr '\n' ' ' | cut -c1-900)"
             exit 1
           fi

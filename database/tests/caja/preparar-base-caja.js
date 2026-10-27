@@ -76,7 +76,10 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
   // `[CGA-A.50]` El retiro de CAOS en custodia. Su migración también cambia el candado de
   // `caos_cash_links` (un retiro, muchos gastos): sin esta línea `test-newdb-caja-custodia` sale
   // NO MEDIDO y el trigger que lo reemplaza nunca se ejerce.
-  'finance.caos_retiro_custodia'];
+  'finance.caos_retiro_custodia',
+  // `[LE.0.0]` El reparto automático de depósitos (`CG.58`): su regla «cada peso, una explicación»
+  // se prueba contra el libro, y sin la tabla la migración de LE.0.0 sale sin hacer nada.
+  'finance.caos_ingreso_atribucion'];
 /**
  * `[CGA-A.55]` Migraciones que ALTERAN una tabla de `LEE_EL_SERVICIO` con REGLAS (no con datos).
  * De esas tablas sólo se trae la migración que las crea; una regla agregada después no entraba, y
@@ -84,7 +87,10 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
  * `caos_cash_links`» arrastra migraciones de DATOS de prod (`cga_a10`, `a18`, `a24`, `a31`) que
  * abortan en una base vacía, como abortaba `[CGS.52]`.
  */
-const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_retiro.js'];
+const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_retiro.js',
+  // `[CGA-A.37]` el candado «Σ por cobro ≤ su monto» del reparto, y `[LE.0.0]` «cada peso, una explicación».
+  '20261020110022_caos_atribucion_cobro_partido.js',
+  '20261027101810_le00_baja_atribuciones_dobles_de_caos.js'];
 const MAX_REMEDIOS = 200;
 
 /**

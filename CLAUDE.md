@@ -246,7 +246,8 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **PF** | Flujo de venta de cualquier producto (Compras › Catálogo › Productos) | 🧪 |
 | **MS** | Mesa de Servicio (tickets de servicio) | ⏸️ |
 | **CSU** | Cortes/Sucursales (corte de caja → cobro → ingreso) | 🟢 |
-| **CGA** | Caja General: cazar el ingreso/egreso pendiente (ruta detalle, vecinal, proveedores en efectivo) | 🔨 |
+| **CGA** | Caja General: cazar el ingreso/egreso pendiente (ruta detalle, vecinal, proveedores en efectivo) — absorbida por LE el 2026-10-27 | ⏸️ |
+| **LE** | Libro de efectivo de partida doble: Caja General + CAOS como un banco (38 reglas B1–B38; reemplaza a CGA) | 🔨 |
 | **ECA** | Estado de cuenta de acreedores (por tipo) | 🧪 |
 | **RH** | Recursos Humanos: migración de Mega Talento | 🔨 |
 | **GP** | Gestión de pedidos en almacén (surtido/checado/embarque sin papel) | 🧪 |
