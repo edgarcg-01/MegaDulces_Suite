@@ -620,12 +620,57 @@ crea una **orden de entrada propia** (`commercial.goods_receipts`, folio OE) y *
 **NO MEDIDO:** cuántas de las 136 OE propias tienen su X-A-40 gemela en Kepler (cruce por
 proveedor + fecha + SKU, instrumento pendiente); y por qué sólo 2 de 136 aplicaron stock.
 
+## 14. ¿Pasa el 100 % a Kepler? El simulacro (2026-10-27)
+
+Pregunta del PM: «la inserción en Kepler ya está armada, ¿cómo validamos que el 100 % de las
+requisiciones y traspasos van a pasar?». No con una promesa: con un **simulacro** que corre, sin
+escribir, las mismas comprobaciones del adaptador (`kepler-requisition-sink.adapter.ts`) sobre
+TODO el universo y cuenta por motivo. Instrumento: `database/scripts/pq-simulacro-escritura-kepler.js`
+(sólo lectura; **control**: reproduce el rechazo real de RQ-2026-01391, «no conoce al proveedor
+CA027» en la 04 — coincide).
+
+| Prod, 2026-10-27 | |
+|---|---:|
+| universo: aprobadas sin folio + pendientes de aprobación | **853** (81 compras · 772 traspasos) · $20.98 M |
+| pasan las comprobaciones de datos del adaptador | **819 (96.0 %)** · $20.28 M |
+| rebotan | 34 · $0.70 M — **todos** por «Kepler (sucursal NN) no conoce al proveedor» |
+| de esos 34, el proveedor SÍ está en el catálogo de proveedores de Kepler (`kdxd`) de esa sucursal | **34 de 34** |
+
+**Lo que el número dice:** el único rebote de datos es una regla **nuestra** más estricta que
+Kepler: el adaptador acepta un proveedor sólo si **ya tiene una X-A-30/X-A-35 en esa sucursal**, y
+después del corte del 1-oct las sucursales compran a proveedores nacionales (Mondelez CM009, AJEMEX
+CA027, CA010…) por primera vez. Kepler los conoce (`kdxd`); nosotros no. Con el catálogo como
+testigo, **pasa el 100 % de los 853**.
+
+**Lo que el simulacro NO puede medir desde la base, y es lo que de verdad decide (KR, runbook):**
+
+| Bloqueo | Qué pasa si falta | Dueño |
+|---|---|---|
+| `KEPLER_PUSH_URL_NN` por servidor | rebota todo ese servidor («escritura apagada») | KR |
+| **plantilla del TRASPASO por servidor** (sin default a propósito) | rebotan los **772 traspasos** | KR (elegir un `U-D-40` en AUTORIZADO) |
+| tope diario `KEPLER_PUSH_MAX_DIA_NN` (default **1**) | el 00 tardaría **470 días** en vaciar su cola; 01, 198; 08, 107 | KR: subirlo con el canario en verde |
+| la BAJA desde la UI de Kepler (criterio del canario) | no se enciende ningún servidor | KR |
+
+**Riesgos que el adaptador NO detiene (se declaran, no se dibujan):** 21 documentos ($2.87 M, 39
+renglones) con **cajas fraccionadas** (Kepler acepta numérico; el comprador en Kepler no captura 0.2
+cj); SKU sin ficha en la sucursal: **0**.
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| D22 | ¿El testigo de «proveedor conocido» es el catálogo de Kepler (`kdxd` por sucursal) y no «ya le compró»? | **Sí**: es la fórmula de Kepler. Cambio de una consulta en el adaptador (es KR); después, re-correr el simulacro y exigir **0 rebotes de datos** antes de encender |
+| D23 | ¿Cajas fraccionadas se redondean antes de escribir o se frenan? | **Se frenan en la Suite** (la mesa no deja capturar fracción) — nunca redondear en silencio al escribir |
+
+**Protocolo propuesto para «el 100 %»:** (1) D22 en el adaptador; (2) simulacro = 0 rebotes de datos;
+(3) canario por servidor con la baja desde UI; (4) tope diario subido por servidor; (5) el simulacro
+corre **antes de cada encendido** y queda en la bitácora con su cifra.
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-27 | «¿Cómo validamos que el 100 % pasa a Kepler?» → **PQ.17 🧪** (`71db08ae5`): simulacro con control; 853 documentos, **96.0 % pasan**; los 34 que rebotan son proveedores que Kepler SÍ tiene en `kdxd` → la regla nuestra es más estricta que Kepler (**D22**). Lo que decide está en configuración (plantilla de traspaso, tope diario 1 = 470 días para el 00) (§14) | PM + sesión PQ |
 | 2026-10-26 | «Resolvámoslo» (D21) → **PQ.16 🧪** (`87e8adc93`): from-requisition y receipts responden 409; el detalle de requisición captura el folio de Kepler (RQ.15) en vez de generar OC propia; OC interna en solo lectura; la lista interna se rotula histórico y las pestañas suben «Órdenes de compra (Kepler)». 43/43 vitest. Falta: «de qué requisición» en la lista de Kepler por `oc_folio` y congelar 235/136 en VERDAD_ABSOLUTA | PM + sesión PQ |
 | 2026-10-26 | `/compras/ordenes` tras aprobar (§13.2): la Suite emite OC y OE **propias** (235 OC $26.6 M, 136 OE) y la recepción mueve `commercial.stock`, que el Pedido no lee y Kepler no tiene; 0 requisiciones con `oc_folio` de Kepler. Nace **D21**: la Suite deja de emitir OC/OE y sigue sólo las de Kepler (X-A-35/X-A-40) | PM + sesión PQ |
 | 2026-10-26 | «Que se pueda aceptar todo un lote de golpe» → **PQ.15 🧪** (`bbd691066`): en «Por lote», «Aprobar lote (N)» con confirmación en dos clics; manda al bulk ya probado sólo los pendientes del lote (tope 200) y declara que el lote no empuja a Kepler. 34/34 vitest, sin endpoint nuevo. Sin validación visual del botón | PM + sesión PQ |
