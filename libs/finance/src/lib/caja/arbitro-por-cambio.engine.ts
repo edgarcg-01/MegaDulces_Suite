@@ -32,8 +32,22 @@ export interface VeredictoArbitro {
   nota: string;
 }
 
-export function veredictoArbitro(mediciones: readonly MedicionArbitro[], erroresTrigger: Record<string, number>): VeredictoArbitro {
+export function veredictoArbitro(
+  mediciones: readonly MedicionArbitro[],
+  erroresTrigger: Record<string, number>,
+  /**
+   * `[OPS-AUD.13.2]` Pólizas del ODS a una hora que no es 00:00, por tabla. La normalización del
+   * 2026-10-27 las dejó TODAS a medianoche (como el origen): una nueva prueba que algún carril
+   * sigue escribiendo la fecha corrida 6 h, y cada una es un duplicado en potencia.
+   */
+  polizasFueraDeHora: Record<string, number> = {},
+): VeredictoArbitro {
   const fallas: string[] = [];
+  const fuera = Object.entries(polizasFueraDeHora).filter(([, n]) => n > 0);
+  if (fuera.length) {
+    fallas.push(`pólizas del ODS fuera de las 00:00 (un carril escribe la fecha corrida): `
+      + fuera.map(([t, n]) => `${t} ${n}`).join(', '));
+  }
   let limpios = 0;
   let sinMedir = 0;
   for (const m of mediciones) {

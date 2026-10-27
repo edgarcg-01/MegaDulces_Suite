@@ -52,6 +52,7 @@ export class ArbitroPorCambioService {
     const t0 = Date.now();
     const mediciones: MedicionArbitro[] = [];
     const errores: Record<string, number> = {};
+    const fueraDeHora: Record<string, number> = {};
     try {
       if (!this.admin) throw new Error('KNEX_NEW_DB_ADMIN es null (falta DATABASE_URL_NEW): no se puede arbitrar');
       const db = this.admin;
@@ -70,6 +71,14 @@ export class ArbitroPorCambioService {
           [`SELECT analytics.kepler_poliza_rebuild(?, NULL)`, [t]]));
       }
 
+      // [OPS-AUD.13.2] Pólizas fuera de las 00:00: tras la normalización deben ser CERO siempre.
+      for (const { t } of meses) {
+        const r = await db.raw(
+          `SELECT count(*)::int AS n FROM kepler_ods.${t}
+            WHERE (c2 AT TIME ZONE 'America/Mexico_City')::time <> '00:00'`);
+        fueraDeHora[t] = Number(r.rows[0].n);
+      }
+
       for (const tabla of ['analytics.bank_movement_legs_errors', 'analytics.gl_polizas_kepler_errors']) {
         const r = await db.raw(`SELECT count(*)::int AS n FROM ${tabla} WHERE created_at > now() - interval '25 hours'`);
         errores[tabla] = Number(r.rows[0].n);
@@ -80,7 +89,7 @@ export class ArbitroPorCambioService {
       this.running = false;
     }
 
-    const v = veredictoArbitro(mediciones, errores);
+    const v = veredictoArbitro(mediciones, errores, fueraDeHora);
     if (v.fallas.length) this.logger.error(`árbitro por cambio: ${v.fallas.join(' | ')}`);
     await latirCron(this.knex, {
       jobKey: KEY,
