@@ -13,34 +13,8 @@
  * Todo en UNA transacción con rollback: cero efecto en la base.
  * Uso: DATABASE_URL_NEW=postgresql://...@127.0.0.1:5432/postgres_platform node database/tests/test-newdb-caja-custodia.js
  */
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-caja-custodia');
-
-const RAIZ = path.resolve(__dirname, '..', '..');
-
-/** `[CGA-A.55.1]` Las llaves del catálogo de denominaciones, leídas del FUENTE: `[llave, valor]`. */
-function llavesDelCatalogo() {
-  const src = fs.readFileSync(path.join(RAIZ, 'libs', 'contracts', 'src', 'money', 'denominations.ts'), 'utf8');
-  return [...src.matchAll(/\{\s*key:\s*'([^']+)',\s*valor:\s*([0-9.]+)\s*,/g)].map((m) => [m[1], Number(m[2])]);
-}
-
-/**
- * `[CGA-A.55.1]` `valorDeLlave` del motor TS, ejecutado tal cual (su cuerpo es JS sin tipos): la
- * OTRA implementación de la regla que la base aplica en `finance.caos_denom_valor`. `null` si cambió
- * de forma; entonces el cruce se declara NO MEDIDO, no se da por bueno.
- */
-function valorDeLlaveDelMotor() {
-  const src = fs.readFileSync(path.join(RAIZ, 'libs', 'finance', 'src', 'lib', 'caja', 'caja-custodia.engine.ts'), 'utf8');
-  const m = src.match(/export function valorDeLlave\(k: string\): number \| null \{\r?\n([^\r\n]+)\r?\n\}/);
-  if (!m) return null;
-  // Sonar S1523 (código dinámico): lo único que se ejecuta es el cuerpo de `valorDeLlave` leído del
-  // fuente del propio repo (`libs/finance`), nunca una entrada externa, y en un contexto nuevo de
-  // `vm`, sin `require` ni `process`.
-  try { return vm.runInNewContext(`(function (k) {${m[1]}})`); } catch { return null; } // NOSONAR S1523: sólo código del propio repo
-}
 
 const T = '00000000-0000-0000-0000-00000000d01c';
 const OTRO_T = '00000000-0000-0000-0000-0000000000ff';
@@ -187,84 +161,6 @@ const rechaza = (err, code, nombre) => !!err && err.code === code && (err.constr
       const ajenas = await trx('finance.caos_retiro_custodia').where({ caos_device: DEV }).count({ n: '*' }).first();
       ok(Number(ajenas.n) === 0 || !hayRol, 'otro tenant no ve la custodia');
       await comoApp(T);
-
-      console.log('\n── 6a. [CGA-A.55.1] Cada llave de denominación vale lo que dice ──');
-      // `finance.caos_denom_valor` decide si una llave de billete existe. La `a55` la dejó rota en
-      // prod: knex cambió los `?` de su regex por `$1`/`$2`, devolvía NULL para TODA llave y el
-      // trigger rechazaba cualquier enlace con billetes (CAOS_LINK_BILLETES_FORMA). Se mide la
-      // función sola, antes que 6b, para que el rojo nombre la causa y no sólo el síntoma.
-      // Las positivas son las llaves del CATÁLOGO leídas del fuente (una denominación nueva entra
-      // sola) y cada llave se cruza con `valorDeLlave` del motor TS: dos implementaciones de la misma
-      // regla. Medir la función sólo contra lo que uno cree que debe dar deja pasar el defecto común.
-      const fallasAntes = fail;
-      const hayValor = (await trx.raw(`SELECT to_regprocedure('finance.caos_denom_valor(text)') AS f`)).rows[0].f;
-      if (!hayValor) {
-        skip('no existe finance.caos_denom_valor (migración 20261026110741)');
-      } else {
-        // Cada llamada en su SAVEPOINT. Una regex que deja pasar algo que no es número no devuelve un
-        // valor: REVIENTA el cast (`'1.2.3'::numeric` → 22P02). Sin esto el error abortaba la
-        // transacción como 💥 y se llevaba el resto de 6a, 6b y §7 (medido con la mutación del punto
-        // sin escapar: 38 ✓ / 1 ✗, la suite cortada en '5x5'). Así sale como un ✗ con nombre.
-        const valor = async (k) => {
-          await trx.raw('SAVEPOINT sp_valor');
-          try {
-            const { v } = (await trx.raw('SELECT finance.caos_denom_valor(?::text) AS v', [k])).rows[0];
-            await trx.raw('RELEASE SAVEPOINT sp_valor');
-            return v;
-          } catch (e) {
-            await trx.raw('ROLLBACK TO SAVEPOINT sp_valor');
-            return `ERROR ${e.code}`;
-          }
-        };
-        const catalogo = llavesDelCatalogo();
-        ok(catalogo.length >= 12, `se leyeron ${catalogo.length} llaves de libs/contracts/src/money/denominations.ts (hoy son 12)`);
-        for (const [k, esperado] of catalogo) {
-          const v = await valor(k);
-          ok(v !== null && Number(v) === esperado, `'${k}' vale ${esperado} (devolvió ${v})`);
-        }
-        // Cada una de estas caza una mutación de la regex:
-        //   '5x5', '5,5' → un punto SIN escapar (`.` donde va `[.]`);
-        //   '5mm'        → `m*` donde va `m{0,1}`;
-        //   '1.2.3'      → `([.][0-9]+)*` donde va `([.][0-9]+){0,1}`.
-        // Sin las dos últimas, esas dos mutaciones salían 54 ✓ / 0 ✗; con ellas, 54 ✓ / 2 ✗ cada una
-        // (la negativa y el cruce con el motor TS). Medido en Postgres desechable el 2026-10-26.
-        const negativas = ['', 'abc', 'm', '5.', '-5', '500x', '5x5', '5,5', '5mm', '1.2.3', '.5', '10M', ' 500'];
-        for (const k of negativas) {
-          const v = await valor(k);
-          ok(v === null, `NEGATIVA: '${k}' no es una llave → NULL (devolvió ${v})`);
-        }
-        const motor = valorDeLlaveDelMotor();
-        if (!motor) {
-          skip('no se pudo leer valorDeLlave de caja-custodia.engine.ts: el cruce base contra motor TS no se midió');
-        } else {
-          const difieren = [];
-          for (const k of [...catalogo.map(([c]) => c), ...negativas, '05', '0', '2.50', '0.5m']) {
-            const enBase = await valor(k);
-            const enMotor = motor(k);
-            if ((enBase === null) !== (enMotor === null) || (enBase !== null && Number(enBase) !== enMotor)) {
-              difieren.push(`'${k}': base ${enBase}, motor ${enMotor}`);
-            }
-          }
-          ok(difieren.length === 0, `la base y el motor TS dan el mismo valor en cada llave${difieren.length ? ` — difieren ${difieren.join('; ')}` : ''}`);
-        }
-        if (fail > fallasAntes) {
-          const { r } = (await trx.raw(`SELECT substring(prosrc from '~ ''[^'']*''') AS r FROM pg_proc
-            WHERE oid = to_regprocedure('finance.caos_denom_valor(text)')`)).rows[0];
-          console.log(`     regex guardada en la base: ${r} — si trae $1/$2, knex se comió un signo de interrogación`);
-        }
-      }
-      // ⛔ Estructural (GOTCHAS §71): la huella que deja knex cuando se come el `?` de una regex.
-      // Lo que SÍ caza: una función de `finance` (`pg_proc`, `prokind = 'f'`) de ESTA base —en el CI,
-      // sólo las que trae el preparador de caja— con `$<dígito>` dentro del literal que sigue a un
-      // `~` o `~*`. Lo que NO ve: vistas ni otros esquemas (el barrido de §71 va aparte); un `?`
-      // convertido fuera de ese literal (`coalesce(x, '?')` → `'$1'`, `regexp_match`,
-      // `substring … from`, `SIMILAR TO`); ni el `?` que knex convierte en una consulta del código
-      // en tiempo de ejecución (`[CG.163]`). La compuerta sobre las migraciones es `[CGA-A.55.4]`.
-      const conDolar = (await trx.raw(`SELECT n.nspname || '.' || p.proname AS f FROM pg_proc p
-          JOIN pg_namespace n ON n.oid = p.pronamespace
-         WHERE n.nspname = 'finance' AND p.prokind = 'f'
-           AND p.prosrc ~ '~[*]{0,1} *''[^'']*[$][0-9]'`)).rows.map((r) => r.f);
-      ok(conDolar.length === 0, `ninguna función de finance guarda $N dentro de una regex${conDolar.length ? ` — la traen: ${conDolar.join(', ')}` : ''}`);
 
       console.log('\n── 6b. [CGA-A.55] Los billetes de cada pedazo del retiro ──');
       const hayBilletes = (await trx.raw(`SELECT count(*)::int n FROM information_schema.columns

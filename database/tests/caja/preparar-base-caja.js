@@ -85,13 +85,13 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
  * abortan en una base vacía, como abortaba `[CGS.52]`.
  *
  * El orden lo da el nombre (`[...conjunto].sort()`), no la posición en esta lista.
- * `[CGA-A.55.1]` reescribe `finance.caos_denom_valor()`, que la `a55` dejó rota (knex cambió los
- * `?` de su regex por `$1`/`$2`). No nombra ninguna tabla del núcleo, así que sin esta línea la base
- * de CI se queda con la función rota y `test-newdb-caja-custodia` §6a sale en rojo.
+ * ⚠️ `[CGA-A.55.1]` (pendiente): la `a55` dejó `finance.caos_denom_valor()` rota (knex cambió los
+ * `?` de su regex por `$1`/`$2`), así que `test-newdb-caja-custodia` §6b sale en rojo. El arreglo es
+ * una migración nueva que se agrega a ESTA lista; por decisión del 2026-10-27 se hará junto con la
+ * pantalla que manda billetes (`[CGA-A.52]`).
  */
 const REGLAS_SOBRE_LO_QUE_LEE = [
   '20261026110741_cga_a55_billetes_por_enlace_de_retiro.js',
-  '20261026175222_cga_a55_1_regex_denom_sin_signo.js',
 ];
 const MAX_REMEDIOS = 200;
 

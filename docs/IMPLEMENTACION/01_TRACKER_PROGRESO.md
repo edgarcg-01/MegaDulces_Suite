@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1991 KB, 12813 líneas, 72 secciones.
+> **Índice navegable** — 1991 KB, 12818 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -57,28 +57,28 @@
 | 8307 | 8469 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
 | 8470 | 8753 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
 | 8754 | 8921 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8922 | 11210 | 175 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11211 | 11219 | 1 | Fase RR — Ventas por ruta |
-| 11220 | 11515 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11516 | 11526 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11527 | 11547 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11548 | 11558 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11559 | 11570 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11571 | 11630 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11631 | 12058 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 12059 | 12073 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 12074 | 12115 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 12116 | 12261 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12262 | 12292 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12293 | 12340 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12341 | 12364 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12365 | 12394 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12401 | 12410 | 1 | 📝 Convenciones |
-| 12411 | 12447 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12448 | 12466 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12467 | 12519 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12520 | 12876 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12877 | 12897 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 8922 | 11215 | 175 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11216 | 11224 | 1 | Fase RR — Ventas por ruta |
+| 11225 | 11520 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11521 | 11531 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11532 | 11552 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11553 | 11563 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11564 | 11575 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11576 | 11635 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11636 | 12063 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 12064 | 12078 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 12079 | 12120 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12121 | 12266 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12267 | 12297 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12298 | 12345 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12346 | 12369 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12370 | 12399 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12406 | 12415 | 1 | 📝 Convenciones |
+| 12416 | 12452 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12453 | 12471 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12472 | 12524 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12525 | 12881 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12882 | 12902 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -9192,8 +9192,8 @@ TP.6-TP.8+TP.10".
 >   ⛔ **Depende de `[CGA-A.55.2]`: no manda «cambio» hasta que ese item cierre** (hoy el trigger
 >   acepta en `cambio` llaves fuera del catálogo, como '0' o '05').
 > - [ ] **[CGA-A.55]** ⚠️ **Los billetes de cada pedazo del retiro: C0–C2 DESPLEGADOS el 2026-10-26,
->   pero en prod NO funcionan: la regla de C0 rechaza TODO enlace con billetes hasta aplicar
->   `20261026175222` (`[CGA-A.55.1]`).** `caos_denom_valor` da NULL para las 12 llaves del catálogo y
+>   pero en prod NO funcionan: la regla de C0 rechaza TODO enlace con billetes hasta aplicar el
+>   arreglo de `[CGA-A.55.1]` (pendiente).** `caos_denom_valor` da NULL para las 12 llaves del catálogo y
 >   `finance.caos_link_billetes` responde `CAOS_LINK_BILLETES_FORMA` a cualquier enlace que declare
 >   billetes (re-medido en sólo lectura el 2026-10-26 a las 20:34 MX: regex `…)$1m$2$`, 119 enlaces,
 >   0 con billetes, 0 con `cambio`). No se nota sólo porque la pantalla de `origin/main` todavía no
@@ -9212,7 +9212,12 @@ TP.6-TP.8+TP.10".
 >   billetes: el remanente por denominación se declara NO afirmable, sólo el monto. Base real:
 >   sección 6b de `test-newdb-caja-custodia.js` (4 negativas + mutación); el preparador de `caja-db`
 >   trae la migración por lista explícita (`REGLAS_SOBRE_LO_QUE_LEE`).
-> - [ ] **[CGA-A.55.1]** 🧪 **La regex de las denominaciones, sin `?`: «Suites del corte» vuelve a
+> - [ ] **[CGA-A.55.1]** ⏸️ **RETIRADO del PR por decisión del usuario (2026-10-27): la migración
+>   `20261026175222` y su prueba §6a NO van; se harán junto con la pantalla que manda billetes
+>   (`[CGA-A.52]`). Quedan en el commit `2c188716c` (y la §6a en `4119e8175`/`f92728892`) del PR de la
+>   rama `fix/cga-a55-1-regex-denom`. Mientras tanto, custodia §6b sigue en ROJO en el CI: es el mismo
+>   rojo que ya tenía `main`, y es verdadero (la función de prod está rota).** Lo que sigue es el
+>   diagnóstico y lo medido CON la migración puesta: **La regex de las denominaciones, sin `?`: «Suites del corte» vuelve a
 >   verde EN LOCAL (Postgres desechable; custodia 56 ✓ / 0 ✗) — en el CI todavía NO MEDIDO; y el job
 >   no quedaba verde por esto solo: «Servicio real del corte» escondía 17 fallas por falta de
 >   pipefail** (`[CGP-D.1.3]` / `[CGP-D.1.4]`). ⚠️ Correcciones de la revisión: este título decía «el
@@ -9257,7 +9262,7 @@ TP.6-TP.8+TP.10".
 >   **54 ✓ / 2 ✗** ('1.2.3' → ERROR 22P02, y el cruce); sin ceros a la izquierda 55 ✓ / 1 ✗ (el cruce,
 >   '05'); otra función con `$1` 55 ✓ / 1 ✗ (el candado); restaurada 56 ✓ / 0 ✗. Catálogo ilegible y
 >   motor con otra firma NO se re-midieron (esas partes de la prueba no cambiaron).
->   ⏳ **Pendiente: mergear y, EN SEGUIDA, aplicar la migración en prod con
+>   ⏳ **Cuando se retome (con `[CGA-A.52]`): mergear la migración y, EN SEGUIDA, aplicarla en prod con
 >   `ops/prod/aplicar-migracion.sh` (RUNBOOK-despliegue §3), antes del siguiente despliegue** y en todo
 >   caso antes de que la pantalla mande billetes. ⛔ Corrige lo que esta línea decía («con
 >   `apply-one-migration-prod.js` ANTES de mergear»): eso es el patrón que `[OPS.MIG]` (7b9f4e2fa,

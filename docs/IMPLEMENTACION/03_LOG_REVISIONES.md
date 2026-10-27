@@ -327,7 +327,7 @@ prueba y el preparador estaban bien; lo que no era cierto era el anuncio «el jo
 - **La §6a probaba llaves que no existen** ('0.5m', '10m'). Ahora las positivas salen del catálogo y se
   cruzan con el motor TS: la mutación «sin ceros a la izquierda» sólo la ve ese cruce.
 
-**Queda:** `[CGP-D.1.4]` (las 17 fallas), `[CGA-A.55.2]`–`[CGA-A.55.4]`, y aplicar `20261026175222` en prod.
+**Queda:** `[CGA-A.55.2]`–`[CGA-A.55.4]`. `[CGP-D.1.4]` se corrigió en la misma rama (9c4b7e9f1, 7ba25aab9). ⏸️ La migración `20261026175222` de `[CGA-A.55.1]` se RETIRÓ del PR por decisión del usuario (2026-10-27): se hará con la pantalla `[CGA-A.52]`; mientras tanto custodia §6b sigue en rojo en el CI.
 
 ## 2026-10-23 — `[RA-MED]` El comprador sube el sugerido y acierta en la dirección; el sugerido dejaba 1.6 días; la requisición de compra SÍ es la de Kepler, la de traspaso NO
 
