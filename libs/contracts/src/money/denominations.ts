@@ -71,6 +71,21 @@ export const MONEDAS_MXN: readonly Denominacion[] = [
 
 export const DENOMINACIONES_MXN: readonly Denominacion[] = [...BILLETES_MXN, ...MONEDAS_MXN];
 
+/**
+ * `[LE.1]` Los billetes de dólar que recibe la Caja General (Fase LE, D2). Sin monedas: no se
+ * reciben. Viven aparte del catálogo MXN a propósito — las llaves `'100'` o `'20'` significan
+ * otra cosa en cada moneda, y un saldo nunca mezcla monedas.
+ */
+export const BILLETES_USD: readonly Denominacion[] = [
+  { key: '100', valor: 100, familia: 'billete', label: 'US$100' },
+  { key: '50', valor: 50, familia: 'billete', label: 'US$50' },
+  { key: '20', valor: 20, familia: 'billete', label: 'US$20' },
+  { key: '10', valor: 10, familia: 'billete', label: 'US$10' },
+  { key: '5', valor: 5, familia: 'billete', label: 'US$5' },
+  { key: '2', valor: 2, familia: 'billete', label: 'US$2' },
+  { key: '1', valor: 1, familia: 'billete', label: 'US$1' },
+];
+
 
 const POR_KEY = new Map(DENOMINACIONES_MXN.map((d) => [d.key, d]));
 
