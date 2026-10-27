@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1983 KB, 12731 líneas, 72 secciones.
+> **Índice navegable** — 1987 KB, 12770 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -57,28 +57,28 @@
 | 8307 | 8469 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
 | 8470 | 8753 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
 | 8754 | 8921 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8922 | 11128 | 167 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11129 | 11137 | 1 | Fase RR — Ventas por ruta |
-| 11138 | 11433 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11434 | 11444 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11445 | 11465 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11466 | 11476 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11477 | 11488 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11489 | 11548 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11549 | 11976 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 11977 | 11991 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 11992 | 12033 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 12034 | 12179 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12180 | 12210 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12211 | 12258 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12259 | 12282 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12283 | 12312 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12319 | 12328 | 1 | 📝 Convenciones |
-| 12329 | 12365 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12366 | 12384 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12385 | 12437 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12438 | 12794 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12795 | 12815 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 8922 | 11167 | 171 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11168 | 11176 | 1 | Fase RR — Ventas por ruta |
+| 11177 | 11472 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11473 | 11483 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11484 | 11504 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11505 | 11515 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11516 | 11527 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11528 | 11587 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11588 | 12015 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 12016 | 12030 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 12031 | 12072 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12073 | 12218 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12219 | 12249 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12250 | 12297 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12298 | 12321 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12322 | 12351 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12358 | 12367 | 1 | 📝 Convenciones |
+| 12368 | 12404 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12405 | 12423 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12424 | 12476 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12477 | 12833 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12834 | 12854 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -9189,8 +9189,17 @@ TP.6-TP.8+TP.10".
 > - **[CGA-A.52]** ⬜ **C3.** Captura: «¿de dónde salió el dinero?» obligatorio; al enlazar un retiro
 >   se toma **una parte** (≤ disponible, ≤ lo que falta del gasto) y ya no se copian sus billetes.
 >   Bandeja «retiros de hoy» para clasificar, y saldo a cargo por persona con antigüedad.
-> - [x] **[CGA-A.55]** ✅ **Los billetes de cada pedazo del retiro (C0–C2 en prod desde el 2026-10-26,
->   con un defecto latente: ver [CGA-A.55.1]).** En prod (sólo lectura, clúster 7688376744939610156):
+>   ⛔ **Depende de `[CGA-A.55.2]`: no manda «cambio» hasta que ese item cierre** (hoy el trigger
+>   acepta en `cambio` llaves fuera del catálogo, como '0' o '05').
+> - [ ] **[CGA-A.55]** ⚠️ **Los billetes de cada pedazo del retiro: C0–C2 DESPLEGADOS el 2026-10-26,
+>   pero en prod NO funcionan: la regla de C0 rechaza TODO enlace con billetes hasta aplicar
+>   `20261026175222` (`[CGA-A.55.1]`).** `caos_denom_valor` da NULL para las 12 llaves del catálogo y
+>   `finance.caos_link_billetes` responde `CAOS_LINK_BILLETES_FORMA` a cualquier enlace que declare
+>   billetes (re-medido en sólo lectura el 2026-10-26 a las 20:34 MX: regex `…)$1m$2$`, 119 enlaces,
+>   0 con billetes, 0 con `cambio`). No se nota sólo porque la pantalla de `origin/main` todavía no
+>   manda billetes. ⚠️ Corrección de la revisión: decía ✅ y era más de lo cierto; con la capa de
+>   abajo rota el item no cierra (`docs/METODO_DE_TRABAJO.md` §5). Lo destraba `[CGA-A.55.1]`.
+>   En prod (sólo lectura, clúster 7688376744939610156):
 >   migración `20261026110741` en el lote 1016 (18:37Z) y código en `71b5c7975` (lo que sirve
 >   `/api/health`). Edgar:
 >   *«un egreso de CAOS de 100,000 se puede vincular a 4 movimientos, pero debe conciliar los
@@ -9204,13 +9213,15 @@ TP.6-TP.8+TP.10".
 >   sección 6b de `test-newdb-caja-custodia.js` (4 negativas + mutación); el preparador de `caja-db`
 >   trae la migración por lista explícita (`REGLAS_SOBRE_LO_QUE_LEE`).
 > - [x] **[CGA-A.55.1]** 🧪 **La regex de las denominaciones, sin `?`: «Suites del corte» vuelve a
->   verde (custodia 54 ✓ / 0 ✗); el job NO queda verde: «Servicio real del corte» escondía 17 fallas
->   por falta de pipefail** (`[CGP-D.1.3]` / `[CGP-D.1.4]`). ⚠️ Corrección de la revisión: este título
->   decía «el job `caja-db` vuelve a verde», y no era cierto.
+>   verde EN LOCAL (Postgres desechable; custodia 56 ✓ / 0 ✗) — en el CI todavía NO MEDIDO; y el job
+>   no quedaba verde por esto solo: «Servicio real del corte» escondía 17 fallas por falta de
+>   pipefail** (`[CGP-D.1.3]` / `[CGP-D.1.4]`). ⚠️ Correcciones de la revisión: este título decía «el
+>   job `caja-db` vuelve a verde», y no era cierto; después decía «vuelve a verde» sin decir dónde.
 >   `finance.caos_denom_valor()` devolvía NULL para TODA llave y el trigger rechazaba con
 >   `CAOS_LINK_BILLETES_FORMA` cualquier enlace con billetes. **Causa:** knex pasa toda sentencia por
 >   `positionBindings()` aunque no haya bindings y convirtió los `?` de la regex de `20261026110741`
->   en `$1`/`$2`; dentro del cuerpo `$fn$` Postgres lo guardó sin quejarse (GOTCHAS §71, segunda vez).
+>   en `$1`/`$2`; dentro del cuerpo `$fn$` Postgres lo guardó sin quejarse (GOTCHAS §71, tercera vez
+>   de la familia: `[IG.0.1]`, `[CG.163]` y ésta; antes decía «segunda»).
 >   Prod (sólo lectura): la función trae `'^[0-9]+(\.[0-9]+)$1m$2$'`; 119 enlaces, 0 con billetes →
 >   **latente** (la pantalla de `origin/main` todavía no manda billetes). **Arreglo:** migración nueva
 >   `20261026175222` con `{0,1}` y `[.]`, sin un solo `?` (la vieja ya está aplicada: no se edita);
@@ -9223,17 +9234,45 @@ TP.6-TP.8+TP.10".
 >   `cash_ledger_denominations` en prod; antes probaba '0.5m', '10m', '2.5m', que no existen),
 >   negativas '5x5' y '5,5' (cazan un punto sin escapar), cruce con `valorDeLlave` del motor TS
 >   (dos implementaciones) y candado estructural de GOTCHAS §71 (ninguna función de `finance` con
->   `$N` en una regex). Mutaciones: regex de prod → 31 ✓ / 16 ✗; punto sin escapar → 3 ✗; sin
->   ceros a la izquierda → 1 ✗ (sólo lo ve el cruce con TS); otra función con `$1` → 1 ✗ (sólo el
->   candado); catálogo ilegible → ✗; motor con otra firma → NO MEDIDO, no verde. El comentario de
->   la función nombra llaves reales (500, 1000, 20m, 0.5). ⏳ **Pendiente: aplicar la migración en
->   prod con `apply-one-migration-prod.js`**, ANTES de desplegar el commit (sólo reemplaza una
->   función: `compuerta-migraciones.sh` la clasifica NO_MEDIDO y frena) y antes de que la pantalla
->   mande billetes. Re-medido en sólo lectura: las 12 llaves del catálogo dan NULL hoy en prod.
+>   `$N` en una regex). Mutaciones (prueba de `4119e8175`): regex de prod → 31 ✓ / 16 ✗; punto sin
+>   escapar → «3 ✗» ⚠️ **NO reproducible, ver abajo**; sin ceros a la izquierda → 1 ✗ (sólo lo ve el
+>   cruce con TS); otra función con `$1` → 1 ✗ (sólo el candado); catálogo ilegible → ✗; motor con
+>   otra firma → NO MEDIDO, no verde. El comentario de la función nombra llaves reales (500, 1000,
+>   20m, 0.5).
+>   **Segunda revisión (2026-10-26, nits).** ⚠️ «Punto sin escapar → 3 ✗» no se reproduce (el mensaje
+>   de `4119e8175`, antes `3392d6a54`, dice lo mismo y no se reescribe): con esa prueba, la regex
+>   `'^[0-9]+(.[0-9]+){0,1}m{0,1}$'` da **38 ✓ / 1 ✗**. '5x5' no devuelve un valor: revienta el cast
+>   (`'5x5'::numeric`, 22P02), el 💥 aborta la transacción y se lleva '5,5', el cruce, el candado, 6b
+>   y §7. Y dos mutaciones sobrevivían con 54 ✓ / 0 ✗: `m*` por `m{0,1}` y `([.][0-9]+)*` por
+>   `([.][0-9]+){0,1}`. Cambios en la §6a: negativas '5mm' y '1.2.3'; cada llamada a la función en su
+>   SAVEPOINT (un cast que revienta sale como ✗ con nombre, no como un 💥 que corta la suite); el
+>   comentario del candado dice lo que de verdad caza (funciones de `finance` de ESA base con `$N` en
+>   el literal que sigue a `~`/`~*`; no vistas, ni otros esquemas, ni un `?` convertido fuera de ese
+>   literal, ni el de una consulta en tiempo de ejecución); y `// NOSONAR` en el `vm.runInNewContext`
+>   (S1523: sólo ejecuta el cuerpo de `valorDeLlave` del propio repo). Re-medido con la prueba nueva
+>   (`pgvector:pg18` desechable en UTC, base del preparador; la función cambiada a mano y restaurada
+>   después de cada mutación): correcta **56 ✓ / 0 ✗**; regex de prod 33 ✓ / 16 ✗ (y un 💥 en 6b, cuyo
+>   `insert` no va en SAVEPOINT: §7 no corre); punto sin escapar **53 ✓ / 3 ✗** ('5x5' y '5,5' →
+>   ERROR 22P02, y el cruce); `m*` **54 ✓ / 2 ✗** ('5mm' → 5, y el cruce); `([.][0-9]+)*`
+>   **54 ✓ / 2 ✗** ('1.2.3' → ERROR 22P02, y el cruce); sin ceros a la izquierda 55 ✓ / 1 ✗ (el cruce,
+>   '05'); otra función con `$1` 55 ✓ / 1 ✗ (el candado); restaurada 56 ✓ / 0 ✗. Catálogo ilegible y
+>   motor con otra firma NO se re-midieron (esas partes de la prueba no cambiaron).
+>   ⏳ **Pendiente: aplicar la migración en prod con `apply-one-migration-prod.js` ANTES de mergear**
+>   (la regla de la plantilla de `scripts/nueva-migracion.js`; antes decía «antes de desplegar el
+>   commit»), y en todo caso antes de que la pantalla mande billetes. Sólo reemplaza una función:
+>   `compuerta-migraciones.sh` no le extrae objetos y, mientras esté pendiente, la clasifica NO_MEDIDO
+>   y frena el despliegue de `main`, el de todo el equipo. Medido en local con `--desplegado 71b5c7975
+>   --objetivo HEAD`: «objetos que crean: 0» → `NO_MEDIDO … FRENA`, código 1 (`--self-test` 10/10).
+>   ⚠️ `ops/prod/aplicar-migracion.sh`, el camino que recomienda el RUNBOOK §3, se niega si el archivo
+>   no está en `origin/main`: «antes de mergear» sólo se cumple con `apply-one-migration-prod.js` a
+>   mano. Contradicción del proceso, para Edgar. Re-medido en sólo lectura (2026-10-26, 20:34 MX): la
+>   migración no está en ninguno de los dos `knex_migrations` y las 12 llaves del catálogo dan NULL.
 > - **[CGA-A.55.2]** ⬜ **La forma del trigger acepta llaves fuera del catálogo** ('0', '05', '7',
 >   '0.5m'…), y en `cambio` pasan todos los chequeos (el 2 sólo recorre las llaves de `billetes`):
 >   `cambio {'0':3}` o `{'05':2}` entran. Validar contra las 12 llaves de `libs/contracts` (y así se
->   va la regex). Cambia alcance: va aparte (regla 15).
+>   va la regex). Cambia alcance: va aparte (regla 15). ⛔ **Se cierra ANTES de que `[CGA-A.52]` (la
+>   pantalla) mande «cambio»**: hasta entonces, un cambio con una llave fuera del catálogo entra sin
+>   queja.
 > - **[CGA-A.55.3]** ⬜ **Las otras 5 huellas de GOTCHAS §71 — dueño por decidir, escalar a Edgar.**
 >   `analytics.v_product_unit_ladder` es un defecto ACTIVO: 65 SKU con unidad numérica quedan
 >   `is_weight = false` y de ella cuelgan `product_units` y las conversiones de unidad (toca dinero;
