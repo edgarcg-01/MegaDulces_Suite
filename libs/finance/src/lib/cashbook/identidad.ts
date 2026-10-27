@@ -67,13 +67,17 @@ export function llaveDePiezaCaos(denom: string | number, piezaTipo: string): str
 }
 
 /**
- * Las piezas que ENTRAN a la máquina en un movimiento, con signo, o `null` si la dirección del tipo
- * no está probada. El signo sale de `efectoDeTipo` (`caos-saldo.ts`, medido): depósito y dotar
- * entran, dispensar y vaciar salen. En «Cambio» la denominación misma trae el signo (lo que sale
- * viene negativo, medido el 2026-10-27), pero el tipo está marcado «indeterminado»: se devuelve
- * con esa advertencia en `direccionProbada`.
+ * Las piezas que ENTRAN a la máquina en un movimiento, con signo, o `null` si el tipo no mueve
+ * efectivo comprobable. El signo sale de `efectoDeTipo` (`caos-saldo.ts`, medido): depósito y
+ * dotar entran, dispensar y vaciar salen.
+ *
+ * «Cambio»: `caos-saldo.ts` lo deja «indeterminado» (dirección no probada en CGA-A.33). `[LE.3.4]`
+ * la PROBÓ el 2026-10-27 reproduciendo la historia con las reglas de este libro: aplicando el signo
+ * de cada denominación (lo que entra a la máquina viene positivo, lo que sale negativo) desaparecen
+ * los 17 eventos con billetes de $500 en negativo que deja omitirlo, y es la única dirección que
+ * no los empeora. El libro la usa; el mapa de `caos-saldo.ts` (otra fase) no se toca aquí.
  */
-export function piezasQueEntranALaMaquina(m: MovimientoCaos): { piezas: PiezasTexto; direccionProbada: boolean } | null {
+export function piezasQueEntranALaMaquina(m: MovimientoCaos): PiezasTexto | null {
   const efecto = efectoDeTipo(m.type_id);
   const esCambio = m.type_id === 7;
   if (efecto.signo === 0 && !esCambio) return null;
@@ -87,7 +91,7 @@ export function piezasQueEntranALaMaquina(m: MovimientoCaos): { piezas: PiezasTe
   }
   const fuera: PiezasTexto = {};
   for (const [k, n] of [...acumulado].sort(([a], [b]) => a.localeCompare(b))) if (n !== 0n) fuera[k] = n.toString();
-  return { piezas: fuera, direccionProbada: !esCambio };
+  return fuera;
 }
 
 /** `event_ref` + `event_hash` de un movimiento de la máquina. */
