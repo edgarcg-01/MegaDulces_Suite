@@ -657,12 +657,35 @@ cj); SKU sin ficha en la sucursal: **0**.
 
 | # | Decisión | Recomendación |
 |---|---|---|
-| D22 | ¿El testigo de «proveedor conocido» es el catálogo de Kepler (`kdxd` por sucursal) y no «ya le compró»? | **Sí**: es la fórmula de Kepler. Cambio de una consulta en el adaptador (es KR); después, re-correr el simulacro y exigir **0 rebotes de datos** antes de encender |
-| D23 | ¿Cajas fraccionadas se redondean antes de escribir o se frenan? | **Se frenan en la Suite** (la mesa no deja capturar fracción) — nunca redondear en silencio al escribir |
+| D22 | ¿El testigo de «proveedor conocido» es el catálogo de Kepler (`kdxd` por sucursal) y no «ya le compró»? | **Sí — en código (`219e13736`)**: el adaptador lee `md.kdxd`. Simulacro: 0 rebotes de datos |
+| D23 | ¿Cajas fraccionadas se redondean antes de escribir o se frenan? | **Se frenan — en código (`219e13736`)**: en la mesa (`planBloqueos`) y en el servidor (`createRequisitionBatch`), con el producto; nunca se redondea |
 
 **Protocolo propuesto para «el 100 %»:** (1) D22 en el adaptador; (2) simulacro = 0 rebotes de datos;
 (3) canario por servidor con la baja desde UI; (4) tope diario subido por servidor; (5) el simulacro
 corre **antes de cada encendido** y queda en la bitácora con su cifra.
+
+### 14.1 «Resolvamos todo lo que no nos deje» — qué quedó resuelto y qué es configuración (2026-10-27)
+
+| Bloqueo | Resuelto | Cómo |
+|---|---|---|
+| D22 · proveedor «no conocido» (34 docs) | ✅ código `219e13736` | el adaptador consulta el catálogo `md.kdxd` (c2 código · c3 nombre), no una compra previa. Con eso el simulacro da **0 rebotes de datos en 853** |
+| D23 · cajas fraccionadas (21 docs, $2.87 M) | ✅ código `219e13736` | se frena **al generar**: en la mesa (`planBloqueos`, con el SKU) y en el servidor (`createRequisitionBatch`, 400 con el producto; nunca redondea). Los 21 ya creados siguen vivos: hay que corregirlos a mano antes de empujar |
+| plantilla del TRASPASO por servidor | ⬜ **configuración (KR)** | sólo cuatro servidores originan traspasos. Candidatos sanos medidos en el ODS (U-D-40 `AUTORIZADO`, `c43='N'`, `c27='SUCURSAL'`, responsables vacíos): **00 → `1/0001240`** (20-oct, 7 ren; o el `0000450` del runbook) · **06 → `1/0001479`** (20-oct, 11 ren) · **08 → `1/0000847`** (23-oct, 5 ren) · **01 → ninguno con `c27='SUCURSAL'`** (sus 12 sanos son `TELEMARK`; hay que elegir uno a mano o aceptar `TELEMARK`). El 04 no tiene ningún U-D-40 sano |
+| tope diario `KEPLER_PUSH_MAX_DIA_NN` = 1 | ⬜ **configuración (KR)** | cola que pasa: 00 → 470 · 01 → 198 · 08 → 107 · 06 → 42. Propuesta para vaciar en ≤ 10 días hábiles tras el canario: `00=50 · 01=25 · 08=15 · 06=10 · 04=07=5` |
+| `KEPLER_PUSH_URL_NN` y `pg_hba` | ⬜ configuración (KR, runbook §1–3) | — |
+| baja desde la UI de Kepler | ⬜ humano (canario) | — |
+
+Variables propuestas (el nombre exacto lo fija `kepler-servidores.ts`: `KEPLER_PED_TEMPLATE_FOLIO_NN`, `KEPLER_PUSH_MAX_DIA_NN`):
+
+```bash
+KEPLER_PED_TEMPLATE_FOLIO_00=0001240   KEPLER_PUSH_MAX_DIA_00=50
+KEPLER_PED_TEMPLATE_FOLIO_06=0001479   KEPLER_PUSH_MAX_DIA_06=10
+KEPLER_PED_TEMPLATE_FOLIO_08=0000847   KEPLER_PUSH_MAX_DIA_08=15
+# 01: elegir a mano (ningún U-D-40 sano con c27='SUCURSAL')   KEPLER_PUSH_MAX_DIA_01=25
+```
+
+**Después de cada cambio de configuración:** `node database/scripts/pq-simulacro-escritura-kepler.js`
+tiene que dar **0 rebotes de datos**; lo de configuración lo prueba el canario (runbook §9, P0–P5).
 
 ---
 
@@ -670,6 +693,7 @@ corre **antes de cada encendido** y queda en la bitácora con su cifra.
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-27 | «Resolvamos todo lo que no nos deje» → D22 y D23 en código (`219e13736`): proveedor contra `kdxd` (0 rebotes de datos en 853) y fracción frenada al generar. Lo demás es configuración por servidor: plantillas de traspaso medidas (00/06/08; la 01 sin candidato SUCURSAL; el 04 sin U-D-40 sano) y topes propuestos (§14.1) | PM + sesión PQ |
 | 2026-10-27 | «¿Cómo validamos que el 100 % pasa a Kepler?» → **PQ.17 🧪** (`71db08ae5`): simulacro con control; 853 documentos, **96.0 % pasan**; los 34 que rebotan son proveedores que Kepler SÍ tiene en `kdxd` → la regla nuestra es más estricta que Kepler (**D22**). Lo que decide está en configuración (plantilla de traspaso, tope diario 1 = 470 días para el 00) (§14) | PM + sesión PQ |
 | 2026-10-26 | «Resolvámoslo» (D21) → **PQ.16 🧪** (`87e8adc93`): from-requisition y receipts responden 409; el detalle de requisición captura el folio de Kepler (RQ.15) en vez de generar OC propia; OC interna en solo lectura; la lista interna se rotula histórico y las pestañas suben «Órdenes de compra (Kepler)». 43/43 vitest. Falta: «de qué requisición» en la lista de Kepler por `oc_folio` y congelar 235/136 en VERDAD_ABSOLUTA | PM + sesión PQ |
 | 2026-10-26 | `/compras/ordenes` tras aprobar (§13.2): la Suite emite OC y OE **propias** (235 OC $26.6 M, 136 OE) y la recepción mueve `commercial.stock`, que el Pedido no lee y Kepler no tiene; 0 requisiciones con `oc_folio` de Kepler. Nace **D21**: la Suite deja de emitir OC/OE y sigue sólo las de Kepler (X-A-35/X-A-40) | PM + sesión PQ |
