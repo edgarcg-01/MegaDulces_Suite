@@ -188,10 +188,23 @@ export class DescargaOrchestratorService implements OnModuleInit {
         return soap.descargaPaquete(auth.token, m, req.rfc_solicitante, pkg.id_paquete);
       });
     } catch (e: any) {
+      const msg = (e?.message || String(e)).slice(0, 500);
       // Persistir el error de cada intento (visible en la bandeja aunque el job siga
       // reintentando). El estado 'error' definitivo lo pone deadPaquete al agotar la DLQ.
       await this.tk.run(async (trx) => trx('fiscal.download_packages').where({ id: packageId })
-        .update({ last_error: (e?.message || String(e)).slice(0, 500), updated_at: trx.fn.now() }));
+        .update({ last_error: msg, updated_at: trx.fn.now() }));
+      // `[PGP.24]` El SAT limita cuántas veces se puede BAJAR un paquete. Agotado el cupo,
+      // reintentar no es "esperar a que se destrabe": es gastar cupo en una llamada que ya
+      // sabemos que va a ser rechazada, y cada rechazo corre el momento en que se libera.
+      //
+      // ⛔ Medido el 2026-10-27, y la parte cara no fue la cuota: los 6 paquetes que dieron
+      //    este error YA SE HABÍAN BAJADO E INGERIDO. Un flush posterior tiró el job después
+      //    de que la ingesta commiteó (cada lote de 200 va en su propia transacción), el job
+      //    reintentó la DESCARGA, y el SAT la negó con razón. Resultado: 40 llamadas gastadas
+      //    y seis paquetes rotulados 'pendiente' con sus 14,905 CFDI ya dentro de la base.
+      //    Cero filas por un rechazo es indistinguible de cero filas por no haber pedido nada
+      //    — es la misma lección del arqueo de caja, y acá volvió a cobrar.
+      if (/m[aá]ximo de descargas/i.test(msg)) throw new FiscalPermanentError(msg);
       throw e;
     }
 
