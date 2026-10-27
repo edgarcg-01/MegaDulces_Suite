@@ -98,3 +98,4 @@ export * from './lib/payment-calendar/payment-calendar-document.service';
 // reglas puras (`lib/cashbook/reglas.ts`) no se exportan aquí: sus nombres son genéricos.
 export { CashbookService, type UsuarioDelLibro } from './lib/cashbook/cashbook.service';
 export { CashbookController } from './lib/cashbook/cashbook.controller';
+export { CashbookCaosCarril } from './lib/cashbook/cashbook-caos.carril';

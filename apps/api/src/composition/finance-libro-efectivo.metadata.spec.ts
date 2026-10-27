@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { FinanceCajaGeneralModule, CashbookService } from '@megadulces/finance';
+import { FinanceCajaGeneralModule, CashbookService, CashbookCaosCarril } from '@megadulces/finance';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
 /**
@@ -28,5 +28,12 @@ describe('[LE.4] FinanceCajaGeneralModule: el libro de efectivo', () => {
   it('CashbookService recibe el acceso a la base y el tenant por su clase', () => {
     const tipos = Reflect.getMetadata('design:paramtypes', CashbookService) as Clase[] | undefined;
     expect(tipos).toEqual([TenantKnexService, TenantContextService]);
+  });
+
+  it('[LE.4.4] el carril de la máquina está registrado y recibe tenant y base por su clase (la knex por token)', () => {
+    expect(por(providers, 'CashbookCaosCarril'), 'falta registrar CashbookCaosCarril').toBeDefined();
+    const tipos = Reflect.getMetadata('design:paramtypes', CashbookCaosCarril) as Clase[] | undefined;
+    expect(Array.isArray(tipos) && tipos.length === 3, 'sin design:paramtypes esta prueba no mide nada').toBe(true);
+    expect(tipos?.slice(1)).toEqual([TenantContextService, TenantKnexService]);
   });
 });

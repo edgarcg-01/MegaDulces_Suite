@@ -1023,7 +1023,8 @@ jobs:
                  libs/finance/src/lib/caja/caja-custodia.servicio-real.spec.ts \
                  libs/finance/src/lib/caos/caos-ingreso-recon.libro-real.spec.ts \
                  libs/finance/src/lib/cashbook/reglas.libro-real.spec.ts \
-                 libs/finance/src/lib/cashbook/cashbook.servicio-real.spec.ts 2>&1 | tee servicio.log; then
+                 libs/finance/src/lib/cashbook/cashbook.servicio-real.spec.ts \
+                 libs/finance/src/lib/cashbook/cashbook-caos.carril.servicio-real.spec.ts 2>&1 | tee servicio.log; then
             echo "::error title=Servicio real del corte::$(grep -E 'FAIL|Error|×' servicio.log | head -6 | tr '\n' ' ' | cut -c1-900)"
             exit 1
           fi

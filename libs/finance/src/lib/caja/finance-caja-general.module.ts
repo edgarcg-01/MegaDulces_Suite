@@ -23,6 +23,8 @@ import { CajaCustodiaController } from './caja-custodia.controller';
 // `[LE.4]` El libro de efectivo de partida doble (ADR-102/103): corre en sombra junto al libro viejo (E5).
 import { CashbookService } from '../cashbook/cashbook.service';
 import { CashbookController } from '../cashbook/cashbook.controller';
+// `[LE.4.4]` El carril máquina → libro: corre por @Cron, APAGADO por default (LE_LIBRO_CAOS=on).
+import { CashbookCaosCarril } from '../cashbook/cashbook-caos.carril';
 
 /**
  * Caja General. Dos mitades que conviven durante el traslape (ADR-070):
@@ -53,7 +55,7 @@ import { CashbookController } from '../cashbook/cashbook.controller';
   // `ENABLE_CAJA_AUTOLLENADO=true` lo prende, y la migración de la cuenta de servicio va antes.
   providers: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
     CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
-    CajaAutollenadoService, CajaArqueoService, CajaFirmaService, CajaCustodiaService, CashbookService],
+    CajaAutollenadoService, CajaArqueoService, CajaFirmaService, CajaCustodiaService, CashbookService, CashbookCaosCarril],
   exports: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
     CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
     CajaAutollenadoService, CajaArqueoService, CajaCustodiaService],
