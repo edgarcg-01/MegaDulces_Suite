@@ -1,11 +1,11 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Knex } from 'knex';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ObjectStorageService } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
 import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
-import type { PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 
@@ -230,6 +230,9 @@ export class PaymentCalendarService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     @Optional() @Inject(BUDGET_LEDGER_PORT) private readonly ledger?: BudgetLedgerPort,
+    // `[PGP.21]` OPCIONAL a proposito: si el cableado falla, muere ESTE endpoint y no el arranque
+    // de la API. Es la leccion de #414, que tiro produccion con el CI en verde.
+    @Optional() private readonly storage?: ObjectStorageService,
   ) {}
 
   private assertDate(d: string) {
@@ -448,7 +451,7 @@ export class PaymentCalendarService {
   /**
    * `[PGP.19]` La evidencia documental de los documentos de UN acreedor.
    *
-   * ⛔ Va aparte de `obligations` y se pide en diferido: la vista tiene un piso de ~350 ms que
+   * ⛔ Va aparte de `obligations` y se pide en diferido: la vista tiene un piso MEDIDO de ~2.2-2.5 s que
    *    NO baja al filtrar (es el costo de armar el hash sobre los 169 mil CFDI recibidos), y
    *    `obligations` ya consume 325-377 ms de su presupuesto de 500 ms.
    * ⛔ No se expone el filtro por sucursal: medido en 1,082-1,179 ms, pasa el tope.
@@ -460,6 +463,7 @@ export class PaymentCalendarService {
     return this.tk.run(async (trx) => {
       const { rows } = await trx.raw(
         `SELECT e.sucursal, e.doc_tipo, e.doc_sub, e.folio, e.proveedor,
+                'oblig:' || e.sucursal || '|' || e.doc_tipo || '|' || e.doc_sub || '|' || btrim(e.folio) AS entity_ref,
                 e.pendiente::float8 AS pendiente, e.evidencia, e.ref_evidencia,
                 e.puntaje, e.senales, e.motivo
            FROM analytics.v_payable_evidence e
@@ -470,6 +474,68 @@ export class PaymentCalendarService {
       );
       return rows;
     });
+  }
+
+  /**
+   * `[PGP.21]` La evidencia de UNA LISTA de documentos, en UNA sola consulta.
+   *
+   * ⛔ Esta es la forma correcta de pedirla, y la razon es medida: la vista tiene un piso de
+   *    ~2.2-2.5 s que NO baja con ningun filtro (es armar el hash sobre los 169 mil CFDI). Una
+   *    llamada por proveedor multiplicaria ese piso por la cantidad de acreedores en pantalla.
+   * ⚠️ Tope de 200 refs por llamada: arriba de eso la pantalla deberia paginar, no pedir mas.
+   */
+  async listEvidenceByRefs(refs: readonly string[]): Promise<PayableEvidenceRow[]> {
+    const llaves = (refs ?? [])
+      .map((r) => String(r ?? '').trim())
+      .filter((r) => r.startsWith('oblig:'))
+      .map((r) => r.slice('oblig:'.length))
+      .slice(0, 200);
+    if (!llaves.length) return [];
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT e.sucursal, e.doc_tipo, e.doc_sub, e.folio, e.proveedor,
+                'oblig:' || e.sucursal || '|' || e.doc_tipo || '|' || e.doc_sub || '|' || btrim(e.folio) AS entity_ref,
+                e.pendiente::float8 AS pendiente, e.evidencia, e.ref_evidencia,
+                e.puntaje, e.senales, e.motivo
+           FROM analytics.v_payable_evidence e
+          WHERE e.tenant_id = ?
+            AND (e.sucursal || '|' || e.doc_tipo || '|' || e.doc_sub || '|' || btrim(e.folio)) = ANY(?)`,
+        [tenantId, llaves],
+      );
+      return rows;
+    });
+  }
+
+  /**
+   * `[PGP.21]` Los archivos de UN comprobante, firmados para abrir.
+   *
+   * ⛔ Vive aca y no se enlaza al endpoint de Compras: medido el 2026-10-27, 3 de los 32 roles
+   *    que ven Pagos no tienen COMPRAS_ENTRADAS_VER, y uno es `finanzas_operativo` (Tesoreria).
+   */
+  async getEvidenceFiles(proofId: string): Promise<PayableEvidenceFile[]> {
+    const id = String(proofId ?? '').trim();
+    if (!id) return [];
+    const tenantId = this.tenantCtx.requireTenantId();
+    const fila = await this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT files FROM finance.goods_receipt_proofs WHERE tenant_id = ? AND id = ?::uuid`,
+        [tenantId, id],
+      );
+      return rows?.[0] ?? null;
+    });
+    if (!fila) throw new NotFoundException('No encontre ese comprobante');
+    const files = Array.isArray(fila.files) ? fila.files : [];
+    // Sin almacen no se inventa una URL: se declara que no se puede abrir (ADR-056).
+    if (!this.storage) {
+      throw new ServiceUnavailableException(
+        'El almacen de archivos no esta disponible; no puedo abrir la factura ahora.');
+    }
+    const firmados = await this.storage.signFiles(files as { url?: string; public_id?: string }[]);
+    return firmados.map((f) => {
+      const x = f as { url?: string; name?: string; role?: string; kind?: string };
+      return { url: x.url ?? '', name: x.name ?? null, role: x.role ?? null, kind: x.kind ?? null };
+    }).filter((f) => f.url);
   }
 
   async listObligations(q: {

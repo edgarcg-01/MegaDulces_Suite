@@ -7,7 +7,7 @@ import {
   PrepareAllocationDto, CreateAgreementDto, ReprogramReason,
 } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { PayableEvidenceRow, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -50,13 +50,43 @@ export class PaymentCalendarController {
 
   /**
    * `[PGP.19]` La prueba documental de los documentos de un acreedor. Se pide EN DIFERIDO: la
-   * vista tiene un piso de ~350 ms que no baja al filtrar.
+   * vista tiene un piso MEDIDO de ~2.2-2.5 s que no baja con ningun filtro (ver nota de costo).
    */
   @Get('evidencia/:proveedor')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'La MEJOR prueba documental de cada documento por pagar de un acreedor: el PDF que Compras adjuntó, o el UUID fiscal del CFDI, o la razón por la que no hay ninguna. No elige un carril: puntúa todos los candidatos por cuántas de 5 señales coinciden (importe, fecha, folio, referencia, RFC), exige ancla de importe o RFC, y corta en puntaje 3. Medido 2026-10-27 sobre 2,917 documentos exigibles: 774 con PDF, 367 con sólo UUID, 1,776 sin nada; placebo del umbral = 0 (precisión 100%). ⛔ El umbral 2 daría 59.7% de cobertura con 45% de precisión: se descartó, serían facturas ajenas pegadas al pago.' })
   listPayableEvidence(@Param('proveedor') proveedor: string): Promise<PayableEvidenceRow[]> {
     return this.svc.listPayableEvidence(proveedor);
+  }
+
+  /**
+   * `[PGP.21]` Abre la factura sin salir de Pagos.
+   *
+   * ⛔ Vive acá, y NO se enlaza al endpoint de Compras, por una razón medida el 2026-10-27:
+   *    de los 32 roles con `FINANCE_PAYMENTS_VER`, **3 no tienen `COMPRAS_ENTRADAS_VER`** —
+   *    `finanzas_operativo` (Tesorería), `contabilidad` y `auditor_externo`. Enlazar allá le
+   *    habría dado 403 justo a quien hace el pago.
+   */
+  /**
+   * `[PGP.21]` La evidencia de los documentos que la pantalla tiene A LA VISTA, en UNA llamada.
+   *
+   * ⛔ No hay variante «por sucursal» ni «todo»: medidas el 2026-10-27 en 1,082-1,179 ms y
+   *    2,128 ms. La vista tiene un piso MEDIDO de ~2.2-2.5 s que NO baja con ningun filtro (es armar el hash
+   *    sobre los 169 mil CFDI recibidos), así que una llamada por acreedor multiplicaría ese
+   *    piso por la cantidad de acreedores en pantalla.
+   */
+  @Get('evidencia')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'La prueba documental de una lista de documentos (hasta 200), separados por coma, con el mismo `entity_ref` que ya trae cada obligación. Devuelve el PDF del proveedor, el UUID fiscal, o la razón por la que no hay ninguno — nunca un hueco mudo.' })
+  listEvidenceByRefs(@Query('refs') refs?: string): Promise<PayableEvidenceRow[]> {
+    return this.svc.listEvidenceByRefs(String(refs ?? '').split(',').filter(Boolean));
+  }
+
+  @Get('evidencia/archivo/:proofId')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'Los archivos de un comprobante de evidencia, con URL prefirmada de 600 s para abrirlos desde la pantalla de Pagos. El `proofId` sale de `ref_evidencia` cuando `evidencia = pdf`.' })
+  getEvidenceFiles(@Param('proofId') proofId: string): Promise<PayableEvidenceFile[]> {
+    return this.svc.getEvidenceFiles(proofId);
   }
 
   @Get('obligations')

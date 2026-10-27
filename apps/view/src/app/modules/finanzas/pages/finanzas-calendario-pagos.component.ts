@@ -15,7 +15,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import type {
   PaymentCalendarAllocation, PaymentCalendarDaySummary, PaymentCalendarWeek, PaymentCalendarWeekDay,
-  PaymentObligationSource, PaymentOriginAccount,
+  PayableEvidenceRow, PaymentObligationSource, PaymentOriginAccount,
 } from '@megadulces/contracts';
 import { warehouseName } from '@megadulces/contracts';
 import type { SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
@@ -390,6 +390,22 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                      el 17.9% del dinero sale antes de tiempo, 6 dias en promedio.
                                      Se calla cuando el pronto pago gana mas de lo que cuesta. -->
                                 @if (f.adelanto; as a) { <span class="pg-pronto-no"><i class="pi pi-clock" aria-hidden="true"></i>{{ a }}</span> }
+                                <!-- [PGP.21] La factura, acá, para no ir a buscarla a mano. Con PDF
+                                     es un boton (Q.4: el dato lleva a su accion); con solo UUID o
+                                     sin nada es texto que DICE POR QUE, nunca un hueco mudo. -->
+                                @if (evidenciaDe(f.o); as e) {
+                                  @if (e.evidencia === 'pdf') {
+                                    <button type="button" class="pg-ev pg-ev-pdf"
+                                            [attr.aria-label]="'Ver la factura de ' + f.o.beneficiary + ' ' + f.o.concept"
+                                            (click)="abrirFactura(e)">
+                                      <i class="pi pi-file-pdf" aria-hidden="true"></i>Ver la factura
+                                    </button>
+                                  } @else if (e.evidencia === 'uuid') {
+                                    <span class="pg-ev pg-ev-uuid"><i class="pi pi-id-card" aria-hidden="true"></i>sin archivo; hay UUID fiscal</span>
+                                  } @else {
+                                    <span class="pg-ev pg-ev-no"><i class="pi pi-info-circle" aria-hidden="true"></i>sin factura: {{ e.motivo }}</span>
+                                  }
+                                }
                               </span>
                             </span>
                             <span class="pg-dr-due">{{ f.vence }}</span>
@@ -869,6 +885,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       font-weight:700; color:var(--warn-fg); padding:0 2px; border-radius:var(--r-sm); }
     .pg-favor-btn:hover { text-decoration:underline; }
     .pg-favor-btn:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    /* [PGP.21] La evidencia de la factura. Tres estados y NINGUNO depende solo del color:
+       cada uno lleva su icono y su texto, que es lo que exige el modo de alto contraste. */
+    .pg-ev { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); }
+    .pg-ev-pdf { border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-sm);
+      color:var(--action); padding:0; text-align:left; }
+    .pg-ev-pdf:hover { text-decoration:underline; }
+    .pg-ev-pdf:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-ev-uuid { color:var(--fg-2); }
+    .pg-ev-no { color:var(--fg-3); }
     /* El cajon del desglose. Lo PENDIENTE lleva el peso; lo ya aplicado es contexto. */
     .pg-cr { display:grid; gap:var(--sp-2); }
     .pg-cr-tot { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-3); padding:var(--sp-2) var(--sp-3);
@@ -1415,6 +1440,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         if (n < total) this.rampaId = requestAnimationFrame(paso);
       };
       if (n < total) this.rampaId = requestAnimationFrame(paso);
+      // [PGP.21] La evidencia se pide de lo que YA se ve, en una sola llamada y sin bloquear.
+      this.cargarEvidencias();
     });
   });
   private enRevision(o: Obligation): boolean {
@@ -1454,6 +1481,89 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     for (const it of g.items) { const c = this.creditoDe(it); if (c) return c; }
     return null;
   }
+  /**
+   * `[PGP.21]` **La factura del proveedor, en el renglón donde se decide pagar.**
+   *
+   * Lo pedido era no ir a buscarla a mano. Lo que hay detrás no es un carril sino un motor:
+   * `analytics.v_payable_evidence` junta TODO lo que podría probar el documento —el PDF que
+   * Compras adjunta y el CFDI recibido— y puntúa cada candidato por cuántas de 5 señales
+   * coinciden (importe, fecha, folio, referencia, RFC), exigiendo siempre un ancla de importe
+   * o RFC y un puntaje mínimo de 3.
+   *
+   * Medido contra prod el 2026-10-27 sobre 2,917 documentos exigibles: **774 traen el PDF del
+   * proveedor**, 369 sólo el UUID fiscal, 1,809 nada. Placebo del umbral: **0** (precisión
+   * 100 %). Bajar a puntaje 2 subiría la cobertura a 59.7 % con **45 % de precisión**, o sea
+   * más de la mitad de las facturas pegadas al pago equivocado: por eso no se baja.
+   *
+   * ⛔ Los que no tienen evidencia **dicen por qué** (ADR-056) y nunca quedan en blanco: 778 son
+   * acreedores sin RFC capturado en Kepler, 556 son anteriores al 2026-08-04 (cuando todavía no
+   * se adjuntaba papel) y 409 no cruzan por ningún camino.
+   */
+  readonly evidencias = signal<ReadonlyMap<string, PayableEvidenceRow>>(new Map());
+  evidenciaDe(o: Obligation): PayableEvidenceRow | null {
+    const ref = (o.entity_ref ?? '').trim();
+    return ref ? this.evidencias().get(ref) ?? null : null;
+  }
+  /** Qué se puede decir del documento en una línea, sin prometer lo que no hay. */
+  evidenciaTexto(e: PayableEvidenceRow): string {
+    if (e.evidencia === 'pdf') return 'Ver la factura del proveedor';
+    if (e.evidencia === 'uuid') return 'Sin archivo; hay UUID fiscal del CFDI';
+    return e.motivo ?? 'sin evidencia';
+  }
+
+  /**
+   * Pide la evidencia de los documentos QUE SE VEN, en una sola llamada.
+   *
+   * ⛔ Una llamada por acreedor sería lo natural y está mal: la vista tiene un piso MEDIDO de ~2.2-2.5 s
+   *    que no baja al filtrar, así que ese piso se multiplicaría por cada acreedor en pantalla.
+   * ⛔ COSTO MEDIDO 2026-10-27, y pasa el tope: ~2.2-2.5 s. NINGUN filtro empuja a la vista
+   *    (concatenada 2,886-3,722 ms · por columnas 2,135-2,599 ms · por acreedor 2,419-2,506 ms),
+   *    probablemente por el DISTINCT ON, que es barrera de optimizacion. Un 371 ms que medi
+   *    antes era CACHE CALIENTE y lo cite como costo: estaba mal.
+   *    Por eso esta llamada es DIFERIDA y NO bloquea: la tabla se pinta completa y la marca de
+   *    la factura aparece despues. Mientras no se materialice la vista, es la unica forma
+   *    honesta de ofrecerla sin romper la regla de >500 ms.
+   * ⚠️ No bloquea nada. Si falla, los renglones se quedan sin la marca y el resto de la pantalla
+   *    sigue funcionando — la factura es una ayuda, no un requisito para programar el pago.
+   */
+  private cargarEvidencias(): void {
+    const refs = this.filasDeuda().slice(0, this.deudaVisible())
+      .map((f) => (f.o.entity_ref ?? '').trim())
+      .filter((r) => r.startsWith('oblig:') && !this.evidencias().has(r))
+      .slice(0, 200);
+    if (!refs.length) return;
+    firstValueFrom(this.http.get<PayableEvidenceRow[]>(
+      `${this.base}/evidencia`, { params: { refs: refs.join(',') } },
+    )).then((rows) => {
+      const m = new Map(this.evidencias());
+      for (const r of rows ?? []) if (r?.entity_ref) m.set(r.entity_ref, r);
+      this.evidencias.set(m);
+    }).catch(() => { /* sin marca; la pantalla sigue */ });
+  }
+
+  /**
+   * Abre el PDF en una pestaña nueva, con URL prefirmada de 600 s.
+   *
+   * ⛔ Lo sirve el endpoint de PAGOS, no el de Compras: medido el 2026-10-27, de los 32 roles con
+   *    `FINANCE_PAYMENTS_VER` hay **3 sin `COMPRAS_ENTRADAS_VER`** —`finanzas_operativo`
+   *    (Tesorería), `contabilidad` y `auditor_externo`—, así que enlazar allá le habría dado 403
+   *    justo a quien hace el pago.
+   */
+  abrirFactura(e: PayableEvidenceRow): void {
+    if (e.evidencia !== 'pdf' || !e.ref_evidencia) return;
+    firstValueFrom(this.http.get<Array<{ url: string; role: string | null }>>(
+      `${this.base}/evidencia/archivo/${encodeURIComponent(e.ref_evidencia)}`,
+    )).then((files) => {
+      // La factura primero; si no viene rotulada, el primer archivo que haya.
+      const f = (files ?? []).find((x) => x.role === 'factura') ?? (files ?? [])[0];
+      if (f?.url) window.open(f.url, '_blank', 'noopener');
+      else this.toast.add({ severity: 'warn', summary: 'Sin archivo', detail: 'El comprobante existe pero no trae un archivo que pueda abrir.' });
+    }).catch(() => this.toast.add({
+      severity: 'error', summary: 'No pude abrir la factura',
+      detail: 'El enlace se firma al momento y expira en 10 minutos. Probá de nuevo.',
+    }));
+  }
+
   // ── [PGP.17] El desglose: qué aplicar, de qué tipo, y qué ya se aplicó ──────────────────────
   readonly creditoAbierto = signal<{ code: string; nombre: string } | null>(null);
   readonly creditoDetalle = signal<Array<{ sucursal: string; clase: string; folio: string; referencia: string | null; fecha: string | null; importe: number; aplicado: number; a_favor: number; pendiente: boolean }>>([]);

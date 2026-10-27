@@ -132,6 +132,11 @@ export interface PaymentOriginAccount {
  * umbral 2 sube la cobertura a 59.7% pero el placebo salta a 958, o sea 45% de precisión.
  */
 export interface PayableEvidenceRow {
+  /**
+   * `oblig:<sucursal>|<doc_tipo>|<doc_sub>|<folio>` — la MISMA llave que trae cada obligación en
+   * su `entity_ref`. Es lo que deja pegar la evidencia al renglón sin rearmar la clave natural.
+   */
+  entity_ref: string;
   sucursal: string;
   doc_tipo: string;
   doc_sub: string;
@@ -148,4 +153,21 @@ export interface PayableEvidenceRow {
   senales: string[];
   /** Por qué no hay evidencia. `null` cuando sí la hay. Nunca se deja el hueco mudo (ADR-056). */
   motivo: string | null;
+}
+
+/**
+ * `[PGP.21]` Un archivo de evidencia, ya firmado y listo para abrir.
+ *
+ * ⛔ Lo sirve el módulo de Pagos con `FINANCE_PAYMENTS_VER`, NO el de Compras. Medido el
+ * 2026-10-27: de los 32 roles que ven Pagos, 3 no tienen `COMPRAS_ENTRADAS_VER`
+ * (`finanzas_operativo`, `contabilidad`, `auditor_externo`) — y el primero es Tesorería.
+ * Enlazar al endpoint de Compras les habría dado 403 justo a quien paga.
+ */
+export interface PayableEvidenceFile {
+  /** URL prefirmada, de vida corta. No se guarda ni se comparte: se vuelve a pedir. */
+  url: string;
+  name: string | null;
+  /** `factura`, `orden_entrada`, `remision`… — el papel que es. */
+  role: string | null;
+  kind: string | null;
 }
