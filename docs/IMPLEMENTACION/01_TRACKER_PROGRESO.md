@@ -3,6 +3,7 @@
 > **Índice navegable** — 1973 KB, 12623 líneas, 72 secciones.
 > **Índice navegable** — 1961 KB, 12602 líneas, 72 secciones.
 > **Índice navegable** — 1966 KB, 12659 líneas, 72 secciones.
+> **Índice navegable** — 1967 KB, 12662 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -130,28 +131,28 @@
 | 8278 | 8440 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
 | 8441 | 8724 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
 | 8725 | 8892 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8893 | 11056 | 163 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11057 | 11065 | 1 | Fase RR — Ventas por ruta |
-| 11066 | 11361 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11362 | 11372 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11373 | 11393 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11394 | 11404 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11405 | 11416 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11417 | 11476 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11477 | 11904 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 11905 | 11919 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 11920 | 11961 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 11962 | 12107 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12108 | 12138 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12139 | 12186 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12187 | 12210 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12211 | 12240 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12247 | 12256 | 1 | 📝 Convenciones |
-| 12257 | 12293 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12294 | 12312 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12313 | 12365 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12366 | 12722 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12723 | 12743 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 8893 | 11059 | 164 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11060 | 11068 | 1 | Fase RR — Ventas por ruta |
+| 11069 | 11364 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11365 | 11375 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11376 | 11396 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11397 | 11407 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11408 | 11419 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11420 | 11479 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11480 | 11907 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 11908 | 11922 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 11923 | 11964 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 11965 | 12110 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12111 | 12141 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12142 | 12189 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12190 | 12213 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12214 | 12243 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12250 | 12259 | 1 | 📝 Convenciones |
+| 12260 | 12296 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12297 | 12315 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12316 | 12368 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12369 | 12725 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12726 | 12746 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -10972,6 +10973,9 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
     copias de `cash-cut.service.ts` vienen de `[CG.82]`/`[CG.91]` (12-oct, el arqueo del día).
   - **4 del sensor** (`caja-corte-abierto.scanner-real`): `permission denied for schema identity`
     — el preparador crea `identity.users` vacía pero `app_runtime` no tiene `USAGE` en `identity`.
+  Con las dos corregidas SÓLO en una base desechable (zona de prod + `GRANT USAGE`/`SELECT` en
+  `identity`), el paso da **48 ✓ / 0 ✗ y código 0**: no hay una tercera causa escondida, y es el
+  control de `[CGP-D.1.3]` (con pipefail, un vitest verde sigue saliendo 0).
   ⚠️ No cambiar el Postgres del CI a hora de México para que pase: eso escondería el defecto.
 - [ ] 🧪 **`[CGP-D.2]`** `cash-ledger-cuts` reparada: 43 ✓ / 0 ✗ / 4 NO MEDIDO en local.
   `cash-ledger` reparada pero fuera de la base del corte (**`[CGP-D.2b]`**, declarada).
