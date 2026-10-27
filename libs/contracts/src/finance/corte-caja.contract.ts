@@ -163,7 +163,11 @@ export function leerCorte(
   } else {
     const firmado = `${valor < 0 ? '−' : '+'}${fmt(Math.abs(valor))}`;
     const nota = difPublicada?.nota;
-    dif = { texto: firmado, sub: `${valor > 0 ? 'sobra' : 'falta'}${nota ? ` · ${nota}` : ''}`, tono: 'bad' };
+    // `[CGS.53]` Con el «debería haber» negativo la cifra sólo se publica atestiguada, y aun así NO es
+    // un sobrante del cajón: es dinero que el libro no explica. Decir «sobra» al lado de un «debería
+    // haber: no calculable» contradecía al renglón (21-oct: «+$245,268.64 sobra · confirmada»).
+    const sentido = c.esperado < 0 ? 'el libro no la explica' : valor > 0 ? 'sobra' : 'falta';
+    dif = { texto: firmado, sub: `${sentido}${nota ? ` · ${nota}` : ''}`, tono: 'bad' };
   }
   return { quedo, deberia, dif };
 }

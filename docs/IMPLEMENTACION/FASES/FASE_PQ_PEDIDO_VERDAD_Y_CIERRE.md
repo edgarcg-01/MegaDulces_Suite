@@ -704,12 +704,51 @@ propósito): 00 `1/0001240`, 06 `1/0001479`, 08 `1/0000847` medidas en §14.1; *
 aceptar una `TELEMARK` (el adaptador limpia responsables y pone `c27='SUCURSAL'` igual). Y el canario
 de traspaso (runbook §9) todavía no se ha corrido en ningún servidor.
 
+### 14.3 Lo que ya existe para seguir un traspaso: `/almacen/movimientos` (2026-10-27, nivel A en local)
+
+El PM señaló `/almacen/movimientos?dest=sucursal&doc=TrsfShip`. Recorrido con el usuario de prueba:
+
+- **Diario:** los embarques `U-D-41` a sucursal por día (1,130 documentos, $32.91 M, 1.59 M pz de
+  salida en el rango) y, al abrir un día, cada documento con su estado **En tránsito / Completado /
+  Con diferencia**. El estado sale del servicio de movimientos (DM.3): parea el `TrsfShip`
+  (`U-D-41`) con su `TrsfRcv` (`U-A-50`) por cantidad y fecha; sin recepción = en tránsito. El
+  26-oct: 47 docs, 17 en tránsito, 31 completados (verificado contra el ODS: `U-D-41 0003354`
+  Padre Hidalgo → Yurécuaro, 18 líneas, $11,683 — coincide). «Auditar» marca el documento.
+- **Cuadre de traspasos:** mayor 515 (descuadre acumulado +$13.72 M), 224 pólizas sin rastro,
+  Kepler→Wincaja +$6.15 M; hallazgos: 49 traspasos sin acuse ($730,889, el más viejo 20 días),
+  233 cargas a ruta y 1,102 entregas a cliente separadas para no inflar el hueco.
+
+**Qué significa para PQ:** el cierre del traspaso **ya existe de `U-D-41` a `U-A-50`**. Lo que falta
+es el eslabón anterior: **requisición → `U-D-40` (pedido) → `U-D-41`**. El `U-D-40` y el `U-D-41`
+**no comparten folio** (medido: `U-D-40 0003354` de la 01 es RUTA 27 y el `U-D-41 0003354` es
+Yurécuaro `TI003`); la junta `40→41` hay que medirla en `kdm1`/`kdm2` (referencia) antes de
+dibujarla. **PQ.3 se re-define**: no construir otro cierre, sino (1) `oc_folio` del `U-D-40` en la
+requisición (RQ.15, ya exige sucursal + folio), (2) medir y usar la referencia `40→41` de Kepler,
+(3) leer el estado del embarque desde el mismo servicio de movimientos (sin segunda implementación).
+
+**Plantilla de la 01 (cierra §14.1):** `U-D-40 1/0003333` de Padre Hidalgo (`SUCURSAL` → 8
+Esquinas `TI002`, 13 renglones). Está `EMBARCADO`, y eso no importa: el adaptador reescribe
+`c11='AUTORIZADO'`, `c43='N'`, `c27='SUCURSAL'` y limpia `c100/c102/c103`
+(`kepler-doctipo.ts`). Mi criterio de «sano» era más estricto que el adaptador.
+
+```bash
+KEPLER_PED_TEMPLATE_FOLIO_00=0001240
+KEPLER_PED_TEMPLATE_FOLIO_01=0003333
+KEPLER_PED_TEMPLATE_FOLIO_06=0001479
+KEPLER_PED_TEMPLATE_FOLIO_08=0000847
+```
+
+Observado en esa pantalla y no tocado (no es de esta fase): folio y cantidad de salida en **rojo**
+(un movimiento normal pintado como alarma), rótulo «Traspaso a sucursal» sobre un embarque, y
+«Auditar» en color de acción en cada fila.
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-27 | El PM señaló `/almacen/movimientos` (§14.3): el cierre `U-D-41 → U-A-50` ya existe (DM.3, con estado por documento y cuadre contable); falta el eslabón requisición → `U-D-40` → `U-D-41` (los folios no coinciden entre 40 y 41). PQ.3 se re-define para reusar ese servicio. Plantilla de la 01: `U-D-40 1/0003333` (el adaptador reescribe estado y limpia responsables) | PM + sesión PQ |
 | 2026-10-27 | «Tú corrígelo» (los 21 con fracción) → **no se corrigió ningún dato**: los 42 renglones son piezas enteras. Regla «cajas enteras o piezas enteras» en la mesa, el lote, el empuje y el adaptador (escribe en unidad base) (`7fc107f6c`). Simulacro con las reglas vigentes: **853/853 (100 %)**, 0 riesgos (`131f21afd`). 22/22 lib · 102/102 pedido | PM + sesión PQ |
 | 2026-10-27 | «Resolvamos todo lo que no nos deje» → D22 y D23 en código (`219e13736`): proveedor contra `kdxd` (0 rebotes de datos en 853) y fracción frenada al generar. Lo demás es configuración por servidor: plantillas de traspaso medidas (00/06/08; la 01 sin candidato SUCURSAL; el 04 sin U-D-40 sano) y topes propuestos (§14.1) | PM + sesión PQ |
 | 2026-10-27 | «¿Cómo validamos que el 100 % pasa a Kepler?» → **PQ.17 🧪** (`71db08ae5`): simulacro con control; 853 documentos, **96.0 % pasan**; los 34 que rebotan son proveedores que Kepler SÍ tiene en `kdxd` → la regla nuestra es más estricta que Kepler (**D22**). Lo que decide está en configuración (plantilla de traspaso, tope diario 1 = 470 días para el 00) (§14) | PM + sesión PQ |

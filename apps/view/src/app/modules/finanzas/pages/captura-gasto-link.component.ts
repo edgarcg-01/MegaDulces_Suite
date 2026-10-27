@@ -9,6 +9,8 @@ import { CameraShotComponent } from '../components/camera-shot.component';
 import { ProofFile, ProofFileRole, ExpenseClasificacion, requiereEvidencia } from '../comprobaciones.service';
 import { money } from '../../../shared/util';
 import { dmy } from './finanzas-format';
+import { AvisoRondaGastosComponent } from '../components/aviso-ronda-gastos.component';
+import { rondaDeRevision } from '@megadulces/contracts';
 
 /** Una foto pendiente de subir, con lo que hace falta para mostrarla y mandarla. */
 interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; }
@@ -34,7 +36,7 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
 @Component({
   selector: 'app-captura-gasto-link',
   standalone: true,
-  imports: [CommonModule, FormsModule, CameraShotComponent],
+  imports: [CommonModule, FormsModule, CameraShotComponent, AvisoRondaGastosComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="cg">
@@ -60,7 +62,8 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
           <div class="cg-ok" role="status">
             <i class="pi pi-check-circle" aria-hidden="true"></i>
             <h2>Listo, ya lo recibimos</h2>
-            <p>Lo va a revisar Finanzas. Si falta algo te lo devuelven y lo vas a ver acá mismo.</p>
+            <!-- [GX.86] La ronda se fija al mandarlo: el acuse dice cuándo, no sólo quién. -->
+            <p>Lo va a revisar Finanzas. {{ acuseRonda() }} Si falta algo te lo devuelven y lo vas a ver acá mismo.</p>
             <button type="button" class="cg-btn" (click)="otro()">Subir otro gasto</button>
           </div>
         } @else {
@@ -82,6 +85,10 @@ interface Toma { role: ProofFileRole; dataUri: string; camera: 'live' | 'file'; 
               <p class="cg-back-how">Súbelo de nuevo con la corrección, aquí abajo.</p>
             </section>
           }
+
+          <!-- [GX.86] Las rondas de revisión: informa, no bloquea. Va después de lo devuelto
+               (eso sigue siendo lo primero) y antes de empezar a capturar. Pública: sin sesión. -->
+          <app-aviso-ronda-gastos [publico]="true" />
 
           <!-- ── Paso 1: el tipo ──────────────────────────────────────────────
                Va PRIMERO porque decide los dos pasos que siguen: si hay ticket que
@@ -391,6 +398,8 @@ export class CapturaGastoLinkComponent {
   readonly error = signal<string>('');
   readonly enviando = signal(false);
   readonly enviado = signal(false);
+  /** `[GX.86]` La ronda en que se revisa lo que acaba de mandar; se fija al mandarlo. */
+  readonly acuseRonda = signal('');
 
   readonly clasificacion = signal<ExpenseClasificacion | null>(null);
   private readonly tomas = signal<Record<string, Toma>>({});
@@ -570,7 +579,7 @@ export class CapturaGastoLinkComponent {
         captured_at: new Date().toISOString(),
         user_agent: navigator.userAgent,
       }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => { this.enviando.set(false); this.enviado.set(true); },
+        next: () => { this.enviando.set(false); this.acuseRonda.set(rondaDeRevision().acuse); this.enviado.set(true); },
         error: (e) => {
           this.enviando.set(false);
           this.error.set(e?.error?.message || 'No se pudo mandar. Revisa tu señal y vuelve a intentar.');

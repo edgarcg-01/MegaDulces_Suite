@@ -1,6 +1,7 @@
 <!-- INDICE-AUTO:INICIO -->
 
 > **Índice navegable** — 1989 KB, 12647 líneas, 72 secciones.
+> **Índice navegable** — 1991 KB, 12671 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -79,6 +80,58 @@
 | 12301 | 12353 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
 | 12354 | 12710 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
 | 12711 | 12731 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 4870 | 5523 | 59 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 5524 | 5708 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 5709 | 5751 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 5752 | 5829 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 5830 | 5923 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 5924 | 6059 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 6060 | 6076 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 6077 | 6125 | 87 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 6126 | 6193 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 6194 | 6446 | 20 | Fase CH — Checadores / Control de asistencia |
+| 6447 | 6512 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 6513 | 6540 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6541 | 6707 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 6708 | 7055 | 119 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 7056 | 7118 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 7119 | 7248 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7249 | 7311 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 7312 | 7472 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7473 | 7543 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7544 | 7592 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 7593 | 7625 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 7626 | 8015 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 8016 | 8147 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 8148 | 8194 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 8195 | 8234 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 8235 | 8287 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8288 | 8354 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8355 | 8517 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8518 | 8801 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8802 | 8969 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8970 | 11068 | 157 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11069 | 11077 | 1 | Fase RR — Ventas por ruta |
+| 11078 | 11373 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11374 | 11384 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11385 | 11405 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11406 | 11416 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11417 | 11428 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11429 | 11488 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11489 | 11916 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 11917 | 11931 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 11932 | 11973 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 11974 | 12119 | 61 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12120 | 12150 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12151 | 12198 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12199 | 12222 | 18 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12223 | 12252 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12259 | 12268 | 1 | 📝 Convenciones |
+| 12269 | 12305 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12306 | 12324 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12325 | 12377 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12378 | 12734 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12735 | 12755 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -5055,6 +5108,31 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.86] · aviso de las rondas de revisión de gastos (sin bloqueo) — 2026-10-26
+
+- [x] **[GX.86]** 🧪 **Cambió de bloqueo a aviso.** Primera versión (22-oct): bloquear el alta fuera de
+  8:30–10:00 y 17:00–18:00. Decisión del usuario el 26-oct: *«hay que quitar la regla, solamente hay que agregar un
+  aviso»* y *«pueden estar subiéndolos sin problema durante el día»*. El bloqueo se retiró entero (servidor, link y
+  diálogo; el código de esos archivos vuelve a ser el de `main`) y queda un aviso.
+  - **La idea (aprobada en maqueta):** el aviso no es un cartel fijo. Primero dice **«Puedes subir tus gastos a
+    cualquier hora del día, sin problema»** y la segunda línea cambia con la hora: *«Ahorita estamos revisando: el
+    tuyo entra en esta ronda, que termina a las 10:00 am»* / *«Lo que subas ahora se revisa en la ronda de hoy a las
+    5:00 pm»* / *«… del lunes a las 8:30 am»*. Abajo, en gris, el horario completo. Al mandar, el acuse repite la
+    ronda. Un cartel fijo deja de leerse; éste habla del gasto de esa persona.
+  - **Regla** en `libs/contracts/src/finance/rondas-revision-gastos.contract.ts` (`rondaDeRevision`, `horaAmPm`):
+    rondas, días, próxima ronda y los textos; hora siempre de `America/Mexico_City`.
+  - **Pieza compartida** `app-aviso-ronda-gastos` en las tres puertas de alta: `/finanzas/gastos`, el link de captura
+    (`[publico]`, sin sesión) y el diálogo «Adjuntar evidencia». Quien aprueba (`COMPROBAR`) no lo ve. Se recalcula
+    cada 30 s. Acuse con la ronda en la captura (toast) y en el link (pantalla «Listo»).
+  - **Pruebas:** contrato 25 (bordes 8:29/8:30/9:59/10:00, fin de semana, viernes→lunes, `horaAmPm`, y que ninguna
+    línea diga «cerrado»/«no se puede») en 3 zonas horarias del proceso · pieza 4 + **regresión del bloqueo** (lunes
+    12:00 el vale completo SE PUEDE ENVIAR) · mutación (aviso visible para aprobadores → 1 en rojo) · view finanzas
+    1073/1073. check:templates, reactividad, boundary-gate, check:pantalla (0 nuevas), tokens y estilos en verde.
+- [ ] **[GX.86.x]** Declarado: (1) **supuesto sin confirmar**: que en esas horas de verdad se revisa y que no hay
+  ronda en fin de semana — si no, el aviso diría algo falso (se cambia sólo en el contrato); (2) días festivos no se
+  contemplan; (3) el diálogo «Adjuntar evidencia» muestra el aviso pero su acuse lo pinta la pantalla que lo abre y
+  no se tocó; (4) sin validación visual en navegador (maqueta en `Documents\gastos-aviso-ronda-maqueta.html`).
+
 ### 🔨 [GX.85] · cuando Kepler aplica la solicitud (`F`), el vale se cierra y pasa a Historial — 2026-10-13
 
 - [x] **[GX.85]** 🧪 Decisión del usuario, sobre la constancia «Autorizado y aplicado — el dinero salió»
@@ -9173,6 +9251,20 @@ TP.6-TP.8+TP.10".
 >   checkout compartido en el mismo punto. Se midió hoy mismo: el archivo cambió en disco **entre
 >   dos comandos míos**, y commitear la etiqueta exigió `git apply --cached` de un solo hunk para no
 >   llevarse 5 hunks ajenos. ⛔ **No se abre como fase** (Fase 0 en curso, §7 del método).
+
+> ### 🔨 2026-10-27 — **Fase LE · Libro de efectivo de partida doble (reemplaza a CGA)**
+>
+> PM: *«rehagamos el motor de caja… es como un banco»*. Plan, 38 reglas de banco (B1–B38) y medición:
+> [`FASE_LE_LIBRO_DE_EFECTIVO.md`](FASES/FASE_LE_LIBRO_DE_EFECTIVO.md). D1 (reemplaza a CGA) y D2 (una caja
+> física: pesos, dólares y documentos; el grueso en CAOS) firmadas el 2026-10-27; D3 pendiente.
+> ⚠️ `CGA-A.50`–`A.57` (abajo) quedan **absorbidos**: la custodia es una bolsa y los enlaces son asientos.
+>
+> - [x] **[LE.0.0]** 🔨 **Contención de `CG.58`** (sin desplegar): reparto automático APAGADO por default
+>   (`CAOS_INGRESO_CONCILIAR=on`), sin tocar depósitos que el libro explica; migración `20261027101810`
+>   con la regla B4 en la base y la baja lógica de las dobles (medidas: 86 depósitos · 162 atribuciones ·
+>   $1,703,230, todas contra cobros del 21–28 jul). Pruebas: `caos-ingreso-recon.libro-real.spec.ts`,
+>   `test-newdb-caja-una-explicacion.js`. ⚠️ Pruebas de base **sin correr** (sin base de prueba en .222).
+> - **[LE.0.1]–[LE.2.4]** ⬜ Ver el plan.
 
 > ### 🔨 2026-10-23 — **CGA-A.50 · El retiro de CAOS que se lleva una persona queda a su cargo (ADR-101)**
 >

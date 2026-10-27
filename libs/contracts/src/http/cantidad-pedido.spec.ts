@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { cabeBajoTope, costoUnicoBase, diasDeCobertura, textoTopeBase, toparRedondeo, TOPE_COBERTURA_DIAS } from './cantidad-pedido.contract';
 import { armarRenglon, redondearPedido, type EntradaRenglon, type EscaleraUnidades } from './autoabasto-pedido.contract';
 
