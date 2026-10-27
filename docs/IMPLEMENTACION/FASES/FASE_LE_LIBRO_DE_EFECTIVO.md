@@ -2,148 +2,204 @@
 
 > El método que la gobierna: [`docs/METODO_DE_TRABAJO.md`](../../METODO_DE_TRABAJO.md).
 > Pedido del PM, 2026-10-27: *«rehagamos el motor de caja… debemos pensar que esto es como un
-> banco»* y *«revisemos y hagamos la corrección por capas y fases, desde la base de datos hasta el
-> backend»*. Nace de ADR-101 y de la medición de abajo; **absorbe** a `CGA-A.50`–`A.57`.
+> banco»*, *«por capas y fases, desde la base de datos hasta el backend»* y, en la segunda vuelta,
+> *«si necesitamos rehacer todo desde cero hay que hacerlo, pero quiero un trabajo limpio y adecuado
+> para un banco»*. Nace de ADR-101 y de la medición de §3; **absorbe** a `CGA-A.50`–`A.57`.
 
 ```
 OBJETIVO: que cada peso de la Caja General de Oficinas esté en UN lugar a la vez, con una sola
           explicación, y que el libro cuadre todos los días contra un testigo independiente.
 MÉTRICA:  (a) depósitos de CAOS explicados más de una vez — HOY: 86 · $1,703,230 (2026-10-27) → META: 0
           (b) cortes cuyo esperado no se puede ir a contar (negativo o con ±$100k de piernas cruzadas)
-              — HOY: 7 de 13 cortes (12–26 oct) → META: 0 en el cierre diario en paralelo
-          (c) cortes autorizados por una segunda persona — HOY: 0 de 13 → META: 100 %
-CAPA TOPE: C2 (la UI es la fase siguiente; ver §2)
+              — HOY: 7 de 13 cortes (12–26 oct) → META: 0
+          (c) cortes y movimientos sobre umbral autorizados por una segunda persona — HOY: 0 de 13 → META: 100 %
+          (d) diferencias SIN EXPLICAR en el cierre diario contra testigos — HOY: NO MEDIDO (no existe un
+              cierre contra testigos) → META: 0 en 10 cierres hábiles seguidos
+          (e) dinero «por rendir» con más de 1 día hábil sin rendir — HOY: NO MEDIDO → META: publicado a
+              diario, cada peso con nombre de persona
+CAPA TOPE: C3 (la UI, etapa E6, sólo después de 5 cierres limpios en sombra)
 ÁREA:      Finanzas
 DUEÑO:     Edgar (PM)
-ESTADO:    🔨 — D1 y D2 firmadas por el PM el 2026-10-27; LE reemplaza a CGA. Falta D3.
+ESTADO:    🔨 — D1 y D2 firmadas el 2026-10-27. Plan v2 (este) pendiente de firma: D3 y D6–D14.
 ```
 
 ---
 
-## 0. Las reglas de banco (BINDING para esta fase)
+## 0. Cómo leer este plan
 
-> Pedido del PM, 2026-10-27: *«piensa como si estuvieras desarrollando esto para un banco… no dejes
-> nada a la duda»*. Cada regla dice **cómo se verifica**. Una regla sin verificación es una
-> intención (regla 12 del proyecto). Las marcadas ⛔HOY se violan hoy, medido.
+- **Etapas (E0…E7) × capas (C0 dato → C1 dominio → C2 API → C3 UI).** Una etapa no empieza hasta
+  que la anterior cumplió su **criterio de salida**, y ninguna sube de capa sin la de abajo verificada.
+- Cada etapa tiene: **objetivo · entregables · pasos (items `LE.<etapa>.<n>`) · verificación ·
+  criterio de salida · reversa**.
+- Las **reglas de banco (B1–B46, §2)** son binding. Cada item cita las reglas que cumple; una regla
+  sin verificación es una intención (regla 12 del proyecto).
+- ⛔ Este repo es **público**. Nada de este documento describe credenciales, versiones de firmware,
+  puertos o debilidades concretas de un equipo. Eso vive en el **inventario privado de secretos**
+  (fuera del repo) y aquí sólo se nombra.
+
+---
+
+## 1. La decisión de fondo: se rehace el núcleo desde cero
+
+El libro actual es de **entrada simple** y la posición del dinero se reconstruye con cuatro
+mecanismos que no se conocen entre sí (§3.2). Ningún parche lo vuelve partida doble. **El núcleo se
+rehace desde cero**; lo que ya es verdad (los hechos) se conserva y se lee.
+
+| Pieza | Destino | Por qué |
+|---|---|---|
+| Feed de CAOS (`analytics.caos_cash_movements`, `caos_cash_denominations`) | **Se conserva** como fuente de hechos de la máquina | es el hecho; se agrega control de huecos y reescrituras (E3) |
+| Cobranza y egresos de Kepler (`kepler_ods.*`) | **Se conserva** como fuente y como testigo | sólo se lee (B24) |
+| Capturas humanas (`finance.cash_ledger`) | **Se conserva** como registro de lo que la persona tecleó; en E5 alimenta al libro nuevo; en E7 queda en sólo lectura | es dato propio (HITL); no es una copia del libro: el libro guarda el **efecto contable**, la captura guarda **lo que se dijo** |
+| Cortes y firmas actuales (`cash_ledger_cuts`, `cg67`) | Operan hasta E7; luego sólo lectura | el corte nuevo se calcula sobre saldos |
+| `CG.58` FIFO (`caos_ingreso_atribucion`) | **Se apaga** (E0) y su código se **retira** (E7) | empareja por antigüedad: tapa jineteo (B19) |
+| Enlaces a mano (`caos_cash_links`), custodia (`caos_retiro_custodia`), grano (`caos_deposito_grano`) | Se leen para reconstruir la historia (E3); se congelan en E7 | en el libro nuevo un enlace **es un asiento** y una custodia **es una cuenta** |
+| Tablas sin escritor (`cash_ledger_cut_vouchers`, `cash_ledger_route_links`, `cash_arqueos`, `caos_conteos_fisicos`) | Se declaran muertas; se congelan | no se borran (regla 5) |
+| `*_snapshot_bak` de `analytics` | D5 | violan la regla 2; no se tocan en esta fase |
+| El libro (asientos, cuentas, saldos, jornadas, solicitudes, conteos, hallazgos) | **NUEVO**, esquema propio `cashbook` | §4 |
+
+⛔ Nada se borra: el libro nuevo reconstruye su historia a partir de lo viejo (E3) y lo viejo queda
+congelado como evidencia (B23).
+
+---
+
+## 2. Las reglas de banco (BINDING)
+
+> Pedido del PM: *«piensa como si estuvieras desarrollando esto para un banco… no dejes nada a la
+> duda»*. Las marcadas ⛔HOY se violan hoy, medido. **La numeración B1–B38 no cambia** (la citan
+> commits y pruebas); B39–B46 se agregan en v2.
 
 ### A · El libro
 
 | # | Regla | Cómo se verifica |
 |---|---|---|
-| B1 | **Partida doble**: todo asiento suma cero, en pesos y, en efectivo, por denominación | trigger diferido + prueba negativa |
-| B2 | **Inmutable**: sólo se agrega. Un error se corrige con un asiento de reversa que nombra al original y su motivo. Ni el admin puede UPDATE/DELETE | privilegios de la base + trigger + prueba que lo intenta como `app_runtime` y como dueño |
-| B3 | **Un hecho, un registro**: cada evento externo (movimiento CAOS, cobro Kepler, pago) y cada petición (`client_uuid`) se registra una sola vez; un reintento devuelve lo ya registrado | índice único + prueba de doble envío |
-| B4 | **Cada peso, una explicación**: ningún peso sale dos veces de una bolsa ni se asigna a dos destinos ⛔HOY (86 · $1.70 M) | se cumple por construcción con B1+B3; compuerta diaria de explicaciones dobles = 0 |
-| B5 | **Saldos derivados**: el saldo es la suma de asientos; nada se teclea ni se guarda a mano | vista; si un día se materializa, se recalcula y se compara |
-| B6 | **Dinero exacto**: `numeric(18,2)` en la base; en código, **centavos enteros**, nunca `float`; un solo punto de redondeo; moneda explícita | prueba con montos que el float redondea mal |
-| B7 | **Fecha valor ≠ fecha de registro**; hora del servidor (México), nunca del navegador; **un día cerrado no se toca**: el ajuste va al día abierto | trigger de periodo cerrado + prueba |
-| B8 | **Bolsas físicas nunca negativas**, ni por denominación | trigger + prueba |
+| B1 | **Partida doble**: todo asiento suma cero **por moneda**, y en efectivo, por denominación | invariantes I1–I3 + prueba negativa |
+| B2 | **Inmutable**: sólo se agrega. Un error se corrige con un asiento de reversa que nombra al original y su motivo. Ni el admin puede UPDATE/DELETE; una alteración por fuera **se detecta** (cadena de hashes) | I6, I8 + prueba como `app_runtime` y como dueño |
+| B3 | **Un hecho, un registro**: cada evento externo y cada petición (`request_id`) se registra una sola vez; un reintento idéntico devuelve lo registrado; un reintento **distinto** con el mismo id se rechaza | I11, I12 + prueba de doble envío |
+| B4 | **Cada peso, una explicación** ⛔HOY (86 · $1.70 M) | por construcción (B1+B3) + compuerta diaria = 0 |
+| B5 | **Saldos derivados**: el saldo es la suma de asientos. La cabecera de saldo existe sólo para bloquear y verificar, y se compara a diario contra la suma | I10 |
+| B6 | **Dinero exacto**: en la base, **centavos enteros (`bigint`)**; en código, centavos enteros, nunca `float`; un solo punto de redondeo; moneda explícita | D9 + prueba con montos que el float redondea mal |
+| B7 | **Fecha valor ≠ fecha de registro**; hora de la base, nunca del navegador; **un día cerrado no se toca**: el ajuste va al día abierto | I14 + prueba |
+| B8 | **Cuentas físicas nunca negativas**, ni por denominación | I9 (CHECK en la cabecera bloqueada) + prueba |
 
 ### B · Las personas (controles)
 
 | # | Regla | Cómo se verifica |
 |---|---|---|
-| B9 | **Segregación de funciones**: quien registra ≠ quien autoriza ≠ quien cuenta ≠ quien concilia ⛔HOY (una persona hace 84 % de los retiros y cierra todos los cortes) | reglas en la base, no sólo en la pantalla |
-| B10 | **Cuatro ojos**: toda reversa, ajuste, faltante y todo movimiento arriba del umbral (D3) lo autoriza una segunda persona ⛔HOY (0 de 13 cortes autorizados) | trigger: autoriza ≠ registra |
-| B11 | **Arqueo ciego** (quien cuenta no ve el esperado) **y sorpresa** por un tercero, con frecuencia fija | registro del arqueo con quién y si fue sorpresa |
-| B12 | **Usuarios nominales**: nadie opera con una cuenta compartida ni con claves de fábrica ⛔HOY («Vendedor 006» para todas las rutas; consola de CAOS con su clave de fábrica, sin rotar) | inventario de usuarios; bloqueo de cuentas genéricas |
-| B13 | **Mínimo privilegio**: permisos por ACCIÓN (registrar, autorizar, revertir, conciliar), revisados cada trimestre | matriz de accesos regenerada y firmada |
-| B14 | **Los procesos automáticos tienen identidad propia** y nunca autorizan | `created_by` de servicio; trigger lo impide |
-| B15 | **Límites por persona y por día**, como un cajero de banco | regla en la base al registrar |
-| B16 | **Campos libres con tope**: un importe tecleado (morralla) no puede reemplazar a un conteo ⛔HOY ($298,484.92 de morralla el 26-oct) | tope + autorización arriba de él |
+| B9 | **Segregación**: quien registra ≠ quien autoriza ≠ quien cuenta ≠ quien concilia ⛔HOY (una persona hace 84 % de los retiros y cierra todos los cortes) | I15 en la base, no sólo en pantalla |
+| B10 | **Cuatro ojos**: toda reversa, ajuste, faltante y todo movimiento arriba del umbral (D3) lo autoriza una segunda persona ⛔HOY (0 de 13) | I15 + solicitudes (§4.6) |
+| B11 | **Arqueo ciego** (quien cuenta no ve el esperado) **y sorpresa** por un tercero, con frecuencia fija (D13) | la API del contador no devuelve esperado (LE.4.6) |
+| B12 | **Usuarios nominales**: nadie opera con una cuenta compartida ni con credenciales de fábrica ⛔HOY (usuario compartido de vendedores en la máquina; detalle en el inventario privado) | inventario de usuarios; I16 |
+| B13 | **Mínimo privilegio**: permisos por ACCIÓN, revisados cada trimestre | matriz de accesos regenerada y firmada |
+| B14 | **Los procesos automáticos tienen identidad propia** y nunca autorizan | I15 |
+| B15 | **Límites por persona y por día** (D14) | regla de autorización (LE.2.6) |
+| B16 | **Campos libres con tope**: un importe tecleado no reemplaza a un conteo ⛔HOY ($298,484.92 de morralla tecleada el 26-oct) | I2: la cuenta con desglose no acepta importe sin piezas |
 
 ### C · Conciliación
 
 | # | Regla | Cómo se verifica |
 |---|---|---|
-| B17 | **Todo saldo tiene un testigo independiente** y se concilia a diario: bóveda ↔ conteo de la máquina, cajón ↔ arqueo, banco ↔ estado de cuenta, por cobrar ↔ Kepler ⛔HOY (el conteo de la máquina no se guarda) | cierre diario |
-| B18 | **Ninguna diferencia se absorbe**: cada una es una partida pendiente con monto, dueño, antigüedad y su cierre firmado | tabla de hallazgos + reporte de antigüedad |
-| B19 | **Emparejar por llave, nunca por antigüedad** (ruta + fecha + monto); lo dudoso va a revisión humana. Se publica la **precisión** medida con placebo, nunca sólo la cobertura ⛔HOY (`CG.58` FIFO) | placebo ≈ 0 aciertos; muestra revisada a mano |
-| B20 | **Sin cierre de ayer no se opera hoy** (ya existe: `[CGS.14]`) | candado vigente |
+| B17 | **Todo saldo tiene un testigo independiente** y se concilia a diario ⛔HOY (el conteo de la máquina no se guarda) | cierre diario (LE.3.2, LE.5.2) |
+| B18 | **Ninguna diferencia se absorbe**: cada una es un hallazgo con monto, dueño, antigüedad y cierre firmado | I17 |
+| B19 | **Emparejar por llave, nunca por antigüedad**; lo dudoso a revisión humana; se publica la **precisión** medida con placebo ⛔HOY (`CG.58` FIFO) | LE.2.5 |
+| B20 | **Sin cierre de ayer no se opera hoy** (hoy existe como `[CGS.14]`) | I14 |
 
 ### D · Auditoría
 
 | # | Regla | Cómo se verifica |
 |---|---|---|
-| B21 | **Bitácora de todo**: quién, cuándo, desde qué dispositivo, antes/después — de los datos **y** de la configuración y los permisos | trigger genérico (`master_data_history`) |
-| B22 | **Toda cifra publicada es reproducible**: dice con qué datos y con qué versión de la regla se calculó | procedencia en la respuesta (ADR-056) |
-| B23 | **Retención**: nada se borra; mínimo 5 años (fiscal MX) | sin DELETE (B2) |
+| B21 | **Bitácora de todo**: quién, cuándo, desde qué dispositivo, antes/después — datos, configuración, permisos **y DDL** del esquema | `master_data_history` + event trigger de DDL (LE.1.11) |
+| B22 | **Toda cifra publicada es reproducible**: datos, secuencia y versión de la regla | `rule_version` + `seq` en cada respuesta |
+| B23 | **Retención**: nada se borra; mínimo 5 años (fiscal MX) | I6 |
 
 ### E · Datos de fuera
 
 | # | Regla | Cómo se verifica |
 |---|---|---|
-| B24 | **Las fuentes externas se leen, nunca se escriben**, y llegan con su frescura; si una fuente se atrasa, la conciliación dice NO MEDIDO, no cero | latidos `cron_runs` + frescura en cada respuesta |
-| B25 | **Validación estricta en la frontera**: montos > 0, denominaciones del catálogo, fechas válidas, tipos cerrados | DTO + CHECK en la base |
+| B24 | **Las fuentes externas se leen, nunca se escriben**, y llegan con su frescura; atraso = NO MEDIDO, nunca cero | latidos `cron_runs` + frescura en cada respuesta |
+| B25 | **Validación estricta en la frontera**: montos > 0, denominaciones del catálogo, fechas válidas, tipos cerrados | DTO + CHECK |
 
 ### F · Seguridad
 
 | # | Regla | Cómo se verifica |
 |---|---|---|
-| B26 | **Secretos fuera del repo**, rotados, nunca de fábrica; **cifrado en tránsito** para todo lo que toca dinero ⛔HOY (CAOS por HTTP plano, login reutilizable) | inventario de secretos; TLS |
-| B27 | **Autorizar pide reautenticación** (MFA o clave) | flujo de autorización |
-| B28 | **Nada mueve dinero real desde el sistema** (dispensar CAOS) sin ADR, cuatro ojos y API oficial del fabricante | ADR |
+| B26 | **Secretos fuera del repo**, rotados, nunca de fábrica; **cifrado en tránsito** para todo lo que toca dinero ⛔HOY (detalle en el inventario privado) | LE.0.1 |
+| B27 | **Autorizar pide reautenticación** (clave u OTP) | LE.4.2 |
+| B28 | **Nada mueve dinero real desde el sistema** (dispensar CAOS) sin ADR, cuatro ojos y API oficial del fabricante | fuera de alcance (§8) |
 
 ### G · Cómo se desarrolla
 
 | # | Regla | Cómo se verifica |
 |---|---|---|
-| B29 | **Antes de construir algo que toca dinero: inventario de TODO lo que toca ese objeto** (tablas, servicios, crons) y cómo convive con cada uno ⛔HOY (así nacieron las explicaciones dobles) | sección de impacto en el plan, revisada |
-| B30 | **Revisión por otra persona** de todo cambio al módulo de dinero ⛔HOY (los PR no tienen revisión) | regla de protección de rama para estas rutas |
-| B31 | **Cada invariante con prueba negativa y mutación**; pruebas contra base real; **pruebas de concurrencia** (dos cajeros a la vez) y **de reconstrucción** (el historial reprocesado da el saldo del testigo) | job `caja-db` |
-| B32 | **Nunca se prueba contra prod**; datos de prueba sintéticos; prod sólo se lee | `assert-safe-target` |
-| B33 | **Migraciones aditivas y reversibles**, ensayadas en base de prueba, aplicadas una por una fuera de horario, con verificación después | runbook + `aplicar-migracion.sh` |
-| B34 | **Lo nuevo corre en paralelo** al viejo y se cambia con un criterio medido (LE.2.4), con plan de reversa escrito | 10 cierres seguidos sin diferencias |
-| B35 | **Concurrencia controlada**: todo lo que toca un saldo toma candado o va en transacción serializable | prueba de dos escrituras simultáneas |
+| B29 | **Antes de construir: inventario de TODO lo que toca el objeto** ⛔HOY (así nacieron las dobles) | LE.0.3 |
+| B30 | **Revisión por otra persona** de todo cambio al módulo de dinero ⛔HOY | D12 |
+| B31 | **Cada invariante con prueba negativa y mutación**; base real; **concurrencia**; **reconstrucción** | job `caja-db` |
+| B32 | **Nunca se prueba contra prod**; prod sólo se lee | `assert-safe-target` |
+| B33 | **Migraciones aditivas y reversibles**, ensayadas, una por una, fuera de horario | runbook |
+| B34 | **Lo nuevo corre en paralelo** y se cambia con criterio medido y plan de reversa | E5, E7 |
+| B35 | **Concurrencia controlada**: todo lo que toca un saldo bloquea la cabecera en orden fijo | §4.7 + prueba |
 
 ### H · Operación
 
 | # | Regla | Cómo se verifica |
 |---|---|---|
-| B36 | **Alertas el mismo día**: diferencia de conciliación, feed atrasado, cierre que no se hizo | notificación a un responsable con nombre |
-| B37 | **Un descuadre es un incidente**: dueño, causa, corrección y nota de qué cambió para que no se repita | bitácora de la fase |
-| B38 | **Respaldos probados restaurando**, no sólo ejecutados | prueba de restauración periódica |
+| B36 | **Alertas el mismo día** a un responsable con nombre | LE.5.2 |
+| B37 | **Un descuadre es un incidente**: dueño, causa, corrección, qué cambió | bitácora §13 |
+| B38 | **Respaldos probados restaurando** | LE.5.5 |
+
+### I · Agregadas en v2 (revisión «como banco», 2026-10-27)
+
+| # | Regla | Cómo se verifica |
+|---|---|---|
+| B39 | **Un solo camino de escritura**: el libro sólo se escribe por funciones de la base (`cashbook.post_entry`, `reverse_entry`, `authorize_request`); la app no tiene INSERT sobre ninguna tabla del libro | privilegios + prueba que intenta INSERT directo |
+| B40 | **Consecutivo sin huecos** por tenant; el corte y el cierre dicen **hasta qué asiento** cuentan, no «hasta qué hora» | I7 |
+| B41 | **Los hechos externos nunca se rechazan ni se pierden**: se registran en el orden de su fuente; si hay hueco, esperan; si siguen sin cuadrar, van a la cola de excepciones con hallazgo crítico | §4.8 |
+| B42 | **Un hecho externo que cambia** (Kepler cancela, CAOS reescribe) produce reversa + asiento nuevo con la versión nueva; nunca edición | I11 |
+| B43 | **La persona es el EMPLEADO, no el usuario**: la segregación se compara por empleado (dos usuarios de la misma persona no se autorizan entre sí) | I15 |
+| B44 | **Cada moneda en sus cuentas**: la conversión sólo pasa por una cuenta puente por moneda con el tipo de cambio guardado, su fuente y quién lo fijó | I18 |
+| B45 | **Toda solicitud vence**: una pendiente de autorizar más allá de su plazo se cierra como vencida, nunca se autoriza tarde en silencio | máquina de estados (§4.6) |
+| B46 | **Cuenta de suspenso vigilada**: lo que aún no tiene explicación vive en Suspenso con antigüedad; Suspenso ≠ 0 al cierre es un hallazgo | cierre diario |
 
 ---
 
-## 1. Qué problema resuelve (medido en `pg-prod`, sólo lectura, `7688376744939610156`)
+## 3. Qué problema resuelve (medido en `pg-prod`, sólo lectura, `7688376744939610156`)
 
 | Hecho | Cifra | Dónde se ve |
 |---|---|---|
 | Depósitos de CAOS con DOS explicaciones (libro + `CG.58`) | **86 · $1.70 M** | ej. depósito #1723 «ruta 27 261026»: en el libro es la ruta 27 del 26-oct; en `CG.58`, las rutas 21 y 22 del **28-jul** |
-| Depósitos explicados sólo por `CG.58`, por antigüedad (FIFO), no por ruta | 741 · $18.77 M | el FIFO siempre llega al «100 % conciliado» y **tapa jineteo** |
+| Depósitos explicados sólo por `CG.58`, por antigüedad | 741 · $18.77 M | el FIFO siempre llega al «100 % conciliado» y **tapa jineteo** |
 | Cortes con esperado negativo | 5 de 9 (12–22 oct) | el libro resta gastos que no salieron del cajón |
-| Retiro y gasto en jornadas distintas | 19-oct «falta» −$188,885 · 21-oct esperado −$221,512 | el mismo dinero contado en la jornada equivocada (ADR-101) |
+| Retiro y gasto en jornadas distintas | 19-oct «falta» −$188,885 · 21-oct esperado −$221,512 | el mismo dinero en la jornada equivocada (ADR-101) |
 | Retiros de CAOS enlazados a algún gasto | 30 de 409 · 7 % del dinero | `ux_caos_link_vivo` sólo permitía 1 a 1 |
-| Cortes autorizados | **0 de 13** | `carmen_rodriguez` abre y cierra todos |
-| Arqueo completo en la suite desde que se jubiló Control (22-oct) | **0** | la caja fuerte se proyecta del arqueo de Control del 21-oct |
+| Cortes autorizados | **0 de 13** | la misma persona abre y cierra todos |
+| Arqueo completo desde que se jubiló Control (22-oct) | **0** | la caja fuerte se proyecta del arqueo del 21-oct |
 | Morralla tecleada en el corte del 26-oct | **$298,484.92** de $342,095.42 «contados» | sólo $43,610.50 se contaron por pieza |
 | `CG.58` corre cada hora y no tiene interruptor | sigue escribiendo | `caos-ingreso-cron.service.ts:76` |
 
-### 1.0 El caso diario (el PM, 2026-10-27)
+### 3.1 El caso diario (el PM, 2026-10-27)
 
 > *«Las rutas venden, llegan y hacen su cobro: vendió 21 mil, mete sólo 19 a CAOS y la diferencia
 > se queda en la caja general chica.»*
 
 ```
-Por cobrar · Ruta 27 (vendedor con nombre)   − $21,000   lo que Kepler dice que cobró
-Bóveda CAOS                                  + $19,000   lo contó la máquina (depósito «ruta 27 …»)
-Caja General · pesos                         +  $2,000   se cuenta en el arqueo, por denominación
-                                             ─────────
-                                                    $0   el asiento cuadra o no se guarda (B1)
+Asiento 1 · Kepler reconoce la cobranza (hecho externo E-01)
+  Por rendir · Ruta 27 (vendedor con nombre)   + $21,000
+  Cobranza reconocida (contrapartida Kepler)   − $21,000
+Asiento 2 · Depósito en CAOS «ruta 27 261026» (hecho externo E-02, emparejado por llave)
+  Bóveda CAOS (por denominación)               + $19,000
+  Por rendir · Ruta 27                         − $19,000
+Asiento 3 · Entrega al cajón, contada por pieza (E-04)
+  Caja General · pesos (por denominación)      +  $2,000
+  Por rendir · Ruta 27                         −  $2,000
+                                   Por rendir · Ruta 27 = $0  → la ruta rindió completo
 ```
 
-Si el vendedor sólo entrega $20,900, los $100 van a **Faltante · vendedor** con su nombre: nunca se
-absorben (B18). El depósito se liga a la ruta por su **referencia y su día** («ruta 27 261026»),
-nunca por antigüedad (B19). ⛔ Hoy el depósito lo hace el usuario compartido «Vendedor (006)»: no
-se sabe qué vendedor depositó (B12).
+Si sólo entrega $1,900, «Por rendir · Ruta 27» queda en +$100 y al vencer el plazo (D3) pasa a
+**Faltante · vendedor** con su nombre, con autorización (E-05). Nunca se absorbe (B18).
 
-### 1.1 La causa (el porqué de todas las filas de arriba)
+### 3.2 La causa
 
-El libro es de **entrada simple**: cada movimiento dice «entró» o «salió», pero no **de dónde a
-dónde**. La posición del dinero (cajón, máquina, calle, banco) se reconstruye después con **cuatro
-mecanismos que no se conocen entre sí**, cada uno con su propio candado y ninguno cuidando el
-dinero entre tablas:
+El libro es de **entrada simple**: dice «entró» o «salió», no **de dónde a dónde**. La posición se
+reconstruye con mecanismos que no se conocen entre sí:
 
 | Mecanismo | Tabla | Filas | Qué explica |
 |---|---|---:|---|
@@ -153,113 +209,518 @@ dinero entre tablas:
 | Custodia de un retiro (`CGA-A.50`) | `finance.caos_retiro_custodia` | 0 | a cargo de quién quedó |
 | Grano del depósito (`CG.58.6`) | `finance.caos_deposito_grano` | 827 | de qué ruta viene |
 
-Y el corte suma piernas (`[CG.95]`, `[CG.96]`, custodia) en vez de leer un saldo.
-
-### 1.2 La revisión que faltó — inventario completo (2026-10-27)
-
-**71 objetos** con `caja|cash|caos|arqueo|corte` en `finance.*` y `analytics.*` para un libro de
-**504 movimientos y 13 cortes**. Lo relevante:
-
-- **Tres tablas para conteos físicos, las tres vacías**: `finance.cash_arqueos` (0),
-  `finance.caos_conteos_fisicos` (0), `analytics.caos_cash_counts` (0, el conteo de la máquina que
-  nunca se guardó — `CGA-A.54`).
-- **Tablas sin quien las escriba en el código**: `cash_ledger_cut_custody` (4 filas),
-  `cash_ledger_cut_vouchers` (0), `cash_ledger_route_links` (0).
-- ⛔ **Copias de tablas** (`analytics.caja_arqueos_snapshot_bak` 29,994 · `caja_general_cuentas_snapshot_bak`
-  122 · `caja_general_movimientos_snapshot_bak` 12,230): violan la regla 2. Son del espejo de
-  Control; se declaran y se decide su destino aparte (no se borran en esta fase — regla 5).
-- **Quién escribe**: `cash_ledger` lo escriben 3 servicios; `caos_cash_links` 1; `caos_ingreso_atribucion`
-  1 (el cron de `CG.58`); `caos_cash_counts` sólo el importer de CAOS.
+Inventario completo (2026-10-27): **71 objetos** de caja en `finance.*` y `analytics.*` para 504
+movimientos y 13 cortes; tres tablas de conteo físico **vacías**; tablas sin escritor en el código;
+tres copias `*_bak` (regla 2). `cash_ledger` lo escriben 3 servicios.
 
 ---
 
-## 2. Qué NO incluye
+## 4. El modelo del libro (el diseño que se construye en E1–E2)
 
-- **Pantallas (C3).** Esta fase llega a la API. Las pantallas de captura, corte, arqueo y custodia se
-  rehacen en la fase siguiente, sobre esta API. Mientras tanto la pantalla actual sigue operando.
-- **Contabilidad.** ContPAQi sigue siendo el SoR contable (ADR-040). Esto es el libro OPERATIVO del
-  efectivo físico; no emite pólizas.
-- **Escribir en Kepler.** Kepler sólo se lee.
-- **Las cajas de las sucursales** (`analytics.cash_cuts`, Wincaja). Sólo la Caja General de Oficinas.
-- **Borrar** ninguna tabla vieja: el libro nuevo reconstruye su historia a partir de ellas.
+### 4.1 Hechos → reglas → asientos
+
+```
+HECHO (lo que pasó, con su fuente e identidad)          ──►  REGLA DE REGISTRO (pura, versionada)  ──►  ASIENTO (efecto, inmutable)
+  · máquina CAOS (device, external_id, versión)                 libs/finance/cashbook                       cashbook.entries + lines + pieces
+  · Kepler (documento, versión)
+  · persona (solicitud con request_id, empleado)
+  · conteo (arqueo ciego)  ──►  no es asiento: se compara contra el saldo a una secuencia → hallazgo → (autorizado) asiento de ajuste
+```
+
+Un asiento **siempre** nombra su hecho (`event_kind` + `event_ref` + `event_version`) y su regla
+(`rule_version`). Sin hecho, no hay asiento.
+
+### 4.2 Plan de cuentas (las «bolsas»)
+
+| Clase | Cuenta | Lleva desglose | Moneda | Puede ser negativa | Testigo |
+|---|---|:-:|---|:-:|---|
+| Física | Caja General · pesos | ✔ billetes y monedas | MXN | ✘ | arqueo ciego |
+| Física | Caja General · dólares | ✔ | USD | ✘ | arqueo ciego |
+| Física | Caja General · documentos | por pieza con folio (cheque) | MXN | ✘ | arqueo de documentos |
+| Física | Bóveda CAOS | ✔ (el feed trae `caos_cash_denominations`) | MXN | ✘ | conteo de la máquina |
+| Custodia | En custodia · {empleado} | ✘ | MXN | ✘ | rendición con comprobantes |
+| Control | Por rendir · {ruta / cobrador} | ✘ | MXN | ✔ (sobrante) | cobranza de Kepler |
+| Control | Valores en tránsito · banco | ✘ | MXN | ✘ | estado de cuenta (fase CB) |
+| Contrapartida | Cobranza reconocida (Kepler) | ✘ | MXN | ✔ | total de cobranza de Kepler del día |
+| Contrapartida | Egresos · {concepto} | ✘ | MXN | ✔ | egresos de Kepler / comprobante |
+| Contrapartida | Otros ingresos · {concepto} | ✘ | MXN | ✔ | documento soporte |
+| Diferencias | Faltantes · {empleado} / Sobrantes · {empleado} | ✘ | MXN | ✔ | cierre firmado |
+| Puente | Cambio de divisas · MXN / · USD | ✘ | por moneda | ✔ | tipo de cambio guardado |
+| Sistema | Apertura (saldos iniciales de la reconstrucción) | ✘ | por moneda | ✔ | conteos de la fecha de apertura |
+| Sistema | Suspenso (pendiente de explicar) | ✘ | por moneda | ✔ | **debe ser 0 al cierre** (B46) |
+
+Convención de signo: **+ = entra a la cuenta**. Las físicas, custodias y por rendir tienen saldo
+positivo; las contrapartidas acumulan negativo. Todo asiento suma 0 por moneda.
+
+### 4.3 Objetos en la base (esquema `cashbook`, todo con `tenant_id` + audit + RLS)
+
+| Objeto | Qué guarda | Llaves y restricciones |
+|---|---|---|
+| `accounts` | catálogo de cuentas (§4.2): clase, moneda, titular (empleado/ruta/concepto), lleva desglose, admite negativo, testigo, alta/baja | único (tenant, code) |
+| `account_balances` | **cabecera** por cuenta: `balance_minor`, `last_seq` | `CHECK (allows_negative OR balance_minor >= 0)` — bloqueada con `FOR UPDATE` |
+| `account_denom_balances` | cabecera por cuenta × denominación: piezas | `CHECK (pieces >= 0)` en físicas |
+| `entries` | asiento: `seq` (consecutivo por tenant), `business_date`, `value_at`, `recorded_at` (`clock_timestamp()` de la base), `event_kind`, `event_ref`, `event_version`, `event_hash`, `request_id`, `request_hash`, `rule_version`, `created_by` (usuario + **empleado**), `authorized_by`, `authorized_at`, `reverses_entry_id`, `reason`, `prev_hash`, `hash` | único (tenant, seq) · único (tenant, event_kind, event_ref, event_version) · único (tenant, request_id) · único (reverses_entry_id) |
+| `entry_lines` | cuenta, `amount_minor` con signo, moneda | `amount_minor <> 0` |
+| `entry_pieces` | línea × `denom_key` × piezas con signo | sólo en cuentas con desglose |
+| `seq_counters` | el contador del consecutivo por tenant | fila bloqueada en la transacción |
+| `business_days` | jornada: `abierta → en_cierre → cerrada`; `closing_seq`, `closing_hash`, quién cerró y quién autorizó | una sola abierta por tenant |
+| `requests` | solicitudes de persona: `pendiente → autorizada / rechazada / vencida`; payload, registrante, plazo | §4.6 |
+| `counts` + `count_pieces` | arqueos: cuenta, contador (empleado), tipo (`cierre`/`sorpresa`/`relevo`), `upto_seq`, ciego sí/no, testigo presente | inmutable |
+| `findings` | hallazgos: origen (conteo, cierre, feed, reconstrucción), monto, dueño, antigüedad, estado, asiento que lo cierra o explicación firmada | I17 |
+| `external_queue` | hechos externos en espera (hueco de secuencia) o en excepción | B41 |
+| `ddl_audit` | todo DDL sobre el esquema (event trigger) | B21 |
+
+**Roles** (D10): `cashbook_owner` (NOLOGIN, dueño de todo), `app_runtime` con **sólo** `EXECUTE`
+sobre las funciones y `SELECT` sobre las vistas; ningún `INSERT/UPDATE/DELETE/TRUNCATE` sobre
+tablas (B39). Las funciones son `SECURITY DEFINER` con `search_path` fijo y **fallan** si
+`app.tenant_id` no está fijado (nunca leen cero filas en silencio).
+
+### 4.4 Invariantes (cada uno: dónde vive + prueba negativa + mutación)
+
+| # | Invariante | Dónde vive |
+|---|---|---|
+| I1 | El asiento suma 0 **por moneda** | `post_entry` + constraint trigger diferido (defensa doble) |
+| I2 | En una cuenta con desglose: monto de la línea = Σ(piezas × denominación); sin piezas no hay línea. En cuenta sin desglose no hay piezas | `post_entry` + trigger |
+| I3 | Si **todas** las líneas llevan desglose, por denominación las piezas suman 0 (cubre el «Cambio») | `post_entry` |
+| I4 | Moneda de la línea = moneda de la cuenta | FK compuesta |
+| I5 | ≥ 2 líneas; ninguna en 0; cuentas activas | `post_entry` |
+| I6 | **Sólo se agrega**: sin privilegios de UPDATE/DELETE/TRUNCATE para nadie más que el dueño, y trigger que rechaza UPDATE/DELETE **también al dueño** | privilegios + trigger |
+| I7 | Consecutivo sin huecos por tenant | `seq_counters` bloqueado |
+| I8 | `hash = sha256(prev_hash ‖ forma canónica del asiento)`; `cashbook.verify_chain()` lo recorre | `post_entry` + verificador |
+| I9 | Físicas no negativas, por monto y por denominación | CHECK en las cabeceras, bajo bloqueo |
+| I10 | Cabecera = Σ líneas, por cuenta y denominación | vista `v_descuadre_interno` (debe dar 0 filas) en el cierre diario |
+| I11 | Un hecho externo, una versión vigente; versión nueva = reversa + asiento nuevo | único + `post_entry` |
+| I12 | `request_id` repetido con el mismo `request_hash` devuelve el asiento; con otro hash → error `CASHBOOK_REQUEST_REUSED` | único + `post_entry` |
+| I13 | Reversa: única, total, nunca de una reversa, con motivo y autorización | único + `reverse_entry` |
+| I14 | `business_date` = la jornada abierta; jornada cerrada no admite asientos; no se abre hoy sin cerrar ayer | `post_entry` + `business_days` |
+| I15 | Autoriza ≠ registra **por empleado**; una identidad de servicio nunca autoriza; arriba del umbral la autorización es obligatoria | `authorize_request` |
+| I16 | Asiento de persona = empleado nominal vigente; cuentas genéricas bloqueadas | `post_entry` |
+| I17 | Toda diferencia de conteo o cierre crea un hallazgo; un hallazgo se cierra sólo con asiento autorizado o explicación firmada | `close_day` + `findings` |
+| I18 | Conversión de moneda sólo por las cuentas puente, con tipo de cambio, fuente y quién lo fijó | `post_entry` |
+
+### 4.5 Camino único de escritura (B39)
+
+```
+cashbook.post_entry(payload jsonb) RETURNS entries
+  1. exige app.tenant_id y la identidad (usuario + empleado o servicio)
+  2. valida forma: moneda, montos, denominaciones del catálogo, cuentas activas         (B25)
+  3. idempotencia: request_id / event_ref+versión ya registrados → devuelve o rechaza  (I11, I12)
+  4. jornada abierta y fecha valor válida                                              (I14)
+  5. bloquea seq_counters y las cabeceras de las cuentas tocadas EN ORDEN DE id        (B35: sin deadlocks)
+  6. aplica deltas a las cabeceras → los CHECK de no-negativo actúan aquí              (I9)
+  7. asigna seq, encadena hash, inserta asiento + líneas + piezas                       (I7, I8)
+  8. bitácora                                                                           (B21)
+```
+
+Las reglas de **qué** asiento produce cada hecho viven en TypeScript (C1, puras y probadas); la base
+garantiza que **ningún** asiento, venga de donde venga, rompa los invariantes.
+
+### 4.6 Solicitudes y cuatro ojos
+
+```
+pendiente ──autorizar (otro empleado, reautenticado, dentro del plazo)──► autorizada ──► post_entry
+    │ └──rechazar (con motivo)──► rechazada
+    └──vence el plazo (D3)──► vencida
+```
+
+Lo pendiente **no mueve saldo**. Debajo del umbral (D3) y en eventos de bajo riesgo la solicitud se
+autoriza sola por regla, y aun así queda registrada como solicitud.
+
+### 4.7 Concurrencia
+
+Dos cajeros a la vez: ambos bloquean las mismas cabeceras en el mismo orden; el segundo espera al
+primero y ve su saldo. El retiro que dejaría el cajón negativo **falla con error exacto**, nunca
+deja el saldo en negativo. Prueba: 2 conexiones × 200 iteraciones; saldo final = suma esperada;
+cero deadlocks.
+
+### 4.8 Hechos externos (máquina y Kepler)
+
+- **Orden**: la máquina numera sus movimientos (`external_id` contiguo por equipo). Se registran en
+  ese orden. Un hueco detiene el registro de ese equipo en `external_queue` y dispara alerta
+  después de N minutos (D-op).
+- **Nunca se rechazan** (B41): si un hecho sin hueco dejaría la bóveda negativa, el libro está mal
+  (falta algo antes): el hecho va a excepción con **hallazgo crítico**; no se postea a la fuerza ni
+  se pierde.
+- **Cambios** (B42): cada hecho guarda su `event_hash`. Si la fuente lo reescribe, se registra la
+  versión nueva (reversa + asiento) y un hallazgo «la fuente cambió un hecho asentado».
+- **Frescura** (B24): cada lectura del libro dice hasta qué movimiento de cada fuente llegó.
 
 ---
 
-## 3. Las capas
+## 5. Catálogo de movimientos (cada hecho y su asiento)
 
-### C0 · Dato — el libro y sus reglas, en la base
+⚠️ Los efectos de los tipos de CAOS marcados «a medir» **no se adivinan**: LE.0.2 los mide en prod y
+con quien opera la máquina antes de escribir su regla.
 
-| # | Item | Estado | Verificado contra |
-|---|---|---|---|
-| LE.0.0 | **Contención.** `CG.58` apagado por default (`CAOS_INGRESO_CONCILIAR=on` lo enciende) y sin tocar depósitos que el libro explica. Migración `20261027101810`: regla B4 **en la base** (un depósito explicado por el libro no admite reparto; ligarlo retira el reparto) + baja lógica de las dobles (medidas: 162 atribuciones · $1,703,230, todas contra cobros del 21–28 jul). Pruebas: `caos-ingreso-recon.libro-real.spec.ts` y `test-newdb-caja-una-explicacion.js` (5 negativas + 2 mutaciones). **Sin desplegar, migración sin aplicar, pruebas de base sin correr** | 🔨 | la consulta de §1 da 0 después de aplicar |
-| LE.0.1 | **Bolsas** (`finance.cash_bolsas`), con D2: **físicas** = Caja General · pesos (por denominación) · Caja General · dólares (separada: nunca se mezclan monedas en un saldo) · Caja General · documentos (cada cheque o nota de crédito es una pieza con folio) · Bóveda CAOS (billetes en pesos). **De control** = en tránsito (por persona) · por cobrar (por ruta/cobrador) · banco (lo que sale de CAOS al banco) · egresos (por concepto) · faltantes y sobrantes (por persona). Cada física con su **testigo** | ⬜ | D2 ✅ |
-| LE.0.2 | **Asientos**: `finance.cash_asientos` (evento, fecha valor, quién, reversa_de) + `cash_asiento_lineas` (bolsa, monto con signo) + `cash_asiento_piezas` (bolsa, `denom_key`, piezas con signo). `tenant_id` + audit + RLS | ⬜ | — |
-| LE.0.3 | **Invariantes en la base** (cada uno con su prueba que intenta romperlo y su mutación): (1) un asiento suma cero, en monto y por denominación en efectivo — trigger diferido; (2) **sólo se agrega**: sin UPDATE ni DELETE, se corrige con reversa; (3) ninguna bolsa física queda negativa, ni por denominación; (4) **cada evento externo se registra una sola vez** (`evento_ref` único: movimiento CAOS, cobro Kepler, pago); (5) quien registra no autoriza arriba del umbral (D3) | ⬜ | `test-newdb-libro-efectivo.js` en `caja-db` |
-| LE.0.4 | **Saldos derivados**: vista de saldo por bolsa y por denominación a una fecha; nada se materializa | ⬜ | suma de asientos = saldo |
-| LE.0.5 | **Testigo de la máquina**: guardar el conteo de CAOS (`caos_cash_counts`, hoy 0 filas) — sin él la bóveda no tiene testigo | ⬜ | conteo de la máquina = saldo de la bolsa bóveda |
+| # | Hecho | Fuente | Asiento (+ entra / − sale) | Autorización | Testigo |
+|---|---|---|---|---|---|
+| E-01 | Cobranza de ruta reconocida | Kepler | + Por rendir · ruta / − Cobranza reconocida | automática (servicio) | total de cobranza Kepler |
+| E-02 | Depósito en CAOS de una ruta (referencia `ruta NN ddmmyy`) | CAOS tipo Depósito | + Bóveda (piezas) / − Por rendir · ruta | automática si la llave empareja (E-03); si no, a Suspenso | conteo de la máquina |
+| E-03 | Emparejamiento de un depósito en Suspenso | persona o regla por llave | + Suspenso / − Por rendir · ruta | persona: cuatro ojos sobre umbral | — |
+| E-04 | Entrega de efectivo de ruta al cajón | persona, contado por pieza | + Caja · pesos (piezas) / − Por rendir · ruta | registra uno, cuenta otro | arqueo |
+| E-05 | Faltante de ruta al vencer el plazo | regla + persona | + Faltante · vendedor / − Por rendir · ruta | **siempre** cuatro ojos | cierre firmado |
+| E-06 | Sobrante de ruta | persona | + Por rendir · ruta / − Sobrante · vendedor | cuatro ojos | cierre firmado |
+| E-07 | Retiro de CAOS al cajón | CAOS tipo Dispensar + clasificación de persona | + Caja · pesos (piezas) / − Bóveda (piezas) | clasificación sobre umbral: cuatro ojos | conteo de máquina + arqueo |
+| E-08 | Retiro de CAOS en custodia de una persona | CAOS Dispensar + clasificación | + En custodia · empleado / − Bóveda (piezas) | cuatro ojos | rendición |
+| E-09 | Gasto pagado del cajón | persona + comprobante | + Egresos · concepto / − Caja · pesos (piezas) | sobre umbral: cuatro ojos | egreso Kepler / comprobante |
+| E-10 | Gasto pagado desde custodia (rendición) | persona + comprobante | + Egresos · concepto / − En custodia · empleado | cuatro ojos | comprobante |
+| E-11 | Regreso de custodia | persona (cajón) o CAOS (depósito) | + Caja o Bóveda / − En custodia · empleado | registra uno, cuenta otro | arqueo / máquina |
+| E-12 | Custodia vencida sin rendir | regla al vencer D3 | + Faltante · empleado / − En custodia · empleado | cuatro ojos | cierre firmado |
+| E-13 | Depósito del cajón a CAOS | CAOS Depósito + clasificación «del cajón» | + Bóveda / − Caja · pesos (piezas) | — | máquina + arqueo |
+| E-14 | Dotar casetes | CAOS tipo Dotar — **origen a medir** (LE.0.2) | + Bóveda / − (origen medido) | — | máquina |
+| E-15 | Vaciar casetes / envío a banco | CAOS tipo Vaciar Stocks — **destino a medir** | + Valores en tránsito / − Bóveda | — | estado de cuenta |
+| E-16 | Llega el depósito al banco | estado de cuenta (fase CB) | + Banco (fuera del libro) / − Valores en tránsito | automática | estado de cuenta |
+| E-17 | Cambio de billetes (máquina o cajón) | CAOS tipo Cambio / persona | piezas entran y salen, suma 0 (I3) | — | conteos |
+| E-18 | Otros tipos de CAOS (Fin de día, Contenido modificado…) | CAOS — **a medir** | sin efecto, o hallazgo si cambian contenido | — | — |
+| E-19 | Arqueo (conteo ciego) | persona | **no es asiento**: diferencia vs saldo a `upto_seq` → hallazgo | contador ≠ custodio | — |
+| E-20 | Ajuste por arqueo | hallazgo autorizado | + / − Caja contra Faltante o Sobrante · responsable | **siempre** cuatro ojos | arqueo |
+| E-21 | Cobro en dólares | persona | + Caja · USD / − Cambio divisas USD; + Cambio divisas MXN / − Por rendir · ruta (con tipo de cambio) | cuatro ojos | arqueo USD |
+| E-22 | Cheque recibido / depositado / devuelto | persona / estado de cuenta | + Documentos (folio) / − Por rendir; + Tránsito / − Documentos; + Por rendir / − Tránsito | cuatro ojos en devolución | arqueo de documentos / banco |
+| E-23 | Otros ingresos (no ruta) | persona + soporte | + Caja / − Otros ingresos · concepto | cuatro ojos | soporte |
+| E-24 | Pago a proveedor en efectivo | persona (`pago_proveedor`) | + Egresos · proveedor / − Caja | cuatro ojos sobre umbral | X-D-26 de Kepler |
+| E-25 | Cobro o hecho de Kepler cancelado o corregido | Kepler | reversa del asiento + asiento de la versión nueva + hallazgo | automática | Kepler |
+| E-26 | Reversa | persona | espejo exacto del original | **siempre** cuatro ojos | — |
+| E-27 | Apertura | reconstrucción (E3) | + cuentas físicas / − Apertura | PM + segunda firma | conteos de la fecha de apertura |
 
-⛔ Sin importer: los eventos externos se LEEN de sus fuentes (feed de CAOS, `kepler_ods`). Lo que no
-se pueda verificar **se declara**, nunca se dibuja como 0.
+---
 
-### C1 · Dominio — qué asiento produce cada hecho
+## 6. Modelo de amenazas (qué puede salir mal y qué lo para)
 
-| # | Item | Estado | Prueba que lo ejerce |
-|---|---|---|---|
-| LE.1.1 | **Reglas de registro** (puras, en `libs/finance`): retiro CAOS → bóveda a tránsito/cajón; depósito → cajón/tránsito a bóveda; dotar y vaciar; cobro de ruta llega → por cobrar a cajón; gasto → cajón/tránsito a egreso; sobrante → tránsito a cajón/bóveda; faltante → tránsito a faltante con nombre | ⬜ | spec por evento + negativas |
-| LE.1.2 | **Emparejador cobro ↔ efectivo por ruta y fecha** (la referencia del depósito, el grano de `CG.58.6`), nunca por antigüedad. Publica **precisión** con placebo y una muestra revisada a mano, no cobertura | ⬜ | placebo ±días = ~0 aciertos |
-| LE.1.3 | **Reconstrucción del historial** desde el 27-may (primer movimiento de CAOS): cada hecho viejo pasa por las mismas reglas. Lo que no cuadre se lista como hallazgo con monto | ⬜ | saldo reconstruido de la bóveda = conteo de la máquina del 20-oct ($360,020) |
-| LE.1.4 | **Cierre diario**: libro contra testigo en cada bolsa; cada diferencia, un hallazgo con monto, dueño y fecha | ⬜ | un día sembrado con un faltante da exactamente ese hallazgo |
+| Escenario | Control | Prueba |
+|---|---|---|
+| Doble clic / reintento de red registra dos veces | I12 (`request_id`) | doble envío idéntico → 1 asiento; mismo id con otro monto → error |
+| Dos cajeros sacan del mismo cajón a la vez | §4.7 bloqueo de cabecera | 2 conexiones × 200 iteraciones |
+| El feed trae el mismo movimiento dos veces | I11 | reproceso del día → 0 asientos nuevos |
+| Jineteo: el depósito de hoy tapa la ruta de ayer | emparejar por llave (B19) + antigüedad de «por rendir» visible (métrica e) | placebo ±días ≈ 0 aciertos |
+| Cajero registra un gasto falso | cuatro ojos sobre umbral + comprobante + límite diario (B15) | autorizar con el mismo empleado → error |
+| Una persona con dos usuarios se autoriza a sí misma | I15 por **empleado** (B43) | usuario A y B del mismo empleado → error |
+| Esconder un faltante con importe tecleado | I2: sin piezas no hay línea en la caja | línea con monto y sin piezas → error |
+| Esconder un faltante con una reversa | reversa siempre con cuatro ojos y motivo; reporte de reversas | reversa sin autorizar → error |
+| Borrar o editar un asiento desde la base | I6 + I8 + `ddl_audit` | UPDATE como app y como dueño → error; alterar un byte → `verify_chain` lo marca |
+| Fechar hacia atrás un movimiento | I14 jornada cerrada | asiento con fecha de jornada cerrada → error |
+| Reloj del navegador o del servidor de app mal | `recorded_at` lo pone la base | payload con fecha de registro → se ignora |
+| Redondeo por `float` | `bigint` centavos (B6) | 0.1 + 0.2, 1,234,567.89 × 3 |
+| CAOS reescribe un movimiento ya asentado | B42 `event_hash` | cambiar el hash en sombra → reversa + hallazgo |
+| Feed atrasado o caído | B24 frescura + alerta (B36) | latido viejo → cierre dice NO MEDIDO |
+| Hueco en la numeración de la máquina | B41 cola + alerta | omitir un `external_id` → espera + alerta |
+| Token robado autoriza | reautenticación al autorizar (B27) | autorizar sin paso extra → 401 |
+| Escalada: alguien se da el permiso de autorizar | bitácora de permisos + alerta en cambios a permisos de caja | dar el permiso → alerta |
+| Proceso automático «autoriza» | I15 | servicio autoriza → error |
+| Restauración de respaldo deja el libro inconsistente | `verify_chain` + I10 tras restaurar (B38) | simulacro trimestral |
+| Migración toma candados en horario | B33 fuera de horario + `lock_timeout` | runbook |
+| Suspenso usado como «cajón de sastre» | B46: Suspenso ≠ 0 al cierre = hallazgo con antigüedad | cierre con Suspenso → hallazgo |
+| Credencial de la máquina expuesta | B26 rotación + inventario privado | LE.0.1 |
 
-### C2 · API
+---
 
-| # | Item | Estado | ¿Escribe? | Prueba contra base real |
+## 7. Las etapas
+
+### E0 · Contención y línea base — capa C0, casi todo sólo lectura
+
+**Objetivo**: que deje de nacer dinero doble hoy, y saber con exactitud de qué se parte.
+**Entregables**: LE.0.0 en prod con antes/después; catálogo de tipos de CAOS medido; inventario de
+escritores; script de métricas; secretos rotados.
+
+| # | Paso | Reglas | Estado | Verificación |
 |---|---|---|---|---|
-| LE.2.1 | Registrar un hecho (captura de gasto/ingreso, clasificación de un retiro, rendición de cuentas) → asiento | ⬜ | sí | servicio real con el payload de la pantalla actual |
-| LE.2.2 | Corte y arqueo **sobre saldos**: el esperado es el saldo de la bolsa, no una fórmula; doble llave obligatoria | ⬜ | sí | servicio real |
-| LE.2.3 | Lectura: saldo por bolsa y denominación, a cargo de cada persona, cierre diario y hallazgos | ⬜ | no | <500 ms |
-| LE.2.4 | **Operación en paralelo**: el libro viejo sigue operando; el nuevo se alimenta de los mismos hechos y se compara cada día. Se cambia cuando 10 cierres seguidos den cero diferencias sin explicar | ⬜ | — | — |
+| LE.0.0 | **Contención de `CG.58`** (en código, sin desplegar): reparto apagado por default; migración `20261027101810` con la regla B4 en la base y baja lógica de 162 atribuciones · $1,703,230 | B4 | 🔨 | la consulta de §3 da 0 después de aplicar |
+| LE.0.0a | **Corregir la carrera** de LE.0.0: los tres caminos que explican un movimiento (atribución, enlace, captura `origen_tipo='caos'`) toman **el mismo** candado por movimiento que ya usaban el enlace y la custodia (`hashtextextended(tenant\|device\|external_id, 50)`, de `[CGA-A.50]`). Migración `20261027105608` | B35 | 🧪 | `test-newdb-caja-una-explicacion.js` §7, 2 conexiones × 4 órdenes. **Rojo visto** sin la corrección (4 de 4 casos con «repartos vivos: 1») y **verde** con ella (21 ✓ / 0 ✗), base local armada desde cero con `preparar-base-caja.js`; `up` ×2 (idempotente) y `down`→`up` (reversible) |
+| LE.0.0b | ~~Silencio por RLS~~ **DESCARTADO con evidencia**: las tres tablas tienen la misma política `tenant_isolation` con `USING` **y** `WITH CHECK`; quien puede insertar la atribución ve las filas del libro. La sospecha de la revisión era falsa | B4 | ✅ | lectura de `20261007330000`, `20260925170000`, `20260918150000` |
+| LE.0.0c | El trigger de `cash_ledger` también en `UPDATE OF origen_tipo, origen_ref, estado, deleted_at`; el de enlaces también en cambio de movimiento o de captura (misma migración) | B4 | 🧪 | §6 + mutación (con el trigger sólo en INSERT la doble queda viva) |
+| LE.0.0e | **`finance.caos_denom_valor()` rota en prod** desde el 26-oct 12:37 (`[CGA-A.55]`): knex convirtió los `?` de la regex en `$1`/`$2`, devuelve NULL para toda denominación y la regla rechaza **todo** enlace con billetes. Dormido (0 de 121 enlaces traen billetes: la pantalla aún no los manda), pero tiene **rojo el job `caja-db` de `main`** (custodia 19 ✓ / 2 ✗). Migración `20261027110325` con autocomprobación de las 12 llaves del catálogo | B25 | 🧪 | custodia 28 ✓ / 0 ✗; las 5 suites del job: 151 ✓ / 0 ✗ / 4 NO MEDIDO (previos) |
+| LE.0.0d | Aplicar en prod, en orden y fuera de horario: `20261027101810` → `20261027105608` → `20261027110325`; desplegar el código con `CG.58` apagado | B33 | ⬜ | métrica (a) = 0. Medido hoy: 1,766 atribuciones vivas; **la última creada el 26-oct 17:05** (el reparto ya no escribe desde entonces) |
+| LE.0.1 | **Secretos**: rotar la credencial de la máquina, quitar usuarios genéricos donde se pueda, cifrado en tránsito; todo en el inventario privado. ⚠️ El detalle ya quedó en el historial de git del repo público: **la rotación es el arreglo, no borrar el texto** | B12, B26 | ⬜ | la credencial anterior ya no entra |
+| LE.0.2 | **Catálogo de tipos de CAOS medido** (ver «Resultados de E0»). Falta lo que el dato no dice: **de dónde viene el efectivo de Dotar y a dónde va el de Vaciar Stocks**, y qué es «Contenido Modificado»: se confirma con quien opera la máquina | B29, regla 10 | 🔨 | Σ efectos = conteo de la máquina en 2 fechas |
+| LE.0.3 | **Inventario de escritores** (ver «Resultados de E0») | B29 | 🧪 | falta la revisión por otra persona |
+| LE.0.4 | **Congelar lo viejo**: ninguna funcionalidad nueva sobre las tablas viejas de caja mientras dure la fase; ningún escritor nuevo | B29 | ⬜ | revisión de PR (D12) |
+| LE.0.5 | **Script de métricas** (a)–(e) en `database/scripts/`, sólo lectura, reproducible; línea base publicada | regla 15 | ⬜ | dos corridas seguidas dan lo mismo |
+| LE.0.6 | **Huecos y reescrituras del feed** (ver «Resultados de E0») | B41, B42 | ✅ | 0 huecos, 0 reescrituras al 2026-10-27 |
 
----
+**Criterio de salida**: (a) = 0 en prod, catálogo de CAOS firmado por quien opera la máquina,
+inventario revisado, línea base publicada, credencial rotada.
+**Reversa**: la migración no revive atribuciones (`down` quita reglas); `CAOS_INGRESO_CONCILIAR=on`
+reenciende el reparto si hiciera falta.
 
-## 4. Decisiones (→ ADR)
+#### Resultados de E0 (medidos en `pg-prod`, sólo lectura, `7688376744939610156`, 2026-10-27 11:02)
 
-| # | Decisión | ADR | Fecha |
+**LE.0.2 — tipos de movimiento de la máquina** (un solo equipo, `AST700-19758`):
+
+| type_id | Tipo | Movs | Total | Desde → hasta | Con desglose | Σ desglose | Quién |
+|---:|---|---:|---:|---|---:|---:|---|
+| 0 | Depósito | 827 | $20,476,940 | 27-may → 26-oct | 827 | = total | usuario compartido de vendedores 613 ($13.31 M) · cajera 168 · 2 personas más 46 |
+| 4 | Dispensar | 418 | $20,182,510 | 27-may → 27-oct | 418 | = total | cajera 343 (82 %) · otra persona 75 |
+| 8 | Dotar | 16 | $1,701,890 | 17-jun → 15-oct | 16 | = total | sólo la cajera |
+| 5 | Vaciar Stocks | 13 | $2,915,150 | 17-jun → 15-oct | 13 | **$3,001,350 (≠ total: $86,200 de diferencia)** | sólo la cajera |
+| 7 | Cambio | 5 | $0 | 21-ago → 26-oct | 5 | $0 | sólo la cajera |
+| 2 | Fin de Día | 1 | $279,110 | 15-oct | 1 | = total | sólo la cajera |
+| 13 | Contenido Modificado | 3 | −$25,420 | 8-sep → 30-sep | **0** | — | usuario del sistema de la máquina |
+
+- Dotar, Vaciar Stocks, Cambio y Fin de Día los hace **una sola persona**: B9 hoy no se cumple
+  tampoco en la máquina.
+- «Vaciar Stocks» declara un total distinto de su propio desglose (ya conocido: el #1478 dice $20 y
+  desglosa $86,220). La regla de E2 no puede elegir cuál vale sin confirmarlo con la máquina.
+- «Contenido Modificado» cambia el contenido **sin desglose y con un usuario del sistema**: en el
+  libro nuevo es un hallazgo, nunca un asiento automático (E-18).
+
+**LE.0.6 — el feed**: `external_id` 449 → 1,731, 1,283 movimientos, **0 huecos**, **0 reescritos**
+(`updated_at` > `created_at` + 1 min). Último movimiento 10:16. ⚠️ Los movimientos anteriores al
+449 no están en el feed: la reconstrucción (LE.3.4) arranca en el 449 y lo declara.
+
+**LE.0.3 — inventario de escritores** (barrido de código, 2026-10-27; falta la revisión por otra persona):
+
+| Objeto | Quién escribe |
+|---|---|
+| `cash_ledger` | alta (`POST /finance/cash-ledger`, `/lote`), cierre de corte, reclasificar, cancelar, el escáner de fecha futura (cron 07:15, `ENABLE_CAJA_FECHA_SCAN`), el autollenado por aviso de Postgres (`ENABLE_CAJA_AUTOLLENADO`, **apagado** en el worker) y un SQL a mano (`ops/prod/paso-a-mano/CGA-A24`) |
+| `cash_ledger_denominations`, `_sequences` | el alta (y la apertura de corte para el folio) |
+| `cash_ledger_cuts`, `_cut_denominations` | abrir, contar, recontar, cerrar, observar, responder, autorizar; el desglose se **borra y reinserta** por momento |
+| `caos_cash_links` | sólo el alta del libro (+ SQL a mano CGA-A24) |
+| `caos_ingreso_atribucion` | `CG.58` (cron :05 cada hora, `CAOS_INGRESO_CONCILIAR`, apagado por default) y el trigger de LE.0.0 |
+| `caos_deposito_grano` | el mismo cron, **sin interruptor propio** (corre aunque el reparto esté apagado) |
+| `caos_retiro_custodia` | clasificar y cerrar custodia |
+| `cash_arqueos`, `caos_conteos_fisicos` | sólo INSERT (la base bloquea UPDATE/DELETE) |
+| `analytics.caos_cash_movements`, `_denominations` | el feed `caos-live` (k3s, cada 1 s; UPSERT por `_row_hash`; el desglose se borra y reinserta) |
+| `analytics.caos_cash_counts` | el mismo feed (`capturarConteo`, cada 300 s) — ⛔ **pero en prod tiene 0 filas**: el escritor existe y nunca dejó nada. Es el punto de partida de LE.3.1 |
+| `cash_ledger_cut_custody`, `_cut_vouchers`, `_route_links` | **nadie** |
+
+Fuera de la lista, los mismos servicios escriben `cash_ledger_llaves` y `cash_ledger_reclasificaciones`:
+entran al alcance del reemplazo.
+
+**Hallazgos de la prueba, fuera de LE pero en su camino** (deuda con nombre):
+- El paso «Servicio real del corte» del job `caja-db` está rojo en `main` por causas del armado de
+  la base **en el CI** (`permission denied for schema identity`, `identity.users` ausente al
+  sembrar). En la base local armada con el mismo script, `cash-cut.servicio-real` pasa 23/23.
+- `caos-ingreso-recon.libro-real.spec.ts` (de LE.0.0) **no puede correr** en `caja-db`: lee
+  `finance.v_caja_movimientos_pendientes`, que cuelga de la cadena de vistas materializadas de
+  Kepler. NO MEDIDO; se retira con `CG.58` en LE.7.3.
+- ⚠️ El `.env` local define `DATABASE_URL_NEW_RUNTIME` contra **prod**, y el guardián de las pruebas lee
+  esa variable primero: correr una prueba con sólo `DATABASE_URL_NEW` local **aborta** (bien). Para
+  la base local hay que fijar las dos.
+
+### E1 · Fundación del libro — capa C0
+
+**Objetivo**: un libro vacío en el que **es imposible** escribir algo que rompa un invariante.
+**Entregables**: ADR-102 y ADR-103; esquema `cashbook` con roles, tablas, funciones e invariantes;
+suite de pruebas en `caja-db`. Ninguna consumidora todavía.
+
+| # | Paso | Reglas | Estado | Verificación |
+|---|---|---|---|---|
+| LE.1.1 | **ADR-102** (partida doble como modelo del efectivo; refina ADR-101) y **ADR-103** (esquema propio, función única de escritura, centavos `bigint`, cadena de hashes) | D4, D9, D10 | ⬜ | firmados por el PM |
+| LE.1.2 | Esquema `cashbook`, rol `cashbook_owner`, privilegios de `app_runtime` (sólo EXECUTE/SELECT), event trigger de DDL | B2, B21, B39 | ⬜ | INSERT directo como `app_runtime` → `permission denied` |
+| LE.1.3 | `accounts` + `account_balances` + `account_denom_balances` con los CHECK de no-negativo; siembra del plan de cuentas §4.2 | B8 | ⬜ | cabecera negativa → error |
+| LE.1.4 | `entries` + `entry_lines` + `entry_pieces` + `seq_counters` con únicos y trigger de inmutabilidad | B1, B2, B3, B40 | ⬜ | UPDATE/DELETE como dueño → error |
+| LE.1.5 | `business_days` con la máquina de estados y candado de jornada cerrada | B7, B20 | ⬜ | asiento a jornada cerrada → error |
+| LE.1.6 | **`post_entry`** (§4.5) con I1–I5, I7–I9, I11, I12, I14, I16, I18 | B1–B8, B35, B39 | ⬜ | una prueba negativa por invariante |
+| LE.1.7 | `reverse_entry` con I13 | B2, B10 | ⬜ | reversa doble / de reversa / parcial → error |
+| LE.1.8 | `requests` + `authorize_request` / `reject_request` / vencimiento, con I15 por empleado | B9, B10, B14, B43, B45 | ⬜ | mismo empleado, servicio, vencida → error |
+| LE.1.9 | `counts` + `count_pieces` + `findings` + `external_queue` | B11, B17, B18, B41 | ⬜ | — |
+| LE.1.10 | Vistas: saldo por cuenta y denominación a una `seq` o fecha, mayor, `v_descuadre_interno` | B5, I10 | ⬜ | suma de líneas = cabecera en 10k asientos sintéticos |
+| LE.1.11 | `verify_chain(desde, hasta)` | B2 | ⬜ | alterar un byte por fuera → la marca |
+| LE.1.12 | **Suite `test-newdb-cashbook-*.js`** en `caja-db`: cada invariante con negativa **y** mutación (se quita el control y la prueba se pone roja); concurrencia (2 conexiones × 200); deadlock; privilegios; **rendimiento** (500k líneas: `post_entry` p95 < 20 ms, saldo < 50 ms) | B31, B35 | ⬜ | rojo visto una vez por invariante, anotado en §13 |
+| LE.1.13 | Aplicar en prod **inerte** (sin escritores), fuera de horario | B33 | ⬜ | `/api/health` + esquema presente, 0 filas |
+
+**Criterio de salida**: todas las pruebas verdes en CI con su rojo documentado; esquema en prod
+vacío; ADRs firmados.
+**Reversa**: el esquema es nuevo y nadie lo usa: `down` lo quita entero sin tocar nada viejo.
+
+### E2 · Reglas de registro — capa C1
+
+**Objetivo**: cada hecho del catálogo (§5) produce exactamente un asiento correcto, en código puro y
+probado.
+**Entregables**: `libs/finance/src/lib/cashbook/` (reglas puras), primitivo de dinero en `libs/`,
+contratos tipados en `libs/contracts`, emparejador con precisión publicada.
+
+| # | Paso | Reglas | Estado | Verificación |
+|---|---|---|---|---|
+| LE.2.1 | **Primitivo `Money`** (centavos `bigint`, moneda, un solo redondeo) en `libs/` compartido. Hoy no existe: el cálculo a centavos está repetido en ≥ 10 archivos de `libs/commercial` (ADR-056) | B6, regla 16 | ⬜ | pruebas con montos que el float redondea mal |
+| LE.2.2 | **Catálogo de eventos tipado** E-01…E-27 en `libs/contracts`, con versión | B25 | ⬜ | `Build & typecheck` |
+| LE.2.3 | **Reglas puras evento → asiento**, versionadas (`rule_version`), una spec por evento + negativas (monto 0, negativo, moneda mezclada, denominación fuera de catálogo, cuenta inexistente) | B1, B22 | ⬜ | spec por evento |
+| LE.2.4 | **Identidad y versión de hechos externos**: forma canónica de `event_ref` por fuente y `event_hash`; cambio → reversa + nuevo (E-25) | B3, B42 | ⬜ | hecho modificado en la prueba → 2 asientos + hallazgo |
+| LE.2.5 | **Emparejador por llave** (ruta + fecha + monto) con niveles de confianza; lo dudoso a revisión. **Precisión** con placebo (±días) y muestra de 50 revisada a mano | B19 | ⬜ | placebo ≈ 0 aciertos; precisión publicada |
+| LE.2.6 | **Matriz de autorización como dato versionado**: evento × umbral (D3) × límite por persona y día (D14) × rol | B10, B15 | ⬜ | prueba por fila de la matriz |
+| LE.2.7 | **Propiedad «suma cero»**: generador de 10k hechos aleatorios válidos → todo asiento suma 0 por moneda y por denominación | B1, B31 | ⬜ | prueba por propiedades |
+
+**Criterio de salida**: cada evento del catálogo con regla y prueba; ningún tipo de CAOS «a medir»
+sin resolver; precisión del emparejador publicada.
+**Reversa**: código sin consumidores; se revierte el commit.
+
+### E3 · Testigos y reconstrucción — capas C0 + C1
+
+**Objetivo**: cada cuenta física con su testigo guardado, y la historia desde el 27-may pasada por
+las mismas reglas, con lo que no cuadre declarado por monto.
+**Entregables**: conteo de la máquina guardándose; lectores de testigos con frescura; informe de
+reconstrucción; asiento de apertura; historia cargada.
+
+| # | Paso | Reglas | Estado | Verificación |
+|---|---|---|---|---|
+| LE.3.1 | **Guardar el conteo de la máquina** (`caos_cash_counts`, hoy 0 filas) con latido en `cron_runs` | B17 | ⬜ | conteo guardado = pantalla de la máquina en 3 lecturas |
+| LE.3.2 | **Lectores de testigos** con frescura: máquina, estado de cuenta (fase CB), cobranza y egresos de Kepler (vistas sobre `kepler_ods`), arqueos | B17, B24 | ⬜ | fuente atrasada → NO MEDIDO |
+| LE.3.3 | **Detector de huecos y reescrituras** del feed → `external_queue` + hallazgos | B41, B42 | ⬜ | hueco sembrado → alerta |
+| LE.3.4 | **Reconstrucción en seco**: script de sólo lectura contra prod que pasa cada hecho desde el 27-may por las reglas de E2 y produce un informe (no escribe) | B31, B32 | ⬜ | **bóveda reconstruida al 20-oct = conteo de la máquina ($360,020)** y contra cada conteo disponible |
+| LE.3.5 | **Decisión de apertura** (D11): reconstruir todo desde el 27-may o abrir con un conteo físico completo en una fecha y declarar lo anterior | B18 | ⬜ | firmada por el PM |
+| LE.3.6 | **Cargar la historia aceptada** al libro real: fuera de horario, idempotente por `event_ref`, con asiento de apertura y cada diferencia como hallazgo con dueño | B18, B33 | ⬜ | saldos = testigos o diferencia en hallazgos |
+
+**Criterio de salida**: libro real con historia; cada cuenta física igual a su testigo o con la
+diferencia como hallazgo con dueño y monto; Suspenso explicado.
+**Reversa**: los asientos de carga se revierten con asientos de reversa (nunca DELETE), marcados con
+su lote.
+
+### E4 · API — capa C2
+
+**Objetivo**: que una persona y un proceso puedan registrar, autorizar, contar, cerrar y consultar
+sólo por la API, con todos los controles.
+**Entregables**: controladores en `libs/finance` sobre las funciones de la base; permisos por acción
+repartidos; pruebas contra base real con el payload de la pantalla.
+
+| # | Paso | Reglas | Estado | Verificación |
+|---|---|---|---|---|
+| LE.4.1 | **Permisos por acción**: `caja.libro.ver`, `.registrar`, `.autorizar`, `.revertir`, `.contar`, `.conciliar`, `.cerrar_jornada`; repartidos (regla 20); `MATRIZ_ACCESOS.md` regenerada | B13 | ⬜ | matriz firmada |
+| LE.4.2 | **Reautenticación al autorizar, revertir y cerrar** (clave u OTP, D-sec) | B27 | ⬜ | sin el paso → 401 |
+| LE.4.3 | Escritura: crear solicitud, autorizar, rechazar, revertir, registrar conteo, cerrar jornada, resolver hallazgo. Encabezado `Idempotency-Key` obligatorio | B3, B9–B11 | ⬜ | cada uno ejercido contra base real con el payload de la pantalla |
+| LE.4.4 | **Trabajador de hechos externos** con identidad de servicio: lee CAOS y Kepler, registra por `post_entry` en orden, nunca autoriza | B14, B41 | ⬜ | reproceso del día → 0 nuevos |
+| LE.4.5 | Lectura: saldos, mayor, por rendir con antigüedad, custodias, hallazgos, cierre diario; con frescura, `seq` y `rule_version` | B22, B24 | ⬜ | p95 < 500 ms medido con la consulta real |
+| LE.4.6 | **Arqueo ciego por construcción**: el endpoint de quien cuenta no devuelve el esperado; el esperado aparece después de guardar el conteo y sólo para quien concilia | B11 | ⬜ | respuesta del contador sin esperado (prueba de forma) |
+| LE.4.7 | Pruebas de API: doble envío, dos cajeros, autorización por el mismo empleado, token sin reautenticación, fecha de jornada cerrada — cada una con su error exacto | B31 | ⬜ | suite en `caja-db` |
+| LE.4.8 | Alerta en cada cambio a permisos de caja | B21 | ⬜ | dar el permiso → alerta |
+
+**Criterio de salida**: todo endpoint que escribe ejercido contra base real; matriz de accesos
+firmada; arranque verificado (`design:paramtypes`, punto 30 del protocolo).
+**Reversa**: endpoints nuevos detrás de permiso; quitar el permiso los apaga.
+
+### E5 · Operación en sombra — operación sobre C0–C2
+
+**Objetivo**: el libro nuevo vive los mismos días que el viejo y demuestra cuadrar **contra los
+testigos**.
+**Entregables**: cierre diario automático; alertas; informe de diferencias contra el libro viejo,
+cada una explicada.
+
+| # | Paso | Reglas | Estado | Verificación |
+|---|---|---|---|---|
+| LE.5.1 | **Alimentar el libro nuevo** con los hechos del día: externos por el trabajador (LE.4.4); humanos leyendo `cash_ledger` (la captura de la pantalla actual) y pasándolos por las mismas reglas, sin doble captura | B34 | ⬜ | cada captura del día con su asiento o su motivo |
+| LE.5.2 | **Cierre diario** contra testigos con alertas a un responsable con nombre | B17, B36 | ⬜ | día sembrado con faltante → exactamente ese hallazgo |
+| LE.5.3 | **Diferencias contra el libro viejo**: cada una catalogada («el viejo dobla», «el viejo cruza jornadas», …). ⛔ El criterio de cambio **no** es «igual al viejo»: el viejo está mal por diseño | B34, B37 | ⬜ | informe diario |
+| LE.5.4 | Al menos 2 **arqueos sorpresa** por un tercero durante la sombra | B11 | ⬜ | registro del arqueo |
+| LE.5.5 | **Simulacro de restauración**: restaurar el respaldo en base de prueba, `verify_chain` + `v_descuadre_interno` | B38 | ⬜ | ambos limpios |
+
+**Criterio de salida**: **10 cierres hábiles seguidos con cero diferencias sin explicar contra los
+testigos**; toda diferencia contra el viejo explicada; simulacro limpio; firma del PM.
+**Reversa**: la sombra no toca la operación; se apaga el trabajador.
+
+### E6 · Interfaz — capa C3 (no arranca antes de 5 cierres limpios en E5)
+
+**Objetivo**: que la operación diaria se haga en pantallas que no pueden afirmar lo que no es.
+**Entregables**: observaciones de diseño al plan (`auditoria-diseno` §9) **antes** del primer
+archivo; pantallas sobre la API de E4.
+
+| # | Paso | Estado | Verificación |
 |---|---|---|---|
-| D1 | **LE reemplaza a CGA**: CGA pasa a ⏸️ y sus items A.50–A.57 se absorben aquí. ⚠️ Aun así quedan 5 fases 🔨 (AB, RH, PQ, FC, LE) contra el tope de 4 del método: FC la abrió el PM el 26-oct | firmada por el PM | 2026-10-27 |
-| D2 | **Una sola caja física**: la Caja General de Oficinas, con poco efectivo en pesos, **dólares** y **documentos** (notas de crédito y cheques — así se entendió «no tas de crédito o cheques»; a confirmar). **La mayor parte del dinero vive en CAOS.** Ver LE.0.1 | firmada por el PM | 2026-10-27 |
-| D3 | **Plazo** para rendir lo que está en tránsito y **umbral** de doble autorización | pendiente | — |
-| D4 | **Partida doble como modelo del efectivo** (refina ADR-101: la custodia es una bolsa, los enlaces son asientos) | ADR-102 al abrir | — |
-| D5 | Destino de las tablas `*_snapshot_bak` (regla 2) | pendiente | — |
+| LE.6.0 | Observaciones de diseño al plan; sus 🔴 se vuelven items aquí | ⬜ | sección agregada a este doc |
+| LE.6.1 | Captura (crea solicitud; piezas obligatorias en la caja) | ⬜ | `check:pantalla` antes → después |
+| LE.6.2 | Bandeja de autorización (con reautenticación) | ⬜ | ídem |
+| LE.6.3 | Arqueo ciego y sorpresa | ⬜ | ídem; sin esperado visible |
+| LE.6.4 | Cierre de jornada (por cuenta, testigo, diferencia, hallazgo) | ⬜ | ídem |
+| LE.6.5 | Por rendir y custodias con antigüedad y nombre | ⬜ | ídem |
+| LE.6.6 | Hallazgos y mayor (todo total desglosable hasta el asiento) | ⬜ | ídem; < 500 ms |
+
+### E7 · Cambio y retiro — operación
+
+**Objetivo**: el libro nuevo es el oficial y lo viejo queda como evidencia congelada.
+
+| # | Paso | Estado | Verificación |
+|---|---|---|---|
+| LE.7.1 | **Plan de reversa escrito y ensayado** en base de prueba | ⬜ | ensayo documentado |
+| LE.7.2 | Día de cambio: la jornada X abre en el libro nuevo; pantallas viejas en sólo consulta; `app_runtime` sin INSERT/UPDATE en las tablas viejas de caja | ⬜ | intento de escritura vieja → error |
+| LE.7.3 | Retirar el código de `CG.58`, custodia y enlaces; vistas que otras pantallas leían redirigidas al libro (inventario LE.0.3) | ⬜ | `grep` sin consumidores |
+| LE.7.4 | Remedir (a)–(e); DoD; tracker, log, ADRs, `CLAUDE.md` | ⬜ | antes/después publicado |
+
+### Controles de organización (corren en paralelo, sin código — dueño: PM / Dirección)
+
+| # | Control | Por qué no lo resuelve el código |
+|---|---|---|
+| LE.X.1 | Usuarios nominales en la máquina (un usuario por vendedor) | es configuración del equipo y del proveedor |
+| LE.X.2 | Nombrar la **segunda persona** que autoriza y la tercera que arquea (D6) | sin gente, B9 y B10 no tienen con quién cumplirse |
+| LE.X.3 | Calendario de arqueos sorpresa (D13) | decisión de Dirección |
+| LE.X.4 | Revisión trimestral de accesos firmada | decisión de Dirección |
+| LE.X.5 | Protección de rama con revisión obligatoria para el código de caja (D12) | hoy el admin la evita (`enforce_admins: false`) |
 
 ---
 
-## 5. Riesgos y bloqueos
+## 8. Qué NO incluye
+
+- **Contabilidad.** ContPAQi sigue siendo el SoR contable (ADR-040). Éste es el libro **operativo**
+  del efectivo físico; no emite pólizas.
+- **Escribir en Kepler ni en la máquina.** Ambos sólo se leen (B24); dispensar desde el sistema
+  queda fuera (B28).
+- **Las cajas de las sucursales** (`analytics.cash_cuts`, Wincaja). Sólo la Caja General de Oficinas.
+- **El banco por dentro**: el libro llega hasta «valores en tránsito»; la conciliación bancaria es
+  la fase CB.
+- **Borrar** tablas viejas, ni las `*_bak` (D5).
+
+---
+
+## 9. Decisiones (→ ADR)
+
+| # | Decisión | Recomendación | Estado |
+|---|---|---|---|
+| D1 | LE reemplaza a CGA (A.50–A.57 absorbidos). ⚠️ Quedan 5 fases 🔨 contra el tope de 4 | — | ✅ firmada 2026-10-27 |
+| D2 | Una sola caja física: pesos, **dólares** y **documentos**; el grueso en CAOS | — | ✅ firmada 2026-10-27 |
+| D3 | **Plazo** para rendir lo que está por rendir o en custodia, y **umbral** de cuatro ojos | — | ✅ **plazo: NO hay** (PM, 2026-10-27: *«no podemos poner un plazo para rendir el dinero si el sistema anterior tenía fallas»*). Ningún saldo pasa solo a faltante: el faltante nace **sólo** de una decisión de persona con cuatro ojos (E-05, E-12 sin disparo automático). La antigüedad se publica (métrica e) pero no castiga. **Umbral: pendiente** |
+| D4 | Partida doble como modelo del efectivo (refina ADR-101) | ADR-102 | ⬜ |
+| D5 | Destino de las `*_snapshot_bak` | fuera de esta fase | ⬜ |
+| D6 | **Quién autoriza** (segunda persona) y **quién arquea** (tercera, sorpresa) | — | ✅ **autorizan `mariaz` y Luis Francisco López (superusuario)** (PM, 2026-10-27). ⚠️ El superusuario **no** se salta I15: autoriza como cualquier empleado y nunca lo suyo. **Quién arquea: pendiente** |
+| D7 | ¿La **nota de crédito** entra a este libro? | — | ✅ **no entra** (PM, 2026-10-27): se considera en la revisión (conciliación), no como pieza de la caja. La cuenta «Caja General · documentos» queda sólo para cheques |
+| D8 | Cómo se cierra un **faltante** a nombre de un empleado (descuento de nómina —topado por el art. 110 de la LFT— o cuenta por cobrar al empleado en RH) | con RH, antes de E4 | ⬜ |
+| D9 | Dinero en la base como **centavos `bigint`** (las vistas lo exponen en pesos) | sí | ✅ PM, 2026-10-27 |
+| D10 | Esquema propio `cashbook` con dueño aparte y **función única de escritura** | sí | ✅ PM, 2026-10-27 |
+| D11 | **Apertura**: reconstruir desde el 27-may o abrir con un conteo físico completo y declarar lo anterior | decidir con el informe de LE.3.4 | ✅ el método (se decide con el informe); la fecha, pendiente |
+| D12 | Revisión obligatoria por otra persona para el código de caja (`enforce_admins` en esas rutas) | sí | ✅ PM, 2026-10-27 (falta configurarla: LE.X.5) |
+| D13 | Frecuencia del arqueo sorpresa | al menos 2 al mes | ✅ PM, 2026-10-27 |
+| D14 | Límites por persona y por día (registrar y autorizar) | con el umbral de D3 | ⬜ |
+
+---
+
+## 10. Riesgos y bloqueos
 
 | Bloqueo | Dueño | Causa | Qué lo destraba |
 |---|---|---|---|
-| `CG.58` sigue escribiendo atribuciones FIFO cada hora | Edgar | no tiene interruptor | LE.0.0 desplegado |
-| Baja de las 86 atribuciones dobles | Edgar | escritura en prod | autorización del script de LE.0.0 |
-| La bóveda no tiene testigo guardado | — | `caos_cash_counts` en 0 filas | LE.0.5 |
-| Los gastos que sólo están en Kepler (no en el libro) no se pueden registrar como asientos con detalle | — | el libro de la suite empieza el 25-sep | LE.1.3 los declara por mes, con monto |
-| `caja-db` (la base de prueba del CI) | — | ya se arma de nuevo (`fe3d46e88`) | — |
+| `CG.58` sigue escribiendo atribuciones FIFO cada hora | Edgar | LE.0.0 sin desplegar | LE.0.0a–d |
+| Credencial de la máquina expuesta (historial público) | Edgar | B26 | LE.0.1 |
+| La bóveda no tiene testigo guardado | Edgar | `caos_cash_counts` en 0 filas | LE.3.1 |
+| Segregación imposible con una sola persona en caja | PM / Dirección | plantilla | D6 |
+| Tipos de CAOS con efecto desconocido (Dotar, Vaciar, Contenido modificado) | Edgar + operador de la máquina | nunca se midió de dónde viene y a dónde va | LE.0.2 |
+| Gastos que sólo están en Kepler antes del 25-sep | Edgar | el libro de la suite empieza ese día | D11 + LE.3.4 los declara por mes, con monto |
+| Cupo de fases (5 🔨 contra 4) | PM | FC abierta el 26-oct | decisión del PM en el tablero |
 
 ---
 
-## 6. Definición de Terminado
+## 11. Métricas: cómo se miden
 
-- [ ] 1. Métricas (a), (b), (c) **remedidas**, antes/después publicado
+Todas con el script de LE.0.5, sólo lectura, contra `pg-prod` verificado por `system_identifier`:
+(a) depósitos con más de una explicación viva; (b) cortes con esperado negativo o piernas cruzadas
+de más de $100k; (c) % de cortes y movimientos sobre umbral con `authorized_by` ≠ `created_by` por
+empleado; (d) diferencias sin hallazgo explicado en el cierre diario; (e) saldo de «por rendir» y
+«en custodia» con antigüedad > 1 día hábil, por persona. Cada corrida publica fecha, fuente y
+frescura.
+
+---
+
+## 12. Definición de Terminado
+
+- [ ] 1. Métricas (a)–(e) **remedidas**, antes/después publicado
 - [ ] 2. Cada capa verificada **o declarada NO MEDIDA** (ADR-056)
 - [ ] 3. Todo endpoint que escribe **ejercido contra base real** con el payload de la pantalla
-- [ ] 4. Cada invariante de LE.0.3 **roto a propósito una vez**, rojo verificado
-- [ ] 5. Todo primitivo genérico en `libs/` compartido **o** deuda con nombre en el tracker
+- [ ] 4. Cada invariante I1–I18 **roto a propósito una vez**, rojo verificado y anotado
+- [ ] 5. `Money` y el libro en `libs/` compartido, **o** deuda con nombre en el tracker
 - [ ] 6. Tracker + `03_LOG_REVISIONES.md` + roadmap de `CLAUDE.md` al día
-- [ ] 7. **En prod**, o escrito por qué no y qué falta
+- [ ] 7. **En prod** (E7 cerrada), o escrito por qué no y qué falta
 
 ---
 
-## 7. Bitácora
+## 13. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
-| 2026-10-27 | Plan escrito con la medición de §1, el inventario de §1.2 y las 38 reglas de banco de §0 | Claude, por pedido del PM |
-| 2026-10-27 | PM firma D1 (LE reemplaza a CGA) y D2 (una caja física: pesos, dólares y documentos; el grueso en CAOS) y da el caso diario de §1.0. LE.0.0 en código (sin desplegar) | PM + Claude |
+| 2026-10-27 | Plan v1: medición, inventario de 71 objetos y 38 reglas de banco | Claude, por pedido del PM |
+| 2026-10-27 | PM firma D1 y D2 y da el caso diario. LE.0.0 en código (sin desplegar) | PM + Claude |
+| 2026-10-27 | **Plan v2**: revisión «como banco». Se decide **rehacer el núcleo desde cero** (§1) en un esquema propio con función única de escritura; se agregan B39–B46, el modelo (§4), 18 invariantes, el catálogo de 27 movimientos (§5), el modelo de amenazas (§6) y las etapas E0–E7. Se encuentran 3 defectos en LE.0.0 (carrera entre transacciones, silencio por RLS, trigger sólo en INSERT) → LE.0.0a–c. El criterio de cambio pasa de «igual al libro viejo» a «cuadra contra los testigos». Se quitan de este doc los detalles de seguridad de la máquina (repo público). **Renumeración**: los items v1 LE.0.1–LE.2.4 (todos ⬜) pasan a E1–E5 (bolsas → LE.1.3, asientos → LE.1.4, invariantes → LE.1.6, saldos → LE.1.10, testigo de la máquina → LE.3.1, reglas → LE.2.3, emparejador → LE.2.5, reconstrucción → LE.3.4, cierre diario → LE.5.2, API → E4, paralelo → E5) | Claude, por pedido del PM |
+| 2026-10-27 | PM firma D3 (**sin plazo** para rendir: el sistema anterior tenía fallas), D6 (autorizan `mariaz` y Luis Francisco López), D7 (notas de crédito fuera: se ven en la revisión), D9, D10, D12, D13; D11 en su método. **E0 arranca** | PM |
+| 2026-10-27 | E0: LE.0.0a y LE.0.0c (🧪, rojo→verde en base local con 2 conexiones), LE.0.0b descartado con evidencia, **LE.0.0e** (función de denominaciones de A.55 rota en prod, deja rojo `caja-db`) 🧪, LE.0.2 medido (falta confirmar Dotar/Vaciar con quien opera), LE.0.3 inventario, LE.0.6 ✅. Sin desplegar: LE.0.0d espera autorización de push y la ventana fuera de horario | Claude |
