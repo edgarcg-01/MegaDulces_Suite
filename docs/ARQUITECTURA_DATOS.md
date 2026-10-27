@@ -5,6 +5,37 @@
 > 2026-08-14): 17 schemas · 338 tablas · 135 FKs · 44 vistas/MVs. Los diagramas son
 > mermaid (se renderizan en VSCode/GitHub). Regenerar tras cambios grandes de schema.
 
+> ⛔⛔ **ESTE DOCUMENTO ESTÁ RANCIO — las cifras de arriba y los diagramas son del 2026-08-14.**
+> Remedido en prod (`pg-prod` de `md`, `system_identifier 7688376744939610156`) el **2026-10-27**
+> `[DOCS-AUD.1]`, sólo lectura:
+>
+> | | 2026-08-14 | **2026-10-27** |
+> |---|---:|---:|
+> | Schemas | 17 | **38** |
+> | Tablas | 338 | **802** |
+> | FKs | 135 (410 de las 736 actuales cruzan schema) | **736** |
+> | Vistas + MVs | 44 | **~530** (58 MVs) |
+> | Tablas en `kepler_ods` | 11 | **241** (11 GB) |
+>
+> **El flujo como ES hoy** (lo de abajo todavía dibuja Railway, `KP_CONCENTRADA` y `.245` como
+> eslabones vivos, y ninguno lo es):
+>
+> 1. Kepler de cada sucursal → **replicación lógica** → `pg-ods` (`:5433` en `md`; el pod se
+>    llama `pgvector-md` aunque no guarda vectores).
+> 2. Los pods del namespace `ingesta` de k3s empujan de ahí a **`kepler_ods`** en `pg-prod`
+>    (`:5434`, base `railway`). Dentro de `pg-prod` no hay publicaciones ni suscripciones.
+> 3. **337 vistas** leen `kepler_ods` directo: 225 en el schema `md` (capa de nombres), 108 en
+>    `analytics`.
+> 4. `analytics` (**20 GB**, más que el propio ODS) mezcla esas vistas con ~60 tablas que todavía
+>    llenan importers (`sales_daily` 2.9 GB, `stock_movements`, `product_sales_daily`…). Su retiro
+>    es la fase SD.
+> 5. Los únicos FDW son internos de `md`: `wincaja_hist` (28 tablas foráneas, histórico de
+>    Wincaja) y `runner_rutas`. **Ninguno apunta a Railway ni a `.245`.**
+>
+> Inventario y hallazgos completos:
+> [`PLAN_AUDITORIA_PLATAFORMA_2026-10-27.md`](IMPLEMENTACION/FASES/PLAN_AUDITORIA_PLATAFORMA_2026-10-27.md).
+> Regenerar los diagramas sigue pendiente.
+
 ---
 
 ## 1. Vista de capas (de dónde viene el dato hasta la pantalla)
