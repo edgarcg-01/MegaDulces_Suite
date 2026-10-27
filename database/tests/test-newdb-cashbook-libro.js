@@ -61,6 +61,8 @@ const CUENTAS = [
   { code: 'COBRANZA', name: 'Cobranza', class: 'contrapartida', currency: 'MXN', tracks_pieces: false, allows_negative: true },
   { code: 'EGRESO', name: 'Egresos', class: 'contrapartida', currency: 'MXN', tracks_pieces: false, allows_negative: true },
   { code: 'APERTURA', name: 'Apertura', class: 'sistema', currency: 'MXN', tracks_pieces: false, allows_negative: true },
+  { code: 'PUENTE_MXN', name: 'Puente MXN', class: 'puente', currency: 'MXN', tracks_pieces: false, allows_negative: true },
+  { code: 'PUENTE_USD', name: 'Puente USD', class: 'puente', currency: 'USD', tracks_pieces: false, allows_negative: true },
 ];
 
 async function comoApp(trx, tenant) {
@@ -161,6 +163,17 @@ async function preparar(trx, tenant) {
       const cambio = await intento(trx, () => post(trx, asiento('cambio', [
         L('CAJA', -50000, { 100: -5 }), L('BOVEDA', 50000, { 100: 5 }), L('BOVEDA', -50000, { 500: -1 }), L('CAJA', 50000, { 500: 1 })])));
       ok(!cambio, `un cambio de billetes (suma $0, cada pieza conservada) sí entra (${muestra(cambio)})`);
+
+      // I18 · B44: un cobro de 100 dólares a 18.25 entra por las cuentas puente, con tipo de cambio.
+      const usd = [L('CAJA_USD', 10000, { 100: 1 }), L('PUENTE_USD', -10000), L('PUENTE_MXN', 182500), L('POR_RENDIR_R27', -182500)];
+      const tc = { tipo_de_cambio: '18.25', tc_fuente: 'DOF 2099-04-02', tc_fijado_por: U2 };
+      ok(rechaza(await intento(trx, () => post(trx, asiento('cobro_usd', usd))), 'cashbook_divisas_sin_tipo_de_cambio'), 'NEGATIVA: dólares sin tipo de cambio guardado');
+      ok(rechaza(await intento(trx, () => post(trx, asiento('cobro_usd', [L('CAJA_USD', 10000, { 100: 1 }), L('PUENTE_USD', -10000), L('EGRESO', 182500), L('POR_RENDIR_R27', -182500)], { meta: tc }))), 'cashbook_divisas_sin_puente'),
+        'NEGATIVA: la parte en pesos no pasa por su puente');
+      const eUsd = await intento(trx, () => post(trx, asiento('cobro_usd', usd, { meta: tc })));
+      if (!eUsd) await post(trx, asiento('cobro_usd', usd, { meta: tc }));   // intento() revierte siempre: ahora de verdad
+      const sUsd = await saldo(trx, 'CAJA_USD');
+      ok(!eUsd && sUsd === 10000, `con puente y tipo de cambio sí entra: la caja de dólares tiene US$100 (${muestra(eUsd)}; saldo ${sUsd})`);
 
       console.log('\n── 5. Un hecho, un registro (B3, B42) ──');
       const pR = conPeticion(asiento('gasto', [L('EGRESO', 777), L('POR_RENDIR_R27', -777)]));

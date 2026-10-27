@@ -506,7 +506,7 @@ suite de pruebas en `caja-db`. Ninguna consumidora todavía.
 |---|---|---|---|---|
 | LE.1.1 | **ADR-102** (partida doble) y **ADR-103** (esquema propio, función única, centavos, cadena) escritos en `02_DECISIONES_ARQUITECTURA.md` | D4, D9, D10 | 🧪 | falta la lectura del PM de ADR-102 (D4) |
 | LE.1.2 | Esquema `cashbook`, rol `cashbook_owner`, `app_runtime` sólo SELECT/EXECUTE, event trigger de DDL. Migración `20261027111930` | B2, B21, B39 | 🧪 | INSERT/UPDATE/TRUNCATE y `_post` como app → 42501; quitar un candado queda en `ddl_audit` |
-| LE.1.3 | Cuentas + cabeceras de saldo y de piezas con CHECK; 19 denominaciones; 12 cuentas base sembradas. ⚠️ Falta la función de **cierre de cuenta** (deuda, E2) | B8 | 🧪 | física que admite negativo, custodia negativa, billetes de más → rechazados con su nombre |
+| LE.1.3 | Cuentas + cabeceras de saldo y de piezas con CHECK; 19 denominaciones; 12 cuentas base sembradas; `open_account` idempotente (la misma forma devuelve la cuenta, otra forma es error `cashbook_cuenta_distinta`). ⚠️ Falta la función de **cierre de cuenta** (deuda) | B8 | 🧪 | física que admite negativo, custodia negativa, billetes de más → rechazados con su nombre |
 | LE.1.4 | Asientos + líneas + piezas + contador, únicos y triggers de inmutabilidad (también para el dueño) | B1, B2, B3, B40 | 🧪 | UPDATE, DELETE, TRUNCATE y línea en asiento sellado → `cashbook_inmutable` |
 | LE.1.5 | Jornadas: una abierta, en orden, cierre con cuatro ojos y `closing_seq`/`closing_hash` | B7, B20 | 🧪 | día cerrado, día anterior, misma persona → rechazados |
 | LE.1.6 | **`_post`** (§4.5) con I1–I5, I7–I9, I11, I12, I14, I16; la huella de idempotencia la calcula la base | B1–B8, B35, B39 | 🧪 | 12 negativas de forma + fecha futura, otro día, actor, evento |
@@ -531,13 +531,13 @@ contratos tipados en `libs/contracts`, emparejador con precisión publicada.
 
 | # | Paso | Reglas | Estado | Verificación |
 |---|---|---|---|---|
-| LE.2.1 | **Primitivo `Money`** (centavos `bigint`, moneda, un solo redondeo) en `libs/` compartido. Hoy no existe: el cálculo a centavos está repetido en ≥ 10 archivos de `libs/commercial` (ADR-056) | B6, regla 16 | ⬜ | pruebas con montos que el float redondea mal |
-| LE.2.2 | **Catálogo de eventos tipado** E-01…E-27 en `libs/contracts`, con versión | B25 | ⬜ | `Build & typecheck` |
-| LE.2.3 | **Reglas puras evento → asiento**, versionadas (`rule_version`), una spec por evento + negativas (monto 0, negativo, moneda mezclada, denominación fuera de catálogo, cuenta inexistente) | B1, B22 | ⬜ | spec por evento |
-| LE.2.4 | **Identidad y versión de hechos externos**: forma canónica de `event_ref` por fuente y `event_hash`; cambio → reversa + nuevo (E-25) | B3, B42 | ⬜ | hecho modificado en la prueba → 2 asientos + hallazgo |
-| LE.2.5 | **Emparejador por llave** (ruta + fecha + monto) con niveles de confianza; lo dudoso a revisión. **Precisión** con placebo (±días) y muestra de 50 revisada a mano | B19 | ⬜ | placebo ≈ 0 aciertos; precisión publicada |
-| LE.2.6 | **Matriz de autorización como dato versionado**: evento × umbral (D3) × límite por persona y día (D14) × rol | B10, B15 | ⬜ | prueba por fila de la matriz |
-| LE.2.7 | **Propiedad «suma cero»**: generador de 10k hechos aleatorios válidos → todo asiento suma 0 por moneda y por denominación | B1, B31 | ⬜ | prueba por propiedades |
+| LE.2.1 | **`libs/contracts/src/money/centavos.ts`**: pesos en texto → centavos `bigint`, formateo sin `number`, un solo redondeo (conversión de moneda, mitad lejos del cero), piezas contra el catálogo (MXN + `BILLETES_USD` nuevo) | B6, regla 16 | 🧪 | `centavos.spec.ts` 15 ✓ (0.1+0.2, mil centavos, 9 entradas inválidas, redondeo de negativos) |
+| LE.2.2 | **`libro-efectivo.contract.ts`**: asiento, líneas, actor, meta, cuentas con titular y catálogo de eventos. **Paridad** base ↔ código (denominaciones, cuentas fijas, eventos con cuatro ojos) | B25 | 🧪 | `paridad-catalogos.spec.ts` 3 ✓; rojo visto al alterar un valor de la siembra |
+| LE.2.3 | **`libs/finance/src/lib/cashbook/reglas.ts`** (`le2-2026-10-27.1`): los 27 movimientos menos los que no mueven efectivo comprobable. Lo que hace la máquina se asienta SIEMPRE (la bóveda = la máquina); la contraparte desconocida va a Suspenso. Por rendir es POR RUTA. **Cruzado con la base**: el día del PM entra entero por `post_entry`/`authorize_request` | B1, B19, B22 | 🧪 | `reglas.spec.ts` 25 ✓ + `reglas.libro-real.spec.ts` 1 ✓ (ruta 27 en $0.00, bóveda 180×500 + 20×200, cadena íntegra, relectura del feed sin segundo asiento, payload alterado → `cashbook_piezas_no_suman` igual que la regla) |
+| LE.2.4 | **`identidad.ts`**: `caos:<equipo>:<id>` y `kepler:<origen_ref>` con huella `sha256` de JSON con llaves ordenadas; dirección de cada tipo desde `efectoDeTipo` (medido), no supuesta | B3, B42 | 🧪 | la huella no cambia con el orden y sí con el contenido |
+| LE.2.5 | **La llave es la ruta que DECLARA el texto** (`atribuirDeposito`, CG.58.6), sin antigüedad. Medido contra el testigo independiente (el cobro de Kepler al que una persona ligó el depósito, `route_collections.truck`): **precisión 46/48 (96 %)**, placebo 8.5/48. Los 2 desacuerdos son un cruce simétrico 22↔26. ⚠️ **40 % del dinero depositado no declara ruta**: plaza 82 dep. · $5.69 M, sin declarar 76 · $2.42 M → Suspenso hasta que una persona lo clasifique (ver D15) | B19 | 🧪 | sonda de sólo lectura con el parser REAL (esbuild), 2026-10-27 |
+| LE.2.6 | Matriz de autorización: los eventos que SIEMPRE piden cuatro ojos viven en la base y en el contrato (con paridad); el umbral por evento espera D3 | B10, B15 | 🔨 | falta el umbral (D3) y los límites por persona (D14) |
+| LE.2.7 | **Propiedad**: 5,000 hechos al azar de 12 tipos (semilla fija) → todo asiento cuadra por moneda y conserva cada pieza, revisado por un verificador escrito APARTE de `armar()` | B1, B31 | 🧪 | mutación del verificador: un asiento descuadrado a mano lo detecta |
 
 **Criterio de salida**: cada evento del catálogo con regla y prueba; ningún tipo de CAOS «a medir»
 sin resolver; precisión del emparejador publicada.
@@ -675,6 +675,7 @@ archivo; pantallas sobre la API de E4.
 | D12 | Revisión obligatoria por otra persona para el código de caja (`enforce_admins` en esas rutas) | sí | ✅ PM, 2026-10-27 (falta configurarla: LE.X.5) |
 | D13 | Frecuencia del arqueo sorpresa | al menos 2 al mes | ✅ PM, 2026-10-27 |
 | D14 | Límites por persona y por día (registrar y autorizar) | con el umbral de D3 | ⬜ |
+| D15 | **Depósitos que sólo declaran PLAZA** (Canindo, Morelia: 82 · $5.69 M): ¿por rendir por plaza (la cobranza de las rutas 501–505 abona a la plaza) o Suspenso hasta que una persona diga la ruta? | **por plaza**: el texto es exacto a ese nivel (CG.58.6: Canindo cierra 95.2 %) y elegir ruta sería inventar | ⬜ |
 
 ---
 
@@ -725,3 +726,4 @@ frescura.
 | 2026-10-27 | PM firma D3 (**sin plazo** para rendir: el sistema anterior tenía fallas), D6 (autorizan `mariaz` y Luis Francisco López), D7 (notas de crédito fuera: se ven en la revisión), D9, D10, D12, D13; D11 en su método. **E0 arranca** | PM |
 | 2026-10-27 | E0: LE.0.0a y LE.0.0c (🧪, rojo→verde en base local con 2 conexiones), LE.0.0b descartado con evidencia, **LE.0.0e** (función de denominaciones de A.55 rota en prod, deja rojo `caja-db`) 🧪, LE.0.2 medido (falta confirmar Dotar/Vaciar con quien opera), LE.0.3 inventario, LE.0.6 ✅. Sin desplegar: LE.0.0d espera autorización de push y la ventana fuera de horario | Claude |
 | 2026-10-27 | LE.0.5 ✅ (`le-metricas.js`, línea base). **E1 en código** (🧪): migración `20261027111930` (esquema `cashbook`, función única de escritura, centavos, cadena de hashes, cuatro ojos, jornadas) y `test-newdb-cashbook-libro.js` 77 ✓ / 0 ✗ en base local desde cero; ADR-102 y ADR-103. La prueba encontró 4 defectos del propio libro antes de que existiera un solo asiento real (corregidos). Pendiente: LE.1.9 (va con E3), cierre de cuenta, LE.1.13 (aplicar inerte en prod) | Claude |
+| 2026-10-27 | **E2 en código** (🧪): primitivo de centavos y contrato del libro en `libs/contracts`; reglas, identidad y emparejador por ruta declarada en `libs/finance/src/lib/cashbook`; cruce TS ↔ SQL contra la base real; paridad de catálogos; propiedad con 5,000 hechos. LE.2.5 medido: 96 % de precisión contra lo ligado por personas, y 40 % del dinero sin ruta declarada (D15). Ajustes a la migración de E1 aún sin empujar: `meta` firmada en la cadena, I18 (divisas sólo por puente con tipo de cambio) y `open_account` idempotente | Claude |

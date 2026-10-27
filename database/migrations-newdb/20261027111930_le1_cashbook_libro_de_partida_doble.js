@@ -72,6 +72,7 @@ const CUENTAS_BASE = [
   ['SUSPENSO_USD', 'Suspenso · dólares', 'sistema', 'USD', false, true, 'debe ser 0 al cierre'],
 ];
 
+/** Los eventos que SIEMPRE autoriza otra persona (B10). La reversa se agrega en la función. */
 const SIEMPRE_AUTORIZA = ['ajuste', 'faltante', 'sobrante', 'apertura'];
 
 // ── 1. Tablas ─────────────────────────────────────────────────────────────────────────────────
@@ -186,6 +187,7 @@ CREATE TABLE IF NOT EXISTS cashbook.entries (
   authorized_at           timestamptz,
   reverses_entry_id       uuid REFERENCES cashbook.entries(id),
   reason                  text,
+  meta                    jsonb NOT NULL DEFAULT '{}'::jsonb CONSTRAINT cashbook_meta_objeto CHECK (jsonb_typeof(meta) = 'object'),
   prev_hash               text NOT NULL,
   hash                    text,
   CONSTRAINT cashbook_asiento_seq UNIQUE (tenant_id, seq),
@@ -306,7 +308,7 @@ LANGUAGE sql STABLE AS $fn$
            coalesce(e.created_by::text, ''), coalesce(e.created_by_employee::text, ''), coalesce(e.service_name, ''),
            coalesce(e.authorized_by::text, ''), coalesce(e.authorized_by_employee::text, ''),
            coalesce((extract(epoch FROM e.authorized_at) * 1000000)::bigint::text, ''),
-           coalesce(e.reverses_entry_id::text, ''), coalesce(e.reason, ''), e.prev_hash,
+           coalesce(e.reverses_entry_id::text, ''), coalesce(e.reason, ''), e.meta::text, e.prev_hash,
            coalesce((SELECT string_agg(l.line_no::text || ':' || l.account_id::text || ':' || l.currency || ':' || l.amount_minor::text
                        || '[' || coalesce((SELECT string_agg(p.denom_key || '=' || p.pieces::text, ',' ORDER BY p.denom_key)
                                              FROM cashbook.entry_pieces p WHERE p.line_id = l.id), '') || ']',
@@ -398,12 +400,12 @@ BEGIN
   v_seq := v_last + 1;
   INSERT INTO cashbook.entries (tenant_id, seq, business_date, value_at, event_kind, event_ref, event_version, event_hash,
          request_id, request_hash, rule_version, actor_kind, created_by, created_by_employee, service_name,
-         authorized_by, authorized_by_employee, authorized_at, reverses_entry_id, reason, prev_hash)
+         authorized_by, authorized_by_employee, authorized_at, reverses_entry_id, reason, meta, prev_hash)
   VALUES (v_t, v_seq, v_day, v_value_at, v_kind, v_ref, v_ver, v_ehash, v_req, v_rhash, p->>'rule_version', v_actor_kind,
          CASE WHEN v_actor_kind = 'persona' THEN v_user END, CASE WHEN v_actor_kind = 'persona' THEN v_emp END,
          CASE WHEN v_actor_kind = 'servicio' THEN v_service END,
          p_auth_user, p_auth_employee, CASE WHEN p_auth_user IS NOT NULL THEN clock_timestamp() END,
-         p_reverses, nullif(trim(p->>'reason'), ''), v_last_hash)
+         p_reverses, nullif(trim(p->>'reason'), ''), coalesce(p->'meta', '{}'::jsonb), v_last_hash)
   RETURNING id INTO v_id;
 
   FOR el IN SELECT value FROM jsonb_array_elements(p->'lines') LOOP
@@ -468,6 +470,21 @@ BEGIN
     PERFORM cashbook._falla('cashbook_no_cuadra', (SELECT string_agg(currency || ' ' || s, ', ') FROM (
       SELECT currency, sum(amount_minor) s FROM cashbook.entry_lines WHERE entry_id = v_id GROUP BY currency HAVING sum(amount_minor) <> 0) x));
   END IF;
+  -- I18: dos monedas en un asiento sólo por las cuentas puente, con el tipo de cambio, su fuente y
+  -- quién lo fijó (B44). Nunca se suman pesos con dólares en una misma cuenta.
+  IF (SELECT count(DISTINCT currency) FROM cashbook.entry_lines WHERE entry_id = v_id) > 1 THEN
+    IF EXISTS (SELECT 1 FROM cashbook.entry_lines l
+                WHERE l.entry_id = v_id
+                GROUP BY l.currency
+               HAVING NOT bool_or(EXISTS (SELECT 1 FROM cashbook.accounts a WHERE a.id = l.account_id AND a.class = 'puente'))) THEN
+      PERFORM cashbook._falla('cashbook_divisas_sin_puente', 'cada moneda del asiento pasa por su cuenta puente');
+    END IF;
+    IF coalesce(p->'meta'->>'tipo_de_cambio', '') !~ '^[0-9]{1,6}[.][0-9]{1,6}$'
+       OR nullif(p->'meta'->>'tc_fuente', '') IS NULL OR nullif(p->'meta'->>'tc_fijado_por', '') IS NULL THEN
+      PERFORM cashbook._falla('cashbook_divisas_sin_tipo_de_cambio', 'meta lleva tipo_de_cambio, tc_fuente y tc_fijado_por');
+    END IF;
+  END IF;
+
   -- I3: entre cuentas que cuentan piezas, cada billete que sale de una entra a otra
   IF v_todas_con_piezas AND EXISTS (
        SELECT 1 FROM cashbook.entry_pieces ep JOIN cashbook.entry_lines l ON l.id = ep.line_id
@@ -479,7 +496,7 @@ BEGIN
 
   -- Cuatro ojos (B10): siempre para ajuste/faltante/sobrante/apertura; para lo demás, arriba del umbral
   IF p_auth_user IS NULL THEN
-    IF v_kind = ANY (ARRAY['ajuste','faltante','sobrante','apertura','reversa']) THEN
+    IF v_kind = ANY (ARRAY[${[...SIEMPRE_AUTORIZA, 'reversa'].map((k) => `'${k}'`).join(',')}]) THEN
       PERFORM cashbook._falla('cashbook_requiere_autorizacion', v_kind || ' siempre lo autoriza otra persona');
     END IF;
     SELECT threshold_minor INTO v_umbral FROM cashbook.authorization_rules WHERE tenant_id = v_t AND event_kind = v_kind;
@@ -614,8 +631,19 @@ END $fn$;
 
 CREATE OR REPLACE FUNCTION cashbook.open_account(p jsonb) RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, cashbook, pg_temp AS $fn$
-DECLARE v_t uuid := cashbook._tenant(); v_id uuid;
+DECLARE v_t uuid := cashbook._tenant(); v_id uuid; a record;
 BEGIN
+  -- Idempotente: la API asegura las cuentas de cada asiento antes de registrarlo. La misma cuenta
+  -- pedida otra vez devuelve la que hay; pedida con OTRA forma es un error, nunca un cambio.
+  SELECT * INTO a FROM cashbook.accounts WHERE tenant_id = v_t AND code = p->>'code';
+  IF FOUND THEN
+    IF a.class <> p->>'class' OR a.currency <> p->>'currency' OR a.tracks_pieces <> (p->>'tracks_pieces')::boolean
+       OR a.allows_negative <> (p->>'allows_negative')::boolean OR a.holder_kind <> coalesce(p->>'holder_kind', 'ninguno')
+       OR a.holder_ref IS DISTINCT FROM nullif(p->>'holder_ref', '') THEN
+      PERFORM cashbook._falla('cashbook_cuenta_distinta', a.code || ' ya existe con otra forma');
+    END IF;
+    RETURN a.id;
+  END IF;
   INSERT INTO cashbook.accounts (tenant_id, code, name, class, currency, tracks_pieces, allows_negative,
          holder_kind, holder_ref, witness, created_by, updated_by)
   VALUES (v_t, p->>'code', p->>'name', p->>'class', p->>'currency', (p->>'tracks_pieces')::boolean,
@@ -852,6 +880,13 @@ const FUNCIONES_PUBLICAS = ['post_entry(jsonb)', 'create_request(jsonb, timestam
   'reject_request(uuid, uuid, uuid, text)', 'expire_requests()', 'open_account(jsonb)', 'open_day(date, uuid)',
   'close_day(date, uuid, uuid, uuid, uuid)', 'balances_at(bigint)', 'verify_chain()', 'canonical(uuid)'];
 
+/**
+ * Los catálogos que siembra esta migración, expuestos para la prueba de PARIDAD con
+ * `libs/contracts` (`libs/finance/src/lib/cashbook/paridad-catalogos.spec.ts`): la base y el
+ * código tienen que decir lo mismo, o un billete válido en uno se rechaza en el otro.
+ */
+exports.CATALOGOS = { DENOMINACIONES, CUENTAS_BASE, SIEMPRE_AUTORIZA };
+
 exports.up = async function up(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
   const { rows: [yo] } = await knex.raw(`SELECT rolsuper AS su FROM pg_roles WHERE rolname = current_user`);
@@ -917,8 +952,7 @@ exports.up = async function up(knex) {
   await knex.raw(`SELECT set_config('app.tenant_id', '${TENANT_MD}', true)`);
   for (const [code, name, clase, cur, piezas, neg, testigo] of CUENTAS_BASE) {
     await knex.raw(`SELECT cashbook.open_account(jsonb_build_object('code', '${code}', 'name', '${name}', 'class', '${clase}',
-        'currency', '${cur}', 'tracks_pieces', ${piezas}, 'allows_negative', ${neg}, 'witness', '${testigo}'))
-      WHERE NOT EXISTS (SELECT 1 FROM cashbook.accounts WHERE tenant_id = '${TENANT_MD}' AND code = '${code}')`);
+        'currency', '${cur}', 'tracks_pieces', ${piezas}, 'allows_negative', ${neg}, 'witness', '${testigo}'))`);
   }
   await knex.raw(`RESET ROLE`);
 
