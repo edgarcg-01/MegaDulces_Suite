@@ -178,6 +178,38 @@ núcleos sostenidos** (sólo el proceso líder; los paralelos no se suman).
 3. Lo que no se puede hacer por cambio (agregados de 30/90/365 días, rankings) necesita al menos
    la compuerta «¿cambió algo desde la última vez?» que ya existe en la caja.
 
+## 9. Diseño: la caja por cambio (`[OPS-AUD.11]`, ADR-104)
+
+**Objetivo:** que un movimiento de caja llegue a la pantalla en cuanto entra a `kepler_ods.kdm1`,
+sin recorrer la tabla. **Métrica:** costo de mantener la caja — HOY 35,730 s en 27 h (medido
+2026-10-27) → META < 100 s/día; latencia ingesta → pantalla — HOY 5–10 s del refresco → META < 1 s.
+
+### Lo que el análisis fijó (sin esto el diseño no se sostiene)
+
+| Hecho | Medido / leído | Consecuencia |
+|---|---|---|
+| Un movimiento depende sólo de su renglón de `kdm1` + catálogos | definición `20260924230000`: sin ventanas ni agregados | se puede calcular renglón por renglón |
+| Llave de `kdm1` | `kdm1_pkey (sucursal, c1, c2, c3, c4, c5, c6)` | la tabla guarda esa llave de origen |
+| La llave de la pierna no incluye `c5` | índice único de la vista materializada | la tabla **no** exige unicidad por la llave de negocio: un duplicado no puede romper la ingesta |
+| `kdb1` casi no cambia | 0 cambios en 5 días | un cambio ahí reconstruye todo (~5 s), aceptable |
+| Complemento SAT y `bank_accounts` cambian por su cuenta | 43 complementos en 5 días | se cruzan al leer |
+| `kdm1` en `pg-prod` no es suscriptor de replicación | 0 suscripciones | los triggers disparan normal, sin `ENABLE ALWAYS` |
+| Escritores de `kdm1`: `feeds-ingest`, reconciliación, borrados de la cola | `ops/k3s/2*.yaml` | el trigger los cubre a todos |
+
+### Pasos, cada uno se puede revertir solo
+
+| Paso | Qué | Dónde se prueba | Riesgo |
+|---|---|---|---|
+| **11.1** | Migración A: tabla + función `kdm1_legs` + triggers + carga inicial + función de paridad. **No cambia ningún lector.** | prueba en base real: alta, cambio, baja, cancelado (`c43='C'`), traspaso con dos piernas, cuenta fuera del catálogo, cambio en `kdb1`, `TRUNCATE`, y error dentro del trigger que no frena el `kdm1` | se aplica fuera de horario; la carga inicial son ~5 s |
+| **11.2** | Paridad en prod, sólo lectura: tabla contra la vista vieja, fila por fila en las dos direcciones | `EXCEPT` en ambos sentidos = 0 | si no da 0, se para aquí |
+| **11.3** | Medir el costo del trigger en la ingesta (latido de `ods-live-caja`) un día hábil | antes / después | si sube, se revisa antes de seguir |
+| **11.4** | Migración B: `kepler_bank_movements` y `mv_caja_movimientos` leen la tabla (mismo nombre y columnas); el trigger avisa a la pantalla | las pruebas de `libs/finance/src/lib/caja` + paridad | revertir = migración B hacia atrás |
+| **11.5** | Retirar el cron de cada minuto, `caja-mv-push` y la sonda `mv_caja_refresh` (con `retiredOn`) | `pg_stat_statements`: 0 `REFRESH mv_caja_movimientos` | — |
+| **11.6** | Árbitro nocturno con latido en Salud BD | se rompe a propósito una vez (una pierna borrada a mano) y debe reportarla | — |
+
+⛔ 11.1 y 11.4 son migraciones: se generan con `node scripts/nueva-migracion.js` y se aplican en
+prod una por una, fuera de horario. 11.4 no entra hasta que 11.2 dé cero y 11.3 esté medido.
+
 ## 8. Bitácora
 
 | Fecha | Qué pasó | Quién |

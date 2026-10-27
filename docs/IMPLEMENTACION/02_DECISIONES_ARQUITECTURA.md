@@ -3400,6 +3400,67 @@ del efectivo físico. No incluye las cajas de sucursal.
 
 ---
 
+## ADR-104 — Los movimientos de tesorería se MANTIENEN por cambio en la base, no se recalculan con `REFRESH`
+
+**Fecha:** 2026-10-27 · **Estado:** propuesta, espera firma del PM · **Contexto:**
+`[OPS-AUD.11]`, análisis en [`PLAN_AUDITORIA_PLATAFORMA_2026-10-27.md`](FASES/PLAN_AUDITORIA_PLATAFORMA_2026-10-27.md) §7bis y diseño en §9.
+
+### Por qué
+
+Pedido del PM: *«caja general necesita la información de inmediato, pero refrescar no es una
+solución»*. Medido en prod el 2026-10-27: `REFRESH mv_caja_movimientos` es el **68 % de todo el
+costo de refrescar** de la base (35,730 s en 27 h, ~3 veces por minuto, 7.5 s cada una), y cada
+refresco recorre los ~651 mil renglones de `kepler_ods.kdm1` para reflejar, en promedio, **menos
+de un cambio** (`kdm1` recibe ~130 cambios por hora). La latencia de la caja la pone ese refresco.
+
+### La decisión
+
+1. **Una tabla `analytics.bank_movement_legs`** con una fila por pierna de movimiento de
+   tesorería (todas las cuentas: banco, caja y puente), con la llave de origen de `kdm1`.
+2. **Una sola función** `analytics.kdm1_legs(kepler_ods.kdm1)` sabe convertir UN renglón de
+   `kdm1` en sus piernas. La usan el trigger, la carga inicial y la revisión nocturna: la regla
+   vive en un solo lugar.
+3. **Triggers por sentencia** (con tablas de transición) en `kepler_ods.kdm1`: borran las piernas
+   del renglón viejo y escriben las del nuevo. El costo es proporcional a lo que cambió.
+   `TRUNCATE` y cualquier cambio en `kdb1` (catálogo de cuentas, 0 cambios en 5 días) reconstruyen
+   todo, que es lo correcto para un catálogo.
+4. **Nunca frena la ingesta:** el trigger atrapa su propio error, lo registra con la llave del
+   renglón y deja pasar el `kdm1`. La diferencia la corrige la revisión nocturna y queda
+   **declarada**, no escondida.
+5. **Lo que cambia por fuera de `kdm1` se cruza al LEER, no se guarda:** catálogo de cuentas
+   (`kdb1`), `finance.bank_accounts` y el complemento de pago SAT. Así un complemento que llega
+   después aparece al instante, sin depender de un refresco.
+6. `analytics.kepler_bank_movements` y `analytics.mv_caja_movimientos` **conservan su nombre y
+   sus columnas** y pasan a leer la tabla. Ninguna pantalla cambia.
+7. El aviso a la pantalla (`NOTIFY caja_movimientos`, con la misma firma de hoy) lo da el trigger
+   cuando cambió alguna pierna de caja. Se retiran el cron de cada minuto y el carril
+   `caja-mv-push`.
+8. **Árbitro nocturno, fuera de horario:** compara la tabla contra el cálculo completo de la
+   función, corrige y reporta en Salud BD cuántas filas difirieron. Distinto de cero = el trigger
+   tiene un hueco con nombre.
+
+### Por qué no lo otro
+
+- **Refrescar más seguido o con compuerta:** ya se hizo (firma de 638 ms, `NOTIFY`), y sigue
+  recorriendo la tabla completa en cada cambio.
+- **Hacerlo en `feeds-ingest`** (que ya sabe qué filas cambió): deja fuera a cualquier otro
+  escritor de `kdm1` (reconciliación, borrados de la cola, una corrección a mano). El trigger no
+  depende de quién escribe.
+- **Vista sin materializar e índice:** medido y refutado en `20260923130000` (el filtro va por
+  `btrim(c45)` contra un catálogo y el plan no cambia).
+
+### Riesgo con nombre
+
+- Es una materialización: si la función y el trigger divergen de lo que la vista vieja hacía, se
+  publica un número distinto. Por eso hay paridad fila por fila contra la vista vieja **antes**
+  de cambiar a los lectores, y árbitro nocturno después.
+- El trigger agrega trabajo a la transacción de ingesta de `kdm1`. Se mide en la prueba y en prod
+  (latido de `ods-live-caja`) antes y después.
+- Mantener por cambio es un primitivo genérico; aquí se resuelve para tesorería. Llevarlo a
+  `libs/` para otras vistas es deuda con nombre (ADR-056).
+
+---
+
 
 # Resumen de ADRs movido de CLAUDE.md (2026-10-14)
 
@@ -3447,3 +3508,4 @@ del efectivo físico. No incluye las cajas de sucursal.
 - **ADR-101** 🔨 2026-10-23 — **Un retiro de CAOS que se lleva una persona es una CUSTODIA a su cargo, no efectivo del cajón** (Fase CGA, `[CGA-A.50]`). Cada retiro se clasifica `cajon` | `custodia`; un retiro paga muchos gastos (trigger: la suma de enlaces no pasa del retiro ni del gasto, reemplaza a `ux_caos_link_vivo`); el corte no pide en el cajón la custodia; se cierra sólo regresando a CAOS (monto de la máquina), al cajón o como faltante con nombre. Medido: 19-oct «falta» −$188,885 y 21-oct esperado −$221,512 eran el mismo dinero en la jornada equivocada. ⚠️ No prueba que el gasto sea verdad: eso es la prueba de un tercero por gasto.
 - **ADR-102** 🔨 2026-10-27 — **El efectivo de la Caja General se lleva en PARTIDA DOBLE** (Fase LE, refina ADR-101): todo hecho produce un asiento que suma cero por moneda y, en cuentas físicas, conserva cada pieza por denominación; el saldo es la suma de asientos; sólo se agrega y se corrige con reversa autorizada. Medido: 86 depósitos · $1.70 M explicados dos veces con el libro de entrada simple.
 - **ADR-103** 🔨 2026-10-27 — **El libro vive en el esquema `cashbook`, se escribe por UNA función de la base, en centavos y encadenado** (Fase LE): la app no tiene permisos de escritura en las tablas; consecutivo sin huecos con un candado por libro; cadena `sha256` verificable; huella de idempotencia calculada por la base; cuatro ojos en la base.
+- **ADR-104** ⏳ 2026-10-27 — **Los movimientos de tesorería se MANTIENEN por cambio, no se recalculan con `REFRESH`** (`[OPS-AUD.11]`): tabla `analytics.bank_movement_legs` + una función por renglón de `kdm1` + triggers por sentencia; lo que cambia por fuera de `kdm1` se cruza al leer; árbitro nocturno. Medido: el refresco de caja es el 68 % del costo de refrescar y recorre 651 mil renglones por menos de un cambio. Propuesta, espera firma.
