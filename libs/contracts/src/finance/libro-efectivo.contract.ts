@@ -145,3 +145,82 @@ export const CUENTA = {
     tracks_pieces: false, allows_negative: true, holder_kind: 'concepto', holder_ref: parteDeCodigo(cuenta), witness: 'estado de cuenta',
   }),
 };
+
+// ── `[LE.4]` Lo que la API recibe y devuelve ────────────────────────────────────────────────────
+
+/** Una contraparte con nombre: la persona que se lleva o rinde el dinero. */
+export interface PersonaDeCaja {
+  empleado: string;
+  nombre: string;
+}
+
+/**
+ * Un hecho que registra una PERSONA. El asiento lo arma la regla del servidor (`libs/finance`,
+ * `reglas.ts`): la pantalla dice QUÉ pasó, nunca qué cuentas mover.
+ */
+export type HechoDePersona =
+  | { tipo: 'entrega_ruta'; ruta: string; piezas: PiezasTexto }
+  | { tipo: 'gasto'; concepto: string; desde: { tipo: 'cajon'; piezas: PiezasTexto } | ({ tipo: 'custodia'; monto_minor: string } & PersonaDeCaja) }
+  | ({ tipo: 'regreso_custodia'; piezas: PiezasTexto } & PersonaDeCaja)
+  | ({ tipo: 'faltante'; de: OrigenDiferencia } & PersonaDeCaja)
+  | ({ tipo: 'sobrante'; en: OrigenDiferencia } & PersonaDeCaja)
+  | { tipo: 'cobro_usd'; ruta: string; piezas_usd: PiezasTexto; tipo_de_cambio: string; fuente: string }
+  | { tipo: 'cheque_recibido'; ruta: string; folio: string; monto_minor: string }
+  | { tipo: 'cheque_depositado'; folio: string; monto_minor: string }
+  | { tipo: 'cheque_devuelto'; ruta: string; folio: string; monto_minor: string; cuenta_banco?: string }
+  | { tipo: 'deposito_banco'; cuenta_banco: string; monto_minor: string; referencia: string }
+  | { tipo: 'otro_ingreso'; concepto: string; piezas: PiezasTexto }
+  | { tipo: 'clasificar_suspenso'; event_ref_original: string; monto_minor: string; esta_en: 'debe' | 'haber'; hacia: DestinoDeSuspenso; piezas?: PiezasTexto }
+  | { tipo: 'apertura'; moneda: Moneda; fecha: string; conteos: { cuenta: 'CAJA_MXN' | 'CAJA_USD' | 'BOVEDA_CAOS'; piezas: PiezasTexto }[] };
+
+export type OrigenDiferencia =
+  | { tipo: 'ruta'; ruta: string; monto_minor: string }
+  | ({ tipo: 'custodia'; monto_minor: string } & PersonaDeCaja)
+  | { tipo: 'cajon'; piezas: PiezasTexto };
+
+export type DestinoDeSuspenso =
+  | { tipo: 'cajon' }
+  | { tipo: 'transito' }
+  | { tipo: 'ruta'; ruta: string }
+  | ({ tipo: 'custodia' } & PersonaDeCaja);
+
+/** Qué pasó con un hecho: entró al libro, o espera la firma de otra persona. */
+export type ResultadoHecho =
+  | { estado: 'asentado'; entry_id: string }
+  | { estado: 'por_autorizar'; request_id: string; motivo: string };
+
+export interface ConteoDeCaja {
+  cuenta: 'CAJA_MXN' | 'CAJA_USD' | 'BOVEDA_CAOS';
+  tipo: 'cierre' | 'sorpresa' | 'relevo';
+  piezas: PiezasTexto;
+  /** Obligatorio en un arqueo sorpresa: otra persona presente. */
+  testigo?: string;
+  contado_en: string;
+}
+
+/**
+ * Lo que vuelve de un conteo. En un arqueo SORPRESA no vuelve ni el esperado ni la diferencia:
+ * quien cuenta no los ve (arqueo ciego, B11); los ve quien concilia en los hallazgos.
+ */
+export type ResultadoConteo =
+  | { ciego: false; count_id: string; total_minor: string; esperado_minor: string; diferencia_minor: string; hallazgo_id: string | null }
+  | { ciego: true; count_id: string; total_minor: string };
+
+export interface SaldoDeCuenta {
+  code: string;
+  name: string;
+  class: ClaseCuenta;
+  currency: Moneda;
+  balance_minor: string;
+  last_seq: string;
+  /** Sólo para quien autoriza: el desglose es el esperado de un arqueo. */
+  piezas?: PiezasTexto;
+}
+
+export interface SaldosDelLibro {
+  cuentas: SaldoDeCuenta[];
+  ultimo_asiento: string;
+  jornada_abierta: string | null;
+  /** La cadena recorrida al momento de responder (B2): vacía = íntegra. */
+  integridad: { integra: boolean; problemas: { seq: string; problema: string }[] };
+}
