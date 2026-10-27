@@ -70,7 +70,28 @@ services:
       timeout: 3s
       retries: 5
 
+  # Garage (almacén S3, el mismo programa que corre en prod) — SOLO para probar adjuntos de la Mesa de Servicio en local
+  # ([MS.ADJ.0.3]). Perfil `s3`: `npm run dev:up` NO lo enciende. Para encenderlo:
+  #   docker compose -f docker-compose.dev.yml --profile s3 up -d garage
+  #   node scripts/dev-garage-init.js        # crea el bucket y la llave, e imprime las S3_* para tu .env
+  # Escucha sólo en 127.0.0.1:3900. La clave RPC de abajo NO es un secreto: es un nodo único que no sale de tu máquina.
+  garage:
+    image: dxflrs/garage:v1.1.0
+    container_name: tm-garage
+    profiles: ["s3"]
+    restart: unless-stopped
+    environment:
+      GARAGE_RPC_SECRET: "0000000000000000000000000000000000000000000000000000000000000001"
+    ports:
+      - "127.0.0.1:3900:3900"
+    volumes:
+      - ./database/docker/garage/garage.toml:/etc/garage.toml:ro
+      - tm_garage_meta:/var/lib/garage/meta
+      - tm_garage_data:/var/lib/garage/data
+
 volumes:
   tm_postgres_data:
   tm_pgvector_data:
   tm_redis_data:
+  tm_garage_meta:
+  tm_garage_data:

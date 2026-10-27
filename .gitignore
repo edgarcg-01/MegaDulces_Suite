@@ -172,3 +172,23 @@ graphify-out/
 # contabilidad de la empresa, y ESTE REPO ES PUBLICO. Viven en la maquina, nunca se publican;
 # los smokes que los usan hacen skip-graceful cuando no estan (que es el caso en CI).
 database/tests/fixtures/*.txt
+
+# [PURGA.7] Basura que no entra nunca (el repo es PUBLICO; la compuerta check:basura lo cobra igual).
+# Capturas y descargas sueltas en la raiz, volcados, caches del sistema y salidas de guiones.
+/*.png
+/*.jpg
+/*.jpeg
+/*.xlsx
+/*.xls
+/*.csv
+/*.zip
+/*.pdf
+*.dump
+Thumbs.db
+.DS_Store
+~$*
+database/scripts/out/
+
+# [PURGA.P3] Instantaneas de privilegios/alcance por usuario (nombres de usuario reales): las
+# generan database/scripts/snapshot-user-{privileges,scope}.js --write; son locales, el repo es PUBLICO.
+database/tests/fixtures/*-baseline.json

@@ -121,7 +121,7 @@ describe('[MS.7.16] ficha — Transferir a otra área', () => {
     sla: { first_response_due_at: null, due_at: null, first_responded_at: null, paused: false, first_breached: false, resolution_breached: false, used_ratio: null },
     description: '', requester_department_code: null, requester_position_code: null, channel: 'web', resolved_at: null, resolution_note: null, closed_at: null, close_reason: null, reopened_count: 0,
     messages: [{ id: 'm1', kind: 'transfer', visibility: 'public', author_id: 'u2', author_label: 'Ubaldo', body: 'Es de infraestructura', meta: { from_queue: 'TI', to_queue: 'Mantenimiento' }, created_at: '2026-10-02T15:10:00.000Z' }],
-    attachments: [], time_logged_minutes: 0, time_entries: [],
+    attachments: [], links: [], time_logged_minutes: 0, time_entries: [],
   } as unknown as SdRequestDetail);
 
   let api: Record<string, ReturnType<typeof vi.fn>>;

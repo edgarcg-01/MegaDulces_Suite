@@ -18,6 +18,21 @@
 - **Surtido:** cada sucursal empieza y termina su parte de la ruta; las tarjetas dicen «Parte de P-xxxx · también surte PH».
 - **Mesa y caja:** «Parte de … · se cobra en …», ligar la clave Kepler del cliente en otra sucursal, y la caja del pedido principal liquida también las guías de recolección de otras sucursales, con desglose por sucursal.
 - ⚠️ 3 migraciones aditivas que van **antes** del código. Sin permisos nuevos.
+### Added — Mesa de Servicio: arrastrar archivos desde el escritorio y adjuntar enlaces de Google (MS.ADJ, 2026-10-22)
+- **Arrastrar y soltar** imágenes y PDF en el recuadro de adjuntos de «Nueva solicitud» y del hilo; lo que no sea imagen ni PDF se rechaza con el aviso de compartirlo por **enlace de Google**. Soltar un archivo fuera del recuadro ya no abre el archivo ni pierde lo escrito.
+- **Enlaces de Google** (Docs, Hojas, Presentaciones, Formularios y Drive), hasta 3 por envío: el servidor los normaliza y valida (host exacto, https, sin credenciales) y nunca los visita. Se ven como chips en el detalle; los de una nota interna no los ve quien reportó. ⚠️ Los enlaces quedan restringidos: quien atiende sólo los abre si se compartieron con su cuenta.
+- Migración **`20261022135014_servicedesk_request_links`** (aditiva; aplicar ANTES del código, una por una).
+- Garage (S3) local bajo el perfil `s3` de `docker-compose.dev.yml` y `scripts/dev-garage-init.js` para probar adjuntos sin bucket de nube.
+### Changed — Adjuntos de la Mesa: tope de 22 MB por envío y nombre coherente con el tipo (MS.ADJ, 2026-10-22)
+- **Tope de 22 MB por envío** (antes 5 × 8 MB reventaba el cuerpo de 32 MB con un 413 genérico): ahora un 400 que lo dice.
+- La extensión del archivo guardado y el nombre mostrado salen del **tipo detectado**: `foto.exe` con bytes de PNG queda `foto.png`; se quitan extensiones peligrosas del final y los caracteres de dirección Unicode (`U+202E`).
+- `SdRequestDetail.links` es obligatorio en el contrato.
+### Changed — Compras › Catálogo › Productos: vistas Sencillo y Detallado (PF.12, 2026-10-26)
+- Botón **Sencillo / Detallado**. Sencillo: Producto · Proveedor · Unidades de medida (con equivalencia) · Precio por unidad. Detallado: + Este mes ▲▼ y etiquetas Líder/Nuevo/Caducidad.
+- **Ficha lateral**: códigos, unidades y precio, venta y existencia por sucursal en unidades compuestas, última entrada; en Detallado además Qué hacer y traspasos, venta del mes en palabras, margen y compras (con permiso de costo) y caducidad por lote.
+- Un solo buscador (acentos, todos los códigos de barras, proveedor, unidad). Menú «Ver» agrupado en lugar de la fila de pestañas; menú «Mostrar» con conteos.
+- Removed: barra de proveedores, selector «Por proveedor / Para cuidar hoy», conteos, aviso BASE-MXN y el diálogo «Editar producto».
+- Sin migraciones ni permisos nuevos → sin re-login.
 ### Added — Finanzas › Gastos: aviso de las rondas de revisión (GX.86, 2026-10-26)
 - Al dar de alta un gasto, un aviso dice «Puedes subir tus gastos a cualquier hora del día, sin problema» y en qué ronda se revisa el tuyo («hoy a las 5:00 pm», «el lunes a las 8:30 am»…). Rondas: lunes a viernes, 8:30–10:00 am y 5:00–6:00 pm.
 - No bloquea nada: se puede subir a cualquier hora. Sale en la captura, en el link del celular y en «Adjuntar evidencia»; los aprobadores no lo ven. El acuse al mandarlo repite la ronda.

@@ -96,6 +96,9 @@ const COMPUERTAS = [
   // `analytics.kepler_kdm5_vigente`; esta compuerta impide leer kdm5 crudo. Estatica, sin DB, ~0.3 s.
   // El catalogo (lo que una vista recreada desde pg_get_viewdef no deja en el repo) lo mira `check:kdm5-vigente:db`.
   { nombre: 'kdm5-vigente', script: 'check-kdm5-vigente.js', que: 'nadie suma kepler_ods.kdm5 crudo: las aplicaciones se leen vigentes (sin cancelados)', push: true, ms: 300 },
+  // `[PURGA.6]` El repo es PÚBLICO y su historial guardaba volcados de prod, un estado de cuenta y un .env real
+  // (2026-10-27). Frena capturas/descargas en la raíz, volcados, cachés y .env reales. Estática, ~0.1 s.
+  { nombre: 'basura', script: 'check-basura.js', que: 'ningún archivo basura versionado (volcados, .env real, cachés, capturas en la raíz)', push: true, ms: 100 },
   // `[CSU.12]` El índice navegable de los 7 documentos grandes. `package.json` lo anunciaba y el script NO existía:
   // sin generador, git fusiona el bloque línea por línea y deja dos versiones intercaladas (log 0/452, tracker 0/141
   // filas válidas en main el 2026-10-21, dos veces el mismo día). ~0.3 s, estático.

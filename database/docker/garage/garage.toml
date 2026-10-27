@@ -1,0 +1,23 @@
+# Garage de DESARROLLO (un solo nodo). Sólo para probar adjuntos en local: [MS.ADJ.0.3].
+# NO es la configuración de prod: ésa vive en `ops/k3s/62-garage.deployment.yaml` (mismo programa, misma API S3).
+#
+# `rpc_secret` y el token de administración llegan por variable de entorno desde el compose
+# (`GARAGE_RPC_SECRET`); aquí no se escribe ningún secreto.
+metadata_dir = "/var/lib/garage/meta"
+data_dir     = "/var/lib/garage/data"
+db_engine    = "sqlite"
+
+# Un solo nodo: no hay a quién replicar.
+replication_factor = 1
+
+rpc_bind_addr   = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+# ⚠️ Tiene que coincidir con lo que firma el cliente: `ObjectStorageService` manda
+#    `process.env.S3_REGION || "auto"`. Con otro valor las firmas no validan.
+s3_region     = "auto"
+api_bind_addr = "[::]:3900"
+
+[admin]
+api_bind_addr = "[::]:3903"

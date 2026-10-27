@@ -23,6 +23,7 @@ import {
   type SdActor,
   type SdAssignDto,
   type SdAttachmentDto,
+  type SdLinkDto,
   type SdChangePriorityDto,
   type SdChangeStatusDto,
   type SdChannel,
@@ -55,7 +56,7 @@ import { KEPLER_BRANCH_NAMES, TenantContextService, TenantKnexService, applySmar
 import { ServiceDeskAgentsService } from './agents.service';
 import { ServiceDeskRoutingService } from './routing.service';
 import { nombreUbicacionExtra, ubicacionExtra } from './domain/ubicaciones';
-import { ServiceDeskAttachmentsService, type AdjuntoSubido } from './attachments.service';
+import { ServiceDeskAttachmentsService, type AdjuntoSubido, type EnlacePreparado } from './attachments.service';
 import { efectosDe, motivoDeCierre, puedeTransicionar, respuestaReanuda, TRANSICIONES } from './domain/request-state';
 import { formatFolio } from './domain/folio';
 import { sinConfidenciales, vidaDeUrlAdjunto } from './domain/destinatarios';
@@ -229,6 +230,7 @@ export class ServiceDeskRequestsService {
     // 1) Lo que hace falta para validar adjuntos (tope de tamaño) — antes de tocar el bucket.
     const settings = (await this.tk.run((trx) => this.cfg.load(trx))).settings;
     const preparados = this.att.preparar(dto.attachments, settings.maxAttachmentBytes);
+    const enlaces = this.att.prepararEnlaces(dto.links); // `[MS.ADJ.2.2]` antes de tocar el bucket: un enlace malo no deja huérfanos
     const subidos: AdjuntoSubido[] = preparados.length ? await this.att.subir(preparados, CARPETA) : [];
 
     // 2) Un solo bloque transaccional: folio + ticket + hilo + adjuntos. Si algo falla, nada queda a medias.
@@ -380,6 +382,7 @@ export class ServiceDeskRequestsService {
           meta: { ...(usaPrioridad ? { priority, impact: impactoEf, blocks_work: bloqueaEf } : {}), ...(riesgo !== null ? { safety_risk: riesgo } : {}), ...(pidioOtro ? { opened_on_behalf: true, opened_by: ctx.userId, requester_id: solicitanteId } : {}) },
         });
         await this.insertAdjuntos(trx, tenantId, id, msgId, ctx.userId, subidos);
+        await this.insertEnlaces(trx, tenantId, id, msgId, ctx.userId, enlaces);
 
         let efectos: Efectos = { avisos: [], bitacora: [{ tenantId, requestId: id, folio, event: 'created', status: 'nuevo', assignedTo: null }] };
         // A quien no la reportó se le avisa que existe (si no, le llegarían los «resuelto» de algo que no conocía).
@@ -584,6 +587,25 @@ export class ServiceDeskRequestsService {
         .orderBy('a.created_at', 'asc')
         .select('a.id', 'a.message_id', 'a.file_name', 'a.content_type', 'a.size_bytes', 'a.storage_key', 'a.created_at');
 
+      // `[MS.ADJ.2.2]` Los enlaces de Google, con la MISMA regla de visibilidad que los adjuntos (los de una nota interna no llegan a quien reportó).
+      const enl = await trx('servicedesk.request_links as l')
+        .leftJoin('servicedesk.request_messages as m', function () {
+          this.on('m.tenant_id', 'l.tenant_id').andOn('m.id', 'l.message_id');
+        })
+        .where('l.request_id', id)
+        .modify((qb) => {
+          if (!atiendeAqui) qb.where((w) => w.whereNull('l.message_id').orWhere('m.visibility', 'public'));
+        })
+        .orderBy('l.created_at', 'asc')
+        .select('l.id', 'l.message_id', 'l.url', 'l.kind', 'l.created_at');
+      const links: SdLinkDto[] = (enl as Array<Record<string, unknown>>).map((l) => ({
+        id: String(l['id']),
+        message_id: (l['message_id'] as string | null) ?? null,
+        url: String(l['url']),
+        kind: l['kind'] as SdLinkDto['kind'],
+        created_at: iso(l['created_at'] as Date) as string,
+      }));
+
       // `[MS.3.15]` El tiempo: la lista (quién, cuándo, cuánto, qué hizo) y su suma. Sólo quien atiende; para quien reportó
       // es `null` (no «vacío»: no tiene acceso).
       let logged: number | null = null;
@@ -658,6 +680,7 @@ export class ServiceDeskRequestsService {
         reopened_count: Number(r.reopened_count),
         messages: (msgs as MessageRow[]).map((m): SdMessageDto => ({ id: m.id, kind: m.kind, visibility: m.visibility, author_id: m.author_id ?? null, author_label: m.author_label ?? null, body: m.body, meta: m.meta ?? {}, created_at: iso(m.created_at) as string })),
         attachments,
+        links,
         time_logged_minutes: logged,
         time_entries: entradasTiempo,
       };
@@ -742,6 +765,7 @@ export class ServiceDeskRequestsService {
      * sólo le quita al agente su evidencia. Sigue siendo sólo para quien atiende (arriba: 403 al solicitante).
      */
     const preparados = this.att.preparar(dto.attachments, settings.maxAttachmentBytes);
+    const enlaces = this.att.prepararEnlaces(dto.links); // `[MS.ADJ.2.2]`
     const subidos: AdjuntoSubido[] = preparados.length ? await this.att.subir(preparados, CARPETA) : [];
 
     let efectos = sinEfectos();
@@ -767,6 +791,7 @@ export class ServiceDeskRequestsService {
           body,
         });
         await this.insertAdjuntos(trx, tenantId, id, msgId, ctx.userId, subidos);
+        await this.insertEnlaces(trx, tenantId, id, msgId, ctx.userId, enlaces);
 
         // La primera respuesta PÚBLICA de quien atiende cuenta para el SLA; una nota interna no.
         if (atiende && visibility === 'public' && !r.first_responded_at) {
@@ -1328,6 +1353,7 @@ export class ServiceDeskRequestsService {
       reopened_count: 0,
       messages: [],
       attachments: [],
+      links: [],
       time_logged_minutes: null,
       time_entries: null,
     };
@@ -1395,6 +1421,14 @@ export class ServiceDeskRequestsService {
         size_bytes: s.size_bytes,
         uploaded_by: userId,
       })),
+    );
+  }
+
+  /** `[MS.ADJ.2.2]` Los enlaces de Google del envío, en la MISMA transacción que el mensaje (o quedan todos o ninguno). */
+  private async insertEnlaces(trx: Knex.Transaction, tenantId: string, requestId: string, messageId: string, userId: string, enlaces: EnlacePreparado[]): Promise<void> {
+    if (!enlaces.length) return;
+    await trx('servicedesk.request_links').insert(
+      enlaces.map((e) => ({ tenant_id: tenantId, request_id: requestId, message_id: messageId, url: e.url, kind: e.kind, created_by: userId })),
     );
   }
 
