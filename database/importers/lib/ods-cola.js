@@ -39,6 +39,9 @@
  *   · BORRADOS. La cola los anota (`op = 'D'`) y el drenado los CUENTA, pero NO los propaga: el
  *     origen PODA historia (la reconciliación nocturna conserva lo podado a propósito, OBS.14), y
  *     un DELETE en vivo la borraría del ODS. Siguen saliendo por `ods-reconcile-full` (02:10).
+ *     `[OBS.15.10]` Salvo que el carril pase `borrar` a `drenarCola` (lo prende `ODS_COLA_BORRAR`
+ *     en `replicate-ods-live.js`): ahí se propagan SÓLO los de fecha de negocio reciente y con tope
+ *     por pasada — una poda trae miles de golpe, o filas viejas, y ninguna de las dos se toca.
  *   · Lo que cambió ANTES de instalar: lo repone la red de seguridad y el reconciliador, como hoy.
  *   · Un re-sync de la suscripción (TRUNCATE + COPY) mete la tabla entera a la cola. Se drena en
  *     lotes; tarda, no se pierde.
@@ -201,7 +204,7 @@ const firma = (pk, llave) => JSON.stringify(pk.map((k) => (llave[k] == null ? nu
  * `espera_max_ms` = cuánto llevaba en la cola la entrada más vieja AL LEERLA, medido con el reloj de
  * la base (no se mezclan relojes). Sumado a `ms` es la latencia réplica → ODS de esta pasada.
  */
-async function drenarCola(p, { tablas, metaDe, enviar, lote = LOTE_DEFAULT, esquemaFuente = 'md', esquemaCola = 'ods' }) {
+async function drenarCola(p, { tablas, metaDe, enviar, borrar = null, lote = LOTE_DEFAULT, esquemaFuente = 'md', esquemaCola = 'ods' }) {
   const t0 = Date.now();
   const cola = `${qid(esquemaCola)}.cola`;
   const { rows } = await p.query(
@@ -227,12 +230,19 @@ async function drenarCola(p, { tablas, metaDe, enviar, lote = LOTE_DEFAULT, esqu
     const llaves = [...unicas.values()];
     const filas = await leerPorLlave(p, tabla, meta, llaves, { esquemaFuente });
     const r = filas.length ? await enviar(tabla, meta, filas) : { rowCount: 0 };
+    // Llave sin fila = se borró en el origen. Por defecto se CUENTA y no se propaga (ver
+    // encabezado). `[OBS.15.10]` Con `borrar`, quien llama decide qué propagar —con sus frenos—;
+    // va ANTES de vaciar la cola: si tira, las entradas se quedan y se reintentan.
+    const presentes = new Set(filas.map((f) => firma(meta.pk, f)));
+    const sinFila = llaves.filter((k) => !presentes.has(firma(meta.pk, k)));
+    const rb = borrar && sinFila.length ? await borrar(tabla, meta, sinFila) : null;
     await p.query(`DELETE FROM ${cola} WHERE id = ANY($1::bigint[])`, [ids]);
     const escritas = Number(r?.rowCount || 0);
-    // Llave sin fila = se borró en el origen. Se cuenta, no se propaga (ver encabezado).
-    const borradas = llaves.length - filas.length;
+    const borradas = sinFila.length;
+    const propagadas = Number(rb?.borradas || 0);
     res.llaves += llaves.length; res.enviadas += filas.length; res.escritas += escritas; res.borradas += borradas;
-    res.porTabla[tabla] = { llaves: llaves.length, enviadas: filas.length, escritas, borradas };
+    res.propagadas = (res.propagadas || 0) + propagadas;
+    res.porTabla[tabla] = { llaves: llaves.length, enviadas: filas.length, escritas, borradas, propagadas, ...(rb?.nota ? { nota: rb.nota } : {}) };
   }
   res.ms = Date.now() - t0;
   return res;
