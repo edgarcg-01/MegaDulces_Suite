@@ -22,7 +22,8 @@ import type { Knex } from 'knex';
 import { KNEX_NEW_DB, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { planDeCaos, puntoDeApertura } from './carril-caos';
 import { identidadDeCaos, type MovimientoCaos } from './identidad';
-import { esSinRegla, movimientoCaos, type Contexto } from './reglas';
+import { pesosACentavos } from '@megadulces/contracts';
+import { cobranzaRuta, esSinRegla, movimientoCaos, type Contexto, type Propuesta } from './reglas';
 
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
 const LOTE = 500;
@@ -37,6 +38,24 @@ export interface CorridaCarril {
 }
 
 export const carrilEncendido = (): boolean => process.env['LE_LIBRO_CAOS'] === 'on';
+export const carrilKeplerEncendido = (): boolean => process.env['LE_LIBRO_KEPLER'] === 'on';
+
+/** Un cobro de ruta a caja, agregado por cobro (`route_collections`). `importe` en pesos, texto. */
+export interface CobroDeRuta {
+  almacen: string;
+  cobro_folio: string;
+  cuenta: string;
+  ruta: string;
+  fecha: string;
+  importe: string;
+}
+
+/** El cobro → su asiento. La llave es la misma `origen_ref` que usa el libro viejo (`almacen|U-A-5|folio|cuenta`). */
+export function propuestaDeCobro(c: CobroDeRuta): Propuesta {
+  return cobranzaRuta({ ruta: c.ruta, origenRef: `${c.almacen}|U-A-5|${c.cobro_folio}|${c.cuenta}`,
+    monto: pesosACentavos(c.importe).toString(), fecha: c.fecha },
+  { actor: { kind: 'servicio', service: 'libro-kepler' }, valueAt: `${c.fecha}T12:00:00-06:00` });
+}
 
 @Injectable()
 export class CashbookCaosCarril {
@@ -52,7 +71,7 @@ export class CashbookCaosCarril {
   async cadaMinuto(): Promise<void> {
     if (!carrilEncendido()) return;
     const r = await this.correr();
-    await this.latir(r);
+    await this.latir(r, 'libro_caos', 'Libro de efectivo — movimientos de la máquina');
   }
 
   /** Una pasada. `opciones` existe para la prueba (tenant y apertura propios); el cron usa el entorno. */
@@ -136,10 +155,80 @@ export class CashbookCaosCarril {
       payload: { external_id: m.external_id, type_label: m.type_label, total: m.total, occurred_at: m.occurred_at } })]);
   }
 
-  private async latir(r: CorridaCarril): Promise<void> {
+  // ── La mitad de Kepler: lo que la ruta cobró → «por rendir» de la ruta ────────────────────────
+
+  @Cron('45 * * * * *', { timeZone: 'America/Mexico_City' })
+  async cadaMinutoKepler(): Promise<void> {
+    if (!carrilKeplerEncendido()) return;
+    const r = await this.correrKepler();
+    await this.latir(r, 'libro_kepler', 'Libro de efectivo — cobranza de ruta de Kepler');
+  }
+
+  /**
+   * `[LE.4.4]` Cada cobro de ruta a la Caja General (`cuenta 0011`) desde el punto de apertura
+   * entra una vez: + Por rendir · ruta / − Cobranza reconocida. Si Kepler cambia un cobro ya
+   * asentado, la base lo rechaza (`cashbook_evento_cambio`) y va a la cola: la reversa y la versión
+   * nueva las firma una persona (B42). El orden no importa: «por rendir» admite negativo.
+   */
+  async correrKepler(opciones: { tenantId?: string; desde?: string } = {}): Promise<CorridaCarril> {
+    const desde = (opciones.desde ?? process.env['LE_LIBRO_KEPLER_DESDE'] ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(desde)) {
+      this.logger.warn('[LE.4.4] NO MEDIDO: sin LE_LIBRO_KEPLER_DESDE el libro no sabe desde qué día tomar la cobranza');
+      return { estado: 'sin_apertura', asentados: 0, a_la_cola: 0, ultimo: null, motivo: 'sin fecha de apertura' };
+    }
+    try {
+      return await this.tenantCtx.run({ tenantId: opciones.tenantId ?? MEGA }, () => this.tk.run(async (trx) => {
+        let asentados = 0;
+        let aLaCola = 0;
+        for (const c of await this.cobrosDeKepler(trx, desde)) {
+          const p = propuestaDeCobro(c);
+          // Ya asentado con la misma huella: nada que hacer (y no se cuenta: el latido no miente).
+          const ya = (await trx.raw(`SELECT event_hash FROM cashbook.entries WHERE event_kind = 'cobranza_ruta' AND event_ref = ?
+            ORDER BY event_version DESC LIMIT 1`, [p.asiento.event_ref ?? ''])).rows[0] as { event_hash: string } | undefined;
+          if (ya && ya.event_hash === p.asiento.event_hash) continue;
+          for (const cuenta of p.cuentas) await trx.raw('SELECT cashbook.open_account(?::jsonb)', [JSON.stringify(cuenta)]);
+          await trx.raw('SAVEPOINT libro_kepler');
+          try {
+            await trx.raw('SELECT cashbook.post_entry(?::jsonb)', [JSON.stringify(p.asiento)]);
+            await trx.raw('RELEASE SAVEPOINT libro_kepler');
+            asentados += 1;
+          } catch (e) {
+            await trx.raw('ROLLBACK TO SAVEPOINT libro_kepler');
+            if ((e as { constraint?: string }).constraint !== 'cashbook_evento_cambio') throw e;
+            await trx.raw('SELECT cashbook.enqueue_external(?::jsonb)', [JSON.stringify({ source: 'kepler', event_ref: `${p.asiento.event_ref}:${p.asiento.event_hash}`,
+              reason: 'Kepler cambió un cobro ya asentado: reversa + versión nueva, con cuatro ojos', payload: c })]);
+            aLaCola += 1;
+          }
+        }
+        return { estado: 'al_dia', asentados, a_la_cola: aLaCola, ultimo: null, motivo: null };
+      }));
+    } catch (e) {
+      const motivo = (e as { constraint?: string; message?: string }).constraint ?? (e as Error).message;
+      this.logger.error(`[LE.4.4] el carril de cobranza falló: ${motivo}`);
+      return { estado: 'error', asentados: 0, a_la_cola: 0, ultimo: null, motivo };
+    }
+  }
+
+  /**
+   * La fuente: `analytics.route_collections` (el push de las camionetas; el cobro de ruta NO viaja
+   * al ODS — RC.3). Validada el 2026-10-27 contra los depósitos de CAOS que declaran ruta y día:
+   * mediana depósito/cobro 0.994, 65 de 99 coinciden casi al peso contra 2 de 99 con la ruta
+   * equivocada (placebo). Un billete por COBRO: se agrega por cobro, no por corte saldado.
+   * `protected` para que la prueba la sustituya: la tabla no existe en la base de prueba.
+   */
+  protected async cobrosDeKepler(trx: Knex.Transaction, desde: string): Promise<CobroDeRuta[]> {
+    return (await trx.raw(`
+      SELECT almacen, cobro_folio, cuenta, regexp_replace(truck, '^ruta_0*', '') AS ruta, fecha::text AS fecha, sum(importe)::numeric(18,2)::text AS importe
+        FROM analytics.route_collections
+       WHERE cuenta = '0011' AND fecha >= ?::date
+       GROUP BY almacen, cobro_folio, cuenta, truck, fecha
+       ORDER BY fecha, almacen, cobro_folio`, [desde])).rows as CobroDeRuta[];
+  }
+
+  private async latir(r: CorridaCarril, jobKey = 'libro_caos', label = 'Libro de efectivo — movimientos de la máquina'): Promise<void> {
     const error = r.estado === 'error' || r.estado === 'sin_apertura' || r.estado === 'detenido' ? r.motivo : null;
     await this.knex('analytics.cron_runs').insert({
-      tenant_id: MEGA, job_key: 'libro_caos', label: 'Libro de efectivo — movimientos de la máquina',
+      tenant_id: MEGA, job_key: jobKey, label,
       last_start: this.knex.fn.now(), last_finish: this.knex.fn.now(), status: error ? 'error' : 'ok',
       rows_affected: r.asentados, note: error ? null : `${r.asentados} asentado(s) · ${r.a_la_cola} a la cola · hasta #${r.ultimo ?? '—'}`,
       error, host: 'worker', updated_at: this.knex.fn.now(),
