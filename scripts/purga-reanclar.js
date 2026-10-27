@@ -53,17 +53,32 @@ const equivalente = (viejo) => {
   return n;
 };
 equivalente(base);
+// Un commit local intermedio puede traer algo que se purgó (p. ej. un baseline que luego se borró): se le
+// quita con un índice temporal, con la MISMA regla que `.gitleaks.toml` (archivo-purgado-del-historial).
+// Si no, re-anclar lo volvería a publicar al empujar.
+const PURGADO = /(^|\/)database\/backups\/|\.(dump|mdb|accdb)$|(^|\/)\.env\.cloudinary$|scratchpad|fixtures\/(priv|scope)-baseline\.json$|^caos-[^/]*\.(png|json)$/;
+const idx = require('path').join(require('os').tmpdir(), `purga-reanclar-${process.pid}.idx`);
+let limpiados = 0;
+const arbolLimpio = (c) => {
+  const sucios = g(['ls-tree', '-r', '--name-only', c]).split('\n').filter((p) => PURGADO.test(p));
+  if (!sucios.length) return `${c}^{tree}`;
+  limpiados++;
+  const env = { ...process.env, GIT_INDEX_FILE: idx };
+  g(['read-tree', `${c}^{tree}`], { env });
+  g(['rm', '--cached', '-q', '-f', '--', ...sucios], { env });
+  return g(['write-tree'], { env });
+};
 for (const c of locales) {
   const [an, ae, ad, cn, ce, cd] = g(['log', '-1', '--format=%an%x00%ae%x00%aD%x00%cn%x00%ce%x00%cD', c]).split('\0');
   const padres = g(['rev-list', '--parents', '-n', '1', c]).split(' ').slice(1).map(equivalente);
   const msg = g(['log', '-1', '--format=%B', c]);
   const env = { ...process.env, GIT_AUTHOR_NAME: an, GIT_AUTHOR_EMAIL: ae, GIT_AUTHOR_DATE: ad, GIT_COMMITTER_NAME: cn, GIT_COMMITTER_EMAIL: ce, GIT_COMMITTER_DATE: cd };
-  const nuevoC = g(['commit-tree', `${c}^{tree}`, ...padres.flatMap((p) => ['-p', p])], { input: msg + '\n', env });
+  const nuevoC = g(['commit-tree', arbolLimpio(c), ...padres.flatMap((p) => ['-p', p])], { input: msg + '\n', env });
   mapa.set(c, nuevoC);
 }
 const punta = mapa.get(head);
 const mismoArbol = g(['rev-parse', `${punta}^{tree}`]) === g(['rev-parse', `${head}^{tree}`]);
-console.log(`rama ${rama}: ${locales.length} commit(s) locales sobre la historia nueva · base ${base.slice(0, 9)} → ${mapa.get(base).slice(0, 9)} · punta ${head.slice(0, 9)} → ${punta.slice(0, 9)} · mismo árbol: ${mismoArbol ? 'sí' : 'NO'}`);
+console.log(`rama ${rama}: ${locales.length} commit(s) locales sobre la historia nueva · base ${base.slice(0, 9)} → ${mapa.get(base).slice(0, 9)} · punta ${head.slice(0, 9)} → ${punta.slice(0, 9)} · mismo árbol: ${mismoArbol ? "sí" : "NO"} · commits limpiados de archivos purgados: ${limpiados}`);
 if (!mismoArbol) { console.error('⛔ El árbol no coincide: no se mueve nada.'); process.exit(1); }
 if (!APLICAR) { console.log('(simulación) Para aplicarlo: node scripts/purga-reanclar.js --aplicar'); process.exit(0); }
 // compare-and-swap: si otra sesión commiteó mientras tanto, falla y se vuelve a correr.
