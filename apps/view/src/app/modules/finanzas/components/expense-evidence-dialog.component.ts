@@ -14,6 +14,7 @@ import { ComprobacionesService, ProofFile, ProofFileRole, ExpenseClasificacion, 
 import { ExpenseRequestRow } from '../../comercial/comercial.service';
 import { money } from '../../../shared/util';
 import { dmy } from '../pages/finanzas-format';
+import { AvisoRondaGastosComponent } from './aviso-ronda-gastos.component';
 
 interface FileSlot { role: ProofFileRole; label: string; required: boolean; accept: string; }
 
@@ -32,7 +33,7 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
 @Component({
   selector: 'app-expense-evidence-dialog',
   standalone: true,
-  imports: [NgTemplateOutlet, FormsModule, ButtonModule, DialogModule, FileUploadModule, TextareaModule, SelectButtonModule],
+  imports: [NgTemplateOutlet, FormsModule, ButtonModule, DialogModule, FileUploadModule, TextareaModule, SelectButtonModule, AvisoRondaGastosComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- Sin cierre implícito: esto es captura, y Esc o la X tirando archivos ya subidos es
@@ -42,6 +43,8 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
               [style]="{ width: '36rem', maxWidth: '95vw' }" [draggable]="false" header="Adjuntar evidencia">
       @if (solicitud(); as s) {
         <div class="ev-form">
+          <!-- [GX.86] Este diálogo también da de alta el vale: el mismo aviso de las rondas. -->
+          <app-aviso-ronda-gastos />
           <!-- Lo que el ERP ya sabe, de solo lectura. Volver a pedirlo era hacer teclear
                lo que el sistema ya tiene, y habilitaba contradecir a Kepler. -->
           <div class="ev-sol">
