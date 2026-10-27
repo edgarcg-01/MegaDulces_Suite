@@ -2442,8 +2442,8 @@ export class ComprasEntradasComponent {
   /** [RE.35.5] Hallazgos que calcula el expediente (con su conteo en la bandeja). */
   readonly hallazgoVer = signal<'' | 'cobrar_nc' | 'mal_emitida' | 'nc_aplicada'>('');
   readonly hallazgoOptsExp = computed(() => {
-    const n = this.report()?.expediente?.por_hallazgo;
-    const c = (k: 'cobrar_nc' | 'mal_emitida' | 'nc_aplicada') => (n ? ` · ${n[k]}` : '');
+    const n = this.conteosBandeja()?.por_hallazgo;
+    const c = (k: 'cobrar_nc' | 'mal_emitida' | 'nc_aplicada') => (n ? ` · ${n[k]}` : this.conteosCargando() ? ' · …' : '');
     return [
       { label: 'Cobrar nota de crédito' + c('cobrar_nc'), value: 'cobrar_nc' },
       { label: 'Factura mal emitida (refacturar)' + c('mal_emitida'), value: 'mal_emitida' },
@@ -2476,13 +2476,15 @@ export class ComprasEntradasComponent {
   // ── [RE.35.5] Bandeja: Estado + Cuadre en uno ──
   readonly bandejaSel = signal<string>('revisar');
   readonly bandejaOpts = computed(() => {
-    const e = this.report()?.expediente?.por_cubo;
+    const e = this.conteosBandeja()?.por_cubo;
     const k = this.report()?.kpis;
     const n = (v: number | undefined) => (v == null ? '' : ` · ${v}`);
+    // `[RE.51]` Mientras llegan los conteos del expediente: «…», nunca un cero.
+    const ne = (v: number | undefined) => (v == null && this.conteosCargando() ? ' · …' : n(v));
     return [
-      { label: 'Por revisar' + n(e?.revisar), value: 'revisar' },
-      { label: 'Pasan solas' + n(e?.auto), value: 'auto' },
-      { label: 'Sin CFDI aún' + n(e?.sin_cfdi_aun), value: 'sin_cfdi_aun' },
+      { label: 'Por revisar' + ne(e?.revisar), value: 'revisar' },
+      { label: 'Pasan solas' + ne(e?.auto), value: 'auto' },
+      { label: 'Sin CFDI aún' + ne(e?.sin_cfdi_aun), value: 'sin_cfdi_aun' },
       { label: 'Sin papel' + n(k ? Math.max(0, k.entradas - k.con_comprobante) : undefined), value: 'pendiente' },
       { label: 'Validadas' + n(k?.validados), value: 'validado' },
       { label: 'Descartadas', value: 'descartada' },
@@ -2594,11 +2596,48 @@ export class ComprasEntradasComponent {
     });
   }
 
+  // ── `[RE.51]` Los conteos de la Bandeja, aparte de la lista ─────────────────────────────
+  // Sin filtrar por Bandeja ni Hallazgo, la lista pide el expediente SÓLO de su página (medido: el
+  // lote completo eran ~5 s de 5.3 en frío) y los conteos llegan en una segunda petición. Mientras
+  // tanto las pestañas dicen «…»: no un cero, ni los conteos de 100 renglones.
+  readonly conteosExp = signal<EntradasReport['expediente']>(null);
+  readonly conteosCargando = signal(false);
+  private conteosPedido = 0;
+  /** Los conteos vigentes: los que trajo la lista (lote completo) o los de la petición aparte. */
+  readonly conteosBandeja = computed(() => this.report()?.expediente ?? this.conteosExp());
+
+  private cargarConteos(q: EntradasQuery): void {
+    const pedido = ++this.conteosPedido;
+    this.conteosExp.set(null);
+    this.conteosCargando.set(true);
+    this.svc.list({ ...q, expediente_lote: 'todo', page: 1, pageSize: 1 })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        // Una respuesta de una consulta anterior no pisa la vigente.
+        next: (r) => { if (pedido !== this.conteosPedido) return; this.conteosExp.set(r.expediente ?? null); this.conteosCargando.set(false); },
+        error: () => { if (pedido === this.conteosPedido) this.conteosCargando.set(false); },
+      });
+  }
+
   load() {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     this.loading.set(true);
     this.error.set(null);
-    this.svc.list({
+    const q = this.consultaLista();
+    const porPagina = q.lente === 'dinero' && !q.bandeja && !q.hallazgo;
+    if (porPagina) this.cargarConteos(q);
+    else { this.conteosPedido++; this.conteosExp.set(null); this.conteosCargando.set(false); }
+    this.svc.list({ ...q, ...(porPagina ? { expediente_lote: 'pagina' as const } : {}) })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.report.set(r); this.cargadoAt.set(Date.now()); this.loading.set(false); },
+        error: () => { this.error.set('No se pudieron cargar las entradas.'); this.loading.set(false); },
+      });
+  }
+
+  /** La consulta de la lista, tal como la arman los filtros de la pantalla. */
+  private consultaLista(): EntradasQuery {
+    return {
       estado: this.estadoSel() || undefined,
       search: this.search || undefined,
       warehouse_codes: this.sucursalesSel().length ? this.sucursalesSel() : undefined,
@@ -2619,12 +2658,7 @@ export class ComprasEntradasComponent {
       hallazgo: (this.hallazgoVer() || undefined) as EntradasQuery['hallazgo'],
       page: this.page(),
       pageSize: this.pageSize,
-    })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (r) => { this.report.set(r); this.cargadoAt.set(Date.now()); this.loading.set(false); },
-        error: () => { this.error.set('No se pudieron cargar las entradas.'); this.loading.set(false); },
-      });
+    };
   }
 
   // ── Descarte de captura (DESIGN §Leyes 8) ────────────────────────────────────

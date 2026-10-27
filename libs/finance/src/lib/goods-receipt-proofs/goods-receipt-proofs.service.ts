@@ -6,7 +6,7 @@ import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine }
 // `[RE.25]` El cuadre del documento. Puro y medido — ver el encabezado de `receipt-match.ts`.
 // `CUADRE_SQL` vive allá y no acá a propósito: es la MISMA regla que `evaluarCuadre()`, y
 // tenerlas pegadas es lo que hace visible cambiar una sin la otra.
-import { GoodsReceiptExpedienteService } from './goods-receipt-expediente.service';
+import { GoodsReceiptExpedienteService, enPares } from './goods-receipt-expediente.service';
 import { REGLA_EXPEDIENTE } from './expediente-verdict';
 import type { ExpedienteConteos, ExpedienteResumenFila } from '@megadulces/contracts';
 import {
@@ -248,6 +248,12 @@ export interface ListReceiptsQuery {
   bandeja?: 'auto' | 'revisar' | 'sin_cfdi_aun';
   /** `[RE.35.5]` El Hallazgo: qué hacer y con quién. */
   hallazgo?: 'cobrar_nc' | 'mal_emitida' | 'incompleta' | 'sin_oc' | 'nc_aplicada' | 'comercial';
+  /**
+   * `[RE.51]` De qué entradas se calcula el expediente. `todo` (default) = todo el universo, con los
+   * conteos de la Bandeja · `pagina` = sólo los renglones de la página, y `expediente` (los conteos)
+   * sale nulo: se piden aparte. Con `bandeja` o `hallazgo` se calcula todo igual — filtran por él.
+   */
+  expediente_lote?: 'pagina' | 'todo';
   /** `rezago` = lo anterior a `reception_start` · `al_dia` (default) = de la fecha de arranque en adelante. */
   carril?: 'al_dia' | 'rezago' | 'todo';
   /**
@@ -338,6 +344,39 @@ export interface ReconciledLine {
 
 const QTY_TOL = 0.02;   // 2% de tolerancia en cantidad (normalizada a piezas)
 const PRICE_TOL = 0.05; // 5% de tolerancia en precio unitario
+
+/**
+ * `[RE.50]` La fila **CRUDA** que devuelve la consulta de comprobantes, antes de convertirla.
+ *
+ * ⚠️ Cada importe es `string | number`, nunca `number`: los `numeric` de Postgres llegan como
+ * **texto** por el driver, y por eso cada uno pasa por `Number(...)` en el `map` de abajo. Si
+ * alguien los declarara `number`, el tipo diría que la conversión sobra — y sin ella la tabla
+ * suma dinero concatenando (`[RE.20.1]`).
+ *
+ * El índice de cadena existe porque el `map` hace `...r`: la consulta trae más columnas de las
+ * que se nombran acá (y `dinero` agrega otras cinco), y todas viajan al renglón de salida.
+ */
+type FilaComprobanteCruda = {
+  sucursal: string;
+  folio: string;
+  /** Cuántos comprobantes tiene el renglón. `0` = todavía sin documento. */
+  deposits: number;
+  monto: string | number;
+  dias: string | number;
+  dias_espera: string | number | null;
+  gemela_monto: string | number | null;
+  gemela_delta: string | number | null;
+  gemela_score: string | number | null;
+  discrepancy_amount: string | number | null;
+  /** Sólo con el lente de dinero (`dinero`); si no, no vienen. */
+  factura?: string | number;
+  ajuste?: string | number;
+  neto?: string | number;
+  n_ajuste?: string | number;
+  ajuste_comercial?: string | number;
+  ajuste_operativo?: string | number;
+  [columna: string]: unknown;
+};
 
 @Injectable()
 export class GoodsReceiptProofsService {
@@ -756,7 +795,16 @@ export class GoodsReceiptProofsService {
        */
       let resumen: { filas: Map<string, ExpedienteResumenFila>; conteos: ExpedienteConteos } | null = null;
       let filtroLlaves: string[][] | null = null;
-      if (dinero) {
+      /*
+       * ⭐ `[RE.51]` Con `expediente_lote=pagina` (y sin filtrar por Bandeja ni Hallazgo) el expediente
+       * se calcula SÓLO para los renglones de la página: el de cada entrada no depende del lote (ve sólo
+       * los CFDI de su ventana). Medido en frío el 2026-10-27: el lote completo (~1,400 entradas) eran
+       * ~5 s de los ~5.3 de la petición. Los conteos de la Bandeja, que sí necesitan todo, se piden
+       * aparte y aquí salen nulos — no unos conteos de la página que se leerían como los de todo.
+       */
+      const expPorPagina = dinero && q.expediente_lote === 'pagina' && !q.bandeja && !q.hallazgo;
+      /** Las llaves que juzga el expediente: universo + esperando decisión + no descartadas. */
+      const llavesDelExpediente = () => {
         const u = trx(fuente)
           .join(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
           .where('c.tenant_id', tenantId).whereRaw('c.dup_of_folio IS NULL')
@@ -769,7 +817,10 @@ export class GoodsReceiptProofsService {
         if (hayDesc) {
           u.whereNotExists(trx('finance.goods_receipt_discards as x').whereRaw('x.tenant_id = c.tenant_id AND x.sucursal = c.sucursal AND x.folio = c.folio'));
         }
-        const llaves = (await u.select('c.sucursal', 'c.folio')) as { sucursal: string; folio: string }[];
+        return u;
+      };
+      if (dinero && !expPorPagina) {
+        const llaves = (await llavesDelExpediente().select('c.sucursal', 'c.folio')) as { sucursal: string; folio: string }[];
         // `[RE.49]` Las llaves salen del universo: el expediente lee sus entradas de la misma temporal.
         resumen = await this.expediente.resumenLote(trx, tenantId, llaves, universo);
         if (q.bandeja || q.hallazgo) {
@@ -976,7 +1027,17 @@ export class GoodsReceiptProofsService {
       else porFecha(asc('ASC')); // `antiguedad` (default) y `fecha`
       b.orderBy('c.folio', 'desc');
 
-      const rows = (await b).map((r: any) => ({
+      const crudas = await b as FilaComprobanteCruda[];
+      if (expPorPagina) {
+        // `[RE.51]` Las llaves de la página que el expediente juzga: la misma consulta de siempre,
+        // restringida a estos renglones (así «esperando decisión / no descartada» se decide igual).
+        const pares = crudas.filter((r) => r.deposits > 0).map((r) => [String(r.sucursal), String(r.folio)]);
+        const llaves = pares.length
+          ? ((await enPares(llavesDelExpediente(), 'c.sucursal', 'c.folio', pares).select('c.sucursal', 'c.folio')) as { sucursal: string; folio: string }[])
+          : [];
+        resumen = await this.expediente.resumenLote(trx, tenantId, llaves, universo);
+      }
+      const rows = crudas.map((r) => ({
         ...r,
         monto: Number(r.monto),
         gemela_monto: r.gemela_monto == null ? null : Number(r.gemela_monto),
@@ -1098,7 +1159,9 @@ export class GoodsReceiptProofsService {
         total: Number(total), page, pageSize,
         // `[RE.35.5]` Conteos de la Bandeja y del Hallazgo. Las que no tienen documento se cuentan
         // desde los KPIs (no pasan por el motor: no hay papel que juzgar).
-        expediente: resumen ? {
+        // `[RE.51]` Con el expediente de la página, los conteos NO se publican (serían los de 100 renglones).
+        expediente_lote: expPorPagina ? 'pagina' : 'todo',
+        expediente: resumen && !expPorPagina ? {
           ...resumen.conteos,
           por_cubo: { ...resumen.conteos.por_cubo, sin_documento: Math.max(0, Number(k.entradas) - Number(k.con_comprobante)) },
         } : null,

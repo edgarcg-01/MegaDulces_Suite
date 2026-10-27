@@ -246,6 +246,11 @@ export interface EntradasQuery {
    * documento no lo dice (1,239 por $91.5M, casi todos de nov-2025 a ene-2026).
    */
   plaza?: 'propia' | 'otra' | 'sin_declarar' | '';
+  /**
+   * `[RE.51]` `pagina` = el expediente sólo de los renglones de la página; los conteos de la
+   * Bandeja salen nulos y se piden aparte (con `todo`). Sin filtrar por Bandeja ni Hallazgo.
+   */
+  expediente_lote?: 'pagina' | 'todo';
   page?: number;
   pageSize?: number;
 }
@@ -337,6 +342,8 @@ export interface EntradaFrescura {
 export interface EntradasReport {
   /** `[RE.35.5]` Conteos de la Bandeja y del Hallazgo (sólo con lente dinero). */
   expediente?: ExpedienteConteos | null;
+  /** `[RE.51]` `pagina` = `expediente` viene nulo a propósito: los conteos se piden aparte. */
+  expediente_lote?: 'pagina' | 'todo';
   kpis: {
     entradas: number; con_comprobante: number; validados: number; monto_pendiente: number;
     // RE.13.0 — lo que las vistas nuevas necesitan contar sin traerse las filas.

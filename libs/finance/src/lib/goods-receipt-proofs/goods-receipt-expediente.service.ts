@@ -76,7 +76,7 @@ const llave = (s: string, f: string) => `${s}/${f}`;
  * → 340/336/321 ms, con el resultado idéntico (md5 de las 1,470 filas). Con `unnest` es un semi-join
  * por hash. Sin pares no trae nada, igual que `whereIn` con lista vacía.
  */
-function enPares<Q extends Knex.QueryBuilder>(qb: Q, colA: string, colB: string, pares: string[][]): Q {
+export function enPares<Q extends Knex.QueryBuilder>(qb: Q, colA: string, colB: string, pares: string[][]): Q {
   return qb.whereRaw('(??, ??) IN (SELECT * FROM unnest(?::text[], ?::text[]))',
     [colA, colB, pares.map((p) => p[0]), pares.map((p) => p[1])]) as Q;
 }
