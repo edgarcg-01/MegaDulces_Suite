@@ -71,13 +71,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <span>Mostrando sólo <strong>aprobadas sin documento en Kepler</strong>: salieron mal o nunca se empujaron. Abrí una para reintentar o cancelarla con motivo.</span>
         </div>
       }
-      <!-- [AB.32] Lo que pidieron las sucursales desde Autoabasto. El filtro se ve y se quita, igual que el de Kepler. -->
-      @if (fDeSucursal) {
-        <div class="rq-lote-cab" role="status">
-          <button pButton type="button" class="p-button-sm p-button-text" (click)="toggleDeSucursal()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Quitar filtro</span></button>
-          <span>Mostrando sólo lo que <strong>pidieron las sucursales</strong> desde Autoabasto. Rechazar una pide motivo: la sucursal lo ve.</span>
-        </div>
-      }
+      <!-- [PQ.18] Lo que pidieron las sucursales ya no es un filtro escondido dentro de cada pestaña:
+           es su propia pestaña, «Pedidos de sucursal». -->
 
       <!-- [RQ.8] POR LOTE o POR DOCUMENTO. Un «Armar» genera 8.2 documentos en promedio y 117 en
            el peor (82 generaciones medidas en prod), así que la lista plana obliga a leer 117
@@ -239,6 +234,15 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <p-tab value="branch">
             <span class="rq-tab-title"><i class="pi pi-arrow-right-arrow-left" aria-hidden="true"></i> Traspaso entre Sucursales</span>
           </p-tab>
+          <!-- [PQ.18] Lo que las sucursales mandan desde Autoabasto («Enviar a Compras»), compras y
+               traspasos juntos: es UNA decisión de la jefa de Compras, no dos. El número dice
+               cuántas esperan respuesta; «sin medir» si no se pudo contar, nunca 0. -->
+          <p-tab value="sucursal">
+            <span class="rq-tab-title"><i class="pi pi-shop" aria-hidden="true"></i> Pedidos de sucursal
+              @if (pendientesSuc() === null) { <span class="rq-tab-n rq-muted" title="No se pudo contar">·</span> }
+              @else if (pendientesSuc()! > 0) { <span class="rq-tab-n" [attr.aria-label]="pendientesSuc() + ' esperando respuesta'">{{ pendientesSuc() }}</span> }
+            </span>
+          </p-tab>
         </p-tablist>
 
         <p-tabpanels>
@@ -258,8 +262,6 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <input pInputText type="text" [(ngModel)]="fBuscar" (keyup.enter)="reload()"
                        placeholder="Folio, proveedor o lote…" aria-label="Buscar requisición" />
               </p-iconfield>
-              <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!fDeSucursal" [attr.aria-pressed]="fDeSucursal"
-                      (click)="toggleDeSucursal()"><span class="p-button-icon p-button-icon-left pi pi-shop" aria-hidden="true"></span><span class="p-button-label">Pedidas por sucursal</span></button>
               <!-- [RQ.4] Mover las 610 pendientes exigia abrir 610 fichas: el costo de la bandeja
                    ERA el tramite. La barra solo existe cuando hay algo marcado -- un boton de lote
                    permanentemente apagado es ruido, no informacion. -->
@@ -353,8 +355,6 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <input pInputText type="text" [(ngModel)]="fBuscar" (keyup.enter)="reload()"
                        placeholder="Folio, proveedor o lote…" aria-label="Buscar requisición" />
               </p-iconfield>
-              <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!fDeSucursal" [attr.aria-pressed]="fDeSucursal"
-                      (click)="toggleDeSucursal()"><span class="p-button-icon p-button-icon-left pi pi-shop" aria-hidden="true"></span><span class="p-button-label">Pedidas por sucursal</span></button>
               <!-- [RQ.4] Mover las 610 pendientes exigia abrir 610 fichas: el costo de la bandeja
                    ERA el tramite. La barra solo existe cuando hay algo marcado -- un boton de lote
                    permanentemente apagado es ruido, no informacion. -->
@@ -413,6 +413,77 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                     <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar los traspasos.
                     <button pButton type="button" class="p-button-text p-button-sm" (click)="reload()"><span class="p-button-label">Reintentar</span></button>
                   } @else { Sin traspasos entre sucursales todavía. Genera uno desde Existencia crítica. }
+                </td></tr>
+              </ng-template>
+            </p-table>
+          </p-tabpanel>
+
+          <!-- ── Pestaña 3: Pedidos de sucursal ([PQ.18]) ──
+               La pregunta que contesta: «¿qué me pidieron las sucursales y qué les contesto?».
+               Por eso la primera columna es QUIÉN pidió (por nombre), luego QUÉ y a QUIÉN se
+               pide, y el estado lleva el motivo si se rechazó: es lo que la sucursal ve. -->
+          <p-tabpanel value="sucursal">
+            <div class="rq-filters">
+              <p-select [options]="estadoOpts" [(ngModel)]="fEstado" (onChange)="reload()"
+                        optionLabel="label" optionValue="value" placeholder="Todos los estados" [showClear]="true" styleClass="rq-sel" appendTo="body"></p-select>
+              <p-select [options]="almacenOpts()" [(ngModel)]="fAlmacen" (onChange)="reload()"
+                        optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
+                        [filter]="true" filterBy="label" styleClass="rq-sel" appendTo="body" ariaLabel="Filtrar por la sucursal que pidió"></p-select>
+              <p-iconfield class="rq-search">
+                <p-inputicon class="pi pi-search" />
+                <input pInputText type="text" [(ngModel)]="fBuscar" (keyup.enter)="reload()"
+                       placeholder="Folio o proveedor…" aria-label="Buscar pedido de sucursal" />
+              </p-iconfield>
+              @if (sel().size > 0) {
+                <div class="rq-lote" role="group" aria-label="Acciones en lote">
+                  <span class="rq-lote-n">{{ sel().size }} marcada(s)</span>
+                  <button pButton type="button" class="p-button-sm" [disabled]="!canAutorizar || busy()" (click)="lote('approve')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
+                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [disabled]="!canAutorizar || busy()" (click)="abrirRechazo()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="limpiarMarcas()"><span class="p-button-label">Quitar marcas</span></button>
+                </div>
+              }
+            </div>
+
+            <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm rq-table"
+                     [paginator]="true" [rows]="50" [totalRecords]="total()" [lazy]="true" (onLazyLoad)="onPage($event)">
+              <ng-template #header>
+                <tr>
+                  <th class="rq-chk"><input type="checkbox" [checked]="todasMarcadas()" (change)="marcarTodas($any($event.target).checked)" aria-label="Marcar todas las de la página" /></th>
+                  <th>Pidió</th><th>Qué pide</th><th>Folio</th>
+                  <th class="rq-r">Líneas</th><th class="rq-r">Costo</th>
+                  <th>Estado</th><th class="rq-r">Días</th><th>Fecha</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-r>
+                <tr class="rq-row" (click)="open(r)">
+                  <td class="rq-chk" (click)="$event.stopPropagation()"><input type="checkbox" [checked]="sel().has(r.id)" (change)="marcar(r.id, $any($event.target).checked)" [attr.aria-label]="'Marcar ' + r.folio" /></td>
+                  <td class="rq-strong">{{ (r.warehouse_code | sucursal) || '—' }}</td>
+                  <td>{{ quePide(r) }}</td>
+                  <td class="rq-mono"><a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/compras/requisiciones', r.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ r.folio }}</a></td>
+                  <td class="rq-r">{{ r.total_lines | number }}</td>
+                  <td class="rq-r">{{ money(r.total_cost) }}</td>
+                  <td class="rq-estado">
+                    <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+                    <!-- [PQ.1] Toda «Aprobada» dice si salió a Kepler, también aquí. -->
+                    @if (r.estado === 'approved') {
+                      <p-tag [value]="keplerLabel(r)" [severity]="keplerSev(r)" [attr.title]="keplerTitle(r)" styleClass="rq-kep"></p-tag>
+                    }
+                    @if (r.rejection_reason) { <div class="rq-sub rq-motivo">Motivo: {{ r.rejection_reason }}</div> }
+                  </td>
+                  <td class="rq-r" [class.rq-viejo]="(r.dias ?? 0) > 30">{{ r.dias ?? '—' }}</td>
+                  <td class="rq-muted">{{ r.created_at | date:'dd/MM/yy HH:mm' }}</td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="9" class="rq-empty">
+                  @if (error()) {
+                    <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar los pedidos de sucursal.
+                    <button pButton type="button" class="p-button-text p-button-sm" (click)="reload()"><span class="p-button-label">Reintentar</span></button>
+                  } @else if (fEstado || fAlmacen || fBuscar.trim()) {
+                    Ningún pedido de sucursal con este filtro.
+                  } @else {
+                    Ninguna sucursal ha enviado pedidos a Compras todavía. Se envían desde Almacén › Autoabasto con «Enviar a Compras».
+                  }
                 </td></tr>
               </ng-template>
             </p-table>
@@ -502,6 +573,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                    border: 1px solid var(--surface-border); background: var(--surface-card); font-size: var(--fs-sm); }
     .rq-sub { font-size: var(--fs-xs); }
     .rq-strong { font-weight: 700; }
+    /* [PQ.18] contador de la pestaña «Pedidos de sucursal»: un número, sin color de alarma. */
+    .rq-tab-n { margin-left: .35rem; padding: 0 .4rem; border-radius: var(--r-pill, 999px); background: var(--surface-2); font-size: var(--fs-xs); font-weight: 700; }
     .rq-lote-que { display: flex; gap: .3rem; flex-wrap: wrap; }
     /* [PQ.15] Aprobar el lote desde su fila: los botones no abren el lote al hacer clic. */
     .rq-lote-acc { white-space: nowrap; display: flex; align-items: center; justify-content: flex-end; gap: .3rem; }
@@ -549,7 +622,9 @@ export class ComprasRequisicionesComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
 
-  tab = signal<'supplier' | 'branch'>('supplier');
+  tab = signal<'supplier' | 'branch' | 'sucursal'>('supplier');
+  /** `[PQ.18]` Pedidos de sucursal esperando respuesta (para la pestaña). `null` = no se pudo contar. */
+  readonly pendientesSuc = signal<number | null>(0);
   rows = signal<RequisitionRow[]>([]);
   total = signal(0);
   loading = signal(false);
@@ -567,8 +642,27 @@ export class ComprasRequisicionesComponent implements OnInit {
   fEstado: string = 'pending_approval';
   /** `[PQ.1]` `'sin_documento'` = sólo aprobadas sin folio de Kepler. Lo pone el drill de la casilla. */
   fKepler: 'sin_documento' | null = null;
-  /** `[AB.32]` Sólo lo que pidieron las sucursales desde Autoabasto (`?de_sucursal=1` también lo pone). */
-  fDeSucursal = false;
+  /**
+   * `[PQ.18]` «Qué pide» en una línea: la compra nombra al proveedor; el traspaso, de qué sucursal
+   * sale (por nombre, del mismo catálogo que el filtro). Si el origen no está en el catálogo, se
+   * dice que no se sabe, nunca un código.
+   */
+  quePide(r: RequisitionRow): string {
+    if (r.source_type === 'branch') {
+      const o = this.almacenes().find((w) => w.id === r.source_warehouse_id);
+      return `Traspaso desde ${o?.name || 'origen sin nombre'}`;
+    }
+    return `Compra a ${r.supplier_name || 'proveedor sin nombre'}`;
+  }
+
+  /** `[PQ.18]` Cuántos pedidos de sucursal esperan respuesta. Una consulta de 1 fila; si falla, `null` («·»), nunca 0. */
+  contarPendientesSuc(): void {
+    this.api.listRequisitions({ de_sucursal: true, estado: 'pending_approval', page: 1, pageSize: 1 })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => this.pendientesSuc.set(Number(r.total) || 0),
+        error: () => this.pendientesSuc.set(null),
+      });
+  }
   /** `[AB.32]` Rechazar en lote: el diálogo y el motivo. */
   readonly rechazoAbierto = signal(false);
   readonly motivoRechazo = signal('');
@@ -641,7 +735,11 @@ export class ComprasRequisicionesComponent implements OnInit {
     if (qTab === 'branch' || qTab === 'traspaso' || qTab === 'traspasos') {
       this.tab.set('branch');
     }
-    this.fDeSucursal = this.route.snapshot.queryParamMap.get('de_sucursal') === '1';
+    // `[PQ.18]` `?tab=sucursal` y el enlace viejo `?de_sucursal=1` abren la pestaña de pedidos de sucursal.
+    if (qTab === 'sucursal' || this.route.snapshot.queryParamMap.get('de_sucursal') === '1') {
+      this.tab.set('sucursal');
+    }
+    this.contarPendientesSuc();
     // `[PQ.14]` «Ver en Requisiciones» desde Pedido llega con el lote en `q`: la bandeja abre ya
     // buscándolo (el buscador acepta folio, proveedor o lote). Un enlace que no aterriza afirma
     // algo que no es.
@@ -661,7 +759,7 @@ export class ComprasRequisicionesComponent implements OnInit {
   }
   private vistaDecidida = false;
 
-  onTabChange(newTab: 'supplier' | 'branch'): void {
+  onTabChange(newTab: 'supplier' | 'branch' | 'sucursal'): void {
     if (this.tab() === newTab) return;
     this.tab.set(newTab);
     this.router.navigate([], { relativeTo: this.route, queryParams: { tab: newTab }, queryParamsHandling: 'merge' });
@@ -732,10 +830,11 @@ export class ComprasRequisicionesComponent implements OnInit {
     this.api.listRequisitions({
       estado: this.fEstado || undefined,
       kepler: this.fKepler || undefined,   // `[PQ.1]`
-      de_sucursal: this.fDeSucursal || undefined,   // `[AB.32]`
+      // `[PQ.18]` La pestaña «Pedidos de sucursal» trae compras Y traspasos que pidió una sucursal.
+      de_sucursal: this.tab() === 'sucursal' || undefined,
       // `[RQ.11]` Misma razón: los documentos DE UN LOTE son de los dos tipos, y el resumen que
       // alimenta el tablero de arriba tiene que contar el universo entero, no media pestaña.
-      source_type: (this.vista() === 'lote' || this.loteAbierto()) ? undefined : this.tab(),
+      source_type: (this.vista() === 'lote' || this.loteAbierto() || this.tab() === 'sucursal') ? undefined : this.tab() as 'supplier' | 'branch',
       warehouse_id: this.fAlmacen || undefined,
       search: this.fBuscar.trim() || undefined,
       // `[RQ.8]` Abrir un lote = la misma lista, acotada a sus documentos.
@@ -825,7 +924,6 @@ export class ComprasRequisicionesComponent implements OnInit {
     this.reload();
   }
   quitarKepler(): void { this.fKepler = null; this.reload(); }
-  toggleDeSucursal(): void { this.fDeSucursal = !this.fDeSucursal; this.reload(); }
 
   /** `[AB.32]` Cuántas de las marcadas pidió una sucursal: si hay alguna, el motivo es obligatorio. */
   readonly marcadasDeSucursal = computed<number>(() => {
@@ -1045,6 +1143,7 @@ export class ComprasRequisicionesComponent implements OnInit {
           });
         }
         this.reload();
+        this.contarPendientesSuc();   // `[PQ.18]` el número de la pestaña sigue a lo que se contestó
       },
       error: (e) => {
         this.busy.set(false);

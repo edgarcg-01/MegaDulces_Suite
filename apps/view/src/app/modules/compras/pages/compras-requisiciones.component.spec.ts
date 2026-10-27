@@ -596,6 +596,75 @@ describe('[PQ.15] aprobar un lote completo de golpe, desde su fila', () => {
   });
 });
 
+describe('[PQ.18] la pestaña «Pedidos de sucursal»', () => {
+  afterEach(() => TestBed.resetTestingModule());
+  const PEDIDO = (over: Record<string, unknown> = {}) => ({ ...FILA, id: '9f3c1a2b-0000-4000-8000-0000000000c1', folio: 'RQ-2026-01500', requested_by_branch: true, source_type: 'supplier', ...over });
+
+  function montar(params: Record<string, string>, over: Record<string, unknown> = {}, pedidos: Array<Record<string, unknown>> = []) {
+    TestBed.configureTestingModule({
+      imports: [ComprasRequisicionesComponent],
+      providers: [provideRouter([]),
+        { provide: ComprasService, useValue: apiFalsa({
+          listRequisitions: (q: Record<string, unknown>) => { pedidos.push(q); return of({ rows: [PEDIDO()], total: q['pageSize'] === 1 ? 4 : 1, resumen: [] }); },
+          ...over,
+        }) },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(params) } } }],
+    });
+    const fix = TestBed.createComponent(ComprasRequisicionesComponent);
+    fix.detectChanges();
+    fix.componentInstance.vista.set('documento');
+    fix.detectChanges();
+    return fix;
+  }
+
+  it('?tab=sucursal abre la pestaña y pide compras Y traspasos que pidió una sucursal (sin source_type)', () => {
+    const pedidos: Array<Record<string, unknown>> = [];
+    const fix = montar({ tab: 'sucursal' }, {}, pedidos);
+    expect(fix.componentInstance.tab()).toBe('sucursal');
+    const lista = pedidos.filter((p) => p['pageSize'] === 50).pop()!;
+    expect(lista['de_sucursal']).toBe(true);
+    expect(lista['source_type']).toBeUndefined();
+  });
+
+  it('el enlace viejo ?de_sucursal=1 también aterriza en la pestaña', () => {
+    expect(montar({ de_sucursal: '1' }).componentInstance.tab()).toBe('sucursal');
+  });
+
+  it('NEGATIVA: en «Requerimientos a Proveedor» NO se filtra por sucursal y sí por tipo', () => {
+    const pedidos: Array<Record<string, unknown>> = [];
+    montar({}, {}, pedidos);
+    const lista = pedidos.filter((p) => p['pageSize'] === 50).pop()!;
+    expect(lista['de_sucursal']).toBeUndefined();
+    expect(lista['source_type']).toBe('supplier');
+  });
+
+  it('la pestaña dice cuántos esperan respuesta (consulta de pendientes, 1 fila)', () => {
+    const pedidos: Array<Record<string, unknown>> = [];
+    const fix = montar({}, {}, pedidos);
+    const conteo = pedidos.find((p) => p['pageSize'] === 1)!;
+    expect(conteo['de_sucursal']).toBe(true);
+    expect(conteo['estado']).toBe('pending_approval');
+    expect(fix.componentInstance.pendientesSuc()).toBe(4);
+    expect((fix.nativeElement as HTMLElement).querySelector('.rq-tab-n')?.textContent?.trim()).toBe('4');
+  });
+
+  it('NEGATIVA: si el conteo falla la pestaña dice «·» (no se pudo contar), nunca 0', () => {
+    const fix = montar({}, {
+      listRequisitions: (q: Record<string, unknown>) => (q['pageSize'] === 1 ? throwError(() => new Error('500')) : of({ rows: [], total: 0, resumen: [] })),
+    });
+    expect(fix.componentInstance.pendientesSuc()).toBeNull();
+    expect((fix.nativeElement as HTMLElement).querySelector('.rq-tab-n')?.textContent?.trim()).toBe('·');
+  });
+
+  it('«Qué pide»: la compra nombra al proveedor; el traspaso, la sucursal origen POR NOMBRE', () => {
+    const c = montar({ tab: 'sucursal' }).componentInstance;
+    expect(c.quePide(PEDIDO() as never)).toBe('Compra a Dulces del Norte');
+    expect(c.quePide(PEDIDO({ source_type: 'branch', source_warehouse_id: 'w1' }) as never)).toBe('Traspaso desde Canindo');
+    // NEGATIVA: un origen fuera del catálogo no se pinta como código.
+    expect(c.quePide(PEDIDO({ source_type: 'branch', source_warehouse_id: 'w-x' }) as never)).toBe('Traspaso desde origen sin nombre');
+  });
+});
+
 describe('[AB.32] rechazar lo que pidió una sucursal exige motivo', () => {
   const DE_SUCURSAL = { ...FILA, id: '9f3c1a2b-0000-4000-8000-000000000002', folio: 'RQ-2026-00043', requested_by_branch: true };
   function montarConSucursal(bulk: (ids: string[], accion: string, motivo: string | null) => unknown) {
