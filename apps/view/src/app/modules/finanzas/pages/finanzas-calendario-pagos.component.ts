@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, inject, signal, computed, effect, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, ViewChild, inject, signal, computed, effect, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
@@ -26,7 +26,7 @@ import { EntityInspectorComponent } from '../../../shared/components/entity-insp
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { allocationKey, fechaCorta, obligationKey, sugerirArmado, vencimiento, type ArmadoGrupo } from './calendario-pagos-grupos';
+import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -292,6 +292,160 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               }
             </div>
 
+            <!-- ── AGREGAR FACTURAS: el carril que mas se usa (Edgar: «el 80% es el buscador y agregar
+                 facturas de proveedores»). [PGP.15] Medido antes: el buscador vivia DENTRO de un plegable
+                 cerrado, 1.3 pantallas abajo; escribir no buscaba (hacia falta Enter, y nada lo decia);
+                 6 facturas de un mismo pago eran 6 clics; y tras agregar, la lista se vaciaba, el foco se
+                 iba al aviso y el «+» seguia activo mientras recargaba. Ahora el buscador esta siempre
+                 a la vista y ARRIBA de los pagos, busca mientras se escribe, agrupa por proveedor y
+                 sucursal con «Agregar las N», y tras agregar devuelve el foco al buscador. -->
+            @if (!isReleased()) {
+              <section class="pg-sec pg-add" aria-labelledby="pg-add-h">
+                <div class="pg-sec-h pg-add-h">
+                  <h3 class="pg-sec-t" id="pg-add-h">Agregar facturas</h3>
+                  <span class="pg-buscar">
+                    <span class="pi pi-search" aria-hidden="true"></span>
+                    <input id="pg-buscar" pInputText type="search" autocomplete="off" class="pg-buscar-in"
+                           [ngModel]="busqueda()" (ngModelChange)="alEscribir($event)" (keydown.enter)="buscarYa()" (keydown.escape)="limpiarBusqueda($event)"
+                           placeholder="Proveedor, folio, referencia o código"
+                           aria-label="Buscar facturas por proveedor, folio, referencia o código del acreedor" aria-describedby="pg-buscar-dice" />
+                    <kbd class="pg-kbd" title="Atajo: la tecla / lleva al buscador desde cualquier parte de la pantalla">/</kbd>
+                  </span>
+                  <span id="pg-buscar-dice" class="pg-sec-n" aria-live="polite">
+                    @if (buscando()) { Buscando… }
+                    @else if (busquedaAplicada()) { {{ facturas(obligacionesProgramables().length) }} con «{{ busquedaAplicada() }}»@if (gruposBusqueda().length > 1) { · {{ gruposBusqueda().length }} proveedores } }
+                    @else { {{ obligationsTotal() | number }} por pagar@if (obligacionesEnRevision().length) { · {{ obligacionesEnRevision().length }} por confirmar@if (obligationsTruncated()) { entre las {{ obligations().length | number }} listadas } } }
+                  </span>
+                  <button type="button" class="pg-sec-tg pg-lista-tg" [attr.aria-expanded]="verDeuda()" aria-controls="pg-add-b" (click)="toggleDeuda()">
+                    {{ verDeuda() ? 'Ocultar la lista' : 'Ver la lista' }}<span class="pi" [class.pi-angle-up]="verDeuda()" [class.pi-angle-down]="!verDeuda()" aria-hidden="true"></span>
+                  </button>
+                </div>
+                @if (avisoAlta(); as av) {
+                  <p class="pg-alta" role="status"><i class="pi pi-check" aria-hidden="true"></i>{{ av }}</p>
+                }
+                @if (verDeuda()) {
+                  <div class="pg-drawer" id="pg-add-b">
+                    <div class="pg-drawer-h">
+                      <p-select appendTo="body" [options]="classificationOpts" [(ngModel)]="classificationFilter" (onChange)="loadObligations()" optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true" size="small" class="cal-sel" ariaLabel="Tipo de obligación" />
+                      <p-select appendTo="body" [options]="ordenOpts" [(ngModel)]="ordenSel" (onChange)="onOrden()" optionLabel="label" optionValue="value" size="small" class="cal-sel" ariaLabel="Orden de la lista" />
+                      <label class="cal-check"><p-checkbox [(ngModel)]="onlyCritical" [binary]="true" (onChange)="loadObligations()" />Críticos</label>
+                    </div>
+                    <!-- [PGP.15] Con una busqueda, cada proveedor y sucursal es UN pago: se agrega entero
+                         de un clic (eran N clics, uno por factura). Sus facturas siguen abajo, una por una. -->
+                    @if (gruposBusqueda().length) {
+                      <div class="pg-grupos" role="group" aria-label="Proveedores encontrados">
+                        @for (g of gruposBusqueda().slice(0, 5); track g.key) {
+                          <div class="pg-grupo">
+                            <span class="pg-dr-main">
+                              <span class="cal-benef">{{ g.beneficiary }}</span>
+                              <span class="pg-sub"><span class="cal-suc">{{ branchLabel(g.branch) }}</span> {{ facturas(g.count) }} · van en un solo pago
+                                @if (excedeTope(g.total); as exceso) { · <b class="cal-bad-txt">no cabe: excede lo libre del día por {{ money(exceso) }}</b> }</span>
+                            </span>
+                            <span class="pg-dr-amt comm-num">{{ money(g.total) }}</span>
+                            <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="saving() || grupoAgregado(g)"
+                                    [attr.aria-label]="'Agregar al ' + dayLong(selectedDate()) + ' las ' + g.count + ' facturas de ' + g.beneficiary + ' ' + branchLabel(g.branch)" (click)="agregarGrupo(g)">
+                              @if (grupoAgregado(g)) { <span class="pi pi-check" aria-hidden="true"></span>&nbsp;En el día } @else { {{ g.count === 1 ? 'Agregar la factura' : 'Agregar las ' + g.count }} }
+                            </button>
+                          </div>
+                        }
+                        @if (gruposBusqueda().length > 5) {
+                          <p class="pg-drawer-n">Y {{ gruposBusqueda().length - 5 }} proveedores más: afina la búsqueda, o agrega sus facturas abajo una por una.</p>
+                        }
+                      </div>
+                    }
+                    @if (obligationsTruncated()) {
+                      <p class="pg-drawer-n">La búsqueda llega a <b>las {{ obligationsTotal() | number }}</b> facturas; aquí se listan las <b>{{ obligations().length | number }}</b> más próximas a vencer.</p>
+                    }
+                    <div class="pg-dr-hd" aria-hidden="true"><span>Proveedor y documento</span><span>Vencimiento</span><span class="r">Importe</span><span></span></div>
+                    <div class="pg-drawer-b">
+                      <app-load-state [loading]="loadingObligations()" [skeletonRows]="4">
+                        <!-- ⛔ [PGP.15] El cajon congelaba la pantalla 15.9 s al abrirse (medido: 954 renglones,
+                             13,300 nodos, 1,908 pButton con su pTooltip, y cada renglon formateando fechas e
+                             importes en cada ciclo). Ahora: (1) los textos de cada renglon se calculan UNA vez
+                             (filasDeuda); (2) botones nativos; (3) se pintan primero los de arriba y el resto
+                             entra por tandas sin bloquear (deudaVisible): al final estan TODOS en la pagina. -->
+                        @for (f of filasDeuda().slice(0, deudaVisible()); track f.o.obligation_id) {
+                          <div class="pg-dr-row">
+                            <span class="pg-dr-main">
+                              <span class="cal-benef">{{ f.o.beneficiary }}@if (f.o.is_critical) { <span class="pg-crit"><i class="pi pi-flag" aria-hidden="true"></i>crítico</span> }</span>
+                              <span class="pg-sub"><span class="cal-suc">{{ f.sucursal }}</span>
+                                @if (f.o.entity_ref) {
+                                  <button type="button" class="cal-reflink" [title]="f.tituloFicha" (click)="inspect.set(f.o.entity_ref!)">{{ f.o.concept }}</button>
+                                } @else { {{ f.o.concept }} }
+                                @if (f.o.doc_ref) { <span class="cal-ref">{{ f.o.doc_ref }}</span> }
+                                @if (f.pronto; as p) {
+                                  <span class="cal-pp" [class.cal-pp-urge]="p.urge">
+                                    <i class="pi" [class.pi-bolt]="p.urge" [class.pi-tag]="!p.urge" aria-hidden="true"></i>{{ p.texto }}
+                                  </span>
+                                }
+                                <!-- [PGP.14] El credito a favor que NADIE aplico. No bloquea el pago -netear
+                                     es una decision de Finanzas con el proveedor, no una regla automatica-
+                                     pero no se puede decidir lo que no se ve. Medido: 54 acreedores con deuda
+                                     viva traen $4,484,249 a favor; varios quedarian en CERO. -->
+                                @if (f.credito; as c) {
+                                  <!-- [PGP.17] El aviso ABRE el desglose: decir «trae $9,778.59 a
+                                       favor» sin decir de que tipo ni de que documento no deja
+                                       actuar. Es un boton, no un texto (Q.4). -->
+                                  <button type="button" class="pg-favor pg-favor-btn"
+                                          [attr.aria-label]="'Ver los descuentos de ' + f.o.beneficiary"
+                                          (click)="abrirCreditos(f.o.payee_code, f.o.beneficiary)">
+                                    <i class="pi pi-replay" aria-hidden="true"></i>{{ c }}
+                                    <i class="pi pi-angle-right" aria-hidden="true"></i>
+                                  </button>
+                                }
+                                <!-- [PGP.16] Lo que cuesta pagarla antes de su vencimiento. Medido:
+                                     el 17.9% del dinero sale antes de tiempo, 6 dias en promedio.
+                                     Se calla cuando el pronto pago gana mas de lo que cuesta. -->
+                                @if (f.adelanto; as a) { <span class="pg-pronto-no"><i class="pi pi-clock" aria-hidden="true"></i>{{ a }}</span> }
+                              </span>
+                            </span>
+                            <span class="pg-dr-due">{{ f.vence }}</span>
+                            <span class="pg-dr-amt comm-num">{{ f.importe }}</span>
+                            <span class="pg-dr-acts">
+                              <!-- [PGP.15] Un clic agrega la factura COMPLETA al dia abierto; lo raro -otro importe,
+                                   otro dia- va en el segundo boton. Ayuda en title y aria-label. -->
+                              <button type="button" class="pg-icobtn" [disabled]="saving() || agregando().has(f.o.obligation_id)" [attr.aria-label]="f.ariaAgregar" title="Agregar completa a este día" (click)="quickAdd(f.o)"><span class="pi" [class.pi-plus]="!agregando().has(f.o.obligation_id)" [class.pi-check]="agregando().has(f.o.obligation_id)" aria-hidden="true"></span></button>
+                              <button type="button" class="pg-icobtn" [disabled]="saving()" [attr.aria-label]="f.ariaOtro" title="Otro importe u otro día" (click)="quickAddDialog(f.o)"><span class="pi pi-sliders-h" aria-hidden="true"></span></button>
+                            </span>
+                          </div>
+                        } @empty {
+                          <p class="cal-empty">Sin obligaciones con estos filtros. Las facturas de proveedor llegan aquí cuando Finanzas acepta una entrega en <a routerLink="/compras/obligaciones" [queryParams]="{ tab: 'entregas' }">Entregas de Compras</a>.</p>
+                        }
+                        @if (deudaVisible() < filasDeuda().length) {
+                          <p class="pg-drawer-n" aria-live="polite">Mostrando {{ deudaVisible() | number }} de {{ filasDeuda().length | number }}…</p>
+                        }
+                      </app-load-state>
+                    </div>
+
+                    <!-- [PGP.13] ⛔ LO QUE NO SE PUEDE PROGRAMAR, aparte y sin boton de agregar: facturas de
+                         sucursal anteriores al corte del 1-oct, que pueden estar pagadas desde Oficinas.
+                         Plegado CON su cuenta y su total: plegar no es esconder. -->
+                    @if (obligacionesEnRevision().length) {
+                      <button type="button" class="pg-rev-h" [attr.aria-expanded]="verRevision()" (click)="verRevision.set(!verRevision())">
+                        <span class="pi pi-lock" aria-hidden="true"></span>
+                        <span class="pg-rev-t"><b>{{ facturas(obligacionesEnRevision().length) }} por confirmar · <span class="comm-num">{{ money(revisionTotal()) }}</span>@if (obligationsTruncated()) { <span class="pg-rev-u">entre las {{ obligations().length | number }} listadas</span> }</b>
+                          <span>De sucursal, anteriores al corte del 1-oct: varias se pagaron desde Oficinas sin aplicarse en la sucursal. Se revisan con Finanzas antes de programarlas.</span></span>
+                        <span class="pi pg-chev" [class.pi-angle-down]="verRevision()" [class.pi-angle-right]="!verRevision()" aria-hidden="true"></span>
+                      </button>
+                      @if (verRevision()) {
+                        @for (o of obligacionesEnRevision(); track o.obligation_id) {
+                          <div class="pg-dr-row is-locked">
+                            <span class="pg-dr-main">
+                              <span class="cal-benef">{{ o.beneficiary }}</span>
+                              <span class="pg-sub"><span class="cal-suc">{{ branchLabel(o.branch_code) }}</span> {{ o.concept }}@if (o.doc_ref) { <span class="cal-ref">{{ o.doc_ref }}</span> } · {{ classLabel(o.classification) }}</span>
+                            </span>
+                            <span class="pg-dr-due">{{ venceTxt(o) }}</span>
+                            <span class="pg-dr-amt comm-num">{{ money(o.available_amount) }}</span>
+                            <span class="pg-dr-acts"><i class="pi pi-lock" aria-label="No se puede programar"></i></span>
+                          </div>
+                        }
+                      }
+                    }
+                  </div>
+                }
+              </section>
+            }
+
             <!-- ── LOS PAGOS DEL DIA: una tabla, todos los estados, siempre a la vista ── -->
             <section class="pg-sec" aria-labelledby="pg-pagos-h">
               <div class="pg-sec-h">
@@ -331,7 +485,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                  este proveedor. Si trae saldo a favor sin aplicar, se dice ANTES de
                                  marcar la casilla, no después de pagar. -->
                             @if (creditoDeGrupo(g); as c) {
-                              <span class="pg-favor"><i class="pi pi-replay" aria-hidden="true"></i>trae {{ money(c.a_favor) }} a favor sin aplicar ({{ c.clases.toLowerCase() }}) — revisá si hay que netear</span>
+                              <span class="pg-favor"><i class="pi pi-replay" aria-hidden="true"></i>trae {{ money(c.a_favor) }} a favor sin aplicar ({{ c.clases.toLowerCase() }}) — revisa si hay que netear</span>
                             }
                           </span>
                           <span class="pg-prop-amt comm-num">{{ money(g.total) }}</span>
@@ -482,120 +636,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               }
             </section>
 
-            <!-- ── AGREGAR FACTURAS: la deuda, con su resumen siempre visible y su lista a pedido ── -->
-            @if (!isReleased()) {
-              <section class="pg-sec" aria-labelledby="pg-add-h">
-                <div class="pg-sec-h">
-                  <h3 class="pg-sec-t" id="pg-add-h">
-                    <button type="button" class="pg-sec-tg" [attr.aria-expanded]="verDeuda()" aria-controls="pg-add-b" (click)="toggleDeuda()">
-                      <span class="pi" [class.pi-angle-down]="verDeuda()" [class.pi-angle-right]="!verDeuda()" aria-hidden="true"></span>Agregar facturas
-                    </button>
-                    <!-- [PGP.15] «por confirmar» se cuenta sobre lo LISTADO: si la lista vino topada, se dice. -->
-                    <span class="pg-sec-n">{{ obligationsTotal() | number }} por pagar@if (obligacionesEnRevision().length) { · {{ obligacionesEnRevision().length }} por confirmar@if (obligationsTruncated()) { entre las {{ obligations().length | number }} listadas } }</span>
-                  </h3>
-                </div>
-                @if (verDeuda()) {
-                  <div class="pg-drawer" id="pg-add-b">
-                    <div class="pg-drawer-h">
-                      <input pInputText type="search" [(ngModel)]="search" (keyup.enter)="loadObligations()"
-                             placeholder="Buscar en las {{ obligationsTotal() | number }} facturas: nombre, folio, referencia o código…"
-                             class="p-inputtext-sm pg-grow" aria-label="Buscar en lo que debo por nombre del beneficiario, folio interno, referencia del proveedor o código del acreedor" />
-                      <p-select appendTo="body" [options]="classificationOpts" [(ngModel)]="classificationFilter" (onChange)="loadObligations()" optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true" size="small" class="cal-sel" ariaLabel="Tipo de obligación" />
-                      <p-select appendTo="body" [options]="ordenOpts" [(ngModel)]="ordenSel" (onChange)="onOrden()" optionLabel="label" optionValue="value" size="small" class="cal-sel" ariaLabel="Orden de la lista" />
-                      <label class="cal-check"><p-checkbox [(ngModel)]="onlyCritical" [binary]="true" (onChange)="loadObligations()" />Críticos</label>
-                    </div>
-                    @if (obligationsTruncated()) {
-                      <p class="pg-drawer-n">La búsqueda llega a <b>las {{ obligationsTotal() | number }}</b> facturas; aquí se listan las <b>{{ obligations().length | number }}</b> más próximas a vencer.</p>
-                    }
-                    <div class="pg-dr-hd" aria-hidden="true"><span>Proveedor y documento</span><span>Vencimiento</span><span class="r">Importe</span><span></span></div>
-                    <div class="pg-drawer-b">
-                      <app-load-state [loading]="loadingObligations()" [skeletonRows]="4">
-                        <!-- ⛔ [PGP.15] El cajon congelaba la pantalla 15.9 s al abrirse (medido: 954 renglones,
-                             13,300 nodos, 1,908 pButton con su pTooltip, y cada renglon formateando fechas e
-                             importes en cada ciclo). Ahora: (1) los textos de cada renglon se calculan UNA vez
-                             (filasDeuda); (2) botones nativos; (3) se pintan primero los de arriba y el resto
-                             entra por tandas sin bloquear (deudaVisible): al final estan TODOS en la pagina. -->
-                        @for (f of filasDeuda().slice(0, deudaVisible()); track f.o.obligation_id) {
-                          <div class="pg-dr-row">
-                            <span class="pg-dr-main">
-                              <span class="cal-benef">{{ f.o.beneficiary }}@if (f.o.is_critical) { <span class="pg-crit"><i class="pi pi-flag" aria-hidden="true"></i>crítico</span> }</span>
-                              <span class="pg-sub"><span class="cal-suc">{{ f.sucursal }}</span>
-                                @if (f.o.entity_ref) {
-                                  <button type="button" class="cal-reflink" [title]="f.tituloFicha" (click)="inspect.set(f.o.entity_ref!)">{{ f.o.concept }}</button>
-                                } @else { {{ f.o.concept }} }
-                                @if (f.o.doc_ref) { <span class="cal-ref">{{ f.o.doc_ref }}</span> }
-                                @if (f.pronto; as p) {
-                                  <span class="cal-pp" [class.cal-pp-urge]="p.urge">
-                                    <i class="pi" [class.pi-bolt]="p.urge" [class.pi-tag]="!p.urge" aria-hidden="true"></i>{{ p.texto }}
-                                  </span>
-                                }
-                                <!-- [PGP.14] El credito a favor que NADIE aplico. No bloquea el pago -netear
-                                     es una decision de Finanzas con el proveedor, no una regla automatica-
-                                     pero no se puede decidir lo que no se ve. Medido: 54 acreedores con deuda
-                                     viva traen $4,484,249 a favor; varios quedarian en CERO. -->
-                                @if (f.credito; as c) {
-                                  <!-- [PGP.17] El aviso ABRE el desglose: decir «trae $9,778.59 a
-                                       favor» sin decir de que tipo ni de que documento no deja
-                                       actuar. Es un boton, no un texto (Q.4). -->
-                                  <button type="button" class="pg-favor pg-favor-btn"
-                                          [attr.aria-label]="'Ver los descuentos de ' + f.o.beneficiary"
-                                          (click)="abrirCreditos(f.o.payee_code, f.o.beneficiary)">
-                                    <i class="pi pi-replay" aria-hidden="true"></i>{{ c }}
-                                    <i class="pi pi-angle-right" aria-hidden="true"></i>
-                                  </button>
-                                }
-                                <!-- [PGP.16] Lo que cuesta pagarla antes de su vencimiento. Medido:
-                                     el 17.9% del dinero sale antes de tiempo, 6 dias en promedio.
-                                     Se calla cuando el pronto pago gana mas de lo que cuesta. -->
-                                @if (f.adelanto; as a) { <span class="pg-pronto-no"><i class="pi pi-clock" aria-hidden="true"></i>{{ a }}</span> }
-                              </span>
-                            </span>
-                            <span class="pg-dr-due">{{ f.vence }}</span>
-                            <span class="pg-dr-amt comm-num">{{ f.importe }}</span>
-                            <span class="pg-dr-acts">
-                              <!-- [PGP.15] Un clic agrega la factura COMPLETA al dia abierto; lo raro -otro importe,
-                                   otro dia- va en el segundo boton. Ayuda en title y aria-label. -->
-                              <button type="button" class="pg-icobtn" [disabled]="saving()" [attr.aria-label]="f.ariaAgregar" title="Agregar completa a este día" (click)="quickAdd(f.o)"><span class="pi pi-plus" aria-hidden="true"></span></button>
-                              <button type="button" class="pg-icobtn" [disabled]="saving()" [attr.aria-label]="f.ariaOtro" title="Otro importe u otro día" (click)="quickAddDialog(f.o)"><span class="pi pi-sliders-h" aria-hidden="true"></span></button>
-                            </span>
-                          </div>
-                        } @empty {
-                          <p class="cal-empty">Sin obligaciones con estos filtros. Las facturas de proveedor llegan aquí cuando Finanzas acepta una entrega en <a routerLink="/compras/obligaciones" [queryParams]="{ tab: 'entregas' }">Entregas de Compras</a>.</p>
-                        }
-                        @if (deudaVisible() < filasDeuda().length) {
-                          <p class="pg-drawer-n" aria-live="polite">Mostrando {{ deudaVisible() | number }} de {{ filasDeuda().length | number }}…</p>
-                        }
-                      </app-load-state>
-                    </div>
-
-                    <!-- [PGP.13] ⛔ LO QUE NO SE PUEDE PROGRAMAR, aparte y sin boton de agregar: facturas de
-                         sucursal anteriores al corte del 1-oct, que pueden estar pagadas desde Oficinas.
-                         Plegado CON su cuenta y su total: plegar no es esconder. -->
-                    @if (obligacionesEnRevision().length) {
-                      <button type="button" class="pg-rev-h" [attr.aria-expanded]="verRevision()" (click)="verRevision.set(!verRevision())">
-                        <span class="pi pi-lock" aria-hidden="true"></span>
-                        <span class="pg-rev-t"><b>{{ facturas(obligacionesEnRevision().length) }} por confirmar · <span class="comm-num">{{ money(revisionTotal()) }}</span>@if (obligationsTruncated()) { <span class="pg-rev-u">entre las {{ obligations().length | number }} listadas</span> }</b>
-                          <span>De sucursal, anteriores al corte del 1-oct: varias se pagaron desde Oficinas sin aplicarse en la sucursal. Se revisan con Finanzas antes de programarlas.</span></span>
-                        <span class="pi pg-chev" [class.pi-angle-down]="verRevision()" [class.pi-angle-right]="!verRevision()" aria-hidden="true"></span>
-                      </button>
-                      @if (verRevision()) {
-                        @for (o of obligacionesEnRevision(); track o.obligation_id) {
-                          <div class="pg-dr-row is-locked">
-                            <span class="pg-dr-main">
-                              <span class="cal-benef">{{ o.beneficiary }}</span>
-                              <span class="pg-sub"><span class="cal-suc">{{ branchLabel(o.branch_code) }}</span> {{ o.concept }}@if (o.doc_ref) { <span class="cal-ref">{{ o.doc_ref }}</span> } · {{ classLabel(o.classification) }}</span>
-                            </span>
-                            <span class="pg-dr-due">{{ venceTxt(o) }}</span>
-                            <span class="pg-dr-amt comm-num">{{ money(o.available_amount) }}</span>
-                            <span class="pg-dr-acts"><i class="pi pi-lock" aria-label="No se puede programar"></i></span>
-                          </div>
-                        }
-                      }
-                    }
-                  </div>
-                }
-              </section>
-            }
           }
         </main>
       </div>
@@ -941,6 +981,23 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-sec-tg:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
     .pg-sub { display:block; font-size:var(--fs-xs); color:var(--text-muted); line-height:1.35; }
 
+    /* ── [PGP.15] El buscador: siempre a la vista, el control mas grande de su seccion ── */
+    .pg-add-h { gap:var(--sp-2) var(--sp-3); }
+    .pg-buscar { position:relative; display:flex; align-items:center; flex:1 1 22rem; min-width:14rem; max-width:36rem; }
+    .pg-buscar > .pi-search { position:absolute; left:var(--sp-3); color:var(--text-muted); pointer-events:none; }
+    :host ::ng-deep .pg-buscar-in.p-inputtext { width:100%; padding-left:2.25rem; padding-right:2.25rem; font-size:var(--fs-body); }
+    .pg-kbd { position:absolute; right:var(--sp-2); font-family:var(--font-mono); font-size:var(--fs-micro); color:var(--text-muted);
+      border:1px solid var(--border-color); border-radius:var(--r-sm); padding:0 5px; line-height:1.5; pointer-events:none; }
+    .pg-buscar:focus-within .pg-kbd { display:none; }
+    .pg-lista-tg { margin-left:auto; font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); gap:var(--sp-1); }
+    .pg-alta { display:flex; align-items:center; gap:var(--sp-2); margin:0; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border-color);
+      font-size:var(--fs-sm); font-weight:600; color:var(--text-main); background:var(--surface-2); }
+    /* Los proveedores encontrados: cada uno es un pago y se agrega entero. */
+    .pg-grupos { display:grid; gap:4px; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border-color); }
+    .pg-grupo { display:grid; grid-template-columns:minmax(0, 1fr) 8.5rem auto; gap:var(--sp-3); align-items:center;
+      padding:6px var(--sp-2); border:1px solid var(--border-color); border-radius:var(--r-sm); font-size:var(--fs-sm); }
+    .pg-grupo .pg-dr-amt { text-align:right; }
+
     /* La propuesta: una caja punteada NEUTRA -es una propuesta, no una alarma-. */
     .pg-prop { display:grid; gap:4px; margin:var(--sp-3); padding:var(--sp-2); border:1px dashed var(--text-faint); border-radius:var(--r-md); }
     .pg-prop-why { margin:0 0 var(--sp-1); font-size:var(--fs-xs); color:var(--text-muted); }
@@ -1089,6 +1146,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       .pg-dr-row .pg-dr-due { grid-column:1; grid-row:2; }
       .pg-dr-row .pg-dr-amt { grid-column:2; grid-row:1; }
       .pg-dr-row .pg-dr-acts { grid-column:2; grid-row:2; }
+      .pg-grupo { grid-template-columns:minmax(0, 1fr) auto; }
+      :host ::ng-deep .pg-grupo .p-button { grid-column:1 / -1; justify-self:start; }
+      .pg-buscar { flex-basis:100%; max-width:none; }
+      .pg-kbd { display:none; }
     }
     @media (pointer: coarse) {
       :host ::ng-deep .pg-ico.p-button { min-height:44px; min-width:44px; }
@@ -1264,13 +1325,16 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    */
   readonly deudaVisible = signal(50);
   private rampaId = 0;
+  /** Si la lista ya estaba abierta cuando cambian sus datos (buscar, agregar), no vuelve a 50: saltaría el desplazamiento. */
+  private rampaAbierta = false;
   private readonly rampaDeuda = effect(() => {
     // Cerrado no se calcula nada; al abrirse, `verDeuda` cambia y el efecto vuelve a correr.
-    if (!this.verDeuda()) return;
+    if (!this.verDeuda()) { this.rampaAbierta = false; return; }
     const total = this.filasDeuda().length;
     untracked(() => {
       cancelAnimationFrame(this.rampaId);
-      let n = Math.min(50, total);
+      let n = Math.min(this.rampaAbierta ? Math.max(this.deudaVisible(), 50) : 50, total);
+      this.rampaAbierta = true;
       this.deudaVisible.set(n);
       const paso = (): void => {
         n = Math.min(n + 50, total);
@@ -1492,7 +1556,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   });
 
   classificationFilter: string | null = null;
-  search = '';
+  /** `[PGP.15]` Lo que se escribe en el buscador (señal: la lee `gruposBusqueda` y el resumen). */
+  readonly busqueda = signal('');
+  /** El término con el que se pidió la lista que está a la vista (no lo que se va tecleando). */
+  readonly busquedaAplicada = signal('');
+  readonly buscando = signal(false);
+  private busquedaTimer: ReturnType<typeof setTimeout> | null = null;
+  private obligSeq = 0;
   onlyCritical = false;
   /** [PGP.7] Lee la misma lista por urgencia de descuento en vez de por fecha de pago. */
   ordenDescuento = false;
@@ -1667,18 +1737,83 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     });
   }
 
-  loadObligations(): void {
-    this.loadingObligations.set(true);
+  /**
+   * `[PGP.15]` **Silenciosa** = la lista que ya está a la vista se queda (atenuada por «Buscando…»)
+   * mientras llega la nueva: buscar o agregar ya no vacía la lista ni la cambia por un esqueleto.
+   * Cada petición lleva su número: escribir rápido no pinta un resultado viejo encima del nuevo.
+   */
+  loadObligations(opts: { silencioso?: boolean } = {}): void {
+    const seq = ++this.obligSeq;
+    if (!opts.silencioso || !this.obligations().length) this.loadingObligations.set(true);
+    this.buscando.set(true);
+    const termino = this.busqueda().trim();
     const p = new URLSearchParams();
     if (this.classificationFilter) p.set('classification', this.classificationFilter);
-    if (this.search.trim()) p.set('search', this.search.trim());
+    if (termino) p.set('search', termino);
     if (this.onlyCritical) p.set('onlyCritical', 'true');
     if (this.ordenDescuento) p.set('orden', 'descuento');
     this.http.get<ObligationPage>(`${this.base}/obligations?${p.toString()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.obligations.set(r.rows); this.obligationsTotal.set(r.total); this.loadingObligations.set(false); },
-      error: () => { this.loadingObligations.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las obligaciones.' }); },
+      next: (r) => {
+        if (seq !== this.obligSeq) return;
+        this.obligations.set(r.rows); this.obligationsTotal.set(r.total);
+        this.busquedaAplicada.set(termino);
+        this.agregando.set(new Set());
+        this.loadingObligations.set(false); this.buscando.set(false);
+      },
+      error: () => {
+        if (seq !== this.obligSeq) return;
+        this.loadingObligations.set(false); this.buscando.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las obligaciones.' });
+      },
     });
   }
+  /** `[PGP.15]` Busca mientras se escribe (300 ms después de la última tecla) y abre la lista. */
+  alEscribir(v: string): void {
+    this.busqueda.set(v ?? '');
+    this.avisoAlta.set(null);
+    this.deudaOverride.set(true);
+    if (this.busquedaTimer) clearTimeout(this.busquedaTimer);
+    this.busquedaTimer = setTimeout(() => this.loadObligations({ silencioso: true }), 300);
+  }
+  /** Enter busca ya, sin esperar. */
+  buscarYa(): void {
+    if (this.busquedaTimer) clearTimeout(this.busquedaTimer);
+    this.deudaOverride.set(true);
+    this.loadObligations({ silencioso: true });
+  }
+  /** Esc limpia la búsqueda (y si ya estaba vacía, no hace nada: no cierra nada por sorpresa). */
+  limpiarBusqueda(ev: Event): void {
+    if (!this.busqueda()) return;
+    ev.preventDefault();
+    this.busqueda.set('');
+    this.buscarYa();
+  }
+  /** `[PGP.15]` Atajo `/`: lleva al buscador desde cualquier parte, salvo que se esté escribiendo en otro campo. */
+  @HostListener('document:keydown', ['$event'])
+  atajoBuscador(ev: KeyboardEvent): void {
+    if (ev.key !== '/' || ev.ctrlKey || ev.metaKey || ev.altKey || this.isReleased()) return;
+    const t = ev.target as HTMLElement | null;
+    if (t?.closest('input, textarea, select, [contenteditable="true"], .p-dialog')) return;
+    ev.preventDefault();
+    this.enfocarBuscador();
+  }
+  private enfocarBuscador(): void {
+    setTimeout(() => {
+      const el = document.getElementById('pg-buscar') as HTMLInputElement | null;
+      el?.focus();
+      el?.select();
+    });
+  }
+  /**
+   * `[PGP.15]` Los proveedores (y sucursal: un pago cada uno) de la búsqueda a la vista. Sólo con
+   * búsqueda: sin ella, la lista es la deuda entera por vencimiento y agrupar 1,000 renglones no
+   * ayuda a decidir.
+   */
+  readonly gruposBusqueda = computed<ObligationGroup<Obligation>[]>(() => {
+    const termino = this.busquedaAplicada();
+    const filas = this.obligacionesProgramables();
+    return termino ? agruparObligaciones(filas) : [];
+  });
 
   // ── Ayudantes de la franja de la semana ────────────────────────────────
   usedPct(d: PaymentCalendarWeekDay): number {
@@ -1890,8 +2025,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * nace uno nuevo. Todas las facturas de una llamada comparten llave (un grupo de la lista).
    * El backend vuelve a validar beneficiario y sucursal (`paymentGroupKey`).
    */
-  private async assign(date: string, pick: { o: Obligation; amount: number }[], notes?: string): Promise<string> {
-    if (!pick.length) return 'nada que agregar';
+  /**
+   * `[PGP.15]` Devuelve también el id del pago que CREÓ (null si sumó a uno existente): el orden
+   * automático toca sólo ése. Medido: agregar una factura reordenó 5 pagos que otra persona había
+   * dejado sin orden en el mismo día.
+   */
+  private async assign(date: string, pick: { o: Obligation; amount: number }[], notes?: string): Promise<{ how: string; nuevo: string | null }> {
+    if (!pick.length) return { how: 'nada que agregar', nuevo: null };
     const k = obligationKey(pick[0].o);
     // [PGP.15] Un día fuera de la semana a la vista se lee del servidor: sin eso, agregar al martes de la
     // semana que viene creaba un pago nuevo aunque ese día ya tuviera uno de este proveedor y sucursal.
@@ -1921,12 +2061,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
           throw new Error(`${done} de ${pick.length} factura(s) se sumaron al pago de ${pick[0].o.beneficiary}; la de ${p.o.concept} no: ${this.errMsg(e, 'error')}`);
         }
       }
-      return `se ${pick.length === 1 ? 'sumó 1 factura' : `sumaron ${pick.length} facturas`} al pago de ${pick[0].o.beneficiary} · ${this.branchLabel(pick[0].o.branch_code)}`;
+      return { how: `se ${pick.length === 1 ? 'sumó 1 factura' : `sumaron ${pick.length} facturas`} al pago de ${pick[0].o.beneficiary} · ${this.branchLabel(pick[0].o.branch_code)}`, nuevo: null };
     }
-    await firstValueFrom(this.http.post(`${this.base}/allocations`, {
+    const creado = await firstValueFrom(this.http.post<{ id?: string } | null>(`${this.base}/allocations`, {
       date, notes, items: pick.map((p) => ({ obligation_source: p.o.obligation_source, obligation_id: p.o.obligation_id, applied_amount: p.amount })),
     }));
-    return `pago nuevo de ${pick[0].o.beneficiary} · ${this.branchLabel(pick[0].o.branch_code)}`;
+    const n = pick.length;
+    return { how: `pago nuevo de ${pick[0].o.beneficiary} · ${this.branchLabel(pick[0].o.branch_code)}${n > 1 ? ` con ${n} facturas` : ''}`, nuevo: creado?.id ?? null };
   }
 
   /**
@@ -1937,18 +2078,24 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * AL FINAL y no se reordena nada. Si falla, el veredicto ofrece «Proponer orden»: declarado, no
    * escondido.
    */
-  private async ordenarNuevos(date: string): Promise<void> {
+  private async ordenarNuevos(date: string, ids: readonly string[]): Promise<void> {
+    // ⛔ [PGP.15] SÓLO los pagos que esta acción creó. La primera versión ordenaba todo lo que estuviera
+    // sin orden en el día, y eso incluía pagos que otra persona acababa de agregar.
+    if (!ids.length) return;
     try {
       const rows = await firstValueFrom(this.http.get<PaymentCalendarAllocation[]>(`${this.base}/days/${date}/allocations`));
       const pend = rows.filter((a) => a.status === 'pending');
-      const sin = pend.filter((a) => a.priority_rank == null);
-      if (!sin.length) return;
-      if (sin.length === pend.length) {
+      const mios = pend.filter((a) => a.priority_rank == null && ids.includes(a.id));
+      if (!mios.length) return;
+      const ordenados = pend.filter((a) => a.priority_rank != null);
+      const ajenosSinOrden = pend.filter((a) => a.priority_rank == null && !ids.includes(a.id));
+      // Día recién armado (nada ordenado y nada ajeno pendiente): la propuesta completa del backend.
+      if (!ordenados.length && !ajenosSinOrden.length) {
         await firstValueFrom(this.http.post(`${this.base}/days/${date}/proponer-orden`, {}));
         return;
       }
-      let max = Math.max(0, ...pend.map((a) => a.priority_rank ?? 0));
-      for (const a of sin) await firstValueFrom(this.http.post(`${this.base}/allocations/${a.id}/orden`, { priority_rank: ++max }));
+      let max = Math.max(0, ...ordenados.map((a) => a.priority_rank ?? 0));
+      for (const a of mios) await firstValueFrom(this.http.post(`${this.base}/allocations/${a.id}/orden`, { priority_rank: ++max }));
     } catch {
       /* el veredicto dirá «faltan N por ordenar» con su botón */
     }
@@ -2028,14 +2175,18 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.saving.set(true);
     let ok = 0;
     const fails: string[] = [];
+    const creados: string[] = [];
     // Uno por uno y releyendo la semana entre grupos: si el día ya tenía un pago de ese proveedor y
     // sucursal, `assign` lo encuentra y SUMA; el siguiente grupo ve el estado nuevo.
     for (const g of chosen) {
-      try { await this.assign(day.date, g.items.map((o) => ({ o, amount: Number(o.available_amount) }))); ok++; }
-      catch (e) { fails.push(`${g.beneficiary} · ${this.branchLabel(g.branch)}: ${this.errMsg(e, 'error')}`); }
+      try {
+        const r = await this.assign(day.date, g.items.map((o) => ({ o, amount: Number(o.available_amount) })));
+        if (r.nuevo) creados.push(r.nuevo);
+        ok++;
+      } catch (e) { fails.push(`${g.beneficiary} · ${this.branchLabel(g.branch)}: ${this.errMsg(e, 'error')}`); }
       await this.refreshWeek();
     }
-    if (ok) await this.ordenarNuevos(day.date);
+    if (ok) await this.ordenarNuevos(day.date, creados);
     this.saving.set(false);
     this.armado.set(null);
     this.invalidarDeuda();
@@ -2217,16 +2368,52 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * el día (el que ya estaba abierto) y el importe (el disponible completo). Lo raro —otro importe,
    * otro día— va en el segundo botón de la fila (`quickAddDialog`).
    */
-  async quickAdd(o: Obligation): Promise<void> {
+  quickAdd(o: Obligation): Promise<void> { return this.agregarFacturas([o]); }
+  /** `[PGP.15]` Las N facturas de un proveedor y sucursal, en un clic (un solo pago). */
+  agregarGrupo(g: ObligationGroup<Obligation>): Promise<void> { return this.agregarFacturas(g.items); }
+  /** Cuánto se pasaría de lo libre del día abierto con este importe; null si cabe o si el día no tiene tope. */
+  excedeTope(importe: number): number | null {
+    const s = this.selectedDay()?.summary;
+    if (!s?.capacity_defined) return null;
+    const exceso = this.numero(importe) - this.numero(s.remaining_amount);
+    return exceso > 0.005 ? exceso : null;
+  }
+  grupoAgregado(g: ObligationGroup<Obligation>): boolean { const s = this.agregando(); return g.items.every((o) => s.has(o.obligation_id)); }
+
+  /** Lo que se está agregando o ya se agregó y la lista todavía no refresca: no se agrega dos veces. */
+  readonly agregando = signal<ReadonlySet<string>>(new Set());
+  /** La confirmación EN EL LUGAR donde se agregó (antes: un aviso arriba a la derecha que se llevaba el foco). */
+  readonly avisoAlta = signal<string | null>(null);
+  /**
+   * `[PGP.15]` **El carril que más se usa**: agregar facturas completas al día abierto. Lo que
+   * cambió, medido en la pantalla viva: la factura se marca ✓ en el momento (el «+» quedaba activo
+   * mientras recargaba y se podía agregar dos veces); la lista NO se vacía (se refresca en silencio);
+   * la confirmación aparece junto al buscador; y el foco regresa al buscador con su texto
+   * seleccionado, listo para el siguiente proveedor (antes se iba al botón de cerrar del aviso).
+   */
+  private async agregarFacturas(items: Obligation[]): Promise<void> {
+    if (!items.length || this.saving()) return;
     const fecha = this.selectedDate();
+    const ids = items.map((o) => o.obligation_id);
     this.saving.set(true);
+    this.avisoAlta.set(null);
+    this.agregando.set(new Set([...this.agregando(), ...ids]));
     try {
-      const how = await this.assign(fecha, [{ o, amount: Number(o.available_amount) }]);
-      await this.ordenarNuevos(fecha);
-      this.toast.add({ severity: 'success', summary: 'Agregada', detail: `${this.dayLong(fecha)}: ${how}.` });
+      const r = await this.assign(fecha, items.map((o) => ({ o, amount: Number(o.available_amount) })));
+      await this.ordenarNuevos(fecha, r.nuevo ? [r.nuevo] : []);
+      this.avisoAlta.set(`${this.dayLong(fecha)}: ${r.how}.`);
     } catch (e) {
+      const sin = new Set(this.agregando());
+      ids.forEach((id) => sin.delete(id));
+      this.agregando.set(sin);
       this.toast.add({ severity: 'error', summary: 'No se agregó', detail: this.errMsg(e, 'No se pudo asignar.') });
-    } finally { this.saving.set(false); this.invalidarDeuda(); this.reload(); }
+    } finally {
+      this.saving.set(false);
+      this.invalidarDeuda();
+      this.loadWeek();
+      this.loadObligations({ silencioso: true });
+      this.enfocarBuscador();
+    }
   }
   quickAddDialog(o: Obligation): void {
     this.quickAddTarget.set(o);
@@ -2274,10 +2461,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const fecha = this.targetDate;
     this.saving.set(true);
     try {
-      const how = await this.assign(fecha, [{ o, amount: Number(this.quickAddAmount) }]);
-      await this.ordenarNuevos(fecha);
+      const r = await this.assign(fecha, [{ o, amount: Number(this.quickAddAmount) }]);
+      await this.ordenarNuevos(fecha, r.nuevo ? [r.nuevo] : []);
       this.quickAddVisible = false;
-      this.toast.add({ severity: 'success', summary: 'Agregada', detail: `${this.dayLong(fecha)}: ${how}.` });
+      this.toast.add({ severity: 'success', summary: 'Agregada', detail: `${this.dayLong(fecha)}: ${r.how}.` });
     } catch (e) {
       this.toast.add({ severity: 'error', summary: 'No se agregó', detail: this.errMsg(e, 'No se pudo asignar.') });
     } finally { this.saving.set(false); this.invalidarDeuda(); this.reload(); }
@@ -2345,10 +2532,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const fecha = this.reprogramDate;
     this.saving.set(true);
     try {
-      await firstValueFrom(this.http.post(`${this.base}/allocations/${a.id}/reprogramar`, {
+      const movido = await firstValueFrom(this.http.post<{ id?: string } | null>(`${this.base}/allocations/${a.id}/reprogramar`, {
         date: fecha, reason: this.reprogramReason, reason_detail: this.reprogramReasonDetail || undefined,
       }));
-      await this.ordenarNuevos(fecha);
+      await this.ordenarNuevos(fecha, movido?.id ? [movido.id] : []);
       this.reprogramVisible = false;
       this.toast.add({ severity: 'success', summary: 'Movido', detail: `${this.allocationTitle(a)} pasó al ${this.dayLong(fecha)}.` });
     } catch (e) {
@@ -2436,8 +2623,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     let movido = false;
     if (fecha) {
       try {
-        await firstValueFrom(this.http.post(`${this.base}/allocations/${a.id}/reprogramar`, { date: fecha, reason: r, reason_detail: r === 'otro' ? detalle : undefined }));
-        await this.ordenarNuevos(fecha);
+        const nuevo = await firstValueFrom(this.http.post<{ id?: string } | null>(`${this.base}/allocations/${a.id}/reprogramar`, { date: fecha, reason: r, reason_detail: r === 'otro' ? detalle : undefined }));
+        await this.ordenarNuevos(fecha, nuevo?.id ? [nuevo.id] : []);
         movido = true;
       } catch (e) {
         this.toast.add({ severity: 'warn', summary: 'Quedó marcado que rebotó, pero no se movió', detail: this.errMsg(e, 'No se pudo mover.'), life: 10000 });
