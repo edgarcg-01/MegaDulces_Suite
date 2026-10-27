@@ -784,6 +784,31 @@ falla del instrumento:** una medición de 9.5–20 s con la pestaña en segundo 
 propio perfilador arrancando (`CpuProfiler::StartProfiling`). Medido en el servidor de desarrollo;
 en producción debe ser más rápido, no medido.
 
+**El carril que más se usa: buscar y agregar (Edgar: «el 80% de la comunicación del usuario con la
+interfaz es el buscador y agregar facturas de proveedores»).** Recorrido en la pantalla viva con las
+escrituras contestadas con **éxito simulado en el navegador** (nada llegó a la API):
+
+| Medido antes | Ahora |
+|---|---|
+| El buscador vivía dentro de un plegable cerrado, a 1.3 pantallas | Siempre a la vista, arriba (y=469 de 902), atajo `/` y Esc |
+| Escribir no buscaba: hacía falta Enter y nada lo decía | Busca al escribir (300 ms): «136 facturas con «bolsas» · 7 proveedores» en 1.4 s |
+| 94 clics para las 94 facturas de un proveedor | «Agregar las 94»: 1 clic, con aviso si no cabe en lo libre del día |
+| Tras agregar: el foco se iba al aviso, la lista se vaciaba y el «+» seguía activo | ✓ al instante, confirmación junto al buscador (645 ms), la lista se queda y el foco vuelve al buscador |
+| ⛔ Agregar UNA factura reordenó **5 pagos ajenos** del día | El orden automático toca sólo el pago que la acción creó |
+
+**Una pantalla (Edgar: «que todo entre en la pantalla con la menor cantidad de scroll»).** Medido a
+1442×902: la página medía **1,914 px dentro de un panel de 814** (casi 2.5 pantallas) y cada panel
+mostraba 3 renglones en el primer intento del acomodo. Ahora: los días en una tira arriba (las
+fichas en su propio renglón: lado a lado con el resumen de la semana se encimaban); el veredicto
+en dos renglones (tope y avance lado a lado; «quién» sólo en el paso actual); y dos paneles que
+llenan lo que queda —**a la izquierda agregar facturas, a la derecha los pagos del día**—, cada uno
+con su desplazamiento y la tabla con su encabezado fijo. El alto lo mide el componente sobre el
+contenedor que desplaza la app (`section.pane`, no la ventana). Resultado: **desborde de 16 px**,
+5 facturas y 5 pagos a la vista, 0 textos cortados (los nombres parten renglón), «Cómo sale» debajo
+del beneficiario (una columna de 21rem dejaba al nombre en ~10 px). Angosto (<75rem) y teléfono:
+paneles apilados, sin desborde lateral. Sin validar en la pantalla de 2112 px de Edgar (debería
+ganar renglones, no medido).
+
 **Deuda con nombre:**
 
 - **`PGP.15.D1`** — proponer el día cuesta **2.3 MB y 931 ms** (lee las 2,858 facturas una vez por
