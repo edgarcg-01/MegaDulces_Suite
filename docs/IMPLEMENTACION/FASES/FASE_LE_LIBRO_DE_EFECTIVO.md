@@ -433,7 +433,7 @@ escritores; script de métricas; secretos rotados.
 | LE.0.2 | **Catálogo de tipos de CAOS medido** (ver «Resultados de E0»). Falta lo que el dato no dice: **de dónde viene el efectivo de Dotar y a dónde va el de Vaciar Stocks**, y qué es «Contenido Modificado»: se confirma con quien opera la máquina | B29, regla 10 | 🔨 | Σ efectos = conteo de la máquina en 2 fechas |
 | LE.0.3 | **Inventario de escritores** (ver «Resultados de E0») | B29 | 🧪 | falta la revisión por otra persona |
 | LE.0.4 | **Congelar lo viejo**: ninguna funcionalidad nueva sobre las tablas viejas de caja mientras dure la fase; ningún escritor nuevo | B29 | ⬜ | revisión de PR (D12) |
-| LE.0.5 | **Script de métricas** (a)–(e) en `database/scripts/`, sólo lectura, reproducible; línea base publicada | regla 15 | ⬜ | dos corridas seguidas dan lo mismo |
+| LE.0.5 | **Script de métricas** `database/scripts/le-metricas.js` (sólo lectura, una conexión, verifica `system_identifier`). Línea base 2026-10-27 11:14: (a) **86 · 162 atribuciones · $1,703,230** · (b) **6 de 13** con su definición (esperado < 0 o diferencia de más de $100k en valor absoluto; el «7» del plan v1 era otra definición) · (c) **0** de 13 (por usuario, no empleado) · (d) NO MEDIDO · (e) 0 custodias abiertas; cobros por rendir NO MEDIDO · morralla tecleada: 87.3 % del contado el 26-oct | regla 15 | ✅ | dos corridas, misma huella de resultado |
 | LE.0.6 | **Huecos y reescrituras del feed** (ver «Resultados de E0») | B41, B42 | ✅ | 0 huecos, 0 reescrituras al 2026-10-27 |
 
 **Criterio de salida**: (a) = 0 en prod, catálogo de CAOS firmado por quien opera la máquina,
@@ -504,19 +504,19 @@ suite de pruebas en `caja-db`. Ninguna consumidora todavía.
 
 | # | Paso | Reglas | Estado | Verificación |
 |---|---|---|---|---|
-| LE.1.1 | **ADR-102** (partida doble como modelo del efectivo; refina ADR-101) y **ADR-103** (esquema propio, función única de escritura, centavos `bigint`, cadena de hashes) | D4, D9, D10 | ⬜ | firmados por el PM |
-| LE.1.2 | Esquema `cashbook`, rol `cashbook_owner`, privilegios de `app_runtime` (sólo EXECUTE/SELECT), event trigger de DDL | B2, B21, B39 | ⬜ | INSERT directo como `app_runtime` → `permission denied` |
-| LE.1.3 | `accounts` + `account_balances` + `account_denom_balances` con los CHECK de no-negativo; siembra del plan de cuentas §4.2 | B8 | ⬜ | cabecera negativa → error |
-| LE.1.4 | `entries` + `entry_lines` + `entry_pieces` + `seq_counters` con únicos y trigger de inmutabilidad | B1, B2, B3, B40 | ⬜ | UPDATE/DELETE como dueño → error |
-| LE.1.5 | `business_days` con la máquina de estados y candado de jornada cerrada | B7, B20 | ⬜ | asiento a jornada cerrada → error |
-| LE.1.6 | **`post_entry`** (§4.5) con I1–I5, I7–I9, I11, I12, I14, I16, I18 | B1–B8, B35, B39 | ⬜ | una prueba negativa por invariante |
-| LE.1.7 | `reverse_entry` con I13 | B2, B10 | ⬜ | reversa doble / de reversa / parcial → error |
-| LE.1.8 | `requests` + `authorize_request` / `reject_request` / vencimiento, con I15 por empleado | B9, B10, B14, B43, B45 | ⬜ | mismo empleado, servicio, vencida → error |
-| LE.1.9 | `counts` + `count_pieces` + `findings` + `external_queue` | B11, B17, B18, B41 | ⬜ | — |
-| LE.1.10 | Vistas: saldo por cuenta y denominación a una `seq` o fecha, mayor, `v_descuadre_interno` | B5, I10 | ⬜ | suma de líneas = cabecera en 10k asientos sintéticos |
-| LE.1.11 | `verify_chain(desde, hasta)` | B2 | ⬜ | alterar un byte por fuera → la marca |
-| LE.1.12 | **Suite `test-newdb-cashbook-*.js`** en `caja-db`: cada invariante con negativa **y** mutación (se quita el control y la prueba se pone roja); concurrencia (2 conexiones × 200); deadlock; privilegios; **rendimiento** (500k líneas: `post_entry` p95 < 20 ms, saldo < 50 ms) | B31, B35 | ⬜ | rojo visto una vez por invariante, anotado en §13 |
-| LE.1.13 | Aplicar en prod **inerte** (sin escritores), fuera de horario | B33 | ⬜ | `/api/health` + esquema presente, 0 filas |
+| LE.1.1 | **ADR-102** (partida doble) y **ADR-103** (esquema propio, función única, centavos, cadena) escritos en `02_DECISIONES_ARQUITECTURA.md` | D4, D9, D10 | 🧪 | falta la lectura del PM de ADR-102 (D4) |
+| LE.1.2 | Esquema `cashbook`, rol `cashbook_owner`, `app_runtime` sólo SELECT/EXECUTE, event trigger de DDL. Migración `20261027111930` | B2, B21, B39 | 🧪 | INSERT/UPDATE/TRUNCATE y `_post` como app → 42501; quitar un candado queda en `ddl_audit` |
+| LE.1.3 | Cuentas + cabeceras de saldo y de piezas con CHECK; 19 denominaciones; 12 cuentas base sembradas. ⚠️ Falta la función de **cierre de cuenta** (deuda, E2) | B8 | 🧪 | física que admite negativo, custodia negativa, billetes de más → rechazados con su nombre |
+| LE.1.4 | Asientos + líneas + piezas + contador, únicos y triggers de inmutabilidad (también para el dueño) | B1, B2, B3, B40 | 🧪 | UPDATE, DELETE, TRUNCATE y línea en asiento sellado → `cashbook_inmutable` |
+| LE.1.5 | Jornadas: una abierta, en orden, cierre con cuatro ojos y `closing_seq`/`closing_hash` | B7, B20 | 🧪 | día cerrado, día anterior, misma persona → rechazados |
+| LE.1.6 | **`_post`** (§4.5) con I1–I5, I7–I9, I11, I12, I14, I16; la huella de idempotencia la calcula la base | B1–B8, B35, B39 | 🧪 | 12 negativas de forma + fecha futura, otro día, actor, evento |
+| LE.1.7 | Reversa (por solicitud autorizada) con I13 | B2, B10 | 🧪 | sin motivo, doble, de reversa → rechazadas; la reversa devuelve cada pieza |
+| LE.1.8 | Solicitudes: crear, autorizar, rechazar, vencer; I15 por usuario y empleado | B9, B10, B14, B43, B45 | 🧪 | mismo usuario, otro usuario del mismo empleado, vencida, sin motivo → rechazados |
+| LE.1.9 | `counts` + `count_pieces` + `findings` + `external_queue` | B11, B17, B18, B41 | ⬜ | va con E3 (testigos), donde se usan |
+| LE.1.10 | Vistas `v_saldos`, `v_saldos_piezas`, `v_mayor`, `v_descuadre_interno` y `balances_at(seq)` | B5, I10 | 🧪 | descuadre interno vacío; saldo a la secuencia de apertura = apertura; RLS: otro tenant ve 0 |
+| LE.1.11 | `verify_chain()` | B2 | 🧪 | una línea alterada por el dueño (con el trigger apagado) → la detecta |
+| LE.1.12 | **`test-newdb-cashbook-libro.js`** en `caja-db`: **77 ✓ / 0 ✗** (79 con `--rendimiento`); 4 mutaciones (CHECK de saldo, trigger de inmutabilidad, chequeo diferido, privilegio); dos cajeros a la vez; 40 asientos desde 8 conexiones sin huecos. Rendimiento medido con **2,000** asientos (no 500k): p95 8.3 ms, saldos 2.8 ms. La prueba encontró y se corrigieron 4 defectos del propio libro (lógica de NULL ×3, huella del cliente) | B31, B35 | 🧪 | base local armada desde cero; las 6 suites de caja 228 ✓ / 0 ✗ |
+| LE.1.13 | Aplicar en prod **inerte** (sin escritores), fuera de horario | B33 | ⬜ | espera autorización de push y ventana |
 
 **Criterio de salida**: todas las pruebas verdes en CI con su rojo documentado; esquema en prod
 vacío; ADRs firmados.
@@ -724,3 +724,4 @@ frescura.
 | 2026-10-27 | **Plan v2**: revisión «como banco». Se decide **rehacer el núcleo desde cero** (§1) en un esquema propio con función única de escritura; se agregan B39–B46, el modelo (§4), 18 invariantes, el catálogo de 27 movimientos (§5), el modelo de amenazas (§6) y las etapas E0–E7. Se encuentran 3 defectos en LE.0.0 (carrera entre transacciones, silencio por RLS, trigger sólo en INSERT) → LE.0.0a–c. El criterio de cambio pasa de «igual al libro viejo» a «cuadra contra los testigos». Se quitan de este doc los detalles de seguridad de la máquina (repo público). **Renumeración**: los items v1 LE.0.1–LE.2.4 (todos ⬜) pasan a E1–E5 (bolsas → LE.1.3, asientos → LE.1.4, invariantes → LE.1.6, saldos → LE.1.10, testigo de la máquina → LE.3.1, reglas → LE.2.3, emparejador → LE.2.5, reconstrucción → LE.3.4, cierre diario → LE.5.2, API → E4, paralelo → E5) | Claude, por pedido del PM |
 | 2026-10-27 | PM firma D3 (**sin plazo** para rendir: el sistema anterior tenía fallas), D6 (autorizan `mariaz` y Luis Francisco López), D7 (notas de crédito fuera: se ven en la revisión), D9, D10, D12, D13; D11 en su método. **E0 arranca** | PM |
 | 2026-10-27 | E0: LE.0.0a y LE.0.0c (🧪, rojo→verde en base local con 2 conexiones), LE.0.0b descartado con evidencia, **LE.0.0e** (función de denominaciones de A.55 rota en prod, deja rojo `caja-db`) 🧪, LE.0.2 medido (falta confirmar Dotar/Vaciar con quien opera), LE.0.3 inventario, LE.0.6 ✅. Sin desplegar: LE.0.0d espera autorización de push y la ventana fuera de horario | Claude |
+| 2026-10-27 | LE.0.5 ✅ (`le-metricas.js`, línea base). **E1 en código** (🧪): migración `20261027111930` (esquema `cashbook`, función única de escritura, centavos, cadena de hashes, cuatro ojos, jornadas) y `test-newdb-cashbook-libro.js` 77 ✓ / 0 ✗ en base local desde cero; ADR-102 y ADR-103. La prueba encontró 4 defectos del propio libro antes de que existiera un solo asiento real (corregidos). Pendiente: LE.1.9 (va con E3), cierre de cuenta, LE.1.13 (aplicar inerte en prod) | Claude |

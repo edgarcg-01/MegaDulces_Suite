@@ -95,7 +95,9 @@ const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_
   // por su trigger sobre `cash_ledger`; explícita para que no dependa de eso), y `[LE.0.0e]` la
   // función de denominaciones de A.55, que no toca ninguna tabla y por eso nunca entraría sola.
   '20261027105608_le00a_una_explicacion_sin_carrera.js',
-  '20261027110325_le00e_caos_denom_valor_sin_signo_de_pregunta.js'];
+  '20261027110325_le00e_caos_denom_valor_sin_signo_de_pregunta.js',
+  // `[LE.1]` El libro de partida doble: esquema propio (`cashbook`), no toca el núcleo del corte.
+  '20261027111930_le1_cashbook_libro_de_partida_doble.js'];
 const MAX_REMEDIOS = 200;
 
 /**
