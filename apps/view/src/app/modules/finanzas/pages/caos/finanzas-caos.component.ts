@@ -23,7 +23,7 @@ import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { MX_TZ, todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
-import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion, type CaosIngresosEstado, type CaosTipo, type CaosSaldo, type CaosTipoEfecto, type CaosVinculos } from '../../caos.service';
+import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion, type CaosIngresosEstado, type CaosTipo, type CaosSaldo, type CaosTipoEfecto, type CaosVinculos, type CaosVinculo } from '../../caos.service';
 import { CaosSocketService } from '../../caos-socket.service';
 import { CajaSocketService } from '../../caja-socket.service';
 import { CashLedgerService } from '../../cash-ledger.service';
@@ -334,7 +334,8 @@ interface TarjetaCaos {
                       </div>
                       @if (v.filas.length) {
                         <table class="cs-denom">
-                          <thead><tr><th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col" class="comm-num">Movimiento</th><th scope="col" class="comm-num">Tomó de CAOS</th><th scope="col">Estado</th></tr></thead>
+                          <thead><tr><th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col" class="comm-num">Movimiento</th><th scope="col" class="comm-num">Tomó de CAOS</th><th scope="col">Estado</th>
+                            @if (esSuperadmin()) { <th scope="col"><span class="sr-only">Corregir</span></th> }</tr></thead>
                           <tbody>
                             @for (f of v.filas; track f.cash_ledger_id) {
                               <tr [class.fin-dim]="f.estado === 'cancelado'">
@@ -346,12 +347,27 @@ interface TarjetaCaos {
                                 <td class="comm-num">{{ money(f.monto) }}</td>
                                 <td class="comm-num">{{ money(f.monto_enlazado) }}</td>
                                 <td class="fin-dim">{{ f.via === 'nacio_en_la_maquina' ? 'registrado desde CAOS' : f.estado }}</td>
+                                <!-- [CGA-A.58] Sólo superadmin, separado de la lectura y con motivo obligatorio. -->
+                                @if (esSuperadmin()) {
+                                  <td>
+                                    @if (f.link_id) {
+                                      <p-button label="Quitar" icon="pi pi-times" size="small" severity="danger" [text]="true"
+                                                [ariaLabel]="'Quitar el vínculo con ' + f.folio" (onClick)="abrirQuitar(r, f)"></p-button>
+                                    }
+                                  </td>
+                                }
                               </tr>
                             }
                           </tbody>
                         </table>
                       } @else {
                         <span class="fin-dim">Sin movimientos de Caja General vinculados.</span>
+                      }
+                      @if (esSuperadmin() && v.libre > 0.005) {
+                        <div>
+                          <p-button label="Vincular un folio" icon="pi pi-link" size="small" severity="secondary" [text]="true"
+                                    (onClick)="abrirVincular(r)"></p-button>
+                        </div>
                       }
                     } @else if (r.vincError) {
                       <span class="cs-mal">{{ r.vincError }}</span>
@@ -628,6 +644,55 @@ interface TarjetaCaos {
         } @else {
           <p-button label="Listo" size="small" (onClick)="cerrarConteo()"></p-button>
         }
+      </ng-template>
+    </p-dialog>
+
+    <!-- [CGA-A.58] Quitar un vínculo: sólo superadmin, con motivo, y el monto vuelve a quedar libre. -->
+    <p-dialog [visible]="!!quitarSel()" (visibleChange)="$event ? null : quitarSel.set(null)" [modal]="true"
+              [style]="{ width: '30rem', maxWidth: '96vw' }" [draggable]="false" header="Quitar vínculo">
+      @if (quitarSel(); as q) {
+        <p>
+          Se quita el vínculo de <b>{{ q.f.folio }}</b> con el movimiento {{ q.r.external_id }} de CAOS.
+          Los <b class="mono">{{ money(q.f.monto_enlazado) }}</b> vuelven a quedar libres para vincularlos o registrarlos.
+        </p>
+        <p class="cs-conteo-hint">El esperado del corte no cambia: sale de los movimientos de la máquina.</p>
+        <label class="cs-conteo-hint" for="cs-quitar-motivo">Motivo (obligatorio)</label>
+        <textarea pTextarea id="cs-quitar-motivo" rows="2" class="cs-conteo-nota"
+                  [ngModel]="motivoQuitar()" (ngModelChange)="motivoQuitar.set($event)"></textarea>
+      }
+      @if (errCorregir()) { <p class="cs-mal" role="alert">{{ errCorregir() }}</p> }
+      <ng-template #footer>
+        <p-button label="Cancelar" size="small" severity="secondary" [text]="true" (onClick)="quitarSel.set(null)"></p-button>
+        <p-button label="Quitar vínculo" icon="pi pi-times" size="small" severity="danger"
+                  [disabled]="corrigiendo() || motivoQuitar().trim().length < 10" [loading]="corrigiendo()"
+                  (onClick)="confirmarQuitar()"></p-button>
+      </ng-template>
+    </p-dialog>
+
+    <!-- [CGA-A.58] Vincular un movimiento de Caja General YA guardado, por su folio. -->
+    <p-dialog [visible]="!!vincularSel()" (visibleChange)="$event ? null : vincularSel.set(null)" [modal]="true"
+              [style]="{ width: '30rem', maxWidth: '96vw' }" [draggable]="false" header="Vincular un folio">
+      @if (vincularSel(); as r) {
+        <p>
+          Movimiento {{ r.external_id }} de CAOS · libre <b class="mono">{{ money(r.vinc?.libre ?? 0) }}</b>.
+          {{ r.type_id === 0 ? 'Un depósito se vincula a un ingreso.' : 'Un retiro se vincula a un egreso.' }}
+        </p>
+        <div class="cs-conteo-reja">
+          <label for="cs-vinc-folio">Folio</label>
+          <input pInputText id="cs-vinc-folio" [ngModel]="folioVincular()" (ngModelChange)="folioVincular.set($event)"
+                 placeholder="CI-2026-00000" autocomplete="off" />
+          <label for="cs-vinc-monto">Monto</label>
+          <p-inputnumber inputId="cs-vinc-monto" mode="currency" currency="MXN" locale="es-MX" [min]="0"
+                         [ngModel]="montoVincular()" (ngModelChange)="montoVincular.set($event)" />
+        </div>
+        <p class="cs-conteo-hint">El monto no puede pasar de lo libre de CAOS ni de lo que le falta al folio por explicar.</p>
+      }
+      @if (errCorregir()) { <p class="cs-mal" role="alert">{{ errCorregir() }}</p> }
+      <ng-template #footer>
+        <p-button label="Cancelar" size="small" severity="secondary" [text]="true" (onClick)="vincularSel.set(null)"></p-button>
+        <p-button label="Vincular" icon="pi pi-link" size="small"
+                  [disabled]="corrigiendo() || !folioVincular().trim() || !((montoVincular() ?? 0) > 0)" [loading]="corrigiendo()"
+                  (onClick)="confirmarVincular()"></p-button>
       </ng-template>
     </p-dialog>
   `,
@@ -1137,9 +1202,18 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
           const previas = new Map(this.rows().map((x) => [x.id, x]));
           const nuevas = ((r.rows || []) as FilaUI[]).map((x) => {
             const p = previas.get(x.id);
-            return p?.denom ? { ...x, denom: p.denom, denomTotal: p.denomTotal } : x;
+            const conDenom = p?.denom ? { ...x, denom: p.denom, denomTotal: p.denomTotal } : x;
+            // `[CGA-A.57]` Los vínculos también sobreviven al repaso: sin esto una fila abierta se
+            // quedaba en «Cargando vínculos…» después de cada aviso del WS.
+            return p?.vinc ? { ...conDenom, vinc: p.vinc } : conDenom;
           });
           this.rows.set(nuevas);
+          // `[CGA-A.58]` Lo que se acaba de corregir se vuelve a leer sobre la fila NUEVA.
+          for (const id of this.releerVinculos) {
+            const fila = nuevas.find((x) => x.id === id);
+            if (fila) { fila.vinc = null; this.cargarVinculos(fila); }
+          }
+          this.releerVinculos.clear();
           this.kpi.set(r.kpi ?? null);
           this.tipos.set(r.tipos || []);
           this.efectos.set(r.efectos ?? {});
@@ -1251,6 +1325,48 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
       error: (e) => { r.denomError = this.textoError(e); this.rows.set([...this.rows()]); },
     });
   }
+
+  // ── `[CGA-A.58]` Corregir vínculos: sólo superadmin ─────────────────────────────────────
+  readonly esSuperadmin = computed(() => this.perms.cargado() && this.perms.isSuperadmin());
+  readonly quitarSel = signal<{ r: FilaUI; f: CaosVinculo } | null>(null);
+  readonly motivoQuitar = signal('');
+  readonly vincularSel = signal<FilaUI | null>(null);
+  readonly folioVincular = signal('');
+  readonly montoVincular = signal<number | null>(null);
+  readonly corrigiendo = signal(false);
+  readonly errCorregir = signal<string | null>(null);
+
+  abrirQuitar(r: FilaUI, f: CaosVinculo): void {
+    this.errCorregir.set(null); this.motivoQuitar.set(''); this.quitarSel.set({ r, f });
+  }
+  abrirVincular(r: FilaUI): void {
+    this.errCorregir.set(null); this.folioVincular.set(''); this.montoVincular.set(r.vinc?.libre ?? null);
+    this.vincularSel.set(r);
+  }
+  confirmarQuitar(): void {
+    const q = this.quitarSel();
+    if (!q?.f.link_id || this.corrigiendo()) return;
+    this.corrigiendo.set(true);   // síncrono, antes de la respuesta: el doble clic no quita dos veces
+    this.svc.quitarVinculo(q.f.link_id, this.motivoQuitar().trim()).subscribe({
+      next: () => { this.corrigiendo.set(false); this.quitarSel.set(null); this.despuesDeCorregir(q.r); },
+      error: (e) => { this.corrigiendo.set(false); this.errCorregir.set(this.textoError(e)); },
+    });
+  }
+  confirmarVincular(): void {
+    const r = this.vincularSel();
+    if (!r || this.corrigiendo()) return;
+    this.corrigiendo.set(true);
+    this.svc.vincular(r.id, { folio: this.folioVincular().trim(), monto: Number(this.montoVincular()) }).subscribe({
+      next: () => { this.corrigiendo.set(false); this.vincularSel.set(null); this.despuesDeCorregir(r); },
+      error: (e) => { this.corrigiendo.set(false); this.errCorregir.set(this.textoError(e)); },
+    });
+  }
+  /** El detalle y la columna «Caja General» se vuelven a leer del servidor: nada se ajusta a mano. */
+  private despuesDeCorregir(r: FilaUI): void {
+    this.releerVinculos.add(r.id);
+    this.cargar(true);
+  }
+  private readonly releerVinculos = new Set<string>();
 
   /** `[CGA-A.57]` Un fallo se dice y se reintenta: no se pinta «sin vínculos». */
   cargarVinculos(r: FilaUI): void {

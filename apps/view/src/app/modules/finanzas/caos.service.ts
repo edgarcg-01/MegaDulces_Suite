@@ -26,6 +26,8 @@ export interface CaosMovimiento {
 
 /** `[CGA-A.57]` Supervisión: a qué movimientos de Caja General se vinculó un movimiento de CAOS. */
 export interface CaosVinculo {
+  /** `null` cuando el movimiento nació en la máquina: no hay vínculo que quitar. */
+  link_id: string | null;
   cash_ledger_id: string; folio: string; tipo: string; fecha: string; monto: number; estado: string;
   monto_enlazado: number; vinculado_at: string; via: 'vinculo' | 'nacio_en_la_maquina';
 }
@@ -133,6 +135,16 @@ export class CaosService {
   /** `[CGA-A.57]` Sólo con `FINANCE_CAOS_VINCULOS_VER` (el servidor lo vuelve a exigir). */
   vinculos(id: string): Observable<CaosVinculos> {
     return this.http.get<CaosVinculos>(`${this.base}/movimientos/${id}/vinculos`);
+  }
+
+  /** `[CGA-A.58]` Sólo superadmin (el servidor lo exige por rol fresco). */
+  vincular(id: string, body: { folio: string; monto: number }): Observable<{ ok: true; link_id: string; folio: string; monto: number }> {
+    return this.http.post<{ ok: true; link_id: string; folio: string; monto: number }>(`${this.base}/movimientos/${id}/vinculos`, body);
+  }
+
+  /** `[CGA-A.58]` Sólo superadmin. Baja con motivo; el monto vuelve a quedar libre. */
+  quitarVinculo(linkId: string, motivo: string): Observable<{ ok: true; link_id: string }> {
+    return this.http.post<{ ok: true; link_id: string }>(`${this.base}/vinculos/${linkId}/quitar`, { motivo });
   }
 
   /**

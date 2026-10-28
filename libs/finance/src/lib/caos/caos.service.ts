@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { diaMxDeInstante } from '@megadulces/contracts';
 import type { Knex } from 'knex';
@@ -673,13 +673,13 @@ export class CaosService {
         .where({ 'k.tenant_id': tenantId, 'k.caos_device': mov.device, 'k.caos_external_id': mov.external_id })
         .whereNull('k.deleted_at').whereNull('l.deleted_at')
         .orderBy([{ column: 'k.created_at', order: 'asc' }, { column: 'l.folio', order: 'asc' }])
-        .select('l.id as cash_ledger_id', 'l.folio', 'l.tipo', 'l.fecha', 'l.monto', 'l.estado',
+        .select('k.id as link_id', 'l.id as cash_ledger_id', 'l.folio', 'l.tipo', 'l.fecha', 'l.monto', 'l.estado',
           'k.monto_enlazado', 'k.created_at as vinculado_at',
           trx.raw(`'vinculo' AS via`));
       const nacidos = await trx('finance.cash_ledger as l')
         .where({ 'l.tenant_id': tenantId, 'l.origen_tipo': 'caos', 'l.origen_ref': `${mov.device}|${mov.external_id}` })
         .whereNull('l.deleted_at')
-        .select('l.id as cash_ledger_id', 'l.folio', 'l.tipo', 'l.fecha', 'l.monto', 'l.estado',
+        .select(trx.raw('NULL::uuid AS link_id'), 'l.id as cash_ledger_id', 'l.folio', 'l.tipo', 'l.fecha', 'l.monto', 'l.estado',
           'l.monto as monto_enlazado', 'l.created_at as vinculado_at',
           trx.raw(`'nacio_en_la_maquina' AS via`));
       const filas = [...nacidos, ...enlaces].map((r: any) => ({
@@ -696,4 +696,106 @@ export class CaosService {
       };
     });
   }
+
+  /**
+   * ⭐ `[CGA-A.58]` Corregir un vínculo es de SUPERADMIN, no de admin (Edgar, 2026-10-28: *«permiso
+   * sólo superadmin»*). El guard deja pasar a los dos por god-mode, así que aquí se exige el rol
+   * exacto sobre los roles FRESCOS de la base (`roles_frescos`), no sobre el JWT.
+   */
+  private exigeSuperadmin(user: ActorCaos): void {
+    const roles = (user.roles_frescos ?? []).map((r) => String(r).toLowerCase());
+    if (!roles.includes('superadmin')) {
+      throw new ForbiddenException('Corregir un vínculo de CAOS es sólo de superadmin.');
+    }
+  }
+
+  /**
+   * `[CGA-A.58]` Da de BAJA un vínculo (no lo borra): queda quién, cuándo y por qué, y el
+   * movimiento de CAOS recupera ese monto como libre para volver a vincularlo o registrarlo.
+   *
+   * ⚠️ El esperado del corte no se mueve (`[CG.96]`: sale de los movimientos de la máquina, no del
+   * vínculo). Lo que cambia es `en_boveda` del movimiento de Caja General, que es lo que se muestra.
+   */
+  async quitarVinculo(linkId: string, motivo: string, user: ActorCaos) {
+    this.exigeSuperadmin(user);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const m = String(motivo ?? '').trim();
+    if (m.length < 10) throw new BadRequestException('Di por qué se quita el vínculo (mínimo 10 caracteres).');
+    return this.tk.run(async (trx) => {
+      const k = await trx('finance.caos_cash_links').where({ tenant_id: tenantId, id: linkId }).first('id', 'deleted_at');
+      if (!k) throw new NotFoundException('Ese vínculo no existe.');
+      if (k.deleted_at) throw new ConflictException('Ese vínculo ya se había quitado.');
+      await trx('finance.caos_cash_links').where({ tenant_id: tenantId, id: linkId })
+        .update({ deleted_at: trx.fn.now(), updated_at: trx.fn.now(), deleted_by: user.id, motivo_baja: m });
+      return { ok: true, link_id: linkId };
+    });
+  }
+
+  /**
+   * `[CGA-A.58]` Vincula un movimiento de Caja General YA GUARDADO a un movimiento de CAOS. Hasta
+   * hoy el vínculo sólo nacía al capturar; corregir uno exigía SQL a mano (así se vincularon los 10
+   * cobros de ruta del 28-oct).
+   *
+   * Reglas, cada una con su mensaje:
+   *  · depósito (type 0) ↔ ingreso · retiro (type 4) ↔ egreso. Al revés no tiene sentido de dinero.
+   *  · Un movimiento que NACIÓ en la máquina ya está explicado entero: no se le agrega vínculo.
+   *  · Un egreso que dice que salió del CAJÓN no se vincula a un retiro: es uno u otro, como en la
+   *    captura. Ese error se corrige en el egreso, no aquí.
+   *  · El monto no pasa de lo que le falta al movimiento ni de lo libre de CAOS (esto último lo
+   *    exige además `trg_caos_link_no_excede`).
+   */
+  async vincular(movId: string, body: { folio?: string; monto?: number }, user: ActorCaos) {
+    this.exigeSuperadmin(user);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const folio = String(body?.folio ?? '').trim().toUpperCase();
+    const monto = Math.round(Number(body?.monto) * 100) / 100;
+    if (!folio) throw new BadRequestException('Falta el folio de Caja General.');
+    if (!(monto > 0)) throw new BadRequestException('El monto a vincular tiene que ser mayor que cero.');
+    return this.tk.run(async (trx) => {
+      const mov = await trx('analytics.caos_cash_movements').where({ tenant_id: tenantId, id: movId })
+        .first('device', 'external_id', 'type_id', 'total');
+      if (!mov) throw new NotFoundException('Ese movimiento de CAOS no existe.');
+      const tipoEsperado = Number(mov.type_id) === 0 ? 'ingreso' : Number(mov.type_id) === 4 ? 'gasto' : null;
+      if (!tipoEsperado) throw new BadRequestException('Sólo los depósitos y los retiros se vinculan a Caja General.');
+      const l = await trx('finance.cash_ledger').where({ tenant_id: tenantId, folio }).whereNull('deleted_at')
+        .first('id', 'tipo', 'monto', 'estado', 'origen_tipo', 'origen_efectivo');
+      if (!l) throw new NotFoundException(`No hay un movimiento de Caja General con folio ${folio}.`);
+      if (l.estado === 'cancelado') throw new BadRequestException(`${folio} está cancelado.`);
+      if (l.tipo !== tipoEsperado) {
+        throw new BadRequestException(`${folio} es ${l.tipo === 'gasto' ? 'un egreso' : `un ${l.tipo}`}: un ${Number(mov.type_id) === 0 ? 'depósito' : 'retiro'} de CAOS sólo se vincula a ${tipoEsperado === 'gasto' ? 'un egreso' : 'un ingreso'}.`);
+      }
+      if (l.origen_tipo === 'caos') throw new BadRequestException(`${folio} se registró desde CAOS: ya está explicado entero.`);
+      if (l.tipo === 'gasto' && l.origen_efectivo === 'cajon') {
+        throw new BadRequestException(`${folio} dice que salió del cajón. Si salió de CAOS, eso se corrige en el egreso.`);
+      }
+      const [{ ya }] = await trx('finance.caos_cash_links').where({ tenant_id: tenantId, cash_ledger_id: l.id })
+        .whereNull('deleted_at').select(trx.raw('coalesce(sum(monto_enlazado),0)::numeric AS ya'));
+      const falta = Math.round((Number(l.monto) - Number(ya)) * 100) / 100;
+      if (monto > falta + 0.005) {
+        throw new BadRequestException(`A ${folio} sólo le faltan $${falta.toFixed(2)} por explicar.`);
+      }
+      try {
+        const [k] = await trx('finance.caos_cash_links').insert({
+          tenant_id: tenantId, cash_ledger_id: l.id, caos_device: mov.device, caos_external_id: mov.external_id,
+          monto_enlazado: monto,
+          senales: JSON.stringify({ manual: true, via: 'correccion_superadmin', por: user.username ?? null }),
+          confirmed_by: user.id,
+        }).returning('id');
+        return { ok: true, link_id: k?.id ?? k, folio, monto };
+      } catch (e: any) {
+        if (e?.code === '23505') throw new ConflictException(`${folio} ya está vinculado a este movimiento de CAOS.`);
+        // `trg_caos_link_no_excede` dice cuál candado fue: cada uno se dice con su nombre.
+        const porCandado: Record<string, string> = {
+          caos_link_excede_movimiento: 'El movimiento de CAOS no tiene libre ese monto.',
+          caos_link_excede_captura: `Con ese monto, ${folio} quedaría explicado de más.`,
+          caos_link_custodia_cerrada: 'Ese retiro tiene una custodia cerrada: ya no se puede vincular.',
+        };
+        if (e?.code === '23514' && porCandado[e?.constraint]) throw new ConflictException(porCandado[e.constraint]);
+        throw e;
+      }
+    });
+  }
 }
+
+/** `[CGA-A.58]` Quien corrige: lo que `RolesGuard` deja en el request. */
+export interface ActorCaos { id?: string; username?: string; roles_frescos?: string[] }
