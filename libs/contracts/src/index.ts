@@ -43,6 +43,7 @@ export * from './money/denominations';
 export * from './money/quote-totals';
 export * from './money/centavos';
 export * from './money/veredicto-cuadre';
+export * from './work/excepciones-movimientos.contract';
 // [CG.38] El cambio en Caja General: todo acto tiene una pila que ENTRA y otra que SALE, y el
 // neto es la resta. Un canje cuyas dos mitades no coinciden es un descuadre, no un canje.
 export * from './work/caja-cambio.contract';
@@ -226,3 +227,5 @@ export * from './http/stock-state.contract';
 // `[CGA-A.57]`/`[CGA-A.58]` Vinculos CAOS <-> Caja General (supervision + correccion de superadmin).
 export * from './finance/caos-vinculos.contract';
 export * from './finance/caja-lote-retiro.contract';
+// `[CGA-A.61]` Reposicion por sucursal: documentos de Kepler, egresos, retiros y la propuesta de vinculos.
+export * from './finance/caja-reposicion.contract';
