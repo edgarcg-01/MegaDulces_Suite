@@ -13,6 +13,7 @@
 - Nueva pestaña **«Historial de precios»** junto a «Cambios de precio» (`/tienda/etiquetas/historial`, mismo permiso): se busca un producto y se despliegan sus cambios de precio de las **9 plazas**. Por omisión muestra **todas las filas** de la bitácora de Kepler; «Agrupar repetidos» las funde en tramos (Kepler reescribe el mismo cambio varias veces: en un producto medido, 676 de 686 pasos repetían el precio). Filtros por rango (90 días / 1 año / todo), plaza y presentación.
 - Una promoción de Kepler («= GRATIS») no se puede elegir: no es un producto. «Sin cambios registrados» se distingue de «no se pudo leer».
 - `GET /store/labels/price-history` (lectura, tope de 8,000 filas con aviso de recorte). Sin migración ni permiso nuevo.
+- **«Imprimir etiqueta»** desde el historial (`[ETQ-HISTORIAL.5]`, H.3.2): manda el código del producto elegido a la etiquetera, la misma vía de «Cambios de precio».
 
 ### Added — Cuentas de pago: la cuenta ya viene puesta, la traía el propio proveedor (PGP.29 / objetivo O6, 2026-10-28)
 - En `/finanzas/cuentas-pago`, el botón **«Solicitar cuenta» abría un formulario vacío** y alguien tenía que ir a conseguir la CLABE. Por eso el catálogo llevaba **0 cuentas** y ningún pago del Calendario se preparaba solo.

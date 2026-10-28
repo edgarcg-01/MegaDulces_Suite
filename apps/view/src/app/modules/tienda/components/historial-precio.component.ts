@@ -1,8 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { of } from 'rxjs';
+import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
@@ -35,12 +37,12 @@ type Vista = 'filas' | 'tramos';
 @Component({
   selector: 'app-historial-precio',
   standalone: true,
-  imports: [CommonModule, FormsModule, InputTextModule, SelectModule, TableModule, SegmentedComponent, LoadStateComponent, FreshnessPillComponent, MetricStripComponent, PageTabsComponent, SucursalPipe],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, SelectModule, TableModule, SegmentedComponent, LoadStateComponent, FreshnessPillComponent, MetricStripComponent, PageTabsComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     :host { display: block; }
     .hp-buscar { position: relative; max-inline-size: 34rem; margin-block-end: 1rem; }
-    .hp-cab { margin: 0 0 0.75rem; }
+    .hp-cab { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.5rem 1rem; margin: 0 0 0.75rem; }
     .hp-cab h2 { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); color: var(--fg-1); }
     .hp-cab p { margin: 0.15rem 0 0; font-size: var(--fs-sm); color: var(--fg-2); }
     .hp-vacio { margin: 0; padding: 1.5rem 0; font-size: var(--fs-sm); color: var(--fg-2); }
@@ -99,7 +101,11 @@ type Vista = 'filas' | 'tramos';
     }
     <section aria-label="Historial de precios del producto">
       @if (producto()) {
-        <header class="hp-cab"><h2>{{ producto()?.name }}</h2><p>Código {{ producto()?.sku }}</p></header>
+        <header class="hp-cab">
+          <div><h2>{{ producto()?.name }}</h2><p>Código {{ producto()?.sku }}</p></div>
+          <!-- [ETQ-HISTORIAL.5 / H.3.2] Misma ruta que «Cambios de precio»: manda el código a la etiquetera, que lo resuelve y muestra la hoja antes de imprimir. -->
+          <p-button label="Imprimir etiqueta" icon="pi pi-print" size="small" [outlined]="true" (onClick)="imprimir()" />
+        </header>
         @if (items().length) {
           <app-metric-strip [items]="metricas()" />
           <p class="hp-resumen"><small>Un tramo es un precio que se mantuvo: Kepler lo reescribe varias veces aunque no cambie.</small></p>
@@ -184,6 +190,7 @@ type Vista = 'filas' | 'tramos';
 })
 export class HistorialPrecioComponent {
   private readonly svc = inject(EtiquetasService);
+  private readonly router = inject(Router);
   private temporizador: ReturnType<typeof setTimeout> | null = null;
 
   readonly tabs = ETIQUETAS_TABS;
@@ -220,6 +227,17 @@ export class HistorialPrecioComponent {
     this.unidad.set('');
     this.rango.set('365');
     this.limpiar();
+  }
+
+  /**
+   * [ETQ-HISTORIAL.5 / H.3.2] Manda ESTE producto a la etiquetera por estado del router (la misma vía de
+   * «Cambios de precio»): allá `addBulk()` lo resuelve con el camino de siempre y la persona ve la hoja antes
+   * de gastar papel. No abre la impresión sola ni duplica la maquinaria de impresión.
+   */
+  imprimir(): void {
+    const sku = this.producto()?.sku?.trim();
+    if (!sku) return;
+    this.router.navigate(['/tienda/etiquetas'], { state: { codes: [sku] } });
   }
 
   // ── historial ──
