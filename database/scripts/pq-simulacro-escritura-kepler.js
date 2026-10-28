@@ -44,6 +44,16 @@ const ESTADO = args.estado || 'ambos';
 const CONTROL_FOLIO = 'RQ-2026-01391';
 const CONTROL_MOTIVO = /no conoce al proveedor CA027/;
 
+/** [PQ.19] Factor de caja de la ficha kdii — misma regla que libs/commercial/.../ficha-kepler.ts (este script es JS plano). */
+function factorFicha(r) {
+  const rot = (v) => String(v ?? '').trim().toUpperCase() || null;
+  const num = (v) => { const t = String(v ?? '').replace(/[^0-9.]/g, ''); return t ? Number(t) : null; };
+  const ef = (cap, costo, base) => (cap != null && cap > 1) ? cap : (base > 0 && costo > 0 && costo / base > 1 ? Math.round(costo / base) : null);
+  const c1 = num(r.c77), f2 = ef(num(r.c81), num(r.c78), c1), f3 = ef(num(r.c84), num(r.c79), c1);
+  const f = (f3 != null && f3 >= (f2 ?? 0)) ? f3 : f2 != null ? f2 : (rot(r.c80) == null && rot(r.c83) == null ? 1 : null);
+  return { u: rot(r.c11), f };
+}
+
 (async () => {
   const c = new Client({ connectionString: URL, ssl: { rejectUnauthorized: false }, statement_timeout: 280000 });
   await c.connect();
@@ -66,7 +76,8 @@ const CONTROL_MOTIVO = /no conoce al proveedor CA027/;
 
   const lineas = (await c.query(`
     SELECT l.requisition_id, btrim(p.sku::text) AS sku, l.final_qty::numeric AS cajas,
-           (SELECT max(b.box_factor) FROM analytics.mv_warehouse_box_factor b WHERE b.warehouse_id = r.warehouse_id AND b.product_id = l.product_id) AS uxc
+           (SELECT max(b.box_factor) FROM analytics.mv_warehouse_box_factor b WHERE b.warehouse_id = r.warehouse_id AND b.product_id = l.product_id) AS uxc,
+           (SELECT max(bf.box_factor) FROM analytics.v_product_box_factor bf WHERE bf.tenant_id = l.tenant_id AND bf.product_id = l.product_id) AS bf_push
       FROM commercial.purchase_requisition_lines l
       JOIN commercial.purchase_requisitions r ON r.id = l.requisition_id
       JOIN catalog.products p ON p.tenant_id = l.tenant_id AND p.id = l.product_id
@@ -86,6 +97,9 @@ const CONTROL_MOTIVO = /no conoce al proveedor CA027/;
   const tiPorSuc = new Set((await c.query(`SELECT DISTINCT btrim(c1) AS s FROM kepler_ods.pv_suc_ip WHERE btrim(coalesce(c7, '')) <> ''`)).rows.map((r) => r.s));
   // E · SKU en la ficha de la sucursal.
   const skuSuc = new Set((await c.query(`SELECT DISTINCT btrim(sucursal) || '|' || btrim(c1) AS k FROM kepler_ods.kdii WHERE btrim(coalesce(c1, '')) <> ''`)).rows.map((r) => r.k));
+  // F · [PQ.19] D24: el traspaso va en unidad base; el factor que manda el push (v_product_box_factor)
+  //     tiene que coincidir con la ficha kdii del ORIGEN. Misma regla que libs/.../ficha-kepler.ts.
+  const fichaSuc = new Map((await c.query(`SELECT btrim(sucursal::text) || '|' || btrim(c1) AS k, c11, c77, c78, c79, c80, c81, c83, c84 FROM kepler_ods.kdii WHERE btrim(coalesce(c1, '')) <> ''`)).rows.map((r) => [r.k, factorFicha(r)]));
   await c.end();
 
   const motivos = new Map(); const porSuc = new Map(); const detalle = [];
@@ -106,7 +120,14 @@ const CONTROL_MOTIVO = /no conoce al proveedor CA027/;
     // Regla ANTERIOR (sólo para el control y para medir cuánto rebotaba): compra previa en la sucursal.
     const motivoViejo = (tipo === 'compra' && (r.prov_code || '').trim() && !provKepler.has(`${servidor}|${r.prov_code.trim()}`))
       ? `C · Kepler (sucursal ${servidor}) no conoce al proveedor ${r.prov_code.trim()}` : null;
-    if (motivo) { cuenta(motivos, motivo.replace(/proveedor \S+ en/, 'proveedor <código> en').replace(/sucursal \d+/, 'sucursal NN')); }
+    if (!motivo && tipo === 'traspaso') {
+      const malos = ls.filter((l) => {
+        const fi = fichaSuc.get(`${servidor}|${l.sku}`); const bf = Number(l.bf_push); const pz = Number(l.cajas) * bf;
+        return !fi || !fi.u || fi.f == null || !(bf > 0) || Math.abs(fi.f - bf) > 0.001 || Math.round(pz) <= 0 || Math.abs(pz - Math.round(pz)) > 0.02;
+      });
+      if (malos.length) motivo = `F · factor de caja Suite ≠ ficha de Kepler del origen (o sin unidad base): ${malos.slice(0, 3).map((l) => `${l.sku} ${l.bf_push}/${(fichaSuc.get(`${servidor}|${l.sku}`) || {}).f}`).join(', ')}`;
+    }
+    if (motivo) { cuenta(motivos, motivo.replace(/: \d.*$/, '').replace(/proveedor \S+ en/, 'proveedor <código> en').replace(/sucursal \d+/, 'sucursal NN')); }
     else { pasan++; cuenta(colaPorServidor, servidor); }
     cuenta(porSuc, `${servidor || '?'} · ${tipo} · ${motivo ? 'rebota' : 'pasa'}`);
     const sinFicha = ls.filter((l) => servidor && !skuSuc.has(`${servidor}|${l.sku}`)).length;

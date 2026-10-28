@@ -768,12 +768,43 @@ todos sus demás traspasos.
 |---|---|---|
 | D24 | ¿El traspaso se escribe en la unidad base (`cajas × piezas_por_caja`, `kdii.c11`, costo por unidad base), como el 99.2 % de los de Kepler? | **Sí**, para traspasos. Ya existe el camino (PQ.17 lo usa para fracciones) y el factor es la ficha de Kepler (PQ.13). Sin factor → rechazo con el SKU. Antes de encender: canario de traspaso con una línea entera y una en piezas, y ver que el `U-D-41` y el `U-A-50` la copien igual. Para compras (`X-A-30`) queda como está hasta medirlo aparte |
 
+### 14.5 D24 en código y qué falta para encender las pruebas (2026-10-27)
+
+PM: «actívemoslo para hacer pruebas». **D24 en código (PQ.19):** todo renglón de traspaso se escribe
+en la unidad base de la ficha del ORIGEN (`kdii.c11`, `c58=1`, cantidad = cajas × piezas por caja,
+costo por unidad base). Freno nuevo: el factor que manda la Suite (`v_product_box_factor`) tiene que
+coincidir con el de la ficha `kdii` del servidor origen (misma regla que `v_kepler_unit_ladder`,
+`ficha-kepler.ts`); si no, se rechaza con el SKU y los dos factores. Compras sin cambio.
+
+Simulacro re-corrido (sólo lectura, control RQ-2026-01391 ✓):
+
+| | docs | pasan | rebotan |
+|---|---:|---:|---:|
+| compras | 85 | 85 | 0 |
+| traspasos | 809 | 776 | 33 ($0.97 M, 218 renglones) |
+
+Los 33 son **la ficha de Kepler**, no la Suite: la mayoría rotula la caja sin factor ni costo
+(87234, 45007, 47901, 17062–17064, 17202–17204… ficha = sin factor, Suite = 1) y dos contradicen
+(31024: Suite 12 / ficha 10 · 52020: Suite 6 / ficha 35). Se arreglan capturando el factor en la
+ficha de Kepler del origen; nunca se adivina.
+
+**Encender NO es código: es el secreto `kepler-push` en `md`**, con credenciales que la sesión no
+toca (regla 7). Código en prod: KR.17 (`4442f907a`, `35006040a`), PQ.17 y PQ.18 sí; **PQ.19 no**
+(commit local, va con el siguiente push). Orden para las pruebas (runbook KR §9.2 y §11):
+
+1. Canario de **compra** en Yurécuaro (04), tope 1, sólo plantilla de compra. Criterio: la **baja
+   desde la UI de Kepler** funciona.
+2. Después de desplegar PQ.19: canario de **traspaso** desde 01, plantilla `U-D-40 1/0003333`,
+   tope 1, con una línea entera y una en piezas. Criterio: el `U-D-41` y el `U-A-50` copian la
+   unidad base.
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-27 | «Actívemoslo para hacer pruebas» → **PQ.19 🧪**: D24 en código (traspaso en unidad base + factor contrastado con la ficha del origen). Simulacro: compras 85/85, traspasos 776/809; los 33 son fichas de Kepler sin factor. Encender = secreto en `md` (no lo toca la sesión): canario de compra en 04 primero, traspaso desde 01 después del push (§14.5) | PM + sesión PQ |
 | 2026-10-27 | «¿Cómo sale el traspaso en cada sucursal?» (§14.4): pedido `U-D-40` + embarque `U-D-41` en la que manda, recepción `U-A-50` en la que recibe, idénticos al centavo, ligados por `c37/c38/c39`. Hallazgo: Kepler escribe el traspaso en unidad base (99.2 %), nosotros en CJA → **D24** | PM + sesión PQ |
 | 2026-10-27 | «Generar el apartado para ver los pedidos de sucursal» → **PQ.18 🧪** (`ffea99b38`): tercera pestaña en Requisiciones con lo que mandan las sucursales (compras y traspasos), quién pidió y qué, aprobar/rechazar con motivo, contador de pendientes. En prod hay 0 todavía (la función nació el 26-oct) | PM + sesión PQ |
 | 2026-10-27 | El PM señaló `/almacen/movimientos` (§14.3): el cierre `U-D-41 → U-A-50` ya existe (DM.3, con estado por documento y cuadre contable); falta el eslabón requisición → `U-D-40` → `U-D-41` (los folios no coinciden entre 40 y 41). PQ.3 se re-define para reusar ese servicio. Plantilla de la 01: `U-D-40 1/0003333` (el adaptador reescribe estado y limpia responsables) | PM + sesión PQ |
