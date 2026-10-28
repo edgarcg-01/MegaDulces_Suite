@@ -123,6 +123,22 @@ const PAIR_BLIND_DAYS = 15;   // sin testigo de destino: ventana de siempre, sin
 const DOC_IDENTITY = ['m.warehouse_id', 'm.doc_code', 'm.doc_serie', 'm.folio'];
 
 /**
+ * [MX.1.1] **Firma de productos de un documento**: Σ(cantidad redondeada × hash del SKU).
+ *
+ * Dos documentos con los mismos SKU y las mismas cantidades dan la misma firma, sin importar en
+ * cuántos renglones vengan; mandar 10 de A y recibir 10 de B la cambia. Se calcula en el MISMO
+ * barrido que ya suma las piezas, así que cuesta casi nada.
+ *
+ * ⚠️ Por qué no se compara renglón por renglón: se intentó (2026-10-28) y el Cuadre pasó de
+ * 0.26 s a 1.9 s (30 d) y 7 s (90 d) aun con CTEs materializados — y medido en prod **no hay
+ * ningún caso** hoy (los «4 documentos con productos cambiados» de la auditoría eran renglones
+ * SIN `product_id` en ambos lados, que una comparación por `product_id` nunca empata; por SKU
+ * cuadran). La firma es el candado barato contra el caso que hoy no ocurre.
+ * Se compara por SKU (texto de Kepler), no por `product_id`, por esa misma razón.
+ */
+const SKU_SIG = (a: string) => `SUM(round(${a}.qty::numeric, 2) * hashtext(coalesce(${a}.sku, '')))`;
+
+/**
  * Predicado de pareo, en SQL, para que los CUATRO puntos que parean traspasos digan lo mismo
  * (`document`, `annotateTransferStatus`, `transfersPhysical`, `transfersCheckPair`). Mismo motivo
  * que `DEST_WH_VIVO`: una regla de integridad repetida a mano se desincroniza — y acá ya había
@@ -188,6 +204,8 @@ const pairMatchJs = (shipMs: number, rcvMs: number, destWhId: string | null, rcv
  *
  * Devuelve desde el `WITH` hasta `) t`; cada quien le pega su `WHERE`/`ORDER BY`/`LIMIT`.
  * Los parámetros van en {@link TRANSFER_PAIRING_PARAMS}, en ese orden.
+ *
+ * [MX.1.1] El veredicto `ok` exige la suma de piezas **y** la firma de productos ({@link SKU_SIG}).
  */
 const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
         WITH shp AS (
@@ -199,7 +217,7 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
           -- PAIR_LATE_DAYS, o fecharse hasta PAIR_EARLY_DAYS despues de ella. Cuesta 14 ms.
           SELECT m.warehouse_id, m.folio, m.doc_serie, m.tenant_id,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
-                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label
+                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label, ${SKU_SIG('m')} AS sku_sig
           FROM analytics.stock_movements m
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip'
             AND m.doc_date BETWEEN ?::date - ${PAIR_LATE_DAYS} AND ?::date + ${PAIR_EARLY_DAYS}${shpDestSql}
@@ -215,7 +233,7 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
         ), rcv AS (
           -- [DM.22] misma ventana de candidatos, espejada.
           SELECT m.warehouse_id, m.folio, m.parent_serie, m.parent_folio,
-                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas
+                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas, ${SKU_SIG('m')} AS sku_sig
           FROM analytics.stock_movements m
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41'
             AND m.doc_date BETWEEN ?::date - ${PAIR_EARLY_DAYS} AND ?::date + ${PAIR_LATE_DAYS}
@@ -230,7 +248,8 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
                  s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
                  s.doc_serie, s.doc_date AS ship_date, s.qty AS qty_sent, s.amount, s.lineas AS ship_lines,
                  r.warehouse_id AS dest_wh_id, coalesce(rw.name, rw.code) AS dest_wh, r.folio AS rcv_folio,
-                 r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines
+                 r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines,
+                 s.sku_sig AS ship_sig, r.sku_sig AS rcv_sig
           FROM rcv r
           LEFT JOIN commercial.warehouses rw ON rw.id = r.warehouse_id
           LEFT JOIN shpd s
@@ -262,7 +281,8 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
                  dest_wh_id, dest_wh, rcv_folio, rcv_date, qty_received, rcv_lines,
                  CASE
                    WHEN origin_folio IS NULL THEN 'sin_origen'
-                   WHEN abs(coalesce(qty_sent,0) - coalesce(qty_received,0)) < 0.01 THEN 'ok'
+                   WHEN abs(coalesce(qty_sent,0) - coalesce(qty_received,0)) < 0.01
+                    AND ship_sig = rcv_sig THEN 'ok'   -- [MX.1.1] y los mismos productos
                    ELSE 'diferencia'
                  END AS status,
                  coalesce(qty_received,0) - coalesce(qty_sent,0) AS delta
@@ -606,6 +626,8 @@ export class CommercialMovementsService {
           // DM.11 — destino del traspaso (kdm1.c10 → kdud); dest por-doc, MAX es el valor único
           trx.raw(`MAX(m.dest_code) AS dest_code`),
           trx.raw(`MAX(m.dest_label) AS dest_label`),
+          // [MX.1.1] firma de productos: annotateTransferStatus la compara con la de la contraparte
+          trx.raw(`${SKU_SIG('m')} AS sku_sig`),
         )
         .orderByRaw('MIN(m.doc_date) DESC, m.folio DESC')
         .limit(limit).offset(offset);
@@ -641,6 +663,9 @@ export class CommercialMovementsService {
   private async annotateTransferStatus(trx: any, tenantId: string, rows: any[]): Promise<void> {
     const ships = rows.filter((r) => r.doc_code === 'TrsfShip');
     const rcvs = rows.filter((r) => r.doc_code === 'TrsfRcv');
+    /** [MX.1.1] mismas piezas Y mismos productos (firma {@link SKU_SIG}; numeric llega como string). */
+    const mismoTraspaso = (cand: { q: unknown; sig: unknown }, doc: { qty: unknown; sku_sig: unknown }) =>
+      Math.abs(Number(cand.q) - Number(doc.qty)) < 0.01 && cand.sig != null && String(cand.sig) === String(doc.sku_sig);
     const near = (cands: any[], qty: number, date: any) => {
       if (!cands.length) return null;
       const t = new Date(date).getTime();
@@ -675,14 +700,15 @@ export class CommercialMovementsService {
          */
         .groupBy('m.parent_folio', 'm.parent_serie', 'm.warehouse_id', 'm.folio')
         .select('m.parent_folio as pf', 'm.warehouse_id as wh', 'm.folio as rf')
-        .select(trx.raw(`coalesce(m.parent_serie,'') AS ps`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`));
+        .select(trx.raw(`coalesce(m.parent_serie,'') AS ps`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`),
+          trx.raw(`${SKU_SIG('m')} AS sig`));
       for (const s of ships) {
         const sd = new Date(s.doc_date).getTime();
         // [DM.20] llave = el destino declarado (annotateDest ya corrió); sin él, ventana ciega.
         const mine = cands.filter((c: any) => c.pf === s.folio && c.ps === (s.doc_serie ?? '') && c.wh !== s.warehouse_id
           && pairMatchJs(sd, new Date(c.d).getTime(), s.dest_warehouse_id ?? null, c.wh));
         const best = near(mine, Number(s.qty), s.doc_date);
-        s.transfer_status = !best ? 'en_transito' : Math.abs(Number(best.q) - Number(s.qty)) < 0.01 ? 'completado' : 'diferencia';
+        s.transfer_status = !best ? 'en_transito' : mismoTraspaso(best, s) ? 'completado' : 'diferencia';
         s.cp_warehouse_id = best ? best.wh : null;
       }
     }
@@ -700,14 +726,14 @@ export class CommercialMovementsService {
         .groupBy('m.folio', 'm.doc_serie', 'm.warehouse_id')
         .select('m.folio as f', 'm.warehouse_id as wh')
         .select(trx.raw(`coalesce(m.doc_serie,'') AS s`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`),
-          trx.raw(`MAX(dw.id::text) AS dest_wh`));
+          trx.raw(`MAX(dw.id::text) AS dest_wh`), trx.raw(`${SKU_SIG('m')} AS sig`));
       for (const r of rcvs) {
         if (r.parent_group !== '41' || !r.parent_folio) { r.transfer_status = 'diferencia'; continue; }
         const rd = new Date(r.doc_date).getTime();
         const mine = cands.filter((c: any) => c.f === r.parent_folio && c.s === (r.parent_serie ?? '') && c.wh !== r.warehouse_id
           && pairMatchJs(new Date(c.d).getTime(), rd, c.dest_wh ?? null, r.warehouse_id));
         const best = near(mine, Number(r.qty), r.doc_date);
-        r.transfer_status = !best ? 'diferencia' : Math.abs(Number(best.q) - Number(r.qty)) < 0.01 ? 'completado' : 'diferencia';
+        r.transfer_status = !best ? 'diferencia' : mismoTraspaso(best, r) ? 'completado' : 'diferencia';
         r.cp_warehouse_id = best ? best.wh : null;
       }
     }
@@ -781,9 +807,17 @@ export class CommercialMovementsService {
           this.on('p.id', 'm.product_id').andOn('p.tenant_id', 'm.tenant_id');
         })
         .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id');
-      if (p.warehouse_id && UUID_RX.test(p.warehouse_id)) q.where('m.warehouse_id', p.warehouse_id);
-      if (p.doc_code) q.where('m.doc_code', p.doc_code);
-      if (p.doc_serie != null && p.doc_serie !== '') q.whereRaw(`coalesce(m.doc_serie,'') = ?`, [p.doc_serie]);
+      const delDocumento = <B extends { where(...a: unknown[]): unknown; whereRaw(...a: unknown[]): unknown }>(b: B): B => {
+        if (p.warehouse_id && UUID_RX.test(p.warehouse_id)) b.where('m.warehouse_id', p.warehouse_id);
+        if (p.doc_code) b.where('m.doc_code', p.doc_code);
+        if (p.doc_serie != null && p.doc_serie !== '') b.whereRaw(`coalesce(m.doc_serie,'') = ?`, [p.doc_serie]);
+        return b;
+      };
+      delDocumento(q);
+      // [MX.1.1] firma de productos de ESTE documento, para compararla con la de su contraparte
+      const [{ sku_sig: thisSig = null } = {}] = await delDocumento(
+        trx('analytics.stock_movements as m').where('m.tenant_id', tenantId).andWhere('m.folio', p.folio),
+      ).select(trx.raw(`${SKU_SIG('m')} AS sku_sig`));
       const lines = await q.select(
         'm.warehouse_id', 'm.doc_date', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
         'm.genero', 'm.naturaleza', 'm.doc_type', 'm.doc_serie', 'm.signed_qty', 'm.qty',
@@ -840,15 +874,18 @@ export class CommercialMovementsService {
       const wrap = (cp: any[], evidence: 'destino_declarado' | 'fecha_y_cantidad') => {
         if (!cp.length) return null;
         const cpQty = Number(cp[0].qty || 0);
+        // [MX.1.1] cuadra sólo con las mismas piezas Y los mismos productos (firma SKU_SIG)
+        const mismos = cp[0].sku_sig != null && String(cp[0].sku_sig) === String(thisSig);
         return {
           docs: cp, qty: cpQty, delta: cpQty - sentQty, match_evidence: evidence,
-          status: Math.abs(cpQty - sentQty) < 0.01 ? 'ok' : 'diferencia',
+          status: Math.abs(cpQty - sentQty) < 0.01 && mismos ? 'ok' : 'diferencia',
         };
       };
       const CP_COLS = (t: any) => [
         'm.folio', 'm.warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name',
         t.raw(`MIN(m.doc_date) AS doc_date`), t.raw(`MAX(m.doc_code) AS doc_code`),
         t.raw(`MAX(m.doc_serie) AS doc_serie`), t.raw(`SUM(m.qty) AS qty`), t.raw(`COUNT(*)::int AS lineas`),
+        t.raw(`${SKU_SIG('m')} AS sku_sig`),
       ];
       /** Viendo una SALIDA: su recepción es la que ocurre en el almacén al que va dirigida. */
       const findRcvForShip = async (destWhId: string | null) => {
