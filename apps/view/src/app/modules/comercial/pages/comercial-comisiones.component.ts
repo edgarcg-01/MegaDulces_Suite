@@ -6,6 +6,7 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { DialogModule } from 'primeng/dialog';
+import { InputNumberModule } from 'primeng/inputnumber';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
@@ -71,7 +72,7 @@ type Vista = typeof VISTAS[number];
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent, ToastModule, ConfirmDialogModule, DialogModule],
+  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent, ToastModule, ConfirmDialogModule, DialogModule, InputNumberModule],
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="cm-page">
@@ -277,7 +278,9 @@ type Vista = typeof VISTAS[number];
              motivos de no pago, los tres veredictos de costo) vive en el diccionario versionado.
              Antes vivia en SIETE atributos title, o sea solo para quien tiene mouse. -->
         <app-context-help topic="comisiones-rd" />
-        @if (run(); as r) {
+        <!-- [AUD-CM.7] La edad de la venta de LA CORRIDA: solo en la nómina. En Bono por objetivo convivía
+             con la píldora de su propio mes y la pantalla decía «hace 6 d» y «ahora» a la vez. -->
+        @if (vista() === 'quincena' && run(); as r) {
           <app-freshness-pill measures="data" [since]="r.data_as_of" label="Venta medida"
                               [staleAfterSec]="172800" />
         }
@@ -305,6 +308,9 @@ type Vista = typeof VISTAS[number];
         <!-- [RD.80] El padron NO mira la corrida: mira quien esta dado de alta para cobrar
              y si su fuente sigue viva. La pestana "No comisionan" no podia contestar esto
              porque sale de las lineas del espejo del libro. -->
+        @if (padronHallazgos().length) {
+          <p class="cm-eyebrow cm-sec-t">Lo que no cuadra en el padrón · {{ padronHallazgos().length }}</p>
+        }
         @if (padronEnRiesgo(); as n) {
           <p class="cm-falto-grito">
             <strong class="cm-neg">{{ n }}</strong>
@@ -328,8 +334,8 @@ type Vista = typeof VISTAS[number];
                    El diccionario de esta misma pantalla ya ensena la diferencia, y el
                    subtotal es ademas la BASE con que se calcula la comision. -->
               <th>Ruta</th><th>Chofer</th><th>Plaza o zona</th>
-              <th>Comisiona</th><th>Ultimo dia con dato</th>
-              <th class="comm-num">Subtotal (30 d)</th><th>Que pasa</th>
+              <th>Comisiona</th><th>Último día con dato</th>
+              <th class="comm-num">Subtotal (30 d)</th><th>Qué pasa</th>
             </tr></thead>
             <tbody>
               @for (r of padronHallazgos(); track r.route_code) {
@@ -337,10 +343,7 @@ type Vista = typeof VISTAS[number];
                   <td class="comm-num">{{ r.route_code }}</td>
                   <td class="cm-name">{{ r.chofer_nombre || '—' }}</td>
                   <td class="cm-muted">{{ r.plaza_o_zona || '—' }}</td>
-                  <td>
-                    <p-tag [severity]="r.comisiona ? 'success' : 'secondary'"
-                           [value]="r.comisiona ? 'si' : 'no'" />
-                  </td>
+                  <td>{{ r.comisiona ? 'sí' : 'no' }}</td>
                   <td [class.cm-corta]="r.fuente_estado !== 'viva'">
                     {{ etiquetaFuente(r) }}
                     @if (r.ultimo_dia_con_dato) {
@@ -472,14 +475,17 @@ type Vista = typeof VISTAS[number];
                   <td>
                     <!-- ⚠️ El periodo se pinta SIEMPRE: es lo que impide que un bono
                          mensual entre a las dos quincenas y se pague dos veces. -->
-                    <p-tag [severity]="b.periodo === 'mes' ? 'info' : 'secondary'"
-                           [value]="b.periodo === 'mes' ? 'mensual' : 'quincenal'" />
+                    <p-tag severity="secondary" [value]="b.periodo === 'mes' ? 'mensual' : 'quincenal'" />
                   </td>
                   <td class="cm-nota">{{ reglaBono(b) }}</td>
                   <td class="comm-num cm-mono">{{ money(b.monto) }}</td>
                   <td>
-                    <p-tag [severity]="b.activo ? 'success' : 'secondary'"
-                           [value]="b.activo ? 'activo' : 'apagado'" />
+                    <!-- [AUD-CM.3] Un bono que paga $0 no se anuncia «activo» en verde: Bono por objetivo
+                         decía «hoy vale $0» del mismo bono. Y «activo» en 17 de 17 renglones no
+                         distinguía nada: va en texto; lo que se sale de lo normal, con peso. -->
+                    @if (!b.activo) { <strong>apagado</strong> }
+                    @else if (!pagaAlgo(b)) { <strong class="cm-aviso-txt">no paga: importe $0</strong> }
+                    @else { <span class="cm-muted">activo</span> }
                   </td>
                   <td>
                     @if (puedeGestionar() && !b.grupo) {
@@ -525,8 +531,9 @@ type Vista = typeof VISTAS[number];
           </div>
         </div>
 
-        <p class="cm-warn bad">
-          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+        <!-- [AUD-CM.12] Es una explicación, no un error: sin caja roja. -->
+        <p class="cm-warn">
+          <i class="pi pi-info-circle" aria-hidden="true"></i>
           <span>
             <strong>Es un acantilado, no una rampa.</strong> Debajo del primer escalón no
             hay porcentaje: la comisión es <strong class="cm-neg">$0</strong>, no «un poco
@@ -537,8 +544,10 @@ type Vista = typeof VISTAS[number];
         <div class="cm-table-wrap">
           <table class="surf-table surf-table--plain">
             <thead><tr>
-              <th class="comm-num">Desde (venta)</th>
-              <th class="comm-num">Hasta</th>
+              <!-- [AUD-CM.13] El escalón incluye su «desde» y excluye su «hasta» (COMMENT de
+                   commission_scale_tiers): sin decirlo, 194,999.99 parecía estar en dos escalones. -->
+              <th class="comm-num">Desde (venta) · incluido</th>
+              <th class="comm-num">Hasta · sin incluir</th>
               <th class="comm-num">Paga sobre el subtotal</th>
               <th></th>
             </tr></thead>
@@ -546,20 +555,27 @@ type Vista = typeof VISTAS[number];
               @for (t of borrador(); track $index) {
                 <tr>
                   <td class="comm-num">
-                    <input type="number" step="0.01" class="cm-tier-in" [readonly]="!puedeGestionar()"
-                           [ngModel]="t.min_amount" [ngModelOptions]="{ standalone: true }"
-                           (ngModelChange)="setTier($index, 'min_amount', $event)" />
+                    <!-- [AUD-CM.13] Con formato de dinero y porcentaje: decía «189999.99» y «3.75». -->
+                    <p-inputnumber class="cm-tier" [readonly]="!puedeGestionar()" mode="decimal" prefix="$" locale="es-MX"
+                                   [minFractionDigits]="2" [maxFractionDigits]="2"
+                                   [ngModel]="t.min_amount" [ngModelOptions]="{ standalone: true }"
+                                   (ngModelChange)="setTier($index, 'min_amount', $event)"
+                                   [ariaLabel]="'Escalón ' + ($index + 1) + ', desde'" />
                   </td>
                   <td class="comm-num">
-                    <input type="number" step="0.01" class="cm-tier-in" [readonly]="!puedeGestionar()"
-                           [ngModel]="t.max_amount" [ngModelOptions]="{ standalone: true }"
-                           (ngModelChange)="setTier($index, 'max_amount', $event)"
-                           [placeholder]="$index === borrador().length - 1 ? 'sin techo' : ''" />
+                    <p-inputnumber class="cm-tier" [readonly]="!puedeGestionar()" mode="decimal" prefix="$" locale="es-MX"
+                                   [minFractionDigits]="2" [maxFractionDigits]="2"
+                                   [ngModel]="t.max_amount" [ngModelOptions]="{ standalone: true }"
+                                   (ngModelChange)="setTier($index, 'max_amount', $event)"
+                                   [placeholder]="$index === borrador().length - 1 ? 'sin techo' : ''"
+                                   [ariaLabel]="'Escalón ' + ($index + 1) + ', hasta'" />
                   </td>
                   <td class="comm-num">
-                    <input type="number" step="0.0001" class="cm-tier-in" [readonly]="!puedeGestionar()"
-                           [ngModel]="t.pct" [ngModelOptions]="{ standalone: true }"
-                           (ngModelChange)="setTier($index, 'pct', $event)" />
+                    <p-inputnumber class="cm-tier cm-tier--pct" [readonly]="!puedeGestionar()" mode="decimal" suffix=" %" locale="es-MX"
+                                   [minFractionDigits]="0" [maxFractionDigits]="4"
+                                   [ngModel]="t.pct" [ngModelOptions]="{ standalone: true }"
+                                   (ngModelChange)="setTier($index, 'pct', $event)"
+                                   [ariaLabel]="'Escalón ' + ($index + 1) + ', porcentaje sobre el subtotal'" />
                   </td>
                   <td>
                     @if (puedeGestionar()) {
@@ -584,7 +600,7 @@ type Vista = typeof VISTAS[number];
             <button type="button" class="cm-btn-sec" (click)="agregarTier()">
               <i class="pi pi-plus" aria-hidden="true"></i> Escalón
             </button>
-            <button type="button" class="cm-btn-sec" (click)="restaurarTabulador()">
+            <button type="button" class="cm-btn-sec" [disabled]="tabuladorSinCambios()" (click)="restaurarTabulador()">
               Descartar cambios
             </button>
             <button type="button" class="cm-btn" [disabled]="!!huecoTabulador() || simulando()"
@@ -719,7 +735,7 @@ type Vista = typeof VISTAS[number];
             @if (cifrasDestacada(); as c) {
               <p class="cm-eyebrow">{{ d.estado_calculo === 'en_curso' ? 'Neto acumulado' : 'Neto a pagar' }}</p>
               <p class="cm-answer-monto">{{ money(c.neto) }}</p>
-              <p class="cm-answer-pie cm-mono">
+              <p class="cm-answer-pie">
                 tras nómina {{ money(c.tras) }}
                 @if (c.neto == null && c.tras != null) {
                   · <span class="cm-neg">neto sin medir: falta la deducción del supervisor</span>
@@ -734,38 +750,6 @@ type Vista = typeof VISTAS[number];
       }
 
       @if (err()) { <p class="cm-err"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ err() }}</p> }
-
-      @if (resumenContraste().length) {
-        <section class="cm-contraste">
-          <div class="cm-contraste-tit">
-            <p class="cm-eyebrow">El libro contra el motor · {{ anio() }}</p>
-            <p class="cm-muted cm-micro">
-              Lo que se pagó, contra lo que el motor pagaría hoy. Es una simulación: no es nómina.
-            </p>
-          </div>
-          <div class="cm-contraste-chips">
-            @for (r of resumenContraste(); track r.veredicto) {
-              <span class="cm-chip" [attr.data-sev]="sevContraste(r.veredicto)"
-                    [title]="'libro ' + money(r.libro) + ' · motor ' + money(r.motor)">
-                <strong>{{ r.n }}</strong> {{ etiquetaVeredictoContraste(r.veredicto) }}
-                @if (r.delta) { <span class="cm-mono">{{ money(r.delta) }}</span> }
-              </span>
-            }
-          </div>
-          @if (puedeGestionar()) {
-            <button type="button" class="cm-btn cm-btn-sec" [disabled]="contrastando()"
-                    (click)="correrContraste()">
-              {{ contrastando() ? 'Corriendo el motor…' : 'Volver a contrastar' }}
-            </button>
-          }
-        </section>
-        @if (contrastando()) {
-          <p class="cm-muted cm-micro">
-            El motor corre quincena por quincena y cada una cuesta unos segundos — lee tres fuentes
-            de venta día por día. No deja corrida.
-          </p>
-        }
-      }
 
       <!-- [AUD-A3] LA TIRA DEL ANO, que reemplaza al riel de 240-300 px de ancho.
            Medido en prod el 2026-10-20: el riel mostraba 599 px de 1,757 -- el 34% -- y la
@@ -834,10 +818,13 @@ type Vista = typeof VISTAS[number];
             }
             <app-metric-strip [items]="kpis(r)" ariaLabel="Totales de la quincena" />
 
+            <!-- [AUD-CM.10] «corrida hace N · origen» ya lo dice la tarjeta de arriba cuando es la misma quincena. -->
             <p class="cm-proc">
               dato hasta <b>{{ r.data_as_of ? dia(r.data_as_of) : 'sin medir' }}</b>
-              · corrida {{ cuando(r.updated_at) }}
-              @if (r.origen) { · origen {{ etiquetaOrigen(r.origen) }} }
+              @if (!netoYaArriba()) {
+                · corrida {{ cuando(r.updated_at) }}
+                @if (r.origen) { · origen {{ etiquetaOrigen(r.origen) }} }
+              }
             </p>
 
             <!-- [RD.83] El ciclo deja de ser un dibujo. Los cuatro pasos estaban pintados como
@@ -877,7 +864,7 @@ type Vista = typeof VISTAS[number];
                   </div>
                 } @else if (proximoActo(r)) {
                   <p class="cm-micro cm-muted">
-                    No tenés permiso para {{ proximoActo(r) === 'approve' ? 'aprobar' : 'pagar' }} —
+                    No tienes permiso para {{ proximoActo(r) === 'approve' ? 'aprobar' : 'pagar' }} —
                     lo hace quien tiene <b>gestionar comisiones</b>.
                   </p>
                 }
@@ -897,8 +884,11 @@ type Vista = typeof VISTAS[number];
                       <span class="cm-mono">{{ money(a.escalon_ganancia) }}</span>.
                     </p>
                   } @else {
+                    <!-- [AUD-CM.10] El total abre su desglose: era una caja y, aparte, una pestaña con lo mismo. -->
                     <p class="cm-falto-grito">
-                      <strong>{{ faltoDelPeriodo().length }}</strong> ruta(s) con margen para subir de escalón.
+                      <button type="button" class="cm-link" (click)="tab.set('falto')">
+                        <strong>{{ faltoDelPeriodo().length }}</strong> ruta(s) con margen para subir de escalón
+                      </button>
                     </p>
                   }
                   <p class="cm-muted cm-micro">
@@ -1016,7 +1006,7 @@ type Vista = typeof VISTAS[number];
                 <table class="surf-table surf-table--plain surf-table--sticky">
                   <thead><tr>
                     <th>Supervisor</th><th>Zona</th><th>Rutas</th>
-                    <th class="comm-num">Comisión</th><th class="comm-num">Bonos</th><th class="comm-num">Contribución</th>
+                    <th class="comm-num">Comisión</th><th class="comm-num">Bonos</th><th class="comm-num">Tras nómina</th>
                   </tr></thead>
                   <tbody>
                     @for (s of supervisores(); track s.clave) {
@@ -1043,7 +1033,7 @@ type Vista = typeof VISTAS[number];
                 <i class="pi pi-info-circle" aria-hidden="true"></i>
                 <span>
                   La deducción del supervisor es por <strong>persona</strong> y agregada sobre sus rutas, no por
-                  ruta: por eso estas filas traen su <em>contribución</em> y el neto del periodo ya la resta
+                  ruta: por eso estas filas traen lo suyo <em>tras nómina</em> y el neto del periodo ya la resta
                   arriba. El total descontado de la quincena es {{ money(run()?.total_deduccion) }}.
                 </span>
               </p>
@@ -1068,6 +1058,13 @@ type Vista = typeof VISTAS[number];
                 para que la ausencia sea una decisión y no un descuido.
               </p>
             } @else {
+              @if (costoComun(); as cc) {
+                @if (cc !== 'dos_fuentes') {
+                  <p class="cm-muted cm-micro cm-comun">
+                    Las {{ choferes().length }} rutas: <strong>{{ etiquetaCosto(cc) }}</strong> — {{ tipCosto(cc) }}
+                  </p>
+                }
+              }
               <div class="cm-table-wrap dt-scope">
                 <!--
                   [RD.UI.2] DESIGN O.4 -- la nomina de la quincena: 12 columnas por ruta. Era
@@ -1105,7 +1102,8 @@ type Vista = typeof VISTAS[number];
                       </td>
                       <td role="cell" data-label="Comisión" class="comm-num">{{ money(l.comision) }}</td>
                       <td role="cell" data-label="Bonos" class="comm-num" [title]="bonosTip(l)">{{ l.bonos ? money(l.bonos) : '—' }}</td>
-                      <td role="cell" data-label="Nómina" class="comm-num cm-neg">{{ l.nomina_banco ? ('−' + money(l.nomina_banco)) : '—' }}</td>
+                      <!-- [AUD-CM.11] La nómina es un descuento normal, no un error: sin rojo. -->
+                      <td role="cell" data-label="Nómina" class="comm-num cm-muted">{{ l.nomina_banco ? ('−' + money(l.nomina_banco)) : '—' }}</td>
                       <td role="cell" data-label="A pagar" class="comm-num is-strong">{{ l.motivo_no_pago ? '—' : money(l.a_pagar) }}</td>
                       <td role="cell" data-label="Procedencia" class="cm-nota">
                         @if (l.motivo_no_pago) { <p-tag severity="warn" [value]="etiquetaVeredicto(l.motivo_no_pago)" /> }
@@ -1115,7 +1113,7 @@ type Vista = typeof VISTAS[number];
                                (topico comisiones-rd), que si se alcanza sin mouse. -->
                           <p-tag severity="secondary" value="corte" />
                         }
-                        @if (l.costo_veredicto && l.costo_veredicto !== 'dos_fuentes') {
+                        @if (l.costo_veredicto && l.costo_veredicto !== 'dos_fuentes' && l.costo_veredicto !== costoComun()) {
                           <span [title]="tipCosto(l.costo_veredicto)">
                             <p-tag [severity]="l.costo_veredicto === 'sin_costo' ? 'warn' : 'secondary'"
                                    [value]="etiquetaCosto(l.costo_veredicto)" />
@@ -1132,7 +1130,7 @@ type Vista = typeof VISTAS[number];
                       <td></td><td></td>
                       <td class="comm-num">{{ money(sumCh('comision')) }}</td>
                       <td class="comm-num">{{ money(sumCh('bonos')) }}</td>
-                      <td class="comm-num cm-neg">−{{ money(sumCh('nomina_banco')) }}</td>
+                      <td class="comm-num cm-muted">−{{ money(sumCh('nomina_banco')) }}</td>
                       <td class="comm-num is-strong">{{ money(sumCh('a_pagar')) }}</td>
                       <td></td>
                     </tr>
@@ -1238,6 +1236,40 @@ type Vista = typeof VISTAS[number];
           }
         </section>
       </div>
+      <!-- [AUD-CM.10] El libro contra el motor es una simulación del AÑO, no el trámite de esta quincena:
+           va al final. Arriba competía con «Aprobar» (dos botones naranjas a la vez) y repetía la pestaña
+           «Libro vs motor». -->
+      @if (resumenContraste().length) {
+        <section class="cm-contraste">
+          <div class="cm-contraste-tit">
+            <p class="cm-eyebrow">El libro contra el motor · {{ anio() }}</p>
+            <p class="cm-muted cm-micro">
+              Lo que se pagó, contra lo que el motor pagaría hoy. Es una simulación: no es nómina.
+            </p>
+          </div>
+          <div class="cm-contraste-chips">
+            @for (r of resumenContraste(); track r.veredicto) {
+              <span class="cm-chip" [attr.data-sev]="sevContraste(r.veredicto)"
+                    [title]="'libro ' + money(r.libro) + ' · motor ' + money(r.motor)">
+                <strong>{{ r.n }}</strong> {{ etiquetaVeredictoContraste(r.veredicto) }}
+                @if (r.delta) { <span class="cm-mono">{{ money(r.delta) }}</span> }
+              </span>
+            }
+          </div>
+          @if (puedeGestionar()) {
+            <button type="button" class="cm-btn cm-btn-sec" [disabled]="contrastando()"
+                    (click)="correrContraste()">
+              {{ contrastando() ? 'Corriendo el motor…' : 'Volver a contrastar' }}
+            </button>
+          }
+        </section>
+        @if (contrastando()) {
+          <p class="cm-muted cm-micro">
+            El motor corre quincena por quincena y cada una cuesta unos segundos — lee tres fuentes
+            de venta día por día. No deja corrida.
+          </p>
+        }
+      }
 
       }
     </div>
@@ -1278,7 +1310,24 @@ type Vista = typeof VISTAS[number];
     .cm-chip[data-sev="danger"] { border-color:color-mix(in srgb, var(--c-bad) 45%, transparent); }
     .cm-chip[data-sev="warn"] { border-color:color-mix(in srgb, var(--c-warn) 45%, transparent); }
     .cm-chip[data-sev="success"] { border-color:color-mix(in srgb, var(--c-ok) 40%, transparent); }
-    .cm-btn-sec { background:transparent; color:var(--c-text-1); border:1px solid var(--border-color); }
+    /* [AUD-CM.14] El secundario trae su propia forma: «+ Escalón» y «Descartar cambios» lo usaban sin la base
+       cm-btn y se pintaban como texto suelto de 16 px. Y con cm-btn, «Volver a contrastar» salía naranja. */
+    .cm-btn-sec { background:transparent; color:var(--c-text-1); border:1px solid var(--border-color);
+      border-radius:var(--r-sm,6px); padding:.4rem .9rem; font-size:var(--fs-sm); font-weight:var(--fw-medium);
+      cursor:pointer; white-space:nowrap; }
+    .cm-btn-sec:disabled { opacity:.55; cursor:default; }
+    .cm-aviso-txt { color:var(--warn-soft-fg); }
+    .cm-sec-t { margin:0 0 .3rem; }
+    .cm-comun { margin:0 0 .4rem; }
+    .cm-link { all:unset; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
+    .cm-link:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; border-radius:var(--r-sm,6px); }
+    /* [AUD-CM.14] Un solo estilo de encabezado en las tablas de la pantalla (eran cuatro), y datos a 13 px. */
+    :host ::ng-deep .cm-table-wrap .p-datatable-thead > tr > th { font-size:var(--fs-micro); font-weight:600;
+      text-transform:uppercase; letter-spacing:.04em; color:var(--c-text-2); }
+    :host ::ng-deep .cm-table-wrap .p-datatable-tbody > tr > td,
+    :host ::ng-deep .cm-table-wrap .p-datatable-tfoot > tr > td { font-size:var(--fs-sm); }
+    :host ::ng-deep .cm-tier .p-inputnumber-input { width:9rem; text-align:right; font:inherit; font-size:var(--fs-sm); }
+    :host ::ng-deep .cm-tier--pct .p-inputnumber-input { width:6.5rem; }
 
     /* RD.56 - "Lo que falto". Va ARRIBA de la tabla porque es la respuesta, no un anexo. */
     .cm-falto { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem 1.2rem; margin:.6rem 0;
@@ -1379,6 +1428,7 @@ type Vista = typeof VISTAS[number];
       border-radius:var(--r-sm,6px); padding:.4rem .9rem;
       font-size:var(--fs-sm); font-weight:var(--fw-medium); cursor:pointer; white-space:nowrap; }
     .cm-btn:disabled { opacity:.55; cursor:default; }
+    .cm-btn.cm-btn-sec { background:transparent; color:var(--c-text-1); border-color:var(--border-color); }
     .cm-recalc { margin-top:.6rem; font-size:var(--fs-sm); }
     .cm-recalc p { margin:.15rem 0; }
     .cm-name { max-width:14rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -1399,8 +1449,7 @@ type Vista = typeof VISTAS[number];
     .cm-proy { margin:0 0 6px; padding:5px 10px; display:flex; align-items:center; gap:8px;
       border-left:3px solid var(--c-warn); border-radius:var(--r-md,8px);
       background:var(--card-bg); color:var(--c-text-2); font-size:var(--fs-sm); }
-    .cm-proc { margin:.5rem 0 .6rem; font-size:var(--fs-micro); color:var(--c-text-2);
-      font-family:var(--font-mono,'Geist Mono',monospace); }
+    .cm-proc { margin:.5rem 0 .6rem; font-size:var(--fs-micro); color:var(--c-text-2); }
     .cm-warn.bad { border-color:color-mix(in srgb, var(--bad-fg) 45%, transparent);
       background:color-mix(in srgb, var(--bad-fg) 9%, transparent); }
     .cm-warn { display:flex; gap:.4rem; align-items:flex-start; margin:.7rem 0 0; padding:.5rem .65rem;
@@ -1507,13 +1556,14 @@ export class ComercialComisionesComponent {
    * que la quincena elegida tuviera corrida: con Q22 a Q27 no se podían abrir.
    */
   readonly vistas = computed<SegOption[]>(() => {
-    const h = this.padronHallazgos().length;
     return [
       { label: 'Nómina quincenal', value: 'quincena' },
       { label: 'Bono por objetivo (mensual)', value: 'objetivo' },
       // Los hallazgos (cobra sin fuente, vende sin cobrar) y el padrón editable: las dos caras
       // de quién cobra. Siempre visible — con cero hallazgos el padrón se sigue editando aquí.
-      { label: h ? `Quién cobra · ${h}` : 'Quién cobra', value: 'padron' },
+      // [AUD-CM.6] Cuenta a quién cobra (el padrón vigente), no los hallazgos: decía «· 9» y abría
+      // con 8 rutas que NO cobran. Los hallazgos llevan su propio título dentro de la vista.
+      { label: `Quién cobra · ${this.padronFilas().filter((p) => p.activo).length}`, value: 'padron' },
       { label: `Bonos · ${this.bonos().filter((b) => b.activo).length}`, value: 'bonos' },
       { label: 'Tabulador', value: 'tabulador' },
     ];
@@ -1636,6 +1686,20 @@ export class ComercialComisionesComponent {
 
   readonly fuera = computed(() =>
     (this.run()?.lines ?? []).filter((l) => l.beneficiario === 'chofer' && this.esFuera(l)));
+
+  /** `[AUD-CM.1]` Las rutas de chofer que comisionan en la corrida elegida (cobren o no). */
+  readonly rutasQueComisionan = computed(() => new Set(this.choferes().map((l) => l.route_code)));
+  /**
+   * `[AUD-CM.9]` La procedencia de costo que comparten TODAS las filas («sin costo» en 11 de 11):
+   * se dice una vez arriba de la tabla y no en cada renglón, donde no distinguía nada.
+   */
+  readonly costoComun = computed<string | null>(() => {
+    const ch = this.choferes();
+    const v = new Set(ch.map((l) => l.costo_veredicto ?? ''));
+    return ch.length > 1 && v.size === 1 ? [...v][0] || null : null;
+  });
+  /** `[AUD-CM.10]` La quincena elegida es la de la tarjeta de arriba: su neto ya está a la vista. */
+  readonly netoYaArriba = computed(() => !!this.sel() && this.destacada()?.period_id === this.sel()?.period_id);
 
   readonly supervisores = computed(() => {
     const acc = new Map<string, {
@@ -1804,7 +1868,9 @@ export class ComercialComisionesComponent {
   pestanas(): SegOption[] {
     const c = this.contrasteDelPeriodo();
     return [
-      { label: `Choferes · ${this.pagan()}`, value: 'chofer' },
+      // [AUD-CM.5] La pestaña cuenta los renglones que muestra (decía 7 con 11 renglones: el 7 son
+      // los que cobran, y eso lo dice el pie de la tabla).
+      { label: `Choferes · ${this.choferes().length}`, value: 'chofer' },
       { label: `Supervisores · ${this.supervisores().length}`, value: 'supervisor' },
       ...(this.fuera().length ? [{ label: `No comisionan · ${this.fuera().length}`, value: 'fuera' }] : []),
       ...(this.faltoDelPeriodo().length
@@ -1835,7 +1901,7 @@ export class ComercialComisionesComponent {
   sevProblema(p: string | null): 'danger' | 'warn' | 'info' | 'secondary' {
     if (p === 'cobra_sin_fuente') return 'danger';
     if (p === 'fuente_rezagada' || p === 'dato_imposible') return 'warn';
-    if (p === 'vende_sin_cobrar') return 'info';
+    if (p === 'vende_sin_cobrar') return 'secondary';
     return 'secondary';
   }
 
@@ -1941,8 +2007,11 @@ export class ComercialComisionesComponent {
   readonly faltoDelPeriodo = computed<CommissionHeadroomRow[]>(() => {
     const f = this.falto(); const p = this.sel();
     if (!f || !p) return [];
+    // [AUD-CM.1] Solo las rutas que comisionan en esta corrida: «Lo que faltó» le decía a 1V001
+    // («no es ruta de camión») cuánto le faltó para un escalón que no le aplica (7 de 12 renglones).
+    const comisionan = this.rutasQueComisionan();
     return f.filas
-      .filter((x) => x.period_no === p.period_no && x.cercania !== 'en_el_tope')
+      .filter((x) => x.period_no === p.period_no && x.cercania !== 'en_el_tope' && comisionan.has(x.route_code))
       .sort((a, b) => (a.escalon_falta ?? 9e9) - (b.escalon_falta ?? 9e9));
   });
 
@@ -1958,7 +2027,8 @@ export class ComercialComisionesComponent {
   readonly enElTopeDelPeriodo = computed(() => {
     const f = this.falto(); const p = this.sel();
     if (!f || !p) return 0;
-    return f.filas.filter((x) => x.period_no === p.period_no && x.cercania === 'en_el_tope').length;
+    const comisionan = this.rutasQueComisionan();
+    return f.filas.filter((x) => x.period_no === p.period_no && x.cercania === 'en_el_tope' && comisionan.has(x.route_code)).length;
   });
 
   etiquetaCercania(c: string): string {
@@ -2096,9 +2166,12 @@ export class ComercialComisionesComponent {
   kpis(r: CommissionRunDetail): MetricStripItem[] {
     const conDato = r.rutas_con_dato ?? 0;
     const sinDato = r.rutas_sin_dato ?? 0;
-    return [
+    const items: MetricStripItem[] = [
       { label: 'Subtotal', value: Number(r.total_subtotal), format: 'currency' },
-      { label: 'Comisión', value: Number(r.total_comision), format: 'currency' },
+      // [AUD-CM.8] La comisión y el bruto suman choferes Y supervisores: sin decirlo, la tira
+      // ($73,863) no cuadraba con la tabla de Choferes ($59,090.22) y nada explicaba la diferencia.
+      { label: 'Comisión', value: Number(r.total_comision), format: 'currency',
+        sub: `choferes ${this.money(this.sumCh('comision'))} · supervisores ${this.money(this.supervisores().reduce((s, x) => s + x.comision, 0))}` },
       // ⛔⛔ `[RD.64]` Esta tira decia **BRUTO** sobre `total_a_pagar`, y `total_a_pagar` NO es el
       //    bruto: ya trae restada la nomina de cada renglon. Medido sobre una corrida pagada:
       //    comision 76,057.26 + bonos 10,200.00 = 86,257.26 de bruto REAL, menos 47,879.68 de
@@ -2109,9 +2182,9 @@ export class ComercialComisionesComponent {
       //    numero, no solo mostrarlo). El bruto real se publica aparte, que es el que cuadra
       //    con la suma de las columnas Comision y Bonos de la tabla de abajo.
       { label: 'Bruto', value: this.brutoReal(r), format: 'currency',
-        sub: 'comision + bonos, antes de descontar' },
-      { label: 'Tras nomina', value: Number(r.total_a_pagar), format: 'currency',
-        sub: `menos ${this.money(this.brutoReal(r) - Number(r.total_a_pagar))} de nomina` },
+        sub: 'comisión + bonos de choferes y supervisores' },
+      { label: 'Tras nómina', value: Number(r.total_a_pagar), format: 'currency',
+        sub: `menos ${this.money(this.brutoReal(r) - Number(r.total_a_pagar))} de nómina` },
       // ⛔ `Number(null)` es **0**, y asi esta tira publicaba "NETO $0" en rojo sobre una
       // quincena en la que de verdad se pagaron $42,761. Un neto que no se puede calcular se
       // DECLARA; dibujarlo en cero es peor que no mostrarlo, porque parece una cifra.
@@ -2121,15 +2194,19 @@ export class ComercialComisionesComponent {
           sub: 'sin medir: falta la deduccion por persona del supervisor',
         }
         : {
-          label: 'Neto', value: Number(r.total_neto), format: 'currency' as const, tone: 'brand' as const,
+          // [AUD-CM.11] Sin tono: el naranja es del botón principal, no de una cifra.
+          label: 'Neto', value: Number(r.total_neto), format: 'currency' as const,
           sub: `menos ${this.money(r.total_deduccion)} de deducciones`,
         },
       {
         label: 'Cobertura', value: conDato, format: 'number',
         tone: sinDato ? 'warn' : 'ok',
-        sub: `de ${conDato + sinDato} que comisionan${r.rutas_fuera ? ` · ${r.rutas_fuera} fuera` : ''}`,
+        // [AUD-CM.4] «fuera» cuenta la MISMA lista que la pestaña «No comisionan» (decía 8 con 11
+        // renglones en la pestaña: rutas_fuera se congeló con la corrida y usa otra definición).
+        sub: `con dato, de ${conDato + sinDato} que comisionan${this.fuera().length ? ` · otras ${this.fuera().length} no comisionan` : ''}`,
       },
     ];
+    return items.filter((k) => !(k.label === 'Neto' && this.netoYaArriba()));
   }
 
   // ── Formato ────────────────────────────────────────────────────────────────────────────
@@ -2662,6 +2739,16 @@ export class ComercialComisionesComponent {
   }
 
   /** Vuelve al tabulador vigente. Descartar también borra la simulación: era de otro borrador. */
+  /** `[AUD-CM.3]` Un bono con importe 0 no paga, esté o no encendido. */
+  pagaAlgo(b: { monto: string | number }): boolean { return Number(b.monto) > 0; }
+
+  /** `[AUD-CM.13]` «Descartar cambios» sólo cuando hay cambios contra la versión vigente. */
+  readonly tabuladorSinCambios = computed(() => {
+    const vigente = this.escalas()?.escalas.find((e) => e.vigente) ?? this.escalas()?.escalas[0];
+    const base = (vigente?.tiers ?? []).map((t) => [Number(t.min_amount), t.max_amount === null ? null : Number(t.max_amount), Number(t.pct)]);
+    return JSON.stringify(base) === JSON.stringify(this.borrador().map((t) => [t.min_amount, t.max_amount, t.pct]));
+  });
+
   restaurarTabulador(): void {
     const vigente = this.escalas()?.escalas.find((e) => e.vigente)
       ?? this.escalas()?.escalas[0];

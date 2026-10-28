@@ -77,7 +77,8 @@ export class CommissionObjectiveService {
         );
       }
       if (montoTotal === 0) {
-        pendientes.push('Nadie ha fijado el importe del bono: hoy vale $0 y por eso sigue apagado.');
+        // [AUD-CM.3] Decía «sigue apagado» con el estado en «encendido, incompleto»: la tarjeta se contradecía sola.
+        pendientes.push('Nadie ha fijado el importe del bono: hoy vale $0, así que aunque sus criterios estén encendidos no paga nada.');
       }
       const sinUmbral = criterios.filter(
         (c: Criterio) => c.metrica !== 'manual' && Number(c.umbral) === 0,

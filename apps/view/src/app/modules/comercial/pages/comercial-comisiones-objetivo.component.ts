@@ -61,10 +61,13 @@ import { PermissionsService } from '../../../core/services/permissions.service';
         <div class="ob-mes">
           <label for="ob-anio">Mes</label>
           <select id="ob-anio" [value]="anio()" (change)="setAnio($any($event.target).value)">
-            @for (a of anios; track a) { <option [value]="a">{{ a }}</option> }
+            <!-- [AUD-CM.2] [selected] en cada opción: el [value] del select se fijaba ANTES de que el @for
+                 pintara las opciones, y el mes mostraba «Enero» con los datos de octubre (y elegir
+                 Enero no hacía nada, porque ya aparentaba estar elegido). -->
+            @for (a of anios; track a) { <option [value]="a" [selected]="a === anio()">{{ a }}</option> }
           </select>
           <select id="ob-mes" [value]="mes()" (change)="setMes($any($event.target).value)">
-            @for (m of meses; track m.n) { <option [value]="m.n">{{ m.label }}</option> }
+            @for (m of meses; track m.n) { <option [value]="m.n" [selected]="m.n === mes()">{{ m.label }}</option> }
           </select>
         </div>
         @if (data(); as d) {
@@ -140,8 +143,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                       {{ num(c.monto) ? dinero(num(c.monto)) : '—' }}
                     </td>
                     <td role="cell" data-label="Estado">
-                      <p-tag [severity]="c.activo ? 'success' : 'secondary'"
-                             [value]="c.activo ? 'encendido' : 'apagado'" />
+                      <!-- [AUD-CM.15] «encendido» en verde en los tres renglones no distinguía nada: texto; apagado, con peso. -->
+                      @if (c.activo) { <span class="ob-nd">encendido</span> } @else { <b>apagado</b> }
                     </td>
                     @if (puedeGestionar()) {
                       <td role="cell" data-label="" class="dt-actions">
@@ -342,14 +345,16 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .ob-estado-v { margin: 4px 0 0; font-size: var(--fs-h3); font-weight: var(--fw-bold); color: var(--c-text-1); }
     .ob-estado-nota { flex: 1 1 280px; }
     .ob-estado-nota p { margin: 0 0 5px; font-size: var(--fs-sm); color: var(--c-text-2); line-height: 1.55; }
-    .ob-pend { color: var(--warn-fg) !important; }
+    /* [AUD-CM.15] --warn-fg sobre blanco daba 2.15:1 en texto chico: el tono soft pasa AA en los dos modos. */
+    .ob-pend { color: var(--warn-soft-fg) !important; }
 
     .ob-h2 { margin: 6px 0 0; font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--c-text-1); }
     .ob-wrap { overflow-x: auto; border: 1px solid var(--border-color); border-radius: 8px; }
     .ob-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
     .ob-table th {
-      text-align: left; padding: 9px 11px; font-weight: var(--fw-medium);
-      color: var(--c-text-3); font-size: var(--fs-micro);
+      text-align: left; padding: 9px 11px; font-weight: 600;
+      color: var(--c-text-2); font-size: var(--fs-micro); font-family: var(--font-body);
+      text-transform: uppercase; letter-spacing: .04em;
       border-bottom: 1px solid var(--border-color); white-space: nowrap;
     }
     .ob-table td { padding: 9px 11px; border-bottom: 1px solid var(--border-color); color: var(--c-text-2); }
@@ -357,19 +362,21 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .mono { font-variant-numeric: tabular-nums; }
     .fuerte { color: var(--c-text-1); font-weight: var(--fw-medium); }
     .ob-nd { color: var(--c-text-3); font-size: var(--fs-micro); }
-    .ob-medido { color: var(--c-ok); }
-    .ob-manual { color: var(--warn-fg); }
+    /* [AUD-CM.15] «se mide» y «se marca a mano» son una categoría, no un estado: lo dice la palabra (eran
+       verde 3.0:1 y ámbar 1.95:1). Pendiente y techo, en el ámbar que se lee. */
+    .ob-medido { color: var(--c-text-2); }
+    .ob-manual { color: var(--c-text-1); font-weight: var(--fw-medium); }
     .ob-ok { color: var(--c-ok); font-weight: var(--fw-medium); }
     .ob-no { color: var(--bad-fg); }
-    .ob-pendiente { color: var(--warn-fg); }
-    .ob-techo { color: var(--warn-fg); }
+    .ob-pendiente { color: var(--warn-soft-fg); }
+    .ob-techo { color: var(--warn-soft-fg); }
     .ob-vacio { border: 1px dashed var(--border-color); border-radius: 8px;
       padding: 18px 20px; background: var(--card-bg); }
     .ob-vacio-t { margin: 0; font-size: var(--fs-body); font-weight: var(--fw-bold); color: var(--c-text-1); }
     .ob-vacio-d { margin: 6px 0 0; font-size: var(--fs-sm); color: var(--c-text-3); max-width: 70ch; line-height: 1.6; }
     .ob-fila-baja { opacity: .72; }
     .ob-baja { margin-left: 6px; padding: 1px 6px; border-radius: 10px; cursor: help;
-      font-size: var(--fs-micro); color: var(--warn-fg); border: 1px solid var(--warn-fg); }
+      font-size: var(--fs-micro); color: var(--warn-soft-fg); border: 1px solid var(--warn-soft-fg); }
 
     .ob-huecos { margin: 0; padding-left: 18px; }
     .ob-huecos li { font-size: var(--fs-sm); color: var(--c-text-2); line-height: 1.6; }
@@ -393,7 +400,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     }
     .ob-btn-primary { background: var(--action); border-color: var(--action); color: var(--action-ink); }
     .ob-link {
-      border: none; background: none; color: var(--action); font-size: var(--fs-micro);
+      border: none; background: none; color: var(--c-text-1); font-size: var(--fs-micro);
       cursor: pointer; padding: 0 0 0 6px; text-decoration: underline;
     }
 
