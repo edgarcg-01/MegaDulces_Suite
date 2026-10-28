@@ -117,6 +117,12 @@ const PAIR_LATE_DAYS = 90;    // tránsito + rezago de captura (medido: hasta +6
 const PAIR_BLIND_DAYS = 15;   // sin testigo de destino: ventana de siempre, sin ensanchar
 
 /**
+ * [MX.2.2] Identidad de un documento: la misma que la marca «auditado» (DM.4) y el listado.
+ * El folio solo NO identifica: Kepler lo reusa entre sucursales y tipos de documento.
+ */
+const DOC_IDENTITY = ['m.warehouse_id', 'm.doc_code', 'm.doc_serie', 'm.folio'];
+
+/**
  * Predicado de pareo, en SQL, para que los CUATRO puntos que parean traspasos digan lo mismo
  * (`document`, `annotateTransferStatus`, `transfersPhysical`, `transfersCheckPair`). Mismo motivo
  * que `DEST_WH_VIVO`: una regla de integridad repetida a mano se desincroniza — y acá ya había
@@ -469,8 +475,15 @@ export class CommercialMovementsService {
         trx.raw(`SUM(m.signed_qty) AS neto`),
         trx.raw(`SUM(m.amount) AS valor`),
         trx.raw(`COUNT(*)::int AS lineas`),
-        trx.raw(`COUNT(DISTINCT m.folio)::int AS documentos`),
       );
+      // [MX.2.2] Un documento es almacén+tipo+serie+folio, no el folio: el mismo folio lo usan
+      // sucursales y tipos distintos. `COUNT(DISTINCT m.folio)` publicaba 3,772 documentos en
+      // 30 d cuando eran 8,139 (medido en prod 2026-10-28). Se cuenta agrupando en un subquery:
+      // `COUNT(DISTINCT (…4 columnas…))` da lo mismo pero cuesta 10× (48 ms contra 520 ms en 30 d).
+      const [docs] = await trx.count('* as n').from(
+        this.base(trx, tenantId, q).groupBy(...DOC_IDENTITY).select(trx.raw('1')).as('d'),
+      );
+      tot.documentos = Number(docs?.n ?? 0);
       const byType = await this.base(trx, tenantId, q)
         .select('m.doc_code', 'm.movement_label', 'm.movement_kind')
         .select(
@@ -493,30 +506,46 @@ export class CommercialMovementsService {
     const pageSize = Math.min(200, Math.max(1, Number(q.pageSize) || 50));
 
     return this.tk.run(async (trx) => {
+      // [MX.2.2] Dos niveles: primero UN renglón por documento (DOC_IDENTITY) dentro de cada
+      // grupo, después se suman. `COUNT(DISTINCT m.folio)` juntaba el mismo folio de sucursales y
+      // tipos distintos (por día, 30 d: 6,785 contra 7,103 reales). Y sale más barato que contar
+      // la identidad con DISTINCT: por día en 90 d, 273 ms contra 290 ms de antes (2026-10-28).
       const build = () => {
-        const b = this.base(trx, tenantId, q);
-        if (g === 'product') {
-          b.leftJoin('public.products as p', function (this: any) {
-            this.on('p.id', 'm.product_id').andOn('p.tenant_id', 'm.tenant_id');
-          }).groupBy('m.product_id', 'p.nombre', 'p.sku')
-            .select('m.product_id as key', 'p.nombre as label', 'p.sku as sku');
-        } else if (g === 'doc_code') {
-          b.groupBy('m.doc_code', 'm.movement_label', 'm.movement_kind')
-            .select('m.doc_code as key', 'm.movement_label as label', 'm.movement_kind');
-        } else if (g === 'day') {
-          b.groupBy('m.doc_date').select('m.doc_date as key', 'm.doc_date as label');
-        } else {
-          b.leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
-            .groupBy('m.warehouse_id', 'w.name', 'w.code')
-            .select('m.warehouse_id as key', 'w.name as label', 'w.code as code');
-        }
-        return b.select(
+        const d = this.base(trx, tenantId, q).groupBy(...DOC_IDENTITY).select(
           trx.raw(`${this.entradas} AS entradas`),
           trx.raw(`${this.salidas} AS salidas`),
           trx.raw(`SUM(m.signed_qty) AS neto`),
           trx.raw(`SUM(m.amount) AS valor`),
           trx.raw(`COUNT(*)::int AS lineas`),
-          trx.raw(`COUNT(DISTINCT m.folio)::int AS documentos`),
+        );
+        if (g === 'product') d.groupBy('m.product_id').select('m.product_id');
+        else if (g === 'doc_code') d.groupBy('m.movement_label', 'm.movement_kind').select('m.doc_code', 'm.movement_label', 'm.movement_kind');
+        else if (g === 'day') d.groupBy('m.doc_date').select('m.doc_date');
+        else d.select('m.warehouse_id');
+
+        const b = trx.from(d.as('d'));
+        if (g === 'product') {
+          b.leftJoin('public.products as p', function (this: any) {
+            this.on('p.id', 'd.product_id').andOnVal('p.tenant_id', tenantId);
+          }).groupBy('d.product_id', 'p.nombre', 'p.sku')
+            .select('d.product_id as key', 'p.nombre as label', 'p.sku as sku');
+        } else if (g === 'doc_code') {
+          b.groupBy('d.doc_code', 'd.movement_label', 'd.movement_kind')
+            .select('d.doc_code as key', 'd.movement_label as label', 'd.movement_kind');
+        } else if (g === 'day') {
+          b.groupBy('d.doc_date').select('d.doc_date as key', 'd.doc_date as label');
+        } else {
+          b.leftJoin('commercial.warehouses as w', 'w.id', 'd.warehouse_id')
+            .groupBy('d.warehouse_id', 'w.name', 'w.code')
+            .select('d.warehouse_id as key', 'w.name as label', 'w.code as code');
+        }
+        return b.select(
+          trx.raw(`SUM(d.entradas) AS entradas`),
+          trx.raw(`SUM(d.salidas) AS salidas`),
+          trx.raw(`SUM(d.neto) AS neto`),
+          trx.raw(`SUM(d.valor) AS valor`),
+          trx.raw(`SUM(d.lineas)::int AS lineas`),
+          trx.raw(`COUNT(*)::int AS documentos`),
         );
       };
 
@@ -525,7 +554,7 @@ export class CommercialMovementsService {
       const total = Number(countRows[0]?.count ?? 0);
       // Vista 'day' ordena cronológicamente: con pageSize cap, page 1 = los días MÁS RECIENTES
       // (ordenar por valor truncaría días recientes de bajo monto en rangos > pageSize).
-      const orderSql = g === 'day' ? 'm.doc_date DESC' : 'SUM(m.amount) DESC NULLS LAST';
+      const orderSql = g === 'day' ? 'd.doc_date DESC' : 'SUM(d.valor) DESC NULLS LAST';
       const rows = await build()
         .orderByRaw(orderSql)
         .limit(pageSize).offset((page - 1) * pageSize);
@@ -957,6 +986,18 @@ export class CommercialMovementsService {
       if (twhs.length) checkAll = checkAll.filter((r) => inSet(r, twhs));
       const cTotals = { ok: 0, diferencia: 0, sin_recepcion: 0, sin_origen: 0 };
       for (const r of checkAll) cTotals[r.status as keyof typeof cTotals]++;
+      // [MX.2.1] Las sumas del conjunto COMPLETO, para quien no debe sumar desde `rows` (cortadas
+      // en 500, problemas primero): el Excel sacaba de ahí «Recibidos OK», «Δ neto» y «Valor
+      // enviado», y con más de 500 problemas al mes (todos los meses desde ago-2026) «Recibidos
+      // OK» salía en 0. `capped`: el pareo trae a lo más 50,000 filas; si llegó, nada está completo.
+      const cSums = { n: checkAll.length, qty_sent: 0, qty_received: 0, delta: 0, amount: 0 };
+      for (const r of checkAll) {
+        cSums.qty_sent += Number(r.qty_sent) || 0;
+        cSums.qty_received += Number(r.qty_received) || 0;
+        cSums.delta += Number(r.delta) || 0;
+        cSums.amount += Number(r.amount) || 0;
+      }
+      const capped = all.length >= 50000;
       const prio: Record<string, number> = { diferencia: 0, sin_recepcion: 1, sin_origen: 2, ok: 4 };
       const dms = (r: any) => new Date(r.ship_date || r.rcv_date || 0).getTime();
       const checkRows = [...checkAll]
@@ -1031,7 +1072,7 @@ export class CommercialMovementsService {
 
       return {
         range: { from, to },
-        check: { range: { from, to }, totals: cTotals, hallazgos, rows: checkRows },
+        check: { range: { from, to }, totals: cTotals, sums: cSums, capped, hallazgos, rows: checkRows },
         matrix: { range: { from, to }, totals: mTotals, rows: mRows },
       };
     });
@@ -1556,6 +1597,10 @@ export class CommercialMovementsService {
       },
       docs,
       transfers: t.rows,
+      // [MX.2.1] los KPIs de traspasos salen de acá, no de sumar `transfers` (cortadas en 500)
+      transfer_totals: t.totals,
+      transfer_sums: t.sums,
+      transfers_capped: t.capped,
       truncated: first.total > docs.length,
     };
   }

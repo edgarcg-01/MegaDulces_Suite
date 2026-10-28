@@ -116,8 +116,8 @@ Scripts de medición (solo lectura, `PROD_DB_URL`): `dm-medir2.js`, `dm-vacios.j
 ### C2 · API
 | # | Item | Estado | ¿Escribe? | Prueba contra base real |
 |---|---|---|---|---|
-| MX.2.1 | **Excel/PDF desde los totales del conjunto completo** (`t.totals`, no las 500 filas). Todo tope que corte filas lo **declara** en el archivo (`truncated`, N de M). ⭐ Pedazo S con dinero: ver §4 D2. | ⬜ | no | Excel de oct-2026 vs `/transfers-check` `.totals`, mismo rango |
-| MX.2.2 | **Conteo de documentos por identidad real** (`warehouse_id, doc_code, doc_serie, folio`) en resumen, agregados y export. | ⬜ | no | 30 d: 8,139, no 3,772 |
+| MX.2.1 | **Excel/PDF desde los totales del conjunto completo** (`t.totals`, no las 500 filas). Todo tope que corte filas lo **declara** en el archivo (`truncated`, N de M). ⭐ Pedazo S con dinero: ver §4 D2. | 🧪 2026-10-28 | no | Código real HEAD vs árbol contra prod: 30 d «Recibidos OK» 0 → 1,215, «Valor enviado» $7.5 M → $54.5 M. Spec rojo contra HEAD. Falta el Excel descargado de prod |
+| MX.2.2 | **Conteo de documentos por identidad real** (`warehouse_id, doc_code, doc_serie, folio`) en resumen, agregados y export. | 🧪 2026-10-28 | no | KPI 30 d 3,735 → 7,103 (sin docs informativos); demás celdas idénticas. Deuda: vista por producto más lenta |
 | MX.2.3 | `GET /commercial/movements/exceptions` — bandeja paginada; los totales y montos se calculan sobre el conjunto completo; <500 ms. | ⬜ | no | Suma de baldes = universo de traspasos del rango |
 | MX.2.4 | `POST` **resolución con motivo** (merma, error de captura, faltante de proveedor, …). Extiende `commercial.stock_movement_audits` (⛔ no copiar tabla) con motivo + **foto de lo visto** (cantidad, importe, estado) para detectar la marca rancia. Migración generada e idempotente. | ⬜ | **sí** | ⛔ Obligatoria con el payload de la pantalla, en CI |
 | MX.2.5 | Permiso: clave propia para resolver excepciones, **repartida** en prod (regla 20) y `MATRIZ_ACCESOS.md` regenerada. | ⬜ | — | Diff de `role_permissions` en prod |
@@ -172,4 +172,5 @@ Scripts de medición (solo lectura, `PROD_DB_URL`): `dm-medir2.js`, `dm-vacios.j
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-28 | D2 arrancado por Edgar («inicia»): MX.2.1 y MX.2.2 en código y probados (🧪), sin abrir la fase. Verificación: el código real de HEAD y el del árbol corridos contra prod con la cuenta de solo lectura, columna por columna. | Edgar + Claude |
 | 2026-10-28 | Plan escrito. Auditoría del motor (revisión de código + medición en prod): 8 defectos confirmados (§1.1), 6 sospechas descartadas con dato (§1.2), 8 sin medir (§1.3). Fase ⬜, no abierta. | Edgar + Claude |

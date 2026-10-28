@@ -16,6 +16,10 @@ export interface MovementsExportData {
   totals: { entradas: number; salidas: number; valor: number; documentos: number };
   docs: any[];       // filas de lines() (folio englobado + transfer_status + audited)
   transfers: any[];  // filas de transfersCheck()
+  /** [MX.2.1] Conteos y sumas del conjunto COMPLETO: los KPIs salen de acá, nunca de `transfers` (cortada en 500, problemas primero). */
+  transfer_totals: { ok: number; diferencia: number; sin_recepcion: number; sin_origen: number };
+  transfer_sums: { n: number; qty_sent: number; qty_received: number; delta: number; amount: number };
+  transfers_capped: boolean;
   truncated: boolean;
 }
 
@@ -79,10 +83,23 @@ export class MovementsExportService {
       timeZone: 'America/Mexico_City', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
     });
   }
-  private transferCounts(transfers: any[]): Record<string, number> {
-    const t: Record<string, number> = { ok: 0, diferencia: 0, sin_recepcion: 0, sin_origen: 0 };
-    for (const r of transfers) t[r.status] = (t[r.status] || 0) + 1;
-    return t;
+  /**
+   * [MX.2.1] KPIs de traspasos desde los totales del motor. Antes se contaban sobre `transfers`,
+   * que viene cortada en 500 con los problemas primero: con más de 500 problemas en el rango
+   * «Recibidos OK» salía en 0 y «Δ neto»/«Valor enviado» eran de una muestra sin decirlo.
+   * `cut` dice si el LISTADO está recortado (los KPIs nunca lo están, salvo `capped`).
+   */
+  private transferKpis(data: MovementsExportData) {
+    const tc = data.transfer_totals;
+    const sums = data.transfer_sums;
+    const listed = data.transfers.length;
+    return { tc, sums, listed, cut: listed < sums.n, capped: data.transfers_capped };
+  }
+  private transferListNote(k: ReturnType<MovementsExportService['transferKpis']>): string | null {
+    const parts: string[] = [];
+    if (k.cut) parts.push(`Listado: los primeros ${k.listed.toLocaleString('es-MX')} de ${k.sums.n.toLocaleString('es-MX')} traspasos, los problemas primero. Los indicadores de arriba son del total.`);
+    if (k.capped) parts.push('El pareo llegó a su tope de 50,000 filas: los indicadores están INCOMPLETOS — acota el rango.');
+    return parts.length ? parts.join(' ') : null;
   }
 
   // ─────────── XLSX ───────────
@@ -186,7 +203,8 @@ export class MovementsExportService {
     const period = this.periodLabel(data.range.from, data.range.to);
     const stamp = this.generatedAt();
     const audited = data.docs.filter((d) => d.audited).length;
-    const tc = this.transferCounts(data.transfers);
+    const tk = this.transferKpis(data);
+    const tc = tk.tc;
 
     // ── Hoja 1 · Documentos ──────────────────────────────────────────
     const ws = wb.addWorksheet('Documentos', { properties: { tabColor: { argb: C.sunset } } });
@@ -266,7 +284,8 @@ export class MovementsExportService {
       { width: 15 }, { width: 17 }, { width: 13 }, { width: 12 }, { width: 11 },
       { width: 14 }, { width: 17 }, { width: 14 }, { width: 13 }, { width: 11 }, { width: 11 },
     ] as any;
-    const valEnviado = data.transfers.reduce((a, r) => a + (Number(r.amount) || 0), 0);
+    // Valor de las filas LISTADAS (para su fila TOTAL); el KPI usa la suma del conjunto completo.
+    const valListado = data.transfers.reduce((a, r) => a + (Number(r.amount) || 0), 0);
     this.masthead(wt, 11, 'MEGA DULCES  ·  VALIDACIÓN DE TRASPASOS',
       `Salida ↔ recepción   ·   Periodo ${period}   ·   Generado el ${stamp}`);
     this.kpiBand(wt, [
@@ -276,10 +295,10 @@ export class MovementsExportService {
       { label: 'Sin origen', value: tc['sin_origen'], numFmt: '#,##0', color: C.mute },
       {
         label: 'Δ neto (pzas)',
-        value: data.transfers.reduce((a, r) => a + (Number(r.delta) || 0), 0),
+        value: tk.sums.delta,
         numFmt: '+#,##0;[Red]-#,##0;0', color: C.ink,
       },
-      { label: 'Valor enviado', value: valEnviado, numFmt: '"$"#,##0', color: C.ink },
+      { label: 'Valor enviado', value: tk.sums.amount, numFmt: '"$"#,##0', color: C.ink },
     ]);
     // Valor = importe de lo enviado (Σ importe de las líneas del TrsfShip, a costo de origen).
     this.tableHeader(wt,
@@ -323,7 +342,7 @@ export class MovementsExportService {
       const sumEnv = data.transfers.reduce((a, r) => a + (Number(r.qty_sent) || 0), 0);
       const sumRcv = data.transfers.reduce((a, r) => a + (Number(r.qty_received) || 0), 0);
       const sumDelta = data.transfers.reduce((a, r) => a + (Number(r.delta) || 0), 0);
-      const tt = wt.addRow(['TOTAL', '', '', '', sumEnv, valEnviado, '', '', '', sumRcv, sumDelta]);
+      const tt = wt.addRow([tk.cut ? 'TOTAL (filas listadas)' : 'TOTAL', '', '', '', sumEnv, valListado, '', '', '', sumRcv, sumDelta]);
       tt.eachCell({ includeEmpty: true }, (cell) => {
         cell.font = { size: 10, bold: true, color: { argb: C.ink } };
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.sand } };
@@ -333,6 +352,11 @@ export class MovementsExportService {
       tt.getCell(6).numFmt = '"$"#,##0.00';
       tt.getCell(10).numFmt = '#,##0.00';
       tt.getCell(11).numFmt = '+#,##0.00;-#,##0.00;"—"';
+      const note = this.transferListNote(tk);
+      if (note) {
+        const n = wt.addRow([note]);
+        n.getCell(1).font = { size: 9, italic: true, color: { argb: tk.capped ? C.badFg : C.mute } };
+      }
     } else {
       const n = wt.addRow(['Sin traspasos en el rango.']);
       n.getCell(1).font = { size: 10, italic: true, color: { argb: C.mute } };
@@ -619,7 +643,9 @@ export class MovementsExportService {
     // docs informativos: la columna muestra la cantidad AMPARADA (muted); el TOTAL suma
     // inventario (signed) si hay docs de inventario, o lo amparado si el listado es solo-info
     const hasInv = docs.some((d) => d.movement_kind !== 'info');
-    const tc = this.transferCounts(data.transfers);
+    const tk = this.transferKpis(data);
+    const tc = tk.tc;
+    const trNote = this.transferListNote(tk);
     let sumQty = 0, sumInfoQty = 0, sumValor = 0;
 
     const docRows = docs.map((d) => {
@@ -633,7 +659,7 @@ export class MovementsExportService {
       <td>${pill(d.transfer_status)}</td><td>${d.audited ? '<span class="aud">✓ Sí</span>' : '<span class="mut">Pendiente</span>'}</td></tr>`;
     }).join('');
 
-    const valEnviado = data.transfers.reduce((a, r) => a + (Number(r.amount) || 0), 0);
+    const valListado = data.transfers.reduce((a, r) => a + (Number(r.amount) || 0), 0);
     const trRows = data.transfers.map((r) => `
       <tr><td>${pill(r.status)}</td>
       <td>${esc(r.origin_wh || '—')}</td><td class="mono">${esc(r.origin_folio || '—')}</td><td>${dmy(r.ship_date)}</td><td class="num">${num(r.qty_sent)}</td>
@@ -700,7 +726,7 @@ export class MovementsExportService {
         <div class="meta">
           <b>${esc(this.periodLabel(data.range.from, data.range.to))}</b><br>
           Generado el ${esc(this.generatedAt())}<br>
-          ${num(data.totals.documentos)} documentos · ${num(data.transfers.length)} traspasos
+          ${num(data.totals.documentos)} documentos · ${num(tk.sums.n)} traspasos
         </div>
       </div>
 
@@ -735,13 +761,14 @@ export class MovementsExportService {
 
       <div class="sec${docs.length > 22 ? ' brk' : ''}">
         <h2>2 · Validación de traspasos (salida ↔ recepción)</h2>
-        <span class="cnt">${num(data.transfers.length)} traspasos</span>
+        <span class="cnt">${tk.cut ? `primeros ${num(tk.listed)} de ${num(tk.sums.n)}, los problemas primero` : `${num(tk.sums.n)} traspasos`}</span>
       </div>
       <table><thead><tr><th>Estado</th><th>Origen</th><th>Folio salida</th><th>Fecha salida</th><th class="num">Enviadas</th>
       <th class="num">Valor</th><th>Destino</th><th>Folio recepción</th><th>Fecha recepción</th><th class="num">Recibidas</th><th class="num">Δ piezas</th></tr></thead>
       <tbody>${trRows || '<tr><td colspan="11" class="empty">Sin traspasos en el rango.</td></tr>'}
-      ${trRows ? `<tr class="tot"><td colspan="5">TOTAL</td><td class="num">${money(valEnviado, 2)}</td><td colspan="5"></td></tr>` : ''}
+      ${trRows ? `<tr class="tot"><td colspan="5">TOTAL${tk.cut ? ' (filas listadas)' : ''}</td><td class="num">${money(valListado, 2)}</td><td colspan="5"></td></tr>` : ''}
       </tbody></table>
+      ${trNote ? `<p class="mut" style="font-size:9px;margin:4px 0 0">${esc(trNote)}</p>` : ''}
 
     </body></html>`;
   }
