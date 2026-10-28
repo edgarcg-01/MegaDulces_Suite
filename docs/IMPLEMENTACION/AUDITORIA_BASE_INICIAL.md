@@ -882,6 +882,26 @@ Cualquiera de las tres, en este orden de preferencia:
 
 ---
 
+## Addendum — `AUD-DAT.22`: el motor de `/almacen/movimientos` publica cifras que no comprobó (2026-10-28)
+
+**Estado: ABIERTO — planeado en la fase MX, no corregido.** Auditoría del motor (revisión del código +
+medición en prod, solo lectura) pedida por Edgar antes de usarlo como filtro de auditoría.
+
+- **El lente físico (piezas) es sólido:** 99.5 % de las recepciones pareadas cuadra por SKU (2,199 de 2,209, 90 d).
+- **Los lentes de dinero y la exportación no lo son.** Confirmados con dato:
+  - Pólizas 515 descartadas por regex sobre la referencia: **$35.9 M de entradas desde jul-2026** (21 %).
+  - El pareo de pólizas por importe ±2 % no supera su control negativo (96.1 % placebo vs 98.7 % real).
+  - Excel con KPIs de las primeras 500 filas (más de 500 problemas por mes desde ago).
+  - Conteo de documentos −54 % (`COUNT(DISTINCT folio)`).
+  - «Vacío = cuadra» en los veredictos.
+  - Importes vacíos sumados sin aviso (38 renglones; 8 vacíos en los dos lados).
+  - «En tránsito» que no envejece: 234 docs a almacén con más de 45 d, $3.56 M.
+  - Comparación por suma y no por SKU: 4 docs.
+
+Detalle, consultas y plan por capas: [`FASES/FASE_MX_MOVIMIENTOS_POR_EXCEPCION.md`](FASES/FASE_MX_MOVIMIENTOS_POR_EXCEPCION.md) §1.
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.
