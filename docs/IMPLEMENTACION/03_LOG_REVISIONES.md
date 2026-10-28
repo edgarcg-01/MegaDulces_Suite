@@ -1076,6 +1076,18 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-28 — `[P2.9.2]` Caducidades: un producto con varios códigos de barras solo resolvía el primero
+
+**Reporte:** en `/tienda/caducidades` el SKU 31081 (ATE QUILATE CON CHILE 150GR) resolvía `7503028750764` pero no `7503063103587`.
+
+**Medido (sólo lectura contra prod):** el resolver ya soportaba 1→N barcodes. El 2º código estaba en `kepler_ods.kdii.c93` de las 9 sucursales y entró a `catalog.product_barcodes` el mismo día a las 16:41 UTC; antes no existía ahí. La brecha general es pequeña (c93: 1 ausente en la muestra; los huecos de c7 son SKUs descontinuados).
+
+**Arreglo:** `resolveCode()` pregunta a `kdii` cuando el catálogo no conoce el código (c7/c93 unidad base, c82/c95 unidad 2 con factor c81, c85 unidad 3 con factor c84; c96 es código interno, no se consulta). Derive-no-copy: sin importer ni tabla nueva. Lectura opcional en SAVEPOINT: si falla, el resolver sigue como antes. Commit `0602607ed`, sin push.
+
+**Prueba:** `resolve-code-kepler.servicio-real.spec.ts` contra Postgres real como `app_runtime` (siembra por una URL admin porque `app_runtime` no escribe en `kepler_ods`; limpia al terminar). 4 pruebas; quitando la llamada al fallback fallan 2. Verificado además en pantalla local por el equipo. Un defecto propio hallado en el camino: el `?` de una regex dentro de `knex.raw` se toma como parámetro.
+
+**NO medido:** el arranque de la API con el cambio en prod; **la causa del desfase** entre la captura en Kepler y la entrada al catálogo (no hay latido del normalizador de códigos: deuda con nombre).
+
 ## 2026-10-22 — `[MS.ADJ]` Adjuntos de la Mesa de Servicio: arrastrar desde el escritorio y enlaces de Google
 
 **Pedido:** «se solicita tener acceso de arrastrar cualquier archivo directo de escritorio y adjuntarlo a la solicitud; realiza el plan para implementarlo por capas y probarlo primero en local». Plan y decisiones en [`FASE_MS_ADJUNTOS`](FASES/FASE_MS_ADJUNTOS.md).
