@@ -114,6 +114,10 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.LOGISTICS_COSTO_UNIDAD_GESTIONAR, url: '/logistica/costo-unidad', motivo: 'manage sin view: la ruta exige COSTO_UNIDAD_VER' },
   // finanzas
   { perm: Permission.FINANCE_BANK_GESTIONAR, url: '/finanzas/bancos', motivo: 'manage sin view' },
+  // `[CGA-A.57]` Llave de LECTURA extra de CAOS (a qué movimientos de Caja General se vinculó cada uno):
+  // sola no abre la pantalla, que exige FINANCE_CAOS_VER. En prod (2026-10-28) la tienen dirección, finanzas y
+  // tesorería, los tres con FINANCE_CAOS_VER, y nadie por persona: hoy nadie rebota.
+  { perm: Permission.FINANCE_CAOS_VINCULOS_VER, url: '/finanzas/caos', motivo: 'llave extra sin view: la ruta exige FINANCE_CAOS_VER' },
   { perm: Permission.FINANCE_COLLECTIONS_GESTIONAR, url: '/finanzas/cobranza', motivo: 'manage sin view' },
   { perm: Permission.FINANCE_PAYMENTS_GESTIONAR, url: '/finanzas/pagos-comprobantes', motivo: 'manage sin view' },
   // TP.6 — autorizar el lote es un permiso PROPIO, deliberadamente fuera de todo MODULE_GROUP
