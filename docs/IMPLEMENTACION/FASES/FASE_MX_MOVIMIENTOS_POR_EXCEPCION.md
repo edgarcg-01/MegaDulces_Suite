@@ -19,7 +19,7 @@ MÉTRICA:  (1) Documentos que un humano revisa a mano sin que el motor haya dete
 CAPA TOPE: C3
 ÁREA:      Logística (Almacén) · toca Finanzas por el mayor 515
 DUEÑO:     por asignar (Edgar)
-ESTADO:    ⬜ planeada — NO abierta (Fase 0 en curso y cupo de 🔨 lleno; ver §4 D1)
+ESTADO:    ⬜ planeada — NO abierta (cupo de 🔨 lleno: D1). C0 medida entera (MX.0.1–0.4 ✅); MX.2.1/2.2 🧪 como fix suelto (D2)
 ```
 
 ---
@@ -140,13 +140,13 @@ Scripts de medición (solo lectura, `PROD_DB_URL`): `dm-medir2.js`, `dm-vacios.j
 
 | # | Decisión | Recomendación | Estado |
 |---|---|---|---|
-| D1 | **¿Cuándo se abre?** Fase 0 está en curso y hay 5 fases 🔨 (AB, LE, RH, PQ, FC) para un cupo de 4. | Dejarla ⬜ con este plan y abrirla cuando se libere un lugar. Mientras, sacar sólo D2. | pendiente |
-| D2 | **¿Se corrige ya lo que publica cifras falsas?** MX.2.1 (Excel) y MX.2.2 (conteo de documentos) son S y no cambian negocio: arreglan reportes que hoy mienten. Dinero en juego Alto (el Excel es el reporte que se quiere usar) × esfuerzo S = **prioridad 1**. | Sí, como fix suelto de `[DM]` antes de abrir la fase. | pendiente |
-| D3 | **Ajustes de inventario (`InvOut1`/`InvIn1`, 393 docs en 90 d) y compras (`EntryOr1`, 3,143)**: ¿siempre a la bandeja, o «sin comparación» hasta tener contra qué compararlos (orden de compra, autorización)? | Ajustes: siempre a la bandeja (un ajuste ya es una excepción). Compras: «sin comparación», y su comparador va en otra fase (Recepción RE / Pedido PQ ya tienen la OC). | pendiente |
-| D4 | **Nombre y ruta de la bandeja.** `/almacen/inventory/diferencias` ya existe (conteo físico). | `/almacen/movimientos/excepciones`, rótulo «Excepciones de traspasos». | pendiente |
-| D5 | **Días para que «en tránsito» pase a «sin acuse»** (a almacén). | 45 días, la regla que ya usa `[DM.21]`; medir la distribución real de días embarque→recepción antes de fijarla. | pendiente |
-| D6 | **Cómo llega el origen de la recepción (`kdm1.c10`, MX.0.4) al pareo:** cambiar el importador `import-stock-movements.js` para que guarde `dest_code` también en `TrsfRcv`, o leerlo de `kepler_ods.kdm1` en el pareo. | Leerlo en el pareo (no tocar un importador en retiro), si su costo medido cabe en 500 ms; si no, el importador. | pendiente |
-| D7 | **Hallazgos contables de MX.0.3, fuera de esta fase:** salidas de traspaso asentadas en 401-003 «Ventas vecinal» ($19.6 M jul–sep) y pólizas manuales del CEDIS sin documento ($30.8 M). | Abrirlos como hallazgos de Contabilidad (`AUDITORIA_BASE_INICIAL.md`), no como items de MX. | pendiente |
+| D1 | **¿Cuándo se abre?** Fase 0 está en curso y hay 5 fases 🔨 (AB, LE, RH, PQ, FC) para un cupo de 4. | Dejarla ⬜ con este plan y abrirla cuando se libere un lugar. Mientras, sacar sólo D2. | **Decidido 2026-10-28** (Claude, por delegación de Edgar: «sigue bajo tu razonamiento»): **no se abre todavía.** El cupo de 4 🔨 es regla medida del método y hoy hay 5; abrir una sexta es lo que el método prohíbe. La capa C0 quedó entera medida, así que la fase arranca en C1 el día que se libere un cupo (o Edgar pause una de las 5). |
+| D2 | **¿Se corrige ya lo que publica cifras falsas?** MX.2.1 (Excel) y MX.2.2 (conteo de documentos) son S y no cambian negocio: arreglan reportes que hoy mienten. Dinero en juego Alto (el Excel es el reporte que se quiere usar) × esfuerzo S = **prioridad 1**. | Sí, como fix suelto de `[DM]` antes de abrir la fase. | **Hecho 2026-10-28** — MX.2.1 y MX.2.2 en código (🧪); el Excel se quitó por decisión de Edgar. |
+| D3 | **Ajustes de inventario (`InvOut1`/`InvIn1`, 393 docs en 90 d) y compras (`EntryOr1`, 3,143)**: ¿siempre a la bandeja, o «sin comparación» hasta tener contra qué compararlos (orden de compra, autorización)? | Ajustes: siempre a la bandeja (un ajuste ya es una excepción). Compras: «sin comparación», y su comparador va en otra fase (Recepción RE / Pedido PQ ya tienen la OC). | **Decidido 2026-10-28** (Claude, por delegación de Edgar: «sigue bajo tu razonamiento»): ajustes (`InvOut1`/`InvIn1`) **siempre a la bandeja**; compras y demás tipos **«sin comparación»**, visibles en el Diario y fuera de la bandeja hasta tener testigo. |
+| D4 | **Nombre y ruta de la bandeja.** `/almacen/inventory/diferencias` ya existe (conteo físico). | `/almacen/movimientos/excepciones`, rótulo «Excepciones de traspasos». | **Decidido 2026-10-28** (Claude, por delegación de Edgar: «sigue bajo tu razonamiento»): **`/almacen/movimientos/excepciones`**, rótulo «Excepciones de traspasos». |
+| D5 | **Días para que «en tránsito» pase a «sin acuse»** (a almacén). | 45 días, la regla que ya usa `[DM.21]`; medir la distribución real de días embarque→recepción antes de fijarla. | **Decidido 2026-10-28** (Claude, por delegación de Edgar: «sigue bajo tu razonamiento»): **15 días**, no 45. Medido (1,270 pares a almacén con cantidad idéntica, embarques mar–sep 2026): mediana 0 d, p90 4, p95 5; sólo 4 llegan después de 15 d (0.3 %), máx. 63. A los 45 d se esconden 30 días de alarmas reales. |
+| D6 | **Cómo llega el origen de la recepción (`kdm1.c10`, MX.0.4) al pareo:** cambiar el importador `import-stock-movements.js` para que guarde `dest_code` también en `TrsfRcv`, o leerlo de `kepler_ods.kdm1` en el pareo. | Leerlo en el pareo (no tocar un importador en retiro), si su costo medido cabe en 500 ms; si no, el importador. | **Decidido 2026-10-28** (Claude, por delegación de Edgar: «sigue bajo tu razonamiento»): **leer `kdm1.c10` en el pareo**, sin tocar el importador. Costo medido sólo de esa lectura: 250–330 ms (90 d); sumado al pareo (~270 ms) roza el límite → se mide la consulta real en MX.1.1 y, si pasa de 500 ms, se escala a Edgar. |
+| D7 | **Hallazgos contables de MX.0.3, fuera de esta fase:** salidas de traspaso asentadas en 401-003 «Ventas vecinal» ($19.6 M jul–sep) y pólizas manuales del CEDIS sin documento ($30.8 M). | Abrirlos como hallazgos de Contabilidad (`AUDITORIA_BASE_INICIAL.md`), no como items de MX. | **Decidido 2026-10-28** (Claude, por delegación de Edgar: «sigue bajo tu razonamiento»): **registrados en Contabilidad** como `AUD-DAT.23` (traspasos a 401-003, $19.6 M jul–sep) y `AUD-DAT.24` (pólizas manuales del CEDIS en 515: $87.7 M entradas / $95.0 M salidas jul–sep; $30.8 M de entradas ni identificables por referencia). |
 
 ---
 
@@ -177,6 +177,7 @@ Scripts de medición (solo lectura, `PROD_DB_URL`): `dm-medir2.js`, `dm-vacios.j
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-28 | C0 medida entera (MX.0.1–0.4 ✅). Decisiones D1–D7 tomadas por Claude con delegación de Edgar («sigue bajo tu razonamiento»): la fase **sigue sin abrirse** (cupo); D5 = 15 días con dato; D6 leer `kdm1.c10` en el pareo; D7 → `AUD-DAT.23`/`.24`. | Claude (delegado) |
 | 2026-10-28 | **Sin Excel** (Edgar: «nada de Excel»): sale el botón Excel del Diario, la ruta `GET /commercial/movements/export.xlsx` y `buildXlsx`. Queda el PDF para imprimir, con los KPIs de MX.2.1. La reportería es la pantalla. `check:pantalla` 0 nuevas antes → 0 nuevas después. | Edgar + Claude |
 | 2026-10-28 | D2 arrancado por Edgar («inicia»): MX.2.1 y MX.2.2 en código y probados (🧪), sin abrir la fase. Verificación: el código real de HEAD y el del árbol corridos contra prod con la cuenta de solo lectura, columna por columna. | Edgar + Claude |
 | 2026-10-28 | Plan escrito. Auditoría del motor (revisión de código + medición en prod): 8 defectos confirmados (§1.1), 6 sospechas descartadas con dato (§1.2), 8 sin medir (§1.3). Fase ⬜, no abierta. | Edgar + Claude |

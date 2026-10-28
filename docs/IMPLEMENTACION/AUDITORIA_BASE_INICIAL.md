@@ -902,6 +902,40 @@ Detalle, consultas y plan por capas: [`FASES/FASE_MX_MOVIMIENTOS_POR_EXCEPCION.m
 
 ---
 
+## Addendum — `AUD-DAT.23`: traspasos entre sucursales asentados como «Ventas vecinal» (2026-10-28)
+
+**Estado: ABIERTO — documentado, no corregido. Dueño: Contabilidad.** Salió de MX.0.3 (emparejar las
+pólizas de la cuenta 515 por documento).
+
+- **Lo medido (jul–sep 2026, solo lectura):**
+  - Se partió de las entradas 515-001 de traspasos que sí tienen recepción (`UA5001`).
+  - Se siguió la cadena recepción → embarque → póliza del embarque (`UD4102`).
+  - En **379** de esas entradas, la sucursal que envió asentó la salida en **401-003 «Ventas vecinal»**: **$19.6 M**. Lo esperado era 515-002 «Traspaso salida», que sólo aparece en 323.
+  - Otras 287 entradas tienen su salida en 116 «Traspasos de mercancía».
+  - La cadena se verificó con una prueba falsa: emparejando con el folio siguiente (`parent_folio+1`) sólo coinciden 3 de 992; con el folio real, 971.
+- **Por qué importa:**
+  - Una venta vecinal por $19.6 M que en realidad es mercancía movida entre sucursales infla la venta.
+  - Y deja el mayor 515 «descuadrado» por construcción: el puente nunca puede netear $0 si una pata vive en otra cuenta.
+- **No medido:** octubre; y si 401-003 también recibe ventas vecinales legítimas en el mismo periodo (la cifra de arriba es sólo la parte que se pudo ligar a una recepción).
+- Detalle y scripts: [`FASES/FASE_MX_MOVIMIENTOS_POR_EXCEPCION.md`](FASES/FASE_MX_MOVIMIENTOS_POR_EXCEPCION.md), MX.0.3.
+
+---
+
+## Addendum — `AUD-DAT.24`: pólizas manuales del CEDIS en la cuenta 515 sin documento (2026-10-28)
+
+**Estado: ABIERTO — documentado, no corregido. Dueño: Contabilidad.**
+
+- **Lo medido (jul–sep 2026):**
+  - El CEDIS (`00`) asienta en la 515 pólizas **manuales**: `tipo_pol='0000'`, `folio='S/F'`, sin documento que las genere.
+  - **1,489 renglones de entrada por $87.7 M** y **1,608 de salida por $95.0 M**.
+  - En **$30.8 M** de esas entradas, ni la referencia libre identifica a qué sucursal corresponden.
+  - El patrón más común es `C#####` (340 renglones, $28.6 M).
+- **Hipótesis refutada:** que `C#####` fuera el consecutivo de un movimiento de Wincaja (tiendas 30/32/50). Ningún caso cuadra por importe, igual que la prueba falsa.
+- **Por qué importa:** estos asientos no se pueden conciliar contra un traspaso físico. El cuadre de traspasos de `/almacen/movimientos` los tiene que publicar **aparte**, como «sin documento», no mezclados con lo que sí se emparejó.
+- **No medido:** de qué documento externo salen; probablemente del CEDIS en Access (fase CA), sin verificar.
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.
