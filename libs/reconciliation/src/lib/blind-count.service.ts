@@ -4,6 +4,8 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import { DENOMINACIONES_MXN, valorDe, totalDenominaciones, RECON_NOTIFIER_PORT, ReconNotifierPort, ReconBadCutItem } from '@megadulces/contracts';
 import { MovementReconcileService, RawDiscrepancy } from './movement-reconcile.service';
 import { cuadreTurno, pideRetiro, CUADRE_UMBRAL } from './cash-cut-identity';
+import { CONCEPTOS_RETIRO, type ArqueoCajasResp } from '@megadulces/contracts/http/arqueo-cajas';
+import { armarCajasDelDia, elegirTurno } from './arqueo-cajas';
 
 /**
  * SM.8 / P1 — Arqueo ciego. El cajero captura el conteo físico por denominación
@@ -193,8 +195,13 @@ export interface BlindCountDto {
   cajero_code?: string;           // cierre: cajero que cierra · relevo: cajero SALIENTE
   cajero_entrante?: string;       // solo relevo: quién recibe la caja
   tipo?: TipoArqueo;   // default 'cierre'
-  /** SM.47 - Solo `sin_caja`: por que se conto ese dinero. Obligatorio ahi (1-200). */
+  /**
+   * SM.47 - `sin_caja`: por que se conto ese dinero. SM.49 - y en un `retiro` con
+   * concepto `otro`, por que salio. Obligatorio en los dos (1-200); nulo en lo demas.
+   */
   motivo?: string;
+  /** SM.49 - Solo `retiro`: por que salio el dinero (CONCEPTOS_RETIRO). */
+  concepto?: string;
   /**
    * SM.36 — Solo rd/rv: la ruta que entrega. Es la `route_key` del catalogo
    * (21, 501, RVPH01, VECINAL1...), y el CHECK de la tabla la exige presente
@@ -704,6 +711,77 @@ export class BlindCountService {
   }
 
   /**
+   * [SM.48] El turno de Kepler al que pertenece un conteo capturado SIN folio, por
+   * caja + hora (ver `arqueo-cajas.ts`: por qué no por usuario). Lee los turnos de
+   * esa sucursal, caja y fecha en `kdpv_folio_caja` —el ODS vivo, que tiene el turno
+   * desde que abre; `analytics.cash_cuts` lo trae hasta el corte— y elige con
+   * `elegirTurno`. null = ninguno o ambiguo: el conteo se guarda igual, sin folio.
+   */
+  async turnoPorCajaYHora(warehouseCode: string, caja: string, fecha: string, tipo: string, hora: string): Promise<TurnoPendiente | null> {
+    const candidatos = await this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT k.sucursal AS warehouse_code, k.c2 AS caja, k.c3::bigint::text AS folio,
+                k.c5::date::text AS business_date, NULLIF(btrim(k.c6), '') AS hora_apertura,
+                CASE WHEN k.c10::date = DATE '1800-01-01' THEN NULL ELSE NULLIF(btrim(k.c11), '') END AS hora_cierre,
+                NULLIF(btrim(k.c8), '') AS cajero_code, NULLIF(btrim(k.c13), '') AS turno,
+                (k.c10::date = DATE '1800-01-01') AS abierto,
+                (k.c5 + COALESCE(btrim(k.c6), '00:00:00')::time) AS abierto_at
+           FROM kepler_ods.kdpv_folio_caja k
+          WHERE k.sucursal = ? AND btrim(k.c2::text) = ? AND k.c5::date = ?::date`,
+        [warehouseCode, String(caja).trim(), fecha],
+      );
+      return rows as Array<TurnoPendiente & { hora_cierre: string | null }>;
+    });
+    return (elegirTurno(candidatos, tipo, hora) as TurnoPendiente | null) ?? null;
+  }
+
+  /**
+   * [SM.48] Sucursales y sus cajas de UN día: los turnos de Kepler (abiertos y
+   * cerrados) con sus conteos ligados por folio o por caja + hora, y el cuadre de
+   * cada turno con la identidad única `cuadreTurno`. Solo para quien valida.
+   */
+  async cajasDelDia(fecha: string, warehouseCodes: string[] | null): Promise<ArqueoCajasResp> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { turnos, conteos } = await this.tk.run(async (trx) => {
+      const filtroSuc = warehouseCodes == null ? '' : 'AND k.sucursal = ANY(?::text[])';
+      const t = await trx.raw(
+        `SELECT k.sucursal AS warehouse_code, w.name AS warehouse_name,
+                btrim(k.c2::text) AS caja, k.c3::bigint::text AS folio,
+                NULLIF(btrim(k.c8), '') AS cajero_code, pc.nombre AS cajero_nombre,
+                NULLIF(btrim(k.c6), '') AS hora_apertura,
+                CASE WHEN k.c10::date = DATE '1800-01-01' THEN NULL ELSE NULLIF(btrim(k.c11), '') END AS hora_cierre,
+                (k.c10::date = DATE '1800-01-01') AS abierto,
+                k.c15 AS efectivo_esperado, k.c25 AS efectivo_contado, k.c35 AS efectivo_diff,
+                k.c43 AS arqueo_billetes, k.c44 AS arqueo_monedas, k.c48 AS efectivo_retirado, k.c46 AS cash_limit
+           FROM kepler_ods.kdpv_folio_caja k
+           LEFT JOIN commercial.warehouses w ON w.tenant_id = ? AND w.code = k.sucursal AND w.deleted_at IS NULL
+           LEFT JOIN analytics.pos_cashiers pc ON pc.tenant_id = ? AND pc.warehouse_code = k.sucursal AND pc.cajero_code = btrim(k.c8)
+          WHERE k.c5::date = ?::date ${filtroSuc}
+          ORDER BY k.sucursal, btrim(k.c2::text), NULLIF(btrim(k.c6), '')`,
+        warehouseCodes == null ? [tenantId, tenantId, fecha] : [tenantId, tenantId, fecha, warehouseCodes],
+      );
+      const c = await trx('reconciliation.blind_counts as bc')
+        .leftJoin('users as u', function (this: Knex.JoinClause) {
+          this.on('u.tenant_id', '=', 'bc.tenant_id').andOn(trx.raw('upper(u.username) = upper(bc.cajero_code)'));
+        })
+        .where('bc.tenant_id', tenantId)
+        .where('bc.business_date', fecha)
+        .modify((q: Knex.QueryBuilder) => { if (warehouseCodes != null) q.whereIn('bc.warehouse_code', warehouseCodes); })
+        .select(
+          'bc.id', 'bc.tipo', 'bc.secuencia', 'bc.warehouse_code', 'bc.caja', 'bc.cash_cut_folio', 'bc.route_code',
+          'bc.denominations', 'bc.medios', 'bc.nota', 'bc.incidencia_tipo', 'bc.motivo', 'bc.concepto',
+          'bc.validado_por', 'bc.validado_at', 'bc.captured_at',
+          trx.raw('bc.cajero_code AS usuario'), trx.raw('u.nombre AS usuario_nombre'),
+          trx.raw('bc.total_contado::numeric AS total'),
+          trx.raw(`to_char(bc.captured_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI:SS') AS hora`),
+        )
+        .orderBy('bc.captured_at');
+      return { turnos: t.rows as Array<Record<string, unknown>>, conteos: c as Array<Record<string, unknown>> };
+    });
+    return armarCajasDelDia(fecha, turnos, conteos);
+  }
+
+  /**
    * Qué número de sangría es ésta dentro del turno.
    *
    * `cierre`, `relevo`, `rd` y `rv` son únicos por definición y van siempre en 1:
@@ -761,16 +839,29 @@ export class BlindCountService {
     const incidencia = dto.incidencia_tipo && INCIDENCIAS.includes(dto.incidencia_tipo) ? dto.incidencia_tipo : null;
     if (dto.incidencia_tipo && !incidencia) throw new BadRequestException(`incidencia_tipo inválido (${INCIDENCIAS.join('|')})`);
     const medios = this.saneaMedios(dto.medios);
-    // SM.47 - El motivo es de `sin_caja` y solo de `sin_caja` (lo exige tambien el CHECK).
+    // SM.49 - El concepto es del retiro y de nada mas, y solo de la lista. No se EXIGE
+    // aqui: una pantalla vieja en cache (antes de SM.49) manda el retiro sin concepto, y
+    // rechazarlo dejaria a la cajera sin poder registrar su sangria. Lo exige la pantalla
+    // nueva; el servidor solo impide valores fuera de la lista.
+    const concepto = (dto.concepto || '').trim() || null;
+    if (concepto && tipo !== 'retiro') {
+      throw new BadRequestException('concepto solo aplica al retiro.');
+    }
+    if (concepto && !CONCEPTOS_RETIRO.some((c) => c.value === concepto)) {
+      throw new BadRequestException(`concepto invalido (${CONCEPTOS_RETIRO.map((c) => c.value).join('|')}).`);
+    }
+    // SM.47/SM.49 - El motivo: obligatorio en el conteo sin caja y en el retiro «otro»;
+    // en nada mas (lo exige tambien el CHECK de la tabla).
     const motivo = (dto.motivo || '').trim() || null;
-    if (tipo === 'sin_caja' && !motivo) {
-      throw new BadRequestException('Escribe el motivo del conteo.');
+    const pideMotivo = tipo === 'sin_caja' || (tipo === 'retiro' && concepto === 'otro');
+    if (pideMotivo && !motivo) {
+      throw new BadRequestException(tipo === 'sin_caja' ? 'Escribe el motivo del conteo.' : 'Escribe por que es el retiro.');
     }
     if (motivo && motivo.length > MOTIVO_MAX) {
       throw new BadRequestException(`El motivo admite hasta ${MOTIVO_MAX} caracteres.`);
     }
-    if (tipo !== 'sin_caja' && motivo) {
-      throw new BadRequestException('motivo solo aplica al conteo de efectivo sin caja.');
+    if (!pideMotivo && motivo) {
+      throw new BadRequestException('motivo solo aplica al conteo de efectivo sin caja y al retiro con concepto «otro».');
     }
 
     const { result, badCut } = await this.tk.run(async (trx) => {
@@ -789,6 +880,7 @@ export class BlindCountService {
         turno_abierto_at: dto.turno_abierto_at || null,
         route_code: routeCode,
         motivo,
+        concepto,
       };
       await trx('reconciliation.blind_counts')
         .insert(row)
@@ -803,7 +895,7 @@ export class BlindCountService {
           medios: row.medios,
           nota: row.nota, photo_url: row.photo_url, captured_by: row.captured_by, incidencia_tipo: incidencia,
           cash_cut_folio: row.cash_cut_folio, caja_kepler: row.caja_kepler, turno_abierto_at: row.turno_abierto_at,
-          route_code: row.route_code, motivo: row.motivo,
+          route_code: row.route_code, motivo: row.motivo, concepto: row.concepto,
           validado_por: null, validado_at: null, validado_nota: null,
           captured_at: trx.fn.now(),
         });
@@ -1377,7 +1469,7 @@ export class BlindCountService {
           'bc.cash_cut_folio', 'bc.caja_kepler', 'bc.turno_abierto_at',
           'bc.validado_por', 'bc.validado_at', 'bc.validado_nota',
           trx.raw('pc.nombre AS cajero_nombre'), trx.raw('bc.total_contado::numeric AS total_contado'),
-          'bc.captured_by', 'bc.captured_at', 'bc.nota', 'bc.incidencia_tipo', 'bc.motivo',
+          'bc.captured_by', 'bc.captured_at', 'bc.nota', 'bc.incidencia_tipo', 'bc.motivo', 'bc.concepto',
           trx.raw('cc.efectivo_esperado::numeric AS esperado'),
           trx.raw('cc.efectivo_contado::numeric AS kepler_contado'),
           trx.raw('cc.efectivo_diff::numeric AS kepler_diff'),
@@ -1503,6 +1595,8 @@ export class BlindCountService {
           captured_by: r.captured_by, captured_at: r.captured_at, nota: r.nota, incidencia_tipo: r.incidencia_tipo || null,
           // SM.47 - Por que se conto (solo `sin_caja`).
           motivo: r.motivo || null,
+          // SM.49 - Por que salio el dinero (solo retiro).
+          concepto: r.concepto || null,
           // [SM.43] Declarado por la persona (no es el esperado): viaja también a la cajera.
           medios: (typeof r.medios === 'string' ? JSON.parse(r.medios) : r.medios) || null,
           esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff, diff_real: diffReal,

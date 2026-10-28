@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Changed — Arqueo: un solo menú para el tipo, y el concepto del retiro (SM.49, 2026-10-28)
+- `/tienda/arqueo`: las pestañas Retiro · Cierre de día · Relevo · RD · RV pasan a un solo menú. Un retiro lleva concepto: Pago a proveedor, Pago de nómina, Gasto de la sucursal (caja chica), Depósito al banco, Otro (con motivo obligatorio) o Retiro de caja (la sangría que pide Kepler). La pantalla abre en Retiro.
+- El concepto sale en el ticket y en «Sucursales y sus cajas», con las salidas por concepto de cada turno y de la sucursal. Esa vista nace minimizada y ya no tiene botón Validar. Migración `20261028093702` (columna `concepto`).
+
+### Changed — Arqueo: «Sucursales y sus cajas» para quien valida, y el folio del turno por caja + hora (SM.48, 2026-10-28)
+- `/tienda/arqueo`, quien valida: «Arqueos recientes» se reemplaza por **Sucursales y sus cajas**. Por día y sucursal, cada caja con sus turnos de Kepler, la cajera (código y nombre), sus retiros y el cajón con el desglose por denominación, si los retiros cuadran con lo que Kepler registró y el cuadre del turno. Validar y reimprimir por arqueo. Responsiva. La cajera no la ve.
+- Un retiro, cierre o relevo capturado sin folio ahora se ancla al turno de Kepler por **caja + hora**. Esos cierres empiezan a compararse contra Kepler.
+
 ### Added — Etiquetas: pestaña «Historial de precios» (ETQ-HISTORIAL, 2026-10-28)
 - Nueva pestaña **«Historial de precios»** junto a «Cambios de precio» (`/tienda/etiquetas/historial`, mismo permiso): se busca un producto y se despliegan sus cambios de precio de las **9 plazas**. Por omisión muestra **todas las filas** de la bitácora de Kepler; «Agrupar repetidos» las funde en tramos (Kepler reescribe el mismo cambio varias veces: en un producto medido, 676 de 686 pasos repetían el precio). Filtros por rango (90 días / 1 año / todo), plaza y presentación.
 - Una promoción de Kepler («= GRATIS») no se puede elegir: no es un producto. «Sin cambios registrados» se distingue de «no se pudo leer».

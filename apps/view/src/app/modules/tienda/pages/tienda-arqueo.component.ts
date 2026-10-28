@@ -6,7 +6,6 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { SelectModule } from 'primeng/select';
-import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
@@ -18,6 +17,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { DataScopeService, ScopeOption } from '../../../core/services/data-scope.service';
 import { Permission } from '../../../core/constants/permissions';
 import { FaltanteExpressComponent } from '../components/faltante-express.component';
+import { ArqueoCajasComponent } from '../arqueo-cajas/arqueo-cajas.component';
+import { CONCEPTOS_RETIRO, conceptoRetiroLabel } from '@megadulces/contracts/http/arqueo-cajas';
 import { branchName } from '../../../core/constants/store-branches';
 import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, AvisoDobleCaja, RutaArqueo, Turno, TurnoCorte } from '../arqueo.service';
 import { BILLETES_MXN, MONEDAS_MXN, DENOMINACIONES_MXN, Denominacion, denomDe } from '@megadulces/contracts';
@@ -62,9 +63,9 @@ interface CortesPersona {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, ToastModule,
-    SelectModule, SegmentedComponent, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule,
+    SelectModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule,
     ContextHelpComponent, FreshnessPillComponent, PageTabsComponent,
-    FaltanteExpressComponent,
+    FaltanteExpressComponent, ArqueoCajasComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -329,16 +330,25 @@ interface CortesPersona {
           }
 
           @if (puedeContar()) {
-            <app-segmented [options]="tipoOptions()" [value]="aTipo()" (valueChange)="elegirTipo($event)"
-                           (saltarAbajo)="focusHead(0)" ariaLabel="Tipo de arqueo" />
-            @if (esSinCaja()) {
-              <!-- [SM.47] Sin caja ni esperado, el motivo es lo UNICO que explica por que se
-                   conto este dinero: es obligatorio (el servidor y la tabla lo exigen igual). -->
+            <!-- [SM.49] La barra de pestanas (Retiro / Cierre / Relevo / RD / RV) entra a UN menu:
+                 arriba los conceptos del retiro, abajo los otros arqueos. Abre en Retiro sin concepto
+                 elegido, y no se guarda un retiro sin concepto. p-select trae el teclado. -->
+            <label class="arq-lbl arq-block arq-tipo">Tipo de arqueo
+              <p-select class="arq-tipo-sel" [options]="menuTipos()" [group]="true" optionLabel="label" optionValue="value"
+                        optionGroupLabel="label" optionGroupChildren="items" [ngModel]="menuValor()" (ngModelChange)="elegirMenu($event)"
+                        placeholder="Retiro · elige el concepto" appendTo="body" styleClass="arq-fld arq-fld-tipo" ariaLabel="Tipo de arqueo" />
+            </label>
+            @if (esSinCaja() || esRetiroOtro()) {
+              <!-- [SM.47] Sin caja ni esperado, el motivo es lo UNICO que explica por que se conto
+                   este dinero. [SM.49] Y en un retiro «Otro», por que salio. Obligatorio en los dos. -->
               <label class="arq-lbl arq-block arq-motivo">
-                <span>Motivo del conteo <span class="arq-req">obligatorio</span></span>
+                <span>{{ esSinCaja() ? 'Motivo del conteo' : '¿Por qué es el retiro?' }} <span class="arq-req">obligatorio</span></span>
                 <textarea pInputText class="arq-fld" rows="2" [maxlength]="motivoMax" [(ngModel)]="aMotivo" (ngModelChange)="dirty.set(true)"
-                          aria-required="true" placeholder="Ej.: arqueo sorpresa de supervisión, conteo de caja fuerte, fondo de cambio…"></textarea>
+                          (blur)="motivoTocado.set(true)" aria-required="true"
+                          [attr.aria-invalid]="faltaMotivo() ? 'true' : null"
+                          [placeholder]="esSinCaja() ? 'Ej.: arqueo sorpresa de supervisión, conteo de caja fuerte, fondo de cambio…' : 'Ej.: se pagó el gas de la sucursal'"></textarea>
                 <span class="arq-motivo-n muted">{{ aMotivo.length }} / {{ motivoMax }}</span>
+                @if (faltaMotivo()) { <span class="arq-motivo-err" role="alert">Escribe {{ esSinCaja() ? 'el motivo del conteo' : 'por qué es el retiro' }} para poder guardarlo.</span> }
               </label>
             }
             @if (aTipo() === 'relevo') {
@@ -457,7 +467,7 @@ interface CortesPersona {
                   <h4 class="arq-col-t">Retiros de este turno</h4>
                   <div class="arq-col-rows">
                     @for (r of retirosDelTurno(); track r.id) {
-                      <div class="arq-retiro"><span>Retiro {{ r.n }}</span><span class="muted">{{ r.hora }}</span><span class="ta-r">{{ money(r.total) }}</span></div>
+                      <div class="arq-retiro"><span>Retiro {{ r.n }}</span><span class="muted">{{ r.hora }}@if (r.concepto) { · {{ r.concepto }} }</span><span class="ta-r">{{ money(r.total) }}</span></div>
                     } @empty {
                       <p class="muted arq-retiro-vacio">Todavía no guardas retiros en este turno.</p>
                     }
@@ -596,7 +606,13 @@ interface CortesPersona {
         <!-- Historial. A la cajera sin arqueos no se le muestra una tabla vacía:
              ocupaba media pantalla para decir "nada todavía" en el momento en que
              está contando billetes de pie frente a la caja. -->
-        @if (revela || rows().length) {
+        <!-- [SM.48] Quien valida ve las sucursales y sus cajas (turno, retiros, cajon y su
+             cuadre, con el desglose). Trae el esperado, asi que la cajera sigue con lo suyo de hoy. -->
+        @if (revela) {
+          <div class="card-premium card-flat arq-panel">
+            <app-arqueo-cajas [refresco]="refrescoCajas()" />
+          </div>
+        } @else if (rows().length) {
         <div class="card-premium card-flat arq-panel">
           <!-- SM.33 - El rotulo cambia porque el CONTENIDO cambia: sin
                supervision el backend devuelve solo el dia (no es un filtro
@@ -1174,6 +1190,10 @@ interface CortesPersona {
     .arq-lista-sub > span:first-child { justify-content: center; font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .arq-lista-sub .arq-lista-imp { font-size: var(--fs-body); color: var(--text-main); }
     .arq-lista-foot { border-bottom: 0; background: var(--surface-hover-bg); }
+    /* [SM.49] El menu del tipo de arqueo (antes la barra de pestanas). */
+    .arq-tipo { max-width: 30rem; margin: 0 0 .9rem; }
+    :host ::ng-deep .arq-fld-tipo { width: 100%; }
+    .arq-motivo-err { font-size: var(--fs-micro); color: var(--bad-fg); }
     /* [SM.47] Motivo del conteo sin caja. */
     .arq-motivo { max-width: 40rem; }
     .arq-motivo textarea { width: 100%; resize: vertical; }
@@ -1290,10 +1310,8 @@ interface CortesPersona {
       .arq-head .arq-lbl { width: 100%; }
       :host ::ng-deep .arq-head .arq-fld { width: 100%; }
       .arq-turnos .arq-turno { flex: 1 1 100%; }
-      /* Las pestanas de tipo de arqueo, a lo ancho: es ESTA pagina la que lo
-         pide (el control lo comparten 14 pantallas y no decide por ellas). */
-      :host ::ng-deep app-segmented .seg { display: flex; }
-      :host ::ng-deep app-segmented .seg-btn { flex: 1 1 auto; }
+      /* [SM.49] El menu del tipo de arqueo, a lo ancho en el telefono. */
+      .arq-tipo { max-width: none; }
       /* El total en una linea (rotulo + monto al lado) en vez de dos: en un
          telefono la barra pegada se comia 112px de los 844 de alto. */
       .arq-bar-total { flex-flow: row wrap; align-items: baseline; column-gap: .45rem; }
@@ -1347,7 +1365,7 @@ interface CortesPersona {
   `],
 })
 export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
-  /** Para llegar al `app-segmented`, que es un componente hijo sin ref propia. */
+  /** Para llegar al menú del tipo de arqueo (un p-select), que no tiene ref propia. */
   private readonly host = inject(ElementRef) as ElementRef<HTMLElement>;
   private readonly svc = inject(ArqueoService);
   private readonly auth = inject(AuthService);
@@ -1684,7 +1702,61 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly denoms = DENOMINACIONES_MXN;
   /** La llave es la del catalogo (`20` billete, `20m` moneda), no el valor. */
   denomCount: Record<string, number> = {};
-  readonly aTipo = signal<ArqueoTipo>('cierre');
+  readonly aTipo = signal<ArqueoTipo>('retiro');
+  /**
+   * [SM.49] Por qué salió el dinero (solo retiro). null = todavía no se eligió: el menú
+   * muestra «Retiro · elige el concepto» y el retiro no se guarda.
+   */
+  readonly aConcepto = signal<string | null>(null);
+  readonly esRetiroOtro = computed(() => this.aTipo() === 'retiro' && this.aConcepto() === 'otro');
+  /** El aviso rojo del motivo sale al salir del recuadro vacío, no antes de escribir. */
+  readonly motivoTocado = signal(false);
+  faltaMotivo(): boolean {
+    return (this.esSinCaja() || this.esRetiroOtro()) && this.motivoTocado() && !this.aMotivo.trim();
+  }
+
+  /**
+   * [SM.49] El menú único: arriba los conceptos del retiro, abajo los otros arqueos
+   * (con «Retiro de caja», la sangría normal, en primer lugar). Sale de `tipoOptions`,
+   * así que respeta los permisos: sin rutas no hay RD/RV, sólo Finanzas ve sólo su conteo.
+   */
+  readonly menuTipos = computed(() => {
+    const tipos = this.tipoOptions();
+    const grupos: { label: string; items: { label: string; value: string }[] }[] = [];
+    const hayRetiro = tipos.some((t) => t.value === 'retiro');
+    if (hayRetiro) {
+      grupos.push({
+        label: 'Retiro',
+        items: CONCEPTOS_RETIRO.filter((c) => c.value !== 'retiro_caja')
+          .map((c) => ({ label: c.value === 'otro' ? 'Otro…' : c.label, value: 'retiro:' + c.value })),
+      });
+    }
+    grupos.push({
+      label: 'Otros arqueos',
+      items: [
+        ...(hayRetiro ? [{ label: 'Retiro de caja', value: 'retiro:retiro_caja' }] : []),
+        ...tipos.filter((t) => t.value !== 'retiro').map((t) => ({ label: t.label, value: t.value as string })),
+      ],
+    });
+    return grupos;
+  });
+  /** Lo que muestra el menú. Un retiro sin concepto es null: se ve el placeholder. */
+  readonly menuValor = computed(() => {
+    const t = this.aTipo();
+    if (t !== 'retiro') return t;
+    return this.aConcepto() ? 'retiro:' + this.aConcepto() : null;
+  });
+  elegirMenu(v: string | null) {
+    if (!v) return;
+    this.motivoTocado.set(false);
+    if (v.startsWith('retiro:')) {
+      this.aConcepto.set(v.slice('retiro:'.length));
+      if (this.aTipo() !== 'retiro') this.elegirTipo('retiro');
+      return;
+    }
+    this.aConcepto.set(null);
+    this.elegirTipo(v);
+  }
   aSuc = signal(''); aCaja = ''; aDate: Date = new Date(); aCajero = ''; aEntrante = ''; aNota = ''; aIncidencia = '';
   readonly arqTotal = signal(0);
   /** Totales por fajo — los pide el formato y delatan un conteo mal capturado. */
@@ -1928,8 +2000,11 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     if (this.hayConteo()) return;
     const t = this.turnoSel();
     if (!t) return;
-    if (t.pide_retiro || t.retiro_sin_contar) this.aTipo.set('retiro');
-    else if (t.pide_cierre) this.aTipo.set('cierre');
+    if (t.pide_retiro || t.retiro_sin_contar) {
+      this.aTipo.set('retiro');
+      // [SM.49] Lo que Kepler pide es la sangría por el límite: eso es «Retiro de caja».
+      if (!this.aConcepto()) this.aConcepto.set('retiro_caja');
+    } else if (t.pide_cierre) this.aTipo.set('cierre');
   }
 
   /**
@@ -2008,6 +2083,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       // [SM.46] RD/RV no tienen caja: el papel dice la ruta que entrego.
       ruta: this.esRuta() ? this.rutaLabel() || null : null,
       motivo: this.esSinCaja() ? this.aMotivo.trim() || null : null,
+      concepto: this.aTipo() === 'retiro' ? conceptoRetiroLabel(this.aConcepto(), this.aMotivo.trim()) : null,
       fecha: t?.business_date ?? this.fmtDate(this.aDate),
       folio: t?.folio ?? null,
       cajera: this.aCajero || '',
@@ -2071,6 +2147,8 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   canSubmit(): boolean {
     if (this.arqTotal() <= 0 && !this.vacio()) return false;
+    // [SM.49] Un retiro no se guarda sin concepto, y «Otro» sin su motivo.
+    if (this.aTipo() === 'retiro' && (!this.aConcepto() || (this.aConcepto() === 'otro' && !this.aMotivo.trim()))) return false;
     // [SM.46] RD/RV se sellan por RUTA: no piden caja (el endpoint de ruta no la recibe).
     if (this.esRuta()) return !!this.sucursalActiva() && !!this.aRuta;
     // [SM.47] Sin caja: sucursal + motivo (la caja no existe).
@@ -2215,7 +2293,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    *  único stop de tabulador del grupo, así que es la que recibe el foco. */
   private focusSegmented(): void {
     this.host?.nativeElement
-      ?.querySelector<HTMLElement>('app-segmented .seg-btn.on, app-segmented .seg-btn')
+      ?.querySelector<HTMLElement>('.arq-tipo-sel [role="combobox"]')
       ?.focus();
   }
 
@@ -2404,6 +2482,9 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       cajero_entrante: relevo ? (this.aEntrante.trim() || undefined) : undefined,
       denominations, medios, nota: this.aNota.trim() || undefined,
       incidencia_tipo: !relevo && this.aIncidencia ? this.aIncidencia : undefined,
+      // [SM.49] Por qué salió el dinero; con «otro», el motivo escrito.
+      concepto: this.aTipo() === 'retiro' ? this.aConcepto() || undefined : undefined,
+      motivo: this.esRetiroOtro() ? this.aMotivo.trim() : undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.saving.set(false); this.result.set(r); this.dirty.set(false);
@@ -2534,7 +2615,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * manual), por sucursal + caja + el día de hoy. Método y no `computed`: `aCaja` es un
    * campo plano, y un computed sobre él se quedaría congelado (el bug de `aSuc`, SM.41).
    */
-  retirosDelTurno(): { id: string; n: number; hora: string; total: number }[] {
+  retirosDelTurno(): { id: string; n: number; hora: string; total: number; concepto: string | null }[] {
     const t = this.turnoSel();
     const dia = (s: string | null | undefined) => String(s ?? '').slice(0, 10);
     const suc = t ? t.warehouse_code : this.aSuc().trim();
@@ -2545,7 +2626,8 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       .filter((r) => r.tipo === 'retiro' && r.warehouse_code === suc && String(r.caja) === caja
         && (t && r.cash_cut_folio ? String(r.cash_cut_folio) === String(t.folio) : dia(r.business_date) === fecha))
       .sort((a, b) => String(a.captured_at).localeCompare(String(b.captured_at)))
-      .map((r, i) => ({ id: r.id, n: r.secuencia ?? i + 1, hora: this.horaDe(r.captured_at), total: Number(r.total_contado) || 0 }));
+      .map((r, i) => ({ id: r.id, n: r.secuencia ?? i + 1, hora: this.horaDe(r.captured_at), total: Number(r.total_contado) || 0,
+        concepto: conceptoRetiroLabel(r.concepto, r.motivo) }));
   }
 
   retiradoDelTurno(): number {
@@ -2642,6 +2724,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       tipo: b.tipo, cajero_entrante: b.cajero_entrante, turno: b.turno,
       arqueo_id: b.id, incidencia_tipo: b.incidencia_tipo, nota: b.nota, validado_nota: b.validado_nota ?? null,
       motivo: b.motivo ?? null,
+      concepto: b.tipo === 'retiro' ? conceptoRetiroLabel(b.concepto, b.motivo) : null,
       capturado_at: b.captured_at, capturado_por: b.captured_by,
       validado_por: b.validado_por ?? null, validado_at: b.validado_at ?? null,
       // Solo llegan a quien revela: para la cajera el servidor ya los quitó.
@@ -2663,8 +2746,12 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     return this.incidenciaOptions.find((o) => o.value === v)?.label ?? v;
   }
 
+  /** [SM.48] Se incrementa en cada recarga: la vista de cajas se vuelve a pedir. */
+  readonly refrescoCajas = signal(0);
+
   private load() {
     this.loading.set(true);
+    if (this.revela) this.refrescoCajas.update((n) => n + 1);
     this.svc.list({ limit: 100 }).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (r) => { this.rows.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
   }

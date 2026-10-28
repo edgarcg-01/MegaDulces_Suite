@@ -182,3 +182,17 @@ describe('cuerpoTicket — el arqueo sigue siendo ciego en el papel', () => {
     expect(t).toContain('15,000');
   });
 });
+
+describe('cuerpoTicket — [SM.49] el concepto del retiro', () => {
+  it('el retiro imprime su concepto, y un «Otro» largo se parte sin romper la grilla', () => {
+    expect(lineas({ tipo: 'retiro', concepto: 'Pago a proveedor' }).join('\n')).toContain('Concepto: Pago a proveedor');
+    const L = lineas({ tipo: 'retiro', concepto: 'Otro: se pagó el gas de la sucursal y la reparación del refrigerador' });
+    expect(L.join(' ').replace(/\s+/g, ' ')).toContain('Concepto: Otro: se pagó el gas');
+    expect(L.every((l) => l.length <= 32)).toBe(true);
+  });
+
+  it('NEGATIVA: un cierre no imprime concepto aunque llegue uno', () => {
+    expect(lineas({ tipo: 'cierre', concepto: 'Pago a proveedor' }).join('\n')).not.toContain('Concepto');
+  });
+});
+

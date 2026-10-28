@@ -78,6 +78,8 @@ export interface TicketArqueo {
   nota?: string | null;
   /** [SM.47] Conteo de efectivo sin caja: por que se conto ese dinero. */
   motivo?: string | null;
+  /** [SM.49] Retiro: por qué salió el dinero, ya con su nombre («Pago a proveedor», «Otro: …»). */
+  concepto?: string | null;
   validado_nota?: string | null;
   capturado_at?: string | null;
   /** Solo se imprimen si quien imprime puede verlos (la cajera no). */
@@ -181,6 +183,7 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
   else if (sinCaja) L.push(fila('Caja', 'sin caja'));
   else L.push(fila('Caja', a.caja));
   if (sinCaja && a.motivo) L.push(...envolver('Motivo: ' + a.motivo));
+  if (retiro && a.concepto) L.push(...envolver('Concepto: ' + a.concepto));
   L.push(fila('Fecha', a.fecha));
   if (a.folio) L.push(fila('Turno Kepler', '#' + a.folio));
   if (a.turno) L.push(fila('Turno', a.turno));
