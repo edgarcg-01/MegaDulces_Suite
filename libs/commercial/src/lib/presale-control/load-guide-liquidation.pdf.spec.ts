@@ -65,4 +65,18 @@ describe('htmlLiquidacion: un pedido que volvió en dos guías', () => {
     expect(dos).toContain('GDC-A, GDC-B');
     expect(dos).toContain('Intento 2 · Intento 3');
   });
+
+  it('[MCP.3.13] con recolección de otra sucursal, dice cuánto cobró el Kepler de cada una', () => {
+    const conPartes = htmlLiquidacion({
+      ...base,
+      por_sucursal: [
+        { sucursal: '07', sucursal_nombre: 'Morelia Madero', documents_total: 1000, documentos_sin_total: 0, entregados: 1 },
+        { sucursal: '08', sucursal_nombre: null, documents_total: 500, documentos_sin_total: 1, entregados: 2 },
+      ],
+    }, { reimpresion: false });
+    expect(conPartes).toContain('Cobrado en el Kepler de 07 Morelia Madero (1)</td><td class="r mono">$1,000.00');
+    expect(conPartes).toContain('Cobrado en el Kepler de 08 (2) · 1 sin total</td><td class="r mono">$500.00');
+    // Una sola sucursal (y las fotos viejas, sin el campo): no se agrega nada.
+    expect(htmlLiquidacion(base, { reimpresion: false })).not.toContain('Cobrado en el Kepler de');
+  });
 });

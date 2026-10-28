@@ -153,6 +153,16 @@ export interface PayableEvidenceRow {
   senales: string[];
   /** Por qué no hay evidencia. `null` cuando sí la hay. Nunca se deja el hueco mudo (ADR-056). */
   motivo: string | null;
+  /**
+   * `[PGP.27]` El RFC del acreedor con el que se buscó, y **de dónde salió**.
+   *
+   * ⛔ No es cosmético: `nombre` quiere decir que Kepler **no** lo tiene (o lo tiene mal
+   * escrito) y lo resolvió un cruce del nombre normalizado contra ContPAQi y los CFDI
+   * recibidos. Son 166 documentos por $10,415,534 que antes no encontraban su factura, y la
+   * pantalla no puede presentarlos como si el dato viniera del ERP (ADR-056).
+   */
+  rfc: string | null;
+  rfc_fuente: 'kepler' | 'nombre' | 'ninguna';
 }
 
 /**

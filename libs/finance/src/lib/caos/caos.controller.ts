@@ -2,12 +2,13 @@ import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nest
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CaosService, type CaosQuery, type CaosSaldo } from './caos.service';
+import type { CaosVinculos, CaosVinculoAlta, CaosVinculoBaja } from '@megadulces/contracts';
 import { CaosIngresoReconService } from './caos-ingreso-recon.service';
 import { CaosRutaCajaService, type CaosPorRuta } from './caos-ruta-caja.service';
 import { CaosConteoFisicoService } from './caos-conteo-fisico.service';
 import type { CaosConteoFisicoDto } from '@megadulces/contracts';
 
-interface AuthedRequest { user?: { id?: string; sub?: string; userId?: string; username?: string } }
+interface AuthedRequest { user?: { id?: string; sub?: string; userId?: string; username?: string; roles_frescos?: string[] } }
 
 /**
  * CS.2 — Reporte de movimientos de CAOS (caja fuerte de efectivo). Sólo lectura.
@@ -104,6 +105,34 @@ export class CaosController {
   @ApiOperation({ summary: 'Detalle por denominación de un movimiento de CAOS.' })
   detalle(@Param('id') id: string) {
     return this.svc.detalle(id);
+  }
+
+  @Get('movimientos/:id/vinculos')
+  @RequirePermissions(Permission.FINANCE_CAOS_VINCULOS_VER)
+  @ApiOperation({ summary: '[CGA-A.57] Supervisión: los movimientos de Caja General vinculados a un movimiento de CAOS, cuánto tomó cada uno y cuánto queda libre.' })
+  vinculos(@Param('id') id: string): Promise<CaosVinculos | null> {
+    return this.svc.vinculos(id);
+  }
+
+  // `[CGA-A.58]` Corregir vínculos: el guard pide la clave de verlos (admin/superadmin pasan por
+  // god-mode) y el SERVICIO exige el rol superadmin exacto sobre los roles frescos.
+  @Post('movimientos/:id/vinculos')
+  @RequirePermissions(Permission.FINANCE_CAOS_VINCULOS_VER)
+  @ApiOperation({ summary: '[CGA-A.58] Sólo superadmin: vincula un movimiento de Caja General ya guardado (por folio) a un movimiento de CAOS.' })
+  vincular(@Param('id') id: string, @Body() body: { folio?: string; monto?: number }, @Req() req: AuthedRequest): Promise<CaosVinculoAlta> {
+    return this.svc.vincular(id, body, this.actor(req));
+  }
+
+  @Post('vinculos/:linkId/quitar')
+  @RequirePermissions(Permission.FINANCE_CAOS_VINCULOS_VER)
+  @ApiOperation({ summary: '[CGA-A.58] Sólo superadmin: da de baja un vínculo CAOS ↔ Caja General, con motivo. El monto vuelve a quedar libre.' })
+  quitarVinculo(@Param('linkId') linkId: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest): Promise<CaosVinculoBaja> {
+    return this.svc.quitarVinculo(linkId, String(body?.motivo ?? ''), this.actor(req));
+  }
+
+  private actor(req: AuthedRequest) {
+    const u = req.user ?? {};
+    return { id: u.id ?? u.sub ?? u.userId, username: u.username, roles_frescos: u.roles_frescos ?? [] };
   }
 
   // ── [CG.58] La conciliacion de INGRESOS, al 100% ───────────────────────────────────────

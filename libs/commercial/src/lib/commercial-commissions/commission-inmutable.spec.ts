@@ -148,9 +148,9 @@ describe('[RD.23] la compuerta de cobertura de dias', () => {
   const totales = { dias_multifuente: 0, rutas_con_dato: 3, rutas_sin_dato: 0 };
   const correr = (lineas: unknown[]) => (servicio() as unknown as {
     compuertas: (
-      hoy: string, to: string, t: unknown, asOf: string | null, l: unknown[],
+      hoy: string, to: string, t: unknown, asOf: string | null, l: unknown[], b: unknown[],
     ) => { gate: string; estado: string; detalle: string }[];
-  }).compuertas('2026-10-08', '2026-10-07', totales, '2026-10-07', lineas);
+  }).compuertas('2026-10-08', '2026-10-07', totales, '2026-10-07', lineas, []);
 
   const dias = (ls: unknown[]) => correr(ls).find((g) => g.gate === 'cobertura_dias');
 

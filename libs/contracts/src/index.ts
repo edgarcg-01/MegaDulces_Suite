@@ -34,6 +34,7 @@ export * from './http/price-presentation.contract';
 // `[ETQ-AVISOS.1]` Cambios de precio: la regla por producto y los avisos. Una sola cuenta para la
 // pantalla y para el generador, o el aviso y la lista discrepan.
 export * from './http/price-change-notice.contract';
+export * from './http/price-history.contract';
 export * from './http/price-change-compras.contract';
 export * from './http/codigo-simbolico.contract';
 // [SM.39] Denominaciones MXN. La clave de una denominacion NO es su valor: el
@@ -219,3 +220,8 @@ export * from './finance/caos-conteo-fisico.contract';
 export * from './finance/posicion-caja.contract';
 export * from './finance/verdad-diferencia.contract';
 export * from './finance/arqueo-completo.contract';
+export * from './http/vendor-zone-stock.contract';
+export * from './http/stock-state.contract';
+// `[CGA-A.57]`/`[CGA-A.58]` Vinculos CAOS <-> Caja General (supervision + correccion de superadmin).
+export * from './finance/caos-vinculos.contract';
+export * from './finance/caja-lote-retiro.contract';

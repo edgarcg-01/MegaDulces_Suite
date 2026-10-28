@@ -44,7 +44,7 @@ export const LOTE_EPSILON = 0.005;
  * `libs/trade` —la bandeja de «Mi trabajo»— y no se pueden importar entre sí. Escribirlo dos veces
  * haría que la pantalla y el tablero contaran colas distintas sin que nadie lo notara.
  */
-import { pagableConBilletesCaos } from '@megadulces/contracts';
+import { pagableConBilletesCaos, type CaosRetiroDelLote } from '@megadulces/contracts';
 
 export type MotivoNoConfirmable =
   | 'sin_mapa'        // la ruta no está en `finance.route_customer_map`
@@ -463,6 +463,47 @@ export interface ResumenLote {
   no_confirmables: number;
   /** Σ de lo efectivamente guardado. Lo rechazado NO suma: un total optimista es una mentira. */
   monto_guardado: number;
+  /** `[CGA-A.60]` Si el lote se pagó con un retiro de CAOS: cuánto tomó y qué quedó del cajón. */
+  retiro?: ResumenRetiroLote;
+}
+
+// ── `[CGA-A.60]` Un retiro de CAOS paga un lote de egresos ────────────────────────────────────
+
+/**
+ * ⭐ `[CGA-A.60]` **Un retiro paga el lote entero; sólo la DIFERENCIA toca el cajón.**
+ *
+ * Edgar, 2026-10-28: *«vincular un egreso general con los egresos pequeños y no hacer que hagan
+ * cada uno, y sólo si tiene diferencia que se agregue de la caja o salga de la caja»*. Es el
+ * «Formato de autorización de gastos» de zona Morelia: 21 documentos X-D-26 por $156,678.61
+ * pagados con el retiro «gnf 26/10» de $156,670 — la diferencia real eran **$8.61** del cajón.
+ *
+ * ⛔ Por eso el reparto NO redondea cada egreso a billetes de CAOS (`pagableConBilletesCaos`) como
+ * la captura suelta: los billetes salen en UN fajo y se reparten con cambio entre proveedores.
+ * Redondear por renglón inventaba $4,649.65 «del cajón» donde el cajón puso $8.61.
+ *
+ * Regla, en el orden en que se marcaron: cada egreso toma su monto entero mientras el retiro
+ * alcance; al que ya no le alcanza le toca lo que quede, y el resto de él sale del cajón; los que
+ * siguen salen enteros del cajón. Si sobra retiro, el corte ya lo espera en el cajón (`[CG.96]`).
+ */
+export function tomaDelRetiro(monto: number, libre: number): number {
+  return redondea2(Math.max(0, Math.min(Number(monto) || 0, Number(libre) || 0)));
+}
+
+/** La forma vive en `libs/contracts` (`CaosRetiroDelLote`): la pantalla lee lo mismo. */
+export type ResumenRetiroLote = CaosRetiroDelLote;
+
+export function resumirRetiroLote(
+  retiro: { device: string; external_id: number; ref: string | null; libre_antes: number },
+  guardados: Array<{ monto: number; tomado: number }>,
+): ResumenRetiroLote {
+  const tomado = redondea2(guardados.reduce((a, g) => a + (Number(g.tomado) || 0), 0));
+  const total = redondea2(guardados.reduce((a, g) => a + (Number(g.monto) || 0), 0));
+  return {
+    ...retiro,
+    tomado,
+    libre_despues: redondea2(retiro.libre_antes - tomado),
+    del_cajon: redondea2(total - tomado),
+  };
 }
 
 export function redondea2(v: number): number {
@@ -477,7 +518,7 @@ export function redondea2(v: number): number {
  * una. El duplicado se separa del rechazo porque **no es un error de nadie**: es el candado
  * `ux_cash_ledger_origen_vivo` haciendo su trabajo (dos personas confirmaron lo mismo).
  */
-export function resumirLote(filas: FilaLote[], montos: Map<string, number>): ResumenLote {
+export function resumirLote(filas: FilaLote[], montos: Map<string, number>, retiro?: ResumenRetiroLote): ResumenLote {
   const cuenta = (e: EstadoFila) => filas.filter((f) => f.estado === e).length;
   const guardado = filas
     .filter((f) => f.estado === 'guardado')
@@ -489,6 +530,7 @@ export function resumirLote(filas: FilaLote[], montos: Map<string, number>): Res
     rechazados: cuenta('rechazado'),
     no_confirmables: cuenta('no_confirmable'),
     monto_guardado: redondea2(guardado),
+    ...(retiro ? { retiro } : {}),
   };
 }
 
@@ -616,16 +658,20 @@ export function evaluarArqueo(
 }
 
 /**
- * ⭐ `[CGA-A.56.1]` El arqueo de un EGRESO pagado con retiros de CAOS: lo que el retiro paga NO se
- * cuenta en el cajón (Edgar, 2026-10-27: *«al asociar a un egreso no se descuenta del total»*).
- * El corte ya lo trata así (`en_boveda`, `[CG.95]`: «CAOS pone los billetes, el cajón la
- * morralla»); desde A.56 la pantalla pedía contar el gasto entero en la reja y el egreso quedaba
- * dos veces — como billetes del cajón y como dinero de la bóveda.
+ * ⭐ `[CGA-A.56.2]` El arqueo de un EGRESO pagado con retiros de CAOS: **se cuenta TODO lo que se
+ * entregó; el retiro sólo se VINCULA** (Edgar, 2026-10-28: *«solo necesito que se vincule, no que
+ * se reste … debe aparecer en ceros, y en un motor interno descontar eso, para saber de dónde salen
+ * los desfases de dinero»*).
  *
- * Lo que pagan los enlaces cuenta como el crédito: parte del monto que no está en el desglose.
- * ⚠️ Una captura de la pantalla ANTERIOR (contó el gasto entero en la reja) también cuadra: esa
- * pestaña puede seguir abierta el día del despliegue, y rechazarla sería perder un movimiento
- * real por un cambio de pantalla. Es el comportamiento de antes, no uno nuevo.
+ * ⛔ A.56.1 (2026-10-27) acreditaba lo que paga el enlace como si fuera crédito y la reja pedía sólo
+ * «lo que salió del cajón». Eso escondía justo lo que hay que ver: con un retiro de $23,320
+ * vinculado, una reja de $5 cuadraba sin que nadie contara un billete del egreso.
+ *
+ * ⭐ El corte NUNCA dependió del enlace (`[CG.96]`): su esperado suma el retiro entero como dinero
+ * que entra al cajón y resta el egreso entero. El arqueo del egreso ahora dice lo mismo.
+ *
+ * `cubierto` se SIGUE publicando pero NO acredita: es lo que el retiro respalda en billetes de CAOS,
+ * el dato del motor interno para partir una diferencia («del retiro» / «del cajón»).
  */
 export function evaluarArqueoDeEgreso(
   monto: number,
@@ -637,18 +683,11 @@ export function evaluarArqueoDeEgreso(
   epsilon = LOTE_EPSILON,
 ): VeredictoArqueo & { cubierto: number } {
   const cubierto = egreso.tipo === 'gasto' && egreso.origen_efectivo === 'caos'
-    // Cada enlace acredita sólo lo que la bóveda puede dar en sus billetes: los pesos sueltos y
-    // los centavos de un enlace mal armado no los pagó CAOS, y tienen que estar en la reja.
+    // Lo que la bóveda puede dar en SUS billetes ($20–$500): los pesos sueltos no los respalda.
     ? redondea2((egreso.caos_links ?? []).reduce((a, k) => a + pagableConBilletesCaos(Number(k.monto) || 0), 0))
     : 0;
   const credito = Math.max(0, Number(ventaCredito) || 0);
-  const nuevo = evaluarArqueo(monto, morralla, dens, credito + cubierto, hayConteo, epsilon);
-  if (nuevo.ok || cubierto <= 0) return { ...nuevo, cubierto };
-  // La pantalla anterior siempre CONTÓ algo (sin desglose la frenaba): sin conteo no hay «antes».
-  const conto = (dens ?? []).some((d) => d && Number(d.piezas) > 0) || Number(morralla || 0) > 0;
-  if (!conto) return { ...nuevo, cubierto };
-  const comoAntes = evaluarArqueo(monto, morralla, dens, credito, hayConteo, epsilon);
-  return comoAntes.ok ? { ...comoAntes, cubierto: 0 } : { ...nuevo, cubierto };
+  return { ...evaluarArqueo(monto, morralla, dens, credito, hayConteo, epsilon), cubierto };
 }
 
 // ── Gasto: lo que se repite se ofrece, no se reescribe ────────────────────────────────────────

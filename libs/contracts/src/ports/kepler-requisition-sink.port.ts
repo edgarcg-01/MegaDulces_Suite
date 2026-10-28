@@ -104,6 +104,12 @@ export interface KeplerRequisitionEntrada {
    * tope; ausente = el de la variable `KEPLER_PUSH_MAX_DIA_NN` (antes de la migración).
    */
   tope_dia?: number | null;
+  /**
+   * `[PQ.22]` Sólo `compra`: escribir TAMBIÉN la orden de compra `X-A-35`, ligada a la
+   * requisición como la liga Kepler al convertir (la requisición nace convertida y la OC
+   * abierta). Lo decide la Suite (`kepler_push_switch.genera_orden`); ausente = sólo requisición.
+   */
+  generar_orden?: boolean;
 }
 
 /** `[KR.6]` Qué unidad resolvió el adapter para un SKU, o por qué no pudo. */
@@ -129,6 +135,8 @@ export interface KeplerRequisitionResultado {
   motivo?: string;
   /** La coordenada con la que Kepler identifica el documento. Sólo si `entregada`. */
   kepler?: { sucursal: string; folio: string; renglones: number };
+  /** `[PQ.22]` La orden de compra `X-A-35` escrita junto con la requisición (misma sucursal). */
+  orden?: { folio: string };
   /**
    * ⭐ Qué unidad se usó por renglón, o cuáles no se pudieron resolver. Se devuelve **en los dos
    * casos**: en el feliz es la evidencia de con qué se escribió; en el de rechazo es la lista de

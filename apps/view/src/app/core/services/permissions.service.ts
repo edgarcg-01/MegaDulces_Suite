@@ -79,6 +79,14 @@ export class PermissionsService {
     return !!r && PLATFORM_ADMIN_ROLES.has(r.toLowerCase());
   }
 
+  /**
+   * `[CGA-A.58]` Superadmin EXACTO, no admin: para lo que Edgar reservó a superadmin (corregir un
+   * vínculo de CAOS). Sólo decide qué se muestra; el servidor lo vuelve a exigir por rol fresco.
+   */
+  isSuperadmin(): boolean {
+    return (this.role() ?? '').toLowerCase() === 'superadmin';
+  }
+
   /** ¿El usuario tiene esta clave exacta? Los roles de plataforma pasan siempre. */
   has(permission: Permission | string): boolean {
     if (this.isAdmin()) return true;

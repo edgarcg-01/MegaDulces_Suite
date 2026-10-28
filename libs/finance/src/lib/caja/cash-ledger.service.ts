@@ -10,6 +10,7 @@ import {
   type CajaCobertura, type CajaCoberturaFiltro, type CajaPeriodoContado,
   SUCURSAL_CAJA_GENERAL,
   diaDeFecha,
+  type CaosRetirosLibres,
 } from '@megadulces/contracts';
 
 /**
@@ -24,6 +25,7 @@ const ETIQUETA_CARRIL: Record<string, string> = {
   ods_live_caja: 'Carril de caja del ODS (kdm1)',
 };
 import { CajaGateway } from './caja.gateway';
+import { codigosDeSucursalBuscada, rutaBuscada, rutaDelDocumento } from './caja-ruta';
 import { leerCandado } from './caja-candado.query';
 import { buildFolio } from './caja-autofill.engine';
 import { diaAnterior, inicioDelMes, primerCorteDelLibro, saldadosPorControl } from './caja-relevo';
@@ -33,6 +35,7 @@ import {
   type MapaRuta, type ReglaGasto, type Confirmable, type ClaseDescuadre,
   type FilaLote, type ResumenLote, type Descuadre,
   cuentaDelTipoDeDocumento, type CuentaDeTipoDocumento, type LineasPorTipoPol,
+  tomaDelRetiro, resumirRetiroLote, redondea2,
 } from './caja-lote.engine';
 import { revisarFirma } from './caja-firma.engine';
 import { tomarFirmaParaMovimiento, marcarFirmaUsada } from './caja-firma.service';
@@ -640,7 +643,9 @@ export class CashLedgerService {
     }
     throw new BadRequestException(
       `El desglose (efectivo + crédito) no cuadra con el monto: ${v.suma.toFixed(2)} contra `
-      + `${Number(monto).toFixed(2)} (diferencia ${Math.abs(v.diferencia).toFixed(2)}).`,
+      + `${Number(monto).toFixed(2)} (diferencia ${Math.abs(v.diferencia).toFixed(2)}).`
+      // `[CGA-A.56.2]` Una pestaña abierta antes del cambio cuenta sólo «lo del cajón»: decirle por qué.
+      + (v.cubierto > 0 ? ' El retiro de CAOS ya no se descuenta: cuenta todo lo que se entregó y recarga la pantalla.' : ''),
     );
   }
 
@@ -691,7 +696,9 @@ export class CashLedgerService {
     const row = hayBandeja ? await trx('finance.v_caja_movimientos_pendientes')
       .where({ tenant_id: tenantId, origen_ref: origenRef })
       .first('origen_ref', 'folio', 'doc_tipo', 'sucursal', 'clave_banco', 'caja_nombre', 'fecha_valor',
-        'tipo', 'origen_tipo', 'entidad_code', 'beneficiario', 'concepto', 'monto') : null;
+        'tipo', 'origen_tipo', 'entidad_code', 'beneficiario', 'concepto', 'monto',
+        // `[CGA-A.59]` La ruta del cobro de camión ('ruta_501'), para guardarla en el libro.
+        'ruta') : null;
     if (row) return row;
 
     // ⚠️ Se busca por `origen_ref` SOLO, sin `origen_tipo`: la llave ya lleva el `doc_tipo`, así que
@@ -1224,8 +1231,8 @@ export class CashLedgerService {
       // antes (como estaba), un movimiento anclado podría guardarse con un desglose que cuadra
       // contra la cifra del formulario y NO contra la del documento.
       // `hayConteo` va al candado: declarar que se contó distinto del documento OBLIGA al desglose.
-      // ⭐ `[CGA-A.56.1]` Un egreso pagado con retiros de CAOS: lo que pagan los enlaces no se
-      // cuenta en el cajón (cuenta como el crédito). Ver `evaluarArqueoDeEgreso`.
+      // ⭐ `[CGA-A.56.2]` Un egreso pagado con retiros de CAOS se cuenta ENTERO: el retiro sólo se
+      // vincula, no descuenta. Ver `evaluarArqueoDeEgreso`.
       this.assertArqueo(monto, input.morralla ?? 0, dens, input.venta_credito, hayConteo, input);
 
       // La fecha NO se toma del cobro a propósito: `cobro_date` es cuándo Kepler registró el
@@ -1318,6 +1325,9 @@ export class CashLedgerService {
         origen_tipo: input.origen_tipo ?? null,
         origen_ref: input.origen_ref ?? null,
         origen_uuid: input.origen_uuid ?? null,
+        // `[CGA-A.59]` La ruta sale del DOCUMENTO (la bandeja), nunca del formulario: se guarda al
+        // capturar porque leerla después cuesta 2 s de FDW por carga del libro.
+        ruta: rutaDelDocumento(doc?.ruta),
         // `[CGA-A.10]` La declaración por LLAVE. Se normaliza el vacío a NULL: una cadena vacía
         // haría casar `declared_doc_ref = origen_ref` con nada y, peor, apagaría la rama del
         // `LIKE` — una captura dejaría de descontar sin que nadie lo pidiera.
@@ -1699,6 +1709,9 @@ export class CashLedgerService {
         const s = `%${String(q.search).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
         // `[CG.116]` El importe entra al mismo OR: lo que el papel trae grande es el monto.
         const m = montoBuscado(q.search);
+        // `[CGA-A.59]` Por ruta y por sucursal de origen, igual que el libro.
+        const ruta = rutaBuscada(q.search);
+        const servidores = codigosDeSucursalBuscada(q.search);
         qb = qb.where((b: Knex.QueryBuilder) => {
           b.whereRaw(`beneficiario ILIKE ? ESCAPE '\\'`, [s])
             .orWhereRaw(`entidad_code ILIKE ? ESCAPE '\\'`, [s])
@@ -1706,7 +1719,10 @@ export class CashLedgerService {
             .orWhereRaw(`folio ILIKE ? ESCAPE '\\'`, [s])
             // CS.3.9 — el mismo buscador universal cae acá (por confirmar): folio/doc de Kepler.
             .orWhereRaw(`origen_ref ILIKE ? ESCAPE '\\'`, [s])
-            .orWhereRaw(`doc_tipo ILIKE ? ESCAPE '\\'`, [s]);
+            .orWhereRaw(`doc_tipo ILIKE ? ESCAPE '\\'`, [s])
+            .orWhereRaw(`ruta ILIKE ? ESCAPE '\\'`, [s]);
+          if (ruta) b.orWhereRaw(`ruta ~ ?`, [`(^|[^0-9])ruta_${ruta}($|[^0-9])`]);
+          for (const c of servidores) b.orWhereRaw(`split_part(sucursal, '-', 1) = ?`, [c]);
           agregaMonto(b, 'monto', m);
         });
       }
@@ -2202,6 +2218,7 @@ export class CashLedgerService {
       const g: CaosGastoCtx = {
         monto: q.monto != null ? Number(q.monto) : null, fecha,
         beneficiario: q.beneficiario, concepto: q.concepto, sucursal: q.sucursal,
+        retiroPagaVarios: typeId === 4,
       };
       const rows = rankearCaos(g, candidatos, aprendido).slice(0, limit);
       return { rows, fecha, datos_al: await this.frescuraCaos(trx, tenantId) };
@@ -3039,8 +3056,14 @@ export class CashLedgerService {
   async crearLote(
     input: {
       items: Array<{ origen_ref: string; fecha?: string; sucursal?: string; client_uuid?: string }>;
-      /** `[CGA-A.56]` El origen del efectivo de los EGRESOS del lote (un lote no enlaza retiros: sólo cajón). */
+      /** `[CGA-A.56]` El origen del efectivo de los EGRESOS del lote cuando no hay retiro: cajón. */
       origen_efectivo?: 'cajon' | null;
+      /**
+       * ⭐ `[CGA-A.60]` El retiro de CAOS que paga los EGRESOS del lote. Cada uno toma su monto
+       * entero mientras alcance (`tomaDelRetiro`); lo que no alcance sale del cajón. Los ingresos
+       * del lote no lo tocan.
+       */
+      caos_retiro?: { device: string; external_id: number } | null;
     },
     user: { id?: string; username?: string },
   ): Promise<ResumenLote> {
@@ -3058,6 +3081,13 @@ export class CashLedgerService {
 
     const filas: FilaLote[] = [];
     const montos = new Map<string, number>();
+
+    // `[CGA-A.60]` El retiro se valida UNA vez, antes de la primera fila: si no sirve, no se
+    // guarda nada (a diferencia de una fila mala, un retiro malo es error de todo el lote).
+    const retiro = input.caos_retiro?.device && input.caos_retiro?.external_id
+      ? await this.tk.run(async (trx) => this.retiroParaLote(trx, tenantId, input.caos_retiro as { device: string; external_id: number }))
+      : null;
+    const tomados: Array<{ monto: number; tomado: number }> = [];
 
     for (const it of items) {
       try {
@@ -3096,6 +3126,12 @@ export class CashLedgerService {
         // documento (ya salió por lo que decía el pago); el ingreso se cuenta, y por eso tiene
         // un camino propio donde el conteo lleva denominaciones.
 
+        // `[CGA-A.60]` Lo libre se lee FRESCO por fila: otra captura pudo tomar del retiro entre dos
+        // filas. El candado de verdad es `trg_caos_link_no_excede`; esto sólo decide cuánto pedir.
+        const toma = retiro && pend.tipo === 'gasto'
+          ? tomaDelRetiro(Number(pend.monto), await this.tk.run(async (trx) => this.libreDelRetiro(trx, tenantId, retiro)))
+          : 0;
+
         const mov: any = await this.create({
           tipo: pend.tipo,
           /**
@@ -3118,7 +3154,14 @@ export class CashLedgerService {
           origen_tipo: pend.origen_tipo,
           origen_ref: pend.origen_ref,
           client_uuid: it.client_uuid,
-          origen_efectivo: input.origen_efectivo ?? null,
+          // `[CGA-A.60]` Con retiro: el egreso que tomó algo es de CAOS (lo que le faltó es su parte
+          // del cajón); el que ya no alcanzó nada salió entero del cajón.
+          ...(retiro && pend.tipo === 'gasto'
+            ? (toma > 0
+              ? { caos_links: [{ device: retiro.device, external_id: retiro.external_id, monto: toma,
+                  senales: { via: 'lote', ref: retiro.ref } }] }
+              : { origen_efectivo: 'cajon' as const })
+            : { origen_efectivo: input.origen_efectivo ?? null }),
           /**
            * ⭐ `[CG.196]` **CADA FILA DECLARA DE DÓNDE SALIÓ SU CUENTA.** ADR-056: *un campo
            * lleno sin saber de dónde salió es indistinguible de uno inventado.*
@@ -3150,6 +3193,7 @@ export class CashLedgerService {
 
         montos.set(it.origen_ref, Number(mov.monto));
         filas.push({ origen_ref: it.origen_ref, estado: 'guardado', folio: mov.folio });
+        if (retiro && pend.tipo === 'gasto') tomados.push({ monto: Number(mov.monto), tomado: toma });
 
         // ⛔ `[CG.48]` Acá se evaluaba el descuadre contra `monto_contado` y se empujaba el
         // hallazgo. Sin conteo por fila no hay nada que comparar: el lote guarda el importe del
@@ -3168,7 +3212,64 @@ export class CashLedgerService {
     // CG.23.2 — Mismo aviso que en la captura suelta: confirmar un lote cambia la bandeja de
     // todos, y quien la tenga abierta al lado no puede quedarse con filas que ya no están.
     this.avisarLibro(tenantId);
-    return resumirLote(filas, montos);
+    return resumirLote(filas, montos, retiro ? resumirRetiroLote(retiro, tomados) : undefined);
+  }
+
+  /**
+   * `[CGA-A.60]` El retiro que va a pagar un lote: que exista, que sea un RETIRO (Dispensar), que no
+   * esté en una custodia cerrada y que le quede algo libre. Devuelve lo libre al empezar.
+   */
+  private async retiroParaLote(trx: Knex.Transaction, tenantId: string, r: { device: string; external_id: number }) {
+    const m = await trx('analytics.caos_cash_movements as m')
+      .where({ 'm.tenant_id': tenantId, 'm.device': r.device, 'm.external_id': r.external_id })
+      .first('m.device', 'm.external_id', 'm.type_id', 'm.ref',
+        trx.raw(`${sqlDisponibleCaos('m')} AS libre`),
+        trx.raw(`${(await CajaCustodiaService.hayCustodia(trx)) ? sqlCustodiaCerrada('m') : 'false'} AS cerrada`));
+    if (!m) throw new BadRequestException('Ese retiro de CAOS no existe.');
+    if (Number(m.type_id) !== 4) throw new BadRequestException('Sólo un RETIRO de CAOS (Dispensar) paga egresos.');
+    if (m.cerrada) throw new BadRequestException('Ese retiro tiene su custodia cerrada: ya no paga egresos.');
+    const libre = redondea2(Number(m.libre));
+    if (!(libre > 0)) throw new BadRequestException(`Al retiro ${m.ref || m.external_id} ya no le queda nada libre.`);
+    return { device: String(m.device), external_id: Number(m.external_id), ref: m.ref ?? null, libre_antes: libre };
+  }
+
+  private async libreDelRetiro(trx: Knex.Transaction, tenantId: string, r: { device: string; external_id: number }) {
+    const m = await trx('analytics.caos_cash_movements as m')
+      .where({ 'm.tenant_id': tenantId, 'm.device': r.device, 'm.external_id': r.external_id })
+      .first(trx.raw(`${sqlDisponibleCaos('m')} AS libre`));
+    return Number(m?.libre ?? 0);
+  }
+
+  /**
+   * `[CGA-A.60]` Los retiros de CAOS a los que todavía les queda dinero libre: los que pueden pagar
+   * un lote. Ventana de la cola; los de custodia cerrada no se ofrecen.
+   */
+  async retirosLibres(q: { from?: string; limit?: number } = {}): Promise<CaosRetirosLibres> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(Math.max(Number(q.limit) || 30, 1), 100);
+    const desde = q.from || new Date(Date.now() - CAJA_VENTANA_DIAS * 86400000).toISOString().slice(0, 10);
+    return this.tk.run(async (trx) => {
+      let qb = trx('analytics.caos_cash_movements as m')
+        .where('m.tenant_id', tenantId).where('m.type_id', 4).where('m.occurred_at', '>=', desde)
+        .whereRaw(`${sqlDisponibleCaos('m')} > 0.005`);
+      if (await CajaCustodiaService.hayCustodia(trx)) qb = qb.whereRaw(`NOT ${sqlCustodiaCerrada('m')}`);
+      const rows = await qb
+        .orderBy([{ column: 'm.occurred_at', order: 'desc' }, { column: 'm.external_id', order: 'desc' }])
+        .limit(limit)
+        .select('m.device', 'm.external_id', 'm.occurred_at', 'm.ref', 'm.user_external',
+          trx.raw('abs(m.total) AS total'), trx.raw(`${sqlDisponibleCaos('m')} AS libre`));
+      type Cruda = { device: string; external_id: string | number; occurred_at: string | Date; ref: string | null;
+        user_external: string | null; total: string | number; libre: string | number };
+      return {
+        rows: (rows as Cruda[]).map((r) => ({
+          device: r.device, external_id: Number(r.external_id),
+          occurred_at: r.occurred_at instanceof Date ? r.occurred_at.toISOString() : String(r.occurred_at),
+          ref: r.ref, user_external: r.user_external,
+          total: Number(r.total), libre: redondea2(Number(r.libre)),
+        })),
+        desde, limit,
+      };
+    });
   }
 
   /**
@@ -3471,15 +3572,22 @@ export class CashLedgerService {
           // Escapar %/_/\: sin esto, buscar "100%" devuelve TODO (el backslash es el escape default de
           // ILIKE en Postgres, así que alcanza con anteponerlo — no hace falta cláusula ESCAPE).
           const s = `%${q.search.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-          qb = qb.where((b: any) => b
-            .whereILike('glosa', s)
-            .orWhereILike('beneficiario', s)
-            .orWhereILike('folio', s)
-            .orWhereILike('origen_ref', s)
-            .orWhereILike('created_by_username', s)
-            .orWhereILike('kepler_concepto_nombre', s)
-            .orWhereILike('kepler_concepto', s)
-            .orWhereILike('kepler_cuenta', s));
+          // `[CGA-A.59]` Por RUTA («501», «R501», «ruta 501») y por SUCURSAL de origen («Canindo»).
+          const ruta = rutaBuscada(q.search);
+          const servidores = codigosDeSucursalBuscada(q.search);
+          qb = qb.where((b: Knex.QueryBuilder) => {
+            b.whereILike('glosa', s)
+              .orWhereILike('beneficiario', s)
+              .orWhereILike('folio', s)
+              .orWhereILike('origen_ref', s)
+              .orWhereILike('created_by_username', s)
+              .orWhereILike('kepler_concepto_nombre', s)
+              .orWhereILike('kepler_concepto', s)
+              .orWhereILike('kepler_cuenta', s);
+            if (ruta) b.orWhere('ruta', ruta);
+            // El servidor es el prefijo del documento ('06|…' o '06-001|…'), o la sucursal capturada.
+            for (const c of servidores) b.orWhereRaw(`split_part(split_part(origen_ref, '|', 1), '-', 1) = ?`, [c]).orWhere('sucursal', c);
+          });
         }
         return qb;
       };
@@ -3543,6 +3651,8 @@ export class CashLedgerService {
           'glosa', 'beneficiario', 'beneficiario_rfc', 'monto', 'morralla', 'venta_credito',
           'origen_tipo', 'origen_ref', 'origen_uuid', 'declared_doc_ref', 'sin_documento_motivo',
           'autofill', 'estado', 'corte_id',
+          // `[CGA-A.59]` La ruta del cobro de camión (la pantalla dice «Canindo · Ruta 501»).
+          'ruta',
           'firma_estado', 'firma_nombre', 'firma_at',
           'cancel_reason', 'cancelled_by_username', 'cancelled_at',
           'created_by', 'created_by_username', 'created_at', 'updated_at',

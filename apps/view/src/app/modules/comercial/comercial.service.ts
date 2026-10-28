@@ -4636,7 +4636,7 @@ export interface CommissionRunPayload {
   scale: { id: string; code: string; base_field: string; gate_field: string; share_supervisor_pct: number };
   total_subtotal: number; total_venta: number; total_comision: number;
   /** Bruto. El neto es `total_neto`. */
-  total_a_pagar: number; total_deduccion: number; total_neto: number;
+  total_a_pagar: number; total_deduccion: number | null; total_neto: number | null;
   dias_multifuente: number;
   rutas_con_dato: number; rutas_sin_dato: number; rutas_fuera: number;
   data_as_of: string | null;

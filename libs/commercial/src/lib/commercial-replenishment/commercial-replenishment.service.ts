@@ -5044,6 +5044,7 @@ export class CommercialReplenishmentService {
   ): Promise<{
     ya_estaba: boolean;
     kepler?: { sucursal: string | null; folio: string; renglones?: number };
+    orden?: { folio: string };
     lineas?: KeplerLineaResuelta[];
     consolidado?: boolean;
   }> {
@@ -5126,6 +5127,8 @@ export class CommercialReplenishmentService {
 
     const res = await this.keplerSink.entregar({
       tope_dia: sw ? sw.tope_dia : undefined,
+      // `[PQ.22]` La OC de Kepler junto con la requisición, si la sucursal lo tiene encendido.
+      generar_orden: tipo === 'compra' && !!sw?.genera_orden,
       requisition_id: cab.id, folio_suite: cab.folio, tipo,
       // El documento se crea DONDE SALE la mercancía: en la compra, el almacén que recibe del
       // proveedor; en el traspaso, la sucursal origen — y el destino viaja como `TI###`.
@@ -5152,8 +5155,15 @@ export class CommercialReplenishmentService {
     await this.tk.run(async (trx) => {
       await trx('commercial.purchase_requisitions').where({ tenant_id: tenantId, id }).update(
         res.estado === 'entregada'
-          ? { kepler_sucursal: res.kepler!.sucursal, kepler_folio: res.kepler!.folio, kepler_pushed_at: trx.fn.now(), kepler_pushed_by: userId, kepler_error: null }
+          ? { kepler_sucursal: res.kepler!.sucursal, kepler_folio: res.kepler!.folio, kepler_pushed_at: trx.fn.now(), kepler_pushed_by: userId, kepler_error: null,
+              // `[PQ.22]` La coordenada de la OC de Kepler (`[RQ.15]`: sucursal + folio, las dos juntas).
+              ...(res.orden ? { oc_sucursal: res.kepler!.sucursal, oc_folio: res.orden.folio, oc_capturada_por: userId, oc_capturada_at: trx.fn.now() } : {}) }
           : { kepler_error: res.motivo ?? 'rechazada sin motivo' });
+      // Con OC escrita la requisición queda ordenada, como con `markOrdered`. Sólo desde 'approved'.
+      if (res.estado === 'entregada' && res.orden) {
+        await trx('commercial.purchase_requisitions').where({ tenant_id: tenantId, id, estado: 'approved' })
+          .update({ estado: 'ordered', ordered_by: userId, ordered_at: trx.fn.now(), updated_at: trx.fn.now() });
+      }
     });
 
     if (res.estado !== 'entregada') {
@@ -5165,7 +5175,7 @@ export class CommercialReplenishmentService {
       });
     }
     this.logger.log(`Requisición ${cab.folio} → Kepler ${res.kepler!.sucursal}/${res.kepler!.folio} por ${userId ?? 'system'}`);
-    return { ya_estaba: false, kepler: res.kepler, lineas: res.lineas, consolidado: lineas.length < datos.lineas.length };
+    return { ya_estaba: false, kepler: res.kepler, orden: res.orden, lineas: res.lineas, consolidado: lineas.length < datos.lineas.length };
   }
 
   // ── [PQ.20] Interruptor de la escritura a Kepler, sin desplegar ─────────────────────────────
@@ -5175,11 +5185,15 @@ export class CommercialReplenishmentService {
    * variable de entorno, para que desplegar antes de migrar no apague nada.
    */
   private async interruptorKepler(tenantId: string, sucursal: string, tipo: 'compra' | 'traspaso')
-    : Promise<{ encendida: boolean; tope_dia: number | null } | undefined> {
+    : Promise<{ encendida: boolean; tope_dia: number | null; genera_orden: boolean } | undefined> {
     try {
+      // `*` y no la lista: `genera_orden` (`[PQ.22]`) puede no existir todavía si se despliega antes
+      // de migrar, y entonces vale false.
       const r = await this.tk.run((trx) => trx('commercial.kepler_push_switch')
-        .where({ tenant_id: tenantId, sucursal, tipo }).first('encendida', 'tope_dia'));
-      return r ? { encendida: !!r.encendida, tope_dia: r.tope_dia === null ? null : Number(r.tope_dia) } : { encendida: false, tope_dia: null };
+        .where({ tenant_id: tenantId, sucursal, tipo }).first());
+      return r
+        ? { encendida: !!r.encendida, tope_dia: r.tope_dia === null ? null : Number(r.tope_dia), genera_orden: r.genera_orden === true }
+        : { encendida: false, tope_dia: null, genera_orden: false };
     } catch (e: unknown) {
       if ((e as { code?: string })?.code === '42P01') return undefined;
       throw e;
@@ -5195,7 +5209,8 @@ export class CommercialReplenishmentService {
       filas = await this.tk.run((trx) => trx('commercial.kepler_push_switch as s')
         .leftJoin('identity.users as u', 'u.id', 's.updated_by')
         .where('s.tenant_id', tenantId)
-        .select('s.sucursal', 's.tipo', 's.encendida', 's.tope_dia', 's.nota', 's.updated_at', 'u.username as updated_by')
+        // `s.*`: `genera_orden` (`[PQ.22]`) puede faltar si se desplegó antes de migrar.
+        .select('s.*', 'u.username as updated_by_username')
         .orderBy(['s.sucursal', 's.tipo']));
     } catch (e: unknown) {
       if ((e as { code?: string })?.code !== '42P01') throw e;
@@ -5216,7 +5231,9 @@ export class CommercialReplenishmentService {
           sucursal: s, sucursal_nombre: nombre.get(s) ?? null, tipo,
           encendida: f ? !!f['encendida'] : false,
           tope_dia: f && f['tope_dia'] !== null && f['tope_dia'] !== undefined ? Number(f['tope_dia']) : null,
-          nota: (f?.['nota'] as string) ?? null, updated_at: f?.['updated_at'] ?? null, updated_by: (f?.['updated_by'] as string) ?? null,
+          // `[PQ.22]` Sólo la compra genera orden de compra; en el traspaso siempre es false.
+          genera_orden: tipo === 'compra' && f?.['genera_orden'] === true,
+          nota: (f?.['nota'] as string) ?? null, updated_at: f?.['updated_at'] ?? null, updated_by: (f?.['updated_by_username'] as string) ?? null,
           // Encendida en la Suite no basta: sin URL o sin plantilla en el secreto, rebota igual.
           configurada: conUrl && conPlantilla,
           falta: !conUrl ? 'conexión del servidor' : !conPlantilla ? `plantilla de ${tipo}` : null,
@@ -5226,7 +5243,7 @@ export class CommercialReplenishmentService {
     return { migrada, rows: out };
   }
 
-  async setKeplerSwitch(sucursal: string, tipo: string, dto: { encendida?: boolean; tope_dia?: number | null; nota?: string | null }): Promise<{ migrada: boolean; rows: Array<Record<string, unknown>> }> {
+  async setKeplerSwitch(sucursal: string, tipo: string, dto: { encendida?: boolean; tope_dia?: number | null; nota?: string | null; genera_orden?: boolean }): Promise<{ migrada: boolean; rows: Array<Record<string, unknown>> }> {
     const tenantId = this.tenantCtx.requireTenantId();
     const userId = this.tenantCtx.get()?.userId ?? null;
     if (!/^0[0-8]$/.test(sucursal)) throw new BadRequestException('Sucursal inválida');
@@ -5235,11 +5252,15 @@ export class CommercialReplenishmentService {
     const tope = dto.tope_dia === null || dto.tope_dia === undefined ? null : Number(dto.tope_dia);
     if (tope !== null && (!Number.isInteger(tope) || tope < 1)) throw new BadRequestException('El tope es un entero mayor que 0, o vacío para no tener tope');
     const nota = dto.nota ? String(dto.nota).slice(0, 300) : null;
+    // `[PQ.22]` Ausente = no se toca (la pantalla vieja no lo manda). Sólo la compra genera OC.
+    if (dto.genera_orden !== undefined && typeof dto.genera_orden !== 'boolean') throw new BadRequestException('genera_orden es true/false');
+    if (dto.genera_orden === true && tipo !== 'compra') throw new BadRequestException('Sólo la compra genera orden de compra');
+    const orden = dto.genera_orden === undefined ? {} : { genera_orden: dto.genera_orden };
     await this.tk.run((trx) => trx('commercial.kepler_push_switch')
-      .insert({ tenant_id: tenantId, sucursal, tipo, encendida: dto.encendida, tope_dia: tope, nota, created_by: userId, updated_by: userId })
+      .insert({ tenant_id: tenantId, sucursal, tipo, encendida: dto.encendida, tope_dia: tope, nota, ...orden, created_by: userId, updated_by: userId })
       .onConflict(['tenant_id', 'sucursal', 'tipo'])
-      .merge({ encendida: dto.encendida, tope_dia: tope, nota, updated_by: userId, updated_at: trx.fn.now() }));
-    this.logger.log(`Escritura a Kepler ${sucursal}/${tipo} → ${dto.encendida ? 'ENCENDIDA' : 'apagada'}${tope ? ` (tope ${tope}/día)` : ''} por ${userId ?? 'system'}`);
+      .merge({ encendida: dto.encendida, tope_dia: tope, nota, ...orden, updated_by: userId, updated_at: trx.fn.now() }));
+    this.logger.log(`Escritura a Kepler ${sucursal}/${tipo} → ${dto.encendida ? 'ENCENDIDA' : 'apagada'}${tope ? ` (tope ${tope}/día)` : ''}${dto.genera_orden !== undefined ? ` · OC automática ${dto.genera_orden ? 'sí' : 'no'}` : ''} por ${userId ?? 'system'}`);
     return this.listKeplerSwitch();
   }
 

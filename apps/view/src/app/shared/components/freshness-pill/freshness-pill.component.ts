@@ -48,7 +48,8 @@ import type { Freshness } from '@megadulces/contracts';
     :host { display: inline-flex; }
     .fp { display: inline-flex; align-items: center; gap: .35rem; font-size: .68rem; color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
     .fp .dot { width: 6px; height: 6px; border-radius: var(--r-pill, 999px); background: var(--ok-fg); flex: none; }
-    .fp.warn { color: var(--warn-fg); }
+    /* [AUD-CM.16] El texto en el ámbar que se lee (--warn-fg daba 1.95:1 sobre blanco); el punto conserva el tono. */
+    .fp.warn { color: var(--warn-soft-fg); }
     .fp.warn .dot { background: var(--warn-fg); }
     /* [VP.0.2] La de carga NO lleva punto verde: el verde afirma salud del dato, y ésta no la midió.
        Queda un aro hueco — se ve que es otra cosa sin gritar. */

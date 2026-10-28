@@ -134,9 +134,13 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
    * corra TODO el SQL real contra cada servidor —plantilla, proveedor, tope, folio, tipos— y
    * termine en `ROLLBACK` en vez de aquí.
    */
-  protected async confirmar(c: PoolClient): Promise<void> {
+  protected async confirmar(c: PoolClient, conOrden = false): Promise<void> {
     await c.query('INSERT INTO md.kdm1 SELECT * FROM _h');
     await c.query('INSERT INTO md.kdm2 SELECT * FROM _l');
+    if (conOrden) {
+      await c.query('INSERT INTO md.kdm1 SELECT * FROM _oh');
+      await c.query('INSERT INTO md.kdm2 SELECT * FROM _ol');
+    }
     await c.query('COMMIT');
   }
 
@@ -270,6 +274,24 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
           : { sku: l.sku, unidad: unidadBase.get(l.sku)!, unidad_caja: unidadBase.get(l.sku)!, por_caja: 1, cantidad: pz };
       });
 
+      // ⛔ `[PQ.21]` **Las tasas de impuesto del renglón salen de la ficha del producto, no de la
+      // plantilla.** Medido el 2026-10-28 en ≥99 % de los renglones X-A-30/35 desde agosto, en los
+      // nueve servidores: `kdm2.c17` = |`kdii.c18`| (IVA) y `kdm2.c18` = |`kdii.c19`| (IEPS), en
+      // positivo. La versión anterior arrastraba el `-16` / `0` del renglón molde a TODOS los
+      // renglones: un dulce con IEPS 8 % salía con IVA 16 % y el total del documento sin impuestos.
+      // Sólo compra: el traspaso no se midió y queda como estaba (declarado en el plan PQ).
+      const tasas = new Map<string, { iva: number; ieps: number }>();
+      if (!esTraspaso) {
+        const t = await c.query(
+          `SELECT btrim(c1) AS sku, c18, c19 FROM md.kdii WHERE btrim(c1) = ANY($1::text[])`,
+          [e.lineas.map((l) => l.sku)]);
+        for (const r of t.rows) tasas.set(String(r.sku), { iva: Math.abs(num(r.c18)), ieps: Math.abs(num(r.c19)) });
+        const sinTasa = e.lineas.filter((l) => !tasas.has(l.sku));
+        if (sinTasa.length) {
+          return { estado: 'rechazada', motivo: `Kepler (sucursal ${e.sucursal}) no tiene ficha (kdii) para ${sinTasa.slice(0, 5).map((l) => l.sku).join(', ')}: no se conoce su IVA/IEPS` };
+        }
+      }
+
       // ⛔ `[KR.12]` El tope diario del servidor: cuántos documentos con marca de la Suite ya
       // tienen esta fecha en ESTE servidor. Se cuenta en Kepler, no en la Suite: lo que importa
       // es lo que el ERP ya tiene, incluido lo que escribió otro proceso o un reintento.
@@ -320,8 +342,8 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
       // 3,061 requisiciones de oficinas, 1,050 de La Piedad y 338 de 8 Esquinas (2026-10-24):
       //   `c18` fecha de entrega = fecha del documento en 64-75 % (y ≥ en 97-100 %) — se usa la
       //         fecha; la plantilla traía la suya (07-mar) y así se veía en pantalla.
-      //   `c14`/`c15` importes accesorios: 0 en 36-73 % de compras y 99 % de traspasos. La Suite no
-      //         los calcula: 0, nunca el importe de otro documento.
+      //   `c14`/`c15` IVA / IEPS del documento: aquí en 0, nunca el importe de otro documento. En
+      //         la compra los recalcula `[PQ.21]` después de los renglones, con las tasas de la ficha.
       //   `c69` hora de captura · `c67` quién capturó: la plantilla los atribuía a una persona que
       //         no capturó nada. `SUITE` dice quién lo escribió.
       await c.query(
@@ -393,12 +415,72 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
             WHERE c7=$7`,
           [folio, ln.sku, cantidad, ln.nombre, costoUnit, ln.importe, i + 1, textoKepler(costoUnit),
             textoKepler(cantidad), c10, e.fecha, rs.unidad]);
+        const tx = tasas.get(ln.sku);
+        // `c17` es texto y `c18` numérico: cada uno con su propio parámetro (`[KR.16]`).
+        if (tx) await c.query('UPDATE _l SET c17=$1, c18=$2 WHERE c7=$3', [textoKepler(tx.iva), tx.ieps, i + 1]);
       }
 
-      await this.confirmar(c);
+      // ⛔ `[PQ.21]` El encabezado, con la fórmula de Kepler (medida en ≥96 % de 2,700 documentos):
+      //   `c14` IVA = Σ round(c13 × c17 / 100, 2) · `c15` IEPS = Σ round(c13 × c18 / 100, 2)
+      //   `c16` total = subtotal + IVA + IEPS (− `c13` descuento, que la Suite no usa).
+      //   `c42` SALDO PENDIENTE = `c16` en el 100 % de los X-A-30 y U-D-40 abiertos (`c43` N/A) y 0
+      //         en los ya convertidos. La versión anterior lo dejaba en 0 y Kepler daba la
+      //         requisición por surtida: **no aparecía al generar la orden de compra** (2026-10-28,
+      //         RQ-2026-01601 y otras tres en oficinas).
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      if (!esTraspaso) {
+        let sub = 0, iva = 0, ieps = 0;
+        for (const ln of e.lineas) {
+          const tx = tasas.get(ln.sku)!;
+          sub += Number(ln.importe);
+          iva += r2(Number(ln.importe) * tx.iva / 100);
+          ieps += r2(Number(ln.importe) * tx.ieps / 100);
+        }
+        const total = r2(sub + iva + ieps);
+        await c.query('UPDATE _h SET c14 = $1, c15 = $2, c16 = $3, c42 = $3', [r2(iva), r2(ieps), total]);
+      } else {
+        await c.query('UPDATE _h SET c42 = c16');
+      }
 
-      this.logger.log(`Requisición ${e.folio_suite} → Kepler ${e.sucursal}/${folio} (${n} renglones)`);
-      return { estado: 'entregada', kepler: { sucursal: e.sucursal, folio, renglones: n }, lineas: resueltas };
+      // ⭐ `[PQ.22]` **La orden de compra, convertida como la convierte Kepler.** Medido el
+      // 2026-10-28 sobre 1,142 pares X-A-35 ← X-A-30 (1,893 renglones, los nueve servidores):
+      //   encabezado = copia de la requisición salvo `c4` 35 · `c6` folio propio (serie 1, máx+1)
+      //     · `c31` Ord · `c63` XA3501- · liga `c36` A · `c37` 30 · `c38` serie · `c39` folio req;
+      //     abierta: `c43` N y `c42` = `c16` (100 % de las 438 abiertas).
+      //   renglón = copia salvo liga `c19` A · `c20` 30 · `c21` serie · `c22` folio · `c23` renglón
+      //     · `c31` = `c9` (1,893 de 1,893); `c24` pendiente = `c9`.
+      //   la requisición queda CONVERTIDA: `c43` F y `c42` 0 (1,099 de 1,142) y `c24` 0 por renglón.
+      // Escribir las dos en la misma transacción deja la requisición nacida convertida: no hace
+      // falta permiso de UPDATE en Kepler, y no queda una requisición pendiente que alguien
+      // pueda volver a convertir a mano (OC duplicada).
+      let ordenFolio: string | undefined;
+      if (!esTraspaso && e.generar_orden) {
+        await c.query('CREATE TEMP TABLE _oh ON COMMIT DROP AS SELECT * FROM _h');
+        await c.query('CREATE TEMP TABLE _ol ON COMMIT DROP AS SELECT * FROM _l');
+        await c.query(
+          `UPDATE _oh SET
+              c4  = $1,
+              c6  = lpad(((SELECT max(c6::int) FROM md.kdm1
+                            WHERE c1=$2 AND c2='X' AND c3='A' AND btrim(c4::text)='35' AND btrim(c5::text)=$3) + 1)::text, 7, '0'),
+              c31 = 'Ord', c63 = 'XA3501-', c36 = 'A', c37 = $4, c38 = $6, c39 = $5`,
+          // ⛔ `c38` es numeric y `$3` ya es texto por el `btrim(c5::text)`: cada uno con su
+          // parámetro (`[KR.16]`; lo cazó el ensayo contra 01/06/07 el 2026-10-28).
+          ['35', e.sucursal, tmpl.serie, '30', folio, tmpl.serie]);
+        ordenFolio = (await c.query('SELECT c6 FROM _oh')).rows[0].c6 as string;
+        await c.query(
+          `UPDATE _ol SET c4 = $1, c6 = $2, c19 = 'A', c20 = $3, c21 = $4, c22 = $5, c23 = c7, c31 = c9`,
+          ['35', ordenFolio, '30', tmpl.serie, folio]);
+        await c.query('UPDATE _h SET c43 = $1, c42 = 0', ['F']);
+        await c.query('UPDATE _l SET c24 = 0');
+      }
+
+      await this.confirmar(c, !!ordenFolio);
+
+      this.logger.log(`Requisición ${e.folio_suite} → Kepler ${e.sucursal}/${folio} (${n} renglones)${ordenFolio ? ` + OC ${ordenFolio}` : ''}`);
+      return {
+        estado: 'entregada', kepler: { sucursal: e.sucursal, folio, renglones: n }, lineas: resueltas,
+        ...(ordenFolio ? { orden: { folio: ordenFolio } } : {}),
+      };
     } catch (err) {
       await c.query('ROLLBACK').catch(() => undefined);
       const motivo = (err as Error).message;

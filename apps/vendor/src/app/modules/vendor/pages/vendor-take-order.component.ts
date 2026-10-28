@@ -25,6 +25,28 @@ import { Observable, ReplaySubject, forkJoin, from, of, switchMap, catchError, m
 import type { OfflinePedidoLine } from '../../../core/services/offline-database.service';
 import { VendorService, VendorCustomer, VendorOrder, FrequentProduct, type CatalogoAlAbrir } from '../vendor.service';
 import { type OrigenCatalogo, edadCatalogo, hayQueRefrescar } from '../catalogo-al-abrir';
+import {
+  ODS_HOT_TOLERANCIA_H,
+  bloqueaAgregar,
+  type StockBlockError,
+  type StockState,
+  type VendorZoneStockResponse,
+} from '@megadulces/contracts';
+import {
+  type ChipZona,
+  alternativasEnZona,
+  baseEnZona,
+  cantidadEnUnidad,
+  chipsDeZona,
+  edadZona,
+  estadoEnZona,
+  mensajeBloqueo,
+  nadieEnZona,
+  rotuloBase,
+  sucursalesSinDato,
+  zonaConFrescura,
+} from '../zona-existencias';
+import { dictar, mencionaSabores, puedeDictar, unirDictado } from '../dictado';
 import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
@@ -121,7 +143,7 @@ const foldText = (s: string | null | undefined): string =>
             <i class="pi pi-cloud-upload"></i>
             <div class="ob-body">
               <b>Sin conexión</b>
-              <span>El pedido se guarda y se envía solo al recuperar señal. El total puede ajustarse con promos al sincronizar.</span>
+              <span>El pedido se guarda y se envía solo al recuperar señal. El total puede ajustarse con promos al sincronizar. Sin señal no se revisa si hay existencias: no se sabe de cuándo es el dato.</span>
             </div>
           </div>
         }
@@ -225,6 +247,10 @@ const foldText = (s: string | null | undefined): string =>
           @if (catalogoAviso(); as av) {
             <p class="cat-age" [class.warn]="av.fallo" role="status"><i class="pi pi-clock" aria-hidden="true"></i> {{ av.texto }}</p>
           }
+          <!-- [MCP.3.12] De cuándo es la existencia de las otras sucursales, o por qué no se ve. -->
+          @if (zonaAviso(); as za) {
+            <p class="cat-age" [class.warn]="za.fallo" role="status"><i class="pi pi-building" aria-hidden="true"></i> {{ za.texto }}</p>
+          }
           <!-- Order pad: con búsqueda → resultados; sin búsqueda → Habituales + Catálogo -->
           @if (searchTerm().trim()) {
             <div class="list-head">
@@ -302,10 +328,30 @@ const foldText = (s: string | null | undefined): string =>
                   @if (p.min_qty > 1) {
                     <span>· min {{ p.min_qty }}</span>
                   }
-                  @if (p.stock_available != null) {
+                  <!-- [MCP.3.16] Con stock_state se dice el estado (agotado / no se maneja / sin dato), no sólo el número. -->
+                  @if (p.stock_available != null || p.stock_state) {
                     <span class="stk" [ngClass]="stockClass(p)">{{ stockLabel(p) }}</span>
                   }
                 </div>
+                <!-- [MCP.3.12] Existencias de las sucursales de la zona, en chico. Sólo se ven: elegir
+                     de cuál se surte es la parte 2. -->
+                @if (zonaDe(p); as zs) {
+                  <!-- [MCP.3.13] Tocar una sucursal = de ahí se surte ESTE producto (se cobra allá). -->
+                  <div class="zs" role="radiogroup" [attr.aria-label]="'De qué sucursal se surte ' + p.product_name">
+                    <i class="pi pi-building" aria-hidden="true"></i>
+                    @for (c of zs; track c.id) {
+                      <button type="button" class="zs-c" role="radio" [class.mine]="c.mine" [class.on]="origenEs(p, c)"
+                        [class.cero]="c.cero" [class.nd]="c.qty == null" [attr.aria-checked]="origenEs(p, c)"
+                        [attr.aria-label]="ariaChip(c, p)" [disabled]="cambiandoOrigen() === p.product_id"
+                        (click)="elegirOrigen(p, c); $event.stopPropagation()">{{ c.short }}&nbsp;<b>{{ c.texto }}</b></button>
+                    }
+                    @if (selectedUnit(p)?.unit; as u) { <span class="zs-u" aria-hidden="true">{{ u }}</span> }
+                  </div>
+                  @if (avisoOrigen(p); as av) { <div class="zs-warn" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ av }}</div> }
+                } @else if (nadieZona(p)) {
+                  <!-- [MCP.3.16] La zona se midió al día y ninguna sucursal lo tiene: se dice, no se calla. -->
+                  <div class="zs zs-none"><i class="pi pi-building" aria-hidden="true"></i> Nadie en tu zona tiene</div>
+                }
                 <!-- [VTK.9] Al buscar: cuánto trae la caja, sin abrir la ficha ni hacer la cuenta. -->
                 @if (box && contenidoCajaById().get(p.product_id); as bc) {
                   <div class="box-c">
@@ -354,7 +400,7 @@ const foldText = (s: string | null | undefined): string =>
                   <button (click)="decProduct(p)" [disabled]="cartQty(p.product_id) === 0" aria-label="Menos">−</button>
                   <input class="qin" type="number" inputmode="numeric" min="0" step="1"
                     [ngModel]="dispCount(p) || null"
-                    (change)="setQtyTyped(p, $any($event.target).value)"
+                    (change)="setQtyTyped(p, $any($event.target).value, $any($event.target))"
                     (keydown.enter)="$any($event.target).blur()"
                     (focus)="$any($event.target).select()"
                     placeholder="0" [attr.aria-label]="'Cantidad en ' + (rowUnitLabel(p) || 'unidades')" />
@@ -392,7 +438,8 @@ const foldText = (s: string | null | undefined): string =>
                 </span>
                 <i class="pi pi-chevron-up"></i>
               </button>
-              <button class="cb-go" [disabled]="submitting() || settling()" (click)="submit()">
+              <!-- [MCP.3.15] Abre «Tu pedido»: las indicaciones para el surtidor se ven antes de agendar. -->
+              <button class="cb-go" [disabled]="submitting() || settling()" (click)="cartOpen.set(true)">
                 {{ settling() ? 'Calculando…' : (isEditing() ? 'Guardar' : 'Agendar') }}
                 <i class="pi" [ngClass]="(submitting() || settling()) ? 'pi-spin pi-spinner' : 'pi-arrow-right'"></i>
               </button>
@@ -416,7 +463,7 @@ const foldText = (s: string | null | undefined): string =>
                   <div class="cline">
                     <div class="cl-info">
                       <div class="cl-n">{{ productNameById(l.product_id) }}</div>
-                      <div class="cl-t">{{ fmtMoney(l.line_total) }}</div>
+                      <div class="cl-t">{{ fmtMoney(l.line_total) }}@if (l.source_warehouse_id) {<span class="cl-src"> · se surte en {{ l.source_warehouse_short || l.source_warehouse_name }}</span>}</div>
                       <!-- Mayoreo por cantidad: precio nuevo + cuánto se descuenta vs base. -->
                       @if (mayoreoInfo(l); as m) {
                         <div class="cl-may">
@@ -437,6 +484,35 @@ const foldText = (s: string | null | undefined): string =>
                 }
               </div>
               <div class="sh-foot">
+                <!-- [MCP.3.15] Indicaciones para el surtidor: una sola por pedido; se pueden dictar. -->
+                <div class="ind">
+                  <label class="ind-l" for="to-ind">Indicaciones para el surtidor<span>Opcional · una para todo el pedido; nombra el producto</span></label>
+                  <textarea id="to-ind" class="ind-t" rows="3" maxlength="500" [ngModel]="indicaciones()" (ngModelChange)="indicaciones.set($event)"
+                            placeholder="Ej. las Sabritas con caducidad larga, que no vengan golpeadas…"></textarea>
+                  <div class="ind-row">
+                    @if (dictadoDisponible) {
+                      <button type="button" class="ind-mic" [class.on]="escuchando()" [attr.aria-pressed]="escuchando()" (click)="alternarDictado()">
+                        <i class="pi" [ngClass]="escuchando() ? 'pi-stop-circle' : 'pi-microphone'" aria-hidden="true"></i>
+                        {{ escuchando() ? 'Escuchando… toca para parar' : 'Dictar' }}
+                      </button>
+                    } @else {
+                      <span class="ind-n">Este navegador no puede dictar: escríbelas.</span>
+                    }
+                    <span class="ind-n">{{ indicaciones().length }}/500</span>
+                  </div>
+                  @if (dictadoError(); as de) { <p class="ind-err" role="alert">{{ de }}</p> }
+                  @if (avisoSabores()) {
+                    <p class="ind-warn" role="note"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                      <span><b>Eso cambia el producto.</b> Cada sabor es otro producto en Kepler: agrégalo por sabor desde el catálogo. Como texto, el ticket dirá un producto distinto del que se entrega.</span></p>
+                  }
+                  @if (offlineMode() && indicaciones().trim()) { <p class="ind-err">Sin conexión: las indicaciones sólo se mandan con conexión.</p> }
+                </div>
+                @if (surteEn(); as se) {
+                  <p class="se" role="note"><i class="pi pi-building" aria-hidden="true"></i> Se surte en
+                    @for (g of se; track g.label) { <span class="se-g" [class.ajena]="g.ajena">{{ g.label }} ({{ g.n }})</span> }
+                    · un pedido; cada sucursal cobra lo suyo
+                  </p>
+                }
                 <div class="totals">
                   <div class="row"><span>Subtotal</span><b>{{ fmtMoney(cartSubtotal()) }}</b></div>
                   <div class="row"><span>IVA</span><b>{{ fmtMoney(cartTaxTotal()) }}</b></div>
@@ -601,12 +677,32 @@ const foldText = (s: string | null | undefined): string =>
       .prod .may.on b { color: var(--ok-fg); }
       .prod .may i { font-size: var(--fs-xs); }
       .prod .pm .stk.ok { color: var(--ok-fg); } .prod .pm .stk.warn { color: var(--warn-fg); } .prod .pm .stk.bad { color: var(--bad-fg); }
+      /* [MCP.3.16] No se maneja en la sucursal / sin dato de existencia: gris, no rojo (no es un quiebre). */
+      .prod .pm .stk.nd { color: var(--text-muted); font-weight: 500; }
       /* [MCP.3.5] El renglón que no se pudo crear: el motivo queda pegado a la fila. */
       .prod .row-err { display: flex; align-items: flex-start; gap: 0.3rem; margin-top: 0.25rem; font-size: 0.76rem; line-height: 1.35; font-weight: 600; color: var(--bad-fg); }
       .prod .row-err i { font-size: 0.72rem; margin-top: 0.1rem; flex-shrink: 0; }
       /* [VTK.9] Contenido de la caja en los resultados de búsqueda. */
       .prod .box-c { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; color: var(--text-muted); }
       .prod .box-c i { font-size: 0.7rem; }
+      /* [MCP.3.12] Tira de existencias de la zona: discreta pero legible (0.72rem, sin color de acción). */
+      .prod .zs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin: 0.25rem 0 0; font-size: 0.72rem; color: var(--text-muted); }
+      .prod .zs > i { font-size: 0.66rem; }
+      .prod .zs-c { display: inline-flex; align-items: baseline; padding: 0.05rem 0.4rem; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); background: var(--surface-ground); color: var(--text-main); font-weight: 600; white-space: nowrap; }
+      .prod .zs-c b { font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; }
+      .prod .zs-c.mine { border-color: var(--text-muted); }
+      .prod .zs-c.cero, .prod .zs-c.nd { color: var(--text-muted); border-style: dashed; font-weight: 500; }
+      .prod .zs-u { font-size: 0.68rem; }
+      /* [MCP.3.13] La tira es elegible: botones discretos, la elegida con el color de acción. */
+      .prod button.zs-c { min-height: 1.9rem; cursor: pointer; font-family: inherit; font-size: 0.72rem; }
+      .prod button.zs-c.on { border-color: var(--action); border-style: solid; background: var(--overlay-selected); color: var(--text-main); font-weight: 700; }
+      .prod button.zs-c:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+      .prod button.zs-c:disabled { opacity: 0.6; cursor: progress; }
+      .prod .zs-warn { display: flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.72rem; font-weight: 600; color: var(--warn-fg); }
+      .cl-src { color: var(--text-muted); font-weight: 600; }
+      .se { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin: 0 0 0.5rem; font-size: 0.76rem; color: var(--text-muted); }
+      .se-g { padding: 0.05rem 0.45rem; border-radius: var(--r-pill, 999px); background: var(--surface-ground); color: var(--text-main); font-weight: 700; }
+      .se-g.ajena { border: 1px solid var(--action); }
       .prod .box-c b { font-family: var(--font-mono); font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
       /* [VTK.12] Caja elegida en el selector. */
       .prod .box-sel { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; color: var(--text-main); }
@@ -722,6 +818,21 @@ const foldText = (s: string | null | undefined): string =>
       .cart-sheet .sh-lines { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; min-height: 0; }
       .cart-sheet .sh-foot { border-top: 1px solid var(--border-color); padding-top: 0.6rem; flex-shrink: 0; }
       .cart-sheet .totals { margin: 0 0 0.7rem 0; max-width: 100%; }
+      /* [MCP.3.15] Indicaciones para el surtidor */
+      .ind { display: grid; gap: 0.4rem; margin: 0 0 0.75rem; }
+      .ind-l { font-size: 0.86rem; font-weight: 700; color: var(--text-main); display: grid; gap: 0.1rem; }
+      .ind-l span { font-size: 0.72rem; font-weight: 500; color: var(--text-muted); }
+      .ind-t { width: 100%; min-height: 4.5rem; resize: vertical; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px);
+        padding: 0.6rem 0.7rem; font: inherit; font-size: 0.9rem; color: var(--text-main); background: var(--surface-ground); }
+      .ind-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+      .ind-mic { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 2.5rem; padding: 0 0.9rem; border: 1px solid var(--border-color);
+        border-radius: 999px; background: var(--card-bg, var(--surface-ground)); color: var(--text-main); font-weight: 700; font-size: 0.82rem; }
+      .ind-mic.on { border-color: var(--action); color: var(--action); }
+      .ind-n { font-size: 0.72rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+      .ind-err { margin: 0; font-size: 0.76rem; color: var(--bad-fg); }
+      .ind-warn { margin: 0; display: flex; gap: 0.45rem; align-items: flex-start; font-size: 0.78rem; line-height: 1.4; padding: 0.55rem 0.65rem;
+        border-radius: var(--r-md, 12px); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+      .ind-warn i { margin-top: 0.1rem; }
       .cart-sheet .sh-go { width: 100%; height: 3.1rem; border: none; border-radius: var(--r-md, 12px); background: var(--action); color: #fff; font-weight: 800; font-size: 1rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: transform 0.07s var(--ease, ease); }
       .cart-sheet .sh-go:active { transform: scale(0.99); } .cart-sheet .sh-go:disabled { opacity: 0.7; }
       .cart-sheet .cancel { margin: 0.5rem auto 0; display: block; }
@@ -883,6 +994,26 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly catalogoRefrescando = signal(false);
   /** `[VTK.11]` La recarga de fondo falló: se sigue con la copia y se dice. */
   readonly catalogoFallo = signal(false);
+  /** `[MCP.3.12]` Existencias de las sucursales de la zona (null = aún no llega o no aplica). */
+  readonly zona = signal<VendorZoneStockResponse | null>(null);
+  /** `[MCP.3.12]` La consulta de la zona falló: se dice, no se pintan ceros. */
+  readonly zonaFallo = signal(false);
+  /** `[MCP.3.12]` De cuándo es la existencia de la zona, o por qué no se puede ver. */
+  readonly zonaAviso = computed(() => {
+    const z = this.zona();
+    const fallo = this.zonaFallo();
+    if (fallo) return { texto: 'No se pudo leer la existencia de las otras sucursales de tu zona', fallo: true };
+    if (!z) return null;
+    if (z.unmeasured_reason) return { texto: `Otras sucursales: ${z.unmeasured_reason}`, fallo: true };
+    if (z.warehouses.length < 2) return null;
+    const edad = edadZona(z, Date.now());
+    // [MCP.3.16] Las sucursales con la lectura vieja se nombran: su «—» no es un cero.
+    const sinDato = sucursalesSinDato(z);
+    return {
+      texto: `Zona ${z.zone}: existencias de las otras sucursales${edad ? ' de ' + edad : ''}${sinDato.length ? ' · sin dato reciente de ' + sinDato.join(', ') : ''}`,
+      fallo: sinDato.length > 0,
+    };
+  });
   /**
    * `[VTK.11]` El aviso de la edad del catálogo (ADR-056). Null cuando lo que se ve acaba de
    * bajar del servidor: ahí no hay nada que declarar.
@@ -899,6 +1030,27 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   });
   readonly cartLines = signal<OrderLine[]>([]);
   readonly cartOrderId = signal<string | null>(null);
+  /** [MCP.3.15] Indicaciones del vendedor para el surtidor: un solo texto por pedido (`orders.notes`). */
+  readonly indicaciones = signal('');
+  readonly escuchando = signal(false);
+  readonly dictadoError = signal<string | null>(null);
+  readonly dictadoDisponible = puedeDictar();
+  /** Hablan de sabores: cada sabor es otro producto en Kepler (David: sólo avisar, no partir solo). */
+  readonly avisoSabores = computed(() => mencionaSabores(this.indicaciones()));
+  private pararDictado: (() => void) | null = null;
+
+  /** Empieza o para el dictado; lo dictado se suma a lo que ya estaba escrito. */
+  alternarDictado(): void {
+    if (this.escuchando()) { this.pararDictado?.(); return; }
+    const base = this.indicaciones();
+    this.dictadoError.set(null);
+    this.escuchando.set(true);
+    this.pararDictado = dictar(
+      (texto) => this.indicaciones.set(unirDictado(base, texto).slice(0, 500)),
+      (error) => { this.escuchando.set(false); this.dictadoError.set(error); this.pararDictado = null; },
+    );
+    if (!this.pararDictado && !this.dictadoError()) this.escuchando.set(false);
+  }
   /**
    * Almacén de SURTIDO del pedido: de dónde sale la mercancía cuando se reparte.
    * Lo fija la carga (la sucursal del vendedor) y NO lo mueve el toggle de abajo —
@@ -1001,13 +1153,260 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   /** [MCP.3.6] Volcado en vuelo: el siguiente espera a que vuelva (nunca dos PUT al mismo renglón a la vez). */
   private flushEnVuelo: Observable<void> | null = null;
 
-  stockClass(p: PriceRow): 'ok' | 'warn' | 'bad' {
+  /** `[MCP.3.12]` La tira de la zona de este producto, en la unidad que se está pidiendo. */
+  zonaDe(p: PriceRow): ChipZona[] | null {
+    return this.offlineMode() ? null : chipsDeZona(this.zona(), p.product_id, this.unitFactor(p));
+  }
+
+  // ── [MCP.3.16] Estado de existencia por sucursal y bloqueo al agregar ──────────────────────
+  // Regla de David con su PM (2026-10-27): no se agrega un producto de una sucursal que lo tiene
+  // agotado o no lo maneja; se dice por qué y, si otra sucursal de la zona lo tiene, cuál. El
+  // servidor hace la misma revisión (409 SIN_EXISTENCIA): esto evita el viaje y la cantidad que salta.
+
+  /** `[MCP.3.16]` La zona se midió al día y ninguna sucursal tiene este producto. */
+  nadieZona(p: PriceRow): boolean {
+    return !this.offlineMode() && nadieEnZona(this.zona(), p.product_id);
+  }
+
+  /** `[MCP.3.16]` La sucursal propia dentro de la respuesta de la zona. */
+  private sucursalMia(): { id: string; short: string } | null {
+    return this.zona()?.warehouses.find((w) => w.mine) ?? null;
+  }
+
+  /** `[MCP.3.16]` Nombre corto de la sucursal del vendedor (PH, LPA…); sin zona, su nombre. */
+  private cortoMio(): string {
+    return this.sucursalMia()?.short || this.stockSources().sucursal?.name || 'tu sucursal';
+  }
+
+  /**
+   * `[MCP.3.16]` Estado de existencia del producto en la sucursal propia, como lo manda el catálogo.
+   * Una copia guardada cuya lectura pasó la tolerancia del carril (`ODS_HOT_TOLERANCIA_H`) se lee
+   * como «sin dato»: con un dato de ayer no se afirma «agotado» ni se bloquea. `null` = el servidor
+   * no mandó estado (versión vieja): la pantalla se porta como antes.
+   */
+  estadoPropio(p: PriceRow): StockState | null {
+    const s = p.stock_state ?? null;
+    if (!s || s === 'sin_dato') return s;
+    const at = p.stock_checked_at ? Date.parse(p.stock_checked_at) : Number.NaN;
+    if (Number.isFinite(at) && Date.now() - at > ODS_HOT_TOLERANCIA_H * 3_600_000) return 'sin_dato';
+    return s;
+  }
+
+  /**
+   * `[MCP.3.16]` Estado en la sucursal de la que se SURTIRÍA (`origen` null = la propia). De la
+   * propia manda el catálogo, salvo que se esté mirando la camioneta (ahí el catálogo es del camión):
+   * entonces se lee de la zona. `null` = no se puede saber → no bloquea.
+   */
+  private estadoSurtido(p: PriceRow, origen: string | null): StockState | null {
+    if (origen) return estadoEnZona(this.zona(), origen, p.product_id);
+    if (this.stockWarehouseId() === this.orderWarehouseId()) return this.estadoPropio(p);
+    const mia = this.sucursalMia();
+    return mia ? estadoEnZona(this.zona(), mia.id, p.product_id) : null;
+  }
+
+  /**
+   * `[MCP.3.16]` Si el producto NO se puede agregar surtiéndolo de `origen`, el porqué (lo que lee el
+   * vendedor); `null` = se puede. Bloquean `agotado` y `no_se_maneja`; `sin_dato` y una cantidad
+   * mayor a lo que hay, no. Sin conexión no se bloquea: no se sabe de cuándo es la existencia.
+   */
+  bloqueoDe(p: PriceRow, origen: string | null): string | null {
+    if (this.offlineMode()) return null;
+    if (!bloqueaAgregar(this.estadoSurtido(p, origen))) return null;
+    const z = this.zonaFallo() ? null : this.zona();
+    const bloqueada = origen ?? this.sucursalMia()?.id ?? null;
+    const surtido = origen ? (z?.warehouses.find((w) => w.id === origen)?.short ?? 'esa sucursal') : this.cortoMio();
+    const f = this.unitFactor(p);
+    const u = this.selectedUnit(p)?.unit ?? '';
+    const ub = this.baseUnitLabel(p);
+    const sinDato = sucursalesSinDato(z);
+    // «Nadie en tu zona» sólo si se midió TODA la zona al día y la sucursal bloqueada es de ella.
+    const zonaCompleta =
+      !!z && !z.unmeasured_reason && zonaConFrescura(z) && !sinDato.length && z.warehouses.some((w) => w.id === bloqueada);
+    return mensajeBloqueo({
+      surtido,
+      alternativas: alternativasEnZona(z, p.product_id, bloqueada).map((a) => ({ short: a.short, texto: cantidadEnUnidad(a.base, f, u, ub) })),
+      zonaCompleta,
+      sinDato,
+    });
+  }
+
+  /** `[MCP.3.16]` El bloqueo queda pegado a la fila (el toast se va solo) y sale en el toast del shell. */
+  private avisarBloqueo(p: PriceRow, mensaje: string): void {
+    this.rowError.update((m) => ({ ...m, [p.product_id]: mensaje }));
+    this.haptic.notification('error');
+    this.toast.add({ severity: 'warn', summary: 'No se puede agregar', detail: mensaje, life: 6000 });
+  }
+
+  /** `[MCP.3.16]` El 409 del servidor con `code: 'SIN_EXISTENCIA'`; cualquier otro error, `null`. */
+  private bloqueoDelServidor(err: unknown): StockBlockError | null {
+    const b = (err as { error?: Partial<StockBlockError> } | null)?.error;
+    return b && b.code === 'SIN_EXISTENCIA' && typeof b.message === 'string' && b.message.trim() ? (b as StockBlockError) : null;
+  }
+
+  /**
+   * `[MCP.3.16]` El texto del 409. El servidor sólo sabe la unidad BASE y escribe «8ES tiene 1,328»
+   * sin rótulo, mientras la tira dice «8ES 55» en cajas: con alternativas, el texto se vuelve a armar
+   * con la MISMA función (`mensajeBloqueo`) en la unidad que se pide. Sin alternativas no hay
+   * cantidades y se muestra el del servidor tal cual (él sabe si midió la zona entera).
+   */
+  private textoDelBloqueo(p: PriceRow, b: StockBlockError): string {
+    const alts = Array.isArray(b.alternatives) ? b.alternatives.filter((a) => Number.isFinite(Number(a?.qty))) : [];
+    if (!alts.length) return b.message;
+    const f = this.unitFactor(p);
+    const u = this.selectedUnit(p)?.unit ?? '';
+    const ub = this.baseUnitLabel(p);
+    return mensajeBloqueo({
+      surtido: b.warehouse_short || 'esa sucursal',
+      alternativas: alts.map((a) => ({ short: a.short, texto: cantidadEnUnidad(Number(a.qty), f, u, ub) })),
+      zonaCompleta: false,
+      sinDato: [],
+    });
+  }
+
+  private quitarErrorDeFila(productId: string): void {
+    this.rowError.update((m) => {
+      if (!(productId in m)) return m;
+      const n = { ...m };
+      delete n[productId];
+      return n;
+    });
+  }
+
+  // ── [MCP.3.13] De qué sucursal de la zona se surte cada producto ──────────────────────────
+  /** Producto → sucursal elegida ANTES de tener renglón (`null` = la mía). Con renglón manda el renglón. */
+  readonly origenElegido = signal<Map<string, string | null>>(new Map());
+  /** Producto cuyo renglón se está moviendo de sucursal (la tira se bloquea mientras). */
+  readonly cambiandoOrigen = signal<string | null>(null);
+
+  private lineaDe(productId: string): OrderLine | undefined {
+    return this.cartLines().find((l) => l.product_id === productId);
+  }
+  /** La sucursal de surtido de este producto: la de su renglón, o la elegida; `null` = la mía. */
+  origenDe(p: PriceRow): string | null {
+    const l = this.lineaDe(p.product_id);
+    if (l) return l.source_warehouse_id ?? null;
+    return this.origenElegido().get(p.product_id) ?? null;
+  }
+  origenEs(p: PriceRow, c: ChipZona): boolean {
+    const o = this.origenDe(p);
+    return o ? c.id === o : c.mine;
+  }
+  ariaChip(c: ChipZona, p: PriceRow): string {
+    const u = this.selectedUnit(p)?.unit ?? '';
+    // [MCP.3.16] «<1» se dice en palabras: hay piezas, pero no completan la unidad.
+    const cant = c.qty == null ? 'sin dato' : c.texto === '<1' ? `menos de 1${u ? ' ' + u : ''}` : c.qty + (u ? ' ' + u : '');
+    return `${c.name}${c.mine ? ' (tu sucursal)' : ''}: ${cant}`;
+  }
+  /** Si lo que se pide pasa de lo que hay en la sucursal elegida, se dice en la fila (no bloquea: es preventa). */
+  avisoOrigen(p: PriceRow): string | null {
+    const zs = this.zonaDe(p);
+    // [MCP.3.16] Se compara en unidad base: «menos de una caja» con piezas no es «no hay».
+    const q = this.cartQty(p.product_id);
+    if (!zs || !(q > 0)) return null;
+    const c = zs.find((x) => this.origenEs(p, x));
+    if (!c || c.base == null || q <= c.base) return null;
+    if (c.base <= 0) return `En ${c.short} no hay: elige otra sucursal`;
+    if (c.texto === '<1') return `En ${c.short} sólo hay ${rotuloBase(c.base, this.baseUnitLabel(p))}: elige otra sucursal`;
+    return `En ${c.short} sólo hay ${c.qty}: elige otra o pide ${c.qty}`;
+  }
+
+  /**
+   * Toca una sucursal de la tira. Sin renglón: queda elegida para el siguiente «+». Con renglón: se
+   * mueve a esa sucursal (el servidor lo vuelve a tarificar con el precio de allá). No se mueve
+   * mientras hay una cantidad sin guardar: se mezclarían dos cambios en el mismo renglón.
+   */
+  elegirOrigen(p: PriceRow, c: ChipZona): void {
+    const origen = c.mine ? null : c.id;
+    const linea = this.lineaDe(p.product_id);
+    if (linea && (linea.source_warehouse_id ?? null) === origen) return;
+    if (!linea && (this.origenElegido().get(p.product_id) ?? null) === origen) return;
+    // [MCP.3.16] De una sucursal que lo tiene agotado o no lo maneja no se surte: ni se elige ni se
+    // mueve el renglón allá. Se dice por qué y la tira sigue disponible para tocar otra.
+    const bloqueo = this.bloqueoDe(p, origen);
+    if (bloqueo) {
+      this.avisarBloqueo(p, bloqueo);
+      return;
+    }
+    if (!linea) {
+      this.origenElegido.update((m) => new Map(m).set(p.product_id, origen));
+      this.quitarErrorDeFila(p.product_id);
+      this.haptic.selection();
+      return;
+    }
+    const orderId = this.cartOrderId();
+    if (!orderId || this.cambiandoOrigen()) return;
+    if (this.pendingQty().has(p.product_id) || this.sentQty().has(p.product_id)) {
+      this.toast.add({ severity: 'info', summary: 'Un momento', detail: 'Se está guardando la cantidad; vuelve a tocar la sucursal.', life: 3000 });
+      return;
+    }
+    this.cambiandoOrigen.set(p.product_id);
+    this.haptic.selection();
+    this.api
+      .updateLine(orderId, linea.id, Number(linea.quantity), undefined, origen)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.quitarErrorDeFila(p.product_id);
+          this.reloadCart(() => this.cambiandoOrigen.set(null));
+        },
+        error: (err) => {
+          this.cambiandoOrigen.set(null);
+          // [MCP.3.16] Si el servidor lo bloqueó por existencias, su texto es el que se muestra.
+          const b = this.bloqueoDelServidor(err);
+          if (b) {
+            this.avisarBloqueo(p, this.textoDelBloqueo(p, b));
+            return;
+          }
+          this.haptic.notification('error');
+          this.toast.add({ severity: 'error', summary: 'No se cambió la sucursal', detail: this.motivoDeError(err), life: 5000 });
+        },
+      });
+  }
+
+  /** «Se surte en: LPA (3) · PH (1)». `null` cuando todo sale de la sucursal del pedido. */
+  readonly surteEn = computed(() => {
+    const lines = this.cartLines();
+    if (!lines.some((l) => !!l.source_warehouse_id)) return null;
+    const mia = this.zona()?.warehouses.find((w) => w.mine);
+    const grupos = new Map<string, { label: string; n: number; ajena: boolean }>();
+    for (const l of lines) {
+      const ajena = !!l.source_warehouse_id;
+      const label = ajena
+        ? (l.source_warehouse_short || l.source_warehouse_name || 'otra sucursal')
+        : (mia?.short || this.stockSources().sucursal?.name || 'tu sucursal');
+      const g = grupos.get(label) ?? { label, n: 0, ajena };
+      g.n += 1;
+      grupos.set(label, g);
+    }
+    return [...grupos.values()].sort((a, b) => Number(a.ajena) - Number(b.ajena));
+  });
+
+  stockClass(p: PriceRow): 'ok' | 'warn' | 'bad' | 'nd' {
+    // [MCP.3.16] Con estado del servidor: rojo sólo lo agotado; «no se maneja» y «sin dato» en gris.
+    const st = this.estadoPropio(p);
+    if (st === 'agotado') return 'bad';
+    if (st === 'no_se_maneja' || st === 'sin_dato') return 'nd';
     const s = Number(p.stock_available ?? 0);
+    if (st === 'con_existencia') {
+      // Hay piezas pero no completan la unidad que se pide: ámbar, no verde.
+      const f = this.unitFactor(p);
+      if (s < (p.min_qty || 1) || (f > 1 && Math.floor(s / f) < 1)) return 'warn';
+      return 'ok';
+    }
     if (s <= 0) return 'bad';
     if (s < (p.min_qty || 1)) return 'warn';
     return 'ok';
   }
   stockLabel(p: PriceRow): string {
+    const st = this.estadoPropio(p);
+    if (st === 'agotado') return 'Sin existencias';
+    if (st === 'no_se_maneja') return `Sin existencias en ${this.cortoMio()}`;
+    if (st === 'sin_dato') return 'Sin dato de existencia';
+    if (st === 'con_existencia') {
+      // [MCP.3.16] En la unidad que se pide; si no completa una, en piezas (nunca «0 CJA» en verde).
+      const n = Number(p.stock_available ?? 0);
+      return `Existencias: ${cantidadEnUnidad(n, this.unitFactor(p), this.selectedUnit(p)?.unit ?? '', this.baseUnitLabel(p))}`;
+    }
     const s = Number(p.stock_available ?? 0);
     // [MCP.3.5] «Existencias», no «stock»: es la palabra que usa el vendedor en ruta.
     if (s <= 0) return 'Sin existencias';
@@ -1038,11 +1437,20 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly browseRows = computed(() => {
     const skip = new Set<string>(this.habitualRows().map((p) => p.product_id));
     const out: PriceRow[] = [];
+    // [MCP.3.16] Lo que la sucursal no maneja va AL FINAL, sin mover el orden por venta del resto.
+    // El servidor ya los manda al final; esta partición estable es el seguro de que la pantalla no
+    // los suba (p. ej. con una copia guardada de antes) — si ya venían al final, no cambia nada.
+    const alFinal: PriceRow[] = [];
     for (const p of this.prices()) {
       if (p.price == null || Number(p.price) <= 0) continue;
       if (skip.has(p.product_id)) continue;
+      if (p.stock_state === 'no_se_maneja') { alFinal.push(p); continue; }
       out.push(p);
       if (out.length >= this.BROWSE_CAP) break;
+    }
+    for (const p of alFinal) {
+      if (out.length >= this.BROWSE_CAP) break;
+      out.push(p);
     }
     return out;
   });
@@ -1106,22 +1514,57 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    * pedido) con su cantidad promedio histórica. Es el "suggested order" — el
    * vendedor revisa/ajusta/confirma en vez de armar.
    */
-  readonly predictedLines = computed(() => {
+  readonly predictedLines = computed(() => this.prediccion().lineas);
+
+  /**
+   * `[MCP.3.16]` La predicción y lo que se dejó fuera por existencias. Un producto que la sucursal del
+   * pedido tiene agotado o no maneja NO entra al sugerido (es «agregar», y la regla lo bloquea): así
+   * el chip «Sugerido (N)» anuncia lo que de verdad se carga, y `bloqueados` permite decir por qué
+   * faltan. El lote del servidor (`replaceLines`) no bloquea —es también el de la sincronización
+   * offline—, así que este filtro es el que cumple la regla en el sugerido.
+   */
+  private readonly prediccion = computed(() => {
     const byId = this.byIdMap();
     const freq = this.frequent();
-    if (!freq.length) return [] as { product_id: string; quantity: number }[];
+    const out: { product_id: string; quantity: number }[] = [];
+    const bloqueados: PriceRow[] = [];
+    if (!freq.length) return { lineas: out, bloqueados };
     const maxOC = freq.reduce((m, f) => Math.max(m, Number(f.order_count) || 0), 0);
     const threshold = maxOC >= 2 ? 2 : 1;
-    const out: { product_id: string; quantity: number }[] = [];
     for (const f of freq) {
       if ((Number(f.order_count) || 0) < threshold) continue;
       const p = byId.get(f.product_id);
       if (!p || p.price == null || Number(p.price) <= 0) continue;
+      if (this.bloqueoDe(p, null)) {
+        bloqueados.push(p);
+        continue;
+      }
       const qty = Math.max(Math.floor(Number(f.avg_qty) || 1), p.min_qty || 1);
       out.push({ product_id: f.product_id, quantity: qty });
     }
-    return out.slice(0, 30);
+    return { lineas: out.slice(0, 30), bloqueados };
   });
+
+  /** `[MCP.3.16]` Avisa qué no entró del sugerido: por existencias (filtro de arriba) o porque el servidor lo omitió. */
+  private avisarSugeridoIncompleto(bloqueados: readonly PriceRow[], omitidos: ReadonlyArray<{ product_id: string; reason: string }>): void {
+    const n = bloqueados.length + omitidos.length;
+    if (!n) return;
+    const partes: string[] = [];
+    if (bloqueados.length) {
+      const nombres = bloqueados.slice(0, 3).map((p) => p.product_name).join(', ');
+      partes.push(`Sin existencias en ${this.cortoMio()}: ${nombres}${bloqueados.length > 3 ? ` y ${bloqueados.length - 3} más` : ''}`);
+    }
+    if (omitidos.length) {
+      const byId = this.byIdMap();
+      partes.push(omitidos.slice(0, 3).map((s) => `${byId.get(s.product_id)?.product_name ?? 'un producto'}: ${s.reason}`).join(' · '));
+    }
+    this.toast.add({
+      severity: 'warn',
+      summary: `No se cargaron ${n} del sugerido`,
+      detail: partes.join(' · '),
+      life: 8000,
+    });
+  }
 
   /**
    * Lista mostrada en búsqueda: con término → TODO el catálogo filtrado (nombre/SKU).
@@ -1290,7 +1733,23 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   }
 
   /** Carga online: backend + cachea el contexto para poder abrir offline luego. */
+  /** `[MCP.3.12]` La zona va por su lado: si tarda o falla, la toma de pedido abre igual. */
+  private cargarZona(): void {
+    this.zonaFallo.set(false);
+    this.api
+      .myZoneStock()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (z) => this.zona.set(z ?? null),
+        error: () => {
+          this.zona.set(null);
+          this.zonaFallo.set(true);
+        },
+      });
+  }
+
   private loadOnline(customerId: string): void {
+    this.cargarZona();
     // [VTK.13] Todo lo que no depende de otra respuesta sale A LA VEZ. Antes borrador,
     // pendientes y habituales esperaban a la ronda de fuentes+cliente sin necesitarla, y las
     // listas de precio abrían otro salto después del cliente: 3–4 viajes en serie por apertura.
@@ -1377,6 +1836,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           if (existingDraft) {
             // Hay borrador en curso → se respeta tal cual (no se pisa con el predicho).
             this.cartOrderId.set(existingDraft.id);
+            this.indicaciones.set(existingDraft.notes ?? '');
             if (this.editingOrderId()) {
               this.editingCode.set(existingDraft.code || null);
               // Corrigiendo: se conserva la fecha de entrega que ya tenía, para no
@@ -1430,7 +1890,9 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     this.stockWarehouseId.set(src.id);
     this.stockLoading.set(true);
     this.api
-      .catalogForCustomer(c, src.id)
+      // [MCP.3.16] La camioneta sin `stock_state`: la vista canónica es de sucursales y el camión
+      // saldría «sin dato» en vez de lo que trae. La sucursal, con él.
+      .catalogForCustomer(c, src.id, view === 'sucursal')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (cat) => {
@@ -1561,34 +2023,45 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    * distinción, teclear el mismo número que ya se veía cambiaba la cantidad —
    * el reporte de "se me mueve solo el pedido".
    */
-  setQtyTyped(p: PriceRow, raw: string | number): void {
+  setQtyTyped(p: PriceRow, raw: string | number, input?: HTMLInputElement | null): void {
     const count = Math.max(0, Math.floor(Number(raw) || 0));
     const base = count * (this.offGrid(p) ? 1 : this.unitFactor(p));
     const cur = this.cartQty(p.product_id);
     if (cur > 0) this.bumpQty(p.product_id, base); // existe → ajustar (0 = quitar en flush)
-    else if (base > 0) this.createLine(p, base); // nuevo → crear inmediato
+    else if (base > 0) {
+      // [MCP.3.16] Bloqueado: el número tecleado no se queda en la casilla (la cantidad sigue en 0).
+      if (!this.createLine(p, base) && input) input.value = '';
+    }
   }
 
-  /** Crea la línea (asegurando draft) con la cantidad dada, en rejilla y sobre el mínimo. */
-  private createLine(p: PriceRow, qty: number): void {
+  /**
+   * Crea la línea (asegurando draft) con la cantidad dada, en rejilla y sobre el mínimo.
+   * `[MCP.3.16]` Devuelve `false` si NO la intentó (bloqueada por existencias o sin datos para crearla).
+   */
+  private createLine(p: PriceRow, qty: number): boolean {
     const c = this.customer();
-    if (!c || !this.orderWarehouseId()) return;
+    if (!c || !this.orderWarehouseId()) return false;
     const q = ajustarARejilla(qty, this.unitFactor(p), p.min_qty || 1);
-    if (q <= 0) return;
-    // El aviso solo vale si lo que se está mirando es el almacén que va a surtir. Con
-    // la vista en camioneta, `stock_available` es del camión y el pedido sale de la
-    // sucursal: avisar ahí sería comparar contra la existencia equivocada.
-    if (
-      p.stock_available != null &&
-      q > Number(p.stock_available) &&
-      this.stockWarehouseId() === this.orderWarehouseId()
-    ) {
-      this.toast.add({ severity: 'warn', summary: 'Pocas existencias hoy', detail: `Hoy hay ${p.stock_available}. Es preventa: se surte al repartir.`, life: 4000 });
+    if (q <= 0) return false;
+    // [MCP.3.16] Antes de tocar el servidor: si la sucursal de surtido lo tiene agotado o no lo
+    // maneja, no se agrega, no se cambia la cantidad y se dice por qué (y quién de la zona tiene).
+    const origenSurtido = this.origenDe(p);
+    const bloqueo = this.bloqueoDe(p, origenSurtido);
+    if (bloqueo) {
+      this.avisarBloqueo(p, bloqueo);
+      return false;
+    }
+    // El aviso solo vale contra el almacén que va a surtir. [MCP.3.16] Si el renglón se surte de otra
+    // sucursal de la zona, se compara contra la de ESA sucursal; con la vista en camioneta,
+    // `stock_available` es del camión y no sirve para la propia. Con «sin dato» no se avisa nada.
+    const hay = this.existenciaDeSurtido(p, origenSurtido);
+    if (hay != null && q > hay.qty) {
+      this.toast.add({ severity: 'warn', summary: 'Pocas existencias hoy', detail: `Hoy hay ${hay.qty}${hay.en ? ' en ' + hay.en : ''}. Es preventa: se surte al repartir.`, life: 4000 });
     }
     if (this.offlineMode()) {
       this.haptic.selection();
       void this.setLocalQty(p.product_id, q);
-      return;
+      return true;
     }
     this.adding.update((m) => ({ ...m, [p.product_id]: true }));
     // [VTK.5] Optimista, como en cotizaciones: la fila muestra la cantidad en cuanto se toca, sin
@@ -1609,9 +2082,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       .pipe(
         switchMap((draft) => {
           this.cartOrderId.set(draft.id);
+          // [MCP.3.13] Con la sucursal elegida en la tira (sin elegir = la del pedido).
+          const origen = this.origenDe(p);
           return qEnviada != null && sello
-            ? this.api.addLine(draft.id, p.product_id, qEnviada, sello)
-            : this.api.addLine(draft.id, p.product_id, q);
+            ? this.api.addLine(draft.id, p.product_id, qEnviada, sello, origen)
+            : this.api.addLine(draft.id, p.product_id, q, undefined, origen);
         }),
         takeUntilDestroyed(this.destroyRef),
       )
@@ -1632,6 +2107,12 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.adding.update((m) => ({ ...m, [p.product_id]: false }));
           // Se deshace lo optimista: el renglón no existe.
           this.pendingQty.update((m) => { const n = new Map(m); n.delete(p.product_id); return n; });
+          // [MCP.3.16] El servidor lo bloqueó por existencias (409 SIN_EXISTENCIA): su texto, en la unidad que se pide.
+          const b = this.bloqueoDelServidor(err);
+          if (b) {
+            this.avisarBloqueo(p, this.textoDelBloqueo(p, b));
+            return;
+          }
           this.haptic.notification('error');
           const motivo = this.motivoDeError(err);
           // [MCP.3.5] Además del toast (que se va solo), el motivo queda pegado a la fila.
@@ -1639,6 +2120,27 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.toast.add({ severity: 'error', summary: 'No se agregó el producto', detail: motivo, life: 6000 });
         },
       });
+    return true;
+  }
+
+  /**
+   * `[MCP.3.16]` Cuánto hay hoy (unidad base) en la sucursal de la que se surtiría, para el aviso de
+   * «Pocas existencias». `null` = no se sabe (sin dato, otra sucursal sin zona, o mirando la camioneta
+   * sin zona que diga lo de la propia): entonces no se avisa, en vez de comparar contra otra cosa.
+   */
+  private existenciaDeSurtido(p: PriceRow, origen: string | null): { qty: number; en: string | null } | null {
+    if (this.estadoSurtido(p, origen) === 'sin_dato') return null;
+    if (origen) {
+      const n = baseEnZona(this.zona(), origen, p.product_id);
+      const en = this.zona()?.warehouses.find((w) => w.id === origen)?.short ?? null;
+      return n == null ? null : { qty: n, en };
+    }
+    if (this.stockWarehouseId() === this.orderWarehouseId()) {
+      return p.stock_available != null ? { qty: Number(p.stock_available), en: null } : null;
+    }
+    const mia = this.sucursalMia();
+    const n = mia ? baseEnZona(this.zona(), mia.id, p.product_id) : null;
+    return n == null ? null : { qty: n, en: mia?.short ?? null };
   }
 
   /**
@@ -1727,7 +2229,9 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       }),
       catchError((err: unknown) => {
         this.sentQty.update((m) => soltarSiEs(m, null));
-        this.rowError.update((m) => ({ ...m, [productId]: `No se cambió la cantidad: ${this.motivoDeError(err)}` }));
+        // [MCP.3.16] Un bloqueo por existencias del servidor trae su propio texto completo.
+        const b = this.bloqueoDelServidor(err);
+        this.rowError.update((m) => ({ ...m, [productId]: b ? b.message : `No se cambió la cantidad: ${this.motivoDeError(err)}` }));
         this.haptic.notification('error');
         return of({ ok: false, err });
       }),
@@ -1891,6 +2395,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       return;
     }
     this.prefilling.set(true);
+    const bloqueados = this.prediccion().bloqueados;
     this.api
       .ensureDraftForCustomer(c.id, this.orderWarehouseId(), 'route')
       .pipe(
@@ -1898,9 +2403,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
-        next: () => {
+        next: (r) => {
           this.prefilling.set(false);
           this.prefilled.set(true);
+          // [MCP.3.16] Lo que no entró se dice: el chip anunció N y el pedido no puede traer menos en silencio.
+          this.avisarSugeridoIncompleto(bloqueados, Array.isArray(r?.skipped) ? r.skipped : []);
           this.reloadCart();
         },
         error: () => {
@@ -2013,7 +2520,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         // quedar a medias).
         this.flushQty()
           .pipe(
-            switchMap(() => this.api.placeOrder(orderId, { requested_delivery_date: this.requestedDate })),
+            // [MCP.3.15] Las indicaciones viajan con el pedido (vacío = sin indicaciones).
+            switchMap(() => this.api.placeOrder(orderId, { requested_delivery_date: this.requestedDate, notes: this.indicaciones().trim() })),
             takeUntilDestroyed(this.destroyRef),
           )
           .subscribe({
@@ -2066,7 +2574,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       });
   }
 
-  private onDone(o: { code?: string; total?: number | string } | null): void {
+  private onDone(o: { code?: string; total?: number | string; group_parts?: number } | null): void {
     this.submitting.set(false);
     const c = this.customer();
     // Corrección: el pedido ya existía y ya se avisó al cliente cuando se agendó.
@@ -2078,15 +2586,19 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       this.router.navigate(['/vendor/pending']);
       return;
     }
+    // [MCP.3.13] Con partes, el total que devuelve place() es sólo el de la principal: para el
+    // vendedor y el cliente es UN pedido, así que se muestra el del carrito completo.
+    const agrupado = !!o?.group_parts && o.group_parts > 1;
     this.router.navigate(['/vendor/order-success'], {
       queryParams: {
         code: o?.code || '',
-        total: o?.total ?? this.cartTotal(),
+        total: agrupado ? this.cartTotal() : (o?.total ?? this.cartTotal()),
         units: this.cartUnitsTotal(),
         name: c?.name || '',
         wa: c?.whatsapp || '',
         date: this.requestedDate,
         customer: c?.id || '',
+        ...(agrupado ? { surte: (this.surteEn() ?? []).map((g) => g.label).join(',') } : {}),
       },
     });
   }

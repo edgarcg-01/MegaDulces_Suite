@@ -16,15 +16,19 @@ function svcCon(first: () => Promise<unknown>) {
 describe('[PQ.20] interruptorKepler', () => {
   it('renglón encendido sin tope → encendida, tope null', async () => {
     const svc = svcCon(async () => ({ encendida: true, tope_dia: null }));
-    expect(await svc.interruptorKepler('t', '00', 'compra')).toEqual({ encendida: true, tope_dia: null });
+    expect(await svc.interruptorKepler('t', '00', 'compra')).toEqual({ encendida: true, tope_dia: null, genera_orden: false });
   });
   it('tope numérico viaja como número', async () => {
     const svc = svcCon(async () => ({ encendida: true, tope_dia: '5' }));
-    expect(await svc.interruptorKepler('t', '00', 'compra')).toEqual({ encendida: true, tope_dia: 5 });
+    expect(await svc.interruptorKepler('t', '00', 'compra')).toEqual({ encendida: true, tope_dia: 5, genera_orden: false });
   });
   it('NEGATIVA: sin renglón → APAGADA (falla cerrada)', async () => {
     const svc = svcCon(async () => undefined);
-    expect(await svc.interruptorKepler('t', '05', 'traspaso')).toEqual({ encendida: false, tope_dia: null });
+    expect(await svc.interruptorKepler('t', '05', 'traspaso')).toEqual({ encendida: false, tope_dia: null, genera_orden: false });
+  });
+  it('[PQ.22] genera_orden sólo con true estricto (columna ausente = false)', async () => {
+    expect((await svcCon(async () => ({ encendida: true, tope_dia: null, genera_orden: true })).interruptorKepler('t', '00', 'compra')).genera_orden).toBe(true);
+    expect((await svcCon(async () => ({ encendida: true, tope_dia: null, genera_orden: 'true' })).interruptorKepler('t', '00', 'compra')).genera_orden).toBe(false);
   });
   it('tabla ausente (42P01) → undefined: manda la variable de entorno', async () => {
     const svc = svcCon(async () => { throw Object.assign(new Error('no existe'), { code: '42P01' }); });
@@ -46,6 +50,8 @@ describe('[PQ.20] setKeplerSwitch valida antes de escribir', () => {
     ['00', 'compra', {}, 'encendida'],
     ['00', 'compra', { encendida: true, tope_dia: 0 }, 'tope'],
     ['00', 'compra', { encendida: true, tope_dia: 2.5 }, 'tope'],
+    ['00', 'traspaso', { encendida: true, genera_orden: true }, 'compra'],
+    ['00', 'compra', { encendida: true, genera_orden: 'si' }, 'genera_orden'],
   ])('NEGATIVA: %s/%s %j', async (s, t, dto, msg) => {
     await expect(svc.setKeplerSwitch(s, t, dto)).rejects.toThrow(BadRequestException);
     await expect(svc.setKeplerSwitch(s, t, dto)).rejects.toThrow(new RegExp(msg, 'i'));

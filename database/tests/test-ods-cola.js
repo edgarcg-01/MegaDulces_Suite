@@ -216,6 +216,37 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
           const r4 = await drenar();
           A(r4.porTabla.kdm2?.enviadas === 1 && r4.borradas === 1, 'cambiar la llave: la nueva se entrega y la vieja se cuenta como borrada');
 
+          // ⛔ [OPS-AUD.13.3] Una PK con FECHA (las pólizas kdc2YYMM: c2 timestamp). pg entrega la fecha
+          // como Date y la cola la anota como texto: si la firma compara esas dos formas, TODA llave se da
+          // por borrada y `borrar` se lleva del ODS la fila recién embarcada (2026-10-28: 98 de 98 en prod).
+          await c.query(`SET LOCAL session_replication_role = origin`);
+          await c.query(`CREATE TABLE ${F}.kdc22601 (c1 numeric, c2 timestamp, c3 varchar, c8 varchar, c10 numeric, c5 numeric,
+                           PRIMARY KEY (c1, c2, c3, c8, c10))`);
+          const POL = [{ tabla: 'kdc22601', pk: ['c1', 'c2', 'c3', 'c8', 'c10'] }];
+          for (const l of instalarSql(POL, op)) for (const s of l) await c.query(s);
+          await c.query(`SET LOCAL session_replication_role = replica`);
+          const META_POL = { cols: cols([['c1', 'numeric'], ['c2', 'timestamp without time zone'], ['c3', 'character varying'],
+            ['c8', 'character varying'], ['c10', 'numeric'], ['c5', 'numeric']]), pk: POL[0].pk };
+          await c.query(`INSERT INTO ${F}.kdc22601 VALUES (3236, '2026-01-19', '601-015', 'D', 2, 100.5)`);
+          await c.query(`UPDATE ${F}.kdc22601 SET c5 = 0`);
+          const ordenBorrar = [];
+          llamadas.length = 0;
+          const r5 = await drenarCola(c, { tablas: ['kdc22601'], metaDe: async () => META_POL, enviar, ...op,
+            borrar: async (t, m, ll) => { ordenBorrar.push(...ll); return { borradas: ll.length }; } });
+          A(r5.porTabla.kdc22601?.enviadas === 1 && Number(llamadas[0]?.filas[0]?.c5) === 0,
+            'póliza (PK con fecha): el UPDATE se entrega con el valor nuevo');
+          A(r5.borradas === 0 && ordenBorrar.length === 0,
+            '⛔ [OPS-AUD.13.3] y NO se pide borrar: la fila existe (la firma compara fecha con fecha, no Date con texto)');
+          A(!Object.keys(llamadas[0]?.filas[0] || {}).includes('__llave'), 'la llave interna no viaja como columna');
+          // El cambio de cuenta (c3 en la PK): la nueva se entrega y la VIEJA sí se pide borrar.
+          llamadas.length = 0; ordenBorrar.length = 0;
+          await c.query(`UPDATE ${F}.kdc22601 SET c3 = '601-016'`);
+          const r6 = await drenarCola(c, { tablas: ['kdc22601'], metaDe: async () => META_POL, enviar, ...op,
+            borrar: async (t, m, ll) => { ordenBorrar.push(...ll); return { borradas: ll.length }; } });
+          A(r6.porTabla.kdc22601?.enviadas === 1 && ordenBorrar.length === 1 && ordenBorrar[0].c3 === '601-015',
+            'cambio de cuenta: se entrega la 601-016 y se pide borrar SÓLO la 601-015');
+          await c.query(`DROP TABLE ${F}.kdc22601`); // su trigger se va con ella; la función la siguen usando kdm1/kdm2
+
           // El trigger NO puede romper la replicación: sin cola, la escritura sigue.
           await c.query(`SAVEPOINT sin_cola`);
           await c.query(`DROP TABLE ${Q}.cola`);

@@ -3,6 +3,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequireAuthGuard, RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import type {
   PresaleCandidatesResponse,
+  PresaleCustomerBranchKeyRequest,
+  PresaleCustomerBranchKeyResponse,
   PresaleDetail,
   PresaleLinkRequest,
   PresaleLinkResponse,
@@ -38,6 +40,24 @@ export class PresaleControlController {
   })
   list(@Query() query: Record<string, unknown>): Promise<PresaleListResponse> {
     return this.svc.list(query);
+  }
+
+  /**
+   * `[MCP.3.13]` Mismo permiso que ligar un documento (`COMMERCIAL_PICKING_GESTIONAR`): lo hace el
+   * encargado desde la mesa cuando la parte de un pedido agrupado se cobra en una sucursal donde el
+   * cliente tiene OTRA clave. Va antes de `:id` para que nunca se lea como un id.
+   */
+  @Post('customer-branch-key')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({
+    summary:
+      '[MCP.3.13] Liga la clave de Kepler del cliente en una sucursal que no es la de origen (las claves son por sucursal). Verifica que exista en ese Kepler; la anterior se da de baja, no se pisa.',
+  })
+  linkBranchKey(
+    @Body() body: PresaleCustomerBranchKeyRequest,
+    @Query() query: Record<string, unknown>,
+  ): Promise<PresaleCustomerBranchKeyResponse> {
+    return this.svc.ligarClaveSucursal(body, query);
   }
 
   @Get(':id')

@@ -11,6 +11,8 @@ import { TenantKnexService, TenantContextService, ScopeService, branchKeySql } f
 import type {
   PresaleCandidate,
   PresaleCandidatesResponse,
+  PresaleCustomerBranchKeyRequest,
+  PresaleCustomerBranchKeyResponse,
   PresaleDetail,
   PresaleLink,
   PresaleLinkBlock,
@@ -22,10 +24,13 @@ import { relojMx } from '../warehouse-orders/warehouse-orders.engine';
 import {
   bloqueoDeLiga,
   claveCliente,
+  claveDelPedido,
   compararRenglones,
   contarPorEtapa,
+  decidirClaveSucursal,
   etapaDe,
   estadoNotaCredito,
+  normalizarClaveKepler,
   MAX_REINTENTOS_ENTREGA,
   partesFolio,
   requiereDevolucion,
@@ -69,7 +74,10 @@ const FALLIDOS_SQL = `(SELECT count(*) FROM commercial.load_guide_orders f0
                          WHERE f0.order_id = o.id AND f0.tenant_id = o.tenant_id
                            AND f0.status IN ('regreso', 'no_entregado') AND fg.status <> 'cancelada')::int`;
 
-const SUCURSAL_KEPLER_SQL =`CASE WHEN w.kepler_code ~ '^[0-9]{2}$' THEN w.kepler_code ELSE ${branchKeySql('w')} END`;
+/** `[MCP.3.13]` La misma sucursal Kepler, para otro alias de `commercial.warehouses`. */
+const sucursalKeplerSql = (alias: string): string =>
+  `CASE WHEN ${alias}.kepler_code ~ '^[0-9]{2}$' THEN ${alias}.kepler_code ELSE ${branchKeySql(alias)} END`;
+const SUCURSAL_KEPLER_SQL = sucursalKeplerSql('w');
 
 /**
  * `[MCP.1]` / `[MCP.4]` Mesa de Control de Preventa (Fase MCP, ADR-089).
@@ -378,6 +386,147 @@ export class PresaleControlService {
     });
   }
 
+  // ─────────────────────────────────────── [MCP.3.13] clave por sucursal ──
+
+  /**
+   * `[MCP.3.13]` Liga la clave de Kepler de un cliente en una sucursal que no es la de origen (las claves
+   * son POR sucursal). La parte de un pedido agrupado que surte esa sucursal se cobra en SU Kepler, con
+   * la clave que el cliente tenga ahí; si no existía, la caja lo da de alta allá y la liga aquí.
+   *
+   * Se exige: sucursal del alcance, con tickets en el ODS; un pedido de preventa confirmado del cliente
+   * en esa sucursal (la liga nace de la mesa); que la clave exista en ESE Kepler (catálogo
+   * `analytics.v_customer_master` o sus tickets) y que no sea de otro cliente. Ligar otra da de baja la
+   * anterior (`deleted_at`): nunca se pisa.
+   */
+  async ligarClaveSucursal(
+    body: PresaleCustomerBranchKeyRequest | undefined,
+    query?: Record<string, unknown>,
+  ): Promise<PresaleCustomerBranchKeyResponse> {
+    const customerId = String(body?.customer_id ?? '').trim();
+    if (!UUID_RE.test(customerId)) throw new BadRequestException('id de cliente inválido');
+    const branch = String(body?.branch ?? '').trim();
+    const code = normalizarClaveKepler(body?.erp_customer_code);
+    const userId = this.tenantCtx.get()?.userId || null;
+    if (!userId) throw new UnauthorizedException('Sin usuario en la sesión: la liga necesita autor.');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const almacenes = await this.scope.readParam(query, 'warehouse', 'warehouse/presale');
+    if (almacenes !== null && almacenes.length === 0) throw new NotFoundException('Cliente no encontrado.');
+
+    return this.tk.run(async (trx) => {
+      // Serializa ligas del mismo cliente (dos pantallas a la vez); la llave única es la última red.
+      const { rows: cli } = await trx.raw(
+        `SELECT c.erp_customer_code, c.erp_source_branch FROM commercial.customers c
+          WHERE c.id = ? AND c.deleted_at IS NULL FOR UPDATE OF c`,
+        [customerId],
+      );
+      const customer = (cli[0] as { erp_customer_code: string | null; erp_source_branch: string | null } | undefined) ?? null;
+      const valida = /^[0-9]{2}$/.test(branch) && !!code;
+
+      // Los hechos se leen sólo si la petición tiene forma: no se consulta el ODS con basura.
+      const pedido = valida && customer
+        ? await trx.raw(
+            `SELECT 1 FROM commercial.orders o
+               JOIN commercial.warehouses w ON w.id = o.warehouse_id AND w.tenant_id = o.tenant_id
+              WHERE o.customer_id = ? AND o.status = 'confirmed' AND o.deleted_at IS NULL
+                AND o.requested_delivery_date IS NOT NULL AND o.delivery_type = 'route'
+                AND (${SUCURSAL_KEPLER_SQL}) = ?
+                ${almacenes !== null ? `AND ((${SUCURSAL_KEPLER_SQL}) = ANY(?::text[]) OR (${branchKeySql('w')}) = ANY(?::text[]))` : ''}
+              LIMIT 1`,
+            almacenes !== null ? [customerId, branch, almacenes, almacenes] : [customerId, branch],
+          )
+        : { rows: [] };
+      const conDocs = valida ? await this.sucursalesConDocumentos(trx, tenantId, [branch]) : new Set<string>();
+      let enCatalogo: { cliente_code: string; nombre: string | null } | null = null;
+      let conCatalogo = false;
+      let enTickets = false;
+      let otro: string | null = null;
+      if (valida && customer && pedido.rows.length && conDocs.has(branch)) {
+        // ⚠️ El catálogo es del ODS de Mega Dulces y no trae tenant: llega aquí sólo si la sucursal
+        // tiene tickets DE ESTE tenant (`sucursalesConDocumentos` filtra por tenant).
+        const { rows: cat } = await trx.raw(
+          `SELECT btrim(m.cliente_code) AS cliente_code, m.nombre
+             FROM analytics.v_customer_master m
+            WHERE m.fuente_sucursal = ? AND ltrim(btrim(m.cliente_code), '0') = ltrim(?, '0')
+            LIMIT 1`,
+          [branch, code],
+        );
+        enCatalogo = (cat[0] as { cliente_code: string; nombre: string | null } | undefined) ?? null;
+        if (!enCatalogo) {
+          const { rows: hay } = await trx.raw(`SELECT 1 FROM analytics.v_customer_master WHERE fuente_sucursal = ? LIMIT 1`, [branch]);
+          conCatalogo = hay.length > 0;
+          const { rows: tk } = await trx.raw(
+            `SELECT 1 FROM analytics.erp_sale_tickets t
+              WHERE t.tenant_id = ? AND t.sucursal = ? AND ltrim(btrim(t.cliente_code), '0') = ltrim(?, '0')
+                AND t.fecha > current_date - 365
+              LIMIT 1`,
+            [tenantId, branch, code],
+          );
+          enTickets = tk.length > 0;
+        } else {
+          conCatalogo = true;
+        }
+        // La clave ya es de OTRO cliente en esa sucursal: como origen o como clave ligada.
+        const { rows: dueno } = await trx.raw(
+          `SELECT x.name FROM commercial.customers x
+            WHERE x.id <> ? AND x.deleted_at IS NULL AND btrim(x.erp_source_branch) = ?
+              AND ltrim(btrim(x.erp_customer_code), '0') = ltrim(?, '0')
+           UNION ALL
+           SELECT x.name FROM commercial.customer_branch_keys k
+             JOIN commercial.customers x ON x.id = k.customer_id AND x.tenant_id = k.tenant_id
+            WHERE k.customer_id <> ? AND k.deleted_at IS NULL AND k.branch = ?
+              AND ltrim(btrim(k.erp_customer_code), '0') = ltrim(?, '0')
+           LIMIT 1`,
+          [customerId, branch, code, customerId, branch, code],
+        );
+        otro = (dueno[0]?.name as string) ?? null;
+      }
+
+      const d = decidirClaveSucursal({
+        branch,
+        branch_has_documents: conDocs.has(branch),
+        customer,
+        customer_has_order_in_branch: pedido.rows.length > 0,
+        code,
+        en_catalogo: enCatalogo,
+        sucursal_con_catalogo: conCatalogo,
+        en_tickets: enTickets,
+        otro_cliente: otro,
+      });
+      if (!d.ok) {
+        if (d.status === 404) throw new NotFoundException(d.message);
+        if (d.status === 409) throw new ConflictException(d.message);
+        throw new BadRequestException(d.message);
+      }
+
+      const viva = (await trx('commercial.customer_branch_keys')
+        .where({ customer_id: customerId, branch })
+        .whereNull('deleted_at')
+        .first('id', 'erp_customer_code')) as { id: string; erp_customer_code: string } | undefined;
+      const base = {
+        ok: true as const, customer_id: customerId, branch, erp_customer_code: d.code,
+        verified_by: d.verified_by, kepler_name: d.kepler_name, warning: d.warning,
+      };
+      if (viva && claveCliente(viva.erp_customer_code) === claveCliente(d.code)) return { ...base, replaced_code: null };
+      if (viva) {
+        await trx('commercial.customer_branch_keys')
+          .where({ id: viva.id })
+          .update({ deleted_at: trx.fn.now(), deleted_by: userId, updated_at: trx.fn.now(), updated_by: userId });
+      }
+      try {
+        await trx('commercial.customer_branch_keys').insert({
+          tenant_id: tenantId, customer_id: customerId, branch, erp_customer_code: d.code, created_by: userId, updated_by: userId,
+        });
+      } catch (e) {
+        if (/ux_customer_branch_keys_vivo|duplicate key/i.test((e as Error).message)) {
+          throw new ConflictException('Se acaba de ligar otra clave para este cliente en esa sucursal: actualiza.');
+        }
+        throw e;
+      }
+      this.logger.log(`[MCP.3.13] cliente ${customerId}: clave ${d.code} en ${branch} (${d.verified_by ?? 'sin verificar'}) por ${userId}${viva ? `, reemplaza ${viva.erp_customer_code}` : ''}`);
+      return { ...base, replaced_code: viva?.erp_customer_code ?? null };
+    });
+  }
+
   // ─────────────────────────────────────────────────────────── internos ──
 
   /**
@@ -387,10 +536,17 @@ export class PresaleControlService {
    *  · `soloAbiertos` — sólo `confirmed` (lo que todavía se puede cargar o entregar).
    *  · `autorId`      — sólo los que levantó ese vendedor (`orders.user_id`).
    *  · `orderIds`     — sólo esos pedidos.
+   *  · `groupIds`     — `[MCP.3.13]` sólo los pedidos de esos grupos (pedido agrupado).
+   *  · `conPartesDeGrupo` — `[MCP.3.13]` el alcance por sucursal suma las partes (de otra sucursal) de
+   *                     los grupos cuyo pedido PRINCIPAL es del alcance: quien reparte desde la sucursal
+   *                     del pedido pasa a recogerlas.
    */
   async pedidosParaGuias(
     trx: Knex.Transaction,
-    f: { almacenes: string[] | null; autorId?: string; orderIds?: string[]; soloAbiertos?: boolean; paraPescar?: boolean },
+    f: {
+      almacenes: string[] | null; autorId?: string; orderIds?: string[]; soloAbiertos?: boolean; paraPescar?: boolean;
+      groupIds?: string[]; conPartesDeGrupo?: boolean;
+    },
   ): Promise<PresaleOrderRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     const hoy = relojMx(new Date()).fecha;
@@ -417,6 +573,10 @@ export class PresaleControlService {
        * cargados o viejos ocuparan las 500 filas y escondieran los nuevos sin avisar.
        */
       paraPescar?: boolean;
+      /** `[MCP.3.13]` Sólo los pedidos de esos grupos. */
+      groupIds?: string[];
+      /** `[MCP.3.13]` El alcance suma las partes de los grupos cuyo principal es del alcance. */
+      conPartesDeGrupo?: boolean;
     },
   ): Promise<Record<string, unknown>[]> {
     const params: Knex.RawBinding[] = [];
@@ -444,8 +604,21 @@ export class PresaleControlService {
     }
     if (f.almacenes !== null) {
       // `f.almacenes` son llaves de sucursal (2 dígitos) del alcance, no ids de almacén.
-      donde += ` AND ((${SUCURSAL_KEPLER_SQL}) = ANY(?::text[]) OR (${branchKeySql('w')}) = ANY(?::text[]))`;
+      // [MCP.3.13] Con `conPartesDeGrupo`, también la parte de otra sucursal cuyo principal es del alcance.
+      const partes = f.conPartesDeGrupo
+        ? ` OR (o.group_id IS NOT NULL AND o.group_id <> o.id AND EXISTS (
+              SELECT 1 FROM commercial.orders gm
+                JOIN commercial.warehouses gmw ON gmw.id = gm.warehouse_id AND gmw.tenant_id = gm.tenant_id
+               WHERE gm.id = o.group_id AND gm.tenant_id = o.tenant_id
+                 AND ((${sucursalKeplerSql('gmw')}) = ANY(?::text[]) OR (${branchKeySql('gmw')}) = ANY(?::text[]))))`
+        : '';
+      donde += ` AND ((${SUCURSAL_KEPLER_SQL}) = ANY(?::text[]) OR (${branchKeySql('w')}) = ANY(?::text[])${partes})`;
       params.push(f.almacenes, f.almacenes);
+      if (f.conPartesDeGrupo) params.push(f.almacenes, f.almacenes);
+    }
+    if (f.groupIds) {
+      donde += ' AND o.group_id = ANY(?::uuid[])';
+      params.push(f.groupIds);
     }
     if (f.autorId) {
       donde += ' AND o.user_id = ?';
@@ -456,7 +629,8 @@ export class PresaleControlService {
       params.push(f.orderIds);
     }
     if (f.paraPescar) {
-      donde += ` AND NULLIF(ltrim(btrim(c.erp_customer_code), '0'), '') IS NOT NULL
+      // [MCP.3.13] Con clave: la de la sucursal del pedido si la tiene ligada, si no la de origen.
+      donde += ` AND NULLIF(ltrim(btrim(coalesce(bk.erp_customer_code, c.erp_customer_code)), '0'), '') IS NOT NULL
                  AND NOT EXISTS (SELECT 1 FROM commercial.load_guide_orders x
                                    JOIN commercial.load_guides xg ON xg.id = x.guide_id AND xg.tenant_id = x.tenant_id
                                   WHERE x.order_id = o.id AND x.tenant_id = o.tenant_id
@@ -488,10 +662,28 @@ export class PresaleControlService {
               en.delivered_at, en.delivery_outcome, en.delivery_note, en.cash_amount, en.transfer_amount,
               en.transfer_ref, en.guide_folio AS delivery_guide_folio, en.delivered_by_name,
               en.delivered_folio_digital,
-              ${FALLIDOS_SQL} AS failed_attempts
+              ${FALLIDOS_SQL} AS failed_attempts,
+              bk.erp_customer_code AS branch_key_code,
+              o.group_id, grp.group_code, grp.group_main_branch, grp.group_parts, grp.group_branches
          FROM commercial.orders o
          LEFT JOIN commercial.customers c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
          LEFT JOIN commercial.warehouses w ON w.id = o.warehouse_id AND w.tenant_id = o.tenant_id
+         -- [MCP.3.13] La clave del cliente en la sucursal del pedido, si se ligó (a lo más una viva:
+         -- llave ux_customer_branch_keys_vivo).
+         LEFT JOIN commercial.customer_branch_keys bk
+           ON bk.tenant_id = o.tenant_id AND bk.customer_id = o.customer_id
+          AND bk.branch = (${SUCURSAL_KEPLER_SQL}) AND bk.deleted_at IS NULL
+         -- [MCP.3.13] El grupo del pedido agrupado: principal, partes vivas y sus sucursales.
+         LEFT JOIN LATERAL (
+           SELECT max(gp.code) FILTER (WHERE gp.id = gp.group_id) AS group_code,
+                  max(${sucursalKeplerSql('gw')}) FILTER (WHERE gp.id = gp.group_id) AS group_main_branch,
+                  (count(*) FILTER (WHERE gp.status <> 'cancelled'))::int AS group_parts,
+                  array_agg(DISTINCT ${sucursalKeplerSql('gw')}) FILTER (WHERE gp.status <> 'cancelled') AS group_branches
+             FROM commercial.orders gp
+             LEFT JOIN commercial.warehouses gw ON gw.id = gp.warehouse_id AND gw.tenant_id = gp.tenant_id
+            WHERE o.group_id IS NOT NULL AND gp.tenant_id = o.tenant_id AND gp.group_id = o.group_id
+              AND gp.deleted_at IS NULL
+         ) grp ON true
          LEFT JOIN identity.users u ON u.id = o.user_id AND u.tenant_id = o.tenant_id
          LEFT JOIN commercial.order_kepler_documents d
            ON d.order_id = o.id AND d.tenant_id = o.tenant_id AND d.unlinked_at IS NULL
@@ -524,7 +716,19 @@ export class PresaleControlService {
         LIMIT ?`,
       params,
     );
-    return rows;
+    // [MCP.3.13] Desde aquí, `erp_customer_code`/`erp_source_branch` son la clave con que se cobra
+    // el pedido en SU sucursal: todo lo de abajo (bloqueo, candidatos, liga, notas) la lee de ahí.
+    return (rows as Record<string, unknown>[]).map((r) => {
+      const k = claveDelPedido(
+        {
+          customer_code: (r['erp_customer_code'] as string) ?? null,
+          customer_branch: (r['erp_source_branch'] as string) ?? null,
+          branch_key_code: (r['branch_key_code'] as string) ?? null,
+        },
+        (r['branch'] as string) ?? null,
+      );
+      return { ...r, erp_customer_code: k.code, erp_source_branch: k.branch, customer_key_from_branch: k.de_sucursal };
+    });
   }
 
   /**
@@ -695,6 +899,15 @@ export class PresaleControlService {
         // Sólo un pedido abierto puede necesitar devolución: uno entregado o cancelado ya cerró.
         return_required: stage !== 'entregado' && stage !== 'cancelado' && requiereDevolucion(Number(f['failed_attempts'] ?? 0)),
         credit_note: null,
+        // [MCP.3.13] Pedido agrupado (null = suelto) y de dónde salió la clave del cliente.
+        group_id: (f['group_id'] as string) ?? null,
+        group_code: f['group_id'] ? ((f['group_code'] as string) ?? null) : null,
+        group_main_branch: f['group_id'] ? ((f['group_main_branch'] as string) ?? null) : null,
+        group_parts: f['group_id'] ? Number(f['group_parts'] ?? 0) : null,
+        group_branches: f['group_id']
+          ? ((f['group_branches'] as Array<string | null> | null) ?? []).filter((b): b is string => !!b).sort()
+          : null,
+        customer_key_from_branch: f['customer_key_from_branch'] === true,
       };
       return { row, hechos, created_date: f['created_date'] as string };
     });

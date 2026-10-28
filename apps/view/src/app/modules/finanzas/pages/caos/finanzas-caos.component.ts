@@ -18,12 +18,13 @@ import { SegmentedComponent, type SegOption } from '../../../../shared/component
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
+import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { MX_TZ, todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
-import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion, type CaosIngresosEstado, type CaosTipo, type CaosSaldo, type CaosTipoEfecto } from '../../caos.service';
+import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion, type CaosIngresosEstado, type CaosTipo, type CaosSaldo, type CaosTipoEfecto, type CaosVinculos, type CaosVinculo } from '../../caos.service';
 import { CaosSocketService } from '../../caos-socket.service';
 import { CajaSocketService } from '../../caja-socket.service';
 import { CashLedgerService } from '../../cash-ledger.service';
@@ -54,6 +55,10 @@ interface FilaUI extends CaosMovimiento {
   denom?: CaosDenominacion[]; denomTotal?: number | null;
   /** `[CGS.55]` El detalle no se pudo leer: se dice y se reintenta — no se pinta «sin desglose». */
   denomError?: string | null;
+  /** `[CGA-A.57]` Supervisión: a qué movimientos de Caja General se vinculó. Se pide al expandir. */
+  vinc?: CaosVinculos | null; vincError?: string | null;
+  /** `[CGS.58]` El día de México del movimiento: la llave del renglón de grupo. */
+  dia?: string;
 }
 
 /** `[CGS.55]` Una tarjeta de la respuesta: la cifra, con qué se midió y de dónde sale. */
@@ -68,34 +73,35 @@ interface TarjetaCaos {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, RouterLink, ButtonModule, InputTextModule, SelectModule, DatePickerModule, TableModule,
     DialogModule, InputNumberModule, TextareaModule,
-    MetricCardComponent, SegmentedComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent,
+    MetricCardComponent, SegmentedComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, SidePeekComponent,
     CajaTabsComponent],
   template: `
     <!-- [CG.121] Captura / Expediente / Caja Fuerte son UN area, no tres reportes sueltos. -->
     <app-caja-tabs />
     <div class="surf-page in">
-      <header class="surf-page-head">
-        <div class="surf-page-head-text">
-          <h1>Caja Fuerte (CAOS)</h1>
-          <p class="surf-page-sub">Cuánto efectivo hay en la caja fuerte y qué de lo que entra y sale falta registrar en Caja General.</p>
-        </div>
-        <!-- DESIGN §P — la jerga de esta pantalla va al diccionario versionado, no redactada
-             acá: «sin respaldo», «grano» y «cobertura» se leyeron al revés en la auditoría. -->
-        <app-context-help topic="caja-fuerte" />
-        <!-- DESIGN §9 — la edad del DATO, no la de la carga. [CGA-A.33] Mide el LATIDO del carril
-             (la ultima vez que se pregunto a la maquina), no el ultimo movimiento: a las 10:00 la
-             maquina llevaba 16 h sin moverse con el carril sano cada 30 s, y la pildora en ambar
-             afirmaba un dato viejo que no lo era. Sin latido, cae al ultimo movimiento. -->
-        <app-freshness-pill measures="data" [since]="frescura()" [staleAfterSec]="600"
-                            label="caja fuerte"></app-freshness-pill>
-      </header>
+      <!-- [CGS.57] El titulo repetia la pestaña «Caja Fuerte» a 30 px: queda para lectores de pantalla. -->
+      <h1 class="sr-only">Caja Fuerte (CAOS): cuánto efectivo hay y qué falta registrar en Caja General</h1>
 
+      <!-- [CGS.57] DOS COLUMNAS: el trabajo (la tabla) a la izquierda y el estado a la derecha, fijo
+           mientras se recorre la lista. Medido antes a 1442×902 (nivel A): titulo, tres tarjetas y el
+           aviso apilados arriba; el primer movimiento empezaba a 614 px de 904 (8 renglones a la
+           vista de 25) y el Analisis vivia debajo de la tabla y su paginador, a 1,523 px. -->
+      <div class="cs-layout">
       <!-- [CGA-A.41] DESIGN Q.1 answer-first. Quien abre esta pantalla trae DOS preguntas: cuanto
-           hay en la caja fuerte, y que falta registrar en Caja General. Medido en vivo el
-           2026-10-20 (nivel A): la version anterior abria con filtros, cinco cifras de flujo de un
-           rango arbitrario y tres acordeones cerrados; la tabla empezaba a 830 px y no respondia
-           ninguna de las dos. -->
-      <section class="cs-respuesta" aria-label="Estado de la caja fuerte">
+           hay en la caja fuerte, y que falta registrar en Caja General. En el DOM va primero (lo
+           lee primero un lector de pantalla y, en angosto, se apila arriba de la tabla). -->
+      <aside class="cs-rail" aria-label="Estado de la caja fuerte">
+        <div class="cs-rail-h">
+          <!-- DESIGN §9 — la edad del DATO, no la de la carga. [CGA-A.33] Mide el LATIDO del carril
+               (la ultima vez que se pregunto a la maquina), no el ultimo movimiento: a las 10:00 la
+               maquina llevaba 16 h sin moverse con el carril sano cada 30 s, y la pildora en ambar
+               afirmaba un dato viejo que no lo era. Sin latido, cae al ultimo movimiento. -->
+          <app-freshness-pill measures="data" [since]="frescura()" [staleAfterSec]="600"
+                              label="caja fuerte"></app-freshness-pill>
+          <!-- DESIGN §P — la jerga de esta pantalla va al diccionario versionado, no redactada
+               acá: «sin respaldo», «grano» y «cobertura» se leyeron al revés en la auditoría. -->
+          <app-context-help topic="caja-fuerte" />
+        </div>
         <app-load-state [loading]="saldoCargando() && !saldoResp()" [error]="saldoError()" [isEmpty]="false"
                         [skeletonRows]="1" errorTitle="No se pudo leer el estado de la caja fuerte"
                         (retry)="cargarSaldo()">
@@ -159,7 +165,63 @@ interface TarjetaCaos {
             }
           }
         </app-load-state>
-      </section>
+
+        <!-- [CGS.57] Lo SECUNDARIO, a la vista y sin recorrer la tabla: cada analisis es un renglon que
+             dice su estado CERRADO (estandar 2.1: plegar no es esconder) y abre su detalle en un panel
+             lateral. Antes eran cuatro acordeones debajo de la tabla y su paginador. -->
+        <nav class="cs-analisis" aria-labelledby="cs-analisis-h">
+          <h2 id="cs-analisis-h" class="cs-rail-t">Análisis</h2>
+          <ul class="cs-an-list">
+            <li>
+              <button type="button" class="cs-an" (click)="abrirAnalisis('billetes')">
+                <span class="cs-an-txt">
+                  <span class="cs-an-t">Billetes por denominación</span>
+                  @if (saldoResp()?.saldo; as sd) { <span class="cs-an-s"><span class="comm-num">{{ money(sd.total) }}</span> en {{ sd.por_denominacion.length }} denominaciones</span> }
+                  @else { <span class="cs-an-s">sin medir: la máquina todavía no reporta su contenido</span> }
+                </span>
+                <i class="pi pi-angle-right" aria-hidden="true"></i>
+              </button>
+            </li>
+            <li>
+              <!-- CS.4 — total de control contra la Caja General de Kepler. [CGA-A.33] Estandar 1.4: se
+                   titulaba con una pregunta de cuadre y su contenido dice que NO es un cuadre. -->
+              <button type="button" class="cs-an" (click)="abrirAnalisis('kepler')">
+                <span class="cs-an-txt">
+                  <span class="cs-an-t">CAOS frente a la Caja General de Kepler</span>
+                  <span class="cs-an-s">del {{ dmy(from) }} al {{ dmy(to) }} · informativo</span>
+                </span>
+                <i class="pi pi-angle-right" aria-hidden="true"></i>
+              </button>
+            </li>
+            <li>
+              <!-- [CGA-A.33] Si el carril esta fallando, el renglon lo dice CERRADO. -->
+              <button type="button" class="cs-an" (click)="abrirAnalisis('atribucion')">
+                <span class="cs-an-txt">
+                  <span class="cs-an-t">¿De qué cobros es este efectivo?</span>
+                  @if (latidoAtribucion()?.status === 'error') {
+                    <span class="cs-an-s cs-an-mal"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> el carril está fallando desde {{ latidoAtribucion()!.cuando }}</span>
+                  } @else if (saldoResp() && !latidoAtribucion()) {
+                    <span class="cs-an-s cs-an-mal">nunca ha corrido</span>
+                  } @else {
+                    <span class="cs-an-s">atribución de depósitos a cobros de Kepler</span>
+                  }
+                </span>
+                <i class="pi pi-angle-right" aria-hidden="true"></i>
+              </button>
+            </li>
+            <li>
+              <!-- CS.6/CS.7 — resumen interno de CAOS (no cruza contra nada) -->
+              <button type="button" class="cs-an" (click)="abrirAnalisis('resumen')">
+                <span class="cs-an-txt">
+                  <span class="cs-an-t">Resumen por operador y ruta</span>
+                  <span class="cs-an-s">del {{ dmy(from) }} al {{ dmy(to) }}</span>
+                </span>
+                <i class="pi pi-angle-right" aria-hidden="true"></i>
+              </button>
+            </li>
+          </ul>
+        </nav>
+      </aside>
 
       <!-- [CGA-A.41] La tabla es el TRABAJO: abre en lo que falta registrar. El rango solo aplica a
            «Todos» — «Sin registrar» tiene su propio universo, desde el primer movimiento registrado. -->
@@ -208,22 +270,38 @@ interface TarjetaCaos {
             <tr>
               <!-- [CGA-A.41] Fuera «#» (un id interno que nadie busca) y «Dia contable» (medido: igual
                    a la fecha en el 100 % de 30 dias, e imprimia el ISO crudo en dos lineas). Entra
-                   la columna que responde la pregunta de trabajo: si ya esta en Caja General. -->
+                   la columna que responde la pregunta de trabajo: si ya esta en Caja General.
+                   [CGS.58] El DIA va en el renglon de grupo (con su cuenta y su neto) y la fila dice la hora:
+                   «28/10/26» se repetia en cada renglon. Fuera «Tipo»: Depósito/Dispensar repetia lo que ya
+                   dicen el signo y el color del monto (tres señales para un dato); los otros tipos se nombran
+                   en la referencia. Orden de lectura: qué (referencia), quién, cuánto, qué falta. -->
               <th scope="col" style="width:2.5rem"><span class="sr-only">Denominaciones</span></th>
-              <th scope="col" style="width:9rem">Fecha y hora</th>
-              <th scope="col" style="width:9rem">Tipo</th>
-              <th scope="col" class="cs-th-num" style="width:10rem">Monto</th>
+              <th scope="col" style="width:4.5rem">Hora</th>
               <th scope="col">Referencia</th>
               <th scope="col">Operador</th>
-              <th scope="col" style="width:10rem">Caja General</th>
+              <th scope="col" class="cs-th-num" style="width:9.5rem">Monto</th>
+              <th scope="col" style="width:9rem">Caja General</th>
             </tr>
           </ng-template>
           <!-- [CGS.55] Sin etiquetas de color: eran dos por renglón (110 en 55 renglones). La DIRECCION
-               va en el signo del monto (+ entra / − sale), el tipo en texto, y «Caja General» dice el
-               folio o lleva a registrarlo — no repite «Sin registrar» en una vista que ya es eso. -->
+               va en el signo del monto (+ entra / − sale) y «Caja General» dice el folio o lleva a
+               registrarlo — no repite «Sin registrar» en una vista que ya es eso. -->
           <ng-template #body let-r let-expanded="expanded" let-i="rowIndex">
             <!-- Sin pSelectableRow: sin selectionMode no hace nada, y el recorrido con
                  teclado lo da el botón de cada fila (mismo criterio que almacen-movimientos). -->
+            <!-- [CGS.58] El renglón del día, antes de su primer movimiento (y al empezar cada página): su nombre,
+                 cuántos movimientos y su neto, alineado con Monto. Las cifras son de ESTA lista (en «Sin
+                 registrar», sólo los que faltan). ⛔ No es el #groupheader de PrimeNG: con filas desplegables
+                 lo vuelve un grupo plegable y esconde todos los movimientos (medido: 8 días, 0 filas). -->
+            @if (i % porPagina() === 0 || rows()[i - 1]?.dia !== r.dia) {
+              @if (resumenDia(r.dia); as d) {
+                <tr class="cs-dia-h">
+                  <td colspan="4"><span class="cs-dia-t">{{ d.titulo }}</span><span class="cs-dia-n">{{ ' · ' + d.detalle }}</span></td>
+                  <td class="comm-num cs-monto"><span class="cs-dia-n">neto </span>{{ d.neto }}</td>
+                  <td></td>
+                </tr>
+              }
+            }
             <tr>
               <td>
                 <!-- DESIGN D.7 — botón NATIVO: recibe foco, responde a Enter y Espacio sin
@@ -234,35 +312,41 @@ interface TarjetaCaos {
                   <i class="pi" [class.pi-chevron-down]="expanded" [class.pi-chevron-right]="!expanded" aria-hidden="true"></i>
                 </button>
               </td>
-              <!-- [CGA-A.33] el instante viaja en UTC: dmy() le cortaba la fecha en UTC y lo de despues de
-                   las 18:00 salia con el dia SIGUIENTE (10 movimientos, $307,860 en 30 dias). Hora de Mexico. -->
-              <td class="cs-nowrap">{{ fechaHoraMx(r.occurred_at) }}</td>
-              <!-- [CGA-A.33] La dirección sale del mismo mapa que suma el neto; un tipo sin decodificar
-                   se dice con un aviso, no con un color. -->
+              <!-- [CGA-A.33] el instante viaja en UTC: lo de despues de las 18:00 salia con el dia
+                   SIGUIENTE (10 movimientos, $307,860 en 30 dias). Hora y día de México. -->
+              <td class="cs-nowrap comm-num cs-hora">{{ soloHoraMx(r.occurred_at) }}</td>
               <td>
-                {{ tipoTexto(r.type_label) }}
+                <!-- [CGA-A.33] Un tipo que no es depósito ni dispensación se nombra; uno sin decodificar
+                     se dice con un aviso, no con un color. -->
+                @if (r.type_id !== 0 && r.type_id !== 4) { <span class="cs-tipo">{{ tipoTexto(r.type_label) }}</span> }
                 @if (efectoDe(r.type_id)?.efecto === 'indeterminado') {
                   <span class="cs-card-aviso"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> sin decodificar</span>
+                }
+                {{ r.ref || '—' }}
+              </td>
+              <!-- El operador se dice cuando cambia (24 de 25 renglones repetían el mismo nombre); cada
+                   día lo vuelve a decir. Donde se calla, el lector de pantalla lo sigue leyendo. -->
+              <td class="fin-dim">
+                @if (i % porPagina() === 0 || rows()[i - 1]?.dia !== r.dia || operador(rows()[i - 1]?.user_external) !== operador(r.user_external)) {
+                  {{ operador(r.user_external) }}
+                } @else {
+                  <span class="sr-only">{{ operador(r.user_external) }}</span>
                 }
               </td>
               <!-- [CGS.56] Edgar: «rojo si es egreso, verde si es ingreso». El color va en el TEXTO del monto y
                    acompaña al signo: sin el color, el + / − sigue diciendo la dirección. -->
-              <td class="comm-num cs-monto" [class.fin-entra]="signo(r.type_id) === '+ '" [class.fin-sale]="signo(r.type_id) === '− '">{{ signo(r.type_id) }}{{ money(r.total) }}</td>
-              <td>{{ r.ref || '—' }}</td>
-              <!-- El operador se dice cuando cambia: 24 de 25 renglones repetían el mismo nombre. -->
-              <td class="fin-dim">
-                @if (i % porPagina() === 0 || operador(rows()[i - 1]?.user_external) !== operador(r.user_external)) {
-                  {{ operador(r.user_external) }}
-                } @else {
-                  <span aria-hidden="true">″</span><span class="sr-only">{{ operador(r.user_external) }}</span>
-                }
-              </td>
+              <td class="comm-num cs-monto" [class.fin-entra]="signo(r.type_id) === '+ '" [class.fin-sale]="signo(r.type_id) === '− '">@if (r.type_id === 0 || r.type_id === 4) { <span class="sr-only">{{ tipoTexto(r.type_label) }}: </span> }{{ signo(r.type_id) }}{{ money(r.total) }}</td>
               <td>
                 @if (r.folio_caja_general) {
+                  <!-- [CGA-A.57] El folio es UNO de los que lo explican: si hay más, se dice cuántos. -->
                   <span><i class="pi pi-check" aria-hidden="true"></i> {{ r.folio_caja_general }}</span>
+                  @if ((r.vinculos_n ?? 0) > 1) {
+                    <span class="fin-dim"> +{{ (r.vinculos_n ?? 0) - 1 }}</span>
+                  }
                 } @else if (r.type_id === 0 || r.type_id === 4) {
                   <!-- [CGS.55] La pantalla dice qué falta registrar: también lleva a registrarlo, con el
-                       movimiento ya puesto en la captura (Captura lo busca por su identidad). -->
+                       movimiento ya puesto en la captura (Captura lo busca por su identidad).
+                       [CGS.58] En voz baja: 25 «Registrar» subrayados en negritas eran lo más fuerte de la tabla. -->
                   <a class="cs-registrar" routerLink="/finanzas/caja-general"
                      [queryParams]="{ caos: r.device + '|' + r.external_id, caos_dia: diaMx(r.occurred_at) }"
                      [attr.aria-label]="'Registrar en Caja General el movimiento ' + r.external_id">
@@ -276,7 +360,7 @@ interface TarjetaCaos {
           </ng-template>
           <ng-template #expandedrow let-r>
             <tr class="cs-det">
-              <td colspan="7">
+              <td colspan="6">
                 @if (r.denom && r.denom.length) {
                   <table class="cs-denom">
                     <thead><tr><th scope="col">Denominación</th><th scope="col">Pieza</th><th scope="col" class="comm-num">Piezas</th><th scope="col" class="comm-num">Importe</th></tr></thead>
@@ -317,6 +401,60 @@ interface TarjetaCaos {
                 } @else {
                   <span class="fin-dim">Cargando denominaciones…</span>
                 }
+                <!-- [CGA-A.57] Supervisión: a qué movimientos de Caja General se vinculó y cuánto queda. -->
+                @if (verVinculos() && (r.type_id === 0 || r.type_id === 4)) {
+                  <div class="cs-vinc">
+                    @if (r.vinc; as v) {
+                      <div class="cs-vinc-head">
+                        <strong>Vinculado a Caja General</strong>
+                        <span class="mono">{{ money(v.vinculado) }} de {{ money(v.total) }}</span>
+                        <span class="fin-dim">· libre <span class="mono">{{ money(v.libre) }}</span></span>
+                      </div>
+                      @if (v.filas.length) {
+                        <table class="cs-denom">
+                          <thead><tr><th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col" class="comm-num">Movimiento</th><th scope="col" class="comm-num">Tomó de CAOS</th><th scope="col">Estado</th>
+                            @if (esSuperadmin()) { <th scope="col"><span class="sr-only">Corregir</span></th> }</tr></thead>
+                          <tbody>
+                            @for (f of v.filas; track f.cash_ledger_id) {
+                              <tr [class.fin-dim]="f.estado === 'cancelado'">
+                                <td>
+                                  <a routerLink="/finanzas/caja-general" [queryParams]="{ q: f.folio, from: diaMx(f.fecha), to: diaMx(f.fecha) }"
+                                     [attr.aria-label]="'Abrir ' + f.folio + ' en Caja General'">{{ f.folio }}</a>
+                                </td>
+                                <td class="mono">{{ dmy(f.fecha) }}</td>
+                                <td class="comm-num">{{ money(f.monto) }}</td>
+                                <td class="comm-num">{{ money(f.monto_enlazado) }}</td>
+                                <td class="fin-dim">{{ f.via === 'nacio_en_la_maquina' ? 'registrado desde CAOS' : f.estado }}</td>
+                                <!-- [CGA-A.58] Sólo superadmin, separado de la lectura y con motivo obligatorio. -->
+                                @if (esSuperadmin()) {
+                                  <td>
+                                    @if (f.link_id) {
+                                      <p-button label="Quitar" icon="pi pi-times" size="small" severity="danger" [text]="true"
+                                                [ariaLabel]="'Quitar el vínculo con ' + f.folio" (onClick)="abrirQuitar(r, f)"></p-button>
+                                    }
+                                  </td>
+                                }
+                              </tr>
+                            }
+                          </tbody>
+                        </table>
+                      } @else {
+                        <span class="fin-dim">Sin movimientos de Caja General vinculados.</span>
+                      }
+                      @if (esSuperadmin() && v.libre > 0.005) {
+                        <div>
+                          <p-button label="Vincular un folio" icon="pi pi-link" size="small" severity="secondary" [text]="true"
+                                    (onClick)="abrirVincular(r)"></p-button>
+                        </div>
+                      }
+                    } @else if (r.vincError) {
+                      <span class="cs-mal">{{ r.vincError }}</span>
+                      <p-button label="Reintentar" size="small" [text]="true" (onClick)="cargarVinculos(r)"></p-button>
+                    } @else {
+                      <span class="fin-dim">Cargando vínculos…</span>
+                    }
+                  </div>
+                }
               </td>
             </tr>
           </ng-template>
@@ -327,17 +465,17 @@ interface TarjetaCaos {
       </app-load-state>
       </section>
 
-      <!-- [CGA-A.41] Lo SECUNDARIO va debajo del trabajo, y cada panel dice su estado cerrado
-           (estandar 2.1). Antes estos tres acordeones ocupaban ~280 px ENCIMA de la tabla. -->
-      <section class="cs-analisis" aria-labelledby="cs-analisis-h">
-        <h2 id="cs-analisis-h" class="cs-h2">Análisis</h2>
+      </div>
+    </div>
 
-        <details class="cs-resumen">
-          <summary>
-            Billetes en la caja fuerte por denominación
-            @if (saldoResp()?.saldo; as sd) { <span class="fin-dim">· {{ money(sd.total) }}</span> }
-            @else { <span class="fin-dim">· sin medir: la máquina todavía no reporta su contenido a la suite</span> }
-          </summary>
+    <!-- [CGS.57] El detalle de cada analisis, en el panel lateral compartido (antes: cuatro acordeones
+         debajo de la tabla). Cada uno se consulta la PRIMERA vez que se abre, como antes al desplegarlo:
+         el cuadre contra Kepler tarda ~1 s y no se paga al entrar. -->
+    <app-side-peek [open]="analisis() !== null" (openChange)="$event || analisis.set(null)"
+                   [width]="analisis() === 'kepler' || analisis() === 'resumen' ? 760 : 560"
+                   [title]="tituloAnalisis()" [subtitle]="subtituloAnalisis()">
+      @switch (analisis()) {
+        @case ('billetes') {
           @if (saldoResp()?.saldo; as sd) {
             <!-- DESIGN 5.4 — la base de tabla del sistema, no una re-estilada a mano. -->
             <table class="surf-table surf-table--plain is-dense cs-denoms">
@@ -370,6 +508,8 @@ interface TarjetaCaos {
                 movimiento sin decodificar: {{ saldoResp()!.cuadre!.no_verificables[0].motivo }}
               </p>
             }
+          } @else {
+            <p class="fin-dim cs-nota">Sin medir: la máquina todavía no reporta su contenido a la suite.</p>
           }
           <p class="cs-latido" [class.cs-latido-mal]="saldoResp()?.latido?.status === 'error' || !saldoResp()?.latido">
             <i class="pi pi-sync" aria-hidden="true"></i>
@@ -380,17 +520,8 @@ interface TarjetaCaos {
               <span class="cs-err-inline">la suite todavía no lee el contenido de la máquina.</span>
             }
           </p>
-        </details>
-
-        <!-- CS.4 — total de control contra la Caja General de Kepler. [CGA-A.33] Estandar 1.4: se
-             titulaba con una pregunta de cuadre y su contenido dice que NO es un cuadre. -->
-        <details class="cs-resumen" (toggle)="alAbrirCuadre($event)">
-          <summary>CAOS frente a la Caja General de Kepler <span class="fin-dim">· informativo, no es un cuadre</span></summary>
-          <p class="fin-dim cs-nota">
-            <i class="pi pi-clock" aria-hidden="true"></i>
-            Este cuadre recorre el contable de Kepler y tarda cerca de <strong>1 s</strong>: por eso
-            se pide al abrir el panel y no al entrar a la pantalla.
-          </p>
+        }
+        @case ('kepler') {
           @if (concError(); as msg) {
             <p class="cs-err">
               {{ msg }}
@@ -423,25 +554,13 @@ interface TarjetaCaos {
               </tbody>
             </table>
           } @else {
-            <p class="fin-dim">Cargando el cuadre…</p>
+            <!-- Recorre el contable de Kepler (~1 s): por eso se pide al abrir el panel y no al entrar. -->
+            <p class="fin-dim">Cargando el cuadre: recorre el contable de Kepler y tarda cerca de 1 s…</p>
           }
-        </details>
-
-        <!-- [CG.58.2] — el conciliador de ingresos existía, estaba desplegado y NO tenía invocador:
-             ni botón, ni cron, ni enganche al arqueo. Por eso la atribución estaba en cero. -->
-        <details class="cs-resumen" (toggle)="alAbrirIngresos($event)">
-          <!-- [CGA-A.33] Estandar 2.1 — plegar no es esconder: si el carril esta fallando, el
-               resumen lo dice CERRADO. El 2026-10-20 estaba en error y la tabla de atribucion
-               tenia 0 filas en toda su vida; sólo se veia abriendo el panel. -->
-          <summary>
-            ¿De qué cobros es este efectivo? (atribución)
-            @if (latidoAtribucion()?.status === 'error') {
-              <span class="cs-err-inline"> · <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                el carril está fallando desde {{ latidoAtribucion()!.cuando }}: las cifras no describen un reparto</span>
-            } @else if (saldoResp() && !latidoAtribucion()) {
-              <span class="cs-err-inline"> · nunca ha corrido</span>
-            }
-          </summary>
+        }
+        @case ('atribucion') {
+          <!-- [CG.58.2] — el conciliador de ingresos existía, estaba desplegado y NO tenía invocador:
+               ni botón, ni cron, ni enganche al arqueo. Por eso la atribución estaba en cero. -->
           <p class="fin-dim cs-nota">
             Ata cada depósito de la caja fuerte a los cobros de Kepler que lo explican, consumiendo
             del más viejo al más nuevo y sin reusar ninguno. Los tres montos van <strong>separados a
@@ -491,11 +610,9 @@ interface TarjetaCaos {
           } @else {
             <p class="fin-dim">Cargando la atribución…</p>
           }
-        </details>
-
-        <!-- CS.6/CS.7 — resumen interno de CAOS (no cruza contra nada) -->
-        <details class="cs-resumen" (toggle)="alAbrirResumen($event)">
-          <summary>Resumen por operador y ruta</summary>
+        }
+        @case ('resumen') {
+          <!-- CS.6/CS.7 — resumen interno de CAOS (no cruza contra nada) -->
           @if (resumenError(); as msg) {
             <p class="cs-err">
               {{ msg }}
@@ -544,10 +661,9 @@ interface TarjetaCaos {
           } @else {
             <p class="fin-dim">Cargando el resumen…</p>
           }
-        </details>
-
-      </section>
-    </div>
+        }
+      }
+    </app-side-peek>
     <!-- [CGS.22] El conteo fisico. Ciego: la referencia y la diferencia se ven al guardar. -->
     <p-dialog [visible]="conteoAbierto()" (visibleChange)="$event ? null : cerrarConteo()" [modal]="true"
               [style]="{ width: '30rem', maxWidth: '96vw' }" [draggable]="false" header="Contar la caja fuerte">
@@ -586,10 +702,60 @@ interface TarjetaCaos {
         }
       </ng-template>
     </p-dialog>
+
+    <!-- [CGA-A.58] Quitar un vínculo: sólo superadmin, con motivo, y el monto vuelve a quedar libre. -->
+    <p-dialog [visible]="!!quitarSel()" (visibleChange)="$event ? null : quitarSel.set(null)" [modal]="true"
+              [style]="{ width: '30rem', maxWidth: '96vw' }" [draggable]="false" header="Quitar vínculo">
+      @if (quitarSel(); as q) {
+        <p>
+          Se quita el vínculo de <b>{{ q.f.folio }}</b> con el movimiento {{ q.r.external_id }} de CAOS.
+          Los <b class="mono">{{ money(q.f.monto_enlazado) }}</b> vuelven a quedar libres para vincularlos o registrarlos.
+        </p>
+        <p class="cs-conteo-hint">El esperado del corte no cambia: sale de los movimientos de la máquina.</p>
+        <label class="cs-conteo-hint" for="cs-quitar-motivo">Motivo (obligatorio)</label>
+        <textarea pTextarea id="cs-quitar-motivo" rows="2" class="cs-conteo-nota"
+                  [ngModel]="motivoQuitar()" (ngModelChange)="motivoQuitar.set($event)"></textarea>
+      }
+      @if (errCorregir()) { <p class="cs-mal" role="alert">{{ errCorregir() }}</p> }
+      <ng-template #footer>
+        <p-button label="Cancelar" size="small" severity="secondary" [text]="true" (onClick)="quitarSel.set(null)"></p-button>
+        <p-button label="Quitar vínculo" icon="pi pi-times" size="small" severity="danger"
+                  [disabled]="corrigiendo() || motivoQuitar().trim().length < 10" [loading]="corrigiendo()"
+                  (onClick)="confirmarQuitar()"></p-button>
+      </ng-template>
+    </p-dialog>
+
+    <!-- [CGA-A.58] Vincular un movimiento de Caja General YA guardado, por su folio. -->
+    <p-dialog [visible]="!!vincularSel()" (visibleChange)="$event ? null : vincularSel.set(null)" [modal]="true"
+              [style]="{ width: '30rem', maxWidth: '96vw' }" [draggable]="false" header="Vincular un folio">
+      @if (vincularSel(); as r) {
+        <p>
+          Movimiento {{ r.external_id }} de CAOS · libre <b class="mono">{{ money(r.vinc?.libre ?? 0) }}</b>.
+          {{ r.type_id === 0 ? 'Un depósito se vincula a un ingreso.' : 'Un retiro se vincula a un egreso.' }}
+        </p>
+        <div class="cs-conteo-reja">
+          <label for="cs-vinc-folio">Folio</label>
+          <input pInputText id="cs-vinc-folio" [ngModel]="folioVincular()" (ngModelChange)="folioVincular.set($event)"
+                 placeholder="CI-2026-00000" autocomplete="off" />
+          <label for="cs-vinc-monto">Monto</label>
+          <p-inputnumber inputId="cs-vinc-monto" mode="currency" currency="MXN" locale="es-MX" [min]="0"
+                         [ngModel]="montoVincular()" (ngModelChange)="montoVincular.set($event)" />
+        </div>
+        <p class="cs-conteo-hint">El monto no puede pasar de lo libre de CAOS ni de lo que le falta al folio por explicar.</p>
+      }
+      @if (errCorregir()) { <p class="cs-mal" role="alert">{{ errCorregir() }}</p> }
+      <ng-template #footer>
+        <p-button label="Cancelar" size="small" severity="secondary" [text]="true" (onClick)="vincularSel.set(null)"></p-button>
+        <p-button label="Vincular" icon="pi pi-link" size="small"
+                  [disabled]="corrigiendo() || !folioVincular().trim() || !((montoVincular() ?? 0) > 0)" [loading]="corrigiendo()"
+                  (onClick)="confirmarVincular()"></p-button>
+      </ng-template>
+    </p-dialog>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
     .cs-conteo-acc { display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap; margin-top:var(--sp-2); }
     .cs-conteo-hint { color:var(--text-muted); font-size:var(--fs-sm); }
+    .cs-conteo-acc .cs-conteo-hint { font-size:var(--fs-xs); line-height:1.35; }
     .cs-conteo-reja { display:grid; grid-template-columns:6rem 1fr; gap:var(--sp-2) var(--sp-3); align-items:center; margin-block:var(--sp-3); }
     .cs-conteo-total { font-size:var(--fs-lg); }
     .cs-conteo-nota { width:100%; }
@@ -598,6 +764,8 @@ interface TarjetaCaos {
     :host { display:block; min-width:0; container-type:inline-size; }
     .cs-det td { background:color-mix(in srgb, var(--text-muted) 6%, var(--card-bg)); }
     .cs-denom { width:auto; border-collapse:collapse; font-size:var(--fs-xs); }
+    .cs-vinc { margin-top:var(--sp-3); display:flex; flex-direction:column; gap:var(--sp-2); }
+    .cs-vinc-head { display:flex; gap:var(--sp-2); align-items:baseline; flex-wrap:wrap; }
     .cs-denom th, .cs-denom td { padding:.15rem .75rem .15rem 0; text-align:left; }
     .cs-denom .comm-num { text-align:right; }
     .cs-denom tfoot td { border-top:1px solid var(--border-color); font-weight:600; }
@@ -608,8 +776,6 @@ interface TarjetaCaos {
     .cs-toggle:hover { background:color-mix(in srgb, var(--text-muted) 12%, transparent); }
     .cs-toggle:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
     .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
-    .cs-resumen { margin:.75rem 0; border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:.5rem .75rem; }
-    .cs-resumen > summary { cursor:pointer; font-size:var(--fs-sm); font-weight:600; }
     .cs-resumen-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(20rem, 1fr)); gap:1rem; margin-top:.6rem; }
     .cs-h3 { font-size:var(--fs-sm); margin:0 0 .3rem; }
     .cs-nota { font-size:var(--fs-xs); margin:0 0 .35rem; }
@@ -620,15 +786,40 @@ interface TarjetaCaos {
     .cs-latido { font-size:var(--fs-xs); color:var(--text-muted); margin:.2rem 0 .5rem; }
     .cs-latido-mal { color:var(--bad-fg); border-left:2px solid var(--bad-fg); padding-left:.5rem; }
     .cs-grano { font-size:var(--fs-xs); color:var(--text-muted); font-variant-numeric:tabular-nums; }
-    .cs-grano-flojo { color:var(--warn-fg); }
-    .cs-respuesta { margin:0 0 var(--sp-4); }
+    .cs-grano-flojo { color:var(--warn-soft-fg); }
+    /* [CGS.57] Dos columnas: el trabajo (la tabla) y el estado, fijo a la derecha mientras se recorre la lista.
+       Angosto: una columna, el estado arriba (va primero en el DOM). */
+    .cs-layout { display:grid; grid-template-columns:minmax(0, 1fr); gap:var(--sp-4); align-items:start; }
+    .cs-rail { display:flex; flex-direction:column; gap:var(--sp-3); min-width:0; }
+    @container (min-width: 64rem) {
+      .cs-layout { grid-template-columns:minmax(0, 1fr) 21rem; grid-template-areas:"trabajo rail"; gap:var(--sp-5); }
+      .cs-rail { grid-area:rail; position:sticky; top:var(--sp-2); max-height:calc(100dvh - 9rem); overflow-y:auto; }
+      .cs-trabajo { grid-area:trabajo; }
+    }
+    .cs-rail-h { display:flex; align-items:center; justify-content:flex-end; gap:var(--sp-2); }
+    .cs-rail-t { margin:0 0 var(--sp-1); font-size:var(--fs-micro); font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
+    /* Cada analisis: un renglon que dice su estado cerrado y abre su detalle al lado. */
+    .cs-an-list { list-style:none; margin:0; padding:0; border-top:1px solid var(--border-color); }
+    .cs-an { all:unset; box-sizing:border-box; cursor:pointer; width:100%; display:flex; align-items:center; gap:var(--sp-2);
+      padding:6px var(--sp-1); border-bottom:1px solid var(--border-color); }
+    .cs-an:hover { background:var(--overlay-hover); }
+    .cs-an:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; border-radius:var(--r-sm); }
+    .cs-an > .pi { color:var(--text-muted); }
+    .cs-an-txt { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
+    .cs-an-t { font-size:var(--fs-sm); font-weight:600; color:var(--text-main); }
+    .cs-an-s { font-size:var(--fs-xs); color:var(--text-muted); }
+    .cs-an-mal { color:var(--bad-soft-fg); font-weight:600; }
+    /* [CGS.57] Encabezados de columna en su escala: medían 16 px, MAS que los datos (14) e igual que el titulo. */
+    :host ::ng-deep .cs-grid .p-datatable-thead > tr > th { font-size:var(--fs-micro); font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
+    :host ::ng-deep .cs-grid .p-datatable-tbody > tr > td { font-size:var(--fs-sm); }
     /* [CGS.55] Las tarjetas: las mismas piezas que Arqueos. */
     .cs-cards { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(16rem, 1fr)); gap:var(--sp-3); }
     .cs-cards > li { min-width:0; display:flex; }
     .cs-cards app-metric-card { flex:1 1 auto; }
     :host ::ng-deep .cs-cards .mc { height:100%; }
     .cs-card-est { font-size:var(--fs-xs); color:var(--text-muted); display:flex; gap:var(--sp-1); align-items:baseline; }
-    .cs-card-aviso { color:var(--warn-fg); font-weight:600; }
+    /* [CGS.57] --warn-fg (#F59E0B) sobre blanco da 2.1:1 en texto chico: el tono soft pasa AA en los dos modos. */
+    .cs-card-aviso { color:var(--warn-soft-fg); font-weight:600; }
     .cs-card-des { list-style:none; margin:var(--sp-1) 0 0; padding:var(--sp-2) 0 0; border-top:1px solid var(--border-color); display:flex; flex-direction:column; gap:2px; font-size:var(--fs-xs); color:var(--text-muted); line-height:1.35; }
     .cs-card-des li { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:var(--sp-2); align-items:baseline; }
     .cs-card-des .comm-num { color:var(--text-main); white-space:nowrap; text-align:right; }
@@ -639,15 +830,23 @@ interface TarjetaCaos {
     .cs-nowrap { white-space:nowrap; }
     .cs-th-num { text-align:right; }
     .cs-monto { white-space:nowrap; text-align:right; }
-    .cs-registrar { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); font-weight:600; color:var(--text-main); text-decoration:underline; text-underline-offset:2px; }
+    /* [CGS.58] En voz baja: el color del texto secundario, sin subrayado ni negritas; se enciende al pasar y al foco. */
+    .cs-registrar { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); font-weight:500; color:var(--text-muted); text-decoration:none; }
+    .cs-registrar:hover { color:var(--text-main); text-decoration:underline; text-underline-offset:2px; }
+    .cs-registrar .pi { font-size:.75em; }
+    /* [CGS.58] El renglón del día: el que ordena la lista. */
+    :host ::ng-deep .cs-grid .p-datatable-tbody > tr.cs-dia-h > td { background:var(--surface-2); padding-top:6px; padding-bottom:6px; border-bottom:1px solid var(--border-color); }
+    .cs-dia-t { font-size:var(--fs-sm); font-weight:700; color:var(--text-main); }
+    .cs-dia-n { font-size:var(--fs-sm); font-weight:400; color:var(--text-muted); }
+    .cs-dia-h .cs-monto { font-weight:700; color:var(--text-main); }
+    .cs-hora { color:var(--text-muted); }
+    .cs-tipo { font-weight:600; color:var(--text-main); margin-right:var(--sp-1); }
     .cs-registrar:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; border-radius:var(--r-sm); }
-    .cs-aviso { font-size:var(--fs-sm); color:var(--warn-fg); margin:.4rem 0 0; }
-    .cs-trabajo { margin-top:var(--sp-2); }
+    .cs-aviso { display:flex; gap:var(--sp-2); align-items:baseline; font-size:var(--fs-sm); color:var(--warn-soft-fg); background:var(--warn-soft-bg); border-radius:var(--r-md); padding:var(--sp-2) var(--sp-3); margin:0; }
     .cs-barra { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); margin-bottom:var(--sp-2); }
     .cs-barra .cs-h2 { margin:0 var(--sp-2) 0 0; scroll-margin-top:1rem; }
     .cs-buscar { min-width:16rem; margin-left:auto; }
     .cs-universo { font-size:var(--fs-sm); margin:0 0 var(--sp-2); }
-    .cs-analisis { margin-top:var(--sp-6); }
     .cs-h2 { font-size:var(--fs-h3); font-weight:600; margin:0 0 .5rem; }
     .cs-denoms { max-width:34rem; margin-top:.6rem; }
     .cs-denoms tfoot td { border-top:1px solid var(--border-color); border-bottom:0; font-weight:600; }
@@ -692,15 +891,12 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
   // `cargar()` con el panel cerrado: el cuadre tarda ~1 s y se repetía cada 60 s por el repaso.
   resumen = signal<{ porRuta: CaosPorRuta[]; porOperador: CaosPorOperador[] } | null>(null);
   readonly resumenError = signal<string | null>(null);
-  private resumenAbierto = false;
 
   conc = signal<CaosConciliacion | null>(null);
   readonly concError = signal<string | null>(null);
-  private cuadreAbierto = false;
 
   readonly ingEstado = signal<CaosIngresosEstado | null>(null);
   readonly ingError = signal<string | null>(null);
-  private ingAbierto = false;
 
   /** Filas abiertas de la rejilla. `p-table` la lee y la escribe por `dataKey`. */
   expandidas: Record<string, boolean> = {};
@@ -894,6 +1090,34 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
     const e = this.efectoDe(typeId)?.efecto;
     return e === 'suma' ? '+ ' : e === 'resta' ? '− ' : '';
   }
+  /**
+   * `[CGS.58]` El renglón de cada día: su nombre, cuántos movimientos y su neto. Sale de los movimientos
+   * de ESTA lista (en «Sin registrar», sólo los que faltan), con el mismo mapa de efectos que el signo.
+   */
+  readonly resumenDias = computed(() => {
+    const m = new Map<string, { n: number; entra: number; sale: number; at: string }>();
+    for (const r of this.rows()) {
+      const k = r.dia ?? '';
+      const d = m.get(k) ?? { n: 0, entra: 0, sale: 0, at: r.occurred_at };
+      const e = this.efectoDe(r.type_id)?.efecto;
+      d.n++;
+      if (e === 'suma') d.entra += Number(r.total) || 0;
+      if (e === 'resta') d.sale += Number(r.total) || 0;
+      m.set(k, d);
+    }
+    return m;
+  });
+  private readonly fmtDia = new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, weekday: 'long', day: 'numeric', month: 'long' });
+  resumenDia(dia: string | undefined): { titulo: string; detalle: string; neto: string } | null {
+    const d = this.resumenDias().get(dia ?? '');
+    if (!d) return null;
+    const t = this.fmtDia.format(new Date(d.at)).replace(',', '');
+    const partes = [plural(d.n, 'movimiento', 'movimientos')];
+    if (d.entra) partes.push(`entra ${money(d.entra)}`);
+    if (d.sale) partes.push(`sale ${money(d.sale)}`);
+    const neto = d.entra - d.sale;
+    return { titulo: t.charAt(0).toUpperCase() + t.slice(1), detalle: partes.join(' · '), neto: (neto < 0 ? '−' : '+') + money(Math.abs(neto)) };
+  }
   /** La máquina escribe «Deposito»: se dice con su acento. */
   tipoTexto(t: string | null | undefined): string { return (t ?? '—').replace(/^Deposito\b/, 'Depósito'); }
   /** El día de México del movimiento, para la liga a Captura. */
@@ -910,7 +1134,7 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
     const out: string[] = [];
     if (l.movimientos?.status === 'error') out.push(`El carril que trae los movimientos de la máquina está fallando desde ${l.movimientos.cuando}: lo de abajo puede estar incompleto.`);
     if (l.conteo?.status === 'error') out.push(`La lectura de «Contenidos» de la máquina está fallando desde ${l.conteo.cuando}: el saldo puede ser viejo.`);
-    if (l.atribucion?.status === 'error') out.push(`La atribución de depósitos a cobros está fallando desde ${l.atribucion.cuando} (panel «¿De qué cobros es este efectivo?»).`);
+    // [CGS.57] La falla de la atribución ya la dice CERRADA su renglón de «Análisis», justo debajo: aquí era la misma frase dos veces.
     return out;
   });
 
@@ -928,6 +1152,13 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
     return lst.length ? lst.join(', ') : '—';
   }
 
+  /** `[CGS.58]` Sólo la hora: en la tabla el día ya lo dice el renglón de grupo. */
+  private readonly fmtSoloHora = new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, hour: '2-digit', minute: '2-digit', hour12: false });
+  soloHoraMx(v: string | null | undefined): string {
+    if (!v) return '—';
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? String(v) : this.fmtSoloHora.format(d);
+  }
   private readonly fmtHora = new Intl.DateTimeFormat('es-MX', {
     timeZone: MX_TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
   });
@@ -1014,6 +1245,8 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
   readonly errConteo = signal<string | null>(null);
   /** Lo cuenta quien supervisa (AUTORIZAR), no la caja. ⚠️ Sin permisos cargados no se ofrece. */
   readonly puedeContar = computed(() => this.perms.cargado() && this.perms.has(Permission.FINANCE_CAJA_AUTORIZAR));
+  /** `[CGA-A.57]` Los vínculos son de supervisión (dirección, finanzas, tesorería). El servidor lo vuelve a exigir. */
+  readonly verVinculos = computed(() => this.perms.cargado() && this.perms.has(Permission.FINANCE_CAOS_VINCULOS_VER));
   readonly totalConteo = computed(() => {
     const p = this.conteoPiezas();
     return Object.entries(p).reduce((a, [d, n]) => a + Number(d) * (Number(n) || 0), 0);
@@ -1089,9 +1322,19 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
           const previas = new Map(this.rows().map((x) => [x.id, x]));
           const nuevas = ((r.rows || []) as FilaUI[]).map((x) => {
             const p = previas.get(x.id);
-            return p?.denom ? { ...x, denom: p.denom, denomTotal: p.denomTotal } : x;
+            const conDenom = p?.denom ? { ...x, denom: p.denom, denomTotal: p.denomTotal } : x;
+            // `[CGA-A.57]` Los vínculos también sobreviven al repaso: sin esto una fila abierta se
+            // quedaba en «Cargando vínculos…» después de cada aviso del WS.
+            const conDia = { ...conDenom, dia: this.diaMx(x.occurred_at) };
+            return p?.vinc ? { ...conDia, vinc: p.vinc } : conDia;
           });
           this.rows.set(nuevas);
+          // `[CGA-A.58]` Lo que se acaba de corregir se vuelve a leer sobre la fila NUEVA.
+          for (const id of this.releerVinculos) {
+            const fila = nuevas.find((x) => x.id === id);
+            if (fila) { fila.vinc = null; this.cargarVinculos(fila); }
+          }
+          this.releerVinculos.clear();
           this.kpi.set(r.kpi ?? null);
           this.tipos.set(r.tipos || []);
           this.efectos.set(r.efectos ?? {});
@@ -1109,10 +1352,11 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
           this.err.set(this.textoError(e));
         },
       });
-    // Los paneles sólo se re-piden si están ABIERTOS: cerrados no cuestan nada.
-    if (this.resumenAbierto) this.cargarResumen();
-    if (this.cuadreAbierto) this.cargarCuadre();
-    if (this.ingAbierto) this.cargarIngEstado();
+    // Los paneles sólo se re-piden si están A LA VISTA: cerrados no cuestan nada.
+    const abierto = this.analisis();
+    if (abierto === 'resumen') this.cargarResumen();
+    if (abierto === 'kepler') this.cargarCuadre();
+    if (abierto === 'atribucion') this.cargarIngEstado();
   }
 
   /** Porcentaje de cobertura; `null` se declara "sin medir", nunca 0% (ADR-056). */
@@ -1137,25 +1381,30 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * `[CG.58.2]` La primera apertura del panel dispara la carga. ⚠️ `toggle` también se emite al
-   * CERRAR, así que se mira `open` — si no, cerrarlo volvería a pedir la consulta cara.
+   * `[CGS.57]` El análisis abierto en el panel lateral (`null` = cerrado). Eran cuatro acordeones
+   * debajo de la tabla; ahora cada uno es un renglón de la columna derecha que dice su estado cerrado.
    */
-  alAbrirIngresos(ev: Event): void {
-    if (!(ev.target as HTMLDetailsElement)?.open || this.ingAbierto) return;
-    this.ingAbierto = true;
-    this.cargarIngEstado();
+  readonly analisis = signal<'billetes' | 'kepler' | 'atribucion' | 'resumen' | null>(null);
+  /**
+   * `[CG.58.2]` Abrirlo dispara la carga (el cuadre contra Kepler tarda ~1 s y no se paga al entrar);
+   * cada apertura consulta, para no mostrar el rango anterior. El repaso lo refresca sólo a la vista.
+   */
+  abrirAnalisis(k: 'billetes' | 'kepler' | 'atribucion' | 'resumen'): void {
+    this.analisis.set(k);
+    if (k === 'kepler') this.cargarCuadre();
+    if (k === 'atribucion') this.cargarIngEstado();
+    if (k === 'resumen') this.cargarResumen();
   }
-
-  alAbrirResumen(ev: Event): void {
-    if (!(ev.target as HTMLDetailsElement)?.open || this.resumenAbierto) return;
-    this.resumenAbierto = true;
-    this.cargarResumen();
-  }
-
-  alAbrirCuadre(ev: Event): void {
-    if (!(ev.target as HTMLDetailsElement)?.open || this.cuadreAbierto) return;
-    this.cuadreAbierto = true;
-    this.cargarCuadre();
+  readonly tituloAnalisis = computed(() => ({
+    billetes: 'Billetes por denominación', kepler: 'CAOS frente a la Caja General de Kepler',
+    atribucion: '¿De qué cobros es este efectivo?', resumen: 'Resumen por operador y ruta',
+  } as const)[this.analisis() ?? 'billetes']);
+  /** El universo del análisis: el rango de «Todos» en los que lo usan; el saldo vivo en billetes. */
+  subtituloAnalisis(): string | null {
+    const k = this.analisis();
+    if (k === 'kepler' || k === 'resumen') return `Del ${dmy(this.from)} al ${dmy(this.to)}`;
+    if (k === 'billetes') return 'Lo que la máquina reporta tener ahora';
+    return null;
   }
 
   cargarIngEstado(): void {
@@ -1189,6 +1438,7 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
 
   /** El detalle por denominación se pide una sola vez por fila, al expandirla. */
   alExpandir(r: FilaUI): void {
+    if (this.verVinculos() && (r.type_id === 0 || r.type_id === 4) && !r.vinc) this.cargarVinculos(r);
     if (r.denom) return;
     r.denomError = null;
     this.svc.detalle(r.id).subscribe({
@@ -1200,6 +1450,57 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
       // `[CGS.55]` Antes `r.denom = []`: un 500 se leía «Sin desglose por denominación» y, como la
       // fila ya tenía `denom`, no se volvía a pedir nunca. Se vio en vivo el 2026-10-27.
       error: (e) => { r.denomError = this.textoError(e); this.rows.set([...this.rows()]); },
+    });
+  }
+
+  // ── `[CGA-A.58]` Corregir vínculos: sólo superadmin ─────────────────────────────────────
+  readonly esSuperadmin = computed(() => this.perms.cargado() && this.perms.isSuperadmin());
+  readonly quitarSel = signal<{ r: FilaUI; f: CaosVinculo } | null>(null);
+  readonly motivoQuitar = signal('');
+  readonly vincularSel = signal<FilaUI | null>(null);
+  readonly folioVincular = signal('');
+  readonly montoVincular = signal<number | null>(null);
+  readonly corrigiendo = signal(false);
+  readonly errCorregir = signal<string | null>(null);
+
+  abrirQuitar(r: FilaUI, f: CaosVinculo): void {
+    this.errCorregir.set(null); this.motivoQuitar.set(''); this.quitarSel.set({ r, f });
+  }
+  abrirVincular(r: FilaUI): void {
+    this.errCorregir.set(null); this.folioVincular.set(''); this.montoVincular.set(r.vinc?.libre ?? null);
+    this.vincularSel.set(r);
+  }
+  confirmarQuitar(): void {
+    const q = this.quitarSel();
+    if (!q?.f.link_id || this.corrigiendo()) return;
+    this.corrigiendo.set(true);   // síncrono, antes de la respuesta: el doble clic no quita dos veces
+    this.svc.quitarVinculo(q.f.link_id, this.motivoQuitar().trim()).subscribe({
+      next: () => { this.corrigiendo.set(false); this.quitarSel.set(null); this.despuesDeCorregir(q.r); },
+      error: (e) => { this.corrigiendo.set(false); this.errCorregir.set(this.textoError(e)); },
+    });
+  }
+  confirmarVincular(): void {
+    const r = this.vincularSel();
+    if (!r || this.corrigiendo()) return;
+    this.corrigiendo.set(true);
+    this.svc.vincular(r.id, { folio: this.folioVincular().trim(), monto: Number(this.montoVincular()) }).subscribe({
+      next: () => { this.corrigiendo.set(false); this.vincularSel.set(null); this.despuesDeCorregir(r); },
+      error: (e) => { this.corrigiendo.set(false); this.errCorregir.set(this.textoError(e)); },
+    });
+  }
+  /** El detalle y la columna «Caja General» se vuelven a leer del servidor: nada se ajusta a mano. */
+  private despuesDeCorregir(r: FilaUI): void {
+    this.releerVinculos.add(r.id);
+    this.cargar(true);
+  }
+  private readonly releerVinculos = new Set<string>();
+
+  /** `[CGA-A.57]` Un fallo se dice y se reintenta: no se pinta «sin vínculos». */
+  cargarVinculos(r: FilaUI): void {
+    r.vincError = null;
+    this.svc.vinculos(r.id).subscribe({
+      next: (v) => { r.vinc = v; this.rows.set([...this.rows()]); },
+      error: (e) => { r.vincError = this.textoError(e); this.rows.set([...this.rows()]); },
     });
   }
 

@@ -101,9 +101,13 @@ export class CommercialPricingController {
     @Query('flag') flag?: string,
     @Query('sort') sort?: string,
     @Query('dir') dir?: string,
+    // [MCP.3.16] Estado de existencia por renglón (vista canónica + gemelo + frescura de la
+    // sucursal) y «no se maneja» al final. Sólo con warehouse_id; sin esto el catálogo no cambia.
+    @Query('stock_state') stockState?: string,
   ) {
     return this.service.listPrices(priceListId, {
       warehouseId,
+      stockState: stockState === '1' || stockState === 'true',
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
       search,

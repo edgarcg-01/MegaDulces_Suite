@@ -85,6 +85,7 @@ export interface HomePendingOrder {
 export type { DayPickOption, DayPickState } from '@megadulces/contracts';
 import type { DayPickCleared, DayPickChoice, DayPickState } from '@megadulces/contracts';
 import type { SimilarCustomersResponse } from '@megadulces/contracts';
+import type { VendorZoneStockResponse } from '@megadulces/contracts';
 
 /**
  * Cliente de la cartera anotado para el home "Mi ruta": cobertura + actividad
@@ -196,6 +197,12 @@ export interface NbaDue {
  * incluye `is_preventa` (originado por el cliente vía Portal B2B) + datos
  * desnormalizados para pintar la lista sin un fetch extra por pedido.
  */
+/**
+ * [MCP.3.13] Lo que devuelve `place()`: el pedido principal y, si quedó en partes, CUÁNTAS
+ * (un número, no la lista de `group_parts` que traen la lista y el detalle).
+ */
+export type PlacedOrder = Omit<VendorOrder, 'group_parts'> & { group_parts?: number };
+
 export interface VendorOrder extends Order {
   is_preventa?: boolean;
   customer_name?: string | null;
@@ -416,6 +423,12 @@ export class VendorService {
   catalogForCustomer(
     customer: VendorCustomer,
     warehouseId?: string,
+    /**
+     * `[MCP.3.16]` Pedir el estado de existencia por renglón (`stock_state=1`). Va por defecto: es
+     * el catálogo de la sucursal de surtido. La vista de la camioneta lo apaga, porque la vista
+     * canónica es de sucursales (kdil) y el camión quedaría «sin dato» en vez de mostrar lo que trae.
+     */
+    stockState = true,
   ): Observable<{ priceListId: string; prices: PriceRow[] }> {
     return this.listasDePrecio().pipe(
       switchMap((priceLists) => {
@@ -426,7 +439,9 @@ export class VendorService {
         // priceListId para cachearlo (dedup del catálogo offline por lista).
         // sort=sales: más vendido → menos vendido (ranking real) arriba.
         return this.portal
-          .listPricesForList(list.id, warehouseId, { pricedOnly: true, sort: 'sales' })
+          // [MCP.3.16] Con `stock_state`, la copia que se guarda en el teléfono (cacheContext guarda
+          // los renglones tal cual) conserva el estado y la fecha de lectura de cada producto.
+          .listPricesForList(list.id, warehouseId, { pricedOnly: true, sort: 'sales', stockState })
           .pipe(
             map((prices) => {
               // [VTK.11] Queda en memoria para el siguiente cliente de la ruta.
@@ -543,8 +558,10 @@ export class VendorService {
     productId: string,
     quantity: number,
     sello?: { qty_unit: string; qty_factor: number },
+    /** [MCP.3.13] Otra sucursal de la zona de la que se surte; sin ella, la del pedido. */
+    origen?: string | null,
   ): Observable<OrderLine> {
-    return this.portal.addLine(orderId, productId, quantity, sello);
+    return this.portal.addLine(orderId, productId, quantity, sello, origen);
   }
 
   updateLine(
@@ -552,8 +569,10 @@ export class VendorService {
     lineId: string,
     quantity: number,
     sello?: { qty_unit: string; qty_factor: number },
+    /** [MCP.3.13] Mover el renglón a otra sucursal de la zona (`null` = la del pedido). Omitido = no cambia. */
+    origen?: string | null,
   ): Observable<OrderLine> {
-    return this.portal.updateLine(orderId, lineId, quantity, sello);
+    return this.portal.updateLine(orderId, lineId, quantity, sello, origen);
   }
 
   removeLine(orderId: string, lineId: string) {
@@ -577,8 +596,8 @@ export class VendorService {
   placeOrder(
     orderId: string,
     dto: { requested_delivery_date?: string; notes?: string; delivery_type?: 'route' | 'long_trip' } = {},
-  ): Observable<VendorOrder> {
-    return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/place`, dto);
+  ): Observable<PlacedOrder> {
+    return this.http.post<PlacedOrder>(`${this.base}/orders/${orderId}/place`, dto);
   }
 
   /**
@@ -832,7 +851,9 @@ export class VendorService {
     const params = new HttpParams()
       .set('from', today.toISOString())
       .set('user_id', userId)
-      .set('pageSize', '50');
+      .set('pageSize', '50')
+      // [MCP.3.14] Un renglón por pedido aunque lo surtan varias sucursales.
+      .set('group', '1');
     return this.http
       .get<{ data: Order[] }>(`${this.base}/orders`, { params })
       .pipe(map((r) => r.data || []));
@@ -864,6 +885,16 @@ export class VendorService {
         sucursal: { id: string; code: string; name: string; assigned?: boolean; source?: string } | null;
         camioneta: { id: string; code: string; name: string } | null;
       }>(`${this.base}/vendor-routes/my-stock-sources`),
+    );
+  }
+
+  /**
+   * `[MCP.3.12]` Existencias de las sucursales de la zona del vendedor (la tira de cada producto).
+   * Una vez cada 2 min por sesión: es la misma para todos los clientes de la ruta.
+   */
+  myZoneStock(): Observable<VendorZoneStockResponse> {
+    return this.deSesion(`zona|${this.vendorUserId ?? ''}`, 2 * 60_000, () =>
+      this.http.get<VendorZoneStockResponse>(`${this.base}/vendor-routes/my-zone-stock`),
     );
   }
 

@@ -1,14 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import * as ExcelJS from 'exceljs';
 import * as puppeteer from 'puppeteer';
 
 /**
- * DM.6 — Export del Diario de movimientos a XLSX (ExcelJS) y PDF (puppeteer).
+ * DM.6 — Export del Diario de movimientos a PDF (puppeteer).
  * Diseño empresarial alineado a DESIGN.md (Stone + sunset, quiet-luxury):
- * masthead oscuro con acento de marca, KPIs, pills semánticas de estado,
- * folios en mono. El Excel prioriza eficiencia: autofiltro, paneles congelados,
- * sin gridlines, fechas reales (filtrables), estados coloreados, data bars,
- * fila de totales y título repetido al imprimir.
+ * masthead oscuro con acento de marca, KPIs, pills semánticas de estado, folios en mono.
+ * [MX] Sin Excel (Edgar, 2026-10-28): la reportería vive en la pantalla; el PDF queda para imprimir.
  */
 
 export interface MovementsExportData {
@@ -16,6 +13,10 @@ export interface MovementsExportData {
   totals: { entradas: number; salidas: number; valor: number; documentos: number };
   docs: any[];       // filas de lines() (folio englobado + transfer_status + audited)
   transfers: any[];  // filas de transfersCheck()
+  /** [MX.2.1] Conteos y sumas del conjunto COMPLETO: los KPIs salen de acá, nunca de `transfers` (cortada en 500, problemas primero). */
+  transfer_totals: { ok: number; diferencia: number; sin_recepcion: number; sin_origen: number };
+  transfer_sums: { n: number; qty_sent: number; qty_received: number; delta: number; amount: number };
+  transfers_capped: boolean;
   truncated: boolean;
 }
 
@@ -39,21 +40,6 @@ const ESTADO_SEV: Record<string, Sev> = {
   diferencia: 'bad', sin_recepcion: 'bad', sin_origen: 'mut',
 };
 
-// Paleta impresa (tokens Stone/sunset/semánticos de DESIGN.md, en ARGB)
-const C = {
-  dark: 'FF1A1611', ink: 'FF241E18', mute: 'FF837A6C', ink2: 'FF463F36',
-  sunset: 'FFF05A28', white: 'FFFFFFFF', sub: 'FFD8CFC0',
-  paper: 'FFFBF9F6', sand: 'FFF5F1EA', hair: 'FFE8E2D7', bar: 'FFF6C7B2',
-  okBg: 'FFDCFCE7', okFg: 'FF166534',
-  warnBg: 'FFFEF3C7', warnFg: 'FF92400E',
-  badBg: 'FFFEE2E2', badFg: 'FF991B1B',
-  mutBg: 'FFEDE8DF', mutFg: 'FF463F36',
-};
-const SEV_FILL: Record<Sev, { bg: string; fg: string }> = {
-  ok: { bg: C.okBg, fg: C.okFg }, warn: { bg: C.warnBg, fg: C.warnFg },
-  bad: { bg: C.badBg, fg: C.badFg }, mut: { bg: C.mutBg, fg: C.mutFg },
-};
-
 @Injectable()
 export class MovementsExportService {
   private readonly logger = new Logger(MovementsExportService.name);
@@ -65,10 +51,6 @@ export class MovementsExportService {
   private fmtDate(d: any): string {
     return d ? String(d instanceof Date ? d.toISOString() : d).slice(0, 10) : '';
   }
-  private asDate(d: any): Date | null {
-    const s = this.fmtDate(d);
-    return s ? new Date(`${s}T12:00:00`) : null;
-  }
   private periodLabel(from: string, to: string): string {
     const fmt = (s: string) =>
       new Date(`${s}T12:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -79,266 +61,23 @@ export class MovementsExportService {
       timeZone: 'America/Mexico_City', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
     });
   }
-  private transferCounts(transfers: any[]): Record<string, number> {
-    const t: Record<string, number> = { ok: 0, diferencia: 0, sin_recepcion: 0, sin_origen: 0 };
-    for (const r of transfers) t[r.status] = (t[r.status] || 0) + 1;
-    return t;
+  /**
+   * [MX.2.1] KPIs de traspasos desde los totales del motor. Antes se contaban sobre `transfers`,
+   * que viene cortada en 500 con los problemas primero: con más de 500 problemas en el rango
+   * «Recibidos OK» salía en 0 y «Δ neto»/«Valor enviado» eran de una muestra sin decirlo.
+   * `cut` dice si el LISTADO está recortado (los KPIs nunca lo están, salvo `capped`).
+   */
+  private transferKpis(data: MovementsExportData) {
+    const tc = data.transfer_totals;
+    const sums = data.transfer_sums;
+    const listed = data.transfers.length;
+    return { tc, sums, listed, cut: listed < sums.n, capped: data.transfers_capped };
   }
-
-  // ─────────── XLSX ───────────
-
-  /** Masthead de 3 filas (título oscuro + subtítulo + cinta sunset) sobre `cols` columnas. */
-  private masthead(ws: ExcelJS.Worksheet, cols: number, title: string, subtitle: string) {
-    for (let c = 1; c <= cols; c++) {
-      ws.getCell(1, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.dark } };
-      ws.getCell(2, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.dark } };
-      ws.getCell(3, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.sunset } };
-    }
-    ws.mergeCells(1, 1, 1, cols);
-    ws.mergeCells(2, 1, 2, cols);
-    const t = ws.getCell(1, 1);
-    t.value = title;
-    t.font = { bold: true, size: 13, color: { argb: C.white } };
-    t.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
-    const s = ws.getCell(2, 1);
-    s.value = subtitle;
-    s.font = { size: 9, color: { argb: C.sub } };
-    s.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
-    ws.getRow(1).height = 26;
-    ws.getRow(2).height = 15;
-    ws.getRow(3).height = 4;
-    ws.getRow(4).height = 8;
-  }
-
-  /** Banda de KPIs en filas 5-6: pares de 2 columnas (label arriba, valor abajo). */
-  private kpiBand(
-    ws: ExcelJS.Worksheet,
-    kpis: { label: string; value: ExcelJS.CellValue; numFmt?: string; color?: string }[],
-  ) {
-    kpis.forEach((k, i) => {
-      const col = 1 + i * 2;
-      ws.mergeCells(5, col, 5, col + 1);
-      ws.mergeCells(6, col, 6, col + 1);
-      const l = ws.getCell(5, col);
-      l.value = k.label.toUpperCase();
-      l.font = { size: 8, bold: true, color: { argb: C.mute } };
-      l.alignment = { horizontal: 'left', vertical: 'bottom' };
-      const v = ws.getCell(6, col);
-      v.value = k.value;
-      v.font = { size: 13, bold: true, color: { argb: k.color || C.ink } };
-      v.alignment = { horizontal: 'left', vertical: 'middle' };
-      if (k.numFmt) v.numFmt = k.numFmt;
-      for (let c = col; c <= col + 1; c++) {
-        ws.getCell(6, c).border = { bottom: { style: 'hair', color: { argb: C.hair } } };
-      }
-    });
-    ws.getRow(5).height = 12;
-    ws.getRow(6).height = 20;
-    ws.getRow(7).height = 8;
-  }
-
-  /** Fila 8 = encabezado de tabla (fondo oscuro, autofiltro). `rightCols` = índices numéricos. */
-  private tableHeader(ws: ExcelJS.Worksheet, labels: string[], rightCols: number[]) {
-    const row = ws.getRow(8);
-    labels.forEach((label, i) => {
-      const cell = row.getCell(i + 1);
-      cell.value = label;
-      cell.font = { bold: true, size: 9.5, color: { argb: C.white } };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.dark } };
-      cell.alignment = { horizontal: rightCols.includes(i + 1) ? 'right' : 'left', vertical: 'middle' };
-      cell.border = { bottom: { style: 'medium', color: { argb: C.sunset } } };
-    });
-    row.height = 20;
-    ws.autoFilter = { from: { row: 8, column: 1 }, to: { row: 8, column: labels.length } };
-    ws.views = [{ state: 'frozen', ySplit: 8, showGridLines: false }];
-    ws.pageSetup = {
-      orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0,
-      printTitlesRow: '8:8',
-      margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
-    };
-  }
-
-  private baseCell(cell: ExcelJS.Cell) {
-    cell.font = { size: 10, color: { argb: C.ink } };
-    cell.border = { bottom: { style: 'hair', color: { argb: C.hair } } };
-  }
-  private sevCell(cell: ExcelJS.Cell, status: string | null | undefined) {
-    if (!status) {
-      cell.value = '—';
-      cell.font = { size: 10, color: { argb: C.mute } };
-      return;
-    }
-    const sev = SEV_FILL[ESTADO_SEV[status] || 'mut'];
-    cell.value = ESTADO_LABEL[status] || status;
-    cell.font = { size: 9.5, bold: true, color: { argb: sev.fg } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: sev.bg } };
-  }
-
-  async buildXlsx(data: MovementsExportData): Promise<Buffer> {
-    const wb = new ExcelJS.Workbook();
-    wb.creator = 'Mega Dulces · Mercado';
-    wb.lastModifiedBy = 'Mercado';
-    wb.created = new Date();
-    wb.modified = new Date();
-    wb.title = 'Diario de movimientos';
-    wb.subject = `Movimientos de inventario ${data.range.from} — ${data.range.to}`;
-
-    const period = this.periodLabel(data.range.from, data.range.to);
-    const stamp = this.generatedAt();
-    const audited = data.docs.filter((d) => d.audited).length;
-    const tc = this.transferCounts(data.transfers);
-
-    // ── Hoja 1 · Documentos ──────────────────────────────────────────
-    const ws = wb.addWorksheet('Documentos', { properties: { tabColor: { argb: C.sunset } } });
-    ws.columns = [
-      { width: 11 }, { width: 30 }, { width: 11 }, { width: 18 }, { width: 8 },
-      { width: 12 }, { width: 14 }, { width: 15 }, { width: 11 }, { width: 17 },
-    ] as any;
-    this.masthead(ws, 10, 'MEGA DULCES  ·  DIARIO DE MOVIMIENTOS',
-      `Periodo ${period}   ·   Generado el ${stamp}   ·   ${data.docs.length.toLocaleString('es-MX')} documentos`);
-    this.kpiBand(ws, [
-      { label: 'Entradas (pzas)', value: Math.abs(Number(data.totals.entradas) || 0), numFmt: '#,##0' },
-      { label: 'Salidas (pzas)', value: -Math.abs(Number(data.totals.salidas) || 0), numFmt: '#,##0;-#,##0' },
-      { label: 'Valor movido', value: Number(data.totals.valor) || 0, numFmt: '"$"#,##0' },
-      { label: 'Documentos', value: Number(data.totals.documentos) || 0, numFmt: '#,##0' },
-      { label: 'Auditados', value: `${audited.toLocaleString('es-MX')} de ${data.docs.length.toLocaleString('es-MX')}`, color: audited ? C.okFg : C.mute },
-    ]);
-    this.tableHeader(ws,
-      ['Fecha', 'Tipo de documento', 'Folio', 'Almacén', 'Líneas', 'Cantidad', 'Valor', 'Estado traspaso', 'Auditado', 'Auditado por'],
-      [5, 6, 7]);
-
-    // info: la Cantidad muestra lo AMPARADO (muted, no suma inventario)
-    let sumLineas = 0, sumQty = 0, sumInfoQty = 0, sumValor = 0;
-    for (const d of data.docs) {
-      const isInfo = d.movement_kind === 'info';
-      const row = ws.addRow([
-        this.asDate(d.doc_date), d.movement_label, d.folio, d.warehouse_name || d.warehouse_code || d.source_branch,
-        Number(d.lineas) || 0, isInfo ? Number(d.qty) || 0 : Number(d.signed_qty) || 0, Number(d.amount) || 0,
-        '', '', d.audited_by || '',
-      ]);
-      sumLineas += Number(d.lineas) || 0;
-      if (isInfo) sumInfoQty += Number(d.qty) || 0;
-      else sumQty += Number(d.signed_qty) || 0;
-      sumValor += Number(d.amount) || 0;
-      row.eachCell({ includeEmpty: true }, (cell) => this.baseCell(cell));
-      row.getCell(1).numFmt = 'dd/mm/yyyy';
-      row.getCell(3).font = { name: 'Consolas', size: 9, color: { argb: C.ink } };
-      row.getCell(5).numFmt = '#,##0';
-      row.getCell(6).numFmt = '#,##0.00;[Red]-#,##0.00';
-      if (isInfo) row.getCell(6).font = { size: 10, italic: true, color: { argb: C.mute } };
-      row.getCell(7).numFmt = '"$"#,##0.00';
-      this.sevCell(row.getCell(8), d.transfer_status);
-      const aud = row.getCell(9);
-      aud.value = d.audited ? 'Sí' : 'Pendiente';
-      aud.font = { size: 9.5, bold: !!d.audited, color: { argb: d.audited ? C.okFg : C.mute } };
-      row.getCell(10).font = { size: 9, color: { argb: C.mute } };
-    }
-    const lastDocRow = ws.rowCount;
-    if (lastDocRow >= 9) {
-      // Data bar sutil en Valor: escanear los movimientos grandes de un vistazo
-      ws.addConditionalFormatting({
-        ref: `G9:G${lastDocRow}`,
-        rules: [{
-          type: 'dataBar', priority: 1, gradient: false,
-          cfvo: [{ type: 'min' }, { type: 'max' }], color: { argb: C.bar },
-        } as any],
-      });
-    }
-    const totLabel = data.truncated ? 'TOTAL (docs listados)' : 'TOTAL';
-    const hasInv = data.docs.some((d) => d.movement_kind !== 'info');
-    const tot = ws.addRow([totLabel, '', '', '', sumLineas, hasInv ? sumQty : sumInfoQty, sumValor, '', '', '']);
-    tot.eachCell({ includeEmpty: true }, (cell) => {
-      cell.font = { size: 10, bold: true, color: { argb: C.ink } };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.sand } };
-      cell.border = { top: { style: 'medium', color: { argb: C.dark } } };
-    });
-    tot.getCell(5).numFmt = '#,##0';
-    tot.getCell(6).numFmt = '#,##0.00;[Red]-#,##0.00';
-    tot.getCell(7).numFmt = '"$"#,##0.00';
-    if (data.truncated) {
-      const n = ws.addRow([`Listado truncado a ${data.docs.length.toLocaleString('es-MX')} documentos — acota el rango o los filtros para el detalle completo.`]);
-      n.getCell(1).font = { size: 9, italic: true, color: { argb: C.mute } };
-    }
-
-    // ── Hoja 2 · Traspasos ───────────────────────────────────────────
-    const wt = wb.addWorksheet('Traspasos', { properties: { tabColor: { argb: 'FFF8B400' } } });
-    wt.columns = [
-      { width: 15 }, { width: 17 }, { width: 13 }, { width: 12 }, { width: 11 },
-      { width: 14 }, { width: 17 }, { width: 14 }, { width: 13 }, { width: 11 }, { width: 11 },
-    ] as any;
-    const valEnviado = data.transfers.reduce((a, r) => a + (Number(r.amount) || 0), 0);
-    this.masthead(wt, 11, 'MEGA DULCES  ·  VALIDACIÓN DE TRASPASOS',
-      `Salida ↔ recepción   ·   Periodo ${period}   ·   Generado el ${stamp}`);
-    this.kpiBand(wt, [
-      { label: 'Recibidos OK', value: tc['ok'], numFmt: '#,##0', color: C.okFg },
-      { label: 'Con diferencia', value: tc['diferencia'], numFmt: '#,##0', color: tc['diferencia'] ? C.badFg : C.mute },
-      { label: 'Sin recepción', value: tc['sin_recepcion'], numFmt: '#,##0', color: tc['sin_recepcion'] ? C.badFg : C.mute },
-      { label: 'Sin origen', value: tc['sin_origen'], numFmt: '#,##0', color: C.mute },
-      {
-        label: 'Δ neto (pzas)',
-        value: data.transfers.reduce((a, r) => a + (Number(r.delta) || 0), 0),
-        numFmt: '+#,##0;[Red]-#,##0;0', color: C.ink,
-      },
-      { label: 'Valor enviado', value: valEnviado, numFmt: '"$"#,##0', color: C.ink },
-    ]);
-    // Valor = importe de lo enviado (Σ importe de las líneas del TrsfShip, a costo de origen).
-    this.tableHeader(wt,
-      ['Estado', 'Origen', 'Folio salida', 'Fecha salida', 'Enviadas', 'Valor', 'Destino', 'Folio recepción', 'Fecha recepción', 'Recibidas', 'Δ piezas'],
-      [5, 6, 10, 11]);
-
-    for (const r of data.transfers) {
-      const row = wt.addRow([
-        '', r.origin_wh || '—', r.origin_folio || '—', this.asDate(r.ship_date),
-        r.qty_sent != null ? Number(r.qty_sent) : null,
-        r.amount != null ? Number(r.amount) : null,
-        r.dest_wh || '—', r.rcv_folio || '—',
-        this.asDate(r.rcv_date), r.qty_received != null ? Number(r.qty_received) : null,
-        Number(r.delta) || 0,
-      ]);
-      row.eachCell({ includeEmpty: true }, (cell) => this.baseCell(cell));
-      this.sevCell(row.getCell(1), r.status);
-      row.getCell(3).font = { name: 'Consolas', size: 9, color: { argb: C.ink } };
-      row.getCell(8).font = { name: 'Consolas', size: 9, color: { argb: C.ink } };
-      row.getCell(4).numFmt = 'dd/mm/yyyy';
-      row.getCell(9).numFmt = 'dd/mm/yyyy';
-      row.getCell(5).numFmt = '#,##0.00';
-      row.getCell(6).numFmt = '"$"#,##0.00';
-      row.getCell(10).numFmt = '#,##0.00';
-      const delta = row.getCell(11);
-      delta.numFmt = '+#,##0.00;-#,##0.00;"—"';
-      if (Number(r.delta)) delta.font = { size: 10, bold: true, color: { argb: C.badFg } };
-    }
-    const lastTrRow = wt.rowCount;
-    if (data.transfers.length) {
-      // Data bar en Valor: ubicar los traspasos de mayor monto de un vistazo.
-      if (lastTrRow >= 9) {
-        wt.addConditionalFormatting({
-          ref: `F9:F${lastTrRow}`,
-          rules: [{
-            type: 'dataBar', priority: 1, gradient: false,
-            cfvo: [{ type: 'min' }, { type: 'max' }], color: { argb: C.bar },
-          } as any],
-        });
-      }
-      const sumEnv = data.transfers.reduce((a, r) => a + (Number(r.qty_sent) || 0), 0);
-      const sumRcv = data.transfers.reduce((a, r) => a + (Number(r.qty_received) || 0), 0);
-      const sumDelta = data.transfers.reduce((a, r) => a + (Number(r.delta) || 0), 0);
-      const tt = wt.addRow(['TOTAL', '', '', '', sumEnv, valEnviado, '', '', '', sumRcv, sumDelta]);
-      tt.eachCell({ includeEmpty: true }, (cell) => {
-        cell.font = { size: 10, bold: true, color: { argb: C.ink } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.sand } };
-        cell.border = { top: { style: 'medium', color: { argb: C.dark } } };
-      });
-      tt.getCell(5).numFmt = '#,##0.00';
-      tt.getCell(6).numFmt = '"$"#,##0.00';
-      tt.getCell(10).numFmt = '#,##0.00';
-      tt.getCell(11).numFmt = '+#,##0.00;-#,##0.00;"—"';
-    } else {
-      const n = wt.addRow(['Sin traspasos en el rango.']);
-      n.getCell(1).font = { size: 10, italic: true, color: { argb: C.mute } };
-    }
-
-    return Buffer.from(await wb.xlsx.writeBuffer());
+  private transferListNote(k: ReturnType<MovementsExportService['transferKpis']>): string | null {
+    const parts: string[] = [];
+    if (k.cut) parts.push(`Listado: los primeros ${k.listed.toLocaleString('es-MX')} de ${k.sums.n.toLocaleString('es-MX')} traspasos, los problemas primero. Los indicadores de arriba son del total.`);
+    if (k.capped) parts.push('El pareo llegó a su tope de 50,000 filas: los indicadores están INCOMPLETOS — acota el rango.');
+    return parts.length ? parts.join(' ') : null;
   }
 
   // ─────────── PDF ───────────
@@ -619,7 +358,9 @@ export class MovementsExportService {
     // docs informativos: la columna muestra la cantidad AMPARADA (muted); el TOTAL suma
     // inventario (signed) si hay docs de inventario, o lo amparado si el listado es solo-info
     const hasInv = docs.some((d) => d.movement_kind !== 'info');
-    const tc = this.transferCounts(data.transfers);
+    const tk = this.transferKpis(data);
+    const tc = tk.tc;
+    const trNote = this.transferListNote(tk);
     let sumQty = 0, sumInfoQty = 0, sumValor = 0;
 
     const docRows = docs.map((d) => {
@@ -633,7 +374,7 @@ export class MovementsExportService {
       <td>${pill(d.transfer_status)}</td><td>${d.audited ? '<span class="aud">✓ Sí</span>' : '<span class="mut">Pendiente</span>'}</td></tr>`;
     }).join('');
 
-    const valEnviado = data.transfers.reduce((a, r) => a + (Number(r.amount) || 0), 0);
+    const valListado = data.transfers.reduce((a, r) => a + (Number(r.amount) || 0), 0);
     const trRows = data.transfers.map((r) => `
       <tr><td>${pill(r.status)}</td>
       <td>${esc(r.origin_wh || '—')}</td><td class="mono">${esc(r.origin_folio || '—')}</td><td>${dmy(r.ship_date)}</td><td class="num">${num(r.qty_sent)}</td>
@@ -700,7 +441,7 @@ export class MovementsExportService {
         <div class="meta">
           <b>${esc(this.periodLabel(data.range.from, data.range.to))}</b><br>
           Generado el ${esc(this.generatedAt())}<br>
-          ${num(data.totals.documentos)} documentos · ${num(data.transfers.length)} traspasos
+          ${num(data.totals.documentos)} documentos · ${num(tk.sums.n)} traspasos
         </div>
       </div>
 
@@ -723,7 +464,7 @@ export class MovementsExportService {
       <div class="sec">
         <h2>1 · Documentos del periodo</h2>
         <span class="cnt">${data.docs.length > PDF_CAP
-          ? `primeros ${num(PDF_CAP)} de ${num(data.docs.length)} — el detalle completo está en el Excel`
+          ? `primeros ${num(PDF_CAP)} de ${num(data.docs.length)} — acota el rango o los filtros para ver el resto`
           : `${num(docs.length)} documentos`}</span>
       </div>
       <table><thead><tr><th>Fecha</th><th>Tipo de documento</th><th>Folio</th><th>Almacén</th>
@@ -735,13 +476,14 @@ export class MovementsExportService {
 
       <div class="sec${docs.length > 22 ? ' brk' : ''}">
         <h2>2 · Validación de traspasos (salida ↔ recepción)</h2>
-        <span class="cnt">${num(data.transfers.length)} traspasos</span>
+        <span class="cnt">${tk.cut ? `primeros ${num(tk.listed)} de ${num(tk.sums.n)}, los problemas primero` : `${num(tk.sums.n)} traspasos`}</span>
       </div>
       <table><thead><tr><th>Estado</th><th>Origen</th><th>Folio salida</th><th>Fecha salida</th><th class="num">Enviadas</th>
       <th class="num">Valor</th><th>Destino</th><th>Folio recepción</th><th>Fecha recepción</th><th class="num">Recibidas</th><th class="num">Δ piezas</th></tr></thead>
       <tbody>${trRows || '<tr><td colspan="11" class="empty">Sin traspasos en el rango.</td></tr>'}
-      ${trRows ? `<tr class="tot"><td colspan="5">TOTAL</td><td class="num">${money(valEnviado, 2)}</td><td colspan="5"></td></tr>` : ''}
+      ${trRows ? `<tr class="tot"><td colspan="5">TOTAL${tk.cut ? ' (filas listadas)' : ''}</td><td class="num">${money(valListado, 2)}</td><td colspan="5"></td></tr>` : ''}
       </tbody></table>
+      ${trNote ? `<p class="mut" style="font-size:9px;margin:4px 0 0">${esc(trNote)}</p>` : ''}
 
     </body></html>`;
   }

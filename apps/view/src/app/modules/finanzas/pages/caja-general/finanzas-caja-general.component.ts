@@ -19,7 +19,7 @@ import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { textoFalloFirma, type ContextoFirma } from '@megadulces/contracts';
-import { evaluarCambio, pagableConBilletesCaos, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS, leerCorte, type LecturaCorte } from '@megadulces/contracts';
+import { evaluarCambio, pagableConBilletesCaos, warehouseName, type CaosRetiroLibre, type CaosRetiroDelLote, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS, leerCorte, type LecturaCorte } from '@megadulces/contracts';
 import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
 /**
@@ -2121,7 +2121,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <p-select [options]="tiposFiltro" [(ngModel)]="tipo" (ngModelChange)="cargar()"
                   optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true"></p-select>
         <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()"
-               placeholder="Buscar en realizados: folio, concepto, beneficiario, usuario…" />
+               placeholder="Buscar en realizados: folio, ruta, sucursal, concepto, beneficiario…" />
         <!-- CS.3.10 — Reporte diario: los movimientos del rango/filtros + totales.
              [CG.87] VER va primero y imprimir queda al lado: hasta hoy el reporte sólo existía
              en papel, así que para leerlo había que gastar un ticket. Los dos salen del MISMO
@@ -2274,6 +2274,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <span [class.fin-hint-warn]="o.tono === 'warn'">{{ o.sistema }}</span>
                 <small class="fin-dim d-block mono">{{ o.ref }}</small>
               }
+              <!-- [CGA-A.59] De qué servidor viene, por NOMBRE, y la ruta si es cobro de camión. -->
+              @if (servidorDe(m); as sv) { <small class="fin-dim d-block">{{ sv }}</small> }
             </td>
             <td class="ta-c">
               <!-- CS.3.8 — re-imprime el comprobante en la térmica (folio nuestro, desglose, concepto,
@@ -2302,7 +2304,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <div><span class="cg-det-r">Beneficiario</span>
                   {{ m.beneficiario || '—' }}
                   @if (m.beneficiario_rfc) { <small class="fin-dim d-block mono">{{ m.beneficiario_rfc }}</small> }</div>
-                <div><span class="cg-det-r">Sucursal</span>{{ m.sucursal | sucursal }}</div>
+                <!-- [CGA-A.59] La sucursal es la del SERVIDOR de donde vino el documento; la columna sucursal de un
+                     cobro de camión guarda el almacén ('06-003') y la pipe lo dejaba como código. -->
+                <div><span class="cg-det-r">Sucursal</span>{{ servidorDe(m) || (m.sucursal | sucursal) }}</div>
                 <div><span class="cg-det-r">Capturado</span>{{ dmy(m.fecha) }}@if (m.hora) { · {{ m.hora }} }
                   <small class="fin-dim d-block">{{ m.created_by_username || 'sin usuario' }}</small></div>
 
@@ -2951,7 +2955,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                primero en el rótulo porque es el caso nuevo: una funcion que no se anuncia no
                existe (D.5), y el buscador no tiene forma de insinuarla sola. -->
           <input pInputText [(ngModel)]="searchPend" (keyup.enter)="cargarPendientes()" class="cg-sel cg-buscar"
-                 placeholder="Buscar: importe, folio Kepler, concepto, beneficiario…"
+                 placeholder="Buscar: importe, folio Kepler, ruta, sucursal, beneficiario…"
                  aria-label="Buscar en por confirmar por importe, folio de Kepler, concepto o beneficiario" />
           <span class="cg-bandeja-sp"></span>
           <!-- [CG.56] "Marcar todas" vivia como una casilla en el encabezado de la columna. Al
@@ -2971,6 +2975,23 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                significa "apreta aca"; en el estado en el que arranca la pantalla -sin nada
                marcado- no hay donde apretar. Con algo marcado SI es la accion obvia de la
                bandeja y recupera el naranja, con su cuenta. -->
+          <!-- [CGA-A.60] Un retiro de CAOS paga los egresos marcados de una vez: cada uno toma su
+               monto mientras alcance y solo la DIFERENCIA toca el cajon. Sin retiro, del cajon. -->
+          @if (puedeGestionar() && egresosMarcados().n > 0) {
+            <p-select [options]="retirosLibres()" [ngModel]="retiroLote()" (ngModelChange)="retiroLote.set($event)"
+                      (onShow)="cargarRetirosLibres()" [showClear]="true" appendTo="body" size="small"
+                      placeholder="Egresos: del cajón" ariaLabel="Retiro de CAOS que paga los egresos marcados"
+                      [loading]="cargandoRetiros()" emptyMessage="No hay retiros de CAOS con dinero libre">
+              <ng-template #selectedItem let-r>{{ r.ref || ('retiro ' + r.external_id) }} · libre {{ money(r.libre) }}</ng-template>
+              <ng-template #item let-r>
+                <span>{{ r.ref || ('retiro ' + r.external_id) }}</span>
+                <small class="fin-dim"> · {{ dmy(r.occurred_at) }} · libre {{ money(r.libre) }} de {{ money(r.total) }}</small>
+              </ng-template>
+            </p-select>
+            @if (retiroLote(); as rl) {
+              <small class="fin-dim" aria-live="polite">{{ textoRetiroLote(rl) }}</small>
+            }
+          }
           @if (puedeGestionar()) {
             <p-button [label]="marcadas().length ? 'Confirmar ' + marcadas().length : 'Confirmar'"
                       icon="pi pi-check" size="small"
@@ -3176,6 +3197,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                          filas cuya contraparte no dice nada -- CONTADO generico. -->
                     @if (procedencia(p); as proc) {
                       <small class="cg-fila-ruta">{{ proc }}</small>
+                    }
+                    <!-- [CGA-A.59] De que servidor de Kepler viene, por nombre (Padre Hidalgo, Canindo). -->
+                    @if (servidorPendiente(p); as sv) {
+                      <small class="cg-fila-ruta">{{ sv }}</small>
                     }
                     <!-- [CG.33] La fila lleva una MARCA, no el parrafo. El texto entero se repetia
                          identico en cada renglon y convertia la tabla en un muro naranja donde el
@@ -3392,7 +3417,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                         }
                       </div>
                       @if (cubiertoPorRetiros() > 0) {
-                        <span class="fin-dim">El retiro paga {{ money(cubiertoPorRetiros()) }} del documento: cuenta abajo sólo lo que salió del cajón.</span>
+                        <span class="fin-dim">Vinculado: el retiro respalda {{ money(cubiertoPorRetiros()) }} de este egreso. No se descuenta: cuenta abajo todo lo que entregaste.</span>
                       } @else if (!cobroElegido()) {
                         <span class="fin-dim">Sin documento no hay cifra que el retiro cubra: cuenta abajo lo que se pagó.</span>
                       }
@@ -3620,13 +3645,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                        [class.es-ok]="v.estado === 'cuadra'"
                        [class.es-warn]="v.estado === 'sobra' || v.estado === 'falta'">
                     <div class="cg-total-izq">
-                      <div class="cg-lbl-micro">{{ hayCajero() ? 'Contado · cajero + a mano' : cubiertoPorRetiros() > 0 ? 'Retiro de CAOS + cajón' : 'Contado' }}</div>
+                      <!-- [CGA-A.56.2] El total es SÓLO lo contado: el retiro vinculado no se suma. -->
+                      <div class="cg-lbl-micro">{{ hayCajero() ? 'Contado · cajero + a mano' : 'Contado' }}</div>
                       <div class="cg-total-n mono">{{ money(f().monto) }}</div>
-                      <!-- [CGA-A.56.1] El total se arma de dos partes y se dicen las dos: lo que paga
-                           el retiro no se cuenta en la reja, y sin decirlo el numero parece tecleado. -->
-                      @if (cubiertoPorRetiros() > 0) {
-                        <div class="mono cg-total-esp">retiro de CAOS {{ money(cubiertoPorRetiros()) }} · cajón {{ money((f().monto ?? 0) - cubiertoPorRetiros()) }}</div>
-                      }
                     </div>
                     <span class="cg-bandeja-sp"></span>
                     <div class="cg-total-der">
@@ -4636,12 +4657,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     return out;
   }
   /**
-   * ⭐ `[CGA-A.56.1]` Lo que los retiros vinculados PAGAN de este egreso, y por eso SE DESCUENTA de
-   * lo que hay que contar en el cajón (Edgar, 2026-10-27: *«al asociar a un egreso no se descuenta
-   * del total»*). Desde A.56 el retiro sólo se vinculaba y la reja seguía pidiendo el gasto
-   * completo: el egreso quedaba DOS veces — como billetes que salen del cajón y como dinero de la
-   * bóveda (`en_boveda` del corte, `[CG.95]`). La regla del corte es «CAOS pone los billetes, el
-   * cajón la morralla»; la reja cuenta sólo lo que el retiro no alcanza.
+   * ⭐ `[CGA-A.56.2]` Lo que los retiros vinculados RESPALDAN de este egreso. **No se descuenta** de
+   * lo que hay que contar (Edgar, 2026-10-28: *«solo necesito que se vincule, no que se reste»*):
+   * el egreso se cuenta entero y el vínculo es la traza para saber de dónde sale un desfase.
+   * A.56.1 lo descontaba y una reja de $5 cuadraba contra un retiro de $23,320.
    *
    * ⚠️ Sólo con un documento anclado: sin él el monto SALE del conteo y no hay cifra que cubrir.
    * Los enlaces que se mandan al guardar son ESTOS (del documento, no del total contado): si se
@@ -5106,6 +5125,26 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * Lo de antes no se borra: «autorrellenado» pasa a llamarse por su nombre dentro del
    * desplegable, donde es lo que es — procedencia de la CLASIFICACIÓN, no del dinero.
    */
+  /**
+   * ⭐ `[CGA-A.59]` De qué SERVIDOR viene el movimiento, por nombre (Edgar, 2026-10-28: *«asociemos
+   * cada movimiento a su respectiva sucursal, de qué servidor proviene»*).
+   *
+   * El servidor es el prefijo del documento de Kepler: `'06|U-A-5|…'` → 06, y en un cobro de camión
+   * `'06-001|U-A-5|…'` → 06 con el almacén 001 del camión. ⛔ No es `m.sucursal`: un pago a
+   * proveedor del servidor 01 puede estar capturado en la caja 00, y de un cobro de camión guarda el
+   * almacén. La ruta la guarda la captura (`ruta`); si no se supo, se dice el almacén, no se inventa.
+   * `null` = no hay documento de Kepler (captura a mano): no hay servidor que nombrar.
+   */
+  servidorDe(m: MovimientoCaja): string | null {
+    if (m.origen_tipo === 'caos') return 'Caja fuerte (CAOS)';
+    const pref = String(m.origen_ref ?? '').split('|')[0].trim();
+    const [srv, alm] = pref.split('-');
+    if (!/^\d{2}$/.test(srv ?? '')) return null;
+    const nombre = warehouseName(srv);
+    if (m.ruta) return `${nombre} · Ruta ${m.ruta}`;
+    return alm ? `${nombre} · almacén ${alm}` : nombre;
+  }
+
   origenDe(m: MovimientoCaja): { sistema: string; ref: string; tono: 'ok' | 'warn' } {
     const t = String(m.origen_tipo ?? '').trim();
     const ref = String(m.origen_ref ?? '').trim();
@@ -5979,10 +6018,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   // probable con un día fijo. Ver `motivosDeBloqueo`.
   bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo(
     {
-      // `[CGA-A.56.1]` Lo que paga un retiro de CAOS cuenta para el arqueo como el crédito: es parte
-      // del monto que NO se cuenta en el cajón. El servidor lo cuenta igual (`caos_links` del egreso).
+      // `[CGA-A.56.2]` El retiro de CAOS vinculado NO cuenta para el arqueo: se cuenta todo lo entregado.
       ...this.f(), denominaciones: this.denominacionesParaGuardar(),
-      venta_credito: (Number(this.ventaCredito()) || 0) + this.cubiertoPorRetiros(),
+      venta_credito: Number(this.ventaCredito()) || 0,
       // ⛔ [CG.38] Sin esto, devolver cambio trababa el guardado con `arqueo_no_cuadra`: el
       // desglose sumaba lo que ENTRÓ y el monto ya era el NETO, así que la diferencia era
       // exactamente el cambio. El botón quedaba apagado justo en el caso que la fase vino a
@@ -6146,6 +6184,19 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const nom = (p.beneficiario || p.entidad_code || '').trim().toUpperCase();
     if (nom !== 'CONTADO') return '';
     return (p.concepto || '').trim();
+  }
+
+  /**
+   * `[CGA-A.59]` De qué servidor de Kepler viene el documento de la cola, por NOMBRE. El servidor
+   * es el prefijo de `sucursal` (`'06-001'` → 06, el almacén del camión; `'07'` → 07). Sale de
+   * `warehouseName`, el catálogo de plazas de contracts — no de `caja_sucursales_catalog`, que
+   * nombra departamentos (ver arriba). Un código que no es servidor de Kepler no se nombra.
+   */
+  servidorPendiente(p: MovimientoPendiente): string {
+    const srv = String(p.sucursal ?? '').split('-')[0].trim();
+    if (!/^0\d$/.test(srv)) return '';
+    const nombre = warehouseName(srv);
+    return nombre === srv ? '' : nombre;
   }
 
   etiquetaRuta(r: string): string {
@@ -8167,12 +8218,16 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.confirmando.set(true);
     // `[CG.48]` Sólo las referencias: el lote ESPEJA al ERP. Acá iba un `monto_contado` por fila
     // que entraba al libro sin un solo billete declarado detrás.
-    this.svc.confirmarLote(refs.map((r) => ({ origen_ref: r })))
+    // `[CGA-A.60]` Con retiro elegido, los egresos del lote se pagan de él; sólo si hay egresos marcados.
+    const rl = this.egresosMarcados().n > 0 ? this.retiroLote() : null;
+    this.svc.confirmarLote(refs.map((r) => ({ origen_ref: r })), rl ? { device: rl.device, external_id: rl.external_id } : null)
       .subscribe({
         next: (r) => {
           this.resultado.set(r);
           this.confirmando.set(false);
           this.seleccion.set(new Set());
+          this.retiroLote.set(null); this.retirosLibres.set([]);
+          if (r.retiro) this.avisarOk(`Retiro ${r.retiro.ref || r.retiro.external_id}`, this.textoRetiroDelLote(r.retiro));
           // Lo confirmado ya esta en el libro: el borrador cumplio y se retira.
           this.borrador.borrar(this.usuarioBorrador);
           this.restaurado.set(null);
@@ -8197,6 +8252,47 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       .filter((x) => x.estado === 'rechazado' && x.motivo)
       .map((x) => x.motivo as string);
     return motivos.length ? [...new Set(motivos)].join(' · ') : 'El servidor no devolvió el motivo.';
+  }
+
+  // ── `[CGA-A.60]` Un retiro de CAOS paga los egresos marcados ─────────────────────────────────
+  readonly retiroLote = signal<CaosRetiroLibre | null>(null);
+  readonly retirosLibres = signal<CaosRetiroLibre[]>([]);
+  readonly cargandoRetiros = signal(false);
+  /**
+   * Los EGRESOS marcados que se ven en la cola: cuántos y cuánto. El retiro sólo paga egresos; un
+   * ingreso marcado en el mismo lote no lo toca. ⚠️ Cuenta sobre `pendientes()`, lo que está
+   * cargado: una marca de una página que ya no está a la vista no entra a la cuenta previa (el
+   * servidor sí la paga, con el monto de Kepler).
+   */
+  readonly egresosMarcados = computed(() => {
+    const sel = this.seleccion();
+    const g = this.pendientes().filter((p) => p.tipo === 'gasto' && sel.has(p.origen_ref));
+    return { n: g.length, monto: redondea(g.reduce((a, p) => a + Number(p.monto || 0), 0)) };
+  });
+  cargarRetirosLibres(): void {
+    if (this.cargandoRetiros()) return;
+    this.cargandoRetiros.set(true);
+    this.svc.retirosLibres().subscribe({
+      next: (r) => { this.retirosLibres.set(r.rows ?? []); this.cargandoRetiros.set(false); },
+      error: (e) => { this.cargandoRetiros.set(false); this.avisarError(e, 'No se pudieron leer los retiros de CAOS'); },
+    });
+  }
+  /** Antes de confirmar: qué va a pasar con el dinero. La regla la aplica el servidor (`tomaDelRetiro`). */
+  textoRetiroLote(rl: CaosRetiroLibre): string {
+    const e = this.egresosMarcados();
+    const dif = redondea(e.monto - rl.libre);
+    const base = `${e.n} egreso${e.n === 1 ? '' : 's'} por ${money(e.monto)}`;
+    if (Math.abs(dif) < 0.005) return `${base}: el retiro los paga exactos.`;
+    return dif > 0
+      ? `${base}: el retiro paga ${money(rl.libre)} y ${money(dif)} salen del cajón.`
+      : `${base}: el retiro los paga y le quedan ${money(-dif)}, que se esperan en el cajón.`;
+  }
+  /** Después de confirmar: lo que el servidor dice que pasó. */
+  textoRetiroDelLote(r: CaosRetiroDelLote): string {
+    const p = [`tomó ${money(r.tomado)}`];
+    if (r.del_cajon > 0.005) p.push(`${money(r.del_cajon)} salieron del cajón`);
+    if (r.libre_despues > 0.005) p.push(`le quedan ${money(r.libre_despues)} libres`);
+    return p.join(' · ');
   }
 
   /** El resultado se cuenta por estado. "12 confirmadas" a secas esconde las 3 que no entraron. */
@@ -8531,9 +8627,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // ⭐ [CG.38] El cambio que se devolvió SE RESTA. Sin esto, un cobro de $4,830 con un billete
     // de $5,000 se guardaba como $5,000 y los $170 que volvieron al cliente quedaban dentro del
     // movimiento: la caja declaraba tener efectivo que ya no estaba.
-    // ⭐ `[CGA-A.56.1]` + lo que pagan los retiros de CAOS vinculados a un egreso: tampoco se cuenta
-    // en el cajón, igual que el crédito.
-    this.onMonto(efectivo - this.totalDevuelto() + (Number(this.ventaCredito()) || 0) + this.cubiertoPorRetiros());
+    // `[CGA-A.56.2]` El retiro de CAOS vinculado ya NO se suma: el egreso se cuenta entero (Edgar, 2026-10-28).
+    this.onMonto(efectivo - this.totalDevuelto() + (Number(this.ventaCredito()) || 0));
   }
 
   // ── [CG.38] El cambio que se devuelve ───────────────────────────────────────────────────────

@@ -326,3 +326,202 @@ export function estadoNotaCredito(acreditado: number, totalTicket: number): 'sal
   if (!(acreditado > 0)) return null;
   return acreditado >= totalTicket - TOLERANCIA_NC ? 'saldado' : 'parcial';
 }
+
+// ───────────────────────────────────────────── [MCP.3.13] pedido agrupado ──
+
+/**
+ * `[MCP.3.13]` La clave de Kepler con que se cobra un pedido en SU sucursal. Las claves son POR
+ * sucursal: si el cliente tiene una ligada para la sucursal del pedido (`customer_branch_keys`), se
+ * usa ésa y cuenta como de esa sucursal (el bloqueo `cliente_de_otra_sucursal` no aplica). Si no, la
+ * de su sucursal de origen, con su sucursal (y el bloqueo sigue donde corresponde).
+ */
+export function claveDelPedido(
+  h: { customer_code: string | null; customer_branch: string | null; branch_key_code: string | null },
+  branch: string | null,
+): { code: string | null; branch: string | null; de_sucursal: boolean } {
+  if (branch && claveCliente(h.branch_key_code)) {
+    return { code: String(h.branch_key_code).trim(), branch, de_sucursal: true };
+  }
+  return { code: h.customer_code, branch: h.customer_branch, de_sucursal: false };
+}
+
+/** `[MCP.3.13]` Clave de cliente tecleada: sin espacios, mayúsculas, la forma que usa Kepler. `null` = no sirve. */
+export function normalizarClaveKepler(raw: unknown): string | null {
+  const s = String(raw ?? '').trim().toUpperCase();
+  return /^[A-Z0-9][A-Z0-9-]{0,19}$/.test(s) ? s : null;
+}
+
+export interface HechosClaveSucursal {
+  branch: string;
+  branch_has_documents: boolean;
+  customer: { erp_customer_code: string | null; erp_source_branch: string | null } | null;
+  /** El cliente tiene un pedido de preventa confirmado de esa sucursal, dentro del alcance. */
+  customer_has_order_in_branch: boolean;
+  /** Clave ya normalizada (`normalizarClaveKepler`). */
+  code: string | null;
+  /** La fila del catálogo de clientes de esa sucursal con esa clave, si existe. */
+  en_catalogo: { cliente_code: string; nombre: string | null } | null;
+  /** La sucursal publica su catálogo de clientes en el ODS (alguna fila). */
+  sucursal_con_catalogo: boolean;
+  /** Hay tickets de Kepler en esa sucursal a nombre de esa clave. */
+  en_tickets: boolean;
+  /** Nombre de OTRO cliente de la Suite que ya tiene esa clave en esa sucursal. */
+  otro_cliente: string | null;
+}
+
+export type DecisionClaveSucursal =
+  | { ok: false; status: 400 | 404 | 409; message: string }
+  | { ok: true; code: string; verified_by: 'catalogo' | 'tickets' | null; kepler_name: string | null; warning: string | null };
+
+/**
+ * `[MCP.3.13]` ¿Se liga esta clave de Kepler al cliente para esa sucursal? Una clave equivocada cobraría
+ * los tickets de OTRA persona, así que se exige que exista en el Kepler de esa sucursal: en su catálogo
+ * de clientes o, si todavía no llegó ahí, en sus tickets. Sólo si la sucursal NO publica catálogo se
+ * acepta sin verificar, y se DECLARA (ADR-056).
+ */
+export function decidirClaveSucursal(h: HechosClaveSucursal): DecisionClaveSucursal {
+  const no = (status: 400 | 404 | 409, message: string): DecisionClaveSucursal => ({ ok: false, status, message });
+  if (!/^[0-9]{2}$/.test(h.branch)) return no(400, 'Sucursal inválida: va la clave de Kepler de dos dígitos (ej. 04).');
+  if (!h.code) return no(400, 'Clave de Kepler inválida: sólo letras, números y guion.');
+  if (!h.customer) return no(404, 'Cliente no encontrado.');
+  if (!claveCliente(h.customer.erp_customer_code)) {
+    return no(409, 'El cliente no tiene clave de Kepler en su sucursal: dalo de alta primero (Clientes nuevos).');
+  }
+  if (h.customer.erp_source_branch && h.customer.erp_source_branch.trim() === h.branch) {
+    return no(409, `La ${h.branch} es la sucursal de origen del cliente: ahí su clave es ${claveCliente(h.customer.erp_customer_code)}.`);
+  }
+  if (!h.customer_has_order_in_branch) {
+    return no(404, `El cliente no tiene pedidos de preventa abiertos de la sucursal ${h.branch} que te toquen.`);
+  }
+  if (!h.branch_has_documents) {
+    return no(409, `La sucursal ${h.branch} no publica tickets de Kepler: aunque se ligue la clave, no habría documento con qué cobrar.`);
+  }
+  if (h.otro_cliente) return no(409, `La clave ${h.code} de la sucursal ${h.branch} ya es de ${h.otro_cliente}.`);
+  if (h.en_catalogo) {
+    return { ok: true, code: h.en_catalogo.cliente_code.trim(), verified_by: 'catalogo', kepler_name: h.en_catalogo.nombre, warning: null };
+  }
+  if (h.en_tickets) return { ok: true, code: h.code, verified_by: 'tickets', kepler_name: null, warning: null };
+  if (!h.sucursal_con_catalogo) {
+    return {
+      ok: true, code: h.code, verified_by: null, kepler_name: null,
+      warning: `No se pudo verificar: la sucursal ${h.branch} no publica su catálogo de clientes y la clave no tiene tickets. Revisa que sea la correcta antes de cobrar.`,
+    };
+  }
+  return no(400, `La clave ${h.code} no existe en el Kepler de la sucursal ${h.branch} (si la acabas de dar de alta, puede tardar unos minutos en llegar).`);
+}
+
+/** `[MCP.3.13]` Una parte de un pedido agrupado, como la ve quien pesca. */
+export interface ParteDeGrupo {
+  id: string;
+  code: string;
+  group_id: string;
+  group_code: string | null;
+  /** Está en el alcance de quien pesca. */
+  visible: boolean;
+  /** Ya va cargada: en una guía de quien pesca (`true`), de otra persona (`false`), o en ninguna (`null`). */
+  cargada_por_mi: boolean | null;
+  cargada_por: string | null;
+}
+
+/**
+ * `[MCP.3.13]` Las partes de un pedido agrupado se cargan JUNTAS o ninguna: el grupo lo recoge una sola
+ * persona (pasa a cada sucursal) y entrega todo el cobro en una caja. Decidido: si elige una parte, se
+ * cargan también las demás que ve y no lleva todavía (en vez de rechazar); se rechaza sólo si una parte
+ * ya la lleva otra persona o no la alcanza. `partes` = las partes ABIERTAS de los grupos de lo elegido.
+ */
+export function completarGrupos(
+  elegidos: readonly string[],
+  partes: readonly ParteDeGrupo[],
+): { ids: string[]; agregados: string[]; error: string | null } {
+  const sel = new Set(elegidos);
+  const grupos = new Set(partes.filter((p) => sel.has(p.id)).map((p) => p.group_id));
+  const agregados: string[] = [];
+  for (const p of partes) {
+    if (!grupos.has(p.group_id) || sel.has(p.id) || p.cargada_por_mi === true) continue;
+    const pedido = p.group_code ?? 'agrupado';
+    if (p.cargada_por_mi === false) {
+      return { ids: [...elegidos], agregados: [], error: `La parte ${p.code} del pedido ${pedido} ya la lleva ${p.cargada_por || 'otra persona'}: un pedido agrupado lo recoge una sola persona.` };
+    }
+    if (!p.visible) {
+      // [MCP.3.13] Si lo que no alcanza es el PRINCIPAL, se dice así (antes salía el mismo folio dos veces).
+      const pieza = p.code === p.group_code ? 'su pedido principal' : `la parte ${p.code}`;
+      return { ids: [...elegidos], agregados: [], error: `El pedido ${pedido} se surte también en otra sucursal (${pieza}) que no te toca: lo lleva quien reparte desde la sucursal del pedido principal.` };
+    }
+    agregados.push(p.id);
+  }
+  return { ids: [...elegidos, ...agregados], agregados, error: null };
+}
+
+/**
+ * `[MCP.3.13]` En qué caja se liquida una guía: la de su sucursal, salvo una GUÍA DE RECOLECCIÓN — todos
+ * sus pedidos son partes (no el principal) de grupos cuyo principal es de otra sucursal, la misma para
+ * todos. Entonces la de ese principal: todo el cobro del grupo se entrega en una caja (decisión de David).
+ */
+export function sucursalDeLiquidacion(guia: {
+  branch: string;
+  orders: ReadonlyArray<{ order_id: string; group_id?: string | null; group_main_branch?: string | null }>;
+}): string {
+  if (!guia.orders.length) return guia.branch;
+  const principales = new Set<string>();
+  for (const o of guia.orders) {
+    if (!o.group_id || o.group_id === o.order_id || !o.group_main_branch) return guia.branch;
+    principales.add(o.group_main_branch);
+  }
+  const [unica] = [...principales];
+  return principales.size === 1 && unica !== guia.branch ? unica : guia.branch;
+}
+
+/**
+ * `[MCP.3.13]` Las guías de una liquidación van a UNA caja: todas con la misma sucursal de liquidación, y
+ * ésa del alcance de quien liquida (`null` = sin recorte). Cualquier otra mezcla se sigue bloqueando.
+ */
+export function bloqueoSucursalesLiquidacion(
+  guias: ReadonlyArray<{ folio: string; branch: string; liquidation_branch: string }>,
+  cajaBranches: readonly string[] | null,
+): string | null {
+  const destinos = new Set(guias.map((g) => g.liquidation_branch));
+  if (destinos.size > 1) {
+    return 'Las guías son de distintas sucursales. Sólo se juntan con las de esta caja las guías de recolección (todas partes de un pedido agrupado de esta sucursal).';
+  }
+  const [destino] = [...destinos];
+  if (destino && cajaBranches !== null && !cajaBranches.includes(destino)) {
+    const ajenas = guias.filter((g) => g.branch !== destino).map((g) => g.folio);
+    return `${ajenas.length ? 'La guía ' + ajenas.join(', ') : 'Esta guía'} se liquida en la caja de la sucursal ${destino}: ahí se entrega todo el cobro del pedido agrupado.`;
+  }
+  return null;
+}
+
+/** `[MCP.3.13]` Lo entregado de una sucursal dentro de una liquidación (sin nombre: lo pone el servicio). */
+export interface LiquidacionSucursal {
+  branch: string;
+  documents_total: number;
+  documents_without_total: number;
+  delivered: number;
+  declared_cash: number;
+  declared_transfer: number;
+}
+
+/**
+ * `[MCP.3.13]` Lo entregado por sucursal (la de la guía = el Kepler donde se cobró), con la sucursal de la
+ * caja primero. Mismo criterio que `resumenLiquidacion`: sólo lo entregado; sin total se declara aparte.
+ */
+export function porSucursalLiquidacion(
+  guias: ReadonlyArray<{ branch: string; orders: readonly RenglonLiquidacion[] }>,
+  caja: string,
+): LiquidacionSucursal[] {
+  const por = new Map<string, RenglonLiquidacion[]>();
+  for (const g of guias) por.set(g.branch, [...(por.get(g.branch) ?? []), ...g.orders]);
+  return [...por.entries()]
+    .sort(([a], [b]) => (a === caja ? -1 : b === caja ? 1 : a.localeCompare(b)))
+    .map(([branch, renglones]) => {
+      const r = resumenLiquidacion(renglones);
+      return {
+        branch,
+        documents_total: r.documents_total,
+        documents_without_total: r.documentos_sin_total,
+        delivered: r.entregados,
+        declared_cash: r.declared_cash,
+        declared_transfer: r.declared_transfer,
+      };
+    });
+}

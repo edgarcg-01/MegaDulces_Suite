@@ -18,4 +18,6 @@ import { Permission } from '../../core/constants/permissions';
 export const ETIQUETAS_TABS: PageTab[] = [
   { label: 'Etiquetas', route: '/tienda/etiquetas', icon: 'pi pi-tag', permission: Permission.STORE_LABELS_VER },
   { label: 'Cambios de precio', route: '/tienda/etiquetas/cambios', icon: 'pi pi-arrow-right-arrow-left', permission: Permission.STORE_LABELS_VER },
+  // [ETQ-HISTORIAL.4] Buscar un producto y ver TODO su historial de precios: ventana aparte, mismo permiso.
+  { label: 'Historial de precios', route: '/tienda/etiquetas/historial', icon: 'pi pi-history', permission: Permission.STORE_LABELS_VER },
 ];

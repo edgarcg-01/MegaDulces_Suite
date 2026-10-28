@@ -30,7 +30,14 @@ import { AnexoVentaService } from '../commercial-sales-documents/anexo-venta.ser
 import { PresaleControlService } from './presale-control.service';
 import { htmlGuiaCarga, pieGuiaCarga, type LoadGuideSnapshot } from './load-guide.pdf';
 import { htmlLiquidacion, pieLiquidacion, type LiquidationSnapshot } from './load-guide-liquidation.pdf';
-import { partesFolio, resumenLiquidacion } from './presale-control.engine';
+import {
+  bloqueoSucursalesLiquidacion,
+  completarGrupos,
+  partesFolio,
+  porSucursalLiquidacion,
+  resumenLiquidacion,
+  sucursalDeLiquidacion,
+} from './presale-control.engine';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -113,10 +120,11 @@ export class LoadGuideService {
     const hoy = relojMx(new Date()).fecha;
     const filtro = await this.filtroCampo(query, quien, userId);
     return this.tk.run(async (trx) => {
+      // [MCP.3.13] Con las partes de otra sucursal de los pedidos agrupados de su sucursal: las recoge él.
       const available =
         filtro.almacenes !== null && filtro.almacenes.length === 0
           ? []
-          : await this.presale.pedidosParaGuias(trx, { ...filtro, soloAbiertos: true, paraPescar: true });
+          : await this.presale.pedidosParaGuias(trx, { ...filtro, soloAbiertos: true, paraPescar: true, conPartesDeGrupo: true });
       // Sus guías abiertas de CUALQUIER día (si la caja no imprimió ayer, siguen siendo suyas), las
       // impresas de hoy y las impresas de otro día que todavía tienen pedidos por entregar.
       const mine = await this.guias(trx, { riderId: userId, fecha: hoy, conAbiertas: true, conPendientes: true, branches: null });
@@ -126,20 +134,21 @@ export class LoadGuideService {
 
   /** Pesca pedidos: los agrega a su guía abierta de hoy de esa sucursal y ruta (la crea si no hay). */
   async cargar(orderIds: string[] | undefined, query: Record<string, unknown> | undefined, quien: QuienPide): Promise<PresaleFieldResponse> {
-    const ids = [...new Set((orderIds ?? []).map((x) => String(x).trim()))];
-    if (!ids.length) throw new BadRequestException('Elige al menos un pedido.');
-    if (ids.length > MAX_POR_CARGA) throw new BadRequestException(`Máximo ${MAX_POR_CARGA} pedidos por vez.`);
-    if (ids.some((x) => !UUID_RE.test(x))) throw new BadRequestException('Hay un id de pedido inválido.');
+    const elegidos = [...new Set((orderIds ?? []).map((x) => String(x).trim()))];
+    if (!elegidos.length) throw new BadRequestException('Elige al menos un pedido.');
+    if (elegidos.length > MAX_POR_CARGA) throw new BadRequestException(`Máximo ${MAX_POR_CARGA} pedidos por vez.`);
+    if (elegidos.some((x) => !UUID_RE.test(x))) throw new BadRequestException('Hay un id de pedido inválido.');
     const userId = this.usuario();
     const tenantId = this.tenantCtx.requireTenantId();
     const hoy = relojMx(new Date()).fecha;
     const filtro = await this.filtroCampo(query, quien, userId);
 
     await this.tk.run(async (trx) => {
+      let ids = elegidos;
       const leer = () =>
         filtro.almacenes !== null && filtro.almacenes.length === 0
           ? Promise.resolve([] as PresaleOrderRow[])
-          : this.presale.pedidosParaGuias(trx, { ...filtro, orderIds: ids, soloAbiertos: true });
+          : this.presale.pedidosParaGuias(trx, { ...filtro, orderIds: ids, soloAbiertos: true, conPartesDeGrupo: true });
 
       // 1) Alcance, sin candado: sólo se bloquea lo que de verdad le toca.
       const visibles = await leer();
@@ -147,6 +156,9 @@ export class LoadGuideService {
       if (faltan.length) {
         throw new NotFoundException(`${faltan.length} pedido(s) no están disponibles para ti (no existen, no son tuyos o ya se cerraron).`);
       }
+      // 1b) [MCP.3.13] Las partes de un pedido agrupado se cargan juntas: se suman las que faltan.
+      ids = await this.completarPartes(trx, elegidos, visibles, filtro, userId);
+      if (ids.length > MAX_POR_CARGA) throw new BadRequestException(`Con las partes de sus pedidos agrupados son ${ids.length}: máximo ${MAX_POR_CARGA} pedidos por vez.`);
       // 2) Candado sobre los pedidos (dos celulares no pescan el mismo) y relectura con el candado puesto.
       await trx.raw('SELECT 1 FROM commercial.orders WHERE id = ANY(?::uuid[]) FOR UPDATE', [ids]);
       const pedidos = await leer();
@@ -232,7 +244,7 @@ export class LoadGuideService {
     // Lo pendiente de liquidar (impresas de días anteriores) se suma sólo a la vista de HOY: al
     // consultar un día pasado se ve ese día, no lo que quedó pendiente después.
     const esHoy = fecha === relojMx(new Date()).fecha;
-    const data = await this.tk.run((trx) => this.guias(trx, { fecha, conAbiertas: true, conSinLiquidar: esHoy, branches }));
+    const data = await this.tk.run((trx) => this.guias(trx, { fecha, conAbiertas: true, conSinLiquidar: esHoy, branches, conRecoleccion: true }));
     return { data, date: fecha, scope: branches === null ? 'todos' : 'recortado' };
   }
 
@@ -341,7 +353,9 @@ export class LoadGuideService {
     if (branches !== null && branches.length === 0) throw new NotFoundException('Guía no encontrada.');
 
     await this.tk.run(async (trx) => {
-      const [visible] = await this.guias(trx, { id, branches });
+      // [MCP.3.13] También en una guía de recolección que liquida esta caja: si no, su liquidación
+      // quedaría bloqueada por un pedido "en camino" que nadie aquí puede regresar.
+      const [visible] = await this.guias(trx, { id, branches, conRecoleccion: true });
       if (!visible) throw new NotFoundException('Guía no encontrada.');
       await trx.raw('SELECT 1 FROM commercial.load_guides WHERE id = ? FOR UPDATE', [id]);
       const g = await trx('commercial.load_guides').where({ id }).first('status', 'folio');
@@ -530,7 +544,7 @@ export class LoadGuideService {
     const ids = this.idsGuias(body?.guide_ids);
     const branches = await this.sucursalesCaja(query, quien);
     if (branches !== null && branches.length === 0) throw new NotFoundException('Guía no encontrada.');
-    return this.tk.run((trx) => this.armarPreview(trx, ids, branches));
+    return this.tk.run((trx) => this.armarPreview(trx, ids, branches, branches));
   }
 
   /**
@@ -555,10 +569,11 @@ export class LoadGuideService {
     return this.tk.run(async (trx) => {
       // Alcance sin candado; luego el candado de las guías, en orden fijo (dos cajas a la vez no
       // se bloquean cruzado), y la relectura con el candado puesto.
-      const visibles = await this.guias(trx, { ids, branches });
+      const visibles = await this.guias(trx, { ids, branches, conRecoleccion: true });
       if (visibles.length !== ids.length) throw new NotFoundException('Alguna guía no existe o no es de tu sucursal.');
       await trx.raw('SELECT 1 FROM commercial.load_guides WHERE id = ANY(?::uuid[]) ORDER BY id FOR UPDATE', [ids]);
-      const p = await this.armarPreview(trx, ids, null);
+      // Relectura sin recorte (ya se validó el alcance), pero la caja destino se vuelve a exigir.
+      const p = await this.armarPreview(trx, ids, null, branches);
       if (p.blocked_reason) throw new ConflictException(p.blocked_reason);
       // Separación de funciones: quien entregó no recibe su propio dinero (salvo modo god).
       if (!quien.god && p.rider_user_id === userId) {
@@ -634,6 +649,15 @@ export class LoadGuideService {
           importe: c2((conteo.piezas[d.key] ?? 0) * d.valor),
         })),
         notas: notas || null,
+        // [MCP.3.13] Con guías de recolección: cuánto cobró el Kepler de cada sucursal (para Finanzas).
+        ...((p.by_branch?.length ?? 0) > 1
+          ? {
+              por_sucursal: (p.by_branch ?? []).map((b) => ({
+                sucursal: b.branch, sucursal_nombre: b.branch_name, documents_total: b.documents_total,
+                documentos_sin_total: b.documents_without_total, entregados: b.delivered,
+              })),
+            }
+          : {}),
       };
 
       const [liq] = await trx('commercial.load_guide_liquidations')
@@ -700,8 +724,17 @@ export class LoadGuideService {
     });
   }
 
-  private async armarPreview(trx: Knex.Transaction, ids: string[], branches: string[] | null): Promise<LoadGuideLiquidationPreview> {
-    const guides = await this.guias(trx, { ids, branches });
+  /**
+   * `branches` recorta qué guías se leen (alcance); `cajaBranches` = las sucursales de la caja que
+   * liquida (`null` = modo god): `[MCP.3.13]` la sucursal de liquidación tiene que ser de ellas.
+   */
+  private async armarPreview(
+    trx: Knex.Transaction,
+    ids: string[],
+    branches: string[] | null,
+    cajaBranches: string[] | null,
+  ): Promise<LoadGuideLiquidationPreview> {
+    const guides = await this.guias(trx, { ids, branches, conRecoleccion: true });
     if (guides.length !== ids.length) throw new NotFoundException('Alguna guía no existe o no es de tu sucursal.');
     const renglones = guides.flatMap((g) => g.orders);
     const r = resumenLiquidacion(renglones);
@@ -720,11 +753,17 @@ export class LoadGuideService {
     const c = crudo[0] as { cargados: number; entregados: number; efectivo: number; transferencia: number };
     const cancelados = renglones.filter((o) => o.status === 'cargado' && o.order_cancelled);
 
+    // [MCP.3.13] Una sola caja: la de las guías, o la del principal en las guías de recolección.
+    const destinos = guides.map((g) => ({ folio: g.folio, branch: g.branch, liquidation_branch: g.liquidation_branch ?? g.branch }));
+    // Sin mezcla, todas dicen la misma; con mezcla se bloquea y la cifra es sólo informativa.
+    const cajaBranch = destinos[0].liquidation_branch;
+    const mezcla = bloqueoSucursalesLiquidacion(destinos, cajaBranches);
+
     let blocked: string | null = null;
     if (new Set(guides.map((g) => g.rider_user_id)).size > 1) {
       blocked = 'Las guías son de distintas personas: se liquida el regreso de una persona a la vez.';
-    } else if (new Set(guides.map((g) => g.branch)).size > 1) {
-      blocked = 'Las guías son de distintas sucursales.';
+    } else if (mezcla) {
+      blocked = mezcla;
     } else {
       const noLista = guides.filter((g) => g.status !== 'impresa');
       if (noLista.length) {
@@ -743,8 +782,10 @@ export class LoadGuideService {
     return {
       rider_user_id: guides[0].rider_user_id,
       rider_name: guides[0].rider_name,
-      branch: guides[0].branch,
+      // [MCP.3.13] La sucursal de la CAJA (con guías de recolección, la del principal).
+      branch: cajaBranch,
       guides,
+      by_branch: porSucursalLiquidacion(guides, cajaBranch).map((b) => ({ ...b, branch_name: branchName(b.branch) || null })),
       documents_total: r.documents_total,
       documents_without_total: r.documentos_sin_total,
       delivered: r.entregados,
@@ -884,6 +925,52 @@ export class LoadGuideService {
       | undefined;
   }
 
+  /**
+   * `[MCP.3.13]` Suma a lo elegido las partes abiertas de sus pedidos agrupados: se cargan juntas o
+   * ninguna (`completarGrupos`). Sin pedidos agrupados devuelve lo elegido tal cual.
+   */
+  private async completarPartes(
+    trx: Knex.Transaction,
+    elegidos: string[],
+    visibles: PresaleOrderRow[],
+    filtro: { almacenes: string[] | null; autorId?: string },
+    userId: string,
+  ): Promise<string[]> {
+    const grupos = [...new Set(
+      visibles.filter((p) => elegidos.includes(p.id) && !!p.group_id && (p.group_parts ?? 0) > 1).map((p) => p.group_id as string),
+    )];
+    if (!grupos.length) return elegidos;
+    // Todas las del grupo (sin alcance) para saber cuáles NO alcanza; las que sí, con su alcance.
+    const todas = (await this.presale.pedidosParaGuias(trx, { almacenes: null, groupIds: grupos, soloAbiertos: true }))
+      // Una ya devuelta con NC en Kepler está cerrada: no cuenta para "juntas".
+      .filter((p) => p.stage !== 'devuelto');
+    const vistas = filtro.almacenes !== null && filtro.almacenes.length === 0
+      ? []
+      : await this.presale.pedidosParaGuias(trx, { ...filtro, groupIds: grupos, soloAbiertos: true, conPartesDeGrupo: true });
+    const alcance = new Set(vistas.map((p) => p.id));
+    const guiaIds = [...new Set(todas.map((p) => p.load_guide?.id).filter((x): x is string => !!x))];
+    const mias = new Set<string>(
+      guiaIds.length
+        ? ((await trx('commercial.load_guides').whereIn('id', guiaIds).andWhere('rider_user_id', userId).select('id')) as Array<{ id: string }>).map((g) => g.id)
+        : [],
+    );
+    const r = completarGrupos(
+      elegidos,
+      todas.map((p) => ({
+        id: p.id,
+        code: p.code,
+        group_id: p.group_id as string,
+        group_code: p.group_code ?? null,
+        visible: alcance.has(p.id),
+        cargada_por_mi: p.load_guide ? mias.has(p.load_guide.id) : null,
+        cargada_por: p.load_guide?.rider_name ?? null,
+      })),
+    );
+    if (r.error) throw new ConflictException(r.error);
+    if (r.agregados.length) this.logger.log(`[MCP.3.13] ${userId}: ${r.agregados.length} parte(s) de pedido agrupado se cargan con lo elegido`);
+    return r.ids;
+  }
+
   private async filtroCampo(
     query: Record<string, unknown> | undefined,
     quien: QuienPide,
@@ -975,6 +1062,11 @@ export class LoadGuideService {
       id?: string; ids?: string[]; riderId?: string; fecha?: string; conAbiertas?: boolean; conPendientes?: boolean;
       /** `[MCP.7]` Suma las IMPRESAS de cualquier día: siguen esperando su liquidación en caja. */
       conSinLiquidar?: boolean; branches: string[] | null;
+      /**
+       * `[MCP.3.13]` Con `branches`: suma las guías de RECOLECCIÓN de otras sucursales — todos sus
+       * pedidos son partes de pedidos agrupados cuyo principal es de `branches` — que esta caja liquida.
+       */
+      conRecoleccion?: boolean;
     },
   ): Promise<LoadGuide[]> {
     let qb = trx('commercial.load_guides as g')
@@ -1011,7 +1103,44 @@ export class LoadGuideService {
         }
       });
     }
-    if (f.branches !== null) qb = qb.whereIn('g.branch', f.branches);
+    if (f.branches !== null) {
+      const branches = f.branches;
+      if (!f.conRecoleccion) {
+        qb = qb.whereIn('g.branch', branches);
+      } else {
+        // [MCP.3.13] Guía de recolección: tiene pedidos y NINGUNO deja de ser parte (no principal) de un
+        // grupo cuyo principal es de estas sucursales. Mismo criterio que `sucursalDeLiquidacion`.
+        qb = qb.where((w) => {
+          w.whereIn('g.branch', branches).orWhere((r) =>
+            r
+              .whereExists(function () {
+                this.select(trx.raw('1'))
+                  .from('commercial.load_guide_orders as r0')
+                  .whereRaw(`r0.guide_id = g.id AND r0.tenant_id = g.tenant_id AND r0.status <> 'quitado'`);
+              })
+              .whereNotExists(function () {
+                this.select(trx.raw('1'))
+                  .from('commercial.load_guide_orders as r1')
+                  .join('commercial.orders as po', function () {
+                    this.on('po.id', '=', 'r1.order_id').andOn('po.tenant_id', '=', 'r1.tenant_id');
+                  })
+                  .leftJoin('commercial.orders as mo', function () {
+                    this.on('mo.id', '=', 'po.group_id').andOn('mo.tenant_id', '=', 'po.tenant_id');
+                  })
+                  .leftJoin('commercial.warehouses as mw', function () {
+                    this.on('mw.id', '=', 'mo.warehouse_id').andOn('mw.tenant_id', '=', 'mo.tenant_id');
+                  })
+                  .whereRaw(`r1.guide_id = g.id AND r1.tenant_id = g.tenant_id AND r1.status <> 'quitado'`)
+                  .whereRaw(
+                    `NOT coalesce(po.group_id IS NOT NULL AND po.group_id <> po.id
+                       AND (CASE WHEN mw.kepler_code ~ '^[0-9]{2}$' THEN mw.kepler_code ELSE ${branchKeySql('mw')} END) = ANY(?::text[]), false)`,
+                    [branches],
+                  );
+              }),
+          );
+        });
+      }
+    }
 
     const rows = (await qb
       .select(
@@ -1073,10 +1202,23 @@ export class LoadGuideService {
           delivery_note: x.delivery_note,
           removed_reason: x.removed_reason,
           order_cancelled: p.status === 'cancelled',
+          // [MCP.3.13] Pedido agrupado y lo que se recolecta de él en la sucursal de la guía.
+          group_id: p.group_id ?? null,
+          group_code: p.group_code ?? null,
+          group_main_branch: p.group_main_branch ?? null,
+          group_parts: p.group_parts ?? null,
+          group_branches: p.group_branches ?? null,
+          lines: p.lines,
         }));
       // Lo que suma: lo entregado y lo que va en camino, menos un cancelado que todavía no regresa.
       const llevados = orders.filter((o) => o.status === 'entregado' || (o.status === 'cargado' && !o.order_cancelled));
+      // [MCP.3.13] La caja que la liquida (la del principal, si es guía de recolección).
+      const liquidationBranch = sucursalDeLiquidacion({ branch: r.branch, orders });
       return {
+        liquidation_branch: liquidationBranch,
+        ...(f.branches !== null
+          ? { liquidates_here: f.branches.includes(liquidationBranch), collection_only: !f.branches.includes(r.branch) }
+          : {}),
         id: r.id,
         folio: r.folio,
         status: r.status,

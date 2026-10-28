@@ -39,8 +39,11 @@ export interface LineaParaTotales {
 /** Lo mínimo que esta función lee del universo. */
 export interface RutaParaTotales { route_code: string; comisiona: boolean }
 
-/** Lo mínimo que esta función lee de un beneficiario. */
-export interface BeneficiarioParaTotales { deduccion: number }
+/**
+ * Lo mínimo que esta función lee de un beneficiario. `deduccion_status` ausente se lee como
+ * resuelta: el candado de columnas arma beneficiarios sin él.
+ */
+export interface BeneficiarioParaTotales { deduccion: number; deduccion_status?: string }
 
 export interface TotalesDeCorrida {
   total_subtotal: number;
@@ -48,9 +51,10 @@ export interface TotalesDeCorrida {
   total_comision: number;
   /** Bruto. Se conserva el nombre porque lo leen `v_rd_period_summary` y la pantalla. */
   total_a_pagar: number;
-  total_deduccion: number;
-  /** ⭐ Lo que de verdad sale del banco. */
-  total_neto: number;
+  /** `null` si algún supervisor no tiene su deducción cargada: no se sabe cuánto es. */
+  total_deduccion: number | null;
+  /** ⭐ Lo que de verdad sale del banco. `null` con la deducción incompleta (ver abajo). */
+  total_neto: number | null;
   /** Días del periodo alimentados por más de una captura. NO es duplicado: es el corte de sistema. */
   dias_multifuente: number;
   rutas_con_dato: number;
@@ -77,14 +81,20 @@ export function totalesDeCorrida(
   // Lo que PAGA.
   const pagables = lines.filter((l) => !l.motivo_no_pago);
   const bruto = r2(pagables.reduce((s, l) => s + l.a_pagar, 0));
-  const deduccion = r2(beneficiarios.reduce((s, b) => s + b.deduccion, 0));
+  // ⛔ `[RD.87]` Una deducción `sin_configurar` vale 0 en el beneficiario, y restarla publicaba
+  // un neto IGUAL al bruto con tono de cifra firme: Q21 salió con «Neto $51,522.93» y
+  // `total_deduccion` 0.00 sin que nadie hubiera cargado la deducción de sus 3 supervisores.
+  // Es lo que la columna `deduccion_status` promete que no pasa («nunca igual al bruto en
+  // silencio»). Incompleta = no medida: las dos cifras van NULL y la pantalla lo declara.
+  const incompleta = beneficiarios.some((b) => b.deduccion_status === 'sin_configurar');
+  const deduccion = incompleta ? null : r2(beneficiarios.reduce((s, b) => s + b.deduccion, 0));
   return {
     total_subtotal: r2(vendieron.reduce((s, l) => s + (l.subtotal ?? 0), 0)),
     total_venta: r2(vendieron.reduce((s, l) => s + (l.venta ?? 0), 0)),
     total_comision: r2(pagables.reduce((s, l) => s + l.comision, 0)),
     total_a_pagar: bruto,
     total_deduccion: deduccion,
-    total_neto: r2(bruto - deduccion),
+    total_neto: deduccion === null ? null : r2(bruto - deduccion),
     dias_multifuente: vendieron.reduce((s, l) => s + l.dias_multifuente, 0),
     rutas_con_dato: conDato,
     rutas_sin_dato: sinDato,

@@ -125,16 +125,6 @@ export class CommercialMovementsController {
     this.sendFile(res, buf, this.exporter.cuadreFileName(data.range, 'pdf').replace('.pdf', `${suffix}.pdf`), 'application/pdf');
   }
 
-  @Get('export.xlsx')
-  @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
-  @ApiOperation({ summary: 'DM.6 — Excel del Diario (hoja Documentos + hoja Validación de traspasos). Mismos filtros que /lines.' })
-  async exportXlsx(@Res() res: Response, @Query() raw: Record<string, string>) {
-    const data = await this.svc.exportData(this.q(raw));
-    const buf = await this.exporter.buildXlsx(data);
-    this.sendFile(res, buf, this.exporter.fileName(data.range, 'xlsx'),
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  }
-
   @Get('export.pdf')
   @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
   @ApiOperation({ summary: 'DM.6 — PDF del Diario (documentos + validación de traspasos). Mismos filtros que /lines.' })

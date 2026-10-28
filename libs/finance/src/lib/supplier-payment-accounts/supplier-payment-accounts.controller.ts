@@ -6,7 +6,7 @@ import { SupplierPaymentAccountsService } from './supplier-payment-accounts.serv
 // un import de valor lo convierte en TS1272. Lo caza `tsc`, no vitest.
 import type { CreateAccountChangeRequestDto } from './supplier-payment-accounts.service';
 import type { SupplierPaymentAccountRow, SupplierPaymentAccountRequestRow } from './supplier-payment-accounts.service';
-import type { CuentasPagoFaltantesResponse } from '@megadulces/contracts';
+import type { CuentasPagoFaltantesResponse, CuentaPagoPropuesta } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -36,6 +36,24 @@ export class SupplierPaymentAccountsController {
   @ApiOperation({ summary: 'PGP.1 — proveedores que cobran por banco y no tienen cuenta de pago, por dinero descendente.' })
   listMissing(@Query('dias') dias?: string): Promise<CuentasPagoFaltantesResponse> {
     return this.svc.listMissingAccounts(dias ? Number(dias) : 120);
+  }
+
+  /**
+   * `[PGP.29]` (objetivo **O6**) — la cuenta que cada acreedor YA declaró en su propio REP.
+   *
+   * ⭐ Mismo permiso que `faltantes` y por la misma razón: lo miran **los dos lados** —Compras
+   * abre la solicitud, Tesorería la firma—, y con el permiso de Compras solo, quien firma no
+   * vería de dónde salió la cuenta.
+   *
+   * ⚠️ Expone una CLABE, que `faltantes` a propósito no hacía. Es la misma CLABE que el
+   * proveedor nos declaró **para que le paguemos**, y sin verla no se puede decidir el alta.
+   * El control sigue donde estaba: **aprobar** exige `FINANCE_PAYMENT_CALENDAR_AUTORIZAR`.
+   */
+  @Get('propuestas')
+  @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'PGP.29 — la cuenta que el proveedor declaro en su REP timbrado, con su evidencia. Solo propone: no da de alta.' })
+  listProposals(): Promise<CuentaPagoPropuesta[]> {
+    return this.svc.listAccountProposals();
   }
 
   @Get('by-supplier/:supplierId')
