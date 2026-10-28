@@ -110,6 +110,8 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.LOGISTICS_PAYROLL_GESTIONAR, url: '/logistica/payroll', motivo: 'manage sin view' },
   // [EMB.43] Se reparten juntas (migración 20261024114154): nadie tiene GESTIONAR sin VER.
   { perm: Permission.LOGISTICS_PAGOS_GESTIONAR, url: '/logistica/pagos', motivo: 'manage sin view' },
+  // `[FCU.3.11]` Costo por unidad: GESTIONAR se reparte JUNTO con VER (encargado_bodega, coordinador_embarques).
+  { perm: Permission.LOGISTICS_COSTO_UNIDAD_GESTIONAR, url: '/logistica/costo-unidad', motivo: 'manage sin view: la ruta exige COSTO_UNIDAD_VER' },
   // finanzas
   { perm: Permission.FINANCE_BANK_GESTIONAR, url: '/finanzas/bancos', motivo: 'manage sin view' },
   { perm: Permission.FINANCE_COLLECTIONS_GESTIONAR, url: '/finanzas/cobranza', motivo: 'manage sin view' },

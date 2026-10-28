@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Etiquetas: pestaña «Historial de precios» (ETQ-HISTORIAL, 2026-10-28)
+- Nueva pestaña **«Historial de precios»** junto a «Cambios de precio» (`/tienda/etiquetas/historial`, mismo permiso): se busca un producto y se despliegan sus cambios de precio de las **9 plazas**. Por omisión muestra **todas las filas** de la bitácora de Kepler; «Agrupar repetidos» las funde en tramos (Kepler reescribe el mismo cambio varias veces: en un producto medido, 676 de 686 pasos repetían el precio). Filtros por rango (90 días / 1 año / todo), plaza y presentación.
+- Una promoción de Kepler («= GRATIS») no se puede elegir: no es un producto. «Sin cambios registrados» se distingue de «no se pudo leer».
+- `GET /store/labels/price-history` (lectura, tope de 8,000 filas con aviso de recorte). Sin migración ni permiso nuevo.
+
 ### Added — Cuentas de pago: la cuenta ya viene puesta, la traía el propio proveedor (PGP.29 / objetivo O6, 2026-10-28)
 - En `/finanzas/cuentas-pago`, el botón **«Solicitar cuenta» abría un formulario vacío** y alguien tenía que ir a conseguir la CLABE. Por eso el catálogo llevaba **0 cuentas** y ningún pago del Calendario se preparaba solo.
 - Ahora la tabla «A quién le falta cuenta» trae una columna **«Su cuenta, según él»**: la CLABE que el proveedor **declaró en el comprobante de pago que él mismo timbró ante el SAT**, con el dígito de control verificado, cuántas veces la declaró y cuándo fue la última. El botón pasa a decir **«Revisar y solicitar»** y el formulario abre **con la CLABE puesta** y el comprobante citado en el motivo.
@@ -25,6 +30,16 @@
 - Migración **`20261028085707_pgp27_rfc_del_acreedor_resuelto`** (sólo vistas; no toca filas ni crea índices). ⛔ Su **primera versión se aplicó en prod y su propia compuerta de costo la revirtió entera**: resolver el nombre costaba **5,349 ms contra un tope de 1,000**, porque obliga a recorrer los 460 MB de `fiscal.cfdis`, y el índice con el que se apostaba pagarlo **no lo bajó**. La versión viva resuelve contra **ContPAQi solamente, en 0.53–0.6 s**: la pata del CFDI agregaba **11 documentos y 1 cuenta por ocho veces el costo**, así que quedó apagada y el índice se retiró.
 - ⚠️ Los **414 documentos donde Kepler trae un RFC bien formado y el nombre dice otro** (MONDELEZ, FÁBRICAS SELECTAS) **no se corrigen solos**: manda Kepler y la discrepancia se publica para que alguien decida.
 
+### Added — Vender de otras sucursales de la zona: «pedido agrupado» (MCP.3.12–3.13, ADR-105, 2026-10-23)
+- **El vendedor ve un solo pedido** (MCP.3.14): en Hoy, Notificaciones y el inicio, un renglón con el total del grupo; si lo surten 2+ sucursales, dice en qué va cada una («LPA · Surtido  PH · Por surtir»).
+- **Indicaciones para el surtidor** (MCP.3.15): el vendedor escribe o dicta en un recuadro, antes de agendar, cómo quiere el cliente su mercancía; el surtidor lo ve en grande y marca «Cumplí las indicaciones» antes de terminar.
+- **Cada pedido le llega al surtidor en cuanto se levanta** (MCP.3.15, ADR-106): ya no espera a «Finalizar ruta»; la ruta deja de surtirse junta.
+- **La existencia del vendedor ya no sale en blanco** (MCP.3.16, ADR-107): «Sin existencias en PH» en gris al final para lo que la sucursal no maneja, rojo para lo agotado, «Sin dato» si la lectura es vieja, y los duplicados toman la existencia de su gemelo. No se puede agregar lo que no hay en la sucursal de surtido; la app dice qué sucursal de la zona sí tiene.
+- **App del vendedor:** en cada producto, una tira chica con la existencia de las sucursales de su zona (La Piedad = PH, LPA, 8ES, YU · Zamora = DAMASO, CAN · Morelia = MM, MA). Tocar una sucursal = de ahí se surte ese producto, con su precio. El carrito dice «Se surte en LPA (3) · PH (1)» y el pedido agendado «Se surte en LPA y PH».
+- **Un pedido, varias sucursales:** al mandarlo, cada sucursal recibe SU parte (mismo grupo). Cada parte se surte, se cobra en el Kepler de su sucursal y el repartidor la recoge ahí.
+- **Surtido:** cada sucursal empieza y termina su parte de la ruta; las tarjetas dicen «Parte de P-xxxx · también surte PH».
+- **Mesa y caja:** «Parte de … · se cobra en …», ligar la clave Kepler del cliente en otra sucursal, y la caja del pedido principal liquida también las guías de recolección de otras sucursales, con desglose por sucursal.
+- ⚠️ 3 migraciones aditivas que van **antes** del código. Sin permisos nuevos.
 ### Added — Mesa de Servicio: arrastrar archivos desde el escritorio y adjuntar enlaces de Google (MS.ADJ, 2026-10-22)
 - **Arrastrar y soltar** imágenes y PDF en el recuadro de adjuntos de «Nueva solicitud» y del hilo; lo que no sea imagen ni PDF se rechaza con el aviso de compartirlo por **enlace de Google**. Soltar un archivo fuera del recuadro ya no abre el archivo ni pierde lo escrito.
 - **Enlaces de Google** (Docs, Hojas, Presentaciones, Formularios y Drive), hasta 3 por envío: el servidor los normaliza y valida (host exacto, https, sin credenciales) y nunca los visita. Se ven como chips en el detalle; los de una nota interna no los ve quien reportó. ⚠️ Los enlaces quedan restringidos: quien atiende sólo los abre si se compartieron con su cuenta.

@@ -23,6 +23,7 @@ import {
   SupervisorCoaching,
 } from '../vendor.service';
 import { Order } from '../../portal/portal.service';
+import { sucursalesDelPedido, textoSucursales } from '../pedido-grupo';
 import { nextBusinessDay, nextBusinessDayIso, toLocalIso } from '../../../core/date/biz-days';
 
 /**
@@ -148,7 +149,7 @@ import { nextBusinessDay, nextBusinessDayIso, toLocalIso } from '../../../core/d
             <span class="nic ok"><i class="pi pi-check-circle"></i></span>
             <span class="nb">
               <span class="nt">Pedido {{ o.code }}</span>
-              <span class="nd">{{ statusLabel(o.status) }} · {{ fmtMoney(o.total) }}</span>
+              <span class="nd">{{ estadoDe(o) }} · {{ fmtMoney(o.total) }}</span>
             </span>
           </div>
         }
@@ -323,6 +324,11 @@ export class VendorNotificationsComponent implements OnInit {
     const cad = d.cadence_days ? `suele pedir cada ${d.cadence_days} días` : 'tiempo de reordenar';
     const over = d.days_overdue > 0 ? ` · ${d.days_overdue} días de atraso` : '';
     return cad + over;
+  }
+  /** [MCP.3.14] Si lo surten 2+ sucursales, en qué va cada una; si no, el estado del pedido. */
+  estadoDe(o: Order): string {
+    const ss = sucursalesDelPedido(o);
+    return ss.length ? textoSucursales(ss) : this.statusLabel(o.status);
   }
   statusLabel(s: string): string {
     switch (s) {

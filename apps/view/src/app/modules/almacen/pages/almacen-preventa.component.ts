@@ -26,6 +26,7 @@ import { coincideBusqueda } from '@megadulces/ui-web';
 import { money } from '../../../shared/util/money.util';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { AlmacenPreventaService } from '../almacen-preventa.service';
+import { cajaDelGrupo, textoGrupo } from '../pedido-agrupado.util';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary';
 
@@ -111,7 +112,7 @@ const dmy = (v: string | null | undefined): string => {
 
       @if (err(); as e) { <div class="mc-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="mc-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()"><span class="p-button-label">Reintentar</span></button></div> }
 
-      @if (loading() && !data()) { <div class="mc-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="mc-skel-row"></div> }</div> }
+      @if (loading() && !data()) { <div class="mc-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="mc-skel-row"></div> }</div> }
       @else if (data(); as d) {
         @if (d.scope === 'ninguno') {
           <div class="mc-note mc-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Tu ficha no tiene una sucursal asignada, así que no hay pedidos que mostrarte. Pide que te la asignen en <b>Administración › Personas</b>.</span></div>
@@ -151,7 +152,7 @@ const dmy = (v: string | null | undefined): string => {
             </ng-template>
             <ng-template #body let-r>
               <tr [pSelectableRow]="r">
-                <td role="cell" data-label="Pedido"><span class="mono">{{ r.code }}</span><span class="muted mc-sub">{{ r.seller_name || '—' }}</span></td>
+                <td role="cell" data-label="Pedido"><span class="mono">{{ r.code }}</span><span class="muted mc-sub">{{ r.seller_name || '—' }}</span>@if (grupoTexto(r); as gt) { <span class="mc-sub mc-grp">{{ gt }}</span> }</td>
                 @if (multiSucursal()) { <td class="mono muted" role="cell" data-label="Suc">{{ r.branch || '—' }}</td> }
                 <td role="cell" data-label="Cliente"><span class="mc-trunc">{{ r.customer_name || '—' }}</span><span class="muted mc-sub">{{ r.sales_route || 'sin ruta' }}@if (r.customer_erp_code) { · <span class="mono">{{ r.customer_erp_code }}</span> }</span></td>
                 <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.stage)" [severity]="etapaSev(r.stage)" class="mc-tag" />@if (r.load_guide; as g) { <span class="muted mc-sub">{{ g.status === 'impresa' ? 'Lleva' : 'Pescado por' }} {{ g.rider_name || '—' }} · <span class="mono">{{ g.folio }}</span></span> }@if (r.credit_note?.status === 'parcial') { <span class="mc-dev">NC parcial {{ money(r.credit_note!.credited) }} de {{ money(r.credit_note!.ticket_total) }}</span> } @else if (r.return_required) { <span class="mc-dev">Devolución y NC en Kepler</span> } @else if (r.failed_attempts) { <span class="muted mc-sub">{{ r.failed_attempts }} {{ r.failed_attempts === 1 ? 'intento fallido' : 'intentos fallidos' }}</span> }</td>
@@ -186,7 +187,7 @@ const dmy = (v: string | null | undefined): string => {
           <section class="mc-detail" aria-labelledby="mc-h-det">
             <h2 id="mc-h-det" class="sr-only">Detalle del pedido {{ sel()?.code }}</h2>
             @if (detLoading()) {
-              <div class="mc-skeleton mc-pad" aria-busy="true">@for (i of skelDet; track $index) { <div class="mc-skel-row"></div> }</div>
+              <div class="mc-skeleton mc-pad" aria-busy="true">@for (i of skelDet; track i) { <div class="mc-skel-row"></div> }</div>
             } @else if (det(); as x) {
               <div class="mc-det-head">
                 <p-tag [value]="etapaLabel(x.order.stage)" [severity]="etapaSev(x.order.stage)" class="mc-tag" />
@@ -197,6 +198,7 @@ const dmy = (v: string | null | undefined): string => {
                 <div class="mc-row"><span>Vendedor · ruta</span><span>{{ x.order.seller_name || '—' }} · {{ x.order.sales_route || 'sin ruta' }}</span></div>
                 <div class="mc-row"><span>Sucursal</span><span>{{ x.order.branch || '' }} {{ x.order.warehouse_name || '—' }}</span></div>
                 <div class="mc-row"><span>Pedido</span><span class="num">{{ x.order.lines }} renglones · {{ money(x.order.total) }}</span></div>
+                @if (grupoTexto(x.order); as gt) { <div class="mc-row"><span>Pedido agrupado</span><span class="mc-wrap">{{ gt }}@if (grupoCaja(x.order); as cj) { <span class="muted mc-sub">El cobro se entrega en la caja de {{ cj }}, con el resto del pedido.</span> }</span></div> }
                 @if (x.order.load_guide; as g) { <div class="mc-row"><span>Guía de carga</span><span><span class="mono">{{ g.folio }}</span> · {{ g.rider_name || '—' }} · {{ g.status === 'impresa' ? 'impresa' : 'sin imprimir' }}</span></div> }
                 @if (x.order.failed_attempts) { <div class="mc-row"><span>Intentos fallidos</span><span>{{ x.order.failed_attempts }} de {{ maxIntentos + 1 }}@if (x.order.return_required) { <span class="mc-dev">ya no sale: aplicar devolución y nota de crédito en Kepler</span><span class="muted mc-sub">Hazla DESDE la factura del ticket en Kepler: así se liga sola y el pedido se cierra aquí.</span> }</span></div> }
                 @if (x.order.delivery; as e) {
@@ -234,6 +236,21 @@ const dmy = (v: string | null | undefined): string => {
                   }
                 } @else if (x.order.link_block) {
                   <p class="mc-note mc-note-warn mc-note-in"><i class="pi pi-info-circle" aria-hidden="true"></i><span>{{ bloqueoLargo(x.order.link_block) }}</span></p>
+                  @if (x.order.link_block === 'cliente_de_otra_sucursal' && puedeLigar() && x.order.status === 'confirmed' && x.order.branch) {
+                    @if (!ligandoClave()) {
+                      <button type="button" class="mc-link mc-mt" (click)="abrirClave()">Ligar la clave de este cliente en {{ x.order.branch }} {{ x.order.warehouse_name || '' }}</button>
+                    } @else {
+                      <div class="mc-form">
+                        <label for="mc-clave">Clave del cliente en el Kepler de {{ x.order.branch }} {{ x.order.warehouse_name || '' }}</label>
+                        <input pInputText id="mc-clave" maxlength="20" autocomplete="off" [ngModel]="clave()" (ngModelChange)="clave.set($event)" (keydown.enter)="ligarClave(x.order)" placeholder="Ej. 00777" />
+                        <p class="mc-hint">Si no existe en esa sucursal, dalo de alta en ese Kepler y escribe la clave que le dio. Se comprueba contra el Kepler de la sucursal antes de ligarla.</p>
+                        <div class="mc-form-acts">
+                          <button pButton type="button" class="p-button-sm" [disabled]="!claveValida() || !!guardando()" [loading]="guardando() === 'clave'" (click)="ligarClave(x.order)"><span class="p-button-label">Ligar clave</span></button>
+                          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardando() === 'clave'" (click)="ligandoClave.set(false)"><span class="p-button-label">Cancelar</span></button>
+                        </div>
+                      </div>
+                    }
+                  }
                 } @else if (candLoading()) {
                   <div class="mc-skeleton" aria-busy="true"><div class="mc-skel-row"></div><div class="mc-skel-row"></div></div>
                 } @else if (cand(); as c) {
@@ -345,6 +362,7 @@ const dmy = (v: string | null | undefined): string => {
     .mc-form-acts { display:flex; gap:.4rem; }
     .mc-msg { font-size:var(--fs-sm); margin:.5rem 0 0; }
     .mc-mt { margin-top:.4rem; }
+    .mc-grp { color:var(--text-main); }
     :host ::ng-deep .mc-lines .p-datatable-tbody > tr > td, :host ::ng-deep .mc-lines .p-datatable-thead > tr > th { padding:.3rem .4rem; font-size:var(--fs-xs); }
     .mc-trunc { display:block; max-width:20rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .mc-sub { display:block; font-size:var(--fs-xs); }
@@ -408,6 +426,13 @@ export class AlmacenPreventaComponent implements OnInit {
   readonly desligando = signal(false);
   readonly motivo = signal('');
   readonly msg = signal<{ texto: string; mal: boolean } | null>(null);
+  /** `[MCP.3.13]` Formulario «ligar la clave de este cliente en la sucursal del pedido». */
+  readonly ligandoClave = signal(false);
+  readonly clave = signal('');
+  /** Poka-yoke: la forma de una clave de Kepler (la valida otra vez el servidor, contra Kepler). */
+  readonly claveValida = computed(() => /^[A-Za-z0-9][A-Za-z0-9-]{0,19}$/.test(this.clave().trim()));
+  readonly grupoTexto = textoGrupo;
+  readonly grupoCaja = cajaDelGrupo;
 
   /** Ligar o corregir exige el permiso de surtido (lo tiene el encargado); el modo god pasa siempre. */
   readonly puedeLigar = computed(() => this.perms.has(Permission.COMMERCIAL_PICKING_GESTIONAR));
@@ -421,7 +446,8 @@ export class AlmacenPreventaComponent implements OnInit {
     // Buscador compartido: sin acentos, varias palabras en cualquier orden, sobre todos los campos.
     return d.data.filter((r) =>
       (!suc || r.branch === suc) &&
-      coincideBusqueda(q, r.code, r.customer_name, r.seller_name, r.sales_route, r.customer_erp_code, r.link?.folio_digital));
+      // [MCP.3.13] El folio del pedido principal también encuentra sus partes.
+      coincideBusqueda(q, r.code, r.customer_name, r.seller_name, r.sales_route, r.customer_erp_code, r.link?.folio_digital, r.group_code));
   });
   readonly conteo = computed(() => {
     const out: Partial<Record<PresaleStage, number>> = {};
@@ -519,6 +545,8 @@ export class AlmacenPreventaComponent implements OnInit {
     this.msg.set(null);
     this.desligando.set(false);
     this.motivo.set('');
+    this.ligandoClave.set(false);
+    this.clave.set('');
     if (!r) return;
     this.cargarDetalle(r.id);
   }
@@ -613,6 +641,46 @@ export class AlmacenPreventaComponent implements OnInit {
         this.msg.set({ texto: this.errorTexto(e, 'No se pudo quitar el documento.'), mal: true });
       },
     });
+  }
+
+  abrirClave(): void {
+    this.ligandoClave.set(true);
+    this.clave.set('');
+    this.msg.set(null);
+    setTimeout(() => document.getElementById('mc-clave')?.focus());
+  }
+
+  /**
+   * `[MCP.3.13]` Liga la clave del cliente en la sucursal del pedido (la parte de un pedido agrupado se
+   * cobra en el Kepler de SU sucursal). Si el servidor no pudo verificarla contra Kepler, lo dice.
+   */
+  ligarClave(o: PresaleOrderRow): void {
+    const id = o.id;
+    if (!o.branch || !this.claveValida() || this.guardando()) return;
+    this.guardando.set('clave');
+    this.msg.set(null);
+    this.api.linkBranchKey({ customer_id: o.customer_id, branch: o.branch, erp_customer_code: this.clave().trim() })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.reload();
+          if (this.sel()?.id !== id) return;
+          this.guardando.set(false);
+          this.ligandoClave.set(false);
+          const nombre = r.kepler_name ? ' (' + r.kepler_name + ' en Kepler)' : '';
+          const antes = r.replaced_code ? ' Sustituye a la ' + r.replaced_code + '.' : '';
+          this.msg.set({
+            texto: 'Clave ' + r.erp_customer_code + ' ligada en ' + r.branch + nombre + '.' + antes + (r.warning ? ' ' + r.warning : ''),
+            mal: !!r.warning,
+          });
+          this.cargarDetalle(id);
+        },
+        error: (e: HttpErrorResponse) => {
+          if (this.sel()?.id !== id) return;
+          this.guardando.set(false);
+          this.msg.set({ texto: this.errorTexto(e, 'No se pudo ligar la clave.'), mal: true });
+        },
+      });
   }
 
   /** El servidor ya explica el motivo (409/400/404); se muestra tal cual. */

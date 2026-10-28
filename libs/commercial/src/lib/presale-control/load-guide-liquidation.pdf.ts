@@ -47,6 +47,11 @@ export interface LiquidationSnapshot {
   sin_explicar: number;
   conteo: Array<{ label: string; piezas: number; importe: number }>;
   notas: string | null;
+  /**
+   * `[MCP.3.13]` Con guías de recolección de un pedido agrupado: lo cobrado en el Kepler de cada
+   * sucursal (la de la caja primero). Ausente = una sola sucursal (y en las fotos viejas).
+   */
+  por_sucursal?: Array<{ sucursal: string; sucursal_nombre: string | null; documents_total: number; documentos_sin_total: number; entregados: number }>;
 }
 
 const esc = (s: unknown): string =>
@@ -201,7 +206,8 @@ ${bloqueEntregados}
   <table class="res" style="flex:1.2">
     <tbody>
       <tr><td>Documentos de Kepler entregados</td><td class="r mono">$${m(s.documents_total)}</td></tr>
-      ${s.documentos_sin_total ? `<tr><td colspan="2" class="nd">${s.documentos_sin_total} documento(s) sin total en el sistema: no se suman.</td></tr>` : ''}
+      ${(s.por_sucursal?.length ?? 0) > 1 ? (s.por_sucursal ?? []).map((b) => `<tr><td class="nd">Cobrado en el Kepler de ${esc(b.sucursal)}${b.sucursal_nombre ? ' ' + esc(b.sucursal_nombre) : ''} (${b.entregados})${b.documentos_sin_total ? ` · ${b.documentos_sin_total} sin total` : ''}</td><td class="r mono">$${m(b.documents_total)}</td></tr>`).join('') : ''}
+      ${s.documentos_sin_total ?`<tr><td colspan="2" class="nd">${s.documentos_sin_total} documento(s) sin total en el sistema: no se suman.</td></tr>` : ''}
       <tr><td>Transferencias declaradas</td><td class="r mono">$${m(s.declared_transfer)}</td></tr>
       <tr><td>Efectivo declarado al entregar</td><td class="r mono">$${m(s.declared_cash)}</td></tr>
       <tr><td>Documentos − lo declarado</td><td class="r mono">$${m(s.por_cobrar)}</td></tr>

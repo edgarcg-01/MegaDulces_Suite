@@ -1979,6 +1979,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.STORE_LABELS_VER)]
       },
       {
+        // [ETQ-HISTORIAL.4] Ventana aparte junto a «Cambios de precio»: buscar un producto y ver su historial completo.
+        path: 'etiquetas/historial',
+        loadComponent: () => import('./modules/tienda/components/historial-precio.component').then(m => m.HistorialPrecioComponent),
+        canActivate: [permissionGuard(Permission.STORE_LABELS_VER)]
+      },
+      {
         path: 'etiquetas',
         loadComponent: () => import('./modules/tienda/pages/tienda-etiquetas.component').then(m => m.TiendaEtiquetasComponent),
         canActivate: [permissionGuard(Permission.STORE_LABELS_VER)]

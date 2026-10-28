@@ -8,9 +8,10 @@ import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { TagModule } from 'primeng/tag';
 import { DENOMINACIONES_MXN, totalDenominaciones } from '@megadulces/contracts';
-import type { LoadGuide, LoadGuideLiquidationPreview, LoadGuideLiquidationsResponse, LoadGuidesResponse } from '@megadulces/contracts';
+import type { LoadGuide, LoadGuideLiquidationPreview, LoadGuideLiquidationsResponse, LoadGuideOrderRow, LoadGuidesResponse } from '@megadulces/contracts';
 import { money } from '../../../shared/util/money.util';
 import { AlmacenPreventaService } from '../almacen-preventa.service';
+import { textoGrupo } from '../pedido-agrupado.util';
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 const hoyMx = (): string => {
@@ -57,7 +58,7 @@ const dmy = (v: string | null | undefined): string => {
       @if (err(); as e) { <div class="gc-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="gc-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()"><span class="p-button-label">Reintentar</span></button></div> }
       @if (msg(); as m) { <p class="gc-msg" [class.gc-bad]="m.mal" role="status">{{ m.texto }}</p> }
 
-      @if (loading() && !data()) { <div class="gc-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="gc-skel-row"></div> }</div> }
+      @if (loading() && !data()) { <div class="gc-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="gc-skel-row"></div> }</div> }
       @else if (data(); as d) {
         @if (d.scope === 'ninguno') {
           <div class="gc-empty"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Tu ficha no tiene una sucursal asignada, así que no hay guías que mostrarte. Pide que te la asignen en <b>Administración › Personas</b>.</span></div>
@@ -79,7 +80,7 @@ const dmy = (v: string | null | undefined): string => {
                 <div class="gc-liq-row">
                   <div class="gc-liq-who">
                     <b>{{ r.rider_name || '—' }}</b>
-                    <span class="muted"> · {{ r.branch }} · {{ r.guias.length }} {{ r.guias.length === 1 ? 'guía' : 'guías' }}: <span class="mono">{{ r.folios }}</span></span>
+                    <span class="muted"> · caja {{ r.branch }} · {{ r.guias.length }} {{ r.guias.length === 1 ? 'guía' : 'guías' }}: <span class="mono">{{ r.folios }}</span>@if (r.recoleccion) { · {{ r.recoleccion }} de recolección en otra sucursal }</span>
                     <span class="gc-cobro">{{ r.entregados }} {{ r.entregados === 1 ? 'entregado' : 'entregados' }} · {{ r.volvieron }} {{ r.volvieron === 1 ? 'volvió' : 'volvieron' }}@if (r.pendientes) { · <span class="gc-warn">{{ r.pendientes }} en camino</span> }</span>
                   </div>
                   @if (liqKey() !== r.key) {
@@ -95,7 +96,7 @@ const dmy = (v: string | null | undefined): string => {
                         @for (g of r.guias; track g.id) {
                           <label class="gc-guia-op">
                             <input type="checkbox" [checked]="liqIds().includes(g.id)" [disabled]="liquidando()" (change)="toggleGuia(r.key, g.id)" />
-                            <span class="mono">{{ g.folio }}</span> · {{ g.sales_route }} · {{ dmy(g.business_date) }}@if (enCamino(g)) { · <span class="gc-warn">{{ enCamino(g) }} en camino</span> }
+                            <span class="mono">{{ g.folio }}</span> · {{ g.branch }} · {{ g.sales_route }} · {{ dmy(g.business_date) }}@if (enCamino(g)) { · <span class="gc-warn">{{ enCamino(g) }} en camino</span> }
                           </label>
                         }
                       </fieldset>
@@ -120,6 +121,12 @@ const dmy = (v: string | null | undefined): string => {
                         <div>
                           <h4 class="gc-sub-h">Lo que se espera</h4>
                           <div class="gc-kv"><span>Documentos de Kepler entregados ({{ p.delivered }})</span><b class="num">{{ money(p.documents_total) }}</b></div>
+                          @if ((p.by_branch?.length ?? 0) > 1) {
+                            @for (b of p.by_branch; track b.branch) {
+                              <div class="gc-kv gc-kv-sub"><span>Cobrado en el Kepler de {{ b.branch }} {{ b.branch_name || '' }} ({{ b.delivered }})@if (b.documents_without_total) { · {{ b.documents_without_total }} sin total }</span><span class="num">{{ money(b.documents_total) }}</span></div>
+                            }
+                            <p class="gc-hint">Todo se recibe aquí; lo que cobró otra sucursal en su Kepler se le transfiere (queda en el comprobante).</p>
+                          }
                           @if (p.documents_without_total) { <p class="gc-hint">{{ p.documents_without_total }} documento(s) sin total en el sistema: no se suman.</p> }
                           <div class="gc-kv"><span>Transferencias declaradas</span><b class="num">{{ money(p.declared_transfer) }}</b></div>
                           @for (t of p.transfers; track t.order_code) {
@@ -176,14 +183,18 @@ const dmy = (v: string | null | undefined): string => {
                 <div class="gc-card-h">
                   <div class="gc-card-t">
                     <h2 [id]="'gc-h-' + g.id"><span class="mono">{{ g.folio }}</span> · {{ g.sales_route }}</h2>
-                    <span class="muted">{{ g.rider_name || '—' }} · {{ g.branch }} {{ g.branch_name || '' }}@if (g.business_date !== d.date) { · <span class="gc-warn">de {{ dmy(g.business_date) }}{{ g.status === 'abierta' ? ', sin imprimir' : g.status === 'impresa' ? ', sin liquidar' : '' }}</span> }</span>
+                    <span class="muted">{{ g.rider_name || '—' }} · {{ g.branch }} {{ g.branch_name || '' }}@if (recoleccionDe(g); as cj) { · <span class="gc-grp">recolección de pedido agrupado: se liquida en la caja de {{ cj }}</span> }@if (g.business_date !== d.date) { · <span class="gc-warn">de {{ dmy(g.business_date) }}{{ g.status === 'abierta' ? ', sin imprimir' : g.status === 'impresa' ? ', sin liquidar' : '' }}</span> }</span>
                   </div>
                   <div class="gc-card-r">
                     <p-tag [value]="g.status === 'liquidada' ? 'Liquidada · ' + (g.liquidation?.folio ?? '') : g.status === 'impresa' ? 'Impresa' : 'Por imprimir'" [severity]="g.status === 'liquidada' ? 'info' : g.status === 'impresa' ? 'success' : 'warn'" class="gc-tag" />
                     <b class="num">{{ money(g.total) }}</b>
-                    <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="g.status !== 'abierta'" [loading]="imprimiendo() === g.id" [disabled]="!!imprimiendo() || !g.orders.length" (click)="imprimir(g)">
-                      <span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">{{ g.status !== 'abierta' ? 'Reimprimir guía' : 'Imprimir guía' }}</span>
-                    </button>
+                    @if (g.collection_only) {
+                      <span class="gc-cobro">La imprime la caja de {{ g.branch }}</span>
+                    } @else {
+                      <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="g.status !== 'abierta'" [loading]="imprimiendo() === g.id" [disabled]="!!imprimiendo() || !g.orders.length" (click)="imprimir(g)">
+                        <span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">{{ g.status !== 'abierta' ? 'Reimprimir guía' : 'Imprimir guía' }}</span>
+                      </button>
+                    }
                   </div>
                 </div>
                 @if (g.status !== 'abierta') {
@@ -195,7 +206,7 @@ const dmy = (v: string | null | undefined): string => {
                     @for (o of g.orders; track o.order_id) {
                       <tr>
                         <td class="mono">{{ o.code }}</td>
-                        <td>{{ o.customer_name || '—' }}@if (o.customer_erp_code) { <span class="muted mono"> · {{ o.customer_erp_code }}</span> }@if (o.order_cancelled && o.status === 'cargado') { <span class="gc-cobro gc-bad">Pedido cancelado: registra su regreso</span> }</td>
+                        <td>{{ o.customer_name || '—' }}@if (o.customer_erp_code) { <span class="muted mono"> · {{ o.customer_erp_code }}</span> }@if (grupoOrden(o, g); as gt) { <span class="gc-cobro gc-grp">{{ gt }}</span> }@if (o.order_cancelled && o.status === 'cargado') { <span class="gc-cobro gc-bad">Pedido cancelado: registra su regreso</span> }</td>
                         <td class="mono">{{ dmy(o.requested_delivery_date) }}</td>
                         <td class="mono" [class.muted]="!o.folio_digital">{{ o.folio_digital || (o.status === 'cargado' ? 'se elige al entregar' : '—') }}</td>
                         <td class="ta-r num" [class.gc-tachado]="o.status === 'no_entregado' || o.status === 'regreso'">{{ money(o.document_total ?? o.total) }}</td>
@@ -294,6 +305,7 @@ const dmy = (v: string | null | undefined): string => {
     .gc-tachado { text-decoration:line-through; color:var(--text-muted); }
     .gc-ent.gc-no { background:var(--hover-bg); color:var(--text-main); }
     .gc-cobro { display:block; font-size:var(--fs-xs); color:var(--text-muted); margin-top:.15rem; }
+    .gc-grp { color:var(--text-main); }
     .gc-link:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     .gc-sec { margin:.4rem 0 1rem; }
     .gc-sec-h { margin:0 0 .3rem; font-size:var(--fs-h3); font-weight:700; }
@@ -367,9 +379,9 @@ export class AlmacenPreventaGuiasComponent implements OnInit {
 
   readonly porImprimir = computed(() => (this.data()?.data ?? []).filter((g) => g.status === 'abierta').length);
   readonly totalPedidos = computed(() => (this.data()?.data ?? []).reduce((t, g) => t + g.orders.length, 0));
-  /** Lo que falta liquidar: las guías ya liquidadas no cuentan. */
+  /** Lo que falta liquidar: las guías ya liquidadas no cuentan, ni `[MCP.3.13]` las que liquida otra caja. */
   readonly totalDia = computed(() =>
-    (this.data()?.data ?? []).filter((g) => g.status !== 'liquidada').reduce((t, g) => t + g.total, 0));
+    (this.data()?.data ?? []).filter((g) => g.status !== 'liquidada' && g.liquidates_here !== false).reduce((t, g) => t + g.total, 0));
 
   // ── [MCP.7] Liquidación ──────────────────────────────────────────────────────────────────────
   readonly denoms = DENOMINACIONES_MXN;
@@ -389,12 +401,17 @@ export class AlmacenPreventaGuiasComponent implements OnInit {
   readonly reimprimiendo = signal<string | null>(null);
   private prevSub: Subscription | null = null;
 
-  /** Las guías impresas sin liquidar, agrupadas por quien entregó y sucursal: un regreso. */
+  /**
+   * Las guías impresas sin liquidar, agrupadas por quien entregó y la caja que las liquida: un regreso.
+   * `[MCP.3.13]` La caja es `liquidation_branch`: las guías de recolección de otra sucursal (partes de un
+   * pedido agrupado de esta) se liquidan junto con las propias. Las que se liquidan en OTRA caja no
+   * entran aquí; su tarjeta lo dice.
+   */
   readonly porLiquidar = computed(() => {
     const grupos = new Map<string, LoadGuide[]>();
     for (const g of this.data()?.data ?? []) {
-      if (g.status !== 'impresa') continue;
-      const k = g.rider_user_id + '|' + g.branch;
+      if (g.status !== 'impresa' || g.liquidates_here === false) continue;
+      const k = g.rider_user_id + '|' + (g.liquidation_branch ?? g.branch);
       grupos.set(k, [...(grupos.get(k) ?? []), g]);
     }
     return [...grupos.entries()].map(([key, guias]) => {
@@ -405,7 +422,8 @@ export class AlmacenPreventaGuiasComponent implements OnInit {
         guias,
         folios: guias.map((g) => g.folio).join(', '),
         rider_name: guias[0].rider_name,
-        branch: guias[0].branch,
+        branch: guias[0].liquidation_branch ?? guias[0].branch,
+        recoleccion: guias.filter((g) => (g.liquidation_branch ?? g.branch) !== g.branch).length,
         entregados: renglones.filter((o) => o.status === 'entregado').length,
         volvieron: renglones.filter((o) => o.status === 'no_entregado' || o.status === 'regreso').length,
         pendientes: renglones.filter((o) => o.status === 'cargado').length,
@@ -422,6 +440,16 @@ export class AlmacenPreventaGuiasComponent implements OnInit {
 
   enCamino(g: LoadGuide): number {
     return g.orders.filter((o) => o.status === 'cargado').length;
+  }
+
+  /** `[MCP.3.13]` Guía de recolección: la caja que la liquida, si no es la de su sucursal. */
+  recoleccionDe(g: LoadGuide): string | null {
+    return g.liquidation_branch && g.liquidation_branch !== g.branch ? g.liquidation_branch : null;
+  }
+
+  /** `[MCP.3.13]` «Parte de PD-1 · se cobra en 05» en el renglón de la guía (la sucursal es la de la guía). */
+  grupoOrden(o: LoadGuideOrderRow, g: LoadGuide): string | null {
+    return textoGrupo({ ...o, branch: g.branch });
   }
 
   /**
