@@ -5,6 +5,20 @@ unidad (pieza, paquete, caja) y agenda el pedido. Las entradas más nuevas van a
 
 ---
 
+## La existencia dice la verdad y no deja agregar lo que no hay (MCP.3.16, 2026-10-27)
+
+- **Problema:** a 40–64 % del catálogo no se le veía existencia (productos que la sucursal nunca ha manejado), CAN y
+  MM decían «Sin existencias» de lo que no manejan, y 573 productos estaban duplicados (el viejo sin existencia).
+- **Solución:** cuatro estados — «Existencias: N» · rojo «Sin existencias» (agotado) · gris «Sin existencias en PH»
+  al final (no se maneja) · gris «Sin dato de existencia» (lectura vieja). El duplicado toma la existencia de su
+  gemelo. Agregar de una sucursal sin existencia no se deja, y se dice qué sucursal de la zona sí tiene.
+- **Cómo:** `stock_state=1` en el catálogo, `stale`/`checked_at` en la zona y 409 `SIN_EXISTENCIA` en `addLine` /
+  `updateLine`, todo con un solo resolvedor sobre la vista canónica del ODS y la frescura de `ods_live_hot`.
+- **Por qué:** «en blanco» no le decía nada al vendedor y un 0 inventado le quitaba ventas. Sin dato y sin conexión
+  no bloquean: bloquear con un dato que no sabemos sería quitar una venta real.
+
+---
+
 ## Indicaciones para el surtidor (MCP.3.15, 2026-10-26)
 
 - **Problema:** el vendedor no tenía dónde decir cómo quiere el cliente su mercancía.

@@ -3,6 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, forkJoin, map, of, switchMap, tap } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
+import type { StockState } from '@megadulces/contracts';
 
 // ─────────── Tipos ───────────
 
@@ -77,6 +78,17 @@ export interface PriceRow {
   }[];
   /** [VTK.3] 'kepler_ladder' cuando `units` salió de la escalera de la sucursal. */
   units_source?: string;
+  /**
+   * `[MCP.3.16]` Sólo viene si se pidió `stock_state=1` (catálogo del vendedor). Qué dice la
+   * existencia de la sucursal pedida: `con_existencia` · `agotado` (hay registro y no hay piezas) ·
+   * `no_se_maneja` (la sucursal no tiene registro de ese producto) · `sin_dato` (la lectura de la
+   * sucursal está vieja o falló: NO es cero). Ausente = servidor viejo, la pantalla se porta como antes.
+   */
+  stock_state?: StockState | null;
+  /** `[MCP.3.16]` ISO de la última lectura de esa sucursal (`analytics.ods_branch_checks`). */
+  stock_checked_at?: string | null;
+  /** `[MCP.3.16]` Si el renglón es un producto legado (sku vacío), el gemelo vivo cuya existencia se usó. */
+  stock_twin_product_id?: string | null;
 }
 
 /**
@@ -333,7 +345,7 @@ export class PortalService {
   listPricesForList(
     priceListId: string,
     warehouseId?: string,
-    opts: { pricedOnly?: boolean; sort?: string } = {},
+    opts: { pricedOnly?: boolean; sort?: string; stockState?: boolean } = {},
   ): Observable<PriceRow[]> {
     // priced_only: trae SOLO los productos pedibles (con precio) del price list,
     // completos en un fetch (sube el techo del backend a 10k). Sin él, el backend
@@ -349,6 +361,9 @@ export class PortalService {
     // sort=sales → ordenado de más vendido a menos vendido (ranking real).
     if (opts.sort) params = params.set('sort', opts.sort);
     if (warehouseId) params = params.set('warehouse_id', warehouseId);
+    // [MCP.3.16] Opt-in: cada renglón trae además `stock_state`/`stock_checked_at`/`stock_twin_product_id`
+    // y la existencia sale de la vista canónica. Sin él, el servidor responde exactamente como antes.
+    if (opts.stockState && warehouseId) params = params.set('stock_state', '1');
     return this.http.get<{ data: PriceRow[] } | PriceRow[]>(
       `${this.base}/price-lists/${priceListId}/prices`,
       { params },

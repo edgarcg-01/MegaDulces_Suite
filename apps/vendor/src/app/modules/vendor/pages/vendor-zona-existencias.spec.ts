@@ -16,7 +16,10 @@ import { VendorTakeOrderComponent } from './vendor-take-order.component';
 import { ariaZona, chipsDeZona, edadZona } from '../zona-existencias';
 import type { PriceRow } from '../../portal/portal.service';
 
-const ZONA: VendorZoneStockResponse = {
+// `[MCP.3.16]` Esta zona es la de un servidor VIEJO (sus sucursales no declaran `stale`): estas pruebas
+// quedan como el candado de compatibilidad — con esa respuesta, la tira se lee exactamente como antes.
+// El contrato nuevo (frescura por sucursal) se prueba en vendor-estado-existencia.spec.ts.
+const ZONA = {
   zone: 'La Piedad',
   warehouses: [
     { id: 'w2', code: '02', short: 'LPA', name: 'La Piedad Abastos', mine: true, as_of: '2026-10-23T19:00:00Z' },
@@ -27,7 +30,7 @@ const ZONA: VendorZoneStockResponse = {
   // Pulparindo: 0 en la mía, 280 piezas en PH (= 14 CJA de 20), 120 en 8ES, sin renglón en YU.
   stock: { p1: [0, 280, 120, null] },
   unmeasured_reason: null,
-};
+} as unknown as VendorZoneStockResponse;
 
 describe('chipsDeZona / edadZona · [MCP.3.12]', () => {
   it('⭐ en la unidad elegida, «—» para sin dato, la mía marcada', () => {

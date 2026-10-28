@@ -20,6 +20,8 @@ import { OrderStockService } from './order-stock.service';
 import { QuotePricingService, rungDeRotulo, type Rung } from '../commercial-quotes/quote-pricing.service';
 import type { Knex } from 'knex';
 import { SURTIDO_DE_RUTA } from '../presale-picking/presale-route.engine';
+import { bloqueosAlAgregar, llaveDestino } from '../commercial-inventory/stock-state';
+import type { StockBlockError } from '@megadulces/contracts';
 import { INVOICE_ISSUER_PORT, InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult } from '@megadulces/contracts';
 
 // ─────────── tipos ───────────
@@ -377,6 +379,46 @@ export class CommercialOrdersService {
   }
 
   /**
+   * `[MCP.3.16]` ¿El que está armando el pedido es el VENDEDOR en su app? Sólo a él se le bloquea
+   * agregar un producto que su sucursal no tiene (la regla de David con su PM, 2026-10-27).
+   *
+   * La señal es la CLAVE `VENDOR_APP_ACCESS` en el rol del usuario (`identity.role_permissions`):
+   * es la misma que abre la app del vendedor (catálogo, tira de la zona, cartera) y en prod la
+   * tienen vendedor_ruta, promotor_ruta, supervisor_ventas, marketing y repartidor (medido
+   * 2026-10-27), y NO customer_b2b (portal), telemarketing, vendedor_telemarketing, encargado_tienda,
+   * crédito ni compras. El pedido no guarda de qué app vino (ni canal ni origen), así que es la
+   * señal más estrecha que ya existe.
+   *
+   * Quedan fuera a propósito: `customer_b2b` (aunque un día le dieran la clave) y los admins de
+   * plataforma, que pasan todos los permisos por rol (god-mode) y no por esta clave: un superadmin
+   * en el escritorio no es un vendedor en campo. Lectura en SAVEPOINT: si falla, NO se bloquea.
+   */
+  private async esTomaDelVendedor(trx: Knex.Transaction): Promise<boolean> {
+    const rol = this.tenantCtx.get()?.roleName;
+    if (!rol || rol === 'customer_b2b' || isPlatformAdminRole(rol)) return false;
+    try {
+      return await trx.transaction(async (sp) => {
+        const { rows } = await sp.raw(
+          `SELECT 1 FROM identity.role_permissions rp
+            WHERE rp.role_name = ? AND rp.deleted_at IS NULL
+              AND (rp.permissions ->> 'VENDOR_APP_ACCESS') = 'true'
+            LIMIT 1`,
+          [rol],
+        );
+        return (rows as unknown[]).length > 0;
+      });
+    } catch (e) {
+      this.logger.warn(`[MCP.3.16] no se pudo leer el rol ${rol}; no se bloquea por existencia: ${(e as Error).message}`);
+      return false;
+    }
+  }
+
+  /** `[MCP.3.16]` El 409 del bloqueo: el cuerpo es exactamente `StockBlockError`. */
+  private sinExistencia(b: StockBlockError): ConflictException {
+    return new ConflictException(b);
+  }
+
+  /**
    * Push fire-and-forget al cliente del pedido (Fase 3). Nunca lanza ni bloquea
    * la operación de la orden — la notificación es best-effort.
    */
@@ -718,6 +760,13 @@ export class CommercialOrdersService {
       const order = await this.requireDraft(trx, orderId);
       await this.enforceOrderOwnership(trx, order);
 
+      // [MCP.3.16] ¿Lo agrega el vendedor desde su app? Sólo a él se le bloquea por existencia (abajo).
+      // Un duplicado legado se guarda con SU product_id, no con el de su gemelo: la regla 3 pide usar
+      // la EXISTENCIA del gemelo (eso lo hace `bloqueosAlAgregar` vía `gemelosDe`), no cambiar el
+      // producto. Cambiarlo rompía la pantalla: la fila del legado nunca encontraba su renglón,
+      // volvía a 0 y cada «+» sumaba en silencio al renglón del gemelo.
+      const esVendedor = await this.esTomaDelVendedor(trx);
+
       // [VU.2] La conversión va ANTES de tarificar: el tier de volumen (FIQ.3) se resuelve por
       // cantidad en la unidad BASE, así que pedir "2 cajas" tiene que consultar el precio de 116
       // piezas, no el de 2. Convertir después habría dejado el precio de pieza suelta.
@@ -778,6 +827,15 @@ export class CommercialOrdersService {
           .returning('*');
         await this.recalcOrderTotals(trx, orderId);
         return merged;
+      }
+
+      // [MCP.3.16] Renglón NUEVO desde la app del vendedor: si su sucursal de surtido está agotada
+      // o no lo maneja (lectura al día), no se agrega y se dice por qué. `sin_dato` no bloquea.
+      // Sumar a un renglón que ya existe (arriba) no es «agregar» y no se frena.
+      if (esVendedor) {
+        const destino = { product_id: dto.product_id, warehouse_id: whPrecio };
+        const bloqueo = (await bloqueosAlAgregar(trx, order.warehouse_id, [destino])).get(llaveDestino(destino));
+        if (bloqueo) throw this.sinExistencia(bloqueo);
       }
 
       const discount = dto.discount_percent ?? 0;
@@ -892,6 +950,12 @@ export class CommercialOrdersService {
       const order = await this.requireDraft(trx, orderId);
       await this.enforceOrderOwnership(trx, order);
 
+      // [MCP.3.16] El lote NO bloquea por existencia, a propósito. Es el camino de la sincronización
+      // offline (createDraft → PUT lines → place), que no lee `skipped` y coloca el pedido enseguida:
+      // omitir aquí un renglón lo hacía desaparecer de un pedido ya cerrado sin que el vendedor ni el
+      // cliente se enteraran (y sin conexión la app tampoco bloquea: no sabe de cuándo es la
+      // existencia). El bloqueo vive donde se le puede decir al vendedor por qué: addLine y
+      // updateLine (409). El pedido sugerido lo filtra la pantalla antes de mandarlo.
       await trx('commercial.order_lines').where({ order_id: orderId }).del();
 
       const skipped: { product_id: string; reason: string }[] = [];
@@ -1116,6 +1180,15 @@ export class CommercialOrdersService {
       if (quantity <= 0) throw new BadRequestException('quantity debe ser > 0');
       if (discount < 0 || discount > 1)
         throw new BadRequestException('discount_percent en [0..1]');
+
+      // [MCP.3.16] Desde la app del vendedor, cambiar la sucursal de surtido (o subir un renglón
+      // que estaba en 0) es AGREGAR en esa sucursal: si está agotada o no lo maneja, no se hace.
+      // Ajustar la cantidad de un renglón que ya tenía algo no se frena.
+      if ((cambioOrigen || (prevQty <= 0 && quantity > 0)) && (await this.esTomaDelVendedor(trx))) {
+        const destino = { product_id: line.product_id as string, warehouse_id: whPrecio as string };
+        const bloqueo = (await bloqueosAlAgregar(trx, order.warehouse_id, [destino])).get(llaveDestino(destino));
+        if (bloqueo) throw this.sinExistencia(bloqueo);
+      }
 
       // En pending_approval el vendedor solo puede RECORTAR la cantidad: nunca
       // entregar más de lo que el cliente pidió. La cantidad pedida queda
