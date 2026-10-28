@@ -682,6 +682,19 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   **Hipótesis (sin confirmar): esos días se vendieron con otra serie.** Se confirma en la van con
   `route-push/DIAGNOSTICO-SERIES.ps1` (sólo lee). Si se confirma, la decisión es si el agente de
   una van de UNA ruta sube todas sus series U-D-10.
+- **`[RD.95]` 🧪 El subtotal del push con la tasa de KEPLER** (`c3cfd60df`, migración
+  `20261028170837_rd_route_daily_tasa_kepler`, **sin aplicar**). Medido: (1) hasta Q19 el libro
+  **prorrateaba** el subtotal (subtotal/venta idéntico todos los días de cada ruta), así que antes
+  de Q20 no arbitra la base; (2) el motor sacaba la tasa de `wincaja.articulos` y **tiraba en
+  silencio** las líneas sin ficha (Q21: 188 líneas, 0.67 % de la venta); (3) con la tasa de Kepler
+  (`kdii.c18/c19`, idéntica en 00/01/06) los días que cuadran con el libro pasan de **42→103 de
+  117 (Q20)** y **53→102 de 121 (Q21)**, y la consulta baja de ~700 a ~200 ms. Dos
+  implementaciones (JS y el SQL de la migración) coinciden; el `down` es idéntico a la definición
+  viva (con control); la bandera `derivado_tasa_kepler_incompleto` se probó quitando la tasa a un
+  SKU. Efecto en Q21: +$382.82 de comisión a los choferes que cobran. Residuo: 19 días de Q21 con
+  el motor arriba del libro; el único patrón repetido es el SKU 17160 (Kepler exento, el libro al
+  16 %), candidato sin control negativo. ⛔ Falta: aplicarla a prod (una por una), esperar el
+  refresco de 30 min de la matview y recalcular Q21.
 
 #### Transversal
 
