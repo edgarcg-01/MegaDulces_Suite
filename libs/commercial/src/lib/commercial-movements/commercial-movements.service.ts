@@ -1542,7 +1542,9 @@ export class CommercialMovementsService {
       const lastByCode = new Map(cov.map((c) => [c.source_branch, c.last_date]));
 
       const rows: any[] = [];
-      const totals = { kepler: 0, wincaja: 0, delta: 0 };
+      // [MX.1.5] `delta_abs` = Σ|Δ| tienda×mes. El neto compensa tiendas y meses entre sí: medido en 2026,
+      // Δ neto −$17.4 M contra $71.4 M de diferencias brutas ($54 M escondidos). El veredicto va sobre el bruto.
+      const totals = { kepler: 0, wincaja: 0, delta: 0, delta_abs: 0 };
       for (const st of STORES) {
         for (const ym of months) {
           const kepler = kMap.get(`${st.code}|${ym}`) || 0;
@@ -1557,7 +1559,7 @@ export class CommercialMovementsService {
             docs: w.docs, delta,
             kepler_compra_zona: compraZona, // solo Canindo: 515-001 COMPRA (canal real, no CEDIS)
           });
-          totals.kepler += kepler; totals.wincaja += w.costo; totals.delta += delta;
+          totals.kepler += kepler; totals.wincaja += w.costo; totals.delta += delta; totals.delta_abs += Math.abs(delta);
         }
       }
       const stores = STORES.map((st) => ({ ...st, last_date: lastByCode.get(st.code) || null }));

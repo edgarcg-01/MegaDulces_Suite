@@ -247,7 +247,8 @@ export interface TransfersWincajaCheckResponse {
   range: { from: string; to: string };
   stores: WincajaCheckStore[];
   rows: WincajaCheckRow[];
-  totals: { kepler: number; wincaja: number; delta: number };
+  /** [MX.1.5] `delta_abs` = Σ|Δ| tienda×mes: el neto (`delta`) compensa tiendas y meses entre sí. */
+  totals: { kepler: number; wincaja: number; delta: number; delta_abs?: number };
   kepler_unmapped: number;
 }
 

@@ -298,9 +298,10 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                 </div>
               }
               @if (wincaja(); as wc) {
-                <div class="dm-verdict-item" [class.ok]="wincajaOk(wc.totals.delta, wc.totals.kepler)" [class.bad]="wincajaBad(wc.totals.delta, wc.totals.kepler)">
+                <div class="dm-verdict-item" [class.ok]="wincajaOk(brutoWincaja(wc), wc.totals.kepler)" [class.bad]="wincajaBad(brutoWincaja(wc), wc.totals.kepler)">
                   <span class="dm-verdict-lbl">Kepler → Wincaja</span>
-                  <span class="dm-verdict-val">{{ vTxt(vWincaja(wc.totals.delta, wc.totals.kepler), wc.totals.delta) }}</span>
+                  <span class="dm-verdict-val">{{ vTxt(vWincaja(brutoWincaja(wc), wc.totals.kepler), wc.totals.delta) }}</span>
+                  @if (compensaWincaja(wc)) { <span class="dm-verdict-lbl">bruto {{ money(brutoWincaja(wc)) }}</span> }
                 </div>
               }
             </div>
@@ -535,9 +536,10 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                     <h2 class="dm-block-title"><i class="pi pi-shop" aria-hidden="true"></i> Traspasos CEDIS → tiendas Wincaja <span class="dm-muted">· 30/32/50 (no están en Kepler)</span></h2>
                     <p class="dm-block-sub">Cuadre por totales: lo que el CEDIS <strong>despachó</strong> (Kepler 515-002, por destino) vs lo que la tienda <strong>recibió</strong> en Wincaja (costo). Estas tiendas no están en Kepler → sus recepciones no salen en el 515. Comparación por $ (unidad Wincaja ≠ piezas Kepler); Δ ≠ 0 = revisar.</p>
                   </div>
-                  <div class="dm-total" [class.ok]="wincajaOk(wc.totals.delta, wc.totals.kepler)" [class.bad]="wincajaBad(wc.totals.delta, wc.totals.kepler)">
+                  <div class="dm-total" [class.ok]="wincajaOk(brutoWincaja(wc), wc.totals.kepler)" [class.bad]="wincajaBad(brutoWincaja(wc), wc.totals.kepler)">
                     <span class="dm-total-lbl">Δ Kepler − Wincaja</span>
                     <span class="dm-total-val">{{ signed(wc.totals.delta) }}</span>
+                    @if (compensaWincaja(wc)) { <span class="dm-total-lbl">neto · diferencias brutas {{ money(brutoWincaja(wc)) }}</span> }
                   </div>
                 </header>
                 <table class="dm-docs dm-tbl">
@@ -1520,6 +1522,13 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   vTxt(v: VeredictoCuadre, delta: number | string): string {
     return v === 'cuadra' ? 'cuadra' : v === 'difiere' ? this.signed(delta) : 'sin datos';
   }
+  /**
+   * [MX.1.5] El total de Wincaja se juzga por el BRUTO (Σ|Δ| tienda×mes): el neto compensa tiendas y meses
+   * entre sí y podría decir «cuadra» con filas que difieren. Sin `delta_abs` (API vieja) cae al neto.
+   */
+  brutoWincaja(wc: TransfersWincajaCheckResponse): number { return Number(wc.totals.delta_abs ?? Math.abs(Number(wc.totals.delta) || 0)); }
+  /** ¿El neto esconde diferencias que se compensan? (bruto > |neto| por más de un peso) */
+  compensaWincaja(wc: TransfersWincajaCheckResponse): boolean { return this.brutoWincaja(wc) - Math.abs(Number(wc.totals.delta) || 0) >= 1; }
   /** «Pólizas sin rastro» sólo se puede afirmar si hubo pólizas que revisar. */
   polizasMedidas(dt: TransfersLedgerDetailResponse): boolean {
     return (Number(dt.totals.n_exact) || 0) + (Number(dt.totals.cost?.n) || 0)
