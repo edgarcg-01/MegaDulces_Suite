@@ -719,7 +719,7 @@ type Vista = typeof VISTAS[number];
                 } @else if (proyeccionFallo()) {
                   <span class="cm-neg">no se pudo proyectar</span> · el periodo sigue abierto
                 } @else if (esProyeccion()) {
-                  <strong>proyección</strong> de lo que va corrido · no es una corrida: cambia cada día
+                  <strong>acumulado</strong> de lo que va corrido · no es una corrida: cambia cada día
                 } @else {
                   todavía corre
                 }
@@ -794,10 +794,15 @@ type Vista = typeof VISTAS[number];
           @if (!sel()) {
             <p class="cm-empty">Elige una quincena.</p>
           } @else if (run(); as r) {
-            @if (bloqueantes(r).length) {
+            <!-- [RD.97] En lo acumulado de una quincena en curso, «no cerró» y «el dato no llegó
+                 completo» no son problemas: son lo que significa «en curso». Pintarlos en rojo
+                 como «No se puede aprobar» gritaba por el estado normal. Sólo queda lo que
+                 IMPEDIRÍA aprobarla al cerrar. -->
+            @if (bloqueantesVisibles(r).length) {
               <div class="cm-gate bad">
-                <strong><i class="pi pi-ban" aria-hidden="true"></i> No se puede aprobar</strong>
-                <ul>@for (g of bloqueantes(r); track g.gate) { <li><b>{{ etiquetaGate(g.gate) }}</b>: {{ g.detalle }}</li> }</ul>
+                <strong><i class="pi pi-ban" aria-hidden="true"></i>
+                  {{ esProyeccion() ? 'Al cerrar, esto impediría aprobarla' : 'No se puede aprobar' }}</strong>
+                <ul>@for (g of bloqueantesVisibles(r); track g.gate) { <li><b>{{ etiquetaGate(g.gate) }}</b>: {{ g.detalle }}</li> }</ul>
               </div>
             }
             @if (avisos(r).length) {
@@ -809,11 +814,19 @@ type Vista = typeof VISTAS[number];
 
             @if (esProyeccion()) {
               <!-- [RD.65] El motor corrio sobre un periodo ABIERTO. La cifra es buena pero no
-                   es definitiva, y la pantalla lo dice ANTES de los numeros, no al pie. -->
+                   es definitiva, y la pantalla lo dice ANTES de los numeros, no al pie.
+                   [RD.97] Decia «Proyeccion» y no lo es: es lo ACUMULADO, sin extrapolar. Con un
+                   tabulador escalonado eso importa: a media quincena casi toda ruta sigue bajo el
+                   primer escalon y sale en $0, y leido como proyeccion dice «nadie va a cobrar». -->
               <p class="cm-proy">
                 <i class="pi pi-hourglass" aria-hidden="true"></i>
-                Proyección del periodo en curso — el motor ya corrió sobre lo que va vendido.
-                Al cerrar la quincena esto se congela en una corrida.
+                <span>
+                  <strong>Lo acumulado de la quincena en curso</strong>, con el dato hasta el
+                  {{ r.data_as_of ? dia(r.data_as_of) : '(sin medir)' }} — no es una proyección.
+                  El tabulador es escalonado: a media quincena casi toda ruta sigue debajo del
+                  primer escalón y sale en $0. Eso dice dónde va, no cuánto va a cobrar.
+                  Al cerrar, se calcula una sola vez como corrida.
+                </span>
               </p>
             }
             <app-metric-strip [items]="kpis(r)" ariaLabel="Totales de la quincena" />
@@ -821,7 +834,9 @@ type Vista = typeof VISTAS[number];
             <!-- [AUD-CM.10] «corrida hace N · origen» ya lo dice la tarjeta de arriba cuando es la misma quincena. -->
             <p class="cm-proc">
               dato hasta <b>{{ r.data_as_of ? dia(r.data_as_of) : 'sin medir' }}</b>
-              @if (!netoYaArriba()) {
+              @if (esProyeccion()) {
+                · calculado {{ cuando(r.updated_at) }} · no es una corrida
+              } @else if (!netoYaArriba()) {
                 · corrida {{ cuando(r.updated_at) }}
                 @if (r.origen) { · origen {{ etiquetaOrigen(r.origen) }} }
               }
@@ -1781,7 +1796,15 @@ export class ComercialComisionesComponent {
       origen: 'proyeccion',
       updated_at: new Date().toISOString(),
       notes: null,
-      lines: d.lines.map((l) => ({ ...l, id: l.route_code })),
+      // `[RD.97]` La tabla lee `beneficiario_nombre`, que es el nombre CONGELADO en la línea de
+      // una corrida guardada. La vista previa no guarda nada y lo trae como `chofer_nombre` /
+      // `supervisor_nombre`: sin esto la columna Chofer salía «—» en las 11 rutas.
+      lines: d.lines.map((l) => ({
+        ...l,
+        id: l.route_code,
+        beneficiario_nombre: l.beneficiario_nombre
+          ?? (l.beneficiario === 'chofer' ? l.chofer_nombre : l.supervisor_nombre) ?? null,
+      })),
     };
   }
 
@@ -1859,6 +1882,17 @@ export class ComercialComisionesComponent {
 
   bloqueantes(r: CommissionRunDetail): CommissionGate[] {
     return (r.gates ?? []).filter((g) => g.estado === 'bloquea');
+  }
+
+  /**
+   * `[RD.97]` Lo que se pinta en rojo. En lo acumulado de una quincena en curso, `periodo_cerrado`
+   * y `frescura` bloquean SIEMPRE — es la definición de «en curso» — y no se muestran como
+   * problema. ⚠️ `proximoActo()` sigue leyendo `bloqueantes()` completo: esto es sólo la pintura.
+   */
+  bloqueantesVisibles(r: CommissionRunDetail): CommissionGate[] {
+    const todas = this.bloqueantes(r);
+    if (!this.esProyeccion()) return todas;
+    return todas.filter((g) => g.gate !== 'periodo_cerrado' && g.gate !== 'frescura');
   }
 
   avisos(r: CommissionRunDetail): CommissionGate[] {
@@ -2138,6 +2172,8 @@ export class ComercialComisionesComponent {
   etiquetaOrigen(o: string): string {
     if (o === 'cron') return 'automático';
     if (o === 'libro') return 'el libro (espejo)';
+    // [RD.97] Lo acumulado de la quincena en curso salía «manual»: ni es corrida ni la hizo nadie.
+    if (o === 'proyeccion') return 'acumulado en curso';
     return 'manual';
   }
 
