@@ -9319,6 +9319,38 @@ TP.6-TP.8+TP.10".
 >   real** (regla 13). Commit local, sin empujar; sin validación visual. ⚠️ Hallazgo de la hoja: **CG-2026-00512 (nómina Canindo, $10,510)** está
 >   vinculado al retiro de Morelia y no está en la hoja; X0316 ($5,700) y X0317 ($169.96) siguen en la
 >   cola sin dinero libre en el retiro. Espera decisión de Edgar (D3).
+> - [x] **[CGA-A.61]** 🔨 2026-10-28 · **Reposición por sucursal, en una sola interfaz.** Edgar:
+>   *«hagámoslo, pero desde una sola interfaz para tener más practicidad»* — ese día quitó un vínculo
+>   en Caja Fuerte y para volverlo a ligar tenía que ir a otro movimiento a teclear folio y monto.
+>   Vive en Captura, arriba de la cola (sin pestaña nueva): por sucursal × día de pago (`c9`), los
+>   X-D-26 contra la `0011` de cada sucursal, los egresos del libro, de qué retiro salió cada peso y
+>   la propuesta de vínculos. Tres acciones en la misma fila: **Reponer** (el lote de A.60 con el
+>   retiro sugerido o el cajón), **Vincular** la propuesta (superadmin, todo o nada) y **Cambiar de
+>   retiro** (superadmin, baja con motivo + alta en una transacción).
+>   - Motor puro (`caja-reposicion.engine.ts`): un retiro se propone sólo si es de la sucursal (la
+>     nombra o ya le paga), no la contradice (sucursal ni clase nómina/gastos) y es de esa vez
+>     (≤ 3 días) — la lección de CS.3.7: un ref dice qué clase de movimiento es, nunca cuál. La
+>     referencia más específica gana. Reparto = `tomaDelRetiro` del lote; el retiro usado barre los
+>     centavos para quedar explicado entero. 36 pruebas con los casos reales del 27–28/10; mutación:
+>     cada regla mata al menos una (dos guardas eran redundantes y se quitaron).
+>   - Lectura: `GET finance/caja-reposicion` (`FINANCE_CAJA_VER`) sobre `analytics.bank_movement_legs`
+>     (ADR-104), sin copiar nada; las cuatro consultas son constructores exportados
+>     (`caja-reposicion.query.ts`). **Medido en prod, sólo lectura, con el SQL exacto** (ventana
+>     22–28/10): cuatro lecturas de menos de 0.7 s cada una (con ssh). Propone CG-2026-00512 →
+>     «nom canindo», los 10 egresos de Canindo del 27/10 → sus dos retiros al peso, y deja «gnf
+>     26/10» explicado entero. **20 de 28** sucursal-día no tienen retiro que los explique: van en su
+>     propio filtro («Sin retiro»), no como pendientes sin acción.
+>   - Escritura: `POST finance/caos/vinculos/lote` y `POST finance/caos/vinculos/:id/mover` reusan
+>     las reglas de A.58 en una sola función (`altaVinculo`); ampliar un vínculo existente = baja con
+>     motivo + alta por la suma (`ux_caos_link_par_vivo` no deja dos). ⚠️ **NO MEDIDO contra base
+>     real** (regla 13): la prueba existe (`caos-vinculos.real.spec.ts`, 3 casos) y se salta sin
+>     `CAJA_TEST_DB_URL`; la base local está atrasada (sin `bank_movement_legs` ni custodia). Las
+>     negativas sin base sí corren.
+>   - Arranque: `design:paramtypes` probado (`finance-caja-reposicion.metadata.spec.ts`; rojo
+>     comprobado quitando el provider). Plantillas tipan en estricto (ngc); `check:pantalla` 10/10
+>     en la pantalla nueva. **Sin validación visual.** Sin migración. Commit local, sin empujar.
+>   - ⬜ Falta: vincular a mano un grupo «Sin retiro» eligiendo el retiro; conciliar el depósito al
+>     banco (CB.35) para cerrar cada reposición.
 > - **[CGA-A.57]** ⬜ **Ligar el historial con propuestas + confirmación** (decisión de Edgar). Octubre
 >   en adelante contra los gastos del libro; mayo–sep ($16.5 M, 326 retiros) contra los egresos de
 >   Kepler (cuenta `0011`), porque el libro empieza el 25-sep. Nada se liga solo (1 de cada 3 parejas

@@ -67,6 +67,7 @@ import {
 import { CajaPasosComponent } from '../../components/caja-pasos.component';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { CajaCuentasKeplerComponent } from './caja-cuentas-kepler.component';
+import { CajaReposicionComponent } from './caja-reposicion.component';
 
 /**
  * `[CGP-V.2]` Lo que el servidor respondió al sellar o recontar EN ESTA sesión, atado a SU corte, con
@@ -182,7 +183,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     MessageModule, ToastModule,
     MetricStripComponent, LoadStateComponent,
     FreshnessPillComponent, SegmentedComponent, ContextHelpComponent, SucursalPipe, CajaPasosComponent,
-    SidePeekComponent, CajaTabsComponent, CajaCuentasKeplerComponent,
+    SidePeekComponent, CajaTabsComponent, CajaCuentasKeplerComponent, CajaReposicionComponent,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
   // confirmar el lote fallaban en silencio y se veían igual que un botón muerto.
@@ -2877,6 +2878,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             </div>
             </div>
           }
+
+            <!-- [CGA-A.61] LA REPOSICION DE SUCURSALES, arriba de la cola y no en otra pestana:
+                 Edgar pidio una sola interfaz. Por sucursal y dia de pago dice que documentos de
+                 Kepler hay, de que retiro salio cada peso, y ahi mismo se repone, se vincula y se
+                 cambia de retiro. Al escribir avisa y esta pantalla relee la cola y el libro. -->
+            <app-caja-reposicion [puedeGestionar]="puedeGestionar()" (cambio)="trasReposicion()" />
 
             <!-- LA COLA. Es el MEDIO para elegir el siguiente, no el protagonista: por eso vive
                  dentro del apartado 1 y debajo de la ficha, no al lado como seccion propia. El
@@ -8210,6 +8217,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Persiste lo marcado. Se llama en CADA cambio: perder la selección es el defecto que esto arregla. */
   private persistir(): void {
     this.borrador.guardar(this.usuarioBorrador, this.seleccion());
+  }
+
+  /** `[CGA-A.61]` La reposición escribió (lote o vínculos): se relee lo mismo que tras un lote. */
+  trasReposicion(): void {
+    this.cargarPendientes(); this.cargar(); this.cargarSaldo();
   }
 
   confirmarLote(): void {

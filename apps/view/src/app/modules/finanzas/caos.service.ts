@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import type { CaosConteoFisicoDto, CaosConteoPieza } from '@megadulces/contracts';
+import type { VincularLoteInput, VincularLoteResultado, MoverVinculoInput, MoverVinculoResultado } from '@megadulces/contracts';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
@@ -140,6 +141,16 @@ export class CaosService {
   /** `[CGA-A.58]` Sólo superadmin (el servidor lo exige por rol fresco). */
   vincular(id: string, body: { folio: string; monto: number }): Observable<{ ok: true; link_id: string; folio: string; monto: number }> {
     return this.http.post<{ ok: true; link_id: string; folio: string; monto: number }>(`${this.base}/movimientos/${id}/vinculos`, body);
+  }
+
+  /** `[CGA-A.61]` Sólo superadmin: la propuesta de la reposición, todo o nada. */
+  vincularLote(body: VincularLoteInput): Observable<VincularLoteResultado> {
+    return this.http.post<VincularLoteResultado>(`${this.base}/vinculos/lote`, body);
+  }
+
+  /** `[CGA-A.61]` Sólo superadmin: pasa un vínculo a otro retiro (baja con motivo + alta, juntas). */
+  moverVinculo(linkId: string, body: MoverVinculoInput): Observable<MoverVinculoResultado> {
+    return this.http.post<MoverVinculoResultado>(`${this.base}/vinculos/${linkId}/mover`, body);
   }
 
   /** `[CGA-A.58]` Sólo superadmin. Baja con motivo; el monto vuelve a quedar libre. */

@@ -1594,8 +1594,10 @@ export class CashLedgerService {
    * desplegado puede ir POR DELANTE de las migraciones, así que seleccionar `refrescado_en` en la
    * consulta principal tumbaría la bandeja entera en el hueco entre un deploy y su migración.
    * Sin medición se devuelve `null` — que la pantalla declara como "sin medir", nunca como fresco.
+   *
+   * Pública desde `[CGA-A.61]`: la reposición por sucursal lee la MISMA frescura, no una parecida.
    */
-  private async frescuraCaja(trx: any): Promise<string | null> {
+  async frescuraCaja(trx: any): Promise<string | null> {
     try {
       // [CG.22.4] La edad sale del LATIDO, no de una columna del matview.
       //
@@ -2331,8 +2333,8 @@ export class CashLedgerService {
     });
   }
 
-  /** Edad del espejo de CAOS (para declarar frescura). `null` si no se puede medir. */
-  private async frescuraCaos(trx: any, tenantId: string): Promise<string | null> {
+  /** Edad del espejo de CAOS (para declarar frescura). `null` si no se puede medir. Pública: `[CGA-A.61]`. */
+  async frescuraCaos(trx: any, tenantId: string): Promise<string | null> {
     try {
       const r = await trx('analytics.caos_cash_movements').where('tenant_id', tenantId).max({ al: 'synced_at' }).first();
       return r?.al ? new Date(r.al).toISOString() : null;

@@ -131,3 +131,124 @@ describe.skipIf(!URL)('[CGA-A.58] quitar y volver a vincular — base real', () 
     })).rejects.toThrow(/caos_link_baja_con_motivo/);
   });
 });
+
+// ── `[CGA-A.61]` La propuesta de la reposición (lote) y «cambiar de retiro» ──────────────────
+
+describe('[CGA-A.61] lote y cambiar de retiro: superadmin, motivo y forma — sin base', () => {
+  it('NEGATIVA: admin no confirma un lote ni cambia de retiro (superadmin exacto, antes de la base)', async () => {
+    const svc = sinBase();
+    const admin = { id: SUPER, roles_frescos: ['admin'] };
+    await expect(svc.vincularLote({ asignaciones: [{ ledger_id: 'l', device: 'd', external_id: 1, monto: 1 }] }, admin))
+      .rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.moverVinculo('x', { device: 'd', external_id: 2, motivo: 'motivo suficientemente largo' }, admin))
+      .rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('NEGATIVA: un lote vacío, o con un monto ≤ 0, no llega a la base', async () => {
+    const svc = sinBase();
+    const sa = { id: SUPER, roles_frescos: ['superadmin'] };
+    await expect(svc.vincularLote({ asignaciones: [] }, sa)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.vincularLote({ asignaciones: [{ ledger_id: 'l', device: 'd', external_id: 1, monto: 0 }] }, sa))
+      .rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('NEGATIVA: cambiar de retiro sin motivo, o sin destino, no llega a la base', async () => {
+    const svc = sinBase();
+    const sa = { id: SUPER, roles_frescos: ['superadmin'] };
+    await expect(svc.moverVinculo('x', { device: 'd', external_id: 2, motivo: 'corto' }, sa)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.moverVinculo('x', { device: '', external_id: 2, motivo: 'motivo suficientemente largo' }, sa))
+      .rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+if (!URL) {
+  // eslint-disable-next-line no-console
+  console.warn('[CGA-A.61] NO MEDIDO: sin CAJA_TEST_DB_URL no hay base contra la cual probar el lote de vínculos ni cambiar de retiro.');
+}
+
+describe.skipIf(!URL)('[CGA-A.61] lote de vínculos y cambiar de retiro — base real', () => {
+  let knex: Knex;
+  let tk: TenantKnexService;
+  let svc: CaosService;
+  const sa = { id: SUPER, username: 'prueba_super', roles_frescos: ['superadmin'] };
+  const DEV61 = `A61-${CORRIDA}`;
+
+  beforeAll(async () => {
+    knex = knexFactory({ client: 'pg', connection: URL as string, pool: { min: 0, max: 2 } });
+    const ctx = { requireTenantId: () => T } as unknown as TenantContextService;
+    tk = new TenantKnexService(knex, ctx);
+    svc = new CaosService(tk, ctx);
+  });
+  afterAll(async () => { await knex?.destroy(); });
+
+  /** Un retiro (type 4) y egresos de sucursal sin vincular, como los de Canindo del 27/10. */
+  const sembrar = (ext: number, total: number, egresos: number[]) => tk.run(async (trx) => {
+    await trx('analytics.caos_cash_movements').insert({
+      tenant_id: T, device: DEV61, external_id: ext, type_id: 4, type_label: 'Dispensar',
+      occurred_at: `${DIA}T11:00:00-06:00`, accounting_date: DIA, user_external: 'Prueba (001)',
+      total: -total, ref: `gastos canindo a61 ${ext}`, _row_hash: `a61-${CORRIDA}-${ext}`,
+    });
+    const ids: string[] = [];
+    for (const [i, monto] of egresos.entries()) {
+      const [l] = await trx('finance.cash_ledger').insert({
+        tenant_id: T, folio: `A61-${CORRIDA}-${ext}-${i}`, tipo: 'gasto', fecha: DIA, sucursal: '06',
+        kepler_cuenta: '601-001', kepler_concepto: '001', glosa: 'gasto de prueba a61', monto,
+        origen_tipo: 'pago_proveedor', origen_ref: `06|X-D-26|A61${CORRIDA}${ext}${i}|0011`, created_by: SUPER,
+      }).returning('id');
+      ids.push(l.id ?? l);
+    }
+    return ids;
+  });
+  const libre = (ext: number) => tk.run(async (trx) => {
+    const r = await trx('finance.caos_cash_links').where({ tenant_id: T, caos_device: DEV61, caos_external_id: ext })
+      .whereNull('deleted_at').sum({ s: 'monto_enlazado' }).first();
+    const m = await trx('analytics.caos_cash_movements').where({ tenant_id: T, device: DEV61, external_id: ext }).first('total');
+    return Math.abs(Number(m.total)) - Number(r?.s ?? 0);
+  });
+
+  it('la propuesta entra entera, y si un vínculo no cabe NO entra ninguno (todo o nada)', async () => {
+    const [a, b] = await sembrar(11, 1000, [600, 500]);
+    await svc.vincularLote({ asignaciones: [
+      { ledger_id: a, device: DEV61, external_id: 11, monto: 600 },
+      { ledger_id: b, device: DEV61, external_id: 11, monto: 400 },
+    ] }, sa);
+    expect(await libre(11)).toBe(0);
+    // NEGATIVA: $100 más del mismo retiro ya no caben → error con folio, y lo bueno del lote tampoco entra.
+    const [c] = await sembrar(12, 300, [300]);
+    await expect(svc.vincularLote({ asignaciones: [
+      { ledger_id: c, device: DEV61, external_id: 12, monto: 300 },
+      { ledger_id: b, device: DEV61, external_id: 11, monto: 100 },
+    ] }, sa)).rejects.toBeInstanceOf(ConflictException);
+    expect(await libre(12)).toBe(300);
+  });
+
+  it('ampliar: el egreso que YA tenía vínculo con ese retiro da de baja el viejo (con motivo) y queda uno por la suma', async () => {
+    const [a] = await sembrar(21, 1000, [700]);
+    await svc.vincularLote({ asignaciones: [{ ledger_id: a, device: DEV61, external_id: 21, monto: 300 }] }, sa);
+    await svc.vincularLote({ asignaciones: [{ ledger_id: a, device: DEV61, external_id: 21, monto: 100 }] }, sa);
+    const filas = await tk.run((trx) => trx('finance.caos_cash_links').where({ tenant_id: T, cash_ledger_id: a })
+      .orderBy('created_at').select('monto_enlazado', 'deleted_at', 'motivo_baja'));
+    expect(filas.map((f: { monto_enlazado: string }) => Number(f.monto_enlazado))).toEqual([300, 400]);
+    expect(filas[0].deleted_at).not.toBeNull();
+    expect(filas[0].motivo_baja).toMatch(/se amplía de \$300\.00 a \$400\.00/);
+    expect(filas[1].deleted_at).toBeNull();
+  });
+
+  it('cambiar de retiro: baja con motivo + alta en el destino; a un destino lleno no pasa NADA', async () => {
+    const [a] = await sembrar(31, 600, [600]);
+    await sembrar(32, 250, []);
+    await svc.vincularLote({ asignaciones: [{ ledger_id: a, device: DEV61, external_id: 31, monto: 600 }] }, sa);
+    const vivo = () => tk.run((trx) => trx('finance.caos_cash_links').where({ tenant_id: T, cash_ledger_id: a })
+      .whereNull('deleted_at').first('id', 'caos_external_id', 'monto_enlazado'));
+    // El destino tiene $250: toma lo que alcanza y lo demás se dice.
+    const r = await svc.moverVinculo((await vivo()).id, { device: DEV61, external_id: 32, motivo: 'salió del retiro de Canindo' }, sa);
+    expect(r).toMatchObject({ monto: 250, queda: 350 });
+    expect(await libre(31)).toBe(600);
+    expect(await libre(32)).toBe(0);
+    // NEGATIVA: de vuelta a un destino sin libre... el 31 tiene 600: se mueve; al 32 (lleno) NO, y la baja se revierte.
+    const antes = await vivo();
+    await expect(svc.moverVinculo(antes.id, { device: DEV61, external_id: 32, motivo: 'otra vez al lleno' }, sa))
+      .rejects.toThrow(/ya es de ese retiro|no tiene dinero libre/);
+    expect((await vivo()).id).toBe(antes.id);
+  });
+});

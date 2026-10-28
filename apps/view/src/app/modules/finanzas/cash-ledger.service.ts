@@ -4,6 +4,8 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { uuidV4 } from '../../core/utils/uuid';
 import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, NuevoArqueoCajaInput, CaosRetirosLibres, CaosRetiroDelLote } from '@megadulces/contracts';
+// `[CGA-A.61]` La reposición por sucursal: el contrato lo comparten el endpoint y la pantalla.
+import type { ReposicionSucursales } from '@megadulces/contracts';
 import { reintentarSi429 } from '../../core/utils/reintentar-429';
 // `Freshness` se IMPORTA, no se redeclara: es el contrato de procedencia de ADR-056 y es el mismo
 // objeto que consume `app-freshness-pill`. De los 26 tipos de este archivo, 24 están escritos a
@@ -306,16 +308,29 @@ export class CashLedgerService {
    * la que una cifra contada entraba al libro **sin un billete declarado detrás**, y volvía
    * irreconstruible el arqueo del día. Contar distinto va por la captura anclada, con desglose.
    */
-  confirmarLote(items: Array<{ origen_ref: string }>, caosRetiro?: { device: string; external_id: number } | null): Observable<ResumenLote> {
+  confirmarLote(items: Array<{ origen_ref: string }>, caosRetiro?: { device: string; external_id: number } | null, origenEfectivo?: 'cajon' | null): Observable<ResumenLote> {
     return this.http.post<ResumenLote>(`${this.base}/lote`, {
       // `[CGA-A.60]` El retiro de CAOS que paga los egresos del lote; lo que no alcance, del cajón.
       ...(caosRetiro ? { caos_retiro: caosRetiro } : {}),
+      // `[CGA-A.61]` Sin retiro, la reposición puede decir que salió del cajón (el lote ya lo acepta).
+      ...(!caosRetiro && origenEfectivo ? { origen_efectivo: origenEfectivo } : {}),
       // El `client_uuid` va por fila: si la red corta y la persona reintenta, el reintento
       // devuelve lo que ya se guardó en vez de duplicarlo.
       // `[CGP-V.10]` `uuidV4()` y no `crypto.randomUUID()`: por http:// en la LAN no existe, la
       // petición reventaba antes de salir y «Confirmar N» quedaba cargando para siempre.
       items: items.map((i) => ({ ...i, client_uuid: uuidV4() })),
     });
+  }
+
+  /**
+   * `[CGA-A.61]` Reposición por sucursal: por sucursal y día de pago, los documentos de Kepler, los
+   * egresos, de qué retiro salió cada peso y la propuesta de vínculos. Sólo lectura.
+   */
+  reposicion(desde?: string, hasta?: string): Observable<ReposicionSucursales> {
+    let p = new HttpParams();
+    if (desde) p = p.set('desde', desde);
+    if (hasta) p = p.set('hasta', hasta);
+    return this.leer<ReposicionSucursales>(`${environment.apiUrl}/finance/caja-reposicion`, { params: p });
   }
 
   /** `[CGA-A.60]` Los retiros de CAOS que todavía tienen dinero libre: los que pueden pagar un lote. */

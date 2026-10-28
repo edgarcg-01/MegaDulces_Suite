@@ -3,7 +3,11 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import { diaMxDeInstante } from '@megadulces/contracts';
 // `[CGA-A.57]`/`[CGA-A.58]` La forma del boundary de vinculos vive en libs/contracts (ADR-052).
 import type { CaosVinculos, CaosVinculoFila, CaosVinculoAlta, CaosVinculoBaja } from '@megadulces/contracts';
+// `[CGA-A.61]` El lote de vínculos de la reposición y «cambiar de retiro».
+import type { VincularLoteInput, VincularLoteResultado, MoverVinculoInput, MoverVinculoResultado } from '@megadulces/contracts';
 import type { Knex } from 'knex';
+import { sqlDisponibleCaos } from '../caja/caja-custodia.service';
+import { tomaDelRetiro } from '../caja/caja-lote.engine';
 import {
   CAOS_EFECTO_POR_TIPO, aplicarMovimientos, sqlFolioCajaGeneral, cuadrarFotos, importeDeVector, sqlSignoPorTipo, tiposIndeterminados,
   type CaosFoto, type CaosMovDenom, type CaosParCuadre, type Vector,
@@ -765,46 +769,167 @@ export class CaosService {
       const mov = await trx('analytics.caos_cash_movements').where({ tenant_id: tenantId, id: movId })
         .first('device', 'external_id', 'type_id', 'total');
       if (!mov) throw new NotFoundException('Ese movimiento de CAOS no existe.');
-      const tipoEsperado = Number(mov.type_id) === 0 ? 'ingreso' : Number(mov.type_id) === 4 ? 'gasto' : null;
-      if (!tipoEsperado) throw new BadRequestException('Sólo los depósitos y los retiros se vinculan a Caja General.');
       const l = await trx('finance.cash_ledger').where({ tenant_id: tenantId, folio }).whereNull('deleted_at')
-        .first('id', 'tipo', 'monto', 'estado', 'origen_tipo', 'origen_efectivo');
+        .first('id', 'folio', 'tipo', 'monto', 'estado', 'origen_tipo', 'origen_efectivo');
       if (!l) throw new NotFoundException(`No hay un movimiento de Caja General con folio ${folio}.`);
-      if (l.estado === 'cancelado') throw new BadRequestException(`${folio} está cancelado.`);
-      if (l.tipo !== tipoEsperado) {
-        throw new BadRequestException(`${folio} es ${l.tipo === 'gasto' ? 'un egreso' : `un ${l.tipo}`}: un ${Number(mov.type_id) === 0 ? 'depósito' : 'retiro'} de CAOS sólo se vincula a ${tipoEsperado === 'gasto' ? 'un egreso' : 'un ingreso'}.`);
+      const linkId = await this.altaVinculo(trx, tenantId, l, mov, monto,
+        { manual: true, via: 'correccion_superadmin', por: user.username ?? null }, user);
+      return { ok: true, link_id: linkId, folio, monto };
+    });
+  }
+
+  /**
+   * `[CGA-A.58]`→`[CGA-A.61]` Las reglas de UN vínculo nuevo, dentro de la transacción de quien lo
+   * pide. Las comparten el alta suelta (`vincular`), el lote de la reposición (`vincularLote`) y
+   * «cambiar de retiro» (`moverVinculo`): una regla, no tres copias que se separan con el tiempo.
+   *
+   * `ampliar`: si el egreso YA tiene un vínculo vivo con ese retiro, el índice
+   * `ux_caos_link_par_vivo` no deja un segundo. Entonces el viejo se da de BAJA (con motivo, queda
+   * su historia) y nace uno por la suma. Así cayó la propuesta de Morelia: CG-2026-00532 ya tenía
+   * $4,290 de «gnf 26/10» y le faltaban $4,575 del mismo retiro.
+   */
+  private async altaVinculo(
+    trx: Knex.Transaction,
+    tenantId: string,
+    l: { id: string; folio: string; tipo: string; monto: string | number; estado: string; origen_tipo: string | null; origen_efectivo: string | null },
+    mov: { device: string; external_id: string | number; type_id: string | number },
+    monto: number,
+    senales: Record<string, unknown>,
+    user: ActorCaos,
+    opts: { ampliar?: boolean } = {},
+  ): Promise<string> {
+    const folio = l.folio;
+    const tipoEsperado = Number(mov.type_id) === 0 ? 'ingreso' : Number(mov.type_id) === 4 ? 'gasto' : null;
+    if (!tipoEsperado) throw new BadRequestException('Sólo los depósitos y los retiros se vinculan a Caja General.');
+    if (l.estado === 'cancelado') throw new BadRequestException(`${folio} está cancelado.`);
+    if (l.tipo !== tipoEsperado) {
+      throw new BadRequestException(`${folio} es ${l.tipo === 'gasto' ? 'un egreso' : `un ${l.tipo}`}: un ${Number(mov.type_id) === 0 ? 'depósito' : 'retiro'} de CAOS sólo se vincula a ${tipoEsperado === 'gasto' ? 'un egreso' : 'un ingreso'}.`);
+    }
+    if (l.origen_tipo === 'caos') throw new BadRequestException(`${folio} se registró desde CAOS: ya está explicado entero.`);
+    if (l.tipo === 'gasto' && l.origen_efectivo === 'cajon') {
+      throw new BadRequestException(`${folio} dice que salió del cajón. Si salió de CAOS, eso se corrige en el egreso.`);
+    }
+    const [{ ya }] = await trx('finance.caos_cash_links').where({ tenant_id: tenantId, cash_ledger_id: l.id })
+      .whereNull('deleted_at').select(trx.raw('coalesce(sum(monto_enlazado),0)::numeric AS ya'));
+    const falta = Math.round((Number(l.monto) - Number(ya)) * 100) / 100;
+    if (monto > falta + 0.005) {
+      throw new BadRequestException(`A ${folio} sólo le faltan $${falta.toFixed(2)} por explicar.`);
+    }
+    let total = monto;
+    if (opts.ampliar) {
+      const previo = await trx('finance.caos_cash_links')
+        .where({ tenant_id: tenantId, cash_ledger_id: l.id, caos_device: mov.device, caos_external_id: mov.external_id })
+        .whereNull('deleted_at').first('id', 'monto_enlazado');
+      if (previo) {
+        total = Math.round((Number(previo.monto_enlazado) + monto) * 100) / 100;
+        await trx('finance.caos_cash_links').where({ tenant_id: tenantId, id: previo.id }).update({
+          deleted_at: trx.fn.now(), updated_at: trx.fn.now(), deleted_by: user.id,
+          motivo_baja: `[CGA-A.61] se amplía de $${Number(previo.monto_enlazado).toFixed(2)} a $${total.toFixed(2)} en la reposición`,
+        });
       }
-      if (l.origen_tipo === 'caos') throw new BadRequestException(`${folio} se registró desde CAOS: ya está explicado entero.`);
-      if (l.tipo === 'gasto' && l.origen_efectivo === 'cajon') {
-        throw new BadRequestException(`${folio} dice que salió del cajón. Si salió de CAOS, eso se corrige en el egreso.`);
+    }
+    try {
+      const [k] = await trx('finance.caos_cash_links').insert({
+        tenant_id: tenantId, cash_ledger_id: l.id, caos_device: mov.device, caos_external_id: mov.external_id,
+        monto_enlazado: total, senales: JSON.stringify(senales), confirmed_by: user.id,
+      }).returning('id');
+      return (k?.id ?? k) as string;
+    } catch (e: unknown) {
+      const err = e as { code?: string; constraint?: string };
+      if (err.code === '23505') throw new ConflictException(`${folio} ya está vinculado a este movimiento de CAOS.`);
+      // `trg_caos_link_no_excede` dice cuál candado fue: cada uno se dice con su nombre, y con el folio.
+      const porCandado: Record<string, string> = {
+        caos_link_excede_movimiento: `${folio}: el movimiento de CAOS no tiene libre ese monto.`,
+        caos_link_excede_captura: `Con ese monto, ${folio} quedaría explicado de más.`,
+        caos_link_custodia_cerrada: `${folio}: ese retiro tiene una custodia cerrada, ya no se puede vincular.`,
+      };
+      const porConstraint = err.constraint ? porCandado[err.constraint] : undefined;
+      if (err.code === '23514' && porConstraint) throw new ConflictException(porConstraint);
+      throw e;
+    }
+  }
+
+  /**
+   * ⭐ `[CGA-A.61]` La propuesta de la reposición, confirmada: varios vínculos en UNA transacción.
+   * Edgar, 2026-10-28: *«hagámoslo, pero desde una sola interfaz»* — los 10 egresos de Canindo del
+   * 27/10 eran diez altas sueltas tecleando folio y monto.
+   *
+   * ⛔ **Todo o nada**, a propósito: la propuesta se calculó como un conjunto (cada retiro se llena en
+   * orden); aplicarla a medias dejaría un reparto que nadie propuso. Si uno no pasa, no se guarda
+   * ninguno y el mensaje dice cuál y por qué.
+   */
+  async vincularLote(body: VincularLoteInput, user: ActorCaos): Promise<VincularLoteResultado> {
+    this.exigeSuperadmin(user);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const lista = Array.isArray(body?.asignaciones) ? body.asignaciones : [];
+    if (!lista.length) throw new BadRequestException('No hay vínculos que guardar.');
+    if (lista.length > 300) throw new BadRequestException('Son demasiados vínculos de una vez (máximo 300).');
+    const limpias = lista.map((a) => ({
+      ledger_id: String(a?.ledger_id ?? ''), device: String(a?.device ?? ''),
+      external_id: Number(a?.external_id), monto: Math.round(Number(a?.monto) * 100) / 100,
+    }));
+    if (limpias.some((a) => !a.ledger_id || !a.device || !Number.isFinite(a.external_id) || !(a.monto > 0))) {
+      throw new BadRequestException('Cada vínculo lleva egreso, retiro y un monto mayor que cero.');
+    }
+    const motivo = String(body?.motivo ?? '').trim() || null;
+    return this.tk.run(async (trx) => {
+      let monto = 0;
+      for (const a of limpias) {
+        const mov = await trx('analytics.caos_cash_movements')
+          .where({ tenant_id: tenantId, device: a.device, external_id: a.external_id })
+          .first('device', 'external_id', 'type_id');
+        if (!mov) throw new NotFoundException(`El retiro ${a.external_id} no existe en CAOS.`);
+        const l = await trx('finance.cash_ledger').where({ tenant_id: tenantId, id: a.ledger_id }).whereNull('deleted_at')
+          .first('id', 'folio', 'tipo', 'monto', 'estado', 'origen_tipo', 'origen_efectivo');
+        if (!l) throw new NotFoundException('Uno de los egresos ya no existe en Caja General.');
+        await this.altaVinculo(trx, tenantId, l, mov, a.monto,
+          { manual: true, via: 'reposicion', por: user.username ?? null, motivo }, user, { ampliar: true });
+        monto += a.monto;
       }
-      const [{ ya }] = await trx('finance.caos_cash_links').where({ tenant_id: tenantId, cash_ledger_id: l.id })
-        .whereNull('deleted_at').select(trx.raw('coalesce(sum(monto_enlazado),0)::numeric AS ya'));
-      const falta = Math.round((Number(l.monto) - Number(ya)) * 100) / 100;
-      if (monto > falta + 0.005) {
-        throw new BadRequestException(`A ${folio} sólo le faltan $${falta.toFixed(2)} por explicar.`);
+      return { ok: true, vinculos: limpias.length, monto: Math.round(monto * 100) / 100 };
+    });
+  }
+
+  /**
+   * ⭐ `[CGA-A.61]` Pasar un vínculo a OTRO retiro: la baja (con motivo) y el alta, juntas. Era el
+   * caso de CG-2026-00512: quitarlo en un movimiento de CAOS y volverlo a vincular en otro, a mano.
+   *
+   * El destino toma lo que tenía el vínculo mientras le alcance (`tomaDelRetiro`, la misma regla del
+   * lote); lo que no alcance queda sin explicar y se dice. Si el destino no tiene nada libre, no se
+   * hace nada (la baja tampoco: es una sola transacción).
+   */
+  async moverVinculo(linkId: string, body: MoverVinculoInput, user: ActorCaos): Promise<MoverVinculoResultado> {
+    this.exigeSuperadmin(user);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const motivo = String(body?.motivo ?? '').trim();
+    if (motivo.length < 10) throw new BadRequestException('Di por qué se cambia de retiro (mínimo 10 caracteres).');
+    const destino = { device: String(body?.device ?? ''), external_id: Number(body?.external_id) };
+    if (!destino.device || !Number.isFinite(destino.external_id)) throw new BadRequestException('Falta el retiro destino.');
+    return this.tk.run(async (trx) => {
+      const k = await trx('finance.caos_cash_links').where({ tenant_id: tenantId, id: linkId })
+        .first('id', 'cash_ledger_id', 'caos_device', 'caos_external_id', 'monto_enlazado', 'deleted_at');
+      if (!k) throw new NotFoundException('Ese vínculo no existe.');
+      if (k.deleted_at) throw new ConflictException('Ese vínculo ya se había quitado.');
+      if (k.caos_device === destino.device && Number(k.caos_external_id) === destino.external_id) {
+        throw new BadRequestException('El vínculo ya es de ese retiro.');
       }
-      try {
-        const [k] = await trx('finance.caos_cash_links').insert({
-          tenant_id: tenantId, cash_ledger_id: l.id, caos_device: mov.device, caos_external_id: mov.external_id,
-          monto_enlazado: monto,
-          senales: JSON.stringify({ manual: true, via: 'correccion_superadmin', por: user.username ?? null }),
-          confirmed_by: user.id,
-        }).returning('id');
-        return { ok: true, link_id: k?.id ?? k, folio, monto };
-      } catch (e: unknown) {
-        const err = e as { code?: string; constraint?: string };
-        if (err.code === '23505') throw new ConflictException(`${folio} ya está vinculado a este movimiento de CAOS.`);
-        // `trg_caos_link_no_excede` dice cuál candado fue: cada uno se dice con su nombre.
-        const porCandado: Record<string, string> = {
-          caos_link_excede_movimiento: 'El movimiento de CAOS no tiene libre ese monto.',
-          caos_link_excede_captura: `Con ese monto, ${folio} quedaría explicado de más.`,
-          caos_link_custodia_cerrada: 'Ese retiro tiene una custodia cerrada: ya no se puede vincular.',
-        };
-        const porConstraint = err.constraint ? porCandado[err.constraint] : undefined;
-        if (err.code === '23514' && porConstraint) throw new ConflictException(porConstraint);
-        throw e;
-      }
+      const mov = await trx('analytics.caos_cash_movements as m')
+        .where({ 'm.tenant_id': tenantId, 'm.device': destino.device, 'm.external_id': destino.external_id })
+        .first('m.device', 'm.external_id', 'm.type_id', trx.raw(`${sqlDisponibleCaos('m')} AS libre`));
+      if (!mov) throw new NotFoundException(`El retiro ${destino.external_id} no existe en CAOS.`);
+      const l = await trx('finance.cash_ledger').where({ tenant_id: tenantId, id: k.cash_ledger_id }).whereNull('deleted_at')
+        .first('id', 'folio', 'tipo', 'monto', 'estado', 'origen_tipo', 'origen_efectivo');
+      if (!l) throw new NotFoundException('El movimiento de Caja General de ese vínculo ya no existe.');
+      const antes = Math.round(Number(k.monto_enlazado) * 100) / 100;
+      const toma = tomaDelRetiro(antes, Number(mov.libre));
+      if (toma <= 0) throw new ConflictException(`El retiro ${destino.external_id} no tiene dinero libre.`);
+      await trx('finance.caos_cash_links').where({ tenant_id: tenantId, id: linkId }).update({
+        deleted_at: trx.fn.now(), updated_at: trx.fn.now(), deleted_by: user.id,
+        motivo_baja: `${motivo} (se pasa al retiro ${destino.external_id})`,
+      });
+      const alta = await this.altaVinculo(trx, tenantId, l, mov, toma,
+        { manual: true, via: 'mover', por: user.username ?? null, desde: Number(k.caos_external_id), motivo }, user, { ampliar: true });
+      return { ok: true, link_baja: linkId, link_alta: alta, monto: toma, queda: Math.round((antes - toma) * 100) / 100 };
     });
   }
 }

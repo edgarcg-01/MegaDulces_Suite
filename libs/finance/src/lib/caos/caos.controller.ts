@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CaosService, type CaosQuery, type CaosSaldo } from './caos.service';
 import type { CaosVinculos, CaosVinculoAlta, CaosVinculoBaja } from '@megadulces/contracts';
+import type { VincularLoteInput, VincularLoteResultado, MoverVinculoInput, MoverVinculoResultado } from '@megadulces/contracts';
 import { CaosIngresoReconService } from './caos-ingreso-recon.service';
 import { CaosRutaCajaService, type CaosPorRuta } from './caos-ruta-caja.service';
 import { CaosConteoFisicoService } from './caos-conteo-fisico.service';
@@ -128,6 +129,22 @@ export class CaosController {
   @ApiOperation({ summary: '[CGA-A.58] Sólo superadmin: da de baja un vínculo CAOS ↔ Caja General, con motivo. El monto vuelve a quedar libre.' })
   quitarVinculo(@Param('linkId') linkId: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest): Promise<CaosVinculoBaja> {
     return this.svc.quitarVinculo(linkId, String(body?.motivo ?? ''), this.actor(req));
+  }
+
+  // `[CGA-A.61]` La reposición por sucursal confirma su propuesta y cambia vínculos de retiro desde
+  // Caja General, en la misma pantalla. Mismo guard y misma exigencia de superadmin que A.58.
+  @Post('vinculos/lote')
+  @RequirePermissions(Permission.FINANCE_CAOS_VINCULOS_VER)
+  @ApiOperation({ summary: '[CGA-A.61] Sólo superadmin: varios vínculos egreso ↔ retiro de una vez (la propuesta de la reposición), todo o nada.' })
+  vincularLote(@Body() body: VincularLoteInput, @Req() req: AuthedRequest): Promise<VincularLoteResultado> {
+    return this.svc.vincularLote(body, this.actor(req));
+  }
+
+  @Post('vinculos/:linkId/mover')
+  @RequirePermissions(Permission.FINANCE_CAOS_VINCULOS_VER)
+  @ApiOperation({ summary: '[CGA-A.61] Sólo superadmin: pasa un vínculo a otro retiro de CAOS (baja con motivo + alta, en una transacción).' })
+  moverVinculo(@Param('linkId') linkId: string, @Body() body: MoverVinculoInput, @Req() req: AuthedRequest): Promise<MoverVinculoResultado> {
+    return this.svc.moverVinculo(linkId, body, this.actor(req));
   }
 
   private actor(req: AuthedRequest) {

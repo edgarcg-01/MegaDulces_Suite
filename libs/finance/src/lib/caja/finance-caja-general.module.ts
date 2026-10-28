@@ -21,6 +21,9 @@ import { CajaFirmaController, CajaFirmaPublicController } from './caja-firma.con
 // `[CGA-A.51]` El retiro de CAOS que se lleva una persona (ADR-101).
 import { CajaCustodiaService } from './caja-custodia.service';
 import { CajaCustodiaController } from './caja-custodia.controller';
+// `[CGA-A.61]` Reposición por sucursal: documentos de Kepler, egresos, retiros y la propuesta.
+import { CajaReposicionService } from './caja-reposicion.service';
+import { CajaReposicionController } from './caja-reposicion.controller';
 // `[LE.4]` El libro de efectivo de partida doble (ADR-102/103): corre en sombra junto al libro viejo (E5).
 import { CashbookService } from '../cashbook/cashbook.service';
 import { CashbookController } from '../cashbook/cashbook.controller';
@@ -42,7 +45,7 @@ import { CashbookCaosCarril } from '../cashbook/cashbook-caos.carril';
   // CG.23.2 — el tiempo real va en su propio módulo (namespace `/caja` + puente NOTIFY→WS).
   imports: [CajaRealtimeModule],
   controllers: [CajaGeneralController, CashLedgerController, CajaControlController, CajaArqueoController,
-    CajaFirmaController, CajaFirmaPublicController, CajaCustodiaController, CashbookController],
+    CajaFirmaController, CajaFirmaPublicController, CajaCustodiaController, CashbookController, CajaReposicionController],
   // [CG.25] El vigilante de la fecha adelantada: avisa, y cuando Kepler corrige, sigue. Va acá y
   // no en el controller porque corre por `@Cron`, sin request — con su propia advertencia de RLS.
   // [CG.141] El carril que refresca `mv_caja_autofill_entidad`. Va acá, y NO en el array
@@ -57,6 +60,7 @@ import { CashbookCaosCarril } from '../cashbook/cashbook-caos.carril';
   providers: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
     CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
     CajaAutollenadoService, CajaArqueoService, CajaFirmaService, CajaCustodiaService, CashbookService, CashbookCaosCarril,
+    CajaReposicionService,
     // [OPS-AUD.11.6] La alarma de lo que mantienen los triggers (ADR-104): tesorería y pólizas.
     ArbitroPorCambioService],
   exports: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
