@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Added — Mesa de Servicio: aviso en pantalla cuando entra una solicitud nueva (MS.AVISO, 2026-10-28)
+- **Ventana emergente en cualquier pantalla de la Suite**, mientras la sesión esté abierta, cuando entra una solicitud a una cola que atiendes: folio, título, quién la reportó, y un clic para abrirla en la bandeja. Las urgentes no se cierran solas.
+- **Aviso de Windows si la pestaña está oculta** (opcional): un botón al pie de la campana pide el permiso del navegador. Sin permiso, la ventana espera en la página; no se finge ningún aviso. No funciona con la pestaña cerrada (eso pide service worker y llaves VAPID, que no existen).
+- **Evento nuevo `nueva_solicitud`**: antes sólo avisaba la solicitud **alta o urgente** (40 de 76 en el último mes, medido en producción el 2026-10-28); las 36 de prioridad media/baja **no avisaban a nadie**, ni a la campana. Ahora toda solicitud nueva avisa a quien atiende esa cola (menos a quien la reportó y a quien la regla ya se la asignó). Sin migraciones ni permisos.
 ### Added — Mesa de Servicio: arrastrar archivos desde el escritorio y adjuntar enlaces de Google (MS.ADJ, 2026-10-22)
 - **Arrastrar y soltar** imágenes y PDF en el recuadro de adjuntos de «Nueva solicitud» y del hilo; lo que no sea imagen ni PDF se rechaza con el aviso de compartirlo por **enlace de Google**. Soltar un archivo fuera del recuadro ya no abre el archivo ni pierde lo escrito.
 - **Enlaces de Google** (Docs, Hojas, Presentaciones, Formularios y Drive), hasta 3 por envío: el servidor los normaliza y valida (host exacto, https, sin credenciales) y nunca los visita. Se ven como chips en el detalle; los de una nota interna no los ve quien reportó. ⚠️ Los enlaces quedan restringidos: quien atiende sólo los abre si se compartieron con su cuenta.

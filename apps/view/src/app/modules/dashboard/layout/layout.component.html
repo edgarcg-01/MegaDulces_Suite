@@ -520,3 +520,6 @@
 
 <!-- Toast global de salud de datos (WS /alerts, solo db_health). Bandeja en /admin/db-health -->
 <app-health-alert-toast />
+@if (!isRestricted()) {
+  <app-service-desk-aviso-toast />
+}

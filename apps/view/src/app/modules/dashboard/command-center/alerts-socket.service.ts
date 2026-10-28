@@ -11,6 +11,7 @@ export type AlertType =
   | 'order_confirmed'
   | 'order_fulfilled'
   | 'db_health'
+  | 'service_desk'
   | 'test';
 
 export interface CommercialAlert {
