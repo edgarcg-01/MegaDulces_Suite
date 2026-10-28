@@ -319,11 +319,15 @@
 
 **Medido (sólo lectura contra prod):** el resolver ya soportaba 1→N barcodes. El 2º código estaba en `kepler_ods.kdii.c93` de las 9 sucursales y entró a `catalog.product_barcodes` el mismo día a las 16:41 UTC; antes no existía ahí. La brecha general es pequeña (c93: 1 ausente en la muestra; los huecos de c7 son SKUs descontinuados).
 
-**Arreglo:** `resolveCode()` pregunta a `kdii` cuando el catálogo no conoce el código (c7/c93 unidad base, c82/c95 unidad 2 con factor c81, c85 unidad 3 con factor c84; c96 es código interno, no se consulta). Derive-no-copy: sin importer ni tabla nueva. Lectura opcional en SAVEPOINT: si falla, el resolver sigue como antes. Commit `0602607ed`, sin push.
+**Arreglo:** `resolveCode()` pregunta a `kdii` cuando el catálogo no conoce el código (c7/c93 unidad base, c82/c95 unidad 2 con factor c81, c85 unidad 3 con factor c84; c96 es código interno, no se consulta). Derive-no-copy: sin importer ni tabla nueva. Lectura opcional en SAVEPOINT: si falla, el resolver sigue como antes. Fusionado como PR #462 (`0591a6cf2`).
 
 **Prueba:** `resolve-code-kepler.servicio-real.spec.ts` contra Postgres real como `app_runtime` (siembra por una URL admin porque `app_runtime` no escribe en `kepler_ods`; limpia al terminar). 4 pruebas; quitando la llamada al fallback fallan 2. Verificado además en pantalla local por el equipo. Un defecto propio hallado en el camino: el `?` de una regex dentro de `knex.raw` se toma como parámetro.
 
-**NO medido:** el arranque de la API con el cambio en prod; **la causa del desfase** entre la captura en Kepler y la entrada al catálogo (no hay latido del normalizador de códigos: deuda con nombre).
+**Cierre (2026-10-28, prod en `c59312061`, sólo lectura):**
+- **Reporte original: cerrado.** Los dos códigos del SKU 31081 están en `catalog.product_barcodes` (`7503028750764` desde el 18-ago; `7503063103587` desde el 27-oct 16:41 UTC, ambos paquete, factor 1) y resuelven por el catálogo, sin necesitar el fallback. La etiquetera lo resolvió (captura del equipo) y quien reportó lo confirmó en Caducidades.
+- **Las hojas `CAD-08-2026-00003` y `…00004` NO prueban el fallback:** se guardaron el 27-oct 21:18 y 21:22 UTC con `product_code_raw = '31081'` (el SKU, no el código de barras), después de que el código entró al catálogo y antes de fusionar #462.
+- **El fallback hoy no tiene un caso real que probar:** códigos de `kdii` ausentes del catálogo **con producto activo = 0** (c7: 434 ausentes, ninguno de producto activo; c93: 2, ninguno activo). Está probado con la spec contra Postgres real y en pantalla local, no con un caso de prod.
+- **NO medido:** **la causa del desfase** entre la captura en Kepler y la entrada al catálogo (no hay latido del normalizador de códigos: deuda con nombre); y la pregunta de unidades «caja vs pieza» de «Ya se reflejó».
 
 ## 2026-10-22 — `[MS.ADJ]` Adjuntos de la Mesa de Servicio: arrastrar desde el escritorio y enlaces de Google
 
