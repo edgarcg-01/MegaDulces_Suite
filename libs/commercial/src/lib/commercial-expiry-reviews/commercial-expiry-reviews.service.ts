@@ -367,6 +367,11 @@ export class CommercialExpiryReviewsService {
           .whereNull('deleted_at')
           .select('sku', 'unit', 'factor');
       }
+      // (1b) El ERP manda: `catalog.product_barcodes` la alimenta una normalización
+      //      que puede ir detrás de Kepler (SKU 31081: el 2º código estaba en kdii y
+      //      aún no en el catálogo). Si el catálogo no conoce el código, se pregunta
+      //      a la fuente — derive-no-copy, sin importer ni tabla nueva.
+      if (!bcRows.length) bcRows = await this.barcodesFromKepler(trx, variants);
       const bcSkus = Array.from(new Set(bcRows.map((r) => String(r.sku))));
       const unitBySku = new Map<string, { unit: string | null; factor: number | null }>();
       for (const r of bcRows) unitBySku.set(String(r.sku), { unit: r.unit ?? null, factor: r.factor != null ? Number(r.factor) : null });
@@ -445,6 +450,37 @@ export class CommercialExpiryReviewsService {
         out_of_scope: outOfScope,
       };
     });
+  }
+
+  /**
+   * Casillas de código de `kepler_ods.kdii` → (sku, unidad, factor). Mapa verificado
+   * en `normalizeBarcodesFromOds`: c7/c93 = unidad base (c11), c82/c95 = unidad 2
+   * (c80, factor c81), c85 = unidad 3 (c83, factor c84). c96 es código interno, no
+   * barcode: no se consulta. Lectura opcional: va en SAVEPOINT y, si falla, devuelve
+   * [] (el resolver sigue como antes). Solo códigos numéricos de 8-14 dígitos.
+   */
+  private async barcodesFromKepler(trx: any, variants: string[]): Promise<any[]> {
+    const nums = variants.filter((v) => /^\d{8,14}$/.test(v));
+    if (!nums.length) return [];
+    const slots: Array<[string, string, string | null]> = [
+      ['c7', 'c11', null], ['c93', 'c11', null],
+      ['c82', 'c80', 'c81'], ['c95', 'c80', 'c81'],
+      ['c85', 'c83', 'c84'],
+    ];
+    const sql = slots
+      .map(([c, u, f]) =>
+        `SELECT ltrim(btrim(c1::text),'0') AS sku, nullif(btrim(${u}::text),'') AS unit, ` +
+        (f ? `CASE WHEN btrim(${f}::text) ~ '^[0-9]+([.][0-9]+){0,1}$' THEN btrim(${f}::text)::numeric END` : `1::numeric`) +
+        ` AS factor FROM kepler_ods.kdii WHERE btrim(${c}::text) = ANY(string_to_array(?, ','))`)
+      .join(' UNION ');
+    try {
+      return await trx.transaction(async (sp: any) => {
+        const r = await sp.raw(`SELECT DISTINCT ON (sku) sku, unit, factor FROM (${sql}) t WHERE sku <> '' LIMIT 50`, slots.map(() => nums.join(',')));
+        return r.rows ?? [];
+      });
+    } catch {
+      return [];
+    }
   }
 
   /**
