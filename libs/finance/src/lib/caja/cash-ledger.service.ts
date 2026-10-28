@@ -640,7 +640,9 @@ export class CashLedgerService {
     }
     throw new BadRequestException(
       `El desglose (efectivo + crédito) no cuadra con el monto: ${v.suma.toFixed(2)} contra `
-      + `${Number(monto).toFixed(2)} (diferencia ${Math.abs(v.diferencia).toFixed(2)}).`,
+      + `${Number(monto).toFixed(2)} (diferencia ${Math.abs(v.diferencia).toFixed(2)}).`
+      // `[CGA-A.56.2]` Una pestaña abierta antes del cambio cuenta sólo «lo del cajón»: decirle por qué.
+      + (v.cubierto > 0 ? ' El retiro de CAOS ya no se descuenta: cuenta todo lo que se entregó y recarga la pantalla.' : ''),
     );
   }
 
@@ -1224,8 +1226,8 @@ export class CashLedgerService {
       // antes (como estaba), un movimiento anclado podría guardarse con un desglose que cuadra
       // contra la cifra del formulario y NO contra la del documento.
       // `hayConteo` va al candado: declarar que se contó distinto del documento OBLIGA al desglose.
-      // ⭐ `[CGA-A.56.1]` Un egreso pagado con retiros de CAOS: lo que pagan los enlaces no se
-      // cuenta en el cajón (cuenta como el crédito). Ver `evaluarArqueoDeEgreso`.
+      // ⭐ `[CGA-A.56.2]` Un egreso pagado con retiros de CAOS se cuenta ENTERO: el retiro sólo se
+      // vincula, no descuenta. Ver `evaluarArqueoDeEgreso`.
       this.assertArqueo(monto, input.morralla ?? 0, dens, input.venta_credito, hayConteo, input);
 
       // La fecha NO se toma del cobro a propósito: `cobro_date` es cuándo Kepler registró el
