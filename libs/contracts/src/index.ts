@@ -34,6 +34,7 @@ export * from './http/price-presentation.contract';
 // `[ETQ-AVISOS.1]` Cambios de precio: la regla por producto y los avisos. Una sola cuenta para la
 // pantalla y para el generador, o el aviso y la lista discrepan.
 export * from './http/price-change-notice.contract';
+export * from './http/price-history.contract';
 export * from './http/price-change-compras.contract';
 export * from './http/codigo-simbolico.contract';
 // [SM.39] Denominaciones MXN. La clave de una denominacion NO es su valor: el

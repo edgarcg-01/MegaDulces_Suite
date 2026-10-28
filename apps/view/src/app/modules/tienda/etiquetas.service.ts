@@ -1,4 +1,5 @@
 import { HttpClient } from '@angular/common/http';
+import type { PriceHistoryResult } from '@megadulces/contracts';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
@@ -141,6 +142,14 @@ export class EtiquetasService {
    */
   priceChangeBranches(): Observable<PriceChangeBranch[]> {
     return this.http.get<PriceChangeBranch[]>(`${this.base}/price-changes/branches`);
+  }
+
+  /**
+   * `[ETQ-HISTORIAL.2.1]` Historial de cambios de precio de UN producto en las 9 plazas (filas crudas de la bitácora de
+   * Kepler, del más reciente al más viejo). `dias`: 90, 365 o 0 = toda la bitácora.
+   */
+  priceHistory(sku: string, dias: 90 | 365 | 0): Observable<PriceHistoryResult> {
+    return this.http.get<PriceHistoryResult>(`${this.base}/price-history`, { params: { sku, dias: String(dias) } });
   }
 
   // ── `[ETQ-AVISOS]` Avisos de cambios de precio ─────────────────────────────────────────

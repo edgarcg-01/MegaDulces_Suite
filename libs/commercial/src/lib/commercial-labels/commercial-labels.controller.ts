@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post, Query, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, ReqUser, ScopeService } from '@megadulces/platform-core';
-import type { PriceChangeNoticeDto, PriceNoticeRecipientsDto, PriceNoticeShareRequestDto, PriceNoticeShareResultDto } from '@megadulces/contracts';
+import type { PriceChangeNoticeDto, PriceHistoryResult, PriceNoticeRecipientsDto, PriceNoticeShareRequestDto, PriceNoticeShareResultDto } from '@megadulces/contracts';
 import { CommercialLabelsService } from './commercial-labels.service';
 import { PriceChangeNoticesService, PriceNoticeRunResult } from './price-change-notices.service';
 
@@ -45,6 +45,30 @@ export class CommercialLabelsController {
   })
   priceChanges(@Query('sucursal') sucursal?: string, @Query('fecha') fecha?: string) {
     return this.svc.priceChanges(sucursal ?? null, fecha ?? null);
+  }
+
+  @Get('price-history')
+  @RequirePermissions(Permission.STORE_LABELS_VER)
+  @ApiQuery({ name: 'sku', required: true, description: 'Código del producto (el `c3` de la bitácora de Kepler).' })
+  @ApiQuery({ name: 'dias', required: false, description: 'Días hacia atrás: 90, 365 (default) o 0 = toda la bitácora.' })
+  @ApiOperation({
+    summary: 'Etiquetera — historial de cambios de precio de UN producto en las 9 plazas.',
+    description:
+      'Filas crudas de `analytics.v_label_price_changes`, del más reciente al más viejo, con `truncado` si se alcanzó el tope ' +
+      '(se recorta lo más viejo). Kepler reescribe el mismo cambio varias veces: la pantalla puede compactarlo en tramos con ' +
+      '`compactarHistorial` (`libs/contracts`).',
+  })
+  priceHistory(@Query('sku') sku?: string, @Query('dias') dias?: string): Promise<PriceHistoryResult> {
+    const codigo = String(sku ?? '').trim();
+    if (!/^[A-Za-z0-9._-]{1,40}$/.test(codigo)) throw new BadRequestException('sku inválido: usa el código del producto');
+    let d: number | null = 365;
+    if (dias !== undefined && dias !== '') {
+      if (!/^\d{1,4}$/.test(dias)) throw new BadRequestException('dias debe ser 90, 365 o 0 (toda la historia)');
+      const n = Number(dias);
+      if (![0, 90, 365].includes(n)) throw new BadRequestException('dias debe ser 90, 365 o 0 (toda la historia)');
+      d = n === 0 ? null : n;
+    }
+    return this.svc.priceHistory(codigo, d);
   }
 
   @Get('price-changes/branches')
