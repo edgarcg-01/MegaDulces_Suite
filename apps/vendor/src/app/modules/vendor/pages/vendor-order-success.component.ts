@@ -38,6 +38,10 @@ import { VendorService } from '../vendor.service';
       </div>
       <div class="amt">{{ fmtMoney(total()) }}</div>
       <div class="sub">{{ summary() }}</div>
+      <!-- [MCP.3.13] Un pedido surtido en varias sucursales: cada una cobra lo suyo (un ticket por sucursal). -->
+      @if (surte().length > 1) {
+        <div class="surte" role="note"><i class="pi pi-building" aria-hidden="true"></i> Se surte en {{ surte().join(' y ') }} · el cliente recibe un ticket de cada sucursal</div>
+      }
     
       <div class="acts">
         @if (wa() && !offline()) {
@@ -80,6 +84,7 @@ import { VendorService } from '../vendor.service';
       h2 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
       .folio { font-family: var(--font-mono); font-size: 0.85rem; opacity: 0.9; margin-top: 0.35rem; }
       .amt { font-family: var(--font-mono); font-size: 2.2rem; font-weight: 700; font-variant-numeric: tabular-nums; margin: 1.1rem 0 0.3rem; }
+      .surte { display: inline-flex; align-items: center; gap: 0.35rem; margin-top: 0.6rem; font-size: 0.8rem; opacity: 0.92; }
       .sub { font-size: 0.85rem; opacity: 0.92; max-width: 18rem; }
 
       /* [MCP.3.3] ARRIBA de la barra de abajo de la app (fija, 5rem, z-index 10). A 1.75rem del
@@ -122,6 +127,8 @@ export class VendorOrderSuccessComponent implements OnInit {
   readonly finishing = signal(false);
   /** Pedido tomado sin conexión: aún no tiene folio; se sincroniza al reconectar. */
   readonly offline = signal(false);
+  /** [MCP.3.13] Sucursales donde se surte el pedido (vacío = sólo la del vendedor). */
+  readonly surte = signal<string[]>([]);
 
   readonly confetti = [
     { l: 12, c: '#FDE707', d: 0 }, { l: 26, c: '#fff', d: 0.5 }, { l: 40, c: '#FDE707', d: 0.9 },
@@ -139,6 +146,7 @@ export class VendorOrderSuccessComponent implements OnInit {
     this.date.set(q.get('date') || '');
     this.customerId.set(q.get('customer') || '');
     this.offline.set(q.get('offline') === '1');
+    this.surte.set((q.get('surte') || '').split(',').map((s) => s.trim()).filter(Boolean));
     this.haptic.notification('success');
   }
 

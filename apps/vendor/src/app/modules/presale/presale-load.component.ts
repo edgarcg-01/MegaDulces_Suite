@@ -6,6 +6,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import type {
+  LoadGuide,
   LoadGuideOrderRow,
   PresaleCandidate,
   PresaleFieldOrderDetail,
@@ -14,6 +15,7 @@ import type {
   PresaleStage,
 } from '@megadulces/contracts';
 import { PresaleLoadService } from './presale-load.service';
+import { avisoGrupo, companeros, esDeGrupo, juntarGrupos, recoleccion } from './presale-grupos.util';
 
 const ETAPA: Partial<Record<PresaleStage, string>> = {
   por_surtir: 'Por surtir',
@@ -67,6 +69,17 @@ const dm = (v: string | null | undefined): string => {
       } @else if (data(); as d) {
         @if (d.mine.length) {
           <h2 class="pl-h2">Mis guías de hoy</h2>
+          @if (porRecolectar().length) {
+            <div class="pl-rec" role="note">
+              <i class="pi pi-directions" aria-hidden="true"></i>
+              <div>
+                @for (r of porRecolectar(); track r.branch) {
+                  <div><b>Recolectar en {{ r.branch }}: {{ r.productos }} {{ r.productos === 1 ? 'producto' : 'productos' }}</b><span class="muted"> · {{ r.pedidos }} {{ r.pedidos === 1 ? 'pedido' : 'pedidos' }}@if (r.grupos.length) { de <span class="mono">{{ r.grupos.join(', ') }}</span> }</span></div>
+                }
+                <span class="muted">Partes de pedidos agrupados: pasa por ellas a esa sucursal. Todo el cobro se entrega en la caja del pedido.</span>
+              </div>
+            </div>
+          }
           @for (g of d.mine; track g.id) {
             <section class="pl-guia" [class.impresa]="g.status !== 'abierta'">
               <div class="pl-guia-h">
@@ -76,7 +89,7 @@ const dm = (v: string | null | undefined): string => {
               @for (o of ordenados(g.orders); track o.order_id) {
                 <div class="pl-guia-o" [class.hecho]="o.status !== 'cargado'">
                   <div class="pl-o-main">
-                    <div class="pl-o-id"><span class="pl-o-cli">{{ o.customer_name || '—' }}</span><span class="mono muted">{{ o.code }}</span></div>
+                    <div class="pl-o-id"><span class="pl-o-cli">{{ o.customer_name || '—' }}</span><span class="mono muted">{{ o.code }}</span>@if (avisoGuia(o, g); as av) { <span class="pl-grp">{{ av }}</span> }</div>
                     @if (o.status === 'entregado') {
                       <div class="pl-o-cobro">
                         <span class="pl-chip ok" [class.dif]="o.delivery_outcome === 'con_diferencia'">{{ o.delivery_outcome === 'con_diferencia' ? 'Entregado con diferencia' : 'Entregado' }}</span>
@@ -128,6 +141,9 @@ const dm = (v: string | null | undefined): string => {
                   @if (etapa(p.stage); as e) { <span class="pl-chip">{{ e }}</span> }
                   @if (p.link) { <span class="pl-chip ok">Doc. {{ p.link.folio_digital }}</span> }
                 </div>
+                @if (aviso(p); as av) {
+                  <div class="pl-card-s"><span class="pl-chip warn">{{ av }}</span>@if (p.group_code && p.group_code !== p.code) { <span>parte de <span class="mono">{{ p.group_code }}</span></span> } @else { <span>se llevan juntos</span> }</div>
+                }
               </div>
             </label>
           }
@@ -269,6 +285,12 @@ const dm = (v: string | null | undefined): string => {
     .pl-chip.ok { background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
     .pl-chip.ok.dif { background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
     .pl-chip.bad-chip { background:var(--bad-soft-bg); color:var(--bad-fg); }
+    .pl-chip.warn { background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
+    .pl-grp { font-size:var(--fs-xs); color:var(--warn-soft-fg); }
+    .pl-rec { display:flex; gap:.6rem; align-items:flex-start; border:1px solid var(--border-color); border-left:3px solid var(--warn-fg); border-radius:12px; background:var(--card-bg); padding:.6rem .75rem; margin-bottom:.6rem; font-size:var(--fs-sm); }
+    .pl-rec > div { display:flex; flex-direction:column; gap:.2rem; min-width:0; }
+    .pl-rec .pi { color:var(--warn-soft-fg); margin-top:.15rem; }
+    .pl-rec .muted { font-size:var(--fs-xs); }
     .pl-empty { display:flex; flex-direction:column; align-items:center; gap:.4rem; padding:1.5rem; color:var(--text-muted); text-align:center; font-size:var(--fs-body); }
     .pl-skel { display:flex; flex-direction:column; gap:.5rem; margin-top:1rem; }
     .pl-skel div { height:4.5rem; border-radius:12px; background:var(--hover-bg); }
@@ -386,8 +408,12 @@ export class PresaleLoadComponent implements OnInit {
       const k = p.sales_route || 'Sin ruta';
       m.set(k, [...(m.get(k) ?? []), p]);
     }
-    return [...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([ruta, pedidos]) => ({ ruta, pedidos }));
+    // [MCP.3.13] Las partes de un pedido agrupado, juntas (el principal primero).
+    return [...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([ruta, pedidos]) => ({ ruta, pedidos: juntarGrupos(pedidos) }));
   });
+  /** `[MCP.3.13]` Lo que falta recoger en otras sucursales (partes de pedidos agrupados), por sucursal. */
+  readonly porRecolectar = computed(() => recoleccion(this.data()?.mine ?? []));
+  readonly aviso = avisoGrupo;
   readonly totalSel = computed(() =>
     (this.data()?.available ?? []).filter((p) => this.sel().has(p.id)).reduce((t, p) => t + (p.link?.total ?? p.total), 0),
   );
@@ -410,10 +436,26 @@ export class PresaleLoadComponent implements OnInit {
     });
   }
 
+  /**
+   * `[MCP.3.13]` Las partes de un pedido agrupado se llevan juntas o ninguna (el servidor también lo
+   * exige): elegir o soltar una mueve a todas las que hay para llevar.
+   */
   toggle(id: string): void {
+    const disponibles = this.data()?.available ?? [];
+    const p = disponibles.find((x) => x.id === id);
+    const ids = p ? companeros(p, disponibles) : [id];
     const s = new Set(this.sel());
-    if (s.has(id)) s.delete(id); else s.add(id);
+    const quitar = s.has(id);
+    for (const x of ids) { if (quitar) s.delete(x); else s.add(x); }
     this.sel.set(s);
+  }
+
+  /** `[MCP.3.13]` En «Mis guías»: de qué pedido es la parte y dónde se recoge (la sucursal es la de la guía). */
+  avisoGuia(o: LoadGuideOrderRow, g: LoadGuide): string | null {
+    if (!esDeGrupo(o)) return null;
+    if (o.group_main_branch && o.group_main_branch !== g.branch) return 'Parte de ' + (o.group_code ?? 'un pedido agrupado') + ': recolectar en ' + g.branch;
+    const otras = (o.group_branches ?? []).filter((b) => b !== g.branch);
+    return otras.length ? 'Parte de este pedido sale de ' + otras.join(', ') : null;
   }
 
   llevar(): void {

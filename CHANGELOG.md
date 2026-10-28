@@ -25,6 +25,16 @@
 - Migración **`20261028085707_pgp27_rfc_del_acreedor_resuelto`** (sólo vistas, un índice; no toca filas). Crea `ix_fiscal_cfdis_emisor` —sin él la pantalla pasaba de 2.0 s a ~7 s— y **se revierte sola si el índice no bajó el costo**. ⚠️ Aplicar **fuera de horario hábil**.
 - ⚠️ Los **414 documentos donde Kepler trae un RFC bien formado y el nombre dice otro** (MONDELEZ, FÁBRICAS SELECTAS) **no se corrigen solos**: manda Kepler y la discrepancia se publica para que alguien decida.
 
+### Added — Vender de otras sucursales de la zona: «pedido agrupado» (MCP.3.12–3.13, ADR-105, 2026-10-23)
+- **El vendedor ve un solo pedido** (MCP.3.14): en Hoy, Notificaciones y el inicio, un renglón con el total del grupo; si lo surten 2+ sucursales, dice en qué va cada una («LPA · Surtido  PH · Por surtir»).
+- **Indicaciones para el surtidor** (MCP.3.15): el vendedor escribe o dicta en un recuadro, antes de agendar, cómo quiere el cliente su mercancía; el surtidor lo ve en grande y marca «Cumplí las indicaciones» antes de terminar.
+- **Cada pedido le llega al surtidor en cuanto se levanta** (MCP.3.15, ADR-106): ya no espera a «Finalizar ruta»; la ruta deja de surtirse junta.
+- **La existencia del vendedor ya no sale en blanco** (MCP.3.16, ADR-107): «Sin existencias en PH» en gris al final para lo que la sucursal no maneja, rojo para lo agotado, «Sin dato» si la lectura es vieja, y los duplicados toman la existencia de su gemelo. No se puede agregar lo que no hay en la sucursal de surtido; la app dice qué sucursal de la zona sí tiene.
+- **App del vendedor:** en cada producto, una tira chica con la existencia de las sucursales de su zona (La Piedad = PH, LPA, 8ES, YU · Zamora = DAMASO, CAN · Morelia = MM, MA). Tocar una sucursal = de ahí se surte ese producto, con su precio. El carrito dice «Se surte en LPA (3) · PH (1)» y el pedido agendado «Se surte en LPA y PH».
+- **Un pedido, varias sucursales:** al mandarlo, cada sucursal recibe SU parte (mismo grupo). Cada parte se surte, se cobra en el Kepler de su sucursal y el repartidor la recoge ahí.
+- **Surtido:** cada sucursal empieza y termina su parte de la ruta; las tarjetas dicen «Parte de P-xxxx · también surte PH».
+- **Mesa y caja:** «Parte de … · se cobra en …», ligar la clave Kepler del cliente en otra sucursal, y la caja del pedido principal liquida también las guías de recolección de otras sucursales, con desglose por sucursal.
+- ⚠️ 3 migraciones aditivas que van **antes** del código. Sin permisos nuevos.
 ### Added — Mesa de Servicio: arrastrar archivos desde el escritorio y adjuntar enlaces de Google (MS.ADJ, 2026-10-22)
 - **Arrastrar y soltar** imágenes y PDF en el recuadro de adjuntos de «Nueva solicitud» y del hilo; lo que no sea imagen ni PDF se rechaza con el aviso de compartirlo por **enlace de Google**. Soltar un archivo fuera del recuadro ya no abre el archivo ni pierde lo escrito.
 - **Enlaces de Google** (Docs, Hojas, Presentaciones, Formularios y Drive), hasta 3 por envío: el servidor los normaliza y valida (host exacto, https, sin credenciales) y nunca los visita. Se ven como chips en el detalle; los de una nota interna no los ve quien reportó. ⚠️ Los enlaces quedan restringidos: quien atiende sólo los abre si se compartieron con su cuenta.

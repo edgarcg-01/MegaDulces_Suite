@@ -5,6 +5,68 @@ unidad (pieza, paquete, caja) y agenda el pedido. Las entradas más nuevas van a
 
 ---
 
+## La existencia dice la verdad y no deja agregar lo que no hay (MCP.3.16, 2026-10-27)
+
+- **Problema:** a 40–64 % del catálogo no se le veía existencia (productos que la sucursal nunca ha manejado), CAN y
+  MM decían «Sin existencias» de lo que no manejan, y 573 productos estaban duplicados (el viejo sin existencia).
+- **Solución:** cuatro estados — «Existencias: N» · rojo «Sin existencias» (agotado) · gris «Sin existencias en PH»
+  al final (no se maneja) · gris «Sin dato de existencia» (lectura vieja). El duplicado toma la existencia de su
+  gemelo. Agregar de una sucursal sin existencia no se deja, y se dice qué sucursal de la zona sí tiene.
+- **Cómo:** `stock_state=1` en el catálogo, `stale`/`checked_at` en la zona y 409 `SIN_EXISTENCIA` en `addLine` /
+  `updateLine`, todo con un solo resolvedor sobre la vista canónica del ODS y la frescura de `ods_live_hot`.
+- **Por qué:** «en blanco» no le decía nada al vendedor y un 0 inventado le quitaba ventas. Sin dato y sin conexión
+  no bloquean: bloquear con un dato que no sabemos sería quitar una venta real.
+
+---
+
+## Indicaciones para el surtidor (MCP.3.15, 2026-10-26)
+
+- **Problema:** el vendedor no tenía dónde decir cómo quiere el cliente su mercancía.
+- **Solución:** en «Tu pedido», antes de agendar, un recuadro «Indicaciones para el surtidor» (una sola para todo
+  el pedido; nombrar el producto) con botón **Dictar**. Si habla de sabores, avisa que cada sabor es otro producto
+  en Kepler y hay que agregarlo por sabor. El «Agendar» de la barra abre «Tu pedido» para que el recuadro se vea.
+- **Cómo:** `notes` en `placeOrder`; dictado con la Web Speech API (`apps/vendor/.../dictado.ts`).
+- **Por qué:** un solo recuadro por pedido (decisión de David). Sin conexión las indicaciones no viajan y se avisa.
+
+---
+
+## Vender de otras sucursales de la zona: «pedido agrupado» (MCP.3.12–3.13, 2026-10-23)
+
+### El problema
+
+Se dio permiso de vender de otras sucursales, pero el vendedor sólo veía y pedía la existencia de SU sucursal, y
+todo el sistema (precio, surtido, ticket de Kepler, guía, liquidación) suponía una sucursal por pedido.
+
+### La solución
+
+- En cada producto, una tira discreta con la existencia de cada sucursal de la zona. Tocar una = de ahí se surte
+  ese producto (con su precio). El carrito y el pedido agendado dicen en qué sucursales se surte.
+- Para el vendedor y el cliente es UN pedido; por dentro, cada sucursal recibe su parte.
+
+### Cómo se implementó
+
+- `GET commercial/vendor-routes/my-zone-stock` (zona = `warehouses.purchase_zone`, existencia de `commercial.stock`).
+- `order_lines.source_warehouse_id` (validado contra la zona en el servidor) y precio de esa sucursal.
+- `place()` separa: los renglones de otra sucursal pasan a una parte (`orders.group_id` = principal); si todo era
+  de otra sucursal, el principal toma esa sucursal (no queda pedido vacío).
+- Surtido de ruta por sucursal (`seller_route_day_picks`), clave Kepler del cliente por sucursal
+  (`customer_branch_keys`), reparto con las partes del grupo y liquidación en una sola caja. ADR-105.
+
+### Después: el vendedor ve UN pedido (MCP.3.14, 2026-10-26)
+
+- La lista de pedidos del vendedor (`GET commercial/orders?group=1`) trae un renglón por grupo, con el total
+  sumado, y `group_parts` con la sucursal, el estado y el surtido de cada parte.
+- El estado por sucursal sólo se muestra si surten 2+ (si surte una, se ve como cualquier pedido).
+- Almacén, mesa y caja no piden `group`: siguen viendo cada parte, porque cada sucursal surte y cobra la suya.
+
+### Por qué se hizo así
+
+- Separar en partes deja cada parte como un pedido de UNA sucursal: surtido, ticket y guía siguen funcionando
+  como hoy. Poner la sucursal en cada renglón obligaba a rehacer ~30 puntos del sistema.
+- Se cobra en cada sucursal porque cada Kepler registra lo que salió de su almacén (regla de David).
+
+---
+
 ## La fecha de entrega es hoy por omisión (MCP.3.4, 2026-10-20)
 
 ### El problema
