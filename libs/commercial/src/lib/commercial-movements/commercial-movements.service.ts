@@ -480,7 +480,7 @@ export class CommercialMovementsService {
       // sucursales y tipos distintos. `COUNT(DISTINCT m.folio)` publicaba 3,772 documentos en
       // 30 d cuando eran 8,139 (medido en prod 2026-10-28). Se cuenta agrupando en un subquery:
       // `COUNT(DISTINCT (…4 columnas…))` da lo mismo pero cuesta 10× (48 ms contra 520 ms en 30 d).
-      const [docs] = await trx.count('* as n').from(
+      const [docs] = await trx.count<{ n: string | number }[]>('* as n').from(
         this.base(trx, tenantId, q).groupBy(...DOC_IDENTITY).select(trx.raw('1')).as('d'),
       );
       tot.documentos = Number(docs?.n ?? 0);
