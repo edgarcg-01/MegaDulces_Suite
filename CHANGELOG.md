@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Fixed — Etiquetas: el código del producto ya no se corta (ETQ-CODIGO, 2026-10-28)
+- El mostrador reportó que en la etiqueta sólo salían 3 números del código: `CANELS GOMITAS TUENI 1.35 KG` (SKU **20750**) imprimió **«Código: 207»**. El dato estaba bien; el renglón «1.35 kg | Código: 20750» **no cabía** en su columna de 34 mm y lo que no cabe se cortaba (sólo se salvaba si un ajuste de JavaScript lo encogía).
+- Ahora el renglón **cabe sin JavaScript**: su tamaño tiene un tope calculado por el largo del texto. El ajuste sólo lo agranda hasta donde quepa, así que las etiquetas que ya salían bien no cambian de tamaño.
+- El arnés de geometría de etiquetas gana el invariante **`codigo_recortado`** (ninguno de los 8 anteriores miraba este renglón). Sin el arreglo da **2 etiquetas rotas de 221**: la 20750 y la 01001, que nadie había reportado; con el arreglo, 0.
+- Sin migración, sin permiso, sin endpoint. No medido: la impresión física, ni las etiquetas en promoción (su renglón va en otra columna y no lleva el tope).
+
 ### Added — Etiquetas: pestaña «Historial de precios» (ETQ-HISTORIAL, 2026-10-28)
 - Nueva pestaña **«Historial de precios»** junto a «Cambios de precio» (`/tienda/etiquetas/historial`, mismo permiso): se busca un producto y se despliegan sus cambios de precio de las **9 plazas**. Por omisión muestra **todas las filas** de la bitácora de Kepler; «Agrupar repetidos» las funde en tramos (Kepler reescribe el mismo cambio varias veces: en un producto medido, 676 de 686 pasos repetían el precio). Filtros por rango (90 días / 1 año / todo), plaza y presentación.
 - Una promoción de Kepler («= GRATIS») no se puede elegir: no es un producto. «Sin cambios registrados» se distingue de «no se pudo leer».

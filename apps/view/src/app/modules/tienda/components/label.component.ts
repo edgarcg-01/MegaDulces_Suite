@@ -91,6 +91,20 @@ const MONTO_MM = 5.4;
  */
 const META_MM = 3.2;
 const META_ALTO_MM = 5.1;
+/**
+ * `[ETQ-CODIGO]` Tope del renglón SIN JavaScript: el cuerpo no pasa de `META_ANCHO_MM / (caracteres × META_EM_CAR)`.
+ *
+ * Reporte del mostrador (2026-10-28): una etiqueta con "1.35 kg | Código: 20750" imprimió **"Código: 207"**. El renglón
+ * es `nowrap` + `overflow:hidden` en una columna de 34 mm, y a su cuerpo de arranque (3.2 mm) ese texto mide 134 px
+ * contra 129 de columna (142 sin las tipografías): lo que no cabe SE CORTA, y el código es lo que la cajera teclea
+ * cuando el lector falla. Cabía sólo porque `fitMeta` lo encogía; si ese ajuste no corre o mide mal, sale cortado.
+ * Es el mismo defecto que ETQ-FIT.1 cerró en los renglones de precio y que acá quedó abierto.
+ *
+ * `META_EM_CAR` = 0.58 em por carácter: lo medido es 0.49 con tipografías y 0.52 sin ellas, y se deja ~10 % de margen.
+ * `META_ANCHO_MM` = 34 de la columna − 2.4 de los dos huecos. Duplicados en el CSS (`.etq-meta`); el spec los exige iguales.
+ */
+export const META_ANCHO_MM = 31.6;
+export const META_EM_CAR = 0.58;
 /** Franja de la unidad: arranque del auto-ajuste de la PALABRA (pieza/paquete/caja/kg). */
 const UNIDAD_MM = 4.2;
 
@@ -528,6 +542,8 @@ export interface RenglonEtiqueta {
        candado exige que coincidan. Es el alto que el renglón ya tenía con Baloo 2 cargada,
        elegido así a propósito: las 8,709 etiquetas que hoy salen bien no cambian de tamaño. */
     .etq-meta{ display:flex; align-items:center; gap:1.2mm; font-weight:800; font-size:3.2mm;
+      /* [ETQ-CODIGO] Tope por largo del texto (--etq-meta-n = caracteres): cabe SIN JavaScript. Ver META_ANCHO_MM. */
+      font-size:min(3.2mm, calc(31.6mm / (max(var(--etq-meta-n, 1), 1) * 0.58)));
       height:5.1mm; min-height:5.1mm; line-height:1; margin-bottom:.8mm;
       white-space:nowrap; overflow:hidden; font-variant-numeric:tabular-nums; }
     .etq-meta .sep{ color:var(--green); opacity:.5; }
@@ -708,7 +724,7 @@ export interface RenglonEtiqueta {
       <div class="etq-body">
         <div class="etq-left">
           @if (!enPromo) {
-            <div class="etq-meta" #meta>
+            <div class="etq-meta" #meta [style.--etq-meta-n]="caracteresMeta">
               @if (contenidoDelHero; as ch) { <span>{{ ch }}</span><span class="sep">|</span> }
               <span>Código: <span class="etq-red">{{ model.sku }}</span></span>
             </div>
@@ -916,6 +932,12 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
    * Se cae a `model.content` SÓLO cuando no hay lista (253 pares, todos con `kdii.c11` vacío):
    * ahí el contenido del nombre es lo único que hay, y es mejor que nada.
    */
+  /** `[ETQ-CODIGO]` Caracteres del renglón "contenido | Código: NNNNN": el insumo del tope en CSS de `.etq-meta`. */
+  get caracteresMeta(): number {
+    const ch = this.contenidoDelHero;
+    return (ch ? ch.length + 1 : 0) + 'Código: '.length + String(this.model?.sku ?? '').length;
+  }
+
   get contenidoDelHero(): string | null {
     const h = this.heroPres;
     if (h) return h.contenido ?? null;
@@ -1710,13 +1732,25 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
   private fitMeta(): void {
     const meta = this.meta?.nativeElement;
     if (!meta) return;
-    let size = META_MM;
-    meta.style.fontSize = size + 'mm'; // anti-trinquete: siempre desde la constante
+    // [ETQ-CODIGO] Arranca del tope que puso el CSS (inline vacío → se lee el CALCULADO), no de la constante: el
+    // ajuste pasa de ser lo que hace caber el renglón a MEJORAR una base que ya cabe. Anti-trinquete: el inline se
+    // limpia siempre antes de leer.
+    meta.style.fontSize = '';
+    const cssMm = parseFloat(getComputedStyle(meta).fontSize) / 96 * 25.4;
+    let size = cssMm > 0 ? Math.min(META_MM, cssMm) : META_MM;
+    meta.style.fontSize = size + 'mm';
     if (!(meta.clientWidth > 0)) return; // sin medida no se toca (ver fitPrice)
     let guard = 0;
     while (meta.scrollWidth > meta.clientWidth && size > 2.2 && guard++ < 40) {
       size -= 0.1;
       meta.style.fontSize = size + 'mm';
+    }
+    // Crece mientras quepa, hasta la constante: el tope del CSS es conservador a propósito y no debe achicar las
+    // etiquetas que hoy salen bien.
+    while (size + 0.1 <= META_MM + 1e-6 && guard++ < 80) {
+      meta.style.fontSize = (size + 0.1) + 'mm';
+      if (meta.scrollWidth > meta.clientWidth) { meta.style.fontSize = size + 'mm'; break; }
+      size += 0.1;
     }
   }
 

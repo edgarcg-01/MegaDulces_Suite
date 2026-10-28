@@ -404,6 +404,40 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
   });
 
   /**
+   * ⭐⭐ `[ETQ-CODIGO]` El renglón del código CABE SIN JAVASCRIPT.
+   *
+   * Reporte del mostrador (2026-10-28): "1.35 kg | Código: 20750" imprimió "Código: 207". El renglón es `nowrap`
+   * + `overflow:hidden` en 34 mm y a 3.2 mm mide 134 px contra 129: sólo cabía porque `fitMeta` lo encogía.
+   * El arnés (`codigo_recortado`) lo mide sin ajustes: sin este tope da 2 etiquetas rotas (20750 y 01001).
+   */
+  it('⭐ el renglón del código lleva un tope en CSS por largo de texto, igual a las constantes del TS', () => {
+    const meta = /\.etq-meta\{([\s\S]*?)\}/.exec(LABEL)![1];
+    const tope = /font-size:min\(([\d.]+)mm, calc\(([\d.]+)mm \/ \(max\(var\(--etq-meta-n, 1\), 1\) \* ([\d.]+)\)\)\)/.exec(meta);
+    expect(tope).not.toBeNull();
+    expect(Number(tope![1])).toBe(Number(/const META_MM = ([\d.]+)/.exec(LABEL)![1]));
+    expect(Number(tope![2])).toBe(Number(/const META_ANCHO_MM = ([\d.]+)/.exec(LABEL)![1]));
+    expect(Number(tope![3])).toBe(Number(/const META_EM_CAR = ([\d.]+)/.exec(LABEL)![1]));
+    // 34 mm de la columna izquierda − los dos huecos de 1.2 mm del renglón
+    expect(Number(/const META_ANCHO_MM = ([\d.]+)/.exec(LABEL)![1])).toBeCloseTo(34 - 2 * 1.2, 5);
+  });
+
+  it('⭐ la plantilla entrega al CSS el largo del renglón (contenido + separador + "Código: " + SKU)', () => {
+    expect(LABEL).toMatch(/class="etq-meta" #meta \[style\.--etq-meta-n\]="caracteresMeta"/);
+    const getter = /get caracteresMeta\(\): number \{([\s\S]*?)\n  \}/.exec(LABEL)![1];
+    expect(getter).toContain('contenidoDelHero');
+    expect(getter).toContain("'Código: '.length");
+    expect(getter).toContain('model?.sku');
+  });
+
+  it('⭐ el ajuste del código ARRANCA del tope del CSS y sólo crece hasta la constante (no achica lo que hoy sale bien)', () => {
+    const fit = /private fitMeta\(\): void \{([\s\S]*?)\n  \}/.exec(LABEL)![1];
+    expect(fit).toContain("meta.style.fontSize = ''");          // anti-trinquete: lee el calculado con el inline vacío
+    expect(fit).toContain('getComputedStyle(meta).fontSize');
+    expect(fit).toContain('Math.min(META_MM, cssMm)');
+    expect(fit).toMatch(/size \+ 0\.1 <= META_MM/);              // crece, y nunca pasa de la constante
+  });
+
+  /**
    * ⭐ El diagnóstico de la pantalla mira las fuentes que DECIDEN el tamaño.
    *
    * Comprobaba sólo Anton —la del número— y podía pintar "tipografía ✓" con Baloo 2 sin cargar,

@@ -283,6 +283,33 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-28 — `[ETQ-CODIGO]` La etiqueta imprimió «Código: 207» en vez de «20750»
+
+**Reporte del mostrador:** «sólo está saliendo 3 números en el código en vez de los 5 dígitos que tiene cada código». Foto: la etiqueta de `CANELS GOMITAS TUENI 1.35 KG` con `Código: 207` pegado al panel de mayoreo.
+
+**Primero, ¿es el dato?** No. Medido en prod (sólo lectura, `system_identifier` 7688376744939610156): el código de barras `018804057656` de la foto es el SKU **`20750`** (5 caracteres) y los precios de la foto ($119.77 · $886.88 · $111.85) coinciden con `analytics.v_label_prices`. De los 13,727 SKU numéricos del catálogo, **13,704 tienen 5 dígitos**: no hay truncamiento en el dato. Se cortaba al **dibujar**.
+
+**Causa medida (Chrome con las tipografías reales y sin ellas):** `.etq-meta` es `nowrap` + `overflow:hidden` en la columna izquierda de **34 mm**. A su cuerpo de arranque (3.2 mm) «1.35 kg | Código: 20750» mide **134 px contra 129** (142 sin tipografías): lo que no cabe se corta. Cabía sólo porque `fitMeta` (JavaScript) lo encogía a 3.0 mm; cuando ese ajuste no corre o mide mal, el código —que es lo que la cajera teclea cuando el lector falla— sale cortado. **Es el mismo defecto que ETQ-FIT.1 cerró en los renglones de precio** («el ajuste era la CONDICIÓN de que la etiqueta fuera correcta»), y acá quedó abierto.
+
+⭐ **Por qué ninguna compuerta lo vio:** el arnés de geometría tiene 8 invariantes y **ninguno mira el renglón del código**; además no reimplementa `fitMeta`. Esta etiqueta le salía verde.
+
+**Qué se hizo**
+1. **El renglón cabe sin JavaScript.** CSS: `font-size:min(3.2mm, calc(31.6mm / (max(var(--etq-meta-n,1),1) * 0.58)))`; la plantilla entrega `--etq-meta-n` = caracteres de «contenido + separador + "Código: " + SKU» (`caracteresMeta`). `0.58 em/carácter` sale de lo medido (0.49 con tipografías, 0.52 sin ellas) con ~10 % de margen; `31.6 mm` = 34 − los dos huecos de 1.2. `fitMeta` ahora **arranca del tope del CSS** y **crece** mientras quepa hasta `META_MM`: es una mejora sobre una base que ya cabe, y no achica las etiquetas que hoy salen bien (20750: 2.99 mm, lo mismo que daba el ajuste viejo).
+2. **El arnés ve el hueco.** Invariante nuevo `codigo_recortado`, medido **sin ningún ajuste de JavaScript**; el HTML del arnés pasa `--etq-meta-n`; `20750` entra al corpus congelado (221 filas) y a `TESTIGOS` del builder.
+3. **Candados** en `etiqueta-hoja.spec.ts` (3): el tope del CSS es igual a las constantes del TS · la plantilla entrega el largo · `fitMeta` arranca del calculado y no pasa de la constante.
+
+**Prueba negativa (regla 12):** sin el tope en el CSS, `codigo_recortado` da **2 de 221 — `20750` y `01001`** (otra etiqueta con el mismo defecto, que nadie había reportado); con el tope, **0**, con y sin tipografías. Y el candado nuevo del spec se pone rojo si se quita el tope.
+
+**Resultados:** arnés con y sin tipografías, los 9 invariantes en **0** · `etiqueta-hoja.spec` **53 ✅** · suite `tienda` **446 ✅** · `check:templates` ✅. En la **app real** (tu `:4200`, usuario local, API **simulada** con los datos reales de prod: ninguna base se tocó): `--etq-meta-n` = 21, renglón 129 de 129 px, 2.99 mm, `data-etq-fit="ok"`, imagen revisada.
+
+**⚠️ NO MEDIDO (declarado)**
+- **Por qué `fitMeta` no corrió** en el equipo que imprimió: no hay captura de ese equipo (tipografías, navegador, hoja o «Imprimir» directo). El arreglo 1 hace que ya no dependa de eso; la causa de fondo queda abierta.
+- **La impresión física** (papel y escala): sólo se vio en pantalla.
+- **Etiquetas en promoción** (`enPromo`, el renglón va en la columna derecha, 43.4 mm): su plantilla **no pasa la variable**, así que **no tiene el tope** y sigue dependiendo de `fitMeta`. El arnés tampoco arma ese diseño.
+- El bucle del arnés **reimplementa** los del componente: lo medido en la app real es una sola etiqueta.
+- Sin el ajuste de JS, las etiquetas de **18 o más caracteres** salen un poco más chicas que antes (todas se leen completas); con el ajuste, vuelven a su tamaño.
+- Por la medición, el corpus **cambia sólo en una fila** (el 20750, agregada a mano; el resto y los pesos siguen congelados).
+
 ## 2026-10-28 — `[ETQ-HISTORIAL]` Buscar un producto y ver su historial de cambios de precio (9 plazas)
 
 **Pedido:** «agregar un buscador de productos para que nos despliegue su historial de cambio de precios… probarlo en local para revisarlo y mandar su PR». Plan, decisiones y bitácora en [`FASE_ETQ_HISTORIAL_PRECIOS`](FASES/FASE_ETQ_HISTORIAL_PRECIOS.md).
