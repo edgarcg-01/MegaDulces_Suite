@@ -651,6 +651,14 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   conmutador de arriba (con Q22–Q27 no se podían abrir) · neto sin medir declarado en la tarjeta
   y en Aprobar · pago vencido visible · `cobertura_dias` con rótulo · tabulador de sólo lectura
   sin permiso.
+- **`[RD.93]` 🧪 El contraste de Q21 en adelante: libro contra la corrida del MOTOR.** La pestaña
+  «Libro vs motor» no sirve desde Q21 (la corrida viva ya es del motor y el libro llega después;
+  cargarlo como corrida choca con `una_viva_por_periodo` y sería otra copia). Queda listo
+  `node database/scripts/comparar-libro-motor-rd.js "<libro>.xlsx" --q 21 [--csv salida.csv]`:
+  sólo lectura en prod, mismo veredicto que la vista, mismo lector del Excel que el espejo
+  (extraído a `database/scripts/lib/libro-comisiones-rd.js`; salida del cargador idéntica antes y
+  después). Controles: Q20 contra su espejo **10/10 cuadran** · libro Q19 contra motor Q20
+  **0/11**. ⛔ El libro más nuevo en mano (8-oct) trae Q1–Q20: **falta el Excel con Q21**.
 
 #### Transversal
 
