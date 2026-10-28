@@ -182,9 +182,21 @@ async function leerPorLlave(p, tabla, meta, llaves, { esquemaFuente = 'md' } = {
     ? `t.${qid(k)} = k.${qid(k)}`
     : `t.${qid(k)}::text = k.${qid(k)}`)).join(' AND ');
   const sel = meta.cols.map((c) => `t.${qid(c.column_name)}`).join(', ');
+  // ⛔ [OPS-AUD.13.3] La llave de la fila se arma con `to_jsonb` —la MISMA función con la que el trigger
+  // anota la cola— para que `firma()` compare igual con igual. Con la fila tal cual la entrega `pg`,
+  // un `timestamp` de la PK (`c2` en `kdc2YYMM`) llega como `Date` y `String(Date)` nunca coincide con
+  // el `"2026-01-19T00:00:00"` de la cola: TODA llave con fecha se daba por borrada en el origen y
+  // `ODS_COLA_BORRAR` borraba del ODS la póliza recién embarcada (medido 2026-10-28: 98 de 98).
+  const llaveSql = `jsonb_build_object(${meta.pk.map((k) => `${lit(k)}, to_jsonb(t) -> ${lit(k)}`).join(', ')})`;
   const { rows } = await p.query(
-    `SELECT ${sel} FROM ${qid(esquemaFuente)}.${qid(tabla)} t
+    `SELECT ${sel}, ${llaveSql} AS "__llave" FROM ${qid(esquemaFuente)}.${qid(tabla)} t
        JOIN jsonb_to_recordset($1::jsonb) AS k(${def}) ON ${on}`, [JSON.stringify(llaves)]);
+  // La llave viaja NO enumerable: quien embarca hace `{ ...row }` y no debe mandarla como columna.
+  for (const row of rows) {
+    const llave = row.__llave;
+    delete row.__llave;
+    Object.defineProperty(row, '__llave', { value: llave, enumerable: false });
+  }
   return rows;
 }
 
@@ -233,7 +245,7 @@ async function drenarCola(p, { tablas, metaDe, enviar, borrar = null, lote = LOT
     // Llave sin fila = se borró en el origen. Por defecto se CUENTA y no se propaga (ver
     // encabezado). `[OBS.15.10]` Con `borrar`, quien llama decide qué propagar —con sus frenos—;
     // va ANTES de vaciar la cola: si tira, las entradas se quedan y se reintentan.
-    const presentes = new Set(filas.map((f) => firma(meta.pk, f)));
+    const presentes = new Set(filas.map((f) => firma(meta.pk, f.__llave || f)));
     const sinFila = llaves.filter((k) => !presentes.has(firma(meta.pk, k)));
     const rb = borrar && sinFila.length ? await borrar(tabla, meta, sinFila) : null;
     await p.query(`DELETE FROM ${cola} WHERE id = ANY($1::bigint[])`, [ids]);
