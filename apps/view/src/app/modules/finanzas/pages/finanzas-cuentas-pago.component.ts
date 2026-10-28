@@ -133,6 +133,8 @@ interface ChangeRequest {
                     } @else {
                       <span class="cta-prop-no">{{ prop.motivo }}</span>
                     }
+                  } @else if (errorPropuestas()) {
+                    <span class="cta-prop-nm">no se pudo medir</span>
                   } @else {
                     <span class="cta-muted">nunca declaró una</span>
                   }
@@ -304,6 +306,7 @@ interface ChangeRequest {
     .cta-prop-sub { display:block; font-size:var(--fs-xs); color:var(--text-muted); }
     .cta-prop-no { font-size:var(--fs-xs); color:var(--text-muted); display:block; max-width:26ch; white-space:normal; }
     .cta-prop-wait { font-size:var(--fs-xs); font-style:italic; }
+    .cta-prop-nm { font-size:var(--fs-xs); color:var(--warn-fg); font-style:italic; }
     .cta-evid { border:1px solid var(--border-color); border-left:3px solid var(--ok-fg);
                 border-radius:var(--r-sm); padding:.5rem .6rem; margin:.2rem 0 .6rem; }
     .cta-evid-t { margin:0 0 .3rem; font-size:var(--fs-sm); display:flex; align-items:center; gap:.35rem; }
@@ -359,6 +362,13 @@ export class FinanzasCuentasPagoComponent implements OnInit {
    */
   propuestas = signal<ReadonlyMap<string, CuentaPagoPropuesta>>(new Map());
   loadingPropuestas = signal(false);
+  /**
+   * ⛔ **No se fusiona con «nunca declaró una»** (ADR-056). Si la vista no está publicada o la
+   * consulta falla, el mapa queda vacío **igual que si nadie hubiera declarado cuenta**, y la
+   * columna afirmaría que 21 proveedores que SÍ la declararon no tienen ninguna. Lo no medido
+   * se declara.
+   */
+  errorPropuestas = signal(false);
   /** La propuesta con la que se precargó el diálogo abierto. `null` si se abrió a mano. */
   propuestaUsada = signal<CuentaPagoPropuesta | null>(null);
 
@@ -366,20 +376,23 @@ export class FinanzasCuentasPagoComponent implements OnInit {
 
   /**
    * ⚠️ **Diferida y sin bloquear, a propósito.** La vista que la alimenta encadena
-   * `analytics.v_supplier_rfc`, que recorre los CFDI recibidos: medida el 2026-10-28 **sin** el
-   * índice de `[PGP.27]` cuesta **9.2 s**, y con el índice está **NO MEDIDO**. La tabla se pinta
-   * completa y la columna aparece después; si falla, la pantalla sigue sirviendo exactamente
-   * como antes — la propuesta es un acelerador, no un requisito.
+   * `analytics.v_supplier_rfc`: medida contra prod el 2026-10-28 cuesta **794 ms**. La tabla se
+   * pinta completa y la columna aparece después; si falla, la pantalla sigue sirviendo
+   * exactamente como antes — la propuesta es un acelerador, no un requisito.
+   *
+   * ⭐ Pero «falla» NO se pinta como «no tiene»: ver `errorPropuestas`.
    */
   loadPropuestas(): void {
     this.loadingPropuestas.set(true);
+    this.errorPropuestas.set(false);
     this.http.get<CuentaPagoPropuesta[]>(`${this.base}/propuestas`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (rows) => {
         this.propuestas.set(new Map((rows ?? []).map((r) => [String(r.codigo ?? '').trim(), r])));
         this.loadingPropuestas.set(false);
       },
       // Sin toast: no es un error del trabajo de la persona, y la pantalla no depende de esto.
-      error: () => { this.loadingPropuestas.set(false); },
+      // Pero SÍ se declara en la columna — un mapa vacío por falla no es un mapa vacío por dato.
+      error: () => { this.errorPropuestas.set(true); this.loadingPropuestas.set(false); },
     });
   }
 
