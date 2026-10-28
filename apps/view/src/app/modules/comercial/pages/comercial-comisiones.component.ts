@@ -24,6 +24,10 @@ import {
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
 
+/** `[RD.92]` Lo que el conmutador de arriba puede mostrar. */
+const VISTAS = ['quincena', 'objetivo', 'padron', 'bonos', 'tabulador'] as const;
+type Vista = typeof VISTAS[number];
+
 /**
  * RD.6 / RD.17-RD.21 — Comisiones de Ruta Directa. **Pantalla de verificacion, sin acciones.**
  *
@@ -285,19 +289,393 @@ import { PermissionsService } from '../../../core/services/permissions.service';
            quincena y el objetivo es MENSUAL. Colgarlo ahi haria que cambiara de significado al
            elegir otra quincena. Por eso el conmutador va a este nivel, sobre el eje del tiempo.
            ⚠️ La de Logistica (/finanzas/comisiones-logistica) NO entra: otro permiso, otra
-           poblacion (choferes de embarque) y otro dominio. Fundirla filtraria nomina de RD. -->
-      <!-- ⚠️ app-segmented emite string (sirve a toda la suite) y el signal es de una union de
-           dos. Se estrecha en un metodo: vista.set($event) tipa mal, y vitest NO tipa las
+           poblacion (choferes de embarque) y otro dominio. Fundirla filtraria nomina de RD.
+           [RD.92] Quién cobra, Bonos y Tabulador suben a ESTE nivel por la misma razon: no son
+           de una quincena. Colgados de las pestanas de la quincena desaparecian al elegir una
+           sin corrida (Q22 a Q27), y su comentario afirmaba lo contrario. -->
+      <!-- ⚠️ app-segmented emite string (sirve a toda la suite) y el signal es de una union.
+           Se estrecha en un metodo: vista.set($event) tipa mal, y vitest NO tipa las
            plantillas — el error solo sale en Build & typecheck o en check-template-types. -->
-      <app-segmented [options]="vistas" [value]="vista()" (valueChange)="verVista($event)"
-                     ariaLabel="Qué comisión" />
+      <app-segmented [options]="vistas()" [value]="vista()" (valueChange)="verVista($event)"
+                     ariaLabel="Qué se está viendo" />
 
       @if (vista() === 'objetivo') {
         <app-comercial-comisiones-objetivo [embebido]="true" />
+      } @else if (vista() === 'padron') {
+        <!-- [RD.80] El padron NO mira la corrida: mira quien esta dado de alta para cobrar
+             y si su fuente sigue viva. La pestana "No comisionan" no podia contestar esto
+             porque sale de las lineas del espejo del libro. -->
+        @if (padronEnRiesgo(); as n) {
+          <p class="cm-falto-grito">
+            <strong class="cm-neg">{{ n }}</strong>
+            ruta(s) <strong>cobran comision y su fuente no da senal</strong>.
+            El tabulador es escalonado: sin dias no se paga &laquo;un poco menos&raquo;,
+            se paga <strong class="cm-neg">$0</strong>.
+          </p>
+        }
+        @if (padronVendeSinCobrar(); as m) {
+          <p class="cm-muted cm-micro">
+            Y {{ money(m) }} de <strong>subtotal</strong> en 30 dias esta en rutas que
+            <strong>no comisionan</strong>. Puede ser correcto — las vecinales no son Ruta
+            Directa — pero con el monto al lado la exclusion se puede revisar.
+          </p>
+        }
+        <div class="cm-table-wrap">
+          <table class="surf-table surf-table--plain surf-table--sticky">
+            <thead><tr>
+              <!-- [AUD] "Vendio" decia una cosa y la celda pintaba otra: el valor es
+                   subtotal_30d, y subtotal y venta difieren 6.4% ($399,857 en 30 dias).
+                   El diccionario de esta misma pantalla ya ensena la diferencia, y el
+                   subtotal es ademas la BASE con que se calcula la comision. -->
+              <th>Ruta</th><th>Chofer</th><th>Plaza o zona</th>
+              <th>Comisiona</th><th>Ultimo dia con dato</th>
+              <th class="comm-num">Subtotal (30 d)</th><th>Que pasa</th>
+            </tr></thead>
+            <tbody>
+              @for (r of padronHallazgos(); track r.route_code) {
+                <tr [class.cm-fila-grito]="r.problema === 'cobra_sin_fuente'">
+                  <td class="comm-num">{{ r.route_code }}</td>
+                  <td class="cm-name">{{ r.chofer_nombre || '—' }}</td>
+                  <td class="cm-muted">{{ r.plaza_o_zona || '—' }}</td>
+                  <td>
+                    <p-tag [severity]="r.comisiona ? 'success' : 'secondary'"
+                           [value]="r.comisiona ? 'si' : 'no'" />
+                  </td>
+                  <td [class.cm-corta]="r.fuente_estado !== 'viva'">
+                    {{ etiquetaFuente(r) }}
+                    @if (r.ultimo_dia_con_dato) {
+                      <span class="cm-muted cm-micro"> · {{ dia(r.ultimo_dia_con_dato) }}</span>
+                    }
+                  </td>
+                  <td class="comm-num cm-mono">{{ money(r.subtotal_30d) }}</td>
+                  <td class="cm-nota">
+                    <p-tag [severity]="sevProblema(r.problema)"
+                           [value]="etiquetaProblema(r.problema)" />
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        <!-- [RD.84] El padron EDITABLE. Va DEBAJO de los hallazgos a proposito: primero
+             que pasa, despues con que se arregla. Y es otra tabla, no la misma: la de
+             arriba es el universo DERIVADO del ERP (todas las rutas que existen) y no se
+             puede editar; esta son las filas de commission_route_config, que si. -->
+        <section class="cm-padron">
+          <div class="cm-padron-tit">
+            <div>
+              <p class="cm-eyebrow">El padrón</p>
+              <p class="cm-muted cm-micro">
+                Quién cobra comisión de Ruta Directa, desde cuándo y hasta cuándo.
+                Hasta hoy esto se cambiaba con una migración: mover las rutas 321 y 322 a
+                Vecinal —una decisión de Comercial— costó un despliegue.
+              </p>
+            </div>
+            @if (puedeGestionar()) {
+              <button type="button" class="cm-btn" (click)="abrirAlta()">
+                <i class="pi pi-plus" aria-hidden="true"></i> Dar de alta una ruta
+              </button>
+            }
+          </div>
+          <div class="cm-table-wrap">
+            <table class="surf-table surf-table--plain surf-table--sticky">
+              <thead><tr>
+                <th>Ruta</th><th>Chofer</th><th>Supervisor</th>
+                <th class="comm-num">Nómina de banco</th>
+                <th>Vigencia</th><th class="comm-num">Ya pagado</th><th></th>
+              </tr></thead>
+              <tbody>
+                @for (p of padronFilas(); track p.id) {
+                  <tr [class.cm-fila-baja]="!p.activo">
+                    <td class="comm-num">{{ p.route_code }}</td>
+                    <td class="cm-name">{{ p.chofer_nombre || '—' }}</td>
+                    <td class="cm-muted">{{ p.supervisor_nombre || '—' }}</td>
+                    <td class="comm-num cm-mono">{{ money(p.nomina_banco) }}</td>
+                    <td>{{ vigencia(p) }}</td>
+                    <td class="comm-num cm-mono">
+                      @if (p.quincenas_pagadas) {
+                        {{ money(p.pagado_historico) }}
+                        <span class="cm-muted cm-micro"> · {{ p.quincenas_pagadas }} q</span>
+                      } @else { <span class="cm-muted">—</span> }
+                    </td>
+                    <td>
+                      @if (puedeGestionar()) {
+                        <button type="button" class="cm-btn-sec cm-btn-min"
+                                (click)="abrirEdicion(p)">Editar</button>
+                      }
+                    </td>
+                  </tr>
+                } @empty {
+                  <tr><td colspan="7" class="cm-empty">
+                    El padrón está vacío: ninguna ruta cobra comisión de Ruta Directa.
+                  </td></tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          @if (padronErr(); as e) {
+            <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+          }
+        </section>
+
+        <p class="cm-warn">
+          <i class="pi pi-info-circle" aria-hidden="true"></i>
+          <span>
+            <strong>La lista de arriba no decide nada: lo declara.</strong> Que una ruta siga
+            cobrando con la fuente muerta, o que una que vende quede fuera, son
+            <strong>decisiones de Direccion</strong> — la 321 y la 322 operan hoy en el ERP
+            con codigo nuevo, y si la comision sigue al chofer o al tipo de ruta no lo puede
+            resolver una pantalla. Lo que la pantalla si puede hacer es que la contradiccion
+            deje de ser invisible — y, desde <strong>[RD.84]</strong>, que la decision
+            <strong>se registre aqui</strong>: la tabla de abajo es el padron, y se edita.
+            <br />
+            <strong>De donde sale:</strong> del <em>padron derivado</em> —todas las rutas que
+            existen, comisionen o no— y de su venta de los ultimos <strong>30 dias</strong>.
+            <strong>No sale de la quincena</strong>, asi que no depende de que haya corrida
+            ni cambia al elegir otro periodo. La pestana <em>No comisionan</em> es otra cosa:
+            sale de las <strong>lineas de la corrida</strong> y habla solo de ese periodo.
+          </span>
+        </p>
+      } @else if (vista() === 'bonos') {
+        <!-- [RD.85] Los bonos se capturaban por migracion: la tabla tenia UPDATE y ningun
+             INSERT. El libro pago $140,800 en bonos en 20 quincenas -- $7,040 por
+             quincena, mas que la comision de varias rutas juntas. -->
+        <div class="cm-padron-tit">
+          <div>
+            <p class="cm-eyebrow">Bonos vigentes</p>
+            <p class="cm-muted cm-micro">
+              Lo que se suma a la comisión cuando una ruta pasa su umbral.
+              Cuelgan del <strong>tabulador vigente</strong>
+              @if (bonos()[0]?.escala_desde) { (desde {{ dia(bonos()[0].escala_desde!) }}) }
+              y una versión nueva los hereda.
+            </p>
+          </div>
+          @if (puedeGestionar()) {
+            <button type="button" class="cm-btn" (click)="abrirBonoAlta()">
+              <i class="pi pi-plus" aria-hidden="true"></i> Nuevo bono
+            </button>
+          }
+        </div>
+        <div class="cm-table-wrap">
+          <table class="surf-table surf-table--plain surf-table--sticky">
+            <thead><tr>
+              <th>Bono</th><th>Para</th><th>Ruta</th><th>Periodo</th>
+              <th>Se cumple cuando</th><th class="comm-num">Paga</th>
+              <th>Estado</th><th></th>
+            </tr></thead>
+            <tbody>
+              @for (b of bonos(); track b.id) {
+                <tr [class.cm-fila-baja]="!b.activo">
+                  <td class="cm-name">{{ b.nombre }}</td>
+                  <td class="cm-muted">{{ b.beneficiario }}</td>
+                  <td class="comm-num">{{ b.route_code || 'todas' }}</td>
+                  <td>
+                    <!-- ⚠️ El periodo se pinta SIEMPRE: es lo que impide que un bono
+                         mensual entre a las dos quincenas y se pague dos veces. -->
+                    <p-tag [severity]="b.periodo === 'mes' ? 'info' : 'secondary'"
+                           [value]="b.periodo === 'mes' ? 'mensual' : 'quincenal'" />
+                  </td>
+                  <td class="cm-nota">{{ reglaBono(b) }}</td>
+                  <td class="comm-num cm-mono">{{ money(b.monto) }}</td>
+                  <td>
+                    <p-tag [severity]="b.activo ? 'success' : 'secondary'"
+                           [value]="b.activo ? 'activo' : 'apagado'" />
+                  </td>
+                  <td>
+                    @if (puedeGestionar() && !b.grupo) {
+                      <button type="button" class="cm-btn-sec cm-btn-min"
+                              (click)="abrirBonoEdicion(b)">Editar</button>
+                    } @else if (b.grupo) {
+                      <span class="cm-muted cm-micro">en «Bono por objetivo»</span>
+                    }
+                  </td>
+                </tr>
+              } @empty {
+                <tr><td colspan="8" class="cm-empty">
+                  El tabulador vigente no tiene ningún bono configurado.
+                  <strong>Eso no es «nadie cobró bono»: es que no hay ninguno que cobrar.</strong>
+                </td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        @if (bonoErr(); as e) {
+          <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+        }
+      } @else if (vista() === 'tabulador') {
+        <!-- [RD.86] El tabulador. ⛔ Hasta hoy NINGUNA pantalla consumia /scales: el
+             endpoint existia desde [RD.66] y el numero que decide el porcentaje de cada
+             peso solo se podia cambiar por curl.
+
+             La regla de esta pestana: NO se puede estrenar sin simular antes. El
+             tabulador es un acantilado y mover un escalon no cambia un porcentaje --
+             apaga depositos enteros. -->
+        <div class="cm-padron-tit">
+          <div>
+            <p class="cm-eyebrow">El tabulador</p>
+            <p class="cm-muted cm-micro">
+              Lo que decide el porcentaje de cada peso. La compuerta la abre la
+              <strong>venta</strong>; el porcentaje se aplica sobre el
+              <strong>subtotal</strong>.
+              @if (escalas()?.piso_editable; as piso) {
+                Una versión nueva no puede empezar antes del
+                <strong>{{ dia(piso) }}</strong>: lo pagado no se recalcula.
+              }
+            </p>
+          </div>
+        </div>
+
+        <p class="cm-warn bad">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span>
+            <strong>Es un acantilado, no una rampa.</strong> Debajo del primer escalón no
+            hay porcentaje: la comisión es <strong class="cm-neg">$0</strong>, no «un poco
+            menos». Mover el piso no baja un pago — <strong>lo apaga</strong>.
+          </span>
+        </p>
+
+        <div class="cm-table-wrap">
+          <table class="surf-table surf-table--plain">
+            <thead><tr>
+              <th class="comm-num">Desde (venta)</th>
+              <th class="comm-num">Hasta</th>
+              <th class="comm-num">Paga sobre el subtotal</th>
+              <th></th>
+            </tr></thead>
+            <tbody>
+              @for (t of borrador(); track $index) {
+                <tr>
+                  <td class="comm-num">
+                    <input type="number" step="0.01" class="cm-tier-in" [readonly]="!puedeGestionar()"
+                           [ngModel]="t.min_amount" [ngModelOptions]="{ standalone: true }"
+                           (ngModelChange)="setTier($index, 'min_amount', $event)" />
+                  </td>
+                  <td class="comm-num">
+                    <input type="number" step="0.01" class="cm-tier-in" [readonly]="!puedeGestionar()"
+                           [ngModel]="t.max_amount" [ngModelOptions]="{ standalone: true }"
+                           (ngModelChange)="setTier($index, 'max_amount', $event)"
+                           [placeholder]="$index === borrador().length - 1 ? 'sin techo' : ''" />
+                  </td>
+                  <td class="comm-num">
+                    <input type="number" step="0.0001" class="cm-tier-in" [readonly]="!puedeGestionar()"
+                           [ngModel]="t.pct" [ngModelOptions]="{ standalone: true }"
+                           (ngModelChange)="setTier($index, 'pct', $event)" />
+                  </td>
+                  <td>
+                    @if (puedeGestionar()) {
+                      <button type="button" class="cm-btn-sec cm-btn-min"
+                              (click)="quitarTier($index)">Quitar</button>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        @if (huecoTabulador(); as h) {
+          <p class="cm-err">
+            <i class="pi pi-times-circle" aria-hidden="true"></i> {{ h }}
+          </p>
+        }
+
+        @if (puedeGestionar()) {
+          <div class="cm-tabul-pie">
+            <button type="button" class="cm-btn-sec" (click)="agregarTier()">
+              <i class="pi pi-plus" aria-hidden="true"></i> Escalón
+            </button>
+            <button type="button" class="cm-btn-sec" (click)="restaurarTabulador()">
+              Descartar cambios
+            </button>
+            <button type="button" class="cm-btn" [disabled]="!!huecoTabulador() || simulando()"
+                    (click)="simularTabulador()">
+              {{ simulando() ? 'Simulando…' : 'Ver qué pasaría' }}
+            </button>
+          </div>
+        }
+
+        @if (simulacion(); as s) {
+          <section class="cm-sim">
+            <p class="cm-eyebrow">
+              Sobre Q{{ s.base.period_no }}/{{ s.base.anio }} — la última quincena pagada
+              ({{ dia(s.base.date_from) }} a {{ dia(s.base.date_to) }}, {{ s.base.rutas }} rutas)
+            </p>
+            <p class="cm-sim-grito" [class.cm-neg]="s.delta < 0">
+              {{ s.delta >= 0 ? 'Pagaría' : 'Dejaría de pagar' }}
+              <strong>{{ money(s.delta < 0 ? -s.delta : s.delta) }}</strong>
+              @if (s.caen) {
+                · <strong class="cm-neg">{{ s.caen }}</strong>
+                ruta(s) se quedan <strong class="cm-neg">sin escalón</strong>
+              }
+              @if (s.suben) { · {{ s.suben }} ruta(s) alcanzan uno }
+            </p>
+            <p class="cm-muted cm-micro">
+              {{ money(s.total_hoy) }} hoy &rarr; {{ money(s.total_nuevo) }} con el
+              tabulador propuesto. <strong>Sólo se mueve el tabulador</strong>: bonos y
+              deducciones quedan como están, para que el número conteste qué hace
+              <em>este</em> escalón y no otra cosa.
+            </p>
+            <div class="cm-table-wrap">
+              <table class="surf-table surf-table--plain surf-table--sticky">
+                <thead><tr>
+                  <th>Ruta</th><th>Chofer</th>
+                  <th class="comm-num">Vendió</th>
+                  <th class="comm-num">% hoy</th><th class="comm-num">% nuevo</th>
+                  <th class="comm-num">Cobra hoy</th><th class="comm-num">Cobraría</th>
+                  <th class="comm-num">Δ</th>
+                </tr></thead>
+                <tbody>
+                  @for (f of simulacion()!.filas; track f.route_code) {
+                    <tr [class.cm-fila-grito]="f.cae_del_acantilado">
+                      <td class="comm-num">{{ f.route_code }}</td>
+                      <td class="cm-name">{{ f.beneficiario_nombre || '—' }}</td>
+                      <td class="comm-num cm-mono">{{ money(f.venta) }}</td>
+                      <td class="comm-num">{{ f.pct_hoy != null ? pct(f.pct_hoy) + '%' : '—' }}</td>
+                      <td class="comm-num" [class.cm-neg]="f.cae_del_acantilado">
+                        {{ f.pct_nuevo != null ? pct(f.pct_nuevo) + '%' : 'sin escalón' }}
+                      </td>
+                      <td class="comm-num cm-mono">{{ money(f.comision_hoy) }}</td>
+                      <td class="comm-num cm-mono">{{ money(f.comision_nueva) }}</td>
+                      <td class="comm-num cm-mono is-strong" [class.cm-neg]="f.delta < 0">
+                        {{ f.delta === 0 ? '—' : money(f.delta) }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+
+            @if (puedeGestionar()) {
+              <div class="cm-tabul-pie">
+                <label class="cm-campo">
+                  <span>Rige desde</span>
+                  <input type="date" [ngModel]="desdeTabulador()"
+                         [ngModelOptions]="{ standalone: true }"
+                         (ngModelChange)="desdeTabulador.set($event)"
+                         [min]="minTabulador()" />
+                </label>
+                <button type="button" class="cm-btn cm-btn--baja"
+                        [disabled]="!desdeTabulador() || estrenando()"
+                        (click)="confirmarEstreno()">
+                  {{ estrenando() ? 'Estrenando…' : 'Estrenar esta versión' }}
+                </button>
+              </div>
+            }
+          </section>
+        } @else if (puedeGestionar()) {
+          <p class="cm-muted cm-micro">
+            <strong>No se puede estrenar sin simular antes.</strong> El botón de estrenar
+            aparece cuando ya viste a quién le cambia el depósito y en cuánto.
+          </p>
+        }
+
+        @if (tabErr(); as e) {
+          <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+        }
       } @else {
 
       @if (destacada(); as d) {
-        <section class="cm-answer" [class.abierta]="d.status === 'en_curso'">
+        <section class="cm-answer" [class.abierta]="d.estado_calculo === 'en_curso'">
           <div class="cm-answer-que">
             <!-- ⛔ Miraba status, que viene NULL cuando el periodo no tiene corrida, asi que
                  la quincena ABIERTA se anunciaba como "Lo que toca pagar". El estado del
@@ -308,7 +686,12 @@ import { PermissionsService } from '../../../core/services/permissions.service';
               Quincena {{ d.period_no }} <span class="cm-muted">· {{ rango(d) }}</span>
             </p>
             <p class="cm-answer-pie">
-              @if (d.pay_date) { Se paga el <span class="cm-mono">{{ dia(d.pay_date) }}</span> · }
+              <!-- [RD.92] Una fecha de pago que ya paso no se anuncia en futuro: Q21 decia
+                   "Se paga el 24 oct" el 28, todavia en borrador. -->
+              @if (d.pay_date && pagoVencido(d)) {
+                <strong class="cm-neg">Debió pagarse el <span class="cm-mono">{{ dia(d.pay_date) }}</span></strong>
+                y sigue {{ etiquetaEstado(d) }} ·
+              } @else if (d.pay_date) { Se paga el <span class="cm-mono">{{ dia(d.pay_date) }}</span> · }
               <!-- Sin corrida no hay nada "calculado": decia "calculada sin fecha", que afirma
                    un calculo que no ocurrio. Los cuatro estados ya distinguen el caso. -->
               @if (d.run_id) {
@@ -330,11 +713,21 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             </p>
           </div>
           <div>
-            <p class="cm-eyebrow">{{ d.status === 'en_curso' ? 'Neto acumulado' : 'Neto a pagar' }}</p>
-            <p class="cm-answer-monto">{{ money(d.total_neto) }}</p>
-            <p class="cm-answer-pie cm-mono">
-              tras nomina {{ money(d.total_a_pagar) }} − deducciones {{ money(d.total_deduccion) }}
-            </p>
+            <!-- [RD.92] Las cifras salen de cifrasDestacada(): en la quincena en curso son las de
+                 la proyeccion, que la fila del tablero no trae. Y un neto sin deduccion cargada
+                 se DECLARA: antes se leia "deducciones $0.00" como si alguien la hubiera puesto. -->
+            @if (cifrasDestacada(); as c) {
+              <p class="cm-eyebrow">{{ d.estado_calculo === 'en_curso' ? 'Neto acumulado' : 'Neto a pagar' }}</p>
+              <p class="cm-answer-monto">{{ money(c.neto) }}</p>
+              <p class="cm-answer-pie cm-mono">
+                tras nómina {{ money(c.tras) }}
+                @if (c.neto == null && c.tras != null) {
+                  · <span class="cm-neg">neto sin medir: falta la deducción del supervisor</span>
+                } @else {
+                  − deducciones {{ money(c.ded) }}
+                }
+              </p>
+            }
           </div>
           <p-tag [severity]="sev(d)" [value]="etiquetaEstado(d)" />
         </section>
@@ -416,91 +809,6 @@ import { PermissionsService } from '../../../core/services/permissions.service';
         <section class="cm-detail">
           @if (!sel()) {
             <p class="cm-empty">Elige una quincena.</p>
-          } @else if (!sel()!.run_id) {
-            <div class="cm-card">
-              <h2>Quincena {{ sel()!.period_no }} · {{ rango(sel()!) }}</h2>
-              <p class="cm-muted cm-card-pie">
-                @switch (sel()!.estado_calculo) {
-                  @case ('futura') { Empieza el {{ dia(sel()!.date_from) }}: todavía no existe. }
-                  @case ('en_curso') {
-                    Está corriendo: cierra el {{ dia(sel()!.date_to) }}.
-                    No se calcula hasta que cierre — una quincena a medias no se paga.
-                  }
-                  @default {
-                    Cerró el {{ dia(sel()!.date_to) }} y <strong>todavía no se ha calculado</strong>.
-                  }
-                }
-              </p>
-
-              <ol class="cm-ciclo">
-                <li [class.act]="sel()!.estado_calculo === 'sin_calcular'">
-                  <span class="cm-paso">1</span> Calcular
-                  <span>Se hace una vez, con el periodo ya cerrado. Nace en borrador.</span>
-                </li>
-                <li>
-                  <span class="cm-paso">2</span> Revisar
-                  <span>Compuertas, cobertura y la procedencia de cada cifra.</span>
-                </li>
-                <li>
-                  <span class="cm-paso">3</span> Aprobar
-                  <span>Lo hace una persona. El motor nunca aprueba solo.</span>
-                </li>
-                <li>
-                  <span class="cm-paso">4</span> Pagar
-                  <span>Se marca pagada y queda congelada: lo pagado no se recalcula.</span>
-                </li>
-              </ol>
-
-              @if (sinCalcular().length) {
-                <p class="cm-warn bad">
-                  <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
-                  <span>
-                    <strong>
-                      {{ sinCalcular().length === 1 ? 'Una quincena ya cerró' : sinCalcular().length + ' quincenas ya cerraron' }}
-                      y no {{ sinCalcular().length === 1 ? 'tiene' : 'tienen' }} número:
-                    </strong>
-                    {{ listaSinCalcular() }}.
-                    Se producen recalculando desde la primera — el mismo trámite que cuando
-                    cambia el tabulador. No hay nada que esperar: no corre solo a propósito.
-                  </span>
-                </p>
-
-                @if (puedeGestionar()) {
-                  <div class="cm-tramite">
-                    <p class="cm-tramite-txt">
-                      Calcular desde <strong>Q{{ sinCalcular()[0].period_no }}</strong> produce ésa y
-                      las {{ sinCalcular().length - 1 }} que le siguen.
-                      <span class="cm-muted">
-                        Nace en borrador: no aprueba ni paga. Lo ya pagado se salta.
-                      </span>
-                    </p>
-                    <button type="button" class="cm-btn" [disabled]="recalculando()"
-                            (click)="recalcularDesde(sinCalcular()[0].period_id)">
-                      {{ recalculando() ? 'Calculando…' : 'Calcular desde Q' + sinCalcular()[0].period_no }}
-                    </button>
-                  </div>
-                  @if (recalculando()) {
-                    <p class="cm-muted cm-micro">
-                      Cada quincena cuesta unos segundos — se leen tres fuentes de venta día por día.
-                    </p>
-                  }
-                  @if (recalc(); as rr) {
-                    <div class="cm-recalc">
-                      <p><strong>{{ rr.calculadas.length }}</strong> calculada(s)
-                        @if (rr.saltadas.length) { · <strong>{{ rr.saltadas.length }}</strong> saltada(s) }
-                        @if (rr.fallas.length) { · <strong class="cm-neg">{{ rr.fallas.length }}</strong> con falla }
-                      </p>
-                      @for (s of rr.saltadas; track s.period_no) {
-                        <p class="cm-micro cm-muted">Q{{ s.period_no }} no se tocó — {{ s.motivo }}</p>
-                      }
-                      @for (f of rr.fallas; track f) {
-                        <p class="cm-micro cm-neg">{{ f }}</p>
-                      }
-                    </div>
-                  }
-                }
-              }
-            </div>
           } @else if (run(); as r) {
             @if (bloqueantes(r).length) {
               <div class="cm-gate bad">
@@ -739,377 +1047,6 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                   arriba. El total descontado de la quincena es {{ money(run()?.total_deduccion) }}.
                 </span>
               </p>
-            } @else if (tab() === 'padron') {
-              <!-- [RD.80] El padron NO mira la corrida: mira quien esta dado de alta para cobrar
-                   y si su fuente sigue viva. La pestana "No comisionan" no podia contestar esto
-                   porque sale de las lineas del espejo del libro. -->
-              @if (padronEnRiesgo(); as n) {
-                <p class="cm-falto-grito">
-                  <strong class="cm-neg">{{ n }}</strong>
-                  ruta(s) <strong>cobran comision y su fuente no da senal</strong>.
-                  El tabulador es escalonado: sin dias no se paga &laquo;un poco menos&raquo;,
-                  se paga <strong class="cm-neg">$0</strong>.
-                </p>
-              }
-              @if (padronVendeSinCobrar(); as m) {
-                <p class="cm-muted cm-micro">
-                  Y {{ money(m) }} de <strong>subtotal</strong> en 30 dias esta en rutas que
-                  <strong>no comisionan</strong>. Puede ser correcto — las vecinales no son Ruta
-                  Directa — pero con el monto al lado la exclusion se puede revisar.
-                </p>
-              }
-              <div class="cm-table-wrap">
-                <table class="surf-table surf-table--plain surf-table--sticky">
-                  <thead><tr>
-                    <!-- [AUD] "Vendio" decia una cosa y la celda pintaba otra: el valor es
-                         subtotal_30d, y subtotal y venta difieren 6.4% ($399,857 en 30 dias).
-                         El diccionario de esta misma pantalla ya ensena la diferencia, y el
-                         subtotal es ademas la BASE con que se calcula la comision. -->
-                    <th>Ruta</th><th>Chofer</th><th>Plaza o zona</th>
-                    <th>Comisiona</th><th>Ultimo dia con dato</th>
-                    <th class="comm-num">Subtotal (30 d)</th><th>Que pasa</th>
-                  </tr></thead>
-                  <tbody>
-                    @for (r of padronHallazgos(); track r.route_code) {
-                      <tr [class.cm-fila-grito]="r.problema === 'cobra_sin_fuente'">
-                        <td class="comm-num">{{ r.route_code }}</td>
-                        <td class="cm-name">{{ r.chofer_nombre || '—' }}</td>
-                        <td class="cm-muted">{{ r.plaza_o_zona || '—' }}</td>
-                        <td>
-                          <p-tag [severity]="r.comisiona ? 'success' : 'secondary'"
-                                 [value]="r.comisiona ? 'si' : 'no'" />
-                        </td>
-                        <td [class.cm-corta]="r.fuente_estado !== 'viva'">
-                          {{ etiquetaFuente(r) }}
-                          @if (r.ultimo_dia_con_dato) {
-                            <span class="cm-muted cm-micro"> · {{ dia(r.ultimo_dia_con_dato) }}</span>
-                          }
-                        </td>
-                        <td class="comm-num cm-mono">{{ money(r.subtotal_30d) }}</td>
-                        <td class="cm-nota">
-                          <p-tag [severity]="sevProblema(r.problema)"
-                                 [value]="etiquetaProblema(r.problema)" />
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-              <!-- [RD.84] El padron EDITABLE. Va DEBAJO de los hallazgos a proposito: primero
-                   que pasa, despues con que se arregla. Y es otra tabla, no la misma: la de
-                   arriba es el universo DERIVADO del ERP (todas las rutas que existen) y no se
-                   puede editar; esta son las filas de commission_route_config, que si. -->
-              <section class="cm-padron">
-                <div class="cm-padron-tit">
-                  <div>
-                    <p class="cm-eyebrow">El padrón</p>
-                    <p class="cm-muted cm-micro">
-                      Quién cobra comisión de Ruta Directa, desde cuándo y hasta cuándo.
-                      Hasta hoy esto se cambiaba con una migración: mover las rutas 321 y 322 a
-                      Vecinal —una decisión de Comercial— costó un despliegue.
-                    </p>
-                  </div>
-                  @if (puedeGestionar()) {
-                    <button type="button" class="cm-btn" (click)="abrirAlta()">
-                      <i class="pi pi-plus" aria-hidden="true"></i> Dar de alta una ruta
-                    </button>
-                  }
-                </div>
-                <div class="cm-table-wrap">
-                  <table class="surf-table surf-table--plain surf-table--sticky">
-                    <thead><tr>
-                      <th>Ruta</th><th>Chofer</th><th>Supervisor</th>
-                      <th class="comm-num">Nómina de banco</th>
-                      <th>Vigencia</th><th class="comm-num">Ya pagado</th><th></th>
-                    </tr></thead>
-                    <tbody>
-                      @for (p of padronFilas(); track p.id) {
-                        <tr [class.cm-fila-baja]="!p.activo">
-                          <td class="comm-num">{{ p.route_code }}</td>
-                          <td class="cm-name">{{ p.chofer_nombre || '—' }}</td>
-                          <td class="cm-muted">{{ p.supervisor_nombre || '—' }}</td>
-                          <td class="comm-num cm-mono">{{ money(p.nomina_banco) }}</td>
-                          <td>{{ vigencia(p) }}</td>
-                          <td class="comm-num cm-mono">
-                            @if (p.quincenas_pagadas) {
-                              {{ money(p.pagado_historico) }}
-                              <span class="cm-muted cm-micro"> · {{ p.quincenas_pagadas }} q</span>
-                            } @else { <span class="cm-muted">—</span> }
-                          </td>
-                          <td>
-                            @if (puedeGestionar()) {
-                              <button type="button" class="cm-btn-sec cm-btn-min"
-                                      (click)="abrirEdicion(p)">Editar</button>
-                            }
-                          </td>
-                        </tr>
-                      } @empty {
-                        <tr><td colspan="7" class="cm-empty">
-                          El padrón está vacío: ninguna ruta cobra comisión de Ruta Directa.
-                        </td></tr>
-                      }
-                    </tbody>
-                  </table>
-                </div>
-                @if (padronErr(); as e) {
-                  <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
-                }
-              </section>
-
-              <p class="cm-warn">
-                <i class="pi pi-info-circle" aria-hidden="true"></i>
-                <span>
-                  <strong>La lista de arriba no decide nada: lo declara.</strong> Que una ruta siga
-                  cobrando con la fuente muerta, o que una que vende quede fuera, son
-                  <strong>decisiones de Direccion</strong> — la 321 y la 322 operan hoy en el ERP
-                  con codigo nuevo, y si la comision sigue al chofer o al tipo de ruta no lo puede
-                  resolver una pantalla. Lo que la pantalla si puede hacer es que la contradiccion
-                  deje de ser invisible — y, desde <strong>[RD.84]</strong>, que la decision
-                  <strong>se registre aqui</strong>: la tabla de abajo es el padron, y se edita.
-                  <br />
-                  <strong>De donde sale:</strong> del <em>padron derivado</em> —todas las rutas que
-                  existen, comisionen o no— y de su venta de los ultimos <strong>30 dias</strong>.
-                  <strong>No sale de la quincena</strong>, asi que no depende de que haya corrida
-                  ni cambia al elegir otro periodo. La pestana <em>No comisionan</em> es otra cosa:
-                  sale de las <strong>lineas de la corrida</strong> y habla solo de ese periodo.
-                </span>
-              </p>
-            } @else if (tab() === 'bonos') {
-              <!-- [RD.85] Los bonos se capturaban por migracion: la tabla tenia UPDATE y ningun
-                   INSERT. El libro pago $140,800 en bonos en 20 quincenas -- $7,040 por
-                   quincena, mas que la comision de varias rutas juntas. -->
-              <div class="cm-padron-tit">
-                <div>
-                  <p class="cm-eyebrow">Bonos de la quincena</p>
-                  <p class="cm-muted cm-micro">
-                    Lo que se suma a la comisión cuando una ruta pasa su umbral.
-                    Cuelgan del <strong>tabulador vigente</strong>
-                    @if (bonos()[0]?.escala_desde) { (desde {{ dia(bonos()[0].escala_desde!) }}) }
-                    y una versión nueva los hereda.
-                  </p>
-                </div>
-                @if (puedeGestionar()) {
-                  <button type="button" class="cm-btn" (click)="abrirBonoAlta()">
-                    <i class="pi pi-plus" aria-hidden="true"></i> Nuevo bono
-                  </button>
-                }
-              </div>
-              <div class="cm-table-wrap">
-                <table class="surf-table surf-table--plain surf-table--sticky">
-                  <thead><tr>
-                    <th>Bono</th><th>Para</th><th>Ruta</th><th>Periodo</th>
-                    <th>Se cumple cuando</th><th class="comm-num">Paga</th>
-                    <th>Estado</th><th></th>
-                  </tr></thead>
-                  <tbody>
-                    @for (b of bonos(); track b.id) {
-                      <tr [class.cm-fila-baja]="!b.activo">
-                        <td class="cm-name">{{ b.nombre }}</td>
-                        <td class="cm-muted">{{ b.beneficiario }}</td>
-                        <td class="comm-num">{{ b.route_code || 'todas' }}</td>
-                        <td>
-                          <!-- ⚠️ El periodo se pinta SIEMPRE: es lo que impide que un bono
-                               mensual entre a las dos quincenas y se pague dos veces. -->
-                          <p-tag [severity]="b.periodo === 'mes' ? 'info' : 'secondary'"
-                                 [value]="b.periodo === 'mes' ? 'mensual' : 'quincenal'" />
-                        </td>
-                        <td class="cm-nota">{{ reglaBono(b) }}</td>
-                        <td class="comm-num cm-mono">{{ money(b.monto) }}</td>
-                        <td>
-                          <p-tag [severity]="b.activo ? 'success' : 'secondary'"
-                                 [value]="b.activo ? 'activo' : 'apagado'" />
-                        </td>
-                        <td>
-                          @if (puedeGestionar() && !b.grupo) {
-                            <button type="button" class="cm-btn-sec cm-btn-min"
-                                    (click)="abrirBonoEdicion(b)">Editar</button>
-                          } @else if (b.grupo) {
-                            <span class="cm-muted cm-micro">en «Bono por objetivo»</span>
-                          }
-                        </td>
-                      </tr>
-                    } @empty {
-                      <tr><td colspan="8" class="cm-empty">
-                        El tabulador vigente no tiene ningún bono configurado.
-                        <strong>Eso no es «nadie cobró bono»: es que no hay ninguno que cobrar.</strong>
-                      </td></tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-              @if (bonoErr(); as e) {
-                <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
-              }
-            } @else if (tab() === 'tabulador') {
-              <!-- [RD.86] El tabulador. ⛔ Hasta hoy NINGUNA pantalla consumia /scales: el
-                   endpoint existia desde [RD.66] y el numero que decide el porcentaje de cada
-                   peso solo se podia cambiar por curl.
-
-                   La regla de esta pestana: NO se puede estrenar sin simular antes. El
-                   tabulador es un acantilado y mover un escalon no cambia un porcentaje --
-                   apaga depositos enteros. -->
-              <div class="cm-padron-tit">
-                <div>
-                  <p class="cm-eyebrow">El tabulador</p>
-                  <p class="cm-muted cm-micro">
-                    Lo que decide el porcentaje de cada peso. La compuerta la abre la
-                    <strong>venta</strong>; el porcentaje se aplica sobre el
-                    <strong>subtotal</strong>.
-                    @if (escalas()?.piso_editable; as piso) {
-                      Una versión nueva no puede empezar antes del
-                      <strong>{{ dia(piso) }}</strong>: lo pagado no se recalcula.
-                    }
-                  </p>
-                </div>
-              </div>
-
-              <p class="cm-warn bad">
-                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                <span>
-                  <strong>Es un acantilado, no una rampa.</strong> Debajo del primer escalón no
-                  hay porcentaje: la comisión es <strong class="cm-neg">$0</strong>, no «un poco
-                  menos». Mover el piso no baja un pago — <strong>lo apaga</strong>.
-                </span>
-              </p>
-
-              <div class="cm-table-wrap">
-                <table class="surf-table surf-table--plain">
-                  <thead><tr>
-                    <th class="comm-num">Desde (venta)</th>
-                    <th class="comm-num">Hasta</th>
-                    <th class="comm-num">Paga sobre el subtotal</th>
-                    <th></th>
-                  </tr></thead>
-                  <tbody>
-                    @for (t of borrador(); track $index) {
-                      <tr>
-                        <td class="comm-num">
-                          <input type="number" step="0.01" class="cm-tier-in"
-                                 [ngModel]="t.min_amount" [ngModelOptions]="{ standalone: true }"
-                                 (ngModelChange)="setTier($index, 'min_amount', $event)" />
-                        </td>
-                        <td class="comm-num">
-                          <input type="number" step="0.01" class="cm-tier-in"
-                                 [ngModel]="t.max_amount" [ngModelOptions]="{ standalone: true }"
-                                 (ngModelChange)="setTier($index, 'max_amount', $event)"
-                                 [placeholder]="$index === borrador().length - 1 ? 'sin techo' : ''" />
-                        </td>
-                        <td class="comm-num">
-                          <input type="number" step="0.0001" class="cm-tier-in"
-                                 [ngModel]="t.pct" [ngModelOptions]="{ standalone: true }"
-                                 (ngModelChange)="setTier($index, 'pct', $event)" />
-                        </td>
-                        <td>
-                          @if (puedeGestionar()) {
-                            <button type="button" class="cm-btn-sec cm-btn-min"
-                                    (click)="quitarTier($index)">Quitar</button>
-                          }
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-
-              @if (huecoTabulador(); as h) {
-                <p class="cm-err">
-                  <i class="pi pi-times-circle" aria-hidden="true"></i> {{ h }}
-                </p>
-              }
-
-              @if (puedeGestionar()) {
-                <div class="cm-tabul-pie">
-                  <button type="button" class="cm-btn-sec" (click)="agregarTier()">
-                    <i class="pi pi-plus" aria-hidden="true"></i> Escalón
-                  </button>
-                  <button type="button" class="cm-btn-sec" (click)="restaurarTabulador()">
-                    Descartar cambios
-                  </button>
-                  <button type="button" class="cm-btn" [disabled]="!!huecoTabulador() || simulando()"
-                          (click)="simularTabulador()">
-                    {{ simulando() ? 'Simulando…' : 'Ver qué pasaría' }}
-                  </button>
-                </div>
-              }
-
-              @if (simulacion(); as s) {
-                <section class="cm-sim">
-                  <p class="cm-eyebrow">
-                    Sobre Q{{ s.base.period_no }}/{{ s.base.anio }} — la última quincena pagada
-                    ({{ dia(s.base.date_from) }} a {{ dia(s.base.date_to) }}, {{ s.base.rutas }} rutas)
-                  </p>
-                  <p class="cm-sim-grito" [class.cm-neg]="s.delta < 0">
-                    {{ s.delta >= 0 ? 'Pagaría' : 'Dejaría de pagar' }}
-                    <strong>{{ money(s.delta < 0 ? -s.delta : s.delta) }}</strong>
-                    @if (s.caen) {
-                      · <strong class="cm-neg">{{ s.caen }}</strong>
-                      ruta(s) se quedan <strong class="cm-neg">sin escalón</strong>
-                    }
-                    @if (s.suben) { · {{ s.suben }} ruta(s) alcanzan uno }
-                  </p>
-                  <p class="cm-muted cm-micro">
-                    {{ money(s.total_hoy) }} hoy &rarr; {{ money(s.total_nuevo) }} con el
-                    tabulador propuesto. <strong>Sólo se mueve el tabulador</strong>: bonos y
-                    deducciones quedan como están, para que el número conteste qué hace
-                    <em>este</em> escalón y no otra cosa.
-                  </p>
-                  <div class="cm-table-wrap">
-                    <table class="surf-table surf-table--plain surf-table--sticky">
-                      <thead><tr>
-                        <th>Ruta</th><th>Chofer</th>
-                        <th class="comm-num">Vendió</th>
-                        <th class="comm-num">% hoy</th><th class="comm-num">% nuevo</th>
-                        <th class="comm-num">Cobra hoy</th><th class="comm-num">Cobraría</th>
-                        <th class="comm-num">Δ</th>
-                      </tr></thead>
-                      <tbody>
-                        @for (f of simulacion()!.filas; track f.route_code) {
-                          <tr [class.cm-fila-grito]="f.cae_del_acantilado">
-                            <td class="comm-num">{{ f.route_code }}</td>
-                            <td class="cm-name">{{ f.beneficiario_nombre || '—' }}</td>
-                            <td class="comm-num cm-mono">{{ money(f.venta) }}</td>
-                            <td class="comm-num">{{ f.pct_hoy != null ? pct(f.pct_hoy) + '%' : '—' }}</td>
-                            <td class="comm-num" [class.cm-neg]="f.cae_del_acantilado">
-                              {{ f.pct_nuevo != null ? pct(f.pct_nuevo) + '%' : 'sin escalón' }}
-                            </td>
-                            <td class="comm-num cm-mono">{{ money(f.comision_hoy) }}</td>
-                            <td class="comm-num cm-mono">{{ money(f.comision_nueva) }}</td>
-                            <td class="comm-num cm-mono is-strong" [class.cm-neg]="f.delta < 0">
-                              {{ f.delta === 0 ? '—' : money(f.delta) }}
-                            </td>
-                          </tr>
-                        }
-                      </tbody>
-                    </table>
-                  </div>
-
-                  @if (puedeGestionar()) {
-                    <div class="cm-tabul-pie">
-                      <label class="cm-campo">
-                        <span>Rige desde</span>
-                        <input type="date" [ngModel]="desdeTabulador()"
-                               [ngModelOptions]="{ standalone: true }"
-                               (ngModelChange)="desdeTabulador.set($event)"
-                               [min]="minTabulador()" />
-                      </label>
-                      <button type="button" class="cm-btn cm-btn--baja"
-                              [disabled]="!desdeTabulador() || estrenando()"
-                              (click)="confirmarEstreno()">
-                        {{ estrenando() ? 'Estrenando…' : 'Estrenar esta versión' }}
-                      </button>
-                    </div>
-                  }
-                </section>
-              } @else if (puedeGestionar()) {
-                <p class="cm-muted cm-micro">
-                  <strong>No se puede estrenar sin simular antes.</strong> El botón de estrenar
-                  aparece cuando ya viste a quién le cambia el depósito y en cuánto.
-                </p>
-              }
-
-              @if (tabErr(); as e) {
-                <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
-              }
             } @else if (tab() === 'fuera') {
               <div class="cm-table-wrap">
                 <table class="surf-table surf-table--plain surf-table--sticky">
@@ -1203,6 +1140,99 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                 </p-table>
               </div>
             }
+          } @else if (!sel()!.run_id) {
+            <div class="cm-card">
+              <h2>Quincena {{ sel()!.period_no }} · {{ rango(sel()!) }}</h2>
+              <p class="cm-muted cm-card-pie">
+                @switch (sel()!.estado_calculo) {
+                  @case ('futura') { Empieza el {{ dia(sel()!.date_from) }}: todavía no existe. }
+                  @case ('en_curso') {
+                    <!-- [RD.92] Esta tarjeta solo se ve mientras la proyeccion no llega o si
+                         fallo: cuando llega, la pinta la rama de arriba (run()). Antes esta rama
+                         iba PRIMERO y la proyeccion se pedia y nunca se dibujaba. -->
+                    Está corriendo: cierra el {{ dia(sel()!.date_to) }}.
+                    @if (proyectando()) {
+                      Calculando cómo va…
+                    } @else if (proyeccionFallo()) {
+                      <span class="cm-neg">No se pudo proyectar lo que va vendido.</span>
+                    }
+                    No se guarda como corrida hasta que cierre — una quincena a medias no se paga.
+                  }
+                  @default {
+                    Cerró el {{ dia(sel()!.date_to) }} y <strong>todavía no se ha calculado</strong>.
+                  }
+                }
+              </p>
+
+              <ol class="cm-ciclo">
+                <li [class.act]="sel()!.estado_calculo === 'sin_calcular'">
+                  <span class="cm-paso">1</span> Calcular
+                  <span>Se hace una vez, con el periodo ya cerrado. Nace en borrador.</span>
+                </li>
+                <li>
+                  <span class="cm-paso">2</span> Revisar
+                  <span>Compuertas, cobertura y la procedencia de cada cifra.</span>
+                </li>
+                <li>
+                  <span class="cm-paso">3</span> Aprobar
+                  <span>Lo hace una persona. El motor nunca aprueba solo.</span>
+                </li>
+                <li>
+                  <span class="cm-paso">4</span> Pagar
+                  <span>Se marca pagada y queda congelada: lo pagado no se recalcula.</span>
+                </li>
+              </ol>
+
+              @if (sinCalcular().length) {
+                <p class="cm-warn bad">
+                  <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+                  <span>
+                    <strong>
+                      {{ sinCalcular().length === 1 ? 'Una quincena ya cerró' : sinCalcular().length + ' quincenas ya cerraron' }}
+                      y no {{ sinCalcular().length === 1 ? 'tiene' : 'tienen' }} número:
+                    </strong>
+                    {{ listaSinCalcular() }}.
+                    Se producen recalculando desde la primera — el mismo trámite que cuando
+                    cambia el tabulador. No hay nada que esperar: no corre solo a propósito.
+                  </span>
+                </p>
+
+                @if (puedeGestionar()) {
+                  <div class="cm-tramite">
+                    <p class="cm-tramite-txt">
+                      Calcular desde <strong>Q{{ sinCalcular()[0].period_no }}</strong> produce ésa y
+                      las {{ sinCalcular().length - 1 }} que le siguen.
+                      <span class="cm-muted">
+                        Nace en borrador: no aprueba ni paga. Lo ya pagado se salta.
+                      </span>
+                    </p>
+                    <button type="button" class="cm-btn" [disabled]="recalculando()"
+                            (click)="recalcularDesde(sinCalcular()[0].period_id)">
+                      {{ recalculando() ? 'Calculando…' : 'Calcular desde Q' + sinCalcular()[0].period_no }}
+                    </button>
+                  </div>
+                  @if (recalculando()) {
+                    <p class="cm-muted cm-micro">
+                      Cada quincena cuesta unos segundos — se leen tres fuentes de venta día por día.
+                    </p>
+                  }
+                  @if (recalc(); as rr) {
+                    <div class="cm-recalc">
+                      <p><strong>{{ rr.calculadas.length }}</strong> calculada(s)
+                        @if (rr.saltadas.length) { · <strong>{{ rr.saltadas.length }}</strong> saltada(s) }
+                        @if (rr.fallas.length) { · <strong class="cm-neg">{{ rr.fallas.length }}</strong> con falla }
+                      </p>
+                      @for (s of rr.saltadas; track s.period_no) {
+                        <p class="cm-micro cm-muted">Q{{ s.period_no }} no se tocó — {{ s.motivo }}</p>
+                      }
+                      @for (f of rr.fallas; track f) {
+                        <p class="cm-micro cm-neg">{{ f }}</p>
+                      }
+                    </div>
+                  }
+                }
+              }
+            </div>
           } @else {
             <p class="cm-empty">Cargando la corrida…</p>
           }
@@ -1469,17 +1499,30 @@ export class ComercialComisionesComponent {
    * y la ruta corta abre la nómina. Los favoritos y enlaces viejos siguen llevando a donde
    * llevaban, y no al inicio de otra cosa.
    */
-  readonly vista = signal<'quincena' | 'objetivo'>(
+  readonly vista = signal<Vista>(
     inject(Router).url.includes('/objetivo') ? 'objetivo' : 'quincena');
-  readonly vistas: SegOption[] = [
-    { label: 'Nómina quincenal', value: 'quincena' },
-    { label: 'Bono por objetivo (mensual)', value: 'objetivo' },
-  ];
+  /**
+   * `[RD.92]` Las tres últimas no son de una quincena —el padrón, los bonos y el tabulador
+   * cuelgan de su propia vigencia— y por eso viven acá y no en `pestanas()`. Allá dependían de
+   * que la quincena elegida tuviera corrida: con Q22 a Q27 no se podían abrir.
+   */
+  readonly vistas = computed<SegOption[]>(() => {
+    const h = this.padronHallazgos().length;
+    return [
+      { label: 'Nómina quincenal', value: 'quincena' },
+      { label: 'Bono por objetivo (mensual)', value: 'objetivo' },
+      // Los hallazgos (cobra sin fuente, vende sin cobrar) y el padrón editable: las dos caras
+      // de quién cobra. Siempre visible — con cero hallazgos el padrón se sigue editando aquí.
+      { label: h ? `Quién cobra · ${h}` : 'Quién cobra', value: 'padron' },
+      { label: `Bonos · ${this.bonos().filter((b) => b.activo).length}`, value: 'bonos' },
+      { label: 'Tabulador', value: 'tabulador' },
+    ];
+  });
 
   /** Estrecha el `string` del control segmentado a la unión del signal. Cualquier otro valor
-   *  se ignora en vez de ensuciar el estado: el control sólo ofrece esos dos. */
+   *  se ignora en vez de ensuciar el estado: el control sólo ofrece esas cinco. */
   verVista(v: string): void {
-    if (v === 'quincena' || v === 'objetivo') this.vista.set(v);
+    if ((VISTAS as readonly string[]).includes(v)) this.vista.set(v as Vista);
   }
 
   readonly tab = signal<string>('chofer');
@@ -1696,21 +1739,45 @@ export class ComercialComisionesComponent {
     this.sel.set(p);
     this.run.set(null);
     this.proyectando.set(false);
+    this.proyeccionFallo.set(false);
+    // ⛔ `[RD.92]` Una respuesta que llega cuando ya se eligió OTRA quincena se tira. Con la
+    //    proyección por fin dibujada, la corrida de Q21 llegando tarde se habría pintado como
+    //    «proyección» de Q22 (la plantilla decide por `sel().run_id`).
+    const sigue = () => this.sel()?.period_id === p.period_id;
     if (p.run_id) {
       this.api.commissionRun(p.run_id).subscribe({
-        next: (d) => this.run.set(d),
-        error: () => this.err.set('No se pudo cargar la corrida.'),
+        next: (d) => { if (sigue()) this.run.set(d); },
+        error: () => { if (sigue()) this.err.set('No se pudo cargar la corrida.'); },
       });
       return;
     }
     if (p.estado_calculo !== 'en_curso') return;
     this.proyectando.set(true);
     this.api.commissionPreview(p.period_id).subscribe({
-      next: (d) => { this.run.set(this.comoCorrida(d)); this.proyectando.set(false); },
+      next: (d) => { if (!sigue()) return; this.run.set(this.comoCorrida(d)); this.proyectando.set(false); },
       // ⛔ Un fallo de la proyeccion NO es un fallo de la pantalla: el tablero, el contraste y
       //    el historial siguen sirviendo. Se declara en su sitio, no en el banner de error.
-      error: () => { this.proyectando.set(false); this.proyeccionFallo.set(true); },
+      error: () => { if (!sigue()) return; this.proyectando.set(false); this.proyeccionFallo.set(true); },
     });
+  }
+
+  /**
+   * `[RD.92]` Las cifras de la tarjeta de arriba. En la quincena en curso salen de la
+   * proyección —la fila del tablero no tiene corrida y las traía en NULL— y sólo si la
+   * proyección es de ESA quincena.
+   */
+  readonly cifrasDestacada = computed(() => {
+    const d = this.destacada();
+    if (!d) return null;
+    const r = this.run();
+    const fuente = !d.run_id && r && this.sel()?.period_id === d.period_id ? r : d;
+    const n = (v: string | number | null | undefined) => (v == null ? null : Number(v));
+    return { neto: n(fuente.total_neto), tras: n(fuente.total_a_pagar), ded: n(fuente.total_deduccion) };
+  });
+
+  /** `[RD.92]` La fecha de pago ya pasó y la quincena no está pagada. */
+  pagoVencido(p: CommissionBoardRow): boolean {
+    return !!p.pay_date && p.pay_date < this.hoy && p.status !== 'pagado';
   }
 
   // ── Lectura ────────────────────────────────────────────────────────────────────────────
@@ -1743,23 +1810,8 @@ export class ComercialComisionesComponent {
       ...(this.faltoDelPeriodo().length
         ? [{ label: `Lo que faltó · ${this.faltoDelPeriodo().length}`, value: 'falto' }] : []),
       ...(c.length ? [{ label: `Libro vs motor · ${c.length}`, value: 'contraste' }] : []),
-      // `[RD.80]` No depende de la corrida: si hay hallazgos, se muestran aunque la quincena
-      // elegida no tenga número. Son dos preguntas distintas y la segunda no espera.
-      //
-      // ⛔ **Se llamaba «Padrón» y era un nombre falso.** Medido: de sus 13 filas, **8 NO están
-      // en el padrón** (`en_config = false`: las vecinales). Un título que nombra el registro
-      // mientras la mayoría de su contenido es justamente lo que quedó FUERA del registro
-      // desorienta — es el caso `[CG.123]`. Lo que la pestaña compara de verdad son las dos
-      // caras del mismo hecho: quién cobra y quién vende. El nombre nuevo además rima con
-      // «Libro vs motor», que es la otra comparación de esta misma pantalla.
-      ...(this.padronHallazgos().length
-        ? [{ label: `Cobro vs venta · ${this.padronHallazgos().length}`, value: 'padron' }] : []),
-      // `[RD.85]` La pestaña aparece SIEMPRE, también con cero bonos — y sobre todo con cero:
-      // un tabulador sin bonos es el síntoma de `[RD.85.0]`, y esconder la pestaña lo volvería
-      // invisible justo cuando hay que verlo. La cuenta es de los ACTIVOS, que son los que pagan.
-      { label: `Bonos · ${this.bonos().filter((b) => b.activo).length}`, value: 'bonos' },
-      // [RD.86] Siempre visible: es el numero que decide el porcentaje de cada peso.
-      { label: 'Tabulador', value: 'tabulador' },
+      // `[RD.92]` Quién cobra, Bonos y Tabulador ya no van acá: no son de la quincena. Viven
+      // en `vistas()`, el conmutador de arriba, donde no dependen de que haya corrida.
     ];
   }
 
@@ -2223,7 +2275,11 @@ export class ComercialComisionesComponent {
 
   confirmarActo(r: CommissionRunDetail, accion: 'approve' | 'pay' | 'void'): void {
     const q = r.period ? `Q${r.period.period_no}` : 'esta quincena';
-    const monto = this.money(r.total_neto ?? r.total_a_pagar);
+    // [RD.92] Sin neto, el diálogo decía «por $X» con el monto tras nómina como si fuera lo que
+    // sale del banco. Se aprueba igual —la compuerta avisa, no bloquea (ADR-016)—, pero sabiendo.
+    const monto = r.total_neto != null
+      ? this.money(r.total_neto)
+      : `${this.money(r.total_a_pagar)} tras nómina (el neto no está medido: falta la deducción del supervisor)`;
     const textos: Record<typeof accion, { header: string; message: string; accept: string }> = {
       approve: {
         header: `Aprobar ${q}`,
@@ -2752,6 +2808,8 @@ export class ComercialComisionesComponent {
       cobertura: 'Cobertura',
       frescura: 'El dato no llegó completo',
       bono_arbitrado: 'Bono sobre costo no arbitrado',
+      // [RD.92] Faltaba: Q21 pintaba «cobertura_dias», el nombre de la compuerta en la base.
+      cobertura_dias: 'Menos días que su plaza',
       deduccion_configurada: 'Deducción sin cargar',
     };
     return M[g] ?? g;
