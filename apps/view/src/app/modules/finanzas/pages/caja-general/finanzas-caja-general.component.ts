@@ -2304,7 +2304,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <div><span class="cg-det-r">Beneficiario</span>
                   {{ m.beneficiario || '—' }}
                   @if (m.beneficiario_rfc) { <small class="fin-dim d-block mono">{{ m.beneficiario_rfc }}</small> }</div>
-                <!-- [CGA-A.59] La sucursal es la del SERVIDOR de donde vino el documento; `sucursal` de un
+                <!-- [CGA-A.59] La sucursal es la del SERVIDOR de donde vino el documento; la columna sucursal de un
                      cobro de camión guarda el almacén ('06-003') y la pipe lo dejaba como código. -->
                 <div><span class="cg-det-r">Sucursal</span>{{ servidorDe(m) || (m.sucursal | sucursal) }}</div>
                 <div><span class="cg-det-r">Capturado</span>{{ dmy(m.fecha) }}@if (m.hora) { · {{ m.hora }} }
