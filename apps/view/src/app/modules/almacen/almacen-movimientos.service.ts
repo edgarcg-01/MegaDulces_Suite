@@ -32,6 +32,8 @@ export interface MovementsFilters {
 export interface MovementTotals {
   entradas: number; salidas: number; neto: number; valor: number;
   lineas: number; documentos: number;
+  /** [MX.1.2] renglones con costo 0 en Kepler: `valor` no los incluye (sólo en el resumen). */
+  lineas_sin_importe?: number;
 }
 export interface MovementByType {
   doc_code: string; movement_label: string; movement_kind: MovementKind;
@@ -67,6 +69,8 @@ export interface FolioRow {
   doc_date: string; lineas: number; signed_qty: number; qty: number; amount: number | null;
   parent_group: string | null; parent_serie: string | null; parent_folio: string | null;
   audited: boolean; audited_by: string | null; audited_at: string | null;
+  /** [MX.1.2] renglones del documento con costo 0 en Kepler: `amount` está incompleto si es > 0. */
+  lineas_sin_importe?: number;
   /** Solo docs de traspaso: en_transito | sin_acuse | sin_recepcion_esperada | completado | diferencia. */
   transfer_status?: TransferDocStatus | null;
   /** DM.11 — destino (solo TrsfShip): a qué sucursal va dirigido. */
@@ -107,11 +111,11 @@ export interface TransfersHallazgos {
    * ⚠️ `sin_recepcion` mezcla tres cosas; los otros dos baldes no son huecos y suman con éste.
    */
   /** [MX.1.3] `umbral_dias`: a partir de cuántos días sin recepción es «viejo» (lo fija el backend). */
-  sin_acuse: { docs: number; amount: number; dias_max: number; viejo_docs: number; viejo_amount: number; umbral_dias: number };
+  sin_acuse: { docs: number; amount: number; dias_max: number; viejo_docs: number; viejo_amount: number; umbral_dias: number; docs_importe_incompleto?: number };
   /** Carga a camioneta: NO emite recepción, así que "sin acuse" es su estado normal. */
-  sin_acuse_ruta: { docs: number; amount: number };
+  sin_acuse_ruta: { docs: number; amount: number; docs_importe_incompleto?: number };
   /** Entrega a un cliente: tampoco emite acuse. Es la mayoría del `sin_recepcion` crudo. */
-  sin_acuse_cliente: { docs: number; amount: number };
+  sin_acuse_cliente: { docs: number; amount: number; docs_importe_incompleto?: number };
   /** Llegó mercancía cuyo embarque no aparece. */
   sin_origen: { docs: number };
   /** Hay recepción pero las piezas no cuadran. */

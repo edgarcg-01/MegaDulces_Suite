@@ -215,7 +215,9 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                         </td>
                         <td class="dm-r dm-muted">{{ l.lineas | number }}</td>
                         <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0" [class.dm-muted]="l.movement_kind === 'info'">{{ (l.movement_kind === 'info' ? l.qty : l.signed_qty) | number:'1.0-2' }}</td>
-                        <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}</td>
+                        <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}
+                          @if (l.lineas_sin_importe) { <span class="dm-muted dm-sin-costo">+{{ l.lineas_sin_importe }} sin costo</span> }
+                        </td>
                         <td>
                           @if (l.transfer_status) {
                             <p-tag [value]="estadoLabel(l.transfer_status)" [severity]="estadoSev(l.transfer_status)" styleClass="dm-tag"></p-tag>
@@ -948,6 +950,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
     .dm-row { cursor: pointer; }
     .dm-row:hover td { background: var(--surface-hover-bg); }
     .dm-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+    .dm-sin-costo { display: block; font-size: var(--fs-xs); font-weight: 400; }
     .dm-audit { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; border: 0; background: none; font-family: inherit; cursor: pointer; padding: .15rem .4rem; border-radius: var(--r-sm); }
     .dm-audit.is-audited { color: var(--ok-fg); font-weight: 600; }
     .dm-audit:disabled { cursor: default; }
@@ -1157,7 +1160,7 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
       out.push({
         id: 'sin_acuse',
         titulo: 'Traspasos sin acuse',
-        cifra: `${docs(h.sin_acuse.docs)} · ${this.money(h.sin_acuse.amount)}`,
+        cifra: `${docs(h.sin_acuse.docs)} · ${this.money(h.sin_acuse.amount)}${this.incompletos(h.sin_acuse.docs_importe_incompleto)}`,
         tono: h.sin_acuse.viejo_docs ? 'bad' : 'warn',
         verable: true,
         desc: h.sin_acuse.viejo_docs
@@ -1195,7 +1198,7 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
       out.push({
         id: 'sin_acuse_ruta',
         titulo: 'Cargas a ruta (no son un hueco)',
-        cifra: `${docs(h.sin_acuse_ruta.docs)} · ${this.money(h.sin_acuse_ruta.amount)}`,
+        cifra: `${docs(h.sin_acuse_ruta.docs)} · ${this.money(h.sin_acuse_ruta.amount)}${this.incompletos(h.sin_acuse_ruta.docs_importe_incompleto)}`,
         tono: 'info', verable: true,
         desc: 'Surtido a una camioneta de reparto. Ese flujo NO emite documento de recepción, '
           + 'así que “sin acuse” es su estado normal y no hay nada que perseguir. Se listan aparte '
@@ -1206,7 +1209,7 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
       out.push({
         id: 'sin_acuse_cliente',
         titulo: 'Entregas a cliente (no son traspaso)',
-        cifra: `${docs(h.sin_acuse_cliente.docs)} · ${this.money(h.sin_acuse_cliente.amount)}`,
+        cifra: `${docs(h.sin_acuse_cliente.docs)} · ${this.money(h.sin_acuse_cliente.amount)}${this.incompletos(h.sin_acuse_cliente.docs_importe_incompleto)}`,
         tono: 'info', verable: true,
         desc: 'Salidas dirigidas a un cliente, no a un almacén de la red. Un cliente no emite acuse, '
           + 'así que tampoco hay nada que cuadrar. Van listadas porque son la mayor parte del '
@@ -1232,6 +1235,11 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
 
   /** [MX.1.3] Días sin recepción a partir de los cuales es «viejo»; lo fija el backend, no la pantalla. */
   readonly umbralSinAcuse = computed(() => this.check()?.hallazgos?.sin_acuse?.umbral_dias ?? null);
+  /** [MX.1.2] «· importe incompleto en N docs» — un monto que no incluye renglones sin costo lo dice. */
+  incompletos(n: number | undefined): string {
+    const k = Number(n) || 0;
+    return k > 0 ? ` · importe incompleto en ${k.toLocaleString('es-MX')} ${k === 1 ? 'doc' : 'docs'}` : '';
+  }
   readonly hzTitulo = computed(() => this.hallazgos().find((h) => h.id === this.hzSel())?.titulo ?? 'Hallazgo');
   readonly hzDesc = computed(() => this.hallazgos().find((h) => h.id === this.hzSel())?.desc ?? '');
 
@@ -1627,7 +1635,9 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
     return [
       { label: 'Entradas', value: Number(s.totals.entradas) || 0, format: 'number', tone: 'ok' },
       { label: 'Salidas', value: Math.abs(Number(s.totals.salidas) || 0), format: 'number', tone: 'bad' },
-      { label: 'Valor', value: Number(s.totals.valor) || 0, format: 'currency-short', tone: 'brand' },
+      // [MX.1.2] si hay renglones con costo 0 en Kepler, el valor es PARCIAL y se dice cuántos faltan
+      { label: 'Valor', value: Number(s.totals.valor) || 0, format: 'currency-short', tone: 'brand',
+        ...(Number(s.totals.lineas_sin_importe) > 0 ? { state: 'parcial' as const, stateNote: `${Number(s.totals.lineas_sin_importe).toLocaleString('es-MX')} renglones sin costo en Kepler: el valor no los incluye` } : {}) },
       { label: 'Documentos', value: Number(s.totals.documentos) || 0, format: 'number', tone: 'default' },
     ];
   }

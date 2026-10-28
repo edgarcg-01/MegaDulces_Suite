@@ -11,7 +11,8 @@ import { TOLERANCIA_MAYOR_515, veredictoCuadre, type VeredictoCuadre } from '@me
 
 export interface MovementsExportData {
   range: { from: string; to: string };
-  totals: { entradas: number; salidas: number; valor: number; documentos: number };
+  /** [MX.1.2] `lineas_sin_importe`: renglones con costo 0 en Kepler que `valor` no incluye. */
+  totals: { entradas: number; salidas: number; valor: number; documentos: number; lineas_sin_importe?: number };
   docs: any[];       // filas de lines() (folio englobado + transfer_status + audited)
   transfers: any[];  // filas de transfersCheck()
   /** [MX.2.1] Conteos y sumas del conjunto COMPLETO: los KPIs salen de acá, nunca de `transfers` (cortada en 500, problemas primero). */
@@ -457,7 +458,7 @@ export class MovementsExportService {
       <div class="kpis">
         <div class="kpi"><span class="kpi-l">Entradas (pzas)</span><span class="kpi-v">+${num(Math.abs(data.totals.entradas))}</span></div>
         <div class="kpi"><span class="kpi-l">Salidas (pzas)</span><span class="kpi-v">−${num(Math.abs(data.totals.salidas))}</span></div>
-        <div class="kpi"><span class="kpi-l">Valor movido</span><span class="kpi-v">${money(data.totals.valor)}</span></div>
+        <div class="kpi"><span class="kpi-l">Valor movido</span><span class="kpi-v">${money(data.totals.valor)}</span>${data.totals.lineas_sin_importe ? `<span style="font-size:9px;color:#837A6C">parcial: ${num(data.totals.lineas_sin_importe)} renglones sin costo en Kepler</span>` : ''}</div>
         <div class="kpi"><span class="kpi-l">Documentos</span><span class="kpi-v">${num(data.totals.documentos)}</span></div>
         <div class="kpi"><span class="kpi-l">Auditados</span><span class="kpi-v">${num(audited)} <span style="font-size:10px;color:#837A6C;font-weight:400">de ${num(docs.length)}</span></span></div>
       </div>

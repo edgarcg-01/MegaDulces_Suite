@@ -243,7 +243,8 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
           -- PAIR_LATE_DAYS, o fecharse hasta PAIR_EARLY_DAYS despues de ella. Cuesta 14 ms.
           SELECT m.warehouse_id, m.folio, m.doc_serie, m.tenant_id,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
-                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label, ${SKU_SIG('m')} AS sku_sig
+                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label, ${SKU_SIG('m')} AS sku_sig,
+                 COUNT(*) FILTER (WHERE m.amount IS NULL)::int AS lineas_sin_importe
           FROM analytics.stock_movements m
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip'
             AND m.doc_date BETWEEN ?::date - ${PAIR_LATE_DAYS} AND ?::date + ${PAIR_EARLY_DAYS}${shpDestSql}
@@ -275,7 +276,7 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
                  s.doc_serie, s.doc_date AS ship_date, s.qty AS qty_sent, s.amount, s.lineas AS ship_lines,
                  r.warehouse_id AS dest_wh_id, coalesce(rw.name, rw.code) AS dest_wh, r.folio AS rcv_folio,
                  r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines,
-                 s.sku_sig AS ship_sig, r.sku_sig AS rcv_sig
+                 s.sku_sig AS ship_sig, r.sku_sig AS rcv_sig, s.lineas_sin_importe AS ship_lineas_sin_importe
           FROM rcv r
           LEFT JOIN commercial.warehouses rw ON rw.id = r.warehouse_id
           LEFT JOIN shpd s
@@ -311,11 +312,12 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
                     AND ship_sig = rcv_sig THEN 'ok'   -- [MX.1.1] y los mismos productos
                    ELSE 'diferencia'
                  END AS status,
-                 coalesce(qty_received,0) - coalesce(qty_sent,0) AS delta
+                 coalesce(qty_received,0) - coalesce(qty_sent,0) AS delta,
+                 ship_lineas_sin_importe AS lineas_sin_importe   -- [MX.1.2] el importe sale del embarque
           FROM paired
           UNION ALL
           SELECT u.warehouse_id, u.wh_code, u.folio, u.doc_serie, u.doc_date, u.qty, u.amount, u.lineas,
-                 dw.id, coalesce(dw.name, dw.code, u.dest_label, u.dest_code), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty
+                 dw.id, coalesce(dw.name, dw.code, u.dest_label, u.dest_code), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty, u.lineas_sin_importe
           FROM unreceived u
           LEFT JOIN analytics.transfer_dest_map dm ON dm.tenant_id = ? AND dm.dest_code = u.dest_code
           LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id AND ${DEST_WH_VIVO('dw')}
@@ -521,6 +523,8 @@ export class CommercialMovementsService {
         trx.raw(`SUM(m.signed_qty) AS neto`),
         trx.raw(`SUM(m.amount) AS valor`),
         trx.raw(`COUNT(*)::int AS lineas`),
+        // [MX.1.2] renglones cuyo costo Kepler asentó en 0: el `valor` no los incluye y hay que decirlo
+        trx.raw(`COUNT(*) FILTER (WHERE m.amount IS NULL)::int AS lineas_sin_importe`),
       );
       // [MX.2.2] Un documento es almacén+tipo+serie+folio, no el folio: el mismo folio lo usan
       // sucursales y tipos distintos. `COUNT(DISTINCT m.folio)` publicaba 3,772 documentos en
@@ -654,6 +658,8 @@ export class CommercialMovementsService {
           trx.raw(`MAX(m.dest_label) AS dest_label`),
           // [MX.1.1] firma de productos: annotateTransferStatus la compara con la de la contraparte
           trx.raw(`${SKU_SIG('m')} AS sku_sig`),
+          // [MX.1.2] renglones sin importe (Kepler asentó costo 0): el `amount` del documento está incompleto
+          trx.raw(`COUNT(*) FILTER (WHERE m.amount IS NULL)::int AS lineas_sin_importe`),
         )
         .orderByRaw('MIN(m.doc_date) DESC, m.folio DESC')
         .limit(limit).offset(offset);
@@ -1058,12 +1064,15 @@ export class CommercialMovementsService {
       // en 500, problemas primero): el Excel sacaba de ahí «Recibidos OK», «Δ neto» y «Valor
       // enviado», y con más de 500 problemas al mes (todos los meses desde ago-2026) «Recibidos
       // OK» salía en 0. `capped`: el pareo trae a lo más 50,000 filas; si llegó, nada está completo.
-      const cSums = { n: checkAll.length, qty_sent: 0, qty_received: 0, delta: 0, amount: 0 };
+      // [MX.1.2] `docs_importe_incompleto`: documentos cuyo `amount` no incluye renglones con costo 0 en Kepler
+      const cSums = { n: checkAll.length, qty_sent: 0, qty_received: 0, delta: 0, amount: 0, docs_importe_incompleto: 0, lineas_sin_importe: 0 };
       for (const r of checkAll) {
         cSums.qty_sent += Number(r.qty_sent) || 0;
         cSums.qty_received += Number(r.qty_received) || 0;
         cSums.delta += Number(r.delta) || 0;
         cSums.amount += Number(r.amount) || 0;
+        const sinImp = Number(r.lineas_sin_importe) || 0;
+        if (sinImp > 0) { cSums.docs_importe_incompleto++; cSums.lineas_sin_importe += sinImp; }
       }
       const capped = all.length >= 50000;
       const prio: Record<string, number> = { diferencia: 0, sin_recepcion: 1, sin_origen: 2, ok: 4 };
@@ -1117,18 +1126,19 @@ export class CommercialMovementsService {
       const hallazgos = {
         truncado: (cTotals.diferencia + cTotals.sin_recepcion + cTotals.sin_origen) > checkRows.length,
         // [MX.1.3] `umbral_dias` viaja con el dato: la pantalla no repite el número a mano
-        sin_acuse: { docs: 0, amount: 0, dias_max: 0, viejo_docs: 0, viejo_amount: 0, umbral_dias: SIN_ACUSE_DIAS },
-        sin_acuse_ruta: { docs: 0, amount: 0 },
-        sin_acuse_cliente: { docs: 0, amount: 0 },
+        sin_acuse: { docs: 0, amount: 0, dias_max: 0, viejo_docs: 0, viejo_amount: 0, umbral_dias: SIN_ACUSE_DIAS, docs_importe_incompleto: 0 },
+        sin_acuse_ruta: { docs: 0, amount: 0, docs_importe_incompleto: 0 },
+        sin_acuse_cliente: { docs: 0, amount: 0, docs_importe_incompleto: 0 },
         sin_origen: { docs: cTotals.sin_origen },
         diferencia: { docs: cTotals.diferencia, piezas: 0 },
       };
       for (const r of checkAll) {
         const monto = Number(r.amount) || 0;
+        const incompleto = (Number(r.lineas_sin_importe) || 0) > 0 ? 1 : 0;
         if (r.status === 'sin_recepcion') {
-          if (!r.dest_wh_id) { hallazgos.sin_acuse_cliente.docs++; hallazgos.sin_acuse_cliente.amount += monto; continue; }
-          if (esRuta(r.dest_wh)) { hallazgos.sin_acuse_ruta.docs++; hallazgos.sin_acuse_ruta.amount += monto; continue; }
-          hallazgos.sin_acuse.docs++; hallazgos.sin_acuse.amount += monto;
+          if (!r.dest_wh_id) { hallazgos.sin_acuse_cliente.docs++; hallazgos.sin_acuse_cliente.amount += monto; hallazgos.sin_acuse_cliente.docs_importe_incompleto += incompleto; continue; }
+          if (esRuta(r.dest_wh)) { hallazgos.sin_acuse_ruta.docs++; hallazgos.sin_acuse_ruta.amount += monto; hallazgos.sin_acuse_ruta.docs_importe_incompleto += incompleto; continue; }
+          hallazgos.sin_acuse.docs++; hallazgos.sin_acuse.amount += monto; hallazgos.sin_acuse.docs_importe_incompleto += incompleto;
           const d = diasDe(r.ship_date);
           if (d > hallazgos.sin_acuse.dias_max) hallazgos.sin_acuse.dias_max = d;
           // [MX.1.3] SIN_ACUSE_DIAS (15), medido; antes 45 escondía 30 días de alarmas reales.
@@ -1662,6 +1672,7 @@ export class CommercialMovementsService {
         salidas: Number(s.totals?.salidas) || 0,
         valor: Number(s.totals?.valor) || 0,
         documentos: Number(s.totals?.documentos) || 0,
+        lineas_sin_importe: Number(s.totals?.lineas_sin_importe) || 0, // [MX.1.2]
       },
       docs,
       transfers: t.rows,
