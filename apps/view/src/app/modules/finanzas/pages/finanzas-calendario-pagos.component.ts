@@ -405,17 +405,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                   } @else {
                                     <span class="pg-ev pg-ev-no"><i class="pi pi-info-circle" aria-hidden="true"></i>sin factura: {{ e.motivo }}</span>
                                   }
-                                  <!-- [PGP.27] Si la factura se encontró con un RFC que Kepler NO tiene
-                                       (o tiene mal escrito) y resolvió el cruce del nombre, se DICE.
-                                       ADR-056: el dato declara su procedencia; no se presenta como del ERP
-                                       lo que salió de una inferencia. Aparece sólo en los 166 renglones
-                                       donde pasó, no en los 1,123. -->
-                                  @if (rfcDeducido(e); as r) {
-                                    <span class="pg-ev pg-ev-src"
-                                          [title]="'Kepler no tiene un RFC utilizable para este acreedor. Se usó ' + r + ', que resolvió el cruce de su nombre contra ContPAQi y sus CFDI recibidos.'">
-                                      <i class="pi pi-link" aria-hidden="true"></i>RFC deducido: {{ r }}
-                                    </span>
-                                  }
                                 }
                               </span>
                             </span>
@@ -905,7 +894,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ev-pdf:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     .pg-ev-uuid { color:var(--fg-2); }
     .pg-ev-no { color:var(--fg-3); }
-    .pg-ev-src { color:var(--fg-3); }
     /* El cajon del desglose. Lo PENDIENTE lleva el peso; lo ya aplicado es contexto. */
     .pg-cr { display:grid; gap:var(--sp-2); }
     .pg-cr-tot { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-3); padding:var(--sp-2) var(--sp-3);
@@ -1507,31 +1495,15 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * 100 %). Bajar a puntaje 2 subiría la cobertura a 59.7 % con **45 % de precisión**, o sea
    * más de la mitad de las facturas pegadas al pago equivocado: por eso no se baja.
    *
-   * ⛔ Los que no tienen evidencia **dicen por qué** (ADR-056) y nunca quedan en blanco.
-   *
-   * ⭐ `[PGP.27]`, re-medido el 2026-10-28: el RFC del acreedor dejó de salir sólo de
-   * `kdxd.c10`. Si ahí no hay nada **o lo que hay no tiene forma de RFC** (188 acreedores, 368
-   * documentos por $20,232,802 — `BALO20930EL9` por `BAL020930EL9`, guiones, dígitos de menos),
-   * lo resuelve el nombre normalizado contra ContPAQi y los CFDI recibidos. **1,125 → 1,291
-   * documentos con evidencia (+166) y +$10,415,534**, con 0 que pierdan lo que ya tenían y
-   * control negativo 0. Cuando el RFC salió de ahí, el renglón lo dice: `rfcDeducido()`.
+   * ⛔ Los que no tienen evidencia **dicen por qué** (ADR-056) y nunca quedan en blanco: 778 son
+   * acreedores sin RFC capturado en Kepler, 556 son anteriores al 2026-08-04 (cuando todavía no
+   * se adjuntaba papel) y 409 no cruzan por ningún camino.
    */
   readonly evidencias = signal<ReadonlyMap<string, PayableEvidenceRow>>(new Map());
   evidenciaDe(o: Obligation): PayableEvidenceRow | null {
     const ref = (o.entity_ref ?? '').trim();
     return ref ? this.evidencias().get(ref) ?? null : null;
   }
-  /**
-   * `[PGP.27]` El RFC con el que se encontró la factura, **sólo cuando no vino de Kepler**.
-   *
-   * Devuelve `null` —y la pantalla no dice nada— cuando el RFC salió del ERP, que es el caso
-   * normal, o cuando no hay evidencia (ahí el motivo ya lo explica). Así el aviso aparece en
-   * los 166 renglones donde la procedencia cambia la lectura y no en los 1,123 donde no.
-   */
-  rfcDeducido(e: PayableEvidenceRow): string | null {
-    return e.evidencia !== 'ninguna' && e.rfc_fuente === 'nombre' && e.rfc ? e.rfc : null;
-  }
-
   /** Qué se puede decir del documento en una línea, sin prometer lo que no hay. */
   evidenciaTexto(e: PayableEvidenceRow): string {
     if (e.evidencia === 'pdf') return 'Ver la factura del proveedor';
