@@ -798,12 +798,41 @@ toca (regla 7). Código en prod: KR.17 (`4442f907a`, `35006040a`), PQ.17 y PQ.18
    tope 1, con una línea entera y una en piezas. Criterio: el `U-D-41` y el `U-A-50` copian la
    unidad base.
 
+### 14.6 La requisición entra pero no se puede convertir; y la OC automática (2026-10-28)
+
+PM: *«la requisición ya se aceptó y se generó, pero para generar la orden de compra desde Kepler
+no aparece… y aparte nosotros generar automáticamente la orden de compra en Kepler»*. Las cuatro
+primeras requisiciones reales (oficinas `0003111`–`0003114`, RQ-01615/01601/01636/01626) se ven en
+la consulta de Kepler pero no en la conversión a OC. Nivel B (`kepler_ods`, sólo lectura):
+
+| Hallazgo | Medido | Arreglo |
+|---|---|---|
+| **`kdm1.c42` = saldo pendiente.** Abierto (`c43` N/A) ⇒ `c42 = c16`; convertido ⇒ 0. Escribíamos 0 → Kepler la daba por surtida y no la ofrecía | 38/38 X-A-30 abiertas con importe, 1,329/1,333 U-D-40 abiertos, 0 de 4,244 convertidas | **PQ.21**: `c42 = c16` al escribir (compra y traspaso) |
+| **IVA/IEPS del renglón venían de la plantilla.** `kdm2.c17` = \|`kdii.c18`\| (IVA) y `c18` = \|`kdii.c19`\| (IEPS); copiábamos `-16`/`0` a todo renglón | ≥99 % de los X-A-30/35 desde agosto, nueve servidores | **PQ.21**: tasas de la ficha del servidor; sin ficha → rechazo con el SKU |
+| **El encabezado no llevaba impuestos.** `c14` = Σ round(c13·c17/100,2), `c15` ídem con c18, `c16` = subtotal + c14 + c15 (− `c13` descuento) | 96–98 % de 2,700 documentos | **PQ.21**: se calculan; `c16` deja de ser el subtotal de la Suite |
+| **Cómo convierte Kepler.** OC = copia del encabezado salvo `c4 c6 c31 c63` y la liga `c36 A · c37 30 · c38 serie · c39 folio`; renglón = copia salvo `c19..c23` y `c31 = c9`; la requisición queda `c43 F`, `c42 0`, `c24 0` | 1,142 pares, 1,893 renglones, nueve servidores; serie 1 y `XA3501-` en todos | **PQ.22**: la OC se escribe en la MISMA transacción; la requisición nace convertida |
+
+⭐ **PQ.22 no pide permiso de UPDATE en Kepler**: los dos documentos entran juntos, la requisición
+ya en su estado final. Tampoco queda una requisición pendiente que alguien pueda volver a convertir
+a mano (OC duplicada). El interruptor es `kepler_push_switch.genera_orden` (mig `20261028135333`),
+**apagado en las nueve**; se enciende en `/compras/kepler-escritura` → columna «Orden de compra».
+En la Suite la requisición pasa a `ordered` con `oc_sucursal/oc_folio` de Kepler. La OC abierta
+entra sola a «En camino» y a `/compras/oc-abiertas` (leen X-A-35 abiertas): no hay doble conteo,
+porque «en camino» nunca contó requisiciones de la Suite.
+
+⛔ **NO MEDIDO contra Kepler.** El ensayo (`kepler-requisition-sink.ensayo.spec.ts`, ROLLBACK) no
+corrió en ningún servidor desde la máquina de desarrollo: 00/02/03/04/05/08 no tienen `pg_hba` para
+ella y **01, 06 y 07 siguen sin `GRANT SELECT ON md.kdxd`** (00 sí lo tiene: ahí entraron las
+cuatro; 02–05 y 08 sin medir). Antes de encender la OC automática: el GRANT donde falte, desplegar, y un canario en oficinas con la baja
+desde la UI de Kepler (OC y requisición). Las cuatro ya escritas se reparan a mano (runbook KR §13).
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-10-28 | «La requisición no aparece para generar la OC en Kepler; y generemos la OC automáticamente» → **PQ.21 🔨** (`c42` saldo pendiente + IVA/IEPS de la ficha) y **PQ.22 🔨** (OC X-A-35 ligada, misma transacción, interruptor por sucursal apagado). Reglas medidas en `kepler_ods`; ensayo contra Kepler NO MEDIDO (sin `pg_hba` o sin GRANT `kdxd` desde desarrollo; 01/06/07 sin GRANT) (§14.6) | PM + sesión PQ |
 | 2026-10-27 | «Actívemoslo para hacer pruebas» → **PQ.19 🧪**: D24 en código (traspaso en unidad base + factor contrastado con la ficha del origen). Simulacro: compras 85/85, traspasos 776/809; los 33 son fichas de Kepler sin factor. Encender = secreto en `md` (no lo toca la sesión): canario de compra en 04 primero, traspaso desde 01 después del push (§14.5) | PM + sesión PQ |
 | 2026-10-27 | «¿Cómo sale el traspaso en cada sucursal?» (§14.4): pedido `U-D-40` + embarque `U-D-41` en la que manda, recepción `U-A-50` en la que recibe, idénticos al centavo, ligados por `c37/c38/c39`. Hallazgo: Kepler escribe el traspaso en unidad base (99.2 %), nosotros en CJA → **D24** | PM + sesión PQ |
 | 2026-10-27 | «Generar el apartado para ver los pedidos de sucursal» → **PQ.18 🧪** (`ffea99b38`): tercera pestaña en Requisiciones con lo que mandan las sucursales (compras y traspasos), quién pidió y qué, aprobar/rechazar con motivo, contador de pendientes. En prod hay 0 todavía (la función nació el 26-oct) | PM + sesión PQ |

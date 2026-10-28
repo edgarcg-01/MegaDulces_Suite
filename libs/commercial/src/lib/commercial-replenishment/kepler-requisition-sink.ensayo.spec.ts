@@ -45,16 +45,30 @@ class AdaptadorEnsayo extends KeplerRequisitionSinkAdapter {
   public fallas: string[] = [];
   protected override async confirmar(c: PoolClient): Promise<void> {
     const h = (await c.query(`SELECT count(*) OVER ()::int n, c9::date f, c18::date entrega, btrim(c10) c10, c14::text c14, c15::text c15,
-                                     btrim(c67) c67, c69, btrim(c43) c43 FROM _h`)).rows;
+                                     btrim(c67) c67, c69, btrim(c43) c43, btrim(c2) c2, c16::text c16, c42::text c42 FROM _h`)).rows;
     const l = (await c.query(`SELECT c7::text ren, c9::float8 cant, c24::float8 pend, btrim(c56) c56, btrim(c25) c25, c32::date f,
-                                     btrim(c11) u, btrim(c55) uc, btrim(c57) c57, btrim(c58) c58 FROM _l ORDER BY c7`)).rows;
+                                     btrim(c11) u, btrim(c55) uc, btrim(c57) c57, btrim(c58) c58, c13::float8 imp, btrim(c17::text) c17, c18::float8 c18 FROM _l ORDER BY c7`)).rows;
     const no: string[] = [];
     if (h.length !== 1) no.push(`_h tiene ${h.length} filas`);
     if (!l.length) no.push('_l vacío');
     const H = h[0] ?? {};
     const mismo = (a: unknown, b: unknown) => String(a) === String(b);
     if (!mismo(H.entrega?.toISOString?.(), H.f?.toISOString?.())) no.push(`c18 ${H.entrega} ≠ fecha ${H.f}`);
-    if (Number(H.c14) !== 0 || Number(H.c15) !== 0) no.push(`c14/c15 = ${H.c14}/${H.c15}`);
+    // `[PQ.21]` c42 (saldo pendiente) = c16 en todo documento abierto: si no, Kepler no lo ofrece.
+    if (Number(H.c42) !== Number(H.c16)) no.push(`c42 ${H.c42} ≠ c16 ${H.c16} (no aparecería al generar la OC)`);
+    if (H.c2 === 'U') {
+      if (Number(H.c14) !== 0 || Number(H.c15) !== 0) no.push(`c14/c15 = ${H.c14}/${H.c15}`);
+    } else {
+      // Compra: la fórmula de Kepler sobre los renglones que se van a escribir.
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      const sub = l.reduce((t, r) => t + r.imp, 0);
+      const iva = r2(l.reduce((t, r) => t + r2(r.imp * Number(r.c17) / 100), 0));
+      const ieps = r2(l.reduce((t, r) => t + r2(r.imp * r.c18 / 100), 0));
+      if (Math.abs(Number(H.c14) - iva) > 0.005) no.push(`c14 ${H.c14} ≠ IVA ${iva}`);
+      if (Math.abs(Number(H.c15) - ieps) > 0.005) no.push(`c15 ${H.c15} ≠ IEPS ${ieps}`);
+      if (Math.abs(Number(H.c16) - r2(sub + iva + ieps)) > 0.005) no.push(`c16 ${H.c16} ≠ ${r2(sub + iva + ieps)}`);
+      for (const r of l) if (Number(r.c17) < 0 || r.c18 < 0) no.push(`ren ${r.ren}: tasa negativa ${r.c17}/${r.c18}`);
+    }
     if (H.c67 !== 'SUITE') no.push(`c67 = ${H.c67}`);
     if (!/^\d{2}:\d{2}$/.test(String(H.c69))) no.push(`c69 = ${H.c69}`);
     if (H.c43 !== 'N') no.push(`c43 = ${H.c43}`);

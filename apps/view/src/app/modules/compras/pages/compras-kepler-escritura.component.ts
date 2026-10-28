@@ -81,6 +81,7 @@ interface FilaSucursal { sucursal: string; compra: KeplerSwitchRow; traspaso: Ke
               <th scope="col">Sucursal</th>
               <th scope="col">Compra</th>
               <th scope="col" class="comm-num">Tope diario</th>
+              <th scope="col">Orden de compra</th>
               <th scope="col">Traspaso</th>
               <th scope="col" class="comm-num">Tope diario</th>
               <th scope="col">Último cambio</th>
@@ -108,6 +109,20 @@ interface FilaSucursal { sucursal: string; compra: KeplerSwitchRow; traspaso: Ke
                                  inputStyleClass="ke-tope" (onBlur)="topar(f[t], $any($event.target).value)"
                                  (keydown.enter)="topar(f[t], $any($event.target).value)" />
                 </td>
+                @if (t === 'compra') {
+                  <!-- [PQ.22] La OC sólo sale junto con una requisición escrita: sin compra encendida no hay qué convertir. -->
+                  <td>
+                    <div class="ke-sw">
+                      <p-toggleswitch [ngModel]="!!f.compra.genera_orden"
+                                      [disabled]="!puedeCambiar() || !f.compra.encendida || guardando() === f.sucursal + 'compra'"
+                                      (ngModelChange)="cambiarOrden(f.compra, $event)"
+                                      [ariaLabel]="'Orden de compra automática en ' + nombre(f.sucursal)" />
+                      <span [class.ke-on]="f.compra.encendida && f.compra.genera_orden">
+                        {{ !f.compra.encendida ? 'Sin requisición' : f.compra.genera_orden ? 'Automática' : 'A mano en Kepler' }}
+                      </span>
+                    </div>
+                  </td>
+                }
               }
               <td class="ke-quien">
                 @if (ultimo(f); as u) {
@@ -120,6 +135,7 @@ interface FilaSucursal { sucursal: string; compra: KeplerSwitchRow; traspaso: Ke
 
         <p class="ke-pie">
           Tope vacío = sin tope. Con tope, la Suite deja de escribir en esa sucursal al llegar a N documentos en el día (contados en Kepler).
+          Orden de compra automática: junto con la requisición se escribe su orden de compra en Kepler, ya ligada; la requisición queda surtida y la orden abierta hasta que entre la mercancía.
           @if (!puedeCambiar()) { <b>Sólo lectura:</b> cambiarlo pide la llave «Encender la escritura a Kepler». }
         </p>
       </app-load-state>
@@ -216,6 +232,19 @@ export class ComprasKeplerEscrituraComponent implements OnInit {
     });
   }
 
+  /** `[PQ.22]` Encender la OC automática pide confirmar (escribe un documento más en el ERP). */
+  cambiarOrden(r: KeplerSwitchRow, genera: boolean): void {
+    const body = { encendida: r.encendida, tope_dia: r.tope_dia, genera_orden: genera };
+    if (!genera) { this.guardar(r, body); return; }
+    this.confirm.confirm({
+      header: `Orden de compra automática en ${this.nombre(r.sucursal)}`,
+      message: `Cada requisición de compra de ${this.nombre(r.sucursal)} que se apruebe se escribirá en Kepler con su orden de compra ya generada y ligada. Nadie tendrá que convertirla a mano.`,
+      acceptLabel: 'Encender', rejectLabel: 'Cancelar',
+      accept: () => this.guardar(r, body),
+      reject: () => this.cargar(),
+    });
+  }
+
   topar(r: KeplerSwitchRow, valor: string): void {
     const limpio = String(valor ?? '').replace(/[^\d]/g, '');
     const tope = limpio ? Number(limpio) : null;
@@ -223,7 +252,7 @@ export class ComprasKeplerEscrituraComponent implements OnInit {
     this.guardar(r, { encendida: r.encendida, tope_dia: tope });
   }
 
-  private guardar(r: KeplerSwitchRow, body: { encendida: boolean; tope_dia: number | null }): void {
+  private guardar(r: KeplerSwitchRow, body: { encendida: boolean; tope_dia: number | null; genera_orden?: boolean }): void {
     if (this.guardando()) return;
     this.guardando.set(r.sucursal + r.tipo);
     this.api.setKeplerSwitch(r.sucursal, r.tipo, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -232,7 +261,9 @@ export class ComprasKeplerEscrituraComponent implements OnInit {
         this.leidoEn.set(new Date());
         this.guardando.set(null);
         this.toast.add({ severity: 'success', summary: `${this.nombre(r.sucursal)} · ${r.tipo}`,
-          detail: body.encendida ? `Escribe en Kepler${body.tope_dia ? `, tope ${body.tope_dia}/día` : ', sin tope'}` : 'Apagada' });
+          detail: body.genera_orden !== undefined
+            ? (body.genera_orden ? 'La orden de compra se genera sola' : 'La orden de compra se hace a mano en Kepler')
+            : body.encendida ? `Escribe en Kepler${body.tope_dia ? `, tope ${body.tope_dia}/día` : ', sin tope'}` : 'Apagada' });
       },
       error: (e) => {
         this.guardando.set(null);

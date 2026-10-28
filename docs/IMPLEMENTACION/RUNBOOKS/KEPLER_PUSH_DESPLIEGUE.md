@@ -445,3 +445,48 @@ y que nadie ha decodificado. Se dejaron como vienen; si Compras ve algo raro, em
 - ⚠️ Esto salta el orden de §9.3 y el criterio de §11: la **baja desde la UI de Kepler** con KR.17 aún no se
   ejerció, y sin tope el freno de duplicados (§9.2) ya no actúa. El primer documento de cada servidor se revisa
   con `kepler-push-ops.js listar --sucursal NN` y se intenta su baja en Kepler.
+
+## 13. `[PQ.21]` Reparar las requisiciones que Kepler no ofrece para convertir (2026-10-28)
+
+Las escritas antes de PQ.21 llevan `c42 = 0` (saldo pendiente) y no aparecen al generar la OC en
+Kepler. Además traen IVA/IEPS del renglón molde y el encabezado sin impuestos. Afectadas al
+2026-10-28: oficinas `X-A-30` `0003111`–`0003114` (RQ-2026-01615, -01601, -01636, -01626).
+
+Lo corre **un superusuario** en `md_00` (`kepler_push` sólo inserta). Revisar el `SELECT` antes del `COMMIT`:
+
+```sql
+BEGIN;
+-- 1. Tasas del renglón desde la ficha (kdm2.c17 = |kdii.c18| IVA, c18 = |kdii.c19| IEPS)
+UPDATE md.kdm2 l SET c17 = abs(k.c18::numeric)::int::text, c18 = abs(k.c19::numeric)::int
+  FROM md.kdii k
+ WHERE btrim(k.c1) = btrim(l.c8)
+   AND l.c1 = '00' AND l.c2 = 'X' AND l.c3 = 'A' AND btrim(l.c4::text) = '30' AND btrim(l.c5::text) = '1'
+   AND l.c6 IN ('0003111','0003112','0003113','0003114');
+-- 2. Encabezado: impuestos, total y SALDO PENDIENTE (c42 = c16 mientras esté abierta)
+UPDATE md.kdm1 h SET c14 = s.iva, c15 = s.ieps, c16 = s.sub + s.iva + s.ieps, c42 = s.sub + s.iva + s.ieps
+  FROM (SELECT c6, sum(c13::numeric) sub,
+               sum(round(c13::numeric * c17::numeric / 100, 2)) iva,
+               sum(round(c13::numeric * c18::numeric / 100, 2)) ieps
+          FROM md.kdm2
+         WHERE c1 = '00' AND c2 = 'X' AND c3 = 'A' AND btrim(c4::text) = '30' AND btrim(c5::text) = '1'
+           AND c6 IN ('0003111','0003112','0003113','0003114')
+         GROUP BY c6) s
+ WHERE h.c1 = '00' AND h.c2 = 'X' AND h.c3 = 'A' AND btrim(h.c4::text) = '30' AND btrim(h.c5::text) = '1'
+   AND h.c6 = s.c6 AND h.c43 = 'N' AND btrim(h.c11) LIKE 'RQ-%';
+SELECT c6, c11, c14, c15, c16, c42, c43 FROM md.kdm1
+ WHERE c1 = '00' AND c2 = 'X' AND c3 = 'A' AND btrim(c4::text) = '30'
+   AND c6 IN ('0003111','0003112','0003113','0003114');
+-- Deben salir 4 filas, c43 = N y c42 = c16 > 0. Si cuadra: COMMIT;  si no: ROLLBACK;
+```
+
+Después, en Kepler: generar la OC desde la requisición. Si ya no se quieren, la baja desde la UI.
+
+### 13.1 `[PQ.22]` OC automática y permisos
+
+- Con `genera_orden` encendido (pantalla `/compras/kepler-escritura`, columna «Orden de compra»),
+  la requisición y su OC `X-A-35` se escriben en la misma transacción: **no hace falta UPDATE**,
+  el `GRANT` sigue siendo `SELECT` en `kdm1, kdm2, pv_suc_ip, kdxd, kdii` + `INSERT` en `kdm1, kdm2`.
+- ⛔ Medido 2026-10-28: **01, 06 y 07 sin `SELECT` en `kdxd`** (toda compra ahí rebota); 00 sí; 02–05
+  y 08 no se pudieron medir desde desarrollo (`pg_hba`). `node database/scripts/kepler-push-ops.js revisar` lo dice por servidor.
+- Antes de encenderla en una sucursal: canario de una requisición, ver en Kepler la OC ligada a la
+  requisición (`X-A-35` con `c39` = folio de la requisición) y probar la baja de los dos documentos.

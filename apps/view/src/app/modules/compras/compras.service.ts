@@ -246,6 +246,8 @@ export interface KeplerSwitchRow {
   encendida: boolean;
   /** `null` = sin tope. */
   tope_dia: number | null;
+  /** `[PQ.22]` Sólo compra: con la requisición se escribe también la orden de compra X-A-35. */
+  genera_orden?: boolean;
   nota: string | null;
   updated_at: string | null;
   updated_by: string | null;
@@ -1316,7 +1318,7 @@ export class ComprasService {
   keplerSwitch(): Observable<KeplerSwitchResponse> {
     return this.http.get<KeplerSwitchResponse>(`${this.base}/kepler-escritura`);
   }
-  setKeplerSwitch(sucursal: string, tipo: KeplerTipo, body: { encendida: boolean; tope_dia: number | null; nota?: string | null }): Observable<KeplerSwitchResponse> {
+  setKeplerSwitch(sucursal: string, tipo: KeplerTipo, body: { encendida: boolean; tope_dia: number | null; nota?: string | null; genera_orden?: boolean }): Observable<KeplerSwitchResponse> {
     return this.http.put<KeplerSwitchResponse>(`${this.base}/kepler-escritura/${sucursal}/${tipo}`, body);
   }
 
