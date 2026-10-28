@@ -13,6 +13,9 @@
  *  - Fondo blanco y neutros: el documento es SOBRIO. La marca es el logo y, a lo sumo, un filete;
  *    la jerarquía la dan el tamaño y el peso, no el color (la cotización: «tiene mucho color»).
  *  - `marca` (#F05A28) NUNCA como texto chico: da 3.39:1. Para texto de marca, `marcaTexto`.
+ *  - `[CI]` 2026-10-28: desde [AUD.4] (2026-10-26) `--action` en claro es #C8401A (contraste AA de la
+ *    PANTALLA). El papel no cambia de marca: `marca` se lee de `--brand-700`, el sunset, que AUD.4
+ *    declara que «sigue siendo la marca». `marcaTexto` sigue a `--action-press` (#9C3311, 7.25:1 sobre blanco).
  *  - Los estados (ok/aviso/error/info/neutro) significan lo mismo en todos los documentos y nunca
  *    van solos: siempre con su texto («VENCIDA», «SIN ASIGNAR»).
  */
@@ -29,10 +32,10 @@ export const PALETA_DOCUMENTO = {
   encabezado: '#F4F4F5',
   /** --card-bg */
   blanco: '#FFFFFF',
-  /** --action: SÓLO un trazo (el filete del encabezado). Como texto chico no cumple AA. */
+  /** --brand-700 (el sunset de la marca): SÓLO un trazo (el filete del encabezado). Como texto chico no cumple AA. */
   marca: '#F05A28',
-  /** --action-press: si alguna vez la marca tiene que ser TEXTO, éste (5.68:1), nunca --action. */
-  marcaTexto: '#B83C15',
+  /** --action-press: si alguna vez la marca tiene que ser TEXTO, éste, nunca --brand-700. */
+  marcaTexto: '#9C3311',
   estado: {
     ok: { fg: '#166534', bg: '#DCFCE7', borde: '#BBF7D0' },
     aviso: { fg: '#92400E', bg: '#FEF3C7', borde: '#FDE68A' },
@@ -50,7 +53,7 @@ export const TOKEN_DE: Record<string, string> = {
   fondoSuave: '--surface-ground',
   encabezado: '--neutral-100',
   blanco: '--card-bg',
-  marca: '--action',
+  marca: '--brand-700',
   marcaTexto: '--action-press',
   'estado.ok.fg': '--ok-soft-fg', 'estado.ok.bg': '--ok-soft-bg', 'estado.ok.borde': '--ok-border',
   'estado.aviso.fg': '--warn-soft-fg', 'estado.aviso.bg': '--warn-soft-bg', 'estado.aviso.borde': '--warn-border',

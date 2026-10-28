@@ -26,7 +26,9 @@ const valorDe = (ruta: string): string =>
 
 describe('[E.29] paleta de documentos', () => {
   it('CONTROL del instrumento: lee valores conocidos de tokens.css', () => {
-    expect(claro('--action')).toBe('#F05A28');
+    // [AUD.4] La acción en claro es #C8401A; la marca (--brand-700) sigue siendo el sunset.
+    expect(claro('--action')).toBe('#C8401A');
+    expect(claro('--brand-700')).toBe('#F05A28');
     expect(claro('--card-bg')).toBe('#FFFFFF');
     expect(() => claro('--no-existe-xyz')).toThrow();
     expect(contraste('#000000', '#FFFFFF')).toBeCloseTo(21, 5);

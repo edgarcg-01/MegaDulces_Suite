@@ -583,7 +583,8 @@ describe('verificador · el mayoreo', () => {
    */
   it('el count-up no gatea la CORRECTEZA del importe en la intersección', () => {
     // En modo live (dato autoritativo) no se espera intersección.
-    expect(DIRECTIVA).toMatch(/if \(this\.appCountUpLive \|\| typeof IntersectionObserver === 'undefined'\)/);
+    // [PGP.15] La directiva ganó `countUpOff` (apaga la animación) delante; la regla es la misma.
+    expect(DIRECTIVA).toMatch(/if \((?:this\.countUpOff \|\| )?this\.appCountUpLive \|\| typeof IntersectionObserver === 'undefined'\)/);
     // Y `maybeStart` ya no exige el observador, que era lo que congelaba el valor inicial.
     expect(DIRECTIVA).not.toMatch(/if \(this\.done \|\| !this\.visible \|\| !this\.io\) return;/);
     expect(DIRECTIVA).toMatch(/if \(this\.done \|\| !this\.visible\) return;/);
