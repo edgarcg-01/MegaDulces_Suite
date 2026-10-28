@@ -43,7 +43,7 @@ function cargarMaestro(): string[] {
  */
 class AdaptadorEnsayo extends KeplerRequisitionSinkAdapter {
   public fallas: string[] = [];
-  protected override async confirmar(c: PoolClient): Promise<void> {
+  protected override async confirmar(c: PoolClient, conOrden = false): Promise<void> {
     const h = (await c.query(`SELECT count(*) OVER ()::int n, c9::date f, c18::date entrega, btrim(c10) c10, c14::text c14, c15::text c15,
                                      btrim(c67) c67, c69, btrim(c43) c43, btrim(c2) c2, c16::text c16, c42::text c42 FROM _h`)).rows;
     const l = (await c.query(`SELECT c7::text ren, c9::float8 cant, c24::float8 pend, btrim(c56) c56, btrim(c25) c25, c32::date f,
@@ -55,7 +55,9 @@ class AdaptadorEnsayo extends KeplerRequisitionSinkAdapter {
     const mismo = (a: unknown, b: unknown) => String(a) === String(b);
     if (!mismo(H.entrega?.toISOString?.(), H.f?.toISOString?.())) no.push(`c18 ${H.entrega} ≠ fecha ${H.f}`);
     // `[PQ.21]` c42 (saldo pendiente) = c16 en todo documento abierto: si no, Kepler no lo ofrece.
-    if (Number(H.c42) !== Number(H.c16)) no.push(`c42 ${H.c42} ≠ c16 ${H.c16} (no aparecería al generar la OC)`);
+    // `[PQ.22]` Con OC escrita la requisición nace CONVERTIDA: c42 0, c43 F, c24 0.
+    if (conOrden) { if (Number(H.c42) !== 0) no.push(`req convertida con c42 ${H.c42}`); }
+    else if (Number(H.c42) !== Number(H.c16)) no.push(`c42 ${H.c42} ≠ c16 ${H.c16} (no aparecería al generar la OC)`);
     if (H.c2 === 'U') {
       if (Number(H.c14) !== 0 || Number(H.c15) !== 0) no.push(`c14/c15 = ${H.c14}/${H.c15}`);
     } else {
@@ -71,13 +73,32 @@ class AdaptadorEnsayo extends KeplerRequisitionSinkAdapter {
     }
     if (H.c67 !== 'SUITE') no.push(`c67 = ${H.c67}`);
     if (!/^\d{2}:\d{2}$/.test(String(H.c69))) no.push(`c69 = ${H.c69}`);
-    if (H.c43 !== 'N') no.push(`c43 = ${H.c43}`);
+    if (H.c43 !== (conOrden ? 'F' : 'N')) no.push(`c43 = ${H.c43}`);
     for (const r of l) {
-      if (r.pend !== r.cant) no.push(`ren ${r.ren}: c24 ${r.pend} ≠ c9 ${r.cant} (quedaría «referenciado»)`);
+      if (conOrden ? r.pend !== 0 : r.pend !== r.cant) no.push(`ren ${r.ren}: c24 ${r.pend} ≠ c9 ${r.cant} (quedaría «referenciado»)`);
       if (Number(r.c56) !== r.cant) no.push(`ren ${r.ren}: c56 ${r.c56} ≠ c9 ${r.cant}`);
       if (r.c25 !== H.c10) no.push(`ren ${r.ren}: c25 ${r.c25} ≠ c10 ${H.c10}`);
       if (!mismo(r.f?.toISOString?.(), H.f?.toISOString?.())) no.push(`ren ${r.ren}: c32 ${r.f} ≠ fecha`);
       if (r.u !== 'CJA' || r.uc !== 'CJA' || r.c58 !== '1') no.push(`ren ${r.ren}: unidad ${r.u}/${r.uc}/${r.c58}`);
+    }
+    if (conOrden) {
+      // `[PQ.22]` La OC: liga a la requisición y abierta (reglas medidas en 1,142 pares).
+      const req = (await c.query('SELECT c6, btrim(c5::text) c5 FROM _h')).rows[0];
+      const o = (await c.query(`SELECT btrim(c4::text) c4, c6, btrim(c31) c31, btrim(c63) c63, btrim(c36) c36, btrim(c37::text) c37,
+                                       btrim(c38::text) c38, btrim(c39) c39, c16::text c16, c42::text c42, btrim(c43) c43 FROM _oh`)).rows;
+      const ol = (await c.query(`SELECT c7::text ren, btrim(c4::text) c4, c6, btrim(c19) c19, btrim(c20::text) c20, btrim(c21::text) c21,
+                                        btrim(c22) c22, btrim(c23::text) c23, c31::float8 c31, c9::float8 c9, c24::float8 c24 FROM _ol ORDER BY c7`)).rows;
+      const O = o[0] ?? {};
+      if (o.length !== 1) no.push(`_oh tiene ${o.length} filas`);
+      if (O.c4 !== '35' || O.c31 !== 'Ord' || O.c63 !== 'XA3501-') no.push(`OC c4/c31/c63 = ${O.c4}/${O.c31}/${O.c63}`);
+      if (O.c36 !== 'A' || O.c37 !== '30' || O.c38 !== req.c5 || O.c39 !== req.c6) no.push(`OC liga ${O.c36}/${O.c37}/${O.c38}/${O.c39} ≠ A/30/${req.c5}/${req.c6}`);
+      if (O.c43 !== 'N' || Number(O.c42) !== Number(O.c16)) no.push(`OC no abierta: c43 ${O.c43} c42 ${O.c42} c16 ${O.c16}`);
+      if (ol.length !== l.length) no.push(`OC ${ol.length} renglones ≠ ${l.length}`);
+      for (const r of ol) {
+        if (r.c4 !== '35' || r.c6 !== O.c6) no.push(`OC ren ${r.ren}: c4/c6 ${r.c4}/${r.c6}`);
+        if (r.c19 !== 'A' || r.c20 !== '30' || r.c21 !== req.c5 || r.c22 !== req.c6 || r.c23 !== r.ren) no.push(`OC ren ${r.ren}: liga ${r.c19}/${r.c20}/${r.c21}/${r.c22}/${r.c23}`);
+        if (r.c31 !== r.c9 || r.c24 !== r.c9) no.push(`OC ren ${r.ren}: c31 ${r.c31} c24 ${r.c24} ≠ c9 ${r.c9}`);
+      }
     }
     this.fallas = no;
     await c.query('ROLLBACK');
@@ -128,6 +149,28 @@ describe.skipIf(!ACTIVO)('ensayo contra los Kepler reales (ROLLBACK, no escribe)
       expect(r.estado).toBe('entregada');
       expect(adapter!.fallas, `servidor ${s}: columnas arrastradas de la plantilla`).toEqual([]);
       expect(await contar(k, s, 'X', 'A', '30')).toBe(antes);   // no escribió
+      await k.end();
+    }, 60000);
+
+    it(`[PQ.22] compra + OC en ${s}: requisición convertida, OC ligada y ROLLBACK`, async (ctx) => {
+      if (!process.env[`KEPLER_REQ_TEMPLATE_FOLIO_${s}`] && s !== '00') ctx.skip();
+      const k = new Client({ connectionString: process.env[`KEPLER_PUSH_URL_${s}`], statement_timeout: 20000 });
+      await k.connect();
+      const muestra = (await k.query(
+        `SELECT btrim(m.c10) prov, btrim(d.c8) sku, btrim(d.c10) nombre
+           FROM md.kdm1 m JOIN md.kdm2 d ON d.c1=m.c1 AND d.c2=m.c2 AND d.c3=m.c3 AND d.c4=m.c4 AND d.c5=m.c5 AND d.c6=m.c6
+          WHERE m.c1=$1 AND m.c2='X' AND m.c3='A' AND btrim(m.c4::text) IN ('30','35') AND btrim(m.c11) NOT LIKE 'RQ-%'
+          ORDER BY m.c9 DESC LIMIT 1`, [s])).rows[0];
+      const antes = await contar(k, s, 'X', 'A', '35');
+      const r = await adapter!.entregar({
+        requisition_id: '00000000-0000-0000-0000-000000000000', folio_suite: 'RQ-ENSAYO-PQ22', tipo: 'compra', generar_orden: true,
+        sucursal: s, proveedor_code: muestra.prov, fecha: new Date().toISOString().slice(0, 10),
+        lineas: [{ sku: muestra.sku, nombre: muestra.nombre, cajas: 3, costo_caja: 373.76, importe: 1121.28 }], total: 1121.28,
+      });
+      expect(r.motivo ?? '', `servidor ${s}`).toBe('');
+      expect(r.orden?.folio, `servidor ${s}: sin folio de OC`).toMatch(/^[0-9]{7}$/);
+      expect(adapter!.fallas, `servidor ${s}: OC o requisición convertida`).toEqual([]);
+      expect(await contar(k, s, 'X', 'A', '35')).toBe(antes);   // no escribió
       await k.end();
     }, 60000);
 

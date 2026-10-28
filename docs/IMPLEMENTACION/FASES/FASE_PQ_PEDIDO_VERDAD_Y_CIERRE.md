@@ -820,7 +820,9 @@ En la Suite la requisición pasa a `ordered` con `oc_sucursal/oc_folio` de Keple
 entra sola a «En camino» y a `/compras/oc-abiertas` (leen X-A-35 abiertas): no hay doble conteo,
 porque «en camino» nunca contó requisiciones de la Suite.
 
-⛔ **NO MEDIDO contra Kepler.** El ensayo (`kepler-requisition-sink.ensayo.spec.ts`, ROLLBACK) no
+⭐ **Actualización 2026-10-28 tarde:** con la clave de `postgres` del PM se dio `GRANT SELECT ON md.kdxd, md.kdii TO kepler_push` en **01, 06 y 07** (antes false/false, después true/true). El ensayo con ROLLBACK pasa ahí **compra** (tasas, impuestos, `c42`) y **compra + OC** (requisición convertida, OC ligada y abierta); cazó un error real de tipos (`c38` numeric) que se corrigió. 00, 02–05 y 08 siguen sin medir desde desarrollo.
+
+~~NO MEDIDO contra Kepler.~~ El ensayo (`kepler-requisition-sink.ensayo.spec.ts`, ROLLBACK) no
 corrió en ningún servidor desde la máquina de desarrollo: 00/02/03/04/05/08 no tienen `pg_hba` para
 ella y **01, 06 y 07 siguen sin `GRANT SELECT ON md.kdxd`** (00 sí lo tiene: ahí entraron las
 cuatro; 02–05 y 08 sin medir). Antes de encender la OC automática: el GRANT donde falte, desplegar, y un canario en oficinas con la baja

@@ -462,8 +462,10 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
               c4  = $1,
               c6  = lpad(((SELECT max(c6::int) FROM md.kdm1
                             WHERE c1=$2 AND c2='X' AND c3='A' AND btrim(c4::text)='35' AND btrim(c5::text)=$3) + 1)::text, 7, '0'),
-              c31 = 'Ord', c63 = 'XA3501-', c36 = 'A', c37 = $4, c38 = $3, c39 = $5`,
-          ['35', e.sucursal, tmpl.serie, '30', folio]);
+              c31 = 'Ord', c63 = 'XA3501-', c36 = 'A', c37 = $4, c38 = $6, c39 = $5`,
+          // ⛔ `c38` es numeric y `$3` ya es texto por el `btrim(c5::text)`: cada uno con su
+          // parámetro (`[KR.16]`; lo cazó el ensayo contra 01/06/07 el 2026-10-28).
+          ['35', e.sucursal, tmpl.serie, '30', folio, tmpl.serie]);
         ordenFolio = (await c.query('SELECT c6 FROM _oh')).rows[0].c6 as string;
         await c.query(
           `UPDATE _ol SET c4 = $1, c6 = $2, c19 = 'A', c20 = $3, c21 = $4, c22 = $5, c23 = c7, c31 = c9`,

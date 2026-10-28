@@ -486,7 +486,8 @@ Después, en Kepler: generar la OC desde la requisición. Si ya no se quieren, l
 - Con `genera_orden` encendido (pantalla `/compras/kepler-escritura`, columna «Orden de compra»),
   la requisición y su OC `X-A-35` se escriben en la misma transacción: **no hace falta UPDATE**,
   el `GRANT` sigue siendo `SELECT` en `kdm1, kdm2, pv_suc_ip, kdxd, kdii` + `INSERT` en `kdm1, kdm2`.
-- ⛔ Medido 2026-10-28: **01, 06 y 07 sin `SELECT` en `kdxd`** (toda compra ahí rebota); 00 sí; 02–05
+- ✅ 2026-10-28 tarde: GRANT dado en **01, 06 y 07** (usuario `postgres`, desde desarrollo; los demás rechazan esta máquina). Antes:
+  **01, 06 y 07 sin `SELECT` en `kdxd`** (toda compra ahí rebota); 00 sí; 02–05
   y 08 no se pudieron medir desde desarrollo (`pg_hba`). `node database/scripts/kepler-push-ops.js revisar` lo dice por servidor.
 - Antes de encenderla en una sucursal: canario de una requisición, ver en Kepler la OC ligada a la
   requisición (`X-A-35` con `c39` = folio de la requisición) y probar la baja de los dos documentos.
