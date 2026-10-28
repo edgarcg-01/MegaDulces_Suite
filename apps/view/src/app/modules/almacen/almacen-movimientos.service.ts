@@ -12,7 +12,8 @@ export type GroupBy = 'product' | 'doc_code' | 'day' | 'warehouse';
 /** 'info' = documento informativo (k_binv=0, ej. Aplicación de orden de entrada): no mueve inventario. */
 export type MovementKind = 'entrada' | 'salida' | 'info';
 
-export type TransferDocStatus = 'en_transito' | 'completado' | 'diferencia';
+/** [MX.1.3] `sin_acuse` = a almacén y sin recepción pasado el umbral; `sin_recepcion_esperada` = a ruta o cliente. */
+export type TransferDocStatus = 'en_transito' | 'sin_acuse' | 'sin_recepcion_esperada' | 'completado' | 'diferencia';
 
 export interface MovementsFilters {
   warehouse_ids?: string[];
@@ -66,7 +67,7 @@ export interface FolioRow {
   doc_date: string; lineas: number; signed_qty: number; qty: number; amount: number | null;
   parent_group: string | null; parent_serie: string | null; parent_folio: string | null;
   audited: boolean; audited_by: string | null; audited_at: string | null;
-  /** Solo docs de traspaso: en_transito | completado | diferencia. */
+  /** Solo docs de traspaso: en_transito | sin_acuse | sin_recepcion_esperada | completado | diferencia. */
   transfer_status?: TransferDocStatus | null;
   /** DM.11 — destino (solo TrsfShip): a qué sucursal va dirigido. */
   dest_code?: string | null; dest_label?: string | null;
@@ -105,7 +106,8 @@ export interface TransfersHallazgos {
    * El hueco real: salió hacia un ALMACÉN y nadie registró la recepción.
    * ⚠️ `sin_recepcion` mezcla tres cosas; los otros dos baldes no son huecos y suman con éste.
    */
-  sin_acuse: { docs: number; amount: number; dias_max: number; viejo_docs: number; viejo_amount: number };
+  /** [MX.1.3] `umbral_dias`: a partir de cuántos días sin recepción es «viejo» (lo fija el backend). */
+  sin_acuse: { docs: number; amount: number; dias_max: number; viejo_docs: number; viejo_amount: number; umbral_dias: number };
   /** Carga a camioneta: NO emite recepción, así que "sin acuse" es su estado normal. */
   sin_acuse_ruta: { docs: number; amount: number };
   /** Entrega a un cliente: tampoco emite acuse. Es la mayoría del `sin_recepcion` crudo. */

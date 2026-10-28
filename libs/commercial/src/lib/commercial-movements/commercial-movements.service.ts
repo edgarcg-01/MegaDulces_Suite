@@ -35,7 +35,7 @@ export interface MovementsQuery {
   product_id?: string;
   search?: string;        // nombre/sku producto
   folio?: string;         // filtra un folio exacto (drill al documento)
-  estado?: string;        // estado de traspaso: en_transito | completado | diferencia
+  estado?: string;        // estado de traspaso: en_transito | sin_acuse | sin_recepcion_esperada | completado | diferencia
   transfer_wh_ids?: string; // CSV UUIDs — traspasos cuyo ORIGEN o DESTINO ∈ selección (propio o contraparte)
   dest_kinds?: string;    // CSV 'sucursal'|'ruta'|'cliente' — destino de traspasos; default 'sucursal'
   group_by?: string;
@@ -43,7 +43,8 @@ export interface MovementsQuery {
   pageSize?: number;
 }
 
-type TransferDocStatus = 'en_transito' | 'completado' | 'diferencia';
+type TransferDocStatus = 'en_transito' | 'sin_acuse' | 'sin_recepcion_esperada' | 'completado' | 'diferencia';
+const TRANSFER_DOC_STATUSES: readonly string[] = ['en_transito', 'sin_acuse', 'sin_recepcion_esperada', 'completado', 'diferencia'];
 
 /** DM.12 — filtros de la vista del detalle 515 (no afectan el pareo, solo qué se devuelve). */
 export interface LedgerDetailFilters {
@@ -137,6 +138,31 @@ const DOC_IDENTITY = ['m.warehouse_id', 'm.doc_code', 'm.doc_serie', 'm.folio'];
  * Se compara por SKU (texto de Kepler), no por `product_id`, por esa misma razón.
  */
 const SKU_SIG = (a: string) => `SUM(round(${a}.qty::numeric, 2) * hashtext(coalesce(${a}.sku, '')))`;
+
+/**
+ * [MX.1.3] Días sin recepción tras los cuales una salida A UN ALMACÉN deja de estar «en tránsito» y
+ * pasa a «sin acuse» (decisión D5 de la fase MX). Medido el 2026-10-28 sobre 1,270 pares entre
+ * almacenes con cantidad idéntica (embarques mar–sep 2026): mediana 0 días, p95 5, sólo 4 (0.3 %)
+ * llegan después de 15, máximo 63. Antes eran 45 en el Cuadre y NUNCA en el Diario («en tránsito» no
+ * envejecía: 234 salidas a almacén con más de 45 días se pintaban en gris).
+ */
+const SIN_ACUSE_DIAS = 15;
+
+/** Una ruta de reparto es un almacén cuyo nombre empieza con «Ruta»: una camioneta no emite acuse. */
+const esRuta = (nombre: string | null | undefined) => !!nombre && /^\s*ruta/i.test(nombre);
+
+/**
+ * [MX.1.3] Estado de una salida que NO tiene recepción, por destino y edad — una sola regla para el
+ * Diario y los hallazgos del Cuadre. A cliente (sin almacén resuelto) o a ruta nadie emite acuse:
+ * `sin_recepcion_esperada`, no un pendiente.
+ */
+const estadoSinRecepcion = (
+  destWhId: string | null | undefined, destWhName: string | null | undefined, shipDate: unknown, ahora = Date.now(),
+): 'en_transito' | 'sin_acuse' | 'sin_recepcion_esperada' => {
+  if (!destWhId || esRuta(destWhName)) return 'sin_recepcion_esperada';
+  const dias = Math.floor((ahora - new Date(String(shipDate)).getTime()) / 864e5);
+  return dias > SIN_ACUSE_DIAS ? 'sin_acuse' : 'en_transito';
+};
 
 /**
  * Predicado de pareo, en SQL, para que los CUATRO puntos que parean traspasos digan lo mismo
@@ -411,7 +437,7 @@ export class CommercialMovementsService {
     // líneas de su doc padre → fuera de KPIs y listado, salvo filtro explícito por ese tipo
     if (!INFO_DOC_CODES.includes(q.doc_code || '')) b.whereNot('m.movement_kind', 'info');
     // estado y origen/destino solo aplican a traspasos → todo (summary/aggregate/lines) se acota a ellos
-    if (['en_transito', 'completado', 'diferencia'].includes(q.estado || '') || this.transferWhIds(q).length) {
+    if (TRANSFER_DOC_STATUSES.includes(q.estado || '') || this.transferWhIds(q).length) {
       b.whereIn('m.doc_code', ['TrsfShip', 'TrsfRcv']);
     }
     // Origen/Destino (traspasos): el doc involucra al almacén seleccionado como ORIGEN
@@ -593,7 +619,7 @@ export class CommercialMovementsService {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 100));
-    const estado = ['en_transito', 'completado', 'diferencia'].includes(q.estado || '') ? (q.estado as TransferDocStatus) : null;
+    const estado = TRANSFER_DOC_STATUSES.includes(q.estado || '') ? (q.estado as TransferDocStatus) : null;
     return this.tk.run(async (trx) => {
       // base() ya acota a docs de traspaso cuando hay estado u origen/destino
       const grouped = () => this.base(trx, tenantId, q)
@@ -637,10 +663,13 @@ export class CommercialMovementsService {
         // traspasos del rango (cap 2000) y paginar en memoria. El filtro origen/destino
         // (transfer_wh_ids) ya lo aplicó base() en SQL → aquí no se re-filtra por almacén.
         const all = await fetch(2000, 0);
+        // [MX.1.3] el DESTINO va primero también acá ([DM.20]: es la llave del pareo). Antes este
+        // camino pareaba sin destino (ventana ciega para todos) y anotaba el destino después, sólo
+        // en la página: con el estado por destino de MX.1.3 todo caía en «a ruta o cliente».
+        await this.annotateDest(trx, tenantId, all);
         await this.annotateTransferStatus(trx, tenantId, all);
         const filtered = all.filter((r: any) => r.transfer_status === estado);
         const rows = filtered.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
-        await this.annotateDest(trx, tenantId, rows);
         return { page, pageSize, total: filtered.length, rows };
       }
 
@@ -657,7 +686,7 @@ export class CommercialMovementsService {
   /**
    * DM.3 — anota `transfer_status` + `cp_warehouse_id` (almacén de la contraparte, para el
    * filtro origen/destino) en filas de traspaso (mismo ranking que transfersCheck:
-   * candidato con cantidad más cercana, luego fecha). Ship sin recepción = en_transito;
+   * candidato con cantidad más cercana, luego fecha). Ship sin recepción = estadoSinRecepcion() [MX.1.3];
    * recepción sin origen visible = diferencia (a revisar).
    */
   private async annotateTransferStatus(trx: any, tenantId: string, rows: any[]): Promise<void> {
@@ -708,7 +737,9 @@ export class CommercialMovementsService {
         const mine = cands.filter((c: any) => c.pf === s.folio && c.ps === (s.doc_serie ?? '') && c.wh !== s.warehouse_id
           && pairMatchJs(sd, new Date(c.d).getTime(), s.dest_warehouse_id ?? null, c.wh));
         const best = near(mine, Number(s.qty), s.doc_date);
-        s.transfer_status = !best ? 'en_transito' : mismoTraspaso(best, s) ? 'completado' : 'diferencia';
+        // [MX.1.3] sin recepción: en tránsito sólo hasta SIN_ACUSE_DIAS, y sólo si va a un almacén
+        s.transfer_status = !best ? estadoSinRecepcion(s.dest_warehouse_id, s.dest_warehouse_name, s.doc_date)
+          : mismoTraspaso(best, s) ? 'completado' : 'diferencia';
         s.cp_warehouse_id = best ? best.wh : null;
       }
     }
@@ -1083,10 +1114,10 @@ export class CommercialMovementsService {
       const DIA = 864e5;
       const ahora = Date.now();
       const diasDe = (d: any) => (d ? Math.floor((ahora - new Date(d).getTime()) / DIA) : 0);
-      const esRuta = (n: string | null) => !!n && /^\s*ruta/i.test(n);
       const hallazgos = {
         truncado: (cTotals.diferencia + cTotals.sin_recepcion + cTotals.sin_origen) > checkRows.length,
-        sin_acuse: { docs: 0, amount: 0, dias_max: 0, viejo_docs: 0, viejo_amount: 0 },
+        // [MX.1.3] `umbral_dias` viaja con el dato: la pantalla no repite el número a mano
+        sin_acuse: { docs: 0, amount: 0, dias_max: 0, viejo_docs: 0, viejo_amount: 0, umbral_dias: SIN_ACUSE_DIAS },
         sin_acuse_ruta: { docs: 0, amount: 0 },
         sin_acuse_cliente: { docs: 0, amount: 0 },
         sin_origen: { docs: cTotals.sin_origen },
@@ -1100,8 +1131,8 @@ export class CommercialMovementsService {
           hallazgos.sin_acuse.docs++; hallazgos.sin_acuse.amount += monto;
           const d = diasDe(r.ship_date);
           if (d > hallazgos.sin_acuse.dias_max) hallazgos.sin_acuse.dias_max = d;
-          // 45 d: más del doble de la ventana de tránsito medida en [DM.20] (máximo +63, p99 +13).
-          if (d > 45) { hallazgos.sin_acuse.viejo_docs++; hallazgos.sin_acuse.viejo_amount += monto; }
+          // [MX.1.3] SIN_ACUSE_DIAS (15), medido; antes 45 escondía 30 días de alarmas reales.
+          if (d > SIN_ACUSE_DIAS) { hallazgos.sin_acuse.viejo_docs++; hallazgos.sin_acuse.viejo_amount += monto; }
         } else if (r.status === 'diferencia') {
           hallazgos.diferencia.piezas += Math.abs(Number(r.delta) || 0);
         }

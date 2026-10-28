@@ -31,12 +31,13 @@ export interface CuadreExportData {
 
 const ESTADO_LABEL: Record<string, string> = {
   en_transito: 'En tránsito', completado: 'Completado', diferencia: 'Diferencia',
+  sin_acuse: 'Sin acuse', sin_recepcion_esperada: 'A ruta o cliente',
   ok: 'Recibido', sin_recepcion: 'Sin recepción', sin_origen: 'Sin origen',
 };
 
 type Sev = 'ok' | 'warn' | 'bad' | 'mut';
 const ESTADO_SEV: Record<string, Sev> = {
-  completado: 'ok', ok: 'ok', en_transito: 'warn',
+  completado: 'ok', ok: 'ok', en_transito: 'warn', sin_acuse: 'bad', sin_recepcion_esperada: 'mut',
   diferencia: 'bad', sin_recepcion: 'bad', sin_origen: 'mut',
 };
 

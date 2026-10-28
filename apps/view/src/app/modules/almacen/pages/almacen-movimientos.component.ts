@@ -22,7 +22,7 @@ import {
   AggregateRow, FolioRow, FolioSearchRow, MovementsFilterOpts, DocumentResponse, TransfersLedgerResponse,
   TransfersMatrixResponse, TransfersMatrixRow, TransfersCheckResponse, TransferCheckRow, TransfersCheckPairResponse,
   TransfersLedgerDetailResponse, LedgerDetailFilters,
-  TransfersWincajaCheckResponse, TransfersWincajaDetailResponse, WincajaCheckRow,
+  TransfersWincajaCheckResponse, TransfersWincajaDetailResponse, WincajaCheckRow, TransferDocStatus,
 } from '../almacen-movimientos.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -780,7 +780,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
               <td class="dm-r">{{ r.qty_received != null ? (r.qty_received | number:'1.0-0') : '—' }}</td>
               <td class="dm-r dm-strong">{{ r.amount != null ? money(r.amount) : '—' }}</td>
               <td class="dm-muted">{{ (r.ship_date || r.rcv_date) | date:'yyyy-MM-dd' }}</td>
-              <td class="dm-r" [class.down]="diasDesde(r.ship_date || r.rcv_date) > 45">{{ diasDesde(r.ship_date || r.rcv_date) | number }}</td>
+              <td class="dm-r" [class.down]="umbralSinAcuse() != null && diasDesde(r.ship_date || r.rcv_date) > umbralSinAcuse()!">{{ diasDesde(r.ship_date || r.rcv_date) | number }}</td>
             </tr>
           } @empty { <tr><td colspan="9" class="dm-empty">Sin documentos en este hallazgo.</td></tr> }
         </tbody>
@@ -1048,7 +1048,7 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   fKind: '' | 'entrada' | 'salida' = '';
   fDocCode = '';
   fSearch = '';
-  fEstado: '' | 'en_transito' | 'completado' | 'diferencia' = '';
+  fEstado: '' | TransferDocStatus = '';
   fTransferWhs: string[] = [];
   // DM.11c — por defecto MOSTRAR TODO (sucursal+ruta+cliente): un default que oculta movimientos
   // confunde ("no aparece nada"). "Solo sucursal" pasa a ser una elección explícita para conciliar
@@ -1062,6 +1062,8 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   ];
   estadoOpts = [
     { label: 'En tránsito', value: 'en_transito' },
+    { label: 'Sin acuse', value: 'sin_acuse' },
+    { label: 'A ruta o cliente', value: 'sin_recepcion_esperada' },
     { label: 'Completado', value: 'completado' },
     { label: 'Con diferencia', value: 'diferencia' },
   ];
@@ -1159,10 +1161,10 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
         verable: true,
         desc: h.sin_acuse.viejo_docs
           ? `Salieron de un almacén y nadie registró la recepción en el ERP. ${docs(h.sin_acuse.viejo_docs)} `
-            + `(${this.money(h.sin_acuse.viejo_amount)}) llevan más de 45 días, y el más viejo ${h.sin_acuse.dias_max.toLocaleString('es-MX')}: `
+            + `(${this.money(h.sin_acuse.viejo_amount)}) llevan más de ${h.sin_acuse.umbral_dias} días sin recepción, y el más viejo ${h.sin_acuse.dias_max.toLocaleString('es-MX')}: `
             + `fuera de todo tránsito razonable. No prueba faltante de mercancía — prueba que falta el acuse.`
           // ⚠️ Sin viejos NO se dice "está todo bien": con el rango por defecto (30 días) es
-          // imposible que aparezca uno de 45, así que el silencio es de la ventana, no del dato.
+          // imposible que aparezca uno muy viejo, así que el silencio es de la ventana, no del dato.
           : `Salieron de un almacén y todavía no tienen recepción registrada. El más antiguo de este `
             + `rango lleva ${h.sin_acuse.dias_max.toLocaleString('es-MX')} días. Amplía el rango para `
             + `ver si hay más viejos: este hallazgo sólo mira lo que entra en las fechas elegidas.`,
@@ -1227,6 +1229,8 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
     return rows.filter((r) => r.status === id);
   });
 
+  /** [MX.1.3] Días sin recepción a partir de los cuales es «viejo»; lo fija el backend, no la pantalla. */
+  readonly umbralSinAcuse = computed(() => this.check()?.hallazgos?.sin_acuse?.umbral_dias ?? null);
   readonly hzTitulo = computed(() => this.hallazgos().find((h) => h.id === this.hzSel())?.titulo ?? 'Hallazgo');
   readonly hzDesc = computed(() => this.hallazgos().find((h) => h.id === this.hzSel())?.desc ?? '');
 
@@ -1544,7 +1548,7 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
     this.fKind = (q.get('kind') as '' | 'entrada' | 'salida') || '';
     this.fDocCode = q.get('doc') || '';
     this.fSearch = q.get('q') || '';
-    this.fEstado = (q.get('estado') as '' | 'en_transito' | 'completado' | 'diferencia') || '';
+    this.fEstado = (q.get('estado') as '' | TransferDocStatus) || '';
     this.fTransferWhs = csv('twh') || [];
     const dest = csv('dest'); if (dest && dest.length) this.fDestKinds = dest;
     if (q.get('tab') === 'cuadre') this.activeTab.set('cuadre');
@@ -1708,10 +1712,11 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   }
 
   estadoLabel(s: string): string {
-    return s === 'en_transito' ? 'En tránsito' : s === 'completado' ? 'Completado' : 'Diferencia';
+    return s === 'en_transito' ? 'En tránsito' : s === 'sin_acuse' ? 'Sin acuse' : s === 'sin_recepcion_esperada' ? 'A ruta o cliente'
+      : s === 'completado' ? 'Completado' : 'Diferencia';
   }
   estadoSev(s: string): 'success' | 'warn' | 'danger' | 'info' {
-    return s === 'completado' ? 'success' : s === 'en_transito' ? 'info' : 'danger';
+    return s === 'completado' ? 'success' : s === 'en_transito' || s === 'sin_recepcion_esperada' ? 'info' : 'danger';
   }
 
   /** Tag por dirección del documento; 'info' (no mueve inventario) = neutro. */
