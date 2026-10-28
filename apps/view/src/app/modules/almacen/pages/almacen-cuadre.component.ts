@@ -205,7 +205,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 </div>
               </td></tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="12" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin cortes. ¿Corriste import-cash-cuts?' }}</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="12" class="cd-empty">{{ loading() ? 'Cargando…' : errCortes() ? 'No se pudieron cargar los cortes: ' + errCortes() : 'Sin cortes con estos filtros.' }}</td></tr></ng-template>
           </p-table>
         </div>
       }
@@ -243,7 +243,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 <td class="ta-r strong" [class.bad]="m.clase_mov === 'merma'">{{ money(m.importe) }}</td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="7" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin movimientos. ¿Corriste import-kardex?' }}</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="7" class="cd-empty">{{ loading() ? 'Cargando…' : errMovs() ? 'No se pudieron cargar los movimientos: ' + errMovs() : 'Sin movimientos con estos filtros.' }}</td></tr></ng-template>
           </p-table>
         </div>
       }
@@ -538,10 +538,13 @@ export class AlmacenCuadreComponent implements OnInit {
   readonly acciones = signal<ReconAction[]>([]);
   // cortes
   readonly cortes = signal<CashCut[]>([]);
+  /** [OPS-AUD.10] Un fallo de red no se pinta como «sin cortes». */
+  readonly errCortes = signal<string | null>(null);
   readonly expandedCortes = signal<Record<string, boolean>>({});
   fCajero = ''; fSucCaja = ''; fSoloDesc = false; fFrom = ''; fTo = '';
   // movimientos
   readonly movs = signal<StockMovement[]>([]);
+  readonly errMovs = signal<string | null>(null);
   readonly fClase = signal<string | null>(null);
   fSku = ''; fSucMov = ''; fMovFrom = ''; fMovTo = '';
   // arqueo ciego
@@ -647,14 +650,14 @@ export class AlmacenCuadreComponent implements OnInit {
     this.svc.overview().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (o) => { this.ov.set(o); this.loading.set(false); }, error: () => this.loading.set(false) });
   }
   loadCortes() {
-    this.loading.set(true);
+    this.loading.set(true); this.errCortes.set(null);
     this.svc.cashCuts({ cajero: this.fCajero || undefined, sucursal: this.fSucCaja || undefined, from: this.fFrom || undefined, to: this.fTo || undefined, solo_descuadres: this.fSoloDesc, limit: 400 })
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.cortes.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.cortes.set(r); this.loading.set(false); }, error: (e) => { this.cortes.set([]); this.errCortes.set(e?.error?.message ?? e?.message ?? 'error de red'); this.loading.set(false); } });
   }
   loadMovs() {
-    this.loading.set(true);
+    this.loading.set(true); this.errMovs.set(null);
     this.svc.movements({ clase_mov: this.fClase() || undefined, sku: this.fSku || undefined, sucursal: this.fSucMov || undefined, from: this.fMovFrom || undefined, to: this.fMovTo || undefined, limit: 400 })
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.movs.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.movs.set(r); this.loading.set(false); }, error: (e) => { this.movs.set([]); this.errMovs.set(e?.error?.message ?? e?.message ?? 'error de red'); this.loading.set(false); } });
   }
   toggleCorte(c: CashCut) { this.expandedCortes.update((e) => { const n = { ...e }; if (n[c.id]) delete n[c.id]; else n[c.id] = true; return n; }); }
   setClase(c: string | null) { this.fClase.set(c); this.loadMovs(); }
