@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nest
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CaosService, type CaosQuery, type CaosSaldo } from './caos.service';
+import type { CaosVinculos, CaosVinculoAlta, CaosVinculoBaja } from '@megadulces/contracts';
 import { CaosIngresoReconService } from './caos-ingreso-recon.service';
 import { CaosRutaCajaService, type CaosPorRuta } from './caos-ruta-caja.service';
 import { CaosConteoFisicoService } from './caos-conteo-fisico.service';
@@ -109,7 +110,7 @@ export class CaosController {
   @Get('movimientos/:id/vinculos')
   @RequirePermissions(Permission.FINANCE_CAOS_VINCULOS_VER)
   @ApiOperation({ summary: '[CGA-A.57] Supervisión: los movimientos de Caja General vinculados a un movimiento de CAOS, cuánto tomó cada uno y cuánto queda libre.' })
-  vinculos(@Param('id') id: string) {
+  vinculos(@Param('id') id: string): Promise<CaosVinculos | null> {
     return this.svc.vinculos(id);
   }
 
@@ -118,14 +119,14 @@ export class CaosController {
   @Post('movimientos/:id/vinculos')
   @RequirePermissions(Permission.FINANCE_CAOS_VINCULOS_VER)
   @ApiOperation({ summary: '[CGA-A.58] Sólo superadmin: vincula un movimiento de Caja General ya guardado (por folio) a un movimiento de CAOS.' })
-  vincular(@Param('id') id: string, @Body() body: { folio?: string; monto?: number }, @Req() req: AuthedRequest) {
+  vincular(@Param('id') id: string, @Body() body: { folio?: string; monto?: number }, @Req() req: AuthedRequest): Promise<CaosVinculoAlta> {
     return this.svc.vincular(id, body, this.actor(req));
   }
 
   @Post('vinculos/:linkId/quitar')
   @RequirePermissions(Permission.FINANCE_CAOS_VINCULOS_VER)
   @ApiOperation({ summary: '[CGA-A.58] Sólo superadmin: da de baja un vínculo CAOS ↔ Caja General, con motivo. El monto vuelve a quedar libre.' })
-  quitarVinculo(@Param('linkId') linkId: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest) {
+  quitarVinculo(@Param('linkId') linkId: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest): Promise<CaosVinculoBaja> {
     return this.svc.quitarVinculo(linkId, String(body?.motivo ?? ''), this.actor(req));
   }
 

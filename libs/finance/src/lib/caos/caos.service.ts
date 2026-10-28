@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { diaMxDeInstante } from '@megadulces/contracts';
+// `[CGA-A.57]`/`[CGA-A.58]` La forma del boundary de vinculos vive en libs/contracts (ADR-052).
+import type { CaosVinculos, CaosVinculoFila, CaosVinculoAlta, CaosVinculoBaja } from '@megadulces/contracts';
 import type { Knex } from 'knex';
 import {
   CAOS_EFECTO_POR_TIPO, aplicarMovimientos, sqlFolioCajaGeneral, cuadrarFotos, importeDeVector, sqlSignoPorTipo, tiposIndeterminados,
@@ -661,7 +663,7 @@ export class CaosService {
    * ⚠️ Un movimiento que NACIÓ en la máquina (`origen_tipo='caos'`) también sale: es la otra forma
    * de que Caja General lo explique, y omitirlo haría ver «sin vincular» a uno registrado.
    */
-  async vinculos(id: string) {
+  async vinculos(id: string): Promise<CaosVinculos | null> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const mov = await trx('analytics.caos_cash_movements')
@@ -682,8 +684,16 @@ export class CaosService {
         .select(trx.raw('NULL::uuid AS link_id'), 'l.id as cash_ledger_id', 'l.folio', 'l.tipo', 'l.fecha', 'l.monto', 'l.estado',
           'l.monto as monto_enlazado', 'l.created_at as vinculado_at',
           trx.raw(`'nacio_en_la_maquina' AS via`));
-      const filas = [...nacidos, ...enlaces].map((r: any) => ({
-        ...r, monto: Number(r.monto), monto_enlazado: Number(r.monto_enlazado),
+      // node-pg entrega `numeric` como TEXTO y `timestamptz` como Date: el crudo lo declara asi y
+      // aca se convierte UNA vez, para que nadie sume dos textos y publique un total que se lee
+      // igual que uno correcto.
+      type FilaCruda = Omit<CaosVinculoFila, 'monto' | 'monto_enlazado' | 'fecha' | 'vinculado_at'> & {
+        monto: string | number; monto_enlazado: string | number; fecha: string | Date; vinculado_at: string | Date;
+      };
+      const filas: CaosVinculoFila[] = ([...nacidos, ...enlaces] as FilaCruda[]).map((r) => ({
+        ...r,
+        fecha: String(r.fecha), vinculado_at: String(r.vinculado_at),
+        monto: Number(r.monto), monto_enlazado: Number(r.monto_enlazado),
       }));
       // Lo cancelado se publica (se ve que existió) pero no consume el movimiento.
       const vivos = filas.filter((r) => r.estado !== 'cancelado');
@@ -716,7 +726,7 @@ export class CaosService {
    * ⚠️ El esperado del corte no se mueve (`[CG.96]`: sale de los movimientos de la máquina, no del
    * vínculo). Lo que cambia es `en_boveda` del movimiento de Caja General, que es lo que se muestra.
    */
-  async quitarVinculo(linkId: string, motivo: string, user: ActorCaos) {
+  async quitarVinculo(linkId: string, motivo: string, user: ActorCaos): Promise<CaosVinculoBaja> {
     this.exigeSuperadmin(user);
     const tenantId = this.tenantCtx.requireTenantId();
     const m = String(motivo ?? '').trim();
@@ -744,7 +754,7 @@ export class CaosService {
    *  · El monto no pasa de lo que le falta al movimiento ni de lo libre de CAOS (esto último lo
    *    exige además `trg_caos_link_no_excede`).
    */
-  async vincular(movId: string, body: { folio?: string; monto?: number }, user: ActorCaos) {
+  async vincular(movId: string, body: { folio?: string; monto?: number }, user: ActorCaos): Promise<CaosVinculoAlta> {
     this.exigeSuperadmin(user);
     const tenantId = this.tenantCtx.requireTenantId();
     const folio = String(body?.folio ?? '').trim().toUpperCase();
@@ -782,15 +792,17 @@ export class CaosService {
           confirmed_by: user.id,
         }).returning('id');
         return { ok: true, link_id: k?.id ?? k, folio, monto };
-      } catch (e: any) {
-        if (e?.code === '23505') throw new ConflictException(`${folio} ya está vinculado a este movimiento de CAOS.`);
+      } catch (e: unknown) {
+        const err = e as { code?: string; constraint?: string };
+        if (err.code === '23505') throw new ConflictException(`${folio} ya está vinculado a este movimiento de CAOS.`);
         // `trg_caos_link_no_excede` dice cuál candado fue: cada uno se dice con su nombre.
         const porCandado: Record<string, string> = {
           caos_link_excede_movimiento: 'El movimiento de CAOS no tiene libre ese monto.',
           caos_link_excede_captura: `Con ese monto, ${folio} quedaría explicado de más.`,
           caos_link_custodia_cerrada: 'Ese retiro tiene una custodia cerrada: ya no se puede vincular.',
         };
-        if (e?.code === '23514' && porCandado[e?.constraint]) throw new ConflictException(porCandado[e.constraint]);
+        const porConstraint = err.constraint ? porCandado[err.constraint] : undefined;
+        if (err.code === '23514' && porConstraint) throw new ConflictException(porConstraint);
         throw e;
       }
     });
