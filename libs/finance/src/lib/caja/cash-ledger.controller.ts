@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
-import { SUCURSAL_CAJA_GENERAL, type CorteCajaDto, type PosicionCajaDto } from '@megadulces/contracts';
+import { SUCURSAL_CAJA_GENERAL, type CorteCajaDto, type PosicionCajaDto, type CaosRetirosLibres } from '@megadulces/contracts';
 import { CashLedgerService, type CreateMovementInput, type EntidadDeclarada, type CoberturaCuentasKepler } from './cash-ledger.service';
 import { CajaAutofillService, type AutofillInput } from './caja-autofill.service';
 import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
@@ -154,6 +154,14 @@ export class CashLedgerController {
     @Query('limit') limit?: string,
   ) {
     return this.svc.caosCapturables({ tipo, from, to, search, limit: limit ? Number(limit) : undefined });
+  }
+
+  // `[CGA-A.60]` va ANTES de `@Get(':id')`. Los retiros que todavía pueden pagar un lote.
+  @Get('caos-retiros-libres')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[CGA-A.60] Retiros de CAOS con dinero libre (sin custodia cerrada): los que pueden pagar un lote de egresos de la cola.' })
+  caosRetirosLibres(@Query('from') from?: string, @Query('limit') limit?: string): Promise<CaosRetirosLibres> {
+    return this.svc.retirosLibres({ from, limit: limit ? Number(limit) : undefined });
   }
 
   // CS.3.3 — va ANTES de `@Get(':id')` (Nest resuelve por orden). El detector: propone qué retiros
@@ -328,7 +336,11 @@ export class CashLedgerController {
   @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
   @ApiOperation({ summary: 'CG.20/CG.21 — Confirma N movimientos de un golpe, entren o salgan. Cada fila va en SU transacción: una que falla NO tumba a las demás (si el lote fuera todo-o-nada, la persona volvería a capturar de a una). Devuelve el estado por fila: guardado | duplicado | rechazado | no_confirmable, y el total suma SÓLO lo guardado. [CG.48] El lote ESPEJA al ERP: ya no acepta `monto_contado` por fila — era la única vía por la que una cifra contada entraba al libro sin desglose por denominación. Contar distinto va por POST / (captura anclada, el monto nace del desglose); contar el día va por el corte.' })
   crearLote(
-    @Body() body: { items: Array<{ origen_ref: string; fecha?: string; sucursal?: string; client_uuid?: string }> },
+    @Body() body: {
+      items: Array<{ origen_ref: string; fecha?: string; sucursal?: string; client_uuid?: string }>;
+      // `[CGA-A.60]` El retiro de CAOS que paga los egresos del lote; lo que no alcance, del cajón.
+      caos_retiro?: { device: string; external_id: number } | null;
+    },
     @Req() req: AuthedRequest,
   ) {
     return this.svc.crearLote(body ?? { items: [] }, this.user(req));

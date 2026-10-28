@@ -44,7 +44,7 @@ export const LOTE_EPSILON = 0.005;
  * `libs/trade` —la bandeja de «Mi trabajo»— y no se pueden importar entre sí. Escribirlo dos veces
  * haría que la pantalla y el tablero contaran colas distintas sin que nadie lo notara.
  */
-import { pagableConBilletesCaos } from '@megadulces/contracts';
+import { pagableConBilletesCaos, type CaosRetiroDelLote } from '@megadulces/contracts';
 
 export type MotivoNoConfirmable =
   | 'sin_mapa'        // la ruta no está en `finance.route_customer_map`
@@ -463,6 +463,47 @@ export interface ResumenLote {
   no_confirmables: number;
   /** Σ de lo efectivamente guardado. Lo rechazado NO suma: un total optimista es una mentira. */
   monto_guardado: number;
+  /** `[CGA-A.60]` Si el lote se pagó con un retiro de CAOS: cuánto tomó y qué quedó del cajón. */
+  retiro?: ResumenRetiroLote;
+}
+
+// ── `[CGA-A.60]` Un retiro de CAOS paga un lote de egresos ────────────────────────────────────
+
+/**
+ * ⭐ `[CGA-A.60]` **Un retiro paga el lote entero; sólo la DIFERENCIA toca el cajón.**
+ *
+ * Edgar, 2026-10-28: *«vincular un egreso general con los egresos pequeños y no hacer que hagan
+ * cada uno, y sólo si tiene diferencia que se agregue de la caja o salga de la caja»*. Es el
+ * «Formato de autorización de gastos» de zona Morelia: 21 documentos X-D-26 por $156,678.61
+ * pagados con el retiro «gnf 26/10» de $156,670 — la diferencia real eran **$8.61** del cajón.
+ *
+ * ⛔ Por eso el reparto NO redondea cada egreso a billetes de CAOS (`pagableConBilletesCaos`) como
+ * la captura suelta: los billetes salen en UN fajo y se reparten con cambio entre proveedores.
+ * Redondear por renglón inventaba $4,649.65 «del cajón» donde el cajón puso $8.61.
+ *
+ * Regla, en el orden en que se marcaron: cada egreso toma su monto entero mientras el retiro
+ * alcance; al que ya no le alcanza le toca lo que quede, y el resto de él sale del cajón; los que
+ * siguen salen enteros del cajón. Si sobra retiro, el corte ya lo espera en el cajón (`[CG.96]`).
+ */
+export function tomaDelRetiro(monto: number, libre: number): number {
+  return redondea2(Math.max(0, Math.min(Number(monto) || 0, Number(libre) || 0)));
+}
+
+/** La forma vive en `libs/contracts` (`CaosRetiroDelLote`): la pantalla lee lo mismo. */
+export type ResumenRetiroLote = CaosRetiroDelLote;
+
+export function resumirRetiroLote(
+  retiro: { device: string; external_id: number; ref: string | null; libre_antes: number },
+  guardados: Array<{ monto: number; tomado: number }>,
+): ResumenRetiroLote {
+  const tomado = redondea2(guardados.reduce((a, g) => a + (Number(g.tomado) || 0), 0));
+  const total = redondea2(guardados.reduce((a, g) => a + (Number(g.monto) || 0), 0));
+  return {
+    ...retiro,
+    tomado,
+    libre_despues: redondea2(retiro.libre_antes - tomado),
+    del_cajon: redondea2(total - tomado),
+  };
 }
 
 export function redondea2(v: number): number {
@@ -477,7 +518,7 @@ export function redondea2(v: number): number {
  * una. El duplicado se separa del rechazo porque **no es un error de nadie**: es el candado
  * `ux_cash_ledger_origen_vivo` haciendo su trabajo (dos personas confirmaron lo mismo).
  */
-export function resumirLote(filas: FilaLote[], montos: Map<string, number>): ResumenLote {
+export function resumirLote(filas: FilaLote[], montos: Map<string, number>, retiro?: ResumenRetiroLote): ResumenLote {
   const cuenta = (e: EstadoFila) => filas.filter((f) => f.estado === e).length;
   const guardado = filas
     .filter((f) => f.estado === 'guardado')
@@ -489,6 +530,7 @@ export function resumirLote(filas: FilaLote[], montos: Map<string, number>): Res
     rechazados: cuenta('rechazado'),
     no_confirmables: cuenta('no_confirmable'),
     monto_guardado: redondea2(guardado),
+    ...(retiro ? { retiro } : {}),
   };
 }
 

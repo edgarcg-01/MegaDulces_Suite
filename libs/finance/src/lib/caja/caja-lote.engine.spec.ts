@@ -8,7 +8,7 @@
  *     volvería a capturar de a una y toda la fase sería inútil.
  */
 import {
-  esConfirmable, cuentaPorRegla, aplicaPatron, resumirLote, evaluarDescuadre, evaluarArqueo, evaluarArqueoDeEgreso, desgloseNeto, rankearFrecuentes,
+  esConfirmable, cuentaPorRegla, aplicaPatron, resumirLote, tomaDelRetiro, resumirRetiroLote, redondea2, evaluarDescuadre, evaluarArqueo, evaluarArqueoDeEgreso, desgloseNeto, rankearFrecuentes,
   esFechaFutura, cvDe, propuestaDe, rutaCodigo, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS, LOTE_EPSILON, REGLA_MAX_PATRON,
   cuentaDelTipoDeDocumento,
   type MapaRuta, type FilaLote, type UsoGasto, type ReglaGasto,
@@ -591,5 +591,43 @@ describe('[CGA-A.19] cuentaDelTipoDeDocumento', () => {
   it('sin líneas, mapa vacío (no un default)', () => {
     expect(cuentaDelTipoDeDocumento(null).size).toBe(0);
     expect(cuentaDelTipoDeDocumento([]).size).toBe(0);
+  });
+});
+
+describe('[CGA-A.60] un retiro de CAOS paga un lote: sólo la diferencia toca el cajón', () => {
+  // El «Formato de autorización de gastos» de zona Morelia del 28-oct: 21 documentos X-D-26 por
+  // $156,678.61 pagados con el retiro «gnf 26/10» de $156,670.
+  const morelia = [23325, 1565, 5040, 6435, 12600, 2475, 28707, 2860, 28885, 3200, 4040, 9623.97, 160, 288,
+    4428, 8865, 5700, 169.96, 68, 4956, 3287.68];
+
+  const pagar = (montos: number[], libre: number) => {
+    let queda = libre;
+    return montos.map((monto) => { const tomado = tomaDelRetiro(monto, queda); queda = redondea2(queda - tomado); return { monto, tomado }; });
+  };
+
+  it('el caso de la hoja: del cajón salen $8.61, no los $4,649.65 que daba redondear cada egreso a billetes', () => {
+    const g = pagar(morelia, 156670);
+    const r = resumirRetiroLote({ device: 'AST700-19758', external_id: 1775, ref: 'gnf 26/10', libre_antes: 156670 }, g);
+    expect(redondea2(morelia.reduce((a, m) => a + m, 0))).toBe(156678.61);
+    expect(r).toMatchObject({ tomado: 156670, libre_despues: 0, del_cajon: 8.61 });
+    // Sólo el ÚLTIMO que no alcanzó se parte; todos los anteriores salen enteros del retiro.
+    expect(g.filter((x) => x.tomado < x.monto)).toEqual([{ monto: 3287.68, tomado: 3279.07 }]);
+  });
+
+  it('sobra retiro: todo sale de CAOS y lo libre queda esperado en el cajón (nada «del cajón»)', () => {
+    const r = resumirRetiroLote({ device: 'D', external_id: 1, ref: null, libre_antes: 10000 }, pagar([2500, 3000], 10000));
+    expect(r).toMatchObject({ tomado: 5500, libre_despues: 4500, del_cajon: 0 });
+  });
+
+  it('NEGATIVA: el retiro ya no alcanza — los que siguen salen ENTEROS del cajón, ninguno toma de más', () => {
+    const g = pagar([600, 600, 600], 1000);
+    expect(g.map((x) => x.tomado)).toEqual([600, 400, 0]);
+    const r = resumirRetiroLote({ device: 'D', external_id: 1, ref: null, libre_antes: 1000 }, g);
+    expect(r).toMatchObject({ tomado: 1000, libre_despues: 0, del_cajon: 800 });
+  });
+
+  it('NEGATIVA: un libre negativo o un monto basura no tomaN nada', () => {
+    expect(tomaDelRetiro(500, -20)).toBe(0);
+    expect(tomaDelRetiro(Number.NaN, 500)).toBe(0);
   });
 });

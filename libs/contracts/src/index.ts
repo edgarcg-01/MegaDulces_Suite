@@ -224,3 +224,4 @@ export * from './http/vendor-zone-stock.contract';
 export * from './http/stock-state.contract';
 // `[CGA-A.57]`/`[CGA-A.58]` Vinculos CAOS <-> Caja General (supervision + correccion de superadmin).
 export * from './finance/caos-vinculos.contract';
+export * from './finance/caja-lote-retiro.contract';

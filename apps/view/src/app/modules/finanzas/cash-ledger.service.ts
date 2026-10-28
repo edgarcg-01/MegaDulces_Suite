@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { uuidV4 } from '../../core/utils/uuid';
-import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, NuevoArqueoCajaInput } from '@megadulces/contracts';
+import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, NuevoArqueoCajaInput, CaosRetirosLibres, CaosRetiroDelLote } from '@megadulces/contracts';
 import { reintentarSi429 } from '../../core/utils/reintentar-429';
 // `Freshness` se IMPORTA, no se redeclara: es el contrato de procedencia de ADR-056 y es el mismo
 // objeto que consume `app-freshness-pill`. De los 26 tipos de este archivo, 24 están escritos a
@@ -306,14 +306,21 @@ export class CashLedgerService {
    * la que una cifra contada entraba al libro **sin un billete declarado detrás**, y volvía
    * irreconstruible el arqueo del día. Contar distinto va por la captura anclada, con desglose.
    */
-  confirmarLote(items: Array<{ origen_ref: string }>): Observable<ResumenLote> {
+  confirmarLote(items: Array<{ origen_ref: string }>, caosRetiro?: { device: string; external_id: number } | null): Observable<ResumenLote> {
     return this.http.post<ResumenLote>(`${this.base}/lote`, {
+      // `[CGA-A.60]` El retiro de CAOS que paga los egresos del lote; lo que no alcance, del cajón.
+      ...(caosRetiro ? { caos_retiro: caosRetiro } : {}),
       // El `client_uuid` va por fila: si la red corta y la persona reintenta, el reintento
       // devuelve lo que ya se guardó en vez de duplicarlo.
       // `[CGP-V.10]` `uuidV4()` y no `crypto.randomUUID()`: por http:// en la LAN no existe, la
       // petición reventaba antes de salir y «Confirmar N» quedaba cargando para siempre.
       items: items.map((i) => ({ ...i, client_uuid: uuidV4() })),
     });
+  }
+
+  /** `[CGA-A.60]` Los retiros de CAOS que todavía tienen dinero libre: los que pueden pagar un lote. */
+  retirosLibres(): Observable<CaosRetirosLibres> {
+    return this.leer<CaosRetirosLibres>(`${this.base}/caos-retiros-libres`);
   }
 
   /** CG.20 — Los pares que ese capturista más repite, para ofrecerlos de un toque. */
@@ -872,6 +879,8 @@ export interface ResumenLote {
   no_confirmables: number;
   /** Suma SÓLO lo guardado. Un total optimista es una mentira. */
   monto_guardado: number;
+  /** `[CGA-A.60]` Si el lote se pagó con un retiro de CAOS: cuánto tomó y qué salió del cajón. */
+  retiro?: CaosRetiroDelLote;
 }
 
 /** Un par (cuenta, concepto, beneficiario) que esa persona repite. Un toque lo llena. */

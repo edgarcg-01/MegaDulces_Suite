@@ -19,7 +19,7 @@ import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { textoFalloFirma, type ContextoFirma } from '@megadulces/contracts';
-import { evaluarCambio, pagableConBilletesCaos, warehouseName,type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS, leerCorte, type LecturaCorte } from '@megadulces/contracts';
+import { evaluarCambio, pagableConBilletesCaos, warehouseName, type CaosRetiroLibre, type CaosRetiroDelLote, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS, leerCorte, type LecturaCorte } from '@megadulces/contracts';
 import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
 /**
@@ -2975,6 +2975,23 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                significa "apreta aca"; en el estado en el que arranca la pantalla -sin nada
                marcado- no hay donde apretar. Con algo marcado SI es la accion obvia de la
                bandeja y recupera el naranja, con su cuenta. -->
+          <!-- [CGA-A.60] Un retiro de CAOS paga los egresos marcados de una vez: cada uno toma su
+               monto mientras alcance y solo la DIFERENCIA toca el cajon. Sin retiro, del cajon. -->
+          @if (puedeGestionar() && egresosMarcados().n > 0) {
+            <p-select [options]="retirosLibres()" [ngModel]="retiroLote()" (ngModelChange)="retiroLote.set($event)"
+                      (onShow)="cargarRetirosLibres()" [showClear]="true" appendTo="body" size="small"
+                      placeholder="Egresos: del cajón" ariaLabel="Retiro de CAOS que paga los egresos marcados"
+                      [loading]="cargandoRetiros()" emptyMessage="No hay retiros de CAOS con dinero libre">
+              <ng-template #selectedItem let-r>{{ r.ref || ('retiro ' + r.external_id) }} · libre {{ money(r.libre) }}</ng-template>
+              <ng-template #item let-r>
+                <span>{{ r.ref || ('retiro ' + r.external_id) }}</span>
+                <small class="fin-dim"> · {{ dmy(r.occurred_at) }} · libre {{ money(r.libre) }} de {{ money(r.total) }}</small>
+              </ng-template>
+            </p-select>
+            @if (retiroLote(); as rl) {
+              <small class="fin-dim" aria-live="polite">{{ textoRetiroLote(rl) }}</small>
+            }
+          }
           @if (puedeGestionar()) {
             <p-button [label]="marcadas().length ? 'Confirmar ' + marcadas().length : 'Confirmar'"
                       icon="pi pi-check" size="small"
@@ -8201,12 +8218,16 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.confirmando.set(true);
     // `[CG.48]` Sólo las referencias: el lote ESPEJA al ERP. Acá iba un `monto_contado` por fila
     // que entraba al libro sin un solo billete declarado detrás.
-    this.svc.confirmarLote(refs.map((r) => ({ origen_ref: r })))
+    // `[CGA-A.60]` Con retiro elegido, los egresos del lote se pagan de él; sólo si hay egresos marcados.
+    const rl = this.egresosMarcados().n > 0 ? this.retiroLote() : null;
+    this.svc.confirmarLote(refs.map((r) => ({ origen_ref: r })), rl ? { device: rl.device, external_id: rl.external_id } : null)
       .subscribe({
         next: (r) => {
           this.resultado.set(r);
           this.confirmando.set(false);
           this.seleccion.set(new Set());
+          this.retiroLote.set(null); this.retirosLibres.set([]);
+          if (r.retiro) this.avisarOk(`Retiro ${r.retiro.ref || r.retiro.external_id}`, this.textoRetiroDelLote(r.retiro));
           // Lo confirmado ya esta en el libro: el borrador cumplio y se retira.
           this.borrador.borrar(this.usuarioBorrador);
           this.restaurado.set(null);
@@ -8231,6 +8252,47 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       .filter((x) => x.estado === 'rechazado' && x.motivo)
       .map((x) => x.motivo as string);
     return motivos.length ? [...new Set(motivos)].join(' · ') : 'El servidor no devolvió el motivo.';
+  }
+
+  // ── `[CGA-A.60]` Un retiro de CAOS paga los egresos marcados ─────────────────────────────────
+  readonly retiroLote = signal<CaosRetiroLibre | null>(null);
+  readonly retirosLibres = signal<CaosRetiroLibre[]>([]);
+  readonly cargandoRetiros = signal(false);
+  /**
+   * Los EGRESOS marcados que se ven en la cola: cuántos y cuánto. El retiro sólo paga egresos; un
+   * ingreso marcado en el mismo lote no lo toca. ⚠️ Cuenta sobre `pendientes()`, lo que está
+   * cargado: una marca de una página que ya no está a la vista no entra a la cuenta previa (el
+   * servidor sí la paga, con el monto de Kepler).
+   */
+  readonly egresosMarcados = computed(() => {
+    const sel = this.seleccion();
+    const g = this.pendientes().filter((p) => p.tipo === 'gasto' && sel.has(p.origen_ref));
+    return { n: g.length, monto: redondea(g.reduce((a, p) => a + Number(p.monto || 0), 0)) };
+  });
+  cargarRetirosLibres(): void {
+    if (this.cargandoRetiros()) return;
+    this.cargandoRetiros.set(true);
+    this.svc.retirosLibres().subscribe({
+      next: (r) => { this.retirosLibres.set(r.rows ?? []); this.cargandoRetiros.set(false); },
+      error: (e) => { this.cargandoRetiros.set(false); this.avisarError(e, 'No se pudieron leer los retiros de CAOS'); },
+    });
+  }
+  /** Antes de confirmar: qué va a pasar con el dinero. La regla la aplica el servidor (`tomaDelRetiro`). */
+  textoRetiroLote(rl: CaosRetiroLibre): string {
+    const e = this.egresosMarcados();
+    const dif = redondea(e.monto - rl.libre);
+    const base = `${e.n} egreso${e.n === 1 ? '' : 's'} por ${money(e.monto)}`;
+    if (Math.abs(dif) < 0.005) return `${base}: el retiro los paga exactos.`;
+    return dif > 0
+      ? `${base}: el retiro paga ${money(rl.libre)} y ${money(dif)} salen del cajón.`
+      : `${base}: el retiro los paga y le quedan ${money(-dif)}, que se esperan en el cajón.`;
+  }
+  /** Después de confirmar: lo que el servidor dice que pasó. */
+  textoRetiroDelLote(r: CaosRetiroDelLote): string {
+    const p = [`tomó ${money(r.tomado)}`];
+    if (r.del_cajon > 0.005) p.push(`${money(r.del_cajon)} salieron del cajón`);
+    if (r.libre_despues > 0.005) p.push(`le quedan ${money(r.libre_despues)} libres`);
+    return p.join(' · ');
   }
 
   /** El resultado se cuenta por estado. "12 confirmadas" a secas esconde las 3 que no entraron. */
