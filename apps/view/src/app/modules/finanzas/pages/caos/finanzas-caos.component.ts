@@ -57,6 +57,8 @@ interface FilaUI extends CaosMovimiento {
   denomError?: string | null;
   /** `[CGA-A.57]` Supervisión: a qué movimientos de Caja General se vinculó. Se pide al expandir. */
   vinc?: CaosVinculos | null; vincError?: string | null;
+  /** `[CGS.58]` El día de México del movimiento: la llave del renglón de grupo. */
+  dia?: string;
 }
 
 /** `[CGS.55]` Una tarjeta de la respuesta: la cifra, con qué se midió y de dónde sale. */
@@ -268,22 +270,38 @@ interface TarjetaCaos {
             <tr>
               <!-- [CGA-A.41] Fuera «#» (un id interno que nadie busca) y «Dia contable» (medido: igual
                    a la fecha en el 100 % de 30 dias, e imprimia el ISO crudo en dos lineas). Entra
-                   la columna que responde la pregunta de trabajo: si ya esta en Caja General. -->
+                   la columna que responde la pregunta de trabajo: si ya esta en Caja General.
+                   [CGS.58] El DIA va en el renglon de grupo (con su cuenta y su neto) y la fila dice la hora:
+                   «28/10/26» se repetia en cada renglon. Fuera «Tipo»: Depósito/Dispensar repetia lo que ya
+                   dicen el signo y el color del monto (tres señales para un dato); los otros tipos se nombran
+                   en la referencia. Orden de lectura: qué (referencia), quién, cuánto, qué falta. -->
               <th scope="col" style="width:2.5rem"><span class="sr-only">Denominaciones</span></th>
-              <th scope="col" style="width:8rem">Fecha y hora</th>
-              <th scope="col" style="width:6.5rem">Tipo</th>
-              <th scope="col" class="cs-th-num" style="width:10rem">Monto</th>
+              <th scope="col" style="width:4.5rem">Hora</th>
               <th scope="col">Referencia</th>
               <th scope="col">Operador</th>
-              <th scope="col" style="width:10rem">Caja General</th>
+              <th scope="col" class="cs-th-num" style="width:9.5rem">Monto</th>
+              <th scope="col" style="width:9rem">Caja General</th>
             </tr>
           </ng-template>
           <!-- [CGS.55] Sin etiquetas de color: eran dos por renglón (110 en 55 renglones). La DIRECCION
-               va en el signo del monto (+ entra / − sale), el tipo en texto, y «Caja General» dice el
-               folio o lleva a registrarlo — no repite «Sin registrar» en una vista que ya es eso. -->
+               va en el signo del monto (+ entra / − sale) y «Caja General» dice el folio o lleva a
+               registrarlo — no repite «Sin registrar» en una vista que ya es eso. -->
           <ng-template #body let-r let-expanded="expanded" let-i="rowIndex">
             <!-- Sin pSelectableRow: sin selectionMode no hace nada, y el recorrido con
                  teclado lo da el botón de cada fila (mismo criterio que almacen-movimientos). -->
+            <!-- [CGS.58] El renglón del día, antes de su primer movimiento (y al empezar cada página): su nombre,
+                 cuántos movimientos y su neto, alineado con Monto. Las cifras son de ESTA lista (en «Sin
+                 registrar», sólo los que faltan). ⛔ No es el #groupheader de PrimeNG: con filas desplegables
+                 lo vuelve un grupo plegable y esconde todos los movimientos (medido: 8 días, 0 filas). -->
+            @if (i % porPagina() === 0 || rows()[i - 1]?.dia !== r.dia) {
+              @if (resumenDia(r.dia); as d) {
+                <tr class="cs-dia-h">
+                  <td colspan="4"><span class="cs-dia-t">{{ d.titulo }}</span><span class="cs-dia-n">{{ ' · ' + d.detalle }}</span></td>
+                  <td class="comm-num cs-monto"><span class="cs-dia-n">neto </span>{{ d.neto }}</td>
+                  <td></td>
+                </tr>
+              }
+            }
             <tr>
               <td>
                 <!-- DESIGN D.7 — botón NATIVO: recibe foco, responde a Enter y Espacio sin
@@ -294,29 +312,30 @@ interface TarjetaCaos {
                   <i class="pi" [class.pi-chevron-down]="expanded" [class.pi-chevron-right]="!expanded" aria-hidden="true"></i>
                 </button>
               </td>
-              <!-- [CGA-A.33] el instante viaja en UTC: dmy() le cortaba la fecha en UTC y lo de despues de
-                   las 18:00 salia con el dia SIGUIENTE (10 movimientos, $307,860 en 30 dias). Hora de Mexico. -->
-              <td class="cs-nowrap">{{ fechaHoraMx(r.occurred_at) }}</td>
-              <!-- [CGA-A.33] La dirección sale del mismo mapa que suma el neto; un tipo sin decodificar
-                   se dice con un aviso, no con un color. -->
+              <!-- [CGA-A.33] el instante viaja en UTC: lo de despues de las 18:00 salia con el dia
+                   SIGUIENTE (10 movimientos, $307,860 en 30 dias). Hora y día de México. -->
+              <td class="cs-nowrap comm-num cs-hora">{{ soloHoraMx(r.occurred_at) }}</td>
               <td>
-                {{ tipoTexto(r.type_label) }}
+                <!-- [CGA-A.33] Un tipo que no es depósito ni dispensación se nombra; uno sin decodificar
+                     se dice con un aviso, no con un color. -->
+                @if (r.type_id !== 0 && r.type_id !== 4) { <span class="cs-tipo">{{ tipoTexto(r.type_label) }}</span> }
                 @if (efectoDe(r.type_id)?.efecto === 'indeterminado') {
                   <span class="cs-card-aviso"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> sin decodificar</span>
+                }
+                {{ r.ref || '—' }}
+              </td>
+              <!-- El operador se dice cuando cambia (24 de 25 renglones repetían el mismo nombre); cada
+                   día lo vuelve a decir. Donde se calla, el lector de pantalla lo sigue leyendo. -->
+              <td class="fin-dim">
+                @if (i % porPagina() === 0 || rows()[i - 1]?.dia !== r.dia || operador(rows()[i - 1]?.user_external) !== operador(r.user_external)) {
+                  {{ operador(r.user_external) }}
+                } @else {
+                  <span class="sr-only">{{ operador(r.user_external) }}</span>
                 }
               </td>
               <!-- [CGS.56] Edgar: «rojo si es egreso, verde si es ingreso». El color va en el TEXTO del monto y
                    acompaña al signo: sin el color, el + / − sigue diciendo la dirección. -->
-              <td class="comm-num cs-monto" [class.fin-entra]="signo(r.type_id) === '+ '" [class.fin-sale]="signo(r.type_id) === '− '">{{ signo(r.type_id) }}{{ money(r.total) }}</td>
-              <td>{{ r.ref || '—' }}</td>
-              <!-- El operador se dice cuando cambia: 24 de 25 renglones repetían el mismo nombre. -->
-              <td class="fin-dim">
-                @if (i % porPagina() === 0 || operador(rows()[i - 1]?.user_external) !== operador(r.user_external)) {
-                  {{ operador(r.user_external) }}
-                } @else {
-                  <span aria-hidden="true">″</span><span class="sr-only">{{ operador(r.user_external) }}</span>
-                }
-              </td>
+              <td class="comm-num cs-monto" [class.fin-entra]="signo(r.type_id) === '+ '" [class.fin-sale]="signo(r.type_id) === '− '">@if (r.type_id === 0 || r.type_id === 4) { <span class="sr-only">{{ tipoTexto(r.type_label) }}: </span> }{{ signo(r.type_id) }}{{ money(r.total) }}</td>
               <td>
                 @if (r.folio_caja_general) {
                   <!-- [CGA-A.57] El folio es UNO de los que lo explican: si hay más, se dice cuántos. -->
@@ -326,7 +345,8 @@ interface TarjetaCaos {
                   }
                 } @else if (r.type_id === 0 || r.type_id === 4) {
                   <!-- [CGS.55] La pantalla dice qué falta registrar: también lleva a registrarlo, con el
-                       movimiento ya puesto en la captura (Captura lo busca por su identidad). -->
+                       movimiento ya puesto en la captura (Captura lo busca por su identidad).
+                       [CGS.58] En voz baja: 25 «Registrar» subrayados en negritas eran lo más fuerte de la tabla. -->
                   <a class="cs-registrar" routerLink="/finanzas/caja-general"
                      [queryParams]="{ caos: r.device + '|' + r.external_id, caos_dia: diaMx(r.occurred_at) }"
                      [attr.aria-label]="'Registrar en Caja General el movimiento ' + r.external_id">
@@ -340,7 +360,7 @@ interface TarjetaCaos {
           </ng-template>
           <ng-template #expandedrow let-r>
             <tr class="cs-det">
-              <td colspan="7">
+              <td colspan="6">
                 @if (r.denom && r.denom.length) {
                   <table class="cs-denom">
                     <thead><tr><th scope="col">Denominación</th><th scope="col">Pieza</th><th scope="col" class="comm-num">Piezas</th><th scope="col" class="comm-num">Importe</th></tr></thead>
@@ -810,7 +830,17 @@ interface TarjetaCaos {
     .cs-nowrap { white-space:nowrap; }
     .cs-th-num { text-align:right; }
     .cs-monto { white-space:nowrap; text-align:right; }
-    .cs-registrar { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); font-weight:600; color:var(--text-main); text-decoration:underline; text-underline-offset:2px; }
+    /* [CGS.58] En voz baja: el color del texto secundario, sin subrayado ni negritas; se enciende al pasar y al foco. */
+    .cs-registrar { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); font-weight:500; color:var(--text-muted); text-decoration:none; }
+    .cs-registrar:hover { color:var(--text-main); text-decoration:underline; text-underline-offset:2px; }
+    .cs-registrar .pi { font-size:.75em; }
+    /* [CGS.58] El renglón del día: el que ordena la lista. */
+    :host ::ng-deep .cs-grid .p-datatable-tbody > tr.cs-dia-h > td { background:var(--surface-2); padding-top:6px; padding-bottom:6px; border-bottom:1px solid var(--border-color); }
+    .cs-dia-t { font-size:var(--fs-sm); font-weight:700; color:var(--text-main); }
+    .cs-dia-n { font-size:var(--fs-sm); font-weight:400; color:var(--text-muted); }
+    .cs-dia-h .cs-monto { font-weight:700; color:var(--text-main); }
+    .cs-hora { color:var(--text-muted); }
+    .cs-tipo { font-weight:600; color:var(--text-main); margin-right:var(--sp-1); }
     .cs-registrar:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .cs-aviso { display:flex; gap:var(--sp-2); align-items:baseline; font-size:var(--fs-sm); color:var(--warn-soft-fg); background:var(--warn-soft-bg); border-radius:var(--r-md); padding:var(--sp-2) var(--sp-3); margin:0; }
     .cs-barra { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); margin-bottom:var(--sp-2); }
@@ -1060,6 +1090,34 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
     const e = this.efectoDe(typeId)?.efecto;
     return e === 'suma' ? '+ ' : e === 'resta' ? '− ' : '';
   }
+  /**
+   * `[CGS.58]` El renglón de cada día: su nombre, cuántos movimientos y su neto. Sale de los movimientos
+   * de ESTA lista (en «Sin registrar», sólo los que faltan), con el mismo mapa de efectos que el signo.
+   */
+  readonly resumenDias = computed(() => {
+    const m = new Map<string, { n: number; entra: number; sale: number; at: string }>();
+    for (const r of this.rows()) {
+      const k = r.dia ?? '';
+      const d = m.get(k) ?? { n: 0, entra: 0, sale: 0, at: r.occurred_at };
+      const e = this.efectoDe(r.type_id)?.efecto;
+      d.n++;
+      if (e === 'suma') d.entra += Number(r.total) || 0;
+      if (e === 'resta') d.sale += Number(r.total) || 0;
+      m.set(k, d);
+    }
+    return m;
+  });
+  private readonly fmtDia = new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, weekday: 'long', day: 'numeric', month: 'long' });
+  resumenDia(dia: string | undefined): { titulo: string; detalle: string; neto: string } | null {
+    const d = this.resumenDias().get(dia ?? '');
+    if (!d) return null;
+    const t = this.fmtDia.format(new Date(d.at)).replace(',', '');
+    const partes = [plural(d.n, 'movimiento', 'movimientos')];
+    if (d.entra) partes.push(`entra ${money(d.entra)}`);
+    if (d.sale) partes.push(`sale ${money(d.sale)}`);
+    const neto = d.entra - d.sale;
+    return { titulo: t.charAt(0).toUpperCase() + t.slice(1), detalle: partes.join(' · '), neto: (neto < 0 ? '−' : '+') + money(Math.abs(neto)) };
+  }
   /** La máquina escribe «Deposito»: se dice con su acento. */
   tipoTexto(t: string | null | undefined): string { return (t ?? '—').replace(/^Deposito\b/, 'Depósito'); }
   /** El día de México del movimiento, para la liga a Captura. */
@@ -1094,6 +1152,13 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
     return lst.length ? lst.join(', ') : '—';
   }
 
+  /** `[CGS.58]` Sólo la hora: en la tabla el día ya lo dice el renglón de grupo. */
+  private readonly fmtSoloHora = new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, hour: '2-digit', minute: '2-digit', hour12: false });
+  soloHoraMx(v: string | null | undefined): string {
+    if (!v) return '—';
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? String(v) : this.fmtSoloHora.format(d);
+  }
   private readonly fmtHora = new Intl.DateTimeFormat('es-MX', {
     timeZone: MX_TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
   });
@@ -1260,7 +1325,8 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
             const conDenom = p?.denom ? { ...x, denom: p.denom, denomTotal: p.denomTotal } : x;
             // `[CGA-A.57]` Los vínculos también sobreviven al repaso: sin esto una fila abierta se
             // quedaba en «Cargando vínculos…» después de cada aviso del WS.
-            return p?.vinc ? { ...conDenom, vinc: p.vinc } : conDenom;
+            const conDia = { ...conDenom, dia: this.diaMx(x.occurred_at) };
+            return p?.vinc ? { ...conDia, vinc: p.vinc } : conDia;
           });
           this.rows.set(nuevas);
           // `[CGA-A.58]` Lo que se acaba de corregir se vuelve a leer sobre la fila NUEVA.
