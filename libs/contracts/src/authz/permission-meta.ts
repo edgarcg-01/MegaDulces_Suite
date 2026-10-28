@@ -205,6 +205,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.FINANCE_CAJA_GESTIONAR]: { label: 'Capturar en Caja General', description: 'Registrar fichas de efectivo, comprobantes de gasto y depositos, con su cuenta y concepto de Kepler. NO autoriza el corte.', category: 'Finanzas' },
   [Permission.FINANCE_CAJA_AUTORIZAR]: { label: 'Autorizar corte de Caja General', description: 'Cierra y autoriza el corte de caja (separado de quien captura) y confirma el mapa de cuentas hacia el concepto de Kepler. Permiso restringido -- no lo incluye "Capturar en Caja General".', category: 'Finanzas' },
   [Permission.FINANCE_CAOS_VER]: { label: 'Ver Caja Fuerte (CAOS)', description: 'Reporte de movimientos de la caja fuerte de efectivo CAOS: depositos y dispensaciones por denominacion, por usuario, con su referencia. Solo lectura (Fase CS).', category: 'Finanzas' },
+  [Permission.FINANCE_CAOS_VINCULOS_VER]: { label: 'Ver vinculos de la Caja Fuerte (CAOS)', description: 'Supervision: a que movimientos de Caja General se vinculo cada deposito o retiro de CAOS, cuanto tomo cada uno y cuanto queda libre. Solo lectura.', category: 'Finanzas' },
   // ⚠️ `[VE.1]` Estas dos descripciones contaban la Fase TP —capacidad de pago y gastos que
   // alimentan el Calendario— y se quedaron ahí mientras el módulo crecía (Fase PU / ADR-066):
   // hoy también trae el plan de ventas 13×4, el estado de resultados contra el real del ODS, el

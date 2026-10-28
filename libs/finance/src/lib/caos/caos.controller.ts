@@ -106,6 +106,13 @@ export class CaosController {
     return this.svc.detalle(id);
   }
 
+  @Get('movimientos/:id/vinculos')
+  @RequirePermissions(Permission.FINANCE_CAOS_VINCULOS_VER)
+  @ApiOperation({ summary: '[CGA-A.57] Supervisión: los movimientos de Caja General vinculados a un movimiento de CAOS, cuánto tomó cada uno y cuánto queda libre.' })
+  vinculos(@Param('id') id: string) {
+    return this.svc.vinculos(id);
+  }
+
   // ── [CG.58] La conciliacion de INGRESOS, al 100% ───────────────────────────────────────
   //
   // Distinta del cuadre de total de control de arriba (CS.4), que compara SUMAS. Esta ata cada

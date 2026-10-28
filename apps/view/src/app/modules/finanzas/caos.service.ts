@@ -20,6 +20,18 @@ export interface CaosMovimiento {
   ref: string | null;
   /** `[CGA-A.41]` Folio de Caja General que lo registra; `null` = falta registrarlo (sólo depósitos y dispensaciones). */
   folio_caja_general?: string | null;
+  /** `[CGA-A.57]` Cuántos movimientos de Caja General lo explican por vínculo (el folio de arriba es UNO). */
+  vinculos_n?: number | null;
+}
+
+/** `[CGA-A.57]` Supervisión: a qué movimientos de Caja General se vinculó un movimiento de CAOS. */
+export interface CaosVinculo {
+  cash_ledger_id: string; folio: string; tipo: string; fecha: string; monto: number; estado: string;
+  monto_enlazado: number; vinculado_at: string; via: 'vinculo' | 'nacio_en_la_maquina';
+}
+export interface CaosVinculos {
+  movimiento_id: string; external_id: number; total: number; vinculado: number; libre: number;
+  filas: CaosVinculo[];
 }
 
 export interface CaosKpi {
@@ -116,6 +128,11 @@ export class CaosService {
 
   detalle(id: string): Observable<CaosDetalle> {
     return this.http.get<CaosDetalle>(`${this.base}/movimientos/${id}`);
+  }
+
+  /** `[CGA-A.57]` Sólo con `FINANCE_CAOS_VINCULOS_VER` (el servidor lo vuelve a exigir). */
+  vinculos(id: string): Observable<CaosVinculos> {
+    return this.http.get<CaosVinculos>(`${this.base}/movimientos/${id}/vinculos`);
   }
 
   /**

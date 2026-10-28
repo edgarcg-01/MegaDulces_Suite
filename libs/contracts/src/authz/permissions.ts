@@ -551,6 +551,10 @@ export enum Permission {
   // de movimientos (depósitos/dispensaciones por denominación). Permiso propio y no un alias de
   // FINANCE_CAJA_VER porque es otro circuito de efectivo (bóveda virtual, dispensaciones).
   FINANCE_CAOS_VER = 'FINANCE_CAOS_VER',
+  // `[CGA-A.57]` A qué movimientos de Caja General se vinculó cada movimiento de CAOS. Aparte de
+  // FINANCE_CAOS_VER porque esa la tienen 12 puestos (surtidor y marketing incluidos) y ésta es de
+  // supervisión: dirección, finanzas y tesorería (Edgar, 2026-10-28).
+  FINANCE_CAOS_VINCULOS_VER = 'FINANCE_CAOS_VINCULOS_VER',
   // Cartera de clientes / Partidas vivas (CXC / ADR-048) — estado de cuenta CxC
   // read-only sobre Kepler (kdue). VER = consultar cartera + aging + drill por cliente.
   FINANCE_RECEIVABLES_VER = 'FINANCE_RECEIVABLES_VER',

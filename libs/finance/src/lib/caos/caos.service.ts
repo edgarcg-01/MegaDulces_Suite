@@ -199,7 +199,14 @@ export class CaosService {
         .select('id', 'device', 'external_id', 'type_id', 'type_label', 'occurred_at',
           'accounting_date', 'user_external', 'total', 'currency', 'ref',
           // `[CGA-A.41]` En qué folio de Caja General quedó (NULL = falta registrarlo).
-          trx.raw(`CASE WHEN type_id IN (0, 4) THEN ${folio} END AS folio_caja_general`));
+          trx.raw(`CASE WHEN type_id IN (0, 4) THEN ${folio} END AS folio_caja_general`),
+          // `[CGA-A.57]` CUÁNTOS movimientos de Caja General lo explican: el folio de arriba es UNO
+          // (`LIMIT 1`) y el retiro 1775 pagó 20. Sin el conteo, el rótulo afirma que pagó uno.
+          trx.raw(`CASE WHEN type_id IN (0, 4) THEN (
+             SELECT count(*) FROM finance.caos_cash_links k
+               JOIN finance.cash_ledger l ON l.id = k.cash_ledger_id AND l.deleted_at IS NULL
+              WHERE k.tenant_id = ${T}.tenant_id AND k.caos_device = ${T}.device
+                AND k.caos_external_id = ${T}.external_id AND k.deleted_at IS NULL)::int END AS vinculos_n`));
 
       /**
        * ⛔⛔ `[CG.163]` **EL KPI «BALANCE» CORRÍA SOBRE 2 DE LOS 7 TIPOS Y NO LO DECLARABA.**
@@ -639,6 +646,53 @@ export class CaosService {
         ...mov,
         denominaciones: denom,
         denominaciones_total: Math.round(denominaciones_total * 100) / 100,
+      };
+    });
+  }
+
+  /**
+   * ⭐ `[CGA-A.57]` A qué movimientos de Caja General se vinculó un movimiento de CAOS, y cuánto
+   * tomó cada uno. Edgar, 2026-10-28: *«¿dónde puedo visualizar los movimientos que se vincularon
+   * a cada movimiento de CAOS? sólo como supervisor»*.
+   *
+   * ⛔ La columna «Caja General» del reporte da UN folio (`sqlFolioCajaGeneral`, `LIMIT 1`): el
+   * retiro 1775 pagó 20 egresos y decía sólo `CG-2026-00512`. Esto publica TODOS, y lo libre.
+   *
+   * ⚠️ Un movimiento que NACIÓ en la máquina (`origen_tipo='caos'`) también sale: es la otra forma
+   * de que Caja General lo explique, y omitirlo haría ver «sin vincular» a uno registrado.
+   */
+  async vinculos(id: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const mov = await trx('analytics.caos_cash_movements')
+        .where({ tenant_id: tenantId, id })
+        .first('id', 'device', 'external_id', 'type_id', 'total');
+      if (!mov) return null;
+      const enlaces = await trx('finance.caos_cash_links as k')
+        .join('finance.cash_ledger as l', 'l.id', 'k.cash_ledger_id')
+        .where({ 'k.tenant_id': tenantId, 'k.caos_device': mov.device, 'k.caos_external_id': mov.external_id })
+        .whereNull('k.deleted_at').whereNull('l.deleted_at')
+        .orderBy([{ column: 'k.created_at', order: 'asc' }, { column: 'l.folio', order: 'asc' }])
+        .select('l.id as cash_ledger_id', 'l.folio', 'l.tipo', 'l.fecha', 'l.monto', 'l.estado',
+          'k.monto_enlazado', 'k.created_at as vinculado_at',
+          trx.raw(`'vinculo' AS via`));
+      const nacidos = await trx('finance.cash_ledger as l')
+        .where({ 'l.tenant_id': tenantId, 'l.origen_tipo': 'caos', 'l.origen_ref': `${mov.device}|${mov.external_id}` })
+        .whereNull('l.deleted_at')
+        .select('l.id as cash_ledger_id', 'l.folio', 'l.tipo', 'l.fecha', 'l.monto', 'l.estado',
+          'l.monto as monto_enlazado', 'l.created_at as vinculado_at',
+          trx.raw(`'nacio_en_la_maquina' AS via`));
+      const filas = [...nacidos, ...enlaces].map((r: any) => ({
+        ...r, monto: Number(r.monto), monto_enlazado: Number(r.monto_enlazado),
+      }));
+      // Lo cancelado se publica (se ve que existió) pero no consume el movimiento.
+      const vivos = filas.filter((r) => r.estado !== 'cancelado');
+      const total = Math.abs(Number(mov.total));
+      const vinculado = Math.round(vivos.reduce((a, r) => a + r.monto_enlazado, 0) * 100) / 100;
+      return {
+        movimiento_id: mov.id, external_id: Number(mov.external_id), total,
+        vinculado, libre: Math.round((total - vinculado) * 100) / 100,
+        filas,
       };
     });
   }

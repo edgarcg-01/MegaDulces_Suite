@@ -23,7 +23,7 @@ import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { MX_TZ, todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
-import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion, type CaosIngresosEstado, type CaosTipo, type CaosSaldo, type CaosTipoEfecto } from '../../caos.service';
+import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion, type CaosIngresosEstado, type CaosTipo, type CaosSaldo, type CaosTipoEfecto, type CaosVinculos } from '../../caos.service';
 import { CaosSocketService } from '../../caos-socket.service';
 import { CajaSocketService } from '../../caja-socket.service';
 import { CashLedgerService } from '../../cash-ledger.service';
@@ -54,6 +54,8 @@ interface FilaUI extends CaosMovimiento {
   denom?: CaosDenominacion[]; denomTotal?: number | null;
   /** `[CGS.55]` El detalle no se pudo leer: se dice y se reintenta — no se pinta «sin desglose». */
   denomError?: string | null;
+  /** `[CGA-A.57]` Supervisión: a qué movimientos de Caja General se vinculó. Se pide al expandir. */
+  vinc?: CaosVinculos | null; vincError?: string | null;
 }
 
 /** `[CGS.55]` Una tarjeta de la respuesta: la cifra, con qué se midió y de dónde sale. */
@@ -259,7 +261,11 @@ interface TarjetaCaos {
               </td>
               <td>
                 @if (r.folio_caja_general) {
+                  <!-- [CGA-A.57] El folio es UNO de los que lo explican: si hay más, se dice cuántos. -->
                   <span><i class="pi pi-check" aria-hidden="true"></i> {{ r.folio_caja_general }}</span>
+                  @if ((r.vinculos_n ?? 0) > 1) {
+                    <span class="fin-dim"> +{{ (r.vinculos_n ?? 0) - 1 }}</span>
+                  }
                 } @else if (r.type_id === 0 || r.type_id === 4) {
                   <!-- [CGS.55] La pantalla dice qué falta registrar: también lleva a registrarlo, con el
                        movimiento ya puesto en la captura (Captura lo busca por su identidad). -->
@@ -316,6 +322,44 @@ interface TarjetaCaos {
                   <span class="fin-dim">Sin desglose por denominación en este movimiento.</span>
                 } @else {
                   <span class="fin-dim">Cargando denominaciones…</span>
+                }
+                <!-- [CGA-A.57] Supervisión: a qué movimientos de Caja General se vinculó y cuánto queda. -->
+                @if (verVinculos() && (r.type_id === 0 || r.type_id === 4)) {
+                  <div class="cs-vinc">
+                    @if (r.vinc; as v) {
+                      <div class="cs-vinc-head">
+                        <strong>Vinculado a Caja General</strong>
+                        <span class="mono">{{ money(v.vinculado) }} de {{ money(v.total) }}</span>
+                        <span class="fin-dim">· libre <span class="mono">{{ money(v.libre) }}</span></span>
+                      </div>
+                      @if (v.filas.length) {
+                        <table class="cs-denom">
+                          <thead><tr><th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col" class="comm-num">Movimiento</th><th scope="col" class="comm-num">Tomó de CAOS</th><th scope="col">Estado</th></tr></thead>
+                          <tbody>
+                            @for (f of v.filas; track f.cash_ledger_id) {
+                              <tr [class.fin-dim]="f.estado === 'cancelado'">
+                                <td>
+                                  <a routerLink="/finanzas/caja-general" [queryParams]="{ q: f.folio, from: diaMx(f.fecha), to: diaMx(f.fecha) }"
+                                     [attr.aria-label]="'Abrir ' + f.folio + ' en Caja General'">{{ f.folio }}</a>
+                                </td>
+                                <td class="mono">{{ dmy(f.fecha) }}</td>
+                                <td class="comm-num">{{ money(f.monto) }}</td>
+                                <td class="comm-num">{{ money(f.monto_enlazado) }}</td>
+                                <td class="fin-dim">{{ f.via === 'nacio_en_la_maquina' ? 'registrado desde CAOS' : f.estado }}</td>
+                              </tr>
+                            }
+                          </tbody>
+                        </table>
+                      } @else {
+                        <span class="fin-dim">Sin movimientos de Caja General vinculados.</span>
+                      }
+                    } @else if (r.vincError) {
+                      <span class="cs-mal">{{ r.vincError }}</span>
+                      <p-button label="Reintentar" size="small" [text]="true" (onClick)="cargarVinculos(r)"></p-button>
+                    } @else {
+                      <span class="fin-dim">Cargando vínculos…</span>
+                    }
+                  </div>
                 }
               </td>
             </tr>
@@ -598,6 +642,8 @@ interface TarjetaCaos {
     :host { display:block; min-width:0; container-type:inline-size; }
     .cs-det td { background:color-mix(in srgb, var(--text-muted) 6%, var(--card-bg)); }
     .cs-denom { width:auto; border-collapse:collapse; font-size:var(--fs-xs); }
+    .cs-vinc { margin-top:var(--sp-3); display:flex; flex-direction:column; gap:var(--sp-2); }
+    .cs-vinc-head { display:flex; gap:var(--sp-2); align-items:baseline; flex-wrap:wrap; }
     .cs-denom th, .cs-denom td { padding:.15rem .75rem .15rem 0; text-align:left; }
     .cs-denom .comm-num { text-align:right; }
     .cs-denom tfoot td { border-top:1px solid var(--border-color); font-weight:600; }
@@ -1014,6 +1060,8 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
   readonly errConteo = signal<string | null>(null);
   /** Lo cuenta quien supervisa (AUTORIZAR), no la caja. ⚠️ Sin permisos cargados no se ofrece. */
   readonly puedeContar = computed(() => this.perms.cargado() && this.perms.has(Permission.FINANCE_CAJA_AUTORIZAR));
+  /** `[CGA-A.57]` Los vínculos son de supervisión (dirección, finanzas, tesorería). El servidor lo vuelve a exigir. */
+  readonly verVinculos = computed(() => this.perms.cargado() && this.perms.has(Permission.FINANCE_CAOS_VINCULOS_VER));
   readonly totalConteo = computed(() => {
     const p = this.conteoPiezas();
     return Object.entries(p).reduce((a, [d, n]) => a + Number(d) * (Number(n) || 0), 0);
@@ -1189,6 +1237,7 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
 
   /** El detalle por denominación se pide una sola vez por fila, al expandirla. */
   alExpandir(r: FilaUI): void {
+    if (this.verVinculos() && (r.type_id === 0 || r.type_id === 4) && !r.vinc) this.cargarVinculos(r);
     if (r.denom) return;
     r.denomError = null;
     this.svc.detalle(r.id).subscribe({
@@ -1200,6 +1249,15 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
       // `[CGS.55]` Antes `r.denom = []`: un 500 se leía «Sin desglose por denominación» y, como la
       // fila ya tenía `denom`, no se volvía a pedir nunca. Se vio en vivo el 2026-10-27.
       error: (e) => { r.denomError = this.textoError(e); this.rows.set([...this.rows()]); },
+    });
+  }
+
+  /** `[CGA-A.57]` Un fallo se dice y se reintenta: no se pinta «sin vínculos». */
+  cargarVinculos(r: FilaUI): void {
+    r.vincError = null;
+    this.svc.vinculos(r.id).subscribe({
+      next: (v) => { r.vinc = v; this.rows.set([...this.rows()]); },
+      error: (e) => { r.vincError = this.textoError(e); this.rows.set([...this.rows()]); },
     });
   }
 
