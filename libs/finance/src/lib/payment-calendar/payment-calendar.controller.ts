@@ -7,7 +7,7 @@ import {
   PrepareAllocationDto, CreateAgreementDto, ReprogramReason,
 } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -126,6 +126,13 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: '[TP.16] Cuentas de ORIGEN elegibles al preparar un pago (activas, sin la caja).' })
   originAccounts(): Promise<PaymentOriginAccount[]> {
     return this.svc.originAccounts();
+  }
+
+  @Get('payment-habits')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: '[PGP.30] Con qué se le suele pagar a cada acreedor, para precargar método y cuenta. Propone, no decide.' })
+  paymentHabits(): Promise<SupplierPaymentHabit[]> {
+    return this.svc.paymentHabits();
   }
 
   @Get('days/:date/summary')

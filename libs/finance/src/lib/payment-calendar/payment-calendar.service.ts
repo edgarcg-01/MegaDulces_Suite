@@ -5,7 +5,7 @@ import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledg
 import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
-import type { PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 
@@ -981,6 +981,36 @@ export class PaymentCalendarService {
       .where('active', true).whereRaw(`coalesce(kind,'bank') <> 'cash'`)
       .select('id', 'bank', 'account_label', 'alias', 'kind')
       .orderBy([{ column: 'bank' }, { column: 'account_label' }]));
+  }
+
+  /**
+   * `[PGP.30]` **Con qué se le suele pagar a cada acreedor**, para precargar método y cuenta.
+   *
+   * ⚠️ Se sirve **entera y de una vez** (316 filas, 292 ms medidos contra prod) en lugar de una
+   * consulta por pago: el día más cargado de la semana trae 16 pagos, y 16 viajes para precargar
+   * un desplegable cuesta más que la tabla completa.
+   *
+   * ⛔ La llave que sale es `supplier_id`, no el código de Kepler: es la que el Calendario ya
+   * trae en cada renglón. Medido: los 316 acreedores con hábito resuelven a un `catalog.suppliers`
+   * — **no se pierde ninguno** en la traducción.
+   */
+  async paymentHabits(): Promise<SupplierPaymentHabit[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { rows } = await this.tk.run((trx) => trx.raw(
+      `SELECT s.id                                   AS supplier_id,
+              h.proveedor_code,
+              h.metodo_estado, h.metodo_sugerido,
+              h.metodo_veces, h.metodo_de,
+              to_char(h.metodo_ultima_vez, 'YYYY-MM-DD') AS metodo_ultima_vez,
+              h.cuenta_estado, h.cuenta_origen_id, h.cuenta_origen_nombre,
+              h.cuenta_veces, h.cuenta_de
+         FROM analytics.v_supplier_payment_habit h
+         JOIN catalog.suppliers s
+           ON btrim(s.code) = btrim(h.proveedor_code) AND s.tenant_id = ?
+        WHERE h.metodo_sugerido IS NOT NULL
+           OR h.cuenta_origen_id IS NOT NULL
+           OR h.cuenta_estado = 'caja_general'`, [tenantId]));
+    return rows as SupplierPaymentHabit[];
   }
 
   /** El lote del día tal cual (folio/status/released_by/at) — usado por el documento imprimible. */
