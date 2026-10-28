@@ -659,6 +659,18 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   (extraído a `database/scripts/lib/libro-comisiones-rd.js`; salida del cargador idéntica antes y
   después). Controles: Q20 contra su espejo **10/10 cuadran** · libro Q19 contra motor Q20
   **0/11**. ⛔ El libro más nuevo en mano (8-oct) trae Q1–Q20: **falta el Excel con Q21**.
+  - **Modo CSV (las entradas), corrido sobre Q21 el 2026-10-28** con la hoja CONCENTRADO que
+    mandó Edgar: **9 de 11 rutas** ven la misma venta que el libro. A la fuente del motor **le
+    faltan 2 días** (dos rutas, un día cada una, ~1.7 % de la venta de la quincena), y por uno de
+    ellos una ruta queda **bajo el umbral** en el motor y sobre él en el libro: es el acantilado
+    de D7 causado por un día perdido, no por la regla. Hipótesis a medir (no confirmada): los
+    renglones tardíos que el carril `ctid` de `kdm2` no ve.
+  - **El subtotal —la base de la comisión— difiere con la venta cuadrada en casi todos los
+    días, también en Q19** (114 de 115): es una diferencia de DEFINICIÓN, en los dos sentidos, con
+    montos que se repiten entre rutas. Por ruta y quincena mueve hasta ~2.8 %. Abierto: qué
+    producto/impuesto arma cada lado.
+  - Una fila del libro se contradice sola (subtotal menor que el costo); se declara antes de
+    comparar, no se cuenta como diferencia del motor.
 
 #### Transversal
 

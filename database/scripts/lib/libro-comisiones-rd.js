@@ -140,4 +140,64 @@ async function leerLibro(archivo) {
   return { wb, mapa, filas };
 }
 
-module.exports = { BONOS_CHOFER, bonosDe, V, F, num, cent, fechaISO, letras, mapaRutas, leerBloque, leerLibro };
+/** Un CSV con comillas (RFC 4180): las cifras del libro traen comas de miles entre comillas. */
+function partirCsv(linea) {
+  const out = []; let cur = ''; let dentro = false;
+  for (let i = 0; i < linea.length; i++) {
+    const ch = linea[i];
+    if (dentro) {
+      if (ch === '"' && linea[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') dentro = false; else cur += ch;
+    } else if (ch === '"') dentro = true;
+    else if (ch === ',') { out.push(cur); cur = ''; } else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+/**
+ * `" $ 18,827.57 "` → 18827.57. ⚠️ `" $ -   "` es la celda de una fórmula sobre un día SIN
+ * operación (domingo): es AUSENCIA, no cero — se devuelve `null` para no contarlo como día
+ * trabajado con venta $0 (ADR-056).
+ */
+function pesos(txt) {
+  const t = String(txt ?? '').replace(/[\s$,]/g, '');
+  if (t === '' || t === '-' || /^#/.test(t)) return null;
+  const v = Number(t);
+  return Number.isFinite(v) ? v : null;
+}
+
+/**
+ * `[RD.93]` La hoja **CONCENTRADO DE INFORMACIÓN** exportada a CSV: la ENTRADA del libro, una
+ * fila por día y, por ruta, costo · subtotal · venta · %. Es de donde la hoja COMISIONES suma
+ * cada quincena — no trae comisión ni pago.
+ *
+ * ⭐ Las columnas de cada ruta salen del propio encabezado (`RUTA 21` en la fila 2 marca la
+ * columna del COSTO; le siguen subtotal y venta), no de una lista tecleada: si Comercial agrega
+ * una ruta, se lee sola.
+ */
+function leerConcentrado(archivo) {
+  const fs = require('fs');
+  const lineas = fs.readFileSync(archivo, 'utf8').replace(/^﻿/, '').split(/\r?\n/).map(partirCsv);
+  const enc = lineas.find((c) => c.some((x) => /^\s*RUTA\s+\S+/i.test(x)));
+  if (!enc) throw new Error('el CSV no trae la fila de encabezado con «RUTA <código>»');
+  const rutas = [];
+  enc.forEach((x, i) => { const m = /^\s*RUTA\s+(\S+)\s*$/i.exec(x); if (m) rutas.push({ route_code: m[1], col: i }); });
+  const filas = [];
+  for (const c of lineas) {
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(c[0]).trim());
+    if (!m) continue;
+    const fecha = `${m[3]}-${m[2]}-${m[1]}`;
+    const periodo = Number(c[1]);
+    for (const r of rutas) {
+      const costo = pesos(c[r.col]); const subtotal = pesos(c[r.col + 1]); const venta = pesos(c[r.col + 2]);
+      if (costo === null && subtotal === null && venta === null) continue;
+      filas.push({ route_code: r.route_code, fecha, periodo, costo, subtotal, venta });
+    }
+  }
+  return { rutas: rutas.map((r) => r.route_code), filas };
+}
+
+module.exports = {
+  BONOS_CHOFER, bonosDe, V, F, num, cent, fechaISO, letras, mapaRutas, leerBloque, leerLibro,
+  leerConcentrado,
+};
