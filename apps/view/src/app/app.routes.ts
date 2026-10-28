@@ -1249,6 +1249,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_PEDIDO_VER)]
       },
       {
+        // [PQ.20] Interruptor de la escritura a Kepler, sin desplegar. Cambiarlo pide COMPRAS_KEPLER_ESCRITURA.
+        path: 'kepler-escritura',
+        loadComponent: () => import('./modules/compras/pages/compras-kepler-escritura.component').then(m => m.ComprasKeplerEscrituraComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_REQUISICIONES_VER)]
+      },
+      {
         // [CAT.1] El catálogo se muda de Ventas (/comercial/products) a Compras: quien lo mantiene
         // es el comprador (da de alta el producto, negocia el costo y captura el precio en Kepler).
         // Adentro trae su pestaña de códigos de barras repetidos (CATALOGO_TABS).

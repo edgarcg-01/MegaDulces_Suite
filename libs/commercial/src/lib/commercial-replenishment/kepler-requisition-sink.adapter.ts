@@ -9,6 +9,7 @@ import type {
 import { DOCTIPOS, coordenada } from './kepler-doctipo';
 import { MARCA_SUITE, plantillaDe, servidoresEncendidos, topeDiario, urlDeServidor } from './kepler-servidores';
 import { piezasEnteras } from './fraccion-caja';
+import { factorFichaKepler } from './ficha-kepler';
 
 /** `[PQ.17]` Piezas enteras de un renglón con fracción de caja, o `null` (misma regla que la mesa y el lote). */
 const piezasEnterasDe = (l: { sku: string; cajas: number; piezas_por_caja?: number | null }): number | null =>
@@ -222,22 +223,48 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
       // (PAQ/PZA, plan PQ §12.3). Los 42 renglones vivos con fracción (2026-10-27) eran todos
       // piezas enteras; redondear a caja inventaba compra (×2.5) y a cero borraba lo pedido.
       // ⛔ Ni cajas ni piezas enteras → se rechaza con el SKU (fail-closed, como siempre).
-      const enPiezas = e.lineas.filter((l) => l.cajas !== Math.round(l.cajas));
+      //
+      // ⭐ `[PQ.19]` D24 (PM, 2026-10-27): **el TRASPASO va entero en unidad base.** Medido en
+      // 57,188 renglones `U-D-40` de 60 días: Kepler escribe el pedido de traspaso en la unidad
+      // base del producto en el 99.2 % (PAQ 66.7 %, PZA 24.5 %, KG 7.7 %) y en `CJA` en el 0.1 %;
+      // `U-D-41` y `U-A-50` copian la unidad. Escribir cajas como `CJA` viajaba hasta la recepción
+      // en una unidad que el ERP casi no usa. Por eso todo renglón de traspaso pasa por el camino
+      // de piezas, y además el factor de la Suite se CONTRASTA con la ficha del servidor origen:
+      // si no coinciden, la cantidad escrita sería otra (el error de 50× de `[KR.6]`).
+      const esTraspaso = tipo === 'traspaso';
+      const enPiezas = esTraspaso ? e.lineas : e.lineas.filter((l) => l.cajas !== Math.round(l.cajas));
       const sinUnidad = enPiezas.filter((l) => piezasEnterasDe(l) === null);
       if (sinUnidad.length) {
-        return { estado: 'rechazada', motivo: `${sinUnidad.length} renglón(es) no son cajas enteras ni piezas enteras: ${sinUnidad.slice(0, 5).map((l) => `${l.sku}=${l.cajas}`).join(', ')}` };
+        return {
+          estado: 'rechazada',
+          motivo: esTraspaso
+            ? `${sinUnidad.length} renglón(es) del traspaso no se pueden pasar a unidad base (sin piezas por caja, o cajas × piezas no da entero): ${sinUnidad.slice(0, 5).map((l) => `${l.sku}=${l.cajas}×${l.piezas_por_caja ?? '?'}`).join(', ')}`
+            : `${sinUnidad.length} renglón(es) no son cajas enteras ni piezas enteras: ${sinUnidad.slice(0, 5).map((l) => `${l.sku}=${l.cajas}`).join(', ')}`,
+        };
       }
       const unidadBase = new Map<string, string>();
       if (enPiezas.length) {
-        const u = await c.query(`SELECT btrim(c1) AS sku, NULLIF(upper(btrim(c11)), '') AS u1 FROM md.kdii WHERE btrim(c1) = ANY($1::text[])`, [enPiezas.map((l) => l.sku)]);
-        for (const r of u.rows) if (r.u1) unidadBase.set(r.sku, r.u1);
+        const u = await c.query(
+          `SELECT btrim(c1) AS sku, c11, c77, c78, c79, c80, c81, c83, c84 FROM md.kdii WHERE btrim(c1) = ANY($1::text[])`,
+          [enPiezas.map((l) => l.sku)]);
+        const ficha = new Map(u.rows.map((r) => [String(r.sku), factorFichaKepler(r)]));
+        for (const [sku, f] of ficha) if (f.unidad_base) unidadBase.set(sku, f.unidad_base);
         const sinFicha = enPiezas.filter((l) => !unidadBase.has(l.sku));
         if (sinFicha.length) {
           return { estado: 'rechazada', motivo: `Kepler (sucursal ${e.sucursal}) no tiene unidad base en la ficha (kdii.c11) para ${sinFicha.slice(0, 5).map((l) => l.sku).join(', ')}: no se puede escribir en piezas` };
         }
+        if (esTraspaso) {
+          const distinto = enPiezas.filter((l) => {
+            const f = ficha.get(l.sku)?.factor;
+            return f == null || Math.abs(f - Number(l.piezas_por_caja)) > 0.001;
+          });
+          if (distinto.length) {
+            return { estado: 'rechazada', motivo: `El factor de caja de la Suite no coincide con la ficha de Kepler (sucursal ${e.sucursal}): ${distinto.slice(0, 5).map((l) => `${l.sku} Suite ${l.piezas_por_caja} / ficha ${ficha.get(l.sku)?.factor ?? 'sin factor'}`).join(', ')}. No se escribe: la cantidad en unidad base saldría distinta` };
+          }
+        }
       }
       const resueltas = e.lineas.map((l) => {
-        const pz = l.cajas !== Math.round(l.cajas) ? piezasEnterasDe(l) : null;
+        const pz = esTraspaso || l.cajas !== Math.round(l.cajas) ? piezasEnterasDe(l) : null;
         return pz === null
           ? { sku: l.sku, unidad: 'CJA', unidad_caja: 'CJA', por_caja: 1, cantidad: l.cajas }
           : { sku: l.sku, unidad: unidadBase.get(l.sku)!, unidad_caja: unidadBase.get(l.sku)!, por_caja: 1, cantidad: pz };
@@ -247,15 +274,19 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
       // tienen esta fecha en ESTE servidor. Se cuenta en Kepler, no en la Suite: lo que importa
       // es lo que el ERP ya tiene, incluido lo que escribió otro proceso o un reintento.
       // ⚠️ Dos aprobaciones simultáneas pueden pasar las dos (no hay candado): el pool es de 2.
-      const tope = topeDiario(e.sucursal, process.env);
-      const hoy = await c.query(
-        `SELECT count(*)::int AS n FROM md.kdm1
-          WHERE c1=$1 AND c9::date = $2::date
-            AND ((c2='X' AND c3='A' AND btrim(c4::text)='30' AND btrim(c11) LIKE $3)
-              OR (c2='U' AND c3='D' AND btrim(c4::text)='40' AND btrim(c24) LIKE $3))`,
-        [e.sucursal, e.fecha, `${MARCA_SUITE}%`]);
-      if (hoy.rows[0].n >= tope) {
-        return { estado: 'rechazada', motivo: `Tope diario del servidor ${e.sucursal} alcanzado: ${hoy.rows[0].n} de ${tope} documentos hoy (KEPLER_PUSH_MAX_DIA_${e.sucursal})` };
+      // `[PQ.20]` El tope lo decide la Suite (tabla `kepler_push_switch`); `null` = sin tope. La
+      // variable sólo vale si el service no lo mandó (tabla todavía sin migrar).
+      const tope = e.tope_dia === undefined ? topeDiario(e.sucursal, process.env) : e.tope_dia;
+      if (tope !== null) {
+        const hoy = await c.query(
+          `SELECT count(*)::int AS n FROM md.kdm1
+            WHERE c1=$1 AND c9::date = $2::date
+              AND ((c2='X' AND c3='A' AND btrim(c4::text)='30' AND btrim(c11) LIKE $3)
+                OR (c2='U' AND c3='D' AND btrim(c4::text)='40' AND btrim(c24) LIKE $3))`,
+          [e.sucursal, e.fecha, `${MARCA_SUITE}%`]);
+        if (hoy.rows[0].n >= tope) {
+          return { estado: 'rechazada', motivo: `Tope diario del servidor ${e.sucursal} alcanzado: ${hoy.rows[0].n} de ${tope} documentos hoy` };
+        }
       }
 
       await c.query('BEGIN');

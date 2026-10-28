@@ -640,6 +640,13 @@ export enum Permission {
    * Es la salida de emergencia cuando ella no está, y se DECLARA en vez de taparse.
    */
   COMPRAS_REQUISICIONES_AUTORIZAR = 'COMPRAS_REQUISICIONES_AUTORIZAR',
+  /**
+   * `[PQ.20]` **Encender o apagar la escritura de la Suite en Kepler**, por sucursal y tipo, y su
+   * tope diario (`commercial.kepler_push_switch`). Es la palanca que antes era el secreto k3s +
+   * reiniciar `api`. Fuera de todo rol y de todo `MODULE_GROUP`: se reparte POR PERSONA. Al nacer
+   * no la tiene nadie; el god-mode de plataforma (admin/superadmin) pasa, y es quien la opera.
+   */
+  COMPRAS_KEPLER_ESCRITURA = 'COMPRAS_KEPLER_ESCRITURA',
   // Órdenes de compra (OC) + recepciones (OE).
   COMPRAS_ORDENES_VER = 'COMPRAS_ORDENES_VER',
   COMPRAS_ORDENES_GESTIONAR = 'COMPRAS_ORDENES_GESTIONAR',

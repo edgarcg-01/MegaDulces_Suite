@@ -465,7 +465,7 @@ export class PaymentCalendarService {
         `SELECT e.sucursal, e.doc_tipo, e.doc_sub, e.folio, e.proveedor,
                 'oblig:' || e.sucursal || '|' || e.doc_tipo || '|' || e.doc_sub || '|' || btrim(e.folio) AS entity_ref,
                 e.pendiente::float8 AS pendiente, e.evidencia, e.ref_evidencia,
-                e.puntaje, e.senales, e.motivo
+                e.puntaje, e.senales, e.motivo, e.rfc, e.rfc_fuente
            FROM analytics.v_payable_evidence e
           WHERE e.tenant_id = ? AND e.proveedor = ?
           ORDER BY e.evidencia, e.puntaje DESC, e.pendiente DESC
@@ -497,7 +497,7 @@ export class PaymentCalendarService {
         `SELECT e.sucursal, e.doc_tipo, e.doc_sub, e.folio, e.proveedor,
                 'oblig:' || e.sucursal || '|' || e.doc_tipo || '|' || e.doc_sub || '|' || btrim(e.folio) AS entity_ref,
                 e.pendiente::float8 AS pendiente, e.evidencia, e.ref_evidencia,
-                e.puntaje, e.senales, e.motivo
+                e.puntaje, e.senales, e.motivo, e.rfc, e.rfc_fuente
            FROM analytics.v_payable_evidence e
           WHERE e.tenant_id = ?
             AND (e.sucursal || '|' || e.doc_tipo || '|' || e.doc_sub || '|' || btrim(e.folio)) = ANY(?)`,

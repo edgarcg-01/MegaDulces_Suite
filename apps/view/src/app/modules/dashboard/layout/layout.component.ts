@@ -443,9 +443,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // Ventas de vendedor · Ventas y rentabilidad · Analítica comercial absorbe al Centro de Control
   // (era la misma pantalla que su pestaña «En vivo») y a Razonamiento. Las barras las pintan las
   // páginas ANTES de plegar (lección de `[NAV.2]`); cada conjunto tiene nombre propio (`[AUD-A5]`).
+  // `[NAV.8.2]` Facturación entra como renglón (con la barra que pinta su página) y Empuje (Thot)
+  // pasa a pestaña de Analítica: siguen siendo 11.
   private comercialNavGroups: { title: string; items: NavItem[] }[] = [
     {
-      title: 'Ventas',
+      // `[NAV.8.2]` Se llamaba «Ventas», igual que el proyecto que la migaja pone entre el espacio y
+      // la página («Comercial / Ventas / Ruta Directa»): parecía que Ruta Directa vivía en este grupo.
+      title: 'Venta y clientes',
       items: [
         { label: 'Pedidos',           icon: 'pi pi-file-edit',  route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
         // [NAV.1] Clientes y Clientes 360 son la misma ficha en dos vistas: una entrada, dos pestañas.
@@ -456,6 +460,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // cartera y éste busca cualquier folio de cualquier canal — por eso tienen permisos
         // distintos.
         { label: 'Tickets',           icon: 'pi pi-receipt',    route: '/comercial/tickets',        permission: Permission.COMMERCIAL_TICKETS_VER },
+        // `[NAV.8.2]` Facturación de telemarketing (+ Expedientes) con la MISMA barra que pinta su
+        // página. Antes era la pestaña «Facturación TM» de Reportes de venta, y al abrirla el
+        // sidebar quedaba en Reportes y la barra saltaba a la de Telemarketing. Es la misma entrada
+        // que tiene el sidebar de Telemarketing.
+        { label: 'Facturación', icon: 'pi pi-file', route: '/comercial/documentos', tabs: TELEMARKETING_TABS },
       ],
     },
     {
@@ -471,7 +480,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // ⚠️ `/comercial/promotions` sólo redirige a `/mkt/promotions`, que pinta la barra de MKT:
         // no se puede plegar en un apartado de Comercial sin pintarle otra barra a una página ajena.
         { label: 'Promociones',       icon: 'pi pi-gift',         route: '/comercial/promotions', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
-        { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',         route: '/comercial/empuje',     permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },
+        // `[NAV.8.2]` «Empuje (Thot)» es ahora pestaña de Analítica comercial, con el resto de Thot.
       ],
     },
     {
@@ -502,12 +511,14 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Reportes',
       items: [
-        // [NAV.1] Los reportes de venta general en UNA entrada. «Documentos» era un item suelto Y la pestaña «Facturación TM»: la misma pantalla, dos renglones.
+        // [NAV.1] Los reportes de venta general en UNA entrada: Sell-Out, Análisis, Salidas.
+        // `[NAV.8.2]` Facturación TM salió de esta barra: tiene su propia entrada en «Venta y clientes».
         { label: 'Reportes de venta', icon: 'pi pi-chart-bar', route: '/comercial/sell-out', tabs: REPORTES_GENERALES_TABS },
         // `[NAV.8]` Rentabilidad + Ventas generales + Sucursales Wincaja.
         { label: VENTAS_RENTABILIDAD_LABEL, icon: 'pi pi-percentage', route: '/comercial/rentabilidad', tabs: VENTAS_RENTABILIDAD_TABS },
         // [NAV.1] La analítica comercial (en vivo, Thot, histórico ERP, curaduría) en UNA entrada.
-        // `[NAV.8]` «En vivo» (el Centro de Control) va primero y absorbe su renglón suelto.
+        // `[NAV.8]` «En vivo» (el Centro de Control) va primero y absorbe su renglón suelto;
+        // `[NAV.8.2]` + Empuje (Thot).
         { label: ANALYTICS_LABEL, icon: 'pi pi-chart-line', route: '/comercial/command-center', tabs: ANALYTICS_TABS },
       ],
     },

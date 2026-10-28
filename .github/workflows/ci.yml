@@ -980,7 +980,7 @@ jobs:
         run: |
           set +e
           rc=0
-          for s in test-newdb-caja-invariantes.js test-newdb-cash-ledger-cuts.js test-newdb-caja-supervision.js test-newdb-caja-custodia.js test-newdb-caja-una-explicacion.js test-newdb-cashbook-libro.js test-newdb-cashbook-conteos.js test-newdb-cashbook-alerta-permisos.js; do
+          for s in test-newdb-caja-invariantes.js test-newdb-cash-ledger-cuts.js test-newdb-caja-supervision.js test-newdb-caja-custodia.js test-newdb-caja-una-explicacion.js test-newdb-cashbook-libro.js test-newdb-cashbook-conteos.js test-newdb-cashbook-alerta-permisos.js test-newdb-cashbook-firma-puesto.js; do
             echo "::group::$s"
             node "database/tests/$s" 2>&1 | tee "$s.log"
             r=${PIPESTATUS[0]}

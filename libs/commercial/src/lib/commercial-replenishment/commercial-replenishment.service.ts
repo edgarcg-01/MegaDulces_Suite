@@ -23,6 +23,7 @@ import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
 import { AVISO_TRANSITO, POLITICA_TRANSITO, type PoliticaTransito, transitoDescontado, transitoMostrado } from './transito';
 import { mensajeFraccion, renglonesSinUnidadEntera } from './fraccion-caja';
+import { plantillaDe, urlDeServidor } from './kepler-servidores';
 import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lote-repetido';
 import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
@@ -4902,7 +4903,8 @@ export class CommercialReplenishmentService {
     const ok: string[] = []; const fallas: Array<{ id: string; motivo: string }> = [];
     for (const id of unicos) {
       try {
-        // ⛔ `[KR.5]` **El lote NO empuja a Kepler.** Aprueba hasta 200 de una, y cada empuje
+        // ⛔ `[KR.5]` **El lote NO empuja a Kepler DENTRO de la petición** (`[PQ.20]`: lo hace
+        // después, ver `empujarLoteAKepler`). Aprueba hasta 200 de una, y cada empuje
         // son varios viajes de ida y vuelta al ERP: 200 escrituras dentro de una sola petición
         // HTTP tardarían minutos y pueden dar timeout — y si el timeout corta a la mitad, queda
         // la duda de cuáles salieron. Las requisiciones quedan aprobadas con `kepler_folio` en
@@ -4914,7 +4916,40 @@ export class CommercialReplenishmentService {
         fallas.push({ id, motivo: (e as { message?: string })?.message || 'no se pudo' });
       }
     }
+    if (accion === 'approve' && ok.length) void this.empujarLoteAKepler(ok);
     return { pedidas: unicos.length, hechas: ok.length, ok, fallas };
+  }
+
+  /**
+   * `[PQ.20]` **El lote sí sale a Kepler — después de contestar, una por una.**
+   *
+   * KR.5 sacó el empuje del lote para no meter 200 escrituras en una petición HTTP, y no puso
+   * nada en su lugar: medido el 2026-10-28, **222 requisiciones aprobadas en 7 días sin un solo
+   * intento** (`kepler_error` y `kepler_folio` en NULL). Con la escritura encendida, aprobar en
+   * lote parecía no hacer nada en el ERP.
+   *
+   * Corre fuera de la petición y en serie (el pool del adapter es de 2). Cada una deja su
+   * resultado en `kepler_folio` o `kepler_error`, que es lo que la bandeja ya sabe mostrar y
+   * reintentar. `pushKeplerTrasAprobar` nunca lanza, así que una falla no frena a las demás.
+   * ⚠️ La idempotencia es la de `pushToKepler` (relee `kepler_folio` antes de escribir): un
+   * «Reintentar» manual sobre la MISMA requisición en el mismo segundo podría duplicar, igual que
+   * dos clics hoy. `enLote` evita que dos lotes del mismo proceso la empujen a la vez.
+   */
+  private readonly enLote = new Set<string>();
+  private async empujarLoteAKepler(ids: string[]): Promise<void> {
+    if (!this.keplerSink) return;
+    let salieron = 0; let no = 0;
+    for (const id of ids) {
+      if (this.enLote.has(id)) continue;
+      this.enLote.add(id);
+      try {
+        const r = await this.pushKeplerTrasAprobar(id);
+        if (r.estado === 'entregada' || r.estado === 'ya_estaba') salieron++; else no++;
+      } finally {
+        this.enLote.delete(id);
+      }
+    }
+    this.logger.log(`Lote a Kepler: ${salieron} de ${ids.length} salieron, ${no} no (motivo en kepler_error)`);
   }
   /** RA.14 — approved → ordered (OC emitida / exportada al proveedor). */
   /**
@@ -5079,7 +5114,18 @@ export class CommercialReplenishmentService {
     const fraccion = renglonesSinUnidadEntera(lineas.map((l) => ({ sku: l.sku, final_qty: l.final_qty, piezas_por_caja: l.box_factor })));
     if (fraccion.length) throw new BadRequestException(mensajeFraccion(fraccion));
 
+    // `[PQ.20]` El interruptor de la Suite: se lee en CADA envío, así que apagar vale al instante.
+    // Apagada se anota en `kepler_error` igual que un rechazo del ERP (la bandeja lo muestra).
+    const sucDoc = tipo === 'traspaso' ? cab.origen_kepler_code! : cab.kepler_code;
+    const sw = await this.interruptorKepler(tenantId, sucDoc, tipo);
+    if (sw && !sw.encendida) {
+      const motivo = `La escritura a Kepler de la sucursal ${sucDoc} (${tipo}) está apagada desde la Suite`;
+      await this.tk.run((trx) => trx('commercial.purchase_requisitions').where({ tenant_id: tenantId, id }).update({ kepler_error: motivo }));
+      throw new BadRequestException(motivo);
+    }
+
     const res = await this.keplerSink.entregar({
+      tope_dia: sw ? sw.tope_dia : undefined,
       requisition_id: cab.id, folio_suite: cab.folio, tipo,
       // El documento se crea DONDE SALE la mercancía: en la compra, el almacén que recibe del
       // proveedor; en el traspaso, la sucursal origen — y el destino viaja como `TI###`.
@@ -5120,6 +5166,81 @@ export class CommercialReplenishmentService {
     }
     this.logger.log(`Requisición ${cab.folio} → Kepler ${res.kepler!.sucursal}/${res.kepler!.folio} por ${userId ?? 'system'}`);
     return { ya_estaba: false, kepler: res.kepler, lineas: res.lineas, consolidado: lineas.length < datos.lineas.length };
+  }
+
+  // ── [PQ.20] Interruptor de la escritura a Kepler, sin desplegar ─────────────────────────────
+  /**
+   * El renglón de (sucursal, tipo). `null` = sin renglón → APAGADA (falla cerrada).
+   * `undefined` = la tabla todavía no existe en esta base: se conserva el comportamiento de la
+   * variable de entorno, para que desplegar antes de migrar no apague nada.
+   */
+  private async interruptorKepler(tenantId: string, sucursal: string, tipo: 'compra' | 'traspaso')
+    : Promise<{ encendida: boolean; tope_dia: number | null } | undefined> {
+    try {
+      const r = await this.tk.run((trx) => trx('commercial.kepler_push_switch')
+        .where({ tenant_id: tenantId, sucursal, tipo }).first('encendida', 'tope_dia'));
+      return r ? { encendida: !!r.encendida, tope_dia: r.tope_dia === null ? null : Number(r.tope_dia) } : { encendida: false, tope_dia: null };
+    } catch (e: unknown) {
+      if ((e as { code?: string })?.code === '42P01') return undefined;
+      throw e;
+    }
+  }
+
+  /** Los 18 renglones (9 sucursales × compra/traspaso), con si el secreto tiene con qué escribir. */
+  async listKeplerSwitch(): Promise<{ migrada: boolean; rows: Array<Record<string, unknown>> }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    let filas: Array<Record<string, unknown>> = [];
+    let migrada = true;
+    try {
+      filas = await this.tk.run((trx) => trx('commercial.kepler_push_switch as s')
+        .leftJoin('identity.users as u', 'u.id', 's.updated_by')
+        .where('s.tenant_id', tenantId)
+        .select('s.sucursal', 's.tipo', 's.encendida', 's.tope_dia', 's.nota', 's.updated_at', 'u.username as updated_by')
+        .orderBy(['s.sucursal', 's.tipo']));
+    } catch (e: unknown) {
+      if ((e as { code?: string })?.code !== '42P01') throw e;
+      migrada = false;
+    }
+    const nombres = await this.tk.run((trx) => trx('commercial.warehouses')
+      .where({ tenant_id: tenantId }).whereNotNull('kepler_code').select('kepler_code', 'name'));
+    const nombre = new Map<string, string>();
+    for (const w of nombres as Array<{ kepler_code: string; name: string }>) if (!nombre.has(w.kepler_code)) nombre.set(w.kepler_code, w.name);
+    const env = process.env;
+    const out: Array<Record<string, unknown>> = [];
+    for (const s of ['00', '01', '02', '03', '04', '05', '06', '07', '08']) {
+      for (const tipo of ['compra', 'traspaso'] as const) {
+        const f = filas.find((x) => x['sucursal'] === s && x['tipo'] === tipo);
+        const conUrl = urlDeServidor(s, env).ok;
+        const conPlantilla = plantillaDe(tipo, s, env).ok;
+        out.push({
+          sucursal: s, sucursal_nombre: nombre.get(s) ?? null, tipo,
+          encendida: f ? !!f['encendida'] : false,
+          tope_dia: f && f['tope_dia'] !== null && f['tope_dia'] !== undefined ? Number(f['tope_dia']) : null,
+          nota: (f?.['nota'] as string) ?? null, updated_at: f?.['updated_at'] ?? null, updated_by: (f?.['updated_by'] as string) ?? null,
+          // Encendida en la Suite no basta: sin URL o sin plantilla en el secreto, rebota igual.
+          configurada: conUrl && conPlantilla,
+          falta: !conUrl ? 'conexión del servidor' : !conPlantilla ? `plantilla de ${tipo}` : null,
+        });
+      }
+    }
+    return { migrada, rows: out };
+  }
+
+  async setKeplerSwitch(sucursal: string, tipo: string, dto: { encendida?: boolean; tope_dia?: number | null; nota?: string | null }): Promise<{ migrada: boolean; rows: Array<Record<string, unknown>> }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const userId = this.tenantCtx.get()?.userId ?? null;
+    if (!/^0[0-8]$/.test(sucursal)) throw new BadRequestException('Sucursal inválida');
+    if (tipo !== 'compra' && tipo !== 'traspaso') throw new BadRequestException('Tipo inválido: compra o traspaso');
+    if (typeof dto?.encendida !== 'boolean') throw new BadRequestException('Falta encendida (true/false)');
+    const tope = dto.tope_dia === null || dto.tope_dia === undefined ? null : Number(dto.tope_dia);
+    if (tope !== null && (!Number.isInteger(tope) || tope < 1)) throw new BadRequestException('El tope es un entero mayor que 0, o vacío para no tener tope');
+    const nota = dto.nota ? String(dto.nota).slice(0, 300) : null;
+    await this.tk.run((trx) => trx('commercial.kepler_push_switch')
+      .insert({ tenant_id: tenantId, sucursal, tipo, encendida: dto.encendida, tope_dia: tope, nota, created_by: userId, updated_by: userId })
+      .onConflict(['tenant_id', 'sucursal', 'tipo'])
+      .merge({ encendida: dto.encendida, tope_dia: tope, nota, updated_by: userId, updated_at: trx.fn.now() }));
+    this.logger.log(`Escritura a Kepler ${sucursal}/${tipo} → ${dto.encendida ? 'ENCENDIDA' : 'apagada'}${tope ? ` (tope ${tope}/día)` : ''} por ${userId ?? 'system'}`);
+    return this.listKeplerSwitch();
   }
 
   // ── RA.8 — Hallazgos de reabastecimiento (bandeja) ────────────────────

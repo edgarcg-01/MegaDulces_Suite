@@ -36,12 +36,29 @@ describe.skipIf(!URL)('[LE.4.7] la API del libro de efectivo contra Postgres', (
   let knex: Knex;
   let svc: CashbookService;
   let hay = false;
+  let hay49 = false;
 
   beforeAll(async () => {
     knex = knexFactory({ client: 'pg', connection: URL as string, pool: { min: 0, max: 4 } });
     hay = (await knex.raw(`SELECT to_regprocedure('cashbook.register_count(jsonb)') IS NOT NULL AS ok`)).rows[0].ok;
     const ctx = { requireTenantId: () => T } as unknown as TenantContextService;
     svc = new CashbookService(new TenantKnexService(knex, ctx), ctx);
+    // `[LE.4.9]` En la caja firma un PUESTO: MARIAZ entra como Jefe de Tesorería, como lo haría la
+    // pantalla de usuarios. Darle la firma al puesto abre una alerta; la revisa ella (no la hizo
+    // ni la recibe una persona) y queda la bandeja limpia para el día.
+    hay49 = hay && (await knex.raw(`SELECT to_regprocedure('cashbook._firma_de_caja(uuid, uuid)') IS NOT NULL AS ok`)).rows[0].ok;
+    if (hay49) {
+      await knex.raw(`INSERT INTO identity.users (id, tenant_id, username, role_name, activo, kind, position_code, created_at, updated_at)
+        VALUES (?, ?, ?, 'tesoreria', true, 'interno', 'tesoreria', now(), now())`, [MARIAZ.id, T, MARIAZ.username]);
+      await knex.raw(`INSERT INTO identity.position_responsibilities (id, tenant_id, position_code, responsibility_key, es_principal, created_at, updated_at)
+        VALUES (gen_random_uuid(), ?, 'tesoreria', 'finanzas.caja_firma', true, now(), now())`, [T]);
+      const alerta = (await svc.hallazgos()).find((h) => h['source'] === 'permiso');
+      const det = alerta?.['detail'] as { puesto?: string; despues?: { firma_caja?: string } } | undefined;
+      if (det?.puesto !== 'tesoreria' || det.despues?.firma_caja !== 'principal') {
+        throw new Error(`[LE.4.9] darle la firma a un puesto debía alertar: ${JSON.stringify(alerta)}`);
+      }
+      await svc.cerrarHallazgo(String(alerta?.['id']), { nota: 'Firma de caja por puesto (LE.4.9), decisión del PM' }, MARIAZ);
+    }
   });
   afterAll(async () => { await knex?.destroy(); });
 
@@ -60,6 +77,11 @@ describe.skipIf(!URL)('[LE.4.7] la API del libro de efectivo contra Postgres', (
     expect(ap.estado).toBe('por_autorizar');
     if (ap.estado !== 'por_autorizar') return;
     expect(await rechazo(svc.autorizar(ap.request_id, CAJERA))).toEqual({ status: 422, codigo: 'cashbook_autoriza_quien_registra' });
+    if (hay49) {
+      // `[LE.4.9]` Tener `_AUTORIZAR` (o ser superadmin) ya no basta: quien firma tiene que tener el puesto.
+      expect(await rechazo(svc.autorizar(ap.request_id, { id: randomUUID(), username: 'superadmin_sin_puesto' })))
+        .toEqual({ status: 403, codigo: 'cashbook_firma_por_puesto' });
+    }
     await svc.autorizar(ap.request_id, MARIAZ);
     expect(await rechazo(svc.autorizar(ap.request_id, MARIAZ))).toEqual({ status: 409, codigo: 'cashbook_solicitud_no_pendiente' });
 

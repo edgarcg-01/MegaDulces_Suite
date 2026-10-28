@@ -12,6 +12,7 @@
 const crypto = require('crypto');
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-cashbook-conteos');
+const { sembrarFirmantes } = require('./caja/firmantes');
 
 const uuid = () => crypto.randomUUID();
 const TT = uuid();
@@ -55,6 +56,8 @@ async function comoApp(trx) {
   }
   hayRol = (await knex.raw(`SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime'`)).rows.length > 0;
   if (!hayRol) skip('no existe app_runtime: los privilegios no se prueban');
+  // `[LE.4.9]` U2 autoriza y firma: tiene que tener un puesto que firma caja.
+  await sembrarFirmantes(knex, TT, [U2]);
 
   try {
     await knex.transaction(async (trx) => {

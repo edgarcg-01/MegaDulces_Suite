@@ -149,6 +149,10 @@ async function revisar() {
   mod.length === 0 ? ok('no modifica ni borra nada') : falla('no modifica ni borra nada', `UPDATE/DELETE/TRUNCATE en: ${mod.join(', ')} — REVOKE`);
   const lee = new Set(priv.filter((r) => r.sel).map((r) => r.relname));
   ['kdm1', 'kdm2'].forEach((t) => (lee.has(t) ? ok(`lee ${t}`) : falla(`lee ${t}`)));
+  // `[PQ.17]`/`[PQ.19]` El adapter valida el proveedor contra `kdxd` y la ficha contra `kdii` del
+  // MISMO servidor. Sin estos dos, toda compra rebota con «permiso denegado» (medido el 2026-10-28:
+  // RQ-2026-01601 por $787,585 y RQ-2026-01584; el script de roles no los daba).
+  ['kdxd', 'kdii'].forEach((t) => (lee.has(t) ? ok(`lee ${t}`) : falla(`lee ${t}`, `GRANT SELECT ON md.${t} TO ${who.u}`)));
   const temp = (await c.query(`SELECT has_database_privilege(current_user, current_database(), 'TEMPORARY') t`)).rows[0].t;
   temp ? ok('tablas temporales') : falla('tablas temporales', `GRANT TEMPORARY ON DATABASE md_${s} TO ${who.u}`);
 

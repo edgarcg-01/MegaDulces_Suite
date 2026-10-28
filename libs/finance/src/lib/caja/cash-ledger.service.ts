@@ -28,7 +28,7 @@ import { leerCandado } from './caja-candado.query';
 import { buildFolio } from './caja-autofill.engine';
 import { diaAnterior, inicioDelMes, primerCorteDelLibro, saldadosPorControl } from './caja-relevo';
 import {
-  esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, evaluarArqueo, desgloseNeto, rankearFrecuentes,
+  esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, evaluarArqueoDeEgreso, desgloseNeto, rankearFrecuentes,
   esFechaFutura, reglaQueAplica, cvDe, propuestaDe, rutaCodigo, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
   type MapaRuta, type ReglaGasto, type Confirmable, type ClaseDescuadre,
   type FilaLote, type ResumenLote, type Descuadre,
@@ -628,8 +628,9 @@ export class CashLedgerService {
    * probarla exigía un doble de Knex, y un doble de Knex no ejecuta SQL. Al subirla al motor se
    * puede mutar y ver el rojo — que es la única forma de saber que un candado está puesto.
    */
-  private assertArqueo(monto: number, morralla: number, dens: DenominationInput[], ventaCredito = 0, hayConteo = false) {
-    const v = evaluarArqueo(monto, morralla, dens, ventaCredito, hayConteo, ARQUEO_EPSILON);
+  private assertArqueo(monto: number, morralla: number, dens: DenominationInput[], ventaCredito = 0, hayConteo = false,
+    egreso: Parameters<typeof evaluarArqueoDeEgreso>[5] = {}) {
+    const v = evaluarArqueoDeEgreso(monto, morralla, dens, Number(ventaCredito) || 0, hayConteo, egreso, ARQUEO_EPSILON);
     if (v.ok) return;
     if (v.motivo === 'conteo_sin_desglose') {
       throw new BadRequestException(
@@ -1223,7 +1224,9 @@ export class CashLedgerService {
       // antes (como estaba), un movimiento anclado podría guardarse con un desglose que cuadra
       // contra la cifra del formulario y NO contra la del documento.
       // `hayConteo` va al candado: declarar que se contó distinto del documento OBLIGA al desglose.
-      this.assertArqueo(monto, input.morralla ?? 0, dens, input.venta_credito, hayConteo);
+      // ⭐ `[CGA-A.56.1]` Un egreso pagado con retiros de CAOS: lo que pagan los enlaces no se
+      // cuenta en el cajón (cuenta como el crédito). Ver `evaluarArqueoDeEgreso`.
+      this.assertArqueo(monto, input.morralla ?? 0, dens, input.venta_credito, hayConteo, input);
 
       // La fecha NO se toma del cobro a propósito: `cobro_date` es cuándo Kepler registró el
       // documento y `fecha` es cuándo entró el efectivo a la caja. Son dos hechos distintos y

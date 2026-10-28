@@ -14,6 +14,7 @@
 const crypto = require('crypto');
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-cashbook-alerta-permisos');
+const { sembrarFirmantes } = require('./caja/firmantes');
 
 const uuid = () => crypto.randomUUID();
 const TT = uuid();
@@ -42,6 +43,8 @@ const muestra = (err) => (err ? `${err.code} ${err.constraint || ''} ${err.messa
     process.exit(0);
   }
   const hayRol = (await knex.raw(`SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime'`)).rows.length > 0;
+  // `[LE.4.9]` Quien revisa las alertas tiene que tener un puesto que firma caja.
+  await sembrarFirmantes(knex, TT, [REVISOR]);
 
   try {
     await knex.transaction(async (trx) => {

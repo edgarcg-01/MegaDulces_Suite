@@ -563,6 +563,22 @@ export class CommercialReplenishmentController {
     return this.svc.pushToKepler(id, { consolidar: dto?.consolidar });
   }
 
+  /** `[PQ.20]` El interruptor de la escritura a Kepler: leerlo lo puede quien ve requisiciones. */
+  @Get('kepler-escritura')
+  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_VER)
+  @ApiOperation({ summary: 'PQ.20 — estado de la escritura a Kepler por sucursal × tipo (encendida, tope, si el secreto tiene conexión y plantilla).' })
+  listKeplerSwitch(): Promise<{ migrada: boolean; rows: Array<Record<string, unknown>> }> { return this.svc.listKeplerSwitch(); }
+
+  /** `[PQ.20]` Encender/apagar y tope. Vale en el siguiente envío, sin desplegar. */
+  @Put('kepler-escritura/:sucursal/:tipo')
+  @RequirePermissions(Permission.COMPRAS_KEPLER_ESCRITURA)
+  @ApiOperation({ summary: 'PQ.20 — enciende o apaga la escritura a Kepler de una sucursal y tipo. Body: { encendida, tope_dia (null = sin tope), nota }.' })
+  setKeplerSwitch(
+    @Param('sucursal') sucursal: string,
+    @Param('tipo') tipo: string,
+    @Body() dto: { encendida?: boolean; tope_dia?: number | null; nota?: string | null },
+  ): Promise<{ migrada: boolean; rows: Array<Record<string, unknown>> }> { return this.svc.setKeplerSwitch(sucursal, tipo, dto); }
+
   @Post('requisitions/:id/receive')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
   @ApiOperation({ summary: 'RA.14 — marca recibida (ordered → received) + captura cantidades recibidas por línea (fill rate).' })

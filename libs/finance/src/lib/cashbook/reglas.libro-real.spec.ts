@@ -48,7 +48,15 @@ describe.skipIf(!URL)('[LE.2.3] las reglas de TypeScript contra el libro de SQL'
     const hay = (await db.raw(`SELECT to_regprocedure('cashbook.post_entry(jsonb)') IS NOT NULL AS ok`)).rows[0].ok;
     if (!hay) { console.warn('[LE.2.3] NO MEDIDO: la base de prueba no tiene el libro (20261027111930)'); return; }
     await db.transaction(async (trx) => {
-      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [randomUUID()]);
+      const T = randomUUID();
+      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [T]);
+      // `[LE.4.9]` U2 autoriza: en la caja firma un puesto (Jefe de Tesorería). Se deshace con la transacción.
+      if ((await trx.raw(`SELECT to_regprocedure('cashbook._firma_de_caja(uuid, uuid)') IS NOT NULL AS ok`)).rows[0].ok) {
+        await trx.raw(`INSERT INTO identity.users (id, tenant_id, username, role_name, activo, kind, position_code, created_at, updated_at)
+          VALUES (?, ?, 'firma_prueba', 'tesoreria', true, 'interno', 'tesoreria', now(), now())`, [U2, T]);
+        await trx.raw(`INSERT INTO identity.position_responsibilities (id, tenant_id, position_code, responsibility_key, es_principal, created_at, updated_at)
+          VALUES (gen_random_uuid(), ?, 'tesoreria', 'finanzas.caja_firma', true, now(), now())`, [T]);
+      }
       for (const c of Object.values(CUENTAS_FIJAS)) await trx.raw('SELECT cashbook.open_account(?::jsonb)', [JSON.stringify(c)]);
       await trx.raw('SELECT cashbook.open_day(?, ?)', ['2099-05-04', U1]);
 

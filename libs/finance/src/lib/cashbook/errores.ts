@@ -51,6 +51,7 @@ const FRASES: Readonly<Record<string, string>> = {
   cashbook_hallazgo_se_cierra_con_algo: 'Un hallazgo se cierra con un movimiento o con una nota que firma otra persona.',
   cashbook_permiso_lo_revisa_otro: 'Un cambio de permisos de caja lo revisa alguien distinto de quien lo hizo y de quien lo recibió.',
   cashbook_alerta_solo_por_trigger: 'La alerta de permisos la abre el cambio de permisos, no una llamada.',
+  cashbook_firma_por_puesto: 'En la caja firma un puesto: Jefe de Tesorería y, como suplente, Dirección General. Tu puesto no firma caja.',
   cashbook_estado_final: 'Eso ya quedó cerrado y no cambia.',
   cashbook_inmutable: 'El libro no se edita: se corrige con una reversa.',
   cashbook_cuenta_distinta: 'Esa cuenta ya existe con otra forma.',
@@ -59,6 +60,8 @@ const FRASES: Readonly<Record<string, string>> = {
 /** Los que hablan de un ESTADO (otra persona ya actuó, ya existe): 409. Los demás, 422. */
 const CONFLICTO = new Set(['cashbook_ya_hay_jornada_abierta', 'cashbook_solicitud_no_pendiente', 'cashbook_asiento_una_reversa',
   'cashbook_peticion_reusada', 'cashbook_evento_cambio', 'cashbook_estado_final', 'cashbook_cuenta_distinta']);
+/** `[LE.4.9]` Quién PUEDE firmar (el puesto), no qué se firmó: 403. */
+const PROHIBIDO = new Set(['cashbook_firma_por_puesto']);
 
 export const fraseDelLibro = (codigo: string): string | undefined => FRASES[codigo];
 
@@ -70,6 +73,7 @@ export function traducirErrorDelLibro(e: unknown): never {
   if ((pg?.code === '23514' || pg?.code === '23505') && pg.constraint?.startsWith('cashbook_')) {
     const cuerpo = { codigo: pg.constraint, mensaje: fraseDelLibro(pg.constraint) ?? pg.detail ?? pg.message, detalle: pg.detail ?? null };
     if (CONFLICTO.has(pg.constraint)) throw new ConflictException(cuerpo);
+    if (PROHIBIDO.has(pg.constraint)) throw new ForbiddenException(cuerpo);
     throw new UnprocessableEntityException(cuerpo);
   }
   if (pg?.code === '42501') throw new ForbiddenException({ codigo: 'sin_permiso_en_el_libro', mensaje: 'El libro no se escribe directo.' });

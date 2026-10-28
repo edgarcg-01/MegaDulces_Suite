@@ -10,8 +10,10 @@ import { Permission } from '../../core/constants/permissions';
  * tiene nada que ver con esos tableros: la tira vieja ofrecía cinco salidas y ninguna
  * entrada a lo que sigue.
  *
- * Desde Sell-Out se sigue llegando a Facturación TM (`REPORTES_GENERALES_TABS` la incluye), que
- * es como se entra al área.
+ * `[NAV.8.2]` Esta misma barra es la de la entrada «Facturación» del sidebar de Comercial: la
+ * página es una sola y pinta una sola barra, así que las dos entradas (Telemarketing y Comercial)
+ * llevan a lo mismo. Antes Facturación TM colgaba de la barra de Reportes de venta y al abrirla
+ * la barra cambiaba de apartado.
  */
 export const TELEMARKETING_TABS: PageTab[] = [
   {

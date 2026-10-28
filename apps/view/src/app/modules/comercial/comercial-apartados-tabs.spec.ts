@@ -3,6 +3,7 @@ import { VENDEDORES_LABEL, VENDEDORES_TABS } from './vendedores-tabs';
 import { VENTAS_RENTABILIDAD_LABEL, VENTAS_RENTABILIDAD_TABS } from './ventas-rentabilidad-tabs';
 import { ANALYTICS_LABEL, ANALYTICS_TABS } from './analytics-tabs';
 import { REPORTES_GENERALES_TABS } from './reports-tabs';
+import { TELEMARKETING_TABS } from './telemarketing-tabs';
 import { CUSTOMERS_TABS } from './customers-tabs';
 import { RUTA_DIRECTA_TABS } from './ruta-directa-tabs';
 import { Permission } from '../../core/constants/permissions';
@@ -35,6 +36,8 @@ const RENGLONES_PLEGADOS: Array<[string, Permission]> = [
   ['/comercial/wincaja', Permission.COMMERCIAL_ANALYTICS_VER],
   ['/comercial/command-center', Permission.COMMERCIAL_ORDERS_VER],
   ['/comercial/razonamiento', Permission.COMMERCIAL_THOT_VER],
+  // `[NAV.8.2]`
+  ['/comercial/empuje', Permission.COMMERCIAL_PROMOTIONS_GESTIONAR],
 ];
 
 describe('[NAV.8] apartados del sidebar de Comercial', () => {
@@ -44,7 +47,7 @@ describe('[NAV.8] apartados del sidebar de Comercial', () => {
 
   it('⛔ NEGATIVA — ningún apartado se llama como una entrada que sigue existiendo', () => {
     for (const [nombre] of APARTADOS) {
-      expect(['Pedidos', 'Clientes', 'Tickets', 'Promociones', 'Empuje (Thot)', 'Ruta Directa', 'Reportes de venta']).not.toContain(nombre);
+      expect(['Pedidos', 'Clientes', 'Tickets', 'Facturación', 'Promociones', 'Ruta Directa', 'Reportes de venta']).not.toContain(nombre);
     }
   });
 
@@ -75,6 +78,13 @@ describe('[NAV.8] apartados del sidebar de Comercial', () => {
   it('[NAV.8.1] ⛔ NEGATIVA — Reportes de venta y Ruta Directa no comparten pestañas (una barra por entrada)', () => {
     const rd = RUTA_DIRECTA_TABS.map((t) => t.route);
     for (const t of REPORTES_GENERALES_TABS) expect(rd).not.toContain(t.route);
+  });
+
+  it('[NAV.8.2] ⛔ NEGATIVA — Facturación TM no cuelga de Reportes de venta: su barra es la que pinta su página', () => {
+    // /comercial/documentos pinta TELEMARKETING_TABS; colgarla de otra barra hace que al abrirla
+    // la barra salte de apartado.
+    expect(REPORTES_GENERALES_TABS.map((t) => t.route)).not.toContain('/comercial/documentos');
+    expect(TELEMARKETING_TABS.map((t) => t.route)).toContain('/comercial/documentos');
   });
 
   it('«En vivo» (el Centro de Control) es la PRIMERA de Analítica: la entrada sigue llevando ahí', () => {

@@ -192,3 +192,36 @@ export function denomKeyDeValor(valor: number | string): string | null {
     ?? MONEDAS_MXN.find((d) => d.valor === v)?.key
     ?? null;
 }
+
+/**
+ * ⭐ `[CGA-A.56.1]` **Los billetes que maneja la bóveda CAOS.** Medido en prod el 2026-10-27 sobre
+ * 60 días de `analytics.caos_cash_denominations`: en TODOS los tipos (Depósito, Dispensar, Dotar,
+ * Vaciar, Cambio, Fin de Día) sólo aparecen $20, $50, $100, $200 y $500. Ni una moneda, ni un
+ * billete de $1,000. Dispensó 3,078 billetes de $20 y 2,896 de $50: los billetes chicos SÍ los da.
+ *
+ * Por eso un retiro de CAOS nunca paga los pesos sueltos ni los centavos de un egreso: los pone el
+ * cajón («CAOS pone los billetes, el cajón la morralla», `[CG.96]`).
+ */
+export const BILLETES_CAOS: readonly number[] = [500, 200, 100, 50, 20];
+
+/**
+ * `[CGA-A.56.1]` Lo MÁS que un retiro de CAOS puede pagar sin pasarse de `pesos`, con sus billetes.
+ *
+ * Con $20 y $50 se arma cualquier múltiplo de $10 desde $40 (40 = 20+20, 70 = 50+20, 90 =
+ * 50+20+20…), y además $20: lo único múltiplo de $10 que NO se arma es $10 y $30. Lo demás —los
+ * pesos sueltos y los centavos— queda para el cajón.
+ *
+ * ⚠️ Supone que el retiro trae de todo: si sólo trajo billetes de $500, en la vida real se paga de
+ * más y vuelve cambio. Eso no se sabe sin el desglose por enlace (`[CGA-A.55]`) y no se adivina.
+ *
+ *   pagableConBilletesCaos(803)   → 800
+ *   pagableConBilletesCaos(35.50) → 20
+ *   pagableConBilletesCaos(30)    → 20
+ */
+export function pagableConBilletesCaos(pesos: number): number {
+  const centavos = Math.round(Number(pesos) * 100);
+  if (!Number.isFinite(centavos) || centavos < 2000) return 0;
+  let decenas = Math.floor(centavos / 1000);
+  if (decenas === 1 || decenas === 3) decenas -= 1;
+  return decenas * 10;
+}

@@ -20,6 +20,8 @@ import { SkeletonModule } from 'primeng/skeleton';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import { ThotAiInputComponent, ThotAsk } from '../components/thot-ai-input.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ANALYTICS_TABS } from '../analytics-tabs';
 
 interface Directive {
   id: string;
@@ -60,7 +62,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
     ConfirmDialogModule,
     TooltipModule,
     SkeletonModule,
-    ThotAiInputComponent
+    ThotAiInputComponent, PageTabsComponent
 ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -83,6 +85,8 @@ interface BrandOpt { id: string; nombre: string; products: number; }
           <button pButton size="small" severity="contrast" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva directriz</span></button>
         </div>
       </header>
+
+      <app-page-tabs [tabs]="apartadoTabs" />
 
       <!-- ENTRADA IA — pregúntale a Thot (va al chat con la pregunta precargada) -->
       <app-thot-ai-input (ask)="askThot($event)"></app-thot-ai-input>
@@ -232,6 +236,8 @@ interface BrandOpt { id: string; nombre: string; products: number; }
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialThotDirectivesComponent implements OnInit {
+  /** [NAV.8.2] La barra del apartado «Analítica comercial» del sidebar de Comercial: la pintan todas sus páginas. */
+  readonly apartadoTabs = ANALYTICS_TABS;
   private readonly http = inject(HttpClient);
   private readonly destroyRef = inject(DestroyRef);
   private readonly toast = inject(MessageService);
