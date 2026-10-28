@@ -902,10 +902,14 @@ export class CommercialCommissionsService {
 
     const acc = new Map<string, VentaRuta>();
     for (const v of venta.rows) {
+      // ⛔ `[RD.96]` El acumulador del PEOR veredicto arranca en el MEJOR (`dos_fuentes`). Arrancaba
+      // en `sin_costo` —que ES el peor— y la regla de abajo sólo lo cambia por uno todavía peor:
+      // quedaba `sin_costo` para siempre. Q21 lo publicaba en 22 de 22 renglones con la fuente
+      // diciendo dos_fuentes / una_fuente_embarque en todos sus días.
       const cur = acc.get(v.route_code) ?? {
         route_code: v.route_code, subtotal: 0, venta: 0, subtotal_con_costo: 0,
         costo: 0, cogs_ruta: 0, cogs_erp: 0,
-        fuentes: '', costo_veredicto: 'sin_costo', dias: 0, dias_con_costo: 0,
+        fuentes: '', costo_veredicto: ORDEN_COSTO[ORDEN_COSTO.length - 1], dias: 0, dias_con_costo: 0,
         dias_cogs_parcial: 0, dias_multifuente: 0, _fuentes: new Set<string>(),
       } as VentaRuta & { _fuentes: Set<string> };
       const c = costoDia.get(k(v.route_code, v.business_date));
