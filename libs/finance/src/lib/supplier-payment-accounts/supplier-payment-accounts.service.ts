@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ObjectStorageService } from '@megadulces/platform-core';
-import type { CuentasPagoFaltantesResponse, CuentaPagoPropuesta } from '@megadulces/contracts';
+import type { CuentasPagoFaltantesResponse } from '@megadulces/contracts';
 import { repartirFaltantes } from './missing-accounts.engine';
 
 /**
@@ -94,33 +94,6 @@ export const SQL_FALTANTES = `
    ORDER BY pg.monto DESC`;
 
 /**
- * `[PGP.29]` Una fila por ACREEDOR (no por sucursal: `kdxd` está replicado ×9) con la cuenta que
- * él mismo declaró. `DISTINCT ON` se queda con la sucursal que SÍ pudo proponer, para que una
- * copia muda de la ficha no tape a la que trae el dato.
- *
- * ⛔ Se deja fuera `sin_rep`: son 431 acreedores que nunca timbraron un comprobante de pago, y
- *    listarlos acá sería repetir la tabla de «a quién le falta cuenta» con una columna vacía.
- */
-export const SQL_PROPUESTAS = `
-  SELECT DISTINCT ON (p.proveedor_code)
-         btrim(p.proveedor_code)                                   AS codigo,
-         s.id                                                      AS supplier_id,
-         coalesce(s.name, p.proveedor_nombre)                      AS nombre,
-         p.estado, p.clabe_propuesta, p.banco_codigo, p.banco_rfc,
-         p.rep_uuid,
-         p.veces_declarada::int                                    AS veces_declarada,
-         to_char(p.ultima_vez, 'YYYY-MM-DD')                       AS ultima_vez,
-         p.rfc, p.rfc_fuente, p.motivo
-    FROM analytics.v_supplier_account_proposal p
-    LEFT JOIN catalog.suppliers s
-           ON btrim(s.code) = btrim(p.proveedor_code) AND s.tenant_id = ?
-   WHERE p.estado <> 'sin_rep'
-   ORDER BY p.proveedor_code,
-            (p.estado = 'propuesta') DESC,
-            p.veces_declarada DESC NULLS LAST,
-            p.sucursal`;
-
-/**
  * Fase TP.7 (ADR-064) — Catálogo de cuentas de pago a proveedor + workflow de aprobación.
  * TODA alta o cambio pasa por una solicitud (`supplier_payment_account_change_requests`) — no
  * hay alta directa: la primera cuenta de un proveedor es tan sensible como cambiarla (control
@@ -147,33 +120,6 @@ export class SupplierPaymentAccountsService {
    * proveedores que no resuelven al catálogo **se cuentan aparte** en vez de desaparecer en el
    * `LEFT JOIN` — son trabajo que esta pantalla no puede destrabar.
    */
-  /**
-   * `[PGP.29]` (objetivo **O6**) — **La cuenta que cada acreedor YA declaró en su propio REP.**
-   *
-   * ⭐ Lo que esto resuelve es por qué el catálogo tiene 0 filas: el botón «Solicitar cuenta»
-   * abría un formulario vacío y alguien tenía que ir a conseguir la CLABE. Acá ya está, firmada
-   * por el proveedor ante el SAT, con su evidencia.
-   *
-   * ⛔ **Una fila por acreedor, no por sucursal.** `kepler_ods.kdxd` está replicado ×9, así que
-   *    la vista trae 221 filas para 22 acreedores proponibles. Agrupar acá y no allá es a
-   *    propósito: la vista responde «por acreedor Y sucursal», que es lo que el Calendario
-   *    necesita; esta pantalla trabaja por acreedor.
-   * ⛔ **Se devuelve sólo lo que tiene algo que decir** (`estado <> 'sin_rep'`): los 431 que
-   *    nunca timbraron un REP no son trabajo, son ruido, y la pantalla ya los lista en
-   *    «a quién le falta cuenta».
-   * ⚠️ **Es una llamada DIFERIDA**: la vista encadena `analytics.v_supplier_rfc`, que recorre
-   *    los CFDI recibidos. Medida el 2026-10-28 **sin** el índice de `[PGP.27]`: **9.2 s**.
-   *    **NO MEDIDO** con el índice puesto. Por eso la pantalla pinta primero y la propuesta
-   *    aparece después, sin bloquear nada.
-   */
-  async listAccountProposals(): Promise<CuentaPagoPropuesta[]> {
-    const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      const { rows } = await trx.raw(SQL_PROPUESTAS, [tenantId]);
-      return rows as CuentaPagoPropuesta[];
-    });
-  }
-
   async listMissingAccounts(dias = 120): Promise<CuentasPagoFaltantesResponse> {
     const tenantId = this.tenantCtx.requireTenantId();
     const d = Number.isFinite(dias) ? Math.min(Math.max(Math.trunc(dias), 1), 1095) : 120;

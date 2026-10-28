@@ -150,50 +150,6 @@ const FORMA = `'^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$'`;
       noMedido('ningun documento gana evidencia por el nombre en esta base: el beneficio del cambio no esta ejercitado aqui.');
     }
 
-    // ── 9-12: [PGP.29] la cuenta propuesta desde el REP del propio proveedor ─────────────────
-    const [{ hay }] = (await knex.raw(
-      `SELECT count(*)::int AS hay FROM pg_views WHERE schemaname='analytics' AND viewname='v_supplier_account_proposal'`,
-    )).rows;
-    if (!hay) {
-      noMedido('analytics.v_supplier_account_proposal no existe: falta aplicar la migracion 20261028093850. Los candados de [PGP.29] quedan sin medir.');
-    } else {
-      const [pr] = (await knex.raw(`
-        SELECT count(*)::int AS n,
-               count(*) FILTER (WHERE estado='propuesta')::int AS propuestas,
-               count(*) FILTER (WHERE estado='propuesta' AND clabe_propuesta IS NULL)::int AS propuesta_sin_clabe,
-               count(*) FILTER (WHERE estado<>'propuesta' AND clabe_propuesta IS NOT NULL)::int AS clabe_sin_propuesta,
-               count(*) FILTER (WHERE estado<>'propuesta' AND motivo IS NULL)::int AS mudos,
-               count(*) FILTER (WHERE estado='propuesta' AND rep_uuid IS NULL)::int AS sin_evidencia,
-               count(*) FILTER (WHERE estado NOT IN ('propuesta','varias','control_invalido','solo_cuenta_corta','sin_rep'))::int AS estado_raro
-          FROM analytics.v_supplier_account_proposal`)).rows;
-      ok(pr.estado_raro === 0, '[PGP.29] estado solo toma los cinco valores declarados');
-      ok(pr.propuesta_sin_clabe === 0, "[PGP.29] toda fila 'propuesta' trae su CLABE");
-      ok(pr.clabe_sin_propuesta === 0, '[PGP.29] ninguna fila publica una CLABE sin ser una propuesta');
-      ok(pr.mudos === 0, '[PGP.29] lo que NO se puede proponer SIEMPRE dice por que (ADR-056)');
-      // ⭐ El invariante que importa: nunca se propone una CLABE que no pase su digito de control.
-      ok(pr.sin_evidencia === 0, '[PGP.29] toda propuesta trae el UUID del comprobante del que salio');
-      const [{ malas }] = (await knex.raw(`
-        SELECT count(*)::int AS malas FROM analytics.v_supplier_account_proposal
-         WHERE clabe_propuesta IS NOT NULL
-           AND NOT ((10 - (SELECT sum((substr(clabe_propuesta, g.i, 1)::int * (ARRAY[3,7,1])[((g.i-1)%3)+1]) % 10)
-                             FROM generate_series(1,17) AS g(i)) % 10) % 10 = substr(clabe_propuesta, 18, 1)::int)`)).rows;
-      ok(malas === 0, '[PGP.29] ninguna CLABE propuesta falla su digito de control');
-      // PRUEBA NEGATIVA: el verificador tiene que RECHAZAR las mismas CLABE con el digito movido.
-      const [{ rotas, totales }] = (await knex.raw(`
-        WITH z AS (SELECT substr(clabe_propuesta,1,17) || ((substr(clabe_propuesta,18,1)::int + 1) % 10)::text AS v
-                     FROM analytics.v_supplier_account_proposal WHERE clabe_propuesta IS NOT NULL)
-        SELECT count(*) FILTER (WHERE (10 - (SELECT sum((substr(v,g.i,1)::int * (ARRAY[3,7,1])[((g.i-1)%3)+1]) % 10)
-                                               FROM generate_series(1,17) AS g(i)) % 10) % 10 = substr(v,18,1)::int)::int AS rotas,
-               count(*)::int AS totales FROM z`)).rows;
-      ok(totales > 0 && rotas === 0,
-        `[PGP.29] PRUEBA NEGATIVA: las ${totales} mismas CLABE con el digito de control movido NO pasan (${rotas} pasaron)`);
-      if (pr.propuestas > 0) {
-        ok(true, `[PGP.29] ${pr.propuestas} filas proponibles sobre ${pr.n}: la maquinaria esta ejercitada`);
-      } else {
-        noMedido('[PGP.29] ninguna cuenta proponible en esta base: los candados de arriba no estan ejercitados (en prod son 22 acreedores).');
-      }
-    }
-
     console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nm} ⊘\n`);
     await knex.destroy();
     process.exit(fail ? 1 : 0);
