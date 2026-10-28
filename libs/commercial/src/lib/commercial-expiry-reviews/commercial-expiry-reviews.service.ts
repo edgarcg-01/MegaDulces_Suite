@@ -1,3 +1,4 @@
+import type { Knex } from 'knex';
 import {
   Injectable,
   BadRequestException,
@@ -459,7 +460,7 @@ export class CommercialExpiryReviewsService {
    * barcode: no se consulta. Lectura opcional: va en SAVEPOINT y, si falla, devuelve
    * [] (el resolver sigue como antes). Solo códigos numéricos de 8-14 dígitos.
    */
-  private async barcodesFromKepler(trx: any, variants: string[]): Promise<any[]> {
+  private async barcodesFromKepler(trx: Knex.Transaction, variants: string[]): Promise<Array<{ sku: string; unit: string | null; factor: number | string | null }>> {
     const nums = variants.filter((v) => /^\d{8,14}$/.test(v));
     if (!nums.length) return [];
     const slots: Array<[string, string, string | null]> = [
@@ -474,9 +475,9 @@ export class CommercialExpiryReviewsService {
         ` AS factor FROM kepler_ods.kdii WHERE btrim(${c}::text) = ANY(string_to_array(?, ','))`)
       .join(' UNION ');
     try {
-      return await trx.transaction(async (sp: any) => {
+      return await trx.transaction(async (sp) => {
         const r = await sp.raw(`SELECT DISTINCT ON (sku) sku, unit, factor FROM (${sql}) t WHERE sku <> '' LIMIT 50`, slots.map(() => nums.join(',')));
-        return r.rows ?? [];
+        return (r.rows ?? []) as Array<{ sku: string; unit: string | null; factor: number | string | null }>;
       });
     } catch {
       return [];
