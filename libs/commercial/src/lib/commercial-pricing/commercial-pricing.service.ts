@@ -11,6 +11,17 @@ import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { QuotePricingService, type Ladder } from '../commercial-quotes/quote-pricing.service';
 import { FotoSwr } from '../shared/foto-swr';
+import {
+  existenciaDeSucursalJoin,
+  GEMELO_JOIN_SQL,
+  HECHOS_EXISTENCIA_SQL,
+  lecturaDeSucursales,
+  noSeManejaAlFinalSql,
+  resolverFilaCatalogo,
+  vistaCanonicaLista,
+  type FilaConHechos,
+  type LecturaSucursal,
+} from '../commercial-inventory/stock-state';
 
 // ─────────── DTOs ───────────
 
@@ -389,6 +400,12 @@ export class CommercialPricingService {
       flag?: PriceHealthFlag;
       sort?: string;
       dir?: 'asc' | 'desc';
+      /**
+       * `[MCP.3.16]` Estado de existencia por renglón (`stock_state`, `stock_checked_at`,
+       * `stock_twin_product_id`), `stock_available` desde la vista canónica con el gemelo, y los
+       * «no se maneja» al final. Sólo aplica con `warehouseId`; sin él (o sin esto) nada cambia.
+       */
+      stockState?: boolean;
     } = {},
   ) {
     if (!UUID_REGEX.test(priceListId))
@@ -417,6 +434,21 @@ export class CommercialPricingService {
       }
       // `[VPR.2]` El precio por plaza sólo entra si el almacén se conoce Y la vista existe.
       const porPlaza = !!warehouseId && (await this.priceTruthReady(trx));
+
+      // `[MCP.3.16]` La lectura de la sucursal (frescura del carril `ods_live_hot`) va ANTES del
+      // query: decide si se puede afirmar «no se maneja» y, con eso, el orden. Sin la vista
+      // canónica no se afirma nada: todo `sin_dato`, el catálogo sigue vivo.
+      let lecturaStock: LecturaSucursal | null = null;
+      let conVistaCanonica = false;
+      const conEstado = !!warehouseId && opts.stockState === true;
+      if (conEstado && warehouseId) {
+        conVistaCanonica = await vistaCanonicaLista(trx);
+        const wh = (await trx('commercial.warehouses').where({ id: warehouseId }).first('id', 'code')) as
+          { id: string; code: string | null } | undefined;
+        lecturaStock = wh && conVistaCanonica
+          ? (await lecturaDeSucursales(trx, [{ id: wh.id, code: wh.code }])).get(wh.id) ?? null
+          : null;
+      }
 
       // Source of truth: `catalog.products` (catálogo completo).
       // `commercial.product_prices` se une por LEFT JOIN para traer el precio del
@@ -482,7 +514,14 @@ export class CommercialPricingService {
       // Página real con joins completos.
       let q = buildBaseQuery();
       if (warehouseId) {
-        q = q.leftJoin('commercial.stock as s', function () {
+        if (conEstado) {
+          // `[MCP.3.16]` La existencia canónica (ADR-055), contra el gemelo si el renglón es un
+          // duplicado legado. NO la copia `commercial.stock`. Ver `commercial-inventory/stock-state.ts`.
+          if (conVistaCanonica) {
+            const ex = existenciaDeSucursalJoin(warehouseId);
+            q = q.joinRaw(GEMELO_JOIN_SQL).joinRaw(ex.sql, ex.bindings);
+          }
+        } else q = q.leftJoin('commercial.stock as s', function () {
           this.on('s.product_id', '=', 'p.id')
             .andOn('s.tenant_id', '=', 'p.tenant_id')
             .andOnVal('s.warehouse_id', warehouseId);
@@ -543,9 +582,16 @@ export class CommercialPricingService {
       ];
       if (warehouseId) {
         selects.push(
-          trx.raw(
-            'CASE WHEN s.id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available',
-          ),
+          // `[MCP.3.16]` Con estado: los HECHOS (registro, cantidad, gemelo); `stock_available` y
+          // `stock_state` se calculan abajo con la misma regla que la zona y el bloqueo.
+          ...(conEstado
+            ? (conVistaCanonica
+              ? HECHOS_EXISTENCIA_SQL
+              : ['false AS stock_medible', 'false AS stock_con_registro', 'NULL::float8 AS stock_qty', 'NULL::uuid AS stock_twin_product_id']
+            ).map((c) => trx.raw(c))
+            : [trx.raw(
+              'CASE WHEN s.id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available',
+            )]),
           // `[VPR.2]` La PROCEDENCIA viaja con el número (ADR-056). Sin esto nadie puede saber si
           // el precio que está leyendo es el de su plaza o el promedio de la red — que es
           // exactamente cómo vivió hasta ahora, y por qué el reporte de campo fue "se
@@ -578,9 +624,13 @@ export class CommercialPricingService {
       // páginas consecutivas no repitan ni se salten filas.
       const sortExpr = PRICE_SORT_SQL[opts.sort ?? ''];
       const dir = opts.dir === 'desc' ? 'DESC' : 'ASC';
-      const orderBy = sortExpr
+      const ordenPedido = sortExpr
         ? `${sortExpr} ${dir} NULLS LAST, p.nombre ASC`
         : 'p.nombre ASC';
+      // `[MCP.3.16]` Los «no se maneja» al final, manteniendo el orden pedido dentro de cada grupo.
+      // Va en SQL (antes de paginar); sin lectura al día no hay «no se maneja» y el orden no cambia.
+      const alFinal = conEstado && conVistaCanonica ? noSeManejaAlFinalSql(!!lecturaStock?.medido) : null;
+      const orderBy = alFinal ? `${alFinal}, ${ordenPedido}` : ordenPedido;
 
       const data = await q
         .select(...selects)
@@ -593,6 +643,12 @@ export class CommercialPricingService {
       // en take-order. La rotación (sales_units_30d / rotation_tier) no es
       // sensible y queda visible para todos.
       const rows = this.stripCostIfCustomer(data);
+
+      // `[MCP.3.16]` Los hechos de existencia → `stock_state` / `stock_available` (unidad BASE) /
+      // `stock_checked_at` / `stock_twin_product_id`, con la regla única de `@megadulces/contracts`.
+      if (conEstado) {
+        for (const r of rows as unknown as FilaConHechos[]) resolverFilaCatalogo(r, lecturaStock);
+      }
 
       // Incitar mayoreo: adjuntar la escalera de quiebres por cantidad a cada fila
       // para que el app muestre "mayoreo desde N → $X (−Y%)" y viaje en el catálogo

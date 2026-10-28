@@ -3,6 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, forkJoin, map, of, switchMap, tap } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
+import type { StockState } from '@megadulces/contracts';
 
 // ─────────── Tipos ───────────
 
@@ -77,6 +78,17 @@ export interface PriceRow {
   }[];
   /** [VTK.3] 'kepler_ladder' cuando `units` salió de la escalera de la sucursal. */
   units_source?: string;
+  /**
+   * `[MCP.3.16]` Sólo viene si se pidió `stock_state=1` (catálogo del vendedor). Qué dice la
+   * existencia de la sucursal pedida: `con_existencia` · `agotado` (hay registro y no hay piezas) ·
+   * `no_se_maneja` (la sucursal no tiene registro de ese producto) · `sin_dato` (la lectura de la
+   * sucursal está vieja o falló: NO es cero). Ausente = servidor viejo, la pantalla se porta como antes.
+   */
+  stock_state?: StockState | null;
+  /** `[MCP.3.16]` ISO de la última lectura de esa sucursal (`analytics.ods_branch_checks`). */
+  stock_checked_at?: string | null;
+  /** `[MCP.3.16]` Si el renglón es un producto legado (sku vacío), el gemelo vivo cuya existencia se usó. */
+  stock_twin_product_id?: string | null;
 }
 
 /**
@@ -168,6 +180,10 @@ export interface OrderLine {
   qty_factor?: number | string | null;
   /** [VTK.2] Total de Kepler con impuestos (motor de cotizaciones). Null = cálculo anterior. */
   erp_gross_total?: number | string | null;
+  /** [MCP.3.13] De qué sucursal de la zona se surte (null = la del pedido). */
+  source_warehouse_id?: string | null;
+  source_warehouse_name?: string | null;
+  source_warehouse_short?: string | null;
 }
 
 export interface Order {
@@ -189,6 +205,25 @@ export interface Order {
   fulfilled_at?: string;
   cancelled_at?: string;
   lines?: OrderLine[];
+  /**
+   * [MCP.3.14] Pedido agrupado: sus partes, la principal primero. Llega en la lista con `group=1`
+   * (y en `/orders/my`), donde además `total` ya es la suma del grupo. null = sin grupo.
+   */
+  group_parts?: OrderGroupPart[] | null;
+}
+
+/** [MCP.3.14] Una parte de un pedido agrupado: lo que surte UNA sucursal. */
+export interface OrderGroupPart {
+  id: string;
+  code: string;
+  status: Order['status'];
+  total: number | string;
+  warehouse_id: string;
+  warehouse_short: string | null;
+  warehouse_name: string | null;
+  is_main: boolean;
+  /** En qué va su surtido (uno por pedido). */
+  pick: 'por_surtir' | 'surtiendo' | 'completo' | 'con_faltantes' | null;
 }
 
 export interface OrderHistoryEntry {
@@ -310,7 +345,7 @@ export class PortalService {
   listPricesForList(
     priceListId: string,
     warehouseId?: string,
-    opts: { pricedOnly?: boolean; sort?: string } = {},
+    opts: { pricedOnly?: boolean; sort?: string; stockState?: boolean } = {},
   ): Observable<PriceRow[]> {
     // priced_only: trae SOLO los productos pedibles (con precio) del price list,
     // completos en un fetch (sube el techo del backend a 10k). Sin él, el backend
@@ -326,6 +361,9 @@ export class PortalService {
     // sort=sales → ordenado de más vendido a menos vendido (ranking real).
     if (opts.sort) params = params.set('sort', opts.sort);
     if (warehouseId) params = params.set('warehouse_id', warehouseId);
+    // [MCP.3.16] Opt-in: cada renglón trae además `stock_state`/`stock_checked_at`/`stock_twin_product_id`
+    // y la existencia sale de la vista canónica. Sin él, el servidor responde exactamente como antes.
+    if (opts.stockState && warehouseId) params = params.set('stock_state', '1');
     return this.http.get<{ data: PriceRow[] } | PriceRow[]>(
       `${this.base}/price-lists/${priceListId}/prices`,
       { params },
@@ -506,12 +544,15 @@ export class PortalService {
     productId: string,
     quantity: number,
     sello?: { qty_unit: string; qty_factor: number },
+    /** [MCP.3.13] Otra sucursal de la zona de la que se surte; sin ella, la del pedido. */
+    origen?: string | null,
   ): Observable<OrderLine> {
     return this.http
       .post<OrderLine>(`${this.base}/orders/${orderId}/lines`, {
         product_id: productId,
         quantity,
         ...(sello ?? {}),
+        ...(origen ? { source_warehouse_id: origen } : {}),
       })
       .pipe(tap(() => this.refreshCart()));
   }
@@ -590,9 +631,15 @@ export class PortalService {
     lineId: string,
     quantity: number,
     sello?: { qty_unit: string; qty_factor: number },
+    /** [MCP.3.13] Mover el renglón a otra sucursal de la zona (`null` = la del pedido). Omitido = no cambia. */
+    origen?: string | null,
   ): Observable<OrderLine> {
     return this.http
-      .patch<OrderLine>(`${this.base}/orders/${orderId}/lines/${lineId}`, { quantity, ...(sello ?? {}) })
+      .patch<OrderLine>(`${this.base}/orders/${orderId}/lines/${lineId}`, {
+        quantity,
+        ...(sello ?? {}),
+        ...(origen !== undefined ? { source_warehouse_id: origen } : {}),
+      })
       .pipe(tap(() => this.refreshCart()));
   }
 

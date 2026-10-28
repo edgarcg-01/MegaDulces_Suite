@@ -43,6 +43,17 @@ export interface LoadGuideOrderRow {
    * regreso; no suma al total ni se entrega.
    */
   order_cancelled: boolean;
+  /**
+   * `[MCP.3.13]` Pedido agrupado (ver `PresaleOrderRow.group_*`): el principal, cuántos pedidos tiene
+   * el grupo y en qué sucursales. Ausente o `null` = pedido suelto.
+   */
+  group_id?: string | null;
+  group_code?: string | null;
+  group_main_branch?: string | null;
+  group_parts?: number | null;
+  group_branches?: string[] | null;
+  /** `[MCP.3.13]` Renglones del pedido (lo que se recolecta en su sucursal). */
+  lines?: number;
 }
 
 /** `[MCP.6]` Lo que ve el celular al abrir un pedido para entregarlo. */
@@ -92,6 +103,22 @@ export interface LoadGuide {
   total: number;
   /** `[MCP.7]` La liquidación que la cerró, o `null` si aún no se liquida. */
   liquidation: { id: string; folio: string } | null;
+  /**
+   * `[MCP.3.13]` Sucursal Kepler en cuya caja se liquida. Es la de la guía, salvo una GUÍA DE
+   * RECOLECCIÓN: todos sus pedidos son partes de pedidos agrupados cuyo principal es de OTRA sucursal
+   * (la misma para todos) — entonces es la del principal: todo el cobro del grupo se entrega en una caja.
+   */
+  liquidation_branch?: string;
+  /**
+   * `[MCP.3.13]` Sólo en la lista de la caja: `true` = esta caja la liquida (su `liquidation_branch` es de
+   * su alcance). `false` = se ve aquí pero se liquida en otra caja.
+   */
+  liquidates_here?: boolean;
+  /**
+   * `[MCP.3.13]` Sólo en la lista de la caja: `true` = la guía es de otra sucursal y se ve aquí sólo
+   * para liquidarla (y registrar lo que regresó); la imprime la caja de su sucursal.
+   */
+  collection_only?: boolean;
 }
 
 /** Lo que ve el repartidor o el vendedor en su celular. */
@@ -164,6 +191,25 @@ export interface LoadGuideLiquidationPreview {
    */
   unexplained_difference: number;
   blocked_reason: string | null;
+  /**
+   * `[MCP.3.13]` Lo cobrado en el Kepler de CADA sucursal (una fila por sucursal de las guías, la de la
+   * caja primero). Con guías de recolección, Finanzas sabe cuánto de lo recibido aquí cobró otra
+   * sucursal en su Kepler (lo que hay que transferirle). Mismo criterio que `documents_total`.
+   */
+  by_branch?: LoadGuideLiquidationBranch[];
+}
+
+/** `[MCP.3.13]` Lo entregado de una sucursal dentro de una liquidación. */
+export interface LoadGuideLiquidationBranch {
+  branch: string;
+  branch_name: string | null;
+  /** Σ documentos de Kepler entregados de esa sucursal que el ODS conoce. */
+  documents_total: number;
+  /** Entregados cuyo documento no trae total en el ODS: se declaran, no se suman como 0. */
+  documents_without_total: number;
+  delivered: number;
+  declared_cash: number;
+  declared_transfer: number;
 }
 
 export interface PresaleLiquidationPreviewRequest {

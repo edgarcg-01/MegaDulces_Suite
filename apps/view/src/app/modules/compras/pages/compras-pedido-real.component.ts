@@ -5749,7 +5749,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         const cajas = Number(l.final_qty);
         if (!Number.isFinite(cajas) || cajas === Math.round(cajas)) return false;
         const uxc = this.packOf(l.product_id)?.uxc ?? 0;
-        const pz = cajas * uxc;
+        const pz = piezasDeCajas(cajas, uxc); // [RA-FIX.4] la conversión vive en pedido-redondeo.ts
         return !(uxc > 0 && Math.round(pz) > 0 && Math.abs(pz - Math.round(pz)) <= 0.02);
       });
       if (frac.length) {
