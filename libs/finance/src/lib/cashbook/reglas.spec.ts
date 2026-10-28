@@ -301,7 +301,9 @@ describe('[LE.2.7] propiedad: todo asiento cuadra por moneda y conserva cada pie
     }
     expect(asientos).toBeGreaterThan(4500);
     expect(saltados).toBeLessThan(500);
-  });
+    // [CI] 2026-10-28: 5,000 asientos son cuenta pura; en el runner del CI pasaba de los 5 s por omisión
+    // (falló por tiempo, no por un asiento malo). Se le da su propio límite; no se recortan casos.
+  }, 30_000);
 
   it('MUTACIÓN del verificador: un asiento descuadrado a mano SÍ lo detecta', () => {
     const p = entregaRuta({ ruta: '27', piezas: { 500: '1' } }, CAJERA);
