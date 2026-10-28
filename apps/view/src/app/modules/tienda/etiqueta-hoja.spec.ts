@@ -423,14 +423,14 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
 
   it('⭐ la plantilla entrega al CSS el largo del renglón (contenido + separador + "Código: " + SKU)', () => {
     expect(LABEL).toMatch(/class="etq-meta" #meta \[style\.--etq-meta-n\]="caracteresMeta"/);
-    const getter = /get caracteresMeta\(\): number \{([\s\S]*?)\n  \}/.exec(LABEL)![1];
+    const getter = /get caracteresMeta\(\): number \{([\s\S]*?)\n {2}\}/.exec(LABEL)![1];
     expect(getter).toContain('contenidoDelHero');
     expect(getter).toContain("'Código: '.length");
     expect(getter).toContain('model?.sku');
   });
 
   it('⭐ el ajuste del código ARRANCA del tope del CSS y sólo crece hasta la constante (no achica lo que hoy sale bien)', () => {
-    const fit = /private fitMeta\(\): void \{([\s\S]*?)\n  \}/.exec(LABEL)![1];
+    const fit = /private fitMeta\(\): void \{([\s\S]*?)\n {2}\}/.exec(LABEL)![1];
     expect(fit).toContain("meta.style.fontSize = ''");          // anti-trinquete: lee el calculado con el inline vacío
     expect(fit).toContain('getComputedStyle(meta).fontSize');
     expect(fit).toContain('Math.min(META_MM, cssMm)');
