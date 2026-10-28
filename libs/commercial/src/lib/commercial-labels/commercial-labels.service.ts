@@ -8,7 +8,7 @@ import {
 import type { Knex } from 'knex';
 import { elegirAnterior, esCodigoSimbolico, marcarCodigosSimbolicos } from '@megadulces/contracts';
 import type {
-  CostoPresentacion, FichaCompras, HistorialCosto, PresentacionPrecio, PriceChangeRow,
+  CostoPresentacion, FichaCompras, HistorialCosto, PresentacionPrecio, PriceChangeRow, PriceHistoryResult, PriceHistoryRow,
 } from '@megadulces/contracts';
 
 export interface LabelModel {
@@ -417,6 +417,42 @@ export class CommercialLabelsService {
         costo_historial_desde: historial_desde,
         costo_historial_error: historial_error,
       };
+    });
+  }
+
+  /** `[ETQ-HISTORIAL.2.1]` Las plazas que la bitácora sirve (la `00` es el CEDIS). Se pregunta por plaza y no `WHERE sku = ?` a secas: el índice es por plaza y día. */
+  private static readonly PLAZAS_HISTORIAL = ['00', '01', '02', '03', '04', '05', '06', '07', '08'];
+  /** Un producto en 9 plazas y 2 años: 5,681 filas medidas en prod (SKU 92013). El tope deja espacio y se DICE si se alcanza. */
+  private static readonly TOPE_HISTORIAL = 8000;
+
+  /**
+   * `[ETQ-HISTORIAL.2.1]` Historial de cambios de precio de UN producto, en las 9 plazas, del más reciente al más viejo.
+   *
+   * Filas crudas de `analytics.v_label_price_changes` (las que mueven el precio impreso); compactarlas en tramos es decisión de
+   * la pantalla con `compactarHistorial`. `dias = null` = toda la bitácora. Si se alcanza el tope se recorta lo MÁS VIEJO y se
+   * dice en `truncado`: un recorte mudo se leería como «no hubo más».
+   *
+   * ⛔ `sucursal` y `c1` no se envuelven acá: la vista ya pone `btrim()`/`::date` y el índice parcial
+   *    `ix_kdpv_bitacora_cambio_plaza_dia` está hecho con esas mismas expresiones (GOTCHAS §28).
+   */
+  async priceHistory(sku: string, dias: number | null): Promise<PriceHistoryResult> {
+    const limpio = String(sku ?? '').trim();
+    const tope = CommercialLabelsService.TOPE_HISTORIAL;
+    return this.tk.run(async (trx) => {
+      const r = await trx.raw(
+        `SELECT sucursal, fecha::text AS fecha, hora, unidad,
+                precio_anterior::float8 AS precio_anterior, precio_nuevo::float8 AS precio_nuevo,
+                delta::float8 AS delta, es_baja
+           FROM analytics.v_label_price_changes
+          WHERE sucursal = ANY(?) AND sku = ?
+            ${dias === null ? '' : "AND fecha >= ((now() AT TIME ZONE 'America/Mexico_City')::date - ?::int)"}
+          ORDER BY fecha DESC, hora DESC NULLS LAST
+          LIMIT ?`,
+        [CommercialLabelsService.PLAZAS_HISTORIAL, limpio, ...(dias === null ? [] : [dias]), tope + 1],
+      );
+      const filas = (r?.rows ?? []) as PriceHistoryRow[];
+      const truncado = filas.length > tope;
+      return { sku: limpio, items: truncado ? filas.slice(0, tope) : filas, dias, truncado, tope, freshness: await this.freshness(trx) };
     });
   }
 

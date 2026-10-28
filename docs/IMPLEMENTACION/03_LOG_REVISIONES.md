@@ -283,6 +283,36 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-28 — `[ETQ-HISTORIAL]` Buscar un producto y ver su historial de cambios de precio (9 plazas)
+
+**Pedido:** «agregar un buscador de productos para que nos despliegue su historial de cambio de precios… probarlo en local para revisarlo y mandar su PR». Plan, decisiones y bitácora en [`FASE_ETQ_HISTORIAL_PRECIOS`](FASES/FASE_ETQ_HISTORIAL_PRECIOS.md).
+
+**Decisiones del PM:** D1 las **9 plazas a la vez** · D2 **todas las filas** primero («vemos cómo se ve»), con interruptor para agrupar · D3 al principio dentro de «Cambios de precio» y, **tras verlo en local, pestaña propia** «Historial de precios» (no le gustó el buscador embebido en la cabecera con un panel lateral) · D4 sin exportación (Edgar la retiró el 2026-10-10) · **sin ramas** hasta revisar.
+
+**Medido antes de construir (prod, sólo lectura, `system_identifier` 7688376744939610156):**
+- La bitácora tiene **2 años** (2024-10-12 → ayer) en las 9 plazas.
+- ⭐ **Las filas no son cambios.** SKU 92013, plaza 06, caja: 687 filas en 98 días y **676 de 686 pasos repiten el mismo precio** (`1152.44 → 1152.45`, 5–10 veces por día); 21 precios distintos en 2 años. Por eso existen las dos vistas (filas y tramos) y `compactarHistorial`, que **conserva A→B→A** (sólo funde vecinas).
+- Costo con el índice que ya existe (`ix_kdpv_bitacora_cambio_plaza_dia`): 29–65 ms por plaza; **las 9 a la vez, peor caso (5,683 filas): 280 ms (365 días) – 360 ms (toda la historia)**, 350–400 ms en frío. No hace falta migración.
+- Cobertura `products.sku` ↔ bitácora: **3,566 de 3,580 (99.6 %)**; los 14 restantes son descontinuados y promociones de Kepler.
+
+**⚠️ Incidente durante la medición:** a las ~10:05 `pg-prod` entró en «recovery mode» mientras corría mi 3.ª consulta (de sólo lectura, con `EXPLAIN ANALYZE`). No se sabe si fue la causa; el proceso principal no se reinició (`pg_postmaster_start_time` del 2026-10-22). Se dejó de consultar prod hasta que se recuperó y las mediciones se repitieron **de una en una, con `statement_timeout` corto y sin `EXPLAIN ANALYZE`**; no volvió a pasar. **Causa sin conocer**: los logs de `pg-prod` de esa hora lo dirían.
+
+**Qué se hizo, por capas**
+- **C0 (dato):** siembra local **reversible** (`database/scripts/etq-historial-sembrar-local.js`, `--borrar`): el caso repetido, A→B→A, «Kepler le quitó el precio» y un producto sin cambios.
+- **C1 (dominio):** `compactarHistorial` en `libs/contracts` (8 pruebas; la mutación «fundir también las no vecinas» pone una en rojo).
+- **C2 (API):** `GET /store/labels/price-history?sku=&dias=` (90 / 365 / 0 = todo; `sku` y `dias` validados → 400), `STORE_LABELS_VER`, tope de 8,000 filas con `truncado` y `freshness`. Lee la vista sin envolver `sucursal`/`c1` (GOTCHAS §28).
+- **C3 (pantalla):** pestaña «Historial de precios»: buscador (reutiliza `GET /store/labels/search`; las promociones no se pueden elegir), métricas primero (filas de Kepler · tramos · plazas), frescura, filtros y tabla.
+
+**Lo que corrigió el camino**
+1. Una prueba de DOM cazó un defecto real: **`value()` de un `rxResource` en error lanza**, y la pantalla se caía al fallar la lectura.
+2. El buscador embebido en «Cambios de precio» **contestaba otra pregunta** que esa pantalla (qué etiquetas quedaron viejas hoy vs. qué precio ha tenido este producto): el PM lo sacó a su propia pestaña.
+3. La recuperación de `pg-prod` (arriba).
+
+**NO MEDIDO (declarado):** (1) el E2E del servidor — el script existe y no se corrió; (2) la causa de la recuperación de `pg-prod`; (3) la pantalla en claro/oscuro/390 px (la revisó quien probó en local, sin capturas); (4) el costo si un producto tuviera muchas más filas que el 92013 (el tope de 8,000 lo acota y lo dice).
+
+**Orden de despliegue:** no hay migración ni permiso nuevo: API y front salen en el flujo normal. Un front nuevo contra un API viejo da 404 en el historial.
+
+**Deuda con nombre:** índice parcial por SKU (sólo si el costo pasa de 0.5 s); `check:pantalla` ya no suma fallas, pero «Cambios de precio» sigue con sus 3 declaradas.
 ## 2026-10-28 — `[P2.9.2]` Caducidades: un producto con varios códigos de barras solo resolvía el primero
 
 **Reporte:** en `/tienda/caducidades` el SKU 31081 (ATE QUILATE CON CHILE 150GR) resolvía `7503028750764` pero no `7503063103587`.
