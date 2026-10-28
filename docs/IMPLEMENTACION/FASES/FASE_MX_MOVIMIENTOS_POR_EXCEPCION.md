@@ -19,7 +19,7 @@ MÉTRICA:  (1) Documentos que un humano revisa a mano sin que el motor haya dete
 CAPA TOPE: C3
 ÁREA:      Logística (Almacén) · toca Finanzas por el mayor 515
 DUEÑO:     por asignar (Edgar)
-ESTADO:    ⬜ planeada — NO abierta (cupo de 🔨 lleno: D1). C0 medida entera (MX.0.1–0.4 ✅); MX.2.1/2.2 🧪 como fix suelto (D2)
+ESTADO:    🔨 abierta 2026-10-28 por Edgar («arranca entonces»), 6ª en curso por encima del cupo de 4. C0 medida entera (MX.0.1–0.4 ✅); MX.2.1/2.2 🧪.
 ```
 
 ---
@@ -140,7 +140,7 @@ Scripts de medición (solo lectura, `PROD_DB_URL`): `dm-medir2.js`, `dm-vacios.j
 
 | # | Decisión | Recomendación | Estado |
 |---|---|---|---|
-| D1 | **¿Cuándo se abre?** Fase 0 está en curso y hay 5 fases 🔨 (AB, LE, RH, PQ, FC) para un cupo de 4. | Dejarla ⬜ con este plan y abrirla cuando se libere un lugar. Mientras, sacar sólo D2. | **Decidido 2026-10-28** (Claude, por delegación de Edgar: «sigue bajo tu razonamiento»): **no se abre todavía.** El cupo de 4 🔨 es regla medida del método y hoy hay 5; abrir una sexta es lo que el método prohíbe. La capa C0 quedó entera medida, así que la fase arranca en C1 el día que se libere un cupo (o Edgar pause una de las 5). |
+| D1 | **¿Cuándo se abre?** Fase 0 está en curso y hay 5 fases 🔨 (AB, LE, RH, PQ, FC) para un cupo de 4. | Dejarla ⬜ con este plan y abrirla cuando se libere un lugar. Mientras, sacar sólo D2. | **Abierta 2026-10-28 por decisión explícita de Edgar** («arranca entonces»), después de que Claude la dejara sin abrir por el cupo. ⚠️ Queda **6ª en curso** con cupo de 4: el método (§3.1) pide escribir por qué — Edgar la prioriza; Claude no la habría abierto. |
 | D2 | **¿Se corrige ya lo que publica cifras falsas?** MX.2.1 (Excel) y MX.2.2 (conteo de documentos) son S y no cambian negocio: arreglan reportes que hoy mienten. Dinero en juego Alto (el Excel es el reporte que se quiere usar) × esfuerzo S = **prioridad 1**. | Sí, como fix suelto de `[DM]` antes de abrir la fase. | **Hecho 2026-10-28** — MX.2.1 y MX.2.2 en código (🧪); el Excel se quitó por decisión de Edgar. |
 | D3 | **Ajustes de inventario (`InvOut1`/`InvIn1`, 393 docs en 90 d) y compras (`EntryOr1`, 3,143)**: ¿siempre a la bandeja, o «sin comparación» hasta tener contra qué compararlos (orden de compra, autorización)? | Ajustes: siempre a la bandeja (un ajuste ya es una excepción). Compras: «sin comparación», y su comparador va en otra fase (Recepción RE / Pedido PQ ya tienen la OC). | **Decidido 2026-10-28** (Claude, por delegación de Edgar: «sigue bajo tu razonamiento»): ajustes (`InvOut1`/`InvIn1`) **siempre a la bandeja**; compras y demás tipos **«sin comparación»**, visibles en el Diario y fuera de la bandeja hasta tener testigo. |
 | D4 | **Nombre y ruta de la bandeja.** `/almacen/inventory/diferencias` ya existe (conteo físico). | `/almacen/movimientos/excepciones`, rótulo «Excepciones de traspasos». | **Decidido 2026-10-28** (Claude, por delegación de Edgar: «sigue bajo tu razonamiento»): **`/almacen/movimientos/excepciones`**, rótulo «Excepciones de traspasos». |
