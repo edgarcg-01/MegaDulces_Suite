@@ -616,16 +616,20 @@ export function evaluarArqueo(
 }
 
 /**
- * ⭐ `[CGA-A.56.1]` El arqueo de un EGRESO pagado con retiros de CAOS: lo que el retiro paga NO se
- * cuenta en el cajón (Edgar, 2026-10-27: *«al asociar a un egreso no se descuenta del total»*).
- * El corte ya lo trata así (`en_boveda`, `[CG.95]`: «CAOS pone los billetes, el cajón la
- * morralla»); desde A.56 la pantalla pedía contar el gasto entero en la reja y el egreso quedaba
- * dos veces — como billetes del cajón y como dinero de la bóveda.
+ * ⭐ `[CGA-A.56.2]` El arqueo de un EGRESO pagado con retiros de CAOS: **se cuenta TODO lo que se
+ * entregó; el retiro sólo se VINCULA** (Edgar, 2026-10-28: *«solo necesito que se vincule, no que
+ * se reste … debe aparecer en ceros, y en un motor interno descontar eso, para saber de dónde salen
+ * los desfases de dinero»*).
  *
- * Lo que pagan los enlaces cuenta como el crédito: parte del monto que no está en el desglose.
- * ⚠️ Una captura de la pantalla ANTERIOR (contó el gasto entero en la reja) también cuadra: esa
- * pestaña puede seguir abierta el día del despliegue, y rechazarla sería perder un movimiento
- * real por un cambio de pantalla. Es el comportamiento de antes, no uno nuevo.
+ * ⛔ A.56.1 (2026-10-27) acreditaba lo que paga el enlace como si fuera crédito y la reja pedía sólo
+ * «lo que salió del cajón». Eso escondía justo lo que hay que ver: con un retiro de $23,320
+ * vinculado, una reja de $5 cuadraba sin que nadie contara un billete del egreso.
+ *
+ * ⭐ El corte NUNCA dependió del enlace (`[CG.96]`): su esperado suma el retiro entero como dinero
+ * que entra al cajón y resta el egreso entero. El arqueo del egreso ahora dice lo mismo.
+ *
+ * `cubierto` se SIGUE publicando pero NO acredita: es lo que el retiro respalda en billetes de CAOS,
+ * el dato del motor interno para partir una diferencia («del retiro» / «del cajón»).
  */
 export function evaluarArqueoDeEgreso(
   monto: number,
@@ -637,18 +641,11 @@ export function evaluarArqueoDeEgreso(
   epsilon = LOTE_EPSILON,
 ): VeredictoArqueo & { cubierto: number } {
   const cubierto = egreso.tipo === 'gasto' && egreso.origen_efectivo === 'caos'
-    // Cada enlace acredita sólo lo que la bóveda puede dar en sus billetes: los pesos sueltos y
-    // los centavos de un enlace mal armado no los pagó CAOS, y tienen que estar en la reja.
+    // Lo que la bóveda puede dar en SUS billetes ($20–$500): los pesos sueltos no los respalda.
     ? redondea2((egreso.caos_links ?? []).reduce((a, k) => a + pagableConBilletesCaos(Number(k.monto) || 0), 0))
     : 0;
   const credito = Math.max(0, Number(ventaCredito) || 0);
-  const nuevo = evaluarArqueo(monto, morralla, dens, credito + cubierto, hayConteo, epsilon);
-  if (nuevo.ok || cubierto <= 0) return { ...nuevo, cubierto };
-  // La pantalla anterior siempre CONTÓ algo (sin desglose la frenaba): sin conteo no hay «antes».
-  const conto = (dens ?? []).some((d) => d && Number(d.piezas) > 0) || Number(morralla || 0) > 0;
-  if (!conto) return { ...nuevo, cubierto };
-  const comoAntes = evaluarArqueo(monto, morralla, dens, credito, hayConteo, epsilon);
-  return comoAntes.ok ? { ...comoAntes, cubierto: 0 } : { ...nuevo, cubierto };
+  return { ...evaluarArqueo(monto, morralla, dens, credito, hayConteo, epsilon), cubierto };
 }
 
 // ── Gasto: lo que se repite se ofrece, no se reescribe ────────────────────────────────────────

@@ -405,49 +405,38 @@ describe('propuestaDe — la cuenta que la contabilidad ya usó', () => {
 // privado del servicio y por eso NO tenía ni una prueba: probarla exigía un doble de Knex, y un
 // doble de Knex no ejecuta SQL. Acá es pura, y las que mandan son las negativas.
 
-describe('[CGA-A.56.1] evaluarArqueoDeEgreso — lo que paga el retiro de CAOS no se cuenta en el cajón', () => {
+describe('[CGA-A.56.2] evaluarArqueoDeEgreso — el retiro de CAOS se VINCULA, no se descuenta: se cuenta todo lo entregado', () => {
   const b = (v: number, p: number) => ({ denominacion: v, piezas: p });
   const caos = (...montos: number[]) => ({ tipo: 'gasto', origen_efectivo: 'caos', caos_links: montos.map((monto) => ({ monto })) });
 
-  it('el retiro paga el gasto entero: la reja en cero cuadra', () => {
-    expect(evaluarArqueoDeEgreso(800, 0, [b(500, 0)], 0, false, caos(800))).toEqual({ ok: true, motivo: 'cuadra', suma: 800, cubierto: 800 });
+  it('el egreso contado entero cuadra, y el retiro queda como respaldo (cubierto) sin acreditar', () => {
+    expect(evaluarArqueoDeEgreso(800, 0, [b(500, 1), b(100, 3)], 0, false, caos(800)))
+      .toEqual({ ok: true, motivo: 'cuadra', suma: 800, cubierto: 800 });
   });
 
-  it('el retiro alcanza para parte: el cajón cuenta SÓLO lo que falta', () => {
-    expect(evaluarArqueoDeEgreso(800, 0, [b(100, 3)], 0, false, caos(500))).toMatchObject({ ok: true, motivo: 'cuadra', cubierto: 500 });
-  });
-
-  it('⛔ [negativa] el cajón cuenta de menos: no cuadra, y la diferencia es lo que falta', () => {
-    const v = evaluarArqueoDeEgreso(800, 0, [b(100, 2)], 0, false, caos(500));
+  it('⛔ [negativa] el caso de la pantalla: retiro de $23,320 vinculado y la reja con $5 — ya NO cuadra', () => {
+    const v = evaluarArqueoDeEgreso(23325, 5, [], 0, false, caos(23320));
     expect(v.ok).toBe(false);
-    if (v.motivo === 'no_cuadra') expect(v.diferencia).toBe(-100);
+    if (v.motivo === 'no_cuadra') expect(v.diferencia).toBe(-23320);
+    expect(v.cubierto).toBe(23320);
   });
 
-  it('⛔ [negativa] sin origen CAOS (cajón) o en un INGRESO, los enlaces no descuentan nada', () => {
-    expect(evaluarArqueoDeEgreso(800, 0, [], 0, true, { tipo: 'gasto', origen_efectivo: 'cajon', caos_links: [{ monto: 800 }] }).ok).toBe(false);
-    expect(evaluarArqueoDeEgreso(800, 0, [b(100, 3)], 0, false, { tipo: 'ingreso', origen_efectivo: 'caos', caos_links: [{ monto: 500 }] }).ok).toBe(false);
+  it('⛔ [negativa] la reja en cero con el retiro pagando todo: no cuadra', () => {
+    expect(evaluarArqueoDeEgreso(800, 0, [b(500, 0)], 0, false, caos(800)).ok).toBe(false);
   });
 
-  it('⛔ [negativa] un enlace que pide más de lo que cuesta el gasto no cuadra', () => {
-    expect(evaluarArqueoDeEgreso(800, 0, [], 0, false, caos(1000)).ok).toBe(false);
+  it('el retiro respalda sólo lo que sus billetes alcanzan: de $803 vinculados, $800', () => {
+    expect(evaluarArqueoDeEgreso(803, 3, [b(500, 1), b(100, 3)], 0, false, caos(803))).toMatchObject({ ok: true, cubierto: 800 });
   });
 
-  it('la pantalla ANTERIOR (contó el gasto entero en la reja con el retiro vinculado) sigue entrando, sin descontar', () => {
-    expect(evaluarArqueoDeEgreso(800, 0, [b(500, 1), b(100, 3)], 0, false, caos(800))).toEqual({ ok: true, motivo: 'cuadra', suma: 800, cubierto: 0 });
+  it('sin origen CAOS o en un INGRESO no hay respaldo que publicar', () => {
+    expect(evaluarArqueoDeEgreso(800, 0, [b(100, 8)], 0, false, { tipo: 'gasto', origen_efectivo: 'cajon', caos_links: [{ monto: 800 }] }).cubierto).toBe(0);
+    expect(evaluarArqueoDeEgreso(800, 0, [b(100, 8)], 0, false, { tipo: 'ingreso', origen_efectivo: 'caos', caos_links: [{ monto: 800 }] }).cubierto).toBe(0);
   });
 
-  it('CAOS no da monedas: de un egreso de $803 el retiro paga $800 y el cajón cuenta los $3', () => {
-    expect(evaluarArqueoDeEgreso(803, 3, [], 0, false, caos(800))).toMatchObject({ ok: true, cubierto: 800 });
-  });
-
-  it('⛔ [negativa] un enlace de $803 no acredita los $3: la bóveda no tiene monedas', () => {
-    const v = evaluarArqueoDeEgreso(803, 0, [], 0, false, caos(803));
-    expect(v.ok).toBe(false);
-    expect(v.cubierto).toBe(800);
-  });
-
-  it('el crédito y el retiro se suman: los dos son parte del monto que no está en la reja', () => {
-    expect(evaluarArqueoDeEgreso(800, 0, [b(100, 1)], 200, false, caos(500)).ok).toBe(true);
+  it('el crédito sigue siendo parte del monto que no está en la reja; el retiro no', () => {
+    expect(evaluarArqueoDeEgreso(800, 0, [b(100, 6)], 200, false, caos(500)).ok).toBe(true);
+    expect(evaluarArqueoDeEgreso(800, 0, [b(100, 1)], 200, false, caos(500)).ok).toBe(false);
   });
 });
 
