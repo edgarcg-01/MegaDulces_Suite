@@ -99,6 +99,11 @@ export interface KeplerRequisitionEntrada {
   lineas: KeplerRequisitionLine[];
   /** Importe total del documento (`c16`). */
   total: number;
+  /**
+   * `[PQ.20]` Tope diario que decidió la Suite (`commercial.kepler_push_switch`). `null` = sin
+   * tope; ausente = el de la variable `KEPLER_PUSH_MAX_DIA_NN` (antes de la migración).
+   */
+  tope_dia?: number | null;
 }
 
 /** `[KR.6]` Qué unidad resolvió el adapter para un SKU, o por qué no pudo. */

@@ -43,4 +43,12 @@ export const SEGUIMIENTO_COMPRA_TABS: PageTab[] = [
     icon: 'pi pi-history',
     permission: Permission.COMPRAS_ORDENES_VER,
   },
+  {
+    // `[PQ.20]` El interruptor de la escritura a Kepler, sin desplegar. Verlo = ver requisiciones;
+    // cambiarlo pide `COMPRAS_KEPLER_ESCRITURA` (lo gatea la página y el endpoint).
+    label: 'Escritura a Kepler',
+    route: '/compras/kepler-escritura',
+    icon: 'pi pi-power-off',
+    permission: Permission.COMPRAS_REQUISICIONES_VER,
+  },
 ];

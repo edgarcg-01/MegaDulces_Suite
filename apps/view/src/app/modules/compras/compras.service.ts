@@ -237,6 +237,24 @@ export interface OpenOcRow {
   /** [RA-PRO.67] La palabra del ERP (`c43 = 'N'`). Testigo distinto del de arriba. */
   pendiente_en_erp?: boolean | null;
 }
+/** `[PQ.20]` Un renglón del interruptor: sucursal × tipo. */
+export type KeplerTipo = 'compra' | 'traspaso';
+export interface KeplerSwitchRow {
+  sucursal: string;
+  sucursal_nombre: string | null;
+  tipo: KeplerTipo;
+  encendida: boolean;
+  /** `null` = sin tope. */
+  tope_dia: number | null;
+  nota: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+  /** El secreto de prod tiene conexión y plantilla: encendida en la Suite sin esto, rebota igual. */
+  configurada: boolean;
+  falta: string | null;
+}
+export interface KeplerSwitchResponse { migrada: boolean; rows: KeplerSwitchRow[] }
+
 export interface OpenOcResponse {
   rows: OpenOcRow[];
   // [RA-PRO.60] Los indicadores cuentan TODAS las órdenes del filtro; `rows` trae como máximo 500
@@ -1292,6 +1310,14 @@ export class ComprasService {
   /** RA-PRO.44 — OCs abiertas del SKU: folio, fecha, llegada estimada y qué se pidió. */
   inTransit(productId: string): Observable<InTransitResponse> {
     return this.http.get<InTransitResponse>(`${this.base}/in-transit/${productId}`);
+  }
+
+  /** `[PQ.20]` El interruptor de la escritura a Kepler (sucursal × tipo). */
+  keplerSwitch(): Observable<KeplerSwitchResponse> {
+    return this.http.get<KeplerSwitchResponse>(`${this.base}/kepler-escritura`);
+  }
+  setKeplerSwitch(sucursal: string, tipo: KeplerTipo, body: { encendida: boolean; tope_dia: number | null; nota?: string | null }): Observable<KeplerSwitchResponse> {
+    return this.http.put<KeplerSwitchResponse>(`${this.base}/kepler-escritura/${sucursal}/${tipo}`, body);
   }
 
   /** RA-PRO.45 — todas las OCs de Kepler abiertas, por antigüedad. La vista inversa de "En camino". */

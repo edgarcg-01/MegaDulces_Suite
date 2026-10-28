@@ -274,15 +274,19 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
       // tienen esta fecha en ESTE servidor. Se cuenta en Kepler, no en la Suite: lo que importa
       // es lo que el ERP ya tiene, incluido lo que escribió otro proceso o un reintento.
       // ⚠️ Dos aprobaciones simultáneas pueden pasar las dos (no hay candado): el pool es de 2.
-      const tope = topeDiario(e.sucursal, process.env);
-      const hoy = await c.query(
-        `SELECT count(*)::int AS n FROM md.kdm1
-          WHERE c1=$1 AND c9::date = $2::date
-            AND ((c2='X' AND c3='A' AND btrim(c4::text)='30' AND btrim(c11) LIKE $3)
-              OR (c2='U' AND c3='D' AND btrim(c4::text)='40' AND btrim(c24) LIKE $3))`,
-        [e.sucursal, e.fecha, `${MARCA_SUITE}%`]);
-      if (hoy.rows[0].n >= tope) {
-        return { estado: 'rechazada', motivo: `Tope diario del servidor ${e.sucursal} alcanzado: ${hoy.rows[0].n} de ${tope} documentos hoy (KEPLER_PUSH_MAX_DIA_${e.sucursal})` };
+      // `[PQ.20]` El tope lo decide la Suite (tabla `kepler_push_switch`); `null` = sin tope. La
+      // variable sólo vale si el service no lo mandó (tabla todavía sin migrar).
+      const tope = e.tope_dia === undefined ? topeDiario(e.sucursal, process.env) : e.tope_dia;
+      if (tope !== null) {
+        const hoy = await c.query(
+          `SELECT count(*)::int AS n FROM md.kdm1
+            WHERE c1=$1 AND c9::date = $2::date
+              AND ((c2='X' AND c3='A' AND btrim(c4::text)='30' AND btrim(c11) LIKE $3)
+                OR (c2='U' AND c3='D' AND btrim(c4::text)='40' AND btrim(c24) LIKE $3))`,
+          [e.sucursal, e.fecha, `${MARCA_SUITE}%`]);
+        if (hoy.rows[0].n >= tope) {
+          return { estado: 'rechazada', motivo: `Tope diario del servidor ${e.sucursal} alcanzado: ${hoy.rows[0].n} de ${tope} documentos hoy` };
+        }
       }
 
       await c.query('BEGIN');
