@@ -432,3 +432,15 @@ tiene todas las líneas comentadas.
 
 ⚠️ Lo que el ensayo NO cubre: columnas cuyo valor de plantilla es común (`kdm1.c90`, `kdm2.c17`/`c18`)
 y que nadie ha decodificado. Se dejaron como vienen; si Compras ve algo raro, empezar por ahí.
+
+## 12. Estado al 2026-10-28: compra ENCENDIDA en los nueve, traspaso apagado
+
+- 2026-10-27 18:26 MX: alguien encendió `00` y `04` (compra, tope 1).
+- 2026-10-28 08:29 MX, por pedido de Edgar («enciéndelo en todas»): se descomentaron `KEPLER_PUSH_URL_NN`,
+  `KEPLER_REQ_TEMPLATE_FOLIO_NN` y `KEPLER_PUSH_MAX_DIA_NN` (=1) de `00`–`08` en `~/kepler-push.env` de `md`
+  (respaldo `~/kepler-push.env.bak-*`), se recreó el secreto y se reinició `api`. Arranque:
+  «Escritura a Kepler encendida para: 00, 01, 02, 03, 04, 05, 06, 07, 08». Commit servido `27002b519` (incluye KR.17).
+- ⛔ `KEPLER_PED_TEMPLATE_FOLIO_*` siguen comentadas: el traspaso espera `[PQ.19]` (D24, unidad base) desplegado.
+- ⚠️ Esto salta el orden de §9.3 y el criterio de §11: la **baja desde la UI de Kepler** con KR.17 aún no se
+  ejerció. El tope 1 por servidor acota el daño a 9 documentos por día. El primer documento de cada servidor se revisa
+  con `kepler-push-ops.js listar --sucursal NN` y se intenta su baja en Kepler.
