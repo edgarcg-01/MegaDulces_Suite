@@ -349,8 +349,8 @@ export class AlmacenMovimientosService {
   filters(): Observable<MovementsFilterOpts> {
     return this.http.get<MovementsFilterOpts>(`${this.base}/filters`);
   }
-  /** DM.6 — descarga XLSX/PDF del diario con los filtros actuales. */
-  downloadExport(f: MovementsFilters, format: 'xlsx' | 'pdf') {
+  /** DM.6 — descarga el PDF del diario con los filtros actuales ([MX] sin Excel). */
+  downloadExport(f: MovementsFilters, format: 'pdf') {
     return this.http.get(`${this.base}/export.${format}`, {
       params: this.params(f), responseType: 'blob', observe: 'response',
     });

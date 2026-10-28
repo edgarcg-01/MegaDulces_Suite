@@ -1,15 +1,14 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true` (ver transfers-annotate-folio.spec.ts).
-import * as ExcelJS from 'exceljs';
 import { MovementsExportService, MovementsExportData } from './movements-export.service';
 
 /**
- * `[MX.2.1]` — **Los KPIs de traspasos del Excel/PDF salen del conjunto completo, no de las filas.**
+ * `[MX.2.1]` — **Los KPIs de traspasos del PDF salen del conjunto completo, no de las filas.**
  *
  * ⛔ El defecto: `transfers` viene cortada en 500 con los problemas primero, y el export contaba
- * «Recibidos OK», «Δ neto» y «Valor enviado» sobre esas filas. Medido en prod el 2026-10-28 con el
- * código de HEAD: en los últimos 30 días el Excel decía **0 recibidos OK y $7.5 M enviados**; el
- * conjunto completo tenía **1,215 OK y $54.5 M**. Este caso reproduce esa forma: 500 filas, todas
- * problema, contra totales de 2,892 traspasos.
+ * «recibidos OK» sobre esas filas. Medido en prod el 2026-10-28 con el código de HEAD: en los
+ * últimos 30 días decía **0 recibidos OK**; el conjunto completo tenía **1,215**. Este caso
+ * reproduce esa forma: 500 filas, todas problema, contra totales de 2,892 traspasos.
+ * (El Excel se quitó el mismo día por decisión de Edgar: la reportería vive en la pantalla.)
  */
 const data = (): MovementsExportData => ({
   range: { from: '2026-09-28', to: '2026-10-28' },
@@ -25,54 +24,36 @@ const data = (): MovementsExportData => ({
   truncated: false,
 });
 
-const kpis = async (buf: Buffer) => {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buf as any);
-  const ws = wb.getWorksheet('Traspasos')!;
-  const out: Record<string, any> = {};
-  for (let col = 1; col <= 11; col += 2) out[String(ws.getCell(5, col).value)] = ws.getCell(6, col).value;
-  const col1: string[] = [];
-  ws.eachRow((r) => col1.push(String(r.getCell(1).value ?? '')));
-  return { out, col1 };
-};
-
-describe('[MX.2.1] KPIs de traspasos del export', () => {
+describe('[MX.2.1] KPIs de traspasos del PDF', () => {
   const svc = new MovementsExportService();
+  const html = (d: MovementsExportData): string => (svc as unknown as { buildHtml(x: MovementsExportData): string }).buildHtml(d);
 
-  it('el Excel toma conteos y sumas de los totales, no de las 500 filas listadas', async () => {
-    const { out } = await kpis(await svc.buildXlsx(data()));
-    expect(out['RECIBIDOS OK']).toBe(1215);
-    expect(out['SIN RECEPCIÓN']).toBe(1677);
-    expect(out['Δ NETO (PZAS)']).toBe(-760148);
-    expect(out['VALOR ENVIADO']).toBe(54546346);
+  it('toma los conteos de los totales, no de las 500 filas listadas', () => {
+    const h = html(data());
+    expect(h).toContain('1,215 recibidos OK');
+    expect(h).toContain('1,677 sin recepción');
+    expect(h).toContain('2,892 traspasos');
   });
 
-  it('el Excel declara que el listado está recortado y rotula su TOTAL como de las filas listadas', async () => {
-    const { col1 } = await kpis(await svc.buildXlsx(data()));
-    expect(col1).toContain('TOTAL (filas listadas)');
-    expect(col1.some((s) => s.includes('los primeros 500 de 2,892 traspasos'))).toBe(true);
+  it('declara que el listado está recortado y rotula su TOTAL como de las filas listadas', () => {
+    const h = html(data());
+    expect(h).toContain('primeros 500 de 2,892');
+    expect(h).toContain('TOTAL (filas listadas)');
+    expect(h).toContain('los primeros 500 de 2,892 traspasos');
   });
 
-  it('sin recorte no hay nota ni rótulo de filas listadas', async () => {
+  it('sin recorte no hay nota ni rótulo de filas listadas', () => {
     const d = data();
     d.transfers = d.transfers.slice(0, 3);
     d.transfer_sums = { ...d.transfer_sums, n: 3 };
-    const { col1 } = await kpis(await svc.buildXlsx(d));
-    expect(col1).toContain('TOTAL');
-    expect(col1.some((s) => s.includes('los primeros'))).toBe(false);
+    const h = html(d);
+    expect(h).not.toContain('filas listadas');
+    expect(h).not.toContain('los primeros');
   });
 
-  it('el tope del pareo (capped) se declara como indicadores INCOMPLETOS', async () => {
+  it('el tope del pareo (capped) se declara como indicadores INCOMPLETOS', () => {
     const d = data();
     d.transfers_capped = true;
-    const { col1 } = await kpis(await svc.buildXlsx(d));
-    expect(col1.some((s) => s.includes('INCOMPLETOS'))).toBe(true);
-  });
-
-  it('el PDF usa los mismos totales', () => {
-    const html: string = (svc as any).buildHtml(data());
-    expect(html).toContain('1,215 recibidos OK');
-    expect(html).toContain('primeros 500 de 2,892');
-    expect(html).toContain('TOTAL (filas listadas)');
+    expect(html(d)).toContain('INCOMPLETOS');
   });
 });

@@ -59,7 +59,6 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
           <p class="surf-page-sub">Movimientos de inventario por día. Abre un día para ver sus documentos y auditarlos.</p>
         </div>
         <div class="dm-head-right">
-          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlXlsx()" (click)="download('xlsx')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlPdf()" (click)="download('pdf')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span></button>
         </div>
       </header>
@@ -1080,8 +1079,7 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   cpLoading = signal(false);
   cpDoc = signal<DocumentResponse | null>(null);
 
-  // DM.6 — export XLSX/PDF
-  dlXlsx = signal(false);
+  // DM.6 — export PDF ([MX] sin Excel: la reportería vive en la pantalla)
   dlPdf = signal(false);
 
   // DM.12 — pestaña "Cuadre de traspasos" (informe desglosado)
@@ -1507,8 +1505,8 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   }
 
   /** Descarga el reporte (Documentos + Validación de traspasos) con los filtros actuales. */
-  download(format: 'xlsx' | 'pdf'): void {
-    const flag = format === 'xlsx' ? this.dlXlsx : this.dlPdf;
+  download(format: 'pdf'): void {
+    const flag = this.dlPdf;
     flag.set(true);
     this.api.downloadExport(this.currentFilters(), format)
       .pipe(takeUntilDestroyed(this.destroyRef))
