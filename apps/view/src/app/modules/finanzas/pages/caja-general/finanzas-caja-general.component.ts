@@ -3181,6 +3181,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     @if (procedencia(p); as proc) {
                       <small class="cg-fila-ruta">{{ proc }}</small>
                     }
+                    <!-- [CGA-A.59] De que servidor de Kepler viene, por nombre (Padre Hidalgo, Canindo). -->
+                    @if (servidorPendiente(p); as sv) {
+                      <small class="cg-fila-ruta">{{ sv }}</small>
+                    }
                     <!-- [CG.33] La fila lleva una MARCA, no el parrafo. El texto entero se repetia
                          identico en cada renglon y convertia la tabla en un muro naranja donde el
                          aviso pesaba mas que el monto. El porque completo esta arriba (agrupado,
@@ -6163,6 +6167,19 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const nom = (p.beneficiario || p.entidad_code || '').trim().toUpperCase();
     if (nom !== 'CONTADO') return '';
     return (p.concepto || '').trim();
+  }
+
+  /**
+   * `[CGA-A.59]` De qué servidor de Kepler viene el documento de la cola, por NOMBRE. El servidor
+   * es el prefijo de `sucursal` (`'06-001'` → 06, el almacén del camión; `'07'` → 07). Sale de
+   * `warehouseName`, el catálogo de plazas de contracts — no de `caja_sucursales_catalog`, que
+   * nombra departamentos (ver arriba). Un código que no es servidor de Kepler no se nombra.
+   */
+  servidorPendiente(p: MovimientoPendiente): string {
+    const srv = String(p.sucursal ?? '').split('-')[0].trim();
+    if (!/^0\d$/.test(srv)) return '';
+    const nombre = warehouseName(srv);
+    return nombre === srv ? '' : nombre;
   }
 
   etiquetaRuta(r: string): string {
