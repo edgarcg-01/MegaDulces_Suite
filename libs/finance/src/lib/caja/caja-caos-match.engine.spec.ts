@@ -85,6 +85,19 @@ describe('puntuarCaos — la señal medida manda', () => {
     expect(chico.motivos).toContain('monto mayor que el movimiento');
   });
 
+  it('[CGA-A.51.1] en la búsqueda manual, el retiro de $156,670 SÍ sale para un egreso de $100 del mismo día', () => {
+    // El caso real: retiro 1775 «gnf 26/10» del 28-oct contra X-D-26 0000343 (MANIOBRAS, $100).
+    const g: GastoCtx = { monto: 100, fecha: '2026-10-28', beneficiario: 'MANIOBRAS Y DESCARGAS', retiroPagaVarios: true };
+    const lista = [cand({ external_id: 1775, ref: 'gnf 26/10', fecha_valor: '2026-10-28', monto: 156670 })];
+    const r = rankearCaos(g, lista);
+    expect(r.map((c) => c.external_id)).toEqual([1775]);
+    expect(r[0].motivos.some((m) => m.includes('le sobran $156570'))).toBe(true);
+    // Sólo por ser grande no se engancha solo: no identifica cuál.
+    expect(r[0].confianza).toBe('baja');
+    // Mutación: sin la bandera (emparejador automático) se descarta como antes.
+    expect(rankearCaos({ ...g, retiroPagaVarios: false }, lista)).toEqual([]);
+  });
+
   it('[negativa] lejos en el tiempo y sin ninguna otra señal no llega a confianza', () => {
     const g: GastoCtx = { monto: null, fecha: '2026-09-24', beneficiario: 'nada que ver' };
     const r = puntuarCaos(g, cand({ fecha_valor: '2026-08-01', ref: 'zzz' }));

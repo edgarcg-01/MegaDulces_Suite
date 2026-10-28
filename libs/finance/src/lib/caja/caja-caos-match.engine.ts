@@ -50,6 +50,12 @@ export interface GastoCtx {
   beneficiario?: string | null;
   concepto?: string | null;
   sucursal?: string | null;
+  /**
+   * `[CGA-A.51.1]` La búsqueda MANUAL de un egreso: el retiro puede pagar varios egresos (ADR-101),
+   * así que un retiro mayor que el egreso no es evidencia en contra — le sobra para los demás.
+   * El emparejador automático no lo pone: ahí un retiro sigue siendo de UN pendiente.
+   */
+  retiroPagaVarios?: boolean;
 }
 
 export interface CaosCandidato {
@@ -209,6 +215,10 @@ export function puntuarCaos(g: GastoCtx, c: CaosCandidato, aprendido?: Map<strin
     if (cm === g.monto) { score += 30; montoExacto = true; motivos.push('monto exacto'); }
     else if (cm <= g.monto) { score += 15; motivos.push('parte del arqueo'); }
     else if (cm <= g.monto * 1.05) { score += 8; motivos.push('monto ≈'); }
+    // `[CGA-A.51.1]` Medido 2026-10-28: el retiro 1775 ($156,670) no salía al buscar para un egreso de
+    // $100 del mismo día — −25 + 12 = −13 y `rankearCaos` descarta lo ≤ 0. Ya no resta; tampoco
+    // identifica cuál, así que sólo puede subir por ref, fecha de negocio o registro cercano.
+    else if (g.retiroPagaVarios) { score += 10; motivos.push(`el retiro alcanza (le sobran $${Math.round((cm - g.monto) * 100) / 100})`); }
     else { score -= 25; motivos.push('monto mayor que el movimiento'); }
   }
 

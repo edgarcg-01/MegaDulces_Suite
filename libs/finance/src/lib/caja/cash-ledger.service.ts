@@ -2202,6 +2202,7 @@ export class CashLedgerService {
       const g: CaosGastoCtx = {
         monto: q.monto != null ? Number(q.monto) : null, fecha,
         beneficiario: q.beneficiario, concepto: q.concepto, sucursal: q.sucursal,
+        retiroPagaVarios: typeId === 4,
       };
       const rows = rankearCaos(g, candidatos, aprendido).slice(0, limit);
       return { rows, fecha, datos_al: await this.frescuraCaos(trx, tenantId) };
