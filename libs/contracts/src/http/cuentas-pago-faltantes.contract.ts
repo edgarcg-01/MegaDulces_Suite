@@ -111,3 +111,57 @@ export interface CuentasPagoFaltantesResponse {
   /** Ordenados por `monto` descendente: el de arriba es el que más destraba. */
   faltantes: CuentaPagoFaltante[];
 }
+
+/**
+ * `[PGP.29]` (objetivo **O6**) — **La cuenta que el proveedor YA declaró, lista para solicitar.**
+ *
+ * ⭐ No sale de una captura ni de un correo: sale del **REP que él mismo timbró ante el SAT**
+ * (`CtaBeneficiario`). Por eso trae su evidencia —qué comprobante, cuántas veces la declaró y
+ * cuándo fue la última— y no sólo el número.
+ *
+ * ⛔⛔ **Esto PROPONE, no da de alta.** El alta sigue pasando por una solicitud que una persona
+ * distinta aprueba (`requested_by` ≠ `decided_by`). Cambiar la cuenta de un proveedor es
+ * exactamente el movimiento que un fraude necesita: la firma no se automatiza.
+ *
+ * Medido el 2026-10-28 contra prod: **22 acreedores proponibles**, 32 que sólo declararon una
+ * cuenta corta, 2 con el dígito de control mal y 1 con varias CLABE distintas.
+ */
+export interface CuentaPagoPropuesta {
+  /** Clave del acreedor en Kepler, la misma que trae `CuentaPagoFaltante.codigo`. */
+  codigo: string;
+  /** `catalog.suppliers.id`, cuando el acreedor resuelve al catálogo. Sin él no se puede solicitar. */
+  supplier_id: string | null;
+  nombre: string | null;
+  /**
+   * `propuesta` es el único estado accionable. Los demás **dicen por qué no** (ADR-056):
+   * `varias` (declaró más de una CLABE: hay que elegir) · `control_invalido` (18 dígitos que no
+   * pasan el dígito de control) · `solo_cuenta_corta` (declaró una cuenta que **no es** una
+   * CLABE y **no se puede completar**: le falta la plaza) · `sin_rep` (nunca declaró una).
+   */
+  estado: 'propuesta' | 'varias' | 'control_invalido' | 'solo_cuenta_corta' | 'sin_rep';
+  /** La CLABE de 18, con su dígito de control ya verificado. `null` salvo en `propuesta`. */
+  clabe_propuesta: string | null;
+  /**
+   * Los 3 primeros dígitos de la CLABE: el **código** del banco, no su nombre. No hay en la casa
+   * ningún catálogo que lo traduzca, así que no se inventa uno.
+   */
+  banco_codigo: string | null;
+  /** El RFC del banco que el proveedor declaró en el comprobante, cuando lo trae. */
+  banco_rfc: string | null;
+  /** UUID del REP del que salió: es la evidencia que se adjunta a la solicitud. */
+  rep_uuid: string | null;
+  /** Cuántos comprobantes suyos declaran esta misma cuenta. Más veces, más confianza. */
+  veces_declarada: number | null;
+  /** La última vez que la declaró, ISO. Una cuenta vieja merece más revisión que una reciente. */
+  ultima_vez: string | null;
+  /** El RFC con el que se encontró su comprobante. */
+  rfc: string | null;
+  /**
+   * De dónde salió ese RFC (`[PGP.27]`). `nombre` quiere decir que **Kepler no lo tiene, o lo
+   * tiene mal escrito**, y lo resolvió un cruce del nombre. Quien firma el alta tiene derecho a
+   * saberlo: la pantalla no lo presenta como dato del ERP.
+   */
+  rfc_fuente: 'kepler' | 'nombre' | 'ninguna';
+  /** Por qué no se puede proponer. `null` cuando sí se puede. Nunca un hueco mudo (ADR-056). */
+  motivo: string | null;
+}

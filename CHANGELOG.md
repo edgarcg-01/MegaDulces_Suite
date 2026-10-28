@@ -9,6 +9,15 @@
 ---
 
 ## [Unreleased]
+### Added — Cuentas de pago: la cuenta ya viene puesta, la traía el propio proveedor (PGP.29 / objetivo O6, 2026-10-28)
+- En `/finanzas/cuentas-pago`, el botón **«Solicitar cuenta» abría un formulario vacío** y alguien tenía que ir a conseguir la CLABE. Por eso el catálogo llevaba **0 cuentas** y ningún pago del Calendario se preparaba solo.
+- Ahora la tabla «A quién le falta cuenta» trae una columna **«Su cuenta, según él»**: la CLABE que el proveedor **declaró en el comprobante de pago que él mismo timbró ante el SAT**, con el dígito de control verificado, cuántas veces la declaró y cuándo fue la última. El botón pasa a decir **«Revisar y solicitar»** y el formulario abre **con la CLABE puesta** y el comprobante citado en el motivo.
+- Medido contra prod: **22 proveedores proponibles**. ⛔ **32 declararon sólo una cuenta corta que NO es una CLABE y no se puede completar** (le falta la plaza) · 2 no pasan el dígito de control · 1 declaró varias y **no se elige por él**. Los cuatro casos **dicen por qué** en la misma columna, no quedan en blanco.
+- Si el RFC con el que se encontró su comprobante no está en Kepler y lo resolvió un cruce de nombre (`[PGP.27]`), **la pantalla lo advierte antes de firmar**.
+- Nueva vista `analytics.v_supplier_account_proposal` (migración **`20261028093850`**; sólo vista, no toca filas; se revierte sola si no propone nada).
+- ⛔⛔ **Esto propone, no da de alta.** El alta sigue pasando por una solicitud que **otra persona** aprueba: cambiar la cuenta de un proveedor es exactamente el movimiento que un fraude necesita, y esa firma no se automatiza.
+- ⚠️ La columna es **diferida y no bloquea**: la consulta cuesta **9.2 s** sin el índice de `[PGP.27]`, y **con el índice está NO MEDIDO**. Si falla, la pantalla sirve igual que antes.
+
 ### Fixed — Calendario de Pagos: la factura del proveedor deja de depender de un solo campo del ERP (PGP.27, 2026-10-28)
 - El motor que pega la factura a cada documento por pagar sacaba el RFC del acreedor **sólo** de `kepler_ods.kdxd.c10`. Medido contra prod: **1,000 documentos ($29,067,071) sin RFC** y **368 documentos ($20,232,802, 14 acreedores) con un RFC mal escrito** —`BALO20930EL9` por `BAL020930EL9`, guiones, dígitos de menos—, que no cruza con nada y se leía como si estuviera capturado.
 - Nueva vista **`analytics.v_supplier_rfc`**: una sola respuesta a «¿cuál es el RFC de este acreedor?», **con su procedencia**. Gana el de Kepler si pasa la forma del SAT; si no, el que resuelve el **nombre normalizado entero** (sin acentos ni forma societaria) contra ContPAQi y los CFDI recibidos, exigiendo que sea único; si no, NULL **y dice por qué**.

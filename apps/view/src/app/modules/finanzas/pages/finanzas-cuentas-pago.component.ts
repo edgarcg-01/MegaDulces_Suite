@@ -19,7 +19,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import type { CuentaPagoFaltante, CuentasPagoFaltantesResponse } from '@megadulces/contracts';
+import type { CuentaPagoFaltante, CuentasPagoFaltantesResponse, CuentaPagoPropuesta } from '@megadulces/contracts';
 import { PagosTabsComponent } from '../pagos-tabs.component';
 
 interface SupplierOpt { id: string; name: string; code: string }
@@ -106,6 +106,10 @@ interface ChangeRequest {
                 <th class="comm-num">Cobertura si se da de alta</th>
                 <th class="comm-num">Pagos</th>
                 <th>Último pago</th>
+                <!-- [PGP.29] La columna que convierte esta tabla en trabajo hecho: la cuenta que
+                     el proveedor YA declaró. Es la diferencia entre «hay que conseguirla» y
+                     «hay que firmarla». -->
+                <th>Su cuenta, según él</th>
                 <th style="width:9rem"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
@@ -117,12 +121,33 @@ interface ChangeRequest {
                 <td class="comm-num">{{ f.pagos }}</td>
                 <td class="cta-muted">{{ f.ultimo_pago_date }} · {{ money(f.ultimo_pago_monto) }}</td>
                 <td>
-                  <button pButton type="button" class="p-button-sm p-button-text" (click)="solicitarPara(f)">Solicitar cuenta</button>
+                  @if (loadingPropuestas()) {
+                    <span class="cta-muted cta-prop-wait">buscando…</span>
+                  } @else if (propuestaDe(f.codigo); as prop) {
+                    @if (prop.estado === 'propuesta') {
+                      <span class="cta-prop-ok">
+                        <i class="pi pi-verified" aria-hidden="true"></i>
+                        <span class="cta-mono">{{ prop.clabe_propuesta }}</span>
+                      </span>
+                      <span class="cta-prop-sub">la declaró {{ prop.veces_declarada }} vez(ces) · última {{ prop.ultima_vez }}</span>
+                    } @else {
+                      <span class="cta-prop-no">{{ prop.motivo }}</span>
+                    }
+                  } @else {
+                    <span class="cta-muted">nunca declaró una</span>
+                  }
+                </td>
+                <td>
+                  <button pButton type="button" class="p-button-sm"
+                          [class.p-button-text]="!tienePropuesta(f.codigo)"
+                          (click)="solicitarPara(f)">
+                    {{ tienePropuesta(f.codigo) ? 'Revisar y solicitar' : 'Solicitar cuenta' }}
+                  </button>
                 </td>
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="6" class="cta-empty">
+              <tr><td colspan="7" class="cta-empty">
                 @if (universo()?.proveedores_total) { Todos los que cobran por banco ya tienen cuenta. }
                 @else { Sin pagos por banco en la ventana. }
               </td></tr>
@@ -197,6 +222,31 @@ interface ChangeRequest {
         <p class="cta-dlg-p">{{ requestSupplier()!.name }}</p>
       }
       @if (!requestDeactivate) {
+        <!-- [PGP.29] De dónde salió lo que ya viene escrito. Quien FIRMA el alta tiene derecho a
+             saberlo: no es una captura de alguien, es el comprobante que el proveedor timbró.
+             ⛔ Y si el RFC con el que se encontró lo resolvió un cruce de nombre y no Kepler
+                (PGP.27), se dice — presentarlo como dato del ERP sería afirmar lo que no es. -->
+        @if (propuestaUsada(); as prop) {
+          <div class="cta-evid">
+            <p class="cta-evid-t"><i class="pi pi-verified" aria-hidden="true"></i>
+              La CLABE ya viene puesta: <span class="cta-mono">{{ prop.clabe_propuesta }}</span>
+            </p>
+            <p class="cta-evid-p">
+              Sale del comprobante de pago que <strong>{{ requestSupplier()?.name }}</strong> timbró ante el SAT
+              declarando a qué cuenta quiere que le paguemos. La declaró
+              <strong>{{ prop.veces_declarada }}</strong> vez(ces), la última el <strong>{{ prop.ultima_vez }}</strong>.
+              Su dígito de control está verificado. Banco (código de la CLABE): <span class="cta-mono">{{ prop.banco_codigo }}</span>@if (prop.banco_rfc) { <span class="cta-muted"> · RFC del banco {{ prop.banco_rfc }}</span> }.
+            </p>
+            <p class="cta-evid-p cta-muted">Comprobante: <span class="cta-mono">{{ prop.rep_uuid }}</span></p>
+            @if (prop.rfc_fuente === 'nombre') {
+              <p class="cta-evid-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                Kepler no tiene un RFC utilizable para este proveedor. Se usó <span class="cta-mono">{{ prop.rfc }}</span>,
+                que resolvió el cruce de su nombre contra ContPAQi y sus facturas. Verifícalo antes de autorizar.
+              </p>
+            }
+            <p class="cta-evid-p cta-muted">Revísala contra lo que tengas y corrígela si hace falta: esto propone, no da de alta.</p>
+          </div>
+        }
         <label class="cta-lbl">Banco</label>
         <input pInputText type="text" [(ngModel)]="form.proposed_bank_name" class="cta-full" />
         <label class="cta-lbl">Número de cuenta</label>
@@ -247,6 +297,21 @@ interface ChangeRequest {
     /* El renglón donde se cruza el 80 %: una línea, no un relleno — el color no es el dato. */
     .cta-row-corte > td { border-bottom:2px solid var(--action); }
     .cta-sin-edad { display:inline-block; font-size:var(--fs-xs); margin-bottom:.4rem; }
+    /* [PGP.29] La cuenta que el proveedor ya declaró. El verde NO es el portador del dato:
+       lo que distingue la fila accionable es el ícono y la CLABE a la vista. */
+    .cta-prop-ok { display:inline-flex; align-items:center; gap:.3rem; font-size:var(--fs-xs); }
+    .cta-prop-ok .pi { color:var(--ok-fg); }
+    .cta-prop-sub { display:block; font-size:var(--fs-xs); color:var(--text-muted); }
+    .cta-prop-no { font-size:var(--fs-xs); color:var(--text-muted); display:block; max-width:26ch; white-space:normal; }
+    .cta-prop-wait { font-size:var(--fs-xs); font-style:italic; }
+    .cta-evid { border:1px solid var(--border-color); border-left:3px solid var(--ok-fg);
+                border-radius:var(--r-sm); padding:.5rem .6rem; margin:.2rem 0 .6rem; }
+    .cta-evid-t { margin:0 0 .3rem; font-size:var(--fs-sm); display:flex; align-items:center; gap:.35rem; }
+    .cta-evid-t .pi { color:var(--ok-fg); }
+    .cta-evid-p { margin:0 0 .25rem; font-size:var(--fs-xs); line-height:1.45; }
+    .cta-evid-warn { margin:.35rem 0 .25rem; font-size:var(--fs-xs); line-height:1.45;
+                     display:flex; gap:.35rem; align-items:flex-start; }
+    .cta-evid-warn .pi { margin-top:.15rem; }
   `],
 })
 export class FinanzasCuentasPagoComponent implements OnInit {
@@ -284,7 +349,49 @@ export class FinanzasCuentasPagoComponent implements OnInit {
   uploadedKind: 'pdf' | 'image' | null = null;
   form: any = {};
 
-  ngOnInit(): void { this.loadRequests(); this.loadFaltantes(); }
+  /**
+   * `[PGP.29]` (objetivo **O6**) — lo que el proveedor ya declaró, indexado por su clave.
+   *
+   * ⭐ Por qué esto existe: el botón «Solicitar cuenta» abría un formulario **vacío**, y por eso
+   * el catálogo lleva **0 cuentas**. El trabajo caro nunca fue aprobar: era conseguir la CLABE.
+   * Medido el 2026-10-28 contra prod: **22 proveedores ya la declararon** en el comprobante de
+   * pago que ellos mismos timbran, con su dígito de control verificado.
+   */
+  propuestas = signal<ReadonlyMap<string, CuentaPagoPropuesta>>(new Map());
+  loadingPropuestas = signal(false);
+  /** La propuesta con la que se precargó el diálogo abierto. `null` si se abrió a mano. */
+  propuestaUsada = signal<CuentaPagoPropuesta | null>(null);
+
+  ngOnInit(): void { this.loadRequests(); this.loadFaltantes(); this.loadPropuestas(); }
+
+  /**
+   * ⚠️ **Diferida y sin bloquear, a propósito.** La vista que la alimenta encadena
+   * `analytics.v_supplier_rfc`, que recorre los CFDI recibidos: medida el 2026-10-28 **sin** el
+   * índice de `[PGP.27]` cuesta **9.2 s**, y con el índice está **NO MEDIDO**. La tabla se pinta
+   * completa y la columna aparece después; si falla, la pantalla sigue sirviendo exactamente
+   * como antes — la propuesta es un acelerador, no un requisito.
+   */
+  loadPropuestas(): void {
+    this.loadingPropuestas.set(true);
+    this.http.get<CuentaPagoPropuesta[]>(`${this.base}/propuestas`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rows) => {
+        this.propuestas.set(new Map((rows ?? []).map((r) => [String(r.codigo ?? '').trim(), r])));
+        this.loadingPropuestas.set(false);
+      },
+      // Sin toast: no es un error del trabajo de la persona, y la pantalla no depende de esto.
+      error: () => { this.loadingPropuestas.set(false); },
+    });
+  }
+
+  propuestaDe(codigo: string | null | undefined): CuentaPagoPropuesta | null {
+    const k = String(codigo ?? '').trim();
+    return k ? this.propuestas().get(k) ?? null : null;
+  }
+
+  /** Sólo `propuesta` es accionable: los demás estados explican por qué no, no ofrecen nada. */
+  tienePropuesta(codigo: string | null | undefined): boolean {
+    return this.propuestaDe(codigo)?.estado === 'propuesta';
+  }
 
   /**
    * `[PGP.1]` **La lista que destraba el Calendario de Pagos.** Sin cuenta destino no se puede
@@ -327,7 +434,23 @@ export class FinanzasCuentasPagoComponent implements OnInit {
     this.loadAccounts(f.supplier_id);
     this.requestDeactivate = false;
     this.requestAccountId = null;
-    this.form = { proposed_es_favorita: true, reason: `Alta de cuenta para pagarle por transferencia (PGP.1): ${this.money(f.monto)} pagados por banco en la ventana.` };
+    // `[PGP.29]` La solicitud nace LLENA cuando el proveedor ya declaró su cuenta. El motivo
+    // cita el comprobante: quien firma necesita saber de dónde salió, no sólo el número.
+    // ⛔ El nombre del banco NO se rellena: no hay catálogo que traduzca el código de la CLABE
+    //    y escribir uno inventado sería peor que dejarlo vacío.
+    const prop = this.propuestaDe(f.codigo);
+    const usar = prop?.estado === 'propuesta' ? prop : null;
+    this.propuestaUsada.set(usar);
+    this.form = usar
+      ? {
+          proposed_es_favorita: true,
+          proposed_clabe: usar.clabe_propuesta,
+          reason: `Alta de cuenta para pagarle por transferencia (PGP.1): ${this.money(f.monto)} pagados por banco en la ventana. `
+            + `La CLABE la declaró el propio proveedor en su comprobante de pago timbrado ${usar.rep_uuid} `
+            + `(${usar.veces_declarada} vez(ces), la última el ${usar.ultima_vez}); su dígito de control está verificado.`
+            + (usar.rfc_fuente === 'nombre' ? ` ⚠️ El RFC ${usar.rfc} no está en Kepler: lo resolvió el cruce del nombre.` : ''),
+        }
+      : { proposed_es_favorita: true, reason: `Alta de cuenta para pagarle por transferencia (PGP.1): ${this.money(f.monto)} pagados por banco en la ventana.` };
     this.requestSupplier.set(s);
     this.dlgSupplierSearch = '';
     this.uploadedUrl.set(null);
@@ -373,17 +496,20 @@ export class FinanzasCuentasPagoComponent implements OnInit {
   tipoLabel(r: ChangeRequest): string { return r.deactivate ? 'Baja' : r.account_id ? 'Cambio' : 'Alta'; }
 
   openNewSupplierPick(): void {
+    this.propuestaUsada.set(null);
     this.requestDeactivate = false; this.requestAccountId = null; this.form = { proposed_es_favorita: false, reason: '' };
     this.requestSupplier.set(this.selectedSupplier()); this.dlgSupplierSearch = ''; this.uploadedUrl.set(null); this.uploadedKind = null;
     this.requestVisible = true;
   }
   openChange(a: PaymentAccount): void {
+    this.propuestaUsada.set(null);
     this.requestDeactivate = false; this.requestAccountId = a.id;
     this.form = { proposed_bank_name: a.bank_name, proposed_account_number: a.account_number, proposed_clabe: a.clabe, proposed_alias: a.alias, proposed_es_favorita: a.es_favorita, reason: '' };
     this.requestSupplier.set(this.selectedSupplier()); this.uploadedUrl.set(null); this.uploadedKind = null;
     this.requestVisible = true;
   }
   openDeactivate(a: PaymentAccount): void {
+    this.propuestaUsada.set(null);
     this.requestDeactivate = true; this.requestAccountId = a.id; this.form = { reason: '' };
     this.requestSupplier.set(this.selectedSupplier());
     this.requestVisible = true;
