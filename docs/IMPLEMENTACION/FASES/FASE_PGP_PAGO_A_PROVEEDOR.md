@@ -334,6 +334,58 @@ dibujar un patrón que no existe, y acertaría 1 de cada 10 pesos.
 **Lo que sí corresponde**, y ya existe: elegirla **una vez por lote** (`bulkOriginId` en el paso 2
 del Calendario), no una vez por pago.
 
+> ⚠️ **Este no-objetivo se puso en duda el 2026-10-28 y SOBREVIVIÓ.** Una medición nueva contó
+> **146 de 316 acreedores (46.2 %)** con cuenta dominante ≥90 % y pareció contradecirlo. No lo
+> contradice: **contaba acreedores, no dinero**. Pesada por dinero, la propuesta cubre
+> **$23,490,265 de $461,837,979 = 5.1 %** — *peor* que el 10.4 % de arriba, porque los acreedores
+> estables son los chicos. ⭐ **La lección es la de siempre: un denominador distinto no es una
+> cifra mejor.** Lo que sí resultó cierto es otra cosa, y es `[PGP.30]`: el **método** cubre
+> **$403,483,667 = 87.4 %** del dinero.
+>
+> Y apareció la razón fina de por qué la cuenta no sube: de 154 acreedores con cuenta resuelta,
+> **116 pagan desde CAJA GENERAL**, que el selector de origen excluye a propósito («la caja no es
+> origen de una transferencia»). No es que el patrón no exista: es que **el patrón apunta a una
+> cuenta que no es elegible**. Esos 116 ahora se **informan** en el diálogo en vez de callarse.
+
+### O8 · El método de pago se precarga del hábito del acreedor — «PGP-H»
+
+> Pedido de Edgar, 2026-10-28, mirando la pantalla: *«aquí todavía me pide asociarlo»*.
+
+**Qué cambia:** el Calendario pedía **método** y **cuenta de origen** a mano, pago por pago. Los
+dos pagos de ese día estaban detenidos con el rótulo «Falta el método» — $550,411.04 esperando un
+desplegable.
+
+**Lo que la casa ya sabía**, medido contra prod sobre 4,881 pagos de 316 acreedores:
+
+| | acreedores | dinero |
+|---|---:|---:|
+| método dominante ≥80 % | **288 de 316 (91.1 %)** | **$403,483,667 (87.4 %)** |
+| el método repite el del pago anterior | 250 de 282 (88.7 %) | |
+| transferencia, sobre todos los pagos | | 92.6 % |
+
+⛔ **Y por eso NO se autorrellena con el promedio:** **J&F ENTERPRISE se paga con cheque 16 de 16
+veces**. Poner «transferencia» porque es el 92.6 % global le erraría justo al pago que estaba
+frenado en pantalla. El hábito del acreedor **gana** al valor del lote.
+
+**Lo que se construyó:** vista `analytics.v_supplier_payment_habit` (migración `20261028163649`,
+**292 ms**) + `GET /finance/payment-calendar/payment-habits` + precarga en el diálogo de preparar.
+
+⛔⛔ **Nada se aplica solo.** El valor llega **editable** y con **su evidencia al lado**: «así se le
+pagó 16 de 16 veces, la última el 2026-10-19, desde BB 4166». Un número puesto solo, sin decir con
+qué, es una orden disfrazada.
+
+**Y cuando no precarga, lo dice** en vez de quedarse callado: `caja_general` (116 acreedores —
+dato que no estaba en ninguna pantalla), `variable`, `no_resuelve`, y si la **carga falla**, «no se
+pudo leer con qué se le suele pagar» (ADR-056), nunca dibujado como «no tiene hábito».
+
+**Lo que esta vista NO puede proponer, declarado:** Kepler (`kdm1.c31`) sólo distingue
+`transferencia`, `cheque` y `anticipo`. **`efectivo` y `cargo_automatico` nunca se proponen** —
+ausencia de propuesta **no es** evidencia de que no se usen — y `anticipo` se excluye porque no es
+un método, es la naturaleza del documento.
+
+⚠️ **Sin validación visual**: la pantalla no se levantó (prohibido compilar en local). Tipa,
+plantillas verdes, `check:pantalla` 0 fallas nuevas — pero nadie la vio.
+
 ### Resumen del orden
 
 | Objetivo | Fase | Dinero | Esfuerzo | Prioridad | Depende de |
@@ -603,6 +655,7 @@ Se copian a `01_TRACKER_PROGRESO.md` **el día que la fase pase a 🔨**, no ant
 | 2026-10-22 | **E2.1 construido** (`[PGP.5]` + `[PGP.6]`): el candado de un documento = una obligación, y el camino para elegir del pendiente vivo lo que nadie programó. Medido: 1,733 documentos vivos, **2.93 % programado**. ⛔ Y se midió que filtrar esa vista por sucursal cuesta **43.6–47.7 s** contra 450–550 ms sin filtro (3 corridas de cada una, reproducido); no es el predicado empujado y la causa queda **NO DETERMINADA**. | Claude |
 | 2026-10-23 | **`[PGP.7]` De tres pantallas a una.** Edgar: *«calendario de pagos, pronto pago, programa de pagos… hacen lo mismo»*. Tenía razón y el inventario que lo negaba (`FASE_TP` §23) estaba **vencido** — se midió antes de `[TP.20.4]`. Medido hoy: Programa de pagos **76 días sin cargar**, la mitad retrospectiva de Pronto pago **55 días sin producir** (98 hallazgos, los 98 sin triar), y su mitad prospectiva ya vivía en el Calendario. Las dos salen del MENÚ (no del router) y el Calendario recibe la tasa observada y un orden por urgencia de descuento. | Claude |
 | 2026-10-28 | **`[PGP.27]` El autorrelleno del Calendario deja de depender de un solo campo del ERP** — 🧪 en código, **sin aplicar ni empujar**. El motor de evidencia (`[PGP.19]`) sacaba el RFC del acreedor sólo de `kdxd.c10`; lo que no estuviera ahí quedaba sin factura. Medido contra prod (sid `7688376744939610156`): **1,000 documentos ($29,067,071) sin RFC** y —lo que no se veía— **368 documentos ($20,232,802, 14 acreedores) CON un RFC mal escrito**: `BALO20930EL9` por `BAL020930EL9` (letra O por cero; **$14,281,642**, la deuda más grande de la casa), `CAMR-590304-B` con guiones, `DGR0531773A` con un dígito de menos. ⭐ **Un RFC mal formado no es un RFC capturado**, y se leía como si lo fuera. Ahora `analytics.v_supplier_rfc` responde una sola vez «¿cuál es el RFC de este acreedor?» con su procedencia: el de Kepler **si pasa la forma del SAT**, si no el que resuelve el **nombre normalizado entero** (sin acentos, sin forma societaria — el cruce viejo comparaba 14 caracteres y perdía `GAMAHUBIN SA DE CV` contra `GAMAHUBIN`) contra ContPAQi y los CFDI recibidos, exigiendo unicidad; si no, NULL **con su motivo**. Resultado: **1,125 → 1,291 documentos con factura (+166) · +$10,415,534**, **0 pierden** lo que ya veían y **control negativo 0**. ⛔ El costo casi lo hunde: la llamada de pantalla pasaba de **2.0 s a 6.9–9.2 s** porque `fiscal.cfdis` son 460 MB sin índice por emisor; la migración **crea `ix_fiscal_cfdis_emisor`** y **se revierte sola si no bajó del tope** (mide y lanza). ⚠️ **NO MEDIDO**: el costo con el índice —la conexión de trabajo es de sólo lectura y no puede crearlo—; lo decide la compuerta al aplicar. ⚠️ Quedan **414 documentos donde Kepler trae un RFC bien formado y el nombre dice otro** (MONDELEZ `PENC620207982`, persona física en una sociedad, $3,067,873): **gana Kepler** y se publica en `rfc_discrepa` para que alguien decida — eso es captura, no derivación. | Claude |
+| 2026-10-28 | **`[PGP.30]` O8 construido — 🧪 en código, sin aplicar.** El Calendario precarga **método** y **cuenta de origen** del hábito del acreedor; los dos pagos frenados ese día con «Falta el método» eran $550,411.04. Vista `analytics.v_supplier_payment_habit` (migración `20261028163649`), **292 ms**. Contra prod: **288 de 316 acreedores (91.1 %) con método estable, $403,483,667 = 87.4 % del dinero**; 43 con cuenta de origen proponible. ⭐ **J&F ENTERPRISE se paga con CHEQUE 16 de 16 veces**: el hábito gana al valor del lote a propósito, porque «transferencia» (92.6 % global) le habría errado justo a él. ⛔⛔ **Dos defectos cazados ANTES de soltar:** (1) 111 de 154 propuestas de cuenta apuntaban a **CAJA GENERAL**, que el selector excluye — se habrían visto como un desplegable vacío sin decir por qué; ahora salen como `caja_general` e **informan**. (2) Un **acento grave** en un comentario dentro del literal SQL cerraba el template. ⛔ **Se retractó una corrección propia**: contar 146 de 316 acreedores (46.2 %) parecía tumbar el no-objetivo de la cuenta de origen, pero pesado por **dinero** da **5.1 %**, peor que el 10.4 % original — **el no-objetivo sobrevivió**. ⚠️ **Sin validación visual.** | Claude |
 | 2026-10-28 | **Dos objetivos nuevos al plan, pedidos por Edgar: O6 (la cuenta destino se propone sola) y O7 (la solicitud de alta se arma sola).** Medido el mismo día contra prod: el catálogo `supplier_payment_accounts` está en **0 filas**, y la fuente que lo puede llenar no es una captura sino **el REP que el propio proveedor timbra**: 63 acreedores declaran alguna cuenta, de los cuales **23 traen UNA CLABE de 18 que pasa el dígito de control** — ésos cubren **165 documentos · 15 acreedores · $10,251,411** de deuda viva, y **38 de esos documentos sólo se alcanzan por el RFC que `[PGP.27]` resolvió por nombre**. ⛔ **36 acreedores declaran sólo una cuenta de 10 dígitos, que NO es una CLABE y no se puede completar**: falta la plaza, y tener el RFC del banco (522 REP lo traen) no alcanza. ⛔⛔ Y se midió —y **se descartó**— la premisa de autorrellenar la cuenta de ORIGEN: la conocemos completa (**1,992 de 1,992 pagos por banco** traen `cuenta_tesoreria`, 16 cuentas, $377,322,895) pero **no es predecible**: por acreedor cubriría el **10.4 %** del dinero y por sucursal el **0 %**, porque **todos los pagos a proveedor salen de la sucursal `00`** y la cuenta más usada apenas llega al 23 %. La cuenta de origen es una decisión de Tesorería sobre la liquidez del día, no un atributo del proveedor; queda declarado en el plan para que no se reabra. | Claude |
 | 2026-10-28 | **⛔ `[PGP.27]` se aplicó, su compuerta disparó y se revirtió sola — y la corrección es mejor que lo que yo había escrito.** Al aplicarla, la compuerta de costo midió **5,349 ms contra un tope de 1,000 ms** y lanzó: la transacción se revirtió entera (prod quedó sin índice y sin vistas) y otra sesión retiró el commit de main antes de soltar, porque el código leía `e.rfc`/`e.rfc_fuente` y sin la migración habría dado **500 en el Calendario**. Era justo el costo que yo había declarado **NO MEDIDO** por no poder crear el índice desde una conexión de sólo lectura. ⭐ Al re-medirlo apareció que **la apuesta del índice era además innecesaria**: la pata del CFDI (460 MB de `fiscal.cfdis`) agrega **11 documentos y 1 cuenta** por **ocho veces** el costo. La versión viva usa **sólo ContPAQi** (3,417 filas): resolver cuesta **0.53–0.6 s** —pasa la compuerta—, da **1,122 → 1,278 documentos con factura (+156) · +$8,638,221**, **0 pierden**, y **GAMAHUBIN sobrevive**. Se retiró el índice: no se deja en prod uno de 12 MB que no se midió que sirva. También se corrigió un rótulo que había quedado mintiendo («ni en ningún CFDI recibido», con esa fuente ya apagada). | Claude |
 | 2026-10-28 | **`[PGP.29]` O6 construido — 🧪 en código, sin aplicar.** `/finanzas/cuentas-pago` ya no abre un formulario vacío: la tabla «A quién le falta cuenta» trae la **CLABE que el proveedor declaró en su propio REP timbrado**, con el dígito de control verificado, cuántas veces la declaró y cuándo; el botón dice «Revisar y solicitar» y el diálogo abre **con la cuenta puesta y el comprobante citado en el motivo**. Vista `analytics.v_supplier_account_proposal` (migración `20261028093850`), medida en **794 ms**. Contra prod: **21 acreedores proponibles · 32 con sólo cuenta corta (no se puede completar: falta la plaza) · 2 con el dígito de control mal · 1 con varias, que NO se elige por él**; los cuatro casos dicen por qué en la columna. ⭐ Entre los proponibles está **GAMAHUBIN**, que sólo se alcanza por el RFC que `[PGP.27]` resolvió por nombre — y la pantalla lo **advierte antes de firmar**. ⛔⛔ **No da de alta**, y no se agregó ningún camino de escritura nuevo: la solicitud sigue yendo a la firma de otra persona. ⚠️ **Sin validación visual**: la pantalla no se levantó (prohibido compilar en local) — tipa, las plantillas typechequean y `check:pantalla` da 0 fallas nuevas, pero nadie la vio. | Claude |

@@ -647,6 +647,10 @@ export interface RequisitionLine {
   source_warehouse_id: string | null;
   source_warehouse_code?: string | null;
   source_warehouse_name?: string | null;
+  /** `[PQ.23]` Para qué sucursal es el renglón de una compra consolidada. NULL antes del 2026-10-19. */
+  destination_warehouse_id?: string | null;
+  destination_warehouse_code?: string | null;
+  destination_warehouse_name?: string | null;
   on_hand: number;
   in_transit: number;
   min_stock: number;

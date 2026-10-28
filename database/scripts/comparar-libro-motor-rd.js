@@ -34,6 +34,14 @@
  *   · negativo: `--q 19 --q-motor 20` → **0 de 11 cuadran**, Δ $16,617.50. Si un día sale
  *     verde, el cruce dejó de mirar.
  *   · `--q 21` con ese libro → sale con código 2: «el libro NO trae Q21».
+ *
+ * ── Modo CSV: las ENTRADAS (la hoja CONCENTRADO DE INFORMACIÓN exportada) ─────────────────
+ *     node database/scripts/comparar-libro-motor-rd.js "<concentrado>.csv" --q 21 [--detalle] [--csv salida.csv]
+ * Venta y subtotal por ruta (libro contra la corrida) y por día (libro contra la fuente del
+ * motor). Lector validado: la suma del CSV por quincena reproduce la hoja COMISIONES en 472 de
+ * 476 cifras de Q1–Q20; las 4 que no son días de Q20 capturados DESPUÉS de pagarla.
+ * Controles: Q19 (corrida espejo) → 11/11 rutas y 0/115 días con la venta distinta · una copia
+ * del CSV con UNA venta alterada → esa ruta y ese día, y nada más.
  */
 'use strict';
 
@@ -42,12 +50,14 @@ const path = require('path');
 const RAIZ = path.resolve(__dirname, '..', '..');
 require(path.join(RAIZ, 'node_modules', 'dotenv')).config({ path: path.join(RAIZ, '.env'), quiet: true });
 const { resolverProd } = require('./lib/destino-prod');
-const { leerLibro } = require('./lib/libro-comisiones-rd');
+const { leerLibro, leerConcentrado } = require('./lib/libro-comisiones-rd');
 
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 const ANIO = 2026;
 const arg = (k) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : null; };
-const ARCHIVO = process.argv.find((a) => /\.xlsx$/i.test(a));
+/** El primer argumento: el libro. `.xlsx` = el workbook (compara PAGOS); `.csv` = la hoja
+ *  CONCENTRADO DE INFORMACIÓN exportada (compara ENTRADAS: venta y subtotal por ruta y día). */
+const ARCHIVO = /\.(xlsx|csv)$/i.test(process.argv[2] || '') ? process.argv[2] : null;
 const Q = Number(arg('--q'));
 const Q_MOTOR = arg('--q-motor') ? Number(arg('--q-motor')) : Q;
 const CSV = arg('--csv');
@@ -77,10 +87,171 @@ function causa(mot) {
   return 'sin_explicar';
 }
 
+/**
+ * `.csv` — **¿El motor ve la misma venta que el libro?** La hoja CONCENTRADO es la ENTRADA del
+ * libro; el motor lee la suya de `analytics.v_rd_commission_sales` (la misma consulta que
+ * `SQL_VENTA_DIA` del servicio). Por ruta: lo que pagó la corrida contra la suma del libro; por
+ * día: sólo los que difieren, que es donde está la causa (el contraste de Q1–Q20 encontró que
+ * 14 de 17 diferencias eran días que le faltaban a una fuente).
+ *
+ * ⚠️ La consulta del motor tarda ~6.5 s por quincena (la vista se arma entera). Es lectura.
+ */
+async function compararEntradas() {
+  const { filas } = leerConcentrado(ARCHIVO);
+  const libro = filas.filter((f) => f.periodo === Q);
+  const trae = [...new Set(filas.filter((f) => f.venta).map((f) => f.periodo))].sort((a, b) => a - b);
+  console.log(`\n=== [RD.93] entradas: el concentrado del libro contra la venta del motor · Q${Q} ===`);
+  console.log(`libro: ${path.basename(ARCHIVO)} · con venta en Q${trae[0]}–Q${trae[trae.length - 1]}`);
+  if (!libro.some((f) => f.venta)) { console.log(`\n⛔ El concentrado no trae venta de Q${Q}.\n`); process.exit(2); }
+
+  // ⚠️ Lo que el libro mismo no sostiene se declara ANTES de comparar: una fila con el subtotal
+  // por debajo del costo no es una diferencia con el motor, es un error de captura del libro.
+  const raras = libro.filter((f) => f.costo !== null && f.subtotal !== null && f.subtotal < f.costo);
+  if (raras.length) {
+    console.log('\n⚠️ filas del libro que se contradicen solas (subtotal menor que el costo):');
+    for (const f of raras) console.log(`   ${f.fecha} ruta ${f.route_code}: costo ${money(f.costo)} · subtotal ${money(f.subtotal)} · venta ${money(f.venta)}`);
+  }
+
+  const db = await resolverProd();
+  try {
+    const run = (await db.raw(
+      `SELECT r.id, r.status, r.origen, to_char(r.updated_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD HH24:MI') AS calculada,
+              to_char(p.date_from, 'YYYY-MM-DD') AS desde, to_char(p.date_to, 'YYYY-MM-DD') AS hasta
+         FROM commercial.commission_periods p
+         LEFT JOIN commercial.commission_runs r
+           ON r.period_id = p.id AND r.deleted_at IS NULL AND r.status <> 'anulado'
+        WHERE p.tenant_id = ? AND p.anio = ? AND p.period_no = ? AND p.deleted_at IS NULL`,
+      [TENANT, ANIO, Q])).rows[0];
+    if (!run) { console.log(`\n⛔ Q${Q} no existe en commission_periods.\n`); process.exit(2); }
+    console.log(`motor: ${run.id ? `corrida ${run.id.slice(0, 8)} · ${run.status} · origen ${run.origen} · calculada ${run.calculada}` : 'SIN corrida'} · ${run.desde} a ${run.hasta}`);
+    const fueraDeRango = libro.filter((f) => f.venta && (f.fecha < run.desde || f.fecha > run.hasta));
+    if (fueraDeRango.length) console.log(`  ⚠️ ${fueraDeRango.length} fila(s) del libro marcadas Q${Q} caen fuera de ${run.desde}–${run.hasta}`);
+
+    const lineas = run.id ? (await db.raw(
+      `SELECT route_code, beneficiario_nombre, subtotal, venta, dias_con_venta, dias_esperados, motivo_no_pago
+         FROM commercial.commission_run_lines WHERE run_id = ? AND beneficiario = 'chofer'`, [run.id])).rows : [];
+    const corrida = new Map(lineas.map((l) => [String(l.route_code).trim(), l]));
+    const t0 = Date.now();
+    const fuente = (await db.raw(
+      `SELECT route_code, to_char(business_date, 'YYYY-MM-DD') AS fecha, sum(subtotal)::float8 AS subtotal, sum(venta)::float8 AS venta
+         FROM analytics.v_rd_commission_sales
+        WHERE tenant_id = ? AND business_date >= ? AND business_date <= ?
+        GROUP BY 1, 2`, [TENANT, run.desde, run.hasta])).rows;
+    console.log(`  fuente del motor hoy (v_rd_commission_sales): ${fuente.length} ruta-día · ${Date.now() - t0} ms`);
+    const fuenteDia = new Map(fuente.map((f) => [`${String(f.route_code).trim()}|${f.fecha}`, f]));
+
+    // ── Por ruta ────────────────────────────────────────────────────────────────────────────
+    const rutasLibro = [...new Set(libro.filter((f) => f.venta).map((f) => f.route_code))];
+    const suma = (arr, k) => r2(arr.reduce((s, x) => s + (Number(x[k]) || 0), 0));
+    const porRuta = rutasLibro.map((ruta) => {
+      const lib = libro.filter((f) => f.route_code === ruta && f.venta);
+      const fue = fuente.filter((f) => String(f.route_code).trim() === ruta && Number(f.venta));
+      const cor = corrida.get(ruta);
+      const ventaLibro = suma(lib, 'venta');
+      const ventaCorrida = cor ? r2(Number(cor.venta) || 0) : null;
+      return {
+        ruta, chofer: cor?.beneficiario_nombre || '',
+        dias_libro: lib.length, dias_motor: fue.length,
+        subtotal_libro: suma(lib, 'subtotal'), subtotal_corrida: cor ? r2(Number(cor.subtotal) || 0) : null,
+        // La fuente del motor HOY: en una corrida espejo (Q1–Q20) es lo único que mide al motor.
+        subtotal_fuente_hoy: suma(fue, 'subtotal'),
+        venta_libro: ventaLibro, venta_corrida: ventaCorrida, venta_fuente_hoy: suma(fue, 'venta'),
+        delta_venta: ventaCorrida === null ? null : r2(ventaCorrida - ventaLibro),
+        motivo_motor: cor?.motivo_no_pago || '',
+      };
+    }).sort((a, b) => Math.abs(b.delta_venta ?? 9e9) - Math.abs(a.delta_venta ?? 9e9));
+
+    console.log(`  subtotal de la fuente HOY, por ruta: ${porRuta.map((f) => `${f.ruta} ${money(r2(f.subtotal_fuente_hoy - f.subtotal_libro))}`).join(' · ')}  (fuente − libro)`);
+    console.log('\nruta  | chofer               | días lib/mot |    venta libro |  venta corrida |       Δ venta |    Δ % | subtotal libro | subt. corrida |   Δ subtotal | motor');
+    for (const f of porRuta) {
+      const pct = f.delta_venta === null || !f.venta_libro ? '—' : `${(f.delta_venta / f.venta_libro * 100).toFixed(2)}%`;
+      console.log(`${f.ruta.padEnd(5)} | ${f.chofer.slice(0, 20).padEnd(20)} | ${String(f.dias_libro).padStart(5)} / ${String(f.dias_motor).padEnd(4)} | `
+        + `${money(f.venta_libro).padStart(14)} | ${money(f.venta_corrida).padStart(14)} | ${money(f.delta_venta).padStart(13)} | ${pct.padStart(6)} | `
+        + `${money(f.subtotal_libro).padStart(14)} | ${money(f.subtotal_corrida).padStart(13)} | `
+        + `${money(f.subtotal_corrida === null ? null : r2(f.subtotal_corrida - f.subtotal_libro)).padStart(12)} | ${f.motivo_motor || 'paga'}`);
+    }
+    const tl = suma(porRuta, 'venta_libro'); const tc = suma(porRuta, 'venta_corrida');
+    console.log(`TOTAL venta libro ${money(tl)} · corrida ${money(tc)} · Δ ${money(r2(tc - tl))}`);
+    const iguales = porRuta.filter((f) => f.delta_venta !== null && Math.abs(f.delta_venta) <= 1).length;
+    console.log(`⭐ ${iguales} de ${porRuta.length} rutas: el motor ve la misma venta que el libro (±$1).`);
+    const movida = porRuta.filter((f) => f.venta_corrida !== null && Math.abs(f.venta_fuente_hoy - f.venta_corrida) > 1);
+    if (movida.length) {
+      console.log(`⚠️ en ${movida.length} ruta(s) la fuente HOY ya no es la que usó la corrida (llegó dato después): `
+        + movida.map((f) => `${f.ruta} ${money(r2(f.venta_fuente_hoy - f.venta_corrida))}`).join(' · '));
+    }
+
+    // ── Por día: sólo lo que difiere ────────────────────────────────────────────────────────
+    const dias = [];
+    for (const f of libro.filter((x) => x.venta)) {
+      const m = fuenteDia.get(`${f.route_code}|${f.fecha}`);
+      const vm = m ? r2(Number(m.venta) || 0) : null;
+      const sm = m ? r2(Number(m.subtotal) || 0) : null;
+      // El subtotal también: es la BASE de la comisión, y puede diferir con la venta cuadrada.
+      if (vm === null || Math.abs(vm - f.venta) > 1 || (f.subtotal !== null && Math.abs(sm - f.subtotal) > 1)) {
+        dias.push({ fecha: f.fecha, ruta: f.route_code, libro: f.venta, motor: vm, sub_libro: f.subtotal, sub_motor: sm });
+      }
+    }
+    const libroDia = new Set(libro.filter((x) => x.venta).map((f) => `${f.route_code}|${f.fecha}`));
+    for (const m of fuente) {
+      const ruta = String(m.route_code).trim();
+      if (rutasLibro.includes(ruta) && Number(m.venta) && !libroDia.has(`${ruta}|${m.fecha}`)) {
+        dias.push({ fecha: m.fecha, ruta, libro: null, motor: r2(Number(m.venta)), sub_libro: null, sub_motor: r2(Number(m.subtotal) || 0) });
+      }
+    }
+    dias.sort((a, b) => a.ruta.localeCompare(b.ruta) || a.fecha.localeCompare(b.fecha));
+
+    // ⭐ Dos hechos distintos, y por eso dos listas. Un día que le FALTA a una fuente mueve la
+    // venta —la que abre el escalón— y es pocas filas: se listan siempre. El subtotal que difiere
+    // con la venta cuadrada es SISTEMÁTICO (medido: 114 de 115 días de Q19, montos que se repiten
+    // entre rutas, p. ej. −281.83 / −140.91): es una diferencia de definición de la base, se
+    // resume por ruta y el día a día va con `--detalle`.
+    const faltan = dias.filter((d) => d.motor === null || d.libro === null || Math.abs(d.motor - d.libro) > 1);
+    console.log(`\n--- días donde la VENTA difiere (${faltan.length} de ${libroDia.size} ruta-día del libro) ---`);
+    for (const d of faltan) {
+      const que = d.motor === null ? 'el MOTOR no tiene el día' : d.libro === null ? 'el LIBRO no tiene el día'
+        : `venta Δ ${money(r2(d.motor - d.libro))}`;
+      console.log(`  ${d.fecha} ruta ${d.ruta.padEnd(4)} libro ${money(d.libro).padStart(11)} · motor ${money(d.motor).padStart(11)} · ${que}`);
+    }
+    const base = dias.filter((d) => d.motor !== null && d.libro !== null && Math.abs(d.motor - d.libro) <= 1);
+    console.log(`\n--- misma venta, distinto SUBTOTAL (la base de la comisión): ${base.length} ruta-día ---`);
+    console.log('  ruta  | días |  Δ subtotal (fuente − libro) | mayor |Δ| de un día');
+    for (const ruta of [...new Set(base.map((d) => d.ruta))]) {
+      const ds = base.filter((d) => d.ruta === ruta);
+      const tot = r2(ds.reduce((s, d) => s + (d.sub_motor - d.sub_libro), 0));
+      const max = ds.reduce((m, d) => (Math.abs(d.sub_motor - d.sub_libro) > Math.abs(m) ? r2(d.sub_motor - d.sub_libro) : m), 0);
+      console.log(`  ${ruta.padEnd(5)} | ${String(ds.length).padStart(4)} | ${money(tot).padStart(28)} | ${money(max).padStart(12)}`);
+    }
+    const repetidos = new Map();
+    for (const d of base) { const k = r2(Math.abs(d.sub_motor - d.sub_libro)).toFixed(2); repetidos.set(k, (repetidos.get(k) || 0) + 1); }
+    const top = [...repetidos].filter(([, c]) => c >= 3).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    if (top.length) console.log(`  montos que se repiten (pista de un producto con otra base): ${top.map(([k, c]) => `${k} ×${c}`).join(' · ')}`);
+
+    if (process.argv.includes('--detalle')) console.log('\n--- detalle día por día ---');
+    for (const d of process.argv.includes('--detalle') ? dias : []) {
+      const que = d.motor === null ? 'el MOTOR no tiene el día' : d.libro === null ? 'el LIBRO no tiene el día'
+        : [Math.abs(d.motor - d.libro) > 1 ? `venta Δ ${money(r2(d.motor - d.libro))}` : '',
+          d.sub_libro !== null && Math.abs(d.sub_motor - d.sub_libro) > 1
+            ? `subtotal Δ ${money(r2(d.sub_motor - d.sub_libro))} (libro ${money(d.sub_libro)} · motor ${money(d.sub_motor)})` : '']
+          .filter(Boolean).join(' · ');
+      console.log(`  ${d.fecha} ruta ${d.ruta.padEnd(4)} venta libro ${money(d.libro).padStart(11)} · motor ${money(d.motor).padStart(11)} · ${que}`);
+    }
+
+    if (CSV) {
+      const cols = Object.keys(porRuta[0]);
+      fs.writeFileSync(CSV, [cols.join(','), ...porRuta.map((f) => cols.map((c) => f[c] ?? '').join(','))].join('\n'));
+      console.log(`\nCSV: ${CSV}`);
+    }
+    console.log('');
+  } finally {
+    await db.destroy();
+  }
+}
+
 (async () => {
   if (!ARCHIVO || !Number.isInteger(Q)) {
-    throw new Error('uso: comparar-libro-motor-rd.js "<libro>.xlsx" --q <quincena> [--csv salida.csv]');
+    throw new Error('uso: comparar-libro-motor-rd.js "<libro>.xlsx|<concentrado>.csv" --q <quincena> [--csv salida.csv]');
   }
+  if (/\.csv$/i.test(ARCHIVO)) { await compararEntradas(); return; }
 
   // ── El libro ──────────────────────────────────────────────────────────────────────────────
   const { filas } = await leerLibro(ARCHIVO);

@@ -181,3 +181,50 @@ export interface PayableEvidenceFile {
   role: string | null;
   kind: string | null;
 }
+
+/**
+ * `[PGP.30]` **Con qué se le suele pagar a este acreedor.** Propone, no decide.
+ *
+ * El Calendario pedía método y cuenta de origen a mano, pago por pago. Medido contra prod el
+ * 2026-10-28 sobre 4,881 pagos de 316 acreedores: el método es **transferencia en el 92.6 %**,
+ * **288 de 316 acreedores (91.1 %)** tienen uno estable, y **250 de 282 (88.7 %)** repiten el del
+ * pago anterior.
+ *
+ * ⛔ **Nada se aplica solo.** La propuesta llega precargada y editable, y viaja con su evidencia
+ * (`veces` de `de`, y cuándo fue la última) para que quien paga pueda contradecirla de un vistazo.
+ * Un número sin con qué discutirlo no es una propuesta, es una orden disfrazada.
+ */
+export interface SupplierPaymentHabit {
+  /** `catalog.suppliers.id` — la llave con la que el Calendario nombra al beneficiario. */
+  supplier_id: string;
+  proveedor_code: string;
+
+  /**
+   * `estable` trae `metodo_sugerido`; `variable` y `sin_historial` NO proponen.
+   *
+   * ⛔ Nunca vale `efectivo` ni `cargo_automatico`: Kepler (`kdm1.c31`) no los distingue, así que
+   * **la ausencia de propuesta no es evidencia de que no se usen**.
+   */
+  metodo_estado: 'estable' | 'variable' | 'sin_historial';
+  metodo_sugerido: PaymentMethod | null;
+  metodo_veces: number | null;
+  metodo_de: number | null;
+  metodo_ultima_vez: string | null;
+
+  /**
+   * `estable` trae `cuenta_origen_id`. Los otros tres explican por qué no, y cada uno dice algo
+   * distinto:
+   *
+   * - `caja_general` — se le suele pagar **desde Caja General**, que el selector de origen no
+   *   ofrece («la caja no es origen de una transferencia»). Son **116 de 316**: el dato más útil
+   *   del grupo, porque hoy no aparece en ninguna pantalla.
+   * - `no_resuelve` — la cuenta existe en Kepler pero no casa con ninguna del catálogo propio
+   *   (13 acreedores; `BAJIO 6506` y `BAJIO 5854` difieren en un dígito de las nuestras).
+   * - `variable` — paga desde varias y ninguna llega al piso.
+   */
+  cuenta_estado: 'estable' | 'variable' | 'caja_general' | 'no_resuelve' | 'sin_historial';
+  cuenta_origen_id: string | null;
+  cuenta_origen_nombre: string | null;
+  cuenta_veces: number | null;
+  cuenta_de: number | null;
+}

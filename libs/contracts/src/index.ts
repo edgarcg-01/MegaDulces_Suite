@@ -42,6 +42,7 @@ export * from './http/codigo-simbolico.contract';
 export * from './money/denominations';
 export * from './money/quote-totals';
 export * from './money/centavos';
+export * from './money/veredicto-cuadre';
 // [CG.38] El cambio en Caja General: todo acto tiene una pila que ENTRA y otra que SALE, y el
 // neto es la resta. Un canje cuyas dos mitades no coinciden es un descuadre, no un canje.
 export * from './work/caja-cambio.contract';

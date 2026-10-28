@@ -896,7 +896,7 @@ medición en prod, solo lectura) pedida por Edgar antes de usarlo como filtro de
   - «Vacío = cuadra» en los veredictos.
   - Importes vacíos sumados sin aviso (38 renglones; 8 vacíos en los dos lados).
   - «En tránsito» que no envejece: 234 docs a almacén con más de 45 d, $3.56 M.
-  - Comparación por suma y no por SKU: 4 docs.
+  - ~~Comparación por suma y no por SKU: 4 docs.~~ **Corregido 2026-10-28: 0 casos.** Eran renglones sin `product_id` en los dos lados; por SKU cuadran. Queda como riesgo, cubierto en MX.1.1 con una firma de productos.
 
 Detalle, consultas y plan por capas: [`FASES/FASE_MX_MOVIMIENTOS_POR_EXCEPCION.md`](FASES/FASE_MX_MOVIMIENTOS_POR_EXCEPCION.md) §1.
 

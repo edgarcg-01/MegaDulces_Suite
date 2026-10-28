@@ -452,6 +452,11 @@ Las escritas antes de PQ.21 llevan `c42 = 0` (saldo pendiente) y no aparecen al 
 Kepler. Además traen IVA/IEPS del renglón molde y el encabezado sin impuestos. Afectadas al
 2026-10-28: oficinas `X-A-30` `0003111`–`0003114` (RQ-2026-01615, -01601, -01636, -01626).
 
+✅ **Aplicado el 2026-10-28** desde `md` como `postgres` (línea temporal en `pg_hba.conf` de 00).
+Ensayo con ROLLBACK primero: 0 OC ligadas, subtotal intacto. COMMIT: `UPDATE 52` renglones,
+`UPDATE 4` encabezados; las 4 quedan `c43 = N` y `c42 = c16` (259,355.40 · 850,496.05 ·
+318,290.84 · 107,010.00).
+
 Lo corre **un superusuario** en `md_00` (`kepler_push` sólo inserta). Revisar el `SELECT` antes del `COMMIT`:
 
 ```sql

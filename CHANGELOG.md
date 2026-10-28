@@ -17,6 +17,13 @@
 - `/tienda/arqueo`, quien valida: «Arqueos recientes» se reemplaza por **Sucursales y sus cajas**. Por día y sucursal, cada caja con sus turnos de Kepler, la cajera (código y nombre), sus retiros y el cajón con el desglose por denominación, si los retiros cuadran con lo que Kepler registró y el cuadre del turno. Validar y reimprimir por arqueo. Responsiva. La cajera no la ve.
 - Un retiro, cierre o relevo capturado sin folio ahora se ancla al turno de Kepler por **caja + hora**. Esos cierres empiezan a compararse contra Kepler.
 
+### Added — Pagos: el Calendario ya sabe con qué se le paga a cada acreedor (PGP.30, 2026-10-28)
+- Al preparar un pago, el **método** y la **cuenta de origen** llegan **precargados del historial de ese acreedor**, en vez de pedirse a mano pago por pago. Medido contra prod sobre 4,881 pagos: **288 de 316 acreedores (91.1 %) tienen un método estable**, que cubre el **87.4 % del dinero**.
+- La propuesta llega **editable y con su evidencia al lado** («así se le pagó 16 de 16 veces, la última el 2026-10-19, desde BB 4166»). Nada se aplica solo.
+- El hábito del acreedor **gana** al valor elegido para el lote: J&F ENTERPRISE se paga con **cheque** 16 de 16 veces, y arrastrarle el «transferencia» del lote (92.6 % global) le habría errado justo a él.
+- Cuando **no** precarga, dice por qué: «se le suele pagar desde **Caja General**, que no es cuenta de origen de una transferencia» (116 acreedores, dato que no estaba en ninguna pantalla), «se le ha pagado de varias formas», o —si la lectura falla— «no se pudo leer con qué se le suele pagar», que no es lo mismo que «no tiene hábito».
+- ⛔ No propone **efectivo** ni **cargo automático**: el ERP no los distingue, así que la ausencia de propuesta no es evidencia de que no se usen.
+
 ### Added — Etiquetas: pestaña «Historial de precios» (ETQ-HISTORIAL, 2026-10-28)
 - Nueva pestaña **«Historial de precios»** junto a «Cambios de precio» (`/tienda/etiquetas/historial`, mismo permiso): se busca un producto y se despliegan sus cambios de precio de las **9 plazas**. Por omisión muestra **todas las filas** de la bitácora de Kepler; «Agrupar repetidos» las funde en tramos (Kepler reescribe el mismo cambio varias veces: en un producto medido, 676 de 686 pasos repetían el precio). Filtros por rango (90 días / 1 año / todo), plaza y presentación.
 - Una promoción de Kepler («= GRATIS») no se puede elegir: no es un producto. «Sin cambios registrados» se distingue de «no se pudo leer».

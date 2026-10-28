@@ -51,6 +51,14 @@ describe('[MX.2.1] KPIs de traspasos del PDF', () => {
     expect(h).not.toContain('los primeros');
   });
 
+  it('[MX.1.2] «Valor movido» se declara parcial si hay renglones sin costo en Kepler', () => {
+    const d = data();
+    d.totals = { ...d.totals, valor: 154_702_114, lineas_sin_importe: 30 };
+    expect(html(d)).toContain('parcial: 30 renglones sin costo en Kepler');
+    d.totals = { ...d.totals, lineas_sin_importe: 0 };
+    expect(html(d)).not.toContain('renglones sin costo');
+  });
+
   it('el tope del pareo (capped) se declara como indicadores INCOMPLETOS', () => {
     const d = data();
     d.transfers_capped = true;

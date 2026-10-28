@@ -9312,13 +9312,13 @@ TP.6-TP.8+TP.10".
 >   servidor viene** («Canindo · Ruta 501»), en el libro y en la cola. `cash_ledger.ruta` la pone la
 >   captura (leerla del FDW cuesta 2,016 ms); mig `20261028144645` rellena los 116 cobros de camión.
 >   No se tocó `erp_warehouse_map` ni `warehouses.kepler_code` (mueven margen/existencia). 14 pruebas.
->   Commit local, sin empujar.
+>   ⚠️ Guardar `ruta` en la captura **NO MEDIDO contra base real** (regla 13). Commit local, sin empujar.
 > - [x] **[CGA-A.60]** 🔨 2026-10-28 · **Un retiro de CAOS paga un lote de egresos de la cola; sólo la
 >   diferencia toca el cajón.** Edgar: *«vincular un egreso general con los egresos pequeños»* — el
 >   «Formato de autorización de gastos» de zona Morelia (21 X-D-26, $156,678.61, retiro «gnf 26/10»).
 >   Cada egreso toma su monto entero mientras alcance; sin redondear a billetes por renglón (inventaba
->   $4,649.65 del cajón donde fueron $8.61). Mutación: 3 en rojo. Commit local, sin empujar; sin
->   validación visual. ⚠️ Hallazgo de la hoja: **CG-2026-00512 (nómina Canindo, $10,510)** está
+>   $4,649.65 del cajón donde fueron $8.61). Mutación: 3 en rojo. ⚠️ El lote con retiro (escribe egresos + vínculos) **NO MEDIDO contra base
+>   real** (regla 13). Commit local, sin empujar; sin validación visual. ⚠️ Hallazgo de la hoja: **CG-2026-00512 (nómina Canindo, $10,510)** está
 >   vinculado al retiro de Morelia y no está en la hoja; X0316 ($5,700) y X0317 ($169.96) siguen en la
 >   cola sin dinero libre en el retiro. Espera decisión de Edgar (D3).
 > - **[CGA-A.57]** ⬜ **Ligar el historial con propuestas + confirmación** (decisión de Edgar). Octubre
