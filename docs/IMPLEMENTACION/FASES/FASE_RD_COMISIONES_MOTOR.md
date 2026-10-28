@@ -671,6 +671,17 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
     producto/impuesto arma cada lado.
   - Una fila del libro se contradice sola (subtotal menor que el costo); se declara antes de
     comparar, no se cuenta como diferencia del motor.
+- **`[RD.94]` 🔨 Los dos días que no llegaron (investigación del 2026-10-28).** Recorrido capa
+  por capa: la matview del motor = la vista viva = `analytics.route_push_lines` = `mart.ventas`
+  del runner, al folio. **El hueco nace en la van, antes del runner.** Huellas: en una ruta el
+  consecutivo de la serie `UD1001` se REINICIA a `0000001` al día siguiente del faltante; en la
+  otra los folios de antes y después del faltante son consecutivos (ese día no hubo `UD1001`).
+  Ningún día de ninguna ruta suma el importe que el libro registra. Mecanismo que lo vuelve
+  silencioso: el agente sólo sube `U-D-10` de UNA serie (`ROUTE_SERIE`) y el merge del runner
+  sólo reescribe las fechas del lote — un día con otra serie no sube y nada lo marca.
+  **Hipótesis (sin confirmar): esos días se vendieron con otra serie.** Se confirma en la van con
+  `route-push/DIAGNOSTICO-SERIES.ps1` (sólo lee). Si se confirma, la decisión es si el agente de
+  una van de UNA ruta sube todas sus series U-D-10.
 
 #### Transversal
 
