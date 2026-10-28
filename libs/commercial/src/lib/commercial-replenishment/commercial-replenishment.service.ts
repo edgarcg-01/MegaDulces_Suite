@@ -5187,7 +5187,7 @@ export class CommercialReplenishmentService {
   }
 
   /** Los 18 renglones (9 sucursales × compra/traspaso), con si el secreto tiene con qué escribir. */
-  async listKeplerSwitch() {
+  async listKeplerSwitch(): Promise<{ migrada: boolean; rows: Array<Record<string, unknown>> }> {
     const tenantId = this.tenantCtx.requireTenantId();
     let filas: Array<Record<string, unknown>> = [];
     let migrada = true;
@@ -5226,7 +5226,7 @@ export class CommercialReplenishmentService {
     return { migrada, rows: out };
   }
 
-  async setKeplerSwitch(sucursal: string, tipo: string, dto: { encendida?: boolean; tope_dia?: number | null; nota?: string | null }) {
+  async setKeplerSwitch(sucursal: string, tipo: string, dto: { encendida?: boolean; tope_dia?: number | null; nota?: string | null }): Promise<{ migrada: boolean; rows: Array<Record<string, unknown>> }> {
     const tenantId = this.tenantCtx.requireTenantId();
     const userId = this.tenantCtx.get()?.userId ?? null;
     if (!/^0[0-8]$/.test(sucursal)) throw new BadRequestException('Sucursal inválida');
