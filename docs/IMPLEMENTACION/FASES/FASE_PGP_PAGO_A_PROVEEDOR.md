@@ -244,15 +244,111 @@ de «Cuentas por pagar», que hoy se gatea con `FINANCE_AI_CHAT` (E4.3).
 ⚠️ **El Excel no se apaga antes de que O2 cubra un mes entero.** Hasta entonces es el único testigo
 independiente del circuito nuevo, y se conserva a propósito.
 
+### O6 · La cuenta destino se propone sola, desde el comprobante del propio proveedor — «PGP-F»
+
+> Pedido de Edgar, 2026-10-28: *«ya sabemos a qué cuenta; automaticemos ese autorrellenado»*.
+
+**Qué cambia:** hoy, preparar un pago exige que alguien **teclee la CLABE** del proveedor, y el
+catálogo del que debería salir (`commercial.supplier_payment_accounts`) tiene **0 filas** —
+medido el 2026-10-28, sid `7688376744939610156`. Por eso ningún pago se prepara solo.
+
+⭐ **La fuente no es un dicho ni una captura: es el propio proveedor.** Cuando nos cobra, timbra
+un **REP** y en él declara `CtaBeneficiario` — la cuenta a la que quiere que le paguen, firmada
+por él ante el SAT. Eso ya está en `fiscal.cfdi_payment_links`, y `[PGP.27]` acaba de hacerlo
+alcanzable para más acreedores al resolver su RFC.
+
+**Lo medido hoy, y lo que NO alcanza:**
+
+| | acreedores |
+|---|---:|
+| declaran alguna cuenta en su REP | **63** |
+| …con **UNA CLABE de 18 válida** (dígito de control incluido) | **23** ✅ |
+| …con **varias** CLABE distintas: hay que elegir, no se propone | 2 |
+| …con 18 dígitos que **no pasan** el dígito de control | 2 |
+| …sólo con cuenta de **10 dígitos**, que **NO es una CLABE** | **36** ⛔ |
+
+⛔ **Los 36 de 10 dígitos no se pueden completar.** Una CLABE es banco(3) + **plaza(3)** +
+cuenta(11) + control(1), y la plaza no está en ningún lado nuestro. 522 de esos REP sí traen el
+RFC del banco, y **aun así no alcanza**. Esos 36 siguen necesitando que el proveedor la dé.
+
+**Métrica:** cuentas de proveedor sembradas con evidencia — **HOY: 0** → **META: 23**, que cubren
+**165 documentos · 15 acreedores · $10,251,411** de deuda viva (de $140,700,697 totales, **7.3 %**).
+⭐ **38 de esos 165 documentos sólo se alcanzan por el RFC que `[PGP.27]` resolvió por nombre**:
+sin ese trabajo previo, este objetivo valía un quinto menos.
+**Dinero en juego:** Alto · **Esfuerzo:** S · **Prioridad: 1**
+
+⚠️ **Verificación obligatoria antes de sembrar una sola:** el dígito de control de la CLABE
+(Banxico, pesos 3·7·1 sobre los 17 primeros). Control negativo ya corrido: **39 de 42 cuentas
+reales de 18 dígitos lo pasan, y 0 lo pasan con el último dígito movido** — o sea que el
+verificador mide algo y no bendice cualquier cadena.
+
+### O7 · La solicitud de cuenta se arma sola; la persona sólo FIRMA — «PGP-G»
+
+> Pedido de Edgar, 2026-10-28: *«automaticemos también lo de solicitar cuenta»*.
+
+**Qué cambia:** dar de alta la cuenta de un proveedor pasa hoy por
+`supplier_payment_account_change_requests`: alguien la solicita tecleándola y Gerencia aprueba.
+El trabajo caro no es aprobar, es **conseguir y teclear el dato**. Con O6, el sistema **arma la
+solicitud ya llena**, con la CLABE que el proveedor declaró y **el UUID del REP como evidencia
+adjunta**, y la persona sólo decide.
+
+⛔⛔ **Lo que NO se automatiza, y es deliberado: la FIRMA.** El flujo de alta de cuenta es un
+control **anti-fraude** —`requested_by` ≠ `decided_by`, nunca alta directa— y cambiar la cuenta
+de un proveedor es exactamente el movimiento que un fraude necesita. La propuesta nace en
+`pendiente` y **jamás se auto-aprueba**. Es la misma línea que trazó `[VE.3]`: *automatizar una
+decisión no es quitar un botón innecesario, es quitarle la firma a quien responde por ella.*
+
+**Qué gana quien firma, que hoy no tiene:** de dónde salió la cuenta (REP timbrado, con su UUID),
+desde cuándo, cuántas veces la declaró, si cambió respecto de la anterior, y si el RFC con el que
+se buscó vino de Kepler o lo resolvió el nombre (`rfc_fuente`, `[PGP.27]`).
+
+**Métrica:** solicitudes de alta que llegan **ya llenas y con evidencia** — **HOY: 0 de 0** →
+**META: 23 armadas solas**, 0 tecleadas, 0 auto-aprobadas.
+**Dinero en juego:** Alto (es el tapón de O1) · **Esfuerzo:** S · **Prioridad: 1** · depende de O6.
+
+⚠️ **Una cuenta que CAMBIA no se trata como una nueva.** Si el REP más reciente declara una CLABE
+distinta de la activa, eso **no** se aplica solo: se levanta una solicitud de **cambio** marcada
+como tal. Un cambio silencioso de cuenta es, literalmente, el fraude que este flujo existe para
+impedir.
+
+### ⛔ Lo que NO se va a autorrellenar, y por qué — la cuenta de ORIGEN
+
+> Se escribe acá para que nadie lo vuelva a abrir: **se midió y la premisa no se sostiene.**
+
+Sabemos perfectamente **con** qué cuentas pagamos: las **16** cuentas de tesorería que aparecen en
+`analytics.erp_supplier_payments.cuenta_tesoreria` (de `kdm1.c45`), y el dato está **completo** —
+**1,992 de 1,992 pagos por banco** de los últimos 365 días la traen, por $377,322,895. Lo que
+**no** se puede es adivinar **cuál toca** para un pago nuevo:
+
+| Si se propusiera… | grupos con una cuenta dominante ≥80 % | dinero que cubriría |
+|---|---:|---:|
+| por **acreedor** | 51 de 206 | $39,273,481 de $377,322,895 (**10.4 %**) |
+| por **sucursal** | **0 de 1** | **0 %** |
+| por sucursal + acreedor | 51 de 206 | 10.4 % |
+
+⭐ Y la segunda fila explica la primera: **todos los pagos a proveedor salen de la sucursal `00`**,
+con 16 cuentas y la más usada apenas en el 23 %. La cuenta de origen **no es un atributo del
+proveedor: es una decisión de Tesorería sobre la liquidez del día**. Proponerla por acreedor sería
+dibujar un patrón que no existe, y acertaría 1 de cada 10 pesos.
+
+**Lo que sí corresponde**, y ya existe: elegirla **una vez por lote** (`bulkOriginId` en el paso 2
+del Calendario), no una vez por pago.
+
 ### Resumen del orden
 
 | Objetivo | Fase | Dinero | Esfuerzo | Prioridad | Depende de |
 |---|---|---|---|---|---|
 | O1 · El circuito cierra una vez | PGP-A | Alto | S | **1** | una persona de Tesorería |
 | O2 · El día se arma en la plataforma | PGP-B | Alto | M | **1** | O1 |
+| **O6 · La cuenta destino se propone sola** | **PGP-F** | **Alto** | **S** | **1** | `[PGP.27]` aplicado |
+| **O7 · La solicitud de cuenta se arma sola** | **PGP-G** | **Alto** | **S** | **1** | O6 |
 | O3 · Una sola captura (Kepler) | PGP-C | Alto | L | **2** | O1 · ADR-092 ext. |
 | O4 · Una sola estación | PGP-D | Medio | L | **3** | O1 · O3 verificados |
 | O5 · Retirar el Excel | PGP-E | Bajo | S | **3** | O2 con un mes completo |
+
+⭐ **O6 y O7 se cuelan delante de O3 a propósito:** O1 está detenido porque **no hay una sola
+cuenta de proveedor sembrada**, y entre los dos siembran 23 con evidencia fiscal y esfuerzo S.
+Son el tapón de O1, no un adorno.
 
 ---
 
@@ -507,6 +603,7 @@ Se copian a `01_TRACKER_PROGRESO.md` **el día que la fase pase a 🔨**, no ant
 | 2026-10-22 | **E2.1 construido** (`[PGP.5]` + `[PGP.6]`): el candado de un documento = una obligación, y el camino para elegir del pendiente vivo lo que nadie programó. Medido: 1,733 documentos vivos, **2.93 % programado**. ⛔ Y se midió que filtrar esa vista por sucursal cuesta **43.6–47.7 s** contra 450–550 ms sin filtro (3 corridas de cada una, reproducido); no es el predicado empujado y la causa queda **NO DETERMINADA**. | Claude |
 | 2026-10-23 | **`[PGP.7]` De tres pantallas a una.** Edgar: *«calendario de pagos, pronto pago, programa de pagos… hacen lo mismo»*. Tenía razón y el inventario que lo negaba (`FASE_TP` §23) estaba **vencido** — se midió antes de `[TP.20.4]`. Medido hoy: Programa de pagos **76 días sin cargar**, la mitad retrospectiva de Pronto pago **55 días sin producir** (98 hallazgos, los 98 sin triar), y su mitad prospectiva ya vivía en el Calendario. Las dos salen del MENÚ (no del router) y el Calendario recibe la tasa observada y un orden por urgencia de descuento. | Claude |
 | 2026-10-28 | **`[PGP.27]` El autorrelleno del Calendario deja de depender de un solo campo del ERP** — 🧪 en código, **sin aplicar ni empujar**. El motor de evidencia (`[PGP.19]`) sacaba el RFC del acreedor sólo de `kdxd.c10`; lo que no estuviera ahí quedaba sin factura. Medido contra prod (sid `7688376744939610156`): **1,000 documentos ($29,067,071) sin RFC** y —lo que no se veía— **368 documentos ($20,232,802, 14 acreedores) CON un RFC mal escrito**: `BALO20930EL9` por `BAL020930EL9` (letra O por cero; **$14,281,642**, la deuda más grande de la casa), `CAMR-590304-B` con guiones, `DGR0531773A` con un dígito de menos. ⭐ **Un RFC mal formado no es un RFC capturado**, y se leía como si lo fuera. Ahora `analytics.v_supplier_rfc` responde una sola vez «¿cuál es el RFC de este acreedor?» con su procedencia: el de Kepler **si pasa la forma del SAT**, si no el que resuelve el **nombre normalizado entero** (sin acentos, sin forma societaria — el cruce viejo comparaba 14 caracteres y perdía `GAMAHUBIN SA DE CV` contra `GAMAHUBIN`) contra ContPAQi y los CFDI recibidos, exigiendo unicidad; si no, NULL **con su motivo**. Resultado: **1,125 → 1,291 documentos con factura (+166) · +$10,415,534**, **0 pierden** lo que ya veían y **control negativo 0**. ⛔ El costo casi lo hunde: la llamada de pantalla pasaba de **2.0 s a 6.9–9.2 s** porque `fiscal.cfdis` son 460 MB sin índice por emisor; la migración **crea `ix_fiscal_cfdis_emisor`** y **se revierte sola si no bajó del tope** (mide y lanza). ⚠️ **NO MEDIDO**: el costo con el índice —la conexión de trabajo es de sólo lectura y no puede crearlo—; lo decide la compuerta al aplicar. ⚠️ Quedan **414 documentos donde Kepler trae un RFC bien formado y el nombre dice otro** (MONDELEZ `PENC620207982`, persona física en una sociedad, $3,067,873): **gana Kepler** y se publica en `rfc_discrepa` para que alguien decida — eso es captura, no derivación. | Claude |
+| 2026-10-28 | **Dos objetivos nuevos al plan, pedidos por Edgar: O6 (la cuenta destino se propone sola) y O7 (la solicitud de alta se arma sola).** Medido el mismo día contra prod: el catálogo `supplier_payment_accounts` está en **0 filas**, y la fuente que lo puede llenar no es una captura sino **el REP que el propio proveedor timbra**: 63 acreedores declaran alguna cuenta, de los cuales **23 traen UNA CLABE de 18 que pasa el dígito de control** — ésos cubren **165 documentos · 15 acreedores · $10,251,411** de deuda viva, y **38 de esos documentos sólo se alcanzan por el RFC que `[PGP.27]` resolvió por nombre**. ⛔ **36 acreedores declaran sólo una cuenta de 10 dígitos, que NO es una CLABE y no se puede completar**: falta la plaza, y tener el RFC del banco (522 REP lo traen) no alcanza. ⛔⛔ Y se midió —y **se descartó**— la premisa de autorrellenar la cuenta de ORIGEN: la conocemos completa (**1,992 de 1,992 pagos por banco** traen `cuenta_tesoreria`, 16 cuentas, $377,322,895) pero **no es predecible**: por acreedor cubriría el **10.4 %** del dinero y por sucursal el **0 %**, porque **todos los pagos a proveedor salen de la sucursal `00`** y la cuenta más usada apenas llega al 23 %. La cuenta de origen es una decisión de Tesorería sobre la liquidez del día, no un atributo del proveedor; queda declarado en el plan para que no se reabra. | Claude |
 | 2026-10-23 | ⚠️ **El tracker perdió los items PGP**: el incidente de `c7d94aa7b` (un commit que arrastró hunks ajenos) los devolvió al árbol y se descartaron. El código está en prod; la bitácora de esta fase es, por ahora, el único registro. Reponerlos exige tocar un archivo que otra sesión tiene en vuelo. | Claude |
 
 ---
