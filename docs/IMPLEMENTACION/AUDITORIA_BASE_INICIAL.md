@@ -910,11 +910,12 @@ pólizas de la cuenta 515 por documento).
 - **Lo medido (jul–sep 2026, solo lectura):**
   - Se partió de las entradas 515-001 de traspasos que sí tienen recepción (`UA5001`).
   - Se siguió la cadena recepción → embarque → póliza del embarque (`UD4102`).
-  - En **379** de esas entradas, la sucursal que envió asentó la salida en **401-003 «Ventas vecinal»**: **$19.6 M**. Lo esperado era 515-002 «Traspaso salida», que sólo aparece en 323.
-  - Otras 287 entradas tienen su salida en 116 «Traspasos de mercancía».
+  - ⚠️ **Cifras CORREGIDAS el mismo día** (MX.1.6). La primera versión decía 379 docs / $19.6 M en 401-003, 323 en 515-002 y «287 en 116»: el pareo elegía al azar entre dos líneas del MISMO asiento con el mismo importe. Cada póliza `UD4102` es **116 (inventario) + exactamente una contrapartida**; «116» nunca fue una alternativa. Re-correr el mismo script no lo detectó (un árbitro-espejo).
+  - Contrapartida real del embarque (987 de 992 entradas con cadena; dos corridas idénticas): **401-003 «Ventas vecinal»: 452 docs, $23.0 M** · **otras cuentas 401 (ventas): 110 docs, $9.9 M** · **515-002 «Traspaso salida» (lo correcto): 425 docs, $23.4 M**.
+  - **Más de la mitad de los traspasos entre sucursales con recepción ($32.9 M de $56.3 M) quedó contabilizada como VENTA.**
   - La cadena se verificó con una prueba falsa: emparejando con el folio siguiente (`parent_folio+1`) sólo coinciden 3 de 992; con el folio real, 971.
 - **Por qué importa:**
-  - Una venta vecinal por $19.6 M que en realidad es mercancía movida entre sucursales infla la venta.
+  - $32.9 M de «venta» (401-003 y otras 401) que en realidad es mercancía movida entre sucursales infla la venta.
   - Y deja el mayor 515 «descuadrado» por construcción: el puente nunca puede netear $0 si una pata vive en otra cuenta.
 - **No medido:** octubre; y si 401-003 también recibe ventas vecinales legítimas en el mismo periodo (la cifra de arriba es sólo la parte que se pudo ligar a una recepción).
 - Detalle y scripts: [`FASES/FASE_MX_MOVIMIENTOS_POR_EXCEPCION.md`](FASES/FASE_MX_MOVIMIENTOS_POR_EXCEPCION.md), MX.0.3.
