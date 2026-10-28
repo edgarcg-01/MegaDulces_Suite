@@ -123,7 +123,7 @@ export interface CuentasPagoFaltantesResponse {
  * distinta aprueba (`requested_by` ≠ `decided_by`). Cambiar la cuenta de un proveedor es
  * exactamente el movimiento que un fraude necesita: la firma no se automatiza.
  *
- * Medido el 2026-10-28 contra prod: **22 acreedores proponibles**, 32 que sólo declararon una
+ * Medido el 2026-10-28 contra prod: **21 acreedores proponibles**, 32 que sólo declararon una
  * cuenta corta, 2 con el dígito de control mal y 1 con varias CLABE distintas.
  */
 export interface CuentaPagoPropuesta {

@@ -354,7 +354,7 @@ export class FinanzasCuentasPagoComponent implements OnInit {
    *
    * ⭐ Por qué esto existe: el botón «Solicitar cuenta» abría un formulario **vacío**, y por eso
    * el catálogo lleva **0 cuentas**. El trabajo caro nunca fue aprobar: era conseguir la CLABE.
-   * Medido el 2026-10-28 contra prod: **22 proveedores ya la declararon** en el comprobante de
+   * Medido el 2026-10-28 contra prod: **21 proveedores ya la declararon** en el comprobante de
    * pago que ellos mismos timbran, con su dígito de control verificado.
    */
   propuestas = signal<ReadonlyMap<string, CuentaPagoPropuesta>>(new Map());

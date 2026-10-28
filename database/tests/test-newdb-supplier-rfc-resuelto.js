@@ -190,7 +190,7 @@ const FORMA = `'^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$'`;
       if (pr.propuestas > 0) {
         ok(true, `[PGP.29] ${pr.propuestas} filas proponibles sobre ${pr.n}: la maquinaria esta ejercitada`);
       } else {
-        noMedido('[PGP.29] ninguna cuenta proponible en esta base: los candados de arriba no estan ejercitados (en prod son 22 acreedores).');
+        noMedido('[PGP.29] ninguna cuenta proponible en esta base: los candados de arriba no estan ejercitados (en prod son 21 acreedores).');
       }
     }
 
