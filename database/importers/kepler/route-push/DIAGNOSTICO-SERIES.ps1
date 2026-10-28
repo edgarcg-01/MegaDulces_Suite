@@ -13,6 +13,11 @@
 #
 #  Lo que contesta: por día, cada serie y tipo de documento con su importe, y si el
 #  agente la SUBE o NO. Si el día faltante aparece con otra serie, ésa es la causa.
+#  También lista los COBROS (U-A-*) de la van: desde el 2-oct el cobro de ruta dejó la
+#  matriz (00) y, según Edgar (28-oct), ahora se captura en la máquina. Si el primer día
+#  con cobros en la van coincide con el hueco de venta, la reconfiguración es la causa.
+#  ⚠️ El importe de un cobro sale de kdm2 y puede venir en blanco: el conteo y los folios
+#  son lo confiable para los U-A.
 #
 #  Uso: pegar en PowerShell de la camioneta. Para otro rango, antes de pegar:
 #     $desde = '2026-10-08'; $hasta = '2026-10-21'
@@ -62,11 +67,12 @@ select h.c9::date as fecha,
        min(h.c6) as folio_min, max(h.c6) as folio_max,
        to_char(coalesce(sum(d.c13::numeric),0),'FM999,999,990.00') as importe,
        string_agg(distinct h.c68::date::text, ',') as capturado,
-       case when h.c4 = 10 and rtrim(btrim(h.c63),'-') = '$serie' then 'SUBE' else 'NO SUBE' end as agente
+       case when h.c3 = 'A' then 'cobro'
+            when h.c4 = 10 and rtrim(btrim(h.c63),'-') = '$serie' then 'SUBE' else 'NO SUBE' end as agente
   from md.kdm1 h
   left join md.kdm2 d on d.c1=h.c1 and d.c2=h.c2 and d.c3=h.c3 and d.c4=h.c4 and d.c5=h.c5 and d.c6=h.c6
- where h.c2 = 'U' and h.c3 = 'D' and h.c9::date between '$desde' and '$hasta'
- group by 1,2,3,h.c4
+ where h.c2 = 'U' and h.c3 in ('D','A') and h.c9::date between '$desde' and '$hasta'
+ group by 1,2,3,h.c3,h.c4
  order by 1,2,3
 "@
 $res = & $psql -d $src -A -F ' | ' -P footer=off -c $sql 2>&1
