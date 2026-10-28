@@ -638,6 +638,20 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   responda, sin que nadie recorra pestañas: qué quincena cerró sin número, qué corrida espera
   aprobación, qué ruta va a comisionar sobre nada y qué ruta vende sin comisionar.
 
+#### Auditoría del 2026-10-28 (nivel C + B, sin validación visual)
+
+- **`[RD.91]` 🧪 La compuerta de deducción era verde por construcción** (`c77d7cf82`). Q21
+  publicaba **neto $51,522.93 = tras nómina**, `total_deduccion` 0.00 y `deduccion_configurada`
+  en «pasa», con sus 11 renglones de supervisor en `sin_configurar` y
+  `commission_beneficiary_config` en **0 filas**. La compuerta contaba líneas que el motor llenaba
+  **después** de llamarla. Ahora lee los beneficiarios y el neto va `NULL` si falta una deducción.
+  Prueba negativa en `commission-deduccion.spec.ts`. ⛔ Queda: desplegar y **recalcular Q21**.
+- **`[RD.92]` 🧪 La pantalla** (`ff6ee2963`): la proyección de `[RD.65]` por fin se dibuja (la
+  rama «sin corrida» iba primero y la dejaba muerta) · Quién cobra, Bonos y Tabulador suben al
+  conmutador de arriba (con Q22–Q27 no se podían abrir) · neto sin medir declarado en la tarjeta
+  y en Aprobar · pago vencido visible · `cobertura_dias` con rótulo · tabulador de sólo lectura
+  sin permiso.
+
 #### Transversal
 
 - **`[RD.90]` La verdad absoluta de la comisión** en `VERDAD_ABSOLUTA.md` — hoy **cero menciones**.
@@ -653,4 +667,4 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
 | **D7** | el acantilado de $189,999.99 | **9 filas, $26,932.74** que el libro pagó y el motor no. O el tabulador tiene un piso suave, o esas 9 no cobran |
 | **D3** | la línea del supervisor | el recibo de FRANCISCO **se contradice a sí mismo**; el motor no puede elegir cuál de las dos versiones es la buena |
 | **D6** | ¿quién calcula, quién aprueba y quién paga? | hoy **un solo permiso** hace las tres, y eso anula el control de los cuatro pasos |
-| **nueva** | **¿Q21 la paga el motor o el libro?** | **cierra el 21 de octubre**. Es la primera quincena que puede nacer del motor |
+| **nueva** | **¿Q21 la paga el motor o el libro?** | **cierra el 21 de octubre**. Es la primera quincena que puede nacer del motor. ⚠️ Al 2026-10-28 su pago (24-oct) ya venció y sigue en **borrador**; y su neto no se puede afirmar sin **D3** (`[RD.91]`) |
