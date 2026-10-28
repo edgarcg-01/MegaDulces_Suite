@@ -42,6 +42,18 @@
  *     506` y `BBAJIO 854`. Puede ser un cero comido de cualquiera de los dos lados, pero
  *     **adivinarlo elige de qué cuenta sale el dinero**, y eso lo confirma una persona. Hasta
  *     entonces salen como `no_resuelve` y la pantalla pide la cuenta a mano, como hoy.
+ *
+ * ## ⛔⛔ Y la cuenta que resuelve bien tampoco siempre se puede proponer
+ *
+ * El selector de origen del Calendario (`originAccounts()`) excluye `kind = 'cash'` — *«la caja
+ * no es origen de una transferencia»*. Pero **el 56.7 % de los pagos a proveedor salen de CAJA
+ * GENERAL**, así que de 154 cuentas que la vista resolvía, **111 apuntaban a una cuenta que el
+ * desplegable no ofrece**: proponerla lo dejaría **vacío sin decir por qué**.
+ *
+ * Esas 111 salen con `cuenta_estado = 'caja_general'` y sin `cuenta_origen_id`. No es una
+ * derrota: a quien paga le **dice algo útil** —«a este proveedor se le suele pagar desde Caja
+ * General»— que antes no estaba en ninguna pantalla. Quedan **43 propuestas de cuenta**, y el
+ * método, que es lo que la pantalla reclama a gritos, sigue en 288.
  */
 
 /** Los acreedores con esta concentración o más reciben propuesta; abajo se declara «variable». */
@@ -54,14 +66,19 @@ const CUERPO = `
   WITH
   -- 1 · El puente Kepler -> nuestro catálogo de cuentas. Dos reglas, medidas arriba.
   puente AS (
-    SELECT k.c AS nombre_kepler, b.id AS bank_account_id, b.alias AS cuenta_nombre
+    SELECT k.c AS nombre_kepler, b.id AS bank_account_id, b.alias AS cuenta_nombre,
+           -- El selector de origen del Calendario (originAccounts) excluye la caja: "la caja no es
+           -- origen de una transferencia". Medido: 111 de 154 propuestas caian en CAJA GENERAL.
+           -- Proponer un id que el desplegable no ofrece lo deja VACIO sin decir por que, asi que
+           -- esas no se proponen: se explican.
+           (b.active AND coalesce(b.kind, 'bank') <> 'cash') AS ofrecible
       FROM (SELECT DISTINCT cuenta_tesoreria AS c,
                    regexp_replace(upper(cuenta_tesoreria), '[^A-Z]', '', 'g') AS banco,
                    (regexp_match(cuenta_tesoreria, '([0-9]{3,})'))[1] AS dig
               FROM analytics.erp_supplier_payments
              WHERE cuenta_tesoreria IS NOT NULL) k
       JOIN LATERAL (
-        SELECT a.id, a.alias
+        SELECT a.id, a.alias, a.active, a.kind
           FROM finance.bank_accounts a
          WHERE upper(btrim(coalesce(a.alias, ''))) = upper(btrim(k.c))
             OR upper(btrim(coalesce(a.account_label, ''))) = upper(btrim(k.c))
@@ -84,15 +101,16 @@ const CUERPO = `
   -- 3 · La cuenta de origen, ya traducida a nuestro catálogo.
   cta AS (
     SELECT p.proveedor_code, p.cuenta_tesoreria, pu.bank_account_id, pu.cuenta_nombre,
+           coalesce(pu.ofrecible, false) AS ofrecible,
            count(*) AS n, max(p.pago_date) AS ultima,
            sum(count(*)) OVER (PARTITION BY p.proveedor_code) AS tot
       FROM analytics.erp_supplier_payments p
       LEFT JOIN puente pu ON pu.nombre_kepler = p.cuenta_tesoreria
      WHERE p.cuenta_tesoreria IS NOT NULL
-     GROUP BY 1, 2, 3, 4),
+     GROUP BY 1, 2, 3, 4, 5),
   cta1 AS (
     SELECT DISTINCT ON (proveedor_code) proveedor_code, cuenta_tesoreria, bank_account_id,
-           cuenta_nombre, n, tot, ultima
+           cuenta_nombre, ofrecible, n, tot, ultima
       FROM cta ORDER BY proveedor_code, n DESC, cuenta_tesoreria)
   SELECT
     (nullif(current_setting('app.tenant_id', true), ''))::uuid AS tenant_id,
@@ -108,11 +126,12 @@ const CUERPO = `
     -- Cuenta de origen
     CASE WHEN c.proveedor_code IS NULL THEN 'sin_historial'
          WHEN c.bank_account_id IS NULL THEN 'no_resuelve'
+         WHEN NOT c.ofrecible THEN 'caja_general'
          WHEN c.n::numeric / c.tot >= ${PISO} THEN 'estable'
          ELSE 'variable' END AS cuenta_estado,
-    CASE WHEN c.bank_account_id IS NOT NULL AND c.n::numeric / c.tot >= ${PISO}
+    CASE WHEN c.ofrecible AND c.n::numeric / c.tot >= ${PISO}
          THEN c.bank_account_id END AS cuenta_origen_id,
-    CASE WHEN c.bank_account_id IS NOT NULL AND c.n::numeric / c.tot >= ${PISO}
+    CASE WHEN c.ofrecible AND c.n::numeric / c.tot >= ${PISO}
          THEN c.cuenta_nombre END AS cuenta_origen_nombre,
     c.cuenta_tesoreria AS cuenta_kepler,
     c.n AS cuenta_veces, c.tot AS cuenta_de, c.ultima AS cuenta_ultima_vez
@@ -122,7 +141,7 @@ const CUERPO = `
 
 const COMENTARIO = `
   COMMENT ON VIEW analytics.v_supplier_payment_habit IS
-    'PGP.30 - Con que se le suele pagar a cada acreedor, derivado de analytics.erp_supplier_payments. PROPONE, no decide: cada sugerencia viaja con veces/de/ultima_vez. No propone efectivo ni cargo_automatico porque Kepler (kdm1.c31) no los distingue, y excluye anticipo porque no es un metodo. La cuenta de origen se traduce al catalogo propio por alias o por banco+digitos: 16 de 20 cuentas, 96.7 % de los pagos; las que no resuelven salen como no_resuelve, nunca adivinadas.'
+    'PGP.30 - Con que se le suele pagar a cada acreedor, derivado de analytics.erp_supplier_payments. PROPONE, no decide: cada sugerencia viaja con veces/de/ultima_vez. No propone efectivo ni cargo_automatico porque Kepler (kdm1.c31) no los distingue, y excluye anticipo porque no es un metodo. La cuenta de origen se traduce al catalogo propio por alias o por banco+digitos (16 de 20 cuentas, 96.7 % de los pagos) y solo se propone si el selector del Calendario la ofrece: las de CAJA GENERAL salen como cuenta_estado=caja_general, que informa sin proponer un id que el desplegable no puede pintar. no_resuelve = la cuenta existe en Kepler pero no casa con ninguna nuestra; nunca se adivina.'
 `;
 
 exports.up = async function up(knex) {
