@@ -29,6 +29,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { TOLERANCIA_KEPLER_WINCAJA, TOLERANCIA_MAYOR_515, veredictoCuadre, type VeredictoCuadre } from '@megadulces/contracts';
 
 /**
  * DM.2 — Diario de movimientos (mejora del reporte Kepler homónimo).
@@ -283,21 +284,21 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
           @if (!cuadreLoading() && !cuadreError() && cuadreLoaded()) {
             <div class="dm-verdict" role="group" aria-label="Veredicto de cuadre de la red">
               @if (ledger(); as lg) {
-                <div class="dm-verdict-item" [class.ok]="ledgerOk(lg.totals.delta, lg.totals.entrada)" [class.bad]="!ledgerOk(lg.totals.delta, lg.totals.entrada)">
+                <div class="dm-verdict-item" [class.ok]="ledgerOk(lg.totals.delta, lg.totals.entrada)" [class.bad]="ledgerBad(lg.totals.delta, lg.totals.entrada)">
                   <span class="dm-verdict-lbl">Contable · mayor 515</span>
-                  <span class="dm-verdict-val">{{ ledgerOk(lg.totals.delta, lg.totals.entrada) ? 'cuadra' : signed(lg.totals.delta) }}</span>
+                  <span class="dm-verdict-val">{{ vTxt(vLedger(lg.totals.delta, lg.totals.entrada), lg.totals.delta) }}</span>
                 </div>
               }
               @if (detail(); as dt) {
-                <div class="dm-verdict-item" [class.ok]="!(dt.totals.sin_rastro.n_entrada + dt.totals.sin_rastro.n_salida)" [class.bad]="dt.totals.sin_rastro.n_entrada + dt.totals.sin_rastro.n_salida">
+                <div class="dm-verdict-item" [class.ok]="polizasMedidas(dt) && !(dt.totals.sin_rastro.n_entrada + dt.totals.sin_rastro.n_salida)" [class.bad]="polizasMedidas(dt) && dt.totals.sin_rastro.n_entrada + dt.totals.sin_rastro.n_salida">
                   <span class="dm-verdict-lbl">Pólizas sin rastro</span>
-                  <span class="dm-verdict-val">{{ dt.totals.sin_rastro.n_entrada + dt.totals.sin_rastro.n_salida | number }}</span>
+                  <span class="dm-verdict-val">{{ polizasMedidas(dt) ? (dt.totals.sin_rastro.n_entrada + dt.totals.sin_rastro.n_salida | number) : 'sin datos' }}</span>
                 </div>
               }
               @if (wincaja(); as wc) {
-                <div class="dm-verdict-item" [class.ok]="wincajaOk(wc.totals.delta, wc.totals.kepler)" [class.bad]="!wincajaOk(wc.totals.delta, wc.totals.kepler)">
+                <div class="dm-verdict-item" [class.ok]="wincajaOk(wc.totals.delta, wc.totals.kepler)" [class.bad]="wincajaBad(wc.totals.delta, wc.totals.kepler)">
                   <span class="dm-verdict-lbl">Kepler → Wincaja</span>
-                  <span class="dm-verdict-val">{{ wincajaOk(wc.totals.delta, wc.totals.kepler) ? 'cuadra' : signed(wc.totals.delta) }}</span>
+                  <span class="dm-verdict-val">{{ vTxt(vWincaja(wc.totals.delta, wc.totals.kepler), wc.totals.delta) }}</span>
                 </div>
               }
             </div>
@@ -341,7 +342,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                     <h2 class="dm-block-title"><i class="pi pi-book" aria-hidden="true"></i> Cuadre contable · mayor 515 «Ajuste traspasos internos»</h2>
                     <p class="dm-block-sub">Cuenta puente: cada salida (515-002) debe tener su entrada (515-001) → el mayor debe netear <strong>$0</strong>. Δ ≠ 0 = traspasos sin cuadrar o en tránsito al corte.</p>
                   </div>
-                  <div class="dm-total" [class.ok]="ledgerOk(lg.totals.delta, lg.totals.entrada)" [class.bad]="!ledgerOk(lg.totals.delta, lg.totals.entrada)">
+                  <div class="dm-total" [class.ok]="ledgerOk(lg.totals.delta, lg.totals.entrada)" [class.bad]="ledgerBad(lg.totals.delta, lg.totals.entrada)">
                     <span class="dm-total-lbl">Descuadre acumulado</span>
                     <span class="dm-total-val">{{ signed(lg.totals.delta) }}</span>
                   </div>
@@ -365,9 +366,9 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                           <tr><td class="dm-strong">{{ m.anio_mes }}</td>
                             <td class="dm-r up">{{ money(m.entrada) }}</td>
                             <td class="dm-r down">{{ money(m.salida) }}</td>
-                            <td class="dm-r dm-delta" [class.ok]="ledgerOk(m.delta, m.entrada)" [class.bad]="!ledgerOk(m.delta, m.entrada)">{{ ledgerOk(m.delta, m.entrada) ? 'cuadra' : signed(m.delta) }}</td>
+                            <td class="dm-r dm-delta" [class.ok]="ledgerOk(m.delta, m.entrada)" [class.bad]="ledgerBad(m.delta, m.entrada)">{{ vTxt(vLedger(m.delta, m.entrada), m.delta) }}</td>
                             <td class="dm-r dm-muted">{{ pctDesc(m.delta, m.entrada) }}</td>
-                            <td class="dm-r dm-strong" [class.bad]="!ledgerOk(m.acumulado, m.entrada)">{{ signed(m.acumulado) }}</td></tr>
+                            <td class="dm-r dm-strong" [class.bad]="ledgerBad(m.acumulado, m.entrada)">{{ signed(m.acumulado) }}</td></tr>
                         } @empty { <tr><td colspan="6" class="dm-empty">Sin datos contables de traspasos en el rango.</td></tr> }
                       </tbody>
                     </table>
@@ -383,7 +384,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                             <tr><td class="dm-strong">{{ s.sucursal | sucursal }}</td>
                               <td class="dm-r up">{{ money(s.entrada) }}</td>
                               <td class="dm-r down">{{ money(s.salida) }}</td>
-                              <td class="dm-r dm-delta" [class.ok]="ledgerOk(s.delta, s.entrada)" [class.bad]="!ledgerOk(s.delta, s.entrada)">{{ ledgerOk(s.delta, s.entrada) ? 'cuadra' : signed(s.delta) }}</td></tr>
+                              <td class="dm-r dm-delta" [class.ok]="ledgerOk(s.delta, s.entrada)" [class.bad]="ledgerBad(s.delta, s.entrada)">{{ vTxt(vLedger(s.delta, s.entrada), s.delta) }}</td></tr>
                           }
                         </tbody>
                       </table>
@@ -476,13 +477,13 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                   <tbody>
                     @for (r of mx.rows; track r.origin_wh_id + '>' + r.dest_wh_id) {
                       <tr class="dm-row" role="button" tabindex="0" [attr.aria-label]="'Comparar ' + (r.origin_wh || '—') + ' a ' + (r.dest_wh || 'sin destino')"
-                          [class.dm-hl]="!matrixQtyOk(r.delta_qty) || r.n_diferencia > 0 || r.n_sin_recepcion > 0"
+                          [class.dm-hl]="matrixBad(r.delta_qty) || r.n_diferencia > 0 || r.n_sin_recepcion > 0"
                           (click)="openMatrixPair(r)" (keydown.enter)="openMatrixPair(r)" (keydown.space)="$event.preventDefault(); openMatrixPair(r)">
                         <td class="dm-strong">{{ r.origin_wh || '—' }}</td>
                         <td>{{ r.dest_wh || '(sin destino)' }} <span class="dm-link">comparar ›</span></td>
                         <td class="dm-r">{{ r.qty_sent | number:'1.0-0' }}</td>
                         <td class="dm-r">{{ r.qty_received | number:'1.0-0' }}</td>
-                        <td class="dm-r dm-delta" [class.ok]="matrixQtyOk(r.delta_qty)" [class.bad]="!matrixQtyOk(r.delta_qty)">{{ matrixQtyOk(r.delta_qty) ? 'cuadra' : (r.delta_qty>0?'+':'') + (r.delta_qty | number:'1.0-0') }}</td>
+                        <td class="dm-r dm-delta" [class.ok]="matrixQtyOk(r.delta_qty)" [class.bad]="matrixBad(r.delta_qty)">{{ matrixQtyOk(r.delta_qty) ? 'cuadra' : (r.delta_qty>0?'+':'') + (r.delta_qty | number:'1.0-0') }}</td>
                         <td class="dm-r dm-strong">{{ money(r.amount) }}</td>
                         <td class="dm-r dm-muted"><span class="up">{{ r.n_ok }}</span> / <span [class.down]="r.n_diferencia>0">{{ r.n_diferencia }}</span> / <span [class.down]="r.n_sin_recepcion>0">{{ r.n_sin_recepcion }}</span></td>
                       </tr>
@@ -532,7 +533,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                     <h2 class="dm-block-title"><i class="pi pi-shop" aria-hidden="true"></i> Traspasos CEDIS → tiendas Wincaja <span class="dm-muted">· 30/32/50 (no están en Kepler)</span></h2>
                     <p class="dm-block-sub">Cuadre por totales: lo que el CEDIS <strong>despachó</strong> (Kepler 515-002, por destino) vs lo que la tienda <strong>recibió</strong> en Wincaja (costo). Estas tiendas no están en Kepler → sus recepciones no salen en el 515. Comparación por $ (unidad Wincaja ≠ piezas Kepler); Δ ≠ 0 = revisar.</p>
                   </div>
-                  <div class="dm-total" [class.ok]="wincajaOk(wc.totals.delta, wc.totals.kepler)" [class.bad]="!wincajaOk(wc.totals.delta, wc.totals.kepler)">
+                  <div class="dm-total" [class.ok]="wincajaOk(wc.totals.delta, wc.totals.kepler)" [class.bad]="wincajaBad(wc.totals.delta, wc.totals.kepler)">
                     <span class="dm-total-lbl">Δ Kepler − Wincaja</span>
                     <span class="dm-total-val">{{ signed(wc.totals.delta) }}</span>
                   </div>
@@ -542,7 +543,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                   <tbody>
                     @for (r of wc.rows; track r.code + r.anio_mes) {
                       <tr class="dm-row" role="button" tabindex="0" [attr.aria-label]="'Ver detalle de ' + r.name + ' ' + r.anio_mes"
-                          [class.dm-hl]="!wincajaOk(r.delta, r.kepler_envio)"
+                          [class.dm-hl]="wincajaBad(r.delta, r.kepler_envio)"
                           (click)="openWincajaDetail(r)" (keydown.enter)="openWincajaDetail(r)" (keydown.space)="$event.preventDefault(); openWincajaDetail(r)">
                         <td class="dm-strong">{{ r.code }} · {{ r.name }} <span class="dm-link">detalle ›</span></td>
                         <td class="dm-mono">{{ r.anio_mes }}</td>
@@ -550,7 +551,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                         <td class="dm-r">{{ money(r.wincaja_recibido) }}@if (r.wincaja_inter) { <span class="dm-muted dm-sub"> (CEDIS {{ money(r.wincaja_cedis || 0) }} + hermana {{ money(r.wincaja_inter) }})</span> }</td>
                         <td class="dm-r dm-muted">{{ r.kepler_compra_zona ? money(r.kepler_compra_zona) : '—' }}</td>
                         <td class="dm-r dm-muted">{{ r.docs || '—' }}</td>
-                        <td class="dm-r dm-delta" [class.ok]="wincajaOk(r.delta, r.kepler_envio)" [class.bad]="!wincajaOk(r.delta, r.kepler_envio)">{{ wincajaOk(r.delta, r.kepler_envio) ? 'cuadra' : signed(r.delta) }}</td>
+                        <td class="dm-r dm-delta" [class.ok]="wincajaOk(r.delta, r.kepler_envio)" [class.bad]="wincajaBad(r.delta, r.kepler_envio)">{{ vTxt(vWincaja(r.delta, r.kepler_envio), r.delta) }}</td>
                       </tr>
                     } @empty { <tr><td colspan="7" class="dm-empty">Sin traspasos a tiendas Wincaja en el rango.</td></tr> }
                   </tbody>
@@ -744,7 +745,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                 <td class="dm-mono">{{ r.rcv_folio || '—' }}</td>
                 <td class="dm-r">{{ r.qty_sent != null ? (r.qty_sent | number:'1.0-0') : '—' }}</td>
                 <td class="dm-r">{{ r.qty_received != null ? (r.qty_received | number:'1.0-0') : '—' }}</td>
-                <td class="dm-r dm-delta" [class.ok]="matrixQtyOk(r.delta)" [class.bad]="!matrixQtyOk(r.delta)">{{ matrixQtyOk(r.delta) ? '0' : (r.delta>0?'+':'') + (r.delta | number:'1.0-0') }}</td>
+                <td class="dm-r dm-delta" [class.ok]="matrixQtyOk(r.delta)" [class.bad]="matrixBad(r.delta)">{{ matrixQtyOk(r.delta) ? '0' : (r.delta>0?'+':'') + (r.delta | number:'1.0-0') }}</td>
                 <td class="dm-r dm-strong">{{ r.amount != null ? money(r.amount) : '—' }}</td>
                 <td class="dm-muted">{{ (r.ship_date || r.rcv_date) | date:'yyyy-MM-dd' }}</td>
               </tr>
@@ -796,7 +797,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
         <div class="dm-cmp-state">
           <span class="dm-strong">{{ d.code }} · {{ d.name }}</span>
           <span class="dm-muted">{{ d.anio_mes }}</span>
-          <span class="dm-total" [class.ok]="wincajaOk(d.delta, d.kepler.total)" [class.bad]="!wincajaOk(d.delta, d.kepler.total)" style="margin-left:auto">
+          <span class="dm-total" [class.ok]="wincajaOk(d.delta, d.kepler.total)" [class.bad]="wincajaBad(d.delta, d.kepler.total)" style="margin-left:auto">
             <span class="dm-total-lbl">Δ Kepler − Wincaja</span><span class="dm-total-val">{{ signed(d.delta) }}</span>
           </span>
         </div>
@@ -1469,7 +1470,8 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   unmatched(): TransferCheckRow[] {
     return (this.check()?.rows ?? []).filter((r) => r.status !== 'ok');
   }
-  matrixQtyOk(delta: number): boolean { return Math.abs(Number(delta) || 0) < 0.01; }
+  matrixQtyOk(delta: unknown): boolean { const d = delta == null || delta === '' ? NaN : Number(delta); return Number.isFinite(d) && Math.abs(d) < 0.01; }
+  matrixBad(delta: unknown): boolean { const d = delta == null || delta === '' ? NaN : Number(delta); return Number.isFinite(d) && Math.abs(d) >= 0.01; }
   bucketLabel(b: string): string {
     return b === 'exacto' ? 'Exacta' : b === 'costo' ? 'Dif. costo' : 'Sin rastro';
   }
@@ -1491,16 +1493,29 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
     }
   }
 
+  /**
+   * [MX.1.2] **Veredicto en TRES estados: cuadra · difiere · sin datos.** Antes `Number(x) || 0` + la
+   * tolerancia convertían un lente vacío (sin balanza, sin Wincaja, sin pólizas) en «cuadra» en verde:
+   * lo que no se midió se dibujaba como bueno (ADR-056). Ahora: delta no numérico → sin datos; base
+   * vacía con delta 0 → sin datos (no hubo nada que cuadrar); base vacía con delta ≠ 0 → difiere.
+   * La regla vive UNA vez en `@megadulces/contracts` (`veredictoCuadre`) y la usa también el PDF.
+   */
   /** Cuadre Kepler↔Wincaja: tolerante (valuación distinta) — |Δ| < $500 o < 2% de lo despachado. */
-  wincajaOk(delta: number, base: number): boolean {
-    const d = Math.abs(Number(delta) || 0);
-    return d < 500 || d < Math.abs(Number(base) || 0) * 0.02;
-  }
-
+  vWincaja(delta: unknown, base: unknown): VeredictoCuadre { return veredictoCuadre(delta, base, TOLERANCIA_KEPLER_WINCAJA); }
   /** Cuadra si |Δ| es despreciable: < $1 absoluto o < 0.1% de las entradas del período. */
-  ledgerOk(delta: number, entrada: number): boolean {
-    const d = Math.abs(Number(delta) || 0);
-    return d < 1 || d < Math.abs(Number(entrada) || 0) * 0.001;
+  vLedger(delta: unknown, entrada: unknown): VeredictoCuadre { return veredictoCuadre(delta, entrada, TOLERANCIA_MAYOR_515); }
+  wincajaOk(delta: unknown, base: unknown): boolean { return this.vWincaja(delta, base) === 'cuadra'; }
+  wincajaBad(delta: unknown, base: unknown): boolean { return this.vWincaja(delta, base) === 'difiere'; }
+  ledgerOk(delta: unknown, entrada: unknown): boolean { return this.vLedger(delta, entrada) === 'cuadra'; }
+  ledgerBad(delta: unknown, entrada: unknown): boolean { return this.vLedger(delta, entrada) === 'difiere'; }
+  /** Texto del veredicto: «cuadra», el Δ con signo, o «sin datos» — nunca un $0 inventado. */
+  vTxt(v: VeredictoCuadre, delta: number | string): string {
+    return v === 'cuadra' ? 'cuadra' : v === 'difiere' ? this.signed(delta) : 'sin datos';
+  }
+  /** «Pólizas sin rastro» sólo se puede afirmar si hubo pólizas que revisar. */
+  polizasMedidas(dt: TransfersLedgerDetailResponse): boolean {
+    return (Number(dt.totals.n_exact) || 0) + (Number(dt.totals.cost?.n) || 0)
+      + (Number(dt.totals.sin_rastro.n_entrada) || 0) + (Number(dt.totals.sin_rastro.n_salida) || 0) > 0;
   }
   /** Δ con signo explícito (+/−) y formato moneda. */
   signed(v: number | string): string {
