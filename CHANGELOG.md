@@ -10,7 +10,7 @@
 
 ## [Unreleased]
 ### Added — Mesa de Servicio: aviso en pantalla cuando entra una solicitud nueva (MS.AVISO, 2026-10-28)
-- **Ventana emergente en cualquier pantalla de la Suite**, mientras la sesión esté abierta, cuando entra una solicitud a una cola que atiendes: folio, título, quién la reportó, y un clic para abrirla en la bandeja. Las urgentes no se cierran solas.
+- **Ventana emergente en cualquier pantalla de la Suite (también en «Mi trabajo»)**, mientras la sesión esté abierta, cuando entra una solicitud a una cola que atiendes: folio, título, quién la reportó, y un clic para abrirla en la bandeja. Sale en gris neutro; las urgentes, en rojo y no se cierran solas.
 - **Aviso de Windows si la pestaña está oculta** (opcional): un botón al pie de la campana pide el permiso del navegador. Sin permiso, la ventana espera en la página; no se finge ningún aviso. No funciona con la pestaña cerrada (eso pide service worker y llaves VAPID, que no existen).
 - **Evento nuevo `nueva_solicitud`**: antes sólo avisaba la solicitud **alta o urgente** (40 de 76 en el último mes, medido en producción el 2026-10-28); las 36 de prioridad media/baja **no avisaban a nadie**, ni a la campana. Ahora toda solicitud nueva avisa a quien atiende esa cola (menos a quien la reportó y a quien la regla ya se la asignó). Sin migraciones ni permisos.
 ### Added — Mesa de Servicio: arrastrar archivos desde el escritorio y adjuntar enlaces de Google (MS.ADJ, 2026-10-22)

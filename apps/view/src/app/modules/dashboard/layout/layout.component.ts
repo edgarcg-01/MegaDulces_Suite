@@ -68,7 +68,6 @@ import { ANALISIS_TABS } from '../../tienda/analisis/analisis-tabs';
 import { ARQUEO_TABS } from '../../tienda/arqueo-tabs';
 import { ETIQUETAS_TABS } from '../../tienda/etiquetas-tabs';
 import { HealthAlertToastComponent } from './health-alert-toast.component';
-import { ServiceDeskAvisoToastComponent } from './service-desk-aviso-toast.component';
 import { NotificationsBellComponent } from './notifications-bell.component';
 
 /** Clave interna de proyecto de este layout: indexa los `*NavGroups` escritos a mano (deuda SN). */
@@ -167,7 +166,7 @@ interface NavItem {
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [CommonModule, RouterModule, MenuModule, HealthAlertToastComponent, ServiceDeskAvisoToastComponent, NotificationsBellComponent],
+  imports: [CommonModule, RouterModule, MenuModule, HealthAlertToastComponent, NotificationsBellComponent],
   templateUrl: './layout.component.html',
   styleUrls: ['./layout.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -1,4 +1,4 @@
-import { Component, DestroyRef, OnInit, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { RouterOutlet, Router } from '@angular/router';
 import { DiagnosticsRecorderService } from './core/errors/diagnostics-recorder.service';
 import { SwUpdate, VersionReadyEvent, UnrecoverableStateEvent } from '@angular/service-worker';
@@ -14,11 +14,12 @@ import { enRutaPublica } from './core/auth/rutas-publicas';
 import { recargaAutomaticaBloqueada } from './core/services/recarga-segura';
 import { AuthService } from './core/services/auth.service';
 import { ArqueoDueService } from './modules/tienda/arqueo-due.service';
+import { ServiceDeskAvisoToastComponent } from './modules/dashboard/layout/service-desk-aviso-toast.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, ConfirmDialogModule, AppErrorOutletComponent],
+  imports: [RouterOutlet, ConfirmDialogModule, AppErrorOutletComponent, ServiceDeskAvisoToastComponent],
   templateUrl: './app.component.html',
   changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './app.component.css'
@@ -36,6 +37,15 @@ export class AppComponent implements OnInit {
   /** SM.23 — el aviso "haz tu arqueo" vive en la raíz: tiene que llegar esté en la pantalla que esté. */
   readonly arqueoDue = inject(ArqueoDueService);
   private auth = inject(AuthService);
+  /**
+   * `[MS.AVISO]` El aviso de solicitud nueva vive en la raíz, como el del arqueo: en el layout no
+   * salía en «Mi trabajo» (`/projects`), que queda fuera de él y es donde aterriza la gente al
+   * entrar. Se monta con sesión (sin token el socket no abre) y se vuelve a montar si cambia el
+   * usuario, así el socket se reconecta con el token nuevo.
+   */
+  readonly sesionAbierta = computed(() => !!this.auth.token());
+  /** `[CG.203]` En una pantalla pública no: abriría un socket con la sesión que el equipo arrastre. */
+  readonly enRutaPublica = enRutaPublica;
 
   private updatePending = false;
   private static readonly UPDATE_POLL_MS = 30 * 60 * 1000;

@@ -12,7 +12,8 @@ import { avisoAnunciable } from '../../servicio/aviso-solicitud';
  * `[MS.AVISO]` Ventana emergente cuando entra una solicitud nueva a la Mesa de Servicio, en cualquier pantalla de la Suite
  * mientras la sesión esté abierta.
  *
- * Vive en el layout, hermana de la campana y del toast de salud, y comparte el socket `/alerts` (cuenta de referencias en
+ * Vive en la RAÍZ de la app (`app.component.html`), no en el layout: «Mi trabajo» queda fuera del layout y es donde aterriza
+ * la gente. Comparte el socket `/alerts` con la campana y el toast de salud (cuenta de referencias en
  * `AlertsSocketService`). Sólo escucha el PUSH: lo que ya estaba en la bandeja al abrir la sesión no se anuncia —eso lo cuenta la
  * campana—, y sólo le llega a quien el servidor eligió (quien atiende la cola de esa solicitud).
  *
@@ -65,7 +66,9 @@ export class ServiceDeskAvisoToastComponent implements OnInit, OnDestroy {
       if (!aviso) return;
       this.toast.add({
         key: 'sd-aviso',
-        severity: aviso.urgente ? 'error' : a.severity === 'warn' ? 'warn' : 'info',
+        // Lo normal va en `secondary` (la rampa neutra zinc del preset), no en `info`: el `info` de Aura es azul y
+        // Mercado lo prohíbe. El rojo queda para lo urgente, donde el color sí dice algo.
+        severity: aviso.urgente ? 'error' : a.severity === 'warn' ? 'warn' : 'secondary',
         summary: aviso.title,
         detail: aviso.message,
         data: { route: aviso.route },

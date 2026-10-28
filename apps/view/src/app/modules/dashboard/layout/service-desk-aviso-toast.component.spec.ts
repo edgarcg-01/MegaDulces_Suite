@@ -51,6 +51,8 @@ describe('ServiceDeskAvisoToastComponent', () => {
     expect(m.summary).toBe('Nueva solicitud');
     expect(m.data.route).toBe('/servicio/bandeja?id=abc-123');
     expect(m.sticky).toBe(false);
+    // Neutro, nunca el `info` azul de Aura (Mercado prohíbe el azul).
+    expect(m.severity).toBe('secondary');
   });
   it('una urgente NO se cierra sola (sticky) y sale como error', async () => {
     await montar();
