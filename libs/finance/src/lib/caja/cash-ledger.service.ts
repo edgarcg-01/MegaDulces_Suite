@@ -24,6 +24,7 @@ const ETIQUETA_CARRIL: Record<string, string> = {
   ods_live_caja: 'Carril de caja del ODS (kdm1)',
 };
 import { CajaGateway } from './caja.gateway';
+import { codigosDeSucursalBuscada, rutaBuscada, rutaDelDocumento } from './caja-ruta';
 import { leerCandado } from './caja-candado.query';
 import { buildFolio } from './caja-autofill.engine';
 import { diaAnterior, inicioDelMes, primerCorteDelLibro, saldadosPorControl } from './caja-relevo';
@@ -693,7 +694,9 @@ export class CashLedgerService {
     const row = hayBandeja ? await trx('finance.v_caja_movimientos_pendientes')
       .where({ tenant_id: tenantId, origen_ref: origenRef })
       .first('origen_ref', 'folio', 'doc_tipo', 'sucursal', 'clave_banco', 'caja_nombre', 'fecha_valor',
-        'tipo', 'origen_tipo', 'entidad_code', 'beneficiario', 'concepto', 'monto') : null;
+        'tipo', 'origen_tipo', 'entidad_code', 'beneficiario', 'concepto', 'monto',
+        // `[CGA-A.59]` La ruta del cobro de camión ('ruta_501'), para guardarla en el libro.
+        'ruta') : null;
     if (row) return row;
 
     // ⚠️ Se busca por `origen_ref` SOLO, sin `origen_tipo`: la llave ya lleva el `doc_tipo`, así que
@@ -1320,6 +1323,9 @@ export class CashLedgerService {
         origen_tipo: input.origen_tipo ?? null,
         origen_ref: input.origen_ref ?? null,
         origen_uuid: input.origen_uuid ?? null,
+        // `[CGA-A.59]` La ruta sale del DOCUMENTO (la bandeja), nunca del formulario: se guarda al
+        // capturar porque leerla después cuesta 2 s de FDW por carga del libro.
+        ruta: rutaDelDocumento(doc?.ruta),
         // `[CGA-A.10]` La declaración por LLAVE. Se normaliza el vacío a NULL: una cadena vacía
         // haría casar `declared_doc_ref = origen_ref` con nada y, peor, apagaría la rama del
         // `LIKE` — una captura dejaría de descontar sin que nadie lo pidiera.
@@ -1701,6 +1707,9 @@ export class CashLedgerService {
         const s = `%${String(q.search).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
         // `[CG.116]` El importe entra al mismo OR: lo que el papel trae grande es el monto.
         const m = montoBuscado(q.search);
+        // `[CGA-A.59]` Por ruta y por sucursal de origen, igual que el libro.
+        const ruta = rutaBuscada(q.search);
+        const servidores = codigosDeSucursalBuscada(q.search);
         qb = qb.where((b: Knex.QueryBuilder) => {
           b.whereRaw(`beneficiario ILIKE ? ESCAPE '\\'`, [s])
             .orWhereRaw(`entidad_code ILIKE ? ESCAPE '\\'`, [s])
@@ -1708,7 +1717,10 @@ export class CashLedgerService {
             .orWhereRaw(`folio ILIKE ? ESCAPE '\\'`, [s])
             // CS.3.9 — el mismo buscador universal cae acá (por confirmar): folio/doc de Kepler.
             .orWhereRaw(`origen_ref ILIKE ? ESCAPE '\\'`, [s])
-            .orWhereRaw(`doc_tipo ILIKE ? ESCAPE '\\'`, [s]);
+            .orWhereRaw(`doc_tipo ILIKE ? ESCAPE '\\'`, [s])
+            .orWhereRaw(`ruta ILIKE ? ESCAPE '\\'`, [s]);
+          if (ruta) b.orWhereRaw(`ruta ~ ?`, [`(^|[^0-9])ruta_${ruta}($|[^0-9])`]);
+          for (const c of servidores) b.orWhereRaw(`split_part(sucursal, '-', 1) = ?`, [c]);
           agregaMonto(b, 'monto', m);
         });
       }
@@ -3474,15 +3486,22 @@ export class CashLedgerService {
           // Escapar %/_/\: sin esto, buscar "100%" devuelve TODO (el backslash es el escape default de
           // ILIKE en Postgres, así que alcanza con anteponerlo — no hace falta cláusula ESCAPE).
           const s = `%${q.search.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-          qb = qb.where((b: any) => b
-            .whereILike('glosa', s)
-            .orWhereILike('beneficiario', s)
-            .orWhereILike('folio', s)
-            .orWhereILike('origen_ref', s)
-            .orWhereILike('created_by_username', s)
-            .orWhereILike('kepler_concepto_nombre', s)
-            .orWhereILike('kepler_concepto', s)
-            .orWhereILike('kepler_cuenta', s));
+          // `[CGA-A.59]` Por RUTA («501», «R501», «ruta 501») y por SUCURSAL de origen («Canindo»).
+          const ruta = rutaBuscada(q.search);
+          const servidores = codigosDeSucursalBuscada(q.search);
+          qb = qb.where((b: Knex.QueryBuilder) => {
+            b.whereILike('glosa', s)
+              .orWhereILike('beneficiario', s)
+              .orWhereILike('folio', s)
+              .orWhereILike('origen_ref', s)
+              .orWhereILike('created_by_username', s)
+              .orWhereILike('kepler_concepto_nombre', s)
+              .orWhereILike('kepler_concepto', s)
+              .orWhereILike('kepler_cuenta', s);
+            if (ruta) b.orWhere('ruta', ruta);
+            // El servidor es el prefijo del documento ('06|…' o '06-001|…'), o la sucursal capturada.
+            for (const c of servidores) b.orWhereRaw(`split_part(split_part(origen_ref, '|', 1), '-', 1) = ?`, [c]).orWhere('sucursal', c);
+          });
         }
         return qb;
       };
@@ -3546,6 +3565,8 @@ export class CashLedgerService {
           'glosa', 'beneficiario', 'beneficiario_rfc', 'monto', 'morralla', 'venta_credito',
           'origen_tipo', 'origen_ref', 'origen_uuid', 'declared_doc_ref', 'sin_documento_motivo',
           'autofill', 'estado', 'corte_id',
+          // `[CGA-A.59]` La ruta del cobro de camión (la pantalla dice «Canindo · Ruta 501»).
+          'ruta',
           'firma_estado', 'firma_nombre', 'firma_at',
           'cancel_reason', 'cancelled_by_username', 'cancelled_at',
           'created_by', 'created_by_username', 'created_at', 'updated_at',

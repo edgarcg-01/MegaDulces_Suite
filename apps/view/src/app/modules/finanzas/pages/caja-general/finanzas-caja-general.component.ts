@@ -19,7 +19,7 @@ import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { textoFalloFirma, type ContextoFirma } from '@megadulces/contracts';
-import { evaluarCambio, pagableConBilletesCaos, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS, leerCorte, type LecturaCorte } from '@megadulces/contracts';
+import { evaluarCambio, pagableConBilletesCaos, warehouseName,type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS, leerCorte, type LecturaCorte } from '@megadulces/contracts';
 import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
 /**
@@ -2121,7 +2121,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <p-select [options]="tiposFiltro" [(ngModel)]="tipo" (ngModelChange)="cargar()"
                   optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true"></p-select>
         <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()"
-               placeholder="Buscar en realizados: folio, concepto, beneficiario, usuario…" />
+               placeholder="Buscar en realizados: folio, ruta, sucursal, concepto, beneficiario…" />
         <!-- CS.3.10 — Reporte diario: los movimientos del rango/filtros + totales.
              [CG.87] VER va primero y imprimir queda al lado: hasta hoy el reporte sólo existía
              en papel, así que para leerlo había que gastar un ticket. Los dos salen del MISMO
@@ -2274,6 +2274,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <span [class.fin-hint-warn]="o.tono === 'warn'">{{ o.sistema }}</span>
                 <small class="fin-dim d-block mono">{{ o.ref }}</small>
               }
+              <!-- [CGA-A.59] De qué servidor viene, por NOMBRE, y la ruta si es cobro de camión. -->
+              @if (servidorDe(m); as sv) { <small class="fin-dim d-block">{{ sv }}</small> }
             </td>
             <td class="ta-c">
               <!-- CS.3.8 — re-imprime el comprobante en la térmica (folio nuestro, desglose, concepto,
@@ -2302,7 +2304,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <div><span class="cg-det-r">Beneficiario</span>
                   {{ m.beneficiario || '—' }}
                   @if (m.beneficiario_rfc) { <small class="fin-dim d-block mono">{{ m.beneficiario_rfc }}</small> }</div>
-                <div><span class="cg-det-r">Sucursal</span>{{ m.sucursal | sucursal }}</div>
+                <!-- [CGA-A.59] La sucursal es la del SERVIDOR de donde vino el documento; `sucursal` de un
+                     cobro de camión guarda el almacén ('06-003') y la pipe lo dejaba como código. -->
+                <div><span class="cg-det-r">Sucursal</span>{{ servidorDe(m) || (m.sucursal | sucursal) }}</div>
                 <div><span class="cg-det-r">Capturado</span>{{ dmy(m.fecha) }}@if (m.hora) { · {{ m.hora }} }
                   <small class="fin-dim d-block">{{ m.created_by_username || 'sin usuario' }}</small></div>
 
@@ -2951,7 +2955,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                primero en el rótulo porque es el caso nuevo: una funcion que no se anuncia no
                existe (D.5), y el buscador no tiene forma de insinuarla sola. -->
           <input pInputText [(ngModel)]="searchPend" (keyup.enter)="cargarPendientes()" class="cg-sel cg-buscar"
-                 placeholder="Buscar: importe, folio Kepler, concepto, beneficiario…"
+                 placeholder="Buscar: importe, folio Kepler, ruta, sucursal, beneficiario…"
                  aria-label="Buscar en por confirmar por importe, folio de Kepler, concepto o beneficiario" />
           <span class="cg-bandeja-sp"></span>
           <!-- [CG.56] "Marcar todas" vivia como una casilla en el encabezado de la columna. Al
@@ -5100,6 +5104,26 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * Lo de antes no se borra: «autorrellenado» pasa a llamarse por su nombre dentro del
    * desplegable, donde es lo que es — procedencia de la CLASIFICACIÓN, no del dinero.
    */
+  /**
+   * ⭐ `[CGA-A.59]` De qué SERVIDOR viene el movimiento, por nombre (Edgar, 2026-10-28: *«asociemos
+   * cada movimiento a su respectiva sucursal, de qué servidor proviene»*).
+   *
+   * El servidor es el prefijo del documento de Kepler: `'06|U-A-5|…'` → 06, y en un cobro de camión
+   * `'06-001|U-A-5|…'` → 06 con el almacén 001 del camión. ⛔ No es `m.sucursal`: un pago a
+   * proveedor del servidor 01 puede estar capturado en la caja 00, y de un cobro de camión guarda el
+   * almacén. La ruta la guarda la captura (`ruta`); si no se supo, se dice el almacén, no se inventa.
+   * `null` = no hay documento de Kepler (captura a mano): no hay servidor que nombrar.
+   */
+  servidorDe(m: MovimientoCaja): string | null {
+    if (m.origen_tipo === 'caos') return 'Caja fuerte (CAOS)';
+    const pref = String(m.origen_ref ?? '').split('|')[0].trim();
+    const [srv, alm] = pref.split('-');
+    if (!/^\d{2}$/.test(srv ?? '')) return null;
+    const nombre = warehouseName(srv);
+    if (m.ruta) return `${nombre} · Ruta ${m.ruta}`;
+    return alm ? `${nombre} · almacén ${alm}` : nombre;
+  }
+
   origenDe(m: MovimientoCaja): { sistema: string; ref: string; tono: 'ok' | 'warn' } {
     const t = String(m.origen_tipo ?? '').trim();
     const ref = String(m.origen_ref ?? '').trim();

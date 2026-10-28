@@ -51,6 +51,8 @@ export interface MovimientoCaja {
   morralla: number;
   origen_tipo: string | null;
   origen_ref: string | null;
+  /** `[CGA-A.59]` Número de ruta del cobro de camión ('501'); `null` si no es de ruta o no se supo. */
+  ruta?: string | null;
   estado: string;
   created_by_username: string | null;
   created_at: string;
