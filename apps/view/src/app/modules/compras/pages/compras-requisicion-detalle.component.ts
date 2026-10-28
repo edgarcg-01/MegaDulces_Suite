@@ -47,14 +47,14 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             </h1>
             <p class="surf-page-sub">
               @if (r.source_type === 'branch') {
-                Traspaso: <strong>{{ r.source_warehouse_code || 'CEDIS' }}</strong> ({{ r.source_warehouse_name || 'Origen' }}) → <strong>{{ r.warehouse_code }}</strong> ({{ r.warehouse_name }}) · {{ r.total_lines }} líneas · objetivo {{ basisLabel(r.target_basis) }}
+                Traspaso: <strong>{{ r.source_warehouse_name || (r.source_warehouse_code | sucursal) || 'CEDIS' }}</strong> → <strong>{{ r.warehouse_name || (r.warehouse_code | sucursal) }}</strong> · {{ r.total_lines }} líneas · objetivo {{ basisLabel(r.target_basis) }}
               } @else {
                 <!-- [RQ.8] La COMPRA dice DÓNDE ENTREGA, que no es lo mismo que para quién es.
                      Antes esta línea mostraba un solo almacén y las sucursales destino vivían en
                      notes como texto libre: 48 compras consolidadas por $7.42M se veían
                      idénticas a una entrega directa. -->
                 Proveedor: <strong>{{ r.supplier_name || 'Varios' }}</strong> · entrega en
-                <strong>{{ r.warehouse_code }}</strong> ({{ r.warehouse_name }}) · {{ r.total_lines }} líneas · objetivo {{ basisLabel(r.target_basis) }}
+                <strong>{{ r.warehouse_name || (r.warehouse_code | sucursal) }}</strong> · {{ r.total_lines }} líneas · objetivo {{ basisLabel(r.target_basis) }}
               }
             </p>
           }
@@ -78,7 +78,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="abrirOc()"><span class="p-button-icon p-button-icon-left pi" [ngClass]="r.source_type === 'branch' ? 'pi-send' : 'pi-shopping-cart'" aria-hidden="true"></span><span class="p-button-label">{{ r.source_type === 'branch' ? 'Capturar el traspaso de Kepler' : 'Capturar la OC de Kepler' }}</span></button>
               } @else if (r.estado === 'ordered' || r.estado === 'received') {
                 @if (r.oc_folio) {
-                  <span class="rd-oc" [attr.aria-label]="'Documento en Kepler: sucursal ' + r.oc_sucursal + ' folio ' + r.oc_folio">Kepler {{ r.oc_sucursal }}·{{ r.oc_folio }}</span>
+                  <span class="rd-oc" [attr.aria-label]="'Documento en Kepler: ' + (r.oc_sucursal | sucursal) + ' folio ' + r.oc_folio">Kepler {{ r.oc_sucursal | sucursal }} · {{ r.oc_folio }}</span>
                 } @else if (r.purchase_order_id) {
                   <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" (click)="goToPO()"><span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span><span class="p-button-label">Ver documento interno (histórico)</span></button>
                 } @else {
@@ -102,7 +102,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <div class="rd-ruta" role="status">
             <i class="pi pi-sitemap" aria-hidden="true"></i>
             <span>Esta compra <strong>se consolida</strong>: entrega en <strong>{{ r.warehouse_code | sucursal }}</strong> y baja por traspaso a
-              @for (b of r.bajadas; track b.id) {<a class="rd-ruta-l" [routerLink]="['/compras/requisiciones', b.id]">{{ b.code }}</a>@if (!$last) {<span>, </span>}}
+              @for (b of r.bajadas; track b.id) {<a class="rd-ruta-l" [routerLink]="['/compras/requisiciones', b.id]">{{ b.name || (b.code | sucursal) }}</a>@if (!$last) {<span>, </span>}}
               — {{ r.bajadas.length }} traspaso(s) generado(s) con ella.</span>
           </div>
         }
@@ -146,7 +146,9 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <p-table [value]="r.lines" styleClass="p-datatable-sm rd-table">
           <ng-template #header>
             <tr>
-              <th>SKU</th><th>Producto</th><th>Origen</th>
+              <th>SKU</th><th>Producto</th>
+              @if (conDestino(r)) { <th>Para</th> }
+              @if (variosOrigenes(r)) { <th>Origen</th> }
               <th class="rd-r">Existencia</th><th class="rd-r">Reorden</th><th class="rd-r">Sugerido</th>
               <th class="rd-r">Pedir</th>
               @if (showRecibido()) { <th class="rd-r">Recibido</th> }
@@ -157,10 +159,16 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <tr>
               <td class="rd-mono">{{ l.sku }}</td>
               <td>{{ l.nombre }}</td>
-              <td class="rd-muted">
-                @if (l.source_type === 'branch') { <span class="rd-src-branch">Traspaso</span> }
-                @else { {{ l.supplier_name || 'Proveedor' }} }
-              </td>
+              @if (conDestino(r)) {
+                <td>@if (l.destination_warehouse_id) { {{ l.destination_warehouse_name || (l.destination_warehouse_code | sucursal) }} }
+                  @else { <span class="rd-sinmedir" title="Renglón capturado antes del 19-oct-2026: no guardó su sucursal">sin dato</span> }</td>
+              }
+              @if (variosOrigenes(r)) {
+                <td class="rd-muted">
+                  @if (l.source_type === 'branch') { <span class="rd-src-branch">Traspaso</span> }
+                  @else { {{ l.supplier_name || 'Proveedor' }} }
+                </td>
+              }
               <td class="rd-r rd-muted">{{ l.on_hand | number:'1.0-0' }}</td>
               <td class="rd-r rd-muted">{{ l.reorder_point | number:'1.0-0' }}</td>
               <td class="rd-r rd-muted">{{ l.suggested_qty | number:'1.0-0' }}</td>
@@ -290,11 +298,25 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
 
   req = signal<RequisitionDetail | null>(null);
 
+  /** `[PQ.23]` Compra consolidada: el mismo SKU sale una vez por sucursal destino. */
+  conDestino(r: RequisitionDetail): boolean {
+    return (r.bajadas?.length ?? 0) > 0 || r.lines.some((l) => !!l.destination_warehouse_id);
+  }
+  /** `[PQ.23]` La columna Origen sólo informa si hay más de un origen; si no, repite el encabezado. */
+  variosOrigenes(r: RequisitionDetail): boolean {
+    const o = new Set(r.lines.map((l) => (l.source_type === 'branch' ? 'traspaso' : l.supplier_name || '')));
+    if (o.size !== 1) return o.size > 1;
+    return [...o][0] !== (r.supplier_name || '');
+  }
+
   kpiItems(r: RequisitionDetail): MetricStripItem[] {
     const fmtDate = (d: any) => d ? new Date(d).toLocaleString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
     const items: MetricStripItem[] = [
       { label: 'Unidades', value: r.total_units },
-      { label: 'Costo estimado', value: r.total_cost, format: 'currency', tone: 'brand' },
+      // `[PQ.23]` Sin impuestos: Kepler suma IVA e IEPS al total del documento (RQ-2026-01601:
+      // $787,585 aquí, $850,496.05 en Kepler). Sin decirlo, las dos cifras parecen no cuadrar.
+      { label: 'Costo estimado', value: r.total_cost, format: 'currency', tone: 'brand',
+        sub: r.source_type === 'branch' ? undefined : 'sin IVA ni IEPS' },
       { label: 'Creada', value: fmtDate(r.created_at), format: 'text' },
     ];
     if (r.notes) items.push({ label: 'Nota', value: r.notes, format: 'text' });
