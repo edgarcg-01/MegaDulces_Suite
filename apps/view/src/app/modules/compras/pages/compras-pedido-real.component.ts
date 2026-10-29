@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListene
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { accionesNegociacion, compareWarehouseCodes, type Freshness, type PedidoNegociacionDto, WAREHOUSE_DISPLAY_ORDER, warehouseName } from '@megadulces/contracts';
@@ -45,6 +45,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { LoPedidoComponent } from '../lo-pedido.component';
 import { ComprasFlujoComponent } from './compras-flujo.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
@@ -154,7 +155,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
   imports: [
     PedidoNegociacionPanelComponent,
     PedidoNegociacionDetalleComponent,
-    CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
+    LoPedidoComponent,
+    CommonModule, FormsModule, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, ConfirmDialogModule, PopoverModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent, SidePeekComponent, ComprasFlujoComponent,
     SucursalPipe,
   ],
@@ -178,11 +180,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
              stop para el grupo en vez de uno por opción. -->
         <app-segmented [options]="modeOpts" [value]="mode()" ariaLabel="Vista"
                        (valueChange)="setMode($any($event))"></app-segmented>
-        <!-- [RQ.6] El siguiente paso, a la vista y ANTES de crear nada. La requisición que sale
-             de esta pantalla no le pide nada a nadie hasta que alguien la aprueba allá, y esta
-             pantalla no lo decía en ningún lado. -->
-        <a pButton routerLink="/compras/requisiciones" class="p-button-sm p-button-text pr-req-link"
-           title="Lo que se genera acá espera aprobación en Requisiciones"><span class="p-button-icon p-button-icon-left pi pi-inbox" aria-hidden="true"></span><span class="p-button-label">Requisiciones</span></a>
+        <!-- [PQ.28] Lo que salió de aquí, sin salir de aquí: «Lo pedido» abre una ventana con lo
+             que espera aprobación (y se aprueba ahí) y lo reciente con su estado en Kepler. Antes
+             era un enlace a Requisiciones, otra pantalla con 4 pestañas. -->
+        <app-lo-pedido #loPedido class="pr-req-link"></app-lo-pedido>
       </header>
 
       <!-- [PQ.14] Lo que acabás de generar no se va con el toast: queda acá con su lote y el
@@ -198,7 +199,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               @for (f of ul.fallas; track f.folio) { <br>{{ f.folio }} quedó por aprobar: {{ f.motivo }} }
             </span>
           }
-          <a pButton routerLink="/compras/requisiciones" [queryParams]="ul.batch_folio ? { q: ul.batch_folio } : {}" class="p-button-sm p-button-text"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Ver en Requisiciones</span></a>
+          @if (loPedido.visible) {
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="loPedido.abrir()"><span class="p-button-icon p-button-icon-left pi pi-inbox" aria-hidden="true"></span><span class="p-button-label">Ver lo pedido</span></button>
+          }
           <button pButton type="button" class="p-button-sm p-button-text" aria-label="Cerrar este aviso" (click)="ultimoLote.set(null)"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
         </div>
       }
@@ -1115,7 +1118,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               </p>
               <div class="pr-uov-actions">
                 <p-button type="button" label="Cancelar" styleClass="p-button-sm p-button-text" (click)="cancelarPlan()" [disabled]="saving()"></p-button>
-                <p-button type="button" [label]="saving() ? 'Generando…' : (repetido() ? 'Generar de todos modos' : 'Generar los ' + p.total)" icon="pi pi-check" [styleClass]="repetido() ? 'p-button-sm p-button-danger' : 'p-button-sm'" (click)="confirmarPlan()" [disabled]="saving() || planBloqueos().length > 0"></p-button>
+                <!-- [PQ.28] Con permiso de autorizar, este clic ES la compra (D1): el botón lo dice con
+                     cuánto y cuánto dinero. Sin permiso, dice que va a aprobación. -->
+                <p-button type="button" [label]="saving() ? 'Enviando…' : (repetido() ? 'Enviar de todos modos' : (puedeAutorizar ? 'Enviar a Kepler · ' + p.total + ' · ' + money(p.monto) : 'Mandar a aprobación los ' + p.total))" icon="pi pi-check" [styleClass]="repetido() ? 'p-button-sm p-button-danger' : 'p-button-sm'" (click)="confirmarPlan()" [disabled]="saving() || planBloqueos().length > 0"></p-button>
               </div>
             </div>
           }
@@ -3379,6 +3384,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * `position: sticky; left: 0`. Sin `ResizeObserver` (pruebas) no se publica y queda como antes.
    */
   private readonly wbScroll = viewChild<ElementRef<HTMLElement>>('wbScroll');
+  /** `[PQ.28]` La ventana «Lo pedido»: se refresca al generar para que su conteo no mienta. */
+  private readonly loPedidoRef = viewChild(LoPedidoComponent);
   private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly anchoVisible = effect((onCleanup) => {
     const el = this.wbScroll()?.nativeElement;
@@ -4048,6 +4055,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
   private readonly perms = inject(PermissionsService);
   private puede(p: Permission): boolean { return this.perms.has(p); }
+  /** `[PQ.28]` D1: con esto, «Generar» es enviar a Kepler. Mismo criterio que el backend (clave exacta). */
+  get puedeAutorizar(): boolean { return this.perms.has(Permission.COMPRAS_REQUISICIONES_AUTORIZAR); }
   /** Cada enlace del panel pide el permiso de SU pantalla: un enlace que lleva a «sin acceso» no ayuda. */
   readonly negLinks = computed<EnlacesNegociacion>(() => ({
     costos: this.puede(Permission.COMPRAS_COSTO_ESTANDAR_VER),
@@ -5824,6 +5833,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
             : `Quedan ESPERANDO APROBACIÓN en Compras › Requisiciones — hasta entonces no se le pide nada a nadie. `)
             + `${n === 1 ? 'El producto armado se quitó' : `Los ${n} productos armados se quitaron`} de la requisición en armado; en la lista aparecen como «ya requisado».`,
         });
+        this.loPedidoRef()?.refrescar();
         this.mode() === 'muerto' ? this.loadDead() : this.loadWorkbook();
       },
       error: (e) => {

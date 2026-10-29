@@ -657,8 +657,10 @@ describe('[RA-UX] auditoría de interacción 2026-10-21: lo que la persona hace,
     expect(aviso).not.toBeNull();
     expect(aviso.textContent).toContain('Lote RQ-LOTE-TEST');
     expect(aviso.textContent).toContain('1 compra(s) + 0 traspaso(s)');
-    const link = aviso.querySelector('a[href]') as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe('/compras/requisiciones?q=RQ-LOTE-TEST');
+    // `[PQ.28]` Ya no manda a otra pantalla: «Ver lo pedido» abre la ventana ahí mismo. Sin
+    // aprobación automática (el doble no la trae) dice que espera aprobación.
+    expect(aviso.querySelector('a[href]')).toBeNull();
+    expect(aviso.textContent).toContain('Esperan aprobación');
     (aviso.querySelector('button[aria-label="Cerrar este aviso"]') as HTMLButtonElement).click();
     f.detectChanges();
     expect(f.nativeElement.querySelector('.pr-ultimo-lote')).toBeNull();
