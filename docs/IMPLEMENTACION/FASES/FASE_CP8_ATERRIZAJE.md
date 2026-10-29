@@ -1404,7 +1404,8 @@ hallazgos. Rompiendo el motor a propósito (el descuadre deja de detectarse, el 
 pruebas se ponen rojas.
 
 **Lo que NO cubre, declarado:**
-- **Periodo cerrado en ContPAQi:** no está replicado. Traerlo es extender el feed de ContPAQi, que es una decisión (D11).
+- **Periodo cerrado en ContPAQi:** no está replicado. ⭐ Lo resuelve la réplica cruda que pidió Edgar el
+  2026-10-29 ([`FASE_CP9` §8](FASE_CP9_COBERTURA_TOTAL.md), `CP.9.3`/`CP.9.4`): ya no es una decisión suelta (D11), es una etapa.
 - **El IVA del lote contra el CFDI:** los lotes no traen CFDI. Su IVA sale del movimiento hermano del banco.
 - **El estatus del SAT:** el 90 % de las pólizas de ene–sep lleva algún CFDI nunca consultado (en octubre, 16). Antes de dictaminar
   conviene consultarlo, como ya lo hace el Libro de Compras (`verificarSat`).

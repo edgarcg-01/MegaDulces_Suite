@@ -2,6 +2,9 @@
 
 > **Estado:** 🔍 PLAN MEDIDO 2026-10-09 · sin código · **ADR:** hereda ADR-040
 > **Pedido de Edgar:** *"generemos un plan a futuro de cubrir el 100% de ContPAQi"*.
+> ⭐ **2026-10-29 — Edgar: *«hay que replicar todo para llevar el control o sincronía con ContPAQi»*.** El plan vigente es
+> [§8, la réplica cruda continua](#8--ola-0--replicar-contpaqi-entero-la-réplica-cruda-continua-2026-10-29). Cambia la recomendación de §7
+> por una razón medible: con un replicador genérico, cada tabla extra ya no cuesta un importador.
 > **Antes:** [`FASE_CP_CONTPAQI.md`](FASE_CP_CONTPAQI.md) (decode) ·
 > [`FASE_CP8_PUENTE_CONTPAQI.md`](FASE_CP8_PUENTE_CONTPAQI.md) (el puente).
 
@@ -179,3 +182,110 @@ para auditarse solo.
 ⚠️ Y una advertencia sobre el orden: **ninguna de estas olas vale lo que vale cerrar el puente**
 (`FASE_CP8`), que hoy está a **un clic** de probarse. Importar más lectura mientras la escritura
 sigue sin verificar es ensanchar lo que ya funciona en vez de terminar lo que no.
+
+---
+
+## 8. ⭐ Ola 0 — Replicar ContPAQi entero: la réplica cruda continua (2026-10-29)
+
+> Pedido de Edgar (2026-10-29): *«hay que replicar todo para llevar el control o sincronía con ContPAQi en
+> contabilidad»*. Se escribe en esta fase porque CP.9 ya existe: no abre una nueva.
+
+### 8.1 Por qué cambia la recomendación de §7
+
+§7 decía «no perseguir el 100 %» porque **cada tabla costaba un importador propio**: transformarla, probarla y
+mantenerla. Así se construyeron los seis de hoy. Con una **réplica cruda genérica** —un solo mecanismo que copia
+cada tabla tal cual— ese costo desaparece:
+- **Wincaja** ya se replica así (Fase WR, réplica cruda continua).
+- **Kepler** llega igual a `kepler_ods` (ADR-046: «el crudo canónico»).
+
+Con eso se cumple la regla principal del repo: **una tabla principal (la réplica) y todo lo demás vistas que derivan
+sin copiar**.
+
+⛔ Lo que §2 decía sigue en pie: **el 100 % de las filas no es la meta**. La meta son las preguntas que ahora se
+contestan (§8.2). Lo que cambia es el precio: replicar las tablas que no contestan nada ya cuesta casi cero, y deja
+de valer la pena excluirlas.
+
+### 8.2 Qué es «control y sincronía»: lo que hoy NO se contesta desde la Suite
+
+| Pregunta | Tabla de ContPAQi | Quién la necesita |
+|---|---|---|
+| ¿Qué periodos tiene cerrados contabilidad? | *por medir en CP.9.0* | el dictamen (`[CP.8.95]`): no entregar a un periodo cerrado (era la D11 de CP.8) |
+| ¿Qué CFDI está asociado a qué póliza? | `AsocCFDIs` (979,977) | el puente (asociación de UUID) y LC; hoy se consulta a mano |
+| ¿Qué IVA e IEPS hay asentados por movimiento? | `MovimientosImpuestos` (331,955) · `DevolucionesIVA` (201,036) | LC y el cierre: la segunda implementación del IVA (Ola 1) |
+| ¿Cambió algo que ya se había cotejado? | `RowVersion` de cada fila | el cuadre del puente y el dictamen |
+| ¿Qué movió contabilidad en documentos y personas? | `DocumentosAdministrativos`, `Personas`, `Clientes`… | conciliación y padrón (Olas 2 y 4) |
+
+### 8.3 Cómo se hace
+
+Decisión de diseño, con su porqué:
+
+1. **Destino: schema `contpaqi_ods` en `pg-prod`.** Una tabla por cada tabla de la contabilidad, con las columnas 1:1
+   más `_rv` (el `RowVersion` de origen) y `_replicado_en`. Mismo criterio que `kepler_ods`: es crudo canónico de
+   una sola empresa, sin `tenant_id` propio. Esa excepción a la regla 18 se escribe en un ADR nuevo, igual que hizo
+   ADR-046.
+2. **Mecanismo: un replicador genérico** (`replicate-contpaqi.js`) en `feeds-cron` de `md`, donde ya corren los
+   carriles de ContPAQi y que alcanza `.35`. Tabla por tabla:
+   - **con llave primaria y `RowVersion`:** *firmas por bloque*. Se lee `COUNT` y `SUM(RowVersion)` por rangos de
+     llave, se compara contra lo replicado y sólo se baja el bloque que cambió. Dentro del bloque se escribe lo
+     nuevo o lo cambiado y se borra lo que ya no está. ⭐ Detecta **altas, cambios y bajas** sin releer la tabla.
+     El `RowVersion` de ContPAQi no es monotónico, así que no sirve de marca de agua, pero sí de token de cambio
+     (`import-contpaqi-polizas.js` lo usa igual).
+   - **con llave y sin `RowVersion`:** lo mismo, con `CHECKSUM_AGG(BINARY_CHECKSUM(*))` por bloque.
+   - **sin llave:** si es chica, copia completa por diferencia de conjuntos; si es grande, se declara NO MEDIDA y se decide.
+   - **columnas pesadas** (los documentos del ADD): fuera de esta réplica. Los CFDI ya llegan por `contpaqi-cfdis`.
+3. **Dos carriles, como WR.** Un incremental (firmas por bloque) y un reconciliador diario que compara la firma
+   completa de cada tabla contra el origen. Cada carril lleva su latido de ENTREGA con umbral en `CRON_JOBS`
+   (ADR-053), y hay un **árbitro** diario de conteo y firma por tabla que se prueba en rojo a propósito (como
+   `arbitro-polizas-valor.js` hace con Kepler).
+4. **Carga inicial: 4.7 M filas y 5.4 GB, por bloques y de noche** (regla 9), con pausa entre lotes para no frenar
+   a contabilidad en `.35`. Se lee con `READ COMMITTED` normal, ⛔ sin `NOLOCK`: leer sucio de un sistema contable
+   no es opción. Hoy la base de prod pesa 40 GB, y el espacio libre del disco de `md` está NO MEDIDO.
+5. **Después, derivar en vez de copiar.** Las tablas de staging de hoy pasan a ser **vistas** sobre
+   `contpaqi_ods`, una por una, con medición antes/después (regla 15), y se retira su importador:
+   - `analytics.gl_polizas` y `gl_poliza_lines`;
+   - `contpaqi_bank_movements`;
+   - `contpaqi_ledger_monthly`;
+   - `contpaqi_accounts`;
+   - `contpaqi_suppliers`.
+
+   Mientras dure la transición, réplica y staging conviven y se cruzan: son dos implementaciones del mismo dato.
+   Ninguna tabla tiene dos dueños, porque viven en schemas distintos.
+
+### 8.4 Etapas
+
+| # | Capa | Entregable | Criterio de cierre |
+|---|---|---|---|
+| `CP.9.0` | C0 | **Inventario** de las 22 bases (`database/importers/contpaqi/02-inventario-replica.js`; sólo lee `sys.*` y no trae contraseña): filas, tamaño, llave, `RowVersion`, columnas pesadas | la salida pegada aquí, y la estrategia de cada tabla decidida con ella |
+| `CP.9.1` | C0 | **El mecanismo en UNA tabla grande** (`MovimientosPoliza`, 1.16 M), contra una base de prueba: carga inicial, incremental por bloques y su costo en `.35` | tiempos medidos; prueba negativa: un renglón cambiado o borrado en la copia lo encuentra el reconciliador |
+| `CP.9.2` | C2 | Migración de `contpaqi_ods` (generada, aplicada una por una), el replicador y sus dos carriles en `feeds-cron`, con latidos | las tablas con datos replicadas, con conteo y firma iguales al origen según el árbitro |
+| `CP.9.3` | C1 | **Vistas de control:** periodos cerrados, asociación CFDI ↔ póliza, impuestos por movimiento | cada una cruzada contra una fuente independiente (§6) |
+| `CP.9.4` | C1 | El dictamen y el cuadre del puente leen de la réplica; regla nueva `periodo_cerrado` (bloquea) | prueba negativa |
+| `CP.9.5` | C1 | Staging → vistas, una por una, retirando su importador | antes/después medido de cada una |
+| `CP.9.6` | — | ADD (los 3 repositorios sin leer: medir primero) y nóminas | según D13 |
+
+### 8.5 Decisiones de Edgar
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| **D13** | ¿Qué bases entran? | **Primero la contabilidad completa y las Generales** (empresas, parámetros). El ADD, después de medirlo en CP.9.0. ⛔ **Nóminas, sólo con decisión expresa:** son salarios y datos personales, y es de la Fase RH |
+| **D14** | La ventana de la carga inicial | Una noche entre semana, de 22:00 a 05:00, con pausas entre lotes y aviso a contabilidad |
+| **D15** | La contraseña de SQL Server sigue embebida como valor por defecto en **7 archivos de un repo PÚBLICO** (deuda anotada en `ops/vl/crontab.feeds`) | Moverla al secreto de `md` (`/secrets/feeds.env`) y **rotarla**. Es una credencial y por la regla 7 la decides tú. El inventario y el replicador nuevos nacen sin ella |
+| *(regla 1)* | Esto **es** un importador nuevo, un replicador | Tu pedido del 2026-10-29 lo autoriza y queda escrito aquí. Sustituye, no suma: los seis de staging se retiran en CP.9.5 |
+
+### 8.6 Riesgos
+
+| Riesgo | Mitigación |
+|---|---|
+| Carga sobre `.35` mientras contabilidad trabaja | Las firmas por bloque leen agregados, no renglones. El costo del incremental se mide en CP.9.1 antes de agendarlo al minuto |
+| Espacio en `pg-prod` (+5.4 GB sobre 40 GB) | Medir el disco libre de `md` antes de CP.9.2 |
+| Tipos sin equivalente directo (`datetime` sin zona, `money`, `uniqueidentifier`, `image`) | Mapeo explícito por tipo, escrito, y las columnas pesadas fuera (§8.3.2) |
+| Tablas sin llave: sus bajas no se ven | Se declaran con nombre en el inventario, nunca se dan por replicadas |
+| Un carril con dos dueños | Schema propio. Hasta CP.9.5 nadie más escribe `contpaqi_ods` y el replicador no escribe el staging |
+
+### 8.7 Definición de terminado
+
+Hereda §6, que mide por preguntas. Además:
+1. Las tablas con datos replicadas, con conteo y firma iguales al origen según el árbitro diario, re-medido.
+2. El latido de entrega de cada carril, probado en rojo.
+3. `periodo_cerrado` funcionando en el dictamen, con su prueba negativa.
+4. Al menos una tabla de staging convertida en vista, con su antes y después.
