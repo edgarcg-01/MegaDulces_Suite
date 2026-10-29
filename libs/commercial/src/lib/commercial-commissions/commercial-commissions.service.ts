@@ -966,7 +966,7 @@ export class CommercialCommissionsService {
    * supervisores en `sin_configurar` sin que nadie tocara su nomina. Si dos filas quedaran
    * vigentes a la vez, gana la de `valid_from` mas reciente (se recorre en orden ascendente).
    */
-  private async deducciones(trx: any, tenantId: string, onDate: string): Promise<Map<string, number>> {
+  private async deducciones(trx: Knex.Transaction, tenantId: string, onDate: string): Promise<Map<string, number>> {
     const rows: { beneficiario: string; nombre: string; nomina_banco: string }[] =
       await trx('commercial.commission_beneficiary_config')
         .where({ tenant_id: tenantId }).whereNull('deleted_at')

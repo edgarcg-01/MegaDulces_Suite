@@ -3012,7 +3012,7 @@ export class FinanceBankService {
         .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha_valor) FILTER (WHERE fecha_valor < ?::date + 1) AS last', [curYmd])).first();
       const cq: any = await trx('analytics.contpaqi_bank_movements').where({ tenant_id: tenantId, anio_mes: period })
         .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha) FILTER (WHERE fecha < ?::date + 1) AS last', [curYmd])).first();
-      const cs: any = (await trx.raw(SQL_CONTPAQI_CASADO, [period, tenantId, period])).rows?.[0];
+      const cs: { banco_c?: string | number; casado_c?: string | number; sin_poliza_movs?: number } | undefined = (await trx.raw(SQL_CONTPAQI_CASADO, [period, tenantId, period])).rows?.[0];
       return { wb, kp, cq, cs };
     });
     const cw = n(cov.wb?.movs), ck = n(cov.kp?.movs), cc = n(cov.cq?.movs);

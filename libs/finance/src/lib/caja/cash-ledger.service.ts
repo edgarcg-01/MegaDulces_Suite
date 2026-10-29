@@ -2645,7 +2645,7 @@ export class CashLedgerService {
     // resolvió el par contable, un documento fechado después de hoy no entra en lote. Se conserva
     // todo lo demás —incluida la cuenta ya resuelta— para que la captura a mano siga llegando
     // rellenada y a la persona sólo le quede corregir la fecha. Ver `esFechaFutura`.
-    return conCuenta.map((f: any) => {
+    return conCuenta.map((f) => {
       const req = deHoja.get(String(f.origen_ref));
       if (req && req.hoja?.estado !== 'pagada') {
         return { ...f, confirmable: false, motivo: 'en_hoja', motivo_texto: textoPagoDeHoja(req) };

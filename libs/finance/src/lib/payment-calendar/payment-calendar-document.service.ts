@@ -28,7 +28,10 @@ function money(n: any): string {
  * Lo que decide es la **clase de la cuenta de origen**, no el método. Un pago sin preparar no tiene
  * ejecutor y **se declara**; no se le asigna uno por omisión (ADR-056).
  */
-function ejecutorDe(a: any): string {
+/** Lo unico que `ejecutorDe` necesita de una asignacion: con que cuenta y metodo se paga. */
+type ConEjecutor = { payment_method?: string | null; bank_account_kind?: string | null };
+
+function ejecutorDe(a: ConEjecutor): string {
   if (!a.payment_method) return 'sin preparar';
   if (a.bank_account_kind === 'cash' || a.payment_method === 'efectivo') return 'Caja General';
   if (a.bank_account_kind === 'bank' || a.bank_account_kind === 'factoraje') return 'Tesorería';
@@ -36,7 +39,7 @@ function ejecutorDe(a: any): string {
 }
 
 /** Los ejecutores que el lote REALMENTE involucra, en orden estable. Sin inventar al que no está. */
-function ejecutoresDelLote(allocations: any[]): string[] {
+function ejecutoresDelLote(allocations: ConEjecutor[]): string[] {
   const vistos = new Set(allocations.map(ejecutorDe));
   return ['Tesorería', 'Caja General'].filter((e) => vistos.has(e));
 }
