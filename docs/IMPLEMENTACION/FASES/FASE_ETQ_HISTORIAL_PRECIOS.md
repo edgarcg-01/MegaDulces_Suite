@@ -1,6 +1,6 @@
 # ETQ-HISTORIAL — Buscar un producto y ver su historial de cambios de precio
 
-> **Dónde:** `/tienda/etiquetas/historial` (pestaña «Historial de precios», junto a «Cambios de precio»). **Dueño:** 0Sistemas. **Estado:** 🧪 verificado en pantalla local por el equipo, **fusionado en `main`** (PR #464, `5f5cd09c7`, 2026-10-28; sale a prod al soltar). Falta la validación visual en un monitor real y H.3.2.
+> **Dónde:** `/tienda/etiquetas/historial` (pestaña «Historial de precios», junto a «Cambios de precio»). **Dueño:** 0Sistemas. **Estado:** 🧪 verificado en pantalla local por el equipo, **fusionado en `main`** (PR #464, `5f5cd09c7`, 2026-10-28; sale a prod al soltar). H.3.2 entró en #468. Validación visual: **en navegador local** por el equipo (2026-10-29); no en el monitor de la sucursal.
 > **Pedido:** «agregar un buscador de productos para que nos despliegue su historial de cambio de precios… probarlo en local para revisarlo y mandar su PR».
 > **La pregunta que contesta (una sola, sin «y»):** *¿qué precio ha tenido este producto en esta tienda, y desde cuándo?*
 > **Métrica (HOY):** hoy esa pregunta **no se puede contestar** desde ninguna pantalla: «Cambios de precio» sólo muestra **un día**. Meta: de un producto a su historial en **≤ 2 acciones** (escribir, elegir) y **≤ 0.5 s** de carga.
@@ -47,7 +47,7 @@
 | **C1 dominio** | H.1.1 | `compactarHistorial` en `libs/contracts` + spec: colapsa consecutivos iguales, **conserva A→B→A**, separa por presentación, marca `es_baja`, orden y tope | vitest; **mutación** (colapsar globalmente → rojo) |
 | **C2 API** | H.2.1 | `price-history` en `CommercialLabelsService` sobre la vista; `sku` y `sucursal` validados (400 si faltan o no son de la forma); **sin** `btrim()` envolviendo en el `WHERE` del consumidor que anule el índice (GOTCHAS §28) | bloque nuevo en el E2E de etiquetas contra la base local; `EXPLAIN` ≤ 0.5 s a escala de prod |
 | **C3 UI** | H.3.1 | Buscador + `side-peek` + tramos + rango; estados con `app-load-state`, edad con `app-freshness-pill`; sucursal **por nombre**, nunca «06» | specs de DOM (mutados) + `check:pantalla -- tienda-cambios-precio` **antes: 0 fallas nuevas (3 en deuda declarada)** y después igual |
-| | H.3.2 | Desde el historial: «Imprimir etiqueta» manda el código a la etiquetera (misma ruta que hoy, no se duplica la maquinaria) | spec del `router.navigate` |
+| | H.3.2 | ✅ *(#468, `4428d08c3`, 2026-10-29)* Desde el historial: «Imprimir etiqueta» manda el código a la etiquetera (misma ruta que hoy, no se duplica la maquinaria) | spec del `router.navigate` (mutación `codes: []` en rojo) |
 | **Cierre** | H.4 | Tracker, log, CHANGELOG, protocolo §8.0b si hay lección nueva, y el PR detallado | regla 19 |
 
 **Sin migración, sin permiso nuevo, sin escritura:** es lectura sobre una vista y un índice que ya existen → no aplica el carril de migraciones ni «escrituras pesadas».
