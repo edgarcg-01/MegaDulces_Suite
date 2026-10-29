@@ -37,6 +37,48 @@ export const ETIQUETA_UNIDAD_IMPORTE: Readonly<Record<UnidadImporte, string>> = 
   valor_traspaso: 'valor de traspaso', precio_venta: 'a precio de venta', mixta: 'costo y precio mezclados',
 };
 
+/**
+ * `[MX.2.3]` — **Respuesta de la bandeja de excepciones** (`GET /commercial/movements/exceptions`).
+ * Los totales se calculan sobre el conjunto COMPLETO; `rows` es una página. El importe se suma POR
+ * UNIDAD (MX.1.7), nunca en un solo número: una salida a cliente está a precio de venta.
+ */
+export interface ExcepcionMovimientoItem {
+  tipo: 'traspaso' | 'ajuste';
+  excepciones: ExcepcionMovimiento[];
+  fecha: string;
+  /** Traspaso: el almacén que envió. Ajuste: el almacén del ajuste. */
+  origen: { warehouse_id: string | null; nombre: string | null; folio: string | null; doc_code: string };
+  /** Sólo traspaso: a quién iba (o quién recibió). */
+  destino: { warehouse_id: string | null; nombre: string | null; folio: string | null } | null;
+  piezas_enviadas: number | null;
+  piezas_recibidas: number | null;
+  /** Traspaso: recibidas − enviadas. Ajuste: piezas con signo (+ entrada, − salida). */
+  delta_piezas: number | null;
+  importe: number | null;
+  /** `null` = unidad NO MEDIDA (ajustes; recepción sin origen). */
+  unidad_importe: UnidadImporte | null;
+  lineas_sin_importe: number;
+  /** Días desde la salida (traspaso) o desde el ajuste. */
+  dias: number;
+}
+
+export interface MovimientosExcepcionesResponse {
+  range: { from: string; to: string };
+  totals: {
+    items: number;
+    /** Por excepción: un ítem con dos excepciones cuenta en las dos. */
+    por_excepcion: Partial<Record<ExcepcionMovimiento, { n: number; importe: number }>>;
+    /** El importe, separado por unidad; `sin_unidad` = no medida. */
+    importe_por_unidad: Record<UnidadImporte | 'sin_unidad', number>;
+    /** De cuántos documentos salió la bandeja (para decir qué fracción es excepción). */
+    universo: { traspasos: number; ajustes: number };
+  };
+  /** El pareo trae a lo más 50,000 filas; si llegó, la bandeja está INCOMPLETA. */
+  capped: boolean;
+  page: number; pageSize: number; total: number;
+  rows: ExcepcionMovimientoItem[];
+}
+
 /** Por qué un documento está en la bandeja. Un documento puede tener más de una. */
 export type ExcepcionMovimiento =
   | 'diferencia'          // piezas o productos distintos entre salida y recepción

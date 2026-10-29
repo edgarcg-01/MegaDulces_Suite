@@ -1,6 +1,10 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { UNIDAD_IMPORTE_SALIDA, type DestinoSalida } from '@megadulces/contracts';
+import {
+  DOC_CODES_AJUSTE, UNIDAD_IMPORTE_SALIDA, clasificarMovimiento,
+  type DestinoSalida, type ExcepcionMovimientoItem, type MovimientosExcepcionesResponse, type UnidadImporte,
+} from '@megadulces/contracts';
 
 /**
  * DM.1 — Diario de movimientos (mejora del reporte Kepler homónimo).
@@ -353,6 +357,15 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
  * desfase de uno no explota — corre y devuelve otra cosa. Lo atrapó el verificador que rinde este
  * mismo template a SQL y cuenta los marcadores contra la lista. Si se agrega un `?`, va acá.
  */
+/** [MX.2.3] Una fila de {@link TRANSFER_PAIRING_SQL}. Los `numeric` de Postgres llegan como texto. */
+interface FilaPareo {
+  origin_wh_id: string | null; origin_wh: string | null; origin_folio: string | null; doc_serie: string | null;
+  ship_date: Date | string | null; qty_sent: string | number | null; amount: string | number | null; ship_lines: number | null;
+  dest_wh_id: string | null; dest_wh: string | null; rcv_folio: string | null; rcv_date: Date | string | null;
+  qty_received: string | number | null; rcv_lines: number | null;
+  status: 'ok' | 'diferencia' | 'sin_recepcion' | 'sin_origen'; delta: string | number | null; lineas_sin_importe: number | null;
+}
+
 const TRANSFER_PAIRING_PARAMS = (tenantId: string, from: string, to: string) =>
   [tenantId, from, to, tenantId, from, to, from, to, from, to, from, to, tenantId];
 
@@ -1065,22 +1078,9 @@ export class CommercialMovementsService {
   async transfersPhysical(q: MovementsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const { from, to } = this.range(q);
-    const whs = this.whIds(q);
-    const twhs = this.transferWhIds(q);
-    const destSql = this.destBucketSql(this.destKinds(q), tenantId);
-    const shpDestSql = destSql ? ` AND ${destSql}` : '';
     return this.tk.run(async (trx) => {
-      const all: any[] = (await trx.raw(
-        `${TRANSFER_PAIRING_SQL(shpDestSql)}
-        LIMIT 50000`,
-        TRANSFER_PAIRING_PARAMS(tenantId, from, to),
-      )).rows;
-
       // ── check: folio a folio (honra whs/twhs), prioriza problemas, top 500 ──
-      const inSet = (r: any, set: string[]) => set.includes(r.origin_wh_id) || set.includes(r.dest_wh_id);
-      let checkAll = all;
-      if (whs.length) checkAll = checkAll.filter((r) => inSet(r, whs));
-      if (twhs.length) checkAll = checkAll.filter((r) => inSet(r, twhs));
+      const { all, checkAll } = await this.pareoCompleto(trx, tenantId, q);
       const cTotals = { ok: 0, diferencia: 0, sin_recepcion: 0, sin_origen: 0 };
       for (const r of checkAll) cTotals[r.status as keyof typeof cTotals]++;
       // [MX.2.1] Las sumas del conjunto COMPLETO, para quien no debe sumar desde `rows` (cortadas
@@ -1181,6 +1181,115 @@ export class CommercialMovementsService {
         range: { from, to },
         check: { range: { from, to }, totals: cTotals, sums: cSums, capped, hallazgos, rows: checkRows },
         matrix: { range: { from, to }, totals: mTotals, rows: mRows },
+      };
+    });
+  }
+
+  /**
+   * [MX.2.3] El pareo COMPLETO (sin el corte de 500 filas), honrando almacén y origen/destino. Lo usan el
+   * Cuadre (`transfersPhysical`) y la bandeja de excepciones (`exceptions`): un solo pareo, dos lecturas.
+   */
+  private async pareoCompleto(trx: Knex.Transaction, tenantId: string, q: MovementsQuery): Promise<{ all: FilaPareo[]; checkAll: FilaPareo[] }> {
+    const { from, to } = this.range(q);
+    const whs = this.whIds(q);
+    const twhs = this.transferWhIds(q);
+    const destSql = this.destBucketSql(this.destKinds(q), tenantId);
+    const shpDestSql = destSql ? ` AND ${destSql}` : '';
+    const all: FilaPareo[] = (await trx.raw(
+      `${TRANSFER_PAIRING_SQL(shpDestSql)}
+      LIMIT 50000`,
+      TRANSFER_PAIRING_PARAMS(tenantId, from, to),
+    )).rows;
+    const inSet = (r: FilaPareo, set: string[]) => set.includes(r.origin_wh_id ?? '') || set.includes(r.dest_wh_id ?? '');
+    let checkAll = all;
+    if (whs.length) checkAll = checkAll.filter((r) => inSet(r, whs));
+    if (twhs.length) checkAll = checkAll.filter((r) => inSet(r, twhs));
+    return { all, checkAll };
+  }
+
+  /**
+   * [MX.2.3] **BANDEJA DE EXCEPCIONES**: sólo lo que el motor no puede dar por bueno, clasificado con el
+   * catálogo de `@megadulces/contracts` (`clasificarMovimiento`, MX.1.4). Hoy se audita a mano el Diario
+   * entero: el 90.7 % de las marcas cayó en documentos que el motor ya cuadraba (MX.0.1).
+   *
+   * Traspasos: del pareo COMPLETO (no de las 500 filas del Cuadre). Por defecto mira todos los destinos —
+   * a ruta y a cliente no hay acuse, así que sólo entran si traen una diferencia o el importe incompleto.
+   * Ajustes de inventario: siempre (decisión D3). Totales sobre el conjunto completo; el importe, POR UNIDAD.
+   * Orden: por importe (lo que más dinero mueve primero) y luego por antigüedad.
+   */
+  async exceptions(q: MovementsQuery): Promise<MovimientosExcepcionesResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.range(q);
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(200, Math.max(1, Number(q.pageSize) || 50));
+    const qq: MovementsQuery = { ...q, dest_kinds: q.dest_kinds || 'sucursal,ruta,cliente' };
+    const ahora = Date.now();
+    const dias = (d: unknown) => (d ? Math.max(0, Math.floor((ahora - new Date(String(d)).getTime()) / 864e5)) : 0);
+    const iso = (d: unknown) => (d ? new Date(String(d)).toISOString().slice(0, 10) : '');
+    return this.tk.run(async (trx) => {
+      const { all, checkAll } = await this.pareoCompleto(trx, tenantId, qq);
+      const items: ExcepcionMovimientoItem[] = [];
+      for (const r of checkAll) {
+        const estado = r.status === 'ok' ? 'completado' as const
+          : r.status === 'sin_recepcion' ? estadoSinRecepcion(r.dest_wh_id, r.dest_wh, r.ship_date)
+          : r.status as 'diferencia' | 'sin_origen';
+        const k = clasificarMovimiento({ doc_code: r.origin_folio ? 'TrsfShip' : 'TrsfRcv', transfer_status: estado, lineas_sin_importe: r.lineas_sin_importe });
+        if (!k.a_bandeja) continue;
+        const destino: DestinoSalida = r.status === 'sin_recepcion' ? claseDestino(r.dest_wh_id, r.dest_wh) : 'sucursal';
+        items.push({
+          tipo: 'traspaso', excepciones: k.excepciones, fecha: iso(r.ship_date || r.rcv_date),
+          origen: { warehouse_id: r.origin_wh_id ?? null, nombre: r.origin_wh ?? null, folio: r.origin_folio ?? null, doc_code: r.origin_folio ? 'TrsfShip' : 'TrsfRcv' },
+          destino: { warehouse_id: r.dest_wh_id ?? null, nombre: r.dest_wh ?? null, folio: r.rcv_folio ?? null },
+          piezas_enviadas: r.qty_sent != null ? Number(r.qty_sent) : null,
+          piezas_recibidas: r.qty_received != null ? Number(r.qty_received) : null,
+          delta_piezas: r.delta != null ? Number(r.delta) : null,
+          importe: r.amount != null ? Number(r.amount) : null,
+          // una recepción sin origen no tiene embarque: el importe no está medido
+          unidad_importe: r.status === 'sin_origen' ? null : UNIDAD_IMPORTE_SALIDA[destino],
+          lineas_sin_importe: Number(r.lineas_sin_importe) || 0,
+          dias: dias(r.ship_date || r.rcv_date),
+        });
+      }
+      // Ajustes de inventario del rango (decisión D3: siempre a la bandeja).
+      const whs = this.whIds(qq);
+      const ajQ = trx('analytics.stock_movements as m')
+        .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+        .where('m.tenant_id', tenantId).whereIn('m.doc_code', DOC_CODES_AJUSTE as string[])
+        .andWhere('m.doc_date', '>=', from).andWhere('m.doc_date', '<=', to);
+      if (whs.length) ajQ.whereIn('m.warehouse_id', whs);
+      const ajustes = await ajQ.groupBy(...DOC_IDENTITY, 'w.name', 'w.code')
+        .select('m.warehouse_id', 'm.doc_code', 'm.folio', trx.raw('coalesce(w.name, w.code) AS nombre'),
+          trx.raw('MIN(m.doc_date) AS fecha'), trx.raw('SUM(m.signed_qty) AS piezas'), trx.raw('SUM(m.amount) AS importe'),
+          trx.raw('COUNT(*) FILTER (WHERE m.amount IS NULL)::int AS lineas_sin_importe'));
+      for (const a of ajustes as { warehouse_id: string; doc_code: string; folio: string; nombre: string | null; fecha: unknown; piezas: unknown; importe: unknown; lineas_sin_importe: number }[]) {
+        const k = clasificarMovimiento({ doc_code: a.doc_code, lineas_sin_importe: a.lineas_sin_importe });
+        if (!k.a_bandeja) continue;
+        items.push({
+          tipo: 'ajuste', excepciones: k.excepciones, fecha: iso(a.fecha),
+          origen: { warehouse_id: a.warehouse_id, nombre: a.nombre, folio: a.folio, doc_code: a.doc_code },
+          destino: null, piezas_enviadas: null, piezas_recibidas: null,
+          delta_piezas: a.piezas != null ? Number(a.piezas) : null,
+          importe: a.importe != null ? Number(a.importe) : null,
+          unidad_importe: null, // la unidad del importe de un ajuste no se ha medido (MX.1.7 midió salidas)
+          lineas_sin_importe: Number(a.lineas_sin_importe) || 0,
+          dias: dias(a.fecha),
+        });
+      }
+
+      const porExc: MovimientosExcepcionesResponse['totals']['por_excepcion'] = {};
+      const porUnidad: Record<UnidadImporte | 'sin_unidad', number> = { valor_traspaso: 0, precio_venta: 0, mixta: 0, sin_unidad: 0 };
+      for (const it of items) {
+        const imp = Math.abs(it.importe ?? 0);
+        for (const e of it.excepciones) { const t = (porExc[e] ??= { n: 0, importe: 0 }); t.n++; t.importe += imp; }
+        porUnidad[it.unidad_importe ?? 'sin_unidad'] += imp;
+      }
+      items.sort((a, b) => Math.abs(b.importe ?? 0) - Math.abs(a.importe ?? 0) || b.dias - a.dias);
+      return {
+        range: { from, to },
+        totals: { items: items.length, por_excepcion: porExc, importe_por_unidad: porUnidad, universo: { traspasos: checkAll.length, ajustes: ajustes.length } },
+        capped: all.length >= 50000,
+        page, pageSize, total: items.length,
+        rows: items.slice((page - 1) * pageSize, page * pageSize),
       };
     });
   }
