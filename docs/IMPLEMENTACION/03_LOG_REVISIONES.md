@@ -286,6 +286,26 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-29 — `[PQ.23–PQ.29]` Compras sin clics de más: la OC sale sola, se asocia sola, se recibe sola, y todo se ve desde Pedido
+
+**Pedido del PM:** «tiene que ser un proceso automatizado… nada de procesos manuales»; «la menor cantidad de interfaces posibles y la menor interacción humana de clics»; «el principal problema es que abruma a la gente la interfaz». Plan con D1–D4 aprobado el mismo día (tracker `[PQ.26]`–`[PQ.28]`).
+
+**Medido antes (prod, sólo lectura, 30 d):** una compra eran ~8 clics en 2 pantallas, más 5 pasos manuales (reintentar, recalcular, capturar traspaso, seguimiento, recepción — esta última sin pantalla). El 61 % de las aprobaciones las hacía quien creó la requisición y el 93 % en lote. 861 traspasos «aprobados» para siempre. `/compras/oc-abiertas` listaba 447 OC, **298 canceladas en Kepler**.
+
+**Hecho (19 commits locales, sin empujar):**
+- La OC hecha fuera de la Suite se asocia sola por su liga de Kepler (`c36/c37/c39`); se quitó «Capturar OC» (`[PQ.25]`).
+- Etapa 1 (`[PQ.26]`): traspaso con folio → ordenado; **recepción derivada** de la entrada en Kepler (vista `erp_purchase_orders.cerrada`); reintento automático con freno anti-duplicado; costo movido ≤ 5 % se pone al día al aprobar (D2).
+- Etapa 2 (`[PQ.27]`, D1): con permiso de autorizar, generar = aprobar y enviar a Kepler.
+- Etapa 3 (`[PQ.28]`): ventana «Lo pedido» en Pedido (por aprobar + lo reciente con su estado en Kepler); el botón dice «Enviar a Kepler · N · $X»; Seguimiento aterriza en OC de Kepler y Requisiciones queda de consulta (D3); OC abiertas y Requisiciones con el estado en texto, sucursal por nombre y rojo sólo para lo que pide acción.
+- `[PQ.29]`: OC abiertas sin las canceladas en Kepler (447 → 149) y sin las que Compras marcó «No surtida / cancelada» (28), con el aviso de que su vale sigue vivo en Kepler.
+
+**Lecciones:**
+- ⛔ **Un reintento automático contra el ERP necesita su freno contra el humano que se adelantó.** De las 4 compras en cola, **3 ya tenían su OC hecha a mano en Kepler**; el reintento ciego las habría duplicado. El freno busca un X-A-30/35 del mismo proveedor en la sucursal desde la aprobación y, si lo hay, lo dice en vez de enviar.
+- ⭐ **«Cancelada» en la Suite no es cancelada en Kepler.** Las OC que Compras marcó «No surtida / cancelada» siguen con su vale X-A-37 abierto (verificado en el servidor 01, no sólo en la réplica). Ocultarlas no las cierra; se declara.
+- ⚠️ Un commit de interfaz rompió dos pruebas de otra pantalla que no corrí (`compras-requisiciones.spec`): al cambiar una etiqueta compartida, correr las pruebas de TODO el módulo, no sólo las del archivo tocado.
+
+**No medido:** ningún UPDATE nuevo se ejerció contra base (el usuario de lectura no puede); el arranque de la API con `@Req()` en `requisitions/batch`; los clics antes/después con navegador (sin MCP de navegador en la sesión). Se verifican al desplegar con `/api/health` y la bandeja.
+
 ## 2026-10-29 — `[CGA-A.63]` Caja General: la reposición pasa a un botón de la barra, y la prueba de la página vuelve a correr
 
 **Pedido (Edgar):** «eso tiene que ser un módulo muy pequeño. el 95% de la interfaz si no es el 100%
