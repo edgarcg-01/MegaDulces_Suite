@@ -73,13 +73,13 @@ const SEVERIDAD: Record<ExcepcionMovimiento, 'danger' | 'warn' | 'info' | 'secon
         <p class="inc-unidad">{{ unidadResumen() }}</p>
       }
 
-      <app-load-state [loading]="cargando() && !resp()" [error]="error()" [isEmpty]="!!resp() && !filas().length"
+      <app-load-state class="dt-scope" [loading]="cargando() && !resp()" [error]="error()" [isEmpty]="!!resp() && !filas().length"
                       emptyIcon="pi-check-circle" [emptyTitle]="vacioTitulo()" [emptyHint]="vacioPista()" (retry)="recargar()">
         <p-table [value]="filas()" [lazy]="true" (onLazyLoad)="paginar($event)" [paginator]="total() > tam" [rows]="tam"
                  [totalRecords]="total()" [first]="(pagina() - 1) * tam" [loading]="cargando()"
                  selectionMode="single" dataKey="clave" size="small" class="surf-table surf-table--plain surf-table--sticky dt-stack"
                  [rowHover]="true" (onRowSelect)="abrir($any($event).data)">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th>Incidencia</th>
               <th>Fecha</th>
@@ -91,27 +91,27 @@ const SEVERIDAD: Record<ExcepcionMovimiento, 'danger' | 'warn' | 'info' | 'secon
               <th><span class="inc-oculto">Acción</span></th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-f>
+          <ng-template #body let-f>
             <tr [pSelectableRow]="f">
-              <td>
+              <td class="dt-id" data-label="Incidencia" role="cell">
                 @for (e of f.excepciones; track e) {
                   <p-tag [value]="etiqueta(e)" [severity]="severidad(e)" styleClass="inc-tag"></p-tag>
                 }
                 <span class="inc-tipo">{{ f.tipo === 'ajuste' ? 'Ajuste de inventario' : 'Traspaso' }}</span>
               </td>
-              <td>{{ f.fecha }}</td>
-              <td class="comm-num">{{ f.dias | number }}</td>
-              <td>
+              <td data-label="Fecha" role="cell" [attr.aria-label]="'Fecha ' + f.fecha">{{ f.fecha }}</td>
+              <td class="comm-num dt-num" data-label="Días" role="cell" [attr.aria-label]="f.dias + ' días'">{{ f.dias | number }}</td>
+              <td data-label="Origen" role="cell">
                 <span class="inc-alm">{{ f.origen.nombre || 'Almacén sin nombre' }}</span>
                 <span class="inc-folio">{{ f.origen.folio || '—' }}</span>
               </td>
-              <td>
+              <td data-label="Destino" role="cell">
                 @if (f.destino) {
                   <span class="inc-alm">{{ f.destino.nombre || 'Sin destino resuelto' }}</span>
                   <span class="inc-folio">{{ f.destino.folio || 'sin recepción' }}</span>
                 } @else { <span class="inc-tenue">—</span> }
               </td>
-              <td class="comm-num">
+              <td class="comm-num dt-num" data-label="Piezas" role="cell">
                 @if (f.tipo === 'traspaso') {
                   <span>{{ f.piezas_enviadas != null ? (f.piezas_enviadas | number:'1.0-2') : '—' }} → {{ f.piezas_recibidas != null ? (f.piezas_recibidas | number:'1.0-2') : '—' }}</span>
                   @if (f.delta_piezas) { <span class="inc-delta">Δ {{ f.delta_piezas > 0 ? '+' : '' }}{{ f.delta_piezas | number:'1.0-2' }}</span> }
@@ -119,12 +119,12 @@ const SEVERIDAD: Record<ExcepcionMovimiento, 'danger' | 'warn' | 'info' | 'secon
                   <span>{{ f.delta_piezas > 0 ? '+' : '' }}{{ f.delta_piezas | number:'1.0-2' }}</span>
                 }
               </td>
-              <td class="comm-num">
+              <td class="comm-num dt-num" data-label="Importe" role="cell">
                 <span class="inc-imp">{{ f.importe != null ? dinero(f.importe) : '—' }}</span>
                 <span class="inc-tenue">{{ unidad(f) }}</span>
                 @if (f.lineas_sin_importe) { <span class="inc-tenue">+{{ f.lineas_sin_importe }} sin costo</span> }
               </td>
-              <td>
+              <td class="dt-actions" data-label="Acción" role="cell">
                 <button pButton type="button" class="p-button-sm p-button-text" (click)="$event.stopPropagation(); abrir(f)"
                         [attr.aria-label]="'Ver ' + (f.origen.folio || 'documento') + ' en el Diario'">
                   <span class="p-button-label">Ver en el Diario</span>
