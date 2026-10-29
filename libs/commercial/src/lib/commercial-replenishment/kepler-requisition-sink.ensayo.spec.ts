@@ -43,6 +43,7 @@ function cargarMaestro(): string[] {
  */
 class AdaptadorEnsayo extends KeplerRequisitionSinkAdapter {
   public fallas: string[] = [];
+  public ultimoC10: string | undefined;
   protected override async confirmar(c: PoolClient, conOrden = false): Promise<void> {
     const h = (await c.query(`SELECT count(*) OVER ()::int n, c9::date f, c18::date entrega, btrim(c10) c10, c14::text c14, c15::text c15,
                                      btrim(c67) c67, c69, btrim(c43) c43, btrim(c2) c2, c16::text c16, c42::text c42 FROM _h`)).rows;
@@ -101,6 +102,7 @@ class AdaptadorEnsayo extends KeplerRequisitionSinkAdapter {
       }
     }
     this.fallas = no;
+    this.ultimoC10 = H.c10;
     await c.query('ROLLBACK');
   }
 }
@@ -172,6 +174,29 @@ describe.skipIf(!ACTIVO)('ensayo contra los Kepler reales (ROLLBACK, no escribe)
       expect(adapter!.fallas, `servidor ${s}: OC o requisición convertida`).toEqual([]);
       expect(await contar(k, s, 'X', 'A', '35')).toBe(antes);   // no escribió
       await k.end();
+    }, 60000);
+
+    // `[PQ.24]` El catálogo de la Suite trae a CUERITOS FRYEN activo con `168`; Kepler sólo
+    // conoce `CC031`. El nombre exacto en kdxd resuelve la clave; un nombre desconocido rechaza.
+    it(`[PQ.24] proveedor con clave vieja en ${s}: se escribe con la clave de Kepler`, async (ctx) => {
+      if (!process.env[`KEPLER_REQ_TEMPLATE_FOLIO_${s}`] && s !== '00') ctx.skip();
+      const k = new Client({ connectionString: process.env[`KEPLER_PUSH_URL_${s}`], statement_timeout: 20000 });
+      await k.connect();
+      const sku = (await k.query(`SELECT btrim(c1) sku, btrim(c2) nombre FROM md.kdii WHERE c18 IS NOT NULL LIMIT 1`)).rows[0];
+      await k.end();
+      const base = {
+        requisition_id: '00000000-0000-0000-0000-000000000000', folio_suite: 'RQ-ENSAYO-PQ24', tipo: 'compra' as const,
+        sucursal: s, fecha: new Date().toISOString().slice(0, 10),
+        lineas: [{ sku: sku.sku, nombre: sku.nombre, cajas: 1, costo_caja: 100, importe: 100 }], total: 100,
+      };
+      adapter!.ultimoC10 = undefined;
+      const r = await adapter!.entregar({ ...base, proveedor_code: '168', proveedor_nombre: 'CUERITOS FRYEN' });
+      expect(r.motivo ?? '', `servidor ${s}`).toBe('');
+      expect(adapter!.ultimoC10).toBe('CC031');
+      // Control negativo: ni la clave ni el nombre existen → rechazada, sin escribir.
+      const no = await adapter!.entregar({ ...base, proveedor_code: 'ZZ999', proveedor_nombre: 'PROVEEDOR QUE NO EXISTE PQ24' });
+      expect(no.estado).toBe('rechazada');
+      expect(no.motivo).toContain('ZZ999');
     }, 60000);
 
     it(`traspaso desde ${s}: SQL completo, columnas del pedido y ROLLBACK`, async (ctx) => {

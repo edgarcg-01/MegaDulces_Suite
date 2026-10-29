@@ -176,10 +176,25 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
         // Kepler sólo exige el catálogo; nosotros exigíamos historia. Medido con el simulacro
         // `database/scripts/pq-simulacro-escritura-kepler.js`.
         const prov = await c.query(
-          `SELECT btrim(c3) AS nombre FROM md.kdxd WHERE btrim(c2)=$1 LIMIT 1`,
+          `SELECT btrim(c2) AS code, btrim(c3) AS nombre FROM md.kdxd WHERE btrim(c2)=$1 LIMIT 1`,
           [e.proveedor_code.trim()]);
-        if (!prov.rowCount) return { estado: 'rechazada', motivo: `Kepler (sucursal ${e.sucursal}) no tiene al proveedor ${e.proveedor_code} en su catálogo (kdxd)` };
-        c10 = e.proveedor_code.trim();
+        if (!prov.rowCount) {
+          // `[PQ.24]` El catálogo de la Suite trae proveedores con la clave VIEJA activa y la de
+          // Kepler dada de baja (medido 2026-10-29: 24, p. ej. CUERITOS FRYEN `168` activo y
+          // `CC031` de baja; Kepler sólo conoce `CC031` en las 9 sucursales). La clave se toma del
+          // catálogo de ESTA sucursal por nombre exacto, y sólo si el nombre señala UNA clave.
+          const nombre = e.proveedor_nombre?.trim();
+          const porNombre = nombre ? await c.query(
+            `SELECT DISTINCT btrim(c2) AS code, btrim(c3) AS nombre FROM md.kdxd WHERE upper(btrim(c3)) = upper($1)`,
+            [nombre]) : { rowCount: 0, rows: [] };
+          if (porNombre.rowCount !== 1) {
+            return { estado: 'rechazada', motivo: `Kepler (sucursal ${e.sucursal}) no tiene al proveedor ${e.proveedor_code} en su catálogo (kdxd)`
+              + (porNombre.rowCount ? ` y su nombre corresponde a ${porNombre.rowCount} claves` : '') };
+          }
+          this.logger.warn(`Proveedor ${e.proveedor_code} no existe en Kepler ${e.sucursal}; se usa ${porNombre.rows[0].code} (mismo nombre en kdxd)`);
+          prov.rows[0] = porNombre.rows[0];
+        }
+        c10 = prov.rows[0].code;
         c32 = e.proveedor_nombre?.trim() || prov.rows[0].nombre;
       } else {
         // ⭐ El destino de un traspaso NO es un almacén: es un pseudo-cliente `TI###`, y **no se
