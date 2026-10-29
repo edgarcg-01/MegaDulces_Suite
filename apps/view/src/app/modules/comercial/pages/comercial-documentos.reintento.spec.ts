@@ -25,7 +25,9 @@ import { DataScopeService } from '../../../core/services/data-scope.service';
 const DOC = (folio: string, over: Partial<SalesDocDetail> = {}) => ({
   folio_digital: folio, sucursal: '01', doc_prefix: 'UD0801', folio: folio.slice(-7),
   cliente_nombre: 'ALBAGRO', total: 20234.12, cancelada: false, sin_detalle: false,
-  detalle_ausente: false, lineas: [], ...over,
+  detalle_ausente: false, lineas: [],
+  // `[AX.17]` el backend siempre lo manda; sin él el panel no se puede pintar.
+  embarque: { status: 'sin_backpointer', origen: null }, ...over,
 }) as unknown as SalesDocDetail;
 
 describe('ComercialDocumentosComponent · reintento del detalle sin renglones', () => {

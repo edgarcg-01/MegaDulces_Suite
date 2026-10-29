@@ -162,7 +162,14 @@ import { abrirPestanaParaPdf, entregarPdf, cerrarPestanaDePdf } from '../../../s
                 <p-tablecheckbox [value]="d" />
                 <span>
                   <span class="mono folio">{{ d.sucursal }} {{ d.doc_prefix }}-{{ d.folio }}</span>
-                  <span class="sub">{{ d.doc_label }}</span>
+                  <!-- [AX.17] El embarque del que salio la factura, en lugar del tipo de documento:
+                       el tipo era el mismo en las 5,929 facturas (no distinguia nada). Va sin JOIN:
+                       es el back-pointer de Kepler; unidad y chofer viven en el detalle. -->
+                  @if (d.doc_origen) {
+                    <span class="sub mono">Embarque {{ d.doc_origen }}</span>
+                  } @else {
+                    <span class="sub">sin embarque en Kepler</span>
+                  }
                 </span>
               </td>
               <td role="cell" data-label="Cliente">
@@ -284,8 +291,61 @@ import { abrirPestanaParaPdf, entregarPdf, cerrarPestanaDePdf } from '../../../s
             </dd>
             <dt>RFC</dt><dd class="mono">{{ x.cliente_rfc || '—' }}</dd>
             @if (x.vendedor_nombre) { <dt>Vendedor</dt><dd>{{ x.vendedor_nombre }}</dd> }
-            @if (x.doc_origen) { <dt>Pedido</dt><dd class="mono">{{ x.doc_origen }}</dd> }
+            <!-- [AX.17] Decia «Pedido», y el 100 % de esos folios son el EMBARQUE (UD4101), no el
+                 pedido (UD40). Lo que no resuelve se declara; nunca se dibuja un embarque vacio. -->
+            @if (x.embarque.status === 'resuelto') {
+              <dt>Embarque</dt>
+              <dd class="mono">{{ x.embarque.origen }}<span class="sub">{{ x.embarque.fecha | date: 'dd/MM/yyyy' }}</span></dd>
+              @if (x.embarque.guia) { <dt>Viaje</dt><dd class="mono">guía {{ x.embarque.guia }}</dd> }
+              <dt>Unidad</dt>
+              <dd>
+                @if (x.embarque.transporte) {
+                  {{ x.embarque.transporte }}{{ x.embarque.transporte_metodo === 'normalizado' ? ' ~' : '' }}
+                  @if (x.embarque.placas) { <span class="sub mono">{{ x.embarque.placas }}</span> }
+                  @if (x.embarque.transporte_metodo === 'normalizado') {
+                    <span class="sub">clave de la unidad resuelta sin ceros a la izquierda</span>
+                  }
+                } @else { <span class="sub">Kepler no registra la unidad</span> }
+              </dd>
+              <dt>Chofer</dt>
+              <dd>
+                @if (x.embarque.chofer && !x.embarque.chofer_sin_capturar) { {{ x.embarque.chofer }} }
+                @else {
+                  <span class="sub">no capturado en Kepler</span>
+                  @if (x.embarque.chofer_asignado) {
+                    <span class="sub">asignado a la unidad: {{ x.embarque.chofer_asignado }}</span>
+                  }
+                }
+              </dd>
+            } @else if (x.embarque.status === 'no_en_ods') {
+              <dt>Embarque</dt>
+              <dd class="mono">{{ x.embarque.origen }}<span class="sub">Kepler lo registra, pero no llegó a la réplica</span></dd>
+            } @else {
+              <dt>Embarque</dt><dd><span class="sub">Kepler no registra de qué embarque salió</span></dd>
+            }
           </dl>
+
+          <!-- [AX.17] Sólo lo que no cuadra: un embarque con más de una factura, a nombre de otro
+               cliente, o cuyo importe difiere de lo facturado por más de $1 (hasta $1 es redondeo,
+               87.3 % de los pares medidos). -->
+          @if (x.embarque.status === 'resuelto') {
+            @if (x.embarque.facturas.length > 1) {
+              <p class="nota-emb"><i class="pi pi-info-circle" aria-hidden="true"></i>
+                El embarque tiene {{ x.embarque.facturas.length }} facturas: {{ x.embarque.facturas.join(', ') }}.</p>
+            }
+            @if (x.embarque.cliente_distinto) {
+              <p class="nota-emb"><i class="pi pi-info-circle" aria-hidden="true"></i>
+                El embarque está a nombre de otro cliente: {{ x.embarque.destino || 'sin nombre en Kepler' }}.</p>
+            }
+            @if (x.embarque.diferencia !== null && (x.embarque.diferencia > 1 || x.embarque.diferencia < -1)) {
+              <p class="nota-emb nota-emb--ojo"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                {{ x.embarque.facturas.length > 1 ? 'Las facturas suman' : 'La factura es por' }}
+                {{ x.embarque.total_facturas | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }} y el embarque
+                fue por {{ x.embarque.total | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}:
+                {{ (x.embarque.diferencia > 0 ? x.embarque.diferencia : -x.embarque.diferencia) | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}
+                {{ x.embarque.diferencia > 0 ? 'más' : 'menos' }} de lo embarcado.</p>
+            }
+          }
 
           <!-- Los abonos que explican el saldo: sin esto, "pagada" es una palabra sin respaldo -->
           @if (x.aplicaciones?.length) {
@@ -412,6 +472,9 @@ import { abrirPestanaParaPdf, entregarPdf, cerrarPestanaDePdf } from '../../../s
     .peek-msg { color: var(--text-soft); font-size: var(--fs-sm); }
     .peek-acc { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
     .peek-hint { font-size: var(--fs-xs, .75rem); color: var(--text-soft); }
+    /* [AX.17] lo que no cuadra entre la factura y su embarque: sólo aparece cuando pasa */
+    .nota-emb { display: flex; align-items: flex-start; gap: .4rem; margin: 0; font-size: var(--fs-xs, .75rem); color: var(--text-soft); }
+    .nota-emb--ojo { color: var(--text-main); }
     .peek-kv { display: grid; grid-template-columns: auto 1fr; gap: .25rem .75rem; margin: 0; font-size: var(--fs-sm); }
     .peek-kv dt { color: var(--text-soft); font-weight: 600; }
     .peek-kv dd { margin: 0; text-align: right; font-weight: 600; }

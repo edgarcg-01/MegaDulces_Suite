@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as puppeteer from 'puppeteer';
 import { CommercialSalesDocumentsService } from './commercial-sales-documents.service';
+import { warehouseName } from '@megadulces/contracts';
 
 /**
  * AX.4 — Anexo informativo al CFDI (+ pagaré desprendible), en PDF.
@@ -711,9 +712,9 @@ table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing
   </dl></div>
   <div class="box"><h4>Documento</h4><dl class="kv">
     <dt>Tipo</dt><dd>${this.esc(doc.doc_label)}</dd>
-    <dt>Sucursal</dt><dd>${this.esc(doc.sucursal)}</dd>
+    <dt>Sucursal</dt><dd>${this.esc(warehouseName(doc.sucursal))}</dd>
     ${doc.vendedor_nombre ? `<dt>Vendedor</dt><dd>${this.esc(doc.vendedor_nombre)}</dd>` : ''}
-    ${doc.doc_origen ? `<dt>Pedido origen</dt><dd>${this.esc(doc.doc_origen)}</dd>` : ''}
+    ${doc.doc_origen ? `<dt>Embarque</dt><dd>${this.esc(doc.doc_origen)}</dd>` : ''}
     ${doc.referencia ? `<dt>Referencia</dt><dd>${this.esc(doc.referencia)}</dd>` : ''}
   </dl></div>
   <div class="box"><h4>Fechas</h4><dl class="kv">

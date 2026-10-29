@@ -30,7 +30,34 @@ export interface SalesDocRow {
   doc_estatus: string | null; doc_estatus_label: string | null; cancelada: boolean;
   /** cobros / notas de crédito que explican el saldo (viene de `kdue` ⋈ `kdm5`) */
   aplicaciones: SalesDocAplicacion[] | null;
+  /**
+   * `[AX.17]` Back-pointer de Kepler al documento que originó la factura: en telemarketing es
+   * SIEMPRE el embarque `UD4101-…` (5,927 de 5,929; las otras 2 vienen en null). No es el pedido.
+   */
+  doc_origen: string | null;
 }
+/** `[AX.17]` El embarque de la factura, tal como lo resuelve el backend (`embarqueDe`). */
+export type SalesDocEmbarque =
+  | { status: 'sin_backpointer'; origen: string | null }
+  | { status: 'no_en_ods'; origen: string }
+  | {
+      status: 'resuelto'; origen: string; folio_digital: string; fecha: string | null;
+      /** guía de embarque = el viaje */
+      guia: string | null;
+      transporte: string | null; placas: string | null;
+      transporte_metodo: 'exacto' | 'normalizado' | 'sin_resolver' | null;
+      chofer: string | null; chofer_sin_capturar: boolean;
+      /** asignado a la unidad en el catálogo: NO prueba que haya manejado este viaje */
+      chofer_asignado: string | null;
+      total: string | null;
+      /** Σ facturas vivas del embarque − embarque; hasta $1 es redondeo */
+      diferencia: number | null; total_facturas: string;
+      cliente_distinto: boolean;
+      /** a quién va el embarque; se nombra sólo si `cliente_distinto` */
+      destino: string | null;
+      /** facturas vivas que apuntan a este embarque */
+      facturas: string[];
+    };
 export interface SalesDocAplicacion {
   tipo: 'cobro' | 'nota_credito' | 'devolucion' | 'anticipo' | 'ajuste';
   label: string; folio: string; fecha: string | null; monto: number;
@@ -54,8 +81,9 @@ export interface SalesDocLine {
  */
 export interface SalesDocDetail extends Omit<SalesDocRow, 'importe_bruto'> {
   cliente_domicilio: string | null; cliente_colonia: string | null;
-  cliente_estado: string | null; cliente_cp: string | null; doc_origen: string | null;
+  cliente_estado: string | null; cliente_cp: string | null;
   importe_bruto: number; lineas: SalesDocLine[];
+  embarque: SalesDocEmbarque;
   /** true si la factura no trae renglones de producto (sólo servicio) → no hay anexo que emitir */
   sin_detalle: boolean;
   /** true si el ODS no tiene NINGÚN renglón del documento: hueco de replicación, no venta de servicio */

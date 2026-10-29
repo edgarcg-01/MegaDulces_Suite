@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Cada factura de telemarketing dice de qué embarque salió (AX.17, 2026-10-29)
+- En **Facturación TM**, bajo el folio de cada factura aparece el **embarque** con el que salió la mercancía, y se puede buscar la factura tecleando el folio del embarque.
+- Al abrir una factura se ve el embarque completo: fecha, **viaje** (guía), **unidad** con placas y **chofer**. Cuando Kepler no registró al chofer (pasa en 6 de cada 10 embarques) lo dice, en vez de dejarlo en blanco.
+- Avisa sólo cuando algo no cuadra: un embarque con más de una factura, a nombre de otro cliente, o cuyo importe difiere de lo facturado por más de $1.
+- ⛔ **Se corrigió un rótulo falso**: el detalle decía «Pedido» y el anexo impreso «Pedido origen» sobre ese folio, que en realidad es el **embarque**. El anexo además imprime la sucursal por su nombre.
 ### Changed — Facturación de Telemarketing ahora vive en Telemarketing (AX.16, 2026-10-29)
 - La pantalla de facturas de telemarketing y sus Expedientes pasan de **`/comercial/documentos`** a **`/telemarketing/documentos`**. Los enlaces y favoritos viejos siguen funcionando: redirigen solos.
 - **Nadie pierde acceso.** Se midió antes de mover: de los 13 puestos que ven Facturación, **10 no operan el canal** (vendedores de ruta, encargados de tienda, crédito y cobranza, facturación…) y la entrada a Telemarketing sólo dejaba pasar a operadores. Ahora la entrada deja pasar también a quien ve Facturación, y las pantallas del operador piden su propio permiso.

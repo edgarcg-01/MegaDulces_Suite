@@ -35,8 +35,57 @@ export interface SalesDocDetalle extends FacturaGuiaRow {
   descuento_aplicado: number;
   descuento_pct_efectivo: number;
   detalle_explica_total: boolean;
+  embarque: EmbarqueDeFactura;
   [columna: string]: unknown;
 }
+
+/**
+ * `[AX.17]` El embarque `U-D-41` del que salió la factura (cadena Kepler: Pedido `U-D-40` →
+ * Embarque `U-D-41` → Factura `U-D-8`). La liga es el back-pointer de la propia factura
+ * (`kdm1.c37/c38/c39`, que la vista expone como `doc_origen`) **más la sucursal**: el folio es
+ * por sucursal, y sin ella 2,203 de 2,943 facturas casaban con más de un embarque.
+ *
+ * Medido en prod (2026-10-29, todo el universo): 5,927 de 5,929 facturas TM resuelven a
+ * exactamente UN embarque; 2 no traen back-pointer. Control negativo: con el folio corrido +1
+ * el cliente coincide en 29.5 % y el importe (±$1) en 2.2 %; con el par verdadero, 99.9 % y 87.3 %.
+ * Lo que no resuelve se DECLARA por `status` — nunca se dibuja como un embarque vacío.
+ */
+export type EmbarqueDeFactura =
+  | { status: 'sin_backpointer'; origen: string | null }
+  | { status: 'no_en_ods'; origen: string }
+  | {
+      status: 'resuelto';
+      origen: string;
+      folio_digital: string;
+      fecha: string | Date | null;
+      /** Guía de embarque (`c86`): EL VIAJE. Un viaje lleva varias paradas (embarques). */
+      guia: string | null;
+      transporte: string | null;
+      placas: string | null;
+      /** 'exacto' | 'normalizado' | 'sin_resolver' — cómo se resolvió la clave de la unidad. */
+      transporte_metodo: string | null;
+      chofer: string | null;
+      /** Kepler no trae chofer capturado en el embarque (62.9 % de los de TM, medido). */
+      chofer_sin_capturar: boolean;
+      /** Chofer ASIGNADO a la unidad en el catálogo: no prueba que haya manejado este viaje. */
+      chofer_asignado: string | null;
+      /** `numeric` de Postgres: llega como string. */
+      total: string | null;
+      /**
+       * Σ facturas vivas del embarque − embarque, en pesos. Hasta $1 es redondeo (87.3 % de los
+       * pares caen ahí). Se compara la SUMA y no esta factura sola: con dos facturas por embarque
+       * (5 casos), la segunda salía «$32,803 menos que su embarque», que es falso.
+       */
+      diferencia: number | null;
+      /** Σ de `facturas` (string con centavos exactos). */
+      total_facturas: string;
+      /** El embarque está a nombre de otro cliente que la factura (3 casos medidos). */
+      cliente_distinto: boolean;
+      /** A quién va el embarque (`destino_nombre`): la pantalla lo nombra sólo si `cliente_distinto`. */
+      destino: string | null;
+      /** Facturas VIVAS que apuntan a este embarque —ésta incluida si no está cancelada—. 5 embarques tienen 2. */
+      facturas: string[];
+    };
 
 export interface FacturaGuiaRow {
   folio_digital: string;
@@ -188,7 +237,8 @@ export class CommercialSalesDocumentsService {
     if (cobros.length) b.whereIn('i.estatus_cobro', [...new Set(cobros)]);
 
     applySmartSearch(b, q.search, {
-      columns: ['i.cliente_nombre', 'i.cliente_code', 'i.cliente_rfc', 'i.folio', 'i.folio_digital', 'i.vendedor_nombre'],
+      // `[AX.17]` `doc_origen`: se encuentra la factura tecleando el folio de su embarque.
+      columns: ['i.cliente_nombre', 'i.cliente_code', 'i.cliente_rfc', 'i.folio', 'i.folio_digital', 'i.vendedor_nombre', 'i.doc_origen'],
       numeric: ['i.total'],
     });
     return b;
@@ -228,6 +278,10 @@ export class CommercialSalesDocumentsService {
           'i.importe_bruto', 'i.descuento_efectivo',
           'i.saldo', 'i.cobrado', 'i.estatus_cobro', 'i.dias_pago',
           'i.vencimiento_erp', 'i.vencimiento_source',
+          // `[AX.17]` El folio del embarque que la originó (back-pointer de Kepler). Va sin JOIN a
+          // propósito: medido, cruzar la página con `erp_shipment_headers` cuesta ~1 s por 100
+          // filas (la vista resuelve unidad y chofer por fila). El detalle trae el resto.
+          'i.doc_origen',
           // Vencida = venció Y debe. Sin saldo, la fecha ya no significa nada.
           trx.raw(`(i.vencimiento < current_date
                     AND i.estatus_cobro IN ('pendiente','parcial')) AS vencida`),
@@ -473,13 +527,68 @@ export class CommercialSalesDocumentsService {
       // de la vista (SER / cantidad 0). Sólo se paga cuando ya hay 0 renglones — el camino raro.
       const sinRenglones = lineas.length === 0;
       const detalleAusente = sinRenglones ? await this.detalleAusente(trx, p) : false;
+      const embarque = await this.embarqueDe(trx, tenantId, doc);
       return {
         ...doc,
         sin_detalle: sinRenglones && !detalleAusente,
         detalle_ausente: detalleAusente,
         ...this.derivar(doc, lineas),
+        embarque,
       };
     });
+  }
+
+  /**
+   * `[AX.17]` El embarque de la factura — ver `EmbarqueDeFactura`.
+   *
+   * ⛔ Por LLAVE CONSTANTE (sucursal, serie, folio), nunca como JOIN ni por `folio_digital`: medido
+   * en prod, el JOIN factura⋈embarque de 30 días pasa de 60 s (el planner estima 1 fila y elige
+   * nested loop sobre una vista que resuelve unidad y chofer por fila), y por llave cuesta 7–18 ms.
+   * Las facturas hermanas, 2–8 ms. ⛔ Las PARADAS del viaje no van: `erp_shipment_trips` por guía
+   * midió 30–422 ms (crece con las paradas), y con ella el detalle pasaba de 500 ms por un dato
+   * que no decide nada en esta pantalla.
+   */
+  private async embarqueDe(trx: any, tenantId: string, doc: Record<string, any>): Promise<EmbarqueDeFactura> {
+    const origen = doc.doc_origen ? String(doc.doc_origen).trim() : null;
+    const m = origen ? /^UD41(\d{2})-(\S+)$/.exec(origen) : null;
+    if (!origen || !m) return { status: 'sin_backpointer', origen };
+    const sucursal = String(doc.sucursal);
+
+    const h = await trx('analytics.erp_shipment_headers')
+      .where({ tenant_id: tenantId, sucursal, serie: Number(m[1]), folio: m[2] })
+      .first('folio_digital', 'fecha', 'cliente_code', 'destino_nombre', 'guia_embarque', 'transporte_descripcion',
+        'transporte_placas', 'transporte_metodo', 'chofer_nombre', 'chofer_sin_capturar',
+        'chofer_asignado_a_la_unidad', 'total');
+    if (!h) return { status: 'no_en_ods', origen };
+
+    const hermanas: { folio_digital: string; total: string | null }[] = await trx('analytics.erp_sales_invoices')
+      .where({ tenant_id: tenantId, sucursal, doc_origen: origen, cancelada: false })
+      .select('folio_digital', 'total')
+      .orderBy('folio_digital');
+
+    // En centavos enteros: sumar `numeric` como float acumula error justo donde se mide $1.
+    const centavos = (v: unknown) => Math.round(Number(v) * 100);
+    const sumaFacturas = hermanas.reduce((s, x) => s + centavos(x.total ?? 0), 0);
+    return {
+      status: 'resuelto',
+      origen,
+      folio_digital: h.folio_digital,
+      fecha: h.fecha,
+      guia: h.guia_embarque ?? null,
+      transporte: h.transporte_descripcion ?? null,
+      placas: h.transporte_placas ?? null,
+      transporte_metodo: h.transporte_metodo ?? null,
+      chofer: h.chofer_nombre ?? null,
+      chofer_sin_capturar: h.chofer_sin_capturar === true,
+      chofer_asignado: h.chofer_asignado_a_la_unidad ?? null,
+      total: h.total ?? null,
+      diferencia: h.total == null || !hermanas.length ? null : (sumaFacturas - centavos(h.total)) / 100,
+      total_facturas: (sumaFacturas / 100).toFixed(2),
+      cliente_distinto: !!h.cliente_code && !!doc.cliente_code
+        && String(h.cliente_code).trim() !== String(doc.cliente_code).trim(),
+      destino: h.destino_nombre ?? null,
+      facturas: hermanas.map((x) => x.folio_digital),
+    };
   }
 
   /**
