@@ -919,6 +919,8 @@ y validación visual.
 **NO medido:** el botón en un navegador real (sólo spec de DOM) y el flujo completo hasta la hoja de la etiquetera.
 ## 2026-10-28 — `[ETQ-CODIGO]` La etiqueta imprimió «Código: 207» en vez de «20750»
 
+> ✅ **2026-10-29 — en producción y confirmado.** PR #467 fusionado (`3ebc69882`); prod sirve `8f8e3d9ae` (`/api/health`), con `ci-green` y `prod-release` en ese commit. El chunk servido (`chunk-Fv4qO4L4.js`) trae el tope CSS, la variable `--etq-meta-n` y `caracteresMeta`. La tienda confirmó la etiqueta impresa. En el camino, el CI marcó 2 errores de lint en líneas nuevas del spec (`no-regex-spaces`, corregidos en el mismo PR) y GitHub dejó el PR en `CONFLICTING` con una base vieja sin correr el CI (`git merge-tree` fusionaba limpio; se destrabó fusionando `main` en la rama).
+
 **Reporte del mostrador:** «sólo está saliendo 3 números en el código en vez de los 5 dígitos que tiene cada código». Foto: la etiqueta de `CANELS GOMITAS TUENI 1.35 KG` con `Código: 207` pegado al panel de mayoreo.
 
 **Primero, ¿es el dato?** No. Medido en prod (sólo lectura, `system_identifier` 7688376744939610156): el código de barras `018804057656` de la foto es el SKU **`20750`** (5 caracteres) y los precios de la foto ($119.77 · $886.88 · $111.85) coinciden con `analytics.v_label_prices`. De los 13,727 SKU numéricos del catálogo, **13,704 tienen 5 dígitos**: no hay truncamiento en el dato. Se cortaba al **dibujar**.
