@@ -1560,7 +1560,12 @@ export class PaymentCalendarService {
               WHEN 'budget_expense' THEN eo.original_due_date
               WHEN 'financial_commitment' THEN fc.original_due_date
               WHEN 'supplier_payable' THEN spo.original_due_date
-              WHEN 'kepler_payable' THEN kv.vencimiento END) AS min_due
+              WHEN 'kepler_payable' THEN kv.vencimiento END) AS min_due,
+            -- [PGP.37] Lo que este pago GANA si sale hoy. Solo cuenta la ventana ABIERTA: lo que
+            -- ya se paso no gana nada por adelantarse, y ponerlo aqui subiria un renglon que no
+            -- va a cobrar el descuento.
+            coalesce(sum(CASE WHEN pp.pronto_estado IN ('capturable','por_vencer')
+                              THEN pp.pronto_beneficio ELSE 0 END), 0) AS pronto_en_juego
           FROM finance.payment_allocations a
           JOIN finance.payment_allocation_items i ON i.allocation_id = a.id
           LEFT JOIN budget.expense_obligations eo ON i.obligation_source='budget_expense' AND eo.id=i.obligation_id
@@ -1571,14 +1576,26 @@ export class PaymentCalendarService {
                  ON i.obligation_source='kepler_payable'
                 AND md5('kepler_payable|'||kv.sucursal||'|'||kv.doc_tipo||'|'||kv.doc_sub||'|'||kv.folio)::uuid = i.obligation_id
           LEFT JOIN catalog.suppliers ks ON ks.code = kv.proveedor
+          -- [PGP.37] El descuento en juego entra en el ORDEN. La regla NO se reimplementa: sale
+          -- de sqlVentanaProntoPago(), igual que en la pantalla. Un segundo criterio de "hasta
+          -- cuando conviene pagar" ordenaria el dia por una fecha que el renglon no muestra.
+          LEFT JOIN analytics.mv_supplier_prompt_discount kd
+                 ON btrim(kd.proveedor_code) = btrim(kv.proveedor)
+          LEFT JOIN LATERAL (SELECT ${sqlVentanaProntoPago('kv', 'kd')}) pp ON true
           WHERE a.lot_id = ? AND a.status = 'pending'
           GROUP BY a.id
         )
-        SELECT a.id, a.classification, coalesce(c.any_critical,false) AS any_critical, c.min_due, a.amount_assigned
+        SELECT a.id, a.classification, coalesce(c.any_critical,false) AS any_critical, c.min_due, c.pronto_en_juego, a.amount_assigned
         FROM finance.payment_allocations a JOIN crit c ON c.allocation_id = a.id
         ORDER BY
           CASE a.classification WHEN 'compromiso_financiero' THEN 0 WHEN 'gasto' THEN 1 WHEN 'proveedor_mercancia' THEN 2 ELSE 3 END,
           c.any_critical DESC,
+          -- [PGP.37] El descuento manda DENTRO de su clase, nunca por encima: un compromiso
+          -- financiero o un acreedor critico no se postergan por ganar un descuento. Medido
+          -- 2026-10-29: hay $2,427,564 con ventana abierta sobre la deuda viva, y el orden
+          -- anterior no lo miraba -- el corte por capacidad dejaba fuera renglones que SI
+          -- cobraban y adentro otros que no.
+          c.pronto_en_juego DESC,
           c.min_due ASC NULLS LAST,
           a.amount_assigned DESC`, [lot.id]);
       let rank = 1;
