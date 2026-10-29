@@ -47,6 +47,25 @@ export interface PaymentCalendarAllocationItem {
    * La pantalla NO debe leer ese «—» como «beneficiario desconocido».
    */
   kepler_saldada: boolean;
+
+  /**
+   * `[PGP.36]` **Por qué esta factura está en el día**, con la ventana de pronto pago que ya
+   * publica `pronto-pago-ventana.contract.ts`. Sólo el origen derivado (`kepler_payable`) los
+   * trae: los demás no tienen factura del ERP detrás.
+   *
+   * ⚠️ `pronto_estado = null` significa **no aplica** (origen sin factura del ERP). Es distinto
+   * de `'sin_medir'`, que significa **no sabemos**, que a su vez es distinto de «no da
+   * descuento». Las tres se dicen diferente en pantalla, a propósito.
+   *
+   * ⚠️ La ventana es **observada, no pactada**. Medido 2026-10-29: la mediana global **no
+   * discrimina** (25 días con descuento contra 13 sin él), pero **por proveedor sí** — va de 4
+   * días a 68. Por eso se deriva por acreedor y nunca con un promedio general.
+   */
+  vence: string | null;
+  pronto_fecha_limite: string | null;
+  pronto_tasa: number | null;
+  pronto_beneficio: number | null;
+  pronto_estado: 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir' | null;
 }
 
 export interface PaymentCalendarAllocation {
@@ -82,6 +101,16 @@ export interface PaymentCalendarAllocation {
    */
   kepler_saldadas: number;
   kepler_saldadas_importe: number;
+  /**
+   * `[PGP.36]` **La cuenta de resultados del pago.** `pronto_captura` es el descuento que se
+   * gana si se paga hoy; `pronto_deja_pasar`, el de las facturas cuya ventana observada ya pasó.
+   *
+   * ⛔ «Deja pasar» y no «pierde»: `fuera_de_ventana` significa que se pasó la **mediana de lo
+   * que históricamente funcionó**, no que el proveedor lo haya negado. Llamarlo perdido haría que
+   * Tesorería dejara de intentarlo.
+   */
+  pronto_captura: number;
+  pronto_deja_pasar: number;
   items: PaymentCalendarAllocationItem[];
 }
 

@@ -192,6 +192,14 @@ export const REPROGRAM_REASONS: ReprogramReason[] = ['cuenta_erronea', 'falla_si
 // Reprogramar/fallar/ejecutar una allocation EXISTENTE sigue permitido (son hechos de ejecución,
 // no de autorización) — lo que se bloquea es agregar pagos NUEVOS al lote ya autorizado.
 const LOCKED_LOT_STATUSES = new Set(['released', 'executing', 'closed']);
+
+/** `[PGP.36]` La fila que devuelve la consulta de etiquetas del origen derivado, con su ventana. */
+interface VentanaRow {
+  id: string; beneficiary: string; concept: string;
+  supplier_id: string | null; branch_code: string | null; vence: string | null;
+  pronto_fecha_limite: string | null; pronto_tasa: number | string | null;
+  pronto_beneficio: number | string | null; pronto_estado: string | null;
+}
 export interface CreateAgreementDto {
   obligation_source: ObligationSource; obligation_id: string;
   responsible_user?: string | null; counterpart_text?: string | null;
@@ -894,7 +902,13 @@ export class PaymentCalendarService {
       const items = await trx('finance.payment_allocation_items').whereIn('allocation_id', allocations.map((a: any) => a.id));
       const bySource: Record<string, string[]> = {};
       for (const it of items as any[]) (bySource[it.obligation_source] ??= []).push(it.obligation_id);
-      const labels = new Map<string, { beneficiary: string; concept: string; supplier_id?: string; branch_code?: string | null }>();
+      const labels = new Map<string, {
+        beneficiary: string; concept: string; supplier_id?: string; branch_code?: string | null;
+        // `[PGP.36]` Sólo el origen derivado los trae: los otros no tienen factura del ERP detrás.
+        vence?: string | null;
+        pronto_fecha_limite?: string | null; pronto_tasa?: number | null;
+        pronto_beneficio?: number | null; pronto_estado?: string | null;
+      }>();
       for (const source of Object.keys(bySource) as ObligationSource[]) {
         const ids = bySource[source];
         if (source === 'supplier_payable') {
@@ -906,17 +920,37 @@ export class PaymentCalendarService {
         } else if (source === 'kepler_payable') {
           // `[TP.18]` El derivado no tiene tabla: su etiqueta se rearma desde la vista por la
           // misma llave determinística con que se guardó el item (ADR-094 §4).
+          // `[PGP.36]` **La ventana de pronto pago viaja con la etiqueta.** Es la MISMA consulta
+          // que ya rearmaba el beneficiario: un `leftJoin` más y cuatro columnas, cero viajes
+          // nuevos. La regla no se copia —`sqlVentanaProntoPago` es la de
+          // `pronto-pago-ventana.contract.ts`— porque una segunda definición de «hasta cuándo
+          // conviene pagar» diría otra fecha de la misma factura, y esto decide dinero.
+          //
+          // ⭐ Por qué acá y no sólo en la lista de «agregar facturas»: medido contra prod el
+          // 2026-10-29, **$2,427,564 de descuento está en juego sobre la deuda viva** y el
+          // renglón del día —donde se decide a quién se le paga hoy— no lo decía.
           const rows = await trx('analytics.v_supplier_payables as v')
             .leftJoin('catalog.suppliers as s', 's.code', 'v.proveedor')
+            .leftJoin('analytics.mv_supplier_prompt_discount as d', trx.raw('btrim(d.proveedor_code) = btrim(v.proveedor)'))
             .whereRaw(`${KEPLER_PAYABLE_ID} = ANY(?::uuid[])`, [ids])
             .select(
               trx.raw(`${KEPLER_PAYABLE_ID} AS id`),
               trx.raw(`coalesce(s.name, v.proveedor_nombre, v.proveedor) AS beneficiary`),
               trx.raw(`coalesce(nullif(btrim(v.folio), ''), 'Factura') AS concept`),
               's.id AS supplier_id', 'v.sucursal AS branch_code',
+              trx.raw('v.vencimiento AS vence'),
+              trx.raw(sqlVentanaProntoPago('v', 'd')),
             );
-          for (const r of rows as { id: string; beneficiary: string; concept: string; supplier_id: string | null; branch_code: string | null }[]) {
-            labels.set(`${source}:${r.id}`, { beneficiary: r.beneficiary, concept: r.concept, supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null });
+          for (const r of rows as VentanaRow[]) {
+            labels.set(`${source}:${r.id}`, {
+              beneficiary: r.beneficiary, concept: r.concept,
+              supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null,
+              vence: r.vence ?? null,
+              pronto_fecha_limite: r.pronto_fecha_limite ?? null,
+              pronto_tasa: r.pronto_tasa === null || r.pronto_tasa === undefined ? null : Number(r.pronto_tasa),
+              pronto_beneficio: r.pronto_beneficio === null || r.pronto_beneficio === undefined ? null : Number(r.pronto_beneficio),
+              pronto_estado: r.pronto_estado ?? 'sin_medir',
+            });
           }
         } else {
           const rows = await trx(TABLE_BY_SOURCE[source] as string).whereIn('id', ids).select('id', 'beneficiary', 'concept');
@@ -950,6 +984,15 @@ export class PaymentCalendarService {
           supplier_id: label?.supplier_id ?? null,
           branch_code: label?.branch_code ?? null,
           kepler_saldada: saldada,
+          // `[PGP.36]` La razón por la que esta factura está en el día de hoy.
+          vence: label?.vence ?? null,
+          pronto_fecha_limite: label?.pronto_fecha_limite ?? null,
+          pronto_tasa: label?.pronto_tasa ?? null,
+          pronto_beneficio: label?.pronto_beneficio ?? null,
+          // ⛔ El origen que NO tiene factura del ERP detrás no es «sin medir»: no aplica. Son
+          // cosas distintas y mezclarlas haría que un gasto recurrente pareciera un proveedor
+          // del que no sabemos nada.
+          pronto_estado: it.obligation_source === 'kepler_payable' ? (label?.pronto_estado ?? 'sin_medir') : null,
         });
         itemsByAllocation.set(it.allocation_id, arr);
       }
@@ -972,12 +1015,22 @@ export class PaymentCalendarService {
         // `[PGP.35]` El agregado por pago: cuántas de sus facturas quedaron saldadas en el ERP y
         // por cuánto. La pantalla lo necesita para no sumar como deuda viva lo que ya no se debe.
         const saldadas = its.filter((it) => it.kepler_saldada);
+        // `[PGP.36]` **Lo que este pago captura y lo que deja pasar.** Es la cuenta de resultados
+        // del renglón: sin ella el día publica un total y nadie puede juzgar si estuvo bien armado.
+        // ⛔ `fuera_de_ventana` NO es «perdido» (el contrato lo dice): se pasó la mediana de lo que
+        // históricamente funcionó y todavía se puede intentar. Por eso «deja pasar», no «pierde».
+        const captura = its.reduce((s, it) => s + (
+          (it.pronto_estado === 'capturable' || it.pronto_estado === 'por_vencer') ? Number(it.pronto_beneficio || 0) : 0), 0);
+        const dejaPasar = its.reduce((s, it) => s + (
+          it.pronto_estado === 'fuera_de_ventana' ? Number(it.pronto_beneficio || 0) : 0), 0);
         return {
           ...a, amount_assigned: Number(a.amount_assigned),
           bank_account_label: a.bank_account_id ? origin.get(a.bank_account_id) ?? null : null,
           bank_account_kind: a.bank_account_id ? originKind.get(a.bank_account_id) ?? null : null,
           kepler_saldadas: saldadas.length,
           kepler_saldadas_importe: saldadas.reduce((s, it) => s + Number(it.applied_amount), 0),
+          pronto_captura: Math.round(captura * 100) / 100,
+          pronto_deja_pasar: Math.round(dejaPasar * 100) / 100,
           items: its,
         };
       });

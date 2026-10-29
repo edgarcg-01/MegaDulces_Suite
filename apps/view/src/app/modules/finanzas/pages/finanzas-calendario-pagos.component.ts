@@ -486,6 +486,17 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 <h3 class="pg-sec-t" id="pg-pagos-h">Pagos del día
                   @if (allocations().length) { <span class="pg-sec-n comm-num">{{ pagos(allocations().length) }} · {{ money(dayTotal(day)) }}</span> }
                   <!-- [PGP.35] El total no se recorta solo: se declara que parte de el no es deuda viva. -->
+                  <!-- [PGP.36] El dia declara que gana y que deja pasar: sin esto el total no se
+                       puede juzgar. -->
+                  @if (diaCaptura() > 0 || diaDejaPasar() > 0) {
+                    <span class="pg-sec-pronto"
+                          [title]="'El descuento sale de los pagos que de hecho lo obtuvieron con cada proveedor, no de una condicion pactada. «Deja pasar» no es «perdido»: se paso la mediana de lo que funciono, y todavia se puede pedir.'">
+                      @if (diaCaptura() > 0) { <b class="pg-gana">captura {{ money(diaCaptura()) }}</b> }
+                      @if (diaCaptura() > 0 && diaDejaPasar() > 0) { <span class="pg-sep">·</span> }
+                      @if (diaDejaPasar() > 0) { <span class="pg-tarde">deja pasar {{ money(diaDejaPasar()) }}</span> }
+                      <span class="pg-sec-pronto-k">de pronto pago</span>
+                    </span>
+                  }
                   @if (saldadasDelDia().length) {
                     <span class="pg-sec-saldada"
                           [title]="'El ERP ya no debe estas facturas: se pagaron por fuera o tienen nota de credito. Marcarlas como pagadas fallaria. Estan senaladas en su renglon.'">
@@ -624,6 +635,16 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                         <!-- [PGP.35] El ERP ya no debe esta factura. Se dice ACA, donde se decide:
                              ejecutarlo fallaria, y hasta hoy el renglon solo mostraba un «—» mudo
                              en el beneficiario. Medido: 11 de 27 pagos vivos, $2,506,811.31. -->
+                        <!-- [PGP.36] POR QUE se paga esto hoy. Va antes de COMO sale: el orden de
+                             lectura es la decision (DESIGN Q.2 - explicar el numero, no solo mostrarlo).
+                             Las cuatro razones hablan; antes solo hablaba la que convenia. -->
+                        @if (razonDePago(a); as r) {
+                          <span class="pg-razon" [class.is-gana]="r.tono === 'gana'" [class.is-urge]="r.tono === 'urge'"
+                                [class.is-tarde]="r.tono === 'tarde'" [class.is-mudo]="r.tono === 'mudo'" [title]="r.detalle">
+                            <i class="pi" [class.pi-arrow-up-right]="r.tono === 'gana'" [class.pi-clock]="r.tono === 'urge'"
+                               [class.pi-hourglass]="r.tono === 'tarde'" [class.pi-question-circle]="r.tono === 'mudo'" aria-hidden="true"></i>{{ r.texto }}
+                          </span>
+                        }
                         @if (a.kepler_saldadas > 0) {
                           <span class="pg-saldada"
                                 [title]="'Al preparar este pago, el ERP debia estas facturas. Hoy ya no: se pagaron por fuera o tienen nota de credito. Marcarlo como pagado fallaria. Quitalo del dia o revisa que factura reemplaza.'">
@@ -1261,6 +1282,16 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-sec-saldada { display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
     .pg-dlg-list li.is-saldada { color:var(--bad-fg); }
     .pg-dlg-warn { display:inline-flex; align-items:center; gap:var(--sp-1); margin-left:var(--sp-2); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
+    /* [PGP.36] La razon de pago. Cuatro tonos y NINGUNO depende solo del color: cada uno lleva
+       su icono y su texto (DESIGN - el color nunca es el unico portador). */
+    .pg-razon { display:flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); font-weight:600; color:var(--fg-2); }
+    .pg-razon.is-gana  { color:var(--ok-fg); }
+    .pg-razon.is-urge  { color:var(--action); }
+    .pg-razon.is-tarde { color:var(--warn-fg); }
+    .pg-razon.is-mudo  { color:var(--fg-3); font-weight:500; font-style:italic; }
+    .pg-sec-pronto { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); }
+    .pg-sec-pronto-k { color:var(--fg-3); }
+    .pg-gana { color:var(--ok-fg); } .pg-tarde { color:var(--warn-fg); } .pg-sep { color:var(--fg-3); }
     .cal-dlg-full { width:100%; margin-bottom:var(--sp-2); }
     .cal-dlg-actions { display:flex; gap:var(--sp-2); align-items:center; justify-content:flex-end; margin-top:var(--sp-3); }
     .cal-dlg-label { display:block; font-size:var(--fs-sm); color:var(--text-muted); margin:var(--sp-2) 0 var(--sp-1); }
@@ -1967,6 +1998,60 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.allocations().filter((a) => a.status === 'pending' && (a.kepler_saldadas ?? 0) > 0));
   readonly saldadasDelDiaTotal = computed(() =>
     this.saldadasDelDia().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
+
+  /**
+   * `[PGP.36]` **La cuenta de resultados del día.** El encabezado publicaba «27 pagos ·
+   * $6,683,082.26» y con eso nadie podia juzgar si el día estaba bien armado. Ahora dice qué
+   * descuento captura y cuál deja pasar, que es la pregunta que el Calendario existe para
+   * contestar.
+   */
+  readonly diaCaptura = computed(() =>
+    this.allocations().filter((a) => a.status === 'pending').reduce((s, a) => s + Number(a.pronto_captura || 0), 0));
+  readonly diaDejaPasar = computed(() =>
+    this.allocations().filter((a) => a.status === 'pending').reduce((s, a) => s + Number(a.pronto_deja_pasar || 0), 0));
+
+  /**
+   * `[PGP.36]` **Por qué este pago está hoy en el día.** Una frase por renglón, con su evidencia.
+   *
+   * ⭐ Las CUATRO hablan, y ésa es la diferencia con lo de antes: el renglón sólo decía algo
+   * cuando convenía pagar («gana $X si pagás antes del…»). Medido contra prod el 2026-10-29
+   * sobre $139.6M de deuda viva, eso dejaba **mudos $97.4M**: $23.9M fuera de ventana y
+   * $73.5M sin medir. Y un silencio se lee como «acá no hay nada que ganar».
+   *
+   * ⛔ Las tres negativas dicen cosas distintas y no se mezclan:
+   *   · `fuera_de_ventana` → se pasó la mediana de lo que funcionó. **Todavía se puede intentar.**
+   *   · `sin_medir` → nunca observamos un descuento de este proveedor. **No sabemos**, que no es
+   *     lo mismo que saber que no da.
+   *   · `null` → no aplica: este renglón no es una factura del ERP.
+   */
+  razonDePago(a: PaymentCalendarAllocation): { tono: 'gana' | 'urge' | 'tarde' | 'mudo'; texto: string; detalle: string } | null {
+    if (a.pronto_captura > 0) {
+      const urge = (a.items ?? []).some((it) => it.pronto_estado === 'por_vencer');
+      const lim = (a.items ?? []).map((it) => it.pronto_fecha_limite).filter(Boolean).sort()[0];
+      const tasa = (a.items ?? []).map((it) => it.pronto_tasa).find((t) => t != null);
+      return {
+        tono: urge ? 'urge' : 'gana',
+        texto: `Gana ${this.money(a.pronto_captura)}${tasa ? ' (' + this.pct(tasa) + ')' : ''}${lim ? ' si se paga antes del ' + this.shortDate(lim) : ''}`,
+        detalle: 'El descuento sale de los pagos de este proveedor que de hecho lo obtuvieron, no de una condicion pactada: es una guia medida, no una promesa.',
+      };
+    }
+    if (a.pronto_deja_pasar > 0) {
+      return {
+        tono: 'tarde',
+        texto: `Deja pasar ${this.money(a.pronto_deja_pasar)}: se paso la ventana de pronto pago`,
+        detalle: 'Se paso la mediana de lo que historicamente funciono con este proveedor. NO esta perdido: todavia se puede pedir.',
+      };
+    }
+    const kp = (a.items ?? []).filter((it) => it.pronto_estado != null);
+    if (kp.length && kp.every((it) => it.pronto_estado === 'sin_medir')) {
+      return {
+        tono: 'mudo',
+        texto: 'Sin descuento medido en este proveedor',
+        detalle: 'Nunca observamos un pago con descuento suyo (hacen falta 3). NO significa que no de: significa que no lo sabemos. Si pacto condiciones, captúralas en su ficha.',
+      };
+    }
+    return null;
+  }
 
   readonly porPagar = computed(() => this.allocations().filter((a) => a.status === 'pending' && isPrepared(a)));
   readonly porPagarTotal = computed(() => this.porPagar().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
