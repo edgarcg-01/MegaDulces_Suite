@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Fixed — Etiquetas: el código del producto ya no se corta (ETQ-CODIGO, 2026-10-28)
+- El mostrador reportó que en la etiqueta sólo salían 3 números del código: `CANELS GOMITAS TUENI 1.35 KG` (SKU **20750**) imprimió **«Código: 207»**. El dato estaba bien; el renglón «1.35 kg | Código: 20750» **no cabía** en su columna de 34 mm y lo que no cabe se cortaba (sólo se salvaba si un ajuste de JavaScript lo encogía).
+- Ahora el renglón **cabe sin JavaScript**: su tamaño tiene un tope calculado por el largo del texto. El ajuste sólo lo agranda hasta donde quepa, así que las etiquetas que ya salían bien no cambian de tamaño.
+- El arnés de geometría de etiquetas gana el invariante **`codigo_recortado`** (ninguno de los 8 anteriores miraba este renglón). Sin el arreglo da **2 etiquetas rotas de 221**: la 20750 y la 01001, que nadie había reportado; con el arreglo, 0.
+- Sin migración, sin permiso, sin endpoint. No medido: la impresión física, ni las etiquetas en promoción (su renglón va en otra columna y no lleva el tope).
 ### Fixed — Pagos: cuando el ERP y el SAT no coinciden sobre quién es un proveedor, manda el comprobante (PGP.31 / ADR-108, 2026-10-28, **en prod**)
 - Kepler tenía capturado, para **18 acreedores**, un RFC que **sus propias facturas timbradas contradicen** — entre ellos **J&F ENTERPRISE** y **MONDELEZ**, con un RFC de persona física sobre una sociedad. Hasta ahora ganaba el del ERP y por eso esas facturas no se encontraban.
 - Ahora manda el del comprobante. **+12 documentos encuentran su factura (+$14,819)**, sin que ninguno pierda la que ya tenía: el valor literal de Kepler se conserva y sigue sirviendo para buscar.

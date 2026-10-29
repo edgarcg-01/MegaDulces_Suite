@@ -24,7 +24,7 @@ const URL = process.env.FLEET_DB_URL || process.env.DATABASE_URL_NEW;
  * `44228`/`83112` (mayoreo incoherente, que no se publica). Si la geometría se rompe, se tiene
  * que romper visiblemente en ellos.
  */
-const TESTIGOS = ['78148', '20186', '70031', '70500', '70079', '70043',
+const TESTIGOS = ['20750', '78148', '20186', '70031', '70500', '70079', '70043',
   '18022', '95717', '44228', '83112'];
 
 /**

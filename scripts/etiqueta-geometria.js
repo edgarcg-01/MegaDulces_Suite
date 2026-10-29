@@ -272,7 +272,7 @@ function html(v) {
   <div class="etq-head">${BROTE_EN_BANDA ? SPROUT : ''}<span class="etq-head-txt">${esc(v.nombre)}</span></div>
   <div class="etq-body">
     <div class="etq-left">
-      <div class="etq-meta">${v.content ? `<span>${esc(v.content)}</span><span class="sep">|</span>` : ''}<span>Código: <span class="etq-red">${esc(v.sku)}</span></span></div>
+      <div class="etq-meta" style="--etq-meta-n:${(v.content ? String(v.content).length + 1 : 0) + 'Código: '.length + String(v.sku).length}">${v.content ? `<span>${esc(v.content)}</span><span class="sep">|</span>` : ''}<span>Código: <span class="etq-red">${esc(v.sku)}</span></span></div>
       <div class="etq-pricebox">${BROTE_EN_BANDA ? '' : SPROUT}
         <div class="etq-price"><span class="cur">$</span>${ent[0]}<span class="dot">.</span>${ent[1]}</div>
         ${franja}
@@ -477,6 +477,10 @@ function html(v) {
         monto_desborda: amts.some((a) => a.parentElement.scrollWidth > a.parentElement.clientWidth + 1),
         tiers_recortado: extension() > tb.clientHeight + 1,
         unidad_recortada: !!(ptxt && ptxt.scrollWidth > ptxt.clientWidth + 1),
+        // `[ETQ-CODIGO]` El renglón "contenido | Código" se mide SIN ningún ajuste de JavaScript (el arnés no corre
+        // `fitMeta` a propósito): que quepa tiene que venir del CSS. Era el hueco: "1.35 kg | Código: 20750" salió
+        // impreso como "Código: 207" y ninguno de los otros invariantes miraba este renglón.
+        codigo_recortado: (() => { const m = lab.querySelector('.etq-meta'); return !!m && m.scrollWidth > m.clientWidth + 1; })(),
         // `[ETQ-FIT.3]` El nombre se pierde por DOS caminos y hay que mirar los dos: en un
         // renglon desborda a lo ANCHO (puntos suspensivos) y en dos desborda a lo ALTO (el
         // clamp se come la tercera linea). Medir solo el ancho volveria el invariante ciego
@@ -566,7 +570,7 @@ function html(v) {
       + `precio ${(set.reduce((a, f) => a + f.precio_mm, 0) / set.length).toFixed(2)} mm`);
   }
   console.log('\ninvariantes (todos tienen que ser 0):');
-  const inv = ['precio_desborda', 'monto_desborda', 'tiers_recortado', 'unidad_recortada', 'nombre_recortado', 'precio_tapa_franja'];
+  const inv = ['precio_desborda', 'monto_desborda', 'tiers_recortado', 'unidad_recortada', 'nombre_recortado', 'precio_tapa_franja', 'codigo_recortado'];
   const culpables = (pred) => filas.filter(pred).map((f) => f.sku).slice(0, 6).join(' ');
   for (const k of inv) {
     const n = cuenta((f) => f[k]);

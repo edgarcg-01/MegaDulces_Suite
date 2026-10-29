@@ -1,7 +1,7 @@
 {
  "generado": "2026-09-24",
  "fuente": "analytics.v_label_prices + analytics.v_label_presentations + catalog.products (PROD, derivadas del ODS)",
- "nota": "CONGELADO a proposito: el antes y el despues se miden sobre las MISMAS filas. Regenerar obliga a re-medir el antes. [ETQ-PRES.4] Regenerado el 2026-09-24 al migrar la etiqueta a la LISTA de presentaciones: el corpus anterior salia de commercial.product_label_prices (la COPIA que mantiene un importer) y contaba renglones con el modelo de tres cajones, o sea que media una etiqueta que ya no se imprime. El \"antes\" que conservaba dejo de existir.",
+ "nota": "CONGELADO a proposito: el antes y el despues se miden sobre las MISMAS filas. Regenerar obliga a re-medir el antes. [ETQ-PRES.4] Regenerado el 2026-09-24 al migrar la etiqueta a la LISTA de presentaciones: el corpus anterior salia de commercial.product_label_prices (la COPIA que mantiene un importer) y contaba renglones con el modelo de tres cajones, o sea que media una etiqueta que ya no se imprime. El \"antes\" que conservaba dejo de existir. [ETQ-CODIGO] 2026-10-28: se agrega a mano el 20750 (CANELS GOMITAS TUENI 1.35 KG, contenido \"1.35 kg\"), el caso del mostrador que imprimio \"Codigo: 207\". Es lo unico que cambia: el resto de las filas y los pesos siguen congelados.",
  "pesos_catalogo_pct": {
   "digitos": {
    "1": 6.8,
@@ -18,7 +18,7 @@
    "5": 2.2
   }
  },
- "filas": 220,
+ "filas": 221,
  "corpus": [
   {
    "sku": "00001",
@@ -6207,6 +6207,51 @@
    "_digitos": 3,
    "_renglones": "1",
    "_realce_sin_descuento": true,
+   "_sin_umbral": false
+  },
+  {
+   "sku": "20750",
+   "name": "CANELS GOMITAS TUENI 1.35 KG",
+   "content": "1.35 kg",
+   "sucursal": "00",
+   "barcode": "018804057656",
+   "barcode_format": "UPC",
+   "piece_price": "119.77",
+   "wholesale_piece_min_qty": null,
+   "wholesale_piece_price": null,
+   "pack_size": null,
+   "pack_price": null,
+   "wholesale_pack_price": "111.85",
+   "wholesale_pack_min_qty": 3,
+   "box_size": 8,
+   "box_price": "886.88",
+   "unit_base": "PAQ",
+   "sold_by_kg": false,
+   "presentaciones": [
+    {
+     "unidad": "PAQ",
+     "factor": 1,
+     "origen": "base",
+     "contenido": "1.35 kg",
+     "precio_lista": 119.77,
+     "mayoreo_precio": 111.85,
+     "mayoreo_desde": 3,
+     "mayoreo_veredicto": "ok"
+    },
+    {
+     "unidad": "CJA",
+     "factor": 8,
+     "origen": "ranura",
+     "contenido": "10.8 kg",
+     "precio_lista": 886.88,
+     "mayoreo_precio": 871.04,
+     "mayoreo_desde": 3,
+     "mayoreo_veredicto": "ok"
+    }
+   ],
+   "_digitos": 3,
+   "_renglones": "3",
+   "_realce_sin_descuento": false,
    "_sin_umbral": false
   },
   {
