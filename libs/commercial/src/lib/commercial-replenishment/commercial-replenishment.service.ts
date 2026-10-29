@@ -2926,6 +2926,11 @@ export class CommercialReplenishmentService {
            WHERE tenant_id = :t   -- la vista no tiene RLS: el tenant se filtra explícito
              AND doc_date >= CURRENT_DATE - 120
              AND NOT cerrada
+             -- [PQ.29] Una OC CANCELADA en Kepler (c43 = 'C', monto en $0) no está abierta: no
+             -- espera mercancía. Medido el 2026-10-29: 298 de las 447 que mostraba la bandeja
+             -- (67 %). El motor del pedido ya las sacaba (NOT IN ('F','C','R'), RA-PRO.45);
+             -- acá sólo C, porque F/R con vale vivo sí esperan su entrada.
+             AND estatus <> 'C'
              AND dias_abierta >= :mind
              -- [RA-PRO.60] alcance: la lista viaja como texto ('01,08') para no depender de cómo
              -- expande knex un arreglo en un raw con nombres. Vacía nunca llega (se corta antes).
