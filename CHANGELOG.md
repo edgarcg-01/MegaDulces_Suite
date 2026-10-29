@@ -9,6 +9,8 @@
 ---
 
 ## [Unreleased]
+### Fixed — Caducidades: escanear busca solo, sin tocar la lupa (P2.9.3, 2026-10-29)
+- El campo de escaneo sólo buscaba con `Enter`, y **no toda pistola manda `Enter`**: en Morelia Abastos el código quedaba escrito esperando el clic. Ahora busca solo en cuanto entra un código completo (ráfaga de pistola u 8–14 dígitos, 250 ms de silencio); con `Enter` busca una sola vez; un SKU tecleado a mano sigue esperando `Enter`. Vale para Caducidades y el detalle de la hoja.
 ### Added — Pagos: la pantalla ahora dice **por qué** hay que pagar cada cosa (PGP.36 / PGP.37, 2026-10-29)
 - Cada renglón del día trae su razón, en pesos: **«Gana $423,220 (6.34 %) si se paga antes del 29-oct»**. Y ahora **también hablan las que antes se callaban**: «deja pasar $X: se pasó la ventana» y «sin descuento medido en este proveedor».
 - ⭐ Eso último importa más de lo que parece: la pantalla sólo avisaba cuando convenía pagar, y con eso **se quedaba muda sobre $97.4M de los $139.6M** de deuda. Un silencio se lee como «aquí no hay nada que ganar».

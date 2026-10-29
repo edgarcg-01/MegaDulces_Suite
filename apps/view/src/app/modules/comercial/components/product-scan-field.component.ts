@@ -16,6 +16,12 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
  *    dispositivo que haya que abrir — *teclea* el código en el campo con foco y
  *    manda `Enter`. Por eso esto es un `input` normal y el `Enter` resuelve:
  *    apuntar y disparar, sin tocar la pantalla entre lectura y lectura.
+ *    ⭐ [P2.9.3] **No toda pistola manda `Enter`** (depende de su configuración de
+ *    sufijo). Sin él, el código quedaba escrito esperando la lupa — reportado en
+ *    Caducidades el 2026-10-29. Ahora el campo también dispara SOLO cuando entra un
+ *    código completo: una ráfaga de pistola (caracteres a < 50 ms) o un código de
+ *    barras numérico de 8–14 dígitos, tras 250 ms sin teclas. Un SKU tecleado a
+ *    mano a ritmo humano sigue esperando `Enter`: así no se busca a medio escribir.
  *  - **Cámara del teléfono** (botón): para quien recorre el estante sin pistola.
  *  - **Tecleado**: cuando la etiqueta está rota o borrada, o cuando el código es
  *    el de anaquel y no un código de barras.
@@ -29,6 +35,19 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
  * éste **resuelve contra la API**. Comparten el cableado de zxing; si aparece un
  * tercer consumidor, conviene extraer la cámara a una primitiva compartida.
  */
+/** Silencio tras la última tecla para dar por terminado un código escaneado. */
+export const AUTO_MS = 250;
+/** Entre teclas de una pistola: una persona no teclea a este ritmo. */
+const RAFAGA_MS = 50;
+
+/** ¿El texto es un código que conviene buscar solo, sin esperar `Enter`? */
+export function esCodigoCompleto(code: string, rafaga: boolean): boolean {
+  const c = code.trim();
+  if (!c) return false;
+  if (rafaga && c.length >= 4) return true; // lo tecleó una pistola
+  return /^\d{8,14}$/.test(c); // EAN-8, UPC-A, EAN-13, ITF-14: códigos de barras completos
+}
+
 @Component({
   selector: 'app-product-scan-field',
   standalone: true,
@@ -50,7 +69,7 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
           [placeholder]="placeholder()"
           [disabled]="deshabilitado()"
           [ngModel]="valor()"
-          (ngModelChange)="valorChange.emit($event)"
+          (ngModelChange)="alEscribir($event)"
           (keyup.enter)="disparar()"
           (keyup.escape)="limpiar()"
           (focus)="activo.set(true)"
@@ -84,7 +103,7 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
           <span class="psf-dot" aria-hidden="true"></span>
           {{ activo() ? 'Pistola lista — dispara' : 'Toca el campo para usar la pistola' }}
         </span>
-        <span class="psf-help">Enter busca · Esc limpia</span>
+        <span class="psf-help">Al escanear busca solo · Enter busca · Esc limpia</span>
       </div>
     </div>
   `,
@@ -180,6 +199,10 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
   private readonly cancelar = viewChild<ElementRef<HTMLButtonElement>>('cancelar');
   private lector?: BrowserMultiFormatReader;
   private controles?: IScannerControls;
+  private temporizador: ReturnType<typeof setTimeout> | null = null;
+  private ultimaTecla = 0;
+  /** Intervalos entre teclas del texto actual: si todos son de pistola, es una ráfaga. */
+  private intervalos: number[] = [];
 
   constructor() {
     effect(() => { this.refocoTick(); this.enfocar(); });
@@ -198,12 +221,41 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
   }
 
   disparar(): void {
+    this.cancelarAuto();
     const code = (this.valor() || '').trim();
     if (!code || this.ocupado() || this.deshabilitado()) return;
     this.buscar.emit(code);
   }
 
+  /**
+   * [P2.9.3] Cada cambio del texto: lo reporta al padre y, si al quedarse quieto
+   * parece un código completo, dispara solo. El `Enter` de la pistola sigue
+   * funcionando y cancela este disparo, así que no se busca dos veces.
+   */
+  alEscribir(v: string): void {
+    this.valorChange.emit(v);
+    const ahora = Date.now();
+    const texto = String(v ?? '');
+    if (texto.length <= 1) this.intervalos = [];
+    else if (this.ultimaTecla) this.intervalos.push(ahora - this.ultimaTecla);
+    this.ultimaTecla = ahora;
+    this.cancelarAuto();
+    const rafaga = this.intervalos.length >= 3 && this.intervalos.every((ms) => ms < RAFAGA_MS);
+    if (!esCodigoCompleto(texto, rafaga)) return;
+    this.temporizador = setTimeout(() => {
+      this.temporizador = null;
+      if ((this.valor() || '').trim() === texto.trim()) this.disparar();
+    }, AUTO_MS);
+  }
+
+  private cancelarAuto(): void {
+    if (this.temporizador) clearTimeout(this.temporizador);
+    this.temporizador = null;
+  }
+
   limpiar(): void {
+    this.cancelarAuto();
+    this.intervalos = [];
     this.valorChange.emit('');
     this.enfocar();
   }
@@ -260,5 +312,5 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
     this.enfocar();
   }
 
-  ngOnDestroy(): void { this.cerrarCamara(); }
+  ngOnDestroy(): void { this.cancelarAuto(); this.cerrarCamara(); }
 }
