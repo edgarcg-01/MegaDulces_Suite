@@ -293,6 +293,14 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-29 — `[AX.17]` La factura de telemarketing con su embarque
+
+- **Qué**: cada factura TM muestra el embarque del que salió (en la fila, el folio; en el detalle, viaje, unidad y chofer). Liga = back-pointer de Kepler + sucursal: 5,927/5,929 a exactamente uno.
+- **Lo que mentía**: el detalle decía «Pedido» y el anexo «Pedido origen» sobre un folio que en el 100 % es el embarque.
+- **Lección**: una diferencia «por factura» contra un padre que tiene varias facturas es falsa por construcción (salía −$32,803); se compara la suma de los hijos contra el padre.
+- **Lección**: el JOIN contra la vista del embarque no escala (>60 s en 30 días; resuelve unidad y chofer por fila). En la lista va la llave que ya trae la fila; lo caro, por llave constante en el detalle.
+- **Deuda declarada**: la lista tarda ~1.7 s hoy (era 740 ms en AX.12) · sin deep-link a la guía · `pedido_folio_digital` mal en los embarques serie 2.
+
 ## 2026-10-29 — `[AX.16]` Facturación TM se muda a `/telemarketing/documentos`
 
 - **Qué**: la página de facturas de telemarketing y sus Expedientes pasan de `/comercial/documentos` al proyecto Telemarketing (ruta, árbol de permisos, sidebars, enlaces de Cartera/dashboard/análisis). Lo viejo redirige.
