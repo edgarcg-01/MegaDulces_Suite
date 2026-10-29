@@ -1238,6 +1238,17 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <span class="cg-jornada-res">{{ subtituloJornada() }}</span>
         </button>
 
+        <!-- ⭐ [CGA-A.63] LA REPOSICION, COMO TU JORNADA: un boton que ya dice cuanto falta y abre
+             una ventana encima ([CG.116]: una ventana no empuja la cola ni el arqueo). Es la MISMA
+             pieza que el boton de arriba -- su clase, no una copia --; cg-repo-btn solo la nombra. -->
+        <button #repoBtn type="button" class="cg-jornada-btn cg-repo-btn" aria-haspopup="dialog"
+                (click)="repo.abrirVentana(repoBtn)">
+          <i class="pi pi-window-maximize" aria-hidden="true"></i>
+          <strong>Reposición</strong>
+          <span class="cg-jornada-sep" aria-hidden="true"></span>
+          <span class="cg-jornada-res">{{ repo.resumen() }}</span>
+        </button>
+
         <!-- [CGP-V.6] Sin el permiso de captura el boton no se ofrece: se dice, una vez, aca arriba. -->
         @if (puedeGestionar()) {
           <!-- ⛔⛔ [CG.120] LA CAPTURA A MANO SE RETIRA (Edgar, 2026-10-19). Un movimiento
@@ -2879,11 +2890,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             </div>
           }
 
-            <!-- [CGA-A.61] LA REPOSICION DE SUCURSALES, arriba de la cola y no en otra pestana:
-                 Edgar pidio una sola interfaz. Por sucursal y dia de pago dice que documentos de
-                 Kepler hay, de que retiro salio cada peso, y ahi mismo se repone, se vincula y se
-                 cambia de retiro. Al escribir avisa y esta pantalla relee la cola y el libro. -->
-            <app-caja-reposicion [puedeGestionar]="puedeGestionar()" (cambio)="trasReposicion()" />
+            <!-- ⛔ [CGA-A.63] Aca vivia la reposicion de sucursales ([CGA-A.61]) y se comia la primera
+                 pantalla entera: cinco cifras y diez filas antes del primer movimiento. Edgar: "tiene
+                 que ser un modulo muy pequeño. el 95% de la interfaz si no es el 100% tiene que ser
+                 el arqueo y los movimientos". Ahora es un boton de la barra, junto a Tu jornada. -->
 
             <!-- LA COLA. Es el MEDIO para elegir el siguiente, no el protagonista: por eso vive
                  dentro del apartado 1 y debajo de la ficha, no al lado como seccion propia. El
@@ -3292,6 +3302,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
            arriba es la cola de efectivo, y un documento por pagar todavía no es un movimiento de
            caja. Reusa las clases de fila de la lista del cajero (mismos primitivos visuales). -->
           </div>
+          <!-- [CGA-A.63] La reposicion no pinta nada aca: su boton va en la barra y su tabla en una
+               ventana encima. Vive en este apartado y no al final de .cg-app porque ese es una
+               columna flex con gap, y un hijo mas le quitaria 1rem de alto a la cola. -->
+          <app-caja-reposicion #repo [puedeGestionar]="puedeGestionar()" (cambio)="trasReposicion()" />
         </section>
 
       </div><!-- /cg-split -->

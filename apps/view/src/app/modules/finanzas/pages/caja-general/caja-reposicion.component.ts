@@ -18,6 +18,7 @@ import { LoadStateComponent } from '../../../../shared/components/load-state/loa
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, type SegOption } from '../../../../shared/components/segmented/segmented.component';
+import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { PermissionsService } from '../../../../core/services/permissions.service';
 import { CashLedgerService } from '../../cash-ledger.service';
 import { CaosService } from '../../caos.service';
@@ -39,6 +40,12 @@ interface OpcionOrigen { label: string; value: string }
  * Jerarquía (Q.5): primario = lo que falta por resolver (la cifra y el estado de cada fila);
  * secundario = total, CAOS y cajón; terciario = el detalle de documentos, plegado por fila.
  *
+ * ⭐ `[CGA-A.63]` **No pinta nada en la página.** Edgar, 2026-10-29: *«tiene que ser un módulo muy
+ * pequeño. el 95% de la interfaz si no es el 100% tiene que ser el arqueo y los movimientos»*. La
+ * tabla abre en una ventana (`app-side-peek` modo `window`: diez columnas no caben en un cajón) y
+ * el botón que la abre lo pone la barra de Captura, con la misma pieza que «Tu jornada»; de aquí
+ * sólo lee `resumen()` y llama `abrirVentana()`.
+ *
  * ⚠️ Quién hace qué lo vuelve a exigir el servidor: «Reponer» es el lote de siempre (gestionar la
  * caja); vincular y cambiar de retiro son sólo de superadmin (`[CGA-A.58]`, por rol fresco).
  */
@@ -47,13 +54,17 @@ interface OpcionOrigen { label: string; value: string }
   standalone: true,
   imports: [
     FormsModule, RouterLink, ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, DialogModule,
-    LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent,
+    LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="rp" aria-labelledby="rp-titulo">
+    <!-- [CGA-A.63] Ventana y no cajón: con diez columnas el cajón de 520px parte cada fila en tres
+         renglones, y mientras se repone la cola pasa a segundo plano (la razón del modo window).
+         Sin aboveModals: adentro hay p-select y se abre el p-dialog de cambiar de retiro. -->
+    <app-side-peek mode="window" [width]="1280" [open]="abierta()" (openChange)="$event ? null : cerrarVentana()"
+                   title="Reposición" [subtitle]="subtitulo()">
+    <div class="rp">
       <header class="rp-head">
-        <h3 class="rp-h" id="rp-titulo">Reposición de sucursales</h3>
         @if (datos(); as d) {
           <span class="rp-lead" aria-live="polite" aria-atomic="true">
             @if (accionables().length) {
@@ -62,7 +73,6 @@ interface OpcionOrigen { label: string; value: string }
               <span class="rp-lead-sub">Nada que resolver de un clic</span>
             }
           </span>
-          <span class="fin-dim">pago del {{ dmy(d.desde) }} al {{ dmy(d.hasta) }}</span>
           @if (d.datos_al) {
             <app-freshness-pill measures="data" [since]="d.datos_al" label="Kepler" />
           } @else {
@@ -259,9 +269,11 @@ interface OpcionOrigen { label: string; value: string }
           Oficinas no se repone: Caja General paga directo lo suyo.
         </p>
       }
-    </section>
+    </div>
+    </app-side-peek>
 
-    <p-dialog [visible]="mover() !== null" (visibleChange)="$event ? null : cerrarMover()" [modal]="true"
+    <!-- appendTo body: se abre DESDE la ventana y tiene que quedar encima de ella, no adentro. -->
+    <p-dialog [visible]="mover() !== null" (visibleChange)="$event ? null : cerrarMover()" [modal]="true" appendTo="body"
               header="Cambiar de retiro" [style]="{ width: '34rem' }" [draggable]="false">
       @if (mover(); as m) {
         <div class="rp-mover">
@@ -284,7 +296,9 @@ interface OpcionOrigen { label: string; value: string }
   styles: [
     FINANZAS_SHARED_STYLES,
     `
-    :host { display:block; container-type:inline-size; }
+    /* [CGA-A.63] Sin container-type: lo único que pinta es la ventana, y las consultas de la tabla
+       ya miden su propia caja (el dt-scope de app-load-state). */
+    :host { display:block; }
     /* #9: en angosto se van las tres columnas secundarias (Q.5); el detalle plegado las repite
        documento por documento, así que nada queda inalcanzable. */
     @container (max-width: 56rem) {
@@ -298,9 +312,7 @@ interface OpcionOrigen { label: string; value: string }
       .rp-apila { flex-direction:column; align-items:flex-start; }
       .rp-col-tog { width:auto; }
     }
-    .rp { border-top:1px solid var(--border-color); padding-top:var(--sp-3); margin:var(--sp-3) 0 0; }
     .rp-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); margin-bottom:var(--sp-2); }
-    .rp-h { font-size:var(--fs-h3); font-weight:700; margin:0; color:var(--fg-1); }
     .rp-sp { flex:1 1 auto; }
     .rp-lead { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--fs-sm); font-weight:700; color:var(--fg-1); }
     .rp-lead-sub { font-family:var(--font-body); font-weight:400; color:var(--text-muted); }
@@ -356,6 +368,10 @@ export class CajaReposicionComponent implements OnInit {
   readonly datos = signal<ReposicionSucursales | null>(null);
   readonly cargando = signal(false);
   readonly error = signal<string | null>(null);
+  /** `[CGA-A.63]` La ventana de la reposición; la abre el botón de la barra de Captura. */
+  readonly abierta = signal(false);
+  /** El botón que la abrió: al cerrar, el foco vuelve ahí y no al `<body>`. */
+  private origen: HTMLElement | null = null;
   /**
    * Qué grupos se ven. ⭐ Medido en prod el 2026-10-28 (ventana 22–28/10): de 28 sucursal-día, 20
    * tenían egresos sin vincular y NINGÚN retiro de su sucursal — son de antes del proceso nuevo, o
@@ -390,6 +406,28 @@ export class CajaReposicionComponent implements OnInit {
     { label: 'Sin retiro', value: 'sin_retiro', count: this.sinRetiro().length },
     { label: 'Explicadas', value: 'explicadas', count: this.explicadas().length },
   ]);
+
+  /**
+   * `[CGA-A.63]` Lo que dice el botón de la barra sin abrir nada: las mismas cuentas que los
+   * filtros de la ventana, para que lo de afuera y lo de adentro digan lo mismo. Sin importes: el
+   * botón es la puerta, la cifra está adentro con su desglose. Lo que no se midió se dice; un
+   * Kepler sin medir no es «nada pendiente».
+   */
+  readonly resumen = computed(() => {
+    const d = this.datos();
+    if (!d) return this.error() ? 'no se pudo leer' : 'leyendo…';
+    if (!d.datos_al) return 'Kepler sin medir';
+    const partes: string[] = [];
+    if (this.accionables().length) partes.push(`${this.accionables().length} por resolver`);
+    if (this.sinRetiro().length) partes.push(`${this.sinRetiro().length} sin retiro`);
+    if (!d.caos_al) partes.push('CAOS sin medir');
+    return partes.length ? partes.join(' · ') : 'nada pendiente';
+  });
+  /** El título repite el rótulo del botón —como «Tu jornada»—; el resto va aquí. */
+  readonly subtitulo = computed(() => {
+    const d = this.datos();
+    return d ? `de sucursales · pago del ${dmy(d.desde)} al ${dmy(d.hasta)}` : 'de sucursales';
+  });
 
   readonly kpis = computed<MetricStripItem[]>(() => {
     const acc = this.accionables();
@@ -452,6 +490,19 @@ export class CajaReposicionComponent implements OnInit {
       next: (d) => { this.datos.set(d); this.cargando.set(false); },
       error: (e) => { this.error.set(this.textoError(e)); this.cargando.set(false); },
     });
+  }
+
+  /** Abre la ventana y RELEE: lo que la cola confirmó desde que se cargó ya no está por capturar. */
+  abrirVentana(origen?: HTMLElement): void {
+    this.origen = origen ?? null;
+    this.abierta.set(true);
+    this.cargar();
+  }
+
+  cerrarVentana(): void {
+    this.abierta.set(false);
+    // Después del cierre: el cajón todavía tiene el foco en este tick.
+    queueMicrotask(() => this.origen?.focus());
   }
 
   nombre(sucursal: string): string { return warehouseName(sucursal); }

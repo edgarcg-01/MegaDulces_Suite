@@ -35,7 +35,7 @@ import {
 import { AuthService } from '../../../../core/services/auth.service';
 import { PermissionsService } from '../../../../core/services/permissions.service';
 import { CajaSocketService, type CajaEvent } from '../../caja-socket.service';
-import type { CorteRow, FirmaSolicitudEstado } from '@megadulces/contracts';
+import type { CorteRow, FirmaSolicitudEstado, ReposicionGrupo, ReposicionSucursales } from '@megadulces/contracts';
 import { CajaFirmaApiService } from '../../caja-firma-api.service';
 import { recargaAutomaticaBloqueada } from '../../../../core/services/recarga-segura';
 import { todayMx } from '../../../../core/utils/mx-date';
@@ -74,6 +74,26 @@ const SALDO: SaldoResponse = {
 const VACIA: PendientesResponse = {
   rows: [], limit: 100, has_more: false, confirmables: 0, desde: '2026-09-21', ventana_dias: 1,
 };
+
+/**
+ * `[CGA-A.63]` La reposición de sucursales se monta con la página y pide `reposicion()` al
+ * iniciar. Sin esto en el doble, desde `[CGA-A.61]` el montaje reventaba con «this.api.reposicion
+ * is not a function» y caían 321 de las 327 pruebas de este archivo.
+ */
+const REPOSICION: ReposicionSucursales = {
+  desde: '2026-10-22', hasta: '2026-10-28', grupos: [], retiros: [],
+  datos_al: '2026-10-28T18:00:00Z', caos_al: '2026-10-28T18:00:00Z',
+  universo: { sucursales: [], sin_documentos: [], excluidas: [] },
+};
+
+/**
+ * `[CGA-A.63]` El cajón del ARQUEO. La página monta un segundo `app-side-peek` —la ventana de la
+ * reposición, antes en el documento—, así que «el primero de la página» ya no es el del arqueo.
+ */
+function cajonArqueo(raiz: HTMLElement): HTMLElement | null {
+  const peeks = Array.from(raiz.querySelectorAll<HTMLElement>('app-side-peek'));
+  return peeks.find((p) => !p.closest('app-caja-reposicion')) ?? null;
+}
 
 /** Una fila real de la bandeja: un pago de caja chica SIN cuenta declarada. Es el caso que
  *  dejaba el arqueo muerto — con 0 reglas de gasto, todas las filas se ven así. */
@@ -248,6 +268,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       jornadasPendientes: vi.fn(() => of({ sucursal: '00', hoy: todayMx(), inicio_libro: null, jornadas: [], alcance: 'cajon' })),
       // `[CGS.14]` Por omisión la caja está libre: las pruebas del candado lo sobrescriben.
       candado: vi.fn(() => of({ bloqueado: false, motivo: null, jornada: null, texto: null, con_llave: null, activo: true, hoy: todayMx(), pueden_recibir_llave: [] })),
+      reposicion: vi.fn(() => of(REPOSICION)),
       ...over,
     };
 
@@ -1643,6 +1664,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       jornadasPendientes: vi.fn(() => of({ sucursal: '00', hoy: todayMx(), inicio_libro: null, jornadas: [], alcance: 'cajon' })),
       // `[CGS.14]` Por omisión la caja está libre: las pruebas del candado lo sobrescriben.
       candado: vi.fn(() => of({ bloqueado: false, motivo: null, jornada: null, texto: null, con_llave: null, activo: true, hoy: todayMx(), pueden_recibir_llave: [] })),
+      reposicion: vi.fn(() => of(REPOSICION)),
     };
     TestBed.configureTestingModule({
       imports: [FinanzasCajaGeneralComponent],
@@ -1923,7 +1945,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.abrirCaptura();
     fx.detectChanges();
 
-    const cajon: HTMLElement | null = fx.nativeElement.querySelector('app-side-peek .sp-root');
+    const cajon: HTMLElement | null = cajonArqueo(fx.nativeElement)?.querySelector('.sp-root') ?? null;
     expect(cajon, 'no se montó el cajón').not.toBeNull();
     expect(cajon!.classList.contains('is-open'), 'el cajón no abrió con la captura').toBe(true);
     expect(cajon!.classList.contains('is-izq'), 'el cajón salió por el lado equivocado').toBe(false);
@@ -2036,12 +2058,12 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     fx.detectChanges();
     expect(comp.capturaAbierta()).toBe(true);
 
-    const peek: HTMLElement = fx.nativeElement.querySelector('app-side-peek .sp-backdrop');
+    const peek = cajonArqueo(fx.nativeElement)!.querySelector('.sp-backdrop') as HTMLElement;
     peek.click();
     fx.detectChanges();
 
     expect(comp.capturaAbierta(), 'cerrar el cajón no cerró la captura').toBe(false);
-    expect(fx.nativeElement.querySelector('app-side-peek .sp-root')!.classList.contains('is-open'))
+    expect(cajonArqueo(fx.nativeElement)!.querySelector('.sp-root')!.classList.contains('is-open'))
       .toBe(false);
   });
 
@@ -4195,13 +4217,14 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       const fx = montar({
         movimientosPendientes: vi.fn(() => of({ ...VACIA, datos_al: '2026-10-06T18:00:00Z' })),
       });
-      expect(fx.nativeElement.querySelector('app-freshness-pill')).toBeTruthy();
+      // `[CGA-A.63]` La de LA COLA: la ventana de la reposición trae las suyas (Kepler y CAOS).
+      expect(fx.nativeElement.querySelector('.cg-bandeja app-freshness-pill')).toBeTruthy();
 
       // Tercer estado: sin `datos_al` no se esconde -- se DECLARA (ADR-056).
       TestBed.resetTestingModule();
       const fx2 = montar({ movimientosPendientes: vi.fn(() => of({ ...VACIA, datos_al: null })) });
       const head: string = fx2.nativeElement.querySelector('.cg-bandeja-head').textContent;
-      expect(fx2.nativeElement.querySelector('app-freshness-pill')).toBeFalsy();
+      expect(fx2.nativeElement.querySelector('.cg-bandeja app-freshness-pill')).toBeFalsy();
       expect(head).toContain('frescura sin medir');
     });
 
@@ -5410,6 +5433,69 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       montar();
       expect(comp.puedeGestionar()).toBe(true);
       expect(comp.puedeAutorizarPorPermiso()).toBe(true);
+    });
+  });
+  // ── `[CGA-A.63]` La reposición, un botón de la barra ───────────────────────────────────────
+  //
+  // Edgar, 2026-10-29: «tiene que ser un módulo muy pequeño. el 95% de la interfaz si no es el 100%
+  // tiene que ser el arqueo y los movimientos». La tabla vivía arriba de la cola y se comía la
+  // primera pantalla; ahora el apartado 1 no la pinta y la barra dice cuánto falta.
+  describe('[CGA-A.63] la reposición es un botón de la barra', () => {
+    const grupo = (clave: string, estado: ReposicionGrupo['estado'], conPropuesta = false): ReposicionGrupo => ({
+      clave, fecha: '2026-10-28', sucursal: '07', docs: [], total: 100,
+      por_capturar: estado === 'por_capturar' ? 100 : 0, n_por_capturar: estado === 'por_capturar' ? 1 : 0,
+      caos: 0, cajon: 0,
+      sin_vincular: estado === 'sin_vincular' ? 100 : 0, n_sin_vincular: estado === 'sin_vincular' ? 1 : 0,
+      n_sin_aprobar: 0, n_pagado_antes_de_aprobar: 0, estado,
+      propuesta: conPropuesta ? { asignaciones: [], monto: 100, queda: 0, razon: 'r' } : null,
+      retiro_sugerido: null,
+    });
+    // 2 de un clic (uno por capturar, uno con propuesta), 1 sin retiro, 1 explicada.
+    const CON_PENDIENTES: ReposicionSucursales = {
+      ...REPOSICION,
+      grupos: [grupo('a', 'por_capturar'), grupo('b', 'sin_vincular', true), grupo('c', 'sin_vincular'), grupo('d', 'explicada')],
+    };
+    const boton = (fx: { nativeElement: HTMLElement }) =>
+      fx.nativeElement.querySelector('.cg-bar .cg-repo-btn') as HTMLElement | null;
+
+    it('la barra dice cuánto falta, con las mismas cuentas que los filtros de la ventana', () => {
+      const fx = montar({ reposicion: vi.fn(() => of(CON_PENDIENTES)) });
+      fx.detectChanges();
+      expect(boton(fx), 'el botón de la reposición no está en la barra').not.toBeNull();
+      expect(boton(fx)!.textContent).toContain('Reposición');
+      expect(boton(fx)!.textContent).toContain('2 por resolver · 1 sin retiro');
+    });
+
+    it('⛔ el apartado 1 ya no pinta la tabla: lo que hay bajo la tira es la cola', () => {
+      const fx = montar({ reposicion: vi.fn(() => of(CON_PENDIENTES)) });
+      fx.detectChanges();
+      // Control: la tabla SÍ existe (en la ventana). Sin esto, «no está en el apartado» pasaría
+      // también con una tabla que no se pinta en ningún lado.
+      expect(fx.nativeElement.querySelector('app-caja-reposicion .rp-tbl')).not.toBeNull();
+      const cuerpo = fx.nativeElement.querySelector('.cg-ap-que .cg-ap-cuerpo') as HTMLElement;
+      expect(cuerpo.querySelector('.rp-tbl')).toBeNull();
+      expect(cuerpo.querySelector('app-caja-reposicion')).toBeNull();
+      expect(cuerpo.querySelector('.cg-bandeja')).not.toBeNull();
+    });
+
+    it('la ventana abre con el botón y RELEE; cerrada no se ve', () => {
+      const pedir = vi.fn(() => of(CON_PENDIENTES));
+      const fx = montar({ reposicion: pedir });
+      fx.detectChanges();
+      const raiz = () => fx.nativeElement.querySelector('app-caja-reposicion .sp-root') as HTMLElement;
+      expect(raiz().classList.contains('is-open')).toBe(false);
+      const antes = pedir.mock.calls.length;
+      boton(fx)!.click();
+      fx.detectChanges();
+      expect(raiz().classList.contains('is-open')).toBe(true);
+      expect(pedir.mock.calls.length).toBe(antes + 1);
+    });
+
+    it('[negativa] con Kepler sin medir NO dice «nada pendiente»', () => {
+      const fx = montar({ reposicion: vi.fn(() => of({ ...REPOSICION, datos_al: null })) });
+      fx.detectChanges();
+      expect(boton(fx)!.textContent).toContain('Kepler sin medir');
+      expect(boton(fx)!.textContent).not.toContain('nada pendiente');
     });
   });
   // ── `[CGP-V.9]` Contar cero con confirmación explícita ───────────────────────────────────────
