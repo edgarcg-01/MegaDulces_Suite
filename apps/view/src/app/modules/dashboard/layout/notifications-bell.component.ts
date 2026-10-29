@@ -14,6 +14,7 @@ import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { ServiceDeskService } from '../../servicio/service-desk.service';
 import { EtiquetasService } from '../../tienda/etiquetas.service';
 import { avisoDePrecio } from '../../tienda/aviso-precio';
+import { DesktopNoticeService } from '../../../core/services/desktop-notice.service';
 
 interface FeedItem { type: string; severity: 'info' | 'warn' | 'critical'; title: string; message: string; at: number; route?: string }
 
@@ -125,6 +126,13 @@ const FINANCE_NOTIF_ENABLED = false;
             }
           </div>
 
+          @if (puedeActivarEscritorio()) {
+            <button type="button" (click)="activarEscritorio()" class="w-full flex items-center gap-2 px-4 py-2 text-xs text-[color:var(--action)] hover:bg-surface-hover border-t border-divider text-left transition-colors">
+              <i class="pi pi-desktop" aria-hidden="true"></i>
+              <span>Avisarme también con una notificación de Windows cuando llegue una solicitud nueva y esta pestaña no se vea</span>
+            </button>
+          }
+
           @if (!connected()) {
             <div class="px-4 py-1.5 text-[10px] text-content-muted border-t border-divider status-bad">
               <span class="status-dot" aria-hidden="true"></span> Sin conexión en tiempo real
@@ -145,6 +153,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   private readonly dataScope = inject(DataScopeService);
   private readonly serviceDesk = inject(ServiceDeskService);
   private readonly etiquetas = inject(EtiquetasService);
+  private readonly escritorio = inject(DesktopNoticeService);
 
   readonly open = signal(false);
   readonly criticos = signal(0);
@@ -214,6 +223,9 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
    */
   private readonly sdActivo = computed(() => this.perms.has(Permission.SERVICIO_REPORTAR));
   private readonly sdPuedeAtender = computed(() => this.perms.hasAny(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR));
+  /** `[MS.AVISO]` Sólo a quien atiende y todavía no decidió: con el permiso ya dado o negado el botón sobra. */
+  readonly puedeActivarEscritorio = computed(() => this.sdPuedeAtender() && this.escritorio.permiso() === 'default');
+  activarEscritorio(): void { void this.escritorio.solicitar(); }
   private sdVisto = new Set<string>();
   private sdDesde: string | undefined;
 
@@ -316,7 +328,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
 
   /** A dónde lleva un aviso: lo que es de quien atiende, a la bandeja; lo demás, a sus solicitudes. */
   private rutaServicio(event: string, requestId: string | null): string {
-    const deAtencion = event === 'nuevo_prioritario' || event === 'asignado' || event === 'reabierto' || event.startsWith('sla_');
+    const deAtencion = event === 'nuevo_prioritario' || event === 'nueva_solicitud' || event === 'asignado' || event === 'reabierto' || event.startsWith('sla_');
     const base = deAtencion && this.sdPuedeAtender() ? '/servicio/bandeja' : '/servicio/solicitudes';
     return requestId ? `${base}?id=${requestId}` : base;
   }

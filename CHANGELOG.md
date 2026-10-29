@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Added — Mesa de Servicio: aviso en pantalla cuando entra una solicitud nueva (MS.AVISO, 2026-10-28)
+- **Ventana emergente en cualquier pantalla de la Suite (también en «Mi trabajo»)**, mientras la sesión esté abierta, cuando entra una solicitud a una cola que atiendes: folio, título, quién la reportó, y un clic para abrirla en la bandeja. Sale en gris neutro; las urgentes, en rojo y no se cierran solas.
+- **Aviso de Windows si la pestaña está oculta** (opcional): un botón al pie de la campana pide el permiso del navegador. Sin permiso, la ventana espera en la página; no se finge ningún aviso. No funciona con la pestaña cerrada (eso pide service worker y llaves VAPID, que no existen).
+- **Evento nuevo `nueva_solicitud`**: antes sólo avisaba la solicitud **alta o urgente** (40 de 76 en el último mes, medido en producción el 2026-10-28); las 36 de prioridad media/baja **no avisaban a nadie**, ni a la campana. Ahora toda solicitud nueva avisa a quien atiende esa cola (menos a quien la reportó y a quien la regla ya se la asignó). Sin migraciones ni permisos.
 ### Fixed — Etiquetas: el código del producto ya no se corta (ETQ-CODIGO, 2026-10-28)
 - El mostrador reportó que en la etiqueta sólo salían 3 números del código: `CANELS GOMITAS TUENI 1.35 KG` (SKU **20750**) imprimió **«Código: 207»**. El dato estaba bien; el renglón «1.35 kg | Código: 20750» **no cabía** en su columna de 34 mm y lo que no cabe se cortaba (sólo se salvaba si un ajuste de JavaScript lo encogía).
 - Ahora el renglón **cabe sin JavaScript**: su tamaño tiene un tope calculado por el largo del texto. El ajuste sólo lo agranda hasta donde quepa, así que las etiquetas que ya salían bien no cambian de tamaño.

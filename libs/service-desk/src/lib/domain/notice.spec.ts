@@ -2,7 +2,7 @@ import { SD_PRIORITIES } from '@megadulces/contracts';
 import { armarAviso, llaveDeAviso, type SdEventoClave } from './notice';
 
 const EVENTOS: SdEventoClave[] = [
-  'nuevo_prioritario', 'levantada', 'asignado', 'comentario', 'resuelto', 'reabierto', 'cancelado', 'autocerrado', 'transferido',
+  'nuevo_prioritario', 'nueva_solicitud', 'levantada', 'asignado', 'comentario', 'resuelto', 'reabierto', 'cancelado', 'autocerrado', 'transferido',
   'sla_por_vencer', 'sla_primera_respuesta_vencida', 'sla_vencido',
 ];
 const base = { folio: 'SRV-2026-00042', title: 'No abre el ERP', priority: 'alta' as const };
@@ -24,6 +24,13 @@ describe('armarAviso', () => {
   it('una solicitud URGENTE sin atender es crítica; una alta es sólo advertencia', () => {
     expect(armarAviso({ ...base, priority: 'urgente', event: 'nuevo_prioritario' }).severity).toBe('critical');
     expect(armarAviso({ ...base, priority: 'alta', event: 'nuevo_prioritario' }).severity).toBe('warn');
+  });
+  it('⭐ [MS.AVISO] una solicitud nueva avisa como info, con folio y quien la reportó, y NO se confunde con la prioritaria', () => {
+    const a = armarAviso({ ...base, priority: 'media', event: 'nueva_solicitud', actor: 'Ana' });
+    expect(a.severity).toBe('info');
+    expect(a.title).toBe('Nueva solicitud');
+    expect(a.message).toContain('la reportó Ana');
+    expect(a.title).not.toBe(armarAviso({ ...base, event: 'nuevo_prioritario' }).title);
   });
   it('la prioridad urgente se escribe en mayúsculas para que no se pase por alto', () => {
     for (const p of SD_PRIORITIES) {
