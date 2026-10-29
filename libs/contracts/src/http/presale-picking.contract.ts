@@ -102,6 +102,31 @@ export interface PresalePickReportLine {
   unit: string;
   ordered: number;
   picked: number;
+  /**
+   * `[MCP.10]` El renglón del pedido. Opcional: los reportes de antes del 2026-10-29 no lo traen.
+   * En `adjusted` sigue existiendo en `order_lines`; en `removed` ya se borró (queda `restore`).
+   */
+  line_id?: string;
+  /**
+   * `[MCP.10]` Sólo en `removed`: lo necesario para devolver al pedido el renglón borrado si la caja
+   * lo completa con el surtidor. Sin esto (reportes viejos) la caja no puede completarlo.
+   */
+  restore?: PresalePickRestore;
+}
+
+/** `[MCP.10]` Copia del renglón borrado al surtir, para poder reponerlo. Cantidad en unidad BASE. */
+export interface PresalePickRestore {
+  product_id: string;
+  quantity: number;
+  qty_unit: string | null;
+  qty_factor: number | null;
+  qty_factor_source: string | null;
+  discount_percent: number;
+  unit_price: number;
+  tax_rate: number;
+  source_warehouse_id: string | null;
+  line_number: number | null;
+  notes: string | null;
 }
 
 export interface PresalePickReport {

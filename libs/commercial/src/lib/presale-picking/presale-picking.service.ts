@@ -71,6 +71,12 @@ type FilaRenglon = {
   qty_factor: string | number | null; line_total?: string | number; sku?: string | null; barcode?: string | null; product_name: string | null;
 };
 
+/** `[MCP.10]` Lo que se lee además para la copia de un renglón que se borra al surtir. */
+type FilaCopia = {
+  qty_factor_source: string | null; discount_percent: string | number; unit_price: string | number;
+  tax_rate: string | number; source_warehouse_id: string | null; line_number: string | number | null; notes: string | null;
+};
+
 /** Una fila de `commercial.presale_picks`. */
 type FilaPick = {
   id: string; order_id: string; started_by: string; started_by_name: string; started_at: Date | string;
@@ -225,13 +231,25 @@ export class PresalePickingService {
     const lineas = await trx('commercial.order_lines as l')
       .leftJoin('catalog.products as p', 'p.id', 'l.product_id')
       .where('l.order_id', orderId)
-      .select('l.id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'l.line_total', 'p.nombre as product_name');
+      .select(
+        'l.id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'l.line_total', 'p.nombre as product_name',
+        // [MCP.10] Para la copia del renglón que se borre (la caja puede reponerlo).
+        'l.product_id', 'l.qty_factor_source', 'l.discount_percent', 'l.unit_price', 'l.tax_rate',
+        'l.source_warehouse_id', 'l.line_number', 'l.notes',
+      );
     let plan: PlanCierre;
     try {
       plan = planearCierre(
-        (lineas as FilaRenglon[]).map((l) => ({
+        (lineas as Array<FilaRenglon & FilaCopia>).map((l) => ({
           line_id: l.id, product_name: l.product_name ?? 'Producto', quantity: Number(l.quantity),
           qty_unit: l.qty_unit, qty_factor: l.qty_factor == null ? null : Number(l.qty_factor), line_total: Number(l.line_total),
+          restore: {
+            product_id: l.product_id, quantity: Number(l.quantity), qty_unit: l.qty_unit,
+            qty_factor: l.qty_factor == null ? null : Number(l.qty_factor), qty_factor_source: l.qty_factor_source ?? null,
+            discount_percent: Number(l.discount_percent) || 0, unit_price: Number(l.unit_price) || 0, tax_rate: Number(l.tax_rate) || 0,
+            source_warehouse_id: l.source_warehouse_id ?? null, line_number: l.line_number == null ? null : Number(l.line_number),
+            notes: l.notes ?? null,
+          },
         })),
         marcados,
       );
@@ -459,8 +477,11 @@ export class PresalePickingService {
     };
   }
 
-  /** Aviso a la vendedora en vivo y al celular. Nunca tumba el surtido: lo que se pierde es el aviso. */
-  private avisarVendedora(fila: Record<string, unknown>, titulo: string, mensaje: string): void {
+  /**
+   * Aviso a la vendedora en vivo y al celular. Nunca tumba el surtido: lo que se pierde es el aviso.
+   * `[MCP.10]` También lo usa la revisión en caja. `fila` necesita `id`, `code`, `user_id` y `seller_username`.
+   */
+  avisarVendedora(fila: Record<string, unknown>, titulo: string, mensaje: string): void {
     const tenantId = this.tenantCtx.get()?.tenantId;
     const username = fila['seller_username'] as string | undefined;
     const userId = fila['user_id'] as string | undefined;

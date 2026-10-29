@@ -21,7 +21,7 @@ import { QuotePricingService, rungDeRotulo, type Rung } from '../commercial-quot
 import type { Knex } from 'knex';
 import { SURTIDO_DE_RUTA } from '../presale-picking/presale-route.engine';
 import { bloqueosAlAgregar, llaveDestino } from '../commercial-inventory/stock-state';
-import type { StockBlockError } from '@megadulces/contracts';
+import type { PresalePickRestore, StockBlockError } from '@megadulces/contracts';
 import { INVOICE_ISSUER_PORT, InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult } from '@megadulces/contracts';
 
 // ─────────── tipos ───────────
@@ -1350,6 +1350,113 @@ export class CommercialOrdersService {
         line_tax: lineTax,
         line_total: lineTotal,
         erp_gross_total: motor ? motor.erp_gross_total : null,
+      });
+    }
+    await this.recalcOrderTotals(trx, orderId);
+    await this.recordHistory(trx, orderId, 'confirmed', 'confirmed', reason);
+    const after = await trx('commercial.orders').where({ id: orderId }).first('total');
+    return { total_before: totalBefore, total_after: Number(after?.total ?? 0) };
+  }
+
+  /**
+   * `[MCP.10]` Deja el pedido de preventa como lo revisó la caja, en la transacción del llamador:
+   * sube o baja renglones vivos (sin pasar de lo que pidió el vendedor), quita los que no hubo y
+   * repone los que el surtido había borrado y la caja completó con el surtidor. Todo se reprecia con
+   * el motor de cotizaciones, igual que al crear el renglón; si el motor no puede, se usa el precio
+   * del renglón (o el de su copia).
+   *
+   * ⛔ No valida existencia (MCP.3.16): la cajera tiene la mercancía en la mano.
+   */
+  async ajustarTrasRevision(
+    trx: Knex.Transaction,
+    orderId: string,
+    plan: {
+      poner: Array<{ line_id: string; quantity: number }>;
+      quitar: string[];
+      reponer: Array<{ restore: PresalePickRestore; quantity: number }>;
+    },
+    reason: string,
+  ): Promise<{ total_before: number; total_after: number }> {
+    const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
+    if (!order) throw new NotFoundException('Pedido no encontrado');
+    if (order.status !== 'confirmed') {
+      throw new ConflictException(`El pedido está ${order.status}: ya no se ajusta desde la caja.`);
+    }
+    if (!order.requested_delivery_date) {
+      throw new ConflictException('Sólo los pedidos de preventa se ajustan desde la caja.');
+    }
+    const totalBefore = Number(order.total);
+    type Renglon = {
+      id: string; product_id: string; quantity: string | number; requested_quantity: string | number | null;
+      qty_unit: string | null; unit_price: string | number; tax_rate: string | number; discount_percent: string | number;
+      source_warehouse_id: string | null; line_number: string | number;
+    };
+    const lines = (await trx('commercial.order_lines').where({ order_id: orderId })) as Renglon[];
+    const porId = new Map<string, Renglon>(lines.map((l) => [l.id, l]));
+    for (const id of [...plan.quitar, ...plan.poner.map((p) => p.line_id)]) {
+      if (!porId.has(id)) throw new BadRequestException('Renglón ajeno al pedido.');
+    }
+    if (lines.length - plan.quitar.length + plan.reponer.length <= 0) {
+      throw new BadRequestException('El pedido quedaría sin renglones.');
+    }
+    const precio = async (
+      warehouseId: string, productId: string, quantity: number, qtyUnit: string | null,
+      discount: number, unitPrice: number, taxRate: number,
+    ) => {
+      const motor = await this.tarificarConMotor(trx, warehouseId, productId, quantity, qtyUnit, discount);
+      if (motor) return motor;
+      const lineSubtotal = +(quantity * unitPrice * (1 - discount)).toFixed(2);
+      const lineTax = +(lineSubtotal * taxRate).toFixed(2);
+      return { unit_price: unitPrice, tax_rate: taxRate, line_subtotal: lineSubtotal, line_tax: lineTax, line_total: +(lineSubtotal + lineTax).toFixed(2), erp_gross_total: null };
+    };
+
+    if (plan.quitar.length) {
+      await trx('commercial.order_lines').where({ order_id: orderId }).whereIn('id', plan.quitar).delete();
+    }
+    for (const r of plan.poner) {
+      const line = porId.get(r.line_id) as Renglon;
+      const quantity = Number(r.quantity);
+      const tope = line.requested_quantity == null ? Number(line.quantity) : Math.max(Number(line.requested_quantity), Number(line.quantity));
+      if (!(quantity > 0) || quantity > tope + 1e-6) {
+        throw new BadRequestException('La caja no puede dejar más de lo que pidió el vendedor.');
+      }
+      const discount = Number(line.discount_percent) || 0;
+      const p = await precio(line.source_warehouse_id ?? order.warehouse_id, line.product_id, quantity, line.qty_unit, discount, Number(line.unit_price), Number(line.tax_rate));
+      await trx('commercial.order_lines').where({ id: line.id }).update({
+        quantity, unit_price: p.unit_price, tax_rate: p.tax_rate, line_subtotal: p.line_subtotal,
+        line_tax: p.line_tax, line_total: p.line_total, erp_gross_total: p.erp_gross_total,
+      });
+    }
+    let siguiente = lines.reduce((mx, l) => Math.max(mx, Number(l.line_number) || 0), 0);
+    for (const r of plan.reponer) {
+      const c = r.restore;
+      const quantity = Number(r.quantity);
+      if (!(quantity > 0) || quantity > Number(c.quantity) + 1e-6) {
+        throw new BadRequestException('La caja no puede reponer más de lo que pidió el vendedor.');
+      }
+      const discount = Number(c.discount_percent) || 0;
+      const p = await precio(c.source_warehouse_id ?? order.warehouse_id, c.product_id, quantity, c.qty_unit, discount, Number(c.unit_price), Number(c.tax_rate));
+      siguiente += 1;
+      await trx('commercial.order_lines').insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        order_id: orderId,
+        product_id: c.product_id,
+        source_warehouse_id: c.source_warehouse_id,
+        line_number: siguiente,
+        quantity,
+        // Lo que pidió el vendedor, no lo que se repuso: el renglón sigue describiendo el pedido.
+        requested_quantity: Number(c.quantity),
+        unit_price: p.unit_price,
+        tax_rate: p.tax_rate,
+        discount_percent: discount,
+        line_subtotal: p.line_subtotal,
+        line_tax: p.line_tax,
+        line_total: p.line_total,
+        erp_gross_total: p.erp_gross_total,
+        notes: c.notes,
+        qty_unit: c.qty_unit,
+        qty_factor: c.qty_factor,
+        qty_factor_source: c.qty_factor_source,
       });
     }
     await this.recalcOrderTotals(trx, orderId);

@@ -194,6 +194,8 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
       { label: 'Por capturar en Kepler', icon: 'pi pi-file-edit', route: '/almacen/pedidos-por-capturar', permission: Permission.ALMACEN_PEDIDOS_VER, exact: true },
       // [MCP.5] La caja imprime aquí la guía de carga que firma el repartidor. Permiso propio.
       { label: 'Guías de carga', icon: 'pi pi-print', route: '/almacen/pedidos/guias', permission: Permission.PREVENTA_GUIAS_GESTIONAR, exact: true },
+      // [MCP.10] Antes de cobrar, la caja revisa cada pedido de preventa surtido. Mismo permiso que las guías.
+      { label: 'Revisión de pedidos', icon: 'pi pi-list-check', route: '/almacen/pedidos/revision', permission: Permission.PREVENTA_GUIAS_GESTIONAR, exact: true },
       // [GP.3c.2] El coordinador ordena la fila que el surtidor toma con "Tomar siguiente".
       { label: 'Consola de surtido', icon: 'pi pi-sliders-h', route: '/almacen/surtido-consola', permission: Permission.ALMACEN_SURTIDO_COORDINAR, exact: true },
     ],
