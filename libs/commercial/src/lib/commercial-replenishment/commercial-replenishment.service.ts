@@ -421,6 +421,11 @@ export interface LoteRequisicionesCreado {
   compras: number;
   traspasos: number;
   folios: string[];
+  /**
+   * `[PQ.27]` D1: si quien generó tiene `COMPRAS_REQUISICIONES_AUTORIZAR`, el lote se aprueba en el
+   * mismo acto y sale a Kepler después de contestar. `automatica: false` = quedó en la cola.
+   */
+  aprobacion?: { automatica: boolean; aprobadas: number; fallas: Array<{ folio: string; motivo: string }> };
 }
 
 export interface RequisitionListRowDto {
@@ -4228,7 +4233,10 @@ export class CommercialReplenishmentService {
     return m;
   }
 
-  async createRequisitionBatch(dto: { requisitions?: CreateRequisitionDto[]; allow_duplicate?: boolean }): Promise<LoteRequisicionesCreado> {
+  async createRequisitionBatch(
+    dto: { requisitions?: CreateRequisitionDto[]; allow_duplicate?: boolean },
+    opts?: { autoAprobar?: boolean },
+  ): Promise<LoteRequisicionesCreado> {
     const tenantId = this.tenantCtx.requireTenantId();
     const entrada = dto?.requisitions || [];
     if (!entrada.length) throw new BadRequestException('El lote no trae requisiciones');
@@ -4252,7 +4260,7 @@ export class CommercialReplenishmentService {
       .sort((a, b) => (a.r.source_type === 'branch' ? 1 : 0) - (b.r.source_type === 'branch' ? 1 : 0));
     const vigCols = await this.tk.run((trx) => this.loteColsListas(trx));
     const userId = this.tenantCtx.get()?.userId ?? null;
-    return this.tk.run(async (trx) => {
+    const lote = await this.tk.run(async (trx) => {
       // `[RA-UX.1b]` Antes de crear NADA: ¿esta persona ya generó estos mismos renglones de compra
       // en la última hora? Medido: 9 de 106 lotes eran eso. Se contesta 409 con lo encontrado y la
       // pantalla ofrece confirmarlo; `allow_duplicate` es esa confirmación. Sin autor (llamada de
@@ -4307,8 +4315,25 @@ export class CommercialReplenishmentService {
         compras: creadas.filter((x) => x.source_type === 'supplier').length,
         traspasos: creadas.filter((x) => x.source_type === 'branch').length,
         folios: creadas.map((x) => x.folio),
+        ids: creadas.map((x) => x.id),
       };
     });
+    const { ids, ...res } = lote;
+    // `[PQ.27]` **D1 (Edgar, 2026-10-29): quien tiene permiso de autorizar no pasa por una segunda
+    // pantalla para aprobar lo que acaba de generar.** Medido en 30 d: 61 % de las aprobaciones las
+    // hacía quien creó la requisición y 93 % en lote — la cola era un sello, no un control. Se
+    // aprueba DESPUÉS de cerrar la transacción del lote (el lote es todo-o-nada; la aprobación no):
+    // cada una pasa por `approve` con sus frenos (costo movido > 5 %, D2) y lo que no pasa queda
+    // pendiente, en la cola, con su motivo. El envío a Kepler sale después de contestar
+    // (`bulkEstado` → `empujarLoteAKepler`). Sin el permiso, todo queda en la cola como antes.
+    if (!opts?.autoAprobar) return { ...res, aprobacion: { automatica: false, aprobadas: 0, fallas: [] } };
+    const r = await this.bulkEstado(ids, 'approve');
+    const folioDe = new Map(ids.map((id, k) => [id, res.folios[k]] as const));
+    this.logger.log(`[PQ.27] Lote ${res.batch_folio ?? res.batch_id}: ${r.hechas} de ${ids.length} aprobadas al generar`);
+    return {
+      ...res,
+      aprobacion: { automatica: true, aprobadas: r.hechas, fallas: r.fallas.map((x) => ({ folio: folioDe.get(x.id) ?? x.id, motivo: x.motivo })) },
+    };
   }
 
   /**

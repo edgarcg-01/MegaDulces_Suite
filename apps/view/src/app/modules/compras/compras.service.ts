@@ -692,6 +692,8 @@ export interface RequisitionBatchResult {
   compras: number;
   traspasos: number;
   folios: string[];
+  /** `[PQ.27]` D1: con permiso de autorizar se aprueba al generar; si no, `automatica: false`. */
+  aprobacion?: { automatica: boolean; aprobadas: number; fallas: Array<{ folio: string; motivo: string }> };
 }
 /** `[RQ.8]` Una fila de la bandeja agrupada: UN «Armar», no un documento. */
 export interface RequisitionBatchRow {

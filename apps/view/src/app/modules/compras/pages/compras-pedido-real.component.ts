@@ -190,7 +190,14 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
       @if (ultimoLote(); as ul) {
         <div class="pr-ultimo-lote" role="status">
           <i class="pi pi-check-circle" aria-hidden="true"></i>
-          <span><strong>{{ ul.nombre }}</strong> generado: {{ ul.compras }} compra(s) + {{ ul.traspasos }} traspaso(s). Esperan aprobación en Requisiciones; hasta entonces no se le pide nada a nadie.</span>
+          @if (ul.aprobadas === null) {
+            <span><strong>{{ ul.nombre }}</strong> generado: {{ ul.compras }} compra(s) + {{ ul.traspasos }} traspaso(s). Esperan aprobación en Requisiciones; hasta entonces no se le pide nada a nadie.</span>
+          } @else {
+            <!-- [PQ.27] D1: aprobado al generar; sale a Kepler solo. Lo que no pasó se dice con su motivo. -->
+            <span><strong>{{ ul.nombre }}</strong>: {{ ul.aprobadas }} aprobada(s) y en camino a Kepler.
+              @for (f of ul.fallas; track f.folio) { <br>{{ f.folio }} quedó por aprobar: {{ f.motivo }} }
+            </span>
+          }
           <a pButton routerLink="/compras/requisiciones" [queryParams]="ul.batch_folio ? { q: ul.batch_folio } : {}" class="p-button-sm p-button-text"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Ver en Requisiciones</span></a>
           <button pButton type="button" class="p-button-sm p-button-text" aria-label="Cerrar este aviso" (click)="ultimoLote.set(null)"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
         </div>
@@ -2394,7 +2401,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   dl = signal(false);
   saving = signal(false);
   /** `[PQ.14]` Lo último que se generó desde esta pantalla, a la vista hasta que la persona lo cierre. */
-  ultimoLote = signal<{ nombre: string; compras: number; traspasos: number; batch_folio: string | null } | null>(null);
+  ultimoLote = signal<{
+    nombre: string; compras: number; traspasos: number; batch_folio: string | null;
+    /** `[PQ.27]` `null` = quedó en la cola; si no, cuántas se aprobaron solas y cuáles no. */
+    aprobadas: number | null; fallas: Array<{ folio: string; motivo: string }>;
+  } | null>(null);
   mode = signal<Mode>('pedido');
   deadValue = signal(0);
 
@@ -5802,11 +5813,15 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         const nombre = r.batch_folio ? `Lote ${r.batch_folio}` : `${r.total} requisición(es)`;
         // `[PQ.14]` El lazo no se corta: el toast se va solo y no lleva a ningún lado. Lo generado
         // queda a la vista, con su lote, hasta que la persona lo cierre o vaya a la bandeja.
-        this.ultimoLote.set({ nombre, compras: r.compras, traspasos: r.traspasos, batch_folio: r.batch_folio ?? null });
+        const auto = r.aprobacion?.automatica ? r.aprobacion : null;
+        this.ultimoLote.set({ nombre, compras: r.compras, traspasos: r.traspasos, batch_folio: r.batch_folio ?? null,
+          aprobadas: auto ? auto.aprobadas : null, fallas: auto ? auto.fallas : [] });
         this.toast.add({
-          severity: 'success', life: 12000,
+          severity: auto && auto.fallas.length ? 'warn' : 'success', life: 12000,
           summary: `${nombre}: ${r.compras} compra(s) + ${r.traspasos} traspaso(s)`,
-          detail: `Quedan ESPERANDO APROBACIÓN en Compras › Requisiciones — hasta entonces no se le pide nada a nadie. `
+          detail: (auto
+            ? `${auto.aprobadas} aprobada(s) y en camino a Kepler${auto.fallas.length ? `; ${auto.fallas.length} quedaron por aprobar (el motivo está en el aviso de arriba)` : ''}. `
+            : `Quedan ESPERANDO APROBACIÓN en Compras › Requisiciones — hasta entonces no se le pide nada a nadie. `)
             + `${n === 1 ? 'El producto armado se quitó' : `Los ${n} productos armados se quitaron`} de la requisición en armado; en la lista aparecen como «ya requisado».`,
         });
         this.mode() === 'muerto' ? this.loadDead() : this.loadWorkbook();
