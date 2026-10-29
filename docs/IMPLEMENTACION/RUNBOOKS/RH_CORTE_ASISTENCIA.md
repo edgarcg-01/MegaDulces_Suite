@@ -296,12 +296,19 @@ En `apps/api/src/modules/db-health/db-health.service.ts`, dentro de `CRON_JOBS`.
 ```ts
 // [RH.1.8] Relojes: la ingesta late con cada lote y con cada latido del agente (minutos, aunque nadie cheque).
 // Una sola llave para los 12 relojes: un reloj caído NO la pone roja — eso lo dice el semáforo de /rh/relojes.
-{ key: 'hr_attendance_ingest', label: 'Relojes checadores: entrada de checadas', cadence: 'continuo (latido del agente)', warnH: 0.5, critH: 2, maxRunH: 0.1 },
+{ key: 'hr_attendance_ingest', label: 'Relojes checadores: entrada de checadas', cadence: 'continuo (latido del lector, ≤5 min)', warnH: 0.5, critH: 2 },
 // [RH.1.5] Agente de alertas de asistencia, cada 30 min en el worker (ENABLE_HR_ATTENDANCE_AGENT).
-{ key: 'hr_attendance_agent', label: 'Asistencia: agente de alertas', cadence: 'cada 30 min', warnH: 1.5, critH: 3, maxRunH: 0.5 },
+{ key: 'hr_attendance_agent', label: 'Asistencia: agente de alertas', cadence: 'cada 30 min (worker)', warnH: 1.5, critH: 3 },
 ```
 
-No se agregan antes: dos filas de jobs que todavía no corren pondrían el tablero en rojo una semana.
+No se agregan antes: dos filas de jobs que todavía no corren pondrían el tablero en **amarillo** («DECLARADO Y NUNCA
+REPORTÓ», `veredictoSinLatido`) hasta el corte, con alerta abierta por el escáner (sin correo: el correo es sólo
+para `critical`). Si la ingesta ya hubiera latido alguna vez en prod y luego se callara, saldría **rojo**.
+
+**Corregido el 2026-10-21 al preparar el PR:** las filas van **sin `maxRunH`**. Los dos laten con `latirCron`, que
+escribe `ok`/`error` de una vez y nunca deja la fila en `running`, así que el tope de duración no se evaluaría jamás.
+Las llaves y la cadencia se verificaron contra el código (`HR_INGEST_JOB_KEY`, `AGENT_JOB_KEY`,
+`@Cron('0 */30 * * * *')`, `LATIDO_MS` 5 min del lector) y `db-health.spec.ts` lo exige.
 
 ---
 
