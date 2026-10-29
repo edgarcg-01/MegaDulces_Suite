@@ -10,8 +10,18 @@
  *    espejo (ADR-059). Y mientras nadie lo corra, esas 22 inflan el «sin medir» con filas que
  *    no tienen con qué medirse.
  *
- * El cambio es una condición en el CTE `lib` (`r.origen = 'libro'`); las columnas de salida no
- * cambian. El servicio (`contrastarAnio` / `contrastarPeriodo`) aplica la misma regla.
+ *  · Corrido el contraste (12:58, 21 quincenas): **202 filas «solo el motor», todas con el motor
+ *    pagando $0** — 160 `fuera_no_es_camion`, 20 `tipo_sin_declarar`, 12 `config_inactiva`, 10
+ *    `sin_dato_en_la_fuente`. Son rutas fuera de Ruta Directa que el libro no lista porque no hay
+ *    nada que pagar. «Solo el motor» se leía como «el motor paga y el libro no», y no era eso.
+ *
+ * Tres condiciones: `r.origen = 'libro'` en el CTE `lib`; el lado del motor sólo de quincenas
+ * con libro (la corrida de las 12:58 se hizo con el código viejo y dejó Q21 escrita: 7 filas
+ * «solo el motor» por $35,256.62 que no tienen contra qué medirse); y fuera las filas que el
+ * libro no lista Y el motor no paga. Si el libro SÍ pagó una ruta que el motor deja fuera, la fila se queda
+ * (`el_motor_no_paga`): ésa es una discrepancia real. Las columnas de salida no cambian.
+ *
+ * El servicio (`contrastarAnio` / `contrastarPeriodo`) aplica la regla del libro.
  *
  * ── De paso: `analytics.v_rd_route_daily` recupera `security_invoker` ──────────────────────
  * `20261028170837` (RD.95) la recreó con CREATE OR REPLACE sin WITH, y eso REEMPLAZA las
@@ -39,7 +49,10 @@ const vista = (soloLibro) => `
          AND r.origen = 'libro'` : ''}
        WHERE l.deleted_at IS NULL AND l.beneficiario = 'chofer'
     ), mot AS (
-      SELECT * FROM ${TBL} WHERE beneficiario = 'chofer'
+      SELECT * FROM ${TBL} e WHERE e.beneficiario = 'chofer'${soloLibro ? `
+         AND EXISTS (SELECT 1 FROM commercial.commission_runs r
+                      WHERE r.period_id = e.period_id AND r.deleted_at IS NULL
+                        AND r.status <> 'anulado' AND r.origen = 'libro')` : ''}
     ), claves AS (
       SELECT tenant_id, period_id, route_code FROM lib
       UNION
@@ -107,7 +120,9 @@ const vista = (soloLibro) => `
     LEFT JOIN lib ON lib.tenant_id = k.tenant_id AND lib.period_id = k.period_id
                  AND lib.route_code = k.route_code
     LEFT JOIN mot ON mot.tenant_id = k.tenant_id AND mot.period_id = k.period_id
-                 AND mot.route_code = k.route_code`;
+                 AND mot.route_code = k.route_code${soloLibro ? `
+    -- RD.98: una ruta que el libro no lista y el motor tampoco paga no es un contraste.
+    WHERE NOT (lib.route_code IS NULL AND mot.motivo_no_pago IS NOT NULL)` : ''}`;
 
 const COMMENT_ANTES = 'RD.52 - el libro (commission_run_lines de la corrida viva) contra el motor (commission_engine_lines), con veredicto y causa. El veredicto vive SOLO aca. Cinco estados y no dos: "el motor no paga" es el acantilado del tramo y se arregla distinto que "difiere"; promediarlos lo esconde. Lo que no se puede comparar se declara sin_corrida_del_motor, nunca se lee como que cuadra.';
 const COMMENT_AHORA = 'RD.52 / RD.98 - el LIBRO (commission_run_lines de la corrida viva con origen = libro) contra el motor (commission_engine_lines), con veredicto y causa. Solo quincenas con libro: una corrida del motor contra el motor seria un espejo. El veredicto vive SOLO aca. Cinco estados y no dos: "el motor no paga" es el acantilado del tramo y se arregla distinto que "difiere". Lo que no se puede comparar se declara sin_corrida_del_motor, nunca se lee como que cuadra.';
