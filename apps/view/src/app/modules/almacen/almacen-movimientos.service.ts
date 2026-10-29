@@ -365,9 +365,6 @@ export class AlmacenMovimientosService {
     };
     return this.http.get<TransfersLedgerDetailResponse>(`${this.base}/transfers-ledger-detail`, { params: this.params(f, extra) });
   }
-  setAudit(dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; audited: boolean; note?: string | null }): Observable<{ audited: boolean; audited_by?: string | null }> {
-    return this.http.post<{ audited: boolean; audited_by?: string | null }>(`${this.base}/audit`, dto);
-  }
   filters(): Observable<MovementsFilterOpts> {
     return this.http.get<MovementsFilterOpts>(`${this.base}/filters`);
   }

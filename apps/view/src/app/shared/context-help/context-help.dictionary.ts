@@ -640,7 +640,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   },
   'almacen-movimientos': {
     title: 'Diario de movimientos — guía',
-    intro: 'Entradas y salidas de inventario por día (mejora del reporte de Kepler). Abre un día para ver sus documentos, y un documento para validar contra su contraparte antes de auditarlo. La pestaña "Cuadre de traspasos" concilia que cada salida entre sucursales tenga su recepción. Es lectura + auditoría; no mueve inventario.',
+    intro: 'Entradas y salidas de inventario por día (mejora del reporte de Kepler). Abre un día para ver sus documentos, y un documento para validar contra su contraparte. La pestaña "Cuadre de traspasos" concilia que cada salida entre sucursales tenga su recepción. Es sólo lectura: no mueve inventario ni se audita aquí — las diferencias se resuelven en Incidencias.',
     groups: [
       {
         heading: 'Diario',
@@ -648,7 +648,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Documento y contraparte', def: 'Un traspaso genera una salida en el origen (TrsfShip) y una recepción en el destino (TrsfRcv). Al abrir uno se muestra el otro al lado para verificar que lo enviado = lo recibido.' },
           { term: 'Destino (sucursal/ruta/cliente)', def: 'A dónde va el traspaso. Por defecto se muestran los tres; puedes acotar a solo sucursales para conciliar traspasos entre tiendas.' },
           { term: 'Estado', def: 'En tránsito (salió a un almacén hace 15 días o menos y aún no se recibe), Sin acuse (a un almacén, más de 15 días sin recepción), A ruta o cliente (no emite recepción), Completado (mismas piezas y mismos productos) o Con diferencia.' },
-          { term: 'Auditar', def: 'Marca el documento como revisado (queda quién y cuándo). Requiere permiso de gestión de movimientos.' },
+          { term: 'Auditado', def: 'Marca que se ponía en el Diario antes de que existiera Incidencias (queda quién y cuándo). Ya no se pone aquí: lo que no cuadra se resuelve en Incidencias, con motivo.' },
         ],
       },
       {
