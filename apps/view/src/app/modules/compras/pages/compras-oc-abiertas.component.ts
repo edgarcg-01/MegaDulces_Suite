@@ -218,7 +218,19 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
             <td class="comm-num dt-num" role="cell" data-label="Abierta"><span [class.oa-edad-bad]="o.dias > 30">{{ o.dias }} d</span></td>
             <td role="cell" data-label="Estado">{{ estadoTexto(o) }}</td>
             <td class="comm-num dt-num is-strong" role="cell" data-label="Valor">{{ money(o.valor) }}</td>
-            <td role="cell" data-label="Seguimiento" [class.oa-muted]="!o.seguimiento">{{ segLabel(o) }}</td>
+            <!-- [PQ.31] El seguimiento vuelve a la fila, a UN clic: medido 2026-10-29, 365 órdenes
+                 recibieron seguimiento en 30 días (~12 al día). Mandarlo al panel lo hacía de dos. -->
+            <td role="cell" data-label="Seguimiento">
+              @if (puedeEditar()) {
+                <button type="button" class="oa-seg-txt" [class.oa-muted]="!o.seguimiento"
+                        (click)="$event.stopPropagation(); abrirSeguimiento(o)" (keydown.enter)="$event.stopPropagation()"
+                        [attr.aria-label]="'Cambiar seguimiento de la orden ' + o.folio + ': ' + segLabel(o)">
+                  {{ segLabel(o) }} <span class="pi pi-pencil" aria-hidden="true"></span>
+                </button>
+              } @else {
+                <span [class.oa-muted]="!o.seguimiento">{{ segLabel(o) }}</span>
+              }
+            </td>
           </tr>
         </ng-template>
         <!-- [RA-PRO.69] DESIGN.md SS14 (Almacen/Compras = totales congelados). Suma lo que esta
@@ -231,8 +243,10 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
               <span class="oa-muted">· {{ filas().length | number }} {{ filas().length === 1 ? 'orden' : 'órdenes' }}</span>
             </td>
             <td></td>
-            <td class="oa-muted">esperado {{ money(filtroEsperado()) }}</td>
-            <td class="comm-num is-strong">{{ money(filtroValor()) }}</td>
+            <td></td>
+            <!-- [PQ.31] «esperado» va con el valor, no bajo «Estado». -->
+            <td class="comm-num"><span class="is-strong">{{ money(filtroValor()) }}</span>
+              <div class="oa-muted" title="El valor pesado por la probabilidad de llegar de cada orden.">esperado {{ money(filtroEsperado()) }}</div></td>
             <td></td>
           </tr>
         </ng-template>
@@ -461,6 +475,10 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
     .oa-prob-warn { color: var(--warn-fg); font-weight: 600; }
     .oa-min { font-size: .9rem; margin-left: .1rem; color: var(--warn-fg); }
     .oa-hist { margin: .75rem 0 0; font-size: var(--fs-sm); }
+    /* [PQ.31] Texto que se toca, sin pastilla de color: el seguimiento no es una alarma. */
+    .oa-seg-txt { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: .35rem; color: var(--fg-1); }
+    .oa-seg-txt .pi { font-size: var(--fs-xs); color: var(--fg-2); }
+    .oa-seg-txt:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: 2px; }
     .oa-aviso { display: flex; align-items: flex-start; gap: .45rem; margin: 0 0 .75rem; padding: .5rem .7rem;
       font-size: .8rem; line-height: 1.45; color: var(--text-main);
       border: 1px solid var(--border-color); border-left: 3px solid var(--warn-fg); border-radius: var(--r-sm, 8px); }

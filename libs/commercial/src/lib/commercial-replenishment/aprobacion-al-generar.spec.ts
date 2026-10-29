@@ -16,7 +16,9 @@ function armar() {
   svc.tk = {
     run: vi.fn()
       .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce({ batch_id: 'b', batch_folio: 'RQ-LOTE-2026-00001', total: 2, compras: 2, traspasos: 0, folios: ['RQ-1', 'RQ-2'], ids: [A, B] }),
+      .mockResolvedValueOnce({ batch_id: 'b', batch_folio: 'RQ-LOTE-2026-00001', total: 2, compras: 2, traspasos: 0, folios: ['RQ-1', 'RQ-2'], ids: [A, B] })
+      // 3ª: `[PQ.31]` cuántos traspasos aprobados no salen (escritura apagada en su origen).
+      .mockResolvedValueOnce(1),
   };
   svc.bulkEstado = vi.fn(async (ids: string[]) => ({ pedidas: ids.length, hechas: 1, ok: [A], fallas: [{ id: B, motivo: 'costo movido 8 %' }] }));
   return svc;
@@ -28,7 +30,7 @@ describe('[PQ.27] D1 — aprobar al generar', () => {
     const svc = armar();
     const r = await svc.createRequisitionBatch(dto, { autoAprobar: true });
     expect(svc.bulkEstado).toHaveBeenCalledWith([A, B], 'approve');
-    expect(r.aprobacion).toEqual({ automatica: true, aprobadas: 1, fallas: [{ folio: 'RQ-2', motivo: 'costo movido 8 %' }] });
+    expect(r.aprobacion).toEqual({ automatica: true, aprobadas: 1, traspasos_sin_escritura: 1, fallas: [{ folio: 'RQ-2', motivo: 'costo movido 8 %' }] });
     expect(r).not.toHaveProperty('ids');
   });
 

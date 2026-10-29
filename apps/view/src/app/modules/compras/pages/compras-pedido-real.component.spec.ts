@@ -644,6 +644,14 @@ describe('[RA-UX] auditoría de interacción 2026-10-21: lo que la persona hace,
   });
 
   // ── [PQ.14] el lazo no se corta al generar ──
+  it('[PQ.31] lo aprobado no promete lo que no va a pasar: los traspasos con escritura apagada se dicen aparte', () => {
+    const c = montar(VACIO).componentInstance;
+    expect(c.textoAprobadas(5, 2)).toBe('3 aprobada(s) y en camino a Kepler · 2 traspaso(s) aprobado(s) que no salen: su escritura a Kepler está apagada');
+    expect(c.textoAprobadas(4, 0)).toBe('4 aprobada(s) y en camino a Kepler');
+    // NEGATIVA: si el servidor no lo pudo medir, no se afirma «en camino».
+    expect(c.textoAprobadas(5, null)).not.toContain('en camino');
+  });
+
   it('[PQ.14] tras generar, lo creado queda a la vista con su lote y el camino a la bandeja, hasta cerrarlo', () => {
     const f = montar(VACIO);
     const c = f.componentInstance;

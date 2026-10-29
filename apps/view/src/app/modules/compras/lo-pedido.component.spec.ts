@@ -13,14 +13,18 @@ const fila = (o: Partial<RequisitionRow>): RequisitionRow => ({
   ...o,
 } as RequisitionRow);
 
-function montar(opts: { ver?: boolean; autorizar?: boolean; pend?: RequisitionRow[]; todo?: RequisitionRow[] }) {
+function montar(opts: { ver?: boolean; autorizar?: boolean; pend?: RequisitionRow[]; todo?: RequisitionRow[]; pendTotal?: number; resumenCompras?: unknown[] | null }) {
   const api = {
-    listRequisitions: vi.fn((q: { estado?: string }) => of({
-      total: q.estado ? (opts.pend ?? []).length : (opts.todo ?? []).length + (opts.pend ?? []).length,
-      page: 1, pageSize: 100, resumen: [],
+    listRequisitions: vi.fn((q: { estado?: string; source_type?: string }) => of({
+      total: q.estado ? (opts.pendTotal ?? (opts.pend ?? []).length) : (opts.todo ?? []).length + (opts.pend ?? []).length,
+      page: 1, pageSize: 100,
+      // `[PQ.31]` La tercera llamada (source_type=supplier) trae el resumen de COMPRAS sobre todas.
+      resumen: q.source_type === 'supplier' ? (opts.resumenCompras === undefined ? [] : opts.resumenCompras) : [],
       rows: q.estado ? (opts.pend ?? []) : [...(opts.pend ?? []), ...(opts.todo ?? [])],
     })),
     bulkRequisiciones: vi.fn(() => of({ pedidas: 1, hechas: 1, ok: ['a'], fallas: [] })),
+    getRequisition: vi.fn((id: string) => of({ id, lines: [{ id: 'l1', sku: '123', nombre: 'PALETA', destination_warehouse_name: 'CEDIS', final_qty: 4, line_cost: 400 }] })),
+    openPurchaseOrderDetail: vi.fn(() => of({ orden: { folio: '0007264', monto: 1000 }, recibido: 0, pct_surtido: 0 })),
   };
   const perms = {
     isAdmin: () => false,
@@ -72,6 +76,64 @@ describe('[PQ.28] Lo pedido', () => {
     c.motivo = '  ';
     c.rechazar(r);
     expect(api.bulkRequisiciones).not.toHaveBeenCalled();
+  });
+
+  // ── `[PQ.31]` Lo que encontró la auditoría del 2026-10-29 ──────────────────────────────────
+  it('un traspaso con la escritura APAGADA no es una falla: gris y sin prometer (68 de 100 salían en rojo)', () => {
+    const { c } = montar({});
+    const apagado = fila({ source_type: 'branch', kepler_folio: null, kepler_error: 'La escritura a Kepler de la sucursal 00 está apagada (falta KEPLER_PUSH_URL_00)' });
+    expect(c.keplerApagado(apagado)).toBe(true);
+    expect(c.malEnKepler(apagado)).toBe(false);
+    expect(c.enKepler(apagado)).toBe('sale cuando se encienda su escritura a Kepler');
+    // NEGATIVA: una falla de verdad sigue en rojo y con su motivo completo.
+    const falla = fila({ kepler_folio: null, kepler_error: 'Kepler (sucursal 04) no conoce al proveedor CA027' });
+    expect(c.malEnKepler(falla)).toBe(true);
+    expect(c.enKepler(falla)).toContain('CA027');
+  });
+
+  it('en Kepler el traspaso es un PEDIDO, no una requisición', () => {
+    const { c } = montar({});
+    expect(c.enKepler(fila({ source_type: 'branch', kepler_folio: '0000077' }))).toBe('Pedido 0000077');
+  });
+
+  it('las cifras cuentan COMPRAS y sobre TODAS, no sobre las 100 de la ventana', () => {
+    const { c } = montar({
+      todo: [fila({ source_type: 'branch', estado: 'approved' }), fila({ estado: 'approved' })],
+      resumenCompras: [{ estado: 'approved', n: 3 }, { estado: 'ordered', n: 155 }, { estado: 'received', n: 34 }],
+    });
+    const v = Object.fromEntries(c.cifras().map((x) => [x.label, x.value]));
+    expect(v['Compras aprobadas sin OC']).toBe(3);   // no 2: ni el traspaso ni sólo la ventana
+    expect(v['Compras recibidas']).toBe(34);
+  });
+
+  it('NEGATIVA: sin resumen del servidor las cifras se DECLARAN no medidas, nunca 0', () => {
+    const { c } = montar({ resumenCompras: null });
+    const k = c.cifras().find((x) => x.label === 'Compras recibidas')!;
+    expect(k.value).toBe('—');
+    expect(k.state).toBe('no_medido');
+  });
+
+  it('el tope de «por aprobar» se dice: el conteo es del universo, no de las 200 traídas', () => {
+    const { c } = montar({ pend: [fila({ estado: 'pending_approval' })], pendTotal: 250 });
+    expect(c.totalPorAprobarN()).toBe(250);
+  });
+
+  it('el folio abre el detalle AQUÍ (y la OC trae su surtido), no en otra pantalla', () => {
+    const r = fila({ id: 'rq1', oc_sucursal: '00', oc_folio: '0007264' });
+    const { c, api } = montar({ todo: [r] });
+    c.verDetalle(r);
+    expect(api.getRequisition).toHaveBeenCalledWith('rq1');
+    expect(api.openPurchaseOrderDetail).toHaveBeenCalledWith('00', '0007264');
+    expect(c.detalle()?.lines.length).toBe(1);
+    c.verDetalle(r);                                  // segundo clic: se cierra
+    expect(c.detalleDe()).toBeNull();
+  });
+
+  it('NEGATIVA: un traspaso no pide surtido de OC (no tiene)', () => {
+    const r = fila({ id: 'tr1', source_type: 'branch', oc_sucursal: '01', oc_folio: '0000077' });
+    const { c, api } = montar({ todo: [r] });
+    c.verDetalle(r);
+    expect(api.openPurchaseOrderDetail).not.toHaveBeenCalled();
   });
 
   it('NEGATIVA: sin permiso de ver requisiciones, ni se pinta ni se pide nada', () => {

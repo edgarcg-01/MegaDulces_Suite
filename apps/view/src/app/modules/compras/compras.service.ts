@@ -695,7 +695,11 @@ export interface RequisitionBatchResult {
   traspasos: number;
   folios: string[];
   /** `[PQ.27]` D1: con permiso de autorizar se aprueba al generar; si no, `automatica: false`. */
-  aprobacion?: { automatica: boolean; aprobadas: number; fallas: Array<{ folio: string; motivo: string }> };
+  aprobacion?: {
+    automatica: boolean; aprobadas: number; fallas: Array<{ folio: string; motivo: string }>;
+    /** `[PQ.31]` Traspasos aprobados que NO salen (escritura apagada en su origen). `null` = no medido. */
+    traspasos_sin_escritura?: number | null;
+  };
 }
 /** `[RQ.8]` Una fila de la bandeja agrupada: UN «Armar», no un documento. */
 export interface RequisitionBatchRow {

@@ -195,7 +195,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <span><strong>{{ ul.nombre }}</strong> generado: {{ ul.compras }} compra(s) + {{ ul.traspasos }} traspaso(s). Esperan aprobación en Requisiciones; hasta entonces no se le pide nada a nadie.</span>
           } @else {
             <!-- [PQ.27] D1: aprobado al generar; sale a Kepler solo. Lo que no pasó se dice con su motivo. -->
-            <span><strong>{{ ul.nombre }}</strong>: {{ ul.aprobadas }} aprobada(s) y en camino a Kepler.
+            <span><strong>{{ ul.nombre }}</strong>: {{ textoAprobadas(ul.aprobadas, ul.sinEscritura) }}.
               @for (f of ul.fallas; track f.folio) { <br>{{ f.folio }} quedó por aprobar: {{ f.motivo }} }
             </span>
           }
@@ -2410,6 +2410,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     nombre: string; compras: number; traspasos: number; batch_folio: string | null;
     /** `[PQ.27]` `null` = quedó en la cola; si no, cuántas se aprobaron solas y cuáles no. */
     aprobadas: number | null; fallas: Array<{ folio: string; motivo: string }>;
+    /** `[PQ.31]` De las aprobadas, traspasos que no salen (escritura apagada). `null` = no medido. */
+    sinEscritura: number | null;
   } | null>(null);
   mode = signal<Mode>('pedido');
   deadValue = signal(0);
@@ -4057,6 +4059,19 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private puede(p: Permission): boolean { return this.perms.has(p); }
   /** `[PQ.28]` D1: con esto, «Generar» es enviar a Kepler. Mismo criterio que el backend (clave exacta). */
   get puedeAutorizar(): boolean { return this.perms.has(Permission.COMPRAS_REQUISICIONES_AUTORIZAR); }
+  /**
+   * `[PQ.31]` Lo aprobado, sin prometer lo que no va a pasar. Auditoría 2026-10-29: decía «N
+   * aprobadas y en camino a Kepler» contando traspasos cuya escritura está apagada (0 de 9
+   * sucursales encendidas). El servidor dice cuántos no salen; si no lo pudo medir, se declara.
+   */
+  textoAprobadas(aprobadas: number | null, sinEscritura: number | null): string {
+    const n = aprobadas ?? 0;
+    if (sinEscritura === null) return `${n} aprobada(s); no se pudo confirmar si los traspasos salen a Kepler`;
+    const van = n - sinEscritura;
+    const partes = [`${van} aprobada(s) y en camino a Kepler`];
+    if (sinEscritura > 0) partes.push(`${sinEscritura} traspaso(s) aprobado(s) que no salen: su escritura a Kepler está apagada`);
+    return partes.join(' · ');
+  }
   /** Cada enlace del panel pide el permiso de SU pantalla: un enlace que lleva a «sin acceso» no ayuda. */
   readonly negLinks = computed<EnlacesNegociacion>(() => ({
     costos: this.puede(Permission.COMPRAS_COSTO_ESTANDAR_VER),
@@ -5824,12 +5839,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         // queda a la vista, con su lote, hasta que la persona lo cierre o vaya a la bandeja.
         const auto = r.aprobacion?.automatica ? r.aprobacion : null;
         this.ultimoLote.set({ nombre, compras: r.compras, traspasos: r.traspasos, batch_folio: r.batch_folio ?? null,
-          aprobadas: auto ? auto.aprobadas : null, fallas: auto ? auto.fallas : [] });
+          aprobadas: auto ? auto.aprobadas : null, fallas: auto ? auto.fallas : [],
+          sinEscritura: auto ? (auto.traspasos_sin_escritura ?? null) : null });
         this.toast.add({
           severity: auto && auto.fallas.length ? 'warn' : 'success', life: 12000,
           summary: `${nombre}: ${r.compras} compra(s) + ${r.traspasos} traspaso(s)`,
           detail: (auto
-            ? `${auto.aprobadas} aprobada(s) y en camino a Kepler${auto.fallas.length ? `; ${auto.fallas.length} quedaron por aprobar (el motivo está en el aviso de arriba)` : ''}. `
+            ? `${this.textoAprobadas(auto.aprobadas, auto.traspasos_sin_escritura ?? null)}${auto.fallas.length ? `; ${auto.fallas.length} quedaron por aprobar (el motivo está en el aviso de arriba)` : ''}. `
             : `Quedan ESPERANDO APROBACIÓN en Compras › Requisiciones — hasta entonces no se le pide nada a nadie. `)
             + `${n === 1 ? 'El producto armado se quitó' : `Los ${n} productos armados se quitaron`} de la requisición en armado; en la lista aparecen como «ya requisado».`,
         });

@@ -425,7 +425,16 @@ export interface LoteRequisicionesCreado {
    * `[PQ.27]` D1: si quien generó tiene `COMPRAS_REQUISICIONES_AUTORIZAR`, el lote se aprueba en el
    * mismo acto y sale a Kepler después de contestar. `automatica: false` = quedó en la cola.
    */
-  aprobacion?: { automatica: boolean; aprobadas: number; fallas: Array<{ folio: string; motivo: string }> };
+  aprobacion?: {
+    automatica: boolean; aprobadas: number; fallas: Array<{ folio: string; motivo: string }>;
+    /**
+     * `[PQ.31]` De las aprobadas, los traspasos que NO van a salir porque la escritura de traspasos
+     * está apagada en su sucursal de origen. Sin esto la pantalla decía «en camino a Kepler» de
+     * algo que no va a ir (auditoría 2026-10-29: 0 de 9 sucursales con traspaso encendido).
+     * `null` = no se pudo medir.
+     */
+    traspasos_sin_escritura?: number | null;
+  };
 }
 
 export interface RequisitionListRowDto {
@@ -4348,10 +4357,41 @@ export class CommercialReplenishmentService {
     const r = await this.bulkEstado(ids, 'approve');
     const folioDe = new Map(ids.map((id, k) => [id, res.folios[k]] as const));
     this.logger.log(`[PQ.27] Lote ${res.batch_folio ?? res.batch_id}: ${r.hechas} de ${ids.length} aprobadas al generar`);
+    const sinEscritura = await this.traspasosSinEscritura(r.ok);
     return {
       ...res,
-      aprobacion: { automatica: true, aprobadas: r.hechas, fallas: r.fallas.map((x) => ({ folio: folioDe.get(x.id) ?? x.id, motivo: x.motivo })) },
+      aprobacion: {
+        automatica: true, aprobadas: r.hechas, traspasos_sin_escritura: sinEscritura,
+        fallas: r.fallas.map((x) => ({ folio: folioDe.get(x.id) ?? x.id, motivo: x.motivo })),
+      },
     };
+  }
+
+  /**
+   * `[PQ.31]` Cuántos de estos documentos son traspasos cuya sucursal de ORIGEN (donde se escribe el
+   * U-D-40, `[KR.10]`) tiene la escritura de traspasos apagada en `kepler_push_switch`. Mismo
+   * interruptor que lee el envío: lo que aquí cuenta como «no sale» es lo que el envío rechazaría.
+   * Si no se puede leer, `null` (no medido), nunca 0.
+   */
+  private async traspasosSinEscritura(ids: string[]): Promise<number | null> {
+    if (!ids.length) return 0;
+    try {
+      return await this.tk.run(async (trx) => {
+        const r = await trx.raw(
+          `SELECT count(*)::int AS n
+             FROM commercial.purchase_requisitions q
+             JOIN commercial.warehouses sw ON sw.tenant_id = q.tenant_id AND sw.id = q.source_warehouse_id
+             LEFT JOIN commercial.kepler_push_switch s
+                    ON s.tenant_id = q.tenant_id AND s.sucursal = sw.kepler_code AND s.tipo = 'traspaso'
+            WHERE q.tenant_id = ? AND q.id = ANY(?::uuid[]) AND q.source_type = 'branch'
+              AND COALESCE(s.encendida, false) = false`,
+          [this.tenantCtx.requireTenantId(), ids]);
+        return Number(r.rows[0]?.n ?? 0);
+      });
+    } catch (e: unknown) {
+      this.logger.warn(`[PQ.31] No se pudo medir traspasos sin escritura: ${(e as Error)?.message}`);
+      return null;
+    }
   }
 
   /**

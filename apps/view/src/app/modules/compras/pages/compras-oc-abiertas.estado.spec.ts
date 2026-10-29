@@ -41,6 +41,15 @@ describe('[PQ.28] OC abiertas — el estado en una frase', () => {
     expect(src).toContain('sin requisición');
   });
 
+  it('[PQ.31] el seguimiento se cambia desde la FILA, a un clic (365 cambios en 30 días)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(__dirname, 'compras-oc-abiertas.component.ts'), 'utf8');
+    expect(src).toMatch(/data-label="Seguimiento">\s*@if \(puedeEditar\(\)\) \{\s*<button[^>]*abrirSeguimiento\(o\)/);
+    // y «esperado» va con el valor, no bajo la columna Estado.
+    expect(src).not.toContain('<td class="oa-muted">esperado');
+  });
+
   it('NEGATIVA: sin la clasificación del servidor no inventa una: usa el estatus de Kepler', () => {
     expect(comp(false).estadoTexto(fila({ estatus: 'R', prob: null }))).toBe('Recibida');
   });
