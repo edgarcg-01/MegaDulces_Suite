@@ -94,7 +94,9 @@ describe('[DM.23] ⛔ la recepción se agrupa POR DOCUMENTO', () => {
   });
 
   it('⭐ el veredicto se calcula contra UN candidato, no contra una suma', () => {
-    expect(c).toMatch(/Math\.abs\(Number\(best\.q\) - Number\(s\.qty\)\) < 0\.01 \? 'completado' : 'diferencia'/);
+    expect(c).toMatch(/mismoTraspaso\(best, s\) \? 'completado' : 'diferencia'/);
+    // [MX.1.1] y "el mismo traspaso" = mismas piezas que ESE candidato Y misma firma de productos
+    expect(c).toMatch(/Math\.abs\(Number\(cand\.q\) - Number\(doc\.qty\)\) < 0\.01 && cand\.sig != null && String\(cand\.sig\) === String\(doc\.sku_sig\)/);
   });
 });
 

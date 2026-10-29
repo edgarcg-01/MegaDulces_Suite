@@ -4659,10 +4659,15 @@ export class CommercialReplenishmentService {
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'l.tenant_id').andOn('pr.id', 'l.product_id'))
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'l.tenant_id').andOn('sup.id', 'l.supplier_id'))
         .leftJoin('commercial.warehouses as sw', (j) => j.on('sw.tenant_id', 'l.tenant_id').andOn('sw.id', 'l.source_warehouse_id'))
+        // `[PQ.23]` En una compra consolidada el mismo SKU sale una vez por sucursal destino: sin
+        // su nombre, "BOT DORITOS 10 PACK" tres veces no se distingue. Medido en RQ-2026-01601: los
+        // 94 renglones cuadran con el traspaso de su destino (producto y cantidad). NULL antes del 2026-10-19.
+        .leftJoin('commercial.warehouses as dw', (j) => j.on('dw.tenant_id', 'l.tenant_id').andOn('dw.id', 'l.destination_warehouse_id'))
         .where('l.tenant_id', tenantId).andWhere('l.requisition_id', id)
         .select('l.*', trx.raw('pr.sku AS sku'), trx.raw('pr.nombre AS nombre'), trx.raw('sup.name AS supplier_name'),
-          trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'))
-        .orderBy('pr.nombre');
+          trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'),
+          trx.raw('dw.code AS destination_warehouse_code'), trx.raw('dw.name AS destination_warehouse_name'))
+        .orderBy('pr.nombre').orderBy('dw.name');
       // RA.15 — OC generada desde esta requisición (traza RQ→OC), si existe.
       const po: any = await trx('commercial.purchase_orders')
         .where({ tenant_id: tenantId, requisition_id: id }).whereNot('estado', 'cancelled')

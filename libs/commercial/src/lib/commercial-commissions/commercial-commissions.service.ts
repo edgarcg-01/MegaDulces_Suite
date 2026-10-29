@@ -6,7 +6,7 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 import { totalesDeCorrida, type TotalesDeCorrida } from './commission-totales.logic';
 
 /**
@@ -338,7 +338,8 @@ export class CommercialCommissionsService {
    * historia invita a creer que el porcentaje de una quincena vieja es el de hoy.
    */
   async listScales() {
-    const hoy = new Date().toISOString().slice(0, 10);
+    // [RD.92] Hoy en hora de Mexico: toISOString() es UTC y desde las 18:00 ya da manana.
+    const hoy = todayMx();
     return this.tk.run(async (trx) => {
       const escalas = await trx('commercial.commission_scales')
         .whereNull('deleted_at')
@@ -721,7 +722,7 @@ export class CommercialCommissionsService {
 
       const beneficiarios = this.netoPorPersona(lines, universo, deducciones);
       const totals = this.totales(lines, universo, beneficiarios, fuera, conDato, sinDato);
-      const gates = this.compuertas(hoy, to, totals, dataAsOf, lines);
+      const gates = this.compuertas(hoy, to, totals, dataAsOf, lines, beneficiarios);
       const bloquea = gates.some((g) => g.estado === 'bloquea');
 
       // El estado por persona vuelve a las lineas para que la pantalla no tenga que cruzarlo.
@@ -1197,6 +1198,7 @@ export class CommercialCommissionsService {
   private compuertas(
     hoy: string, to: string, totals: ReturnType<CommercialCommissionsService['totales']>,
     dataAsOf: string | null, lines: CommissionLine[],
+    beneficiarios: Pick<BeneficiarioNeto, 'beneficiario' | 'nombre' | 'deduccion_status'>[],
   ): Gate[] {
     const g: Gate[] = [];
 
@@ -1273,10 +1275,14 @@ export class CommercialCommissionsService {
       : { gate: 'cobertura_dias', estado: 'pasa', detalle: 'cada ruta tiene los dias de su plaza' });
 
     // 6. Deduccion sin cargar: el neto saldria igual al bruto sin que nadie lo haya decidido.
-    const sinDed = lines.filter((l) => l.deduccion_status === 'sin_configurar').length;
-    g.push(sinDed
+    //    ⛔ `[RD.91]` Se lee de los BENEFICIARIOS, que es donde se resuelve, y no de las lineas:
+    //    las del supervisor nacen con `deduccion_status = null` y el motor les copia el estado
+    //    DESPUES de llamar a esta funcion. Contando lineas, la compuerta pasaba siempre -- Q21
+    //    salio «todas las deducciones resueltas» con las 11 lineas en `sin_configurar`.
+    const sinDed = beneficiarios.filter((b) => b.deduccion_status === 'sin_configurar').map((b) => b.nombre);
+    g.push(sinDed.length
       ? { gate: 'deduccion_configurada', estado: 'advierte',
-        detalle: `hay supervisor(es) sin deduccion cargada: el neto sale declarado incompleto` }
+        detalle: `sin deduccion cargada: ${sinDed.join(' · ')}. El neto queda sin medir` }
       : { gate: 'deduccion_configurada', estado: 'pasa', detalle: 'todas las deducciones resueltas' });
 
     return g;

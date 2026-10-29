@@ -18,7 +18,7 @@ import type {
   PayableEvidenceRow, PaymentObligationSource, PaymentOriginAccount,
 } from '@megadulces/contracts';
 import { warehouseName } from '@megadulces/contracts';
-import type { SupplierCreditRow, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
@@ -776,6 +776,22 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       }
       <label class="cal-dlg-label" for="cal-prep-method">Método de pago</label>
       <p-select appendTo="body" inputId="cal-prep-method" [options]="methodOpts" [(ngModel)]="prepMethod" optionLabel="label" optionValue="value" placeholder="Método" [fluid]="true" class="cal-dlg-sel" />
+      <!-- [PGP.30] De dónde salió lo precargado. Un valor puesto solo, sin decir con qué, es una
+           orden disfrazada: acá va su evidencia para poder contradecirla de un vistazo. -->
+      @if (habitoUsado(); as h) {
+        <p class="cal-dlg-hint cal-habito">
+          <i class="pi pi-history" aria-hidden="true"></i>
+          Precargado de su historial: así se le pagó <b>{{ h.metodo_veces }} de {{ h.metodo_de }}</b> veces@if (h.metodo_ultima_vez) {, la última el {{ h.metodo_ultima_vez }}}@if (h.cuenta_origen_nombre) {, desde <b>{{ h.cuenta_origen_nombre }}</b> ({{ h.cuenta_veces }} de {{ h.cuenta_de }})}. Cámbialo si hoy va distinto.
+        </p>
+      } @else if (habitosError()) {
+        <p class="cal-dlg-hint cal-habito-nm">No se pudo leer con qué se le suele pagar. Elige a mano.</p>
+      } @else if (prepHabito(); as h) {
+        @if (h.cuenta_estado === 'caja_general') {
+          <p class="cal-dlg-hint cal-habito">A este proveedor se le suele pagar <b>desde Caja General</b> ({{ h.cuenta_veces }} de {{ h.cuenta_de }}), que no es cuenta de origen de una transferencia.</p>
+        } @else if (h.metodo_estado === 'variable') {
+          <p class="cal-dlg-hint cal-habito">No se precargó: a este proveedor se le ha pagado de varias formas ({{ h.metodo_veces }} de {{ h.metodo_de }} con la más usada).</p>
+        }
+      }
       @if (prepMethod === 'transferencia' || prepMethod === 'cargo_automatico' || prepMethod === 'cheque') {
         <label class="cal-dlg-label" for="cal-prep-origin">Cuenta de origen (de dónde sale el dinero)</label>
         <p-select appendTo="body" inputId="cal-prep-origin" [options]="originOpts()" [(ngModel)]="prepOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta de Mega Dulces…" [filter]="true" filterBy="label" [fluid]="true" class="cal-dlg-sel" />
@@ -1182,6 +1198,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* Dialogos */
     .cal-dlg-p { font-size:var(--fs-sm); margin:0 0 var(--sp-2); }
     .cal-dlg-hint { font-size:var(--fs-sm); color:var(--text-muted); margin:0 0 var(--sp-2); }
+    /* [PGP.30] La procedencia de lo precargado. Borde y no relleno: es contexto, no un estado. */
+    .cal-habito { border-left:2px solid var(--border); padding-left:var(--sp-2); }
+    .cal-habito .pi { margin-right:.3rem; }
+    .cal-habito-nm { border-left:2px solid var(--warn-fg); padding-left:var(--sp-2); font-style:italic; }
     .cal-dlg-full { width:100%; margin-bottom:var(--sp-2); }
     .cal-dlg-actions { display:flex; gap:var(--sp-2); align-items:center; justify-content:flex-end; margin-top:var(--sp-3); }
     .cal-dlg-label { display:block; font-size:var(--fs-sm); color:var(--text-muted); margin:var(--sp-2) 0 var(--sp-1); }
@@ -1816,6 +1836,16 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
 
   prepareVisible = false;
   prepAllocation: PaymentCalendarAllocation | null = null;
+  /**
+   * `[PGP.30]` Hábito de pago por `supplier_id`. Se carga una vez (316 filas, 292 ms medidos) en
+   * vez de una consulta por pago: el día más cargado trae 16 pagos.
+   */
+  habitos = signal<ReadonlyMap<string, SupplierPaymentHabit>>(new Map());
+  /** ⛔ No se funde con «no tiene hábito»: un mapa vacío por falla no es un mapa vacío por dato (ADR-056). */
+  habitosError = signal(false);
+  /** El hábito con el que se precargó el diálogo abierto. `null` si se eligió todo a mano. */
+  habitoUsado = signal<SupplierPaymentHabit | null>(null);
+
   prepMethod: string | null = null;
   prepDestination = '';
   prepReference = '';
@@ -1853,6 +1883,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.reload();
     // [PGP.14] El credito a favor sin aplicar: se pide UNA vez y se guarda por acreedor.
     this.loadCreditos();
+    // [PGP.30] El habito de pago de cada acreedor. Sin toast y sin bloquear: si no llega, el
+    // diálogo pide todo a mano como hasta ahora — pero lo DICE, no lo calla.
+    this.http.get<SupplierPaymentHabit[]>(`${this.base}/payment-habits`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rows) => this.habitos.set(new Map((rows ?? []).map((r) => [String(r.supplier_id), r]))),
+      error: () => this.habitosError.set(true),
+    });
     this.http.get<PaymentOriginAccount[]>(`${this.base}/origin-accounts`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (rows) => {
         this.originOpts.set(rows.map((r) => ({ id: r.id, label: r.alias ? `${r.alias} (${r.bank})` : `${r.bank} ${r.account_label}` })));
@@ -2455,6 +2491,23 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   private proveedorDe(a: PaymentCalendarAllocation): string | null {
     return a.classification === 'proveedor_mercancia' ? a.items.find((i) => i.supplier_id)?.supplier_id ?? null : null;
   }
+
+  /**
+   * `[PGP.30]` El hábito de pago de este acreedor, si se conoce.
+   *
+   * ⛔ Devuelve `null` en silencio cuando la carga falló: lo que NO se hace es tratar «no pudimos
+   * leer el hábito» como «no tiene hábito». La diferencia la cuenta `habitosError`, y la pantalla
+   * la dice en vez de precargar nada.
+   */
+  habitoDe(a: PaymentCalendarAllocation): SupplierPaymentHabit | null {
+    const id = this.proveedorDe(a);
+    return id ? this.habitos().get(id) ?? null : null;
+  }
+
+  /** El hábito del pago que tiene abierto el diálogo — para explicar por qué NO se precargó nada. */
+  prepHabito(): SupplierPaymentHabit | null {
+    return this.prepAllocation ? this.habitoDe(this.prepAllocation) : null;
+  }
   /** La cuenta favorita del catálogo del proveedor; `'error'` si no se pudo leer (no es lo mismo que «no tiene»). */
   private async favoritaDe(supplierId: string): Promise<string | null | 'error'> {
     try {
@@ -2664,9 +2717,18 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   openPrepare(a: PaymentCalendarAllocation): void {
     this.prepAllocation = a; this.prepMethod = a.payment_method; this.prepDestination = a.supplier_payment_account_id ? '' : (a.destination_account_text || '');
     this.prepReference = a.reference_text || ''; this.prepCash = a.cash_register_text || ''; this.prepAccountId = a.supplier_payment_account_id;
-    // [PGP.15] Sin método todavía, el diálogo arranca con el de «Para los N pagos» (el último que se eligió).
+    // [PGP.30] Sin método todavía, manda el HÁBITO de este acreedor — gana al de «Para los N
+    // pagos», que es genérico. Medido: J&F ENTERPRISE se paga con cheque 16 de 16 veces, así que
+    // arrastrar el «transferencia» del lote le habría errado justo a él.
+    this.habitoUsado.set(null);
+    const h = this.habitoDe(a);
+    if (!this.prepMethod && h?.metodo_sugerido) { this.prepMethod = h.metodo_sugerido; this.habitoUsado.set(h); }
+    // [PGP.15] Y si ni el hábito sabe, el del lote (el último que se eligió a mano).
     if (!this.prepMethod && this.bulkMethod) this.prepMethod = this.bulkMethod;
     this.prepOriginId = a.bank_account_id ?? (this.prepMethod !== 'efectivo' ? this.bulkOriginId : null);
+    if (!this.prepOriginId && this.prepMethod !== 'efectivo' && h?.cuenta_origen_id) {
+      this.prepOriginId = h.cuenta_origen_id; this.habitoUsado.set(h);
+    }
     this.prepAccounts.set([]);
     this.prepAccountsError.set(null);
     this.prepSupplierId = this.proveedorDe(a);

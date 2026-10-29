@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
+import { TOLERANCIA_MAYOR_515, veredictoCuadre, type VeredictoCuadre } from '@megadulces/contracts';
 
 /**
  * DM.6 — Export del Diario de movimientos a PDF (puppeteer).
@@ -10,7 +11,8 @@ import * as puppeteer from 'puppeteer';
 
 export interface MovementsExportData {
   range: { from: string; to: string };
-  totals: { entradas: number; salidas: number; valor: number; documentos: number };
+  /** [MX.1.2] `lineas_sin_importe`: renglones con costo 0 en Kepler que `valor` no incluye. */
+  totals: { entradas: number; salidas: number; valor: number; documentos: number; lineas_sin_importe?: number };
   docs: any[];       // filas de lines() (folio englobado + transfer_status + audited)
   transfers: any[];  // filas de transfersCheck()
   /** [MX.2.1] Conteos y sumas del conjunto COMPLETO: los KPIs salen de acá, nunca de `transfers` (cortada en 500, problemas primero). */
@@ -31,12 +33,13 @@ export interface CuadreExportData {
 
 const ESTADO_LABEL: Record<string, string> = {
   en_transito: 'En tránsito', completado: 'Completado', diferencia: 'Diferencia',
+  sin_acuse: 'Sin acuse', sin_recepcion_esperada: 'A ruta o cliente',
   ok: 'Recibido', sin_recepcion: 'Sin recepción', sin_origen: 'Sin origen',
 };
 
 type Sev = 'ok' | 'warn' | 'bad' | 'mut';
 const ESTADO_SEV: Record<string, Sev> = {
-  completado: 'ok', ok: 'ok', en_transito: 'warn',
+  completado: 'ok', ok: 'ok', en_transito: 'warn', sin_acuse: 'bad', sin_recepcion_esperada: 'mut',
   diferencia: 'bad', sin_recepcion: 'bad', sin_origen: 'mut',
 };
 
@@ -141,7 +144,16 @@ export class MovementsExportService {
   private cMoney = (n: any, dec = 0) => (Number(n) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: dec, minimumFractionDigits: dec });
   private cSigned = (n: any) => (Number(n) > 0 ? '+' : '') + this.cMoney(n);
   private cNum = (n: any) => (n == null || n === '' ? '—' : Number(n).toLocaleString('es-MX', { maximumFractionDigits: 0 }));
-  private cOk = (delta: any, base: any) => { const d = Math.abs(Number(delta) || 0); return d < 1 || d < Math.abs(Number(base) || 0) * 0.001; };
+  /**
+   * [MX.1.2] Veredicto del mayor 515 en tres estados — el mismo que la pantalla (`vLedger`): un mes sin
+   * entrada ni delta es «sin datos», no «cuadra». Antes `Number(x) || 0` lo pintaba como bueno.
+   */
+  private cV = (delta: unknown, base: unknown): VeredictoCuadre => veredictoCuadre(delta, base, TOLERANCIA_MAYOR_515);
+  /** Texto de la celda: «cuadra», el Δ con signo, o «sin datos». */
+  private cTxt = (delta: unknown, base: unknown) => {
+    const v = this.cV(delta, base);
+    return v === 'cuadra' ? 'cuadra' : v === 'difiere' ? this.cSigned(delta) : 'sin datos';
+  };
 
   /** CSS compartido por los 3 modos del reporte de cuadre. */
   private cuadreStyles(): string {
@@ -183,7 +195,7 @@ export class MovementsExportService {
   /** Masthead + KPIs globales (compartido). */
   private cuadreHead(data: CuadreExportData, title: string, subtitle?: string): string {
     const lg = data.ledger, ck = data.check;
-    const totOk = this.cOk(lg.totals?.delta, lg.totals?.entrada);
+    const totV = this.cV(lg.totals?.delta, lg.totals?.entrada);
     return `
       <div class="mast">
         <div><div class="brand">MEGA DULCES</div><h1>${this.cEsc(title)}</h1></div>
@@ -191,7 +203,7 @@ export class MovementsExportService {
           Generado el ${this.cEsc(this.generatedAt())}<br>${this.cEsc(subtitle || 'Mayor 515 · Ajuste traspasos internos')}</div>
       </div>
       <div class="kpis">
-        <div class="kpi big ${totOk ? 'ok' : 'bad'}"><span class="kpi-l">Descuadre acumulado</span><span class="kpi-v">${this.cSigned(lg.totals?.delta)}</span></div>
+        <div class="kpi big ${totV === 'cuadra' ? 'ok' : totV === 'difiere' ? 'bad' : ''}"><span class="kpi-l">Descuadre acumulado</span><span class="kpi-v">${totV === 'sin_datos' ? 'sin datos' : this.cSigned(lg.totals?.delta)}</span></div>
         <div class="kpi"><span class="kpi-l">515-001 · Entrada</span><span class="kpi-v" style="color:#166534">${this.cMoney(lg.totals?.entrada)}</span></div>
         <div class="kpi"><span class="kpi-l">515-002 · Salida</span><span class="kpi-v" style="color:#991B1B">${this.cMoney(lg.totals?.salida)}</span></div>
         <div class="kpi"><span class="kpi-l">Traspasos sin cuadrar</span><span class="kpi-v">${this.cNum(ck.totals.diferencia + ck.totals.sin_recepcion + ck.totals.sin_origen)}</span></div>
@@ -226,7 +238,7 @@ export class MovementsExportService {
     const rows = sucs.map((g) => `<tr>
       <td class="mono">${this.cEsc(g.sucursal)}</td>
       <td class="num up">${this.cMoney(g.entrada)}</td><td class="num dn">${this.cMoney(g.salida)}</td>
-      <td class="num ${this.cOk(g.delta, g.entrada) ? 'mut' : 'delta'}">${this.cOk(g.delta, g.entrada) ? 'cuadra' : this.cSigned(g.delta)}</td>
+      <td class="num ${this.cV(g.delta, g.entrada) === 'difiere' ? 'delta' : 'mut'}">${this.cTxt(g.delta, g.entrada)}</td>
       <td class="num">${this.cNum(g.sr_ent_n)}</td><td class="num up">${this.cMoney(g.sr_ent_amt)}</td>
       <td class="num">${this.cNum(g.sr_sal_n)}</td><td class="num dn">${this.cMoney(g.sr_sal_amt)}</td></tr>`).join('');
     return `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><style>${this.cuadreStyles()}</style></head><body>
@@ -266,7 +278,6 @@ export class MovementsExportService {
     const num = (n: any) => (n == null || n === '' ? '—' : Number(n).toLocaleString('es-MX', { maximumFractionDigits: 0 }));
     const dmy = (d: any) => { const s = this.fmtDate(d); return s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(2, 4)}` : '—'; };
     // cuadra si |Δ| < $1 o < 0.1% de las entradas
-    const ok = (delta: any, base: any) => { const d = Math.abs(Number(delta) || 0); return d < 1 || d < Math.abs(Number(base) || 0) * 0.001; };
     const pct = (delta: any, base: any) => { const b = Math.abs(Number(base) || 0); return b ? ((Math.abs(Number(delta) || 0) / b) * 100).toLocaleString('es-MX', { maximumFractionDigits: 1 }) + '%' : '—'; };
     const pill = (status: string) => `<span class="pill p-${ESTADO_SEV[status] || 'mut'}">${esc(ESTADO_LABEL[status] || status)}</span>`;
 
@@ -277,13 +288,13 @@ export class MovementsExportService {
       acc += Number(m.delta) || 0;
       return `<tr><td class="mono">${esc(m.anio_mes)}</td>
         <td class="num up">${money(m.entrada)}</td><td class="num dn">${money(m.salida)}</td>
-        <td class="num ${ok(m.delta, m.entrada) ? 'mut' : 'delta'}">${ok(m.delta, m.entrada) ? 'cuadra' : signed(m.delta)}</td>
+        <td class="num ${this.cV(m.delta, m.entrada) === 'difiere' ? 'delta' : 'mut'}">${this.cTxt(m.delta, m.entrada)}</td>
         <td class="num mut">${pct(m.delta, m.entrada)}</td>
-        <td class="num ${ok(acc, m.entrada) ? '' : 'delta'}">${signed(acc)}</td></tr>`;
+        <td class="num ${this.cV(acc, m.entrada) === 'difiere' ? 'delta' : ''}">${signed(acc)}</td></tr>`;
     }).join('');
     const sucRows = (lg.by_sucursal || []).map((s: any) => `<tr><td class="mono">${esc(s.sucursal)}</td>
       <td class="num up">${money(s.entrada)}</td><td class="num dn">${money(s.salida)}</td>
-      <td class="num ${ok(s.delta, s.entrada) ? 'mut' : 'delta'}">${ok(s.delta, s.entrada) ? 'cuadra' : signed(s.delta)}</td></tr>`).join('');
+      <td class="num ${this.cV(s.delta, s.entrada) === 'difiere' ? 'delta' : 'mut'}">${this.cTxt(s.delta, s.entrada)}</td></tr>`).join('');
     const mxRows = (mx.rows || []).map((r: any) => `<tr>
       <td>${esc(r.origin_wh || '—')}</td><td>${esc(r.dest_wh || '(sin destino)')}</td>
       <td class="num">${num(r.qty_sent)}</td><td class="num">${num(r.qty_received)}</td>
@@ -304,7 +315,6 @@ export class MovementsExportService {
       <td>${esc(r.sucursal || '—')}</td><td class="num">${money(r.importe, 2)}</td>
       <td>${esc(r.referencia || '—')}</td></tr>`).join('');
 
-    const totOk = ok(lg.totals?.delta, lg.totals?.entrada);
     return `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><style>${this.cuadreStyles()}</style></head><body>
       ${this.cuadreHead(data, 'Cuadre de traspasos')}
 
@@ -448,7 +458,7 @@ export class MovementsExportService {
       <div class="kpis">
         <div class="kpi"><span class="kpi-l">Entradas (pzas)</span><span class="kpi-v">+${num(Math.abs(data.totals.entradas))}</span></div>
         <div class="kpi"><span class="kpi-l">Salidas (pzas)</span><span class="kpi-v">−${num(Math.abs(data.totals.salidas))}</span></div>
-        <div class="kpi"><span class="kpi-l">Valor movido</span><span class="kpi-v">${money(data.totals.valor)}</span></div>
+        <div class="kpi"><span class="kpi-l">Valor movido</span><span class="kpi-v">${money(data.totals.valor)}</span>${data.totals.lineas_sin_importe ? `<span style="font-size:9px;color:#837A6C">parcial: ${num(data.totals.lineas_sin_importe)} renglones sin costo en Kepler</span>` : ''}</div>
         <div class="kpi"><span class="kpi-l">Documentos</span><span class="kpi-v">${num(data.totals.documentos)}</span></div>
         <div class="kpi"><span class="kpi-l">Auditados</span><span class="kpi-v">${num(audited)} <span style="font-size:10px;color:#837A6C;font-weight:400">de ${num(docs.length)}</span></span></div>
       </div>

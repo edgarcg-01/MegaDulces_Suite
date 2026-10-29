@@ -9283,6 +9283,43 @@ TP.6-TP.8+TP.10".
 >   origen (`motivosDeBloqueo`). El ingreso conserva su panel. 456 pruebas de caja-general ✓ (4
 >   nuevas + 3 movidas a ingreso); mutación: apagar el vínculo en egreso pone 2 en rojo;
 >   `check:pantalla` 0 nuevas. ⚠️ **Sin validación visual.**
+> - [x] **[CGA-A.51.1]** ✅ 2026-10-28 · **El retiro grande vuelve a salir en la búsqueda manual.** El
+>   retiro 1775 ($156,670) no aparecía para un egreso chico: «monto mayor que el movimiento» le
+>   restaba 25 puntos y quedaba en −13. Ahora en la búsqueda manual suma 10 («el retiro alcanza, le
+>   sobran $X») y sale como `baja`; el emparejador automático no cambia. 26 pruebas; sin la bandera,
+>   `[]`. En prod (`f66dfa95e`, `/api/health`).
+> - [x] **[CGA-A.56.1]** ❌ 2026-10-27 → reemplazado por A.56.2. El arqueo del egreso descontaba lo
+>   que pagaba el retiro vinculado (contaba como crédito).
+> - [x] **[CGA-A.56.2]** ✅ 2026-10-28 · **El retiro de CAOS se VINCULA, no se descuenta del arqueo.**
+>   Edgar: *«solo necesito que se vincule, no que se reste»*. Una reja de $5 cuadraba contra un retiro
+>   de $23,320. El egreso se cuenta entero; `cubierto` se publica sin acreditar. El corte nunca
+>   dependió del enlace (`[CG.96]`). Mutación: devolver el crédito pone 5 pruebas en rojo. En prod
+>   (`f66dfa95e`). ⚠️ Sin validación visual.
+> - ⚠️ **Número repetido por error (28-oct):** el `[CGA-A.57]` ⬜ de abajo («ligar el historial») es
+>   OTRO item; el A.57 de los commits del 28-oct es la vista de vínculos. Se distinguen como
+>   **A.57-historial** y **A.57-vínculos**.
+> - [x] **[CGA-A.57-vínculos]** 🧪 2026-10-28 · **Supervisión ve a qué movimientos de Caja General se
+>   vinculó cada movimiento de CAOS** (`/finanzas/caos`, detalle de la fila: folio, monto, lo que tomó,
+>   libre; la columna dice «+N»). Clave nueva `FINANCE_CAOS_VINCULOS_VER` para `direccion`, `finanzas`,
+>   `tesoreria` (mig `20261028142917`, abre 3 hallazgos LE.4.8). Empujado; ⚠️ **migración sin
+>   aplicar en prod**, sin desplegar, sin validación visual.
+> - [x] **[CGA-A.58]** 🧪 2026-10-28 · **Superadmin quita un vínculo (con motivo) y vuelve a vincular por
+>   folio.** Superadmin EXACTO sobre roles frescos (admin no: mutación en rojo). Mig `20261028143612`:
+>   `deleted_by` + `motivo_baja` + CHECK `caos_link_baja_con_motivo` (NOT VALID). 3 negativas corren;
+>   las 2 contra base real **NO MEDIDAS** (sin `CAJA_TEST_DB_URL`). Empujado; ⚠️ migración sin aplicar.
+> - [x] **[CGA-A.59]** 🔨 2026-10-28 · **Buscar por ruta y por sucursal; cada movimiento dice de qué
+>   servidor viene** («Canindo · Ruta 501»), en el libro y en la cola. `cash_ledger.ruta` la pone la
+>   captura (leerla del FDW cuesta 2,016 ms); mig `20261028144645` rellena los 116 cobros de camión.
+>   No se tocó `erp_warehouse_map` ni `warehouses.kepler_code` (mueven margen/existencia). 14 pruebas.
+>   ⚠️ Guardar `ruta` en la captura **NO MEDIDO contra base real** (regla 13). Commit local, sin empujar.
+> - [x] **[CGA-A.60]** 🔨 2026-10-28 · **Un retiro de CAOS paga un lote de egresos de la cola; sólo la
+>   diferencia toca el cajón.** Edgar: *«vincular un egreso general con los egresos pequeños»* — el
+>   «Formato de autorización de gastos» de zona Morelia (21 X-D-26, $156,678.61, retiro «gnf 26/10»).
+>   Cada egreso toma su monto entero mientras alcance; sin redondear a billetes por renglón (inventaba
+>   $4,649.65 del cajón donde fueron $8.61). Mutación: 3 en rojo. ⚠️ El lote con retiro (escribe egresos + vínculos) **NO MEDIDO contra base
+>   real** (regla 13). Commit local, sin empujar; sin validación visual. ⚠️ Hallazgo de la hoja: **CG-2026-00512 (nómina Canindo, $10,510)** está
+>   vinculado al retiro de Morelia y no está en la hoja; X0316 ($5,700) y X0317 ($169.96) siguen en la
+>   cola sin dinero libre en el retiro. Espera decisión de Edgar (D3).
 > - **[CGA-A.57]** ⬜ **Ligar el historial con propuestas + confirmación** (decisión de Edgar). Octubre
 >   en adelante contra los gastos del libro; mayo–sep ($16.5 M, 326 retiros) contra los egresos de
 >   Kepler (cuenta `0011`), porque el libro empieza el 25-sep. Nada se liga solo (1 de cada 3 parejas

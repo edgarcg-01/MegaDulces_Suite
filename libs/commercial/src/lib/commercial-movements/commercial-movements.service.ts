@@ -35,7 +35,7 @@ export interface MovementsQuery {
   product_id?: string;
   search?: string;        // nombre/sku producto
   folio?: string;         // filtra un folio exacto (drill al documento)
-  estado?: string;        // estado de traspaso: en_transito | completado | diferencia
+  estado?: string;        // estado de traspaso: en_transito | sin_acuse | sin_recepcion_esperada | completado | diferencia
   transfer_wh_ids?: string; // CSV UUIDs — traspasos cuyo ORIGEN o DESTINO ∈ selección (propio o contraparte)
   dest_kinds?: string;    // CSV 'sucursal'|'ruta'|'cliente' — destino de traspasos; default 'sucursal'
   group_by?: string;
@@ -43,7 +43,8 @@ export interface MovementsQuery {
   pageSize?: number;
 }
 
-type TransferDocStatus = 'en_transito' | 'completado' | 'diferencia';
+type TransferDocStatus = 'en_transito' | 'sin_acuse' | 'sin_recepcion_esperada' | 'completado' | 'diferencia';
+const TRANSFER_DOC_STATUSES: readonly string[] = ['en_transito', 'sin_acuse', 'sin_recepcion_esperada', 'completado', 'diferencia'];
 
 /** DM.12 — filtros de la vista del detalle 515 (no afectan el pareo, solo qué se devuelve). */
 export interface LedgerDetailFilters {
@@ -123,6 +124,47 @@ const PAIR_BLIND_DAYS = 15;   // sin testigo de destino: ventana de siempre, sin
 const DOC_IDENTITY = ['m.warehouse_id', 'm.doc_code', 'm.doc_serie', 'm.folio'];
 
 /**
+ * [MX.1.1] **Firma de productos de un documento**: Σ(cantidad redondeada × hash del SKU).
+ *
+ * Dos documentos con los mismos SKU y las mismas cantidades dan la misma firma, sin importar en
+ * cuántos renglones vengan; mandar 10 de A y recibir 10 de B la cambia. Se calcula en el MISMO
+ * barrido que ya suma las piezas, así que cuesta casi nada.
+ *
+ * ⚠️ Por qué no se compara renglón por renglón: se intentó (2026-10-28) y el Cuadre pasó de
+ * 0.26 s a 1.9 s (30 d) y 7 s (90 d) aun con CTEs materializados — y medido en prod **no hay
+ * ningún caso** hoy (los «4 documentos con productos cambiados» de la auditoría eran renglones
+ * SIN `product_id` en ambos lados, que una comparación por `product_id` nunca empata; por SKU
+ * cuadran). La firma es el candado barato contra el caso que hoy no ocurre.
+ * Se compara por SKU (texto de Kepler), no por `product_id`, por esa misma razón.
+ */
+const SKU_SIG = (a: string) => `SUM(round(${a}.qty::numeric, 2) * hashtext(coalesce(${a}.sku, '')))`;
+
+/**
+ * [MX.1.3] Días sin recepción tras los cuales una salida A UN ALMACÉN deja de estar «en tránsito» y
+ * pasa a «sin acuse» (decisión D5 de la fase MX). Medido el 2026-10-28 sobre 1,270 pares entre
+ * almacenes con cantidad idéntica (embarques mar–sep 2026): mediana 0 días, p95 5, sólo 4 (0.3 %)
+ * llegan después de 15, máximo 63. Antes eran 45 en el Cuadre y NUNCA en el Diario («en tránsito» no
+ * envejecía: 234 salidas a almacén con más de 45 días se pintaban en gris).
+ */
+const SIN_ACUSE_DIAS = 15;
+
+/** Una ruta de reparto es un almacén cuyo nombre empieza con «Ruta»: una camioneta no emite acuse. */
+const esRuta = (nombre: string | null | undefined) => !!nombre && /^\s*ruta/i.test(nombre);
+
+/**
+ * [MX.1.3] Estado de una salida que NO tiene recepción, por destino y edad — una sola regla para el
+ * Diario y los hallazgos del Cuadre. A cliente (sin almacén resuelto) o a ruta nadie emite acuse:
+ * `sin_recepcion_esperada`, no un pendiente.
+ */
+const estadoSinRecepcion = (
+  destWhId: string | null | undefined, destWhName: string | null | undefined, shipDate: unknown, ahora = Date.now(),
+): 'en_transito' | 'sin_acuse' | 'sin_recepcion_esperada' => {
+  if (!destWhId || esRuta(destWhName)) return 'sin_recepcion_esperada';
+  const dias = Math.floor((ahora - new Date(String(shipDate)).getTime()) / 864e5);
+  return dias > SIN_ACUSE_DIAS ? 'sin_acuse' : 'en_transito';
+};
+
+/**
  * Predicado de pareo, en SQL, para que los CUATRO puntos que parean traspasos digan lo mismo
  * (`document`, `annotateTransferStatus`, `transfersPhysical`, `transfersCheckPair`). Mismo motivo
  * que `DEST_WH_VIVO`: una regla de integridad repetida a mano se desincroniza — y acá ya había
@@ -188,6 +230,8 @@ const pairMatchJs = (shipMs: number, rcvMs: number, destWhId: string | null, rcv
  *
  * Devuelve desde el `WITH` hasta `) t`; cada quien le pega su `WHERE`/`ORDER BY`/`LIMIT`.
  * Los parámetros van en {@link TRANSFER_PAIRING_PARAMS}, en ese orden.
+ *
+ * [MX.1.1] El veredicto `ok` exige la suma de piezas **y** la firma de productos ({@link SKU_SIG}).
  */
 const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
         WITH shp AS (
@@ -199,7 +243,8 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
           -- PAIR_LATE_DAYS, o fecharse hasta PAIR_EARLY_DAYS despues de ella. Cuesta 14 ms.
           SELECT m.warehouse_id, m.folio, m.doc_serie, m.tenant_id,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
-                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label
+                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label, ${SKU_SIG('m')} AS sku_sig,
+                 COUNT(*) FILTER (WHERE m.amount IS NULL)::int AS lineas_sin_importe
           FROM analytics.stock_movements m
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip'
             AND m.doc_date BETWEEN ?::date - ${PAIR_LATE_DAYS} AND ?::date + ${PAIR_EARLY_DAYS}${shpDestSql}
@@ -215,7 +260,7 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
         ), rcv AS (
           -- [DM.22] misma ventana de candidatos, espejada.
           SELECT m.warehouse_id, m.folio, m.parent_serie, m.parent_folio,
-                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas
+                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas, ${SKU_SIG('m')} AS sku_sig
           FROM analytics.stock_movements m
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41'
             AND m.doc_date BETWEEN ?::date - ${PAIR_EARLY_DAYS} AND ?::date + ${PAIR_LATE_DAYS}
@@ -230,7 +275,8 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
                  s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
                  s.doc_serie, s.doc_date AS ship_date, s.qty AS qty_sent, s.amount, s.lineas AS ship_lines,
                  r.warehouse_id AS dest_wh_id, coalesce(rw.name, rw.code) AS dest_wh, r.folio AS rcv_folio,
-                 r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines
+                 r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines,
+                 s.sku_sig AS ship_sig, r.sku_sig AS rcv_sig, s.lineas_sin_importe AS ship_lineas_sin_importe
           FROM rcv r
           LEFT JOIN commercial.warehouses rw ON rw.id = r.warehouse_id
           LEFT JOIN shpd s
@@ -262,14 +308,16 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
                  dest_wh_id, dest_wh, rcv_folio, rcv_date, qty_received, rcv_lines,
                  CASE
                    WHEN origin_folio IS NULL THEN 'sin_origen'
-                   WHEN abs(coalesce(qty_sent,0) - coalesce(qty_received,0)) < 0.01 THEN 'ok'
+                   WHEN abs(coalesce(qty_sent,0) - coalesce(qty_received,0)) < 0.01
+                    AND ship_sig = rcv_sig THEN 'ok'   -- [MX.1.1] y los mismos productos
                    ELSE 'diferencia'
                  END AS status,
-                 coalesce(qty_received,0) - coalesce(qty_sent,0) AS delta
+                 coalesce(qty_received,0) - coalesce(qty_sent,0) AS delta,
+                 ship_lineas_sin_importe AS lineas_sin_importe   -- [MX.1.2] el importe sale del embarque
           FROM paired
           UNION ALL
           SELECT u.warehouse_id, u.wh_code, u.folio, u.doc_serie, u.doc_date, u.qty, u.amount, u.lineas,
-                 dw.id, coalesce(dw.name, dw.code, u.dest_label, u.dest_code), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty
+                 dw.id, coalesce(dw.name, dw.code, u.dest_label, u.dest_code), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty, u.lineas_sin_importe
           FROM unreceived u
           LEFT JOIN analytics.transfer_dest_map dm ON dm.tenant_id = ? AND dm.dest_code = u.dest_code
           LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id AND ${DEST_WH_VIVO('dw')}
@@ -391,7 +439,7 @@ export class CommercialMovementsService {
     // líneas de su doc padre → fuera de KPIs y listado, salvo filtro explícito por ese tipo
     if (!INFO_DOC_CODES.includes(q.doc_code || '')) b.whereNot('m.movement_kind', 'info');
     // estado y origen/destino solo aplican a traspasos → todo (summary/aggregate/lines) se acota a ellos
-    if (['en_transito', 'completado', 'diferencia'].includes(q.estado || '') || this.transferWhIds(q).length) {
+    if (TRANSFER_DOC_STATUSES.includes(q.estado || '') || this.transferWhIds(q).length) {
       b.whereIn('m.doc_code', ['TrsfShip', 'TrsfRcv']);
     }
     // Origen/Destino (traspasos): el doc involucra al almacén seleccionado como ORIGEN
@@ -475,6 +523,8 @@ export class CommercialMovementsService {
         trx.raw(`SUM(m.signed_qty) AS neto`),
         trx.raw(`SUM(m.amount) AS valor`),
         trx.raw(`COUNT(*)::int AS lineas`),
+        // [MX.1.2] renglones cuyo costo Kepler asentó en 0: el `valor` no los incluye y hay que decirlo
+        trx.raw(`COUNT(*) FILTER (WHERE m.amount IS NULL)::int AS lineas_sin_importe`),
       );
       // [MX.2.2] Un documento es almacén+tipo+serie+folio, no el folio: el mismo folio lo usan
       // sucursales y tipos distintos. `COUNT(DISTINCT m.folio)` publicaba 3,772 documentos en
@@ -573,7 +623,7 @@ export class CommercialMovementsService {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 100));
-    const estado = ['en_transito', 'completado', 'diferencia'].includes(q.estado || '') ? (q.estado as TransferDocStatus) : null;
+    const estado = TRANSFER_DOC_STATUSES.includes(q.estado || '') ? (q.estado as TransferDocStatus) : null;
     return this.tk.run(async (trx) => {
       // base() ya acota a docs de traspaso cuando hay estado u origen/destino
       const grouped = () => this.base(trx, tenantId, q)
@@ -606,6 +656,10 @@ export class CommercialMovementsService {
           // DM.11 — destino del traspaso (kdm1.c10 → kdud); dest por-doc, MAX es el valor único
           trx.raw(`MAX(m.dest_code) AS dest_code`),
           trx.raw(`MAX(m.dest_label) AS dest_label`),
+          // [MX.1.1] firma de productos: annotateTransferStatus la compara con la de la contraparte
+          trx.raw(`${SKU_SIG('m')} AS sku_sig`),
+          // [MX.1.2] renglones sin importe (Kepler asentó costo 0): el `amount` del documento está incompleto
+          trx.raw(`COUNT(*) FILTER (WHERE m.amount IS NULL)::int AS lineas_sin_importe`),
         )
         .orderByRaw('MIN(m.doc_date) DESC, m.folio DESC')
         .limit(limit).offset(offset);
@@ -615,10 +669,13 @@ export class CommercialMovementsService {
         // traspasos del rango (cap 2000) y paginar en memoria. El filtro origen/destino
         // (transfer_wh_ids) ya lo aplicó base() en SQL → aquí no se re-filtra por almacén.
         const all = await fetch(2000, 0);
+        // [MX.1.3] el DESTINO va primero también acá ([DM.20]: es la llave del pareo). Antes este
+        // camino pareaba sin destino (ventana ciega para todos) y anotaba el destino después, sólo
+        // en la página: con el estado por destino de MX.1.3 todo caía en «a ruta o cliente».
+        await this.annotateDest(trx, tenantId, all);
         await this.annotateTransferStatus(trx, tenantId, all);
         const filtered = all.filter((r: any) => r.transfer_status === estado);
         const rows = filtered.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
-        await this.annotateDest(trx, tenantId, rows);
         return { page, pageSize, total: filtered.length, rows };
       }
 
@@ -635,12 +692,15 @@ export class CommercialMovementsService {
   /**
    * DM.3 — anota `transfer_status` + `cp_warehouse_id` (almacén de la contraparte, para el
    * filtro origen/destino) en filas de traspaso (mismo ranking que transfersCheck:
-   * candidato con cantidad más cercana, luego fecha). Ship sin recepción = en_transito;
+   * candidato con cantidad más cercana, luego fecha). Ship sin recepción = estadoSinRecepcion() [MX.1.3];
    * recepción sin origen visible = diferencia (a revisar).
    */
   private async annotateTransferStatus(trx: any, tenantId: string, rows: any[]): Promise<void> {
     const ships = rows.filter((r) => r.doc_code === 'TrsfShip');
     const rcvs = rows.filter((r) => r.doc_code === 'TrsfRcv');
+    /** [MX.1.1] mismas piezas Y mismos productos (firma {@link SKU_SIG}; numeric llega como string). */
+    const mismoTraspaso = (cand: { q: unknown; sig: unknown }, doc: { qty: unknown; sku_sig: unknown }) =>
+      Math.abs(Number(cand.q) - Number(doc.qty)) < 0.01 && cand.sig != null && String(cand.sig) === String(doc.sku_sig);
     const near = (cands: any[], qty: number, date: any) => {
       if (!cands.length) return null;
       const t = new Date(date).getTime();
@@ -675,14 +735,17 @@ export class CommercialMovementsService {
          */
         .groupBy('m.parent_folio', 'm.parent_serie', 'm.warehouse_id', 'm.folio')
         .select('m.parent_folio as pf', 'm.warehouse_id as wh', 'm.folio as rf')
-        .select(trx.raw(`coalesce(m.parent_serie,'') AS ps`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`));
+        .select(trx.raw(`coalesce(m.parent_serie,'') AS ps`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`),
+          trx.raw(`${SKU_SIG('m')} AS sig`));
       for (const s of ships) {
         const sd = new Date(s.doc_date).getTime();
         // [DM.20] llave = el destino declarado (annotateDest ya corrió); sin él, ventana ciega.
         const mine = cands.filter((c: any) => c.pf === s.folio && c.ps === (s.doc_serie ?? '') && c.wh !== s.warehouse_id
           && pairMatchJs(sd, new Date(c.d).getTime(), s.dest_warehouse_id ?? null, c.wh));
         const best = near(mine, Number(s.qty), s.doc_date);
-        s.transfer_status = !best ? 'en_transito' : Math.abs(Number(best.q) - Number(s.qty)) < 0.01 ? 'completado' : 'diferencia';
+        // [MX.1.3] sin recepción: en tránsito sólo hasta SIN_ACUSE_DIAS, y sólo si va a un almacén
+        s.transfer_status = !best ? estadoSinRecepcion(s.dest_warehouse_id, s.dest_warehouse_name, s.doc_date)
+          : mismoTraspaso(best, s) ? 'completado' : 'diferencia';
         s.cp_warehouse_id = best ? best.wh : null;
       }
     }
@@ -700,14 +763,14 @@ export class CommercialMovementsService {
         .groupBy('m.folio', 'm.doc_serie', 'm.warehouse_id')
         .select('m.folio as f', 'm.warehouse_id as wh')
         .select(trx.raw(`coalesce(m.doc_serie,'') AS s`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`),
-          trx.raw(`MAX(dw.id::text) AS dest_wh`));
+          trx.raw(`MAX(dw.id::text) AS dest_wh`), trx.raw(`${SKU_SIG('m')} AS sig`));
       for (const r of rcvs) {
         if (r.parent_group !== '41' || !r.parent_folio) { r.transfer_status = 'diferencia'; continue; }
         const rd = new Date(r.doc_date).getTime();
         const mine = cands.filter((c: any) => c.f === r.parent_folio && c.s === (r.parent_serie ?? '') && c.wh !== r.warehouse_id
           && pairMatchJs(new Date(c.d).getTime(), rd, c.dest_wh ?? null, r.warehouse_id));
         const best = near(mine, Number(r.qty), r.doc_date);
-        r.transfer_status = !best ? 'diferencia' : Math.abs(Number(best.q) - Number(r.qty)) < 0.01 ? 'completado' : 'diferencia';
+        r.transfer_status = !best ? 'diferencia' : mismoTraspaso(best, r) ? 'completado' : 'diferencia';
         r.cp_warehouse_id = best ? best.wh : null;
       }
     }
@@ -781,9 +844,17 @@ export class CommercialMovementsService {
           this.on('p.id', 'm.product_id').andOn('p.tenant_id', 'm.tenant_id');
         })
         .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id');
-      if (p.warehouse_id && UUID_RX.test(p.warehouse_id)) q.where('m.warehouse_id', p.warehouse_id);
-      if (p.doc_code) q.where('m.doc_code', p.doc_code);
-      if (p.doc_serie != null && p.doc_serie !== '') q.whereRaw(`coalesce(m.doc_serie,'') = ?`, [p.doc_serie]);
+      const delDocumento = <B extends { where(...a: unknown[]): unknown; whereRaw(...a: unknown[]): unknown }>(b: B): B => {
+        if (p.warehouse_id && UUID_RX.test(p.warehouse_id)) b.where('m.warehouse_id', p.warehouse_id);
+        if (p.doc_code) b.where('m.doc_code', p.doc_code);
+        if (p.doc_serie != null && p.doc_serie !== '') b.whereRaw(`coalesce(m.doc_serie,'') = ?`, [p.doc_serie]);
+        return b;
+      };
+      delDocumento(q);
+      // [MX.1.1] firma de productos de ESTE documento, para compararla con la de su contraparte
+      const [{ sku_sig: thisSig = null } = {}] = await delDocumento(
+        trx('analytics.stock_movements as m').where('m.tenant_id', tenantId).andWhere('m.folio', p.folio),
+      ).select(trx.raw(`${SKU_SIG('m')} AS sku_sig`));
       const lines = await q.select(
         'm.warehouse_id', 'm.doc_date', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
         'm.genero', 'm.naturaleza', 'm.doc_type', 'm.doc_serie', 'm.signed_qty', 'm.qty',
@@ -840,15 +911,18 @@ export class CommercialMovementsService {
       const wrap = (cp: any[], evidence: 'destino_declarado' | 'fecha_y_cantidad') => {
         if (!cp.length) return null;
         const cpQty = Number(cp[0].qty || 0);
+        // [MX.1.1] cuadra sólo con las mismas piezas Y los mismos productos (firma SKU_SIG)
+        const mismos = cp[0].sku_sig != null && String(cp[0].sku_sig) === String(thisSig);
         return {
           docs: cp, qty: cpQty, delta: cpQty - sentQty, match_evidence: evidence,
-          status: Math.abs(cpQty - sentQty) < 0.01 ? 'ok' : 'diferencia',
+          status: Math.abs(cpQty - sentQty) < 0.01 && mismos ? 'ok' : 'diferencia',
         };
       };
       const CP_COLS = (t: any) => [
         'm.folio', 'm.warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name',
         t.raw(`MIN(m.doc_date) AS doc_date`), t.raw(`MAX(m.doc_code) AS doc_code`),
         t.raw(`MAX(m.doc_serie) AS doc_serie`), t.raw(`SUM(m.qty) AS qty`), t.raw(`COUNT(*)::int AS lineas`),
+        t.raw(`${SKU_SIG('m')} AS sku_sig`),
       ];
       /** Viendo una SALIDA: su recepción es la que ocurre en el almacén al que va dirigida. */
       const findRcvForShip = async (destWhId: string | null) => {
@@ -990,12 +1064,15 @@ export class CommercialMovementsService {
       // en 500, problemas primero): el Excel sacaba de ahí «Recibidos OK», «Δ neto» y «Valor
       // enviado», y con más de 500 problemas al mes (todos los meses desde ago-2026) «Recibidos
       // OK» salía en 0. `capped`: el pareo trae a lo más 50,000 filas; si llegó, nada está completo.
-      const cSums = { n: checkAll.length, qty_sent: 0, qty_received: 0, delta: 0, amount: 0 };
+      // [MX.1.2] `docs_importe_incompleto`: documentos cuyo `amount` no incluye renglones con costo 0 en Kepler
+      const cSums = { n: checkAll.length, qty_sent: 0, qty_received: 0, delta: 0, amount: 0, docs_importe_incompleto: 0, lineas_sin_importe: 0 };
       for (const r of checkAll) {
         cSums.qty_sent += Number(r.qty_sent) || 0;
         cSums.qty_received += Number(r.qty_received) || 0;
         cSums.delta += Number(r.delta) || 0;
         cSums.amount += Number(r.amount) || 0;
+        const sinImp = Number(r.lineas_sin_importe) || 0;
+        if (sinImp > 0) { cSums.docs_importe_incompleto++; cSums.lineas_sin_importe += sinImp; }
       }
       const capped = all.length >= 50000;
       const prio: Record<string, number> = { diferencia: 0, sin_recepcion: 1, sin_origen: 2, ok: 4 };
@@ -1046,25 +1123,26 @@ export class CommercialMovementsService {
       const DIA = 864e5;
       const ahora = Date.now();
       const diasDe = (d: any) => (d ? Math.floor((ahora - new Date(d).getTime()) / DIA) : 0);
-      const esRuta = (n: string | null) => !!n && /^\s*ruta/i.test(n);
       const hallazgos = {
         truncado: (cTotals.diferencia + cTotals.sin_recepcion + cTotals.sin_origen) > checkRows.length,
-        sin_acuse: { docs: 0, amount: 0, dias_max: 0, viejo_docs: 0, viejo_amount: 0 },
-        sin_acuse_ruta: { docs: 0, amount: 0 },
-        sin_acuse_cliente: { docs: 0, amount: 0 },
+        // [MX.1.3] `umbral_dias` viaja con el dato: la pantalla no repite el número a mano
+        sin_acuse: { docs: 0, amount: 0, dias_max: 0, viejo_docs: 0, viejo_amount: 0, umbral_dias: SIN_ACUSE_DIAS, docs_importe_incompleto: 0 },
+        sin_acuse_ruta: { docs: 0, amount: 0, docs_importe_incompleto: 0 },
+        sin_acuse_cliente: { docs: 0, amount: 0, docs_importe_incompleto: 0 },
         sin_origen: { docs: cTotals.sin_origen },
         diferencia: { docs: cTotals.diferencia, piezas: 0 },
       };
       for (const r of checkAll) {
         const monto = Number(r.amount) || 0;
+        const incompleto = (Number(r.lineas_sin_importe) || 0) > 0 ? 1 : 0;
         if (r.status === 'sin_recepcion') {
-          if (!r.dest_wh_id) { hallazgos.sin_acuse_cliente.docs++; hallazgos.sin_acuse_cliente.amount += monto; continue; }
-          if (esRuta(r.dest_wh)) { hallazgos.sin_acuse_ruta.docs++; hallazgos.sin_acuse_ruta.amount += monto; continue; }
-          hallazgos.sin_acuse.docs++; hallazgos.sin_acuse.amount += monto;
+          if (!r.dest_wh_id) { hallazgos.sin_acuse_cliente.docs++; hallazgos.sin_acuse_cliente.amount += monto; hallazgos.sin_acuse_cliente.docs_importe_incompleto += incompleto; continue; }
+          if (esRuta(r.dest_wh)) { hallazgos.sin_acuse_ruta.docs++; hallazgos.sin_acuse_ruta.amount += monto; hallazgos.sin_acuse_ruta.docs_importe_incompleto += incompleto; continue; }
+          hallazgos.sin_acuse.docs++; hallazgos.sin_acuse.amount += monto; hallazgos.sin_acuse.docs_importe_incompleto += incompleto;
           const d = diasDe(r.ship_date);
           if (d > hallazgos.sin_acuse.dias_max) hallazgos.sin_acuse.dias_max = d;
-          // 45 d: más del doble de la ventana de tránsito medida en [DM.20] (máximo +63, p99 +13).
-          if (d > 45) { hallazgos.sin_acuse.viejo_docs++; hallazgos.sin_acuse.viejo_amount += monto; }
+          // [MX.1.3] SIN_ACUSE_DIAS (15), medido; antes 45 escondía 30 días de alarmas reales.
+          if (d > SIN_ACUSE_DIAS) { hallazgos.sin_acuse.viejo_docs++; hallazgos.sin_acuse.viejo_amount += monto; }
         } else if (r.status === 'diferencia') {
           hallazgos.diferencia.piezas += Math.abs(Number(r.delta) || 0);
         }
@@ -1594,6 +1672,7 @@ export class CommercialMovementsService {
         salidas: Number(s.totals?.salidas) || 0,
         valor: Number(s.totals?.valor) || 0,
         documentos: Number(s.totals?.documentos) || 0,
+        lineas_sin_importe: Number(s.totals?.lineas_sin_importe) || 0, // [MX.1.2]
       },
       docs,
       transfers: t.rows,

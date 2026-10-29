@@ -10,6 +10,7 @@ import {
   type CajaCobertura, type CajaCoberturaFiltro, type CajaPeriodoContado,
   SUCURSAL_CAJA_GENERAL,
   diaDeFecha,
+  type CaosRetirosLibres,
 } from '@megadulces/contracts';
 
 /**
@@ -34,6 +35,7 @@ import {
   type MapaRuta, type ReglaGasto, type Confirmable, type ClaseDescuadre,
   type FilaLote, type ResumenLote, type Descuadre,
   cuentaDelTipoDeDocumento, type CuentaDeTipoDocumento, type LineasPorTipoPol,
+  tomaDelRetiro, resumirRetiroLote, redondea2,
 } from './caja-lote.engine';
 import { revisarFirma } from './caja-firma.engine';
 import { tomarFirmaParaMovimiento, marcarFirmaUsada } from './caja-firma.service';
@@ -3054,8 +3056,14 @@ export class CashLedgerService {
   async crearLote(
     input: {
       items: Array<{ origen_ref: string; fecha?: string; sucursal?: string; client_uuid?: string }>;
-      /** `[CGA-A.56]` El origen del efectivo de los EGRESOS del lote (un lote no enlaza retiros: sólo cajón). */
+      /** `[CGA-A.56]` El origen del efectivo de los EGRESOS del lote cuando no hay retiro: cajón. */
       origen_efectivo?: 'cajon' | null;
+      /**
+       * ⭐ `[CGA-A.60]` El retiro de CAOS que paga los EGRESOS del lote. Cada uno toma su monto
+       * entero mientras alcance (`tomaDelRetiro`); lo que no alcance sale del cajón. Los ingresos
+       * del lote no lo tocan.
+       */
+      caos_retiro?: { device: string; external_id: number } | null;
     },
     user: { id?: string; username?: string },
   ): Promise<ResumenLote> {
@@ -3073,6 +3081,13 @@ export class CashLedgerService {
 
     const filas: FilaLote[] = [];
     const montos = new Map<string, number>();
+
+    // `[CGA-A.60]` El retiro se valida UNA vez, antes de la primera fila: si no sirve, no se
+    // guarda nada (a diferencia de una fila mala, un retiro malo es error de todo el lote).
+    const retiro = input.caos_retiro?.device && input.caos_retiro?.external_id
+      ? await this.tk.run(async (trx) => this.retiroParaLote(trx, tenantId, input.caos_retiro as { device: string; external_id: number }))
+      : null;
+    const tomados: Array<{ monto: number; tomado: number }> = [];
 
     for (const it of items) {
       try {
@@ -3111,6 +3126,12 @@ export class CashLedgerService {
         // documento (ya salió por lo que decía el pago); el ingreso se cuenta, y por eso tiene
         // un camino propio donde el conteo lleva denominaciones.
 
+        // `[CGA-A.60]` Lo libre se lee FRESCO por fila: otra captura pudo tomar del retiro entre dos
+        // filas. El candado de verdad es `trg_caos_link_no_excede`; esto sólo decide cuánto pedir.
+        const toma = retiro && pend.tipo === 'gasto'
+          ? tomaDelRetiro(Number(pend.monto), await this.tk.run(async (trx) => this.libreDelRetiro(trx, tenantId, retiro)))
+          : 0;
+
         const mov: any = await this.create({
           tipo: pend.tipo,
           /**
@@ -3133,7 +3154,14 @@ export class CashLedgerService {
           origen_tipo: pend.origen_tipo,
           origen_ref: pend.origen_ref,
           client_uuid: it.client_uuid,
-          origen_efectivo: input.origen_efectivo ?? null,
+          // `[CGA-A.60]` Con retiro: el egreso que tomó algo es de CAOS (lo que le faltó es su parte
+          // del cajón); el que ya no alcanzó nada salió entero del cajón.
+          ...(retiro && pend.tipo === 'gasto'
+            ? (toma > 0
+              ? { caos_links: [{ device: retiro.device, external_id: retiro.external_id, monto: toma,
+                  senales: { via: 'lote', ref: retiro.ref } }] }
+              : { origen_efectivo: 'cajon' as const })
+            : { origen_efectivo: input.origen_efectivo ?? null }),
           /**
            * ⭐ `[CG.196]` **CADA FILA DECLARA DE DÓNDE SALIÓ SU CUENTA.** ADR-056: *un campo
            * lleno sin saber de dónde salió es indistinguible de uno inventado.*
@@ -3165,6 +3193,7 @@ export class CashLedgerService {
 
         montos.set(it.origen_ref, Number(mov.monto));
         filas.push({ origen_ref: it.origen_ref, estado: 'guardado', folio: mov.folio });
+        if (retiro && pend.tipo === 'gasto') tomados.push({ monto: Number(mov.monto), tomado: toma });
 
         // ⛔ `[CG.48]` Acá se evaluaba el descuadre contra `monto_contado` y se empujaba el
         // hallazgo. Sin conteo por fila no hay nada que comparar: el lote guarda el importe del
@@ -3183,7 +3212,64 @@ export class CashLedgerService {
     // CG.23.2 — Mismo aviso que en la captura suelta: confirmar un lote cambia la bandeja de
     // todos, y quien la tenga abierta al lado no puede quedarse con filas que ya no están.
     this.avisarLibro(tenantId);
-    return resumirLote(filas, montos);
+    return resumirLote(filas, montos, retiro ? resumirRetiroLote(retiro, tomados) : undefined);
+  }
+
+  /**
+   * `[CGA-A.60]` El retiro que va a pagar un lote: que exista, que sea un RETIRO (Dispensar), que no
+   * esté en una custodia cerrada y que le quede algo libre. Devuelve lo libre al empezar.
+   */
+  private async retiroParaLote(trx: Knex.Transaction, tenantId: string, r: { device: string; external_id: number }) {
+    const m = await trx('analytics.caos_cash_movements as m')
+      .where({ 'm.tenant_id': tenantId, 'm.device': r.device, 'm.external_id': r.external_id })
+      .first('m.device', 'm.external_id', 'm.type_id', 'm.ref',
+        trx.raw(`${sqlDisponibleCaos('m')} AS libre`),
+        trx.raw(`${(await CajaCustodiaService.hayCustodia(trx)) ? sqlCustodiaCerrada('m') : 'false'} AS cerrada`));
+    if (!m) throw new BadRequestException('Ese retiro de CAOS no existe.');
+    if (Number(m.type_id) !== 4) throw new BadRequestException('Sólo un RETIRO de CAOS (Dispensar) paga egresos.');
+    if (m.cerrada) throw new BadRequestException('Ese retiro tiene su custodia cerrada: ya no paga egresos.');
+    const libre = redondea2(Number(m.libre));
+    if (!(libre > 0)) throw new BadRequestException(`Al retiro ${m.ref || m.external_id} ya no le queda nada libre.`);
+    return { device: String(m.device), external_id: Number(m.external_id), ref: m.ref ?? null, libre_antes: libre };
+  }
+
+  private async libreDelRetiro(trx: Knex.Transaction, tenantId: string, r: { device: string; external_id: number }) {
+    const m = await trx('analytics.caos_cash_movements as m')
+      .where({ 'm.tenant_id': tenantId, 'm.device': r.device, 'm.external_id': r.external_id })
+      .first(trx.raw(`${sqlDisponibleCaos('m')} AS libre`));
+    return Number(m?.libre ?? 0);
+  }
+
+  /**
+   * `[CGA-A.60]` Los retiros de CAOS a los que todavía les queda dinero libre: los que pueden pagar
+   * un lote. Ventana de la cola; los de custodia cerrada no se ofrecen.
+   */
+  async retirosLibres(q: { from?: string; limit?: number } = {}): Promise<CaosRetirosLibres> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(Math.max(Number(q.limit) || 30, 1), 100);
+    const desde = q.from || new Date(Date.now() - CAJA_VENTANA_DIAS * 86400000).toISOString().slice(0, 10);
+    return this.tk.run(async (trx) => {
+      let qb = trx('analytics.caos_cash_movements as m')
+        .where('m.tenant_id', tenantId).where('m.type_id', 4).where('m.occurred_at', '>=', desde)
+        .whereRaw(`${sqlDisponibleCaos('m')} > 0.005`);
+      if (await CajaCustodiaService.hayCustodia(trx)) qb = qb.whereRaw(`NOT ${sqlCustodiaCerrada('m')}`);
+      const rows = await qb
+        .orderBy([{ column: 'm.occurred_at', order: 'desc' }, { column: 'm.external_id', order: 'desc' }])
+        .limit(limit)
+        .select('m.device', 'm.external_id', 'm.occurred_at', 'm.ref', 'm.user_external',
+          trx.raw('abs(m.total) AS total'), trx.raw(`${sqlDisponibleCaos('m')} AS libre`));
+      type Cruda = { device: string; external_id: string | number; occurred_at: string | Date; ref: string | null;
+        user_external: string | null; total: string | number; libre: string | number };
+      return {
+        rows: (rows as Cruda[]).map((r) => ({
+          device: r.device, external_id: Number(r.external_id),
+          occurred_at: r.occurred_at instanceof Date ? r.occurred_at.toISOString() : String(r.occurred_at),
+          ref: r.ref, user_external: r.user_external,
+          total: Number(r.total), libre: redondea2(Number(r.libre)),
+        })),
+        desde, limit,
+      };
+    });
   }
 
   /**

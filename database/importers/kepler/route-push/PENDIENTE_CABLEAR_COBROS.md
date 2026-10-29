@@ -213,3 +213,21 @@ Los cortes de esa camioneta tienen que dejar de salir como `fuera_del_ods`.
 empresa, Kepler casi dejó de registrar los depósitos de efectivo a Caja General (de ~90–115 por
 semana a **3**). Los gastos siguen normales. Alguien de operación tiene que decir qué cambió ese
 día, porque ninguna de estas camionetas lo explica.
+
+> ✅ **Contestada el 2026-10-28 (`[RD.94]`).** Edgar: *«cambian el proceso de cobrar: en vez de ir
+> a sucursal lo hacen en su máquina»*. Medido en el ODS (`U-A-5`, cobro PUE, sin cancelados):
+>
+> | semana | en matriz (`00`) | en las sucursales | a caja | a banco | total |
+> |---|---:|---:|---:|---:|---:|
+> | 31-ago … 28-sep (prom.) | ~430 | ~20 | ~$1.4 M | ~$7.8 M | ~$9.3 M |
+> | 5-oct | 60 | 381 | $0.58 M | $7.25 M | $7.84 M |
+> | 12-oct | 5 | 399 | $0.27 M | $7.57 M | $7.84 M |
+> | 19-oct | 6 | 406 | $0.90 M | $7.46 M | $8.35 M |
+>
+> **El corte es el viernes 2-oct**: el cobro de ruta deja la matriz y lo captura cada sucursal en
+> su propio Kepler, sobre todo contra **cuentas de banco** (Santander 2169, BBVA 4885, Bajío 4166,
+> Banorte 7744/7133), ya no contra `0011 CAJA GENERAL`. El cobro **no desapareció: cambió de
+> lugar y de cuenta** — por eso Caja General «dejó de recibir» sin que falte dinero.
+> ⚠️ Lo que el ODS de sucursal NO puede ver: los cobros capturados **en la máquina de la van**
+> (en la 01 sólo hay 9, de cuatro choferes). Ésos viven en la base local y sólo llegan por el
+> carril de cobros de este documento — que en Canindo sigue sin cablear.

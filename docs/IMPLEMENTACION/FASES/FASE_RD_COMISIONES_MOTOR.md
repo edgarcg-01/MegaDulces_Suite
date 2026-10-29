@@ -638,6 +638,64 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   responda, sin que nadie recorra pestañas: qué quincena cerró sin número, qué corrida espera
   aprobación, qué ruta va a comisionar sobre nada y qué ruta vende sin comisionar.
 
+#### Auditoría del 2026-10-28 (nivel C + B, sin validación visual)
+
+- **`[RD.91]` 🧪 La compuerta de deducción era verde por construcción** (`c77d7cf82`). Q21
+  publicaba **neto $51,522.93 = tras nómina**, `total_deduccion` 0.00 y `deduccion_configurada`
+  en «pasa», con sus 11 renglones de supervisor en `sin_configurar` y
+  `commission_beneficiary_config` en **0 filas**. La compuerta contaba líneas que el motor llenaba
+  **después** de llamarla. Ahora lee los beneficiarios y el neto va `NULL` si falta una deducción.
+  Prueba negativa en `commission-deduccion.spec.ts`. ⛔ Queda: desplegar y **recalcular Q21**.
+- **`[RD.92]` 🧪 La pantalla** (`ff6ee2963`): la proyección de `[RD.65]` por fin se dibuja (la
+  rama «sin corrida» iba primero y la dejaba muerta) · Quién cobra, Bonos y Tabulador suben al
+  conmutador de arriba (con Q22–Q27 no se podían abrir) · neto sin medir declarado en la tarjeta
+  y en Aprobar · pago vencido visible · `cobertura_dias` con rótulo · tabulador de sólo lectura
+  sin permiso.
+- **`[RD.93]` 🧪 El contraste de Q21 en adelante: libro contra la corrida del MOTOR.** La pestaña
+  «Libro vs motor» no sirve desde Q21 (la corrida viva ya es del motor y el libro llega después;
+  cargarlo como corrida choca con `una_viva_por_periodo` y sería otra copia). Queda listo
+  `node database/scripts/comparar-libro-motor-rd.js "<libro>.xlsx" --q 21 [--csv salida.csv]`:
+  sólo lectura en prod, mismo veredicto que la vista, mismo lector del Excel que el espejo
+  (extraído a `database/scripts/lib/libro-comisiones-rd.js`; salida del cargador idéntica antes y
+  después). Controles: Q20 contra su espejo **10/10 cuadran** · libro Q19 contra motor Q20
+  **0/11**. ⛔ El libro más nuevo en mano (8-oct) trae Q1–Q20: **falta el Excel con Q21**.
+  - **Modo CSV (las entradas), corrido sobre Q21 el 2026-10-28** con la hoja CONCENTRADO que
+    mandó Edgar: **9 de 11 rutas** ven la misma venta que el libro. A la fuente del motor **le
+    faltan 2 días** (dos rutas, un día cada una, ~1.7 % de la venta de la quincena), y por uno de
+    ellos una ruta queda **bajo el umbral** en el motor y sobre él en el libro: es el acantilado
+    de D7 causado por un día perdido, no por la regla. Hipótesis a medir (no confirmada): los
+    renglones tardíos que el carril `ctid` de `kdm2` no ve.
+  - **El subtotal —la base de la comisión— difiere con la venta cuadrada en casi todos los
+    días, también en Q19** (114 de 115): es una diferencia de DEFINICIÓN, en los dos sentidos, con
+    montos que se repiten entre rutas. Por ruta y quincena mueve hasta ~2.8 %. Abierto: qué
+    producto/impuesto arma cada lado.
+  - Una fila del libro se contradice sola (subtotal menor que el costo); se declara antes de
+    comparar, no se cuenta como diferencia del motor.
+- **`[RD.94]` 🔨 Los dos días que no llegaron (investigación del 2026-10-28).** Recorrido capa
+  por capa: la matview del motor = la vista viva = `analytics.route_push_lines` = `mart.ventas`
+  del runner, al folio. **El hueco nace en la van, antes del runner.** Huellas: en una ruta el
+  consecutivo de la serie `UD1001` se REINICIA a `0000001` al día siguiente del faltante; en la
+  otra los folios de antes y después del faltante son consecutivos (ese día no hubo `UD1001`).
+  Ningún día de ninguna ruta suma el importe que el libro registra. Mecanismo que lo vuelve
+  silencioso: el agente sólo sube `U-D-10` de UNA serie (`ROUTE_SERIE`) y el merge del runner
+  sólo reescribe las fechas del lote — un día con otra serie no sube y nada lo marca.
+  **Hipótesis (sin confirmar): esos días se vendieron con otra serie.** Se confirma en la van con
+  `route-push/DIAGNOSTICO-SERIES.ps1` (sólo lee). Si se confirma, la decisión es si el agente de
+  una van de UNA ruta sube todas sus series U-D-10.
+- **`[RD.95]` 🧪 El subtotal del push con la tasa de KEPLER** (`c3cfd60df`, migración
+  `20261028170837_rd_route_daily_tasa_kepler`, **sin aplicar**). Medido: (1) hasta Q19 el libro
+  **prorrateaba** el subtotal (subtotal/venta idéntico todos los días de cada ruta), así que antes
+  de Q20 no arbitra la base; (2) el motor sacaba la tasa de `wincaja.articulos` y **tiraba en
+  silencio** las líneas sin ficha (Q21: 188 líneas, 0.67 % de la venta); (3) con la tasa de Kepler
+  (`kdii.c18/c19`, idéntica en 00/01/06) los días que cuadran con el libro pasan de **42→103 de
+  117 (Q20)** y **53→102 de 121 (Q21)**, y la consulta baja de ~700 a ~200 ms. Dos
+  implementaciones (JS y el SQL de la migración) coinciden; el `down` es idéntico a la definición
+  viva (con control); la bandera `derivado_tasa_kepler_incompleto` se probó quitando la tasa a un
+  SKU. Efecto en Q21: +$382.82 de comisión a los choferes que cobran. Residuo: 19 días de Q21 con
+  el motor arriba del libro; el único patrón repetido es el SKU 17160 (Kepler exento, el libro al
+  16 %), candidato sin control negativo. ⛔ Falta: aplicarla a prod (una por una), esperar el
+  refresco de 30 min de la matview y recalcular Q21.
+
 #### Transversal
 
 - **`[RD.90]` La verdad absoluta de la comisión** en `VERDAD_ABSOLUTA.md` — hoy **cero menciones**.
@@ -653,4 +711,4 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
 | **D7** | el acantilado de $189,999.99 | **9 filas, $26,932.74** que el libro pagó y el motor no. O el tabulador tiene un piso suave, o esas 9 no cobran |
 | **D3** | la línea del supervisor | el recibo de FRANCISCO **se contradice a sí mismo**; el motor no puede elegir cuál de las dos versiones es la buena |
 | **D6** | ¿quién calcula, quién aprueba y quién paga? | hoy **un solo permiso** hace las tres, y eso anula el control de los cuatro pasos |
-| **nueva** | **¿Q21 la paga el motor o el libro?** | **cierra el 21 de octubre**. Es la primera quincena que puede nacer del motor |
+| **nueva** | **¿Q21 la paga el motor o el libro?** | **cierra el 21 de octubre**. Es la primera quincena que puede nacer del motor. ⚠️ Al 2026-10-28 su pago (24-oct) ya venció y sigue en **borrador**; y su neto no se puede afirmar sin **D3** (`[RD.91]`) |
