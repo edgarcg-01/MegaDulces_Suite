@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos: la caja SÍ paga, y quien dispersa no siempre es Caja General (PGP.33 / ADR-109, 2026-10-29)
+- El desplegable «cuenta de origen» **escondía Caja General**, por una premisa que nadie había medido: *«la caja no es origen de una transferencia»*. Medido contra el ERP: **2,771 pagos a proveedor, $54,897,784, salieron de ahí** — el **56.7 % de los pagos** por conteo. Quien pagaba desde la caja tenía que elegir otra cuenta para que el formulario lo dejara seguir.
+- Ahora se ofrece como cualquier otra, y el Calendario **propone la cuenta sola en 154 acreedores en vez de 43** (+111).
+- La **instrucción impresa dejó de pedirle la firma a quien no paga.** Se titulaba «— Caja General» y llevaba una sola línea de firma para el día entero, cuando **$404,105,108 — el 87.3 % del dinero — sale de una cuenta de banco y lo dispersa Tesorería**. Ahora cada renglón dice en su columna **Ejecuta** a quién le toca, y el papel firma a los que de verdad participan.
+- Al elegir **«efectivo»**, la pantalla avisa que **Kepler no distingue ese método**: el `X-D-26` va a quedar rotulado «transferencia» aunque el dinero salga de la caja. De 4,898 pagos hay **cero** registrados como efectivo, y sin el aviso eso se lee como error de captura al conciliar.
+- ⚠️ **Lo que no se sabe y queda dicho:** si esos 2,771 salieron en billetes o por una transferencia ordenada desde el escritorio de Caja General, **el ERP no lo registra**. Por eso la caja se ofrece, pero el método propuesto sigue saliendo del ERP y no se deduce.
+
 ### Fixed — Pagos: cuando el ERP y el SAT no coinciden sobre quién es un proveedor, manda el comprobante (PGP.31 / ADR-108, 2026-10-28, **en prod**)
 - Kepler tenía capturado, para **18 acreedores**, un RFC que **sus propias facturas timbradas contradicen** — entre ellos **J&F ENTERPRISE** y **MONDELEZ**, con un RFC de persona física sobre una sociedad. Hasta ahora ganaba el del ERP y por eso esas facturas no se encontraban.
 - Ahora manda el del comprobante. **+12 documentos encuentran su factura (+$14,819)**, sin que ninguno pierda la que ya tenía: el valor literal de Kepler se conserva y sigue sirviendo para buscar.
