@@ -194,7 +194,8 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
             <th scope="col" pSortableColumn="fecha_oc">Fecha <p-sorticon field="fecha_oc" /></th>
             <th scope="col" class="comm-num" pSortableColumn="dias">Abierta <p-sorticon field="dias" /></th>
             <th scope="col" pSortableColumn="_claseLabel">Estado <p-sorticon field="_claseLabel" /></th>
-            <th scope="col" class="comm-num" pSortableColumn="valor">Valor <p-sorticon field="valor" /></th>
+            <!-- [PQ.34] «Total» con IVA e IEPS, el mismo número que Kepler llama IMPORTE y el PDF «Total». -->
+            <th scope="col" class="comm-num" pSortableColumn="valor">Total <p-sorticon field="valor" /></th>
             <th scope="col">Seguimiento</th>
           </tr>
         </ng-template>
@@ -217,7 +218,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
             <td class="oa-muted" role="cell" data-label="Fecha">{{ o.fecha_oc | date:'dd/MM/yy' }}</td>
             <td class="comm-num dt-num" role="cell" data-label="Abierta"><span [class.oa-edad-bad]="o.dias > 30">{{ o.dias }} d</span></td>
             <td role="cell" data-label="Estado">{{ estadoTexto(o) }}</td>
-            <td class="comm-num dt-num is-strong" role="cell" data-label="Valor">{{ money(o.valor) }}</td>
+            <td class="comm-num dt-num is-strong" role="cell" data-label="Total">{{ money(o.valor) }}</td>
             <!-- [PQ.31] El seguimiento vuelve a la fila, a UN clic: medido 2026-10-29, 365 órdenes
                  recibieron seguimiento en 30 días (~12 al día). Mandarlo al panel lo hacía de dos. -->
             <td role="cell" data-label="Seguimiento">

@@ -124,6 +124,8 @@ export interface OcDetalleDto {
      */
     moneda?: string | null;
     proveedor_direccion?: string | null;
+    /** `[PQ.34]` Forma de pago, clave del catálogo SAT c_FormaPago (`kdm1.c90`; «03» = transferencia). */
+    forma_pago_sat?: string | null;
     tasas_iva?: number[] | null;
     tasas_ieps?: number[] | null;
     /** `[PQ.33]` Quién aprobó la requisición de la que salió (Suite), y cuándo. `null` = sin requisición. */

@@ -2928,7 +2928,7 @@ export class CommercialReplenishmentService {
       const rows = (await trx.raw(`
         WITH surv AS (SELECT edad, p FROM analytics.oc_survival_curve WHERE tenant_id = :t),
         oc AS MATERIALIZED (
-          SELECT sucursal, folio, doc_date AS fecha_oc, proveedor_nombre AS proveedor,
+          SELECT sucursal, folio, doc_date AS fecha_oc, proveedor_nombre AS proveedor, monto AS monto_doc,
                  estatus, dias_abierta AS dias,
                  -- [RA-PRO.67] Los dos testigos del estado real. Se leen por to_jsonb(o.*)->> y no
                  -- la columna directa porque la vista puede NO tenerlas todavía (la migración
@@ -2951,7 +2951,11 @@ export class CommercialReplenishmentService {
              AND (:todas::boolean OR sucursal = ANY(string_to_array(:codigos::text, ',')))
         )
         SELECT oc.sucursal AS almacen, oc.folio, oc.fecha_oc, oc.proveedor, oc.estatus, oc.dias,
-               v.lineas, round(v.valor::numeric, 2) AS valor,
+               -- [PQ.34] El valor es el TOTAL del documento de Kepler (c16, con IVA e IEPS), el mismo
+               -- que muestra Kepler como «IMPORTE» y el PDF como «Total». Antes era la suma de
+               -- renglones sin impuestos: OC 00/0007265 decía $72,053 en la lista y $77,817.04 en
+               -- Kepler (PM, 2026-10-29, captura lado a lado). Sin total en el documento, los renglones.
+               v.lineas, round(COALESCE(NULLIF(oc.monto_doc, 0), v.valor)::numeric, 2) AS valor,
                -- El ERP manda sobre la curva: si él ya la dio por cerrada/cancelada, no llega nada.
                CASE WHEN oc.estatus IN ('F','C','R') THEN 0 ELSE round((sv.p * 100)::numeric, 1) END AS prob,
                oc.estado_cadena, oc.pendiente_en_erp,
@@ -3130,10 +3134,14 @@ export class CommercialReplenishmentService {
         `SELECT NULLIF(regexp_replace(c14::text, '[^0-9.-]', '', 'g'), '')::numeric AS iva,
                 NULLIF(regexp_replace(c15::text, '[^0-9.-]', '', 'g'), '')::numeric AS ieps,
                 NULLIF(btrim(c7::text), '') AS moneda,
-                NULLIF(btrim(concat_ws(', ', NULLIF(btrim(c33), ''), NULLIF(btrim(c34), ''))), '') AS direccion
+                -- [PQ.34] c35 es la ciudad (OC 0007265: «LEON GUANAJUATO», igual que la pantalla de Kepler).
+                NULLIF(btrim(concat_ws(', ', NULLIF(btrim(c33), ''), NULLIF(btrim(c34), ''), NULLIF(btrim(c35), ''))), '') AS direccion,
+                -- [PQ.34] c90 = forma de pago con clave del SAT (03 = transferencia; la pantalla de
+                -- Kepler la muestra como «Método pago: Transferencia»). 120 d: 03 · 01 · 98 · 04.
+                NULLIF(btrim(c90::text), '') AS forma_pago
            FROM kepler_ods.kdm1
           WHERE sucursal = ? AND c1 = ? AND c2 = 'X' AND c3 = 'A' AND btrim(c4::text) = '35' AND btrim(c6::text) = ?
-          LIMIT 1`, [k.sucursal, k.sucursal, k.folio]).catch(() => ({ rows: [] }))).rows[0] as { iva: unknown; ieps: unknown; moneda: string | null; direccion: string | null } | undefined;
+          LIMIT 1`, [k.sucursal, k.sucursal, k.folio]).catch(() => ({ rows: [] }))).rows[0] as { iva: unknown; ieps: unknown; moneda: string | null; direccion: string | null; forma_pago: string | null } | undefined;
       const tasa = (xs: unknown[] | null | undefined) =>
         xs ? [...new Set(xs.filter((x) => x != null).map((x) => Number(x)).filter((x) => Number.isFinite(x)))].sort((a, b) => b - a) : null;
       return {
@@ -3149,6 +3157,7 @@ export class CommercialReplenishmentService {
           sucursal_direccion: alm?.address?.trim() || null,
           moneda: imp?.moneda ?? null,
           proveedor_direccion: imp?.direccion ?? null,
+          forma_pago_sat: imp?.forma_pago ?? null,
           tasas_iva: tasa(tasas?.iva),
           tasas_ieps: tasa(tasas?.ieps),
           autorizo: aut?.nombre && aut.en ? { nombre: aut.nombre, en: aut.en } : null,

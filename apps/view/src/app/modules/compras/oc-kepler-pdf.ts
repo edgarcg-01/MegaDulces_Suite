@@ -36,6 +36,15 @@ const dia = (iso: string | null | undefined) => {
   return y && m && d ? `${d}/${m}/${y}` : iso;
 };
 const etiqueta = (e: OcSeguimientoEstatus | null) => (e ? OC_SEGUIMIENTO_LABEL[e] : OC_SIN_REVISAR);
+/**
+ * `[PQ.34]` La forma de pago de Kepler (`c90`) es una clave del catálogo SAT c_FormaPago. Sólo se
+ * nombran las claves del catálogo; una que no está (Kepler usa «98») se muestra tal cual.
+ */
+const FORMA_PAGO_SAT: Record<string, string> = {
+  '01': 'Efectivo', '02': 'Cheque nominativo', '03': 'Transferencia electrónica', '04': 'Tarjeta de crédito',
+  '28': 'Tarjeta de débito', '99': 'Por definir',
+};
+const formaPago = (c: string | null | undefined) => (!c ? '—' : FORMA_PAGO_SAT[c] ?? `clave ${c} de Kepler`);
 /** «yajaira arizbeth gonzalez» → «Yajaira Arizbeth Gonzalez»: así está capturado en la Suite. */
 const nombrePropio = (s: string) => s.trim().toLowerCase().replace(/(^|\s)(\p{L})/gu, (_m, a: string, b: string) => a + b.toUpperCase());
 
@@ -79,11 +88,12 @@ export async function generarOcPdf(data: OcDetalle, op: OcPdfOpciones): Promise<
   body.push(
     ['Entregar en', entregar, 'Condición de pago', o.condicion_pago || '—'],
     // La fecha de la orden ya está en el recuadro de arriba; aquí no se repite.
-    ['Pago vence', dia(o.vence), 'Moneda', moneda],
+    // `[PQ.34]` «Pago vence» es `c18`: medido en ~4,000 OC, c18 − fecha = los días de crédito de la
+    // condición (contado 0 · «8 días» 8 · «30 días» 30–31). No es la fecha de entrega.
+    ['Pago vence', dia(o.vence), 'Forma de pago', formaPago(o.forma_pago_sat)],
+    ['Moneda', moneda, ref ? 'Referencia' : '', ref || ''],
   );
-  if (ref || o.autorizo) {
-    body.push([ref ? 'Referencia' : '', ref || '', o.autorizo ? 'Autorizó' : '', o.autorizo ? `${nombrePropio(o.autorizo.nombre)} · ${dia(o.autorizo.en)}` : '']);
-  }
+  if (o.autorizo) body.push(['Autorizó', `${nombrePropio(o.autorizo.nombre)} · ${dia(o.autorizo.en)}`, '', '']);
   // La referencia va en las dos (puede ser el folio que cita el proveedor). `concepto` (kdm1.c24) es
   // texto libre de Kepler que ha traído motivos internos: sólo en la copia interna.
   if (op.interno && o.concepto) body.push(['Concepto', { content: o.concepto, colSpan: 3 }]);
