@@ -282,7 +282,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <th class="rq-chk"><input type="checkbox" [checked]="todasMarcadas()" (change)="marcarTodas($any($event.target).checked)" aria-label="Marcar todas las de la página" /></th>
                   <th>Folio</th><th>Almacén</th><th>Proveedor</th>
                   <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r">Costo</th>
-                  <th>Estado</th><th class="rq-r" title="Días desde que se creó. Lo calcula el servidor, no el reloj de esta máquina.">Días</th><th title="¿El costo capturado sigue siendo el de hoy? Se mide renglón por renglón contra el plan vigente.">Vigencia</th><th>Fecha</th><th><span class="sr-only">Acciones</span></th>
+                  <th>Estado</th><th class="rq-r" title="Días desde que se creó. Lo calcula el servidor, no el reloj de esta máquina.">Días</th><th title="¿El costo capturado sigue siendo el de hoy? Se mide renglón por renglón contra el plan vigente.">Vigencia</th><th>Fecha</th><th>En Kepler</th>
                 </tr>
               </ng-template>
               <ng-template #body let-r>
@@ -298,24 +298,34 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                     <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
                     @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
                     @if (r.rejection_reason) { <div class="rq-sub rq-motivo">Motivo: {{ r.rejection_reason }}</div> }
-                    <!-- [PQ.1] Una aprobada SIN documento en Kepler no es una aprobada: medido el
-                         2026-10-23, 680 por $19.05 M se veían idénticas a una escrita en el ERP. -->
-                    @if (r.estado === 'approved') {
-                      <p-tag [value]="keplerLabel(r)" [severity]="keplerSev(r)" [attr.title]="keplerTitle(r)" styleClass="rq-kep"></p-tag>
-                    }
+                    <!-- [PQ.1] Lo de Kepler (aprobada sin documento ≠ escrita en el ERP) va en su
+                         propia columna, escrito, al final de la fila. -->
                   </td>
                   <td class="rq-r" [class.rq-viejo]="(r.dias ?? 0) > 30">{{ r.dias ?? '—' }}</td>
                   <td><p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag></td>
                   <td class="rq-muted">{{ r.created_at | date:'dd/MM/yy HH:mm' }}</td>
-                  <td (click)="$event.stopPropagation()">
-                    <!-- [PQ.25] La OC ya no se captura a mano: la escribe la Suite al aprobar
-                         (PQ.22) o se asocia sola por la liga de Kepler (c36/c37/c39). -->
-                    @if (r.oc_folio) {
-                      <span class="rq-mono rq-muted">{{ r.oc_sucursal | sucursal }} · OC {{ r.oc_folio }}</span>
+                  <!-- [PQ.25] Lo que pasó en Kepler, ESCRITO y a la vista: la requisición y su OC
+                       con folio, o el motivo completo si no salió. Antes era una pastilla con el
+                       código de sucursal y el motivo escondido en un title. La OC no se captura:
+                       la escribe la Suite al aprobar (PQ.22) o se asocia sola por la liga c36/c37/c39. -->
+                  <td class="rq-kepcell">
+                    @if (r.kepler_folio) {
+                      <div class="rq-mono">Requisición {{ r.kepler_folio }}</div>
+                      @if (r.oc_folio) {
+                        <div class="rq-mono rq-kep-oc">OC {{ r.oc_folio }}</div>
+                      } @else {
+                        <div class="rq-muted">sin OC todavía</div>
+                      }
+                    } @else if (r.oc_folio) {
+                      <div class="rq-mono rq-kep-oc">OC {{ r.oc_folio }}</div>
+                    } @else if (r.estado === 'approved') {
+                      <div [class.rq-kep-mal]="keplerSev(r) === 'danger'" [class.rq-muted]="keplerSev(r) !== 'danger'">{{ keplerLabel(r) }}</div>
+                      @if (r.kepler_error && !keplerApagado(r)) { <div class="rq-sub">{{ r.kepler_error }}</div> }
                     } @else if (r.estado === 'ordered') {
-                      <span class="rq-muted" title="Se marco como ordenada antes de que existiera la columna del folio. No se puede seguir hasta la entrada de mercancia.">sin OC</span>
+                      <div class="rq-muted">sin folio de OC</div>
+                      <div class="rq-sub">Se marcó ordenada antes de que la Suite guardara el folio.</div>
                     } @else {
-                      <i class="pi pi-angle-right rq-muted"></i>
+                      <span class="rq-muted">—</span>
                     }
                   </td>
                 </tr>
@@ -548,6 +558,9 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     /* El rojo es del renglón que ya pasó los 30 días: a esa edad el costo capturado dejó de ser
        el de hoy en la mayoría de los renglones (83.5 % medido en prod en el tramo 31-60 d). */
     .rq-viejo { color: var(--bad-fg); font-weight: 700; }
+    .rq-kepcell { min-width: 11rem; line-height: 1.35; }
+    .rq-kep-oc { color: var(--fg-1); }
+    .rq-kep-mal { color: var(--bad-fg); font-weight: 600; }
     /* [PQ.1] Las dos etiquetas de una aprobada, una debajo de la otra: el estado y si salió al ERP. */
     .rq-estado { display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; }
     .rq-alerta { display: flex; align-items: center; gap: .6rem; margin: .5rem 0 .9rem;
@@ -910,7 +923,7 @@ export class ComprasRequisicionesComponent implements OnInit {
     return !r.kepler_folio && !!r.kepler_error && /apagad|sin configurar/i.test(r.kepler_error);
   }
   keplerLabel(r: RequisitionRow): string {
-    if (r.kepler_folio) return `en Kepler ${r.kepler_sucursal ? (r.kepler_sucursal + '/') : ''}${r.kepler_folio}`;
+    if (r.kepler_folio) return `en Kepler ${r.kepler_folio}`;
     if (this.keplerApagado(r)) return 'Kepler apagado';
     if (r.kepler_error) return 'no salió a Kepler';
     if (r.kepler_folio === undefined && r.kepler_error === undefined) return 'Kepler: sin medir';
