@@ -26,6 +26,39 @@ export type ClaseReposicion = 'nomina' | 'gasto';
  */
 export type EstadoDocReposicion = 'por_capturar' | 'sin_vincular' | 'caos' | 'cajon';
 
+/**
+ * `[CGA-A.62]` ¿El gasto se aprobó en `/finanzas/aprobacion-gastos` ANTES de pagarse?
+ *  · `aprobado_antes` — la firma (o su cota) es anterior al pago.
+ *  · `aprobado_despues` — la firma, con hora exacta, es posterior al pago.
+ *  · `vale_despues` — el vale se levantó después del pago.
+ *  · `solicitud_despues` — la solicitud de Kepler se capturó después del pago.
+ *  · `aprobado_sin_hora` — aprobado, pero antes del 28-oct la hora de la firma no se guardaba.
+ *  · `cerrado_por_kepler` — lo cerró Kepler al pagarse; no consta firma.
+ *  · `sin_firma` — el vale espera firma. ⛔ No se repone ni se propone.
+ *  · `rechazado` — el vale se rechazó. ⛔ No se repone ni se propone.
+ *  · `sin_vale` — hay solicitud en Kepler, pero nunca pasó por Aprobación de gastos.
+ *  · `sin_solicitud` — no hay solicitud que case: no pasó por el circuito de aprobación.
+ */
+export type EstadoAprobacionPago =
+  | 'aprobado_antes' | 'aprobado_despues' | 'vale_despues' | 'solicitud_despues' | 'aprobado_sin_hora'
+  | 'cerrado_por_kepler' | 'sin_firma' | 'rechazado' | 'sin_vale' | 'sin_solicitud';
+
+export interface AprobacionPago {
+  estado: EstadoAprobacionPago;
+  /** La frase para la persona, con fechas. */
+  texto: string;
+  solicitud_folio: string | null;
+  vale_id: string | null;
+  vale_status: string | null;
+  /** La hora de la firma, exacta (`firma_exacta`) o su cota superior. */
+  firmado_at: string | null;
+  firma_exacta: boolean;
+  /** ⛔ No se repone ni se propone: espera firma o se rechazó. */
+  bloquea: boolean;
+  /** ⚠️ Se pagó antes de que se aprobara (o de que existiera la solicitud o el vale). */
+  alerta: boolean;
+}
+
 /** Un vínculo vivo de un egreso con un retiro de CAOS. */
 export interface ReposicionVinculo {
   link_id: string;
@@ -57,6 +90,8 @@ export interface ReposicionDoc {
   falta: number;
   estado: EstadoDocReposicion;
   vinculos: ReposicionVinculo[];
+  /** `[CGA-A.62]` La aprobación del gasto contra la hora del pago. `null` = no se pudo medir. */
+  aprobacion: AprobacionPago | null;
 }
 
 /** Por qué un retiro es candidato de una sucursal. */
@@ -119,6 +154,10 @@ export interface ReposicionGrupo {
   /** Lo que falta por explicar de los egresos sin vincular. */
   sin_vincular: number;
   n_sin_vincular: number;
+  /** `[CGA-A.62]` Documentos cuyo vale espera firma o se rechazó: no se reponen ni se proponen. */
+  n_sin_aprobar: number;
+  /** `[CGA-A.62]` Documentos que se pagaron antes de aprobarse. */
+  n_pagado_antes_de_aprobar: number;
   estado: EstadoGrupoReposicion;
   propuesta: ReposicionPropuesta | null;
   /** El retiro que el motor sugiere para «Reponer» lo que está por capturar. `null` = ninguno claro. */

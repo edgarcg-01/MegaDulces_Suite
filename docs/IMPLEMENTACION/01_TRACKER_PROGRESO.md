@@ -9351,6 +9351,36 @@ TP.6-TP.8+TP.10".
 >     en la pantalla nueva. **Sin validación visual.** Sin migración. Commit local, sin empujar.
 >   - ⬜ Falta: vincular a mano un grupo «Sin retiro» eligiendo el retiro; conciliar el depósito al
 >     banco (CB.35) para cerrar cada reposición.
+> - [x] **[CGA-A.62]** 🔨 2026-10-28 · **Lo que pasa por la reposición se aprobó ANTES del pago.**
+>   Edgar: *«hay que revisar que los /finanzas/aprobacion-gastos que pasen por aquí hayan estado
+>   aprobados antes de mencionar el pago»*. Cada documento de la reposición dice su aprobación, y lo
+>   que espera firma o se rechazó **no se propone ni se repone** (se queda en la cola, con liga a
+>   Aprobación de gastos).
+>   - La cadena: pago `X-D-26` → solicitud `X-A-15-1` → vale (`finance.expense_proofs`) → firma. El
+>     pago NO nombra a su solicitud (medido: `c37/c38` en 0, `c39` vacío), así que se casa por
+>     sucursal + importe al centavo + beneficiario, con la solicitud capturada antes y a ≤ 30 días,
+>     uno a uno. Control (prod, 1-oct a 28-oct): **420 de 1,014 pagos casan; con $1 de diferencia,
+>     7**. Una solicitud capturada DESPUÉS sólo cuenta si está fechada el día del pago o antes: sin
+>     eso, en caja chica (importes que se repiten) emparejaba 9 pagos con solicitudes de pagos
+>     posteriores. La referencia es la hora en que se REGISTRÓ el pago en Kepler (`c68`+`c69`).
+>   - ⛔ **Hueco de dato:** el vale no guardaba la hora de la firma (`validated_at` es el cierre; ni
+>     trigger ni bitácora). Migración `20261028182014_cga_a62_vale_guarda_la_hora_de_la_firma.js`:
+>     `aprobado_at` / `aprobado_por` (nulas, sin relleno) y `approve()` las llena. Lo viejo se juzga
+>     con COTAS (evidencia o validación de una persona antes del pago = aprobado antes) y lo que la
+>     cota no permite afirmar se declara «sin hora». El cierre de Kepler no cuenta como firma.
+>   - Motor puro `pago-aprobado.engine.ts`: 16 pruebas con la nómina semanal de Yurécuaro, vale
+>     después del pago, rechazado, cierre de Kepler y placebo; en la reposición, 6 pruebas de la
+>     compuerta. Mutación: cada regla mata al menos una (dos faltaban y se agregaron).
+>   - Medido en prod con el SQL exacto (sucursales, octubre, 551 pagos): 160 aprobados antes,
+>     2 con el vale levantado después del pago, 16 sin hora / cerrados por Kepler / sin vale,
+>     **373 sin solicitud** (proveedores y caja chica que nunca pasan por Aprobación de gastos) y
+>     **0 bloqueados**. Las 7 lecturas de la reposición, < 1 s cada una con ssh.
+>   - ⚠️ Decisión de Edgar pendiente: ¿todo pago de sucursal debe tener vale? Hoy «sin solicitud»
+>     sólo se muestra (bloquearlo pararía 373 de 551). Oficinas (`00`) no pasa por la reposición: en
+>     la cola tiene 127 pagos con solicitud y sin vale en octubre; ahí se avisaría, no se bloquearía
+>     (el libro registra lo que ya pasó).
+>   - ⚠️ Escrituras NO MEDIDAS contra base real (regla 13) — `approve()` cambió (242 pruebas del
+>     módulo en verde, sin base). **Sin validación visual.** Commit local, sin empujar.
 > - **[CGA-A.57]** ⬜ **Ligar el historial con propuestas + confirmación** (decisión de Edgar). Octubre
 >   en adelante contra los gastos del libro; mayo–sep ($16.5 M, 326 retiros) contra los egresos de
 >   Kepler (cuenta `0011`), porque el libro empieza el 25-sep. Nada se liga solo (1 de cada 3 parejas

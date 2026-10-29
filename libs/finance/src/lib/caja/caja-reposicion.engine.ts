@@ -2,7 +2,7 @@ import {
   WAREHOUSE_DISPLAY_ORDER, diaMxDeInstante, pagableConBilletesCaos, warehouseName,
   type AfinidadRetiro, type ClaseReposicion, type EstadoDocReposicion, type ReposicionAsignacion,
   type ReposicionDoc, type ReposicionGrupo, type ReposicionPropuesta, type ReposicionRetiro,
-  type ReposicionSucursales, type ReposicionVinculo,
+  type ReposicionSucursales, type ReposicionVinculo, type AprobacionPago,
 } from '@megadulces/contracts';
 import { norm } from './caja-caos-match.engine';
 import { redondea2, tomaDelRetiro } from './caja-lote.engine';
@@ -162,6 +162,11 @@ export interface EntradaReposicion {
   retiros: RetiroLibre[];
   /** Los servidores de Kepler que se miraron (sin `00`). Por defecto, los del catálogo. */
   sucursales?: string[];
+  /**
+   * `[CGA-A.62]` La aprobación de cada documento (`origen_ref` → juicio de `pago-aprobado.engine`).
+   * Lo que espera firma o se rechazó NO entra a la propuesta ni a «Reponer». Sin mapa = no medido.
+   */
+  aprobaciones?: ReadonlyMap<string, AprobacionPago>;
 }
 
 const dia10 = (v: string | null | undefined): string | null => (v ? String(v).slice(0, 10) : null);
@@ -276,8 +281,11 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
       beneficiario: k?.beneficiario ?? null, monto, clase: claseDelDocumento(k?.beneficiario),
       en_kepler: !!k, ledger_id: g?.id ?? null, cg_folio: g?.folio ?? null, origen_efectivo: g?.origen_efectivo ?? null,
       enlazado, falta, estado, vinculos, dia,
+      aprobacion: k ? e.aprobaciones?.get(ref) ?? null : null,
     };
   };
+  /** `[CGA-A.62]` Espera firma o se rechazó: ni se propone ni se repone. */
+  const bloqueado = (d: DocInterno) => d.aprobacion?.bloquea === true;
 
   const docs: DocInterno[] = [];
   const vistos = new Set<string>();
@@ -336,7 +344,7 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
   };
 
   for (const d of docs) {
-    if (d.estado !== 'sin_vincular') continue;
+    if (d.estado !== 'sin_vincular' || bloqueado(d)) continue;
     for (const { r, a } of candidatos(retiros, d)) {
       if ((faltaViva.get(d.origen_ref) ?? 0) <= 0.005) break;
       if (tomar(d, r, claveGrupo(d), false) > 0 && !usadoPor.has(llaveRetiro(r))) {
@@ -351,7 +359,7 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
       if ((libre.get(k) ?? 0) <= 0.005) break;
       // Un egreso «del cajón» no entra porque su `falta` ya es 0 (lo prueba una negativa); una
       // guarda aparte aquí era redundante y ninguna prueba la podía romper.
-      if (!d.ledger_id || (faltaViva.get(d.origen_ref) ?? 0) <= 0.005) continue;
+      if (!d.ledger_id || bloqueado(d) || (faltaViva.get(d.origen_ref) ?? 0) <= 0.005) continue;
       if (!afinidad(uso.r, d)) continue;
       tomar(d, uso.r, uso.grupo, true);
     }
@@ -410,9 +418,11 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
 
     // «Reponer»: el retiro para lo que está por capturar (el lote reparte igual que arriba).
     let retiroSugerido: ReposicionGrupo['retiro_sugerido'] = null;
-    if (pend.length) {
-      const clases = new Set(pend.map((d) => d.clase));
-      const muestra: DocInterno = { ...pend[0], clase: clases.size === 1 ? pend[0].clase : 'gasto' };
+    // `[CGA-A.62]` Sólo lo que se puede reponer: lo que espera firma o se rechazó no cuenta.
+    const pendOk = pend.filter((d) => !bloqueado(d));
+    if (pendOk.length) {
+      const clases = new Set(pendOk.map((d) => d.clase));
+      const muestra: DocInterno = { ...pendOk[0], clase: clases.size === 1 ? pendOk[0].clase : 'gasto' };
       const opciones = candidatos(retiros, muestra)
         .filter(({ r }) => clases.size === 1 || r.clase_ref === null)
         .filter(({ r }) => (libre.get(llaveRetiro(r)) ?? 0) > 0.005);
@@ -431,6 +441,8 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
       docs: ds.map(({ dia: _d, ...d }) => d),
       total, por_capturar: porCapturar, n_por_capturar: pend.length,
       caos, cajon, sin_vincular: sinVincular, n_sin_vincular: sv.length,
+      n_sin_aprobar: ds.filter((d) => bloqueado(d)).length,
+      n_pagado_antes_de_aprobar: ds.filter((d) => d.aprobacion?.alerta === true).length,
       estado: pend.length ? 'por_capturar' : sv.length ? 'sin_vincular' : 'explicada',
       propuesta, retiro_sugerido: retiroSugerido,
     });

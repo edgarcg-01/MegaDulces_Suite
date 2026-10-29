@@ -1112,11 +1112,16 @@ export class ExpenseProofsService {
 
     return this.tk.run(async (trx) => {
       const cierra = nextStatus === 'validada';
+      // `[CGA-A.62]` La hora y el autor de la FIRMA, aparte del cierre: sin esto un vale que queda
+      // `aprobada` no dice cuándo se aprobó, y no se puede revisar si fue antes del pago. Con
+      // guarda de columna (como `clasificacion`): el código puede llegar antes que la migración.
+      const firmaCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'aprobado_at');
       const [row] = await trx('finance.expense_proofs').where({ id }).where('status', 'recibida')
         .update({
           status: nextStatus, updated_at: trx.fn.now(),
           validated_by: cierra ? (actor || null) : null,
           validated_at: cierra ? trx.fn.now() : null,
+          ...(firmaCol ? { aprobado_at: trx.fn.now(), aprobado_por: actor || null } : {}),
           motivo_rechazo: null,
           // `[GX.33]` La leyenda de la visión, si tuvo algo que decir. `null` cuando el
           // comprobante cuadró — no se escribe «todo bien»: un aviso que siempre aparece

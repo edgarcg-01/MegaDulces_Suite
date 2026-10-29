@@ -4,6 +4,7 @@ import {
   type DocKepler, type EgresoLibro, type RetiroLibre, type VinculoLibro,
 } from './caja-reposicion.engine';
 import { sqlCustodiaCerrada, sqlDisponibleCaos } from './caja-custodia.service';
+import { aprobacionDePagos, type PagoParaAprobar } from './pago-aprobado.engine';
 
 /** Suma días a un `YYYY-MM-DD` (UTC, sin reloj local). */
 export const sumarDias = (dia: string, n: number) =>
@@ -95,6 +96,86 @@ export const consultasReposicion = {
              AND kv.deleted_at IS NULL AND cl.origen_ref ~ '^0[0-9][|]') AS sucursales_vinculadas`));
   },
 };
+
+// ── `[CGA-A.62]` ¿Se aprobó antes de pagarse? Las tres lecturas de la cadena ──────────────────
+
+export type PagoHoraCrudo = { sucursal: string; folio: string; pagado_at: string | Date };
+export type SolicitudCruda = { sucursal: string; folio: string; importe: string | number; beneficiario: string | null;
+  estado: string | null; capturado_at: string | Date | null; fecha: string | null };
+export type ValeCrudo = { id: string; sucursal: string | null; folio_solicitud: string | null; status: string;
+  created_at: string | Date; aprobado_at: string | Date | null; aprobado_por: string | null;
+  validated_at: string | Date | null; validated_by: string | null; evidencia_at: string | Date | null };
+
+/** Hora local de Kepler (`c68` fecha + `c69` texto) → instante en México. Sin hora válida: fin del día. */
+const HORA_KEPLER = (t: string) => `((${t}.c68::date + CASE WHEN btrim(coalesce(${t}.c69::text, '')) ~ '^[0-9]{1,2}:[0-9]{2}(:[0-9]{2}){0,1}$'
+    THEN btrim(${t}.c69::text)::time ELSE '23:59:59'::time END) AT TIME ZONE 'America/Mexico_City')`;
+
+export const consultasAprobacion = {
+  /**
+   * La HORA de cada pago X-D-26 de sucursal: `bank_movement_legs` sólo guarda el día de captura.
+   * Por `ix_kdm1_captura` (`c68::date`): sólo los días que trae la ventana. Medido 2026-10-28:
+   * 0 de 3,745 X-D desde el 1-oct con `c69` fuera de formato; la guarda queda por si acaso, y
+   * entonces se toma el fin del día (benigno: nunca inventa una firma DESPUÉS del pago).
+   */
+  pagosHora(k: Knex, diasCaptura: string[]): Knex.QueryBuilder {
+    const dias = diasCaptura.length ? diasCaptura : ['1900-01-01'];
+    return k('kepler_ods.kdm1 as d')
+      // `IN (?, ?, …)` y no `= ANY(?)`: así el SQL que imprime la sonda es el mismo que corre.
+      .whereRaw(`d.c68::date IN (${dias.map(() => '?').join(', ')})`, dias)
+      .where('d.c2', 'X').where('d.c3', 'D').where('d.c4', 26)
+      .whereRaw(`btrim(d.c45) = '0011'`)
+      .whereNotIn('d.sucursal', [...SUCURSALES_SIN_REPOSICION])
+      .select('d.sucursal', k.raw('btrim(d.c6) AS folio'), k.raw(`${HORA_KEPLER('d')} AS pagado_at`));
+  },
+
+  /** Las solicitudes X-A-15-1 de la vista canónica (`analytics.expense_requests`), 45 días antes. */
+  solicitudes(k: Knex, tenantId: string, desde: string, hasta: string, sucursales: string[]): Knex.QueryBuilder {
+    return k('analytics.expense_requests as r')
+      .where('r.tenant_id', tenantId)
+      .whereBetween('r.fecha', [sumarDias(desde, -45), sumarDias(hasta, 31)])
+      .whereIn('r.sucursal', sucursales.length ? sucursales : ['--'])
+      .select('r.sucursal', 'r.folio', 'r.importe', 'r.beneficiario', 'r.estado',
+        k.raw(`(r.capturado_at AT TIME ZONE 'America/Mexico_City') AS capturado_at`),
+        k.raw(`to_char(r.fecha, 'YYYY-MM-DD') AS fecha`));
+  },
+
+  /** Los vales de esas solicitudes. `conFirma`: si la columna de `[CGA-A.62]` ya existe. */
+  vales(k: Knex, tenantId: string, sucursales: string[], folios: string[], conFirma: boolean): Knex.QueryBuilder {
+    return k('finance.expense_proofs as v')
+      .where('v.tenant_id', tenantId)
+      .whereIn('v.sucursal', sucursales.length ? sucursales : ['--'])
+      .whereIn('v.folio_solicitud', folios.length ? folios : ['--'])
+      .select('v.id', 'v.sucursal', 'v.folio_solicitud', 'v.status', 'v.created_at',
+        conFirma ? 'v.aprobado_at' : k.raw('NULL::timestamptz AS aprobado_at'),
+        conFirma ? 'v.aprobado_por' : k.raw('NULL::text AS aprobado_por'),
+        'v.validated_at', 'v.validated_by', 'v.evidencia_at');
+  },
+};
+
+const iso = (v: string | Date | null | undefined): string | null =>
+  v == null ? null : v instanceof Date ? v.toISOString() : new Date(String(v)).toISOString();
+
+/**
+ * Los pagos de la ventana con su HORA, y el juicio de aprobación de cada uno. Un documento sin
+ * hora en Kepler toma el fin de su día de captura (benigno, ver `pagosHora`).
+ */
+export function aprobacionesDeCrudos(docs: DocCrudo[], horas: PagoHoraCrudo[], solicitudes: SolicitudCruda[], vales: ValeCrudo[]) {
+  const hora = new Map(horas.map((h) => [`${h.sucursal}|${h.folio}`, iso(h.pagado_at)]));
+  const pagos: PagoParaAprobar[] = docs.map((d) => ({
+    clave: d.origen_ref, sucursal: d.sucursal, importe: Number(d.monto), beneficiario: d.beneficiario,
+    fecha_pago: String(d.fecha_valor ?? d.fecha_captura ?? ''),
+    pagado_at: hora.get(`${d.sucursal}|${d.folio}`)
+      ?? new Date(`${d.fecha_captura ?? d.fecha_valor}T23:59:59-06:00`).toISOString(),
+  }));
+  return aprobacionDePagos(
+    pagos,
+    solicitudes.map((s) => ({ sucursal: s.sucursal, folio: s.folio, importe: Number(s.importe), beneficiario: s.beneficiario,
+      estado: s.estado, capturado_at: iso(s.capturado_at), fecha: s.fecha })),
+    vales.map((v) => ({ id: v.id, sucursal: v.sucursal, folio_solicitud: v.folio_solicitud, status: v.status,
+      created_at: iso(v.created_at) as string, aprobado_at: iso(v.aprobado_at), aprobado_por: v.aprobado_por,
+      validated_at: iso(v.validated_at), validated_by: v.validated_by, evidencia_at: iso(v.evidencia_at) })),
+  );
+}
 
 /** Lo crudo de la base, ya convertido, para el motor. */
 export function entradaDeCrudos(desde: string, hasta: string, docs: DocCrudo[], egresos: EgresoCrudo[], vinculos: VinculoCrudo[], retiros: RetiroCrudo[]) {

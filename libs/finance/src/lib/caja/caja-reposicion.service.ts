@@ -4,8 +4,9 @@ import { diaMxDeInstante, type ReposicionSucursales } from '@megadulces/contract
 import { armarReposicion } from './caja-reposicion.engine';
 import { CajaCustodiaService } from './caja-custodia.service';
 import {
-  consultasReposicion, entradaDeCrudos, sumarDias,
+  consultasReposicion, consultasAprobacion, entradaDeCrudos, aprobacionesDeCrudos, sumarDias,
   type DocCrudo, type EgresoCrudo, type RetiroCrudo, type VinculoCrudo,
+  type PagoHoraCrudo, type SolicitudCruda, type ValeCrudo,
 } from './caja-reposicion.query';
 import { CashLedgerService } from './cash-ledger.service';
 
@@ -46,8 +47,20 @@ export class CajaReposicionService {
       const vinculos = ids.length ? (await consultasReposicion.vinculos(trx, tenantId, ids)) as VinculoCrudo[] : [];
       const retiros = (await consultasReposicion.retiros(trx, tenantId, desde, hasta,
         await CajaCustodiaService.hayCustodia(trx))) as RetiroCrudo[];
+
+      // `[CGA-A.62]` ¿Se aprobó antes de pagarse? La hora de cada pago, sus solicitudes y sus vales.
+      const dias = [...new Set(docs.map((d) => d.fecha_captura).filter((x): x is string => !!x))];
+      const sucursales = [...new Set(docs.map((d) => d.sucursal))];
+      const horas = docs.length ? (await consultasAprobacion.pagosHora(trx, dias)) as PagoHoraCrudo[] : [];
+      const solicitudes = docs.length
+        ? (await consultasAprobacion.solicitudes(trx, tenantId, desde, hasta, sucursales)) as SolicitudCruda[] : [];
+      const conFirma = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'aprobado_at');
+      const vales = solicitudes.length ? (await consultasAprobacion.vales(trx, tenantId, sucursales,
+        [...new Set(solicitudes.map((s) => s.folio))], conFirma)) as ValeCrudo[] : [];
+      const aprobaciones = aprobacionesDeCrudos(docs, horas, solicitudes, vales);
+
       return {
-        ...armarReposicion(entradaDeCrudos(desde, hasta, docs, egresos, vinculos, retiros)),
+        ...armarReposicion({ ...entradaDeCrudos(desde, hasta, docs, egresos, vinculos, retiros), aprobaciones }),
         datos_al: await this.ledger.frescuraCaja(trx),
         caos_al: await this.ledger.frescuraCaos(trx, tenantId),
       };

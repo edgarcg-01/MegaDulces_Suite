@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -11,6 +12,7 @@ import { MessageService } from 'primeng/api';
 import {
   pagableConBilletesCaos, warehouseName,
   type ReposicionDoc, type ReposicionGrupo, type ReposicionRetiro, type ReposicionSucursales, type ReposicionVinculo,
+  type AprobacionPago,
 } from '@megadulces/contracts';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
@@ -44,7 +46,7 @@ interface OpcionOrigen { label: string; value: string }
   selector: 'app-caja-reposicion',
   standalone: true,
   imports: [
-    FormsModule, ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, DialogModule,
+    FormsModule, RouterLink, ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, DialogModule,
     LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -121,21 +123,31 @@ interface OpcionOrigen { label: string; value: string }
               <td class="rp-num rp-dim rp-col-sec">{{ money(g.caos) }}</td>
               <td class="rp-num rp-dim rp-col-sec">{{ money(g.cajon) }}</td>
               <td class="rp-num" [class.rp-falta]="porResolverDe(g) > 0">{{ porResolverDe(g) > 0 ? money(porResolverDe(g)) : '—' }}</td>
-              <td><p-tag [severity]="g.estado === 'explicada' ? 'success' : 'warn'" [value]="textoEstado(g)"></p-tag></td>
+              <td class="rp-tags">
+                <p-tag [severity]="g.estado === 'explicada' ? 'success' : 'warn'" [value]="textoEstado(g)"></p-tag>
+                @if (g.n_sin_aprobar) {
+                  <p-tag severity="danger" [value]="g.n_sin_aprobar + ' sin aprobar'"></p-tag>
+                }
+                @if (g.n_pagado_antes_de_aprobar) {
+                  <p-tag severity="warn" [value]="g.n_pagado_antes_de_aprobar + ' pagado antes de aprobar'"></p-tag>
+                }
+              </td>
               <td class="rp-que">
                 @switch (g.estado) {
                   @case ('por_capturar') {
-                    @if (puedeGestionar()) {
+                    @if (puedeGestionar() && reponibles(g).length) {
                       <div class="rp-accion">
                         <p-select [options]="opcionesOrigen()" [ngModel]="eleccion(g)" (ngModelChange)="elegir(g, $event)"
                                   optionLabel="label" optionValue="value" placeholder="¿De dónde sale?" size="small"
                                   appendTo="body" class="rp-sel" [ariaLabel]="'De dónde sale el dinero de ' + nombre(g.sucursal)"></p-select>
-                        <p-button [label]="'Reponer ' + g.n_por_capturar" icon="pi pi-check" size="small"
+                        <p-button [label]="'Reponer ' + reponibles(g).length" icon="pi pi-check" size="small"
                                   [disabled]="!eleccion(g) || !!ocupado()" [loading]="ocupado() === g.clave"
                                   (onClick)="reponer(g)"></p-button>
                       </div>
                     }
-                    <small class="fin-dim">{{ g.retiro_sugerido ? g.retiro_sugerido.razon : 'Saca ' + money(pagable(g.por_capturar)) + ' de CAOS; el retiro aparece aquí cuando se sincroniza.' }}</small>
+                    @if (reponibles(g).length) {
+                      <small class="fin-dim">{{ g.retiro_sugerido ? g.retiro_sugerido.razon : 'Saca ' + money(pagable(montoReponible(g))) + ' de CAOS; el retiro aparece aquí cuando se sincroniza.' }}</small>
+                    }
                   }
                   @case ('sin_vincular') {
                     @if (g.propuesta) {
@@ -149,6 +161,13 @@ interface OpcionOrigen { label: string; value: string }
                   @default {
                     <small class="fin-dim">Nada pendiente.</small>
                   }
+                }
+                @if (g.n_sin_aprobar) {
+                  <!-- [CGA-A.62] Sin aprobación no se repone: se firma en su pantalla y vuelve solo. -->
+                  <a class="rp-link" routerLink="/finanzas/aprobacion-gastos">
+                    <i class="pi pi-arrow-right" aria-hidden="true"></i>
+                    {{ g.n_sin_aprobar === 1 ? '1 gasto espera' : g.n_sin_aprobar + ' gastos esperan' }} firma o se rechazó: no se repone. Ir a Aprobación de gastos
+                  </a>
                 }
               </td>
             </tr>
@@ -188,7 +207,7 @@ interface OpcionOrigen { label: string; value: string }
                 <p-table [value]="g.docs" size="small" class="rp-mini">
                   <ng-template #header>
                     <tr>
-                      <th>Documento de Kepler</th><th>Beneficiario</th><th>Clase</th><th>Egreso</th>
+                      <th>Documento de Kepler</th><th>Beneficiario</th><th>Clase</th><th>Aprobación</th><th>Egreso</th>
                       <th>De dónde salió</th><th class="rp-num">Falta</th><th class="rp-num">Monto</th>
                     </tr>
                   </ng-template>
@@ -199,6 +218,14 @@ interface OpcionOrigen { label: string; value: string }
                       </td>
                       <td>{{ d.beneficiario ?? '—' }}</td>
                       <td>{{ d.clase === 'nomina' ? 'Nómina' : 'Gasto' }}</td>
+                      <td class="rp-aprob">
+                        @if (d.aprobacion; as a) {
+                          <p-tag [severity]="severidadAprobacion(a)" [value]="etiquetaAprobacion(a)"></p-tag>
+                          @if (a.estado !== 'aprobado_antes') { <small class="rp-dim">{{ a.texto }}</small> }
+                        } @else {
+                          <span class="rp-dim">sin medir</span>
+                        }
+                      </td>
                       <td class="rp-mono">{{ d.cg_folio ?? 'por capturar' }}</td>
                       <td>
                         @for (v of d.vinculos; track v.link_id) {
@@ -289,6 +316,11 @@ interface OpcionOrigen { label: string; value: string }
     .rp-prop-pie { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); }
     .rp-vinc { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-1); }
     .rp-universo { margin:var(--sp-2) 0 0; }
+    .rp-tags { display:flex; flex-wrap:wrap; gap:var(--sp-1); }
+    .rp-aprob { min-width:10rem; }
+    .rp-aprob small { display:block; margin-top:var(--sp-1); max-width:22rem; }
+    .rp-link { display:block; margin-top:var(--sp-1); font-size:var(--fs-xs); color:var(--bad-fg, var(--warn-soft-fg)); }
+    .rp-link:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
     .rp-mover { display:flex; flex-direction:column; gap:var(--sp-2); }
     .rp-mover p { margin:0; }
     .rp-lbl { font-size:var(--fs-xs); color:var(--text-muted); }
@@ -336,7 +368,8 @@ export class CajaReposicionComponent implements OnInit {
   readonly esSuperadmin = computed(() => this.perms.isSuperadmin());
   readonly grupos = computed(() => this.datos()?.grupos ?? []);
   /** Se resuelven de un clic: lo que sigue en la cola, o egresos con propuesta de retiro. */
-  readonly accionables = computed(() => this.grupos().filter((g) => g.estado === 'por_capturar' || (g.estado === 'sin_vincular' && !!g.propuesta)));
+  readonly accionables = computed(() => this.grupos().filter((g) => g.estado === 'por_capturar' || g.n_sin_aprobar > 0
+    || (g.estado === 'sin_vincular' && !!g.propuesta)));
   /** Egresos que ningún retiro de su sucursal y de esos días explica. */
   readonly sinRetiro = computed(() => this.grupos().filter((g) => g.estado === 'sin_vincular' && !g.propuesta));
   readonly explicadas = computed(() => this.grupos().filter((g) => g.estado === 'explicada'));
@@ -357,6 +390,8 @@ export class CajaReposicionComponent implements OnInit {
     const nCapturar = acc.reduce((a, g) => a + g.n_por_capturar, 0);
     const sinRetiro = this.sinRetiro().reduce((a, g) => a + g.sin_vincular, 0);
     const cajon = this.grupos().reduce((a, g) => a + g.cajon, 0);
+    const sinAprobar = this.grupos().reduce((a, g) => a + g.n_sin_aprobar, 0);
+    const pagadoAntes = this.grupos().reduce((a, g) => a + g.n_pagado_antes_de_aprobar, 0);
     return [
       { label: 'Vincular con propuesta', value: conPropuesta, format: 'currency2', tone: conPropuesta > 0 ? 'warn' : 'ok',
         sub: 'egresos con su retiro ya identificado' },
@@ -364,6 +399,9 @@ export class CajaReposicionComponent implements OnInit {
         sub: `${nCapturar} ${nCapturar === 1 ? 'documento sigue' : 'documentos siguen'} en la cola` },
       { label: 'Sin retiro que lo explique', value: sinRetiro, format: 'currency2', tone: sinRetiro > 0 ? 'bad' : 'ok',
         sub: 'de dónde salió ese dinero no lo dice CAOS' },
+      // `[CGA-A.62]` La aprobación: lo que no se repone y lo que se pagó antes de firmarse.
+      { label: 'Sin aprobar', value: sinAprobar, format: 'number', tone: sinAprobar > 0 ? 'bad' : 'ok',
+        sub: `${pagadoAntes} ${pagadoAntes === 1 ? 'pagado' : 'pagados'} antes de aprobarse` },
       { label: 'Del cajón', value: cajon, format: 'currency2', sub: 'lo que CAOS no dio, en la ventana' },
     ];
   });
@@ -413,6 +451,27 @@ export class CajaReposicionComponent implements OnInit {
   folioDoc(origenRef: string): string { const [, tipo, folio] = origenRef.split('|'); return `${tipo} ${folio}`; }
   porResolverDe(g: ReposicionGrupo): number { return Math.round((g.sin_vincular + g.por_capturar) * 100) / 100; }
 
+  /** `[CGA-A.62]` Lo que sigue en la cola y SÍ se puede reponer: lo que espera firma o se rechazó, no. */
+  reponibles(g: ReposicionGrupo): ReposicionDoc[] {
+    return g.docs.filter((d) => d.estado === 'por_capturar' && !d.aprobacion?.bloquea);
+  }
+  montoReponible(g: ReposicionGrupo): number { return this.reponibles(g).reduce((a, d) => a + d.monto, 0); }
+
+  severidadAprobacion(a: AprobacionPago): 'success' | 'warn' | 'danger' | 'secondary' {
+    if (a.bloquea) return 'danger';
+    if (a.alerta) return 'warn';
+    return a.estado === 'aprobado_antes' ? 'success' : 'secondary';
+  }
+
+  etiquetaAprobacion(a: AprobacionPago): string {
+    const t: Record<AprobacionPago['estado'], string> = {
+      aprobado_antes: 'Aprobado antes', aprobado_despues: 'Aprobado después', vale_despues: 'Vale después del pago',
+      solicitud_despues: 'Solicitud después', aprobado_sin_hora: 'Aprobado (sin hora)', cerrado_por_kepler: 'Cerró Kepler',
+      sin_firma: 'Espera firma', rechazado: 'Rechazado', sin_vale: 'Sin vale', sin_solicitud: 'Sin solicitud',
+    };
+    return t[a.estado];
+  }
+
   textoDocs(g: ReposicionGrupo): string {
     const nom = g.docs.filter((d) => d.clase === 'nomina').length;
     const gas = g.docs.length - nom;
@@ -460,7 +519,9 @@ export class CajaReposicionComponent implements OnInit {
     const e = this.eleccion(g);
     if (!e || this.ocupado()) return;
     this.ocupado.set(g.clave);
-    const items = g.docs.filter((d) => d.estado === 'por_capturar').map((d) => ({ origen_ref: d.origen_ref }));
+    // `[CGA-A.62]` Sólo lo aprobado: lo que espera firma o se rechazó se queda en la cola.
+    const items = this.reponibles(g).map((d) => ({ origen_ref: d.origen_ref }));
+    if (!items.length) { this.ocupado.set(null); return; }
     const retiro = e === 'cajon' ? null : this.retiroDe(e);
     this.api.confirmarLote(items, retiro ? { device: retiro.device, external_id: retiro.external_id } : null, e === 'cajon' ? 'cajon' : null)
       .pipe(takeUntilDestroyed(this.destroyRef))

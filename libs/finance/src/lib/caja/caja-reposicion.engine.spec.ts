@@ -261,3 +261,55 @@ describe('[CGA-A.61] por capturar: «Reponer» sugiere el retiro y el universo s
     expect(r.universo.sin_documentos).toEqual(['01', '08', '07', '03', '02', '04', '05']);
   });
 });
+
+describe('[CGA-A.62] lo que no se aprobó antes no se propone ni se repone', () => {
+  const aprob = (estado: 'sin_firma' | 'rechazado' | 'aprobado_despues' | 'aprobado_antes') => ({
+    estado, texto: estado, solicitud_folio: '0000077', vale_id: 'v', vale_status: null, firmado_at: null, firma_exacta: false,
+    bloquea: estado === 'sin_firma' || estado === 'rechazado', alerta: estado === 'aprobado_despues',
+  });
+  const docs = [doc('06', '0000344', '2026-10-28', 10511, 'NOMINA')];
+  const egresos = [egreso('l512', 'CG-2026-00512', ref('06', '0000344'), 10511, '2026-10-28', 'caos')];
+  const nom = retiro(1777, '2026-10-28T16:48:48Z', 'nom canindo', 13820, 10510, ['05']);
+
+  it('⛔ un egreso cuyo vale espera firma NO entra a la propuesta, y el grupo lo cuenta', () => {
+    const g = armarReposicion({ ...base, docs, egresos, vinculos: [], retiros: [nom],
+      aprobaciones: new Map([[ref('06', '0000344'), aprob('sin_firma')]]) }).grupos[0];
+    expect(g.propuesta).toBeNull();
+    expect(g.n_sin_aprobar).toBe(1);
+    expect(g.docs[0].aprobacion?.estado).toBe('sin_firma');
+  });
+
+  it('⚠️ pagado antes de aprobarse: se propone (el dinero ya salió) pero se cuenta como alerta', () => {
+    const g = armarReposicion({ ...base, docs, egresos, vinculos: [], retiros: [nom],
+      aprobaciones: new Map([[ref('06', '0000344'), aprob('aprobado_despues')]]) }).grupos[0];
+    expect(g.propuesta?.asignaciones).toHaveLength(1);
+    expect(g).toMatchObject({ n_sin_aprobar: 0, n_pagado_antes_de_aprobar: 1 });
+  });
+
+  it('⛔ lo que sigue en la cola y espera firma no recibe retiro sugerido para «Reponer»', () => {
+    const pend = [doc('06', '0000400', '2026-10-28', 175), doc('06', '0000401', '2026-10-28', 90)];
+    const gastos = retiro(1802, '2026-10-28T17:05:00Z', 'gastos canindo', 270, 270);
+    const todo = armarReposicion({ ...base, docs: pend, egresos: [], vinculos: [], retiros: [gastos],
+      aprobaciones: new Map([[ref('06', '0000400'), aprob('rechazado')], [ref('06', '0000401'), aprob('sin_firma')]]) }).grupos[0];
+    expect(todo).toMatchObject({ estado: 'por_capturar', n_sin_aprobar: 2, retiro_sugerido: null });
+    const uno = armarReposicion({ ...base, docs: pend, egresos: [], vinculos: [], retiros: [gastos],
+      aprobaciones: new Map([[ref('06', '0000400'), aprob('rechazado')]]) }).grupos[0];
+    expect(uno.retiro_sugerido?.external_id).toBe(1802);
+  });
+
+  it('⛔ el barrido de centavos tampoco toca un egreso cuyo vale se rechazó', () => {
+    const ds = [doc('07', '0000315', '2026-10-28', 8865, 'BOTANAS PAU', '2026-10-27'), doc('07', '0000313', '2026-10-28', 4428, 'PAPAS JARYS', '2026-10-27')];
+    const eg = [egreso('l532', 'CG-2026-00532', ref('07', '0000315'), 8865, '2026-10-28', 'caos'), egreso('l531', 'CG-2026-00531', ref('07', '0000313'), 4428, '2026-10-28', 'caos')];
+    const vs = [vinculo('k532', 'l532', 1775, 4290, 'gnf 26/10'), vinculo('k531', 'l531', 1775, 4420, 'gnf 26/10')];
+    const gnf = retiro(1775, '2026-10-28T16:29:57Z', 'gnf 26/10', 156670, 4650, ['07', '08']);
+    const g = armarReposicion({ ...base, docs: ds, egresos: eg, vinculos: vs, retiros: [gnf],
+      aprobaciones: new Map([[ref('07', '0000313'), aprob('rechazado')]]) }).grupos[0];
+    expect(g.propuesta?.asignaciones.map((x) => x.ledger_id)).toEqual(['l532']);
+  });
+
+  it('sin mapa de aprobaciones (no medido) nada se bloquea y el documento lo dice con null', () => {
+    const g = armarReposicion({ ...base, docs, egresos, vinculos: [], retiros: [nom] }).grupos[0];
+    expect(g.docs[0].aprobacion).toBeNull();
+    expect(g.propuesta?.asignaciones).toHaveLength(1);
+  });
+});
