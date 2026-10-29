@@ -50,6 +50,12 @@ export interface PaymentCalendarAllocation {
   bank_account_id: string | null;
   /** `[TP.16]` Alias legible de la cuenta de origen (p. ej. «BBVA 6721»); null si no se eligió. */
   bank_account_label: string | null;
+  /**
+   * `[PGP.33]` Clase de la cuenta de origen (`bank` · `cash` · `factoraje`); null si no se eligió.
+   * De ella depende **quién ejecuta**: banco y factoraje los dispersa Tesorería, la caja la
+   * dispersa Caja General. Medido 2026-10-29: $404,105,108 (87.3 %) salen de banco.
+   */
+  bank_account_kind: string | null;
   /** Cuenta DESTINO: snapshot del catálogo del proveedor, o texto capturado. */
   destination_account_text: string | null;
   cash_register_text: string | null;
@@ -226,9 +232,12 @@ export interface SupplierPaymentHabit {
    * `estable` trae `cuenta_origen_id`. Los otros tres explican por qué no, y cada uno dice algo
    * distinto:
    *
-   * - `caja_general` — se le suele pagar **desde Caja General**, que el selector de origen no
-   *   ofrece («la caja no es origen de una transferencia»). Son **116 de 316**: el dato más útil
-   *   del grupo, porque hoy no aparece en ninguna pantalla.
+   * - ⛔ `caja_general` — **RETIRADO en `[PGP.33]`** (migración `20261029134018`). Existía porque
+   *   el selector de origen excluía la caja; esa premisa está medida y es falsa (2,771 pagos,
+   *   $54,897,784, salieron de CAJA GENERAL y el propio Kepler los clasifica `tipo_cuenta='caja'`).
+   *   Las **116** filas que retenía pasaron a `estable` (111) y `variable` (5), medido contra prod:
+   *   las propuestas de cuenta van de **43 a 154**. El valor queda en la unión porque un cliente
+   *   viejo puede seguir recibiéndolo del caché de su pestaña; la vista ya no lo emite.
    * - `no_resuelve` — la cuenta existe en Kepler pero no casa con ninguna del catálogo propio
    *   (13 acreedores; `BAJIO 6506` y `BAJIO 5854` difieren en un dígito de las nuestras).
    * - `variable` — paga desde varias y ninguna llega al piso.

@@ -933,13 +933,21 @@ export class PaymentCalendarService {
       // `[TP.16]` Alias de la cuenta de ORIGEN, para que «Ordenar y pagar» diga de dónde sale el dinero.
       const originIds = [...new Set(allocations.map((a: AllocationRowLite) => a.bank_account_id).filter(Boolean))] as string[];
       const origin = new Map<string, string>();
+      // `[PGP.33]` Y su CLASE, porque de ella depende QUIÉN ejecuta: una cuenta de banco la
+      // dispersa Tesorería; la caja, Caja General. El documento impreso le hablaba a Caja General
+      // para los $404,105,108 (87.3 %) que salen de banco y nunca pasan por ahí.
+      const originKind = new Map<string, string>();
       if (originIds.length) {
-        const accs = await trx('finance.bank_accounts').whereIn('id', originIds).select('id', 'alias', 'bank', 'account_label');
-        for (const r of accs as { id: string; alias: string | null; bank: string; account_label: string }[]) origin.set(r.id, r.alias || `${r.bank} ${r.account_label}`);
+        const accs = await trx('finance.bank_accounts').whereIn('id', originIds).select('id', 'alias', 'bank', 'account_label', 'kind');
+        for (const r of accs as { id: string; alias: string | null; bank: string; account_label: string; kind: string | null }[]) {
+          origin.set(r.id, r.alias || `${r.bank} ${r.account_label}`);
+          originKind.set(r.id, r.kind || 'bank');
+        }
       }
       return allocations.map((a: AllocationRowLite) => ({
         ...a, amount_assigned: Number(a.amount_assigned),
         bank_account_label: a.bank_account_id ? origin.get(a.bank_account_id) ?? null : null,
+        bank_account_kind: a.bank_account_id ? originKind.get(a.bank_account_id) ?? null : null,
         items: (itemsByAllocation.get(a.id) ?? []).map((it) => ({ ...it, applied_amount: Number(it.applied_amount) })),
       }));
     });
@@ -974,11 +982,31 @@ export class PaymentCalendarService {
     return { from: days[0], to: days[6], days: out };
   }
 
-  /** `[TP.16]` Cuentas de ORIGEN elegibles: activas, banco o factoraje. La caja no es origen de una transferencia. */
+  /**
+   * `[PGP.33]` Cuentas de ORIGEN elegibles: **todas las activas, incluida la caja.**
+   *
+   * ⛔⛔ Hasta hoy excluía `kind = 'cash'` con la premisa escrita *«la caja no es origen de una
+   * transferencia»*. **El ERP la contradice.** Medido contra prod el 2026-10-29 sobre
+   * `analytics.erp_supplier_payments` cruzado con `analytics.kepler_bank_movements`:
+   *
+   *   - **2,771 pagos a proveedor, $54,897,784**, salieron de una cuenta que el propio decode de
+   *     Kepler clasifica `tipo_cuenta = 'caja'`, CAJA GENERAL — y nuestro catálogo tiene
+   *     exactamente una cuenta `kind = 'cash'`, que es ésa;
+   *   - son el **56.7 % de los 4,898 pagos** por conteo (el 12.7 % del dinero: son los chicos).
+   *
+   * O sea que la premisa no describía a Tesorería, la contradecía: el desplegable **no podía
+   * reproducir más de la mitad de cómo se ha pagado siempre**, y quien pagaba desde Caja General
+   * tenía que mentirle al formulario eligiendo otra cuenta. Se retira el filtro.
+   *
+   * ⚠️ **Lo que NO se afirma** (ADR-056): si esos 2,771 salieron físicamente en efectivo o por una
+   * transferencia ordenada desde el escritorio de Caja General **no se puede saber desde acá** —
+   * Kepler los rotula `transferencia` porque su `kdm1.c31` sólo distingue tres valores y
+   * `efectivo` no es uno. Por eso la caja se OFRECE y no se propone sola.
+   */
   async originAccounts(): Promise<PaymentOriginAccount[]> {
     this.tenantCtx.requireTenantId();
     return this.tk.run((trx) => trx('finance.bank_accounts')
-      .where('active', true).whereRaw(`coalesce(kind,'bank') <> 'cash'`)
+      .where('active', true)
       .select('id', 'bank', 'account_label', 'alias', 'kind')
       .orderBy([{ column: 'bank' }, { column: 'account_label' }]));
   }
@@ -1194,8 +1222,10 @@ export class PaymentCalendarService {
       const needsOrigin = dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico' || dto.payment_method === 'cheque';
       if (needsOrigin) {
         if (!dto.bank_account_id) throw new BadRequestException('Elige la cuenta de origen (de cuál cuenta nuestra sale el pago).');
-        const origin = await trx('finance.bank_accounts').where({ id: dto.bank_account_id, active: true }).whereRaw(`coalesce(kind,'bank') <> 'cash'`).first();
-        if (!origin) throw new BadRequestException('La cuenta de origen no existe, está inactiva o es la caja.');
+        // `[PGP.33]` La caja YA es un origen válido: medido, 2,771 pagos ($54,897,784) salieron de
+        // CAJA GENERAL. Antes este `where` la rechazaba y el error culpaba a la cuenta.
+        const origin = await trx('finance.bank_accounts').where({ id: dto.bank_account_id, active: true }).first();
+        if (!origin) throw new BadRequestException('La cuenta de origen no existe o está inactiva.');
       }
       if (dto.payment_method === 'transferencia' && !destinationText?.trim()) {
         throw new BadRequestException('Transferencia requiere la cuenta destino (elige una del catálogo del proveedor o captura la CLABE).');
@@ -1337,7 +1367,9 @@ export class PaymentCalendarService {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se ejecuta un pago pendiente');
-      if (!allocation.payment_method) throw new BadRequestException('Falta preparar el método de pago antes de ejecutar (Caja General lo necesita)');
+      // `[PGP.33]` Decía «(Caja General lo necesita)». Medido: el 87.3 % del dinero ($404,105,108)
+      // sale de una cuenta de BANCO, que ejecuta Tesorería. El mensaje ya no nombra a un área sola.
+      if (!allocation.payment_method) throw new BadRequestException('Falta preparar el método de pago antes de ejecutar: quien dispersa necesita saber con qué se paga.');
       // `[TP.16]` Dos firmas: Caja General dispersa lo que Gerencia/Dirección AUTORIZÓ. Sin esto, un
       // pago se podía marcar pagado sin que nadie hubiera autorizado el día.
       const execLot = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id }).first();
