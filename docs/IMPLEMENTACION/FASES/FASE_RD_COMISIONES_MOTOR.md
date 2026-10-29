@@ -724,6 +724,31 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   ⛔ **Sin esto `O0` no se puede afirmar**: «generada 100 % por el motor» es una frase hasta que
   está escrito **qué arbitra cada uno de los seis números** que deciden el depósito.
 
+### 9.4bis Decisiones firmadas (Edgar, 2026-10-29)
+
+- **D5** — el motor pasa a pagador con **2 quincenas seguidas en que cada chofer coincide a ±$1**.
+  ⭐ **El subtotal se arbitra contra KEPLER, no contra el libro** (ADR-059: testigo del mismo ERP
+  y grano). Venta, %, bonos y nómina, contra el libro. Medido: en Q20 venta, %, bonos y nómina
+  cuadran al centavo en 10 de 10; sólo difiere el subtotal. En los 3 pares visibles en el ODS
+  (almacenes de camioneta `01-00N`, Q18–Q20) el motor queda a $4–$20 de la cabecera de Kepler
+  (`kdm1.c16 − c14 − c15`) y el libro a −$50, +$884 y −$453: **el que se aleja es el libro**.
+  ⚠️ Sólo 1 de 10 rutas tiene su documento en el ODS; para las demás, el testigo exige que el
+  push mande los impuestos de la cabecera.
+- **D6** — se separa en 3 permisos: calcular (Comercial), aprobar (Dirección), marcar pagado
+  (Finanzas).
+- **D7** — manda el **tabulador firmado**: debajo de $189,999.99 no se cobra. Lo que sí se
+  arregla son los días perdidos en la fuente, que hunden rutas debajo del piso.
+- **D3** — Edgar eligió «20 % de sus rutas + bonos − nómina de banco», con la nómina a buscar en
+  egresos. ⚠️ **Lo que dicen los egresos (2026-10-29):** en Canindo el supervisor cobra
+  **$2,400 fijos en Q19, Q20 y Q21** (`XA1001`, «Comisiones periodo N RD CAN»), sin importar la
+  venta; el motor le calcularía ~$8,000 en Q21. Con la fórmula elegida, la «nómina» tendría que
+  variar cada quincena para dar $2,400. **Vuelve a firma** con este dato. En Padre Hidalgo no se
+  puede aislar: la transferencia junta RD, RV y TLMK.
+- **Q21 ya se pagó el 22-oct desde el libro** (egresos `XA1001`). El borrador del motor del 23-oct
+  ya no decide nada: sirve para contrastar. Cruce contra lo pagado: 502 coincide a 7 centavos; 501
+  la pagó el libro (~$3,202.66) y el motor no (el día perdido del 15-oct la deja bajo el umbral);
+  504, el motor $799 arriba, sin explicar todavía.
+
 ### 9.5 Lo que necesita firma antes de que el motor pague
 
 | | Decisión | Por qué no la puedo tomar yo |
