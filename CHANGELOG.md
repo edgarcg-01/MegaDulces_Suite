@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Pagos: la propuesta del día ya adelanta lo que pierde descuento (PGP.38, 2026-10-29)
+- «Sugerir armado» sólo ofrecía **lo ya vencido**. Pero el pronto pago **consiste en adelantarse**, así que la propuesta automática jamás ofrecía una factura dentro de su ventana de descuento — porque esa, por definición, todavía no vence.
+- Medido: **$1,522,587 de los $2,427,564 en juego (62.7 %) estaban fuera del alcance de la propuesta**, en 358 facturas.
+- Ahora las ofrece, y **dice que las está adelantando**: «no vence todavía (vence el 30-oct) · se adelanta para ganar $5,100 antes del 19-oct». Entra **sólo** si gana descuento medido: adelantar sin motivo sería sacar el dinero antes por nada.
+- ⛔ **Lo vencido se paga primero, siempre.** Si el disponible del día no alcanza, lo que se recorta es el adelanto, nunca la deuda que ya se debe.
 ### Added — Pagos: la pantalla ahora dice **por qué** hay que pagar cada cosa (PGP.36 / PGP.37, 2026-10-29)
 - Cada renglón del día trae su razón, en pesos: **«Gana $423,220 (6.34 %) si se paga antes del 29-oct»**. Y ahora **también hablan las que antes se callaban**: «deja pasar $X: se pasó la ventana» y «sin descuento medido en este proveedor».
 - ⭐ Eso último importa más de lo que parece: la pantalla sólo avisaba cuando convenía pagar, y con eso **se quedaba muda sobre $97.4M de los $139.6M** de deuda. Un silencio se lee como «aquí no hay nada que ganar».
