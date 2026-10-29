@@ -49,7 +49,7 @@ describe('[NAV.6] apartados del sidebar de Compras', () => {
 
   it('las rutas que dejaron de ser renglones siguen alcanzables, y cada una en UN solo apartado', () => {
     const plegadas = [
-      '/compras/requisiciones', '/compras/ordenes', '/compras/oc-abiertas',
+      '/compras/requisiciones', '/compras/oc-abiertas',
       '/compras/hallazgos', '/compras/faltantes',
       '/compras/obligaciones', '/compras/vencimientos',
       '/compras/costo-neto', '/compras/costo-estandar', '/compras/descuentos',

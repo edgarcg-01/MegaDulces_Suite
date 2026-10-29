@@ -20,6 +20,14 @@ describe('[PQ.28] OC abiertas — el estado en una frase', () => {
     expect(comp().estadoTexto(fila({ estatus: 'N', _claseLabel: 'Sin vale', prob: 35 }))).toBe('Sin vale · llega 35 %');
   });
 
+  it('las órdenes internas dejaron de ser pestaña pero siguen alcanzables desde aquí, con su permiso', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(__dirname, 'compras-oc-abiertas.component.ts'), 'utf8');
+    expect(src).toMatch(/@if \(puedeHistorico\) \{[^}]*routerLink="\/compras\/ordenes"/);
+    expect(src).toContain('Permission.COMPRAS_ORDENES_VER');
+  });
+
   it('NEGATIVA: sin la clasificación del servidor no inventa una: usa el estatus de Kepler', () => {
     expect(comp(false).estadoTexto(fila({ estatus: 'R', prob: null }))).toBe('Recibida');
   });

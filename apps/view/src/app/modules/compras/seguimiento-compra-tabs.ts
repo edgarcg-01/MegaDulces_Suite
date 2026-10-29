@@ -30,14 +30,6 @@ export const SEGUIMIENTO_COMPRA_TABS: PageTab[] = [
     permission: Permission.COMPRAS_PEDIDO_VER,
   },
   {
-    // `[PQ.16]` Documentos internos de la Suite: 235 OC propias y 136 OE emitidas entre el 28-sep y
-    // el 26-oct, cuando la Suite todavía generaba su propia OC. Quedan en solo lectura.
-    label: 'Internas (histórico)',
-    route: '/compras/ordenes',
-    icon: 'pi pi-history',
-    permission: Permission.COMPRAS_ORDENES_VER,
-  },
-  {
     // `[PQ.20]` El interruptor de la escritura a Kepler, sin desplegar. Verlo = ver requisiciones;
     // cambiarlo pide `COMPRAS_KEPLER_ESCRITURA` (lo gatea la página y el endpoint).
     label: 'Escritura a Kepler',

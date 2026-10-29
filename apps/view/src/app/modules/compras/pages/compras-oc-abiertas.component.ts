@@ -21,6 +21,7 @@ import { ComprasService, OpenOcRow, OpenOcResponse } from '../compras.service';
 import { generarOcPdf, OcDetalle } from '../oc-kepler-pdf';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
+import { RouterLink } from '@angular/router';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SEGUIMIENTO_COMPRA_TABS } from '../seguimiento-compra-tabs';
 
@@ -48,7 +49,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
 @Component({
   selector: 'app-compras-oc-abiertas',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, SidePeekComponent, PageTabsComponent, SucursalPipe],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, SidePeekComponent, PageTabsComponent, SucursalPipe, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in oa-page">
@@ -254,6 +255,10 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
           </td></tr>
         </ng-template>
       </p-table>
+      <!-- [PQ.28] Las órdenes internas de la Suite (hasta el 27-oct) eran la doble captura de las de
+           Kepler: la misma compra dos veces, y 205 dicen «abierta» para siempre porque ya nada las
+           mueve. Dejan de ser pestaña; quedan a un enlace, para consulta. -->
+      @if (puedeHistorico) { <p class="oa-hist"><a routerLink="/compras/ordenes">Órdenes internas de la Suite, anteriores al 27-oct (histórico)</a></p> }
       </div>
 
       <!-- ═══ [RA-PRO.69] Detalle de la orden ═══════════════════════════════════════════════
@@ -447,6 +452,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
     .oa-prob-bad { color: var(--bad-fg); font-weight: 700; }
     .oa-prob-warn { color: var(--warn-fg); font-weight: 600; }
     .oa-min { font-size: .9rem; margin-left: .1rem; color: var(--warn-fg); }
+    .oa-hist { margin: .75rem 0 0; font-size: var(--fs-sm); }
     .oa-aviso { display: flex; align-items: flex-start; gap: .45rem; margin: 0 0 .75rem; padding: .5rem .7rem;
       font-size: .8rem; line-height: 1.45; color: var(--text-main);
       border: 1px solid var(--border-color); border-left: 3px solid var(--warn-fg); border-radius: var(--r-sm, 8px); }
@@ -599,6 +605,8 @@ export class ComprasOcAbiertasComponent implements OnInit {
   // Registro propio (no toca Kepler). Se ve con COMPRAS_PEDIDO_VER; se cambia con _GESTIONAR.
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
+  /** `[PQ.28]` El enlace al histórico sólo para quien puede abrirlo: un enlace a «sin acceso» no ayuda. */
+  readonly puedeHistorico = this.perms.isAdmin() || this.perms.has(Permission.COMPRAS_ORDENES_VER);
   readonly canManage = computed(() =>
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_PEDIDO_GESTIONAR] === true);
 
