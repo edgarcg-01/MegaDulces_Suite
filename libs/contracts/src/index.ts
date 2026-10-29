@@ -229,3 +229,5 @@ export * from './finance/caos-vinculos.contract';
 export * from './finance/caja-lote-retiro.contract';
 // `[CGA-A.61]` Reposicion por sucursal: documentos de Kepler, egresos, retiros y la propuesta de vinculos.
 export * from './finance/caja-reposicion.contract';
+// `[CGA-A.65]` La hoja de gastos de zona (el Excel «Formato de autorizacion de gastos», armado de Kepler).
+export * from './finance/hoja-gastos.contract';
