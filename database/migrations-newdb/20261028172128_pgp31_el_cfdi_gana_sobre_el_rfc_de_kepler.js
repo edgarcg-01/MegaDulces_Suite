@@ -54,7 +54,46 @@ const pgp27 = require('./20261028085707_pgp27_rfc_del_acreedor_resuelto.js');
 
 /** Igual que en PGP.27: la forma del SAT. Sigue usándose, pero ya no para DECIDIR quién gana. */
 const FORMA = `'^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$'`;
-const TOPE_MS = 1000;
+
+/**
+ * ⛔⛔ **ESTA MIGRACIÓN SE AUTORREVIRTIÓ EN PROD EL 2026-10-28 POR UNA GUARDA MAL ESCRITA, Y
+ * LA GUARDA ERA MÍA.** Lo que sigue es la corrección, con lo que midió producción.
+ *
+ * La versión anterior copiaba el `TOPE_MS = 1000` de `[PGP.27]` y se lo aplicaba a la sonda…
+ * que **no mide lo mismo**. En `[PGP.27]` ese tope guardaba `analytics.v_supplier_rfc`, que
+ * cuesta ~200 ms; acá la sonda cuenta `analytics.v_payable_evidence`, cuyo **piso documentado
+ * en el propio encabezado de `[PGP.27]` es 2.0 s**. O sea: un tope **imposible de cumplir por
+ * construcción**, que habría disparado con cero cambios. Disparó con 3,109 ms, la transacción
+ * se revirtió entera (limpio: `knex_migrations` no registró nada) y dejó el despliegue frenado
+ * con 19 commits de 9 sesiones detrás.
+ *
+ * ⭐ Lo que lo deja claro, medido contra prod en sólo lectura (sid 7688376744939610156):
+ *
+ *   | qué se midió                                   | universo | con evidencia |      ms |
+ *   |------------------------------------------------|---------:|--------------:|--------:|
+ *   | la vista VIVA hoy (cadena de `[PGP.27]`)        |    2,905 |         1,275 | **2,616** |
+ *   | el mismo cuerpo por subconsulta (vía pareja)    |    2,905 |         1,275 | **2,489** |
+ *   | con la `v_supplier_rfc` de `[PGP.31]`           |    2,905 |     **1,287** | **2,635** |
+ *
+ * Invertir la prioridad cuesta **+146 ms sobre 2,489 = 5.9 %**, que es ruido. El tope medía el
+ * piso de la vista, no mi cambio.
+ *
+ * ⛔ **Y por qué no lo vi antes de empujar:** verifiqué el SQL dentro de una transacción que
+ * revertí, **no la migración**. El SQL estaba bien; la guarda que lo envuelve, no. Ejercer el
+ * cuerpo no es ejercer el `up()`.
+ *
+ * ── La guarda, ahora ────────────────────────────────────────────────────────────────────────
+ *
+ * El costo se compara contra lo que esta misma migración **mide un momento antes** de reemplazar
+ * la vista, no contra una cifra escrita a mano: un umbral fijo sobre una vista cuyo piso no es
+ * suyo frena lo sano y no detecta lo roto. Queda además un techo absoluto, alto a propósito,
+ * para cazar un cambio de plan catastrófico sin volver a prohibir lo que ya costaba eso.
+ */
+const FACTOR = 1.5;
+const MARGEN_MS = 500;
+/** Techo absoluto: ~3x el piso medido de `v_payable_evidence`. No es el presupuesto de la
+ *  pantalla (ésa la pide diferida); es el detector de que el plan se rompió. */
+const TECHO_MS = 8000;
 
 /**
  * El bloque SELECT final de `v_supplier_rfc`, con la prioridad invertida.
@@ -81,7 +120,12 @@ const COLA_NUEVA = `SELECT sucursal, proveedor_code, proveedor_nombre,
        CASE WHEN rfc_nombre IS NOT NULL THEN via END::text AS via,
        -- El que PERDIO, cuando habia pleito. Ahora es el de Kepler, y se publica para que la
        -- pantalla pueda decir "Kepler dice X, sus comprobantes dicen Y" en vez de callarlo.
-       CASE WHEN rfc_nombre IS NOT NULL AND rfc_kepler IS NOT NULL AND rfc_nombre <> rfc_kepler
+       -- ⛔ Exige que el de Kepler SEA un RFC (forma del SAT). Sin esa condicion la columna
+       --    mezcla dos cosas distintas y la pantalla llamaria "contradiccion" a un error de
+       --    dedo: medido contra prod el 2026-10-28, 18 acreedores se contradicen de verdad
+       --    (J&F, MONDELEZ) y OTROS 14 solo tienen el RFC mal escrito (PTE120913, DGR0531773A).
+       --    Esos 14 ya los declara rfc_kepler_mal_formado y su valor literal vive en rfc_crudo.
+       CASE WHEN rfc_nombre IS NOT NULL AND upper(rfc_kepler) ~ ${FORMA} AND rfc_nombre <> rfc_kepler
             THEN rfc_kepler END AS rfc_discrepa,
        CASE WHEN rfc_nombre IS NOT NULL OR upper(rfc_kepler) ~ ${FORMA} THEN NULL
             WHEN rfc_kepler IS NOT NULL
@@ -120,7 +164,12 @@ exports.up = async function up(knex) {
   // ⭐ El ANTES se mide con la vista VIEJA todavía puesta. Las guardas de abajo comparan contra
   //    esto y no contra un número escrito a mano: un umbral fijo se pudre con los datos y
   //    termina frenando una migración sana (o dejando pasar una rota).
+  //    Y se mide TAMBIÉN su costo, con el mismo patrón que el después (una pasada de calentado
+  //    y la que cuenta): sin eso no hay con qué comparar y el tope vuelve a ser inventado.
+  await knex.raw(SONDA);
+  const tAntes = process.hrtime.bigint();
   const antes = (await knex.raw(SONDA)).rows[0];
+  const msAntes = Number(process.hrtime.bigint() - tAntes) / 1e6;
 
   const SQL = construir();
   await knex.raw(SQL);
@@ -133,6 +182,18 @@ exports.up = async function up(knex) {
   );
   if (ctrl.length) {
     throw new Error(`[PGP.31] la vista NO se reemplazo: ${ctrl.map((r) => r.proveedor_code + '=' + r.rfc).join(', ')} siguen con fuente kepler. Se revierte.`);
+  }
+
+  // ⛔ rfc_discrepa significa "Kepler tiene OTRO RFC", no "Kepler lo tiene mal escrito". Si entra
+  //    un valor sin forma de RFC, la columna esta mezclando las dos cosas y la pantalla que la
+  //    pinte va a llamar contradiccion a un error de dedo. Prueba negativa: sin la condicion de
+  //    forma en la cola, esta consulta devuelve 14 acreedores contra prod (medido 2026-10-28).
+  const { rows: mezcla } = await knex.raw(
+    `SELECT DISTINCT proveedor_code, rfc_discrepa FROM analytics.v_supplier_rfc
+      WHERE rfc_discrepa IS NOT NULL AND NOT (upper(rfc_discrepa) ~ ${FORMA}) LIMIT 5`
+  );
+  if (mezcla.length) {
+    throw new Error(`[PGP.31] rfc_discrepa trae valores que no son RFC (${mezcla.map((r) => r.proveedor_code + '=' + r.rfc_discrepa).join(', ')}): la columna esta mezclando contradiccion con error de captura. Se revierte.`);
   }
   await knex.raw(
     `COMMENT ON VIEW analytics.v_supplier_rfc IS ` +
@@ -151,10 +212,16 @@ exports.up = async function up(knex) {
     `SELECT count(DISTINCT proveedor_code)::int AS n FROM analytics.v_supplier_rfc WHERE rfc_discrepa IS NOT NULL`
   );
   const mx = (v) => '$' + Number(v).toLocaleString('es-MX', { maximumFractionDigits: 0 });
-  console.log(`[PGP.31] universo ${antes.n} -> ${r.n} · con evidencia ${antes.con} -> ${r.con} (${r.con - antes.con >= 0 ? '+' : ''}${r.con - antes.con}) · ${mx(antes.dinero)} -> ${mx(r.dinero)} · ${flip[0].n} acreedores con RFC en disputa · ${ms.toFixed(0)} ms`);
+  console.log(`[PGP.31] universo ${antes.n} -> ${r.n} · con evidencia ${antes.con} -> ${r.con} (${r.con - antes.con >= 0 ? '+' : ''}${r.con - antes.con}) · ${mx(antes.dinero)} -> ${mx(r.dinero)} · ${flip[0].n} acreedores con RFC en disputa · la evidencia ${msAntes.toFixed(0)} ms -> ${ms.toFixed(0)} ms`);
 
-  if (ms > TOPE_MS) {
-    throw new Error(`[PGP.31] la evidencia cuesta ${ms.toFixed(0)} ms, tope ${TOPE_MS}. Se revierte (la leccion de PGP.27).`);
+  // ⛔ Relativo a lo que esta vista YA costaba, no a una cifra que yo elija: el piso de
+  //    v_payable_evidence (2.5-2.9 s medidos) no es de esta migracion. Ver la nota de FACTOR.
+  const tope = Math.round(msAntes * FACTOR + MARGEN_MS);
+  if (ms > tope) {
+    throw new Error(`[PGP.31] la evidencia paso de ${msAntes.toFixed(0)} ms a ${ms.toFixed(0)} ms (tope ${tope} ms = ${FACTOR}x + ${MARGEN_MS} ms). Invertir la prioridad no recalcula nada: si cuesta eso, cambio el plan. Se revierte.`);
+  }
+  if (ms > TECHO_MS) {
+    throw new Error(`[PGP.31] la evidencia cuesta ${ms.toFixed(0)} ms, techo absoluto ${TECHO_MS} ms. Se revierte (la leccion de PGP.27).`);
   }
   // ⛔ Invertir la prioridad NO puede hacer PERDER nada: rfc_crudo sigue siendo la segunda llave
   //    del emparejado. Si el universo se encogio o la evidencia bajo, el mecanismo se rompio.
@@ -175,4 +242,4 @@ exports.down = async function down(knex) {
   await knex.raw('GRANT SELECT ON analytics.v_supplier_rfc TO dev_ro');
 };
 
-exports.SQL = { construir, COLA_NUEVA, TOPE_MS };
+exports.SQL = { construir, COLA_NUEVA, FACTOR, MARGEN_MS, TECHO_MS };
