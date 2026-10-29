@@ -20,6 +20,7 @@ import { Permission } from '../../../core/constants/permissions';
 import { ComprasService, OpenOcRow, OpenOcResponse } from '../compras.service';
 import { generarOcPdf, OcDetalle } from '../oc-kepler-pdf';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SEGUIMIENTO_COMPRA_TABS } from '../seguimiento-compra-tabs';
 
@@ -47,7 +48,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
 @Component({
   selector: 'app-compras-oc-abiertas',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, SidePeekComponent, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, SidePeekComponent, PageTabsComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in oa-page">
@@ -177,75 +178,38 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
                [tableStyle]="{ 'min-width': '68rem' }"
                styleClass="p-datatable-sm oa-table dt-stack"
                [attr.aria-label]="'Órdenes de compra abiertas en Kepler'">
+        <!-- [PQ.28] Regla del PM (2026-10-29): «abruma a la gente la interfaz». La fila tenía ~12
+             piezas y 5 en color (estatus rojo, motivo naranja, días y «0 %» en rojo, pastilla roja),
+             y tres de ellas decían lo mismo. Ahora: el estado en UNA columna y en palabras; la
+             sucursal por nombre; rojo sólo para la que lleva más de 30 días (pide acción); líneas,
+             PDF y el cambio de seguimiento en el panel lateral, que abre la fila. -->
         <ng-template #header>
           <tr>
             <th scope="col" pFrozenColumn style="min-width:6.5rem" pSortableColumn="folio">Folio <p-sorticon field="folio" /></th>
-            <th scope="col" pSortableColumn="almacen">Suc. <p-sorticon field="almacen" /></th>
+            <th scope="col" pSortableColumn="almacen">Sucursal <p-sorticon field="almacen" /></th>
             <th scope="col" pSortableColumn="proveedor">Proveedor <p-sorticon field="proveedor" /></th>
             <th scope="col" pSortableColumn="fecha_oc">Fecha <p-sorticon field="fecha_oc" /></th>
             <th scope="col" class="comm-num" pSortableColumn="dias">Abierta <p-sorticon field="dias" /></th>
-            <th scope="col" class="surf-def" pSortableColumn="estatus" title="Estatus del documento en Kepler">Kepler <p-sorticon field="estatus" /></th>
-            <th scope="col" class="surf-def" pSortableColumn="_claseLabel" title="Lo que la cadena de documentos demuestra: si hay vale, y si sigue vivo">Motivo <p-sorticon field="_claseLabel" /></th>
-            <th scope="col" class="comm-num" pSortableColumn="lineas">Líneas <p-sorticon field="lineas" /></th>
+            <th scope="col" pSortableColumn="_claseLabel">Estado <p-sorticon field="_claseLabel" /></th>
             <th scope="col" class="comm-num" pSortableColumn="valor">Valor <p-sorticon field="valor" /></th>
-            <th scope="col" class="comm-num surf-def" pSortableColumn="prob" title="% histórico de que una orden de esa edad termine llegando (curva de supervivencia)">Llega <p-sorticon field="prob" /></th>
-            <th scope="col" class="surf-def" title="Registro de Compras: por qué sigue abierta. No cambia nada en Kepler.">Seguimiento</th>
-            <th scope="col" class="surf-def" title="PDF de la orden: para el proveedor (sin notas internas) o interno (con el seguimiento)">PDF</th>
+            <th scope="col">Seguimiento</th>
           </tr>
         </ng-template>
         <!-- [RA-PRO.69] DESIGN_TABLES 2.3/4.5: la fila abre el detalle en side-peek. Operable por
              teclado (Enter/Espacio) y con foco visible, no sólo por mouse (SS5.5/5.6). -->
         <ng-template #body let-o>
           <tr class="comm-row-clickable" tabindex="0" role="button"
-              [attr.aria-label]="'Ver el detalle de la orden ' + o.almacen + '-' + o.folio"
+              [attr.aria-label]="'Ver el detalle de la orden ' + (o.almacen | sucursal) + ' ' + o.folio"
               (click)="abrirDetalle(o)"
               (keydown.enter)="abrirDetalle(o)" (keydown.space)="$event.preventDefault(); abrirDetalle(o)">
             <td pFrozenColumn class="dt-id" role="cell"><span class="comm-code">{{ o.folio }}</span></td>
-            <td class="oa-mono oa-muted" role="cell" data-label="Sucursal">{{ o.almacen }}</td>
+            <td role="cell" data-label="Sucursal">{{ o.almacen | sucursal }}</td>
             <td role="cell" data-label="Proveedor">{{ o.proveedor || '—' }}</td>
             <td class="oa-muted" role="cell" data-label="Fecha">{{ o.fecha_oc | date:'dd/MM/yy' }}</td>
-            <td class="comm-num dt-num" role="cell" data-label="Abierta"><span [class]="edadCls(o)">{{ o.dias }} d</span></td>
-            <td role="cell" data-label="Kepler"><p-tag [value]="estLabel(o.estatus)" [severity]="estSev(o.estatus)" styleClass="oa-tag"></p-tag></td>
-            <td role="cell" data-label="Motivo">
-              @if (clasifOk()) {
-                <span class="oa-clase" [attr.data-clase]="o._clase" [title]="claseAccion(o._clase)">{{ o._claseLabel }}</span>
-              } @else { <span class="oa-muted">—</span> }
-            </td>
-            <td class="comm-num dt-num oa-muted" role="cell" data-label="Líneas">{{ o.lineas | number }}</td>
+            <td class="comm-num dt-num" role="cell" data-label="Abierta"><span [class.oa-edad-bad]="o.dias > 30">{{ o.dias }} d</span></td>
+            <td role="cell" data-label="Estado">{{ estadoTexto(o) }}</td>
             <td class="comm-num dt-num is-strong" role="cell" data-label="Valor">{{ money(o.valor) }}</td>
-            <td class="comm-num dt-num" role="cell" data-label="Llega">
-              @if (o.prob === null) { <span class="oa-muted">—</span> }
-              @else { <span [class]="probCls(o)" [title]="probTitle(o)">{{ o.prob }}%</span> }
-            </td>
-            <td role="cell" data-label="Seguimiento">
-              <!-- Sin permiso (o sin migración) se ve, pero no es botón: un botón deshabilitado no
-                   recibe foco y su nota quedaba sólo en el title, invisible para teclado y lector. -->
-              @if (puedeEditar()) {
-                <button type="button" class="oa-seg-pill" [attr.data-seg]="o.seguimiento?.estatus ?? 'sin_revisar'"
-                        (click)="$event.stopPropagation(); abrirSeguimiento(o)" [title]="segTitle(o)"
-                        [attr.aria-label]="'Cambiar seguimiento de la orden ' + o.almacen + '-' + o.folio + ': ' + segLabel(o)">
-                  {{ segLabel(o) }} <span class="pi pi-pencil" aria-hidden="true"></span>
-                </button>
-              } @else {
-                <span class="oa-seg-pill oa-seg-ro" [attr.data-seg]="o.seguimiento?.estatus ?? 'sin_revisar'" [title]="segTitle(o)">
-                  {{ segLabel(o) }}@if (o.seguimiento?.nota) {<span class="sr-only"> — {{ o.seguimiento.nota }}</span>}
-                </span>
-              }
-            </td>
-            <td class="oa-pdf-cell dt-actions" role="cell" data-label="PDF">
-              <button type="button" class="oa-pdf" [disabled]="pdfFolio() !== null" (click)="$event.stopPropagation(); imprimir(o, false)"
-                      title="PDF para enviar al proveedor: la orden, sus renglones y lo que ya llegó (sin notas internas)"
-                      [attr.aria-label]="'PDF para el proveedor de la orden ' + o.almacen + '-' + o.folio">
-                @if (pdfFolio() === o.almacen + '-' + o.folio && !pdfInterno()) { <span class="pi pi-spin pi-spinner" aria-hidden="true"></span> }
-                @else { <span class="pi pi-file-pdf" aria-hidden="true"></span> } Prov.
-              </button>
-              <button type="button" class="oa-pdf" [disabled]="pdfFolio() !== null" (click)="$event.stopPropagation(); imprimir(o, true)"
-                      title="PDF interno: además, el estatus de seguimiento y su historia"
-                      [attr.aria-label]="'PDF interno de la orden ' + o.almacen + '-' + o.folio">
-                @if (pdfFolio() === o.almacen + '-' + o.folio && pdfInterno()) { <span class="pi pi-spin pi-spinner" aria-hidden="true"></span> }
-                @else { <span class="pi pi-lock" aria-hidden="true"></span> } Int.
-              </button>
-            </td>
+            <td role="cell" data-label="Seguimiento" [class.oa-muted]="!o.seguimiento">{{ segLabel(o) }}</td>
           </tr>
         </ng-template>
         <!-- [RA-PRO.69] DESIGN.md SS14 (Almacen/Compras = totales congelados). Suma lo que esta
@@ -257,15 +221,14 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
               {{ filtrado() ? 'Filtrado' : 'Todo lo que trajo la tabla' }}
               <span class="oa-muted">· {{ filas().length | number }} {{ filas().length === 1 ? 'orden' : 'órdenes' }}</span>
             </td>
-            <td></td><td></td><td></td>
-            <td class="comm-num">{{ filtroLineas() | number }}</td>
+            <td></td>
+            <td class="oa-muted">esperado {{ money(filtroEsperado()) }}</td>
             <td class="comm-num is-strong">{{ money(filtroValor()) }}</td>
-            <td class="comm-num oa-muted" title="El valor pesado por la probabilidad de llegar de cada orden.">{{ money(filtroEsperado()) }}</td>
-            <td></td><td></td>
+            <td></td>
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="12" class="comm-empty-cell">
+          <tr><td colspan="8" class="comm-empty-cell">
             <div class="comm-empty">
               @if (cargaError()) {
                 <i class="pi pi-exclamation-triangle comm-empty-icon" aria-hidden="true"></i>
@@ -411,9 +374,15 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
                 <span class="p-button-label">Cambiar seguimiento</span>
               </button>
             }
+            <!-- [PQ.28] Los dos PDF vivían en cada fila (2 botones × 149 filas); ahora, aquí. -->
+            <button pButton type="button" class="p-button-sm p-button-text" [disabled]="pdfFolio() !== null"
+                    (click)="imprimir(peekOrden()!, false)">
+              <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
+              <span class="p-button-label">PDF para el proveedor</span>
+            </button>
             <button pButton type="button" class="p-button-sm p-button-text" [disabled]="pdfFolio() !== null"
                     (click)="imprimir(peekOrden()!, true)">
-              <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
+              <span class="p-button-icon p-button-icon-left pi pi-lock" aria-hidden="true"></span>
               <span class="p-button-label">PDF interno</span>
             </button>
           </div>
@@ -934,6 +903,15 @@ export class ComprasOcAbiertasComponent implements OnInit {
     if (o.estatus === 'F' || o.estatus === 'R') return 'Kepler ya la marcó como terminada: la cadena de documentos quedó rota, pero no viene nada.';
     if (o.estatus === 'C') return 'Cancelada en Kepler.';
     return `Históricamente, ${o.prob}% de las órdenes que seguían abiertas a los ${o.dias} días terminaron recibiéndose.`;
+  }
+  /**
+   * `[PQ.28]` El estado en UNA frase: lo que la cadena de documentos demuestra y, sólo si sigue
+   * pendiente en Kepler, la probabilidad de que llegue. Antes eran tres columnas con color
+   * («Finalizada» + «Falta orden de entrada» + «0 %») diciendo lo mismo.
+   */
+  estadoTexto(o: FilaOc): string {
+    const base = this.clasifOk() ? o._claseLabel : this.estLabel(o.estatus);
+    return o.estatus === 'N' && o.prob != null ? `${base} · llega ${o.prob} %` : base;
   }
   estLabel(s: string): string {
     return ({ N: 'Pendiente', F: 'Finalizada', C: 'Cancelada', R: 'Recibida', A: 'Otro' } as Record<string, string>)[s] || s;
