@@ -20,6 +20,7 @@ import {
 } from './documento-duplicado';
 // `[RE.43]` De qué entrada es un papel: el folio del proveedor va contra `referencia`. Puro y medido.
 import { llaveDelFolio, ordenarCandidatas, sqlNucleoReferencia, sqlSufijoReferencia } from './emparejar-papel';
+import { aprendibles, conciliarRenglones, normStr, type RenglonKepler } from './conciliar-renglones';
 
 /**
  * Fase CC (extensión) — Comprobantes de ORDEN DE ENTRADA. Adjunta la REMISIÓN/
@@ -321,29 +322,8 @@ export interface AttachReceiptDto {
   comentarios?: string;
 }
 
-/** RE.11.2 — un renglón conciliado: remisión del proveedor ↔ línea Kepler ↔ SKU resuelto. */
-export interface ReconciledLine {
-  idx: number;                       // orden del renglón de la remisión
-  remision: RemisionLine;            // lo que dijo el proveedor
-  kepler: {                          // la línea Kepler con la que empató (null si sin_match)
-    linea: string; sku: string | null; nombre: string | null; unidad: string | null;
-    cantidad: number; costo_unitario: number; importe: number;
-  } | null;
-  resolved_sku: string | null;       // SKU interno resuelto
-  resolved_nombre: string | null;
-  method: 'alias' | 'barcode' | 'descripcion' | 'sin_match';
-  score: number;                     // 0..1 confianza del match
-  box_factor: number;                // piezas por unidad usadas para normalizar
-  qty_remision_pz: number | null;    // cantidad de la remisión normalizada a piezas
-  qty_kepler: number | null;
-  qty_match: boolean | null;
-  price_match: boolean | null;
-  status: 'cuadra' | 'difiere_cantidad' | 'difiere_precio' | 'revisar' | 'sin_match';
-  alias_hit: boolean;                // ya venía aprendido (no requiere confirmar)
-}
-
-const QTY_TOL = 0.02;   // 2% de tolerancia en cantidad (normalizada a piezas)
-const PRICE_TOL = 0.05; // 5% de tolerancia en precio unitario
+/** RE.11.2 — un renglón conciliado. `[RE.53]` El tipo, las tolerancias y el emparejamiento viven en el motor puro. */
+export type { ReconciledLine } from './conciliar-renglones';
 
 /**
  * `[RE.50]` La fila **CRUDA** que devuelve la consulta de comprobantes, antes de convertirla.
@@ -2442,11 +2422,9 @@ export class GoodsReceiptProofsService {
           trx.raw('cantidad::numeric AS cantidad'),
           trx.raw('costo_unitario::numeric AS costo_unitario'),
           trx.raw('importe::numeric AS importe'));
-      const kepler = kepRaw.map((l: any, i: number) => ({
-        _i: i, linea: l.linea, sku: l.sku, nombre: l.nombre, unidad: l.unidad,
+      const kepler: RenglonKepler[] = kepRaw.map((l: { linea: string; sku: string | null; nombre: string | null; unidad: string | null; cantidad: string | number; costo_unitario: string | number; importe: string | number }) => ({
+        linea: l.linea, sku: l.sku, nombre: l.nombre, unidad: l.unidad,
         cantidad: Number(l.cantidad), costo_unitario: Number(l.costo_unitario), importe: Number(l.importe),
-        _tokens: this.tokenize(this.normStr(l.nombre || '')),
-        _used: false,
       }));
 
       // box_factor canónico por SKU de las líneas (para normalizar cantidad a piezas).
@@ -2481,92 +2459,10 @@ export class GoodsReceiptProofsService {
         for (const r of bc) if (!bcMap.has(r.barcode)) bcMap.set(r.barcode, r.sku);
       }
 
-      const kepBySku = new Map<string, typeof kepler[number]>();
-      for (const k of kepler) if (k.sku && !kepBySku.has(k.sku)) kepBySku.set(k.sku, k);
-
-      // ── Resolver cada renglón de la remisión ────────────────────────────────
-      const results: ReconciledLine[] = remLines.map((rem, idx) => {
-        const descNorm = this.normStr(rem.descripcion || '');
-        const remTokens = this.tokenize(descNorm);
-        let kep: typeof kepler[number] | null = null;
-        let method: ReconciledLine['method'] = 'sin_match';
-        let score = 0;
-        let alias_hit = false;
-        let resolvedSku: string | null = null;
-        let resolvedNombre: string | null = null;
-
-        // 1) Alias aprendido.
-        const alias = aliasMap.get(descNorm);
-        if (alias) {
-          resolvedSku = alias.sku; resolvedNombre = alias.nombre_interno; method = 'alias'; score = 1; alias_hit = true;
-          const k = kepBySku.get(alias.sku);
-          if (k && !k._used) { kep = k; k._used = true; }
-        }
-        // 2) Código de barras.
-        if (!resolvedSku && rem.codigo_barras) {
-          const sku = bcMap.get((rem.codigo_barras || '').trim());
-          if (sku) {
-            resolvedSku = sku; method = 'barcode'; score = 0.95;
-            const k = kepBySku.get(sku);
-            if (k && !k._used) { kep = k; k._used = true; resolvedNombre = k.nombre; }
-          }
-        }
-        // 3) Descripción contra líneas Kepler libres.
-        if (!resolvedSku) {
-          let best: typeof kepler[number] | null = null; let bestScore = 0;
-          for (const k of kepler) {
-            if (k._used) continue;
-            const s = this.lineSimilarity(remTokens, k._tokens);
-            if (s > bestScore) { bestScore = s; best = k; }
-          }
-          if (best && bestScore >= 0.34) {
-            kep = best; best._used = true; method = 'descripcion'; score = Number(bestScore.toFixed(3));
-            resolvedSku = best.sku; resolvedNombre = best.nombre;
-          }
-        }
-
-        // Normalización de cantidad a piezas + comparaciones.
-        const bf = (resolvedSku && bfMap.get(resolvedSku)) || alias?.box_factor || 1;
-        const unidad = (rem.unidad || '').toUpperCase();
-        const isBox = /(CJA|CAJA|CJ|BULTO|PAQ|DISPLAY|MASTER)/.test(unidad);
-        const qtyPz = rem.cantidad != null ? (isBox ? rem.cantidad * bf : rem.cantidad) : null;
-        const qtyKep = kep ? kep.cantidad : null;
-        let qty_match: boolean | null = null;
-        if (qtyPz != null && qtyKep != null) {
-          const denom = Math.max(Math.abs(qtyKep), 1);
-          qty_match = Math.abs(qtyPz - qtyKep) / denom <= QTY_TOL;
-        }
-        let price_match: boolean | null = null;
-        if (rem.precio_unitario != null && kep && kep.costo_unitario > 0) {
-          // Precio de la remisión suele ser por unidad facturada (caja); Kepler por pieza.
-          const remUnitPz = isBox && bf > 1 ? rem.precio_unitario / bf : rem.precio_unitario;
-          const denom = Math.max(kep.costo_unitario, 0.01);
-          price_match = Math.abs(remUnitPz - kep.costo_unitario) / denom <= PRICE_TOL;
-        }
-
-        let status: ReconciledLine['status'];
-        if (!resolvedSku || !kep) status = 'sin_match';
-        else if (qty_match === false) status = 'difiere_cantidad';
-        else if (price_match === false) status = 'difiere_precio';
-        else if (qty_match === true) status = 'cuadra';
-        else status = 'revisar';
-
-        return {
-          idx, remision: rem, kepler: kep ? {
-            linea: kep.linea, sku: kep.sku, nombre: kep.nombre, unidad: kep.unidad,
-            cantidad: kep.cantidad, costo_unitario: kep.costo_unitario, importe: kep.importe,
-          } : null,
-          resolved_sku: resolvedSku, resolved_nombre: resolvedNombre, method, score,
-          box_factor: bf, qty_remision_pz: qtyPz, qty_kepler: qtyKep, qty_match, price_match,
-          status, alias_hit,
-        };
-      });
-
-      const kepler_orphans = kepler.filter((k) => !k._used).map((k) => ({
-        linea: k.linea, sku: k.sku, nombre: k.nombre, unidad: k.unidad,
-        cantidad: k.cantidad, costo_unitario: k.costo_unitario, importe: k.importe,
-      }));
-
+      // `[RE.53]` Emparejar es del motor puro: global (nombre + cantidad + importe) y con la base
+      // de IVA del documento. Aquí sólo se cargan los datos.
+      const c = conciliarRenglones({ remision: remLines, kepler, aliases: aliasMap, barcodes: bcMap, boxFactor: bfMap });
+      const results = c.lines;
       const totals = {
         lineas_remision: results.length,
         lineas_kepler: kepler.length,
@@ -2574,12 +2470,12 @@ export class GoodsReceiptProofsService {
         difieren: results.filter((r) => r.status === 'difiere_cantidad' || r.status === 'difiere_precio').length,
         sin_match: results.filter((r) => r.status === 'sin_match').length,
         revisar: results.filter((r) => r.status === 'revisar').length,
-        kepler_orphans: kepler_orphans.length,
+        kepler_orphans: c.kepler_orphans.length,
       };
 
       return {
         sucursal: suc, folio: fol, proveedor_rfc: rfc || null, proveedor_nombre: entrada.proveedor_nombre || null,
-        lines: results, kepler_orphans, totals,
+        lines: results, kepler_orphans: c.kepler_orphans, base_precio: c.base_precio, totals,
       };
     });
   }
@@ -2599,31 +2495,73 @@ export class GoodsReceiptProofsService {
     const descRaw = (dto.descripcion || '').trim();
     const sku = (dto.sku || '').trim();
     if (!rfc || !descRaw || !sku) throw new BadRequestException('proveedor_rfc, descripcion y sku requeridos');
-    const descNorm = this.normStr(descRaw);
+    const descNorm = normStr(descRaw);
     if (!descNorm) throw new BadRequestException('descripcion vacía tras normalizar');
 
     return this.tk.run(async (trx) => {
       const bf = dto.box_factor != null && isFinite(Number(dto.box_factor)) ? Number(dto.box_factor) : null;
-      const res = await trx.raw(
-        `INSERT INTO commercial.supplier_item_aliases
-           (tenant_id, proveedor_rfc, descripcion_norm, descripcion_raw, sku, nombre_interno, unidad_proveedor, box_factor, veces_confirmado, confianza, last_seen, created_by, updated_by)
-         VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, ?, ?, 1, 0.7, now(), ?, ?)
-         ON CONFLICT (tenant_id, proveedor_rfc, descripcion_norm) WHERE deleted_at IS NULL
-         DO UPDATE SET
-           sku = EXCLUDED.sku,
-           nombre_interno = COALESCE(EXCLUDED.nombre_interno, commercial.supplier_item_aliases.nombre_interno),
-           unidad_proveedor = COALESCE(EXCLUDED.unidad_proveedor, commercial.supplier_item_aliases.unidad_proveedor),
-           box_factor = COALESCE(EXCLUDED.box_factor, commercial.supplier_item_aliases.box_factor),
-           veces_confirmado = commercial.supplier_item_aliases.veces_confirmado + 1,
-           confianza = LEAST(1.0, 0.6 + 0.1 * (commercial.supplier_item_aliases.veces_confirmado + 1)),
-           last_seen = now(), updated_at = now(), updated_by = EXCLUDED.updated_by
-         RETURNING id, sku, veces_confirmado, confianza::numeric AS confianza`,
-        [rfc, descNorm, descRaw, sku, dto.nombre_interno || null, (dto.unidad_proveedor || '').toUpperCase() || null, bf, actor || null, actor || null],
-      );
-      const row = res.rows?.[0];
+      const row = await this.upsertAlias(trx, rfc, {
+        descripcion: descRaw, sku, nombre_interno: dto.nombre_interno || null,
+        unidad_proveedor: (dto.unidad_proveedor || '').toUpperCase() || null, box_factor: bf,
+      });
       this.logger.log(`alias aprendido: [${rfc}] "${descNorm}" → SKU ${sku} (x${row?.veces_confirmado}) por ${actor || '?'}`);
       return { id: row?.id, sku: row?.sku, veces_confirmado: Number(row?.veces_confirmado), confianza: Number(row?.confianza) };
     });
+  }
+
+  /**
+   * `[RE.53]` UPSERT de una equivalencia en `commercial.supplier_item_aliases`. ⛔ `created_by` y
+   * `updated_by` son `uuid`: el camino de RE.11.4 les pasaba el NOMBRE de la persona, así que el
+   * INSERT no podía pasar (la tabla tiene 0 filas desde que existe, medido en prod 2026-10-29).
+   * Quién validó queda en el historial de la evidencia y en el log; aquí van nulos.
+   */
+  private async upsertAlias(trx: Knex.Transaction, rfc: string, a: { descripcion: string; sku: string; nombre_interno: string | null; unidad_proveedor: string | null; box_factor: number | null }) {
+    const descNorm = normStr(a.descripcion);
+    if (!descNorm) return null;
+    const res = await trx.raw(
+      `INSERT INTO commercial.supplier_item_aliases
+         (tenant_id, proveedor_rfc, descripcion_norm, descripcion_raw, sku, nombre_interno, unidad_proveedor, box_factor, veces_confirmado, confianza, last_seen, created_by, updated_by)
+       VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, ?, ?, 1, 0.7, now(), NULL, NULL)
+       ON CONFLICT (tenant_id, proveedor_rfc, descripcion_norm) WHERE deleted_at IS NULL
+       DO UPDATE SET
+         sku = EXCLUDED.sku,
+         nombre_interno = COALESCE(EXCLUDED.nombre_interno, commercial.supplier_item_aliases.nombre_interno),
+         unidad_proveedor = COALESCE(EXCLUDED.unidad_proveedor, commercial.supplier_item_aliases.unidad_proveedor),
+         box_factor = COALESCE(EXCLUDED.box_factor, commercial.supplier_item_aliases.box_factor),
+         veces_confirmado = commercial.supplier_item_aliases.veces_confirmado + 1,
+         confianza = LEAST(1.0, 0.6 + 0.1 * (commercial.supplier_item_aliases.veces_confirmado + 1)),
+         last_seen = now(), updated_at = now()
+       RETURNING id, sku, veces_confirmado, confianza::numeric AS confianza`,
+      [rfc, descNorm, a.descripcion, a.sku, a.nombre_interno, a.unidad_proveedor, a.box_factor],
+    );
+    return res.rows?.[0] ?? null;
+  }
+
+  /**
+   * `[RE.53]` Al dar por buena una factura, el sistema aprende SOLO las equivalencias de sus
+   * renglones que pasan el umbral de `aprendibles` (cantidad e importe cuadran, nombre ≥ 50 % o
+   * código de barras, SKU sin repetir). Sin botón: nadie usó «Aprender» y el que había no guardaba.
+   * Va DESPUÉS de validar y en su propia transacción: si aprender falla, la validación no se
+   * deshace — se registra y sigue.
+   */
+  private async aprenderAlValidar(proofId: string, actor?: string): Promise<number> {
+    try {
+      const p = await this.tk.run((trx) => trx('finance.goods_receipt_proofs').where({ id: proofId }).first('sucursal', 'folio', 'ocr_raw'));
+      if (!p) return 0;
+      const raw = typeof p.ocr_raw === 'string' ? JSON.parse(p.ocr_raw || '{}') : (p.ocr_raw || {});
+      const lineas: RemisionLine[] = Array.isArray(raw?.lines) ? raw.lines : [];
+      if (!lineas.length) return 0;
+      const r = await this.reconcileLines(p.sucursal, p.folio, lineas);
+      const rfc = r.proveedor_rfc;
+      const a = aprendibles(r);
+      if (!rfc || !a.length) return 0;
+      await this.tk.run(async (trx) => { for (const x of a) await this.upsertAlias(trx, rfc, x); });
+      this.logger.log(`[RE.53] ${a.length} equivalencia(s) aprendida(s) al validar ${p.sucursal}/${p.folio} (validó ${actor || '?'}): ${a.map((x) => `"${x.descripcion}" → ${x.sku}`).join(', ')}`);
+      return a.length;
+    } catch (e: unknown) {
+      this.logger.warn(`[RE.53] no se aprendió de la evidencia ${proofId}: ${e instanceof Error ? e.message : String(e)}`);
+      return 0;
+    }
   }
 
   /**
@@ -2640,7 +2578,7 @@ export class GoodsReceiptProofsService {
    */
   async validate(id: string, actor?: string) {
     this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
+    const validada = await this.tk.run(async (trx) => {
       const prev = await trx('finance.goods_receipt_proofs').where({ id })
         .first('id', 'status', 'created_by', 'sucursal', 'folio');
       if (!prev) throw new BadRequestException('evidencia no encontrada');
@@ -2663,6 +2601,9 @@ export class GoodsReceiptProofsService {
       });
       return row;
     });
+    // `[RE.53]` Dada por buena: aprende las equivalencias que pasan el umbral (no frena si falla).
+    await this.aprenderAlValidar(id, actor);
+    return validada;
   }
 
   /** ¿El actor es quien subió? Normaliza espacios/caso porque los dos lados son texto libre. */
@@ -2967,6 +2908,7 @@ export class GoodsReceiptProofsService {
           });
         });
         out.push({ id, ok: true });
+        await this.aprenderAlValidar(id, actor);
       } catch (e: any) {
         out.push({ id, ok: false, motivo: e?.message || 'no se pudo validar' });
       }
@@ -2994,43 +2936,6 @@ export class GoodsReceiptProofsService {
     if (ratio >= 0.14 && ratio <= 0.175) return { kind: 'iva', amount };
     if (ratio > 0.7) return { kind: 'typo', amount };
     return { kind: 'otro', amount };
-  }
-
-  /** Normaliza texto para comparar: lower + sin acentos + puntuación→espacio + colapsa. */
-  private normStr(s: string): string {
-    return (s || '')
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^\w\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  /** Tokeniza: descarta tokens de 1 char, stopwords y unidades sueltas (ruido para el match). */
-  private tokenize(s: string): string[] {
-    const stop = new Set(['de', 'la', 'el', 'los', 'las', 'un', 'una', 'y', 'o', 'con', 'sin', 'para',
-      'pz', 'pza', 'pzs', 'pzas', 'gr', 'grs', 'kg', 'ml', 'lt', 'cja', 'caja', 'paq', 'c', 'pieza', 'piezas']);
-    return this.normStr(s).split(/\s+/).filter((t) => t.length >= 2 && !stop.has(t));
-  }
-
-  /**
-   * Similitud entre la descripción del proveedor y el nombre Kepler: cobertura de tokens
-   * (fracción de tokens de la remisión presentes en el nombre Kepler) con un pequeño bonus
-   * por el primer token (marca/identidad). 0..1. Universo chico (líneas de UNA entrada) →
-   * token-overlap alcanza; sin embeddings ni costo por recepción.
-   */
-  private lineSimilarity(remTokens: string[], kepTokens: string[]): number {
-    if (!remTokens.length || !kepTokens.length) return 0;
-    const kepSet = new Set(kepTokens);
-    const matched = remTokens.filter((t) => kepSet.has(t)).length;
-    const coverage = matched / remTokens.length;
-    // Jaccard suave para no premiar coincidencias por descripciones muy largas.
-    const union = new Set([...remTokens, ...kepTokens]).size;
-    const jaccard = matched / union;
-    let score = 0.7 * coverage + 0.3 * jaccard;
-    if (remTokens[0] && kepSet.has(remTokens[0])) score = Math.min(1, score + 0.1);
-    return score;
   }
 
   private parseDataUri(dataUri: string): { mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf'; base64: string } {

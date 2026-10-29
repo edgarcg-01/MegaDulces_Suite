@@ -485,6 +485,8 @@ export interface ReconcileResult {
   proveedor_nombre: string | null;
   lines: ReconciledLine[];
   kepler_orphans: { linea: string; sku: string | null; nombre: string | null; unidad: string | null; cantidad: number; costo_unitario: number; importe: number }[];
+  /** `[RE.53]` Si los importes de la remisión traen IVA; se decide por documento, no se supone. */
+  base_precio?: 'sin_iva' | 'con_iva' | 'sin_medir';
   totals: { lineas_remision: number; lineas_kepler: number; cuadran: number; difieren: number; sin_match: number; revisar: number; kepler_orphans: number };
 }
 
@@ -784,8 +786,6 @@ export class EntradasService {
   reconcile(sucursal: string, folio: string, lines: RemisionLine[]): Observable<ReconcileResult> {
     return this.http.post<ReconcileResult>(`${this.base}/reconcile`, { sucursal, folio, lines });
   }
-  /** RE.11.4 — aprende un match: descripción del proveedor → SKU interno. */
-  confirmLine(body: { proveedor_rfc: string; descripcion: string; sku: string; nombre_interno?: string; unidad_proveedor?: string; box_factor?: number }): Observable<{ id: string; sku: string; veces_confirmado: number; confianza: number }> {
-    return this.http.post<{ id: string; sku: string; veces_confirmado: number; confianza: number }>(`${this.base}/confirm-line`, body);
-  }
+  // `[RE.53]` Sin `confirmLine`: la pantalla ya no pide aprender renglón por renglón; el sistema
+  // aprende solo al dar la factura por buena (POST /confirm-line queda en la API).
 }

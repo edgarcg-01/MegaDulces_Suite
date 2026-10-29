@@ -1086,6 +1086,13 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                 @if (r.totals.kepler_orphans) { <span class="cb-rk sec">{{ r.totals.kepler_orphans }} solo en Kepler</span> }
               </div>
             </div>
+            <!-- [RE.53] Contra qué se comparó el precio: la base de IVA se decide por documento. -->
+            @if (r.base_precio === 'con_iva') {
+              <p class="cb-recon-base">Los importes de esta remisión traen IVA: se comparan contra Kepler quitándoles el 16 %.</p>
+            } @else if (r.base_precio === 'sin_medir') {
+              <p class="cb-recon-base">No se pudo saber si los importes traen IVA: ningún renglón cuadró en cantidad para medirlo.</p>
+            }
+            <p class="cb-recon-base">Lo que cuadra en cantidad e importe se aprende solo al dar la factura por buena.</p>
             <!-- [RE.52] Cuatro columnas en vez de siete: el PAR (lo que dice la remisión → el producto
                  de Kepler con el que se emparejó) en una celda, para que un cruce se lea de un vistazo
                  (en 03/0001088, «RED COLA 24/400 → RED COLA 600 ML»). En 696px las siete columnas
@@ -1732,7 +1739,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-rk.sec { color: var(--text-muted); }
     .cb-qty-bad { color: var(--bad-fg); font-weight: 600; }
     .cb-method { font-size: .76rem; color: var(--text-muted); }
-    .cb-method.alias { color: var(--action); font-weight: 600; }
+    .cb-method.alias { color: var(--text-main); font-weight: 600; }
     .cb-learned { font-size: .78rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .3rem; }
     .xs { font-size: .7rem; }
     .cb-recon-orphans { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .78rem; padding-top: .3rem; }
@@ -1762,6 +1769,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
        medían ~1,300px en la columna de 696px). */
     .cb-peek .cb-table th, .cb-peek .cb-table td { padding: .3rem .5rem; font-size: var(--fs-xs); line-height: 1.35; }
     .cb-peek .cb-table th { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); font-weight: 600; }
+    .cb-recon-base { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .cb-par { color: var(--text-muted); display: flex; align-items: baseline; gap: .3rem; flex-wrap: wrap; }
     .cb-par .pi { font-size: var(--fs-micro); }
     .cb-review { display: grid; grid-template-columns: 1fr; gap: 1.1rem; }
