@@ -72,10 +72,10 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               @if (r.estado === 'pending_approval') {
                 <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="abrirRechazo()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
                 <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="approve()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
-              } @else if (r.estado === 'approved') {
-                <!-- [PQ.16] D21: la Suite ya no genera su propia OC. El documento es el de Kepler
-                     (X-A-35 compra · U-D-40 traspaso) y acá se captura su folio (RQ.15). -->
-                <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="abrirOc()"><span class="p-button-icon p-button-icon-left pi" [ngClass]="r.source_type === 'branch' ? 'pi-send' : 'pi-shopping-cart'" aria-hidden="true"></span><span class="p-button-label">{{ r.source_type === 'branch' ? 'Capturar el traspaso de Kepler' : 'Capturar la OC de Kepler' }}</span></button>
+              } @else if (r.estado === 'approved' && r.source_type === 'branch') {
+                <!-- [PQ.16] El traspaso (U-D-40) todavía se captura a mano. La OC de compra ya no
+                     (PQ.25): la escribe la Suite al aprobar o se asocia sola por la liga de Kepler. -->
+                <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="abrirOc()"><span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">Capturar el traspaso de Kepler</span></button>
               } @else if (r.estado === 'ordered' || r.estado === 'received') {
                 @if (r.oc_folio) {
                   <span class="rd-oc" [attr.aria-label]="'Documento en Kepler: ' + (r.oc_sucursal | sucursal) + ' folio ' + r.oc_folio">Kepler {{ r.oc_sucursal | sucursal }} · {{ r.oc_folio }}</span>

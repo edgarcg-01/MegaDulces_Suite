@@ -308,18 +308,10 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td><p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag></td>
                   <td class="rq-muted">{{ r.created_at | date:'dd/MM/yy HH:mm' }}</td>
                   <td (click)="$event.stopPropagation()">
-                    <!-- [RQ.15] Capturar la OC es lo que cierra la junta requisicion-orden. Va por
-                         RENGLON y no en lote: cada requisicion sale con SU folio de Kepler, y un
-                         boton de lote invitaria a ponerle el mismo a varias. Solo en esta pestana:
-                         un traspaso entre sucursales NO genera orden de compra. -->
-                    @if (r.estado === 'approved') {
-                      <button pButton type="button" class="p-button-sm p-button-outlined"
-                              [disabled]="!canAutorizar || busy()" (click)="abrirOc(r)">
-                        <span class="p-button-icon p-button-icon-left pi pi-file-edit" aria-hidden="true"></span>
-                        <span class="p-button-label">Capturar OC</span>
-                      </button>
-                    } @else if (r.oc_folio) {
-                      <span class="rq-mono rq-muted">{{ r.oc_sucursal }}·{{ r.oc_folio }}</span>
+                    <!-- [PQ.25] La OC ya no se captura a mano: la escribe la Suite al aprobar
+                         (PQ.22) o se asocia sola por la liga de Kepler (c36/c37/c39). -->
+                    @if (r.oc_folio) {
+                      <span class="rq-mono rq-muted">{{ r.oc_sucursal | sucursal }} · OC {{ r.oc_folio }}</span>
                     } @else if (r.estado === 'ordered') {
                       <span class="rq-muted" title="Se marco como ordenada antes de que existiera la columna del folio. No se puede seguir hasta la entrada de mercancia.">sin OC</span>
                     } @else {
@@ -492,39 +484,6 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       </p-tabs>
       }
 
-      <!-- [RQ.15] Capturar la orden de compra de Kepler. El dialogo pide las DOS coordenadas:
-           el folio se repite entre sucursales, asi que uno suelto apunta a varios documentos
-           mientras se lee como si apuntara a uno. -->
-      <p-dialog [(visible)]="ocVisibleDlg" [modal]="true" [style]="{ width: '28rem' }"
-                header="¿Con qué orden de compra se ordenó?" [draggable]="false">
-        @if (ocReq(); as r) {
-          <p class="rq-muted rq-oc-sub">
-            {{ r.folio }} · {{ money(r.total_cost) }} · {{ r.supplier_name || 'sin proveedor' }}
-          </p>
-          <div class="rq-oc-form">
-            <label class="rq-oc-lbl" for="ocSuc">Sucursal donde se capturó la OC</label>
-            <input id="ocSuc" pInputText type="text" [(ngModel)]="ocSucursal" class="rq-oc-in"
-                   placeholder="00" autocomplete="off" />
-            <label class="rq-oc-lbl" for="ocFol">Folio de la orden de compra</label>
-            <input id="ocFol" pInputText type="text" [(ngModel)]="ocFolio" class="rq-oc-in"
-                   placeholder="0007103" autocomplete="off" (keyup.enter)="guardarOc()" />
-            <p class="rq-oc-hint">
-              Es el folio con el que Kepler identifica la orden. Con él, la requisición se puede
-              seguir hasta la entrada de mercancía y la factura.
-            </p>
-          </div>
-        }
-        <ng-template #footer>
-          <button pButton type="button" class="p-button-text" (click)="ocVisible.set(false)">
-            <span class="p-button-label">Cancelar</span>
-          </button>
-          <button pButton type="button" [disabled]="!ocSucursal.trim() || !ocFolio.trim() || busy()"
-                  (click)="guardarOc()">
-            <span class="p-button-label">Marcar como ordenada</span>
-          </button>
-        </ng-template>
-      </p-dialog>
-
       <!-- [AB.32] Rechazar en lote: una requisición que pidió una sucursal no se rechaza sin decirle por qué. -->
       <p-dialog [visible]="rechazoAbierto()" (visibleChange)="rechazoAbierto.set($event)" [modal]="true" [style]="{ width: '32rem' }"
                 [breakpoints]="{ '40rem': '95vw' }" header="Rechazar requisiciones" [dismissableMask]="!busy()">
@@ -550,11 +509,6 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   `,
   styles: [`
     /* [RQ.15] El dialogo de captura de la OC. SIN ACENTOS GRAVES ACA. */
-    .rq-oc-sub { margin: 0 0 .75rem; font-size: var(--fs-sm); }
-    .rq-oc-form { display: flex; flex-direction: column; gap: .35rem; }
-    .rq-oc-lbl { font-size: var(--fs-xs); color: var(--text-muted); margin-top: .4rem; }
-    .rq-oc-in { width: 100%; }
-    .rq-oc-hint { margin: .6rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
     :host { display: block; }
     .rq-tab-title { display: inline-flex; align-items: center; gap: .5rem; font-weight: 600; }
     .rq-filters { margin-bottom: .75rem; display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; } .rq-sel { min-width: 14rem; }
@@ -1015,67 +969,6 @@ export class ComprasRequisicionesComponent implements OnInit {
    * sino el freno de `[RQ.3]`: la requisición ya no tiene el costo de hoy. Tragarlo dejaría al
    * usuario creyendo que aprobó 50 cuando aprobó 21.
    */
-  // ── `[RQ.15]` Capturar la orden de compra de Kepler ───────────────────────────────────────
-  /**
-   * La junta requisición ↔ OC **no existía**: se guardaba cuándo y quién ordenó, nunca cuál orden.
-   * Medido el 2026-10-09: **53 requisiciones `ordered` por $11,586,824** que no se pueden seguir
-   * hasta la entrada de mercancía.
-   *
-   * ⭐ Y lo que de verdad faltaba era ESTO: el endpoint existe desde `RA.14` y **ninguna pantalla
-   * lo llamaba**. Hacer el folio obligatorio en el backend no sirve de nada si no hay dónde
-   * teclearlo.
-   */
-  readonly ocVisible = signal(false);
-  /**
-   * Puente para `[(visible)]` de `p-dialog`, que necesita una propiedad con setter y no acepta un
-   * signal. ⚠️ Sin esto la X y la tecla Escape cierran el diálogo en el DOM y el signal se queda
-   * en `true`: la segunda vez el botón no abre nada y parece que no funciona.
-   */
-  get ocVisibleDlg(): boolean { return this.ocVisible(); }
-  set ocVisibleDlg(v: boolean) { this.ocVisible.set(v); }
-  readonly ocReq = signal<RequisitionRow | null>(null);
-  ocSucursal = '';
-  ocFolio = '';
-
-  abrirOc(r: RequisitionRow): void {
-    this.ocReq.set(r);
-    // ⚠️ Se propone la sucursal de la requisición, NO se impone: la OC puede capturarse en otra
-    // plaza (hasta el 1-oct el `00` concentraba las compras de toda la red — Fase PO). Es un
-    // punto de partida para no teclear de más, y se puede corregir.
-    this.ocSucursal = (r.warehouse_code || '').trim();
-    this.ocFolio = '';
-    this.ocVisible.set(true);
-  }
-
-  guardarOc(): void {
-    const r = this.ocReq();
-    const suc = this.ocSucursal.trim();
-    const fol = this.ocFolio.trim();
-    if (!r || !suc || !fol) return;
-    this.busy.set(true);
-    this.api.markOrdered(r.id, { oc_sucursal: suc, oc_folio: fol })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          this.busy.set(false); this.ocVisible.set(false);
-          this.toast.add({ severity: 'success', life: 5000, summary: `${r.folio} ordenada`, detail: `Orden de compra ${suc}·${fol}` });
-          this.reload();
-        },
-        error: (e) => {
-          this.busy.set(false);
-          // ⛔ NO se traga el error ni se cierra el diálogo: lo capturado sigue en pantalla para
-          // corregirlo. El 409 del índice único es el caso real — ese folio ya está en otra
-          // requisición, y cerrar borraría el dato recién tecleado.
-          this.toast.add({
-            severity: 'error', life: 12000, summary: 'No se pudo marcar como ordenada',
-            detail: e?.error?.message || (e?.status === 409
-              ? 'Esa orden de compra ya está capturada en otra requisición.'
-              : 'Revisa la sucursal y el folio.'),
-          });
-        },
-      });
-  }
-
   lote(accion: 'approve' | 'reject', motivo: string | null = null): void {
     const ids = [...this.sel()];
     if (!ids.length) return;
