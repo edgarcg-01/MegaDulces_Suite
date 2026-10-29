@@ -552,7 +552,19 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           <p-checkbox [binary]="true" [ngModel]="armadoOn().has(g.key)" (onChange)="toggleArmado(g.key)" [ariaLabel]="'Incluir ' + g.beneficiary + ' ' + branchLabel(g.branch)" />
                           <span class="pg-prop-main">
                             <span class="cal-benef">{{ g.beneficiary }}</span>
-                            <span class="pg-sub"><span class="cal-suc">{{ branchLabel(g.branch) }}</span> {{ facturas(g.items.length) }} · la más vieja venció el {{ shortDate(g.oldest) }}</span>
+                            <!-- [PGP.38] Un grupo que entra por DESCUENTO todavia no vencio: decir "la mas vieja
+                                 vencio el X" sobre el limite de su ventana seria una mentira literal. -->
+                            @if (g.motivo === 'pronto_pago') {
+                              <span class="pg-sub"><span class="cal-suc">{{ branchLabel(g.branch) }}</span> {{ facturas(g.items.length) }} · <b>no vence todavía</b> (vence el {{ shortDate(vencimientoDelGrupo(g)) }})</span>
+                              <span class="pg-razon is-gana" [title]="'Entra en la propuesta porque su ventana de pronto pago cierra pronto. El descuento sale de los pagos que de hecho lo obtuvieron con este proveedor: es una guia medida, no una promesa.'">
+                                <i class="pi pi-arrow-up-right" aria-hidden="true"></i>Se adelanta para ganar {{ money(g.gana) }} antes del {{ shortDate(g.oldest) }}
+                              </span>
+                            } @else {
+                              <span class="pg-sub"><span class="cal-suc">{{ branchLabel(g.branch) }}</span> {{ facturas(g.items.length) }} · la más vieja venció el {{ shortDate(g.oldest) }}</span>
+                              @if (g.gana > 0) {
+                                <span class="pg-razon is-gana"><i class="pi pi-arrow-up-right" aria-hidden="true"></i>además gana {{ money(g.gana) }} de pronto pago si sale hoy</span>
+                              }
+                            }
                             <!-- [PGP.14] Acá es donde de verdad se decide: la propuesta ya eligió a
                                  este proveedor. Si trae saldo a favor sin aplicar, se dice ANTES de
                                  marcar la casilla, no después de pagar. -->
@@ -578,7 +590,19 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                               <span class="pi pi-minus pg-fuera-i" aria-hidden="true"></span>
                               <span class="pg-prop-main">
                                 <span class="cal-benef">{{ g.beneficiary }}</span>
-                                <span class="pg-sub"><span class="cal-suc">{{ branchLabel(g.branch) }}</span> {{ facturas(g.items.length) }} · la más vieja venció el {{ shortDate(g.oldest) }}</span>
+                                <!-- [PGP.38] Un grupo que entra por DESCUENTO todavia no vencio: decir "la mas vieja
+                                     vencio el X" sobre el limite de su ventana seria una mentira literal. -->
+                                @if (g.motivo === 'pronto_pago') {
+                                  <span class="pg-sub"><span class="cal-suc">{{ branchLabel(g.branch) }}</span> {{ facturas(g.items.length) }} · <b>no vence todavía</b> (vence el {{ shortDate(vencimientoDelGrupo(g)) }})</span>
+                                  <span class="pg-razon is-gana" [title]="'Entra en la propuesta porque su ventana de pronto pago cierra pronto. El descuento sale de los pagos que de hecho lo obtuvieron con este proveedor: es una guia medida, no una promesa.'">
+                                    <i class="pi pi-arrow-up-right" aria-hidden="true"></i>Se adelanta para ganar {{ money(g.gana) }} antes del {{ shortDate(g.oldest) }}
+                                  </span>
+                                } @else {
+                                  <span class="pg-sub"><span class="cal-suc">{{ branchLabel(g.branch) }}</span> {{ facturas(g.items.length) }} · la más vieja venció el {{ shortDate(g.oldest) }}</span>
+                                  @if (g.gana > 0) {
+                                    <span class="pg-razon is-gana"><i class="pi pi-arrow-up-right" aria-hidden="true"></i>además gana {{ money(g.gana) }} de pronto pago si sale hoy</span>
+                                  }
+                                }
                               </span>
                               <span class="pg-prop-amt comm-num">{{ money(g.total) }}</span>
                             </div>
@@ -1621,6 +1645,16 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * facturas, **no por el nombre**: dos proveedores pueden llamarse igual y netear contra el
    * equivocado es peor que no avisar nada.
    */
+  /**
+   * `[PGP.38]` El vencimiento REAL del grupo. Hace falta porque `oldest` de un grupo que entró
+   * sólo por descuento es el límite de su VENTANA, no un vencimiento: usarlo en el texto de
+   * «venció el…» diría que una factura venció cuando todavía no.
+   */
+  vencimientoDelGrupo(g: ArmadoGrupo<Obligation>): string | null {
+    const fechas = g.items.map((o) => vencimiento(o)).filter((d): d is string => !!d).sort();
+    return fechas[0] ?? null;
+  }
+
   creditoDeGrupo(g: ArmadoGrupo<Obligation>): { a_favor: number; docs: number; clases: string } | null {
     for (const it of g.items) { const c = this.creditoDe(it); if (c) return c; }
     return null;

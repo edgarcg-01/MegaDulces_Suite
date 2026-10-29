@@ -29,6 +29,13 @@ export interface GroupableObligation {
   is_critical: boolean;
   /** Sucursal (almacén) de la factura; null = sin sucursal (gasto, compromiso, captura manual). */
   branch_code?: string | null;
+  /**
+   * `[PGP.38]` La ventana de pronto pago, que el backend ya manda con cada obligación
+   * (`sqlVentanaProntoPago`). Opcionales porque sólo la deuda derivada del ERP las trae.
+   */
+  pronto_fecha_limite?: string | null;
+  pronto_beneficio?: number | string | null;
+  pronto_estado?: string | null;
 }
 
 export interface ObligationGroup<T extends GroupableObligation> {
@@ -84,30 +91,100 @@ export interface ArmadoGrupo<T extends GroupableObligation> {
   oldest: string;
   /** Cabe en lo que queda del disponible, en el orden propuesto. */
   fits: boolean;
+  /**
+   * `[PGP.38]` **Por qué este grupo está en la propuesta.** `vencida` es la regla de siempre;
+   * `pronto_pago` es la que faltaba: una factura que **todavía no vence** pero cuya ventana de
+   * descuento cierra pronto. Sin ella la propuesta automática no podía capturar el pronto pago,
+   * porque el pronto pago **consiste en adelantarse**.
+   */
+  motivo: 'vencida' | 'pronto_pago';
+  /** Lo que el grupo gana si se paga en este día (0 si no hay ventana abierta medida). */
+  gana: number;
 }
 
 /**
  * `[TP.16.4]` «Sugerir armado» de un día (Francisco revisó la regla en la maqueta, 2026-10-16):
- *  1. toma lo VENCIDO o que vence ese día (nunca lo que vence después: eso no se adelanta solo);
+ *  1. toma lo VENCIDO o que vence ese día;
  *  2. un pago por proveedor + sucursal;
  *  3. primero el grupo con la factura más vieja; empate → el de mayor monto;
  *  4. llena hasta `room` (el disponible del día); lo que no cabe se marca `fits: false`.
  * Sin fecha de vencimiento no entra: no se puede decir que ya venció.
+ *
+ * ⭐⭐ `[PGP.38]` **Y lo que NO vence todavía pero pierde descuento si se espera.** La regla
+ * original decía *«nunca lo que vence después: eso no se adelanta solo»*, y era razonable —
+ * adelantar dinero sin motivo es un costo. Pero **el pronto pago consiste exactamente en
+ * adelantarse**, así que esa regla le ponía un techo a la automatización.
+ *
+ * Medido contra prod el 2026-10-29, sobre $139.6M de deuda viva:
+ *
+ *   | | facturas | deuda | descuento con ventana ABIERTA |
+ *   |---|---:|---:|---:|
+ *   | ya vencida (la regla sí la tomaba) | 2,558 | $94,318,131 | $910,762 |
+ *   | vence después (**no** la tomaba)   |   358 | $45,495,043 | **$1,522,587** |
+ *
+ * O sea que **el 62.7 % del descuento en juego estaba fuera del alcance de la propuesta**, y
+ * justo donde vive el pronto pago: una factura dentro de su ventana, por definición, todavía
+ * no vence.
+ *
+ * ⛔ Entra **sólo** si se dan las dos: su ventana cierra dentro de `DIAS_ADELANTO` **y** el
+ * beneficio medido es > 0. Adelantar sin descuento medido sería sacar dinero antes por nada.
+ * ⛔ Y el motivo viaja en el grupo: la pantalla **tiene que decir** que esto se adelanta y por
+ * cuánto. Una propuesta que mete una factura no vencida sin explicarlo es un cambio de criterio
+ * a espaldas de quien firma.
+ * ⛔ El orden NO cambia de fondo: **lo vencido va primero**, así que si el disponible no alcanza,
+ * lo que se recorta es el adelanto y nunca la deuda que ya se debe.
  */
+/**
+ * Días de anticipación con que se ofrece adelantar un pago por su descuento. Es el mismo margen
+ * de aviso que usa la pantalla (`PRONTO_PAGO_DIAS_AVISO`): si el renglón dice «por vencer», la
+ * propuesta lo ofrece. Dos números distintos harían que la pantalla avisara de algo que el
+ * armado ignora.
+ */
+export const DIAS_ADELANTO = 5;
+
 export function sugerirArmado<T extends GroupableObligation>(obligations: readonly T[], date: string, room: number): ArmadoGrupo<T>[] {
-  const due = obligations.filter((o) => { const d = dueOf(o); return d != null && d <= date; });
+  const limiteAdelanto = sumarDias(date, DIAS_ADELANTO);
+  /** `[PGP.38]` La ventana está abierta, cierra dentro del margen, y hay beneficio medido. */
+  const adelantable = (o: T): boolean => {
+    const lim = o.pronto_fecha_limite?.slice(0, 10) ?? null;
+    return lim != null && lim >= date && lim <= limiteAdelanto && Number(o.pronto_beneficio ?? 0) > 0;
+  };
+  const due = obligations.filter((o) => {
+    const d = dueOf(o);
+    if (d != null && d <= date) return true;
+    return adelantable(o);
+  });
   const byKey = new Map<string, T[]>();
   for (const o of due) { const k = obligationKey(o); (byKey.get(k) ?? byKey.set(k, []).get(k)!).push(o); }
   const groups = [...byKey.entries()].map(([key, items]) => {
     items.sort((a, b) => dueOf(a)!.localeCompare(dueOf(b)!));
+    // `[PGP.38]` Un grupo es «vencida» si alguna de sus facturas ya venció. Si ninguna, está
+    // entero por su descuento, y la pantalla tiene que decirlo.
+    const hayVencida = items.some((o) => { const d = dueOf(o); return d != null && d <= date; });
+    const gana = items.reduce((s, o) => s + Number(o.pronto_beneficio ?? 0), 0);
     return { key, beneficiary: items[0].beneficiary, branch: items[0].branch_code ?? null, items,
-      total: items.reduce((s, o) => s + Number(o.available_amount), 0), oldest: dueOf(items[0])!, fits: false };
-  }).sort((a, b) => a.oldest.localeCompare(b.oldest) || b.total - a.total);
+      total: items.reduce((s, o) => s + Number(o.available_amount), 0),
+      // `oldest` sería null en un grupo que entró SÓLO por descuento: se usa el límite de su
+      // ventana, que es la fecha que de verdad manda para ése.
+      oldest: dueOf(items[0]) ?? items[0].pronto_fecha_limite?.slice(0, 10) ?? NO_DATE,
+      fits: false,
+      motivo: hayVencida ? 'vencida' : 'pronto_pago',
+      gana: Math.round(gana * 100) / 100 };
+  }).sort((a, b) =>
+    // Lo VENCIDO primero, siempre: el adelanto nunca desplaza una deuda que ya se debe.
+    (a.motivo === b.motivo ? 0 : a.motivo === 'vencida' ? -1 : 1)
+    || a.oldest.localeCompare(b.oldest) || b.total - a.total);
   let left = room;
   for (const g of groups) { g.fits = g.total <= left + 0.005; if (g.fits) left -= g.total; }
   return groups;
 }
 const dueOf = (o: GroupableObligation): string | null => vencimiento(o);
+
+/** `[PGP.38]` Suma días a un `YYYY-MM-DD` sin arrastrar zona horaria. */
+function sumarDias(iso: string, dias: number): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + dias)).toISOString().slice(0, 10);
+}
 
 export function agruparObligaciones<T extends GroupableObligation>(obligations: readonly T[]): ObligationGroup<T>[] {
   const byKey = new Map<string, ObligationGroup<T>>();

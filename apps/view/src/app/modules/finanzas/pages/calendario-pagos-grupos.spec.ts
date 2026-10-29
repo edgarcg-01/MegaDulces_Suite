@@ -18,7 +18,7 @@ describe('[TP.16.4] sugerirArmado — lo vencido, un pago por proveedor y sucurs
     expect(s.every((x) => x.fits)).toBe(true);
   });
 
-  it('no adelanta lo que vence después del día (8c y 1b se quedan)', () => {
+  it('no adelanta lo que vence después del día SI no gana descuento (8c y 1b se quedan)', () => {
     const ids = sugerirArmado(lista, '2026-10-16', 1e9).flatMap((x) => x.items.map((i) => i.obligation_id));
     expect(ids).not.toContain('8c');
     expect(ids).not.toContain('1b');
@@ -28,6 +28,65 @@ describe('[TP.16.4] sugerirArmado — lo vencido, un pago por proveedor y sucurs
     const s = sugerirArmado(lista, '2026-10-16', 70000);
     expect(s.map((x) => x.fits)).toEqual([true, true, false, false]);
   });
+});
+
+/**
+ * `[PGP.38]` **Lo que NO vence todavía pero pierde descuento si se espera.**
+ *
+ * Medido contra prod el 2026-10-29: de los $2,427,564 de pronto pago con ventana abierta sobre la
+ * deuda viva, **$1,522,587 (62.7 %) estaba en facturas que la propuesta nunca ofrecía** porque
+ * todavía no vencen — y una factura dentro de su ventana, por definición, todavía no vence.
+ *
+ * ⭐ Cada caso de abajo tiene su CONTROL NEGATIVO al lado: la misma factura sin el motivo no entra.
+ * Un gate sin prueba negativa es una intención.
+ */
+describe('[PGP.38] sugerirArmado — adelanta SÓLO lo que gana descuento, y lo dice', () => {
+  /** Factura que vence el 30, con ventana de pronto pago que cierra el `limite`. */
+  const pp = (id: string, limite: string | null, beneficio: number) => ({
+    ...ob(id, 'MONDELEZ', '2026-10-30', 100000),
+    branch_code: '00', pronto_fecha_limite: limite, pronto_beneficio: beneficio,
+  });
+
+  it('entra aunque NO haya vencido: su ventana cierra dentro de los 5 días', () => {
+    const s = sugerirArmado([pp('m', '2026-10-19', 5100)], '2026-10-16', 1e9);
+    expect(s.map((x) => x.items.map((i) => i.obligation_id).join('+'))).toEqual(['m']);
+    expect(s[0].motivo).toBe('pronto_pago');
+    expect(s[0].gana).toBe(5100);
+  });
+
+  it('CONTROL NEGATIVO · misma factura, misma fecha, pero beneficio 0 → NO entra', () => {
+    expect(sugerirArmado([pp('m', '2026-10-19', 0)], '2026-10-16', 1e9)).toEqual([]);
+  });
+
+  it('CONTROL NEGATIVO · gana mucho pero su ventana cierra en 30 días → NO entra todavía', () => {
+    expect(sugerirArmado([pp('m', '2026-11-15', 99999)], '2026-10-16', 1e9)).toEqual([]);
+  });
+
+  it('CONTROL NEGATIVO · su ventana YA cerró ayer → NO entra: adelantarse ya no gana nada', () => {
+    expect(sugerirArmado([pp('m', '2026-10-15', 5100)], '2026-10-16', 1e9)).toEqual([]);
+  });
+
+  it('CONTROL NEGATIVO · sin ventana medida (null) → NO entra', () => {
+    expect(sugerirArmado([pp('m', null, 5100)], '2026-10-16', 1e9)).toEqual([]);
+  });
+
+  it('lo VENCIDO va primero aunque el adelanto gane más: si no alcanza, se recorta el adelanto', () => {
+    const vencida = { ...ob('v', 'GONAC', '2026-10-10', 60000), branch_code: '01' };
+    const s = sugerirArmado([pp('m', '2026-10-19', 90000), vencida], '2026-10-16', 70000);
+    expect(s.map((x) => `${x.items[0].obligation_id}·${x.motivo}·${x.fits}`)).toEqual([
+      'v·vencida·true', 'm·pronto_pago·false',
+    ]);
+  });
+
+  it('un grupo con UNA vencida y otra por descuento se marca «vencida», y suma lo que gana', () => {
+    const vieja = { ...ob('a', 'MONDELEZ', '2026-10-10', 20000), branch_code: '00' };
+    const s = sugerirArmado([vieja, pp('b', '2026-10-19', 5100)], '2026-10-16', 1e9);
+    expect(s).toHaveLength(1);
+    expect(s[0].motivo).toBe('vencida');
+    expect(s[0].gana).toBe(5100);
+    expect(s[0].items.map((i) => i.obligation_id).sort()).toEqual(['a', 'b']);
+  });
+
 });
 
 describe('[TP.16.4] revisión independiente — los casos que separaban front y back', () => {
