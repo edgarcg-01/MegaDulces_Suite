@@ -1128,6 +1128,14 @@ falta uno nuevo.
   sólo lectura; el modo completo espera a `pruebas-db` (§11.8). De paso: `[CP.8.87]` ya era de otra sesión (gasto
   con factura «por proveedor», en código) → la sesión de la etapa 1 cierra `CP.8.40`/`CP.8.55`/`CP.8.56` y D10
   consta como decidida el 2026-10-23.
+- **2026-10-29** — `[CP.8.95]` 🧪 **motor de dictamen** (§11.9): 8 perspectivas, cada póliza con veredicto antes
+  de entregarla.
+  - Ene–sep: bloquea las 997 que ella ya capturó y encuentra 1 CFDI cancelado. Marca 65 de las 98 que ella
+    asentó distinto, con una precisión de 26 % contra 9.9 % de base.
+  - Octubre: 13 por entregar (6 listas, 7 a revisar).
+  - Se descartaron, medidas, «2120 sin provisión» y «PPD sin REP».
+  - Se encontró que la provisión de ella no lleva UUID: la primera versión de `doble_registro` era un candado vacío.
+  - Falta conectarlo (C2/C3), que espera a que otra sesión commitee el armado.
 
 ---
 
@@ -1322,3 +1330,95 @@ y el veredicto llamaba «Descuadre» a lo que era captura pendiente.
   `app_runtime` con RLS. Cada control negativo (otra cuenta, otra dirección, otro mes) da un % distinto si falla, y
   una póliza fechada en 2099 no cuenta como «al día».
 - ⚠️ **Sin validación visual:** la pantalla no se levantó en local (regla 3). Tipa limpio (`check:pantalla` y `tsgo`).
+
+### 11.9 🧪 `[CP.8.95]` El motor de dictamen: cada póliza se juzga ANTES de entregarla (2026-10-29)
+
+> Pedido de Edgar: *«un motor que analice todo: si la póliza se va a generar mal, etc. Analicemos todas las
+> perspectivas y entreguemos un sistema muy completo.»*
+
+**Qué es.** `dictamen.ts` (puro) recibe cada póliza tal como sale del armado y devuelve hallazgos con severidad.
+El veredicto es el de la peor: **bloquea** (no sale en el archivo), **revisar** (sale con el visto bueno de alguien),
+**aviso** (se dice y no frena). `dictamen.contexto.ts` lee de la base lo que hace falta, acotado a las cuentas, los
+UUID y los emisores de las pólizas del mes. ⛔ Si una fuente no se leyó, la regla que la necesita sale como
+`*_no_medido` en «revisar»: nunca pasa en verde.
+
+**Lo que ya existía** (inventario del 2026-10-29). Había muchos controles, pero repartidos:
+- el Libro de Compras tiene los suyos al emitir (CFDI vigente, 4 puertas anti-duplicado, folio ocupado);
+- los detectores de Maat revisan de noche las pólizas que ya capturó contabilidad;
+- el cuadre posterior compara sólo el total.
+
+Para el puente de egresos, en cambio, **no había nada antes de entregar** en estos frentes:
+- catálogo de cuentas;
+- CFDI cancelado o en la lista 69-B;
+- «ya la capturó contabilidad». El `pagadaAntes` del armado compara con `<` estricto y no ve una captura del mismo día;
+- UUID repetido entre pólizas;
+- retenciones;
+- concepto recortado en silencio.
+
+Ese es el hueco que llena el motor.
+
+**Las reglas, por perspectiva**
+
+| Perspectiva | Bloquea | Revisar | Aviso |
+|---|---|---|---|
+| Aritmética | descuadre · importe ≤ 0 · fracción de centavo · menos de 2 renglones | pata de banco ≠ 1 en un egreso | — |
+| Catálogo | cuenta inexistente · no afectable · de baja · fuera de la máscara 3-3-4 | — | — |
+| Fecha | inválida · fuera del periodo del archivo · futura | — | — |
+| Formato | carácter fuera de latin1, salto de línea o tabulador (corre el renglón) | — | concepto de más de 100 (se recorta) |
+| CFDI | UUID mal formado · cancelado (dice el sustituto) · emitido a otro RFC | desconocido · tipo ≠ I/E · otra moneda · con retención · de varios emisores | sin estatus del SAT consultado |
+| Proveedor | — | emisor en la lista 69-B · la cuenta 2120 es de otro RFC | — |
+| Duplicado | **ya la capturó contabilidad** (cuenta de banco e importe, ±3 días, una póliza de ella se usa una vez) | dos candidatas sin desempate · CFDI ya en otra póliza de egreso · mismo CFDI o misma pata de banco en dos pólizas del archivo | — |
+| Criterio | — | **lleva notas de crédito** · **anticipo por aplicar** (1050) · doble registro (provisión por cuenta e importe pagada contra compra o gasto) · traspaso de IVA pendiente · redondeo de más de $1 | factura mixta 0 %/16 % · redondeo de hasta $1 |
+
+**Medido contra lo que capturó contabilidad** (ene–sep 2026, prod en sólo lectura, el contexto leído por el código
+de producción):
+
+| | |
+|---|---|
+| Pólizas armadas | 1,008 · comparables con las de ella 990 · distintas a las de ella 98 (9.9 %) |
+| Ya capturadas por ella | **997 bloqueadas**. Coincide con el cruce de `comparar-armado-contpaqi.js`, que es otra implementación: 892/892 iguales, 98/98 distintas, 5/5 agrupadas |
+| Errores de integridad | **1**: un CFDI cancelado asociado (julio; ella también lo asoció). Ni un descuadre, ni una cuenta mala, ni una fecha mala |
+| Las distintas a ella, ¿las marca? | **65 de 98 (66 %)**, marcando 182 de las 892 iguales. **26 %** de lo que manda a revisar difiere, contra 9.9 % al azar |
+| Por causa | notas 26/26 · anticipo 10/12 · otro 6/7 · impuesto 10/18 · frontera 2120 10/24 · redondeo 3/7 · tasa 0/4 |
+| Tiempo | contexto 280–330 ms por mes y dictamen 11–37 ms, desde la máquina de trabajo; dentro del pod NO MEDIDO |
+
+**Descartadas, medidas antes de dejarlas:**
+- **«2120 sin provisión»:** precisión de 11 % contra 9.9 % de base, con 606 falsas alarmas.
+- **«3 o más facturas»:** 13 %.
+- **PPD sin complemento de pago:** sale en el 72 % de las pólizas y no hace mala a la póliza; ya lo cubre el detector fiscal `ppd_sin_rep`.
+
+⛔ **El candado vacío que se encontró en el camino.** La primera versión buscaba la provisión por UUID, y los renglones
+de provisión de contabilidad **no llevan UUID: 0 de 2,331** en ene–sep. Ese conjunto quedaba siempre vacío, así que
+`doble_registro` no podía saltar nunca. Ahora usa la llave del armado (cuenta 2120 + importe, entre el mes de la
+factura y el pago):
+- encuentra 3,197 provisiones;
+- 670 pagos cierran la suya contra 2120;
+- 0 salen mal;
+- el spec prueba que la regla sí salta, también en un gasto 52xx que encuentra al proveedor por su RFC.
+
+**Octubre, el mes vivo (al 29):** de 121 pólizas armadas, **108 ya las capturó ella**. Quedan **13: 6 listas para
+entregar y 7 a revisar** (notas, anticipos).
+
+**Candado:** `dictamen.spec.ts`, 36 ✓, puro. El primer caso es el control positivo: la póliza limpia sale lista y sin
+hallazgos. Rompiendo el motor a propósito (el descuadre deja de detectarse, el veredicto nunca bloquea), 1 y 2
+pruebas se ponen rojas.
+
+**Lo que NO cubre, declarado:**
+- **Periodo cerrado en ContPAQi:** no está replicado. Traerlo es extender el feed de ContPAQi, que es una decisión (D11).
+- **El IVA del lote contra el CFDI:** los lotes no traen CFDI. Su IVA sale del movimiento hermano del banco.
+- **El estatus del SAT:** el 90 % de las pólizas de ene–sep lleva algún CFDI nunca consultado (en octubre, 16). Antes de dictaminar
+  conviene consultarlo, como ya lo hace el Libro de Compras (`verificarSat`).
+- **El criterio de ella no se adivina entero:** 33 de las 98 diferencias no dan señal (impuesto, frontera 2120,
+  tasa). Para eso sigue el cuadre después de entregar.
+
+**Lo que falta para que el motor FRENE de verdad (C2 y C3).** ⛔ Toca `contpaqi-armado.service.ts` y
+`contpaqi-bridge.controller.ts`, que otra sesión tiene **sin commitear** (su `[CP.8.87]`, 169 líneas). Se hace en
+cuanto commitee:
+1. **C2:** `dictamenDelMes(mes)` en el armado (arma, lee el contexto y dictamina) y `GET /finance/contpaqi/dictamen?mes=`
+   con el permiso de ver.
+2. **C2:** `generarArchivoMes` deja fuera las `bloqueadas`, con su motivo. Esto cierra la parte de exclusión de `[CP.8.88]`;
+   la detección ya está en el motor.
+3. **C3:** en el paso «Entregar» del puente, cada póliza con su veredicto y sus hallazgos, y arriba el resumen
+   («121 armadas · 108 ya capturadas · 6 listas · 7 a revisar»).
+4. **D12, para Edgar:** las pólizas en «revisar», ¿salen en el archivo o esperan visto bueno? Recomiendo **visto
+   bueno**: es un endpoint que escribe, y por la regla 13 se prueba contra base real.
