@@ -695,6 +695,27 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   el motor arriba del libro; el único patrón repetido es el SKU 17160 (Kepler exento, el libro al
   16 %), candidato sin control negativo. ⛔ Falta: aplicarla a prod (una por una), esperar el
   refresco de 30 min de la matview y recalcular Q21.
+  **2026-10-29:** aplicada en prod (28-oct) y el código RD.91–97 desplegado. ⚠️ Su `CREATE OR
+  REPLACE` sin `WITH` le quitó a la vista `security_invoker` (lo devuelve `[RD.98]`). Q21 **sigue
+  sin recalcular**: borrador del 23-oct, con el neto viejo.
+- **`[RD.96]` 🧪 El veredicto de costo del periodo ya no sale «sin costo» siempre** (`25398ceb2`).
+  El pliegue del peor veredicto arrancaba en `sin_costo`, que ya es el peor: nunca cambiaba. En
+  Q21 la fuente tiene 70 ruta-día con dos fuentes y 51 con una, cero sin costo. No mueve dinero.
+- **`[RD.97]` 🧪 La quincena en curso es «acumulado», no «proyección»** (`529acb3c9`): sin la caja
+  roja de «no se puede aprobar» por compuertas que en curso son normales, y con el nombre del chofer.
+- **`[RD.98]` 🧪 El contraste libro↔motor: de a una quincena y sólo con libro** (migración
+  `20261029121941_rd_contraste_solo_libro`, **sin aplicar**). Medido en prod el 2026-10-29:
+  `commission_engine_lines` **nunca tuvo una fila**, y la pantalla mostraba 260 «sin medir», de
+  los que **22 eran Q21, una corrida del MOTOR**: contrastarla habría medido el motor contra sí
+  mismo. El botón pedía el año entero en una sola petición (~12 s × 20 quincenas), que detrás del
+  túnel de Cloudflare (corte documentado a 100 s) no puede terminar, y las fallas por quincena
+  que el servidor sí devolvía se tiraban sin mostrarse. Ahora: la vista y el servicio sólo toman
+  corridas `origen = 'libro'` (el SELECT nuevo da 238 filas, sin Q21; el del `down` es idéntico a
+  la vista viva, con control); `contrastarPeriodo` rechaza una quincena sin libro **antes** de
+  correr el motor (prueba roja sin la guarda); la pantalla corre de a una con avance y lista las
+  fallas. De paso devuelve `security_invoker` a `v_rd_route_daily`; hoy no cambia ninguna fila,
+  porque sus bases no tienen RLS. ⛔ Sin validación visual. Falta: aplicar la migración y
+  correr el contraste **desde prod**.
 
 #### Transversal
 

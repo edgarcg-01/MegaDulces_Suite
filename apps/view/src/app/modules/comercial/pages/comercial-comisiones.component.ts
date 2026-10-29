@@ -1274,14 +1274,25 @@ type Vista = typeof VISTAS[number];
           @if (puedeGestionar()) {
             <button type="button" class="cm-btn cm-btn-sec" [disabled]="contrastando()"
                     (click)="correrContraste()">
-              {{ contrastando() ? 'Corriendo el motor…' : 'Volver a contrastar' }}
+              @if (contrasteAvance(); as a) {
+                Contrastando Q{{ a.actual }} · {{ a.hechas }} de {{ a.total }}
+              } @else {
+                Volver a contrastar
+              }
             </button>
           }
         </section>
         @if (contrastando()) {
           <p class="cm-muted cm-micro">
             El motor corre quincena por quincena y cada una cuesta unos segundos — lee tres fuentes
-            de venta día por día. No deja corrida.
+            de venta día por día. No deja corrida. Sólo las quincenas con libro: las demás no tienen
+            con qué compararse.
+          </p>
+        }
+        @if (contrasteFallas().length) {
+          <p class="cm-micro" role="alert">
+            No se pudieron contrastar {{ contrasteFallas().length }}:
+            @for (f of contrasteFallas(); track f) { <span class="cm-mono">{{ f }}</span>@if (!$last) { · } }
           </p>
         }
       }
@@ -2032,6 +2043,10 @@ export class ComercialComisionesComponent {
 
   readonly contraste = signal<CommissionContrast | null>(null);
   readonly contrastando = signal(false);
+  /** `[RD.98]` Por qué quincena va el contraste: se corre de a una y se ve avanzar. */
+  readonly contrasteAvance = signal<{ actual: number; hechas: number; total: number } | null>(null);
+  /** Las quincenas que no se pudieron contrastar, con el motivo del servidor. No se tragan. */
+  readonly contrasteFallas = signal<string[]>([]);
 
   // ── `[RD.56]` Lo que faltó ────────────────────────────────────────────────────────────────
 
@@ -2142,12 +2157,42 @@ export class ComercialComisionesComponent {
     });
   }
 
+  /**
+   * `[RD.98]` Contrasta las quincenas con LIBRO, de a una. Antes era una sola petición por el año
+   * (~12 s × 20 quincenas): detrás del túnel no podía terminar, y las fallas por quincena que el
+   * servidor sí devolvía se tiraban sin mostrarse. Sólo las de libro: la de Q21 es del motor, y
+   * contrastarla contra el motor siempre cuadraría.
+   */
   correrContraste(): void {
+    if (this.contrastando()) return;
+    const cola = this.board()
+      .filter((p) => p.origen === 'libro' && p.run_id && p.date_to < this.hoy)
+      .sort((a, b) => a.period_no - b.period_no);
+    this.contrasteFallas.set([]);
+    if (!cola.length) {
+      this.err.set('No hay quincenas con libro cargado que contrastar este año.');
+      return;
+    }
     this.contrastando.set(true);
-    this.api.commissionContrastRun(this.anio()).subscribe({
-      next: () => { this.contrastando.set(false); this.cargarContraste(); },
-      error: () => { this.contrastando.set(false); this.err.set('No se pudo correr el contraste.'); },
-    });
+    const paso = (i: number): void => {
+      if (i >= cola.length) {
+        this.contrastando.set(false);
+        this.contrasteAvance.set(null);
+        this.cargarContraste();
+        return;
+      }
+      const p = cola[i];
+      this.contrasteAvance.set({ actual: p.period_no, hechas: i, total: cola.length });
+      this.api.commissionContrastRunPeriod(p.period_id).subscribe({
+        next: () => paso(i + 1),
+        error: (e) => {
+          this.contrasteFallas.update((f) => [...f,
+            `Q${p.period_no}: ${e?.error?.message ?? 'no respondió el servidor'}`]);
+          paso(i + 1);
+        },
+      });
+    };
+    paso(0);
   }
 
   /**

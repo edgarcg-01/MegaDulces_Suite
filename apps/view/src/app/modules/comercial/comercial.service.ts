@@ -2354,11 +2354,13 @@ export class ComercialService {
   }
 
   /**
-   * RD.52 — corre el MOTOR sobre las quincenas con espejo y guarda su resultado.
-   * ⚠️ ~12 s por quincena: veinte son cuatro minutos. No está en el camino de lectura.
+   * RD.52 / `[RD.98]` — corre el MOTOR sobre UNA quincena con libro y guarda su resultado
+   * (~12 s). La pantalla va de a una: el año entero en una sola petición (`{ anio }`) no termina
+   * detrás del túnel de Cloudflare, que corta a los 100 s.
    */
-  commissionContrastRun(anio: number) {
-    return this.http.post<CommissionContrastRunResult>(`${this.base}/commissions/contrast/run`, { anio });
+  commissionContrastRunPeriod(periodId: string) {
+    return this.http.post<{ period_id: string; lineas: number; duracion_ms: number }>(
+      `${this.base}/commissions/contrast/run`, { period_id: periodId });
   }
 
   /**
@@ -4732,9 +4734,6 @@ export interface CommissionContrastSummary {
 export interface CommissionContrast {
   resumen: CommissionContrastSummary[];
   filas: CommissionContrastRow[];
-}
-export interface CommissionContrastRunResult {
-  anio: number; periodos: number; hechas: number[]; fallas: string[]; duracion_ms: number;
 }
 
 /**

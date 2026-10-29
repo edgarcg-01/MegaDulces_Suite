@@ -150,6 +150,9 @@ CREATE OR REPLACE VIEW analytics.v_rd_route_daily AS
 exports.up = async function up(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
   await knex.raw(VISTA_KEPLER);
+  // ⚠️ `[RD.98]` Un CREATE OR REPLACE sin WITH reemplaza las opciones: sin esta línea la vista
+  // pierde `security_invoker` (así quedó en prod el 2026-10-28 y lo devolvió `20261029121941`).
+  await knex.raw(`ALTER VIEW analytics.v_rd_route_daily SET (security_invoker = true)`);
   await knex.raw(`COMMENT ON VIEW analytics.v_rd_route_daily IS
     'RD.2 / RD.95 - venta de Ruta Directa por ruta y dia. Push: subtotal derivado con la tasa de KEPLER (kdii.c18/c19 de 00; IEPS sobre la base, IVA sobre base+IEPS); un dia con algun SKU sin tasa sale subtotal_origen = derivado_tasa_kepler_incompleto. Medido 2026-10-28 contra el libro: Q21 102/121 dias al peso (antes, con tasa Wincaja, 53/121).'`);
 };
@@ -158,6 +161,7 @@ exports.up = async function up(knex) {
 exports.down = async function down(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
   await knex.raw(VISTA_WINCAJA);
+  await knex.raw(`ALTER VIEW analytics.v_rd_route_daily SET (security_invoker = true)`);
   await knex.raw(`COMMENT ON VIEW analytics.v_rd_route_daily IS
     'RD.2 - venta por ruta x dia declarando su procedencia. RD.11 (2026-09-10): lee las dos fuentes DIRECTO en vez de v_route_sales_lines, que es la vista de drill-down por linea y hace dos LATERAL por fila (articulos + pagos_dia/formas_pago) cuyas columnas este GROUP BY descarta. Medido: 9,671 -> ~2,300 ms por quincena, con la aritmetica identica (candado test-newdb-rd-route-daily-perf compara fila por fila contra la definicion vieja).'`);
 };
