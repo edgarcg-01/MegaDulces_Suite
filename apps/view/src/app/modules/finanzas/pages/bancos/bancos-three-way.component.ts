@@ -7,7 +7,7 @@ import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
-import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail, ThreeWayDaily, BankMovDetail, BankMovSource } from '../../bank.service';
+import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ThreeWaySource, ChequesTransito, ThreeWayDetail, ThreeWayDaily, BankMovDetail, BankMovSource } from '../../bank.service';
 import { money, dmShort } from './bancos-shared';
 import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from '../../../../shared/util';
 import { exportXlsx, XlsxSheet } from '../../../../shared/export/xlsx-export';
@@ -37,7 +37,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     @if (data(); as d) {
       <!-- Veredicto answer-first -->
       <div class="tw-verdict" [class.ok]="d.cuadra" [class.bad]="!d.cuadra">
-        <i [class]="d.cuadra ? 'pi pi-check-circle' : 'pi pi-exclamation-triangle'"></i>
+        <i [class]="d.cuadra ? 'pi pi-check-circle' : (capturaPendiente(d) ? 'pi pi-clock' : 'pi pi-exclamation-triangle')" aria-hidden="true"></i>
         <div>
           <h3>{{ verdict(d) }}</h3>
           <p class="muted">{{ d.nota }}</p>
@@ -50,12 +50,14 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
            entre fuentes marcaba atraso donde sólo había granularidad distinta.
            Va colapsada cuando las 3 van al día: es metadato de confianza, no la conclusión, y
            así ocupaba una card entera con tres barras llenas por encima del cuadre. Se abre
-           sola cuando hay atraso — ahí sí es lo que explica el descuadre. -->
+           sola cuando hay atraso — ahí sí es lo que explica el descuadre.
+           CP.8.89 — ContPAQi no se mide en días sino en DINERO del banco con póliza: sus pólizas
+           agrupan (traspasos y cobranza por mes) y una fechada a fin de mes lo dejaba al día. -->
       <div class="tw-cov" [class.warn]="anyStale(d)" [class.tw-cov-shut]="!covOpen(d)">
         <button type="button" class="tw-cov-head" (click)="covToggled.set(!covOpen(d))"
                 [attr.aria-expanded]="covOpen(d)">
           <i class="pi pi-database" aria-hidden="true"></i>
-          <span>Cobertura del periodo <span class="tw-cov-sub">— días capturados</span></span>
+          <span>Cobertura del periodo <span class="tw-cov-sub">— días capturados · ContPAQi: dinero con póliza</span></span>
           @if (!covOpen(d)) { <span class="tw-cov-sum">{{ covSummary(d) }}</span> }
           @if (d.coverage.is_current_month) { <span class="tw-tag muted-tag">mes en curso</span> }
           <i class="tw-cov-chev pi" [class.pi-chevron-down]="!covOpen(d)" [class.pi-chevron-up]="covOpen(d)" aria-hidden="true"></i>
@@ -66,20 +68,20 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             <div class="tw-cov-src" [class.stale]="s.stale || s.sin_datos">
               <div class="tw-cov-lbl">{{ s.label }}
                 @if (s.sin_datos) { <span class="tw-tag warn-tag">sin datos</span> }
-                @else if (s.stale) { <span class="tw-tag warn-tag">{{ s.days_target - s.days_covered }} días atrás</span> }
+                @else if (s.stale) { <span class="tw-tag warn-tag">{{ covTag(s) }}</span> }
               </div>
               <div class="tw-cov-bar" role="img" [attr.aria-label]="covAria(s)">
                 <div class="tw-cov-fill" [style.width.%]="s.pct"></div>
               </div>
               <div class="tw-cov-meta muted" [attr.title]="covAria(s)">
                 @if (s.sin_datos) { sin movimientos del periodo }
-                @else { día {{ s.days_covered }} de {{ s.days_target }} · {{ s.movs }} movs<span *ngIf="s.last"> · al {{ dmShort(s.last) }}</span> }
+                @else { {{ covMeta(s) }} }
               </div>
             </div>
           }
         </div>
         @if (anyStale(d)) {
-          <p class="tw-cov-note muted"><i class="pi pi-info-circle"></i> Una fuente va rezagada en captura: sus diferencias son <b>captura pendiente</b>, no descuadre. Se cierran cuando esa fuente se pone al día. El banco (Workbook) va al día.</p>
+          <p class="tw-cov-note muted"><i class="pi pi-info-circle"></i> Una fuente va rezagada en captura: sus diferencias son <b>captura pendiente</b>, no descuadre. Se cierran cuando esa fuente se pone al día.@if (!d.coverage.workbook.stale) { El banco (Workbook) va al día.}</p>
         }
         }
       </div>
@@ -1085,6 +1087,11 @@ export class BancosThreeWayComponent {
 
   verdict(d: ThreeWay): string {
     if (d.cuadra) return `Las 3 fuentes cuadran en ${d.period} (dentro de ±${money(d.tolerance)}).`;
+    // CP.8.89 — Si a ContPAQi le falta captura, la diferencia no se puede llamar descuadre todavía.
+    const c = d.coverage.contpaqi;
+    if (this.capturaPendiente(d) && c.sin_poliza) {
+      return `Captura pendiente en ContPAQi: ${money(c.sin_poliza.monto)} del banco todavía sin póliza.`;
+    }
     const gaps: string[] = [];
     const i = d.total.ingresos, e = d.total.egresos;
     if (!i.cuadra) gaps.push(`ingresos (mayor Δ ${money(this.maxDelta(i))})`);
@@ -1117,18 +1124,49 @@ export class BancosThreeWayComponent {
   covSummary(d: ThreeWay): string {
     const mal = this.covSources(d)
       .filter((s) => s.sin_datos || s.stale)
-      .map((s) => `${s.label.split(' ')[0]} ${s.sin_datos ? 'sin datos' : `${s.days_target - s.days_covered} días atrás`}`);
+      .map((s) => `${s.label.split(' ')[0]} ${s.sin_datos ? 'sin datos' : this.covTag(s)}`);
     if (mal.length) return mal.join(' · ');
     const wb = d.coverage.workbook;
     return `las 3 fuentes al día${wb.last ? ` (al ${dmShort(wb.last)})` : ''}`;
   }
 
+  /** CP.8.89 — ¿A ContPAQi le falta capturar dinero del banco? (se mide en pesos con póliza, no en días). */
+  capturaPendiente(d: ThreeWay): boolean {
+    const c = d.coverage.contpaqi;
+    return c.casado_pct != null && c.stale;
+  }
+
+  /** La etiqueta corta del atraso de una fuente. */
+  covTag(s: ThreeWaySource): string {
+    if (s.casado_pct != null) return `${this.pctTxt(s.casado_pct)} % con póliza`;
+    return `${s.days_target - s.days_covered} días atrás`;
+  }
+
+  /** La línea bajo la barra: en días (banco, Kepler) o en dinero con póliza (ContPAQi). */
+  covMeta(s: ThreeWaySource): string {
+    const al = s.last ? ` · al ${dmShort(s.last)}` : '';
+    if (s.casado_pct == null) return `día ${s.days_covered} de ${s.days_target} · ${s.movs} movs${al}`;
+    const falta = s.sin_poliza && s.sin_poliza.monto > 0
+      ? ` · faltan ${money(s.sin_poliza.monto)} en ${s.sin_poliza.movs.toLocaleString('es-MX')} movs del banco` : '';
+    return `${this.pctTxt(s.casado_pct)} % del banco con póliza${falta}${al}`;
+  }
+
   /** Lectura en llano de la barra — también es su etiqueta accesible: sola no dice nada. */
-  covAria(s: { label: string; sin_datos?: boolean; days_covered: number; days_target: number; movs: number }): string {
+  covAria(s: ThreeWaySource & { label: string }): string {
     if (s.sin_datos) return `${s.label}: sin movimientos capturados en el periodo.`;
+    if (s.casado_pct != null) {
+      const base = `${s.label}: el ${this.pctTxt(s.casado_pct)} % del dinero del banco ya tiene póliza (${s.movs} movimientos de ContPAQi)`;
+      return s.sin_poliza && s.sin_poliza.monto > 0
+        ? `${base}; faltan ${money(s.sin_poliza.monto)} en ${s.sin_poliza.movs.toLocaleString('es-MX')} movimientos del banco.`
+        : `${base}; todo el banco tiene póliza.`;
+    }
     const falta = s.days_target - s.days_covered;
     const base = `${s.label}: capturado hasta el día ${s.days_covered} de ${s.days_target} esperados (${s.movs} movimientos)`;
     return falta > 0 ? `${base}; van ${falta} días sin captura.` : `${base}; al día.`;
+  }
+
+  private pctTxt(v: number): string {
+    return v.toLocaleString('es-MX', { maximumFractionDigits: 1 });
   }
   anyStale(d: ThreeWay): boolean {
     const c = d.coverage;

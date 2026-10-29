@@ -271,10 +271,16 @@ export interface ThreeWayAccount {
 /**
  * Frescura de una fuente en el periodo. `pct` es cobertura EN DÍAS (hasta qué día del mes
  * llegó la captura contra el día esperado), no participación sobre el total de movimientos.
+ * [CP.8.89] Salvo ContPAQi con `casado_pct`: ahí `pct` y `stale` salen del DINERO del banco que
+ * ya tiene póliza, porque sus pólizas agrupan y la fecha más alta no dice cuánto falta.
  */
 export interface ThreeWaySource {
   movs: number; pct: number; last: string | null; stale: boolean; sin_datos?: boolean;
   days_covered: number; days_target: number;
+  /** % del dinero del banco (cuentas enlazadas) con póliza en ContPAQi; `null` sin banco que casar. */
+  casado_pct?: number | null;
+  /** Lo que del banco todavía no tiene póliza. */
+  sin_poliza?: { movs: number; monto: number } | null;
 }
 export interface ThreeWayCoverage {
   is_current_month: boolean;
