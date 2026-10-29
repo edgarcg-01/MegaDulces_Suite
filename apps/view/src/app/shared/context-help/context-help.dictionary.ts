@@ -605,6 +605,30 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // [MX.3.2] Incidencias: sólo lo que el motor no pudo dar por bueno.
+  'almacen-incidencias': {
+    title: 'Incidencias de movimientos — guía',
+    intro: 'Aquí llega sólo lo que el motor no pudo dar por bueno al comparar cada salida con su recepción. Lo que cuadra no se audita a mano: está en el Diario de movimientos como reporte.',
+    groups: [
+      {
+        heading: 'Tipos de incidencia',
+        entries: [
+          { term: 'Diferencia', def: 'La salida y su recepción no traen las mismas piezas o los mismos productos.' },
+          { term: 'Sin acuse', def: 'Salió hacia un almacén hace más de 15 días y nadie registró la recepción en Kepler. A ruta o a cliente no aplica: ahí nunca hay recepción.' },
+          { term: 'Sin origen', def: 'Una recepción sin una salida que la respalde.' },
+          { term: 'Ajuste', def: 'Ajuste de inventario (entrada o salida). Siempre se revisa: un ajuste ya es una excepción.' },
+          { term: 'Importe incompleto', def: 'El documento trae renglones con costo 0 en Kepler: su importe no los incluye.' },
+        ],
+      },
+      {
+        heading: 'Cómo leer el importe',
+        entries: [
+          { term: 'Unidad del importe', def: 'A una sucursal, el importe es valor de traspaso; a un cliente, precio de venta; a una ruta, costo y precio mezclados. Por eso el total se da separado por unidad.' },
+          { term: 'Ver en el Diario', def: 'Abre el documento con su contraparte, sus renglones y su estado.' },
+        ],
+      },
+    ],
+  },
   'almacen-movimientos': {
     title: 'Diario de movimientos — guía',
     intro: 'Entradas y salidas de inventario por día (mejora del reporte de Kepler). Abre un día para ver sus documentos, y un documento para validar contra su contraparte antes de auditarlo. La pestaña "Cuadre de traspasos" concilia que cada salida entre sucursales tenga su recepción. Es lectura + auditoría; no mueve inventario.',
@@ -614,7 +638,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         entries: [
           { term: 'Documento y contraparte', def: 'Un traspaso genera una salida en el origen (TrsfShip) y una recepción en el destino (TrsfRcv). Al abrir uno se muestra el otro al lado para verificar que lo enviado = lo recibido.' },
           { term: 'Destino (sucursal/ruta/cliente)', def: 'A dónde va el traspaso. Por defecto se muestran los tres; puedes acotar a solo sucursales para conciliar traspasos entre tiendas.' },
-          { term: 'Estado', def: 'En tránsito (salió, aún no se recibe), Completado (recibido y cuadra) o Con diferencia (enviado ≠ recibido).' },
+          { term: 'Estado', def: 'En tránsito (salió a un almacén hace 15 días o menos y aún no se recibe), Sin acuse (a un almacén, más de 15 días sin recepción), A ruta o cliente (no emite recepción), Completado (mismas piezas y mismos productos) o Con diferencia.' },
           { term: 'Auditar', def: 'Marca el documento como revisado (queda quién y cuándo). Requiere permiso de gestión de movimientos.' },
         ],
       },
@@ -623,8 +647,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         entries: [
           { term: 'Mayor 515', def: 'Cuenta puente de Kepler "Ajuste traspasos internos". Cada salida (515-002) debe tener su entrada (515-001) → el mayor debe netear $0. Δ ≠ 0 = traspasos sin cuadrar o en tránsito al corte.' },
           { term: '515-001 / 515-002', def: 'Subcuentas: 001 = entrada (recepción), 002 = salida (despacho). Se comparan por importe.' },
-          { term: 'Sin rastro', def: 'Una póliza de salida (o entrada) sin su contraparte que cuadre por importe (±tolerancia) ni en la ventana de fechas. Es lo que hay que localizar en Kepler.' },
-          { term: 'Pareo tolerante', def: 'Como Kepler no liga origen↔destino 1:1, se emparejan por importe con una tolerancia de % + una ventana de ±1 mes.' },
+          { term: 'Sin rastro', def: 'Una póliza con documento (recepción o embarque) cuya cadena recepción → embarque → póliza no se encontró. Es lo que hay que localizar en Kepler. Las pólizas manuales sin documento van aparte.' },
+          { term: 'Pareo por documento', def: 'La póliza trae el documento que la generó: la recepción lleva a su embarque (folio padre) y el embarque a su póliza de salida. Si la salida se contabilizó en 401 (ventas) en lugar de 515-002, se marca «como venta».' },
           { term: 'Cuadre Kepler → Wincaja', def: 'Las tiendas 30/32/50 no están en Kepler; su recepción vive en Wincaja. Se cuadra por totales en $ (la unidad de Wincaja ≠ piezas de Kepler), no línea a línea.' },
         ],
       },

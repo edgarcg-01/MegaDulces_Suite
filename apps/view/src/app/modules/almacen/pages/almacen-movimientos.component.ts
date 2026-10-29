@@ -1584,6 +1584,10 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
     });
     this.reload();
     if (this.activeTab() === 'cuadre') this.loadCuadre();
+    // [MX.3.2] enlace profundo: ?abrir=<folio>&wh=<almacén>&dc=<tipo>&serie=<serie> abre ese documento (lo usa Incidencias)
+    const q = this.route.snapshot.queryParamMap;
+    const abrir = q.get('abrir'), wh = q.get('wh'), dc = q.get('dc');
+    if (abrir && wh && dc) this.openDocument({ folio: abrir, warehouse_id: wh, doc_code: dc, doc_serie: q.get('serie') || null } as FolioRow);
   }
 
   /** Rehidrata filtros + tab + rango del cuadre desde los query params (F5 / deep-link). */

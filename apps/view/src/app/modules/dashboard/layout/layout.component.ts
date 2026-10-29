@@ -1000,6 +1000,15 @@ export class LayoutComponent implements OnInit, OnDestroy {
     anyOf: [Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER],
   };
 
+  /** [MX.3.2] Incidencias: lo que el motor no pudo dar por bueno. Va junto al Diario, fuera de las áreas igual que él. */
+  private readonly almacenIncidenciasItem: NavItem = {
+    label: 'Incidencias',
+    icon: 'pi pi-exclamation-triangle',
+    route: '/almacen/incidencias',
+    permission: Permission.COMMERCIAL_MOVEMENTS_VER,
+    anyOf: [Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER],
+  };
+
   /**
    * Almacén (WMS) — **Fase WMS.1**: un área = **un** item de sidebar; los
    * subtemas son **tabs** (`app-page-tabs`).
@@ -1044,6 +1053,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     // Movimientos va al final, fuera de las áreas y sin activePrefixes: su
     // propio routerLinkActive lo resuelve. Intocable.
     if (this.hasPermFor(this.almacenMovimientosItem)) items.push(this.almacenMovimientosItem);
+    if (this.hasPermFor(this.almacenIncidenciasItem)) items.push(this.almacenIncidenciasItem);
     return items.length ? [{ title: 'WMS', items }] : [];
   }
 

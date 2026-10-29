@@ -1642,6 +1642,14 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)]
       },
       {
+        // [MX.3.2] Incidencias de movimientos: sólo lo que el motor no pudo dar por bueno (el Diario queda
+        // como reportería). Ruta hermana y no hija de /almacen/movimientos: el item del Diario se activa por
+        // prefijo y se encenderían los dos. Mismo permiso que el Diario mientras llega el propio (MX.2.5).
+        path: 'incidencias',
+        loadComponent: () => import('./modules/almacen/pages/almacen-incidencias.component').then(m => m.AlmacenIncidenciasComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)]
+      },
+      {
         // WMS-REC — **Andén de Entrada**: las dos puertas (cotejo+acceso, y
         // fechado+acomodo) en una sola pasada junto al camión. Reemplaza el
         // recorrido de 4 pantallas: 79 toques por vale de 5 líneas → 24.

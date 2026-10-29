@@ -43,6 +43,7 @@ export interface MovementsQuery {
   estado?: string;        // estado de traspaso: en_transito | sin_acuse | sin_recepcion_esperada | completado | diferencia
   transfer_wh_ids?: string; // CSV UUIDs — traspasos cuyo ORIGEN o DESTINO ∈ selección (propio o contraparte)
   dest_kinds?: string;    // CSV 'sucursal'|'ruta'|'cliente' — destino de traspasos; default 'sucursal'
+  excepcion?: string;     // [MX.3.2] bandeja: sólo las incidencias de este tipo (la lista; los totales siguen siendo del conjunto)
   group_by?: string;
   page?: number;
   pageSize?: number;
@@ -1284,12 +1285,14 @@ export class CommercialMovementsService {
         porUnidad[it.unidad_importe ?? 'sin_unidad'] += imp;
       }
       items.sort((a, b) => Math.abs(b.importe ?? 0) - Math.abs(a.importe ?? 0) || b.dias - a.dias);
+      // [MX.3.2] el filtro acota la LISTA; los totales describen siempre el conjunto completo
+      const lista = q.excepcion ? items.filter((it) => (it.excepciones as string[]).includes(q.excepcion as string)) : items;
       return {
         range: { from, to },
         totals: { items: items.length, por_excepcion: porExc, importe_por_unidad: porUnidad, universo: { traspasos: checkAll.length, ajustes: ajustes.length } },
         capped: all.length >= 50000,
-        page, pageSize, total: items.length,
-        rows: items.slice((page - 1) * pageSize, page * pageSize),
+        page, pageSize, total: lista.length,
+        rows: lista.slice((page - 1) * pageSize, page * pageSize),
       };
     });
   }
