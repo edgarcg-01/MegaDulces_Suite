@@ -72,6 +72,12 @@ const MIGRACIONES_FASE = [
   '20261008094812_hr_agente_corridas',
   '20261008094813_hr_ordenes_quien',
 ];
+/**
+ * `[RH.1.15]` Varios horarios por persona: la carga escribe `hr.person_schedules.shifts`. Va aparte de
+ * `MIGRACIONES_FASE` porque es posterior a las de reparto/personas/fichas (la cadena del pre-vuelo va
+ * en orden de nombre).
+ */
+const MIGRACION_VARIOS_HORARIOS = '20261021090942_hr_person_schedules_varios_horarios';
 
 const limpio = (v) => String(v ?? '').trim();
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -360,6 +366,10 @@ async function cargarMegaTalento(trx, mt, { tenantId = TENANT_MD, log = null, re
       tenant_id: tenantId, site_code: limpio(c.sucursal_id), person_code: limpio(c.empleado_codigo),
       shift_starts: trx.raw('?::time[]', [`{${turnos.join(',')}}`]), schedule_id: turnoSitio?.horario_id || null,
       ends_at: c.salida || null, lunch_minutes: c.comida_min ?? null, works_saturday: sab,
+      // `[RH.1.15]` Varios horarios (Mega Talento 8396d3c, `horarios_confirmados.horarios`): se copia TAL
+      // CUAL cuando son 2 o más (con uno, Mega Talento lo deja NULL y lo ignora). Más de 4 lo rechaza el
+      // CHECK de la tabla y queda contado en `descPs`, no se recorta en silencio.
+      shifts: Array.isArray(c.horarios) && c.horarios.length >= 2 ? JSON.stringify(c.horarios) : null,
       saturday_starts_at: sab ? c.sabado_entrada || null : null, saturday_ends_at: sab ? c.sabado_salida || null : null,
       note: c.nota, confirmed_by_name: c.confirmado_por, created_at: c.creado_en, updated_at: c.actualizado_en || c.creado_en,
     }).onConflict(['tenant_id', 'site_code', 'person_code']).ignore());
@@ -476,7 +486,7 @@ async function verificarDestinoProd(knex, { clusterId = PROD_CLUSTER_ID } = {}) 
     throw new Error(`DESTINO EQUIVOCADO — no se escribe nada. Clúster ${id.id} (base "${id.db}"), se esperaba ${clusterId}.`);
   }
   const aplicadas = new Set((await knex.raw('SELECT name FROM public.knex_migrations')).rows.map((r) => r.name.replace(/\.js$/, '')));
-  const faltan = [MIGRACION_BASE_CH, ...MIGRACIONES_FASE].filter((m) => !aplicadas.has(m));
+  const faltan = [MIGRACION_BASE_CH, ...MIGRACIONES_FASE, MIGRACION_VARIOS_HORARIOS].filter((m) => !aplicadas.has(m));
   if (faltan.length) {
     throw new Error(`faltan migraciones en prod (se aplican antes, una por una): ${faltan.join(', ')}`);
   }
@@ -510,7 +520,7 @@ async function main() {
         // Sólo para ensayar en una base que todavía no tiene la fase: corren dentro de la misma
         // transacción y se deshacen con ella. Nunca con --aplicar (las migraciones van por su carril).
         if (aplicar) throw new Error('--con-migraciones es sólo para ensayo: las migraciones se aplican aparte, una por una.');
-        for (const m of MIGRACIONES_FASE) await require(path.resolve(__dirname, '../../migrations-newdb', `${m}.js`)).up(trx);
+        for (const m of [...MIGRACIONES_FASE, MIGRACION_VARIOS_HORARIOS]) await require(path.resolve(__dirname, '../../migrations-newdb', `${m}.js`)).up(trx);
       }
       await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT_MD]);
       console.log(`Carga única de Mega Talento → ${destinoProd ? 'PROD · ' : ''}${aplicar ? 'SE APLICA' : 'ENSAYO (se deshace al final)'}`);
@@ -532,4 +542,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('ERROR:', e.message); process.exit(1); });
 }
 
-module.exports = { cargarMegaTalento, conectarMegaTalento, serieDesconocida, verificarDestinoProd, TENANT_MD, MIGRACIONES_FASE, MIGRACION_BASE_CH, PROD_CLUSTER_ID };
+module.exports = { cargarMegaTalento, conectarMegaTalento, serieDesconocida, verificarDestinoProd, TENANT_MD, MIGRACIONES_FASE, MIGRACION_BASE_CH, MIGRACION_VARIOS_HORARIOS, PROD_CLUSTER_ID };

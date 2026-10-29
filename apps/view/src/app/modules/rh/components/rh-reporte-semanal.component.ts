@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 import type { HrPersonaAsistencia } from '@megadulces/contracts';
 import {
   type ColumnaDia, type GrupoDepartamento, type Irregularidad, celdaDe, cuentaIrregular, departamentoDe, diasPorFecha, difHorario,
-  firmaHoras, horarioDe, horasTexto,
+  firmaHoras, horarioDe, horasTexto, saldoTexto,
 } from '../reporte-formato';
 
 /**
@@ -31,7 +31,9 @@ import {
               <th class="rs-dia" [class.hoy]="c.hoy" scope="col">{{ c.dow }}<span>{{ c.dia }}</span></th>
             }
             <th class="num" scope="col" title="Horas netas del periodo: jornada menos comida. En Oficinas el desayuno no se descuenta.">Horas</th>
-            <th class="num" scope="col" title="Horas extra ganadas en el periodo: lo que se quedó después de su hora de salida, en bloques de 30 min. El saldo está en la pestaña Horas extra.">H. extra</th>
+            <th class="num" scope="col" title="Horas extra GANADAS en el periodo: lo que se quedó después de su hora de salida, en bloques de 30 min.">HE ganó</th>
+            <th class="num" scope="col" title="Horas extra USADAS en el periodo («Uso de horas extra» en Incidencias): se suman a sus horas y se restan de su saldo.">HE usó</th>
+            <th class="num" scope="col" [title]="saldoTitulo()">HE saldo</th>
             <th class="num" scope="col" [title]="mideRetardo() ? 'Minutos tarde en la entrada contra su hora. La tolerancia semanal se aplica en la pestaña Tolerancia.' : 'Esta plaza no tiene hora límite de entrada: no se mide retardo.'">{{ mideRetardo() ? 'Min. retardo' : 'Retardo' }}</th>
             @if (hayAsignados()) { <th class="num" scope="col" title="Horas trabajadas menos las que pide su horario asignado">vs. horario</th> }
             <th scope="col"><span class="sr-only">Acciones</span></th>
@@ -62,10 +64,13 @@ import {
                       </span>
                     }
                     @if (c.extraMin) { <span class="rs-extra" [title]="'Horas extra: debía salir a las ' + (c.salidaEsperada || '—')">+{{ horas(c.extraMin) }} extra</span> }
+                    @if (c.usadasMin) { <span class="rs-usada" title="Uso de horas extra: se suman a sus horas del día y se restan de su saldo">−{{ horas(c.usadasMin) }} usadas</span> }
                   </td>
                 }
                 <td class="num">{{ horas(f.p.minutosTrabajados) }}</td>
                 <td class="num rs-extra-tot">{{ f.p.horasExtraGanadasMin ? horas(f.p.horasExtraGanadasMin) : '' }}</td>
+                <td class="num rs-usada-tot">{{ f.p.horasExtraUsadasMin ? horas(f.p.horasExtraUsadasMin) : '' }}</td>
+                <td class="num" [class.rs-neg]="(f.saldo ?? 0) < 0">{{ saldo(f.saldo) }}</td>
                 <td class="num" [class.rs-ret]="mideRetardo() && f.p.atrasoBrutoMin > 0">@if (mideRetardo()) { {{ f.p.atrasoBrutoMin || '' }} } @else { <span class="na">—</span> }</td>
                 @if (hayAsignados()) { <td class="num" [class.menos]="(f.dif ?? 0) < 0" [class.mas]="(f.dif ?? 0) > 0">{{ firma(f.dif) }}</td> }
                 <td class="rs-acc">
@@ -81,6 +86,8 @@ import {
                 <td [attr.colspan]="columnas().length + 3"><span class="sr-only">Subtotal de {{ g.departamento }}</span></td>
                 <td class="num">{{ horas(g.subMin) }}</td>
                 <td class="num rs-extra-tot">{{ g.subExtra ? horas(g.subExtra) : '' }}</td>
+                <td class="num rs-usada-tot">{{ g.subUsadas ? horas(g.subUsadas) : '' }}</td>
+                <td class="num">{{ saldo(g.subSaldo) }}</td>
                 <td class="num">{{ mideRetardo() ? g.subRet : '' }}</td>
                 @if (hayAsignados()) { <td></td> }
                 <td></td>
@@ -93,6 +100,8 @@ import {
             <td [attr.colspan]="columnas().length + 3">{{ parcial() ? 'Totales de lo que se ve' : 'Totales' }}</td>
             <td class="num">{{ horas(totales().min) }}</td>
             <td class="num rs-extra-tot">{{ totales().extra ? horas(totales().extra) : '' }}</td>
+            <td class="num rs-usada-tot">{{ totales().usadas ? horas(totales().usadas) : '' }}</td>
+            <td class="num">{{ saldo(totales().saldo) }}</td>
             <td class="num">{{ mideRetardo() ? totales().ret : '—' }}</td>
             @if (hayAsignados()) { <td></td> }
             <td></td>
@@ -132,6 +141,9 @@ import {
     .rs-celda .pz { display: flex; justify-content: center; gap: 6px; font-size: var(--fs-micro); color: var(--text-muted); margin-top: 1px; }
     .rs-extra { display: block; text-align: center; font-size: var(--fs-micro); font-weight: 700; color: var(--ok-soft-fg); margin-top: 1px; }
     .rs-extra-tot { color: var(--ok-soft-fg); font-weight: 700; }
+    .rs-usada { display: block; text-align: center; font-size: var(--fs-micro); font-weight: 700; color: var(--info-soft-fg); margin-top: 1px; }
+    .rs-usada-tot { color: var(--info-soft-fg); font-weight: 700; }
+    .rs-neg { color: var(--bad-fg); font-weight: 700; }
     .rs-celda .exc, .rs-celda .antes { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-radius: 3px; padding: 0 3px; font-weight: 700; }
     .rs-celda.tarde .j { color: var(--bad-fg); font-weight: 700; }
     .rs-celda[data-t='falta'] .j, .rs-celda[data-t='marca'] .j { color: var(--bad-fg); font-weight: 700; }
@@ -178,15 +190,35 @@ export class RhReporteSemanalComponent {
   /** Hay un filtro puesto: los totales son «de lo que se ve» y no hay subtotales. */
   readonly parcial = input(false);
   readonly subtotales = input(true);
+  /**
+   * `[RH.1.15]` El saldo de horas extra de cada quien al último día del periodo (el de la pestaña Horas extra).
+   * 'cargando' mientras llega; null = no se pudo leer: la columna sale vacía y el encabezado lo dice (no se dibuja
+   * un cero).
+   */
+  readonly saldos = input<Map<string, number> | 'cargando' | null>(null);
+  readonly hasta = input('');
 
   readonly abrir = output<HrPersonaAsistencia>();
   readonly menu = output<{ persona: HrPersonaAsistencia; evento: Event }>();
 
   readonly horas = horasTexto;
   readonly firma = firmaHoras;
+  readonly saldo = saldoTexto;
+  readonly saldoTitulo = computed(() => (this.saldos() === 'cargando' ? 'Leyendo el saldo de horas extra…' : this.saldos()
+    ? `Saldo acumulado de horas extra al ${this.hasta()}: todo lo ganado menos lo usado, más los ajustes. El detalle está en la pestaña Horas extra.`
+    : 'No se pudo leer el saldo de horas extra: revísalo en la pestaña Horas extra.'));
+  private saldoDe(codigo: string): number | null {
+    const s = this.saldos();
+    return s instanceof Map && s.has(codigo) ? (s.get(codigo) as number) : null;
+  }
+  /** Suma de saldos; null si no hay ninguno que sumar (no se dibuja un cero inventado). */
+  private sumaSaldos(ps: HrPersonaAsistencia[]): number | null {
+    const v = ps.map((p) => this.saldoDe(p.codigo)).filter((x): x is number => x !== null);
+    return v.length ? v.reduce((t, x) => t + x, 0) : null;
+  }
 
   readonly hayAsignados = computed(() => this.todas().some((p) => !!p.horarioAsignado));
-  readonly ncol = computed(() => this.columnas().length + 6 + (this.hayAsignados() ? 1 : 0));
+  readonly ncol = computed(() => this.columnas().length + 8 + (this.hayAsignados() ? 1 : 0));
 
   readonly modelo = computed(() => {
     const o = { hoy: this.hoy(), mideRetardo: this.mideRetardo() };
@@ -200,6 +232,8 @@ export class RhReporteSemanalComponent {
         subMin: completo.reduce((t, p) => t + p.minutosTrabajados, 0),
         subRet: completo.reduce((t, p) => t + p.atrasoBrutoMin, 0),
         subExtra: completo.reduce((t, p) => t + (p.horasExtraGanadasMin || 0), 0),
+        subUsadas: completo.reduce((t, p) => t + (p.horasExtraUsadasMin || 0), 0),
+        subSaldo: this.sumaSaldos(completo),
         filas: g.personas.map((p) => {
           const dias = diasPorFecha(p);
           const lista = irr.get(p.codigo) ?? [];
@@ -217,6 +251,7 @@ export class RhReporteSemanalComponent {
             baja: cuentaIrregular(lista, 'baja'),
             incs: [...incs.entries()].map(([codigo, etiqueta]) => ({ codigo, etiqueta })),
             dif: difHorario(p),
+            saldo: this.saldoDe(p.codigo),
           };
         }),
       };
@@ -228,6 +263,8 @@ export class RhReporteSemanalComponent {
     return {
       min: vis.reduce((t, p) => t + p.minutosTrabajados, 0), ret: vis.reduce((t, p) => t + p.atrasoBrutoMin, 0),
       extra: vis.reduce((t, p) => t + (p.horasExtraGanadasMin || 0), 0),
+      usadas: vis.reduce((t, p) => t + (p.horasExtraUsadasMin || 0), 0),
+      saldo: this.sumaSaldos(vis),
     };
   });
 }

@@ -223,6 +223,52 @@ export function colapsarDuplicadas(minutos: number[], duplicadaMin = DUPLICADA_M
 }
 
 /**
+ * `[RH.1.15]` ══ CUÁL MARCA DE EN MEDIO SE QUEDA SIN PAREJA ══ (Mega Talento 8396d3c, 15/10/2026)
+ *
+ * Las marcas de en medio (sin la primera ni la última del día) se emparejan salida→regreso. Con un
+ * número impar una se queda sola, y antes era siempre la ÚLTIMA. Eso falla cuando la que no se leyó
+ * es una de las primeras: alguien marca 10:28 (regreso del desayuno, sin su salida), 14:33 y 15:02
+ * (comida). Se emparejaba 10:28→14:33 —una «comida» de 4 h 05 min con 3 h 05 de exceso— y la comida
+ * real quedaba suelta. Mega Talento midió 40 días así en un mes (descontaba de 3 a 5 h).
+ *
+ * Ahora se deja sola la que hace que las pausas emparejadas sumen MENOS: un descanso real dura
+ * minutos, no horas. En empate se deja la última, como antes.
+ *
+ * Pero no cualquier par sirve: una «pausa» de menos de PAUSA_MIN_CREIBLE no es un descanso, es
+ * checar dos veces el regreso (14:05, 14:56 y 15:02: sumando a secas ganaba 14:56–15:02 = 6 min y
+ * la comida real de 51 min quedaba suelta). Por eso primero se evitan esos pares, y sólo entre los
+ * que quedan se busca la suma menor.
+ *
+ * La usan la pantalla (`detalle-dia.ts::detalleDia`) y la alerta de desayuno
+ * (`reglas.ts::reglaDesayunoExcedido`): si cada una emparejara a su manera, dirían cosas distintas
+ * del mismo día. Recibe los minutos YA ordenados y devuelve el índice de la marca sin pareja, o null
+ * si son pares. Sólo puede quedar sola una de índice par: así las de antes y las de después se siguen
+ * emparejando de corrido.
+ */
+export const PAUSA_MIN_CREIBLE = 10;
+
+export function marcaSinPareja(medio: number[]): number | null {
+  if (medio.length % 2 === 0) return null;
+  let mejor = medio.length - 1;
+  let menosCortas = Infinity;
+  let menosFuera = Infinity;
+  for (let k = medio.length - 1; k >= 0; k -= 2) {
+    const resto = medio.filter((_, i) => i !== k);
+    let fuera = 0;
+    let cortas = 0;
+    for (let i = 0; i + 1 < resto.length; i += 2) {
+      const pausa = resto[i + 1] - resto[i];
+      fuera += pausa;
+      if (pausa < PAUSA_MIN_CREIBLE) cortas++;
+    }
+    if (cortas < menosCortas || (cortas === menosCortas && fuera < menosFuera)) {
+      menosCortas = cortas; menosFuera = fuera; mejor = k;
+    }
+  }
+  return mejor;
+}
+
+/**
  * Clasifica un día por sus marcas. Aquí se decide qué es dato utilizable.
  *
  *   0 marcas -> 'sin_marca'      (posible falta; lo resuelve quien conoce el turno)

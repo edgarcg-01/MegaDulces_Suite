@@ -55,14 +55,14 @@ describe('[RH.1.10] horas extra ganadas', () => {
   });
 
   it('se pasó 30 min de la comida (horario asignado, 60 min) y se quedó 1 h: gana 30', () => {
-    const asignados = new Map([['15', { entrada: '08:00', salida: '18:00', comidaMin: 60, sabado: true, sabadoEntrada: null, sabadoSalida: null }]]);
+    const asignados = new Map([['15', { entrada: '08:00', salida: '18:00', comidaMin: 60, horarios: [{ entrada: '08:00', salida: '18:00', comidaMin: 60 }], sabado: true, sabadoEntrada: null, sabadoSalida: null }]]);
     const e = escenario((f) => (f === '2026-07-20' ? ['08:00', '13:00', '14:30', '19:00'] : undefined), { asignados } as Partial<EntradaAsistencia>);
     expect(dia(e, '2026-07-20')).toMatchObject({ comidaExcesoMin: 30, extraMin: 30 });
     expect(ana(e)?.horasExtraSegun).toBe('asignado');
   });
 
   it('un día se topa en 6 h (casi siempre es una checada de más)', () => {
-    const asignados = new Map([['15', { entrada: '08:00', salida: '12:00', comidaMin: 0, sabado: true, sabadoEntrada: null, sabadoSalida: null }]]);
+    const asignados = new Map([['15', { entrada: '08:00', salida: '12:00', comidaMin: 0, horarios: [{ entrada: '08:00', salida: '12:00', comidaMin: 0 }], sabado: true, sabadoEntrada: null, sabadoSalida: null }]]);
     const e = escenario((f) => (f === '2026-07-20' ? ['08:00', '19:30'] : undefined), { asignados } as Partial<EntradaAsistencia>);
     expect(dia(e, '2026-07-20')?.extraMin).toBe(6 * 60);
   });
@@ -82,7 +82,7 @@ describe('[RH.1.10] horas extra ganadas', () => {
 
 describe('[RH.1.10] comida y desayuno distintos', () => {
   it('con «Comida distinta» de 90 min, 90 min de comida ya no es exceso (y repone menos)', () => {
-    const asignados = new Map([['15', { entrada: '08:00', salida: '18:00', comidaMin: 60, sabado: true, sabadoEntrada: null, sabadoSalida: null }]]);
+    const asignados = new Map([['15', { entrada: '08:00', salida: '18:00', comidaMin: 60, horarios: [{ entrada: '08:00', salida: '18:00', comidaMin: 60 }], sabado: true, sabadoEntrada: null, sabadoSalida: null }]]);
     const marcas = (f: string) => (f === '2026-07-20' ? ['08:00', '13:00', '14:30', '19:00'] : undefined);
     const sin = escenario(marcas, { asignados } as Partial<EntradaAsistencia>);
     const con = escenario(marcas, { asignados, incidencias: [inc('comida_distinta', '2026-07-20', 90)] } as Partial<EntradaAsistencia>);
