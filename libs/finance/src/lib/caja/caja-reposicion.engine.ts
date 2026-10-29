@@ -1,5 +1,5 @@
 import {
-  WAREHOUSE_DISPLAY_ORDER, diaMxDeInstante, pagableConBilletesCaos, warehouseName,
+  SUCURSAL_CAJA_GENERAL, WAREHOUSE_DISPLAY_ORDER, diaMxDeInstante, pagableConBilletesCaos, warehouseName,
   type AfinidadRetiro, type ClaseReposicion, type EstadoDocReposicion, type ReposicionAsignacion,
   type ReposicionDoc, type ReposicionGrupo, type ReposicionPropuesta, type ReposicionRetiro,
   type ReposicionSucursales, type ReposicionVinculo, type AprobacionPago,
@@ -42,8 +42,11 @@ import { redondea2, tomaDelRetiro } from './caja-lote.engine';
 /** Días entre el retiro y el documento para que el retiro sea de ESA reposición y no de otra. */
 export const DIAS_INSTANCIA_REPOSICION = 3;
 
-/** La sucursal de Oficinas no se repone: Caja General paga directo sus propios gastos. */
-export const SUCURSALES_SIN_REPOSICION: readonly string[] = ['00'];
+/**
+ * La sucursal de Oficinas no se repone: Caja General paga directo sus propios gastos. Es la del
+ * cajón, y por eso es SU constante y no un `'00'` propio (`[CGP-L.9]`).
+ */
+export const SUCURSALES_SIN_REPOSICION: readonly string[] = [SUCURSAL_CAJA_GENERAL];
 
 /**
  * Nómina o gasto, por el beneficiario de Kepler. Medido a 60 días: los 56 documentos de nómina de
