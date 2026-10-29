@@ -9,6 +9,16 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos: $2.5M que el Calendario mostraba como por pagar ya no se deben (PGP.35, 2026-10-29)
+- De los **$6,683,082.26** que la pantalla publicaba como deuda del día, **$2,506,811.31 en 11 pagos** apuntan a facturas que el **ERP ya no debe**: se pagaron por fuera o tienen nota de crédito. Marcarlas como pagadas fallaba, y eso se descubría al final del día, después de preparar, autorizar y firmar.
+- Ahora **el renglón lo dice donde se decide** («el ERP ya no debe esta factura: no se puede pagar»), el encabezado declara cuánto del total no es deuda viva, y el diálogo de «marcar pagados» avisa **antes** de apretar cuáles van a fallar.
+- ⭐ El total **no se recorta solo**: cambiar una cifra publicada sin que nadie lo pida es peor que declararla. Quien decide saca el renglón.
+- ⛔ Se descartó que fuera un defecto nuestro antes de tocar nada: las facturas existen en el ERP con saldo cero, así que no es que la plataforma haya perdido el rastro.
+
+### Added — Pagos: una simulación que dice dónde se traba el circuito, sin tocar nada (PGP.34, 2026-10-29)
+- `database/scripts/simular-pago-proveedor.sql` camina los **6 pasos** del pago a proveedor contra los datos reales y responde en segundos **dónde se detiene, por qué y qué lo destraba** — en vez de que una persona lo descubra en una tarde. Es de **sólo lectura**: no escribe una sola fila.
+- Medido hoy: los **27 pagos vivos** se detienen todos en «preparar», y **4 de ellos ($546,012.07) se destraban hoy mismo** porque el proveedor ya nos timbró su CLABE.
+
 ### Fixed — Pagos: la caja SÍ paga, y quien dispersa no siempre es Caja General (PGP.33 / ADR-109, 2026-10-29)
 - El desplegable «cuenta de origen» **escondía Caja General**, por una premisa que nadie había medido: *«la caja no es origen de una transferencia»*. Medido contra el ERP: **2,771 pagos a proveedor, $54,897,784, salieron de ahí** — el **56.7 % de los pagos** por conteo. Quien pagaba desde la caja tenía que elegir otra cuenta para que el formulario lo dejara seguir.
 - Ahora se ofrece como cualquier otra, y el Calendario **propone la cuenta sola en 154 acreedores en vez de 43** (+111).
