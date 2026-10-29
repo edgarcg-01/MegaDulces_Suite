@@ -110,7 +110,7 @@ export const SQL_PROPUESTAS = `
          p.rep_uuid,
          p.veces_declarada::int                                    AS veces_declarada,
          to_char(p.ultima_vez, 'YYYY-MM-DD')                       AS ultima_vez,
-         p.rfc, p.rfc_fuente, p.motivo
+         p.rfc, p.rfc_fuente, p.rfc_discrepa, p.rfc_via, p.motivo
     FROM analytics.v_supplier_account_proposal p
     LEFT JOIN catalog.suppliers s
            ON btrim(s.code) = btrim(p.proveedor_code) AND s.tenant_id = ?

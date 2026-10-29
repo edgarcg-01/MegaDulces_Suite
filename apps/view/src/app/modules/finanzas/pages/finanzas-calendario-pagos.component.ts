@@ -405,16 +405,26 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                   } @else {
                                     <span class="pg-ev pg-ev-no"><i class="pi pi-info-circle" aria-hidden="true"></i>sin factura: {{ e.motivo }}</span>
                                   }
-                                  <!-- [PGP.27] Si la factura se encontró con un RFC que Kepler NO tiene
-                                       (o tiene mal escrito) y resolvió el cruce del nombre, se DICE.
-                                       ADR-056: el dato declara su procedencia; no se presenta como del ERP
-                                       lo que salió de una inferencia. Aparece sólo en los 166 renglones
-                                       donde pasó, no en los 1,123. -->
+                                  <!-- [PGP.27] Si la factura se encontró con un RFC que no salió de Kepler,
+                                       se DICE. ADR-056: el dato declara su procedencia; no se presenta
+                                       como del ERP lo que salió de una inferencia.
+                                       ⛔ [PGP.32] Son DOS casos, no uno, y hasta hoy el rótulo afirmaba
+                                          siempre el primero: Kepler puede no tenerlo, o puede tener OTRO
+                                          (ADR-108 — 18 acreedores, 91 documentos, J&F y MONDELEZ). Decirle
+                                          «Kepler no tiene RFC» a quien está viendo que Kepler sí lo tiene
+                                          es la clase de rótulo que hace desconfiar de toda la pantalla. -->
                                   @if (rfcDeducido(e); as r) {
-                                    <span class="pg-ev pg-ev-src"
-                                          [title]="'Kepler no tiene un RFC utilizable para este acreedor. Se usó ' + r + ', que resolvió el cruce de su nombre contra ContPAQi y sus CFDI recibidos.'">
-                                      <i class="pi pi-link" aria-hidden="true"></i>RFC deducido: {{ r }}
-                                    </span>
+                                    @if (e.rfc_discrepa) {
+                                      <span class="pg-ev pg-ev-dis"
+                                            [title]="'Kepler tiene capturado ' + e.rfc_discrepa + ' para este acreedor, y sus comprobantes timbrados ante el SAT dicen ' + r + '. Se usó el del comprobante (ADR-108). La ficha de Kepler sigue sin corregir.'">
+                                        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>RFC en disputa: Kepler dice {{ e.rfc_discrepa }}, sus comprobantes {{ r }}
+                                      </span>
+                                    } @else {
+                                      <span class="pg-ev pg-ev-src"
+                                            [title]="'Kepler no tiene un RFC utilizable para este acreedor. Se usó ' + r + ', que resolvió el cruce de su nombre normalizado contra ContPAQi.'">
+                                        <i class="pi pi-link" aria-hidden="true"></i>RFC deducido: {{ r }}
+                                      </span>
+                                    }
                                   }
                                 }
                               </span>
@@ -922,6 +932,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ev-uuid { color:var(--fg-2); }
     .pg-ev-no { color:var(--fg-3); }
     .pg-ev-src { color:var(--fg-3); }
+    /* [PGP.32] La disputa NO se atenúa como la deducción: una contradicción entre el ERP y el
+       SAT es trabajo de alguien, no una nota al pie. Sin fondo ni borde: pesa por color y peso,
+       que es lo que §Q.5 pide, y no agrega una caja más al renglón. */
+    .pg-ev-dis { color:var(--warn-fg); font-weight:600; }
     /* El cajon del desglose. Lo PENDIENTE lleva el peso; lo ya aplicado es contexto. */
     .pg-cr { display:grid; gap:var(--sp-2); }
     .pg-cr-tot { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-3); padding:var(--sp-2) var(--sp-3);
@@ -1547,6 +1561,11 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * Devuelve `null` —y la pantalla no dice nada— cuando el RFC salió del ERP, que es el caso
    * normal, o cuando no hay evidencia (ahí el motivo ya lo explica). Así el aviso aparece en
    * los 166 renglones donde la procedencia cambia la lectura y no en los 1,123 donde no.
+   *
+   * ⛔ `[PGP.32]` **Que esto devuelva un RFC ya no quiere decir que Kepler no tenga ninguno.**
+   * Desde `[PGP.31]` el nombre también gana cuando Kepler tiene uno bien formado pero distinto
+   * (ADR-108): 18 acreedores, 91 documentos. Cuál de los dos casos es lo dice `rfc_discrepa`, y
+   * la plantilla ramifica ahí — un rótulo que afirme «Kepler no tiene RFC» sobre esos 91 miente.
    */
   rfcDeducido(e: PayableEvidenceRow): string | null {
     return e.evidencia !== 'ninguna' && e.rfc_fuente === 'nombre' && e.rfc ? e.rfc : null;

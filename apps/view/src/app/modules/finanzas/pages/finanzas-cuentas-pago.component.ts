@@ -240,10 +240,20 @@ interface ChangeRequest {
               Su dígito de control está verificado. Banco (código de la CLABE): <span class="cta-mono">{{ prop.banco_codigo }}</span>@if (prop.banco_rfc) { <span class="cta-muted"> · RFC del banco {{ prop.banco_rfc }}</span> }.
             </p>
             <p class="cta-evid-p cta-muted">Comprobante: <span class="cta-mono">{{ prop.rep_uuid }}</span></p>
-            @if (prop.rfc_fuente === 'nombre') {
+            @if (prop.rfc_discrepa) {
+              <!-- [PGP.32] ADR-108. El caso más delicado de los dos: Kepler SÍ tiene un RFC para
+                   este proveedor, y no es el que el proveedor declara ante el SAT. Quien firma el
+                   alta de una cuenta bancaria tiene que ver los dos números, no uno. -->
+              <p class="cta-evid-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                <strong>El ERP y el SAT no coinciden sobre quién es este proveedor.</strong>
+                Kepler tiene capturado <span class="cta-mono">{{ prop.rfc_discrepa }}</span> y sus comprobantes
+                timbrados dicen <span class="cta-mono">{{ prop.rfc }}</span>. Se buscó con el del comprobante.
+                La ficha de Kepler sigue sin corregir: verifica a quién le estás dando de alta la cuenta.
+              </p>
+            } @else if (prop.rfc_fuente === 'nombre') {
               <p class="cta-evid-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                 Kepler no tiene un RFC utilizable para este proveedor. Se usó <span class="cta-mono">{{ prop.rfc }}</span>,
-                que resolvió el cruce de su nombre contra ContPAQi y sus facturas. Verifícalo antes de autorizar.
+                que resolvió el cruce de su nombre normalizado contra ContPAQi. Verifícalo antes de autorizar.
               </p>
             }
             <p class="cta-evid-p cta-muted">Revísala contra lo que tengas y corrígela si hace falta: esto propone, no da de alta.</p>
@@ -461,7 +471,14 @@ export class FinanzasCuentasPagoComponent implements OnInit {
           reason: `Alta de cuenta para pagarle por transferencia (PGP.1): ${this.money(f.monto)} pagados por banco en la ventana. `
             + `La CLABE la declaró el propio proveedor en su comprobante de pago timbrado ${usar.rep_uuid} `
             + `(${usar.veces_declarada} vez(ces), la última el ${usar.ultima_vez}); su dígito de control está verificado.`
-            + (usar.rfc_fuente === 'nombre' ? ` ⚠️ El RFC ${usar.rfc} no está en Kepler: lo resolvió el cruce del nombre.` : ''),
+            // [PGP.32] El motivo QUEDA GUARDADO y lo lee quien autoriza: tiene que decir cuál de
+            // los dos casos es. Antes afirmaba siempre «no está en Kepler», que desde [PGP.31]
+            // es falso para los 18 acreedores en los que Kepler tiene OTRO (ADR-108).
+            + (usar.rfc_discrepa
+                ? ` ATENCION: Kepler tiene capturado el RFC ${usar.rfc_discrepa} y sus comprobantes timbrados dicen ${usar.rfc}; se busco con el del comprobante (ADR-108).`
+                : usar.rfc_fuente === 'nombre'
+                  ? ` El RFC ${usar.rfc} no esta en Kepler: lo resolvio el cruce del nombre contra ContPAQi.`
+                  : ''),
         }
       : { proposed_es_favorita: true, reason: `Alta de cuenta para pagarle por transferencia (PGP.1): ${this.money(f.monto)} pagados por banco en la ventana.` };
     this.requestSupplier.set(s);

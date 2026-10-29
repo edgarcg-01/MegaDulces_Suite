@@ -163,6 +163,17 @@ export interface PayableEvidenceRow {
    */
   rfc: string | null;
   rfc_fuente: 'kepler' | 'nombre' | 'ninguna';
+  /**
+   * `[PGP.32]` (ADR-108) **Lo que Kepler tiene capturado, cuando CONTRADICE al comprobante
+   * timbrado.** `null` es el caso normal — y también cuando Kepler simplemente no lo tiene o lo
+   * tiene mal escrito, que es otra cosa y ya la dice `rfc_fuente`.
+   *
+   * ⛔ Sin esta columna, `rfc_fuente === 'nombre'` tapaba dos situaciones distintas y el rótulo
+   * de la pantalla afirmaba la equivocada: desde `[PGP.31]` el nombre también gana cuando Kepler
+   * SÍ tiene un RFC bien formado. Son **18 acreedores · 91 documentos**, J&F y MONDELEZ entre
+   * ellos. Decir «Kepler no tiene un RFC utilizable» ahí sería falso.
+   */
+  rfc_discrepa: string | null;
 }
 
 /**

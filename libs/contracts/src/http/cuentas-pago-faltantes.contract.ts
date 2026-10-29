@@ -162,6 +162,17 @@ export interface CuentaPagoPropuesta {
    * saberlo: la pantalla no lo presenta como dato del ERP.
    */
   rfc_fuente: 'kepler' | 'nombre' | 'ninguna';
+  /**
+   * `[PGP.32]` (ADR-108) **El RFC que Kepler tiene capturado, cuando CONTRADICE al comprobante
+   * que el proveedor timbró.** `null` en el caso normal — y también cuando Kepler no lo tiene o
+   * lo tiene mal escrito, que es otra cosa.
+   *
+   * ⛔ Quien firma un alta de cuenta necesita ver las dos: el RFC con el que se encontró el
+   * comprobante y el que su propio ERP dice. Son **18 acreedores**, 2 de ellos en esta pantalla.
+   */
+  rfc_discrepa: string | null;
+  /** Con qué se resolvió el nombre (`contpaqi`…). `null` cuando el RFC vino de Kepler. */
+  rfc_via: string | null;
   /** Por qué no se puede proponer. `null` cuando sí se puede. Nunca un hueco mudo (ADR-056). */
   motivo: string | null;
 }
