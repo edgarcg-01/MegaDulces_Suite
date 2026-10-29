@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos: cuando el ERP y el SAT no coinciden sobre quién es un proveedor, manda el comprobante (PGP.31 / ADR-108, 2026-10-28, **en prod**)
+- Kepler tenía capturado, para **18 acreedores**, un RFC que **sus propias facturas timbradas contradicen** — entre ellos **J&F ENTERPRISE** y **MONDELEZ**, con un RFC de persona física sobre una sociedad. Hasta ahora ganaba el del ERP y por eso esas facturas no se encontraban.
+- Ahora manda el del comprobante. **+12 documentos encuentran su factura (+$14,819)**, sin que ninguno pierda la que ya tenía: el valor literal de Kepler se conserva y sigue sirviendo para buscar.
+- ⛔ **Esto no corrige a Kepler.** Mientras la ficha siga con el RFC equivocado, cada vista nueva lo vuelve a heredar. Es captura, no derivación.
+- ⚠️ **Contradicción no es error de dedo.** Otros **14 acreedores** sólo tienen el RFC mal escrito (`PTE120913`, un dígito de menos); ésos ya se declaraban aparte y **no** se cuentan como contradicción.
+
 ### Added — Pagos: el Calendario ya sabe con qué se le paga a cada acreedor (PGP.30, 2026-10-28)
 - Al preparar un pago, el **método** y la **cuenta de origen** llegan **precargados del historial de ese acreedor**, en vez de pedirse a mano pago por pago. Medido contra prod sobre 4,881 pagos: **288 de 316 acreedores (91.1 %) tienen un método estable**, que cubre el **87.4 % del dinero**.
 - La propuesta llega **editable y con su evidencia al lado** («así se le pagó 16 de 16 veces, la última el 2026-10-19, desde BB 4166»). Nada se aplica solo.
