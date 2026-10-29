@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Caducidades: escanear busca solo, sin tocar la lupa (P2.9.3, 2026-10-29)
+- El campo de escaneo sólo buscaba con `Enter`, y **no toda pistola manda `Enter`**: en Morelia Abastos el código quedaba escrito esperando el clic. Ahora busca solo en cuanto entra un código completo (ráfaga de pistola u 8–14 dígitos, 250 ms de silencio); con `Enter` busca una sola vez; un SKU tecleado a mano sigue esperando `Enter`. Vale para Caducidades y el detalle de la hoja.
+
 ### Changed — Arqueo: un solo menú para el tipo, y el concepto del retiro (SM.49, 2026-10-28)
 - `/tienda/arqueo`: las pestañas Retiro · Cierre de día · Relevo · RD · RV pasan a un solo menú. Un retiro lleva concepto: Pago a proveedor, Pago de nómina, Gasto de la sucursal (caja chica), Depósito al banco, Otro (con motivo obligatorio) o Retiro de caja (la sangría que pide Kepler). La pantalla abre en Retiro.
 - El concepto sale en el ticket y en «Sucursales y sus cajas», con las salidas por concepto de cada turno y de la sucursal. Esa vista nace minimizada y ya no tiene botón Validar. Migración `20261028093702` (columna `concepto`).
