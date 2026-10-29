@@ -206,11 +206,11 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               </td>
               <td class="rq-r">{{ r.total_lines | number }}</td>
               <td class="rq-r">{{ money(r.total_cost) }}</td>
-              <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+              <td><span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
                     @if (r.rejection_reason) { <div class="rq-sub rq-motivo">Motivo: {{ r.rejection_reason }}</div> }</td>
               <td class="rq-r" [class.rq-viejo]="(r.dias ?? 0) > 30">{{ r.dias ?? '—' }}</td>
-              <td><p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag></td>
+              <td>@if (r.estado === 'pending_approval') { <p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag> } @else { <span class="rq-muted" title="La vigencia del costo sólo decide antes de aprobar.">—</span> }</td>
               <td><i class="pi pi-angle-right rq-muted"></i></td>
             </tr>
           </ng-template>
@@ -295,14 +295,14 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rq-r">{{ r.total_units | number:'1.0-0' }}</td>
                   <td class="rq-r">{{ money(r.total_cost) }}</td>
                   <td class="rq-estado">
-                    <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+                    <span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
                     @if (r.rejection_reason) { <div class="rq-sub rq-motivo">Motivo: {{ r.rejection_reason }}</div> }
                     <!-- [PQ.1] Lo de Kepler (aprobada sin documento ≠ escrita en el ERP) va en su
                          propia columna, escrito, al final de la fila. -->
                   </td>
                   <td class="rq-r" [class.rq-viejo]="(r.dias ?? 0) > 30">{{ r.dias ?? '—' }}</td>
-                  <td><p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag></td>
+                  <td>@if (r.estado === 'pending_approval') { <p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag> } @else { <span class="rq-muted" title="La vigencia del costo sólo decide antes de aprobar.">—</span> }</td>
                   <td class="rq-muted">{{ r.created_at | date:'dd/MM/yy HH:mm' }}</td>
                   <!-- [PQ.25] Lo que pasó en Kepler, ESCRITO y a la vista: la requisición y su OC
                        con folio, o el motivo completo si no salió. Antes era una pastilla con el
@@ -394,7 +394,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rq-r">{{ r.total_units | number:'1.0-0' }}</td>
                   <td class="rq-r">{{ money(r.total_cost) }}</td>
                   <td class="rq-estado">
-                    <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+                    <span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
                     @if (r.rejection_reason) { <div class="rq-sub rq-motivo">Motivo: {{ r.rejection_reason }}</div> }
                     <!-- [PQ.1] Una aprobada SIN documento en Kepler no es una aprobada: medido el
@@ -404,7 +404,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                     }
                   </td>
                   <td class="rq-r" [class.rq-viejo]="(r.dias ?? 0) > 30">{{ r.dias ?? '—' }}</td>
-                  <td><p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag></td>
+                  <td>@if (r.estado === 'pending_approval') { <p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag> } @else { <span class="rq-muted" title="La vigencia del costo sólo decide antes de aprobar.">—</span> }</td>
                   <td class="rq-muted">{{ r.created_at | date:'dd/MM/yy HH:mm' }}</td>
                   <td><i class="pi pi-angle-right rq-muted"></i></td>
                 </tr>
@@ -465,7 +465,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rq-r">{{ r.total_lines | number }}</td>
                   <td class="rq-r">{{ money(r.total_cost) }}</td>
                   <td class="rq-estado">
-                    <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+                    <span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     <!-- [PQ.1] Toda «Aprobada» dice si salió a Kepler, también aquí. -->
                     @if (r.estado === 'approved') {
                       <p-tag [value]="keplerLabel(r)" [severity]="keplerSev(r)" [attr.title]="keplerTitle(r)" styleClass="rq-kep"></p-tag>
@@ -558,6 +558,9 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     /* El rojo es del renglón que ya pasó los 30 días: a esa edad el costo capturado dejó de ser
        el de hoy en la mayoría de los renglones (83.5 % medido en prod en el tramo 31-60 d). */
     .rq-viejo { color: var(--bad-fg); font-weight: 700; }
+    /* [PQ.28] El estado en texto, sin pastilla de color: en una bandeja de consulta el color
+       no decide nada y competía con lo único rojo que importa (lo que no salió a Kepler). */
+    .rq-est { font-weight: 600; color: var(--fg-1); }
     .rq-kepcell { min-width: 11rem; line-height: 1.35; }
     .rq-kep-oc { color: var(--fg-1); }
     .rq-kep-mal { color: var(--bad-fg); font-weight: 600; }

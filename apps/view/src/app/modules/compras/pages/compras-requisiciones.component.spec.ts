@@ -379,12 +379,12 @@ describe('[PQ.1] aprobada ≠ escrita en Kepler', () => {
     });
     return porDocumento(TestBed.createComponent(ComprasRequisicionesComponent));
   }
-  const etiquetas = (fix: ReturnType<typeof montarCon>) =>
-    Array.from(fix.nativeElement.querySelectorAll('p-tag')).map((t) => (t as HTMLElement).textContent?.trim() ?? '');
 
   it('tres ausencias, tres etiquetas: salió · salió mal · sin empujar', () => {
     const c = montarCon([]).componentInstance;
-    expect(c.keplerLabel(APROBADA({ kepler_sucursal: '00', kepler_folio: '0003114', kepler_error: null }) as any)).toBe('en Kepler 00/0003114');
+    // `[PQ.25]` Sin el código de sucursal: «00» no le dice a nadie que es CEDIS (la sucursal ya
+    // está en su columna, por nombre).
+    expect(c.keplerLabel(APROBADA({ kepler_sucursal: '00', kepler_folio: '0003114', kepler_error: null }) as any)).toBe('en Kepler 0003114');
     expect(c.keplerSev(APROBADA({ kepler_folio: '0003114' }) as any)).toBe('secondary');
     expect(c.keplerLabel(APROBADA({ kepler_folio: null, kepler_error: 'Kepler (sucursal 04) no conoce al proveedor CA027' }) as any)).toBe('no salió a Kepler');
     expect(c.keplerSev(APROBADA({ kepler_folio: null, kepler_error: 'x' }) as any)).toBe('danger');
@@ -397,14 +397,17 @@ describe('[PQ.1] aprobada ≠ escrita en Kepler', () => {
     expect(c.keplerLabel(APROBADA({}) as any)).toBe('Kepler: sin medir');
   });
 
-  it('la aprobada pinta la segunda etiqueta; la pendiente no', () => {
+  it('la aprobada que no salió dice POR QUÉ, escrito en la fila; la pendiente no dice nada de Kepler', () => {
+    // `[PQ.25]`/`[PQ.28]` Lo de Kepler dejó de ser una pastilla con el motivo en un `title`: va en
+    // su columna «En Kepler», con el motivo completo a la vista, y el estado es texto.
     const fix = montarCon([APROBADA({ kepler_folio: null, kepler_error: 'Kepler (sucursal 04) no conoce al proveedor CA027' }), FILA]);
-    const tags = etiquetas(fix);
-    expect(tags).toContain('no salió a Kepler');
-    // Las dos pestañas montan sus rejillas: una etiqueta de Kepler por cada «Aprobada» pintada,
-    // y ninguna para la pendiente.
-    expect(tags.filter((t) => /Kepler/.test(t)).length).toBe(tags.filter((t) => t === 'Aprobada').length);
-    expect(tags.filter((t) => t === 'Pendiente').length).toBeGreaterThan(0);
+    const texto = (fix.nativeElement as HTMLElement).textContent ?? '';
+    expect(texto).toContain('no salió a Kepler');
+    expect(texto).toContain('no conoce al proveedor CA027');
+    const kepCeldas = Array.from((fix.nativeElement as HTMLElement).querySelectorAll('td.rq-kepcell')).map((td) => td.textContent?.trim() ?? '');
+    expect(kepCeldas.some((t) => t.includes('no salió a Kepler'))).toBe(true);
+    // NEGATIVA: la pendiente no tiene nada que decir de Kepler.
+    expect(kepCeldas.filter((t) => /Kepler/.test(t)).length).toBe(1);
   });
 
   it('la casilla cuenta las aprobadas SIN documento, con su desglose y su monto', () => {
