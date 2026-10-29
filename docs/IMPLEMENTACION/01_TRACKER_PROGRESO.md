@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2029 KB, 12851 líneas, 72 secciones.
+> **Índice navegable** — 2031 KB, 12863 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -40,45 +40,45 @@
 | 6459 | 6524 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
 | 6525 | 6552 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
 | 6553 | 6719 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 6720 | 7067 | 119 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 7068 | 7130 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 7131 | 7260 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 7261 | 7323 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 7324 | 7484 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 7485 | 7555 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 7556 | 7604 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 7605 | 7637 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 7638 | 8027 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 8028 | 8159 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 8160 | 8206 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 8207 | 8246 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 8247 | 8299 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 8300 | 8366 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 8367 | 8529 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 8530 | 8813 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 8814 | 8981 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8982 | 11239 | 172 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11240 | 11248 | 1 | Fase RR — Ventas por ruta |
-| 11249 | 11544 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11545 | 11555 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11556 | 11576 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11577 | 11587 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11588 | 11599 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11600 | 11659 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11660 | 12087 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 12088 | 12102 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 12103 | 12144 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 12145 | 12293 | 63 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12294 | 12324 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12325 | 12372 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12373 | 12401 | 25 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12402 | 12431 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12438 | 12447 | 1 | 📝 Convenciones |
-| 12448 | 12485 | 13 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12486 | 12504 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12505 | 12557 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12558 | 12914 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12915 | 12935 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 6720 | 7073 | 121 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 7074 | 7136 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 7137 | 7266 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7267 | 7329 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 7330 | 7490 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7491 | 7561 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7562 | 7610 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 7611 | 7643 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 7644 | 8033 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 8034 | 8165 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 8166 | 8212 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 8213 | 8252 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 8253 | 8305 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8306 | 8372 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8373 | 8535 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8536 | 8819 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8820 | 8987 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8988 | 11251 | 172 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11252 | 11260 | 1 | Fase RR — Ventas por ruta |
+| 11261 | 11556 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11557 | 11567 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11568 | 11588 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11589 | 11599 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11600 | 11611 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11612 | 11671 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11672 | 12099 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 12100 | 12114 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 12115 | 12156 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12157 | 12305 | 63 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12306 | 12336 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12337 | 12384 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12385 | 12413 | 25 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12414 | 12443 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12450 | 12459 | 1 | 📝 Convenciones |
+| 12460 | 12497 | 13 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12498 | 12516 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12517 | 12569 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12570 | 12926 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12927 | 12947 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -9418,28 +9418,34 @@ TP.6-TP.8+TP.10".
 >   Y «Vincular con propuesta» suma todo lo sin vincular del grupo, también lo que la propuesta no
 >   cubre (`queda`). Arreglo: partir cada grupo en por capturar / cubierto por la propuesta / sin
 >   retiro, que sumen la columna; antes y después medidos.
-> - [x] **[CGA-A.65]** 🧪 2026-10-29 · **La hoja de gastos de zona: el Excel de Morelia, armado de Kepler, firmado y pagado en la Suite.**
+> - [x] **[CGA-A.65]** 🧪 2026-10-29 · **La hoja de gastos de zona: armada de Kepler, aprobada, y pagada con UN retiro de CAOS que la explica entera.**
 >   Edgar: *«no queremos impresiones, solo quiero que se automatice el proceso tanto del excel como a
->   la hora de pagar»*. Medido con dos hojas en papel y el banco: Morelia se repone por ZONA (Abastos y
->   Madero en una hoja, un retiro de CAOS, un depósito por el total) y la reposición por sucursal le
->   proponía el retiro de otra hoja.
->   - `fb140ecd9` La reposición ya no propone ni sugiere retiro a Madero ni a Abastos; su renglón dice
->     «se repone por hoja de zona». Cuatro mutaciones, cada una con su rojo.
->   - `e58547777` C0 + C1. Consulta: la pierna `0011` de `bank_movement_legs` con su `kdm1` por la llave
->     primaria. Motor: qué NO va (centro 009, 002, 003 y pagos de compras «C-…»/«COMPRA …»), la
->     instrucción de pago, el retiro por folio `HG-n` y el depósito en una o dos partes (± $0.50, hasta 7
->     días). Sonda en prod con la consulta y el motor REALES: 6 de 6 días de octubre iguales al centavo
->     que su depósito (con «sólo el centro 007», 4). Control del depósito: 0.7 % en la cuenta de la
->     zona, 17.5 % en todas. Migración `20261029143450`: cuatro ojos, transiciones, renglones
->     inmutables, un pago en una sola hoja vigente y cuadre diferido; `test-newdb-hoja-gastos.js`.
->   - `6c64e49b3` C2: API `finance/hoja-gastos` (abierta, cerrar, aprobar, rechazar, cancelar y el pago
->     reconocido). Clave nueva `FINANCE_HOJA_GASTOS_CERRAR`; aprueba `FINANCE_EXPENSES_COMPROBAR` (D18).
->     Arranque por `design:paramtypes` (sin el servicio en el módulo, 3 rojas).
->   - `33a705e75` C3: Finanzas › Gastos › Hoja de zona. `ngc` 0 · `check:pantalla` cumple las 10.
->   - ⚠️ **NO MEDIDO:** las escrituras contra una base real (Docker apagado, y el `DATABASE_URL_NEW` del
->     `.env` de esta máquina apunta a PRODUCCIÓN). Sin validación visual. Falta: empujar, aplicar la
->     migración en prod, repartir la clave (qué puesto firma por la zona: Edgar) y soltar. Canindo: su
->     cuenta de reposición no está medida.
+>   la hora de pagar»*; después, *«todo lo de reposición es que salga de un solo movimiento de CAOS…
+>   debería pagarse todo con un solo movimiento y vincularse… lo que se paga con cajón o no es
+>   reposición va abajo»* y *«si no está aprobada no se puede pagar»*. Medido con dos hojas en papel,
+>   el banco y los vínculos de CAOS: Morelia se repone por ZONA (Abastos y Madero en una hoja, UN
+>   retiro, un depósito por el total), y el retiro se ligaba a mano, renglón por renglón.
+>   - `fb140ecd9` La reposición ya no propone ni sugiere retiro a Madero ni a Abastos.
+>   - `e58547777` C0 + C1: consulta (`bank_movement_legs` + `kdm1` por la llave primaria) y motor:
+>     qué NO va (centro 009, 002, 003 y pagos de compras «C-…»/«COMPRA …»; 6 de 6 días de octubre al
+>     centavo de su depósito, con «sólo el 007» 4), el depósito en una o dos partes (control 0.7 % en
+>     la cuenta de la zona). Migración `20261029143450` y `test-newdb-hoja-gastos.js`.
+>   - `6c64e49b3` C2 y `33a705e75` C3: cerrar, aprobar, rechazar, cancelar; Finanzas › Gastos › Hoja de zona.
+>   - ⭐ `f7bf1b608` **El pago, que era el fin.** La hoja aprobada se paga de un clic con UN retiro de CAOS
+>     que la cuadra (no pasa de la hoja y el cajón pone menos de 500 pesos) o, por excepción, con el
+>     cajón: lo ya capturado se liga a ese retiro con las reglas de siempre (`altaVinculoCaos`) y lo demás
+>     entra por el lote de siempre con él. Ningún escritor nuevo del libro (la excepción a LE.0.4 de
+>     A.61). **Candado** en los dos lugares que escriben un vínculo (alta del libro y alta de vínculo): un
+>     pago de la hoja entra sólo con su hoja pagada y el retiro de una hoja sólo explica sus pagos; la
+>     cola lo dice (`en_hoja`). Base: estado `pagada`, quien aprobó no paga, un retiro por hoja, retiro
+>     + cajón = hoja, sin aprobación no se paga. Abajo de la hoja: lo que no es reposición y lo pagado sin
+>     hoja. Propuesta del retiro: 5 de 5 hojas con un solo candidato y es el correcto; control 2 de 200.
+>   - ⚠️ **NO MEDIDO:** la migración y el pago contra una base real (Docker apagado, y el
+>     `DATABASE_URL_NEW` del `.env` de esta máquina apunta a PRODUCCIÓN): van al CI, y el pago completo
+>     no corre en `caja-db` (la cola cuelga de las vistas de Kepler). Sin validación visual. Falta:
+>     empujar, aplicar la migración, repartir `FINANCE_HOJA_GASTOS_CERRAR` (qué puesto cierra por la
+>     zona: Edgar) y soltar. Canindo: su regla de «qué no va» y su cuenta de reposición no están medidas
+>     (su retiro dice «gnf y com»: ahí las comisiones sí se reponen).
 > - **[CGA-A.57]** ⬜ **Ligar el historial con propuestas + confirmación** (decisión de Edgar). Octubre
 >   en adelante contra los gastos del libro; mayo–sep ($16.5 M, 326 retiros) contra los egresos de
 >   Kepler (cuenta `0011`), porque el libro empieza el 25-sep. Nada se liga solo (1 de cada 3 parejas
