@@ -926,8 +926,31 @@ export class PaymentCalendarService {
       const itemsByAllocation = new Map<string, any[]>();
       for (const it of items as any[]) {
         const label = labels.get(`${it.obligation_source}:${it.obligation_id}`);
+        // `[PGP.35]` **Una etiqueta vacía de origen derivado NO es un beneficiario desconocido:
+        // es que Kepler ya no debe esa factura.** La etiqueta se rearma desde
+        // `analytics.v_supplier_payables`, que filtra `pendiente > 0.005`; si el documento no
+        // aparece, el ERP lo tiene saldado (pagado por fuera, o con nota de crédito). Hasta hoy
+        // eso se pintaba «—» y el pago seguía sumando al total del día como deuda viva.
+        //
+        // ⛔ Medido contra prod el 2026-10-29: **27 de las 54 líneas derivadas** de los pagos
+        // vivos están así — **11 de 27 pagos, $2,506,811.31 de $6,683,082.26**. Se descartó que
+        // fuera deriva de la llave: las 27 existen en `kepler_ods.kdxe` con saldo 0 (si no
+        // existieran, el defecto sería NUESTRO; ver kepler-payable-key.contract.ts:22).
+        //
+        // ⭐ Y es exactamente el síntoma que ese contrato anticipa —«una etiqueta en blanco y un
+        // saldo que no baja»—, con el dato ya en la mano y tirándose. No cuesta una consulta más.
+        // `execute()` ya lo rechaza (:1346-1352), pero ahí llega una persona después de preparar,
+        // autorizar y firmar: decirlo acá es decirlo ANTES de gastar el día.
+        const saldada = !label && it.obligation_source === 'kepler_payable';
         const arr = itemsByAllocation.get(it.allocation_id) ?? [];
-        arr.push({ ...it, beneficiary: label?.beneficiary ?? '—', concept: label?.concept ?? '—', supplier_id: label?.supplier_id ?? null, branch_code: label?.branch_code ?? null });
+        arr.push({
+          ...it,
+          beneficiary: label?.beneficiary ?? '—',
+          concept: label?.concept ?? '—',
+          supplier_id: label?.supplier_id ?? null,
+          branch_code: label?.branch_code ?? null,
+          kepler_saldada: saldada,
+        });
         itemsByAllocation.set(it.allocation_id, arr);
       }
       // `[TP.16]` Alias de la cuenta de ORIGEN, para que «Ordenar y pagar» diga de dónde sale el dinero.
@@ -944,12 +967,20 @@ export class PaymentCalendarService {
           originKind.set(r.id, r.kind || 'bank');
         }
       }
-      return allocations.map((a: AllocationRowLite) => ({
-        ...a, amount_assigned: Number(a.amount_assigned),
-        bank_account_label: a.bank_account_id ? origin.get(a.bank_account_id) ?? null : null,
-        bank_account_kind: a.bank_account_id ? originKind.get(a.bank_account_id) ?? null : null,
-        items: (itemsByAllocation.get(a.id) ?? []).map((it) => ({ ...it, applied_amount: Number(it.applied_amount) })),
-      }));
+      return allocations.map((a: AllocationRowLite) => {
+        const its = (itemsByAllocation.get(a.id) ?? []).map((it) => ({ ...it, applied_amount: Number(it.applied_amount) }));
+        // `[PGP.35]` El agregado por pago: cuántas de sus facturas quedaron saldadas en el ERP y
+        // por cuánto. La pantalla lo necesita para no sumar como deuda viva lo que ya no se debe.
+        const saldadas = its.filter((it) => it.kepler_saldada);
+        return {
+          ...a, amount_assigned: Number(a.amount_assigned),
+          bank_account_label: a.bank_account_id ? origin.get(a.bank_account_id) ?? null : null,
+          bank_account_kind: a.bank_account_id ? originKind.get(a.bank_account_id) ?? null : null,
+          kepler_saldadas: saldadas.length,
+          kepler_saldadas_importe: saldadas.reduce((s, it) => s + Number(it.applied_amount), 0),
+          items: its,
+        };
+      });
     });
   }
 

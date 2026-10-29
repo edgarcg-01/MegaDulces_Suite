@@ -485,6 +485,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               <div class="pg-sec-h">
                 <h3 class="pg-sec-t" id="pg-pagos-h">Pagos del día
                   @if (allocations().length) { <span class="pg-sec-n comm-num">{{ pagos(allocations().length) }} · {{ money(dayTotal(day)) }}</span> }
+                  <!-- [PGP.35] El total no se recorta solo: se declara que parte de el no es deuda viva. -->
+                  @if (saldadasDelDia().length) {
+                    <span class="pg-sec-saldada"
+                          [title]="'El ERP ya no debe estas facturas: se pagaron por fuera o tienen nota de credito. Marcarlas como pagadas fallaria. Estan senaladas en su renglon.'">
+                      <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>de los cuales {{ money(saldadasDelDiaTotal()) }} el ERP ya no los debe
+                    </span>
+                  }
                 </h3>
                 @if (!isReleased() && pendingCount() > 0) {
                   <!-- [PGP.15] En el ENCABEZADO del panel (era un renglon propio) y como el boton principal del paso:
@@ -614,6 +621,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                         <span class="cal-benef">{{ allocationTitle(a) }}</span>
                         <span class="pg-sub"><span class="cal-suc">{{ itemsBranches(a) }}</span>{{ itemsResumen(a) }}</span>
                         @if (a.notes) { <span class="cal-notes">{{ a.notes }}</span> }
+                        <!-- [PGP.35] El ERP ya no debe esta factura. Se dice ACA, donde se decide:
+                             ejecutarlo fallaria, y hasta hoy el renglon solo mostraba un «—» mudo
+                             en el beneficiario. Medido: 11 de 27 pagos vivos, $2,506,811.31. -->
+                        @if (a.kepler_saldadas > 0) {
+                          <span class="pg-saldada"
+                                [title]="'Al preparar este pago, el ERP debia estas facturas. Hoy ya no: se pagaron por fuera o tienen nota de credito. Marcarlo como pagado fallaria. Quitalo del dia o revisa que factura reemplaza.'">
+                            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>El ERP ya no debe {{ a.kepler_saldadas === 1 ? 'esta factura' : a.kepler_saldadas + ' de sus facturas' }} ({{ money(a.kepler_saldadas_importe) }}): no se puede pagar
+                          </span>
+                        }
                         <!-- [PGP.15] Cómo sale, DEBAJO del beneficiario: en el panel de la derecha una columna
                              propia de 21rem dejaba al nombre en ~10 px (medido: se partía letra por letra). -->
                         @if (comoSale(a); as cs) {
@@ -846,9 +862,21 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       <p class="cal-dlg-p">Se marcan <b>{{ pagos(porPagar().length) }}</b> por <b class="comm-num">{{ money(porPagarTotal()) }}</b>. Marca sólo lo que el banco ya confirmó: <b>un pago marcado no se deshace aquí</b>. Si alguno rebotó, cancela y márcalo «Rebotó…» en su fila.</p>
       <ul class="pg-dlg-list">
         @for (a of porPagar(); track a.id) {
-          <li><span><span class="comm-num pg-dlg-fol">{{ a.folio || a.priority_rank }}</span> {{ allocationTitle(a) }}</span><b class="comm-num">{{ money(a.amount_assigned) }}</b></li>
+          <li [class.is-saldada]="a.kepler_saldadas > 0">
+            <span><span class="comm-num pg-dlg-fol">{{ a.folio || a.priority_rank }}</span> {{ allocationTitle(a) }}
+              @if (a.kepler_saldadas > 0) {
+                <span class="pg-dlg-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>va a fallar: el ERP ya no debe {{ a.kepler_saldadas === 1 ? 'su factura' : a.kepler_saldadas + ' de sus facturas' }}</span>
+              }
+            </span><b class="comm-num">{{ money(a.amount_assigned) }}</b></li>
         }
       </ul>
+      <!-- [PGP.35] Se dice ANTES de apretar (DESIGN §10 poka-yoke): el servidor revalida el saldo
+           y rechaza esos pagos, pero enterarse por N errores seguidos es el ultimo recurso. -->
+      @if (porPagarSaldadas(); as n) {
+        @if (n > 0) {
+          <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ n === 1 ? '1 de estos pagos va a fallar' : n + ' de estos pagos van a fallar' }}: el ERP ya no debe sus facturas (se pagaron por fuera o tienen nota de credito). Los demas si se marcan.</p>
+        }
+      }
       <div class="cal-dlg-actions">
         <button pButton type="button" class="p-button-text p-button-secondary" (click)="pagarVisible = false">Cancelar</button>
         <button pButton type="button" [disabled]="!porPagar().length" [loading]="saving()" (click)="confirmPagar()">Marcar {{ pagos(porPagar().length) }}</button>
@@ -1227,6 +1255,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-habito { border-left:2px solid var(--border); padding-left:var(--sp-2); }
     .cal-habito .pi { margin-right:.3rem; }
     .cal-habito-nm { border-left:2px solid var(--warn-fg); padding-left:var(--sp-2); font-style:italic; }
+    /* [PGP.35] Lo que no se puede pagar se ve distinto de lo que falta preparar: esto no es
+       trabajo pendiente, es un renglon que hay que sacar del dia. */
+    .pg-saldada { display:flex; align-items:center; gap:var(--sp-1); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
+    .pg-sec-saldada { display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
+    .pg-dlg-list li.is-saldada { color:var(--bad-fg); }
+    .pg-dlg-warn { display:inline-flex; align-items:center; gap:var(--sp-1); margin-left:var(--sp-2); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
     .cal-dlg-full { width:100%; margin-bottom:var(--sp-2); }
     .cal-dlg-actions { display:flex; gap:var(--sp-2); align-items:center; justify-content:flex-end; margin-top:var(--sp-3); }
     .cal-dlg-label { display:block; font-size:var(--fs-sm); color:var(--text-muted); margin:var(--sp-2) 0 var(--sp-1); }
@@ -1919,8 +1953,25 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   // ── [PGP.15] Caja General: marcar pagados de una vez, y el pago que rebota ──────────────────
   pagarVisible = false;
   /** Lo que «Marcar los N pagados» marca: pendiente y preparado (el backend exige método). */
+  /**
+   * `[PGP.35]` **Cuánto del total del día ya NO lo debe el ERP.** El encabezado publicaba
+   * «27 pagos · $6,683,082.26» como deuda viva, y medido contra prod el 2026-10-29
+   * **$2,506,811.31 de esos (11 pagos) ya estaban saldados en Kepler** — pagados por fuera o con
+   * nota de crédito. `execute()` los rechaza, pero eso se descubre al final del día, después de
+   * preparar, autorizar y firmar.
+   *
+   * ⛔ El total NO se recorta por cuenta propia: cambiar una cifra publicada sin que nadie lo pida
+   * es peor que declararla. Se publica al lado, y quien decide saca el renglón si corresponde.
+   */
+  readonly saldadasDelDia = computed(() =>
+    this.allocations().filter((a) => a.status === 'pending' && (a.kepler_saldadas ?? 0) > 0));
+  readonly saldadasDelDiaTotal = computed(() =>
+    this.saldadasDelDia().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
+
   readonly porPagar = computed(() => this.allocations().filter((a) => a.status === 'pending' && isPrepared(a)));
   readonly porPagarTotal = computed(() => this.porPagar().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
+  /** `[PGP.35]` De los que se van a marcar, cuántos el servidor va a rechazar por saldo. */
+  readonly porPagarSaldadas = computed(() => this.porPagar().filter((a) => (a.kepler_saldadas ?? 0) > 0).length);
   reboteVisible = false;
   reboteAllocation: PaymentCalendarAllocation | null = null;
   reboteReason: ReprogramReason | null = null;

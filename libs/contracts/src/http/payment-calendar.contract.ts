@@ -37,6 +37,16 @@ export interface PaymentCalendarAllocationItem {
   supplier_id: string | null;
   /** `[TP.16.3]` Sucursal (centro de costo) de la factura; null fuera de facturas de proveedor. */
   branch_code: string | null;
+  /**
+   * `[PGP.35]` **El ERP ya no debe esta factura.** Sólo puede ser `true` en origen derivado
+   * (`kepler_payable`): su etiqueta se rearma desde `analytics.v_supplier_payables`, que filtra
+   * `pendiente > 0.005`, así que un documento ausente está saldado — pagado por fuera, o con
+   * nota de crédito. Medido 2026-10-29: **27 de 54 líneas** de los pagos vivos.
+   *
+   * ⛔ Cuando es `true`, `beneficiary` y `concept` vienen en «—»: no hay de dónde sacarlos.
+   * La pantalla NO debe leer ese «—» como «beneficiario desconocido».
+   */
+  kepler_saldada: boolean;
 }
 
 export interface PaymentCalendarAllocation {
@@ -64,6 +74,14 @@ export interface PaymentCalendarAllocation {
   failure_reason: string | null;
   folio: string | null;
   supplier_payment_account_id: string | null;
+  /**
+   * `[PGP.35]` Cuántas facturas de este pago ya no las debe el ERP, y por cuánto. Un pago con
+   * `kepler_saldadas > 0` **fallaría al ejecutarse** (`execute()` revalida el saldo), así que
+   * su importe no es deuda viva aunque siga sumando al total del día.
+   * Medido 2026-10-29: **11 de 27 pagos, $2,506,811.31 de $6,683,082.26**.
+   */
+  kepler_saldadas: number;
+  kepler_saldadas_importe: number;
   items: PaymentCalendarAllocationItem[];
 }
 
