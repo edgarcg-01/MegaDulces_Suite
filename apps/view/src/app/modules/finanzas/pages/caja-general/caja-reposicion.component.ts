@@ -111,7 +111,7 @@ interface OpcionOrigen { label: string; value: string }
           </ng-template>
           <ng-template #body let-g let-expanded="expanded">
             <tr [pSelectableRow]="g" (keydown.enter)="enterEnFila($event, g.clave)">
-              <td class="rp-col-tog dt-actions" role="cell">
+              <td class="rp-col-tog dt-actions" data-label="Documentos" role="cell">
                 <p-button type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" [text]="true" size="small"
                           severity="secondary" [ariaLabel]="(expanded ? 'Ocultar' : 'Ver') + ' los documentos de ' + nombre(g.sucursal)"
                           (onClick)="alternar(g.clave)"></p-button>
@@ -123,7 +123,7 @@ interface OpcionOrigen { label: string; value: string }
               <td class="rp-num rp-dim rp-col-sec dt-num" data-label="De CAOS" role="cell">{{ money(g.caos) }}</td>
               <td class="rp-num rp-dim rp-col-sec dt-num" data-label="Del cajón" role="cell">{{ money(g.cajon) }}</td>
               <td class="rp-num dt-num" data-label="Por resolver" role="cell" [class.rp-falta]="porResolverDe(g) > 0">{{ porResolverDe(g) > 0 ? money(porResolverDe(g)) : '—' }}</td>
-              <td class="rp-tags" data-label="Estado" role="cell">
+              <td class="rp-tags rp-apila" data-label="Estado" role="cell">
                 <p-tag [severity]="g.estado === 'explicada' ? 'success' : 'warn'" [value]="textoEstado(g)"></p-tag>
                 @if (g.n_sin_aprobar) {
                   <p-tag severity="danger" [value]="g.n_sin_aprobar + ' sin aprobar'"></p-tag>
@@ -132,7 +132,7 @@ interface OpcionOrigen { label: string; value: string }
                   <p-tag severity="warn" [value]="g.n_pagado_antes_de_aprobar + ' pagado antes de aprobar'"></p-tag>
                 }
               </td>
-              <td class="rp-que dt-actions" data-label="Qué sigue" role="cell">
+              <td class="rp-que rp-apila dt-actions" data-label="Qué sigue" role="cell">
                 @switch (g.estado) {
                   @case ('por_capturar') {
                     @if (puedeGestionar() && reponibles(g).length) {
@@ -174,7 +174,7 @@ interface OpcionOrigen { label: string; value: string }
           </ng-template>
           <ng-template #expandedrow let-g>
             <tr>
-              <td colspan="10" class="rp-det">
+              <td colspan="10" class="rp-det" role="cell">
                 @if (g.propuesta; as p) {
                   <div class="rp-prop" role="group" [attr.aria-label]="'Propuesta de vínculos para ' + nombre(g.sucursal)">
                     <p class="rp-prop-t"><i class="pi pi-bolt" aria-hidden="true"></i> <strong>Propuesta del sistema</strong> <span class="fin-dim">— la confirma una persona</span></p>
@@ -185,10 +185,10 @@ interface OpcionOrigen { label: string; value: string }
                       </ng-template>
                       <ng-template #body let-a>
                         <tr>
-                          <td class="rp-mono">{{ a.cg_folio }}</td>
-                          <td class="rp-mono rp-dim">{{ folioDoc(a.origen_ref) }}</td>
-                          <td>«{{ a.ref ?? ('retiro ' + a.external_id) }}» <span class="rp-dim">· {{ a.external_id }}</span></td>
-                          <td class="rp-num">{{ money(a.monto) }}</td>
+                          <td class="rp-mono dt-id" data-label="Egreso" role="cell">{{ a.cg_folio }}</td>
+                          <td class="rp-mono rp-dim" data-label="Documento" role="cell">{{ folioDoc(a.origen_ref) }}</td>
+                          <td data-label="Retiro de CAOS" role="cell"><span>«{{ a.ref ?? ('retiro ' + a.external_id) }}» <span class="rp-dim">· {{ a.external_id }}</span></span></td>
+                          <td class="rp-num dt-num" data-label="Monto" role="cell">{{ money(a.monto) }}</td>
                         </tr>
                       </ng-template>
                     </p-table>
@@ -213,12 +213,12 @@ interface OpcionOrigen { label: string; value: string }
                   </ng-template>
                   <ng-template #body let-d>
                     <tr>
-                      <td class="rp-mono">{{ d.doc_tipo }} {{ d.folio }}
+                      <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">{{ d.doc_tipo }} {{ d.folio }}
                         @if (!d.en_kepler) { <p-tag severity="warn" value="ya no está en Kepler"></p-tag> }
                       </td>
-                      <td>{{ d.beneficiario ?? '—' }}</td>
-                      <td>{{ d.clase === 'nomina' ? 'Nómina' : 'Gasto' }}</td>
-                      <td class="rp-aprob">
+                      <td data-label="Beneficiario" role="cell">{{ d.beneficiario ?? '—' }}</td>
+                      <td data-label="Clase" role="cell">{{ d.clase === 'nomina' ? 'Nómina' : 'Gasto' }}</td>
+                      <td class="rp-aprob rp-apila" data-label="Aprobación" role="cell">
                         @if (d.aprobacion; as a) {
                           <p-tag [severity]="severidadAprobacion(a)" [value]="etiquetaAprobacion(a)"></p-tag>
                           @if (a.estado !== 'aprobado_antes') { <small class="rp-dim">{{ a.texto }}</small> }
@@ -226,8 +226,8 @@ interface OpcionOrigen { label: string; value: string }
                           <span class="rp-dim">sin medir</span>
                         }
                       </td>
-                      <td class="rp-mono">{{ d.cg_folio ?? 'por capturar' }}</td>
-                      <td>
+                      <td class="rp-mono" data-label="Egreso" role="cell">{{ d.cg_folio ?? 'por capturar' }}</td>
+                      <td class="rp-apila" data-label="De dónde salió" role="cell">
                         @for (v of d.vinculos; track v.link_id) {
                           <div class="rp-vinc">
                             <span>«{{ v.ref ?? ('retiro ' + v.external_id) }}» <span class="rp-mono">{{ money(v.monto) }}</span></span>
@@ -240,8 +240,8 @@ interface OpcionOrigen { label: string; value: string }
                           <span class="rp-dim">{{ textoOrigen(d) }}</span>
                         }
                       </td>
-                      <td class="rp-num" [class.rp-falta]="d.estado === 'sin_vincular'">{{ d.falta > 0 ? money(d.falta) : '—' }}</td>
-                      <td class="rp-num">{{ money(d.monto) }}</td>
+                      <td class="rp-num dt-num" data-label="Falta" role="cell" [class.rp-falta]="d.estado === 'sin_vincular'">{{ d.falta > 0 ? money(d.falta) : '—' }}</td>
+                      <td class="rp-num dt-num" data-label="Monto" role="cell">{{ money(d.monto) }}</td>
                     </tr>
                   </ng-template>
                 </p-table>
@@ -289,6 +289,14 @@ interface OpcionOrigen { label: string; value: string }
        documento por documento, así que nada queda inalcanzable. */
     @container (max-width: 56rem) {
       .rp-col-sec { display:none; }
+    }
+    /* En teléfono la tabla se apila (dt-stack) y el apilado ALCANZA a las dos tablas del detalle:
+       viven adentro, así que también pierden su encabezado; por eso todas sus celdas llevan
+       data-label. Las celdas con varias piezas (estado, qué sigue, aprobación, de dónde salió) van
+       en columna: en renglón se aprietan y lo que no cabe se corta, porque el apilado no desplaza. */
+    @container densetable (max-width: 34rem) {
+      .rp-apila { flex-direction:column; align-items:flex-start; }
+      .rp-col-tog { width:auto; }
     }
     .rp { border-top:1px solid var(--border-color); padding-top:var(--sp-3); margin:var(--sp-3) 0 0; }
     .rp-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); margin-bottom:var(--sp-2); }
