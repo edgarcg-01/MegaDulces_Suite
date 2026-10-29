@@ -293,6 +293,13 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-29 — `[AX.16]` Facturación TM se muda a `/telemarketing/documentos`
+
+- **Qué**: la página de facturas de telemarketing y sus Expedientes pasan de `/comercial/documentos` al proyecto Telemarketing (ruta, árbol de permisos, sidebars, enlaces de Cartera/dashboard/análisis). Lo viejo redirige.
+- **Lo que casi se rompe**: la puerta de `/telemarketing` exigía OPERATE. Medido en prod: 10 de los 13 roles que ven Facturación no lo tienen (~54 usuarios). Se abrió la puerta a SALES_DOCS_VER y OPERATE pasó a cada pantalla del operador; Cotizaciones queda exactamente como estaba.
+- **Lección**: mudar una pantalla de proyecto es mudarla de PUERTA. Antes de mover una ruta bajo un shell con guard, se mide quién la ve hoy y si pasa ese guard — el árbol y el spec de landings no lo detectan (el parser de `landing-guards.spec` no lee guards propios como `televentaGuard`).
+- **Pendiente de Edgar**: supervisor/supervisor_ventas/direccion tienen llave de cotizar sin OPERATE y rebotan de Cotizaciones (previo a este cambio).
+
 ## 2026-10-29 — `[CGA-A.65]` La ventana de Reposición: la más sencilla, sin perder nada
 
 **Pedido (Edgar):** «hay que hacer la interfaz más sencilla del mundo pero sin perder atención al
