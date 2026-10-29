@@ -234,6 +234,11 @@ Y dos corolarios que ya costaron:
 general, estructura, colores, jerarquía de información; no puedes basar tu diseño en pequeñas
 cosas»*). Antes de cualquier acento o ratio suelto, contesta con la pantalla viva:
 
+0. **Las cinco preguntas de [`diseno` §0b](../diseno/SKILL.md)**, contestadas por escrito ANTES de
+   lo demás: qué debe ver el usuario y en qué orden · qué no · qué accesibilidad necesita la
+   información · si está ligada a otro proceso (¿se ve el folio de origen y de destino?) · si este
+   proceso la debe ver. *Caso (2026-10-29): `/compras/oc-abiertas` arrancaba por la orden más vieja y
+   no decía de qué requisición salía cada OC; se auditó la celda y no se hizo esta pregunta.*
 1. **Estructura:** ¿cuánto de la primera pantalla es marco y cuánto trabajo? (medir dónde empieza el trabajo).
 2. **Jerarquía:** mide la escala tipográfica REAL de lo que contesta la pantalla contra lo que la rodea.
    Si un encabezado de columna es más grande que el veredicto, ése es el hallazgo principal.

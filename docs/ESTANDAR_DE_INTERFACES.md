@@ -48,6 +48,13 @@ pantalla hermosa que publica un número falso ya hizo daño y nadie lo sabe.
 > | Opción de desglose | **§2.5** | todo total se abre a sus renglones sin salir de la pantalla |
 >
 > Su primer caso es `/finanzas/calendario-pagos` (`[PGP.15]`); las cifras de abajo son de ahí.
+>
+> ⛔⛔ **Y antes de generar, cinco preguntas por escrito** (Edgar, 2026-10-29): *qué debe ver el
+> usuario y en qué orden · qué no · qué accesibilidad necesita la información · si está ligada a
+> otro proceso · si este proceso la debe ver.* El porqué de fondo: **la interfaz abruma a la gente**
+> y deja de usarse. El procedimiento y el caso que lo creó (`/compras/oc-abiertas`: orden por la más
+> vieja, sin el folio de su requisición, 17 piezas de marco) están en la skill
+> [`diseno` §0b](../.claude/skills/diseno/SKILL.md).
 
 ---
 

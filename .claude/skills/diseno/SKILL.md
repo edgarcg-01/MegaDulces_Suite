@@ -34,6 +34,38 @@ una decisión.
 > y los tres niveles de evidencia. Nace el 2026-10-20, después de que el usuario encontrara
 > **preguntando** tres defectos graves que una auditoría hecha sólo con esta skill no vio.
 
+## 0b. ⛔⛔ El cuestionario ANTES de generar — y otra vez al terminar (PM, 2026-10-29)
+
+> *«Siempre tienen que auditar a la hora de generar una interfaz: qué debe ver el usuario, qué no,
+> qué accesibilidad necesita la información, si está ligada a otro proceso, si este proceso la debe
+> ver. Tienen que generarse ese cuestionamiento.»* — Edgar, después de encontrar él los errores.
+
+Las cinco preguntas se **contestan por escrito** (en el plan, el commit o el doc de fase) **antes**
+de la primera línea de plantilla, y se vuelven a contestar con la pantalla terminada. Una pantalla
+cuyo autor no puede contestarlas en una línea cada una no está diseñada: está maquetada.
+
+| # | Pregunta | Qué obliga a decidir |
+|---|---|---|
+| 1 | **¿Qué debe ver el usuario al entrar, y en qué ORDEN?** | La tarea o decisión de esa persona. El orden por defecto es el de **lo que viene a buscar** —casi siempre lo que acaba de hacer, o sea lo más nuevo primero—, no el que dejó el código anterior |
+| 2 | **¿Qué NO debe ver?** | Lo que no decide nada sale de la vista; si importa, queda a un clic con su conteo. Cada pieza (pastilla, color, botón, pestaña, aviso) se gana su lugar: antes de agregar, **quitar o derivar** |
+| 3 | **¿Qué accesibilidad necesita la información?** | A cuántos clics, ordenada cómo, buscable, desglosable, por nombre y no por código. Un clic que la persona da SIEMPRE (reordenar, filtrar, abrir) es un defecto del default |
+| 4 | **¿Está ligada a otro proceso?** | De dónde viene y a dónde va: el folio de origen y el de destino se ven **en la fila** y se abren. Si los datos ya traen la liga y la pantalla no la muestra, es un hueco, no un detalle |
+| 5 | **¿Este proceso la debe ver?** | ¿Le toca a esta pantalla y a este rol, o vive en otra? Dos listas del mismo hecho (o una pestaña de algo muerto) se funden en una |
+
+> **El caso que la creó (2026-10-29, `/compras/oc-abiertas`, `[PQ.28]`–`[PQ.30]`).** Una sesión de
+> Claude «simplificó» la pantalla y el PM encontró, mirándola, lo que el cuestionario habría cazado:
+> - **(1)** la lista arrancaba por la orden **más vieja** (orden heredado del código): para ver la
+>   OC que acababa de salir había que reordenar — **un clic extra cada vez**;
+> - **(4)** la OC **no decía de qué requisición salió**, aunque el dato existía (13 OC con
+>   requisición de la Suite y 22 con la de Kepler, medido ese día);
+> - **(2)** la sesión pulió celdas (color, pastillas) y dejó **~17 piezas de marco** antes de la
+>   primera fila: arregló detalles cuando el problema era la estructura;
+> - **(5)** «Internas» y «Kepler» eran dos pestañas del mismo hecho: 205 órdenes internas decían
+>   «abierta» para siempre junto a las verdaderas.
+>
+> Ninguna compuerta (`check:pantalla`, `ngc`, vitest) dijo nada: las cinco preguntas no tienen
+> instrumento. Por eso se contestan por escrito, siempre.
+
 ## 1. Antes de escribir una línea: medir la pantalla
 
 ⛔ **No abras el archivo vecino para "ser consistente".** Ya costó: `/logistica/gasto-ruta` se

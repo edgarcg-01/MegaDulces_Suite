@@ -248,6 +248,8 @@ Vigentes, con su razonamiento, en [`02_DECISIONES_ARQUITECTURA.md`](docs/IMPLEME
 
 **Dos skills, porque construir y auditar son oficios distintos:** [`diseno`](.claude/skills/diseno/SKILL.md) para **escribir o cambiar** frontend (obligatoria) · [`auditoria-diseno`](.claude/skills/auditoria-diseno/SKILL.md) para **juzgar** una pantalla existente. *Cifra: una auditoría de `/finanzas/caja-general` no vio un libro que publicaba 248 movimientos y pintaba 100 ($1,943,998.57 invisibles): las compuertas verifican PRESENCIA de piezas, no que un rótulo mienta.* Todo instrumento que escribas arranca con un control cuya respuesta ya conocés.
 
+⛔⛔ **Antes de generar una interfaz, cinco preguntas POR ESCRITO** ([`diseno` §0b](.claude/skills/diseno/SKILL.md)): qué debe ver el usuario y en qué orden · qué no · qué accesibilidad necesita la información · si está ligada a otro proceso · si este proceso la debe ver. *Cifra (2026-10-29): una sesión «simplificó» `/compras/oc-abiertas` y dejó la lista por la orden más vieja (un clic extra cada vez), sin el folio de la requisición que la originó (el dato existía en 35 OC) y con ~17 piezas de marco; lo encontró el PM, no una compuerta.* La gente se abruma: cada pieza se gana su lugar.
+
 - **Storefront** (`/portal/*`): Fraunces editorial + Hanken Grotesk + Geist Mono. Decoración intencional, ilustraciones SVG, densidad cómoda.
 - **Operations** (`/dashboard/*`, `/comercial/*`, `/logistica/*`, `/admin/*`, `/vendor/*`, `/telemarketing/*`): **sin Fraunces ni ilustraciones**. Page-head Hanken Bold. Tabla densa + master-detail. Densidad compact++. Tesis «esto es serio».
 
