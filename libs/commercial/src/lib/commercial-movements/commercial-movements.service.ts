@@ -47,8 +47,21 @@ type TransferDocStatus = 'en_transito' | 'sin_acuse' | 'sin_recepcion_esperada' 
 const TRANSFER_DOC_STATUSES: readonly string[] = ['en_transito', 'sin_acuse', 'sin_recepcion_esperada', 'completado', 'diferencia'];
 
 /** DM.12 — filtros de la vista del detalle 515 (no afectan el pareo, solo qué se devuelve). */
+/**
+ * [MX.1.6] Baldes del detalle del mayor 515 (cadena de documentos). Ver `transfersLedgerDetail`.
+ */
+type LedgerBucket = 'exacto' | 'costo' | 'como_venta' | 'a_wincaja' | 'sin_documento' | 'sin_rastro';
+const LEDGER_BUCKETS: readonly string[] = ['exacto', 'costo', 'como_venta', 'a_wincaja', 'sin_documento', 'sin_rastro'];
+/**
+ * [MX.1.6] Destinos que ANTES del corte de 2026-10 eran tiendas Wincaja (Morelia Abastos, Canindo, Morelia
+ * Madero): sus recepciones no estaban en Kepler, así que su salida 515-002 no tiene cadena — se cuadra en el
+ * lente Kepler → Wincaja (DM.13). Desde octubre son sucursales Kepler y su salida sí tiene cadena.
+ */
+const DEST_WINCAJA_PRE_CORTE: readonly string[] = ['TI004', 'TI006', 'TI009'];
+const CORTE_WINCAJA = '2026-10';
+
 export interface LedgerDetailFilters {
-  bucket?: string;      // exacto | costo | sin_rastro
+  bucket?: string;      // exacto | costo | como_venta | a_wincaja | sin_documento | sin_rastro
   kind?: string;        // entrada | salida
   sucursal?: string;    // 00..05
   destinos?: string[];  // filtrar por tienda destino (una o más), etiqueta canónica de destino()
@@ -1273,35 +1286,53 @@ export class CommercialMovementsService {
   }
 
   /**
-   * DM.12 — DETALLE por póliza del descuadre (mayor 515) sobre `analytics.gl_poliza_lines`
-   * (partida doble por póliza, source='kepler', ADR-041).
+   * [MX.1.6] DETALLE por póliza del mayor 515, emparejado por la **CADENA DE DOCUMENTOS**, no por importe.
    *
-   * Pareo TOLERANTE (no exacto): origen y destino registran el traspaso con importes CASI
-   * iguales (diferencia de costo/valuación) → el match exacto pierde la contraparte. Verificado
-   * en mayo-2026: exacto marcaba $15.9M "sin contraparte" con Δ real de solo $358k; con ±2% el
-   * 85% parea. Estrategia: greedy por importe más cercano dentro de ±TOL, con ventana ±1 mes
-   * (captura traspasos en tránsito al corte). 3 baldes:
-   *   - exacto     → |Δ| < $0.01 (misma valuación).
-   *   - costo      → 0 < |Δ| ≤ TOL·importe: MISMA transferencia, distinta valuación (informativo;
-   *                  el par revela DÓNDE está la contraparte).
-   *   - sin_rastro → sin contraparte ni con tolerancia ni en la ventana ⇒ LO ACCIONABLE.
-   * Solo reporta pólizas DENTRO del rango; los meses de padding solo son candidatos.
+   * ⛔ Antes (DM.12): un regex sobre la `referencia` libre adivinaba la sucursal y DESCARTABA lo que no
+   * reconocía ($35.9 M de entradas desde jul-2026), y las pólizas se pareaban por importe ±2 % sin mirar
+   * sucursal — un pareo que no superaba su placebo (96.1 % con las salidas de 6 meses después contra
+   * 98.7 % real). Sus baldes «exacto/costo» no significaban nada.
+   *
+   * La póliza automática trae el documento que la generó: `(warehouse_id, tipo_pol, folio)`. `UA5001` =
+   * recepción de traspaso; `UD4102` = embarque. Cadena (MX.0.3): entrada 515-001 `UA5001` (R, folio) →
+   * `TrsfRcv` (R, folio) → `parent_folio`/serie → `TrsfShip` (S ≠ R) → póliza `UD4102` de S. Medido
+   * jul–sep 2026: 987 de 992 entradas con cadena; placebo (`parent_folio + 1`) = 3.
+   *
+   * ⚠️ Cada `UD4102` es **116 (inventario) + exactamente UNA contrapartida**: 515-002, 401-003 u otra 401.
+   * La contrapartida es la línea que NO es 116 — tomar también la 116 desempata al azar dentro del mismo
+   * asiento (así salió el falso «287 en 116» de la primera medición). Si la contrapartida es 401, la salida
+   * se contabilizó como VENTA (`AUD-DAT.23`): el puente 515 no puede netear $0.
+   *
+   * Baldes (sólo pólizas del rango; los meses de margen sólo aportan contrapartes):
+   *   exacto        → cadena completa, contrapartida 515-002, |Δ| < $1.
+   *   costo         → cadena completa, contrapartida 515-002, |Δ| ≥ $1 (misma transferencia, otra valuación).
+   *   como_venta    → cadena completa, pero la salida se contabilizó en 401 (venta).
+   *   a_wincaja     → salida a Morelia Abastos/Canindo/Madero ANTES del corte de 2026-10: eran tiendas Wincaja
+   *                   sin recepción en Kepler; se cuadran en el lente Kepler → Wincaja (DM.13).
+   *   sin_documento → póliza manual (sin `UA5001`/`UD4102`): no hay documento contra qué cuadrarla (`AUD-DAT.24`).
+   *   sin_rastro    → tiene documento y no se encontró la cadena: LO ACCIONABLE.
+   *
+   * Los joins se hacen aquí, con mapas: en SQL, las estimaciones de los CTEs (1 fila donde hay cientos)
+   * llevaban al planner a repetir el embarque × póliza por cada recepción (24 s en un trimestre).
    */
   async transfersLedgerDetail(q: MovementsQuery, f: LedgerDetailFilters = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     const { from, to } = this.range(q);
     const fromYm = from.slice(0, 7), toYm = to.slice(0, 7);
-    const TOL = 0.02; // ±2% (diferencia de costo origen↔destino)
     const CAP = 1000;
     const addMonth = (ym: string, d: number) => {
       const [y, m] = ym.split('-').map(Number);
       const dt = new Date(y, m - 1 + d, 1);
       return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
     };
-    const padFrom = addMonth(fromYm, -1), padTo = addMonth(toYm, 1);
+    const mesIni = (ym: string) => `${ym}-01`;
+    const mesFin = (ym: string) => { const [y, m] = ym.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
     const inRange = (ym: string) => ym >= fromYm && ym <= toYm;
+    // Margen: la salida puede contabilizarse hasta 3 meses antes de su entrada; una entrada del mes
+    // siguiente puede ser la pareja de una salida del rango.
+    const polFrom = addMonth(fromYm, -3), polTo = addMonth(toYm, 1);
     // filtros de la vista (no afectan el pareo; solo qué se DEVUELVE)
-    const fBucket = ['exacto', 'costo', 'sin_rastro'].includes(f.bucket || '') ? f.bucket : null;
+    const fBucket = LEDGER_BUCKETS.includes(f.bucket || '') ? f.bucket : null;
     const fKind = f.kind === 'entrada' || f.kind === 'salida' ? f.kind : null;
     const fSuc = (f.sucursal || '').trim() || null;
     const fDestinos = Array.isArray(f.destinos) ? f.destinos.filter(Boolean) : [];
@@ -1309,97 +1340,146 @@ export class CommercialMovementsService {
     const fSearch = (f.search || '').trim().toLowerCase() || null;
     const fMin = Number(f.min_amount) > 0 ? Number(f.min_amount) : 0;
 
-    // Destino (sucursal) desde la referencia. Solo traspasos ENTRE sucursales interesan;
-    // devuelve null para ajustes/errores/promos ("AJUST.INV", "ERROR INV", "SALIDA MERCANCIA
-    // MUNDIAL", numéricos, fechas) → esos se DESCARTAN (no son de sucursal). Orden importa:
-    // Canindo/Madero antes que genéricos; Piedad antes que ABASTOS pelón; 8/ZAM antes que Zamora.
-    const destino = (ref: string | null): string | null => {
-      const s = (ref || '').toUpperCase();
-      if (/CANINDO|\bCAN\b/.test(s)) return 'Canindo (50)';
-      if (/M\.?M\b|MORELIA MADERO|\bMADERO\b/.test(s)) return 'Morelia Madero (32)';
-      if (/ABASTOS L\.?P|LA PIEDAD|\bPIEDAD\b|\bL\.?P\b|\bA?LP\b/.test(s)) return 'Piedad (02)';
-      if (/M\.?A\b|MORELIA ABAST|\bABASTOS\b/.test(s)) return 'Morelia Abastos (30)';
-      if (/P\.?H\b|PADRE HIDALGO|HIALGO/.test(s)) return 'Padre Hidalgo (01)';
-      if (/8\s*ESQ|8 ZAM|8 ESQUINAS/.test(s)) return '8 Esquinas (03)';
-      if (/YUREC/.test(s)) return 'Yurécuaro (04)';
-      if (/ZAMORA|\bZAM\b/.test(s)) return 'Zamora (05)';
-      if (/CEDIS/.test(s)) return 'CEDIS (00)';
-      return null;
-    };
+    type Pol = { anio_mes: string; sucursal: string; warehouse_id: string | null; cuenta: string; importe: number; referencia: string | null; tipo_pol: string | null; folio: string | null };
+    type SDoc = { w: string; f: string; cls: '515-002' | '401-003' | '401-otra'; imp: number; sucursal: string; ref: string | null };
+    type Pair = { s: SDoc; d: number };
 
     return this.tk.run(async (trx) => {
-      const rowsRaw: any[] = await trx('analytics.gl_poliza_lines')
+      const whName = new Map<string, string>(
+        (await trx('commercial.warehouses').where('tenant_id', tenantId).select('id', 'code', 'name'))
+          .map((w: { id: string; code: string | null; name: string | null }) => [w.id, w.name || w.code || '']),
+      );
+      const pol: Pol[] = (await trx('analytics.gl_poliza_lines')
         .where('tenant_id', tenantId).andWhere('source', 'kepler')
-        .andWhereRaw(`cuenta LIKE '515-%'`)
-        .andWhere('anio_mes', '>=', padFrom).andWhere('anio_mes', '<=', padTo)
-        .andWhereRaw('COALESCE(importe,0) <> 0')
-        .select('anio_mes', 'sucursal', 'cuenta', 'importe', 'referencia', 'tipo_pol', 'folio');
-      // IGNORAR todo lo que no sea traspaso de sucursal (ajustes/errores/promos sin destino).
-      const rows = rowsRaw.map((r) => ({ ...r, destino: destino(r.referencia) })).filter((r) => r.destino);
+        .andWhere('anio_mes', '>=', polFrom).andWhere('anio_mes', '<=', polTo)
+        .andWhereRaw('coalesce(importe, 0) <> 0')
+        .andWhereRaw(`(cuenta LIKE '515-%' OR (tipo_pol = 'UD4102' AND cuenta LIKE '401-%'))`)
+        .select('anio_mes', 'sucursal', 'warehouse_id', 'cuenta', 'importe', 'referencia', 'tipo_pol', 'folio'))
+        .map((r: Pol) => ({ ...r, importe: Number(r.importe) || 0 }));
 
-      const entradas: any[] = [], salidas: any[] = [];
-      for (const r of rows) {
-        const o = { ...r, importe: Number(r.importe) || 0, paired: false, delta: null as number | null, cp: null as any };
-        (String(r.cuenta).startsWith('515-001') ? entradas : salidas).push(o);
+      const key = (w: string | null, fo: string | null) => `${w}|${fo}`;
+      const esEnt = (p: Pol) => p.cuenta.startsWith('515-001');
+      const esSal = (p: Pol) => p.cuenta.startsWith('515-002');
+      // Documentos de entrada (UA5001) del rango + 1 mes, y contrapartidas de embarque (UD4102, sin la 116).
+      const eDocs = new Map<string, { w: string; f: string; imp: number }>();
+      const sDocs = new Map<string, SDoc[]>();
+      for (const p of pol) {
+        if (!p.warehouse_id || !p.folio) continue;
+        if (esEnt(p) && p.tipo_pol === 'UA5001' && p.anio_mes >= fromYm) {
+          const k = key(p.warehouse_id, p.folio);
+          const d = eDocs.get(k) ?? { w: p.warehouse_id, f: p.folio, imp: 0 };
+          d.imp += p.importe; eDocs.set(k, d);
+        } else if (p.tipo_pol === 'UD4102' && (esSal(p) || p.cuenta.startsWith('401-'))) {
+          const cls: SDoc['cls'] = esSal(p) ? '515-002' : p.cuenta.startsWith('401-003') ? '401-003' : '401-otra';
+          const k = key(p.warehouse_id, p.folio);
+          const lst = sDocs.get(k) ?? [];
+          const d = lst.find((x) => x.cls === cls);
+          if (d) d.imp += p.importe; else lst.push({ w: p.warehouse_id, f: p.folio, cls, imp: p.importe, sucursal: p.sucursal, ref: p.referencia });
+          sDocs.set(k, lst);
+        }
       }
-      salidas.sort((a, b) => a.importe - b.importe);
-      const amts = salidas.map((s) => s.importe);
-      const lowerBound = (target: number) => {
-        let lo = 0, hi = amts.length;
-        while (lo < hi) { const mid = (lo + hi) >> 1; if (amts[mid] < target) lo = mid + 1; else hi = mid; }
-        return lo;
+
+      // Recepciones de esas entradas → su folio y serie padre.
+      const eFolios = Array.from(new Set(Array.from(eDocs.values()).map((d) => d.f)));
+      const rcv = new Map<string, { pf: string; ps: string }>();
+      if (eFolios.length) {
+        const rows = await trx('analytics.stock_movements')
+          .where('tenant_id', tenantId).andWhere('doc_code', 'TrsfRcv').whereIn('folio', eFolios)
+          .andWhere('doc_date', '>=', mesIni(addMonth(fromYm, -1))).andWhere('doc_date', '<=', mesFin(polTo))
+          .groupBy('warehouse_id', 'folio')
+          .select('warehouse_id', 'folio', trx.raw('max(parent_folio) AS pf'), trx.raw(`max(coalesce(parent_serie, '')) AS ps`));
+        for (const r of rows as { warehouse_id: string; folio: string; pf: string | null; ps: string }[]) {
+          if (r.pf && eDocs.has(key(r.warehouse_id, r.folio))) rcv.set(key(r.warehouse_id, r.folio), { pf: r.pf, ps: r.ps });
+        }
+      }
+      // Embarques candidatos (folios padre) y los de las salidas del rango (para su destino).
+      const salFolios = pol.filter((p) => esSal(p) && p.tipo_pol === 'UD4102' && inRange(p.anio_mes) && p.folio).map((p) => p.folio as string);
+      const shFolios = Array.from(new Set([...Array.from(rcv.values()).map((r) => r.pf), ...salFolios]));
+      const shipsByFolio = new Map<string, { w: string; s: string; dest: string | null }[]>();
+      const shipDest = new Map<string, string | null>();
+      if (shFolios.length) {
+        const rows = await trx('analytics.stock_movements')
+          .where('tenant_id', tenantId).andWhere('doc_code', 'TrsfShip').whereIn('folio', shFolios)
+          .andWhere('doc_date', '>=', mesIni(addMonth(fromYm, -4))).andWhere('doc_date', '<=', mesFin(polTo))
+          .groupBy('warehouse_id', 'folio', trx.raw(`coalesce(doc_serie, '')`))
+          .select('warehouse_id', 'folio', trx.raw(`coalesce(doc_serie, '') AS s`), trx.raw('max(dest_code) AS dest'));
+        for (const r of rows as { warehouse_id: string; folio: string; s: string; dest: string | null }[]) {
+          const lst = shipsByFolio.get(r.folio) ?? [];
+          lst.push({ w: r.warehouse_id, s: r.s, dest: r.dest });
+          shipsByFolio.set(r.folio, lst);
+          shipDest.set(key(r.warehouse_id, r.folio), r.dest);
+        }
+      }
+      const destName = new Map<string, string>(
+        (await trx('analytics.transfer_dest_map as dm').leftJoin('commercial.warehouses as w', 'w.id', 'dm.warehouse_id')
+          .where('dm.tenant_id', tenantId).select('dm.dest_code', trx.raw('coalesce(w.name, dm.dest_label) AS nombre')))
+          .map((r: { dest_code: string; nombre: string }) => [r.dest_code, r.nombre]),
+      );
+
+      // La cadena: por cada entrada, la contrapartida de embarque de importe más cercano (desempate fijo).
+      const ORDEN_CLS: Record<SDoc['cls'], number> = { '515-002': 0, '401-003': 1, '401-otra': 2 };
+      const parDeEntrada = new Map<string, Pair>();
+      const entradaDeSalida = new Map<string, { e: { w: string; f: string; imp: number }; d: number }>();
+      for (const [k, e] of eDocs) {
+        const r = rcv.get(k); if (!r) continue;
+        const cands: Pair[] = [];
+        for (const sh of shipsByFolio.get(r.pf) ?? []) {
+          if (sh.s !== r.ps || sh.w === e.w) continue;
+          for (const s of sDocs.get(key(sh.w, r.pf)) ?? []) cands.push({ s, d: Math.abs(s.imp - e.imp) });
+        }
+        cands.sort((a, b) => a.d - b.d || a.s.w.localeCompare(b.s.w) || ORDEN_CLS[a.s.cls] - ORDEN_CLS[b.s.cls]);
+        if (!cands.length) continue;
+        parDeEntrada.set(k, cands[0]);
+        if (cands[0].s.cls === '515-002') entradaDeSalida.set(key(cands[0].s.w, cands[0].s.f), { e, d: cands[0].d });
+      }
+
+      // Clasificación de cada renglón 515 del rango.
+      type Entry = {
+        anio_mes: string; kind: 'entrada' | 'salida'; cuenta: string; sucursal: string; importe: number; destino: string | null;
+        referencia: string | null; tipo_pol: string | null; folio: string | null; bucket: LedgerBucket; delta: number | null;
+        cp_ref: string | null; cp_importe: number | null; cp_sucursal: string | null; cp_destino: string | null; cp_cuenta: string | null;
       };
-      // Greedy: entradas de mayor a menor; la salida NO usada de importe más cercano en ±TOL.
-      const costPairs: any[] = [];
-      for (const e of [...entradas].sort((a, b) => b.importe - a.importe)) {
-        const lo = e.importe * (1 - TOL), hi = e.importe * (1 + TOL);
-        let i = lowerBound(lo), best = -1, bd = Infinity;
-        for (; i < salidas.length && amts[i] <= hi; i++) {
-          if (salidas[i].paired) continue;
-          const d = Math.abs(amts[i] - e.importe);
-          if (d < bd) { bd = d; best = i; }
-        }
-        if (best < 0) continue;
-        const s = salidas[best]; s.paired = true; e.paired = true;
-        const delta = e.importe - s.importe; e.delta = delta; s.delta = delta;
-        e.cp = s; s.cp = e; // contraparte cruzada (dónde está)
-        if (Math.abs(delta) >= 0.01 && (inRange(e.anio_mes) || inRange(s.anio_mes))) {
-          costPairs.push({
-            anio_mes: inRange(e.anio_mes) ? e.anio_mes : s.anio_mes,
-            sucursal_entrada: e.sucursal, sucursal_salida: s.sucursal,
-            entrada_importe: e.importe, salida_importe: s.importe, delta,
-            entrada_ref: e.referencia || null, salida_ref: s.referencia || null,
-          });
+      const entradaPol = new Map<string, Pol>();
+      for (const p of pol) if (esEnt(p) && p.tipo_pol === 'UA5001') entradaPol.set(key(p.warehouse_id, p.folio), p);
+      const entries: Entry[] = [];
+      for (const p of pol) {
+        if (!inRange(p.anio_mes) || !(esEnt(p) || esSal(p))) continue;
+        const kind: Entry['kind'] = esEnt(p) ? 'entrada' : 'salida';
+        const base = { anio_mes: p.anio_mes, kind, cuenta: p.cuenta, sucursal: p.sucursal, importe: p.importe, referencia: p.referencia || null, tipo_pol: p.tipo_pol || null, folio: p.folio || null };
+        const nada = { delta: null, cp_ref: null, cp_importe: null, cp_sucursal: null, cp_destino: null, cp_cuenta: null };
+        const k = key(p.warehouse_id, p.folio);
+        if (kind === 'entrada' && p.tipo_pol === 'UA5001') {
+          const par = parDeEntrada.get(k);
+          if (!par) { entries.push({ ...base, destino: null, bucket: 'sin_rastro', ...nada }); continue; }
+          const bucket: LedgerBucket = par.s.cls !== '515-002' ? 'como_venta' : par.d < 1 ? 'exacto' : 'costo';
+          entries.push({ ...base, destino: whName.get(par.s.w) || null, bucket, delta: (eDocs.get(k)?.imp ?? 0) - par.s.imp,
+            cp_ref: par.s.ref, cp_importe: par.s.imp, cp_sucursal: par.s.sucursal, cp_destino: p.warehouse_id ? whName.get(p.warehouse_id) || null : null, cp_cuenta: par.s.cls });
+        } else if (kind === 'salida' && p.tipo_pol === 'UD4102') {
+          const dest = shipDest.get(k) ?? null;
+          const destino = dest ? destName.get(dest) || dest : null;
+          const m = entradaDeSalida.get(k);
+          if (m) {
+            const ep = entradaPol.get(key(m.e.w, m.e.f));
+            entries.push({ ...base, destino, bucket: m.d < 1 ? 'exacto' : 'costo', delta: m.e.imp - (sDocs.get(k)?.find((x) => x.cls === '515-002')?.imp ?? 0),
+              cp_ref: ep?.referencia || null, cp_importe: m.e.imp, cp_sucursal: ep?.sucursal || null, cp_destino: whName.get(m.e.w) || null, cp_cuenta: '515-001' });
+          } else {
+            const bucket: LedgerBucket = dest && DEST_WINCAJA_PRE_CORTE.includes(dest) && p.anio_mes < CORTE_WINCAJA ? 'a_wincaja' : 'sin_rastro';
+            entries.push({ ...base, destino, bucket, ...nada });
+          }
+        } else {
+          entries.push({ ...base, destino: null, bucket: 'sin_documento', ...nada });
         }
       }
 
-      // Baldes: SOLO pólizas dentro del rango (el padding solo aportó candidatos).
-      const inEnt = entradas.filter((e) => inRange(e.anio_mes));
-      const inSal = salidas.filter((s) => inRange(s.anio_mes));
-      const entTot = inEnt.reduce((a, e) => a + e.importe, 0);
-      const salTot = inSal.reduce((a, s) => a + s.importe, 0);
-      const bucketOf = (x: any) => !x.paired ? 'sin_rastro' : (Math.abs(x.delta || 0) < 0.01 ? 'exacto' : 'costo');
+      const sum = (xs: Entry[]) => xs.reduce((a, e) => a + e.importe, 0);
+      const ent = entries.filter((e) => e.kind === 'entrada'), sal = entries.filter((e) => e.kind === 'salida');
+      const de = (b: LedgerBucket, xs: Entry[]) => xs.filter((e) => e.bucket === b);
+      const costPairs = de('costo', ent).map((e) => ({
+        anio_mes: e.anio_mes, sucursal_entrada: e.sucursal, sucursal_salida: e.cp_sucursal, entrada_importe: e.importe,
+        salida_importe: e.cp_importe, delta: e.delta ?? 0, entrada_ref: e.referencia, salida_ref: e.cp_ref,
+      })).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+      const srAll = de('sin_rastro', entries);
 
-      // Lista CLASIFICADA unificada (para la tabla filtrable de la vista).
-      const entries = [...inEnt, ...inSal].map((r) => ({
-        anio_mes: r.anio_mes, kind: String(r.cuenta).startsWith('515-001') ? 'entrada' : 'salida',
-        cuenta: r.cuenta, sucursal: r.sucursal, importe: r.importe, destino: r.destino || null,
-        referencia: r.referencia || null, tipo_pol: r.tipo_pol || null, folio: r.folio || null,
-        bucket: bucketOf(r), delta: r.paired ? r.delta : null,
-        cp_ref: r.cp?.referencia || null, cp_importe: r.cp ? r.cp.importe : null,
-        cp_sucursal: r.cp?.sucursal || null, cp_destino: r.cp?.destino || null,
-      }));
-
-      // Totales por balde (SIN filtrar → alimentan las tarjetas de resumen).
-      let nExact = 0;
-      for (const x of [...inEnt, ...inSal]) if (x.paired && Math.abs(x.delta || 0) < 0.01) nExact++;
-      const srAll = entries.filter((e) => e.bucket === 'sin_rastro');
-      const srEnt = srAll.filter((r) => r.kind === 'entrada');
-      const srSal = srAll.filter((r) => r.kind === 'salida');
-      const costDiffTotal = costPairs.reduce((a, p) => a + Math.abs(p.delta), 0);
-      costPairs.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
-
-      // Aplica los filtros de la vista a la lista clasificada.
       const filtered = entries.filter((e) =>
         (!fBucket || e.bucket === fBucket) &&
         (!fKind || e.kind === fKind) &&
@@ -1408,19 +1488,23 @@ export class CommercialMovementsService {
         (fMin <= 0 || e.importe >= fMin) &&
         (!fSearch || `${e.referencia || ''} ${e.tipo_pol || ''} ${e.folio || ''} ${e.cp_ref || ''}`.toLowerCase().includes(fSearch)),
       ).sort((a, b) => b.importe - a.importe);
-
-      // Destinos distintos presentes (para el filtro de la vista, en vez de una lista hardcodeada).
       const destinos = Array.from(new Set(entries.map((e) => e.destino).filter(Boolean) as string[])).sort();
 
       return {
-        range: { from: fromYm, to: toYm }, tolerance_pct: TOL * 100, window_months: 1, destinos,
+        range: { from: fromYm, to: toYm }, metodo: 'cadena_documental' as const, destinos,
         totals: {
-          entrada: entTot, salida: salTot, delta: entTot - salTot,
-          n_exact: nExact,
-          cost: { n: costPairs.length, diff_total: costDiffTotal },
+          entrada: sum(ent), salida: sum(sal), delta: sum(ent) - sum(sal),
+          n_exact: de('exacto', entries).length,
+          cost: { n: costPairs.length, diff_total: costPairs.reduce((a, p) => a + Math.abs(p.delta), 0) },
           sin_rastro: {
-            n_entrada: srEnt.length, amt_entrada: srEnt.reduce((a, r) => a + r.importe, 0),
-            n_salida: srSal.length, amt_salida: srSal.reduce((a, r) => a + r.importe, 0),
+            n_entrada: de('sin_rastro', ent).length, amt_entrada: sum(de('sin_rastro', ent)),
+            n_salida: de('sin_rastro', sal).length, amt_salida: sum(de('sin_rastro', sal)),
+          },
+          como_venta: { n: de('como_venta', ent).length, amt: sum(de('como_venta', ent)) },
+          a_wincaja: { n: de('a_wincaja', sal).length, amt: sum(de('a_wincaja', sal)) },
+          sin_documento: {
+            n_entrada: de('sin_documento', ent).length, amt_entrada: sum(de('sin_documento', ent)),
+            n_salida: de('sin_documento', sal).length, amt_salida: sum(de('sin_documento', sal)),
           },
         },
         // vista filtrable (una tabla clasificada) + compat PDF (rows=sin_rastro, cost_pairs)

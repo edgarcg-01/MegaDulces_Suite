@@ -207,12 +207,14 @@ export interface LedgerCostPair {
 export interface LedgerEntry {
   anio_mes: string; kind: 'entrada' | 'salida'; cuenta: string; sucursal: string;
   importe: number; destino: string | null; referencia: string | null; tipo_pol: string | null; folio: string | null;
-  bucket: 'exacto' | 'costo' | 'sin_rastro'; delta: number | null;
-  cp_ref: string | null; cp_importe: number | null; cp_sucursal: string | null; cp_destino: string | null;
+  /** [MX.1.6] balde por CADENA DE DOCUMENTOS; `cp_cuenta` = cuenta de la contrapartida (515-002, 401-003, 401-otra, 515-001). */
+  bucket: LedgerBucket; delta: number | null;
+  cp_ref: string | null; cp_importe: number | null; cp_sucursal: string | null; cp_destino: string | null; cp_cuenta?: string | null;
 }
+export type LedgerBucket = 'exacto' | 'costo' | 'como_venta' | 'a_wincaja' | 'sin_documento' | 'sin_rastro';
 /** Filtros de la vista del detalle. */
 export interface LedgerDetailFilters {
-  bucket?: '' | 'exacto' | 'costo' | 'sin_rastro';
+  bucket?: '' | LedgerBucket;
   kind?: '' | 'entrada' | 'salida';
   sucursal?: string;
   destinos?: string[];
@@ -221,7 +223,8 @@ export interface LedgerDetailFilters {
 }
 export interface TransfersLedgerDetailResponse {
   range: { from: string; to: string };
-  tolerance_pct: number; window_months: number;
+  /** [MX.1.6] el pareo ya no es por importe ±2 %: es por la cadena de documentos. */
+  metodo?: 'cadena_documental';
   /** Destinos (tiendas) presentes en el rango — para poblar el filtro sin lista hardcodeada. */
   destinos?: string[];
   totals: {
@@ -229,6 +232,12 @@ export interface TransfersLedgerDetailResponse {
     n_exact: number;
     cost: { n: number; diff_total: number };
     sin_rastro: { n_entrada: number; amt_entrada: number; n_salida: number; amt_salida: number };
+    /** [MX.1.6] la entrada tiene cadena, pero la salida se contabilizó en 401 (venta) — AUD-DAT.23. */
+    como_venta?: { n: number; amt: number };
+    /** [MX.1.6] salida a tienda Wincaja antes del corte de 2026-10: se cuadra en el lente Kepler → Wincaja. */
+    a_wincaja?: { n: number; amt: number };
+    /** [MX.1.6] pólizas manuales, sin documento que las genere — AUD-DAT.24. */
+    sin_documento?: { n_entrada: number; amt_entrada: number; n_salida: number; amt_salida: number };
   };
   entries: LedgerEntry[]; entries_total: number; entries_truncated: boolean;
   rows: LedgerDetailRow[]; total: number; truncated: boolean;

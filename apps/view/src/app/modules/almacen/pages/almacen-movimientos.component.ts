@@ -21,7 +21,7 @@ import {
   AlmacenMovimientosService, MovementsFilters, MovementsSummary,
   AggregateRow, FolioRow, FolioSearchRow, MovementsFilterOpts, DocumentResponse, TransfersLedgerResponse,
   TransfersMatrixResponse, TransfersMatrixRow, TransfersCheckResponse, TransferCheckRow, TransfersCheckPairResponse,
-  TransfersLedgerDetailResponse, LedgerDetailFilters,
+  TransfersLedgerDetailResponse, LedgerDetailFilters, LedgerBucket,
   TransfersWincajaCheckResponse, TransfersWincajaDetailResponse, WincajaCheckRow, TransferDocStatus,
 } from '../almacen-movimientos.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -403,7 +403,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                 <header class="dm-block-head">
                   <div>
                     <h2 class="dm-block-title"><i class="pi pi-search" aria-hidden="true"></i> Detalle de pólizas <span class="dm-muted">· dónde está la contraparte</span></h2>
-                    <p class="dm-block-sub">Solo traspasos <strong>de sucursal</strong> (se ignoran ajustes de inventario, errores y promos sin destino). Pareo por importe con tolerancia <strong>±{{ dt.tolerance_pct }}%</strong> + ventana ±{{ dt.window_months }} mes. Lo <strong>sin rastro</strong> es lo que hay que encontrar en Kepler. <strong>Clic en una fila</strong> para ver la comparación con su contraparte.</p>
+                    <p class="dm-block-sub">Todas las pólizas 515 del rango, sin descartar ninguna. Cada una se empareja por su <strong>documento</strong>: la recepción de la entrada lleva al embarque y el embarque a su póliza de salida. Lo <strong>sin rastro</strong> tiene documento y no se encontró su pareja: es lo que hay que buscar en Kepler. <strong>Clic en una fila</strong> para ver la comparación con su contraparte.</p>
                   </div>
                   <div class="dm-total" [class.ok]="!dt.totals.sin_rastro.n_entrada && !dt.totals.sin_rastro.n_salida" [class.bad]="dt.totals.sin_rastro.n_entrada || dt.totals.sin_rastro.n_salida">
                     <span class="dm-total-lbl">Sin rastro</span>
@@ -414,6 +414,12 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                   <div class="dm-subacc-card"><span class="dm-subacc-code"><i class="pi pi-check" aria-hidden="true"></i> Pareadas exactas</span><span class="dm-subacc-val">{{ dt.totals.n_exact | number }} <span class="dm-muted dm-subacc-n">pólizas</span></span></div>
                   <div class="dm-subacc-card"><span class="dm-subacc-code">≈ Con dif. de costo</span><span class="dm-subacc-val">{{ dt.totals.cost.n | number }} <span class="dm-muted dm-subacc-n">pares · Δ {{ money(dt.totals.cost.diff_total) }}</span></span></div>
                   <div class="dm-subacc-card"><span class="dm-subacc-code up">Sin rastro · entradas</span><span class="dm-subacc-val up">{{ money(dt.totals.sin_rastro.amt_entrada) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.sin_rastro.n_entrada }}</span></span></div>
+                  @if (dt.totals.como_venta?.n) {
+                    <div class="dm-subacc-card"><span class="dm-subacc-code down">Salida contabilizada como venta</span><span class="dm-subacc-val down">{{ money(dt.totals.como_venta!.amt) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.como_venta!.n }}</span></span></div>
+                  }
+                  @if ((dt.totals.sin_documento?.n_entrada || 0) + (dt.totals.sin_documento?.n_salida || 0)) {
+                    <div class="dm-subacc-card"><span class="dm-subacc-code">Pólizas manuales, sin documento</span><span class="dm-subacc-val">{{ money((dt.totals.sin_documento?.amt_entrada || 0) + (dt.totals.sin_documento?.amt_salida || 0)) }} <span class="dm-muted dm-subacc-n">· {{ (dt.totals.sin_documento?.n_entrada || 0) + (dt.totals.sin_documento?.n_salida || 0) }}</span></span></div>
+                  }
                   <div class="dm-subacc-card"><span class="dm-subacc-code down">Sin rastro · salidas</span><span class="dm-subacc-val down">{{ money(dt.totals.sin_rastro.amt_salida) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.sin_rastro.n_salida }}</span></span></div>
                 </div>
 
@@ -694,15 +700,15 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
           </div>
           <i class="pi pi-arrows-h dm-cmp-arrow" aria-hidden="true"></i>
           <!-- Lado contraparte -->
-          @if (r.bucket === 'sin_rastro') {
+          @if (r.bucket === 'sin_rastro' || r.bucket === 'sin_documento' || r.bucket === 'a_wincaja') {
             <div class="dm-cmp-side dm-cmp-none">
               <h4 class="dm-col-h">Contraparte</h4>
               <p class="down dm-strong"><i class="pi pi-exclamation-triangle" aria-label="Advertencia"></i> Sin contraparte en Kepler</p>
-              <p class="dm-muted">No hay una póliza {{ r.kind === 'entrada' ? '515-002 (salida)' : '515-001 (entrada)' }} que cuadre con este importe (±{{ detail()?.tolerance_pct }}%) ni en la ventana de ±1 mes. Esto es lo que hay que localizar en Kepler.</p>
+              <p class="dm-muted">{{ r.bucket === 'sin_documento' ? 'Póliza manual: no la generó un documento de traspaso, así que no hay cadena contra qué cuadrarla.' : r.bucket === 'a_wincaja' ? 'Salida a una tienda Wincaja antes del corte: su recepción no está en Kepler. Se cuadra en el lente Kepler → Wincaja.' : 'Tiene documento, pero no se encontró la cadena recepción → embarque → póliza. Esto es lo que hay que localizar en Kepler.' }}</p>
             </div>
           } @else {
             <div class="dm-cmp-side" [class.rel-in]="r.kind==='salida'" [class.rel-out]="r.kind==='entrada'">
-              <h4 class="dm-col-h">{{ r.kind === 'entrada' ? 'Salida · 515-002' : 'Entrada · 515-001' }}</h4>
+              <h4 class="dm-col-h">{{ r.kind === 'entrada' ? 'Salida · ' + (r.cp_cuenta || '515-002') : 'Entrada · 515-001' }}</h4>
               <dl class="dm-cmp-dl">
                 <dt>Destino</dt><dd>{{ r.cp_destino || '—' }}</dd>
                 <dt>Sucursal (libro)</dt><dd>{{ r.cp_sucursal | sucursal }}</dd>
@@ -714,6 +720,8 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
         </div>
         @if (r.bucket === 'costo') {
           <div class="dm-cp cp-warn"><i class="pi pi-exclamation-triangle"></i><strong>Diferencia de valuación</strong><span>Δ {{ signed(r.delta || 0) }} — misma transferencia, costo distinto entre origen y destino.</span></div>
+        } @else if (r.bucket === 'como_venta') {
+          <div class="dm-cp cp-bad"><i class="pi pi-exclamation-triangle"></i><strong>Salida contabilizada como venta</strong><span>El embarque existe, pero su póliza cargó {{ r.cp_cuenta }} (ventas) en vez de 515-002: el puente 515 no puede netear $0.</span></div>
         } @else if (r.bucket === 'exacto') {
           <div class="dm-cp cp-ok"><i class="pi pi-check-circle"></i><strong>Cuadra exacto</strong><span>Entrada y salida con el mismo importe.</span></div>
         }
@@ -1253,7 +1261,7 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   wincaja = signal<TransfersWincajaCheckResponse | null>(null); // cuadre Kepler→Wincaja
   detailLoading = signal(false);
   // Filtros de la vista del detalle (server-side)
-  dBucket: '' | 'exacto' | 'costo' | 'sin_rastro' = '';
+  dBucket: '' | LedgerBucket = '';
   dKind: '' | 'entrada' | 'salida' = '';
   dSuc = '';
   dDest: string[] = []; // filtro por tienda destino (una o más)
@@ -1272,8 +1280,11 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   bucketOpts = [
     { label: 'Todos los estados', value: '' },
     { label: 'Sin rastro', value: 'sin_rastro' },
+    { label: 'Salida como venta', value: 'como_venta' },
     { label: 'Con diferencia de costo', value: 'costo' },
     { label: 'Exactas', value: 'exacto' },
+    { label: 'A tienda Wincaja', value: 'a_wincaja' },
+    { label: 'Sin documento', value: 'sin_documento' },
   ];
   dKindOpts = [
     { label: 'Entradas y salidas', value: '' },
@@ -1483,10 +1494,11 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   matrixQtyOk(delta: unknown): boolean { const d = delta == null || delta === '' ? NaN : Number(delta); return Number.isFinite(d) && Math.abs(d) < 0.01; }
   matrixBad(delta: unknown): boolean { const d = delta == null || delta === '' ? NaN : Number(delta); return Number.isFinite(d) && Math.abs(d) >= 0.01; }
   bucketLabel(b: string): string {
-    return b === 'exacto' ? 'Exacta' : b === 'costo' ? 'Dif. costo' : 'Sin rastro';
+    return b === 'exacto' ? 'Exacta' : b === 'costo' ? 'Dif. costo' : b === 'como_venta' ? 'Como venta' : b === 'a_wincaja' ? 'A Wincaja'
+      : b === 'sin_documento' ? 'Sin documento' : 'Sin rastro';
   }
-  bucketSev(b: string): 'success' | 'warn' | 'danger' {
-    return b === 'exacto' ? 'success' : b === 'costo' ? 'warn' : 'danger';
+  bucketSev(b: string): 'success' | 'warn' | 'danger' | 'info' | 'secondary' {
+    return b === 'exacto' ? 'success' : b === 'costo' ? 'warn' : b === 'a_wincaja' ? 'info' : b === 'sin_documento' ? 'secondary' : 'danger';
   }
   checkLabel(s: string): string {
     return s === 'diferencia' ? 'Diferencia' : s === 'sin_recepcion' ? 'Sin recepción' : s === 'sin_origen' ? 'Sin origen' : 'OK';

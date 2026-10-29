@@ -266,7 +266,7 @@ export class MovementsExportService {
     }).join('');
     return `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><style>${this.cuadreStyles()}</style></head><body>
       ${this.cuadreHead(data, 'Cuadre de traspasos', 'Desglosado por sucursal · Mayor 515')}
-      <p class="lead">Pólizas de la cuenta 515 SIN RASTRO (sin contraparte con tolerancia ±2% ni en la ventana ±1 mes), agrupadas por la sucursal donde se contabilizan. La referencia trae el folio del traspaso para ubicarlo en Kepler.</p>
+      <p class="lead">Pólizas de la cuenta 515 SIN RASTRO (tienen documento y no se encontró la cadena recepción → embarque → póliza), agrupadas por la sucursal donde se contabilizan. La referencia trae el folio del traspaso para ubicarlo en Kepler.</p>
       ${blocks || '<div class="empty">Sin pólizas sin rastro en el rango.</div>'}
       </body></html>`;
   }
@@ -341,7 +341,7 @@ export class MovementsExportService {
       <tbody>${ckRows || '<tr><td colspan="9" class="empty">No hay traspasos sin cuadrar en el rango.</td></tr>'}</tbody></table>
 
       <div class="sec brk"><h2>4 · Pólizas contables sin rastro</h2><span class="cnt">${num(dt?.total || 0)} pólizas${dt?.truncated ? ` · primeras ${num((dt?.rows || []).length)}` : ''}</span></div>
-      <p class="lead">Pareo con tolerancia ±${dt?.totals?.cost != null ? '2' : '2'}% + ventana ±1 mes. Balance: ${num(dt?.totals?.n_exact || 0)} pareadas exactas · ${num(dt?.totals?.cost?.n || 0)} con diferencia de costo (Δ ${money(dt?.totals?.cost?.diff_total || 0)}). Lo de abajo es lo SIN RASTRO — la referencia trae el folio para ubicarlo en Kepler.</p>
+      <p class="lead">Pareo por cadena de documentos (recepción → embarque → póliza). Balance: ${num(dt?.totals?.n_exact || 0)} pareadas exactas · ${num(dt?.totals?.cost?.n || 0)} con diferencia de costo (Δ ${money(dt?.totals?.cost?.diff_total || 0)}) · ${num(dt?.totals?.como_venta?.n || 0)} salidas contabilizadas como venta (${money(dt?.totals?.como_venta?.amt || 0)}) · ${num((dt?.totals?.sin_documento?.n_entrada || 0) + (dt?.totals?.sin_documento?.n_salida || 0))} pólizas manuales sin documento. Lo de abajo es lo SIN RASTRO — la referencia trae el folio para ubicarlo en Kepler.</p>
       <table><thead><tr><th>Mes</th><th>Tipo</th><th>Suc.</th><th class="num">Importe</th><th>Referencia (localizador)</th></tr></thead>
       <tbody>${detailRows || '<tr><td colspan="5" class="empty">No hay pólizas sin contraparte en el rango.</td></tr>'}</tbody></table>
     </body></html>`;
