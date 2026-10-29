@@ -53,6 +53,10 @@ const SIN_REPARTIR_ACEPTADAS = {
   COMMERCIAL_PREVENTION_GESTIONAR:
     'el módulo de prevención existe en lectura (COMMERCIAL_PREVENTION_VER) y su gestión no se ' +
     'entregó todavía: no hay rol que deba escribirlo hasta que se decida quién audita.',
+  FINANCE_HOJA_GASTOS_CERRAR:
+    '[CGA-A.65] la hoja de gastos de zona está en código; la firma «autorización del jefe de zona» ' +
+    'se reparte cuando Edgar diga qué puesto la tiene (en Morelia la pide Aarón). Hasta entonces ' +
+    'el módulo NO está entregado (regla 20).',
 };
 
 (async () => {

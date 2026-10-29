@@ -26,12 +26,21 @@ export interface ZonaHojaGastos {
    * sigue en la ventana de reposición. Se fija el día que la hoja entra a producción.
    */
   desde: string;
+  /**
+   * La cuenta donde se deposita la reposición de la zona (`finance.bank_accounts`: banco y
+   * `account_label`, como en el catálogo de bancos). Medido el 2026-10-29: buscar el depósito en
+   * esa cuenta se equivoca 0.7 % en el control; en todas las cuentas, 17.5 %. `null` = no medida:
+   * el depósito no se reconoce solo y se dice.
+   */
+  cuenta_deposito: { banco: string; terminacion: string } | null;
 }
 
 export const ZONAS_HOJA_GASTOS: readonly ZonaHojaGastos[] = Object.freeze([
-  { clave: 'morelia', nombre: 'Zona Morelia', sucursales: ['08', '07'], desde: '2026-10-29' },
-  // Edgar, 2026-10-29: Canindo con los mismos parámetros. Su «Gastos generales» sólo trae gastos.
-  { clave: 'canindo', nombre: 'Zona Canindo', sucursales: ['06'], desde: '2026-10-29' },
+  { clave: 'morelia', nombre: 'Zona Morelia', sucursales: ['08', '07'], desde: '2026-10-29',
+    cuenta_deposito: { banco: 'SANTANDER', terminacion: '1604' } },
+  // Edgar, 2026-10-29: Canindo con los mismos parámetros. Su «Gastos generales» sólo trae gastos, y
+  // la cuenta de su reposición no está medida.
+  { clave: 'canindo', nombre: 'Zona Canindo', sucursales: ['06'], desde: '2026-10-29', cuenta_deposito: null },
 ]);
 
 export function zonaDeSucursal(sucursal: string): ZonaHojaGastos | null {
@@ -116,6 +125,72 @@ export interface HojaAbierta {
   instruccion: InstruccionPagoHoja | null;
   /** Edad del dato de Kepler. `null` = sin medir. */
   datos_al: string | null;
+}
+
+// ── La hoja cerrada, sus firmas y su pago ───────────────────────────────────────────────────────
+
+export type EstadoHojaGastos = 'cerrada' | 'aprobada' | 'rechazada' | 'cancelada';
+
+/** Dónde va el pago de una hoja aprobada: lo dicen CAOS (el retiro) y el banco (el depósito). */
+export type EstadoPagoHoja = 'sin_retiro' | 'retiro_recibido' | 'depositada' | 'deposito_ambiguo' | 'deposito_sin_medir';
+
+export interface PagoDeHojaGastos {
+  estado: EstadoPagoHoja;
+  /** El retiro de CAOS cuya referencia nombra la hoja. Más de uno se dice en `retiros_extra`. */
+  retiro: { device: string; external_id: number; ref: string | null; total: number; dia: string } | null;
+  retiros_extra: number;
+  /** Los depósitos que suman el total (una o dos partes), o `null`. */
+  depositos: Array<{ id: string; dia: string; importe: number }> | null;
+  /** Por qué no hay depósito todavía, en llano, cuando no lo hay. */
+  nota: string | null;
+}
+
+export interface HojaGastos {
+  id: string;
+  numero: number;
+  /** «HG-12»: lo que se escribe en la referencia del retiro de CAOS. */
+  folio: string;
+  zona: ClaveZonaHoja;
+  nombre_zona: string;
+  venta_del_dia: string;
+  estado: EstadoHojaGastos;
+  total: number;
+  renglones: RenglonHoja[];
+  por_sucursal: Array<SubtotalHoja & { sucursal: string }>;
+  cerrada_por: string;
+  cerrada_por_nombre: string | null;
+  cerrada_at: string;
+  aprobada_por_nombre: string | null;
+  aprobada_at: string | null;
+  resuelta_por_nombre: string | null;
+  resuelta_at: string | null;
+  motivo: string | null;
+  instruccion: InstruccionPagoHoja;
+  /** Sólo para las aprobadas; `null` en las demás. */
+  pago: PagoDeHojaGastos | null;
+}
+
+export interface HojasDeGastos {
+  abiertas: HojaAbierta[];
+  /** Las de los últimos 45 días y las que siguen sin depositarse, de la más nueva a la más vieja. */
+  cerradas: HojaGastos[];
+  /** `false` = la migración de las hojas no está aplicada: se ve la abierta, no se puede cerrar. */
+  instalada: boolean;
+  datos_al: string | null;
+  caos_al: string | null;
+}
+
+export interface CerrarHojaInput {
+  /** Los pagos que van en esta hoja (todos los de la abierta, o los que la persona dejó). */
+  origen_refs: string[];
+  /** La venta de la que salió el dinero (lo que el papel dice en Observaciones). */
+  venta_del_dia: string;
+  /** Llave de la pantalla: el doble clic no cierra dos hojas. */
+  client_key: string;
+}
+
+export interface MotivoHojaInput {
+  motivo: string;
 }
 
 /** El folio que se escribe en la referencia del retiro: «HG-12». */
