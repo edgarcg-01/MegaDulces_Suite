@@ -49,6 +49,18 @@ export const DIAS_INSTANCIA_REPOSICION = 3;
 export const SUCURSALES_SIN_REPOSICION: readonly string[] = [SUCURSAL_CAJA_GENERAL];
 
 /**
+ * ⛔ `[CGA-A.65]` **Morelia se repone por HOJA DE ZONA, no por sucursal × día.** Abastos y Madero van
+ * en UNA hoja («Formato de autorización de gastos», área «ZONA MORELIA») que se repone con UN retiro,
+ * y la referencia no dice ni la sucursal ni la fecha («gnf ma» pagó una hoja de las dos). Medido el
+ * 2026-10-29 contra dos hojas en papel (venta del 20 y del 23): a Madero del 23/10 este motor le daba
+ * «gnf morelia», que es el retiro de la hoja del 20, y a Abastos le sumaba un Capitán de marca que no
+ * va en su hoja. Hasta que la hoja viva en la Suite, a estas sucursales NO se les propone ni se les
+ * sugiere retiro: proponer mal es peor que no proponer.
+ */
+export const SUCURSALES_POR_HOJA_DE_ZONA: readonly string[] = ['07', '08'];
+const porHoja = (sucursal: string) => SUCURSALES_POR_HOJA_DE_ZONA.includes(sucursal);
+
+/**
  * Nómina o gasto, por el beneficiario de Kepler. Medido a 60 días: los 56 documentos de nómina de
  * sucursal dicen exactamente `NOMINA`. ⛔ El concepto NO se mira: el único que decía «nomina» en el
  * concepto era un gasto de caja chica de Canindo ($1,070).
@@ -347,7 +359,7 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
   };
 
   for (const d of docs) {
-    if (d.estado !== 'sin_vincular' || bloqueado(d)) continue;
+    if (d.estado !== 'sin_vincular' || bloqueado(d) || porHoja(d.sucursal)) continue;
     for (const { r, a } of candidatos(retiros, d)) {
       if ((faltaViva.get(d.origen_ref) ?? 0) <= 0.005) break;
       if (tomar(d, r, claveGrupo(d), false) > 0 && !usadoPor.has(llaveRetiro(r))) {
@@ -362,7 +374,9 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
       if ((libre.get(k) ?? 0) <= 0.005) break;
       // Un egreso «del cajón» no entra porque su `falta` ya es 0 (lo prueba una negativa); una
       // guarda aparte aquí era redundante y ninguna prueba la podía romper.
-      if (!d.ledger_id || bloqueado(d) || (faltaViva.get(d.origen_ref) ?? 0) <= 0.005) continue;
+      // `[CGA-A.65]` Tampoco los de una hoja de zona: un retiro que ya paga a otra sucursal y a
+      // Morelia barrería sus centavos sin saber de qué hoja son.
+      if (!d.ledger_id || bloqueado(d) || porHoja(d.sucursal) || (faltaViva.get(d.origen_ref) ?? 0) <= 0.005) continue;
       if (!afinidad(uso.r, d)) continue;
       tomar(d, uso.r, uso.grupo, true);
     }
@@ -423,7 +437,7 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
     let retiroSugerido: ReposicionGrupo['retiro_sugerido'] = null;
     // `[CGA-A.62]` Sólo lo que se puede reponer: lo que espera firma o se rechazó no cuenta.
     const pendOk = pend.filter((d) => !bloqueado(d));
-    if (pendOk.length) {
+    if (pendOk.length && !porHoja(sucursal)) {
       const clases = new Set(pendOk.map((d) => d.clase));
       const muestra: DocInterno = { ...pendOk[0], clase: clases.size === 1 ? pendOk[0].clase : 'gasto' };
       const opciones = candidatos(retiros, muestra)
@@ -447,7 +461,7 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
       n_sin_aprobar: ds.filter((d) => bloqueado(d)).length,
       n_pagado_antes_de_aprobar: ds.filter((d) => d.aprobacion?.alerta === true).length,
       estado: pend.length ? 'por_capturar' : sv.length ? 'sin_vincular' : 'explicada',
-      propuesta, retiro_sugerido: retiroSugerido,
+      propuesta, retiro_sugerido: retiroSugerido, por_hoja: porHoja(sucursal),
     });
   }
   salida.sort((a, b) => b.fecha.localeCompare(a.fecha) || ordenSucursal(a.sucursal) - ordenSucursal(b.sucursal));

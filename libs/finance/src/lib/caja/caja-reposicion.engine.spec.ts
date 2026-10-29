@@ -167,7 +167,7 @@ describe('[CGA-A.61] Canindo del 27/10: 10 egresos sin vincular ↔ 1732 + 1737 
   });
 });
 
-describe('[CGA-A.61] Morelia, 28/10: el gnf cubre a BOTANAS PAU y barre los centavos', () => {
+describe('⛔ [CGA-A.65] Morelia, 28/10: el gnf SÍ es de su hoja, y aun así el motor ya no propone', () => {
   const docs = [
     doc('07', '0000313', '2026-10-28', 4428, 'PAPAS JARYS', '2026-10-27'),
     doc('07', '0000315', '2026-10-28', 8865, 'BOTANAS PAU', '2026-10-27'),
@@ -192,24 +192,15 @@ describe('[CGA-A.61] Morelia, 28/10: el gnf cubre a BOTANAS PAU y barre los cent
   ];
   const gnf = retiro(1775, '2026-10-28T16:29:57Z', 'gnf 26/10', 156670, 4650, ['07', '08']);
 
-  it('$4,575 a CG-2026-00532 y los centavos de dos egresos más; las nóminas del cajón no se tocan', () => {
+  // Antes de [CGA-A.65] este caso proponía $4,575 a CG-2026-00532 y barría los centavos de Abastos
+  // DESDE EL RENGLÓN DE MADERO: la hoja es de las dos, y el renglón no. Ahora lo resuelve una persona.
+  it('ni propuesta ni barrido para Madero ni para Abastos; los dos dicen que se reponen por hoja', () => {
     const r = armarReposicion({ ...base, docs, egresos, vinculos, retiros: [gnf] });
     const mm = r.grupos.find((x) => x.clave === '2026-10-28|07');
-    expect(mm?.estado).toBe('sin_vincular');
-    // El barrido va en el orden del catálogo de sucursales: Morelia Abastos antes que Madero.
-    expect(mm?.propuesta?.asignaciones.map((a) => [a.cg_folio, a.monto])).toEqual([
-      ['CG-2026-00532', 4575], ['CG-2026-00528', 3.97], ['CG-2026-00531', 8],
-    ]);
-    expect(mm?.propuesta?.razon).toContain('«gnf 26/10» ya paga egresos de Morelia Madero y Morelia Abastos y es de gastos');
-    expect(mm?.propuesta?.razon).toContain('los centavos de 2 egresos más');
-    // Le quedan $63.03 libres al gnf: NO es «al peso», y la razón no lo puede decir.
-    expect(mm?.propuesta?.razon).not.toContain('al peso');
-    const asignados = (mm?.propuesta?.asignaciones ?? []).map((a) => a.ledger_id);
-    expect(asignados).not.toContain('l509');
-    expect(asignados).not.toContain('l508');
-    expect(asignados).not.toContain('l516');
-    // Abastos no tiene nada sin vincular: su grupo está explicado y su barrido lo propone Madero.
-    expect(r.grupos.find((x) => x.clave === '2026-10-28|08')).toMatchObject({ estado: 'explicada', propuesta: null });
+    expect(mm).toMatchObject({ estado: 'sin_vincular', sin_vincular: 4575, propuesta: null, por_hoja: true });
+    expect(r.grupos.find((x) => x.clave === '2026-10-28|08')).toMatchObject({ estado: 'explicada', propuesta: null, por_hoja: true });
+    // Ningún renglón se lleva un peso del gnf: ni el de Madero, ni el barrido desde otro.
+    expect(r.grupos.flatMap((g) => g.propuesta?.asignaciones ?? [])).toEqual([]);
   });
 
   it('cuadre del grupo: total = por capturar + CAOS + cajón + sin vincular', () => {
@@ -219,21 +210,70 @@ describe('[CGA-A.61] Morelia, 28/10: el gnf cubre a BOTANAS PAU y barre los cent
   });
 });
 
-describe('[CGA-A.61] la referencia más específica gana (medido: Abastos 23/10, «gnf ma» vs «gnf morelia»)', () => {
-  const docs = [doc('08', '0000600', '2026-10-23', 1050)];
-  const egresos = [egreso('l418', 'CG-2026-00418', ref('08', '0000600'), 1050, '2026-10-23', null)];
-  const morelia = retiro(1706, '2026-10-23T17:00:00Z', 'gnf morelia', 163080, 163080);
-  const ma = retiro(1707, '2026-10-23T17:05:00Z', 'gnf ma', 58900, 58900);
+// Se midió en Morelia (Abastos 23/10, «gnf ma» contra «gnf morelia»); desde [CGA-A.65] Morelia no
+// recibe propuestas, y la regla se prueba con la otra referencia que nombra dos sucursales: «abastos».
+describe('[CGA-A.61] la referencia más específica gana («gnf lpa» contra «gnf abastos», que nombra a dos)', () => {
+  const docs = [doc('02', '0000600', '2026-10-23', 1050)];
+  const egresos = [egreso('l418', 'CG-2026-00418', ref('02', '0000600'), 1050, '2026-10-23', null)];
+  const abastos = retiro(1706, '2026-10-23T17:00:00Z', 'gnf abastos', 163080, 163080);
+  const lpa = retiro(1707, '2026-10-23T17:05:00Z', 'gnf lpa', 58900, 58900);
 
-  it('un gasto de Morelia Abastos va a «gnf ma» aunque «gnf morelia» sea anterior', () => {
-    const g = armarReposicion({ ...base, docs, egresos, vinculos: [], retiros: [morelia, ma] }).grupos[0];
+  it('un gasto de La Piedad Abastos va a «gnf lpa» aunque «gnf abastos» sea anterior', () => {
+    const g = armarReposicion({ ...base, docs, egresos, vinculos: [], retiros: [abastos, lpa] }).grupos[0];
     expect(g.propuesta?.asignaciones.map((a) => a.external_id)).toEqual([1707]);
     expect(g.propuesta?.razon).toContain('(libres $58,900.00)');
   });
 
   it('sin el específico, el que nombra a las dos sigue sirviendo', () => {
-    const g = armarReposicion({ ...base, docs, egresos, vinculos: [], retiros: [morelia] }).grupos[0];
+    const g = armarReposicion({ ...base, docs, egresos, vinculos: [], retiros: [abastos] }).grupos[0];
     expect(g.propuesta?.asignaciones.map((a) => a.external_id)).toEqual([1706]);
+  });
+});
+
+describe('⛔ [CGA-A.65] Morelia se repone por hoja de zona: el motor no le propone ni le sugiere retiro', () => {
+  // La hoja en papel de la venta del 23/10 (13 renglones, $58,953.69) se repuso con «gnf ma». El motor
+  // por sucursal × día le daba a Madero «gnf morelia», que es el retiro de la hoja del 20.
+  const docs = [
+    doc('07', '0000282', '2026-10-23', 2850, 'CUERITOS PREMIUM ZACAPU'), doc('07', '0000283', '2026-10-23', 7313, 'BOTANAS PAU'),
+    doc('08', '0000533', '2026-10-23', 13035, 'DELICIATE'), doc('08', '0000534', '2026-10-23', 7330, 'BOTANAS PAU'),
+  ];
+  const egresos = docs.map((d, i) => egreso(`l${i}`, `CG-2026-0039${i}`, d.origen_ref, d.monto, '2026-10-23', null));
+  const morelia = retiro(1706, '2026-10-23T19:52:41Z', 'gnf morelia', 163080, 163080);
+  const ma = retiro(1707, '2026-10-23T20:03:30Z', 'gnf ma', 58900, 58900);
+  // La MISMA situación en Canindo: control de que la guarda es de Morelia y no un motor apagado.
+  const comoCanindo = (d: DocKepler): DocKepler => ({ ...d, sucursal: '06', origen_ref: ref('06', d.folio) });
+
+  it('Madero y Abastos del 23/10: sin propuesta y por hoja; ningún peso de los dos retiros se asigna', () => {
+    const r = armarReposicion({ ...base, docs, egresos, vinculos: [], retiros: [morelia, ma] });
+    for (const suc of ['07', '08']) {
+      expect(r.grupos.find((g) => g.sucursal === suc)).toMatchObject({ estado: 'sin_vincular', propuesta: null, por_hoja: true });
+    }
+    expect(r.grupos.flatMap((g) => g.propuesta?.asignaciones ?? [])).toEqual([]);
+  });
+
+  it('CONTROL: lo mismo en Canindo, con un retiro que lo nombra, SÍ se propone y no es «por hoja»', () => {
+    const ds = docs.map(comoCanindo);
+    const eg = ds.map((d, i) => egreso(`l${i}`, `CG-2026-0039${i}`, d.origen_ref, d.monto, '2026-10-23', null));
+    const g = armarReposicion({ ...base, docs: ds, egresos: eg, vinculos: [], retiros: [{ ...ma, ref: 'gnf canindo' }] }).grupos[0];
+    expect(g).toMatchObject({ sucursal: '06', por_hoja: false });
+    expect(g.propuesta?.monto).toBe(30528);
+  });
+
+  it('por capturar: «Reponer» no sugiere retiro para Morelia; para Canindo sí (control)', () => {
+    const mor = armarReposicion({ ...base, docs, egresos: [], vinculos: [], retiros: [ma] });
+    expect(mor.grupos.map((g) => [g.sucursal, g.estado, g.retiro_sugerido])).toEqual([['08', 'por_capturar', null], ['07', 'por_capturar', null]]);
+    const can = armarReposicion({ ...base, docs: docs.map(comoCanindo), egresos: [], vinculos: [], retiros: [{ ...ma, ref: 'gnf canindo' }] });
+    expect(can.grupos[0].retiro_sugerido?.external_id).toBe(1707);
+  });
+
+  it('el barrido de centavos de un retiro que paga a Canindo Y a Abastos no toca los de Abastos', () => {
+    const ds = [doc('06', '0000400', '2026-10-28', 500), doc('08', '0000677', '2026-10-28', 9623.97)];
+    const eg = [egreso('l400', 'CG-2026-00600', ref('06', '0000400'), 500, '2026-10-28', 'caos'),
+      egreso('l528', 'CG-2026-00528', ref('08', '0000677'), 9623.97, '2026-10-28', 'caos')];
+    const vs = [vinculo('k528', 'l528', 1790, 9620, 'gnf 26/10')];
+    const sinNombre = retiro(1790, '2026-10-28T16:29:57Z', 'gnf 26/10', 20000, 1000, ['06', '08']);
+    const g = armarReposicion({ ...base, docs: ds, egresos: eg, vinculos: vs, retiros: [sinNombre] }).grupos.find((x) => x.sucursal === '06');
+    expect(g?.propuesta?.asignaciones.map((a) => [a.ledger_id, a.monto])).toEqual([['l400', 500]]);
   });
 });
 
@@ -297,13 +337,14 @@ describe('[CGA-A.62] lo que no se aprobó antes no se propone ni se repone', () 
     expect(uno.retiro_sugerido?.external_id).toBe(1802);
   });
 
+  // Medido en Madero el 28/10; desde [CGA-A.65] Morelia no recibe propuestas, y se prueba en Canindo.
   it('⛔ el barrido de centavos tampoco toca un egreso cuyo vale se rechazó', () => {
-    const ds = [doc('07', '0000315', '2026-10-28', 8865, 'BOTANAS PAU', '2026-10-27'), doc('07', '0000313', '2026-10-28', 4428, 'PAPAS JARYS', '2026-10-27')];
-    const eg = [egreso('l532', 'CG-2026-00532', ref('07', '0000315'), 8865, '2026-10-28', 'caos'), egreso('l531', 'CG-2026-00531', ref('07', '0000313'), 4428, '2026-10-28', 'caos')];
-    const vs = [vinculo('k532', 'l532', 1775, 4290, 'gnf 26/10'), vinculo('k531', 'l531', 1775, 4420, 'gnf 26/10')];
-    const gnf = retiro(1775, '2026-10-28T16:29:57Z', 'gnf 26/10', 156670, 4650, ['07', '08']);
+    const ds = [doc('06', '0000315', '2026-10-28', 8865, 'BOTANAS PAU', '2026-10-27'), doc('06', '0000313', '2026-10-28', 4428, 'PAPAS JARYS', '2026-10-27')];
+    const eg = [egreso('l532', 'CG-2026-00532', ref('06', '0000315'), 8865, '2026-10-28', 'caos'), egreso('l531', 'CG-2026-00531', ref('06', '0000313'), 4428, '2026-10-28', 'caos')];
+    const vs = [vinculo('k532', 'l532', 1775, 4290, 'gastos canindo 26/10'), vinculo('k531', 'l531', 1775, 4420, 'gastos canindo 26/10')];
+    const gnf = retiro(1775, '2026-10-28T16:29:57Z', 'gastos canindo 26/10', 156670, 4650, ['06']);
     const g = armarReposicion({ ...base, docs: ds, egresos: eg, vinculos: vs, retiros: [gnf],
-      aprobaciones: new Map([[ref('07', '0000313'), aprob('rechazado')]]) }).grupos[0];
+      aprobaciones: new Map([[ref('06', '0000313'), aprob('rechazado')]]) }).grupos[0];
     expect(g.propuesta?.asignaciones.map((x) => x.ledger_id)).toEqual(['l532']);
   });
 
