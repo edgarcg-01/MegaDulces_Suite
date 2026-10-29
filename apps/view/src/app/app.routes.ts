@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { Route, Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, carteraEntryGuard, gastosAreaEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, carteraEntryGuard, gastosAreaEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, telemarketingHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -342,22 +342,12 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/comercial/pages/comercial-reporte-cliente.component').then(m => m.ComercialReporteClienteComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_TICKETS_VER)]
       },
-      {
-        // AX.2 — facturas de venta (vistas en vivo sobre kepler_ods) + anexo imprimible
-        path: 'documentos',
-        loadComponent: () => import('./modules/comercial/pages/comercial-documentos.component').then(m => m.ComercialDocumentosComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_SALES_DOCS_VER)]
-      },
-      {
-        // GT.12 — Expedientes: historial de las Guías de Cobranza emitidas. Va DESPUÉS de
-        // 'documentos' y como ruta propia (no hija) porque cada tab es una página hermana.
-        path: 'documentos/expedientes',
-        loadComponent: () => import('./modules/comercial/pages/comercial-expedientes.component').then(m => m.ComercialExpedientesComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_SALES_DOCS_VER)]
-      },
-      // La pestaña se llamaba "Reportes" y ahí se seleccionaban las facturas (GT.2). Eso se
-      // movió a Facturación TM, que es donde están; el deep-link viejo no se deja roto.
-      { path: 'documentos/reportes', redirectTo: 'documentos/expedientes' },
+      // `[AX.16]` Facturación TM y Expedientes se mudaron a `/telemarketing/documentos` (son
+      // la salida del canal, no un reporte de Comercial). Los enlaces y favoritos viejos no se
+      // dejan rotos: el `redirectTo` estático conserva los query params (`?doc=` de Cartera).
+      { path: 'documentos', redirectTo: '/telemarketing/documentos', pathMatch: 'full' },
+      { path: 'documentos/expedientes', redirectTo: '/telemarketing/documentos/expedientes' },
+      { path: 'documentos/reportes', redirectTo: '/telemarketing/documentos/expedientes' },
       // Egresos vive ahora en el proyecto Finanzas (deep-links viejos siguen funcionando).
       { path: 'egresos', redirectTo: '/finanzas/egresos' },
       { path: 'egresos/detalle', redirectTo: '/finanzas/egresos/detalle' },
@@ -2483,13 +2473,18 @@ export const routes: Routes = [
      * que es lo que hacen las otras 105 de la app.
      */
     path: 'telemarketing',
+    // `[AX.16]` La puerta del proyecto ya no exige OPERATE: Facturación TM vive acá y la ven 10
+    // roles que no operan el canal (medido en prod 2026-10-29: vendedor_ruta, encargado_tienda,
+    // credito_cobranza, facturacion…). OPERATE se exige ahora en cada pantalla del operador.
     canActivate: [televentaGuard],
     component: LayoutComponent,
     children: [
-      { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
+      // `[AX.16]` Índice dinámico: quien sólo ve Facturación aterriza ahí y no rebota en el dashboard.
+      { path: '', canActivate: [telemarketingHomeGuard], children: [] },
       // E.4 — Dashboard métricas
       {
         path: 'dashboard',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_TELEVENTA_OPERATE)],
         loadComponent: () =>
           import('./modules/televenta/pages/televenta-dashboard.component').then(
             (m) => m.TeleventaDashboardComponent,
@@ -2497,17 +2492,42 @@ export const routes: Routes = [
       },
       {
         path: 'queue',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_TELEVENTA_OPERATE)],
         loadComponent: () =>
           import('./modules/televenta/pages/televenta-queue.component').then(
             (m) => m.TeleventaQueueComponent,
           ),
       },
-      // [E.12] Cotizaciones de mayoreo. Guard PROPIO y no heredado del shell: el
-      // `televentaGuard` pide COMMERCIAL_TELEVENTA_OPERATE, y cotizar es otra llave
-      // (COMMERCIAL_QUOTES_VER). El RolesGuard es exact-key: no hay herencia entre hermanos.
+      {
+        // AX.2 — facturas de telemarketing (vistas en vivo sobre kepler_ods) + anexo imprimible.
+        // `[AX.16]` Se mudó de `/comercial/documentos` (ahí queda un redirect).
+        path: 'documentos',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SALES_DOCS_VER)],
+        loadComponent: () =>
+          import('./modules/comercial/pages/comercial-documentos.component').then(
+            (m) => m.ComercialDocumentosComponent,
+          ),
+      },
+      {
+        // GT.12 — Expedientes: historial de las Guías de Cobranza emitidas. Va DESPUÉS de
+        // 'documentos' y como ruta propia (no hija) porque cada tab es una página hermana.
+        path: 'documentos/expedientes',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SALES_DOCS_VER)],
+        loadComponent: () =>
+          import('./modules/comercial/pages/comercial-expedientes.component').then(
+            (m) => m.ComercialExpedientesComponent,
+          ),
+      },
+      // La pestaña se llamaba "Reportes" y ahí se seleccionaban las facturas (GT.2). Eso se
+      // movió a Facturación TM, que es donde están; el deep-link viejo no se deja roto.
+      { path: 'documentos/reportes', redirectTo: 'documentos/expedientes' },
+      // [E.12] Cotizaciones de mayoreo. Guard PROPIO: cotizar es otra llave (COMMERCIAL_QUOTES_VER).
+      // `[AX.16]` OPERATE va explícito porque antes lo ponía la puerta del proyecto: sin él,
+      // supervisor/supervisor_ventas/direccion (QUOTES_VER sin OPERATE) entrarían por primera vez.
+      // Abrirles cotizaciones es decisión aparte, no efecto de una mudanza.
       {
         path: 'cotizaciones',
-        canActivate: [permissionGuard(Permission.COMMERCIAL_QUOTES_VER)],
+        canActivate: [permissionGuard(Permission.COMMERCIAL_QUOTES_VER), permissionGuard(Permission.COMMERCIAL_TELEVENTA_OPERATE)],
         loadComponent: () =>
           import('./modules/televenta/pages/televenta-quotes.component').then(
             (m) => m.TeleventaQuotesComponent,
@@ -2517,7 +2537,7 @@ export const routes: Routes = [
       // no el de ver: entrar al alta es empezar a ofrecer precio.
       {
         path: 'cotizaciones/nueva',
-        canActivate: [permissionGuard(Permission.COMMERCIAL_QUOTES_GESTIONAR)],
+        canActivate: [permissionGuard(Permission.COMMERCIAL_QUOTES_GESTIONAR), permissionGuard(Permission.COMMERCIAL_TELEVENTA_OPERATE)],
         loadComponent: () =>
           import('./modules/televenta/pages/televenta-quote-new.component').then(
             (m) => m.TeleventaQuoteNewComponent,
@@ -2545,6 +2565,7 @@ export const routes: Routes = [
       },
       {
         path: 'my',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_TELEVENTA_OPERATE)],
         // Reusa el mismo queue component (muestra Mis reservas activas arriba).
         loadComponent: () =>
           import('./modules/televenta/pages/televenta-queue.component').then(
@@ -2553,6 +2574,7 @@ export const routes: Routes = [
       },
       {
         path: 'lead/:customer_id',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_TELEVENTA_OPERATE)],
         loadComponent: () =>
           import('./modules/televenta/pages/televenta-lead.component').then(
             (m) => m.TeleventaLeadComponent,
@@ -2560,6 +2582,7 @@ export const routes: Routes = [
       },
       {
         path: 'lead/:customer_id/take-order',
+        canActivate: [permissionGuard(Permission.COMMERCIAL_TELEVENTA_OPERATE)],
         loadComponent: () =>
           import('./modules/televenta/pages/televenta-take-order.component').then(
             (m) => m.TeleventaTakeOrderComponent,

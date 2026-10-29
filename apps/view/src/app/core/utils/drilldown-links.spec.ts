@@ -34,7 +34,7 @@ const DRILLDOWNS: ReadonlyArray<{ archivo: string; ruta: string; que: string }> 
   { archivo: 'logistica/pages/logistica-shipments.component.ts', ruta: "'/logistica/shipments', s.id", que: 'embarque' },
   { archivo: 'comercial/pages/comercial-expiry-reviews.component.ts', ruta: "'/almacen/inventory/caducidades', r.id", que: 'revisión de caducidad' },
   // entre módulos: lo que se abre al lado para cotejar
-  { archivo: 'finanzas/pages/finanzas-cartera.component.ts', ruta: "'/comercial/documentos'", que: 'documento desde cartera' },
+  { archivo: 'finanzas/pages/finanzas-cartera.component.ts', ruta: "'/telemarketing/documentos'", que: 'documento desde cartera' },
   { archivo: 'compras/pages/compras-costo-neto.component.ts', ruta: "'/compras/descuentos'", que: 'descuentos desde costo neto' },
   { archivo: 'finanzas/pages/finanzas-pagos-comprobantes.component.ts', ruta: "'/compras/descuentos'", que: 'descuentos desde pagos' },
   { archivo: 'finanzas/pages/finanzas-solicitudes.component.ts', ruta: "'/finanzas/egresos/detalle'", que: 'gasto desde solicitudes' },

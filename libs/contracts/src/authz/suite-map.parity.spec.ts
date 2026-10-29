@@ -85,6 +85,15 @@ const TARJETAS_2026_09_10: readonly TarjetaLegacy[] = [
         a: 'mkt',
         motivo: '[MKT.0] Promos del ERP pasó de /comercial/erp-promos a /mkt/erp-promos',
       },
+      // `[AX.16]` (2026-10-29) Facturación TM pasó de `/comercial/documentos` a
+      // `/telemarketing/documentos`. Medido en prod antes de aceptarlo: 13 roles tienen la clave y
+      // 10 NO tienen OPERATE, por eso la puerta de `/telemarketing` (`televentaGuard`) se abrió a
+      // SALES_DOCS_VER en el mismo cambio — la clave sigue abriendo su única pantalla.
+      {
+        perm: Permission.COMMERCIAL_SALES_DOCS_VER,
+        a: 'mayoreo-telemarketing',
+        motivo: '[AX.16] Facturación TM pasó de /comercial/documentos a /telemarketing/documentos',
+      },
     ],
   },
   {

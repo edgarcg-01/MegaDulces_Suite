@@ -144,7 +144,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'route-sales', label: 'Ventas por ruta', route: '/comercial/ventas-por-ruta', view: [Permission.COMMERCIAL_ROUTE_SALES_VER], manage: [] },
           { id: 'route-commissions', label: 'Comisiones de ruta', route: '/comercial/comisiones', view: [Permission.COMMERCIAL_COMMISSIONS_VER], manage: [Permission.COMMERCIAL_COMMISSIONS_GESTIONAR] },
           { id: 'route-profit', label: 'Rentabilidad de Ruta Directa', route: '/comercial/ruta-directa/rentabilidad', view: [Permission.COMMERCIAL_ROUTE_PROFIT_VER], manage: [] },
-          { id: 'sales-docs', label: 'Facturación de Telemarketing', route: '/comercial/documentos', view: [Permission.COMMERCIAL_SALES_DOCS_VER], manage: [] },
+          // `[AX.16]` 'sales-docs' (Facturación de Telemarketing) se mudó al proyecto Telemarketing.
           { id: 'tickets', label: 'Tickets de venta', route: '/comercial/tickets', view: [Permission.COMMERCIAL_TICKETS_VER], manage: [] },
           { id: 'customers360', label: 'Clientes 360', route: '/comercial/customers-360', view: [Permission.COMMERCIAL_CUSTOMERS360_VER], manage: [] },
           { id: 'historical', label: 'Histórico de venta', route: '/comercial/historical', view: [Permission.COMMERCIAL_HISTORICAL_VER], manage: [] },
@@ -327,6 +327,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // permiso no se ofrece como salida navegable en los 404/403 (`AccessibleRoutesService`
           // filtra por `!!m.route`) y la casilla de /admin/roles no llevaría a ningún lado.
           { id: 'televenta-cotizaciones', label: 'Cotizaciones', route: '/telemarketing/cotizaciones', view: [Permission.COMMERCIAL_QUOTES_VER], manage: [Permission.COMMERCIAL_QUOTES_GESTIONAR] },
+          // `[AX.16]` Venía de Comercial (`/comercial/documentos`): es lo que sale del canal. Mismo id
+          // y misma clave — mudar el módulo no toca `role_permissions` ni pide re-login (ADR-054).
+          { id: 'sales-docs', label: 'Facturación de Telemarketing', route: '/telemarketing/documentos', view: [Permission.COMMERCIAL_SALES_DOCS_VER], manage: [] },
         ],
       },
       {

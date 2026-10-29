@@ -464,7 +464,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // página. Antes era la pestaña «Facturación TM» de Reportes de venta, y al abrirla el
         // sidebar quedaba en Reportes y la barra saltaba a la de Telemarketing. Es la misma entrada
         // que tiene el sidebar de Telemarketing.
-        { label: 'Facturación', icon: 'pi pi-file', route: '/comercial/documentos', tabs: TELEMARKETING_TABS },
+        // `[AX.16]` La página vive en `/telemarketing/documentos`: la entrada se conserva acá porque
+        // es por donde la encuentran los 10 roles que la ven sin operar el canal (vendedor_ruta,
+        // encargado_tienda, credito_cobranza…); al abrirla el sidebar pasa a Telemarketing.
+        { label: 'Facturación', icon: 'pi pi-file', route: '/telemarketing/documentos', tabs: TELEMARKETING_TABS },
       ],
     },
     {
@@ -692,9 +695,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * en el mismo orden — reestructurar es mover, no rediseñar: lo que ya funcionaba no se tira.
    *
    * Dos grupos porque son dos oficios distintos: el trabajo del turno (a quién llamo ahora) y
-   * lo que sale del canal (qué se ofreció, qué se facturó). Facturación sale a
-   * `/comercial/documentos`, que es de OTRO proyecto: se ofrece igual porque es el resultado del
-   * canal, y gateada por SU permiso — un enlace que lleva a un rebote es peor que no mostrarlo.
+   * lo que sale del canal (qué se ofreció, qué se facturó). Facturación va gateada por SU permiso
+   * (vía `tabs`) — un enlace que lleva a un rebote es peor que no mostrarlo.
+   *
+   * `[AX.16]` Facturación ya es de ESTE proyecto (`/telemarketing/documentos`); antes salía a
+   * `/comercial/documentos`, de otro proyecto.
    */
   private telemarketingNavGroups: { title: string; items: NavItem[] }[] = [
     {
@@ -710,7 +715,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Cotizaciones', icon: 'pi pi-calculator', route: '/telemarketing/cotizaciones', permission: Permission.COMMERCIAL_QUOTES_VER },
         // [NAV.1] Facturación y Expedientes: una entrada, dos pestañas. Facturación estaba suelta Y era su primera pestaña.
-        { label: 'Facturación', icon: 'pi pi-file', route: '/comercial/documentos', tabs: TELEMARKETING_TABS },
+        { label: 'Facturación', icon: 'pi pi-file', route: '/telemarketing/documentos', tabs: TELEMARKETING_TABS },
       ],
     },
   ];

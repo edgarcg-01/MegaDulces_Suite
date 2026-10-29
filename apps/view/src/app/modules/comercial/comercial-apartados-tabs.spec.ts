@@ -81,10 +81,10 @@ describe('[NAV.8] apartados del sidebar de Comercial', () => {
   });
 
   it('[NAV.8.2] ⛔ NEGATIVA — Facturación TM no cuelga de Reportes de venta: su barra es la que pinta su página', () => {
-    // /comercial/documentos pinta TELEMARKETING_TABS; colgarla de otra barra hace que al abrirla
-    // la barra salte de apartado.
-    expect(REPORTES_GENERALES_TABS.map((t) => t.route)).not.toContain('/comercial/documentos');
-    expect(TELEMARKETING_TABS.map((t) => t.route)).toContain('/comercial/documentos');
+    // /telemarketing/documentos (`[AX.16]`, antes /comercial/documentos) pinta TELEMARKETING_TABS;
+    // colgarla de otra barra hace que al abrirla la barra salte de apartado.
+    expect(REPORTES_GENERALES_TABS.map((t) => t.route)).not.toContain('/telemarketing/documentos');
+    expect(TELEMARKETING_TABS.map((t) => t.route)).toContain('/telemarketing/documentos');
   });
 
   it('«En vivo» (el Centro de Control) es la PRIMERA de Analítica: la entrada sigue llevando ahí', () => {

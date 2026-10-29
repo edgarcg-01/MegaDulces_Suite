@@ -162,7 +162,7 @@ export const COMERCIAL_LANDING: LandingCandidate[] = withTreeCandidates('comerci
   { perm: Permission.COMMERCIAL_SELLOUT_VER, url: '/comercial/sell-out' },
   { perm: Permission.COMMERCIAL_SALIDAS_VER, url: '/comercial/salidas' },
   { perm: Permission.COMMERCIAL_ROUTE_SALES_VER, url: '/comercial/ventas-por-ruta' },
-  { perm: Permission.COMMERCIAL_SALES_DOCS_VER, url: '/comercial/documentos' },
+  // `[AX.16]` COMMERCIAL_SALES_DOCS_VER salió: Facturación TM es del proyecto Telemarketing.
   { perm: Permission.COMMERCIAL_CUSTOMERS360_VER, url: '/comercial/customers-360' },
   { perm: Permission.COMMERCIAL_HISTORICAL_VER, url: '/comercial/historical' },
   { perm: Permission.COMMERCIAL_VENDOR_SALES_VER, url: '/comercial/vendor-sales' },
@@ -260,6 +260,22 @@ export const REPARTO_LANDING: LandingCandidate[] = withTreeCandidates('reparto',
 /** Landing de `/reparto`. El fallback es Surtido: es la única pantalla del proyecto que hoy
  *  alcanza el piso de almacén, y mandar a `asignar` a quien no puede abrirlo es el rebote. */
 export const repartoHomeGuard: CanActivateFn = landingRedirectGuard(REPARTO_LANDING, '/reparto/asignar');
+
+/**
+ * `[AX.16]` Landing de `/telemarketing`. Antes era `redirectTo: 'dashboard'` fijo, y bastaba
+ * porque la puerta del proyecto exigía OPERATE. Desde que Facturación TM vive acá, 10 roles que
+ * no operan el canal entran por la puerta (medido en prod 2026-10-29) y el dashboard los rebotaría.
+ *
+ * ⛔ Sin `withTreeCandidates` a propósito: el módulo `televenta` del árbol apunta a `/telemarketing`
+ * (la raíz), y un candidato a la raíz es este mismo índice — un bucle. Por eso tampoco entra a
+ * `LANDINGS_BY_PROJECT` (`televenta` sigue en `conGuardPropio` de `landing-guards.spec.ts`).
+ */
+export const TELEMARKETING_LANDING: LandingCandidate[] = [
+  { perm: Permission.COMMERCIAL_TELEVENTA_OPERATE, url: '/telemarketing/dashboard' },
+  { perm: Permission.COMMERCIAL_SALES_DOCS_VER, url: '/telemarketing/documentos' },
+];
+
+export const telemarketingHomeGuard: CanActivateFn = landingRedirectGuard(TELEMARKETING_LANDING, '/telemarketing/dashboard');
 
 export const COMPRAS_LANDING: LandingCandidate[] = withTreeCandidates('compras', [
   { perm: Permission.COMPRAS_PEDIDO_VER, url: '/compras/pedido' },

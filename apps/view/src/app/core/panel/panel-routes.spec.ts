@@ -205,7 +205,7 @@ describe('[MT.5] el espejo de rutas del panel', () => {
     it('los 4 destinos que cruzan de área RESUELVEN en el panel', async () => {
       const router = routerConElEspejo();
       for (const destino of [
-        'comercial/documentos',
+        'telemarketing/documentos',
         'compras/descuentos',
         'dashboard/routes',
         'almacen/inventory/sessions/abc-123',

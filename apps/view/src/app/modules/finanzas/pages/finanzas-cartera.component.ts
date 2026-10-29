@@ -340,7 +340,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
                 <td class="ta-r">
                   @if (docAbrible(p)) {
                     <a pButton class="p-button-text p-button-xs"
-                       [routerLink]="multitarea.enlaceDetalle(['/comercial/documentos'])" [target]="multitarea.target()" [queryParams]="{ doc: p.folio_digital }"
+                       [routerLink]="multitarea.enlaceDetalle(['/telemarketing/documentos'])" [target]="multitarea.target()" [queryParams]="{ doc: p.folio_digital }"
                        (click)="$event.stopPropagation()"
                        [title]="'Abrir el documento ' + p.folio_digital">
                       <i class="pi pi-external-link" aria-hidden="true"></i><span class="sr-only">Abrir documento</span>
@@ -842,7 +842,7 @@ export class FinanzasCarteraComponent implements OnInit {
   }
 
   /**
-   * El documento de venta desglosado vive en `/comercial/documentos` (Fase AX, vistas en vivo
+   * El documento de venta desglosado vive en `/telemarketing/documentos` (Fase AX, vistas en vivo
    * sobre kepler_ods). Sólo existe para UD08 (Factura Telemarketing) y UD12 (Venta a crédito):
    * verificado en prod, 2,410/2,410 partidas de esos dos tipos resuelven. UD13 NO está —su
    * único renglón es contable ("VENTAS AL 0 %"), no hay producto que desglosar.

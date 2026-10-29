@@ -14,11 +14,14 @@ import { Permission } from '../../core/constants/permissions';
  * página es una sola y pinta una sola barra, así que las dos entradas (Telemarketing y Comercial)
  * llevan a lo mismo. Antes Facturación TM colgaba de la barra de Reportes de venta y al abrirla
  * la barra cambiaba de apartado.
+ *
+ * `[AX.16]` La página vive en `/telemarketing/documentos` (antes `/comercial/documentos`, que
+ * queda como redirect).
  */
 export const TELEMARKETING_TABS: PageTab[] = [
   {
     label: 'Facturación TM',
-    route: '/comercial/documentos',
+    route: '/telemarketing/documentos',
     icon: 'pi pi-file',
     permission: Permission.COMMERCIAL_SALES_DOCS_VER,
   },
@@ -26,7 +29,7 @@ export const TELEMARKETING_TABS: PageTab[] = [
     // GT.12 — el archivo: historial por vendedor de las guías emitidas. La guía se GENERA en
     // Facturación TM (ahí están las facturas que se palomean); acá sólo se consulta y reimprime.
     label: 'Expedientes',
-    route: '/comercial/documentos/expedientes',
+    route: '/telemarketing/documentos/expedientes',
     icon: 'pi pi-folder-open',
     permission: Permission.COMMERCIAL_SALES_DOCS_VER,
   },

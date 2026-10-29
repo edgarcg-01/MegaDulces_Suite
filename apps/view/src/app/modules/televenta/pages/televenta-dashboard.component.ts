@@ -216,7 +216,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
           <p-card>
             <div class="card-header-row">
               <h3>Últimas facturas</h3>
-              <a pButton routerLink="/comercial/documentos" severity="secondary" [text]="true" size="small"
+              <a pButton routerLink="/telemarketing/documentos" severity="secondary" [text]="true" size="small"
                 ><span class="p-button-label">Ver todas</span
                 ><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span
               ></a>
@@ -351,7 +351,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
               <ng-template #body let-f>
                 <tr>
                   <td data-label="Folio" role="cell" class="dt-id">
-                    <a [routerLink]="['/comercial/documentos']" [queryParams]="{ doc: f.folio_digital }"><code>{{ f.folio_digital }}</code></a>
+                    <a [routerLink]="['/telemarketing/documentos']" [queryParams]="{ doc: f.folio_digital }"><code>{{ f.folio_digital }}</code></a>
                     <span class="sub">{{ f.fecha | date: 'dd/MM/yy' }}</span>
                   </td>
                   <td data-label="Cliente" role="cell">{{ f.cliente_nombre || f.cliente_code || '—' }}</td>

@@ -5,10 +5,15 @@ import { Permission } from '../../core/constants/permissions';
 import { loginUrlTree } from '../../core/auth/login-redirect';
 
 /**
- * Guard del módulo Televenta. Requiere:
+ * Guard del PROYECTO Telemarketing (la puerta, no cada pantalla). Requiere:
  *   - Sesión autenticada.
- *   - Permiso `COMMERCIAL_TELEVENTA_OPERATE` (rol `tele_operator` o roles
- *     más altos: superadmin, admin, supervisor).
+ *   - Permiso de **alguna** de sus pantallas: `COMMERCIAL_TELEVENTA_OPERATE` (el operador) o
+ *     `COMMERCIAL_SALES_DOCS_VER` (Facturación TM).
+ *
+ * `[AX.16]` Antes exigía OPERATE para todo `/telemarketing`. Al mudarse Facturación TM acá eso
+ * habría dejado fuera a 10 roles que la ven sin operar el canal (medido en prod 2026-10-29:
+ * vendedor_ruta 20 usuarios, encargado_tienda 10, credito_cobranza, facturacion, direccion…) —
+ * el rebote que `repartoGuard` ya documenta. OPERATE lo exige ahora cada ruta del operador.
  *
  * El customer_b2b usa la app Portal standalone (otro servicio), no esta app.
  * Si no auth → /login.
@@ -34,7 +39,8 @@ export const televentaGuard: CanActivateFn = (_route, state) => {
   }
 
   const perms = user?.permissions || {};
-  if (perms[Permission.COMMERCIAL_TELEVENTA_OPERATE] !== true) {
+  const puertas = [Permission.COMMERCIAL_TELEVENTA_OPERATE, Permission.COMMERCIAL_SALES_DOCS_VER];
+  if (!puertas.some((p) => perms[p] === true)) {
     router.navigateByUrl('/projects');
     return false;
   }

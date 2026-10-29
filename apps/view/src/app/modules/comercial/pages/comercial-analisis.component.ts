@@ -223,7 +223,7 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
           </ul>
           <p class="an-foot"><i class="pi pi-verified"></i> Reparto exacto: la suma de los movimientos es el cambio total, al centavo.@if (!drill()) {  Toca un renglón para ver qué lo explica.}</p>
           @if (canSeeDocs()) {
-            <a routerLink="/comercial/documentos" class="an-docs-link"><i class="pi pi-file"></i> Ver las facturas (Facturación TM) →</a>
+            <a routerLink="/telemarketing/documentos" class="an-docs-link"><i class="pi pi-file"></i> Ver las facturas (Facturación TM) →</a>
           }
         </section>
       } @else {

@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Changed — Facturación de Telemarketing ahora vive en Telemarketing (AX.16, 2026-10-29)
+- La pantalla de facturas de telemarketing y sus Expedientes pasan de **`/comercial/documentos`** a **`/telemarketing/documentos`**. Los enlaces y favoritos viejos siguen funcionando: redirigen solos.
+- **Nadie pierde acceso.** Se midió antes de mover: de los 13 puestos que ven Facturación, **10 no operan el canal** (vendedores de ruta, encargados de tienda, crédito y cobranza, facturación…) y la entrada a Telemarketing sólo dejaba pasar a operadores. Ahora la entrada deja pasar también a quien ve Facturación, y las pantallas del operador piden su propio permiso.
+- En Comercial la entrada «Facturación» se conserva y lleva a la nueva dirección.
 ### Fixed — Un detector de finanzas que se calla ya no pasa desapercibido (PGP.39, 2026-10-29)
 - La regla que detecta **descuento de pronto pago no capturado** tiene **98 hallazgos por $5,363,294, ninguno revisado**, y **llevaba 61 días sin producir** sin que nadie lo supiera.
 - No era un caso aislado: **24 de 44 reglas** llevaban entre 44 y 98 días mudas, y **21 se callaron el mismo día**. El motor sí corre — otras 13 reglas producen a diario.
