@@ -5166,10 +5166,13 @@ falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Consi
     tiene casillas fijas). El visor separa las decisiones del pie: sin eso, un vale que sólo ofrece agregar pintaba
     «Rechazar». En Aprobación la acción va aparte de `accionesDe` para no cambiar el atenuado de la bandeja.
   - **PDF del expediente:** la evidencia adicional sale con «Agregada después: «porqué» · quién · cuándo».
-  - **Pruebas:** contrato 15 · servicio/controller 9 · PDF 3 · visor 7 · diálogo 8 · historial 4. Negativas: sin la
-    guarda dueño/aprobador → rojo «ajeno»; sin el filtro del pie → rojo «no enciende Rechazar». view finanzas
-    1110/1110, `libs/finance` entero 1895 ✔ + 112 omitidas (las suites que piden base, preexistentes: **NO
-    MEDIDAS**). `gate-push` 26 gates sin rojo en los 17 archivos;
+  - **Pruebas:** contrato 15 · servicio/controller 9 · PDF 3 · visor 7 · diálogo 8 · historial 4 · **arranque 3**
+    (regla 30: `design:paramtypes` + ruta, en `apps/api/src/composition/finance-evidencia-adicional.metadata.spec.ts`).
+    Negativas: sin la guarda dueño/aprobador → rojo «ajeno»; sin el filtro del pie → rojo «no enciende Rechazar»;
+    con otra ruta → rojo «la ruta es POST :id/evidencia-adicional». Tras rebasar sobre `main` (29-oct): view finanzas
+    1123 ✔ + 2 rojas que ya trae `main` (`gastos-area-shell.component.spec.ts`: `[CGA-A.65]` sumó la pestaña «Hoja
+    de zona» y la prueba de la barra espera 5; ajena, **NO MEDIDA** para este cambio), `libs/contracts` 941/941, `libs/finance` entero 1944 ✔ + 112 omitidas (las suites que piden base,
+    preexistentes: **NO MEDIDAS**). `gate-push` 26 gates sin rojo en los 17 archivos;
     `check:pantalla` 0 fallas nuevas en las tres pantallas.
 - [ ] **[GX.87.x]** Declarado: (1) **sin validación visual** en navegador ni prueba contra base real del endpoint
   (regla 13): el servicio se probó con base simulada; (2) el cliente manda `url`/`public_id` de lo que subió y el
