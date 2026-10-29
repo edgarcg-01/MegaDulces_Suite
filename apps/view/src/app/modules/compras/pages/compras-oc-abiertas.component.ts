@@ -131,7 +131,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
       <div class="oa-seg-bar" role="group" aria-label="Filtrar por estatus de seguimiento">
         <span class="oa-seg-lbl">Seguimiento</span>
         <button type="button" class="oa-seg-chip" [class.oa-seg-on]="fSeg() === ''" [attr.aria-pressed]="fSeg() === ''" (click)="fSeg.set(''); syncUrl()">
-          Todas <b>{{ total() | number }}</b>
+          Por surtir <b>{{ (total() - noSurtidas()) | number }}</b>
         </button>
         @for (s of segOpts; track s.value) {
           <button type="button" class="oa-seg-chip" [class.oa-seg-on]="fSeg() === s.value" [attr.aria-pressed]="fSeg() === s.value" (click)="fSeg.set(s.value); syncUrl()"
@@ -140,6 +140,16 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
           </button>
         }
       </div>
+
+      <!-- [PQ.29] Ocultarlas no las cancela en Kepler: se dice, a la vista. Medido el 2026-10-29
+           en el servidor 01: la OC queda convertida (F) y su vale X-A-37 sigue abierto con saldo. -->
+      @if (noSurtidas() > 0 && fSeg() !== 'no_surtida_cancelada') {
+        <p class="oa-aviso" role="status">
+          <span class="pi pi-info-circle" aria-hidden="true"></span>
+          {{ noSurtidas() | number }} marcadas «No surtida / cancelada» no se cuentan como abiertas. En Kepler siguen vivas:
+          su vale de entrada (X-A-37) está abierto y hay que cancelarlo allá para cerrarlas.
+        </p>
+      }
 
       <!-- [RA-PRO.60] El recorte se DECLARA: antes la tabla cortaba en 500 y los indicadores se
            calculaban sobre esos 500, sin decir nada. Ahora los indicadores cuentan todas. -->
@@ -693,6 +703,9 @@ export class ComprasOcAbiertasComponent implements OnInit {
       return { ...o, _clase: k, _claseLabel: CLASE_OC_LABEL[k] };
     });
     if (f) r = r.filter((o) => (o.seguimiento?.estatus ?? 'sin_revisar') === f);
+    // [PQ.29] Sin filtro, lo que Compras ya dio por «No surtida / cancelada» no se lista como
+    // abierta: la decisión ya se tomó. Sigue a un clic en su botón, que dice cuántas son.
+    else r = r.filter((o) => o.seguimiento?.estatus !== 'no_surtida_cancelada');
     // [RA-PRO.67] Mismo límite que el filtro de seguimiento: recorre sólo lo que la tabla trajo
     // (el número del chip sí cuenta todas). Ya lo declara el aviso de `truncado`.
     if (c) r = r.filter((o) => o._clase === c);
@@ -704,7 +717,9 @@ export class ComprasOcAbiertasComponent implements OnInit {
   // solo la tabla: tocabas "Compra abortada - 10", veias 10 filas y el contador seguia diciendo
   // "296 de 296". El numero contradecia lo que tenias enfrente.
   /** `true` cuando hay algun filtro de cliente puesto (chip de clase o de seguimiento). */
-  readonly filtrado = computed(() => !!this.fSeg() || !!this.fClase());
+  readonly filtrado = computed(() => !!this.fSeg() || !!this.fClase() || this.noSurtidas() > 0);
+  /** `[PQ.29]` Las que Compras marcó «No surtida / cancelada» (sobre TODAS, como los demás botones). */
+  readonly noSurtidas = computed(() => this.porSeguimiento()['no_surtida_cancelada'] ?? 0);
   readonly filtroValor = computed(() => this.filas().reduce((a, o) => a + (Number(o.valor) || 0), 0));
   readonly filtroLineas = computed(() => this.filas().reduce((a, o) => a + (Number(o.lineas) || 0), 0));
   /** El valor pesado por la curva, con la MISMA regla del servidor: sin curva cuenta completo. */
