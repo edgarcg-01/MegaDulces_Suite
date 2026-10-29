@@ -1,5 +1,14 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true`.
-import { clasificarMovimiento, type DocumentoAClasificar } from './excepciones-movimientos.contract';
+import { clasificarMovimiento, ETIQUETA_UNIDAD_IMPORTE, UNIDAD_IMPORTE_SALIDA, type DocumentoAClasificar } from './excepciones-movimientos.contract';
+
+describe('[MX.1.7] la unidad del importe de una salida depende del destino', () => {
+  it('sucursal = valor de traspaso · cliente = precio de venta · ruta = mezcla', () => {
+    expect(UNIDAD_IMPORTE_SALIDA).toEqual({ sucursal: 'valor_traspaso', cliente: 'precio_venta', ruta: 'mixta' });
+  });
+  it('cada unidad tiene etiqueta para la pantalla', () => {
+    for (const u of Object.values(UNIDAD_IMPORTE_SALIDA)) expect(ETIQUETA_UNIDAD_IMPORTE[u]).toBeTruthy();
+  });
+});
 
 const c = (d: DocumentoAClasificar) => clasificarMovimiento(d);
 

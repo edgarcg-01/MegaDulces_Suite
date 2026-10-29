@@ -20,6 +20,23 @@
  *    que ya sea el documento: un traspaso que cuadra en piezas con dinero sin verificar SÍ va.
  */
 
+/**
+ * `[MX.1.7]` — **El importe de una SALIDA de traspaso no tiene una sola unidad: depende del destino.**
+ * El importe sale del documento (`kdm2.c13`). Medido el 2026-10-28 (MX.0.2):
+ *  · a SUCURSAL → valor de traspaso: idéntico al de la recepción en 1,762 de 1,764 pares;
+ *  · a CLIENTE  → precio de venta (`c12 ≈ c66`, lista): el kardex (costo) vale 0.83×, 0 de 119 iguales;
+ *  · a RUTA     → mezcla: 74 de 181 iguales al kardex, 1.07× en promedio.
+ * Ningún total suma las tres sin decirlo.
+ */
+export type DestinoSalida = 'sucursal' | 'ruta' | 'cliente';
+export type UnidadImporte = 'valor_traspaso' | 'precio_venta' | 'mixta';
+export const UNIDAD_IMPORTE_SALIDA: Readonly<Record<DestinoSalida, UnidadImporte>> = {
+  sucursal: 'valor_traspaso', cliente: 'precio_venta', ruta: 'mixta',
+};
+export const ETIQUETA_UNIDAD_IMPORTE: Readonly<Record<UnidadImporte, string>> = {
+  valor_traspaso: 'valor de traspaso', precio_venta: 'a precio de venta', mixta: 'costo y precio mezclados',
+};
+
 /** Por qué un documento está en la bandeja. Un documento puede tener más de una. */
 export type ExcepcionMovimiento =
   | 'diferencia'          // piezas o productos distintos entre salida y recepción

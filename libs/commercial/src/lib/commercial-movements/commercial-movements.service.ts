@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { UNIDAD_IMPORTE_SALIDA, type DestinoSalida } from '@megadulces/contracts';
 
 /**
  * DM.1 — Diario de movimientos (mejora del reporte Kepler homónimo).
@@ -169,10 +170,17 @@ const esRuta = (nombre: string | null | undefined) => !!nombre && /^\s*ruta/i.te
  * Diario y los hallazgos del Cuadre. A cliente (sin almacén resuelto) o a ruta nadie emite acuse:
  * `sin_recepcion_esperada`, no un pendiente.
  */
+/**
+ * [MX.1.7] A qué clase de destino va una salida: sin almacén resuelto = cliente; almacén «Ruta …» = ruta;
+ * si no, sucursal. La misma regla que separa los baldes de hallazgos ([DM.21]) y el estado sin recepción.
+ */
+const claseDestino = (destWhId: string | null | undefined, destWhName: string | null | undefined): DestinoSalida =>
+  !destWhId ? 'cliente' : esRuta(destWhName) ? 'ruta' : 'sucursal';
+
 const estadoSinRecepcion = (
   destWhId: string | null | undefined, destWhName: string | null | undefined, shipDate: unknown, ahora = Date.now(),
 ): 'en_transito' | 'sin_acuse' | 'sin_recepcion_esperada' => {
-  if (!destWhId || esRuta(destWhName)) return 'sin_recepcion_esperada';
+  if (claseDestino(destWhId, destWhName) !== 'sucursal') return 'sin_recepcion_esperada';
   const dias = Math.floor((ahora - new Date(String(shipDate)).getTime()) / 864e5);
   return dias > SIN_ACUSE_DIAS ? 'sin_acuse' : 'en_transito';
 };
@@ -818,6 +826,8 @@ export class CommercialMovementsService {
       r.dest_label = r.dest_label || m?.map_label || r.dest_code;
       r.dest_warehouse_id = m?.dest_warehouse_id ?? null;
       r.dest_warehouse_name = m?.dest_warehouse_name ?? null;
+      // [MX.1.7] el importe de la salida está en la unidad de su destino (valor de traspaso / precio de venta / mezcla)
+      r.unidad_importe = UNIDAD_IMPORTE_SALIDA[claseDestino(r.dest_warehouse_id, r.dest_warehouse_name)];
     }
   }
 
@@ -1078,12 +1088,17 @@ export class CommercialMovementsService {
       // enviado», y con más de 500 problemas al mes (todos los meses desde ago-2026) «Recibidos
       // OK» salía en 0. `capped`: el pareo trae a lo más 50,000 filas; si llegó, nada está completo.
       // [MX.1.2] `docs_importe_incompleto`: documentos cuyo `amount` no incluye renglones con costo 0 en Kepler
-      const cSums = { n: checkAll.length, qty_sent: 0, qty_received: 0, delta: 0, amount: 0, docs_importe_incompleto: 0, lineas_sin_importe: 0 };
+      // [MX.1.7] `amount_por_destino`: el importe de una salida a sucursal es valor de traspaso, a cliente precio de
+      // venta y a ruta una mezcla — `amount` las suma; aquí se separan para que nadie las lea como una sola unidad.
+      const cSums = { n: checkAll.length, qty_sent: 0, qty_received: 0, delta: 0, amount: 0, docs_importe_incompleto: 0, lineas_sin_importe: 0,
+        amount_por_destino: { sucursal: 0, ruta: 0, cliente: 0 } as Record<DestinoSalida, number> };
       for (const r of checkAll) {
         cSums.qty_sent += Number(r.qty_sent) || 0;
         cSums.qty_received += Number(r.qty_received) || 0;
         cSums.delta += Number(r.delta) || 0;
         cSums.amount += Number(r.amount) || 0;
+        // una fila pareada va a la sucursal que la recibió; una sin recepción, a su destino declarado
+        if (r.status !== 'sin_origen') cSums.amount_por_destino[r.status === 'sin_recepcion' ? claseDestino(r.dest_wh_id, r.dest_wh) : 'sucursal'] += Number(r.amount) || 0;
         const sinImp = Number(r.lineas_sin_importe) || 0;
         if (sinImp > 0) { cSums.docs_importe_incompleto++; cSums.lineas_sin_importe += sinImp; }
       }
@@ -1140,8 +1155,9 @@ export class CommercialMovementsService {
         truncado: (cTotals.diferencia + cTotals.sin_recepcion + cTotals.sin_origen) > checkRows.length,
         // [MX.1.3] `umbral_dias` viaja con el dato: la pantalla no repite el número a mano
         sin_acuse: { docs: 0, amount: 0, dias_max: 0, viejo_docs: 0, viejo_amount: 0, umbral_dias: SIN_ACUSE_DIAS, docs_importe_incompleto: 0 },
-        sin_acuse_ruta: { docs: 0, amount: 0, docs_importe_incompleto: 0 },
-        sin_acuse_cliente: { docs: 0, amount: 0, docs_importe_incompleto: 0 },
+        // [MX.1.7] cada balde dice en qué unidad viene su `amount`
+        sin_acuse_ruta: { docs: 0, amount: 0, docs_importe_incompleto: 0, unidad: UNIDAD_IMPORTE_SALIDA.ruta },
+        sin_acuse_cliente: { docs: 0, amount: 0, docs_importe_incompleto: 0, unidad: UNIDAD_IMPORTE_SALIDA.cliente },
         sin_origen: { docs: cTotals.sin_origen },
         diferencia: { docs: cTotals.diferencia, piezas: 0 },
       };

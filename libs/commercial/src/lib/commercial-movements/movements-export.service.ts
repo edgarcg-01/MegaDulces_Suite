@@ -79,6 +79,8 @@ export class MovementsExportService {
   private transferListNote(k: ReturnType<MovementsExportService['transferKpis']>): string | null {
     const parts: string[] = [];
     if (k.cut) parts.push(`Listado: los primeros ${k.listed.toLocaleString('es-MX')} de ${k.sums.n.toLocaleString('es-MX')} traspasos, los problemas primero. Los indicadores de arriba son del total.`);
+    // [MX.1.7] el valor de cada salida está en la unidad de su destino: no se lee como una sola
+    parts.push('El valor de una salida a sucursal es valor de traspaso; a cliente, precio de venta; a ruta, costo y precio mezclados.');
     if (k.capped) parts.push('El pareo llegó a su tope de 50,000 filas: los indicadores están INCOMPLETOS — acota el rango.');
     return parts.length ? parts.join(' ') : null;
   }

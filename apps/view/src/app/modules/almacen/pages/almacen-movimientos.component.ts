@@ -29,7 +29,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { TOLERANCIA_KEPLER_WINCAJA, TOLERANCIA_MAYOR_515, veredictoCuadre, type VeredictoCuadre } from '@megadulces/contracts';
+import { ETIQUETA_UNIDAD_IMPORTE, TOLERANCIA_KEPLER_WINCAJA, TOLERANCIA_MAYOR_515, veredictoCuadre, type UnidadImporte, type VeredictoCuadre } from '@megadulces/contracts';
 
 /**
  * DM.2 — Diario de movimientos (mejora del reporte Kepler homónimo).
@@ -217,6 +217,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                         <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0" [class.dm-muted]="l.movement_kind === 'info'">{{ (l.movement_kind === 'info' ? l.qty : l.signed_qty) | number:'1.0-2' }}</td>
                         <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}
                           @if (l.lineas_sin_importe) { <span class="dm-muted dm-sin-costo">+{{ l.lineas_sin_importe }} sin costo</span> }
+                          @if (l.unidad_importe && l.unidad_importe !== 'valor_traspaso') { <span class="dm-muted dm-sin-costo">{{ etiquetaUnidad(l.unidad_importe) }}</span> }
                         </td>
                         <td>
                           @if (l.transfer_status) {
@@ -1208,7 +1209,7 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
       out.push({
         id: 'sin_acuse_ruta',
         titulo: 'Cargas a ruta (no son un hueco)',
-        cifra: `${docs(h.sin_acuse_ruta.docs)} · ${this.money(h.sin_acuse_ruta.amount)}${this.incompletos(h.sin_acuse_ruta.docs_importe_incompleto)}`,
+        cifra: `${docs(h.sin_acuse_ruta.docs)} · ${this.money(h.sin_acuse_ruta.amount)}${this.unidadTxt(h.sin_acuse_ruta.unidad)}${this.incompletos(h.sin_acuse_ruta.docs_importe_incompleto)}`,
         tono: 'info', verable: true,
         desc: 'Surtido a una camioneta de reparto. Ese flujo NO emite documento de recepción, '
           + 'así que “sin acuse” es su estado normal y no hay nada que perseguir. Se listan aparte '
@@ -1219,7 +1220,7 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
       out.push({
         id: 'sin_acuse_cliente',
         titulo: 'Entregas a cliente (no son traspaso)',
-        cifra: `${docs(h.sin_acuse_cliente.docs)} · ${this.money(h.sin_acuse_cliente.amount)}${this.incompletos(h.sin_acuse_cliente.docs_importe_incompleto)}`,
+        cifra: `${docs(h.sin_acuse_cliente.docs)} · ${this.money(h.sin_acuse_cliente.amount)}${this.unidadTxt(h.sin_acuse_cliente.unidad)}${this.incompletos(h.sin_acuse_cliente.docs_importe_incompleto)}`,
         tono: 'info', verable: true,
         desc: 'Salidas dirigidas a un cliente, no a un almacén de la red. Un cliente no emite acuse, '
           + 'así que tampoco hay nada que cuadrar. Van listadas porque son la mayor parte del '
@@ -1245,6 +1246,9 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
 
   /** [MX.1.3] Días sin recepción a partir de los cuales es «viejo»; lo fija el backend, no la pantalla. */
   readonly umbralSinAcuse = computed(() => this.check()?.hallazgos?.sin_acuse?.umbral_dias ?? null);
+  /** [MX.1.7] etiqueta de la unidad del importe de una salida (la regla vive en contracts). */
+  etiquetaUnidad(u: UnidadImporte): string { return ETIQUETA_UNIDAD_IMPORTE[u]; }
+  unidadTxt(u: UnidadImporte | undefined): string { return u ? ` ${ETIQUETA_UNIDAD_IMPORTE[u]}` : ''; }
   /** [MX.1.2] «· importe incompleto en N docs» — un monto que no incluye renglones sin costo lo dice. */
   incompletos(n: number | undefined): string {
     const k = Number(n) || 0;
