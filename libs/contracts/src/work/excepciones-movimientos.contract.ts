@@ -42,23 +42,44 @@ export const ETIQUETA_UNIDAD_IMPORTE: Readonly<Record<UnidadImporte, string>> = 
  * Los totales se calculan sobre el conjunto COMPLETO; `rows` es una página. El importe se suma POR
  * UNIDAD (MX.1.7), nunca en un solo número: una salida a cliente está a precio de venta.
  */
+/** Identidad de un documento del feed (la misma que `commercial.stock_movement_audits`). */
+export interface DocRef { warehouse_id: string; doc_code: string; doc_serie: string; folio: string }
+
+/**
+ * `[MX.2.6]` Los ajustes de una tienda en UN día, juntos. Un conteo físico se captura como dos
+ * ajustes (lo que sobró entra, lo que faltó sale) y lo que importa es el NETO: en Zamora Centro el
+ * 2-oct entraron $8,193 y salieron $42,534 en dos folios distintos. Importes con su signo de piezas.
+ */
+export interface ResumenAjusteDia {
+  entradas: { documentos: number; piezas: number; importe: number };
+  salidas: { documentos: number; piezas: number; importe: number };
+  neto_piezas: number;
+  neto_importe: number;
+}
+
 export interface ExcepcionMovimientoItem {
+  /** `ajuste` = TODOS los ajustes de una tienda en un día (MX.2.5), no un folio suelto. */
   tipo: 'traspaso' | 'ajuste';
   excepciones: ExcepcionMovimiento[];
   fecha: string;
   /**
-   * `[MX.2.4]` El documento al que se refiere la incidencia —el que se abre y se resuelve—: la salida
-   * si existe; si no (recepción sin origen), la recepción; en un ajuste, el ajuste.
+   * `[MX.2.4]` El documento al que se refiere la incidencia —el que se abre—: la salida si existe; si no
+   * (recepción sin origen), la recepción; en ajustes del día, el de más importe.
    */
-  documento: { warehouse_id: string; doc_code: string; doc_serie: string; folio: string };
+  documento: DocRef;
+  /** `[MX.2.6]` Todos los documentos que se resuelven juntos (traspaso: el mismo `documento`). */
+  documentos: DocRef[];
+  /** `[MX.2.6]` Sólo ajustes: entradas, salidas y neto del día. */
+  ajuste: ResumenAjusteDia | null;
   /** Traspaso: el almacén que envió. Ajuste: el almacén del ajuste. */
   origen: { warehouse_id: string | null; nombre: string | null; folio: string | null; doc_code: string; doc_serie: string | null };
   /** Sólo traspaso: a quién iba (o quién recibió). */
   destino: { warehouse_id: string | null; nombre: string | null; folio: string | null } | null;
   piezas_enviadas: number | null;
   piezas_recibidas: number | null;
-  /** Traspaso: recibidas − enviadas. Ajuste: piezas con signo (+ entrada, − salida). */
+  /** Traspaso: recibidas − enviadas. Ajustes del día: piezas NETAS (+ entrada, − salida). */
   delta_piezas: number | null;
+  /** Traspaso: el importe de la salida. Ajustes del día: el NETO, con signo. */
   importe: number | null;
   /** `null` = unidad NO MEDIDA (ajustes; recepción sin origen). */
   unidad_importe: UnidadImporte | null;
@@ -232,6 +253,7 @@ export interface RenglonDocumento {
   producto: string;
   /** Piezas: en un traspaso, sin signo; en un ajuste, con signo (+ entrada, − salida). */
   piezas: number;
+  /** En un ajuste lleva el signo de las piezas (una salida resta). */
   importe: number | null;
   /** Renglones de este producto con costo 0 en Kepler. */
   sin_costo: number;
@@ -325,6 +347,27 @@ export function compararRenglones(
 
 const pz = (n: number | null) => (n == null ? '—' : n.toLocaleString('es-MX', { maximumFractionDigits: 2 }));
 const mas = (n: number, que: string) => (n > 0 ? ` y ${n} ${que}${n === 1 ? '' : 's'} más` : '');
+/** Pesos sin centavos y sin signo (el signo lo pone la frase). */
+const dinero = (n: number) => '$' + Math.abs(n).toLocaleString('es-MX', { maximumFractionDigits: 0 });
+
+/**
+ * `[MX.2.6]` Junta los renglones de varios documentos por producto (SKU), sumando piezas, importe y
+ * renglones sin costo. Lo usan los ajustes del día: el mismo producto puede entrar en un folio y
+ * salir en otro, y lo que importa es su neto.
+ */
+export function sumarPorProducto(listas: readonly (readonly RenglonDocumento[])[]): RenglonDocumento[] {
+  const m = new Map<string, RenglonDocumento>();
+  for (const lista of listas) {
+    for (const r of lista) {
+      const e = m.get(r.sku);
+      if (!e) { m.set(r.sku, { ...r }); continue; }
+      e.piezas += r.piezas;
+      e.importe = e.importe == null && r.importe == null ? null : (e.importe ?? 0) + (r.importe ?? 0);
+      e.sin_costo += r.sin_costo;
+    }
+  }
+  return [...m.values()];
+}
 
 /**
  * `[MX.2.4]` **Dónde está el error, en una línea**, a partir de los renglones ya comparados.
@@ -355,8 +398,22 @@ export function resumirDonde(
     } else if (e === 'sin_origen') {
       partes.push(`Se recibió${ctx.destino ? ` en ${ctx.destino}` : ''} sin una salida que la respalde: ${productos(renglones.length)}`);
     } else if (e === 'ajuste_inventario') {
+      // [MX.2.6] el día completo: qué entró, qué salió, el neto y el producto que más pesa
+      const ent = renglones.filter((r) => r.delta > 0);
+      const sal = renglones.filter((r) => r.delta < 0);
+      const suma = (xs: readonly RenglonComparado[]) => xs.reduce((t, r) => t + (r.importe ?? 0), 0);
       const p = renglones[0];
-      if (p) partes.push(`${p.producto}: ${p.delta > 0 ? '+' : ''}${pz(p.delta)} piezas${mas(renglones.length - 1, 'producto')}`);
+      const pesado = p ? `Lo más pesado: ${p.producto} ${p.delta > 0 ? '+' : ''}${pz(p.delta)} piezas` : '';
+      if (ent.length && sal.length) {
+        const neto = suma(ent) + suma(sal);
+        partes.push(`Entraron ${productos(ent.length)} (+${dinero(suma(ent))}) y salieron ${sal.length} (−${dinero(suma(sal))}); neto ${neto < 0 ? '−' : '+'}${dinero(neto)}. ${pesado}`);
+      } else if (ent.length) {
+        partes.push(`Entraron ${productos(ent.length)}, +${dinero(suma(ent))}. ${pesado}`);
+      } else if (sal.length) {
+        partes.push(`Salieron ${productos(sal.length)}, −${dinero(suma(sal))}. ${pesado}`);
+      } else if (p) {
+        partes.push(`${productos(renglones.length)} que entran y salen en la misma cantidad`);
+      }
     } else if (e === 'importe_incompleto') {
       const sc = renglones.filter((r) => r.sin_costo);
       if (sc.length) partes.push(`Sin costo en Kepler: ${sc[0].producto}${mas(sc.length - 1, 'producto')}`);
@@ -378,4 +435,6 @@ export interface DetalleIncidenciaMovimiento {
   resolucion: ResolucionIncidencia | null;
   /** Los motivos que se ofrecen para este documento. */
   motivos: MotivoResolucionDef[];
+  /** `[MX.2.6]` Los documentos que se resuelven juntos (ajustes del día: todos sus folios). */
+  documentos: DocRef[];
 }

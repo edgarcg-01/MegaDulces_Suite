@@ -616,7 +616,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Diferencia', def: 'La salida y su recepción no traen las mismas piezas o los mismos productos.' },
           { term: 'Sin acuse', def: 'Salió hacia un almacén hace más de 15 días y nadie registró la recepción en Kepler. A ruta o a cliente no aplica: ahí nunca hay recepción.' },
           { term: 'Sin origen', def: 'Una recepción sin una salida que la respalde.' },
-          { term: 'Ajuste', def: 'Ajuste de inventario (entrada o salida). Siempre se revisa: un ajuste ya es una excepción.' },
+          { term: 'Ajustes del día', def: 'Todos los ajustes de inventario de una tienda en un día, juntos en una sola incidencia: lo que entró, lo que salió y el neto. Un conteo físico suele capturarse como dos ajustes (lo que sobró entra, lo que faltó sale) y lo que importa es el neto. Siempre se revisan, y se resuelven todos sus folios a la vez; si después llega otro ajuste de ese día, vuelve a pendientes.' },
           { term: 'Importe incompleto', def: 'El documento trae renglones con costo 0 en Kepler: su importe no los incluye.' },
         ],
       },

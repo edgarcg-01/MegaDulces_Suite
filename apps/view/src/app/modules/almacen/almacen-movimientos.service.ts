@@ -9,7 +9,7 @@ import { environment } from '../../../environments/environment';
  */
 
 import type {
-  DetalleIncidenciaMovimiento, ExcepcionMovimiento, ExcepcionMovimientoItem, MotivoResolucion, MovimientosExcepcionesResponse,
+  DetalleIncidenciaMovimiento, DocRef, ExcepcionMovimiento, ExcepcionMovimientoItem, MotivoResolucion, MovimientosExcepcionesResponse,
   ResolucionIncidencia, UnidadImporte,
 } from '@megadulces/contracts';
 export type GroupBy = 'product' | 'doc_code' | 'day' | 'warehouse';
@@ -383,13 +383,13 @@ export class AlmacenMovimientosService {
     const p = new HttpParams().set('warehouse_id', d.warehouse_id).set('doc_code', d.doc_code).set('doc_serie', d.doc_serie).set('folio', d.folio);
     return this.http.get<DetalleIncidenciaMovimiento>(`${this.base}/exceptions/detail`, { params: p });
   }
-  /** [MX.2.4] Resolver con motivo. */
-  resolveException(d: ExcepcionMovimientoItem['documento'], motivo: MotivoResolucion, nota: string | null): Observable<ResolucionIncidencia> {
-    return this.http.post<ResolucionIncidencia>(`${this.base}/exceptions/resolve`, { ...d, motivo, nota });
+  /** [MX.2.4] Resolver con motivo; [MX.2.6] todos los documentos de la incidencia juntos (los ajustes de un día). */
+  resolveException(docs: DocRef[], motivo: MotivoResolucion, nota: string | null): Observable<ResolucionIncidencia> {
+    return this.http.post<ResolucionIncidencia>(`${this.base}/exceptions/resolve`, { ...docs[0], documentos: docs, motivo, nota });
   }
   /** [MX.2.4] Reabrir una incidencia resuelta. */
-  reopenException(d: ExcepcionMovimientoItem['documento']): Observable<{ reabierta: boolean }> {
-    return this.http.post<{ reabierta: boolean }>(`${this.base}/exceptions/reopen`, d);
+  reopenException(docs: DocRef[]): Observable<{ reabierta: boolean }> {
+    return this.http.post<{ reabierta: boolean }>(`${this.base}/exceptions/reopen`, { ...docs[0], documentos: docs });
   }
   downloadExport(f: MovementsFilters, format: 'pdf') {
     return this.http.get(`${this.base}/export.${format}`, {

@@ -13,7 +13,7 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import {
   ETIQUETA_UNIDAD_IMPORTE, MOTIVOS_RESOLUCION_MOVIMIENTO, validarResolucion,
-  type DetalleIncidenciaMovimiento, type EstadoRenglonMovimiento, type ExcepcionMovimiento, type ExcepcionMovimientoItem,
+  type DetalleIncidenciaMovimiento, type DocRef, type EstadoRenglonMovimiento, type ExcepcionMovimiento, type ExcepcionMovimientoItem,
   type MotivoResolucion, type MovimientosExcepcionesResponse, type RenglonComparado,
 } from '@megadulces/contracts';
 import { AlmacenMovimientosService } from '../almacen-movimientos.service';
@@ -118,7 +118,7 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
                   @for (e of f.excepciones; track e) {
                     <p-tag [value]="etiqueta(e)" [severity]="severidad(e)" styleClass="inc-tag"></p-tag>
                   }
-                  <span class="inc-tipo">{{ f.tipo === 'ajuste' ? 'Ajuste de inventario' : 'Traspaso' }}</span>
+                  <span class="inc-tipo">{{ f.tipo === 'ajuste' ? 'Ajustes del día' : 'Traspaso' }}</span>
                 </div>
                 <span class="inc-donde">{{ f.donde || 'Sin detalle por producto' }}</span>
                 @if (f.resolucion?.motivo) {
@@ -129,7 +129,7 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
               <td class="comm-num dt-num" data-label="Días" role="cell" [attr.aria-label]="f.dias + ' días'">{{ f.dias | number }}</td>
               <td data-label="Origen" role="cell">
                 <span class="inc-alm">{{ f.origen.nombre || 'Almacén sin nombre' }}</span>
-                <span class="inc-folio">{{ f.origen.folio || '—' }}</span>
+                <span class="inc-folio">{{ f.origen.folio || '—' }}{{ f.documentos.length > 1 ? ' y ' + (f.documentos.length - 1) + (f.documentos.length === 2 ? ' folio más' : ' folios más') : '' }}</span>
               </td>
               <td data-label="Destino" role="cell">
                 @if (f.destino) {
@@ -147,6 +147,9 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
               </td>
               <td class="comm-num dt-num" data-label="Importe" role="cell">
                 <span class="inc-imp">{{ f.importe != null ? dinero(f.importe) : '—' }}</span>
+                @if (f.ajuste; as a) {
+                  <span class="inc-tenue">neto · entró {{ dinero(a.entradas.importe) }} · salió {{ dinero(-a.salidas.importe) }}</span>
+                }
                 <span class="inc-tenue">{{ unidad(f) }}</span>
                 @if (f.lineas_sin_importe) { <span class="inc-tenue">+{{ f.lineas_sin_importe }} sin costo</span> }
               </td>
@@ -170,6 +173,9 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
             <section class="inc-peek-donde" aria-labelledby="inc-donde-h">
               <h3 id="inc-donde-h" class="inc-peek-h">Dónde está el error</h3>
               <p class="inc-peek-frase">{{ d.donde || 'El motor no encontró un producto que explique la incidencia.' }}</p>
+              @if (esAjuste() && d.documentos.length) {
+                <p class="inc-peek-meta">{{ d.documentos.length === 1 ? 'Folio' : 'Folios' }} del día: {{ foliosTxt(d.documentos) }}. Se resuelven juntos.</p>
+              }
               @if (d.contraparte) {
                 <p class="inc-peek-meta">Comparado contra {{ d.contraparte.doc_code === 'TrsfRcv' ? 'la recepción' : 'la salida' }}
                   {{ d.contraparte.folio }} de {{ d.contraparte.nombre || 'un almacén sin nombre' }} ({{ d.contraparte.fecha }}).</p>
@@ -387,7 +393,8 @@ export class AlmacenIncidenciasComponent implements OnInit {
   readonly esAjuste = computed(() => this.abierta()?.tipo === 'ajuste');
   readonly tituloPeek = computed(() => {
     const f = this.abierta(); if (!f) return '';
-    return `${f.tipo === 'ajuste' ? 'Ajuste' : f.documento.doc_code === 'TrsfRcv' ? 'Recepción' : 'Salida'} ${f.documento.folio}`;
+    if (f.tipo === 'ajuste') return `Ajustes del ${f.fecha}`;
+    return `${f.documento.doc_code === 'TrsfRcv' ? 'Recepción' : 'Salida'} ${f.documento.folio}`;
   });
   readonly subtituloPeek = computed(() => {
     const f = this.abierta(); if (!f) return null;
@@ -449,7 +456,7 @@ export class AlmacenIncidenciasComponent implements OnInit {
     const f = this.abierta(); const m = this.motivoSig();
     if (!f || !m || this.guardando() || this.errorResolver()) return;
     this.guardando.set(true); // síncrono en el primer clic: un doble clic no manda dos
-    this.api.resolveException(f.documento, m, this.notaSig().trim() || null).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.api.resolveException(this.documentos(), m, this.notaSig().trim() || null).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.guardando.set(false);
         this.toast.add({ severity: 'success', summary: 'Incidencia resuelta', detail: `${this.tituloPeek()}: ${this.motivo(m)}` });
@@ -465,11 +472,19 @@ export class AlmacenIncidenciasComponent implements OnInit {
   reabrir(): void {
     const f = this.abierta(); if (!f || this.guardando()) return;
     this.guardando.set(true);
-    this.api.reopenException(f.documento).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.api.reopenException(this.documentos()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { this.guardando.set(false); this.toast.add({ severity: 'info', summary: 'Incidencia reabierta', detail: this.tituloPeek() }); this.cerrar(); this.cargar(); },
       error: () => { this.guardando.set(false); this.toast.add({ severity: 'error', summary: 'No se reabrió', detail: 'Intenta de nuevo.' }); },
     });
   }
+
+  /** [MX.2.6] Lo que se resuelve junto: los folios que trajo el detalle (el día completo), o los de la fila. */
+  private documentos(): DocRef[] {
+    const d = this.detalle()?.documentos;
+    return d?.length ? d : this.abierta()?.documentos ?? [];
+  }
+
+  foliosTxt(docs: DocRef[]): string { return docs.map((x) => x.folio).join(', '); }
 
   /** El documento completo, con su contraparte y todos sus renglones, sigue en el Diario. */
   abrirEnDiario(): void {

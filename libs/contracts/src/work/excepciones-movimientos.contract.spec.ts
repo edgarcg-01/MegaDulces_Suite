@@ -1,6 +1,6 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true`.
 import {
-  clasificarMovimiento, compararRenglones, ETIQUETA_UNIDAD_IMPORTE, motivosPara, resumirDonde, UNIDAD_IMPORTE_SALIDA, validarResolucion,
+  clasificarMovimiento, compararRenglones, ETIQUETA_UNIDAD_IMPORTE, motivosPara, resumirDonde, sumarPorProducto, UNIDAD_IMPORTE_SALIDA, validarResolucion,
   type DocumentoAClasificar, type RenglonDocumento,
 } from './excepciones-movimientos.contract';
 
@@ -94,7 +94,7 @@ describe('[MX.2.4] compararRenglones — dónde está el error, producto por pro
   it('sin origen, ajuste e importe incompleto nombran el producto', () => {
     expect(compararRenglones({ salida: null, recepcion: [R('A', 'X', 3)] })[0].estado).toBe('sin_respaldo');
     const aj = compararRenglones({ ajuste: [R('A', 'X', -2, -20), R('B', 'Y', 120, 4500)] });
-    expect(resumirDonde(['ajuste_inventario'], aj)).toBe('Y: +120 piezas y 1 producto más');
+    expect(resumirDonde(['ajuste_inventario'], aj)).toBe('Entraron 1 producto (+$4,500) y salieron 1 (−$20); neto +$4,480. Lo más pesado: Y +120 piezas');
     const sc = compararRenglones({ salida: [R('A', 'X', 1, null, 1)], recepcion: [R('A', 'X', 1, null, 1)] });
     expect(sc[0]).toMatchObject({ estado: 'cuadra', sin_costo: true, con_error: true });
     expect(resumirDonde(['importe_incompleto'], sc)).toBe('Sin costo en Kepler: X');
@@ -103,6 +103,26 @@ describe('[MX.2.4] compararRenglones — dónde está el error, producto por pro
   it('dos excepciones = dos frases', () => {
     const r = compararRenglones({ salida: [R('A', 'X', 10, null, 1)], recepcion: [R('A', 'X', 9, null, 1)] });
     expect(resumirDonde(['diferencia', 'importe_incompleto'], r)).toBe('X: salieron 10, llegaron 9 · Sin costo en Kepler: X');
+  });
+});
+
+describe('[MX.2.6] ajustes del día: entradas, salidas y neto', () => {
+  it('el caso real: Zamora Centro 2-oct, folio 0000004 entra y 0000091 sale', () => {
+    const entrada = [R('17022', 'ALTOS BAJA CORT 18X26 1KG', 49, 2112.77), R('99870', 'RESORTERA', 121, 1171.03)];
+    const salida = [R('91085', 'PRODUCTO 91085', -51, -22666.44), R('17162', 'PRODUCTO 17162', -249, -5967.61)];
+    const r = compararRenglones({ ajuste: sumarPorProducto([entrada, salida]) });
+    expect(r[0].sku).toBe('91085');
+    expect(resumirDonde(['ajuste_inventario'], r))
+      .toBe('Entraron 2 productos (+$3,284) y salieron 2 (−$28,634); neto −$25,350. Lo más pesado: PRODUCTO 91085 -51 piezas');
+  });
+  it('el mismo producto en dos folios se suma a su neto (control: sin repetir, no cambia nada)', () => {
+    const j = sumarPorProducto([[R('A', 'X', 10, 100)], [R('A', 'X', -4, -40, 1), R('B', 'Y', 1, 5)]]);
+    expect(j.find((x) => x.sku === 'A')).toMatchObject({ piezas: 6, importe: 60, sin_costo: 1 });
+    expect(sumarPorProducto([[R('A', 'X', 10, 100)]])).toEqual([R('A', 'X', 10, 100)]);
+  });
+  it('sólo entradas o sólo salidas no inventan la otra mitad', () => {
+    expect(resumirDonde(['ajuste_inventario'], compararRenglones({ ajuste: [R('A', 'X', 5, 50)] }))).toBe('Entraron 1 producto, +$50. Lo más pesado: X +5 piezas');
+    expect(resumirDonde(['ajuste_inventario'], compararRenglones({ ajuste: [R('A', 'X', -5, -50)] }))).toBe('Salieron 1 producto, −$50. Lo más pesado: X -5 piezas');
   });
 });
 

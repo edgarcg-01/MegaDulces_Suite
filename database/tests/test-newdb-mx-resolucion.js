@@ -16,6 +16,9 @@
  *     se RECHAZAN y no escriben nada.
  *   ✓ una marca del Diario SIN motivo NO cuenta como resuelta (la incidencia sigue pendiente).
  *   ✓ reabrir la devuelve a la bandeja.
+ *   [MX.2.6] ✓ dos ajustes del mismo día y tienda son UNA incidencia con neto, y se resuelven juntos;
+ *     ✓ un ajuste que llega DESPUÉS de resolver el día lo devuelve a pendientes;
+ *     ✗ si un folio del grupo no existe se rechaza TODO (todo o nada).
  *
  * Todo en UNA transacción que se revierte: no deja filas. Almacén y documento sintéticos `TEST-MX24`.
  */
@@ -23,6 +26,8 @@ const path = require('path');
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 const T = '00000000-0000-0000-0000-00000000d01c';
 const FOLIO = 'TEST-MX24-0001';
+const FOLIO2 = 'TEST-MX24-0002';
+const FOLIO3 = 'TEST-MX24-0003';
 const DIA = '2026-01-15';
 
 let pass = 0, fail = 0, nm = 0;
@@ -76,20 +81,28 @@ function cargarServicio() {
       await trx.raw(`SET LOCAL app.tenant_id = '${T}'`);
       const [wh] = await trx('commercial.warehouses').insert({ tenant_id: T, code: 'TEST-MX24', name: 'Prueba MX.2.4' }).returning('id');
       const whId = wh.id || wh;
-      // un ajuste de inventario (siempre va a la bandeja, D3) con un renglón
-      await trx('analytics.stock_movements').insert({
-        id: 990000000000001, tenant_id: T, warehouse_id: whId, doc_date: DIA, genero: 'S', naturaleza: 'D',
-        doc_type: 'InvOut1', doc_code: 'InvOut1', movement_kind: 'out', movement_label: 'Ajuste', folio: FOLIO,
-        signed_qty: -12, qty: 12, amount: 345.6, source_branch: 'TEST', sku: 'TEST-SKU',
+      // dos ajustes de inventario el MISMO día (siempre van a la bandeja, D3): uno sale, otro entra
+      const renglon = (id, doc_code, folio, signed, amount, sku) => ({
+        id, tenant_id: T, warehouse_id: whId, doc_date: DIA, genero: doc_code === 'InvIn1' ? 'E' : 'S', naturaleza: 'D',
+        doc_type: doc_code, doc_code, movement_kind: signed < 0 ? 'out' : 'in', movement_label: 'Ajuste', folio,
+        signed_qty: signed, qty: Math.abs(signed), amount, source_branch: 'TEST', sku,
       });
+      await trx('analytics.stock_movements').insert([
+        renglon(990000000000001, 'InvOut1', FOLIO, -12, 345.6, 'TEST-SKU'),
+        renglon(990000000000002, 'InvIn1', FOLIO2, 5, 100, 'TEST-SKU-2'),
+      ]);
       const svc = new Svc({ run: (fn) => fn(trx) }, { requireTenantId: () => T, get: () => ({ username: 'prueba-mx24' }) });
       const filas = () => trx('commercial.stock_movement_audits').where({ tenant_id: T, warehouse_id: whId, folio: FOLIO });
+      const filasDia = () => trx('commercial.stock_movement_audits').where({ tenant_id: T, warehouse_id: whId }).whereIn('folio', [FOLIO, FOLIO2, FOLIO3]);
+      const delDia = (b) => b.rows.find((r) => r.documentos.some((d) => d.folio === FOLIO));
       const bandeja = (excepcion) => svc.exceptions({ from: DIA, to: DIA, warehouse_id: whId, excepcion, page: 1, pageSize: 50 });
 
-      console.log('\n[1] Antes de resolver: está en la bandeja');
+      console.log('\n[1] Antes de resolver: los dos ajustes del día son UNA incidencia');
       const b0 = await bandeja();
-      ok(b0.rows.some((r) => r.documento.folio === FOLIO), 'el ajuste sintético aparece como incidencia pendiente');
-      ok(b0.rows.find((r) => r.documento.folio === FOLIO)?.donde.includes('-12 piezas'), 'y dice DÓNDE: el producto y las piezas');
+      const i0 = delDia(b0);
+      ok(!!i0 && b0.rows.filter((r) => r.tipo === 'ajuste').length === 1 && i0.documentos.length === 2, 'una sola incidencia con los dos folios');
+      ok(Math.abs((i0?.ajuste?.neto_importe ?? 0) - (100 - 345.6)) < 0.001 && i0?.ajuste?.neto_piezas === -7, 'con su neto: -7 piezas, -$245.60 (' + JSON.stringify(i0?.ajuste) + ')');
+      ok(/Entraron 1 producto .* y salieron 1 .*; neto −\$246\. Lo más pesado: .* -12 piezas/.test(i0?.donde || ''), 'y dice DÓNDE (' + i0?.donde + ')');
 
       console.log('\n[2] Rechazos (y no escriben nada)');
       const doc = { warehouse_id: whId, doc_code: 'InvOut1', doc_serie: '', folio: FOLIO };
@@ -100,15 +113,30 @@ function cargarServicio() {
       ok((await filas()).length === 0, 'ninguno de los rechazos escribió una fila');
 
       console.log('\n[3] CONTROL POSITIVO: el payload de la pantalla');
-      const r1 = await svc.resolveException({ ...doc, motivo: 'ajuste_justificado', nota: 'Conteo de cierre de mes' });
+      // la pantalla manda el primero en el cuerpo y TODOS en `documentos` (almacen-movimientos.service.ts)
+      const docs = i0.documentos;
+      const r1 = await svc.resolveException({ ...docs[0], documentos: docs, motivo: 'ajuste_justificado', nota: 'Conteo de cierre de mes' });
       ok(r1.motivo === 'ajuste_justificado' && r1.por === 'prueba-mx24', `resuelve y devuelve motivo y quién (${JSON.stringify(r1)})`);
       const f1 = await filas();
       ok(f1.length === 1 && f1[0].resolution_reason === 'ajuste_justificado' && f1[0].note === 'Conteo de cierre de mes', 'la fila guarda motivo y nota');
+      ok((await filasDia()).filter((f) => f.resolution_reason === 'ajuste_justificado').length === 2, 'los DOS folios del día quedaron resueltos');
       const b1 = await bandeja();
-      ok(!b1.rows.some((r) => r.documento.folio === FOLIO) && b1.totals.resueltas >= 1, 'sale de pendientes y cuenta en resueltas');
-      ok((await bandeja('resueltas')).rows.some((r) => r.documento.folio === FOLIO), 'el filtro «resueltas» la muestra');
+      ok(!delDia(b1) && b1.totals.resueltas >= 1, 'sale de pendientes y cuenta en resueltas');
+      ok(!!delDia(await bandeja('resueltas')), 'el filtro «resueltas» la muestra');
       const d1 = await svc.exceptionDetail(doc);
-      ok(d1.resolucion?.motivo === 'ajuste_justificado' && d1.renglones[0]?.delta === -12, 'el detalle lee la resolución y el renglón (-12)');
+      ok(d1.resolucion?.motivo === 'ajuste_justificado' && d1.documentos.length === 2 && d1.renglones[0]?.delta === -12,
+        'el detalle (abierto desde un folio) trae el día completo, la resolución y el renglón (-12)');
+
+      console.log('\n[3b] Un ajuste que llega DESPUÉS de resolver el día lo reabre');
+      await trx('analytics.stock_movements').insert(renglon(990000000000003, 'InvOut1', FOLIO3, -1, 10, 'TEST-SKU-3'));
+      const b1b = await bandeja();
+      ok(!!delDia(b1b) && delDia(b1b).documentos.length === 3 && delDia(b1b).resolucion === null, 'vuelve a pendientes con los tres folios');
+      await svc.resolveException({ ...docs[0], documentos: delDia(b1b).documentos, motivo: 'ajuste_justificado', nota: 'Conteo de cierre de mes' });
+      ok(!delDia(await bandeja()), 'resuelto otra vez con los tres, sale');
+      const malos = [...delDia(await bandeja('resueltas')).documentos, { ...docs[0], folio: 'NO-EXISTE' }];
+      ok(await rechaza(() => svc.resolveException({ ...docs[0], documentos: malos, motivo: 'error_de_captura' }), /NO-EXISTE/) === true,
+        'NEGATIVA: si un folio del grupo no existe, se rechaza TODO…');
+      ok((await filasDia()).every((f) => f.resolution_reason === 'ajuste_justificado'), '…y no cambió ninguno (todo o nada)');
 
       console.log('\n[4] Resolver otra vez actualiza, no duplica');
       await svc.resolveException({ ...doc, motivo: 'error_de_captura', nota: null });
@@ -116,15 +144,15 @@ function cargarServicio() {
       ok(f2.length === 1 && f2[0].resolution_reason === 'error_de_captura' && f2[0].note === null, 'una sola fila, con el motivo nuevo');
 
       console.log('\n[5] Una marca del Diario SIN motivo no es una resolución');
-      await svc.reopenException(doc);
-      ok((await filas()).length === 0, 'reabrir quita la fila');
+      const todos = delDia(await bandeja('resueltas')).documentos;
+      await svc.reopenException({ ...todos[0], documentos: todos });
+      ok((await filasDia()).length === 0, 'reabrir quita las filas de todos los folios del día');
       await svc.setAudit({ ...doc, audited: true, note: 'visto' });
-      const b2 = await bandeja();
-      const it = b2.rows.find((r) => r.documento.folio === FOLIO);
+      const it = delDia(await bandeja());
       ok(!!it && it.resolucion && it.resolucion.motivo === null, 'marcada «auditado» sin motivo: sigue pendiente y se ve la marca');
       throw new Error(RB);
     }).catch((e) => { if (!e.message.includes(RB)) throw e; });
-    const quedo = await knex('commercial.stock_movement_audits').where({ tenant_id: T, folio: FOLIO });
+    const quedo = await knex('commercial.stock_movement_audits').where({ tenant_id: T }).whereIn('folio', [FOLIO, FOLIO2, FOLIO3]);
     ok(quedo.length === 0, 'ROLLBACK: no quedó ninguna fila');
   } catch (e) {
     fail++;
@@ -132,6 +160,6 @@ function cargarServicio() {
   } finally {
     await knex.destroy();
   }
-  console.log(`\nMX.2.4 resolver incidencias con motivo → ${pass} ✓ · ${fail} ✗${nm ? ` · ${nm} ⊘ no medidos` : ''}`);
+  console.log(`\nMX.2.4/2.6 resolver incidencias con motivo (y ajustes del día) → ${pass} ✓ · ${fail} ✗${nm ? ` · ${nm} ⊘ no medidos` : ''}`);
   process.exit(fail ? 1 : 0);
 })();

@@ -4,7 +4,7 @@ import type { Response } from 'express';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import { CommercialMovementsService, MovementsQuery } from './commercial-movements.service';
 import { MovementsExportService } from './movements-export.service';
-import type { DetalleIncidenciaMovimiento, MovimientosExcepcionesResponse, ResolucionIncidencia } from '@megadulces/contracts';
+import type { DetalleIncidenciaMovimiento, DocRef, MovimientosExcepcionesResponse, ResolucionIncidencia } from '@megadulces/contracts';
 
 /**
  * DM.1 — Diario de movimientos (mejora del reporte Kepler). Lectura de inventario.
@@ -159,15 +159,15 @@ export class CommercialMovementsController {
 
   @Post('exceptions/resolve')
   @RequirePermissions(Permission.COMMERCIAL_MOVEMENTS_GESTIONAR)
-  @ApiOperation({ summary: '[MX.2.4] Resuelve una incidencia con su motivo (catálogo MOTIVOS_RESOLUCION_MOVIMIENTO). Body: { warehouse_id, doc_code, doc_serie?, folio, motivo, nota? }.' })
-  resolveException(@Body() dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; motivo: string; nota?: string | null }): Promise<ResolucionIncidencia> {
+  @ApiOperation({ summary: '[MX.2.4] Resuelve una incidencia con su motivo (catálogo MOTIVOS_RESOLUCION_MOVIMIENTO). Body: { warehouse_id, doc_code, doc_serie?, folio, motivo, nota?, documentos? } — documentos = los ajustes de un día, todos juntos.' })
+  resolveException(@Body() dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; motivo: string; nota?: string | null; documentos?: DocRef[] | null }): Promise<ResolucionIncidencia> {
     return this.svc.resolveException(dto);
   }
 
   @Post('exceptions/reopen')
   @RequirePermissions(Permission.COMMERCIAL_MOVEMENTS_GESTIONAR)
-  @ApiOperation({ summary: '[MX.2.4] Reabre una incidencia resuelta (quita su resolución). Body: { warehouse_id, doc_code, doc_serie?, folio }.' })
-  reopenException(@Body() dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string }): Promise<{ reabierta: boolean }> {
+  @ApiOperation({ summary: '[MX.2.4] Reabre una incidencia resuelta (quita su resolución). Body: { warehouse_id, doc_code, doc_serie?, folio, documentos? }.' })
+  reopenException(@Body() dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; documentos?: DocRef[] | null }): Promise<{ reabierta: boolean }> {
     return this.svc.reopenException(dto);
   }
 
