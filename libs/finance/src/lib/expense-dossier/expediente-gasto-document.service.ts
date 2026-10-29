@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ObjectStorageService } from '@megadulces/platform-core';
 // `[GX.74]` El detalle del pago puede traer varios renglones: se muestran como `1234 · 5678`.
 // `[GX.75]` La transferencia XD2601 que pagó el gasto: su resumen sale del contrato.
-import { detallesParaMostrar, resumenTransferencias, type TransferenciaGasto } from '@megadulces/contracts';
+import { ROL_EVIDENCIA_ADICIONAL, detallesParaMostrar, resumenTransferencias, type TransferenciaGasto } from '@megadulces/contracts';
 import { esc, htmlAPdf, money } from '../shared/chromium-pdf';
 import { ExpedienteGastoService, type ExpedienteGasto } from './expediente-gasto.service';
 import {
@@ -78,6 +78,31 @@ export function fecha(v: unknown): string {
 function fechaHora(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/Mexico_City' });
+}
+
+/** Un archivo del expediente tal como está guardado en `files`. */
+export interface ArchivoDelExpediente {
+  role?: string | null; live?: boolean; captured_at?: string | null;
+  motivo?: string | null; agregado_por?: string | null; agregado_at?: string | null;
+}
+
+/**
+ * Un renglón de la lista de archivos del expediente: su rol y su sello de cámara. Pura y
+ * exportada para probarla sin levantar Chromium.
+ *
+ * `[GX.87]` Lo agregado DESPUÉS dice por qué, quién y cuándo: en un expediente impreso, un
+ * archivo que apareció tras cerrarse sin su porqué se lee como una alteración.
+ */
+export function archivoDelExpedienteHtml(f: ArchivoDelExpediente): string {
+  const sello = f.live
+    ? `<span class="viva">EN VIVO</span>${f.captured_at ? ` <span class="mut">${esc(fechaHora(f.captured_at))}</span>` : ''}`
+    : '<span class="mut">archivo (sin sello de cámara)</span>';
+  const adicional = f.role === ROL_EVIDENCIA_ADICIONAL
+    ? `<div class="mut">Agregada después: «${esc(f.motivo || 'sin motivo')}»`
+      + `${f.agregado_por ? ` · ${esc(f.agregado_por)}` : ''}`
+      + `${f.agregado_at ? ` · ${esc(fechaHora(f.agregado_at))}` : ''}</div>`
+    : '';
+  return `<li><span class="rol">${esc(f.role || '—')}</span> ${sello}${adicional}</li>`;
 }
 
 /**
@@ -202,12 +227,7 @@ export class ExpedienteGastoDocumentService {
     if (!p) return this.vacio('Nadie capturó el expediente de esta solicitud: no hay forma de pago declarada ni foto del comprobante.');
     const archivos = (p.files || []) as any[];
     const lista = archivos.length
-      ? `<ul class="files">${archivos.map((f) => {
-        const sello = f.live
-          ? `<span class="viva">EN VIVO</span>${f.captured_at ? ` <span class="mut">${esc(fechaHora(f.captured_at))}</span>` : ''}`
-          : '<span class="mut">archivo (sin sello de cámara)</span>';
-        return `<li><span class="rol">${esc(f.role || '—')}</span> ${sello}</li>`;
-      }).join('')}</ul>`
+      ? `<ul class="files">${archivos.map(archivoDelExpedienteHtml).join('')}</ul>`
       : this.vacio('Sin archivos adjuntos.');
     return `<table class="datos">
       ${this.fila('Tipo de gasto', esc(CLASIFICACION_LABEL[p.clasificacion] || p.clasificacion || '—'))}

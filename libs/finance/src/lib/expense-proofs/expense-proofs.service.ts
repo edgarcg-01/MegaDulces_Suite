@@ -6,6 +6,7 @@ import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStora
 // este servicio (que devuelve el 400) y el boton del frontend. Una sola regla, no dos.
 import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } from '@megadulces/contracts';
 import { detallesDePago, unirDetallesDePago } from '@megadulces/contracts';
+import { aceptaEvidenciaAdicional, faltaParaEvidenciaAdicional, ROL_EVIDENCIA_ADICIONAL } from '@megadulces/contracts';
 // [GX.17] La agrupacion de la pantalla de Aprobacion vive aparte, sin knex, porque decide
 // QUE VE quien firma y eso se prueba sin base.
 import { agruparParaAprobacion, type AgrupadoAprobacion, type ExpedientePendiente } from './aprobacion-agrupar';
@@ -101,7 +102,9 @@ import { esDuenoDelVale, puedeVerCualquierExpediente, MENSAJE_EXPEDIENTE_AJENO, 
  */
 export const PROOF_FILE_ROLES = ['comprobante_1', 'comprobante_2', 'comprobante_3', 'comprobante_4',
   'solicitud_kepler', 'cotizacion', 'cotizacion_2', 'cotizacion_3',
-  'evidencia_1', 'evidencia_2', 'evidencia_3'] as const;
+  'evidencia_1', 'evidencia_2', 'evidencia_3',
+  // `[GX.87]` Evidencia agregada después, con su porqué. Un solo rol: pueden ser varios archivos.
+  'adicional'] as const;
 export type ProofFileRole = (typeof PROOF_FILE_ROLES)[number];
 
 /**
@@ -180,6 +183,13 @@ export interface ProofFile {
   live?: boolean;
   /** Cuando se tomo, en ISO. Lo pone el cliente junto con `live`. */
   captured_at?: string;
+  /**
+   * `[GX.87]` Sólo en la evidencia adicional (`role: 'adicional'`): por qué se agregó, quién y
+   * cuándo. Lo escribe el SERVIDOR, nunca se toma del cliente.
+   */
+  motivo?: string;
+  agregado_por?: string;
+  agregado_at?: string;
 }
 
 /**
@@ -1159,6 +1169,67 @@ export class ExpenseProofsService {
       this.logger.log(`solicitud de gasto folio ${base.cur?.folio_solicitud} aprobada [${finalClas}] → ${nextStatus}, por ${actor || '?'}`);
       return row;
     });
+  }
+
+  /**
+   * `[GX.87]` **Evidencia adicional: se agrega y ya.** Suma archivos al expediente de un vale ya
+   * capturado, cada uno con su porqué, quién y cuándo. Decisión del usuario (2026-10-29):
+   *  · NO cambia el estado ni las firmas (`validated_*`), y NO borra ni reemplaza nada: sólo suma.
+   *  · Pueden hacerlo el dueño del vale (`esDuenoDelVale`, con el nombre real del padrón) y quien
+   *    aprueba (`esAprobador`: `COMPROBAR` o rol de plataforma, lo decide el controller).
+   *  · Un vale rechazado no acepta: se vuelve a capturar.
+   * El porqué, el autor y la hora los pone el SERVIDOR; del cliente sólo se toman los datos del
+   * archivo ya subido. Es distinto de la reapertura (`[GX.29]`), que pide cambiar el estado.
+   */
+  async agregarEvidenciaAdicional(
+    id: string,
+    dto: { files?: ProofFile[]; motivo?: string },
+    quien: IdentidadQueDecide,
+    esAprobador: boolean,
+  ): Promise<{ id: string; agregados: number; files: ProofFile[] }> {
+    this.tenantCtx.requireTenantId();
+    const motivo = String(dto?.motivo ?? '').trim();
+    const nuevos = (Array.isArray(dto?.files) ? dto.files : []).filter((f) => f && String(f.url ?? '').trim());
+    const falta = faltaParaEvidenciaAdicional({ motivo, archivos: nuevos });
+    if (falta) throw new BadRequestException(falta);
+
+    const guardado = await this.tk.run(async (trx) => {
+      // FOR UPDATE: dos envíos al mismo vale no se pisan los archivos (lectura y escritura juntas).
+      const vale: { id: string; status: string; files: unknown; created_by: string | null; evidencia_por: string | null } | undefined =
+        await trx('finance.expense_proofs').where({ id }).forUpdate()
+          .first('id', 'status', 'files', 'created_by', 'evidencia_por');
+      if (!vale) throw new NotFoundException('No encuentro ese vale.');
+      if (!aceptaEvidenciaAdicional(vale.status)) {
+        throw new BadRequestException('A un vale rechazado no se le agrega evidencia: se vuelve a capturar.');
+      }
+      const yo = await this.identidadConNombre(trx, quien);
+      if (!esAprobador && !esDuenoDelVale(vale, yo)) {
+        throw new ForbiddenException('Sólo quien levantó el vale o quien aprueba gastos puede agregarle evidencia.');
+      }
+      const autor = String(yo.full_name || yo.username || '').trim() || null;
+      const at = new Date().toISOString();
+      const agregados: ProofFile[] = nuevos.map((f) => ({
+        role: ROL_EVIDENCIA_ADICIONAL,
+        url: String(f.url),
+        ...(f.public_id ? { public_id: f.public_id } : {}),
+        ...(f.kind ? { kind: f.kind } : {}),
+        ...(f.name ? { name: f.name } : {}),
+        ...(f.live === true ? { live: true, ...(f.captured_at ? { captured_at: f.captured_at } : {}) } : {}),
+        motivo,
+        ...(autor ? { agregado_por: autor } : {}),
+        agregado_at: at,
+      }));
+      const todos: ProofFile[] = [...archivosDe(vale.files), ...agregados];
+      await trx('finance.expense_proofs').where({ id })
+        .update({ files: JSON.stringify(todos), updated_at: trx.fn.now() });
+      this.logger.log(`vale ${id}: ${agregados.length} evidencia(s) adicional(es) por ${autor ?? '?'} — ${motivo}`);
+      return { agregados: agregados.length, todos };
+    });
+    // El expediente completo, ya firmado: la pantalla lo pinta sin pedir el detalle otra vez
+    // (una segunda llamada es un segundo lugar donde fallar después de haber guardado).
+    // Se firma FUERA de la transacción: firmar es ir al bucket, y no se sostiene el candado
+    // del vale mientras tanto.
+    return { id, agregados: guardado.agregados, files: await this.storage.signFiles(guardado.todos, 1800) };
   }
 
   /**

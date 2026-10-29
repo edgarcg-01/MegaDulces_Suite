@@ -18,7 +18,9 @@ export type ProofStatus = 'recibida' | 'aprobada' | 'validada' | 'rechazada' | '
 /** Roles de archivo del formulario (Google Form → plataforma). */
 export type ProofFileRole = 'comprobante_1' | 'comprobante_2' | 'comprobante_3' | 'comprobante_4'
   | 'solicitud_kepler' | 'cotizacion' | 'cotizacion_2' | 'cotizacion_3'
-  | 'evidencia_1' | 'evidencia_2' | 'evidencia_3';
+  | 'evidencia_1' | 'evidencia_2' | 'evidencia_3'
+  /** `[GX.87]` Evidencia que se SUMA después, con su porqué. Ver `evidencia-adicional.contract.ts`. */
+  | 'adicional';
 
 /** [GX.23] Los roles de cada familia, en orden: la pantalla toma el primero libre. */
 export const ROLES_COMPROBANTE: ProofFileRole[] = ['comprobante_1', 'comprobante_2', 'comprobante_3', 'comprobante_4'];
@@ -35,6 +37,8 @@ export interface ProofFile {
   live?: boolean;
   /** `[GX.14]` Cuándo se tomó (ISO). */
   captured_at?: string;
+  /** `[GX.87]` Sólo en evidencia adicional, y los escribe el SERVIDOR: por qué, quién y cuándo. */
+  motivo?: string; agregado_por?: string; agregado_at?: string;
 }
 
 /** Naturaleza del gasto — decide si la evidencia (factura/ticket) es obligatoria. */
@@ -564,6 +568,14 @@ export class ComprobacionesService {
     return this.http.post<{ id: string; status: string }>(`${this.base}/${id}/approve`, body || {});
   }
 
+
+  /**
+   * `[GX.87]` Suma evidencia al expediente con su porqué. No cambia el estado del vale:
+   * pueden hacerlo el dueño y quien aprueba, en cualquier estado salvo rechazada.
+   */
+  agregarEvidenciaAdicional(id: string, files: ProofFile[], motivo: string): Observable<{ id: string; agregados: number; files: ProofFile[] }> {
+    return this.http.post<{ id: string; agregados: number; files: ProofFile[] }>(`${this.base}/${id}/evidencia-adicional`, { files, motivo });
+  }
 
   /** `[GX.29]` El capturista PIDE que le reabran su vale. No lo reabre: deja la solicitud. */
   pedirReapertura(id: string, motivo: string): Observable<{ id: string; estado: string }> {
