@@ -932,7 +932,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // `[NAV.4.1]`/`[NAV.6]` El paso siguiente del pedido, pegado a él: Requisiciones → Órdenes de
         // compra → Abiertas en Kepler, en el orden en que avanza el documento. Pedido + Requisiciones
         // es el par que más se abre junto (28 visitas en 30 días). Ver `seguimiento-compra-tabs.ts`.
-        { label: SEGUIMIENTO_COMPRA_LABEL, icon: 'pi pi-file-edit', route: '/compras/requisiciones', tabs: SEGUIMIENTO_COMPRA_TABS },
+        // `[PQ.28]` D3: aterriza en las OC de Kepler; Requisiciones es la última pestaña, de consulta.
+        { label: SEGUIMIENTO_COMPRA_LABEL, icon: 'pi pi-file-edit', route: '/compras/oc-abiertas', tabs: SEGUIMIENTO_COMPRA_TABS },
         { label: 'Asistente (Thot)', icon: 'pi pi-comments',  route: '/compras/asistente', permission: Permission.COMPRAS_PEDIDO_GESTIONAR },
       ],
     },

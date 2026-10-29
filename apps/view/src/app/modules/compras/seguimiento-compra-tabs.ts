@@ -20,12 +20,6 @@ export const SEGUIMIENTO_COMPRA_LABEL = 'Seguimiento de compra';
 
 export const SEGUIMIENTO_COMPRA_TABS: PageTab[] = [
   {
-    label: 'Requisiciones',
-    route: '/compras/requisiciones',
-    icon: 'pi pi-file-edit',
-    permission: Permission.COMPRAS_REQUISICIONES_VER,
-  },
-  {
     // `[PQ.16]` D21 (2026-10-26): la orden de compra ES la de Kepler (X-A-35). Esta pestaña sube al
     // segundo lugar y toma el nombre del documento; la lista interna baja a «histórico».
     // RA-PRO.45 — las OCs de Kepler que quedaron abiertas: lo que hay que cerrar o cancelar para
@@ -49,6 +43,14 @@ export const SEGUIMIENTO_COMPRA_TABS: PageTab[] = [
     label: 'Escritura a Kepler',
     route: '/compras/kepler-escritura',
     icon: 'pi pi-power-off',
+    permission: Permission.COMPRAS_REQUISICIONES_VER,
+  },
+  {
+    // `[PQ.28]` D3 (Edgar, 2026-10-29): Requisiciones deja de ser lugar de trabajo. Se genera, se
+    // aprueba y se sigue desde Pedido (ventana «Lo pedido»); acá queda al final, como consulta.
+    label: 'Requisiciones (consulta)',
+    route: '/compras/requisiciones',
+    icon: 'pi pi-file-edit',
     permission: Permission.COMPRAS_REQUISICIONES_VER,
   },
 ];
