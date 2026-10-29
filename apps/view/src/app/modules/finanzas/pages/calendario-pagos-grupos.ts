@@ -161,6 +161,10 @@ export function sugerirArmado<T extends GroupableObligation>(obligations: readon
     // `[PGP.38]` Un grupo es «vencida» si alguna de sus facturas ya venció. Si ninguna, está
     // entero por su descuento, y la pantalla tiene que decirlo.
     const hayVencida = items.some((o) => { const d = dueOf(o); return d != null && d <= date; });
+    // El tipo se ANOTA: sin esto el ternario se infiere `string` y el objeto deja de ser un
+    // `ArmadoGrupo<T>` (TS2322). `check:pantalla` lo daba por bueno — lo cazó
+    // `check-template-types`, que es el único local que tipa de verdad la plantilla.
+    const motivo: ArmadoGrupo<T>['motivo'] = hayVencida ? 'vencida' : 'pronto_pago';
     const gana = items.reduce((s, o) => s + Number(o.pronto_beneficio ?? 0), 0);
     return { key, beneficiary: items[0].beneficiary, branch: items[0].branch_code ?? null, items,
       total: items.reduce((s, o) => s + Number(o.available_amount), 0),
@@ -168,7 +172,7 @@ export function sugerirArmado<T extends GroupableObligation>(obligations: readon
       // ventana, que es la fecha que de verdad manda para ése.
       oldest: dueOf(items[0]) ?? items[0].pronto_fecha_limite?.slice(0, 10) ?? NO_DATE,
       fits: false,
-      motivo: hayVencida ? 'vencida' : 'pronto_pago',
+      motivo,
       gana: Math.round(gana * 100) / 100 };
   }).sort((a, b) =>
     // Lo VENCIDO primero, siempre: el adelanto nunca desplaza una deuda que ya se debe.
