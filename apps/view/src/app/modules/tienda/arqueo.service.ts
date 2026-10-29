@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import type { ArqueoCajasResp } from '@megadulces/contracts/http/arqueo-cajas';
 
 /**
  * Arqueo ciego de caja (proyecto Tienda). Pega a `/store/arqueo` — la variante
@@ -151,8 +152,10 @@ export interface ArqueoDto {
   medios?: Record<string, number>;
   nota?: string;
   incidencia_tipo?: string; // SM.9: motivo cualitativo del descuadre (opcional)
-  /** [SM.47] Solo sin_caja: por que se conto ese dinero. Obligatorio ahi. */
+  /** [SM.47] sin_caja: por que se conto. [SM.49] retiro «otro»: por que salio. Obligatorio en los dos. */
   motivo?: string;
+  /** [SM.49] Solo retiro: por que salio el dinero (CONCEPTOS_RETIRO). */
+  concepto?: string;
 }
 
 export interface ArqueoResult {
@@ -194,6 +197,8 @@ export interface ArqueoRow {
   captured_by: string | null; captured_at: string; nota: string | null; incidencia_tipo: string | null;
   /** [SM.47] Solo sin_caja: por que se conto. Opcional: un backend sin SM.47 no lo manda. */
   motivo?: string | null;
+  /** [SM.49] Solo retiro: por que salio el dinero. null en los retiros anteriores. */
+  concepto?: string | null;
   /**
    * `[SM.43]` Lo que la persona declaró en los otros medios (tarjeta, transferencia…), tal
    * como se guardó. Opcional: un backend sin SM.43 no lo manda y la reimpresión sale sin él.
@@ -375,6 +380,11 @@ export class ArqueoService {
   }
 
   /** La encargada firma el arqueo tras contarlo en el lugar. */
+  /** [SM.48] Sucursales y sus cajas de un día (solo quien valida: trae el esperado). */
+  cajas(fecha: string): Observable<ArqueoCajasResp> {
+    return this.http.get<ArqueoCajasResp>(`${this.base}/cajas`, { params: { fecha } });
+  }
+
   validar(id: string, nota?: string): Observable<unknown> {
     return this.http.post(`${this.base}/${id}/validar`, { nota });
   }

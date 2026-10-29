@@ -1,3 +1,80 @@
+# Tienda › Arqueo de caja — un solo menú para el tipo, y el concepto del retiro (SM.49)
+
+## Problema
+
+Un retiro no decía por qué salió el dinero: una sangría, un pago a proveedor o un gasto se veían iguales. Y el
+tipo de arqueo era una barra de cinco pestañas que no tenía dónde poner ese concepto.
+
+## Solución
+
+- Un solo menú, «Tipo de arqueo»: arriba **Retiro** (Pago a proveedor · Pago de nómina · Gasto de la sucursal (caja chica) ·
+  Depósito al banco · Otro…), abajo **Otros arqueos** (Retiro de caja · Cierre de día · Relevo · RD · RV).
+- Abre en «Retiro · elige el concepto»; un retiro no se guarda sin concepto. «Otro» pide escribir el motivo.
+- Si Kepler está pidiendo la sangría, el menú ya queda en «Retiro de caja».
+- El concepto aparece en los retiros del turno, en el ticket y en «Sucursales y sus cajas», donde además se suma
+  lo que salió por concepto (proveedores, nómina…) por turno y por sucursal: todo eso cuenta en el corte del día.
+- «Sucursales y sus cajas» nace minimizada (clic en la caja abre sus turnos; el desglose se abre aparte) y ya no
+  tiene botón Validar (se usaba en 19 de 730 arqueos en 30 días).
+
+## Cómo se implementó
+
+- Migración `20261028093702_blind_counts_concepto_retiro`: columna `concepto` con CHECK de la lista; el CHECK del
+  motivo (SM.47) también lo exige en el retiro «otro».
+- `CONCEPTOS_RETIRO` y `conceptoRetiroLabel` en `libs/contracts/src/http/arqueo-cajas.contract.ts`: una sola lista.
+- `BlindCountService.submit` valida el concepto y el motivo; el listado y la vista de cajas lo devuelven.
+- Pantalla: `p-select` agrupado (`menuTipos`, `menuValor`, `elegirMenu`) en lugar de `app-segmented`.
+
+## Por qué así
+
+- **Todos cuentan como retiro** (decisión del pedido): se ligan al turno y suman al cuadre contra Kepler.
+- **El servidor no exige el concepto:** una pantalla vieja en caché mandaría el retiro sin él, y rechazarlo dejaría
+  a la cajera sin registrar su sangría en plena fila. La pantalla nueva sí lo exige.
+- **Los retiros viejos quedan sin concepto:** no se inventa un dato del pasado.
+
+---
+
+# Tienda › Arqueo de caja — Sucursales y sus cajas, y el folio por caja + hora (SM.48)
+
+## Problema
+
+«Arqueos recientes» era una lista plana: no decía si los retiros de una caja coincidían con lo que Kepler registró,
+ni si el turno cuadraba. Y la mayoría de los retiros se guardaba **sin folio de turno**: en octubre, 169 de 190,
+porque el usuario de la Suite no coincide con el código de cajera de Kepler y a la cajera no le aparece su turno.
+
+## Solución
+
+- Para quien valida, la tarjeta pasa a ser **Sucursales y sus cajas**: elige el día; a la izquierda las sucursales
+  con lo que hay por revisar; a la derecha cada caja con sus turnos.
+- En cada turno: la cajera (nombre y código de Kepler), los **retiros contra Kepler** («Cuadran», «Faltan $X por
+  contar», «Contado de más») y el **cuadre del turno** (retiros + cajón contra el esperado), explicado en una línea.
+- El **desglose** por denominación de cada arqueo (billetes, monedas, totales y total del turno) viene abierto solo
+  en los turnos con algo por revisar. Cada arqueo se valida y se reimprime desde ahí.
+- Aparte: los conteos que no cayeron en ningún turno y las rutas / conteos de efectivo (no suman a ningún cuadre).
+- Al guardar un retiro, cierre o relevo sin folio, el servidor busca el turno abierto en esa caja a esa hora y
+  guarda su folio.
+- Se adapta a tablet y teléfono.
+
+## Cómo se implementó
+
+- `libs/reconciliation/src/lib/arqueo-cajas.ts` (puro): `elegirTurno` (retiro → turno abierto; cierre → el que cerró
+  en las últimas 3 h; dos candidatos → ninguno), `ligarConteos` (por folio, si no por caja + hora; la llave del turno
+  es caja + folio) y `armarCajasDelDia` (usa `cuadreTurno`, la identidad única).
+- `BlindCountService.cajasDelDia` y `turnoPorCajaYHora` leen `kepler_ods.kdpv_folio_caja` (el ODS vivo).
+- `GET /store/arqueo/cajas` (RECONCILIATION_VER). `anclarAlTurno` llama a `folioPorCajaYHora` cuando no hay folio.
+- Pantalla: `apps/view/src/app/modules/tienda/arqueo-cajas/arqueo-cajas.component.ts`.
+- Contrato: `libs/contracts/src/http/arqueo-cajas.contract.ts` (importado por su ruta directa).
+
+## Por qué así
+
+- **Caja + hora y no usuario:** medido, los códigos de Kepler y los usuarios de la Suite no son 1 a 1 (cuentas
+  compartidas, varias personas por código). La caja y la hora son hechos físicos.
+- **El ODS vivo y no `analytics.cash_cuts`:** ésta trae el turno hasta el corte; los retiros se capturan antes.
+- **Ambiguo = sin turno:** colgarle a un turno el conteo de otro es peor que mostrarlo aparte.
+- **Solo quien valida:** la vista trae el esperado y el arqueo de la cajera es ciego.
+- Pendiente aparte: limpiar las cuentas compartidas y decidir si el código de Kepler es de la persona o de la caja.
+
+---
+
 # Tienda › Arqueo de caja — totales por familia y «Conteo de efectivo» sin caja (SM.47)
 
 ## Problema

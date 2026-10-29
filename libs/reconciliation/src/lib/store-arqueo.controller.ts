@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Logger, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
   RolesGuard, RequirePermissions, RequireAnyPermission, Permission, ReqUser,
@@ -8,6 +8,7 @@ import { BlindCountService, CAJA_SIN_CAJA } from './blind-count.service';
 import { CashCutsSyncService } from './cash-cuts-sync.service';
 import { CashCountSlaService } from './cash-count-sla.service';
 import type { BlindCountDto } from './blind-count.service';
+import type { ArqueoCajasResp } from '@megadulces/contracts/http/arqueo-cajas';
 
 /**
  * SM.8/P1 — Superficie de arqueo ciego para CAJERAS (proyecto Tienda, /tienda/arqueo).
@@ -43,6 +44,8 @@ const WH = CANONICAL_PARAM.warehouse; // 'warehouse_codes'
 @UseGuards(RolesGuard)
 @Controller('store/arqueo')
 export class StoreArqueoController {
+  private readonly logger = new Logger(StoreArqueoController.name);
+
   constructor(
     private readonly blind: BlindCountService,
     private readonly sync: CashCutsSyncService,
@@ -180,7 +183,8 @@ export class StoreArqueoController {
   private async anclarAlTurno(body: BlindCountDto, warehouse_code: string, cajero_code: string | undefined, revela: boolean) {
     const folio = body?.cash_cut_folio ? String(body.cash_cut_folio).trim() : '';
     // Sin folio se captura a mano — supervisor y cajera por igual (SM.40).
-    if (!folio) return {};
+    // [SM.48] …pero el turno se busca por caja + hora antes de guardarlo sin él.
+    if (!folio) return this.folioPorCajaYHora(body, warehouse_code);
     const turno = await this.blind.buscarTurno(warehouse_code, folio, revela ? undefined : cajero_code);
     if (!turno) {
       throw new BadRequestException(
@@ -431,6 +435,63 @@ export class StoreArqueoController {
    * le queda con una sola fila, la propia), la encargada ve los de sus sucursales
    * con el esperado, la diferencia y quién validó cada uno.
    */
+  /**
+   * [SM.48] El conteo capturado SIN folio se ancla al turno de Kepler por caja + hora.
+   *
+   * Medido en octubre: 169 de 190 retiros/cierres sin folio se capturaron así porque
+   * el usuario de la Suite no coincide con el código de cajera de Kepler, y a la
+   * cajera no le aparece su turno. La caja que declara y la hora a la que guarda sí
+   * dicen qué turno estaba abierto (`elegirTurno`). Si hay 0 o 2+ candidatos, se
+   * guarda sin folio como antes — y la pantalla de cajas lo muestra aparte.
+   *
+   * ⚠️ Cambio de comportamiento: un cierre anclado así SÍ se compara contra Kepler
+   * (y si diverge levanta el descuadre). Antes se guardaba sin comparar.
+   *
+   * Nunca bloquea la captura: si la consulta falla (ODS caído), se guarda sin folio.
+   * La caja NO se toca: la que declaró la persona es la llave de la búsqueda.
+   */
+  private async folioPorCajaYHora(body: BlindCountDto, warehouse_code: string): Promise<Partial<BlindCountDto>> {
+    const tipo = body?.tipo || 'cierre';
+    const caja = (body?.caja || '').trim();
+    if (!caja || !['retiro', 'cierre', 'relevo'].includes(tipo)) return {};
+    const ahora = new Date();
+    const hoy = ahora.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    // Solo para conteos de HOY: la hora de captura no dice nada de un turno de otro día.
+    if (body?.business_date && String(body.business_date).slice(0, 10) !== hoy) return {};
+    const hora = ahora.toLocaleTimeString('en-GB', { timeZone: 'America/Mexico_City', hour12: false });
+    try {
+      const t = await this.blind.turnoPorCajaYHora(warehouse_code, caja, hoy, tipo, hora);
+      if (!t) return {};
+      return {
+        cash_cut_folio: t.folio,
+        caja_kepler: t.caja,
+        turno: t.turno || undefined,
+        turno_abierto_at: t.abierto_at || null,
+      };
+    } catch (e) {
+      this.logger.warn(`folio por caja+hora no disponible (${warehouse_code}/${caja}): ${(e as Error)?.message || e}`);
+      return {};
+    }
+  }
+
+  /**
+   * [SM.48] Sucursales y sus cajas de UN día — reemplaza «Arqueos recientes» para
+   * quien valida. Muestra el esperado, por eso pide RECONCILIATION_VER: la cajera no
+   * la ve (el arqueo es ciego).
+   */
+  @Get('cajas')
+  @RequirePermissions(Permission.RECONCILIATION_VER)
+  @ApiQuery({ name: 'fecha', required: false, description: "'YYYY-MM-DD'. Por defecto, hoy (America/Mexico_City)." })
+  @ApiQuery({ name: WH, required: false, description: 'Sucursal o CSV de sucursales. Se recorta a tu alcance.' })
+  @ApiOperation({ summary: 'Tienda — sucursales y sus cajas de un día: turnos de Kepler con sus retiros y cierre, y el cuadre de cada turno.' })
+  async cajas(@Query() query: Record<string, unknown>): Promise<ArqueoCajasResp> {
+    const pedida = String(query?.['fecha'] ?? '').trim();
+    if (pedida && !/^\d{4}-\d{2}-\d{2}$/.test(pedida)) throw new BadRequestException("fecha debe ser 'YYYY-MM-DD'.");
+    const fecha = pedida || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    const warehouse_codes = await this.scope.readParam(query, 'warehouse', 'store/arqueo');
+    return this.blind.cajasDelDia(fecha, warehouse_codes);
+  }
+
   @Get('historial')
   @RequirePermissions(Permission.STORE_ARQUEO_VER)
   @ApiQuery({ name: WH, required: false, description: 'Sucursal o CSV. Se recorta a tu alcance.' })
