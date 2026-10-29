@@ -37,6 +37,12 @@ export type RetiroCrudo = {
 export const consultasReposicion = {
   docs(k: Knex, tenantId: string, desde: string, hasta: string): Knex.QueryBuilder {
     return k('analytics.bank_movement_legs as l')
+      // [CGA-A.65] El centro y la referencia de Kepler (cabecera por su llave primaria): deciden si el
+      // pago va en la hoja de gastos de su zona, con la MISMA regla que la hoja.
+      .leftJoin('kepler_ods.kdm1 as d', function llave() {
+        this.on('d.sucursal', 'l.src_sucursal').andOn('d.c1', 'l.src_c1').andOn('d.c2', 'l.src_c2')
+          .andOn('d.c3', 'l.src_c3').andOn('d.c4', 'l.src_c4').andOn('d.c5', 'l.src_c5').andOn('d.c6', 'l.src_c6');
+      })
       .where('l.tenant_id', tenantId).where('l.clave_banco', '0011')
       .whereBetween('l.fecha_valor', [desde, hasta])
       .where('l.signo', '<', 0).where('l.es_traspaso', false).where('l.importe', '>', 0)
@@ -45,6 +51,8 @@ export const consultasReposicion = {
         k.raw(`to_char(l.fecha_valor, 'YYYY-MM-DD') AS fecha_valor`),
         k.raw(`to_char(l.fecha_captura, 'YYYY-MM-DD') AS fecha_captura`),
         k.raw('l.importe AS monto'),
+        k.raw(`nullif(btrim(d.c12::text), '') AS centro`),
+        k.raw(`nullif(btrim(d.c11::text), '') AS referencia`),
         k.raw(`l.sucursal || '|' || l.doc_tipo || '|' || l.folio || '|' || l.clave_banco AS origen_ref`));
   },
 

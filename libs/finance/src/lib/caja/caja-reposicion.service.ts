@@ -60,7 +60,8 @@ export class CajaReposicionService {
       const aprobaciones = aprobacionesDeCrudos(docs, horas, solicitudes, vales);
 
       return {
-        ...armarReposicion({ ...entradaDeCrudos(desde, hasta, docs, egresos, vinculos, retiros), aprobaciones }),
+        // [CGA-A.65] Lo que espera su hoja de zona se repone con ella: aquí sólo se cuenta.
+        ...armarReposicion({ ...entradaDeCrudos(desde, hasta, docs, egresos, vinculos, retiros), aprobaciones, apartarHojas: true }),
         datos_al: await this.ledger.frescuraCaja(trx),
         caos_al: await this.ledger.frescuraCaos(trx, tenantId),
       };

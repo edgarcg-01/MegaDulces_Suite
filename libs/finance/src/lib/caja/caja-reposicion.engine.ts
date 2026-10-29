@@ -6,6 +6,7 @@ import {
 } from '@megadulces/contracts';
 import { norm } from './caja-caos-match.engine';
 import { redondea2, tomaDelRetiro } from './caja-lote.engine';
+import { requisitoDeHoja } from './hoja-gastos.engine';
 
 /**
  * ⭐ `[CGA-A.61]` **Reposición por sucursal** — el motor. Puro: decide qué se ve y qué se propone,
@@ -138,6 +139,9 @@ export interface DocKepler {
   fecha_captura: string | null;
   beneficiario: string | null;
   monto: number;
+  /** `[CGA-A.65]` Centro (`c12`) y referencia (`c11`) de Kepler: dicen si el pago va en la hoja de su zona. */
+  centro?: string | null;
+  referencia?: string | null;
 }
 
 export interface EgresoLibro {
@@ -182,6 +186,12 @@ export interface EntradaReposicion {
    * Lo que espera firma o se rechazó NO entra a la propuesta ni a «Reponer». Sin mapa = no medido.
    */
   aprobaciones?: ReadonlyMap<string, AprobacionPago>;
+  /**
+   * `[CGA-A.65]` Apartar lo que espera su hoja de zona: el pago que va en la hoja (la MISMA regla que
+   * la arma, `requisitoDeHoja`) y que todavía no salió de ningún lado. Se repone con la hoja, de un
+   * solo retiro; aquí sólo se cuenta en `universo.en_hoja`. Lo ya pagado se queda: es su historia.
+   */
+  apartarHojas?: boolean;
 }
 
 const dia10 = (v: string | null | undefined): string | null => (v ? String(v).slice(0, 10) : null);
@@ -304,11 +314,23 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
 
   const docs: DocInterno[] = [];
   const vistos = new Set<string>();
+  const enHoja = new Map<string, { n: number; total: number }>();
   for (const k of e.docs) {
     if (vistos.has(k.origen_ref)) continue;
     vistos.add(k.origen_ref);
     const d = aDoc(k, egresoPorRef.get(k.origen_ref) ?? null);
-    if (d) docs.push(d);
+    if (!d) continue;
+    // `[CGA-A.65]` Espera su hoja: no se repone por sucursal (el candado lo rechazaría), se cuenta.
+    const zona = e.apartarHojas
+      ? requisitoDeHoja({ sucursal: d.sucursal, fecha_pago: d.dia, centro: k.centro ?? null, referencia: k.referencia ?? null })
+      : null;
+    const sinSalir = d.estado === 'por_capturar' || (d.estado === 'sin_vincular' && d.enlazado <= 0.005);
+    if (zona && sinSalir) {
+      const a = enHoja.get(zona.clave) ?? { n: 0, total: 0 };
+      enHoja.set(zona.clave, { n: a.n + 1, total: redondea2(a.total + d.monto) });
+      continue;
+    }
+    docs.push(d);
   }
   // El libro tiene el egreso y Kepler ya no tiene el documento: se muestra, no se esconde.
   for (const g of e.egresos) {
@@ -473,6 +495,7 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
       sucursales,
       sin_documentos: sucursales.filter((c) => !conDocs.has(c)),
       excluidas: [...SUCURSALES_SIN_REPOSICION],
+      en_hoja: [...enHoja].map(([zona, x]) => ({ zona, ...x })),
     },
   };
 }

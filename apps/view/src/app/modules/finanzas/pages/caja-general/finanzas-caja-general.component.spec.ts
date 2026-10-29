@@ -35,7 +35,7 @@ import {
 import { AuthService } from '../../../../core/services/auth.service';
 import { PermissionsService } from '../../../../core/services/permissions.service';
 import { CajaSocketService, type CajaEvent } from '../../caja-socket.service';
-import type { CorteRow, FirmaSolicitudEstado, ReposicionGrupo, ReposicionSucursales } from '@megadulces/contracts';
+import type { CorteRow, FirmaSolicitudEstado, HojaAbierta, HojaGastos, HojasDeGastos, ReposicionGrupo, ReposicionSucursales } from '@megadulces/contracts';
 import { CajaFirmaApiService } from '../../caja-firma-api.service';
 import { recargaAutomaticaBloqueada } from '../../../../core/services/recarga-segura';
 import { todayMx } from '../../../../core/utils/mx-date';
@@ -85,6 +85,8 @@ const REPOSICION: ReposicionSucursales = {
   datos_al: '2026-10-28T18:00:00Z', caos_al: '2026-10-28T18:00:00Z',
   universo: { sucursales: [], sin_documentos: [], excluidas: [] },
 };
+/** `[CGA-A.65]` La ventana también lee las hojas de zona: las aprobadas se pagan en ella. */
+const HOJAS_VACIAS: HojasDeGastos = { abiertas: [], cerradas: [], instalada: true, datos_al: null, caos_al: null };
 
 /**
  * `[CGA-A.63]` El cajón del ARQUEO. La página monta un segundo `app-side-peek` —la ventana de la
@@ -269,6 +271,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       // `[CGS.14]` Por omisión la caja está libre: las pruebas del candado lo sobrescriben.
       candado: vi.fn(() => of({ bloqueado: false, motivo: null, jornada: null, texto: null, con_llave: null, activo: true, hoy: todayMx(), pueden_recibir_llave: [] })),
       reposicion: vi.fn(() => of(REPOSICION)),
+      hojasDeGastos: vi.fn(() => of(HOJAS_VACIAS)),
       ...over,
     };
 
@@ -1665,6 +1668,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       // `[CGS.14]` Por omisión la caja está libre: las pruebas del candado lo sobrescriben.
       candado: vi.fn(() => of({ bloqueado: false, motivo: null, jornada: null, texto: null, con_llave: null, activo: true, hoy: todayMx(), pueden_recibir_llave: [] })),
       reposicion: vi.fn(() => of(REPOSICION)),
+      hojasDeGastos: vi.fn(() => of(HOJAS_VACIAS)),
     };
     TestBed.configureTestingModule({
       imports: [FinanzasCajaGeneralComponent],
@@ -5515,6 +5519,88 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(fila('Morelia Madero')).not.toContain('Sin retiro claro');
       expect(fila('Canindo')).toContain('Sin retiro claro de esta sucursal');
       expect(fila('Canindo')).not.toContain('Se repone por hoja de zona');
+    });
+  });
+  // ── `[CGA-A.65]` La ventana más sencilla, y la hoja de zona aprobada se paga en ella ──────────
+  //
+  // Edgar, 2026-10-29: «hay que hacer la interfaz más sencilla del mundo pero sin perder atención al
+  // detalle o ignorar información». La auditoría encontró diez columnas, cinco cifras de tres
+  // universos y la hoja de Morelia pagándose en otra pantalla.
+  describe('[CGA-A.65] la reposición: cuatro columnas, tres cifras con su lista, la hoja se paga aquí', () => {
+    const RENGLON = { origen_ref: '08|X-D-26|0000700|0011', sucursal: '08', doc_tipo: 'X-D-26', folio: '0000700', fecha_pago: '2026-10-29',
+      fecha_captura: '2026-10-29', beneficiario: 'BOTANAS PAU', clave: 'CB013', centro: '007', clase: 'proveedor' as const, importe: 83981.89 };
+    const HOJA = (extra: Partial<HojaGastos> = {}): HojaGastos => ({
+      id: 'h3', numero: 3, folio: 'HG-3', zona: 'morelia', nombre_zona: 'Zona Morelia', venta_del_dia: '2026-10-29', estado: 'aprobada',
+      total: 83981.89, renglones: [RENGLON],
+      por_sucursal: [{ sucursal: '08', renglones: 1, total: 83981.89 }, { sucursal: '07', renglones: 0, total: 0 }],
+      cerrada_por: 'u-zona', cerrada_por_nombre: 'aaron', cerrada_at: '2026-10-29T18:00:00Z',
+      aprobada_por: 'u-fin', aprobada_por_nombre: 'maria', aprobada_at: '2026-10-29T19:00:00Z',
+      resuelta_por_nombre: null, resuelta_at: null, motivo: null,
+      instruccion: { retiro: 83980, cajon: 1.89, deposito: 83981.89, referencia: 'HG-3' },
+      retiros_que_cuadran: [{ device: 'AST700-19758', external_id: 1830, ref: 'gnf morelia', total: 83980, dia: '2026-10-30', cajon: 1.89 }],
+      pago: null, ...extra,
+    });
+    const HOJAS = (o: Partial<HojasDeGastos> = {}): HojasDeGastos => ({ ...HOJAS_VACIAS, cerradas: [HOJA()], ...o });
+    const ventana = (fx: { nativeElement: HTMLElement }) => fx.nativeElement.querySelector('app-caja-reposicion') as HTMLElement;
+    const botonDe = (fx: { nativeElement: HTMLElement }, texto: string) =>
+      ([...ventana(fx).querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.includes(texto)) ?? null;
+
+    it('cuatro columnas: quién, cuánto falta y qué sigue (el desglose, al abrir la fila)', () => {
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS())) });
+      fx.detectChanges();
+      const ths = [...ventana(fx).querySelector('.rp-tbl thead')!.querySelectorAll('th')].map((th) => th.textContent!.trim());
+      expect(ths).toEqual(['Detalle', 'Sucursal', 'Por resolver', 'Qué sigue']);
+    });
+
+    it('⭐ la hoja aprobada es un renglón de «Por resolver» con el retiro que cuadra ya elegido; «Pagar» manda SÓLO el retiro', () => {
+      const pagar = vi.fn(() => of({ hoja: HOJA({ estado: 'pagada' }), ligados: 0, capturados: 1, sin_capturar: [] }));
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS())), pagarHojaDeGastos: pagar });
+      fx.detectChanges();
+      expect((fx.nativeElement.querySelector('.cg-bar .cg-repo-btn') as HTMLElement).textContent).toContain('1 por resolver');
+      expect(ventana(fx).textContent).toContain('Cuadra «gnf morelia» del 30/10');
+      const btn = botonDe(fx, 'Pagar HG-3');
+      expect(btn, 'la hoja aprobada no ofrece «Pagar»').not.toBeNull();
+      expect(btn!.disabled).toBe(false);
+      btn!.click();
+      expect(pagar).toHaveBeenCalledWith('h3', { medio: 'caos', device: 'AST700-19758', external_id: 1830 });
+    });
+
+    it('NEGATIVA (cuatro ojos): quien aprobó la hoja no ve «Pagar»', () => {
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [HOJA({ aprobada_por: 'u1' })] }))) });
+      fx.detectChanges();
+      expect(botonDe(fx, 'Pagar HG-3')).toBeNull();
+      expect(ventana(fx).textContent).toContain('La aprobaste tú: la paga otra persona.');
+    });
+
+    it('las hojas que esperan a la zona o a finanzas se dicen arriba, y no son renglones con acción', () => {
+      const abierta: HojaAbierta = { zona: 'morelia', nombre: 'Zona Morelia', desde: '2026-10-29', renglones: [RENGLON], total: 83981.89,
+        por_sucursal: [], por_clase: [], fuera: [], pagados_aparte: [], instruccion: null, datos_al: null };
+      const espera = HOJA({ estado: 'cerrada', aprobada_por: null, aprobada_por_nombre: null, aprobada_at: null });
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ abiertas: [abierta], cerradas: [espera] }))) });
+      fx.detectChanges();
+      const t = ventana(fx).textContent ?? '';
+      expect(t).toContain('Zona Morelia: hoja abierta con 1 pago');
+      expect(t).toContain('HG-3 (Zona Morelia, $83,981.89) espera la aprobación de finanzas');
+      expect(botonDe(fx, 'Pagar HG-3')).toBeNull();
+    });
+
+    it('NEGATIVA: si las hojas no se pueden leer se dice, y la reposición se ve igual', () => {
+      const fx = montar({ hojasDeGastos: vi.fn(() => throwError(() => ({ status: 404, error: {} }))) });
+      fx.detectChanges();
+      expect(ventana(fx).textContent).toContain('Las hojas de zona no se pudieron leer.');
+      // La reposición sigue con su propio estado (aquí, vacía), no con un error.
+      expect(ventana(fx).textContent).toContain('Nada por resolver');
+      expect(ventana(fx).textContent).not.toContain('No se pudo leer la reposición');
+    });
+
+    it('tres cifras y cada una dice en qué lista está; la aprobación queda en el pie, no se pierde', () => {
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS())) });
+      fx.detectChanges();
+      const kpis = ventana(fx).querySelector('.rp-kpis')!.textContent ?? '';
+      expect(kpis).toContain('Por resolver');
+      expect(kpis).toContain('en «Sin retiro»');
+      expect(kpis).not.toContain('Vincular con propuesta');
+      expect(ventana(fx).querySelector('.rp-universo')!.textContent).toContain('Nada espera firma ni se pagó antes de aprobarse.');
     });
   });
   // ── `[CGP-V.9]` Contar cero con confirmación explícita ───────────────────────────────────────

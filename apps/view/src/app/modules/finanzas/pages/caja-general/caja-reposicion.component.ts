@@ -10,9 +10,9 @@ import { InputTextModule } from 'primeng/inputtext';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import {
-  pagableConBilletesCaos, warehouseName,
-  type ReposicionDoc, type ReposicionGrupo, type ReposicionRetiro, type ReposicionSucursales, type ReposicionVinculo,
-  type AprobacionPago,
+  ZONAS_HOJA_GASTOS, pagableConBilletesCaos, warehouseName,
+  type HojaGastos, type HojasDeGastos, type ReposicionDoc, type ReposicionGrupo, type ReposicionRetiro,
+  type ReposicionSucursales, type ReposicionVinculo, type AprobacionPago,
 } from '@megadulces/contracts';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
@@ -20,6 +20,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../../shared/c
 import { SegmentedComponent, type SegOption } from '../../../../shared/components/segmented/segmented.component';
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { PermissionsService } from '../../../../core/services/permissions.service';
+import { AuthService } from '../../../../core/services/auth.service';
 import { CashLedgerService } from '../../cash-ledger.service';
 import { CaosService } from '../../caos.service';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
@@ -27,27 +28,33 @@ import { money, dmy } from '../finanzas-format';
 
 interface OpcionOrigen { label: string; value: string }
 
+/** Un renglón de la lista: lo que una sucursal pagó en un día, o una hoja de zona aprobada. */
+type Fila =
+  | { tipo: 'grupo'; clave: string; g: ReposicionGrupo }
+  | { tipo: 'hoja'; clave: string; h: HojaGastos };
+
 /**
- * ⭐ `[CGA-A.61]` **Reposición de sucursales**, dentro de Captura y arriba de la cola.
+ * ⭐ `[CGA-A.61]` **Reposición de sucursales**, en una ventana que abre la barra de Captura.
  *
- * Edgar, 2026-10-28: *«hagámoslo, pero desde una sola interfaz para tener más practicidad»*. La
- * maqueta ponía la reposición en una pestaña aparte y las correcciones vivían en Caja Fuerte: para
- * pasar CG-2026-00512 de un retiro a otro había que quitarlo en un movimiento de CAOS, ir al otro y
- * teclear folio y monto. Aquí está todo junto: qué documentos de Kepler tiene cada sucursal por día
- * de pago, de qué retiro salió cada peso, y las tres acciones —reponer lo que sigue en la cola,
- * confirmar la propuesta de vínculos, cambiar un vínculo de retiro— en la misma fila.
+ * Edgar, 2026-10-28: *«hagámoslo, pero desde una sola interfaz para tener más practicidad»*. Aquí está
+ * todo junto: qué documentos de Kepler tiene cada sucursal por día de pago, de qué retiro salió cada
+ * peso, y las acciones —reponer lo que sigue en la cola, confirmar la propuesta de vínculos, cambiar
+ * un vínculo de retiro y, desde `[CGA-A.65]`, pagar la hoja de zona aprobada— en la misma fila.
  *
- * Jerarquía (Q.5): primario = lo que falta por resolver (la cifra y el estado de cada fila);
- * secundario = total, CAOS y cajón; terciario = el detalle de documentos, plegado por fila.
+ * ⭐ `[CGA-A.65]` **La más sencilla, sin perder nada** (Edgar, 2026-10-29: *«hay que hacer la interfaz
+ * más sencilla del mundo pero sin perder atención al detalle o ignorar información»*). La auditoría
+ * encontró diez columnas, cinco cifras de tres universos distintos (la roja no estaba en la lista de
+ * abajo), el naranja en seis papeles, encabezados más fuertes que las cifras y un renglón de Morelia
+ * con dos instrucciones contrarias. Queda: cuatro columnas —quién, cuánto falta, qué sigue y el
+ * desglose al abrir la fila—, tres cifras cada una con su lista, una sola acción por renglón y el
+ * naranja sólo en ese botón. Nada se tiró: el total, lo de CAOS, lo del cajón y los documentos
+ * están en la segunda línea o en el desglose.
  *
- * ⭐ `[CGA-A.63]` **No pinta nada en la página.** Edgar, 2026-10-29: *«tiene que ser un módulo muy
- * pequeño. el 95% de la interfaz si no es el 100% tiene que ser el arqueo y los movimientos»*. La
- * tabla abre en una ventana (`app-side-peek` modo `window`: diez columnas no caben en un cajón) y
- * el botón que la abre lo pone la barra de Captura, con la misma pieza que «Tu jornada»; de aquí
- * sólo lee `resumen()` y llama `abrirVentana()`.
+ * Jerarquía (Q.5): primario = cuánto falta y qué sigue; secundario = quién, el día y el total;
+ * terciario = el desglose y los documentos, al abrir la fila.
  *
- * ⚠️ Quién hace qué lo vuelve a exigir el servidor: «Reponer» es el lote de siempre (gestionar la
- * caja); vincular y cambiar de retiro son sólo de superadmin (`[CGA-A.58]`, por rol fresco).
+ * ⚠️ Quién hace qué lo vuelve a exigir el servidor: «Reponer» y «Pagar» son de quien gestiona la caja;
+ * vincular y cambiar de retiro, de superadmin (`[CGA-A.58]`); y quien aprobó una hoja no la paga.
  */
 @Component({
   selector: 'app-caja-reposicion',
@@ -58,19 +65,18 @@ interface OpcionOrigen { label: string; value: string }
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <!-- [CGA-A.63] Ventana y no cajón: con diez columnas el cajón de 520px parte cada fila en tres
-         renglones, y mientras se repone la cola pasa a segundo plano (la razón del modo window).
+    <!-- [CGA-A.63] Ventana y no cajón: mientras se repone, la cola pasa a segundo plano.
          Sin aboveModals: adentro hay p-select y se abre el p-dialog de cambiar de retiro. -->
-    <app-side-peek mode="window" [width]="1280" [open]="abierta()" (openChange)="$event ? null : cerrarVentana()"
+    <app-side-peek mode="window" [width]="1100" [open]="abierta()" (openChange)="$event ? null : cerrarVentana()"
                    title="Reposición" [subtitle]="subtitulo()">
     <div class="rp">
       <header class="rp-head">
         @if (datos(); as d) {
           <span class="rp-lead" aria-live="polite" aria-atomic="true">
-            @if (accionables().length) {
-              {{ accionables().length }} <span class="rp-lead-sub">{{ accionables().length === 1 ? 'se resuelve de un clic' : 'se resuelven de un clic' }}</span>
+            @if (nPorResolver()) {
+              {{ nPorResolver() }} <span class="rp-lead-sub">por resolver</span>
             } @else {
-              <span class="rp-lead-sub">Nada que resolver de un clic</span>
+              <span class="rp-lead-sub">Nada por resolver</span>
             }
           </span>
           @if (d.datos_al) {
@@ -87,7 +93,7 @@ interface OpcionOrigen { label: string; value: string }
         <span class="rp-sp"></span>
         @if (datos()) {
           <app-segmented [options]="opcionesVista()" [value]="vista()" (valueChange)="vista.set($any($event))"
-                         ariaLabel="Qué sucursales ver" />
+                         ariaLabel="Qué ver" />
         }
         <p-button icon="pi pi-refresh" size="small" severity="secondary" [text]="true" [loading]="cargando()"
                   ariaLabel="Volver a leer la reposición" (onClick)="cargar()"></p-button>
@@ -97,176 +103,237 @@ interface OpcionOrigen { label: string; value: string }
         <app-metric-strip class="rp-kpis" [items]="kpis()"></app-metric-strip>
       }
 
-      <app-load-state class="dt-scope" [loading]="cargando() && !datos()" [error]="error()" [isEmpty]="!visibles().length" [skeletonRows]="3"
+      <!-- Las hojas que esperan a OTRA persona (la zona o finanzas): se dicen aquí, no son trabajo de esta lista. -->
+      @if (enEspera().length || hojasNoLeidas()) {
+        <p class="rp-hojas" role="status">
+          <i class="pi pi-file-check" aria-hidden="true"></i>
+          <span>
+            @if (hojasNoLeidas()) { Las hojas de zona no se pudieron leer. }
+            @for (x of enEspera(); track x.clave) { {{ x.texto }}@if (!$last) { · } }
+          </span>
+          <a routerLink="/finanzas/hoja-gastos">Ver las hojas</a>
+        </p>
+      }
+
+      <app-load-state class="dt-scope" [loading]="cargando() && !datos()" [error]="error()" [isEmpty]="!filas().length" [skeletonRows]="3"
                       errorTitle="No se pudo leer la reposición" emptyIcon="pi-check-circle"
                       [emptyTitle]="textoVacio()"
                       [emptyHint]="pistaVacio()"
                       (retry)="cargar()">
-        <p-table [value]="visibles()" size="small" dataKey="clave" [expandedRowKeys]="abiertas()" class="rp-tbl dt-stack"
+        <p-table [value]="filas()" size="small" dataKey="clave" [expandedRowKeys]="abiertas()" class="rp-tbl dt-stack"
                  selectionMode="single" [metaKeySelection]="false" [selection]="filaActiva()"
                  (selectionChange)="filaActiva.set($any($event))">
           <ng-template #header>
             <tr>
               <th class="rp-col-tog"><span class="sr-only">Detalle</span></th>
               <th>Sucursal</th>
-              <th>Día de pago</th>
-              <th class="rp-col-sec">Documentos</th>
-              <th class="rp-num">Total Kepler</th>
-              <th class="rp-num rp-col-sec">De CAOS</th>
-              <th class="rp-num rp-col-sec">Del cajón</th>
-              <th class="rp-num">Por resolver</th>
-              <th>Estado</th>
+              <th class="rp-num-h">Por resolver</th>
               <th>Qué sigue</th>
             </tr>
           </ng-template>
-          <ng-template #body let-g let-expanded="expanded">
-            <tr [pSelectableRow]="g" (keydown.enter)="enterEnFila($event, g.clave)">
-              <td class="rp-col-tog dt-actions" data-label="Documentos" role="cell">
+          <ng-template #body let-f let-expanded="expanded">
+            <tr [pSelectableRow]="f" (keydown.enter)="enterEnFila($event, f.clave)">
+              <td class="rp-col-tog dt-actions" data-label="Detalle" role="cell">
                 <p-button type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" [text]="true" size="small"
-                          severity="secondary" [ariaLabel]="(expanded ? 'Ocultar' : 'Ver') + ' los documentos de ' + nombre(g.sucursal)"
-                          (onClick)="alternar(g.clave)"></p-button>
+                          severity="secondary" [ariaLabel]="(expanded ? 'Ocultar' : 'Ver') + ' el desglose de ' + quien(f)"
+                          (onClick)="alternar(f.clave)"></p-button>
               </td>
-              <td class="rp-strong dt-id" data-label="Sucursal" role="cell">{{ nombre(g.sucursal) }}</td>
-              <td class="rp-mono" data-label="Día de pago" role="cell">{{ dmy(g.fecha) }}</td>
-              <td class="rp-col-sec" data-label="Documentos" role="cell">{{ textoDocs(g) }}</td>
-              <td class="rp-num dt-num" data-label="Total Kepler" role="cell">{{ money(g.total) }}</td>
-              <td class="rp-num rp-dim rp-col-sec dt-num" data-label="De CAOS" role="cell">{{ money(g.caos) }}</td>
-              <td class="rp-num rp-dim rp-col-sec dt-num" data-label="Del cajón" role="cell">{{ money(g.cajon) }}</td>
-              <td class="rp-num dt-num" data-label="Por resolver" role="cell" [class.rp-falta]="porResolverDe(g) > 0">{{ porResolverDe(g) > 0 ? money(porResolverDe(g)) : '—' }}</td>
-              <td class="rp-tags rp-apila" data-label="Estado" role="cell">
-                <p-tag [severity]="g.estado === 'explicada' ? 'success' : 'warn'" [value]="textoEstado(g)"></p-tag>
-                @if (g.n_sin_aprobar) {
-                  <p-tag severity="danger" [value]="g.n_sin_aprobar + ' sin aprobar'"></p-tag>
-                }
-                @if (g.n_pagado_antes_de_aprobar) {
-                  <p-tag severity="warn" [value]="g.n_pagado_antes_de_aprobar + ' pagado antes de aprobar'"></p-tag>
-                }
-              </td>
-              <td class="rp-que rp-apila dt-actions" data-label="Qué sigue" role="cell">
-                @switch (g.estado) {
-                  @case ('por_capturar') {
-                    @if (puedeGestionar() && reponibles(g).length) {
+              @if (f.tipo === 'hoja') {
+                <td class="rp-quien dt-id" data-label="Sucursal" role="cell">
+                  <strong>{{ f.h.nombre_zona }} · {{ f.h.folio }}</strong>
+                  <small>{{ textoHoja(f.h) }}</small>
+                </td>
+                <td class="rp-cifra dt-num" data-label="Por resolver" role="cell">
+                  <strong>{{ money(f.h.total) }}</strong>
+                  <small>{{ f.h.estado === 'pagada' ? 'pagada' : 'aprobó ' + (f.h.aprobada_por_nombre ?? 'finanzas') }}</small>
+                </td>
+                <td class="rp-que dt-actions" data-label="Qué sigue" role="cell">
+                  @if (f.h.estado === 'aprobada') {
+                    @if (!puedeGestionar()) {
+                      <small class="fin-dim">La paga quien gestiona la caja, con un solo retiro de CAOS.</small>
+                    } @else if (f.h.aprobada_por === yo()) {
+                      <small class="fin-dim">La aprobaste tú: la paga otra persona.</small>
+                    } @else {
                       <div class="rp-accion">
-                        <p-select [options]="opcionesOrigen()" [ngModel]="eleccion(g)" (ngModelChange)="elegir(g, $event)"
-                                  optionLabel="label" optionValue="value" placeholder="¿De dónde sale?" size="small"
-                                  appendTo="body" class="rp-sel" [ariaLabel]="'De dónde sale el dinero de ' + nombre(g.sucursal)"></p-select>
-                        <p-button [label]="'Reponer ' + reponibles(g).length" icon="pi pi-check" size="small"
-                                  [disabled]="!eleccion(g) || !!ocupado()" [loading]="ocupado() === g.clave"
-                                  (onClick)="reponer(g)"></p-button>
+                        <p-select [options]="opcionesHoja(f.h)" [ngModel]="eleccionHoja(f.h)" (ngModelChange)="elegirHoja(f.h, $event)"
+                                  optionLabel="label" optionValue="value" placeholder="¿Con qué retiro?" size="small"
+                                  appendTo="body" class="rp-sel" [ariaLabel]="'Con qué se paga ' + f.h.folio"></p-select>
+                        <p-button [label]="'Pagar ' + f.h.folio" icon="pi pi-check" size="small"
+                                  [disabled]="!eleccionHoja(f.h) || !!ocupado()" [loading]="ocupado() === f.clave"
+                                  (onClick)="pagarHoja(f.h)"></p-button>
                       </div>
+                      <small class="fin-dim">{{ textoCuadreHoja(f.h) }}</small>
                     }
-                    @if (reponibles(g).length) {
-                      <!-- [CGA-A.65] Por hoja de zona el motor no sugiere: «saca $X de CAOS» por sucursal sería
-                           un retiro de sucursal, y la hoja se repone con UNO para Abastos y Madero. -->
-                      @if (g.por_hoja) {
-                        <small class="fin-dim">Se repone por hoja de zona, con un solo retiro para Abastos y Madero: se cierra, se aprueba y se paga en
-                          <a routerLink="/finanzas/hoja-gastos">Hoja de zona</a>.</small>
-                      } @else {
-                        <small class="fin-dim">{{ g.retiro_sugerido ? g.retiro_sugerido.razon
-                          : 'Saca ' + money(pagable(montoReponible(g))) + ' de CAOS; el retiro aparece aquí cuando se sincroniza.' }}</small>
+                  } @else {
+                    @if (puedeGestionar()) {
+                      <p-button [label]="'Capturar lo que falta (' + (f.h.pago?.sin_capturar ?? 0) + ')'" icon="pi pi-refresh" size="small"
+                                [disabled]="!!ocupado()" [loading]="ocupado() === f.clave" (onClick)="capturarHoja(f.h)"></p-button>
+                    }
+                    <small class="fin-dim">Pagada, pero {{ f.h.pago?.sin_capturar }} {{ f.h.pago?.sin_capturar === 1 ? 'pago no ha entrado' : 'pagos no han entrado' }} al libro (casi siempre, la cuenta del beneficiario).</small>
+                  }
+                </td>
+              } @else {
+                <td class="rp-quien dt-id" data-label="Sucursal" role="cell">
+                  <strong>{{ nombre(f.g.sucursal) }}</strong>
+                  <small>{{ dmy(f.g.fecha) }} · {{ textoDocs(f.g) }}</small>
+                </td>
+                <td class="rp-cifra dt-num" data-label="Por resolver" role="cell">
+                  <strong>{{ porResolverDe(f.g) > 0 ? money(porResolverDe(f.g)) : '—' }}</strong>
+                  <small>de {{ money(f.g.total) }}</small>
+                </td>
+                <td class="rp-que dt-actions" data-label="Qué sigue" role="cell">
+                  <span class="rp-tags">
+                    <p-tag severity="secondary" [value]="textoEstado(f.g)"></p-tag>
+                    @if (f.g.n_sin_aprobar) {
+                      <p-tag severity="danger" [value]="f.g.n_sin_aprobar + ' sin aprobar'"></p-tag>
+                    }
+                    @if (f.g.n_pagado_antes_de_aprobar) {
+                      <p-tag severity="secondary" [value]="f.g.n_pagado_antes_de_aprobar + ' pagado antes de aprobar'"></p-tag>
+                    }
+                  </span>
+                  @switch (f.g.estado) {
+                    @case ('por_capturar') {
+                      @if (puedeGestionar() && reponibles(f.g).length) {
+                        <div class="rp-accion">
+                          <p-select [options]="opcionesOrigen()" [ngModel]="eleccion(f.g)" (ngModelChange)="elegir(f.g, $event)"
+                                    optionLabel="label" optionValue="value" placeholder="¿De dónde sale?" size="small"
+                                    appendTo="body" class="rp-sel" [ariaLabel]="'De dónde sale el dinero de ' + nombre(f.g.sucursal)"></p-select>
+                          <p-button [label]="'Reponer ' + reponibles(f.g).length" icon="pi pi-check" size="small"
+                                    [disabled]="!eleccion(f.g) || !!ocupado()" [loading]="ocupado() === f.clave"
+                                    (onClick)="reponer(f.g)"></p-button>
+                        </div>
+                      }
+                      @if (reponibles(f.g).length) {
+                        <small class="fin-dim">{{ f.g.por_hoja ? textoZona
+                          : f.g.retiro_sugerido ? f.g.retiro_sugerido.razon
+                          : 'Saca ' + money(pagable(montoReponible(f.g))) + ' de CAOS; el retiro aparece aquí cuando se sincroniza.' }}</small>
                       }
                     }
-                  }
-                  @case ('sin_vincular') {
-                    @if (g.propuesta) {
-                      <p-button [label]="esSuperadmin() ? 'Revisar y vincular' : 'Ver la propuesta'" icon="pi pi-link" size="small"
-                                [severity]="esSuperadmin() ? undefined : 'secondary'" [outlined]="!expanded"
-                                (onClick)="abrir(g.clave)"></p-button>
-                    } @else if (g.por_hoja) {
-                      <!-- [CGA-A.65] «Sin retiro claro» sería falso: el retiro existe, es de la hoja y no del renglón. -->
-                      <small class="fin-dim">Se repone por hoja de zona (Abastos y Madero, un solo retiro): al pagar la hoja, sus pagos quedan ligados a su retiro, en
-                        <a routerLink="/finanzas/hoja-gastos">Hoja de zona</a>.</small>
-                    } @else {
-                      <small class="fin-dim">Sin retiro claro de esta sucursal y de estos días.</small>
+                    @case ('sin_vincular') {
+                      @if (f.g.propuesta) {
+                        <p-button [label]="esSuperadmin() ? 'Revisar y vincular' : 'Ver la propuesta'" icon="pi pi-link" size="small"
+                                  severity="secondary" [outlined]="true" (onClick)="abrir(f.clave)"></p-button>
+                      } @else if (f.g.por_hoja) {
+                        <!-- [CGA-A.65] «Sin retiro claro» sería falso: el retiro existe, es de las dos sucursales y no del renglón. -->
+                        <small class="fin-dim">{{ textoZona }}</small>
+                      } @else {
+                        <small class="fin-dim">Sin retiro claro de esta sucursal y de estos días.</small>
+                      }
+                    }
+                    @default {
+                      <small class="fin-dim">Nada pendiente.</small>
                     }
                   }
-                  @default {
-                    <small class="fin-dim">Nada pendiente.</small>
+                  @if (f.g.n_sin_aprobar) {
+                    <!-- [CGA-A.62] Sin aprobación no se repone: se firma en su pantalla y vuelve solo. -->
+                    <a class="rp-link" routerLink="/finanzas/aprobacion-gastos">
+                      <i class="pi pi-arrow-right" aria-hidden="true"></i>
+                      {{ f.g.n_sin_aprobar === 1 ? '1 gasto espera' : f.g.n_sin_aprobar + ' gastos esperan' }} firma o se rechazó: no se repone. Ir a Aprobación de gastos
+                    </a>
                   }
-                }
-                @if (g.n_sin_aprobar) {
-                  <!-- [CGA-A.62] Sin aprobación no se repone: se firma en su pantalla y vuelve solo. -->
-                  <a class="rp-link" routerLink="/finanzas/aprobacion-gastos">
-                    <i class="pi pi-arrow-right" aria-hidden="true"></i>
-                    {{ g.n_sin_aprobar === 1 ? '1 gasto espera' : g.n_sin_aprobar + ' gastos esperan' }} firma o se rechazó: no se repone. Ir a Aprobación de gastos
-                  </a>
-                }
-              </td>
+                </td>
+              }
             </tr>
           </ng-template>
-          <ng-template #expandedrow let-g>
+          <ng-template #expandedrow let-f>
             <tr>
-              <td colspan="10" class="rp-det" role="cell">
-                @if (g.propuesta; as p) {
-                  <div class="rp-prop" role="group" [attr.aria-label]="'Propuesta de vínculos para ' + nombre(g.sucursal)">
-                    <p class="rp-prop-t"><i class="pi pi-bolt" aria-hidden="true"></i> <strong>Propuesta del sistema</strong> <span class="fin-dim">— la confirma una persona</span></p>
-                    <p class="rp-razon">{{ p.razon }}.</p>
-                    <p-table [value]="p.asignaciones" size="small" class="rp-mini">
-                      <ng-template #header>
-                        <tr><th>Egreso</th><th>Documento</th><th>Retiro de CAOS</th><th class="rp-num">Monto</th></tr>
-                      </ng-template>
-                      <ng-template #body let-a>
-                        <tr>
-                          <td class="rp-mono dt-id" data-label="Egreso" role="cell">{{ a.cg_folio }}</td>
-                          <td class="rp-mono rp-dim" data-label="Documento" role="cell">{{ folioDoc(a.origen_ref) }}</td>
-                          <td data-label="Retiro de CAOS" role="cell"><span>«{{ a.ref ?? ('retiro ' + a.external_id) }}» <span class="rp-dim">· {{ a.external_id }}</span></span></td>
-                          <td class="rp-num dt-num" data-label="Monto" role="cell">{{ money(a.monto) }}</td>
-                        </tr>
-                      </ng-template>
-                    </p-table>
-                    <div class="rp-prop-pie">
-                      @if (esSuperadmin()) {
-                        <p-button [label]="'Confirmar ' + p.asignaciones.length + (p.asignaciones.length === 1 ? ' vínculo por ' : ' vínculos por ') + money(p.monto)"
-                                  icon="pi pi-check" size="small" [disabled]="!!ocupado()" [loading]="ocupado() === g.clave"
-                                  (onClick)="vincular(g)"></p-button>
-                        <small class="fin-dim">Se guardan todos o ninguno.@if (p.queda > 0) { Quedan {{ money(p.queda) }} sin retiro. }</small>
-                      } @else {
-                        <small class="fin-dim">Vincular es de superadmin: pídeselo a supervisión.</small>
-                      }
-                    </div>
-                  </div>
-                }
-                <p-table [value]="g.docs" size="small" class="rp-mini">
-                  <ng-template #header>
-                    <tr>
-                      <th>Documento de Kepler</th><th>Beneficiario</th><th>Clase</th><th>Aprobación</th><th>Egreso</th>
-                      <th>De dónde salió</th><th class="rp-num">Falta</th><th class="rp-num">Monto</th>
-                    </tr>
-                  </ng-template>
-                  <ng-template #body let-d>
-                    <tr>
-                      <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">{{ d.doc_tipo }} {{ d.folio }}
-                        @if (!d.en_kepler) { <p-tag severity="warn" value="ya no está en Kepler"></p-tag> }
-                      </td>
-                      <td data-label="Beneficiario" role="cell">{{ d.beneficiario ?? '—' }}</td>
-                      <td data-label="Clase" role="cell">{{ d.clase === 'nomina' ? 'Nómina' : 'Gasto' }}</td>
-                      <td class="rp-aprob rp-apila" data-label="Aprobación" role="cell">
-                        @if (d.aprobacion; as a) {
-                          <p-tag [severity]="severidadAprobacion(a)" [value]="etiquetaAprobacion(a)"></p-tag>
-                          @if (a.estado !== 'aprobado_antes') { <small class="rp-dim">{{ a.texto }}</small> }
+              <td colspan="4" class="rp-det" role="cell">
+                @if (f.tipo === 'hoja') {
+                  <p class="rp-desglose">
+                    Cerró {{ f.h.cerrada_por_nombre ?? 'sin nombre' }} · aprobó {{ f.h.aprobada_por_nombre ?? 'sin nombre' }} ·
+                    al pagarla, sus {{ f.h.renglones.length }} pagos quedan ligados a un solo retiro y se deposita el total en la cuenta de la zona.
+                  </p>
+                  <p-table [value]="f.h.renglones" size="small" class="rp-mini">
+                    <ng-template #header>
+                      <tr><th>Sucursal</th><th>Día de pago</th><th>Documento de Kepler</th><th>Beneficiario</th><th class="rp-num-h">Importe</th></tr>
+                    </ng-template>
+                    <ng-template #body let-r>
+                      <tr>
+                        <td data-label="Sucursal" role="cell">{{ nombre(r.sucursal) }}</td>
+                        <td class="rp-mono" data-label="Día de pago" role="cell">{{ dmy(r.fecha_pago) }}</td>
+                        <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">{{ r.doc_tipo }} {{ r.folio }}</td>
+                        <td data-label="Beneficiario" role="cell">{{ r.beneficiario ?? '—' }}</td>
+                        <td class="rp-num dt-num" data-label="Importe" role="cell">{{ money(r.importe) }}</td>
+                      </tr>
+                    </ng-template>
+                  </p-table>
+                } @else {
+                  <p class="rp-desglose">
+                    Kepler <span class="rp-mono">{{ money(f.g.total) }}</span> = de CAOS <span class="rp-mono">{{ money(f.g.caos) }}</span>
+                    + del cajón <span class="rp-mono">{{ money(f.g.cajon) }}</span>
+                    + por resolver <span class="rp-mono">{{ money(porResolverDe(f.g)) }}</span>
+                  </p>
+                  @if (f.g.propuesta; as p) {
+                    <div class="rp-prop" role="group" [attr.aria-label]="'Propuesta de vínculos para ' + nombre(f.g.sucursal)">
+                      <p class="rp-prop-t"><i class="pi pi-bolt" aria-hidden="true"></i> <strong>Propuesta del sistema</strong> <span class="fin-dim">— la confirma una persona</span></p>
+                      <p class="rp-razon">{{ p.razon }}.</p>
+                      <p-table [value]="p.asignaciones" size="small" class="rp-mini">
+                        <ng-template #header>
+                          <tr><th>Egreso</th><th>Documento</th><th>Retiro de CAOS</th><th class="rp-num-h">Monto</th></tr>
+                        </ng-template>
+                        <ng-template #body let-a>
+                          <tr>
+                            <td class="rp-mono dt-id" data-label="Egreso" role="cell">{{ a.cg_folio }}</td>
+                            <td class="rp-mono rp-dim" data-label="Documento" role="cell">{{ folioDoc(a.origen_ref) }}</td>
+                            <td data-label="Retiro de CAOS" role="cell"><span>«{{ a.ref ?? ('retiro ' + a.external_id) }}» <span class="rp-dim">· {{ a.external_id }}</span></span></td>
+                            <td class="rp-num dt-num" data-label="Monto" role="cell">{{ money(a.monto) }}</td>
+                          </tr>
+                        </ng-template>
+                      </p-table>
+                      <div class="rp-prop-pie">
+                        @if (esSuperadmin()) {
+                          <p-button [label]="'Confirmar ' + p.asignaciones.length + (p.asignaciones.length === 1 ? ' vínculo por ' : ' vínculos por ') + money(p.monto)"
+                                    icon="pi pi-check" size="small" [disabled]="!!ocupado()" [loading]="ocupado() === f.clave"
+                                    (onClick)="vincular(f.g)"></p-button>
+                          <small class="fin-dim">Se guardan todos o ninguno.@if (p.queda > 0) { Quedan {{ money(p.queda) }} sin retiro. }</small>
                         } @else {
-                          <span class="rp-dim">sin medir</span>
+                          <small class="fin-dim">Vincular es de superadmin: pídeselo a supervisión.</small>
                         }
-                      </td>
-                      <td class="rp-mono" data-label="Egreso" role="cell">{{ d.cg_folio ?? 'por capturar' }}</td>
-                      <td class="rp-apila" data-label="De dónde salió" role="cell">
-                        @for (v of d.vinculos; track v.link_id) {
-                          <div class="rp-vinc">
-                            <span>«{{ v.ref ?? ('retiro ' + v.external_id) }}» <span class="rp-mono">{{ money(v.monto) }}</span></span>
-                            @if (esSuperadmin()) {
-                              <p-button label="Cambiar retiro" icon="pi pi-arrow-right-arrow-left" size="small" severity="secondary"
-                                        [text]="true" [disabled]="!!ocupado()" (onClick)="abrirMover(v, d)"></p-button>
-                            }
-                          </div>
-                        } @empty {
-                          <span class="rp-dim">{{ textoOrigen(d) }}</span>
-                        }
-                      </td>
-                      <td class="rp-num dt-num" data-label="Falta" role="cell" [class.rp-falta]="d.estado === 'sin_vincular'">{{ d.falta > 0 ? money(d.falta) : '—' }}</td>
-                      <td class="rp-num dt-num" data-label="Monto" role="cell">{{ money(d.monto) }}</td>
-                    </tr>
-                  </ng-template>
-                </p-table>
+                      </div>
+                    </div>
+                  }
+                  <p-table [value]="f.g.docs" size="small" class="rp-mini">
+                    <ng-template #header>
+                      <tr>
+                        <th>Documento de Kepler</th><th>Beneficiario</th><th>Clase</th><th>Aprobación</th><th>Egreso</th>
+                        <th>De dónde salió</th><th class="rp-num-h">Falta</th><th class="rp-num-h">Monto</th>
+                      </tr>
+                    </ng-template>
+                    <ng-template #body let-d>
+                      <tr>
+                        <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">{{ d.doc_tipo }} {{ d.folio }}
+                          @if (!d.en_kepler) { <p-tag severity="warn" value="ya no está en Kepler"></p-tag> }
+                        </td>
+                        <td data-label="Beneficiario" role="cell">{{ d.beneficiario ?? '—' }}</td>
+                        <td data-label="Clase" role="cell">{{ d.clase === 'nomina' ? 'Nómina' : 'Gasto' }}</td>
+                        <td class="rp-aprob rp-apila" data-label="Aprobación" role="cell">
+                          @if (d.aprobacion; as a) {
+                            <p-tag [severity]="severidadAprobacion(a)" [value]="etiquetaAprobacion(a)"></p-tag>
+                            @if (a.estado !== 'aprobado_antes') { <small class="rp-dim">{{ a.texto }}</small> }
+                          } @else {
+                            <span class="rp-dim">sin medir</span>
+                          }
+                        </td>
+                        <td class="rp-mono" data-label="Egreso" role="cell">{{ d.cg_folio ?? 'por capturar' }}</td>
+                        <td class="rp-apila" data-label="De dónde salió" role="cell">
+                          @for (v of d.vinculos; track v.link_id) {
+                            <div class="rp-vinc">
+                              <span>«{{ v.ref ?? ('retiro ' + v.external_id) }}» <span class="rp-mono">{{ money(v.monto) }}</span></span>
+                              @if (esSuperadmin()) {
+                                <p-button label="Cambiar retiro" icon="pi pi-arrow-right-arrow-left" size="small" severity="secondary"
+                                          [text]="true" [disabled]="!!ocupado()" (onClick)="abrirMover(v, d)"></p-button>
+                              }
+                            </div>
+                          } @empty {
+                            <span class="rp-dim">{{ textoOrigen(d) }}</span>
+                          }
+                        </td>
+                        <td class="rp-num dt-num" data-label="Falta" role="cell" [class.rp-falta]="d.estado === 'sin_vincular'">{{ d.falta > 0 ? money(d.falta) : '—' }}</td>
+                        <td class="rp-num dt-num" data-label="Monto" role="cell">{{ money(d.monto) }}</td>
+                      </tr>
+                    </ng-template>
+                  </p-table>
+                }
               </td>
             </tr>
           </ng-template>
@@ -275,9 +342,13 @@ interface OpcionOrigen { label: string; value: string }
 
       @if (datos(); as d) {
         <p class="rp-universo fin-dim">
+          @for (z of d.universo.en_hoja ?? []; track z.zona) {
+            {{ nombreZona(z.zona) }}: {{ z.n }} {{ z.n === 1 ? 'pago' : 'pagos' }} de estos días ({{ money(z.total) }}) van en su hoja, no en esta lista.
+          }
           @if (d.universo.sin_documentos.length) {
             Sin documentos de caja en estos días: {{ nombres(d.universo.sin_documentos) }}.
           }
+          {{ textoAprobacion() }}
           Oficinas no se repone: Caja General paga directo lo suyo.
         </p>
       }
@@ -311,18 +382,19 @@ interface OpcionOrigen { label: string; value: string }
     /* [CGA-A.63] Sin container-type: lo único que pinta es la ventana, y las consultas de la tabla
        ya miden su propia caja (el dt-scope de app-load-state). */
     :host { display:block; }
-    /* #9: en angosto se van las tres columnas secundarias (Q.5); el detalle plegado las repite
-       documento por documento, así que nada queda inalcanzable. */
-    @container (max-width: 56rem) {
-      .rp-col-sec { display:none; }
-    }
-    /* En teléfono la tabla se apila (dt-stack) y el apilado ALCANZA a las dos tablas del detalle:
-       viven adentro, así que también pierden su encabezado; por eso todas sus celdas llevan
-       data-label. Las celdas con varias piezas (estado, qué sigue, aprobación, de dónde salió) van
-       en columna: en renglón se aprietan y lo que no cabe se corta, porque el apilado no desplaza. */
+    /* En teléfono la tabla se apila (dt-stack) y el apilado ALCANZA a las tablas del desglose: viven
+       adentro, así que también pierden su encabezado; por eso todas sus celdas llevan data-label. */
     @container densetable (max-width: 34rem) {
       .rp-apila { flex-direction:column; align-items:flex-start; }
       .rp-col-tog { width:auto; }
+      .rp-cifra { text-align:left; }
+    }
+    /* Encabezado de columna: --fs-micro, mayúsculas y atenuado (DESIGN.md, escala tipográfica). Antes
+       heredaba el tamaño del cuerpo y en negritas: pesaba más que las cifras que nombra. */
+    :host ::ng-deep .rp-tbl .p-datatable-thead > tr > th,
+    :host ::ng-deep .rp-mini .p-datatable-thead > tr > th {
+      font-family:var(--font-body); font-size:var(--fs-micro); font-weight:700; text-transform:uppercase;
+      letter-spacing:.06em; color:var(--text-muted);
     }
     .rp-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); margin-bottom:var(--sp-2); }
     .rp-sp { flex:1 1 auto; }
@@ -330,17 +402,26 @@ interface OpcionOrigen { label: string; value: string }
     .rp-lead-sub { font-family:var(--font-body); font-weight:400; color:var(--text-muted); }
     .rp-warn { color:var(--warn-soft-fg); font-size:var(--fs-xs); }
     .rp-kpis { display:block; margin-bottom:var(--sp-2); }
+    .rp-hojas { display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); margin:0 0 var(--sp-2);
+                font-size:var(--fs-sm); color:var(--fg-2); }
+    .rp-num-h { text-align:right; }
     .rp-num { text-align:right; font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .rp-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
-    .rp-strong { font-weight:600; color:var(--fg-1); }
+    /* Dos líneas por celda: lo que importa arriba, su contexto abajo (Q.5 por tamaño y contraste, sin color). */
+    .rp-quien, .rp-cifra { vertical-align:top; }
+    .rp-quien strong { display:block; font-weight:600; color:var(--fg-1); }
+    .rp-quien small, .rp-cifra small { display:block; font-size:var(--fs-xs); color:var(--text-muted); }
+    .rp-cifra { text-align:right; white-space:nowrap; }
+    .rp-cifra strong { display:block; font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--fs-md); font-weight:700; color:var(--fg-1); }
     .rp-dim { color:var(--text-muted); }
-    .rp-falta { color:var(--warn-soft-fg); font-weight:600; }
+    .rp-falta { font-weight:600; color:var(--fg-1); }
     .rp-col-tog { width:2.5rem; }
-    .rp-que { min-width:16rem; }
-    .rp-que small { display:block; margin-top:var(--sp-1); max-width:28rem; }
-    .rp-accion { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); }
+    .rp-que { min-width:18rem; }
+    .rp-que small { display:block; margin-top:var(--sp-1); max-width:30rem; }
+    .rp-accion { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); margin-top:var(--sp-1); }
     .rp-sel { min-width:14rem; }
     .rp-det { background:var(--surface-2); padding:var(--sp-3); }
+    .rp-desglose { margin:0 0 var(--sp-2); color:var(--fg-2); }
     .rp-prop { border:1px solid var(--border-color); border-radius:var(--r-md, 8px); padding:var(--sp-3); margin-bottom:var(--sp-3);
                display:flex; flex-direction:column; gap:var(--sp-2); }
     .rp-prop-t { margin:0; }
@@ -364,11 +445,12 @@ export class CajaReposicionComponent implements OnInit {
   private readonly api = inject(CashLedgerService);
   private readonly caos = inject(CaosService);
   private readonly perms = inject(PermissionsService);
+  private readonly auth = inject(AuthService);
   // El p-toast lo pone Captura (providers: [MessageService]): este componente vive adentro.
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
-  /** Reponer es el lote de la cola: lo puede quien gestiona la caja. */
+  /** Reponer es el lote de la cola, y pagar una hoja, su retiro: lo puede quien gestiona la caja. */
   readonly puedeGestionar = input(false);
   /** El libro y la cola cambiaron: Captura los vuelve a leer. */
   readonly cambio = output<void>();
@@ -376,10 +458,19 @@ export class CajaReposicionComponent implements OnInit {
   readonly money = money;
   readonly dmy = dmy;
   readonly pagable = pagableConBilletesCaos;
+  /**
+   * `[CGA-A.65]` Abastos y Madero: el motor no les propone retiro por sucursal (la hoja en papel los
+   * juntaba, y por día les daba el retiro de otra hoja). Lo que espera su hoja de la Suite ya no está
+   * en esta lista; lo que queda (antes de la hoja, nómina, compras) lo elige una persona.
+   */
+  readonly textoZona = 'Se repone por hoja de zona: Abastos y Madero con un solo retiro. El motor no propone uno por sucursal; elige el de su hoja.';
 
   readonly datos = signal<ReposicionSucursales | null>(null);
   readonly cargando = signal(false);
   readonly error = signal<string | null>(null);
+  /** `[CGA-A.65]` Las hojas de zona. `null` + `hojasNoLeidas` = no se pudo leer: se dice, no se pinta vacío. */
+  readonly hojas = signal<HojasDeGastos | null>(null);
+  readonly hojasNoLeidas = signal(false);
   /** `[CGA-A.63]` La ventana de la reposición; la abre el botón de la barra de Captura. */
   readonly abierta = signal(false);
   /** El botón que la abrió: al cerrar, el foco vuelve ahí y no al `<body>`. */
@@ -392,32 +483,56 @@ export class CajaReposicionComponent implements OnInit {
    */
   readonly vista = signal<'resolver' | 'sin_retiro' | 'explicadas'>('resolver');
   readonly abiertas = signal<Record<string, boolean>>({});
-  /** D.7: la fila con el foco de teclado (flechas por `pSelectableRow`; Enter abre su detalle). */
-  readonly filaActiva = signal<ReposicionGrupo | null>(null);
-  /** Lo que está escribiendo (idempotencia visual): la clave del grupo, o `'mover'`. */
+  /** D.7: la fila con el foco de teclado (flechas por `pSelectableRow`; Enter abre su desglose). */
+  readonly filaActiva = signal<Fila | null>(null);
+  /** Lo que está escribiendo (idempotencia visual): la clave de la fila, o `'mover'`. */
   readonly ocupado = signal<string | null>(null);
   private readonly elegidos = signal<Record<string, string>>({});
+  private readonly elegidosHoja = signal<Record<string, string>>({});
   readonly mover = signal<{ vinculo: ReposicionVinculo; folio: string } | null>(null);
   destinoMover: string | null = null;
   motivoMover = '';
 
   readonly esSuperadmin = computed(() => this.perms.isSuperadmin());
+  readonly yo = computed(() => this.auth.user()?.sub ?? null);
   readonly grupos = computed(() => this.datos()?.grupos ?? []);
-  /** Se resuelven de un clic: lo que sigue en la cola, o egresos con propuesta de retiro. */
+  /** Se resuelven en la fila: lo que sigue en la cola, o egresos con propuesta de retiro. */
   readonly accionables = computed(() => this.grupos().filter((g) => g.estado === 'por_capturar' || g.n_sin_aprobar > 0
     || (g.estado === 'sin_vincular' && !!g.propuesta)));
   /** Egresos que ningún retiro de su sucursal y de esos días explica. */
   readonly sinRetiro = computed(() => this.grupos().filter((g) => g.estado === 'sin_vincular' && !g.propuesta));
   readonly explicadas = computed(() => this.grupos().filter((g) => g.estado === 'explicada'));
-  readonly visibles = computed(() => {
+  /** `[CGA-A.65]` Las hojas que paga Caja General: aprobadas, o pagadas con renglones que no entraron al libro. */
+  readonly hojasPorPagar = computed(() => (this.hojas()?.cerradas ?? [])
+    .filter((h) => h.estado === 'aprobada' || (h.estado === 'pagada' && (h.pago?.sin_capturar ?? 0) > 0)));
+  readonly nPorResolver = computed(() => this.accionables().length + this.hojasPorPagar().length);
+
+  readonly filas = computed<Fila[]>(() => {
     const v = this.vista();
-    return v === 'sin_retiro' ? this.sinRetiro() : v === 'explicadas' ? this.explicadas() : this.accionables();
+    const deGrupo = (gs: ReposicionGrupo[]): Fila[] => gs.map((g) => ({ tipo: 'grupo' as const, clave: g.clave, g }));
+    if (v === 'sin_retiro') return deGrupo(this.sinRetiro());
+    if (v === 'explicadas') return deGrupo(this.explicadas());
+    return [...this.hojasPorPagar().map((h) => ({ tipo: 'hoja' as const, clave: `hoja|${h.id}`, h })), ...deGrupo(this.accionables())];
   });
   readonly opcionesVista = computed<SegOption[]>(() => [
-    { label: 'Por resolver', value: 'resolver', count: this.accionables().length },
+    { label: 'Por resolver', value: 'resolver', count: this.nPorResolver() },
     { label: 'Sin retiro', value: 'sin_retiro', count: this.sinRetiro().length },
     { label: 'Explicadas', value: 'explicadas', count: this.explicadas().length },
   ]);
+
+  /** `[CGA-A.65]` Las hojas que esperan a otra persona —la zona o finanzas—, en una línea cada una. */
+  readonly enEspera = computed<Array<{ clave: string; texto: string }>>(() => {
+    const h = this.hojas();
+    if (!h) return [];
+    const abiertas = h.abiertas.filter((a) => a.renglones.length).map((a) => ({
+      clave: `a|${a.zona}`,
+      texto: `${a.nombre}: hoja abierta con ${a.renglones.length} ${a.renglones.length === 1 ? 'pago' : 'pagos'} (${money(a.total)}), la cierra la zona`,
+    }));
+    const cerradas = h.cerradas.filter((c) => c.estado === 'cerrada').map((c) => ({
+      clave: `c|${c.id}`, texto: `${c.folio} (${c.nombre_zona}, ${money(c.total)}) espera la aprobación de finanzas`,
+    }));
+    return [...abiertas, ...cerradas];
+  });
 
   /**
    * `[CGA-A.63]` Lo que dice el botón de la barra sin abrir nada: las mismas cuentas que los
@@ -430,7 +545,7 @@ export class CajaReposicionComponent implements OnInit {
     if (!d) return this.error() ? 'no se pudo leer' : 'leyendo…';
     if (!d.datos_al) return 'Kepler sin medir';
     const partes: string[] = [];
-    if (this.accionables().length) partes.push(`${this.accionables().length} por resolver`);
+    if (this.nPorResolver()) partes.push(`${this.nPorResolver()} por resolver`);
     if (this.sinRetiro().length) partes.push(`${this.sinRetiro().length} sin retiro`);
     if (!d.caos_al) partes.push('CAOS sin medir');
     return partes.length ? partes.join(' · ') : 'nada pendiente';
@@ -441,34 +556,40 @@ export class CajaReposicionComponent implements OnInit {
     return d ? `de sucursales · pago del ${dmy(d.desde)} al ${dmy(d.hasta)}` : 'de sucursales';
   });
 
+  /**
+   * Tres cifras, y cada una dice de qué lista es: la auditoría encontró cinco de tres universos, y la
+   * roja ($121,992.87 el 29/10) no estaba en la lista de abajo. La aprobación y lo que espera su hoja
+   * no se perdieron: van en el renglón y en el pie.
+   */
   readonly kpis = computed<MetricStripItem[]>(() => {
-    const acc = this.accionables();
-    const conPropuesta = acc.reduce((a, g) => a + (g.propuesta ? g.sin_vincular : 0), 0);
-    const porCapturar = acc.reduce((a, g) => a + g.por_capturar, 0);
-    const nCapturar = acc.reduce((a, g) => a + g.n_por_capturar, 0);
+    const porResolver = Math.round((this.accionables().reduce((a, g) => a + this.porResolverDe(g), 0)
+      + this.hojasPorPagar().filter((h) => h.estado === 'aprobada').reduce((a, h) => a + h.total, 0)) * 100) / 100;
     const sinRetiro = this.sinRetiro().reduce((a, g) => a + g.sin_vincular, 0);
     const cajon = this.grupos().reduce((a, g) => a + g.cajon, 0);
-    const sinAprobar = this.grupos().reduce((a, g) => a + g.n_sin_aprobar, 0);
-    const pagadoAntes = this.grupos().reduce((a, g) => a + g.n_pagado_antes_de_aprobar, 0);
+    const n = this.nPorResolver();
+    const m = this.sinRetiro().length;
     return [
-      { label: 'Vincular con propuesta', value: conPropuesta, format: 'currency2', tone: conPropuesta > 0 ? 'warn' : 'ok',
-        sub: 'egresos con su retiro ya identificado' },
-      { label: 'Por capturar', value: porCapturar, format: 'currency2', tone: porCapturar > 0 ? 'warn' : undefined,
-        sub: `${nCapturar} ${nCapturar === 1 ? 'documento sigue' : 'documentos siguen'} en la cola` },
+      { label: 'Por resolver', value: porResolver, format: 'currency2', tone: 'default',
+        sub: `${n} ${n === 1 ? 'renglón' : 'renglones'} en «Por resolver», cada uno con su acción` },
       { label: 'Sin retiro que lo explique', value: sinRetiro, format: 'currency2', tone: sinRetiro > 0 ? 'bad' : 'ok',
-        sub: 'de dónde salió ese dinero no lo dice CAOS' },
-      // `[CGA-A.62]` La aprobación: lo que no se repone y lo que se pagó antes de firmarse.
-      { label: 'Sin aprobar', value: sinAprobar, format: 'number', tone: sinAprobar > 0 ? 'bad' : 'ok',
-        sub: `${pagadoAntes} ${pagadoAntes === 1 ? 'pagado' : 'pagados'} antes de aprobarse` },
-      { label: 'Del cajón', value: cajon, format: 'currency2', sub: 'lo que CAOS no dio, en la ventana' },
+        sub: `${m} ${m === 1 ? 'sucursal-día' : 'sucursales-día'} en «Sin retiro»: CAOS no dice de dónde salió` },
+      { label: 'Del cajón', value: cajon, format: 'currency2', tone: 'muted', sub: 'lo que CAOS no dio, en estos días' },
     ];
+  });
+
+  /** `[CGA-A.62]` La aprobación de los días de la ventana, en una frase: antes era una cifra en cero. */
+  readonly textoAprobacion = computed(() => {
+    const sinAprobar = this.grupos().reduce((a, g) => a + g.n_sin_aprobar, 0);
+    const antes = this.grupos().reduce((a, g) => a + g.n_pagado_antes_de_aprobar, 0);
+    if (!sinAprobar && !antes) return 'Nada espera firma ni se pagó antes de aprobarse.';
+    return `${sinAprobar} ${sinAprobar === 1 ? 'gasto espera' : 'gastos esperan'} firma o se rechazó; ${antes} ${antes === 1 ? 'se pagó' : 'se pagaron'} antes de aprobarse.`;
   });
 
   readonly textoVacio = computed(() => {
     const v = this.vista();
     if (v === 'sin_retiro') return 'Todos los egresos de sucursal tienen su retiro';
     if (v === 'explicadas') return 'Ninguna sucursal está explicada todavía en estos días';
-    return 'Nada que resolver de un clic';
+    return 'Nada por resolver';
   });
   readonly pistaVacio = computed(() => {
     if (this.vista() !== 'resolver') return 'Cambia de filtro arriba para ver las demás.';
@@ -502,6 +623,11 @@ export class CajaReposicionComponent implements OnInit {
       next: (d) => { this.datos.set(d); this.cargando.set(false); },
       error: (e) => { this.error.set(this.textoError(e)); this.cargando.set(false); },
     });
+    // `[CGA-A.65]` Las hojas van aparte: si no se pueden leer, la reposición se ve igual y se dice.
+    this.api.hojasDeGastos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (h) => { this.hojas.set(h); this.hojasNoLeidas.set(false); },
+      error: () => { this.hojas.set(null); this.hojasNoLeidas.set(true); },
+    });
   }
 
   /** Abre la ventana y RELEE: lo que la cola confirmó desde que se cargó ya no está por capturar. */
@@ -519,8 +645,10 @@ export class CajaReposicionComponent implements OnInit {
 
   nombre(sucursal: string): string { return warehouseName(sucursal); }
   nombres(sucursales: string[]): string { return sucursales.map((s) => warehouseName(s)).join(' · '); }
+  nombreZona(clave: string): string { return ZONAS_HOJA_GASTOS.find((z) => z.clave === clave)?.nombre ?? clave; }
   folioDoc(origenRef: string): string { const [, tipo, folio] = origenRef.split('|'); return `${tipo} ${folio}`; }
   porResolverDe(g: ReposicionGrupo): number { return Math.round((g.sin_vincular + g.por_capturar) * 100) / 100; }
+  quien(f: Fila): string { return f.tipo === 'hoja' ? f.h.folio : `${this.nombre(f.g.sucursal)} del ${dmy(f.g.fecha)}`; }
 
   /** `[CGA-A.62]` Lo que sigue en la cola y SÍ se puede reponer: lo que espera firma o se rechazó, no. */
   reponibles(g: ReposicionGrupo): ReposicionDoc[] {
@@ -562,11 +690,95 @@ export class CajaReposicionComponent implements OnInit {
     return d.origen_efectivo === 'cajon' ? 'Del cajón' : 'Cajón (menos de un billete)';
   }
 
+  // ── `[CGA-A.65]` La hoja de zona aprobada: un solo retiro para todos sus pagos ─────────────────
+
+  textoHoja(h: HojaGastos): string {
+    const sucursales = h.por_sucursal.filter((s) => s.renglones).map((s) => this.nombre(s.sucursal)).join(' y ');
+    return `venta del ${dmy(h.venta_del_dia)} · ${h.renglones.length} ${h.renglones.length === 1 ? 'pago' : 'pagos'} de ${sucursales}`;
+  }
+
+  opcionesHoja(h: HojaGastos): OpcionOrigen[] {
+    return [
+      ...h.retiros_que_cuadran.map((r) => ({
+        label: `«${r.ref ?? 'retiro ' + r.external_id}» · ${dmy(r.dia)} · ${money(r.total)} · cajón ${money(r.cajon)}`,
+        value: this.llave(r),
+      })),
+      { label: 'Del cajón entero (excepción, sin retiro)', value: 'cajon' },
+    ];
+  }
+
+  /** La propuesta ya elegida cuando UN solo retiro cuadra; con varios o ninguno, elige la persona. */
+  eleccionHoja(h: HojaGastos): string | null {
+    const elegido = this.elegidosHoja()[h.id];
+    if (elegido) return elegido;
+    return h.retiros_que_cuadran.length === 1 ? this.llave(h.retiros_que_cuadran[0]) : null;
+  }
+
+  elegirHoja(h: HojaGastos, valor: string | null): void {
+    this.elegidosHoja.update((e) => ({ ...e, [h.id]: valor ?? '' }));
+  }
+
+  textoCuadreHoja(h: HojaGastos): string {
+    const rs = h.retiros_que_cuadran;
+    if (rs.length === 1) return `Cuadra «${rs[0].ref ?? rs[0].external_id}» del ${dmy(rs[0].dia)}: sus ${h.renglones.length} pagos quedan ligados a ese retiro y el cajón pone ${money(rs[0].cajon)}.`;
+    if (rs.length > 1) return `${rs.length} retiros cuadran con la hoja: elige el suyo.`;
+    return `Ningún retiro libre cuadra: saca ${money(h.instruccion.retiro)} de CAOS (el cajón pone ${money(h.instruccion.cajon)}) y vuelve a leer.`;
+  }
+
+  pagarHoja(h: HojaGastos): void {
+    const e = this.eleccionHoja(h);
+    const clave = `hoja|${h.id}`;
+    if (!e || this.ocupado()) return;
+    const r = h.retiros_que_cuadran.find((x) => this.llave(x) === e);
+    if (e !== 'cajon' && !r) return;
+    this.ocupado.set(clave);
+    const body = r ? { medio: 'caos' as const, device: r.device, external_id: r.external_id } : { medio: 'cajon' as const };
+    this.api.pagarHojaDeGastos(h.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (x) => {
+        this.ocupado.set(null);
+        const faltan = x.sin_capturar.length;
+        this.toast.add({
+          severity: faltan ? 'warn' : 'success', summary: `${x.hoja.folio} pagada`,
+          detail: `${x.capturados + x.ligados} ${x.capturados + x.ligados === 1 ? 'pago quedó explicado' : 'pagos quedaron explicados'} por ${r ? 'el retiro' : 'el cajón'}.`
+            + (faltan ? ` ${faltan} sin capturar: ${x.sin_capturar[0].motivo ?? 'reintenta con «Capturar lo que falta»'}.` : ''),
+          life: 8000,
+        });
+        this.cargar();
+        this.cambio.emit();
+      },
+      error: (err) => {
+        this.ocupado.set(null);
+        this.toast.add({ severity: 'error', summary: `No se pagó ${h.folio}`, detail: this.textoError(err), life: 10000 });
+        this.cargar();
+      },
+    });
+  }
+
+  capturarHoja(h: HojaGastos): void {
+    const clave = `hoja|${h.id}`;
+    if (this.ocupado()) return;
+    this.ocupado.set(clave);
+    this.api.capturarHojaDeGastos(h.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (x) => {
+        this.ocupado.set(null);
+        const faltan = x.sin_capturar.length;
+        this.toast.add({ severity: faltan ? 'warn' : 'success', summary: `${x.hoja.folio}: ${x.capturados} ${x.capturados === 1 ? 'capturado' : 'capturados'}`,
+          detail: faltan ? `${faltan} todavía sin capturar: ${x.sin_capturar[0].motivo ?? 'revisa su cuenta contable'}.` : 'Todos sus pagos ya están en el libro.', life: 8000 });
+        this.cargar();
+        this.cambio.emit();
+      },
+      error: (err) => {
+        this.ocupado.set(null);
+        this.toast.add({ severity: 'error', summary: `No se capturó ${h.folio}`, detail: this.textoError(err), life: 10000 });
+      },
+    });
+  }
+
   alternar(clave: string): void {
     this.abiertas.update((a) => { const n = { ...a }; if (n[clave]) delete n[clave]; else n[clave] = true; return n; });
   }
 
-  /** Enter sobre la FILA abre su detalle; sobre un botón o un selector de adentro, no (ya hacen lo suyo). */
+  /** Enter sobre la FILA abre su desglose; sobre un botón o un selector de adentro, no (ya hacen lo suyo). */
   enterEnFila(ev: Event, clave: string): void {
     if (ev.target === ev.currentTarget) this.alternar(clave);
   }

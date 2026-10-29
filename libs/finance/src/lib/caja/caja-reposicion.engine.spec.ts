@@ -354,3 +354,48 @@ describe('[CGA-A.62] lo que no se aprobó antes no se propone ni se repone', () 
     expect(g.propuesta?.asignaciones).toHaveLength(1);
   });
 });
+
+describe('[CGA-A.65] lo que espera su hoja de zona no se repone por sucursal: se cuenta', () => {
+  // Desde el arranque de la hoja (29/10), un gasto de Morelia o de Canindo que todavía no sale de ningún
+  // lado se repone con su hoja, de un solo retiro. Ofrecerlo aquí sería ofrecer algo que el candado rechaza.
+  const sem = { desde: '2026-10-27', hasta: '2026-11-02' };
+  const con = (d: DocKepler, centro: string | null, referencia: string | null = null): DocKepler => ({ ...d, centro, referencia });
+  const ABASTOS = con(doc('08', '0000700', '2026-10-30', 3708, 'BOTANAS PAU'), '007');
+  const CANINDO = con(doc('06', '0000400', '2026-10-30', 500, 'BOTANAS PAU'), null);
+
+  it('un gasto de la hoja por capturar sale de la lista y se cuenta en el universo, por zona', () => {
+    const r = armarReposicion({ ...sem, docs: [ABASTOS, CANINDO], egresos: [], vinculos: [], retiros: [], apartarHojas: true });
+    expect(r.grupos).toEqual([]);
+    expect(r.universo.en_hoja).toEqual([{ zona: 'morelia', n: 1, total: 3708 }, { zona: 'canindo', n: 1, total: 500 }]);
+  });
+
+  it('capturado sin decir de dónde salió también espera su hoja (al pagarla se liga a su retiro)', () => {
+    const g = egreso('L1', 'CG-2026-00700', ABASTOS.origen_ref, 3708, '2026-10-30', null);
+    const r = armarReposicion({ ...sem, docs: [ABASTOS], egresos: [g], vinculos: [], retiros: [], apartarHojas: true });
+    expect(r.grupos).toEqual([]);
+    expect(r.universo.en_hoja).toEqual([{ zona: 'morelia', n: 1, total: 3708 }]);
+  });
+
+  it('NEGATIVA: lo que ya salió (ligado a un retiro o del cajón) se queda: es su historia', () => {
+    const g = egreso('L1', 'CG-2026-00571', ABASTOS.origen_ref, 3708, '2026-10-30', null);
+    const v = vinculo('k1', 'L1', 1706, 3708, 'gnf morelia');
+    const r = armarReposicion({ ...sem, docs: [ABASTOS], egresos: [g], vinculos: [v], retiros: [], apartarHojas: true });
+    expect(r.grupos.map((x) => x.clave)).toEqual(['2026-10-30|08']);
+    expect(r.universo.en_hoja).toEqual([]);
+  });
+
+  it('NEGATIVA: lo que no va en la hoja (nómina, compra registrada) y lo de antes del arranque se reponen como siempre', () => {
+    const nomina = con(doc('08', '0000701', '2026-10-30', 15739, 'NOMINA'), '009');
+    const compra = con(doc('08', '0000702', '2026-10-30', 12880, 'COCADAS'), '003', 'C-240');
+    const antes = con(doc('07', '0000300', '2026-10-28', 4956, 'BOTANAS PAU'), '007');
+    const r = armarReposicion({ ...sem, docs: [nomina, compra, antes], egresos: [], vinculos: [], retiros: [], apartarHojas: true });
+    expect(r.grupos.flatMap((x) => x.docs.map((d) => d.folio)).sort()).toEqual(['0000300', '0000701', '0000702']);
+    expect(r.universo.en_hoja).toEqual([]);
+  });
+
+  it('NEGATIVA (control): otra sucursal no se aparta, y sin apartarHojas nada se aparta', () => {
+    const ph = con(doc('01', '0000900', '2026-10-30', 800), '007');
+    expect(armarReposicion({ ...sem, docs: [ph], egresos: [], vinculos: [], retiros: [], apartarHojas: true }).grupos).toHaveLength(1);
+    expect(armarReposicion({ ...sem, docs: [ABASTOS], egresos: [], vinculos: [], retiros: [] }).grupos).toHaveLength(1);
+  });
+});

@@ -179,7 +179,14 @@ export interface ReposicionSucursales {
   datos_al: string | null;
   caos_al: string | null;
   /** El universo: qué sucursales se miraron y cuáles no tuvieron un solo documento en la ventana. */
-  universo: { sucursales: string[]; sin_documentos: string[]; excluidas: string[] };
+  universo: {
+    sucursales: string[]; sin_documentos: string[]; excluidas: string[];
+    /**
+     * `[CGA-A.65]` Lo que NO está en esta lista porque espera su hoja de zona (sin pagar todavía): se
+     * repone con la hoja, de un solo retiro. Se cuenta para que la lista no esconda nada.
+     */
+    en_hoja?: Array<{ zona: string; n: number; total: number }>;
+  };
 }
 
 /** `[CGA-A.61]` Varios vínculos de una vez (sólo superadmin): todo o nada. */
