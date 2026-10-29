@@ -75,3 +75,31 @@ export function textoCajasRenglon(r: Pick<RenglonOc, 'cantidad' | 'unidades_por_
   if (resto > 0) return restoTxt;
   return `${cj.toLocaleString('es-MX')} cj`;
 }
+
+/**
+ * `[PQ.32]` El pie de totales de una OC, con la MISMA fórmula que Kepler: renglones + IVA (`c14`) +
+ * IEPS (`c15`) = total (`c16`). Medido el 2026-10-29: cuadra en 2,550 de 2,767 OC de 90 días.
+ *
+ * Antes el PDF para el proveedor decía «Total» a la suma de renglones, sin impuestos: en la OC
+ * 00/0007259 eso era $24,996.30 contra los $26,996.00 que el proveedor factura.
+ *
+ * - Si IVA e IEPS cuadran con el total de Kepler, salen por separado (cada uno sólo si es > 0).
+ * - Si no cuadran o no se pudieron leer, NO se inventa el desglose: la diferencia entre el total de
+ *   Kepler y la suma de renglones sale en un renglón con su nombre, para que la tabla sume.
+ * El «Total» es siempre el del documento de Kepler.
+ */
+export interface RenglonTotal { etiqueta: string; monto: number; fuerte?: boolean }
+export function totalesOc(sumaRenglones: number, total: number, iva: number | null | undefined, ieps: number | null | undefined): RenglonTotal[] {
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const sub = r2(sumaRenglones);
+  const out: RenglonTotal[] = [{ etiqueta: 'Subtotal', monto: sub }];
+  const leidos = iva != null && ieps != null;
+  if (leidos && Math.abs(sub + Number(iva) + Number(ieps) - total) <= 1) {
+    if (Number(ieps) > 0) out.push({ etiqueta: 'IEPS', monto: r2(Number(ieps)) });
+    if (Number(iva) > 0) out.push({ etiqueta: 'IVA', monto: r2(Number(iva)) });
+  } else if (Math.abs(total - sub) > 0.005) {
+    out.push({ etiqueta: 'Impuestos y ajustes según Kepler', monto: r2(total - sub) });
+  }
+  out.push({ etiqueta: 'Total', monto: r2(total), fuerte: true });
+  return out;
+}

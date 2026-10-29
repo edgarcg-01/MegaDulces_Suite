@@ -106,6 +106,16 @@ export interface OcDetalleDto {
     proveedor: string | null; proveedor_rfc: string | null;
     condicion_pago: string | null; concepto: string | null; referencia: string | null;
     estatus_kepler: string; monto: number;
+    /**
+     * `[PQ.32]` Los impuestos del documento de Kepler (`kdm1.c14` IVA, `c15` IEPS). Con ellos,
+     * renglones + IVA + IEPS = total (`c16`): medido el 2026-10-29, cuadra en 2,550 de 2,767 OC.
+     * `null` = no se pudieron leer (se declara; nunca se pinta 0).
+     */
+    iva?: number | null;
+    ieps?: number | null;
+    /** `[PQ.32]` Dónde se entrega: la sucursal por NOMBRE y su dirección si está capturada. */
+    sucursal_nombre?: string | null;
+    sucursal_direccion?: string | null;
   };
   lineas: OcRenglonDto[];
   /** Recepciones del mismo proveedor y no anteriores a la orden: las que cuentan como surtido. */

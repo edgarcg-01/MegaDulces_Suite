@@ -3104,6 +3104,20 @@ export class CommercialReplenishmentService {
       const n = (v: unknown) => Number(v) || 0;
       const monto = n(d.monto);
       const recibido = validas.reduce((s, r) => s + r.monto, 0);
+      // `[PQ.32]` Los impuestos, del MISMO documento de Kepler (no se recalculan): renglones + c14 +
+      // c15 = c16. Sin ellos el PDF para el proveedor decía «Total» a la suma sin impuestos
+      // (OC 00/0007259: $24,996.30 contra $26,996.00 que es lo que se factura).
+      // ⚠️ La sucursal va ANTES: si la lectura de impuestos fallara, su `.catch` deja la transacción
+      // abortada en Postgres y cualquier consulta posterior reventaría.
+      const [alm] = (await trx('commercial.warehouses')
+        .where({ tenant_id: tenantId, kepler_code: k.sucursal }).whereNull('deleted_at')
+        .select('name', 'address').limit(1)) as Array<{ name: string | null; address: string | null }>;
+      const imp = (await trx.raw(
+        `SELECT NULLIF(regexp_replace(c14::text, '[^0-9.-]', '', 'g'), '')::numeric AS iva,
+                NULLIF(regexp_replace(c15::text, '[^0-9.-]', '', 'g'), '')::numeric AS ieps
+           FROM kepler_ods.kdm1
+          WHERE sucursal = ? AND c1 = ? AND c2 = 'X' AND c3 = 'A' AND btrim(c4::text) = '35' AND btrim(c6::text) = ?
+          LIMIT 1`, [k.sucursal, k.sucursal, k.folio]).catch(() => ({ rows: [] }))).rows[0] as { iva: unknown; ieps: unknown } | undefined;
       return {
         orden: {
           sucursal: String(d.sucursal).trim(), folio: String(d.folio).trim(),
@@ -3111,6 +3125,10 @@ export class CommercialReplenishmentService {
           proveedor: d.proveedor_nombre || d.proveedor_code || null, proveedor_rfc: d.proveedor_rfc || null,
           condicion_pago: d.condicion_pago || null, concepto: d.concepto || null, referencia: d.referencia || null,
           estatus_kepler: String(d.estatus ?? 'N'), monto,
+          iva: imp && imp.iva != null ? n(imp.iva) : null,
+          ieps: imp && imp.ieps != null ? n(imp.ieps) : null,
+          sucursal_nombre: alm?.name?.trim() || null,
+          sucursal_direccion: alm?.address?.trim() || null,
         },
         lineas: lineas.map((l) => ({
           linea: l.linea, sku: l.sku ? String(l.sku).trim() : null, nombre: l.nombre || null,

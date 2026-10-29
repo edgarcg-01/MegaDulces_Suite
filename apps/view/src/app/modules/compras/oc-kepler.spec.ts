@@ -1,4 +1,4 @@
-import { cajasDeRenglon, nombreArchivoOc, referenciaUtil, textoCajasRenglon } from './oc-kepler';
+import { cajasDeRenglon, nombreArchivoOc, referenciaUtil, textoCajasRenglon, totalesOc } from './oc-kepler';
 
 describe('[RA-PRO.61] cajasDeRenglon — sólo cuando el costo confirma la unidad', () => {
   it('el caso real: 900 PAQ, 20 por caja, costo 56 y caja 1,120 → 45 cajas', () => {
@@ -55,5 +55,29 @@ describe('[RA-PRO.61] textoCajasRenglon — el resto va en la unidad del rengló
   });
   it('sin verificar → null', () => {
     expect(textoCajasRenglon({ cantidad: 12, unidades_por_caja: 12, costo_unitario: 0.0008, costo_caja: 0.01, unidad: 'PAQ' })).toBeNull();
+  });
+});
+
+describe('[PQ.32] totalesOc — el total es el de Kepler, con sus impuestos', () => {
+  it('la OC 00/0007259: renglones $24,996.30 + IEPS $1,999.70 = $26,996.00 (lo que se factura)', () => {
+    expect(totalesOc(24996.3, 26996, 0, 1999.7)).toEqual([
+      { etiqueta: 'Subtotal', monto: 24996.3 },
+      { etiqueta: 'IEPS', monto: 1999.7 },
+      { etiqueta: 'Total', monto: 26996, fuerte: true },
+    ]);
+  });
+
+  it('sin impuestos, Subtotal = Total y no se pinta un IVA en cero', () => {
+    expect(totalesOc(1000, 1000, 0, 0).map((x) => x.etiqueta)).toEqual(['Subtotal', 'Total']);
+  });
+
+  it('NEGATIVA: si los impuestos no cuadran, no se inventa el desglose; la diferencia se nombra y la tabla suma', () => {
+    const t = totalesOc(1000, 1200, 50, 0);
+    expect(t.map((x) => x.etiqueta)).toEqual(['Subtotal', 'Impuestos y ajustes según Kepler', 'Total']);
+    expect(t[0].monto + t[1].monto).toBe(t[2].monto);
+  });
+
+  it('NEGATIVA: sin impuestos leídos, tampoco se dibuja un IVA en 0', () => {
+    expect(totalesOc(1000, 1160, null, null).map((x) => x.etiqueta)).toEqual(['Subtotal', 'Impuestos y ajustes según Kepler', 'Total']);
   });
 });
