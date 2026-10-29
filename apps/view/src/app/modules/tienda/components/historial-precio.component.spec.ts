@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import type { PriceHistoryResult, PriceHistoryRow } from '@megadulces/contracts';
 import { EtiquetasService, SearchHit } from '../etiquetas.service';
@@ -187,6 +187,21 @@ describe('[ETQ-HISTORIAL.3] HistorialPrecioComponent', () => {
     await buscarYElegir();
     expect(el().querySelector('p-table')).toBeTruthy();
     expect(el().textContent).not.toContain('aquí aparece todo su historial');
+  });
+
+  it('⭐ [H.3.2] «Imprimir etiqueta» manda el CÓDIGO del producto elegido a la etiquetera (estado del router)', async () => {
+    await montar();
+    await buscarYElegir();
+    const nav = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const btn = Array.from(el().querySelectorAll('button')).find((b) => b.textContent?.includes('Imprimir etiqueta'));
+    expect(btn).toBeTruthy();
+    (btn as HTMLButtonElement).click();
+    expect(nav).toHaveBeenCalledWith(['/tienda/etiquetas'], { state: { codes: ['99001'] } });
+  });
+
+  it('[H.3.2] sin producto elegido no hay botón de imprimir', async () => {
+    await montar();
+    expect(Array.from(el().querySelectorAll('button')).some((b) => b.textContent?.includes('Imprimir etiqueta'))).toBe(false);
   });
 
   afterEach(() => { document.body.querySelectorAll('.sp-root, .p-overlay').forEach((e) => e.remove()); document.body.style.overflow = ''; });

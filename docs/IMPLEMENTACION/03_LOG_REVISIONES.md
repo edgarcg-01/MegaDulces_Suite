@@ -286,6 +286,14 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+
+## 2026-10-28 — `[ETQ-HISTORIAL.5]` «Imprimir etiqueta» desde el historial de precios (H.3.2)
+
+**Qué:** en la cabecera del producto elegido en `/tienda/etiquetas/historial`, un botón **«Imprimir etiqueta»** que manda el código a la etiquetera por estado del router (`navigate(['/tienda/etiquetas'], { state: { codes: [sku] } })`): la misma vía de «Cambios de precio», donde `addBulk()` lo resuelve con el camino de siempre y se ve la hoja antes de gastar papel. No abre la impresión sola y no duplica la maquinaria.
+
+**Prueba:** 2 pruebas nuevas en `historial-precio.component.spec.ts` (el botón manda `codes: ['99001']`; sin producto elegido no hay botón). **Mutación** (`codes: []`) da rojo. `check:templates`, `check:tokens`, `check:wiring`, tipos sin errores; `check:pantalla` sin fallas nuevas (queda el aviso #9, preexistente).
+
+**NO medido:** el botón en un navegador real (sólo spec de DOM) y el flujo completo hasta la hoja de la etiquetera.
 ## 2026-10-28 — `[ETQ-CODIGO]` La etiqueta imprimió «Código: 207» en vez de «20750»
 
 **Reporte del mostrador:** «sólo está saliendo 3 números en el código en vez de los 5 dígitos que tiene cada código». Foto: la etiqueta de `CANELS GOMITAS TUENI 1.35 KG` con `Código: 207` pegado al panel de mayoreo.
