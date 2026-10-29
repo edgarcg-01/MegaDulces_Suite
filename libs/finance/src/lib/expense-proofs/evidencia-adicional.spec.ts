@@ -29,12 +29,12 @@ function montar(vale: Vale | undefined) {
   });
   // El nombre real del padrón no viaja en el token: el servicio lo busca. Acá se fija.
   vi.spyOn(svc as never, 'identidadConNombre' as never).mockImplementation((async (_t: unknown, q: { username?: string }) =>
-    ({ username: q.username, full_name: q.username === 'leonardo_cazares' ? 'LEONARDO CAZARES' : '' })) as never);
+    ({ username: q.username, full_name: q.username === 'capturista_demo' ? 'CAPTURISTA DEMO' : '' })) as never);
   return { svc, escrito };
 }
 
 const VALE = (over: Partial<Vale> = {}): Vale => ({
-  id: 'v1', status: 'validada', created_by: 'leonardo_cazares', evidencia_por: null,
+  id: 'v1', status: 'validada', created_by: 'capturista_demo', evidencia_por: null,
   files: [{ role: 'comprobante_1', url: 'k/comp.jpg' }], ...over,
 });
 const ARCH = [{ role: 'adicional', url: 'k/nueva.pdf', kind: 'pdf', motivo: 'lo manda el cliente', agregado_por: 'hacker' }];
@@ -43,7 +43,7 @@ const MOTIVO = 'Llegó la factura definitiva del proveedor';
 describe('[GX.87] agregarEvidenciaAdicional', () => {
   it('el dueño agrega: se SUMA al expediente, el estado no cambia y el porqué lo pone el servidor', async () => {
     const { svc, escrito } = montar(VALE());
-    const r = await svc.agregarEvidenciaAdicional('v1', { files: ARCH as never, motivo: MOTIVO }, { username: 'leonardo_cazares' }, false);
+    const r = await svc.agregarEvidenciaAdicional('v1', { files: ARCH as never, motivo: MOTIVO }, { username: 'capturista_demo' }, false);
     expect(r.agregados).toBe(1);
     // Devuelve el expediente COMPLETO y firmado: lo viejo y lo nuevo.
     expect(r.files.map((x) => x.url)).toEqual(['firmada:k/comp.jpg', 'firmada:k/nueva.pdf']);
@@ -51,7 +51,7 @@ describe('[GX.87] agregarEvidenciaAdicional', () => {
     expect(Object.keys(escrito[0]).sort()).toEqual(['files', 'updated_at']); // ni status ni validated_*
     const files = JSON.parse(String(escrito[0]['files']));
     expect(files[0]).toEqual({ role: 'comprobante_1', url: 'k/comp.jpg' }); // lo anterior intacto
-    expect(files[1]).toMatchObject({ role: 'adicional', url: 'k/nueva.pdf', kind: 'pdf', motivo: MOTIVO, agregado_por: 'LEONARDO CAZARES' });
+    expect(files[1]).toMatchObject({ role: 'adicional', url: 'k/nueva.pdf', kind: 'pdf', motivo: MOTIVO, agregado_por: 'CAPTURISTA DEMO' });
     expect(typeof files[1].agregado_at).toBe('string');
   });
 
@@ -64,20 +64,20 @@ describe('[GX.87] agregarEvidenciaAdicional', () => {
 
   it('quien aprueba sí, aunque el vale no sea suyo', async () => {
     const { svc, escrito } = montar(VALE());
-    await svc.agregarEvidenciaAdicional('v1', { files: ARCH as never, motivo: MOTIVO }, { username: 'maria_gutierrez' }, true);
+    await svc.agregarEvidenciaAdicional('v1', { files: ARCH as never, motivo: MOTIVO }, { username: 'aprobador_demo' }, true);
     expect(escrito).toHaveLength(1);
   });
 
   it('un vale rechazado no acepta evidencia', async () => {
     const { svc, escrito } = montar(VALE({ status: 'rechazada' }));
-    await expect(svc.agregarEvidenciaAdicional('v1', { files: ARCH as never, motivo: MOTIVO }, { username: 'leonardo_cazares' }, false))
+    await expect(svc.agregarEvidenciaAdicional('v1', { files: ARCH as never, motivo: MOTIVO }, { username: 'capturista_demo' }, false))
       .rejects.toBeInstanceOf(BadRequestException);
     expect(escrito).toHaveLength(0);
   });
 
   it('sin porqué no entra, y no toca la base', async () => {
     const { svc, escrito } = montar(VALE());
-    await expect(svc.agregarEvidenciaAdicional('v1', { files: ARCH as never, motivo: '  ' }, { username: 'leonardo_cazares' }, false))
+    await expect(svc.agregarEvidenciaAdicional('v1', { files: ARCH as never, motivo: '  ' }, { username: 'capturista_demo' }, false))
       .rejects.toThrow(/por qué/);
     expect(escrito).toHaveLength(0);
   });
@@ -85,7 +85,7 @@ describe('[GX.87] agregarEvidenciaAdicional', () => {
   it('un archivo con otro rol no se cuela por acá', async () => {
     const { svc } = montar(VALE());
     await expect(svc.agregarEvidenciaAdicional('v1', { files: [{ role: 'comprobante_1', url: 'k/x.jpg' }] as never, motivo: MOTIVO },
-      { username: 'leonardo_cazares' }, false)).rejects.toThrow(/no es evidencia adicional/);
+      { username: 'capturista_demo' }, false)).rejects.toThrow(/no es evidencia adicional/);
   });
 
   it('un vale que no existe da 404', async () => {
