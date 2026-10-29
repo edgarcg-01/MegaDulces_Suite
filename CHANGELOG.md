@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Added — Pagos: la pantalla ahora dice **por qué** hay que pagar cada cosa (PGP.36 / PGP.37, 2026-10-29)
+- Cada renglón del día trae su razón, en pesos: **«Gana $423,220 (6.34 %) si se paga antes del 29-oct»**. Y ahora **también hablan las que antes se callaban**: «deja pasar $X: se pasó la ventana» y «sin descuento medido en este proveedor».
+- ⭐ Eso último importa más de lo que parece: la pantalla sólo avisaba cuando convenía pagar, y con eso **se quedaba muda sobre $97.4M de los $139.6M** de deuda. Un silencio se lee como «aquí no hay nada que ganar».
+- El encabezado del día deja de ser sólo un total: dice **«captura $X · deja pasar $Y de pronto pago»**, que es lo que permite juzgar si el día está bien armado.
+- **«Proponer orden» ya mira el descuento**: lo que gana dinero sube, pero **dentro de su clase** — un compromiso financiero o un acreedor crítico no se posterga por ganar un descuento.
+- ⚠️ **Lo que el número no es:** el descuento sale de los pagos que **de hecho** lo obtuvieron con cada proveedor, no de una condición pactada — ese dato no existe en ningún sistema. Es una guía medida, no una promesa. Y «fuera de ventana» **no es «perdido»**: se puede seguir pidiendo.
+
 ### Fixed — Pagos: $2.5M que el Calendario mostraba como por pagar ya no se deben (PGP.35, 2026-10-29)
 - De los **$6,683,082.26** que la pantalla publicaba como deuda del día, **$2,506,811.31 en 11 pagos** apuntan a facturas que el **ERP ya no debe**: se pagaron por fuera o tienen nota de crédito. Marcarlas como pagadas fallaba, y eso se descubría al final del día, después de preparar, autorizar y firmar.
 - Ahora **el renglón lo dice donde se decide** («el ERP ya no debe esta factura: no se puede pagar»), el encabezado declara cuánto del total no es deuda viva, y el diálogo de «marcar pagados» avisa **antes** de apretar cuáles van a fallar.
