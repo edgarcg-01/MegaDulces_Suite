@@ -4674,9 +4674,94 @@ export class CommercialReplenishmentService {
             WHERE r.tenant_id = ? AND r.id = o.id AND o.oc IS NOT NULL AND r.estado = 'approved'`,
           [tenantId, tenantId]);
         if (n.rowCount) this.logger.log(`[PQ.25] ${n.rowCount} requisición(es) asociadas a su OC de Kepler`);
+
+        // `[PQ.26]` El traspaso que ya está en Kepler (U-D-40 con folio guardado) queda ordenado:
+        // su documento ES el folio que la Suite escribió. Antes había que abrir la ficha y teclear
+        // ese mismo folio en «Capturar el traspaso de Kepler».
+        const t = await trx.raw(
+          `UPDATE commercial.purchase_requisitions
+              SET estado = 'ordered', oc_sucursal = kepler_sucursal, oc_folio = kepler_folio,
+                  oc_capturada_at = now(), ordered_at = now(), updated_at = now()
+            WHERE tenant_id = ? AND estado = 'approved' AND source_type = 'branch'
+              AND kepler_folio IS NOT NULL AND oc_folio IS NULL`,
+          [tenantId]);
+        if (t.rowCount) this.logger.log(`[PQ.26] ${t.rowCount} traspaso(s) ordenados por su folio de Kepler`);
+
+        // `[PQ.26]` **La recepción la dice Kepler.** Una OC (X-A-35) se recibe cuando su vale
+        // (X-A-37) tiene orden de entrada (X-A-40): es el `cerrada` de `analytics.erp_purchase_orders`,
+        // el mismo decode que usa «Órdenes de compra (Kepler)», no uno nuevo. Medido el 2026-10-29:
+        // 13 requisiciones con OC, ninguna cerrada todavía (OC del 28-oct); control: 4 de 4 OC
+        // viejas de CEDIS salen cerradas. ~30 ms. Antes no había NINGUNA pantalla que marcara
+        // «recibida» (markReceived existe y nadie lo llama). Los renglones no llevan cantidad
+        // recibida: Kepler cierra la OC con la primera entrada y esa es su regla, no la nuestra.
+        const rec = await trx.raw(
+          `UPDATE commercial.purchase_requisitions r
+              SET estado = 'received', received_at = now(), updated_at = now()
+             FROM analytics.erp_purchase_orders o
+            WHERE r.tenant_id = ? AND r.estado = 'ordered' AND r.source_type = 'supplier'
+              AND r.oc_folio IS NOT NULL
+              AND o.tenant_id = r.tenant_id AND o.sucursal = r.oc_sucursal AND o.folio = r.oc_folio
+              AND o.cerrada`,
+          [tenantId]);
+        if (rec.rowCount) this.logger.log(`[PQ.26] ${rec.rowCount} requisición(es) recibidas según Kepler`);
       });
     } catch (e: unknown) {
       this.logger.warn(`[PQ.25] No se pudo asociar OC de Kepler: ${(e as Error)?.message}`);
+    }
+    void this.reintentarKepler(tenantId);
+  }
+
+  /**
+   * `[PQ.26]` **Lo que no salió a Kepler se reintenta solo.** Antes cada una pedía abrir la ficha y
+   * apretar «Reintentar»; casi todas fallaron por algo que ya se arregló (sucursal apagada,
+   * proveedor con clave vieja `[PQ.24]`). Sólo compras aprobadas desde el 2026-10-27 —cuando la
+   * escritura existe— y sin documento en Kepler. Una falla repetida (proveedor que de verdad no
+   * existe) no cuesta: el adapter rechaza antes de escribir. Cada requisición se intenta a lo más
+   * cada 30 min y cada lectura empuja a lo más 20, en serie y fuera de la petición.
+   *
+   * ⛔ **Freno contra el duplicado.** Mientras no salía, la gente hizo la OC A MANO en Kepler.
+   * Medido el 2026-10-29: de las 4 compras en cola, 3 ya tenían OC del mismo proveedor en la misma
+   * sucursal desde el día de la aprobación (RQ-2026-01578 → 01/0000975, -01579 → 06/0000198,
+   * -01563 → 08/0000232). Reintentar a ciegas las habría escrito dos veces. Si Kepler ya tiene un
+   * X-A-30/35 de ese proveedor (por clave o por nombre) en esa sucursal desde la aprobación, NO se
+   * empuja: se deja dicho en `kepler_error` cuál es, para que alguien confirme. Los traspasos no
+   * se reintentan solos: su escritura está apagada en todas las sucursales y no hay freno medido.
+   */
+  private readonly ultimoReintento = new Map<string, number>();
+  private async reintentarKepler(tenantId: string): Promise<void> {
+    if (!this.keplerSink) return;
+    try {
+      const ahora = Date.now();
+      const filas = (await this.tk.run(async (trx) => (await trx.raw(
+        `SELECT r.id, r.kepler_error,
+                (SELECT string_agg(CASE btrim(k.c4::text) WHEN '35' THEN 'OC ' ELSE 'requisición ' END
+                                   || btrim(k.c6) || ' del ' || to_char(k.c9::date, 'DD-MM'), ', ' ORDER BY k.c6)
+                   FROM kepler_ods.kdm1 k
+                  WHERE k.sucursal = w.kepler_code AND k.c2 = 'X' AND k.c3 = 'A' AND btrim(k.c4::text) IN ('30', '35')
+                    AND k.c9::date >= r.approved_at::date
+                    AND (btrim(k.c10) = s.code OR upper(btrim(k.c32)) = upper(s.name))) AS ya_en_kepler
+           FROM commercial.purchase_requisitions r
+           JOIN commercial.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
+           LEFT JOIN catalog.suppliers s ON s.tenant_id = r.tenant_id AND s.id = r.supplier_id
+          WHERE r.tenant_id = ? AND r.estado = 'approved' AND r.source_type = 'supplier'
+            AND r.kepler_folio IS NULL AND r.approved_at >= '2026-10-27'
+          ORDER BY r.approved_at LIMIT 200`, [tenantId])).rows)) as Array<{ id: string; kepler_error: string | null; ya_en_kepler: string | null }>;
+      const avisos = filas.filter((f) => f.ya_en_kepler)
+        .map((f) => ({ id: f.id, motivo: `No se reenvió: Kepler ya tiene ${f.ya_en_kepler} de este proveedor en esta sucursal, hecha fuera de la Suite. Si es ésta, no hay que hacer nada más; si no, reintenta desde la ficha.` }))
+        .filter((a) => a.motivo !== filas.find((f) => f.id === a.id)?.kepler_error);
+      if (avisos.length) {
+        await this.tk.run(async (trx) => {
+          for (const a of avisos) await trx('commercial.purchase_requisitions').where({ tenant_id: tenantId, id: a.id }).update({ kepler_error: a.motivo });
+        });
+      }
+      const ids = filas.filter((f) => !f.ya_en_kepler).map((f) => f.id)
+        .filter((id) => ahora - (this.ultimoReintento.get(id) ?? 0) > 30 * 60_000)
+        .slice(0, 20);
+      if (!ids.length) return;
+      for (const id of ids) this.ultimoReintento.set(id, ahora);
+      await this.empujarLoteAKepler(ids);
+    } catch (e: unknown) {
+      this.logger.warn(`[PQ.26] No se pudo reintentar el envío a Kepler: ${(e as Error)?.message}`);
     }
   }
 
@@ -4858,8 +4943,17 @@ export class CommercialReplenishmentService {
     if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
     const vig = await this.tk.run(async (trx) => (await this.vigenciaDeRequisiciones(trx, tenantId, [id])).get(id) ?? null);
     if (vig && vig.vigente === false) {
-      throw new BadRequestException(
-        `${vig.movidos} de ${vig.medibles} renglones ya no tienen el costo de hoy (${this.pesos(vig.monto_capturado)} capturados contra ${this.pesos(vig.monto_hoy)} actuales). Usa "Recalcular" y vuelve a aprobar.`);
+      // `[PQ.26]` D2 (Edgar, 2026-10-29): un costo que se movió poco se pone al día SOLO y se
+      // aprueba; sólo arriba de 5 % del monto se frena para que una persona lo vea. Antes
+      // cualquier movimiento frenaba y exigía abrir la ficha, «Recalcular» y volver a aprobar.
+      const antes = Number(vig.monto_capturado) || 0;
+      const cambio = antes > 0 ? Math.abs((Number(vig.monto_hoy) || 0) - antes) / antes : 1;
+      if (cambio > 0.05) {
+        throw new BadRequestException(
+          `${vig.movidos} de ${vig.medibles} renglones ya no tienen el costo de hoy (${this.pesos(vig.monto_capturado)} capturados contra ${this.pesos(vig.monto_hoy)} actuales, ${(cambio * 100).toFixed(1)} %). Arriba de 5 % no se aprueba sola: usa "Recalcular" y vuelve a aprobar.`);
+      }
+      await this.recalcularCostos(id);
+      this.logger.log(`[PQ.26] Requisición ${id}: costo puesto al día al aprobar (${(cambio * 100).toFixed(1)} %)`);
     }
     const r = await this.setEstado(id, 'pending_approval', 'approved');
     // `[KR.5]` El empuje cuelga de aprobar. `empujar:false` lo apaga para el lote (ver bulkEstado).
