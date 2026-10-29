@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
@@ -494,8 +494,14 @@ export class CommercialReplenishmentController {
   @ApiOperation({ summary: '[RQ.8] Crea TODAS las requisiciones de un «Armar» en UNA transacción, bajo un folio de lote RQ-LOTE-AAAA-NNNNN, y ata cada bajada a la compra que la originó (`link_to` = índice dentro del arreglo). O entran todas o no entra ninguna. Máx. 300.' })
   // `[RA-UX.1b]` 409 `LOTE_REPETIDO` si repite renglones de compra que la misma persona generó en
   // la última hora; `allow_duplicate: true` lo confirma a sabiendas.
-  createRequisitionBatch(@Body() dto: { requisitions?: CreateRequisitionDto[]; allow_duplicate?: boolean }): Promise<LoteRequisicionesCreado> {
-    return this.svc.createRequisitionBatch(dto);
+  // `[PQ.27]` D1: con AUTORIZAR (mapa fresco que deja RolesGuard en `req.user.permissions`), el lote
+  // se aprueba al generarse. Por clave exacta, como el guard: el god-mode no aprueba solo.
+  createRequisitionBatch(
+    @Body() dto: { requisitions?: CreateRequisitionDto[]; allow_duplicate?: boolean },
+    @Req() req: { user?: { permissions?: Record<string, boolean> } },
+  ): Promise<LoteRequisicionesCreado> {
+    const autoAprobar = req?.user?.permissions?.[Permission.COMPRAS_REQUISICIONES_AUTORIZAR] === true;
+    return this.svc.createRequisitionBatch(dto, { autoAprobar });
   }
 
   // `[RQ.12]` AUTORIZAR, no gestionar. Los tres endpoints que DECIDEN (aprobar, rechazar y el lote

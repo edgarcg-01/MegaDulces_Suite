@@ -162,6 +162,11 @@ export interface ReposicionGrupo {
   propuesta: ReposicionPropuesta | null;
   /** El retiro que el motor sugiere para «Reponer» lo que está por capturar. `null` = ninguno claro. */
   retiro_sugerido: { device: string; external_id: number; ref: string | null; libre: number; razon: string } | null;
+  /**
+   * `[CGA-A.65]` La sucursal se repone por HOJA DE ZONA (Morelia: Abastos y Madero en una hoja, con UN
+   * retiro). El motor no le propone ni le sugiere retiro: lo elige una persona.
+   */
+  por_hoja: boolean;
 }
 
 export interface ReposicionSucursales {

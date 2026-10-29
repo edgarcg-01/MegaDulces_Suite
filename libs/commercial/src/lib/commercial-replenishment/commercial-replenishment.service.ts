@@ -421,6 +421,20 @@ export interface LoteRequisicionesCreado {
   compras: number;
   traspasos: number;
   folios: string[];
+  /**
+   * `[PQ.27]` D1: si quien generó tiene `COMPRAS_REQUISICIONES_AUTORIZAR`, el lote se aprueba en el
+   * mismo acto y sale a Kepler después de contestar. `automatica: false` = quedó en la cola.
+   */
+  aprobacion?: {
+    automatica: boolean; aprobadas: number; fallas: Array<{ folio: string; motivo: string }>;
+    /**
+     * `[PQ.31]` De las aprobadas, los traspasos que NO van a salir porque la escritura de traspasos
+     * está apagada en su sucursal de origen. Sin esto la pantalla decía «en camino a Kepler» de
+     * algo que no va a ir (auditoría 2026-10-29: 0 de 9 sucursales con traspaso encendido).
+     * `null` = no se pudo medir.
+     */
+    traspasos_sin_escritura?: number | null;
+  };
 }
 
 export interface RequisitionListRowDto {
@@ -2926,6 +2940,11 @@ export class CommercialReplenishmentService {
            WHERE tenant_id = :t   -- la vista no tiene RLS: el tenant se filtra explícito
              AND doc_date >= CURRENT_DATE - 120
              AND NOT cerrada
+             -- [PQ.29] Una OC CANCELADA en Kepler (c43 = 'C', monto en $0) no está abierta: no
+             -- espera mercancía. Medido el 2026-10-29: 298 de las 447 que mostraba la bandeja
+             -- (67 %). El motor del pedido ya las sacaba (NOT IN ('F','C','R'), RA-PRO.45);
+             -- acá sólo C, porque F/R con vale vivo sí esperan su entrada.
+             AND estatus <> 'C'
              AND dias_abierta >= :mind
              -- [RA-PRO.60] alcance: la lista viaja como texto ('01,08') para no depender de cómo
              -- expande knex un arreglo en un raw con nombres. Vacía nunca llega (se corta antes).
@@ -2936,9 +2955,22 @@ export class CommercialReplenishmentService {
                -- El ERP manda sobre la curva: si él ya la dio por cerrada/cancelada, no llega nada.
                CASE WHEN oc.estatus IN ('F','C','R') THEN 0 ELSE round((sv.p * 100)::numeric, 1) END AS prob,
                oc.estado_cadena, oc.pendiente_en_erp,
+               -- [PQ.30] De qué requisición salió (PM, 2026-10-29: «no puedo ver el folio de su
+               -- requisición»). La de la Suite por su coordenada de OC (RQ.15); si la OC se hizo
+               -- en Kepler desde una requisición de Kepler, el folio de ésta (c36 A · c37 30 · c39).
+               rq.id AS requisicion_id, rq.folio AS requisicion_folio, NULLIF(btrim(kh.c39), '') AS requisicion_kepler,
                ${fuCols}
           FROM oc
           ${fuJoin}
+          LEFT JOIN LATERAL (
+            SELECT r.id, r.folio FROM commercial.purchase_requisitions r
+             WHERE r.tenant_id = :t AND r.oc_sucursal = oc.sucursal AND r.oc_folio = oc.folio
+             ORDER BY r.created_at LIMIT 1) rq ON true
+          LEFT JOIN LATERAL (
+            SELECT k.c39 FROM kepler_ods.kdm1 k
+             WHERE k.sucursal = oc.sucursal AND k.c2 = 'X' AND k.c3 = 'A' AND btrim(k.c4::text) = '35'
+               AND btrim(k.c6::text) = oc.folio AND k.c36 = 'A' AND btrim(k.c37::text) = '30'
+             LIMIT 1) kh ON true
           -- LEFT: si el importer todavía no escribió la curva, la bandeja igual lista las OCs
           -- (con prob NULL). Una pantalla de trabajo no se queda en blanco por eso.
           LEFT JOIN surv sv ON sv.edad = (CASE WHEN oc.dias <= 3 THEN 0 WHEN oc.dias <= 7 THEN 4
@@ -2950,7 +2982,9 @@ export class CommercialReplenishmentService {
               FROM analytics.erp_purchase_doc_lines l
              WHERE l.tenant_id = :t AND l.doctype='XA3501' AND l.sucursal=oc.sucursal AND l.folio=oc.folio) v ON true
          WHERE v.valor > 0
-         ORDER BY oc.dias DESC, v.valor DESC
+         -- [PQ.30] De la más nueva a la más vieja (PM, 2026-10-29): la orden que acaba de salir
+         -- es la que se busca; antes había que reordenar con un clic. El tope corta lo más viejo.
+         ORDER BY oc.fecha_oc DESC, oc.folio DESC
          LIMIT :tope`, {
         t: tenantId, mind: minDays, todas: alcance.todas, codigos: alcance.codigos.join(','), tope: TOPE_CONSULTA_OC,
       })).rows as Array<Record<string, unknown>>;
@@ -2970,6 +3004,9 @@ export class CommercialReplenishmentService {
         // "pendiente" (el que traduce eso a una clase es `clasificarOc`, en un solo lugar).
         estado_cadena: (r.estado_cadena as EstadoCadena) ?? null,
         pendiente_en_erp: r.pendiente_en_erp == null ? null : String(r.pendiente_en_erp) === 'true',
+        requisicion: r.requisicion_folio
+          ? { id: String(r.requisicion_id), folio: String(r.requisicion_folio), kepler: (r.requisicion_kepler as string) ?? null }
+          : r.requisicion_kepler ? { id: null, folio: null, kepler: String(r.requisicion_kepler) } : null,
         seguimiento: r.fu_estatus
           ? { estatus: r.fu_estatus as OcSeguimientoEstatus, nota: (r.fu_nota as string) ?? null,
               actualizado_por: (r.fu_por as string) ?? null, actualizado_en: new Date(r.fu_en as string).toISOString() }
@@ -3067,6 +3104,38 @@ export class CommercialReplenishmentService {
       const n = (v: unknown) => Number(v) || 0;
       const monto = n(d.monto);
       const recibido = validas.reduce((s, r) => s + r.monto, 0);
+      // `[PQ.32]` Los impuestos, del MISMO documento de Kepler (no se recalculan): renglones + c14 +
+      // c15 = c16. Sin ellos el PDF para el proveedor decía «Total» a la suma sin impuestos
+      // (OC 00/0007259: $24,996.30 contra $26,996.00 que es lo que se factura).
+      // ⚠️ La sucursal va ANTES: si la lectura de impuestos fallara, su `.catch` deja la transacción
+      // abortada en Postgres y cualquier consulta posterior reventaría.
+      const [alm] = (await trx('commercial.warehouses')
+        .where({ tenant_id: tenantId, kepler_code: k.sucursal }).whereNull('deleted_at')
+        .select('name', 'address').limit(1)) as Array<{ name: string | null; address: string | null }>;
+      // `[PQ.33]` Quién autorizó: la aprobación de la requisición de la Suite que dio esta OC.
+      const [aut] = (await trx('commercial.purchase_requisitions as r')
+        .leftJoin('identity.users as u', 'u.id', 'r.approved_by')
+        .where({ 'r.tenant_id': tenantId, 'r.oc_sucursal': k.sucursal, 'r.oc_folio': k.folio })
+        .whereNotNull('r.approved_at')
+        .select(trx.raw(`COALESCE(NULLIF(btrim(u.nombre), ''), u.username) AS nombre`), trx.raw(`to_char(r.approved_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS en`))
+        .orderBy('r.approved_at').limit(1)) as Array<{ nombre: string | null; en: string | null }>;
+      // ⚠️ Las lecturas de kepler_ods van al final: su `.catch` deja la transacción abortada.
+      const tasas = (await trx.raw(
+        `SELECT array_agg(DISTINCT NULLIF(regexp_replace(c17::text, '[^0-9.]', '', 'g'), '')::numeric) AS iva,
+                array_agg(DISTINCT NULLIF(regexp_replace(c18::text, '[^0-9.]', '', 'g'), '')::numeric) AS ieps
+           FROM kepler_ods.kdm2
+          WHERE sucursal = ? AND c1 = ? AND c2 = 'X' AND c3 = 'A' AND btrim(c4::text) = '35' AND btrim(c6::text) = ?`,
+        [k.sucursal, k.sucursal, k.folio]).catch(() => ({ rows: [] }))).rows[0] as { iva: unknown[] | null; ieps: unknown[] | null } | undefined;
+      const imp = (await trx.raw(
+        `SELECT NULLIF(regexp_replace(c14::text, '[^0-9.-]', '', 'g'), '')::numeric AS iva,
+                NULLIF(regexp_replace(c15::text, '[^0-9.-]', '', 'g'), '')::numeric AS ieps,
+                NULLIF(btrim(c7::text), '') AS moneda,
+                NULLIF(btrim(concat_ws(', ', NULLIF(btrim(c33), ''), NULLIF(btrim(c34), ''))), '') AS direccion
+           FROM kepler_ods.kdm1
+          WHERE sucursal = ? AND c1 = ? AND c2 = 'X' AND c3 = 'A' AND btrim(c4::text) = '35' AND btrim(c6::text) = ?
+          LIMIT 1`, [k.sucursal, k.sucursal, k.folio]).catch(() => ({ rows: [] }))).rows[0] as { iva: unknown; ieps: unknown; moneda: string | null; direccion: string | null } | undefined;
+      const tasa = (xs: unknown[] | null | undefined) =>
+        xs ? [...new Set(xs.filter((x) => x != null).map((x) => Number(x)).filter((x) => Number.isFinite(x)))].sort((a, b) => b - a) : null;
       return {
         orden: {
           sucursal: String(d.sucursal).trim(), folio: String(d.folio).trim(),
@@ -3074,6 +3143,15 @@ export class CommercialReplenishmentService {
           proveedor: d.proveedor_nombre || d.proveedor_code || null, proveedor_rfc: d.proveedor_rfc || null,
           condicion_pago: d.condicion_pago || null, concepto: d.concepto || null, referencia: d.referencia || null,
           estatus_kepler: String(d.estatus ?? 'N'), monto,
+          iva: imp && imp.iva != null ? n(imp.iva) : null,
+          ieps: imp && imp.ieps != null ? n(imp.ieps) : null,
+          sucursal_nombre: alm?.name?.trim() || null,
+          sucursal_direccion: alm?.address?.trim() || null,
+          moneda: imp?.moneda ?? null,
+          proveedor_direccion: imp?.direccion ?? null,
+          tasas_iva: tasa(tasas?.iva),
+          tasas_ieps: tasa(tasas?.ieps),
+          autorizo: aut?.nombre && aut.en ? { nombre: aut.nombre, en: aut.en } : null,
         },
         lineas: lineas.map((l) => ({
           linea: l.linea, sku: l.sku ? String(l.sku).trim() : null, nombre: l.nombre || null,
@@ -4223,7 +4301,10 @@ export class CommercialReplenishmentService {
     return m;
   }
 
-  async createRequisitionBatch(dto: { requisitions?: CreateRequisitionDto[]; allow_duplicate?: boolean }): Promise<LoteRequisicionesCreado> {
+  async createRequisitionBatch(
+    dto: { requisitions?: CreateRequisitionDto[]; allow_duplicate?: boolean },
+    opts?: { autoAprobar?: boolean },
+  ): Promise<LoteRequisicionesCreado> {
     const tenantId = this.tenantCtx.requireTenantId();
     const entrada = dto?.requisitions || [];
     if (!entrada.length) throw new BadRequestException('El lote no trae requisiciones');
@@ -4247,7 +4328,7 @@ export class CommercialReplenishmentService {
       .sort((a, b) => (a.r.source_type === 'branch' ? 1 : 0) - (b.r.source_type === 'branch' ? 1 : 0));
     const vigCols = await this.tk.run((trx) => this.loteColsListas(trx));
     const userId = this.tenantCtx.get()?.userId ?? null;
-    return this.tk.run(async (trx) => {
+    const lote = await this.tk.run(async (trx) => {
       // `[RA-UX.1b]` Antes de crear NADA: ¿esta persona ya generó estos mismos renglones de compra
       // en la última hora? Medido: 9 de 106 lotes eran eso. Se contesta 409 con lo encontrado y la
       // pantalla ofrece confirmarlo; `allow_duplicate` es esa confirmación. Sin autor (llamada de
@@ -4302,8 +4383,56 @@ export class CommercialReplenishmentService {
         compras: creadas.filter((x) => x.source_type === 'supplier').length,
         traspasos: creadas.filter((x) => x.source_type === 'branch').length,
         folios: creadas.map((x) => x.folio),
+        ids: creadas.map((x) => x.id),
       };
     });
+    const { ids, ...res } = lote;
+    // `[PQ.27]` **D1 (Edgar, 2026-10-29): quien tiene permiso de autorizar no pasa por una segunda
+    // pantalla para aprobar lo que acaba de generar.** Medido en 30 d: 61 % de las aprobaciones las
+    // hacía quien creó la requisición y 93 % en lote — la cola era un sello, no un control. Se
+    // aprueba DESPUÉS de cerrar la transacción del lote (el lote es todo-o-nada; la aprobación no):
+    // cada una pasa por `approve` con sus frenos (costo movido > 5 %, D2) y lo que no pasa queda
+    // pendiente, en la cola, con su motivo. El envío a Kepler sale después de contestar
+    // (`bulkEstado` → `empujarLoteAKepler`). Sin el permiso, todo queda en la cola como antes.
+    if (!opts?.autoAprobar) return { ...res, aprobacion: { automatica: false, aprobadas: 0, fallas: [] } };
+    const r = await this.bulkEstado(ids, 'approve');
+    const folioDe = new Map(ids.map((id, k) => [id, res.folios[k]] as const));
+    this.logger.log(`[PQ.27] Lote ${res.batch_folio ?? res.batch_id}: ${r.hechas} de ${ids.length} aprobadas al generar`);
+    const sinEscritura = await this.traspasosSinEscritura(r.ok);
+    return {
+      ...res,
+      aprobacion: {
+        automatica: true, aprobadas: r.hechas, traspasos_sin_escritura: sinEscritura,
+        fallas: r.fallas.map((x) => ({ folio: folioDe.get(x.id) ?? x.id, motivo: x.motivo })),
+      },
+    };
+  }
+
+  /**
+   * `[PQ.31]` Cuántos de estos documentos son traspasos cuya sucursal de ORIGEN (donde se escribe el
+   * U-D-40, `[KR.10]`) tiene la escritura de traspasos apagada en `kepler_push_switch`. Mismo
+   * interruptor que lee el envío: lo que aquí cuenta como «no sale» es lo que el envío rechazaría.
+   * Si no se puede leer, `null` (no medido), nunca 0.
+   */
+  private async traspasosSinEscritura(ids: string[]): Promise<number | null> {
+    if (!ids.length) return 0;
+    try {
+      return await this.tk.run(async (trx) => {
+        const r = await trx.raw(
+          `SELECT count(*)::int AS n
+             FROM commercial.purchase_requisitions q
+             JOIN commercial.warehouses sw ON sw.tenant_id = q.tenant_id AND sw.id = q.source_warehouse_id
+             LEFT JOIN commercial.kepler_push_switch s
+                    ON s.tenant_id = q.tenant_id AND s.sucursal = sw.kepler_code AND s.tipo = 'traspaso'
+            WHERE q.tenant_id = ? AND q.id = ANY(?::uuid[]) AND q.source_type = 'branch'
+              AND COALESCE(s.encendida, false) = false`,
+          [this.tenantCtx.requireTenantId(), ids]);
+        return Number(r.rows[0]?.n ?? 0);
+      });
+    } catch (e: unknown) {
+      this.logger.warn(`[PQ.31] No se pudo medir traspasos sin escritura: ${(e as Error)?.message}`);
+      return null;
+    }
   }
 
   /**
@@ -4407,6 +4536,7 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(q.pageSize) || 50));
+    await this.asociarOcDeKepler(tenantId);
     return this.tk.run(async (trx) => {
       // Se preguntan ANTES de armar el WHERE: la búsqueda toca `batch_folio`, que no existe
       // hasta que corre la migración, y un SELECT sobre una columna ausente es un 42703 que se
@@ -4642,9 +4772,132 @@ export class CommercialReplenishmentService {
     return out;
   }
 
+  /**
+   * `[PQ.25]` **La OC se asocia sola, la haya hecho quien la haya hecho.**
+   *
+   * La Suite liga la OC cuando la escribe ella misma (`[PQ.22]`). Pero una requisición que ya
+   * estaba en Kepler y se convirtió después —a mano en Kepler o por script— se quedaba
+   * «aprobada» con el botón «Capturar OC», esperando que alguien tecleara un folio que Kepler
+   * ya sabe: la OC (X-A-35) guarda su origen en `c36='A' · c37=30 · c39=folio de la requisición`.
+   * Medido el 2026-10-29: las 4 de CEDIS convertidas por script (0003111/2/3/5 → 0007261–64) se
+   * encuentran así en 9 ms, y ninguna otra aprobada con folio de Kepler casa (sin falsos).
+   *
+   * Corre al leer la bandeja y la ficha: sin cron, se asocia cuando alguien va a mirar. Si una
+   * requisición tiene varias OC, toma la primera. Nunca tira la lectura: si falla, se registra
+   * y la pantalla sigue mostrando «Capturar OC».
+   */
+  private async asociarOcDeKepler(tenantId: string): Promise<void> {
+    try {
+      await this.tk.run(async (trx) => {
+        const n = await trx.raw(
+          `UPDATE commercial.purchase_requisitions r
+              SET estado = 'ordered', oc_sucursal = r.kepler_sucursal, oc_folio = o.oc,
+                  oc_capturada_at = now(), ordered_at = now(), updated_at = now()
+             FROM (SELECT r2.id, (SELECT min(btrim(k.c6)) FROM kepler_ods.kdm1 k
+                                   WHERE k.sucursal = r2.kepler_sucursal AND k.c2 = 'X' AND k.c3 = 'A'
+                                     AND btrim(k.c4::text) = '35' AND k.c36 = 'A' AND btrim(k.c37::text) = '30'
+                                     AND k.c39 IN (r2.kepler_folio, ltrim(r2.kepler_folio, '0'))) AS oc
+                     FROM commercial.purchase_requisitions r2
+                    WHERE r2.tenant_id = ? AND r2.estado = 'approved' AND r2.source_type = 'supplier'
+                      AND r2.kepler_folio IS NOT NULL AND r2.oc_folio IS NULL) o
+            WHERE r.tenant_id = ? AND r.id = o.id AND o.oc IS NOT NULL AND r.estado = 'approved'`,
+          [tenantId, tenantId]);
+        if (n.rowCount) this.logger.log(`[PQ.25] ${n.rowCount} requisición(es) asociadas a su OC de Kepler`);
+
+        // `[PQ.26]` El traspaso que ya está en Kepler (U-D-40 con folio guardado) queda ordenado:
+        // su documento ES el folio que la Suite escribió. Antes había que abrir la ficha y teclear
+        // ese mismo folio en «Capturar el traspaso de Kepler».
+        const t = await trx.raw(
+          `UPDATE commercial.purchase_requisitions
+              SET estado = 'ordered', oc_sucursal = kepler_sucursal, oc_folio = kepler_folio,
+                  oc_capturada_at = now(), ordered_at = now(), updated_at = now()
+            WHERE tenant_id = ? AND estado = 'approved' AND source_type = 'branch'
+              AND kepler_folio IS NOT NULL AND oc_folio IS NULL`,
+          [tenantId]);
+        if (t.rowCount) this.logger.log(`[PQ.26] ${t.rowCount} traspaso(s) ordenados por su folio de Kepler`);
+
+        // `[PQ.26]` **La recepción la dice Kepler.** Una OC (X-A-35) se recibe cuando su vale
+        // (X-A-37) tiene orden de entrada (X-A-40): es el `cerrada` de `analytics.erp_purchase_orders`,
+        // el mismo decode que usa «Órdenes de compra (Kepler)», no uno nuevo. Medido el 2026-10-29:
+        // 13 requisiciones con OC, ninguna cerrada todavía (OC del 28-oct); control: 4 de 4 OC
+        // viejas de CEDIS salen cerradas. ~30 ms. Antes no había NINGUNA pantalla que marcara
+        // «recibida» (markReceived existe y nadie lo llama). Los renglones no llevan cantidad
+        // recibida: Kepler cierra la OC con la primera entrada y esa es su regla, no la nuestra.
+        const rec = await trx.raw(
+          `UPDATE commercial.purchase_requisitions r
+              SET estado = 'received', received_at = now(), updated_at = now()
+             FROM analytics.erp_purchase_orders o
+            WHERE r.tenant_id = ? AND r.estado = 'ordered' AND r.source_type = 'supplier'
+              AND r.oc_folio IS NOT NULL
+              AND o.tenant_id = r.tenant_id AND o.sucursal = r.oc_sucursal AND o.folio = r.oc_folio
+              AND o.cerrada`,
+          [tenantId]);
+        if (rec.rowCount) this.logger.log(`[PQ.26] ${rec.rowCount} requisición(es) recibidas según Kepler`);
+      });
+    } catch (e: unknown) {
+      this.logger.warn(`[PQ.25] No se pudo asociar OC de Kepler: ${(e as Error)?.message}`);
+    }
+    void this.reintentarKepler(tenantId);
+  }
+
+  /**
+   * `[PQ.26]` **Lo que no salió a Kepler se reintenta solo.** Antes cada una pedía abrir la ficha y
+   * apretar «Reintentar»; casi todas fallaron por algo que ya se arregló (sucursal apagada,
+   * proveedor con clave vieja `[PQ.24]`). Sólo compras aprobadas desde el 2026-10-27 —cuando la
+   * escritura existe— y sin documento en Kepler. Una falla repetida (proveedor que de verdad no
+   * existe) no cuesta: el adapter rechaza antes de escribir. Cada requisición se intenta a lo más
+   * cada 30 min y cada lectura empuja a lo más 20, en serie y fuera de la petición.
+   *
+   * ⛔ **Freno contra el duplicado.** Mientras no salía, la gente hizo la OC A MANO en Kepler.
+   * Medido el 2026-10-29: de las 4 compras en cola, 3 ya tenían OC del mismo proveedor en la misma
+   * sucursal desde el día de la aprobación (RQ-2026-01578 → 01/0000975, -01579 → 06/0000198,
+   * -01563 → 08/0000232). Reintentar a ciegas las habría escrito dos veces. Si Kepler ya tiene un
+   * X-A-30/35 de ese proveedor (por clave o por nombre) en esa sucursal desde la aprobación, NO se
+   * empuja: se deja dicho en `kepler_error` cuál es, para que alguien confirme. Los traspasos no
+   * se reintentan solos: su escritura está apagada en todas las sucursales y no hay freno medido.
+   */
+  private readonly ultimoReintento = new Map<string, number>();
+  private async reintentarKepler(tenantId: string): Promise<void> {
+    if (!this.keplerSink) return;
+    try {
+      const ahora = Date.now();
+      const filas = (await this.tk.run(async (trx) => (await trx.raw(
+        `SELECT r.id, r.kepler_error,
+                (SELECT string_agg(CASE btrim(k.c4::text) WHEN '35' THEN 'OC ' ELSE 'requisición ' END
+                                   || btrim(k.c6) || ' del ' || to_char(k.c9::date, 'DD-MM'), ', ' ORDER BY k.c6)
+                   FROM kepler_ods.kdm1 k
+                  WHERE k.sucursal = w.kepler_code AND k.c2 = 'X' AND k.c3 = 'A' AND btrim(k.c4::text) IN ('30', '35')
+                    AND k.c9::date >= r.approved_at::date
+                    AND (btrim(k.c10) = s.code OR upper(btrim(k.c32)) = upper(s.name))) AS ya_en_kepler
+           FROM commercial.purchase_requisitions r
+           JOIN commercial.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
+           LEFT JOIN catalog.suppliers s ON s.tenant_id = r.tenant_id AND s.id = r.supplier_id
+          WHERE r.tenant_id = ? AND r.estado = 'approved' AND r.source_type = 'supplier'
+            AND r.kepler_folio IS NULL AND r.approved_at >= '2026-10-27'
+          ORDER BY r.approved_at LIMIT 200`, [tenantId])).rows)) as Array<{ id: string; kepler_error: string | null; ya_en_kepler: string | null }>;
+      const avisos = filas.filter((f) => f.ya_en_kepler)
+        .map((f) => ({ id: f.id, motivo: `No se reenvió: Kepler ya tiene ${f.ya_en_kepler} de este proveedor en esta sucursal, hecha fuera de la Suite. Si es ésta, no hay que hacer nada más; si no, reintenta desde la ficha.` }))
+        .filter((a) => a.motivo !== filas.find((f) => f.id === a.id)?.kepler_error);
+      if (avisos.length) {
+        await this.tk.run(async (trx) => {
+          for (const a of avisos) await trx('commercial.purchase_requisitions').where({ tenant_id: tenantId, id: a.id }).update({ kepler_error: a.motivo });
+        });
+      }
+      const ids = filas.filter((f) => !f.ya_en_kepler).map((f) => f.id)
+        .filter((id) => ahora - (this.ultimoReintento.get(id) ?? 0) > 30 * 60_000)
+        .slice(0, 20);
+      if (!ids.length) return;
+      for (const id of ids) this.ultimoReintento.set(id, ahora);
+      await this.empujarLoteAKepler(ids);
+    } catch (e: unknown) {
+      this.logger.warn(`[PQ.26] No se pudo reintentar el envío a Kepler: ${(e as Error)?.message}`);
+    }
+  }
+
   async getRequisition(id: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
+    await this.asociarOcDeKepler(tenantId);
     return this.tk.run(async (trx) => {
       const header: any = await trx('commercial.purchase_requisitions as r')
         .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'r.tenant_id').andOn('w.id', 'r.warehouse_id'))
@@ -4819,8 +5072,17 @@ export class CommercialReplenishmentService {
     if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
     const vig = await this.tk.run(async (trx) => (await this.vigenciaDeRequisiciones(trx, tenantId, [id])).get(id) ?? null);
     if (vig && vig.vigente === false) {
-      throw new BadRequestException(
-        `${vig.movidos} de ${vig.medibles} renglones ya no tienen el costo de hoy (${this.pesos(vig.monto_capturado)} capturados contra ${this.pesos(vig.monto_hoy)} actuales). Usa "Recalcular" y vuelve a aprobar.`);
+      // `[PQ.26]` D2 (Edgar, 2026-10-29): un costo que se movió poco se pone al día SOLO y se
+      // aprueba; sólo arriba de 5 % del monto se frena para que una persona lo vea. Antes
+      // cualquier movimiento frenaba y exigía abrir la ficha, «Recalcular» y volver a aprobar.
+      const antes = Number(vig.monto_capturado) || 0;
+      const cambio = antes > 0 ? Math.abs((Number(vig.monto_hoy) || 0) - antes) / antes : 1;
+      if (cambio > 0.05) {
+        throw new BadRequestException(
+          `${vig.movidos} de ${vig.medibles} renglones ya no tienen el costo de hoy (${this.pesos(vig.monto_capturado)} capturados contra ${this.pesos(vig.monto_hoy)} actuales, ${(cambio * 100).toFixed(1)} %). Arriba de 5 % no se aprueba sola: usa "Recalcular" y vuelve a aprobar.`);
+      }
+      await this.recalcularCostos(id);
+      this.logger.log(`[PQ.26] Requisición ${id}: costo puesto al día al aprobar (${(cambio * 100).toFixed(1)} %)`);
     }
     const r = await this.setEstado(id, 'pending_approval', 'approved');
     // `[KR.5]` El empuje cuelga de aprobar. `empujar:false` lo apaga para el lote (ver bulkEstado).

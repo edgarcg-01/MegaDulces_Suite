@@ -60,6 +60,8 @@ const SRC = path.resolve(__dirname, '../../libs/commercial/src/lib/commercial-co
 const FUENTES = {
   commission_run_lines: path.join(SRC, 'commercial-commissions.service.ts'),
   commission_engine_lines: path.join(SRC, 'commission-contrast.service.ts'),
+  // `[RD.100]` la nomina de banco del supervisor, que se fija desde la pantalla.
+  commission_beneficiary_config: path.join(SRC, 'commission-beneficiarios.service.ts'),
 };
 
 let ok = 0; let fail = 0; let nm = 0;
@@ -170,6 +172,53 @@ async function obligatorias(db, tabla) {
     await db.query('ROLLBACK TO SAVEPOINT chk');
     check('PRUEBA NEGATIVA: un beneficiario fuera del enum da 23514', code === '23514',
       code ? `dio ${code}` : 'NO fallo: cualquier beneficiario entra');
+
+    // ── 5. `[RD.100]` La nomina del supervisor, versionada como la escribe `fijar()` ────────
+    //    Primera version, despues se CIERRA (valid_to = valid_from de la nueva) y se abre otra.
+    const { rows: [v1] } = await db.query(
+      `INSERT INTO commercial.commission_beneficiary_config
+         (tenant_id, scale_id, beneficiario, nombre, nomina_banco, valid_from, notes)
+       VALUES ($1,$2,'supervisor','ZZ-SUPERVISOR',1000,'2026-01-01',NULL) RETURNING id`,
+      [TENANT, sem.scale_id]);
+    await db.query(
+      `UPDATE commercial.commission_beneficiary_config SET valid_to = '2026-10-22' WHERE id = $1`, [v1.id]);
+    await db.query(
+      `INSERT INTO commercial.commission_beneficiary_config
+         (tenant_id, scale_id, beneficiario, nombre, nomina_banco, valid_from)
+       VALUES ($1,$2,'supervisor','ZZ-SUPERVISOR',1500,'2026-10-22')`, [TENANT, sem.scale_id]);
+    // La misma consulta que `deducciones()`: a una fecha, la version vigente de cada persona.
+    const vig = async (d) => (await db.query(
+      `SELECT nomina_banco::float8 n FROM commercial.commission_beneficiary_config
+        WHERE tenant_id = $1 AND nombre = 'ZZ-SUPERVISOR' AND deleted_at IS NULL
+          AND valid_from <= $2 AND (valid_to IS NULL OR valid_to > $2) ORDER BY valid_from`,
+      [TENANT, d])).rows.map((r) => r.n);
+    check('nomina del supervisor: Q20 lee la version vieja', JSON.stringify(await vig('2026-10-07')) === '[1000]');
+    check('nomina del supervisor: Q22 lee la version nueva', JSON.stringify(await vig('2026-11-04')) === '[1500]');
+
+    // PRUEBA NEGATIVA: cerrar una version en su propio dia (valid_to = valid_from) da 23514.
+    // Es por lo que `fijar()` corrige EN SITIO cuando la fecha coincide, en vez de cerrar y abrir.
+    await db.query('SAVEPOINT ventana');
+    let codeV = null;
+    try {
+      await db.query(
+        `UPDATE commercial.commission_beneficiary_config SET valid_to = valid_from
+          WHERE tenant_id = $1 AND nombre = 'ZZ-SUPERVISOR' AND valid_to IS NULL`, [TENANT]);
+    } catch (e) { codeV = e.code; }
+    await db.query('ROLLBACK TO SAVEPOINT ventana');
+    check('PRUEBA NEGATIVA: cerrar una version en su mismo dia da 23514', codeV === '23514',
+      codeV ? `dio ${codeV}` : 'NO fallo: la ventana vacia entra');
+
+    // PRUEBA NEGATIVA: sin escala -> 23502 (la columna es NOT NULL; `fijar()` la resuelve sola).
+    await db.query('SAVEPOINT sinescala');
+    let codeS = null;
+    try {
+      await db.query(
+        `INSERT INTO commercial.commission_beneficiary_config (tenant_id, beneficiario, nombre, nomina_banco, valid_from)
+         VALUES ($1,'supervisor','ZZ-NEG',0,'2026-01-01')`, [TENANT]);
+    } catch (e) { codeS = e.code; }
+    await db.query('ROLLBACK TO SAVEPOINT sinescala');
+    check('PRUEBA NEGATIVA: nomina de supervisor sin escala da 23502', codeS === '23502',
+      codeS ? `dio ${codeS}` : 'NO fallo');
   } catch (e) {
     fail++; console.log(`  ✖ la escritura reventó — ${e.code || ''} ${e.message}`);
   } finally {

@@ -5448,7 +5448,7 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       sin_vincular: estado === 'sin_vincular' ? 100 : 0, n_sin_vincular: estado === 'sin_vincular' ? 1 : 0,
       n_sin_aprobar: 0, n_pagado_antes_de_aprobar: 0, estado,
       propuesta: conPropuesta ? { asignaciones: [], monto: 100, queda: 0, razon: 'r' } : null,
-      retiro_sugerido: null,
+      retiro_sugerido: null, por_hoja: false,
     });
     // 2 de un clic (uno por capturar, uno con propuesta), 1 sin retiro, 1 explicada.
     const CON_PENDIENTES: ReposicionSucursales = {
@@ -5496,6 +5496,25 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       fx.detectChanges();
       expect(boton(fx)!.textContent).toContain('Kepler sin medir');
       expect(boton(fx)!.textContent).not.toContain('nada pendiente');
+    });
+
+    // `[CGA-A.65]` Morelia se repone por hoja de zona: el motor no le propone retiro. Decirle «sin retiro
+    // claro» sería falso (el retiro existe: es de la hoja, no del renglón).
+    it('⛔ [CGA-A.65] el renglón de Morelia sin propuesta dice que va por hoja; el de otra sucursal, no (control)', () => {
+      const morelia: ReposicionGrupo = { ...grupo('m', 'sin_vincular'), por_hoja: true };
+      const canindo: ReposicionGrupo = { ...grupo('c', 'sin_vincular'), sucursal: '06' };
+      const fx = montar({ reposicion: vi.fn(() => of({ ...REPOSICION, grupos: [morelia, canindo] })) });
+      fx.detectChanges();
+      const filtros = [...fx.nativeElement.querySelectorAll('app-caja-reposicion .seg-btn')] as HTMLElement[];
+      filtros.find((b) => b.textContent?.includes('Sin retiro'))!.click();
+      fx.detectChanges();
+      const fila = (nombre: string) => ([...fx.nativeElement.querySelectorAll('app-caja-reposicion .rp-tbl tr')] as HTMLElement[])
+        .find((tr) => tr.querySelector('[data-label="Sucursal"]')?.textContent?.includes(nombre))?.textContent ?? '';
+      expect(fila('Morelia Madero'), 'el renglón de Morelia no se pintó').not.toBe('');
+      expect(fila('Morelia Madero')).toContain('Se repone por hoja de zona');
+      expect(fila('Morelia Madero')).not.toContain('Sin retiro claro');
+      expect(fila('Canindo')).toContain('Sin retiro claro de esta sucursal');
+      expect(fila('Canindo')).not.toContain('Se repone por hoja de zona');
     });
   });
   // ── `[CGP-V.9]` Contar cero con confirmación explícita ───────────────────────────────────────

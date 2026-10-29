@@ -12,6 +12,9 @@ import {
 } from './commission-bonos.service';
 import { CommissionAutoRunService, type RevisionAuto } from './commission-auto-run.service';
 import {
+  CommissionBeneficiariosService, type SupervisorNomina, type FijarNomina,
+} from './commission-beneficiarios.service';
+import {
   CommissionObjectiveService, type ObjetivoConfig, type ObjetivoResultado,
   type Criterio, type EditarCriterio, type MarcarDto, type ObjetivoMarca,
 } from './commission-objective.service';
@@ -38,6 +41,7 @@ export class CommercialCommissionsController {
     private readonly padronSvc: CommissionPadronService,
     private readonly bonosSvc: CommissionBonosService,
     private readonly autoRunSvc: CommissionAutoRunService,
+    private readonly beneficiariosSvc: CommissionBeneficiariosService,
   ) {}
 
   /**
@@ -255,6 +259,30 @@ export class CommercialCommissionsController {
   })
   editarRuta(@Param('id') id: string, @Body() body: EditarRuta): Promise<{ fila: PadronFila; aviso: AvisoPagadas | null }> {
     return this.padronSvc.editar(id, body);
+  }
+
+  /**
+   * `[RD.100]` La nómina de banco de cada supervisor del padrón, vigente hoy, con su historia.
+   * `nomina_banco: null` = sin configurar: el motor declara su neto como no calculable.
+   */
+  @Get('supervisors')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({ summary: 'La nómina de banco vigente de cada supervisor del padrón' })
+  supervisores(): Promise<SupervisorNomina[]> {
+    return this.beneficiariosSvc.listar();
+  }
+
+  @Post('supervisors')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Fija la nómina de banco de un supervisor a partir de una fecha (versión nueva)',
+    description:
+      'RD.100. Body: `{ nombre, nomina_banco, valid_from, notes? }`. Cierra la versión vigente y '
+      + 'abre otra; con la misma fecha corrige la vigente. El nombre tiene que ser el supervisor '
+      + 'exacto del padrón. Una fecha anterior a la versión vigente se rechaza (409).',
+  })
+  fijarNominaSupervisor(@Body() body: FijarNomina): Promise<SupervisorNomina[]> {
+    return this.beneficiariosSvc.fijar(body);
   }
 
   /**

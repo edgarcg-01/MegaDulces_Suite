@@ -206,11 +206,11 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               </td>
               <td class="rq-r">{{ r.total_lines | number }}</td>
               <td class="rq-r">{{ money(r.total_cost) }}</td>
-              <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+              <td><span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
                     @if (r.rejection_reason) { <div class="rq-sub rq-motivo">Motivo: {{ r.rejection_reason }}</div> }</td>
               <td class="rq-r" [class.rq-viejo]="(r.dias ?? 0) > 30">{{ r.dias ?? '—' }}</td>
-              <td><p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag></td>
+              <td>@if (r.estado === 'pending_approval') { <p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag> } @else { <span class="rq-muted" title="La vigencia del costo sólo decide antes de aprobar.">—</span> }</td>
               <td><i class="pi pi-angle-right rq-muted"></i></td>
             </tr>
           </ng-template>
@@ -282,7 +282,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <th class="rq-chk"><input type="checkbox" [checked]="todasMarcadas()" (change)="marcarTodas($any($event.target).checked)" aria-label="Marcar todas las de la página" /></th>
                   <th>Folio</th><th>Almacén</th><th>Proveedor</th>
                   <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r">Costo</th>
-                  <th>Estado</th><th class="rq-r" title="Días desde que se creó. Lo calcula el servidor, no el reloj de esta máquina.">Días</th><th title="¿El costo capturado sigue siendo el de hoy? Se mide renglón por renglón contra el plan vigente.">Vigencia</th><th>Fecha</th><th><span class="sr-only">Acciones</span></th>
+                  <th>Estado</th><th class="rq-r" title="Días desde que se creó. Lo calcula el servidor, no el reloj de esta máquina.">Días</th><th title="¿El costo capturado sigue siendo el de hoy? Se mide renglón por renglón contra el plan vigente.">Vigencia</th><th>Fecha</th><th>En Kepler</th>
                 </tr>
               </ng-template>
               <ng-template #body let-r>
@@ -295,35 +295,37 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rq-r">{{ r.total_units | number:'1.0-0' }}</td>
                   <td class="rq-r">{{ money(r.total_cost) }}</td>
                   <td class="rq-estado">
-                    <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+                    <span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
                     @if (r.rejection_reason) { <div class="rq-sub rq-motivo">Motivo: {{ r.rejection_reason }}</div> }
-                    <!-- [PQ.1] Una aprobada SIN documento en Kepler no es una aprobada: medido el
-                         2026-10-23, 680 por $19.05 M se veían idénticas a una escrita en el ERP. -->
-                    @if (r.estado === 'approved') {
-                      <p-tag [value]="keplerLabel(r)" [severity]="keplerSev(r)" [attr.title]="keplerTitle(r)" styleClass="rq-kep"></p-tag>
-                    }
+                    <!-- [PQ.1] Lo de Kepler (aprobada sin documento ≠ escrita en el ERP) va en su
+                         propia columna, escrito, al final de la fila. -->
                   </td>
                   <td class="rq-r" [class.rq-viejo]="(r.dias ?? 0) > 30">{{ r.dias ?? '—' }}</td>
-                  <td><p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag></td>
+                  <td>@if (r.estado === 'pending_approval') { <p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag> } @else { <span class="rq-muted" title="La vigencia del costo sólo decide antes de aprobar.">—</span> }</td>
                   <td class="rq-muted">{{ r.created_at | date:'dd/MM/yy HH:mm' }}</td>
-                  <td (click)="$event.stopPropagation()">
-                    <!-- [RQ.15] Capturar la OC es lo que cierra la junta requisicion-orden. Va por
-                         RENGLON y no en lote: cada requisicion sale con SU folio de Kepler, y un
-                         boton de lote invitaria a ponerle el mismo a varias. Solo en esta pestana:
-                         un traspaso entre sucursales NO genera orden de compra. -->
-                    @if (r.estado === 'approved') {
-                      <button pButton type="button" class="p-button-sm p-button-outlined"
-                              [disabled]="!canAutorizar || busy()" (click)="abrirOc(r)">
-                        <span class="p-button-icon p-button-icon-left pi pi-file-edit" aria-hidden="true"></span>
-                        <span class="p-button-label">Capturar OC</span>
-                      </button>
+                  <!-- [PQ.25] Lo que pasó en Kepler, ESCRITO y a la vista: la requisición y su OC
+                       con folio, o el motivo completo si no salió. Antes era una pastilla con el
+                       código de sucursal y el motivo escondido en un title. La OC no se captura:
+                       la escribe la Suite al aprobar (PQ.22) o se asocia sola por la liga c36/c37/c39. -->
+                  <td class="rq-kepcell">
+                    @if (r.kepler_folio) {
+                      <div class="rq-mono">Requisición {{ r.kepler_folio }}</div>
+                      @if (r.oc_folio) {
+                        <div class="rq-mono rq-kep-oc">OC {{ r.oc_folio }}</div>
+                      } @else {
+                        <div class="rq-muted">sin OC todavía</div>
+                      }
                     } @else if (r.oc_folio) {
-                      <span class="rq-mono rq-muted">{{ r.oc_sucursal }}·{{ r.oc_folio }}</span>
+                      <div class="rq-mono rq-kep-oc">OC {{ r.oc_folio }}</div>
+                    } @else if (r.estado === 'approved') {
+                      <div [class.rq-kep-mal]="keplerSev(r) === 'danger'" [class.rq-muted]="keplerSev(r) !== 'danger'">{{ keplerLabel(r) }}</div>
+                      @if (r.kepler_error && !keplerApagado(r)) { <div class="rq-sub">{{ r.kepler_error }}</div> }
                     } @else if (r.estado === 'ordered') {
-                      <span class="rq-muted" title="Se marco como ordenada antes de que existiera la columna del folio. No se puede seguir hasta la entrada de mercancia.">sin OC</span>
+                      <div class="rq-muted">sin folio de OC</div>
+                      <div class="rq-sub">Se marcó ordenada antes de que la Suite guardara el folio.</div>
                     } @else {
-                      <i class="pi pi-angle-right rq-muted"></i>
+                      <span class="rq-muted">—</span>
                     }
                   </td>
                 </tr>
@@ -392,7 +394,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rq-r">{{ r.total_units | number:'1.0-0' }}</td>
                   <td class="rq-r">{{ money(r.total_cost) }}</td>
                   <td class="rq-estado">
-                    <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+                    <span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
                     @if (r.rejection_reason) { <div class="rq-sub rq-motivo">Motivo: {{ r.rejection_reason }}</div> }
                     <!-- [PQ.1] Una aprobada SIN documento en Kepler no es una aprobada: medido el
@@ -402,7 +404,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                     }
                   </td>
                   <td class="rq-r" [class.rq-viejo]="(r.dias ?? 0) > 30">{{ r.dias ?? '—' }}</td>
-                  <td><p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag></td>
+                  <td>@if (r.estado === 'pending_approval') { <p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag> } @else { <span class="rq-muted" title="La vigencia del costo sólo decide antes de aprobar.">—</span> }</td>
                   <td class="rq-muted">{{ r.created_at | date:'dd/MM/yy HH:mm' }}</td>
                   <td><i class="pi pi-angle-right rq-muted"></i></td>
                 </tr>
@@ -463,7 +465,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rq-r">{{ r.total_lines | number }}</td>
                   <td class="rq-r">{{ money(r.total_cost) }}</td>
                   <td class="rq-estado">
-                    <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag>
+                    <span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     <!-- [PQ.1] Toda «Aprobada» dice si salió a Kepler, también aquí. -->
                     @if (r.estado === 'approved') {
                       <p-tag [value]="keplerLabel(r)" [severity]="keplerSev(r)" [attr.title]="keplerTitle(r)" styleClass="rq-kep"></p-tag>
@@ -492,39 +494,6 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       </p-tabs>
       }
 
-      <!-- [RQ.15] Capturar la orden de compra de Kepler. El dialogo pide las DOS coordenadas:
-           el folio se repite entre sucursales, asi que uno suelto apunta a varios documentos
-           mientras se lee como si apuntara a uno. -->
-      <p-dialog [(visible)]="ocVisibleDlg" [modal]="true" [style]="{ width: '28rem' }"
-                header="¿Con qué orden de compra se ordenó?" [draggable]="false">
-        @if (ocReq(); as r) {
-          <p class="rq-muted rq-oc-sub">
-            {{ r.folio }} · {{ money(r.total_cost) }} · {{ r.supplier_name || 'sin proveedor' }}
-          </p>
-          <div class="rq-oc-form">
-            <label class="rq-oc-lbl" for="ocSuc">Sucursal donde se capturó la OC</label>
-            <input id="ocSuc" pInputText type="text" [(ngModel)]="ocSucursal" class="rq-oc-in"
-                   placeholder="00" autocomplete="off" />
-            <label class="rq-oc-lbl" for="ocFol">Folio de la orden de compra</label>
-            <input id="ocFol" pInputText type="text" [(ngModel)]="ocFolio" class="rq-oc-in"
-                   placeholder="0007103" autocomplete="off" (keyup.enter)="guardarOc()" />
-            <p class="rq-oc-hint">
-              Es el folio con el que Kepler identifica la orden. Con él, la requisición se puede
-              seguir hasta la entrada de mercancía y la factura.
-            </p>
-          </div>
-        }
-        <ng-template #footer>
-          <button pButton type="button" class="p-button-text" (click)="ocVisible.set(false)">
-            <span class="p-button-label">Cancelar</span>
-          </button>
-          <button pButton type="button" [disabled]="!ocSucursal.trim() || !ocFolio.trim() || busy()"
-                  (click)="guardarOc()">
-            <span class="p-button-label">Marcar como ordenada</span>
-          </button>
-        </ng-template>
-      </p-dialog>
-
       <!-- [AB.32] Rechazar en lote: una requisición que pidió una sucursal no se rechaza sin decirle por qué. -->
       <p-dialog [visible]="rechazoAbierto()" (visibleChange)="rechazoAbierto.set($event)" [modal]="true" [style]="{ width: '32rem' }"
                 [breakpoints]="{ '40rem': '95vw' }" header="Rechazar requisiciones" [dismissableMask]="!busy()">
@@ -550,11 +519,6 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   `,
   styles: [`
     /* [RQ.15] El dialogo de captura de la OC. SIN ACENTOS GRAVES ACA. */
-    .rq-oc-sub { margin: 0 0 .75rem; font-size: var(--fs-sm); }
-    .rq-oc-form { display: flex; flex-direction: column; gap: .35rem; }
-    .rq-oc-lbl { font-size: var(--fs-xs); color: var(--text-muted); margin-top: .4rem; }
-    .rq-oc-in { width: 100%; }
-    .rq-oc-hint { margin: .6rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
     :host { display: block; }
     .rq-tab-title { display: inline-flex; align-items: center; gap: .5rem; font-weight: 600; }
     .rq-filters { margin-bottom: .75rem; display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; } .rq-sel { min-width: 14rem; }
@@ -594,6 +558,12 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     /* El rojo es del renglón que ya pasó los 30 días: a esa edad el costo capturado dejó de ser
        el de hoy en la mayoría de los renglones (83.5 % medido en prod en el tramo 31-60 d). */
     .rq-viejo { color: var(--bad-fg); font-weight: 700; }
+    /* [PQ.28] El estado en texto, sin pastilla de color: en una bandeja de consulta el color
+       no decide nada y competía con lo único rojo que importa (lo que no salió a Kepler). */
+    .rq-est { font-weight: 600; color: var(--fg-1); }
+    .rq-kepcell { min-width: 11rem; line-height: 1.35; }
+    .rq-kep-oc { color: var(--fg-1); }
+    .rq-kep-mal { color: var(--bad-fg); font-weight: 600; }
     /* [PQ.1] Las dos etiquetas de una aprobada, una debajo de la otra: el estado y si salió al ERP. */
     .rq-estado { display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; }
     .rq-alerta { display: flex; align-items: center; gap: .6rem; margin: .5rem 0 .9rem;
@@ -956,7 +926,7 @@ export class ComprasRequisicionesComponent implements OnInit {
     return !r.kepler_folio && !!r.kepler_error && /apagad|sin configurar/i.test(r.kepler_error);
   }
   keplerLabel(r: RequisitionRow): string {
-    if (r.kepler_folio) return `en Kepler ${r.kepler_sucursal ? (r.kepler_sucursal + '/') : ''}${r.kepler_folio}`;
+    if (r.kepler_folio) return `en Kepler ${r.kepler_folio}`;
     if (this.keplerApagado(r)) return 'Kepler apagado';
     if (r.kepler_error) return 'no salió a Kepler';
     if (r.kepler_folio === undefined && r.kepler_error === undefined) return 'Kepler: sin medir';
@@ -1015,67 +985,6 @@ export class ComprasRequisicionesComponent implements OnInit {
    * sino el freno de `[RQ.3]`: la requisición ya no tiene el costo de hoy. Tragarlo dejaría al
    * usuario creyendo que aprobó 50 cuando aprobó 21.
    */
-  // ── `[RQ.15]` Capturar la orden de compra de Kepler ───────────────────────────────────────
-  /**
-   * La junta requisición ↔ OC **no existía**: se guardaba cuándo y quién ordenó, nunca cuál orden.
-   * Medido el 2026-10-09: **53 requisiciones `ordered` por $11,586,824** que no se pueden seguir
-   * hasta la entrada de mercancía.
-   *
-   * ⭐ Y lo que de verdad faltaba era ESTO: el endpoint existe desde `RA.14` y **ninguna pantalla
-   * lo llamaba**. Hacer el folio obligatorio en el backend no sirve de nada si no hay dónde
-   * teclearlo.
-   */
-  readonly ocVisible = signal(false);
-  /**
-   * Puente para `[(visible)]` de `p-dialog`, que necesita una propiedad con setter y no acepta un
-   * signal. ⚠️ Sin esto la X y la tecla Escape cierran el diálogo en el DOM y el signal se queda
-   * en `true`: la segunda vez el botón no abre nada y parece que no funciona.
-   */
-  get ocVisibleDlg(): boolean { return this.ocVisible(); }
-  set ocVisibleDlg(v: boolean) { this.ocVisible.set(v); }
-  readonly ocReq = signal<RequisitionRow | null>(null);
-  ocSucursal = '';
-  ocFolio = '';
-
-  abrirOc(r: RequisitionRow): void {
-    this.ocReq.set(r);
-    // ⚠️ Se propone la sucursal de la requisición, NO se impone: la OC puede capturarse en otra
-    // plaza (hasta el 1-oct el `00` concentraba las compras de toda la red — Fase PO). Es un
-    // punto de partida para no teclear de más, y se puede corregir.
-    this.ocSucursal = (r.warehouse_code || '').trim();
-    this.ocFolio = '';
-    this.ocVisible.set(true);
-  }
-
-  guardarOc(): void {
-    const r = this.ocReq();
-    const suc = this.ocSucursal.trim();
-    const fol = this.ocFolio.trim();
-    if (!r || !suc || !fol) return;
-    this.busy.set(true);
-    this.api.markOrdered(r.id, { oc_sucursal: suc, oc_folio: fol })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          this.busy.set(false); this.ocVisible.set(false);
-          this.toast.add({ severity: 'success', life: 5000, summary: `${r.folio} ordenada`, detail: `Orden de compra ${suc}·${fol}` });
-          this.reload();
-        },
-        error: (e) => {
-          this.busy.set(false);
-          // ⛔ NO se traga el error ni se cierra el diálogo: lo capturado sigue en pantalla para
-          // corregirlo. El 409 del índice único es el caso real — ese folio ya está en otra
-          // requisición, y cerrar borraría el dato recién tecleado.
-          this.toast.add({
-            severity: 'error', life: 12000, summary: 'No se pudo marcar como ordenada',
-            detail: e?.error?.message || (e?.status === 409
-              ? 'Esa orden de compra ya está capturada en otra requisición.'
-              : 'Revisa la sucursal y el folio.'),
-          });
-        },
-      });
-  }
-
   lote(accion: 'approve' | 'reject', motivo: string | null = null): void {
     const ids = [...this.sel()];
     if (!ids.length) return;

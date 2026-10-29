@@ -145,7 +145,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
  * `[TP.16]` (Francisco, 2026-10-16): se ve la SEMANA completa (lunes a domingo) con presupuesto,
  * comprometido y disponible de cada día y sus documentos; cada día abre «Ordenar y pagar»: orden,
  * método, cuenta de ORIGEN y DESTINO (lo que pide el layout del banco). Dos firmas: Tesorería
- * prepara, Gerencia/Dirección autoriza, Caja General dispersa.
+ * prepara, Gerencia/Dirección autoriza, y dispersa quien corresponda a la cuenta de origen de
+ * cada pago: Tesorería lo que sale de banco o factoraje, Caja General lo que sale de la caja
+ * (`[PGP.33]`; medido, el 87.3 % del dinero sale de banco).
  */
 @Component({
   selector: 'app-finanzas-calendario-pagos',
@@ -483,6 +485,24 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               <div class="pg-sec-h">
                 <h3 class="pg-sec-t" id="pg-pagos-h">Pagos del día
                   @if (allocations().length) { <span class="pg-sec-n comm-num">{{ pagos(allocations().length) }} · {{ money(dayTotal(day)) }}</span> }
+                  <!-- [PGP.35] El total no se recorta solo: se declara que parte de el no es deuda viva. -->
+                  <!-- [PGP.36] El dia declara que gana y que deja pasar: sin esto el total no se
+                       puede juzgar. -->
+                  @if (diaCaptura() > 0 || diaDejaPasar() > 0) {
+                    <span class="pg-sec-pronto"
+                          [title]="'El descuento sale de los pagos que de hecho lo obtuvieron con cada proveedor, no de una condicion pactada. «Deja pasar» no es «perdido»: se paso la mediana de lo que funciono, y todavia se puede pedir.'">
+                      @if (diaCaptura() > 0) { <b class="pg-gana">captura {{ money(diaCaptura()) }}</b> }
+                      @if (diaCaptura() > 0 && diaDejaPasar() > 0) { <span class="pg-sep">·</span> }
+                      @if (diaDejaPasar() > 0) { <span class="pg-tarde">deja pasar {{ money(diaDejaPasar()) }}</span> }
+                      <span class="pg-sec-pronto-k">de pronto pago</span>
+                    </span>
+                  }
+                  @if (saldadasDelDia().length) {
+                    <span class="pg-sec-saldada"
+                          [title]="'El ERP ya no debe estas facturas: se pagaron por fuera o tienen nota de credito. Marcarlas como pagadas fallaria. Estan senaladas en su renglon.'">
+                      <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>de los cuales {{ money(saldadasDelDiaTotal()) }} el ERP ya no los debe
+                    </span>
+                  }
                 </h3>
                 @if (!isReleased() && pendingCount() > 0) {
                   <!-- [PGP.15] En el ENCABEZADO del panel (era un renglon propio) y como el boton principal del paso:
@@ -509,7 +529,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [loading]="printing()" (click)="printPreliminar()"><span class="pi pi-file-pdf" aria-hidden="true"></span>&nbsp;Preliminar</button>
                   }
                   @if (day.lot_folio) {
-                    <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [loading]="printing()" (click)="printCajaGeneral()"><span class="pi pi-print" aria-hidden="true"></span>&nbsp;Instrucción a Caja General</button>
+                    <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [loading]="printing()" (click)="printEjecucion()"><span class="pi pi-print" aria-hidden="true"></span>&nbsp;Instrucción de ejecución</button>
                   }
                   <!-- [PGP.15] Con un rebote, el boton principal es moverlo; marcar los demas de una vez sigue aqui. -->
                   @if (isReleased() && porPagar().length > 1 && verdict().action?.kind !== 'pagar') {
@@ -612,6 +632,25 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                         <span class="cal-benef">{{ allocationTitle(a) }}</span>
                         <span class="pg-sub"><span class="cal-suc">{{ itemsBranches(a) }}</span>{{ itemsResumen(a) }}</span>
                         @if (a.notes) { <span class="cal-notes">{{ a.notes }}</span> }
+                        <!-- [PGP.35] El ERP ya no debe esta factura. Se dice ACA, donde se decide:
+                             ejecutarlo fallaria, y hasta hoy el renglon solo mostraba un «—» mudo
+                             en el beneficiario. Medido: 11 de 27 pagos vivos, $2,506,811.31. -->
+                        <!-- [PGP.36] POR QUE se paga esto hoy. Va antes de COMO sale: el orden de
+                             lectura es la decision (DESIGN Q.2 - explicar el numero, no solo mostrarlo).
+                             Las cuatro razones hablan; antes solo hablaba la que convenia. -->
+                        @if (razonDePago(a); as r) {
+                          <span class="pg-razon" [class.is-gana]="r.tono === 'gana'" [class.is-urge]="r.tono === 'urge'"
+                                [class.is-tarde]="r.tono === 'tarde'" [class.is-mudo]="r.tono === 'mudo'" [title]="r.detalle">
+                            <i class="pi" [class.pi-arrow-up-right]="r.tono === 'gana'" [class.pi-clock]="r.tono === 'urge'"
+                               [class.pi-hourglass]="r.tono === 'tarde'" [class.pi-question-circle]="r.tono === 'mudo'" aria-hidden="true"></i>{{ r.texto }}
+                          </span>
+                        }
+                        @if (a.kepler_saldadas > 0) {
+                          <span class="pg-saldada"
+                                [title]="'Al preparar este pago, el ERP debia estas facturas. Hoy ya no: se pagaron por fuera o tienen nota de credito. Marcarlo como pagado fallaria. Quitalo del dia o revisa que factura reemplaza.'">
+                            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>El ERP ya no debe {{ a.kepler_saldadas === 1 ? 'esta factura' : a.kepler_saldadas + ' de sus facturas' }} ({{ money(a.kepler_saldadas_importe) }}): no se puede pagar
+                          </span>
+                        }
                         <!-- [PGP.15] Cómo sale, DEBAJO del beneficiario: en el panel de la derecha una columna
                              propia de 21rem dejaba al nombre en ~10 px (medido: se partía letra por letra). -->
                         @if (comoSale(a); as cs) {
@@ -797,7 +836,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <p class="cal-dlg-hint cal-habito-nm">No se pudo leer con qué se le suele pagar. Elige a mano.</p>
       } @else if (prepHabito(); as h) {
         @if (h.cuenta_estado === 'caja_general') {
-          <p class="cal-dlg-hint cal-habito">A este proveedor se le suele pagar <b>desde Caja General</b> ({{ h.cuenta_veces }} de {{ h.cuenta_de }}), que no es cuenta de origen de una transferencia.</p>
+          <!-- [PGP.33] Decia «…, que no es cuenta de origen de una transferencia». Medido contra
+               prod: 2,771 pagos ($54,897,784) salieron de Caja General y Kepler mismo los clasifica
+               como caja. La vista ya no emite este estado -- la rama queda por si una pestana abierta
+               desde antes del despliegue todavia lo recibe, y ahora dice la verdad. -->
+          <p class="cal-dlg-hint cal-habito">A este proveedor se le suele pagar <b>desde Caja General</b> ({{ h.cuenta_veces }} de {{ h.cuenta_de }}). Eligela en el desplegable si hoy va igual.</p>
         } @else if (h.metodo_estado === 'variable') {
           <p class="cal-dlg-hint cal-habito">No se precargó: a este proveedor se le ha pagado de varias formas ({{ h.metodo_veces }} de {{ h.metodo_de }} con la más usada).</p>
         }
@@ -826,6 +869,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       @if (prepMethod === 'efectivo') {
         <label class="cal-dlg-label" for="cal-prep-cash">Caja de salida</label>
         <input id="cal-prep-cash" pInputText type="text" [(ngModel)]="prepCash" placeholder="Caja" class="cal-dlg-full" />
+        <!-- [PGP.33] Se dice ANTES de elegirlo. Kepler (kdm1.c31) sólo distingue transferencia,
+             cheque y anticipo: medido el 2026-10-29, de 4,898 pagos a proveedor hay CERO
+             registrados como efectivo. Quien concilie después contra el ERP no va a encontrar
+             este pago rotulado así, y sin este aviso lo leería como un error de captura. -->
+        <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-info-circle" aria-hidden="true"></i> Kepler no distingue «efectivo»: el <b>X-D-26</b> va a quedar rotulado <b>transferencia</b> aunque el dinero salga de la caja. Acá queda bien; al conciliar contra el ERP, cuenta con eso.</p>
       }
       <div class="cal-dlg-actions"><button pButton type="button" class="p-button-text p-button-secondary" (click)="prepareVisible = false">Cancelar</button><button pButton type="button" (click)="confirmPrepare()" [loading]="saving()">Guardar</button></div>
     </p-dialog>
@@ -835,9 +883,21 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       <p class="cal-dlg-p">Se marcan <b>{{ pagos(porPagar().length) }}</b> por <b class="comm-num">{{ money(porPagarTotal()) }}</b>. Marca sólo lo que el banco ya confirmó: <b>un pago marcado no se deshace aquí</b>. Si alguno rebotó, cancela y márcalo «Rebotó…» en su fila.</p>
       <ul class="pg-dlg-list">
         @for (a of porPagar(); track a.id) {
-          <li><span><span class="comm-num pg-dlg-fol">{{ a.folio || a.priority_rank }}</span> {{ allocationTitle(a) }}</span><b class="comm-num">{{ money(a.amount_assigned) }}</b></li>
+          <li [class.is-saldada]="a.kepler_saldadas > 0">
+            <span><span class="comm-num pg-dlg-fol">{{ a.folio || a.priority_rank }}</span> {{ allocationTitle(a) }}
+              @if (a.kepler_saldadas > 0) {
+                <span class="pg-dlg-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>va a fallar: el ERP ya no debe {{ a.kepler_saldadas === 1 ? 'su factura' : a.kepler_saldadas + ' de sus facturas' }}</span>
+              }
+            </span><b class="comm-num">{{ money(a.amount_assigned) }}</b></li>
         }
       </ul>
+      <!-- [PGP.35] Se dice ANTES de apretar (DESIGN §10 poka-yoke): el servidor revalida el saldo
+           y rechaza esos pagos, pero enterarse por N errores seguidos es el ultimo recurso. -->
+      @if (porPagarSaldadas(); as n) {
+        @if (n > 0) {
+          <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ n === 1 ? '1 de estos pagos va a fallar' : n + ' de estos pagos van a fallar' }}: el ERP ya no debe sus facturas (se pagaron por fuera o tienen nota de credito). Los demas si se marcan.</p>
+        }
+      }
       <div class="cal-dlg-actions">
         <button pButton type="button" class="p-button-text p-button-secondary" (click)="pagarVisible = false">Cancelar</button>
         <button pButton type="button" [disabled]="!porPagar().length" [loading]="saving()" (click)="confirmPagar()">Marcar {{ pagos(porPagar().length) }}</button>
@@ -1216,6 +1276,22 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-habito { border-left:2px solid var(--border); padding-left:var(--sp-2); }
     .cal-habito .pi { margin-right:.3rem; }
     .cal-habito-nm { border-left:2px solid var(--warn-fg); padding-left:var(--sp-2); font-style:italic; }
+    /* [PGP.35] Lo que no se puede pagar se ve distinto de lo que falta preparar: esto no es
+       trabajo pendiente, es un renglon que hay que sacar del dia. */
+    .pg-saldada { display:flex; align-items:center; gap:var(--sp-1); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
+    .pg-sec-saldada { display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
+    .pg-dlg-list li.is-saldada { color:var(--bad-fg); }
+    .pg-dlg-warn { display:inline-flex; align-items:center; gap:var(--sp-1); margin-left:var(--sp-2); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
+    /* [PGP.36] La razon de pago. Cuatro tonos y NINGUNO depende solo del color: cada uno lleva
+       su icono y su texto (DESIGN - el color nunca es el unico portador). */
+    .pg-razon { display:flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); font-weight:600; color:var(--fg-2); }
+    .pg-razon.is-gana  { color:var(--ok-fg); }
+    .pg-razon.is-urge  { color:var(--action); }
+    .pg-razon.is-tarde { color:var(--warn-fg); }
+    .pg-razon.is-mudo  { color:var(--fg-3); font-weight:500; font-style:italic; }
+    .pg-sec-pronto { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); }
+    .pg-sec-pronto-k { color:var(--fg-3); }
+    .pg-gana { color:var(--ok-fg); } .pg-tarde { color:var(--warn-fg); } .pg-sep { color:var(--fg-3); }
     .cal-dlg-full { width:100%; margin-bottom:var(--sp-2); }
     .cal-dlg-actions { display:flex; gap:var(--sp-2); align-items:center; justify-content:flex-end; margin-top:var(--sp-3); }
     .cal-dlg-label { display:block; font-size:var(--fs-sm); color:var(--text-muted); margin:var(--sp-2) 0 var(--sp-1); }
@@ -1339,6 +1415,28 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * pagos se plegaba y su contenido volvía a medias en otro paso. Lo que define el estado del día
    * se ve siempre (regla del PM: visibilidad en todo momento).
    */
+  /**
+   * `[PGP.33]` **Quién dispersa el día.** La etapa 4 decía `quien: 'Caja General'` fijo. Medido
+   * contra prod el 2026-10-29 sobre los 4,898 pagos a proveedor del ERP: el **87.3 % del dinero**
+   * ($404,105,108) sale de una cuenta de **banco** y lo dispersa **Tesorería**; Caja General son el
+   * 56.7 % de los pagos por conteo pero el **12.7 % del dinero**. Nombrar sólo a una le decía a
+   * quien mira el tablero que el otro no existe.
+   *
+   * Se deriva de la cuenta de origen de los pagos del día, no del método: una cuenta `cash` la
+   * dispersa Caja General, una de banco o factoraje la dispersa Tesorería. Si no hay nada
+   * preparado todavía no hay a quién nombrar, y se devuelve null en vez de inventarlo (ADR-056).
+   */
+  readonly ejecutoresDelDia = computed<string | null>(() => {
+    const quien = new Set<string>();
+    for (const a of this.allocations()) {
+      if (!a.payment_method) continue;
+      if (a.bank_account_kind === 'cash' || a.payment_method === 'efectivo') quien.add('Caja General');
+      else if (a.bank_account_kind === 'bank' || a.bank_account_kind === 'factoraje') quien.add('Tesorería');
+    }
+    const orden = ['Tesorería', 'Caja General'].filter((e) => quien.has(e));
+    return orden.length ? orden.join(' y ') : null;
+  });
+
   readonly etapas = computed<Etapa[]>(() => {
     const day = this.selectedDay();
     if (!day) return [];
@@ -1355,7 +1453,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         dice: rel ? 'listos' : pend ? `${pend - this.unpreparedCount()} de ${pend} listos` : '' },
       { n: 3, nombre: 'Autorizar', quien: 'Gerencia o Dirección', estado: est(3),
         dice: rel ? (day.lot_folio ? `folio ${day.lot_folio}` : 'autorizado') : paso === 3 ? (this.canAuthorize() ? 'listo para tu firma' : 'listo, espera la firma') : '' },
-      { n: 4, nombre: 'Pagar', quien: 'Caja General', estado: est(4),
+      { n: 4, nombre: 'Pagar', quien: this.ejecutoresDelDia() ?? 'Tesorería o Caja General', estado: est(4),
         dice: rel ? `${this.executedCount()} de ${n} pagados${reb ? ` · ${reb === 1 ? '1 rebotó' : reb + ' rebotaron'}` : ''}` : '' },
       { n: 5, nombre: 'Cerrar', quien: null, estado: est(5),
         dice: paso === 6 ? 'cerrado' : paso === 5 ? 'falta cerrar' : '' },
@@ -1728,7 +1826,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         const listos = this.porPagar().length;
         return { tone: 'ok',
           say: `Autorizado: ${this.pagos(pend)} por pagar, ${this.money(this.porPagarTotal())}.`,
-          why: 'Caja General dispersa con la instrucción impresa. Cuando el banco confirme, márcalos pagados de una vez; si uno rebota, márcalo en su fila.',
+          why: `${this.ejecutoresDelDia() ?? 'Quien dispersa'} ejecuta con la instrucción impresa, que dice pago por pago a quién le toca. Cuando el banco confirme, márcalos pagados de una vez; si uno rebota, márcalo en su fila.`,
           action: listos ? { kind: 'pagar', label: listos === 1 ? 'Marcar pagado' : `Marcar los ${listos} pagados`, icon: 'pi-check' } : null };
       }
       return { tone: 'ok', say: 'Todos los pagos se marcaron: falta cerrar el día.',
@@ -1788,13 +1886,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // [PGP.15] Ya no deberia pasar: armar y agregar ordenan solos. Si una escritura de orden fallo, se ofrece aqui.
       return { tone: 'ok',
         say: `Faltan ${this.unrankedCount()} de ${this.pendingCount()} pagos por ordenar.`,
-        why: 'Caja General dispersa en ese turno, así que sin orden el día no se autoriza.',
+        why: 'Quien dispersa paga en ese turno, así que sin orden el día no se autoriza.',
         action: { kind: 'ordenar', label: 'Proponer orden', icon: 'pi-sort-amount-down' } };
     }
     if (this.canAuthorize()) {
       return { tone: 'ok',
         say: `Listo para autorizar: ${this.pagos(this.pendingCount())} por ${this.money(s.assigned_amount)}.`,
-        why: 'Autorizas el día completo. Después Caja General dispersa con la instrucción impresa.',
+        why: 'Autorizas el día completo. Después se dispersa con la instrucción impresa, que nombra a quién le toca cada pago.',
         action: { kind: 'autorizar', label: 'Autorizar el día', icon: 'pi-lock' } };
     }
     return { tone: 'ok',
@@ -1886,8 +1984,79 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   // ── [PGP.15] Caja General: marcar pagados de una vez, y el pago que rebota ──────────────────
   pagarVisible = false;
   /** Lo que «Marcar los N pagados» marca: pendiente y preparado (el backend exige método). */
+  /**
+   * `[PGP.35]` **Cuánto del total del día ya NO lo debe el ERP.** El encabezado publicaba
+   * «27 pagos · $6,683,082.26» como deuda viva, y medido contra prod el 2026-10-29
+   * **$2,506,811.31 de esos (11 pagos) ya estaban saldados en Kepler** — pagados por fuera o con
+   * nota de crédito. `execute()` los rechaza, pero eso se descubre al final del día, después de
+   * preparar, autorizar y firmar.
+   *
+   * ⛔ El total NO se recorta por cuenta propia: cambiar una cifra publicada sin que nadie lo pida
+   * es peor que declararla. Se publica al lado, y quien decide saca el renglón si corresponde.
+   */
+  readonly saldadasDelDia = computed(() =>
+    this.allocations().filter((a) => a.status === 'pending' && (a.kepler_saldadas ?? 0) > 0));
+  readonly saldadasDelDiaTotal = computed(() =>
+    this.saldadasDelDia().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
+
+  /**
+   * `[PGP.36]` **La cuenta de resultados del día.** El encabezado publicaba «27 pagos ·
+   * $6,683,082.26» y con eso nadie podia juzgar si el día estaba bien armado. Ahora dice qué
+   * descuento captura y cuál deja pasar, que es la pregunta que el Calendario existe para
+   * contestar.
+   */
+  readonly diaCaptura = computed(() =>
+    this.allocations().filter((a) => a.status === 'pending').reduce((s, a) => s + Number(a.pronto_captura || 0), 0));
+  readonly diaDejaPasar = computed(() =>
+    this.allocations().filter((a) => a.status === 'pending').reduce((s, a) => s + Number(a.pronto_deja_pasar || 0), 0));
+
+  /**
+   * `[PGP.36]` **Por qué este pago está hoy en el día.** Una frase por renglón, con su evidencia.
+   *
+   * ⭐ Las CUATRO hablan, y ésa es la diferencia con lo de antes: el renglón sólo decía algo
+   * cuando convenía pagar («gana $X si pagás antes del…»). Medido contra prod el 2026-10-29
+   * sobre $139.6M de deuda viva, eso dejaba **mudos $97.4M**: $23.9M fuera de ventana y
+   * $73.5M sin medir. Y un silencio se lee como «acá no hay nada que ganar».
+   *
+   * ⛔ Las tres negativas dicen cosas distintas y no se mezclan:
+   *   · `fuera_de_ventana` → se pasó la mediana de lo que funcionó. **Todavía se puede intentar.**
+   *   · `sin_medir` → nunca observamos un descuento de este proveedor. **No sabemos**, que no es
+   *     lo mismo que saber que no da.
+   *   · `null` → no aplica: este renglón no es una factura del ERP.
+   */
+  razonDePago(a: PaymentCalendarAllocation): { tono: 'gana' | 'urge' | 'tarde' | 'mudo'; texto: string; detalle: string } | null {
+    if (a.pronto_captura > 0) {
+      const urge = (a.items ?? []).some((it) => it.pronto_estado === 'por_vencer');
+      const lim = (a.items ?? []).map((it) => it.pronto_fecha_limite).filter(Boolean).sort()[0];
+      const tasa = (a.items ?? []).map((it) => it.pronto_tasa).find((t) => t != null);
+      return {
+        tono: urge ? 'urge' : 'gana',
+        texto: `Gana ${this.money(a.pronto_captura)}${tasa ? ' (' + this.pct(tasa) + ')' : ''}${lim ? ' si se paga antes del ' + this.shortDate(lim) : ''}`,
+        detalle: 'El descuento sale de los pagos de este proveedor que de hecho lo obtuvieron, no de una condicion pactada: es una guia medida, no una promesa.',
+      };
+    }
+    if (a.pronto_deja_pasar > 0) {
+      return {
+        tono: 'tarde',
+        texto: `Deja pasar ${this.money(a.pronto_deja_pasar)}: se paso la ventana de pronto pago`,
+        detalle: 'Se paso la mediana de lo que historicamente funciono con este proveedor. NO esta perdido: todavia se puede pedir.',
+      };
+    }
+    const kp = (a.items ?? []).filter((it) => it.pronto_estado != null);
+    if (kp.length && kp.every((it) => it.pronto_estado === 'sin_medir')) {
+      return {
+        tono: 'mudo',
+        texto: 'Sin descuento medido en este proveedor',
+        detalle: 'Nunca observamos un pago con descuento suyo (hacen falta 3). NO significa que no de: significa que no lo sabemos. Si pacto condiciones, captúralas en su ficha.',
+      };
+    }
+    return null;
+  }
+
   readonly porPagar = computed(() => this.allocations().filter((a) => a.status === 'pending' && isPrepared(a)));
   readonly porPagarTotal = computed(() => this.porPagar().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
+  /** `[PGP.35]` De los que se van a marcar, cuántos el servidor va a rechazar por saldo. */
+  readonly porPagarSaldadas = computed(() => this.porPagar().filter((a) => (a.kepler_saldadas ?? 0) > 0).length);
   reboteVisible = false;
   reboteAllocation: PaymentCalendarAllocation | null = null;
   reboteReason: ReprogramReason | null = null;
@@ -2835,7 +3004,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     });
   }
   printPreliminar(): void { this.openPdf(`${this.base}/days/${this.selectedDate()}/preliminar.pdf`); }
-  printCajaGeneral(): void { this.openPdf(`${this.base}/days/${this.selectedDate()}/caja-general.pdf`); }
+  /**
+   * `[PGP.33]` La instrucción de ejecución. Se llamaba `printCajaGeneral` y el PDF se titulaba
+   * «— Caja General» para TODO el lote; medido, el 87.3 % del dinero sale de banco y lo dispersa
+   * Tesorería. Ahora cada renglón dice quién ejecuta y el papel firma a los que de verdad participan.
+   */
+  printEjecucion(): void { this.openPdf(`${this.base}/days/${this.selectedDate()}/ejecucion.pdf`); }
 
   // ── Caja General: pagar, rebote y cierre ([PGP.15]) ─────────────────────
   execute(a: PaymentCalendarAllocation): void {
@@ -2918,7 +3092,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   releaseLot(): void {
     this.saving.set(true);
     this.http.post(`${this.base}/days/${this.selectedDate()}/liberar`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.saving.set(false); this.reload(); this.toast.add({ severity: 'success', summary: 'Autorizado', detail: 'El día quedó autorizado: Caja General ya puede imprimir su instrucción y dispersar.' }); },
+      next: () => { this.saving.set(false); this.reload(); this.toast.add({ severity: 'success', summary: 'Autorizado', detail: 'El día quedó autorizado: ya se puede imprimir la instrucción de ejecución y dispersar.' }); },
       error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo autorizar.' }); },
     });
   }

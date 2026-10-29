@@ -192,6 +192,14 @@ export const REPROGRAM_REASONS: ReprogramReason[] = ['cuenta_erronea', 'falla_si
 // Reprogramar/fallar/ejecutar una allocation EXISTENTE sigue permitido (son hechos de ejecución,
 // no de autorización) — lo que se bloquea es agregar pagos NUEVOS al lote ya autorizado.
 const LOCKED_LOT_STATUSES = new Set(['released', 'executing', 'closed']);
+
+/** `[PGP.36]` La fila que devuelve la consulta de etiquetas del origen derivado, con su ventana. */
+interface VentanaRow {
+  id: string; beneficiary: string; concept: string;
+  supplier_id: string | null; branch_code: string | null; vence: string | null;
+  pronto_fecha_limite: string | null; pronto_tasa: number | string | null;
+  pronto_beneficio: number | string | null; pronto_estado: string | null;
+}
 export interface CreateAgreementDto {
   obligation_source: ObligationSource; obligation_id: string;
   responsible_user?: string | null; counterpart_text?: string | null;
@@ -894,7 +902,13 @@ export class PaymentCalendarService {
       const items = await trx('finance.payment_allocation_items').whereIn('allocation_id', allocations.map((a: any) => a.id));
       const bySource: Record<string, string[]> = {};
       for (const it of items as any[]) (bySource[it.obligation_source] ??= []).push(it.obligation_id);
-      const labels = new Map<string, { beneficiary: string; concept: string; supplier_id?: string; branch_code?: string | null }>();
+      const labels = new Map<string, {
+        beneficiary: string; concept: string; supplier_id?: string; branch_code?: string | null;
+        // `[PGP.36]` Sólo el origen derivado los trae: los otros no tienen factura del ERP detrás.
+        vence?: string | null;
+        pronto_fecha_limite?: string | null; pronto_tasa?: number | null;
+        pronto_beneficio?: number | null; pronto_estado?: string | null;
+      }>();
       for (const source of Object.keys(bySource) as ObligationSource[]) {
         const ids = bySource[source];
         if (source === 'supplier_payable') {
@@ -906,17 +920,37 @@ export class PaymentCalendarService {
         } else if (source === 'kepler_payable') {
           // `[TP.18]` El derivado no tiene tabla: su etiqueta se rearma desde la vista por la
           // misma llave determinística con que se guardó el item (ADR-094 §4).
+          // `[PGP.36]` **La ventana de pronto pago viaja con la etiqueta.** Es la MISMA consulta
+          // que ya rearmaba el beneficiario: un `leftJoin` más y cuatro columnas, cero viajes
+          // nuevos. La regla no se copia —`sqlVentanaProntoPago` es la de
+          // `pronto-pago-ventana.contract.ts`— porque una segunda definición de «hasta cuándo
+          // conviene pagar» diría otra fecha de la misma factura, y esto decide dinero.
+          //
+          // ⭐ Por qué acá y no sólo en la lista de «agregar facturas»: medido contra prod el
+          // 2026-10-29, **$2,427,564 de descuento está en juego sobre la deuda viva** y el
+          // renglón del día —donde se decide a quién se le paga hoy— no lo decía.
           const rows = await trx('analytics.v_supplier_payables as v')
             .leftJoin('catalog.suppliers as s', 's.code', 'v.proveedor')
+            .leftJoin('analytics.mv_supplier_prompt_discount as d', trx.raw('btrim(d.proveedor_code) = btrim(v.proveedor)'))
             .whereRaw(`${KEPLER_PAYABLE_ID} = ANY(?::uuid[])`, [ids])
             .select(
               trx.raw(`${KEPLER_PAYABLE_ID} AS id`),
               trx.raw(`coalesce(s.name, v.proveedor_nombre, v.proveedor) AS beneficiary`),
               trx.raw(`coalesce(nullif(btrim(v.folio), ''), 'Factura') AS concept`),
               's.id AS supplier_id', 'v.sucursal AS branch_code',
+              trx.raw('v.vencimiento AS vence'),
+              trx.raw(sqlVentanaProntoPago('v', 'd')),
             );
-          for (const r of rows as { id: string; beneficiary: string; concept: string; supplier_id: string | null; branch_code: string | null }[]) {
-            labels.set(`${source}:${r.id}`, { beneficiary: r.beneficiary, concept: r.concept, supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null });
+          for (const r of rows as VentanaRow[]) {
+            labels.set(`${source}:${r.id}`, {
+              beneficiary: r.beneficiary, concept: r.concept,
+              supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null,
+              vence: r.vence ?? null,
+              pronto_fecha_limite: r.pronto_fecha_limite ?? null,
+              pronto_tasa: r.pronto_tasa === null || r.pronto_tasa === undefined ? null : Number(r.pronto_tasa),
+              pronto_beneficio: r.pronto_beneficio === null || r.pronto_beneficio === undefined ? null : Number(r.pronto_beneficio),
+              pronto_estado: r.pronto_estado ?? 'sin_medir',
+            });
           }
         } else {
           const rows = await trx(TABLE_BY_SOURCE[source] as string).whereIn('id', ids).select('id', 'beneficiary', 'concept');
@@ -926,22 +960,80 @@ export class PaymentCalendarService {
       const itemsByAllocation = new Map<string, any[]>();
       for (const it of items as any[]) {
         const label = labels.get(`${it.obligation_source}:${it.obligation_id}`);
+        // `[PGP.35]` **Una etiqueta vacía de origen derivado NO es un beneficiario desconocido:
+        // es que Kepler ya no debe esa factura.** La etiqueta se rearma desde
+        // `analytics.v_supplier_payables`, que filtra `pendiente > 0.005`; si el documento no
+        // aparece, el ERP lo tiene saldado (pagado por fuera, o con nota de crédito). Hasta hoy
+        // eso se pintaba «—» y el pago seguía sumando al total del día como deuda viva.
+        //
+        // ⛔ Medido contra prod el 2026-10-29: **27 de las 54 líneas derivadas** de los pagos
+        // vivos están así — **11 de 27 pagos, $2,506,811.31 de $6,683,082.26**. Se descartó que
+        // fuera deriva de la llave: las 27 existen en `kepler_ods.kdxe` con saldo 0 (si no
+        // existieran, el defecto sería NUESTRO; ver kepler-payable-key.contract.ts:22).
+        //
+        // ⭐ Y es exactamente el síntoma que ese contrato anticipa —«una etiqueta en blanco y un
+        // saldo que no baja»—, con el dato ya en la mano y tirándose. No cuesta una consulta más.
+        // `execute()` ya lo rechaza (:1346-1352), pero ahí llega una persona después de preparar,
+        // autorizar y firmar: decirlo acá es decirlo ANTES de gastar el día.
+        const saldada = !label && it.obligation_source === 'kepler_payable';
         const arr = itemsByAllocation.get(it.allocation_id) ?? [];
-        arr.push({ ...it, beneficiary: label?.beneficiary ?? '—', concept: label?.concept ?? '—', supplier_id: label?.supplier_id ?? null, branch_code: label?.branch_code ?? null });
+        arr.push({
+          ...it,
+          beneficiary: label?.beneficiary ?? '—',
+          concept: label?.concept ?? '—',
+          supplier_id: label?.supplier_id ?? null,
+          branch_code: label?.branch_code ?? null,
+          kepler_saldada: saldada,
+          // `[PGP.36]` La razón por la que esta factura está en el día de hoy.
+          vence: label?.vence ?? null,
+          pronto_fecha_limite: label?.pronto_fecha_limite ?? null,
+          pronto_tasa: label?.pronto_tasa ?? null,
+          pronto_beneficio: label?.pronto_beneficio ?? null,
+          // ⛔ El origen que NO tiene factura del ERP detrás no es «sin medir»: no aplica. Son
+          // cosas distintas y mezclarlas haría que un gasto recurrente pareciera un proveedor
+          // del que no sabemos nada.
+          pronto_estado: it.obligation_source === 'kepler_payable' ? (label?.pronto_estado ?? 'sin_medir') : null,
+        });
         itemsByAllocation.set(it.allocation_id, arr);
       }
       // `[TP.16]` Alias de la cuenta de ORIGEN, para que «Ordenar y pagar» diga de dónde sale el dinero.
       const originIds = [...new Set(allocations.map((a: AllocationRowLite) => a.bank_account_id).filter(Boolean))] as string[];
       const origin = new Map<string, string>();
+      // `[PGP.33]` Y su CLASE, porque de ella depende QUIÉN ejecuta: una cuenta de banco la
+      // dispersa Tesorería; la caja, Caja General. El documento impreso le hablaba a Caja General
+      // para los $404,105,108 (87.3 %) que salen de banco y nunca pasan por ahí.
+      const originKind = new Map<string, string>();
       if (originIds.length) {
-        const accs = await trx('finance.bank_accounts').whereIn('id', originIds).select('id', 'alias', 'bank', 'account_label');
-        for (const r of accs as { id: string; alias: string | null; bank: string; account_label: string }[]) origin.set(r.id, r.alias || `${r.bank} ${r.account_label}`);
+        const accs = await trx('finance.bank_accounts').whereIn('id', originIds).select('id', 'alias', 'bank', 'account_label', 'kind');
+        for (const r of accs as { id: string; alias: string | null; bank: string; account_label: string; kind: string | null }[]) {
+          origin.set(r.id, r.alias || `${r.bank} ${r.account_label}`);
+          originKind.set(r.id, r.kind || 'bank');
+        }
       }
-      return allocations.map((a: AllocationRowLite) => ({
-        ...a, amount_assigned: Number(a.amount_assigned),
-        bank_account_label: a.bank_account_id ? origin.get(a.bank_account_id) ?? null : null,
-        items: (itemsByAllocation.get(a.id) ?? []).map((it) => ({ ...it, applied_amount: Number(it.applied_amount) })),
-      }));
+      return allocations.map((a: AllocationRowLite) => {
+        const its = (itemsByAllocation.get(a.id) ?? []).map((it) => ({ ...it, applied_amount: Number(it.applied_amount) }));
+        // `[PGP.35]` El agregado por pago: cuántas de sus facturas quedaron saldadas en el ERP y
+        // por cuánto. La pantalla lo necesita para no sumar como deuda viva lo que ya no se debe.
+        const saldadas = its.filter((it) => it.kepler_saldada);
+        // `[PGP.36]` **Lo que este pago captura y lo que deja pasar.** Es la cuenta de resultados
+        // del renglón: sin ella el día publica un total y nadie puede juzgar si estuvo bien armado.
+        // ⛔ `fuera_de_ventana` NO es «perdido» (el contrato lo dice): se pasó la mediana de lo que
+        // históricamente funcionó y todavía se puede intentar. Por eso «deja pasar», no «pierde».
+        const captura = its.reduce((s, it) => s + (
+          (it.pronto_estado === 'capturable' || it.pronto_estado === 'por_vencer') ? Number(it.pronto_beneficio || 0) : 0), 0);
+        const dejaPasar = its.reduce((s, it) => s + (
+          it.pronto_estado === 'fuera_de_ventana' ? Number(it.pronto_beneficio || 0) : 0), 0);
+        return {
+          ...a, amount_assigned: Number(a.amount_assigned),
+          bank_account_label: a.bank_account_id ? origin.get(a.bank_account_id) ?? null : null,
+          bank_account_kind: a.bank_account_id ? originKind.get(a.bank_account_id) ?? null : null,
+          kepler_saldadas: saldadas.length,
+          kepler_saldadas_importe: saldadas.reduce((s, it) => s + Number(it.applied_amount), 0),
+          pronto_captura: Math.round(captura * 100) / 100,
+          pronto_deja_pasar: Math.round(dejaPasar * 100) / 100,
+          items: its,
+        };
+      });
     });
   }
 
@@ -974,11 +1066,31 @@ export class PaymentCalendarService {
     return { from: days[0], to: days[6], days: out };
   }
 
-  /** `[TP.16]` Cuentas de ORIGEN elegibles: activas, banco o factoraje. La caja no es origen de una transferencia. */
+  /**
+   * `[PGP.33]` Cuentas de ORIGEN elegibles: **todas las activas, incluida la caja.**
+   *
+   * ⛔⛔ Hasta hoy excluía `kind = 'cash'` con la premisa escrita *«la caja no es origen de una
+   * transferencia»*. **El ERP la contradice.** Medido contra prod el 2026-10-29 sobre
+   * `analytics.erp_supplier_payments` cruzado con `analytics.kepler_bank_movements`:
+   *
+   *   - **2,771 pagos a proveedor, $54,897,784**, salieron de una cuenta que el propio decode de
+   *     Kepler clasifica `tipo_cuenta = 'caja'`, CAJA GENERAL — y nuestro catálogo tiene
+   *     exactamente una cuenta `kind = 'cash'`, que es ésa;
+   *   - son el **56.7 % de los 4,898 pagos** por conteo (el 12.7 % del dinero: son los chicos).
+   *
+   * O sea que la premisa no describía a Tesorería, la contradecía: el desplegable **no podía
+   * reproducir más de la mitad de cómo se ha pagado siempre**, y quien pagaba desde Caja General
+   * tenía que mentirle al formulario eligiendo otra cuenta. Se retira el filtro.
+   *
+   * ⚠️ **Lo que NO se afirma** (ADR-056): si esos 2,771 salieron físicamente en efectivo o por una
+   * transferencia ordenada desde el escritorio de Caja General **no se puede saber desde acá** —
+   * Kepler los rotula `transferencia` porque su `kdm1.c31` sólo distingue tres valores y
+   * `efectivo` no es uno. Por eso la caja se OFRECE y no se propone sola.
+   */
   async originAccounts(): Promise<PaymentOriginAccount[]> {
     this.tenantCtx.requireTenantId();
     return this.tk.run((trx) => trx('finance.bank_accounts')
-      .where('active', true).whereRaw(`coalesce(kind,'bank') <> 'cash'`)
+      .where('active', true)
       .select('id', 'bank', 'account_label', 'alias', 'kind')
       .orderBy([{ column: 'bank' }, { column: 'account_label' }]));
   }
@@ -1194,8 +1306,10 @@ export class PaymentCalendarService {
       const needsOrigin = dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico' || dto.payment_method === 'cheque';
       if (needsOrigin) {
         if (!dto.bank_account_id) throw new BadRequestException('Elige la cuenta de origen (de cuál cuenta nuestra sale el pago).');
-        const origin = await trx('finance.bank_accounts').where({ id: dto.bank_account_id, active: true }).whereRaw(`coalesce(kind,'bank') <> 'cash'`).first();
-        if (!origin) throw new BadRequestException('La cuenta de origen no existe, está inactiva o es la caja.');
+        // `[PGP.33]` La caja YA es un origen válido: medido, 2,771 pagos ($54,897,784) salieron de
+        // CAJA GENERAL. Antes este `where` la rechazaba y el error culpaba a la cuenta.
+        const origin = await trx('finance.bank_accounts').where({ id: dto.bank_account_id, active: true }).first();
+        if (!origin) throw new BadRequestException('La cuenta de origen no existe o está inactiva.');
       }
       if (dto.payment_method === 'transferencia' && !destinationText?.trim()) {
         throw new BadRequestException('Transferencia requiere la cuenta destino (elige una del catálogo del proveedor o captura la CLABE).');
@@ -1337,7 +1451,9 @@ export class PaymentCalendarService {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se ejecuta un pago pendiente');
-      if (!allocation.payment_method) throw new BadRequestException('Falta preparar el método de pago antes de ejecutar (Caja General lo necesita)');
+      // `[PGP.33]` Decía «(Caja General lo necesita)». Medido: el 87.3 % del dinero ($404,105,108)
+      // sale de una cuenta de BANCO, que ejecuta Tesorería. El mensaje ya no nombra a un área sola.
+      if (!allocation.payment_method) throw new BadRequestException('Falta preparar el método de pago antes de ejecutar: quien dispersa necesita saber con qué se paga.');
       // `[TP.16]` Dos firmas: Caja General dispersa lo que Gerencia/Dirección AUTORIZÓ. Sin esto, un
       // pago se podía marcar pagado sin que nadie hubiera autorizado el día.
       const execLot = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id }).first();
@@ -1444,7 +1560,12 @@ export class PaymentCalendarService {
               WHEN 'budget_expense' THEN eo.original_due_date
               WHEN 'financial_commitment' THEN fc.original_due_date
               WHEN 'supplier_payable' THEN spo.original_due_date
-              WHEN 'kepler_payable' THEN kv.vencimiento END) AS min_due
+              WHEN 'kepler_payable' THEN kv.vencimiento END) AS min_due,
+            -- [PGP.37] Lo que este pago GANA si sale hoy. Solo cuenta la ventana ABIERTA: lo que
+            -- ya se paso no gana nada por adelantarse, y ponerlo aqui subiria un renglon que no
+            -- va a cobrar el descuento.
+            coalesce(sum(CASE WHEN pp.pronto_estado IN ('capturable','por_vencer')
+                              THEN pp.pronto_beneficio ELSE 0 END), 0) AS pronto_en_juego
           FROM finance.payment_allocations a
           JOIN finance.payment_allocation_items i ON i.allocation_id = a.id
           LEFT JOIN budget.expense_obligations eo ON i.obligation_source='budget_expense' AND eo.id=i.obligation_id
@@ -1455,14 +1576,26 @@ export class PaymentCalendarService {
                  ON i.obligation_source='kepler_payable'
                 AND md5('kepler_payable|'||kv.sucursal||'|'||kv.doc_tipo||'|'||kv.doc_sub||'|'||kv.folio)::uuid = i.obligation_id
           LEFT JOIN catalog.suppliers ks ON ks.code = kv.proveedor
+          -- [PGP.37] El descuento en juego entra en el ORDEN. La regla NO se reimplementa: sale
+          -- de sqlVentanaProntoPago(), igual que en la pantalla. Un segundo criterio de "hasta
+          -- cuando conviene pagar" ordenaria el dia por una fecha que el renglon no muestra.
+          LEFT JOIN analytics.mv_supplier_prompt_discount kd
+                 ON btrim(kd.proveedor_code) = btrim(kv.proveedor)
+          LEFT JOIN LATERAL (SELECT ${sqlVentanaProntoPago('kv', 'kd')}) pp ON true
           WHERE a.lot_id = ? AND a.status = 'pending'
           GROUP BY a.id
         )
-        SELECT a.id, a.classification, coalesce(c.any_critical,false) AS any_critical, c.min_due, a.amount_assigned
+        SELECT a.id, a.classification, coalesce(c.any_critical,false) AS any_critical, c.min_due, c.pronto_en_juego, a.amount_assigned
         FROM finance.payment_allocations a JOIN crit c ON c.allocation_id = a.id
         ORDER BY
           CASE a.classification WHEN 'compromiso_financiero' THEN 0 WHEN 'gasto' THEN 1 WHEN 'proveedor_mercancia' THEN 2 ELSE 3 END,
           c.any_critical DESC,
+          -- [PGP.37] El descuento manda DENTRO de su clase, nunca por encima: un compromiso
+          -- financiero o un acreedor critico no se postergan por ganar un descuento. Medido
+          -- 2026-10-29: hay $2,427,564 con ventana abierta sobre la deuda viva, y el orden
+          -- anterior no lo miraba -- el corte por capacidad dejaba fuera renglones que SI
+          -- cobraban y adentro otros que no.
+          c.pronto_en_juego DESC,
           c.min_due ASC NULLS LAST,
           a.amount_assigned DESC`, [lot.id]);
       let rank = 1;

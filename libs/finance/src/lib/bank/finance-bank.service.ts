@@ -20,6 +20,43 @@ const n = (v: any) => Number(v) || 0;
 const normKey = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
 
 /**
+ * [CP.8.89] Qué parte del DINERO del banco de un periodo ya tiene su póliza en ContPAQi. Empareja
+ * por cuenta enlazada, dirección e importe al centavo; si el banco tiene k movimientos de un mismo
+ * importe y ContPAQi n, casan min(k, n), los primeros por fecha. Bindings: periodo, tenant, periodo.
+ *
+ * Medido el 2026-10-29 (prod, sólo lectura): ene–sep 2026 casan entre 99.8 % y 100.0 %; octubre,
+ * mes abierto, 68.2 %. Placebo (la póliza de OTRA cuenta) 1.4–3.5 %. El drill por cuenta
+ * (`contpaqiAccountDetail`, ±$1) es la segunda implementación: lo cruza
+ * `database/tests/test-newdb-bank-threeway-cobertura.js`.
+ */
+const SQL_CONTPAQI_CASADO = `
+WITH b AS (
+  SELECT a.contpaqi_cuenta AS cta,
+         CASE WHEN COALESCE(bm.amount_in, 0) > 0 THEN 'in' ELSE 'out' END AS dir,
+         ROUND((COALESCE(bm.amount_in, 0) + COALESCE(bm.amount_out, 0)) * 100)::bigint AS c,
+         bm.movement_date AS d
+  FROM finance.bank_movements bm
+  JOIN finance.bank_statements st ON st.id = bm.statement_id
+  JOIN finance.bank_accounts a ON a.id = bm.bank_account_id
+  WHERE st.period = ? AND bm.deleted_at IS NULL AND a.kind = 'bank' AND a.contpaqi_cuenta IS NOT NULL
+    AND COALESCE(bm.amount_in, 0) + COALESCE(bm.amount_out, 0) > 0
+), bn AS (SELECT b.*, ROW_NUMBER() OVER (PARTITION BY cta, dir, c ORDER BY d) AS k FROM b),
+q AS (
+  SELECT cuenta AS cta, CASE WHEN flujo = 'deposito' THEN 'in' ELSE 'out' END AS dir,
+         ROUND(importe * 100)::bigint AS c, COUNT(*) AS n
+  FROM analytics.contpaqi_bank_movements
+  WHERE tenant_id = ? AND anio_mes = ? AND importe > 0
+  GROUP BY 1, 2, 3
+)
+SELECT COALESCE(SUM(bn.c), 0)::bigint AS banco_c,
+       COALESCE(SUM(bn.c) FILTER (WHERE bn.k <= q.n), 0)::bigint AS casado_c,
+       (COUNT(*) FILTER (WHERE bn.k > COALESCE(q.n, 0)))::int AS sin_poliza_movs
+FROM bn LEFT JOIN q USING (cta, dir, c)`;
+
+/** [CP.8.89] Debajo de este % del dinero del banco con póliza, ContPAQi va atrasado (captura pendiente). */
+const CASADO_MIN_PCT = 99;
+
+/**
  * CB.46 — Cuántos meses separan la fecha del movimiento del periodo de SU estado de cuenta.
  * Requiere `bm` y `st` en el FROM. Se calcula en meses y no en días porque el error que hay
  * que aislar es de AÑO mal capturado, y en días se confunde con el desfase normal del corte.
@@ -2959,20 +2996,24 @@ export class FinanceBankService {
     const curYmd = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' })
       .format(new Date());
     const curYm = curYmd.slice(0, 7);
+    // [CP.8.89] Una fecha posterior a HOY no prueba captura: una póliza fechada a fin de mes (el 31
+    // de octubre, consultado el 29) dejaba a ContPAQi «al día» sin serlo. El último día se busca
+    // sólo entre las fechas que ya pasaron.
     const cov = await this.tk.run(async (trx) => {
       const wb: any = await trx('finance.bank_movements as bm').join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.deleted_at')
-        .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(bm.movement_date) AS last')).first();
+        .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(bm.movement_date) FILTER (WHERE bm.movement_date < ?::date + 1) AS last', [curYmd])).first();
       const kp: any = await trx('analytics.kepler_bank_movements').where('tenant_id', tenantId).whereNotNull('account_label')
         .andWhere('fecha_efectiva', '>=', ini).andWhere('fecha_efectiva', '<', fin)
         // fecha_valor, no fecha_captura: la cobertura mide hasta qué DÍA DEL PERIODO llegó la
         // fuente, y la fecha de captura puede caer fuera del mes (se captura después).
         // CB.49 — éste SÍ se queda con `fecha_valor`: mide hasta qué día del periodo alcanzó a
         // REGISTRARSE la póliza (cobertura del feed), no cuándo se movió el dinero.
-        .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha_valor) AS last')).first();
+        .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha_valor) FILTER (WHERE fecha_valor < ?::date + 1) AS last', [curYmd])).first();
       const cq: any = await trx('analytics.contpaqi_bank_movements').where({ tenant_id: tenantId, anio_mes: period })
-        .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha) AS last')).first();
-      return { wb, kp, cq };
+        .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha) FILTER (WHERE fecha < ?::date + 1) AS last', [curYmd])).first();
+      const cs: { banco_c?: string | number; casado_c?: string | number; sin_poliza_movs?: number } | undefined = (await trx.raw(SQL_CONTPAQI_CASADO, [period, tenantId, period])).rows?.[0];
+      return { wb, kp, cq, cs };
     });
     const cw = n(cov.wb?.movs), ck = n(cov.kp?.movs), cc = n(cov.cq?.movs);
     /** Día del periodo hasta el que se espera tener captura. */
@@ -3008,24 +3049,46 @@ export class FinanceBankService {
         stale: movs > 0 && targetDay - day >= STALE_LAG,
       };
     };
+    // [CP.8.89] ContPAQi no se mide en días: sus pólizas agrupan (cobranza y traspasos por mes,
+    // comisiones por banco), así que la fecha más alta no dice cuánto falta. Se mide qué parte del
+    // DINERO del banco ya tiene su póliza (SQL_CONTPAQI_CASADO).
+    const bancoC = n(cov.cs?.banco_c), casadoC = n(cov.cs?.casado_c);
+    const casadoPct = bancoC > 0 ? Math.round((casadoC / bancoC) * 1000) / 10 : null;
+    const cpqDias = { ...src(cc, cov.cq?.last), sin_datos: cc === 0 };
+    const contpaqi = casadoPct == null
+      ? { ...cpqDias, casado_pct: null, sin_poliza: null }
+      : {
+        ...cpqDias,
+        casado_pct: casadoPct,
+        sin_poliza: { movs: n(cov.cs?.sin_poliza_movs), monto: r2((bancoC - casadoC) / 100) },
+        /** Con dinero del banco que casar, la barra y el atraso salen del % casado, no del día. */
+        pct: Math.max(0, Math.min(100, Math.round(casadoPct))),
+        stale: cc > 0 && casadoPct < CASADO_MIN_PCT,
+      };
     const coverage = {
       is_current_month: period === curYm,
       workbook: src(cw, cov.wb?.last),
       kepler: { ...src(ck, cov.kp?.last), sin_datos: ck === 0 },
-      contpaqi: { ...src(cc, cov.cq?.last), sin_datos: cc === 0 },
+      contpaqi,
     };
     const anyStale = coverage.kepler.stale || coverage.contpaqi.stale || coverage.kepler.sin_datos || coverage.contpaqi.sin_datos;
+    const pesos = (v: number) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+    const notaContpaqi = contpaqi.stale && contpaqi.sin_poliza
+      ? `ContPAQi tiene póliza para el ${casadoPct} % del dinero del banco de ${period}: faltan ${pesos(contpaqi.sin_poliza.monto)} `
+        + `en ${contpaqi.sin_poliza.movs.toLocaleString('es-MX')} movimientos. Esa parte de la diferencia es captura pendiente, `
+        + 'no descuadre; lo que siga sin casar cuando el mes esté capturado sí lo es.'
+      : null;
 
     return {
       period, tolerance: TOL,
       cuadra: total.ingresos.cuadra && total.egresos.cuadra,
       total, por_cuenta, coverage,
       kepler_movs: kep.movs, kepler_linked: cpq.linked, kepler_por_cuenta: kepHasData,
-      nota: anyStale
+      nota: notaContpaqi ?? (anyStale
         ? 'Cobertura despareja este periodo: alguna fuente va rezagada en captura (ver barra de cobertura). Las diferencias grandes contra esa fuente son CAPTURA PENDIENTE, no descuadre real — se cierran cuando esa fuente se pone al día. El banco (Workbook) es el que va al día.'
         : (kepHasData
           ? 'Kepler se desglosa por banco desde tesorería (kdm1), no del 102 contable. Las 3 fuentes se comparan por cuenta. Diferencias esperadas: Kepler registra lo capturado (el banco es la verdad), cheques en tránsito y timing. Semáforo ±$1,000.'
-          : 'El feed de tesorería Kepler aún no tiene movimientos para este periodo; Kepler va solo en el control-total (102 contable).'),
+          : 'El feed de tesorería Kepler aún no tiene movimientos para este periodo; Kepler va solo en el control-total (102 contable).')),
     };
   }
 

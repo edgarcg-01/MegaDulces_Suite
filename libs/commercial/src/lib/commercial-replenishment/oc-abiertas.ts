@@ -39,6 +39,11 @@ export interface OcAbierta {
   estado_cadena?: EstadoCadena | null;
   /** `[RA-PRO.67]` La palabra del ERP: `c43 = 'N'`. Testigo distinto del de arriba. */
   pendiente_en_erp?: boolean | null;
+  /**
+   * `[PQ.30]` De qué requisición salió: la de la Suite (`folio`, con `id` para abrirla) y/o la de
+   * Kepler (`kepler`). `null` = la OC se capturó directo en Kepler, sin requisición.
+   */
+  requisicion?: { id: string | null; folio: string | null; kepler: string | null } | null;
 }
 
 /**

@@ -236,6 +236,8 @@ export interface OpenOcRow {
   estado_cadena?: EstadoCadena | null;
   /** [RA-PRO.67] La palabra del ERP (`c43 = 'N'`). Testigo distinto del de arriba. */
   pendiente_en_erp?: boolean | null;
+  /** `[PQ.30]` De qué requisición salió: Suite (`id`+`folio`) y/o Kepler. `null` = sin requisición. */
+  requisicion?: { id: string | null; folio: string | null; kepler: string | null } | null;
 }
 /** `[PQ.20]` Un renglón del interruptor: sucursal × tipo. */
 export type KeplerTipo = 'compra' | 'traspaso';
@@ -692,6 +694,12 @@ export interface RequisitionBatchResult {
   compras: number;
   traspasos: number;
   folios: string[];
+  /** `[PQ.27]` D1: con permiso de autorizar se aprueba al generar; si no, `automatica: false`. */
+  aprobacion?: {
+    automatica: boolean; aprobadas: number; fallas: Array<{ folio: string; motivo: string }>;
+    /** `[PQ.31]` Traspasos aprobados que NO salen (escritura apagada en su origen). `null` = no medido. */
+    traspasos_sin_escritura?: number | null;
+  };
 }
 /** `[RQ.8]` Una fila de la bandeja agrupada: UN «Armar», no un documento. */
 export interface RequisitionBatchRow {

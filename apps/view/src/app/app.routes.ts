@@ -836,6 +836,13 @@ export const routes: Routes = [
         data: { titulo: 'Comisiones de logística' },
         canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR)]
       },
+      {
+        // `[CGA-A.65]` La hoja de gastos de zona (el Excel de Morelia, armado de Kepler): la cierra la
+        // zona, la aprueba quien firma y la paga Caja General. El mismo trío de permisos que la API.
+        path: 'hoja-gastos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-hoja-gastos.component').then(m => m.FinanzasHojaGastosComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_HOJA_GASTOS_CERRAR, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_CAJA_VER)]
+      },
         ],
       },
     ]

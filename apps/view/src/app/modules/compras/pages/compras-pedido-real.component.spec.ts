@@ -644,6 +644,14 @@ describe('[RA-UX] auditoría de interacción 2026-10-21: lo que la persona hace,
   });
 
   // ── [PQ.14] el lazo no se corta al generar ──
+  it('[PQ.31] lo aprobado no promete lo que no va a pasar: los traspasos con escritura apagada se dicen aparte', () => {
+    const c = montar(VACIO).componentInstance;
+    expect(c.textoAprobadas(5, 2)).toBe('3 aprobada(s) y en camino a Kepler · 2 traspaso(s) aprobado(s) que no salen: su escritura a Kepler está apagada');
+    expect(c.textoAprobadas(4, 0)).toBe('4 aprobada(s) y en camino a Kepler');
+    // NEGATIVA: si el servidor no lo pudo medir, no se afirma «en camino».
+    expect(c.textoAprobadas(5, null)).not.toContain('en camino');
+  });
+
   it('[PQ.14] tras generar, lo creado queda a la vista con su lote y el camino a la bandeja, hasta cerrarlo', () => {
     const f = montar(VACIO);
     const c = f.componentInstance;
@@ -657,8 +665,10 @@ describe('[RA-UX] auditoría de interacción 2026-10-21: lo que la persona hace,
     expect(aviso).not.toBeNull();
     expect(aviso.textContent).toContain('Lote RQ-LOTE-TEST');
     expect(aviso.textContent).toContain('1 compra(s) + 0 traspaso(s)');
-    const link = aviso.querySelector('a[href]') as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe('/compras/requisiciones?q=RQ-LOTE-TEST');
+    // `[PQ.28]` Ya no manda a otra pantalla: «Ver lo pedido» abre la ventana ahí mismo. Sin
+    // aprobación automática (el doble no la trae) dice que espera aprobación.
+    expect(aviso.querySelector('a[href]')).toBeNull();
+    expect(aviso.textContent).toContain('Esperan aprobación');
     (aviso.querySelector('button[aria-label="Cerrar este aviso"]') as HTMLButtonElement).click();
     f.detectChanges();
     expect(f.nativeElement.querySelector('.pr-ultimo-lote')).toBeNull();

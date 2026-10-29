@@ -8,6 +8,7 @@ import type { VincularLoteInput, VincularLoteResultado, MoverVinculoInput, Mover
 import type { Knex } from 'knex';
 import { sqlDisponibleCaos } from '../caja/caja-custodia.service';
 import { tomaDelRetiro } from '../caja/caja-lote.engine';
+import { verificarPagoDeHoja } from '../caja/hoja-gastos.gate';
 import {
   CAOS_EFECTO_POR_TIPO, aplicarMovimientos, sqlFolioCajaGeneral, cuadrarFotos, importeDeVector, sqlSignoPorTipo, tiposIndeterminados,
   type CaosFoto, type CaosMovDenom, type CaosParCuadre, type Vector,
@@ -770,7 +771,7 @@ export class CaosService {
         .first('device', 'external_id', 'type_id', 'total');
       if (!mov) throw new NotFoundException('Ese movimiento de CAOS no existe.');
       const l = await trx('finance.cash_ledger').where({ tenant_id: tenantId, folio }).whereNull('deleted_at')
-        .first('id', 'folio', 'tipo', 'monto', 'estado', 'origen_tipo', 'origen_efectivo');
+        .first('id', 'folio', 'tipo', 'monto', 'estado', 'origen_tipo', 'origen_efectivo', 'origen_ref');
       if (!l) throw new NotFoundException(`No hay un movimiento de Caja General con folio ${folio}.`);
       const linkId = await this.altaVinculo(trx, tenantId, l, mov, monto,
         { manual: true, via: 'correccion_superadmin', por: user.username ?? null }, user);
@@ -791,62 +792,14 @@ export class CaosService {
   private async altaVinculo(
     trx: Knex.Transaction,
     tenantId: string,
-    l: { id: string; folio: string; tipo: string; monto: string | number; estado: string; origen_tipo: string | null; origen_efectivo: string | null },
+    l: { id: string; folio: string; tipo: string; monto: string | number; estado: string; origen_tipo: string | null; origen_efectivo: string | null; origen_ref?: string | null },
     mov: { device: string; external_id: string | number; type_id: string | number },
     monto: number,
     senales: Record<string, unknown>,
     user: ActorCaos,
     opts: { ampliar?: boolean } = {},
   ): Promise<string> {
-    const folio = l.folio;
-    const tipoEsperado = Number(mov.type_id) === 0 ? 'ingreso' : Number(mov.type_id) === 4 ? 'gasto' : null;
-    if (!tipoEsperado) throw new BadRequestException('Sólo los depósitos y los retiros se vinculan a Caja General.');
-    if (l.estado === 'cancelado') throw new BadRequestException(`${folio} está cancelado.`);
-    if (l.tipo !== tipoEsperado) {
-      throw new BadRequestException(`${folio} es ${l.tipo === 'gasto' ? 'un egreso' : `un ${l.tipo}`}: un ${Number(mov.type_id) === 0 ? 'depósito' : 'retiro'} de CAOS sólo se vincula a ${tipoEsperado === 'gasto' ? 'un egreso' : 'un ingreso'}.`);
-    }
-    if (l.origen_tipo === 'caos') throw new BadRequestException(`${folio} se registró desde CAOS: ya está explicado entero.`);
-    if (l.tipo === 'gasto' && l.origen_efectivo === 'cajon') {
-      throw new BadRequestException(`${folio} dice que salió del cajón. Si salió de CAOS, eso se corrige en el egreso.`);
-    }
-    const [{ ya }] = await trx('finance.caos_cash_links').where({ tenant_id: tenantId, cash_ledger_id: l.id })
-      .whereNull('deleted_at').select(trx.raw('coalesce(sum(monto_enlazado),0)::numeric AS ya'));
-    const falta = Math.round((Number(l.monto) - Number(ya)) * 100) / 100;
-    if (monto > falta + 0.005) {
-      throw new BadRequestException(`A ${folio} sólo le faltan $${falta.toFixed(2)} por explicar.`);
-    }
-    let total = monto;
-    if (opts.ampliar) {
-      const previo = await trx('finance.caos_cash_links')
-        .where({ tenant_id: tenantId, cash_ledger_id: l.id, caos_device: mov.device, caos_external_id: mov.external_id })
-        .whereNull('deleted_at').first('id', 'monto_enlazado');
-      if (previo) {
-        total = Math.round((Number(previo.monto_enlazado) + monto) * 100) / 100;
-        await trx('finance.caos_cash_links').where({ tenant_id: tenantId, id: previo.id }).update({
-          deleted_at: trx.fn.now(), updated_at: trx.fn.now(), deleted_by: user.id,
-          motivo_baja: `[CGA-A.61] se amplía de $${Number(previo.monto_enlazado).toFixed(2)} a $${total.toFixed(2)} en la reposición`,
-        });
-      }
-    }
-    try {
-      const [k] = await trx('finance.caos_cash_links').insert({
-        tenant_id: tenantId, cash_ledger_id: l.id, caos_device: mov.device, caos_external_id: mov.external_id,
-        monto_enlazado: total, senales: JSON.stringify(senales), confirmed_by: user.id,
-      }).returning('id');
-      return (k?.id ?? k) as string;
-    } catch (e: unknown) {
-      const err = e as { code?: string; constraint?: string };
-      if (err.code === '23505') throw new ConflictException(`${folio} ya está vinculado a este movimiento de CAOS.`);
-      // `trg_caos_link_no_excede` dice cuál candado fue: cada uno se dice con su nombre, y con el folio.
-      const porCandado: Record<string, string> = {
-        caos_link_excede_movimiento: `${folio}: el movimiento de CAOS no tiene libre ese monto.`,
-        caos_link_excede_captura: `Con ese monto, ${folio} quedaría explicado de más.`,
-        caos_link_custodia_cerrada: `${folio}: ese retiro tiene una custodia cerrada, ya no se puede vincular.`,
-      };
-      const porConstraint = err.constraint ? porCandado[err.constraint] : undefined;
-      if (err.code === '23514' && porConstraint) throw new ConflictException(porConstraint);
-      throw e;
-    }
+    return altaVinculoCaos(trx, tenantId, l, mov, monto, senales, user, opts);
   }
 
   /**
@@ -880,7 +833,7 @@ export class CaosService {
           .first('device', 'external_id', 'type_id');
         if (!mov) throw new NotFoundException(`El retiro ${a.external_id} no existe en CAOS.`);
         const l = await trx('finance.cash_ledger').where({ tenant_id: tenantId, id: a.ledger_id }).whereNull('deleted_at')
-          .first('id', 'folio', 'tipo', 'monto', 'estado', 'origen_tipo', 'origen_efectivo');
+          .first('id', 'folio', 'tipo', 'monto', 'estado', 'origen_tipo', 'origen_efectivo', 'origen_ref');
         if (!l) throw new NotFoundException('Uno de los egresos ya no existe en Caja General.');
         await this.altaVinculo(trx, tenantId, l, mov, a.monto,
           { manual: true, via: 'reposicion', por: user.username ?? null, motivo }, user, { ampliar: true });
@@ -918,7 +871,7 @@ export class CaosService {
         .first('m.device', 'm.external_id', 'm.type_id', trx.raw(`${sqlDisponibleCaos('m')} AS libre`));
       if (!mov) throw new NotFoundException(`El retiro ${destino.external_id} no existe en CAOS.`);
       const l = await trx('finance.cash_ledger').where({ tenant_id: tenantId, id: k.cash_ledger_id }).whereNull('deleted_at')
-        .first('id', 'folio', 'tipo', 'monto', 'estado', 'origen_tipo', 'origen_efectivo');
+        .first('id', 'folio', 'tipo', 'monto', 'estado', 'origen_tipo', 'origen_efectivo', 'origen_ref');
       if (!l) throw new NotFoundException('El movimiento de Caja General de ese vínculo ya no existe.');
       const antes = Math.round(Number(k.monto_enlazado) * 100) / 100;
       const toma = tomaDelRetiro(antes, Number(mov.libre));
@@ -936,3 +889,73 @@ export class CaosService {
 
 /** `[CGA-A.58]` Quien corrige: lo que `RolesGuard` deja en el request. */
 export interface ActorCaos { id?: string; username?: string; roles_frescos?: string[] }
+
+/**
+ * Las reglas de UN vínculo nuevo (ver `CaosService.altaVinculo`). Fuera de la clase para que el pago
+ * de la hoja de zona (`[CGA-A.65]`) ligue con las MISMAS reglas y el mismo candado, sin una cuarta
+ * copia. Quien la llama decide el permiso: aquí no se mira el rol.
+ */
+export async function altaVinculoCaos(
+  trx: Knex.Transaction,
+  tenantId: string,
+  l: { id: string; folio: string; tipo: string; monto: string | number; estado: string; origen_tipo: string | null; origen_efectivo: string | null; origen_ref?: string | null },
+  mov: { device: string; external_id: string | number; type_id: string | number },
+  monto: number,
+  senales: Record<string, unknown>,
+  user: { id?: string },
+  opts: { ampliar?: boolean } = {},
+): Promise<string> {
+  const folio = l.folio;
+  const tipoEsperado = Number(mov.type_id) === 0 ? 'ingreso' : Number(mov.type_id) === 4 ? 'gasto' : null;
+  if (!tipoEsperado) throw new BadRequestException('Sólo los depósitos y los retiros se vinculan a Caja General.');
+  if (l.estado === 'cancelado') throw new BadRequestException(`${folio} está cancelado.`);
+  if (l.tipo !== tipoEsperado) {
+    throw new BadRequestException(`${folio} es ${l.tipo === 'gasto' ? 'un egreso' : `un ${l.tipo}`}: un ${Number(mov.type_id) === 0 ? 'depósito' : 'retiro'} de CAOS sólo se vincula a ${tipoEsperado === 'gasto' ? 'un egreso' : 'un ingreso'}.`);
+  }
+  if (l.origen_tipo === 'caos') throw new BadRequestException(`${folio} se registró desde CAOS: ya está explicado entero.`);
+  if (l.tipo === 'gasto' && l.origen_efectivo === 'cajon') {
+    throw new BadRequestException(`${folio} dice que salió del cajón. Si salió de CAOS, eso se corrige en el egreso.`);
+  }
+  const [{ ya }] = await trx('finance.caos_cash_links').where({ tenant_id: tenantId, cash_ledger_id: l.id })
+    .whereNull('deleted_at').select(trx.raw('coalesce(sum(monto_enlazado),0)::numeric AS ya'));
+  const falta = Math.round((Number(l.monto) - Number(ya)) * 100) / 100;
+  if (monto > falta + 0.005) {
+    throw new BadRequestException(`A ${folio} sólo le faltan $${falta.toFixed(2)} por explicar.`);
+  }
+  // ⛔ `[CGA-A.65]` El retiro de una hoja de zona sólo explica sus pagos, y un pago de la hoja sólo se
+  // liga al retiro de su hoja pagada. La misma regla que el alta del libro.
+  await verificarPagoDeHoja(trx, tenantId, { origen_ref: l.origen_ref ?? null, tipo: l.tipo, origen_efectivo: l.origen_efectivo,
+    retiros: [{ device: String(mov.device), external_id: Number(mov.external_id) }] });
+  let total = monto;
+  if (opts.ampliar) {
+    const previo = await trx('finance.caos_cash_links')
+      .where({ tenant_id: tenantId, cash_ledger_id: l.id, caos_device: mov.device, caos_external_id: mov.external_id })
+      .whereNull('deleted_at').first('id', 'monto_enlazado');
+    if (previo) {
+      total = Math.round((Number(previo.monto_enlazado) + monto) * 100) / 100;
+      await trx('finance.caos_cash_links').where({ tenant_id: tenantId, id: previo.id }).update({
+        deleted_at: trx.fn.now(), updated_at: trx.fn.now(), deleted_by: user.id,
+        motivo_baja: `[CGA-A.61] se amplía de $${Number(previo.monto_enlazado).toFixed(2)} a $${total.toFixed(2)} en la reposición`,
+      });
+    }
+  }
+  try {
+    const [k] = await trx('finance.caos_cash_links').insert({
+      tenant_id: tenantId, cash_ledger_id: l.id, caos_device: mov.device, caos_external_id: mov.external_id,
+      monto_enlazado: total, senales: JSON.stringify(senales), confirmed_by: user.id,
+    }).returning('id');
+    return (k?.id ?? k) as string;
+  } catch (e: unknown) {
+    const err = e as { code?: string; constraint?: string };
+    if (err.code === '23505') throw new ConflictException(`${folio} ya está vinculado a este movimiento de CAOS.`);
+    // `trg_caos_link_no_excede` dice cuál candado fue: cada uno se dice con su nombre, y con el folio.
+    const porCandado: Record<string, string> = {
+      caos_link_excede_movimiento: `${folio}: el movimiento de CAOS no tiene libre ese monto.`,
+      caos_link_excede_captura: `Con ese monto, ${folio} quedaría explicado de más.`,
+      caos_link_custodia_cerrada: `${folio}: ese retiro tiene una custodia cerrada, ya no se puede vincular.`,
+    };
+    const porConstraint = err.constraint ? porCandado[err.constraint] : undefined;
+    if (err.code === '23514' && porConstraint) throw new ConflictException(porConstraint);
+    throw e;
+  }
+}

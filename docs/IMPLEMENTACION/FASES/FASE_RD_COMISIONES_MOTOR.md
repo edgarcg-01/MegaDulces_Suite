@@ -695,6 +695,27 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   el motor arriba del libro; el único patrón repetido es el SKU 17160 (Kepler exento, el libro al
   16 %), candidato sin control negativo. ⛔ Falta: aplicarla a prod (una por una), esperar el
   refresco de 30 min de la matview y recalcular Q21.
+  **2026-10-29:** aplicada en prod (28-oct) y el código RD.91–97 desplegado. ⚠️ Su `CREATE OR
+  REPLACE` sin `WITH` le quitó a la vista `security_invoker` (lo devuelve `[RD.98]`). Q21 **sigue
+  sin recalcular**: borrador del 23-oct, con el neto viejo.
+- **`[RD.96]` 🧪 El veredicto de costo del periodo ya no sale «sin costo» siempre** (`25398ceb2`).
+  El pliegue del peor veredicto arrancaba en `sin_costo`, que ya es el peor: nunca cambiaba. En
+  Q21 la fuente tiene 70 ruta-día con dos fuentes y 51 con una, cero sin costo. No mueve dinero.
+- **`[RD.97]` 🧪 La quincena en curso es «acumulado», no «proyección»** (`529acb3c9`): sin la caja
+  roja de «no se puede aprobar» por compuertas que en curso son normales, y con el nombre del chofer.
+- **`[RD.98]` 🧪 El contraste libro↔motor: de a una quincena y sólo con libro** (migración
+  `20261029121941_rd_contraste_solo_libro`, **sin aplicar**). Medido en prod el 2026-10-29:
+  `commission_engine_lines` **nunca tuvo una fila**, y la pantalla mostraba 260 «sin medir», de
+  los que **22 eran Q21, una corrida del MOTOR**: contrastarla habría medido el motor contra sí
+  mismo. El botón pedía el año entero en una sola petición (~12 s × 20 quincenas), que detrás del
+  túnel de Cloudflare (corte documentado a 100 s) no puede terminar, y las fallas por quincena
+  que el servidor sí devolvía se tiraban sin mostrarse. Ahora: la vista y el servicio sólo toman
+  corridas `origen = 'libro'` (el SELECT nuevo da 238 filas, sin Q21; el del `down` es idéntico a
+  la vista viva, con control); `contrastarPeriodo` rechaza una quincena sin libro **antes** de
+  correr el motor (prueba roja sin la guarda); la pantalla corre de a una con avance y lista las
+  fallas. De paso devuelve `security_invoker` a `v_rd_route_daily`; hoy no cambia ninguna fila,
+  porque sus bases no tienen RLS. ⛔ Sin validación visual. Falta: aplicar la migración y
+  correr el contraste **desde prod**.
 
 #### Transversal
 
@@ -702,6 +723,56 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   Los seis resolvedores de §`[RD.77]`, cada uno con su testigo y su trampa.
   ⛔ **Sin esto `O0` no se puede afirmar**: «generada 100 % por el motor» es una frase hasta que
   está escrito **qué arbitra cada uno de los seis números** que deciden el depósito.
+
+### 9.4bis Decisiones firmadas (Edgar, 2026-10-29)
+
+- **D5** — el motor pasa a pagador con **2 quincenas seguidas en que cada chofer coincide a ±$1**.
+  ⭐ **El subtotal se arbitra contra KEPLER, no contra el libro** (ADR-059: testigo del mismo ERP
+  y grano). Venta, %, bonos y nómina, contra el libro. Medido: en Q20 venta, %, bonos y nómina
+  cuadran al centavo en 10 de 10; sólo difiere el subtotal. En los 3 pares visibles en el ODS
+  (almacenes de camioneta `01-00N`, Q18–Q20) el motor queda a $4–$20 de la cabecera de Kepler
+  (`kdm1.c16 − c14 − c15`) y el libro a −$50, +$884 y −$453: **el que se aleja es el libro**.
+  ⚠️ Sólo 1 de 10 rutas tiene su documento en el ODS; para las demás, el testigo exige que el
+  push mande los impuestos de la cabecera.
+- **D6** — se separa en 3 permisos: calcular (Comercial), aprobar (Dirección), marcar pagado
+  (Finanzas).
+- **D7** — manda el **tabulador firmado**: debajo de $189,999.99 no se cobra. Lo que sí se
+  arregla son los días perdidos en la fuente, que hunden rutas debajo del piso.
+- **D3** — Edgar eligió «20 % de sus rutas + bonos − nómina de banco», con la nómina a buscar en
+  egresos. ⚠️ **Lo que dicen los egresos (2026-10-29):** en Canindo el supervisor cobra
+  **$2,400 fijos en Q19, Q20 y Q21** (`XA1001`, «Comisiones periodo N RD CAN»), sin importar la
+  venta; el motor le calcularía ~$8,000 en Q21. Con la fórmula elegida, la «nómina» tendría que
+  variar cada quincena para dar $2,400. **Vuelve a firma** con este dato. En Padre Hidalgo no se
+  puede aislar: la transferencia junta RD, RV y TLMK.
+- **Q21 ya se pagó el 22-oct desde el libro** (egresos `XA1001`). El borrador del motor del 23-oct
+  ya no decide nada: sirve para contrastar. Cruce contra lo pagado: 502 coincide a 7 centavos; 501
+  la pagó el libro (~$3,202.66) y el motor no (el día perdido del 15-oct la deja bajo el umbral);
+  504, el motor $799 arriba, sin explicar todavía.
+
+- **D3 firmado (Edgar, 2026-10-29): la fórmula — 20 % + bonos − nómina de banco — y «que todo
+  se pueda configurar».** → `[RD.100]`.
+
+#### `[RD.100]` 🧪 La nómina del supervisor y su porcentaje, configurables desde la pantalla
+- **Nómina de banco del supervisor** (`commission_beneficiary_config`, 0 filas y ningún camino
+  para escribirla): `GET/POST /commercial/commissions/supervisors`, y en «Quién cobra» una tabla
+  editable en la fila. Cada cambio es una **versión con fecha** (cierra la vigente, abre otra; con
+  la misma fecha corrige en sitio); el nombre tiene que ser el supervisor exacto del padrón;
+  una fecha detrás de la vigente se rechaza. Medido en prod (sólo lectura): lista los 3
+  supervisores del padrón en 16 ms, los 3 «sin capturar».
+- ⛔ **De paso, una trampa cerrada:** `deducciones()` filtraba por la versión del tabulador, así
+  que **estrenar un tabulador nuevo dejaba a todos los supervisores en `sin_configurar`** sin
+  tocar su nómina. Ahora filtra por persona y fecha (y por tenant, explícito).
+- **La parte del supervisor (20 %)** ya vivía en el tabulador pero la pantalla no la dejaba
+  cambiar: ahora se edita al estrenar una versión, y la confirmación la nombra si cambia. El
+  servidor valida 0–100.
+- Pruebas: `test-newdb-rd-commission-escrituras.js` cruza las columnas obligatorias contra el
+  servicio nuevo (rojo al quitar `scale_id`) y ejerce la escritura versionada en transacción
+  revertida con dos negativas (ventana vacía → 23514, sin escala → 23502) — **la parte que
+  escribe sólo corre en CI** (`pruebas-db`): aquí el rol es de sólo lectura, NO MEDIDO.
+  `apps/api/src/composition/commercial-commissions.metadata.spec.ts` lee `design:paramtypes`
+  (rojo al quitar el provider del módulo). ⛔ Sin validación visual.
+- ⚠️ Falta: **capturar la nómina de los dos supervisores** (Edgar / Comercial), y después
+  recalcular.
 
 ### 9.5 Lo que necesita firma antes de que el motor pague
 

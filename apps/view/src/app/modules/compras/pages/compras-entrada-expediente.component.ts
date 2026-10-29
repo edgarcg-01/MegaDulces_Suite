@@ -48,27 +48,48 @@ const LIGA: Record<string, string> = {
       } @else if (error()) {
         <p class="ex-nota">No se pudo armar el expediente. <button type="button" class="ex-link" (click)="cargar()">Reintentar</button></p>
       } @else if (data(); as x) {
-        <div class="ex-ver" [attr.data-tono]="cubo().tono" role="status">
-          <i class="pi" [ngClass]="cubo().icono" aria-hidden="true"></i>
-          <div class="ex-ver-txt">
-            <p class="ex-ver-t">{{ cubo().titulo }}</p>
-            @if (x.motivos.length) {
-              <ul class="ex-mot">@for (m of x.motivos; track m) { <li>{{ m }}</li> }</ul>
-            } @else if (x.cubo === 'auto') {
-              <p class="ex-ver-s">Cumple todos los checks. Regla {{ x.regla }} · tolerancia menor a {{ (x.tolerancia.pct * 100).toFixed(2) }}% y a {{ money(x.tolerancia.abs) }}.</p>
-            }
-            @if (x.liga) {
-              <p class="ex-ver-s">CFDI encontrado {{ ligaTexto(x.liga) }}.</p>
-            }
-            @if (x.via === 'remision' && x.doc_tipo === 'factura') {
-              <p class="ex-ver-s">Se revisó como remisión: el proveedor no tiene CFDI en ContPAQi.</p>
-            }
-            @if (x.nota_credito; as n) {
-              <p class="ex-ver-s">Cuadra descontando la nota de crédito por {{ money(n.total) }}.</p>
-            }
-          </div>
-        </div>
+        <!-- [RE.52] La conclusión del expediente (Pasa sola / Revisar y sus motivos) sube al
+             veredicto del panel: aquí era una SEGUNDA caja de veredicto que contradecía a la de
+             arriba. Queda la evidencia: lo que no pasa, siempre a la vista; lo que coincide, plegado
+             con su conteo (eran 17 renglones verdes, 966px, para mostrar 1 problema). -->
+        <p class="ex-res">
+          <span class="ex-res-n">{{ cuenta().coinciden }} de {{ cuenta().total }} datos coinciden</span>
+          @if (x.liga) { · CFDI encontrado {{ ligaTexto(x.liga) }}. }
+          @if (x.cubo === 'auto' && !x.motivos.length) { Regla {{ x.regla }} · tolerancia menor a {{ (x.tolerancia.pct * 100).toFixed(2) }}% y a {{ money(x.tolerancia.abs) }}. }
+        </p>
+        @if (x.via === 'remision' && x.doc_tipo === 'factura') {
+          <p class="ex-ver-s">Se revisó como remisión: el proveedor no tiene CFDI en ContPAQi.</p>
+        }
+        @if (x.nota_credito; as n) {
+          <p class="ex-ver-s">Cuadra descontando la nota de crédito por {{ money(n.total) }}.</p>
+        }
 
+        @if (pendientes().length) {
+          <table class="ex-tbl">
+            <tbody>
+              @for (c of pendientes(); track c.clave) {
+                <tr>
+                  <th scope="row">{{ c.etiqueta }}</th>
+                  <td class="ex-val">{{ c.valor ?? '—' }}</td>
+                  <td class="ex-est" [attr.data-estado]="c.estado">
+                    <i class="pi" [ngClass]="icono(c)" aria-hidden="true"></i>
+                    <span>{{ estadoTexto(c) }}</span>
+                  </td>
+                </tr>
+                @if (c.nota && !x.motivos.includes(c.nota)) {
+                  <tr class="ex-nota-row"><td colspan="3">{{ c.nota }}</td></tr>
+                }
+              }
+            </tbody>
+          </table>
+        }
+
+        <button type="button" class="ex-toggle" [attr.aria-expanded]="verTodo()" (click)="verTodo.set(!verTodo())">
+          <i class="pi" [ngClass]="verTodo() ? 'pi-chevron-down' : 'pi-chevron-right'" aria-hidden="true"></i>
+          {{ verTodo() ? 'Ocultar' : 'Ver' }} los {{ cuenta().coinciden }} que coinciden@if (x.cfdi) { y los importes del CFDI}
+        </button>
+
+        @if (verTodo()) {
         @for (g of grupos; track g.clave) {
           @if (checksDe(g.clave).length) {
             <h4 class="ex-sub">{{ g.titulo }}</h4>
@@ -83,9 +104,6 @@ const LIGA: Record<string, string> = {
                       <span>{{ estadoTexto(c) }}</span>
                     </td>
                   </tr>
-                  @if (c.nota && c.estado !== 'ok') {
-                    <tr class="ex-nota-row"><td colspan="3">{{ c.nota }}</td></tr>
-                  }
                 }
               </tbody>
             </table>
@@ -109,6 +127,7 @@ const LIGA: Record<string, string> = {
             <p class="ex-src">Nota de crédito UUID {{ n.uuid }}{{ n.fecha ? ' del ' + n.fecha : '' }}.</p>
           }
           <p class="ex-src">UUID {{ f.uuid }} · serie y folio {{ f.serie ?? '' }}{{ f.folio ? '-' + f.folio : '' }}. Del papel sólo se usan las llaves para encontrar la factura; todo dato fiscal viene del CFDI que sincroniza ContPAQi.</p>
+        }
         }
       }
     </section>
@@ -137,7 +156,15 @@ const LIGA: Record<string, string> = {
     .ex-val { font-family: var(--font-mono); color: var(--text-main); word-break: break-word; }
     .ex-est { white-space: nowrap; text-align: right; font-weight: 600; }
     .ex-est .pi { font-size: var(--fs-xs); margin-right: .25rem; }
-    .ex-est[data-estado="ok"] { color: var(--ok-fg); }
+    /* [RE.52] «Coincide» es lo esperado: texto apagado. El color queda para lo que no pasa. */
+    .ex-est[data-estado="ok"] { color: var(--text-muted); font-weight: 500; }
+    .ex-res { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .ex-res-n { color: var(--text-main); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .ex-toggle { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: .35rem;
+      font-size: var(--fs-xs); color: var(--text-main); font-weight: 500; }
+    .ex-toggle .pi { font-size: var(--fs-micro); color: var(--text-muted); }
+    .ex-toggle:hover { text-decoration: underline; }
+    .ex-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     .ex-est[data-estado="falla"] { color: var(--bad-fg); }
     .ex-est[data-estado="aviso"] { color: var(--warn-fg); }
     .ex-est[data-estado="sin_medir"], .ex-est[data-estado="no_aplica"] { color: var(--text-faint); }
@@ -168,6 +195,14 @@ export class ComprasEntradaExpedienteComponent {
   readonly loading = signal(false);
   readonly error = signal(false);
   readonly cubo = computed(() => CUBO[this.data()?.cubo ?? 'revisar']);
+  /** `[RE.52]` Lo que NO coincide (falla, aviso, sin medir): siempre a la vista. */
+  readonly pendientes = computed(() => (this.data()?.checks ?? []).filter((c) => c.estado !== 'ok' && c.estado !== 'no_aplica'));
+  readonly cuenta = computed(() => {
+    const cs = (this.data()?.checks ?? []).filter((c) => c.estado !== 'no_aplica');
+    return { total: cs.length, coinciden: cs.filter((c) => c.estado === 'ok').length };
+  });
+  /** `[RE.52]` Lo que coincide se pliega; se vuelve a plegar al abrir otra entrada. */
+  readonly verTodo = signal(false);
   /** La petición en curso: se cancela si el panel abre otra entrada antes de que responda. */
   private pedido?: Subscription;
 
@@ -187,6 +222,7 @@ export class ComprasEntradaExpedienteComponent {
   }
 
   cargar(): void {
+    this.verTodo.set(false);
     this.loading.set(true);
     this.error.set(false);
     this.cargado.emit(null);

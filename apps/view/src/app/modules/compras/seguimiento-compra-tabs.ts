@@ -20,12 +20,6 @@ export const SEGUIMIENTO_COMPRA_LABEL = 'Seguimiento de compra';
 
 export const SEGUIMIENTO_COMPRA_TABS: PageTab[] = [
   {
-    label: 'Requisiciones',
-    route: '/compras/requisiciones',
-    icon: 'pi pi-file-edit',
-    permission: Permission.COMPRAS_REQUISICIONES_VER,
-  },
-  {
     // `[PQ.16]` D21 (2026-10-26): la orden de compra ES la de Kepler (X-A-35). Esta pestaña sube al
     // segundo lugar y toma el nombre del documento; la lista interna baja a «histórico».
     // RA-PRO.45 — las OCs de Kepler que quedaron abiertas: lo que hay que cerrar o cancelar para
@@ -36,19 +30,19 @@ export const SEGUIMIENTO_COMPRA_TABS: PageTab[] = [
     permission: Permission.COMPRAS_PEDIDO_VER,
   },
   {
-    // `[PQ.16]` Documentos internos de la Suite: 235 OC propias y 136 OE emitidas entre el 28-sep y
-    // el 26-oct, cuando la Suite todavía generaba su propia OC. Quedan en solo lectura.
-    label: 'Internas (histórico)',
-    route: '/compras/ordenes',
-    icon: 'pi pi-history',
-    permission: Permission.COMPRAS_ORDENES_VER,
-  },
-  {
     // `[PQ.20]` El interruptor de la escritura a Kepler, sin desplegar. Verlo = ver requisiciones;
     // cambiarlo pide `COMPRAS_KEPLER_ESCRITURA` (lo gatea la página y el endpoint).
     label: 'Escritura a Kepler',
     route: '/compras/kepler-escritura',
     icon: 'pi pi-power-off',
+    permission: Permission.COMPRAS_REQUISICIONES_VER,
+  },
+  {
+    // `[PQ.28]` D3 (Edgar, 2026-10-29): Requisiciones deja de ser lugar de trabajo. Se genera, se
+    // aprueba y se sigue desde Pedido (ventana «Lo pedido»); acá queda al final, como consulta.
+    label: 'Requisiciones (consulta)',
+    route: '/compras/requisiciones',
+    icon: 'pi pi-file-edit',
     permission: Permission.COMPRAS_REQUISICIONES_VER,
   },
 ];

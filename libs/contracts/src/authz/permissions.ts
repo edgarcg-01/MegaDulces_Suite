@@ -555,6 +555,11 @@ export enum Permission {
   // FINANCE_CAOS_VER porque esa la tienen 12 puestos (surtidor y marketing incluidos) y ésta es de
   // supervisión: dirección, finanzas y tesorería (Edgar, 2026-10-28).
   FINANCE_CAOS_VINCULOS_VER = 'FINANCE_CAOS_VINCULOS_VER',
+  // `[CGA-A.65]` Cerrar (autorizar por la zona) la hoja de gastos de zona, o cancelarla antes de que
+  // finanzas la apruebe. Es la firma «Autorización del jefe de zona» del Excel: clave propia y no
+  // FINANCE_EXPENSES_CAPTURAR, que tienen 16 puestos. La aprobación de finanzas es
+  // FINANCE_EXPENSES_COMPROBAR (D18 de la Fase LE).
+  FINANCE_HOJA_GASTOS_CERRAR = 'FINANCE_HOJA_GASTOS_CERRAR',
   // Cartera de clientes / Partidas vivas (CXC / ADR-048) — estado de cuenta CxC
   // read-only sobre Kepler (kdue). VER = consultar cartera + aging + drill por cliente.
   FINANCE_RECEIVABLES_VER = 'FINANCE_RECEIVABLES_VER',

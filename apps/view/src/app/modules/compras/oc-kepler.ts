@@ -75,3 +75,45 @@ export function textoCajasRenglon(r: Pick<RenglonOc, 'cantidad' | 'unidades_por_
   if (resto > 0) return restoTxt;
   return `${cj.toLocaleString('es-MX')} cj`;
 }
+
+/**
+ * `[PQ.32]` El pie de totales de una OC, con la MISMA fórmula que Kepler: renglones + IVA (`c14`) +
+ * IEPS (`c15`) = total (`c16`). Medido el 2026-10-29: cuadra en 2,550 de 2,767 OC de 90 días.
+ *
+ * Antes el PDF para el proveedor decía «Total» a la suma de renglones, sin impuestos: en la OC
+ * 00/0007259 eso era $24,996.30 contra los $26,996.00 que el proveedor factura.
+ *
+ * - Si IVA e IEPS cuadran con el total de Kepler, salen por separado (cada uno sólo si es > 0).
+ * - Si no cuadran o no se pudieron leer, NO se inventa el desglose: la diferencia entre el total de
+ *   Kepler y la suma de renglones sale en un renglón con su nombre, para que la tabla sume.
+ * El «Total» es siempre el del documento de Kepler.
+ */
+export interface RenglonTotal { etiqueta: string; monto: number; fuerte?: boolean }
+/** `[PQ.33]` «8 %», «16 % y 0 %»: las tasas de los renglones de Kepler, en palabras. */
+export function textoTasas(t: number[] | null | undefined): string | null {
+  const xs = (t ?? []).filter((x) => Number.isFinite(x));
+  if (!xs.length) return null;
+  const f = (x: number) => `${x.toLocaleString('es-MX', { maximumFractionDigits: 2 })} %`;
+  return xs.length === 1 ? f(xs[0]) : `${xs.slice(0, -1).map(f).join(', ')} y ${f(xs[xs.length - 1])}`;
+}
+export function totalesOc(
+  sumaRenglones: number, total: number, iva: number | null | undefined, ieps: number | null | undefined,
+  tasas?: { iva?: number[] | null; ieps?: number[] | null },
+): RenglonTotal[] {
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const sub = r2(sumaRenglones);
+  const out: RenglonTotal[] = [{ etiqueta: 'Subtotal', monto: sub }];
+  const leidos = iva != null && ieps != null;
+  if (leidos && Math.abs(sub + Number(iva) + Number(ieps) - total) <= 1) {
+    // `[PQ.33]` Con la tasa de Kepler a la vista, el impuesto se dice aunque sea 0 % («IVA (0 %)»):
+    // callarlo dejaba al proveedor sin saber si estaba excluido o no aplicaba. Sin tasa conocida y
+    // en 0, no se pinta: un cero sin fuente se leería como afirmación.
+    const tI = textoTasas(tasas?.ieps); const tV = textoTasas(tasas?.iva);
+    if (Number(ieps) > 0 || tI) out.push({ etiqueta: tI ? `IEPS (${tI})` : 'IEPS', monto: r2(Number(ieps)) });
+    if (Number(iva) > 0 || tV) out.push({ etiqueta: tV ? `IVA (${tV})` : 'IVA', monto: r2(Number(iva)) });
+  } else if (Math.abs(total - sub) > 0.005) {
+    out.push({ etiqueta: 'Impuestos y ajustes según Kepler', monto: r2(total - sub) });
+  }
+  out.push({ etiqueta: 'Total', monto: r2(total), fuerte: true });
+  return out;
+}

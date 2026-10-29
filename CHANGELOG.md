@@ -11,6 +11,29 @@
 ## [Unreleased]
 ### Fixed — Caducidades: escanear busca solo, sin tocar la lupa (P2.9.3, 2026-10-29)
 - El campo de escaneo sólo buscaba con `Enter`, y **no toda pistola manda `Enter`**: en Morelia Abastos el código quedaba escrito esperando el clic. Ahora busca solo en cuanto entra un código completo (ráfaga de pistola u 8–14 dígitos, 250 ms de silencio); con `Enter` busca una sola vez; un SKU tecleado a mano sigue esperando `Enter`. Vale para Caducidades y el detalle de la hoja.
+### Added — Pagos: la pantalla ahora dice **por qué** hay que pagar cada cosa (PGP.36 / PGP.37, 2026-10-29)
+- Cada renglón del día trae su razón, en pesos: **«Gana $423,220 (6.34 %) si se paga antes del 29-oct»**. Y ahora **también hablan las que antes se callaban**: «deja pasar $X: se pasó la ventana» y «sin descuento medido en este proveedor».
+- ⭐ Eso último importa más de lo que parece: la pantalla sólo avisaba cuando convenía pagar, y con eso **se quedaba muda sobre $97.4M de los $139.6M** de deuda. Un silencio se lee como «aquí no hay nada que ganar».
+- El encabezado del día deja de ser sólo un total: dice **«captura $X · deja pasar $Y de pronto pago»**, que es lo que permite juzgar si el día está bien armado.
+- **«Proponer orden» ya mira el descuento**: lo que gana dinero sube, pero **dentro de su clase** — un compromiso financiero o un acreedor crítico no se posterga por ganar un descuento.
+- ⚠️ **Lo que el número no es:** el descuento sale de los pagos que **de hecho** lo obtuvieron con cada proveedor, no de una condición pactada — ese dato no existe en ningún sistema. Es una guía medida, no una promesa. Y «fuera de ventana» **no es «perdido»**: se puede seguir pidiendo.
+
+### Fixed — Pagos: $2.5M que el Calendario mostraba como por pagar ya no se deben (PGP.35, 2026-10-29)
+- De los **$6,683,082.26** que la pantalla publicaba como deuda del día, **$2,506,811.31 en 11 pagos** apuntan a facturas que el **ERP ya no debe**: se pagaron por fuera o tienen nota de crédito. Marcarlas como pagadas fallaba, y eso se descubría al final del día, después de preparar, autorizar y firmar.
+- Ahora **el renglón lo dice donde se decide** («el ERP ya no debe esta factura: no se puede pagar»), el encabezado declara cuánto del total no es deuda viva, y el diálogo de «marcar pagados» avisa **antes** de apretar cuáles van a fallar.
+- ⭐ El total **no se recorta solo**: cambiar una cifra publicada sin que nadie lo pida es peor que declararla. Quien decide saca el renglón.
+- ⛔ Se descartó que fuera un defecto nuestro antes de tocar nada: las facturas existen en el ERP con saldo cero, así que no es que la plataforma haya perdido el rastro.
+
+### Added — Pagos: una simulación que dice dónde se traba el circuito, sin tocar nada (PGP.34, 2026-10-29)
+- `database/scripts/simular-pago-proveedor.sql` camina los **6 pasos** del pago a proveedor contra los datos reales y responde en segundos **dónde se detiene, por qué y qué lo destraba** — en vez de que una persona lo descubra en una tarde. Es de **sólo lectura**: no escribe una sola fila.
+- Medido hoy: los **27 pagos vivos** se detienen todos en «preparar», y **4 de ellos ($546,012.07) se destraban hoy mismo** porque el proveedor ya nos timbró su CLABE.
+
+### Fixed — Pagos: la caja SÍ paga, y quien dispersa no siempre es Caja General (PGP.33 / ADR-109, 2026-10-29)
+- El desplegable «cuenta de origen» **escondía Caja General**, por una premisa que nadie había medido: *«la caja no es origen de una transferencia»*. Medido contra el ERP: **2,771 pagos a proveedor, $54,897,784, salieron de ahí** — el **56.7 % de los pagos** por conteo. Quien pagaba desde la caja tenía que elegir otra cuenta para que el formulario lo dejara seguir.
+- Ahora se ofrece como cualquier otra, y el Calendario **propone la cuenta sola en 154 acreedores en vez de 43** (+111).
+- La **instrucción impresa dejó de pedirle la firma a quien no paga.** Se titulaba «— Caja General» y llevaba una sola línea de firma para el día entero, cuando **$404,105,108 — el 87.3 % del dinero — sale de una cuenta de banco y lo dispersa Tesorería**. Ahora cada renglón dice en su columna **Ejecuta** a quién le toca, y el papel firma a los que de verdad participan.
+- Al elegir **«efectivo»**, la pantalla avisa que **Kepler no distingue ese método**: el `X-D-26` va a quedar rotulado «transferencia» aunque el dinero salga de la caja. De 4,898 pagos hay **cero** registrados como efectivo, y sin el aviso eso se lee como error de captura al conciliar.
+- ⚠️ **Lo que no se sabe y queda dicho:** si esos 2,771 salieron en billetes o por una transferencia ordenada desde el escritorio de Caja General, **el ERP no lo registra**. Por eso la caja se ofrece, pero el método propuesto sigue saliendo del ERP y no se deduce.
 
 ### Changed — Arqueo: un solo menú para el tipo, y el concepto del retiro (SM.49, 2026-10-28)
 - `/tienda/arqueo`: las pestañas Retiro · Cierre de día · Relevo · RD · RV pasan a un solo menú. Un retiro lleva concepto: Pago a proveedor, Pago de nómina, Gasto de la sucursal (caja chica), Depósito al banco, Otro (con motivo obligatorio) o Retiro de caja (la sangría que pide Kepler). La pantalla abre en Retiro.

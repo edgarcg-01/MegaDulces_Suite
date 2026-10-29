@@ -33,6 +33,8 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import type { ReceiptExpediente } from '@megadulces/contracts';
+import { warehouseName } from '@megadulces/contracts';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, ReceiptDeposit, DuplicateHit, duplicadoAvisa, duplicadoBloquea, duplicadoMensaje, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas, type MotivoDescarte } from '../entradas.service';
 import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
@@ -94,7 +96,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     DatePickerModule,
     DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, RadioButtonModule, SegmentedComponent, MetricStripComponent, ComprasEntradaExpedienteComponent, ComprasCapturaLoteComponent, MultiSelectModule,
     LoadStateComponent, EntityInspectorComponent, PageTabsComponent, SidePeekComponent, DocViewerComponent,
-    FreshnessPillComponent, ContextHelpComponent, TableDensityComponent],
+    FreshnessPillComponent, ContextHelpComponent, TableDensityComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
   template: `
@@ -907,7 +909,10 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
       es el organismo canónico de detalle (SidePeek, regla #8 de datos densos) — la lista se
       sigue viendo detrás, que es lo que permite ir de una orden a la siguiente.
     -->
-    <app-side-peek [(open)]="showDetail" [width]="1060" title="Orden de entrada"
+    <!-- [RE.52] 1400px (el panel se recorta solo a la ventana): con la decisión dentro del panel la
+         lista de atrás ya no hace falta verla, y la factura necesita su columna para leerse al lado
+         de la conclusión. A 1060 la rejilla de dos columnas dejaba ~500px para cada lado. -->
+    <app-side-peek [(open)]="showDetail" [width]="1400" title="Orden de entrada"
                    [subtitle]="detailSubtitulo()">
       @if (detailLoading()) {
         <!-- Esqueleto con la FORMA del contenido (veredicto + 3 cifras + ficha + renglones):
@@ -920,19 +925,31 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
           @for (i of [1,2,3,4,5,6]; track i) { <span class="cb-sk cb-sk-row"></span> }
         </div>
       } @else if (detailData(); as d) {
+        <!-- [RE.52] El CONTENEDOR es esta envoltura, no .cb-review: una regla @container consulta a
+             su ancestro, y con container-type puesto en la misma rejilla la regla de dos columnas
+             no se aplicaba nunca (medido: una columna de 1004px y la factura a 2,454px de alto). -->
+        <div class="cb-peek">
         <div class="cb-review"><div class="cb-review-main">
 
         <!-- Q.1 answer-first: la pregunta de esta pantalla es si el papel del proveedor
              cuadra con lo que Kepler registró. Va primero y en llano; la ficha y el grid
              de renglones son la evidencia, y van después. -->
         @if (cuadre(d); as q) {
-          <div class="cb-verdict" [class]="'cb-verdict is-' + q.tone" role="status">
-            <i class="pi" [ngClass]="q.icon" aria-hidden="true"></i>
-            <div class="cb-verdict-txt">
-              <p class="cb-verdict-t">{{ q.titulo }}</p>
-              <p class="cb-verdict-s">{{ q.lectura }}</p>
+          <!-- [RE.52] UNA conclusión: el cuadre del dinero y lo que el expediente encontró. Antes
+               eran dos cajas que se contradecían («El total cuadra» en verde arriba de «Revisar» en
+               ámbar), y la persona tenía que decidir cuál mandaba. -->
+          @if (veredicto(q); as v) {
+            <div class="cb-verdict" [class]="'cb-verdict is-' + v.tone" role="status">
+              <i class="pi" [ngClass]="v.icon" aria-hidden="true"></i>
+              <div class="cb-verdict-txt">
+                <p class="cb-verdict-t">{{ v.titulo }}</p>
+                @if (v.motivos.length) {
+                  <ul class="cb-verdict-mot">@for (m of v.motivos; track m) { <li>{{ m }}</li> }</ul>
+                }
+                <p class="cb-verdict-s">{{ v.lectura }}</p>
+              </div>
             </div>
-          </div>
+          }
 
           <!-- Las tres cifras comparables, juntas y alineadas a la misma columna.
                Vivían en tres bloques distintos del diálogo, que es exactamente lo que
@@ -956,14 +973,10 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
           </dl>
         }
 
-        <!-- [RE.35] El expediente de la factura: el CFDI de ContPAQi ligado a esta entrada y el
-             veredicto (pasa sola / revisar / sin CFDI aun). El papel identifica, el CFDI informa. -->
-        <app-compras-entrada-expediente class="cb-expediente" [sucursal]="d.entrada.sucursal" [folio]="d.entrada.folio" (cargado)="expedientePanel.set($event)" />
-
         <div class="cb-cobro">
           <div><span class="cb-lbl">Entrada</span>
-            <button type="button" class="cb-reflink mono strong" (click)="inspect.set(refEnt(d.entrada.sucursal, d.entrada.folio))"
-                    title="Ficha completa: renglones, ajustes, pagos candidatos y copia CEDIS">{{ d.entrada.sucursal }}/{{ d.entrada.folio }}</button></div>
+            <button type="button" class="cb-reflink strong" (click)="inspect.set(refEnt(d.entrada.sucursal, d.entrada.folio))"
+                    title="Ficha completa: renglones, ajustes, pagos candidatos y copia CEDIS">{{ d.entrada.sucursal | sucursal }} · <span class="mono">{{ d.entrada.folio }}</span></button></div>
           <div><span class="cb-lbl">Proveedor</span>
             @if (d.entrada.proveedor_code) {
               <button type="button" class="cb-reflink strong" (click)="inspect.set(refProv(d.entrada.proveedor_code))"
@@ -982,11 +995,12 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                       title="Abrir el vale de entrada y su orden de compra">{{ d.entrada.vale_folio }}</button>
             } @else { — }
           </strong></div>
-          <div class="ta-r"><span class="cb-lbl">Total Kepler</span><strong class="cb-monto">{{ money(d.entrada.monto) }}</strong></div>
+          <!-- [RE.52] Sin «Total Kepler»: ya está en las tres cifras de arriba (salía tres veces, en
+               naranja de acción la última). -->
         </div>
         @if (d.redirigido_de) {
           <div class="cb-twin"><i class="pi pi-directions" aria-hidden="true"></i>
-            <span>Buscaste <strong class="mono">{{ d.redirigido_de.sucursal }}/{{ d.redirigido_de.folio }}</strong>,
+            <span>Buscaste <strong>{{ d.redirigido_de.sucursal | sucursal }} · <span class="mono">{{ d.redirigido_de.folio }}</span></strong>,
               el folio con el que <strong>oficinas</strong> capturó esta recepción. Lo que ves es el documento de la
               sucursal, que es el que trae los productos y el que lleva la evidencia.</span>
           </div>
@@ -997,7 +1011,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
               no requiere evidencia aparte:</span>
             @for (t of d.cedis_twins; track t.sucursal + '/' + t.folio) {
               <button type="button" class="cb-twin-folio cb-reflink mono" (click)="inspect.set(refEnt(t.sucursal, t.folio))"
-                      [attr.aria-label]="'Abrir la copia de oficinas ' + t.sucursal + '/' + t.folio">{{ t.sucursal }}/{{ t.folio }}</button>
+                      [attr.aria-label]="'Abrir la copia de oficinas ' + (t.sucursal | sucursal) + ' ' + t.folio">{{ t.sucursal | sucursal }} · {{ t.folio }}</button>
               <span class="cb-twin-meta">
                 {{ t.monto == null ? '' : money(t.monto) }}<!--
                 --><!-- El delta entre nuestras dos capturas: pequeño pero hay que poder verlo,
@@ -1008,17 +1022,26 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
             }
           </div>
         }
-        <p-table [value]="d.lineas" styleClass="p-datatable-sm cb-table" [scrollable]="true" scrollHeight="44vh"
+        <!-- [RE.35] El expediente de la factura: el CFDI de ContPAQi ligado a esta entrada. Su
+             conclusión ya subió al veredicto de arriba; aquí queda la evidencia, con lo que coincide
+             plegado. El papel identifica, el CFDI informa. -->
+        <app-compras-entrada-expediente class="cb-expediente" [sucursal]="d.entrada.sucursal" [folio]="d.entrada.folio" (cargado)="expedientePanel.set($event)" />
+
+        <!-- [RE.52] Sin scroll propio: un scroll dentro del scroll del panel escondía renglones sin
+             avisar. El panel es el único que se desplaza. -->
+        <!-- [RE.52] class, no styleClass: p-table de PrimeNG 22 no tiene esa entrada y la ignoraba
+             en silencio (ni .cb-table ni el alineado a la derecha de los números se aplicaban). -->
+        <p-table [value]="d.lineas" class="cb-table" size="small"
                  [paginator]="d.lineas.length > 200" [rows]="200">
           <ng-template #header>
             <tr>
-              <th style="width:3rem">#</th>
-              <th style="width:6rem">SKU</th>
+              <th style="width:2.2rem">#</th>
+              <th style="width:4.5rem">SKU</th>
               <th>Producto</th>
-              <th class="ta-r" style="width:6rem">Cant.</th>
-              <th style="width:4rem">U</th>
-              <th class="ta-r" style="width:8rem">Costo u.</th>
-              <th class="ta-r" style="width:9rem">Importe</th>
+              <th class="ta-r" style="width:4rem">Cant.</th>
+              <th style="width:3rem">U</th>
+              <th class="ta-r" style="width:5.5rem">Costo u.</th>
+              <th class="ta-r" style="width:6.5rem">Importe</th>
             </tr>
           </ng-template>
           <ng-template #body let-l>
@@ -1063,17 +1086,17 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                 @if (r.totals.kepler_orphans) { <span class="cb-rk sec">{{ r.totals.kepler_orphans }} solo en Kepler</span> }
               </div>
             </div>
-            <p-table [value]="r.lines" styleClass="p-datatable-sm cb-table" [scrollable]="true" scrollHeight="40vh">
+            <!-- [RE.52] Cuatro columnas en vez de siete: el PAR (lo que dice la remisión → el producto
+                 de Kepler con el que se emparejó) en una celda, para que un cruce se lea de un vistazo
+                 (en 03/0001088, «RED COLA 24/400 → RED COLA 600 ML»). En 696px las siete columnas
+                 doblaban cada renglón a 80px. -->
+            <p-table [value]="r.lines" class="cb-table" size="small">
               <ng-template #header>
                 <tr>
-                  <th>Remisión (proveedor)</th>
-                  <th class="ta-r" style="width:5.5rem">Cant.</th>
-                  <th style="width:6rem">SKU</th>
-                  <th>Producto (Kepler)</th>
-                  <th class="ta-r" style="width:5.5rem">Cant. Kepler</th>
-                  <th style="width:8rem">Origen</th>
-                  <th style="width:8rem">Estado</th>
-                  <th style="width:8rem">Acción</th>
+                  <th>Remisión → Kepler</th>
+                  <th class="ta-r" style="width:7rem">Cantidad</th>
+                  <th style="width:6.5rem">Origen</th>
+                  <th style="width:7.5rem">Estado</th>
                 </tr>
               </ng-template>
               <ng-template #body let-l>
@@ -1081,21 +1104,22 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                   <td>
                     <span class="strong">{{ l.remision.descripcion || '—' }}</span>
                     @if (l.remision.sku_proveedor) { <span class="muted mono"> · {{ l.remision.sku_proveedor }}</span> }
+                    <div class="cb-par">
+                      @if (l.resolved_sku) {
+                        <i class="pi pi-arrow-right" aria-hidden="true"></i>
+                        <button type="button" class="cb-reflink mono" (click)="inspect.set(refSku(l.resolved_sku))"
+                                [attr.aria-label]="'Abrir el producto ' + l.resolved_sku">{{ l.resolved_sku }}</button>
+                        {{ l.resolved_nombre || (l.kepler?.nombre) || '' }}
+                      } @else { <span class="muted">sin producto de Kepler</span> }
+                    </div>
                   </td>
                   <td class="ta-r">
                     {{ (l.remision.cantidad ?? 0) | number:'1.0-2' }}<span class="muted"> {{ l.remision.unidad || '' }}</span>
-                    @if (l.qty_remision_pz != null && l.box_factor > 1) { <div class="muted xs">= {{ l.qty_remision_pz | number:'1.0-0' }} pz</div> }
-                  </td>
-                  <td class="mono">
-                    @if (l.resolved_sku) {
-                      <button type="button" class="cb-reflink mono" (click)="inspect.set(refSku(l.resolved_sku))">{{ l.resolved_sku }}</button>
-                    } @else { <span class="muted">—</span> }
-                  </td>
-                  <td>{{ l.resolved_nombre || (l.kepler?.nombre) || '—' }}</td>
-                  <td class="ta-r">
+                    @if (l.qty_remision_pz != null && l.box_factor > 1) { <span class="muted"> = {{ l.qty_remision_pz | number:'1.0-0' }} pz</span> }
                     @if (l.qty_kepler != null) {
-                      <span [class.cb-qty-bad]="l.qty_match === false">{{ l.qty_kepler | number:'1.0-2' }}</span>
-                    } @else { <span class="muted">—</span> }
+                      <div class="cb-par"><i class="pi pi-arrow-right" aria-hidden="true"></i>
+                        <span [class.cb-qty-bad]="l.qty_match === false">{{ l.qty_kepler | number:'1.0-2' }}</span></div>
+                    }
                   </td>
                   <td>
                     @if (l.method !== 'sin_match') {
@@ -1103,21 +1127,13 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                       @if (!l.alias_hit && l.method === 'descripcion') { <span class="muted xs"> {{ (l.score * 100) | number:'1.0-0' }}%</span> }
                     } @else { <span class="muted">—</span> }
                   </td>
+                  <!-- [RE.52] Sin «Aprender»: aprender la equivalencia es trabajo del sistema, no un
+                       botón por renglón (14 botones naranjas, y uno sobre un par cruzado guardaba el
+                       error para siempre). Lo aprendido se ve en «Origen». -->
                   <td><p-tag [value]="reconStatusLabel(l.status)" [severity]="reconStatusSev(l.status)" /></td>
-                  <td>
-                    @if (l.resolved_sku && !l.alias_hit) {
-                      <button pButton type="button" size="small" [loading]="reconConfirming() === l.idx" (click)="confirmMatch(l)"
-                              title="Aprender: este proveedor llama a este SKU así">
-                        <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
-                        <span class="p-button-label">Aprender</span>
-                      </button>
-                    } @else if (l.alias_hit) {
-                      <span class="cb-learned"><i class="pi pi-bookmark-fill"></i> Aprendido</span>
-                    } @else { <span class="muted">—</span> }
-                  </td>
                 </tr>
               </ng-template>
-              <ng-template #emptymessage><tr><td colspan="8" class="cb-empty">La remisión no trae renglones legibles.</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="4" class="cb-empty">La remisión no trae renglones legibles.</td></tr></ng-template>
             </p-table>
             @if (r.kepler_orphans.length) {
               <div class="cb-recon-orphans">
@@ -1133,7 +1149,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
         <!-- RE.2 — ajustes que EXPLICAN el descuadre (devoluciones / notas de crédito / descuentos del proveedor) -->
         <div class="cb-explains">
           <div class="cb-explains-head">
-            <span><i class="pi pi-search-plus" aria-hidden="true"></i> ¿Por qué no cuadra? — ajustes del proveedor</span>
+            <!-- [RE.52] La pregunta sólo cuando no cuadra: sobre una factura que cuadra afirmaba un descuadre. -->
+            <span><i class="pi pi-search-plus" aria-hidden="true"></i> {{ cuadre(d).tone === 'ok' ? 'Ajustes del proveedor' : '¿Por qué no cuadra? — ajustes del proveedor' }}</span>
             @if (explains().length) { <span class="cb-explains-sum">{{ explains().length }} · {{ money(explainsTotal()) }}</span> }
           </div>
           @if (explainsLoading()) {
@@ -1197,10 +1214,14 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
               </div>
               <div class="cb-view-ocr">
                 <span><em>Folio</em> {{ dep.ocr_folio || '—' }}</span>
-                <span><em>Fecha</em> {{ dep.ocr_fecha || '—' }}</span>
+                <span><em>Fecha</em> {{ fechaOcr(dep.ocr_fecha) }}</span>
                 <span><em>Proveedor</em> {{ dep.ocr_proveedor || '—' }}</span>
                 <span><em>Total</em> {{ dep.ocr_monto != null ? money(dep.ocr_monto) : '—' }}</span>
-                @if (dep.ocr_subtotal != null) { <span><em>Subtotal</em> {{ money(dep.ocr_subtotal) }}</span> }
+                <!-- [RE.52] Lo que lee el OCR no es dato: un subtotal que no se acerca al total leído se
+                     marca como lectura dudosa (03/0001088: subtotal $1,530.22 sobre un total de $19,646). -->
+                @if (dep.ocr_subtotal != null) {
+                  <span><em>Subtotal</em> {{ money(dep.ocr_subtotal) }}@if (ocrSubtotalDudoso(dep)) {<span class="muted"> · lectura dudosa: no se acerca al total</span>}</span>
+                }
                 @if (dep.ocr_iva != null) { <span><em>IVA</em> {{ money(dep.ocr_iva) }}</span> }
               </div>
               @if (dep.status === 'rechazado' && dep.motivo_rechazo) { <div class="cb-err">Rechazado: {{ dep.motivo_rechazo }}</div> }
@@ -1215,16 +1236,48 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
         <aside class="cb-review-doc">
           <app-doc-viewer [files]="hojas()" [(idx)]="hojaIdx"
                           emptyTitle="Sin remisión adjunta"
-                          emptyHint="Adjuntá la factura del proveedor para poder compararla contra lo que registró Kepler." />
+                          emptyHint="Adjunta la factura del proveedor para compararla contra lo que registró Kepler." />
         </aside>
         </div><!-- /.cb-review -->
 
-        <!-- El SidePeek no tiene pie: las acciones van al final del contenido, que además es
-             donde quedan después de leer el expediente. -->
-        <div class="cb-review-acts">
-          <button pButton type="button" text (click)="showDetail.set(false)"><span class="p-button-label">Cerrar</span></button>
-          <button pButton type="button" (click)="fromDetailToAttach()"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">Adjuntar remisión</span></button>
-        </div>
+        <!-- [RE.52] La decisión se toma DONDE se lee la evidencia. Antes el panel sólo ofrecía
+             «Cerrar» y «Adjuntar remisión» (aun con la remisión ya adjunta): dar por buena o
+             devolver obligaba a cerrar y buscar la fila. La barra queda pegada abajo, y al decidir
+             se abre la siguiente de la bandeja. Las dos decisiones confirman, como en la fila. -->
+        @if (detailTarget(); as c) {
+          <div class="cb-review-acts">
+            <div class="cb-acts-izq">
+              <button pButton type="button" text severity="secondary" (click)="showDetail.set(false)"><span class="p-button-label">Cerrar</span></button>
+              @if (c.deposit_id && canValidate() && c.deposit_status !== 'rechazado') {
+                <button pButton type="button" text severity="danger" (click)="openReject(c)"
+                        [attr.aria-label]="'Devolver la remisión de la entrada ' + c.folio">
+                  <span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Devolver</span>
+                </button>
+              }
+              @if (posicionDe(c); as p) { <span class="cb-acts-pos">{{ p.i }} de {{ p.n }} en esta página</span> }
+            </div>
+            <div class="cb-acts-der">
+              @if (c.deposits > 0) {
+                <button pButton type="button" text severity="secondary" (click)="fromDetailToAttach()"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">Agregar otra remisión</span></button>
+              }
+              @if (siguienteDe(c); as s) {
+                <button pButton type="button" outlined severity="secondary" (click)="openDetail(s)"
+                        [attr.aria-label]="'Abrir la siguiente: entrada ' + s.folio">
+                  <span class="p-button-label">Siguiente</span><span class="p-button-icon p-button-icon-right pi pi-angle-right" aria-hidden="true"></span>
+                </button>
+              }
+              @if (c.deposit_id && canValidate() && c.deposit_status !== 'validado') {
+                <button pButton type="button" [loading]="actingId() === c.deposit_id" [disabled]="!!actingId()" (click)="confirmarValidar(c)"
+                        [attr.aria-label]="'Dar por buena la remisión de la entrada ' + c.folio">
+                  <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Dar por buena</span>
+                </button>
+              } @else if (!(c.deposits > 0)) {
+                <button pButton type="button" (click)="fromDetailToAttach()"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">Adjuntar remisión</span></button>
+              }
+            </div>
+          </div>
+        }
+        </div><!-- /.cb-peek -->
       }
     </app-side-peek>
 
@@ -1673,8 +1726,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-recon-head h4 { margin: 0; font-size: .9rem; font-weight: 700; color: var(--text-main); }
     .cb-recon-kpis { display: inline-flex; gap: .4rem; flex-wrap: wrap; }
     .cb-rk { font-size: .74rem; padding: .1rem .45rem; border-radius: var(--r-sm, .4rem); border: 1px solid var(--border-color); white-space: nowrap; }
-    .cb-rk.ok { color: var(--ok-fg); border-color: color-mix(in srgb, var(--ok-fg) 40%, transparent); }
-    .cb-rk.warn { color: var(--warn-fg); border-color: color-mix(in srgb, var(--warn-fg) 40%, transparent); }
+    /* [RE.52] Sólo «sin match» lleva color: es lo único que pide trabajo. Los conteos son texto. */
+    .cb-rk.ok, .cb-rk.warn { color: var(--text-muted); }
     .cb-rk.bad { color: var(--bad-fg); border-color: color-mix(in srgb, var(--bad-fg) 40%, transparent); }
     .cb-rk.sec { color: var(--text-muted); }
     .cb-qty-bad { color: var(--bad-fg); font-weight: 600; }
@@ -1703,15 +1756,29 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     /* RE.8/RE.17.5 — el expediente en dos paneles: contenido/OCR (izq) + documento (der).
        Consulta de CONTENEDOR: el mismo bloque vive en el cajón de ~1060px y, en pantalla
        chica, en el ancho completo — el @media miraba la ventana, que acá no dice nada. */
-    .cb-review { container-type: inline-size; display: grid; grid-template-columns: 1fr; gap: 1.1rem; }
+    .cb-peek { container-type: inline-size; }
+    /* [RE.52] En el panel las rejillas son evidencia al lado de la factura, no la lista de trabajo:
+       van compactas sin importar la densidad que se eligió para la lista (en cómoda, 17 renglones
+       medían ~1,300px en la columna de 696px). */
+    .cb-peek .cb-table th, .cb-peek .cb-table td { padding: .3rem .5rem; font-size: var(--fs-xs); line-height: 1.35; }
+    .cb-peek .cb-table th { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); font-weight: 600; }
+    .cb-par { color: var(--text-muted); display: flex; align-items: baseline; gap: .3rem; flex-wrap: wrap; }
+    .cb-par .pi { font-size: var(--fs-micro); }
+    .cb-review { display: grid; grid-template-columns: 1fr; gap: 1.1rem; }
     @container (min-width: 62rem) { .cb-review { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); align-items: start; } }
     .cb-review-main { min-width: 0; }
     /* El visor trae su propio marco: acá sólo el alto y quedar pegado mientras se baja por
        los renglones, que es la comparación que hace el trabajo. */
-    .cb-review-doc { min-width: 0; height: 64vh; min-height: 24rem; }
+    .cb-review-doc { min-width: 0; height: calc(100dvh - 13rem); min-height: 24rem; }
     @container (min-width: 62rem) { .cb-review-doc { position: sticky; top: 0; align-self: start; } }
-    .cb-review-acts { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-4);
-      padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
+    /* Pegada al borde de abajo del panel: el cuerpo del SidePeek tiene 20px de relleno (--sp-5) y,
+       con bottom:0, los renglones se asomaban por debajo de la barra. */
+    .cb-review-acts { position: sticky; bottom: calc(-1 * var(--sp-5)); z-index: 2; display: flex; justify-content: space-between;
+      align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-4) calc(-1 * var(--sp-5)) calc(-1 * var(--sp-5));
+      padding: var(--sp-2) var(--sp-5) var(--sp-4); border-top: 1px solid var(--border-color); background: var(--card-bg); }
+    .cb-acts-izq, .cb-acts-der { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+    .cb-acts-pos { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .cb-verdict-mot { margin: .1rem 0 .2rem; padding-left: 1.1rem; font-size: var(--fs-sm); color: var(--text-main); line-height: 1.5; }
     .cb-view-filebtn.on { border-color: var(--action); color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
   `],
 })
@@ -2099,7 +2166,6 @@ export class ComprasEntradasComponent {
   // RE.11 — conciliación por línea (remisión ↔ Kepler ↔ SKU resuelto).
   readonly recon = signal<ReconcileResult | null>(null);
   readonly reconLoading = signal(false);
-  readonly reconConfirming = signal<number | null>(null); // idx del renglón que se está aprendiendo
 
   /**
    * `[RE.17.5]` — las hojas del expediente para el visor compartido. Reemplaza a `selectedDoc`
@@ -2120,7 +2186,8 @@ export class ComprasEntradasComponent {
     const suc = d?.entrada.sucursal ?? t?.sucursal ?? '';
     const folio = d?.entrada.folio ?? t?.folio ?? '';
     const prov = d?.entrada.proveedor_nombre ?? t?.proveedor_nombre ?? '';
-    return [`${suc}/${folio}`, prov].filter(Boolean).join(' · ');
+    // [RE.52] La sucursal por su nombre, nunca «03».
+    return [suc && folio ? `${warehouseName(suc)} · ${folio}` : '', prov].filter(Boolean).join(' · ');
   }
 
   // RE.2 — ajustes (X-D-40/55) que explican el descuadre de esta entrada
@@ -3062,9 +3129,10 @@ export class ComprasEntradasComponent {
   doValidate(c: EntradaRow) {
     if (!c.deposit_id || this.actingId()) return;
     this.actingId.set(c.deposit_id);
+    const sig = this.siguienteDe(c);
     this.svc.validate(c.deposit_id).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => { this.actingId.set(null); this.toast.add({ severity: 'success', summary: 'Validada', detail: `Entrada ${c.folio}` }); this.load(); },
+        next: () => { this.actingId.set(null); this.toast.add({ severity: 'success', summary: 'Validada', detail: `Entrada ${c.folio}` }); this.seguirTrasDecidir(c, sig); this.load(); },
         error: () => { this.actingId.set(null); this.toast.add({ severity: 'error', summary: 'Error al validar' }); },
       });
   }
@@ -3085,8 +3153,9 @@ export class ComprasEntradasComponent {
     if (code === 'otro' && !this.rejectMotivo.trim()) { this.rejectError.set('Con "Otro" hace falta explicar.'); return; }
     this.rejectError.set('');
     this.saving.set(true);
+    const sig = this.siguienteDe(c);
     this.svc.reject(c.deposit_id, this.rejectMotivo.trim() || undefined, code).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: () => { this.saving.set(false); this.rejectMotivo = ''; this.rejectCodigo.set(null); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Entrada ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+      .subscribe({ next: () => { this.saving.set(false); this.rejectMotivo = ''; this.rejectCodigo.set(null); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Entrada ${c.folio}` }); this.seguirTrasDecidir(c, sig); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
   }
 
   openDetail(c: EntradaRow) {
@@ -3122,28 +3191,6 @@ export class ComprasEntradasComponent {
         next: (r) => { this.recon.set(r); this.reconLoading.set(false); },
         error: () => { this.reconLoading.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo conciliar por línea' }); },
       });
-  }
-
-  /** RE.11.4 — aprende el match del renglón (descripción del proveedor → SKU interno). */
-  confirmMatch(line: ReconciledLine) {
-    const r = this.recon();
-    if (!r || !r.proveedor_rfc || !line.resolved_sku || !line.remision.descripcion) {
-      this.toast.add({ severity: 'warn', summary: 'Falta RFC o SKU para aprender este renglón' });
-      return;
-    }
-    this.reconConfirming.set(line.idx);
-    this.svc.confirmLine({
-      proveedor_rfc: r.proveedor_rfc, descripcion: line.remision.descripcion, sku: line.resolved_sku,
-      nombre_interno: line.resolved_nombre || undefined, unidad_proveedor: line.remision.unidad || undefined,
-      box_factor: line.box_factor,
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (res) => {
-        this.reconConfirming.set(null);
-        this.recon.update((cur) => cur ? { ...cur, lines: cur.lines.map((l) => l.idx === line.idx ? { ...l, alias_hit: true, method: 'alias', score: 1 } : l) } : cur);
-        this.toast.add({ severity: 'success', summary: 'Aprendido', detail: `"${line.remision.descripcion}" → ${res.sku} (confianza ${Math.round(res.confianza * 100)}%)` });
-      },
-      error: (e) => { this.reconConfirming.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo aprender', detail: e?.error?.message }); },
-    });
   }
 
   reconStatusLabel(s: ReconciledLine['status']): string {
@@ -3203,6 +3250,54 @@ export class ComprasEntradasComponent {
   }
   /** `[RE.35.6]` El expediente que cargó el panel lateral (lo emite `app-compras-entrada-expediente`). */
   readonly expedientePanel = signal<ReceiptExpediente | null>(null);
+
+  /**
+   * `[RE.52]` La conclusión ÚNICA del panel: el cuadre del dinero (`cuadre`) más lo que el
+   * expediente encontró. Si el dinero cuadra pero el expediente pide revisar (falta el sello, la
+   * liga es sólo sugerida…), manda el expediente y el cuadre queda como lectura.
+   */
+  veredicto(q: ReturnType<ComprasEntradasComponent['cuadre']>) {
+    const x = this.expedientePanel();
+    const d = this.detailData();
+    const mismo = !!x && !!d && x.sucursal === d.entrada.sucursal && x.folio === d.entrada.folio;
+    const motivos = mismo && x.cubo === 'revisar' ? x.motivos : [];
+    if (!motivos.length) return { tone: q.tone, icon: q.icon, titulo: q.titulo, lectura: q.lectura, motivos };
+    return q.tone === 'ok'
+      ? { tone: 'warn' as const, icon: 'pi-exclamation-triangle', titulo: 'Revisar antes de darla por buena', lectura: `${q.titulo}. ${q.lectura}`, motivos }
+      : { tone: q.tone, icon: q.icon, titulo: q.titulo, lectura: q.lectura, motivos };
+  }
+
+  /** `[RE.52]` Dónde está la entrada abierta dentro de la página de la bandeja, para «Siguiente». */
+  private indiceEnPagina(c: EntradaRow): number {
+    return this.rows().findIndex((r) => r.sucursal === c.sucursal && r.folio === c.folio);
+  }
+  posicionDe(c: EntradaRow): { i: number; n: number } | null {
+    const i = this.indiceEnPagina(c);
+    return i < 0 ? null : { i: i + 1, n: this.rows().length };
+  }
+  siguienteDe(c: EntradaRow): EntradaRow | null {
+    const i = this.indiceEnPagina(c);
+    return i < 0 ? null : this.rows()[i + 1] ?? null;
+  }
+  /** `[RE.52]` Tras decidir desde el panel, se abre la siguiente (o se cierra si era la última). */
+  private seguirTrasDecidir(c: EntradaRow, siguiente: EntradaRow | null): void {
+    const t = this.detailTarget();
+    if (!this.showDetail() || !t || t.sucursal !== c.sucursal || t.folio !== c.folio) return;
+    if (siguiente) this.openDetail(siguiente); else this.showDetail.set(false);
+  }
+
+  /** `[RE.52]` La fecha que leyó el OCR llega como ISO: se muestra como fecha, no como marca de tiempo. */
+  fechaOcr(s: string | null | undefined): string {
+    if (!s) return '—';
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+  }
+  /** `[RE.52]` Un subtotal leído que no llega ni al 70 % del total leído (ni lo pasa) no es creíble. */
+  ocrSubtotalDudoso(dep: { ocr_subtotal?: number | string | null; ocr_monto?: number | string | null }): boolean {
+    const sub = Number(dep.ocr_subtotal), tot = Number(dep.ocr_monto);
+    if (!Number.isFinite(sub) || !Number.isFinite(tot) || tot <= 0) return false;
+    return sub < tot * 0.7 || sub > tot * 1.001;
+  }
 
   /** El archivo ELEGIDO (data URI, aún sin subir) es imagen / PDF. */
   /** Un archivo YA subido (Cloudinary) es imagen (por kind o extensión) — si no, se trata como PDF/archivo. */

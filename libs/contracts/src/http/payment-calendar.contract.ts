@@ -37,6 +37,35 @@ export interface PaymentCalendarAllocationItem {
   supplier_id: string | null;
   /** `[TP.16.3]` Sucursal (centro de costo) de la factura; null fuera de facturas de proveedor. */
   branch_code: string | null;
+  /**
+   * `[PGP.35]` **El ERP ya no debe esta factura.** Sólo puede ser `true` en origen derivado
+   * (`kepler_payable`): su etiqueta se rearma desde `analytics.v_supplier_payables`, que filtra
+   * `pendiente > 0.005`, así que un documento ausente está saldado — pagado por fuera, o con
+   * nota de crédito. Medido 2026-10-29: **27 de 54 líneas** de los pagos vivos.
+   *
+   * ⛔ Cuando es `true`, `beneficiary` y `concept` vienen en «—»: no hay de dónde sacarlos.
+   * La pantalla NO debe leer ese «—» como «beneficiario desconocido».
+   */
+  kepler_saldada: boolean;
+
+  /**
+   * `[PGP.36]` **Por qué esta factura está en el día**, con la ventana de pronto pago que ya
+   * publica `pronto-pago-ventana.contract.ts`. Sólo el origen derivado (`kepler_payable`) los
+   * trae: los demás no tienen factura del ERP detrás.
+   *
+   * ⚠️ `pronto_estado = null` significa **no aplica** (origen sin factura del ERP). Es distinto
+   * de `'sin_medir'`, que significa **no sabemos**, que a su vez es distinto de «no da
+   * descuento». Las tres se dicen diferente en pantalla, a propósito.
+   *
+   * ⚠️ La ventana es **observada, no pactada**. Medido 2026-10-29: la mediana global **no
+   * discrimina** (25 días con descuento contra 13 sin él), pero **por proveedor sí** — va de 4
+   * días a 68. Por eso se deriva por acreedor y nunca con un promedio general.
+   */
+  vence: string | null;
+  pronto_fecha_limite: string | null;
+  pronto_tasa: number | null;
+  pronto_beneficio: number | null;
+  pronto_estado: 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir' | null;
 }
 
 export interface PaymentCalendarAllocation {
@@ -50,6 +79,12 @@ export interface PaymentCalendarAllocation {
   bank_account_id: string | null;
   /** `[TP.16]` Alias legible de la cuenta de origen (p. ej. «BBVA 6721»); null si no se eligió. */
   bank_account_label: string | null;
+  /**
+   * `[PGP.33]` Clase de la cuenta de origen (`bank` · `cash` · `factoraje`); null si no se eligió.
+   * De ella depende **quién ejecuta**: banco y factoraje los dispersa Tesorería, la caja la
+   * dispersa Caja General. Medido 2026-10-29: $404,105,108 (87.3 %) salen de banco.
+   */
+  bank_account_kind: string | null;
   /** Cuenta DESTINO: snapshot del catálogo del proveedor, o texto capturado. */
   destination_account_text: string | null;
   cash_register_text: string | null;
@@ -58,6 +93,24 @@ export interface PaymentCalendarAllocation {
   failure_reason: string | null;
   folio: string | null;
   supplier_payment_account_id: string | null;
+  /**
+   * `[PGP.35]` Cuántas facturas de este pago ya no las debe el ERP, y por cuánto. Un pago con
+   * `kepler_saldadas > 0` **fallaría al ejecutarse** (`execute()` revalida el saldo), así que
+   * su importe no es deuda viva aunque siga sumando al total del día.
+   * Medido 2026-10-29: **11 de 27 pagos, $2,506,811.31 de $6,683,082.26**.
+   */
+  kepler_saldadas: number;
+  kepler_saldadas_importe: number;
+  /**
+   * `[PGP.36]` **La cuenta de resultados del pago.** `pronto_captura` es el descuento que se
+   * gana si se paga hoy; `pronto_deja_pasar`, el de las facturas cuya ventana observada ya pasó.
+   *
+   * ⛔ «Deja pasar» y no «pierde»: `fuera_de_ventana` significa que se pasó la **mediana de lo
+   * que históricamente funcionó**, no que el proveedor lo haya negado. Llamarlo perdido haría que
+   * Tesorería dejara de intentarlo.
+   */
+  pronto_captura: number;
+  pronto_deja_pasar: number;
   items: PaymentCalendarAllocationItem[];
 }
 
@@ -226,9 +279,12 @@ export interface SupplierPaymentHabit {
    * `estable` trae `cuenta_origen_id`. Los otros tres explican por qué no, y cada uno dice algo
    * distinto:
    *
-   * - `caja_general` — se le suele pagar **desde Caja General**, que el selector de origen no
-   *   ofrece («la caja no es origen de una transferencia»). Son **116 de 316**: el dato más útil
-   *   del grupo, porque hoy no aparece en ninguna pantalla.
+   * - ⛔ `caja_general` — **RETIRADO en `[PGP.33]`** (migración `20261029134018`). Existía porque
+   *   el selector de origen excluía la caja; esa premisa está medida y es falsa (2,771 pagos,
+   *   $54,897,784, salieron de CAJA GENERAL y el propio Kepler los clasifica `tipo_cuenta='caja'`).
+   *   Las **116** filas que retenía pasaron a `estable` (111) y `variable` (5), medido contra prod:
+   *   las propuestas de cuenta van de **43 a 154**. El valor queda en la unión porque un cliente
+   *   viejo puede seguir recibiéndolo del caché de su pestaña; la vista ya no lo emite.
    * - `no_resuelve` — la cuenta existe en Kepler pero no casa con ninguna del catálogo propio
    *   (13 acreedores; `BAJIO 6506` y `BAJIO 5854` difieren en un dígito de las nuestras).
    * - `variable` — paga desde varias y ninguna llega al piso.

@@ -197,7 +197,7 @@ export class PaymentCalendarController {
 
   @Post('allocations/:id/preparar')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
-  @ApiOperation({ summary: 'Completa método de pago / banco / caja — lo que Caja General necesita para ejecutar.' })
+  @ApiOperation({ summary: 'Completa método de pago / cuenta de origen / destino — lo que quien dispersa necesita para ejecutar.' })
   prepare(@Param('id') id: string, @Body() dto: PrepareAllocationDto, @Req() req: AuthedRequest) {
     return this.svc.prepare(id, dto, req.user?.username || 'sistema');
   }
@@ -267,13 +267,19 @@ export class PaymentCalendarController {
     res.end(buf);
   }
 
-  @Get('days/:date/caja-general.pdf')
+  /**
+   * `[PGP.33]` La instrucción de ejecución. La ruta vieja (`caja-general.pdf`) se conserva **viva**
+   * y sirve exactamente lo mismo: una pestaña abierta desde antes del despliegue la sigue pidiendo,
+   * y un 404 ahí se leería como «el documento ya no existe». No es deuda sin nombre: se retira
+   * cuando el tablero confirme que nadie la llama.
+   */
+  @Get(['days/:date/ejecucion.pdf', 'days/:date/caja-general.pdf'])
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
-  @ApiOperation({ summary: 'Instrucción de ejecución para Caja General — sólo disponible tras autorizar (folio del lote generado).' })
-  async cajaGeneralPdf(@Param('date') date: string, @Res() res: Response): Promise<void> {
-    const buf = await this.docs.renderCajaGeneral(date);
+  @ApiOperation({ summary: 'Instrucción de ejecución (Tesorería y/o Caja General, según la cuenta de origen) — sólo tras autorizar.' })
+  async ejecucionPdf(@Param('date') date: string, @Res() res: Response): Promise<void> {
+    const buf = await this.docs.renderEjecucion(date);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="caja-general-${date}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="instruccion-ejecucion-${date}.pdf"`);
     res.end(buf);
   }
 

@@ -6,6 +6,7 @@ import { uuidV4 } from '../../core/utils/uuid';
 import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, NuevoArqueoCajaInput, CaosRetirosLibres, CaosRetiroDelLote } from '@megadulces/contracts';
 // `[CGA-A.61]` La reposición por sucursal: el contrato lo comparten el endpoint y la pantalla.
 import type { ReposicionSucursales } from '@megadulces/contracts';
+import type { CerrarHojaInput, HojaGastos, HojasDeGastos, PagarHojaInput, PagoHojaResultado } from '@megadulces/contracts';
 import { reintentarSi429 } from '../../core/utils/reintentar-429';
 // `Freshness` se IMPORTA, no se redeclara: es el contrato de procedencia de ADR-056 y es el mismo
 // objeto que consume `app-freshness-pill`. De los 26 tipos de este archivo, 24 están escritos a
@@ -331,6 +332,39 @@ export class CashLedgerService {
     if (desde) p = p.set('desde', desde);
     if (hasta) p = p.set('hasta', hasta);
     return this.leer<ReposicionSucursales>(`${environment.apiUrl}/finance/caja-reposicion`, { params: p });
+  }
+
+  // ── `[CGA-A.65]` La hoja de gastos de zona ──────────────────────────────────────────────────
+  // Las escrituras mandan QUÉ pagos y quién; el importe lo vuelve a leer el servidor de Kepler.
+
+  hojasDeGastos(): Observable<HojasDeGastos> {
+    return this.leer<HojasDeGastos>(`${environment.apiUrl}/finance/hoja-gastos`);
+  }
+
+  cerrarHojaDeGastos(zona: string, body: CerrarHojaInput): Observable<HojaGastos> {
+    return this.http.post<HojaGastos>(`${environment.apiUrl}/finance/hoja-gastos/${encodeURIComponent(zona)}/cerrar`, body);
+  }
+
+  aprobarHojaDeGastos(id: string): Observable<HojaGastos> {
+    return this.http.post<HojaGastos>(`${environment.apiUrl}/finance/hoja-gastos/${encodeURIComponent(id)}/aprobar`, {});
+  }
+
+  rechazarHojaDeGastos(id: string, motivo: string): Observable<HojaGastos> {
+    return this.http.post<HojaGastos>(`${environment.apiUrl}/finance/hoja-gastos/${encodeURIComponent(id)}/rechazar`, { motivo });
+  }
+
+  cancelarHojaDeGastos(id: string, motivo: string): Observable<HojaGastos> {
+    return this.http.post<HojaGastos>(`${environment.apiUrl}/finance/hoja-gastos/${encodeURIComponent(id)}/cancelar`, { motivo });
+  }
+
+  /** `[CGA-A.65]` Pagar una hoja aprobada de un solo acto: con un retiro de CAOS que la cuadra, o con el cajón. */
+  pagarHojaDeGastos(id: string, body: PagarHojaInput): Observable<PagoHojaResultado> {
+    return this.http.post<PagoHojaResultado>(`${environment.apiUrl}/finance/hoja-gastos/${encodeURIComponent(id)}/pagar`, body);
+  }
+
+  /** `[CGA-A.65]` Reintentar la captura de lo que el lote no pudo confirmar al pagar. */
+  capturarHojaDeGastos(id: string): Observable<PagoHojaResultado> {
+    return this.http.post<PagoHojaResultado>(`${environment.apiUrl}/finance/hoja-gastos/${encodeURIComponent(id)}/capturar`, {});
   }
 
   /** `[CGA-A.60]` Los retiros de CAOS que todavía tienen dinero libre: los que pueden pagar un lote. */

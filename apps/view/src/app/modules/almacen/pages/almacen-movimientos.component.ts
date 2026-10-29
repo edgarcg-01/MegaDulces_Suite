@@ -6,7 +6,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -24,9 +24,6 @@ import {
   TransfersLedgerDetailResponse, LedgerDetailFilters, LedgerBucket,
   TransfersWincajaCheckResponse, TransfersWincajaDetailResponse, WincajaCheckRow, TransferDocStatus,
 } from '../almacen-movimientos.service';
-import { AuthService } from '../../../core/services/auth.service';
-import { PermissionsService } from '../../../core/services/permissions.service';
-import { Permission } from '../../../core/constants/permissions';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { ETIQUETA_UNIDAD_IMPORTE, TOLERANCIA_KEPLER_WINCAJA, TOLERANCIA_MAYOR_515, veredictoCuadre, type UnidadImporte, type VeredictoCuadre } from '@megadulces/contracts';
@@ -38,7 +35,9 @@ import { ETIQUETA_UNIDAD_IMPORTE, TOLERANCIA_KEPLER_WINCAJA, TOLERANCIA_MAYOR_51
  *   - Vista principal AGRUPADA POR DÍA (tabla expandible). Abrís un día → sus documentos.
  *   - Al abrir un documento se muestra su contenido, la RELACIÓN con su contraparte
  *     (folio A ⇄ folio B, si existe) y el documento contraparte al lado, para validar
- *     que se entregó y se recibió correctamente antes de auditarlo.
+ *     que se entregó y se recibió correctamente.
+ *   - `[MX.3.1]` El Diario es reportería: ya no se audita acá. Lo que el motor no da por bueno va a
+ *     /almacen/incidencias y ahí se resuelve con motivo. Las marcas «auditado» viejas se siguen leyendo.
  */
 /**
  * `[DM.21]` — los hallazgos que el Cuadre sabe nombrar. Los tres primeros salen del mismo
@@ -50,14 +49,14 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
 @Component({
   selector: 'app-almacen-movimientos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, MultiSelectModule, DatePickerModule, DialogModule, TagModule, InputTextModule, TabsModule, MetricStripComponent, ContextHelpComponent, SucursalPipe],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, MultiSelectModule, DatePickerModule, DialogModule, TagModule, InputTextModule, TabsModule, RouterLink, MetricStripComponent, ContextHelpComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in dm-page">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1 style="display:inline-flex;align-items:center;gap:.4rem">Diario de movimientos <app-context-help topic="almacen-movimientos" /></h1>
-          <p class="surf-page-sub">Movimientos de inventario por día. Abre un día para ver sus documentos y auditarlos.</p>
+          <p class="surf-page-sub">Movimientos de inventario por día. Abre un día para ver sus documentos. Las diferencias se resuelven en <a routerLink="/almacen/incidencias">Incidencias</a>.</p>
         </div>
         <div class="dm-head-right">
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlPdf()" (click)="download('pdf')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span></button>
@@ -224,17 +223,10 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                             <p-tag [value]="estadoLabel(l.transfer_status)" [severity]="estadoSev(l.transfer_status)" styleClass="dm-tag"></p-tag>
                           } @else { <span class="dm-muted">—</span> }
                         </td>
-                        <td (click)="$event.stopPropagation()">
+                        <td>
                           @if (l.audited) {
-                            <button type="button" class="dm-audit is-audited" [disabled]="!canAudit" (click)="toggleAudit(l)"
-                                    [title]="'Auditado por ' + (l.audited_by || '—') + (canAudit ? ' · clic para quitar' : '')">
-                              <i class="pi pi-verified"></i> Auditado
-                            </button>
-                          } @else {
-                            <button type="button" class="dm-audit-row-btn" [disabled]="!canAudit" (click)="toggleAudit(l)" title="Marcar como auditado">
-                              <i class="pi pi-check"></i> Auditar
-                            </button>
-                          }
+                            <span class="dm-audit is-audited"><i class="pi pi-verified"></i> Auditado<span class="dm-muted"> · {{ l.audited_by || '—' }}</span></span>
+                          } @else { <span class="dm-muted">—</span> }
                         </td>
                       </tr>
                     } @empty { <tr><td colspan="8" class="dm-empty">Sin documentos.</td></tr> }
@@ -666,14 +658,12 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
             }
           </div>
 
-          <!-- Auditar -->
+          <!-- [MX.3.1] El Diario no audita: la marca vieja se lee; la diferencia se resuelve en Incidencias -->
           <div class="dm-audit-bar">
             @if (h.audited) {
               <span class="dm-audited-note"><i class="pi pi-verified"></i> Auditado por {{ h.audited_by || '—' }} · {{ h.audited_at | date:'yyyy-MM-dd HH:mm' }}</span>
-              <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"><span class="p-button-label">Quitar auditoría</span></button>
-            } @else {
-              <p-button type="button" styleClass="dm-audit-btn" icon="pi pi-check-circle" [label]="auditLabel(h)" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"></p-button>
             }
+            <a class="dm-inc-link" routerLink="/almacen/incidencias"><i class="pi pi-exclamation-triangle"></i> Las diferencias se resuelven en Incidencias</a>
           </div>
         } @else { <div class="dm-empty">Documento sin líneas.</div> }
       }
@@ -962,13 +952,9 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
     .dm-row:hover td { background: var(--surface-hover-bg); }
     .dm-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .dm-sin-costo { display: block; font-size: var(--fs-xs); font-weight: 400; }
-    .dm-audit { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; border: 0; background: none; font-family: inherit; cursor: pointer; padding: .15rem .4rem; border-radius: var(--r-sm); }
+    .dm-audit { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; }
     .dm-audit.is-audited { color: var(--ok-fg); font-weight: 600; }
-    .dm-audit:disabled { cursor: default; }
-    .dm-audit:hover:not(:disabled) { background: var(--surface-hover-bg); }
-    .dm-audit-row-btn { display: inline-flex; align-items: center; gap: .3rem; font-size: .74rem; font-family: inherit; cursor: pointer; padding: .2rem .55rem; border-radius: var(--r-sm); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); }
-    .dm-audit-row-btn:hover:not(:disabled) { border-color: var(--ok-fg); color: var(--ok-fg); }
-    .dm-audit-row-btn:disabled { cursor: default; opacity: .55; }
+    .dm-audit .dm-muted { font-weight: 400; }
     /* Dialog */
     .dm-dlg-title { font-weight: 700; }
     .dm-rel { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .8rem; padding: .5rem .7rem; border: 1px solid var(--border-color); border-radius: var(--r-sm); margin-bottom: .5rem; background: var(--card-bg); }
@@ -1027,19 +1013,17 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
     .dm-col-foot { margin-top: .4rem; font-size: .74rem; color: var(--text-muted); }
     .dm-audit-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .6rem; margin-top: 1rem; padding-top: .7rem; border-top: 1px solid var(--border-color); }
     .dm-audited-note { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; color: var(--ok-fg); margin-right: auto; }
-    :host ::ng-deep .dm-audit-btn.p-button { background: var(--ok-fg); border-color: var(--ok-fg); }
+    .dm-inc-link { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; color: var(--action); text-decoration: none; }
+    .dm-inc-link:hover { text-decoration: underline; }
+    .dm-inc-link:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: var(--r-sm); }
   `],
 })
 export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   private readonly api = inject(AlmacenMovimientosService);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly auth = inject(AuthService);
-  private readonly perms = inject(PermissionsService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private static readonly DEST_DEFAULT = ['sucursal', 'ruta', 'cliente'];
-
-  readonly canAudit = this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_MOVEMENTS_GESTIONAR];
 
   days = signal<AggregateRow[]>([]);
   summary = signal<MovementsSummary | null>(null);
@@ -1760,11 +1744,6 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
       });
   }
 
-  auditLabel(h: NonNullable<DocumentResponse['header']>): string {
-    const cpFolio = this.cpDoc()?.header?.folio;
-    return cpFolio ? `Auditar ${h.folio} ↔ ${cpFolio}` : `Auditar documento ${h.folio}`;
-  }
-
   estadoLabel(s: string): string {
     return s === 'en_transito' ? 'En tránsito' : s === 'sin_acuse' ? 'Sin acuse' : s === 'sin_recepcion_esperada' ? 'A ruta o cliente'
       : s === 'completado' ? 'Completado' : 'Diferencia';
@@ -1776,40 +1755,6 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
   /** Tag por dirección del documento; 'info' (no mueve inventario) = neutro. */
   kindSev(k: string): 'success' | 'warn' | 'secondary' {
     return k === 'entrada' ? 'success' : k === 'salida' ? 'warn' : 'secondary';
-  }
-
-  /** DM.4 — botón Auditar por fila (optimistic). */
-  toggleAudit(l: FolioRow): void {
-    if (!this.canAudit) return;
-    const next = !l.audited;
-    l.audited = next;
-    this.dayDocs.set({ ...this.dayDocs() });
-    this.api.setAudit({ warehouse_id: l.warehouse_id, doc_code: l.doc_code, doc_serie: l.doc_serie, folio: l.folio, audited: next })
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (r) => { l.audited_by = r.audited_by ?? null; this.dayDocs.set({ ...this.dayDocs() }); },
-        error: () => { l.audited = !next; this.dayDocs.set({ ...this.dayDocs() }); },
-      });
-  }
-
-  toggleAuditDoc(h: NonNullable<DocumentResponse['header']>): void {
-    if (!this.canAudit) return;
-    const next = !h.audited;
-    h.audited = next;
-    this.doc.set({ ...this.doc()! });
-    this.api.setAudit({ warehouse_id: h.warehouse_id, doc_code: h.doc_code, doc_serie: h.doc_serie, folio: h.folio, audited: next })
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (r) => { h.audited_by = r.audited_by ?? null; this.doc.set({ ...this.doc()! }); this.syncRowAudit(h, next, r.audited_by ?? null); },
-        error: () => { h.audited = !next; this.doc.set({ ...this.doc()! }); },
-      });
-  }
-
-  /** Refleja el estado auditado en la fila del día cacheado. */
-  private syncRowAudit(h: NonNullable<DocumentResponse['header']>, audited: boolean, by: string | null): void {
-    const cache = this.dayDocs();
-    for (const key of Object.keys(cache)) {
-      const row = cache[key].find((r) => r.folio === h.folio && r.warehouse_id === h.warehouse_id && r.doc_code === h.doc_code);
-      if (row) { row.audited = audited; row.audited_by = by; this.dayDocs.set({ ...cache }); return; }
-    }
   }
 
   /** DM.11 — nombre del destino de un traspaso (almacén curado o label kdud). */

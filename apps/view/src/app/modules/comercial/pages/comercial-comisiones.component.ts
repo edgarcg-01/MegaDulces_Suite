@@ -20,7 +20,7 @@ import {
   ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
   CommissionGate, CommissionRecalcResult, CommissionContrast, CommissionContrastRow,
   CommissionHeadroom, CommissionHeadroomRow, CommissionRunPayload, CommissionUniverseRow,
-  PadronRuta, PadronAvisoPagadas, BonoRD, EscalasRD, TierRD, SimulacionEscalaRD,
+  PadronRuta, PadronAvisoPagadas, BonoRD, EscalasRD, TierRD, SimulacionEscalaRD, SupervisorNomina,
 } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -421,6 +421,74 @@ type Vista = typeof VISTAS[number];
           }
         </section>
 
+        <!-- [RD.100] D3: al supervisor se le paga 20 % de sus rutas + bonos − su nómina de banco.
+             La nómina se edita en la fila; cada cambio abre una versión desde su fecha, así una
+             quincena vieja se recalcula con la nómina que tenía entonces. -->
+        <section class="cm-padron">
+          <div class="cm-padron-tit">
+            <div>
+              <p class="cm-eyebrow">Nómina de banco de los supervisores</p>
+              <p class="cm-muted cm-micro">
+                Se le resta al supervisor cada quincena, de su {{ pctSupervisor() }} de las comisiones
+                de sus rutas más sus bonos. Sin nómina capturada, su neto no se puede calcular y
+                la quincena no se aprueba.
+              </p>
+            </div>
+          </div>
+          <div class="cm-table-wrap">
+            <table class="surf-table surf-table--plain surf-table--sticky">
+              <thead><tr>
+                <th>Supervisor</th><th>Rutas</th>
+                <th class="comm-num">Nómina por quincena</th><th>Desde</th><th></th>
+              </tr></thead>
+              <tbody>
+                @for (s of nominasSup(); track s.nombre) {
+                  <tr [class.cm-fila-baja]="!s.activo">
+                    <td class="cm-name">{{ s.nombre }}</td>
+                    <td class="cm-muted cm-mono">{{ s.rutas.join(', ') }}</td>
+                    @if (puedeGestionar()) {
+                      <td class="comm-num">
+                        <p-inputnumber class="cm-tier" mode="decimal" prefix="$" locale="es-MX"
+                                       [minFractionDigits]="2" [maxFractionDigits]="2" [min]="0"
+                                       placeholder="sin capturar"
+                                       [ariaLabel]="'Nómina de banco de ' + s.nombre"
+                                       [ngModel]="borradorNomina()[s.nombre]?.monto ?? s.nomina_banco"
+                                       (ngModelChange)="editarNomina(s, { monto: $event })" />
+                      </td>
+                      <td>
+                        <input type="date" [attr.aria-label]="'Desde cuándo aplica la nómina de ' + s.nombre"
+                               [ngModel]="borradorNomina()[s.nombre]?.desde ?? s.valid_from"
+                               (ngModelChange)="editarNomina(s, { desde: $event })" />
+                      </td>
+                      <td>
+                        <button type="button" class="cm-btn-sec cm-btn-min"
+                                [disabled]="!borradorNomina()[s.nombre] || guardandoNomina() === s.nombre"
+                                (click)="guardarNomina(s)">
+                          {{ guardandoNomina() === s.nombre ? 'Guardando…' : 'Guardar' }}
+                        </button>
+                      </td>
+                    } @else {
+                      <td class="comm-num cm-mono">
+                        @if (s.nomina_banco !== null) { {{ money(s.nomina_banco) }} }
+                        @else { <span class="cm-neg">sin capturar</span> }
+                      </td>
+                      <td>{{ s.valid_from ? dia(s.valid_from) : '—' }}</td>
+                      <td></td>
+                    }
+                  </tr>
+                } @empty {
+                  <tr><td colspan="5" class="cm-empty">
+                    Ninguna ruta del padrón tiene supervisor.
+                  </td></tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          @if (supervisoresErr(); as e) {
+            <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+          }
+        </section>
+
         <p class="cm-warn">
           <i class="pi pi-info-circle" aria-hidden="true"></i>
           <span>
@@ -669,6 +737,15 @@ type Vista = typeof VISTAS[number];
                          [ngModelOptions]="{ standalone: true }"
                          (ngModelChange)="desdeTabulador.set($event)"
                          [min]="minTabulador()" />
+                </label>
+                <!-- [RD.100] La parte del supervisor (D3) es de esta versión del tabulador. -->
+                <label class="cm-campo">
+                  <span>Parte del supervisor</span>
+                  <p-inputnumber class="cm-tier cm-tier--pct" mode="decimal" suffix=" %" locale="es-MX"
+                                 [min]="0" [max]="100" [maxFractionDigits]="2"
+                                 [ngModel]="pctSupBorrador() ?? pctSupVigente()"
+                                 [ngModelOptions]="{ standalone: true }"
+                                 (ngModelChange)="pctSupBorrador.set($event)" />
                 </label>
                 <button type="button" class="cm-btn cm-btn--baja"
                         [disabled]="!desdeTabulador() || estrenando()"
@@ -1274,14 +1351,25 @@ type Vista = typeof VISTAS[number];
           @if (puedeGestionar()) {
             <button type="button" class="cm-btn cm-btn-sec" [disabled]="contrastando()"
                     (click)="correrContraste()">
-              {{ contrastando() ? 'Corriendo el motor…' : 'Volver a contrastar' }}
+              @if (contrasteAvance(); as a) {
+                Contrastando Q{{ a.actual }} · {{ a.hechas }} de {{ a.total }}
+              } @else {
+                Volver a contrastar
+              }
             </button>
           }
         </section>
         @if (contrastando()) {
           <p class="cm-muted cm-micro">
             El motor corre quincena por quincena y cada una cuesta unos segundos — lee tres fuentes
-            de venta día por día. No deja corrida.
+            de venta día por día. No deja corrida. Sólo las quincenas con libro: las demás no tienen
+            con qué compararse.
+          </p>
+        }
+        @if (contrasteFallas().length) {
+          <p class="cm-micro" role="alert">
+            No se pudieron contrastar {{ contrasteFallas().length }}:
+            @for (f of contrasteFallas(); track f) { <span class="cm-mono">{{ f }}</span>@if (!$last) { · } }
           </p>
         }
       }
@@ -2032,6 +2120,10 @@ export class ComercialComisionesComponent {
 
   readonly contraste = signal<CommissionContrast | null>(null);
   readonly contrastando = signal(false);
+  /** `[RD.98]` Por qué quincena va el contraste: se corre de a una y se ve avanzar. */
+  readonly contrasteAvance = signal<{ actual: number; hechas: number; total: number } | null>(null);
+  /** Las quincenas que no se pudieron contrastar, con el motivo del servidor. No se tragan. */
+  readonly contrasteFallas = signal<string[]>([]);
 
   // ── `[RD.56]` Lo que faltó ────────────────────────────────────────────────────────────────
 
@@ -2142,12 +2234,42 @@ export class ComercialComisionesComponent {
     });
   }
 
+  /**
+   * `[RD.98]` Contrasta las quincenas con LIBRO, de a una. Antes era una sola petición por el año
+   * (~12 s × 20 quincenas): detrás del túnel no podía terminar, y las fallas por quincena que el
+   * servidor sí devolvía se tiraban sin mostrarse. Sólo las de libro: la de Q21 es del motor, y
+   * contrastarla contra el motor siempre cuadraría.
+   */
   correrContraste(): void {
+    if (this.contrastando()) return;
+    const cola = this.board()
+      .filter((p) => p.origen === 'libro' && p.run_id && p.date_to < this.hoy)
+      .sort((a, b) => a.period_no - b.period_no);
+    this.contrasteFallas.set([]);
+    if (!cola.length) {
+      this.err.set('No hay quincenas con libro cargado que contrastar este año.');
+      return;
+    }
     this.contrastando.set(true);
-    this.api.commissionContrastRun(this.anio()).subscribe({
-      next: () => { this.contrastando.set(false); this.cargarContraste(); },
-      error: () => { this.contrastando.set(false); this.err.set('No se pudo correr el contraste.'); },
-    });
+    const paso = (i: number): void => {
+      if (i >= cola.length) {
+        this.contrastando.set(false);
+        this.contrasteAvance.set(null);
+        this.cargarContraste();
+        return;
+      }
+      const p = cola[i];
+      this.contrasteAvance.set({ actual: p.period_no, hechas: i, total: cola.length });
+      this.api.commissionContrastRunPeriod(p.period_id).subscribe({
+        next: () => paso(i + 1),
+        error: (e) => {
+          this.contrasteFallas.update((f) => [...f,
+            `Q${p.period_no}: ${e?.error?.message ?? 'no respondió el servidor'}`]);
+          paso(i + 1);
+        },
+      });
+    };
+    paso(0);
   }
 
   /**
@@ -2508,6 +2630,60 @@ export class ComercialComisionesComponent {
       error: (e) => this.padronErr.set(
         e?.error?.message ?? 'No se pudo leer el padrón. No es que esté vacío: no se pudo leer.'),
     });
+    this.cargarSupervisores();
+  }
+
+  // ── `[RD.100]` La nómina de banco de los supervisores ────────────────────────────────────
+
+  readonly nominasSup = signal<SupervisorNomina[]>([]);
+  readonly supervisoresErr = signal<string | null>(null);
+  /** Lo tecleado y sin guardar, por supervisor. Sin entrada = la fila muestra lo guardado. */
+  readonly borradorNomina = signal<Record<string, { monto?: number | null; desde?: string | null }>>({});
+  readonly guardandoNomina = signal<string | null>(null);
+
+  /** El % del supervisor sale del tabulador vigente, no de un literal en la pantalla. */
+  readonly pctSupervisor = computed(() => {
+    const p = this.pctSupVigente();
+    return p !== null ? `${p} %` : 'porcentaje';
+  });
+
+  cargarSupervisores(): void {
+    this.api.commissionSupervisores().subscribe({
+      next: (s) => { this.nominasSup.set(s ?? []); this.supervisoresErr.set(null); },
+      error: (e) => this.supervisoresErr.set(
+        e?.error?.message ?? 'No se pudo leer la nómina de los supervisores. No es que no tengan: no se pudo leer.'),
+    });
+  }
+
+  editarNomina(s: SupervisorNomina, cambio: { monto?: number | null; desde?: string | null }): void {
+    this.borradorNomina.update((b) => ({ ...b, [s.nombre]: { ...b[s.nombre], ...cambio } }));
+  }
+
+  guardarNomina(s: SupervisorNomina): void {
+    const b = this.borradorNomina()[s.nombre];
+    if (!b || this.guardandoNomina()) return;
+    const monto = b.monto !== undefined ? b.monto : s.nomina_banco;
+    const desde = b.desde !== undefined ? b.desde : s.valid_from;
+    if (monto === null || monto === undefined || !desde) {
+      this.supervisoresErr.set(`Para ${s.nombre} faltan el monto o la fecha desde la que aplica.`);
+      return;
+    }
+    this.guardandoNomina.set(s.nombre);
+    this.supervisoresErr.set(null);
+    this.api.commissionFijarNominaSupervisor({ nombre: s.nombre, nomina_banco: Number(monto), valid_from: desde })
+      .subscribe({
+        next: (lista) => {
+          this.nominasSup.set(lista ?? []);
+          this.borradorNomina.update((m) => { const c = { ...m }; delete c[s.nombre]; return c; });
+          this.guardandoNomina.set(null);
+          this.toast.add({ severity: 'success', summary: 'Nómina guardada',
+            detail: `${s.nombre}: ${this.money(monto)} desde ${this.dia(desde)}. Recalcula las quincenas afectadas para que la tomen.` });
+        },
+        error: (e) => {
+          this.guardandoNomina.set(null);
+          this.supervisoresErr.set(e?.error?.message ?? 'No se pudo guardar la nómina.');
+        },
+      });
   }
 
   /** `YYYY-MM-DD` → `DD/MM`, cortando la cadena. Ver la nota de fechas de la cabecera. */
@@ -2727,6 +2903,12 @@ export class ComercialComisionesComponent {
   readonly estrenando = signal(false);
   readonly tabErr = signal<string | null>(null);
   readonly desdeTabulador = signal<string | null>(null);
+  /** `[RD.100]` La parte del supervisor para la versión nueva; `null` = la de la vigente. */
+  readonly pctSupBorrador = signal<number | null>(null);
+  readonly pctSupVigente = computed<number | null>(() => {
+    const v = this.escalas()?.escalas.find((e) => e.vigente);
+    return v ? Number(v.share_supervisor_pct) : null;
+  });
 
   /** La escala nueva no puede empezar antes de lo ya pagado. El servidor lo exige igual. */
   readonly minTabulador = computed(() => {
@@ -2851,10 +3033,14 @@ export class ComercialComisionesComponent {
     // confirmación de un acto que mueve nómina tiene que nombrar lo que mueve.
     const caen = s.caen
       ? ` ${s.caen} ruta(s) se quedan SIN ESCALÓN, o sea cobran $0.` : '';
+    // `[RD.100]` Si cambia la parte del supervisor, se nombra: mueve el depósito de los dos.
+    const ps = this.pctSupBorrador();
+    const cambiaSup = ps !== null && ps !== this.pctSupVigente()
+      ? ` La parte del supervisor pasa de ${this.pctSupVigente()} % a ${ps} %.` : '';
     this.confirm.confirm({
       header: 'Estrenar el tabulador',
       message: `Rige desde el ${this.dia(desde)} y la versión actual se cierra ese día. `
-        + `Sobre Q${s.base.period_no} habría significado ${this.money(s.delta)}.${caen} `
+        + `Sobre Q${s.base.period_no} habría significado ${this.money(s.delta)}.${caen}${cambiaSup} `
         + 'Lo ya pagado no se recalcula. Los bonos se heredan a la versión nueva.',
       acceptLabel: 'Estrenar', rejectLabel: 'Cancelar',
       accept: () => this.estrenar(desde),
@@ -2864,10 +3050,15 @@ export class ComercialComisionesComponent {
   private estrenar(desde: string): void {
     this.estrenando.set(true);
     this.tabErr.set(null);
-    this.api.commissionScaleEstrenar({ valid_from: desde, tiers: this.borrador() }).subscribe({
+    const ps = this.pctSupBorrador();
+    this.api.commissionScaleEstrenar({
+      valid_from: desde, tiers: this.borrador(),
+      ...(ps !== null ? { share_supervisor_pct: ps } : {}),
+    }).subscribe({
       next: (r) => {
         this.estrenando.set(false);
         this.simulacion.set(null);
+        this.pctSupBorrador.set(null);
         // ⚠️ `bonos_heredados` se DICE, y un 0 no se dibuja como éxito: significa que la escala
         // nueva no paga ningún bono. Es `[RD.85.0]`, y quien la estrena tiene que verlo ahora,
         // no cuando llegue la quincena.

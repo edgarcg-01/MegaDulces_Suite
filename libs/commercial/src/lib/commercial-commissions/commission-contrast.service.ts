@@ -67,10 +67,21 @@ export class CommissionContrastService {
     // comparable y no lo es.
     const { rows: [per] } = await this.tk.run(async (trx) => trx.raw(
       `SELECT p.anio, p.period_no, to_char(p.date_to, 'YYYY-MM-DD') date_to,
-              (p.date_to < current_date) cerrada
+              (p.date_to < current_date) cerrada,
+              EXISTS (SELECT 1 FROM commercial.commission_runs r
+                       WHERE r.period_id = p.id AND r.deleted_at IS NULL
+                         AND r.status <> 'anulado' AND r.origen = 'libro') con_libro
          FROM commercial.commission_periods p
         WHERE p.id = ? AND p.deleted_at IS NULL`, [periodId]));
     if (!per) throw new NotFoundException(`Periodo ${periodId} no existe`);
+    // ⛔ `[RD.98]` Sin LIBRO no hay contraste. Si la corrida viva es del motor (Q21, origen
+    // `manual`), contrastarla es medir el motor contra sí mismo: saldría «cuadra» al peso.
+    if (!per.con_libro) {
+      throw new ConflictException(
+        `La quincena ${per.anio}-${per.period_no} no tiene libro cargado: su corrida es del motor, `
+        + 'y contrastarla contra el motor siempre cuadraria. El contraste necesita lo que se PAGO.',
+      );
+    }
     if (!per.cerrada) {
       throw new ConflictException(
         `La quincena ${per.anio}-${per.period_no} cierra el ${per.date_to} y todavia corre: `
@@ -129,6 +140,10 @@ export class CommissionContrastService {
   /**
    * Contrasta todas las quincenas CERRADAS del año que tengan espejo cargado.
    *
+   * ⛔ `[RD.98]` **La pantalla NO llama a esto**: veinte quincenas en una sola petición no
+   * terminan detrás del túnel de Cloudflare (corta a los 100 s, su límite documentado). La
+   * pantalla pide de a UNA (`{ period_id }`); esto queda para scripts.
+   *
    * ⚠️ Son ~12 s cada una: veinte quincenas son cuatro minutos. Las fallas **no se tragan** ni
    * abortan el resto -- se devuelven junto con lo que sí se midió, porque lanzar borraría el
    * resultado parcial y obligaría a adivinar cuáles quedaron hechas.
@@ -140,6 +155,7 @@ export class CommissionContrastService {
          FROM commercial.commission_periods p
          JOIN commercial.commission_runs r
            ON r.period_id = p.id AND r.deleted_at IS NULL AND r.status <> 'anulado'
+          AND r.origen = 'libro'
         WHERE p.tenant_id = ? AND p.anio = ? AND p.deleted_at IS NULL
           AND p.date_to < current_date
         ORDER BY p.period_no`, [tenantId, anio]));

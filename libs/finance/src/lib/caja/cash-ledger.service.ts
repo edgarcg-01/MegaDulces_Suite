@@ -46,6 +46,7 @@ import {
 } from './caja-custodia.service';
 import { origenDelEgreso, TEXTO_ORIGEN } from './caja-custodia.engine';
 import { conciliacion } from './caja-conciliacion.engine';
+import { requisitosDeHoja, textoPagoDeHoja, verificarPagoDeHoja } from './hoja-gastos.gate';
 import { relacionExiste } from './caja-db.util';
 import {
   rankearCaos, ymd, type GastoCtx as CaosGastoCtx, type CaosCandidato as CaosCand, type PatronAprendido,
@@ -1208,6 +1209,14 @@ export class CashLedgerService {
       if (candado.bloqueado) {
         throw new HttpException({ statusCode: HttpStatus.LOCKED, message: candado.texto, candado }, HttpStatus.LOCKED);
       }
+
+      // ⛔ `[CGA-A.65]` Un pago que va en la hoja de gastos de su zona entra SÓLO con su hoja pagada
+      // (Edgar: «si no está aprobada no se puede pagar»), y el retiro de una hoja sólo explica sus
+      // pagos. Aquí y no en un botón: los 144 egresos de Morelia desde el 14/10 entraron a mano.
+      await verificarPagoDeHoja(trx, tenantId, {
+        origen_ref: input.origen_ref, tipo: input.tipo, origen_efectivo: input.origen_efectivo ?? null,
+        retiros: (input.caos_links ?? []).map((k) => ({ device: k.device, external_id: Number(k.external_id) })),
+      });
 
       // ⭐ El monto del documento MANDA sobre el del formulario…
       const anclado = ORIGEN_ANCLADO.includes(String(input.origen_tipo)) && !!input.origen_ref;
@@ -2627,13 +2636,24 @@ export class CashLedgerService {
         motivo: v.motivo, motivo_texto: TEXTO_NO_CONFIRMABLE[v.motivo] };
     });
 
+    // ⛔ `[CGA-A.65]` Igual de ortogonal: un pago que va en la hoja de gastos de su zona no se confirma
+    // suelto mientras su hoja no esté pagada. Se dice en la fila (con la hoja y su estado) para que la
+    // cola no ofrezca algo que el alta va a rechazar.
+    const deHoja = await requisitosDeHoja(trx, tenantId, rows.filter((r) => r.tipo !== 'ingreso').map((r) => r.origen_ref));
+
     // ⛔ El freno de FECHA FUTURA va al final y ORTOGONAL a la cuenta: no importa por qué camino se
     // resolvió el par contable, un documento fechado después de hoy no entra en lote. Se conserva
     // todo lo demás —incluida la cuenta ya resuelta— para que la captura a mano siga llegando
     // rellenada y a la persona sólo le quede corregir la fecha. Ver `esFechaFutura`.
-    return conCuenta.map((f: any) => (esFechaFutura(f.fecha_valor, hoy)
-      ? { ...f, confirmable: false, motivo: 'fecha_futura', motivo_texto: TEXTO_NO_CONFIRMABLE.fecha_futura }
-      : f));
+    return conCuenta.map((f) => {
+      const req = deHoja.get(String(f.origen_ref));
+      if (req && req.hoja?.estado !== 'pagada') {
+        return { ...f, confirmable: false, motivo: 'en_hoja', motivo_texto: textoPagoDeHoja(req) };
+      }
+      return esFechaFutura(f.fecha_valor, hoy)
+        ? { ...f, confirmable: false, motivo: 'fecha_futura', motivo_texto: TEXTO_NO_CONFIRMABLE.fecha_futura }
+        : f;
+    });
   }
 
   /**

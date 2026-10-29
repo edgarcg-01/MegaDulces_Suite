@@ -120,39 +120,41 @@ describe('[RQ.15] la pantalla, que era lo que de verdad faltaba', () => {
   const PANT = readFileSync(join(RAIZ, 'apps', 'view', 'src', 'app', 'modules', 'compras', 'pages', 'compras-requisiciones.component.ts'), 'utf8');
   const CLI = readFileSync(join(RAIZ, 'apps', 'view', 'src', 'app', 'modules', 'compras', 'compras.service.ts'), 'utf8');
 
-  it('⭐⭐ existe un lugar donde teclear el folio', () => {
-    // El endpoint y el método del cliente existían desde RA.14 y NINGÚN componente los llamaba.
-    // Hacer el folio obligatorio en el backend no sirve de nada sin esto.
-    expect(PANT).toContain('abrirOc');
-    expect(PANT).toContain('guardarOc');
-    expect(PANT).toContain('markOrdered');
+  // `[PQ.25]` (Edgar, 2026-10-29: «ese botón ya no debería existir»). La OC ya no se teclea: la
+  // escribe la Suite al aprobar (PQ.22) o se asocia sola por la liga de Kepler (c36/c37/c39). Las
+  // pruebas de RQ.15 que exigían el diálogo se invierten: ahora exigen que NO exista.
+  it('⛔ la bandeja ya no ofrece capturar la OC a mano', () => {
+    expect(PANT).not.toContain('Capturar OC');
+    expect(PANT).not.toContain('abrirOc');
+    expect(PANT).not.toContain('markOrdered');
   });
 
-  it('⛔ y manda las DOS coordenadas', () => {
-    expect(PANT).toMatch(/markOrdered\(r\.id, \{ oc_sucursal: suc, oc_folio: fol \}\)/);
-  });
-
-  it('⭐ el botón sólo aparece en las APROBADAS', () => {
-    // En una pendiente no hay nada que ordenar todavía; en una ya ordenada el folio ya está.
-    expect(PANT).toMatch(/@if \(r\.estado === 'approved'\) \{[\s\S]{0,400}abrirOc\(r\)/);
+  it('⭐ la OC asociada se ve en la fila, con la sucursal por NOMBRE', () => {
+    expect(PANT).toContain('OC {{ r.oc_folio }}');
+    expect(PANT).not.toContain('{{ r.oc_sucursal }}');
   });
 
   it('⛔ una `ordered` SIN folio se DECLARA, no se deja en blanco', () => {
-    // Son las 53 que se ordenaron antes de que la columna existiera. Un blanco se lee como
-    // "todavía no lo capturaron"; «sin OC» dice que ya no se va a poder.
-    expect(PANT).toMatch(/@else if \(r\.estado === 'ordered'\) \{[\s\S]{0,300}sin OC/);
+    // Son las que se ordenaron antes de que la columna existiera. Un blanco se lee como
+    // "todavía no lo capturaron"; «sin folio de OC» dice que ya no se va a poder.
+    expect(PANT).toMatch(/@else if \(r\.estado === 'ordered'\) \{[\s\S]{0,300}sin folio de OC/);
   });
 
-  it('⛔ el error NO cierra el diálogo: lo tecleado se puede corregir', () => {
-    // El 409 del índice único es el caso real (ese folio ya está en otra requisición). Cerrar
-    // borraría el dato recién tecleado y la persona tendría que volver a escribirlo.
-    // ⚠️ Se ancla a la DEFINICIÓN, no a la primera aparición: `guardarOc(` sale antes en el
-    // template (`(keyup.enter)="guardarOc()"`) y el extractor traía ese pedazo de HTML.
-    const i = PANT.indexOf('guardarOc(): void {');
+  it('⭐⭐ el backend asocia la OC, ordena el traspaso y recibe según Kepler — sin captura', () => {
+    expect(SVC).toContain('private async asociarOcDeKepler(');
+    expect(SVC).toContain(`btrim(k.c4::text) = '35' AND k.c36 = 'A' AND btrim(k.c37::text) = '30'`);
+    expect(SVC).toMatch(/source_type = 'branch'\s+AND kepler_folio IS NOT NULL AND oc_folio IS NULL/);
+    expect(SVC).toMatch(/FROM analytics\.erp_purchase_orders o[\s\S]{0,300}AND o\.cerrada/);
+  });
+
+  it('⛔ el reintento automático NO reenvía lo que ya se hizo a mano en Kepler', () => {
+    const i = SVC.indexOf('private async reintentarKepler(');
     expect(i).toBeGreaterThan(0);
-    const b = PANT.slice(i, i + 2200);
-    expect(b).toContain('error:');
-    expect(b).not.toMatch(/error:[\s\S]{0,400}ocVisible\.set\(false\)/);
+    const b = SVC.slice(i, i + 3500);
+    expect(b).toContain('ya_en_kepler');
+    expect(b).toContain('filter((f) => !f.ya_en_kepler)');
+    expect(b).toContain("r.approved_at >= '2026-10-27'");
+    expect(b).toContain("r.source_type = 'supplier'");
   });
 
   it('⭐ el backend DEVUELVE el folio, o la pantalla nunca podría mostrarlo', () => {

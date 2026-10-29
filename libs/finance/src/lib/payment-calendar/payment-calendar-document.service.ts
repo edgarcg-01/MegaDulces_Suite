@@ -15,6 +15,35 @@ function esc(s: any): string {
 function money(n: any): string {
   return '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+/**
+ * `[PGP.33]` **Quién ejecuta este pago.** No es siempre Caja General, y este documento lo daba por
+ * hecho: se titulaba «Instrucción de Ejecución — Caja General» y pedía su firma para TODO el lote.
+ * Medido contra prod el 2026-10-29 sobre los 4,898 pagos a proveedor del ERP:
+ *
+ *   - **$404,105,108 — el 87.3 % del dinero** — sale de una cuenta de **banco**, y eso lo dispersa
+ *     Tesorería: el papel le pedía la firma a un área que no toca ese dinero;
+ *   - **$58,799,036 (12.7 %)** sale de **CAJA GENERAL**, que son el **56.7 % de los pagos** por
+ *     conteo: muchos y chicos.
+ *
+ * Lo que decide es la **clase de la cuenta de origen**, no el método. Un pago sin preparar no tiene
+ * ejecutor y **se declara**; no se le asigna uno por omisión (ADR-056).
+ */
+/** Lo unico que `ejecutorDe` necesita de una asignacion: con que cuenta y metodo se paga. */
+type ConEjecutor = { payment_method?: string | null; bank_account_kind?: string | null };
+
+function ejecutorDe(a: ConEjecutor): string {
+  if (!a.payment_method) return 'sin preparar';
+  if (a.bank_account_kind === 'cash' || a.payment_method === 'efectivo') return 'Caja General';
+  if (a.bank_account_kind === 'bank' || a.bank_account_kind === 'factoraje') return 'Tesorería';
+  return 'sin preparar';
+}
+
+/** Los ejecutores que el lote REALMENTE involucra, en orden estable. Sin inventar al que no está. */
+function ejecutoresDelLote(allocations: ConEjecutor[]): string[] {
+  const vistos = new Set(allocations.map(ejecutorDe));
+  return ['Tesorería', 'Caja General'].filter((e) => vistos.has(e));
+}
+
 function fechaLarga(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number);
   const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -25,8 +54,9 @@ function fechaLarga(iso: string): string {
  * Fase TP.8 (ADR-064) — Documentos imprimibles del Calendario de Pagos:
  *   - `renderPreliminar`: el documento que va a AUTORIZACIÓN (leyendas de control interno,
  *     nunca ejecuta nada — sólo informa/formaliza la decisión pendiente).
- *   - `renderCajaGeneral`: la INSTRUCCIÓN DE EJECUCIÓN, sólo disponible tras autorizar (el lote
- *     ya tiene folio) — le dice a Caja General qué ejecutar y con qué método/cuenta.
+ *   - `renderEjecucion`: la INSTRUCCIÓN DE EJECUCIÓN, sólo disponible tras autorizar (el lote
+ *     ya tiene folio) — dice qué ejecutar, con qué método/cuenta y **quién lo ejecuta**: Tesorería
+ *     lo que sale de banco o factoraje, Caja General lo que sale de la caja (`[PGP.33]`).
  * Navegador Chromium propio (mismo patrón exacto que `AnexoVentaService` — Fase AX — pero NO se
  * importa desde acá: `libs/finance` mantiene la frontera limpia con `commercial`/`trade`, misma
  * decisión ya tomada para AX mismo al descartar `libs/trade`'s `PdfService`). Singleton + idle
@@ -98,14 +128,15 @@ export class PaymentCalendarDocumentService {
           <td>${CLASSIFICATION_LABEL[a.classification] || esc(a.classification)}</td>
           <td>${a.payment_method ? METHOD_LABEL[a.payment_method] || esc(a.payment_method) : '<em>sin preparar</em>'}</td>
           <td>${esc(a.bank_account_label || (a.payment_method === 'efectivo' ? 'Caja' : '—'))}</td>
+          ${opts.conFolio ? `<td>${esc(ejecutorDe(a))}</td>` : ''}
           <td>${esc(cuenta)}</td>
           <td class="r">${money(a.amount_assigned)}</td>
         </tr>`;
       }).join('');
     return `<table>
-      <thead><tr><th>${opts.conFolio ? 'Folio' : 'Orden'}</th><th>Beneficiario</th><th>Clasificación</th><th>Método</th><th>Cuenta origen</th><th>Cuenta destino / referencia</th><th class="r">Importe</th></tr></thead>
+      <thead><tr><th>${opts.conFolio ? 'Folio' : 'Orden'}</th><th>Beneficiario</th><th>Clasificación</th><th>Método</th><th>Cuenta origen</th>${opts.conFolio ? '<th>Ejecuta</th>' : ''}<th>Cuenta destino / referencia</th><th class="r">Importe</th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr class="total-row"><td colspan="6">Total</td><td class="r">${money(this.filaTotal(allocations))}</td></tr></tfoot>
+      <tfoot><tr class="total-row"><td colspan="${opts.conFolio ? 7 : 6}">Total</td><td class="r">${money(this.filaTotal(allocations))}</td></tr></tfoot>
     </table>`;
   }
 
@@ -147,8 +178,9 @@ export class PaymentCalendarDocumentService {
         <b>Control interno — tramo de autorización</b>
         Este documento es un PRELIMINAR y NO autoriza pago alguno por sí mismo. Requiere la firma de
         quien tiene facultad de autorización sobre el Calendario de Pagos antes de proceder.<br/>
-        <b>Instrucción a Tesorería:</b> una vez autorizado (folio asignado), Caja General debe
-        EJECUTAR los pagos anteriores exactamente por el método y la cuenta/caja indicados en cada
+        <b>Instrucción de ejecución:</b> una vez autorizado (folio asignado), cada pago lo EJECUTA
+        quien corresponde a su cuenta de origen —Tesorería lo que sale de banco o factoraje, Caja
+        General lo que sale de la caja— exactamente por el método y la cuenta indicados en cada
         renglón, respetando el orden de pago si la capacidad disponible no alcanza para todos.
       </div>
       <div class="firmas">
@@ -160,23 +192,35 @@ export class PaymentCalendarDocumentService {
     return this.renderPdf(html, '<span></span>');
   }
 
-  /** Instrucción de ejecución para Caja General — SOLO tras autorizar (el lote ya tiene folio). */
-  async renderCajaGeneral(date: string): Promise<Buffer> {
+  /**
+   * `[PGP.33]` Instrucción de ejecución — SOLO tras autorizar (el lote ya tiene folio).
+   *
+   * ⛔ Antes se llamaba `renderCajaGeneral` y el papel entero se titulaba «— Caja General», con
+   * una sola línea de firma «Ejecutó (Caja General)». Medido: el **87.3 % del dinero** sale de
+   * banco y lo dispersa **Tesorería**, que no aparecía en el documento. Ahora el título es neutro,
+   * cada renglón dice quién lo ejecuta y **las firmas son las de los ejecutores que el lote
+   * realmente involucra** — una, dos, o ninguna si no hay nada preparado.
+   */
+  async renderEjecucion(date: string): Promise<Buffer> {
     const [lot, allocations] = await Promise.all([this.calendar.getLot(date), this.calendar.listDayAllocations(date)]);
     if (!lot?.folio) throw new BadRequestException('Este día aún no está autorizado — no se puede imprimir la instrucción de ejecución.');
     const total = this.filaTotal(allocations);
+    // `[PGP.33]` Sólo los ejecutores que este lote realmente involucra. Si está todo sin preparar
+    // la lista queda vacía y el texto lo dice, en vez de nombrar a Caja General por costumbre.
+    const ejecutores = ejecutoresDelLote(allocations);
     const html = `<!doctype html><html><head><meta charset="utf-8">${this.baseCss()}</head><body>
-      <h1>Instrucción de Ejecución — Caja General</h1>
+      <h1>Instrucción de Ejecución</h1>
       <p class="sub">Fecha de pago: <b>${fechaLarga(date)}</b> · Folio del lote: <b>${esc(lot.folio)}</b> · Autorizado por <b>${esc(lot.released_by || '—')}</b> el <b>${lot.released_at ? new Date(lot.released_at).toISOString().slice(0, 16).replace('T', ' ') : '—'}</b> · Total: <b>${money(total)}</b></p>
       ${this.tablaPagos(allocations, { conFolio: true })}
       <div class="leyenda">
-        <b>Instrucción a Caja General</b>
-        Ejecutar los pagos anteriores exactamente por el método y la cuenta/caja indicados en cada
-        renglón. Registrar el comprobante de cada pago al concluir. Cualquier diferencia (cuenta
-        errónea, falla del sistema del banco, pago devuelto) se reporta para reprogramar — NO se
-        improvisa un cambio de cuenta o de monto en Caja.
+        <b>Instrucción a ${esc(ejecutores.join(' y ')) || 'quien ejecute'}</b>
+        Cada renglón indica en la columna <b>Ejecuta</b> a quién le toca: lo que sale de una cuenta
+        de banco o de factoraje lo dispersa Tesorería; lo que sale de la caja, Caja General.
+        Ejecutar exactamente por el método y la cuenta indicados, y registrar el comprobante de cada
+        pago al concluir. Cualquier diferencia (cuenta errónea, falla del sistema del banco, pago
+        devuelto) se reporta para reprogramar — NO se improvisa un cambio de cuenta o de monto.
       </div>
-      <div class="firmas"><div class="firma">Ejecutó (Caja General)</div><div class="firma">Recibió conformidad</div></div>
+      <div class="firmas">${ejecutores.map((e) => `<div class="firma">Ejecutó (${esc(e)})</div>`).join('')}<div class="firma">Recibió conformidad</div></div>
       <p class="foot-note">Generado el ${new Date().toISOString().slice(0, 16).replace('T', ' ')} · Calendario de Pagos (Fase TP).</p>
     </body></html>`;
     return this.renderPdf(html, '<span></span>');
