@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 434 KB, 3585 líneas, 107 secciones.
+> **Índice navegable** — 436 KB, 3622 líneas, 107 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -113,7 +113,7 @@
 | 3517 | 3570 | 4 | ADR-105 — Un pedido del vendedor puede surtirse en varias sucursales de su zona: «pedido agrupado» |
 | 3571 | 3599 | 2 | ADR-106 — La preventa llega al surtidor pedido por pedido; se apaga el surtido de ruta junto |
 | 3600 | 3632 | 2 | ADR-107 — La existencia que ve el vendedor sale de la vista canónica y declara sus cuatro casos; lo que no hay |
-| 3633 | 3704 | 4 | ADR-108 — Cuando Kepler y el CFDI se contradicen sobre la identidad de un acreedor, gana el CFDI |
+| 3633 | 3741 | 6 | ADR-108 — Cuando Kepler y el CFDI se contradicen sobre la identidad de un acreedor, gana el CFDI |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -3701,3 +3701,40 @@ rompiera nada.
 - `rfc_discrepa` cambia de significado: ahora publica **el que perdió** (el de Kepler).
 - Queda pendiente **mostrar la discrepancia en pantalla**; hoy se puede consultar pero ninguna
   interfaz la dice todavía.
+
+### Corrección del 2026-10-28, 20:30 — lo que costó aplicarla
+
+⛔ **La migración se autorrevirtió en producción al primer intento, por dos defectos míos.** El
+rollback fue limpio (`knex_migrations` no registró nada) pero dejó el despliegue frenado con 19
+commits de 9 sesiones detrás. Queda escrito acá porque los dos son reproducibles por cualquiera.
+
+1. **La compuerta de costo era imposible de cumplir por construcción.** Copié el `TOPE_MS = 1000`
+   de `[PGP.27]`, donde guarda `analytics.v_supplier_rfc` (~200 ms), y se lo apliqué a una sonda
+   que cuenta `analytics.v_payable_evidence`, cuyo **piso documentado es 2.0 s**. Habría disparado
+   con cero cambios. Medido en sólo lectura contra prod: la vista viva cuesta **2,596 ms** y con la
+   prioridad invertida **2,510 ms** — el cambio no encarece nada. El tope ahora es **relativo a lo
+   que la propia migración mide antes de reemplazar** (1.5× + 500 ms), con un techo absoluto de 8 s.
+   ⭐ La regla que sale de acá: **un umbral copiado de otra migración mide la vista de aquélla, no
+   la tuya.**
+
+2. ⛔⛔ **`rfc_discrepa` mezclaba dos cosas distintas.** Le faltaba exigir que el valor de Kepler
+   **tenga forma de RFC**, así que entraban también los mal escritos:
+
+   | | acreedores |
+   |---|---:|
+   | contradicción real (Kepler bien formado y **distinto**) — J&F, MONDELEZ | **18** |
+   | error de dedo (Kepler mal escrito, lo resolvió el nombre) — `PTE120913`, `DGR0531773A` | 14 |
+   | lo que la migración imprimía como «disputa» | 32 |
+
+   Los 14 ya los declara `rfc_kepler_mal_formado` y su valor vive en `rfc_crudo`. Una pantalla que
+   leyera esa columna habría dicho «Kepler dice `PTE120913`» como si fuera una contradicción de
+   identidad en vez de una letra mal tecleada. Hay un control con su prueba negativa: contra la
+   vista sin corregir devuelve 14.
+
+⭐ **Cómo se me escapó, que es lo que importa:** verifiqué **el SQL** dentro de una transacción que
+reverti, **no la migración**. El cuerpo estaba bien; el `up()` que lo envuelve, no. **Ejercer el
+cuerpo de una vista no es ejercer su `up()`** — y es la segunda vez en esta misma fase que el
+defecto vive en el envoltorio y no en la consulta (la primera fue ejecutar un `SELECT` pelado
+creyendo que reemplazaba la vista). Lo cazó la sesión que corre el carril de entrega, no yo, y el
+segundo defecto lo destapó que pegara **la salida íntegra**: el renglón decía 32 donde este ADR
+dice 18.
