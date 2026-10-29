@@ -156,8 +156,12 @@ export class EvidenciaAdicionalDialogComponent {
    * pantalla deja pasar algo, el servidor lo rechaza con el mismo texto.
    */
   readonly falta = computed<string | null>(() => {
-    const archivos = this.elegidos().map((e) => ({ role: ROL_EVIDENCIA_ADICIONAL, url: e.nombre }));
-    return faltaParaEvidenciaAdicional({ motivo: this.motivo(), archivos });
+    const elegidos = this.elegidos();
+    const archivos = elegidos.map((e) => ({ role: ROL_EVIDENCIA_ADICIONAL, url: e.nombre }));
+    // Poka-yoke: mientras el navegador lee un archivo, el botón espera y dice por qué, en vez de
+    // dejar apretar y contestar con un error. En una máquina lenta la lectura tarda.
+    return faltaParaEvidenciaAdicional({ motivo: this.motivo(), archivos })
+      ?? (elegidos.some((e) => !e.subido && !e.dataUri) ? 'Todavía se está leyendo un archivo.' : null);
   });
 
   constructor() {
@@ -206,7 +210,6 @@ export class EvidenciaAdicionalDialogComponent {
   enviar(): void {
     const v = this.vale();
     if (!v || this.saving() || this.falta()) return;
-    if (this.elegidos().some((e) => !e.subido && !e.dataUri)) { this.error.set('Todavía se está leyendo un archivo.'); return; }
     this.error.set('');
     this.saving.set(true);   // síncrono, antes de esperar nada: el doble clic no sube dos veces
 
@@ -219,7 +222,7 @@ export class EvidenciaAdicionalDialogComponent {
       catchError(() => of({ clave: e.clave, f: null as ProofFile | null })),
     ))).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
       const ok = new Map(res.filter((x) => x.f).map((x) => [x.clave, x.f as ProofFile]));
-      this.elegidos.update((l) => l.map((e) => (ok.has(e.clave) ? { ...e, subido: ok.get(e.clave)!, dataUri: '' } : e)));
+      this.elegidos.update((l) => l.map((e) => (ok.has(e.clave) ? { ...e, subido: ok.get(e.clave) ?? null, dataUri: '' } : e)));
       const fallaron = res.length - ok.size;
       if (fallaron) {
         this.saving.set(false);

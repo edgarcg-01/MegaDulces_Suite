@@ -20,11 +20,17 @@ function archivo(nombre: string, mb = 1): File {
   return f;
 }
 
-/** `FileReader` es asíncrono: se espera a que lea lo elegido antes de seguir. */
-const leer = () => new Promise((r) => setTimeout(r, 20));
-
 describe('[GX.87] EvidenciaAdicionalDialogComponent', () => {
   let c: EvidenciaAdicionalDialogComponent;
+
+  /**
+   * `FileReader` es asíncrono: se espera a que TERMINE de leer lo elegido, no un tiempo fijo.
+   * ⛔ Con `setTimeout(20)` pasaba en una laptop y en el runner del CI (más lento) la lectura no
+   * había terminado: la prueba medía el reloj de la máquina, no el diálogo.
+   */
+  const leer = () => vi.waitFor(() => {
+    if (c.elegidos().some((e) => !e.subido && !e.dataUri)) throw new Error('todavía leyendo');
+  }, { timeout: 5000, interval: 5 });
   let svc: { uploadFile: ReturnType<typeof vi.fn>; agregarEvidenciaAdicional: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
@@ -50,6 +56,17 @@ describe('[GX.87] EvidenciaAdicionalDialogComponent', () => {
     await leer();
     expect(c.falta()).toMatch(/por qué/);
     escribir(MOTIVO);
+    expect(c.falta()).toBeNull();
+  });
+
+  it('⛔ mientras un archivo se lee, no se puede enviar y lo dice — no sube nada', async () => {
+    escribir(MOTIVO);
+    c.onFilePicked({ currentFiles: [archivo('f.pdf')] });
+    // Síncrono, recién elegido: el navegador todavía no terminó de leerlo.
+    expect(c.falta()).toBe('Todavía se está leyendo un archivo.');
+    c.enviar();
+    expect(svc.uploadFile).not.toHaveBeenCalled();
+    await leer();
     expect(c.falta()).toBeNull();
   });
 
