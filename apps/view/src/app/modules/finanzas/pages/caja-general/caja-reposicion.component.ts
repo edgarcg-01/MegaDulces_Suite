@@ -87,12 +87,12 @@ interface OpcionOrigen { label: string; value: string }
         <app-metric-strip class="rp-kpis" [items]="kpis()"></app-metric-strip>
       }
 
-      <app-load-state [loading]="cargando() && !datos()" [error]="error()" [isEmpty]="!visibles().length" [skeletonRows]="3"
+      <app-load-state class="dt-scope" [loading]="cargando() && !datos()" [error]="error()" [isEmpty]="!visibles().length" [skeletonRows]="3"
                       errorTitle="No se pudo leer la reposición" emptyIcon="pi-check-circle"
                       [emptyTitle]="textoVacio()"
                       [emptyHint]="pistaVacio()"
                       (retry)="cargar()">
-        <p-table [value]="visibles()" size="small" dataKey="clave" [expandedRowKeys]="abiertas()" class="rp-tbl"
+        <p-table [value]="visibles()" size="small" dataKey="clave" [expandedRowKeys]="abiertas()" class="rp-tbl dt-stack"
                  selectionMode="single" [metaKeySelection]="false" [selection]="filaActiva()"
                  (selectionChange)="filaActiva.set($any($event))">
           <ng-template #header>
@@ -111,19 +111,19 @@ interface OpcionOrigen { label: string; value: string }
           </ng-template>
           <ng-template #body let-g let-expanded="expanded">
             <tr [pSelectableRow]="g" (keydown.enter)="enterEnFila($event, g.clave)">
-              <td class="rp-col-tog">
+              <td class="rp-col-tog dt-actions" role="cell">
                 <p-button type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" [text]="true" size="small"
                           severity="secondary" [ariaLabel]="(expanded ? 'Ocultar' : 'Ver') + ' los documentos de ' + nombre(g.sucursal)"
                           (onClick)="alternar(g.clave)"></p-button>
               </td>
-              <td class="rp-strong">{{ nombre(g.sucursal) }}</td>
-              <td class="rp-mono">{{ dmy(g.fecha) }}</td>
-              <td class="rp-col-sec">{{ textoDocs(g) }}</td>
-              <td class="rp-num">{{ money(g.total) }}</td>
-              <td class="rp-num rp-dim rp-col-sec">{{ money(g.caos) }}</td>
-              <td class="rp-num rp-dim rp-col-sec">{{ money(g.cajon) }}</td>
-              <td class="rp-num" [class.rp-falta]="porResolverDe(g) > 0">{{ porResolverDe(g) > 0 ? money(porResolverDe(g)) : '—' }}</td>
-              <td class="rp-tags">
+              <td class="rp-strong dt-id" data-label="Sucursal" role="cell">{{ nombre(g.sucursal) }}</td>
+              <td class="rp-mono" data-label="Día de pago" role="cell">{{ dmy(g.fecha) }}</td>
+              <td class="rp-col-sec" data-label="Documentos" role="cell">{{ textoDocs(g) }}</td>
+              <td class="rp-num dt-num" data-label="Total Kepler" role="cell">{{ money(g.total) }}</td>
+              <td class="rp-num rp-dim rp-col-sec dt-num" data-label="De CAOS" role="cell">{{ money(g.caos) }}</td>
+              <td class="rp-num rp-dim rp-col-sec dt-num" data-label="Del cajón" role="cell">{{ money(g.cajon) }}</td>
+              <td class="rp-num dt-num" data-label="Por resolver" role="cell" [class.rp-falta]="porResolverDe(g) > 0">{{ porResolverDe(g) > 0 ? money(porResolverDe(g)) : '—' }}</td>
+              <td class="rp-tags" data-label="Estado" role="cell">
                 <p-tag [severity]="g.estado === 'explicada' ? 'success' : 'warn'" [value]="textoEstado(g)"></p-tag>
                 @if (g.n_sin_aprobar) {
                   <p-tag severity="danger" [value]="g.n_sin_aprobar + ' sin aprobar'"></p-tag>
@@ -132,7 +132,7 @@ interface OpcionOrigen { label: string; value: string }
                   <p-tag severity="warn" [value]="g.n_pagado_antes_de_aprobar + ' pagado antes de aprobar'"></p-tag>
                 }
               </td>
-              <td class="rp-que">
+              <td class="rp-que dt-actions" data-label="Qué sigue" role="cell">
                 @switch (g.estado) {
                   @case ('por_capturar') {
                     @if (puedeGestionar() && reponibles(g).length) {

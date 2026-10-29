@@ -1597,7 +1597,7 @@ export class CashLedgerService {
    *
    * Pública desde `[CGA-A.61]`: la reposición por sucursal lee la MISMA frescura, no una parecida.
    */
-  async frescuraCaja(trx: any): Promise<string | null> {
+  async frescuraCaja(trx: Knex.Transaction): Promise<string | null> {
     try {
       // [CG.22.4] La edad sale del LATIDO, no de una columna del matview.
       //
@@ -2334,7 +2334,7 @@ export class CashLedgerService {
   }
 
   /** Edad del espejo de CAOS (para declarar frescura). `null` si no se puede medir. Pública: `[CGA-A.61]`. */
-  async frescuraCaos(trx: any, tenantId: string): Promise<string | null> {
+  async frescuraCaos(trx: Knex.Transaction, tenantId: string): Promise<string | null> {
     try {
       const r = await trx('analytics.caos_cash_movements').where('tenant_id', tenantId).max({ al: 'synced_at' }).first();
       return r?.al ? new Date(r.al).toISOString() : null;
