@@ -14,6 +14,12 @@
 - Ahora el renglón **cabe sin JavaScript**: su tamaño tiene un tope calculado por el largo del texto. El ajuste sólo lo agranda hasta donde quepa, así que las etiquetas que ya salían bien no cambian de tamaño.
 - El arnés de geometría de etiquetas gana el invariante **`codigo_recortado`** (ninguno de los 8 anteriores miraba este renglón). Sin el arreglo da **2 etiquetas rotas de 221**: la 20750 y la 01001, que nadie había reportado; con el arreglo, 0.
 - Sin migración, sin permiso, sin endpoint. No medido: la impresión física, ni las etiquetas en promoción (su renglón va en otra columna y no lleva el tope).
+### Fixed — Pagos: cuando el ERP y el SAT no coinciden sobre quién es un proveedor, manda el comprobante (PGP.31 / ADR-108, 2026-10-28, **en prod**)
+- Kepler tenía capturado, para **18 acreedores**, un RFC que **sus propias facturas timbradas contradicen** — entre ellos **J&F ENTERPRISE** y **MONDELEZ**, con un RFC de persona física sobre una sociedad. Hasta ahora ganaba el del ERP y por eso esas facturas no se encontraban.
+- Ahora manda el del comprobante. **+12 documentos encuentran su factura (+$14,819)**, sin que ninguno pierda la que ya tenía: el valor literal de Kepler se conserva y sigue sirviendo para buscar.
+- ⛔ **Esto no corrige a Kepler.** Mientras la ficha siga con el RFC equivocado, cada vista nueva lo vuelve a heredar. Es captura, no derivación.
+- ⚠️ **Contradicción no es error de dedo.** Otros **14 acreedores** sólo tienen el RFC mal escrito (`PTE120913`, un dígito de menos); ésos ya se declaraban aparte y **no** se cuentan como contradicción.
+
 ### Added — Pagos: el Calendario ya sabe con qué se le paga a cada acreedor (PGP.30, 2026-10-28)
 - Al preparar un pago, el **método** y la **cuenta de origen** llegan **precargados del historial de ese acreedor**, en vez de pedirse a mano pago por pago. Medido contra prod sobre 4,881 pagos: **288 de 316 acreedores (91.1 %) tienen un método estable**, que cubre el **87.4 % del dinero**.
 - La propuesta llega **editable y con su evidencia al lado** («así se le pagó 16 de 16 veces, la última el 2026-10-19, desde BB 4166»). Nada se aplica solo.
