@@ -3,6 +3,12 @@
 <!-- Fuera del router: una excepción puede haber dejado la navegación inservible. -->
 <app-error-outlet />
 
+<!-- [MS.AVISO] Solicitud nueva en la Mesa de Servicio: en la raíz para que salga en cualquier
+     pantalla con sesión, también en «Mi trabajo», que no usa el layout. -->
+@if (sesionAbierta() && !enRutaPublica()) {
+  <app-service-desk-aviso-toast />
+}
+
 <!-- SM.23 — "Haz tu arqueo". Barra fija, no toast: en una caja con clientes
      enfrente, un aviso que se va solo a los 5 segundos no lo ve nadie. Se apaga
      cuando entra a contar. -->

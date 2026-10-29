@@ -488,6 +488,15 @@ prod:** valida la estructura y las invariantes de `servicedesk`, no el comportam
 
 ---
 
+## Aviso en pantalla de una solicitud nueva — `[MS.AVISO]` (2026-10-28)
+
+Entra una solicitud a una cola → quien la atiende ve una **ventana emergente** en cualquier pantalla de la Suite (si la sesión está abierta), con clic al detalle en la bandeja. Si la pestaña está oculta y la persona dio permiso, sale además la **notificación de Windows**.
+
+- **Evento `nueva_solicitud`** (nuevo): toda solicitud no prioritaria. Antes sólo avisaban las altas/urgentes (`nuevo_prioritario`): medido el 2026-10-28, **36 de 76** solicitudes del mes no avisaban a nadie. Mismos destinatarios: miembros activos de la cola, menos quien la reportó y el asignado.
+- **Front:** `app-service-desk-aviso-toast` (raíz de la app —sale también en «Mi trabajo»—, escucha el push `/alerts`; gris neutro, rojo si es urgente) + `DesktopNoticeService` + botón de permiso al pie de la campana. La ventana sólo anuncia `nueva_solicitud` y `nuevo_prioritario`; lo demás sigue en la campana.
+- **Sin migraciones ni permisos.**
+- **Probado en navegador** contra la API local (2026-10-28): media, urgente, clic al detalle y «Mi trabajo». **No cubre:** pestaña cerrada (service worker + VAPID); el aviso de Windows con la pestaña oculta no se pudo ver en el navegador de prueba.
+
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 
 > **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que

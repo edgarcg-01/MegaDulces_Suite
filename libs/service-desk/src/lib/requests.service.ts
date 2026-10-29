@@ -425,11 +425,12 @@ export class ServiceDeskRequestsService {
 
         // Lo urgente y lo alto no pueden esperar a que alguien abra la bandeja: se avisa a quien atiende
         // (menos a quien la regla ya le asignó el ticket, que recibe su propio aviso de asignación).
-        if (usaPrioridad && (priority === 'alta' || priority === 'urgente')) {
-          // `[MS.7.6]` Sólo a quien atiende ESA cola: un ticket de Mantenimiento no despierta a TI.
-          const agentes = (await this.agents.listIn(trx, cat.queue_id)).map((a) => a.user_id).filter((u) => u !== asignadoA);
-          if (agentes.length) efectos.avisos.push({ event: 'nuevo_prioritario', request_id: id, folio, title, priority, recipients: agentes, actor_id: ctx.userId, actor_name: ctx.nombre });
-        }
+        // `[MS.AVISO]` Y toda solicitud NUEVA avisa igual, con su propio evento: medido en prod (2026-10-28), 36 de las 76 del último
+        // mes eran media/baja y no avisaron a nadie, ni a la campana. El evento distinto deja que la pantalla destaque lo prioritario.
+        // `[MS.7.6]` Sólo a quien atiende ESA cola: un ticket de Mantenimiento no despierta a TI.
+        const agentes = (await this.agents.listIn(trx, cat.queue_id)).map((a) => a.user_id).filter((u) => u !== asignadoA);
+        const prioritaria = usaPrioridad && (priority === 'alta' || priority === 'urgente');
+        if (agentes.length) efectos.avisos.push({ event: prioritaria ? 'nuevo_prioritario' : 'nueva_solicitud', request_id: id, folio, title, priority, recipients: agentes, actor_id: ctx.userId, actor_name: ctx.nombre });
         return { id: id as string, efectos };
       });
       await this.despachar(efectos);

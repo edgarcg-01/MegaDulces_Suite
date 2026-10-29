@@ -26,7 +26,13 @@ let fail = 0;
 const noMedido = [];
 const check = (n, c, d) => { if (c) { console.log(`  ✅ ${n}`); pass++; } else { console.log(`  ❌ ${n}${d ? ' — ' + d : ''}`); fail++; } };
 
+// El limitador de la API deja 10 peticiones por segundo (app.module.ts, ThrottlerModule `short`): sin pausa, con ~70 ms por
+// petición, la 16.ª ya devuelve 429 y los últimos casos fallan por la API, no por el endpoint.
+const PAUSA_MS = 150;
+const pausa = () => new Promise((r) => setTimeout(r, PAUSA_MS));
+
 async function get(p, token) {
+  await pausa();
   const r = await fetch(`${BASE}${p}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   let body = null;
   try { body = await r.json(); } catch { /* sin cuerpo */ }

@@ -95,6 +95,11 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     cmp = fix.componentInstance;
     fix.detectChanges();
     await tick();
+    // [SM.49] La pantalla abre en «Retiro · elige el concepto» y un retiro sin concepto no
+    // se guarda. Estas pruebas son de la captura en general y se escribieron con el cierre
+    // como tipo inicial: se elige explícito. Lo del retiro tiene su propio bloque [SM.49].
+    cmp.elegirMenu('cierre');
+    await tick();
   });
 
   /** Teclea un conteo cualquiera para que el botón de guardar tenga sentido. */
@@ -401,7 +406,8 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     svc.resp = { turnos: [turno()], aviso: null };
     cmp.ngOnInit();
     await tick();
-    cmp.elegirTipo('retiro');
+    // [SM.49] Un retiro se guarda con concepto: el normal es «Retiro de caja».
+    cmp.elegirMenu('retiro:retiro_caja');
     await tick();
   };
   const casillasRetiro = (): HTMLInputElement[] =>
@@ -497,7 +503,7 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     // CONTROL: en el cierre la tarjeta sí suma al total del turno.
     expect(cmp.totalTurno()).toBe(1500);
 
-    cmp.elegirTipo('retiro');
+    cmp.elegirMenu('retiro:retiro_caja');
     await tick();
     expect(cmp.totalTurno()).toBe(1000);
     expect(cmp.mediosDeclarados()).toEqual([]);
@@ -505,6 +511,7 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     cmp.submit();
     await tick();
     expect(svc.enviado.tipo).toBe('retiro');
+    expect(svc.enviado.concepto).toBe('retiro_caja');
     expect(svc.enviado.medios).toBeUndefined();
     expect(svc.enviado.denominations).toEqual({ '1000': 1 });
   });
@@ -931,5 +938,162 @@ describe('TiendaArqueoComponent · [SM.47] totales por familia y conteo de efect
       await montar('10c02', { STORE_ARQUEO_CAPTURAR: true, STORE_ARQUEO_VER: true });
       expect(cmp.tipoOptions().map((o) => o.value)).not.toContain('sin_caja');
     });
+  });
+});
+
+/** [SM.48] «Sucursales y sus cajas» trae el esperado: es de quien valida, nunca de la cajera. */
+describe('TiendaArqueoComponent · [SM.48] quién ve las cajas', () => {
+  const montar = async (permissions: Record<string, boolean>) => {
+    const svc = Object.assign(new ArqueoStub(), {
+      cajas: () => of({ fecha: '2026-10-26', umbral: 50, sucursales: [] }),
+    });
+    await TestBed.configureTestingModule({
+      imports: [TiendaArqueoComponent],
+      providers: [
+        provideRouter([]), provideHttpClient(), provideHttpClientTesting(), MessageService,
+        { provide: ArqueoService, useValue: svc },
+        { provide: AuthService, useValue: { user: () => ({ username: 'x', warehouse_code: '01', role_name: 'x', permissions }), token: () => null } },
+        { provide: PermissionsService, useValue: { isAdmin: () => false, has: () => false } },
+        { provide: DataScopeService, useValue: { warehouses: () => of([{ value: '01', label: 'PADRE HIDALGO' }]) } },
+      ],
+    }).compileComponents();
+    const fix = TestBed.createComponent(TiendaArqueoComponent);
+    fix.detectChanges();
+    await fix.whenStable();
+    fix.detectChanges();
+    return fix.nativeElement as HTMLElement;
+  };
+
+  it('⭐ quien valida la ve en lugar de «Arqueos recientes»', async () => {
+    const el = await montar({ STORE_ARQUEO_VER: true, STORE_ARQUEO_CAPTURAR: true, RECONCILIATION_VER: true });
+    expect(el.querySelector('app-arqueo-cajas')).not.toBeNull();
+    expect(el.textContent).not.toContain('Arqueos recientes');
+  });
+
+  it('⭐ NEGATIVA: la cajera NO la ve (el arqueo es ciego)', async () => {
+    const el = await montar({ STORE_ARQUEO_VER: true, STORE_ARQUEO_CAPTURAR: true });
+    expect(el.querySelector('app-arqueo-cajas')).toBeNull();
+  });
+});
+
+/**
+ * [SM.49] La barra de pestañas entra a UN menú, y el retiro lleva su concepto.
+ * Arriba los conceptos (Pago a proveedor, Gasto de la sucursal, Depósito al banco,
+ * Otro…); abajo «Otros arqueos» con «Retiro de caja» primero.
+ */
+describe('TiendaArqueoComponent · [SM.49] menú del tipo de arqueo y concepto del retiro', () => {
+  let fix: ComponentFixture<TiendaArqueoComponent>;
+  let cmp: TiendaArqueoComponent;
+  let svc: ArqueoStub;
+  const tick = async (): Promise<void> => { await fix.whenStable(); await new Promise((r) => setTimeout(r, 0)); fix.detectChanges(); };
+
+  const montar = async (permissions: Record<string, boolean>) => {
+    svc = new ArqueoStub();
+    await TestBed.configureTestingModule({
+      imports: [TiendaArqueoComponent],
+      providers: [
+        provideRouter([]), provideHttpClient(), provideHttpClientTesting(), MessageService,
+        { provide: ArqueoService, useValue: svc },
+        { provide: AuthService, useValue: { user: () => ({ username: '10c02', warehouse_code: '01', role_name: 'x', permissions }), token: () => null } },
+        { provide: PermissionsService, useValue: { isAdmin: () => false, has: () => false } },
+        { provide: DataScopeService, useValue: { warehouses: () => of([{ value: '01', label: 'PADRE HIDALGO' }]) } },
+      ],
+    }).compileComponents();
+    fix = TestBed.createComponent(TiendaArqueoComponent);
+    cmp = fix.componentInstance;
+    fix.detectChanges();
+    await tick();
+    cmp.manual.set(true);
+    cmp.aCaja = '2';
+    await tick();
+  };
+  const cajera = { STORE_ARQUEO_CAPTURAR: true, STORE_ARQUEO_VER: true };
+  const contar = () => { cmp.denomCount['1000'] = 1; cmp.recalc(); };
+
+  it('⭐ ya no hay barra de pestañas: un solo menú, que abre en «Retiro · elige el concepto»', async () => {
+    await montar(cajera);
+    const el = fix.nativeElement as HTMLElement;
+    expect(el.querySelector('app-segmented')).toBeNull();
+    expect(el.querySelector('.arq-tipo-sel')).not.toBeNull();
+    expect(cmp.aTipo()).toBe('retiro');
+    expect(cmp.menuValor()).toBeNull();
+    expect(el.textContent).toContain('Retiro · elige el concepto');
+  });
+
+  it('⭐ el menú: conceptos arriba, y «Retiro de caja» primero en «Otros arqueos»', async () => {
+    await montar(cajera);
+    const g = cmp.menuTipos();
+    expect(g.map((x) => x.label)).toEqual(['Retiro', 'Otros arqueos']);
+    expect(g[0].items.map((i) => i.label)).toEqual(['Pago a proveedor', 'Pago de nómina', 'Gasto de la sucursal (caja chica)', 'Depósito al banco', 'Otro…']);
+    expect(g[1].items.map((i) => i.label)).toEqual(['Retiro de caja', 'Cierre de día', 'Relevo']);
+    // NEGATIVA: ni «sin concepto» ni «Cambio / feria» (se quitaron a pedido).
+    const todo = JSON.stringify(g);
+    expect(todo).not.toContain('sin concepto');
+    expect(todo).not.toContain('feria');
+  });
+
+  it('⭐ un retiro NO se guarda sin concepto; con concepto sí, y viaja al servidor', async () => {
+    await montar(cajera);
+    contar();
+    expect(cmp.canSubmit()).toBe(false);
+    cmp.elegirMenu('retiro:pago_proveedor');
+    expect(cmp.canSubmit()).toBe(true);
+    cmp.submit();
+    expect(svc.enviado).toMatchObject({ tipo: 'retiro', concepto: 'pago_proveedor' });
+    expect(svc.enviado.motivo).toBeUndefined();
+  });
+
+  it('⭐ «Otro» exige escribir el motivo, y lo manda', async () => {
+    await montar(cajera);
+    contar();
+    cmp.elegirMenu('retiro:otro');
+    await tick();
+    const el = fix.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('¿Por qué es el retiro?');
+    expect(cmp.canSubmit()).toBe(false);
+    // El aviso rojo NO sale antes de que la cajera escriba o salga del recuadro.
+    expect(el.querySelector('.arq-motivo-err')).toBeNull();
+    cmp.motivoTocado.set(true); await tick();
+    expect(el.querySelector('.arq-motivo-err')).not.toBeNull();
+    cmp.aMotivo = 'se pagó el gas';
+    expect(cmp.canSubmit()).toBe(true);
+    cmp.submit();
+    expect(svc.enviado).toMatchObject({ tipo: 'retiro', concepto: 'otro', motivo: 'se pagó el gas' });
+  });
+
+  it('elegir otro tipo de arqueo deja de pedir concepto y no lo manda', async () => {
+    await montar(cajera);
+    cmp.elegirMenu('retiro:pago_proveedor');
+    cmp.elegirMenu('cierre');
+    contar();
+    expect(cmp.aTipo()).toBe('cierre');
+    expect(cmp.menuValor()).toBe('cierre');
+    expect(cmp.canSubmit()).toBe(true);
+    cmp.submit();
+    expect(svc.enviado.concepto).toBeUndefined();
+  });
+
+  it('cuando Kepler pide la sangría, el menú queda en «Retiro de caja»', async () => {
+    await montar(cajera);
+    svc.resp = { turnos: [turno({ pide_retiro: true } as Partial<Turno>)], aviso: null };
+    cmp.manual.set(false);
+    cmp.ngOnInit();
+    await tick();
+    cmp.elegirTurno('87');   // sugerirTipo corre al elegir el turno
+    await tick();
+    expect(cmp.aTipo()).toBe('retiro');
+    expect(cmp.menuValor()).toBe('retiro:retiro_caja');
+  });
+
+  it('con permiso de rutas aparecen RD y RV en «Otros arqueos»', async () => {
+    await montar({ ...cajera, STORE_ARQUEO_RUTA_CAPTURAR: true });
+    expect(cmp.menuTipos()[1].items.map((i) => i.value)).toEqual(['retiro:retiro_caja', 'cierre', 'relevo', 'rd', 'rv']);
+  });
+
+  it('Finanzas (solo conteo sin caja) ve un menú con esa única opción', async () => {
+    await montar({ STORE_ARQUEO_SIN_CAJA_CAPTURAR: true });
+    const g = cmp.menuTipos();
+    expect(g.length).toBe(1);
+    expect(g[0].items.map((i) => i.label)).toEqual(['Conteo de efectivo']);
   });
 });

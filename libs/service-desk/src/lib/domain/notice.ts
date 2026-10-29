@@ -11,6 +11,7 @@ import type { SdPriority } from '@megadulces/contracts';
 
 export type SdEventoClave =
   | 'nuevo_prioritario'
+  | 'nueva_solicitud'
   | 'levantada'
   | 'asignado'
   | 'comentario'
@@ -68,6 +69,9 @@ export function armarAviso(e: EntradaAviso): Aviso {
         message: `${ref}${quien ? ` — la reportó ${quien}` : ''}.`,
         severity: e.priority === 'urgente' ? 'critical' : 'warn',
       };
+    case 'nueva_solicitud':
+      // `[MS.AVISO]` Toda solicitud nueva avisa a quien atiende la cola, no sólo las altas: una media o una baja también espera.
+      return { title: 'Nueva solicitud', message: `${ref}${quien ? ` — la reportó ${quien}` : ''}.`, severity: 'info' };
     case 'levantada':
       // `[MS.3.11]` A quien NO la reportó se le avisa: de otro modo le llegarían los «resuelto» de algo que no sabía que existía.
       return { title: 'Se levantó una solicitud a tu nombre', message: `${ref}${quien ? ` — la levantó ${quien}` : ''}.`, severity: 'info' };

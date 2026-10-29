@@ -44,6 +44,8 @@ function cargarServicio() {
   const mapa = {
     '@megadulces/platform-core': path.join(__dirname, '.stub-sm47-platform-core.js'),
     '@megadulces/contracts': path.join(__dirname, '.stub-sm47-contracts.js'),
+    // SM.49 - el servicio importa la lista de conceptos del contrato por su ruta directa.
+    '@megadulces/contracts/http/arqueo-cajas': path.join(raiz, 'libs/contracts/src/http/arqueo-cajas.contract.ts'),
   };
   const fs = require('fs');
   fs.writeFileSync(mapa['@megadulces/platform-core'], 'module.exports = { TenantKnexService: class {}, TenantContextService: class {} };');
@@ -51,7 +53,13 @@ function cargarServicio() {
     ...require(${JSON.stringify(path.join(raiz, 'libs/contracts/src/money/denominations.ts'))}),
     ...require(${JSON.stringify(path.join(raiz, 'libs/contracts/src/ports/recon-notifier.port.ts'))}),
   };`);
-  process.on('exit', () => { for (const f of Object.values(mapa)) { try { fs.unlinkSync(f); } catch { /* ya no esta */ } } });
+  // Solo los stubs temporales: la tabla también apunta a archivos REALES del repo.
+  process.on('exit', () => {
+    for (const f of Object.values(mapa)) {
+      if (!path.basename(f).startsWith('.stub-')) continue;
+      try { fs.unlinkSync(f); } catch { /* ya no esta */ }
+    }
+  });
   const orig = Module._resolveFilename;
   Module._resolveFilename = function (req, ...rest) { return mapa[req] || orig.call(this, req, ...rest); };
   // `skipProject`: sin esto ts-node toma el tsconfig del monorepo y falla (TS5011).

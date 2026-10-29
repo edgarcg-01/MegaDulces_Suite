@@ -33,6 +33,22 @@
 - Al elegir **«efectivo»**, la pantalla avisa que **Kepler no distingue ese método**: el `X-D-26` va a quedar rotulado «transferencia» aunque el dinero salga de la caja. De 4,898 pagos hay **cero** registrados como efectivo, y sin el aviso eso se lee como error de captura al conciliar.
 - ⚠️ **Lo que no se sabe y queda dicho:** si esos 2,771 salieron en billetes o por una transferencia ordenada desde el escritorio de Caja General, **el ERP no lo registra**. Por eso la caja se ofrece, pero el método propuesto sigue saliendo del ERP y no se deduce.
 
+### Changed — Arqueo: un solo menú para el tipo, y el concepto del retiro (SM.49, 2026-10-28)
+- `/tienda/arqueo`: las pestañas Retiro · Cierre de día · Relevo · RD · RV pasan a un solo menú. Un retiro lleva concepto: Pago a proveedor, Pago de nómina, Gasto de la sucursal (caja chica), Depósito al banco, Otro (con motivo obligatorio) o Retiro de caja (la sangría que pide Kepler). La pantalla abre en Retiro.
+- El concepto sale en el ticket y en «Sucursales y sus cajas», con las salidas por concepto de cada turno y de la sucursal. Esa vista nace minimizada y ya no tiene botón Validar. Migración `20261028093702` (columna `concepto`).
+
+### Changed — Arqueo: «Sucursales y sus cajas» para quien valida, y el folio del turno por caja + hora (SM.48, 2026-10-28)
+- `/tienda/arqueo`, quien valida: «Arqueos recientes» se reemplaza por **Sucursales y sus cajas**. Por día y sucursal, cada caja con sus turnos de Kepler, la cajera (código y nombre), sus retiros y el cajón con el desglose por denominación, si los retiros cuadran con lo que Kepler registró y el cuadre del turno. Validar y reimprimir por arqueo. Responsiva. La cajera no la ve.
+- Un retiro, cierre o relevo capturado sin folio ahora se ancla al turno de Kepler por **caja + hora**. Esos cierres empiezan a compararse contra Kepler.
+### Added — Mesa de Servicio: aviso en pantalla cuando entra una solicitud nueva (MS.AVISO, 2026-10-28)
+- **Ventana emergente en cualquier pantalla de la Suite (también en «Mi trabajo»)**, mientras la sesión esté abierta, cuando entra una solicitud a una cola que atiendes: folio, título, quién la reportó, y un clic para abrirla en la bandeja. Sale en gris neutro; las urgentes, en rojo y no se cierran solas.
+- **Aviso de Windows si la pestaña está oculta** (opcional): un botón al pie de la campana pide el permiso del navegador. Sin permiso, la ventana espera en la página; no se finge ningún aviso. No funciona con la pestaña cerrada (eso pide service worker y llaves VAPID, que no existen).
+- **Evento nuevo `nueva_solicitud`**: antes sólo avisaba la solicitud **alta o urgente** (40 de 76 en el último mes, medido en producción el 2026-10-28); las 36 de prioridad media/baja **no avisaban a nadie**, ni a la campana. Ahora toda solicitud nueva avisa a quien atiende esa cola (menos a quien la reportó y a quien la regla ya se la asignó). Sin migraciones ni permisos.
+### Fixed — Etiquetas: el código del producto ya no se corta (ETQ-CODIGO, 2026-10-28)
+- El mostrador reportó que en la etiqueta sólo salían 3 números del código: `CANELS GOMITAS TUENI 1.35 KG` (SKU **20750**) imprimió **«Código: 207»**. El dato estaba bien; el renglón «1.35 kg | Código: 20750» **no cabía** en su columna de 34 mm y lo que no cabe se cortaba (sólo se salvaba si un ajuste de JavaScript lo encogía).
+- Ahora el renglón **cabe sin JavaScript**: su tamaño tiene un tope calculado por el largo del texto. El ajuste sólo lo agranda hasta donde quepa, así que las etiquetas que ya salían bien no cambian de tamaño.
+- El arnés de geometría de etiquetas gana el invariante **`codigo_recortado`** (ninguno de los 8 anteriores miraba este renglón). Sin el arreglo da **2 etiquetas rotas de 221**: la 20750 y la 01001, que nadie había reportado; con el arreglo, 0.
+- Sin migración, sin permiso, sin endpoint. No medido: la impresión física, ni las etiquetas en promoción (su renglón va en otra columna y no lleva el tope).
 ### Fixed — Pagos: cuando el ERP y el SAT no coinciden sobre quién es un proveedor, manda el comprobante (PGP.31 / ADR-108, 2026-10-28, **en prod**)
 - Kepler tenía capturado, para **18 acreedores**, un RFC que **sus propias facturas timbradas contradicen** — entre ellos **J&F ENTERPRISE** y **MONDELEZ**, con un RFC de persona física sobre una sociedad. Hasta ahora ganaba el del ERP y por eso esas facturas no se encontraban.
 - Ahora manda el del comprobante. **+12 documentos encuentran su factura (+$14,819)**, sin que ninguno pierda la que ya tenía: el valor literal de Kepler se conserva y sigue sirviendo para buscar.
@@ -50,6 +66,7 @@
 - Nueva pestaña **«Historial de precios»** junto a «Cambios de precio» (`/tienda/etiquetas/historial`, mismo permiso): se busca un producto y se despliegan sus cambios de precio de las **9 plazas**. Por omisión muestra **todas las filas** de la bitácora de Kepler; «Agrupar repetidos» las funde en tramos (Kepler reescribe el mismo cambio varias veces: en un producto medido, 676 de 686 pasos repetían el precio). Filtros por rango (90 días / 1 año / todo), plaza y presentación.
 - Una promoción de Kepler («= GRATIS») no se puede elegir: no es un producto. «Sin cambios registrados» se distingue de «no se pudo leer».
 - `GET /store/labels/price-history` (lectura, tope de 8,000 filas con aviso de recorte). Sin migración ni permiso nuevo.
+- **«Imprimir etiqueta»** desde el historial (`[ETQ-HISTORIAL.5]`, H.3.2): manda el código del producto elegido a la etiquetera, la misma vía de «Cambios de precio».
 
 ### Added — Cuentas de pago: la cuenta ya viene puesta, la traía el propio proveedor (PGP.29 / objetivo O6, 2026-10-28)
 - En `/finanzas/cuentas-pago`, el botón **«Solicitar cuenta» abría un formulario vacío** y alguien tenía que ir a conseguir la CLABE. Por eso el catálogo llevaba **0 cuentas** y ningún pago del Calendario se preparaba solo.

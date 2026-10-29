@@ -1,6 +1,6 @@
 # ETQ-HISTORIAL — Buscar un producto y ver su historial de cambios de precio
 
-> **Dónde:** `/tienda/etiquetas/cambios` (Cambios de precio). **Dueño:** 0Sistemas. **Estado:** 🧪 construido en LOCAL, sin commitear ni PR (2026-10-28): falta que el revisor lo vea en el navegador y corra el E2E.
+> **Dónde:** `/tienda/etiquetas/historial` (pestaña «Historial de precios», junto a «Cambios de precio»). **Dueño:** 0Sistemas. **Estado:** 🧪 verificado en pantalla local por el equipo, **fusionado en `main`** (PR #464, `5f5cd09c7`, 2026-10-28; sale a prod al soltar). Falta la validación visual en un monitor real y H.3.2.
 > **Pedido:** «agregar un buscador de productos para que nos despliegue su historial de cambio de precios… probarlo en local para revisarlo y mandar su PR».
 > **La pregunta que contesta (una sola, sin «y»):** *¿qué precio ha tenido este producto en esta tienda, y desde cuándo?*
 > **Métrica (HOY):** hoy esa pregunta **no se puede contestar** desde ninguna pantalla: «Cambios de precio» sólo muestra **un día**. Meta: de un producto a su historial en **≤ 2 acciones** (escribir, elegir) y **≤ 0.5 s** de carga.
@@ -69,7 +69,7 @@
 |---|---|---|
 | **D1** | Plazas | **Las 9 a la vez** (no una). ✅ **Medido en prod el 2026-10-28 con el peor caso conocido (SKU 92013, 5,683 filas):** **280 ms** (365 días, 5,575 filas) y **360 ms** (toda la historia), tibio; **350 / 400 ms** en frío. Dentro de 0.5 s **sin migración**: la consulta usa `sucursal = ANY(9 plazas)` con el índice por plaza y día. El índice parcial por SKU queda como remedio si algún día se pasa |
 | **D2** | Filas o tramos | **Todas las filas** primero, «para ver cómo se ve»; el interruptor «Agrupar repetidos» queda disponible para comparar |
-| **D3** | Dónde | **Dentro de Cambios de precio** (buscador en la fila superior; el historial abre en un panel lateral) |
+| **D3** | Dónde | ~~Dentro de Cambios de precio (panel lateral)~~ → **cambiada el 2026-10-28 ([.4]): pestaña propia «Historial de precios»**, historial en línea. No gustó el buscador embebido y el panel lateral |
 | **D4** | Exportar | **No** |
 | — | Rama | **Sin ramas**: se trabaja en local sobre `main` y, ya revisado, se arma el PR para Edgar |
 
@@ -82,7 +82,7 @@
 | Un SKU del catálogo sin `c3` equivalente → «sin historial» que en realidad es «no se pudo cruzar» | Medido (99.6 % de cobertura; los que faltan son descontinuados y promociones) y la pantalla distingue los dos textos |
 | Las filas repetidas de Kepler cambian de patrón y el tramo queda mal | la regla es sobre el **precio impreso** (la misma de la vista), no sobre un umbral; spec con A→B→A |
 | `btrim()` en el `WHERE` desactiva el índice (386 ms → segundos) | H.2.1 mide `EXPLAIN` y el spec de contrato lo vigila |
-| La pantalla ya es larga (820 líneas) | el historial vive en **un componente propio** (`tienda-historial-precio.component.ts`), no se agrega a ese archivo |
+| La pantalla ya es larga (820 líneas) | el historial vive en **un componente propio** (`historial-precio.component.ts`) y es su propia pantalla; no se agrega a ese archivo |
 
 ---
 
