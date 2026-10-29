@@ -17,6 +17,9 @@ DUEÑO:     Contabilidad — la persona que importa el archivo es D1, sin firmar
 ESTADO:    🧪 (CP.8) — este anexo no abre fase
 ```
 
+> ⭐ **Plan vigente para que la póliza ENTRE a ContPAQi sin teclearla: [§11](#11--plan-de-entrega-automática-2026-10-29)**
+> (2026-10-29): el tubo (TXT → agente SDK), el candado anti-duplicado y las familias en orden.
+
 **Con qué se midió:** `pg-prod` `192.168.0.222:5434`, `system_identifier 7688376744939610156`,
 `SET default_transaction_read_only = on`, 2026-10-20 ~14:55. Lista de alias con
 `database/scripts/alias-proveedor-pendientes.js` (sólo lectura). Lo que viene de §39 del doc
@@ -1116,3 +1119,156 @@ falta uno nuevo.
   - **Comisiones bancarias:** van por banco × MES (`[CP.8.85]`), otra forma.
   - **Decisión pendiente del PM:** con qué autoridad se arma un gasto por historia del RFC. Por ejemplo, que el
     contador firme la categoría como «por proveedor» una vez, como ya es `compra_mercancia`.
+- **2026-10-29** — §11 escrito: **plan de entrega automática** (sesión «automatización de pólizas»). Re-medido
+  en prod: 0 entregas, 0 alias, 0 confirmaciones, 0 reglas aprobadas; la API de entregas lleva desplegada desde
+  el 20-oct sin un solo uso. Octubre: 2,505 movimientos de banco ($44.3 M) todavía sin póliza en ContPAQi.
+  Ningún código tocado.
+
+---
+
+## 11. ⭐ Plan de entrega automática (2026-10-29)
+
+> Pedido de Edgar (2026-10-29): *«tu tarea será automatizar las pólizas, que le entregue la póliza a ContPAQi ya
+> armada»*. Este apartado **no reemplaza** a §1–§9: los ordena hacia ese objetivo y agrega lo que faltaba, que es
+> **el tubo**. Medido contra `pg-prod` (`system_identifier 7688376744939610156`, sólo lectura) el 2026-10-29.
+
+### 11.1 Dónde estamos, medido hoy
+
+| Hecho | 2026-10-29 |
+|---|---|
+| Pólizas entregadas a ContPAQi (`contpaqi.poliza_exports`) | **0**. La API de entregas (`[CP.8.52]`, commit `945354d52`) está en prod y nadie la ha usado |
+| Alias confirmados · pagos confirmados · reglas aprobadas | **0 · 0 · 0 de 21** |
+| Latidos `feed_contpaqi` · `contpaqi_cuadre` | `ok` (la vuelta, en 1 min) · `ok` *«sin eventos pendientes»*: corre sano **sobre cero** |
+| Pólizas que la contadora capturó a mano | ago **912** · sep **903** · oct **796** hasta hoy (13 ingreso · 401 egreso · 382 diario) |
+| Banco de octubre sin póliza en ContPAQi | **2,505 movimientos, $44.3 M** de $139.0 M. Control: septiembre casa 5,056 de 5,059 (quedan $6 k), así que el cruce discrimina |
+| Lo que el puente sabe armar | sólo **pago a proveedor** (91 % igual a ella, `[CP.8.84]`), que es el **19.4 %** de sus pólizas de egreso (`[CP.8.83]`) |
+| Terminal ContPAQi `192.168.0.208` | puertos 135/445 abiertos · **RDP, WinRM y SQL cerrados**. `01-probe-sdk.ps1` **nunca se corrió** |
+
+**Octubre: movimientos de banco sin póliza, por familia** (cruce por importe ±$1 dentro de cada cuenta, el mismo
+de `contpaqiAccountDetail`):
+
+| Familia | Movs | Monto | ¿La arma el puente hoy? |
+|---|---:|---:|---|
+| Cobranza (`VENTAS <suc>`) | 822 | $16.39 M | no |
+| Traspasos entre cuentas (dos piernas) | 38 | $18.91 M | no |
+| Compra de mercancía (pago a proveedor) | 28 | $4.49 M | **sí** |
+| Comisión bancaria + IVA de la comisión | 1,331 | $0.13 M | no |
+| Compra con tarjeta / TPV | 200 | $0.23 M | no |
+| Sin categoría | 31 | $2.41 M | no: falta la categoría |
+| Resto (devolución, factoraje, crédito, nómina, servicios) | 55 | $1.74 M | no |
+
+⛔ **La conclusión que manda:** no falta formato ni API. Faltan **dos cosas**:
+1. un **tubo** que meta la póliza en ContPAQi sin depender de que alguien se acuerde;
+2. más **familias**, porque lo que se arma hoy es la quinta parte de lo que ella teclea.
+
+### 11.2 El tubo: tres opciones, una descartada
+
+| | Cómo entra la póliza | Quién la mete | Estado |
+|---|---|---|---|
+| **T1 — Archivo TXT** | `Pólizas → Cargar Pólizas (F5)` con el archivo de la Suite | una persona, una vez por lote | **construido**: formato idéntico byte a byte (14/14), API y pantalla en prod. Cero usos desde el 20-oct |
+| **T2 — Agente SDK** | un `.exe` C# en una terminal ContPAQi aplica la póliza con `Poldll32.dll` (`IniciaPolizaEnLote…FinalizaPolizaEnLote`) | el agente, cuando la contadora aprueba en la Suite | **decidido por Edgar el 2026-10-08** (FASE_CP §7.8), sin una línea de código: faltan la terminal y el sondeo |
+| ~~T3 — Escribir en la base de ContPAQi~~ | `INSERT` en `Polizas`/`MovimientosPoliza` | — | ⛔ **descartado** por ADR-040: se salta las validaciones de ContPAQi, los saldos y los folios |
+
+⭐ **Recomendación: T1 primero y T2 encima, por el mismo puerto.**
+- `CONTPAQI_POLIZA_SINK_PORT` (`libs/contracts/src/ports/contpaqi-poliza-sink.port.ts`) ya separa armar de entregar.
+  `TxtSinkAdapter` existe; `SdkSinkAdapter` sería la segunda implementación.
+- El armado, el token, la idempotencia y el cuadre **son los mismos** para los dos tubos: lo que se pruebe con T1
+  vale para T2.
+- T1 se queda para siempre como reversa del día que el agente esté caído.
+
+**El agente (T2), diseño:**
+
+- **Va en la terminal, nunca en el servidor `.35`**: esa máquina no tiene administración remota y guarda los
+  libros (FASE_CP §7.6).
+- **Consulta, no escucha.** El agente pregunta a la Suite (`GET /finance/contpaqi/cola`) por HTTPS de salida. Así
+  no se abre ningún puerto en la terminal, y `md` no necesita entrar a la red de contabilidad.
+- **Sin lógica de negocio adentro.** Recibe la póliza ya armada y cuadrada, la traduce a COM y reporta en
+  `POST /finance/contpaqi/entregas/:id/resultado` el folio de ContPAQi, o el error tal como lo dio el SDK.
+- **`entregada` ≠ `aplicada`.** El agente marca `entregada`. Sólo el cuadre la pasa a `aplicada`, cuando la
+  vuelta (`feed_contpaqi`, 1 min) trae la póliza con su `Guid` o su token. Un OK del SDK no es el testigo.
+- **Latido de entrega**: mide pólizas aplicadas por día, no «el servicio está arriba». Lleva umbral en
+  `CRON_JOBS` y se prueba en rojo.
+- **Prueba negativa obligatoria**: mandarle a propósito una póliza descuadrada y ver que ContPAQi la rechaza.
+
+### 11.3 ⛔ El candado que faltaba: no duplicar lo que ella ya capturó
+
+Hoy ella captura todo a mano, octubre incluido. En cuanto el puente entregue, la misma póliza puede entrar dos
+veces. D5 lo resuelve como proceso (*«deja de capturar lo que entra y cuadra»*), pero un proceso tarda en cambiar.
+Hace falta además un candado en el código:
+
+- **Antes de entregar un lote, se busca la póliza de ella.** Es el cruce de `comparar-armado-contpaqi.js`
+  (`[CP.8.81]`): misma cuenta de banco, mismo importe, mismo día o ±3, en `analytics.gl_poliza_lines`. Si la
+  encuentra, el lote **no sale**: queda en `ya_capturada`, con el folio de ella. **No admite override.**
+- Para las familias que ella agrupa (comisiones por mes, combustible por semana, `[CP.8.85]`), el cruce usa la
+  ventana del mes, no ±3 días.
+- La métrica de adopción sale de aquí sola: `ya_capturada` tiene que bajar mes contra mes. Si no baja, D5 no se
+  está cumpliendo.
+
+### 11.4 Las familias, en orden (renglones ahorrados ÷ dificultad del mapa)
+
+| # | Familia | Volumen | Mapa | Lo que falta |
+|---|---|---|---|---|
+| **F-A** | **Pago a proveedor** | ~100 pólizas/mes, 91 % igual | resuelto (`supplier_accounts`, notas, REP) | sólo el tubo y §11.3. **Es la primera entrega real** |
+| **F-B** | **Comisiones bancarias** | ~1,532 renglones/mes (oct: 1,331 movs, $127 k) | banco ↔ cuenta 18/20 + una cuenta de gasto por banco | armador **banco × mes** (D6), la comisión de terminal bien clasificada (CB) y la cuenta de gasto firmada por ella |
+| **F-C** | **Traspasos entre cuentas** | ~369 renglones/mes (oct: 38 movs, $18.9 M) | las dos piernas son cuentas de banco ya mapeadas | armador de diario tipo 3; el invariante TI = TE de CB es su prueba |
+| **F-D** | **Gasto con factura** | ~980 pagos en ene–sep; la simulación arma 276, 89.1 % iguales (`[CP.8.86]`) | **la cuenta la decide el RFC** (93.0 %, placebo 9.0 %) | **D10** (con qué autoridad) y llevar la simulación a `libs/` |
+| **F-E** | **Cobranza `VENTAS <suc>`** | ~6,050 renglones/mes (oct: 822 movs, $16.4 M) | el más caro: una cuenta por sucursal × tasa (0 %, IVA, IEPS) | un C0 propio: derivar el mapa de sus pólizas tipo 1, como se hizo con proveedores |
+| — | Nómina · sin categoría · factoraje | — | — | **se declaran**: nómina espera a RH, sin categoría se resuelve en CB, factoraje no es banco |
+
+⭐ **Con F-A, F-B y F-C entregando, el puente cubre** el pago a proveedor, todas las comisiones y todos los
+traspasos: **las tres familias que no necesitan firmar un criterio contable**. F-D y F-E sí lo necesitan.
+
+### 11.5 Los entregables, por capa (siguen la numeración de CP.8; el último usado era `[CP.8.86]`)
+
+**Etapa 1 — la primera póliza real entra (T1).** Lo único que falta es una persona.
+
+| # | Capa | Entregable | Criterio |
+|---|---|---|---|
+| `CP.8.87` | — | **Una sola sesión de 45 min en `.208`, con quien firme D1**: (1) correr `01-probe-sdk.ps1` y pegar la salida; (2) importar A y B *sin afectar* (`[CP.8.55]`); (3) importar el lote de pagos a proveedor de **un día** de octubre que ella todavía no haya capturado | la salida del sondeo en este doc · cuál de los 4 caminos de §27.3 del padre ocurrió · ≥ 1 fila `aplicada` en `poliza_exports`, confirmada por la vuelta |
+| `CP.8.88` | C1+C2 | **El candado de §11.3**: un lote cuya póliza ya existe en `gl_poliza_lines` no sale (`ya_capturada`, con su folio) | prueba negativa: de septiembre (ya capturado entero) **no sale ningún lote** · prueba contra base real en `pruebas-db` |
+| `CP.8.89` | C2 | **Que la cobertura del cuadre 3 vías no mienta.** Hoy se mide con `MAX(fecha)`, y la póliza de traspasos fechada el **31-oct** (208 renglones, $32.1 M, dos días en el futuro) la deja en 100 %. Debe medir hasta qué día **casa** el banco y descartar fechas posteriores a hoy | octubre deja de decir «al día» · septiembre sigue diciendo «al día» |
+| `CP.8.90` | C3 | **El cuadre 3 vías dice qué pólizas faltan y si el puente las arma**: la diferencia se abre por familia, separando «lo arma el puente» de «no lo arma, y por qué» | las cifras de §11.1 reproducidas en la pantalla |
+
+**Etapa 2 — las familias que no piden firma de criterio (T1).**
+
+| # | Capa | Entregable | Criterio |
+|---|---|---|---|
+| `CP.8.91` | C1 | **Armador de comisiones banco × mes** (D6). La cuenta de gasto de cada banco se deriva de sus pólizas `PAGO COMISIONES <banco> <cuenta>` | A/B contra sus comisiones de ene–sep: % igual, con placebo (otro banco) |
+| `CP.8.92` | C1 | **Armador de traspasos** (diario tipo 3), con las dos piernas por `bank_accounts.contpaqi_cuenta` | A/B contra sus pólizas `TRASPASOS ENTRE CUENTAS` de ene–sep · TI = TE |
+| `CP.8.93` | C0 | **Fechas basura en Bancos**: 9 movimientos del estado de cuenta de octubre vienen fechados `2026-01-01` ($354,818). El armador los rechaza con motivo y nunca los asienta | el armado los declara · el dato se corrige en CB, no aquí |
+
+**Etapa 3 — el agente (T2).** Arranca **sólo** si el sondeo de `CP.8.87` dice que el SDK está instalado y que no bloquea la empresa.
+
+| # | Capa | Entregable | Criterio |
+|---|---|---|---|
+| `CP.8.40` | — | *(existente)* sondeo del SDK: bits, IDispatch, versión, licencia | sale de `CP.8.87` |
+| `CP.8.41` | — | *(existente)* el agente C# en la terminal: consulta la `/cola`, aplica y reporta | póliza descuadrada → ContPAQi la rechaza (prueba negativa) |
+| `CP.8.42` | C1 | *(existente)* `SdkSinkAdapter` detrás del puerto, con reversa a TXT si el agente no late | con el agente apagado, el lote cae a archivo y no se pierde |
+| `CP.8.94` | C2+C3 | `GET /cola` + `POST /entregas/:id/resultado`; en la pantalla, «Aprobar y enviar» reemplaza a «Descargar e importar» | contra base real con el payload de la pantalla (regla 13) · latido de entrega probado en rojo |
+
+**Etapa 4 — las familias que sí piden firma** (`CP.8.86` → F-D con D10; el C0 de cobranza → F-E). Se planean
+cuando la etapa 2 haya entregado un mes entero.
+
+### 11.6 Decisiones que son de Edgar
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| **D1** *(abierta desde el 20-oct)* | ¿Quién se sienta en la terminal? | **Una persona con nombre y 45 minutos**, en una sola sesión que cubre el sondeo del SDK, la prueba A/B y la primera póliza real (`CP.8.87`). Es la única dependencia de toda la etapa 1 |
+| **D5** *(abierta)* | ¿Qué deja de capturar la contadora? | Lo que entra y cuadra. Mientras no se firme, §11.3 evita el duplicado, pero el puente **suma** trabajo en vez de quitarlo |
+| **D9** *(nueva)* | ¿El agente va en `.208`? | Sí, si el sondeo dice que el SDK está. Implica un servicio Windows nuestro en esa máquina, un dueño para ella y quizá **una licencia de usuario** (~$1,690/año de lista; NO MEDIDO si `Login` la consume) |
+| **D10** *(de `[CP.8.86]`)* | ¿Con qué autoridad se arma un gasto por la historia del RFC? | Que el contador firme la categoría «por proveedor» **una vez**, como ya está `compra_mercancia` |
+
+### 11.7 Métrica y terminado
+
+```
+MÉTRICA:  pólizas que entran a ContPAQi sin que nadie las teclee (poliza_exports en 'aplicada', por mes)
+HOY:      0 (2026-10-29) · ella teclea ~900 pólizas/mes (ago 912 · sep 903)
+META 1:   ≥ 1 póliza real 'aplicada'                          — etapa 1, depende de D1
+META 2:   noviembre: 100 % del pago a proveedor, comisiones y traspasos en 'aplicada' o 'ya_capturada'
+          con motivo; 0 duplicados medidos en gl_polizas       — etapa 2
+META 3:   la entrega no la hace una persona: latido del agente verde 30 días — etapa 3
+```
+
+Hereda la Definición de Terminado de §9 y la de CPA §12, y agrega una condición: **cero pólizas duplicadas**
+medidas en `analytics.gl_polizas` del mes (token o pata de banco repetida), con la prueba negativa hecha a propósito.
+⛔ No cuenta como terminado: *«el TXT se generó»*, *«el agente responde»*, *«el SDK dijo OK»*.
