@@ -624,7 +624,16 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'Cómo leer el importe',
         entries: [
           { term: 'Unidad del importe', def: 'A una sucursal, el importe es valor de traspaso; a un cliente, precio de venta; a una ruta, costo y precio mezclados. Por eso el total se da separado por unidad.' },
-          { term: 'Ver en el Diario', def: 'Abre el documento con su contraparte, sus renglones y su estado.' },
+          { term: 'Abrir en el Diario', def: 'Desde el panel de una incidencia: abre el documento completo con su contraparte, todos sus renglones y su estado.' },
+        ],
+      },
+      {
+        heading: 'Revisar y resolver',
+        entries: [
+          { term: 'Dónde está el error', def: 'Cada incidencia nombra el producto y las piezas que la explican (por ejemplo: «salieron 840 y no llegó»). El panel compara la salida contra su recepción producto por producto; primero lo que no cuadra, por el dinero que mueve.' },
+          { term: 'Marcar resuelta', def: 'Se elige un motivo (corregido en Kepler, faltante confirmado, error de captura…) y, si el motivo lo pide, una nota. La incidencia sale de Pendientes y queda en Resueltas con quién y cuándo.' },
+          { term: 'Reabrir', def: 'Quita la resolución: si el motor la sigue viendo, vuelve a Pendientes.' },
+          { term: 'Auditada sin motivo', def: 'Un documento marcado «auditado» en el Diario no cuenta como resuelto: no dice por qué. Sigue en Pendientes hasta que alguien le ponga motivo.' },
         ],
       },
     ],

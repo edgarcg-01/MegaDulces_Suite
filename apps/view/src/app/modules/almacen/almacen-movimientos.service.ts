@@ -8,7 +8,10 @@ import { environment } from '../../../environments/environment';
  * /commercial/movements. Agregación primero (summary/aggregate), drill por folio (lines).
  */
 
-import type { ExcepcionMovimiento, MovimientosExcepcionesResponse, UnidadImporte } from '@megadulces/contracts';
+import type {
+  DetalleIncidenciaMovimiento, ExcepcionMovimiento, ExcepcionMovimientoItem, MotivoResolucion, MovimientosExcepcionesResponse,
+  ResolucionIncidencia, UnidadImporte,
+} from '@megadulces/contracts';
 export type GroupBy = 'product' | 'doc_code' | 'day' | 'warehouse';
 /** 'info' = documento informativo (k_binv=0, ej. Aplicación de orden de entrada): no mueve inventario. */
 export type MovementKind = 'entrada' | 'salida' | 'info';
@@ -370,10 +373,23 @@ export class AlmacenMovimientosService {
   }
   /** DM.6 — descarga el PDF del diario con los filtros actuales ([MX] sin Excel). */
   /** [MX.3.2] Bandeja de incidencias: sólo lo que el motor no pudo dar por bueno. */
-  exceptions(f: MovementsFilters, excepcion: ExcepcionMovimiento | '', page: number, pageSize: number): Observable<MovimientosExcepcionesResponse> {
+  exceptions(f: MovementsFilters, excepcion: ExcepcionMovimiento | 'resueltas' | '', page: number, pageSize: number): Observable<MovimientosExcepcionesResponse> {
     const extra: Record<string, string | number> = { page, pageSize };
     if (excepcion) extra['excepcion'] = excepcion;
     return this.http.get<MovimientosExcepcionesResponse>(`${this.base}/exceptions`, { params: this.params(f, extra) });
+  }
+  /** [MX.2.4] Una incidencia producto por producto: dónde está el error, su resolución y los motivos que aplican. */
+  exceptionDetail(d: ExcepcionMovimientoItem['documento']): Observable<DetalleIncidenciaMovimiento> {
+    const p = new HttpParams().set('warehouse_id', d.warehouse_id).set('doc_code', d.doc_code).set('doc_serie', d.doc_serie).set('folio', d.folio);
+    return this.http.get<DetalleIncidenciaMovimiento>(`${this.base}/exceptions/detail`, { params: p });
+  }
+  /** [MX.2.4] Resolver con motivo. */
+  resolveException(d: ExcepcionMovimientoItem['documento'], motivo: MotivoResolucion, nota: string | null): Observable<ResolucionIncidencia> {
+    return this.http.post<ResolucionIncidencia>(`${this.base}/exceptions/resolve`, { ...d, motivo, nota });
+  }
+  /** [MX.2.4] Reabrir una incidencia resuelta. */
+  reopenException(d: ExcepcionMovimientoItem['documento']): Observable<{ reabierta: boolean }> {
+    return this.http.post<{ reabierta: boolean }>(`${this.base}/exceptions/reopen`, d);
   }
   downloadExport(f: MovementsFilters, format: 'pdf') {
     return this.http.get(`${this.base}/export.${format}`, {

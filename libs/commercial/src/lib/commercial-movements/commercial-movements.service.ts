@@ -2,8 +2,10 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import {
-  DOC_CODES_AJUSTE, UNIDAD_IMPORTE_SALIDA, clasificarMovimiento,
-  type DestinoSalida, type ExcepcionMovimientoItem, type MovimientosExcepcionesResponse, type UnidadImporte,
+  DOC_CODES_AJUSTE, DOC_CODES_TRASPASO, MOTIVOS_RESOLUCION_MOVIMIENTO, UNIDAD_IMPORTE_SALIDA,
+  clasificarMovimiento, compararRenglones, motivosPara, resumirDonde, validarResolucion,
+  type DestinoSalida, type DetalleIncidenciaMovimiento, type ExcepcionMovimientoItem, type MotivoResolucion,
+  type MovimientosExcepcionesResponse, type RenglonDocumento, type ResolucionIncidencia, type UnidadImporte,
 } from '@megadulces/contracts';
 
 /**
@@ -171,17 +173,17 @@ const SIN_ACUSE_DIAS = 15;
 const esRuta = (nombre: string | null | undefined) => !!nombre && /^\s*ruta/i.test(nombre);
 
 /**
- * [MX.1.3] Estado de una salida que NO tiene recepción, por destino y edad — una sola regla para el
- * Diario y los hallazgos del Cuadre. A cliente (sin almacén resuelto) o a ruta nadie emite acuse:
- * `sin_recepcion_esperada`, no un pendiente.
- */
-/**
  * [MX.1.7] A qué clase de destino va una salida: sin almacén resuelto = cliente; almacén «Ruta …» = ruta;
  * si no, sucursal. La misma regla que separa los baldes de hallazgos ([DM.21]) y el estado sin recepción.
  */
 const claseDestino = (destWhId: string | null | undefined, destWhName: string | null | undefined): DestinoSalida =>
   !destWhId ? 'cliente' : esRuta(destWhName) ? 'ruta' : 'sucursal';
 
+/**
+ * [MX.1.3] Estado de una salida que NO tiene recepción, por destino y edad — una sola regla para el
+ * Diario y los hallazgos del Cuadre. A cliente (sin almacén resuelto) o a ruta nadie emite acuse:
+ * `sin_recepcion_esperada`, no un pendiente.
+ */
 const estadoSinRecepcion = (
   destWhId: string | null | undefined, destWhName: string | null | undefined, shipDate: unknown, ahora = Date.now(),
 ): 'en_transito' | 'sin_acuse' | 'sin_recepcion_esperada' => {
@@ -349,15 +351,6 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
           LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id AND ${DEST_WH_VIVO('dw')}
         ) t`;
 
-/**
- * Los 13 parámetros de {@link TRANSFER_PAIRING_SQL}, en el orden en que aparecen sus marcadores:
- * `shp` (tenant, from, to) · `rcv` (tenant, from, to) · `paired` (from, to, from, to — son DOS
- * rangos, uno por pata) · `unreceived` (from, to) · el mapa de destino (tenant).
- *
- * ⚠️ Contar a ojo salió mal la primera vez: el `OR` de `paired` lleva cuatro, no dos, y un
- * desfase de uno no explota — corre y devuelve otra cosa. Lo atrapó el verificador que rinde este
- * mismo template a SQL y cuenta los marcadores contra la lista. Si se agrega un `?`, va acá.
- */
 /** [MX.2.3] Una fila de {@link TRANSFER_PAIRING_SQL}. Los `numeric` de Postgres llegan como texto. */
 interface FilaPareo {
   origin_wh_id: string | null; origin_wh: string | null; origin_folio: string | null; doc_serie: string | null;
@@ -367,6 +360,27 @@ interface FilaPareo {
   status: 'ok' | 'diferencia' | 'sin_recepcion' | 'sin_origen'; delta: string | number | null; lineas_sin_importe: number | null;
 }
 
+/**
+ * [MX.2.4] Cómo se encuentra un documento para leer sus renglones. Lo que no se conoce va en `null` y
+ * no filtra: de una recepción el pareo no trae su serie, así que se ata por su folio PADRE (el de la
+ * salida) — medido el 2026-10-29: así se encontró la recepción de las 6 diferencias de 90 días.
+ */
+interface LlaveDoc {
+  warehouse_id: string; doc_code: string; folio: string;
+  doc_serie: string | null; parent_folio: string | null;
+}
+const llaveTxt = (k: LlaveDoc): string => [k.warehouse_id, k.doc_code, k.doc_serie ?? '*', k.folio, k.parent_folio ?? ''].join('|');
+const isoDia = (d: unknown): string | null => (d ? new Date(String(d)).toISOString().slice(0, 10) : null);
+
+/**
+ * Los 13 parámetros de {@link TRANSFER_PAIRING_SQL}, en el orden en que aparecen sus marcadores:
+ * `shp` (tenant, from, to) · `rcv` (tenant, from, to) · `paired` (from, to, from, to — son DOS
+ * rangos, uno por pata) · `unreceived` (from, to) · el mapa de destino (tenant).
+ *
+ * ⚠️ Contar a ojo salió mal la primera vez: el `OR` de `paired` lleva cuatro, no dos, y un
+ * desfase de uno no explota — corre y devuelve otra cosa. Lo atrapó el verificador que rinde este
+ * mismo template a SQL y cuenta los marcadores contra la lista. Si se agrega un `?`, va acá.
+ */
 const TRANSFER_PAIRING_PARAMS = (tenantId: string, from: string, to: string) =>
   [tenantId, from, to, tenantId, from, to, from, to, from, to, from, to, tenantId];
 
@@ -1230,16 +1244,27 @@ export class CommercialMovementsService {
     return this.tk.run(async (trx) => {
       const { all, checkAll } = await this.pareoCompleto(trx, tenantId, qq);
       const items: ExcepcionMovimientoItem[] = [];
+      /** [MX.2.4] cómo leer los renglones de cada ítem (y su contraparte) y cómo buscar su resolución */
+      const llaves = new Map<ExcepcionMovimientoItem, { principal: LlaveDoc; salida: LlaveDoc | null; recepcion: LlaveDoc | null }>();
       for (const r of checkAll) {
         const estado = r.status === 'ok' ? 'completado' as const
           : r.status === 'sin_recepcion' ? estadoSinRecepcion(r.dest_wh_id, r.dest_wh, r.ship_date)
           : r.status as 'diferencia' | 'sin_origen';
         const k = clasificarMovimiento({ doc_code: r.origin_folio ? 'TrsfShip' : 'TrsfRcv', transfer_status: estado, lineas_sin_importe: r.lineas_sin_importe });
         if (!k.a_bandeja) continue;
+        const salida: LlaveDoc | null = r.origin_folio && r.origin_wh_id
+          ? { warehouse_id: r.origin_wh_id, doc_code: 'TrsfShip', folio: r.origin_folio, doc_serie: r.doc_serie ?? '', parent_folio: null }
+          : null;
+        const recepcion: LlaveDoc | null = r.rcv_folio && r.dest_wh_id
+          ? { warehouse_id: r.dest_wh_id, doc_code: 'TrsfRcv', folio: r.rcv_folio, doc_serie: null, parent_folio: r.origin_folio ?? null }
+          : null;
+        const principal = salida ?? recepcion;
+        if (!principal) continue; // el pareo siempre trae una pata; sin ninguna no hay documento que mostrar
         const destino: DestinoSalida = r.status === 'sin_recepcion' ? claseDestino(r.dest_wh_id, r.dest_wh) : 'sucursal';
-        items.push({
+        const item: ExcepcionMovimientoItem = {
           tipo: 'traspaso', excepciones: k.excepciones, fecha: iso(r.ship_date || r.rcv_date),
-          origen: { warehouse_id: r.origin_wh_id ?? null, nombre: r.origin_wh ?? null, folio: r.origin_folio ?? null, doc_code: r.origin_folio ? 'TrsfShip' : 'TrsfRcv' },
+          documento: { warehouse_id: principal.warehouse_id, doc_code: principal.doc_code, doc_serie: principal.doc_serie ?? '', folio: principal.folio },
+          origen: { warehouse_id: r.origin_wh_id ?? null, nombre: r.origin_wh ?? null, folio: r.origin_folio ?? null, doc_code: r.origin_folio ? 'TrsfShip' : 'TrsfRcv', doc_serie: r.doc_serie ?? null },
           destino: { warehouse_id: r.dest_wh_id ?? null, nombre: r.dest_wh ?? null, folio: r.rcv_folio ?? null },
           piezas_enviadas: r.qty_sent != null ? Number(r.qty_sent) : null,
           piezas_recibidas: r.qty_received != null ? Number(r.qty_received) : null,
@@ -1249,7 +1274,10 @@ export class CommercialMovementsService {
           unidad_importe: r.status === 'sin_origen' ? null : UNIDAD_IMPORTE_SALIDA[destino],
           lineas_sin_importe: Number(r.lineas_sin_importe) || 0,
           dias: dias(r.ship_date || r.rcv_date),
-        });
+          donde: '', productos_con_error: 0, resolucion: null,
+        };
+        items.push(item);
+        llaves.set(item, { principal, salida, recepcion });
       }
       // Ajustes de inventario del rango (decisión D3: siempre a la bandeja).
       const whs = this.whIds(qq);
@@ -1259,41 +1287,255 @@ export class CommercialMovementsService {
         .andWhere('m.doc_date', '>=', from).andWhere('m.doc_date', '<=', to);
       if (whs.length) ajQ.whereIn('m.warehouse_id', whs);
       const ajustes = await ajQ.groupBy(...DOC_IDENTITY, 'w.name', 'w.code')
-        .select('m.warehouse_id', 'm.doc_code', 'm.folio', trx.raw('coalesce(w.name, w.code) AS nombre'),
+        .select('m.warehouse_id', 'm.doc_code', 'm.doc_serie', 'm.folio', trx.raw('coalesce(w.name, w.code) AS nombre'),
           trx.raw('MIN(m.doc_date) AS fecha'), trx.raw('SUM(m.signed_qty) AS piezas'), trx.raw('SUM(m.amount) AS importe'),
           trx.raw('COUNT(*) FILTER (WHERE m.amount IS NULL)::int AS lineas_sin_importe'));
-      for (const a of ajustes as { warehouse_id: string; doc_code: string; folio: string; nombre: string | null; fecha: unknown; piezas: unknown; importe: unknown; lineas_sin_importe: number }[]) {
+      type FilaAjuste = { warehouse_id: string; doc_code: string; doc_serie: string | null; folio: string; nombre: string | null; fecha: unknown; piezas: unknown; importe: unknown; lineas_sin_importe: number };
+      for (const a of ajustes as FilaAjuste[]) {
         const k = clasificarMovimiento({ doc_code: a.doc_code, lineas_sin_importe: a.lineas_sin_importe });
         if (!k.a_bandeja) continue;
-        items.push({
+        const principal: LlaveDoc = { warehouse_id: a.warehouse_id, doc_code: a.doc_code, folio: a.folio, doc_serie: a.doc_serie ?? '', parent_folio: null };
+        const item: ExcepcionMovimientoItem = {
           tipo: 'ajuste', excepciones: k.excepciones, fecha: iso(a.fecha),
-          origen: { warehouse_id: a.warehouse_id, nombre: a.nombre, folio: a.folio, doc_code: a.doc_code },
+          documento: { warehouse_id: a.warehouse_id, doc_code: a.doc_code, doc_serie: a.doc_serie ?? '', folio: a.folio },
+          origen: { warehouse_id: a.warehouse_id, nombre: a.nombre, folio: a.folio, doc_code: a.doc_code, doc_serie: a.doc_serie ?? null },
           destino: null, piezas_enviadas: null, piezas_recibidas: null,
           delta_piezas: a.piezas != null ? Number(a.piezas) : null,
           importe: a.importe != null ? Number(a.importe) : null,
           unidad_importe: null, // la unidad del importe de un ajuste no se ha medido (MX.1.7 midió salidas)
           lineas_sin_importe: Number(a.lineas_sin_importe) || 0,
           dias: dias(a.fecha),
-        });
+          donde: '', productos_con_error: 0, resolucion: null,
+        };
+        items.push(item);
+        llaves.set(item, { principal, salida: null, recepcion: null });
       }
+
+      // [MX.2.4] lo que ya resolvió una persona (D8). Resuelta = CON motivo; una marca del Diario sin
+      // motivo se muestra pero no saca la incidencia de la bandeja.
+      const resolucionDe = await this.resoluciones(trx, tenantId, [...llaves.values()].map((l) => l.principal));
+      for (const [it, l] of llaves) it.resolucion = resolucionDe(l.principal);
+      const resuelta = (it: ExcepcionMovimientoItem) => it.resolucion?.motivo != null;
+      const pendientes = items.filter((it) => !resuelta(it));
 
       const porExc: MovimientosExcepcionesResponse['totals']['por_excepcion'] = {};
       const porUnidad: Record<UnidadImporte | 'sin_unidad', number> = { valor_traspaso: 0, precio_venta: 0, mixta: 0, sin_unidad: 0 };
-      for (const it of items) {
+      for (const it of pendientes) {
         const imp = Math.abs(it.importe ?? 0);
         for (const e of it.excepciones) { const t = (porExc[e] ??= { n: 0, importe: 0 }); t.n++; t.importe += imp; }
         porUnidad[it.unidad_importe ?? 'sin_unidad'] += imp;
       }
-      items.sort((a, b) => Math.abs(b.importe ?? 0) - Math.abs(a.importe ?? 0) || b.dias - a.dias);
-      // [MX.3.2] el filtro acota la LISTA; los totales describen siempre el conjunto completo
-      const lista = q.excepcion ? items.filter((it) => (it.excepciones as string[]).includes(q.excepcion as string)) : items;
+      const orden = (a: ExcepcionMovimientoItem, b: ExcepcionMovimientoItem) => Math.abs(b.importe ?? 0) - Math.abs(a.importe ?? 0) || b.dias - a.dias;
+      // [MX.3.2] el filtro acota la LISTA; los totales describen siempre el conjunto completo de PENDIENTES
+      const lista = (q.excepcion === 'resueltas' ? items.filter(resuelta)
+        : q.excepcion ? pendientes.filter((it) => (it.excepciones as string[]).includes(q.excepcion as string))
+        : pendientes).sort(orden);
+      const rows = lista.slice((page - 1) * pageSize, page * pageSize);
+      await this.anotarDonde(trx, tenantId, rows, llaves);
       return {
         range: { from, to },
-        totals: { items: items.length, por_excepcion: porExc, importe_por_unidad: porUnidad, universo: { traspasos: checkAll.length, ajustes: ajustes.length } },
+        totals: {
+          items: pendientes.length, por_excepcion: porExc, importe_por_unidad: porUnidad,
+          universo: { traspasos: checkAll.length, ajustes: ajustes.length }, resueltas: items.length - pendientes.length,
+        },
         capped: all.length >= 50000,
         page, pageSize, total: lista.length,
-        rows: lista.slice((page - 1) * pageSize, page * pageSize),
+        rows,
       };
+    });
+  }
+
+  /**
+   * [MX.2.4] **Los renglones de varios documentos en UNA consulta**, sumados por producto (SKU: el feed
+   * lo trae siempre, aunque el producto no esté en catálogo). En un ajuste las piezas van con signo.
+   * La llave que no se conoce no filtra (ver {@link LlaveDoc}).
+   */
+  private async renglonesDe(trx: Knex.Transaction, tenantId: string, llaves: LlaveDoc[]): Promise<Map<string, RenglonDocumento[]>> {
+    const out = new Map<string, RenglonDocumento[]>();
+    const unicas = [...new Map(llaves.map((k) => [llaveTxt(k), k])).values()];
+    if (!unicas.length) return out;
+    // pg manda cada arreglo como literal de arreglo y un null adentro llega como NULL (= «no se conoce»,
+    // que la consulta lee como «no filtra»); el tipo de knex no admite nulos dentro de un arreglo
+    const col = <K extends keyof LlaveDoc>(c: K) => unicas.map((k) => k[c]) as unknown as string[];
+    const bind: Knex.RawBinding[] = [col('warehouse_id'), col('doc_code'), col('folio'), col('doc_serie'), col('parent_folio'),
+      unicas.map(llaveTxt), DOC_CODES_AJUSTE as string[], tenantId];
+    const { rows } = await trx.raw(`
+      WITH k AS (
+        SELECT * FROM unnest(?::uuid[], ?::text[], ?::text[], ?::text[], ?::text[], ?::text[])
+                 AS k(wh, dc, fo, se, pf, llave)
+      )
+      SELECT k.llave, coalesce(m.sku, m.product_id::text, '(sin sku)') AS sku,
+             MAX(coalesce(p.nombre, '(sin catálogo)')) AS producto, MAX(coalesce(m.doc_serie, '')) AS doc_serie,
+             SUM(CASE WHEN m.doc_code = ANY(?::text[]) THEN m.signed_qty ELSE m.qty END) AS piezas,
+             SUM(m.amount) AS importe, COUNT(*) FILTER (WHERE m.amount IS NULL)::int AS sin_costo
+      FROM k
+      JOIN analytics.stock_movements m
+        ON m.tenant_id = ? AND m.folio = k.fo AND m.warehouse_id = k.wh AND m.doc_code = k.dc
+       AND (k.se IS NULL OR coalesce(m.doc_serie, '') = k.se)
+       AND (k.pf IS NULL OR m.parent_folio = k.pf)
+      LEFT JOIN public.products p ON p.id = m.product_id AND p.tenant_id = m.tenant_id
+      GROUP BY k.llave, 2`, bind);
+    for (const r of rows as { llave: string; sku: string; producto: string; doc_serie: string; piezas: string; importe: string | null; sin_costo: number }[]) {
+      const arr = out.get(r.llave) ?? [];
+      arr.push({ sku: r.sku, producto: r.producto, piezas: Number(r.piezas) || 0, importe: r.importe != null ? Number(r.importe) : null, sin_costo: Number(r.sin_costo) || 0, doc_serie: r.doc_serie });
+      out.set(r.llave, arr);
+    }
+    return out;
+  }
+
+  /**
+   * [MX.2.4] Busca la resolución de cada documento en `commercial.stock_movement_audits` (D8). Si la
+   * serie no se conoce (una recepción), se acepta la de cualquier serie del mismo almacén + tipo + folio.
+   * `resolution_reason` se lee vía `to_jsonb` para que la bandeja no se caiga si el código llega a prod
+   * antes que su migración: sin la columna, ninguna cuenta como resuelta (y la marca sigue viéndose).
+   */
+  private async resoluciones(trx: Knex.Transaction, tenantId: string, llaves: LlaveDoc[]): Promise<(k: LlaveDoc) => ResolucionIncidencia | null> {
+    const folios = [...new Set(llaves.map((k) => k.folio))];
+    const porDoc = new Map<string, { serie: string; r: ResolucionIncidencia }[]>();
+    if (folios.length) {
+      const { rows } = await trx.raw(`
+        SELECT a.warehouse_id, a.doc_code, a.doc_serie, a.folio, a.note, a.audited_by,
+               coalesce(a.updated_at, a.created_at) AS fecha, to_jsonb(a) ->> 'resolution_reason' AS motivo
+        FROM commercial.stock_movement_audits a
+        WHERE a.tenant_id = ? AND a.folio = ANY(?::text[])`, [tenantId, folios]);
+      for (const a of rows as { warehouse_id: string; doc_code: string; doc_serie: string; folio: string; note: string | null; audited_by: string | null; fecha: unknown; motivo: string | null }[]) {
+        const k = `${a.warehouse_id}|${a.doc_code}|${a.folio}`;
+        const arr = porDoc.get(k) ?? [];
+        arr.push({ serie: a.doc_serie ?? '', r: {
+          motivo: MOTIVOS_RESOLUCION_MOVIMIENTO.some((m) => m.codigo === a.motivo) ? a.motivo as MotivoResolucion : null,
+          nota: a.note, por: a.audited_by, fecha: isoDia(a.fecha),
+        } });
+        porDoc.set(k, arr);
+      }
+    }
+    return (k: LlaveDoc) => {
+      const arr = porDoc.get(`${k.warehouse_id}|${k.doc_code}|${k.folio}`) ?? [];
+      return (k.doc_serie == null ? arr[0] : arr.find((x) => x.serie === k.doc_serie))?.r ?? null;
+    };
+  }
+
+  /** [MX.2.4] Llena `donde` y `productos_con_error` de las filas de la página (no del conjunto: es lectura de renglones). */
+  private async anotarDonde(
+    trx: Knex.Transaction, tenantId: string, rows: ExcepcionMovimientoItem[],
+    llaves: Map<ExcepcionMovimientoItem, { principal: LlaveDoc; salida: LlaveDoc | null; recepcion: LlaveDoc | null }>,
+  ): Promise<void> {
+    const pedir: LlaveDoc[] = [];
+    for (const it of rows) {
+      const l = llaves.get(it);
+      if (l) pedir.push(...[l.principal, l.salida, l.recepcion].filter((x): x is LlaveDoc => !!x));
+    }
+    const ren = await this.renglonesDe(trx, tenantId, pedir);
+    const de = (k: LlaveDoc | null) => (k ? ren.get(llaveTxt(k)) ?? [] : null);
+    for (const it of rows) {
+      const l = llaves.get(it);
+      if (!l) continue;
+      const comparados = it.tipo === 'ajuste' ? compararRenglones({ ajuste: de(l.principal) ?? [] })
+        : compararRenglones({ salida: de(l.salida), recepcion: de(l.recepcion) });
+      it.donde = resumirDonde(it.excepciones, comparados, { destino: it.destino?.nombre, dias: it.dias });
+      it.productos_con_error = comparados.filter((r) => r.con_error).length;
+      // la serie de una recepción no la trae el pareo: se completa con la del feed
+      if (l.principal.doc_serie == null) it.documento.doc_serie = de(l.principal)?.[0]?.doc_serie ?? '';
+    }
+  }
+
+  /**
+   * [MX.2.4] **Detalle de una incidencia, producto por producto**: el documento contra su contraparte
+   * (la que elige el Diario, `document()`), qué producto falta, sobra o no llegó, y su resolución.
+   */
+  async exceptionDetail(p: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string }): Promise<DetalleIncidenciaMovimiento> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!p?.warehouse_id || !UUID_RX.test(p.warehouse_id) || !p.doc_code || !p.folio) {
+      throw new BadRequestException('warehouse_id, doc_code y folio son requeridos');
+    }
+    if (!DOC_CODES_TRASPASO.includes(p.doc_code) && !DOC_CODES_AJUSTE.includes(p.doc_code)) {
+      throw new BadRequestException('Sólo los traspasos y los ajustes tienen incidencias.');
+    }
+    const doc = await this.document({ folio: p.folio, warehouse_id: p.warehouse_id, doc_code: p.doc_code, doc_serie: p.doc_serie ?? '' });
+    const h = doc.header;
+    if (!h) throw new BadRequestException('Ese documento no está en el diario de movimientos.');
+    const cp = doc.counterpart;
+    const cpDoc = cp?.docs?.[0] ?? null;
+    return this.tk.run(async (trx) => {
+      const propia: LlaveDoc = { warehouse_id: h.warehouse_id, doc_code: h.doc_code, folio: h.folio, doc_serie: h.doc_serie ?? '', parent_folio: null };
+      const otra: LlaveDoc | null = cpDoc
+        ? { warehouse_id: cpDoc.warehouse_id, doc_code: cpDoc.doc_code, folio: cpDoc.folio, doc_serie: cpDoc.doc_serie ?? '', parent_folio: null }
+        : null;
+      const ren = await this.renglonesDe(trx, tenantId, otra ? [propia, otra] : [propia]);
+      const mios = ren.get(llaveTxt(propia)) ?? [];
+      const suyos = otra ? ren.get(llaveTxt(otra)) ?? [] : null;
+      const esSalida = h.doc_code === 'TrsfShip';
+      const renglones = DOC_CODES_AJUSTE.includes(h.doc_code) ? compararRenglones({ ajuste: mios })
+        : esSalida ? compararRenglones({ salida: mios, recepcion: suyos })
+        : compararRenglones({ salida: suyos, recepcion: mios });
+      const destinoNombre: string | null = esSalida ? (cp?.dest_warehouse_name ?? cp?.dest_label ?? null) : (h.warehouse_name ?? null);
+      const fechaSalida = esSalida ? h.doc_date : cpDoc?.doc_date ?? h.doc_date;
+      const estado = !cp ? null
+        : cp.status === 'sin_recepcion' ? estadoSinRecepcion(cp.dest_warehouse_id, cp.dest_warehouse_name ?? cp.dest_label, h.doc_date)
+        : cp.status === 'ok' ? 'completado' as const : cp.status as 'diferencia' | 'sin_origen';
+      const sinCosto = (xs: RenglonDocumento[] | null) => (xs ?? []).reduce((s, r) => s + r.sin_costo, 0);
+      const k = clasificarMovimiento({ doc_code: h.doc_code, transfer_status: estado, lineas_sin_importe: h.doc_code === 'TrsfRcv' ? sinCosto(suyos) : sinCosto(mios) });
+      const dias = fechaSalida ? Math.max(0, Math.floor((Date.now() - new Date(String(fechaSalida)).getTime()) / 864e5)) : undefined;
+      const resolucion = (await this.resoluciones(trx, tenantId, [propia]))(propia);
+      return {
+        documento: { warehouse_id: h.warehouse_id, nombre: h.warehouse_name ?? null, doc_code: h.doc_code, doc_serie: h.doc_serie ?? null, folio: h.folio, fecha: isoDia(h.doc_date) ?? '' },
+        contraparte: cpDoc ? { warehouse_id: cpDoc.warehouse_id, nombre: cpDoc.warehouse_name ?? null, doc_code: cpDoc.doc_code, folio: cpDoc.folio, fecha: isoDia(cpDoc.doc_date) ?? '' } : null,
+        destino: destinoNombre,
+        excepciones: k.excepciones,
+        donde: resumirDonde(k.excepciones, renglones, { destino: destinoNombre, dias }),
+        renglones, resolucion,
+        motivos: motivosPara(k.excepciones),
+      };
+    });
+  }
+
+  /**
+   * [MX.2.4] **Resolver una incidencia con su motivo** (D8: `commercial.stock_movement_audits`, la misma
+   * fila que la marca «auditado» del Diario — una sola verdad humana por documento). Sale de la bandeja
+   * aunque el motor la siga viendo; si se corrigió en Kepler, desaparece sola en la siguiente lectura.
+   */
+  async resolveException(dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; motivo: string; nota?: string | null }): Promise<ResolucionIncidencia> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const username = this.tenantCtx.get()?.username || null;
+    if (!dto?.warehouse_id || !UUID_RX.test(dto.warehouse_id) || !dto.doc_code || !dto.folio) {
+      throw new BadRequestException('warehouse_id, doc_code y folio son requeridos');
+    }
+    if (!DOC_CODES_TRASPASO.includes(dto.doc_code) && !DOC_CODES_AJUSTE.includes(dto.doc_code)) {
+      throw new BadRequestException('Sólo se resuelven traspasos y ajustes.');
+    }
+    const error = validarResolucion(dto.motivo, dto.nota);
+    if (error) throw new BadRequestException(error);
+    const serie = dto.doc_serie ?? '';
+    const nota = dto.nota?.trim() || null;
+    return this.tk.run(async (trx) => {
+      const existe = await trx('analytics.stock_movements')
+        .where({ tenant_id: tenantId, warehouse_id: dto.warehouse_id, doc_code: dto.doc_code, folio: dto.folio })
+        .andWhereRaw(`coalesce(doc_serie, '') = ?`, [serie])
+        .first(trx.raw('1 AS x'));
+      if (!existe) throw new BadRequestException('Ese documento no está en el diario de movimientos.');
+      const { rows } = await trx.raw(`
+        INSERT INTO commercial.stock_movement_audits (tenant_id, warehouse_id, doc_code, doc_serie, folio, audited_by, note, resolution_reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (tenant_id, warehouse_id, doc_code, doc_serie, folio)
+        DO UPDATE SET audited_by = EXCLUDED.audited_by, note = EXCLUDED.note,
+                      resolution_reason = EXCLUDED.resolution_reason, updated_at = now()
+        RETURNING resolution_reason, note, audited_by, updated_at`,
+      [tenantId, dto.warehouse_id, dto.doc_code, serie, dto.folio, username, nota, dto.motivo]);
+      const r = rows[0] as { resolution_reason: MotivoResolucion; note: string | null; audited_by: string | null; updated_at: unknown };
+      return { motivo: r.resolution_reason, nota: r.note, por: r.audited_by, fecha: isoDia(r.updated_at) };
+    });
+  }
+
+  /** [MX.2.4] Reabrir: quita la resolución (y la marca) del documento; si el motor lo sigue viendo, vuelve a la bandeja. */
+  async reopenException(dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string }): Promise<{ reabierta: boolean }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!dto?.warehouse_id || !UUID_RX.test(dto.warehouse_id) || !dto.doc_code || !dto.folio) {
+      throw new BadRequestException('warehouse_id, doc_code y folio son requeridos');
+    }
+    return this.tk.run(async (trx) => {
+      const n = await trx('commercial.stock_movement_audits')
+        .where({ tenant_id: tenantId, warehouse_id: dto.warehouse_id, doc_code: dto.doc_code, doc_serie: dto.doc_serie ?? '', folio: dto.folio })
+        .delete();
+      return { reabierta: n > 0 };
     });
   }
 

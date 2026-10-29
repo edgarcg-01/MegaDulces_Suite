@@ -4,7 +4,7 @@ import type { Response } from 'express';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import { CommercialMovementsService, MovementsQuery } from './commercial-movements.service';
 import { MovementsExportService } from './movements-export.service';
-import type { MovimientosExcepcionesResponse } from '@megadulces/contracts';
+import type { DetalleIncidenciaMovimiento, MovimientosExcepcionesResponse, ResolucionIncidencia } from '@megadulces/contracts';
 
 /**
  * DM.1 — Diario de movimientos (mejora del reporte Kepler). Lectura de inventario.
@@ -149,6 +149,27 @@ export class CommercialMovementsController {
   @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
   @ApiOperation({ summary: '[MX.2.3] Bandeja de excepciones: sólo lo que el motor no puede dar por bueno (diferencias, sin acuse > 15 d, sin origen, ajustes, importe incompleto). Totales sobre el conjunto completo; importe por unidad. Filtros: from, to, warehouse_id(s), dest_kinds, page, pageSize.' })
   exceptions(@Query() raw: Record<string, string>): Promise<MovimientosExcepcionesResponse> { return this.svc.exceptions(this.q(raw)); }
+
+  @Get('exceptions/detail')
+  @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: '[MX.2.4] Detalle de una incidencia producto por producto: qué falta, sobra o no llegó contra su contraparte, su resolución y los motivos que aplican. Params: warehouse_id, doc_code, doc_serie, folio.' })
+  exceptionDetail(@Query() raw: Record<string, string>): Promise<DetalleIncidenciaMovimiento> {
+    return this.svc.exceptionDetail({ warehouse_id: raw.warehouse_id, doc_code: raw.doc_code, doc_serie: raw.doc_serie, folio: raw.folio });
+  }
+
+  @Post('exceptions/resolve')
+  @RequirePermissions(Permission.COMMERCIAL_MOVEMENTS_GESTIONAR)
+  @ApiOperation({ summary: '[MX.2.4] Resuelve una incidencia con su motivo (catálogo MOTIVOS_RESOLUCION_MOVIMIENTO). Body: { warehouse_id, doc_code, doc_serie?, folio, motivo, nota? }.' })
+  resolveException(@Body() dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; motivo: string; nota?: string | null }): Promise<ResolucionIncidencia> {
+    return this.svc.resolveException(dto);
+  }
+
+  @Post('exceptions/reopen')
+  @RequirePermissions(Permission.COMMERCIAL_MOVEMENTS_GESTIONAR)
+  @ApiOperation({ summary: '[MX.2.4] Reabre una incidencia resuelta (quita su resolución). Body: { warehouse_id, doc_code, doc_serie?, folio }.' })
+  reopenException(@Body() dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string }): Promise<{ reabierta: boolean }> {
+    return this.svc.reopenException(dto);
+  }
 
   @Get('filters')
   @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)

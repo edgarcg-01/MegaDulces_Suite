@@ -1,5 +1,8 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true`.
-import { clasificarMovimiento, ETIQUETA_UNIDAD_IMPORTE, UNIDAD_IMPORTE_SALIDA, type DocumentoAClasificar } from './excepciones-movimientos.contract';
+import {
+  clasificarMovimiento, compararRenglones, ETIQUETA_UNIDAD_IMPORTE, motivosPara, resumirDonde, UNIDAD_IMPORTE_SALIDA, validarResolucion,
+  type DocumentoAClasificar, type RenglonDocumento,
+} from './excepciones-movimientos.contract';
 
 describe('[MX.1.7] la unidad del importe de una salida depende del destino', () => {
   it('sucursal = valor de traspaso · cliente = precio de venta · ruta = mezcla', () => {
@@ -48,5 +51,75 @@ describe('[MX.1.4] clasificarMovimiento — sólo lo que el motor no puede dar p
       .toEqual(['diferencia', 'importe_incompleto']);
     // en lo que no se compara, el importe incompleto no inventa una excepción
     expect(c({ doc_code: 'EntryOr1', lineas_sin_importe: 3 }).a_bandeja).toBe(false);
+  });
+});
+
+const R = (sku: string, producto: string, piezas: number, importe: number | null = piezas * 10, sin_costo = 0): RenglonDocumento =>
+  ({ sku, producto, piezas, importe, sin_costo });
+
+describe('[MX.2.4] compararRenglones — dónde está el error, producto por producto', () => {
+  it('el caso real: CEDIS 0000439 → Padre Hidalgo, la cocada salió y no llegó', () => {
+    const r = compararRenglones({
+      salida: [R('31012', 'COCADA MINI BARRITA BLANCA', 840), R('100', 'PALETA', 50)],
+      recepcion: [R('100', 'PALETA', 50)],
+    });
+    expect(r[0]).toMatchObject({ sku: '31012', estado: 'no_llego', salida: 840, recepcion: null, delta: -840, importe_diferencia: -8400, con_error: true });
+    expect(r[1]).toMatchObject({ sku: '100', estado: 'cuadra', con_error: false });
+    expect(resumirDonde(['diferencia'], r)).toBe('COCADA MINI BARRITA BLANCA: salieron 840 y no llegó');
+  });
+
+  it('falta, sobra y no venía; primero lo que más dinero mueve', () => {
+    const r = compararRenglones({
+      salida: [R('A', 'BOLSA', 125), R('B', 'VELA', 10, 1000)],
+      recepcion: [R('A', 'BOLSA', 50), R('B', 'VELA', 12, 1200), R('C', 'CHICLE', 5)],
+    });
+    expect(r.map((x) => [x.sku, x.estado])).toEqual([['A', 'falta'], ['B', 'sobra'], ['C', 'no_venia']]);
+    expect(resumirDonde(['diferencia'], r)).toBe('BOLSA: salieron 125, llegaron 50 y 2 productos más');
+  });
+
+  it('⛔ la suma de los productos con error ES el Δ del documento (control: el caso que cuadra suma 0)', () => {
+    const s = [R('A', 'X', 10), R('B', 'Y', 4), R('C', 'Z', 1)];
+    const r = compararRenglones({ salida: s, recepcion: [R('A', 'X', 7), R('B', 'Y', 4), R('D', 'W', 2)] });
+    expect(r.reduce((t, x) => t + x.delta, 0)).toBe((7 + 4 + 2) - (10 + 4 + 1));
+    expect(compararRenglones({ salida: s, recepcion: s }).every((x) => !x.con_error)).toBe(true);
+  });
+
+  it('sin acuse: todo pendiente, y dice a dónde iba y cuántos días lleva', () => {
+    const r = compararRenglones({ salida: [R('A', 'X', 10), R('B', 'Y', 5)], recepcion: null });
+    expect(r.every((x) => x.estado === 'pendiente' && x.delta === 0)).toBe(true);
+    expect(resumirDonde(['sin_acuse'], r, { destino: 'Padre Hidalgo', dias: 23 }))
+      .toBe('Nadie registró la recepción en Padre Hidalgo en 23 días: 2 productos, 15 piezas');
+  });
+
+  it('sin origen, ajuste e importe incompleto nombran el producto', () => {
+    expect(compararRenglones({ salida: null, recepcion: [R('A', 'X', 3)] })[0].estado).toBe('sin_respaldo');
+    const aj = compararRenglones({ ajuste: [R('A', 'X', -2, -20), R('B', 'Y', 120, 4500)] });
+    expect(resumirDonde(['ajuste_inventario'], aj)).toBe('Y: +120 piezas y 1 producto más');
+    const sc = compararRenglones({ salida: [R('A', 'X', 1, null, 1)], recepcion: [R('A', 'X', 1, null, 1)] });
+    expect(sc[0]).toMatchObject({ estado: 'cuadra', sin_costo: true, con_error: true });
+    expect(resumirDonde(['importe_incompleto'], sc)).toBe('Sin costo en Kepler: X');
+  });
+
+  it('dos excepciones = dos frases', () => {
+    const r = compararRenglones({ salida: [R('A', 'X', 10, null, 1)], recepcion: [R('A', 'X', 9, null, 1)] });
+    expect(resumirDonde(['diferencia', 'importe_incompleto'], r)).toBe('X: salieron 10, llegaron 9 · Sin costo en Kepler: X');
+  });
+});
+
+describe('[MX.2.4] motivos de resolución', () => {
+  it('cada excepción tiene al menos un motivo propio además de «otro»', () => {
+    for (const e of ['diferencia', 'sin_acuse', 'sin_origen', 'ajuste_inventario', 'importe_incompleto'] as const) {
+      expect(motivosPara([e]).filter((m) => m.codigo !== 'otro').length).toBeGreaterThan(0);
+    }
+    expect(motivosPara(['ajuste_inventario']).map((m) => m.codigo)).not.toContain('faltante_confirmado');
+  });
+  it('⛔ rechaza motivo inventado, «otro» sin nota y nota enorme; acepta lo válido (control)', () => {
+    expect(validarResolucion('lo_que_sea', 'x')).toMatch(/motivo/);
+    expect(validarResolucion(null, null)).toMatch(/motivo/);
+    expect(validarResolucion('otro', '  ')).toMatch(/nota/);
+    expect(validarResolucion('faltante_confirmado', '')).toMatch(/nota/);
+    expect(validarResolucion('error_de_captura', 'x'.repeat(1001))).toMatch(/1,000/);
+    expect(validarResolucion('corregido_en_kepler', null)).toBeNull();
+    expect(validarResolucion('otro', 'Se devolvió al proveedor')).toBeNull();
   });
 });
