@@ -26,9 +26,9 @@ describe('[GX.80] GastosAreaShellComponent', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
-  it('quien firma ve la barra con las cinco pantallas (EMB.29: + Comisiones de logística)', async () => {
+  it('quien firma ve la barra con las seis pantallas (EMB.29: + Comisiones de logística · CGA-A.65: + Hoja de zona)', async () => {
     const el = await render({ FINANCE_EXPENSES_COMPROBAR: true, FINANCE_EXPENSES_VER: true });
-    expect(etiquetas(el)).toEqual(['Aprobación de gastos', 'Mis gastos', 'Expediente', 'Historial', 'Comisiones de logística']);
+    expect(etiquetas(el)).toEqual(['Aprobación de gastos', 'Mis gastos', 'Expediente', 'Historial', 'Comisiones de logística', 'Hoja de zona']);
   });
 
   it('con VER (sin firmar) ve Mis gastos e Historial', async () => {
@@ -43,9 +43,9 @@ describe('[GX.80] GastosAreaShellComponent', () => {
     expect(el.querySelector('router-outlet')).not.toBeNull();
   });
 
-  it('el administrador de plataforma ve las cinco', async () => {
+  it('el administrador de plataforma ve las seis', async () => {
     const el = await render({}, true);
-    expect(etiquetas(el)).toHaveLength(5);
+    expect(etiquetas(el)).toHaveLength(6);
   });
 
   /** EMB.29: Logística arma los vales de comisiones, pero no ve el resto de Gastos. */
