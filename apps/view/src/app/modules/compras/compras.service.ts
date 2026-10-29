@@ -236,6 +236,8 @@ export interface OpenOcRow {
   estado_cadena?: EstadoCadena | null;
   /** [RA-PRO.67] La palabra del ERP (`c43 = 'N'`). Testigo distinto del de arriba. */
   pendiente_en_erp?: boolean | null;
+  /** `[PQ.30]` De qué requisición salió: Suite (`id`+`folio`) y/o Kepler. `null` = sin requisición. */
+  requisicion?: { id: string | null; folio: string | null; kepler: string | null } | null;
 }
 /** `[PQ.20]` Un renglón del interruptor: sucursal × tipo. */
 export type KeplerTipo = 'compra' | 'traspaso';

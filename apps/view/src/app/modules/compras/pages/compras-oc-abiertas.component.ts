@@ -172,10 +172,11 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
       <!-- [RA-PRO.69] DESIGN_TABLES SS6: las columnas son CAMPOS de un registro (no un pivote),
            asi que en estrecho la tabla APILA. El .dt-scope del contenedor no es decorativo:
            sin el, el CSS de apilado es inerte y la pantalla se rompe con el build en verde.
-           sortField/sortOrder arrancan en el MISMO orden que manda el servidor (dias DESC). -->
+           sortField/sortOrder arrancan en el MISMO orden que manda el servidor: [PQ.30] de la más
+           nueva a la más vieja (fecha DESC), que es la que se busca al salir una orden. -->
       <div class="dt-scope">
       <p-table [value]="filas()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
-               sortField="dias" [sortOrder]="-1"
+               sortField="fecha_oc" [sortOrder]="-1"
                [tableStyle]="{ 'min-width': '68rem' }"
                styleClass="p-datatable-sm oa-table dt-stack"
                [attr.aria-label]="'Órdenes de compra abiertas en Kepler'">
@@ -187,6 +188,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
         <ng-template #header>
           <tr>
             <th scope="col" pFrozenColumn style="min-width:6.5rem" pSortableColumn="folio">Folio <p-sorticon field="folio" /></th>
+            <th scope="col">Requisición</th>
             <th scope="col" pSortableColumn="almacen">Sucursal <p-sorticon field="almacen" /></th>
             <th scope="col" pSortableColumn="proveedor">Proveedor <p-sorticon field="proveedor" /></th>
             <th scope="col" pSortableColumn="fecha_oc">Fecha <p-sorticon field="fecha_oc" /></th>
@@ -204,6 +206,12 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
               (click)="abrirDetalle(o)"
               (keydown.enter)="abrirDetalle(o)" (keydown.space)="$event.preventDefault(); abrirDetalle(o)">
             <td pFrozenColumn class="dt-id" role="cell"><span class="comm-code">{{ o.folio }}</span></td>
+            <!-- [PQ.30] De qué requisición salió: la de la Suite se abre; la de Kepler se dice. -->
+            <td role="cell" data-label="Requisición">
+              @if (o.requisicion?.folio) { <a class="comm-code" [routerLink]="['/compras/requisiciones', o.requisicion.id]" (click)="$event.stopPropagation()">{{ o.requisicion.folio }}</a> }
+              @else if (o.requisicion?.kepler) { <span class="oa-muted">Kepler {{ o.requisicion.kepler }}</span> }
+              @else { <span class="oa-muted">sin requisición</span> }
+            </td>
             <td role="cell" data-label="Sucursal">{{ o.almacen | sucursal }}</td>
             <td role="cell" data-label="Proveedor">{{ o.proveedor || '—' }}</td>
             <td class="oa-muted" role="cell" data-label="Fecha">{{ o.fecha_oc | date:'dd/MM/yy' }}</td>
@@ -218,7 +226,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
              vista y la tira de arriba contaba otra cosa. -->
         <ng-template #footer>
           <tr class="oa-tfoot">
-            <td pFrozenColumn colspan="4">
+            <td pFrozenColumn colspan="5">
               {{ filtrado() ? 'Filtrado' : 'Todo lo que trajo la tabla' }}
               <span class="oa-muted">· {{ filas().length | number }} {{ filas().length === 1 ? 'orden' : 'órdenes' }}</span>
             </td>
@@ -229,7 +237,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="8" class="comm-empty-cell">
+          <tr><td colspan="9" class="comm-empty-cell">
             <div class="comm-empty">
               @if (cargaError()) {
                 <i class="pi pi-exclamation-triangle comm-empty-icon" aria-hidden="true"></i>

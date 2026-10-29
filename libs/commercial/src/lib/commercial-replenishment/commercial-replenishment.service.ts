@@ -2946,9 +2946,22 @@ export class CommercialReplenishmentService {
                -- El ERP manda sobre la curva: si él ya la dio por cerrada/cancelada, no llega nada.
                CASE WHEN oc.estatus IN ('F','C','R') THEN 0 ELSE round((sv.p * 100)::numeric, 1) END AS prob,
                oc.estado_cadena, oc.pendiente_en_erp,
+               -- [PQ.30] De qué requisición salió (PM, 2026-10-29: «no puedo ver el folio de su
+               -- requisición»). La de la Suite por su coordenada de OC (RQ.15); si la OC se hizo
+               -- en Kepler desde una requisición de Kepler, el folio de ésta (c36 A · c37 30 · c39).
+               rq.id AS requisicion_id, rq.folio AS requisicion_folio, NULLIF(btrim(kh.c39), '') AS requisicion_kepler,
                ${fuCols}
           FROM oc
           ${fuJoin}
+          LEFT JOIN LATERAL (
+            SELECT r.id, r.folio FROM commercial.purchase_requisitions r
+             WHERE r.tenant_id = :t AND r.oc_sucursal = oc.sucursal AND r.oc_folio = oc.folio
+             ORDER BY r.created_at LIMIT 1) rq ON true
+          LEFT JOIN LATERAL (
+            SELECT k.c39 FROM kepler_ods.kdm1 k
+             WHERE k.sucursal = oc.sucursal AND k.c2 = 'X' AND k.c3 = 'A' AND btrim(k.c4::text) = '35'
+               AND btrim(k.c6::text) = oc.folio AND k.c36 = 'A' AND btrim(k.c37::text) = '30'
+             LIMIT 1) kh ON true
           -- LEFT: si el importer todavía no escribió la curva, la bandeja igual lista las OCs
           -- (con prob NULL). Una pantalla de trabajo no se queda en blanco por eso.
           LEFT JOIN surv sv ON sv.edad = (CASE WHEN oc.dias <= 3 THEN 0 WHEN oc.dias <= 7 THEN 4
@@ -2960,7 +2973,9 @@ export class CommercialReplenishmentService {
               FROM analytics.erp_purchase_doc_lines l
              WHERE l.tenant_id = :t AND l.doctype='XA3501' AND l.sucursal=oc.sucursal AND l.folio=oc.folio) v ON true
          WHERE v.valor > 0
-         ORDER BY oc.dias DESC, v.valor DESC
+         -- [PQ.30] De la más nueva a la más vieja (PM, 2026-10-29): la orden que acaba de salir
+         -- es la que se busca; antes había que reordenar con un clic. El tope corta lo más viejo.
+         ORDER BY oc.fecha_oc DESC, oc.folio DESC
          LIMIT :tope`, {
         t: tenantId, mind: minDays, todas: alcance.todas, codigos: alcance.codigos.join(','), tope: TOPE_CONSULTA_OC,
       })).rows as Array<Record<string, unknown>>;
@@ -2980,6 +2995,9 @@ export class CommercialReplenishmentService {
         // "pendiente" (el que traduce eso a una clase es `clasificarOc`, en un solo lugar).
         estado_cadena: (r.estado_cadena as EstadoCadena) ?? null,
         pendiente_en_erp: r.pendiente_en_erp == null ? null : String(r.pendiente_en_erp) === 'true',
+        requisicion: r.requisicion_folio
+          ? { id: String(r.requisicion_id), folio: String(r.requisicion_folio), kepler: (r.requisicion_kepler as string) ?? null }
+          : r.requisicion_kepler ? { id: null, folio: null, kepler: String(r.requisicion_kepler) } : null,
         seguimiento: r.fu_estatus
           ? { estatus: r.fu_estatus as OcSeguimientoEstatus, nota: (r.fu_nota as string) ?? null,
               actualizado_por: (r.fu_por as string) ?? null, actualizado_en: new Date(r.fu_en as string).toISOString() }

@@ -28,6 +28,19 @@ describe('[PQ.28] OC abiertas — el estado en una frase', () => {
     expect(src).toContain('Permission.COMPRAS_ORDENES_VER');
   });
 
+  it('[PQ.30] arranca de la más NUEVA a la más vieja, y cada orden dice de qué requisición salió', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(__dirname, 'compras-oc-abiertas.component.ts'), 'utf8');
+    const back = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', '..', 'libs', 'commercial', 'src', 'lib', 'commercial-replenishment', 'commercial-replenishment.service.ts'), 'utf8');
+    expect(src).toContain('sortField="fecha_oc" [sortOrder]="-1"');
+    expect(back).toContain('ORDER BY oc.fecha_oc DESC, oc.folio DESC');
+    expect(src).toContain('<th scope="col">Requisición</th>');
+    expect(src).toMatch(/routerLink\]="\['\/compras\/requisiciones', o\.requisicion\.id\]"/);
+    // NEGATIVA: sin requisición se DICE, no se deja en blanco.
+    expect(src).toContain('sin requisición');
+  });
+
   it('NEGATIVA: sin la clasificación del servidor no inventa una: usa el estatus de Kepler', () => {
     expect(comp(false).estadoTexto(fila({ estatus: 'R', prob: null }))).toBe('Recibida');
   });
