@@ -4407,6 +4407,7 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(q.pageSize) || 50));
+    await this.asociarOcDeKepler(tenantId);
     return this.tk.run(async (trx) => {
       // Se preguntan ANTES de armar el WHERE: la búsqueda toca `batch_folio`, que no existe
       // hasta que corre la migración, y un SELECT sobre una columna ausente es un 42703 que se
@@ -4642,9 +4643,47 @@ export class CommercialReplenishmentService {
     return out;
   }
 
+  /**
+   * `[PQ.25]` **La OC se asocia sola, la haya hecho quien la haya hecho.**
+   *
+   * La Suite liga la OC cuando la escribe ella misma (`[PQ.22]`). Pero una requisición que ya
+   * estaba en Kepler y se convirtió después —a mano en Kepler o por script— se quedaba
+   * «aprobada» con el botón «Capturar OC», esperando que alguien tecleara un folio que Kepler
+   * ya sabe: la OC (X-A-35) guarda su origen en `c36='A' · c37=30 · c39=folio de la requisición`.
+   * Medido el 2026-10-29: las 4 de CEDIS convertidas por script (0003111/2/3/5 → 0007261–64) se
+   * encuentran así en 9 ms, y ninguna otra aprobada con folio de Kepler casa (sin falsos).
+   *
+   * Corre al leer la bandeja y la ficha: sin cron, se asocia cuando alguien va a mirar. Si una
+   * requisición tiene varias OC, toma la primera. Nunca tira la lectura: si falla, se registra
+   * y la pantalla sigue mostrando «Capturar OC».
+   */
+  private async asociarOcDeKepler(tenantId: string): Promise<void> {
+    try {
+      await this.tk.run(async (trx) => {
+        const n = await trx.raw(
+          `UPDATE commercial.purchase_requisitions r
+              SET estado = 'ordered', oc_sucursal = r.kepler_sucursal, oc_folio = o.oc,
+                  oc_capturada_at = now(), ordered_at = now(), updated_at = now()
+             FROM (SELECT r2.id, (SELECT min(btrim(k.c6)) FROM kepler_ods.kdm1 k
+                                   WHERE k.sucursal = r2.kepler_sucursal AND k.c2 = 'X' AND k.c3 = 'A'
+                                     AND btrim(k.c4::text) = '35' AND k.c36 = 'A' AND btrim(k.c37::text) = '30'
+                                     AND k.c39 IN (r2.kepler_folio, ltrim(r2.kepler_folio, '0'))) AS oc
+                     FROM commercial.purchase_requisitions r2
+                    WHERE r2.tenant_id = ? AND r2.estado = 'approved' AND r2.source_type = 'supplier'
+                      AND r2.kepler_folio IS NOT NULL AND r2.oc_folio IS NULL) o
+            WHERE r.tenant_id = ? AND r.id = o.id AND o.oc IS NOT NULL AND r.estado = 'approved'`,
+          [tenantId, tenantId]);
+        if (n.rowCount) this.logger.log(`[PQ.25] ${n.rowCount} requisición(es) asociadas a su OC de Kepler`);
+      });
+    } catch (e: unknown) {
+      this.logger.warn(`[PQ.25] No se pudo asociar OC de Kepler: ${(e as Error)?.message}`);
+    }
+  }
+
   async getRequisition(id: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
+    await this.asociarOcDeKepler(tenantId);
     return this.tk.run(async (trx) => {
       const header: any = await trx('commercial.purchase_requisitions as r')
         .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'r.tenant_id').andOn('w.id', 'r.warehouse_id'))
