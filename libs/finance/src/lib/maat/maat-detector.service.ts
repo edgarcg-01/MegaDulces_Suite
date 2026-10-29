@@ -131,10 +131,42 @@ export class MaatDetectorService {
       for (const rule of rules) {
         const params = typeof rule.params === 'string' ? JSON.parse(rule.params) : (rule.params || {});
         let findings: RawFinding[] = [];
+        /**
+         * `[PGP.39]` **Un detector que se calla deja RASTRO, no un `logger.warn`.**
+         *
+         * Acá había sólo un `warn` y un `continue`. Como `finance.findings` **conserva los
+         * hallazgos viejos**, un detector parado se ve EXACTAMENTE igual que uno sin hallazgos
+         * nuevos: la bandeja sigue llena y nadie se entera. Es el mismo patrón que el repo ya
+         * tiene nombrado para las matvistas — *«una MV parada se ve VERDE (OBS.1)»*.
+         *
+         * ⛔ Medido contra prod el 2026-10-29: el motor **sí corre** (13 reglas con `last_seen`
+         * de hoy, 163,420 hallazgos), pero **24 de 44 reglas llevaban 44–98 días mudas** y **21
+         * se callaron el mismo día**. Entre ellas `descuento_no_capturado`: **98 hallazgos por
+         * \$5,363,294, los 98 sin triar, 61 días sin producir.**
+         *
+         * El `warn` sigue, porque sirve para depurar; lo que cambia es que ahora queda un dato
+         * **consultable**: `last_run_at` se mueve siempre, `last_ok_at` sólo si terminó bien, y
+         * `last_error` guarda el motivo. Un `last_ok_at` muy atrás de `last_run_at` es, por sí
+         * solo, el aviso que faltaba.
+         *
+         * ⛔ El rastro es **best-effort y va fuera de la transacción del scan**: si escribirlo
+         * fallara, no puede tumbar el detector que sí funcionó. Pero su propio fallo se dice —
+         * un rastro que se pierde en silencio sería el mismo defecto una capa más arriba.
+         */
+        const t0 = Date.now();
+        // ⛔ SAVEPOINT: un detector que revienta deja la transacción ABORTADA, y el `UPDATE` del
+        // rastro moriría con 25P02 — justo el que viene a dejar constancia del fallo. Mismo
+        // idioma que ya usa el Calendario de Pagos para el ledger.
+        await trx.raw(`SAVEPOINT det`);
         try {
           findings = await this.runDetector(rule.rule_key, trx, tenantId, params);
+          await trx.raw(`RELEASE SAVEPOINT det`);
+          await this.marcarCorrida(trx, tenantId, rule.rule_key, null);
         } catch (e: any) {
-          this.logger.warn(`Detector ${rule.rule_key} falló: ${e?.message || e}`);
+          await trx.raw(`ROLLBACK TO SAVEPOINT det`).catch(() => undefined);
+          const motivo = String(e?.message || e).slice(0, 500);
+          this.logger.warn(`Detector ${rule.rule_key} falló en ${Date.now() - t0} ms: ${motivo}`);
+          await this.marcarCorrida(trx, tenantId, rule.rule_key, motivo);
           continue;
         }
         let nuevos = 0;
@@ -165,6 +197,30 @@ export class MaatDetectorService {
       this.logger.log(`scan (${source}): ${totalNuevos} hallazgos nuevos en ${rules.length} reglas activas.`);
       return { source, reglas: rules.length, nuevos: totalNuevos, por_regla: summary, nuevos_criticos: nuevosCriticos };
     });
+  }
+
+  /**
+   * `[PGP.39]` Deja el rastro de una corrida de detector en `finance.rule_registry`.
+   * `error = null` significa que terminó bien.
+   *
+   * ⛔ Best-effort: si el rastro no se puede escribir, **no** tumba los hallazgos que sí se
+   * escribieron. Pero su propio fallo se dice: un rastro que se pierde en silencio sería el
+   * mismo defecto una capa más arriba.
+   */
+  private async marcarCorrida(trx: any, tenantId: string, ruleKey: string, error: string | null): Promise<void> {
+    try {
+      await trx.raw(
+        `UPDATE finance.rule_registry
+            SET last_run_at   = now(),
+                last_ok_at    = CASE WHEN ?::text IS NULL THEN now() ELSE last_ok_at END,
+                last_error    = ?::text,
+                last_error_at = CASE WHEN ?::text IS NULL THEN last_error_at ELSE now() END
+          WHERE tenant_id = ? AND rule_key = ?`,
+        [error, error, error, tenantId, ruleKey],
+      );
+    } catch (e: any) {
+      this.logger.warn(`No se pudo registrar la corrida de ${ruleKey}: ${e?.message || e}`);
+    }
   }
 
   private runDetector(key: string, trx: any, tenantId: string, params: any): Promise<RawFinding[]> {
