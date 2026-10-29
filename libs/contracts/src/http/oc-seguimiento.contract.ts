@@ -116,6 +116,18 @@ export interface OcDetalleDto {
     /** `[PQ.32]` Dónde se entrega: la sucursal por NOMBRE y su dirección si está capturada. */
     sucursal_nombre?: string | null;
     sucursal_direccion?: string | null;
+    /**
+     * `[PQ.33]` Lo que una OC debe dejar inequívoco al proveedor, leído del MISMO documento de
+     * Kepler (nada se supone): moneda (`kdm1.c7`; 3,040 de 3,040 OC en 90 d dicen PESOS), domicilio
+     * del proveedor congelado en el documento (`c33` · `c34`; 67 % lo trae) y las TASAS de IVA e
+     * IEPS de sus renglones (`kdm2.c17` · `c18`), para decir «IVA 0 %» en vez de callarlo.
+     */
+    moneda?: string | null;
+    proveedor_direccion?: string | null;
+    tasas_iva?: number[] | null;
+    tasas_ieps?: number[] | null;
+    /** `[PQ.33]` Quién aprobó la requisición de la que salió (Suite), y cuándo. `null` = sin requisición. */
+    autorizo?: { nombre: string; en: string } | null;
   };
   lineas: OcRenglonDto[];
   /** Recepciones del mismo proveedor y no anteriores a la orden: las que cuentan como surtido. */

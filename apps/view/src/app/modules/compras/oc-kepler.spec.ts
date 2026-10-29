@@ -1,4 +1,4 @@
-import { cajasDeRenglon, nombreArchivoOc, referenciaUtil, textoCajasRenglon, totalesOc } from './oc-kepler';
+import { cajasDeRenglon, nombreArchivoOc, referenciaUtil, textoCajasRenglon, textoTasas, totalesOc } from './oc-kepler';
 
 describe('[RA-PRO.61] cajasDeRenglon — sólo cuando el costo confirma la unidad', () => {
   it('el caso real: 900 PAQ, 20 por caja, costo 56 y caja 1,120 → 45 cajas', () => {
@@ -79,5 +79,25 @@ describe('[PQ.32] totalesOc — el total es el de Kepler, con sus impuestos', ()
 
   it('NEGATIVA: sin impuestos leídos, tampoco se dibuja un IVA en 0', () => {
     expect(totalesOc(1000, 1160, null, null).map((x) => x.etiqueta)).toEqual(['Subtotal', 'Impuestos y ajustes según Kepler', 'Total']);
+  });
+});
+
+describe('[PQ.33] el tratamiento fiscal se DICE, con la tasa de Kepler', () => {
+  it('OC 00/0007265: IEPS 8 % y IVA 0 % explícitos (antes el IVA simplemente no aparecía)', () => {
+    expect(totalesOc(72052.81, 77817.04, 0, 5764.23, { iva: [0], ieps: [8] })).toEqual([
+      { etiqueta: 'Subtotal', monto: 72052.81 },
+      { etiqueta: 'IEPS (8 %)', monto: 5764.23 },
+      { etiqueta: 'IVA (0 %)', monto: 0 },
+      { etiqueta: 'Total', monto: 77817.04, fuerte: true },
+    ]);
+  });
+
+  it('varias tasas en la misma orden se dicen todas', () => {
+    expect(textoTasas([16, 0])).toBe('16 % y 0 %');
+    expect(textoTasas([8, 0, 25])).toBe('8 %, 0 % y 25 %');
+  });
+
+  it('NEGATIVA: sin tasa conocida, un impuesto en 0 no se pinta (sería afirmar sin fuente)', () => {
+    expect(totalesOc(1000, 1000, 0, 0, { iva: null, ieps: [] }).map((x) => x.etiqueta)).toEqual(['Subtotal', 'Total']);
   });
 });

@@ -36,6 +36,8 @@ const dia = (iso: string | null | undefined) => {
   return y && m && d ? `${d}/${m}/${y}` : iso;
 };
 const etiqueta = (e: OcSeguimientoEstatus | null) => (e ? OC_SEGUIMIENTO_LABEL[e] : OC_SIN_REVISAR);
+/** «yajaira arizbeth gonzalez» → «Yajaira Arizbeth Gonzalez»: así está capturado en la Suite. */
+const nombrePropio = (s: string) => s.trim().toLowerCase().replace(/(^|\s)(\p{L})/gu, (_m, a: string, b: string) => a + b.toUpperCase());
 
 export async function generarOcPdf(data: OcDetalle, op: OcPdfOpciones): Promise<void> {
   const [{ jsPDF, autoTable }, logo] = await Promise.all([loadLibs(), loadLogo()]);
@@ -66,12 +68,22 @@ export async function generarOcPdf(data: OcDetalle, op: OcPdfOpciones): Promise<
 
   // ── Datos de la orden ────────────────────────────────────────────────────────────────────
   const ref = referenciaUtil(o.referencia);
+  // `[PQ.33]` Lo que la auditoría externa (2026-10-29) pidió dejar inequívoco, todo leído de Kepler:
+  // moneda (`c7`), domicilio del proveedor congelado en la OC (`c33`·`c34`), y que «Vence» es el
+  // PAGO (`c18`), no la entrega. «Autorizó» sale de la requisición de la Suite que dio la OC.
+  const moneda = !o.moneda ? '—' : /^pesos?$/i.test(o.moneda) ? 'Pesos mexicanos (MXN)' : o.moneda;
   const body: unknown[][] = [
     ['Proveedor', { content: o.proveedor || 'Sin proveedor', styles: { fontStyle: 'bold' } }, 'RFC', o.proveedor_rfc || '—'],
+  ];
+  if (o.proveedor_direccion) body.push(['Domicilio', { content: o.proveedor_direccion, colSpan: 3 }]);
+  body.push(
     ['Entregar en', entregar, 'Condición de pago', o.condicion_pago || '—'],
     // La fecha de la orden ya está en el recuadro de arriba; aquí no se repite.
-    ['Vence', dia(o.vence), ref ? 'Referencia' : '', ref || ''],
-  ];
+    ['Pago vence', dia(o.vence), 'Moneda', moneda],
+  );
+  if (ref || o.autorizo) {
+    body.push([ref ? 'Referencia' : '', ref || '', o.autorizo ? 'Autorizó' : '', o.autorizo ? `${nombrePropio(o.autorizo.nombre)} · ${dia(o.autorizo.en)}` : '']);
+  }
   // La referencia va en las dos (puede ser el folio que cita el proveedor). `concepto` (kdm1.c24) es
   // texto libre de Kepler que ha traído motivos internos: sólo en la copia interna.
   if (op.interno && o.concepto) body.push(['Concepto', { content: o.concepto, colSpan: 3 }]);
@@ -113,13 +125,15 @@ export async function generarOcPdf(data: OcDetalle, op: OcPdfOpciones): Promise<
   const filas = data.lineas.map((l, i) => {
     const cj = textoCajasRenglon(l);
     if (cj === null) sinCajas++;
-    return [String(i + 1), l.sku || '—', l.nombre || '—', cj ?? `${num(l.cantidad)} ${(l.unidad || '').toLowerCase()}`.trim(),
-      money(l.costo_unitario), money(l.importe)];
+    // `[PQ.33]` El costo dice POR QUÉ unidad: «$833.21 / cja», no un «Costo unit.» ambiguo.
+    const u = (l.unidad || '').trim().toLowerCase();
+    return [String(i + 1), l.sku || '—', l.nombre || '—', cj ?? `${num(l.cantidad)} ${u}`.trim(),
+      u ? `${money(l.costo_unitario)} / ${u}` : money(l.costo_unitario), money(l.importe)];
   });
-  const tot = totalesOc(sumLineas, o.monto, o.iva, o.ieps);
+  const tot = totalesOc(sumLineas, o.monto, o.iva, o.ieps, { iva: o.tasas_iva, ieps: o.tasas_ieps });
   autoTable(doc, {
     ...tablaBase, startY: y + 6,
-    head: [['#', 'Código', 'Producto', 'Cantidad', 'Costo unit.', 'Importe']],
+    head: [['#', 'Código', 'Producto', 'Cantidad', 'Costo', 'Importe']],
     body: filas,
     foot: tot.map((t) => [{ content: t.etiqueta, colSpan: 5 }, money(t.monto)]),
     footStyles: { fillColor: RULE, textColor: INK, fontStyle: 'normal', halign: 'right' },

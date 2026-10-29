@@ -3112,12 +3112,30 @@ export class CommercialReplenishmentService {
       const [alm] = (await trx('commercial.warehouses')
         .where({ tenant_id: tenantId, kepler_code: k.sucursal }).whereNull('deleted_at')
         .select('name', 'address').limit(1)) as Array<{ name: string | null; address: string | null }>;
+      // `[PQ.33]` Quién autorizó: la aprobación de la requisición de la Suite que dio esta OC.
+      const [aut] = (await trx('commercial.purchase_requisitions as r')
+        .leftJoin('identity.users as u', 'u.id', 'r.approved_by')
+        .where({ 'r.tenant_id': tenantId, 'r.oc_sucursal': k.sucursal, 'r.oc_folio': k.folio })
+        .whereNotNull('r.approved_at')
+        .select(trx.raw(`COALESCE(NULLIF(btrim(u.nombre), ''), u.username) AS nombre`), trx.raw(`to_char(r.approved_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS en`))
+        .orderBy('r.approved_at').limit(1)) as Array<{ nombre: string | null; en: string | null }>;
+      // ⚠️ Las lecturas de kepler_ods van al final: su `.catch` deja la transacción abortada.
+      const tasas = (await trx.raw(
+        `SELECT array_agg(DISTINCT NULLIF(regexp_replace(c17::text, '[^0-9.]', '', 'g'), '')::numeric) AS iva,
+                array_agg(DISTINCT NULLIF(regexp_replace(c18::text, '[^0-9.]', '', 'g'), '')::numeric) AS ieps
+           FROM kepler_ods.kdm2
+          WHERE sucursal = ? AND c1 = ? AND c2 = 'X' AND c3 = 'A' AND btrim(c4::text) = '35' AND btrim(c6::text) = ?`,
+        [k.sucursal, k.sucursal, k.folio]).catch(() => ({ rows: [] }))).rows[0] as { iva: unknown[] | null; ieps: unknown[] | null } | undefined;
       const imp = (await trx.raw(
         `SELECT NULLIF(regexp_replace(c14::text, '[^0-9.-]', '', 'g'), '')::numeric AS iva,
-                NULLIF(regexp_replace(c15::text, '[^0-9.-]', '', 'g'), '')::numeric AS ieps
+                NULLIF(regexp_replace(c15::text, '[^0-9.-]', '', 'g'), '')::numeric AS ieps,
+                NULLIF(btrim(c7::text), '') AS moneda,
+                NULLIF(btrim(concat_ws(', ', NULLIF(btrim(c33), ''), NULLIF(btrim(c34), ''))), '') AS direccion
            FROM kepler_ods.kdm1
           WHERE sucursal = ? AND c1 = ? AND c2 = 'X' AND c3 = 'A' AND btrim(c4::text) = '35' AND btrim(c6::text) = ?
-          LIMIT 1`, [k.sucursal, k.sucursal, k.folio]).catch(() => ({ rows: [] }))).rows[0] as { iva: unknown; ieps: unknown } | undefined;
+          LIMIT 1`, [k.sucursal, k.sucursal, k.folio]).catch(() => ({ rows: [] }))).rows[0] as { iva: unknown; ieps: unknown; moneda: string | null; direccion: string | null } | undefined;
+      const tasa = (xs: unknown[] | null | undefined) =>
+        xs ? [...new Set(xs.filter((x) => x != null).map((x) => Number(x)).filter((x) => Number.isFinite(x)))].sort((a, b) => b - a) : null;
       return {
         orden: {
           sucursal: String(d.sucursal).trim(), folio: String(d.folio).trim(),
@@ -3129,6 +3147,11 @@ export class CommercialReplenishmentService {
           ieps: imp && imp.ieps != null ? n(imp.ieps) : null,
           sucursal_nombre: alm?.name?.trim() || null,
           sucursal_direccion: alm?.address?.trim() || null,
+          moneda: imp?.moneda ?? null,
+          proveedor_direccion: imp?.direccion ?? null,
+          tasas_iva: tasa(tasas?.iva),
+          tasas_ieps: tasa(tasas?.ieps),
+          autorizo: aut?.nombre && aut.en ? { nombre: aut.nombre, en: aut.en } : null,
         },
         lineas: lineas.map((l) => ({
           linea: l.linea, sku: l.sku ? String(l.sku).trim() : null, nombre: l.nombre || null,
