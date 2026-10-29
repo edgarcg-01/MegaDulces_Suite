@@ -1284,6 +1284,10 @@ export const CRON_JOBS: CronCfg[] = [
   // origen, asi que no es sobrante — es un defecto de IDENTIDAD, no de borrado.
   // ⚠️ Sin este renglon el sensor daria verde INCONDICIONAL (`cfg ? classify : 'ok'`, Fase VP).
   { key: 'cdc_dedupe_fecha', label: 'Dedup ODS de PK con fecha (kdc2YYMM)', cadence: 'diario 02:25 MX', warnH: 25, critH: 30 },
+  // `[OPS-AUD.13.4]` Árbitro de pólizas ODS↔Kepler por IMPORTE (corre tras el dedup, mismo Job).
+  // Todo lo de arriba compara llaves: el 2026-10-28 el drenador de la cola borró 1,590 renglones
+  // editados (~$17 M) con todos estos renglones en verde, y lo encontró una persona preguntando.
+  { key: 'arbitro_polizas_valor', label: 'Árbitro de pólizas ODS↔Kepler por importe', cadence: 'diario 02:25 MX', warnH: 25, critH: 30 },
   // OBS.1 — el carril del POLL (replicate-ods-live.js), que es el que de verdad alimentaba prod y
   // era MUDO: no escribía a cron_runs y no tenía entrada acá, así que db-health no tenía NADA que
   // vigilar. Estuvo parado del 27/08 al 02/09/2026 — 6 días, ~23,200 filas de catálogo sin shipear

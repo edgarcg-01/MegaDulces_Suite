@@ -144,12 +144,23 @@ spec:
             - name: deduplicador
               image: localhost:5000/trade-ingest:__COMMIT__
               imagePullPolicy: IfNotPresent
+              # ⭐ `[OPS-AUD.13.4]` Y DESPUÉS, EL ÁRBITRO POR IMPORTE (`arbitro_polizas_valor`). Lo de
+              # arriba compara LLAVES; el 2026-10-28 el drenador de la cola borró 1,590 renglones
+              # editados (~$17 M) con todo en verde y nada lo vio. El árbitro compara llave +
+              # cargo/abono + importe de TODAS las kdc2YYMM × 9 sucursales (~5 s), re-encola lo que
+              # difiere y late en rojo. Va DESPUÉS del dedup a propósito: mide lo que los limpiadores
+              # no arreglaron. Late por su cuenta; el código de salida del Job sigue siendo el del dedup
+              # salvo que éste pase y el árbitro truene.
               command: ["sh", "-c"]
               args:
                 - >-
                   node database/importers/kepler/reconcile-ods-window.js
                   --full --dedupe-fecha --delete-sobrantes --apply
-                  --tables=$(node -e "const d=new Date();console.log([0,1,2,3].map(n=>{const x=new Date(d.getFullYear(),d.getMonth()-n,1);return 'kdc2'+String(x.getFullYear()).slice(2)+String(x.getMonth()+1).padStart(2,'0')}).join(','))")
+                  --tables=$(node -e "const d=new Date();console.log([0,1,2,3].map(n=>{const x=new Date(d.getFullYear(),d.getMonth()-n,1);return 'kdc2'+String(x.getFullYear()).slice(2)+String(x.getMonth()+1).padStart(2,'0')}).join(','))");
+                  r=$?;
+                  node database/importers/kepler/arbitro-polizas-valor.js --apply;
+                  a=$?;
+                  exit $(( r ? r : a ))
               envFrom:
                 - secretRef:
                     name: ingest-env
