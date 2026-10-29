@@ -289,3 +289,58 @@ Hereda §6, que mide por preguntas. Además:
 2. El latido de entrega de cada carril, probado en rojo.
 3. `periodo_cerrado` funcionando en el dictamen, con su prueba negativa.
 4. Al menos una tabla de staging convertida en vista, con su antes y después.
+
+### 8.8 ✅ `[CP.9.0]` Medido: el inventario de las 22 bases (2026-10-29)
+
+Lo corrió Edgar en `md`, dentro de `feeds-cron` (k3s, namespace `ingesta`), con
+`02-inventario-replica.js`: sólo lee `sys.*` y pide la contraseña sin dejarla en el historial.
+
+⛔ **Primer tropiezo, corregido:** la contabilidad, nóminas y tres repositorios del ADD corren en **compatibilidad
+100–110**, donde `STRING_AGG` no existe. La primera versión del inventario marcó esas bases NO MEDIDAS («Incorrect
+syntax near 'AS'»). La segunda agrega con `FOR XML PATH`, que funciona en cualquier nivel.
+
+| Base | Compat | Tablas con datos | Filas | Tamaño | Llave primaria | Marca de cambio |
+|---|---:|---:|---:|---:|---|---|
+| **Contabilidad** (`ctLUIS_…`) | 100 | **52 de 119** | **4,847,902** | 4,745 MB | **52 de 52** (`Id`) | **52 de 52** (`RowVersion:int`) |
+| Generales (`GeneralesSQL`) | 160 | 14 de 21 | 3,989 | 4 MB | 14 de 14 | 14 de 14 (`RowVersion`) |
+| Catálogos del SAT (`ADD_Catalogos`) | 160 | 77 de 77 | 95,732 | 35 MB | 0 | 0 |
+| Directorio del ADD (`DB_Directory`) | 160 | 21 de 43 | 2,525 | 5 MB | 2 | 1 |
+| ADD principal, metadatos (`12677b5d`) | 110 | 30 de 51 | 13,492,824 | 4,061 MB | 16 | 1 (`Documento.TimeStamp`) |
+| ADD principal, contenido (el XML) | 110 | 2 | 629,076 | 6,406 MB | 1 | 0 |
+| ADD principal, «otros» (expedientes) | 110 | 7 + 2 | 2,523,706 | 5,320 MB | 4 | 2 |
+| Los otros 3 repositorios del ADD | 100 | — | ~3.3 M en metadatos | ~9 GB (casi todo contenido) | parcial | `Documento.TimeStamp` |
+| **Nóminas** (`ctLFLG`) | 100 | 59 de 76 | 5,731,321 | 1,685 MB | 52 de 59 | 41 (`timestamp:datetime`) |
+| Generales de nóminas (`nomGenerales`) | 100 | 65 de 70 | 23,379 | 7 MB | 25 | 9 |
+| `Predeterminada` | 100 | NO MEDIDO: el login de sólo lectura no tiene acceso | | | | |
+
+**Lo que esto decide:**
+- ⭐⭐ **La contabilidad entera se replica con el mecanismo más barato.** Las 52 tablas con datos tienen llave `Id` y
+  `RowVersion`, así que las firmas por bloque cubren el 100 % sin un solo caso especial. Entre ellas viene todo lo de
+  §8.2:
+  - `AsocCFDIs` (999,724);
+  - `MovimientosImpuestos` (334,469);
+  - `DevolucionesIVA` (202,427);
+  - `PeriodosCausacionIVA` (19,567);
+  - `AsocCFDINodosDePago` (11,288).
+- **El ADD no tiene `RowVersion`.** Se replica por documento: los que cambiaron según `Documento.TimeStamp` (la marca
+  que ya usa `import-contpaqi-cfdis.js`), con sus tablas hijas completas. Va así porque **14 de esas hijas no tienen
+  llave**: `Impuesto_Traslado_Concepto` (4.8 M), `CfdiRelacionados`, `Impuesto_Traslado`…
+- **El contenido del ADD (los XML, ~18 GB entre los cuatro repositorios) NO se replica:** los XML de los CFDI ya están
+  en `fiscal.cfdis`.
+- ⭐ **Se contestó la Ola 5 (§4).** Los 4 repositorios del ADD **son de la misma empresa**: el directorio les da el
+  mismo RFC (no se escribe aquí, el repo es público). No es otro RFC del grupo. Los tres que no leíamos son más
+  chicos y casi todo es **nómina**: `Nomina` 103,064 y 92,014 documentos, contra unos 110 mil cada uno.
+  - Sincronizaron por última vez el 2025-11-15, el 2025-12-12 y el 2026-06-29.
+  - ⚠️ Que sean los repositorios de ContPAQi Nóminas es inferencia de su contenido: está por confirmar con contabilidad.
+- **Nóminas trae datos personales** (`nom10001`, empleados, con `fotografia` y `expediente`). Eso queda en la D13.
+- **Tamaño de la réplica en prod:**
+  - contabilidad + Generales + catálogos + metadatos del ADD principal: **≈ 9 GB**;
+  - con nóminas: ≈ 11 GB;
+  - hoy prod pesa 40 GB, y el espacio libre del disco de `md` sigue NO MEDIDO.
+
+**La D13, con los datos.** Etapa 1 (control contable):
+- la contabilidad;
+- GeneralesSQL, los catálogos del SAT y el directorio;
+- después, los metadatos del ADD principal, por documento.
+
+Etapa 2, **sólo con decisión expresa:** nóminas y los 3 repositorios del ADD (nómina). Fuera: el contenido de los XML.
