@@ -79,3 +79,21 @@ describe('SidePeekComponent — la variante nueva no toca el default', () => {
     expect(panel.style.getPropertyValue('--sp-w')).toBe('520px');
   });
 });
+
+// `[CGA-A.65]` El título pasado como atributo NO se queda en el elemento: el navegador pintaba su globo
+// nativo («Reposición») encima de las cifras de la ventana. Captura de Edgar, 2026-10-29.
+describe('[CGA-A.65] el título no deja un globo nativo sobre la ventana', () => {
+  it('con title="…" estático, el host no conserva el atributo title y el h2 sí dice el título', async () => {
+    const { TestBed } = await import('@angular/core/testing');
+    const { Component } = await import('@angular/core');
+    const { SidePeekComponent } = await import('./side-peek.component');
+    @Component({ standalone: true, imports: [SidePeekComponent], template: '<app-side-peek title="Reposición" [open]="true"></app-side-peek>' })
+    class Anfitrion {}
+    TestBed.configureTestingModule({ imports: [Anfitrion] });
+    const fx = TestBed.createComponent(Anfitrion);
+    fx.detectChanges();
+    const host = fx.nativeElement.querySelector('app-side-peek') as HTMLElement;
+    expect(host.hasAttribute('title')).toBe(false);
+    expect(host.querySelector('.sp-title')?.textContent).toContain('Reposición');
+  });
+});

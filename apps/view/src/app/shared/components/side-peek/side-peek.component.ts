@@ -29,6 +29,10 @@ import {
   standalone: true,
   imports: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // `[CGA-A.65]` El título se pasa como atributo (`title="Reposición"`) y Angular lo deja TAMBIÉN en el
+  // elemento: el navegador pintaba su globo nativo encima de toda la ventana, tapando cifras (captura
+  // de Edgar, 2026-10-29: «Reposición» sobre «2 documentos siguen en la cola»). El título ya va en el h2.
+  host: { '[attr.title]': 'null' },
   template: `
     <div class="sp-root" [class.is-open]="open()" [class.is-above-modals]="aboveModals()"
          [class.is-window]="mode() === 'window'" [class.is-izq]="lado() === 'izquierda'">
