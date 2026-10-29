@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Fixed — Un detector de finanzas que se calla ya no pasa desapercibido (PGP.39, 2026-10-29)
+- La regla que detecta **descuento de pronto pago no capturado** tiene **98 hallazgos por $5,363,294, ninguno revisado**, y **llevaba 61 días sin producir** sin que nadie lo supiera.
+- No era un caso aislado: **24 de 44 reglas** llevaban entre 44 y 98 días mudas, y **21 se callaron el mismo día**. El motor sí corre — otras 13 reglas producen a diario.
+- ⛔ **Por qué nadie lo vio:** un detector que falla se saltaba con una línea de log, y como la bandeja **conserva los hallazgos viejos, se ve igual de llena**. Un detector parado era indistinguible de uno sin novedades.
+- Ahora cada regla registra cuándo se intentó, cuándo terminó bien y con qué error falló. Un «terminó bien» muy viejo es, por sí solo, el aviso que faltaba.
+- ⚠️ Esto **no arregla** las 21 reglas mudas: todavía no se sabe por qué fallan. Lo que hace es que la próxima corrida lo diga, en vez de callarse.
 ### Added — Pagos: la propuesta del día ya adelanta lo que pierde descuento (PGP.38, 2026-10-29)
 - «Sugerir armado» sólo ofrecía **lo ya vencido**. Pero el pronto pago **consiste en adelantarse**, así que la propuesta automática jamás ofrecía una factura dentro de su ventana de descuento — porque esa, por definición, todavía no vence.
 - Medido: **$1,522,587 de los $2,427,564 en juego (62.7 %) estaban fuera del alcance de la propuesta**, en 358 facturas.
