@@ -6,6 +6,7 @@ import { CommissionObjectiveService } from './commission-objective.service';
 import { CommissionPadronService } from './commission-padron.service';
 import { CommissionBonosService } from './commission-bonos.service';
 import { CommissionAutoRunService } from './commission-auto-run.service';
+import { CommissionBeneficiariosService } from './commission-beneficiarios.service';
 import { CommercialCommissionsController } from './commercial-commissions.controller';
 
 /**
@@ -29,7 +30,7 @@ import { CommercialCommissionsController } from './commercial-commissions.contro
  */
 @Module({
   controllers: [CommercialCommissionsController],
-  providers: [CommercialCommissionsService, CommissionRecalcService, CommissionContrastService, CommissionObjectiveService, CommissionPadronService, CommissionBonosService, CommissionAutoRunService],
+  providers: [CommercialCommissionsService, CommissionRecalcService, CommissionContrastService, CommissionObjectiveService, CommissionPadronService, CommissionBonosService, CommissionAutoRunService, CommissionBeneficiariosService],
   exports: [CommercialCommissionsService, CommissionRecalcService, CommissionContrastService, CommissionObjectiveService],
 })
 export class CommercialCommissionsModule {}

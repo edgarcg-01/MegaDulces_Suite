@@ -2239,6 +2239,14 @@ export class ComercialService {
   commissionPadron() {
     return this.http.get<PadronRuta[]>(`${this.base}/commissions/routes`);
   }
+  /** `[RD.100]` La nómina de banco vigente de cada supervisor del padrón (`null` = sin configurar). */
+  commissionSupervisores() {
+    return this.http.get<SupervisorNomina[]>(`${this.base}/commissions/supervisors`);
+  }
+  /** `[RD.100]` Fija la nómina de un supervisor desde una fecha: abre una versión nueva. */
+  commissionFijarNominaSupervisor(body: { nombre: string; nomina_banco: number; valid_from: string; notes?: string | null }) {
+    return this.http.post<SupervisorNomina[]>(`${this.base}/commissions/supervisors`, body);
+  }
   /**
    * `[RD.86]` Las versiones del tabulador. ⛔ Hasta el 2026-10-20 **ninguna pantalla lo
    * consumía**: el endpoint existía desde `[RD.66]` y el número que decide el porcentaje de cada
@@ -2251,7 +2259,7 @@ export class ComercialService {
   commissionScaleSimular(tiers: TierRD[]) {
     return this.http.post<SimulacionEscalaRD>(`${this.base}/commissions/scales/simulate`, { tiers });
   }
-  commissionScaleEstrenar(body: { valid_from: string; nombre?: string; tiers: TierRD[] }) {
+  commissionScaleEstrenar(body: { valid_from: string; nombre?: string; share_supervisor_pct?: number; tiers: TierRD[] }) {
     return this.http.post<{
       id: string; valid_from: string; cerro_a: string | null;
       escalones: number; bonos_heredados: number;
@@ -4789,6 +4797,22 @@ export interface CommissionBoardRow {
  * en una decisión informada. Dar de baja una ruta que pagó $19,096.84 y una que nunca pagó nada
  * son dos actos distintos, y sin la cifra al lado se ven iguales.
  */
+/**
+ * `[RD.100]` La nómina de banco de un supervisor (D3: 20 % de sus rutas + bonos − esta nómina).
+ * `nomina_banco: null` = sin configurar a hoy: el motor declara su neto como no calculable.
+ */
+export interface SupervisorNomina {
+  nombre: string;
+  rutas: string[];
+  activo: boolean;
+  id: string | null;
+  nomina_banco: number | null;
+  valid_from: string | null;
+  notes: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+  historia: { nomina_banco: number; valid_from: string; valid_to: string | null; notes: string | null }[];
+}
 export interface PadronRuta {
   id: string; route_code: string; scale_id: string; zona: string | null;
   chofer_nombre: string | null; supervisor_nombre: string | null;

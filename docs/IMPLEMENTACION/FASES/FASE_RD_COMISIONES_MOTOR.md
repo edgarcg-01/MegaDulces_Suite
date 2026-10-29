@@ -749,6 +749,31 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   la pagó el libro (~$3,202.66) y el motor no (el día perdido del 15-oct la deja bajo el umbral);
   504, el motor $799 arriba, sin explicar todavía.
 
+- **D3 firmado (Edgar, 2026-10-29): la fórmula — 20 % + bonos − nómina de banco — y «que todo
+  se pueda configurar».** → `[RD.100]`.
+
+#### `[RD.100]` 🧪 La nómina del supervisor y su porcentaje, configurables desde la pantalla
+- **Nómina de banco del supervisor** (`commission_beneficiary_config`, 0 filas y ningún camino
+  para escribirla): `GET/POST /commercial/commissions/supervisors`, y en «Quién cobra» una tabla
+  editable en la fila. Cada cambio es una **versión con fecha** (cierra la vigente, abre otra; con
+  la misma fecha corrige en sitio); el nombre tiene que ser el supervisor exacto del padrón;
+  una fecha detrás de la vigente se rechaza. Medido en prod (sólo lectura): lista los 3
+  supervisores del padrón en 16 ms, los 3 «sin capturar».
+- ⛔ **De paso, una trampa cerrada:** `deducciones()` filtraba por la versión del tabulador, así
+  que **estrenar un tabulador nuevo dejaba a todos los supervisores en `sin_configurar`** sin
+  tocar su nómina. Ahora filtra por persona y fecha (y por tenant, explícito).
+- **La parte del supervisor (20 %)** ya vivía en el tabulador pero la pantalla no la dejaba
+  cambiar: ahora se edita al estrenar una versión, y la confirmación la nombra si cambia. El
+  servidor valida 0–100.
+- Pruebas: `test-newdb-rd-commission-escrituras.js` cruza las columnas obligatorias contra el
+  servicio nuevo (rojo al quitar `scale_id`) y ejerce la escritura versionada en transacción
+  revertida con dos negativas (ventana vacía → 23514, sin escala → 23502) — **la parte que
+  escribe sólo corre en CI** (`pruebas-db`): aquí el rol es de sólo lectura, NO MEDIDO.
+  `apps/api/src/composition/commercial-commissions.metadata.spec.ts` lee `design:paramtypes`
+  (rojo al quitar el provider del módulo). ⛔ Sin validación visual.
+- ⚠️ Falta: **capturar la nómina de los dos supervisores** (Edgar / Comercial), y después
+  recalcular.
+
 ### 9.5 Lo que necesita firma antes de que el motor pague
 
 | | Decisión | Por qué no la puedo tomar yo |

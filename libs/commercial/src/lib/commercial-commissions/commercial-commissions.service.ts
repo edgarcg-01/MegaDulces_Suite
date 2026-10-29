@@ -402,6 +402,13 @@ export class CommercialCommissionsService {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(desde)) {
       throw new ConflictException('Falta la fecha desde la que rige la escala nueva (YYYY-MM-DD).');
     }
+    // `[RD.100]` La parte del supervisor se configura desde la pantalla: se valida el rango.
+    if (body?.share_supervisor_pct != null) {
+      const s = Number(body.share_supervisor_pct);
+      if (!Number.isFinite(s) || s < 0 || s > 100) {
+        throw new ConflictException('La parte del supervisor es un porcentaje entre 0 y 100.');
+      }
+    }
     const tiers = [...(body?.tiers ?? [])].sort((a, b) => Number(a.min_amount) - Number(b.min_amount));
     if (!tiers.length) {
       throw new ConflictException('Una escala sin escalones deja a todas las rutas en cero.');
@@ -601,7 +608,7 @@ export class CommercialCommissionsService {
         // `[RD.84.0]` El padron VIGENTE en la quincena, no el de hoy.
         this.universo(trx, tenantId, from, to),
         this.ventaPorRuta(trx, tenantId, from, to),
-        this.deducciones(trx, scale.id, to),
+        this.deducciones(trx, tenantId, to),
         this.frescura(trx, tenantId),
       ]);
 
@@ -951,15 +958,21 @@ export class CommercialCommissionsService {
     });
   }
 
-  /** La deduccion vigente por persona. Si la tabla esta vacia, el mapa queda vacio: declarado. */
-  private async deducciones(
-    trx: any, scaleId: string, onDate: string,
-  ): Promise<Map<string, number>> {
+  /**
+   * La deduccion vigente por persona. Si la tabla esta vacia, el mapa queda vacio: declarado.
+   *
+   * ⛔ `[RD.100]` Ya NO filtra por la escala. La nomina de banco es de la PERSONA, no del
+   * tabulador: con el filtro, estrenar una version nueva del tabulador dejaba a todos los
+   * supervisores en `sin_configurar` sin que nadie tocara su nomina. Si dos filas quedaran
+   * vigentes a la vez, gana la de `valid_from` mas reciente (se recorre en orden ascendente).
+   */
+  private async deducciones(trx: any, tenantId: string, onDate: string): Promise<Map<string, number>> {
     const rows: { beneficiario: string; nombre: string; nomina_banco: string }[] =
       await trx('commercial.commission_beneficiary_config')
-        .where({ scale_id: scaleId }).whereNull('deleted_at')
+        .where({ tenant_id: tenantId }).whereNull('deleted_at')
         .where('valid_from', '<=', onDate)
         .andWhere((b: any) => b.whereNull('valid_to').orWhere('valid_to', '>', onDate))
+        .orderBy('valid_from', 'asc')
         .select('beneficiario', 'nombre', 'nomina_banco');
     // ⚠️ Se arma explicitamente: `new Map(rows.map(...))` sobre un knex sin tipar infiere
     // `Map<unknown, unknown>` y el error sale recien en el consumidor, dos metodos mas abajo.
