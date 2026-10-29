@@ -1,13 +1,14 @@
 import {
-  claseDeClave, folioHoja, leerFolioHoja, pagableConBilletesCaos,
+  DIAS_RETIRO_HOJA, TOPE_CAJON_HOJA, ZONAS_HOJA_GASTOS, claseDeClave, folioHoja, leerFolioHoja, pagableConBilletesCaos,
   type ClaseRenglonHoja, type HojaAbierta, type InstruccionPagoHoja, type MotivoFueraDeHoja,
-  type RenglonHoja, type ZonaHojaGastos,
+  type RenglonHoja, type RetiroParaHoja, type ZonaHojaGastos,
 } from '@megadulces/contracts';
 import { redondea2 } from './caja-lote.engine';
 
 /**
- * ⭐ `[CGA-A.65]` La hoja de gastos de zona — el motor. Puro: decide qué pago va en la hoja, cuánto
- * se saca de CAOS y se deposita, y reconoce el retiro y el depósito de cada hoja.
+ * ⭐ `[CGA-A.65]` La hoja de gastos de zona — el motor. Puro: decide qué pago va en la hoja (y qué
+ * pago sólo se paga con ella), cuánto se saca de CAOS, qué retiro la paga entera y si su depósito
+ * ya llegó.
  *
  * Edgar, 2026-10-29: *«no queremos impresiones, solo quiero que se automatice el proceso tanto del
  * excel como a la hora de pagar»*. La hoja que hoy se llena a mano en Excel (área «ZONA MORELIA»)
@@ -27,6 +28,14 @@ export interface PagoDeZona {
   centro: string | null;
   referencia: string | null;
   importe: number | string;
+  /**
+   * Si ya está en el libro de Caja General y de dónde salió: ligado a un retiro (`caos`), del
+   * cajón (`cajon`), o capturado sin decirlo (`sin_origen`). `null` = todavía no está en el libro.
+   */
+  en_libro: 'caos' | 'cajon' | 'sin_origen' | null;
+  cg_folio: string | null;
+  /** Ya va en una hoja vigente (cerrada, aprobada o pagada). */
+  en_hoja: boolean;
 }
 
 /**
@@ -69,12 +78,14 @@ export function armarHojaAbierta(zona: ZonaHojaGastos, pagos: readonly PagoDeZon
   };
   const renglones: RenglonHoja[] = [];
   const fuera: HojaAbierta['fuera'] = [];
+  const pagadosAparte: HojaAbierta['pagados_aparte'] = [];
   const vistos = new Set<string>();
   const ordenados = [...pagos].sort((a, b) => orden(a.sucursal) - orden(b.sucursal)
     || a.fecha_pago.localeCompare(b.fecha_pago) || a.folio.localeCompare(b.folio));
   for (const p of ordenados) {
-    // Sólo la zona, y cada pago una vez: la consulta ya lo cuida; aquí no se confía en eso.
-    if (!zona.sucursales.includes(p.sucursal) || vistos.has(p.origen_ref)) continue;
+    // Sólo la zona, y cada pago una vez: la consulta ya lo cuida; aquí no se confía en eso. Lo que
+    // ya va en una hoja vigente está en ESA hoja, no en la abierta.
+    if (!zona.sucursales.includes(p.sucursal) || vistos.has(p.origen_ref) || p.en_hoja) continue;
     vistos.add(p.origen_ref);
     const r: RenglonHoja = {
       origen_ref: p.origen_ref, sucursal: p.sucursal, doc_tipo: p.doc_tipo, folio: p.folio,
@@ -82,7 +93,11 @@ export function armarHojaAbierta(zona: ZonaHojaGastos, pagos: readonly PagoDeZon
       clave: p.clave, centro: p.centro, clase: claseDeClave(p.clave), importe: redondea2(Number(p.importe)),
     };
     const motivo = motivoFueraDeHoja(p.centro, p.referencia);
+    // Lo que no es reposición va abajo con su motivo, aunque ya esté en el libro.
     if (motivo) fuera.push({ ...r, motivo });
+    // Lo que ya salió del cajón o de un retiro sin hoja, también abajo: ya está pagado.
+    else if (p.en_libro === 'cajon' || p.en_libro === 'caos') pagadosAparte.push({ ...r, como: p.en_libro, cg_folio: p.cg_folio });
+    // Lo capturado sin decir de dónde salió SÍ va en la hoja: al pagarla se liga a su retiro.
     else renglones.push(r);
   }
   const suma = (xs: RenglonHoja[]) => redondea2(xs.reduce((a, x) => a + x.importe, 0));
@@ -99,24 +114,97 @@ export function armarHojaAbierta(zona: ZonaHojaGastos, pagos: readonly PagoDeZon
       return { clase: c, renglones: xs.length, total: suma(xs) };
     }).filter((x) => x.renglones > 0),
     fuera,
+    pagados_aparte: pagadosAparte,
     instruccion: renglones.length ? instruccionDePago(total, null) : null,
     datos_al: datosAl,
   };
 }
 
-// ── Al pagar: el retiro y el depósito de cada hoja ────────────────────────────────────────────
+// ── El candado: qué pago sólo se paga con su hoja aprobada ────────────────────────────────────
 
-export interface RetiroCaosHoja {
+/** Lo que el candado necesita saber de un pago de Kepler: de qué sucursal, de qué día y qué es. */
+export interface PagoParaCandado {
+  sucursal: string;
+  fecha_pago: string;
+  centro: string | null;
+  referencia: string | null;
+}
+
+/**
+ * ⛔ ¿Este pago SÓLO se paga con su hoja aprobada? Sí, si es de una zona que se repone por hoja, de su
+ * día de arranque en adelante, y va en la hoja (no es nómina, apoyo a proveedores, comisiones ni
+ * pago de compra registrada). Devuelve la zona, o `null` si el pago sigue su camino de siempre.
+ *
+ * Edgar, 2026-10-29: *«si no está aprobada no se puede pagar»*. La MISMA regla que arma la hoja
+ * (`motivoFueraDeHoja`), en un solo lugar: si el candado y la hoja decidieran distinto, quedaría
+ * un pago que ni entra a la hoja ni se puede pagar suelto.
+ */
+export function requisitoDeHoja(p: PagoParaCandado): ZonaHojaGastos | null {
+  const zona = ZONAS_HOJA_GASTOS.find((z) => z.sucursales.includes(p.sucursal));
+  if (!zona || !p.fecha_pago || p.fecha_pago.slice(0, 10) < zona.desde) return null;
+  return motivoFueraDeHoja(p.centro, p.referencia) ? null : zona;
+}
+
+// ── Al pagar: el retiro que paga la hoja entera ───────────────────────────────────────────────
+
+export type CuadreRetiro =
+  | { ok: true; cajon: number }
+  | { ok: false; motivo: 'mayor' | 'corto' | 'vacio'; texto: string };
+
+const pesos = (v: number) => `$${v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * ¿Este retiro paga la hoja entera? Sí, si no pasa de la hoja (lo que sobrara quedaría sin
+ * explicar) y lo que falta lo pone el cajón, menos de `TOPE_CAJON_HOJA`. Así se pagaron las 5
+ * hojas de octubre que tuvieron retiro: el cajón puso de $1.00 a $196.03.
+ */
+export function cuadreDelRetiro(totalHoja: number, retiro: number): CuadreRetiro {
+  const t = redondea2(totalHoja);
+  const r = redondea2(retiro);
+  if (!(r > 0)) return { ok: false, motivo: 'vacio', texto: 'Ese retiro no tiene dinero libre.' };
+  if (r > t + 0.005) {
+    return { ok: false, motivo: 'mayor', texto: `El retiro (${pesos(r)}) es mayor que la hoja (${pesos(t)}): sobrarían ${pesos(redondea2(r - t))} sin explicar.` };
+  }
+  const cajon = redondea2(t - r);
+  if (cajon >= TOPE_CAJON_HOJA - 0.005) {
+    return { ok: false, motivo: 'corto', texto: `Al retiro (${pesos(r)}) le faltan ${pesos(cajon)} para la hoja: el cajón pone menos de ${pesos(TOPE_CAJON_HOJA)}.` };
+  }
+  return { ok: true, cajon };
+}
+
+/** Un retiro de CAOS todavía sin nada ligado, candidato a pagar una hoja. */
+export interface RetiroLibreHoja {
   device: string;
   external_id: number;
+  /** Día de negocio (México). */
+  dia: string;
   occurred_at: string;
   ref: string | null;
   total: number;
 }
 
-/** Los retiros de CAOS cuya referencia nombra la hoja («gnf morelia HG-12»). Uno es lo normal. */
-export function retirosDeHoja(numero: number, retiros: readonly RetiroCaosHoja[]): RetiroCaosHoja[] {
-  return retiros.filter((r) => leerFolioHoja(r.ref) === numero);
+/**
+ * Los retiros que pagan la hoja entera, de `desde` (su último pago) a `hasta` + `DIAS_RETIRO_HOJA`.
+ * Primero el que trae el folio de la hoja en su referencia, después el que deja menos al cajón.
+ * Uno solo es la propuesta; la confirma una persona (el control con totales corridos encuentra un
+ * candidato falso 1 % de las veces: no se liga solo).
+ */
+export function retirosQueCuadran(
+  totalHoja: number, numero: number | null, desde: string, hasta: string, retiros: readonly RetiroLibreHoja[],
+): RetiroParaHoja[] {
+  const limite = new Date(Date.parse(`${hasta}T00:00:00Z`) + DIAS_RETIRO_HOJA * 86400000).toISOString().slice(0, 10);
+  const out: Array<RetiroParaHoja & { folio: boolean; occurred_at: string }> = [];
+  for (const r of retiros) {
+    if (r.dia < desde || r.dia > limite) continue;
+    const c = cuadreDelRetiro(totalHoja, r.total);
+    if (!c.ok) continue;
+    out.push({ device: r.device, external_id: r.external_id, ref: r.ref, total: redondea2(r.total), dia: r.dia, cajon: c.cajon,
+      folio: numero != null && leerFolioHoja(r.ref) === numero, occurred_at: r.occurred_at });
+  }
+  return out
+    .sort((a, b) => Number(b.folio) - Number(a.folio) || a.cajon - b.cajon
+      || a.occurred_at.localeCompare(b.occurred_at) || a.external_id - b.external_id)
+    .map(({ folio: _f, occurred_at: _o, ...r }) => r);
 }
 
 export interface DepositoBancoHoja {

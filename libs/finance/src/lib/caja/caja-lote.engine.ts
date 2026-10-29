@@ -52,7 +52,8 @@ export type MotivoNoConfirmable =
   | 'sin_cuenta'      // firmada la identidad, pero sin cuenta contable declarada
   | 'sin_monto'       // el documento del ERP no trae importe utilizable
   | 'sin_regla'       // CG.21 · egreso: ninguna regla de `finance.caja_classify_rules` aplica
-  | 'fecha_futura';   // el documento viene fechado DESPUÉS de hoy → su fecha es un error del ERP
+  | 'fecha_futura'    // el documento viene fechado DESPUÉS de hoy → su fecha es un error del ERP
+  | 'en_hoja';        // [CGA-A.65] va en la hoja de gastos de su zona: se paga con ella, aprobada
 
 export const TEXTO_NO_CONFIRMABLE: Record<MotivoNoConfirmable, string> = {
   sin_mapa: 'Esta ruta todavía no está declarada. Se captura a mano hasta que alguien la dé de alta.',
@@ -62,6 +63,7 @@ export const TEXTO_NO_CONFIRMABLE: Record<MotivoNoConfirmable, string> = {
   sin_regla: 'Nadie declaró con qué cuenta contable se registra este beneficiario: declárala en «Cuentas de Kepler» o captúralo a mano.',
   fecha_futura: 'Este documento viene fechado después de hoy: su fecha es un error de captura del ERP. '
     + 'Captúralo a mano y corrige la fecha, o el movimiento se va a registrar en un mes que todavía no llegó.',
+  en_hoja: 'Va en la hoja de gastos de su zona: se paga con la hoja aprobada, en Finanzas › Gastos › Hoja de zona.',
 };
 
 /**

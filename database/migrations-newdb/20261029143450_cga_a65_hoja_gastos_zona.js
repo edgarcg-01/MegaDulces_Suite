@@ -16,21 +16,27 @@
  *    y autorizó: aquí la base lo impide (cuatro ojos).
  *
  * ── Qué crea ─────────────────────────────────────────────────────────────────────────────────
- *  · `finance.expense_sheets`: una hoja cerrada, con su número (folio «HG-n», el que se escribe en la
- *    referencia del retiro de CAOS), su zona, la venta de la que salió el dinero, su total y quién
- *    la cerró, aprobó, rechazó o canceló. Estados: cerrada → aprobada | rechazada | cancelada.
+ *  · `finance.expense_sheets`: una hoja cerrada, con su número (folio «HG-n»), su zona, la venta de
+ *    la que salió el dinero, su total y quién la cerró, aprobó, rechazó, canceló o pagó. Estados:
+ *    cerrada → aprobada → pagada, o cerrada → rechazada | cancelada. El pago es UNO (Edgar,
+ *    2026-10-29: «todo lo de reposición es que salga de un solo movimiento de CAOS»): el retiro que
+ *    la paga entera y lo que puso el cajón (menos de $500), o el cajón entero por excepción.
  *  · `finance.expense_sheet_lines`: sus renglones (el pago de Kepler por su `origen_ref`, la misma
  *    llave que el libro de Caja General), con su importe al cerrar. Un pago, en UNA sola hoja
  *    vigente; al rechazar o cancelar, sus renglones dejan de ser vigentes y vuelven a la hoja abierta.
  *
  * ── Lo que la base sostiene (cada regla con su negativa en `test-newdb-hoja-gastos.js`) ──────────
- *  · cuatro ojos: quien cerró no aprueba ni rechaza;
- *  · las transiciones: sólo desde «cerrada», y lo resuelto no se reabre;
+ *  · cuatro ojos: quien cerró no aprueba ni rechaza, y quien aprobó no paga;
+ *  · las transiciones: sólo desde «cerrada», y sin aprobación no se paga («si no está aprobada no
+ *    se puede pagar», Edgar); lo resuelto no se reabre, y al pagar sólo se escribe el pago;
+ *  · un retiro de CAOS paga UNA sola hoja, y el retiro más el cajón son la hoja;
  *  · el renglón no cambia (sólo deja de ser vigente cuando su hoja se rechaza o se cancela);
  *  · el total y el número de renglones de la hoja son la suma de sus renglones (al confirmar).
  *
- * ⛔ NO escribe en el libro viejo de Caja General (`cash_ledger`, `caos_cash_links`): la Fase LE lo
- *    congeló (LE.0.4). Ni un `?` en el SQL (knex lo toma como binding). Idempotente.
+ * ⛔ Esta migración NO escribe en el libro viejo de Caja General (`cash_ledger`, `caos_cash_links`).
+ *    Al pagar, el servicio usa los escritores que ya existen (el lote y el alta de vínculo): ninguno
+ *    nuevo, la misma excepción a LE.0.4 que `[CGA-A.61]`. Ni un `?` en el SQL (knex lo toma como
+ *    binding). Idempotente.
  *
  * @param { import("knex").Knex } knex
  */
@@ -43,7 +49,7 @@ CREATE TABLE IF NOT EXISTS finance.expense_sheets (
   folio            text GENERATED ALWAYS AS ('HG-' || numero::text) STORED,
   zona             text NOT NULL CHECK (zona ~ '^[a-z][a-z0-9_]*$'),
   venta_del_dia    date NOT NULL,
-  estado           text NOT NULL DEFAULT 'cerrada' CHECK (estado IN ('cerrada', 'aprobada', 'rechazada', 'cancelada')),
+  estado           text NOT NULL DEFAULT 'cerrada' CHECK (estado IN ('cerrada', 'aprobada', 'rechazada', 'cancelada', 'pagada')),
   total            numeric(14,2) NOT NULL CHECK (total > 0),
   renglones        integer NOT NULL CHECK (renglones > 0),
   client_key       text NOT NULL CHECK (length(btrim(client_key)) BETWEEN 8 AND 200),
@@ -56,19 +62,38 @@ CREATE TABLE IF NOT EXISTS finance.expense_sheets (
   cancelada_por    uuid,
   cancelada_at     timestamptz,
   motivo           text,
+  -- El pago: UN retiro de CAOS (con la diferencia del cajón) o, por excepción, el cajón entero.
+  medio            text CHECK (medio IN ('caos', 'cajon')),
+  pagada_por       uuid,
+  pagada_at        timestamptz,
+  caos_device      text,
+  caos_external_id bigint,
+  caos_total       numeric(14,2),
+  cajon            numeric(14,2),
   created_at       timestamptz NOT NULL DEFAULT now(),
   created_by       uuid,
   updated_at       timestamptz NOT NULL DEFAULT now(),
   updated_by       uuid,
   CONSTRAINT ux_expense_sheet_numero UNIQUE (tenant_id, numero),
   CONSTRAINT ux_expense_sheet_client_key UNIQUE (tenant_id, client_key),
-  CONSTRAINT expense_sheet_aprobada CHECK ((estado = 'aprobada') = (aprobada_por IS NOT NULL AND aprobada_at IS NOT NULL)),
+  CONSTRAINT expense_sheet_aprobada CHECK ((estado IN ('aprobada', 'pagada')) = (aprobada_por IS NOT NULL AND aprobada_at IS NOT NULL)),
   CONSTRAINT expense_sheet_rechazada CHECK ((estado = 'rechazada') = (rechazada_por IS NOT NULL AND rechazada_at IS NOT NULL)),
   CONSTRAINT expense_sheet_cancelada CHECK ((estado = 'cancelada') = (cancelada_por IS NOT NULL AND cancelada_at IS NOT NULL)),
   CONSTRAINT expense_sheet_motivo CHECK (estado NOT IN ('rechazada', 'cancelada') OR length(btrim(coalesce(motivo, ''))) >= 10),
-  CONSTRAINT expense_sheet_cuatro_ojos CHECK (aprobada_por IS DISTINCT FROM cerrada_por AND rechazada_por IS DISTINCT FROM cerrada_por)
+  CONSTRAINT expense_sheet_cuatro_ojos CHECK (aprobada_por IS DISTINCT FROM cerrada_por AND rechazada_por IS DISTINCT FROM cerrada_por),
+  CONSTRAINT expense_sheet_pagada CHECK ((estado = 'pagada') = (pagada_por IS NOT NULL AND pagada_at IS NOT NULL AND medio IS NOT NULL AND cajon IS NOT NULL)),
+  -- Con un retiro: el retiro más el cajón son la hoja, y el cajón pone menos de 500 pesos. Con el cajón: todo.
+  CONSTRAINT expense_sheet_medio CHECK (medio IS NULL
+    OR (medio = 'caos' AND caos_device IS NOT NULL AND caos_external_id IS NOT NULL AND caos_total > 0
+        AND cajon >= 0 AND cajon < 500 AND caos_total + cajon = total)
+    OR (medio = 'cajon' AND caos_device IS NULL AND caos_external_id IS NULL AND caos_total IS NULL AND cajon = total)),
+  -- Quien aprobó la hoja no la paga.
+  CONSTRAINT expense_sheet_paga_otro CHECK (pagada_por IS NULL OR pagada_por IS DISTINCT FROM aprobada_por)
 );
 CREATE INDEX IF NOT EXISTS ix_expense_sheets_zona ON finance.expense_sheets (tenant_id, zona, estado, cerrada_at DESC);
+-- ⭐ Un retiro de CAOS paga UNA sola hoja.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_expense_sheet_retiro ON finance.expense_sheets (tenant_id, caos_device, caos_external_id)
+  WHERE caos_external_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS finance.expense_sheet_lines (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -97,7 +122,8 @@ CREATE INDEX IF NOT EXISTS ix_expense_sheet_lines_sheet ON finance.expense_sheet
 `;
 
 const REGLAS = `
--- Las transiciones de la hoja: sólo desde «cerrada», y lo resuelto no se reabre ni se edita.
+-- Las transiciones: cerrada → aprobada | rechazada | cancelada, y aprobada → pagada. Sin aprobación no
+-- se paga, y lo resuelto no se reabre ni se edita.
 CREATE OR REPLACE FUNCTION finance.expense_sheets_transicion() RETURNS trigger
 LANGUAGE plpgsql AS $fn$
 BEGIN
@@ -109,8 +135,22 @@ BEGIN
     RAISE EXCEPTION 'expense_sheet_inmutable: la hoja % no se edita; se rechaza o se cancela', OLD.numero
       USING ERRCODE = 'check_violation';
   END IF;
-  -- Resuelta (aprobada, rechazada o cancelada) ya no se toca: ni el estado ni quién firmó ni el motivo.
-  IF OLD.estado <> 'cerrada'
+  -- Edgar, 2026-10-29: «si no está aprobada no se puede pagar».
+  IF NEW.estado = 'pagada' AND OLD.estado IS DISTINCT FROM 'pagada' AND OLD.estado <> 'aprobada' THEN
+    RAISE EXCEPTION 'expense_sheet_sin_aprobar: la hoja % está %; sólo una aprobada se paga', OLD.numero, OLD.estado
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF OLD.estado = 'aprobada' AND NEW.estado = 'pagada' THEN
+    -- Al pagarla sólo se escribe el pago: lo aprobado no cambia.
+    IF (to_jsonb(NEW) - 'updated_at' - 'updated_by' - 'estado' - 'medio' - 'pagada_por' - 'pagada_at'
+          - 'caos_device' - 'caos_external_id' - 'caos_total' - 'cajon')
+       IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at' - 'updated_by' - 'estado' - 'medio' - 'pagada_por' - 'pagada_at'
+          - 'caos_device' - 'caos_external_id' - 'caos_total' - 'cajon') THEN
+      RAISE EXCEPTION 'expense_sheet_resuelta: al pagar la hoja % sólo se escribe su pago', OLD.numero
+        USING ERRCODE = 'check_violation';
+    END IF;
+  -- Resuelta (aprobada, rechazada, cancelada o pagada) ya no se toca: ni el estado ni quién firmó ni el motivo.
+  ELSIF OLD.estado <> 'cerrada'
      AND (to_jsonb(NEW) - 'updated_at' - 'updated_by') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at' - 'updated_by') THEN
     RAISE EXCEPTION 'expense_sheet_resuelta: la hoja % ya está %', OLD.numero, OLD.estado
       USING ERRCODE = 'check_violation';

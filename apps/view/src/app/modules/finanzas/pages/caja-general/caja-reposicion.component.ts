@@ -158,9 +158,13 @@ interface OpcionOrigen { label: string; value: string }
                     @if (reponibles(g).length) {
                       <!-- [CGA-A.65] Por hoja de zona el motor no sugiere: «saca $X de CAOS» por sucursal sería
                            un retiro de sucursal, y la hoja se repone con UNO para Abastos y Madero. -->
-                      <small class="fin-dim">{{ g.retiro_sugerido ? g.retiro_sugerido.razon
-                        : g.por_hoja ? 'Se repone por hoja de zona, con un solo retiro para Abastos y Madero: elige el de su hoja.'
-                        : 'Saca ' + money(pagable(montoReponible(g))) + ' de CAOS; el retiro aparece aquí cuando se sincroniza.' }}</small>
+                      @if (g.por_hoja) {
+                        <small class="fin-dim">Se repone por hoja de zona, con un solo retiro para Abastos y Madero: se cierra, se aprueba y se paga en
+                          <a routerLink="/finanzas/hoja-gastos">Hoja de zona</a>.</small>
+                      } @else {
+                        <small class="fin-dim">{{ g.retiro_sugerido ? g.retiro_sugerido.razon
+                          : 'Saca ' + money(pagable(montoReponible(g))) + ' de CAOS; el retiro aparece aquí cuando se sincroniza.' }}</small>
+                      }
                     }
                   }
                   @case ('sin_vincular') {
@@ -170,7 +174,8 @@ interface OpcionOrigen { label: string; value: string }
                                 (onClick)="abrir(g.clave)"></p-button>
                     } @else if (g.por_hoja) {
                       <!-- [CGA-A.65] «Sin retiro claro» sería falso: el retiro existe, es de la hoja y no del renglón. -->
-                      <small class="fin-dim">Se repone por hoja de zona (Abastos y Madero, un solo retiro): sin propuesta automática hasta que la hoja viva aquí.</small>
+                      <small class="fin-dim">Se repone por hoja de zona (Abastos y Madero, un solo retiro): al pagar la hoja, sus pagos quedan ligados a su retiro, en
+                        <a routerLink="/finanzas/hoja-gastos">Hoja de zona</a>.</small>
                     } @else {
                       <small class="fin-dim">Sin retiro claro de esta sucursal y de estos días.</small>
                     }

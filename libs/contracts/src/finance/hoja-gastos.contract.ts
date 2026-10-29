@@ -10,6 +10,15 @@
  * cajón pone el resto) y un depósito por el total, que le devuelve a la sucursal lo que tomó de su
  * venta. Las dos hojas en papel (venta del 20 y del 23) cuadran al centavo con Kepler, y seis
  * hojas de octubre cuadran al centavo con su depósito en el banco.
+ *
+ * ── El fin: UN movimiento, ligado, y sólo si está aprobada ─────────────────────────────────────
+ * Edgar, 2026-10-29: *«todo lo de reposición es que salga de un solo movimiento de CAOS. debería
+ * pagarse todo con un solo movimiento y vincularse… lo que se paga con cajón o no es reposición va
+ * abajo»* y *«tiene que estar aprobada, si no está aprobada no se puede pagar»*. Hasta entonces el
+ * retiro de una hoja se ligaba a mano, renglón por renglón (21 capturas para «gnf 26/10»), y de
+ * $981,690 en 8 retiros de Morelia en octubre sólo $152,020 quedaron ligados. Pagar la hoja es
+ * UN acto: el retiro (o el cajón) explica todos sus pagos de una vez, y fuera de él un pago de la
+ * hoja no entra al libro de Caja General.
  */
 
 /** Las zonas que se reponen por hoja. Una zona sin hoja sigue por la reposición por sucursal. */
@@ -110,6 +119,16 @@ export const MOTIVO_FUERA_DE_HOJA_TEXTO: Readonly<Record<MotivoFueraDeHoja, stri
   compra_registrada: 'Pago de una compra registrada en Kepler',
 });
 
+/**
+ * Un pago de la zona que ya salió de Caja General SIN hoja: del cajón, o ligado a un retiro de CAOS
+ * a mano. Edgar, 2026-10-29: *«lo que se paga con cajón o no es reposición va abajo»*.
+ */
+export interface RenglonPagadoAparte extends RenglonHoja {
+  como: 'cajon' | 'caos';
+  /** Folio de Caja General (`CG-2026-00512`). */
+  cg_folio: string | null;
+}
+
 /** La hoja que se está llenando sola: los pagos de la zona que todavía no van en ninguna hoja. */
 export interface HojaAbierta {
   zona: ClaveZonaHoja;
@@ -121,6 +140,8 @@ export interface HojaAbierta {
   por_clase: Array<SubtotalHoja & { clase: ClaseRenglonHoja }>;
   /** Los pagos de la zona que no van en la hoja, cada uno con su motivo: se ven, no se esconden. */
   fuera: Array<RenglonHoja & { motivo: MotivoFueraDeHoja }>;
+  /** Los que ya salieron del cajón o de un retiro sin hoja: van abajo, no en la hoja. */
+  pagados_aparte: RenglonPagadoAparte[];
   /** `null` = la hoja está vacía. */
   instruccion: InstruccionPagoHoja | null;
   /** Edad del dato de Kepler. `null` = sin medir. */
@@ -129,20 +150,68 @@ export interface HojaAbierta {
 
 // ── La hoja cerrada, sus firmas y su pago ───────────────────────────────────────────────────────
 
-export type EstadoHojaGastos = 'cerrada' | 'aprobada' | 'rechazada' | 'cancelada';
+/**
+ * cerrada → aprobada → pagada; o cerrada → rechazada | cancelada. Edgar, 2026-10-29: *«tiene que
+ * estar aprobada, si no está aprobada no se puede pagar»*.
+ */
+export type EstadoHojaGastos = 'cerrada' | 'aprobada' | 'rechazada' | 'cancelada' | 'pagada';
 
-/** Dónde va el pago de una hoja aprobada: lo dicen CAOS (el retiro) y el banco (el depósito). */
-export type EstadoPagoHoja = 'sin_retiro' | 'retiro_recibido' | 'depositada' | 'deposito_ambiguo' | 'deposito_sin_medir';
+/**
+ * Con qué se pagó la hoja. Lo normal es UN retiro de CAOS por la hoja entera (Edgar, 2026-10-29:
+ * *«todo lo de reposición es que salga de un solo movimiento de CAOS»*); el cajón es la excepción
+ * y se dice (2 de 7 hojas de octubre no tuvieron retiro).
+ */
+export type MedioPagoHoja = 'caos' | 'cajon';
 
+/**
+ * Lo más que pone el cajón cuando la hoja se paga con un retiro: el retiro se redondea hacia abajo a
+ * lo que da la máquina. Medido en las 5 hojas de octubre pagadas con un retiro: de $1.00 a $196.03.
+ */
+export const TOPE_CAJON_HOJA = 500;
+
+/**
+ * Días después del último pago de la hoja (o de su aprobación, si fue después) en que se busca el
+ * retiro que la cuadra. Medido el 2026-10-29: las 5 hojas con retiro lo tienen a 0–4 días, cada una
+ * con UN solo candidato y es el correcto; con el total corrido ±$1,000…±$20,000 (control) aparece
+ * un candidato 2 de 200 veces (1 %), y sin la ventana de días 24 de 200 (12 %).
+ */
+export const DIAS_RETIRO_HOJA = 7;
+
+/** Un retiro de CAOS libre que paga la hoja entera: no pasa de la hoja y el cajón pone menos del tope. */
+export interface RetiroParaHoja {
+  device: string;
+  external_id: number;
+  ref: string | null;
+  total: number;
+  /** Día de negocio (México) del retiro. */
+  dia: string;
+  /** Lo que pondría el cajón: el total de la hoja menos el retiro. */
+  cajon: number;
+}
+
+export type EstadoDepositoHoja = 'depositada' | 'ambiguo' | 'no_aparece' | 'sin_medir';
+
+/** El pago de una hoja pagada: con qué salió, quién la pagó y si el depósito ya llegó a la cuenta de la zona. */
 export interface PagoDeHojaGastos {
-  estado: EstadoPagoHoja;
-  /** El retiro de CAOS cuya referencia nombra la hoja. Más de uno se dice en `retiros_extra`. */
+  medio: MedioPagoHoja;
+  /** El retiro que la pagó; `null` si salió del cajón. */
   retiro: { device: string; external_id: number; ref: string | null; total: number; dia: string } | null;
-  retiros_extra: number;
-  /** Los depósitos que suman el total (una o dos partes), o `null`. */
-  depositos: Array<{ id: string; dia: string; importe: number }> | null;
-  /** Por qué no hay depósito todavía, en llano, cuando no lo hay. */
-  nota: string | null;
+  /** Lo que puso el cajón: la diferencia con el retiro, o la hoja entera. */
+  cajon: number;
+  pagada_por_nombre: string | null;
+  pagada_at: string;
+  /**
+   * Renglones de la hoja que todavía no entran al libro de Caja General: el lote no los pudo
+   * confirmar (casi siempre, la cuenta del beneficiario). Se reintentan con «Capturar».
+   */
+  sin_capturar: number;
+  deposito: {
+    estado: EstadoDepositoHoja;
+    /** Los depósitos que suman el total (una o dos partes), o `null`. */
+    depositos: Array<{ id: string; dia: string; importe: number }> | null;
+    /** Por qué no hay depósito todavía, en llano, cuando no lo hay. */
+    nota: string | null;
+  };
 }
 
 export interface HojaGastos {
@@ -160,13 +229,20 @@ export interface HojaGastos {
   cerrada_por: string;
   cerrada_por_nombre: string | null;
   cerrada_at: string;
+  /** Quién la aprobó: por el id, para que la pantalla no ofrezca pagarla a esa misma persona. */
+  aprobada_por: string | null;
   aprobada_por_nombre: string | null;
   aprobada_at: string | null;
   resuelta_por_nombre: string | null;
   resuelta_at: string | null;
   motivo: string | null;
   instruccion: InstruccionPagoHoja;
-  /** Sólo para las aprobadas; `null` en las demás. */
+  /**
+   * Sólo en la aprobada: los retiros de CAOS libres que la pagan entera (de su último pago a
+   * `DIAS_RETIRO_HOJA` días). Uno solo es la propuesta; ninguno, que todavía no se saca.
+   */
+  retiros_que_cuadran: RetiroParaHoja[];
+  /** Sólo en la pagada; `null` en las demás. */
   pago: PagoDeHojaGastos | null;
 }
 
@@ -191,6 +267,25 @@ export interface CerrarHojaInput {
 
 export interface MotivoHojaInput {
   motivo: string;
+}
+
+/**
+ * Pagar una hoja APROBADA: con UN retiro de CAOS (que la cuadre) o, por excepción, con el cajón.
+ * Lo hace otra persona que quien la aprobó. Los importes los pone el servidor.
+ */
+export type PagarHojaInput =
+  | { medio: 'caos'; device: string; external_id: number }
+  | { medio: 'cajon' };
+
+/** Lo que pasó al pagar (o al reintentar la captura): la hoja como quedó y renglón por renglón. */
+export interface PagoHojaResultado {
+  hoja: HojaGastos;
+  /** Renglones que ya estaban en el libro sin retiro y se ligaron al de la hoja. */
+  ligados: number;
+  /** Renglones que entraron al libro con este pago. */
+  capturados: number;
+  /** Los que no entraron, con su motivo: se reintentan con «Capturar». */
+  sin_capturar: Array<{ origen_ref: string; motivo: string | null }>;
 }
 
 /** El folio que se escribe en la referencia del retiro: «HG-12». */

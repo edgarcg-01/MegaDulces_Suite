@@ -2,7 +2,9 @@
 /**
  * `[CGA-A.65]` — La hoja de gastos de zona (migración `20261029143450`) contra una base REAL: cuatro
  * ojos, transiciones, renglones inmutables, un pago en una sola hoja vigente, el total igual a la
- * suma de sus renglones, el folio «HG-n» y el aislamiento por empresa. Cada regla con su negativa.
+ * suma de sus renglones, el folio «HG-n», el aislamiento por empresa, y el pago: sin aprobación no
+ * se paga, quien aprobó no paga, un retiro paga una sola hoja y el cajón pone menos de $500. Cada
+ * regla con su negativa.
  *
  * Si la migración no está aplicada, la aplica DENTRO de la transacción (la misma función `up`, no
  * una copia) y al final se deshace todo: cero efecto en la base.
@@ -138,6 +140,35 @@ async function hoja(trx, numero, renglones, extra = {}) {
       ok(conMensaje(errReabre, 'expense_sheet_resuelta'), `aprobada no se rechaza después (${muestra(errReabre)})`);
       const errFirma = await intento(trx, () => trx('finance.expense_sheets').where({ id: h1.id }).update({ aprobada_por: ZONA_2 }));
       ok(conMensaje(errFirma, 'expense_sheet_resuelta'), `ni se cambia quién la aprobó (${muestra(errFirma)})`);
+
+      console.log('\n── 3b. Sin aprobación no se paga; la paga otra persona, con UN retiro que la cuadra ──');
+      // h1 suma $20,365 (13,035 + 7,330) y la aprobó finanzas.
+      const PAGA = uuid();
+      const pago = (extra = {}) => ({ estado: 'pagada', medio: 'caos', pagada_por: PAGA, pagada_at: trx.fn.now(),
+        caos_device: 'AST700', caos_external_id: 1707, caos_total: 20300, cajon: 65, ...extra });
+      const h6 = await hoja(trx, 6, [['0000610', 900]]);
+      await verificaCuadre(trx);
+      const errSinAprobar = await intento(trx, () => trx('finance.expense_sheets').where({ id: h6.id })
+        .update({ ...pago({ caos_external_id: 9001, caos_total: 900, cajon: 0 }), aprobada_por: FIN, aprobada_at: trx.fn.now() }));
+      ok(conMensaje(errSinAprobar, 'expense_sheet_sin_aprobar'), `una hoja cerrada no se paga, ni aprobándola en el mismo paso (${muestra(errSinAprobar)})`);
+      const errMismo = await intento(trx, () => trx('finance.expense_sheets').where({ id: h1.id }).update(pago({ pagada_por: FIN })));
+      ok(!!errMismo && errMismo.constraint === 'expense_sheet_paga_otro', `quien la aprobó no la paga (${muestra(errMismo)})`);
+      const errCajon = await intento(trx, () => trx('finance.expense_sheets').where({ id: h1.id }).update(pago({ caos_total: 19865, cajon: 500 })));
+      ok(!!errCajon && errCajon.constraint === 'expense_sheet_medio', `el cajón pone menos de $500 (${muestra(errCajon)})`);
+      const errNoSuma = await intento(trx, () => trx('finance.expense_sheets').where({ id: h1.id }).update(pago({ caos_total: 20300, cajon: 60 })));
+      ok(!!errNoSuma && errNoSuma.constraint === 'expense_sheet_medio', `el retiro más el cajón son la hoja (${muestra(errNoSuma)})`);
+      const errEditaAlPagar = await intento(trx, () => trx('finance.expense_sheets').where({ id: h1.id }).update({ ...pago(), venta_del_dia: '2026-10-24' }));
+      ok(conMensaje(errEditaAlPagar, 'expense_sheet_inmutable'), `al pagar no se edita lo aprobado (${muestra(errEditaAlPagar)})`);
+      await trx('finance.expense_sheets').where({ id: h1.id }).update(pago());
+      ok((await trx('finance.expense_sheets').where({ id: h1.id }).first()).estado === 'pagada', 'otra persona la paga con un retiro que la cuadra (el cajón pone $65)');
+      const errRepaga = await intento(trx, () => trx('finance.expense_sheets').where({ id: h1.id }).update({ cajon: 64, caos_total: 20301 }));
+      ok(conMensaje(errRepaga, 'expense_sheet_resuelta'), `pagada ya no se toca (${muestra(errRepaga)})`);
+      await trx('finance.expense_sheets').where({ id: h6.id }).update({ estado: 'aprobada', aprobada_por: FIN, aprobada_at: trx.fn.now() });
+      const errRetiro = await intento(trx, () => trx('finance.expense_sheets').where({ id: h6.id }).update(pago({ caos_total: 900, cajon: 0 })));
+      ok(!!errRetiro && errRetiro.code === '23505' && errRetiro.constraint === 'ux_expense_sheet_retiro', `un retiro paga una sola hoja (${muestra(errRetiro)})`);
+      await trx('finance.expense_sheets').where({ id: h6.id })
+        .update({ estado: 'pagada', medio: 'cajon', pagada_por: PAGA, pagada_at: trx.fn.now(), cajon: 900 });
+      ok((await trx('finance.expense_sheets').where({ id: h6.id }).first()).medio === 'cajon', 'por excepción, con el cajón entero (sin retiro)');
 
       console.log('\n── 4. Rechazada: sus pagos vuelven a la hoja abierta y pueden ir en otra ──');
       const h3 = await hoja(trx, 3, [['0000600', 500]]);

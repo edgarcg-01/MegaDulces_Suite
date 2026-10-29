@@ -2572,21 +2572,24 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // `[CGA-A.65]` La hoja de gastos de zona (el Excel «Formato de autorización de gastos», armado de Kepler).
   hoja_gastos_zona: {
     title: 'La hoja de gastos de zona',
-    intro: 'La hoja de gastos diarios que antes se llenaba en Excel, armada sola con los pagos de Kepler. La zona la cierra, finanzas la aprueba y Caja General la paga.',
+    intro: 'La hoja de gastos diarios que antes se llenaba en Excel, armada sola con los pagos de Kepler. La zona la cierra, finanzas la aprueba y Caja General la paga con un solo retiro de CAOS. Sin aprobación no se paga.',
     groups: [
       {
         heading: 'Qué entra',
         entries: [
           { term: 'Hoja abierta', def: 'Los pagos que la zona hizo con el efectivo de su venta (Kepler X-D-26 contra su caja 0011) y que todavía no van en ninguna hoja. Se actualiza sola cuando Kepler registra un pago.' },
           { term: 'Qué no va', def: 'La nómina (se repone con su propio retiro), el apoyo a proveedores (Capitán de marca, bonos), las comisiones de ventas y los pagos de compras registradas en Kepler (referencia C-… o COMPRA …). Se ven abajo, con su motivo.' },
+          { term: 'Pagados sin hoja', def: 'Lo que ya salió de Caja General del cajón, o ligado a un retiro sin hoja, también va abajo: ya está pagado y no entra a la hoja.' },
           { term: 'Proveedor o gasto', def: 'Lo dice la clave del beneficiario en Kepler: C… es un proveedor de contado (el pago queda aplicado a su compra y la mercancía entró con su orden de entrada); G… es un gasto (caja chica, combustible).' },
         ],
       },
       {
         heading: 'Cómo se paga',
         entries: [
-          { term: 'Folio HG', def: 'Al sacar el dinero de CAOS, escribe el folio de la hoja (por ejemplo HG-12) en la referencia del retiro: así la hoja se liga sola a su retiro.' },
-          { term: 'Retiro, cajón y depósito', def: 'De CAOS sale lo que la máquina da en billetes, el cajón pone el resto y se deposita el total de la hoja en la cuenta de reposición de la zona.' },
+          { term: 'Un solo movimiento', def: 'La hoja aprobada se paga de un clic con UN retiro de CAOS: todos sus pagos quedan ligados a él. La pantalla propone el retiro libre que cuadra con la hoja (no pasa de ella y el cajón pone menos de $500); lo confirma quien paga, que no puede ser quien la aprobó.' },
+          { term: 'Retiro, cajón y depósito', def: 'De CAOS sale lo que la máquina da en billetes, el cajón pone el resto y se deposita el total de la hoja en la cuenta de reposición de la zona. Por excepción, la hoja entera se puede pagar con el cajón: se ve aparte.' },
+          { term: 'Sin aprobación no se paga', def: 'Un pago que va en la hoja no se puede capturar suelto en Caja General, ni ligar a otro retiro: entra al libro sólo cuando su hoja se paga.' },
+          { term: 'Folio HG', def: 'Si escribes el folio de la hoja (por ejemplo HG-12) en la referencia del retiro de CAOS, ese retiro se propone primero.' },
           { term: 'Depositada', def: 'El depósito se reconoce solo cuando uno o dos depósitos de esa cuenta, del día del retiro a siete días después, suman el total (± 50 centavos). Si hay más de una forma de llegar al total, lo liga una persona.' },
         ],
       },

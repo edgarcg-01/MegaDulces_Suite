@@ -5,15 +5,15 @@
  */
 import { ZONAS_HOJA_GASTOS } from '@megadulces/contracts';
 import {
-  armarHojaAbierta, depositoDeHoja, instruccionDePago, motivoFueraDeHoja, retirosDeHoja,
-  type DepositoBancoHoja, type PagoDeZona, type RetiroCaosHoja,
+  armarHojaAbierta, cuadreDelRetiro, depositoDeHoja, instruccionDePago, motivoFueraDeHoja, requisitoDeHoja, retirosQueCuadran,
+  type DepositoBancoHoja, type PagoDeZona, type RetiroLibreHoja,
 } from './hoja-gastos.engine';
 
 const MORELIA = ZONAS_HOJA_GASTOS.find((z) => z.clave === 'morelia')!;
 type Fila = [suc: string, folio: string, benef: string, importe: number, clave: string | null, centro: string | null, ref: string | null, capt: string];
 const pago = (dia: string) => ([s, f, b, i, clave, centro, ref, capt]: Fila): PagoDeZona => ({
   origen_ref: `${s}|X-D-26|${f}|0011`, sucursal: s, doc_tipo: 'X-D-26', folio: f, fecha_pago: dia, fecha_captura: capt,
-  beneficiario: b, clave, centro, referencia: ref, importe: String(i),
+  beneficiario: b, clave, centro, referencia: ref, importe: String(i), en_libro: null, cg_folio: null, en_hoja: false,
 });
 
 // Kepler, día de pago 23/10: los 13 de la hoja en papel («venta del día 23», $58,953.69) y 3 más.
@@ -120,7 +120,7 @@ describe('[CGA-A.65] el día de pago 21/10: dos hojas en papel, y los pagos de m
 describe('[CGA-A.65] la hoja vacía, y lo que no es de la zona', () => {
   it('sin pagos: total 0, sin instrucción, y las dos sucursales de la zona se declaran con 0', () => {
     const h = armarHojaAbierta(MORELIA, [], null);
-    expect(h).toMatchObject({ total: 0, instruccion: null, renglones: [], fuera: [] });
+    expect(h).toMatchObject({ total: 0, instruccion: null, renglones: [], fuera: [], pagados_aparte: [] });
     expect(h.por_sucursal).toEqual([{ sucursal: '08', renglones: 0, total: 0 }, { sucursal: '07', renglones: 0, total: 0 }]);
   });
 
@@ -133,13 +133,118 @@ describe('[CGA-A.65] la hoja vacía, y lo que no es de la zona', () => {
   });
 });
 
-describe('[CGA-A.65] al pagar: el retiro se reconoce por el folio de la hoja', () => {
-  const r = (id: number, ref: string): RetiroCaosHoja => ({ device: 'AST700', external_id: id, occurred_at: '2026-10-30T19:00:00Z', ref, total: 58950 });
-  it('sólo los retiros cuya referencia nombra esa hoja', () => {
-    const retiros = [r(1, 'gnf morelia HG-12'), r(2, 'gnf ma'), r(3, 'HG-120'), r(4, 'hg12')];
-    expect(retirosDeHoja(12, retiros).map((x) => x.external_id)).toEqual([1, 4]);
-    expect(retirosDeHoja(120, retiros).map((x) => x.external_id)).toEqual([3]);
-    expect(retirosDeHoja(13, retiros)).toEqual([]);
+describe('[CGA-A.65] lo que ya salió de Caja General va abajo; lo capturado sin origen, en la hoja', () => {
+  const base = pago('2026-10-23');
+  const fila = (f: Fila, extra: Partial<PagoDeZona>): PagoDeZona => ({ ...base(f), ...extra });
+
+  it('pagado con cajón o ligado a un retiro sin hoja: abajo, con su folio de Caja General', () => {
+    const h = armarHojaAbierta(MORELIA, [
+      fila(DIA_23[2], { en_libro: 'cajon', cg_folio: 'CG-2026-00600' }),
+      fila(DIA_23[3], { en_libro: 'caos', cg_folio: 'CG-2026-00601' }),
+      fila(DIA_23[4], { en_libro: 'sin_origen', cg_folio: 'CG-2026-00602' }),
+      fila(DIA_23[5], {}),
+    ], null);
+    expect(h.pagados_aparte.map((r) => [r.folio.slice(-3), r.como, r.cg_folio])).toEqual([
+      ['282', 'cajon', 'CG-2026-00600'], ['283', 'caos', 'CG-2026-00601'],
+    ]);
+    // Capturado sin decir de dónde salió: SÍ va en la hoja (al pagarla se liga a su retiro).
+    expect(h.renglones.map((r) => r.folio.slice(-3))).toEqual(['284', '285']);
+    expect(h.total).toBe(1802.95);
+  });
+
+  it('NEGATIVA: lo que ya va en otra hoja no aparece en la abierta', () => {
+    const h = armarHojaAbierta(MORELIA, [fila(DIA_23[2], { en_hoja: true }), fila(DIA_23[3], {})], null);
+    expect(h.renglones.map((r) => r.folio.slice(-3))).toEqual(['283']);
+    expect(h.pagados_aparte).toEqual([]);
+  });
+
+  it('lo que no es reposición va abajo aunque ya esté en el libro (con su motivo, no como «pagado aparte»)', () => {
+    const h = armarHojaAbierta(MORELIA, [fila(DIA_23[0], { en_libro: 'cajon', cg_folio: 'CG-2026-00700' })], null);
+    expect(h.fuera.map((r) => r.motivo)).toEqual(['apoyo_proveedores']);
+    expect(h.pagados_aparte).toEqual([]);
+  });
+});
+
+describe('[CGA-A.65] el candado: qué pago sólo se paga con su hoja aprobada', () => {
+  const p = (sucursal: string, fecha_pago: string, centro: string | null, referencia: string | null = null) =>
+    ({ sucursal, fecha_pago, centro, referencia });
+
+  it('un gasto de Abastos o de Madero desde el arranque de la zona: sí, y dice cuál zona', () => {
+    expect(requisitoDeHoja(p('08', MORELIA.desde, '007'))?.clave).toBe('morelia');
+    expect(requisitoDeHoja(p('07', '2026-11-03', null))?.clave).toBe('morelia');
+    expect(requisitoDeHoja(p('06', '2026-11-03', '007'))?.clave).toBe('canindo');
+  });
+
+  it('NEGATIVA: antes del arranque, de otra sucursal, o lo que no va en la hoja → sigue su camino de siempre', () => {
+    expect(requisitoDeHoja(p('08', '2026-10-28', '007'))).toBeNull();
+    expect(requisitoDeHoja(p('01', '2026-11-03', '007'))).toBeNull();
+    expect(requisitoDeHoja(p('08', '2026-11-03', '009'))).toBeNull();
+    expect(requisitoDeHoja(p('08', '2026-11-03', '003', 'C-237'))).toBeNull();
+    expect(requisitoDeHoja(p('08', '', '007'))).toBeNull();
+  });
+});
+
+describe('[CGA-A.65] al pagar: UN retiro paga la hoja entera, y el cajón pone la diferencia', () => {
+  it('las cinco hojas de octubre con retiro: cuadran, y el cajón pone lo que puso de verdad', () => {
+    expect(cuadreDelRetiro(169696.03, 169500)).toEqual({ ok: true, cajon: 196.03 });
+    expect(cuadreDelRetiro(135431, 135430)).toEqual({ ok: true, cajon: 1 });
+    expect(cuadreDelRetiro(163083.49, 163080)).toEqual({ ok: true, cajon: 3.49 });
+    expect(cuadreDelRetiro(58953.69, 58900)).toEqual({ ok: true, cajon: 53.69 });
+    expect(cuadreDelRetiro(156678.61, 156670)).toEqual({ ok: true, cajon: 8.61 });
+    expect(cuadreDelRetiro(1000, 1000)).toEqual({ ok: true, cajon: 0 });
+  });
+
+  it('NEGATIVA: un retiro mayor que la hoja, uno al que le faltan $500 o más, o uno vacío → no', () => {
+    expect(cuadreDelRetiro(58953.69, 58960)).toMatchObject({ ok: false, motivo: 'mayor' });
+    expect(cuadreDelRetiro(58953.69, 58450)).toMatchObject({ ok: false, motivo: 'corto' });
+    expect(cuadreDelRetiro(58953.69, 58453.69)).toMatchObject({ ok: false, motivo: 'corto' });
+    expect(cuadreDelRetiro(58953.69, 58453.70)).toEqual({ ok: true, cajon: 499.99 });
+    expect(cuadreDelRetiro(58953.69, 0)).toMatchObject({ ok: false, motivo: 'vacio' });
+  });
+
+  // Los retiros REALES de CAOS de 10 mil o más del 21 al 29 de octubre (prod, sólo lectura).
+  const r = (id: number, dia: string, cuando: string, ref: string, total: number): RetiroLibreHoja =>
+    ({ device: 'AST700-19758', external_id: id, dia, occurred_at: `${cuando}:00-06:00`, ref, total });
+  const OCT = [
+    r(1675, '2026-10-21', '2026-10-21T11:41', 'cocadas', 20050),
+    r(1677, '2026-10-21', '2026-10-21T11:42', 'corso', 68040),
+    r(1692, '2026-10-22', '2026-10-22T09:42', 'fruti frsk', 160420),
+    r(1695, '2026-10-22', '2026-10-22T10:12', 'bolsas', 149150),
+    r(1706, '2026-10-23', '2026-10-23T13:52', 'gnf morelia', 163080),
+    r(1707, '2026-10-23', '2026-10-23T14:03', 'gnf ma', 58900),
+    r(1715, '2026-10-23', '2026-10-23T18:01', 'bono mkt', 10000),
+    r(1717, '2026-10-24', '2026-10-24T12:08', 'coca cola', 45190),
+    r(1722, '2026-10-26', '2026-10-26T13:48', 'tdc amex', 119720),
+    r(1775, '2026-10-28', '2026-10-28T10:29', 'gnf 26/10', 156670),
+    r(1795, '2026-10-29', '2026-10-29T11:01', 'don jhonny', 83620),
+    r(1802, '2026-10-29', '2026-10-29T12:37', 'pal alma', 148060),
+  ];
+
+  it('la hoja de la venta del 20 y la del 23: un solo candidato cada una, y es el que la pagó', () => {
+    expect(retirosQueCuadran(163083.49, null, '2026-10-21', '2026-10-21', OCT)).toEqual([
+      { device: 'AST700-19758', external_id: 1706, ref: 'gnf morelia', total: 163080, dia: '2026-10-23', cajon: 3.49 },
+    ]);
+    expect(retirosQueCuadran(58953.69, null, '2026-10-23', '2026-10-23', OCT).map((x) => x.external_id)).toEqual([1707]);
+    expect(retirosQueCuadran(156678.61, null, '2026-10-28', '2026-10-28', OCT).map((x) => x.external_id)).toEqual([1775]);
+  });
+
+  it('CONTROL: el mismo total corrido $1,000 no encuentra ninguno', () => {
+    expect(retirosQueCuadran(164083.49, null, '2026-10-21', '2026-10-21', OCT)).toEqual([]);
+    expect(retirosQueCuadran(57953.69, null, '2026-10-23', '2026-10-23', OCT)).toEqual([]);
+  });
+
+  it('NEGATIVA: un retiro antes del último pago de la hoja, o a más de 7 días, no es de ella', () => {
+    expect(retirosQueCuadran(58953.69, null, '2026-10-24', '2026-10-24', OCT)).toEqual([]);
+    expect(retirosQueCuadran(163083.49, null, '2026-10-12', '2026-10-15', OCT)).toEqual([]);
+    // Aprobada tarde: la ventana corre desde la aprobación.
+    expect(retirosQueCuadran(163083.49, null, '2026-10-12', '2026-10-17', OCT).map((x) => x.external_id)).toEqual([1706]);
+  });
+
+  it('con dos que cuadran: primero el que trae el folio de la hoja, luego el que deja menos al cajón', () => {
+    const dos = [r(1, '2026-10-30', '2026-10-30T10:00', 'gnf', 9950), r(2, '2026-10-30', '2026-10-30T11:00', 'gnf hg-7', 9900),
+      r(3, '2026-10-30', '2026-10-30T12:00', 'gnf', 9990)];
+    expect(retirosQueCuadran(9999.5, 7, '2026-10-30', '2026-10-30', dos).map((x) => x.external_id)).toEqual([2, 3, 1]);
+    expect(retirosQueCuadran(9999.5, null, '2026-10-30', '2026-10-30', dos).map((x) => x.external_id)).toEqual([3, 1, 2]);
   });
 });
 

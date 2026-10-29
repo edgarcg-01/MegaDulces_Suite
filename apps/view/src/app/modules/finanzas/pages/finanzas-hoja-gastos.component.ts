@@ -8,11 +8,12 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { DialogModule } from 'primeng/dialog';
 import { TextareaModule } from 'primeng/textarea';
 import { ToastModule } from 'primeng/toast';
+import { RadioButtonModule } from 'primeng/radiobutton';
 import { MessageService } from 'primeng/api';
 import {
   MOTIVO_FUERA_DE_HOJA_TEXTO, pagableConBilletesCaos, warehouseName,
-  type ClaseRenglonHoja, type ClaveZonaHoja, type EstadoHojaGastos, type EstadoPagoHoja, type HojaAbierta, type HojaGastos,
-  type HojasDeGastos, type RenglonHoja,
+  type ClaseRenglonHoja, type ClaveZonaHoja, type EstadoDepositoHoja, type EstadoHojaGastos, type HojaAbierta, type HojaGastos,
+  type HojasDeGastos, type PagoDeHojaGastos, type RenglonHoja, type RetiroParaHoja,
 } from '@megadulces/contracts';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -34,11 +35,14 @@ type Accion = 'rechazar' | 'cancelar';
  * Morelia llenaba a mano, armado solo con los pagos de Kepler.
  *
  * Edgar, 2026-10-29: *«no queremos impresiones, solo quiero que se automatice el proceso tanto del
- * excel como a la hora de pagar»*. Tres firmas, una sola pantalla: la zona cierra su hoja, finanzas
- * la aprueba o la rechaza, y Caja General ve cuánto sacar de CAOS y depositar, y si ya llegó.
+ * excel como a la hora de pagar»*, *«debería pagarse todo con un solo movimiento y vincularse»* y
+ * *«si no está aprobada no se puede pagar»*. Tres firmas, una sola pantalla: la zona cierra su hoja,
+ * finanzas la aprueba o la rechaza, y Caja General la paga de un clic con el retiro de CAOS que la
+ * cuadra (todos sus pagos quedan ligados a él) y ve si el depósito ya llegó.
  *
  * Jerarquía (Q.5): primario = la hoja abierta (cuánto y qué se va a cerrar) y lo que espera una
- * firma; secundario = los subtotales y la instrucción de pago; terciario = el renglón de Kepler.
+ * firma o un pago; secundario = los subtotales y el retiro que la cuadra; terciario = el renglón de
+ * Kepler. Abajo, lo que no es de la hoja: lo que no es reposición y lo que ya salió del cajón.
  *
  * ⚠️ Quién hace qué lo vuelve a exigir el servidor (y la base: quien cierra no aprueba). La pantalla
  * manda QUÉ pagos; el importe lo vuelve a leer el servidor de Kepler en la misma transacción.
@@ -47,7 +51,7 @@ type Accion = 'rechazar' | 'cancelar';
   selector: 'app-finanzas-hoja-gastos',
   standalone: true,
   imports: [
-    FormsModule, ButtonModule, TableModule, TagModule, DatePickerModule, DialogModule, TextareaModule, ToastModule,
+    FormsModule, ButtonModule, TableModule, TagModule, DatePickerModule, DialogModule, TextareaModule, ToastModule, RadioButtonModule,
     LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, ContextHelpComponent,
   ],
   providers: [MessageService],
@@ -58,7 +62,7 @@ type Accion = 'rechazar' | 'cancelar';
       <header class="surf-page-head hg-head">
         <div>
           <h1 class="surf-title">Hoja de gastos de zona</h1>
-          <p class="surf-sub">Los pagos que la zona hizo con su venta, armados solos desde Kepler. La zona la cierra, finanzas la aprueba y Caja General la paga.</p>
+          <p class="surf-sub">Los pagos que la zona hizo con su venta, armados solos desde Kepler. La zona la cierra, finanzas la aprueba y Caja General la paga con un solo retiro de CAOS.</p>
         </div>
         <div class="hg-head-r">
           @if (datos(); as d) {
@@ -161,6 +165,19 @@ type Accion = 'rechazar' | 'cancelar';
                   </ul>
                 </details>
               }
+              <!-- Edgar: «lo que se paga con cajón o no es reposición va abajo». -->
+              @if (a.pagados_aparte.length) {
+                <details class="hg-fuera">
+                  <summary>{{ a.pagados_aparte.length }} {{ a.pagados_aparte.length === 1 ? 'pago ya salió' : 'pagos ya salieron' }} de Caja General sin hoja ({{ money(totalAparte(a)) }}): del cajón o de un retiro</summary>
+                  <ul class="hg-fuera-l">
+                    @for (r of a.pagados_aparte; track r.origen_ref) {
+                      <li><span>{{ nombre(r.sucursal) }} · X{{ r.folio.slice(-4) }} · {{ r.beneficiario ?? '—' }}</span>
+                        <span class="hg-mono">{{ money(r.importe) }}</span>
+                        <span class="hg-dim">{{ r.como === 'cajon' ? 'Del cajón' : 'De un retiro de CAOS' }}@if (r.cg_folio) { · {{ r.cg_folio }} }</span></li>
+                    }
+                  </ul>
+                </details>
+              }
             }
           </section>
 
@@ -195,12 +212,15 @@ type Accion = 'rechazar' | 'cancelar';
                     <td class="hg-apila" data-label="Firmas" role="cell">
                       <small>Cerró {{ h.cerrada_por_nombre ?? 'sin nombre' }}</small>
                       @if (h.aprobada_por_nombre) { <small>Aprobó {{ h.aprobada_por_nombre }}</small> }
+                      @if (h.pago?.pagada_por_nombre) { <small>Pagó {{ h.pago?.pagada_por_nombre }}</small> }
                       @if (h.resuelta_por_nombre) { <small>{{ h.estado === 'rechazada' ? 'Rechazó' : 'Canceló' }} {{ h.resuelta_por_nombre }}</small> }
                     </td>
                     <td class="hg-apila" data-label="Pago" role="cell">
                       @if (h.pago; as p) {
-                        <p-tag [severity]="severidadPago(p.estado)" [value]="pagoTexto(p.estado)"></p-tag>
-                        @if (p.nota) { <small class="hg-dim">{{ p.nota }}</small> }
+                        <small>{{ medioTexto(p) }}</small>
+                        <p-tag [severity]="severidadDeposito(p.deposito.estado)" [value]="depositoTexto(p.deposito.estado)"></p-tag>
+                        @if (p.sin_capturar) { <small class="hg-warn">{{ p.sin_capturar }} {{ p.sin_capturar === 1 ? 'pago sin capturar' : 'pagos sin capturar' }} en el libro</small> }
+                        @if (p.deposito.nota) { <small class="hg-dim">{{ p.deposito.nota }}</small> }
                       } @else {
                         <span class="hg-dim">—</span>
                       }
@@ -224,9 +244,23 @@ type Accion = 'rechazar' | 'cancelar';
                                     (onClick)="pedirMotivo('cancelar', h)"></p-button>
                         }
                       } @else if (h.estado === 'aprobada') {
-                        <small>Saca <span class="hg-mono">{{ money(h.instruccion.retiro) }}</span> de CAOS con la referencia
-                          <strong class="hg-mono">{{ h.folio }}</strong>; el cajón pone <span class="hg-mono">{{ money(h.instruccion.cajon) }}</span>;
-                          deposita <span class="hg-mono">{{ money(h.instruccion.deposito) }}</span>.</small>
+                        @if (puedePagar() && h.aprobada_por !== yo()) {
+                          <p-button [label]="'Pagar ' + h.folio" icon="pi pi-wallet" size="small" [disabled]="!!ocupado()"
+                                    (onClick)="abrirPago(h)"></p-button>
+                          <small class="hg-dim">{{ textoCuadre(h) }}</small>
+                        } @else if (puedePagar()) {
+                          <small class="hg-dim">La aprobaste tú: la paga otra persona.</small>
+                        } @else {
+                          <small>La paga Caja General con un solo retiro: <span class="hg-mono">{{ money(h.instruccion.retiro) }}</span> de CAOS,
+                            el cajón pone <span class="hg-mono">{{ money(h.instruccion.cajon) }}</span>.</small>
+                        }
+                      } @else if (h.estado === 'pagada') {
+                        @if (puedePagar() && h.pago?.sin_capturar) {
+                          <p-button label="Capturar lo que falta" icon="pi pi-refresh" size="small" severity="secondary" [outlined]="true"
+                                    [disabled]="!!ocupado()" [loading]="ocupado() === h.id" (onClick)="capturar(h)"></p-button>
+                        } @else {
+                          <small class="hg-dim">Pagada: todos sus pagos los explica {{ h.pago?.medio === 'cajon' ? 'el cajón' : 'su retiro' }}.</small>
+                        }
                       } @else {
                         <small class="hg-dim">{{ h.motivo }}</small>
                       }
@@ -253,10 +287,10 @@ type Accion = 'rechazar' | 'cancelar';
                         </ng-template>
                       </p-table>
                       @if (h.pago?.retiro; as rt) {
-                        <p class="hg-dim hg-det-sub">Retiro de CAOS «{{ rt.ref ?? rt.external_id }}» del {{ dmy(rt.dia) }} por <span class="hg-mono">{{ money(rt.total) }}</span>.
-                          @if (h.pago?.retiros_extra) { Hay {{ h.pago?.retiros_extra }} retiro(s) más con este folio: revísalo. }</p>
+                        <p class="hg-dim hg-det-sub">Retiro de CAOS «{{ rt.ref ?? rt.external_id }}» del {{ dmy(rt.dia) }} por <span class="hg-mono">{{ money(rt.total) }}</span>;
+                          el cajón puso <span class="hg-mono">{{ money(h.pago?.cajon ?? 0) }}</span>.</p>
                       }
-                      @if (h.pago?.depositos; as deps) {
+                      @if (h.pago?.deposito?.depositos; as deps) {
                         <p class="hg-dim hg-det-sub">Depósito: @for (x of deps; track x.id) { <span class="hg-mono">{{ money(x.importe) }}</span> el {{ dmy(x.dia) }}@if (!$last) { y } }.</p>
                       }
                     </td>
@@ -286,6 +320,41 @@ type Accion = 'rechazar' | 'cancelar';
         <p-button label="Volver" severity="secondary" [text]="true" (onClick)="cerrarDialogo()"></p-button>
         <p-button [label]="dialogo()?.accion === 'rechazar' ? 'Rechazar' : 'Cancelar hoja'" severity="danger"
                   [disabled]="motivo.trim().length < 10 || !!ocupado()" [loading]="ocupado() === 'motivo'" (onClick)="confirmarMotivo()"></p-button>
+      </ng-template>
+    </p-dialog>
+
+    <!-- Pagar: UN movimiento para la hoja entera. El servidor vuelve a revisar que esté aprobada, que
+         quien paga no la haya aprobado y que el retiro la cuadre. -->
+    <p-dialog [visible]="pagando() !== null" (visibleChange)="$event ? null : cerrarPago()" [modal]="true" appendTo="body"
+              [header]="'Pagar ' + (pagando()?.folio ?? '')" [style]="{ width: '36rem' }" [draggable]="false">
+      @if (pagando(); as h) {
+        <div class="hg-dlg">
+          <p>{{ h.nombre_zona }} · {{ h.renglones.length }} pagos · <strong class="hg-mono">{{ money(h.total) }}</strong>.
+            Todos quedan explicados por el mismo movimiento.</p>
+          <fieldset class="hg-opciones">
+            <legend class="hg-lbl">Con qué se paga</legend>
+            @for (r of h.retiros_que_cuadran; track r.external_id) {
+              <div class="hg-opcion">
+                <p-radiobutton name="hg-medio" [value]="claveRetiro(r)" [ngModel]="eleccion()" (ngModelChange)="eleccion.set($event)"
+                               [inputId]="'hg-r-' + r.external_id" />
+                <label [for]="'hg-r-' + r.external_id">Retiro «{{ r.ref ?? r.external_id }}» del {{ dmy(r.dia) }} ·
+                  <span class="hg-mono">{{ money(r.total) }}</span> · el cajón pone <span class="hg-mono">{{ money(r.cajon) }}</span></label>
+              </div>
+            } @empty {
+              <p class="hg-dim hg-sin-retiro">Ningún retiro libre cuadra con la hoja. Saca <span class="hg-mono">{{ money(h.instruccion.retiro) }}</span>
+                de CAOS (el cajón pone <span class="hg-mono">{{ money(h.instruccion.cajon) }}</span>) y vuelve a cargar: aparece aquí.</p>
+            }
+            <div class="hg-opcion">
+              <p-radiobutton name="hg-medio" value="cajon" [ngModel]="eleccion()" (ngModelChange)="eleccion.set($event)" inputId="hg-r-cajon" />
+              <label for="hg-r-cajon">Con el cajón, sin retiro de CAOS <span class="hg-dim">(la excepción: se ve aparte)</span></label>
+            </div>
+          </fieldset>
+        </div>
+      }
+      <ng-template #footer>
+        <p-button label="Volver" severity="secondary" [text]="true" (onClick)="cerrarPago()"></p-button>
+        <p-button [label]="'Pagar ' + (pagando()?.folio ?? '')" icon="pi pi-check" [disabled]="!eleccion() || !!ocupado()"
+                  [loading]="ocupado() === 'pagar'" (onClick)="confirmarPago()"></p-button>
       </ng-template>
     </p-dialog>
   `,
@@ -326,6 +395,9 @@ type Accion = 'rechazar' | 'cancelar';
     .hg-det-sub { margin:0 0 var(--sp-2); }
     .hg-dlg { display:flex; flex-direction:column; gap:var(--sp-2); }
     .hg-dlg p { margin:0; }
+    .hg-opciones { border:0; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-2); }
+    .hg-opcion { display:flex; align-items:center; gap:var(--sp-2); }
+    .hg-opcion label { cursor:pointer; }
     .hg-ancho { width:100%; }
     `,
   ],
@@ -354,11 +426,16 @@ export class FinanzasHojaGastosComponent implements OnInit {
   readonly filaActiva = signal<HojaGastos | null>(null);
   readonly dialogo = signal<{ accion: Accion; hoja: HojaGastos } | null>(null);
   motivo = '';
+  /** La hoja aprobada que se está pagando, y con qué: `device|external_id` de un retiro, o `cajon`. */
+  readonly pagando = signal<HojaGastos | null>(null);
+  readonly eleccion = signal<string | null>(null);
   /** La llave del cierre: el doble clic no cierra dos hojas. Se renueva al cerrar. */
   private llave = uuidV4();
 
   readonly puedeCerrar = computed(() => this.perms.has(Permission.FINANCE_HOJA_GASTOS_CERRAR));
   readonly puedeAprobar = computed(() => this.perms.has(Permission.FINANCE_EXPENSES_COMPROBAR));
+  /** Paga quien gestiona la caja: el mismo permiso que el lote de la cola. */
+  readonly puedePagar = computed(() => this.perms.has(Permission.FINANCE_CAJA_GESTIONAR));
   readonly yo = computed(() => this.auth.user()?.sub ?? null);
 
   readonly abierta = computed<HojaAbierta | null>(() => this.datos()?.abiertas.find((a) => a.zona === this.zona()) ?? null);
@@ -385,14 +462,14 @@ export class FinanzasHojaGastosComponent implements OnInit {
     if (!d) return [];
     const abiertas = d.abiertas.reduce((a, h) => a + h.total, 0);
     const porFirmar = d.cerradas.filter((h) => h.estado === 'cerrada');
-    const porPagar = d.cerradas.filter((h) => h.estado === 'aprobada' && h.pago?.estado !== 'depositada');
-    const depositadas = d.cerradas.filter((h) => h.pago?.estado === 'depositada');
+    const porPagar = d.cerradas.filter((h) => h.estado === 'aprobada');
+    const sinDeposito = d.cerradas.filter((h) => h.estado === 'pagada' && h.pago?.deposito.estado !== 'depositada');
     const suma = (xs: HojaGastos[]) => xs.reduce((a, h) => a + h.total, 0);
     return [
       { label: 'Por cerrar (hojas abiertas)', value: abiertas, format: 'currency2', tone: 'default' },
       { label: `Esperan a finanzas (${porFirmar.length})`, value: suma(porFirmar), format: 'currency2', tone: porFirmar.length ? 'warn' : 'ok' },
-      { label: `Aprobadas sin depositar (${porPagar.length})`, value: suma(porPagar), format: 'currency2', tone: porPagar.length ? 'warn' : 'ok' },
-      { label: 'Depositadas (45 días)', value: depositadas.length, format: 'number', tone: 'default' },
+      { label: `Aprobadas por pagar (${porPagar.length})`, value: suma(porPagar), format: 'currency2', tone: porPagar.length ? 'warn' : 'ok' },
+      { label: `Pagadas sin depósito (${sinDeposito.length})`, value: suma(sinDeposito), format: 'currency2', tone: sinDeposito.length ? 'warn' : 'ok' },
     ];
   });
 
@@ -459,7 +536,7 @@ export class FinanzasHojaGastosComponent implements OnInit {
     this.api.aprobarHojaDeGastos(h.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (x) => {
         this.ocupado.set(null);
-        this.toast.add({ severity: 'success', summary: `${x.folio} aprobada`, detail: `Caja General ya la puede pagar con la referencia ${x.folio}.` });
+        this.toast.add({ severity: 'success', summary: `${x.folio} aprobada`, detail: 'Caja General ya la puede pagar, con un solo retiro de CAOS.' });
         this.cargar();
       },
       error: (e) => this.falla(e, 'No se aprobó la hoja'),
@@ -490,6 +567,85 @@ export class FinanzasHojaGastosComponent implements OnInit {
       },
       error: (e) => this.falla(e, dl.accion === 'rechazar' ? 'No se rechazó la hoja' : 'No se canceló la hoja'),
     });
+  }
+
+  /** Abre el pago con la propuesta ya elegida cuando UN solo retiro cuadra; con varios, elige la persona. */
+  abrirPago(h: HojaGastos): void {
+    this.eleccion.set(h.retiros_que_cuadran.length === 1 ? this.claveRetiro(h.retiros_que_cuadran[0]) : null);
+    this.pagando.set(h);
+  }
+
+  cerrarPago(): void {
+    this.pagando.set(null);
+  }
+
+  claveRetiro(r: RetiroParaHoja): string {
+    return `${r.device}|${r.external_id}`;
+  }
+
+  confirmarPago(): void {
+    const h = this.pagando();
+    const e = this.eleccion();
+    if (!h || !e || this.ocupado()) return;
+    const r = h.retiros_que_cuadran.find((x) => this.claveRetiro(x) === e);
+    if (e !== 'cajon' && !r) return;
+    this.ocupado.set('pagar');
+    const body = r ? { medio: 'caos' as const, device: r.device, external_id: r.external_id } : { medio: 'cajon' as const };
+    this.api.pagarHojaDeGastos(h.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (x) => {
+        this.ocupado.set(null);
+        this.pagando.set(null);
+        const faltan = x.sin_capturar.length;
+        this.toast.add({
+          severity: faltan ? 'warn' : 'success', summary: `${x.hoja.folio} pagada`,
+          detail: `${x.capturados + x.ligados} ${x.capturados + x.ligados === 1 ? 'pago quedó' : 'pagos quedaron'} explicados por ${r ? 'el retiro' : 'el cajón'}.`
+            + (faltan ? ` ${faltan} sin capturar: ${x.sin_capturar[0].motivo ?? 'reintenta con «Capturar lo que falta»'}.` : ''),
+        });
+        this.cargar();
+      },
+      error: (err) => this.falla(err, 'No se pagó la hoja'),
+    });
+  }
+
+  capturar(h: HojaGastos): void {
+    if (this.ocupado()) return;
+    this.ocupado.set(h.id);
+    this.api.capturarHojaDeGastos(h.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (x) => {
+        this.ocupado.set(null);
+        const faltan = x.sin_capturar.length;
+        this.toast.add({ severity: faltan ? 'warn' : 'success', summary: `${x.hoja.folio}: ${x.capturados} ${x.capturados === 1 ? 'capturado' : 'capturados'}`,
+          detail: faltan ? `${faltan} todavía sin capturar: ${x.sin_capturar[0].motivo ?? 'revisa su cuenta contable'}.` : 'Todos sus pagos ya están en el libro.' });
+        this.cargar();
+      },
+      error: (err) => this.falla(err, 'No se capturó'),
+    });
+  }
+
+  /** La línea bajo «Pagar»: qué retiro cuadra, o cuánto sacar. */
+  textoCuadre(h: HojaGastos): string {
+    const rs = h.retiros_que_cuadran;
+    if (rs.length === 1) return `Cuadra el retiro «${rs[0].ref ?? rs[0].external_id}» del ${dmy(rs[0].dia)}: ${money(rs[0].total)}, el cajón pone ${money(rs[0].cajon)}.`;
+    if (rs.length > 1) return `${rs.length} retiros cuadran con la hoja: elige el suyo.`;
+    return `Saca ${money(h.instruccion.retiro)} de CAOS (el cajón pone ${money(h.instruccion.cajon)}) y vuelve a cargar.`;
+  }
+
+  medioTexto(p: PagoDeHojaGastos): string {
+    if (p.medio === 'cajon') return `Del cajón: ${money(p.cajon)}`;
+    const r = p.retiro;
+    return `Retiro «${r?.ref ?? r?.external_id ?? '—'}» ${money(r?.total ?? 0)}${p.cajon > 0 ? ` · cajón ${money(p.cajon)}` : ''}`;
+  }
+
+  depositoTexto(e: EstadoDepositoHoja): string {
+    return { depositada: 'Depositada', ambiguo: 'Depósito por ligar', no_aparece: 'Sin depósito todavía', sin_medir: 'Depósito sin medir' }[e];
+  }
+
+  severidadDeposito(e: EstadoDepositoHoja): 'success' | 'info' | 'warn' | 'secondary' {
+    return e === 'depositada' ? 'success' : e === 'no_aparece' ? 'info' : e === 'ambiguo' ? 'warn' : 'secondary';
+  }
+
+  totalAparte(a: HojaAbierta): number {
+    return Math.round(a.pagados_aparte.reduce((s, r) => s + Number(r.importe), 0) * 100) / 100;
   }
 
   /** Enter en la fila abre o cierra sus pagos; si el foco está en un botón de la fila, manda el botón. */
@@ -532,22 +688,11 @@ export class FinanzasHojaGastosComponent implements OnInit {
   }
 
   estadoTexto(e: EstadoHojaGastos): string {
-    return { cerrada: 'Espera a finanzas', aprobada: 'Aprobada', rechazada: 'Rechazada', cancelada: 'Cancelada' }[e];
+    return { cerrada: 'Espera a finanzas', aprobada: 'Aprobada, por pagar', pagada: 'Pagada', rechazada: 'Rechazada', cancelada: 'Cancelada' }[e];
   }
 
-  severidadEstado(e: EstadoHojaGastos): 'warn' | 'success' | 'danger' | 'secondary' {
-    return e === 'cerrada' ? 'warn' : e === 'aprobada' ? 'success' : e === 'rechazada' ? 'danger' : 'secondary';
-  }
-
-  pagoTexto(e: EstadoPagoHoja): string {
-    return {
-      sin_retiro: 'Sin retiro', retiro_recibido: 'Retiro recibido', depositada: 'Depositada',
-      deposito_ambiguo: 'Depósito por ligar', deposito_sin_medir: 'Depósito sin medir',
-    }[e];
-  }
-
-  severidadPago(e: EstadoPagoHoja): 'warn' | 'success' | 'info' | 'secondary' {
-    return e === 'depositada' ? 'success' : e === 'retiro_recibido' ? 'info' : e === 'sin_retiro' ? 'warn' : 'secondary';
+  severidadEstado(e: EstadoHojaGastos): 'warn' | 'success' | 'info' | 'danger' | 'secondary' {
+    return e === 'cerrada' ? 'warn' : e === 'aprobada' ? 'info' : e === 'pagada' ? 'success' : e === 'rechazada' ? 'danger' : 'secondary';
   }
 
   /** Venta del día por defecto: el primer día de pago de la hoja (lo cambia quien la cierra). */
