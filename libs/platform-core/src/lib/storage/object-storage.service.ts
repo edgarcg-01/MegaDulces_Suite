@@ -121,14 +121,34 @@ export class ObjectStorageService {
    */
   async signFiles<T extends { url?: string; public_id?: string }>(files: T[] | null | undefined, ttlSec = 600): Promise<T[]> {
     const list = Array.isArray(files) ? files : [];
-    if (!list.length || !this.isConfigured()) return list;
-    return Promise.all(list.map(async (f) => {
+    if (!list.length) return list;
+    // ⛔ Degradar en SILENCIO deja una LLAVE de bucket donde el frontend espera una URL. Una
+    // llave es una ruta RELATIVA: el navegador se la pide al propio sitio y la persona ve un
+    // 404 crudo que no nombra la causa. Medido 2026-10-29: un `.env` con `S3_ACCESS_KEY` en
+    // vez de `S3_ACCESS_KEY_ID` dejó así TODOS los comprobantes de una API local, y encontrarlo
+    // costó una tarde. Se sigue devolviendo la lista —no se inventa una URL (ADR-056)— pero se DICE.
+    if (!this.isConfigured()) {
+      this.logger.warn(
+        `signFiles: almacenamiento NO configurado (faltan env S3_*) — ${list.length} archivo(s) salen con su KEY sin firmar y el navegador no va a poder abrirlos`,
+      );
+      return list;
+    }
+    let sinFirmar = 0;
+    const firmados = await Promise.all(list.map(async (f) => {
       const key = f?.public_id || '';
       // key del bucket = "<folder>/<uuid>.pdf"; si no parece key nuestra (o ya es http), no firmar.
       if (!key || /^https?:\/\//i.test(key)) return f;
-      const url = await this.signedUrl(key, ttlSec).catch(() => '');
-      return url ? ({ ...f, url } as T) : f;
+      const url = await this.signedUrl(key, ttlSec).catch((e: unknown) => {
+        this.logger.warn(`signFiles: no se pudo firmar ${key}: ${e instanceof Error ? e.message : String(e)}`);
+        return '';
+      });
+      if (!url) { sinFirmar += 1; return f; }
+      return { ...f, url } as T;
     }));
+    if (sinFirmar) {
+      this.logger.warn(`signFiles: ${sinFirmar} de ${list.length} archivo(s) quedaron con su KEY sin firmar`);
+    }
+    return firmados;
   }
 
   /**

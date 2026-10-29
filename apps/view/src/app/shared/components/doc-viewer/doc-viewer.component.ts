@@ -119,10 +119,12 @@ const ZOOMS = [50, 75, 100, 125, 150, 200, 300, 400] as const;
                       [pTooltip]="grown() ? 'Salir (Esc)' : 'Pantalla completa (F)'" tooltipPosition="bottom">
                 <i class="pi" [ngClass]="grown() ? 'pi-window-minimize' : 'pi-window-maximize'" aria-hidden="true"></i>
               </button>
-              <a class="dv-b" [href]="actual()!.url" target="_blank" rel="noopener"
-                 aria-label="Abrir en una pestaña nueva" pTooltip="Abrir en pestaña" tooltipPosition="bottom">
-                <i class="pi pi-external-link" aria-hidden="true"></i>
-              </a>
+              @if (servible()) {
+                <a class="dv-b" [href]="actual()!.url" target="_blank" rel="noopener"
+                   aria-label="Abrir en una pestaña nueva" pTooltip="Abrir en pestaña" tooltipPosition="bottom">
+                  <i class="pi pi-external-link" aria-hidden="true"></i>
+                </a>
+              }
             </div>
           </div>
         }
@@ -135,6 +137,15 @@ const ZOOMS = [50, 75, 100, 125, 150, 200, 300, 400] as const;
             <i class="pi pi-file" aria-hidden="true"></i>
             <p class="dv-empty-t">{{ emptyTitle() }}</p>
             <p class="dv-empty-s">{{ emptyHint() }}</p>
+          </div>
+        } @else if (!servible()) {
+          <!-- La hoja existe pero su direccion no es navegable: el backend no pudo firmarla y
+               mando la LLAVE del bucket. Antes se ofrecia igual y el navegador contestaba un 404
+               crudo que culpaba a la persona. Se declara el hecho y se dice quien lo arregla. -->
+          <div class="dv-empty">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <p class="dv-empty-t">No se pudo preparar el documento</p>
+            <p class="dv-empty-s">La hoja está guardada, no se perdió. El servidor no pudo generar su enlace de lectura, y eso no se arregla desde aquí: avisa a sistemas.</p>
           </div>
         } @else if (roto()) {
           <div class="dv-empty">
@@ -300,6 +311,15 @@ export class DocViewerComponent {
   readonly actual = computed<DocViewerFile | null>(() => this.files()[this.idx()] ?? null);
   readonly esImagen = computed(() => { const f = this.actual(); return !!f && this.esImagenDe(f); });
   /** Cambia sólo al cambiar de hoja: es la llave que recrea el `<iframe>`. */
+  /**
+   * ¿La direccion de la hoja sirve para navegar? El bucket de comprobantes es PRIVADO: el
+   * backend guarda la LLAVE en `url` y la cambia por una URL prefirmada al leer. Si esa firma
+   * no se pudo hacer llega la llave cruda, que es una ruta RELATIVA: el navegador se la pide al
+   * propio sitio y devuelve un 404. Medido 2026-10-29 con `/finance/<tenant>/goods-receipts/...`.
+   * Se aceptan `blob:` y `data:` porque la bandeja previsualiza el archivo local antes de subirlo.
+   */
+  readonly servible = computed(() => /^(https?|blob|data):/i.test(this.actual()?.url || ''));
+
   readonly claveHoja = computed(() => this.actual()?.url ?? '');
 
   constructor() {
