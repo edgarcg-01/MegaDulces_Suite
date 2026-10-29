@@ -24,6 +24,7 @@ import {
   TelemarketingFiltrosComponent, TmFiltros, tmFiltrosIniciales,
 } from '../components/telemarketing-filtros.component';
 import { RouteCreditComponent } from './comercial-route-credit.component';
+import { abrirPestanaParaPdf, entregarPdf, cerrarPestanaDePdf } from '../../../shared/util/abrir-pdf';
 
 /**
  * AX.2/AX.3 — Facturación de Telemarketing (el documento que se le entrega al cliente).
@@ -697,23 +698,29 @@ export class ComercialDocumentosComponent {
   generarGuia(): void {
     if (!this.listo()) return;
     const folios = this.sel().map((d) => d.folio_digital);
+    // La pestaña se abre YA, dentro del clic: abrirla al llegar el PDF la bloquea el navegador.
+    const win = abrirPestanaParaPdf('Preparando la guía de cobranza…');
     this.busy.set('guia');
     this.svc.guiaCobranzaBlob(folios, { responsable: this.responsable || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (res) => {
           this.busy.set(null);
           const folio = res.headers.get('X-Expediente-Folio');
-          const url = URL.createObjectURL(res.body as Blob);
-          this.imprimirPdf(url);
-          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          const donde = entregarPdf(win, res.body as Blob, 'guia-' + (folio || 'cobranza'), { imprimir: true });
           this.sel.set([]);
+          // El expediente SIEMPRE se archivó; lo que cambia es dónde quedó el papel. Decirlo
+          // al revés es afirmar una impresión que no ocurrió.
           this.toast.add({
             severity: 'success', summary: `Expediente ${folio || 'archivado'}`,
-            detail: 'La guía se archivó en Expedientes y se mandó a imprimir.', life: 6000,
+            detail: donde === 'pestana'
+              ? 'La guía se archivó en Expedientes y se mandó a imprimir.'
+              : 'La guía se archivó en Expedientes y se descargó: el navegador bloqueó la ventana, ábrela desde tus descargas para imprimirla.',
+            life: donde === 'pestana' ? 6000 : 9000,
           });
         },
         error: (e) => {
           this.busy.set(null);
+          cerrarPestanaDePdf(win);
           // El endpoint responde blob: el mensaje del backend viene DENTRO del blob.
           mensajeDeErrorBlob(e).then((detail) => this.toast.add({
             severity: 'error', summary: 'No se pudo generar la guía', detail, life: 8000,
@@ -765,18 +772,27 @@ export class ComercialDocumentosComponent {
   // ── PDF ────────────────────────────────────────────────────────────────
   // El endpoint exige JWT: hay que traer el blob (el interceptor pone el header). Abrir la URL
   // en una pestaña mandaría la petición sin token y devolvería 401.
-  private conBlob(folio: string, pagare: boolean, fn: (url: string) => void): void {
+  /**
+   * ⛔ `win` se abre en el CLIC y llega hasta acá. Abrirla al llegar el blob es lo que el
+   * bloqueador de ventanas emergentes rechaza (ver `abrir-pdf.ts`): el gesto ya terminó.
+   */
+  private conBlob(folio: string, pagare: boolean, win: Window | null): void {
     this.busy.set(folio);
     this.svc.anexoBlob(folio, pagare).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (b) => {
         this.busy.set(null);
-        const url = URL.createObjectURL(b);
-        fn(url);
-        // el objeto vive hasta que el visor/iframe terminó de usarlo
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        const donde = entregarPdf(win, b, 'anexo-' + folio, { imprimir: true });
+        if (donde === 'descarga') {
+          this.toast.add({
+            severity: 'warn', summary: 'El navegador bloqueó la ventana',
+            detail: 'El anexo ' + folio + ' se descargó: ábrelo desde tus descargas para imprimirlo.',
+            life: 7000,
+          });
+        }
       },
       error: () => {
         this.busy.set(null);
+        cerrarPestanaDePdf(win);
         this.toast.add({ severity: 'error', summary: 'No se pudo generar el anexo', life: 4000 });
       },
     });
@@ -787,47 +803,10 @@ export class ComercialDocumentosComponent {
   // detrás de una pantalla es el que la próxima persona vuelve a cablear sin saber por qué.
   imprimir(d: SalesDocRow, ev?: Event): void {
     ev?.stopPropagation();
-    this.imprimirFolio(d.folio_digital, true);
+    this.conBlob(d.folio_digital, true, abrirPestanaParaPdf('Preparando el anexo…'));
   }
 
   imprimirDet(d: SalesDocDetail): void {
-    this.imprimirFolio(d.folio_digital, true);
-  }
-
-  private imprimirFolio(folio: string, pagare: boolean): void {
-    this.conBlob(folio, pagare, (url) => this.imprimirPdf(url));
-  }
-
-  /**
-   * Imprime el PDF en una PESTAÑA propia, no en un iframe oculto.
-   *
-   * El iframe de 0 px era el bug que reportó Edgar: `iframe.contentWindow.print()` sobre el
-   * visor de PDF de Chrome no imprime el PDF — el trabajo de impresión toma el documento que
-   * CONTIENE al visor, o sea la pantalla de la app. Medido: la ventana principal ni siquiera
-   * recibe la llamada a `print()` y aun así lo que sale en la vista previa es la tabla.
-   *
-   * En una pestaña, el documento ES el PDF y el trabajo es el PDF. El visor no dispara `load`
-   * de forma confiable, así que se intenta al cargar y también tras un retraso corto, con un
-   * cerrojo para no abrir dos diálogos. Si el navegador bloquea la ventana emergente se dice
-   * —el usuario tiene el PDF a un clic, nunca se queda sin salida.
-   */
-  private imprimirPdf(url: string): void {
-    const win = window.open(url, '_blank');
-    if (!win) {
-      this.toast.add({
-        severity: 'warn', summary: 'El navegador bloqueó la ventana',
-        detail: 'Permite las ventanas emergentes de este sitio para imprimir directo, o usa "Ver PDF".',
-        life: 7000,
-      });
-      return;
-    }
-    let lanzado = false;
-    const lanzar = () => {
-      if (lanzado) return;
-      lanzado = true;
-      try { win.focus(); win.print(); } catch { /* el visor tiene su propio botón */ }
-    };
-    try { win.addEventListener('load', lanzar); } catch { /* cross-origin al cargar: queda el timer */ }
-    setTimeout(lanzar, 1200);
+    this.conBlob(d.folio_digital, true, abrirPestanaParaPdf('Preparando el anexo…'));
   }
 }

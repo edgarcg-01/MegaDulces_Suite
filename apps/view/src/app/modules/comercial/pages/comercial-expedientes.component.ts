@@ -14,6 +14,7 @@ import { SalesDocumentsService, ExpedienteGuia, SalesDocsFiltros } from '../sale
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { TELEMARKETING_TABS } from '../telemarketing-tabs';
+import { abrirPestanaParaPdf, entregarPdf, cerrarPestanaDePdf } from '../../../shared/util/abrir-pdf';
 
 /**
  * GT.12 — Expedientes: el historial de Guías de Cobranza emitidas, por vendedor.
@@ -219,50 +220,37 @@ export class ComercialExpedientesComponent {
   }
 
   reimprimir(e: ExpedienteGuia): void {
-    this.conPdf(e, (url) => this.imprimirPdf(url));
+    this.conPdf(e, abrirPestanaParaPdf('Preparando la guía…'), true);
   }
 
   verPdf(e: ExpedienteGuia): void {
-    this.conPdf(e, (url) => window.open(url, '_blank'));
+    this.conPdf(e, abrirPestanaParaPdf('Preparando la guía…'), false);
   }
 
-  private conPdf(e: ExpedienteGuia, fn: (url: string) => void): void {
+  /**
+   * ⛔ La pestaña se abre en el CLIC y llega hasta acá. Abrirla al llegar el blob es lo que el
+   * bloqueador rechaza (ver `abrir-pdf.ts`) — y lo rechazaba en los DOS botones, así que el
+   * aviso viejo mandaba a «Ver PDF», que fallaba por exactamente la misma razón.
+   */
+  private conPdf(e: ExpedienteGuia, win: Window | null, imprimir: boolean): void {
     this.busy.set(e.id);
     this.svc.expedienteBlob(e.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (b) => {
         this.busy.set(null);
-        const url = URL.createObjectURL(b);
-        fn(url);
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        const donde = entregarPdf(win, b, 'guia-' + e.folio, { imprimir });
+        if (donde === 'descarga') {
+          this.toast.add({
+            severity: 'warn', summary: 'El navegador bloqueó la ventana',
+            detail: 'La guía ' + e.folio + ' se descargó: ábrela desde tus descargas.',
+            life: 7000,
+          });
+        }
       },
       error: () => {
         this.busy.set(null);
+        cerrarPestanaDePdf(win);
         this.toast.add({ severity: 'error', summary: 'No se pudo reimprimir la guía', life: 5000 });
       },
     });
-  }
-
-  /**
-   * Imprime en una PESTAÑA, no en un iframe oculto: `iframe.contentWindow.print()` sobre el
-   * visor de PDF de Chrome manda a la impresora el documento que lo CONTIENE — la pantalla.
-   */
-  private imprimirPdf(url: string): void {
-    const win = window.open(url, '_blank');
-    if (!win) {
-      this.toast.add({
-        severity: 'warn', summary: 'El navegador bloqueó la ventana',
-        detail: 'Permite las ventanas emergentes para imprimir directo, o usa "Ver PDF".',
-        life: 7000,
-      });
-      return;
-    }
-    let lanzado = false;
-    const lanzar = () => {
-      if (lanzado) return;
-      lanzado = true;
-      try { win.focus(); win.print(); } catch { /* el visor tiene su propio botón */ }
-    };
-    try { win.addEventListener('load', lanzar); } catch { /* queda el timer */ }
-    setTimeout(lanzar, 1200);
   }
 }
