@@ -276,8 +276,8 @@ describe('FinanzasGastosHistorialComponent', () => {
    * vale de otro.
    */
   describe('pedir la reapertura', () => {
-    const abrirVale = (status: string) => {
-      montar('superadmin');
+    const abrirVale = (status: string, rol = 'superadmin', mapa: Record<string, boolean> = {}) => {
+      montar(rol, mapa);
       c.valeAbierto.set({
         id: 'p1', folio_solicitud: '0009901', sucursal: '00', fecha_gasto: D1,
         created_at: `${D1}T15:00:00.000Z`, importe: 1250.5, departamento: 'LOGISTICA',
@@ -287,15 +287,17 @@ describe('FinanzasGastosHistorialComponent', () => {
       fix.detectChanges();
     };
 
+    // `[GX.87]` Desde que el visor también ofrece «agregar evidencia», estas pruebas miran
+    // SÓLO la reapertura: la otra acción tiene las suyas abajo.
     it('un vale ya aprobado ofrece pedir la reapertura', () => {
       abrirVale('validada');
-      expect(c.accionesDelVale()).toEqual(['pedir_reapertura']);
+      expect(c.accionesDelVale()).toContain('pedir_reapertura');
     });
 
     /** Un vale que todavía espera firma ya está abierto: no hay nada que reabrir. */
     it('lo que todavía espera firma no la ofrece', () => {
       abrirVale('recibida');
-      expect(c.accionesDelVale()).toEqual([]);
+      expect(c.accionesDelVale()).not.toContain('pedir_reapertura');
     });
 
     /**
@@ -306,7 +308,33 @@ describe('FinanzasGastosHistorialComponent', () => {
     it('⛔ en «Todos» no se ofrece: son vales ajenos', () => {
       abrirVale('validada');
       c.ambito.set('todos');
+      expect(c.accionesDelVale()).not.toContain('pedir_reapertura');
+    });
+
+    /**
+     * `[GX.87]` **Agregar evidencia.** En «Míos» es lo tuyo; en «Todos», sólo para quien
+     * aprueba gastos (`COMPROBAR`) — el mismo criterio con que el servidor decide.
+     */
+    it('[GX.87] en «Míos» se ofrece sumar evidencia, también si espera firma', () => {
+      abrirVale('recibida', 'capturista', { FINANCE_EXPENSES_CAPTURAR: true });
+      expect(c.accionesDelVale()).toEqual(['agregar_evidencia']);
+    });
+
+    it('[GX.87] en «Todos», quien aprueba sí puede sumar (y no pedir reapertura)', () => {
+      abrirVale('validada', 'tesoreria', { FINANCE_EXPENSES_HISTORIAL_TODOS: true, FINANCE_EXPENSES_COMPROBAR: true });
+      c.ambito.set('todos');
+      expect(c.accionesDelVale()).toEqual(['agregar_evidencia']);
+    });
+
+    it('[GX.87] ⛔ en «Todos», sin COMPROBAR, nada: son vales ajenos', () => {
+      abrirVale('validada', 'consulta', { FINANCE_EXPENSES_HISTORIAL_TODOS: true });
+      c.ambito.set('todos');
       expect(c.accionesDelVale()).toEqual([]);
+    });
+
+    it('[GX.87] un rechazado no ofrece sumar evidencia', () => {
+      abrirVale('rechazada');
+      expect(c.accionesDelVale()).not.toContain('agregar_evidencia');
     });
 
     /** Sin motivo no se manda nada: quien decide lo hace leyendo eso. */

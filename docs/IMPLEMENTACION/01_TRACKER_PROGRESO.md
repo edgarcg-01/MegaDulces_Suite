@@ -5150,6 +5150,34 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.87] · agregar evidencia a cada vale, con su porqué — 2026-10-29
+
+- [x] **[GX.87]** 🧪 Pedido del usuario: *«hay que agregar un botón en la sección de expediente para cada vale en
+  el cual se adjunte más evidencia y que agregue el por qué»*. Decisiones: **a cada vale**, **«se agrega y ya»**
+  (no cambia el estado), **dueño y aprobadores**.
+  - **Regla** en `libs/contracts/src/finance/evidencia-adicional.contract.ts`: rol `adicional`, porqué de 10+
+    caracteres, hasta 5 archivos por envío, cualquier estado salvo `rechazada`.
+  - **Servidor:** `POST /finance/expenses/proofs/:id/evidencia-adicional` (`VER`/`CAPTURAR`/`COMPROBAR`). Bajo
+    `FOR UPDATE` SUMA los archivos con `motivo`, `agregado_por` (nombre del padrón) y `agregado_at` puestos por el
+    servidor; no toca `status` ni `validated_*`. Dueño (`esDuenoDelVale`) o aprobador (`COMPROBAR`/admin), si no 403.
+    Devuelve el expediente firmado (firmado fuera de la transacción).
+  - **Pantalla:** botón «Agregar evidencia» junto a «Evidencia» en el visor compartido (Mis gastos, Historial y
+    Aprobación) + diálogo nuevo `app-evidencia-adicional-dialog` (no se extendió el del alta: ése CREA el vale y
+    tiene casillas fijas). El visor separa las decisiones del pie: sin eso, un vale que sólo ofrece agregar pintaba
+    «Rechazar». En Aprobación la acción va aparte de `accionesDe` para no cambiar el atenuado de la bandeja.
+  - **PDF del expediente:** la evidencia adicional sale con «Agregada después: «porqué» · quién · cuándo».
+  - **Pruebas:** contrato 15 · servicio/controller 9 · PDF 3 · visor 7 · diálogo 8 · historial 4. Negativas: sin la
+    guarda dueño/aprobador → rojo «ajeno»; sin el filtro del pie → rojo «no enciende Rechazar». view finanzas
+    1110/1110, `libs/finance` entero 1895 ✔ + 112 omitidas (las suites que piden base, preexistentes: **NO
+    MEDIDAS**). `gate-push` 26 gates sin rojo en los 17 archivos;
+    `check:pantalla` 0 fallas nuevas en las tres pantallas.
+- [ ] **[GX.87.x]** Declarado: (1) **sin validación visual** en navegador ni prueba contra base real del endpoint
+  (regla 13): el servicio se probó con base simulada; (2) el cliente manda `url`/`public_id` de lo que subió y el
+  servidor no verifica que la llave sea de una subida suya — mismo modelo de confianza que el alta y `addEvidence`;
+  (3) se solapa con la **reapertura** (`[GX.29]`), que se pedía justo para «agregar algo» al vale: decidir si la
+  reapertura se queda sólo para corregir datos; (4) sin aviso a quien aprobó cuando aparece evidencia nueva en un
+  vale ya cerrado; (5) sin migraciones ni permisos nuevos → sin re-login.
+
 ### 🔨 [GX.86] · aviso de las rondas de revisión de gastos (sin bloqueo) — 2026-10-26
 
 - [x] **[GX.86]** 🧪 **Cambió de bloqueo a aviso.** Primera versión (22-oct): bloquear el alta fuera de
