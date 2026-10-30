@@ -68,15 +68,21 @@ const DB_NOM = process.env.CONTPAQI_NOM_DB || 'ctLFLG';
 const ADD_PRINCIPAL = (process.env.CONTPAQI_ADD_GUID || '12677b5d').toLowerCase();
 
 const TABLA_SECRETA = /^certificates$/i;
-const COLUMNA_SECRETA = /privad|password|passwd|contrase|pwd|clave_?acceso|secret|token|api_?key|ciec|fiel/i;
+/** Secreto en cualquier tabla y de cualquier tipo: el nombre lo dice sin ambigüedad. */
+const COLUMNA_SECRETA = /privad|password|passwd|contrase|pwd|clave_?acceso|secret|token|api_?key/i;
 /**
- * ⛔ ContPAQi le dice CLAVE a la contraseña: `GeneralesSQL.Usuarios.Clave` y `EmailClave` se copiaron a prod en el humo
- * del 2026-10-30 porque el filtro buscaba «password». Un TEXTO cuyo nombre termina en clave/pass/nip/pin es secreto;
- * `FechaVencimientoClave` (fecha) y `c_ClaveProdServ` (no termina en clave) se siguen copiando.
+ * ⛔ ContPAQi le dice CLAVE a la contraseña: `GeneralesSQL.Usuarios.Clave` y `eMailClave` se copiaron a prod en el humo
+ * del 2026-10-30 porque el filtro buscaba «password». Pero «clave» también es la homoclave del RFC (`nom10001.homoclave`)
+ * y la clave de un concepto (`Nomina_Detalle.Clave`), así que por nombre se pasa de largo: medido en el ensayo del mismo
+ * día. «Clave» es secreto SÓLO en las tablas de usuarios. Y FIEL/CIEC, al final de un texto (no `FieldName`).
  */
-const TEXTO_SECRETO = /(clave|pass|nip|pin)$/i;
+const TABLA_DE_USUARIOS = /^(usuarios?|cac10000)$/i;
+const CLAVE_DE_USUARIO = /^(clave|e?mailclave)$/i;
+const TEXTO_SECRETO = /(fiel|ciec|pass)$/i;
 const TIPOS_TEXTO = new Set(['char', 'varchar', 'nchar', 'nvarchar', 'text', 'ntext', 'binary', 'varbinary', 'image']);
-const esSecreta = (c) => COLUMNA_SECRETA.test(c.nombre) || (TEXTO_SECRETO.test(c.nombre) && TIPOS_TEXTO.has(c.tipo));
+const esSecreta = (tabla, c) => COLUMNA_SECRETA.test(c.nombre)
+  || (TABLA_DE_USUARIOS.test(tabla) && CLAVE_DE_USUARIO.test(c.nombre))
+  || (TEXTO_SECRETO.test(c.nombre) && TIPOS_TEXTO.has(c.tipo));
 const LLAVE_LEGIBLE = new Set(['int', 'bigint', 'smallint', 'tinyint', 'uniqueidentifier', 'char', 'varchar', 'nchar', 'nvarchar']);
 
 /** Las bases que se replican, en orden: la contabilidad primero, el ADD principal antes que los demás. */
@@ -169,7 +175,7 @@ async function catalogo(pool, db) {
     if (!tablas.has(c.oid)) tablas.set(c.oid, { esquema: c.esquema, tabla: c.tabla, columnas: [], excluidas: [], llave: [], filas: 0 });
     const t = tablas.get(c.oid);
     const col = { nombre: c.nombre, tipo: String(c.tipo).toLowerCase(), precision: c.precision, scale: c.scale };
-    if (esSecreta(col)) t.excluidas.push(c.nombre); else t.columnas.push(col);
+    if (esSecreta(c.tabla, col)) t.excluidas.push(c.nombre); else t.columnas.push(col);
   }
   for (const p of pks) {
     const t = tablas.get(p.oid);
