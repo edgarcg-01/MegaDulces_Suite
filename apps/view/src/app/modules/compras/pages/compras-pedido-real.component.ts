@@ -4681,6 +4681,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       { label: 'A traspasar', value: this.totTr(), format: 'currency', sub: 'desde CEDIS' },
       { label: 'Sobrestock', value: this.totOver(), format: 'currency', tone: 'warn', sub: 'inmovilizado' },
       { label: 'SKUs', value: this.wbTotal() },
+      // `[PQ.38]` Los dos operandos de «Días de existencia», a la vista y con los mismos filtros que
+      // la tabla: la venta va A PRECIO (suma de «Valor venta»), la existencia AL COSTO (suma de
+      // «Valor exist.»). Si hay almacenes sin valuar (U.2) la bajada lo dice: el total es parcial.
+      { label: 'Valor venta', value: t.venta, format: 'currency', sub: 'últimos 30 días, a precio' },
+      { label: 'Valor existencia', value: t.exis, format: 'currency', sub: this.valorExisSub() },
       // `[RA-PRO.49]` El par: lo que HAY y lo que se BUSCA, uno al lado del otro. Suelto, "Cobertura
       // 30 días objetivo" no dice si estamos arriba o abajo de la meta; el número de al lado es el
       // que lo contesta. Va ANTES del objetivo porque se lee "tengo N, quiero M".
@@ -4734,6 +4739,12 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    *   · sin existencia valuada → hay demanda pero el inventario no se pudo valuar (peldaño, U.2).
    * Fundirlas en un "sin datos" manda a revisar el lugar equivocado.
    */
+  /** `[PQ.38]` Al costo; si el peldaño dejó SKUs sin valuar, el total no los incluye y se dice. */
+  valorExisSub(): string {
+    const g = this.rungGap();
+    return g ? `al costo · faltan ${g.skus} SKU por valuar` : 'al costo, hoy';
+  }
+
   diasInventarioSub(): string {
     const t = this.wbTotals();
     if (t.venta_costo === undefined) return 'dato no disponible';

@@ -1383,3 +1383,25 @@ describe('[PQ.37] lo agotado no desaparece de la lista', () => {
     expect(texto(fix)).not.toContain('topología de abasto');
   });
 });
+
+describe('[PQ.38] valor venta y valor existencia, en grande', () => {
+  beforeEach(() => { try { localStorage.clear(); } catch { /* jsdom */ } });
+  const texto = (fix: { nativeElement: HTMLElement }) => fix.nativeElement.textContent ?? '';
+
+  it('⭐ la tira publica los dos totales del servidor', () => {
+    const fix = montar({ ...VACIO, total: 5618, totals: { pedido: 25821320, venta: 18432109.5, exis: 9876543.21, venta_costo: 14000000 } });
+    fix.detectChanges();
+    const kpi = fix.componentInstance.pedidoKpi();
+    expect(kpi.find((k: { label: string }) => k.label === 'Valor venta')).toMatchObject({ value: 18432109.5, format: 'currency' });
+    expect(kpi.find((k: { label: string }) => k.label === 'Valor existencia')).toMatchObject({ value: 9876543.21, sub: 'al costo, hoy' });
+    expect(texto(fix)).toContain('Valor venta');
+    expect(texto(fix)).toContain('Valor existencia');
+  });
+
+  it('NEGATIVO: con SKUs sin valuar, la existencia declara que es parcial', () => {
+    const fix = montar({ ...VACIO, total: 1, totals: { pedido: 0, venta: 1, exis: 1 }, unit_rung: { skus: 7, celdas: 9, arbitrado: 1200 } });
+    fix.detectChanges();
+    const ex = fix.componentInstance.pedidoKpi().find((k: { label: string }) => k.label === 'Valor existencia');
+    expect(ex?.sub).toBe('al costo · faltan 7 SKU por valuar');
+  });
+});
