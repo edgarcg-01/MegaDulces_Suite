@@ -69,6 +69,14 @@ const TABLA_ENTERA_MAX = Number(arg('tabla-entera-max', 100000));
 const CONTROL = process.argv.includes('--control');
 /** Dos corridas que escriben a la vez se pisan: una borra el tramo que la otra acaba de copiar. */
 const CANDADO = 'contpaqi_ods.replica';
+/**
+ * La recopia lee con candado (`READ COMMITTED`): si contabilidad tiene una captura abierta sobre esas filas, esperarla
+ * hasta el `requestTimeout` (10 min) detendría la vuelta entera. Se espera esto y el tramo se reintenta en la siguiente.
+ * Por qué: en el pod, 6 tablas que difirieron a las 10:01 estaban al día a las 10:50 sin que nadie las recopiara; la
+ * huella (con `NOLOCK`) había visto una captura sin terminar, o una alta que después se borró.
+ */
+const ESPERA_CANDADO_MS = Number(arg('espera-candado-ms', 10000));
+const esperaDeCandado = (e) => Boolean(e) && (e.number === 1222 || /lock request time ?out/i.test(String(e.message)));
 
 if (!process.env.CONTPAQI_SQL_PASSWORD) {
   console.error('⛔ falta CONTPAQI_SQL_PASSWORD en el entorno (este script no trae contraseña por defecto).');
@@ -141,18 +149,23 @@ function fuentes(bases) {
 /**
  * ⛔ Lo que se esperaba replicar y no está en línea se DECLARA (regla 11). Antes se saltaba en silencio: en la carga
  * del 2026-10-30 faltaron dos bases de metadatos del ADD y nada lo dijo. Cada repositorio que aparece por cualquiera
- * de sus bases debe tener las dos de metadatos (así las lista `DB_Directory`).
+ * de sus bases debería tener las dos de metadatos (así las lista `DB_Directory`).
+ * `grave` = una base que EXISTE y no está en línea, o una de las fijas que falta: eso pone el código de salida en 1. Una
+ * del ADD que el servidor nunca creó (`document_4d8ceea4` y `other_d112b0ed`, medido el 2026-10-30) sólo se informa:
+ * no hay nada que copiar, y una alarma que suena siempre deja de oírse.
  */
 function fuentesAusentes(estado) {
   const esperadas = [['ct', DB_CT], ['gen', 'GeneralesSQL'], ['sat', 'ADD_Catalogos'], ['dir', 'DB_Directory'],
-    ['nom', DB_NOM], ['nomgen', 'nomGenerales']];
+    ['nom', DB_NOM], ['nomgen', 'nomGenerales']].map(([alias, db]) => [alias, db, true]);
   for (const n of estado.keys()) {
     const m = String(n).match(/^(?:document|other)_([0-9a-f-]{36})_(?:metadata|content)$/i);
-    if (m) esperadas.push(['add', `document_${m[1]}_metadata`], ['addo', `other_${m[1]}_metadata`]);
+    if (m) esperadas.push(['add', `document_${m[1]}_metadata`, false], ['addo', `other_${m[1]}_metadata`, false]);
   }
   const vistas = new Set();
   return esperadas.filter(([alias, db]) => !vistas.has(db) && vistas.add(db) && estado.get(db) !== 'ONLINE' && (!SOLO || SOLO.has(alias)))
-    .map(([, db]) => `${db}: ${estado.has(db) ? `estado ${estado.get(db)}` : 'no existe en el servidor'}`);
+    .map(([, db, fija]) => (estado.has(db) || fija
+      ? { grave: true, texto: `${db}: ${estado.has(db) ? `estado ${estado.get(db)}` : 'no existe en el servidor'}` }
+      : { grave: false, texto: `${db}: el directorio del ADD la lista, pero el servidor nunca la creó (nada que copiar)` }));
 }
 
 /** Tipo de Postgres para un tipo de SQL Server. Lo que no tiene par exacto va a `text`. */
@@ -336,14 +349,18 @@ async function columnasPg(pg, x) {
     AND NOT attisdropped`, [x.destino])).rows.map((r) => r.attname));
 }
 
-/** Recorre la tabla entera y entrega cada lote: por llave en trozos o, sin llave legible, de una pasada. */
-async function recorrer(pool, t, x, alLote) {
+/**
+ * Recorre la tabla entera y entrega cada lote: por llave en trozos o, sin llave legible, de una pasada (`NOLOCK`, sin
+ * candados que esperar). `prefijo` va en el MISMO lote que cada `SELECT`: con dos conexiones en el pool, un `SET` suelto
+ * puede caer en la otra.
+ */
+async function recorrer(pool, t, x, alLote, prefijo = '') {
   if (!x.porLlave) return leerDeUnaPasada(pool, x.desde, x.select, alLote);
   let ultimo = null;
   for (;;) {
     const req = pool.request();
     if (ultimo) t.llave.forEach((k, i) => req.input(`p${i}`, TIPO_PARAM[k.tipo], ultimo[i]));
-    const filas = (await req.query(`SELECT TOP (${TROZO}) ${x.select} FROM ${x.desde} ${ultimo ? `WHERE ${despuesDe(t.llave)}` : ''}`
+    const filas = (await req.query(`${prefijo}SELECT TOP (${TROZO}) ${x.select} FROM ${x.desde} ${ultimo ? `WHERE ${despuesDe(t.llave)}` : ''}`
       + ` ORDER BY ${t.llave.map((k) => msId(k.nombre)).join(', ')}`)).recordset;
     if (!filas.length) break;
     await alLote(filas);
@@ -482,7 +499,10 @@ async function enTransaccion(pg, fn) {
   }
 }
 
-/** Recopia UN tramo en una transacción: lo que la réplica tenía en ese rango se va y entra lo del origen. */
+/**
+ * Recopia UN tramo en una transacción: lo que la réplica tenía en ese rango se va y entra lo del origen. Devuelve las
+ * filas copiadas, o `null` si el origen tenía ese rango tomado por una captura en curso (se reintenta la vuelta que sigue).
+ */
 async function recopiarTramo(pool, pg, f, t, x, p, b, enOrigen) {
   // El rango del tramo, recortado al tipo de la llave: el último tramo de un `int` pasaría de 2,147,483,647.
   const [min, max] = RANGO_ENTERO[p.k.tipo];
@@ -490,8 +510,13 @@ async function recopiarTramo(pool, pg, f, t, x, p, b, enOrigen) {
   const hi = Math.min(p.kmin + (b + 1) * p.w - 1, max);
   let filas = [];
   if (enOrigen) {
-    filas = (await pool.request().input('lo', TIPO_PARAM[p.k.tipo], lo).input('hi', TIPO_PARAM[p.k.tipo], hi)
-      .query(`SELECT ${x.select} FROM ${x.desde} WHERE ${msId(p.k.nombre)} BETWEEN @lo AND @hi`)).recordset;
+    try {
+      filas = (await pool.request().input('lo', TIPO_PARAM[p.k.tipo], lo).input('hi', TIPO_PARAM[p.k.tipo], hi)
+        .query(`SET LOCK_TIMEOUT ${ESPERA_CANDADO_MS}; SELECT ${x.select} FROM ${x.desde} WHERE ${msId(p.k.nombre)} BETWEEN @lo AND @hi`)).recordset;
+    } catch (e) {
+      if (esperaDeCandado(e)) return null;
+      throw e;
+    }
   }
   await enTransaccion(pg, async () => {
     await pg.query(`DELETE FROM ${x.destino} WHERE ${pgId(p.k.nombre.toLowerCase())} BETWEEN $1 AND $2${f.repo ? ' AND "_repo" = $3' : ''}`,
@@ -504,7 +529,12 @@ async function recopiarTramo(pool, pg, f, t, x, p, b, enOrigen) {
 /** Recopia la tabla entera en una transacción (sólo tablas chicas: `TABLA_ENTERA_MAX`). Lee todo antes de abrirla. */
 async function recopiarEntera(pool, pg, f, t, x) {
   const filas = [];
-  await recorrer(pool, t, x, async (lote) => { for (const r of lote) filas.push(r); });
+  try {
+    await recorrer(pool, t, x, async (lote) => { for (const r of lote) filas.push(r); }, `SET LOCK_TIMEOUT ${ESPERA_CANDADO_MS}; `);
+  } catch (e) {
+    if (esperaDeCandado(e)) return null;
+    throw e;
+  }
   await enTransaccion(pg, async () => {
     await pg.query(`DELETE FROM ${x.destino}${f.repo ? ' WHERE "_repo" = $1' : ''}`, f.repo ? [f.repo] : []);
     if (filas.length) await insertar(pg, x.destino, t.columnas, f.repo, filas);
@@ -576,17 +606,26 @@ async function sincronizarTabla(pool, pg, f, t) {
   const origen = await huellaOrigen(pool, t, x, sumables, p);
   const replica = await huellaReplica(pg, f, x, sumables, p);
   const difieren = nuevas.length ? [...new Set([...origen.keys(), ...replica.keys()])].sort((a, b) => a - b) : diferencias(origen, replica);
-  const control = CONTROL ? await controlNegativo(pg, f, t, x, sumables, p, origen, difieren) : null;
-  let recopiadas = 0;
-  if (APPLY && difieren.length) {
-    if (p.modo === 'entera') recopiadas = await recopiarEntera(pool, pg, f, t, x);
-    else for (const b of difieren) recopiadas += await recopiarTramo(pool, pg, f, t, x, p, b, origen.has(b));
-  }
   const suma = (m) => [...m.values()].reduce((s, v) => s + v.n, 0);
+  // Vacía en la réplica (en el ADD, una tabla que este repositorio no usa): no hay fila que mover, no hay control.
+  const control = CONTROL && suma(replica) > 0 ? await controlNegativo(pg, f, t, x, sumables, p, origen, difieren) : null;
+  let recopiadas = 0;
+  const hechos = [];
+  const esperando = [];
+  if (APPLY && difieren.length) {
+    const lotes = p.modo === 'entera' ? [[difieren, () => recopiarEntera(pool, pg, f, t, x)]]
+      : difieren.map((b) => [[b], () => recopiarTramo(pool, pg, f, t, x, p, b, origen.has(b))]);
+    for (const [tramos, recopiar] of lotes) {
+      const n = await recopiar();
+      if (n === null) esperando.push(...tramos);
+      else { recopiadas += n; hechos.push(...tramos); }
+    }
+  }
   const nOrigen = suma(origen);
-  const nReplica = APPLY ? suma(replica) - difieren.reduce((s, b) => s + (replica.get(b)?.n || 0), 0) + recopiadas : suma(replica);
-  const nota = nuevas.length ? `columnas nuevas en el origen: ${nuevas.join(', ')}` : null;
-  return { x, modo: p.modo, tramos: origen.size, difieren, recopiadas, nOrigen, nReplica, control, nota };
+  const nReplica = APPLY ? suma(replica) - hechos.reduce((s, b) => s + (replica.get(b)?.n || 0), 0) + recopiadas : suma(replica);
+  const notas = [nuevas.length ? `columnas nuevas en el origen: ${nuevas.join(', ')}` : null,
+    esperando.length ? `${esperando.length} tramos esperan una captura en curso (se reintentan)` : null].filter(Boolean);
+  return { x, modo: p.modo, tramos: origen.size, difieren, recopiadas, esperando, nOrigen, nReplica, control, nota: notas.join(' · ') || null };
 }
 
 /** Las vueltas de la sincronía: una, o una cada `--watch` minutos hasta Ctrl-C. Devuelve cuántas fallas hubo. */
@@ -594,7 +633,7 @@ async function sincronizar(pool, pg, bases) {
   let fallas = 0;
   for (let vuelta = 1; ; vuelta++) {
     const t0 = Date.now();
-    const v = { tablas: 0, alDia: 0, tramos: 0, difieren: 0, recopiadas: 0, sinCarril: 0, lentas: [], fallas: [],
+    const v = { tablas: 0, alDia: 0, tramos: 0, difieren: 0, recopiadas: 0, esperando: 0, sinCarril: 0, lentas: [], fallas: [],
       control: { vio: 0, noVio: 0, sinConcluir: 0 } };
     for (const f of fuentes(bases)) {
       if (detener) break;
@@ -619,6 +658,7 @@ async function sincronizar(pool, pg, bases) {
           v.tramos += r.tramos;
           v.difieren += r.difieren.length;
           v.recopiadas += r.recopiadas;
+          v.esperando += (r.esperando || []).length;
           if (!r.difieren.length) v.alDia += 1;
           const vio = r.control && r.control.startsWith('✓');
           if (r.control) v.control[vio ? 'vio' : r.control.startsWith('✗') ? 'noVio' : 'sinConcluir'] += 1;
@@ -629,7 +669,8 @@ async function sincronizar(pool, pg, bases) {
               + `  ${s.toFixed(1)} s${r.control ? `  · control ${r.control}` : ''}`);
           }
           if (APPLY) {
-            const nota = r.difieren.length ? `sync ${hora()}: ${r.difieren.length} de ${r.tramos} tramos recopiados (${r.recopiadas} filas)`
+            const nota = r.difieren.length ? `sync ${hora()}: ${r.difieren.length} de ${r.tramos} tramos difieren, `
+              + `${r.difieren.length - (r.esperando || []).length} recopiados (${r.recopiadas} filas)${r.nota ? ` · ${r.nota}` : ''}`
               : `sync ${hora()}: al día (${r.tramos} tramos, modo ${r.modo})`;
             await pg.query(`INSERT INTO ${r.x.esquemaPg}._sync_status (table_name, source_db, rows_source, rows_copied, last_push_at, seconds, note)
               VALUES ($1, $2, $3, $4, now(), $5, $6) ON CONFLICT (table_name) DO UPDATE SET source_db = EXCLUDED.source_db,
@@ -645,7 +686,8 @@ async function sincronizar(pool, pg, bases) {
     }
     const lentas = v.lentas.sort((a, b) => b[0] - a[0]).slice(0, 5).map(([s, d]) => `${d} ${s.toFixed(1)} s`).join(' · ');
     console.log(`${hora()} · SYNC vuelta ${vuelta}: ${v.tablas} tablas · ${v.alDia} al día · ${v.difieren} de ${v.tramos} tramos `
-      + `${APPLY ? `recopiados (${v.recopiadas.toLocaleString('es-MX')} filas)` : 'difieren'} · ${v.sinCarril} sin carril · `
+      + `${APPLY ? `recopiados (${v.recopiadas.toLocaleString('es-MX')} filas)` : 'difieren'}`
+      + `${v.esperando ? ` · ${v.esperando} esperan una captura en curso` : ''} · ${v.sinCarril} sin carril · `
       + `${((Date.now() - t0) / 1000).toFixed(0)} s\n  las más lentas: ${lentas}`);
     if (CONTROL) {
       console.log(`  prueba negativa: la huella VIO la fila movida en ${v.control.vio} tablas · NO la vio en ${v.control.noVio}`
@@ -671,7 +713,8 @@ async function sincronizar(pool, pg, bases) {
   const estado = new Map((await pool.request().query('SELECT name, state_desc FROM sys.databases')).recordset.map((r) => [r.name, r.state_desc]));
   const bases = [...estado].filter(([, s]) => s === 'ONLINE').map(([n]) => n);
   const ausentes = fuentesAusentes(estado);
-  for (const a of ausentes) console.log(`⚠ NO MEDIDO — ${a}`);
+  for (const a of ausentes) console.log(a.grave ? `⚠ NO MEDIDO — ${a.texto}` : `· ${a.texto}`);
+  const graves = ausentes.filter((a) => a.grave).map((a) => a.texto);
   if (APPLY) {
     if (!(await pg.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [CANDADO])).rows[0].ok) {
       console.error('⛔ otra corrida que escribe en la réplica tiene el candado: salgo sin tocar nada.');
@@ -683,10 +726,10 @@ async function sincronizar(pool, pg, bases) {
   process.on('SIGINT', () => { console.log('\n⏸ se detiene al terminar la tabla en curso…'); detener = true; });
   if (SYNC) {
     const fallas = await sincronizar(pool, pg, bases);
-    if (ausentes.length) console.log(`  ⚠ no medidas (${ausentes.length}): ${ausentes.join('; ')}`);
+    if (graves.length) console.log(`  ⚠ no medidas (${graves.length}): ${graves.join('; ')}`);
     await pool.close();
     await pg.end();
-    process.exit(fallas || ausentes.length ? 1 : 0);
+    process.exit(fallas || graves.length ? 1 : 0);
   }
   const t0 = Date.now();
   const resumen = { tablas: 0, filas: 0, fallas: [], descuadres: [], omitidas: [] };
@@ -727,12 +770,12 @@ async function sincronizar(pool, pg, bases) {
   const min = ((Date.now() - t0) / 60000).toFixed(1);
   console.log(`\n${APPLY ? 'CARGA' : 'EN SECO'}: ${resumen.tablas} tablas · ${resumen.filas.toLocaleString('es-MX')} filas copiadas · ${min} min`);
   if (resumen.omitidas.length) console.log(`  omitidas a propósito: ${resumen.omitidas.join('; ')}`);
-  if (ausentes.length) console.log(`  ⚠ no medidas (${ausentes.length}): ${ausentes.join('; ')}`);
+  if (graves.length) console.log(`  ⚠ no medidas (${graves.length}): ${graves.join('; ')}`);
   if (resumen.descuadres.length) console.log(`  ⚠ conteo distinto al origen (${resumen.descuadres.length}): ${resumen.descuadres.join('; ')}`);
   if (resumen.fallas.length) console.log(`  ✗ fallas (${resumen.fallas.length}):\n    ${resumen.fallas.join('\n    ')}`);
   await pool.close();
   await pg.end();
-  process.exit(resumen.fallas.length || ausentes.length ? 1 : 0);
+  process.exit(resumen.fallas.length || graves.length ? 1 : 0);
 })().catch((e) => {
   // Un `AggregateError` (conexión rechazada en varias direcciones) trae el mensaje vacío: se dicen sus causas.
   const causas = Array.isArray(e && e.errors) ? e.errors.map((x) => x && x.message).filter(Boolean).join('; ') : '';
