@@ -4,7 +4,7 @@ import {
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import {
-  DIAS_RETIRO_HOJA, ZONAS_HOJA_GASTOS, diaMxDeInstante, folioHoja,
+  DIAS_RETIRO_HOJA, ZONAS_HOJA_GASTOS, diaMxDeInstante, folioHoja, revisarConteoCajon,
   type CerrarHojaInput, type ClaveZonaHoja, type HojaAbierta, type HojaGastos, type HojasDeGastos, type MedioPagoHoja,
   type MotivoHojaInput, type PagarHojaInput, type PagoDeHojaGastos, type PagoHojaResultado, type RenglonHoja,
   type ZonaHojaGastos,
@@ -61,6 +61,13 @@ export class HojaGastosService {
   ) {}
 
   /** ¿Está aplicada la migración de las hojas (`20261029143450`)? */
+  /** ¿La base ya guarda el conteo del cajón (`20261030140503`)? Sin la columna, pagar con cajón se niega. */
+  static async conConteo(trx: Knex | Knex.Transaction): Promise<boolean> {
+    const r = await trx.raw(`SELECT EXISTS (SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'finance' AND table_name = 'expense_sheets' AND column_name = 'conteo') AS t`);
+    return r.rows?.[0]?.t === true;
+  }
+
   static instalada(trx: Knex | Knex.Transaction): Promise<boolean> {
     return hojasInstaladas(trx);
   }
@@ -193,6 +200,18 @@ export class HojaGastosService {
       if (String(h.aprobada_por) === u.id) throw new ForbiddenException('Quien aprobó la hoja no la paga: la paga otra persona.');
       const total = redondea2(Number(h.total));
 
+      // Edgar, 2026-10-30: «cuando sea de cajón que se haga un arqueo». La misma regla que la pantalla
+      // (contrato) y, debajo, la base (`expense_sheets_transicion`).
+      let conteo: { piezas: Record<string, number>; morralla: number } | null = null;
+      if (medio === 'cajon') {
+        if (!(await HojaGastosService.conConteo(trx))) {
+          throw new ConflictException('El conteo del cajón todavía no está instalado en esta base (falta la migración 20261030140503).');
+        }
+        const v = revisarConteoCajon(input?.medio === 'cajon' ? input.conteo : null, total);
+        if (!v.ok) throw new BadRequestException(`Para pagar ${folio} con el cajón hay que contar lo que sale. ${v.texto}`);
+        conteo = { piezas: v.piezas, morralla: v.morralla };
+      }
+
       const renglones = await this.renglonesEnLibro(trx, tenantId, String(h.id), this.zona(String(h.zona)));
       const pagados = renglones.filter((x) => x.ledger && (x.ledger.ligado || x.ledger.origen_efectivo === 'cajon'));
       if (pagados.length) {
@@ -232,6 +251,7 @@ export class HojaGastosService {
         estado: 'pagada', medio, pagada_por: u.id, pagada_at: trx.fn.now(),
         caos_device: mov?.device ?? null, caos_external_id: mov?.external_id ?? null, caos_total: mov?.libre ?? null,
         cajon, updated_by: u.id,
+        ...(conteo ? { conteo: JSON.stringify(conteo.piezas), conteo_morralla: conteo.morralla } : {}),
       });
 
       // Lo capturado sin origen se liga al retiro de la hoja, con las reglas de siempre, en un solo fajo.
@@ -307,6 +327,7 @@ export class HojaGastosService {
         's.cerrada_at', 's.aprobada_at', 's.pagada_at', trx.raw('coalesce(s.rechazada_at, s.cancelada_at) AS resuelta_at'),
         'uc.username as cerrada_por_nombre', 'ua.username as aprobada_por_nombre', 'up.username as pagada_por_nombre',
         'ur.username as resuelta_por_nombre');
+    if (await HojaGastosService.conConteo(trx)) q.select('s.conteo', 's.conteo_morralla');
     filtro(q);
     const filas = await q;
     if (!filas.length) return [];
@@ -458,6 +479,7 @@ export class HojaGastosService {
       }
       out.set(String(h['id']), {
         medio: h['medio'] as MedioPagoHoja, retiro, cajon: redondea2(Number(h['cajon'])),
+        conteo: h['conteo'] ? { piezas: h['conteo'] as Record<string, number>, morralla: Number(h['conteo_morralla'] ?? 0) } : null,
         pagada_por_nombre: (h['pagada_por_nombre'] as string | null) ?? null,
         pagada_at: new Date(h['pagada_at'] as string).toISOString(),
         sin_capturar: faltanDe.get(String(h['id'])) ?? 0,

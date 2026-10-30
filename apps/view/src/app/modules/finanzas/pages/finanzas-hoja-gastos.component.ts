@@ -11,7 +11,7 @@ import { ToastModule } from 'primeng/toast';
 import { RadioButtonModule } from 'primeng/radiobutton';
 import { MessageService } from 'primeng/api';
 import {
-  MOTIVO_FUERA_DE_HOJA_TEXTO, pagableConBilletesCaos, warehouseName,
+  MOTIVO_FUERA_DE_HOJA_TEXTO, pagableConBilletesCaos, revisarConteoCajon, textoConteoCajon, warehouseName,
   type ClaseRenglonHoja, type ClaveZonaHoja, type EstadoDepositoHoja, type EstadoHojaGastos, type HojaAbierta, type HojaGastos,
   type HojasDeGastos, type PagoDeHojaGastos, type RenglonHoja, type RetiroParaHoja,
 } from '@megadulces/contracts';
@@ -27,6 +27,7 @@ import { uuidV4 } from '../../../core/utils/uuid';
 import { CashLedgerService } from '../cash-ledger.service';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { money, dmy } from './finanzas-format';
+import { ConteoCajonComponent } from '../components/conteo-cajon.component';
 
 type Accion = 'rechazar' | 'cancelar';
 
@@ -52,7 +53,7 @@ type Accion = 'rechazar' | 'cancelar';
   standalone: true,
   imports: [
     FormsModule, ButtonModule, TableModule, TagModule, DatePickerModule, DialogModule, TextareaModule, ToastModule, RadioButtonModule,
-    LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, ContextHelpComponent,
+    LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, ContextHelpComponent, ConteoCajonComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -290,6 +291,11 @@ type Accion = 'rechazar' | 'cancelar';
                         <p class="hg-dim hg-det-sub">Retiro de CAOS «{{ rt.ref ?? rt.external_id }}» del {{ dmy(rt.dia) }} por <span class="hg-mono">{{ money(rt.total) }}</span>;
                           el cajón puso <span class="hg-mono">{{ money(h.pago?.cajon ?? 0) }}</span>.</p>
                       }
+                      @if (h.pago?.conteo; as ct) {
+                        <p class="hg-dim hg-det-sub">El cajón puso <span class="hg-mono">{{ money(h.pago?.cajon ?? 0) }}</span>, contado: {{ textoConteo(ct) }}.</p>
+                      } @else if (h.pago?.medio === 'cajon') {
+                        <p class="hg-dim hg-det-sub">El cajón puso <span class="hg-mono">{{ money(h.pago?.cajon ?? 0) }}</span> sin conteo: se pagó antes de exigirlo.</p>
+                      }
                       @if (h.pago?.deposito?.depositos; as deps) {
                         <p class="hg-dim hg-det-sub">Depósito: @for (x of deps; track x.id) { <span class="hg-mono">{{ money(x.importe) }}</span> el {{ dmy(x.dia) }}@if (!$last) { y } }.</p>
                       }
@@ -349,11 +355,14 @@ type Accion = 'rechazar' | 'cancelar';
               <label for="hg-r-cajon">Con el cajón, sin retiro de CAOS <span class="hg-dim">(la excepción: se ve aparte)</span></label>
             </div>
           </fieldset>
+          @if (eleccion() === 'cajon') {
+            <app-conteo-cajon [total]="h.total" [(piezas)]="conteoPiezas" [(morralla)]="conteoMorralla" />
+          }
         </div>
       }
       <ng-template #footer>
         <p-button label="Volver" severity="secondary" [text]="true" (onClick)="cerrarPago()"></p-button>
-        <p-button [label]="'Pagar ' + (pagando()?.folio ?? '')" icon="pi pi-check" [disabled]="!eleccion() || !!ocupado()"
+        <p-button [label]="'Pagar ' + (pagando()?.folio ?? '')" icon="pi pi-check" [disabled]="!eleccion() || !conteoListo() || !!ocupado()"
                   [loading]="ocupado() === 'pagar'" (onClick)="confirmarPago()"></p-button>
       </ng-template>
     </p-dialog>
@@ -428,6 +437,16 @@ export class FinanzasHojaGastosComponent implements OnInit {
   motivo = '';
   /** La hoja aprobada que se está pagando, y con qué: `device|external_id` de un retiro, o `cajon`. */
   readonly pagando = signal<HojaGastos | null>(null);
+  /** Edgar, 2026-10-30: «cuando sea de cajón que se haga un arqueo». */
+  readonly conteoPiezas = signal<Record<string, number>>({});
+  readonly conteoMorralla = signal<number | null>(null);
+  readonly conteoListo = computed(() => {
+    const h = this.pagando();
+    const e = this.eleccion();
+    const conteo = { piezas: this.conteoPiezas(), morralla: Number(this.conteoMorralla() ?? 0) };
+    return e !== 'cajon' || (!!h && revisarConteoCajon(conteo, h.total).ok);
+  });
+  readonly textoConteo = textoConteoCajon;
   readonly eleccion = signal<string | null>(null);
   /** La llave del cierre: el doble clic no cierra dos hojas. Se renueva al cerrar. */
   private llave = uuidV4();
@@ -572,6 +591,8 @@ export class FinanzasHojaGastosComponent implements OnInit {
   /** Abre el pago con la propuesta ya elegida cuando UN solo retiro cuadra; con varios, elige la persona. */
   abrirPago(h: HojaGastos): void {
     this.eleccion.set(h.retiros_que_cuadran.length === 1 ? this.claveRetiro(h.retiros_que_cuadran[0]) : null);
+    this.conteoPiezas.set({});
+    this.conteoMorralla.set(null);
     this.pagando.set(h);
   }
 
@@ -589,8 +610,10 @@ export class FinanzasHojaGastosComponent implements OnInit {
     if (!h || !e || this.ocupado()) return;
     const r = h.retiros_que_cuadran.find((x) => this.claveRetiro(x) === e);
     if (e !== 'cajon' && !r) return;
+    if (!this.conteoListo()) return;
     this.ocupado.set('pagar');
-    const body = r ? { medio: 'caos' as const, device: r.device, external_id: r.external_id } : { medio: 'cajon' as const };
+    const body = r ? { medio: 'caos' as const, device: r.device, external_id: r.external_id }
+      : { medio: 'cajon' as const, conteo: { piezas: this.conteoPiezas(), morralla: Number(this.conteoMorralla() ?? 0) } };
     this.api.pagarHojaDeGastos(h.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (x) => {
         this.ocupado.set(null);

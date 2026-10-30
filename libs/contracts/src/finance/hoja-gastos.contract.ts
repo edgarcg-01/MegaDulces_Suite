@@ -21,6 +21,9 @@
  * hoja no entra al libro de Caja General.
  */
 
+import { formatearDinero } from '../money/centavos';
+import { DENOMINACIONES_MXN } from '../money/denominations';
+
 /** Las zonas que se reponen por hoja. Una zona sin hoja sigue por la reposición por sucursal. */
 export type ClaveZonaHoja = 'morelia' | 'canindo';
 
@@ -198,6 +201,8 @@ export interface PagoDeHojaGastos {
   retiro: { device: string; external_id: number; ref: string | null; total: number; dia: string } | null;
   /** Lo que puso el cajón: la diferencia con el retiro, o la hoja entera. */
   cajon: number;
+  /** Cómo se contó lo que salió del cajón; `null` si se pagó con retiro o antes de exigir el conteo. */
+  conteo?: ConteoCajonHoja | null;
   pagada_por_nombre: string | null;
   pagada_at: string;
   /**
@@ -275,7 +280,65 @@ export interface MotivoHojaInput {
  */
 export type PagarHojaInput =
   | { medio: 'caos'; device: string; external_id: number }
-  | { medio: 'cajon' };
+  | { medio: 'cajon'; conteo: ConteoCajonHoja };
+
+/**
+ * ⭐ Lo que salió del cajón, CONTADO. Edgar, 2026-10-30, al pagar HG-1 con el cajón sin que nada le
+ * pidiera contar: *«cuando sea de cajón que se haga un arqueo»*. Piezas por denominación (claves de
+ * `DENOMINACIONES_MXN`: `1000`…`20`, `20m`…`0.5`) y la morralla de menos de 50¢, que no tiene pieza.
+ */
+export interface ConteoCajonHoja {
+  piezas: Record<string, number>;
+  morralla: number;
+}
+
+export type VeredictoConteoCajon =
+  | { ok: true; suma: number; piezas: Record<string, number>; morralla: number }
+  | { ok: false; motivo: 'pieza' | 'morralla' | 'no_cuadra'; texto: string; suma: number | null };
+
+/**
+ * La regla del conteo, la MISMA en la pantalla y en el servidor: cada pieza es de una denominación
+ * del catálogo y entera; la morralla, de 0 a 49¢; y todo suma exactamente lo que sale del cajón
+ * (en centavos, sin flotantes). Las piezas en cero se ignoran.
+ */
+export function revisarConteoCajon(conteo: ConteoCajonHoja | null | undefined, total: number): VeredictoConteoCajon {
+  const piezas: Record<string, number> = {};
+  let suma = 0n;
+  for (const [k, n] of Object.entries(conteo?.piezas ?? {})) {
+    const d = DENOMINACIONES_MXN.find((x) => x.key === k);
+    if (!d || !Number.isSafeInteger(n) || n < 0) {
+      return { ok: false, motivo: 'pieza', texto: `«${k}: ${n}» no es un conteo: las piezas son enteras y de una denominación de pesos.`, suma: null };
+    }
+    if (n === 0) continue;
+    piezas[k] = n;
+    suma += BigInt(n) * BigInt(Math.round(d.valor * 100));
+  }
+  const m = Number(conteo?.morralla ?? 0);
+  const mc = Math.round(m * 100);
+  if (!Number.isFinite(m) || m < 0 || Math.abs(m * 100 - mc) > 1e-6 || mc >= 50) {
+    return { ok: false, motivo: 'morralla', texto: 'La morralla es lo de menos de 50¢: de $0.00 a $0.49.', suma: null };
+  }
+  suma += BigInt(mc);
+  const esperado = BigInt(Math.round(Number(total) * 100));
+  const sumaPesos = Number(suma) / 100;
+  if (suma !== esperado) {
+    const dif = suma - esperado;
+    return {
+      ok: false, motivo: 'no_cuadra', suma: sumaPesos,
+      texto: `El conteo suma ${formatearDinero(suma)} y del cajón salen ${formatearDinero(esperado)}: ${dif > 0n ? 'sobran' : 'faltan'} ${formatearDinero(dif > 0n ? dif : -dif)}.`,
+    };
+  }
+  return { ok: true, suma: sumaPesos, piezas, morralla: mc / 100 };
+}
+
+/** El conteo en una línea, de la pieza mayor a la menor: «83 × $1,000 · 1 × $500 · morralla $0.39». */
+export function textoConteoCajon(conteo: ConteoCajonHoja): string {
+  const partes = DENOMINACIONES_MXN
+    .filter((d) => (conteo.piezas[d.key] ?? 0) > 0)
+    .map((d) => `${conteo.piezas[d.key]} × ${d.label}${d.key === '20m' ? ' (moneda)' : ''}`);
+  if (Number(conteo.morralla) > 0) partes.push(`morralla ${formatearDinero(BigInt(Math.round(Number(conteo.morralla) * 100)))}`);
+  return partes.join(' · ') || 'sin piezas';
+}
 
 /** Lo que pasó al pagar (o al reintentar la captura): la hoja como quedó y renglón por renglón. */
 export interface PagoHojaResultado {

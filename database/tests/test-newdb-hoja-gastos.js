@@ -16,6 +16,7 @@ require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-hoja-gastos');
 const migracion = require('../migrations-newdb/20261029143450_cga_a65_hoja_gastos_zona.js');
 // El cuadre leía NEW.sheet_id también cuando dispara expense_sheets: cerrar daba 500 en prod (2026-10-30).
 const arregloCuadre = require('../migrations-newdb/20261030133058_cga_a65_hoja_cerrar_y_pagar.js');
+const conConteo = require('../migrations-newdb/20261030140503_cga_a65_hoja_cajon_con_conteo.js');
 
 const uuid = () => crypto.randomUUID();
 const TT = uuid();
@@ -90,6 +91,7 @@ async function hoja(trx, numero, renglones, extra = {}) {
         console.log('  (la migración se aplicó dentro de la transacción y se deshace al final)');
       }
       await arregloCuadre.up(trx);
+      await conConteo.up(trx);
       await comoApp(trx);
 
       console.log('── 1. Una hoja cerrada, con su folio, y su total es la suma de sus renglones ──');
@@ -169,9 +171,18 @@ async function hoja(trx, numero, renglones, extra = {}) {
       await trx('finance.expense_sheets').where({ id: h6.id }).update({ estado: 'aprobada', aprobada_por: FIN, aprobada_at: trx.fn.now() });
       const errRetiro = await intento(trx, () => trx('finance.expense_sheets').where({ id: h6.id }).update(pago({ caos_total: 900, cajon: 0 })));
       ok(!!errRetiro && errRetiro.code === '23505' && errRetiro.constraint === 'ux_expense_sheet_retiro', `un retiro paga una sola hoja (${muestra(errRetiro)})`);
-      await trx('finance.expense_sheets').where({ id: h6.id })
-        .update({ estado: 'pagada', medio: 'cajon', pagada_por: PAGA, pagada_at: trx.fn.now(), cajon: 900 });
-      ok((await trx('finance.expense_sheets').where({ id: h6.id }).first()).medio === 'cajon', 'por excepción, con el cajón entero (sin retiro)');
+      // Edgar, 2026-10-30: «cuando sea de cajón que se haga un arqueo».
+      const conCajon = (extra) => ({ estado: 'pagada', medio: 'cajon', pagada_por: PAGA, pagada_at: trx.fn.now(), cajon: 900, ...extra });
+      const errSinConteo = await intento(trx, () => trx('finance.expense_sheets').where({ id: h6.id }).update(conCajon({})));
+      ok(conMensaje(errSinConteo, 'expense_sheet_conteo'), `del cajón sin conteo no se paga (${muestra(errSinConteo)})`);
+      const errNoCuenta = await intento(trx, () => trx('finance.expense_sheets').where({ id: h6.id }).update(conCajon({ conteo: { '500': 1, '200': 1, '100': 1, '50': 1 }, conteo_morralla: 0 })));
+      ok(conMensaje(errNoCuenta, 'expense_sheet_conteo'), `un conteo que suma $850 no paga $900 (${muestra(errNoCuenta)})`);
+      const errPieza = await intento(trx, () => trx('finance.expense_sheets').where({ id: h6.id }).update(conCajon({ conteo: { '450': 2 }, conteo_morralla: 0 })));
+      ok(conMensaje(errPieza, 'expense_sheet_conteo'), `una pieza de $450 no es un conteo (${muestra(errPieza)})`);
+      const errMorralla = await intento(trx, () => trx('finance.expense_sheets').where({ id: h6.id }).update(conCajon({ conteo: { '500': 1, '200': 1, '100': 1, '50': 1, '20': 2, '5': 1, '2': 2, '0.5': 1 }, conteo_morralla: 0.5 })));
+      ok(!!errMorralla && errMorralla.constraint === 'expense_sheet_conteo_morralla', `la morralla es de menos de 50¢, aunque el conteo sume (${muestra(errMorralla)})`);
+      await trx('finance.expense_sheets').where({ id: h6.id }).update(conCajon({ conteo: { '500': 1, '200': 2 }, conteo_morralla: 0 }));
+      ok((await trx('finance.expense_sheets').where({ id: h6.id }).first()).medio === 'cajon', 'por excepción, con el cajón entero (sin retiro) y contado: 1 × $500 + 2 × $200');
 
       console.log('\n── 4. Rechazada: sus pagos vuelven a la hoja abierta y pueden ir en otra ──');
       const h3 = await hoja(trx, 3, [['0000600', 500]]);

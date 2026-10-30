@@ -10,9 +10,9 @@ import { InputTextModule } from 'primeng/inputtext';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import {
-  ZONAS_HOJA_GASTOS, pagableConBilletesCaos, warehouseName,
+  ZONAS_HOJA_GASTOS, pagableConBilletesCaos, revisarConteoCajon, warehouseName,
   type HojaGastos, type HojasDeGastos, type ReposicionDoc, type ReposicionGrupo, type ReposicionRetiro,
-  type ReposicionSucursales, type ReposicionVinculo, type AprobacionPago,
+  type ReposicionSucursales, type ReposicionVinculo, type AprobacionPago, type PagarHojaInput,
 } from '@megadulces/contracts';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
@@ -25,6 +25,7 @@ import { CashLedgerService, type ResumenLote } from '../../cash-ledger.service';
 import { CaosService } from '../../caos.service';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
+import { ConteoCajonComponent } from '../../components/conteo-cajon.component';
 
 interface OpcionOrigen { label: string; value: string }
 
@@ -93,7 +94,7 @@ export function avisoDeReposicion(
   standalone: true,
   imports: [
     FormsModule, RouterLink, ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, DialogModule,
-    LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent,
+    LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent, ConteoCajonComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -407,6 +408,19 @@ export function avisoDeReposicion(
                   [loading]="ocupado() === 'mover'" (onClick)="confirmarMover()"></p-button>
       </ng-template>
     </p-dialog>
+
+    <!-- Edgar, 2026-10-30: «cuando sea de cajón que se haga un arqueo». Pagar una hoja con el cajón cuenta lo que sale. -->
+    <p-dialog [visible]="contando() !== null" (visibleChange)="$event ? null : contando.set(null)" [modal]="true" appendTo="body"
+              [header]="'Pagar ' + (contando()?.folio ?? '') + ' con el cajón'" [style]="{ width: '38rem' }" [draggable]="false">
+      @if (contando(); as h) {
+        <app-conteo-cajon [total]="h.total" [(piezas)]="conteoPiezas" [(morralla)]="conteoMorralla" />
+      }
+      <ng-template #footer>
+        <p-button label="Volver" severity="secondary" [text]="true" (onClick)="contando.set(null)"></p-button>
+        <p-button [label]="'Pagar ' + (contando()?.folio ?? '')" icon="pi pi-check" [disabled]="!conteoListo() || !!ocupado()"
+                  [loading]="ocupado() === 'hoja|' + contando()?.id" (onClick)="pagarConCajon()"></p-button>
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     FINANZAS_SHARED_STYLES,
@@ -520,6 +534,14 @@ export class CajaReposicionComponent implements OnInit {
   /** Lo que está escribiendo (idempotencia visual): la clave de la fila, o `'mover'`. */
   readonly ocupado = signal<string | null>(null);
   private readonly elegidos = signal<Record<string, string>>({});
+  /** La hoja que se está contando para pagarla con el cajón. */
+  readonly contando = signal<HojaGastos | null>(null);
+  readonly conteoPiezas = signal<Record<string, number>>({});
+  readonly conteoMorralla = signal<number | null>(null);
+  readonly conteoListo = computed(() => {
+    const h = this.contando();
+    return !!h && revisarConteoCajon({ piezas: this.conteoPiezas(), morralla: Number(this.conteoMorralla() ?? 0) }, h.total).ok;
+  });
   private readonly elegidosHoja = signal<Record<string, string>>({});
   readonly mover = signal<{ vinculo: ReposicionVinculo; folio: string } | null>(null);
   destinoMover: string | null = null;
@@ -759,15 +781,34 @@ export class CajaReposicionComponent implements OnInit {
 
   pagarHoja(h: HojaGastos): void {
     const e = this.eleccionHoja(h);
-    const clave = `hoja|${h.id}`;
     if (!e || this.ocupado()) return;
     const r = h.retiros_que_cuadran.find((x) => this.llave(x) === e);
     if (e !== 'cajon' && !r) return;
+    // Con el cajón primero se cuenta: la ventana del conteo manda el pago.
+    if (!r) {
+      this.conteoPiezas.set({});
+      this.conteoMorralla.set(null);
+      this.contando.set(h);
+      return;
+    }
+    this.enviarPagoHoja(h, { medio: 'caos', device: r.device, external_id: r.external_id }, true);
+  }
+
+  /** El pago con el cajón, ya contado. */
+  pagarConCajon(): void {
+    const h = this.contando();
+    if (!h || !this.conteoListo() || this.ocupado()) return;
+    this.enviarPagoHoja(h, { medio: 'cajon', conteo: { piezas: this.conteoPiezas(), morralla: Number(this.conteoMorralla() ?? 0) } }, false);
+  }
+
+  private enviarPagoHoja(h: HojaGastos, body: PagarHojaInput, conRetiro: boolean): void {
+    const clave = `hoja|${h.id}`;
+    const r = conRetiro;
     this.ocupado.set(clave);
-    const body = r ? { medio: 'caos' as const, device: r.device, external_id: r.external_id } : { medio: 'cajon' as const };
     this.api.pagarHojaDeGastos(h.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (x) => {
         this.ocupado.set(null);
+        this.contando.set(null);
         const faltan = x.sin_capturar.length;
         this.toast.add({
           severity: faltan ? 'warn' : 'success', summary: `${x.hoja.folio} pagada`,

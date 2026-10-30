@@ -159,14 +159,29 @@ describe('[CGA-A.65] FinanzasHojaGastosComponent', () => {
     http.expectOne((q) => q.url.endsWith('/finance/hoja-gastos')).flush(DATOS());
   });
 
-  it('por excepción, con el cajón: manda sólo el medio', () => {
+  it('por excepción, con el cajón: pide contar lo que sale y no paga hasta que cuadra (Edgar, 2026-10-30)', () => {
     montar([Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_VER], 'u-caja');
     boton('Pagar HG-1')!.click();
     fix.componentInstance.eleccion.set('cajon');
     fix.detectChanges();
+    expect(document.body.textContent).toContain('cuenta las piezas que entregas');
+    // [negativa] sin conteo, «Pagar» no manda nada
+    botones('Pagar HG-1').pop()!.click();
+    http.expectNone((q) => q.url.endsWith('/finance/hoja-gastos/h1/pagar'));
+    // El total en piezas del catálogo (de la mayor a la menor) y lo de menos de 50¢ como morralla.
+    let resto = Math.round(fix.componentInstance.pagando()!.total * 100);
+    const piezas: Record<string, number> = {};
+    for (const [k, c] of [['1000', 100000], ['500', 50000], ['200', 20000], ['100', 10000], ['50', 5000], ['20', 2000], ['10', 1000], ['5', 500], ['2', 200], ['1', 100], ['0.5', 50]] as const) {
+      const n = Math.floor(resto / c);
+      if (n > 0) { piezas[k] = n; resto -= n * c; }
+    }
+    fix.componentInstance.conteoPiezas.set(piezas);
+    fix.componentInstance.conteoMorralla.set(resto / 100);
+    fix.detectChanges();
+    expect(fix.componentInstance.conteoListo()).toBe(true);
     botones('Pagar HG-1').pop()!.click();
     const req = http.expectOne((q) => q.url.endsWith('/finance/hoja-gastos/h1/pagar'));
-    expect(req.request.body).toEqual({ medio: 'cajon' });
+    expect(req.request.body).toEqual({ medio: 'cajon', conteo: { piezas, morralla: resto / 100 } });
     req.flush(resultado(hoja(1, 'pagada', 'u-zona', aprobada)));
     http.expectOne((q) => q.url.endsWith('/finance/hoja-gastos')).flush(DATOS());
   });

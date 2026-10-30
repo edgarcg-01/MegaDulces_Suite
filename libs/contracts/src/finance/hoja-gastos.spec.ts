@@ -1,4 +1,4 @@
-import { claseDeClave, folioHoja, leerFolioHoja, zonaDeSucursal, ZONAS_HOJA_GASTOS } from './hoja-gastos.contract';
+import { claseDeClave, folioHoja, leerFolioHoja, revisarConteoCajon, textoConteoCajon, zonaDeSucursal, ZONAS_HOJA_GASTOS } from './hoja-gastos.contract';
 
 describe('[CGA-A.65] el folio de la hoja en la referencia de CAOS (texto libre)', () => {
   it.each([
@@ -48,5 +48,47 @@ describe('[CGA-A.65] las zonas', () => {
   it('una sucursal está en una sola zona', () => {
     const todas = ZONAS_HOJA_GASTOS.flatMap((z) => z.sucursales);
     expect(new Set(todas).size).toBe(todas.length);
+  });
+});
+
+describe('[CGA-A.65] pagar con el cajón exige contar lo que sale (Edgar, 2026-10-30)', () => {
+  // La hoja HG-1 de Morelia: $83,981.89 pagados con el cajón sin conteo.
+  const HG1 = { piezas: { '1000': 83, '500': 1, '200': 2, '50': 1, '20': 1, '10': 1, '1': 1, '0.5': 1 }, morralla: 0.39 };
+
+  it('cuadra al centavo: billetes, monedas y la morralla de menos de 50¢', () => {
+    const v = revisarConteoCajon(HG1, 83981.89);
+    expect(v).toEqual({ ok: true, suma: 83981.89, piezas: HG1.piezas, morralla: 0.39 });
+  });
+
+  it('[negativa] uno de menos lo dice con la cifra: faltan $1.00', () => {
+    const v = revisarConteoCajon({ ...HG1, piezas: { ...HG1.piezas, '1': 0 } }, 83981.89);
+    expect(v.ok).toBe(false);
+    expect(v.ok ? '' : v.texto).toBe('El conteo suma $83,980.89 y del cajón salen $83,981.89: faltan $1.00.');
+  });
+
+  it('[negativa] de más también: sobran', () => {
+    const v = revisarConteoCajon({ piezas: { '100': 2 }, morralla: 0 }, 150);
+    expect(v.ok ? '' : v.texto).toContain('sobran $50.00');
+  });
+
+  it('[negativa] sin conteo no hay pago: nada suma $0.00', () => {
+    expect(revisarConteoCajon(null, 10)).toMatchObject({ ok: false, motivo: 'no_cuadra' });
+  });
+
+  it('[negativa] una pieza fuera del catálogo, partida o negativa no es un conteo', () => {
+    expect(revisarConteoCajon({ piezas: { '25': 1 }, morralla: 0 }, 25)).toMatchObject({ ok: false, motivo: 'pieza' });
+    expect(revisarConteoCajon({ piezas: { '100': 1.5 }, morralla: 0 }, 150)).toMatchObject({ ok: false, motivo: 'pieza' });
+    expect(revisarConteoCajon({ piezas: { '100': -1 }, morralla: 0 }, 0)).toMatchObject({ ok: false, motivo: 'pieza' });
+  });
+
+  it('[negativa] la morralla es de 0 a 49¢: 50¢ ya es una moneda', () => {
+    expect(revisarConteoCajon({ piezas: {}, morralla: 0.5 }, 0.5)).toMatchObject({ ok: false, motivo: 'morralla' });
+    expect(revisarConteoCajon({ piezas: {}, morralla: -0.1 }, 0)).toMatchObject({ ok: false, motivo: 'morralla' });
+  });
+
+  it('las piezas en cero no viajan; el texto va de la pieza mayor a la menor', () => {
+    const v = revisarConteoCajon({ piezas: { '20': 0, '500': 1 }, morralla: 0 }, 500);
+    expect(v.ok && v.piezas).toEqual({ '500': 1 });
+    expect(textoConteoCajon({ piezas: { '20m': 1, '1000': 2 }, morralla: 0.2 })).toBe('2 × $1,000 · 1 × $20 (moneda) · morralla $0.20');
   });
 });
