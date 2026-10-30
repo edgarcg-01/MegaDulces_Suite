@@ -6,7 +6,9 @@ import { uuidV4 } from '../../core/utils/uuid';
 import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, DocumentosEnCajaDto, NuevoArqueoCajaInput, CaosRetirosLibres, CaosRetiroDelLote } from '@megadulces/contracts';
 // `[CGA-A.61]` La reposición por sucursal: el contrato lo comparten el endpoint y la pantalla.
 import type { ReposicionSucursales } from '@megadulces/contracts';
-import type { CerrarHojaInput, HojaGastos, HojasDeGastos, PagarHojaInput, PagoHojaResultado } from '@megadulces/contracts';
+import type {
+  CerrarHojaInput, HojaGastos, HojasDeGastos, PagarHojaInput, PagoHojaResultado, RegistrarConteoHojaInput,
+} from '@megadulces/contracts';
 import { reintentarSi429 } from '../../core/utils/reintentar-429';
 // `Freshness` se IMPORTA, no se redeclara: es el contrato de procedencia de ADR-056 y es el mismo
 // objeto que consume `app-freshness-pill`. De los 26 tipos de este archivo, 24 están escritos a
@@ -365,6 +367,11 @@ export class CashLedgerService {
   /** `[CGA-A.65]` Reintentar la captura de lo que el lote no pudo confirmar al pagar. */
   capturarHojaDeGastos(id: string): Observable<PagoHojaResultado> {
     return this.http.post<PagoHojaResultado>(`${environment.apiUrl}/finance/hoja-gastos/${encodeURIComponent(id)}/capturar`, {});
+  }
+
+  /** `[CGA-A.65]` Traer el conteo de una hoja ya pagada con el cajón que no lo tiene (una sola vez). */
+  registrarConteoHojaDeGastos(id: string, body: RegistrarConteoHojaInput): Observable<HojaGastos> {
+    return this.http.post<HojaGastos>(`${environment.apiUrl}/finance/hoja-gastos/${encodeURIComponent(id)}/conteo`, body);
   }
 
   /** `[CGA-A.60]` Los retiros de CAOS que todavía tienen dinero libre: los que pueden pagar un lote. */

@@ -210,6 +210,48 @@ describe('[CGA-A.65] FinanzasHojaGastosComponent', () => {
     http.expectOne((q) => q.url.endsWith('/finance/hoja-gastos')).flush(DATOS());
   });
 
+  describe('la pagada con el cajón ANTES de exigir el conteo (HG-1): su arqueo se trae una vez', () => {
+    const pagoCajon = (extra: Partial<NonNullable<HojaGastos['pago']>> = {}): NonNullable<HojaGastos['pago']> => ({
+      medio: 'cajon', retiro: null, cajon: 900, conteo: null, pagada_por_nombre: 'superoot', pagada_at: '2026-10-30T19:59:00Z',
+      sin_capturar: 0, deposito: { estado: 'no_aparece', depositos: null, nota: null }, ...extra,
+    });
+    const conHoja = (pago: NonNullable<HojaGastos['pago']>) => DATOS({ cerradas: [hoja(9, 'pagada', 'u-zona', { ...aprobada, total: 900, pago })] });
+
+    it('⭐ «Traer el conteo» no manda nada hasta que cuadra, y manda sólo las piezas', () => {
+      montar([Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_VER], 'u-caja', conHoja(pagoCajon()));
+      boton('Traer el conteo')!.click();
+      fix.detectChanges();
+      expect(document.body.textContent).toContain('Teclea el arqueo de ese dinero pieza por pieza');
+      // [negativa] sin piezas no se guarda
+      botones('Guardar el conteo').pop()!.click();
+      http.expectNone((q) => q.url.endsWith('/finance/hoja-gastos/h9/conteo'));
+      // [negativa] de menos tampoco
+      fix.componentInstance.conteoPiezas.set({ '500': 1 });
+      fix.detectChanges();
+      expect(fix.componentInstance.conteoPagadaListo()).toBe(false);
+      fix.componentInstance.conteoPiezas.set({ '500': 1, '200': 2 });
+      fix.detectChanges();
+      botones('Guardar el conteo').pop()!.click();
+      const req = http.expectOne((q) => q.url.endsWith('/finance/hoja-gastos/h9/conteo'));
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ conteo: { piezas: { '500': 1, '200': 2 }, morralla: 0 } });
+      req.flush(hoja(9, 'pagada', 'u-zona', { ...aprobada, total: 900, pago: pagoCajon({ conteo: { piezas: { '500': 1, '200': 2 }, morralla: 0 } }) }));
+      http.expectOne((q) => q.url.endsWith('/finance/hoja-gastos')).flush(DATOS());
+    });
+
+    it('NEGATIVA: con su conteo puesto, o para quien la aprobó, no hay «Traer el conteo»; el detalle dice quién lo trajo', () => {
+      montar([Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_VER], 'u-caja', conHoja(pagoCajon({
+        conteo: { piezas: { '500': 1, '200': 2 }, morralla: 0 }, conteo_despues: { por_nombre: 'carmen', at: '2026-10-30T22:00:00Z' } })));
+      expect(boton('Traer el conteo')).toBeNull();
+      fix.componentInstance.expandidas.set({ h9: true });
+      fix.detectChanges();
+      expect(txt()).toContain('El conteo lo trajo carmen el 30/10/26, después de pagar');
+      TestBed.resetTestingModule();
+      montar([Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_VER], 'u-fin', conHoja(pagoCajon()));
+      expect(boton('Traer el conteo')).toBeNull();
+    });
+  });
+
   it('sin la migración aplicada: lo dice, y no deja cerrar', () => {
     montar([Permission.FINANCE_HOJA_GASTOS_CERRAR], 'u-zona', DATOS({ instalada: false, cerradas: [] }));
     expect(txt()).toContain('todavía no se puede cerrar');

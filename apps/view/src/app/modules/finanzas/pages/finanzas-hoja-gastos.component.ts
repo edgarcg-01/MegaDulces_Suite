@@ -11,7 +11,7 @@ import { ToastModule } from 'primeng/toast';
 import { RadioButtonModule } from 'primeng/radiobutton';
 import { MessageService } from 'primeng/api';
 import {
-  MOTIVO_FUERA_DE_HOJA_TEXTO, pagableConBilletesCaos, revisarConteoCajon, textoConteoCajon, warehouseName,
+  MOTIVO_FUERA_DE_HOJA_TEXTO, diaMxDeInstante, pagableConBilletesCaos, revisarConteoCajon, textoConteoCajon, warehouseName,
   type ClaseRenglonHoja, type ClaveZonaHoja, type EstadoDepositoHoja, type EstadoHojaGastos, type HojaAbierta, type HojaGastos,
   type HojasDeGastos, type PagoDeHojaGastos, type RenglonHoja, type RetiroParaHoja,
 } from '@megadulces/contracts';
@@ -262,6 +262,11 @@ type Accion = 'rechazar' | 'cancelar';
                         } @else {
                           <small class="hg-dim">Pagada: todos sus pagos los explica {{ h.pago?.medio === 'cajon' ? 'el cajón' : 'su retiro' }}.</small>
                         }
+                        <!-- Salió del cajón antes de exigir el conteo (HG-1): su arqueo se trae una vez. -->
+                        @if (puedePagar() && h.pago?.medio === 'cajon' && !h.pago?.conteo && h.aprobada_por !== yo()) {
+                          <p-button label="Traer el conteo" icon="pi pi-calculator" size="small" severity="secondary" [outlined]="true"
+                                    [disabled]="!!ocupado()" (onClick)="abrirConteo(h)"></p-button>
+                        }
                       } @else {
                         <small class="hg-dim">{{ h.motivo }}</small>
                       }
@@ -292,9 +297,11 @@ type Accion = 'rechazar' | 'cancelar';
                           el cajón puso <span class="hg-mono">{{ money(h.pago?.cajon ?? 0) }}</span>.</p>
                       }
                       @if (h.pago?.conteo; as ct) {
-                        <p class="hg-dim hg-det-sub">El cajón puso <span class="hg-mono">{{ money(h.pago?.cajon ?? 0) }}</span>, contado: {{ textoConteo(ct) }}.</p>
+                        <p class="hg-dim hg-det-sub">El cajón puso <span class="hg-mono">{{ money(h.pago?.cajon ?? 0) }}</span>, contado: {{ textoConteo(ct) }}.
+                          @if (h.pago?.conteo_despues; as cd) { El conteo lo trajo {{ cd.por_nombre ?? 'alguien sin nombre' }} el {{ dmyInstante(cd.at) }}, después de pagar. }</p>
                       } @else if (h.pago?.medio === 'cajon') {
-                        <p class="hg-dim hg-det-sub">El cajón puso <span class="hg-mono">{{ money(h.pago?.cajon ?? 0) }}</span> sin conteo: se pagó antes de exigirlo.</p>
+                        <p class="hg-dim hg-det-sub">El cajón puso <span class="hg-mono">{{ money(h.pago?.cajon ?? 0) }}</span> sin conteo: se pagó antes de exigirlo.
+                          Su arqueo se trae con «Traer el conteo».</p>
                       }
                       @if (h.pago?.deposito?.depositos; as deps) {
                         <p class="hg-dim hg-det-sub">Depósito: @for (x of deps; track x.id) { <span class="hg-mono">{{ money(x.importe) }}</span> el {{ dmy(x.dia) }}@if (!$last) { y } }.</p>
@@ -366,6 +373,24 @@ type Accion = 'rechazar' | 'cancelar';
                   [loading]="ocupado() === 'pagar'" (onClick)="confirmarPago()"></p-button>
       </ng-template>
     </p-dialog>
+
+    <!-- Traer el conteo de una hoja ya pagada con el cajón (se pagó antes de exigirlo). No mueve dinero:
+         los egresos ya salieron del cajón; deja dicho cómo. El servidor y la base vuelven a revisar la suma. -->
+    <p-dialog [visible]="contandoPagada() !== null" (visibleChange)="$event ? null : cerrarConteo()" [modal]="true" appendTo="body"
+              [header]="'Conteo de ' + (contandoPagada()?.folio ?? '')" [style]="{ width: '36rem' }" [draggable]="false">
+      @if (contandoPagada(); as h) {
+        <div class="hg-dlg">
+          <p>{{ h.nombre_zona }} · salió del cajón el {{ dmyInstante(h.pago?.pagada_at ?? '') }} sin conteo.
+            Teclea el arqueo de ese dinero pieza por pieza; se registra una sola vez.</p>
+          <app-conteo-cajon [total]="h.pago?.cajon ?? 0" [(piezas)]="conteoPiezas" [(morralla)]="conteoMorralla" />
+        </div>
+      }
+      <ng-template #footer>
+        <p-button label="Volver" severity="secondary" [text]="true" (onClick)="cerrarConteo()"></p-button>
+        <p-button label="Guardar el conteo" icon="pi pi-check" [disabled]="!conteoPagadaListo() || !!ocupado()"
+                  [loading]="ocupado() === 'conteo'" (onClick)="confirmarConteo()"></p-button>
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     FINANZAS_SHARED_STYLES,
@@ -420,6 +445,7 @@ export class FinanzasHojaGastosComponent implements OnInit {
 
   readonly money = money;
   readonly dmy = dmy;
+  readonly dmyInstante = (iso: string): string => dmy(diaMxDeInstante(iso) ?? '');
   readonly hoy = new Date();
 
   readonly datos = signal<HojasDeGastos | null>(null);
@@ -448,6 +474,12 @@ export class FinanzasHojaGastosComponent implements OnInit {
   });
   readonly textoConteo = textoConteoCajon;
   readonly eleccion = signal<string | null>(null);
+  /** La hoja ya pagada con el cajón cuyo conteo se trae (Edgar, sobre HG-1: «hay que traer ese arqueo»). */
+  readonly contandoPagada = signal<HojaGastos | null>(null);
+  readonly conteoPagadaListo = computed(() => {
+    const h = this.contandoPagada();
+    return !!h?.pago && revisarConteoCajon({ piezas: this.conteoPiezas(), morralla: Number(this.conteoMorralla() ?? 0) }, h.pago.cajon).ok;
+  });
   /** La llave del cierre: el doble clic no cierra dos hojas. Se renueva al cerrar. */
   private llave = uuidV4();
 
@@ -627,6 +659,32 @@ export class FinanzasHojaGastosComponent implements OnInit {
         this.cargar();
       },
       error: (err) => this.falla(err, 'No se pagó la hoja'),
+    });
+  }
+
+  abrirConteo(h: HojaGastos): void {
+    this.conteoPiezas.set({});
+    this.conteoMorralla.set(null);
+    this.contandoPagada.set(h);
+  }
+
+  cerrarConteo(): void {
+    this.contandoPagada.set(null);
+  }
+
+  confirmarConteo(): void {
+    const h = this.contandoPagada();
+    if (!h || this.ocupado() || !this.conteoPagadaListo()) return;
+    this.ocupado.set('conteo');
+    const conteo = { piezas: this.conteoPiezas(), morralla: Number(this.conteoMorralla() ?? 0) };
+    this.api.registrarConteoHojaDeGastos(h.id, { conteo }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (x) => {
+        this.ocupado.set(null);
+        this.contandoPagada.set(null);
+        this.toast.add({ severity: 'success', summary: `${x.folio}: conteo guardado`, detail: textoConteoCajon(conteo) });
+        this.cargar();
+      },
+      error: (err) => this.falla(err, 'No se guardó el conteo'),
     });
   }
 

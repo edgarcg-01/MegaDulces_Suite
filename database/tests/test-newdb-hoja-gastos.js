@@ -184,6 +184,32 @@ async function hoja(trx, numero, renglones, extra = {}) {
       await trx('finance.expense_sheets').where({ id: h6.id }).update(conCajon({ conteo: { '500': 1, '200': 2 }, conteo_morralla: 0 }));
       ok((await trx('finance.expense_sheets').where({ id: h6.id }).first()).medio === 'cajon', 'por excepción, con el cajón entero (sin retiro) y contado: 1 × $500 + 2 × $200');
 
+      console.log('\n── 3c. Pagada con el cajón ANTES de exigir el conteo (HG-1): lo recibe una vez ──');
+      // Edgar, 2026-10-30: HG-1 tiene su arqueo en papel en Control, «hay que traer ese arqueo».
+      const h7 = await hoja(trx, 7, [['0000611', 900]]);
+      await verificaCuadre(trx);
+      await trx('finance.expense_sheets').where({ id: h7.id }).update({ estado: 'aprobada', aprobada_por: FIN, aprobada_at: trx.fn.now() });
+      // Como se pagó en prod: con la transición de antes del conteo, y la regla nueva llega después.
+      await trx.raw('RESET ROLE');
+      await arregloCuadre.up(trx);
+      await comoApp(trx);
+      await trx('finance.expense_sheets').where({ id: h7.id }).update(conCajon({}));
+      await trx.raw('RESET ROLE');
+      await conConteo.up(trx);
+      await comoApp(trx);
+      const tarde = (extra) => ({ conteo: { '500': 1, '200': 2 }, conteo_morralla: 0, conteo_por: PAGA, conteo_at: trx.fn.now(), ...extra });
+      const errTardeNoSuma = await intento(trx, () => trx('finance.expense_sheets').where({ id: h7.id }).update(tarde({ conteo: { '500': 1 } })));
+      ok(conMensaje(errTardeNoSuma, 'expense_sheet_conteo'), `el conteo traído después también suma lo que salió (${muestra(errTardeNoSuma)})`);
+      const errTardeEdita = await intento(trx, () => trx('finance.expense_sheets').where({ id: h7.id }).update(tarde({ conteo: { '500': 1, '200': 2 }, cajon: 899 })));
+      ok(conMensaje(errTardeEdita, 'expense_sheet_resuelta'), `con el conteo no se cambia lo pagado (${muestra(errTardeEdita)})`);
+      const errTardeCaos = await intento(trx, () => trx('finance.expense_sheets').where({ id: h1.id }).update(tarde({ conteo: { '50': 1, '10': 1, '5': 1 } })));
+      ok(conMensaje(errTardeCaos, 'expense_sheet_resuelta'), `una hoja pagada con retiro no recibe conteo (${muestra(errTardeCaos)})`);
+      await trx('finance.expense_sheets').where({ id: h7.id }).update(tarde({}));
+      const h7b = await trx('finance.expense_sheets').where({ id: h7.id }).first();
+      ok(h7b.conteo && h7b.conteo['200'] === 2 && h7b.estado === 'pagada', 'la pagada sin conteo recibe el suyo: 1 × $500 + 2 × $200');
+      const errOtroConteo = await intento(trx, () => trx('finance.expense_sheets').where({ id: h7.id }).update(tarde({ conteo: { '500': 1, '100': 4 } })));
+      ok(conMensaje(errOtroConteo, 'expense_sheet_resuelta'), `y con su conteo puesto ya no se cambia (${muestra(errOtroConteo)})`);
+
       console.log('\n── 4. Rechazada: sus pagos vuelven a la hoja abierta y pueden ir en otra ──');
       const h3 = await hoja(trx, 3, [['0000600', 500]]);
       await trx('finance.expense_sheets').where({ id: h3.id })

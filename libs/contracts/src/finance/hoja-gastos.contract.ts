@@ -203,6 +203,11 @@ export interface PagoDeHojaGastos {
   cajon: number;
   /** Cómo se contó lo que salió del cajón; `null` si se pagó con retiro o antes de exigir el conteo. */
   conteo?: ConteoCajonHoja | null;
+  /**
+   * El conteo se registró DESPUÉS de pagar (la hoja salió del cajón antes de exigirlo, como HG-1):
+   * quién lo trajo y cuándo. `null` si se contó al pagar o no hay conteo.
+   */
+  conteo_despues?: { por_nombre: string | null; at: string } | null;
   pagada_por_nombre: string | null;
   pagada_at: string;
   /**
@@ -281,6 +286,15 @@ export interface MotivoHojaInput {
 export type PagarHojaInput =
   | { medio: 'caos'; device: string; external_id: number }
   | { medio: 'cajon'; conteo: ConteoCajonHoja };
+
+/**
+ * Traer el conteo de una hoja YA PAGADA con el cajón que no lo tiene (se pagó antes de exigirlo).
+ * Edgar, 2026-10-30, sobre HG-1: el arqueo está en papel en Control, «hay que traer ese arqueo».
+ * Una sola vez: con el conteo puesto, la hoja pagada vuelve a ser intocable.
+ */
+export interface RegistrarConteoHojaInput {
+  conteo: ConteoCajonHoja;
+}
 
 /**
  * ⭐ Lo que salió del cajón, CONTADO. Edgar, 2026-10-30, al pagar HG-1 con el cajón sin que nada le

@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequireAnyPermission, RequirePermissions, Permission } from '@megadulces/platform-core';
-import type { CerrarHojaInput, HojaGastos, HojasDeGastos, MotivoHojaInput, PagarHojaInput, PagoHojaResultado } from '@megadulces/contracts';
+import type {
+  CerrarHojaInput, HojaGastos, HojasDeGastos, MotivoHojaInput, PagarHojaInput, PagoHojaResultado, RegistrarConteoHojaInput,
+} from '@megadulces/contracts';
 import { HojaGastosService } from './hoja-gastos.service';
 
 interface AuthedRequest { user?: { id?: string; sub?: string; userId?: string; username?: string } }
@@ -66,6 +68,13 @@ export class HojaGastosController {
   @ApiOperation({ summary: '[CGA-A.65] Reintenta la captura de los pagos de una hoja pagada que el lote no pudo confirmar, con el mismo retiro (o el cajón).' })
   capturar(@Param('id') id: string, @Req() req: AuthedRequest): Promise<PagoHojaResultado> {
     return this.svc.capturar(id, this.user(req));
+  }
+
+  @Post(':id/conteo')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[CGA-A.65] Trae el conteo (piezas y morralla) de una hoja YA PAGADA con el cajón que no lo tiene. Una sola vez; tiene que sumar lo que salio del cajon. Quien aprobó no lo registra.' })
+  registrarConteo(@Param('id') id: string, @Body() body: RegistrarConteoHojaInput, @Req() req: AuthedRequest): Promise<HojaGastos> {
+    return this.svc.registrarConteo(id, body, this.user(req));
   }
 
   @Post(':id/cancelar')

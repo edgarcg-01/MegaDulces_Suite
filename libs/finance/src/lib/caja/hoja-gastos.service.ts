@@ -6,7 +6,8 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import {
   DIAS_RETIRO_HOJA, ZONAS_HOJA_GASTOS, diaMxDeInstante, folioHoja, revisarConteoCajon,
   type CerrarHojaInput, type ClaveZonaHoja, type HojaAbierta, type HojaGastos, type HojasDeGastos, type MedioPagoHoja,
-  type MotivoHojaInput, type PagarHojaInput, type PagoDeHojaGastos, type PagoHojaResultado, type RenglonHoja,
+  type MotivoHojaInput, type PagarHojaInput, type PagoDeHojaGastos, type PagoHojaResultado, type RegistrarConteoHojaInput,
+  type RenglonHoja,
   type ZonaHojaGastos,
 } from '@megadulces/contracts';
 import { consultasHoja } from './hoja-gastos.query';
@@ -28,6 +29,7 @@ const DIAS_HOJAS_CERRADAS = 45;
 const RX_DIA = /^\d{4}-\d{2}-\d{2}$/;
 const TIPO_RETIRO = 4;
 const NO_INSTALADA = 'Las hojas de gastos todavía no están instaladas en esta base (migración 20261029143450).';
+const SIN_CONTEO = 'El conteo del cajón todavía no está instalado en esta base (falta la migración 20261030140503).';
 
 /** Un renglón de la hoja con su egreso del libro de Caja General, si ya entró. */
 interface RenglonEnLibro {
@@ -205,7 +207,7 @@ export class HojaGastosService {
       let conteo: { piezas: Record<string, number>; morralla: number } | null = null;
       if (medio === 'cajon') {
         if (!(await HojaGastosService.conConteo(trx))) {
-          throw new ConflictException('El conteo del cajón todavía no está instalado en esta base (falta la migración 20261030140503).');
+          throw new ConflictException(SIN_CONTEO);
         }
         const v = revisarConteoCajon(input?.medio === 'cajon' ? input.conteo : null, total);
         if (!v.ok) throw new BadRequestException(`Para pagar ${folio} con el cajón hay que contar lo que sale. ${v.texto}`);
@@ -251,7 +253,7 @@ export class HojaGastosService {
         estado: 'pagada', medio, pagada_por: u.id, pagada_at: trx.fn.now(),
         caos_device: mov?.device ?? null, caos_external_id: mov?.external_id ?? null, caos_total: mov?.libre ?? null,
         cajon, updated_by: u.id,
-        ...(conteo ? { conteo: JSON.stringify(conteo.piezas), conteo_morralla: conteo.morralla } : {}),
+        ...(conteo ? { conteo: JSON.stringify(conteo.piezas), conteo_morralla: conteo.morralla, conteo_por: u.id, conteo_at: trx.fn.now() } : {}),
       });
 
       // Lo capturado sin origen se liga al retiro de la hoja, con las reglas de siempre, en un solo fajo.
@@ -271,6 +273,35 @@ export class HojaGastosService {
 
     const lote = await this.capturarRefs(paso.porCapturar, medio, paso.mov, u);
     return this.resultado(tenantId, id, paso.ligados, lote);
+  }
+
+  /**
+   * Trae el conteo de una hoja YA PAGADA con el cajón que no lo tiene: se pagó antes de exigirlo.
+   * Edgar, 2026-10-30, sobre HG-1: el arqueo está en papel en Control, «hay que traer ese arqueo».
+   * Una sola vez y con la misma regla que al pagar; la base lo vuelve a exigir. El dinero ya salió del
+   * cajón con los egresos de la hoja: esto no mueve un peso, deja dicho cómo salió.
+   */
+  async registrarConteo(id: string, input: RegistrarConteoHojaInput, user: Usuario): Promise<HojaGastos> {
+    const u = this.requireUser(user);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      if (!(await HojaGastosService.instalada(trx))) throw new ConflictException(NO_INSTALADA);
+      if (!(await HojaGastosService.conConteo(trx))) throw new ConflictException(SIN_CONTEO);
+      const h = await trx('finance.expense_sheets').where({ tenant_id: tenantId, id }).forUpdate()
+        .first('id', 'numero', 'estado', 'medio', 'cajon', 'conteo', 'aprobada_por');
+      if (!h) throw new NotFoundException('Esa hoja no existe.');
+      const folio = folioHoja(Number(h.numero));
+      if (h.estado !== 'pagada') throw new ConflictException(`La hoja ${folio} no está pagada: el conteo se hace al pagarla.`);
+      if (h.medio !== 'cajon') throw new ConflictException(`La hoja ${folio} se pagó con un retiro de CAOS: no lleva conteo del cajón.`);
+      if (h.conteo) throw new ConflictException(`La hoja ${folio} ya tiene su conteo: no se cambia.`);
+      if (String(h.aprobada_por) === u.id) throw new ForbiddenException('Quien aprobó la hoja no registra su conteo: lo registra otra persona.');
+      const v = revisarConteoCajon(input?.conteo, redondea2(Number(h.cajon)));
+      if (!v.ok) throw new BadRequestException(`El conteo de ${folio} no cuadra con lo que salió del cajón. ${v.texto}`);
+      await trx('finance.expense_sheets').where({ id: h.id }).update({
+        conteo: JSON.stringify(v.piezas), conteo_morralla: v.morralla, conteo_por: u.id, conteo_at: trx.fn.now(), updated_by: u.id,
+      });
+      return this.una(trx, tenantId, String(h.id));
+    });
   }
 
   /** Reintenta la captura de lo que el lote no pudo confirmar al pagar (casi siempre, la cuenta del beneficiario). */
@@ -327,7 +358,10 @@ export class HojaGastosService {
         's.cerrada_at', 's.aprobada_at', 's.pagada_at', trx.raw('coalesce(s.rechazada_at, s.cancelada_at) AS resuelta_at'),
         'uc.username as cerrada_por_nombre', 'ua.username as aprobada_por_nombre', 'up.username as pagada_por_nombre',
         'ur.username as resuelta_por_nombre');
-    if (await HojaGastosService.conConteo(trx)) q.select('s.conteo', 's.conteo_morralla');
+    if (await HojaGastosService.conConteo(trx)) {
+      q.leftJoin('identity.users as uq', 'uq.id', 's.conteo_por')
+        .select('s.conteo', 's.conteo_morralla', 's.conteo_at', 'uq.username as conteo_por_nombre');
+    }
     filtro(q);
     const filas = await q;
     if (!filas.length) return [];
@@ -480,6 +514,10 @@ export class HojaGastosService {
       out.set(String(h['id']), {
         medio: h['medio'] as MedioPagoHoja, retiro, cajon: redondea2(Number(h['cajon'])),
         conteo: h['conteo'] ? { piezas: h['conteo'] as Record<string, number>, morralla: Number(h['conteo_morralla'] ?? 0) } : null,
+        // Al pagar, conteo_at = pagada_at (la misma transacción); después, es posterior.
+        conteo_despues: h['conteo'] && h['conteo_at'] && new Date(h['conteo_at'] as string) > new Date(h['pagada_at'] as string)
+          ? { por_nombre: (h['conteo_por_nombre'] as string | null) ?? null, at: new Date(h['conteo_at'] as string).toISOString() }
+          : null,
         pagada_por_nombre: (h['pagada_por_nombre'] as string | null) ?? null,
         pagada_at: new Date(h['pagada_at'] as string).toISOString(),
         sin_capturar: faltanDe.get(String(h['id'])) ?? 0,
