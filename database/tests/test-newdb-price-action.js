@@ -143,6 +143,24 @@ const sinMedir = (l, d) => { nm++; console.log(`  ⓘ NO MEDIDO: ${l} — ${d}`)
     `${p.unidad_mezclada} celdas con otra unidad`);
 
   /**
+   * [PR.V15] El freno de ISCAM: SOLO para subir el precio, y ninguna que pierda terreno queda libre.
+   */
+  const [{ hay: hayH4 }] = await q(`SELECT count(*) > 0 AS hay FROM pg_attribute
+     WHERE attrelid = 'analytics.v_price_action'::regclass AND attname = 'h4_pierde_terreno' AND NOT attisdropped`);
+  if (!hayH4) {
+    sinMedir('h · el freno de ISCAM', 'falta la migracion 20261030123253 en este destino');
+  } else {
+    const [h] = await q(`
+      SELECT count(*) FILTER (WHERE 'pierde_terreno_en_la_categoria' = ANY (bloqueos) AND accion <> 'subir_precio')::int fuera,
+             count(*) FILTER (WHERE accion = 'subir_precio' AND h4_pierde_terreno AND accionable)::int libres,
+             count(*) FILTER (WHERE h4_pierde_terreno AND (h4_share_delta_pp >= 0 OR h4_crec_competencia_pct <= 0))::int regla
+        FROM analytics.v_price_action`);
+    ck('⛔ h · [PR.V15] el freno de terreno sólo toca subir_precio', h.fuera === 0, `${h.fuera} celdas de otra acción frenadas`);
+    ck('⛔ h · [PR.V15] ninguna subir_precio que pierde terreno queda libre', h.libres === 0, `${h.libres} libres`);
+    ck('⛔ h · [PR.V15] pierde terreno = participación baja Y competencia crece', h.regla === 0, `${h.regla} sin cumplir la regla`);
+  }
+
+  /**
    * ⛔⛔ g · LA PRUEBA NEGATIVA DE [PR.V10]: el saldo de una PARTE del inventario no puede pasar
    *    del inventario ENTERO valuado igual. El numero viejo (g2_valor_anual, consumo anual) la
    *    violaba: $81.3 M contra $71.7 M de existencia en toda la empresa (prod, 2026-10-30).

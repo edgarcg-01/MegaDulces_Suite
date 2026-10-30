@@ -53,6 +53,8 @@ export interface ColaRow {
   d8_prima_caja_pct: string | null;
   familias_con_evidencia: number; familias_totales: number;
   calculado_al: string | null;
+  /** `[PR.V15]` La categoria ISCAM del SKU y el periodo de la medicion (para el bloqueo de terreno). */
+  h3_categoria_iscam?: string | null; h4_periodo_iscam?: string | null;
 }
 
 /**

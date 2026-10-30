@@ -245,7 +245,7 @@ import {
                 } @else {
                   <span>{{ f.row.sucursal | sucursal }}</span>
                 }
-                @if (!f.row.accionable) { <span class="mm-bloq">{{ bloqueosTxt(f.row.bloqueos) }}</span> }
+                @if (!f.row.accionable) { <span class="mm-bloq">{{ bloqueosTxt(f.row) }}</span> }
               </div>
             </td>
             <td data-label="Qué hacer" role="cell">
@@ -287,7 +287,7 @@ import {
                   (click)="abrirFila(h)" (keydown.enter)="abrirFila(h)" (keydown.space)="abrirFila(h, $event)">
                 <td class="dt-id" data-label="Sucursal" role="cell"><span class="mm-sub-p">{{ h.sucursal | sucursal }}</span></td>
                 <td class="mm-dim" data-label="Bloqueo" role="cell">
-                  @if (!h.accionable) { <span class="mm-bloq">{{ bloqueosTxt(h.bloqueos) }}</span> }
+                  @if (!h.accionable) { <span class="mm-bloq">{{ bloqueosTxt(h) }}</span> }
                 </td>
                 <td class="comm-num mm-dim dt-num" data-label="Precio" role="cell">{{ h.precio_actual | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="dt-num" data-label="Propuesto" role="cell"></td>
@@ -673,14 +673,20 @@ export class ComercialMotorMargenComponent {
     } as Record<string, string>)[s] ?? s;
   }
 
-  bloqueosTxt(b: string[] | null | undefined): string {
+  bloqueosTxt(r: Pick<ColaRow, 'bloqueos' | 'h3_categoria_iscam' | 'h4_periodo_iscam'>): string {
+    // [PR.V15] El de ISCAM dice la categoria y el MES de la medicion: es un dato de un tercero,
+    // llega una vez al mes, y sin su fecha se leeria como de hoy.
+    const mes = r.h4_periodo_iscam
+      ? new Date(r.h4_periodo_iscam).toLocaleDateString('es-MX', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+      : null;
     const m: Record<string, string> = {
       sin_existencia: 'sin existencia',
       promocion_vigente: 'promoción vigente',
       movido_hace_menos_de_21_dias: 'movido hace menos de 21 días',
       el_mostrador_lo_reporto_faltante: 'reportado faltante en el mostrador',
+      pierde_terreno_en_la_categoria: `pierde terreno en ${r.h3_categoria_iscam ?? 'su categoría'}${mes ? ` (ISCAM ${mes})` : ' (ISCAM)'}`,
     };
-    return (b ?? []).map((x) => m[x] ?? x).join(' · ');
+    return (r.bloqueos ?? []).map((x) => m[x] ?? x).join(' · ');
   }
 
   private msg(e: unknown): string {

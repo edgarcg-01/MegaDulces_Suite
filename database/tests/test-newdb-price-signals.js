@@ -106,7 +106,8 @@ const EXCEPCIONES_DE_COBERTURA = { E4: 'viene con COALESCE(...,0): nunca es NULL
    */
   ck('⭐⭐ CERO señales en `disponible` (la capa 2 está completa)', r.disponibles === 0,
     `quedan ${r.disponibles} fuentes pobladas que nadie lee`);
-  ck('las 29 señales cableadas (28 + A4, el árbitro del costo)', r.cableadas === 29,
+  // [PR.V15] 29 + H3/H4 (la participacion de ISCAM, cargada desde el 2026-10-01 y sin leer).
+  ck('las 31 señales cableadas (28 + A4 + H3/H4)', r.cableadas === 31,
     `hay ${r.cableadas}`);
   ck('⛔ lo refutado no pesa (cobertura y peso en cero)',
     (await q(`SELECT count(*)::int n FROM analytics.price_signal_registry

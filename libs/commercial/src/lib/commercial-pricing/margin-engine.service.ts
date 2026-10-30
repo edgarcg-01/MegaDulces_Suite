@@ -155,6 +155,8 @@ export class MarginEngineService {
           'd1_terminacion', 'd1_candidato_99', 'd1_alza_99_pct', 'd4_umbral_percepcion',
           'e3_estado_inventario', 'g2_clase_abc', 'd8_prima_caja_pct',
           'familias_con_evidencia', 'familias_totales', 'calculado_al',
+          // [PR.V15] Para que el bloqueo de ISCAM diga en que categoria y de que mes es el dato.
+          'h3_categoria_iscam', 'h4_periodo_iscam',
           trx.raw('count(*) OVER ()::int AS total'),
         )
         .whereNot('accion', 'sin_accion_defendible');

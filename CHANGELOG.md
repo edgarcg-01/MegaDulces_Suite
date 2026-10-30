@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Added — El motor ya no propone subir el precio donde perdemos terreno contra la competencia (PR.V15, 2026-10-30)
+- **Comercial › Precios › Motor** usa la medición de **ISCAM**: en las categorías donde nuestra participación bajó **mientras la competencia creció**, «Subir el precio» queda bloqueado. La cola dice «pierde terreno en Chocolate (ISCAM jul 2026)».
+- Medido el 30-oct: frena **300 de 2,437** propuestas de subir que estaban libres, **$35,273 de $178,945**. Las categorías son Chocolate, Frituras, Chicle, Grenetina, Galletas, Mazapán, Fiesta y Concentrados para agua.
+- Sólo frena «Subir el precio». Si el mercado entero cayó, no frena: por ejemplo Dulce, −0.87 pp con la competencia también a la baja.
+- ⚠️ Cubre los productos cuyo código de barras está en la taxonomía de ISCAM, cerca del **40 % de la venta de «subir»**. El resto no tiene el dato, lo que no quiere decir que no pierda terreno. La medición de ISCAM es de julio y llega una vez al mes.
+
 ### Changed — El experimento de precio se lleva solo, salvo capturar en Kepler (PR.V14, 2026-10-30)
 - En **Comercial › Precios › Experimentos** ya no hace falta marcar cada precio capturado. La Suite lee la bitácora de precios de Kepler y reconoce sola cada captura, minutos después.
 - La lista de captura trae el **precio de hoy** y su aterrizaje de hoy, con la unidad en que se captura. La del día de la asignación ya estaba vieja: en 29 días cambió el precio de 452 de las 2,921 celdas.
