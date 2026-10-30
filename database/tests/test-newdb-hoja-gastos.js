@@ -14,6 +14,8 @@ const crypto = require('crypto');
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-hoja-gastos');
 const migracion = require('../migrations-newdb/20261029143450_cga_a65_hoja_gastos_zona.js');
+// El cuadre leía NEW.sheet_id también cuando dispara expense_sheets: cerrar daba 500 en prod (2026-10-30).
+const arregloCuadre = require('../migrations-newdb/20261030133058_cga_a65_hoja_cerrar_y_pagar.js');
 
 const uuid = () => crypto.randomUUID();
 const TT = uuid();
@@ -87,6 +89,7 @@ async function hoja(trx, numero, renglones, extra = {}) {
         await migracion.up(trx);
         console.log('  (la migración se aplicó dentro de la transacción y se deshace al final)');
       }
+      await arregloCuadre.up(trx);
       await comoApp(trx);
 
       console.log('── 1. Una hoja cerrada, con su folio, y su total es la suma de sus renglones ──');
