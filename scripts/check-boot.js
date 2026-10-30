@@ -62,7 +62,9 @@ function clasificar(texto) {
   for (const re of FATAL) {
     if (re.test(texto)) return { veredicto: 'fatal', patron: String(re) };
   }
-  if (/Application running on/.test(texto) || /Nest application successfully started/.test(texto)) {
+  // `[DEPS.6]` El worker (WORKER=true) no abre HTTP: su "listo" es el renglón de `bootstrapWorker`.
+  if (/Application running on/.test(texto) || /Nest application successfully started/.test(texto)
+    || /Worker-tier arriba/.test(texto)) {
     return { veredicto: 'listo', patron: null };
   }
   return { veredicto: 'indeterminado', patron: null };
@@ -161,6 +163,8 @@ async function probarNegativo() {
   ok(clasificar(real).veredicto === 'fatal', 'el texto real del incidente se clasifica FATAL');
   ok(clasificar('Application running on 127.0.0.1:3333').veredicto === 'listo',
     'un arranque sano se clasifica LISTO');
+  ok(clasificar('[Worker] Worker-tier arriba (sin HTTP/WS): cola pg-boss activa.').veredicto === 'listo',
+    'un worker sano se clasifica LISTO');
   ok(clasificar('cargando modulos...').veredicto === 'indeterminado',
     'un log a medias NO se da por bueno (queda indeterminado)');
   // El orden importa: fatal manda aunque el proceso haya alcanzado a escuchar antes de morir.
@@ -229,16 +233,25 @@ async function principal() {
     NODE_ENV: process.env.NODE_ENV || 'production',
     JWT_SECRET: 'compuerta-de-arranque-secreto-descartable-' + process.pid,
   };
+  // `[DEPS.6]` `--worker` arranca el MISMO binario como el deployment `worker` de prod
+  // (WORKER=true + ENABLE_WORKER_QUEUE=true): contexto sin HTTP, otro camino de arranque.
+  // El worker es `Recreate` sin sondas en k3s: si no levanta, prod no lo frena — lo frena esto.
+  const comoWorker = process.argv.includes('--worker');
+  if (comoWorker) {
+    env.WORKER = 'true';
+    env.ENABLE_WORKER_QUEUE = 'true';
+  }
+  const quien = comoWorker ? 'el worker' : 'el API';
   const t0 = Date.now();
   const r = await arrancar(process.execPath, [SALIDA], env, ESPERA_MS);
   const seg = ((Date.now() - t0) / 1000).toFixed(1);
 
   if (r.veredicto === 'listo') {
-    console.log('✔ boot: el API arranca y escucha (' + seg + ' s).');
+    console.log('✔ boot: ' + quien + (comoWorker ? ' arranca' : ' arranca y escucha') + ' (' + seg + ' s).');
     return process.exit(0);
   }
   if (r.veredicto === 'fatal') {
-    console.log('✘ boot: EL API NO ARRANCA (' + seg + ' s) — ' + r.patron);
+    console.log('✘ boot: ' + quien.toUpperCase() + ' NO ARRANCA (' + seg + ' s) — ' + r.patron);
     console.log(lineasUtiles(r.texto).join('\n') || '      (sin lineas de error reconocibles)');
     console.log('\n  Esto tumba produccion apenas se despliegue. `nx build` NO lo ve: el grafo de');
     console.log('  inyeccion se resuelve al arrancar, no al compilar.');

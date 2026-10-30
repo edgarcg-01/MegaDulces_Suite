@@ -51,7 +51,7 @@
 # ═══ 1. deps — `npm ci` UNA vez para las cuatro imágenes ═════════════════════════════════════
 # slim ahorra ~700MB de pull en builds frescos vs `bookworm` completo. El binario nativo de
 # @swc/core (la api compila con swc) es glibc → funciona en bookworm, NO en alpine/musl.
-FROM node:20-bookworm-slim AS deps
+FROM node:24-bookworm-slim AS deps
 WORKDIR /app
 
 # ENV (no ARG) porque npm los lee como variables de entorno del proceso. Con ARG, npm ignora
@@ -91,7 +91,7 @@ RUN --mount=type=cache,id=trade-npm,target=/root/.npm \
 # `eslint.config.js` entra porque está en `nx.json → namedInputs.sharedGlobals`: sin él, el hash
 # de Nx dentro del contenedor no es el mismo que el de afuera. (Lo traía el `COPY . .` de
 # portal/vendor; a `view`/`api` les faltaba.)
-FROM node:20-bookworm-slim AS src
+FROM node:24-bookworm-slim AS src
 WORKDIR /app
 
 # `[NX.11]` ⛔ ACÁ NO VA `CI=true`. Medido el 2026-09-21 con un 2×2 sobre un target trivial YA
@@ -215,7 +215,7 @@ RUN --mount=type=cache,id=trade-nx,target=/app/.nx/cache,sharing=locked \
 # ⚠️ El modo de falla que abre: un `require(variable)` no queda en el grafo de webpack → no entra
 # al manifiesto → no se instala → `MODULE_NOT_FOUND` recién en el arranque de prod. Por eso el
 # candado de abajo.
-FROM node:20-bookworm-slim AS prod-deps
+FROM node:24-bookworm-slim AS prod-deps
 WORKDIR /app
 
 ENV NPM_CONFIG_LOGLEVEL=warn \
@@ -265,7 +265,7 @@ RUN node ./check-bundle-externals.js ./main.js /app/node_modules \
 # (Los tres Dockerfiles viejos de worker/portal/vendor NO tenían estos mounts: cada build
 # re-descargaba chromium, ~230 MB de closure, dos veces por release.)
 
-FROM node:20-slim AS rt-base
+FROM node:24-bookworm-slim AS rt-base
 RUN --mount=type=cache,id=trade-apt-cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,id=trade-apt-lists,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \

@@ -170,10 +170,10 @@ jobs:
         with:
           fetch-depth: 0   # `nx affected` necesita el historial para el diff base↔head.
 
-      - name: Setup Node 20
+      - name: Setup Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       # ── `[CD.3]` EL CUELLO MEDIDO NO ERA EL BUILD ────────────────────────────────────────
@@ -192,7 +192,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: nm-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+          key: nm-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
         # Sólo si el caché falló. El `if` es lo que convierte el caché en tiempo ahorrado.
@@ -225,9 +225,9 @@ jobs:
           path: .nx/cache
           # Clave por SHA: `actions/cache` no reescribe una entrada existente, así que una
           # clave fija se congela en el primer tarball y nunca más incorpora nada nuevo.
-          key: nx-${{ runner.os }}-node20-${{ github.sha }}
+          key: nx-${{ runner.os }}-node24-${{ github.sha }}
           restore-keys: |
-            nx-${{ runner.os }}-node20-
+            nx-${{ runner.os }}-node24-
 
       - name: Derivar SHAs base/head para affected
         uses: nrwl/nx-set-shas@v4
@@ -410,10 +410,10 @@ jobs:
         with:
           fetch-depth: 0   # nx affected necesita el historial para el diff base↔head.
 
-      - name: Setup Node 20
+      - name: Setup Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Derivar SHAs base/head para affected
@@ -427,7 +427,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: nm-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+          key: nm-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
@@ -930,10 +930,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node 20
+      - name: Setup Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       # Misma clave EXACTA que `build`: los dos jobs comparten el `node_modules` armado.
@@ -942,7 +942,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: nm-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+          key: nm-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
@@ -1149,10 +1149,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node 20
+      - name: Setup Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Cache de node_modules (clave exacta por package-lock)
@@ -1160,7 +1160,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: nm-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+          key: nm-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
