@@ -80,7 +80,10 @@ exports.up = async function up(knex) {
     }
   }
   for (const [obj, txt] of COMENTARIOS) {
-    await knex.raw(`COMMENT ON COLUMN ${obj} IS ?`, [txt]);
+    // `COMMENT ON` NO acepta parametros ligados: knex convierte el `?` en `$1` y Postgres
+    // responde «syntax error at or near "$1"». El texto va como literal, con las comillas
+    // simples dobladas. Medido contra prod el 2026-10-30: la migracion fallaba entera aca.
+    await knex.raw(`COMMENT ON COLUMN ${obj} IS '${String(txt).replace(/'/g, "''")}'`);
   }
 
   // ── Controles ───────────────────────────────────────────────────────────────────────────
