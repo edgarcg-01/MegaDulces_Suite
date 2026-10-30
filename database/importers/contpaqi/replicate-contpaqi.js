@@ -138,6 +138,23 @@ function fuentes(bases) {
   return [...out, ...add].filter((f) => bases.includes(f.db) && (!SOLO || SOLO.has(f.alias)));
 }
 
+/**
+ * ⛔ Lo que se esperaba replicar y no está en línea se DECLARA (regla 11). Antes se saltaba en silencio: en la carga
+ * del 2026-10-30 faltaron dos bases de metadatos del ADD y nada lo dijo. Cada repositorio que aparece por cualquiera
+ * de sus bases debe tener las dos de metadatos (así las lista `DB_Directory`).
+ */
+function fuentesAusentes(estado) {
+  const esperadas = [['ct', DB_CT], ['gen', 'GeneralesSQL'], ['sat', 'ADD_Catalogos'], ['dir', 'DB_Directory'],
+    ['nom', DB_NOM], ['nomgen', 'nomGenerales']];
+  for (const n of estado.keys()) {
+    const m = String(n).match(/^(?:document|other)_([0-9a-f-]{36})_(?:metadata|content)$/i);
+    if (m) esperadas.push(['add', `document_${m[1]}_metadata`], ['addo', `other_${m[1]}_metadata`]);
+  }
+  const vistas = new Set();
+  return esperadas.filter(([alias, db]) => !vistas.has(db) && vistas.add(db) && estado.get(db) !== 'ONLINE' && (!SOLO || SOLO.has(alias)))
+    .map(([, db]) => `${db}: ${estado.has(db) ? `estado ${estado.get(db)}` : 'no existe en el servidor'}`);
+}
+
 /** Tipo de Postgres para un tipo de SQL Server. Lo que no tiene par exacto va a `text`. */
 function tipoPg(c) {
   switch (c.tipo) {
@@ -573,7 +590,8 @@ async function sincronizar(pool, pg, bases) {
   let fallas = 0;
   for (let vuelta = 1; ; vuelta++) {
     const t0 = Date.now();
-    const v = { tablas: 0, alDia: 0, tramos: 0, difieren: 0, recopiadas: 0, sinCarril: 0, lentas: [], fallas: [] };
+    const v = { tablas: 0, alDia: 0, tramos: 0, difieren: 0, recopiadas: 0, sinCarril: 0, lentas: [], fallas: [],
+      control: { vio: 0, noVio: 0, sinConcluir: 0 } };
     for (const f of fuentes(bases)) {
       if (detener) break;
       let tablas;
@@ -598,7 +616,10 @@ async function sincronizar(pool, pg, bases) {
           v.difieren += r.difieren.length;
           v.recopiadas += r.recopiadas;
           if (!r.difieren.length) v.alDia += 1;
-          if (r.difieren.length || r.control) {
+          const vio = r.control && r.control.startsWith('✓');
+          if (r.control) v.control[vio ? 'vio' : r.control.startsWith('✗') ? 'noVio' : 'sinConcluir'] += 1;
+          // Una línea por tabla sólo si difiere o si su control NO salió bien; lo demás va en el resumen.
+          if (r.difieren.length || (r.control && !vio)) {
             console.log(`  ${r.difieren.length ? (APPLY ? '↻' : '≠') : '='} ${t.tabla.padEnd(34)} → ${r.x.destino.padEnd(44)} `
               + `${r.modo === 'nueva' ? r.nota || 'tabla nueva, copiada entera' : `${r.difieren.length} de ${r.tramos} tramos ${APPLY ? `recopiados (${r.recopiadas} filas)` : 'difieren'}${r.nota ? ` · ${r.nota}` : ''}`}`
               + `  ${s.toFixed(1)} s${r.control ? `  · control ${r.control}` : ''}`);
@@ -622,6 +643,10 @@ async function sincronizar(pool, pg, bases) {
     console.log(`${hora()} · SYNC vuelta ${vuelta}: ${v.tablas} tablas · ${v.alDia} al día · ${v.difieren} de ${v.tramos} tramos `
       + `${APPLY ? `recopiados (${v.recopiadas.toLocaleString('es-MX')} filas)` : 'difieren'} · ${v.sinCarril} sin carril · `
       + `${((Date.now() - t0) / 1000).toFixed(0)} s\n  las más lentas: ${lentas}`);
+    if (CONTROL) {
+      console.log(`  prueba negativa: la huella VIO la fila movida en ${v.control.vio} tablas · NO la vio en ${v.control.noVio}`
+        + ` · sin concluir en ${v.control.sinConcluir}`);
+    }
     if (v.fallas.length) console.log(`  ✗ fallas (${v.fallas.length}):\n    ${v.fallas.join('\n    ')}`);
     fallas += v.fallas.length;
     if (!WATCH_MIN || detener) break;
@@ -639,7 +664,10 @@ async function sincronizar(pool, pg, bases) {
   console.log(`destino: ${k.kind} ${k.host}/${k.db} · system_identifier ${sid} · ${SYNC ? 'SINCRONÍA' : 'CARGA'} · `
     + `${APPLY ? 'ESCRIBE' : 'EN SECO (sin --apply no escribe)'}${CONTROL ? ' · con prueba negativa (se deshace)' : ''}`);
   const pool = await sql.connect(CFG);
-  const bases = (await pool.request().query(`SELECT name FROM sys.databases WHERE state_desc = 'ONLINE'`)).recordset.map((r) => r.name);
+  const estado = new Map((await pool.request().query('SELECT name, state_desc FROM sys.databases')).recordset.map((r) => [r.name, r.state_desc]));
+  const bases = [...estado].filter(([, s]) => s === 'ONLINE').map(([n]) => n);
+  const ausentes = fuentesAusentes(estado);
+  for (const a of ausentes) console.log(`⚠ NO MEDIDO — ${a}`);
   if (APPLY) {
     if (!(await pg.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [CANDADO])).rows[0].ok) {
       console.error('⛔ otra corrida que escribe en la réplica tiene el candado: salgo sin tocar nada.');
@@ -651,9 +679,10 @@ async function sincronizar(pool, pg, bases) {
   process.on('SIGINT', () => { console.log('\n⏸ se detiene al terminar la tabla en curso…'); detener = true; });
   if (SYNC) {
     const fallas = await sincronizar(pool, pg, bases);
+    if (ausentes.length) console.log(`  ⚠ no medidas (${ausentes.length}): ${ausentes.join('; ')}`);
     await pool.close();
     await pg.end();
-    process.exit(fallas ? 1 : 0);
+    process.exit(fallas || ausentes.length ? 1 : 0);
   }
   const t0 = Date.now();
   const resumen = { tablas: 0, filas: 0, fallas: [], descuadres: [], omitidas: [] };
@@ -694,11 +723,12 @@ async function sincronizar(pool, pg, bases) {
   const min = ((Date.now() - t0) / 60000).toFixed(1);
   console.log(`\n${APPLY ? 'CARGA' : 'EN SECO'}: ${resumen.tablas} tablas · ${resumen.filas.toLocaleString('es-MX')} filas copiadas · ${min} min`);
   if (resumen.omitidas.length) console.log(`  omitidas a propósito: ${resumen.omitidas.join('; ')}`);
+  if (ausentes.length) console.log(`  ⚠ no medidas (${ausentes.length}): ${ausentes.join('; ')}`);
   if (resumen.descuadres.length) console.log(`  ⚠ conteo distinto al origen (${resumen.descuadres.length}): ${resumen.descuadres.join('; ')}`);
   if (resumen.fallas.length) console.log(`  ✗ fallas (${resumen.fallas.length}):\n    ${resumen.fallas.join('\n    ')}`);
   await pool.close();
   await pg.end();
-  process.exit(resumen.fallas.length ? 1 : 0);
+  process.exit(resumen.fallas.length || ausentes.length ? 1 : 0);
 })().catch((e) => {
   // Un `AggregateError` (conexión rechazada en varias direcciones) trae el mensaje vacío: se dicen sus causas.
   const causas = Array.isArray(e && e.errors) ? e.errors.map((x) => x && x.message).filter(Boolean).join('; ') : '';
