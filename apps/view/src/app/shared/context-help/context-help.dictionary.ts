@@ -94,7 +94,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // Se escribió porque la pregunta llegó tal cual: «¿y para qué sirve este motor?».
   'control-de-margen': {
     title: 'Control de margen — para qué sirve y cómo se usa',
-    intro: 'Cada producto tiene su propio precio en cada plaza, y son decenas de miles de combinaciones: nadie puede revisarlas una por una. El módulo las mira todas cada noche y dice UNA sola cosa de cada una — qué se puede hacer con ese precio, cuánto vale hacerlo, y qué tan en firme está esa afirmación. No cambia ningún precio: la captura sigue siendo en Kepler, a mano. Es un triage, no un ejecutor.',
+    intro: 'Cada producto tiene su propio precio en cada plaza, y son decenas de miles de combinaciones: nadie puede revisarlas una por una. El módulo las mira todas una vez al día y dice UNA sola cosa de cada una — qué se puede hacer con ese precio, cuánto vale hacerlo, y qué tan en firme está esa afirmación. No cambia ningún precio: la captura sigue siendo en Kepler, a mano. Es un triage, no un ejecutor.',
     groups: [
       {
         heading: 'Las tres pantallas, y por qué son tres',
@@ -109,7 +109,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         entries: [
           { term: 'Que la mayoría no diga nada está BIEN', def: 'Medido el 2026-10-01: de 86,233 combinaciones, 64,062 — tres de cada cuatro — salen como "sin acción defendible". No es que el motor falle: es que prefiere callarse antes que inventar una recomendación. Un motor que propone algo en todas las filas no sirve para priorizar.' },
           { term: 'La acción que más dinero mueve es la MENOS segura', def: 'Medido el mismo día: "subir el precio" mueve $333 mil, más que las otras tres juntas — y es la única cuya certeza es "efecto no medido". La cuenta supone que el cliente sigue comprando igual después del alza, y eso nadie lo comprobó. Por eso existe la pestaña de Experimentos.' },
-          { term: 'Las acciones aritméticas son las que se pueden tomar hoy', def: 'Aterrizar precio, revisar costo y corregir escalera suman unos $210 mil y la cuenta se cierra sola: no dependen de adivinar qué hace el cliente. Son menos dinero, pero no hay nada que medir antes.' },
+          { term: 'Las acciones aritméticas son las que se pueden tomar hoy', def: 'Aterrizar el precio, revisar el costo y corregir la escalera no dependen de adivinar qué hace el cliente: la cuenta se cierra sola. Son menos dinero, pero no hay nada que medir antes. ⚠️ La escalera no tiene un monto de 30 días: lo que se publica es la venta que queda expuesta, y por eso va aparte y sin barra.' },
         ],
       },
     ],
@@ -119,10 +119,10 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         kind: 'fix',
         intro: 'Todo se captura en Kepler. Esta pantalla no escribe ningún precio.',
         steps: [
-          'El motor lee cada noche el costo, el precio, la venta de 30 días y la existencia, directo del ERP.',
+          'El motor lee una vez al día el costo, el precio, la venta de 30 días y la existencia, directo del ERP. La pantalla dice a qué hora se calculó.',
           'Para cada producto en cada plaza prueba sus reglas EN ORDEN y se queda con la primera que aplica. Por eso cada renglón dice una sola cosa y no una lista de sugerencias.',
           'Le pone precio a esa acción: cuántos pesos mueve. Y le pone certeza, que es lo que decide si le crees.',
-          'Ordena la cola por dinero, de mayor a menor.',
+          'Ordena la cola por dinero, de mayor a menor, y de entrada muestra sólo lo que se puede mover hoy. Las bloqueadas se cuentan y se ven con «Incluir bloqueadas».',
           'Tú abres el renglón: ahí está la historia del costo contra la venta, y qué pasó las veces anteriores que se tocó ese precio.',
           'Simulas un precio nuevo. El simulador te dice el margen que quedaría, dónde aterriza el número, y cuánto volumen tendrías que perder para que el cambio te deje peor que como estás.',
           'Si convence, lo capturas en Kepler. El motor lo ve en la corrida siguiente.',
@@ -197,7 +197,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         entries: [
           { term: 'Corregir la escalera', def: 'La caja sale MÁS CARA por pieza que comprar sueltas. Es un error de catálogo: le estás cobrando más a quien compra más. ⚠️ Hoy la alarma se dispara también por diferencias de UN CENTAVO, que no se pueden corregir porque los precios se guardan al centavo: 248 de los 696 casos difieren un centavo o menos (la más chica, seis diezmilésimas de peso) y se llevan $76,610 de la cola, contra $2,138 de las 349 que sí están rotas de verdad, algunas por más de $340 por pieza.' },
           { term: 'Revisar el costo', def: 'El costo de hoy se apartó 5% o más del costo con el que se fijó el precio, y nadie tocó el precio en 90 días. No dice cuánto subir: dice que el número con el que se decidió ya no es el de ahora.' },
-          { term: 'Liberar capital', def: 'El producto está en sobrestock o parado, y hay inventario que se puede mover bajando el precio. Es una regla de almacén, no una medición de precio: el motor no sabe cuánto hay que bajar.' },
+          { term: 'Liberar capital', def: 'El producto está en sobrestock o parado, y hay inventario que se puede mover bajando el precio. Es una regla de almacén, no una medición de precio: el motor no sabe cuánto hay que bajar, y por eso no propone un precio.' },
           { term: 'Precio atípico', def: 'Para llegar al siguiente precio redondo habría que subirlo más del 20%. No es mercancía ordinaria: suelen ser recargas, servicios o productos de paso. Se aparta a propósito y no se propone nada, porque falta la marca de PRECIO PACTADO, que no existe en el sistema.' },
           { term: 'Aterrizar el precio', def: 'El precio está a un pelo de un número redondo y la subida es tan chica que el cliente no la distingue. Por ejemplo, de $6.95 a $6.99. Es la más segura de las siete: la cuenta se cierra sola.' },
           { term: 'Subir el precio', def: 'Hay espacio hasta el siguiente precio redondo y el producto vende. ⚠️ Es la única donde NO se sabe qué pasa con el volumen: el motor calcula cuánto ganarías si nadie deja de comprar, pero no si alguien deja de comprar.' },
@@ -217,13 +217,13 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Las palabras de las columnas',
         entries: [
-          { term: 'En juego 30 días', def: 'La venta de ese producto en esa plaza en los últimos 30 días. ⚠️ Es lo que está EXPUESTO, no lo que vas a ganar: sirve para ordenar la lista por tamaño, no para prometer un resultado.' },
+          { term: 'En juego 30 días', def: 'Lo que cambia en 30 días si se toma la acción. Al aterrizar o subir: la venta por el alza al precio propuesto. Al revisar el costo: la venta por lo que se movió el costo. ⚠️ Supone que se vende lo mismo; sirve para ordenar, no para prometer. En la escalera dice «venta» y en el inventario «saldo»: son otras unidades y no se comparan con éstas.' },
           { term: 'Margen vs meta', def: 'El margen que de verdad se cobró, contra el que la ficha del producto fija como objetivo. La diferencia va en puntos: +2 pp significa dos puntos de margen arriba de la meta.' },
           { term: 'Escalera', def: 'Los escalones de venta del mismo producto: pieza, paquete, caja. Cada escalón tiene su precio, y el de arriba debería salir más barato por pieza.' },
           { term: 'Umbral de percepción', def: 'Por debajo de ese porcentaje el cliente no nota el cambio de precio. Es lo que separa aterrizar de subir: la misma subida es segura o arriesgada según de qué lado caiga.' },
-          { term: 'Capital inmovilizado', def: 'Dinero parado en mercancía. Va aparte de los otros montos y sin barra porque no es lo mismo: los demás son dinero que se mueve en 30 días, éste es un saldo. Para compararlos haría falta saber cuánto cuesta tener el dinero parado, y ese dato no existe todavía.' },
-          { term: 'Con bloqueo', def: 'El renglón tiene una razón para no tocarse ahora: por ejemplo sin existencia, o el precio se movió hace menos de 21 días. Se muestra igual, apagada, porque esconderla haría parecer que el problema no existe.' },
-          { term: 'En N plazas de esta lista', def: 'El mismo producto con la misma decisión y el mismo precio en varias plazas, juntas en un renglón. Dice de esta lista porque agrupa sólo lo que cabe en la página: las plazas que venden poco pueden quedar fuera del corte.' },
+          { term: 'Inventario en sobrestock', def: 'La existencia de esos productos, valuada al costo con el que Kepler valúa el inventario. Es un saldo, no dinero que se mueve en 30 días: por eso va aparte y sin barra. ⚠️ Es la existencia ENTERA, no lo que sobra: cuánto de eso es excedente depende de una cobertura objetivo que nadie ha fijado. Para compararlo con los otros montos haría falta saber cuánto cuesta tener el dinero parado, y ese dato tampoco existe.' },
+          { term: 'Con bloqueo', def: 'El renglón tiene una razón para no tocarse ahora: por ejemplo sin existencia, o el precio se movió hace menos de 21 días. De entrada la cola no las muestra, porque tapaban lo que sí se puede mover (de los primeros 200 renglones, 137 estaban bloqueados). Se cuentan siempre y se ven con «Incluir bloqueadas».' },
+          { term: 'En N plazas de esta página', def: 'El mismo producto con la misma decisión y el mismo precio en varias plazas, juntas en un renglón. Dice de esta página porque agrupa sólo lo que cabe en ella: las plazas que venden poco pueden quedar fuera del corte.' },
         ],
       },
     ],
@@ -243,7 +243,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'Lo que esta pantalla NO puede responder',
         kind: 'info',
         steps: [
-          'Qué precio tiene la competencia: no existe ninguna fuente. Se midió y se descartó — el catálogo público de PROFECO cubre el 0% de nuestros productos.',
+          'Qué precio tiene la competencia en ESTE producto: ISCAM lo mide por marca, no por producto (está en la pestaña Competencia), y de precio de anaquel no hay fuente — el catálogo público de PROFECO cubre el 0% de nuestros productos.',
           'Cuánto volumen se pierde al subir un precio: el experimento que lo mediría está construido y no se ha corrido.',
           'Cuánto cuesta tener el dinero parado: nadie ha fijado esa tasa, y por eso el capital no se puede ordenar contra los demás montos.',
         ],

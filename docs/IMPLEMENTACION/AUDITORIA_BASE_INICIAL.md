@@ -937,6 +937,26 @@ pólizas de la cuenta 515 por documento).
 
 ---
 
+## Addendum — `AUD-DAT.25`: el «Capital inmovilizado» del motor de margen es consumo anual, no inventario (2026-10-30)
+
+**Estado: CORREGIDO EN CÓDIGO (`[PR.V10]`, migración `20261030093024_price_action_saldo_es_existencia.js`) — pendiente de aplicar en prod. Dueño: fase PR / MR (motor de margen).**
+
+- **Qué publica la pantalla:** `/comercial/precios/motor` presenta una tarjeta «Capital inmovilizado» con el texto *«Es un saldo, no un flujo»*. Además, cada renglón de `liberar_capital` en la cola dice «$X · saldo».
+- **Qué es en realidad:** `analytics.v_price_action.capital_inmovilizado_mxn` = `g2_valor_anual` = `v_abc_class.annual_value` = `avg_daily_units × 365 × costo_unitario`. Eso es el **costo de lo que se vende en un año**, o sea un flujo anualizado. No es el valor de lo que está parado en el almacén.
+- **Lo medido (prod, sólo lectura, `mv_price_signals` calculada el 2026-10-29):**
+  - Para las mismas 7,397 celdas, la cifra de la tarjeta es **2.3×** su existencia valuada al costo para VALUAR (`e3_existencia × analytics.mv_erp_unit_cost.costo_unitario`, VERDAD_ABSOLUTA §12).
+  - Es **1.13× el inventario TOTAL de la empresa** valuado igual: más capital «inmovilizado» que inventario existente. Es imposible como saldo. (Una primera medición con el costo de reposición daba 2.4× y 1.17×; las dos fuentes de costo difieren 3 % en el universo.)
+  - ⚠️ El árbitro del valor del inventario, `v_erp_stock_truth`, **no se pudo usar para cruzar**: una consulta sobre ella pasó de 240 s y se canceló por `statement_timeout`. El cruce quedó contra el costo canónico, no contra el árbitro.
+  - Un renglón concreto: SKU 63018 en la plaza 01 muestra 5.5× su existencia valuada.
+  - Control de unidad: en 21,369 celdas, precio/costo nunca cae bajo 0.5 ni pasa de 3. La existencia y el costo están en la misma unidad, así que la razón no viene de mezclar pieza y caja.
+- **Cómo pasó:** `[PR.L1.1]` (`20260930230100_price_action_unidades.js`) detectó que `g2_valor_anual` no era flujo de 30 días. Lo sacó de `monto_en_juego_mxn` y lo rebautizó «SALDO de inventario» en una columna propia. Arregló el orden de la cola, pero el nombre nuevo tampoco describe lo que la columna contiene.
+- **Efecto colateral:** ninguna celda de `liberar_capital` tiene `monto_en_juego_mxn`. Por eso, al filtrar la cola por esa acción, el `ORDER BY abs(monto_en_juego_mxn) DESC NULLS LAST` no ordena nada. Salen 200 de 7,397 celdas sin orden estable, bajo el título «Cola priorizada por dinero».
+- **Cómo se corrigió (`[PR.V10]`):** el saldo es la existencia valuada, `e3_existencia × mv_erp_unit_cost.costo_unitario`. La migración frena si el saldo pasa del inventario entero (prueba negativa ejercida con el número viejo: frenó). La pantalla lo rotula «Inventario en sobrestock» y dice que es la existencia ENTERA, no el excedente. La cola ordena esa acción por el saldo.
+- **Lo que sigue abierto:** lo «inmovilizado» de verdad es sólo el excedente sobre una cobertura objetivo, y esa regla nadie la ha firmado.
+- **No medido:** la cobertura objetivo por clase ABC, que haría falta para separar el excedente del inventario sano. Tampoco se arbitró `e3_existencia` (sale de `analytics.inventory_health`) contra `v_erp_stock_on_hand`.
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.

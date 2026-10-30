@@ -9,6 +9,20 @@
 ---
 
 ## [Unreleased]
+### Fixed — Motor de margen: el «capital inmovilizado» era el consumo de un año (PR.V10, 2026-10-30)
+- La tarjeta «Capital inmovilizado» de **Comercial › Precios › Motor** publicaba $81.3 M «de saldo». En realidad era lo que esos productos consumen en **un año**, valuado a costo: más que todo el inventario de la empresa. Ahora es la **existencia valuada** ($35.0 M medidos el 30-oct) y se llama «Inventario en sobrestock». La tarjeta aclara que es la existencia entera, no lo que sobra.
+- «Corregir la escalera» ya no comparte barra con las demás: su cifra es la **venta expuesta**, no un incremento, y va aparte.
+- La cola filtrada por «Liberar capital» ya sale ordenada por el saldo. Antes salían 200 renglones sin orden.
+
+### Fixed — Motor de margen: la cola llega a lo que promete, y dice el precio propuesto (PR.V11, 2026-10-30)
+- La cola muestra de entrada **sólo lo que se puede mover hoy**. Antes, 137 de los primeros 200 renglones estaban bloqueados. Las bloqueadas se cuentan y se ven con «Incluir bloqueadas».
+- Dice **«N de M»** y avisa cuando sólo muestra las primeras por dinero.
+- Nueva columna **«Propuesto»**: el precio al que el motor propone aterrizar o subir. El expediente lo muestra arriba y el simulador arranca en ese número.
+- La columna **«Costo»** mostraba un guion en todas las filas porque el dato nunca se pedía. Ya se pide.
+- Cargando, vacío y error ya no se confunden. Una cola que fallaba decía «Nada que proponer con la evidencia de hoy».
+- La hora del cálculo se ve arriba («calculado hace N h»). La franja «lo que el motor no ve» avisa si no se pudo leer, en vez de desaparecer.
+- La sucursal sale por nombre, no por código. Los dos botones de ayuda dicen cuál es cuál. El resumen tarda ~0.75 s en vez de 1.8–2.8 s.
+
 ### Added — Facturación TM: embarques que salieron sin factura (AX.18, 2026-10-29)
 - En el encabezado de **Facturación TM** hay un botón que dice cuántos embarques de telemarketing salieron sin factura y por cuánto dinero; al abrirlo muestra la lista sin mover la tabla de facturas.
 - Distingue los que **nunca se facturaron** de los que se facturaron y **todas sus facturas quedaron en $0**, y nombra esos folios para encontrarlos en Kepler.

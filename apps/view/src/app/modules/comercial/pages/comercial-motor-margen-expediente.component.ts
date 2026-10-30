@@ -3,7 +3,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
-import { etiquetaAccion, glosaAccion, textoCerteza } from '../precios-vocabulario';
+import { etiquetaAccion, glosaAccion, precioPropuesto, textoCerteza, type PrecioPropuesto } from '../precios-vocabulario';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DialogModule } from 'primeng/dialog';
@@ -87,7 +87,14 @@ import {
       </div>
       <dl class="mx-cifras">
         <div><dt>Precio hoy</dt><dd class="comm-num">{{ d.accion.precio_actual | currency:'MXN':'symbol-narrow':'1.2-2' }}</dd></div>
+        <!-- [PR.V11] El numero que el motor propone, donde se decide: antes habia que adivinarlo. -->
+        @if (propuesto(d.accion); as p) {
+          <div><dt>Precio propuesto</dt><dd class="comm-num">{{ num(p.precio) }}@if (p.alzaPct !== null) {<span class="mx-alza">+{{ p.alzaPct | number:'1.2-2' }}%</span>}</dd></div>
+        }
         <div><dt>Costo</dt><dd class="comm-num">{{ num(d.accion.a1_costo_hoy) }}</dd></div>
+        @if (d.accion.capital_inmovilizado_mxn) {
+          <div><dt>Existencia valuada</dt><dd class="comm-num">{{ num(d.accion.capital_inmovilizado_mxn) }}</dd></div>
+        }
         <div><dt>Margen real</dt><dd class="comm-num">{{ pct(d.accion.margen_realizado_pct) }}</dd></div>
         <div><dt>Meta de ficha</dt><dd class="comm-num">{{ pct(d.accion.meta_margen_pct) }}</dd></div>
         <div><dt>Venta 30 d</dt><dd class="comm-num">{{ d.accion.venta_30d | currency:'MXN':'symbol-narrow':'1.0-0' }}</dd></div>
@@ -307,8 +314,9 @@ import {
         </p>
       }
       <p class="mx-nota">
-        <i class="pi pi-ban mx-ico" aria-label="Bloqueante"></i> Esto mide <strong>cuánto se perdió</strong> valuado a nuestro precio, no contra qué
-        precio se perdió. <strong>No existe ninguna fuente de precio de competencia.</strong>
+        Esto mide <strong>cuánto se perdió</strong> valuado a nuestro precio, no contra qué
+        precio se perdió. <strong>No hay precio de competencia por producto</strong>: ISCAM lo mide
+        por marca, y eso está en la pestaña Competencia.
       </p>
     </section>
   }
@@ -323,7 +331,7 @@ import {
     .mx-propuesta {
       display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem;
       padding: .55rem .75rem; margin-bottom: .75rem;
-      border: 1px solid var(--border-color); border-left: 3px solid var(--action);
+      border: 1px solid var(--border-color);
       border-radius: var(--r-md); background: var(--surface-2);
     }
     .mx-prop-v { font-size: var(--fs-sm); font-weight: 700; }
@@ -362,6 +370,7 @@ import {
       font-size: var(--fs-nano); text-transform: uppercase; letter-spacing: .06em;
       color: var(--fg-3);
     }
+    .mx-alza { margin-left: var(--sp-1); font-size: var(--fs-xs); color: var(--fg-3); font-weight: 400; }
     .mx-cifras dd {
       margin: 0; font-size: var(--fs-h3); font-weight: var(--fw-bold); color: var(--fg-1);
       font-variant-numeric: tabular-nums;
@@ -468,7 +477,11 @@ export class ComercialMotorMargenExpedienteComponent {
     this.cargando.set(true); this.error.set(null);
     this.sim.set(null); this.precioSim = null;
     this.api.expediente(s, k).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => { this.exp.set(d); this.cargando.set(false); },
+      next: (d) => {
+        this.exp.set(d); this.cargando.set(false);
+        // [PR.V11] El simulador arranca en el precio que el motor propone: es el que se va a probar.
+        this.precioSim = d ? precioPropuesto(d.accion)?.precio ?? null : null;
+      },
       error: (e) => { this.error.set(this.msg(e)); this.cargando.set(false); },
     });
   }
@@ -650,6 +663,8 @@ export class ComercialMotorMargenExpedienteComponent {
   });
 
   etiqueta(a: string): string { return etiquetaAccion(a); }
+
+  propuesto(r: Expediente['accion']): PrecioPropuesto | null { return precioPropuesto(r); }
 
   /** ⭐ Qué significa el verbo, en una línea. Mismo texto que la cola: una sola voz. */
   /** Mismo texto que la cola: el vocabulario vive en un solo lugar. */

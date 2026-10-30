@@ -44,7 +44,11 @@ let promesa: Promise<void> | null = null;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (t(); as topic) {
-      <button pButton type="button" class="p-button-text p-button-rounded p-button-sm ch-btn" [attr.aria-label]="'Ayuda: ' + topic.title" pTooltip="¿Qué significan estos campos?" tooltipPosition="bottom" (click)="open.set(true)"><span class="p-button-icon p-button-icon-left pi pi-question-circle" aria-hidden="true"></span></button>
+      @if (label(); as l) {
+        <button pButton type="button" class="p-button-text p-button-sm ch-btn" [attr.aria-label]="'Ayuda: ' + topic.title" (click)="open.set(true)"><span class="p-button-icon p-button-icon-left pi pi-question-circle" aria-hidden="true"></span><span class="p-button-label">{{ l }}</span></button>
+      } @else {
+        <button pButton type="button" class="p-button-text p-button-rounded p-button-sm ch-btn" [attr.aria-label]="'Ayuda: ' + topic.title" pTooltip="¿Qué significan estos campos?" tooltipPosition="bottom" (click)="open.set(true)"><span class="p-button-icon p-button-icon-left pi pi-question-circle" aria-hidden="true"></span></button>
+      }
 
       <p-drawer [visible]="open()" (visibleChange)="open.set($event)" position="right"
                 [style]="{ width: '26rem' }" [header]="topic.title" styleClass="ch-drawer" [dismissible]="true">
@@ -111,6 +115,12 @@ let promesa: Promise<void> | null = null;
 export class ContextHelpComponent {
   /** Clave del apartado en el diccionario (context-help.dictionary.ts). */
   readonly topic = input.required<string>();
+  /**
+   * `[PR.V11]` Texto opcional junto al `?`. Sólo hace falta cuando una pantalla lleva DOS
+   * ayudas: el motor de margen tenía dos botones idénticos, y no había manera de saber cuál
+   * explicaba qué sin abrirlos. Sin `label` se pinta exactamente como antes.
+   */
+  readonly label = input<string | null>(null);
   readonly open = signal(false);
   readonly t = computed(() => DICCIONARIO()?.[this.topic()] ?? null);
 

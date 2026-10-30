@@ -49,3 +49,27 @@ export const TEXTO_CERTEZA: Record<string, string> = {
 export const etiquetaAccion = (a: string): string => ETIQUETA_ACCION[a] ?? a;
 export const glosaAccion = (a: string): string => GLOSA_ACCION[a] ?? '';
 export const textoCerteza = (c: string): string => TEXTO_CERTEZA[c] ?? c;
+
+/**
+ * `[PR.V11]` **El precio que el motor propone**, cuando propone uno.
+ *
+ * ⛔ La auditoría del 2026-10-30 encontró que `d1_candidato_99` viajaba en el 100 % de las filas
+ * de aterrizar y subir, y ninguna pantalla lo pintaba: la cola decía «Subir el precio» de un
+ * producto a $17.01 sin decir «a $17.99». Para capturarlo en Kepler había que adivinarlo.
+ *
+ * Sólo dos acciones proponen un número. Liberar capital dice que hay que bajar, pero no cuánto;
+ * la escalera y el costo piden revisar, no un precio; el atípico se aparta a propósito.
+ */
+export const ACCIONES_CON_PRECIO = new Set(['aterrizar_precio', 'subir_precio']);
+
+export interface PrecioPropuesto { precio: number; alzaPct: number | null }
+
+export function precioPropuesto(r: {
+  accion: string; d1_candidato_99: string | null; d1_alza_99_pct: string | null;
+}): PrecioPropuesto | null {
+  if (!ACCIONES_CON_PRECIO.has(r.accion) || r.d1_candidato_99 === null) return null;
+  const precio = Number(r.d1_candidato_99);
+  if (!Number.isFinite(precio) || precio <= 0) return null;
+  const alza = r.d1_alza_99_pct === null ? null : Number(r.d1_alza_99_pct);
+  return { precio, alzaPct: alza !== null && Number.isFinite(alza) ? alza : null };
+}

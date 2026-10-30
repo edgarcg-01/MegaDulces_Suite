@@ -3,33 +3,42 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
+/**
+ * `[PR.V10]` La unidad del dinero de una acción. Son tres y **no se suman ni comparten barra**:
+ * `flujo_30d` (lo que cambia en 30 días) · `venta_expuesta_30d` (la escalera: su venta, no un
+ * incremento) · `saldo_existencia` (el inventario valuado). `null` = la acción no lleva monto.
+ */
+export type MontoUnidad = 'flujo_30d' | 'venta_expuesta_30d' | 'saldo_existencia';
+
 /** `[PR.V1]` Una acción del triage, con su certeza — que es lo que decide cómo se prioriza. */
 export interface AccionResumen {
   accion: string;
   certeza: 'aritmetica' | 'efecto_no_medido' | 'regla_de_operacion' | 'fuera_de_alcance' | string;
+  monto_unidad: MontoUnidad | null;
   celdas: number;
   libres: number;
+  bloqueadas: number;
   flujo_libre: string | null;
   flujo_total: string | null;
+  capital_libre: string | null;
   capital: string | null;
+  venta_libre: string | null;
   venta_expuesta: string | null;
 }
-
-export interface BloqueoResumen { bloqueo: string; celdas: number; venta: string | null }
 
 export interface ResumenMotor {
   acciones: AccionResumen[];
   sin_accion: { celdas: number; venta: string | null };
   total: { celdas: number; bloqueadas: number; calculado_al: string | null };
-  bloqueos: BloqueoResumen[];
 }
 
 export interface ColaRow {
   sucursal: string; sku: string; nombre: string;
   precio_actual: string | null; venta_30d: string | null;
   accion: string; certeza: string;
-  monto_en_juego_mxn: string | null; monto_motivo: string | null;
-  capital_inmovilizado_mxn: string | null;
+  monto_en_juego_mxn: string | null; monto_unidad: MontoUnidad | null; monto_motivo: string | null;
+  /** `[PR.V10]` Existencia × costo para valuar (sólo `liberar_capital`). Antes: consumo anual. */
+  capital_inmovilizado_mxn: string | null; e3_existencia: string | null;
   bloqueos: string[]; accionable: boolean;
   s1_senal: string | null; s1_mxn: string | null;
   s2_senal: string | null; s2_mxn: string | null;
@@ -45,6 +54,12 @@ export interface ColaRow {
   familias_con_evidencia: number; familias_totales: number;
   calculado_al: string | null;
 }
+
+/**
+ * `[PR.V10]` La cola con su universo: `total` filas cumplen el filtro y `rows` son las primeras.
+ * ⛔ Antes llegaba un arreglo pelado y la pantalla no podía decir que se topaba en 200.
+ */
+export interface ColaRespuesta { rows: ColaRow[]; total: number; has_more: boolean }
 
 /** Una familia de señales con su cobertura y su motivo. El motivo es parte del dato. */
 export interface FamiliaSenal {
@@ -203,14 +218,14 @@ export class MotorMargenService {
     return this.http.get<RegistroSenales>(`${this.base}/senales`);
   }
 
-  cola(f: { sucursal?: string; accion?: string; soloLibres?: boolean; limit?: number } = {}): Observable<ColaRow[]> {
+  cola(f: { sucursal?: string; accion?: string; soloLibres?: boolean; limit?: number } = {}): Observable<ColaRespuesta> {
     const p = new URLSearchParams();
     if (f.sucursal) p.set('sucursal', f.sucursal);
     if (f.accion) p.set('accion', f.accion);
     if (f.soloLibres) p.set('solo_libres', 'true');
     if (f.limit) p.set('limit', String(f.limit));
     const qs = p.toString();
-    return this.http.get<ColaRow[]>(`${this.base}/cola${qs ? `?${qs}` : ''}`);
+    return this.http.get<ColaRespuesta>(`${this.base}/cola${qs ? `?${qs}` : ''}`);
   }
 
   detalle(sucursal: string, sku: string): Observable<DetalleMotor> {

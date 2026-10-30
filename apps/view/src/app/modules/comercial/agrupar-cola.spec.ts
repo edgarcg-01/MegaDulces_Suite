@@ -4,8 +4,9 @@ import type { ColaRow } from './motor-margen.service';
 /** Mínimo viable: sólo los campos que la agrupación mira. */
 const fila = (p: Partial<ColaRow>): ColaRow => ({
   sucursal: '01', sku: '10411', nombre: 'PAPS', precio_actual: '15.06', venta_30d: null,
-  accion: 'corregir_escalera', certeza: 'aritmetica',
-  monto_en_juego_mxn: '100', monto_motivo: null, capital_inmovilizado_mxn: null,
+  accion: 'subir_precio', certeza: 'efecto_no_medido',
+  monto_en_juego_mxn: '100', monto_unidad: 'flujo_30d', monto_motivo: null,
+  capital_inmovilizado_mxn: null, e3_existencia: null,
   bloqueos: [], accionable: true,
   s1_senal: null, s1_mxn: null, s2_senal: null, s2_mxn: null, s3_senal: null, s3_mxn: null,
   margen_realizado_pct: null, meta_margen_pct: null, dif_vs_meta_pp: null,
@@ -32,7 +33,7 @@ describe('[PR.V3] agruparCola — la cola se junta sólo cuando la decisión es 
 
   it('NO junta si la acción difiere: no son la misma decisión', () => {
     const r = agruparCola([
-      fila({ sucursal: '06', accion: 'corregir_escalera' }),
+      fila({ sucursal: '06', accion: 'aterrizar_precio' }),
       fila({ sucursal: '01', accion: 'subir_precio' }),
     ]);
     expect(r).toHaveLength(2);
@@ -88,5 +89,44 @@ describe('[PR.V3] agruparCola — la cola se junta sólo cuando la decisión es 
       fila({ sku: 'B', monto_en_juego_mxn: '-900' }),
     ]);
     expect(r[0].row.sku).toBe('B');
+  });
+
+  // ── [PR.V10] La unidad viaja con el dato, y el grupo suma EN su unidad ──────────────────
+  const saldo = (p: Partial<ColaRow>) => fila({
+    accion: 'liberar_capital', certeza: 'regla_de_operacion', monto_unidad: 'saldo_existencia',
+    monto_en_juego_mxn: null, ...p,
+  });
+
+  it('⛔ [PR.V10] un grupo de liberar_capital suma el SALDO de sus plazas, no el de una sola', () => {
+    const r = agruparCola([
+      saldo({ sucursal: '01', capital_inmovilizado_mxn: '212563.80' }),
+      saldo({ sucursal: '08', capital_inmovilizado_mxn: '222467.64' }),
+    ]);
+    expect(r).toHaveLength(1);
+    expect(r[0].unidad).toBe('saldo_existencia');
+    expect(r[0].monto).toBeCloseTo(435031.44, 2);
+    expect(r[0].row.sucursal).toBe('08');
+  });
+
+  it('⛔ [PR.V10] un saldo grande NO se sube arriba de un flujo chico: no se ordenan juntos', () => {
+    const r = agruparCola([
+      saldo({ sku: 'S', capital_inmovilizado_mxn: '212564' }),
+      fila({ sku: 'F', monto_en_juego_mxn: '5000' }),
+    ]);
+    expect(r.map((f) => f.row.sku)).toEqual(['F', 'S']);
+  });
+
+  it('[PR.V10] la escalera vale su VENTA expuesta, no un flujo', () => {
+    const r = agruparCola([fila({
+      accion: 'corregir_escalera', certeza: 'aritmetica', monto_unidad: 'venta_expuesta_30d',
+      monto_en_juego_mxn: null, venta_30d: '4765.43',
+    })]);
+    expect(r[0].unidad).toBe('venta_expuesta_30d');
+    expect(r[0].monto).toBeCloseTo(4765.43, 2);
+  });
+
+  it('una acción sin unidad (precio atípico) no tiene monto: null, no cero', () => {
+    const r = agruparCola([fila({ accion: 'precio_atipico', monto_unidad: null, monto_en_juego_mxn: null })]);
+    expect(r[0].monto).toBeNull();
   });
 });

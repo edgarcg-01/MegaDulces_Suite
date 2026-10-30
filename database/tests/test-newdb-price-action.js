@@ -9,11 +9,14 @@
  * Bloques:
  *   1. Forma: el grano, las acciones, el default honesto.
  *   2. ⭐⭐ R7 — las 3 senales que mas pesaron, MEDIDAS EN PESOS. Sin coeficientes inventados.
- *   3. ⛔ Las cuatro regresiones prohibidas:
+ *   3. ⛔ Las regresiones prohibidas:
  *        a. un SALDO en la columna de FLUJO (se llevaba los 12 primeros lugares de la cola)
  *        b. la MERMA en R7 (su razon no es una tasa aplicable a la venta)
  *        c. un "aterrizaje" que el cliente SI percibe (TIEMPO AIRE: $1.00 -> $1.99, +99 %)
  *        d. una accion sin monto NI motivo
+ *        e. [PR.V10] la VENTA de la escalera en la columna de flujo (mezclaba unidades en la barra)
+ *        f. [PR.V10] un monto de flujo con otra unidad declarada
+ *        g. [PR.V10] un "saldo" mayor que el inventario ENTERO: era el consumo de un año
  *   4. ⛔ Lo REFUTADO sigue refutado: el sugerido del ERP es identicamente la deriva de costo.
  *   5. La consulta que hace una PANTALLA, bajo 1 s.
  *
@@ -61,7 +64,14 @@ const sinMedir = (l, d) => { nm++; console.log(`  ⓘ NO MEDIDO: ${l} — ${d}`)
       FROM analytics.v_price_action`);
   const ms = Date.now() - t0;
   console.log(`     ${g.filas.toLocaleString()} filas en ${ms} ms · ${g.acciones} acciones distintas`);
-  ck('el grano se conserva (86,163 celdas)', g.filas === 86163, `hay ${g.filas}`);
+  /**
+   * [PR.V10] El grano es el de la MV, no un numero fijo: el candado nacio con 86,163 y prod ya
+   *    tiene 86,816 (2026-10-30) -- un literal se pone rojo en cualquier base que no sea aquella.
+   *    Lo que importa es que la vista no duplique ni pierda celdas (el saldo entra por un join).
+   */
+  const [{ filas_mv: filasMv }] = await q('SELECT count(*)::int filas_mv FROM analytics.mv_price_signals');
+  ck('el grano es el de la MV: el join del saldo no duplica ni pierde celdas', g.filas === filasMv,
+    `vista ${g.filas} · MV ${filasMv}`);
   /**
    * ⭐ El default tiene que ser la MAYORIA. Un tablero donde todo es urgente no prioriza nada,
    *    y un motor que siempre tiene algo que decir es un motor que no esta mirando la evidencia.
@@ -110,7 +120,13 @@ const sinMedir = (l, d) => { nm++; console.log(`  ⓘ NO MEDIDO: ${l} — ${d}`)
                               AND monto_motivo IS NULL)::int sin_monto_ni_motivo,
            max(d1_alza_99_pct) FILTER (WHERE accion = 'aterrizar_precio') AS alza_max,
            count(*) FILTER (WHERE accion = 'precio_atipico')::int atipicos,
-           count(*) FILTER (WHERE capital_inmovilizado_mxn IS NOT NULL)::int con_saldo
+           count(*) FILTER (WHERE capital_inmovilizado_mxn IS NOT NULL)::int con_saldo,
+           count(*) FILTER (WHERE accion = 'corregir_escalera'
+                              AND monto_en_juego_mxn IS NOT NULL)::int escalera_en_flujo,
+           count(*) FILTER (WHERE monto_en_juego_mxn IS NOT NULL
+                              AND monto_unidad IS DISTINCT FROM 'flujo_30d')::int unidad_mezclada,
+           count(*) FILTER (WHERE accion = 'liberar_capital')::int liberar,
+           round(sum(capital_inmovilizado_mxn)::numeric, 0) saldo
       FROM analytics.v_price_action`);
 
   ck('⛔ a · ningun SALDO de inventario en la columna de FLUJO', p.saldo_en_flujo === 0,
@@ -121,6 +137,33 @@ const sinMedir = (l, d) => { nm++; console.log(`  ⓘ NO MEDIDO: ${l} — ${d}`)
     p.aterrizaje_perceptible === 0,
     `${p.aterrizaje_perceptible} celdas — asi es como TIEMPO AIRE pasaba de $1.00 a $1.99`);
   ck('⛔ d · ninguna accion sin monto NI motivo', p.sin_monto_ni_motivo === 0);
+  ck('⛔ e · [PR.V10] la venta de la escalera NO va en la columna de flujo', p.escalera_en_flujo === 0,
+    `${p.escalera_en_flujo} celdas: la barra volveria a comparar una venta con un incremento`);
+  ck('⛔ f · [PR.V10] todo monto de flujo declara la unidad flujo_30d', p.unidad_mezclada === 0,
+    `${p.unidad_mezclada} celdas con otra unidad`);
+
+  /**
+   * ⛔⛔ g · LA PRUEBA NEGATIVA DE [PR.V10]: el saldo de una PARTE del inventario no puede pasar
+   *    del inventario ENTERO valuado igual. El numero viejo (g2_valor_anual, consumo anual) la
+   *    violaba: $81.3 M contra $71.7 M de existencia en toda la empresa (prod, 2026-10-30).
+   */
+  const [inv] = await q(`
+    SELECT round(sum(s.e3_existencia * u.costo_unitario)::numeric, 0) inventario
+      FROM analytics.mv_price_signals s
+      JOIN commercial.warehouses w ON w.kepler_code = s.sucursal AND w.deleted_at IS NULL
+      JOIN catalog.products p ON p.tenant_id = w.tenant_id AND p.sku::text = s.sku AND p.deleted_at IS NULL
+      JOIN analytics.mv_erp_unit_cost u ON u.tenant_id = w.tenant_id AND u.warehouse_id = w.id
+                                       AND u.product_id = p.id
+     WHERE s.e3_existencia > 0 AND u.costo_unitario > 0`);
+  if (p.liberar === 0) {
+    sinMedir('g · el saldo contra el inventario', 'no hay celdas de liberar_capital en este destino');
+  } else {
+    ck('⛔⛔ g · [PR.V10] el saldo de liberar_capital no pasa del inventario entero',
+      Number(p.saldo ?? 0) <= Number(inv.inventario ?? 0),
+      `saldo ${Number(p.saldo).toLocaleString()} > inventario ${Number(inv.inventario).toLocaleString()}: volvio el consumo anual`);
+    ck('[PR.V10] el saldo se pudo valuar en al menos 90 % de las celdas de liberar_capital',
+      p.con_saldo >= p.liberar * 0.9, `${p.con_saldo} de ${p.liberar}`);
+  }
   console.log(`     el alza maxima de un aterrizaje es ${p.alza_max} % (llego a 99 %) · `
     + `${p.atipicos} precios atipicos apartados · ${p.con_saldo.toLocaleString()} con saldo aparte`);
 

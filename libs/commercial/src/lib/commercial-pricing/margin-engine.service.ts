@@ -32,59 +32,92 @@ export class MarginEngineService {
    */
   async resumen(): Promise<unknown> {
     return this.tk.run(async (trx) => {
-      const { rows: acciones } = await trx.raw(`
-        SELECT accion, certeza,
-               count(*)::int                                   AS celdas,
-               count(*) FILTER (WHERE accionable)::int          AS libres,
-               round(sum(monto_en_juego_mxn) FILTER (WHERE accionable)::numeric, 2) AS flujo_libre,
-               round(sum(monto_en_juego_mxn)::numeric, 2)       AS flujo_total,
-               round(sum(capital_inmovilizado_mxn)::numeric, 2) AS capital,
-               round(sum(venta_30d)::numeric, 2)                AS venta_expuesta
+      /**
+       * `[PR.V10]` UNA pasada por la vista, no cuatro. Medido en prod el 2026-10-30, con carga:
+       * las cuatro consultas en serie tardaban 1.8–2.8 s, y cada una recorría las 86,816 celdas
+       * entera. El renglón con `g = 7` (GROUPING SETS `()`) es el total.
+       *
+       * ⭐ `monto_unidad` viaja con cada acción: flujo, venta expuesta y saldo son tres unidades
+       *    que la pantalla NO puede sumar ni poner en la misma barra, y antes las adivinaba según
+       *    qué columna llegaba NULL.
+       *
+       * ⛔ Ya no viaja `bloqueos` (el desglose por motivo): ninguna pantalla lo pintaba, y era la
+       *    cuarta pasada por la vista.
+       */
+      const { rows } = await trx.raw(`
+        SELECT accion, certeza, monto_unidad,
+               GROUPING(accion, certeza, monto_unidad)::int AS g,
+               count(*)::int                                                        AS celdas,
+               count(*) FILTER (WHERE accionable)::int                              AS libres,
+               count(*) FILTER (WHERE NOT accionable)::int                          AS bloqueadas,
+               round(sum(monto_en_juego_mxn) FILTER (WHERE accionable)::numeric, 2)       AS flujo_libre,
+               round(sum(monto_en_juego_mxn)::numeric, 2)                                 AS flujo_total,
+               round(sum(capital_inmovilizado_mxn) FILTER (WHERE accionable)::numeric, 2) AS capital_libre,
+               round(sum(capital_inmovilizado_mxn)::numeric, 2)                           AS capital,
+               round(sum(venta_30d) FILTER (WHERE accionable)::numeric, 2)                AS venta_libre,
+               round(sum(venta_30d)::numeric, 2)                                          AS venta_expuesta,
+               max(calculado_al)                                                    AS calculado_al
           FROM analytics.v_price_action
-         WHERE accion <> 'sin_accion_defendible'
-         GROUP BY 1, 2
-         ORDER BY 5 DESC NULLS LAST`);
+         GROUP BY GROUPING SETS ((accion, certeza, monto_unidad), ())`);
 
+      type Fila = { accion: string | null; g: number; celdas: number; bloqueadas: number;
+        venta_expuesta: string | null; calculado_al: string | null } & Record<string, unknown>;
+      const filas = rows as Fila[];
+      const tot = filas.find((r) => r.g !== 0);
       /**
        * ⭐ El default se devuelve APARTE y siempre, aunque esté vacío. Es la mayoría de las
-       * celdas (74.4 % medido) y esconderlo haría ver un motor que siempre tiene algo que decir.
+       * celdas (74.2 % medido el 2026-10-30) y esconderlo haría ver un motor que siempre tiene
+       * algo que decir. ⚠️ Y casi no vende: $3,658 de venta en 30 días contra $53.2 M del resto.
        */
-      const { rows: [sin] } = await trx.raw(`
-        SELECT count(*)::int celdas, round(sum(venta_30d)::numeric, 2) venta
-          FROM analytics.v_price_action WHERE accion = 'sin_accion_defendible'`);
+      const sin = filas.find((r) => r.g === 0 && r.accion === 'sin_accion_defendible');
+      const acciones = filas
+        .filter((r) => r.g === 0 && r.accion !== 'sin_accion_defendible')
+        .map((r) => {
+          const a: Record<string, unknown> = { ...r };
+          delete a['g']; delete a['calculado_al'];
+          return a;
+        })
+        .sort((a, b) => Math.abs(Number(b['flujo_libre'] ?? 0)) - Math.abs(Number(a['flujo_libre'] ?? 0)));
 
-      const { rows: [tot] } = await trx.raw(`
-        SELECT count(*)::int celdas,
-               count(*) FILTER (WHERE NOT accionable)::int bloqueadas,
-               max(calculado_al) AS calculado_al
-          FROM analytics.v_price_action`);
-
-      // Los bloqueos, desagregados: son la razón por la que algo accionable no se puede tocar.
-      const { rows: bloqueos } = await trx.raw(`
-        SELECT b AS bloqueo, count(*)::int celdas, round(sum(venta_30d)::numeric, 2) venta
-          FROM analytics.v_price_action, unnest(bloqueos) AS b
-         GROUP BY 1 ORDER BY 2 DESC`);
-
-      return { acciones, sin_accion: sin, total: tot, bloqueos };
+      return {
+        acciones,
+        sin_accion: { celdas: sin?.celdas ?? 0, venta: sin?.venta_expuesta ?? null },
+        total: {
+          celdas: tot?.celdas ?? 0,
+          bloqueadas: tot?.bloqueadas ?? 0,
+          calculado_al: tot?.calculado_al ?? null,
+        },
+      };
     });
   }
 
-  /** La cola priorizada por dinero. Lo que no tiene cifra cae al final, con su motivo. */
+  /**
+   * La cola priorizada por dinero. Lo que no tiene cifra cae al final, con su motivo.
+   *
+   * `[PR.V10]` Devuelve `{ rows, total, has_more }` y no un arreglo pelado: la pantalla publicaba
+   * «2,524 listas» en la tarjeta y la lista sólo llegaba a 70, sin decir que había un tope.
+   * Medido el 2026-10-30: de las 200 filas sin filtro, 137 estaban bloqueadas y las 4 primeras
+   * también. `total` sale del mismo recorrido (`count(*) OVER ()`), así no hay segunda pasada.
+   */
   async cola(f: {
     sucursal?: string; accion?: string; soloLibres?: boolean; limit?: number;
-  }): Promise<unknown[]> {
+  }): Promise<{ rows: unknown[]; total: number; has_more: boolean }> {
     const limit = Math.min(Math.max(f.limit ?? 100, 1), 500);
     return this.tk.run(async (trx) => {
       const q = trx('analytics.v_price_action')
         .select(
           'sucursal', 'sku', 'nombre', 'precio_actual', 'venta_30d',
-          'accion', 'certeza', 'monto_en_juego_mxn', 'monto_motivo',
-          'capital_inmovilizado_mxn', 'bloqueos', 'accionable',
+          'accion', 'certeza', 'monto_en_juego_mxn', 'monto_unidad', 'monto_motivo',
+          'capital_inmovilizado_mxn', 'e3_existencia', 'bloqueos', 'accionable',
           's1_senal', 's1_mxn', 's2_senal', 's2_mxn', 's3_senal', 's3_mxn',
           'margen_realizado_pct', 'meta_margen_pct', 'dif_vs_meta_pp',
+          // [PR.V10] La pantalla pintaba una columna «Costo» con esto y nunca se pedía: salía
+          //    «—» en TODAS las filas.
+          'a1_costo_hoy',
           'd1_terminacion', 'd1_candidato_99', 'd1_alza_99_pct', 'd4_umbral_percepcion',
           'e3_estado_inventario', 'g2_clase_abc', 'd8_prima_caja_pct',
           'familias_con_evidencia', 'familias_totales', 'calculado_al',
+          trx.raw('count(*) OVER ()::int AS total'),
         )
         .whereNot('accion', 'sin_accion_defendible');
 
@@ -92,8 +125,28 @@ export class MarginEngineService {
       if (f.accion) q.where('accion', f.accion);
       if (f.soloLibres) q.where('accionable', true);
 
-      // ⛔ NULLS LAST explícito: sin él, las celdas sin cifra encabezarían la cola del dinero.
-      return q.orderByRaw('abs(monto_en_juego_mxn) DESC NULLS LAST').limit(limit);
+      /**
+       * ⛔ NULLS LAST explícito: sin él, las celdas sin cifra encabezarían la cola del dinero.
+       * ⭐ `[PR.V10]` Y un desempate por la unidad de cada acción, más una llave al final. Medido:
+       *    en `liberar_capital` las 7,397 celdas tenían el monto NULL, así que el ORDER BY no
+       *    ordenaba nada y salían 200 al azar bajo el título «priorizada por dinero».
+       */
+      const filas = await q
+        .orderByRaw(`abs(monto_en_juego_mxn) DESC NULLS LAST,
+                     capital_inmovilizado_mxn DESC NULLS LAST,
+                     venta_30d DESC NULLS LAST, sucursal, sku`)
+        .limit(limit) as ({ total: number } & Record<string, unknown>)[];
+
+      const total = filas[0]?.total ?? 0;
+      return {
+        rows: filas.map((r) => {
+          const fila: Record<string, unknown> = { ...r };
+          delete fila['total'];
+          return fila;
+        }),
+        total,
+        has_more: total > filas.length,
+      };
     });
   }
 
