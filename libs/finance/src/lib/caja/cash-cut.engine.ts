@@ -87,6 +87,12 @@ export interface MovimientoDelCorte {
    * "no se declaró que viniera de la bóveda", y eso es cero por definición.
    */
   en_boveda?: number;
+  /**
+   * ⭐ `[CGS.60]` **CUÁNTO DE ESTE MOVIMIENTO FUE EN CHEQUE O EN PAPEL** (`cash_ledger_documentos`).
+   * Un cobro que llegó en cheque no dejó efectivo en el cajón; un pago con un cheque de la caja no
+   * lo sacó. Ausente = 0: el movimiento fue todo en efectivo.
+   */
+  en_documentos?: number;
 }
 
 /**
@@ -136,6 +142,10 @@ export interface TotalesCorte {
    * no tiene cobertura buena ni mala, no tiene cobertura.
    */
   cobertura_ingreso: number | null;
+  /** `[CGS.60]` De los ingresos, lo que llegó en cheque o en papel: no entró al cajón. */
+  ingresos_documentos?: number;
+  /** `[CGS.60]` De los gastos, lo que se pagó con cheques de la caja: no salió del cajón. */
+  gastos_documentos?: number;
 }
 
 /** Tolerancia del cuadre: un centavo, por el redondeo de numeric. */
@@ -299,6 +309,17 @@ export function calcularCorte(input: {
   const depositos_boveda = enBoveda('deposito');
 
   /**
+   * ⭐ `[CGS.60]` **Lo que fue en cheque o en papel tampoco es efectivo del cajón**, y se resta en
+   * los DOS lados, como la bóveda: un cobro de $10,000 en cheque es ingreso +10,000 y documento
+   * −10,000 (cero en el cajón); un pago con un cheque de la caja es gasto −5,000 y documento +5,000.
+   * Los totales se siguen publicando en bruto: el cobro y el pago ocurrieron.
+   */
+  const enDocumentos = (t: TipoMovimiento) =>
+    redondea(vivos.filter((m) => m.tipo === t).reduce((a, m) => a + Number(m.en_documentos || 0), 0));
+  const ingresos_documentos = enDocumentos('ingreso');
+  const gastos_documentos = enDocumentos('gasto');
+
+  /**
    * ⭐⭐ `[CG.96]` **LO QUE EL CAJERO MOVIÓ Y NADIE CAPTURÓ TAMBIÉN ESTÁ EN EL CAJÓN.**
    *
    * Edgar, corrigiendo mi modelo: *"si sobra se regresa a CAOS, si no se carga al arqueo de caja
@@ -357,7 +378,9 @@ export function calcularCorte(input: {
     + ingresos - gastos - depositos
     + dispensadoCajero - depositadoCajero
     // `[CGA-A.50]` El dinero que está en la calle a cargo de alguien no se pide en el cajón.
-    + ajusteDeCustodia(input.custodia),
+    + ajusteDeCustodia(input.custodia)
+    // `[CGS.60]` Lo que entró o salió en cheque o en papel no es efectivo.
+    - ingresos_documentos + gastos_documentos,
   );
 
   // De qué está hecho ese `esperado`. La aritmética no cambia; lo que cambia es que el corte
@@ -382,6 +405,7 @@ export function calcularCorte(input: {
     diferencia: huboConteo ? diferencia : 0,
     veredicto, fondo_sin_medir, movimientos: vivos.length, cancelados,
     ingresos_anclados, ingresos_capturados, cobertura_ingreso,
+    ingresos_documentos, gastos_documentos,
   };
 }
 

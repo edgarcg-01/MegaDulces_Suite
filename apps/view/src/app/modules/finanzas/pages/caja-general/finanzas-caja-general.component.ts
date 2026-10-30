@@ -65,6 +65,11 @@ import {
   GRUPOS_COLA, GRUPO_SIN_CLASIFICAR, grupoDe, CAPTURA_MANUAL_HABILITADA, puedeSellarUI,
 } from './caja-captura.util';
 import { CajaPasosComponent } from '../../components/caja-pasos.component';
+import {
+  MovimientoDocumentosComponent, documentoNuevo, documentoCompleto, documentosParaGuardar, totalDeDocumentos,
+  type DocumentoQueEntraUI,
+} from '../../components/movimiento-documentos.component';
+import type { DocumentoEnCaja } from '@megadulces/contracts';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { CajaCuentasKeplerComponent } from './caja-cuentas-kepler.component';
 import { CajaReposicionComponent } from './caja-reposicion.component';
@@ -183,7 +188,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     MessageModule, ToastModule,
     MetricStripComponent, LoadStateComponent,
     FreshnessPillComponent, SegmentedComponent, ContextHelpComponent, SucursalPipe, CajaPasosComponent,
-    SidePeekComponent, CajaTabsComponent, CajaCuentasKeplerComponent, CajaReposicionComponent,
+    SidePeekComponent, CajaTabsComponent, CajaCuentasKeplerComponent, CajaReposicionComponent, MovimientoDocumentosComponent,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
   // confirmar el lote fallaban en silencio y se veían igual que un botón muerto.
@@ -3514,35 +3519,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 </div>
               }
 
-              <!-- CS.3.13 — Venta a crédito: la parte que NO llega en efectivo (queda como saldo del cliente).
-                   Se auto-rellena con el total cuando el cliente es de crédito; SIEMPRE editable. Se descuenta
-                   del efectivo esperado. Sólo con un cobro anclado (que trae el cliente).
-
-                   ⛔ [CG.54] Y sólo en un INGRESO. Acá colgaba de cobroElegido() a secas, y desde que
-                   CG.21 dejó anclar también el egreso, un comprobante de GASTO mostraba un campo
-                   "Venta a crédito" — que ahí no significa nada: una venta a crédito es, por
-                   definición, parte de un cobro que no llegó en efectivo. El servidor no lo frena
-                   (acepta venta_credito sin mirar el tipo), así que el freno va acá. -->
-              @if (f().tipo === 'ingreso' && cobroElegido(); as c) {
-                <div class="cg-credito">
-                  <div class="cg-credito-head">
-                    <label for="cg-vcredito">Venta a crédito</label>
-                    @if (clienteCredito()) {
-                      <span class="fin-dim">cliente de crédito — auto-rellenado, editable</span>
-                    }
-                  </div>
-                  <input pInputText id="cg-vcredito" type="number" min="0" step="0.01" inputmode="decimal" class="cg-vcredito"
-                         [ngModel]="ventaCreditoVista()" (ngModelChange)="setVentaCredito($event)" placeholder="0.00"
-                         aria-label="Monto de la venta a crédito" />
-                  <!-- La fórmula sólo cuando hay crédito: con 0 era "documento $144 − crédito $0.00 =
-                       $144", o sea un renglón para publicar una resta de cero. -->
-                  @if (ventaCredito() > 0) {
-                    <small class="fin-dim">
-                      Efectivo esperado = documento {{ money(c.monto) }} − crédito {{ money(ventaCredito()) }} =
-                      <strong>{{ money(c.monto - ventaCredito()) }}</strong>
-                    </small>
-                  }
-                </div>
+              <!-- [CGS.60] Con cheque o papel: en un cobro, lo que llegó en cheque o en papel (un cliente quedó
+                   a deber); en un pago, los cheques de la caja con que se pagó. Sustituye a «Venta a crédito»
+                   (CS.3.13), que era un importe sin decir quién debía: el papel lo dice. Un cliente de crédito
+                   trae su papel por el total, igual que antes traía el crédito. No en un movimiento que ES de
+                   CAOS: ese es todo billetes de la máquina. -->
+              @if ((f().tipo === 'ingreso' || f().tipo === 'gasto') && !caosElegido()) {
+                @if (f().tipo === 'ingreso' && clienteCredito()) {
+                  <small class="fin-dim">Cliente de crédito: su papel ya va por el total. Corrígelo si pagó una parte.</small>
+                }
+                <app-movimiento-documentos [tipo]="f().tipo === 'ingreso' ? 'ingreso' : 'gasto'"
+                                           [(entran)]="docsEntran" [(salen)]="docsSalen"
+                                           [enCaja]="chequesEnCaja()" [bloqueo]="chequesError()"
+                                           (pedirCheques)="cargarChequesEnCaja()" (cambio)="alCambiarDocumentos()" />
               }
 
               <div class="cg-arqueo">
@@ -4587,11 +4576,25 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   montoContado = signal<number | null>(null);
   /**
-   * CS.3.13 — La parte del movimiento que quedó A CRÉDITO (no llegó en efectivo). El monto del
-   * movimiento = efectivo (arqueo) + venta a crédito. Se auto-rellena cuando el cliente del cobro es
-   * de crédito (`cliente_credito`), pero SIEMPRE queda editable (decisión del usuario).
+   * ⭐ `[CGS.60]` **Con cheque o papel** (sustituye a la «venta a crédito» de CS.3.13). En un cobro, lo
+   * que llegó en cheque o en papel; en un pago, las piezas de los cheques de la caja con que se pagó.
+   * El monto del movimiento = efectivo (arqueo) + esto. Un cliente de crédito trae su papel por el
+   * total, SIEMPRE editable (la decisión del usuario de CS.3.13 se conserva).
    */
-  ventaCredito = signal<number>(0);
+  docsEntran = signal<DocumentoQueEntraUI[]>([]);
+  docsSalen = signal<string[]>([]);
+  /** Los cheques que hay en la caja, para pagar con uno. `null` mientras nadie abre «Elegir cheque». */
+  chequesEnCaja = signal<DocumentoEnCaja[] | null>(null);
+  chequesError = signal<string | null>(null);
+  /** Lo que NO es efectivo del movimiento. Se lee incondicional (regla de signals). */
+  documentosTotal = computed(() => totalDeDocumentos(this.docsEntran(), this.docsSalen(), this.chequesEnCaja()));
+  documentosIncompletos = computed(() => this.docsEntran().some((d) => !documentoCompleto(d)));
+  /** Un pago que salió entero en cheques: no hubo efectivo, así que no se pregunta de dónde salió. */
+  pagoSinEfectivo = computed(() => {
+    const total = this.documentosTotal();
+    const f = this.f();
+    return f.tipo === 'gasto' && total > 0 && total >= Number(f.monto || 0) - 0.005;
+  });
   /**
    * ⛔⛔ `[CG.160]` **Por qué este movimiento no tiene documento.** El servidor lo exige desde
    * `[CG.124]` y la pantalla no tenía dónde escribirlo: quien captura cobranza de ruta sin
@@ -6041,7 +6044,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     {
       // `[CGA-A.56.2]` El retiro de CAOS vinculado NO cuenta para el arqueo: se cuenta todo lo entregado.
       ...this.f(), denominaciones: this.denominacionesParaGuardar(),
-      venta_credito: Number(this.ventaCredito()) || 0,
+      // `[CGS.60]` Lo que fue en cheque o papel cuenta como la venta a crédito: parte del monto que no
+      // es efectivo (el arqueo del util la suma al desglose).
+      venta_credito: this.documentosTotal(),
+      documentos_incompletos: this.documentosIncompletos(),
       // ⛔ [CG.38] Sin esto, devolver cambio trababa el guardado con `arqueo_no_cuadra`: el
       // desglose sumaba lo que ENTRÓ y el monto ya era el NETO, así que la diferencia era
       // exactamente el cambio. El botón quedaba apagado justo en el caso que la fase vino a
@@ -6054,7 +6060,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       sin_documento_motivo: this.sinDocumentoMotivo(),
       // `[CGA-A.56]` Un egreso dice de dónde salió el dinero. Si la captura ES un movimiento de
       // CAOS, el origen ya es la máquina y no se pregunta. Leídos incondicionales (regla de signals).
-      exige_origen: !this.caosElegido(),
+      // `[CGS.60]` Un pago hecho entero con cheques de la caja no sacó efectivo: no hay origen que pedir.
+      exige_origen: !this.caosElegido() && !this.pagoSinEfectivo(),
       origen_efectivo: this.origenEfectivo(),
       retiros_vinculados: this.caosVinculados().length,
     },
@@ -7505,8 +7512,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // porque taparía un cobro ajeno en vez de dejarlo a la vista.
     this.docDeclarado.set(null);
     this.montoContado.set(null);
-    // CS.3.13 — la venta a crédito tampoco sobrevive al diálogo anterior.
-    this.ventaCredito.set(0);
+    // `[CGS.60]` Los cheques y papeles tampoco sobreviven al diálogo anterior.
+    this.docsEntran.set([]);
+    this.docsSalen.set([]);
+    this.chequesEnCaja.set(null);
+    this.chequesError.set(null);
     this.clienteCredito.set(false);
     // ⛔ `[CG.160]` Y el motivo de «sin documento» MENOS que ninguno: heredado de la captura
     // anterior, explicaría un movimiento que no es el suyo — y como el servidor sólo mira que
@@ -7666,11 +7676,18 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // El desglose de otro documento no es el de éste: se limpia y se vuelve a contar.
       denominaciones: [],
     }));
-    // CS.3.13 — Cliente de crédito: se auto-rellena «venta a crédito» con el TOTAL (a este cliente
-    // siempre se le vende a crédito → nada llega en efectivo), SIEMPRE editable. El monto pasa a ser
-    // efectivo (0) + crédito. Si no es de crédito, el campo arranca en 0.
+    // CS.3.13 → `[CGS.60]` Cliente de crédito: su PAPEL por el TOTAL (a este cliente siempre se le
+    // vende a crédito → nada llega en efectivo), SIEMPRE editable. El monto pasa a ser efectivo (0) +
+    // papel. El papel dice quién debe y por qué; la venta a crédito era sólo un importe.
     this.clienteCredito.set(!!c.cliente_credito);
-    this.ventaCredito.set(c.cliente_credito ? Number(c.monto) || 0 : 0);
+    this.docsSalen.set([]);
+    this.docsEntran.set(c.cliente_credito
+      ? [documentoNuevo('papel', {
+        monto: Number(c.monto) || null,
+        de_quien: String(c.beneficiario || c.entidad_code || '').trim(),
+        concepto: `Venta a crédito · ${c.doc_tipo} ${c.folio}`,
+      })]
+      : []);
     this.recomputarMonto();
     // CS.3.1b — Si la cuenta salió de la PROPIA póliza del documento, es autoritativa: se muestra
     // y se BLOQUEA (el buscador se acota a los conceptos de esa cuenta). No se pide propuesta por
@@ -7725,8 +7742,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   soltarCobro(): void {
     this.cobroElegido.set(null);
     this.montoContado.set(null);
-    // CS.3.13 — sin cobro anclado no hay cliente de crédito: la venta a crédito vuelve a 0.
-    this.ventaCredito.set(0);
+    // `[CGS.60]` Sin cobro anclado no hay cliente de crédito: sin papel de crédito.
+    this.docsEntran.set([]);
+    this.docsSalen.set([]);
+    this.chequesEnCaja.set(null);
+    this.chequesError.set(null);
     this.clienteCredito.set(false);
     this.recomputarMonto();
   }
@@ -7789,8 +7809,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.cobroElegido.set(null);
     this.cobroSel = null;
     this.montoContado.set(null);
-    // CS.3.13 — un movimiento de CAOS no es un cobro a cliente de crédito: sin venta a crédito.
-    this.ventaCredito.set(0);
+    // `[CGS.60]` Un movimiento de CAOS es todo billetes de la máquina: sin cheques ni papeles.
+    this.docsEntran.set([]);
+    this.docsSalen.set([]);
+    this.chequesEnCaja.set(null);
+    this.chequesError.set(null);
     this.clienteCredito.set(false);
     // CAOS no tiene póliza de Kepler para estos movimientos: su clasificación no se bloquea.
     this.cuentaFuenteDoc.set(null);
@@ -8654,7 +8677,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // de $5,000 se guardaba como $5,000 y los $170 que volvieron al cliente quedaban dentro del
     // movimiento: la caja declaraba tener efectivo que ya no estaba.
     // `[CGA-A.56.2]` El retiro de CAOS vinculado ya NO se suma: el egreso se cuenta entero (Edgar, 2026-10-28).
-    this.onMonto(efectivo - this.totalDevuelto() + (Number(this.ventaCredito()) || 0));
+    // `[CGS.60]` + lo que fue en cheque o papel (antes, la venta a crédito de CS.3.13).
+    this.onMonto(efectivo - this.totalDevuelto() + this.documentosTotal());
   }
 
   // ── [CG.38] El cambio que se devuelve ───────────────────────────────────────────────────────
@@ -8680,7 +8704,6 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * en un solo lugar y esto sólo decide cómo se ve cuando vale cero.
    */
   morrallaVista(): number | null { return this.f().morralla || null; }
-  ventaCreditoVista(): number | null { return this.ventaCredito() || null; }
   morrallaCorteVista(): number | null { return this.morrallaCorte() || null; }
 
   /** `[CG.114]` `null`, no `0`: ver `piezasDe`. Un cero tecleado vuelve `1` en `10`. */
@@ -8724,10 +8747,22 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Si hay algo devuelto, el bloque se queda abierto aunque se vuelva a tocar el botón. */
   hayDevuelto = computed(() => this.devuelto().length > 0);
 
-  /** CS.3.13 — La parte a crédito. Recalcula el monto (efectivo + crédito). Siempre editable. */
-  setVentaCredito(v: number | null): void {
-    this.ventaCredito.set(Math.max(0, Number(v) || 0));
+  /** `[CGS.60]` Cambió un cheque o papel del movimiento: el monto es efectivo + documentos. */
+  alCambiarDocumentos(): void {
     this.recomputarMonto();
+  }
+
+  /** `[CGS.60]` «Elegir cheque»: los cheques que hay en la caja (la misma lista que el arqueo marca). */
+  cargarChequesEnCaja(): void {
+    this.chequesError.set(null);
+    this.svc.documentosEnCaja().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => {
+        if (!d.instalado) { this.chequesError.set('Esta base todavía no lleva los cheques de la caja.'); return; }
+        this.chequesEnCaja.set(d.cheques.piezas);
+        this.recomputarMonto();
+      },
+      error: () => this.chequesError.set('No se pudo leer qué cheques hay en la caja.'),
+    });
   }
 
   textoBloqueo(b: MotivoBloqueo): string { return TEXTO_BLOQUEO[b]; }
@@ -8853,9 +8888,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       firma_solicitud_id: (this.firmaRemotaVale() && this.firmaRemotaId()) || undefined,
       firma_png: (this.firmaRemotaVale() && this.firmaRemotaId()) ? undefined : (this.firmaPad?.aPng() ?? undefined),
       firma_nombre: this.firmaNombre().trim() || undefined,
-      // CS.3.13 — la parte a crédito (no efectivo). El servidor la persiste y el arqueo la cuenta como
-      // parte del total (efectivo + crédito = monto).
-      venta_credito: this.ventaCredito() || undefined,
+      // `[CGS.60]` Lo que fue en cheque o papel (antes, la venta a crédito de CS.3.13). El servidor lo
+      // cuenta como parte del total (efectivo + documentos = monto) y lo liga al movimiento.
+      documentos: documentosParaGuardar(this.docsEntran(), this.docsSalen()) ?? undefined,
       // CS.3.4 — los retiros del cajero (CAOS) que financiaron este gasto: el servidor los enlaza
       // (consume, no se cuentan dos veces) y aprende de ellos. Sólo si el capturista vinculó alguno.
       // ⭐ `[CGA-A.56]` En un EGRESO se toma de los retiros sólo lo que el gasto necesita (no el

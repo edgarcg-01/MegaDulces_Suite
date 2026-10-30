@@ -2706,6 +2706,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     // de gasto mostraba el campo. El servidor acepta `venta_credito` sin mirar el tipo: el freno va
     // en la pantalla.
     expect(fx.nativeElement.querySelector('#cg-vcredito')).toBeNull();
+    // `[CGS.60]` En un pago se ofrece pagar con un cheque de la caja; un papel no: con papel no se paga.
+    const md = fx.nativeElement.querySelector('app-movimiento-documentos') as HTMLElement | null;
+    expect(md?.textContent).toContain('¿Se pagó con un cheque de la caja?');
+    expect(md?.textContent).not.toContain('Agregar papel');
   });
 
   it('el veredicto del arqueo distingue TRES ausencias, no dos', () => {
@@ -3207,13 +3211,15 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(texto, 'ni cuánto salió').not.toContain(comp.money(200000));
   });
 
-  // ── CS.3.13 · VENTA A CRÉDITO (cliente de crédito) ──────────────────────────────────────────
-  it('CS.3.13 — capturar un cobro de cliente de crédito auto-rellena «venta a crédito» = el total', () => {
+  // ── CS.3.13 → `[CGS.60]` · el cliente de crédito trae su PAPEL (antes, «venta a crédito») ────────
+  it('CS.3.13 — capturar un cobro de cliente de crédito agrega su papel por el total: quién debe y por qué', () => {
     montar();
     comp.capturarDesde(COBRO_CREDITO);
     expect(comp.clienteCredito()).toBe(true);
-    expect(comp.ventaCredito()).toBe(1000);        // todo a crédito, auto-rellenado
-    expect(comp.f().monto).toBe(1000);             // monto = efectivo(0) + crédito(1000)
+    expect(comp.docsEntran()).toEqual([expect.objectContaining({
+      tipo: 'papel', monto: 1000, de_quien: 'P.V. 8 Esquinas', concepto: 'Venta a crédito · U-A-5 0002100',
+    })]);
+    expect(comp.f().monto).toBe(1000);             // monto = efectivo(0) + papel(1000)
   });
 
   it('CS.3.13 — toda la venta a crédito (sin efectivo) NO se bloquea: el crédito explica el total', () => {
@@ -3224,10 +3230,11 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.bloqueos()).not.toContain('arqueo_no_cuadra');
   });
 
-  it('CS.3.13 — editable: bajar el crédito y contar efectivo mantiene efectivo + crédito = total', () => {
+  it('CS.3.13 — editable: bajar el papel y contar efectivo mantiene efectivo + papel = total', () => {
     montar();
     comp.capturarDesde(COBRO_CREDITO);
-    comp.setVentaCredito(300);                      // 300 a crédito
+    comp.docsEntran.update((l) => [{ ...l[0], monto: 300 }]); // 300 en papel
+    comp.alCambiarDocumentos();
     comp.setPiezas(den(500), 1); comp.setPiezas(den(200), 1); // 700 en efectivo
     expect(comp.f().monto).toBe(1000);             // 700 efectivo + 300 crédito
     expect(comp.bloqueos()).not.toContain('arqueo_no_cuadra');
@@ -3237,10 +3244,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     montar();
     comp.capturarDesde({ ...COBRO_CREDITO, cliente_credito: false });
     expect(comp.clienteCredito()).toBe(false);
-    expect(comp.ventaCredito()).toBe(0);
+    expect(comp.docsEntran()).toEqual([]);
   });
 
-  it('CS.3.13 — guardar manda venta_credito', () => {
+  it('CS.3.13 → `[CGS.60]` guardar manda el papel del cliente, no un importe suelto', () => {
     montar();
     comp.capturarDesde(COBRO_CREDITO);
     comp.setF('glosa', 'cobro ruta a credito');
@@ -3250,7 +3257,37 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.bloqueos()).toEqual([]);
     comp.guardar();
     const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
-    expect(body['venta_credito']).toBe(1000);
+    expect(body['venta_credito']).toBeUndefined();
+    expect(body['documentos']).toEqual({
+      entran: [{ tipo: 'papel', monto: 1000, de_quien: 'P.V. 8 Esquinas', concepto: 'Venta a crédito · U-A-5 0002100' }],
+      salen: [],
+    });
+  });
+
+  it('⛔ [negativa] `[CGS.60]` un papel a medio teclear no se guarda', () => {
+    montar();
+    comp.capturarDesde(COBRO_CREDITO);
+    comp.docsEntran.update((l) => [{ ...l[0], de_quien: '' }]);
+    comp.alCambiarDocumentos();
+    expect(comp.bloqueos()).toContain('documentos_incompletos');
+  });
+
+  it('`[CGS.60]` un cobro en cheque: el monto es efectivo + cheque, y el cheque viaja con sus datos', () => {
+    montar();
+    comp.capturarDesde({ ...COBRO_CREDITO, cliente_credito: false });
+    comp.docsEntran.set([{ tipo: 'cheque', monto: 600, banco: 'Banamex', numero: '0012345', de_quien: 'P.V. 8 Esquinas', concepto: '' }]);
+    comp.alCambiarDocumentos();
+    comp.setPiezas(den(200), 2);                    // 400 en efectivo
+    expect(comp.f().monto).toBe(1000);              // 400 efectivo + 600 cheque = el documento
+    expect(comp.bloqueos()).not.toContain('arqueo_no_cuadra');
+    comp.setF('glosa', 'cobro con cheque');
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
+    comp.guardar();
+    const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(body['documentos']).toEqual({
+      entran: [{ tipo: 'cheque', monto: 600, de_quien: 'P.V. 8 Esquinas', banco: 'Banamex', numero: '0012345' }],
+      salen: [],
+    });
   });
 
   // ── [CG.72] EL KPI NO CUENTA LOS CANCELADOS, Y LO DECLARA ─────────────────────────────────

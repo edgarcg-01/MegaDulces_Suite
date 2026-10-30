@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
@@ -11,6 +12,7 @@ import {
   SUCURSAL_CAJA_GENERAL,
   diaDeFecha,
   type CaosRetirosLibres,
+  type DocumentosDeMovimientoInput,
 } from '@megadulces/contracts';
 
 /**
@@ -44,7 +46,9 @@ import { traducirErrorDeCaja } from './caja-errores';
 import {
   CajaCustodiaService, sqlDisponibleCaos, sqlCustodiaCerrada, sqlRetiroClasificado, arranqueOrigenEgreso,
 } from './caja-custodia.service';
-import { origenDelEgreso, TEXTO_ORIGEN } from './caja-custodia.engine';
+import { origenDelEgreso, TEXTO_ORIGEN, type OrigenEfectivo } from './caja-custodia.engine';
+import { documentosDelMovimiento, TEXTO_DOCUMENTO_DE_MOVIMIENTO, type FilaDocumentoDeMovimiento } from './caja-arqueo.engine';
+import { hayDocumentosDeMovimiento, piezasEnCaja } from './caja-arqueo-documentos.query';
 import { conciliacion } from './caja-conciliacion.engine';
 import { requisitosDeHoja, textoPagoDeHoja, verificarPagoDeHoja } from './hoja-gastos.gate';
 import { relacionExiste } from './caja-db.util';
@@ -234,6 +238,12 @@ export interface CreateMovementInput {
    * del cliente. `efectivo esperado = documento − venta_credito`. El `monto` sigue siendo el efectivo.
    */
   venta_credito?: number;
+  /**
+   * `[CGS.60]` Los cheques y papeles con que se hizo el movimiento: un cobro que ENTRA en cheque o en
+   * papel (crédito), un pago que SALE con cheques de la caja. Cuentan como la venta a crédito: la
+   * parte del monto que no es efectivo.
+   */
+  documentos?: DocumentosDeMovimientoInput | null;
   morralla?: number;
   denominaciones?: DenominationInput[];
   /**
@@ -1187,14 +1197,23 @@ export class CashLedgerService {
        * ⭐ `[CGA-A.56]` **De dónde salió el dinero de un egreso**: retiros de CAOS o cajón (Edgar,
        * 2026-10-26). Puro y antes de tocar la base, igual que la conciliación. Obligatorio sólo
        * desde `CAJA_EGRESO_ORIGEN_DESDE`: el freno nace apagado.
+       *
+       * `[CGS.60]` Con cheques o papeles se decide DESPUÉS de leerlos: un pago hecho entero con un
+       * cheque de la caja no sacó efectivo de ningún lado, y eso sólo se sabe con el importe del cheque.
        */
-      const origen = origenDelEgreso({
-        // Una captura que ES un movimiento de CAOS (`origen_tipo = 'caos'`) ya trae su retiro.
-        tipo: input.tipo, fecha: String(input.fecha ?? ''),
-        retiros: (input.caos_links ?? []).length + (input.origen_tipo === 'caos' ? 1 : 0),
-        declarado: input.origen_efectivo ?? null, desde: arranqueOrigenEgreso(),
-      });
-      if (!origen.ok) throw new BadRequestException(TEXTO_ORIGEN[origen.motivo]);
+      const decidirOrigen = (sinEfectivo: boolean): OrigenEfectivo | null => {
+        const o = origenDelEgreso({
+          // Una captura que ES un movimiento de CAOS (`origen_tipo = 'caos'`) ya trae su retiro.
+          tipo: input.tipo, fecha: String(input.fecha ?? ''),
+          retiros: (input.caos_links ?? []).length + (input.origen_tipo === 'caos' ? 1 : 0),
+          declarado: input.origen_efectivo ?? null, desde: arranqueOrigenEgreso(), sinEfectivo,
+        });
+        if (!o.ok) throw new BadRequestException(TEXTO_ORIGEN[o.motivo]);
+        return o.origen;
+      };
+      const docsIn = input.documentos ?? null;
+      const hayDocsIn = ((docsIn?.entran?.length ?? 0) + (docsIn?.salen?.length ?? 0)) > 0;
+      let origenEfectivo = hayDocsIn ? null : decidirOrigen(false);
 
       /**
        * ⛔⛔ `[CGS.14]` **SIN CORTE DE AYER, HOY NO SE CAPTURA** (D1 de Edgar, 2026-10-21).
@@ -1217,6 +1236,24 @@ export class CashLedgerService {
         origen_ref: input.origen_ref, tipo: input.tipo, origen_efectivo: input.origen_efectivo ?? null,
         retiros: (input.caos_links ?? []).map((k) => ({ device: k.device, external_id: Number(k.external_id) })),
       });
+
+      /**
+       * ⭐ `[CGS.60]` **Los cheques y papeles del movimiento** (Edgar: «y si un movimiento se quiere
+       * hacer con cheque, o papel (crédito)» → «sí, hazlo»). Un cobro entra en cheque o en papel; un
+       * pago sale con un cheque que está en la caja (la misma lista que el arqueo pide marcar). Con el
+       * MISMO candado que el arqueo de documentos: un cheque no sale dos veces, ni mientras se cuenta.
+       */
+      let docs: { total: number; filas: FilaDocumentoDeMovimiento[] } = { total: 0, filas: [] };
+      if (hayDocsIn) {
+        if (!(await hayDocumentosDeMovimiento(trx))) {
+          throw new BadRequestException('Los cobros y pagos con cheque o papel todavía no están instalados en esta base (falta la migración [CGS.60]).');
+        }
+        await trx.raw('SELECT pg_advisory_xact_lock(hashtextextended(?, 59))', [`cash_arqueos:${tenantId}`]);
+        const d = documentosDelMovimiento(input.tipo, docsIn, (await piezasEnCaja(trx, tenantId, 'cheque')).piezas);
+        if (!d.ok) throw new BadRequestException(TEXTO_DOCUMENTO_DE_MOVIMIENTO[d.motivo]);
+        docs = d;
+        origenEfectivo = decidirOrigen(d.total > 0 && d.total >= Number(input.monto) - ARQUEO_EPSILON);
+      }
 
       // ⭐ El monto del documento MANDA sobre el del formulario…
       const anclado = ORIGEN_ANCLADO.includes(String(input.origen_tipo)) && !!input.origen_ref;
@@ -1242,7 +1279,8 @@ export class CashLedgerService {
       // `hayConteo` va al candado: declarar que se contó distinto del documento OBLIGA al desglose.
       // ⭐ `[CGA-A.56.2]` Un egreso pagado con retiros de CAOS se cuenta ENTERO: el retiro sólo se
       // vincula, no descuenta. Ver `evaluarArqueoDeEgreso`.
-      this.assertArqueo(monto, input.morralla ?? 0, dens, input.venta_credito, hayConteo, input);
+      // `[CGS.60]` Los cheques y papeles cuentan como la venta a crédito: parte del monto que no es efectivo.
+      this.assertArqueo(monto, input.morralla ?? 0, dens, (Number(input.venta_credito) || 0) + docs.total, hayConteo, input);
 
       // La fecha NO se toma del cobro a propósito: `cobro_date` es cuándo Kepler registró el
       // documento y `fecha` es cuándo entró el efectivo a la caja. Son dos hechos distintos y
@@ -1342,7 +1380,7 @@ export class CashLedgerService {
         // `LIKE` — una captura dejaría de descontar sin que nadie lo pidiera.
         declared_doc_ref: input.declared_doc_ref?.trim() || null,
         // `[CGA-A.56]` Sólo si se sabe: lo que no se dijo queda NULL, no se inventa un origen.
-        ...(origen.origen && await this.hayOrigenEfectivo(trx) ? { origen_efectivo: origen.origen } : {}),
+        ...(origenEfectivo && await this.hayOrigenEfectivo(trx) ? { origen_efectivo: origenEfectivo } : {}),
         /**
          * `[CG.124]` Sólo se guarda cuando de verdad explicó algo: si el movimiento quedó
          * enlazado, el motivo sobra y escribirlo ensuciaría la columna que sirve para ENCONTRAR
@@ -1399,6 +1437,26 @@ export class CashLedgerService {
           ...(k.billetes ? { billetes: JSON.stringify(k.billetes) } : {}),
           ...(k.cambio ? { cambio: JSON.stringify(k.cambio) } : {}),
           confirmed_by: user.id,
+        })));
+      }
+      // `[CGS.60]` Los cheques y papeles, ligados al movimiento. El trigger diferido de la base vuelve
+      // a exigir que no pasen del monto y que un cheque salga una vez y sólo si entró.
+      if (docs.filas.length) {
+        await trx('finance.cash_ledger_documentos').insert(docs.filas.map((f) => ({
+          tenant_id: tenantId,
+          cash_ledger_id: mov.id,
+          pieza: f.pieza ?? randomUUID(),
+          sentido: f.sentido,
+          tipo: f.tipo,
+          clase: f.clase,
+          monto: f.monto,
+          banco: f.banco,
+          numero: f.numero,
+          de_quien: f.de_quien,
+          concepto: f.concepto,
+          fecha: f.fecha,
+          created_by: user.id,
+          created_by_username: user.username ?? null,
         })));
       }
       // Que el monto del formulario NO coincidiera con el del documento se DICE. Es un dato de

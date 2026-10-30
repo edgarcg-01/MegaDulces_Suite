@@ -27,14 +27,20 @@ export async function leerPosicion(trx: Knex.Transaction, tenantId: string, reve
   if (c) {
     // La jornada del libro es el día en que se movió el efectivo (`created_at`, CGP-L.12): lo
     // posterior al día del último corte. El cajón 00 cubre todo el libro (`aplicarAlcanceCaja`).
+    // `[CGS.60]` Lo que entró o salió en cheque o en papel no es efectivo del cajón: se resta del
+    // monto, igual que en el esperado del corte. Sin la tabla (migración sin aplicar), nada.
+    const hayDocs = (await trx.raw(`SELECT to_regclass('finance.cash_ledger_documentos') IS NOT NULL AS t`)).rows[0]?.t === true;
+    const efectivo = hayDocs
+      ? `l.monto - coalesce((SELECT sum(d.monto) FROM finance.cash_ledger_documentos d WHERE d.cash_ledger_id = l.id), 0)`
+      : 'l.monto';
     const l = await trx.raw(`
       SELECT count(*)::int AS movimientos,
-             coalesce(sum(monto) FILTER (WHERE tipo = 'ingreso'), 0)::numeric AS ingresos,
-             coalesce(sum(monto) FILTER (WHERE tipo = 'gasto'), 0)::numeric AS gastos,
-             coalesce(sum(monto) FILTER (WHERE tipo = 'deposito'), 0)::numeric AS depositos
-        FROM finance.cash_ledger
-       WHERE tenant_id = ? AND deleted_at IS NULL AND estado <> 'cancelado'
-         AND created_at >= ((?::date + 1)::timestamp AT TIME ZONE 'America/Mexico_City')`, [tenantId, c.dia]);
+             coalesce(sum(${efectivo}) FILTER (WHERE l.tipo = 'ingreso'), 0)::numeric AS ingresos,
+             coalesce(sum(${efectivo}) FILTER (WHERE l.tipo = 'gasto'), 0)::numeric AS gastos,
+             coalesce(sum(l.monto) FILTER (WHERE l.tipo = 'deposito'), 0)::numeric AS depositos
+        FROM finance.cash_ledger l
+       WHERE l.tenant_id = ? AND l.deleted_at IS NULL AND l.estado <> 'cancelado'
+         AND l.created_at >= ((?::date + 1)::timestamp AT TIME ZONE 'America/Mexico_City')`, [tenantId, c.dia]);
     const f = l.rows[0];
     libro = { movimientos: Number(f.movimientos), ingresos: Number(f.ingresos), gastos: Number(f.gastos), depositos: Number(f.depositos) };
     // Las piernas del cajero por `accounting_date`, el mismo eje que usa el esperado del corte.

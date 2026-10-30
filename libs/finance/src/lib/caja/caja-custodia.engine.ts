@@ -336,8 +336,15 @@ export const TEXTO_ORIGEN: Record<MotivoOrigen, string> = {
  */
 export function origenDelEgreso(i: {
   tipo: string; fecha: string; retiros: number; declarado?: string | null; desde: string | null;
+  /**
+   * `[CGS.60]` El egreso se pagó ENTERO con cheques de la caja: no salió efectivo de ningún lado,
+   * así que no hay origen que preguntar. Si además trae retiros, la base lo rechaza (los documentos
+   * más lo que pagó CAOS no pueden pasar del monto).
+   */
+  sinEfectivo?: boolean;
 }): { ok: true; origen: OrigenEfectivo | null } | { ok: false; motivo: MotivoOrigen } {
   if (i.tipo !== 'gasto') return { ok: true, origen: null };
+  if (i.sinEfectivo && i.retiros === 0) return { ok: true, origen: null };
   const d = i.declarado == null || i.declarado === '' ? null : String(i.declarado);
   if (d !== null && d !== 'caos' && d !== 'cajon') return { ok: false, motivo: 'origen_invalido' };
   if (i.retiros > 0) return d === 'cajon' ? { ok: false, motivo: 'cajon_con_retiros' } : { ok: true, origen: 'caos' };

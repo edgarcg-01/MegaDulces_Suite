@@ -265,12 +265,14 @@ export interface FormularioCaja {
   origen_efectivo?: 'caos' | 'cajon' | null;
   /** Cuántos retiros de CAOS quedaron vinculados. */
   retiros_vinculados?: number;
+  /** `[CGS.60]` Hay un cheque o papel a medio teclear (le falta lo que lo identifica o el importe). */
+  documentos_incompletos?: boolean;
 }
 
 export type MotivoBloqueo =
   | 'falta_tipo' | 'falta_fecha' | 'falta_sucursal' | 'fecha_futura'
   | 'falta_concepto' | 'falta_concepto_de_cuenta' | 'glosa_corta' | 'monto_invalido' | 'falta_desglose' | 'arqueo_no_cuadra'
-  | 'falta_motivo_sin_documento' | 'falta_origen_efectivo' | 'caos_sin_retiro';
+  | 'falta_motivo_sin_documento' | 'falta_origen_efectivo' | 'caos_sin_retiro' | 'documentos_incompletos';
 
 /**
  * ⛔⛔ `[CG.160]` **Largo mínimo del motivo, ESPEJADO del servidor.**
@@ -305,6 +307,7 @@ export const TEXTO_BLOQUEO: Record<MotivoBloqueo, string> = {
     + `(por ejemplo: cobranza de ruta que nadie registró en Kepler).`,
   falta_origen_efectivo: 'Di de dónde salió el dinero: de un retiro de CAOS o del cajón.',
   caos_sin_retiro: 'Elige de qué retiro de CAOS salió el dinero (busca los retiros y agrega uno).',
+  documentos_incompletos: 'Completa cada cheque (banco, número, de quién e importe) y cada papel (quién debe, por qué e importe), o quítalo.',
 };
 
 /**
@@ -375,6 +378,9 @@ export function motivosDeBloqueo(f: FormularioCaja, hoy?: string | null): Motivo
     if (!f.origen_efectivo) m.push('falta_origen_efectivo');
     else if (f.origen_efectivo === 'caos' && !(Number(f.retiros_vinculados) > 0)) m.push('caos_sin_retiro');
   }
+
+  // `[CGS.60]` Un cheque o papel a medio teclear no se manda: el servidor lo rechazaría igual.
+  if (f.documentos_incompletos) m.push('documentos_incompletos');
 
   return m;
 }

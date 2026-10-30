@@ -1,5 +1,7 @@
 import type { DocumentoEnCaja } from '@megadulces/contracts';
-import { validarArqueo, totalArqueo, puedeRecontarCorte, validarDocumentos, resumenDocumentos } from './caja-arqueo.engine';
+import {
+  validarArqueo, totalArqueo, puedeRecontarCorte, validarDocumentos, resumenDocumentos, documentosDelMovimiento,
+} from './caja-arqueo.engine';
 
 /** `[CGS.42]` El arqueo completo, con el último arqueo de Control (A23706, 21-oct 17:47) como caso. */
 describe('validarArqueo', () => {
@@ -190,5 +192,69 @@ describe('validarDocumentos', () => {
       total: 22734, siguen: 1, entraron: 1,
       salieron: [{ texto: 'Vale · Ana Soto: gasolina', monto: 500, salida: 'comprobado', nota: null }],
     });
+  });
+});
+
+/**
+ * ⭐ `[CGS.60]` Un movimiento que se hace con cheque o papel (crédito). Edgar, 2026-10-30: «y si un
+ * movimiento se quiere hacer con cheque, o papel (crédito)». Un cobro entra en cheque o en papel; un
+ * pago sale con un cheque que está en la caja. Con un papel no se paga (decisión: la pantalla queda
+ * más simple mientras nadie diga que pasa).
+ */
+describe('documentosDelMovimiento', () => {
+  const enCaja: DocumentoEnCaja[] = [
+    { pieza: 'p-ch', tipo: 'cheque', clase: null, monto: 8000, banco: 'Banamex', numero: '0012345', de_quien: 'Abarrotes La Luz', concepto: null, fecha: null, visto_desde: '2026-10-30' },
+    { pieza: 'p-pa', tipo: 'papel', clase: 'credito', monto: 1952, banco: null, numero: null, de_quien: 'Tienda Lupita', concepto: 'ruta 27', fecha: null, visto_desde: '2026-10-30' },
+  ];
+  const cheque = { tipo: 'cheque', monto: 5000, banco: 'BBVA', numero: '88', de_quien: 'Dulcería Mary' };
+  const papel = { tipo: 'papel', monto: 1500, de_quien: 'Tienda Lupita', concepto: 'venta de la ruta 27' };
+
+  it('sin documentos es todo efectivo', () => {
+    expect(documentosDelMovimiento('ingreso', null, enCaja)).toEqual({ ok: true, total: 0, filas: [] });
+    expect(documentosDelMovimiento('gasto', { entran: [], salen: [] }, enCaja)).toEqual({ ok: true, total: 0, filas: [] });
+  });
+
+  it('un cobro entra en cheque y en papel: cada uno nuevo, y el papel es un crédito', () => {
+    const r = documentosDelMovimiento('ingreso', { entran: [cheque, papel] }, enCaja);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.total).toBe(6500);
+    expect(r.filas).toEqual([
+      expect.objectContaining({ pieza: null, sentido: 'entra', tipo: 'cheque', banco: 'BBVA', numero: '88', monto: 5000 }),
+      expect.objectContaining({ pieza: null, sentido: 'entra', tipo: 'papel', clase: 'credito', concepto: 'venta de la ruta 27', monto: 1500 }),
+    ]);
+  });
+
+  it('un pago sale con un cheque de la caja: sus datos se copian, no se teclean', () => {
+    const r = documentosDelMovimiento('gasto', { salen: [{ pieza: 'p-ch' }] }, enCaja);
+    expect(r).toMatchObject({ ok: true, total: 8000 });
+    expect(r.ok && r.filas[0]).toMatchObject({ pieza: 'p-ch', sentido: 'sale', banco: 'Banamex', numero: '0012345', monto: 8000 });
+  });
+
+  it('[negativa] un cobro no «sale», un pago no «entra», y un depósito no lleva documentos', () => {
+    expect(documentosDelMovimiento('ingreso', { salen: [{ pieza: 'p-ch' }] }, enCaja)).toEqual({ ok: false, motivo: 'tipo_de_movimiento' });
+    expect(documentosDelMovimiento('gasto', { entran: [cheque] }, enCaja)).toEqual({ ok: false, motivo: 'tipo_de_movimiento' });
+    expect(documentosDelMovimiento('deposito', { entran: [cheque] }, enCaja)).toEqual({ ok: false, motivo: 'tipo_de_movimiento' });
+  });
+
+  it('[negativa] con un papel no se paga; un cheque que no está en la caja no sale; y no dos veces', () => {
+    expect(documentosDelMovimiento('gasto', { salen: [{ pieza: 'p-pa' }] }, enCaja)).toEqual({ ok: false, motivo: 'papel_no_paga' });
+    expect(documentosDelMovimiento('gasto', { salen: [{ pieza: 'otra' }] }, enCaja)).toEqual({ ok: false, motivo: 'no_esta_en_caja' });
+    expect(documentosDelMovimiento('gasto', { salen: [{ pieza: 'p-ch' }, { pieza: 'p-ch' }] }, enCaja)).toEqual({ ok: false, motivo: 'pieza_repetida' });
+  });
+
+  it('[negativa] un cheque nuevo que ya está en la caja, o dos veces el mismo', () => {
+    expect(documentosDelMovimiento('ingreso', { entran: [{ ...cheque, banco: ' banamex ', numero: '0012345' }] }, enCaja))
+      .toEqual({ ok: false, motivo: 'cheque_repetido' });
+    expect(documentosDelMovimiento('ingreso', { entran: [cheque, { ...cheque, banco: 'bbva' }] }, enCaja))
+      .toEqual({ ok: false, motivo: 'cheque_repetido' });
+  });
+
+  it('[negativa] lo nuevo lleva lo que lo identifica, un importe válido y una fecha que existe', () => {
+    expect(documentosDelMovimiento('ingreso', { entran: [{ ...cheque, banco: '' }] }, enCaja)).toEqual({ ok: false, motivo: 'cheque_incompleto' });
+    expect(documentosDelMovimiento('ingreso', { entran: [{ ...papel, concepto: 'x' }] }, enCaja)).toEqual({ ok: false, motivo: 'papel_incompleto' });
+    expect(documentosDelMovimiento('ingreso', { entran: [{ ...cheque, monto: 0 }] }, enCaja)).toEqual({ ok: false, motivo: 'monto' });
+    expect(documentosDelMovimiento('ingreso', { entran: [{ ...cheque, fecha: '2026-13-01' }] }, enCaja)).toEqual({ ok: false, motivo: 'fecha' });
+    expect(documentosDelMovimiento('ingreso', { entran: [{ ...cheque, tipo: 'vale' }] }, enCaja)).toEqual({ ok: false, motivo: 'forma' });
   });
 });

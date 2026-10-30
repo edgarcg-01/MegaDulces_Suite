@@ -158,6 +158,36 @@ export interface ResumenApartado {
   salieron: Array<{ texto: string; monto: number; salida: SalidaDocumento; nota: string | null }>;
 }
 
+// ── `[CGS.60]` Un movimiento que se hace con cheque o con papel (crédito) ─────────────────────
+//
+// Edgar, 2026-10-30: «y si un movimiento se quiere hacer con cheque, o papel (crédito)». Un cobro
+// puede ENTRAR en cheque o en papel (un cliente queda a deber); un pago puede SALIR con un cheque
+// que está en la caja. Los documentos tienen la misma identidad (`pieza`) que en el arqueo, y no son
+// efectivo: el movimiento cuadra con efectivo + documentos (+ lo que pagó CAOS) = monto.
+
+/** Un documento nuevo que llega con un cobro. El papel de un cobro es siempre `credito`. */
+export interface DocumentoQueEntra {
+  tipo: TipoDocumentoCaja;
+  monto: number;
+  /** Sólo el cheque. */
+  banco?: string | null;
+  /** Sólo el cheque. */
+  numero?: string | null;
+  /** El cheque: quién lo firmó o de quién vino. El papel: quién debe. */
+  de_quien: string;
+  /** El papel: por qué se debe. En el cheque, opcional. */
+  concepto?: string | null;
+  /** `YYYY-MM-DD`: la del cheque o la del papel. */
+  fecha?: string | null;
+}
+
+export interface DocumentosDeMovimientoInput {
+  /** Cobro: lo que llegó en cheque o en papel en vez de efectivo. */
+  entran?: DocumentoQueEntra[] | null;
+  /** Pago: los cheques de la caja con que se pagó, por su `pieza` (de `DocumentosEnCajaDto`). */
+  salen?: Array<{ pieza: string }> | null;
+}
+
 /** Cómo se nombra un documento en una línea: «Banamex 001234 · Juan Pérez», «Vale · Pedro: gasolina». */
 export function textoDocumento(d: {
   tipo: TipoDocumentoCaja; clase?: ClasePapel | null; banco?: string | null; numero?: string | null;

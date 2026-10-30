@@ -285,6 +285,105 @@ export function validarDocumentos(
   return { ok: true, total, filas };
 }
 
+// ── `[CGS.60]` Un movimiento que se hace con cheque o con papel (crédito) ─────────────────────
+
+export type MotivoDocumentoDeMovimiento =
+  | 'forma' | 'tipo_de_movimiento' | 'monto' | 'cheque_incompleto' | 'papel_incompleto' | 'fecha'
+  | 'cheque_repetido' | 'no_esta_en_caja' | 'pieza_repetida' | 'papel_no_paga';
+
+export const TEXTO_DOCUMENTO_DE_MOVIMIENTO: Record<MotivoDocumentoDeMovimiento, string> = {
+  forma: 'Los cheques y papeles del movimiento no se entienden.',
+  tipo_de_movimiento: 'Sólo un cobro entra en cheque o en papel, y sólo un pago sale con un cheque de la caja.',
+  monto: 'El importe de cada cheque o papel es mayor que cero, con centavos como mucho.',
+  cheque_incompleto: 'Cada cheque lleva banco, número, de quién es e importe.',
+  papel_incompleto: 'Cada papel dice quién debe, por qué e importe.',
+  fecha: 'La fecha del cheque o del papel no se entiende.',
+  cheque_repetido: 'Ese cheque (banco y número) ya está en la caja o viene dos veces.',
+  no_esta_en_caja: 'Ese cheque ya no está en la caja (salió o se contó como salido): vuelve a abrir la captura.',
+  pieza_repetida: 'Un cheque de la caja viene dos veces en el mismo pago.',
+  papel_no_paga: 'Un pago sale con efectivo o con cheque: con un papel no se paga.',
+};
+
+/** Un documento del movimiento, listo para guardar. `pieza` en `null` = nuevo. */
+export interface FilaDocumentoDeMovimiento extends Omit<FilaDocumento, 'estado' | 'salida' | 'salida_nota'> {
+  sentido: 'entra' | 'sale';
+}
+
+/**
+ * `[CGS.60]` Los cheques y papeles con que se hace un movimiento. Edgar, 2026-10-30: «y si un
+ * movimiento se quiere hacer con cheque, o papel (crédito)».
+ *
+ *  · Un COBRO puede entrar en cheque o en papel: cada uno es nuevo y lleva lo que lo identifica.
+ *    El papel de un cobro es un crédito: un cliente quedó a deber.
+ *  · Un PAGO puede salir con cheques que están en la caja (`enCaja`, lo mismo que se marca en el
+ *    arqueo): sus datos se copian, no se teclean. Con un papel no se paga.
+ *  · Un depósito no lleva documentos.
+ *  · Un cheque (banco y número) no se repite: ni dos veces en el movimiento ni uno que ya esté en la
+ *    caja.
+ *
+ * Devuelve el total, que el arqueo del movimiento cuenta como la parte que no es efectivo.
+ */
+export function documentosDelMovimiento(
+  tipoMovimiento: string,
+  entrada: { entran?: readonly unknown[] | null; salen?: readonly unknown[] | null } | null | undefined,
+  enCaja: readonly DocumentoEnCaja[],
+): { ok: true; total: number; filas: FilaDocumentoDeMovimiento[] } | { ok: false; motivo: MotivoDocumentoDeMovimiento } {
+  if (entrada === null || entrada === undefined) return { ok: true, total: 0, filas: [] };
+  if (typeof entrada !== 'object') return { ok: false, motivo: 'forma' };
+  const entran = entrada.entran ?? [];
+  const salen = entrada.salen ?? [];
+  if (!Array.isArray(entran) || !Array.isArray(salen)) return { ok: false, motivo: 'forma' };
+  if (!entran.length && !salen.length) return { ok: true, total: 0, filas: [] };
+  if ((entran.length && tipoMovimiento !== 'ingreso') || (salen.length && tipoMovimiento !== 'gasto')) {
+    return { ok: false, motivo: 'tipo_de_movimiento' };
+  }
+
+  const filas: FilaDocumentoDeMovimiento[] = [];
+  for (const crudo of entran as Array<Record<string, unknown> | null>) {
+    if (!crudo || typeof crudo !== 'object') return { ok: false, motivo: 'forma' };
+    const tipo = crudo['tipo'];
+    if (tipo !== 'cheque' && tipo !== 'papel') return { ok: false, motivo: 'forma' };
+    const monto = montoPositivo(crudo['monto']);
+    if (monto === null) return { ok: false, motivo: 'monto' };
+    const fecha = texto(crudo['fecha']);
+    if (fecha && !fechaValida(fecha)) return { ok: false, motivo: 'fecha' };
+    const de_quien = texto(crudo['de_quien']);
+    const concepto = texto(crudo['concepto']);
+    if (tipo === 'cheque') {
+      const banco = texto(crudo['banco']);
+      const numero = texto(crudo['numero']);
+      if (!banco || banco.length < 2 || !numero || !de_quien || de_quien.length < 3) return { ok: false, motivo: 'cheque_incompleto' };
+      filas.push({ pieza: null, sentido: 'entra', tipo, clase: null, monto, banco, numero, de_quien, concepto, fecha });
+    } else {
+      if (!de_quien || de_quien.length < 3 || !concepto || concepto.length < 3) return { ok: false, motivo: 'papel_incompleto' };
+      filas.push({ pieza: null, sentido: 'entra', tipo, clase: 'credito', monto, banco: null, numero: null, de_quien, concepto, fecha });
+    }
+  }
+
+  const porPieza = new Map(enCaja.map((d) => [d.pieza, d]));
+  const vistas = new Set<string>();
+  for (const crudo of salen as Array<Record<string, unknown> | null>) {
+    const pieza = texto(crudo && typeof crudo === 'object' ? crudo['pieza'] : null);
+    if (!pieza) return { ok: false, motivo: 'forma' };
+    const d = porPieza.get(pieza);
+    if (!d) return { ok: false, motivo: 'no_esta_en_caja' };
+    if (d.tipo !== 'cheque') return { ok: false, motivo: 'papel_no_paga' };
+    if (vistas.has(pieza)) return { ok: false, motivo: 'pieza_repetida' };
+    vistas.add(pieza);
+    filas.push({
+      pieza, sentido: 'sale', tipo: 'cheque', clase: null, monto: d.monto, banco: d.banco, numero: d.numero,
+      de_quien: d.de_quien, concepto: d.concepto, fecha: d.fecha,
+    });
+  }
+
+  // Un cheque nuevo no puede ser uno que ya está en la caja, ni venir dos veces.
+  const nuevos = filas.filter((f) => f.sentido === 'entra' && f.tipo === 'cheque').map(llaveCheque);
+  const yaEstan = new Set(enCaja.filter((d) => d.tipo === 'cheque').map(llaveCheque));
+  if (new Set(nuevos).size !== nuevos.length || nuevos.some((k) => yaEstan.has(k))) return { ok: false, motivo: 'cheque_repetido' };
+
+  return { ok: true, total: r2(filas.reduce((s, f) => s + f.monto, 0)), filas };
+}
+
 /** `[CGS.59]` Lo que cambió en un apartado, para decirlo al guardar. */
 export function resumenDocumentos(filas: readonly FilaDocumento[], total: number): ResumenApartado {
   return {

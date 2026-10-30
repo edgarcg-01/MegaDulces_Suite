@@ -248,9 +248,27 @@ export class CashCutService {
       .whereNull('corte_id').whereNull('deleted_at');
   }
 
+  /**
+   * ⭐ `[CGS.60]` Cuánto de cada movimiento fue en cheque o en papel (`cash_ledger_documentos`): no
+   * es efectivo del cajón y el esperado lo resta. UNA expresión para los dos caminos que suman un
+   * corte (el abierto y el que se cierra). `null` = la base todavía no tiene la tabla (migración
+   * sin aplicar): entonces no hay documentos y el esperado queda como antes.
+   */
+  private async enDocumentos(trx: Knex.Transaction): Promise<string | null> {
+    // ⛔ Devuelve el TEXTO, no un `trx.raw(...)`: un raw de knex es un thenable, y devolverlo desde
+    // una función `async` lo EJECUTA como consulta suelta (la prueba contra base real lo cazó: el
+    // corte entero se caía con «syntax error at or near coalesce»).
+    const hay = (await trx.raw(`SELECT to_regclass('finance.cash_ledger_documentos') IS NOT NULL AS t`)).rows[0]?.t === true;
+    return hay
+      ? `coalesce((SELECT sum(d.monto) FROM finance.cash_ledger_documentos d
+                    WHERE d.cash_ledger_id = finance.cash_ledger.id), 0) AS en_documentos`
+      : null;
+  }
+
   private async movimientosSueltos(
     trx: Knex.Transaction, tenantId: string, sucursal: string, dia: string | null,
   ): Promise<MovimientoDelCorte[]> {
+    const docs = await this.enDocumentos(trx);
     const rows = await this.sueltosDe(trx, tenantId, sucursal, dia)
       /**
        * ⛔⛔ `[CG.115]` **ACÁ NO HABÍA NINGÚN FILTRO DE FECHA, y por eso el saldo salía en
@@ -288,9 +306,11 @@ export class CashCutService {
       .select(trx.raw(`CASE WHEN origen_tipo = 'caos' THEN monto ELSE coalesce((
            SELECT sum(k.monto_enlazado) FROM finance.caos_cash_links k
             WHERE k.cash_ledger_id = finance.cash_ledger.id AND k.deleted_at IS NULL), 0)
-         END AS en_boveda`));
+         END AS en_boveda`))
+      .modify((q: Knex.QueryBuilder) => { if (docs) q.select(trx.raw(docs)); });
     return rows.map((r: any) => ({
       ...r, anclado: r.origen_tipo === 'cobro', en_boveda: Number(r.en_boveda ?? 0),
+      en_documentos: Number(r.en_documentos ?? 0),
     }));
   }
 
@@ -985,14 +1005,19 @@ export class CashCutService {
 
       // Ahora sí: se suma EXACTAMENTE lo que quedó atado. Si el gate falla, la trx revierte las dos
       // cosas juntas.
+      const docs = await this.enDocumentos(trx);
       const filas = await trx('finance.cash_ledger')
         .where({ tenant_id: tenantId, corte_id: id })
         .whereNull('deleted_at')
-        .select('tipo', 'monto', 'estado', 'origen_tipo');
+        .select('tipo', 'monto', 'estado', 'origen_tipo')
+        // `[CGS.60]` Lo que fue en cheque o papel: el MISMO término que el corte abierto.
+        .modify((q: Knex.QueryBuilder) => { if (docs) q.select(trx.raw(docs)); });
       // `anclado` viaja al motor para que el corte FIRMADO deje constancia de cuánto de su
       // esperado venía de Kepler. Es el dato que distingue un corte auditable de uno que sólo
       // repite lo que el capturista tecleó (regla M4).
-      const movs: MovimientoDelCorte[] = filas.map((r: any) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
+      const movs: MovimientoDelCorte[] = filas.map((r) => ({
+        ...r, anclado: r.origen_tipo === 'cobro', en_documentos: Number(r.en_documentos ?? 0),
+      }));
       // `[CG.96]` Las dos piernas del cajero desde que abrió ESTE corte. Sin esto el esperado
       // ignora la bóveda y pide contar efectivo que está dentro de la máquina.
       const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.fecha ?? null);
@@ -2119,8 +2144,17 @@ export class CashCutService {
       // `[CG.139]` Lee del reparto, no de la tabla: ahí vive `en_boveda`, y es la MISMA expresión
       // que usa `movimientosSueltos()`. La vista ya excluye lo borrado (por eso se va el
       // `whereNull('deleted_at')`, que sobre la vista sería una columna inexistente).
+      // `[CGS.60]` La vista trae `en_documentos` desde la migración de cheques y papeles.
+      const hayDocumentos = (await this.enDocumentos(trx)) !== null;
       const [libro] = await trx('analytics.v_caja_reparto_movimiento')
         .where({ tenant_id: tenantId })
+        .modify((q: Knex.QueryBuilder) => {
+          if (!hayDocumentos) return;
+          q.select(
+            trx.raw(`coalesce(sum(en_documentos) FILTER (WHERE estado <> 'cancelado' AND tipo='ingreso'),0)::numeric AS ingresos_en_documentos`),
+            trx.raw(`coalesce(sum(en_documentos) FILTER (WHERE estado <> 'cancelado' AND tipo='gasto'),0)::numeric AS gastos_en_documentos`),
+          );
+        })
         // `[CG.98]` La caja general es UNA: en oficinas se ven todas las plazas.
         .where((b: any) => aplicarAlcanceCaja(b, sucursal))
         .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
@@ -2198,8 +2232,11 @@ export class CashCutService {
        * enlace. Lo que cambia es que el cuadro deja de **afirmar** un movimiento que no ocurrió
        * en caja general.
        */
-      const ingresosCajon = Number((ingresos - ingresosEnBoveda).toFixed(2));
-      const gastosCajon = Number((gastos - gastosEnBoveda).toFixed(2));
+      // `[CGS.60]` Lo que fue en cheque o papel tampoco pasó por el cajón.
+      const ingresosEnDocumentos = Number(libro?.ingresos_en_documentos ?? 0);
+      const gastosEnDocumentos = Number(libro?.gastos_en_documentos ?? 0);
+      const ingresosCajon = Number((ingresos - ingresosEnBoveda - ingresosEnDocumentos).toFixed(2));
+      const gastosCajon = Number((gastos - gastosEnBoveda - gastosEnDocumentos).toFixed(2));
 
       // ── 2. El cajero (CAOS): la jornada COMPLETA, con los seis tipos ─────────────────────
       // ⚠️ CAOS no tiene columna de sucursal: es un único dispositivo, en oficinas. Para cualquier
@@ -2359,6 +2396,13 @@ export class CashCutService {
         .whereNull('deleted_at')
         .orderBy('created_at', 'desc')
         .limit(200)
+        // `[CGS.60]` La tercera parte del renglón: lo que fue en cheque o papel (de la misma vista).
+        .modify((q: Knex.QueryBuilder) => {
+          if (hayDocumentos) {
+            q.select(trx.raw(`(SELECT r.en_documentos FROM analytics.v_caja_reparto_movimiento r
+                               WHERE r.cash_ledger_id = finance.cash_ledger.id) AS en_documentos`));
+          }
+        })
         .select(
           'id', 'folio', 'tipo', 'monto', 'beneficiario', 'glosa', 'estado',
           'kepler_cuenta', 'kepler_concepto', 'kepler_concepto_nombre',
@@ -2436,7 +2480,8 @@ export class CashCutService {
           // `[CG.139]` Las dos mitades del mismo renglón. `en_cajon` se deriva acá y no se trae
           // aparte: una resta que viaja dos veces es una resta que puede llegar distinta.
           en_boveda: Number(m.en_boveda ?? 0),
-          en_cajon: Number((Number(m.monto) - Number(m.en_boveda ?? 0)).toFixed(2)),
+          en_cajon: Number((Number(m.monto) - Number(m.en_boveda ?? 0) - Number(m.en_documentos ?? 0)).toFixed(2)),
+          en_documentos: Number(m.en_documentos ?? 0),
           documento: m.documento || null, concepto: m.kepler_concepto_nombre ?? null,
           cuenta: m.kepler_cuenta ?? null, estado: m.estado,
           origen: m.origen_tipo ?? null, quien: m.created_by_username ?? null,

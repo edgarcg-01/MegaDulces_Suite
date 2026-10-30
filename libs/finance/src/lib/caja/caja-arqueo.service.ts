@@ -12,7 +12,9 @@ import {
   TEXTO_ARQUEO_INVALIDO, TEXTO_DOCUMENTO_INVALIDO, TEXTO_NO_RECUENTA_CORTE, type FilaDocumento,
 } from './caja-arqueo.engine';
 import { traducirErrorDeCaja } from './caja-errores';
-import { documentosQueEstan, hayDocumentosDeArqueo } from './caja-arqueo-documentos.query';
+import {
+  hayDocumentosDeArqueo, huellaDeDocumentosDeMovimiento, piezasEnCaja,
+} from './caja-arqueo-documentos.query';
 
 interface Usuario { id?: string; username?: string }
 
@@ -91,7 +93,7 @@ export class CajaArqueoService {
       const control = await this.ultimoDeControl(trx);
       return {
         instalado: true,
-        base: await this.ultimoArqueoId(trx, tenantId),
+        base: await this.llave(trx, tenantId),
         cheques: await this.apartado(trx, tenantId, 'cheque', control),
         papeles: await this.apartado(trx, tenantId, 'papel', control),
       };
@@ -126,9 +128,10 @@ export class CajaArqueoService {
           throw new BadRequestException('Los cheques y papeles uno por uno todavía no están instalados en esta base (falta la migración [CGS.59]).');
         }
         // Dos arqueos a la vez se forman: el segundo ve lo que guardó el primero, o se rechaza.
+        // `[CGS.60]` Lo mismo si mientras tanto entró o salió un cheque o papel con un movimiento.
         await trx.raw('SELECT pg_advisory_xact_lock(hashtextextended(?, 59))', [`cash_arqueos:${tenantId}`]);
-        if ((docs.base ?? null) !== (await this.ultimoArqueoId(trx, tenantId))) {
-          throw new ConflictException('Alguien guardó un arqueo mientras contabas: vuelve a abrir «Contar la caja» para ver lo que hay ahora.');
+        if ((docs.base ?? null) !== (await this.llave(trx, tenantId))) {
+          throw new ConflictException('Alguien guardó un arqueo o movió un cheque o papel mientras contabas: vuelve a abrir «Contar la caja» para ver lo que hay ahora.');
         }
         const control = await this.ultimoDeControl(trx);
         for (const [tipo, entrada, campo] of [['cheque', docs.cheques, 'cheques'], ['papel', docs.papeles, 'papeles']] as const) {
@@ -210,12 +213,18 @@ export class CajaArqueoService {
     return (await trx.raw(`SELECT to_regclass('analytics.v_caja_arqueos') IS NOT NULL AS t`)).rows[0]?.t === true;
   }
 
-  /** El último arqueo de la Suite, de cualquier apartado: la llave contra dos conteos a la vez. */
-  private async ultimoArqueoId(trx: Knex.Transaction, tenantId: string): Promise<string | null> {
+  /**
+   * La llave contra dos conteos a la vez: el último arqueo de la Suite (de cualquier apartado) y,
+   * `[CGS.60]`, la huella de los movimientos con cheques o papeles. Si cualquiera cambió entre abrir
+   * y guardar, la lista de «lo que había» ya no es la de ahora.
+   */
+  private async llave(trx: Knex.Transaction, tenantId: string): Promise<string | null> {
     const r = await trx('finance.cash_arqueos').where({ tenant_id: tenantId })
       .orderBy([{ column: 'counted_at', order: 'desc' }, { column: 'created_at', order: 'desc' }, { column: 'id', order: 'desc' }])
       .first('id');
-    return r ? String(r.id) : null;
+    const huella = await huellaDeDocumentosDeMovimiento(trx, tenantId);
+    if (!r && !huella) return null;
+    return `${r ? String(r.id) : ''}|${huella}`;
   }
 
   /** El último arqueo de Control (histórico congelado), si la réplica existe en este entorno. */
@@ -227,32 +236,28 @@ export class CajaArqueoService {
   }
 
   /**
-   * `[CGS.59]` Lo que había en un apartado: los renglones que ESTÁN en el último arqueo de la Suite
-   * que lo contó, cada uno con el día en que se vio por primera vez. Lo declarado sin detalle (un
-   * arqueo de antes de los renglones, o Control si la Suite nunca lo contó) se devuelve aparte para
-   * mostrarlo, no para arrastrarlo.
+   * `[CGS.59]` Lo que hay en un apartado: los renglones que ESTÁN en el último arqueo de la Suite
+   * que lo contó, cada uno con el día en que se vio por primera vez, y `[CGS.60]` lo que entró o salió
+   * después con un movimiento. Lo declarado sin detalle (un arqueo de antes de los renglones, o
+   * Control si la Suite nunca lo contó) se devuelve aparte para mostrarlo, no para arrastrarlo.
    */
   private async apartado(trx: Knex.Transaction, tenantId: string, tipo: TipoDocumentoCaja,
     control: { at: string; cheques: number | null; papeles: number | null } | null): Promise<ApartadoEnCaja> {
     const campo = tipo === 'cheque' ? 'cheques' : 'papeles';
-    const ult = await trx('finance.cash_arqueos').where({ tenant_id: tenantId }).whereNotNull(campo)
-      .orderBy([{ column: 'counted_at', order: 'desc' }, { column: 'created_at', order: 'desc' }, { column: 'id', order: 'desc' }])
-      .first('id', 'counted_at', 'created_by_username', campo);
-    if (!ult) {
+    const { ultimo, propios, piezas } = await piezasEnCaja(trx, tenantId, tipo);
+    if (!ultimo) {
       const deControl = control?.[campo];
       return {
-        desde: null, piezas: [],
+        desde: null, piezas,
         sin_detalle: deControl != null && deControl > 0 && control ? { monto: deControl, origen: 'control', at: control.at } : null,
       };
     }
-    const piezas = (await documentosQueEstan(trx, tenantId, String(ult.id))).filter((d) => d.tipo === tipo);
-    const total = Number(ult[campo]);
-    const suma = r2(piezas.reduce((s, p) => s + p.monto, 0));
+    const suma = r2(propios.reduce((s, p) => s + p.monto, 0));
     return {
-      desde: { arqueo_id: String(ult.id), at: new Date(ult.counted_at).toISOString(), quien: ult.created_by_username ?? null },
+      desde: { arqueo_id: ultimo.id, at: ultimo.counted_at, quien: ultimo.quien },
       piezas,
       // Un arqueo guardado antes de los renglones declara un importe sin detalle.
-      sin_detalle: Math.abs(total - suma) > 0.005 ? { monto: total, origen: 'suite', at: new Date(ult.counted_at).toISOString() } : null,
+      sin_detalle: Math.abs(ultimo.total - suma) > 0.005 ? { monto: ultimo.total, origen: 'suite', at: ultimo.counted_at } : null,
     };
   }
 }

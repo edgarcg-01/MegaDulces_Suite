@@ -95,6 +95,15 @@ const POR_CONSTRAINT: Record<string, string> = {
   cash_arqueo_doc_papel_chk: 'Cada papel dice por qué se debe.',
   cash_arqueo_doc_clase_chk: 'Cada papel dice si es vale o crédito.',
   ux_cash_arqueo_doc_cheque: 'Ese cheque (banco y número) ya está en la lista.',
+  // `[CGS.60]` Un movimiento que se hace con cheque o papel (migración 20261030105836).
+  cash_ledger_documentos_exceden: 'Los cheques y papeles, más lo que pagó CAOS, pasan del monto del movimiento.',
+  cash_ledger_documentos_sin_entrada: 'Ese cheque nunca entró a la caja: no puede salir con un pago.',
+  cash_ledger_documentos_sale_dos_veces: 'Ese cheque ya salió de la caja con otro movimiento.',
+  ux_cash_ledger_doc_entra: 'Ese cheque o papel ya entró a la caja con otro movimiento.',
+  cash_ledger_doc_monto_chk: 'El importe de cada cheque o papel es mayor que cero.',
+  cash_ledger_doc_quien_chk: 'Cada cheque o papel dice de quién es o quién debe.',
+  cash_ledger_doc_cheque_chk: 'Cada cheque lleva banco y número.',
+  cash_ledger_doc_papel_chk: 'Cada papel dice por qué se debe.',
 };
 
 /** Códigos de Postgres que SÍ son culpa de lo que se mandó, no del servidor. */

@@ -15,6 +15,37 @@ const m = (tipo: MovimientoDelCorte['tipo'], monto: number, estado?: string): Mo
   ({ tipo, monto, estado });
 
 describe('calcularCorte', () => {
+  it('⭐ `[CGS.60]` lo que entró o salió en cheque o papel no es efectivo: el esperado sólo cuenta el efectivo', () => {
+    const t = calcularCorte({
+      fondoInicial: 500,
+      movimientos: [
+        // Un cobro de $10,000: $2,000 en billetes y $8,000 en cheque.
+        { tipo: 'ingreso', monto: 10000, en_documentos: 8000 },
+        // Un cobro todo en papel (crédito): ni un peso al cajón.
+        { tipo: 'ingreso', monto: 1952, en_documentos: 1952 },
+        // Un pago con ese cheque: no sacó efectivo.
+        { tipo: 'gasto', monto: 8000, en_documentos: 8000 },
+        // Un pago cancelado no cuenta, aunque traiga documentos.
+        { tipo: 'gasto', monto: 900, en_documentos: 900, estado: 'cancelado' },
+      ],
+      conteo: [{ denominacion: 500, piezas: 5 }],
+    });
+    // Los totales se publican en bruto: el cobro y el pago ocurrieron.
+    expect(t.ingresos).toBe(11952);
+    expect(t.gastos).toBe(8000);
+    expect(t.ingresos_documentos).toBe(9952);
+    expect(t.gastos_documentos).toBe(8000);
+    expect(t.esperado).toBe(2500); // 500 + 11,952 − 8,000 − 9,952 + 8,000
+    expect(t.diferencia).toBe(0);
+  });
+
+  it('[negativa] `[CGS.60]` sin documentos el esperado es EXACTAMENTE el de antes', () => {
+    const conCero = calcularCorte({ fondoInicial: 100, movimientos: [{ tipo: 'ingreso', monto: 50, en_documentos: 0 }], conteo: [] });
+    const sinCampo = calcularCorte({ fondoInicial: 100, movimientos: [m('ingreso', 50)], conteo: [] });
+    expect(conCero.esperado).toBe(150);
+    expect(sinCampo.esperado).toBe(150);
+  });
+
   it('esperado = fondo + ingresos − gastos − depósitos', () => {
     const t = calcularCorte({
       fondoInicial: 500,

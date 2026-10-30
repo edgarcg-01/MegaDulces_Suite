@@ -296,7 +296,9 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
 
     // 2. Lo que la pantalla pide marcar ahora: esos dos, con el día en que se vieron.
     const d = await arqueos.documentosEnCaja();
-    expect(d).toMatchObject({ instalado: true, base: g1.arqueo.folio });
+    // La llave es el último arqueo y `[CGS.60]` la huella de los movimientos con cheques o papeles.
+    expect(d.instalado).toBe(true);
+    expect(d.base?.split('|')[0]).toBe(g1.arqueo.folio);
     expect(d.cheques.piezas).toEqual([expect.objectContaining({ banco: 'Banamex', numero, monto: 10121, fecha: '2026-10-19' })]);
     expect(d.papeles.piezas).toEqual([expect.objectContaining({ clase: 'vale', de_quien: 'Pedro Ramírez', monto: 20782 })]);
     const [ch] = d.cheques.piezas;

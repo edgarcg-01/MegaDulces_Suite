@@ -235,4 +235,9 @@ describe('[CGA-A.56] de dónde salió el dinero de un egreso', () => {
   it('un ingreso no sale de ningún lado: no se le exige', () => {
     expect(g({ tipo: 'ingreso' })).toEqual({ ok: true, origen: null });
   });
+  it('`[CGS.60]` un pago hecho ENTERO con cheques de la caja no sacó efectivo: no se le pide origen', () => {
+    expect(g({ sinEfectivo: true })).toEqual({ ok: true, origen: null });
+    // [negativa] Con parte en efectivo, sí (y la regla sigue igual).
+    expect(g({ sinEfectivo: false })).toEqual({ ok: false, motivo: 'falta_origen' });
+  });
 });
