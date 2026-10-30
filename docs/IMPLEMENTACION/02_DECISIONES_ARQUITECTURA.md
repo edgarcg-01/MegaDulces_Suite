@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 448 KB, 3830 líneas, 110 secciones.
+> **Índice navegable** — 449 KB, 3847 líneas, 110 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -116,7 +116,7 @@
 | 3636 | 3746 | 6 | ADR-108 — Cuando Kepler y el CFDI se contradicen sobre la identidad de un acreedor, gana el CFDI |
 | 3747 | 3823 | 4 | ADR-109 — Una premisa escrita en un filtro también se mide: la caja SÍ es origen de un pago |
 | 3824 | 3859 | 3 | ADR-110 — La caja revisa la preventa surtida antes de cobrar, y el pedido queda con lo que se cobra |
-| 3860 | 3952 | 6 | ADR-111 — ContPAQi entero como crudo canónico (`contpaqi_ods`), sincronizado por huella y no por marca de agua |
+| 3860 | 3969 | 7 | ADR-111 — ContPAQi entero como crudo canónico (`contpaqi_ods`), sincronizado por huella y no por marca de agua |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -3945,6 +3945,23 @@ Rompe dos reglas con permiso: la 18 (tablas sin `tenant_id`) y la 1 (un importad
 sustituye a seis). Y fija el mecanismo de sincronía de una fuente que no tiene marca de agua:
 ⭐⭐ **cuando no hay «modificado desde», el árbitro es la huella de los dos lados**, y en una
 contabilidad la huella tiene que incluir el dinero aunque esté guardado en `float`.
+
+### Actualización 2026-10-30 — el mecanismo, medido en prod
+
+- **Los bits de un `float` dan lo mismo en los dos motores.** En la primera corrida contra el
+  origen, 1,319 de 1,337 tramos salieron iguales, incluidos los de importes: 43 de 46 en
+  `SaldosCuentas`. Si la conversión a bits difiriera, habrían salido todos distintos. Los 18 que
+  diferían eran lo que contabilidad capturó después de la carga.
+- **La réplica converge.** La primera escritura recopió 10 tramos (20,771 filas) en 26 s, y la
+  vuelta siguiente dio la contabilidad entera al día.
+- **El árbitro no es un espejo.** La prueba negativa, que mueve una fila dentro de una transacción
+  que se deshace, la vio en 366 tablas y no la vio en 0. Entre ellas están las de nóminas, que no
+  tienen `RowVersion`.
+- **La agenda** está lista y apagada hasta la D15, con su latido y el camino rojo ejercido.
+- Lo que la réplica ya contesta está en `FASE_CP9` §8.11–8.12:
+  - qué CFDI está en qué póliza: el dictamen pasó de ver el 45 % al 82 % de los recibidos;
+  - qué ejercicio está cerrado;
+  - los impuestos por movimiento, con el CFDI como testigo.
 
 Relacionado: ADR-040 (ContPAQi es el sistema de registro) · ADR-046 (`kepler_ods`, el crudo
 canónico) · ADR-056 (lo no medido se declara) · ADR-059 (la cifra se arbitra contra un testigo del
