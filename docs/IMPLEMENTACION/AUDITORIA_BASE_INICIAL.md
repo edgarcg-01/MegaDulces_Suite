@@ -939,7 +939,7 @@ pólizas de la cuenta 515 por documento).
 
 ## Addendum — `AUD-DAT.25`: el «Capital inmovilizado» del motor de margen es consumo anual, no inventario (2026-10-30)
 
-**Estado: CORREGIDO EN CÓDIGO (`[PR.V10]`, migración `20261030093024_price_action_saldo_es_existencia.js`) — pendiente de aplicar en prod. Dueño: fase PR / MR (motor de margen).**
+**Estado: CORREGIDO EN PROD (datos) — migración `20261030093024_price_action_saldo_es_existencia.js` aplicada el 2026-10-30 (batch 1062, 8.1 s): el saldo de `liberar_capital` publica $34,964,921 contra $71,658,878 del inventario entero, y la certeza de aterrizar es `efecto_no_medido`. La API y la pantalla nuevas (`[PR.V10]`–`[PR.V12]`, en `ci-green`) se ven al soltar. Dueño: fase PR / MR (motor de margen).**
 
 - **Qué publica la pantalla:** `/comercial/precios/motor` presenta una tarjeta «Capital inmovilizado» con el texto *«Es un saldo, no un flujo»*. Además, cada renglón de `liberar_capital` en la cola dice «$X · saldo».
 - **Qué es en realidad:** `analytics.v_price_action.capital_inmovilizado_mxn` = `g2_valor_anual` = `v_abc_class.annual_value` = `avg_daily_units × 365 × costo_unitario`. Eso es el **costo de lo que se vende en un año**, o sea un flujo anualizado. No es el valor de lo que está parado en el almacén.
