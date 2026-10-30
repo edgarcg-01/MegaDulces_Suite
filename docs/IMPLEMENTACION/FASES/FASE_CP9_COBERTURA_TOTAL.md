@@ -486,6 +486,18 @@ uso). Prod pesa 45 GB con la réplica adentro. Alcanza, pero el 83 % hay que vig
    (ADR-053), probado en rojo. Sin la D15 sólo se puede correr a mano. Cadencia propuesta, por lo medido:
    - la contabilidad y Generales, cada 5 minutos (menos de 30 s por vuelta);
    - nóminas, SAT y directorio, cada hora.
+
+   ✅ **Ya está lista y apagada** (`79a82785c`):
+   - **El latido.** El replicador reporta cada vuelta a `analytics.cron_runs` con `--latido=<job_key>`. Lo abre
+     **antes** de conectar a ContPAQi: una contraseña mala falla ahí, y `run-feed.sh` sólo lo dejaría en el log.
+   - **El camino rojo, ejercido.** Contra la base local, con un SQL Server inalcanzable, el latido quedó en `error`
+     con el motivo.
+   - **Las dos líneas del cron, comentadas** en `ops/vl/crontab.feeds`, con los cuatro pasos para encenderlas:
+     1. la contraseña en `/secrets/feeds.env`;
+     2. quitar el `#`;
+     3. los umbrales en `CRON_JOBS`;
+     4. ver el rojo una vez.
+   - **El umbral no se registra antes de agendar:** sin la agenda corriendo, sería una alarma falsa fija.
 3. **La migración** `20261029180144_contpaqi_ods_schema.js` por el carril de entrega. En prod no cambia nada (el
    replicador ya creó lo mismo), pero tiene que quedar registrada.
 4. **El ADD grande** (`Comprobante`, `Conceptos`, `Impuesto_Traslado_Concepto`) por `Documento.TimeStamp`: va en
