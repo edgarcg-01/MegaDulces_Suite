@@ -408,6 +408,42 @@ sesión.
 
 ---
 
+## H2 · Anexo 2026-10-30 — «Motor de Margen 3.0» (COMPARE + elasticidad + cadena de valor)
+
+**El pedido.** Edgar pegó un documento escrito por otro asistente. Propone tres entregas:
+1. **COMPARE**: índice de precio competitivo contra la mediana de competidores, por SKU, zona y canal, con captura de precios fechada y con evidencia.
+2. **Elasticidad**: sacada de los históricos de Kepler, con nivel de confianza.
+3. **Optimización**: cruzar las dos con la cadena de valor (margen del revendedor) y una política de margen >12 % (objetivo 13 %) más una canasta de productos clave (KVI).
+
+Cierra preguntando si COMPARE mide contra **distribuidoras** o contra el **precio al consumidor**.
+
+**Lo que ya existe o ya se midió** (prod, sólo lectura, `system_identifier` 7688376744939610156, 2026-10-30):
+
+| La propuesta pide | Lo que hay |
+|---|---|
+| Elasticidad desde históricos de Kepler | **Ya se estimó** (E3, `FASE_PR_ANALISIS_DIMENSIONAL` §10). Región Anderson-Rubin **[−1.415, −0.045]** a nivel agregado. Por categoría **no se identifica**: 22 de 65 con la curva al revés y sólo 2 válidas. Por SKU, error estándar 0.94, que es ruido. El estudio de eventos muestra reversión a la media: una baja mueve el volumen igual que un alza. ⭐ Y **no hace falta acertarla**: la elasticidad de equilibrio es −8.21, a 5.8× de lo medido |
+| Medir la reacción por SKU | El **A/B ya está construido**: «Aterrizaje .99», 5,842 celdas asignadas el 2026-10-01 (2,921 tratamiento / 2,921 control). ⛔ **0 aplicadas en 29 días**: nadie capturó los precios de tratamiento en Kepler |
+| El simulador de la propuesta (−1.5, +18 % → +105.8 % de utilidad) | La aritmética es correcta, pero la elasticidad es supuesta y se aplica a un +18 %, fuera del rango medido. El motor ya trae la versión honesta, el **umbral de equilibrio**: con el ejemplo de la bolsa ($44.94, margen $4.94), un +18 % aguanta perder **62 % del volumen** antes de dejar menos utilidad |
+| Precio de competidores mayoristas | ISCAM, **por marca/submarca y mensual, anónimo**: pestaña Competencia, `v_iscam_precio_competencia`. Diferencia calculable en 1,161 filas de la vista (625 con confianza alta). ⛔ No por SKU, presentación ni zona fina |
+| Precio al consumidor (anaquel) | ⛔ **No hay fuente**: PROFECO cubre 0 %, Mercado Libre bloquea, DENUE da nombres y domicilios sin precios. Haría falta **captura humana** (tabla propia, permitida por la regla principal) |
+| Quién capturaría en el punto de venta | Trade: 1,606 tiendas registradas, pero **0 visitas en los últimos 30 días** y 54 capturas (la última el 2026-10-20). El vendedor, en cambio, entra a la tienda del revendedor todos los días |
+| Cadena de valor (margen del revendedor) | Depende del precio de anaquel: hoy **no se puede calcular** |
+| KVI | Derivable sin captura nueva: clase ABC (G2), clientes que lo compran (C3), arrastre de canasta (B10) |
+| Margen >12 % | E3 usa **m = 12.18 %** medido. El objetivo de 13 % es decisión de Dirección |
+
+**Lo que NO se hace por la vía que propone el documento:** estimar elasticidad por SKU con históricos (ya se intentó; es ruido) y una regla automática que dependa de una elasticidad por SKU que no existe.
+
+**Restricción del método:** 6 fases 🔨 contra un tope de 4, y fase 0 de aterrizaje en curso. COMPARE con captura nueva es una fase nueva y **no se abre** hasta liberar cupo. Correr el A/B **no abre nada**: es un entregable de PR que ya existe.
+
+**Decisiones de Edgar** (recomendación primero):
+- **D1** · Correr «Aterrizaje .99»: quién captura las 2,921 celdas de tratamiento en Kepler. *Recomendado: ya, Comercial/Precios.* Es la única fuente de reacción por SKU y no cuesta desarrollo.
+- **D2** · Nivel de COMPARE. *Recomendado: primero el precio al consumidor sobre una canasta KVI*, porque el mayorista por marca ya lo da ISCAM y sólo el anaquel abre la cadena de valor.
+- **D3** · Quién captura el anaquel. *Recomendado: el vendedor, en la app de vendedor (offline)*, porque ya está en la tienda; el trade está inactivo.
+- **D4** · Qué fase 🔨 se cierra o se pausa para hacerle lugar a COMPARE.
+- **D5** (Dirección) · El objetivo de margen de 13 % y el índice de la canasta KVI por canal y zona.
+
+---
+
 ## I · Lo que NO se hizo, con su motivo
 
 - ⛔ **No se inventó una llave entre ISCAM y DENUE.** No existe.
