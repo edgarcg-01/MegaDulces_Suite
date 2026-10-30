@@ -23,6 +23,14 @@
 - La hora del cálculo se ve arriba («calculado hace N h»). La franja «lo que el motor no ve» avisa si no se pudo leer, en vez de desaparecer.
 - La sucursal sale por nombre, no por código. Los dos botones de ayuda dicen cuál es cuál. El resumen tarda ~0.75 s en vez de 1.8–2.8 s.
 
+### Changed — «Aterrizar el precio» ya no se llama aritmética (PR.V10, decisión del PM, 2026-10-30)
+- Su certeza pasa a **«Efecto no medido»**. El umbral que la separa de «Subir» es la mediana de nuestros propios cambios de precio, no una medición de cómo reacciona el cliente. Que no se note es un supuesto, y lo mide el experimento. Sigue siendo una acción aparte de «Subir».
+- Sólo «Revisar el costo» y «Corregir la escalera» quedan como aritméticas.
+
+### Fixed — Motor de margen: el filtro «Inventario en sobrestock» ya no tarda 40 segundos (PR.V10/PR.V11, 2026-10-30)
+- Antes de soltarse se encontró que la primera versión de la corrección hacía tardar **35–45 s** la cola filtrada por inventario en sobrestock. Se cambió la forma de buscar el costo y ahora tarda **~0.35 s**.
+- El resumen y la cola se guardan en caché hasta que el motor se vuelve a calcular, o 15 minutos como máximo. Todos ven la misma foto, así que sólo el primero en entrar espera el cálculo.
+
 ### Added — Facturación TM: embarques que salieron sin factura (AX.18, 2026-10-29)
 - En el encabezado de **Facturación TM** hay un botón que dice cuántos embarques de telemarketing salieron sin factura y por cuánto dinero; al abrirlo muestra la lista sin mover la tabla de facturas.
 - Distingue los que **nunca se facturaron** de los que se facturaron y **todas sus facturas quedaron en $0**, y nombra esos folios para encontrarlos en Kepler.

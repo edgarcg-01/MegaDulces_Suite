@@ -160,7 +160,7 @@ const sinMedir = (l, d) => { nm++; console.log(`  ⓘ NO MEDIDO: ${l} — ${d}`)
   } else {
     ck('⛔⛔ g · [PR.V10] el saldo de liberar_capital no pasa del inventario entero',
       Number(p.saldo ?? 0) <= Number(inv.inventario ?? 0),
-      `saldo ${Number(p.saldo).toLocaleString()} > inventario ${Number(inv.inventario).toLocaleString()}: volvio el consumo anual`);
+      `saldo $${Number(p.saldo).toLocaleString()} > inventario $${Number(inv.inventario).toLocaleString()}: volvio el consumo anual`);
     ck('[PR.V10] el saldo se pudo valuar en al menos 90 % de las celdas de liberar_capital',
       p.con_saldo >= p.liberar * 0.9, `${p.con_saldo} de ${p.liberar}`);
   }

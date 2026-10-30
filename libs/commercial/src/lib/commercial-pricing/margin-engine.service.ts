@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { TenantCacheService, TenantKnexService } from '@megadulces/platform-core';
+import type { Knex } from 'knex';
 
 /**
  * `[PR.V1]` — **El motor de margen, del lado del servidor.**
@@ -23,7 +24,43 @@ export type AccionPrecio =
 export class MarginEngineService {
   private readonly log = new Logger(MarginEngineService.name);
 
-  constructor(private readonly tk: TenantKnexService) {}
+  constructor(
+    private readonly tk: TenantKnexService,
+    /**
+     * `[PR.V11]` El caché por tenant (Redis). **`@Optional()` a propósito**, igual que en
+     * `commercial-replenishment`: sin él la pantalla funciona igual, sólo que sin caché, y un
+     * proveedor que falta no tumba el arranque de la API (lo que pasó en #414).
+     */
+    @Optional() private readonly cache?: TenantCacheService,
+  ) {}
+
+  /**
+   * `[PR.V11]` Cuánto vive el resumen y la cola en caché. El motor es una FOTO por día
+   * (`mv_price_signals`), así que la llave lleva la versión de esa foto: cuando la MV se
+   * refresca, la llave cambia y se recalcula. El tope de 15 min es el de `mv_erp_unit_cost`, de
+   * donde sale el costo que valúa el saldo (se refresca en el ciclo de 15 min).
+   *
+   * Por qué hace falta: medido en prod el 2026-10-30, con carga, el resumen en una pasada tarda
+   * ~0.95 s y la cola sin filtro ~0.6 s. Es la MISMA respuesta para todos hasta la foto
+   * siguiente.
+   */
+  private static readonly CACHE_MS = 15 * 60_000;
+
+  /**
+   * La versión de la foto: `calculado_al` es el `now()` del REFRESH, igual en todas las filas de
+   * la MV. Leer una fila cuesta ~1 ms. Sin foto, la llave lo dice y no se reutiliza nada viejo.
+   */
+  private async versionFoto(trx: Knex): Promise<string> {
+    const { rows: [v] } = await trx.raw(`SELECT calculado_al FROM analytics.mv_price_signals LIMIT 1`);
+    return v?.calculado_al ? new Date(v.calculado_al).toISOString() : 'sin-foto';
+  }
+
+  /** Del caché si está y es de esta foto; si no, se calcula. Sin caché, se calcula siempre. */
+  private async deLaFoto<T>(trx: Knex, llave: string, calcular: () => Promise<T>): Promise<T> {
+    if (!this.cache) return calcular();
+    const version = await this.versionFoto(trx);
+    return this.cache.getOrSet(`motor-margen:v1:${version}:${llave}`, MarginEngineService.CACHE_MS, calcular);
+  }
 
   /**
    * ⭐ **Answer-first.** Lo primero que alguien quiere saber al entrar no es cuántas filas hay:
@@ -31,7 +68,7 @@ export class MarginEngineService {
    * aritmética y una que depende de un efecto no medido no se priorizan igual.
    */
   async resumen(): Promise<unknown> {
-    return this.tk.run(async (trx) => {
+    return this.tk.run(async (trx) => this.deLaFoto(trx, 'resumen', async () => {
       /**
        * `[PR.V10]` UNA pasada por la vista, no cuatro. Medido en prod el 2026-10-30, con carga:
        * las cuatro consultas en serie tardaban 1.8–2.8 s, y cada una recorría las 86,816 celdas
@@ -88,7 +125,7 @@ export class MarginEngineService {
           calculado_al: tot?.calculado_al ?? null,
         },
       };
-    });
+    }));
   }
 
   /**
@@ -103,7 +140,8 @@ export class MarginEngineService {
     sucursal?: string; accion?: string; soloLibres?: boolean; limit?: number;
   }): Promise<{ rows: unknown[]; total: number; has_more: boolean }> {
     const limit = Math.min(Math.max(f.limit ?? 100, 1), 500);
-    return this.tk.run(async (trx) => {
+    const llave = `cola:${f.sucursal ?? '*'}:${f.accion ?? '*'}:${f.soloLibres ? 'libres' : 'todas'}:${limit}`;
+    return this.tk.run(async (trx) => this.deLaFoto(trx, llave, async () => {
       const q = trx('analytics.v_price_action')
         .select(
           'sucursal', 'sku', 'nombre', 'precio_actual', 'venta_30d',
@@ -147,7 +185,7 @@ export class MarginEngineService {
         total,
         has_more: total > filas.length,
       };
-    });
+    }));
   }
 
   /**

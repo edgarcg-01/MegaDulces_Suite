@@ -46,6 +46,14 @@
  * `LEFT JOIN LATERAL … ON true` sobre un agregado sin GROUP BY (devuelve exactamente una fila),
  * el planificador puede quitar el join cuando nadie lee `s1..s3`. Medido abajo, en el gate.
  *
+ * ── ⭐ 5 · «Aterrizar el precio» deja de llamarse aritmética (decisión del PM, 2026-10-30) ─────
+ * El criterio de aterrizar es el umbral D4 (`fn_precio_umbral_percepcion`): 0.16 % bajo $10 …
+ * 6.48 % entre $100 y $500. Es la **mediana de nuestros propios cambios de precio** (245,665
+ * cambios en 180 días), no una medición de cómo reacciona el cliente. Que un alza menor «no se
+ * note» es un supuesto razonado, y la definición de certeza lo dice textual: *el monto es cierto,
+ * la reacción del volumen no se midió* → `efecto_no_medido`. Sigue siendo una acción aparte de
+ * subir (alzas bajo el umbral); lo que cambia es de qué se le llama. Lo resuelve el A/B.
+ *
  * Idempotente (DROP + CREATE; la vista no tiene dependientes, medido en `pg_depend`).
  *
  * @param { import("knex").Knex } knex
@@ -125,7 +133,10 @@ const cuerpo = () => `
         WHEN 'corregir_escalera' THEN 'aritmetica'
         WHEN 'revisar_costo'     THEN 'aritmetica'
         WHEN 'liberar_capital'   THEN 'regla_de_operacion'
-        WHEN 'aterrizar_precio'  THEN 'aritmetica'
+        -- [PR.V10] Decision del PM (2026-10-30): aterrizar NO es aritmetica. El umbral D4 es la
+        --    mediana de NUESTROS cambios de precio (fn_precio_umbral_percepcion), no una medicion
+        --    de como reacciona el cliente: que no lo note es un supuesto, y el A/B lo mide.
+        WHEN 'aterrizar_precio'  THEN 'efecto_no_medido'
         WHEN 'subir_precio'      THEN 'efecto_no_medido'
         WHEN 'precio_atipico'    THEN 'fuera_de_alcance'
         ELSE                          'sin_evidencia'
@@ -196,22 +207,25 @@ const cuerpo = () => `
       c.e3_existencia
     FROM conf c
     /**
-     * ⭐ [PR.V10] El costo para VALUAR, por sucursal × SKU. El GROUP BY hace la llave única a
-     *    ojos del planificador: cuando la consulta no lee el saldo, el join se QUITA (medido:
-     *    count(*) 46 ms). Cuando lo lee, cuesta ~500 ms fijos (medido en prod con carga). Se
-     *    probó también una subconsulta escalar por celda: 1.7 s al sumar las 7,397 celdas.
-     *    ⚠️ El siguiente paso para bajar de 500 ms es llevar este valor a mv_price_signals, que
-     *    se reconstruye con sus dependientes: va aparte y fuera de horario.
+     * ⭐ [PR.V10] El costo para VALUAR de ESTA celda, sólo si es de liberar_capital.
+     *    · Un agregado sin GROUP BY devuelve exactamente una fila: el planificador QUITA el join
+     *      cuando la consulta no lee el saldo (medido: count(*) ~50 ms).
+     *    · El WHERE por acción hace que en las otras 79,419 celdas no se busque nada.
+     *    ⛔ Se midieron otras dos formas y las dos se descartaron (prod, 2026-10-30, con carga):
+     *      - join a un mapeo sucursal × SKU con GROUP BY: la cola filtrada por liberar_capital
+     *        tardó 35–45 SEGUNDOS (plan catastrófico con ese filtro). Esta forma: 335–400 ms.
+     *      - subconsulta escalar en el SELECT: 1.7 s al sumar las 7,397 celdas.
      */
-    LEFT JOIN (
-      SELECT w.kepler_code, p.sku::text AS sku, max(u.costo_unitario) AS costo_unitario
-        FROM ${COSTO} u
-        JOIN commercial.warehouses w ON w.id = u.warehouse_id AND w.tenant_id = u.tenant_id
-                                    AND w.deleted_at IS NULL AND w.kepler_code IS NOT NULL
-        JOIN catalog.products p ON p.id = u.product_id AND p.tenant_id = u.tenant_id
-                               AND p.deleted_at IS NULL AND p.sku IS NOT NULL
-       GROUP BY 1, 2
-    ) k ON k.kepler_code = c.sucursal AND k.sku = c.sku
+    LEFT JOIN LATERAL (
+      SELECT max(u.costo_unitario) AS costo_unitario
+        FROM commercial.warehouses w
+        JOIN catalog.products p ON p.tenant_id = w.tenant_id AND p.sku::text = c.sku
+                               AND p.deleted_at IS NULL
+        JOIN ${COSTO} u ON u.tenant_id = w.tenant_id AND u.warehouse_id = w.id
+                       AND u.product_id = p.id
+       WHERE c.accion_calc = 'liberar_capital'
+         AND w.kepler_code = c.sucursal AND w.deleted_at IS NULL
+    ) k ON true
     -- ⭐ [PR.V10] LEFT JOIN ... ON true, no CROSS JOIN: un agregado sin GROUP BY devuelve
     --    exactamente una fila, y asi el planificador puede quitar el join cuando nadie lee R7.
     LEFT JOIN LATERAL (
@@ -255,7 +269,9 @@ exports.up = async function up(knex) {
     escalera va en venta_30d y el saldo de liberar_capital en capital_inmovilizado_mxn.
     ⛔ [PR.V10] capital_inmovilizado_mxn era g2_valor_anual -el consumo de un AÑO a costo- y
     sumaba $81.3M contra $35.0M de existencia valuada en las mismas celdas: mas capital
-    "inmovilizado" que todo el inventario de la empresa. Ahora es existencia x costo para valuar.$c$`);
+    "inmovilizado" que todo el inventario de la empresa. Ahora es existencia x costo para valuar.
+    [PR.V10] aterrizar_precio es efecto_no_medido: el umbral D4 es la mediana de nuestros cambios
+    de precio, no una medicion de la reaccion del cliente (decision del PM, 2026-10-30).$c$`);
 
   await knex.raw(`COMMENT ON COLUMN ${VIEW}.capital_inmovilizado_mxn IS
     $c$[PR.V10] SALDO: e3_existencia x analytics.mv_erp_unit_cost.costo_unitario (el costo para
