@@ -322,55 +322,72 @@ export class PriceExperimentReadService {
 
   constructor(private readonly tk: TenantKnexService) {}
 
-  /** Los experimentos, con su avance de captura — que es lo que dice si se puede medir. */
+  /**
+   * Los experimentos, con su avance de captura — que es lo que dice si se puede medir.
+   *
+   * `[PR.V14]` La captura se DETECTA en la bitácora de Kepler (`v_price_experiment_application`):
+   * antes contaba sólo lo que alguien marcaba a mano, y en 29 días nadie marcó nada.
+   */
   async listar(): Promise<unknown[]> {
     return this.tk.run(async (trx) => {
       const { rows } = await trx.raw(`
+        WITH a AS (
+          SELECT experiment_id,
+                 count(*)::int                                                AS unidades,
+                 count(*) FILTER (WHERE rama = 'tratamiento')::int            AS tratamiento,
+                 count(*) FILTER (WHERE rama = 'control')::int                AS control,
+                 count(*) FILTER (WHERE rama = 'tratamiento'
+                                    AND aplicado_efectivo_el IS NOT NULL)::int AS capturadas,
+                 count(*) FILTER (WHERE estado_celda = 'aplicada_y_movida')::int AS movidas,
+                 count(*) FILTER (WHERE estado_celda = 'contaminada')::int     AS contaminadas,
+                 min(aplicado_efectivo_el)                                    AS primera_captura,
+                 max(aplicado_efectivo_el)                                    AS ultima_captura
+            FROM analytics.v_price_experiment_application
+           GROUP BY experiment_id
+        )
         SELECT e.id, e.nombre, e.estado, e.tipo, e.modo_aterrizaje, e.semilla,
                e.fecha_inicio, e.fecha_fin, e.resultado, e.resultado_motivo, e.created_at,
-               count(u.id)::int                                            AS unidades,
-               count(u.id) FILTER (WHERE u.rama = 'tratamiento')::int      AS tratamiento,
-               count(u.id) FILTER (WHERE u.rama = 'control')::int          AS control,
-               count(u.id) FILTER (WHERE u.rama = 'tratamiento'
-                                     AND u.aplicado_at IS NOT NULL)::int   AS capturadas,
-               min(u.aplicado_at)                                          AS primera_captura,
-               max(u.aplicado_at)                                          AS ultima_captura,
+               coalesce(a.unidades, 0) AS unidades, coalesce(a.tratamiento, 0) AS tratamiento,
+               coalesce(a.control, 0) AS control, coalesce(a.capturadas, 0) AS capturadas,
+               coalesce(a.movidas, 0) AS movidas, coalesce(a.contaminadas, 0) AS contaminadas,
+               a.primera_captura, a.ultima_captura,
                /**
                 * ⚠️ La dispersion de la captura. Si el tratamiento se captura a lo largo de
                 * semanas, las dos ramas dejan de compartir calendario y la estacionalidad entra
                 * como sesgo. Se publica para que se vea, no se esconde.
                 */
-               EXTRACT(DAY FROM (max(u.aplicado_at) - min(u.aplicado_at)))::int AS dias_dispersion
+               (a.ultima_captura - a.primera_captura)::int AS dias_dispersion
           FROM commercial.price_experiments e
-          LEFT JOIN commercial.price_experiment_units u
-                 ON u.tenant_id = e.tenant_id AND u.experiment_id = e.id
-         GROUP BY e.id, e.nombre, e.estado, e.tipo, e.modo_aterrizaje, e.semilla,
-                  e.fecha_inicio, e.fecha_fin, e.resultado, e.resultado_motivo, e.created_at
+          LEFT JOIN a ON a.experiment_id = e.id
          ORDER BY e.created_at DESC`);
       return rows;
     });
   }
 
   /**
-   * ⭐ La lista para capturar en Kepler. Sólo el TRATAMIENTO pendiente: el control no se toca,
-   * y mandarlo a alguien que captura es la forma más fácil de arruinar el experimento.
+   * ⭐ La lista para capturar en Kepler. Sólo el TRATAMIENTO: el control no se toca, y mandarlo
+   * a alguien que captura es la forma más fácil de arruinar el experimento.
+   *
+   * `[PR.V14]` Con el precio de HOY y su aterrizaje de hoy: la lista del día de la asignación
+   * envejece (en 29 días se movió el 16 % de los precios). `aplicado_at` es la aplicación
+   * EFECTIVA: la marcada a mano o la detectada en la bitácora, y `fuente_aplicacion` dice cuál.
    */
   async listaDeCaptura(experimentId: string): Promise<unknown[]> {
     return this.tk.run(async (trx) => {
       const { rows } = await trx.raw(`
-        SELECT u.id, u.sucursal, u.sku, u.estrato,
-               u.precio_antes, u.precio_propuesto,
-               round((100.0 * (u.precio_propuesto - u.precio_antes) / u.precio_antes)::numeric, 2)
+        SELECT a.unit_id AS id, a.sucursal, a.sku, a.estrato, a.unidad,
+               a.precio_antes, a.precio_propuesto, a.precio_hoy, a.propuesto_hoy,
+               round((100.0 * (a.propuesto_hoy - a.precio_hoy) / NULLIF(a.precio_hoy, 0))::numeric, 2)
                  AS alza_pct,
-               u.aplicado_at, u.aplicado_por
-          FROM commercial.price_experiment_units u
-         WHERE u.experiment_id = ?
-           AND u.rama = 'tratamiento'
-         ORDER BY u.aplicado_at NULLS FIRST, u.sucursal, u.sku`, [experimentId]);
+               a.aplicado_efectivo_el AS aplicado_at, a.aplicado_por, a.fuente_aplicacion,
+               a.estado_celda
+          FROM analytics.v_price_experiment_application a
+         WHERE a.experiment_id = ?
+           AND a.rama = 'tratamiento'
+         ORDER BY a.aplicado_efectivo_el NULLS FIRST, a.sucursal, a.sku`, [experimentId]);
       return rows;
     });
   }
-
   /**
    * Marca una unidad como capturada. ⛔ Sólo el tratamiento: marcar un control como "aplicado"
    * no tiene sentido y el servicio se niega en vez de dejar un registro confuso.

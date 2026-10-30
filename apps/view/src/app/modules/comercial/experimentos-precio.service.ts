@@ -15,21 +15,36 @@ export interface ExperimentoRow {
   fecha_inicio: string | null; fecha_fin: string | null;
   resultado: string | null; resultado_motivo: string | null;
   unidades: number; tratamiento: number; control: number; capturadas: number;
+  /** `[PR.V14]` Tratamientos que aterrizaron y luego se movieron · controles que aterrizaron. */
+  movidas: number; contaminadas: number;
   primera_captura: string | null; ultima_captura: string | null;
   dias_dispersion: number | null;
 }
 
+/**
+ * `[PR.V14]` Una celda del tratamiento. `precio_hoy`/`propuesto_hoy` son los de HOY (la lista del
+ * día de la asignación envejece); `precio_antes`/`precio_propuesto` quedan como el diseño.
+ * `aplicado_at` es la aplicación EFECTIVA: la marcada a mano o la detectada en la bitácora.
+ */
 export interface CapturaRow {
-  id: string; sucursal: string; sku: string; estrato: string;
-  precio_antes: string; precio_propuesto: string; alza_pct: string;
+  id: string; sucursal: string; sku: string; estrato: string; unidad: string | null;
+  precio_antes: string; precio_propuesto: string;
+  precio_hoy: string | null; propuesto_hoy: string | null; alza_pct: string | null;
   aplicado_at: string | null; aplicado_por: string | null;
+  fuente_aplicacion: 'marcada' | 'bitacora' | null;
+  estado_celda: 'pendiente' | 'aplicada' | 'aplicada_y_movida' | 'sin_ficha';
 }
 
 export interface ResultadoRow {
   estrato: string; delta_pct: string; n_trat: number; n_ctrl: number;
   cambio_trat_pct: string; cambio_ctrl_pct: string;
-  efecto_pct: string; ic_inferior_pct: string; ic_superior_pct: string;
+  /** NULL mientras no hay celdas medibles (sin_arrancar / en_curso): no se pinta un cero. */
+  efecto_pct: string | null; ic_inferior_pct: string | null; ic_superior_pct: string | null;
   veredicto: string; veredicto_motivo: string;
+  /** `[PR.V14]` Lo que dice por qué todavía no hay veredicto, o qué quedó fuera. */
+  n_trat_aplicadas: number; n_trat_pendientes: number; n_en_curso: number;
+  n_excluidas_cambio_precio: number; n_ctrl_contaminadas: number;
+  arranque: string | null; ventana_cierra: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -51,11 +66,6 @@ export class ExperimentosPrecioService {
 
   resultados(id: string): Observable<ResultadoRow[]> {
     return this.http.get<ResultadoRow[]>(`${this.base}/${id}/resultados`);
-  }
-
-  marcarAplicada(unitId: string): Observable<{ id: string; aplicado_at: string }> {
-    return this.http.patch<{ id: string; aplicado_at: string }>(
-      `${this.base}/units/${unitId}/aplicada`, {});
   }
 
   disenar(nombre: string, modo: string, semilla: number, estratos?: string[]): Observable<unknown> {

@@ -155,6 +155,40 @@ async function rechaza(c, etiqueta, sql, params) {
        AND column_name='semilla' AND is_nullable='NO'`);
   ck('⛔ y la semilla es NOT NULL: no se puede omitir', nn.n === 1);
 
+  // ── 6 · [PR.V14] LA DETECCIÓN Y LA ESPERA ───────────────────────────────────────────
+  console.log('\n6 · [PR.V14] la aplicación se detecta, y no se concluye antes de tiempo');
+  const [{ hay: hayVista }] = await q(`SELECT to_regclass('analytics.v_price_experiment_application') IS NOT NULL AS hay`);
+  if (!hayVista) {
+    console.log('  ⓘ NO MEDIDO: falta la migración 20261030112512 en este destino');
+  } else {
+    const [ap] = await q(`
+      SELECT (SELECT count(*)::int FROM commercial.price_experiment_units WHERE experiment_id = $1) unidades,
+             count(*)::int filas, count(*) FILTER (WHERE estado_celda IS NULL)::int sin_estado
+        FROM analytics.v_price_experiment_application WHERE experiment_id = $1`, [EXP_ID]);
+    ck('la detección ve TODAS las celdas del experimento, una vez cada una', ap.filas === ap.unidades,
+      `vista ${ap.filas} · unidades ${ap.unidades}`);
+    ck('ninguna celda sin estado', ap.sin_estado === 0);
+
+    // Una marca a mano sigue valiendo, y gana sobre lo detectado.
+    await q(`UPDATE commercial.price_experiment_units SET aplicado_at = now(), aplicado_por = 'prueba'
+              WHERE experiment_id = $1 AND rama = 'tratamiento'`, [EXP_ID]);
+    const [m] = await q(`
+      SELECT count(*) FILTER (WHERE fuente_aplicacion = 'marcada')::int marcadas,
+             count(*) FILTER (WHERE aplicado_efectivo_el IS NOT NULL)::int efectivas
+        FROM analytics.v_price_experiment_application WHERE experiment_id = $1 AND rama = 'tratamiento'`, [EXP_ID]);
+    ck('⭐ CONTROL POSITIVO: un tratamiento marcado a mano cuenta como aplicado', m.marcadas >= 1 && m.efectivas === m.marcadas,
+      `marcadas ${m.marcadas} · efectivas ${m.efectivas}`);
+
+    /**
+     * ⛔ Con una celda y la ventana recién abierta no hay nada que concluir. Si la vista diera
+     *    no_inferior / inferior / no_concluyente aquí, estaría concluyendo antes de tiempo.
+     */
+    const r = await q(`SELECT veredicto, veredicto_motivo FROM analytics.v_price_experiment_results WHERE experiment_id = $1`, [EXP_ID]);
+    ck('⛔ no concluye con una celda y la ventana abierta',
+      r.every((x) => !['no_inferior', 'inferior', 'no_concluyente'].includes(x.veredicto) && !!x.veredicto_motivo),
+      r.map((x) => x.veredicto).join(','));
+  }
+
   await c.query('ROLLBACK');
   await c.end();
   console.log(`\n${fail === 0 ? '✅' : '❌'} ${ok} ✓ / ${fail} ✗\n`);

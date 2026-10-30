@@ -58,7 +58,8 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
       <p class="surf-page-sub">
         Prueba de <strong>no-inferioridad</strong>: si aterrizar el precio hace caer el volumen
         más que el margen que el negocio tolera. El experimento
-        <strong>no cambia precios</strong> &mdash; entrega la lista y registra lo capturado.
+        <strong>no cambia precios</strong> &mdash; entrega la lista y reconoce sola, en la bitácora
+        de Kepler, lo que ya se capturó.
       </p>
     </div>
     <div class="xp-head-acc">
@@ -196,10 +197,12 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
             <h3 class="xp-det-h3">Veredicto</h3>
             @for (r of resultados(); track r.estrato) {
               <div class="xp-ver">
-                <div class="xp-ver-t">{{ r.veredicto }}</div>
-                <div class="xp-ver-n comm-num">
-                  {{ r.efecto_pct }}% &middot; IC [{{ r.ic_inferior_pct }}, {{ r.ic_superior_pct }}]
-                </div>
+                <div class="xp-ver-t">{{ veredictoTxt(r.veredicto) }} &middot; {{ r.estrato }}</div>
+                @if (r.efecto_pct !== null) {
+                  <div class="xp-ver-n comm-num">
+                    {{ r.efecto_pct }}% &middot; IC [{{ r.ic_inferior_pct }}, {{ r.ic_superior_pct }}]
+                  </div>
+                }
                 <p class="xp-ver-m">{{ r.veredicto_motivo }}</p>
               </div>
             }
@@ -214,14 +217,20 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
           <p class="xp-nota">
             <i class="pi pi-ban mx-ico" aria-label="Bloqueante"></i> Sólo el <strong>tratamiento</strong>. El control no se toca &mdash; ése es su trabajo.
           </p>
+          <!-- [PR.V14] Nadie marca nada: la captura se detecta en la bitacora de Kepler. -->
+          <p class="xp-nota">
+            No hace falta marcar nada: la Suite lee la bitácora de precios de Kepler y reconoce cada
+            captura sola, minutos después. Captura el precio en la <strong>unidad</strong> indicada;
+            el precio de hoy ya trae los cambios del costo.
+          </p>
           <table class="xp-cap">
             <thead>
               <tr>
                 <th scope="col">Plaza</th>
                 <th scope="col">SKU</th>
+                <th scope="col">Unidad</th>
                 <th scope="col" class="comm-num">Hoy</th>
                 <th scope="col" class="comm-num">Capturar</th>
-                <th scope="col">&nbsp;</th>
               </tr>
             </thead>
             <tbody>
@@ -229,11 +238,9 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                 <tr>
                   <td class="comm-code">{{ c.sucursal | sucursal }}</td>
                   <td class="comm-code">{{ c.sku }}</td>
-                  <td class="comm-num xp-old">{{ c.precio_antes | number: '1.2-2' }}</td>
-                  <td class="comm-num xp-new">{{ c.precio_propuesto | number: '1.2-2' }}</td>
-                  <td>
-                    <p-button type="button" label="Ya lo capturé" [loading]="marcando() === c.id" (click)="marcar(c)" styleClass="p-button-sm p-button-text" />
-                  </td>
+                  <td class="comm-code">{{ c.unidad }}</td>
+                  <td class="comm-num xp-old">{{ c.precio_hoy | number: '1.2-2' }}</td>
+                  <td class="comm-num xp-new">{{ c.propuesto_hoy | number: '1.2-2' }}</td>
                 </tr>
               } @empty {
                 <tr><td colspan="5" class="xp-nota">
@@ -483,7 +490,6 @@ export class ComercialExperimentosPrecioComponent {
   readonly sel = signal<ExperimentoRow | null>(null);
   readonly cargando = signal(true);
   readonly error = signal<string | null>(null);
-  readonly marcando = signal<string | null>(null);
   seleccion: ExperimentoRow | null = null;
 
   /** Sólo lo que falta capturar: lo ya hecho no es trabajo pendiente. */
@@ -501,11 +507,16 @@ export class ComercialExperimentosPrecioComponent {
     return [
       {
         label: 'Avance de captura', value: `${pct}%`, format: 'text', pct,
-        sub: `${x.capturadas} de ${x.tratamiento}`,
+        sub: `${x.capturadas} de ${x.tratamiento} · detectadas en Kepler`,
         tone: pct === 100 ? 'ok' : pct > 0 ? 'warn' : 'default',
       },
       { label: 'Tratamiento', value: x.tratamiento, format: 'number', sub: 'precios a mover' },
-      { label: 'Control', value: x.control, format: 'number', sub: 'no se tocan' },
+      {
+        label: 'Control', value: x.control, format: 'number',
+        // [PR.V14] Un control que aterrizó es contaminación: se dice, y queda fuera de la medición.
+        sub: x.contaminadas ? `${x.contaminadas} tocados: quedan fuera` : 'no se tocan',
+        tone: x.contaminadas ? 'bad' : 'default',
+      },
       {
         // ⛔ Sin capturas no hay dispersión: va texto con motivo, nunca un cero que engañe.
         label: 'Dispersión de captura',
@@ -545,27 +556,13 @@ export class ComercialExperimentosPrecioComponent {
 
   cerrar(): void { this.seleccion = null; this.sel.set(null); }
 
-  /** Registra que el precio YA se capturó en Kepler. ⛔ No lo aplica: el ERP es de sólo lectura. */
-  marcar(c: CapturaRow): void {
-    if (this.marcando()) return;
-    this.marcando.set(c.id);
-    const previo = this.captura();
-    // Optimista: sale de la lista ya. Si falla, vuelve — y se dice.
-    this.captura.update((arr) => arr.map((x) =>
-      x.id === c.id ? { ...x, aplicado_at: new Date().toISOString() } : x));
-    this.api.marcarAplicada(c.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
-        this.marcando.set(null);
-        this.toast.add({ severity: 'success', summary: 'Registrado',
-          detail: `${c.sku} en plaza ${c.sucursal}` });
-      },
-      error: (e) => {
-        this.marcando.set(null);
-        this.captura.set(previo);
-        this.toast.add({ severity: 'error', summary: 'No se registró',
-          detail: e?.error?.message ?? 'Intenta de nuevo' });
-      },
-    });
+  /** `[PR.V14]` El veredicto en palabras: el identificador no le dice nada a quien decide. */
+  veredictoTxt(v: string): string {
+    return ({
+      sin_arrancar: 'Sin arrancar', en_curso: 'En curso', no_inferior: 'No inferior',
+      inferior: 'Inferior', no_concluyente: 'No concluyente', sin_potencia: 'Sin potencia',
+      sin_varianza: 'Sin varianza',
+    } as Record<string, string>)[v] ?? v;
   }
 
   avance(r: ExperimentoRow): string {

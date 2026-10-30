@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Changed — El experimento de precio se lleva solo, salvo capturar en Kepler (PR.V14, 2026-10-30)
+- En **Comercial › Precios › Experimentos** ya no hace falta marcar cada precio capturado. La Suite lee la bitácora de precios de Kepler y reconoce sola cada captura, minutos después.
+- La lista de captura trae el **precio de hoy** y su aterrizaje de hoy, con la unidad en que se captura. La del día de la asignación ya estaba vieja: en 29 días cambió el precio de 452 de las 2,921 celdas.
+- El experimento **arranca solo** con la primera captura y **da el veredicto solo** cuando cierra la última ventana. Mientras tanto dice «Sin arrancar» o «En curso, cierra el …», en vez de concluir con datos a medias.
+- Si alguien mueve un precio del grupo de **control**, la pantalla lo dice y esa celda queda fuera. También quedan fuera, en los dos grupos por igual, las celdas cuyo precio se movió por otra razón dentro de su ventana.
+- ⚠️ Lo único que sigue siendo manual es capturar los 2,921 precios en Kepler. Que la Suite los escriba es la fase siguiente, y pide autorización.
+
 ### Fixed — Motor de margen: el «capital inmovilizado» era el consumo de un año (PR.V10, 2026-10-30)
 - La tarjeta «Capital inmovilizado» de **Comercial › Precios › Motor** publicaba $81.3 M «de saldo». En realidad era lo que esos productos consumen en **un año**, valuado a costo: más que todo el inventario de la empresa. Ahora es la **existencia valuada** ($35.0 M medidos el 30-oct) y se llama «Inventario en sobrestock». La tarjeta aclara que es la existencia entera, no lo que sobra.
 - «Corregir la escalera» ya no comparte barra con las demás: su cifra es la **venta expuesta**, no un incremento, y va aparte.
