@@ -3,7 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import {
   RolesGuard, RequirePermissions, RequireAnyPermission, Permission, isPlatformAdminRole,
 } from '@megadulces/platform-core';
-import { CommercialCommissionsService, type SimulacionEscala } from './commercial-commissions.service';
+import { CommercialCommissionsService, type SimulacionEscala, type CorridaConLineas } from './commercial-commissions.service';
 import { CommissionRecalcService, type RecalcResultado } from './commission-recalc.service';
 import { CommissionContrastService, type FaltoResumen, type FaltoFila } from './commission-contrast.service';
 import {
@@ -440,7 +440,7 @@ export class CommercialCommissionsController {
   @Post('runs/:id/void')
   @RequireAnyPermission(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR, Permission.COMMERCIAL_COMMISSIONS_APROBAR)
   @ApiOperation({ summary: 'Anula la corrida. Un borrador lo anula quien calcula; una aprobada, quien aprueba. Una pagada no se anula' })
-  voidRun(@Param('id') id: string, @Req() req: { user?: ActorComisiones }) {
+  voidRun(@Param('id') id: string, @Req() req: { user?: ActorComisiones }): Promise<CorridaConLineas> {
     const actor = req?.user;
     const esAdmin = (actor?.roles_frescos ?? []).some((r) => isPlatformAdminRole(r));
     const puedeDesaprobar = esAdmin || actor?.permissions?.[Permission.COMMERCIAL_COMMISSIONS_APROBAR] === true;

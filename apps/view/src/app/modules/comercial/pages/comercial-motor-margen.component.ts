@@ -208,14 +208,14 @@ import {
       </div>
     </div>
 
-    <app-load-state [loading]="colaCargando()" [error]="colaError()" [isEmpty]="!colaAgrupada().length"
+    <app-load-state class="dt-scope" [loading]="colaCargando()" [error]="colaError()" [isEmpty]="!colaAgrupada().length"
                     [skeletonRows]="8" errorTitle="No se pudo leer la cola" (retry)="traerCola()"
                     emptyIcon="pi-check-circle" emptyTitle="Nada que proponer con la evidencia de hoy"
                     [emptyHint]="vacioTxt()" [emptyCta]="filtroAccion() ? 'Ver todas las acciones' : null"
                     emptyCtaIcon="pi pi-list" (cta)="filtrarPor(null)">
       <!-- Atributo class y NO styleClass: el gate check-primeng-api.js marca styleClass en
            p-table como retirado en v22. Y sin acentos graves en este comentario. -->
-      <p-table [value]="colaAgrupada()" class="p-datatable-sm surf-table surf-table--sticky"
+      <p-table [value]="colaAgrupada()" class="p-datatable-sm surf-table surf-table--sticky dt-stack"
                [rowHover]="true" dataKey="key">
         <ng-template #header>
           <tr>
@@ -234,7 +234,7 @@ import {
               tabindex="0" role="button"
               [attr.aria-expanded]="f.plazas > 1 ? abiertos().has(f.key) : null"
               (click)="clic(f)" (keydown.enter)="clic(f)" (keydown.space)="clic(f, $event)">
-            <td>
+            <td class="dt-id" data-label="Producto" role="cell">
               <div class="mm-nom-l">
                 <span class="mm-sku">{{ f.row.sku }}</span>
                 <span class="mm-nom">{{ f.row.nombre }}</span>
@@ -248,57 +248,57 @@ import {
                 @if (!f.row.accionable) { <span class="mm-bloq">{{ bloqueosTxt(f.row.bloqueos) }}</span> }
               </div>
             </td>
-            <td>
+            <td data-label="Qué hacer" role="cell">
               <div class="mm-acc-c">
                 <span class="mm-acc-tag">{{ etiqueta(f.row.accion) }}</span>
                 <span class="mm-cert" [attr.data-c]="f.row.certeza">{{ certezaTxt(f.row.certeza) }}</span>
               </div>
             </td>
-            <td class="comm-num">{{ f.row.precio_actual | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-            <td class="comm-num">
+            <td class="comm-num dt-num" data-label="Precio" role="cell">{{ f.row.precio_actual | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+            <td class="comm-num dt-num" data-label="Propuesto" role="cell">
               @if (propuesto(f.row); as p) {
                 <span class="mm-prop">{{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
                 @if (p.alzaPct !== null) { <div class="mm-delta">+{{ p.alzaPct | number:'1.2-2' }}%</div> }
               } @else { <span class="mm-nd" aria-label="esta acción no propone un precio">&mdash;</span> }
             </td>
-            <td class="comm-num mm-dim">
+            <td class="comm-num mm-dim dt-num" data-label="Costo" role="cell">
               @if (f.row.a1_costo_hoy !== null) {
                 {{ f.row.a1_costo_hoy | currency:'MXN':'symbol-narrow':'1.2-2' }}
               } @else { <span class="mm-nd" aria-label="sin costo">n/d</span> }
             </td>
-            <td class="comm-num">
+            <td class="comm-num dt-num" data-label="Margen vs meta" role="cell">
               @if (f.row.margen_realizado_pct !== null) {
                 <span>{{ f.row.margen_realizado_pct }}%</span>
                 <div class="mm-delta" [attr.data-d]="signoDelta(f.row)">{{ deltaTxt(f.row) }}</div>
               } @else { <span class="mm-nd" aria-label="sin margen medido">n/d</span> }
             </td>
-            <td class="comm-num">
+            <td class="comm-num dt-num" data-label="Dinero en juego" role="cell">
               <div class="mm-monto">{{ montoTxt(f.monto, f.unidad) }}</div>
               @if (f.row.s1_senal) {
                 <div class="mm-s1">{{ senalTxt(f.row.s1_senal) }}</div>
               }
             </td>
-            <td class="mm-go" aria-hidden="true">{{ f.plazas > 1 ? (abiertos().has(f.key) ? '−' : '+') : '›' }}</td>
+            <td class="mm-go dt-actions" aria-hidden="true">{{ f.plazas > 1 ? (abiertos().has(f.key) ? '−' : '+') : '›' }}</td>
           </tr>
 
           @if (f.plazas > 1 && abiertos().has(f.key)) {
             @for (h of f.hijos; track h.sucursal) {
               <tr class="mm-sub" tabindex="0" role="button"
                   (click)="abrirFila(h)" (keydown.enter)="abrirFila(h)" (keydown.space)="abrirFila(h, $event)">
-                <td><span class="mm-sub-p">{{ h.sucursal | sucursal }}</span></td>
-                <td class="mm-dim">
+                <td class="dt-id" data-label="Sucursal" role="cell"><span class="mm-sub-p">{{ h.sucursal | sucursal }}</span></td>
+                <td class="mm-dim" data-label="Bloqueo" role="cell">
                   @if (!h.accionable) { <span class="mm-bloq">{{ bloqueosTxt(h.bloqueos) }}</span> }
                 </td>
-                <td class="comm-num mm-dim">{{ h.precio_actual | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                <td></td>
-                <td class="comm-num mm-dim">
+                <td class="comm-num mm-dim dt-num" data-label="Precio" role="cell">{{ h.precio_actual | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td class="dt-num" data-label="Propuesto" role="cell"></td>
+                <td class="comm-num mm-dim dt-num" data-label="Costo" role="cell">
                   @if (h.a1_costo_hoy !== null) { {{ h.a1_costo_hoy | currency:'MXN':'symbol-narrow':'1.2-2' }} }
                 </td>
-                <td class="comm-num mm-dim">
+                <td class="comm-num mm-dim dt-num" data-label="Margen vs meta" role="cell">
                   @if (h.margen_realizado_pct !== null) { {{ h.margen_realizado_pct }}% }
                 </td>
-                <td class="comm-num">{{ montoTxt(montoFila(h), h.monto_unidad) }}</td>
-                <td class="mm-go" aria-hidden="true">&rsaquo;</td>
+                <td class="comm-num dt-num" data-label="Dinero en juego" role="cell">{{ montoTxt(montoFila(h), h.monto_unidad) }}</td>
+                <td class="mm-go dt-actions" aria-hidden="true">&rsaquo;</td>
               </tr>
             }
           }

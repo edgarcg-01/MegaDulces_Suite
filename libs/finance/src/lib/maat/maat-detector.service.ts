@@ -1,3 +1,4 @@
+import type { Knex } from 'knex';
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { MaatAnomalyService } from './maat-anomaly.service';
@@ -207,7 +208,7 @@ export class MaatDetectorService {
    * escribieron. Pero su propio fallo se dice: un rastro que se pierde en silencio sería el
    * mismo defecto una capa más arriba.
    */
-  private async marcarCorrida(trx: any, tenantId: string, ruleKey: string, error: string | null): Promise<void> {
+  private async marcarCorrida(trx: Knex.Transaction, tenantId: string, ruleKey: string, error: string | null): Promise<void> {
     try {
       await trx.raw(
         `UPDATE finance.rule_registry
@@ -218,8 +219,8 @@ export class MaatDetectorService {
           WHERE tenant_id = ? AND rule_key = ?`,
         [error, error, error, tenantId, ruleKey],
       );
-    } catch (e: any) {
-      this.logger.warn(`No se pudo registrar la corrida de ${ruleKey}: ${e?.message || e}`);
+    } catch (e: unknown) {
+      this.logger.warn(`No se pudo registrar la corrida de ${ruleKey}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

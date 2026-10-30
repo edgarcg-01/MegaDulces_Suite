@@ -597,7 +597,7 @@ export class CommercialSalesDocumentsService {
         .whereRaw(`b.fecha >= (now() AT TIME ZONE 'America/Mexico_City')::date - ?::int`, [DIAS_SIN_FACTURA])
         .whereIn('b.diagnostico', ['sin_factura', 'facturado_en_cero']);
       if (q.warehouse_codes) b.whereIn('b.sucursal', q.warehouse_codes);
-      const rows: any[] = await b
+      const rows = await b
         .select('b.folio_digital', 'b.sucursal', 'b.folio', trx.raw('b.fecha::text AS fecha'),
           'b.cliente_code', 'b.cliente_nombre', 'b.total_embarcado', 'b.diagnostico', 'b.facturas')
         .orderBy([{ column: 'b.fecha', order: 'desc' }, { column: 'b.folio', order: 'desc' }]);
@@ -629,7 +629,7 @@ export class CommercialSalesDocumentsService {
    * midió 30–422 ms (crece con las paradas), y con ella el detalle pasaba de 500 ms por un dato
    * que no decide nada en esta pantalla.
    */
-  private async embarqueDe(trx: any, tenantId: string, doc: Record<string, any>): Promise<EmbarqueDeFactura> {
+  private async embarqueDe(trx: Knex.Transaction, tenantId: string, doc: Record<string, unknown>): Promise<EmbarqueDeFactura> {
     const origen = doc.doc_origen ? String(doc.doc_origen).trim() : null;
     const m = origen ? /^UD41(\d{2})-(\S+)$/.exec(origen) : null;
     if (!origen || !m) return { status: 'sin_backpointer', origen };

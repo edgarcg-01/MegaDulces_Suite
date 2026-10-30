@@ -226,6 +226,13 @@ const SQL_COSTO_DIA = `
 const ORDEN_COSTO = ['sin_costo', 'solo_wincaja_reexpresado', 'una_fuente_erp',
   'una_fuente_embarque', 'dos_fuentes'] as const;
 
+/**
+ * Lo que devuelve una corrida leída dentro de la transacción: su fila tal cual más sus
+ * renglones ya numerizados. Se declara así —y no con un esquema inventado— porque la fila
+ * sale de un `.first()` de Knex y nadie la tipó todavía: decirlo es más honesto que fingir.
+ */
+export type CorridaConLineas = Record<string, unknown> & { lines: Record<string, unknown>[] };
+
 @Injectable()
 export class CommercialCommissionsService {
   private readonly logger = new Logger(CommercialCommissionsService.name);
@@ -803,7 +810,7 @@ export class CommercialCommissionsService {
     runId: string,
     status: 'aprobado' | 'pagado' | 'anulado',
     opts: { puedeDesaprobar?: boolean } = {},
-  ) {
+  ): Promise<CorridaConLineas> {
     const userId = this.tenantCtx.get()?.userId ?? null;
     return this.tk.run(async (trx) => {
       const run = await trx('commercial.commission_runs')
