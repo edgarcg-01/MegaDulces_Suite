@@ -26,10 +26,17 @@
  */
 'use strict';
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '..', '.env'), quiet: true });
+const fs = require('fs');
+// ⛔ Donde corre la carga (el pod `feeds-cron`) no hay `.env` del repo ni `libs/`: el entorno lo pone el secreto del
+// pod. Las dos cargas son opcionales. Y la estación de trabajo NO puede escribir en prod a propósito: su rol trae
+// `default_transaction_read_only=on`. La carga corre donde corren los feeds, nunca saltándose eso.
+const ENV_REPO = path.resolve(__dirname, '..', '..', '..', '.env');
+if (fs.existsSync(ENV_REPO)) require('dotenv').config({ path: ENV_REPO, quiet: true });
 const sql = require('mssql');
 const { Client } = require('pg');
-const { classify } = require(path.resolve(__dirname, '..', '..', '..', 'libs/platform-core/src/lib/provenance/target-guard.js'));
+const GUARDIA = path.resolve(__dirname, '..', '..', '..', 'libs/platform-core/src/lib/provenance/target-guard.js');
+const classify = fs.existsSync(GUARDIA) ? require(GUARDIA).classify
+  : (url) => { try { const u = new URL(url); return { kind: '¿?', host: u.host, db: u.pathname.slice(1) }; } catch { return { kind: '¿?', host: null, db: null }; } };
 
 const arg = (n, d) => {
   const p = process.argv.find((a) => a.startsWith(`--${n}=`));
