@@ -282,6 +282,13 @@ export interface OpenOcResponse {
 }
 export interface WorkbookRow {
   product_id: string; sku: string; nombre: string;
+  /**
+   * `[PQ.37]` Sin existencia, venta diaria ni tránsito en ningún almacén: entró a la lista en cero
+   * (por la búsqueda o el filtro de agotados) para poder pedirlo. `ultima_venta` = su última venta
+   * registrada; `null` = ninguna.
+   */
+  fuera_calculo?: boolean | null;
+  ultima_venta?: string | null;
   /** El backend ya lo devolvía (`prod.supplier_id`); faltaba declararlo. Lo necesita la
    *  requisición, que agrupa por (proveedor × almacén). */
   supplier_id: string | null;
@@ -361,12 +368,20 @@ export interface WorkbookResponse {
    * píldora declara «sin medir» en vez de esconderse.
    */
   freshness?: Freshness | null;
+  /**
+   * `[PQ.37]` Cuántos productos, con los mismos filtros, no tienen existencia, venta diaria ni
+   * tránsito en ningún almacén y SÍ vendieron en 12 meses. Esos no salen en la lista normal.
+   * `null`/ausente = no medido.
+   */
+  agotados_con_venta?: number | null;
   rows: WorkbookRow[];
 }
 export interface WorkbookQuery {
   supplier_id?: string; brand_id?: string; category_id?: string; search?: string; coverage_days?: number; scope?: string;
   warehouse_ids?: string[]; group?: 'branch' | 'general'; page?: number; pageSize?: number;
   iad?: 'accel' | 'decel'; only_overstock?: boolean;   // RA-PRO.36.2 filtros server-side
+  /** `[PQ.37]` Sólo los agotados en toda la red que sí vendieron en 12 meses (entran en cero). */
+  agotados?: boolean;
 }
 // RA-PRO.32 — detalle drill-down de un SKU (desglose por almacén de los 4 puntos de compra).
 export interface WorkbookDetailWarehouse {
@@ -1306,6 +1321,7 @@ export class ComprasService {
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     if (q.iad) p.set('iad', q.iad);
     if (q.only_overstock) p.set('only_overstock', 'true');
+    if (q.agotados) p.set('agotados', 'true');
     if (q.brand_id) p.set('brand_id', q.brand_id);
     const qs = p.toString();
     return this.http.get<WorkbookResponse>(`${this.base}/workbook${qs ? '?' + qs : ''}`);

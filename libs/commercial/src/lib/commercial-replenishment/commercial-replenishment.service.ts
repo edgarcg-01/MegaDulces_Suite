@@ -350,6 +350,7 @@ export interface WorkbookQuery {
   export?: boolean;         // XLSX: sube el cap de filas para exportar TODO (sin paginar). No expuesto por query param.
   iad?: string;             // RA-PRO.36.2 — filtro de tendencia server-side: 'accel' (IAD≥0.25) | 'decel' (IAD≤−0.25)
   only_overstock?: boolean; // RA-PRO.36.2 — solo productos con sobrestock (algún territorio con >90 días en mano)
+  agotados?: boolean;       // [PQ.37] sólo los agotados en toda la red que SÍ vendieron en 12 meses (entran en cero)
 }
 
 interface RequisitionLineDto {
@@ -2060,6 +2061,62 @@ export class CommercialReplenishmentService {
       if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
       const where = filters.join(' AND ');
 
+      // `[PQ.37]` LO AGOTADO NO DESAPARECE. La lista sale de `replenishment_plan` y deja fuera todo
+      // renglón sin existencia, sin venta diaria y sin tránsito. Un producto que se agotó deja de
+      // venderse, y al dejar de venderse salía de la lista justo cuando hay que comprarlo (31101,
+      // ATE AZUCAR GRANEL: última venta 3-jun, cero en toda la red; medido el 2026-10-30, 2,255
+      // productos activos así que SÍ vendieron en 12 meses). Al buscar, o con el filtro
+      // `agotados`, esos productos entran en CERO a las columnas de la red —sugerido 0, nada se
+      // inventa— marcados `fuera`, para que se puedan pedir a mano. Sin búsqueda ni filtro la
+      // consulta es la de siempre.
+      const agotados = q.agotados === true;
+      const conFuera = agotados || !!(q.search && q.search.trim());
+      const VIVO = '(rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)';
+      const RP_COLS = 'tenant_id, warehouse_id, product_id, suf, bf, display_bf, caja_cost, daily_pieces, stock_pz, transit_cajas, transit_eff_cajas, revenue30, season_ratio, season_src, rung_veredicto, rung_bf_esperado, rung_arbitrado';
+      // Los productos que quedaron fuera. Primero la lista pelada (barata); las dos vistas —factor y
+      // costo de caja— se leen DESPUÉS y acotadas a esa lista: unidas de entrada, el planificador las
+      // re-evaluaba por producto (19 s medidos en prod para 8 productos).
+      const FZ0 = `SELECT pr.id AS product_id, pr.sku, pr.cost_with_tax AS cwt
+                     FROM catalog.products pr
+                    WHERE ${where}
+                      AND NOT EXISTS (SELECT 1 FROM analytics.replenishment_plan rp
+                                       WHERE rp.tenant_id = :t AND rp.product_id = pr.id AND ${VIVO})
+                      ${agotados ? `AND EXISTS (SELECT 1 FROM analytics.sales_daily s WHERE s.tenant_id = :t AND s.product_id = pr.id
+                                                   AND s.sale_date >= current_date - 365 AND s.units > 0)` : ''}`;
+      // El costo de la caja, de Kepler (Costo Uni Mayor, misma fuente que el importer); el catálogo
+      // por el factor, sólo si el SKU no tiene escalera — la misma caída que `import-replenishment-plan`.
+      // La copia materializada del factor por producto (11,350 filas, EXCEPT contra la vista = 0 en los
+      // dos sentidos, medido el 2026-10-30): la vista cuesta 2.5 s y no acota por producto.
+      const pbfSrc = conFuera && (await trx.raw("SELECT to_regclass('analytics.mv_product_box_factor') AS a")).rows?.[0]?.a
+        ? 'analytics.mv_product_box_factor' : 'analytics.v_product_box_factor';
+      const rpSrc = (vbfTabla: string): string => !conFuera ? 'analytics.replenishment_plan' : `(
+          WITH fz0 AS MATERIALIZED (${FZ0}),
+          kb AS MATERIALIZED (SELECT product_id, max(box_factor) AS box_factor FROM ${pbfSrc}
+                               WHERE tenant_id = :t AND product_id IN (SELECT product_id FROM fz0) GROUP BY product_id),
+          lc AS MATERIALIZED (SELECT sku, max(box_cost) AS box_cost FROM analytics.v_supplier_cost_ladder
+                               WHERE sku IN (SELECT sku FROM fz0) GROUP BY sku),
+          fz AS MATERIALIZED (
+            SELECT fz0.product_id, GREATEST(COALESCE(uov.box_factor, kb.box_factor, 1), 1) AS bf,
+                   COALESCE(uov.pieces_per_unit, 1) AS suf, lc.box_cost, fz0.cwt
+              FROM fz0
+              LEFT JOIN kb ON kb.product_id = fz0.product_id
+              LEFT JOIN lc ON lc.sku = fz0.sku
+              LEFT JOIN commercial.product_unit_overrides uov ON uov.tenant_id = :t AND uov.product_id = fz0.product_id AND uov.deleted_at IS NULL)
+          SELECT ${RP_COLS}, false AS fuera FROM analytics.replenishment_plan
+           WHERE tenant_id = :t AND product_id NOT IN (SELECT product_id FROM fz)
+             AND product_id IN (SELECT pr.id FROM catalog.products pr WHERE ${where})
+             ${agotados ? 'AND false' /* el filtro deja sólo los de fuera: no se paga el plan entero */ : ''}
+          UNION ALL
+          SELECT CAST(:t AS uuid), wz.warehouse_id, fz.product_id, fz.suf, fz.bf,
+                 GREATEST(COALESCE(db.box_factor, fz.bf), 1), COALESCE(fz.box_cost, fz.cwt * fz.bf),
+                 0, 0, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, true
+            FROM fz
+           CROSS JOIN (SELECT warehouse_id FROM analytics.replenishment_plan WHERE tenant_id = :t
+                        GROUP BY warehouse_id HAVING SUM(stock_pz) > 0) wz
+            LEFT JOIN ${vbfTabla} db ON db.tenant_id = :t AND db.warehouse_id = wz.warehouse_id AND db.product_id = fz.product_id
+        )`;
+      const VIVO_O_FUERA = conFuera ? `(${VIVO} OR rp.fuera)` : VIVO;
+
       // Columnas = SUCURSAL (branch) o una sola GENERAL (red), a elección del usuario. Territorio = el
       // almacén MISMO (NO se colapsa a raíz — eso sobre-agrupaba todo a CEDIS en prod). Selección de
       // sucursales por warehouse_ids (una/varias); sin selección = todas las que sostienen inventario
@@ -2108,6 +2165,7 @@ export class CommercialReplenishmentService {
       if (q.iad === 'accel') wbConds.push('da.iad >= 0.25');
       else if (q.iad === 'decel') wbConds.push('da.iad <= -0.25');
       if (q.only_overstock) wbConds.push('p.has_over');
+      if (agotados) wbConds.push('p.fuera_calculo');
       const wbWhere = wbConds.length ? `WHERE ${wbConds.join(' AND ')}` : '';
       // `[RA-PERF.1]` La vista del factor de caja se lee de su COPIA MATERIALIZADA.
       //
@@ -2242,9 +2300,9 @@ export class CommercialReplenishmentService {
                  -- suficiente; NO es 1.0 ni 0: la ausencia se declara y el pedido no se mueve.
                  -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
                  ${erpReady ? 'fre.fr' : 'NULL::numeric'} AS fill_erp,
-                 ${colExpr} AS col_code
+                 ${colExpr} AS col_code, ${conFuera ? 'rp.fuera' : 'false'} AS fuera
             FROM catalog.products pr
-            JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
+            JOIN ${rpSrc(vbfSrc)} rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
             JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
             LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = pr.tenant_id AND rop.product_id = pr.id AND rop.warehouse_id = rp.warehouse_id
             LEFT JOIN lad ON lad.sku = pr.sku
@@ -2259,7 +2317,7 @@ export class CommercialReplenishmentService {
                   AND vbf.product_id = rp.product_id
             ${stockJoin}
            WHERE ${where}${whFilter}
-             AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
+             AND ${VIVO_O_FUERA}
         ),
         per AS (
           SELECT b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code,
@@ -2329,7 +2387,7 @@ export class CommercialReplenishmentService {
                  max(b.rop_xyz) AS xyz,
                  max(b.season_ratio) AS season_ratio, max(b.season_src) AS season_src,
                  max(b.unidad_base) AS unidad_base, max(b.unidad_u2) AS unidad_u2, max(b.unidad_u3) AS unidad_u3,
-                 max(b.unidad_f2) AS unidad_f2, max(b.unidad_f3) AS unidad_f3
+                 max(b.unidad_f2) AS unidad_f2, max(b.unidad_f3) AS unidad_f3, bool_or(b.fuera) AS fuera
             FROM base b
            GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code
         ),
@@ -2380,7 +2438,8 @@ export class CommercialReplenishmentService {
                  count(*) FILTER (WHERE rung_veredicto IN ('x1_inflada','x2_deflactada'))::int AS almacenes_sin_valuar,
                  round(sum(rung_arbitrado) FILTER (WHERE rung_veredicto IN ('x1_inflada','x2_deflactada'))::numeric, 2) AS valor_exis_arbitrado,
                  max(rung_veredicto) FILTER (WHERE rung_veredicto IN ('x1_inflada','x2_deflactada')) AS rung_peor,
-                 bool_or(exis > 0 AND (vta <= 0 OR exis * 30.0 / NULLIF(vta, 0) > 90)) AS has_over
+                 bool_or(exis > 0 AND (vta <= 0 OR exis * 30.0 / NULLIF(vta, 0) > 90)) AS has_over,
+                 bool_or(fuera) AS fuera_calculo
             FROM per
            GROUP BY product_id, sku, nombre, supplier_id
         )
@@ -2395,7 +2454,9 @@ export class CommercialReplenishmentService {
                CASE WHEN lp.box_size > 1 AND lp.pack_size > 1 AND lp.box_size % lp.pack_size = 0
                     THEN (lp.box_size / lp.pack_size) ELSE NULL END AS packs_per_box,
                da.iad, da.band AS iad_band, da.status AS iad_status,
-               da.z_short AS iad_z_short, da.z_seasonal AS iad_z_seasonal, da.has_seasonal AS iad_has_seasonal
+               da.z_short AS iad_z_short, da.z_seasonal AS iad_z_seasonal, da.has_seasonal AS iad_has_seasonal,
+               CASE WHEN p.fuera_calculo THEN (SELECT max(z.sale_date)::text FROM (SELECT s.sale_date, s.units FROM analytics.sales_daily s
+                                               WHERE s.tenant_id = :t AND s.product_id = p.product_id OFFSET 0) z WHERE z.units > 0) END AS ultima_venta
           FROM prod p
           LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = p.supplier_id
           LEFT JOIN (SELECT product_id, max(box_size) box_size, max(pack_size) pack_size
@@ -2443,7 +2504,8 @@ export class CommercialReplenishmentService {
                round(COALESCE(SUM(valor_exis_arbitrado) OVER (), 0)::numeric, 2)         AS _exis_sin_valuar_arbitrado`;
       const innerWin = inner.replace('\n          FROM prod p\n', `${win}\n          FROM prod p\n`);
       if (innerWin === inner) throw new Error('[RA-PERF.4] no se pudo inyectar el bloque de totales en la consulta del workbook');
-      const sqlFilas = `${innerWin} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`;
+      // [PQ.37] Los agotados no tienen venta de 30 d que ordene: van por la venta más reciente.
+      const sqlFilas = `${innerWin} ORDER BY ${agotados ? 'ultima_venta DESC NULLS LAST, ' : ''}valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`;
       // `[RA-UX.11b]` Lo PESADO —filas, totales y sucursales— va al caché; lo que cambia al armar
       // (las señales: «ya requisado», margen, venta perdida) y la frescura se calculan SIEMPRE.
       // La llave es la SQL exacta + sus parámetros: incluye filtros, cobertura, configuración y el
@@ -2488,7 +2550,23 @@ export class CommercialReplenishmentService {
         // Columnas presentes → dinámicas. General = 1 columna; por sucursal = 1 almacén por columna.
         const sucursales = general
           ? [{ code: 'GENERAL', name: 'General (red)' }]
-          : (await trx.raw(`
+          : (await trx.raw(conFuera
+            // [PQ.37] Los de fuera entran en cero a los almacenes con existencia: esas columnas se
+            // suman sólo si hay alguno, sin volver a armar la unión entera (3 s medidos).
+            ? `
+            SELECT w.code, max(w.name) AS name
+              FROM (${agotados ? '' : `SELECT rp.warehouse_id
+                      FROM catalog.products pr
+                      JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
+                     WHERE ${where} AND ${VIVO}
+                    UNION `}
+                    SELECT warehouse_id FROM analytics.replenishment_plan WHERE tenant_id = :t
+                     GROUP BY warehouse_id HAVING SUM(stock_pz) > 0 AND EXISTS (${FZ0})) rp
+              JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
+              ${stockJoin}
+             WHERE true${whFilter}
+             GROUP BY w.code`
+            : `
             SELECT w.code, max(w.name) AS name
               FROM catalog.products pr
               JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
@@ -2502,13 +2580,21 @@ export class CommercialReplenishmentService {
             // compartido con el frontend vía @megadulces/contracts. El ORDER BY de arriba sólo
             // decide qué entra cuando hay tope; la secuencia de columnas la fija el negocio.
             .sort((a: { code: string }, b: { code: string }) => compareWarehouseCodes(a.code, b.code));
-        return JSON.stringify({ rows: filas, tot: totales, territories: sucursales });
+        // [PQ.37] Cuantos agotados que si vendian quedan fuera de ESTA lista (mismos filtros). 199 ms
+        // medidos en prod sin filtros; viaja en la misma cache que la pagina.
+        const agotadosConVenta = q.export ? null : Number((await trx.raw(
+          `SELECT count(*)::int AS n FROM catalog.products pr
+            WHERE ${where}
+              AND NOT EXISTS (SELECT 1 FROM analytics.replenishment_plan rp WHERE rp.tenant_id = :t AND rp.product_id = pr.id AND ${VIVO})
+              AND EXISTS (SELECT 1 FROM analytics.sales_daily s WHERE s.tenant_id = :t AND s.product_id = pr.id
+                             AND s.sale_date >= current_date - 365 AND s.units > 0)`, binds)).rows[0]?.n ?? 0);
+        return JSON.stringify({ rows: filas, tot: totales, territories: sucursales, agotados: agotadosConVenta });
       };
       const cacheable = !q.export && pageSize <= 200 && !!this.cache;
       const res = JSON.parse(cacheable
-        ? await this.cache!.getOrSet('pedido:wb:v1:' + createHash('sha1').update(sqlFilas).update(JSON.stringify(binds)).digest('hex'),
+        ? await this.cache!.getOrSet('pedido:wb:v2:' + createHash('sha1').update(sqlFilas).update(JSON.stringify(binds)).digest('hex'),
             CommercialReplenishmentService.WB_CACHE_MS, pesado)
-        : await pesado()) as { rows: Array<Record<string, unknown>>; tot: Record<string, unknown> | undefined; territories: Array<{ code: string; name: string }> };
+        : await pesado()) as { rows: Array<Record<string, unknown>>; tot: Record<string, unknown> | undefined; territories: Array<{ code: string; name: string }>; agotados?: number | null };
       const rows = res.rows;
       const tot = res.tot;
       const territories = res.territories;
@@ -2555,6 +2641,7 @@ export class CommercialReplenishmentService {
         page, pageSize, coverage_days: cov,
         freshness,
         territories,
+        agotados_con_venta: res.agotados ?? null,
         totals: {
           pedido: Number(tot?.total_pedido || 0),
           venta: Number(tot?.total_venta || 0),

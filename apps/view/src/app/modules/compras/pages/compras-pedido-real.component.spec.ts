@@ -1327,3 +1327,59 @@ describe('[PQ.4] la agenda por proveedor, y el tope de la lista por canal se dec
     expect(c.wlTope()).toBeNull();
   });
 });
+
+describe('[PQ.37] lo agotado no desaparece de la lista', () => {
+  beforeEach(() => { try { localStorage.clear(); } catch { /* jsdom */ } });
+
+  /** El caso real: 31101 ATE AZUCAR GRANEL, cero en la red y última venta el 3 de junio. */
+  const ATE = {
+    product_id: 'p-ate', sku: '31101', nombre: 'ATE AZUCAR GRANEL 1KG', supplier_id: 's-del', supplier_name: 'DELICIATE',
+    uxc: 10, caja_cost: 550, cells: { '00': { vta: 0, exis: 0, ped: 0, tran: 0, cc: 550 } }, signals: null,
+    fuera_calculo: true, ultima_venta: '2026-06-03',
+  };
+  const texto = (fix: { nativeElement: HTMLElement }) => fix.nativeElement.textContent ?? '';
+
+  it('⭐ el aviso dice cuántos agotados que vendían no salen, y «Verlos» los pide sin «Solo con pedido»', () => {
+    const fix = montar({ ...VACIO, total: 1, rows: [ATE], agotados_con_venta: 2255 });
+    const c = fix.componentInstance;
+    c.wbScopeNeeded.set(true);
+    fix.detectChanges();
+    expect(texto(fix)).toContain('2,255');
+    expect(texto(fix)).toContain('no salen en esta lista');
+    const wb = vi.spyOn(TestBed.inject(ComprasService), 'workbook');
+    const verlos = Array.from(fix.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find((b) => b.textContent?.trim() === 'Verlos')!;
+    verlos.click();
+    expect(wb).toHaveBeenCalledTimes(1);
+    expect(wb.mock.calls[0][0]).toMatchObject({ agotados: true });
+    expect(wb.mock.calls[0][0].scope).toBeUndefined();   // un agotado entra con sugerido 0: «Solo con pedido» lo volvería a esconder
+    fix.detectChanges();
+    expect(texto(fix)).toContain('Volver a la lista');
+  });
+
+  it('⭐ el renglón dice por qué está en cero y desde cuándo no se vende', () => {
+    const fix = montar({ ...VACIO, total: 1, rows: [ATE], agotados_con_venta: 1 });
+    fix.detectChanges();
+    expect(texto(fix)).toContain('sin existencia en la red');
+    expect(fix.componentInstance.ultimaVentaTexto(ATE as never)).toMatch(/^última venta 3 jun/);
+    expect(fix.componentInstance.ultimaVentaTexto({ ...ATE, ultima_venta: null } as never)).toBe('sin venta registrada');
+  });
+
+  it('NEGATIVA: sin agotados (o sin medir) no hay aviso', () => {
+    for (const n of [0, null, undefined]) {
+      const fix = montar({ ...VACIO, agotados_con_venta: n });
+      fix.detectChanges();
+      expect(texto(fix)).not.toContain('no salen en esta lista');
+      expect(texto(fix)).not.toContain('no sale en esta lista');
+    }
+  });
+
+  it('NEGATIVA: el vacío ya no culpa a «la topología de abasto»: dice qué se buscó', () => {
+    const fix = montar(VACIO);
+    const c = fix.componentInstance;
+    c.search = 'ZZZ-NO-EXISTE';
+    c.loadWorkbook();
+    fix.detectChanges();
+    expect(texto(fix)).toContain('Ningún producto activo coincide con «ZZZ-NO-EXISTE»');
+    expect(texto(fix)).not.toContain('topología de abasto');
+  });
+});

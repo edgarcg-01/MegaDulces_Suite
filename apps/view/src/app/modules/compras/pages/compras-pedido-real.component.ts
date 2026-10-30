@@ -321,7 +321,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                las flechas por su cuenta (abren su lista) y meterlos en el toolbar se las robaría. -->
           <div class="pr-toolbar" role="toolbar" aria-label="Filtros y acciones"
                (keydown)="onToolbarKey($event)">
-            <button type="button" class="pr-chip" [tabindex]="toolbarIdx() === 0 ? 0 : -1" [attr.aria-pressed]="wbScopeNeeded()" [class.pr-chip-on]="wbScopeNeeded()" (click)="wbScopeNeeded.set(!wbScopeNeeded()); loadWorkbook()">Solo con pedido</button>
+            <button type="button" class="pr-chip" [tabindex]="toolbarIdx() === 0 ? 0 : -1" [attr.aria-pressed]="wbScopeNeeded()" [class.pr-chip-on]="wbScopeNeeded()" (click)="wbScopeNeeded.set(!wbScopeNeeded()); wbAgotados.set(false); loadWorkbook()">Solo con pedido</button>
             <button type="button" class="pr-chip pr-mas" [tabindex]="toolbarIdx() === 1 ? 0 : -1" [class.pr-chip-on]="mostrarMas()"
                     [attr.aria-expanded]="mostrarMas()" aria-controls="pr-mas-filtros" (click)="masFiltrosAbierto.set(!mostrarMas())"
                     title="Marca, categoría, sucursales, sobrestock y tendencia">
@@ -397,6 +397,20 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               </div>
             </div>
           }
+          <!-- [PQ.37] Lo agotado no desaparece: la lista sale del plan, y un producto sin existencia,
+               venta ni tránsito en ningún almacén no tiene renglón. Se declara cuántos son y se llega
+               a ellos en un clic; entran en cero para pedirlos a mano. -->
+          @if (wbAgotados()) {
+            <p class="pr-agotados" role="status">Sólo los productos <strong>sin existencia en ninguna sucursal</strong>
+              que sí vendieron en los últimos 12 meses, del más reciente al más viejo. Entran en cero: el sugerido no
+              los calcula, la cantidad la pones tú.
+              <button type="button" class="pr-zlink" (click)="setAgotados(false)">Volver a la lista</button></p>
+          } @else if ((wbAgotadosN() ?? 0) > 0) {
+            <p class="pr-agotados" role="status"><strong>{{ wbAgotadosN() | number }}</strong>
+              {{ wbAgotadosN() === 1 ? 'producto sin existencia en ninguna sucursal vendió' : 'productos sin existencia en ninguna sucursal vendieron' }}
+              en los últimos 12 meses y no {{ wbAgotadosN() === 1 ? 'sale' : 'salen' }} en esta lista: sin venta reciente, el sugerido es cero.
+              <button type="button" class="pr-zlink" (click)="setAgotados(true)">Verlos</button></p>
+          }
           <div class="pr-wb-scroll" #wbScroll>
             <p-table [value]="wbRows()" [loading]="loading()"
                      styleClass="p-datatable-sm pr-table pr-wb" tableStyleClass="pr-wb-tbl">
@@ -441,7 +455,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <td><div class="pr-prod"><input type="checkbox" class="pr-chk" [checked]="isSel(r)" [disabled]="!isSel(r) && sumCajas(r) <= 0"
                            (click)="$event.stopPropagation()" (change)="toggleSel(r)"
                            [title]="sumCajas(r) > 0 ? 'En la requisición en armado (la barra de abajo)' : 'Sin pedido al proveedor: no hay nada que requerir'"
-                           [attr.aria-label]="'Agregar ' + r.sku + ' a la requisición'" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} cj@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
+                           [attr.aria-label]="'Agregar ' + r.sku + ' a la requisición'" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (r.fuera_calculo) { <span class="pr-bflag pr-bflag-pend">sin existencia en la red · {{ ultimaVentaTexto(r) }}</span> }@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} cj@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
                   <!-- Los totales son la SUMA VIVA del desglose de abajo: al editar una sucursal
                        se mueven acá. Arrancan en el sugerido del motor, que es lo mismo que
                        publicaba antes la columna por sucursal. -->
@@ -855,8 +869,13 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               <ng-template #emptymessage>
                 <tr><td [attr.colspan]="wbColCount" class="pr-empty">
                   <i class="pi pi-inbox"></i>
-                  <p>Sin datos en los puntos de compra.</p>
-                  <span>Ajusta proveedor o búsqueda. Requiere el fact del pedido cargado + la topología de abasto configurada.</span>
+                  @if (search.trim()) {
+                    <p>Ningún producto activo coincide con «{{ search.trim() }}» y los filtros puestos.</p>
+                    <span>Busca por clave o por nombre; un producto agotado también sale, en cero.</span>
+                  } @else {
+                    <p>Sin productos con los filtros puestos.</p>
+                    <span>Quita algún filtro o busca el producto por clave.</span>
+                  }
                 </td></tr>
               </ng-template>
             </p-table>
@@ -1801,6 +1820,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-state { display: flex; gap: .75rem; align-items: center; padding: 1.25rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); }
     .pr-error { color: var(--bad-fg); } .pr-error i { font-size: 1.4rem /* glifo, no texto (idem .pr-empty i) */; } .pr-error p { margin: 0; color: var(--text-main); }
     .pr-foot { font-size: var(--fs-xs); color: var(--text-muted); margin-top: .5rem; }
+    .pr-agotados { font-size: var(--fs-sm); color: var(--text-main); margin: 0 0 .5rem; }
     .pr-fresh { display: inline-flex; align-items: center; margin: -.25rem 0 .6rem; }
     /* Separador entre el selector de VALOR (cobertura) y los toggles booleanos: el ojo necesita
        ver que son dos grupos distintos, no siete botones iguales en fila. */
@@ -2466,6 +2486,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   readonly wbFirst = signal(0);
   readonly wbPageSize = signal(20);
   wbScopeNeeded = signal(false);
+  /** `[PQ.37]` Sólo los agotados en toda la red que sí vendieron en 12 meses. */
+  wbAgotados = signal(false);
+  /** `[PQ.37]` Cuántos agotados que vendían no salen en la lista (mismos filtros). `null` = sin medir. */
+  wbAgotadosN = signal<number | null>(null);
   wbOnlyOver = signal(false);   // RA-PRO.33 — filtrar a productos CON sobrestock (capital inmovilizado)
   wbWarehouses: string[] = [];                          // sucursales elegidas (vacío = todas con stock)
   // RA-PRO.47 — las sucursales ya NO son columnas (bajaron al desglose), así que el ancho es fijo
@@ -3854,6 +3878,22 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * workbook** (mismo `<> 'SER'` que ya usan los otros dos módulos) — queda declarado como
    * pendiente de backend, ver DESIGN.md → Decisions Log 2026-09-14.
    */
+  /** `[PQ.37]` Ver sólo los agotados que vendían, o volver a la lista. Excluye «Solo con pedido»:
+   *  un agotado entra con sugerido cero y ese filtro lo volvería a esconder. */
+  setAgotados(on: boolean): void {
+    this.wbAgotados.set(on);
+    if (on) this.wbScopeNeeded.set(false);
+    this.wbFirst.set(0);
+    this.loadWorkbook();
+  }
+
+  /** `[PQ.37]` «última venta 3 jun 2026», o «sin venta registrada». */
+  ultimaVentaTexto(r: WorkbookRow): string {
+    if (!r.ultima_venta) return 'sin venta registrada';
+    const [y, m, d] = r.ultima_venta.slice(0, 10).split('-').map(Number);
+    return 'última venta ' + new Date(y, m - 1, d).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
   esContable(r: WorkbookRow): boolean { return (r.unidad_base || '').trim().toUpperCase() === 'SER'; }
   unidadTitle(r: WorkbookRow): string {
     const u = (r.unidad_base || '').trim();
@@ -4593,6 +4633,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         if (!r) { this.error.set(true); this.wbRows.set([]); this.frescura.set(FRESCURA_SIN_MEDIR); return; }
         this.wbRows.set(r.rows); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
         this.wbRung.set(r.unit_rung ?? null);
+        this.wbAgotadosN.set(r.agotados_con_venta ?? null);
         this.frescura.set(r.freshness ?? FRESCURA_SIN_MEDIR);
         this.loadedAt.set(Date.now());
         if (reloadEnrichment) {
@@ -4614,6 +4655,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: 'branch' as const,
       iad: iad === 'all' ? undefined : iad,
       only_overstock: this.wbOnlyOver() || undefined,
+      agotados: this.wbAgotados() || undefined,
     };
   }
 
@@ -4746,6 +4788,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (this.coverage !== ComprasPedidoRealComponent.COVERAGE_DEF) n++;
     if (this.wbScopeNeeded()) n++;
     if (this.wbOnlyOver()) n++;
+    if (this.wbAgotados()) n++;
     if (this.fIad() !== 'all') n++;
     return n;
   });
@@ -4807,6 +4850,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.coverage = ComprasPedidoRealComponent.COVERAGE_DEF;
     this.wbScopeNeeded.set(false);
     this.wbOnlyOver.set(false);
+    this.wbAgotados.set(false);
     this.fIad.set('all');
     this.toolbarIdx.set(0);
     this.masFiltrosAbierto.set(null);

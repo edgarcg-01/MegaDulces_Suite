@@ -126,8 +126,9 @@ export class CommercialReplenishmentController {
     @Query('pageSize') pageSize?: string,
     @Query('iad') iad?: string,
     @Query('only_overstock') only_overstock?: string,
+    @Query('agotados') agotados?: string,
   ) {
-    return this.svc.workbook({ supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, scope, warehouse_ids, group, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined, iad, only_overstock: only_overstock === 'true' || only_overstock === '1' });
+    return this.svc.workbook({ supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, scope, warehouse_ids, group, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined, iad, only_overstock: only_overstock === 'true' || only_overstock === '1', agotados: agotados === 'true' || agotados === '1' });
   }
 
   @Get('workbook.xlsx')
