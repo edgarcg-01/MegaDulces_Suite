@@ -24,6 +24,7 @@ import {
   TelemarketingFiltrosComponent, TmFiltros, tmFiltrosIniciales,
 } from '../components/telemarketing-filtros.component';
 import { RouteCreditComponent } from './comercial-route-credit.component';
+import { EmbarquesSinFacturaComponent } from '../components/embarques-sin-factura.component';
 import { abrirPestanaParaPdf, entregarPdf, cerrarPestanaDePdf } from '../../../shared/util/abrir-pdf';
 
 /**
@@ -45,6 +46,7 @@ import { abrirPestanaParaPdf, entregarPdf, cerrarPestanaDePdf } from '../../../s
     MetricStripComponent, LoadStateComponent, SidePeekComponent, PageTabsComponent,
     TelemarketingFiltrosComponent,
     RouteCreditComponent,
+    EmbarquesSinFacturaComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -60,6 +62,9 @@ import { abrirPestanaParaPdf, entregarPdf, cerrarPestanaDePdf } from '../../../s
           <span class="live" title="Se leen en vivo del ERP; no dependen de un proceso nocturno.">· en vivo</span>
         </p>
       </div>
+      <!-- [AX.18] Lo secundario de esta pantalla: un boton que ya dice cuanto falta y abre una
+           ventana encima, sin empujar la tabla de facturas. Sigue la sucursal elegida abajo. -->
+      <app-embarques-sin-factura [sucursal]="filtros().sucursal" />
     </div>
 
     <app-page-tabs [tabs]="tabs" />

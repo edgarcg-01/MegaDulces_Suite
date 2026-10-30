@@ -92,6 +92,22 @@ export interface SalesDocDetail extends Omit<SalesDocRow, 'importe_bruto'> {
   /** false ⇒ los renglones no suman el total del CFDI (detalle incompleto en Kepler) */
   detalle_explica_total: boolean;
 }
+/** `[AX.18]` Un embarque de telemarketing que salió sin factura viva (`erp_shipment_billing`). */
+export interface EmbarqueSinFactura {
+  folio_digital: string; sucursal: string; folio: string; fecha: string;
+  cliente_code: string | null; cliente_nombre: string | null;
+  total_embarcado: string;
+  /** `sin_factura` = nunca se emitió · `facturas_en_cero` = se emitieron y todas quedaron en $0 */
+  situacion: 'sin_factura' | 'facturas_en_cero';
+  /** folios de las facturas en $0 */
+  facturas: string[];
+}
+export interface EmbarquesSinFacturaReport {
+  /** ventana en días (la del detector de Finanzas) */
+  dias: number;
+  embarques: EmbarqueSinFactura[];
+  total: string;
+}
 export interface SalesDocsKpis {
   documentos: number; clientes: number; importe: string; descuento: string;
   /** vencidas = vencieron Y deben; `saldo_vencido` es el dinero real por cobrar de esas. */
@@ -157,6 +173,13 @@ export class SalesDocumentsService {
 
   filtros(q: SalesDocsQuery): Observable<SalesDocsFiltros> {
     return this.http.get<SalesDocsFiltros>(`${this.base}/filtros`, { params: this.params(q) });
+  }
+
+  /** `[AX.18]` Embarques de telemarketing sin factura viva (365 días), recortados a tu alcance. */
+  embarquesSinFactura(warehouseCodes?: string | null): Observable<EmbarquesSinFacturaReport> {
+    return this.http.get<EmbarquesSinFacturaReport>(`${this.base}/embarques-sin-factura`, {
+      params: this.params({ warehouse_codes: warehouseCodes || undefined }),
+    });
   }
 
   detail(folio: string): Observable<SalesDocDetail> {

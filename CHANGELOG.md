@@ -9,6 +9,15 @@
 ---
 
 ## [Unreleased]
+### Added — Facturación TM: embarques que salieron sin factura (AX.18, 2026-10-29)
+- En el encabezado de **Facturación TM** hay un botón que dice cuántos embarques de telemarketing salieron sin factura y por cuánto dinero; al abrirlo muestra la lista sin mover la tabla de facturas.
+- Distingue los que **nunca se facturaron** de los que se facturaron y **todas sus facturas quedaron en $0**, y nombra esos folios para encontrarlos en Kepler.
+- Medido el 29-oct: **23 embarques por $162,863 en el último año**; 15 de ellos con todas sus facturas en $0, uno con 16.
+- Es el mismo criterio que usa Finanzas para su aviso de «embarcado sin facturar»: las dos pantallas dicen lo mismo.
+
+### Fixed — La consulta de embarcado contra facturado tardaba más de un minuto (AX.18, 2026-10-29)
+- La vista que compara lo embarcado con lo facturado no terminaba en 60 s. Ahora tarda alrededor de 0.2 s, con **exactamente el mismo resultado** (comparado fila por fila en las 9,504 de producción).
+- ⚠️ El aviso de Finanzas «embarcado sin facturar» usa esa vista y, cuando no terminaba, se quedaba callado como si no hubiera nada. Pendiente: aplicar la migración en producción.
 ### Added — Cada factura de telemarketing dice de qué embarque salió (AX.17, 2026-10-29)
 - En **Facturación TM**, bajo el folio de cada factura aparece el **embarque** con el que salió la mercancía, y se puede buscar la factura tecleando el folio del embarque.
 - Al abrir una factura se ve el embarque completo: fecha, **viaje** (guía), **unidad** con placas y **chofer**. Cuando Kepler no registró al chofer (pasa en 6 de cada 10 embarques) lo dice, en vez de dejarlo en blanco.

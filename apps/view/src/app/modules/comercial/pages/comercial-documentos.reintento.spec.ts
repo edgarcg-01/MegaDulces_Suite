@@ -50,7 +50,7 @@ describe('ComercialDocumentosComponent · reintento del detalle sin renglones', 
         provideRouter([]),
         MessageService,
         // La lista y los filtros no importan acá: nunca responden, y la pantalla queda «cargando».
-        { provide: SalesDocumentsService, useValue: { detail, list: () => NEVER, filtros: () => NEVER } },
+        { provide: SalesDocumentsService, useValue: { detail, list: () => NEVER, filtros: () => NEVER, embarquesSinFactura: () => NEVER } },
         { provide: DataScopeService, useValue: { warehouses: () => of([]) } },
       ],
     }).compileComponents();

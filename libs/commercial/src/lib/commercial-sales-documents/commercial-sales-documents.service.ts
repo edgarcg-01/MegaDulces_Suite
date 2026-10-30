@@ -117,6 +117,38 @@ export interface FacturaGuiaRow {
   cancelada: boolean;
 }
 
+/**
+ * `[AX.18]` Un embarque de telemarketing (`U-D-41` serie 1) que salió y no tiene factura viva.
+ * Sale de `analytics.erp_shipment_billing` — la MISMA vista y el mismo diagnóstico que usa el
+ * detector `cxc_embarcado_sin_facturar` de Finanzas, para que las dos pantallas digan lo mismo.
+ */
+export interface EmbarqueSinFactura {
+  folio_digital: string;
+  sucursal: string;
+  folio: string;
+  fecha: string;
+  cliente_code: string | null;
+  cliente_nombre: string | null;
+  /** `numeric` de Postgres: llega como string. */
+  total_embarcado: string;
+  /**
+   * `sin_factura` = nunca se emitió una · `facturas_en_cero` = se emitieron y todas quedaron en
+   * $0 (medido 2026-10-29: 17 de 17 de esas facturas están canceladas en Kepler).
+   */
+  situacion: 'sin_factura' | 'facturas_en_cero';
+  /** Folios de las facturas en $0 (vacío si nunca se facturó). */
+  facturas: string[];
+}
+export interface EmbarquesSinFacturaReport {
+  /** Ventana en días: la misma que el detector de Finanzas (365). */
+  dias: number;
+  embarques: EmbarqueSinFactura[];
+  /** Σ `total_embarcado`, string con centavos exactos. */
+  total: string;
+}
+/** La ventana del detector de Finanzas (`DIAS_EMBARQUE`): no resucitar embarques viejos ya conciliados. */
+const DIAS_SIN_FACTURA = 365;
+
 /** Identidad fiscal del emisor, leída de `fiscal.issuer_config` (ver `emisorFiscal()`). */
 export interface EmisorFiscal {
   rfc: string;
@@ -535,6 +567,55 @@ export class CommercialSalesDocumentsService {
         ...this.derivar(doc, lineas),
         embarque,
       };
+    });
+  }
+
+  /**
+   * `[AX.18]` Los embarques de telemarketing que salieron y no tienen factura viva.
+   *
+   * Medido en prod (2026-10-29, 365 días): 23 embarques por $162,863 — 8 nunca facturados y 15
+   * con todas sus facturas en $0 (uno con 16). Cruce contra la otra implementación (el
+   * back-pointer de `erp_sales_invoices`): la vista y las facturas vivas no se contradicen.
+   *
+   * ⛔ Depende de la vista de `20261029175926_erp_shipment_billing_ventana`: con la definición
+   * anterior esta consulta pasaba de 60 s. El `statement_timeout` local es la red: si la
+   * migración no está aplicada, el endpoint falla en 5 s y la pantalla lo declara, en vez de
+   * colgar una conexión del pool.
+   *
+   * Sin `NOT cuenta_interna` a secas: con el cliente vacío esa expresión es NULL y el embarque
+   * desaparecería sin decirlo. `IS NOT TRUE` lo conserva (hoy da lo mismo: 23 y 23).
+   */
+  async embarquesSinFactura(q: Pick<SalesDocsQuery, 'warehouse_codes'>): Promise<EmbarquesSinFacturaReport> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      await trx.raw(`SET LOCAL statement_timeout = '5s'`);
+      const b = trx('analytics.erp_shipment_billing as b')
+        .where('b.tenant_id', tenantId)
+        .andWhere('b.serie', 1)
+        .whereRaw('b.cuenta_interna IS NOT TRUE')
+        .andWhere('b.total_embarcado', '>', 0)
+        .whereRaw(`b.fecha >= (now() AT TIME ZONE 'America/Mexico_City')::date - ?::int`, [DIAS_SIN_FACTURA])
+        .whereIn('b.diagnostico', ['sin_factura', 'facturado_en_cero']);
+      if (q.warehouse_codes) b.whereIn('b.sucursal', q.warehouse_codes);
+      const rows: any[] = await b
+        .select('b.folio_digital', 'b.sucursal', 'b.folio', trx.raw('b.fecha::text AS fecha'),
+          'b.cliente_code', 'b.cliente_nombre', 'b.total_embarcado', 'b.diagnostico', 'b.facturas')
+        .orderBy([{ column: 'b.fecha', order: 'desc' }, { column: 'b.folio', order: 'desc' }]);
+
+      const embarques: EmbarqueSinFactura[] = rows.map((r) => ({
+        folio_digital: r.folio_digital,
+        sucursal: r.sucursal,
+        folio: r.folio,
+        fecha: r.fecha,
+        cliente_code: r.cliente_code ?? null,
+        cliente_nombre: r.cliente_nombre ?? null,
+        total_embarcado: String(r.total_embarcado),
+        situacion: r.diagnostico === 'facturado_en_cero' ? 'facturas_en_cero' : 'sin_factura',
+        facturas: Array.isArray(r.facturas) ? r.facturas.map((f: { folio: string }) => f.folio) : [],
+      }));
+      // En centavos enteros: sumar `numeric` como float acumula error.
+      const centavos = embarques.reduce((s, e) => s + Math.round(Number(e.total_embarcado) * 100), 0);
+      return { dias: DIAS_SIN_FACTURA, embarques, total: (centavos / 100).toFixed(2) };
     });
   }
 

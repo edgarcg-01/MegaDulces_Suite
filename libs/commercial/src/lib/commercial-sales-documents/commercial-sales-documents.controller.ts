@@ -108,6 +108,18 @@ export class CommercialSalesDocumentsController {
     });
   }
 
+  /**
+   * `[AX.18]` Embarques de telemarketing sin factura viva. Antes de ':folio' (se lo tragaría).
+   * Acotado al alcance de sucursal, como la lista.
+   */
+  @Get('embarques-sin-factura')
+  @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
+  @ApiQuery({ name: CANONICAL_PARAM.warehouse, required: false, description: 'Sucursal o CSV de sucursales. Se recorta a tu alcance.' })
+  @ApiOperation({ summary: 'Embarques de telemarketing (U-D-41 serie 1) de los últimos 365 días que salieron sin factura viva: nunca facturados, o con todas sus facturas en $0. Misma vista y diagnóstico que el detector de Finanzas (analytics.erp_shipment_billing).' })
+  async embarquesSinFactura(@Query() raw: Record<string, string>): ReturnType<CommercialSalesDocumentsService['embarquesSinFactura']> {
+    return this.svc.embarquesSinFactura({ warehouse_codes: await this.alcance(raw, 'embarques-sin-factura') });
+  }
+
   @Get('expedientes/:id/pdf')
   @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
   @ApiOperation({ summary: 'Reimprime un expediente archivado DESDE SU SNAPSHOT (no desde la cartera de hoy): la copia dice lo mismo que el papel que se firmó.' })

@@ -53,7 +53,7 @@ describe('[AX.17] ComercialDocumentosComponent · el embarque de la factura', ()
       providers: [
         provideRouter([]),
         MessageService,
-        { provide: SalesDocumentsService, useValue: { detail, list: () => NEVER, filtros: () => NEVER } },
+        { provide: SalesDocumentsService, useValue: { detail, list: () => NEVER, filtros: () => NEVER, embarquesSinFactura: () => NEVER } },
         { provide: DataScopeService, useValue: { warehouses: () => of([]) } },
       ],
     }).compileComponents();
