@@ -3,6 +3,10 @@ import type {
   CfdiDelContexto, ContextoDictamen, CuentaDelCatalogo, PolizaADictaminar, PolizaDeElla,
 } from './dictamen';
 
+/** Las tablas de la réplica de las que sale una asociación CFDI ↔ póliza (`analytics.v_contpaqi_cfdi_poliza`). */
+const TABLAS_DE_ASOCIACION = ['ct_asoccfdis', 'ct_asocdoctosadministrativos', 'ct_asoccfdinodosdepago',
+  'ct_movimientospoliza', 'ct_polizas'];
+
 /**
  * `[CP.8.95]` — **Lee de la base lo que el dictamen necesita para las pólizas de UN mes.** Sólo lee.
  *
@@ -14,7 +18,8 @@ import type {
  * y nadie lo vería.
  *
  * Cada lectura se acota a lo que traen las pólizas (sus cuentas, sus UUID, sus emisores) y usa los índices que
- * existen: `(tenant_id, upper(cfdi_uuid))` en las líneas de póliza y `(tenant_id, uuid)` en los CFDI.
+ * existen: `(tenant_id, upper(cfdi_uuid))` en las líneas de póliza, `(tenant_id, uuid)` en los CFDI y, en la réplica
+ * de ContPAQi (`[CP.9.3]`), los `ix_cp93_*` por UUID y por GUID.
  */
 export async function leerContextoDictamen(
   trx: Knex | Knex.Transaction,
@@ -78,13 +83,33 @@ export async function leerContextoDictamen(
     porPoliza.get(k)!.renglones.push({ cuenta: String(l.cuenta), abono: l.cargo_abono === 'A', importe: Number(l.importe) });
   }
 
+  // `[CP.9.4]` La réplica de ContPAQi UNIDA al staging. El staging liga un solo UUID por movimiento y ninguno a nivel
+  // póliza: conocía 21,363 UUID contra 137,116 de la réplica desde 2025 (16 %, medido 2026-10-30). La réplica está
+  // completa hasta su última sincronía (`asociacionesAl`); el staging es fresco al minuto. Juntas no ven menos que antes.
   const uuidEnEgresos = new Map<string, string[]>();
   if (uuids.length) {
     const filas = (await trx.raw(`
-      SELECT DISTINCT upper(cfdi_uuid) AS u, ejercicio, periodo, folio
+      SELECT cfdi_uuid AS u, ejercicio, periodo, folio::text AS folio
+        FROM analytics.v_contpaqi_cfdi_poliza
+       WHERE tenant_id = ? AND cfdi_uuid = ANY(?) AND tipo_pol = 2
+      UNION
+      SELECT upper(cfdi_uuid), ejercicio, periodo, folio
         FROM analytics.gl_poliza_lines
-       WHERE tenant_id = ? AND upper(cfdi_uuid) = ANY(?) AND source = 'contpaqi' AND tipo_pol = '2'`, [tenantId, uuids])).rows as any[];
+       WHERE tenant_id = ? AND upper(cfdi_uuid) = ANY(?) AND source = 'contpaqi' AND tipo_pol = '2'`,
+    [tenantId, uuids, tenantId, uuids])).rows as any[];
     for (const r of filas) uuidEnEgresos.set(r.u, [...(uuidEnEgresos.get(r.u) ?? []), `${r.ejercicio}|${r.periodo}|2|${r.folio}`]);
+  }
+  // La sincronía más vieja de lo que arma la asociación; si falta alguna, no se sabe.
+  const sync = (await trx.raw(`
+    SELECT count(*)::int AS n,
+           to_char(min(last_push_at) AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS al
+      FROM contpaqi_ods._sync_status
+     WHERE table_name = ANY(?)`, [TABLAS_DE_ASOCIACION])).rows[0] as any;
+  const asociacionesAl = sync?.n === TABLAS_DE_ASOCIACION.length ? (sync.al as string) : null;
+
+  const ejercicios = new Map<number, { cerrado: boolean }>();
+  for (const r of await trx('analytics.v_contpaqi_ejercicio').where('tenant_id', tenantId).select('ejercicio', 'cerrado')) {
+    ejercicios.set(Number(r.ejercicio), { cerrado: !!r.cerrado });
   }
 
   // Provisiones (diario, abono 2120) del año anterior al cierre del periodo: por cuenta e importe, con su fecha.
@@ -125,7 +150,7 @@ export async function leerContextoDictamen(
     rfcEmpresa: emisora?.rfc ?? null,
     catalogo, cfdis,
     polizasDeElla: [...porPoliza.values()],
-    uuidEnEgresos, provisiones, anticipos, rfcDeCuenta, efos,
+    uuidEnEgresos, asociacionesAl, ejercicios, provisiones, anticipos, rfcDeCuenta, efos,
   };
 }
 

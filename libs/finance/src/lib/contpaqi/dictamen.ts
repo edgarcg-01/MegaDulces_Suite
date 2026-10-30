@@ -17,11 +17,12 @@
  * ── Perspectivas ────────────────────────────────────────────────────────────────────────────
  *   aritmetica  cuadra, importes válidos, centavos enteros
  *   catalogo    la cuenta existe en ContPAQi, es afectable, no está de baja, cumple la máscara 3-3-4
- *   fecha       válida, dentro del periodo del archivo, no futura
+ *   fecha       válida, dentro del periodo del archivo, no futura, en un ejercicio abierto de ContPAQi
  *   formato     lo que el archivo (latin1, campos de 100) no puede escribir
  *   cfdi        UUID bien formado, conocido, no cancelado, nuestro, en pesos, sin retenciones, de un emisor
  *   proveedor   el RFC de los CFDI es el de la cuenta del proveedor; el emisor no está en la lista 69-B
- *   duplicado   ya la capturó contabilidad · el CFDI ya está en otra póliza · repetido en el mismo archivo
+ *   duplicado   ya la capturó contabilidad · el CFDI ya está en otra póliza · repetido en el mismo archivo · la
+ *               réplica que lo dice tiene más de un día
  *   criterio    señales de que contabilidad la asienta distinto
  *
  * ── Lo que se midió antes de escribir las reglas de criterio ─────────────────────────────────
@@ -108,8 +109,21 @@ export interface ContextoDictamen {
   cfdis: Map<string, CfdiDelContexto> | null;
   /** Pólizas de egreso que contabilidad ya capturó, del periodo con ±3 días a las orillas. */
   polizasDeElla: PolizaDeElla[] | null;
-  /** UUID → claves de pólizas de EGRESO de contabilidad que ya lo llevan asociado (cualquier mes). */
+  /**
+   * UUID → claves de pólizas de EGRESO de contabilidad que ya lo llevan asociado (cualquier mes). `[CP.9.4]` De la
+   * réplica de ContPAQi (los tres caminos de asociación, a nivel movimiento y póliza) unida al staging.
+   */
   uuidEnEgresos: Map<string, string[]> | null;
+  /**
+   * `[CP.9.4]` `YYYY-MM-DD` de la sincronía más vieja de las tablas de asociación de la réplica: lo que contabilidad
+   * asoció después no se ve en `uuidEnEgresos`. `null` = no se supo.
+   */
+  asociacionesAl: string | null;
+  /**
+   * `[CP.9.4]` Los ejercicios de ContPAQi (`analytics.v_contpaqi_ejercicio`): cerrado = tiene póliza de cierre. ⛔ El
+   * cierre no impide capturar (después del de 2024 entraron 24 pólizas): por eso es «revisar» y no «bloquea».
+   */
+  ejercicios: Map<number, { cerrado: boolean }> | null;
   /**
    * Provisiones de contabilidad (diario, abono a 2120): `cuenta|centavos` → fechas. ⛔ Por cuenta e importe y NO
    * por UUID: sus renglones de provisión no llevan UUID (0 de 2,331 en ene–sep 2026). Es la llave del armado.
@@ -241,6 +255,19 @@ function fecha(a: Asiento, ctx: ContextoDictamen, out: Hallazgo[]): void {
   }
   if (f > ctx.hoy) {
     out.push(h('fecha_futura', 'fecha', 'bloquea', `La póliza está fechada el ${f}, después de hoy (${ctx.hoy}).`));
+  }
+  // `[CP.9.4]` El ejercicio. Todo «revisar»: ContPAQi acepta pólizas en un ejercicio cerrado, y uno que falta en la
+  // réplica puede ser que contabilidad no lo creó o que la réplica no está al día.
+  const ej = Number(f.slice(0, 4));
+  if (!ctx.ejercicios) {
+    out.push(h('ejercicio_no_medido', 'fecha', 'revisar',
+      'No se leyeron los ejercicios de ContPAQi: no se comprobó que el de la póliza esté abierto.'));
+  } else if (!ctx.ejercicios.has(ej)) {
+    out.push(h('ejercicio_inexistente', 'fecha', 'revisar',
+      `El ejercicio ${ej} no está en la réplica de ContPAQi: o contabilidad no lo ha creado, o la réplica no está al día.`));
+  } else if (ctx.ejercicios.get(ej)!.cerrado) {
+    out.push(h('ejercicio_cerrado', 'fecha', 'revisar',
+      `El ejercicio ${ej} ya tiene póliza de cierre en ContPAQi: entregarle una póliza obliga a rehacer el cierre.`));
   }
 }
 
@@ -525,6 +552,8 @@ export function dictaminarArchivo(ps: PolizaADictaminar[], ctx: ContextoDictamen
 
   // El CFDI ya está en OTRA póliza de egreso de contabilidad.
   if (ctx.uuidEnEgresos) {
+    // `[CP.9.4]` Lo asociado después de la última sincronía de la réplica no se ve: con más de un día, se dice.
+    const rancia = ctx.asociacionesAl === null ? null : dias(ctx.hoy, ctx.asociacionesAl) > 1;
     for (const p of orden) {
       const propia = suya.get(p.clave);
       const otras = [...new Set((p.uuids ?? []).map((x) => String(x).toUpperCase()))]
@@ -532,6 +561,14 @@ export function dictaminarArchivo(ps: PolizaADictaminar[], ctx: ContextoDictamen
       if (otras.length) {
         agrega(p.clave, h('cfdi_ya_pagado', 'duplicado', 'revisar',
           `${new Set(otras.map((x) => x.u)).size} CFDI ya está(n) en otra póliza de egreso de contabilidad: ¿pago parcial o pago duplicado?`));
+      }
+      if (!(p.uuids ?? []).length) continue;
+      if (rancia === null) {
+        agrega(p.clave, h('replica_no_medido', 'duplicado', 'revisar',
+          'No se supo hasta cuándo está al día la réplica de ContPAQi: un CFDI asociado hace poco podría no verse.'));
+      } else if (rancia) {
+        agrega(p.clave, h('replica_rancia', 'duplicado', 'revisar',
+          `La réplica de ContPAQi tiene las asociaciones al ${ctx.asociacionesAl}: lo que contabilidad asoció después no se ve aquí.`));
       }
     }
   } else {

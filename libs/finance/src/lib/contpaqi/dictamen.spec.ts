@@ -46,6 +46,8 @@ const contexto = (cambios: Partial<ContextoDictamen> = {}): ContextoDictamen => 
   cfdis: new Map([[U1, cfdi()]]),
   polizasDeElla: [],
   uuidEnEgresos: new Map(),
+  asociacionesAl: '2026-10-29',
+  ejercicios: new Map([[2026, { cerrado: false }]]),
   provisiones: new Map(),
   anticipos: new Map(),
   rfcDeCuenta: new Map([[CTA_PROV, new Set([PROV])]]),
@@ -109,6 +111,16 @@ describe('[CP.8.95] dictamen de una póliza', () => {
       expect(sev(dictaminar(poliza({ fecha: '2026-08-31' }), contexto()), 'fecha_fuera_del_periodo')).toBe('bloquea');
       expect(sev(dictaminar(poliza(), contexto({ hoy: '2026-09-10' })), 'fecha_futura')).toBe('bloquea');
       expect(sev(dictaminar(poliza({ fecha: '2026-09-31' }), contexto()), 'fecha_invalida')).toBe('bloquea');
+    });
+    it('[CP.9.4] ejercicio cerrado, ausente o sin leer piden revisar (ContPAQi sí acepta la póliza); el abierto no', () => {
+      const cerrado = contexto({ ejercicios: new Map([[2026, { cerrado: true }]]) });
+      expect(sev(dictaminar(poliza(), cerrado), 'ejercicio_cerrado')).toBe('revisar');
+      expect(dictaminar(poliza(), cerrado).veredicto).toBe('revisar');
+      expect(sev(dictaminar(poliza(), contexto({ ejercicios: new Map([[2025, { cerrado: false }]]) })), 'ejercicio_inexistente')).toBe('revisar');
+      expect(sev(dictaminar(poliza(), contexto({ ejercicios: null })), 'ejercicio_no_medido')).toBe('revisar');
+      // Control: que OTRO ejercicio esté cerrado no toca a ésta.
+      const otro = contexto({ ejercicios: new Map([[2026, { cerrado: false }], [2025, { cerrado: true }]]) });
+      expect(reglas(dictaminar(poliza(), otro)).filter((r) => r.startsWith('ejercicio'))).toEqual([]);
     });
   });
 
@@ -245,6 +257,14 @@ describe('[CP.8.95] dictamen de una póliza', () => {
       expect(sev(dictaminarArchivo([poliza()], otra)[0], 'cfdi_ya_pagado')).toBe('revisar');
       const propia = contexto({ uuidEnEgresos: new Map([[U1, ['2026|9|2|77']]]), polizasDeElla: [deElla('2026|9|2|77', '2026-09-15')] });
       expect(reglas(dictaminarArchivo([poliza()], propia)[0])).not.toContain('cfdi_ya_pagado');
+    });
+    it('[CP.9.4] la réplica con más de un día pide revisar las pólizas con CFDI; la de ayer no; sin fecha, no medido', () => {
+      const vieja = contexto({ asociacionesAl: '2026-10-27' }); // hoy es 2026-10-29: dos días
+      expect(sev(dictaminarArchivo([poliza()], vieja)[0], 'replica_rancia')).toBe('revisar');
+      expect(reglas(dictaminarArchivo([poliza()], contexto({ asociacionesAl: '2026-10-28' }))[0])).not.toContain('replica_rancia');
+      expect(sev(dictaminarArchivo([poliza()], contexto({ asociacionesAl: null }))[0], 'replica_no_medido')).toBe('revisar');
+      // Sin CFDI no hay asociación que perderse.
+      expect(reglas(dictaminarArchivo([poliza({}, [])], vieja)[0])).not.toContain('replica_rancia');
     });
     it('el mismo CFDI en dos pólizas del archivo se revisa (puede ser un pago en parcialidades)', () => {
       const ds = dictaminarArchivo([poliza({}, [U1], 'pago|1'), poliza({ fecha: '2026-09-16' }, [U1], 'pago|2')], contexto());
