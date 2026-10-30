@@ -379,19 +379,23 @@ terminar cada tabla, no coincida con las filas en Postgres.
 | ⚠️ ADD `4d8ceea4`, documentos | `document_4d8ceea4…` | **NO MEDIDO** | | | |
 | ⚠️ ADD `d112b0ed`, «otros» | `other_d112b0ed…` | **NO MEDIDO** | | | |
 | **`contpaqi_ods`** | | **252** | **20,833,652** | **0** | |
-| Nóminas (`ctLFLG`, `nomGenerales`) y las `Nomina*` del ADD | | 128 tablas físicas | ~8.1 M (estimado) | por confirmar | |
+| **`contpaqi_nom`**: nóminas (`ctLFLG` 59, `nomGenerales` 65) y las `Nomina*` del ADD (12) | | **136** | **8,281,780** | **0** | |
+| **Total**, según el cierre del log | | **388** | **29,115,432** | **0** | **41.5** |
 
 - `contpaqi_ods` pesa **4.6 GB** y `contpaqi_nom` **1.9 GB**: menos que los ≈ 11 GB que estimaba §8.8, porque el
   tamaño de SQL Server incluye índices y espacio reservado. Prod pasó de 45 a **47 GB**.
 - Las 252 tablas viven en 201 tablas físicas: los repositorios del ADD comparten tabla y se distinguen por `_repo`.
 - **143 de las 252 se leyeron de una pasada** (sin llave legible: el SAT, el directorio y las hijas del ADD).
-- ⚠️ **Dos bases de metadatos del ADD no llegaron**, aunque `DB_Directory` lista las dos. El replicador filtraba
-  `sys.databases` por `ONLINE` y las saltó **sin decir nada**. Ya no: ahora toda base esperada que falte sale como NO
-  MEDIDO y pone en 1 el código de salida (`321110f68`). Por qué faltaron (fuera de línea, sin permiso o sin datos) lo
-  dice el log de la carga en el pod.
-- ⚠️ **Nóminas, por confirmar:** `contpaqi_nom` no se concede a ningún rol de lectura, así que su `_sync_status` sólo
-  lo lee `postgres`. El conteo exacto y sus descuadres están en el log del pod; las filas de arriba son el estimado
-  de `pg_class`.
+- El log del pod cierra con `CARGA: 388 tablas · 29,115,432 filas copiadas · 41.5 min`, **sin línea de conteo
+  distinto ni de fallas**. Las de nóminas se toman de ahí: `contpaqi_nom` no se concede a ningún rol de lectura, y su
+  `_sync_status` sólo lo lee `postgres`.
+- Se omitieron a propósito tres tablas `Certificates` (llaves privadas): la del directorio y las de dos repositorios
+  «otros».
+- ⚠️ **Dos bases de metadatos del ADD no llegaron**, aunque `DB_Directory` lista las dos: `document_4d8ceea4…` y
+  `other_d112b0ed…`. En el log **no aparecen ni como fuente**, así que no estaban `ONLINE` o no existen: no fue un
+  error de permiso ni una base vacía, que sí se habrían impreso. El replicador filtraba `sys.databases` por `ONLINE`
+  y las saltó **sin decir nada**. Ya no: ahora toda base esperada que falte sale como NO MEDIDO, con su estado, y pone
+  en 1 el código de salida (`321110f68`).
 
 **⛔ El incidente del primer ensayo (08:56–09:00).** El humo sobre `GeneralesSQL` copió a prod columnas de
 credenciales durante unos cuatro minutos: las contraseñas de los usuarios de ContPAQi, que ContPAQi llama `Clave`, y
