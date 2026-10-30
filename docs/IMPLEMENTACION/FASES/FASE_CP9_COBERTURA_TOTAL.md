@@ -2,7 +2,7 @@
 
 > **Estado:** 🔨 EN CURSO · `CP.9.0` ✅ · `CP.9.2`: la carga inicial está en prod desde el 2026-10-30 y la sincronía
 > está en código, sin agendar ([§8.9](#89-cp92-la-carga-inicial-hecha-2026-10-30-y-la-sincronía-en-código)) ·
-> **ADR:** hereda ADR-040; la réplica, ADR-110
+> **ADR:** hereda ADR-040; la réplica, ADR-111
 > **Pedido de Edgar:** *"generemos un plan a futuro de cubrir el 100% de ContPAQi"*.
 > ⭐ **2026-10-29 — Edgar: *«hay que replicar todo para llevar el control o sincronía con ContPAQi»*.** El plan vigente es
 > [§8, la réplica cruda continua](#8--ola-0--replicar-contpaqi-entero-la-réplica-cruda-continua-2026-10-29). Cambia la recomendación de §7
@@ -417,7 +417,7 @@ reaparecen. Qué credenciales se rotan lo decide Edgar (regla 7).
 5. **`CP.9.1` (el mecanismo en una tabla, contra una base de prueba) quedó absorbido.** Edgar pidió la carga ya, y
    la sincronía en seco sólo lee: el costo en `.35` y la prueba negativa que pedía CP.9.1 se miden con ella en el pod.
 
-**La sincronía (`--sync`) — ADR-110.** `RowVersion` resultó ser un entero **al azar** que ContPAQi regenera en cada
+**La sincronía (`--sync`) — ADR-111.** `RowVersion` resultó ser un entero **al azar** que ContPAQi regenera en cada
 escritura: 111,182 valores distintos en 111,185 pólizas, de 977 a 2,147,468,696. No sirve de marca de agua, pero sí
 de huella.
 - La llave se parte en tramos de ~4,096 filas y en los dos lados se calcula, por tramo, las filas y la suma de cada
@@ -442,18 +442,50 @@ cruzado contra una **segunda implementación** (sumas fila por fila en JS, los b
 | `sat_c_claveprodserv` | entera | 52,844 | 1 | 2 | 0.0 s | 1 de 1 | lo ve |
 | `add_totalpagos` (repo principal) | entera | 46,303 | 1 | 11 | 0.0 s | 1 de 1 | lo ve |
 
-⚠️ **NO MEDIDO todavía: el lado de SQL Server.** Medirlo pide la contraseña, que sólo se escribe en `md`. Lo mide la
-primera corrida en seco en el pod. Si los bits de un `float` no salieran iguales en los dos motores, **todos** los
-tramos con importes saldrían distintos, a la vista.
+**El lado de SQL Server, medido en el pod (2026-10-30).** Tres corridas seguidas, todas desde `feeds-cron`:
+
+| Corrida | Alcance | Tablas | Tramos | Resultado | Tiempo |
+|---|---|---:|---:|---|---:|
+| 10:01, en seco + prueba negativa | contabilidad, Generales, SAT, directorio | 163 | 1,337 | 149 al día · **18 tramos difieren** | 29 s |
+| 10:50, `--apply` | lo mismo | 163 | 1,337 | **10 tramos recopiados (20,771 filas)**, sin fallas | 26 s |
+| 10:51, en seco + prueba negativa | **todo** | 413 | 2,702 | 391 al día · **1 tramo difiere** (`Doc_App`, del ADD) · 21 sin carril | 78 s |
+
+- ⭐ **Los `float` cuadran por sus bits en los dos motores.** A la primera, 1,319 de 1,337 tramos salieron iguales,
+  incluidos los de importes: 43 de 46 en `SaldosCuentas`. Si la conversión a bits difiriera, habrían salido todos
+  distintos.
+- **La réplica converge.** Lo que difería era lo que contabilidad capturó después de la carga (pólizas, movimientos,
+  asociaciones de CFDI, saldos, IVA, contadores). Después de la escritura, la vuelta siguiente dio **la contabilidad
+  entera al día**, y nóminas también.
+- **La prueba negativa vio la fila movida en 366 tablas y no la vio en 0.** Entre ellas están las de nóminas, que no
+  tienen `RowVersion`: también ahí la huella funciona sólo con las sumas. De las 26 «sin concluir», 25 eran tablas
+  del ADD **vacías para ese repositorio** en los dos lados, sin fila que mover; ya no se les hace control
+  (`14f62bd34`). La otra era `ParametrosInicialesMto`, cuya única fila trae `RowVersion` NULL; ahora la prueba borra
+  la fila en vez de rendirse (`0f89b513b`).
+- **Lo más lento:** `nom10007` (4 M filas, 20 s con la prueba negativa), `nom10034` 6.7 s y `MovimientosPoliza` 5.3 s.
+  La contabilidad sola tarda menos de 30 s por vuelta.
+- **Las 2 bases del ADD que faltaron «no existen en el servidor»:** el directorio las lista y nunca se crearon. La
+  réplica está completa. Se informan sin poner el código de salida en 1: una alarma que suena siempre deja de oírse.
+- **21 tablas sin carril**, todas del ADD, sin llave entera y con más de 100,000 filas: `Comprobante`, `Conceptos`
+  (4.2 M), `Documento`, `Impuesto_Traslado`, `Impuesto_Traslado_Concepto` (4.8 M), `ImpuestosTotalizados`,
+  `TimbreTemp`, `Pagos`, `Pagos_Doc_Rel`, `Expedientes` (1.1 M), `TempAsocToolAccountingPol` y las `Nomina*`, en sus
+  repositorios. Valen la carga del 2026-10-30 hasta `CP.9.6`.
+- ⚠️ **Una diferencia que desapareció sola.** Seis tablas que diferían a las 10:01
+  (`DocumentosAdministrativos`, `MovimientosAdministrativos`, `AsocDoctosAdministrativos`, `TiposPolizas`,
+  `SaldosSegmentoNegocio`, `PolizasIntuitivas`) estaban al día a las 10:50 sin que nadie las recopiara. Hay dos
+  explicaciones: la huella, que lee con `NOLOCK`, vio una captura sin terminar que después se canceló, o se dio de alta
+  algo y después se borró. Si ContPAQi deja abierta la transacción mientras se captura, la recopia, que sí lee con
+  candado, la esperaría hasta 10 minutos. Por eso ahora espera 10 s como máximo, y ese tramo se reintenta en la vuelta
+  siguiente (`14f62bd34`). ⚠️ **NO EJERCIDO** contra un candado real: sólo con la forma conocida del error (1222).
 
 **Disco, medido el 2026-10-30** (el riesgo de §8.6): el disco de `md` tiene 492 GB y quedan 81 GB libres (83 % en
 uso). Prod pesa 45 GB con la réplica adentro. Alcanza, pero el 83 % hay que vigilarlo.
 
 **Lo que falta para cerrar `CP.9.2`:**
-1. **Ejercer la sincronía en el pod:** en seco, con `--control` (la prueba negativa, que se deshace) y con `--apply`.
-   Dos vueltas seguidas: la segunda tiene que salir al día salvo lo que contabilidad capture en medio.
+1. ~~Ejercer la sincronía en el pod~~ ✅ 2026-10-30, arriba.
 2. **D15**, y con ella agendar la sincronía en `feeds-cron` con su latido de entrega y su umbral en `CRON_JOBS`
-   (ADR-053), probado en rojo. Sin la D15 sólo se puede correr a mano.
+   (ADR-053), probado en rojo. Sin la D15 sólo se puede correr a mano. Cadencia propuesta, por lo medido:
+   - la contabilidad y Generales, cada 5 minutos (menos de 30 s por vuelta);
+   - nóminas, SAT y directorio, cada hora.
 3. **La migración** `20261029180144_contpaqi_ods_schema.js` por el carril de entrega. En prod no cambia nada (el
    replicador ya creó lo mismo), pero tiene que quedar registrada.
 4. **El ADD grande** (`Comprobante`, `Conceptos`, `Impuesto_Traslado_Concepto`) por `Documento.TimeStamp`: va en
