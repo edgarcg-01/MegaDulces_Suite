@@ -1,8 +1,11 @@
+import { randomUUID } from 'crypto';
 import knexFactory, { Knex } from 'knex';
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
+import type { DocumentoArqueoInput, DocumentosArqueoInput } from '@megadulces/contracts';
 import { CashCutService } from './cash-cut.service';
 import { CajaArqueoService } from './caja-arqueo.service';
+import { leerPosicion } from './caja-posicion.query';
 
 /**
  * `[CGP-L.0]` El SERVICIO REAL del corte —el mismo código que corre en prod— contra una base REAL.
@@ -44,6 +47,19 @@ const dia = (mmdd: string) => `${ANIO}-${mmdd}`;
 const suc = (k: string) => `${k}-${ANIO}-${CORRIDA}`;
 const conteo = (...pares: Array<[string, number, number]>) =>
   pares.map(([denom_key, denominacion, piezas]) => ({ denom_key, denominacion, piezas }));
+
+/**
+ * `[CGS.59]` Los cheques y papeles de un arqueo de la prueba. La base escribe y no deshace, así que
+ * lo que dejaron corridas anteriores sigue «en la caja»: se marca como salido (con su nota) y se
+ * agregan los nuevos. El arqueo queda determinista sin borrar nada — como lo haría la pantalla.
+ */
+async function documentosQueCierran(arqueos: CajaArqueoService,
+  nuevos: { cheques: DocumentoArqueoInput[]; papeles: DocumentoArqueoInput[] }): Promise<DocumentosArqueoInput> {
+  const d = await arqueos.documentosEnCaja();
+  const fuera = (piezas: Array<{ pieza: string }>): DocumentoArqueoInput[] =>
+    piezas.map((p) => ({ pieza: p.pieza, estado: 'salio', salida: 'otro', salida_nota: 'lo dejó otra corrida de la prueba' }));
+  return { base: d.base, cheques: [...fuera(d.cheques.piezas), ...nuevos.cheques], papeles: [...fuera(d.papeles.piezas), ...nuevos.papeles] };
+}
 
 /**
  * Un año sin cortes en la 00 y sin movimientos de ninguna plaza (desplazado -1000 años, donde siembra su ancla).
@@ -228,12 +244,17 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     await svc.contar(c.id, { conteo: conteo(['1000', 1000, 1]), morralla: 0 }, CAJERA);
     await svc.cerrar(c.id, { conteo: [], morralla: 0 }, CAJERA);
 
-    // El payload que manda la pantalla del recuento: piezas + los otros cuatro rubros.
+    // El payload que manda la pantalla del recuento: piezas + los otros cuatro rubros. `[CGS.59]`
+    // Los cheques y los papeles van uno por uno; su importe sale de los renglones.
     const payload = {
       tipo: 'recuento' as const, corte_id: c.id,
       piezas: [{ denom_key: '500', piezas: 1 }], morralla: 500,
       caja_fuerte: 502640, caja_fuerte_fuente: 'pantalla de la máquina',
-      cheques: 10121, papeles: 20782, usd: 12059, tipo_cambio: 19.101, tipo_cambio_fuente: 'DOF 2026-03-16',
+      documentos: await documentosQueCierran(arqueos, {
+        cheques: [{ estado: 'esta', monto: 10121, banco: 'Banamex', numero: `45-${CORRIDA}`, de_quien: 'Abarrotes La Luz' }],
+        papeles: [{ estado: 'esta', clase: 'vale', monto: 20782, de_quien: 'Pedro Ramírez', concepto: 'anticipo de viáticos' }],
+      }),
+      usd: 12059, tipo_cambio: 19.101, tipo_cambio_fuente: 'DOF 2026-03-16',
     };
     // ⛔ Quien cerró el corte no lo recuenta: 403 con su frase.
     await expect(arqueos.registrar(payload, CAJERA)).rejects.toBeInstanceOf(ForbiddenException);
@@ -248,9 +269,74 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     // Sale por la vista única, que es lo que leen Arqueos y la posición.
     const l = await arqueos.listar({ limit: 200 });
     expect(l.rows.find((x) => x.folio === g.arqueo.folio)).toMatchObject({ origen: 'suite', corte_id: c.id });
+    // `[CGS.59]` Y la posición abre los cheques y los papeles de ese arqueo, documento por documento.
+    const p = await tk.run((trx) => leerPosicion(trx, T, false));
+    expect(p.rubros.find((x) => x.rubro === 'cheques')?.piezas)
+      .toEqual([expect.objectContaining({ texto: `Banamex 45-${CORRIDA} · Abarrotes La Luz`, monto: 10121 })]);
+    expect(p.rubros.find((x) => x.rubro === 'papeles')?.piezas)
+      .toEqual([expect.objectContaining({ texto: 'Vale · Pedro Ramírez: anticipo de viáticos', monto: 20782 })]);
 
     // ⛔ Un arqueo no se corrige: app_runtime no tiene UPDATE.
     await expect(tk.run((trx) => trx('finance.cash_arqueos').where({ id: g.arqueo.folio }).update({ efectivo: 1 })))
+      .rejects.toThrow(/permission denied/);
+  });
+
+  it('⭐ `[CGS.59]` cheques y papeles uno por uno: lo que había se marca, lo nuevo entra, el importe es la suma y la base lo exige', async () => {
+    const arqueos = new CajaArqueoService(tk, { requireTenantId: () => T } as unknown as TenantContextService);
+    const base = { tipo: 'intermedio' as const, piezas: [{ denom_key: '500', piezas: 0 }] };
+    const numero = `59-${CORRIDA}`;
+
+    // 1. Primer conteo: un cheque y un vale nuevos (lo de otras corridas, fuera).
+    const g1 = await arqueos.registrar({ ...base, documentos: await documentosQueCierran(arqueos, {
+      cheques: [{ estado: 'esta', monto: 10121, banco: 'Banamex', numero, de_quien: 'Abarrotes La Luz', fecha: '2026-10-19' }],
+      papeles: [{ estado: 'esta', clase: 'vale', monto: 20782, de_quien: 'Pedro Ramírez', concepto: 'anticipo de viáticos' }],
+    }) }, CAJERA);
+    expect(g1.arqueo).toMatchObject({ cheques: 10121, papeles: 20782 });
+    expect(g1.documentos.cheques).toMatchObject({ total: 10121, entraron: 1, siguen: 0 });
+
+    // 2. Lo que la pantalla pide marcar ahora: esos dos, con el día en que se vieron.
+    const d = await arqueos.documentosEnCaja();
+    expect(d).toMatchObject({ instalado: true, base: g1.arqueo.folio });
+    expect(d.cheques.piezas).toEqual([expect.objectContaining({ banco: 'Banamex', numero, monto: 10121, fecha: '2026-10-19' })]);
+    expect(d.papeles.piezas).toEqual([expect.objectContaining({ clase: 'vale', de_quien: 'Pedro Ramírez', monto: 20782 })]);
+    const [ch] = d.cheques.piezas;
+    const [va] = d.papeles.piezas;
+
+    // ⛔ [negativa] Un documento que había no desaparece sin marcarse.
+    await expect(arqueos.registrar({ ...base, documentos: { base: d.base, cheques: [], papeles: [{ pieza: va.pieza, estado: 'esta' }] } }, CAJERA))
+      .rejects.toThrow(/Marca cada documento/);
+    // ⛔ [negativa] Un importe tecleado sin sus renglones.
+    await expect(arqueos.registrar({ ...base, cheques: 10121 as unknown as null }, CAJERA)).rejects.toBeInstanceOf(BadRequestException);
+
+    // 3. Segundo conteo: el cheque se depositó, el vale sigue, entra un crédito.
+    const g2 = await arqueos.registrar({ ...base, documentos: { base: d.base,
+      cheques: [{ pieza: ch.pieza, estado: 'salio', salida: 'depositado' }],
+      papeles: [{ pieza: va.pieza, estado: 'esta' },
+        { estado: 'esta', clase: 'credito', monto: 1952, de_quien: 'Tienda Lupita', concepto: 'venta de la ruta 27' }] } }, CAJERA);
+    expect(g2.arqueo).toMatchObject({ cheques: 0, papeles: 22734 });
+    expect(g2.documentos.cheques?.salieron).toEqual([{ texto: `Banamex ${numero} · Abarrotes La Luz`, monto: 10121, salida: 'depositado', nota: null }]);
+    expect(g2.documentos.papeles).toMatchObject({ total: 22734, siguen: 1, entraron: 1 });
+
+    // ⛔ [negativa] Dos conteos a la vez: quien abrió antes del segundo guardado ya no ve lo de ahora (409).
+    await expect(arqueos.registrar({ ...base, documentos: { base: d.base, cheques: [], papeles: [] } }, CAJERA))
+      .rejects.toBeInstanceOf(ConflictException);
+
+    // El vale es la misma pieza y conserva el día en que se vio por primera vez.
+    const d2 = await arqueos.documentosEnCaja();
+    expect(d2.cheques.piezas).toEqual([]);
+    expect(d2.papeles.piezas.find((p) => p.pieza === va.pieza)?.visto_desde).toBe(va.visto_desde);
+
+    // ⛔ [negativa] La BASE exige que el importe sea la suma de sus renglones, aunque se le llegue directo…
+    await expect(tk.run((trx) => trx('finance.cash_arqueos').insert({
+      tenant_id: T, tipo: 'intermedio', piezas: '[]', efectivo: 0, cheques: 100, created_by: CAJERA.id,
+    }))).rejects.toMatchObject({ constraint: 'cash_arqueo_cheques_no_suman' });
+    // …y no deja agregarle renglones a un arqueo ya guardado.
+    await expect(tk.run((trx) => trx('finance.cash_arqueo_documentos').insert({
+      tenant_id: T, arqueo_id: g2.arqueo.folio, pieza: randomUUID(), tipo: 'cheque', estado: 'esta', monto: 5,
+      banco: 'BBVA', numero: `X-${CORRIDA}`, de_quien: 'Alguien Más', created_by: CAJERA.id,
+    }))).rejects.toMatchObject({ constraint: 'cash_arqueo_cheques_no_suman' });
+    // ⛔ Un renglón no se corrige: app_runtime no tiene UPDATE.
+    await expect(tk.run((trx) => trx('finance.cash_arqueo_documentos').where({ arqueo_id: g2.arqueo.folio }).update({ monto: 1 })))
       .rejects.toThrow(/permission denied/);
   });
 

@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { uuidV4 } from '../../core/utils/uuid';
-import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, NuevoArqueoCajaInput, CaosRetirosLibres, CaosRetiroDelLote } from '@megadulces/contracts';
+import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, DocumentosEnCajaDto, NuevoArqueoCajaInput, CaosRetirosLibres, CaosRetiroDelLote } from '@megadulces/contracts';
 // `[CGA-A.61]` La reposición por sucursal: el contrato lo comparten el endpoint y la pantalla.
 import type { ReposicionSucursales } from '@megadulces/contracts';
 import type { CerrarHojaInput, HojaGastos, HojasDeGastos, PagarHojaInput, PagoHojaResultado } from '@megadulces/contracts';
@@ -542,6 +542,11 @@ export class CashLedgerService {
   /** `[CGS.46]` Guarda un arqueo completo. En el recuento, lo que selló el corte se revela al guardar. */
   registrarArqueoCaja(body: NuevoArqueoCajaInput): Observable<ArqueoGuardadoDto> {
     return this.http.post<ArqueoGuardadoDto>(`${this.base}/arqueos-caja`, body);
+  }
+
+  /** `[CGS.59]` Los cheques y papeles que había en el último arqueo, para marcarlos al volver a contar. */
+  documentosEnCaja(): Observable<DocumentosEnCajaDto> {
+    return this.http.get<DocumentosEnCajaDto>(`${this.base}/arqueos-caja/documentos`);
   }
 
   /** `[CGS.14]` ¿La caja está bloqueada para mí? Por qué, qué la destraba, y si hay llave. */

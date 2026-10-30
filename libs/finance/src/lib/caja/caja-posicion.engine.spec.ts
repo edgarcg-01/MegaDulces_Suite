@@ -53,4 +53,29 @@ describe('posicionDeCaja', () => {
       expect(p.rubros.find((x) => x.rubro === r)!.ahora).toMatchObject({ monto: null, estado: 'no_medido' });
     }
   });
+
+  it('⭐ `[CGS.59]` con un arqueo de la Suite con renglones, cheques y papeles se abren documento por documento', () => {
+    const conDetalle: HechosPosicion = {
+      ...hoy,
+      control: {
+        ...hoy.control!, origen: 'suite', folio: 'a-59', cheques: 10121, papeles: 22734,
+        documentos: [
+          { pieza: 'p1', tipo: 'cheque', clase: null, monto: 10121, banco: 'Banamex', numero: '0012345', de_quien: 'Abarrotes La Luz', concepto: null, fecha: null, visto_desde: '2026-10-23' },
+          { pieza: 'p2', tipo: 'papel', clase: 'vale', monto: 20782, banco: null, numero: null, de_quien: 'Pedro Ramírez', concepto: 'viáticos', fecha: null, visto_desde: '2026-10-23' },
+          { pieza: 'p3', tipo: 'papel', clase: 'credito', monto: 1952, banco: null, numero: null, de_quien: 'Tienda Lupita', concepto: 'ruta 27', fecha: null, visto_desde: '2026-10-30' },
+        ],
+      },
+    };
+    expect(de(conDetalle, 'cheques').piezas).toEqual([{ texto: 'Banamex 0012345 · Abarrotes La Luz', monto: 10121, desde: '2026-10-23' }]);
+    expect(de(conDetalle, 'papeles').piezas).toEqual([
+      { texto: 'Vale · Pedro Ramírez: viáticos', monto: 20782, desde: '2026-10-23' },
+      { texto: 'Crédito · Tienda Lupita: ruta 27', monto: 1952, desde: '2026-10-30' },
+    ]);
+    expect(de(conDetalle, 'papeles').ahora.nota).toContain('documento por documento');
+  });
+
+  it('[negativa] `[CGS.59]` sin renglones (Control o un arqueo de antes) NO se inventa el detalle y se dice', () => {
+    expect(de(hoy, 'papeles').piezas).toBeUndefined();
+    expect(de(hoy, 'papeles').ahora.nota).toContain('sin detalle');
+  });
 });

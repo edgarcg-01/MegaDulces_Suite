@@ -80,6 +80,21 @@ const POR_CONSTRAINT: Record<string, string> = {
   caos_link_billetes_insuficientes:
     'Ese retiro de CAOS no tenía esos billetes (o ya se entregaron en otro pago). Revisa la denominación.',
   caos_link_billetes_forma: 'Los billetes van como denominación y número de piezas (entero mayor que cero).',
+  // `[CGS.59]` Cheques y papeles, uno por uno (migración 20261030095100). El servicio los revisa
+  // antes; esto es lo que queda si un camino llega directo a la base.
+  cash_arqueo_cheques_no_suman: 'Los cheques del arqueo no son la suma de sus renglones: se anotan uno por uno.',
+  cash_arqueo_papeles_no_suman: 'Los papeles del arqueo no son la suma de sus renglones: se anotan uno por uno.',
+  cash_arqueo_cheques_sin_contar: 'Si los cheques no se contaron, el arqueo no lleva renglones de cheque.',
+  cash_arqueo_papeles_sin_contar: 'Si los papeles no se contaron, el arqueo no lleva renglones de papel.',
+  cash_arqueo_doc_salida_chk:
+    'Di por qué salió: un cheque se depositó o lo devolvió el banco; un papel lo pagaron o se comprobó.',
+  cash_arqueo_doc_otro_chk: 'Con «otra cosa», escribe qué pasó con el documento.',
+  cash_arqueo_doc_monto_chk: 'El importe de cada documento es mayor que cero.',
+  cash_arqueo_doc_quien_chk: 'Cada documento dice de quién es o quién debe.',
+  cash_arqueo_doc_cheque_chk: 'Cada cheque lleva banco y número.',
+  cash_arqueo_doc_papel_chk: 'Cada papel dice por qué se debe.',
+  cash_arqueo_doc_clase_chk: 'Cada papel dice si es vale o crédito.',
+  ux_cash_arqueo_doc_cheque: 'Ese cheque (banco y número) ya está en la lista.',
 };
 
 /** Códigos de Postgres que SÍ son culpa de lo que se mandó, no del servidor. */

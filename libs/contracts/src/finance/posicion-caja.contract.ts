@@ -26,6 +26,11 @@ export interface PosicionRubro {
   /** Lo que se movió desde ese conteo, ya con signo para este rubro. `null` = no se lleva el registro. */
   desde: { entra: number; sale: number; detalle: string } | null;
   ahora: { monto: number | null; usd?: number | null; estado: EstadoPosicion; nota: string };
+  /**
+   * `[CGS.59]` Cheques y papeles: lo que suma el rubro, documento por documento (`desde` =
+   * `YYYY-MM-DD` del primer arqueo en que se vio). Ausente = el arqueo no trae el detalle.
+   */
+  piezas?: Array<{ texto: string; monto: number; desde: string }>;
 }
 
 export interface PosicionCajaDto {

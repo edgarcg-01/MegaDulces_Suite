@@ -1,6 +1,7 @@
 import type { Knex } from 'knex';
 import { SUCURSAL_CAJA_GENERAL, type PosicionCajaDto } from '@megadulces/contracts';
 import { posicionDeCaja, type HechosPosicion } from './caja-posicion.engine';
+import { documentosQueEstan, hayDocumentosDeArqueo } from './caja-arqueo-documentos.query';
 
 /**
  * `[CGS.35]` Lee los hechos de la posición de caja y la arma con el motor puro.
@@ -64,6 +65,14 @@ export async function leerPosicion(trx: Knex.Transaction, tenantId: string, reve
         tipo_cambio: n(x.tipo_cambio), cheques: n(x.cheques), papeles: n(x.papeles),
         origen: x.origen === 'suite' ? 'suite' : 'control', quien: x.quien ?? null,
       };
+      // `[CGS.59]` Un arqueo de la Suite trae sus cheques y papeles uno por uno: el total se abre.
+      if (x.origen === 'suite' && (await hayDocumentosDeArqueo(trx))) {
+        const docs = await documentosQueEstan(trx, tenantId, String(x.folio));
+        // Un arqueo guardado antes de los renglones no trae detalle: sin `documentos`, no se inventa.
+        const suma = (t: string) => Math.round(docs.filter((d) => d.tipo === t).reduce((s, d) => s + d.monto, 0) * 100) / 100;
+        const cuadra = (v: number | null, t: string) => v == null || Math.abs(v - suma(t)) < 0.005;
+        if (cuadra(control.cheques, 'cheque') && cuadra(control.papeles, 'papel')) control.documentos = docs;
+      }
     }
   } else if (hayControl) {
     const r = await trx.raw(`

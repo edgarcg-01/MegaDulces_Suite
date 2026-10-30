@@ -1,4 +1,5 @@
 import type { EstadoPosicion, PosicionRubro } from '@megadulces/contracts';
+import { dmy } from '../finanzas-format';
 
 /**
  * ⭐ `[CGS.55]` Cómo se dice un rubro de lo que hay en caja (`GET /cash-ledger/posicion`). Lo leen
@@ -25,7 +26,13 @@ export function desgloseRubro(r: PosicionRubro, fmt: (n: number) => string, cuan
   if (!u) return [];
   const deDonde = `${u.at ? cuando(u.at) + ' · ' : ''}${u.fuente.replace(/\s*\(.*\)$/, '')}`;
   if (!r.desde) {
-    return [{ monto: null, texto: `contado el ${deDonde}${u.tipo_cambio != null ? ` · a ${u.tipo_cambio} por dólar` : ''}` }];
+    const out: RenglonDesglose[] = [{ monto: null, texto: `contado el ${deDonde}${u.tipo_cambio != null ? ` · a ${u.tipo_cambio} por dólar` : ''}` }];
+    // `[CGS.59]` Cheques y papeles: el total se abre documento por documento.
+    if (r.piezas) {
+      if (!r.piezas.length) out.push({ monto: null, texto: 'no había ninguno' });
+      for (const p of r.piezas) out.push({ monto: fmt(p.monto), texto: `${p.texto} · en caja desde el ${dmy(p.desde)}` });
+    }
+    return out;
   }
   const cf = r.rubro === 'caja_fuerte';
   const out: RenglonDesglose[] = [

@@ -73,6 +73,9 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
   'finance.cash_ledger_llaves', 'finance.caos_conteos_fisicos',
   // `[CGS.41]` El arqueo completo de la caja (lo que contaba Control, jubilado el 2026-10-22).
   'finance.cash_arqueos',
+  // `[CGS.59]` Sus cheques y papeles, uno por renglón, con el trigger que exige que el importe del
+  // arqueo sea la suma de sus renglones: sin esta línea el arqueo de la prueba no se puede guardar.
+  'finance.cash_arqueo_documentos',
   // `[CGA-A.50]` El retiro de CAOS en custodia. Su migración también cambia el candado de
   // `caos_cash_links` (un retiro, muchos gastos): sin esta línea `test-newdb-caja-custodia` sale
   // NO MEDIDO y el trigger que lo reemplaza nunca se ejerce.

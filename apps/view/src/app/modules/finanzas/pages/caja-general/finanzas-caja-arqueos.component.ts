@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -31,7 +31,9 @@ import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { forkJoin } from 'rxjs';
 import { CashLedgerService, type ArqueoMovimientoDia, type CandadoCaja, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
-import type { PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, NuevoArqueoCajaInput, TipoArqueoCaja } from '@megadulces/contracts';
+import type { PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, DocumentosEnCajaDto, NuevoArqueoCajaInput, ResumenApartado, SalidaDocumento, TipoArqueoCaja } from '@megadulces/contracts';
+import { SALIDA_TEXTO } from '@megadulces/contracts';
+import { ArqueoDocumentosComponent } from '../../components/arqueo-documentos.component';
 import { CajaSocketService } from '../../caja-socket.service';
 import { desgloseRubro, etiquetaPosicion, plural } from './posicion-caja.util';
 import { CaosSocketService } from '../../caos-socket.service';
@@ -189,7 +191,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, TextareaModule, SelectModule,
     DialogModule, InputNumberModule, InputTextModule,
     LoadStateComponent, SidePeekComponent, MetricCardComponent, FreshnessPillComponent,
-    ContextHelpComponent, CajaTabsComponent, SegmentedComponent],
+    ContextHelpComponent, CajaTabsComponent, SegmentedComponent, ArqueoDocumentosComponent],
   template: `
     <app-caja-tabs />
     <div class="surf-page in">
@@ -820,22 +822,19 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
         </fieldset>
         <p class="cq-arq-total">Efectivo: <b>{{ mx(arqEfectivo()) }}</b></p>
         <fieldset class="cq-arq-grupo">
-          <legend>Lo demás que hay en la caja</legend>
+          <legend>Caja fuerte</legend>
           <div class="cq-arq-reja">
-            <label for="cq-arq-cf">Caja fuerte</label>
+            <label for="cq-arq-cf">Lo que tiene</label>
             <p-inputnumber inputId="cq-arq-cf" mode="currency" currency="MXN" locale="es-MX" [min]="0"
                            [ngModel]="arqCF()" (ngModelChange)="arqCF.set($event)" />
             <label for="cq-arq-cff">De dónde sale esa cifra</label>
             <p-select inputId="cq-arq-cff" [options]="FUENTES_CF" optionLabel="label" optionValue="value"
                       [ngModel]="arqCFFuente()" (ngModelChange)="arqCFFuente.set($event)" />
-            <label for="cq-arq-ch">Cheques</label>
-            <p-inputnumber inputId="cq-arq-ch" mode="currency" currency="MXN" locale="es-MX" [min]="0"
-                           [ngModel]="arqCheques()" (ngModelChange)="arqCheques.set($event)" />
-            <label for="cq-arq-pa">Vales y papeles</label>
-            <p-inputnumber inputId="cq-arq-pa" mode="currency" currency="MXN" locale="es-MX" [min]="0"
-                           [ngModel]="arqPapeles()" (ngModelChange)="arqPapeles.set($event)" />
           </div>
         </fieldset>
+        <!-- [CGS.59] Cheques y papeles uno por uno: lo que habia se marca, lo nuevo se agrega, el importe se suma. -->
+        <app-arqueo-documentos #arqCh tipo="cheque" [apartado]="arqDocs()?.cheques ?? null" [bloqueo]="arqDocsBloqueo()" />
+        <app-arqueo-documentos #arqPa tipo="papel" [apartado]="arqDocs()?.papeles ?? null" [bloqueo]="arqDocsBloqueo()" />
         <fieldset class="cq-arq-grupo">
           <legend>Dólares</legend>
           <div class="cq-arq-reja">
@@ -864,6 +863,12 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
             <p>El corte {{ k.folio }} selló <b>{{ k.contado === null ? 'sin conteo' : mx(k.contado) }}</b>.</p>
             @if (k.diferencia !== null) {
               <p [class.cq-mal]="k.diferencia !== 0"><b>{{ k.diferencia === 0 ? 'Coincide al peso.' : 'Difiere ' + firmado(k.diferencia) + ' del conteo del corte.' }}</b></p>
+            }
+          }
+          @for (a of resumenDocumentos(g); track a.titulo) {
+            <p>{{ a.titulo }}: <b>{{ mx(a.r.total) }}</b> · {{ a.linea }}</p>
+            @for (s of a.r.salieron; track $index) {
+              <p class="cq-dim">Salió {{ s.texto }} ({{ mx(s.monto) }}): {{ salidaTexto(s.salida) }}{{ s.nota ? ' · ' + s.nota : '' }}</p>
             }
           }
         }
@@ -1308,8 +1313,19 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   readonly arqMorralla = signal<number | null>(null);
   readonly arqCF = signal<number | null>(null);
   readonly arqCFFuente = signal<string>('pantalla de la máquina');
-  readonly arqCheques = signal<number | null>(null);
-  readonly arqPapeles = signal<number | null>(null);
+  // ── `[CGS.59]` Cheques y papeles, uno por uno ──────────────────────────────────────────────
+  /** Lo que había en el último arqueo de cada apartado. `null` mientras se lee. */
+  readonly arqDocs = signal<DocumentosEnCajaDto | null>(null);
+  readonly arqDocsError = signal<string | null>(null);
+  private readonly arqCh = viewChild<ArqueoDocumentosComponent>('arqCh');
+  private readonly arqPa = viewChild<ArqueoDocumentosComponent>('arqPa');
+  /** Por qué no se pueden contar ahora los cheques y papeles. `null` = se puede. */
+  readonly arqDocsBloqueo = computed<string | null>(() => {
+    if (this.arqDocsError()) return this.arqDocsError();
+    const d = this.arqDocs();
+    if (!d) return 'Leyendo qué cheques y papeles había…';
+    return d.instalado ? null : 'Esta base todavía no guarda los cheques y papeles uno por uno: quedan sin contar.';
+  });
   readonly arqUsd = signal<number | null>(null);
   readonly arqTC = signal<number | null>(null);
   readonly arqTCFuente = signal('');
@@ -1340,7 +1356,7 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
     if ((this.arqUsd() ?? 0) > 0 && (!(this.arqTC() ?? 0) || !this.arqTCFuente().trim())) {
       return 'Con dólares hace falta el tipo de cambio y de dónde salió.';
     }
-    return null;
+    return this.arqCh()?.falta() ?? this.arqPa()?.falta() ?? null;
   });
 
   readonly tituloArqueo = computed(() => {
@@ -1355,9 +1371,29 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
 
   abrirArqueo(tipo: TipoArqueoCaja, corte: ArqueoDia | null): void {
     this.arqPiezas.set({}); this.arqMorralla.set(null); this.arqCF.set(null); this.arqCFFuente.set('pantalla de la máquina');
-    this.arqCheques.set(null); this.arqPapeles.set(null); this.arqUsd.set(null); this.arqTC.set(null); this.arqTCFuente.set('');
+    this.arqUsd.set(null); this.arqTC.set(null); this.arqTCFuente.set('');
     this.arqNota.set(''); this.arqErr.set(null); this.arqGuardado.set(null);
     this.arqDlg.set({ tipo, corte });
+    // `[CGS.59]` Lo que había, para marcarlo. Sin esa lectura no se cuentan (la llave contra dos conteos la trae).
+    this.arqDocs.set(null); this.arqDocsError.set(null);
+    this.cajas.documentosEnCaja().subscribe({
+      next: (d) => this.arqDocs.set(d),
+      error: () => this.arqDocsError.set('No se pudo leer qué cheques y papeles había: esta vez quedan sin contar.'),
+    });
+  }
+
+  /** `[CGS.59]` Lo que cambió en cada apartado, en una línea. */
+  resumenDocumentos(g: ArqueoGuardadoDto): Array<{ titulo: string; r: ResumenApartado; linea: string }> {
+    const out: Array<{ titulo: string; r: ResumenApartado; linea: string }> = [];
+    for (const [titulo, r] of [['Cheques', g.documentos?.cheques], ['Vales y papeles', g.documentos?.papeles]] as const) {
+      if (!r) continue;
+      out.push({ titulo, r, linea: `${plural(r.siguen, 'sigue', 'siguen')} · ${plural(r.entraron, 'entró', 'entraron')} · ${plural(r.salieron.length, 'salió', 'salieron')}` });
+    }
+    return out;
+  }
+
+  salidaTexto(s: SalidaDocumento): string {
+    return SALIDA_TEXTO[s];
   }
 
   cerrarArqueo(): void {
@@ -1380,7 +1416,10 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
       piezas: piezas.length ? piezas : [{ denom_key: BILLETES_CAJA[0].key, piezas: 0 }],
       morralla: this.arqMorralla(),
       caja_fuerte: this.arqCF(), caja_fuerte_fuente: this.arqCF() === null ? null : this.arqCFFuente(),
-      cheques: this.arqCheques(), papeles: this.arqPapeles(),
+      // `[CGS.59]` Cheques y papeles uno por uno; el servidor suma sus renglones. Sin la lectura de lo que
+      // había (o sin la tabla), no se cuentan: quedan «no se contó».
+      documentos: this.arqDocsBloqueo() ? null
+        : { base: this.arqDocs()?.base ?? null, cheques: this.arqCh()?.valor() ?? null, papeles: this.arqPa()?.valor() ?? null },
       usd: this.arqUsd(), tipo_cambio: this.arqTC(), tipo_cambio_fuente: this.arqTCFuente().trim() || null,
       nota: this.arqNota().trim() || null,
     };

@@ -1,4 +1,4 @@
-import type { PosicionCajaDto, PosicionRubro, RubroCaja } from '@megadulces/contracts';
+import { textoDocumento, type DocumentoEnCaja, type PosicionCajaDto, type PosicionRubro, type RubroCaja } from '@megadulces/contracts';
 
 /**
  * ⭐ `[CGS.35]` **Lo que hay en caja, rubro por rubro.** Puro: recibe los hechos ya leídos.
@@ -36,6 +36,8 @@ export interface HechosPosicion {
     folio: string; at: string; caja_fuerte: number | null; efectivo: number | null;
     usd: number | null; tipo_cambio: number | null; cheques: number | null; papeles: number | null;
     origen?: 'control' | 'suite'; quien?: string | null;
+    /** `[CGS.59]` Los cheques y papeles que ESTÁN en ese arqueo, uno por uno. Ausente = sin detalle. */
+    documentos?: DocumentoEnCaja[];
   } | null;
   /** Movimientos de CAOS posteriores a ese arqueo (para la caja fuerte). */
   caosDesdeControl: { depositado: number; dispensado: number; otros: string[] } | null;
@@ -122,11 +124,24 @@ export function posicionDeCaja(h: HechosPosicion): PosicionCajaDto {
         },
       });
     }
-    for (const [rubro, etiqueta, v] of [['cheques', 'Cheques', ctl.cheques], ['papeles', 'Papeles', ctl.papeles]] as const) {
-      rubros.push(v == null
-        ? { rubro, etiqueta, ultimo: null, desde: null, ahora: { monto: null, estado: 'no_medido', nota: 'El último arqueo no lo trae.' } }
-        : { rubro, etiqueta, ultimo: { monto: v, fuente: fuenteCtl, at: ctl.at }, desde: null,
-          ahora: { monto: v, estado: 'medido', nota: 'Lo contado en ese arqueo. La Suite no registra sus movimientos.' } });
+    for (const [rubro, etiqueta, v, tipo] of [['cheques', 'Cheques', ctl.cheques, 'cheque'], ['papeles', 'Papeles', ctl.papeles, 'papel']] as const) {
+      if (v == null) {
+        rubros.push({ rubro, etiqueta, ultimo: null, desde: null, ahora: { monto: null, estado: 'no_medido', nota: 'El último arqueo no lo trae.' } });
+        continue;
+      }
+      // `[CGS.59]` Con sus renglones, el total se abre documento por documento.
+      const piezas = ctl.documentos?.filter((d) => d.tipo === tipo)
+        .map((d) => ({ texto: textoDocumento(d), monto: d.monto, desde: d.visto_desde }));
+      rubros.push({
+        rubro, etiqueta, ultimo: { monto: v, fuente: fuenteCtl, at: ctl.at }, desde: null,
+        ahora: {
+          monto: v, estado: 'medido',
+          nota: piezas
+            ? 'Lo contado en ese arqueo, documento por documento.'
+            : 'Lo contado en ese arqueo, sin detalle por documento. La Suite no registra sus movimientos.',
+        },
+        ...(piezas ? { piezas } : {}),
+      });
     }
   }
 
