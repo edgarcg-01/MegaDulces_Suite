@@ -563,3 +563,28 @@ distribución:
 
 Faltan los códigos 4, 5 y 0 de `impuesto`. El 5 trae base 0 en todas sus filas. Necesitan un testigo antes de
 publicarse en una vista.
+
+### 8.12 `[CP.9.4]` El dictamen pregunta a la réplica (2026-10-30)
+
+Commit `c00b75e72`, en `dictamen.ts` y `dictamen.contexto.ts`. Hoy nadie llama a `leerContextoDictamen`; antes de
+cablearlo a un endpoint hay que aplicar la migración de `CP.9.3`.
+
+- **«El CFDI ya está en otra póliza de egresos»** (`cfdi_ya_pagado`) sale ahora de
+  `analytics.v_contpaqi_cfdi_poliza`, **unida** al staging: la réplica está completa hasta su última sincronía y el
+  staging es fresco al minuto. Juntas no ven menos que antes. Medido en prod sobre los CFDI recibidos por la empresa:
+
+  | Mes | CFDI recibidos | Antes (staging) | Después (réplica ∪ staging) | Lo que sólo aportaba el staging |
+  |---|---:|---:|---:|---:|
+  | ago-2026 | 1,280 | 573 (45 %) | **1,045 (82 %)** | 0 |
+  | sep-2026 | 1,068 | 365 (34 %) | **742 (69 %)** | 0 |
+
+- **`ejercicio_cerrado`** (perspectiva fecha, **revisar**): sale de `analytics.v_contpaqi_ejercicio`. No bloquea
+  porque ContPAQi acepta la póliza (§8.10). Un ejercicio que no está en la réplica y uno que no se pudo leer también
+  van a revisar. ⚠️ Si «bloquea» o «revisar», lo confirma Edgar (D11 de CP.8); cambiarlo es una línea.
+- **`replica_rancia`** (duplicado, **revisar**): si las tablas de asociación de la réplica llevan más de un día sin
+  sincronizarse, lo que contabilidad asoció después no se ve, y se dice. Mientras la sincronía corra a mano (D15),
+  esto va a salir seguido, y es lo honesto.
+- **Pruebas:** `dictamen.spec` 38 de 38. Las dos nuevas traen su control: un ejercicio cerrado distinto no toca a la
+  póliza, la réplica de ayer no cuenta como rancia y sin CFDI la regla no aplica. **Prueba negativa:** con la resta
+  de días al revés, la de la réplica rancia se pone roja.
+- **Falta en `CP.9.4`:** que el cuadre del puente también lea de la réplica.
