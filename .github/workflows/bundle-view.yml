@@ -1,0 +1,59 @@
+name: Bundle de view (qué pesa el JS inicial)
+
+# `[BUNDLE.1]` Compila `view` en producción con `--stats-json` y publica qué paquete ocupa cada KB
+# del JS que el navegador baja al abrir la suite.
+#
+# Por qué: medido el 2026-10-30, `main.js` pesaba 1,534 KB (393 KB por la red) contra un
+# presupuesto de 1.75 MB, y prod no publica el source map. Compilar en local está prohibido
+# (regla 3), así que el reporte lo saca el CI.
+#
+# Sólo a mano (Actions → «Bundle de view» → Run workflow, o `gh workflow run bundle-view.yml`):
+# no bloquea nada ni corre en cada push.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: stats.json de view
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NX_NO_CLOUD: 'true'
+      NX_DAEMON: 'false'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+          CI: 'true'
+
+      - name: Build de producción con stats
+        run: npx nx build view --configuration=production --stats-json --skip-nx-cache
+
+      - name: Reporte por origen
+        run: |
+          STATS=$(find dist/apps/view -maxdepth 2 -name stats.json | head -1)
+          test -n "$STATS" || { echo "::error::no se generó stats.json"; exit 1; }
+          echo "STATS=$STATS" >> "$GITHUB_ENV"
+          node scripts/bundle-por-paquete.js "$STATS" --top=50
+          node scripts/bundle-por-paquete.js "$STATS" --top=50 --md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar stats.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: view-stats
+          path: ${{ env.STATS }}
+          retention-days: 14

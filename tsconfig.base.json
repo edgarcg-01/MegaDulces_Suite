@@ -45,6 +45,10 @@
       // [EMB.24] Lo que el NAVEGADOR importa con valor (textos, validaciones) entra por subruta: por el
       // barrel caía en el chunk compartido que `main` carga al arrancar (+1.5 kB sobre el presupuesto).
       "@megadulces/contracts/http/cierre-viaje": ["libs/contracts/src/http/cierre-viaje.contract.ts"],
+
+      "@megadulces/contracts/http/service-desk": ["libs/contracts/src/http/service-desk.contract.ts"],
+
+      "@megadulces/contracts/http/suite-usage": ["libs/contracts/src/http/suite-usage.contract.ts"],
       "@megadulces/contracts/http/alta-persona": ["libs/contracts/src/http/alta-persona.contract.ts"],
       "@megadulces/contracts/http/arqueo-cajas": ["libs/contracts/src/http/arqueo-cajas.contract.ts"],
       // [TP.20.5] Las dos reglas de pagos que cruzan dominio. Por SUBRUTA y no por el barrel:

@@ -424,6 +424,23 @@ y validación visual.
 **No medido:** ningún UPDATE nuevo se ejerció contra base (el usuario de lectura no puede); el arranque de la API con `@Req()` en `requisitions/batch`; los clics antes/después con navegador (sin MCP de navegador en la sesión). Se verifican al desplegar con `/api/health` y la bandeja.
 
 
+
+## 2026-10-29 — `[P2.9.3]` Caducidades: escanear busca solo, sin tocar la lupa
+
+**Reporte:** en Morelia Abastos (caja32, por VNC) al escanear `7502271913377` «no bajaba la información»: había que tocar el botón de búsqueda. «Tiene que ser automático, desplegar la información en cuanto se escanee el código».
+
+**Medido (prod, sólo lectura):** el código está en `catalog.product_barcodes` desde el 18-ago (SKU 88158, ORBIT 4 S FRESA, PAQ) y resuelve por el catálogo: **no es un problema de datos ni de #462**. En la captura, una vez buscado, el producto sí se desplegaba.
+
+**Causa:** `ProductScanFieldComponent` sólo disparaba con `Enter` (o la lupa). Las pistolas en modo teclado mandan `Enter` como sufijo **si están configuradas así**; la de esa caja no lo manda y el código quedaba escrito esperando el clic.
+
+**Arreglo:** el campo dispara solo cuando entra un código completo y pasan 250 ms sin teclas: una ráfaga de pistola (todas las teclas a < 50 ms) o un código de barras numérico de 8–14 dígitos. Si la pistola sí manda `Enter`, busca **una** vez (el `Enter` cancela el disparo automático). Un SKU tecleado a mano a ritmo humano sigue esperando `Enter`, para no buscar a medio escribir. Vale para Caducidades (`/tienda/caducidades`) y el detalle de la hoja (`/comercial/caducidades/:id`), que comparten el campo.
+
+**Prueba:** `product-scan-field.component.spec.ts`, 6 pruebas con reloj falso (pistola sin Enter, con Enter = una sola búsqueda, SKU en ráfaga, SKU a mano NO dispara, no dispara mientras llega texto, la regla pura). **Mutación** (quitar el disparo del temporizador): 2 en rojo. `modules/comercial` + Caducidades: 311 de 311. `check:templates`, `check:tokens`, `check:estilos`, `check:motion` sin nada nuevo.
+
+**NO medido:** con la pistola física. Caso límite declarado: quien teclee a mano un código de barras largo y se detenga un cuarto de segundo tras 8 dígitos dispara una búsqueda de ese pedazo (sale «no está en el catálogo»; al seguir tecleando vuelve a buscar).
+
+**De paso:** la fila `[ETQ-HISTORIAL]` del tracker estaba **duplicada** (la unión de #464 y #466 dejó la vieja y la nueva): queda una, al día con H.3.2 (#468) y la validación visual en navegador local.
+
 ## 2026-10-28 — `[ETQ-HISTORIAL.5]` «Imprimir etiqueta» desde el historial de precios (H.3.2)
 
 **Qué:** en la cabecera del producto elegido en `/tienda/etiquetas/historial`, un botón **«Imprimir etiqueta»** que manda el código a la etiquetera por estado del router (`navigate(['/tienda/etiquetas'], { state: { codes: [sku] } })`): la misma vía de «Cambios de precio», donde `addBulk()` lo resuelve con el camino de siempre y se ve la hoja antes de gastar papel. No abre la impresión sola y no duplica la maquinaria.
