@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2046 KB, 12882 líneas, 72 secciones.
+> **Índice navegable** — 2053 KB, 12890 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -8,9 +8,9 @@
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
 | 85 | 92 | 15 | Tracker de Progreso |
-| 93 | 182 | 193 | 📊 Estado global de fases |
-| 183 | 209 | 1 | 🚦 Estado por item (granular) |
-| 210 | 3172 | 409 | 🎯 EN PROGRESO |
+| 93 | 183 | 202 | 📊 Estado global de fases |
+| 184 | 210 | 1 | 🚦 Estado por item (granular) |
+| 211 | 3172 | 408 | 🎯 EN PROGRESO |
 | 3189 | 3226 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
 | 3227 | 3260 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
 | 3261 | 3345 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
@@ -57,28 +57,28 @@
 | 8383 | 8545 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
 | 8546 | 8829 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
 | 8830 | 8997 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8998 | 11269 | 173 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11270 | 11278 | 1 | Fase RR — Ventas por ruta |
-| 11279 | 11574 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11575 | 11585 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11586 | 11606 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11607 | 11617 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11618 | 11629 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11630 | 11689 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11690 | 12117 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 12118 | 12132 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 12133 | 12174 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 12175 | 12324 | 65 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12325 | 12355 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12356 | 12403 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12404 | 12432 | 25 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12433 | 12462 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12469 | 12478 | 1 | 📝 Convenciones |
-| 12479 | 12516 | 13 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12517 | 12535 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12536 | 12588 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12589 | 12945 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 12946 | 12966 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 8998 | 11277 | 174 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11278 | 11286 | 1 | Fase RR — Ventas por ruta |
+| 11287 | 11582 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11583 | 11593 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11594 | 11614 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11615 | 11625 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11626 | 11637 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11638 | 11697 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11698 | 12125 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 12126 | 12140 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 12141 | 12182 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12183 | 12332 | 65 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12333 | 12363 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12364 | 12411 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12412 | 12440 | 25 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12441 | 12470 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12477 | 12486 | 1 | 📝 Convenciones |
+| 12487 | 12524 | 13 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12525 | 12543 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12544 | 12596 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12597 | 12953 | 41 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12954 | 12974 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -9562,6 +9562,14 @@ TP.6-TP.8+TP.10".
 > - [x] **[CGS.36]** 🧪 **La verdad de cada diferencia**: conteo, fondo, libro y caja fuerte contra testigos que no
 >       tecleó la misma persona; publica la verdadera al lado de la sellada, con pistas, y V12. Prod (dev_ro): 3 de 8
 >       corregidas (CC-4 +$136,602.36, CC-5 +$49,079.30, CC-7 −$188,884.59), 2 confirmadas, 3 sin testigo.
+> - [x] **[CGS.59]** 🧪 **Cheques y papeles, uno por uno, en el arqueo** (Edgar, 30-oct: *«cuando hay un cheque,
+>       crédito o papel… cómo agregar esos apartados»* → *«agreguémoslo»*). El arqueo pedía UN importe por rubro y
+>       Control re-declaró el mismo importe de papeles en 383 arqueos. Ahora cada cheque (banco, número, de quién)
+>       y cada papel (vale o crédito, quién debe, por qué) es un renglón; lo que había se marca «sigue» o «salió»
+>       con su salida, y el importe es la suma, comprobada por la base (trigger diferido). La posición abre
+>       cheques y papeles documento por documento. Migración `20261030095100` **sin aplicar en prod**. Prueba
+>       contra base real (`cash-cut.servicio-real.spec.ts` 24 ✓, base local armada con `preparar-base-caja.js`);
+>       4 mutaciones rojas; `check:pantalla` 0 nuevas. SIN validación visual.
 > - ⚠️ Medido el 21-oct a las 16:45: CC-2026-00008 (20-oct) ya cerrado; **8 cortes esperan revisión, 0 revisados**.
 
 > ### 🔨 2026-10-19 — **EL `INSERT` A MANO NO DEBÍA EXISTIR**: el concepto se deriva, y lo que no, se declara desde la app
