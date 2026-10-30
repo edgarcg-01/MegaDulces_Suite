@@ -21,7 +21,7 @@ import { SegmentedComponent, type SegOption } from '../../../../shared/component
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { PermissionsService } from '../../../../core/services/permissions.service';
 import { AuthService } from '../../../../core/services/auth.service';
-import { CashLedgerService } from '../../cash-ledger.service';
+import { CashLedgerService, type ResumenLote } from '../../cash-ledger.service';
 import { CaosService } from '../../caos.service';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
@@ -32,6 +32,38 @@ interface OpcionOrigen { label: string; value: string }
 type Fila =
   | { tipo: 'grupo'; clave: string; g: ReposicionGrupo }
   | { tipo: 'hoja'; clave: string; h: HojaGastos };
+
+/**
+ * Lo que dice el aviso después de «Reponer»: cuántos entraron y, de los que no, CUÁL y POR QUÉ.
+ *
+ * ⛔ Canindo 30/10 (2026-10-30): el aviso decía «0 de 1 egresos guardados… 1 no se pudieron: siguen en
+ * la cola» y el servidor SÍ había dicho por qué —el pago va en la hoja de zona y se paga en Hoja de
+ * zona—; el aviso tiraba `filas[].motivo` y no había forma de saber qué hacer. Ahora cada motivo va
+ * con sus folios, y si algo no entró el aviso se queda hasta que se cierre: no se lee en 8 segundos.
+ */
+export function avisoDeReposicion(
+  r: ResumenLote, pedidos: number, docs: ReadonlyArray<Pick<ReposicionDoc, 'origen_ref' | 'doc_tipo' | 'folio'>>,
+): { severity: 'success' | 'warn' | 'error'; detail: string; sticky: boolean } {
+  const nombre = new Map(docs.map((d) => [d.origen_ref, `${d.doc_tipo} ${d.folio}`.trim()]));
+  const porMotivo = new Map<string, string[]>();
+  let yaEstaban = 0;
+  for (const f of r.filas) {
+    if (f.estado === 'guardado') continue;
+    if (f.estado === 'duplicado') { yaEstaban += 1; continue; }
+    const m = (f.motivo ?? '').trim().replace(/\.+$/, '') || 'el servidor no dijo por qué';
+    porMotivo.set(m, [...(porMotivo.get(m) ?? []), nombre.get(f.origen_ref) || f.origen_ref]);
+  }
+  const fallaron = r.rechazados + r.no_confirmables;
+  const partes = [`${r.guardados} de ${pedidos} egresos guardados por ${money(r.monto_guardado)}`
+    + (r.retiro && r.guardados ? ` · CAOS ${money(r.retiro.tomado)}, cajón ${money(r.retiro.del_cajon)}` : '')];
+  if (yaEstaban) partes.push(`${yaEstaban} ya ${yaEstaban === 1 ? 'estaba capturado' : 'estaban capturados'}`);
+  if (fallaron) {
+    const motivos = [...porMotivo.entries()].map(([m, folios]) =>
+      `${folios.slice(0, 3).join(', ')}${folios.length > 3 ? ` y ${folios.length - 3} más` : ''}: ${m}`);
+    partes.push(`${fallaron === 1 ? 'No entró (sigue en la cola)' : `${fallaron} no entraron (siguen en la cola)`} — ${motivos.join(' · ')}`);
+  }
+  return { severity: !fallaron ? 'success' : r.guardados ? 'warn' : 'error', detail: `${partes.join('. ')}.`, sticky: fallaron > 0 };
+}
 
 /**
  * ⭐ `[CGA-A.61]` **Reposición de sucursales**, en una ventana que abre la barra de Captura.
@@ -811,14 +843,12 @@ export class CajaReposicionComponent implements OnInit {
       .subscribe({
         next: (r) => {
           this.ocupado.set(null);
-          const fallaron = r.rechazados + r.no_confirmables;
-          const sobre = r.retiro ? ` · CAOS ${money(r.retiro.tomado)}, cajón ${money(r.retiro.del_cajon)}` : '';
+          const a = avisoDeReposicion(r, items.length, g.docs);
           this.toast.add({
-            severity: fallaron ? 'warn' : 'success',
+            severity: a.severity,
             summary: `${this.nombre(g.sucursal)} ${dmy(g.fecha)}`,
-            detail: `${r.guardados} de ${items.length} egresos guardados por ${money(r.monto_guardado)}${sobre}`
-              + (fallaron ? ` · ${fallaron} no se pudieron: siguen en la cola` : '') + '.',
-            life: 8000,
+            detail: a.detail,
+            ...(a.sticky ? { sticky: true } : { life: 8000 }),
           });
           this.cargar();
           this.cambio.emit();
