@@ -293,6 +293,14 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-29 — `[AX.18]` Embarques de telemarketing que salieron sin factura
+
+- **Qué**: botón en Facturación TM con cuántos embarques salieron sin factura viva y por cuánto (23 · $162,863 en 365 d), y su lista en una ventana. Misma vista y criterio que el detector de Finanzas.
+- **Lo que no funcionaba**: `erp_shipment_billing` pasaba de 60 s; el detector de Finanzas que la usa devuelve `[]` ante error, así que se veía «sin hallazgos».
+- **Lección**: `MATERIALIZED` no cura una estimación de 1 fila — sólo evita recalcular el CTE; el cruce sigue en nested loop. Lo que sí: quitar el join (UNION ALL + ventana), que no depende de ninguna estimación.
+- **Lección**: una migración que redefine una vista se prueba ejerciendo su `up()` con un doble que captura el SQL, y comparando TODAS las columnas del universo contra la vieja (forzada a terminar con `enable_nestloop=off`).
+- **Pendiente**: aplicar `20261029175926` en prod.
+
 ## 2026-10-29 — `[AX.17]` La factura de telemarketing con su embarque
 
 - **Qué**: cada factura TM muestra el embarque del que salió (en la fila, el folio; en el detalle, viaje, unidad y chofer). Liga = back-pointer de Kepler + sucursal: 5,927/5,929 a exactamente uno.
