@@ -7,6 +7,7 @@ import type {
   PresalePickBucket,
   PresalePickReport,
   PresalePickReportLine,
+  PresalePickRestore,
 } from '@megadulces/contracts';
 
 /** `YYYY-MM-DD` + n días, sin pasar por la zona horaria del servidor. */
@@ -55,6 +56,11 @@ export interface RenglonParaCerrar {
   qty_unit: string | null;
   qty_factor: number | null;
   line_total: number;
+  /**
+   * `[MCP.10]` Lo que hace falta para reponer el renglón si se borra y la caja lo completa. Sin
+   * esto el reporte se arma igual que antes (sin `restore`).
+   */
+  restore?: PresalePickRestore;
 }
 
 export interface PlanCierre {
@@ -104,10 +110,11 @@ export function planearCierre(
     if (picked > 0) algoHubo = true;
     if (picked >= m.qty - 1e-9) continue;
     plan.outcome = 'con_faltantes';
-    const linea: PresalePickReportLine = { product_name: r.product_name, unit: m.unit, ordered: m.qty, picked };
+    // [MCP.10] El renglón va en el reporte: la revisión en caja lo encuentra sin adivinar por nombre.
+    const linea: PresalePickReportLine = { product_name: r.product_name, unit: m.unit, ordered: m.qty, picked, line_id: r.line_id };
     if (picked <= 0) {
       plan.quitar.push(r.line_id);
-      plan.removed.push(linea);
+      plan.removed.push(r.restore ? { ...linea, restore: r.restore } : linea);
     } else {
       plan.recortar.push({ line_id: r.line_id, quantity: +(picked * m.factor).toFixed(4) });
       plan.adjusted.push(linea);

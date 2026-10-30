@@ -87,7 +87,7 @@ describe('planearCierre · lo que no hubo se quita del pedido', () => {
     const p = planearCierre(R, m);
     expect(p.outcome).toBe('con_faltantes');
     expect(p.recortar).toEqual([{ line_id: 'b', quantity: 168 }]);
-    expect(p.adjusted).toEqual([{ product_name: 'FLAN VAINILLA', unit: 'PAQ', ordered: 20, picked: 14 }]);
+    expect(p.adjusted).toEqual([{ product_name: 'FLAN VAINILLA', unit: 'PAQ', ordered: 20, picked: 14, line_id: 'b' }]);
   });
 
   it('lo que no hubo nada se quita del pedido', () => {
@@ -95,8 +95,17 @@ describe('planearCierre · lo que no hubo se quita del pedido', () => {
     m[2].picked = 0;
     const p = planearCierre(R, m);
     expect(p.quitar).toEqual(['c']);
-    expect(p.removed).toEqual([{ product_name: 'SALSA MAGA', unit: 'CJA', ordered: 1, picked: 0 }]);
+    expect(p.removed).toEqual([{ product_name: 'SALSA MAGA', unit: 'CJA', ordered: 1, picked: 0, line_id: 'c' }]);
     expect(armarReporte(p, 861.2, 628.4)).toEqual({ removed: p.removed, adjusted: [], total_before: 861.2, total_after: 628.4 });
+  });
+
+  it('[MCP.10] el renglón borrado guarda su copia para reponerlo; sin copia, el reporte queda como antes', () => {
+    const restore = { product_id: 'p-c', quantity: 1, qty_unit: 'CJA', qty_factor: 1, qty_factor_source: null, discount_percent: 0, unit_price: 232.8, tax_rate: 0, source_warehouse_id: null, line_number: 3, notes: null };
+    const conCopia = R.map((r) => (r.line_id === 'c' ? { ...r, restore } : r));
+    const m = todo();
+    m[2].picked = 0;
+    expect(planearCierre(conCopia, m).removed[0].restore).toEqual(restore);
+    expect(planearCierre(R, m).removed[0]).not.toHaveProperty('restore');
   });
 
   it('a granel acepta decimales', () => {
