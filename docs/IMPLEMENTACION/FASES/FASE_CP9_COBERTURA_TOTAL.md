@@ -579,6 +579,27 @@ El testigo es el propio CFDI (`fiscal.cfdis.total_trasladados`), por UUID, en 20
 
 Antes de publicar la vista hay que medir esos dos residuos.
 
+**✅ Medidos, y la vista en código** (`c052f676e`, migración `20261030121451`, sin aplicar). Sumando todos los años de
+cada CFDI fechado en ene–sep 2026, y separando por tipo de comprobante:
+
+| CFDI | Pago | En una póliza | Cuadra exacto | Lo que explica el resto |
+|---|---|---:|---:|---|
+| ingreso | PUE | 3,634 | **3,541 (97.4 %)** | — |
+| nota de crédito | PUE | 1,225 | **1,193 (97.4 %)** | con el **signo contrario**: ContPAQi asienta la nota en negativo |
+| nota de crédito | PPD | 104 | **101 (97.1 %)** | con el signo contrario |
+| ingreso | PPD | 8,386 | 5,593 (66.7 %) | 786 más con la **proporción del pago** (IVA del pago parcial); ~1,800 sin explicar |
+
+- **Con el CFDI en 2+ pólizas,** ContPAQi asienta el impuesto completo en **cada** una: 213 de 257 suman exactamente
+  (pólizas × CFDI). Hay 11 CFDI que están en 221 pólizas cada uno.
+- **`analytics.v_contpaqi_impuesto_movimiento`**: una fila por renglón de impuesto, con la póliza, el CFDI, el periodo
+  de IVA asignado, la cuenta y la persona (RFC). Los códigos van decodificados, y el 0 como `sin_clasificar`.
+  - `imptotal` **no se publica**: en el IVA es base + impuesto (99.9 %), pero en el IEPS sólo el 43 % de las veces.
+  - **La unidad, probada:** la tasa viene en por ciento en 107,872 de 107,872 filas de IVA con tasa y base. La
+    migración aborta si no, y mira todo el IVA con tasa: si sólo mirara las de 16 %, con la tasa en fracción pasaría
+    en vacío.
+- **Cómo se probó:** prueba local 22 de 22 con su negativa. La prueba cazó un defecto antes de llegar a prod: el
+  índice por UUID sin el `NULLIF` de la vista no se podía usar. El `up()` real contra prod, en sólo lectura, no aborta.
+
 ### 8.12 `[CP.9.4]` El dictamen pregunta a la réplica (2026-10-30)
 
 Commit `c00b75e72`, en `dictamen.ts` y `dictamen.contexto.ts`. Hoy nadie llama a `leerContextoDictamen`; antes de
@@ -602,4 +623,7 @@ cablearlo a un endpoint hay que aplicar la migración de `CP.9.3`.
 - **Pruebas:** `dictamen.spec` 38 de 38. Las dos nuevas traen su control: un ejercicio cerrado distinto no toca a la
   póliza, la réplica de ayer no cuenta como rancia y sin CFDI la regla no aplica. **Prueba negativa:** con la resta
   de días al revés, la de la réplica rancia se pone roja.
-- **Falta en `CP.9.4`:** que el cuadre del puente también lea de la réplica.
+- **Falta en `CP.9.4`, bloqueado por la D15:** que el cuadre del puente también lea de la réplica. Hoy confirma
+  cada entrega buscando su marca en el encabezado de `analytics.gl_polizas`, que el staging tiene completo y se
+  refresca cada minuto. La réplica no le agrega nada mientras su sincronía sea manual, y lo volvería más viejo.
+  Se hace cuando la sincronía esté agendada.
