@@ -523,22 +523,26 @@ async function controlNegativo(pg, f, t, x, sumables, p, origen, antes) {
   const tramo = p.modo === 'tramos' ? tramoPg(p, Number(p.kmin), Number(p.w)) : '0';
   // La fila se elige FUERA de los tramos que ya difieren: si no, el control no distingue su efecto del que ya había.
   const params = [];
-  const donde = [cq ? `${cq} IS NOT NULL` : null];
+  const donde = [];
   if (f.repo) { params.push(f.repo); donde.push(`"_repo" = $${params.length}`); }
   if (p.modo === 'tramos' && antes.length) { params.push(antes); donde.push(`${tramo} <> ALL($${params.length}::bigint[])`); }
-  const filtro = donde.filter(Boolean);
+  const buscar = async (extra) => (await pg.query(`SELECT ctid::text AS ctid, ${tramo} AS __tramo FROM ${x.destino}
+    ${[...donde, extra].filter(Boolean).length ? `WHERE ${[...donde, extra].filter(Boolean).join(' AND ')}` : ''} LIMIT 1`, params)).rows[0];
   try {
     return await enTransaccion(pg, async () => {
-      const fila = (await pg.query(`SELECT ctid::text AS ctid, ${tramo} AS __tramo FROM ${x.destino}
-        ${filtro.length ? `WHERE ${filtro.join(' AND ')}` : ''} LIMIT 1`, params)).rows[0];
+      // Se mueve una columna sumable; si está vacía en todas las filas elegibles (`ParametrosInicialesMto` trae su
+      // única fila con `RowVersion` NULL, medido 2026-10-30), se borra la fila: el conteo también es huella.
+      let fila = cq ? await buscar(`${cq} IS NOT NULL`) : null;
+      const mueve = Boolean(fila);
+      if (!fila) fila = await buscar(null);
       if (!fila) throw Object.assign(new Error('no hay fila fuera de los tramos que ya difieren'), { noAplica: true });
-      if (cq) await pg.query(`UPDATE ${x.destino} SET ${cq} = ${col.tipo === 'bit' ? `NOT ${cq}` : `${cq} + 1`} WHERE ctid = $1::tid`, [fila.ctid]);
+      if (mueve) await pg.query(`UPDATE ${x.destino} SET ${cq} = ${col.tipo === 'bit' ? `NOT ${cq}` : `${cq} + 1`} WHERE ctid = $1::tid`, [fila.ctid]);
       else await pg.query(`DELETE FROM ${x.destino} WHERE ctid = $1::tid`, [fila.ctid]);
       const despues = diferencias(origen, await huellaReplica(pg, f, x, sumables, p));
       const b = Number(fila.__tramo);
       const esperado = [...new Set([...antes, b])].sort((m, n) => m - n);
       const veredicto = antes.includes(b) ? 'no concluyente (su tramo ya difería)'
-        : JSON.stringify(despues) === JSON.stringify(esperado) ? `✓ marcó el tramo ${b} (${cq ? `${col.nombre} + 1` : 'fila borrada'})`
+        : JSON.stringify(despues) === JSON.stringify(esperado) ? `✓ marcó el tramo ${b} (${mueve ? `${col.nombre} + 1` : 'fila borrada'})`
           : `✗ NO lo vio: esperaba ${esperado.length} tramos distintos y hubo ${despues.length}`;
       throw Object.assign(new Error(veredicto), { veredicto });
     });
