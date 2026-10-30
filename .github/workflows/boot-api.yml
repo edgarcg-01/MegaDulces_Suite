@@ -57,11 +57,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Node 20, igual que la imagen de prod (`node:20-bookworm-slim`, v20.20.2 medido).
-      - name: Setup Node 20
+      # El mismo Node que la imagen de prod (`node:24-bookworm-slim` desde [DEPS.7]).
+      - name: Setup Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
