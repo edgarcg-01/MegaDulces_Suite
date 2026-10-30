@@ -568,6 +568,22 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                 <div class="pr-peek-loading">Este producto no tiene existencia ni venta en ninguna sucursal del filtro.</div>
                                 <ng-container *ngTemplateOutlet="addBranchTpl; context: { $implicit: r }"></ng-container>
                               } @else {
+                                <!-- [PQ.36] La unidad en que se captura, UNA vez por producto y SIEMPRE a la vista.
+                                     Antes el selector vivía en «Detalle» (escondido) y el visible —«Caja/Paquete/
+                                     Pieza»— era el de TRASPASOS: quien elegía «pieza» ahí y tecleaba 50 en la compra
+                                     pedía 50 CAJAS (RQ-2026-01694: 50 cj de TUENI = 400 pz, $36,660, con 10 cj
+                                     sugeridas). Elegir aquí cambia todas las sucursales del producto. -->
+                                @if (escOf(r).length > 1) {
+                                  <div class="pr-ordu" role="group" [attr.aria-label]="'Unidad en que capturas la compra de ' + r.sku">
+                                    <span class="pr-ordu-lbl">Capturar en:</span>
+                                    @for (u of escMayorAMenor(r); track u.factor) {
+                                      <button type="button" class="pr-chip" [class.pr-chip-on]="unidadProducto(r) === u.factor"
+                                              [attr.aria-pressed]="unidadProducto(r) === u.factor" (click)="setUnidadProducto(r, u.factor)">{{ u.nombre }}</button>
+                                    }
+                                    @if (unidadProducto(r) === null) { <span class="pr-ordu-hint">cada sucursal en su unidad (mira la columna «Pedir»)</span> }
+                                    <span class="pr-ordu-hint">{{ unidadFilaTxt(r) }} por caja</span>
+                                  </div>
+                                }
                                 <div class="pr-dx-scroll">
                                   <table class="pr-peek-tbl pr-det-tbl pr-det-buy pr-dx-tbl" [class.pr-dx-det]="verDetalle(r.product_id)">
                                     <thead><tr>
@@ -685,7 +701,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                       <td class="pr-r">{{ totExis(r) | number:'1.0-1' }}</td>
                                       <td></td>
                                       <td class="pr-r"><span class="pr-tra-in">@if (prodTrCajas(r.product_id) > 0) { +{{ prodTrCajas(r.product_id) | number:'1.0-1' }} cj }</span></td>
-                                      <td class="pr-r">{{ sumCajas(r) | number:'1.0-1' }} cj</td>
+                                      <!-- [PQ.36] El total en cajas Y en la unidad base: «50 cj = 400 pz» se lee antes de mandar. -->
+                                      <td class="pr-r">{{ sumCajas(r) | number:'1.0-1' }} cj@if ((+r.uxc || 1) > 1 && sumCajas(r) > 0) { <span class="pr-muted"> = {{ piezasDeCajas(sumCajas(r), +r.uxc) | number:'1.0-0' }} {{ unidadBase(r) }}</span> }</td>
                                       @if (verDetalle(r.product_id)) { <td></td> }
                                       <td></td>
                                       @if (verDetalle(r.product_id)) { <td></td> }
@@ -1112,9 +1129,23 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <p><i class="pi pi-copy" aria-hidden="true"></i> <strong>Esto ya lo generaste.</strong> {{ rep }}</p>
                 </div>
               }
+              <!-- [PQ.36] La UNIDAD, en el último momento en que se puede ver: un renglón que pide 4 veces
+                   o más lo sugerido suele ser una cantidad tecleada en piezas que se guardó en cajas. Se
+                   NOMBRA con su equivalencia en piezas; no apaga el botón (RA.TR.2: un aviso que bloquea
+                   se aprende a saltar, y comprar más puede ser correcto). -->
+              @if (planSospechas(); as sos) {
+                @if (sos.length) {
+                  <div class="pr-plan-stop" role="alert">
+                    <p><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                      <strong>{{ sos.length === 1 ? 'Un renglón pide' : sos.length + ' renglones piden' }} 4 veces o más lo sugerido.</strong>
+                      ¿Son cajas? Revísalo antes de enviar:</p>
+                    <ul>@for (s of sos; track s.key) { <li>{{ s.texto }}</li> }</ul>
+                  </div>
+                }
+              }
               <p class="pr-plan-hint">
                 Se crean bajo <strong>un folio de lote</strong> y en una sola operación: o entran todos o no entra ninguno.
-                Quedan <strong>esperando aprobación</strong> en Compras › Requisiciones.
+                @if (puedeAutorizar) { Se aprueban y salen a Kepler en cuanto confirmes. } @else { Quedan <strong>esperando aprobación</strong> de quien autoriza compras. }
               </p>
               <div class="pr-uov-actions">
                 <p-button type="button" label="Cancelar" styleClass="p-button-sm p-button-text" (click)="cancelarPlan()" [disabled]="saving()"></p-button>
@@ -5803,6 +5834,45 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   });
 
   cancelarPlan(): void { this.planVisible = false; this.plan.set([]); this.repetido.set(null); }
+
+  /**
+   * `[PQ.36]` Renglones que piden 4 veces o más lo sugerido (y al menos 2 cajas de más): la huella de
+   * una cantidad tecleada en piezas o paquetes que se guardó en cajas. Medido el 2026-10-30:
+   * RQ-2026-01694 pidió 50 cj de TUENI (8 pz/cj = 400 pz, $36,660) con 10 sugeridas, y ya es OC en
+   * Kepler. Se nombra el producto con su equivalencia en piezas para que el error se VEA.
+   */
+  readonly planSospechas = computed<Array<{ key: string; texto: string }>>(() => {
+    const out: Array<{ key: string; texto: string }> = [];
+    for (const d of this.plan()) {
+      for (const l of d.lines || []) {
+        const fin = Number(l.final_qty) || 0, sug = Number(l.suggested_qty) || 0;
+        if (!(sug > 0) || fin < 4 * sug || fin - sug < 2) continue;
+        const r = this.knownRows().get(l.product_id);
+        const uxc = Number(r?.uxc) || 1;
+        // [RA-FIX.4] la conversión vive en pedido-redondeo.ts
+        const eq = uxc > 1 ? ` = ${Math.round(piezasDeCajas(fin, uxc)).toLocaleString('es-MX')} ${r ? this.unidadBase(r) : 'u'}` : '';
+        out.push({
+          key: `${d.warehouse_id}|${l.product_id}|${d.source_type}`,
+          texto: `${r ? `${r.sku} ${r.nombre}` : l.product_id}: ${fin.toLocaleString('es-MX', { maximumFractionDigits: 2 })} cajas${eq} (sugerido ${sug.toLocaleString('es-MX', { maximumFractionDigits: 2 })})${d.source_type === 'branch' ? ' · traspaso' : ''}`,
+        });
+      }
+    }
+    return out;
+  });
+
+  /**
+   * `[PQ.36]` La unidad de captura de la COMPRA, una para todo el producto: la de sus sucursales si
+   * todas coinciden; `null` si quedaron mezcladas (se dice, no se elige una por ellas).
+   */
+  unidadProducto(r: WorkbookRow): number | null {
+    const bs = this.branchBuys(r).filter((b) => !b.rung);
+    if (!bs.length) return null;
+    const f = this.unitOfBranch(r, bs[0]);
+    return bs.every((b) => this.unitOfBranch(r, b) === f) ? f : null;
+  }
+  setUnidadProducto(r: WorkbookRow, factor: number): void {
+    for (const b of this.branchBuys(r)) this.setUnitBranch(r, b, factor);
+  }
 
   /**
    * `[RA-UX.1b]` Lo que contestó el servidor cuando el lote repite renglones de compra que la misma

@@ -644,6 +644,41 @@ describe('[RA-UX] auditoría de interacción 2026-10-21: lo que la persona hace,
   });
 
   // ── [PQ.14] el lazo no se corta al generar ──
+  it('[PQ.36] un renglón con 4× o más lo sugerido se NOMBRA con su equivalencia (sin apagar el botón, RA.TR.2)', () => {
+    const c = montar(VACIO).componentInstance;
+    // El caso real: RQ-2026-01694, 50 cajas con 10 sugeridas.
+    c.plan.set([{ warehouse_id: 'w-08', supplier_id: 's-1', source_type: 'supplier',
+      lines: [{ product_id: 'p-x', supplier_id: 's-1', source_type: 'supplier', suggested_qty: 10, final_qty: 50, unit_cost: 733 }] }] as never);
+    expect(c.planSospechas().length).toBe(1);
+    expect(c.planSospechas()[0].texto).toContain('50 cajas');
+    expect(c.planSospechas()[0].texto).toContain('sugerido 10');
+  });
+
+  it('[PQ.36] NEGATIVA: pedir un poco más del sugerido, o redondear 0.08 a 1 caja, NO es sospechoso', () => {
+    const c = montar(VACIO).componentInstance;
+    c.plan.set([{ warehouse_id: 'w-01', supplier_id: 's-1', source_type: 'supplier', lines: [
+      { product_id: 'p-a', supplier_id: 's-1', source_type: 'supplier', suggested_qty: 10, final_qty: 15, unit_cost: 1 },
+      { product_id: 'p-b', supplier_id: 's-1', source_type: 'supplier', suggested_qty: 0.083, final_qty: 1, unit_cost: 1 },
+    ] }] as never);
+    expect(c.planSospechas()).toEqual([]);
+  });
+
+  it('[PQ.36] «Capturar en» aplica a TODAS las sucursales del producto (antes cada una por separado y escondido en Detalle)', () => {
+    const c = montar(VACIO).componentInstance;
+    const r = fila('p-1') as never;
+    const b1 = suc('01'), b2 = suc('02');
+    vi.spyOn(c, 'branchBuys').mockReturnValue([b1, b2] as never);
+    // Control: de arranque las dos capturan en cajas (factor 16 = la caja de 16 piezas).
+    expect(c.unidadProducto(r)).toBe(16);
+    c.setUnidadProducto(r, 1);              // «Pieza»
+    expect(c.unitOfBranch(r, b1 as never)).toBe(1);
+    expect(c.unitOfBranch(r, b2 as never)).toBe(1);
+    expect(c.unidadProducto(r)).toBe(1);
+    // Y lo tecleado en piezas se guarda como fracción de caja, no como cajas: 50 pz = 3.125 cj.
+    c.setDispOf(r, b1 as never, 50);
+    expect(c.qtyOf(r, b1 as never)).toBeCloseTo(50 / 16, 6);
+  });
+
   it('[PQ.31] lo aprobado no promete lo que no va a pasar: los traspasos con escritura apagada se dicen aparte', () => {
     const c = montar(VACIO).componentInstance;
     expect(c.textoAprobadas(5, 2)).toBe('3 aprobada(s) y en camino a Kepler · 2 traspaso(s) aprobado(s) que no salen: su escritura a Kepler está apagada');
