@@ -12,11 +12,13 @@ import {
 } from '../comprobaciones.service';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { REFRESCO_VALES_MS } from '../vales-refresco';
-import { ValeGastoPeekComponent } from '../components/vale-gasto-peek.component';
+import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
+import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../components/evidencia-adicional-dialog.component';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.39]` La etapa la decide el SERVIDOR con `etapaDeEjercicio()`; acá sólo se lee el tipo.
 import type { EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
+import { aceptaEvidenciaAdicional } from '@megadulces/contracts';
 import type { TransferenciaGasto } from '@megadulces/contracts';
 import {
   DIAS_ATORADO, agruparPorProveedor, cicloCerrado, diasDesde, notaDePago, textoAntiguedad, ubicacionDe,
@@ -99,7 +101,7 @@ interface Columna {
 @Component({
   selector: 'app-finanzas-mis-gastos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, ValeGastoPeekComponent, RouterLink],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in mg">
@@ -291,9 +293,13 @@ interface Columna {
         </article>
       </ng-template>
 
-      <!-- El mismo visor que usan Aprobación y el Historial. Acá sin acciones: es lo tuyo,
-           pero quien decide sobre el dinero es otra persona. -->
-      <app-vale-gasto-peek [open]="abierto() !== null" (openChange)="cerrar($event)" [vale]="abierto()" />
+      <!-- El mismo visor que usan Aprobación y el Historial. Acá no se DECIDE nada: es lo tuyo,
+           pero quien decide sobre el dinero es otra persona. Lo único que se ofrece es sumar
+           evidencia con su porqué ([GX.87]), que no mueve el estado. -->
+      <app-vale-gasto-peek [open]="abierto() !== null" (openChange)="cerrar($event)" [vale]="abierto()"
+                           [acciones]="accionesDelVale()" (agregarEvidencia)="paraEvidencia.set($any($event))" />
+      <app-evidencia-adicional-dialog [open]="paraEvidencia() !== null" (openChange)="cerrarEvidencia($event)"
+                                      [vale]="paraEvidencia()" (agregado)="alAgregarEvidencia($event)" />
     </div>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
@@ -408,6 +414,8 @@ export class FinanzasMisGastosComponent {
   readonly cargando = signal(true);
   readonly error = signal('');
   readonly abierto = signal<ValeGasto | null>(null);
+  /** `[GX.87]` El vale al que se le está sumando evidencia (abre el diálogo). */
+  readonly paraEvidencia = signal<ValeGasto | null>(null);
   q = '';
 
   /**
@@ -570,6 +578,22 @@ export class FinanzasMisGastosComponent {
 
   abrir(p: ExpenseProof): void { this.abierto.set(p as ValeGasto); }
   cerrar(abierto: boolean): void { if (!abierto) this.abierto.set(null); }
+
+  /** `[GX.87]` Todo lo de esta lista es tuyo: se ofrece sumar evidencia, salvo en un rechazado. */
+  accionesDelVale(): readonly AccionVale[] {
+    return aceptaEvidenciaAdicional(this.abierto()?.status) ? ['agregar_evidencia'] : [];
+  }
+  cerrarEvidencia(abierto: boolean): void { if (!abierto) this.paraEvidencia.set(null); }
+
+  /**
+   * `[GX.87]` Lo agregado se ve YA: el servidor devuelve el expediente completo y firmado, y se
+   * pone en el visor y en la fila. Sin esto, reabrir el vale lo mostraría sin lo que acabas de
+   * subir hasta el siguiente refresco.
+   */
+  alAgregarEvidencia(e: EvidenciaAgregada): void {
+    this.abierto.update((v) => (v && v.id === e.id ? { ...v, files: e.files } : v));
+    this.filas.update((l) => l.map((p) => (p.id === e.id ? { ...p, files: e.files } : p)));
+  }
 
   diaLocal(iso: string | null | undefined): Date | null { return parseLocalDate(iso); }
 

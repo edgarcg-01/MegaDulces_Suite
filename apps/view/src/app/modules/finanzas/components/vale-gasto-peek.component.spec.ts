@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { LOCALE_ID } from '@angular/core';
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
-import { ValeGastoPeekComponent, type AprobacionVale } from './vale-gasto-peek.component';
+import { ValeGastoPeekComponent, notaAdicional, type AprobacionVale } from './vale-gasto-peek.component';
 import type { ValeGasto } from '../comprobaciones.service';
 
 /**
@@ -435,6 +435,70 @@ describe('ValeGastoPeekComponent', () => {
         autorizacion_kepler: AUT({ autorizado: 'F', autorizado_label: 'Autorizado y aplicado — el dinero salió' }),
       } as Partial<ValeGasto>));
       expect((fix.nativeElement.querySelector('.vp-aut') as HTMLElement).textContent).toContain('dinero salió');
+    });
+  });
+
+  /**
+   * `[GX.87]` **Agregar evidencia** con su porqué. No es una decisión: el botón vive junto a
+   * «Evidencia», no en el pie, y su presencia no puede encender el pie de decisión.
+   */
+  describe('[GX.87] agregar evidencia', () => {
+    const botonAgregar = () => [...fix.nativeElement.querySelectorAll('.vp-h-row button')]
+      .find((b: Element) => b.textContent?.includes('Agregar evidencia')) as HTMLButtonElement | undefined;
+
+    it('se ofrece cuando la página lo permite, y emite el vale', () => {
+      montar(V({ status: 'validada' }), ['agregar_evidencia']);
+      const emitidos: ValeGasto[] = [];
+      c.agregarEvidencia.subscribe((v) => emitidos.push(v));
+      botonAgregar()!.click();
+      expect(emitidos.map((v) => v.id)).toEqual(['v1']);
+    });
+
+    it('⛔ sola, NO enciende el pie de decisión con un «Rechazar» que nadie ofreció', () => {
+      montar(V({ status: 'validada' }), ['agregar_evidencia']);
+      expect(fix.nativeElement.querySelectorAll('.vp-act button').length).toBe(0);
+      expect(fix.nativeElement.textContent).toContain('no hay nada que decidir');
+    });
+
+    it('junto a las decisiones, el pie sigue igual', () => {
+      montar(V(), ['aprobar', 'rechazar', 'agregar_evidencia']);
+      const pie = [...fix.nativeElement.querySelectorAll('.vp-act button')].map((b: Element) => b.textContent?.trim());
+      expect(pie).toEqual(['Rechazar', 'Revisado']);
+      expect(botonAgregar()).toBeTruthy();
+    });
+
+    it('sin la acción no aparece, y en un rechazado tampoco aunque la página la mande', () => {
+      montar(V({ status: 'validada' }), []);
+      expect(botonAgregar()).toBeUndefined();
+      montar(V({ status: 'rechazada' }), ['agregar_evidencia']);
+      expect(botonAgregar()).toBeUndefined();
+    });
+
+    it('la evidencia adicional se rotula y dice su porqué, quién y cuándo', () => {
+      montar(V({ files: [
+        { role: 'comprobante_1', url: 'https://ejemplo/x.jpg', kind: 'image' },
+        { role: 'adicional', url: 'https://ejemplo/f.pdf', kind: 'pdf', motivo: 'Llegó la factura',
+          agregado_por: 'NOMBRE APELLIDO', agregado_at: '2026-10-29T18:05:00.000Z' },
+      ] }));
+      const [comp, adic] = c.docs();
+      expect(comp.nota).toBeNull();
+      expect(adic.label).toBe('Evidencia adicional');
+      expect(adic.nota).toContain('«Llegó la factura»');
+      expect(adic.nota).toContain('NOMBRE APELLIDO');
+      expect(adic.nota).toContain('29/10/26'); // hora de México
+      expect(fix.nativeElement.querySelector('.vp-doc-nota')?.textContent).toContain('Llegó la factura');
+    });
+
+    it('lo que no vino se omite, sin separadores sueltos', () => {
+      expect(notaAdicional({ role: 'adicional', url: 'x', motivo: 'Factura' })).toBe('«Factura»');
+      expect(notaAdicional({ role: 'adicional', url: 'x', agregado_at: 'no-es-fecha' })).toBe('');
+    });
+
+    it('mientras la página resuelve, también se bloquea', () => {
+      montar(V({ status: 'validada' }), ['agregar_evidencia']);
+      fix.componentRef.setInput('ocupado', true);
+      fix.detectChanges();
+      expect(botonAgregar()!.disabled).toBe(true);
     });
   });
 });

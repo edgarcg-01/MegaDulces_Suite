@@ -14,11 +14,12 @@ import {
 } from '../comprobaciones.service';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { ValeGastoPeekComponent, type AccionVale, type AprobacionVale } from '../components/vale-gasto-peek.component';
+import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../components/evidencia-adicional-dialog.component';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { REFRESCO_VALES_MS } from '../vales-refresco';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.65.4a]` La MISMA regla que aplica el servidor, desde el contrato: dos copias se separan.
-import { esDuenoDelVale, detallesParaMostrar } from '@megadulces/contracts';
+import { aceptaEvidenciaAdicional, esDuenoDelVale, detallesParaMostrar } from '@megadulces/contracts';
 import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
 
 const FORMA_PAGO_LABEL: Record<string, string> = {
@@ -106,7 +107,7 @@ const ESTADO_LABEL: Record<string, string> = {
 @Component({
   selector: 'app-finanzas-aprobacion-gastos',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TagModule, InputTextModule, ToastModule, ValeGastoPeekComponent],
+  imports: [CommonModule, ButtonModule, TagModule, InputTextModule, ToastModule, ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -326,10 +327,13 @@ const ESTADO_LABEL: Record<string, string> = {
       <!-- El vale completo vive en un componente compartido: el Historial usa el mismo.
            Dos visores serian dos lugares donde arreglar el mismo error. -->
       <app-vale-gasto-peek [open]="peekAbierto()" (openChange)="cerrarSiHaceFalta($event)"
-                           [vale]="abierto()" [acciones]="accionesDe(abierto())"
+                           [vale]="abierto()" [acciones]="accionesDelVisor(abierto())"
                            [ocupado]="actuando() !== null"
                            (aprobar)="aprobar($any($event))" (comprobar)="darPorComprobado($any($event))"
-                           (rechazar)="rechazar($any($event))" />
+                           (rechazar)="rechazar($any($event))"
+                           (agregarEvidencia)="paraEvidencia.set($any($event))" />
+      <app-evidencia-adicional-dialog [open]="paraEvidencia() !== null" (openChange)="cerrarEvidencia($event)"
+                                      [vale]="paraEvidencia()" (agregado)="alAgregarEvidencia($event)" />
     </div>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
@@ -668,6 +672,32 @@ export class FinanzasAprobacionGastosComponent {
     if (p.status === 'recibida') return ['aprobar', 'rechazar'];
     if (p.status === 'aprobada' || p.status === 'revision') return ['comprobar', 'rechazar'];
     return [];
+  }
+
+  /**
+   * `[GX.87]` Lo que ofrece el VISOR: las decisiones de `accionesDe` más sumar evidencia.
+   *
+   * ⛔ Va aparte de `accionesDe` a propósito: ésa decide también si el renglón se atenúa y si
+   * dice «Abrir y decidir». Sumar evidencia no es una decisión — metida ahí, todo renglón
+   * parecería pendiente. Esta pantalla ya exige `COMPROBAR`, así que se ofrece en cualquier
+   * vale, el propio incluido (agregar no es firmar).
+   */
+  accionesDelVisor(p: ExpedienteDelDia | null): readonly AccionVale[] {
+    if (!p) return [];
+    const decisiones = this.accionesDe(p);
+    return aceptaEvidenciaAdicional(p.status) ? [...decisiones, 'agregar_evidencia'] : decisiones;
+  }
+
+  /** `[GX.87]` El vale al que se le está sumando evidencia (abre el diálogo). */
+  readonly paraEvidencia = signal<ExpedienteDelDia | null>(null);
+  cerrarEvidencia(abierto: boolean): void { if (!abierto) this.paraEvidencia.set(null); }
+
+  /** `[GX.87]` Lo agregado se ve ya, en el visor y en la bandeja: viene firmado del servidor. */
+  alAgregarEvidencia(e: EvidenciaAgregada): void {
+    this.abierto.update((v) => (v && v.id === e.id ? { ...v, files: e.files } : v));
+    this.datos.update((d) => (d ? { ...d, filas: d.filas.map((f) => (f.id === e.id ? { ...f, files: e.files } : f)) } : d));
+    this.toast.add({ severity: 'success', summary: 'Evidencia agregada', life: 5000,
+      detail: 'Quedó en el expediente con su porqué. El estado del vale no cambió.' });
   }
 
   /**
