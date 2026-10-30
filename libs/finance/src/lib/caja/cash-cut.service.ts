@@ -992,7 +992,7 @@ export class CashCutService {
       // `anclado` viaja al motor para que el corte FIRMADO deje constancia de cuánto de su
       // esperado venía de Kepler. Es el dato que distingue un corte auditable de uno que sólo
       // repite lo que el capturista tecleó (regla M4).
-      const movs: MovimientoDelCorte[] = filas.map((r: any) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
+      const movs: MovimientoDelCorte[] = filas.map((r) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
       // `[CG.96]` Las dos piernas del cajero desde que abrió ESTE corte. Sin esto el esperado
       // ignora la bóveda y pide contar efectivo que está dentro de la máquina.
       const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.fecha ?? null);
