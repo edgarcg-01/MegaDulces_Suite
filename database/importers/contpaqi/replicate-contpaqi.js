@@ -37,6 +37,7 @@
  *   … --sync                       # en seco: qué tramos difieren de la réplica, sin escribir
  *   … --sync --apply [--watch=5]   # recopia los tramos que difieren; con --watch, una vuelta cada N minutos
  *   … --sync --control             # prueba negativa: mueve una fila DENTRO de una transacción que se deshace
+ *   … --sync --apply --latido=contpaqi_replica_ct   # reporta cada vuelta a `analytics.cron_runs` (Salud BD)
  *   Destino: `DATABASE_URL_NEW`. Sin `--apply` no escribe nada. Una sola corrida que escribe a la vez (candado).
  */
 'use strict';
@@ -52,6 +53,10 @@ const { Client } = require('pg');
 const GUARDIA = path.resolve(__dirname, '..', '..', '..', 'libs/platform-core/src/lib/provenance/target-guard.js');
 const classify = fs.existsSync(GUARDIA) ? require(GUARDIA).classify
   : (url) => { try { const u = new URL(url); return { kind: '¿?', host: u.host, db: u.pathname.slice(1) }; } catch { return { kind: '¿?', host: null, db: null }; } };
+// El latido compartido de los feeds (ADR-053). Viaja en la imagen junto a este archivo; en una copia suelta (`/tmp`) no
+// está, y entonces `--latido` lo DICE en vez de callarse.
+const LATIDO_RUTA = path.resolve(__dirname, '..', 'lib', 'cron-heartbeat.js');
+const latido = fs.existsSync(LATIDO_RUTA) ? require(LATIDO_RUTA) : null;
 
 const arg = (n, d) => {
   const p = process.argv.find((a) => a.startsWith(`--${n}=`));
@@ -67,6 +72,11 @@ const WATCH_MIN = Number(arg('watch', 0));
 const CUBETA = Number(arg('cubeta', 4096));
 const TABLA_ENTERA_MAX = Number(arg('tabla-entera-max', 100000));
 const CONTROL = process.argv.includes('--control');
+/** `job_key` del latido de la sincronía (`--latido=…`). Su umbral va en `CRON_JOBS` cuando se agenda, no antes. */
+const LATIDO = arg('latido', null);
+// Se abre ANTES de conectar a ContPAQi: una contraseña mala falla ahí, y `run-feed.sh` sólo lo deja en el log.
+const REPORTA = Boolean(LATIDO && SYNC && APPLY && latido);
+const ETIQUETA_LATIDO = `Réplica de ContPAQi (${SOLO ? [...SOLO].join(', ') : 'todo'})`;
 /** Dos corridas que escriben a la vez se pisan: una borra el tramo que la otra acaba de copiar. */
 const CANDADO = 'contpaqi_ods.replica';
 /**
@@ -628,11 +638,16 @@ async function sincronizarTabla(pool, pg, f, t) {
   return { x, modo: p.modo, tramos: origen.size, difieren, recopiadas, esperando, nOrigen, nReplica, control, nota: notas.join(' · ') || null };
 }
 
-/** Las vueltas de la sincronía: una, o una cada `--watch` minutos hasta Ctrl-C. Devuelve cuántas fallas hubo. */
-async function sincronizar(pool, pg, bases) {
+/**
+ * Las vueltas de la sincronía: una, o una cada `--watch` minutos hasta Ctrl-C. Devuelve cuántas fallas hubo. Con
+ * `--latido` y `--apply`, cada vuelta se reporta a Salud BD: `error` si falló una tabla o falta una base que sí existe.
+ */
+async function sincronizar(pool, pg, bases, graves) {
   let fallas = 0;
   for (let vuelta = 1; ; vuelta++) {
     const t0 = Date.now();
+    // La primera vuelta la abrió el main, antes de conectar.
+    if (REPORTA && vuelta > 1) await latido.begin(LATIDO, ETIQUETA_LATIDO);
     const v = { tablas: 0, alDia: 0, tramos: 0, difieren: 0, recopiadas: 0, esperando: 0, sinCarril: 0, lentas: [], fallas: [],
       control: { vio: 0, noVio: 0, sinConcluir: 0 } };
     for (const f of fuentes(bases)) {
@@ -695,6 +710,16 @@ async function sincronizar(pool, pg, bases) {
     }
     if (v.fallas.length) console.log(`  ✗ fallas (${v.fallas.length}):\n    ${v.fallas.join('\n    ')}`);
     fallas += v.fallas.length;
+    if (REPORTA) {
+      const problemas = [...v.fallas, ...graves.map((g) => `no medida: ${g}`)];
+      await latido.end(LATIDO, {
+        status: problemas.length ? 'error' : 'ok',
+        rows: v.recopiadas,
+        note: `${v.tablas} tablas · ${v.alDia} al día · ${v.difieren} de ${v.tramos} tramos recopiados`
+          + `${v.esperando ? ` · ${v.esperando} esperan una captura` : ''} · ${v.sinCarril} sin carril`,
+        error: problemas.length ? problemas.slice(0, 3).join(' · ') : null,
+      });
+    }
     if (!WATCH_MIN || detener) break;
     for (let i = 0; i < WATCH_MIN * 60 && !detener; i++) await dormir(1000);
     if (detener) break;
@@ -703,6 +728,8 @@ async function sincronizar(pool, pg, bases) {
 }
 
 (async () => {
+  if (LATIDO && SYNC && APPLY && !latido) console.log(`⚠ --latido=${LATIDO} sin ${LATIDO_RUTA}: esta corrida NO se reporta a Salud BD`);
+  if (REPORTA) await latido.begin(LATIDO, ETIQUETA_LATIDO);
   const pg = new Client({ connectionString: process.env.DATABASE_URL_NEW });
   await pg.connect();
   const sid = (await pg.query('SELECT system_identifier::text AS s FROM pg_control_system()')).rows[0].s;
@@ -718,6 +745,8 @@ async function sincronizar(pool, pg, bases) {
   if (APPLY) {
     if (!(await pg.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [CANDADO])).rows[0].ok) {
       console.error('⛔ otra corrida que escribe en la réplica tiene el candado: salgo sin tocar nada.');
+      // El carril está vivo, sólo se saltó esta vuelta: no es un error.
+      if (REPORTA) await latido.end(LATIDO, { status: 'ok', note: 'salteada: otra corrida tenía el candado de la réplica' });
       process.exit(3);
     }
     await prepararDestino(pg);
@@ -725,7 +754,7 @@ async function sincronizar(pool, pg, bases) {
 
   process.on('SIGINT', () => { console.log('\n⏸ se detiene al terminar la tabla en curso…'); detener = true; });
   if (SYNC) {
-    const fallas = await sincronizar(pool, pg, bases);
+    const fallas = await sincronizar(pool, pg, bases, graves);
     if (graves.length) console.log(`  ⚠ no medidas (${graves.length}): ${graves.join('; ')}`);
     await pool.close();
     await pg.end();
@@ -776,10 +805,13 @@ async function sincronizar(pool, pg, bases) {
   await pool.close();
   await pg.end();
   process.exit(resumen.fallas.length || graves.length ? 1 : 0);
-})().catch((e) => {
+})().catch(async (e) => {
   // Un `AggregateError` (conexión rechazada en varias direcciones) trae el mensaje vacío: se dicen sus causas.
   const causas = Array.isArray(e && e.errors) ? e.errors.map((x) => x && x.message).filter(Boolean).join('; ') : '';
-  console.error('ERR', (e && e.message) || causas || String(e));
+  const mensaje = (e && e.message) || causas || String(e);
+  console.error('ERR', mensaje);
   if (!process.env.DATABASE_URL_NEW) console.error('  ⛔ DATABASE_URL_NEW no está en el entorno: en el pod se carga de /secrets/feeds.env.');
+  // Lo que tumbó la corrida (una contraseña mala, ContPAQi caído) queda en Salud BD, no sólo en el log del cron.
+  if (REPORTA) await latido.end(LATIDO, { status: 'error', error: mensaje }).catch(() => {});
   process.exit(1);
 });

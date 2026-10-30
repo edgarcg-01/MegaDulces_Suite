@@ -215,6 +215,30 @@
 #    Para ver qué haría sin escribir: el mismo comando SIN `--apply` (imprime y no toca nada).
 20 4 3 * * /app/ops/vl/run-feed.sh contpaqi-derivador "node /app/database/scripts/derivar-reglas-contpaqi.js --apply"
 
+# ── `[CP.9.2]` LA RÉPLICA DE ContPAQi, POR HUELLA (ADR-111) — ⛔ APAGADA HASTA LA D15 ─────────────────
+#
+# Mantiene `contpaqi_ods`/`contpaqi_nom` al día comparando, en los dos lados, una huella por tramo de
+# la llave: sólo recopia lo que difiere. Medido en el pod el 2026-10-30: la contabilidad en menos de
+# 30 s por vuelta; todo, ~80 s. El plan y lo medido: `FASE_CP9_COBERTURA_TOTAL.md` §8.9.
+#
+# ⛔ Apagada porque el replicador NO trae la contraseña embebida (a diferencia de los carriles de
+#    CFDIs de abajo): la lee de `CONTPAQI_SQL_PASSWORD`, y `/secrets/feeds.env` no la tiene. Es la
+#    D15 (§8.5), y la decide Edgar (regla 7).
+#
+# Para encenderla, las cuatro juntas (sin cualquiera, el carril miente):
+#   1. `CONTPAQI_SQL_PASSWORD` en `/secrets/feeds.env`.
+#   2. Quitar el `#` de las dos líneas de abajo.
+#   3. Los umbrales en `CRON_JOBS` (`apps/api/src/modules/db-health/db-health.service.ts`):
+#      `contpaqi_replica_ct` warn 0.5 h · crit 2 h, y `contpaqi_replica_resto` warn 3 h · crit 12 h.
+#      Sin umbral, `db-health` da verde incondicional y el latido es decoración.
+#   4. Ver el rojo una vez: con ContPAQi inalcanzable, el latido queda en `error` con el motivo
+#      (ejercido el 2026-10-30 contra la base local de desarrollo).
+#
+# Un solo candado para las dos: si chocan, la segunda se salta la vuelta y lo deja dicho en el latido.
+# El resto va a los :42, fuera de los múltiplos de 5, para no chocar con la de cada 5 min.
+#*/5 * * * * /app/ops/vl/run-feed.sh contpaqi-replica       "node /app/database/importers/contpaqi/replicate-contpaqi.js --sync --apply --solo=ct,gen --latido=contpaqi_replica_ct"
+#42 * * * *  /app/ops/vl/run-feed.sh contpaqi-replica-resto "node /app/database/importers/contpaqi/replicate-contpaqi.js --sync --apply --solo=sat,dir,nom,nomgen,add,addo --latido=contpaqi_replica_resto"
+
 
 # ── horario / cada 2 h ───────────────────────────────────────────────────────
 15 * * * *  /app/ops/vl/run-feed.sh intraday      "node /app/database/importers/kepler/run-prod-feeds.js intraday --apply"
