@@ -498,8 +498,8 @@ uso). Prod pesa 45 GB con la réplica adentro. Alcanza, pero el 83 % hay que vig
      3. los umbrales en `CRON_JOBS`;
      4. ver el rojo una vez.
    - **El umbral no se registra antes de agendar:** sin la agenda corriendo, sería una alarma falsa fija.
-3. **La migración** `20261029180144_contpaqi_ods_schema.js` por el carril de entrega. En prod no cambia nada (el
-   replicador ya creó lo mismo), pero tiene que quedar registrada.
+3. ✅ **La migración** `20261029180144_contpaqi_ods_schema.js`, registrada en prod el 2026-10-30 (12:32). No cambió nada (el
+   replicador ya había creado lo mismo).
 4. **El ADD grande** (`Comprobante`, `Conceptos`, `Impuesto_Traslado_Concepto`) por `Documento.TimeStamp`: va en
    `CP.9.6`.
 
@@ -524,7 +524,7 @@ los abiertos no tienen ninguna en ese periodo.
 ### 8.11 `[CP.9.3]` Las vistas de control, en código y medidas (2026-10-30)
 
 Migración `20261030114159_cp93_vistas_de_control_contpaqi.js`: dos vistas en `analytics` y diez índices por expresión
-en la réplica, para buscar por UUID o por póliza. ⚠️ **No está aplicada**: entra a prod por el carril de entrega.
+en la réplica, para buscar por UUID o por póliza. ✅ **En prod desde el 2026-10-30** (13:10, con su verificación interna).
 
 **`analytics.v_contpaqi_cfdi_poliza` — qué CFDI está en qué póliza.** ContPAQi guarda la asociación por tres caminos,
 y el importador de pólizas sólo conocía uno, a medias:
@@ -565,7 +565,7 @@ cuántas pólizas entraron después. Testigo: los 8 cerrados tienen su póliza d
   los índices.
 - **El `up()` real contra prod, en sólo lectura:** lo que escribe se saltó y cada vista se validó con `EXPLAIN` de su
   cuerpo. No aborta: 1,145,894 = 1,145,894 por los dos caminos, y 8 cerrados con testigo.
-- ⚠️ **NO MEDIDO:** la latencia por UUID con los índices en prod. Se mide al aplicar la migración.
+- ⚠️ **Medida en prod el 2026-10-30, y no rinde:** la consulta real del dictamen (2,050 UUID de sep-2026, réplica ∪ staging) tarda **~9 s**, con seq scan sobre `ct_asoccfdis` y `ct_movimientospoliza`: los índices de expresión se crearon sin `ANALYZE`, y sin sus estadísticas el planificador estima 4,999 filas por UUID donde hay 4. El arreglo es un `ANALYZE` de las tablas de la vista, y se re-mide (< 500 ms) antes de cablear el dictamen.
 
 **Pendiente, `CP.9.3b`: los impuestos por movimiento** (`MovimientosImpuestos`, 334,491). Decodificado por su
 distribución:
@@ -591,7 +591,7 @@ El testigo es el propio CFDI (`fiscal.cfdis.total_trasladados`), por UUID, en 20
 
 Antes de publicar la vista hay que medir esos dos residuos.
 
-**✅ Medidos, y la vista en código** (`c052f676e`, migración `20261030121451`, sin aplicar). Sumando todos los años de
+**✅ Medidos, y la vista en código** (`c052f676e`, migración `20261030121451`, en prod desde el 2026-10-30). Sumando todos los años de
 cada CFDI fechado en ene–sep 2026, y separando por tipo de comprobante:
 
 | CFDI | Pago | En una póliza | Cuadra exacto | Lo que explica el resto |
@@ -614,8 +614,8 @@ cada CFDI fechado en ene–sep 2026, y separando por tipo de comprobante:
 
 ### 8.12 `[CP.9.4]` El dictamen pregunta a la réplica (2026-10-30)
 
-Commit `c00b75e72`, en `dictamen.ts` y `dictamen.contexto.ts`. Hoy nadie llama a `leerContextoDictamen`; antes de
-cablearlo a un endpoint hay que aplicar la migración de `CP.9.3`.
+Commit `c00b75e72`, en `dictamen.ts` y `dictamen.contexto.ts`. Hoy nadie llama a `leerContextoDictamen`; la migración de
+`CP.9.3` ya está en prod (2026-10-30), pero antes de cablearlo falta el `ANALYZE` de §8.11: hoy la consulta tarda ~9 s.
 
 - **«El CFDI ya está en otra póliza de egresos»** (`cfdi_ya_pagado`) sale ahora de
   `analytics.v_contpaqi_cfdi_poliza`, **unida** al staging: la réplica está completa hasta su última sincronía y el
