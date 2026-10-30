@@ -17,6 +17,8 @@ export interface RenglonTabla {
   id: string;
   numero: number;
   nombre: string;
+  /** `[E.30]` El SKU del catálogo (null si el renglón no casó). Va debajo del nombre. */
+  sku: string | null;
   /** No casó con el catálogo: es demanda que no manejamos, sin precio. */
   sinCasar: boolean;
   /** Renglón de regalo del ERP: el número del renglón que lo trae. null = renglón normal. */
@@ -96,6 +98,8 @@ export interface CambioCantidad {
               <span class="gift"><i class="pi pi-gift" aria-hidden="true"></i> regalo del {{ r.regaloDe }}</span>
             }
             <span class="p-name" [title]="r.nombre">{{ r.nombre }}</span>
+            <!-- [E.30] El SKU en la misma celda: con él se dicta y se busca el artículo en Kepler. -->
+            @if (r.sku) { <span class="p-sku mono">SKU {{ r.sku }}</span> }
             @if (r.sinCasar) {
               <span class="sin-casar">sin casar con el catálogo</span>
             }
@@ -211,6 +215,7 @@ export interface CambioCantidad {
       .muted { color: var(--text-muted); }
       .row-gift { background: var(--surface-ground); }
       .p-name { display: inline-block; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+      .p-sku { display: block; font-size: var(--fs-micro); color: var(--text-muted); }
       .gift { font-size: 0.7rem; color: var(--ok-soft-fg); margin-right: 0.35rem; }
       .gift-nota { display: block; font-size: 0.7rem; color: var(--ok-soft-fg); }
       .sin-casar { font-size: 0.7rem; color: var(--warn-soft-fg); margin-left: 0.35rem; }

@@ -1025,6 +1025,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         id: l.id,
         numero: l.line_number,
         nombre: l.product_name || l.requested_text || '—',
+        sku: l.product_id ? l.product_sku : null,
         sinCasar: !l.product_id,
         regaloDe: l.parent_line_number,
         notaRegalo: null,

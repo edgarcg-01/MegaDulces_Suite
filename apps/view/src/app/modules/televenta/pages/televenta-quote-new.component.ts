@@ -1313,6 +1313,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         id: it.id,
         numero: i + 1,
         nombre: it.sku ? it.name : it.requested_text || it.name,
+        sku: it.sku || null,
         sinCasar: !it.sku,
         regaloDe: null,
         notaRegalo: it.free_goods ? `Regalo del ERP: ${it.free_goods.quantity} de ${it.free_goods.sku}` : null,

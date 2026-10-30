@@ -9,7 +9,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { QuoteLinesTableComponent, RenglonTabla } from './quote-lines-table.component';
 
 const PEELERZ: RenglonTabla = {
-  id: 'r1', numero: 1, nombre: 'GOMA PEELERZ UVA 85G / 1', sinCasar: false, regaloDe: null, notaRegalo: null,
+  id: 'r1', numero: 1, nombre: 'GOMA PEELERZ UVA 85G / 1', sku: '43103', sinCasar: false, regaloDe: null, notaRegalo: null,
   unidad: 'CJA', factor: 24, cantidad: 1, editable: false, admiteFraccion: false, existencia: null,
   lista: 739.21, precio: 739.2, desglose: [], fuente: 'list', dtoPct: null, pasos: '', explicacion: '',
   importe: 739.2, neto: null, sinRedondear: null,
@@ -59,5 +59,26 @@ describe('QuoteLinesTableComponent — Importe con el % del cliente', () => {
     expect(deDondeSale([{ ...r, neto: null }], null)).toBe(
       'Lista | Kepler redondea por PAQ a centavos: $739.21 → 24 × $30.80 = $739.20',
     );
+  });
+});
+
+describe('QuoteLinesTableComponent — [E.30] el SKU va con el producto', () => {
+  function celdaProducto(r: RenglonTabla): string {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ imports: [QuoteLinesTableComponent], providers: [provideZonelessChangeDetection()] });
+    const f = TestBed.createComponent(QuoteLinesTableComponent);
+    f.componentRef.setInput('renglones', [r]);
+    f.detectChanges();
+    const celda = (f.nativeElement as HTMLElement).querySelector('td.dt-id');
+    // Cada pieza por separado: Angular quita el espacio entre los <span>, y en pantalla van en renglones.
+    return Array.from(celda?.querySelectorAll('.p-name, .p-sku, .sin-casar') ?? []).map((e) => (e.textContent ?? '').trim()).join(' | ');
+  }
+
+  it('un renglón del catálogo dice su SKU debajo del nombre', () => {
+    expect(celdaProducto(PEELERZ)).toBe('GOMA PEELERZ UVA 85G / 1 | SKU 43103');
+  });
+
+  it('NEGATIVA: un renglón sin casar no inventa SKU', () => {
+    expect(celdaProducto({ ...PEELERZ, sku: null, sinCasar: true, nombre: 'gomitas raras' })).toBe('gomitas raras | sin casar con el catálogo');
   });
 });
