@@ -181,7 +181,7 @@ const G = (n) => `0000000${n}-AAAA-BBBB-CCCC-000000000000`.slice(-36);
     bad++;
     console.log(`  ✘ excepción: ${e.message}`);
   } finally {
-    await c.query('ROLLBACK').catch(() => {});
+    await c.query('ROLLBACK').catch(() => undefined);
     await c.end();
   }
   console.log(`\n${ok} ✔ · ${bad} ✘`);

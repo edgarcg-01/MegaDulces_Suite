@@ -140,7 +140,7 @@ const U = 'abc00001-0000-0000-0000-000000000001';
     bad++;
     console.log(`  ✘ excepción: ${e.message}`);
   } finally {
-    await c.query('ROLLBACK').catch(() => {});
+    await c.query('ROLLBACK').catch(() => undefined);
     await c.end();
   }
   console.log(`\n${ok} ✔ · ${bad} ✘`);

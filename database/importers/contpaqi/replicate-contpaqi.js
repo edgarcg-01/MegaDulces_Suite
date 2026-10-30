@@ -225,7 +225,7 @@ function despuesDe(llave) {
     .join(' OR ');
 }
 
-const limpiar = (v) => (typeof v === 'string' ? v.replace(/\u0000/g, '') : v);
+const limpiar = (v) => (typeof v === 'string' ? v.replaceAll('\u0000', '') : v);
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 const pgId = (s) => `"${String(s).replace(/"/g, '""')}"`;
 const msId = (s) => `[${String(s).replace(/]/g, ']]')}]`;
@@ -504,7 +504,7 @@ async function enTransaccion(pg, fn) {
     await pg.query('COMMIT');
     return r;
   } catch (e) {
-    await pg.query('ROLLBACK').catch(() => {});
+    await pg.query('ROLLBACK').catch(() => undefined);
     throw e;
   }
 }
@@ -812,6 +812,6 @@ async function sincronizar(pool, pg, bases, graves) {
   console.error('ERR', mensaje);
   if (!process.env.DATABASE_URL_NEW) console.error('  ⛔ DATABASE_URL_NEW no está en el entorno: en el pod se carga de /secrets/feeds.env.');
   // Lo que tumbó la corrida (una contraseña mala, ContPAQi caído) queda en Salud BD, no sólo en el log del cron.
-  if (REPORTA) await latido.end(LATIDO, { status: 'error', error: mensaje }).catch(() => {});
+  if (REPORTA) await latido.end(LATIDO, { status: 'error', error: mensaje }).catch(() => undefined);
   process.exit(1);
 });
