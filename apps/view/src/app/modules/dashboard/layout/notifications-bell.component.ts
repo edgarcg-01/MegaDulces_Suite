@@ -15,6 +15,7 @@ import { ServiceDeskService } from '../../servicio/service-desk.service';
 import { EtiquetasService } from '../../tienda/etiquetas.service';
 import { avisoDePrecio } from '../../tienda/aviso-precio';
 import { DesktopNoticeService } from '../../../core/services/desktop-notice.service';
+import { ComprasService } from '../../compras/compras.service';
 
 interface FeedItem { type: string; severity: 'info' | 'warn' | 'critical'; title: string; message: string; at: number; route?: string }
 
@@ -105,6 +106,23 @@ const FINANCE_NOTIF_ENABLED = false;
             </div>
           }
 
+          <!-- [PQ.35] Lo que espera a quien autoriza compras. Un renglón, siempre a la vista (también en
+               cero: «no hay nada» es una respuesta), y lleva a donde se aprueba: «Lo pedido» en Pedido. -->
+          @if (rqActivo()) {
+            <div class="px-2 py-2 border-b border-divider">
+              <a routerLink="/compras/pedido" [queryParams]="{ lo_pedido: 1 }" (click)="close()"
+                 class="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-surface-hover text-left transition-colors">
+                <i class="pi pi-inbox text-base" [style.color]="(rqN() ?? 0) > 0 ? 'var(--action)' : 'var(--content-muted, currentColor)'" aria-hidden="true"></i>
+                <span class="flex-1 min-w-0">
+                  <span class="block text-sm text-content-main">{{ rqN() === null ? 'Requisiciones: sin medir' : rqN() + ' requisición(es) por aprobar' }}</span>
+                  <span class="block text-xs text-content-muted">Compras · tú las autorizas</span>
+                </span>
+                @if (rqMonto() > 0) { <span class="text-xs font-semibold text-content-main tabular-nums">{{ money(rqMonto()) }}</span> }
+                <i class="pi pi-angle-right text-content-muted" aria-hidden="true"></i>
+              </a>
+            </div>
+          }
+
           <div class="max-h-[46vh] overflow-y-auto">
             @if (feed().length === 0) {
               <p class="px-4 py-6 text-center text-xs text-content-muted">Sin novedades en tiempo real.</p>
@@ -129,7 +147,7 @@ const FINANCE_NOTIF_ENABLED = false;
           @if (puedeActivarEscritorio()) {
             <button type="button" (click)="activarEscritorio()" class="w-full flex items-center gap-2 px-4 py-2 text-xs text-[color:var(--action)] hover:bg-surface-hover border-t border-divider text-left transition-colors">
               <i class="pi pi-desktop" aria-hidden="true"></i>
-              <span>Avisarme también con una notificación de Windows cuando llegue una solicitud nueva y esta pestaña no se vea</span>
+              <span>Avisarme también con una notificación de Windows cuando llegue algo que me toca atender y esta pestaña no se vea</span>
             </button>
           }
 
@@ -154,6 +172,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   private readonly serviceDesk = inject(ServiceDeskService);
   private readonly etiquetas = inject(EtiquetasService);
   private readonly escritorio = inject(DesktopNoticeService);
+  private readonly compras = inject(ComprasService);
 
   readonly open = signal(false);
   readonly criticos = signal(0);
@@ -211,7 +230,27 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
    * uno de menos no existe.
    */
   private readonly misSucursales = signal<Set<string> | null>(null);
-  readonly attentionCount = computed(() => this.criticos() + this.accionesPend());
+  readonly attentionCount = computed(() => this.criticos() + this.accionesPend() + (this.rqN() ?? 0));
+
+  /**
+   * `[PQ.35]` Requisiciones por aprobar (Edgar, 2026-10-29: «que se entere cuando llega una
+   * requisición; ella es la única que puede aceptar»).
+   *
+   * - **A quién:** a quien tiene la CLAVE `COMPRAS_REQUISICIONES_AUTORIZAR` (hoy 3 personas, por
+   *   persona en `identity.user_permissions`). ⛔ Sin `isAdmin()`: el god-mode puede aprobar en una
+   *   emergencia, pero el aviso a 8 superadmins sería ruido que nadie atiende.
+   * - **De dónde:** las requisiciones pendientes mismas (`requisitions/por-aprobar`), no una tabla de
+   *   avisos: no se puede perder ni desfasar de lo que de verdad falta.
+   * - **Cada cuánto:** cada 60 s y ⚠️ AUNQUE la pestaña no se vea. Es la excepción a
+   *   `encuestarVisible` a propósito: el aviso de Windows existe para cuando la pestaña está atrás, y
+   *   con la encuesta pausada nunca saldría. Cuesta 1 consulta de ~15 ms por minuto, sólo para esas 3.
+   */
+  readonly rqActivo = computed(() => this.perms.has(Permission.COMPRAS_REQUISICIONES_AUTORIZAR));
+  /** `null` = todavía no se pudo medir (se dice «sin medir», nunca 0). */
+  readonly rqN = signal<number | null>(null);
+  readonly rqMonto = signal(0);
+  private rqVisto: Set<string> | null = null;
+  private rqTimer: ReturnType<typeof setInterval> | null = null;
   readonly hasNew = computed(() => this.newSince());
 
   /**
@@ -224,7 +263,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   private readonly sdActivo = computed(() => this.perms.has(Permission.SERVICIO_REPORTAR));
   private readonly sdPuedeAtender = computed(() => this.perms.hasAny(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR));
   /** `[MS.AVISO]` Sólo a quien atiende y todavía no decidió: con el permiso ya dado o negado el botón sobra. */
-  readonly puedeActivarEscritorio = computed(() => this.sdPuedeAtender() && this.escritorio.permiso() === 'default');
+  readonly puedeActivarEscritorio = computed(() => (this.sdPuedeAtender() || this.rqActivo()) && this.escritorio.permiso() === 'default');
   activarEscritorio(): void { void this.escritorio.solicitar(); }
   private sdVisto = new Set<string>();
   private sdDesde: string | undefined;
@@ -262,6 +301,13 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
     if (this.pcActivo()) {
       this.pollPrecios();
       encuestarVisible(300_000, () => this.pollPrecios(), { destroyRef: this.destroyRef, zone: this.zone });
+    }
+    if (this.rqActivo()) {
+      this.pollRequisiciones();
+      this.zone.runOutsideAngular(() => {
+        this.rqTimer = setInterval(() => this.zone.run(() => this.pollRequisiciones()), 60_000);
+      });
+      this.destroyRef.onDestroy(() => { if (this.rqTimer) clearInterval(this.rqTimer); });
     }
     // `[RE.27.C]` Alcance de sucursales para filtrar los avisos de entradas. Va
     // cacheado en el servicio (una llamada por sesión) y es best-effort: si no
@@ -322,6 +368,40 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
         if (items.some((i) => i.at > this.lastReadAt())) this.newSince.set(true);
       },
       // Best-effort: un fallo de red no calla la campana, vuelve a intentar en el siguiente ciclo.
+      error: () => undefined,
+    });
+  }
+
+  /**
+   * `[PQ.35]` Lee lo que espera aprobación. La PRIMERA lectura sólo siembra lo ya visto (no avisa por
+   * lo que ya estaba al abrir la Suite: eso lo dice el contador). De ahí en adelante, cada folio nuevo
+   * entra al feed y, si la pestaña no se ve, sale el aviso de Windows. Best-effort: un fallo no calla
+   * la campana, y el contador queda en «sin medir» hasta la primera lectura buena.
+   */
+  private pollRequisiciones(): void {
+    this.compras.porAprobar().subscribe({
+      next: (r) => {
+        this.rqN.set(r.n); this.rqMonto.set(r.monto);
+        const primera = this.rqVisto === null;
+        const visto = this.rqVisto ?? new Set<string>();
+        const nuevas = r.recientes.filter((x) => !visto.has(x.id));
+        for (const x of r.recientes) visto.add(x.id);
+        this.rqVisto = visto;
+        if (primera || !nuevas.length) return;
+        const items: FeedItem[] = nuevas.map((x) => ({
+          type: 'requisicion_por_aprobar', severity: 'info',
+          title: `Requisición por aprobar · ${x.folio}`,
+          message: `${x.sucursal ?? 'Sin sucursal'} · ${x.que} · ${this.money(x.total_cost)}${x.pidio ? ` · la mandó ${x.pidio}` : ''}${x.de_sucursal ? ' (pedido de sucursal)' : ''}`,
+          at: Date.parse(x.created_at) || Date.now(), route: '/compras/pedido?lo_pedido=1',
+        }));
+        this.feed.update((f) => [...items, ...f].sort((a, b) => b.at - a.at).slice(0, 20));
+        this.newSince.set(true);
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          const t = nuevas.length === 1 ? items[0].title : `${nuevas.length} requisiciones por aprobar`;
+          this.escritorio.mostrar(t, nuevas.length === 1 ? items[0].message : `Total pendiente: ${this.money(r.monto)}`,
+            () => irConservandoPanel(this.router, '/compras/pedido?lo_pedido=1'), 'requisicion_por_aprobar');
+        }
+      },
       error: () => undefined,
     });
   }
@@ -391,7 +471,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   toggle(): void {
     const willOpen = !this.open();
     this.open.set(willOpen);
-    if (willOpen) { this.markRead(); if (this.canSeeFinance()) this.refresh(); }
+    if (willOpen) { this.markRead(); if (this.canSeeFinance()) this.refresh(); if (this.rqActivo()) this.pollRequisiciones(); }
   }
   close(): void { this.open.set(false); }
 
@@ -425,6 +505,8 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
       case 'service_desk': return 'pi-ticket';
       // `[ETQ-AVISOS.2]` Cambios de precio: hay etiquetas del anaquel que quedaron viejas.
       case 'price_changes': return 'pi-tag';
+      // `[PQ.35]` Una requisición espera tu autorización.
+      case 'requisicion_por_aprobar': return 'pi-inbox';
       default: return 'pi-bell';
     }
   }

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { TableModule } from 'primeng/table';
@@ -235,7 +235,14 @@ export class LoPedidoComponent {
   readonly oc = signal<OcDetalleDto | null>(null);
   readonly ocError = signal<string | null>(null);
 
-  constructor() { this.cargar(); }
+  constructor() {
+    this.cargar();
+    // `[PQ.35]` El aviso de la campana trae `?lo_pedido=1`: la ventana se abre sola, sin otro clic.
+    // Por suscripción y no por snapshot: si ya estás en Pedido, Angular no vuelve a crear la página.
+    inject(ActivatedRoute).queryParamMap.pipe(takeUntilDestroyed()).subscribe((q) => {
+      if (q.get('lo_pedido') === '1') this.abrir();
+    });
+  }
 
   abrir(): void { if (!this.visible) return; this.abierto.set(true); this.cargar(); }
   /** Lo llama Pedido después de generar un lote: el conteo del botón se pone al día. */

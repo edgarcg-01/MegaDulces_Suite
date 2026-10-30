@@ -701,6 +701,13 @@ export interface RequisitionBatchResult {
     traspasos_sin_escritura?: number | null;
   };
 }
+/** `[PQ.35]` Requisiciones que esperan a quien autoriza (el aviso de la campana). */
+export interface PorAprobarResumen {
+  n: number;
+  monto: number;
+  recientes: Array<{ id: string; folio: string; created_at: string; total_cost: number; sucursal: string | null;
+    que: string; pidio: string | null; de_sucursal: boolean }>;
+}
 /** `[RQ.8]` Una fila de la bandeja agrupada: UN «Armar», no un documento. */
 export interface RequisitionBatchRow {
   lote: string;
@@ -1596,6 +1603,10 @@ export class ComprasService {
     return this.http.post<{ id: string; renglones_actualizados: number; total_cost: number; vigencia: RequisitionVigencia | null }>(`${this.base}/requisitions/${id}/recalculate`, {});
   }
   /** `[RQ.4]` Aprueba o rechaza varias de una; lo que no pasa vuelve con su motivo. */
+  /** `[PQ.35]` Lo que espera a quien autoriza: cuántas, cuánto y las 10 más nuevas. Fuente del aviso de la campana. */
+  porAprobar(): Observable<PorAprobarResumen> {
+    return this.http.get<PorAprobarResumen>(`${this.base}/requisitions/por-aprobar`);
+  }
   bulkRequisiciones(ids: string[], accion: 'approve' | 'reject', motivo?: string | null): Observable<{ pedidas: number; hechas: number; ok: string[]; fallas: Array<{ id: string; motivo: string }> }> {
     return this.http.post<{ pedidas: number; hechas: number; ok: string[]; fallas: Array<{ id: string; motivo: string }> }>(`${this.base}/requisitions/bulk`, { ids, accion, motivo: motivo ?? null });
   }

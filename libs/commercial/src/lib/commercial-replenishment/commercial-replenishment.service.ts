@@ -4148,6 +4148,50 @@ export class CommercialReplenishmentService {
     });
   }
 
+  /**
+   * `[PQ.35]` **Lo que espera a quien autoriza** (Edgar, 2026-10-29: «un sistema de notificaciones
+   * para Arizbeth… que se entere cuando llega una requisición; ella es la única que puede aceptar»).
+   *
+   * Es la fuente del aviso: la campana lo lee por poll, igual que la Mesa de Servicio (MS.3.6). No
+   * hay tabla de notificaciones porque las requisiciones pendientes YA SON la bandeja: un aviso no se
+   * puede perder ni quedar desfasado de lo que de verdad falta aprobar. Ligero a propósito: NO pasa
+   * por `listRequisitions` (que asocia OC y reintenta Kepler en cada lectura).
+   */
+  async porAprobarResumen(): Promise<{
+    n: number; monto: number;
+    recientes: Array<{ id: string; folio: string; created_at: string; total_cost: number; sucursal: string | null;
+      que: string; pidio: string | null; de_sucursal: boolean }>;
+  }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const tot = (await trx.raw(
+        `SELECT count(*)::int AS n, COALESCE(sum(total_cost), 0)::numeric AS monto
+           FROM commercial.purchase_requisitions WHERE tenant_id = ? AND estado = 'pending_approval'`, [tenantId])).rows[0];
+      const rows = (await trx.raw(
+        `SELECT r.id, r.folio, r.created_at, r.total_cost, w.name AS sucursal,
+                CASE WHEN r.source_type = 'branch' THEN 'Traspaso desde ' || COALESCE(sw.name, 'otra sucursal')
+                     ELSE COALESCE(s.name, 'Varios proveedores') END AS que,
+                COALESCE(NULLIF(btrim(u.nombre), ''), u.username) AS pidio,
+                COALESCE((to_jsonb(r) ->> 'requested_by_branch')::boolean, false) AS de_sucursal
+           FROM commercial.purchase_requisitions r
+           LEFT JOIN commercial.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
+           LEFT JOIN commercial.warehouses sw ON sw.tenant_id = r.tenant_id AND sw.id = r.source_warehouse_id
+           LEFT JOIN catalog.suppliers s ON s.tenant_id = r.tenant_id AND s.id = r.supplier_id
+           LEFT JOIN identity.users u ON u.id = r.created_by
+          WHERE r.tenant_id = ? AND r.estado = 'pending_approval'
+          ORDER BY r.created_at DESC, r.folio DESC
+          LIMIT 10`, [tenantId])).rows as Array<Record<string, unknown>>;
+      return {
+        n: Number(tot?.n) || 0, monto: Number(tot?.monto) || 0,
+        recientes: rows.map((x) => ({
+          id: String(x['id']), folio: String(x['folio']), created_at: new Date(x['created_at'] as string).toISOString(),
+          total_cost: Number(x['total_cost']) || 0, sucursal: (x['sucursal'] as string) ?? null, que: String(x['que']),
+          pidio: (x['pidio'] as string) ?? null, de_sucursal: x['de_sucursal'] === true,
+        })),
+      };
+    });
+  }
+
   // ── Requisiciones (HITL) ──────────────────────────────────────────────
   async createRequisition(dto: CreateRequisitionDto) {
     const tenantId = this.tenantCtx.requireTenantId();

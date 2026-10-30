@@ -462,6 +462,13 @@ export class CommercialReplenishmentController {
     return this.svc.listRequisitionBatches({ estado, source_type, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
+  // `[PQ.35]` El aviso de quien autoriza. Antes de `requisitions/:id` para que «por-aprobar» no se
+  // lea como un id. Pide AUTORIZAR: es el trabajo de esa persona, no información general.
+  @Get('requisitions/por-aprobar')
+  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_AUTORIZAR)
+  @ApiOperation({ summary: '[PQ.35] Requisiciones que esperan aprobación: cuántas, cuánto, y las 10 más nuevas (folio, sucursal, qué, quién la pidió). Fuente del aviso de la campana.' })
+  porAprobar() { return this.svc.porAprobarResumen(); }
+
   @Get('requisitions')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_VER)
   @ApiOperation({ summary: '[RQ.9] Lista de requisiciones. Filtros: estado, warehouse_id, source_type, batch_id (los documentos de un lote), search (folio, proveedor o folio de lote), kepler=sin_documento ([PQ.1] aprobadas sin documento en el ERP) y de_sucursal=1 ([AB.32] las que pidió una sucursal desde Autoabasto).' })
