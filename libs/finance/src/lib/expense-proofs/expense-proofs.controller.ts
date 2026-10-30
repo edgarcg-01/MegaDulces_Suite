@@ -5,7 +5,7 @@ import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission, isPla
 import type {
   ReaperturaDecidida, ReaperturaPendiente, SolicitudReaperturaCreada,
 } from '@megadulces/contracts';
-import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar, type RespuestaDelDia } from './expense-proofs.service';
+import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar, type RespuestaDelDia, type ProofFile } from './expense-proofs.service';
 // `[GX.49]` La forma de la solicitud que devuelve el lookup exacto.
 import type { SolicitudKepler } from './expense-proofs.service';
 // `[GX.41]` El vale que Kepler asigna por la caja «Solicita»: la forma vive en el contrato.
@@ -299,6 +299,22 @@ export class ExpenseProofsController {
    * ⚠️ Sin permiso especial: es su propio vale, y el servicio comprueba que lo sea. Gatearlo
    * con `_VER` dejaria afuera a los ~140 que solo capturan, que son justo quienes piden.
    */
+  /**
+   * `[GX.87]` Agregar evidencia a un vale ya capturado, con su porqué. No cambia el estado.
+   * Quién: el dueño del vale (lo comprueba el servicio) o quien aprueba (`COMPROBAR` o rol de
+   * plataforma, lo decide acá el token). El permiso del decorador sólo deja entrar a quien
+   * trabaja con gastos; la cerradura de verdad es la del servicio.
+   */
+  @Post(':id/evidencia-adicional')
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[GX.87] Agrega evidencia a un vale con su porqué, sin cambiar su estado.' })
+  agregarEvidenciaAdicional(@Param('id') id: string, @Body() body: { files?: ProofFile[]; motivo?: string },
+    @Req() req?: AuthedRequest): Promise<{ id: string; agregados: number; files: ProofFile[] }> {
+    const esAprobador = req?.user?.permissions?.[Permission.FINANCE_EXPENSES_COMPROBAR] === true
+      || isPlatformAdminRole(req?.user?.role_name);
+    return this.svc.agregarEvidenciaAdicional(id, body ?? {}, quienDecide(req), esAprobador);
+  }
+
   @Post(':id/reapertura')
   @ApiOperation({ summary: '[GX.29] Solicita reabrir un vale aprobado para agregar evidencia. Decide quien lo aprobo.' })
   solicitarReapertura(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req?: AuthedRequest): Promise<SolicitudReaperturaCreada> {

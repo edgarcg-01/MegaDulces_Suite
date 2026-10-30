@@ -5,7 +5,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type { Subscription } from 'rxjs';
 import { SelectModule } from 'primeng/select';
 import {
-  ESTADOS_LEVANTAMIENTO, FILTRO_HISTORIAL_VACIO, filtroHistorialActivo, pasaFiltroHistorial,
+  ESTADOS_LEVANTAMIENTO, FILTRO_HISTORIAL_VACIO, aceptaEvidenciaAdicional, filtroHistorialActivo, pasaFiltroHistorial,
   type FacetaHistorial, type FiltroHistorial,
 } from '@megadulces/contracts';
 import { branchLabel } from '../../../core/constants/store-branches';
@@ -18,6 +18,7 @@ import {
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
+import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../components/evidencia-adicional-dialog.component';
 import { DIAS_SEMANA, mesDe, semanasDelMes, sumarMeses, type CeldaCalendario } from '../calendario-mes.util';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
@@ -82,7 +83,7 @@ function opcionesDeFaceta(
 @Component({
   selector: 'app-finanzas-gastos-historial',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, ToastModule, ValeGastoPeekComponent],
+  imports: [CommonModule, FormsModule, SelectModule, ToastModule, ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -262,11 +263,14 @@ function opcionesDeFaceta(
       }
 
       <p-toast />
-      <!-- El mismo visor que usa Aprobación. Acá la única acción posible es PEDIR que te
-           reabran tu propio vale [GX.29]: no se firma nada desde el historial. -->
+      <!-- El mismo visor que usa Aprobación. Desde el historial no se firma nada: se puede PEDIR
+           que te reabran tu propio vale [GX.29] y sumar evidencia con su porqué [GX.87]. -->
       <app-vale-gasto-peek [open]="valeAbierto() !== null" (openChange)="cerrarVale($event)"
                            [vale]="valeAbierto()" [acciones]="accionesDelVale()"
-                           [ocupado]="pidiendo()" (pedirReapertura)="pedirReapertura($any($event))" />
+                           [ocupado]="pidiendo()" (pedirReapertura)="pedirReapertura($any($event))"
+                           (agregarEvidencia)="paraEvidencia.set($any($event))" />
+      <app-evidencia-adicional-dialog [open]="paraEvidencia() !== null" (openChange)="cerrarEvidencia($event)"
+                                      [vale]="paraEvidencia()" (agregado)="alAgregarEvidencia($event)" />
     </div>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
@@ -653,9 +657,30 @@ export class FinanzasGastosHistorialComponent {
    */
   accionesDelVale(): readonly AccionVale[] {
     const v = this.valeAbierto();
-    if (!v || this.ambito() !== 'mios') return [];
+    if (!v) return [];
+    const acciones: AccionVale[] = [];
     // Un vale que todavía espera firma no necesita reapertura: ya está abierto.
-    return ['aprobada', 'validada', 'revision'].includes(String(v.status)) ? ['pedir_reapertura'] : [];
+    if (this.ambito() === 'mios' && ['aprobada', 'validada', 'revision'].includes(String(v.status))) {
+      acciones.push('pedir_reapertura');
+    }
+    // `[GX.87]` Sumar evidencia: en «Míos» es lo tuyo; en «Todos», sólo quien aprueba gastos.
+    // Mismo criterio que el servidor (dueño o `COMPROBAR`), que es quien decide de verdad.
+    const puedeSumar = this.ambito() === 'mios' || this.perms.has(Permission.FINANCE_EXPENSES_COMPROBAR);
+    if (puedeSumar && aceptaEvidenciaAdicional(v.status)) acciones.push('agregar_evidencia');
+    return acciones;
+  }
+
+  /** `[GX.87]` El vale al que se le está sumando evidencia (abre el diálogo). */
+  readonly paraEvidencia = signal<ValeGasto | null>(null);
+  cerrarEvidencia(abierto: boolean): void { if (!abierto) this.paraEvidencia.set(null); }
+
+  /** `[GX.87]` Lo agregado se ve ya, en el visor y en el renglón del día: viene firmado del servidor. */
+  alAgregarEvidencia(e: EvidenciaAgregada): void {
+    this.valeAbierto.update((v) => (v && v.id === e.id ? { ...v, files: e.files } : v));
+    this.filasDia.update((l) => l.map((r) => (r.id === e.id ? { ...r, files: e.files } : r)));
+    this.toast.add({ severity: 'success', summary: 'Evidencia agregada', life: 5000,
+      detail: 'Quedó en el expediente con su porqué. El estado del vale no cambió.' });
+    this.cdr.markForCheck();
   }
 
   /**

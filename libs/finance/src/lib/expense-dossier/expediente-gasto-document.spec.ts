@@ -2,7 +2,7 @@
 vi.mock('puppeteer', () => ({}));
 
 import type { TransferenciaGasto } from '@megadulces/contracts';
-import { bloqueTransferenciasHtml, fecha } from './expediente-gasto-document.service';
+import { archivoDelExpedienteHtml, bloqueTransferenciasHtml, fecha } from './expediente-gasto-document.service';
 
 /**
  * `[GX.75]` La sección «La transferencia» del expediente en PDF. Cada ausencia se dice distinto,
@@ -53,5 +53,30 @@ describe('[GX.75] bloqueTransferenciasHtml', () => {
     const h = bloqueTransferenciasHtml([T({ folio: '<b>1</b>', importe: null })], true);
     expect(h).toContain('&lt;b&gt;1&lt;/b&gt;');
     expect(h).toMatch(/<td class="num">—<\/td>/);
+  });
+});
+
+/**
+ * `[GX.87]` La lista de archivos del expediente impreso. La evidencia agregada después lleva su
+ * porqué, quién y cuándo; el resto sale igual que antes.
+ */
+describe('[GX.87] archivoDelExpedienteHtml', () => {
+  it('la evidencia adicional dice por qué, quién y cuándo', () => {
+    const h = archivoDelExpedienteHtml({
+      role: 'adicional', motivo: 'Llegó la factura definitiva', agregado_por: 'NOMBRE APELLIDO', agregado_at: '2026-10-29T18:05:00.000Z',
+    });
+    expect(h).toContain('Agregada después: «Llegó la factura definitiva»');
+    expect(h).toContain('NOMBRE APELLIDO');
+    expect(h).toContain('29 de octubre de 2026'); // hora de México, no UTC
+  });
+  it('un archivo de siempre no gana la nota', () => {
+    const h = archivoDelExpedienteHtml({ role: 'comprobante_1', live: true, captured_at: '2026-10-29T18:05:00.000Z' });
+    expect(h).toContain('EN VIVO');
+    expect(h).not.toContain('Agregada después');
+  });
+  it('lo que no vino se omite, y el motivo se escapa', () => {
+    const h = archivoDelExpedienteHtml({ role: 'adicional', motivo: '<b>x</b>' });
+    expect(h).toContain('«&lt;b&gt;x&lt;/b&gt;»</div>');
+    expect(h).not.toContain(' · ');
   });
 });

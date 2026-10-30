@@ -8,10 +8,12 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
 import {
   CLASIFICACION_LABEL, type ExpenseClasificacion, type ProofFile, type ValeGasto,
 } from '../comprobaciones.service';
-import { detallesParaMostrar } from '@megadulces/contracts';
+import { aceptaEvidenciaAdicional, detallesParaMostrar, esEvidenciaAdicional } from '@megadulces/contracts';
 
 /** Qué se puede hacer con el vale desde acá. Lo decide la PÁGINA, no este visor. */
-export type AccionVale = 'aprobar' | 'comprobar' | 'rechazar' | 'pedir_reapertura';
+export type AccionVale = 'aprobar' | 'comprobar' | 'rechazar' | 'pedir_reapertura'
+  /** `[GX.87]` Sumar evidencia con su porqué. NO es una decisión: no va al pie ni lo mueve. */
+  | 'agregar_evidencia';
 
 /**
  * `[GX.30]` Lo que viaja al aprobar. **No es sólo el vale**: quien firma puede decir que
@@ -46,6 +48,7 @@ const ARCHIVO_LABEL: Record<string, string> = {
   comprobante_1: 'Comprobante — hoja 1', comprobante_2: 'Comprobante — hoja 2',
   solicitud_kepler: 'Solicitud de gasto firmada', cotizacion: 'Cotización',
   evidencia_1: 'Evidencia 1', evidencia_2: 'Evidencia 2', evidencia_3: 'Evidencia 3',
+  adicional: 'Evidencia adicional',
 };
 
 /**
@@ -66,6 +69,8 @@ interface DocDelExpediente {
    */
   esOtro: boolean;
   safeUrl: SafeResourceUrl | null;
+  /** `[GX.87]` Sólo en evidencia adicional: por qué se agregó, quién y cuándo. */
+  nota: string | null;
 }
 
 /**
@@ -168,7 +173,17 @@ interface DocDelExpediente {
         }
 
         <!-- ── Los papeles ──────────────────────────────────────────────────── -->
-        <h3 class="vp-h">Evidencia</h3>
+        <div class="vp-h-row">
+          <h3 class="vp-h">Evidencia</h3>
+          <!-- [GX.87] Sumar lo que llegó después, con su porqué. Lo ofrece la página (dueño o
+               quien aprueba) y nunca en un vale rechazado: ése se vuelve a capturar. -->
+          @if (puedeAgregarEvidencia()) {
+            <button pButton type="button" class="p-button-sm p-button-outlined" [disabled]="ocupado()"
+                    (click)="agregarEvidencia.emit(p)">
+              <span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span>
+              <span class="p-button-label">Agregar evidencia</span></button>
+          }
+        </div>
         @if (!docs().length) {
           <!-- «No hay archivos» y «no los puedo mostrar» son dos cosas distintas. -->
           <div class="vp-sin">
@@ -179,7 +194,7 @@ interface DocDelExpediente {
           @for (d of docs(); track d.url) {
             <figure class="vp-doc">
               <figcaption>
-                <span>{{ d.label }}</span>
+                <span>{{ d.label }}@if (d.nota) { <span class="vp-doc-nota">{{ d.nota }}</span> }</span>
                 <a [href]="d.url" target="_blank" rel="noopener">abrir aparte</a>
               </figcaption>
               @if (d.isPdf) {
@@ -230,7 +245,7 @@ interface DocDelExpediente {
           }
         }
 
-        @if (acciones().length) {
+        @if (decisiones().length) {
           <div class="vp-act">
             @if (p.status === 'aprobada' && p.requiere_evidencia && !p.tiene_evidencia) {
               <!-- La evidencia la sube quien capturó, no quien firma. Decirlo evita que
@@ -308,6 +323,11 @@ interface DocDelExpediente {
   .vp-nota { font-size: var(--fs-sm); color: var(--fg-2); font-style: italic; margin: 0; }
   .vp-nota.warn { color: var(--warn-fg); font-style: normal; }
   .vp-nota.bad { color: var(--bad-fg); font-style: normal; }
+  .vp-h-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+    margin: var(--sp-2) 0 0; }
+  .vp-h-row .vp-h { margin: 0; }
+  /* [GX.87] El porqué de la evidencia adicional, pegado a su rótulo. */
+  .vp-doc-nota { display: block; color: var(--fg-3); }
   .vp-h { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em;
     color: var(--fg-3); margin: var(--sp-2) 0 0; }
   .vp-sin { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--fg-2);
@@ -362,6 +382,17 @@ export class ValeGastoPeekComponent {
   readonly rechazar = output<ValeGasto>();
   /** `[GX.29]` El capturista pide la reapertura. La página se encarga del motivo. */
   readonly pedirReapertura = output<ValeGasto>();
+  /** `[GX.87]` Sumar evidencia. La página abre el diálogo y vuelve a pedir el detalle. */
+  readonly agregarEvidencia = output<ValeGasto>();
+
+  /**
+   * `[GX.87]` Las acciones que DECIDEN sobre el vale (las del pie). Agregar evidencia no
+   * cuenta: sin este filtro, un vale que sólo ofrece «Agregar evidencia» pintaba el pie de
+   * decisión con un «Rechazar» que nadie le ofreció.
+   */
+  readonly decisiones = computed(() => this.acciones().filter((a) => a !== 'agregar_evidencia'));
+  readonly puedeAgregarEvidencia = computed(() =>
+    this.acciones().includes('agregar_evidencia') && aceptaEvidenciaAdicional(this.vale()?.status));
 
   /** `[GX.30]` La marca, mientras se mira ESTE vale. Se limpia al abrir otro (ver abajo). */
   readonly provisional = signal(false);
@@ -421,6 +452,7 @@ export class ValeGastoPeekComponent {
         isPdf,
         esOtro,
         safeUrl: isPdf ? this.sanitizer.bypassSecurityTrustResourceUrl(f.url) : null,
+        nota: esEvidenciaAdicional(f) ? notaAdicional(f) : null,
       };
     });
   });
@@ -449,4 +481,16 @@ export class ValeGastoPeekComponent {
   /** El tipo de gasto en palabras. Sin la clave cruda: `no_fiscal_comprobable` es cómo se
    *  guarda, no cómo se dice. */
   tipoGasto(c: string): string { return CLASIFICACION_LABEL[c as ExpenseClasificacion] ?? c; }
+}
+
+/**
+ * `[GX.87]` «por qué · quién · cuándo» de una evidencia adicional. Lo que no vino se omite:
+ * un expediente viejo sin autor no se pinta como si alguien sin nombre lo hubiera subido.
+ */
+export function notaAdicional(f: ProofFile): string {
+  const cuando = f.agregado_at ? new Date(f.agregado_at) : null;
+  const fecha = cuando && !Number.isNaN(cuando.getTime())
+    ? cuando.toLocaleString('es-MX', { timeZone: 'America/Mexico_City', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : null;
+  return [f.motivo ? `«${f.motivo}»` : null, f.agregado_por || null, fecha].filter(Boolean).join(' · ');
 }

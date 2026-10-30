@@ -106,6 +106,10 @@
 - Ahora el renglón **cabe sin JavaScript**: su tamaño tiene un tope calculado por el largo del texto. El ajuste sólo lo agranda hasta donde quepa, así que las etiquetas que ya salían bien no cambian de tamaño.
 - El arnés de geometría de etiquetas gana el invariante **`codigo_recortado`** (ninguno de los 8 anteriores miraba este renglón). Sin el arreglo da **2 etiquetas rotas de 221**: la 20750 y la 01001, que nadie había reportado; con el arreglo, 0.
 - Sin migración, sin permiso, sin endpoint. No medido: la impresión física, ni las etiquetas en promoción (su renglón va en otra columna y no lleva el tope).
+### Added — Finanzas › Gastos: agregar evidencia a cada vale, con su porqué (GX.87, 2026-10-29)
+- Botón **«Agregar evidencia»** en el expediente de cada vale (Mis gastos, Historial y Aprobación): hasta 5 archivos de 20 MB y un **porqué obligatorio**.
+- Se **suma** al expediente: no reemplaza nada ni cambia el estado del vale. Queda con su porqué, quién y cuándo, y así sale en el PDF del expediente.
+- Pueden el dueño del vale y quien aprueba gastos; un vale rechazado no acepta. Sin migraciones ni permisos nuevos → sin re-login.
 ### Fixed — Pagos: cuando el ERP y el SAT no coinciden sobre quién es un proveedor, manda el comprobante (PGP.31 / ADR-108, 2026-10-28, **en prod**)
 - Kepler tenía capturado, para **18 acreedores**, un RFC que **sus propias facturas timbradas contradicen** — entre ellos **J&F ENTERPRISE** y **MONDELEZ**, con un RFC de persona física sobre una sociedad. Hasta ahora ganaba el del ERP y por eso esas facturas no se encontraban.
 - Ahora manda el del comprobante. **+12 documentos encuentran su factura (+$14,819)**, sin que ninguno pierda la que ya tenía: el valor literal de Kepler se conserva y sigue sirviendo para buscar.

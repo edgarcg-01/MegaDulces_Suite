@@ -1725,6 +1725,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.PREVENTA_GUIAS_GESTIONAR)]
       },
       {
+        // [MCP.10] Revisión en caja de la preventa surtida, antes de cobrar. Mismo permiso de la caja que las guías.
+        path: 'pedidos/revision',
+        loadComponent: () => import('./modules/almacen/pages/almacen-revision-preventa.component').then(m => m.AlmacenRevisionPreventaComponent),
+        canActivate: [permissionGuard(Permission.PREVENTA_GUIAS_GESTIONAR)]
+      },
+      {
         // [MCP.2] Mesa de Control de Preventa: pedidos PD- del vendedor + su documento de Kepler.
         path: 'pedidos/preventa',
         loadComponent: () => import('./modules/almacen/pages/almacen-preventa.component').then(m => m.AlmacenPreventaComponent),

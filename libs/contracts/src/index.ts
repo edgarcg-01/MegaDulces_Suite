@@ -110,6 +110,7 @@ export * from './http/warehouse-picking-kepler.contract';
 // [MCP.1] Mesa de Control de Preventa: pedido PD- de la Suite ligado a su documento de Kepler.
 export * from './http/warehouse-presale.contract';
 export * from './http/presale-picking.contract';
+export * from './http/presale-review.contract';
 // [MCP.3.8] Cliente nuevo: alta en la Suite y liga con su clave de Kepler.
 export * from './http/new-customers-kepler.contract';
 export * from './http/presale-route.contract';
@@ -189,6 +190,8 @@ export * from './finance/coincidencia-pago.contract';
 export * from './finance/archivo-gasto.contract';
 // `[GX.86]` las rondas de revision de gastos (se informan, no bloquean el alta).
 export * from './finance/rondas-revision-gastos.contract';
+// `[GX.87]` evidencia adicional en un vale ya capturado: se agrega con su porqué, sin cambiar el estado.
+export * from './finance/evidencia-adicional.contract';
 // `[PVI.17]` qué lados tiene un ejercicio de presupuesto y cuáles hacen falta para declarar un
 // resultado. Lo leen la pantalla del módulo y el desglose de la cola en «Mi trabajo».
 export * from './finance/budget-lados.contract';
