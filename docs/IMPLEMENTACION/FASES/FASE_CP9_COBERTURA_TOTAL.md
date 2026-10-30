@@ -564,6 +564,21 @@ distribución:
 Faltan los códigos 4, 5 y 0 de `impuesto`. El 5 trae base 0 en todas sus filas. Necesitan un testigo antes de
 publicarse en una vista.
 
+**Avance del mismo día.** ContPAQi trae su propia etiqueta en `nombreimplocal`:
+- `impuesto = 4` son **impuestos locales**: ISH u hospedaje, cedular, IMCD;
+- `impuesto = 5` es **«Otras Erogaciones»** (46,362 filas): no es un impuesto, son montos no gravados, y por eso su
+  base es 0;
+- `impuesto = 0` sigue **sin nombre** (21,267 filas): en la vista va como «sin clasificar», no como una suposición.
+
+El testigo es el propio CFDI (`fiscal.cfdis.total_trasladados`), por UUID, en 2026:
+- **CFDI en una sola póliza:** IVA + IEPS + locales trasladados cuadran ±$1 en **11,047 de 15,754 (70 %)**; con el IVA
+  solo eran el 46 %. En 4,364 ContPAQi asienta menos que el CFDI. Es compatible con el IVA de un pago parcial, pero
+  está **sin probar**.
+- **CFDI en dos o más pólizas:** ContPAQi suele asentar **más** que el CFDI (276 de 514). Lo probable es el mismo
+  impuesto en la provisión y en el pago.
+
+Antes de publicar la vista hay que medir esos dos residuos.
+
 ### 8.12 `[CP.9.4]` El dictamen pregunta a la réplica (2026-10-30)
 
 Commit `c00b75e72`, en `dictamen.ts` y `dictamen.contexto.ts`. Hoy nadie llama a `leerContextoDictamen`; antes de
