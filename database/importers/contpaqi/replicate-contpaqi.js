@@ -68,7 +68,15 @@ const DB_NOM = process.env.CONTPAQI_NOM_DB || 'ctLFLG';
 const ADD_PRINCIPAL = (process.env.CONTPAQI_ADD_GUID || '12677b5d').toLowerCase();
 
 const TABLA_SECRETA = /^certificates$/i;
-const COLUMNA_SECRETA = /privad|password|passwd|contrase|pwd|clave_?acceso|secret/i;
+const COLUMNA_SECRETA = /privad|password|passwd|contrase|pwd|clave_?acceso|secret|token|api_?key|ciec|fiel/i;
+/**
+ * ⛔ ContPAQi le dice CLAVE a la contraseña: `GeneralesSQL.Usuarios.Clave` y `EmailClave` se copiaron a prod en el humo
+ * del 2026-10-30 porque el filtro buscaba «password». Un TEXTO cuyo nombre termina en clave/pass/nip/pin es secreto;
+ * `FechaVencimientoClave` (fecha) y `c_ClaveProdServ` (no termina en clave) se siguen copiando.
+ */
+const TEXTO_SECRETO = /(clave|pass|nip|pin)$/i;
+const TIPOS_TEXTO = new Set(['char', 'varchar', 'nchar', 'nvarchar', 'text', 'ntext', 'binary', 'varbinary', 'image']);
+const esSecreta = (c) => COLUMNA_SECRETA.test(c.nombre) || (TEXTO_SECRETO.test(c.nombre) && TIPOS_TEXTO.has(c.tipo));
 const LLAVE_LEGIBLE = new Set(['int', 'bigint', 'smallint', 'tinyint', 'uniqueidentifier', 'char', 'varchar', 'nchar', 'nvarchar']);
 
 /** Las bases que se replican, en orden: la contabilidad primero, el ADD principal antes que los demás. */
@@ -161,7 +169,7 @@ async function catalogo(pool, db) {
     if (!tablas.has(c.oid)) tablas.set(c.oid, { esquema: c.esquema, tabla: c.tabla, columnas: [], excluidas: [], llave: [], filas: 0 });
     const t = tablas.get(c.oid);
     const col = { nombre: c.nombre, tipo: String(c.tipo).toLowerCase(), precision: c.precision, scale: c.scale };
-    if (COLUMNA_SECRETA.test(c.nombre)) t.excluidas.push(c.nombre); else t.columnas.push(col);
+    if (esSecreta(col)) t.excluidas.push(c.nombre); else t.columnas.push(col);
   }
   for (const p of pks) {
     const t = tablas.get(p.oid);
@@ -245,6 +253,8 @@ async function copiarTabla(pool, pg, f, t) {
   const pk = porLlave ? `, PRIMARY KEY (${[...t.llave.map((k) => pgId(k.nombre.toLowerCase())), ...(f.repo ? ['"_repo"'] : [])].join(', ')})` : '';
   await pg.query(`CREATE TABLE IF NOT EXISTS ${destino} (${defs.join(', ')}${pk})`);
   for (const c of t.columnas) await pg.query(`ALTER TABLE ${destino} ADD COLUMN IF NOT EXISTS ${pgId(c.nombre.toLowerCase())} ${tipoPg(c)}`);
+  // Un secreto que una corrida anterior alcanzó a copiar se borra de prod, no sólo se deja de copiar.
+  for (const x of t.excluidas) await pg.query(`ALTER TABLE ${destino} DROP COLUMN IF EXISTS ${pgId(x.toLowerCase())}`);
   if (f.repo) await pg.query(`DELETE FROM ${destino} WHERE "_repo" = $1`, [f.repo]);
   else await pg.query(`TRUNCATE ${destino}`);
 
