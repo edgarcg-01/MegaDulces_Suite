@@ -506,4 +506,60 @@ La primera pregunta de §8.2 era *«¿qué periodos tiene cerrados contabilidad?
 **Lo que esto le dice al dictamen (`CP.9.4`):** la regla `periodo_cerrado` mira el ejercicio, no el mes. Como
 ContPAQi sí acepta la póliza, la severidad propuesta es **«revisar»**, con el motivo dicho: *el ejercicio ya tiene
 póliza de cierre y entregarle algo obliga a rehacer el cierre*. Si «bloquea» o «revisar» lo decide Edgar (era la D11
-de CP.8). Falta su cruce contra una fuente independiente (§6), y por eso todavía no se escribe la regla.
+de CP.8). El testigo ya está (§8.11): la póliza de cierre existe y es del periodo 14 en los 8 ejercicios cerrados, y
+los abiertos no tienen ninguna en ese periodo.
+
+### 8.11 `[CP.9.3]` Las vistas de control, en código y medidas (2026-10-30)
+
+Migración `20261030114159_cp93_vistas_de_control_contpaqi.js`: dos vistas en `analytics` y diez índices por expresión
+en la réplica, para buscar por UUID o por póliza. ⚠️ **No está aplicada**: entra a prod por el carril de entrega.
+
+**`analytics.v_contpaqi_cfdi_poliza` — qué CFDI está en qué póliza.** ContPAQi guarda la asociación por tres caminos,
+y el importador de pólizas sólo conocía uno, a medias:
+
+| Camino | Apunta a | Asociaciones | CFDI |
+|---|---|---:|---:|
+| `AsocCFDIs` | un movimiento | 411,321 | 165,317 |
+| `AsocCFDIs` | **la póliza entera** | 587,445 | 516,478 |
+| documentos administrativos | la póliza entera | 135,822 | 118,871 |
+| nodos de pago (REP) | un movimiento | 2,414 | 1,139 |
+| nodos de pago (REP) | la póliza entera | 8,892 | 8,809 |
+| **total** | | **1,145,894** | **519,781** |
+
+1,020 asociaciones de `AsocCFDIs` apuntan a algo que ya no existe y quedan fuera.
+
+Los cruces:
+- **Contra la marca del ADD** (`fiscal.cfdis.aso_contabilidad`), que es otro sistema. Sobre 45,462 CFDI de ene–sep
+  2026, **99.40 % de acuerdo**. El placebo (la marca del CFDI vecino) da 91.73 %, que es el azar cuando el 95 % está
+  asociado: la vista se equivoca **14 veces menos** que el azar (272 desacuerdos contra 3,758; kappa 0.93).
+- ⭐ **Un punto ciego del ADD:** los 271 CFDI que sólo la vista asocia pasan **todos** por documentos
+  administrativos. La marca del ADD no ve ese módulo. En la otra dirección hay uno solo.
+- **Contra el staging** (`analytics.gl_poliza_lines.cfdi_uuid`): la vista contiene el 99.98 % (49,011 de 49,023). Los
+  12 que faltan son del staging, que se quedó rancio: contabilidad reasoció a nivel póliza (2026-07, egresos 116) o
+  quitó la asociación (2026-10, egresos 5365), y el importador sólo refresca una póliza cuando cambia su
+  `RowVersion`, cosa que reasociar no hace.
+- ⛔ **Lo que esto le dice al dictamen:** el staging conoce **21,363 UUID** y la vista **137,116** desde 2025. El
+  dictamen, que pregunta al staging si un CFDI ya está en una póliza de egresos, ve hoy **el 16 %**. Se corrige en
+  `CP.9.4`.
+
+**`analytics.v_contpaqi_ejercicio` — qué ejercicio está cerrado.** Dice si está cerrado, con qué póliza de cierre y
+cuántas pólizas entraron después. Testigo: los 8 cerrados tienen su póliza de cierre en el periodo 14 (diario, folio
+1000); 2025 y 2026 no tienen ninguna póliza en ese periodo.
+
+**Cómo se probó:**
+- `database/tests/test-newdb-contpaqi-vistas-control.js`, en la base local de desarrollo y dentro de una transacción
+  que se deshace: **22 de 22**. Incluye tres pruebas negativas que hacen **abortar** la migración (un GUID repetido,
+  un cierre del periodo 5 y un cierre de otro ejercicio), la idempotencia, el `down` y que la búsqueda por UUID usa
+  los índices.
+- **El `up()` real contra prod, en sólo lectura:** lo que escribe se saltó y cada vista se validó con `EXPLAIN` de su
+  cuerpo. No aborta: 1,145,894 = 1,145,894 por los dos caminos, y 8 cerrados con testigo.
+- ⚠️ **NO MEDIDO:** la latencia por UUID con los índices en prod. Se mide al aplicar la migración.
+
+**Pendiente, `CP.9.3b`: los impuestos por movimiento** (`MovimientosImpuestos`, 334,491). Decodificado por su
+distribución:
+- `impuesto`: 2 = IVA, 3 = IEPS, 1 = ISR;
+- `tipomovimiento`: 1 = traslado, 2 = retención;
+- `tipofactor`: 1 = tasa, 2 = cuota, 3 = exento.
+
+Faltan los códigos 4, 5 y 0 de `impuesto`. El 5 trae base 0 en todas sus filas. Necesitan un testigo antes de
+publicarse en una vista.
