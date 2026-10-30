@@ -31,6 +31,10 @@
 - Antes de soltarse se encontró que la primera versión de la corrección hacía tardar **35–45 s** la cola filtrada por inventario en sobrestock. Se cambió la forma de buscar el costo y ahora tarda **~0.35 s**.
 - El resumen y la cola se guardan en caché hasta que el motor se vuelve a calcular, o 15 minutos como máximo. Todos ven la misma foto, así que sólo el primero en entrar espera el cálculo.
 
+### Fixed — El motor de margen amanecía con los números de ayer hasta media mañana (PR.V12, 2026-10-30)
+- La cascada de precio de la que depende el motor tardaba **2.9 horas** en recalcularse cada mañana (de 08:41 a 11:35, en horario hábil), por un plan de consulta equivocado. Con el plan corregido, la misma consulta tarda **~9 s** medidos.
+- Si vuelve a tardar, se corta a los 10 minutos y el motor dice la edad de sus números, en vez de detener los demás cálculos de la mañana.
+
 ### Added — Facturación TM: embarques que salieron sin factura (AX.18, 2026-10-29)
 - En el encabezado de **Facturación TM** hay un botón que dice cuántos embarques de telemarketing salieron sin factura y por cuánto dinero; al abrirlo muestra la lista sin mover la tabla de facturas.
 - Distingue los que **nunca se facturaron** de los que se facturaron y **todas sus facturas quedaron en $0**, y nombra esos folios para encontrarlos en Kepler.

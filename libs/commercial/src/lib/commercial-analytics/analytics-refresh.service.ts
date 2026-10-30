@@ -193,6 +193,22 @@ const AJUSTES_REFRESCO: Readonly<Record<string, readonly string[]>> = {
   // (Kepler no guarda la historia de la ficha). Va en la MISMA transacción: si el REFRESH falla, la
   // foto tampoco queda, y la matview nunca lee una foto que no se pudo historiar.
   'analytics.mv_kepler_costos_cambios': ['SELECT analytics.fn_kepler_estandar_foto()'],
+  /**
+   * `[PR.V12]` La cascada de precio por SKU tardaba **2.9 HORAS** (10,409 s el 2026-10-29, de 08:41 a
+   * 11:35, en horario hábil) para producir ~6,000 filas. El planificador estima **17 filas** en los
+   * renglones de venta (`kdm1` ⋈ `kdm2`, por la vista `erp_sales_invoice_lines`) y encadena nested
+   * loops: por cada renglón vuelve a buscar su encabezado. Y como el motor de margen depende de esta
+   * matvista, el motor amanecía con los números de AYER hasta media mañana.
+   *
+   * Medido en prod (sólo lectura, 2026-10-30, con carga): la MISMA consulta con `enable_nestloop =
+   * off` termina en **9.2 s** (5,993 filas). El resultado no depende del plan: la única subconsulta
+   * con LIMIT (`analytics.erp_receivable_doc`) ordena con DISTINCT ON + ORDER BY.
+   *
+   * El tope de 10 min es margen de 60× y, sobre todo, freno: si el plan vuelve a degradarse, el
+   * REFRESH se cancela y el motor DECLARA la edad de su foto (píldora de frescura), en vez de
+   * detener la cadena horas.
+   */
+  'analytics.mv_price_waterfall_sku': ['SET LOCAL enable_nestloop = off', "SET LOCAL statement_timeout = '600s'"],
 };
 
 @Injectable()

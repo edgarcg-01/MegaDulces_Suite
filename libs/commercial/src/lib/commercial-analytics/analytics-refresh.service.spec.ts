@@ -79,6 +79,17 @@ describe('[NP.13][NP.14] REFRESH con ajustes propios', () => {
     ]);
   });
 
+  it('[PR.V12] la cascada de precio: sin nested loops, con tope de 10 min, en la MISMA transacción', async () => {
+    const { k, sentencias } = knexFalso();
+    const svc = new AnalyticsRefreshService(k) as unknown as ConRefresco;
+    await svc.refrescarMv(k, 'analytics.mv_price_waterfall_sku', 'CONCURRENTLY ');
+    expect(sentencias).toEqual([
+      '[trx] SET LOCAL enable_nestloop = off',
+      "[trx] SET LOCAL statement_timeout = '600s'",
+      '[trx] REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_price_waterfall_sku',
+    ]);
+  });
+
   it('[negativa] las demás matvistas se refrescan como siempre: sin transacción ni ajustes', async () => {
     const { k, sentencias } = knexFalso();
     const svc = new AnalyticsRefreshService(k) as unknown as ConRefresco;
