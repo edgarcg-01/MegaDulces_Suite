@@ -21,7 +21,25 @@ if (dsn) {
     // Trazas de performance: bajo por default (barato). Subir si se quiere APM.
     tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.1),
     // No mandar PII (headers/cookies/body) salvo que se active explícito.
-    sendDefaultPii: false,
+    // ⛔ `[DEPS.4]` Sentry 11 retiró `sendDefaultPii` y, si `dataCollection` queda SIN
+    // declarar, junta por default cuerpos HTTP (el login lleva la contraseña), cookies,
+    // usuario y el SQL de cada consulta. Esto es la línea base de la v10, explícita
+    // (MIGRATION.md de sentry-javascript, «If you want to keep the v10 default behavior»).
+    dataCollection: {
+      userInfo: false,
+      cookies: false,
+      httpHeaders: {
+        request: { deny: ['forwarded', '-ip', 'remote-', 'via', '-user'] },
+        response: { deny: ['forwarded', '-ip', 'remote-', 'via', '-user'] },
+      },
+      httpBodies: [],
+      urlQueryParams: { deny: ['forwarded', '-ip', 'remote-', 'via', '-user'] },
+      genAI: { inputs: false, outputs: false },
+      mcp: { inputs: false, outputs: false },
+      databaseQueryData: false,
+      queues: false,
+      graphQL: { document: false, variables: false },
+    },
     // ⛔ Antes leía SÓLO `RAILWAY_GIT_COMMIT_SHA`, que on-prem no existe: todo error de
     // producción llegaba a Sentry SIN release, o sea imposible de atribuir a un build.
     release: commitDelBuildOpcional(),
