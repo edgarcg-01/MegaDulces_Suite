@@ -1,6 +1,8 @@
 # FASE CP.9 — Cobertura total de ContPAQi
 
-> **Estado:** 🔍 PLAN MEDIDO 2026-10-09 · sin código · **ADR:** hereda ADR-040
+> **Estado:** 🔨 EN CURSO · `CP.9.0` ✅ · `CP.9.2`: la carga inicial está en prod desde el 2026-10-30 y la sincronía
+> está en código, sin agendar ([§8.9](#89-cp92-la-carga-inicial-hecha-2026-10-30-y-la-sincronía-en-código)) ·
+> **ADR:** hereda ADR-040; la réplica, ADR-110
 > **Pedido de Edgar:** *"generemos un plan a futuro de cubrir el 100% de ContPAQi"*.
 > ⭐ **2026-10-29 — Edgar: *«hay que replicar todo para llevar el control o sincronía con ContPAQi»*.** El plan vigente es
 > [§8, la réplica cruda continua](#8--ola-0--replicar-contpaqi-entero-la-réplica-cruda-continua-2026-10-29). Cambia la recomendación de §7
@@ -344,3 +346,128 @@ syntax near 'AS'»). La segunda agrega con `FOR XML PATH`, que funciona en cualq
 - después, los metadatos del ADD principal, por documento.
 
 Etapa 2, **sólo con decisión expresa:** nóminas y los 3 repositorios del ADD (nómina). Fuera: el contenido de los XML.
+
+### 8.9 `[CP.9.2]` La carga inicial, hecha (2026-10-30), y la sincronía, en código
+
+**Lo que decidió Edgar** cierra la D13 y la D14: *«todo, hasta nóminas, hagámoslo ahora la carga inicial»*.
+- **D13 → todo:** la contabilidad, Generales, los catálogos del SAT, el directorio, los metadatos de los 4
+  repositorios del ADD y nóminas.
+- **D14 → en horario hábil**, el viernes 30 desde las 09:04, con 50 ms de pausa entre trozos. La recomendación era
+  de noche; Edgar decidió hacerlo ya. Si contabilidad la notaba lenta, se podía parar con `pkill -INT`: termina la
+  tabla en curso y se detiene.
+
+**Dónde corrió:** en el pod `feeds-cron` (namespace `ingesta`), con el entorno de `/secrets/feeds.env`. Se intentó
+primero desde una estación de trabajo y el rol lo frenó: trae `default_transaction_read_only=on` **a propósito**, y
+eso no se salta. La contraseña de SQL Server se escribe en la terminal de `md` y entra al pod por la entrada
+estándar; no queda en el historial ni en el repo.
+
+**El resultado:** de 09:04:18 a 09:45:46, **41 minutos**. «Descuadre» es que el `COUNT_BIG` del origen, contado al
+terminar cada tabla, no coincida con las filas en Postgres.
+
+| Fuente | Base de origen | Tablas | Filas | Descuadres | Minutos |
+|---|---|---:|---:|---:|---:|
+| Contabilidad | `ctLUIS_…` | 52 | 4,847,987 | 0 | 5.5 |
+| Generales | `GeneralesSQL` | 14 | 3,989 | 0 | 0.0 |
+| Catálogos del SAT | `ADD_Catalogos` | 77 | 95,732 | 0 | 0.2 |
+| Directorio del ADD | `DB_Directory` | 20 | 1,868 | 0 | 0.0 |
+| ADD principal, documentos | `document_12677b5d…` | 26 | 12,705,755 | 0 | 18.3 |
+| ADD principal, «otros» | `other_12677b5d…` | 7 | 2,021,029 | 0 | 2.3 |
+| ADD `1c7bf869`, documentos | `document_1c7bf869…` | 20 | 604,997 | 0 | 1.3 |
+| ADD `1c7bf869`, «otros» | `other_1c7bf869…` | 8 | 1,271 | 0 | 0.0 |
+| ADD `d112b0ed`, documentos | `document_d112b0ed…` | 20 | 549,753 | 0 | 1.0 |
+| ADD `4d8ceea4`, «otros» | `other_4d8ceea4…` | 8 | 1,271 | 0 | 0.0 |
+| ⚠️ ADD `4d8ceea4`, documentos | `document_4d8ceea4…` | **NO MEDIDO** | | | |
+| ⚠️ ADD `d112b0ed`, «otros» | `other_d112b0ed…` | **NO MEDIDO** | | | |
+| **`contpaqi_ods`** | | **252** | **20,833,652** | **0** | |
+| Nóminas (`ctLFLG`, `nomGenerales`) y las `Nomina*` del ADD | | 128 tablas físicas | ~8.1 M (estimado) | por confirmar | |
+
+- `contpaqi_ods` pesa **4.6 GB** y `contpaqi_nom` **1.9 GB**: menos que los ≈ 11 GB que estimaba §8.8, porque el
+  tamaño de SQL Server incluye índices y espacio reservado. Prod pasó de 45 a **47 GB**.
+- Las 252 tablas viven en 201 tablas físicas: los repositorios del ADD comparten tabla y se distinguen por `_repo`.
+- **143 de las 252 se leyeron de una pasada** (sin llave legible: el SAT, el directorio y las hijas del ADD).
+- ⚠️ **Dos bases de metadatos del ADD no llegaron**, aunque `DB_Directory` lista las dos. El replicador filtraba
+  `sys.databases` por `ONLINE` y las saltó **sin decir nada**. Ya no: ahora toda base esperada que falte sale como NO
+  MEDIDO y pone en 1 el código de salida (`321110f68`). Por qué faltaron (fuera de línea, sin permiso o sin datos) lo
+  dice el log de la carga en el pod.
+- ⚠️ **Nóminas, por confirmar:** `contpaqi_nom` no se concede a ningún rol de lectura, así que su `_sync_status` sólo
+  lo lee `postgres`. El conteo exacto y sus descuadres están en el log del pod; las filas de arriba son el estimado
+  de `pg_class`.
+
+**⛔ El incidente del primer ensayo (08:56–09:00).** El humo sobre `GeneralesSQL` copió a prod columnas de
+credenciales durante unos cuatro minutos: las contraseñas de los usuarios de ContPAQi, que ContPAQi llama `Clave`, y
+los tokens de sesión de `ListaEmpresas`. El filtro buscaba «password» y no las reconocía. Se corrigió (`ee3dd2809`,
+`c22af9abd`) y la segunda corrida **borró esas columnas de prod**; el replicador las vuelve a borrar si alguna vez
+reaparecen. Qué credenciales se rotan lo decide Edgar (regla 7).
+
+**Lo que cambió del diseño de §8.3, con su porqué:**
+1. **Columnas:** §8.3.1 hablaba de `_rv` y `_replicado_en`. Se dejó `rowversion` como una columna más, 1:1 con el
+   origen, y se agregó `_synced_at`. Crudo quiere decir sin renombrar.
+2. **`NOLOCK`:** §8.3.4 decía «sin `NOLOCK`». Las tablas con llave se leen por llave, en trozos y con `READ
+   COMMITTED`. Las que **no tienen llave** se leen de una pasada con `NOLOCK`, porque una pasada larga con candados
+   frenaría a contabilidad. Está declarado: la sincronía corrige en la vuelta siguiente lo que se haya leído a medias.
+3. **`BINARY_CHECKSUM`:** §8.3.2 lo proponía para las tablas sin `RowVersion`. No se usó porque Postgres no lo puede
+   reproducir, y entonces sólo serviría contra una huella guardada, no contra la réplica. Se usan sumas que dan lo
+   mismo en los dos motores.
+4. **El reconciliador diario de §8.3.3 no hace falta aparte.** La sincronía ya es el árbitro: en cada vuelta compara
+   el origen contra la réplica. Lo que sigue faltando es su latido.
+5. **`CP.9.1` (el mecanismo en una tabla, contra una base de prueba) quedó absorbido.** Edgar pidió la carga ya, y
+   la sincronía en seco sólo lee: el costo en `.35` y la prueba negativa que pedía CP.9.1 se miden con ella en el pod.
+
+**La sincronía (`--sync`) — ADR-110.** `RowVersion` resultó ser un entero **al azar** que ContPAQi regenera en cada
+escritura: 111,182 valores distintos en 111,185 pólizas, de 977 a 2,147,468,696. No sirve de marca de agua, pero sí
+de huella.
+- La llave se parte en tramos de ~4,096 filas y en los dos lados se calcula, por tramo, las filas y la suma de cada
+  columna que se suma exacta. Sólo el tramo que difiere se recopia, en una transacción.
+- Si la llave no es entera, la tabla se compara entera hasta 100,000 filas. Arriba de eso queda **sin carril**,
+  dicho en `_sync_status.note`.
+- ⛔ **Los importes de ContPAQi son `float`**: 149 columnas en 14 tablas (`Importe`, `Cargos`, `Abonos`,
+  `SaldoIni`, `Importes1..14`). La primera versión de la huella los dejaba fuera, porque la suma de un `float`
+  depende del orden, y con eso un saldo movido sin cambiar `RowVersion` pasaba de largo. Ahora se suma su **patrón de
+  bits** como entero, que es el mismo en SQL Server y en Postgres.
+
+Medido del lado de Postgres, contra la réplica en prod, con el código real del replicador cargado sin su `main` y
+cruzado contra una **segunda implementación** (sumas fila por fila en JS, los bits con `Buffer`):
+
+| Tabla | Modo | Filas | Tramos | Sumas | Huella en Postgres | 2ª implementación | El comparador, roto a propósito |
+|---|---|---:|---:|---:|---:|---|---|
+| `ct_polizas` | tramos | 111,185 | 28 | 17 | 0.2 s | 3 de 3 tramos iguales | lo ve |
+| `ct_movimientospoliza` | tramos | 1,163,368 | 285 | 15 | 1.7 s | 3 de 3 | lo ve |
+| `ct_saldoscuentas` | tramos | 187,647 | 46 | 20 | 0.4 s | 3 de 3 | lo ve |
+| `ct_asoccfdis` | tramos | 999,751 | 245 | 3 | 0.9 s | 3 de 3 | lo ve |
+| `gen_municipios` | tramos | 2,457 | 1 | 2 | 0.0 s | 1 de 1 | lo ve |
+| `sat_c_claveprodserv` | entera | 52,844 | 1 | 2 | 0.0 s | 1 de 1 | lo ve |
+| `add_totalpagos` (repo principal) | entera | 46,303 | 1 | 11 | 0.0 s | 1 de 1 | lo ve |
+
+⚠️ **NO MEDIDO todavía: el lado de SQL Server.** Medirlo pide la contraseña, que sólo se escribe en `md`. Lo mide la
+primera corrida en seco en el pod. Si los bits de un `float` no salieran iguales en los dos motores, **todos** los
+tramos con importes saldrían distintos, a la vista.
+
+**Disco, medido el 2026-10-30** (el riesgo de §8.6): el disco de `md` tiene 492 GB y quedan 81 GB libres (83 % en
+uso). Prod pesa 45 GB con la réplica adentro. Alcanza, pero el 83 % hay que vigilarlo.
+
+**Lo que falta para cerrar `CP.9.2`:**
+1. **Ejercer la sincronía en el pod:** en seco, con `--control` (la prueba negativa, que se deshace) y con `--apply`.
+   Dos vueltas seguidas: la segunda tiene que salir al día salvo lo que contabilidad capture en medio.
+2. **D15**, y con ella agendar la sincronía en `feeds-cron` con su latido de entrega y su umbral en `CRON_JOBS`
+   (ADR-053), probado en rojo. Sin la D15 sólo se puede correr a mano.
+3. **La migración** `20261029180144_contpaqi_ods_schema.js` por el carril de entrega. En prod no cambia nada (el
+   replicador ya creó lo mismo), pero tiene que quedar registrada.
+4. **El ADD grande** (`Comprobante`, `Conceptos`, `Impuesto_Traslado_Concepto`) por `Documento.TimeStamp`: va en
+   `CP.9.6`.
+
+### 8.10 `[CP.9.3]` Primer hallazgo sobre la réplica: ContPAQi cierra ejercicios, no meses (2026-10-30)
+
+La primera pregunta de §8.2 era *«¿qué periodos tiene cerrados contabilidad?»*. Medido sobre `contpaqi_ods`:
+- **La única marca de cierre es por ejercicio:** `Ejercicios.IdPolCierre` guarda el `Id` de la póliza de cierre.
+  2017 a 2024 la tienen; 2025 y 2026 tienen 0, o sea que siguen abiertos.
+- **No hay bloqueo por mes.** Ninguna columna de la contabilidad ni de las Generales se llama `bloq*`, `cerr*` ni
+  `lock*`, salvo las dos de `Ejercicios`. `Parametros.EjerActual`/`PerActual` es el periodo que tiene abierto la
+  pantalla, no un candado.
+- ⚠️ **El cierre no impide capturar.** Después de la póliza de cierre de 2024 entraron **24 pólizas más** de ese
+  ejercicio (por `Id`, que crece con cada alta), y también pasó en 2018 (3), 2019 (1), 2020 (3) y 2021 (1).
+  Contabilidad ajusta después de cerrar y vuelve a cerrar.
+
+**Lo que esto le dice al dictamen (`CP.9.4`):** la regla `periodo_cerrado` mira el ejercicio, no el mes. Como
+ContPAQi sí acepta la póliza, la severidad propuesta es **«revisar»**, con el motivo dicho: *el ejercicio ya tiene
+póliza de cierre y entregarle algo obliga a rehacer el cierre*. Si «bloquea» o «revisar» lo decide Edgar (era la D11
+de CP.8). Falta su cruce contra una fuente independiente (§6), y por eso todavía no se escribe la regla.
