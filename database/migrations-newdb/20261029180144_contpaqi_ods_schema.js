@@ -13,8 +13,8 @@
  *  · Contabilidad: 52 de 119 tablas con datos, 4,847,902 filas; las 52 con llave `Id` y `RowVersion`.
  *  · Nóminas: 59 de 76 tablas con datos, 5,731,321 filas. ADD principal: 13.5 M filas de metadatos.
  *
- * ⚠️ El replicador crea estos mismos objetos si no existen (la carga inicial se corrió el 2026-10-29, antes de que
- *    esta migración llegara a prod): aplicada después, no cambia nada. Idempotente.
+ * ⚠️ El replicador crea estos mismos objetos si no existen (la carga inicial se corrió el 2026-10-30 desde el pod
+ *    `feeds-cron`, antes de que esta migración llegara a prod): aplicada después, no cambia nada. Idempotente.
  *
  * @param { import("knex").Knex } knex
  */

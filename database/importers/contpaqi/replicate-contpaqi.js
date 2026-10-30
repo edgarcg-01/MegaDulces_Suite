@@ -1,8 +1,8 @@
 /* eslint-disable no-console */
 /**
- * `[CP.9.2]` — **Réplica cruda de ContPAQi en prod: la CARGA INICIAL.** Copia tabla por tabla, tal cual, de SQL Server
- * (`192.168.0.35\COMPAC`) a Postgres: `contpaqi_ods` (contabilidad, generales, catálogos del SAT, directorio y metadatos
- * del ADD) y `contpaqi_nom` (nóminas). Pedido de Edgar, 2026-10-29: *«todo, hasta nóminas, hagámoslo ahora»*.
+ * `[CP.9.2]` — **Réplica cruda de ContPAQi en prod: la CARGA INICIAL y la SINCRONÍA.** Copia tabla por tabla, tal cual,
+ * de SQL Server (`192.168.0.35\COMPAC`) a Postgres: `contpaqi_ods` (contabilidad, generales, catálogos del SAT, directorio
+ * y metadatos del ADD) y `contpaqi_nom` (nóminas). Pedido de Edgar: *«todo, hasta nóminas, hagámoslo ahora»*.
  * Plan y medición en `docs/IMPLEMENTACION/FASES/FASE_CP9_COBERTURA_TOTAL.md` §8.
  *
  * ── Qué copia y qué NO ──────────────────────────────────────────────────────────────────────
@@ -19,10 +19,25 @@
  *   (declarado: puede leer un renglón a medio escribir; el reconciliador de CP.9 lo corrige).
  *   Fechas y decimales salen de SQL Server como TEXTO: así no se corren de huso horario ni pierden precisión.
  *
+ * ── La sincronía (`--sync`): sólo lo que cambió, sin marca de agua ─────────────────────────────
+ *   ContPAQi no tiene columna «modificado desde»: `RowVersion` es un entero AL AZAR que se regenera en cada escritura
+ *   (medido 2026-10-30: 111,182 valores distintos en 111,185 pólizas, de 977 a 2,147,468,696). No sirve de marca de
+ *   agua, pero sí de huella: es lo que ya hace el feed de pólizas (PV.1) cada minuto, con `Σ RowVersion` por póliza.
+ *   Por tabla, la llave se parte en tramos de ~`--cubeta` filas y en los DOS lados se calcula por tramo: filas y la Σ de
+ *   cada columna que se suma exacta (enteros —`RowVersion` incluida—, decimales, money, bit). Sólo el tramo que difiere
+ *   se recopia, en UNA transacción: quien lee la réplica nunca ve el tramo a medias.
+ *   Es un árbitro y no una bitácora: compara el ORIGEN contra la RÉPLICA, así que también ve una réplica que se movió sola.
+ *   ⚠️ Lo que NO ve, declarado: un cambio SÓLO de texto o de fecha en una tabla SIN `RowVersion` (nóminas, SAT,
+ *   directorio; contabilidad y generales la traen todas). Una tabla sin llave entera se compara entera hasta
+ *   `--tabla-entera-max` filas; arriba de eso queda «sin carril» en `_sync_status.note` y su `last_push_at` envejece.
+ *
  * ── Uso (en la LAN; la contraseña nunca va en el repo) ──────────────────────────────────────
  *   CONTPAQI_SQL_PASSWORD=… node database/importers/contpaqi/replicate-contpaqi.js            # en seco: plan + 1 fila de cada tabla
  *   … --apply [--solo=ct,gen,sat,dir,nom,nomgen,add,addo] [--tabla=Polizas] [--trozo=5000] [--pausa-ms=25]
- *   Destino: `DATABASE_URL_NEW`. Sin `--apply` no escribe nada.
+ *   … --sync                       # en seco: qué tramos difieren de la réplica, sin escribir
+ *   … --sync --apply [--watch=5]   # recopia los tramos que difieren; con --watch, una vuelta cada N minutos
+ *   … --sync --control             # prueba negativa: mueve una fila DENTRO de una transacción que se deshace
+ *   Destino: `DATABASE_URL_NEW`. Sin `--apply` no escribe nada. Una sola corrida que escribe a la vez (candado).
  */
 'use strict';
 const path = require('path');
@@ -47,6 +62,13 @@ const SOLO = arg('solo', null) ? new Set(arg('solo').split(',')) : null;
 const TABLA = arg('tabla', null);
 const TROZO = Number(arg('trozo', 5000));
 const PAUSA_MS = Number(arg('pausa-ms', 25));
+const SYNC = process.argv.includes('--sync');
+const WATCH_MIN = Number(arg('watch', 0));
+const CUBETA = Number(arg('cubeta', 4096));
+const TABLA_ENTERA_MAX = Number(arg('tabla-entera-max', 100000));
+const CONTROL = process.argv.includes('--control');
+/** Dos corridas que escriben a la vez se pisan: una borra el tramo que la otra acaba de copiar. */
+const CANDADO = 'contpaqi_ods.replica';
 
 if (!process.env.CONTPAQI_SQL_PASSWORD) {
   console.error('⛔ falta CONTPAQI_SQL_PASSWORD en el entorno (este script no trae contraseña por defecto).');
@@ -84,6 +106,16 @@ const esSecreta = (tabla, c) => COLUMNA_SECRETA.test(c.nombre)
   || (TABLA_DE_USUARIOS.test(tabla) && CLAVE_DE_USUARIO.test(c.nombre))
   || (TEXTO_SECRETO.test(c.nombre) && TIPOS_TEXTO.has(c.tipo));
 const LLAVE_LEGIBLE = new Set(['int', 'bigint', 'smallint', 'tinyint', 'uniqueidentifier', 'char', 'varchar', 'nchar', 'nvarchar']);
+const ENTERO = new Set(['int', 'bigint', 'smallint', 'tinyint']);
+const RANGO_ENTERO = { tinyint: [0, 255], smallint: [-32768, 32767], int: [-2147483648, 2147483647],
+  bigint: [Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER] };
+/**
+ * Lo que entra a la huella, sumado EXACTO en los dos motores. ⛔ ContPAQi guarda los importes en `float` (`Importe`,
+ * `Cargos`, `Importes1..14`: 149 columnas en 14 tablas, medido 2026-10-30) y la suma de un `float` depende del orden en
+ * que se acumula: no se suma su valor sino su PATRÓN DE BITS como entero, que es el mismo en SQL Server y en Postgres.
+ */
+const FLOTANTE = new Set(['float', 'real']);
+const SUMABLE = new Set([...ENTERO, 'bit', 'decimal', 'numeric', 'money', 'smallmoney', ...FLOTANTE]);
 
 /** Las bases que se replican, en orden: la contabilidad primero, el ADD principal antes que los demás. */
 function fuentes(bases) {
@@ -156,6 +188,9 @@ function despuesDe(llave) {
 const limpiar = (v) => (typeof v === 'string' ? v.replace(/\u0000/g, '') : v);
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 const pgId = (s) => `"${String(s).replace(/"/g, '""')}"`;
+const msId = (s) => `[${String(s).replace(/]/g, ']]')}]`;
+const hora = () => new Date().toLocaleTimeString('es-MX', { timeZone: 'America/Mexico_City', hour12: false });
+let detener = false;
 
 /** Catálogo de una base: tablas con sus columnas (sin las secretas), su llave y sus filas. */
 async function catalogo(pool, db) {
@@ -239,57 +274,361 @@ function leerDeUnaPasada(pool, desde, select, alLote) {
   });
 }
 
-async function copiarTabla(pool, pg, f, t) {
+/** Dónde vive cada tabla en Postgres y cómo se lee de SQL Server. */
+function contexto(f, t) {
   const esquemaPg = f.nomina || /^nomina/i.test(t.tabla) ? 'contpaqi_nom' : 'contpaqi_ods';
   const nombrePg = `${f.prefijo}${t.esquema === 'dbo' ? '' : `${t.esquema}_`}${t.tabla}`.toLowerCase();
-  const destino = `${esquemaPg}.${pgId(nombrePg)}`;
-  const desde = `[${f.db.replace(/]/g, ']]')}].[${t.esquema}].[${t.tabla}]`;
-  const select = t.columnas.map(seleccion).join(', ');
-  const porLlave = t.llave.length > 0 && t.llave.every((k) => LLAVE_LEGIBLE.has(k.tipo));
-  const clave = `${nombrePg}${f.repo ? `|${f.repo}` : ''}`;
+  return {
+    esquemaPg,
+    destino: `${esquemaPg}.${pgId(nombrePg)}`,
+    desde: `${msId(f.db)}.${msId(t.esquema)}.${msId(t.tabla)}`,
+    select: t.columnas.map(seleccion).join(', '),
+    porLlave: t.llave.length > 0 && t.llave.every((k) => LLAVE_LEGIBLE.has(k.tipo)),
+    clave: `${nombrePg}${f.repo ? `|${f.repo}` : ''}`,
+  };
+}
 
+/**
+ * Crea la tabla si falta, le agrega las columnas nuevas del origen y le BORRA las secretas: un secreto que una corrida
+ * anterior alcanzó a copiar se borra de prod, no sólo se deja de copiar. Mira el catálogo antes de tocar nada: un
+ * `ALTER TABLE … IF NOT EXISTS` toma el candado exclusivo aunque no haga nada, y la sincronía pasa por aquí cada vuelta.
+ */
+async function asegurarTabla(pg, f, t, x) {
+  const hay = await columnasPg(pg, x);
+  if (!hay.size) {
+    const defs = t.columnas.map((c) => `${pgId(c.nombre.toLowerCase())} ${tipoPg(c)}`);
+    if (f.repo) defs.push('"_repo" text NOT NULL');
+    defs.push('"_synced_at" timestamptz NOT NULL DEFAULT now()');
+    const pk = x.porLlave ? `, PRIMARY KEY (${[...t.llave.map((k) => pgId(k.nombre.toLowerCase())), ...(f.repo ? ['"_repo"'] : [])].join(', ')})` : '';
+    await pg.query(`CREATE TABLE IF NOT EXISTS ${x.destino} (${defs.join(', ')}${pk})`);
+    return [];
+  }
+  const agregadas = [];
+  for (const c of t.columnas) {
+    if (hay.has(c.nombre.toLowerCase())) continue;
+    await pg.query(`ALTER TABLE ${x.destino} ADD COLUMN IF NOT EXISTS ${pgId(c.nombre.toLowerCase())} ${tipoPg(c)}`);
+    agregadas.push(c.nombre);
+  }
+  for (const e of t.excluidas) {
+    if (hay.has(e.toLowerCase())) await pg.query(`ALTER TABLE ${x.destino} DROP COLUMN IF EXISTS ${pgId(e.toLowerCase())}`);
+  }
+  return agregadas;
+}
+async function columnasPg(pg, x) {
+  return new Set((await pg.query(`SELECT attname FROM pg_attribute WHERE attrelid = to_regclass($1) AND attnum > 0
+    AND NOT attisdropped`, [x.destino])).rows.map((r) => r.attname));
+}
+
+/** Recorre la tabla entera y entrega cada lote: por llave en trozos o, sin llave legible, de una pasada. */
+async function recorrer(pool, t, x, alLote) {
+  if (!x.porLlave) return leerDeUnaPasada(pool, x.desde, x.select, alLote);
+  let ultimo = null;
+  for (;;) {
+    const req = pool.request();
+    if (ultimo) t.llave.forEach((k, i) => req.input(`p${i}`, TIPO_PARAM[k.tipo], ultimo[i]));
+    const filas = (await req.query(`SELECT TOP (${TROZO}) ${x.select} FROM ${x.desde} ${ultimo ? `WHERE ${despuesDe(t.llave)}` : ''}`
+      + ` ORDER BY ${t.llave.map((k) => msId(k.nombre)).join(', ')}`)).recordset;
+    if (!filas.length) break;
+    await alLote(filas);
+    const u = filas[filas.length - 1];
+    ultimo = t.llave.map((k) => u[k.nombre]);
+    if (filas.length < TROZO) break;
+    if (PAUSA_MS) await dormir(PAUSA_MS);
+  }
+}
+
+async function copiarTabla(pool, pg, f, t) {
+  const x = contexto(f, t);
   if (!APPLY) {
-    await pool.request().query(`SELECT TOP (1) ${select} FROM ${desde} WITH (NOLOCK)`);
-    return { destino, filas: t.filas, porLlave, copiadas: 0 };
+    await pool.request().query(`SELECT TOP (1) ${x.select} FROM ${x.desde} WITH (NOLOCK)`);
+    return { ...x, filas: t.filas, copiadas: 0 };
   }
-
-  const defs = t.columnas.map((c) => `${pgId(c.nombre.toLowerCase())} ${tipoPg(c)}`);
-  if (f.repo) defs.push('"_repo" text NOT NULL');
-  defs.push('"_synced_at" timestamptz NOT NULL DEFAULT now()');
-  const pk = porLlave ? `, PRIMARY KEY (${[...t.llave.map((k) => pgId(k.nombre.toLowerCase())), ...(f.repo ? ['"_repo"'] : [])].join(', ')})` : '';
-  await pg.query(`CREATE TABLE IF NOT EXISTS ${destino} (${defs.join(', ')}${pk})`);
-  for (const c of t.columnas) await pg.query(`ALTER TABLE ${destino} ADD COLUMN IF NOT EXISTS ${pgId(c.nombre.toLowerCase())} ${tipoPg(c)}`);
-  // Un secreto que una corrida anterior alcanzó a copiar se borra de prod, no sólo se deja de copiar.
-  for (const x of t.excluidas) await pg.query(`ALTER TABLE ${destino} DROP COLUMN IF EXISTS ${pgId(x.toLowerCase())}`);
-  if (f.repo) await pg.query(`DELETE FROM ${destino} WHERE "_repo" = $1`, [f.repo]);
-  else await pg.query(`TRUNCATE ${destino}`);
-
-  let copiadas = 0;
-  if (porLlave) {
-    let ultimo = null;
-    for (;;) {
-      const req = pool.request();
-      if (ultimo) t.llave.forEach((k, i) => req.input(`p${i}`, TIPO_PARAM[k.tipo], ultimo[i]));
-      const filas = (await req.query(`SELECT TOP (${TROZO}) ${select} FROM ${desde} ${ultimo ? `WHERE ${despuesDe(t.llave)}` : ''}`
-        + ` ORDER BY ${t.llave.map((k) => `[${k.nombre}]`).join(', ')}`)).recordset;
-      if (!filas.length) break;
-      await insertar(pg, destino, t.columnas, f.repo, filas);
-      copiadas += filas.length;
-      const u = filas[filas.length - 1];
-      ultimo = t.llave.map((k) => u[k.nombre]);
-      if (filas.length < TROZO) break;
-      if (PAUSA_MS) await dormir(PAUSA_MS);
-    }
-  } else {
-    await leerDeUnaPasada(pool, desde, select, async (lote) => {
-      await insertar(pg, destino, t.columnas, f.repo, lote);
-      copiadas += lote.length;
-    });
-  }
-  const origen = Number((await pool.request().query(`SELECT COUNT_BIG(*) AS n FROM ${desde} WITH (NOLOCK)`)).recordset[0].n);
-  const enPg = Number((await pg.query(`SELECT count(*)::bigint AS n FROM ${destino}${f.repo ? ' WHERE "_repo" = $1' : ''}`,
+  await asegurarTabla(pg, f, t, x);
+  if (f.repo) await pg.query(`DELETE FROM ${x.destino} WHERE "_repo" = $1`, [f.repo]);
+  else await pg.query(`TRUNCATE ${x.destino}`);
+  await recorrer(pool, t, x, (lote) => insertar(pg, x.destino, t.columnas, f.repo, lote));
+  const origen = Number((await pool.request().query(`SELECT COUNT_BIG(*) AS n FROM ${x.desde} WITH (NOLOCK)`)).recordset[0].n);
+  const enPg = Number((await pg.query(`SELECT count(*)::bigint AS n FROM ${x.destino}${f.repo ? ' WHERE "_repo" = $1' : ''}`,
     f.repo ? [f.repo] : [])).rows[0].n);
-  return { destino, filas: origen, copiadas: enPg, porLlave, clave, esquemaPg };
+  return { ...x, filas: origen, copiadas: enPg };
+}
+
+// ── La sincronía ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * La Σ de una columna en SQL Server, como texto exacto. Un `float` aporta sus bits (IEEE, big-endian, como entero con
+ * signo) y el `-0` cuenta como `0`: la réplica lo guarda como `0` (el driver lo escribe como texto).
+ */
+function sumaMs(c) {
+  const q = msId(c.nombre);
+  if (FLOTANTE.has(c.tipo)) {
+    const [bytes, entero] = c.tipo === 'real' ? [4, 'int'] : [8, 'bigint'];
+    return `CONVERT(varchar(60), SUM(CAST(CASE WHEN ${q} = 0 THEN 0 ELSE CAST(CAST(${q} AS binary(${bytes})) AS ${entero}) END AS decimal(38, 0))))`;
+  }
+  const escala = c.tipo === 'decimal' || c.tipo === 'numeric' ? c.scale : c.tipo === 'money' || c.tipo === 'smallmoney' ? 4 : 0;
+  const v = c.tipo === 'bit' ? `CAST(${q} AS int)` : q;
+  return `CONVERT(varchar(60), SUM(CAST(${v} AS decimal(38, ${escala}))))`;
+}
+/** La misma Σ en Postgres, sobre la columna replicada. */
+function sumaPg(c) {
+  const q = pgId(c.nombre.toLowerCase());
+  if (FLOTANTE.has(c.tipo)) {
+    const [envio, bits, entero] = c.tipo === 'real' ? ['float4send', 32, 'int'] : ['float8send', 64, 'bigint'];
+    return `sum(CASE WHEN ${q} = 0 THEN 0 ELSE ('x' || encode(${envio}(${q}), 'hex'))::bit(${bits})::${entero} END)::text`;
+  }
+  return `sum(${c.tipo === 'bit' ? `${q}::int` : q})::text`;
+}
+/** `12.500000` y `12.5` son el mismo número: se comparan sin ceros de cola. */
+function normal(v) {
+  if (v === null || v === undefined) return '∅';
+  let s = String(v).trim();
+  if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  return s === '-0' ? '0' : s;
+}
+/** `{tramo → huella}`: la huella junta las filas y las sumas, ya normalizadas. */
+function aMapa(filas, nSumas) {
+  const m = new Map();
+  for (const r of filas) {
+    const partes = [normal(r.n)];
+    for (let i = 0; i < nSumas; i++) partes.push(normal(r[`s${i}`]));
+    m.set(Number(r.__tramo), { n: Number(r.n), huella: partes.join('|') });
+  }
+  return m;
+}
+/** Los tramos que difieren: con huella distinta, o presentes en un solo lado. */
+function diferencias(origen, replica) {
+  const out = [];
+  for (const [b, o] of origen) { const r = replica.get(b); if (!r || r.huella !== o.huella) out.push(b); }
+  for (const b of replica.keys()) if (!origen.has(b)) out.push(b);
+  return out.sort((a, b) => a - b);
+}
+
+/**
+ * Cómo se compara la tabla: por TRAMOS de la primera columna de la llave si es entera (también en llaves compuestas,
+ * `idempleado, …`); si no, ENTERA hasta `TABLA_ENTERA_MAX` filas; arriba de eso, SIN CARRIL (declarado).
+ */
+function planSync(t) {
+  const k = t.llave[0];
+  if (k && ENTERO.has(k.tipo)) return { modo: 'tramos', k };
+  if (t.filas <= TABLA_ENTERA_MAX) return { modo: 'entera' };
+  return { modo: 'sin carril' };
+}
+
+/**
+ * Ancho del tramo para que cada uno tenga ~`CUBETA` filas. Los tramos se cuentan desde la llave MÍNIMA del origen: así
+ * en SQL Server nunca son negativos, y en Postgres (división con `floor`) lo que el origen ya borró cae en tramos que
+ * sólo existen en la réplica, y se borra.
+ */
+async function medirLlave(pool, x, t, k) {
+  const r = (await pool.request().query(`SELECT MIN(${msId(k.nombre)}) AS mn, MAX(${msId(k.nombre)}) AS mx
+    FROM ${x.desde} WITH (NOLOCK)`)).recordset[0];
+  if (r.mn === null || r.mn === undefined) return null;
+  const mn = Number(r.mn);
+  const tramos = Math.max(1, Math.ceil(t.filas / CUBETA));
+  return { kmin: mn, w: Math.max(1, Math.ceil((Number(r.mx) - mn + 1) / tramos)) };
+}
+
+/** Huella por tramo en SQL Server. `NOLOCK`: una lectura sucia sólo provoca una recopia de más, que lee con candado. */
+async function huellaOrigen(pool, t, x, sumables, p) {
+  const sumas = sumables.map((c, i) => `, ${sumaMs(c)} AS s${i}`).join('');
+  const cols = sumables.map((c) => `, ${msId(c.nombre)}`).join('');
+  if (p.modo === 'entera') {
+    return aMapa((await pool.request().query(`SELECT 0 AS __tramo, COUNT_BIG(*) AS n${sumas} FROM ${x.desde} WITH (NOLOCK)`)).recordset, sumables.length);
+  }
+  const req = pool.request().input('kmin', sql.BigInt, p.kmin).input('w', sql.BigInt, p.w);
+  return aMapa((await req.query(`SELECT __tramo, COUNT_BIG(*) AS n${sumas} FROM (SELECT (${msId(p.k.nombre)} - @kmin) / @w AS __tramo${cols}
+    FROM ${x.desde} WITH (NOLOCK)) z GROUP BY __tramo`)).recordset, sumables.length);
+}
+
+/** La misma huella sobre la réplica. */
+async function huellaReplica(pg, f, x, sumables, p) {
+  const sumas = sumables.map((c, i) => `, ${sumaPg(c)} AS s${i}`).join('');
+  if (p.modo === 'entera') {
+    return aMapa((await pg.query(`SELECT 0 AS __tramo, count(*) AS n${sumas} FROM ${x.destino}${f.repo ? ' WHERE "_repo" = $1' : ''}`,
+      f.repo ? [f.repo] : [])).rows, sumables.length);
+  }
+  return aMapa((await pg.query(`SELECT ${tramoPg(p, '$1', '$2')} AS __tramo, count(*) AS n${sumas}
+    FROM ${x.destino}${f.repo ? ' WHERE "_repo" = $3' : ''} GROUP BY 1`, f.repo ? [p.kmin, p.w, f.repo] : [p.kmin, p.w])).rows, sumables.length);
+}
+/** El tramo de una fila en Postgres, en `bigint`: `smallint − smallint` se desborda si la llave cruza el cero. */
+const tramoPg = (p, kmin, w) => `floor((${pgId(p.k.nombre.toLowerCase())}::bigint - ${kmin}::bigint)::numeric / ${w}::numeric)::bigint`;
+
+async function enTransaccion(pg, fn) {
+  await pg.query('BEGIN');
+  try {
+    const r = await fn();
+    await pg.query('COMMIT');
+    return r;
+  } catch (e) {
+    await pg.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
+/** Recopia UN tramo en una transacción: lo que la réplica tenía en ese rango se va y entra lo del origen. */
+async function recopiarTramo(pool, pg, f, t, x, p, b, enOrigen) {
+  // El rango del tramo, recortado al tipo de la llave: el último tramo de un `int` pasaría de 2,147,483,647.
+  const [min, max] = RANGO_ENTERO[p.k.tipo];
+  const lo = Math.max(p.kmin + b * p.w, min);
+  const hi = Math.min(p.kmin + (b + 1) * p.w - 1, max);
+  let filas = [];
+  if (enOrigen) {
+    filas = (await pool.request().input('lo', TIPO_PARAM[p.k.tipo], lo).input('hi', TIPO_PARAM[p.k.tipo], hi)
+      .query(`SELECT ${x.select} FROM ${x.desde} WHERE ${msId(p.k.nombre)} BETWEEN @lo AND @hi`)).recordset;
+  }
+  await enTransaccion(pg, async () => {
+    await pg.query(`DELETE FROM ${x.destino} WHERE ${pgId(p.k.nombre.toLowerCase())} BETWEEN $1 AND $2${f.repo ? ' AND "_repo" = $3' : ''}`,
+      f.repo ? [lo, hi, f.repo] : [lo, hi]);
+    if (filas.length) await insertar(pg, x.destino, t.columnas, f.repo, filas);
+  });
+  return filas.length;
+}
+
+/** Recopia la tabla entera en una transacción (sólo tablas chicas: `TABLA_ENTERA_MAX`). Lee todo antes de abrirla. */
+async function recopiarEntera(pool, pg, f, t, x) {
+  const filas = [];
+  await recorrer(pool, t, x, async (lote) => { for (const r of lote) filas.push(r); });
+  await enTransaccion(pg, async () => {
+    await pg.query(`DELETE FROM ${x.destino}${f.repo ? ' WHERE "_repo" = $1' : ''}`, f.repo ? [f.repo] : []);
+    if (filas.length) await insertar(pg, x.destino, t.columnas, f.repo, filas);
+  });
+  return filas.length;
+}
+
+/**
+ * ⛔ Prueba negativa (regla 12): dentro de una transacción que se DESHACE, mueve una fila de la réplica (una columna
+ * sumable +1, o la borra si no hay) y exige que la huella marque SU tramo. Una huella que nunca difiere es un espejo.
+ */
+async function controlNegativo(pg, f, t, x, sumables, p, origen, antes) {
+  if (p.modo === 'entera' && antes.length) return 'no concluyente (la tabla ya difería)';
+  const col = sumables.find((c) => !t.llave.some((k) => k.nombre === c.nombre));
+  const cq = col ? pgId(col.nombre.toLowerCase()) : null;
+  const tramo = p.modo === 'tramos' ? tramoPg(p, Number(p.kmin), Number(p.w)) : '0';
+  // La fila se elige FUERA de los tramos que ya difieren: si no, el control no distingue su efecto del que ya había.
+  const params = [];
+  const donde = [cq ? `${cq} IS NOT NULL` : null];
+  if (f.repo) { params.push(f.repo); donde.push(`"_repo" = $${params.length}`); }
+  if (p.modo === 'tramos' && antes.length) { params.push(antes); donde.push(`${tramo} <> ALL($${params.length}::bigint[])`); }
+  const filtro = donde.filter(Boolean);
+  try {
+    return await enTransaccion(pg, async () => {
+      const fila = (await pg.query(`SELECT ctid::text AS ctid, ${tramo} AS __tramo FROM ${x.destino}
+        ${filtro.length ? `WHERE ${filtro.join(' AND ')}` : ''} LIMIT 1`, params)).rows[0];
+      if (!fila) throw Object.assign(new Error('no hay fila fuera de los tramos que ya difieren'), { noAplica: true });
+      if (cq) await pg.query(`UPDATE ${x.destino} SET ${cq} = ${col.tipo === 'bit' ? `NOT ${cq}` : `${cq} + 1`} WHERE ctid = $1::tid`, [fila.ctid]);
+      else await pg.query(`DELETE FROM ${x.destino} WHERE ctid = $1::tid`, [fila.ctid]);
+      const despues = diferencias(origen, await huellaReplica(pg, f, x, sumables, p));
+      const b = Number(fila.__tramo);
+      const esperado = [...new Set([...antes, b])].sort((m, n) => m - n);
+      const veredicto = antes.includes(b) ? 'no concluyente (su tramo ya difería)'
+        : JSON.stringify(despues) === JSON.stringify(esperado) ? `✓ marcó el tramo ${b} (${cq ? `${col.nombre} + 1` : 'fila borrada'})`
+          : `✗ NO lo vio: esperaba ${esperado.length} tramos distintos y hubo ${despues.length}`;
+      throw Object.assign(new Error(veredicto), { veredicto });
+    });
+  } catch (e) {
+    if (e.veredicto) return e.veredicto;
+    return `no aplica (${e.noAplica ? e.message : String(e.message).slice(0, 80)})`;
+  }
+}
+
+/** Una tabla: compara las huellas y, con `--apply`, recopia los tramos que difieren. */
+async function sincronizarTabla(pool, pg, f, t) {
+  const x = contexto(f, t);
+  const existe = (await pg.query('SELECT to_regclass($1) IS NOT NULL AS e', [x.destino])).rows[0].e;
+  if (!existe) {
+    if (!t.filas) return null;
+    if (!APPLY) return { x, modo: 'nueva', tramos: 1, difieren: [0], recopiadas: 0, nota: 'tabla nueva: le toca la carga inicial' };
+    const r = await copiarTabla(pool, pg, f, t);
+    return { x, modo: 'nueva', tramos: 1, difieren: [0], recopiadas: r.copiadas, nOrigen: r.filas, nReplica: r.copiadas };
+  }
+  const agregadas = APPLY ? await asegurarTabla(pg, f, t, x) : [];
+  let p = planSync(t);
+  if (p.modo === 'sin carril') {
+    return { x, modo: p.modo, nota: `sin carril: ${t.filas} filas y sin llave entera; vale la última carga completa` };
+  }
+  if (p.modo === 'tramos') p = (await medirLlave(pool, x, t, p.k).then((m) => (m ? { ...p, ...m } : null))) || { modo: 'entera' };
+  // Una columna que el origen estrenó: con --apply se acaba de agregar VACÍA; en seco todavía no existe y no se puede
+  // sumar. En los dos casos la tabla entera difiere, aunque la columna no sea sumable.
+  const enPg = await columnasPg(pg, x);
+  const nuevas = APPLY ? agregadas : t.columnas.filter((c) => !enPg.has(c.nombre.toLowerCase())).map((c) => c.nombre);
+  const sumables = t.columnas.filter((c) => SUMABLE.has(c.tipo) && enPg.has(c.nombre.toLowerCase()));
+  const origen = await huellaOrigen(pool, t, x, sumables, p);
+  const replica = await huellaReplica(pg, f, x, sumables, p);
+  const difieren = nuevas.length ? [...new Set([...origen.keys(), ...replica.keys()])].sort((a, b) => a - b) : diferencias(origen, replica);
+  const control = CONTROL ? await controlNegativo(pg, f, t, x, sumables, p, origen, difieren) : null;
+  let recopiadas = 0;
+  if (APPLY && difieren.length) {
+    if (p.modo === 'entera') recopiadas = await recopiarEntera(pool, pg, f, t, x);
+    else for (const b of difieren) recopiadas += await recopiarTramo(pool, pg, f, t, x, p, b, origen.has(b));
+  }
+  const suma = (m) => [...m.values()].reduce((s, v) => s + v.n, 0);
+  const nOrigen = suma(origen);
+  const nReplica = APPLY ? suma(replica) - difieren.reduce((s, b) => s + (replica.get(b)?.n || 0), 0) + recopiadas : suma(replica);
+  const nota = nuevas.length ? `columnas nuevas en el origen: ${nuevas.join(', ')}` : null;
+  return { x, modo: p.modo, tramos: origen.size, difieren, recopiadas, nOrigen, nReplica, control, nota };
+}
+
+/** Las vueltas de la sincronía: una, o una cada `--watch` minutos hasta Ctrl-C. Devuelve cuántas fallas hubo. */
+async function sincronizar(pool, pg, bases) {
+  let fallas = 0;
+  for (let vuelta = 1; ; vuelta++) {
+    const t0 = Date.now();
+    const v = { tablas: 0, alDia: 0, tramos: 0, difieren: 0, recopiadas: 0, sinCarril: 0, lentas: [], fallas: [] };
+    for (const f of fuentes(bases)) {
+      if (detener) break;
+      let tablas;
+      try { tablas = await catalogo(pool, f.db); } catch (e) { v.fallas.push(`${f.db}: ${e.message}`); continue; }
+      for (const t of tablas) {
+        if (detener) break;
+        if (TABLA_SECRETA.test(t.tabla) || (TABLA && t.tabla.toLowerCase() !== TABLA.toLowerCase())) continue;
+        const ti = Date.now();
+        try {
+          const r = await sincronizarTabla(pool, pg, f, t);
+          if (!r) continue;
+          const s = (Date.now() - ti) / 1000;
+          v.tablas += 1;
+          v.lentas.push([s, r.x.destino]);
+          if (r.modo === 'sin carril') {
+            v.sinCarril += 1;
+            if (APPLY) await pg.query(`UPDATE ${r.x.esquemaPg}._sync_status SET note = $2 WHERE table_name = $1`, [r.x.clave, r.nota]);
+            if (vuelta === 1) console.log(`  · ${t.tabla.padEnd(34)} ${r.nota}`);
+            continue;
+          }
+          v.tramos += r.tramos;
+          v.difieren += r.difieren.length;
+          v.recopiadas += r.recopiadas;
+          if (!r.difieren.length) v.alDia += 1;
+          if (r.difieren.length || r.control) {
+            console.log(`  ${r.difieren.length ? (APPLY ? '↻' : '≠') : '='} ${t.tabla.padEnd(34)} → ${r.x.destino.padEnd(44)} `
+              + `${r.modo === 'nueva' ? r.nota || 'tabla nueva, copiada entera' : `${r.difieren.length} de ${r.tramos} tramos ${APPLY ? `recopiados (${r.recopiadas} filas)` : 'difieren'}${r.nota ? ` · ${r.nota}` : ''}`}`
+              + `  ${s.toFixed(1)} s${r.control ? `  · control ${r.control}` : ''}`);
+          }
+          if (APPLY) {
+            const nota = r.difieren.length ? `sync ${hora()}: ${r.difieren.length} de ${r.tramos} tramos recopiados (${r.recopiadas} filas)`
+              : `sync ${hora()}: al día (${r.tramos} tramos, modo ${r.modo})`;
+            await pg.query(`INSERT INTO ${r.x.esquemaPg}._sync_status (table_name, source_db, rows_source, rows_copied, last_push_at, seconds, note)
+              VALUES ($1, $2, $3, $4, now(), $5, $6) ON CONFLICT (table_name) DO UPDATE SET source_db = EXCLUDED.source_db,
+              rows_source = EXCLUDED.rows_source, rows_copied = EXCLUDED.rows_copied, last_push_at = now(), seconds = EXCLUDED.seconds,
+              note = EXCLUDED.note`, [r.x.clave, f.db, r.nOrigen, r.nReplica, s.toFixed(1), nota]);
+          }
+        } catch (e) {
+          v.fallas.push(`${f.db}.${t.tabla}: ${e.message}`);
+          console.log(`  ✗ ${t.tabla}: FALLÓ — ${String(e.message).slice(0, 200)}`);
+        }
+        if (PAUSA_MS) await dormir(PAUSA_MS);
+      }
+    }
+    const lentas = v.lentas.sort((a, b) => b[0] - a[0]).slice(0, 5).map(([s, d]) => `${d} ${s.toFixed(1)} s`).join(' · ');
+    console.log(`${hora()} · SYNC vuelta ${vuelta}: ${v.tablas} tablas · ${v.alDia} al día · ${v.difieren} de ${v.tramos} tramos `
+      + `${APPLY ? `recopiados (${v.recopiadas.toLocaleString('es-MX')} filas)` : 'difieren'} · ${v.sinCarril} sin carril · `
+      + `${((Date.now() - t0) / 1000).toFixed(0)} s\n  las más lentas: ${lentas}`);
+    if (v.fallas.length) console.log(`  ✗ fallas (${v.fallas.length}):\n    ${v.fallas.join('\n    ')}`);
+    fallas += v.fallas.length;
+    if (!WATCH_MIN || detener) break;
+    for (let i = 0; i < WATCH_MIN * 60 && !detener; i++) await dormir(1000);
+    if (detener) break;
+  }
+  return fallas;
 }
 
 (async () => {
@@ -297,13 +636,25 @@ async function copiarTabla(pool, pg, f, t) {
   await pg.connect();
   const sid = (await pg.query('SELECT system_identifier::text AS s FROM pg_control_system()')).rows[0].s;
   const k = classify(process.env.DATABASE_URL_NEW);
-  console.log(`destino: ${k.kind} ${k.host}/${k.db} · system_identifier ${sid} · ${APPLY ? 'ESCRIBE' : 'EN SECO (sin --apply no escribe)'}`);
+  console.log(`destino: ${k.kind} ${k.host}/${k.db} · system_identifier ${sid} · ${SYNC ? 'SINCRONÍA' : 'CARGA'} · `
+    + `${APPLY ? 'ESCRIBE' : 'EN SECO (sin --apply no escribe)'}${CONTROL ? ' · con prueba negativa (se deshace)' : ''}`);
   const pool = await sql.connect(CFG);
   const bases = (await pool.request().query(`SELECT name FROM sys.databases WHERE state_desc = 'ONLINE'`)).recordset.map((r) => r.name);
-  if (APPLY) await prepararDestino(pg);
+  if (APPLY) {
+    if (!(await pg.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [CANDADO])).rows[0].ok) {
+      console.error('⛔ otra corrida que escribe en la réplica tiene el candado: salgo sin tocar nada.');
+      process.exit(3);
+    }
+    await prepararDestino(pg);
+  }
 
-  let detener = false;
   process.on('SIGINT', () => { console.log('\n⏸ se detiene al terminar la tabla en curso…'); detener = true; });
+  if (SYNC) {
+    const fallas = await sincronizar(pool, pg, bases);
+    await pool.close();
+    await pg.end();
+    process.exit(fallas ? 1 : 0);
+  }
   const t0 = Date.now();
   const resumen = { tablas: 0, filas: 0, fallas: [], descuadres: [], omitidas: [] };
   for (const f of fuentes(bases)) {
