@@ -1,0 +1,102 @@
+name: Arranque del API y del worker (check-boot)
+
+# `[DEPS.6]` Arranca el binario de la API dos veces —como `api` y como `worker`— contra una base
+# de desarrollo armada desde cero dentro del runner, y exige que los dos levanten.
+#
+# Por qué: el grafo de inyección y el orden de los lifecycle hooks de Nest se resuelven al
+# ARRANCAR, no al compilar. El 2026-09-24 prod cayó dos veces con el CI en verde por eso
+# (`scripts/check-boot.js`). Nest 11 -> 12 cambia el orden de los hooks en 20 archivos, y en
+# k3s el `worker` es `Recreate` sin sondas: si no levanta, prod no lo frena.
+#
+# Arrancar en local está prohibido (regla 3: un backend local ya quedó con 6 conexiones a la base
+# de PRODUCCIÓN). Acá la base es un Postgres vacío del runner y no hay ningún secreto de prod.
+#
+# Sólo a mano (Actions → «Arranque del API y del worker» → Run workflow, o
+# `gh workflow run boot-api.yml`). Correrlo primero sobre un commit que YA está en prod es el
+# control: ese tiene que salir verde.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  boot:
+    name: check-boot (api + worker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres_platform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres_platform"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+    env:
+      DATABASE_URL_NEW: postgresql://postgres:postgres@127.0.0.1:5432/postgres_platform
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres_platform
+      REDIS_URL: redis://127.0.0.1:6379
+      ENABLE_MULTITENANT: 'true'
+      RUN_MIGRATIONS_ON_BOOT: '0'
+      TZ: America/Mexico_City
+      NX_NO_CLOUD: 'true'
+      NX_DAEMON: 'false'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Node 20, igual que la imagen de prod (`node:20-bookworm-slim`, v20.20.2 medido).
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+          CI: 'true'
+
+      # Regla 12: antes de creerle el verde, se ve el rojo.
+      - name: Prueba negativa de la compuerta
+        run: node scripts/check-boot.js --probar-negativo
+
+      # No es prod ni se parece en datos: es la ESTRUCTURA, que es lo que pide el arranque.
+      # Si no llega al final igual se intenta arrancar, y lo que no levante sale en el paso siguiente.
+      - name: Base de desarrollo desde cero
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node database/scripts/dev-bootstrap-empty-db.js --url "$DATABASE_URL_NEW" 2>&1 | tee base.log
+          echo "::notice title=Base de desarrollo::$(tail -5 base.log | tr '\n' ' ' | cut -c1-600)"
+
+      - name: Compilar la API
+        run: npx nx build api --skip-nx-cache
+
+      # check-boot sale 0 con NO MEDIDO (en el pre-push no debe frenar por la base de cada quien).
+      # Acá su único trabajo es medir el arranque: NO MEDIDO es rojo.
+      - name: Arranque como API
+        run: |
+          set -o pipefail
+          node scripts/check-boot.js 2>&1 | tee boot-api.log
+          if grep -q 'NO MEDIDO' boot-api.log; then echo "::error title=API::arranque NO MEDIDO"; exit 1; fi
+
+      - name: Arranque como worker
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          node scripts/check-boot.js --worker 2>&1 | tee boot-worker.log
+          if grep -q 'NO MEDIDO' boot-worker.log; then echo "::error title=Worker::arranque NO MEDIDO"; exit 1; fi
