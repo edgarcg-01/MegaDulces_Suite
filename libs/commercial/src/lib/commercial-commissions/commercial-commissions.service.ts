@@ -5,6 +5,7 @@ import {
   BadRequestException,
   NotFoundException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 import { totalesDeCorrida, type TotalesDeCorrida } from './commission-totales.logic';
@@ -787,8 +788,22 @@ export class CommercialCommissionsService {
     });
   }
 
-  /** borrador|bloqueada -> aprobado -> pagado. No se salta pasos y no se revive lo anulado. */
-  async setStatus(runId: string, status: 'aprobado' | 'pagado' | 'anulado') {
+  /**
+   * borrador|bloqueada -> aprobado -> pagado. No se salta pasos y no se revive lo anulado.
+   *
+   * ⭐ `[RD.101]` (D6) — **nadie aprueba lo que calculó.** Quien calculó es `created_by` de la
+   * corrida: recalcular borra y vuelve a insertar, así que es siempre el ÚLTIMO que calculó. La
+   * corrida que deja el cron (`created_by` nulo) la aprueba cualquiera con APROBAR. Vale también
+   * para el god-mode: el permiso lo saltea el superadmin, esta regla no.
+   *
+   * `puedeDesaprobar`: anular una corrida APROBADA deshace la aprobación, y eso es de quien
+   * aprueba (APROBAR), no de quien calcula. Lo resuelve el controlador desde el request.
+   */
+  async setStatus(
+    runId: string,
+    status: 'aprobado' | 'pagado' | 'anulado',
+    opts: { puedeDesaprobar?: boolean } = {},
+  ) {
     const userId = this.tenantCtx.get()?.userId ?? null;
     return this.tk.run(async (trx) => {
       const run = await trx('commercial.commission_runs')
@@ -812,6 +827,16 @@ export class CommercialCommissionsService {
           ? ` Compuertas que bloquean: ${(run.gates ?? []).filter((g: Gate) => g.estado === 'bloquea').map((g: Gate) => g.gate).join(', ') || '(sin detalle)'}.`
           : '';
         throw new ConflictException(`No se puede pasar de "${run.status}" a "${status}".${extra}`);
+      }
+      if (status === 'aprobado' && run.created_by && run.created_by === userId) {
+        throw new ForbiddenException(
+          'Tú calculaste esta corrida: la aprueba otra persona. Calcula Comercial, aprueba '
+          + 'Dirección, paga Finanzas.');
+      }
+      if (status === 'anulado' && run.status === 'aprobado' && !opts.puedeDesaprobar) {
+        throw new ForbiddenException(
+          'La corrida ya está aprobada: anularla deshace la aprobación y eso lo hace quien aprueba '
+          + '(COMMERCIAL_COMMISSIONS_APROBAR).');
       }
       const patch: Record<string, unknown> = { status, updated_at: trx.fn.now(), updated_by: userId };
       if (status === 'aprobado') { patch.approved_at = trx.fn.now(); patch.approved_by = userId; }

@@ -4671,6 +4671,11 @@ export interface CommissionRunDetail {
    * de aprobación no se ejerció nunca. La pantalla lo DECLARA en vez de callarlo.
    */
   approved_at?: string | null; paid_at?: string | null;
+  /**
+   * `[RD.101]` Quién la calculó (el último: recalcular borra e inserta). El servidor rechaza que
+   * esa persona la apruebe; la pantalla sólo deja de ofrecerle el botón. Nulo = la dejó el cron.
+   */
+  created_by?: string | null;
   /** Cuándo se calculó esta corrida. La pantalla lo publica: una cifra sin su hora no se defiende. */
   updated_at: string | null;
   notes: string | null;

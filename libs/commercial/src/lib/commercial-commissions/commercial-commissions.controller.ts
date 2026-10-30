@@ -1,6 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import {
+  RolesGuard, RequirePermissions, RequireAnyPermission, Permission, isPlatformAdminRole,
+} from '@megadulces/platform-core';
 import { CommercialCommissionsService, type SimulacionEscala } from './commercial-commissions.service';
 import { CommissionRecalcService, type RecalcResultado } from './commission-recalc.service';
 import { CommissionContrastService, type FaltoResumen, type FaltoFila } from './commission-contrast.service';
@@ -18,6 +20,12 @@ import {
   CommissionObjectiveService, type ObjetivoConfig, type ObjetivoResultado,
   type Criterio, type EditarCriterio, type MarcarDto, type ObjetivoMarca,
 } from './commission-objective.service';
+
+/** Lo que `RolesGuard` deja en `request.user`: el mapa y los roles FRESCOS de DB, no los del token. */
+interface ActorComisiones {
+  permissions?: Record<string, boolean>;
+  roles_frescos?: string[];
+}
 
 /**
  * RD.6 — Comisiones de Ruta Directa.
@@ -410,24 +418,32 @@ export class CommercialCommissionsController {
     return this.service.getRun(id);
   }
 
+  /**
+   * `[RD.101]` (D6) — tres llaves, tres personas: GESTIONAR calcula, APROBAR aprueba, PAGAR
+   * marca pagada. Antes las tres colgaban de GESTIONAR y el que calculaba podía aprobarse y
+   * pagarse solo, lo que dejaba los cuatro pasos de la corrida en decorado.
+   */
   @Post('runs/:id/approve')
-  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
-  @ApiOperation({ summary: 'borrador → aprobado. El motor calcula; aprobar es humano (ADR-016)' })
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_APROBAR)
+  @ApiOperation({ summary: 'borrador → aprobado. El motor calcula; aprobar es humano (ADR-016) y no lo hace quien calculó' })
   approve(@Param('id') id: string) {
     return this.service.setStatus(id, 'aprobado');
   }
 
   @Post('runs/:id/pay')
-  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_PAGAR)
   @ApiOperation({ summary: 'aprobado → pagado. No se salta el paso de aprobación' })
   pay(@Param('id') id: string) {
     return this.service.setStatus(id, 'pagado');
   }
 
   @Post('runs/:id/void')
-  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
-  @ApiOperation({ summary: 'Anula la corrida. Una pagada no se anula: queda como está' })
-  voidRun(@Param('id') id: string) {
-    return this.service.setStatus(id, 'anulado');
+  @RequireAnyPermission(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR, Permission.COMMERCIAL_COMMISSIONS_APROBAR)
+  @ApiOperation({ summary: 'Anula la corrida. Un borrador lo anula quien calcula; una aprobada, quien aprueba. Una pagada no se anula' })
+  voidRun(@Param('id') id: string, @Req() req: { user?: ActorComisiones }) {
+    const actor = req?.user;
+    const esAdmin = (actor?.roles_frescos ?? []).some((r) => isPlatformAdminRole(r));
+    const puedeDesaprobar = esAdmin || actor?.permissions?.[Permission.COMMERCIAL_COMMISSIONS_APROBAR] === true;
+    return this.service.setStatus(id, 'anulado', { puedeDesaprobar });
   }
 }

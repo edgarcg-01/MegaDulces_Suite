@@ -380,9 +380,13 @@ export enum Permission {
   COMMERCIAL_ROUTE_COUNT_REGISTRAR = 'COMMERCIAL_ROUTE_COUNT_REGISTRAR',
   // RD.6 — comisiones de Ruta Directa. Permiso PROPIO y no colgado de ROUTE_SALES_VER:
   // ver cuánto vendió una ruta y ver cuánto cobra su chofer son dos cosas distintas, y
-  // esto último es nómina. GESTIONAR = calcular, aprobar y marcar pagada la corrida.
+  // esto último es nómina. GESTIONAR = calcular y configurar (padrón, tabulador, bonos).
+  // `[RD.101]` (D6, firmada por Edgar): aprobar y marcar pagada YA NO cuelgan de GESTIONAR.
+  // Calcula Comercial, aprueba Dirección, paga Finanzas — y nadie aprueba lo que calculó.
   COMMERCIAL_COMMISSIONS_VER = 'COMMERCIAL_COMMISSIONS_VER',
   COMMERCIAL_COMMISSIONS_GESTIONAR = 'COMMERCIAL_COMMISSIONS_GESTIONAR',
+  COMMERCIAL_COMMISSIONS_APROBAR = 'COMMERCIAL_COMMISSIONS_APROBAR',
+  COMMERCIAL_COMMISSIONS_PAGAR = 'COMMERCIAL_COMMISSIONS_PAGAR',
   // `[RD.57]` /comercial/ruta-directa/rentabilidad — ¿la ruta GANA dinero?, que no es
   // la misma pregunta que cuánto vendió ni que cuánto cobra su chofer. Permiso PROPIO y
   // no COMMERCIAL_ROUTE_SALES_VER: esta pantalla publica el gasto del departamento, que

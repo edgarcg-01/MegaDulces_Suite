@@ -142,7 +142,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'sellout-analysis', label: 'Análisis (Sell-Out BI)', route: '/comercial/analisis', view: [Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER], manage: [Permission.COMMERCIAL_SELLOUT_TARGETS_GESTIONAR] },
           { id: 'salidas', label: 'Salidas por producto', route: '/comercial/salidas', view: [Permission.COMMERCIAL_SALIDAS_VER], manage: [] },
           { id: 'route-sales', label: 'Ventas por ruta', route: '/comercial/ventas-por-ruta', view: [Permission.COMMERCIAL_ROUTE_SALES_VER], manage: [] },
-          { id: 'route-commissions', label: 'Comisiones de ruta', route: '/comercial/comisiones', view: [Permission.COMMERCIAL_COMMISSIONS_VER], manage: [Permission.COMMERCIAL_COMMISSIONS_GESTIONAR] },
+          { id: 'route-commissions', label: 'Comisiones de ruta', route: '/comercial/comisiones', view: [Permission.COMMERCIAL_COMMISSIONS_VER], manage: [Permission.COMMERCIAL_COMMISSIONS_GESTIONAR, Permission.COMMERCIAL_COMMISSIONS_APROBAR, Permission.COMMERCIAL_COMMISSIONS_PAGAR] },
           { id: 'route-profit', label: 'Rentabilidad de Ruta Directa', route: '/comercial/ruta-directa/rentabilidad', view: [Permission.COMMERCIAL_ROUTE_PROFIT_VER], manage: [] },
           // `[AX.16]` 'sales-docs' (Facturación de Telemarketing) se mudó al proyecto Telemarketing.
           { id: 'tickets', label: 'Tickets de venta', route: '/comercial/tickets', view: [Permission.COMMERCIAL_TICKETS_VER], manage: [] },

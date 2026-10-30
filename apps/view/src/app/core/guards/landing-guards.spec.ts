@@ -40,6 +40,10 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.COMMERCIAL_PAYMENTS_REVERSAR, url: '/comercial/orders', motivo: 'ídem' },
   { perm: Permission.COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR, url: '/comercial/orders', motivo: 'ídem' },
   { perm: Permission.COMMERCIAL_COMMISSIONS_GESTIONAR, url: '/comercial/comisiones', motivo: 'manage sin view: la ruta exige COMMISSIONS_VER' },
+  // `[RD.101]` (D6) Aprobar y pagar son llaves de acto, no de entrada: quien las recibe
+  // (dirección, finanzas) ya tiene COMMISSIONS_VER en prod.
+  { perm: Permission.COMMERCIAL_COMMISSIONS_APROBAR, url: '/comercial/comisiones', motivo: 'manage sin view: llave de acto' },
+  { perm: Permission.COMMERCIAL_COMMISSIONS_PAGAR, url: '/comercial/comisiones', motivo: 'manage sin view: llave de acto' },
   { perm: Permission.COMMERCIAL_CUSTOMERS_GESTIONAR, url: '/comercial/customers', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_CARTERA_GESTIONAR, url: '/comercial/cartera', motivo: 'manage sin view' },
   // `[MCP.3.11]` Llave extra de Cartera (cambiar la sucursal de surtido de una ruta): sola no abre la

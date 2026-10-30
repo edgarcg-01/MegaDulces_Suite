@@ -24,6 +24,7 @@ import {
 } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { AuthService } from '../../../core/services/auth.service';
 
 /** `[RD.92]` Lo que el conmutador de arriba puede mostrar. */
 const VISTAS = ['quincena', 'objetivo', 'padron', 'bonos', 'tabulador'] as const;
@@ -935,30 +936,30 @@ type Vista = typeof VISTAS[number];
                   <p class="cm-actos-dice">{{ explicaActo(r) }}</p>
                   @if (selloAprobacion(r); as s) { <p class="cm-micro cm-muted">{{ s }}</p> }
                 </div>
-                @if (puedeGestionar()) {
+                <!-- [RD.101] (D6) Tres llaves: calcula Comercial, aprueba Dirección, paga Finanzas.
+                     Cada botón se ofrece a quien tiene SU llave; el servidor vuelve a decidir. -->
+                @if (actoPropio(r) || sePuedeAnularYo(r)) {
                   <div class="cm-actos-btns">
-                    @if (proximoActo(r) === 'approve') {
+                    @if (actoPropio(r) === 'approve') {
                       <button type="button" class="cm-btn" [disabled]="actuando()"
                               (click)="confirmarActo(r, 'approve')">
                         {{ actuando() ? 'Aprobando…' : 'Aprobar' }}
                       </button>
                     }
-                    @if (proximoActo(r) === 'pay') {
+                    @if (actoPropio(r) === 'pay') {
                       <button type="button" class="cm-btn" [disabled]="actuando()"
                               (click)="confirmarActo(r, 'pay')">
                         {{ actuando() ? 'Marcando…' : 'Marcar pagada' }}
                       </button>
                     }
-                    @if (sePuedeAnular(r)) {
+                    @if (sePuedeAnularYo(r)) {
                       <button type="button" class="cm-btn cm-btn--ghost" [disabled]="actuando()"
                               (click)="confirmarActo(r, 'void')">Anular</button>
                     }
                   </div>
-                } @else if (proximoActo(r)) {
-                  <p class="cm-micro cm-muted">
-                    No tienes permiso para {{ proximoActo(r) === 'approve' ? 'aprobar' : 'pagar' }} —
-                    lo hace quien tiene <b>gestionar comisiones</b>.
-                  </p>
+                }
+                @if (porQueNoActuo(r); as motivo) {
+                  <p class="cm-micro cm-muted">{{ motivo }}</p>
                 }
               </section>
             }
@@ -1601,6 +1602,7 @@ type Vista = typeof VISTAS[number];
 export class ComercialComisionesComponent {
   private readonly api = inject(ComercialService);
   private readonly perms = inject(PermissionsService);
+  private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
 
@@ -2461,6 +2463,45 @@ export class ComercialComisionesComponent {
   /** Anular existe mientras el dinero no se haya ido. Lo pagado no se revive ni se deshace. */
   sePuedeAnular(r: CommissionRunDetail): boolean {
     return r.status === 'borrador' || r.status === 'bloqueada' || r.status === 'aprobado';
+  }
+
+  // ── [RD.101] (D6) Quién hace cada acto ─────────────────────────────────────────────────
+  // ⛔ Esto sólo decide qué OFRECER: el servidor exige la llave y rechaza que apruebe quien
+  // calculó. Sin la copia de la regla acá, el que calculó vería «Aprobar» y se comería un 403.
+
+  readonly puedeAprobar = computed(() => this.perms.has(Permission.COMMERCIAL_COMMISSIONS_APROBAR));
+  readonly puedePagar = computed(() => this.perms.has(Permission.COMMERCIAL_COMMISSIONS_PAGAR));
+  private readonly yo = computed(() => this.auth.user()?.sub ?? null);
+
+  /** ¿Esta persona calculó la corrida? El cron no cuenta como persona (`created_by` nulo). */
+  calculeYo(r: CommissionRunDetail): boolean {
+    const yo = this.yo();
+    return !!yo && !!r.created_by && r.created_by === yo;
+  }
+
+  /** El acto que toca Y que esta persona puede hacer. */
+  actoPropio(r: CommissionRunDetail): 'approve' | 'pay' | null {
+    const acto = this.proximoActo(r);
+    if (acto === 'approve') return this.puedeAprobar() && !this.calculeYo(r) ? 'approve' : null;
+    if (acto === 'pay') return this.puedePagar() ? 'pay' : null;
+    return null;
+  }
+
+  /** Un borrador lo anula quien calcula; una aprobada, quien aprueba (deshace la aprobación). */
+  sePuedeAnularYo(r: CommissionRunDetail): boolean {
+    if (!this.sePuedeAnular(r)) return false;
+    return r.status === 'aprobado' ? this.puedeAprobar() : (this.puedeGestionar() || this.puedeAprobar());
+  }
+
+  /** Por qué no se ofrece el acto que toca, dicho en llano. Nulo si se ofrece o no hay acto. */
+  porQueNoActuo(r: CommissionRunDetail): string | null {
+    const acto = this.proximoActo(r);
+    if (!acto || this.actoPropio(r)) return null;
+    if (acto === 'approve' && this.puedeAprobar() && this.calculeYo(r))
+      return 'Tú calculaste esta corrida: la aprueba otra persona de Dirección.';
+    return acto === 'approve'
+      ? 'La aprueba Dirección (permiso «Aprobar comisiones de ruta»).'
+      : 'La marca pagada Finanzas (permiso «Marcar pagadas las comisiones de ruta»).';
   }
 
   tituloActo(r: CommissionRunDetail): string {

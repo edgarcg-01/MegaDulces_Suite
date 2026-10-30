@@ -774,6 +774,33 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
 - ⚠️ Falta: **capturar la nómina de los dos supervisores** (Edgar / Comercial), y después
   recalcular.
 
+#### `[RD.101]` 🧪 Tres llaves: calcula Comercial, aprueba Dirección, paga Finanzas (D6)
+- **Lo medido antes (prod, sólo lectura, 2026-10-30):** `GESTIONAR` calculaba, aprobaba y pagaba;
+  lo tienen `direccion`, `finanzas` y `superadmin`. De 21 corridas vivas **ninguna** tiene
+  `approved_by` ni `paid_by` (20 del libro, 1 borrador): nadie pierde un acto que ya ejercía.
+- **Dos llaves nuevas:** `COMMERCIAL_COMMISSIONS_APROBAR` (`/approve`) y
+  `COMMERCIAL_COMMISSIONS_PAGAR` (`/pay`). `GESTIONAR` queda para calcular y configurar. Anular:
+  un borrador lo anula quien calcula o aprueba; **una aprobada sólo quien aprueba** (deshace la
+  aprobación).
+- ⭐ **Nadie aprueba lo que calculó:** `setStatus` rechaza (403) que `approved_by` sea el
+  `created_by` de la corrida — recalcular borra e inserta, así que es el último que calculó. La
+  que deja el cron (`created_by` nulo) la aprueba quien tenga la llave. **Vale también para el
+  superadmin**: el god-mode saltea la llave, no esta regla.
+- **Reparto** (migración `20261030094901`, sólo `UPDATE`): APROBAR → `direccion`, `superadmin`;
+  PAGAR → `finanzas`, `superadmin`; los demás roles vivos en `false` explícito. Ensayada en una
+  sesión de prod sobre una **copia temporal** de `role_permissions` (control: la marca en la
+  temporal se ve, la tabla real queda con 0 claves): `up` da exactamente esos roles, la segunda
+  corrida cambia 0 filas y `down` deja 0 diferencias.
+- ⚠️ **No existe un rol de gerencia «comercial»**: los candidatos son `supervisor_ventas` (cobran
+  comisión: calcularían la suya) y `analisis_ventas`. `GESTIONAR` **no se movió**: sigue en
+  dirección y finanzas, y el control lo pone la regla de arriba. Quién de Comercial calcula se
+  concede desde /admin/roles cuando Edgar lo nombre.
+- **Pantalla:** cada botón se ofrece a quien tiene su llave; a quien calculó no se le ofrece
+  «Aprobar» y se le dice por qué. El servidor vuelve a decidir.
+- Pruebas: `commission-tres-llaves.spec.ts` (7) — la regla, su control, el cron, anular, y la
+  llave de cada endpoint leída de la metadata que consulta `RolesGuard`; rojo al apagar la regla.
+  ⛔ Sin validación visual.
+
 ### 9.5 Lo que necesita firma antes de que el motor pague
 
 | | Decisión | Por qué no la puedo tomar yo |
@@ -781,5 +808,5 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
 | **D5** | **N** quincenas y **X** % para promover el motor de auditor a pagador | es el apetito de riesgo sobre la nómina de 11 personas |
 | **D7** | el acantilado de $189,999.99 | **9 filas, $26,932.74** que el libro pagó y el motor no. O el tabulador tiene un piso suave, o esas 9 no cobran |
 | **D3** | la línea del supervisor | el recibo de FRANCISCO **se contradice a sí mismo**; el motor no puede elegir cuál de las dos versiones es la buena |
-| **D6** | ¿quién calcula, quién aprueba y quién paga? | hoy **un solo permiso** hace las tres, y eso anula el control de los cuatro pasos |
+| ~~**D6**~~ | ~~¿quién calcula, quién aprueba y quién paga?~~ | **firmada y hecha** → `[RD.101]` |
 | **nueva** | **¿Q21 la paga el motor o el libro?** | **cierra el 21 de octubre**. Es la primera quincena que puede nacer del motor. ⚠️ Al 2026-10-28 su pago (24-oct) ya venció y sigue en **borrador**; y su neto no se puede afirmar sin **D3** (`[RD.91]`) |
