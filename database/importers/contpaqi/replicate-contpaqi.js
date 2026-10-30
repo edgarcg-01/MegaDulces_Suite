@@ -332,4 +332,10 @@ async function copiarTabla(pool, pg, f, t) {
   await pool.close();
   await pg.end();
   process.exit(resumen.fallas.length ? 1 : 0);
-})().catch((e) => { console.error('ERR', e && e.message); process.exit(1); });
+})().catch((e) => {
+  // Un `AggregateError` (conexión rechazada en varias direcciones) trae el mensaje vacío: se dicen sus causas.
+  const causas = Array.isArray(e && e.errors) ? e.errors.map((x) => x && x.message).filter(Boolean).join('; ') : '';
+  console.error('ERR', (e && e.message) || causas || String(e));
+  if (!process.env.DATABASE_URL_NEW) console.error('  ⛔ DATABASE_URL_NEW no está en el entorno: en el pod se carga de /secrets/feeds.env.');
+  process.exit(1);
+});
