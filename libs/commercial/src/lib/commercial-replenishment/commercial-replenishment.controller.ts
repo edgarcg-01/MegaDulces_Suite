@@ -467,7 +467,7 @@ export class CommercialReplenishmentController {
   @Get('requisitions/por-aprobar')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_AUTORIZAR)
   @ApiOperation({ summary: '[PQ.35] Requisiciones que esperan aprobación: cuántas, cuánto, y las 10 más nuevas (folio, sucursal, qué, quién la pidió). Fuente del aviso de la campana.' })
-  porAprobar() { return this.svc.porAprobarResumen(); }
+  porAprobar(): ReturnType<CommercialReplenishmentService['porAprobarResumen']> { return this.svc.porAprobarResumen(); }
 
   @Get('requisitions')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_VER)
