@@ -1,10 +1,11 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, catchError, of, shareReplay } from 'rxjs';
+// Import directo, no el barril: el barril arrastra zod y todos los contratos al JS inicial (`[BUNDLE.2]`).
 import {
   VENTANA_ACCESOS_DIAS,
   type MisAccesos,
-} from '@megadulces/contracts';
+} from '@megadulces/contracts/http/suite-usage';
 import { environment } from '../../../environments/environment';
 import { valorWebVital } from './web-vital-valor';
 

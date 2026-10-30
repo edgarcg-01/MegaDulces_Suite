@@ -9,7 +9,8 @@ import type {
   SdUpdatePreferencesDto, SdUpsertCategoryDto, SdUpsertQueueDto, SdImpact, SdRoutingResponse, SdUpsertRoutingRuleDto, SdReportResponse, SdRequesterDto, SdDepartmentDto,
   SdQueueCandidateDto, SdQueueMembersResponse, SdQueueRole, SdMarkTestDto, SdTransferDto, SdTransferResult, SdTranscribeDto, SdTranscribeResult, SdUpsertFieldDto, SdUpsertZoneDto,
 } from '@megadulces/contracts';
-import { SD_PAUSE_REASONS } from '@megadulces/contracts';
+// Import directo, no el barril: el barril arrastra zod y todos los contratos al JS inicial (`[BUNDLE.2]`).
+import { SD_PAUSE_REASONS } from '@megadulces/contracts/http/service-desk';
 import { environment } from '../../../environments/environment';
 
 export const PRIORITY_LABEL: Readonly<Record<SdPriority, string>> = { baja: 'Baja', media: 'Media', alta: 'Alta', urgente: 'Urgente' };

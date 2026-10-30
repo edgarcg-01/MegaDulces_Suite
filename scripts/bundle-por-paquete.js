@@ -29,10 +29,11 @@ const md = args.includes('--md');
 const meta = JSON.parse(fs.readFileSync(archivo, 'utf8'));
 const salidas = meta.outputs || {};
 
-// Lo inicial = los .js de salida que NO son chunks perezosos. esbuild marca el punto de entrada
-// con `entryPoint`; lo que éste importa de forma estática también es inicial.
+// Lo inicial = `main-*` y `polyfills-*`, más lo que importan de forma estática.
+// ⛔ No sirve `entryPoint`: con code splitting esbuild lo pone en CADA import dinámico (309 de
+// 311 salidas en el primer `stats.json` real), y el reporte sumaba 16 MB de «inicial».
 const iniciales = new Set();
-const pendientes = Object.keys(salidas).filter((f) => f.endsWith('.js') && salidas[f].entryPoint);
+const pendientes = Object.keys(salidas).filter((f) => /(^|\/)(main|polyfills)-[^/]+\.js$/.test(f));
 while (pendientes.length) {
   const f = pendientes.pop();
   if (iniciales.has(f)) continue;
