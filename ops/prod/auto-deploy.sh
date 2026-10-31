@@ -126,6 +126,15 @@ git reset --hard "origin/$RAMA" >/dev/null 2>&1 \
   || { di "FALLO: no se pudo resolver origin/$RAMA — ¿existe la rama?"; latir error "no se pudo resolver origin/$RAMA"; exit 1; }
 DESEADO=$(git rev-parse --short HEAD)
 
+# ⛔⛔ `[OPS.CONF.1]` 2026-10-31 — LOS MANIFIESTOS SALEN DE ESTE CHECKOUT, NO DE LA COPIA A MANO.
+# Hasta hoy esto y `aplicar-k3s-prod.sh` leían `$HOME/ops/k3s`, una copia que se actualizaba a mano.
+# Medido ese día contra lo vivo: faltaban 4 manifiestos que corren, `42-worker` tenía 4 variables
+# (LE.4.4) que el repo no, y un arreglo aplicado en vivo ya se había perdido así una vez
+# (VECTOR_SYNC_TICK_BATCH, 2026-10-16). El reset de arriba deja el checkout en `DESEADO`: lo que
+# se aplica es el manifiesto DEL COMMIT QUE SE DESPLIEGA. Exportado para que lo herede
+# `aplicar-k3s-prod.sh`. `K3S_DIR` puesto a mano sigue mandando.
+export K3S_DIR="${K3S_DIR:-$REPO_DIR/ops/k3s}"
+
 # ── Qué está corriendo, según la IMAGEN (no según lo que alguien anotó) ─────
 # ⛔ Se le pregunta a Docker cuál etiqueta de commit comparte ID con `:latest`, igual que
 # `deploy.sh`: el commit que sirve es el que está HORNEADO, no el del último `git pull`.
