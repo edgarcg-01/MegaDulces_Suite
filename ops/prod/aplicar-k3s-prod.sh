@@ -44,7 +44,9 @@ set -u
 COMMIT="${1:-}"
 [ -n "$COMMIT" ] || { echo "⛔ falta el commit:  sh aplicar-k3s-prod.sh <commit>"; exit 2; }
 
-DIR="${K3S_DIR:-$HOME/ops/k3s}"
+# `[OPS.CONF.1]` 2026-10-31: el default es el checkout del despliegue (lo exporta `auto-deploy.sh`),
+# no la copia a mano `$HOME/ops/k3s`, que divergía del repo en silencio.
+DIR="${K3S_DIR:-$HOME/auto-deploy/repo/ops/k3s}"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
 # Ausencias DECLARADAS, no asumidas: en una máquina sin clúster esto no es una falla, es que no
