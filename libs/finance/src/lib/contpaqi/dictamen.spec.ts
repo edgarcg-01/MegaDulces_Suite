@@ -334,6 +334,61 @@ describe('[CP.8.95] dictamen de una póliza', () => {
     });
   });
 
+  describe('[CP.8.91] archivo: póliza agrupada de egreso (comisiones)', () => {
+    const COMISION = '5200650000';
+    const cat = new Map([BANCO, COMISION, CTA_PROV].map((c) => [c, { afectable: true, baja: false }]));
+    // Como la arma `comisiones.ts`: el cargo agregado y un abono al banco por movimiento, a fin de mes.
+    const comisiones = (abonos: number[], clave = 'comisiones|1'): PolizaADictaminar => ({
+      clave,
+      uuids: [],
+      agrupada: true,
+      asiento: {
+        tipo_poliza: 2, fecha: '2026-09-30', concepto: 'PAGO COMISIONES PRUEBA',
+        total: abonos.reduce((s, i) => s + i, 0),
+        movimientos: [mov(COMISION, false, abonos.reduce((s, i) => s + i, 0)), ...abonos.map((i) => mov(BANCO, true, i))],
+      },
+    });
+    const suya = (k: string, abonos: number[], cargo = COMISION, fecha = '2026-09-30') => ({
+      k, fecha, renglones: [{ cuenta: cargo, abono: false, importe: abonos.reduce((s, i) => s + i, 0) }, ...abonos.map((i) => ({ cuenta: BANCO, abono: true, importe: i }))],
+    });
+    const ctx = (polizasDeElla: ReturnType<typeof suya>[] | null) => contexto({ catalogo: cat, polizasDeElla });
+
+    it('⭐ control: sin pólizas suyas la agrupada sale lista', () => {
+      const [d] = dictaminarArchivo([comisiones([5, 0.8, 12])], ctx([]));
+      expect(d.hallazgos).toEqual([]);
+      expect(d.veredicto).toBe('lista');
+    });
+    it('todos sus movimientos ya están en su «PAGO COMISIONES» del mes: bloquea', () => {
+      const [d] = dictaminarArchivo([comisiones([5, 0.8, 12])], ctx([suya('2026|9|2|300', [12, 5, 0.8])]));
+      expect(sev(d, 'ya_capturada')).toBe('bloquea');
+      expect(d.hallazgos.find((x) => x.regla === 'ya_capturada')?.mensaje).toContain('300');
+    });
+    it('⛔ con UNO ya capturado se frena entera', () => {
+      const [d] = dictaminarArchivo([comisiones([5, 0.8, 12])], ctx([suya('2026|9|2|300', [12])]));
+      expect(sev(d, 'ya_capturada_en_parte')).toBe('bloquea');
+      expect(d.hallazgos.find((x) => x.regla === 'ya_capturada_en_parte')?.mensaje).toMatch(/^1 de 3/);
+    });
+    it('un egreso suyo del mismo banco e importe pero con otra cuenta de cargo (un pago a proveedor) no es la suya', () => {
+      expect(dictaminarArchivo([comisiones([5, 12])], ctx([suya('2026|9|2|301', [5, 12], CTA_PROV)]))[0].veredicto).toBe('lista');
+    });
+    it('la del mes anterior no cuenta: los cargos fijos se repiten cada mes', () => {
+      expect(dictaminarArchivo([comisiones([5, 12])], ctx([suya('2026|8|2|299', [5, 12], COMISION, '2026-08-31')]))[0].veredicto).toBe('lista');
+    });
+    it('cada renglón suyo se usa una vez: tres de 5.00 contra dos suyos es «en parte»', () => {
+      const [d] = dictaminarArchivo([comisiones([5, 5, 5])], ctx([suya('2026|9|2|300', [5, 5])]));
+      expect(sev(d, 'ya_capturada_en_parte')).toBe('bloquea');
+    });
+    it('⛔ sin sus pólizas no pasa en verde', () => {
+      expect(sev(dictaminarArchivo([comisiones([5, 12])], ctx(null))[0], 'captura_previa_no_medida')).toBe('revisar');
+    });
+    it('⛔ sin la marca de agrupada, los mismos renglones son un egreso con varios abonos: se revisa y no se busca así', () => {
+      const p = { ...comisiones([5, 12]), agrupada: false };
+      const [d] = dictaminarArchivo([p], ctx([suya('2026|9|2|300', [5, 12])]));
+      expect(sev(d, 'pata_de_banco')).toBe('revisar');
+      expect(reglas(d)).not.toContain('ya_capturada');
+    });
+  });
+
   it('el resumen cuenta pólizas por veredicto y por regla', () => {
     const ds = dictaminarArchivo([poliza({}, [U1], 'pago|1'), poliza({ fecha: '2026-08-01' }, [U1], 'pago|2')], contexto());
     const r = resumenDictamen(ds);

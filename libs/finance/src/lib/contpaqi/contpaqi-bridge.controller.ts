@@ -528,6 +528,9 @@ const DUENO: Record<string, string> = {
   gasto_error: 'sistemas — error al armar el gasto',
   // `[CP.8.93]` Fecha basura: el egreso no se arma hasta que su fecha caiga en el mes de su estado de cuenta.
   fecha_fuera_del_estado: 'finanzas — la fecha del movimiento no cae en el mes de su estado de cuenta (fecha basura): corregirla en Bancos',
+  // `[CP.8.91]` Comisiones del mes que el armador mensual no arma (con la categoría firmada no debería pasar).
+  comisiones_cuenta_no_es_gasto: 'contabilidad — la cuenta firmada para comisiones no es de gasto (52): firmar otra',
+  comisiones_importe_invalido: 'sistemas — una comisión o un IVA del banco trae importe no positivo',
   // `[CP.8.92]` Piernas de traspaso entre cuentas que no entran a su póliza de diario.
   traspaso_salida_sin_entrada: 'finanzas — falta la entrada en la otra cuenta: cargar su estado de cuenta o categorizarla como traspaso',
   traspaso_entrada_sin_salida: 'finanzas — falta la salida en la otra cuenta: cargar su estado de cuenta o categorizarla como traspaso',

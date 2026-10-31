@@ -101,6 +101,7 @@ import { armarGastoConFactura, esGastoPorProveedor, PREFIJO_GASTO_POR_PROVEEDOR 
 import { cotejar, type PolizaReal, type ResultadoCotejo } from './cotejo';
 import { dictaminarArchivo, resumenDictamen, type Dictamen } from './dictamen';
 import { armarTraspasosDelMes, TOLERANCIA_DIAS_ESTADO, type CuentaTraspaso, type PiernaTraspaso } from './traspasos';
+import { armarComisionesDelMes, CATEGORIA_COMISION } from './comisiones';
 import { leerContextoDictamen } from './dictamen.contexto';
 import {
   FuentePagoProveedor, type FuenteFacturas, type MovimientoPago, type PropuestaPago, type ResolucionPago,
@@ -178,7 +179,7 @@ export interface ResumenLote {
    * contadora). Ausente o `lote` = el lote del día. Los pagos que no se arman se cuentan en `motivos` de su
    * lote (`pago_a_confirmar`, `pago_sin_resolver`, `pago_no_cuadra`…), nunca entran al lote como «2120 / banco».
    */
-  tipo?: 'lote' | 'pago_proveedor' | 'gasto_proveedor' | 'traspaso';
+  tipo?: 'lote' | 'pago_proveedor' | 'gasto_proveedor' | 'traspaso' | 'comisiones';
   /** De dónde salieron las facturas del pago: la cadena de Kepler o una factura por importe. */
   fuente?: FuenteFacturas | null;
   /** Facturas y notas (UUID) que lleva el pago: van a los renglones `AD` del archivo. */
@@ -478,6 +479,8 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
         // `[CP.8.34]` El nombre del banco viaja para poder NOMBRAR lo que queda fuera de lote:
         // `CAJA CG` y `FACTORAJE FAC` se leen solos; un `CG` suelto no lo entiende nadie.
         'ba.bank as banco_nombre',
+        // `[CP.8.91]` El nombre con el que ella titula la póliza mensual («PAGO COMISIONES BBVA 5712»).
+        'ba.alias as banco_alias',
         this.db.raw('iva.amount_out as iva_hermano'),
         this.db.raw(`(st.period IS NOT NULL AND ${fueraDelEstado}) AS fuera_del_estado`, [tol, tol]),
       )
@@ -1172,7 +1175,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     const entregados = new Map<string, number>(
       ((await this.db('contpaqi.poliza_exports')
         .where({ tenant_id: MEGA, periodo: anioMes })
-        .whereIn('evento_tipo', ['bank_lote', 'bank_pago_proveedor', 'bank_gasto', 'bank_traspaso'])
+        .whereIn('evento_tipo', ['bank_lote', 'bank_pago_proveedor', 'bank_gasto', 'bank_traspaso', 'bank_comisiones'])
         .whereIn('estado', ['armada', 'entregada', 'aplicada'])
         .select('evento_tipo', 'evento_id', 'total')) as { evento_tipo: string; evento_id: string; total: string | number }[])
         .map((r) => [`${r.evento_tipo}|${r.evento_id}`, Number(r.total)]),
@@ -1197,7 +1200,10 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
   }> {
     const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' })
       .format(new Date());
-    const ps = pendientes.map((l) => ({ clave: `${l.evento_tipo}|${l.clave}`, asiento: l.asiento!, uuids: l.uuids }));
+    // `[CP.8.91]` La póliza de comisiones agrupa a propósito: un abono por movimiento, no UNA pata de banco.
+    const ps = pendientes.map((l) => ({
+      clave: `${l.evento_tipo}|${l.clave}`, asiento: l.asiento!, uuids: l.uuids, agrupada: l.evento_tipo === 'bank_comisiones',
+    }));
     if (!ps.length) return { hoy, dictamenes: new Map() };
     const ctx = await leerContextoDictamen(this.db, MEGA, anioMes, hoy, ps);
     return { hoy, dictamenes: new Map(dictaminarArchivo(ps, ctx).map((d) => [d.clave, d])) };
@@ -1569,10 +1575,19 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     const grupos = new Map<string, any[]>();
     const sinBanco: any[] = [];
     const basura = new Map<string, any[]>();
+    // `[CP.8.91]` Con la categoría firmada, las comisiones van por banco × MES, como ella (D6), no al lote del día.
+    const reglaComision = reglas.get(CATEGORIA_COMISION);
+    const comisionMensual = reglaComision?.estado === 'aprobada' && !!reglaComision.cuenta_gasto;
+    const comisiones = new Map<string, any[]>();
     for (const e of egresos) {
       if (!e.cuenta_banco) { sinBanco.push(e); continue; }
       // `[CP.8.93]` Fecha basura: no entra a ningún lote (su día no existe en el mes); se declara abajo.
       if (e.fuera_del_estado) { basura.set(e.cuenta_banco, [...(basura.get(e.cuenta_banco) ?? []), e]); continue; }
+      if (comisionMensual && e.categoria_code === CATEGORIA_COMISION) {
+        const cb = String(e.cuenta_banco).trim();
+        comisiones.set(cb, [...(comisiones.get(cb) ?? []), e]);
+        continue;
+      }
       const k = `${e.cuenta_banco}|${e.fecha}`;
       if (!grupos.has(k)) grupos.set(k, []);
       grupos.get(k)!.push(e);
@@ -1764,11 +1779,80 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     const traspasos = await this.traspasosDelMes(anioMes, estados);
     out.push(...traspasos);
 
+    // `[CP.8.91]` Las comisiones, una póliza de egreso por banco y mes con los cargos agregados (`comisiones.ts`).
+    const mensuales = comisiones.size
+      ? await this.comisionesDelMes(anioMes, comisiones, String(reglaComision?.cuenta_gasto), estados) : [];
+    out.push(...mensuales);
+
     const conAsiento = out.filter((l) => l.resumen.incluidas > 0).length;
     const pagos = out.filter((l) => l.evento_tipo === 'bank_pago_proveedor' || l.evento_tipo === 'bank_gasto').length;
-    this.log.log(`lotes ${anioMes}: ${out.length - pagos - traspasos.length} (banco × día) + ${pagos} pagos a proveedor completos de ${movsPago.length}`
-      + ` + ${traspasos.length} de traspasos · ${conAsiento} con asiento · ${fuera.movimientos} fuera de lote (${cuentas.map((c) => c.cuenta).join(', ') || '—'})`);
+    this.log.log(`lotes ${anioMes}: ${out.length - pagos - traspasos.length - mensuales.length} (banco × día) + ${pagos} pagos a proveedor completos de ${movsPago.length}`
+      + ` + ${traspasos.length} de traspasos + ${mensuales.length} de comisiones · ${conAsiento} con asiento · ${fuera.movimientos} fuera de lote (${cuentas.map((c) => c.cuenta).join(', ') || '—'})`);
     return { lotes: out, fuera_de_lote: fuera };
+  }
+
+  /**
+   * `[CP.8.91]` — **Las pólizas de comisiones del mes**, una por cuenta de banco: las comisiones de la categoría firmada
+   * (con su IVA hermano, que ya trae `leerEgresos`) y el IVA suelto del banco. La comisión armada queda en `estados`
+   * con la clave de su póliza; si el armador la rechaza, con su motivo (`comisiones_<motivo>`). Nada a medias.
+   */
+  private async comisionesDelMes(
+    anioMes: string, porBanco: Map<string, any[]>, cuentaGasto: string, estados?: Map<string, EstadoMovimiento>,
+  ): Promise<PolizaArmada[]> {
+    const sueltos = await this.ivasSueltosDelMes(anioMes, [...porBanco.keys()]);
+    const out: PolizaArmada[] = [];
+    for (const [cuenta_banco, xs] of [...porBanco].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      const clave = `${cuenta_banco}|${anioMes}`;
+      const banco_label = [xs[0].banco_nombre, xs[0].banco_label].filter(Boolean).join(' ').trim() || null;
+      let asiento: ReturnType<typeof armarComisionesDelMes> | null = null;
+      let motivo: string | null = null;
+      try {
+        asiento = armarComisionesDelMes({
+          mes: anioMes, cuenta_banco, alias: xs[0].banco_alias ?? banco_label, cuenta_gasto: cuentaGasto,
+          comisiones: xs.map((e) => ({ id: String(e.id), fecha: e.fecha, importe: Number(e.amount_out), iva: e.iva_hermano == null ? null : Number(e.iva_hermano) })),
+          ivas_sueltos: sueltos.get(cuenta_banco) ?? [],
+        });
+      } catch (err) {
+        if (!(err instanceof AsientoRechazado)) throw err;
+        motivo = `comisiones_${err.motivo}`;
+      }
+      for (const e of xs) estados?.set(String(e.id), { motivo, clave: `comisiones|${clave}` });
+      out.push({
+        evento_tipo: 'bank_comisiones', clave, asiento, uuids: [],
+        resumen: {
+          cuenta_banco, banco_label, fecha: asiento?.fecha ?? xs[xs.length - 1].fecha,
+          movimientos: xs.length, incluidas: asiento ? xs.length : 0, renglones: asiento?.movimientos.length ?? 0,
+          total: asiento?.total ?? 0, iva_traspaso: null, motivos: motivo ? { [motivo]: xs.length } : {},
+          tipo: 'comisiones', fuente: null, cfdis: 0, clave: `comisiones|${clave}`,
+        },
+      });
+    }
+    return out;
+  }
+
+  /**
+   * `[CP.8.91]` El IVA suelto del banco: `iva_acreditable` del mes en esas cuentas sin un egreso del 16 % el mismo día
+   * (su base). Ella lo asienta en la póliza de comisiones; sin esto quedaba fuera de todo (`leerEgresos` no lee IVA).
+   */
+  private async ivasSueltosDelMes(anioMes: string, cuentasBanco: string[]): Promise<Map<string, { id: string; fecha: string; importe: number }[]>> {
+    const dia1 = `${anioMes}-01`;
+    const filas = (await this.db.raw(`
+      SELECT m.id, trim(ba.contpaqi_cuenta) AS cuenta_banco, to_char(m.movement_date, 'YYYY-MM-DD') AS fecha, m.amount_out::float8 AS importe
+        FROM finance.bank_movements m
+        JOIN finance.movement_categories c ON c.id = m.category_id AND c.code = 'iva_acreditable'
+        JOIN finance.bank_accounts ba ON ba.id = m.bank_account_id
+       WHERE m.tenant_id = ? AND m.deleted_at IS NULL AND m.amount_out > 0 AND trim(ba.contpaqi_cuenta) = ANY(?)
+         AND m.movement_date >= ?::date AND m.movement_date < (?::date + interval '1 month')
+         AND NOT EXISTS (SELECT 1 FROM finance.bank_movements b LEFT JOIN finance.movement_categories bc ON bc.id = b.category_id
+                          WHERE b.tenant_id = m.tenant_id AND b.bank_account_id = m.bank_account_id AND b.deleted_at IS NULL
+                            AND b.movement_date = m.movement_date AND b.amount_out > 0 AND coalesce(bc.code, '') <> 'iva_acreditable'
+                            AND round(b.amount_out * 0.16, 2) = round(m.amount_out, 2))
+       ORDER BY m.movement_date, m.id`, [MEGA, cuentasBanco.map((c) => c.trim()), dia1, dia1])).rows as {
+      id: string; cuenta_banco: string; fecha: string; importe: number;
+    }[];
+    const out = new Map<string, { id: string; fecha: string; importe: number }[]>();
+    for (const f of filas) out.set(f.cuenta_banco, [...(out.get(f.cuenta_banco) ?? []), { id: String(f.id), fecha: f.fecha, importe: Number(f.importe) }]);
+    return out;
   }
 
   /**

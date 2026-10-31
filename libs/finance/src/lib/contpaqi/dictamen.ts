@@ -60,6 +60,11 @@ export interface PolizaADictaminar {
   clave: string;
   asiento: Asiento & { redondeo?: number };
   uuids?: string[];
+  /**
+   * `[CP.8.91]` Agrupa a propósito varios movimientos del mismo banco, un abono por movimiento (las comisiones por banco
+   * y mes, como ella). La marca la pone quien arma: un pago con dos abonos al banco sigue siendo un error a revisar.
+   */
+  agrupada?: boolean;
 }
 
 export interface CuentaDelCatalogo {
@@ -189,7 +194,7 @@ function pataDeBanco(a: Asiento): { cuenta: string; importe: number } | null {
   return bancos.length === 1 ? { cuenta: String(bancos[0].cuenta), importe: Number(bancos[0].importe) } : null;
 }
 
-function aritmetica(a: Asiento, out: Hallazgo[]): void {
+function aritmetica(a: Asiento, out: Hallazgo[], agrupada = false): void {
   const movs = a.movimientos ?? [];
   if (movs.length < 2) {
     out.push(h('sin_renglones', 'aritmetica', 'bloquea',
@@ -214,7 +219,7 @@ function aritmetica(a: Asiento, out: Hallazgo[]): void {
       `Cargos ${pesos(cargos)} contra abonos ${pesos(abonos)} (total declarado ${pesos(cent(a.total))}): `
       + 'ContPAQi rechaza un asiento que no cuadra.'));
   }
-  if (a.tipo_poliza === 2 && !pataDeBanco(a)) {
+  if (a.tipo_poliza === 2 && !pataDeBanco(a) && !agrupada) {
     const n = movs.filter((m) => m.abono && esBanco(String(m.cuenta))).length;
     out.push(h('pata_de_banco', 'criterio', 'revisar',
       `Un egreso lleva un solo abono al banco y éste trae ${n}: así no lo asienta contabilidad.`));
@@ -463,7 +468,7 @@ function criterio(p: PolizaADictaminar, cs: CfdiConUuid[], ctx: ContextoDictamen
 /** Los hallazgos de una póliza sola (sin mirar el resto del archivo ni lo que capturó contabilidad). */
 export function dictaminar(p: PolizaADictaminar, ctx: ContextoDictamen): Dictamen {
   const out: Hallazgo[] = [];
-  aritmetica(p.asiento, out);
+  aritmetica(p.asiento, out, !!p.agrupada);
   catalogo(p.asiento, ctx, out);
   fecha(p.asiento, ctx, out);
   formato(p.asiento, out);
@@ -479,6 +484,8 @@ export function dictaminar(p: PolizaADictaminar, ctx: ContextoDictamen): Dictame
  *    póliza de ella se usa una sola vez; si hay dos candidatas que no se distinguen, se pide revisar.
  *  - `[CP.8.92]` en DIARIO (traspasos), **traspaso por traspaso**: el cargo a la destino y el abono a la origen del
  *    mismo importe en una póliza de diario de ella. Uno solo que ya esté frena la póliza entera.
+ *  - `[CP.8.91]` una póliza AGRUPADA de egreso (comisiones), **renglón por renglón** contra sus egresos del periodo
+ *    con la misma cuenta de cargo. Uno solo que ya esté frena la póliza entera.
  *  - **el CFDI ya está en otra póliza de egreso de ella**: pago parcial o pago duplicado.
  *  - **el mismo CFDI o la misma pata de banco en dos pólizas del archivo**.
  */
@@ -606,6 +613,44 @@ export function dictaminarArchivo(ps: PolizaADictaminar[], ctx: ContextoDictamen
           `Contabilidad ya capturó ${ya === 1 ? 'este traspaso' : `estos ${ya} traspasos`}: póliza de diario ${folios}. Entregarla los duplicaría.`)
         : h('ya_capturada_en_parte', 'duplicado', 'bloquea',
           `${ya} de ${cargos.length} traspasos ya están en la póliza de diario ${folios} de contabilidad: entregarla los duplicaría.`));
+    }
+  }
+
+  // `[CP.8.91]` Lo que contabilidad ya capturó, de una póliza AGRUPADA de egreso (las comisiones: un abono al banco por
+  // movimiento, no UNA pata): renglón por renglón contra sus pólizas de egreso del PERIODO (sin orillas: la del mes
+  // anterior va a fin de mes y repetiría los cargos fijos) que comparten con ésta una cuenta de cargo que identifica
+  // (la de gasto, no banco ni IVA). Cada renglón suyo se usa una vez; con uno solo que ya esté, se frena.
+  const agrupadas = egresos.filter((p) => p.agrupada);
+  if (agrupadas.length && ctx.polizasDeElla) {
+    const delPeriodo = ctx.polizasDeElla.filter((r) => String(r.fecha).slice(0, 7) === ctx.periodo).map((r) => {
+      const libres = new Map<string, number>();
+      for (const x of r.renglones.filter((y) => y.abono && esBanco(String(y.cuenta)))) {
+        const k = `${x.cuenta}|${cent(x.importe)}`;
+        libres.set(k, (libres.get(k) ?? 0) + 1);
+      }
+      return { r, libres, cargos: new Set(r.renglones.filter((y) => !y.abono).map((y) => String(y.cuenta)).filter((c) => !esGenerica(c))) };
+    });
+    for (const p of agrupadas) {
+      const propias = p.asiento.movimientos.filter((m) => !m.abono).map((m) => String(m.cuenta)).filter((c) => !esGenerica(c));
+      const candidatas = delPeriodo.filter((x) => propias.some((c) => x.cargos.has(c)));
+      const abonos = p.asiento.movimientos.filter((m) => m.abono && esBanco(String(m.cuenta)));
+      const suyas = new Set<PolizaDeElla>();
+      let ya = 0;
+      for (const a of abonos) {
+        const k = `${a.cuenta}|${cent(a.importe)}`;
+        const d = candidatas.find((x) => (x.libres.get(k) ?? 0) > 0);
+        if (!d) continue;
+        d.libres.set(k, (d.libres.get(k) ?? 0) - 1);
+        suyas.add(d.r);
+        ya += 1;
+      }
+      if (!ya) continue;
+      const folios = lista([...suyas].map((r) => `${r.k.split('|').slice(-1)[0]} del ${r.fecha}`), 3);
+      agrega(p.clave, ya === abonos.length
+        ? h('ya_capturada', 'duplicado', 'bloquea',
+          `Contabilidad ya capturó ${ya === 1 ? 'este movimiento' : `estos ${ya} movimientos`} de banco: póliza ${folios}. Entregarla los duplicaría.`)
+        : h('ya_capturada_en_parte', 'duplicado', 'bloquea',
+          `${ya} de ${abonos.length} movimientos de banco ya están en la póliza ${folios} de contabilidad: entregarla los duplicaría.`));
     }
   }
 

@@ -1147,6 +1147,8 @@ falta uno nuevo.
   de su mes; se declaran en el mes de su estado de cuenta.
 - **2026-10-31** — `[CP.8.91]` C1 🧪 (§11.13): el armador de comisiones por banco y mes reproduce el 82.0 % de sus
   renglones de banco con 95.6 % de precisión (placebo 5.2 %).
+- **2026-10-31** — `[CP.8.91]` C2 🧪 (§11.13): registrado. Con la categoría firmada, las comisiones van en una póliza
+  por banco y mes; septiembre (firma simulada en memoria): 9 pólizas, las 9 frenadas porque ella ya las capturó.
 
 ---
 
@@ -1635,7 +1637,7 @@ fecha fuera del periodo: la segunda defensa funciona, pero no es la que declara.
 
 **Para Finanzas, en CB:** corregir las 14 fechas (estados de febrero y agosto).
 
-### 11.13 🔨 `[CP.8.91]` Comisiones bancarias: la forma de ella, el armador y su A/B (2026-10-31)
+### 11.13 🧪 `[CP.8.91]` Comisiones bancarias: la forma de ella, el armador, su A/B y su registro (2026-10-31)
 
 **Su forma, medida** en el staging de ContPAQi, enero a septiembre de 2026:
 - Una póliza de **egreso** (tipo 2) por **cuenta de banco y mes**: «PAGO COMISIONES <banco> <cuenta>». Son 117, de 10 a
@@ -1689,6 +1691,25 @@ ya entra: sin él la cobertura era 79.8 %.
 
 En octubre, con lo cargado hoy, armaría 8 pólizas con 1,362 renglones de banco.
 
-**Lo que sigue (C2):** registrarlo en el armado cuando `comision_bancaria` esté firmada, sacando sus comisiones del
-lote del día, y que el dictamen busque el duplicado de una póliza **agrupada** (muchos abonos al banco) renglón por
-renglón contra las pólizas de egreso de ella del mes, como con los traspasos.
+**Registrado (C2, 2026-10-31):**
+- Con `comision_bancaria` **firmada** (la firma por categoría de `[CP.8.53]`, con su cuenta de gasto), sus comisiones
+  salen del lote del día y van en una póliza `bank_comisiones` por banco y mes (`comisionesDelMes`), con el IVA suelto
+  del banco (`ivasSueltosDelMes`). Sin la firma, todo sigue como antes: septiembre da 98 armadas y 85 iguales.
+- La póliza va **marcada como agrupada** para el dictamen. Esa marca la pone quien arma: un pago con dos abonos al
+  banco sigue saliendo «a revisar» (`pata_de_banco`), y la agrupada no.
+- **El duplicado de una agrupada se busca renglón por renglón:** cada abono suyo contra los abonos de las pólizas de
+  egreso de ella del mismo periodo (sin orillas: la del mes anterior repetiría los cargos fijos) que comparten la cuenta
+  de cargo (la de gasto). Todos → `ya_capturada`; alguno → `ya_capturada_en_parte`. Las dos frenan.
+
+**Medido en prod, sólo lectura, con la firma simulada en memoria** (en prod no está firmada y una prueba no firma):
+septiembre arma **9 pólizas con 673 comisiones —todas las del mes, ninguna queda en el lote del día— y el dictamen
+frena las 9** porque ella ya las capturó; ninguna sale marcada por «varios abonos al banco».
+
+**Candados:** `test-newdb-contpaqi-comisiones.js` 9 ✓ contra base local —firma la categoría por el camino real y la
+restaura al final— y 4 ✓ contra prod; cinco mutantes la ponen en rojo (la comisión que se queda en el lote del día, el
+dictamen que no busca la agrupada, lo entregado que no se reconoce, la marca que falta, el IVA suelto que no entra).
+`dictamen.spec.ts` suma 8 casos con su control.
+
+**Lo que sigue:** que contabilidad firme `comision_bancaria` con su cuenta (5200650000 en las 117 pólizas suyas), la
+pantalla, y que Finanzas cargue los estados que faltan y recategorice las comisiones que están como «compra con
+tarjeta» o sin categoría.

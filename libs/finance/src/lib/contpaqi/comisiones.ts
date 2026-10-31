@@ -24,6 +24,9 @@ import { CUENTA } from './pago-proveedor';
 import { ABONO, AsientoRechazado, CARGO, TIPO_POLIZA_EGRESO, asientoCuadra, type Asiento, type MovimientoAsiento } from './poliza-egreso';
 import { ultimoDiaDelMes } from './traspasos';
 
+/** La categoría de Bancos que se arma por banco × mes cuando está firmada (D6). */
+export const CATEGORIA_COMISION = 'comision_bancaria';
+
 /** Una comisión del banco (`comision_bancaria`) y el IVA que el banco cargó por ella el mismo día, si lo hay. */
 export interface ComisionDelBanco {
   id: string;

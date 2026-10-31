@@ -25,7 +25,8 @@ import { guidDe, tokenDe } from './token';
  */
 /** `[CP.8.87]` `bank_gasto` = un gasto pagado con factura, una póliza por pago (como el pago a proveedor). */
 /** `[CP.8.92]` `bank_traspaso` = los traspasos entre cuentas de un mes, una póliza de DIARIO por cuenta de origen. */
-export type EventoArchivo = 'bank_lote' | 'bank_pago_proveedor' | 'bank_gasto' | 'bank_traspaso';
+/** `[CP.8.91]` `bank_comisiones` = las comisiones de un banco en el mes, una póliza de egreso agrupada (D6). */
+export type EventoArchivo = 'bank_lote' | 'bank_pago_proveedor' | 'bank_gasto' | 'bank_traspaso' | 'bank_comisiones';
 
 export interface LoteArchivo {
   /** `cuenta_banco|fecha` del lote, o el id del movimiento del pago — el `evento_id`, el mismo que usa el sink. */
