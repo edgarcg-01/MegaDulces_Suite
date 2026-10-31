@@ -96,9 +96,18 @@ export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
        RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
        RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
        RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
+# ⛔ DIRECTORY_NAME_ENCRYPTION=false: rclone crypt cifra por defecto también los NOMBRES DE CARPETA,
+#    y las reglas de ciclo de vida de R2 filtran por PREFIJO (`borrados/`, `volcados/`): con las
+#    carpetas cifradas no coincidiría ninguna y lo borrado se acumularía para siempre. Contenido y
+#    nombres de ARCHIVO siguen cifrados; lo que queda en claro es la estructura (pgbackrest/, …).
 export RCLONE_CONFIG_FUERA_TYPE=crypt RCLONE_CONFIG_FUERA_REMOTE="r2:${R2_BUCKET}" \
        RCLONE_CONFIG_FUERA_PASSWORD="$OFFSITE_CRYPT_PASSWORD" \
-       RCLONE_CONFIG_FUERA_PASSWORD2="$OFFSITE_CRYPT_SALT"
+       RCLONE_CONFIG_FUERA_PASSWORD2="$OFFSITE_CRYPT_SALT" \
+       RCLONE_CONFIG_FUERA_DIRECTORY_NAME_ENCRYPTION=false
+# Tope de subida en horario hábil: la primera subida es ~70 GB y el enlace de oficinas es el mismo
+# por el que entran las 8 réplicas de las sucursales. De noche, sin tope. ⚠️ Por ENTORNO y no como
+# `--bwlimit` dentro de `$OPC`: la tabla lleva un espacio y `$OPC` se expande sin comillas.
+export RCLONE_BWLIMIT="${OFFSITE_BWLIMIT:-07:00,4M 21:00,off}"
 OPC="--transfers 4 --checkers 8 --retries 3 --low-level-retries 10 --stats 0"
 HOY=$(date +%F)
 
