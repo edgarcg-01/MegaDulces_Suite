@@ -25,8 +25,15 @@
 # ⚠️ Aplicar SÓLO con `prod-backup` detenido y FUERA de 21:55–01:00: dos `cron` dispararían
 #    dos respaldos y pgBackRest abortaría uno por candado. Receta completa:
 #    `docs/IMPLEMENTACION/OPS_LIMPIEZA_PROCESOS.md` › OPS.LIMPIEZA.8.
-# ⚠️ La imagen hay que subirla antes al registro (`localhost:5000/trade-prod-backup:base-7fee9ed6c22a`):
-#    hoy sólo existe en el almacén de Docker como `trade-prod-backup:latest`.
+# ⚠️ La imagen hay que subirla antes al registro (`localhost:5000/trade-prod-backup:<tag de abajo>`).
+#    El despliegue construye y publica las imágenes `base-*` que falten en el registro, pero NO
+#    aplica este archivo (`migracion: preparado`): se aplica a mano.
+#
+# `[OPS.OFF.1]` 2026-10-31 — base-7fee9ed6c22a → base-b42f38098f58: la imagen suma `rclone` y
+#    `offsite-sync.sh` (la copia fuera de md, 01:30). La credencial va en `~/secrets/fuera/offsite.env`
+#    — se monta el DIRECTORIO, no el archivo (VL.13: el bind de un archivo se ata al inodo).
+#    ⚠️ Crear el directorio como `superoot` ANTES de aplicar (`mkdir -m 700 ~/secrets/fuera`): si
+#    lo crea el kubelet (`DirectoryOrCreate`) queda de root y `superoot` no puede escribir ahí.
 # ─────────────────────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
@@ -47,7 +54,7 @@ spec:
       terminationGracePeriodSeconds: 120
       containers:
         - name: backup
-          image: localhost:5000/trade-prod-backup:base-7fee9ed6c22a
+          image: localhost:5000/trade-prod-backup:base-b42f38098f58
           imagePullPolicy: IfNotPresent
           env:
             - { name: TZ, value: America/Mexico_City }
@@ -58,6 +65,7 @@ spec:
             - { name: socket,    mountPath: /var/run/postgresql }
             - { name: repo,      mountPath: /var/lib/pgbackrest }
             - { name: repolog,   mountPath: /var/log/pgbackrest }
+            - { name: fuera,     mountPath: /secrets-fuera, readOnly: true }
           resources:
             requests: { memory: "256Mi", cpu: "100m" }
       volumes:
@@ -73,3 +81,7 @@ spec:
           hostPath: { path: /home/superoot/pgbackrest, type: Directory }
         - name: repolog
           hostPath: { path: /home/superoot/pgbackrest-log, type: Directory }
+        # [OPS.OFF.1] DirectoryOrCreate: si falta, el pod arranca igual y el carril late «NO MEDIDO»
+        # en vez de dejar los respaldos locales caídos por una credencial que todavía no existe.
+        - name: fuera
+          hostPath: { path: /home/superoot/secrets/fuera, type: DirectoryOrCreate }
