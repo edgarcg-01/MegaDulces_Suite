@@ -565,7 +565,17 @@ cuántas pólizas entraron después. Testigo: los 8 cerrados tienen su póliza d
   los índices.
 - **El `up()` real contra prod, en sólo lectura:** lo que escribe se saltó y cada vista se validó con `EXPLAIN` de su
   cuerpo. No aborta: 1,145,894 = 1,145,894 por los dos caminos, y 8 cerrados con testigo.
-- ⚠️ **Medida en prod el 2026-10-30, y no rinde:** la consulta real del dictamen (2,050 UUID de sep-2026, réplica ∪ staging) tarda **~9 s**, con seq scan sobre `ct_asoccfdis` y `ct_movimientospoliza`: los índices de expresión se crearon sin `ANALYZE`, y sin sus estadísticas el planificador estima 4,999 filas por UUID donde hay 4. El arreglo es un `ANALYZE` de las tablas de la vista, y se re-mide (< 500 ms) antes de cablear el dictamen.
+- ⚠️ **Medida en prod el 2026-10-30, y no rinde:** la consulta real del dictamen (2,050 UUID de sep-2026, réplica ∪ staging) tarda **~9 s**, con seq scan sobre `ct_asoccfdis` y `ct_movimientospoliza`: los índices de expresión se crearon sin `ANALYZE`, y sin sus estadísticas el planificador estima 4,999 filas por UUID donde hay 4. Se re-mide (< 500 ms) antes de cablear el dictamen.
+  - **Diagnóstico del 2026-10-31:** autovacuum SÍ analizó las tablas después de la carga (106 de 202 con estadísticas;
+    las 96 sin ellas pesan de 8 a 32 kB). Lo que falta son las estadísticas de las EXPRESIONES: sólo las junta un
+    `ANALYZE` corrido después de crear el índice, y autovacuum no re-analiza una tabla que casi no cambia (umbral: el
+    10 % de sus filas). Reproducido en local con las migraciones reales: sin `ANALYZE`, 300 = 0.5 % de 60,000; con él, 1.
+  - **El arreglo, `[CP.9.3c]`:** el `ANALYZE` de una vez en prod, por `pgprod.sh`. ⛔ No en una migración: sin objetos
+    que crear, `compuerta-migraciones.sh` la vería `NO_MEDIDO` y frenaría el despliegue de todos. Y para que no vuelva,
+    el replicador corre `analyzeIndicesSinEstadisticas` en cada vuelta que escribe: analiza lo que tenga un índice de
+    expresión sin estadísticas y declara en el latido lo que no pudo (GOTCHAS §92).
+  - ⚠️ **NO MEDIDO:** por qué los contadores de escritura de `contpaqi_ods` están en 0 si autovacuum sí analizó después
+    de la carga (se reiniciaron más tarde). No cambia el arreglo.
 
 **Pendiente, `CP.9.3b`: los impuestos por movimiento** (`MovimientosImpuestos`, 334,491). Decodificado por su
 distribución:

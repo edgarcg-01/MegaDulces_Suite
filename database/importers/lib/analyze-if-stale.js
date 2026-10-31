@@ -86,4 +86,52 @@ async function analyzeIfStale(run, tabla, opt = {}) {
   return { analizado: true, mods, umbral, motivo: 'sobre el umbral' };
 }
 
-module.exports = { analyzeIfStale };
+/**
+ * `[CP.9.3c]` ANALYZE de las tablas de un schema que tienen un índice de EXPRESIÓN sin estadísticas.
+ *
+ * Por qué existe. Un índice sobre una expresión (`upper(btrim(uuid))`) no le sirve al planificador hasta que un ANALYZE
+ * junta las estadísticas DE LA EXPRESIÓN: las de la columna no cuentan. Sin ellas, cualquier igualdad sobre la
+ * expresión se estima con la selectividad por defecto, el 0.5 % de la tabla. Y autovacuum no vuelve a analizar una
+ * tabla que casi no cambia (su umbral es el 10 % de las filas): un índice creado DESPUÉS de la carga se queda ciego.
+ * Medido en prod el 2026-10-30: los nueve índices de expresión de CP.9.3 sobre `contpaqi_ods` se crearon sin ANALYZE;
+ * para un UUID con 4 asociaciones el planificador estimaba 4,999 (el 0.5 % de 999,786) y la consulta del dictamen
+ * tardaba ~9 s, con seq scan.
+ *
+ * Qué hace: busca las tablas del schema con algún índice de expresión sin fila en `pg_stats`, las analiza y vuelve a
+ * mirar. Una tabla vacía ya analizada (`reltuples = 0`) no cuenta: no tiene filas de las que sacar estadísticas.
+ * ⛔ Un ANALYZE sin permiso NO falla: avisa y se salta la tabla. Por eso devuelve las que SIGUEN sin estadísticas
+ * después de analizar, y quien llama lo declara (ADR-056) en vez de darlo por hecho.
+ *
+ * @param {(sql: string) => Promise<{rows: any[]}>} run  Ejecutor, como en `analyzeIfStale`.
+ * @param {string} esquema
+ * @param {object} [opt]
+ * @param {(m: string) => void} [opt.log=console.log]
+ * @returns {Promise<{analizadas: string[], siguenSin: string[]}>}
+ */
+async function analyzeIndicesSinEstadisticas(run, esquema, opt = {}) {
+  const { log = console.log } = opt;
+  if (!/^[a-z_][a-z0-9_]*$/.test(esquema)) throw new Error(`analyzeIndicesSinEstadisticas: schema inválido: ${esquema}`);
+  const pendientes = async () => (await run(`
+    SELECT DISTINCT t.relname AS tabla
+      FROM pg_index x
+      JOIN pg_class i ON i.oid = x.indexrelid
+      JOIN pg_class t ON t.oid = x.indrelid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+     WHERE n.nspname = '${esquema}' AND x.indexprs IS NOT NULL AND t.reltuples <> 0
+       AND NOT EXISTS (SELECT 1 FROM pg_stats s WHERE s.schemaname = n.nspname AND s.tablename = i.relname)
+     ORDER BY 1`)).rows.map((r) => r.tabla);
+
+  const antes = await pendientes();
+  for (const tabla of antes) {
+    const t0 = Date.now();
+    await run(`ANALYZE ${esquema}."${tabla.replace(/"/g, '""')}"`);
+    log(`  ANALYZE ${esquema}.${tabla}: tenía índices de expresión sin estadísticas → ${Date.now() - t0} ms`);
+  }
+  const siguenSin = antes.length ? await pendientes() : [];
+  if (siguenSin.length) {
+    log(`  ⚠ siguen sin estadísticas en ${esquema}: ${siguenSin.join(', ')} (un ANALYZE sin permiso sólo avisa: ¿es el dueño?)`);
+  }
+  return { analizadas: antes.filter((t) => !siguenSin.includes(t)), siguenSin };
+}
+
+module.exports = { analyzeIfStale, analyzeIndicesSinEstadisticas };

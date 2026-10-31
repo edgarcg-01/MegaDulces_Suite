@@ -57,6 +57,9 @@ const classify = fs.existsSync(GUARDIA) ? require(GUARDIA).classify
 // está, y entonces `--latido` lo DICE en vez de callarse.
 const LATIDO_RUTA = path.resolve(__dirname, '..', 'lib', 'cron-heartbeat.js');
 const latido = fs.existsSync(LATIDO_RUTA) ? require(LATIDO_RUTA) : null;
+// El ANALYZE de lo que el planificador no ve (`[CP.9.3c]`). Viaja igual que el latido, y en una copia suelta se DICE.
+const ANALYZE_RUTA = path.resolve(__dirname, '..', 'lib', 'analyze-if-stale.js');
+const estadisticas = fs.existsSync(ANALYZE_RUTA) ? require(ANALYZE_RUTA) : null;
 
 const arg = (n, d) => {
   const p = process.argv.find((a) => a.startsWith(`--${n}=`));
@@ -79,6 +82,8 @@ const REPORTA = Boolean(LATIDO && SYNC && APPLY && latido);
 const ETIQUETA_LATIDO = `Réplica de ContPAQi (${SOLO ? [...SOLO].join(', ') : 'todo'})`;
 /** Dos corridas que escriben a la vez se pisan: una borra el tramo que la otra acaba de copiar. */
 const CANDADO = 'contpaqi_ods.replica';
+/** Los dos schemas de la réplica en Postgres: nóminas va aparte porque no se concede a la app. */
+const ESQUEMAS_PG = ['contpaqi_ods', 'contpaqi_nom'];
 /**
  * La recopia lee con candado (`READ COMMITTED`): si contabilidad tiene una captura abierta sobre esas filas, esperarla
  * hasta el `requestTimeout` (10 min) detendría la vuelta entera. Se espera esto y el tramo se reintenta en la siguiente.
@@ -261,7 +266,7 @@ async function catalogo(pool, db) {
 }
 
 async function prepararDestino(pg) {
-  for (const s of ['contpaqi_ods', 'contpaqi_nom']) {
+  for (const s of ESQUEMAS_PG) {
     await pg.query(`CREATE SCHEMA IF NOT EXISTS ${s}`);
     await pg.query(`CREATE TABLE IF NOT EXISTS ${s}._sync_status (table_name text PRIMARY KEY, source_db text,
       rows_source bigint, rows_copied bigint, last_push_at timestamptz NOT NULL DEFAULT now(), seconds numeric, note text)`);
@@ -639,8 +644,27 @@ async function sincronizarTabla(pool, pg, f, t) {
 }
 
 /**
+ * `[CP.9.3c]` Un índice de expresión sin estadísticas deja ciego al planificador: estima el 0.5 % de la tabla. Esos
+ * índices los crean las migraciones DESPUÉS de la carga, y autovacuum no re-analiza una tabla que casi no cambia; medido
+ * en prod el 2026-10-30, la consulta del dictamen tardaba ~9 s por eso. Cada corrida que escribe lo revisa y analiza lo
+ * que falte. Lo que NO pudo arreglar se devuelve para declararlo: un ANALYZE sin permiso sólo avisa.
+ */
+async function asegurarEstadisticas(pg) {
+  if (!estadisticas) return { nota: `sin ${ANALYZE_RUTA}: no se revisaron las estadísticas`, siguenSin: [] };
+  const analizadas = [];
+  const siguenSin = [];
+  for (const esquema of ESQUEMAS_PG) {
+    const r = await estadisticas.analyzeIndicesSinEstadisticas((s) => pg.query(s), esquema);
+    analizadas.push(...r.analizadas.map((t) => `${esquema}.${t}`));
+    siguenSin.push(...r.siguenSin.map((t) => `${esquema}.${t}`));
+  }
+  return { nota: analizadas.length ? `ANALYZE de ${analizadas.length} tablas con índices de expresión sin estadísticas` : '', siguenSin };
+}
+
+/**
  * Las vueltas de la sincronía: una, o una cada `--watch` minutos hasta Ctrl-C. Devuelve cuántas fallas hubo. Con
- * `--latido` y `--apply`, cada vuelta se reporta a Salud BD: `error` si falló una tabla o falta una base que sí existe.
+ * `--latido` y `--apply`, cada vuelta se reporta a Salud BD: `error` si falló una tabla, falta una base que sí existe o
+ * quedó un índice de expresión sin estadísticas.
  */
 async function sincronizar(pool, pg, bases, graves) {
   let fallas = 0;
@@ -699,11 +723,15 @@ async function sincronizar(pool, pg, bases, graves) {
         if (PAUSA_MS) await dormir(PAUSA_MS);
       }
     }
+    let est = { nota: '', siguenSin: [] };
+    if (APPLY && !detener) {
+      try { est = await asegurarEstadisticas(pg); } catch (e) { v.fallas.push(`estadísticas: ${e.message}`); }
+    }
     const lentas = v.lentas.sort((a, b) => b[0] - a[0]).slice(0, 5).map(([s, d]) => `${d} ${s.toFixed(1)} s`).join(' · ');
     console.log(`${hora()} · SYNC vuelta ${vuelta}: ${v.tablas} tablas · ${v.alDia} al día · ${v.difieren} de ${v.tramos} tramos `
       + `${APPLY ? `recopiados (${v.recopiadas.toLocaleString('es-MX')} filas)` : 'difieren'}`
       + `${v.esperando ? ` · ${v.esperando} esperan una captura en curso` : ''} · ${v.sinCarril} sin carril · `
-      + `${((Date.now() - t0) / 1000).toFixed(0)} s\n  las más lentas: ${lentas}`);
+      + `${((Date.now() - t0) / 1000).toFixed(0)} s${est.nota ? ` · ${est.nota}` : ''}\n  las más lentas: ${lentas}`);
     if (CONTROL) {
       console.log(`  prueba negativa: la huella VIO la fila movida en ${v.control.vio} tablas · NO la vio en ${v.control.noVio}`
         + ` · sin concluir en ${v.control.sinConcluir}`);
@@ -711,12 +739,12 @@ async function sincronizar(pool, pg, bases, graves) {
     if (v.fallas.length) console.log(`  ✗ fallas (${v.fallas.length}):\n    ${v.fallas.join('\n    ')}`);
     fallas += v.fallas.length;
     if (REPORTA) {
-      const problemas = [...v.fallas, ...graves.map((g) => `no medida: ${g}`)];
+      const problemas = [...v.fallas, ...graves.map((g) => `no medida: ${g}`), ...est.siguenSin.map((t) => `sin estadísticas: ${t}`)];
       await latido.end(LATIDO, {
         status: problemas.length ? 'error' : 'ok',
         rows: v.recopiadas,
         note: `${v.tablas} tablas · ${v.alDia} al día · ${v.difieren} de ${v.tramos} tramos recopiados`
-          + `${v.esperando ? ` · ${v.esperando} esperan una captura` : ''} · ${v.sinCarril} sin carril`,
+          + `${v.esperando ? ` · ${v.esperando} esperan una captura` : ''} · ${v.sinCarril} sin carril${est.nota ? ` · ${est.nota}` : ''}`,
         error: problemas.length ? problemas.slice(0, 3).join(' · ') : null,
       });
     }
@@ -795,6 +823,13 @@ async function sincronizar(pool, pg, bases, graves) {
       }
     }
     if (detener) break;
+  }
+  if (APPLY && !detener) {
+    try {
+      const est = await asegurarEstadisticas(pg);
+      if (est.nota) console.log(`\n${est.nota}`);
+      if (est.siguenSin.length) console.log(`  ⚠ siguen sin estadísticas (${est.siguenSin.length}): ${est.siguenSin.join(', ')}`);
+    } catch (e) { resumen.fallas.push(`estadísticas: ${e.message}`); }
   }
   const min = ((Date.now() - t0) / 60000).toFixed(1);
   console.log(`\n${APPLY ? 'CARGA' : 'EN SECO'}: ${resumen.tablas} tablas · ${resumen.filas.toLocaleString('es-MX')} filas copiadas · ${min} min`);
