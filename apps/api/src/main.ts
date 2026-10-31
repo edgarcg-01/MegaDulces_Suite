@@ -42,9 +42,10 @@ import helmet from 'helmet';
 import compression from 'compression';
 import { ScheduleModule } from '@nestjs/schedule';
 import { INestApplicationContext } from '@nestjs/common';
-import { ServerOptions } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient, RedisClientType } from 'redis';
+
+type IoServerOptions = NonNullable<Parameters<IoAdapter['createIOServer']>[1]>;
 
 /**
  * Adapter custom: (1) sirve socket.io en `/reports/socket.io` (no en
@@ -84,11 +85,16 @@ class ReportsIoAdapter extends IoAdapter {
     }
   }
 
-  override createIOServer(port: number, options?: ServerOptions): any {
+  // `[DEPS.8]` Nest 12 tipó `createIOServer(port, options?: ServerOptions)` con el ServerOptions
+  // COMPLETO de socket.io (serveClient, connectTimeout… obligatorios), así que esparcir opciones
+  // parciales da TS2345. En runtime Nest y socket.io reciben parciales (`new Server(srv, Partial<…>)`):
+  // el `as` sólo alinea el tipo con eso. El tipo sale de IoAdapter para no depender del socket.io
+  // que resuelva este archivo.
+  override createIOServer(port: number, options?: Partial<IoServerOptions>): any {
     const server = super.createIOServer(port, {
       ...options,
       path: '/reports/socket.io',
-    });
+    } as IoServerOptions);
     if (this.pub && this.sub) {
       server.adapter(createAdapter(this.pub, this.sub));
       this.mainLogger.log('Redis adapter wired al io server.');
