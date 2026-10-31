@@ -9,9 +9,19 @@
 # compilaba cada commit: `md` lo volvía a compilar.
 #
 # ── Qué hace ────────────────────────────────────────────────────────────────────────────────
-# Cuando `CI` termina en verde sobre un push a `main`, construye los cuatro destinos del MISMO
-# `Dockerfile` (`runner-api|worker|portal|vendor`) con los MISMOS build-args que `auto-deploy.sh`
-# y los publica en `ghcr.io/edgarcg-01/trade-prod-<servicio>:<sha completo>`.
+# En CADA push a `main`, en paralelo con `CI`, construye los cuatro destinos del MISMO `Dockerfile`
+# (`runner-api|worker|portal|vendor`) con los MISMOS build-args que `auto-deploy.sh` y los publica
+# en `ghcr.io/edgarcg-01/trade-prod-<servicio>:<sha completo>`.
+#
+# ⛔ NO espera a que `CI` termine (la primera versión usaba `workflow_run` + `conclusion ==
+#    success`, y estaba mal dos veces — medido el 2026-10-31): (1) `ci-green` depende sólo de
+#    `build` + `secret-scan`, así que un commit con un job informativo en rojo se SELLA y se puede
+#    soltar, pero `workflow_run` lo daba por fallido y no publicaba: el despliegue en modo `ghcr`
+#    habría esperado una imagen que nunca llega; (2) `workflow_run` dispara al terminar TODO el CI,
+#    pruebas lentas incluidas: la primera imagen estuvo ~25 min después del push, al borde de los
+#    30 min que espera `auto-deploy.sh`. En paralelo queda lista ~12 min después del push, antes de
+#    que se pueda soltar. Las imágenes de commits que no sellan no se usan nunca (repo público:
+#    ni minutos ni almacenamiento cuestan; el código ya es público).
 # `md` (con `AUTO_DEPLOY_IMAGENES=ghcr` en `~/ops/prod/vigia.env`) las DESCARGA en vez de
 # construirlas; registro local, manifiestos, prevuelo y rollback no cambian.
 #
@@ -19,15 +29,14 @@
 #    que `auto-deploy.sh` compara para dar por bueno un despliegue. `auto-deploy.sh` además
 #    VERIFICA el `ENV GIT_COMMIT_SHA` de la imagen descargada contra su `DESEADO` y frena si
 #    difieren — no se confía en que los dos lados abrevien igual.
-# ⚠️ Archivo aparte de `ci.yml` a propósito: `workflow_run` corre con el workflow de `main` y no
-#    depende de editar el `ci.yml` (que otra sesión tiene en curso el 2026-10-31).
+# ⚠️ Archivo aparte de `ci.yml` a propósito: no depende de editar el `ci.yml` (que otra sesión
+#    tiene en curso el 2026-10-31).
 # ═════════════════════════════════════════════════════════════════════════════════════════════
 name: Imágenes (GHCR)
 
+# Sólo push a `main`: un PR no publica imágenes de producción.
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
     branches: [main]
 
 permissions:
@@ -35,13 +44,11 @@ permissions:
   packages: write
 
 concurrency:
-  group: imagenes-${{ github.event.workflow_run.head_sha }}
+  group: imagenes-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
   construir:
-    # Sólo un CI verde de un PUSH a main: un PR no publica imágenes de producción.
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -51,7 +58,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 1
 
       # El mismo sello que `auto-deploy.sh` (`COMMIT_ISO` con `format-local` + `TZ=UTC`: `git show
