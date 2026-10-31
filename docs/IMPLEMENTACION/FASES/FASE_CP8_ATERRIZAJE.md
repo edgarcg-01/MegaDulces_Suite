@@ -1424,7 +1424,7 @@ cuanto commitee:
 4. **D12, para Edgar:** las pólizas en «revisar», ¿salen en el archivo o esperan visto bueno? Recomiendo **visto
    bueno**: es un endpoint que escribe, y por la regla 13 se prueba contra base real.
 
-### 11.10 🔨 `[CP.8.92]` Traspasos entre cuentas: la forma de ella, medida (2026-10-31)
+### 11.10 🧪 `[CP.8.92]` Traspasos entre cuentas: la forma de ella, el armador y su A/B (2026-10-31)
 
 Medido en prod, sólo lectura, con la réplica de ContPAQi (`contpaqi_ods`, CP.9) y Bancos (`finance.bank_movements`,
 categoría `traspaso_entre_cuentas`), enero a octubre de 2026.
@@ -1449,7 +1449,48 @@ mayo y junio no: ella lleva entre 13 % y 51 % más que los pares de la Suite. Y 
 no suman lo mismo ningún mes: son las 81 salidas sin par y sus entradas huérfanas. Esa diferencia la explica el A/B
 renglón por renglón, no esta medición.
 
-**Lo que sigue (C1), antes de escribir el armador:** simular enero a septiembre (emparejar uno a uno, agrupar por
-cuenta de origen, cargo a la destino y abono a la origen) y comparar renglón por renglón contra ella —mes, cuenta de
-origen, cuenta destino, importe—, con placebo. Las piernas sin par no se arman: se declaran. El registro en
-`contpaqi-armado.service.ts` espera a que se commitee `CP.8.87`, que tiene ese archivo abierto.
+**El armador, en código (C1):** `libs/finance/src/lib/contpaqi/traspasos.ts`, puro y sin Nest como
+`poliza-egreso.ts`, con el mismo `Asiento`. Empareja uno a uno de la arista más fuerte a la más débil (cuántas piernas
+nombran a la otra en su concepto, y menos días de diferencia). El concepto del banco nombra a la contraparte por su
+etiqueta, truncada («366» por la 3660) o por el final del número completo que trae el nombre de su cuenta de ContPAQi; si
+nombra OTRA cuenta conocida, descarta al candidato. Un empate entre destinos u orígenes distintos se declara `ambigua`
+—con todas las piernas que empatan, no sólo dos—. Lo que no se empareja sale en `sinArmar` con su motivo y nunca se asienta.
+El título es «TRASPASOS ENTRE CUENTAS <alias>», el que ella usa desde abril; de enero a marzo titulaba de otra forma.
+Prueba `traspasos.spec.ts`: 17 casos, con un control positivo, y cuatro mutantes del armador (el concepto que ya no
+descarta, el empate que aparta sólo dos piernas, la evidencia que no pesa, la regla de la fecha) la ponen en rojo.
+
+**El A/B (C1), con el armador REAL contra sus pólizas de la réplica, enero a septiembre:**
+
+| | |
+|---|---|
+| Traspasos de ella reproducidos (mes, cuenta de origen, cuenta destino, importe) | **1,262 de 1,462 (86.3 %)**, el 86.7 % del dinero |
+| Precisión: de lo que arma, lo que ella también tiene | **97.8 %** (1,291 armados) |
+| Placebo: el armado de un mes contra sus pólizas del mes siguiente | 9.6 % |
+| Febrero, marzo, julio, agosto y septiembre | 92–95 % reproducido, 99–100 % de precisión |
+| Una entrada usada en dos meses | 0 |
+| Ventana de ±2 días en vez de ±1 | +1 traspaso: se queda en ±1 |
+
+**Lo que falta, por causa** (los 200 que no reproduce):
+
+| Causa | Traspasos | De quién es |
+|---|---:|---|
+| **El estado de cuenta del mes no está cargado** (una cuenta del Bajío en abril, tres de Santander en mayo) | 87 | Finanzas (CB) |
+| Las dos piernas están, pero el armado las emparejó distinto que ella o a más de un día | 48 | del armador: abierto |
+| Ambiguas, declaradas a propósito | 26 | — |
+| Sólo una pierna en Bancos, con el estado cargado | 26 | Finanzas (CB) |
+| Una pierna está en Bancos con OTRA categoría | 12 | Finanzas (CB) |
+| Una cuenta que no es de la Suite (una línea de crédito) | 1 | — |
+
+O sea: el 63 % de lo que falta es dato de Bancos. Con los estados de cuenta cargados y las categorías corregidas, el
+armador reproduciría alrededor del 95 %.
+
+**`[CP.8.93]` en este armador:** una pierna fechada a más de 7 días del mes de su estado de cuenta es basura y no se usa;
+sale como `fecha_fuera_del_estado` en el mes de SU estado. Medido en Bancos: años 0206 y 2027 en dos estados de cuenta, y
+el 1-ene en el de octubre (éstos, de cobranza). En traspasos, 5 piernas de enero a septiembre; antes desaparecían sin
+decirse, porque su fecha no cae en ningún mes que se arme. Los cortes del último día del mes anterior no son basura.
+
+**Lo que sigue:**
+1. Registrar el armador en `contpaqi-armado.service.ts` y emitirlo por el TXT: espera a que se commitee `CP.8.87`,
+   que tiene ese archivo abierto. Al registrarlo, el candado anti-duplicado (`[CP.8.88]`) busca su póliza por mes.
+2. Para Finanzas, en CB: cargar los cuatro estados de cuenta que faltan y recategorizar las 12 piernas.
+3. Abierto en el armador: los 48 que ella emparejó distinto, y los 16 que enero arma y ella no tiene.
