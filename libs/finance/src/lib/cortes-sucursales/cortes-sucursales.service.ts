@@ -1,8 +1,11 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, ScopeService, branchName } from '@megadulces/platform-core';
+import {
+  TenantKnexService, TenantContextService, ScopeService, branchName,
+  ligarPorCaptura, llaveTurnoFechado, type ConteoFechado, type TurnoFechado,
+} from '@megadulces/platform-core';
 import type { CortesAlcance, CortesSucursalesResponse } from '@megadulces/contracts';
-import { armarRespuesta, type CorteCrudo } from './cortes-sucursales.engine';
+import { armarRespuesta, type ConteoCajeroCrudo, type CorteCrudo } from './cortes-sucursales.engine';
 
 /**
  * `[CSU.1]` Cortes/Sucursales — lectura pura sobre el ODS, sin importer (derive-no-copy).
@@ -176,6 +179,50 @@ SELECT ec.sucursal, ec.doc_prefix, ec.folio, to_char(ec.cobro_date, 'YYYY-MM-DD'
   FROM analytics.erp_collections ec
  WHERE ec.tenant_id = ?::uuid AND ec.sucursal = ANY(?::text[]) AND ec.doc_prefix = ANY(?::text[]) AND ec.folio = ANY(?::text[])`;
 
+/**
+ * `[CSU.16]` Los turnos de Kepler de las sucursales y días del periodo, para ligarles el arqueo
+ * ciego del cajero. Todos —abiertos y cerrados, con o sin corte—: `elegirTurno` necesita a todos
+ * los candidatos de la caja, o un retiro cae en el turno vecino. `DISTINCT ON` por la re-emisión
+ * del CDC (la misma razón que en `load-cash-cuts-from-ods.js`).
+ */
+const SQL_TURNOS = `
+SELECT DISTINCT ON (k.sucursal, btrim(k.c2), k.c3, k.c5::date)
+       k.sucursal, btrim(k.c2) AS caja, k.c3::bigint::text AS folio, to_char(k.c5::date, 'YYYY-MM-DD') AS fecha,
+       NULLIF(btrim(k.c6), '') AS hora_apertura,
+       CASE WHEN k.c10::date = DATE '1800-01-01' THEN NULL ELSE NULLIF(btrim(k.c11), '') END AS hora_cierre,
+       CASE WHEN k.c10::date = DATE '1800-01-01' THEN NULL ELSE to_char(k.c10::date, 'YYYY-MM-DD') END AS fecha_cierre
+  FROM kepler_ods.kdpv_folio_caja k
+ WHERE k.sucursal = ANY(?::text[]) AND btrim(k.c1) = k.sucursal
+   AND k.c5 >= ?::date AND k.c5 < (?::date + 1)
+ ORDER BY k.sucursal, btrim(k.c2), k.c3, k.c5::date, k.c10 DESC NULLS LAST`;
+
+/**
+ * `[CSU.16]` Retiros y cierres del arqueo ciego (`/tienda/arqueo`), por el día en que se CAPTURARON
+ * en hora de la tienda — no por su `business_date`, que copia la fecha del turno que eligió la
+ * pantalla y por eso arrastra el mismo error que el folio (ver `ligarPorCaptura`). La caja, la de
+ * Kepler cuando la captura la trae.
+ */
+const SQL_CONTEOS = `
+SELECT bc.id::text AS id, bc.tipo, bc.warehouse_code AS sucursal,
+       COALESCE(NULLIF(btrim(bc.caja_kepler), ''), btrim(bc.caja)) AS caja,
+       NULLIF(btrim(bc.cash_cut_folio), '') AS cash_cut_folio,
+       bc.total_contado::numeric AS total, bc.medios, bc.captured_at,
+       to_char(bc.captured_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS fecha_captura,
+       to_char(bc.captured_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI:SS') AS hora
+  FROM reconciliation.blind_counts bc
+ WHERE bc.tenant_id = ?::uuid AND bc.warehouse_code = ANY(?::text[]) AND bc.tipo IN ('retiro', 'cierre')
+   AND bc.captured_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'
+   AND bc.captured_at <  (?::date + 1)::timestamp AT TIME ZONE 'America/Mexico_City'`;
+
+/** «Caja 3-0407» y «407» son el mismo turno: el folio se compara sin ceros a la izquierda. */
+const sinCeros = (s: string): string => s.trim().replace(/^0+(?=\d)/, '');
+
+const masDias = (iso: string, dias: number): string => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+};
+
 type CobroCrudo = NonNullable<CorteCrudo['cobros']>[number];
 type CobroDetalle = Pick<CobroCrudo, 'fecha' | 'forma_pago' | 'concepto' | 'medio_cobro' | 'cuenta_tesoreria'>;
 const llaveCobro = (sucursal: string, docPrefix: string, folio: string): string => `${sucursal}|${docPrefix}|${folio}`;
@@ -237,6 +284,7 @@ export class CortesSucursalesService {
       const r = await trx.raw(SQL, [periodo.from, periodo.to, alcance.todas, codigos, periodo.from, periodo.to, tenantId]);
       const filas = r.rows as CorteCrudo[];
       await this.completarCobros(trx, tenantId, filas);
+      await this.completarCajero(trx, tenantId, filas);
       const nom = await trx.raw(
         `SELECT warehouse_code, max(warehouse_name) AS nombre FROM analytics.cash_cuts WHERE tenant_id = ?::uuid GROUP BY 1`,
         [tenantId],
@@ -280,6 +328,43 @@ export class CortesSucursalesService {
           medio_cobro: d?.medio_cobro ?? null, cuenta_tesoreria: d?.cuenta_tesoreria ?? null,
         };
       });
+    }
+  }
+
+  /**
+   * `[CSU.16]` Pega a cada corte los retiros y el cierre que el cajero contó en SU turno. Los turnos
+   * van de un día antes del primer arqueo (el folio de un cierre contado pasada la medianoche) a uno
+   * después del último; los conteos, del primer día al día siguiente del último.
+   */
+  private async completarCajero(trx: Knex.Transaction, tenantId: string, filas: CorteCrudo[]): Promise<void> {
+    const conArqueo = filas.filter((f) => f.arqueo_fecha && f.caja && f.turno);
+    if (!conArqueo.length) return;
+    const sucs = [...new Set(conArqueo.map((f) => f.sucursal))];
+    const fechas = conArqueo.map((f) => String(f.arqueo_fecha)).sort();
+    const desde = fechas[0], hasta = fechas[fechas.length - 1];
+    const t = await trx.raw(SQL_TURNOS, [sucs, masDias(desde, -1), masDias(hasta, 1)]);
+    const c = await trx.raw(SQL_CONTEOS, [tenantId, sucs, desde, masDias(hasta, 1)]);
+    const turnos = (t.rows as TurnoFechado[]).map((x) => ({ ...x, caja: sinCeros(String(x.caja)), folio: sinCeros(String(x.folio)) }));
+    const conteos = (c.rows as Array<ConteoFechado & Omit<ConteoCajeroCrudo, 'ligado' | 'captured_at'> & { captured_at: Date | string }>)
+      .map((x) => ({
+        ...x, caja: sinCeros(String(x.caja)),
+        cash_cut_folio: x.cash_cut_folio == null ? null : sinCeros(String(x.cash_cut_folio)),
+        captured_at: x.captured_at instanceof Date ? x.captured_at.toISOString() : String(x.captured_at),
+      }));
+    const { porTurno, sinTurno } = ligarPorCaptura(turnos, conteos);
+    // Lo que se contó en esa caja ese día y no se pudo ligar: se declara en el corte, no se pierde.
+    const sueltos = new Map<string, number>();
+    for (const x of sinTurno) {
+      const k = `${x.sucursal}|${x.caja}|${x.fecha_captura}`;
+      sueltos.set(k, (sueltos.get(k) ?? 0) + 1);
+    }
+    for (const f of conArqueo) {
+      const caja = sinCeros(String(f.caja));
+      const mios = porTurno.get(llaveTurnoFechado({ sucursal: f.sucursal, caja, folio: sinCeros(String(f.turno)), fecha: String(f.arqueo_fecha) }));
+      if (mios?.length) {
+        f.conteos_cajero = mios.map((x) => ({ tipo: x.tipo, total: x.total, medios: x.medios, captured_at: x.captured_at, ligado: x.ligado }));
+      }
+      f.conteos_cajero_sin_ligar = sueltos.get(`${f.sucursal}|${caja}|${f.arqueo_fecha}`) ?? 0;
     }
   }
 }

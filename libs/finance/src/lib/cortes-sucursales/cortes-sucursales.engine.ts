@@ -21,11 +21,22 @@
  *   devoluciones: la cajera contó lo que de verdad quedó en el cajón.
  * · Un caso (Madero `Caja 2-23`) tiene devolución en el turno pero el corte salió por el BRUTO:
  *   se acepta como `cuadra` contra lo esperado bruto, no se inventa una diferencia.
+ *
+ * ── `[CSU.16]` ESPERADO (el sistema) CONTRA DECLARADO (el cajero) — medido en prod, 2026-10-30 ────
+ * · Las tres columnas del arqueo salían de la MISMA fila de Kepler (`kdpv_folio_caja`): «Declarado»
+ *   era `c25`, que repite al esperado `c15` en 1,327 de 1,560 cortes desde sep. Lo que el cajero
+ *   declara vive en su arqueo ciego de la Suite (`reconciliation.blind_counts`) y no se pintaba.
+ * · Caso real, La Piedad Abastos `Caja 3-407` (30-oct): esperado $37,548.06; el cajero contó
+ *   $6,108.50 en el cajón + 4 retiros por $31,440 = $37,548.50 (sobran $0.44), mientras la pantalla
+ *   mostraba −$0.06 desde el desglose de Kepler y acusaba «el arqueo no contó».
+ * · La diferencia del cajero es la identidad única `cuadreTurno` (platform-core), contra el
+ *   esperado de efectivo NETO de devoluciones (`[CSU.7]`: la devolución sale del cajón).
  */
 import type {
-  CorteArqueo, CorteCobro, CorteCobroCancelado, CorteCuadre, CorteDevolucion, CorteEstadoCobro, CorteMedioCobro, CorteRow,
-  CorteSucursalResumen, CortesAlcance, CortesSucursalesResponse,
+  CorteArqueo, CorteCobro, CorteCobroCancelado, CorteCuadre, CorteDeclaracionCajero, CorteDevolucion, CorteEstadoCobro,
+  CorteMedioCobro, CorteRow, CorteSucursalResumen, CortesAlcance, CortesSucursalesResponse,
 } from '@megadulces/contracts';
+import { CUADRE_UMBRAL, cuadreTurno, type ComoSeLigo } from '@megadulces/platform-core';
 
 /** Tolerancia del cuadre corte↔arqueo: redondeos de centavos del POS. */
 export const TOLERANCIA_CUADRE = 1;
@@ -90,9 +101,88 @@ export interface CorteCrudo {
   arqueo_billetes?: string | number | null;
   arqueo_monedas?: string | number | null;
   efectivo_retirado?: string | number | null;
+  /** `[CSU.16]` Retiros y cierre del arqueo ciego del cajero, ya ligados a ESTE turno (`ligarPorCaptura`). */
+  conteos_cajero?: ConteoCajeroCrudo[] | null;
+  /** `[CSU.16]` Conteos de esa caja ese día que NO se pudieron ligar a ningún turno. */
+  conteos_cajero_sin_ligar?: number;
+}
+
+/** `[CSU.16]` Un retiro o cierre de `reconciliation.blind_counts`, ya ligado al turno del corte. */
+export interface ConteoCajeroCrudo {
+  tipo: string;
+  total: string | number;
+  /** Lo declarado en el cierre por forma de pago (`{ tarjeta, transferencia, … }`); jsonb, puede llegar como texto. */
+  medios: Record<string, unknown> | string | null;
+  captured_at: string;
+  ligado: ComoSeLigo;
 }
 
 const n = (v: string | number | null | undefined): number => Number(v) || 0;
+
+const objeto = (v: unknown): Record<string, unknown> | null => {
+  if (v == null) return null;
+  if (typeof v === 'string') { try { return JSON.parse(v) as Record<string, unknown>; } catch { return null; } }
+  return typeof v === 'object' ? (v as Record<string, unknown>) : null;
+};
+
+/** Un medio declarado en el cierre; `null` si no viene (no declararlo no es declarar cero). */
+const medio = (medios: Record<string, unknown> | null, k: string): number | null => {
+  const v = medios?.[k];
+  if (v == null || v === '' || !Number.isFinite(Number(v))) return null;
+  return r2(Number(v));
+};
+
+/**
+ * `[CSU.16]` Lo que declaró el cajero para este turno. `null` si no contó nada. Sin cierre se publica
+ * lo que hay (los retiros) con el efectivo en `null`: no hay declaración completa que comparar.
+ */
+function declaracionCajero(
+  conteos: ConteoCajeroCrudo[] | null | undefined,
+  turno: { efectivo_esperado: number; arqueo_billetes: unknown; arqueo_monedas: unknown; efectivo_retirado: unknown },
+  esperado: { tarjeta: number; transferencia: number },
+  fisicoDiferencia: number | null,
+): CorteDeclaracionCajero | null {
+  const retiros = (conteos || []).filter((x) => x.tipo === 'retiro');
+  // Si el cajón se recapturó vale el último, como en «Sucursales y sus cajas».
+  const cierres = (conteos || []).filter((x) => x.tipo === 'cierre')
+    .sort((a, b) => String(a.captured_at).localeCompare(String(b.captured_at)));
+  const cierre = cierres.length ? cierres[cierres.length - 1] : null;
+  if (!cierre && !retiros.length) return null;
+  const retirosContados = r2(retiros.reduce((t, x) => t + n(x.total), 0));
+  const cajon = cierre ? r2(n(cierre.total)) : null;
+  const medios = objeto(cierre?.medios);
+  // Créditos y cheques que el cajero tiene en el cajón en lugar de billetes: Kepler los espera
+  // DENTRO del efectivo (c15). Medido (2026-10-30, 25 cierres con su folio): cajón + retiros +
+  // créditos + cheques = c15 al peso en 16; sin ellos, cada uno se desvía justo por ese importe.
+  // No declararlos es no tenerlos (no hay contraparte en Kepler que diga cuántos esperaba).
+  const documentos = cierre ? r2((medio(medios, 'creditos') ?? 0) + (medio(medios, 'cheques') ?? 0)) : 0;
+  const cq = cuadreTurno({ ...turno, efectivo_esperado: r2(turno.efectivo_esperado - documentos) }, { cajonContado: cajon, retirosContados });
+  const tarjeta = cierre ? medio(medios, 'tarjeta') : null;
+  const transferencia = cierre ? medio(medios, 'transferencia') : null;
+  const efectivo = cajon === null ? null : r2(cajon + retirosContados + documentos);
+  const faltaForma = (declarado: number | null, esp: number): boolean => declarado === null && esp > 0.005;
+  const total = efectivo === null || faltaForma(tarjeta, esperado.tarjeta) || faltaForma(transferencia, esperado.transferencia)
+    ? null : r2(efectivo + (tarjeta ?? 0) + (transferencia ?? 0));
+  const diferencia = cq.diff_real === null ? null : r2(-cq.diff_real);
+  return {
+    cajon,
+    retiros: retirosContados,
+    retiros_n: retiros.length,
+    retiros_kepler: cq.retirado_kepler,
+    retiros_sin_verificar: cq.retiros_sin_verificar,
+    documentos,
+    efectivo,
+    tarjeta,
+    transferencia,
+    total,
+    // `cuadreTurno` da esperado − contado (faltante positivo); aquí, como el resto de la pantalla, sobrante positivo.
+    diferencia,
+    // Dos testigos del mismo cajón: si se separan más que el umbral del arqueo, uno está mal o el conteo no es de aquí.
+    concuerda_con_kepler: diferencia === null || fisicoDiferencia === null ? null : Math.abs(diferencia - fisicoDiferencia) < CUADRE_UMBRAL,
+    capturado_at: cierre ? String(cierre.captured_at) : null,
+    ligado: (cierre ?? retiros[0]).ligado,
+  };
+}
 
 function arqueoDe(c: CorteCrudo, devoluciones: number): CorteArqueo | null {
   if (!c.arqueo_fecha) return null;
@@ -102,15 +192,20 @@ function arqueoDe(c: CorteCrudo, devoluciones: number): CorteArqueo | null {
     transfer_esperado: r2(n(c.transfer_esperado)), transfer_contado: r2(n(c.transfer_contado)),
   };
   const esperado_total = r2(a.efectivo_esperado + a.tarjeta_esperado + a.transfer_esperado);
-  // [CSU.9] El conteo físico: billetes + monedas + lo retirado durante el turno. Es el ÚNICO
-  // efectivo que alguien contó — `efectivo_contado` es un número declarado. ⚠️ `arqueo_otros`
-  // (c45) NO entra: medido, con él la identidad cae del 53.4% al 19.3%.
+  // [CSU.9] El desglose de Kepler: billetes + monedas + lo retirado durante el turno —
+  // `efectivo_contado` (c25) es un número de Kepler, no un conteo. [CSU.16] El conteo del cajero va
+  // aparte, en `declaracion_cajero`. ⚠️ `arqueo_otros` (c45) NO entra: medido, con él la
+  // identidad cae del 53.4% al 19.3%.
   const bil = c.arqueo_billetes, mon = c.arqueo_monedas, ret = c.efectivo_retirado;
   const hayDenominacion = bil != null || mon != null || ret != null;
   const fisicoBruto = hayDenominacion ? r2(n(bil) + n(mon) + n(ret)) : null;
   // Un corte sin denominaciones llega con las tres en 0, que NO es "contaron cero" sino "no hay
   // dato". Se declara `null` (ADR-056); medido: 72 de 1,125 cortes (6.4%).
   const conteo_fisico = fisicoBruto && fisicoBruto > 0 ? fisicoBruto : null;
+  // [CSU.16] Las dos diferencias se miden contra el MISMO esperado: el de efectivo, neto de las
+  // devoluciones que se pagaron del cajón ([CSU.7]). La del desglose es `−cuadreTurno.diff_kepler`.
+  const efectivo_esperado_neto = r2(a.efectivo_esperado - devoluciones);
+  const fisico_diferencia = conteo_fisico === null ? null : r2(conteo_fisico - efectivo_esperado_neto);
   return {
     fecha: c.arqueo_fecha,
     ...a,
@@ -119,9 +214,16 @@ function arqueoDe(c: CorteCrudo, devoluciones: number): CorteArqueo | null {
     contado_total: r2(a.efectivo_contado + a.tarjeta_contado + a.transfer_contado),
     cajero: c.cajero_cierre || null,
     conteo_fisico,
-    fisico_diferencia: conteo_fisico === null ? null : r2(conteo_fisico - a.efectivo_contado),
-    // ⛔ El arqueo declaró lo esperado en vez de contarlo. Medido: 81.2% de los cortes.
+    fisico_diferencia,
+    // Kepler registró como contado lo mismo que esperaba (c25 = c15): 85.1% de los cortes (CSU.16).
     arqueo_declarado: a.efectivo_contado === a.efectivo_esperado,
+    declaracion_cajero: declaracionCajero(
+      c.conteos_cajero,
+      { efectivo_esperado: efectivo_esperado_neto, arqueo_billetes: bil, arqueo_monedas: mon, efectivo_retirado: ret },
+      { tarjeta: a.tarjeta_esperado, transferencia: a.transfer_esperado },
+      fisico_diferencia,
+    ),
+    conteos_cajero_sin_ligar: c.conteos_cajero_sin_ligar ?? 0,
   };
 }
 
@@ -210,6 +312,8 @@ export function armarRespuesta(
       sin_cobro: cortes.filter((c) => c.estado_cobro === 'sin_cobro').length,
       con_diferencia: cortes.filter(conDiferencia).length,
       sin_arqueo: cortes.filter((c) => c.cuadre === 'sin_arqueo').length,
+      contado_igual_esperado: cortes.filter((c) => c.arqueo?.arqueo_declarado).length,
+      con_declaracion_cajero: cortes.filter((c) => c.arqueo?.declaracion_cajero).length,
     },
     sucursales,
     cortes,

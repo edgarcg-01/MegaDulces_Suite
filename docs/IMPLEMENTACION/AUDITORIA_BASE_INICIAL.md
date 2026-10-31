@@ -957,6 +957,22 @@ pólizas de la cuenta 515 por documento).
 
 ---
 
+## Addendum — `AUD-DAT.26`: el arqueo ciego de tienda cuelga los conteos de un turno viejo (2026-10-30)
+
+**Estado: ABIERTO.** Lo encontró `[CSU.16]`. Cortes/Sucursales ya no lo arrastra, porque liga por la hora de captura (`ligarPorCaptura`, `platform-core/caja`). `/tienda/arqueo` sigue igual.
+
+- **Qué pasa:** `reconciliation.blind_counts.cash_cut_folio` (y su `business_date`, que copia la fecha de ese turno) apunta a un turno de Kepler que no estaba abierto cuando se capturó el conteo.
+- **Lo medido (prod, sólo lectura):**
+  - De 639 retiros y cierres con folio desde septiembre, **316 (49 %)** se capturaron más de un día después del turno al que apuntan: Padre Hidalgo 206 de 343, 8 Esquinas 62 de 99, La Piedad Abastos 30 de 123.
+  - Sus retiros cuadran con lo retirado (`c48`) del turno al que apuntan en **1 de 82** grupos. Con un turno del día de la captura cuadran en **44**.
+  - Caso: Padre Hidalgo Caja 1. Los retiros del 24-oct suman $64,600 y apuntan al turno 111, del 17-oct, que retiró $52,600. El turno 118 de ese día retiró $64,600.
+  - En 8 Esquinas hay folios de agosto (245 y 248) usados en octubre, con la caja también equivocada.
+- **Dónde hace daño hoy:** «Sucursales y sus cajas» (`cajasDelDia` + `ligarConteos`) lee los conteos por `business_date` y los liga por ese folio. El cuadre de cada turno suma conteos de otro día: el turno 103 de Padre Hidalgo, del 12-oct y con $0 retirados, carga $128,600 de retiros contados entre el 15 y el 19.
+- **Hallazgo vecino:** el cierre declara `creditos` y `cheques` en `medios`, y `cuadreTurno` no los suma. Cajón + retiros + créditos + cheques = `c15` al peso en 16 de 25 cierres. Sin ellos, el arqueo de tienda publica como faltante justo ese importe.
+- **No medido:** la causa en la pantalla de captura. Puede ser que ofrezca primero el turno pendiente más viejo, o que en algún momento haya leído una réplica atrasada.
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.

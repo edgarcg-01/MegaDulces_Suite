@@ -257,7 +257,7 @@ describe('[CSU.9] el conteo por denominación contra el efectivo declarado', () 
     arqueo_billetes: '8460.00', arqueo_monedas: '2077.00', efectivo_retirado: '74000.00',
   });
 
-  it('⭐ reproduce el caso real: el físico son $84,537.00 y sobran $2,800.16 sobre lo declarado', () => {
+  it('⭐ reproduce el caso real: el físico son $84,537.00 y sobran $2,800.16 sobre lo esperado', () => {
     const a = construirCorte(ph, NOMBRES).arqueo!;
     expect(a.conteo_fisico).toBe(84537);
     expect(a.fisico_diferencia).toBe(2800.16);
@@ -317,5 +317,132 @@ describe('[CSU.13] cobros cancelados en Kepler: se publican y NO suman', () => {
   it('sin cancelados llega vacío, nunca undefined (la pantalla lo recorre sin preguntar)', () => {
     expect(construirCorte(base({}), NOMBRES).cobros_cancelados).toEqual([]);
     expect(construirCorte(base({ cobros_cancelados: null }), NOMBRES).cobros_cancelados).toEqual([]);
+  });
+});
+
+/**
+ * `[CSU.16]` Esperado (el sistema) contra Declarado (el cajero).
+ *
+ * Caso REAL, La Piedad Abastos `UD2301-0000112 · Caja 3-407` (30-oct-2026), medido en prod:
+ *
+ *     Kepler  c15 37,548.06 · c25 37,548.06 · c16 6,482.95 · c43 6,060 · c44 48 · c48 31,440
+ *     cajero  cierre 6,108.50 (medios: tarjeta 6,482.95) · 4 retiros 10,000 + 10,000 + 10,000 + 1,440
+ *
+ * La pantalla imprimía `c25` como «Declarado» (idéntico al esperado), −$0.06 desde el desglose de
+ * Kepler, y la nota «el arqueo declaró lo esperado, no lo contó». El cajero sí contó: $37,548.50.
+ */
+describe('[CSU.16] la declaración del cajero, que no es la del sistema', () => {
+  const retiro = (total: string, hora: string) => ({ tipo: 'retiro', total, medios: null, captured_at: `2026-10-30T${hora}Z`, ligado: 'folio' as const });
+  const conteos = [
+    retiro('10000', '16:04:22'), retiro('10000', '18:36:34'), retiro('10000', '20:00:40'), retiro('1440', '20:43:52'),
+    { tipo: 'cierre', total: '6108.5', medios: { retiros: 31440, tarjeta: 6482.95 }, captured_at: '2026-10-30T20:56:04Z', ligado: 'folio' as const },
+  ];
+  const piedad = base({
+    sucursal: '02', folio: '0000112', referencia: 'Caja 3-407', caja: '3', turno: '407', monto: '44031.01', arqueo_fecha: '2026-10-30',
+    efectivo_esperado: '37548.06', efectivo_contado: '37548.06', tarjeta_esperado: '6482.95', tarjeta_contado: '6482.95',
+    transfer_esperado: '0', transfer_contado: '0',
+    arqueo_billetes: '6060.00', arqueo_monedas: '48.00', efectivo_retirado: '31440.00',
+  });
+
+  it('⭐ caso real: el cajero declaró $37,548.50 de efectivo y sobran $0.44 contra lo esperado', () => {
+    const d = construirCorte({ ...piedad, conteos_cajero: conteos }, NOMBRES).arqueo!.declaracion_cajero!;
+    expect(d.cajon).toBe(6108.5);
+    expect(d.retiros).toBe(31440);
+    expect(d.retiros_n).toBe(4);
+    expect(d.efectivo).toBe(37548.5);
+    expect(d.diferencia).toBe(0.44);
+    expect(d.tarjeta).toBe(6482.95);
+    expect(d.transferencia).toBeNull();
+    // Sin transferencia esperada, que no la declare no deja el total incompleto.
+    expect(d.total).toBe(44031.45);
+    expect(d.retiros_kepler).toBe(31440);
+    expect(d.concuerda_con_kepler).toBe(true);
+    expect(d.retiros_sin_verificar).toBe(0);
+    expect(d.capturado_at).toBe('2026-10-30T20:56:04Z');
+  });
+
+  it('los conteos de esa caja que no se ligaron se declaran en el corte; sin dato, 0', () => {
+    expect(construirCorte({ ...piedad, conteos_cajero_sin_ligar: 3 }, NOMBRES).arqueo!.conteos_cajero_sin_ligar).toBe(3);
+    expect(construirCorte(piedad, NOMBRES).arqueo!.conteos_cajero_sin_ligar).toBe(0);
+  });
+
+  it('el desglose de Kepler se mide contra el esperado, no contra c25: −$0.06', () => {
+    const a = construirCorte({ ...piedad, conteos_cajero: conteos }, NOMBRES).arqueo!;
+    expect(a.conteo_fisico).toBe(37548);
+    expect(a.fisico_diferencia).toBe(-0.06);
+  });
+
+  it('⛔ NEGATIVA: sin arqueo ciego NO hay declaración del cajero — null, no la copia del esperado ni cero', () => {
+    const a = construirCorte(piedad, NOMBRES).arqueo!;
+    expect(a.declaracion_cajero).toBeNull();
+    expect(a.arqueo_declarado).toBe(true);
+  });
+
+  it('⛔ NEGATIVA: retiros sin cierre no son una declaración completa del efectivo', () => {
+    const d = construirCorte({ ...piedad, conteos_cajero: conteos.slice(0, 4) }, NOMBRES).arqueo!.declaracion_cajero!;
+    expect(d.retiros).toBe(31440);
+    expect(d.cajon).toBeNull();
+    expect(d.efectivo).toBeNull();
+    expect(d.diferencia).toBeNull();
+    expect(d.total).toBeNull();
+  });
+
+  it('lo que Kepler retiró y nadie contó se toma como bueno para la diferencia, y se dice aparte', () => {
+    const d = construirCorte({ ...piedad, conteos_cajero: [conteos[0], conteos[4]] }, NOMBRES).arqueo!.declaracion_cajero!;
+    expect(d.retiros).toBe(10000);
+    expect(d.retiros_sin_verificar).toBe(21440);
+    expect(d.efectivo).toBe(16108.5);
+    expect(d.diferencia).toBe(0.44);
+  });
+
+  it('[CSU.7] la devolución pagada del cajón baja el esperado: no se publica como faltante del cajero', () => {
+    const dev = { doc_prefix: 'UA2101', folio: '0000071', fecha: '2026-10-30', monto: '500', cliente: null, motivo: null, cajero: null };
+    const cierre = { ...conteos[4], total: '5608.5' };
+    const d = construirCorte({ ...piedad, devoluciones: [dev], conteos_cajero: [...conteos.slice(0, 4), cierre] }, NOMBRES).arqueo!.declaracion_cajero!;
+    expect(d.diferencia).toBe(0.44);
+  });
+
+  it('créditos y cheques del cierre cuentan como efectivo: Kepler los espera dentro de c15', () => {
+    // Caso real, Padre Hidalgo Caja 2-104: cajón 8,311 + retiros 20,000 + cheques 2,000 + créditos 1,500 = 31,811 vs c15 31,810.81.
+    const ph104 = base({
+      sucursal: '01', caja: '2', turno: '104', efectivo_esperado: '31810.81', efectivo_contado: '31810.81',
+      tarjeta_esperado: '12041.54', transfer_esperado: '0', arqueo_billetes: null, arqueo_monedas: null, efectivo_retirado: '20000',
+    });
+    const c = (medios: Record<string, number>) => ({ tipo: 'cierre', total: '8311', medios, captured_at: '2026-10-12T21:00:00Z', ligado: 'folio' as const });
+    const r = (total: string) => ({ tipo: 'retiro', total, medios: null, captured_at: '2026-10-12T18:00:00Z', ligado: 'folio' as const });
+    const d = construirCorte({ ...ph104, conteos_cajero: [r('20000'), c({ cheques: 2000, retiros: 20000, tarjeta: 12041.54, creditos: 1500 })] }, NOMBRES)
+      .arqueo!.declaracion_cajero!;
+    expect(d.documentos).toBe(3500);
+    expect(d.efectivo).toBe(31811);
+    expect(d.diferencia).toBe(0.19);
+    // NEGATIVA: sin ellos el mismo corte publicaría un faltante de $3,499.81 que no existe.
+    const sin = construirCorte({ ...ph104, conteos_cajero: [r('20000'), c({ retiros: 20000, tarjeta: 12041.54 })] }, NOMBRES).arqueo!.declaracion_cajero!;
+    expect(sin.diferencia).toBe(-3499.81);
+  });
+
+  it('⛔ NEGATIVA: si el cajero y el desglose de Kepler se separan más de $50, no concuerdan', () => {
+    // Caso real, Yurécuaro Caja 1-255 (24-oct): el cierre de $169 era el de la Caja 2 (esperaba $168.88).
+    const y = base({
+      sucursal: '04', caja: '1', turno: '255', efectivo_esperado: '14624.13', efectivo_contado: '14624.13',
+      arqueo_billetes: '14600', arqueo_monedas: '24.13', efectivo_retirado: '0',
+    });
+    const d = construirCorte({ ...y, conteos_cajero: [{ tipo: 'cierre', total: '169', medios: null, captured_at: '2026-10-24T23:16:00Z', ligado: 'hora' }] }, NOMBRES)
+      .arqueo!.declaracion_cajero!;
+    expect(d.diferencia).toBe(-14455.13);
+    expect(d.concuerda_con_kepler).toBe(false);
+  });
+
+  it('si el sistema esperaba tarjeta y el cajero no la declaró, el total queda sin medir', () => {
+    const sinTarjeta = { ...conteos[4], medios: { retiros: 31440 } };
+    const d = construirCorte({ ...piedad, conteos_cajero: [...conteos.slice(0, 4), sinTarjeta] }, NOMBRES).arqueo!.declaracion_cajero!;
+    expect(d.tarjeta).toBeNull();
+    expect(d.total).toBeNull();
+    expect(d.efectivo).toBe(37548.5);
+  });
+
+  it('los totales cuentan cuántos cortes tienen declaración del cajero y cuántos tienen c25 = c15', () => {
+    const r = armarRespuesta([{ ...piedad, conteos_cajero: conteos }, { ...piedad, folio: '0000113', turno: '408' }], NOMBRES, { from: '2026-10-30', to: '2026-10-30' });
+    expect(r.totales.con_declaracion_cajero).toBe(1);
+    expect(r.totales.contado_igual_esperado).toBe(2);
   });
 });

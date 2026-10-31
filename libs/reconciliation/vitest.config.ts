@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { defineConfig } from 'vitest/config';
 import { aliasDeTsconfig, raizCanonica } from '../../vitest.shared';
 
@@ -21,6 +22,9 @@ export default defineConfig({
     globals: true,
     include: ['src/**/*.spec.ts'],
     passWithNoTests: true,
+    // [CSU.16] arqueo-cajas y cash-cut-identity re-exportan de @megadulces/platform-core, cuyo
+    // TenantModule exige JWT_SECRET al cargarse. Mismo valor GENERADO que libs/finance ([GX.32]).
+    env: { JWT_SECRET: `pruebas-${randomUUID()}-${randomUUID()}` },
     coverage: {
       provider: 'v8',
       reportsDirectory: '../../coverage/libs/reconciliation',

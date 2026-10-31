@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Fixed — Cortes/Sucursales: «Declarado» ahora es lo que declaró el cajero (CSU.16, 2026-10-30)
+- En **Finanzas › Cortes/Sucursales**, el detalle del corte compara **Esperado** (lo que dice el sistema) contra **Declarado** (lo que contó el cajero en su arqueo ciego de la tienda). Antes la columna «Declarado» repetía otro número de Kepler, idéntico al esperado en el 85 % de los cortes.
+- Lo que declaró el cajero se desglosa: cajón, retiros (contra lo que Kepler registra como retirado), créditos y cheques, tarjeta y transferencia. También se dice cuándo se capturó el cierre y cómo se ligó al turno.
+- La diferencia del cajero aparece junto a la del desglose de Kepler, y se avisa cuando no concuerdan.
+- Si el cajero no contó el turno, la pantalla lo dice. Si sus conteos de ese día apuntan a otro turno, también. Nunca pone un cero.
+- ⚠️ Sólo el 22 % de los cortes de octubre tiene arqueo ciego ligado (190 de 846). En Morelia Madero no hay ninguno.
+
 ### Added — El motor ya no propone subir el precio donde perdemos terreno contra la competencia (PR.V15, 2026-10-30)
 - **Comercial › Precios › Motor** usa la medición de **ISCAM**: en las categorías donde nuestra participación bajó **mientras la competencia creció**, «Subir el precio» queda bloqueado. La cola dice «pierde terreno en Chocolate (ISCAM jul 2026)».
 - Medido el 30-oct: frena **300 de 2,437** propuestas de subir que estaban libres, **$35,273 de $178,945**. Las categorías son Chocolate, Frituras, Chicle, Grenetina, Galletas, Mazapán, Fiesta y Concentrados para agua.

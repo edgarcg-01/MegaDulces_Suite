@@ -122,10 +122,11 @@ export interface CorteArqueo {
    * `[CSU.9]` ⭐⭐ **El único efectivo que alguien contó de verdad**: billetes + monedas + lo
    * retirado durante el turno (`kdpv_folio_caja` `c43 + c44 + c48`).
    *
-   * ⛔ **Por qué existe este campo.** `efectivo_contado` NO es un conteo verificado: es un número
-   * que el cajero DECLARA al cerrar, y medido sobre **996 cortes desde sep-2026 es idéntico al
-   * esperado en el 81.2 %**. O sea que el veredicto «cuadra» salía de comparar una cifra contra
-   * sí misma — una tautología, no una medición.
+   * ⛔ **Por qué existe este campo.** `efectivo_contado` NO es un conteo verificado: es el contado
+   * que registra Kepler al cerrar, y medido sobre **996 cortes desde sep-2026 era idéntico al
+   * esperado en el 81.2 %** (85.1 % de 1,560 al 2026-10-30). O sea que el veredicto «cuadra» salía
+   * de comparar una cifra contra sí misma — una tautología, no una medición. `[CSU.16]` Lo que
+   * declara el cajero está en `declaracion_cajero`.
    *
    * ⭐ El conteo por denominación es el testigo independiente, y **no coincide**: de 870 cortes
    * con denominación, **409 (47.0 %) difieren** del declarado, por **$1,106,561.32** en total
@@ -137,14 +138,82 @@ export interface CorteArqueo {
    * como 0**, porque «no contaron» y «contaron cero» no son lo mismo (ADR-056).
    */
   conteo_fisico: number | null;
-  /** `[CSU.9]` `conteo_fisico` − `efectivo_contado`. `null` si no hay conteo físico. */
+  /**
+   * `conteo_fisico` − el efectivo esperado neto de devoluciones: positivo = sobra, negativo = falta.
+   * `null` si no hay conteo físico. `[CSU.16]` Antes se restaba contra `efectivo_contado` (`c25`),
+   * que dejó de pintarse: es un número de Kepler, no del cajero. Sale de `cuadreTurno` (`diff_kepler`).
+   */
   fisico_diferencia: number | null;
   /**
-   * `[CSU.9]` ⛔ **El arqueo declaró lo esperado en vez de contarlo** (`efectivo_contado` ===
-   * `efectivo_esperado`). Cuando es `true`, «cuadra» NO significa que cuadró: significa que nadie
-   * midió. La pantalla tiene que decirlo — medido, pasa en el **81.2 %** de los cortes.
+   * `[CSU.9]` Kepler registró como contado (`c25`) exactamente lo esperado (`c15`). Cuando es `true`
+   * y el cajero no hizo arqueo ciego, «cuadra» NO significa que cuadró: nadie midió, y la pantalla
+   * lo dice. `[CSU.16]` Re-medido el 2026-10-30: pasa en **1,327 de 1,560** cortes desde sep (85.1 %).
+   * El porcentaje del periodo lo da `totales.contado_igual_esperado`; no se escribe en la pantalla.
    */
   arqueo_declarado: boolean;
+  /**
+   * `[CSU.16]` ⭐ Lo que declaró el CAJERO, que no es lo que declara el sistema. `null` = el cajero
+   * no hizo arqueo ciego de este turno (o su conteo no se pudo ligar a él): se declara, no es cero.
+   */
+  declaracion_cajero: CorteDeclaracionCajero | null;
+  /**
+   * `[CSU.16]` Retiros o cierres que se contaron en esta caja el día del turno y NO se ligaron a
+   * ninguno: su folio apunta a un turno de otro momento, o no había turno a esa hora. No se usan
+   * para la diferencia, pero se dicen — «sin declaración» con 6 conteos sueltos no es «nadie contó».
+   */
+  conteos_cajero_sin_ligar: number;
+}
+
+/**
+ * `[CSU.16]` La declaración del cajero en su arqueo ciego de la Suite (`/tienda/arqueo`,
+ * `reconciliation.blind_counts`): el cajón que contó al cerrar más los retiros que contó en el turno.
+ *
+ * ⛔ Es la otra mitad de «Esperado contra Declarado». El Esperado lo pone el sistema (Kepler `c15`);
+ * el Declarado lo pone el cajero. Hasta CSU.16 la pantalla llamaba «Declarado» a `c25`, que también
+ * es de Kepler y repite al esperado en el 85.1 % de los cortes: se imprimía un solo tipo dos veces.
+ *
+ * El conteo se liga al turno con `ligarPorCaptura` (platform-core): el folio de la captura manda
+ * sólo si el turno es del día en que se capturó o del anterior. Medido el 2026-10-30, el 49 % de los
+ * conteos con folio apuntaba a un turno de días antes; colgarlos de él publicaba faltantes falsos.
+ */
+export interface CorteDeclaracionCajero {
+  /** Cajón contado al cerrar. `null` = contó retiros pero no capturó el cierre: no hay declaración completa. */
+  cajon: number | null;
+  /** Suma de los retiros que contó en el turno. */
+  retiros: number;
+  retiros_n: number;
+  /** Lo que Kepler registra como retirado en el turno (`c48`): contra esto se ve si la diferencia está en los retiros o en el cajón. */
+  retiros_kepler: number;
+  /** Lo que Kepler registra como retirado (`c48`) y nadie contó. Se toma como bueno para cerrar la cuenta, y se dice. */
+  retiros_sin_verificar: number;
+  /**
+   * Créditos y cheques que declaró en el cierre: papeles que están en el cajón en lugar de billetes.
+   * Kepler los espera DENTRO del efectivo (`c15`): medido, cajón + retiros + créditos + cheques = c15
+   * al peso en 16 de 25 cierres con su folio. 0 si no declaró ninguno.
+   */
+  documentos: number;
+  /** Cajón + retiros contados + créditos y cheques. `null` sin cierre. */
+  efectivo: number | null;
+  /** Lo que declaró en el cierre. `null` = no lo declaró, que no es lo mismo que cero. */
+  tarjeta: number | null;
+  transferencia: number | null;
+  /** Efectivo + tarjeta + transferencia; `null` si falta una forma que el sistema sí esperaba. */
+  total: number | null;
+  /**
+   * Efectivo declarado (más los retiros sin verificar) − efectivo esperado neto de devoluciones.
+   * Positivo = sobró, negativo = faltó. `null` sin cierre. Es la identidad `cuadreTurno` (`diff_real`).
+   */
+  diferencia: number | null;
+  /**
+   * ¿El cajero y el desglose de Kepler (`fisico_diferencia`) dicen lo mismo, dentro del umbral del
+   * arqueo ($50)? `false` = uno de los dos conteos está mal o el conteo no es de este turno.
+   * `null` si falta uno de los dos.
+   */
+  concuerda_con_kepler: boolean | null;
+  /** Cuándo capturó el cierre (ISO); `null` sin cierre. */
+  capturado_at: string | null;
+  /** Cómo se ligó al turno: por el folio que trae la captura, o por caja + hora. */
+  ligado: 'folio' | 'hora';
 }
 
 export interface CorteRow {
@@ -218,6 +287,10 @@ export interface CortesSucursalesResponse {
     sin_cobro: number;
     con_diferencia: number;
     sin_arqueo: number;
+    /** `[CSU.16]` Cortes con arqueo de Kepler cuyo contado (`c25`) es idéntico al esperado (`c15`). */
+    contado_igual_esperado: number;
+    /** `[CSU.16]` Cortes con declaración del cajero (arqueo ciego ligado al turno). */
+    con_declaracion_cajero: number;
   };
   sucursales: CorteSucursalResumen[];
   cortes: CorteRow[];

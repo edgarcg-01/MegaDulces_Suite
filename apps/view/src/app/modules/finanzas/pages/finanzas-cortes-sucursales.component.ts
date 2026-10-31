@@ -15,7 +15,7 @@ import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import type {
-  CorteArqueo, CorteCobro, CorteCuadre, CorteEstadoCobro, CorteRow, CorteSucursalResumen, CortesSucursalesResponse,
+  CorteArqueo, CorteCobro, CorteCuadre, CorteDeclaracionCajero, CorteEstadoCobro, CorteRow, CorteSucursalResumen, CortesSucursalesResponse,
 } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -323,16 +323,18 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
               <div class="cs-step">
                 <h3><span class="cs-n">1</span> Corte contra el arqueo del turno</h3>
                 @if (c.arqueo; as a) {
+                  @let d = a.declaracion_cajero;
                   <table class="cs-mini">
-                    <!-- [CSU.9] Tres columnas, no dos. La de en medio decia "Contado" y NO lo es:
-                         es lo que el cajero DECLARA al cerrar, identico al esperado en el 81.2% de
-                         los cortes. El contado de verdad es el de la derecha, por denominacion. -->
-                    <thead><tr><th></th><th class="ta-r">Esperado</th><th class="ta-r">Declarado</th><th class="ta-r">Contado</th></tr></thead>
+                    <!-- [CSU.16] Esperado lo pone el SISTEMA; Declarado, el CAJERO (su arqueo ciego en
+                         /tienda/arqueo). Hasta CSU.16 la columna de en medio era c25: otro numero de
+                         Kepler, identico al esperado en el 85.1% de los cortes. Se imprimia un solo tipo
+                         dos veces. La de la derecha es el desglose que Kepler guarda (solo efectivo). -->
+                    <thead><tr><th></th><th class="ta-r">Esperado<span class="cs-th-de">sistema</span></th><th class="ta-r">Declarado<span class="cs-th-de">cajero</span></th><th class="ta-r">Desglose<span class="cs-th-de">Kepler</span></th></tr></thead>
                     <tbody>
-                      <tr><td>Efectivo</td><td class="ta-r num">{{ money(a.efectivo_esperado) }}</td><td class="ta-r num" [class.cs-bad]="a.efectivo_contado < a.efectivo_esperado - 1">{{ money(a.efectivo_contado) }}</td><td class="ta-r num cs-strong">{{ a.conteo_fisico === null ? '—' : money(a.conteo_fisico) }}</td></tr>
-                      <tr><td>Tarjeta</td><td class="ta-r num">{{ money(a.tarjeta_esperado) }}</td><td class="ta-r num">{{ money(a.tarjeta_contado) }}</td><td class="ta-r num muted">—</td></tr>
-                      <tr><td>Transferencia</td><td class="ta-r num">{{ money(a.transfer_esperado) }}</td><td class="ta-r num">{{ money(a.transfer_contado) }}</td><td class="ta-r num muted">—</td></tr>
-                      <tr class="cs-tot"><td>Total</td><td class="ta-r num">{{ money(a.esperado_total) }}</td><td class="ta-r num">{{ money(a.contado_total) }}</td><td class="ta-r num cs-strong">{{ a.conteo_fisico === null ? '—' : money(a.conteo_fisico) }}</td></tr>
+                      <tr><td>Efectivo</td><td class="ta-r num">{{ money(a.efectivo_esperado) }}</td><td class="ta-r num cs-strong">{{ d?.efectivo == null ? '—' : money(d.efectivo) }}</td><td class="ta-r num">{{ a.conteo_fisico === null ? '—' : money(a.conteo_fisico) }}</td></tr>
+                      <tr><td>Tarjeta</td><td class="ta-r num">{{ money(a.tarjeta_esperado) }}</td><td class="ta-r num">{{ d?.tarjeta == null ? '—' : money(d.tarjeta) }}</td><td class="ta-r num muted">—</td></tr>
+                      <tr><td>Transferencia</td><td class="ta-r num">{{ money(a.transfer_esperado) }}</td><td class="ta-r num">{{ d?.transferencia == null ? '—' : money(d.transferencia) }}</td><td class="ta-r num muted">—</td></tr>
+                      <tr class="cs-tot"><td>Total</td><td class="ta-r num">{{ money(a.esperado_total) }}</td><td class="ta-r num">{{ d?.total == null ? '—' : money(d.total) }}</td><td class="ta-r num muted">—</td></tr>
                     </tbody>
                   </table>
                   @if (c.devoluciones.length) {
@@ -347,18 +349,41 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                   }
                   <div class="cs-row"><span>Monto del corte en Kepler</span><span class="num cs-strong">{{ money(c.monto) }}</span></div>
                   <div class="cs-row"><span>{{ cuadreLabel(c) }}</span><span class="num" [class.cs-bad]="c.cuadre !== 'cuadra'">{{ c.diferencia === null ? '—' : money(c.diferencia) }}</span></div>
-                  <!-- [CSU.9] El testigo independiente. Va DESPUES del veredicto a proposito: lo
-                       corrige, no lo reemplaza. -->
-                  @if (a.conteo_fisico !== null) {
+                  <!-- [CSU.16] Los testigos independientes del veredicto: primero el cajero, luego el
+                       desglose de Kepler. Van DESPUES del veredicto a proposito: lo corrigen, no lo
+                       reemplazan. Las dos diferencias son contra el mismo esperado (neto de devoluciones). -->
+                  @if (d) {
                     <div class="cs-row cs-fis">
-                      <span>Contado menos declarado <span class="muted">(billetes + monedas + retirado)</span></span>
-                      <span class="num" [class.cs-bad]="a.fisico_diferencia !== null && abs(a.fisico_diferencia) > 1">{{ money(a.fisico_diferencia || 0) }}</span>
+                      <span>Declarado por el cajero menos esperado <span class="muted">(efectivo)</span></span>
+                      <span class="num" [class.cs-bad]="d.diferencia !== null && abs(d.diferencia) > 1">{{ d.diferencia === null ? '—' : signo(d.diferencia) }}</span>
+                    </div>
+                    <p class="cs-hint">{{ composicionCajero(d) }}</p>
+                    @if (d.efectivo === null) {
+                      <p class="cs-hint cs-nota">Contó {{ d.retiros_n }} retiro(s) pero <b>no capturó el cierre</b>: no hay declaración completa del efectivo contra la cual medir.</p>
+                    }
+                    @if (d.concuerda_con_kepler === false) {
+                      <p class="cs-hint cs-nota"><b>El cajero y el desglose de Kepler no concuerdan</b> por más de $50: uno de los dos conteos está mal, o este conteo no es de este turno.</p>
+                    }
+                  }
+                  @if (a.conteo_fisico !== null) {
+                    <div class="cs-row" [class.cs-fis]="!d">
+                      <span>Desglose de Kepler menos esperado <span class="muted">(billetes + monedas + retirado)</span></span>
+                      <span class="num" [class.cs-bad]="a.fisico_diferencia !== null && abs(a.fisico_diferencia) > 1">{{ a.fisico_diferencia === null ? '—' : signo(a.fisico_diferencia) }}</span>
                     </div>
                   } @else {
-                    <p class="cs-hint">Este corte <b>no trae el desglose por denominación</b>: el efectivo declarado no se puede verificar contra nada.</p>
+                    <p class="cs-hint">Kepler <b>no trae el desglose por denominación</b> de este corte.</p>
                   }
-                  @if (a.arqueo_declarado) {
-                    <p class="cs-hint cs-nota"><b>El arqueo declaró lo esperado, no lo contó</b>: la columna Declarado ({{ money(a.efectivo_contado) }}) es idéntica a la de Esperado, así que «{{ cuadreLabel(c) }}» compara una cifra contra sí misma. Pasa en el <b>81.2%</b> de los cortes. Lo único medido es la columna Contado.</p>
+                  @if (!d) {
+                    <p class="cs-hint cs-nota">
+                      @if (a.conteos_cajero_sin_ligar) {
+                        <b>Sin declaración del cajero para este turno.</b> Ese día se capturaron {{ a.conteos_cajero_sin_ligar }} conteo(s) en esta caja que no se pudieron ligar a ningún turno (su folio apunta a otro turno, o no hay turno a esa hora): no se usan.
+                      } @else {
+                        <b>El cajero no hizo arqueo ciego de este turno.</b>
+                      }
+                      @if (a.arqueo_declarado) {
+                        Kepler registró como contado lo mismo que esperaba, así que «{{ cuadreLabel(c) }}» compara a Kepler contra sí mismo@if (pctContadoIgual(); as p) { (pasa en el {{ p }} de los cortes del periodo)}.
+                      }
+                    </p>
                   }
                   @if (cuadraPorBruto(c, a)) {
                     <p class="cs-hint cs-nota">El corte salió por lo esperado <b>sin restar</b> la devolución: Kepler no la descontó en este corte. Cuadra contra el esperado bruto ({{ money(a.esperado_total) }}).</p>
@@ -447,6 +472,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-mini { width:100%; border-collapse:collapse; font-size:var(--fs-sm); margin-bottom:.4rem; }
     .cs-mini th { font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); font-weight:600; padding:.2rem 0; text-align:left; }
     .cs-mini td { padding:.2rem 0; border-bottom:1px dashed var(--border-color); }
+    .cs-th-de { display:block; text-transform:none; letter-spacing:0; font-weight:400; color:var(--text-faint); }
     .cs-mini tr.cs-tot td { border-bottom:0; }
     .cs-sub { margin:.5rem 0 .15rem; font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); font-weight:600; }
     .cs-dev span:first-child { white-space:normal; }
@@ -713,4 +739,40 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
   }
   /** `[CSU.9]` Para pintar en rojo una diferencia de denominación en cualquiera de los dos sentidos. */
   abs(n: number): number { return Math.abs(n); }
+  /** `[CSU.16]` Una diferencia con su signo a la vista: + sobra, − falta. */
+  signo(n: number): string { return n > 0.005 ? `+${money(n)}` : money(n); }
+
+  /**
+   * `[CSU.16]` De qué está hecho lo que declaró el cajero, y qué tan firme es: contra lo retirado
+   * que registra Kepler (para ver si la diferencia está en los retiros o en el cajón), cuándo
+   * capturó el cierre y cómo se ligó al turno.
+   */
+  composicionCajero(d: CorteDeclaracionCajero): string {
+    const partes: string[] = [];
+    if (d.cajon !== null) partes.push(`cajón ${money(d.cajon)}`);
+    if (d.retiros_n) partes.push(`${d.retiros_n} ${d.retiros_n === 1 ? 'retiro' : 'retiros'} ${money(d.retiros)}`);
+    if (d.documentos > 0) partes.push(`créditos y cheques ${money(d.documentos)}`);
+    const frases = [partes.join(' + ')];
+    if (d.retiros_kepler > 0 || d.retiros > 0) {
+      frases.push(Math.abs(d.retiros - d.retiros_kepler) < 0.5 ? 'los mismos retiros que registra Kepler' : `Kepler registra ${money(d.retiros_kepler)} retirados`);
+    }
+    if (d.retiros_sin_verificar > 0) frases.push(`${money(d.retiros_sin_verificar)} de retiros que nadie contó se toman como buenos`);
+    if (d.capturado_at) frases.push(`cierre capturado ${dmyHora(d.capturado_at)}`);
+    frases.push(d.ligado === 'folio' ? 'ligado por el folio del turno' : 'ligado por caja y hora (la captura no trae folio)');
+    return `${frases.join(' · ')}.`;
+  }
+
+  /** `[CSU.16]` Cortes del periodo cuyo contado en Kepler es idéntico al esperado, sobre los que tienen arqueo. */
+  readonly pctContadoIgual = computed(() => {
+    const t = this.data()?.totales;
+    const base = t ? t.cortes - t.sin_arqueo : 0;
+    return t && base > 0 ? `${((t.contado_igual_esperado / base) * 100).toFixed(1)}%` : null;
+  });
+}
+
+/** Fecha y hora de la tienda, «30/10 14:56». */
+function dmyHora(iso: string): string {
+  return new Date(iso).toLocaleString('es-MX', {
+    timeZone: 'America/Mexico_City', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).replace(',', '');
 }

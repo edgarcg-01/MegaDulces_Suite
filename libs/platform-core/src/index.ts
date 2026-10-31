@@ -94,6 +94,10 @@ export * from './lib/budget/ejercicio-prueba.sql';
 // `[CGA-A.49]` La cola de captura de Caja General, por la misma razón: bandeja y sensor
 // (`libs/finance`) y «Mi trabajo» (`libs/trade`) contaban tres universos distintos.
 export * from './lib/caja/caja-cola.sql';
+// `[CSU.16]` La identidad del turno de caja y la liga conteo ↔ turno: el arqueo de tienda
+// (`libs/reconciliation`) y Cortes/Sucursales (`libs/finance`) no se pueden importar entre sí.
+export * from './lib/caja/cash-cut-identity';
+export * from './lib/caja/ligar-conteos';
 
 // ── search (motor de búsqueda compartido) ──
 export * from './lib/search/smart-search';
