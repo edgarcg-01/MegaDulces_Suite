@@ -173,14 +173,14 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
             </p>
           </div>
 
-          <div class="card-premium card-flat tw-tablewrap">
+          <div class="card-premium card-flat tw-tablewrap dt-scope">
             <h2 class="tw-card-title tw-pnl-title">Por día <span class="muted">— clic en un día para ver qué movimientos faltan de cada lado</span></h2>
             <div class="cc-filtros">
               <app-segmented [options]="opcionesEstado(d)" [value]="estado()" (valueChange)="setEstado($event)" ariaLabel="Estado del día" />
               <app-segmented [options]="opcionesDir" [value]="cuadreDir()" (valueChange)="setDir($event)" ariaLabel="Dirección (se hereda al abrir el día)" />
             </div>
             <p-table [value]="diasVista(d)" size="small" dataKey="fecha" [rowHover]="true" selectionMode="single" [metaKeySelection]="false"
-                     (onRowSelect)="alElegir($event.data)" (onRowUnselect)="alElegir($event.data)" class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first">
+                     (onRowSelect)="alElegir($event.data)" (onRowUnselect)="alElegir($event.data)" class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack">
               <ng-template #header>
                 <tr>
                   <th class="cg-w-date">Día</th>
@@ -191,18 +191,18 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
               </ng-template>
               <ng-template #body let-r>
                 <tr [pSelectableRow]="r" class="tw-clickable">
-                  <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span>@if (r.caja_fuente === 'libro') { <p-tag value="libro" severity="secondary" styleClass="cg-tag" /> }</td>
+                  <td role="cell" data-label="Día" class="cg-mono dt-id">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span>@if (r.caja_fuente === 'libro') { <p-tag value="libro" severity="secondary" styleClass="cg-tag" /> }</td>
                   @if (cuadreDir() !== 'out') {
-                    <td class="ta-r num comm-num">{{ money(r.mdb_ingreso) }}</td>
-                    <td class="ta-r num comm-num">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
-                    <td class="ta-r num comm-num" [class.bad]="fuera(r.delta_kep_ingreso, r)">{{ r.kp_n ? money(r.delta_kep_ingreso) : '—' }}</td>
+                    <td role="cell" data-label="Caja entra" class="ta-r num comm-num dt-num">{{ money(r.mdb_ingreso) }}</td>
+                    <td role="cell" data-label="Kepler entra" class="ta-r num comm-num dt-num">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
+                    <td role="cell" data-label="Diferencia entra" class="ta-r num comm-num dt-num" [class.bad]="fuera(r.delta_kep_ingreso, r)">{{ r.kp_n ? money(r.delta_kep_ingreso) : '—' }}</td>
                   }
                   @if (cuadreDir() !== 'in') {
-                    <td class="ta-r num comm-num">{{ money(r.mdb_gasto) }}</td>
-                    <td class="ta-r num comm-num">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
-                    <td class="ta-r num comm-num" [class.bad]="fuera(r.delta_kep_gasto, r)">{{ r.kp_n ? money(r.delta_kep_gasto) : '—' }}</td>
+                    <td role="cell" data-label="Caja sale" class="ta-r num comm-num dt-num">{{ money(r.mdb_gasto) }}</td>
+                    <td role="cell" data-label="Kepler sale" class="ta-r num comm-num dt-num">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
+                    <td role="cell" data-label="Diferencia sale" class="ta-r num comm-num dt-num" [class.bad]="fuera(r.delta_kep_gasto, r)">{{ r.kp_n ? money(r.delta_kep_gasto) : '—' }}</td>
                   }
-                  <td class="cc-w-estado">
+                  <td role="cell" data-label="Estado" class="cc-w-estado">
                     @switch (estadoDe(r)) {
                       @case ('sin_kepler') { <p-tag value="sin Kepler" severity="secondary" styleClass="cg-tag" /> }
                       @case ('cuadra') { <span class="ok"><i class="pi pi-check" aria-hidden="true"></i> cuadra</span> }

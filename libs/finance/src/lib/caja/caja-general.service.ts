@@ -363,9 +363,11 @@ export class CajaGeneralService {
         return b;
       };
 
-      const tot: any = await filtrado()
+      // `numeric` llega como texto por node-pg: el tipo lo dice para que nadie lo sume sin `n()`.
+      const tot = (await filtrado()
         .select(trx.raw('COALESCE(SUM(ingreso),0)::numeric AS ingreso'),
-          trx.raw('COALESCE(SUM(gasto),0)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n')).first();
+          trx.raw('COALESCE(SUM(gasto),0)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n')).first()) as
+        { ingreso: string | number; gasto: string | number; n: number } | undefined;
       /**
        * ⛔⛔ `[CG.75]` **ACÁ VIVÍA LA CONSULTA DEL "SALDO", Y SE FUE ENTERA.**
        *
