@@ -522,6 +522,48 @@ primer archivo:
 3) la pantalla; 4) al final, las reglas duras en la base, cuando `/api/health` ya sirve el código que
 las cumple. Nada de esto toca las tablas viejas de caja (LE.0.4), salvo la contención de E0.
 
+### 5.3 La reestructura del módulo: se reemplaza por rebanadas, no se reescribe (PM, 2026-10-31)
+
+**Pedido literal** (Edgar, 2026-10-31, después de ver el plan): *«entonces re-estructuremos todo el
+módulo»*. Se toma como: el módulo de caja entero pasa al modelo de la ventanilla, y el viejo se retira.
+
+**Lo que es hoy el módulo** (medido en el repo el 2026-10-31):
+
+| Pieza | Tamaño | Destino |
+|---|---|---|
+| `libs/finance/src/lib/caja` | 66 archivos, 22,018 líneas sin pruebas, 104 rutas en 8 controladores | se congela y se retira por rebanada |
+| — `cash-ledger.controller` | 63 rutas: captura, cortes, enlaces con CAOS, autollenado, revisión | R2 (pagar), R3 (ruta), R5 (cierre) |
+| — `caja-general` + `caja-control` + `caja-firma` | 23 rutas | R5: la firma pasa a «Mi trabajo» (LE.4.11) |
+| — `caja-custodia` | 4 rutas | R4: la custodia de la ventanilla (V6) |
+| — `caja-reposicion` + `hoja-gastos` | 11 rutas | R4: E-28 dentro del libro (la hoja de CGA-A.65 ya está congelada) |
+| — `caja-arqueo` | 3 rutas | R6: el arqueo sorpresa lo hace el tercero (D22) |
+| `libs/finance/src/lib/cashbook` | 9 archivos, 1,512 líneas, 13 rutas | **es el núcleo nuevo** (el libro de partida doble, E1–E5) |
+| Pantallas `finanzas/pages/caja-general` + `caos` | ~23,000 líneas (captura, cuadre, arqueos, firma, reposición, cuentas Kepler, caja fuerte) | una sola pantalla, la Ventanilla (E6), + la firma en «Mi trabajo» |
+
+**Por qué no se reescribe de una vez.** Es más de un mes de trabajo (esfuerzo XL) sobre dinero que se
+mueve todos los días (dinero Alto → prioridad 2, y la regla de `criterios.md` §1 es partirlo). Un
+reemplazo completo deja semanas sin caja que sirva o con dos cajas a medias. Por rebanada, cada
+pedazo del viejo se apaga **sólo** cuando su reemplazo cerró días limpios en paralelo.
+
+**Regla desde hoy:** el módulo viejo **no recibe funciones nuevas**; sólo arreglos que detienen una
+pérdida de dinero o la contención de E0. Todo lo nuevo se construye sobre el libro (`cashbook`).
+
+**Las rebanadas, en orden** (cada una baja de C0 a C3 y retira lo suyo del viejo):
+
+| # | Rebanada | Qué reemplaza | Sale cuando | Items |
+|---|---|---|---|---|
+| R0 | **Contención** | nada; cierra los huecos del viejo | LE.0.9 aplicada + un día cerrado no recibe movimientos + ningún folio desaparece | LE.0.7–0.9 |
+| R1 | **El libro nuevo, demostrado** | — | 5 cierres limpios del libro en paralelo (la puerta de E6). ⚠️ Su estado HOY es NO MEDIDO: el rol de lectura no puede leer `cashbook` | E1–E5, LE.5.7 |
+| R2 | **Pagar** (el grueso: ~26 gastos al día) | captura de gastos + enlace manual con CAOS | 5 días con todos los pagos por la Ventanilla y 0 retiros sin código fuera de Suspenso | LE.2.8–2.9, LE.4.10, LE.6.1 |
+| R3 | **Cobro de ruta** | captura de ingresos de ruta | 5 días con los depósitos de ruta emparejados solos | LE.2.5, V5 |
+| R4 | **Custodia y reposición** | `caja-custodia`, `caja-reposicion`, `hoja-gastos` | 0 retiros sin documento fuera de custodia en 5 días | E-28, V6 |
+| R5 | **Cierre del día y firma** | cortes, `caja-firma`, `caja-control` | 5 cierres firmados en «Mi trabajo» con testigos | LE.1.5, LE.1.9, LE.4.11 |
+| R6 | **Arqueo sorpresa** | `caja-arqueo` | 2 arqueos en el mes por el tercero | D13, D22 |
+| R7 | **Retiro del viejo** | `/finanzas/caja-general` → Ventanilla; `finance.cash_ledger` queda de sólo lectura | R2–R6 cerradas | LE.7.x |
+
+La parte de servidor de R2 (reglas y API) se puede construir mientras R1 junta sus 5 cierres; la
+pantalla, no (método: no se sube de capa sin la de abajo verificada).
+
 ---
 
 ## 6. Modelo de amenazas (qué puede salir mal y qué lo para)
@@ -575,8 +617,8 @@ escritores; script de métricas; secretos rotados.
 | LE.0.4 | **Congelar lo viejo**: ninguna funcionalidad nueva sobre las tablas viejas de caja mientras dure la fase; ningún escritor nuevo | B29 | ⬜ | revisión de PR (D12) |
 | LE.0.5 | **Script de métricas** `database/scripts/le-metricas.js` (sólo lectura, una conexión, verifica `system_identifier`). Línea base 2026-10-27 11:14: (a) **86 · 162 atribuciones · $1,703,230** · (b) **6 de 13** con su definición (esperado < 0 o diferencia de más de $100k en valor absoluto; el «7» del plan v1 era otra definición) · (c) **0** de 13 (por usuario, no empleado) · (d) NO MEDIDO · (e) 0 custodias abiertas; cobros por rendir NO MEDIDO · morralla tecleada: 87.3 % del contado el 26-oct | regla 15 | ✅ | dos corridas, misma huella de resultado |
 | LE.0.6 | **Huecos y reescrituras del feed** (ver «Resultados de E0») | B41, B42 | ✅ | 0 huecos, 0 reescrituras al 2026-10-27 |
-| LE.0.7 | **Un día cerrado no recibe movimientos** (auditoría del 2026-10-31). `cash_ledger_congelado` sólo cuida lo que YA estaba en un corte: un movimiento suelto se puede atar a un corte cerrado, y pasó (22-oct: 5 ingresos · $121,130.53 entraron por SQL directo al `CC-2026-00002`, cerrado el 15-oct). El disparador rechaza poner `corte_id` de un corte que no está en `borrador`. El cierre de la app ata MIENTRAS el corte es borrador (`cash-cut.service.ts`: exige borrador, ata y después sella): no choca con el código desplegado, y se prueba antes de aplicar | B7, B20 | ⬜ | atar a un corte cerrado → `cash_ledger_en_corte_firmado_chk`; `cash-cut.servicio-real` sigue verde |
-| LE.0.8 | **Un folio emitido no desaparece.** Faltan 155 folios sin rastro (`CG-2026-00156…00278` y `CI-2026` 77–89 y 92–110, todos del 19-oct por la tarde; la bitácora de cambios nació el 21-oct, así que no se puede saber qué pasó). El consecutivo sólo avanza de uno en uno y un movimiento con folio no se borra: se cancela. Hoy `app_runtime` tiene INSERT, UPDATE y DELETE sobre el libro viejo y su consecutivo | B2, B40 | ⬜ | DELETE de un movimiento con folio y salto del consecutivo como `app_runtime` → error; el alta normal sigue pasando |
+| LE.0.7 | **Un día cerrado no recibe movimientos** (auditoría del 2026-10-31). `cash_ledger_congelado` sólo cuida lo que YA estaba en un corte: un movimiento suelto se puede atar a un corte cerrado, y pasó (22-oct: 5 ingresos · $121,130.53 entraron por SQL directo al `CC-2026-00002`, cerrado el 15-oct). El disparador rechaza poner `corte_id` de un corte que no está en `borrador`. El cierre de la app ata MIENTRAS el corte es borrador (`cash-cut.service.ts`: exige borrador, ata y después sella): no choca con el código desplegado, y se prueba antes de aplicar | B7, B20 | 🔨 | atar a un corte cerrado → `cash_ledger_en_corte_firmado_chk`; `cash-cut.servicio-real` sigue verde |
+| LE.0.8 | **Un folio emitido no desaparece.** Faltan 155 folios sin rastro (`CG-2026-00156…00278` y `CI-2026` 77–89 y 92–110, todos del 19-oct por la tarde; la bitácora de cambios nació el 21-oct, así que no se puede saber qué pasó). El consecutivo sólo avanza de uno en uno y un movimiento con folio no se borra: se cancela. Hoy `app_runtime` tiene INSERT, UPDATE y DELETE sobre el libro viejo y su consecutivo | B2, B40 | 🔨 | DELETE de un movimiento con folio y salto del consecutivo como `app_runtime` → error; el alta normal sigue pasando |
 | LE.0.9 | **Opera la caja sólo quien la opera.** Hoy cuentas de administración de la plataforma que no son de finanzas pueden operar y firmar la caja vieja, y una cuenta genérica registró movimientos reales (detalle en el Tablero PM, no aquí). Aplicar D23; como en LE.4.9, la regla va en la base, porque el modo dios de la API se salta las claves. **Alcance firmado el 2026-10-31**: (1) un disparador en `finance.cash_ledger` y `finance.cash_ledger_cuts` exige que quien registra, cancela, abre o cierra tenga la llave de operar EFECTIVA (rol + complementos + excepciones) **sin contar el superadmin**, y quien autoriza, la de autorizar; (2) Tesorería pierde la llave de operar y conserva la de firmar (D21); (3) se le quita el superadmin a quien no es de sistemas, con la lista que confirma el PM. Medido antes: 724 altas en 30 días, todas con `created_by` (ninguna de sistema), de 4 cuentas | B12, B13, B14 | 🔨 | alta con una cuenta superadmin fuera de los puestos de caja → error; alta de la cajera → pasa; la API desplegada no manda nada nuevo (expand/contract); `MATRIZ_ACCESOS.md` regenerada |
 
 **Criterio de salida**: (a) = 0 en prod, catálogo de CAOS firmado por quien opera la máquina,

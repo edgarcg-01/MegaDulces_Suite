@@ -117,6 +117,38 @@ const dijo = (err) => (err ? `${err.code} ${err.constraint ?? '(sin nombre)'}` :
       const e2d = await intento(trx, () => trx('finance.cash_ledger').where({ id: m1.id }).del());
       ok(es(e2d, '23514', 'cash_ledger_en_corte_firmado_chk'),
         `[negativa] borrarlo → cash_ledger_en_corte_firmado_chk (${dijo(e2d)})`);
+      // `[LE.0.7]` La otra mitad: lo que NO estaba en el corte firmado tampoco entra después
+      // (22-oct: 5 ingresos atados por SQL a un corte cerrado el 15).
+      const hayLe07 = (await trx.raw(`SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cash_ledger_no_entra_a_corte_firmado'`)).rows.length === 1;
+      if (hayLe07) {
+        const e2e = await intento(trx, () => trx('finance.cash_ledger').insert(mov(c.id)));
+        ok(es(e2e, '23514', 'cash_ledger_en_corte_firmado_chk'),
+          `[negativa] dar de alta un movimiento DENTRO del corte cerrado → cash_ledger_en_corte_firmado_chk (${dijo(e2e)})`);
+        const [suelto] = await trx('finance.cash_ledger').insert(mov(null)).returning('id');
+        const e2f = await intento(trx, () => trx('finance.cash_ledger').where({ id: suelto.id }).update({ corte_id: c.id }));
+        ok(es(e2f, '23514', 'cash_ledger_en_corte_firmado_chk'),
+          `[negativa] atar un movimiento suelto al corte cerrado → cash_ledger_en_corte_firmado_chk (${dijo(e2f)})`);
+      } else {
+        skip('LE.0.7: la migración 20261031141131 no está aplicada en esta base.');
+      }
+      // `[LE.0.8]` Un folio OFICIAL emitido no desaparece (155 sin rastro el 19-oct).
+      const hayLe08 = (await trx.raw(`SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cash_ledger_folio_no_desaparece'`)).rows.length === 1;
+      if (hayLe08) {
+        const [oficial] = await trx('finance.cash_ledger').insert(mov(null, { folio: `CG-2099-${String(n + 10000).slice(-5)}` })).returning('id');
+        const e2g = await intento(trx, () => trx('finance.cash_ledger').where({ id: oficial.id }).del());
+        ok(es(e2g, '23514', 'cash_ledger_folio_no_se_borra_chk'),
+          `[negativa] borrar un movimiento con folio oficial → cash_ledger_folio_no_se_borra_chk (${dijo(e2g)})`);
+        const e2h = await intento(trx, () => trx('finance.cash_ledger').where({ id: oficial.id }).update({ deleted_at: trx.fn.now() }));
+        ok(es(e2h, '23514', 'cash_ledger_folio_no_se_borra_chk'),
+          `[negativa] apartarlo sin cancelarlo → cash_ledger_folio_no_se_borra_chk (${dijo(e2h)})`);
+        await trx.raw(`INSERT INTO finance.cash_ledger_sequences (tenant_id, year, tipo, current_value) VALUES (?, 2099, 'gasto', 1)
+          ON CONFLICT (tenant_id, year, tipo) DO NOTHING`, [T]);
+        const e2i = await intento(trx, () => trx.raw(`UPDATE finance.cash_ledger_sequences SET current_value = current_value + 2
+          WHERE tenant_id = ? AND year = 2099 AND tipo = 'gasto'`, [T]));
+        ok(es(e2i, '23514', 'folio_consecutivo_chk'), `[negativa] saltar el consecutivo → folio_consecutivo_chk (${dijo(e2i)})`);
+      } else {
+        skip('LE.0.8: la migración 20261031141406 no está aplicada en esta base.');
+      }
 
       console.log('\n── 3. CGS.10 — la evidencia sí cambia, y deja rastro ──');
       const cuenta = async (tabla, pk) => Number((await trx.raw(
@@ -263,6 +295,21 @@ const dijo = (err) => (err ? `${err.code} ${err.constraint ?? '(sin nombre)'}` :
         await autorizar(CAPTURA);
       });
       ok(sinAjeno === null, `con la regla APAGADA el capturista sí autoriza (${dijo(sinAjeno)}): la sección 4 mide el trigger`);
+      if ((await trx.raw(`SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cash_ledger_no_entra_a_corte_firmado'`)).rows.length === 1) {
+        const sinLe07 = await intento(trx, async () => {
+          await trx.raw('ALTER TABLE finance.cash_ledger DISABLE TRIGGER trg_cash_ledger_no_entra_a_corte_firmado');
+          await trx('finance.cash_ledger').insert(mov(c.id));
+        });
+        ok(sinLe07 === null, `con LE.0.7 APAGADA un movimiento sí entra al corte cerrado (${dijo(sinLe07)}): la sección 2 mide el trigger`);
+      }
+      if ((await trx.raw(`SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cash_ledger_folio_no_desaparece'`)).rows.length === 1) {
+        const sinLe08 = await intento(trx, async () => {
+          const [o] = await trx('finance.cash_ledger').insert(mov(null, { folio: 'CG-2099-99999' })).returning('id');
+          await trx.raw('ALTER TABLE finance.cash_ledger DISABLE TRIGGER trg_cash_ledger_folio_no_desaparece');
+          await trx('finance.cash_ledger').where({ id: o.id }).del();
+        });
+        ok(sinLe08 === null, `con LE.0.8 APAGADA el folio oficial sí se borra (${dijo(sinLe08)}): la sección 2 mide el trigger`);
+      }
 
       throw new Error('__ROLLBACK__');
     }).catch((e) => { if (e.message !== '__ROLLBACK__') throw e; });
