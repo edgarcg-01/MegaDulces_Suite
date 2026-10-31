@@ -182,6 +182,24 @@ function patron(difs) {
       HISTORIAL_NOTAS.get(suf).push({ mes: f.anio_mes, dev: /^50[68]0/.test(f.cuenta) });
     }
   }
+  if (EXPERIMENTOS.has('gasto_por_proveedor')) {
+    // `[CP.8.87]` Como si el contador hubiera firmado «por proveedor» TODAS las categorías del grupo gasto que hoy no
+    // tienen cuenta: la regla se cambia en memoria (en la base no se escribe nada).
+    const grupoGasto = new Set((await knex.transaction(async (trx) => {
+      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [MEGA]);
+      return trx('finance.movement_categories').where({ tenant_id: MEGA, group_key: 'gasto' }).pluck('code');
+    })));
+    const leer = svc.leerReglas.bind(svc);
+    svc.leerReglas = async () => {
+      const m = await leer();
+      for (const [code, r] of m) {
+        if (grupoGasto.has(code) && (r.tipo_regla === 'por_categoria' || r.tipo_regla === 'sin_medir') && r.estado !== 'aprobada') {
+          m.set(code, { ...r, tipo_regla: 'por_proveedor', cuenta_prefijo: '52', cuenta_gasto: null, estado: 'aprobada' });
+        }
+      }
+      return m;
+    };
+  }
   if (EXPERIMENTOS.size) console.log(`experimentos: ${[...EXPERIMENTOS].join(', ')}`);
 
   const total = { armadas: 0, igual: 0, difiere: 0, agrupada: 0, sin_par: 0, ambigua: 0, placebo: 0, uuid_igual: 0, uuid_comparables: 0 };
@@ -191,10 +209,12 @@ function patron(difs) {
 
   for (const mes of meses(DESDE, HASTA)) {
     const t0 = Date.now();
-    const { lotes, estados } = await svc.conTenant(async () => {
+    const { lotes, estados, catDe } = await svc.conTenant(async () => {
       const est = new Map();
       const r = await svc.construirLotes(mes, est);
-      return { lotes: r.lotes, estados: est };
+      // La categoría de cada movimiento, para calificar por categoría (una póliza por pago lleva el id como clave).
+      const eg = await svc.leerEgresos(mes);
+      return { lotes: r.lotes, estados: est, catDe: new Map(eg.map((e) => [String(e.id), e.categoria_code])) };
     });
     const armadas = lotes.filter((l) => l.asiento && l.resumen.incluidas > 0);
 
@@ -253,7 +273,7 @@ function patron(difs) {
         if (otra === b.cuenta) continue;
         if ((porBanco.get(`${otra}|${cent(b.importe)}`) ?? []).some((p) => Math.abs(diasEntre(p.fecha, a.fecha)) <= 3)) { m.placebo += 1; break; }
       }
-      const fila = { mes, clave: l.clave, fecha: a.fecha, banco: b.cuenta, importe: b.importe, concepto: a.concepto };
+      const fila = { mes, clave: l.clave, tipo: l.evento_tipo, categoria: catDe.get(String(l.clave)) ?? null, fecha: a.fecha, banco: b.cuenta, importe: b.importe, concepto: a.concepto };
       if (!c.length) { m.sin_par += 1; detalle.push({ ...fila, resultado: 'sin_par' }); continue; }
       if (c.length > 1) { m.ambigua += 1; detalle.push({ ...fila, resultado: 'ambigua', candidatas: c.map((p) => p.k) }); continue; }
       const real = c[0];

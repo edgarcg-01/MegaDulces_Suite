@@ -12,6 +12,10 @@
  *       firmar → la categoría ENTRA al archivo; ⛔ lo ya entregado NO vuelve a viajar (importarlo
  *       otra vez lo duplicaría en ContPAQi) y un lote entregado que cambió se declara; revocar →
  *       la categoría deja de armarse. Limpia lo sembrado.
+ *
+ * `[CP.8.87]` La firma «por proveedor» de un gasto escribe una forma (`por_proveedor`, prefijo 52, sin cuenta) que
+ * sólo el CHECK de la base acepta o rechaza: [A] su regla pura y [C] firmarla, firmarla dos veces, revocarla y que el
+ * armado lleve su egreso al camino del gasto con motivo, contra la base y no contra un doble.
  */
 const path = require('path');
 
@@ -46,6 +50,7 @@ const MES = '2031-02';
 const CAT = 'cp853_candado';
 const CUENTA = '5299990001';
 const POR = 'candado-cp853';
+const CAT_G = 'cp887_candado';
 
 let ok = 0;
 let fail = 0;
@@ -83,6 +88,16 @@ function pura() {
   check(!v({ regla: null }).ok, '⛔ sin regla no');
   check(validarRevocacion({ ...cat, estado: 'aprobada' }, 'yo').ok, 'revocar lo firmado sí');
   check(!validarRevocacion(cat, 'yo').ok, '⛔ revocar lo que no está firmado no');
+
+  const { validarFirmaPorProveedor } = require(path.join(SRC, 'firma-regla.ts'));
+  const pp = (o) => validarFirmaPorProveedor({ regla: cat, grupo: 'gasto', por: 'yo', ...o });
+  check(pp({}).ok === true, '[CP.8.87] un gasto por categoría, sin cuenta firmada, con autor: se firma «por proveedor»');
+  check(pp({ regla: { ...cat, tipo_regla: 'sin_medir' } }).ok === true, '[CP.8.87] uno sin medir también');
+  check(!pp({ grupo: 'compra' }).ok && !pp({ grupo: null }).ok, '⛔ [CP.8.87] lo que no es del grupo gasto no (una compra ya va por proveedor con su 2120)');
+  check(!pp({ regla: { ...cat, tipo_regla: 'por_proveedor', cuenta_prefijo: '52' } }).ok, '⛔ [CP.8.87] lo que ya va por proveedor no');
+  for (const t of ['por_sucursal', 'no_aplica']) check(!pp({ regla: { ...cat, tipo_regla: t } }).ok, `⛔ [CP.8.87] ${t} no`);
+  check(!pp({ regla: { ...cat, estado: 'aprobada' } }).ok, '⛔ [CP.8.87] con una cuenta ya firmada no: se revoca antes');
+  check(!pp({ por: '' }).ok && !pp({ regla: null }).ok, '⛔ [CP.8.87] sin autor o sin regla no');
 }
 
 function servicios(pool) {
@@ -185,12 +200,51 @@ async function completo(urlAdmin, urlRuntime) {
     let err2 = null;
     try { await armado.generarArchivoMes(MES); } catch (e) { err2 = e; }
     check(err2 !== null, 'revocada, la categoría deja de armarse');
+
+    // `[CP.8.87]` La firma «por proveedor» de un gasto, contra la base.
+    const [catG] = await admin('finance.movement_categories').insert({ tenant_id: MEGA, code: CAT_G, name: 'Candado CP.8.87', flow: 'out', group_key: 'gasto' }).returning('id');
+    ids.categoriaG = catG.id ?? catG;
+    await admin('contpaqi.account_rules').insert({ tenant_id: MEGA, categoria_code: CAT_G, tipo_regla: 'por_categoria', estado: 'sin_regla', concepto_medido: 'candado' });
+    let rechG = null;
+    try { await armado.firmarPorProveedor(CAT, POR); } catch (e) { rechG = e; }
+    check(rechG instanceof FirmaRechazada, '⛔ [CP.8.87] una categoría que no es del grupo gasto no se firma «por proveedor»');
+    const vistaG = await armado.firmarPorProveedor(CAT_G, POR);
+    const filaG = await admin('contpaqi.account_rules').where({ tenant_id: MEGA, categoria_code: CAT_G }).first();
+    check(filaG.tipo_regla === 'por_proveedor' && filaG.cuenta_prefijo === '52' && filaG.cuenta_gasto === null
+      && filaG.estado === 'aprobada' && filaG.aprobada_por === POR,
+    `[CP.8.87] firmada «por proveedor» y el CHECK la aceptó: ${filaG.tipo_regla} · ${filaG.cuenta_prefijo} · ${filaG.estado} por ${filaG.aprobada_por}`);
+    check(vistaG.por_proveedor_gasto === true && vistaG.firmable_por_proveedor === false, '[CP.8.87] la vista la dice «por proveedor» y ya no se firma así otra vez');
+    let rechG2 = null;
+    try { await armado.firmarPorProveedor(CAT_G, POR); } catch (e) { rechG2 = e; }
+    check(rechG2 instanceof FirmaRechazada, '⛔ [CP.8.87] firmarla dos veces se rechaza');
+
+    // Su egreso va al camino del gasto: el concepto no nombra a ningún proveedor del padrón, así que NO se arma y lo dice.
+    const [movG] = await admin('finance.bank_movements').insert({
+      tenant_id: MEGA, statement_id: est.id ?? est, bank_account_id: ids.cuenta, movement_date: '2031-02-05',
+      client_uuid: 'cp887-candado-0', concept: 'CANDADO CP887 SIN PROVEEDOR', amount_out: 75.00, category_id: ids.categoriaG,
+    }).returning('id');
+    try {
+      const estados = new Map();
+      const { lotes } = await armado.conTenant(() => armado.construirLotes(MES, estados));
+      const st = estados.get(String(movG.id ?? movG));
+      check(st && st.motivo === 'gasto_sin_proveedor' && !lotes.some((l) => l.evento_tipo === 'bank_gasto'),
+        `[CP.8.87] su egreso no se arma solo y dice por qué: ${st ? st.motivo : 'sin estado'}`);
+    } catch (e) {
+      if (/does not exist|no existe/.test(String(e.message))) noMedido(`[CP.8.87] el camino del gasto: este destino no tiene una tabla de la fuente (${e.message})`);
+      else throw e;
+    }
+
+    const revG = await armado.revocarRegla(CAT_G, POR);
+    const filaG2 = await admin('contpaqi.account_rules').where({ tenant_id: MEGA, categoria_code: CAT_G }).first();
+    check(filaG2.tipo_regla === 'por_categoria' && filaG2.cuenta_prefijo === null && filaG2.estado === 'sin_regla' && revG.firmable_por_proveedor === true,
+      '[CP.8.87] revocada: vuelve a por categoría sin cuenta (el CHECK la aceptó) y se puede volver a firmar');
   } finally {
     try {
       await admin('contpaqi.poliza_exports').where({ tenant_id: MEGA, periodo: MES }).del();
-      await admin('contpaqi.account_rules').where({ tenant_id: MEGA, categoria_code: CAT }).del();
+      await admin('contpaqi.account_rules').where({ tenant_id: MEGA }).whereIn('categoria_code', [CAT, CAT_G]).del();
       if (ids.cuenta) await admin('finance.bank_accounts').where({ id: ids.cuenta }).del();
       if (ids.categoria) await admin('finance.movement_categories').where({ id: ids.categoria }).del();
+      if (ids.categoriaG) await admin('finance.movement_categories').where({ id: ids.categoriaG }).del();
       await admin('analytics.contpaqi_accounts').where({ tenant_id: MEGA, codigo: CUENTA }).del();
     } catch (e) {
       console.log(`  ⚠ limpieza incompleta: ${e.message}`);

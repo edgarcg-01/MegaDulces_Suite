@@ -21,6 +21,7 @@
  */
 import type { Knex } from 'knex';
 import type { EntradaPagoProveedor, FacturaPagada, NotaAplicada } from './pago-proveedor';
+import type { EntradaGasto } from './gasto-con-factura';
 import { construirPadron, resolverRfcAcreedor, rfcPorTexto, type PadronEmisores } from './rfc-acreedor';
 
 const TOL = 1;
@@ -45,6 +46,11 @@ export interface MovimientoPago {
 }
 
 export type FuenteFacturas = 'cadena_kepler' | 'importe_una' | 'confirmada';
+
+/** `[CP.8.87]` La resolución de un GASTO pagado con factura: proveedor por el concepto, facturas por importe, cuenta por historia. */
+export type ResolucionGasto =
+  | { estado: 'armable'; rfc: string; entrada: Omit<EntradaGasto, 'concepto'> }
+  | { estado: 'a_confirmar' | 'sin_resolver'; motivo: string };
 
 export type ResolucionPago =
   | { estado: 'armable'; fuente: FuenteFacturas; proveedor_por_nombre: boolean; entrada: Omit<EntradaPagoProveedor, 'concepto'> }
@@ -73,7 +79,7 @@ interface PagoKepler { acr: string; t: number; s: number; folio: string; f: stri
 interface Aplicacion { acr: string; pt: number; ps: number; pf: string; dt: number; ds: number; df: string }
 interface DocKepler { acr: string; t: number; s: number; folio: string; f: string; imp: number; ref: string | null }
 /** `tr`: `TipoRelacion` del XML del CFDI (sólo notas), o null si el XML no llegó todavía (`[LC.20]`). */
-interface Cfdi { u: string; rfc: string; nom: string | null; tc: 'I' | 'E'; folio: string | null; tot: number; iva: number; ieps: number; s16: number; f: string; tr?: string | null; mixta?: boolean; rel?: string[] | null }
+interface Cfdi { u: string; rfc: string; nom: string | null; tc: 'I' | 'E'; folio: string | null; tot: number; iva: number; ieps: number; s16: number; f: string; tr?: string | null; mixta?: boolean; rel?: string[] | null; ret?: number }
 
 /** Agrega a una lista dentro de un mapa. */
 function meter<K, V>(m: Map<K, V[]>, k: K, v: V): void {
@@ -101,6 +107,8 @@ export class FuentePagoProveedor {
     private readonly pagadaAntes: Map<string, string> = new Map(),
     /** `[CP.8.82]` sufijo del proveedor → sus notas en egresos por mes: `{ mes, dev }` (devolución 5060/5080 o descuento 5050/5070). */
     private readonly notasHist: Map<string, { mes: string; dev: boolean }[]> = new Map(),
+    /** `[CP.8.87]` RFC → cuentas de GASTO (52) con que la contadora asentó sus facturas, por fecha. */
+    private readonly usoGasto: Map<string, { f: string; cuenta: string }[]> = new Map(),
   ) {}
 
   /**
@@ -184,7 +192,7 @@ export class FuentePagoProveedor {
     const cfdis = listaRfc.length ? (await db.raw(`
       SELECT upper(uuid) u, emisor_rfc rfc, emisor_nombre nom, tipo_comprobante tc, folio, total::float8 tot,
              coalesce((impuestos->>'iva_trasladado')::float8,0) iva, coalesce((impuestos->>'ieps_trasladado')::float8,0) ieps,
-             coalesce((impuestos->>'subtotal_iva_16')::float8,0) s16, fecha::date::text f,
+             coalesce((impuestos->>'subtotal_iva_16')::float8,0) s16, fecha::date::text f, coalesce(total_retenidos, 0)::float8 ret,
              -- [CP.8.82] La relación de la nota (01 nota de crédito · 03 devolución) sólo viene en el XML.
              CASE WHEN tipo_comprobante = 'E' THEN substring(xml from 'TipoRelacion="([0-9]+)"') END tr,
              -- [CP.8.82] Mixta: trae conceptos al 0 % Y al 16 %. Ahí la contadora saca la base al 16 % del IVA.
@@ -213,7 +221,7 @@ export class FuentePagoProveedor {
         JOIN analytics.gl_poliza_lines l ON l.tenant_id=p.tenant_id AND l.source=p.source AND l.ejercicio=p.ejercicio
          AND l.periodo=p.periodo AND l.tipo_pol=p.tipo_pol AND l.folio=p.folio
        WHERE p.tenant_id = ? AND p.source='contpaqi' AND p.ejercicio IN (?, ?) AND p.tipo_pol='2'
-         AND l.cargo_abono='C' AND l.cfdi_uuid IS NOT NULL AND l.cuenta ~ '^(2120|5010|5020)'
+         AND l.cargo_abono='C' AND l.cfdi_uuid IS NOT NULL AND l.cuenta ~ '^(2120|5010|5020|52)'
          AND upper(l.cfdi_uuid) = ANY(?)`, [MEGA, anio - 1, anio, [...rfcDeUuid.keys()]])).rows as { u: string; cuenta: string; f: string }[])
       .map((l) => ({ ...l, rfc: rfcDeUuid.get(l.u) ?? '' })) : [];
     const usoRfc = new Map<string, { f: string; suf: string }[]>(); const pagadaAntes = new Map<string, string>();
@@ -230,7 +238,12 @@ export class FuentePagoProveedor {
     for (const l of [...usoRows, ...notaUso]) {
       const f0 = pagadaAntes.get(l.u); if (!f0 || l.f < f0) pagadaAntes.set(l.u, l.f);
     }
-    for (const l of usoRows) meter(usoRfc, l.rfc, { f: l.f, suf: l.cuenta.slice(4) });
+    // `[CP.8.87]` Las de compra deciden la cuenta del proveedor (2120/50x0); las de gasto (52), la cuenta del gasto.
+    const usoGasto = new Map<string, { f: string; cuenta: string }[]>();
+    for (const l of usoRows) {
+      if (/^52/.test(l.cuenta)) meter(usoGasto, l.rfc, { f: l.f, cuenta: l.cuenta });
+      else meter(usoRfc, l.rfc, { f: l.f, suf: l.cuenta.slice(4) });
+    }
     for (const v of usoRfc.values()) v.sort((a, b) => (a.f < b.f ? -1 : a.f > b.f ? 1 : 0));
     // Provisiones (diario, abono 2120) sólo de las cuentas de esos proveedores.
     const cuentas = new Set<string>();
@@ -264,7 +277,7 @@ export class FuentePagoProveedor {
     const docs = new Map(docsRows.map((d) => [`${d.acr}|${d.t}|${d.s}|${d.folio}`, d]));
     const cfdiPorRfc = new Map<string, Cfdi[]>(); for (const x of cfdis) meter(cfdiPorRfc, `${x.rfc}|${x.tc}`, x);
     const prov = new Map(provRows.map((x) => [`${x.cuenta}|${x.imp.toFixed(2)}`, x.f]));
-    return new FuentePagoProveedor(etiquetas, pagos, padron, mapa, rfcDe, aplicaciones, notasDe, docs, cfdiPorRfc, prov, usoRfc, pagadaAntes, notasHist);
+    return new FuentePagoProveedor(etiquetas, pagos, padron, mapa, rfcDe, aplicaciones, notasDe, docs, cfdiPorRfc, prov, usoRfc, pagadaAntes, notasHist, usoGasto);
   }
 
   /** L1: los pagos de Kepler que pueden ser este movimiento. Uno = proveedor identificado. */
@@ -289,6 +302,51 @@ export class FuentePagoProveedor {
     if (exactos.length > 1) { const r1 = conRef(exactos); return r1.length === 1 ? r1[0] : 'ambiguo'; }
     const r = conRef(ventana).filter((x) => Math.abs(x.tot - imp) <= Math.max(TOL, 0.03 * imp));
     return r.length === 1 ? r[0] : null;
+  }
+
+  /**
+   * `[CP.8.87]` La cuenta de gasto que este RFC usó MÁS en las pólizas anteriores a la fecha. Medido
+   * (`gasto-por-rfc-contpaqi.js`): acierta 93.0 % (1,328/1,428), placebo 9.0 %. Sin historia → null (se confirma).
+   */
+  private cuentaGastoDe(rfc: string, fecha: string): string | null {
+    const h = (this.usoGasto.get(rfc) ?? []).filter((x) => x.f < fecha);
+    if (!h.length) return null;
+    const c = new Map<string, number>(); for (const x of h) c.set(x.cuenta, (c.get(x.cuenta) ?? 0) + 1);
+    return [...c.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0];
+  }
+
+  /**
+   * `[CP.8.87]` Un GASTO pagado con factura (`[CP.8.86]`: 89.1 % igual a la contadora en la simulación):
+   *   1. proveedor: el RFC que nombra el concepto del banco (padrón de emisores; nunca por importe solo);
+   *   2. facturas: del RFC, entre 180 días antes y 5 después, no pagadas antes — la que da lo pagado (±$1), o la
+   *      ÚNICA combinación de 2 a 4;
+   *   3. cuenta: la de gasto que ese RFC usó más antes.
+   * Lo que no se resuelve se dice en qué paso.
+   */
+  resolverGasto(m: MovimientoPago): ResolucionGasto {
+    const B = r2(m.importe);
+    const rfc = rfcPorTexto(m.concepto, this.padron);
+    if (!rfc) return { estado: 'sin_resolver', motivo: 'el concepto del banco no nombra a un proveedor del padrón de CFDI' };
+    const abiertas = (this.cfdiPorRfc.get(`${rfc}|I`) ?? []).filter((x) => dia(x.f) >= dia(m.fecha) - 180 && dia(x.f) <= dia(m.fecha) + 5
+      && !((this.pagadaAntes.get(x.u) ?? '9999') < m.fecha));
+    let F = abiertas.filter((x) => Math.abs(x.tot - B) <= TOL);
+    if (F.length > 1) return { estado: 'a_confirmar', motivo: `${F.length} facturas de ${rfc} por el mismo importe` };
+    if (!F.length) {
+      const cand = abiertas.filter((x) => x.tot < B + TOL).sort((a, b) => b.tot - a.tot).slice(0, 20); const sols: Cfdi[][] = [];
+      const rec = (i: number, s: number, sel: Cfdi[]): void => {
+        if (sols.length > 1) return;
+        if (sel.length >= 2 && Math.abs(s - B) <= TOL) { sols.push([...sel]); return; }
+        if (sel.length >= 4 || i >= cand.length || s > B + TOL) return;
+        sel.push(cand[i]); rec(i + 1, s + cand[i].tot, sel); sel.pop(); rec(i + 1, s, sel);
+      };
+      rec(0, 0, []);
+      if (sols.length !== 1) return { estado: 'a_confirmar', motivo: sols.length ? `varias combinaciones de facturas de ${rfc} dan lo pagado` : `ninguna factura abierta de ${rfc} da lo pagado` };
+      F = sols[0];
+    }
+    const cuenta = this.cuentaGastoDe(rfc, m.fecha);
+    if (!cuenta) return { estado: 'a_confirmar', motivo: `${rfc} no tiene gastos asentados antes en ContPAQi: hay que confirmar la cuenta` };
+    return { estado: 'armable', rfc, entrada: { fecha: m.fecha, cuenta_banco: m.cuenta_banco, pagado: B, cuenta_gasto: cuenta,
+      facturas: F.map((x) => ({ uuid: x.u, total: x.tot, iva: x.iva, ieps: x.ieps, retenido: x.ret ?? 0, fecha: x.f })) } };
   }
 
   private cuentaDe(rfc: string, fecha: string): string | null {

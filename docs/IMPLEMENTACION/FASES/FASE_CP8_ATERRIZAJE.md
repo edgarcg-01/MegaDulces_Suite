@@ -1136,6 +1136,9 @@ falta uno nuevo.
   - Se descartaron, medidas, «2120 sin provisión» y «PPD sin REP».
   - Se encontró que la provisión de ella no lleva UUID: la primera versión de `doble_registro` era un candado vacío.
   - Falta conectarlo (C2/C3), que espera a que otra sesión commitee el armado.
+- **2026-10-31** — `[CP.8.92]` 🧪 armador de traspasos (§11.10). `[CP.8.87]` 🧪 **adoptado** (§11.11): el gasto con
+  factura «por proveedor» que otra sesión dejó sin commitear desde el 23-oct se revisó, se midió en prod y se
+  commiteó; sin firmar nada no cambia ninguna póliza armada. Con eso se destraba conectar el dictamen y los traspasos.
 
 ---
 
@@ -1224,7 +1227,7 @@ Hace falta además un candado en el código:
 | **F-A** | **Pago a proveedor** | ~100 pólizas/mes, 91 % igual | resuelto (`supplier_accounts`, notas, REP) | sólo el tubo y §11.3. **Es la primera entrega real** |
 | **F-B** | **Comisiones bancarias** | ~1,532 renglones/mes (oct: 1,331 movs, $127 k) | banco ↔ cuenta 18/20 + una cuenta de gasto por banco | armador **banco × mes** (D6), la comisión de terminal bien clasificada (CB) y la cuenta de gasto firmada por ella |
 | **F-C** | **Traspasos entre cuentas** | ~369 renglones/mes (oct: 38 movs, $18.9 M) | las dos piernas son cuentas de banco ya mapeadas | armador de diario tipo 3; el invariante TI = TE de CB es su prueba |
-| **F-D** | **Gasto con factura** | ~980 pagos en ene–sep; la simulación arma 276, 89.1 % iguales (`[CP.8.86]`) | **la cuenta la decide el RFC** (93.0 %, placebo 9.0 %) | D10 ya está decidida (firma «por proveedor», 2026-10-23) y el armado está **en código** como `[CP.8.87]`, de otra sesión y sin commitear al 29-oct |
+| **F-D** | **Gasto con factura** | ~980 pagos en ene–sep; la simulación arma 276, 89.1 % iguales (`[CP.8.86]`) | **la cuenta la decide el RFC** (93.0 %, placebo 9.0 %) | D10 ya está decidida (firma «por proveedor», 2026-10-23) y el armado está **en código** como `[CP.8.87]`, adoptado el 31-oct (§11.11) |
 | **F-E** | **Cobranza `VENTAS <suc>`** | ~6,050 renglones/mes (oct: 822 movs, $16.4 M) | el más caro: una cuenta por sucursal × tasa (0 %, IVA, IEPS) | un C0 propio: derivar el mapa de sus pólizas tipo 1, como se hizo con proveedores |
 | — | Nómina · sin categoría · factoraje | — | — | **se declaran**: nómina espera a RH, sin categoría se resuelve en CB, factoraje no es banco |
 
@@ -1233,9 +1236,9 @@ traspasos: **las tres familias que no necesitan firmar un criterio contable**. F
 
 ### 11.5 Los entregables, por capa (siguen la numeración de CP.8)
 
-> ⚠️ `[CP.8.87]` **no es de este plan**: lo tomó el armado de *gasto con factura «por proveedor»* (F-D), que
-> otra sesión tiene en código sin commitear (`cotejo.ts`, `gasto-con-factura.ts`, `firma-regla.ts`). La sesión
-> de la etapa 1 no lleva código nuevo: cierra items que ya existían.
+> ⚠️ `[CP.8.87]` **no es de este plan**: es el armado de *gasto con factura «por proveedor»* (F-D), que otra
+> sesión dejó en código y se adoptó el 31-oct (§11.11). La sesión de la etapa 1 no lleva código nuevo: cierra
+> items que ya existían.
 
 **Etapa 1 — la primera póliza real entra (T1).** Lo único que falta es una persona.
 
@@ -1273,7 +1276,7 @@ cuando la etapa 2 haya entregado un mes entero.
 | **D1** *(abierta desde el 20-oct)* | ¿Quién se sienta en la terminal? | **Una persona con nombre y 45 minutos**, en una sola sesión que cubre el sondeo del SDK, la prueba A/B y la primera póliza real (etapa 1). Es la única dependencia de toda la etapa 1 |
 | **D5** *(abierta)* | ¿Qué deja de capturar la contadora? | Lo que entra y cuadra. Mientras no se firme, §11.3 evita el duplicado, pero el puente **suma** trabajo en vez de quitarlo |
 | **D9** *(nueva)* | ¿El agente va en `.208`? | Sí, si el sondeo dice que el SDK está. Implica un servicio Windows nuestro en esa máquina, un dueño para ella y quizá **una licencia de usuario** (~$1,690/año de lista; NO MEDIDO si `Login` la consume) |
-| ~~**D10**~~ *(decidida el 2026-10-23)* | ¿Con qué autoridad se arma un gasto por la historia del RFC? | **Decidido:** el contador firma la categoría «por proveedor» una vez (`firma-regla.ts`, `[CP.8.87]`). ⚠️ Este doc no lo registraba: la fuente es el comentario del código en curso, no una bitácora |
+| ~~**D10**~~ *(decidida el 2026-10-23)* | ¿Con qué autoridad se arma un gasto por la historia del RFC? | **Decidido:** el contador firma la categoría «por proveedor» una vez (`firma-regla.ts`, `[CP.8.87]`). ⚠️ Este doc no lo registraba: la fuente era el comentario del código. El 31-oct Edgar pidió adoptar ese código (§11.11) |
 
 ### 11.7 Métrica y terminado
 
@@ -1494,3 +1497,55 @@ decirse, porque su fecha no cae en ningún mes que se arme. Los cortes del últi
    que tiene ese archivo abierto. Al registrarlo, el candado anti-duplicado (`[CP.8.88]`) busca su póliza por mes.
 2. Para Finanzas, en CB: cargar los cuatro estados de cuenta que faltan y recategorizar las 12 piernas.
 3. Abierto en el armador: los 48 que ella emparejó distinto, y los 16 que enero arma y ella no tiene.
+
+### 11.11 🧪 `[CP.8.87]` Gasto con factura «por proveedor»: adoptado y medido (2026-10-31)
+
+Otra sesión lo dejó en código, sin commitear, desde el 23-oct: es D10, el contador firma una categoría de gasto «por
+proveedor» una vez y cada pago toma la cuenta que su proveedor ya usó. Edgar pidió adoptarlo el 31-oct; se revisó
+completo, se midió en prod en sólo lectura y se commiteó.
+
+**Qué hace.**
+- `gasto-con-factura.ts` arma la póliza como ella: una por pago, con cargo a la cuenta de gasto del proveedor por la
+  base de sus facturas, el IVA (1060) y el IEPS (1470100) de las facturas, el abono al banco, y la diferencia menor de
+  $1 al redondeo. No arma, y dice por qué: factura con retención, cuenta que no es de gasto (52), facturas que no dan
+  lo pagado.
+- `FuentePagoProveedor.resolverGasto` resuelve el proveedor por el concepto del banco (el padrón de emisores, nunca por
+  importe solo), las facturas por importe (una, o la única combinación de 2 a 4, de 180 días antes a 5 después, no
+  pagadas antes) y la cuenta por la historia del RFC (la que más usó antes de esa fecha).
+- `cotejo.ts` es la regla de la prueba A/B (`comparar-armado-contpaqi.js`) dentro del producto.
+- `GET /finance/contpaqi/reglas/:categoria/prueba-por-proveedor?mes=` arma el mes con la regla cambiada sólo en memoria
+  y coteja contra lo que ella capturó: es la evidencia para firmar y no escribe. `POST …/firma-por-proveedor` firma
+  (`_GESTIONAR`, con autor); revocar regresa la categoría a «por categoría» sin cuenta.
+
+**Medido en prod, sólo lectura, enero a septiembre.**
+
+| | |
+|---|---|
+| Categorías de gasto firmadas «por proveedor», hoy | 0: desplegarlo no cambia ningún armado |
+| Pólizas armadas sin firmar nada, antes y después | 1,010 y 1,010; 894 iguales a las de ella (90.1 %) en los dos; ninguna cambia de resultado |
+| Pagos no armados que cambian de motivo | 8 de 819. Una factura que ella ya asentó como gasto (52) ahora cuenta como pagada: 7 pasan de «a confirmar» a «el proveedor no tiene cuenta en ContPAQi» (las otras facturas del mismo importe ya estaban pagadas) y 1 al revés |
+| Dos corridas de cada versión | idénticas |
+
+Firmando en memoria **todas** las categorías del grupo gasto (`--experimento=gasto_por_proveedor`), el armado de gasto da:
+
+| Categoría | Iguales a las de ella | Lo demás |
+|---|---|---|
+| Gasto administrativo (seguros) | **16 de 16** calificadas | 1 agrupada, 1 sin par |
+| Traslado de valores | **6 de 6** | — |
+| Compras con tarjeta | 4 de 14 calificadas | 19 agrupadas (ella junta varias), 61 sin par |
+| Comisiones bancarias | 0 | 11 sin par: van por banco × mes (D6) |
+
+O sea: **se firma categoría por categoría y con la prueba a la vista.** Firmar el grupo entero empeoraría el archivo.
+
+**Candados.** `test-newdb-contpaqi-firma.js` suma 14 casos (43 ✓ contra base local): la regla pura, y contra la base
+firmar, firmar dos veces, una categoría que no es de gasto, revocar —con el CHECK de la base aceptando las dos formas— y
+que el egreso de una categoría firmada vaya al camino del gasto y, sin proveedor en el concepto, no se arme y diga por
+qué. Tres mutantes la ponen en rojo. Specs de `contpaqi/` 166/166; sin errores de tipos nuevos.
+
+**Lo que se corrigió al adoptarlo:** dos comentarios estaban sobre la función equivocada (el de la firma documentaba a
+la prueba, en el servicio y en el controlador), y las pruebas nombraban a un proveedor persona física: el repo es
+público, así que ahora lo describen por su gasto.
+
+**Lo que falta:** la pantalla (C3): en «Reglas», el botón para firmar «por proveedor» con la prueba del mes a la vista,
+y la prueba del endpoint con el payload de esa pantalla (regla 13). La prueba tarda lo que el armado del mes (2.5–4.3 s
+en la prueba A/B): es un botón, no una carga de pantalla.

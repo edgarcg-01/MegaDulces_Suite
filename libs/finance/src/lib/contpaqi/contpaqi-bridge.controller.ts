@@ -6,7 +6,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
   ConfirmacionRechazada, ContpaqiArmadoService, EntregaRechazada, FirmaRechazada, type MovimientoVista, type PagoPorConfirmar,
-  type PendienteProveedor, type ReglaVista, type ResumenLote, type ResumenMes,
+  type PendienteProveedor, type PruebaPorProveedor, type ReglaVista, type ResumenLote, type ResumenMes,
 } from './contpaqi-armado.service';
 import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
 import {
@@ -270,6 +270,46 @@ export class ContpaqiBridgeController {
     }
   }
 
+  /**
+   * `[CP.8.87]` La evidencia para firmar «por proveedor»: arma el mes con la regla cambiada sólo en memoria y coteja
+   * cada póliza contra la que capturó la contadora. No escribe; 409 si la categoría no se puede firmar así.
+   * ⚠️ Arma el mes entero (2.5–4.3 s por mes en la prueba A/B de ene–sep): es un botón de prueba, no una carga de pantalla.
+   */
+  @Get('reglas/:categoria/prueba-por-proveedor')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_VER)
+  @ApiOperation({ summary: 'Prueba una categoría «por proveedor» en un mes contra lo capturado en ContPAQi (no escribe).' })
+  async probarPorProveedor(@Param('categoria') categoria: string, @Query('mes') mes?: string): Promise<PruebaPorProveedor> {
+    const anioMes = /^\d{4}-\d{2}$/.test(String(mes ?? '')) ? String(mes) : mesPorDefecto();
+    try {
+      return await this.armado.probarPorProveedor(categoria, anioMes);
+    } catch (e) {
+      if (e instanceof FirmaRechazada) throw new ConflictException(e.message);
+      throw e;
+    }
+  }
+
+  /**
+   * `[CP.8.87]` — **El contador firma que una categoría de gasto se arma por proveedor** (decisión del PM, 2026-10-23):
+   * cada pago toma la cuenta que su proveedor ya usó en ContPAQi. Sin cuenta en el cuerpo: la decide la historia.
+   * ⛔ `_GESTIONAR`, con autor; sólo categorías del grupo gasto sin cuenta firmada (409 con el motivo si no).
+   */
+  @Post('reglas/:categoria/firma-por-proveedor')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR)
+  @ApiOperation({ summary: 'Firma que una categoría de gasto se arma con la cuenta de cada proveedor.' })
+  async firmarPorProveedor(
+    @Param('categoria') categoria: string,
+    @Req() req: { user?: { username?: string; sub?: string } },
+  ): Promise<ReglaVista> {
+    const quien = req?.user?.username || req?.user?.sub;
+    if (!quien) throw new BadRequestException('no se pudo identificar quién firma');
+    try {
+      return await this.armado.firmarPorProveedor(categoria, quien);
+    } catch (e) {
+      if (e instanceof FirmaRechazada) throw new ConflictException(e.message);
+      throw new BadRequestException((e as Error).message);
+    }
+  }
+
   /** `[CP.8.53]` Revoca una firma: la categoría vuelve a `sin_regla` y deja de armarse. */
   @Post('reglas/:categoria/revocar')
   @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR)
@@ -462,6 +502,15 @@ const DUENO: Record<string, string> = {
   pago_a_confirmar: 'contabilidad — confirmar qué facturas paga (Pagos por confirmar)',
   pago_no_cuadra: 'contabilidad — las facturas menos las notas no dan lo pagado: confirmar (Pagos por confirmar)',
   pago_sin_resolver: 'compras — el proveedor no se identifica o no tiene cuenta en ContPAQi',
+  // `[CP.8.87]` Gastos firmados «por proveedor» que no se arman solos.
+  gasto_sin_proveedor: 'finanzas — el concepto del banco no nombra al proveedor: anotarlo en el movimiento',
+  gasto_a_confirmar: 'contabilidad — la factura no se identifica sola o el proveedor no tiene gastos asentados antes',
+  gasto_retencion: 'contabilidad — la factura trae retención (honorarios, arrendamiento): se asienta a mano',
+  gasto_no_cuadra: 'contabilidad — las facturas no dan lo pagado (pago parcial o falta una factura)',
+  gasto_cuenta_no_es_gasto: 'contabilidad — la historia del proveedor apunta a una cuenta que no es de gasto',
+  gasto_sin_facturas: 'contabilidad — no se identifican las facturas del pago',
+  gasto_importe_invalido: 'sistemas — una factura del gasto trae importes que no cuadran',
+  gasto_error: 'sistemas — error al armar el gasto',
   pago_proveedor_sin_cuenta: 'compras — el proveedor no tiene cuenta en ContPAQi',
   pago_sin_facturas: 'contabilidad — confirmar qué facturas paga (Pagos por confirmar)',
   pago_importe_invalido: 'sistemas — un CFDI del pago trae importe no positivo',

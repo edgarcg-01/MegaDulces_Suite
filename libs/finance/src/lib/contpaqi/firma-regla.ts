@@ -71,6 +71,34 @@ export function validarFirma(p: {
   return { ok: true };
 }
 
+/**
+ * `[CP.8.87]` — **Firmar una categoría de GASTO «por proveedor»** (decisión del PM, 2026-10-23): el contador firma una
+ * vez que la categoría se arma con la cuenta que cada proveedor ya usó en ContPAQi, en vez de una cuenta para toda la
+ * categoría. Medido: la historia del RFC acierta 93.0 % (placebo 9.0 %); por categoría no hubo regla concluyente.
+ *
+ * ⛔ Sólo categorías del grupo `gasto` de Bancos y que hoy se arman por categoría o no se midieron. Una compra ya es
+ * por proveedor con su propio rubro (2120); nómina va por plaza; lo que no genera póliza no se firma.
+ */
+export function validarFirmaPorProveedor(p: {
+  regla: (ReglaFirmable & { cuenta_prefijo?: string | null }) | null;
+  grupo: string | null;
+  por: string;
+}): { ok: true } | { ok: false; motivo: string } {
+  if (!p.regla) return { ok: false, motivo: 'la categoría no tiene regla en contpaqi.account_rules' };
+  if (!p.por) return { ok: false, motivo: 'una firma sin autor no es una firma' };
+  if (p.grupo !== 'gasto') {
+    return { ok: false, motivo: `«${p.regla.categoria_code}» no es una categoría de gasto (grupo «${p.grupo ?? 'sin grupo'}»): no se arma por proveedor desde aquí` };
+  }
+  if (p.regla.tipo_regla === 'por_proveedor') return { ok: false, motivo: `«${p.regla.categoria_code}» ya se arma por proveedor` };
+  if (p.regla.tipo_regla !== 'por_categoria' && p.regla.tipo_regla !== 'sin_medir') {
+    return { ok: false, motivo: `«${p.regla.categoria_code}» es «${p.regla.tipo_regla}»: ${MOTIVO_NO_FIRMABLE[p.regla.tipo_regla] ?? 'no se firma así'}` };
+  }
+  if (p.regla.estado === 'aprobada') {
+    return { ok: false, motivo: `«${p.regla.categoria_code}» ya tiene una cuenta firmada: revócala antes de pasarla a «por proveedor»` };
+  }
+  return { ok: true };
+}
+
 /** Revocar sólo tiene sentido sobre lo firmado. */
 export function validarRevocacion(r: ReglaFirmable | null, por: string): { ok: true } | { ok: false; motivo: string } {
   if (!r) return { ok: false, motivo: 'la categoría no tiene regla en contpaqi.account_rules' };

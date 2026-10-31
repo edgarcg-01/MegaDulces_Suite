@@ -5,7 +5,7 @@ import {
 } from '@megadulces/contracts';
 import { AlcanceTenant } from './alcance-tenant';
 import { compararArchivo, filasDeEntrega, huellaArchivo, type LoteArchivo } from './entrega';
-import { esFirmable, PREFIJO_GASTO, validarFirma, validarRevocacion, type CuentaCatalogo } from './firma-regla';
+import { esFirmable, PREFIJO_GASTO, validarFirma, validarFirmaPorProveedor, validarRevocacion, type CuentaCatalogo } from './firma-regla';
 
 /**
  * `[CP.8.52]` La entrega se niega con un motivo que quien marca tiene que leer (archivo distinto,
@@ -61,6 +61,9 @@ interface FilaRegla {
   aprobada_en: string | null;
   concepto_medido: string | null;
   forma_medida: { candidata?: string; salvedad?: string; pareados?: number } | null;
+  cuenta_prefijo?: string | null;
+  /** El grupo de la categoría en Bancos (`movement_categories.group_key`). */
+  grupo?: string | null;
 }
 
 /** `[CP.8.53]` Una regla como la ve el contador: qué es, cuánto pesa este mes, y su evidencia. */
@@ -76,6 +79,10 @@ export interface ReglaVista {
   aprobada_en: string | null;
   firmable: boolean;
   motivo_no_firmable: string | null;
+  /** `[CP.8.87]` Gasto que se arma con la cuenta que cada proveedor ya usó (firmado así por el contador). */
+  por_proveedor_gasto: boolean;
+  /** `[CP.8.87]` Si se puede firmar «por proveedor» (categorías del grupo gasto que hoy no tienen cuenta). */
+  firmable_por_proveedor: boolean;
   /** ⛔ Indicio del derivador, NUNCA una propuesta aplicada: la pantalla no la preselecciona. */
   indicio: string | null;
   evidencia: string | null;
@@ -90,6 +97,8 @@ import {
 import { tokenDe } from './token';
 import { coincide, palabrasDeBusqueda } from './busqueda';
 import { armarPagoProveedorCompleto, esPagoDeTarjeta } from './pago-proveedor';
+import { armarGastoConFactura, esGastoPorProveedor, PREFIJO_GASTO_POR_PROVEEDOR } from './gasto-con-factura';
+import { cotejar, type PolizaReal, type ResultadoCotejo } from './cotejo';
 import {
   FuentePagoProveedor, type FuenteFacturas, type MovimientoPago, type PropuestaPago, type ResolucionPago,
 } from './pago-proveedor.fuente';
@@ -166,7 +175,7 @@ export interface ResumenLote {
    * contadora). Ausente o `lote` = el lote del día. Los pagos que no se arman se cuentan en `motivos` de su
    * lote (`pago_a_confirmar`, `pago_sin_resolver`, `pago_no_cuadra`…), nunca entran al lote como «2120 / banco».
    */
-  tipo?: 'lote' | 'pago_proveedor';
+  tipo?: 'lote' | 'pago_proveedor' | 'gasto_proveedor';
   /** De dónde salieron las facturas del pago: la cadena de Kepler o una factura por importe. */
   fuente?: FuenteFacturas | null;
   /** Facturas y notas (UUID) que lleva el pago: van a los renglones `AD` del archivo. */
@@ -242,6 +251,25 @@ export interface MovimientoVista {
 
 /** `[CP.8.78]` El estado de un movimiento en el armado: por qué no entra (`null` = entra) y en qué póliza. */
 export interface EstadoMovimiento { motivo: string | null; clave: string | null }
+
+/**
+ * `[CP.8.87]` Lo que pasaría con una categoría de gasto si se firmara «por proveedor», en un mes, cotejado contra lo
+ * que la contadora ya capturó en ContPAQi. Es la evidencia para firmar: no escribe nada.
+ */
+export interface PruebaPorProveedor {
+  categoria: string;
+  mes: string;
+  /** Egresos de banco de esa categoría en el mes. */
+  movimientos: number;
+  /** Cuántos se armarían (una póliza por pago). */
+  armarian: number;
+  /** De los que se armarían, cómo salen contra su póliza en ContPAQi. */
+  cotejo: Record<ResultadoCotejo, number>;
+  /** Los que NO se armarían, por motivo. */
+  no_arman: Record<string, number>;
+  /** Hasta qué fecha hay pólizas de ContPAQi en la Suite: un mes sin pólizas todavía no se puede cotejar. */
+  contpaqi_hasta: string | null;
+}
 
 /** `[CP.8.78]` Lo leído del mes, para reusarlo en vez de traerlo otra vez. */
 interface BaseDelMes {
@@ -450,7 +478,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     reglas: Map<string, ReglaCuenta>,
   ): Promise<Map<string, IndiceProveedores>> {
     const prefijos = [...new Set([...reglas.values()]
-      .filter((r) => r.tipo_regla === 'por_proveedor' && r.cuenta_prefijo)
+      .filter((r) => r.tipo_regla === 'por_proveedor' && r.cuenta_prefijo && !esGastoPorProveedor(r))
       .map((r) => r.cuenta_prefijo as string))];
     if (!prefijos.length) return new Map();
 
@@ -632,7 +660,8 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     return this.conTenant(async () => {
       const filas = await this.db('contpaqi.account_rules').where({ tenant_id: MEGA })
         .select('categoria_code', 'tipo_regla', 'estado', 'cuenta_gasto', 'cuenta_nombre',
-          'aprobada_por', 'concepto_medido', 'forma_medida',
+          'aprobada_por', 'concepto_medido', 'forma_medida', 'cuenta_prefijo',
+          this.db.raw(`(SELECT mc.group_key FROM finance.movement_categories mc WHERE mc.tenant_id = contpaqi.account_rules.tenant_id AND mc.code = contpaqi.account_rules.categoria_code LIMIT 1) as grupo`),
           this.db.raw(`to_char(aprobada_en AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD HH24:MI') as aprobada_en`));
       const egresos = await this.leerEgresos(anioMes);
       const vol = new Map<string, { n: number; imp: number }>();
@@ -647,6 +676,8 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
         const fm = (f.forma_medida ?? {}) as { candidata?: string; salvedad?: string; pareados?: number };
         const fr = esFirmable(f);
         const v = vol.get(f.categoria_code);
+        const gastoProv = esGastoPorProveedor(f);
+        const fpp = validarFirmaPorProveedor({ regla: f, grupo: f.grupo ?? null, por: 'quien-firme' });
         return {
           categoria_code: f.categoria_code,
           tipo_regla: f.tipo_regla,
@@ -657,7 +688,9 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
           aprobada_por: f.aprobada_por,
           aprobada_en: f.aprobada_en,
           firmable: fr.firmable,
-          motivo_no_firmable: fr.firmable ? null : fr.motivo,
+          motivo_no_firmable: fr.firmable ? null : (gastoProv ? 'la cuenta sale de la historia de cada proveedor (firmada «por proveedor»)' : fr.motivo),
+          por_proveedor_gasto: gastoProv,
+          firmable_por_proveedor: fpp.ok,
           indicio: fm.candidata ?? null,
           evidencia: f.concepto_medido ?? null,
           salvedad: fm.salvedad ?? null,
@@ -674,6 +707,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
           cuenta_gasto: null, cuenta_nombre: null, aprobada_por: null, aprobada_en: null,
           firmable: false,
           motivo_no_firmable: 'la categoría no tiene fila en contpaqi.account_rules: el derivador nunca la midió',
+          por_proveedor_gasto: false, firmable_por_proveedor: false,
           indicio: null, evidencia: null, salvedad: null, pareados: null,
           movimientos_mes: v.n, importe_mes: v.imp,
         });
@@ -725,6 +759,84 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * `[CP.8.87]` — **Probar una categoría «por proveedor» antes de firmarla.** Arma el mes con la regla cambiada SÓLO en
+   * memoria y coteja cada póliza contra la de la contadora (`cotejo.ts`, la misma regla que la prueba A/B).
+   *
+   * Medido ene–sep 2026 con esa prueba: gasto admin (seguros) 16 de 16 iguales, traslado de valores 6 de 6; compras
+   * con tarjeta 4 de 14 (ella las agrupa) y comisiones 0 de 11 (van por mes). Por eso la firma va con evidencia.
+   */
+  async probarPorProveedor(categoria: string, anioMes: string): Promise<PruebaPorProveedor> {
+    return this.conTenant(async () => {
+      const reglas = await this.leerReglas();
+      const r = reglas.get(categoria);
+      const cat = await this.db('finance.movement_categories').where({ tenant_id: MEGA, code: categoria }).first('group_key') as { group_key?: string } | undefined;
+      if (!esGastoPorProveedor(r)) {
+        const v = validarFirmaPorProveedor({ regla: r ? { categoria_code: categoria, tipo_regla: r.tipo_regla ?? 'por_categoria', estado: r.estado } : null, grupo: cat?.group_key ?? null, por: 'prueba' });
+        if (!v.ok) throw new FirmaRechazada(v.motivo);
+      }
+      const probadas = new Map(reglas);
+      probadas.set(categoria, { ...(r as ReglaCuenta), tipo_regla: 'por_proveedor', cuenta_prefijo: PREFIJO_GASTO_POR_PROVEEDOR, cuenta_gasto: null, estado: 'aprobada' });
+      const egresos = await this.leerEgresos(anioMes);
+      const indices = await this.leerIndicesProveedor(probadas);
+      const estados = new Map<string, EstadoMovimiento>();
+      const { lotes } = await this.construirLotes(anioMes, estados, { egresos, reglas: probadas, indices });
+      const ids = new Set(egresos.filter((e) => e.categoria_code === categoria).map((e) => String(e.id)));
+      const armadas = lotes.filter((l) => l.evento_tipo === 'bank_gasto' && ids.has(l.clave) && l.asiento);
+      const no_arman: Record<string, number> = {};
+      for (const id of ids) { const st = estados.get(id); if (st && st.motivo) no_arman[st.motivo] = (no_arman[st.motivo] ?? 0) + 1; }
+
+      // Las pólizas de egreso de ContPAQi del mes, con 3 días a cada orilla.
+      const dia1 = `${anioMes}-01`;
+      const lineas = await this.db('analytics.gl_poliza_lines as l')
+        .join('analytics.gl_polizas as p', function on() {
+          this.on('p.tenant_id', 'l.tenant_id').andOn('p.source', 'l.source').andOn('p.ejercicio', 'l.ejercicio')
+            .andOn('p.periodo', 'l.periodo').andOn('p.tipo_pol', 'l.tipo_pol').andOn('p.folio', 'l.folio');
+        })
+        .where('l.tenant_id', MEGA).where('l.source', 'contpaqi').where('l.tipo_pol', '2')
+        .whereRaw(`p.fecha >= ?::date - 3 AND p.fecha < (?::date + interval '1 month' + interval '3 days')`, [dia1, dia1])
+        .select('p.ejercicio', 'p.periodo', 'p.folio', this.db.raw(`to_char(p.fecha, 'YYYY-MM-DD') as f`), 'l.cuenta', 'l.cargo_abono', 'l.importe') as
+        { ejercicio: number; periodo: number; folio: string; f: string; cuenta: string; cargo_abono: string; importe: string | number }[];
+      const reales = new Map<string, PolizaReal>();
+      for (const l of lineas) {
+        const k = `${l.ejercicio}|${l.periodo}|${l.folio}`;
+        const p = reales.get(k) ?? { k, fecha: l.f, renglones: [] };
+        p.renglones.push({ cuenta: l.cuenta, abono: l.cargo_abono === 'A', importe: Number(l.importe) });
+        reales.set(k, p);
+      }
+      const res = cotejar(armadas.map((a) => ({ clave: a.clave, fecha: a.asiento!.fecha,
+        renglones: a.asiento!.movimientos.map((m) => ({ cuenta: m.cuenta, abono: m.abono, importe: m.importe })) })), [...reales.values()]);
+      const cotejo: Record<ResultadoCotejo, number> = { igual: 0, difiere: 0, agrupada: 0, sin_par: 0, ambigua: 0 };
+      for (const v of res.values()) cotejo[v] += 1;
+      const hasta = await this.db('analytics.gl_polizas').where({ tenant_id: MEGA, source: 'contpaqi', tipo_pol: '2' })
+        .max('fecha as m').first() as { m: Date | string | null } | undefined;
+      const contpaqi_hasta = hasta?.m ? new Date(hasta.m).toISOString().slice(0, 10) : null;
+      return { categoria, mes: anioMes, movimientos: ids.size, armarian: armadas.length, cotejo, no_arman, contpaqi_hasta };
+    });
+  }
+
+  /**
+   * `[CP.8.87]` — **El contador firma que una categoría de GASTO se arma por proveedor** (decisión del PM,
+   * 2026-10-23). Desde ahí cada pago toma la cuenta que su proveedor ya usó en ContPAQi; un proveedor sin historia va a
+   * confirmar. Misma forma que `compra_mercancia` (`por_proveedor`), con el rubro de gasto: el CHECK de la tabla ya
+   * la admite, no hace falta migración.
+   */
+  async firmarPorProveedor(categoria: string, por: string): Promise<ReglaVista> {
+    return this.conTenant(async () => {
+      const regla = await this.db('contpaqi.account_rules').where({ tenant_id: MEGA, categoria_code: categoria }).first();
+      const cat = await this.db('finance.movement_categories').where({ tenant_id: MEGA, code: categoria }).first('group_key');
+      const v = validarFirmaPorProveedor({ regla: regla ?? null, grupo: (cat as { group_key?: string } | undefined)?.group_key ?? null, por });
+      if (!v.ok) throw new FirmaRechazada(v.motivo);
+      await this.db('contpaqi.account_rules').where({ tenant_id: MEGA, categoria_code: categoria }).update({
+        tipo_regla: 'por_proveedor', cuenta_prefijo: PREFIJO_GASTO_POR_PROVEEDOR, cuenta_gasto: null, cuenta_nombre: null,
+        estado: 'aprobada', aprobada_por: por, aprobada_en: this.db.fn.now(), updated_at: this.db.fn.now(),
+      });
+      this.fuentes.clear();
+      this.log.log(`regla firmada por proveedor: ${categoria} (${por})`);
+      return this.reglaVista(categoria);
+    });
+  }
+
+  /**
    * `[CP.8.53]` Revocar una firma: la categoría vuelve a `sin_regla` y deja de armarse.
    *
    * ⚠️ Conserva `cuenta_gasto` y `aprobada_por` como **la última firma** (el CHECK lo permite en
@@ -737,9 +849,14 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
         .where({ tenant_id: MEGA, categoria_code: categoria }).first();
       const v = validarRevocacion(regla ?? null, por);
       if (!v.ok) throw new FirmaRechazada(v.motivo);
+      // `[CP.8.87]` Una firma «por proveedor» de gasto, al revocarse, vuelve a la forma por categoría sin cuenta.
+      const deGasto = esGastoPorProveedor(regla);
       await this.db('contpaqi.account_rules')
         .where({ tenant_id: MEGA, categoria_code: categoria })
-        .update({ estado: 'sin_regla', updated_at: this.db.fn.now() });
+        .update(deGasto
+          ? { estado: 'sin_regla', tipo_regla: 'por_categoria', cuenta_prefijo: null, updated_at: this.db.fn.now() }
+          : { estado: 'sin_regla', updated_at: this.db.fn.now() });
+      this.fuentes.clear();
       this.log.log(`regla revocada: ${categoria} (antes ${regla.cuenta_gasto}) por ${por}`);
       return this.reglaVista(categoria);
     });
@@ -898,7 +1015,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     const entregados = new Map<string, number>(
       ((await this.db('contpaqi.poliza_exports')
         .where({ tenant_id: MEGA, periodo: anioMes })
-        .whereIn('evento_tipo', ['bank_lote', 'bank_pago_proveedor'])
+        .whereIn('evento_tipo', ['bank_lote', 'bank_pago_proveedor', 'bank_gasto'])
         .whereIn('estado', ['armada', 'entregada', 'aplicada'])
         .select('evento_tipo', 'evento_id', 'total')) as { evento_tipo: string; evento_id: string; total: string | number }[])
         .map((r) => [`${r.evento_tipo}|${r.evento_id}`, Number(r.total)]),
@@ -1194,7 +1311,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     reglas: Map<string, ReglaCuenta>, indices: Map<string, IndiceProveedores>,
   ): { regla: ReglaCuenta; r: ReturnType<typeof resolverProveedor> } | null {
     const regla = reglas.get(e.categoria_code);
-    if (!regla || regla.tipo_regla !== 'por_proveedor' || !e.cuenta_banco) return null;
+    if (!regla || regla.tipo_regla !== 'por_proveedor' || esGastoPorProveedor(regla) || !e.cuenta_banco) return null;
     const idx = regla.cuenta_prefijo ? indices.get(regla.cuenta_prefijo) : undefined;
     if (!idx) return null;
     const r = resolverProveedor(idx, e.concept);
@@ -1210,7 +1327,8 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
       const egresos = (await this.leerEgresos(anioMes)).filter((e) => e.cuenta_banco);
       const reglas = await this.leerReglas();
       // `[CP.8.81]` El pago de tarjeta no se confirma como pago a proveedor: confirmarlo lo armaría mal.
-      const pagos = egresos.filter((e) => reglas.get(e.categoria_code)?.tipo_regla === 'por_proveedor' && !esPagoDeTarjeta(e.concept));
+      // `[CP.8.87]` El gasto por proveedor no se confirma aquí: confirmarlo lo armaría como compra.
+      const pagos = egresos.filter((e) => reglas.get(e.categoria_code)?.tipo_regla === 'por_proveedor' && !esGastoPorProveedor(reglas.get(e.categoria_code)) && !esPagoDeTarjeta(e.concept));
       if (!pagos.length) return [];
       const movs = pagos.map((e): MovimientoPago => ({ cuenta_banco: e.cuenta_banco, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? '') }));
       const fuente = await this.fuenteDelMes(anioMes, movs);
@@ -1294,6 +1412,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     if (!e) throw new ConfirmacionRechazada('el movimiento no existe');
     if (!e.cuenta_banco) throw new ConfirmacionRechazada('el movimiento no es de una cuenta de banco con cuenta en ContPAQi');
     const regla = (await this.leerReglas()).get(e.categoria_code);
+    if (esGastoPorProveedor(regla)) throw new ConfirmacionRechazada(`el movimiento es un gasto de «${e.categoria_code}»: no se confirma como compra`);
     if (regla?.tipo_regla !== 'por_proveedor') throw new ConfirmacionRechazada(`el movimiento es de «${e.categoria_code}», no un pago a proveedor`);
     if (!(Number(e.amount_out) > 0)) throw new ConfirmacionRechazada('el movimiento no es un egreso');
     return { cuenta_banco: e.cuenta_banco, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? '') };
@@ -1362,6 +1481,36 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
         if (esPagoDeTarjeta(e.concept)) {
           motivosPago.pago_tarjeta = (motivosPago.pago_tarjeta ?? 0) + 1;
           estados?.set(String(e.id), { motivo: 'pago_tarjeta', clave: k });
+          continue;
+        }
+        // `[CP.8.87]` Gasto con factura: una póliza por pago, con la cuenta que su proveedor ya usó.
+        if (esGastoPorProveedor(reglas.get(e.categoria_code))) {
+          const rg = reglas.get(e.categoria_code)?.estado === 'aprobada'
+            ? (fuente ? fuente.resolverGasto(aMovimiento(e)) : { estado: 'sin_resolver' as const, motivo: 'sin fuente' })
+            : { estado: 'sin_resolver' as const, motivo: 'la categoría no está firmada' };
+          let mg: string;
+          if (rg.estado === 'armable') {
+            try {
+              const concepto = `PAGO ${String(e.concept ?? '').trim() || 'GASTO'}`;
+              const a = armarGastoConFactura({ ...rg.entrada, concepto });
+              estados?.set(String(e.id), { motivo: null, clave: `gasto|${e.id}` });
+              out.push({
+                evento_tipo: 'bank_gasto', clave: String(e.id), asiento: a, uuids: a.uuids,
+                resumen: {
+                  cuenta_banco, banco_label, fecha, movimientos: 1, incluidas: 1, renglones: a.movimientos.length,
+                  total: a.total, iva_traspaso: null, motivos: {}, tipo: 'gasto_proveedor', fuente: null, cfdis: a.uuids.length,
+                  clave: `gasto|${e.id}`,
+                },
+              });
+              continue;
+            } catch (err) {
+              mg = err instanceof AsientoRechazado ? `gasto_${err.motivo}` : 'gasto_error';
+            }
+          } else {
+            mg = rg.estado === 'a_confirmar' ? 'gasto_a_confirmar' : 'gasto_sin_proveedor';
+          }
+          motivosPago[mg] = (motivosPago[mg] ?? 0) + 1;
+          estados?.set(String(e.id), { motivo: mg, clave: k });
           continue;
         }
         // `fuente` existe siempre que haya pagos a proveedor: se cargó con todos ellos arriba.
@@ -1462,7 +1611,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     };
 
     const conAsiento = out.filter((l) => l.resumen.incluidas > 0).length;
-    const pagos = out.filter((l) => l.evento_tipo === 'bank_pago_proveedor').length;
+    const pagos = out.filter((l) => l.evento_tipo === 'bank_pago_proveedor' || l.evento_tipo === 'bank_gasto').length;
     this.log.log(`lotes ${anioMes}: ${out.length - pagos} (banco × día) + ${pagos} pagos a proveedor completos de ${movsPago.length}`
       + ` · ${conAsiento} con asiento · ${fuera.movimientos} fuera de lote (${cuentas.map((c) => c.cuenta).join(', ') || '—'})`);
     return { lotes: out, fuera_de_lote: fuera };

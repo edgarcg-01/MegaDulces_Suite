@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2080 KB, 13008 líneas, 72 secciones.
+> **Índice navegable** — 2087 KB, 13012 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -50,35 +50,35 @@
 | 7660 | 7692 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
 | 7693 | 8082 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
 | 8083 | 8214 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 8215 | 8264 | 25 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 8265 | 8304 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 8305 | 8357 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 8358 | 8424 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 8425 | 8587 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 8588 | 8871 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 8872 | 9039 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 9040 | 11373 | 179 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11374 | 11382 | 1 | Fase RR — Ventas por ruta |
-| 11383 | 11678 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11679 | 11689 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11690 | 11710 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11711 | 11721 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11722 | 11733 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11734 | 11793 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11794 | 12221 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 12222 | 12236 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 12237 | 12278 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 12279 | 12428 | 65 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12429 | 12459 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12460 | 12507 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12508 | 12537 | 28 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12538 | 12567 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12574 | 12583 | 1 | 📝 Convenciones |
-| 12584 | 12621 | 13 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12622 | 12640 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12641 | 12693 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12694 | 13061 | 45 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 13062 | 13092 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 8215 | 8267 | 30 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 8268 | 8307 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 8308 | 8360 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8361 | 8427 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8428 | 8590 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8591 | 8874 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8875 | 9042 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 9043 | 11376 | 179 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11377 | 11385 | 1 | Fase RR — Ventas por ruta |
+| 11386 | 11681 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11682 | 11692 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11693 | 11713 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11714 | 11724 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11725 | 11736 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11737 | 11796 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11797 | 12224 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 12225 | 12239 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 12240 | 12281 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12282 | 12431 | 65 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12432 | 12462 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12463 | 12510 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12511 | 12540 | 28 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12541 | 12570 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12577 | 12586 | 1 | 📝 Convenciones |
+| 12587 | 12624 | 13 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12625 | 12643 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12644 | 12696 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12697 | 13065 | 46 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 13066 | 13096 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -13047,7 +13047,8 @@ entregada» el cuadre nunca tiene qué buscar. Firmas pendientes **D1–D5** (§
 - [ ] 🔨 `[CP.8.83]` C0 — **El universo desde el lado de la contadora** (`database/scripts/universo-egresos-contpaqi.js`): de 4,625 pólizas de egreso ene–sep 2026 el puente cubre **899 (19.4 %)**; el 91 % de `[CP.8.81]` era precisión, no cobertura — por eso se escapó la de Oscar Hernández (Mant. eq. de reparto, sin categoría). Resto: sin centro de costo 1,050 · sin movimiento de banco 717 ($76.1 M) · sin categoría 548 · a confirmar 461 ($121.0 M) · sin regla 459 · no cuadra 281 ($67.2 M). ⭐ Gasto 52xx: 1,292/1,594 con CFDI, una póliza por pago → el lote «banco × día» de gastos no es su forma; rediseñar antes de firmar reglas de gasto.
 - [x] 🧪 `[CP.8.84]` C1 — **Pagos a proveedor que no se arman solos** (876 ene–sep, `database/scripts/pagos-sin-armar-contpaqi.js`): causa #1 «ella aplicó notas» 444 / $134.2 M, y **el 60 % de sus notas tiene fecha POSTERIOR al pago** (335/557; el puente sólo buscaba hacia atrás). Ahora: notas hasta 31 días después, sin reusar las ya aplicadas, y las que el XML liga a la factura se aplican solas (27/27 ligan bien). A/B 91.0 % (820/901, +4 armadas); en «Pagos por confirmar» sus notas aparecen en 384/483 pagos (antes 175). Descartado medido: combinación de notas por importe (56 %) y armar con la sugerencia (24 %).
 - [x] 🧪 `[CP.8.85]` C0 — **Pólizas de egreso sin movimiento de banco que case** (`database/scripts/egresos-sin-banco-contpaqi.js`): 717 ($76.1 M) → **527 ($31.0 M)** al reconocer que ella AGRUPA (comisiones bancarias: una póliza por banco al cierre del mes, hasta 777 renglones; combustible por semana). Para Finanzas: faltan estados de cuenta de **Santander 2169 y 1604 de mayo 2026** (159 pólizas, $12.1 M) y Bajío 3660 de abril/junio/septiembre. Resto 368 pólizas / $18.9 M sin investigar. ⚠️ Diseño del armado de gastos: comisiones por banco × MES, no × día.
-- [ ] 🔨 `[CP.8.86]` C1 — **Rediseño del armado de gastos, medido antes de escribirlo**: la cuenta 52xx la decide el PROVEEDOR (historia del RFC 93.0 %, placebo 9.0 %; por categoría no hay regla concluyente). Simulación «gasto con factura» ene–sep 2026: arma 276 de 980 egresos de gasto con **89.1 % iguales** a la contadora; el freno es el RFC (concepto sin nombre: 468). RFC por importe +91 al 75 % (sugerir, no armar). Comisiones: banco × mes. ⚠️ Falta decisión del PM: autoridad para armar por historia del RFC (¿firma por categoría «por proveedor»?).
+- [ ] 🧪 `[CP.8.86]` C1 — **Rediseño del armado de gastos, medido antes de escribirlo**: la cuenta 52xx la decide el PROVEEDOR (historia del RFC 93.0 %, placebo 9.0 %; por categoría no hay regla concluyente). Simulación «gasto con factura» ene–sep 2026: arma 276 de 980 egresos de gasto con **89.1 % iguales** a la contadora; el freno es el RFC (concepto sin nombre: 468). RFC por importe +91 al 75 % (sugerir, no armar). Comisiones: banco × mes. Decisión del PM (D10, 2026-10-23): el contador firma la categoría «por proveedor» una vez; lo implementa `[CP.8.87]`.
+- [ ] 🧪 `[CP.8.87]` C1+C2 — **Gasto con factura «por proveedor»** (F-D, D10): el contador firma una categoría de gasto una vez y cada pago toma la cuenta 52 que su proveedor ya usó en ContPAQi. 🧪 **2026-10-31, adoptado** (era de otra sesión, sin commitear desde el 23-oct): `gasto-con-factura.ts` (una póliza por pago; no arma con retención, con una cuenta que no es 52 ni si las facturas no dan lo pagado), `cotejo.ts` (la regla de la prueba A/B, en el producto), `resolverGasto` en la fuente, `GET reglas/:categoria/prueba-por-proveedor` (la evidencia; no escribe) y `POST …/firma-por-proveedor` (`_GESTIONAR`, con autor). **Medido en prod, sólo lectura, ene–sep:** sin firmar nada, las 1,010 pólizas armadas salen idénticas (894 iguales, 90.1 %) y 8 de 819 pagos no armados cambian de motivo (una factura que ella asentó como gasto ahora cuenta como pagada). Firmando en memoria todo el grupo gasto: gasto admin 16 de 16 iguales, traslado de valores 6 de 6, compras con tarjeta 4 de 14 (ella las agrupa), comisiones 0 de 11 (van por mes): **se firma categoría por categoría, con la prueba a la vista**. Hoy no hay ninguna firmada así: desplegarlo no cambia ningún armado. `test-newdb-contpaqi-firma.js` 43 ✓ contra base local (firmar, dos veces, categoría ajena, revocar, el CHECK de la base, el egreso que no se arma con su motivo), tres mutantes muertos; specs 166/166. Falta: la pantalla para firmar (C3) y su prueba con el payload de la pantalla. [§11.11](FASES/FASE_CP8_ATERRIZAJE.md).
 
 **📍 Plan de entrega automática (2026-10-29)** — [`FASE_CP8_ATERRIZAJE.md` §11](FASES/FASE_CP8_ATERRIZAJE.md). Hoy: 0 pólizas entregadas; ella teclea ~900/mes; octubre lleva $44.3 M de banco sin póliza.
 - [ ] ⬜ Sesión de 45 min en la terminal `.208` (necesita D1; sin código nuevo): cierra `[CP.8.40]` sondeo del SDK + `[CP.8.55]` prueba A/B + `[CP.8.56]` reacotado al primer lote real de pago a proveedor → ≥ 1 `aplicada`. (`[CP.8.87]` es el gasto con factura «por proveedor» de otra sesión.)

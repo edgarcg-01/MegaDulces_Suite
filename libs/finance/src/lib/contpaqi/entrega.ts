@@ -23,7 +23,8 @@ import { guidDe, tokenDe } from './token';
  * `[CP.8.72]` Qué es cada póliza del archivo: el lote del día (banco × día) o un pago a proveedor armado
  * completo (una póliza por pago, como la hace la contadora). El cuadre las busca por `(evento_tipo, evento_id)`.
  */
-export type EventoArchivo = 'bank_lote' | 'bank_pago_proveedor';
+/** `[CP.8.87]` `bank_gasto` = un gasto pagado con factura, una póliza por pago (como el pago a proveedor). */
+export type EventoArchivo = 'bank_lote' | 'bank_pago_proveedor' | 'bank_gasto';
 
 export interface LoteArchivo {
   /** `cuenta_banco|fecha` del lote, o el id del movimiento del pago — el `evento_id`, el mismo que usa el sink. */
