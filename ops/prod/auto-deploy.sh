@@ -48,6 +48,18 @@ REPO_DIR="${AUTO_DEPLOY_REPO:-$HOME/auto-deploy/repo}"
 REMOTO="git@github.com:edgarcg-01/MegaDulces_Suite.git"
 RAMA="${AUTO_DEPLOY_BRANCH:-main}"
 LLAVE="${AUTO_DEPLOY_KEY:-$HOME/.ssh/deploy_md}"
+# `[OPS.CI.1]` De dónde salen las imágenes de las cuatro apps: `local` (docker build acá, como
+# siempre) o `ghcr` (las construyó el workflow «Imágenes (GHCR)»; acá sólo se descargan — sin
+# build en el servidor de prod no hay OOM del build ni caché de 80 GB). Se lee de
+# `~/ops/prod/vigia.env` EN CADA corrida: el vigía lee ese archivo una sola vez al arrancar y
+# reiniciarlo pide sudo, así que se prende y se apaga sin tocar el servicio.
+IMAGENES="${AUTO_DEPLOY_IMAGENES:-}"
+if [ -z "$IMAGENES" ] && [ -f "$HOME/ops/prod/vigia.env" ]; then
+  IMAGENES=$(sed -n 's/^[[:space:]]*AUTO_DEPLOY_IMAGENES=//p' "$HOME/ops/prod/vigia.env" | tail -1 | tr -d "\"' ")
+fi
+IMAGENES="${IMAGENES:-local}"
+GHCR="${AUTO_DEPLOY_GHCR:-ghcr.io/edgarcg-01}"
+GHCR_ESPERA_MIN="${AUTO_DEPLOY_GHCR_ESPERA_MIN:-30}"
 # `[VL.20.4]` `SERVICIOS` YA NO SE FIJA ACÁ: se calcula más abajo, cuando ya se sabe contra qué
 # commit comparar (api y worker siempre; portal y vendedor sólo si cambiaron). Dejarlo también
 # acá daría dos fuentes de verdad para lo mismo. `AUTO_DEPLOY_SERVICIOS` sigue mandando.
@@ -657,6 +669,37 @@ fi
 # ella sola. La lista sale de los manifiestos, que son la fuente de la verdad de qué se pide.
 _k3s_fija=$(sed -n 's#^[[:space:]]*image:[[:space:]]*localhost:5000/\([A-Za-z0-9._-]*\):__COMMIT__.*#\1#p' \
               "${K3S_DIR:-$HOME/ops/k3s}"/*.yaml 2>/dev/null | sort -u || true)
+
+# ── `[OPS.CI.1]` Traer de GHCR en vez de construir ──────────────────────────────────────────
+# Se pide por el sha COMPLETO (sin ambigüedad de abreviatura) y se ESPERA: el CI publica unos
+# minutos después de sellar y `soltar` puede llegar antes. ⛔ Se VERIFICA el `GIT_COMMIT_SHA`
+# horneado contra `DESEADO`: es lo que `/api/health` va a contestar y lo que la verificación de
+# abajo compara — una imagen con otro sello haría ver como fallido un despliegue que sí corrió.
+# No hay vuelta silenciosa a `docker build`: si GHCR no la tiene, se frena y se dice (para
+# construir acá, `AUTO_DEPLOY_IMAGENES=local`).
+SHA_COMPLETO=$(git rev-parse HEAD)
+traer_de_ghcr() { # traer_de_ghcr <img>
+  _ref="$GHCR/$1:$SHA_COMPLETO"
+  _fin=$(( $(date +%s) + GHCR_ESPERA_MIN * 60 ))
+  di "trayendo $1:$DESEADO de GHCR — la construyó el CI"
+  until docker pull -q "$_ref" >"/tmp/auto-pull-$1.log" 2>&1; do
+    if [ "$(date +%s)" -ge "$_fin" ]; then
+      di "FALLO: GHCR no tiene $_ref tras ${GHCR_ESPERA_MIN} min — $(tail -1 "/tmp/auto-pull-$1.log")"
+      di "  ¿corrió «Imágenes (GHCR)» para este commit? ¿el paquete es público?"
+      latir error "GHCR sin $1:$DESEADO tras ${GHCR_ESPERA_MIN} min"; return 1
+    fi
+    sleep 30
+  done
+  _sello=$(docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$_ref" 2>/dev/null \
+             | sed -n 's/^GIT_COMMIT_SHA=//p')
+  if [ "$_sello" != "$DESEADO" ]; then
+    di "FALLO: la imagen de GHCR dice GIT_COMMIT_SHA=${_sello:-vacío} y este despliegue es $DESEADO"
+    latir error "sello de $1 en GHCR (${_sello:-vacío}) distinto de $DESEADO"; return 1
+  fi
+  docker tag "$_ref" "$1:$DESEADO" && docker tag "$_ref" "$1:latest"
+}
+[ "$IMAGENES" = ghcr ] && di "imágenes de las apps: GHCR ($GHCR), no se construye acá"
+
 for s in api worker portal vendor; do
   img=$(img_de "$s"); [ -n "$img" ] || continue
   # Entra si cambió, O si un manifiesto de K3s la va a pedir en este commit.
@@ -668,6 +711,10 @@ for s in api worker portal vendor; do
     else
       continue
     fi
+  fi
+  if [ "$IMAGENES" = ghcr ]; then
+    traer_de_ghcr "$img" || exit 1
+    continue
   fi
   di "construyendo $img:$DESEADO"
   if ! docker build -q -f Dockerfile --target "runner-$s" \
