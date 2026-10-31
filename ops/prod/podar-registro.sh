@@ -32,7 +32,13 @@
 set -u
 RETENER="${RETENER_REG:-5}"
 REG="${REGISTRO_URL:-http://localhost:5000}"
-CONT="${REGISTRO_CONTENEDOR:-prod-registry}"
+# ⛔ `[OPS.DISCO.4b]` 2026-10-31: el registro corre en k3s (pod `registry`, OPS.LIMPIEZA.8) desde el
+# 2026-10-20, y este script seguía haciendo `docker exec prod-registry` — el contenedor de Compose,
+# `Exited` desde ese día. Nunca llegó a agendarse, así que nadie lo notó: el registro creció de
+# 34.5 a 47.4 GB (183 etiquetas de `api`). Ahora todo pasa por el pod.
+REG_NS="${REGISTRO_NS:-prod}"
+REG_DEPLOY="${REGISTRO_DEPLOY:-registry}"
+en_registro() { k3s kubectl exec -n "$REG_NS" "deploy/$REG_DEPLOY" -- "$@"; }
 LOCK="${REGISTRO_LOCK:-/tmp/auto-deploy.lock}"
 TENANT="${CRON_TENANT_ID:-00000000-0000-0000-0000-00000000d01c}"
 APLICAR=0; [ "${1:-}" = "--aplicar" ] && APLICAR=1
@@ -62,7 +68,7 @@ ON CONFLICT (tenant_id, job_key) DO UPDATE
 SQL
 }
 
-peso_gb() { docker exec "$CONT" du -sm /var/lib/registry 2>/dev/null | awk '{printf "%.1f", $1/1024}'; }
+peso_gb() { en_registro du -sm /var/lib/registry 2>/dev/null | awk '{printf "%.1f", $1/1024}'; }
 digest_de() { # digest_de <repo> <tag>
   curl -fsS -I -H "$ACEPTA" "$REG/v2/$1/manifests/$2" 2>/dev/null \
     | awk -F': ' 'tolower($1)=="docker-content-digest"{gsub("\r","",$2); print $2}'
@@ -78,12 +84,19 @@ if [ -z "$EN_USO" ]; then
 fi
 
 p0=$(peso_gb)
+# Sin peso no hay pod alcanzable: seguir sería «podar» una lista vacía y latir ok sin haber hecho nada,
+# que es exactamente como pasó desapercibido el `docker exec` contra un contenedor muerto.
+if [ -z "$p0" ]; then
+  di "⛔ no se pudo leer el registro (deploy/$REG_DEPLOY en $REG_NS) — se aborta sin borrar nada"
+  latir error "NO MEDIDO: el pod del registro no respondió; no se borró nada"
+  exit 1
+fi
 di "registro ${p0}GB · $(echo "$EN_USO" | wc -l) imágenes en uso por k3s · retener $RETENER por repo · $( [ $APLICAR = 1 ] && echo APLICANDO || echo SIMULACIÓN )"
 
 borrados=0; conservados=0; fallos=0
-for repo in $(docker exec "$CONT" ls "$RAIZ" 2>/dev/null); do
+for repo in $(en_registro ls "$RAIZ" 2>/dev/null); do
   # Etiquetas de la más nueva a la más vieja (mtime del enlace de la etiqueta = cuándo se subió).
-  tags=$(docker exec "$CONT" ls -t "$RAIZ/$repo/_manifests/tags" 2>/dev/null)
+  tags=$(en_registro ls -t "$RAIZ/$repo/_manifests/tags" 2>/dev/null)
   [ -n "$tags" ] || continue
   # 1) Qué se conserva: las N más nuevas + las que usa k3s + latest. Se juntan sus DIGESTS.
   keep_d=""; i=0; b_repo=0
@@ -118,8 +131,15 @@ if [ "$APLICAR" != 1 ]; then
 fi
 
 di "manifiestos borrados: $borrados · conservados: $conservados · fallos: $fallos — recolectando blobs…"
-docker exec "$CONT" registry garbage-collect /etc/docker/registry/config.yml >/dev/null 2>&1 \
+en_registro registry garbage-collect /etc/docker/registry/config.yml >/dev/null 2>&1 \
   || { di "⛔ garbage-collect falló"; latir error "borrados $borrados manifiestos pero garbage-collect FALLÓ: no se liberó espacio"; exit 1; }
+# ⛔ El registro trae `cache: blobdescriptor: inmemory`: después del GC sigue «recordando» blobs que
+# ya no están en disco, y un push posterior puede saltarse la subida de una capa que ya no existe
+# (imagen rota que se descubre al desplegar). Reiniciar el pod vacía esa caché. Es `Recreate`:
+# unos segundos sin registro, que sólo afectan a un pull — y estamos bajo el candado de despliegue.
+k3s kubectl rollout restart -n "$REG_NS" "deploy/$REG_DEPLOY" >/dev/null 2>&1 \
+  && k3s kubectl rollout status -n "$REG_NS" "deploy/$REG_DEPLOY" --timeout=180s >/dev/null 2>&1 \
+  || { di "⛔ el registro no volvió tras el reinicio"; latir error "GC hecho pero el registro NO volvió del reinicio — revisar deploy/$REG_DEPLOY"; exit 1; }
 p1=$(peso_gb)
 nota="registro ${p0}→${p1}GB · $borrados manifiestos borrados · $conservados conservados · $fallos fallos (retener $RETENER + lo que usa k3s)"
 di "$nota"
