@@ -3,6 +3,10 @@ import {
   Fiel, FielRequestBuilder, Service, CResponse, WebClientException,
   QueryParameters, DateTimePeriod, DownloadType, RequestType, DocumentStatus,
 } from '@nodecfdi/sat-ws-descarga-masiva';
+// ⛔ `sat-ws-descarga-masiva` v2 pide `@nodecfdi/cfdi-core` como PEER, y la imagen de la API sólo
+// instala lo que el grafo de imports usa (`generatePackageJson`): sin este import la imagen nació sin
+// él y la API no arrancó (2026-10-30, `906eac01f`: ERR_MODULE_NOT_FOUND, CrashLoopBackOff).
+import '@nodecfdi/cfdi-core';
 import { SatSoapPort } from './sat-soap.port';
 import { AuthToken, EfirmaMaterial, SolicitaParams, SolicitaResult, VerificaResult } from './sat-ws.types';
 
