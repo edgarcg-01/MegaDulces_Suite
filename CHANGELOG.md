@@ -9,6 +9,16 @@
 ---
 
 ## [Unreleased]
+### Added — Pagos: el sistema dice **qué pagar**, sin que nadie se lo pida (PGP.41 / PGP.42, 2026-10-31)
+- Al abrir el Calendario, el panel responde la pregunta de todos los días: **«pagando $9,196,114.81 a 32 acreedores esta semana se ganan $507,960.87 de pronto pago»**, con quién cierra hoy, quién mañana y a quién se le puede preparar la transferencia ya.
+- Antes había que abrir el día y apretar «proponer», y la propuesta ordenaba por la factura más vieja — que **nunca llegaba** a lo que gana descuento.
+- **Los días sin tope dejan de salir vacíos.** La pantalla decía «se pueden armar pagos» y el sistema no proponía ninguno: eran **2 de los 7 días** de la semana. Ahora propone, dice que no puede afirmar qué cabe sin presupuesto, y **no marca nada solo**: elegir cuánto gastar sin tope sería decidir por Presupuestos.
+- ⛔ Los **préstamos de socios ($14,480,000, vencidos hace 22 meses)** salen de la propuesta de pago a proveedores: no son deuda comercial, encabezaban cualquier orden por antigüedad y nunca cabían en un día. Siguen enteros en su estado de cuenta de acreedor.
+- ⚠️ El descuento es lo que **de hecho** se cobró con cada proveedor, no una condición pactada: guía medida, no promesa.
+
+### Fixed — Pagos: el renglón volvió a decir a quién se le paga (PGP.40, 2026-10-31)
+- Los pagos cuya factura el ERP ya no debe mostraban **«—» en el beneficiario** y «Sin sucursal». El nombre nunca se perdió: estaba en el ERP y en nuestro catálogo, y ahora se recupera.
+- Y la pantalla **dejó de pedir que se prepare un pago que ya sabe que va a fallar**: si ninguna de sus facturas se debe, lo que ofrece es sacarlo del día.
 ### Fixed — Cortes/Sucursales: «Declarado» ahora es lo que declaró el cajero (CSU.16, 2026-10-30)
 - En **Finanzas › Cortes/Sucursales**, el detalle del corte compara **Esperado** (lo que dice el sistema) contra **Declarado** (lo que contó el cajero en su arqueo ciego de la tienda). Antes la columna «Declarado» repetía otro número de Kepler, idéntico al esperado en el 85 % de los cortes.
 - Lo que declaró el cajero se desglosa: cajón, retiros (contra lo que Kepler registra como retirado), créditos y cheques, tarjeta y transferencia. También se dice cuándo se capturó el cierre y cómo se ligó al turno.
