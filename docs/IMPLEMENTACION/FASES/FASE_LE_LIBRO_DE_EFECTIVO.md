@@ -381,6 +381,49 @@ con quien opera la máquina antes de escribir su regla.
 | E-25 | Cobro o hecho de Kepler cancelado o corregido | Kepler | reversa del asiento + asiento de la versión nueva + hallazgo | automática | Kepler |
 | E-26 | Reversa | persona | espejo exacto del original | **siempre** cuatro ojos | — |
 | E-27 | Apertura | reconstrucción (E3) | + cuentas físicas / − Apertura | PM + segunda firma | conteos de la fecha de apertura |
+| E-28 | Reposición a sucursal o zona (sus gastos pagados con su venta) | solicitud de Caja General: N pagos X-D-26 de Kepler + con qué se repone | + Egresos · reposición (por pago) / − Bóveda (retiro de CAOS, piezas) y, si falta, − Caja · pesos (piezas) | **siempre** cuatro ojos: arma Caja General, autoriza tesorería | X-D-26 de Kepler + depósito en la cuenta de la zona |
+
+### 5.1 E-28 · La reposición, rehecha dentro del libro (2026-10-30)
+
+**Por qué está aquí.** El 29 y 30-oct la reposición de zona se construyó como módulo aparte
+(`[CGA-A.65]`: «hoja de gastos de zona») **sobre el núcleo viejo** (`finance.cash_ledger`), en
+paralelo a esta fase. El resultado, medido en prod el 30-oct:
+
+- **Seis piezas contestaban la misma pregunta** («¿qué retiro explica este pago?»): la hoja abierta,
+  Reposición por sucursal, el candado del lote, «en hoja», «por hoja» y «antes de la hoja». Decidían
+  distinto, y 232 pagos de Morelia quedaron sin pantalla que los resolviera.
+- **El arranque de cada zona era una constante en el código**: moverlo cambió el pasado sin firma.
+- **Un conteo inventado**: columnas `conteo` en la hoja, en vez de las piezas que este libro ya exige
+  en toda línea del cajón (I2).
+- **Se endureció la base antes de que el código la cumpliera**: el disparador exigió el conteo con la
+  API vieja en prod y pagar con cajón dejó de funcionar.
+
+**El diseño.** La reposición no es un módulo: es el hecho E-28 de este libro, con el camino único de
+escritura (§4.5), las solicitudes de §4.6 y las invariantes de §4.4.
+
+| Pieza | Cómo es | Qué reemplaza |
+|---|---|---|
+| **El destino de un pago** | una sola función pura, en `libs/`, que dice para cada X-D-26 de efectivo: va en una reposición · ya explicado (con qué asiento) · no se repone (motivo: nómina, apoyo, compra registrada, comisiones) · anterior al arranque. **Todas** las pantallas y el candado la llaman | la hoja abierta, `porHoja`, `requisitoDeHoja` y el apartado de Reposición |
+| **La zona** | catálogo con firma (`cashbook` · zonas: sucursales, arranque, cuenta de depósito, quién la dio de alta y cuándo). Cambiar el arranque es una solicitud | `ZONAS_HOJA_GASTOS` en el código |
+| **La solicitud** | §4.6 con tipo `reposicion`: los pagos (por llave de Kepler, nunca importes tecleados), el retiro de CAOS y lo que pone el cajón **en piezas** (I2). Arma Caja General; autoriza tesorería; quien autoriza no registra | `finance.expense_sheets` y sus estados |
+| **El asiento** | al autorizar, `post_entry` escribe un asiento: un débito por pago, crédito a Bóveda por el retiro (piezas de la máquina) y, si falta, a Caja por las piezas contadas. Suma cero por moneda y por denominación (I1–I3) | el lote de captura, los vínculos a mano y `cuadreDelRetiro` |
+| **El conteo** | no hay conteo aparte: las piezas de la línea del cajón **son** el conteo (I2), y el arqueo ciego del cierre las contrasta (E-19) | `expense_sheets.conteo` y su disparador |
+| **El testigo** | E3 contrasta cada reposición contra Kepler (los X-D-26) y contra el depósito de la cuenta de la zona; lo que no cuadra abre hallazgo (I17) | `depositoDeHoja` |
+| **La historia** (octubre) | E3 reconstruye: cada retiro «gnf…» sin explicar contra los pagos de su hoja en papel, con firma; lo de antes de que Caja General llevara la zona se declara en la apertura (E-27) | los 99 pagos «a registrar» y los 108 «declarados» |
+
+**Orden de entrega (no negociable, aprendido el 30-oct).** 1) la función de destino y la vista,
+sólo lectura; 2) la solicitud y el asiento, probados de punta a punta contra base real con el payload
+de la pantalla; 3) la pantalla; 4) **al final** la regla dura en la base, cuando `/api/health` ya
+sirve el código que la cumple. Ninguna migración exige algo que el código desplegado no manda.
+
+**Mientras tanto.** La hoja de `[CGA-A.65]` queda **congelada como está**: opera para pagar lo del
+día, sin funciones nuevas. Sus tablas no se borran (regla 5): en E3 son evidencia y en E7 se
+congelan, como el resto del núcleo viejo.
+
+**Decisiones del PM.** D-R1: ¿toda reposición se autoriza, o sólo arriba de un umbral (D3)? Se
+recomienda **toda**: el retiro de reposición es el que hoy explica el 7 % de los retiros. D-R2: la
+historia de octubre ¿se reconstruye en E3 o se declara en la apertura? Se recomienda **reconstruir**
+desde el 12-oct (primer día que Caja General capturó Morelia) y declarar lo anterior.
 
 ---
 
