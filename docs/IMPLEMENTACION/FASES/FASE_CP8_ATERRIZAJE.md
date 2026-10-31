@@ -1149,6 +1149,8 @@ falta uno nuevo.
   renglones de banco con 95.6 % de precisión (placebo 5.2 %).
 - **2026-10-31** — `[CP.8.91]` C2 🧪 (§11.13): registrado. Con la categoría firmada, las comisiones van en una póliza
   por banco y mes; septiembre (firma simulada en memoria): 9 pólizas, las 9 frenadas porque ella ya las capturó.
+- **2026-10-31** — `[CP.8.96]` C0 de cobranza (§11.14): su forma está medida y el reparto por tasa de la tienda sale de
+  los tickets de Kepler; todavía no se puede armar (de qué sucursal es cada depósito, TLMKT y rutas, huecos del ODS).
 
 ---
 
@@ -1713,3 +1715,48 @@ dictamen que no busca la agrupada, lo entregado que no se reconoce, la marca que
 **Lo que sigue:** que contabilidad firme `comision_bancaria` con su cuenta (5200650000 en las 117 pólizas suyas), la
 pantalla, y que Finanzas cargue los estados que faltan y recategorice las comisiones que están como «compra con
 tarjeta» o sin categoría.
+
+### 11.14 🔨 `[CP.8.96]` Cobranza «VENTAS <sucursal>» (F-E): C0, medida antes de armar (2026-10-31)
+
+La familia más grande que queda: 2,400 a 2,900 depósitos al mes. Medido en prod, sólo lectura, enero a septiembre.
+
+**Su forma:**
+- Una póliza de **ingreso** (tipo 1) por **sucursal y canal** y mes: «VENTAS 8 ESQUINAS», «VENTAS TLMKT CANINDO», «VENTAS
+  RUTAS»… (10 a 13 al mes, fechadas a fin de mes).
+- **Cargos:** uno al banco por depósito. Todas sus pólizas tocan varios bancos.
+- **Abonos:** **un trío por día** —clientes 0 %, clientes con IVA, IEPS de clientes— a las cuentas de esa sucursal o canal
+  (65 cuentas distintas). No es un trío por depósito: hay 0.45 abonos de clientes por depósito y ningún trío suma un
+  depósito. Hay además caja, otros ingresos y no deducibles en algunos renglones.
+- El reparto por tasa **no es una proporción fija**: cambia por sucursal y por mes (Zamora: del 40 al 63 % al 0 %).
+
+**De dónde sale el trío (la hipótesis medida):** la venta del día por tasa. En 8 Esquinas, que no tiene otro canal, contra
+los tickets de mostrador de Kepler (`analytics.erp_sale_tickets`; 0 % = total − base al 16 % − IVA − IEPS):
+
+| 8 Esquinas | Sus renglones por cuenta | Σ ella / Σ tickets | Días que casan al peso (0 % / IVA / IEPS) | Placebo (mes siguiente) |
+|---|---|---:|---|---|
+| Julio | 32 | 1.035 | 14 / 20 / 15 de 31 | 0 / 0 / 1 |
+| Agosto | 31 | 0.999 | 13 / 17 / 15 de 31 | 0 / 0 / 1 |
+| Septiembre | 30 | 0.998 | 12 / 16 / 14 de 30 | 0 / 0 / 0 |
+
+O sea: el trío diario es la venta de mostrador del día. Casa al peso la mitad de los días; la regla exacta del reparto
+(base al 16 % por IVA contra la tasa de cada renglón, devoluciones, fecha de negocio) falta afinarla.
+
+**Por qué todavía no se puede armar:**
+1. **De qué sucursal es cada depósito.** Las 17 cuentas de banco que reciben cobranza las usan de 10 a 14 sucursales o
+   canales cada una: la cuenta no lo dice. Hace falta la liga depósito → corte → sucursal (¿Cortes/Sucursales, la
+   cobranza de Kepler?). NO MEDIDO.
+2. **TLMKT y rutas no salen de los tickets de mostrador.** En Padre Hidalgo, su póliza de tienda es el 89–90 % de los
+   tickets y la de TLMKT otro 62–85 % encima: viene de otros documentos de Kepler. NO MEDIDO.
+3. **La cobertura de tickets en el ODS tiene huecos:** en agosto Canindo da 1.89 veces lo de los tickets y Morelia
+   Abastos y Madero no tienen tickets; en septiembre Morelia Abastos da 2.48 veces. Cuadra con el hueco conocido de
+   `kdm2` por `ctid` en esas sucursales. Armar con eso inventaría la venta que falta.
+4. **La cuenta de la sucursal no es su código de Kepler** (Morelia Madero es la 07 en Kepler y la 08 en sus cuentas): el
+   mapeo sale de su historia, como el de proveedores.
+
+`analytics.caja_depositos` y `analytics.caja_ventas_diarias` sí ligan depósitos y ventas diarias, pero son del Access
+viejo de Caja General (casi sólo enero) y de importer: no son fuente.
+
+**Lo que sigue (C0, cada uno una medición):** la liga depósito → sucursal; el origen de la venta diaria de TLMKT y rutas;
+la cobertura de tickets por sucursal y mes; y la regla exacta del reparto por tasa hasta que casen casi todos los días.
+Con eso se decide si F-E se arma o se cambia el proceso. El duplicado de una póliza de ingreso también necesitará su
+regla en el dictamen.
