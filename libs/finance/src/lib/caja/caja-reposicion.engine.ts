@@ -1,5 +1,5 @@
 import {
-  SUCURSAL_CAJA_GENERAL, WAREHOUSE_DISPLAY_ORDER, diaMxDeInstante, pagableConBilletesCaos, warehouseName,
+  SUCURSAL_CAJA_GENERAL, WAREHOUSE_DISPLAY_ORDER, diaMxDeInstante, pagableConBilletesCaos, warehouseName, zonaDeSucursal,
   type AfinidadRetiro, type ClaseReposicion, type EstadoDocReposicion, type ReposicionAsignacion,
   type ReposicionDoc, type ReposicionGrupo, type ReposicionPropuesta, type ReposicionRetiro,
   type ReposicionSucursales, type ReposicionVinculo, type AprobacionPago,
@@ -315,6 +315,7 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
   const docs: DocInterno[] = [];
   const vistos = new Set<string>();
   const enHoja = new Map<string, { n: number; total: number }>();
+  const antesDeHoja = new Map<string, { n: number; total: number; desde: string }>();
   for (const k of e.docs) {
     if (vistos.has(k.origen_ref)) continue;
     vistos.add(k.origen_ref);
@@ -328,6 +329,14 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
     if (zona && sinSalir) {
       const a = enHoja.get(zona.clave) ?? { n: 0, total: 0 };
       enHoja.set(zona.clave, { n: a.n + 1, total: redondea2(a.total + d.monto) });
+      continue;
+    }
+    // `[CGA-A.65]` De una sucursal que se repone por hoja, de ANTES de su arranque y nunca capturado:
+    // ni hoja ni reposición (capturarlo hoy cae en el corte de hoy). Se declara, no se lista como trabajo.
+    const zonaSuc = e.apartarHojas && porHoja(d.sucursal) ? zonaDeSucursal(d.sucursal) : null;
+    if (zonaSuc && d.estado === 'por_capturar' && d.dia < zonaSuc.desde) {
+      const a = antesDeHoja.get(zonaSuc.clave) ?? { n: 0, total: 0, desde: zonaSuc.desde };
+      antesDeHoja.set(zonaSuc.clave, { ...a, n: a.n + 1, total: redondea2(a.total + d.monto) });
       continue;
     }
     docs.push(d);
@@ -496,6 +505,7 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
       sin_documentos: sucursales.filter((c) => !conDocs.has(c)),
       excluidas: [...SUCURSALES_SIN_REPOSICION],
       en_hoja: [...enHoja].map(([zona, x]) => ({ zona, ...x })),
+      antes_de_hoja: [...antesDeHoja].map(([zona, x]) => ({ zona, ...x })),
     },
   };
 }

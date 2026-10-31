@@ -48,7 +48,11 @@ export interface ZonaHojaGastos {
 }
 
 export const ZONAS_HOJA_GASTOS: readonly ZonaHojaGastos[] = Object.freeze([
-  { clave: 'morelia', nombre: 'Zona Morelia', sucursales: ['08', '07'], desde: '2026-10-29',
+  // Edgar, 2026-10-30: las hojas en papel de octubre se registran en la Suite para ligar cada pago a
+  // su retiro (medido: 118 pagos del 12 al 28/10 sin ligar y ~$1 M de retiros «gnf» sin explicar). Desde
+  // el 12/10, el primer día que Caja General capturó Morelia: todo ya está en el libro, así que
+  // registrarlas sólo LIGA y no captura nada en el corte de hoy. Lo anterior no entró nunca al libro.
+  { clave: 'morelia', nombre: 'Zona Morelia', sucursales: ['08', '07'], desde: '2026-10-12',
     cuenta_deposito: { banco: 'SANTANDER', terminacion: '1604' } },
   // Edgar, 2026-10-29: Canindo con los mismos parámetros. Su «Gastos generales» sólo trae gastos, y
   // la cuenta de su reposición no está medida.

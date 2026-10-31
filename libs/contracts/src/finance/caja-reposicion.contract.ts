@@ -186,6 +186,12 @@ export interface ReposicionSucursales {
      * repone con la hoja, de un solo retiro. Se cuenta para que la lista no esconda nada.
      */
     en_hoja?: Array<{ zona: string; n: number; total: number }>;
+    /**
+     * `[CGA-A.65]` Pagos de una zona con hoja, de ANTES de su arranque, que nunca entraron al libro
+     * (Morelia antes del 12/10: Caja General no la capturaba). No son trabajo de esta lista —capturarlos
+     * hoy metería egresos viejos en el corte de hoy— y tampoco se esconden: se declaran con su número.
+     */
+    antes_de_hoja?: Array<{ zona: string; n: number; total: number; desde: string }>;
   };
 }
 

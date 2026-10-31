@@ -378,6 +378,9 @@ export function avisoDeReposicion(
           @for (z of d.universo.en_hoja ?? []; track z.zona) {
             {{ nombreZona(z.zona) }}: {{ z.n }} {{ z.n === 1 ? 'pago' : 'pagos' }} de estos días ({{ money(z.total) }}) van en su hoja, no en esta lista.
           }
+          @for (z of d.universo.antes_de_hoja ?? []; track z.zona) {
+            {{ nombreZona(z.zona) }}: {{ z.n }} {{ z.n === 1 ? 'pago' : 'pagos' }} de antes del {{ dmy(z.desde) }} ({{ money(z.total) }}) nunca entraron al libro; no se capturan hoy (caerían en el corte de hoy).
+          }
           @if (d.universo.sin_documentos.length) {
             Sin documentos de caja en estos días: {{ nombres(d.universo.sin_documentos) }}.
           }

@@ -384,13 +384,31 @@ describe('[CGA-A.65] lo que espera su hoja de zona no se repone por sucursal: se
     expect(r.universo.en_hoja).toEqual([]);
   });
 
-  it('NEGATIVA: lo que no va en la hoja (nómina, compra registrada) y lo de antes del arranque se reponen como siempre', () => {
+  it('NEGATIVA: lo que no va en la hoja (nómina, compra registrada) y lo de Canindo antes de su arranque se reponen como siempre', () => {
     const nomina = con(doc('08', '0000701', '2026-10-30', 15739, 'NOMINA'), '009');
     const compra = con(doc('08', '0000702', '2026-10-30', 12880, 'COCADAS'), '003', 'C-240');
-    const antes = con(doc('07', '0000300', '2026-10-28', 4956, 'BOTANAS PAU'), '007');
+    const antes = con(doc('06', '0000300', '2026-10-28', 4956, 'BOTANAS PAU'), '007');
     const r = armarReposicion({ ...sem, docs: [nomina, compra, antes], egresos: [], vinculos: [], retiros: [], apartarHojas: true });
     expect(r.grupos.flatMap((x) => x.docs.map((d) => d.folio)).sort()).toEqual(['0000300', '0000701', '0000702']);
     expect(r.universo.en_hoja).toEqual([]);
+    expect(r.universo.antes_de_hoja).toEqual([]);
+  });
+
+  // Edgar, 2026-10-30: Morelia se registra por hoja desde el 12/10. Lo de antes que nunca entró al libro
+  // no es trabajo de la lista (capturarlo hoy cae en el corte de hoy), pero tampoco se esconde: se declara.
+  it('Morelia antes de su arranque, sin capturar: sale de la lista y se declara con su número', () => {
+    const viejo = con(doc('07', '0000120', '2026-10-10', 4385, 'BOTANAS PAU'), '007');
+    const r = armarReposicion({ desde: '2026-10-05', hasta: '2026-10-11', docs: [viejo], egresos: [], vinculos: [], retiros: [], apartarHojas: true });
+    expect(r.grupos).toEqual([]);
+    expect(r.universo.antes_de_hoja).toEqual([{ zona: 'morelia', n: 1, total: 4385, desde: '2026-10-12' }]);
+  });
+
+  it('NEGATIVA: Morelia antes de su arranque YA capturada sigue en la lista (es historia del libro, no se esconde)', () => {
+    const viejo = con(doc('07', '0000120', '2026-10-10', 4385, 'BOTANAS PAU'), '007');
+    const g = egreso('L9', 'CG-2026-00100', viejo.origen_ref, 4385, '2026-10-10', null);
+    const r = armarReposicion({ desde: '2026-10-05', hasta: '2026-10-11', docs: [viejo], egresos: [g], vinculos: [], retiros: [], apartarHojas: true });
+    expect(r.grupos.flatMap((x) => x.docs.map((d) => d.folio))).toEqual(['0000120']);
+    expect(r.universo.antes_de_hoja).toEqual([]);
   });
 
   it('NEGATIVA (control): otra sucursal no se aparta, y sin apartarHojas nada se aparta', () => {

@@ -125,7 +125,7 @@ describe('[CGA-A.65] FinanzasHojaGastosComponent', () => {
   it('NEGATIVA: sin la clave de cerrar no hay botón, y dice quién la cierra', () => {
     montar([Permission.FINANCE_CAJA_VER], 'u-caja');
     expect(boton('Cerrar hoja')).toBeNull();
-    expect(txt()).toContain('La cierra quien autoriza por la zona');
+    expect(txt()).toContain('La arma Caja General; la aprueba tesorería');
   });
 
   it('finanzas aprueba la que cerró otra persona', () => {

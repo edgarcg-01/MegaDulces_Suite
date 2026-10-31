@@ -176,7 +176,9 @@ describe('[CGA-A.65] el candado: qué pago sólo se paga con su hoja aprobada', 
   });
 
   it('NEGATIVA: antes del arranque, de otra sucursal, o lo que no va en la hoja → sigue su camino de siempre', () => {
-    expect(requisitoDeHoja(p('08', '2026-10-28', '007'))).toBeNull();
+    // Morelia arranca el 12/10 (Edgar, 2026-10-30: se registran las hojas en papel desde ahí); Canindo el 29/10.
+    expect(requisitoDeHoja(p('08', '2026-10-11', '007'))).toBeNull();
+    expect(requisitoDeHoja(p('06', '2026-10-28', '007'))).toBeNull();
     expect(requisitoDeHoja(p('01', '2026-11-03', '007'))).toBeNull();
     expect(requisitoDeHoja(p('08', '2026-11-03', '009'))).toBeNull();
     expect(requisitoDeHoja(p('08', '2026-11-03', '003', 'C-237'))).toBeNull();

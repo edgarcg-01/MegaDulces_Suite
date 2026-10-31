@@ -63,7 +63,7 @@ type Accion = 'rechazar' | 'cancelar';
       <header class="surf-page-head hg-head">
         <div>
           <h1 class="surf-title">Hoja de gastos de zona</h1>
-          <p class="surf-sub">Los pagos que la zona hizo con su venta, armados solos desde Kepler. La zona la cierra, finanzas la aprueba y Caja General la paga con un solo retiro de CAOS.</p>
+          <p class="surf-sub">Los pagos que la zona hizo con su venta, armados solos desde Kepler. Caja General la arma con los pagos de su hoja en papel, tesorería la aprueba y Caja General la paga con un solo retiro de CAOS.</p>
         </div>
         <div class="hg-head-r">
           @if (datos(); as d) {
@@ -147,7 +147,7 @@ type Accion = 'rechazar' | 'cancelar';
                               [disabled]="!d.instalada || !elegidos().length || !venta() || !!ocupado()" [loading]="ocupado() === 'cerrar'"
                               (onClick)="cerrar()"></p-button>
                   } @else {
-                    <small class="hg-dim">La cierra quien autoriza por la zona.</small>
+                    <small class="hg-dim">La arma Caja General; la aprueba tesorería.</small>
                   }
                 </div>
               } @else {

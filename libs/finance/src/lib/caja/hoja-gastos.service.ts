@@ -37,6 +37,7 @@ interface RenglonEnLibro {
   sucursal: string;
   fecha_pago: string;
   folio: string;
+  importe: number;
   ledger: {
     id: string; folio: string; tipo: string; monto: string | number; estado: string;
     origen_tipo: string | null; origen_efectivo: string | null; origen_ref: string | null; ligado: boolean;
@@ -257,7 +258,11 @@ export class HojaGastosService {
       });
 
       // Lo capturado sin origen se liga al retiro de la hoja, con las reglas de siempre, en un solo fajo.
-      let libre = mov?.libre ?? 0;
+      // ⭐ Pero primero se aparta lo que el lote va a capturar HOY: así el retiro lo cubre entero y la
+      // diferencia que pone el cajón cae en los egresos que ya estaban en el libro (su jornada), no en el
+      // corte de hoy. Una hoja en papel de octubre registrada hoy no inventa un faltante en el cajón de hoy.
+      const porCapturar = redondea2(renglones.filter((x) => !x.ledger).reduce((a, x) => a + x.importe, 0));
+      let libre = redondea2(Math.max(0, (mov?.libre ?? 0) - porCapturar));
       let ligados = 0;
       for (const x of sinOrigen) {
         if (!mov || !x.ledger) break;
@@ -541,7 +546,7 @@ export class HojaGastosService {
              AND cl.estado <> 'cancelado' AND cl.origen_ref = x.origen_ref
            LIMIT 1) lb ON true`)
       .where('x.tenant_id', tenantId).where('x.sheet_id', sheetId).where('x.vigente', true)
-      .select('x.origen_ref', 'x.sucursal', 'x.folio', trx.raw(`to_char(x.fecha_pago, 'YYYY-MM-DD') AS fecha_pago`),
+      .select('x.origen_ref', 'x.sucursal', 'x.folio', 'x.importe', trx.raw(`to_char(x.fecha_pago, 'YYYY-MM-DD') AS fecha_pago`),
         trx.raw('lb.id AS l_id'), trx.raw('lb.folio AS l_folio'), trx.raw('lb.tipo AS l_tipo'), trx.raw('lb.monto AS l_monto'),
         trx.raw('lb.estado AS l_estado'), trx.raw('lb.origen_tipo AS l_origen_tipo'), trx.raw('lb.origen_efectivo AS l_origen_efectivo'),
         trx.raw('lb.origen_ref AS l_origen_ref'), trx.raw('lb.ligado AS l_ligado'));
@@ -549,6 +554,7 @@ export class HojaGastosService {
     return filas
       .map((f): RenglonEnLibro => ({
         origen_ref: String(f.origen_ref), sucursal: String(f.sucursal), fecha_pago: String(f.fecha_pago), folio: String(f.folio),
+        importe: redondea2(Number(f.importe)),
         ledger: f.l_id ? {
           id: String(f.l_id), folio: String(f.l_folio), tipo: String(f.l_tipo), monto: f.l_monto, estado: String(f.l_estado),
           origen_tipo: f.l_origen_tipo ?? null, origen_efectivo: f.l_origen_efectivo ?? null, origen_ref: f.l_origen_ref ?? null,
