@@ -150,7 +150,9 @@ import { BANCOS_STYLES } from './bancos.styles';
         }
 
         @if (c.fuga.n > 0) {
-          <p class="ic-fuga"><i class="pi pi-arrow-circle-up"></i> <b>Fuga:</b> {{ c.fuga.monto | currency:'MXN':'symbol-narrow':'1.2-2' }} en {{ c.fuga.n }} depósitos que Caja registró pero <b>no llegaron al banco</b> (rezago / no depositado). <a routerLink="/finanzas/caja" class="ic-link">Ver en Caja General <i class="pi pi-arrow-right"></i></a></p>
+          <p class="ic-fuga"><i class="pi pi-arrow-circle-up"></i> <b>Fuga:</b> {{ c.fuga.monto | currency:'MXN':'symbol-narrow':'1.2-2' }} en {{ c.fuga.n }} depósitos que Caja registró pero <b>no llegaron al banco</b> (rezago / no depositado). <a routerLink="/finanzas/caja" class="ic-link">Ver en Control (histórico) <i class="pi pi-arrow-right" aria-hidden="true"></i></a></p>
+          <!-- [CGA-A.69] Decía «Ver en Caja General» y llevaba al espejo del Access, que se llama
+               «Control (histórico)»: Caja General es otra pantalla (el libro nuevo). -->
         }
       </div>
     }

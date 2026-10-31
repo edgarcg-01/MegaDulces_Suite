@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequireAnyPermission, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CajaGeneralService, CajaQuery } from './caja-general.service';
 
 interface AuthedRequest { user?: { username?: string } }
@@ -46,8 +46,15 @@ export class CajaGeneralController {
     return this.svc.cajaCuadre(this.q(month, from, to));
   }
 
+  /**
+   * `[CGA-A.67]` El Cuadre se mudó a las pestañas de Caja (`/finanzas/caja-general/cuadre`), cuya
+   * ruta pide VER de caja O de bancos. Sus cuatro lecturas (éste, `conciliacion-dia`, `movement` y
+   * `facets`) piden lo mismo que la ruta: medido el 2026-10-30, los cuatro roles con
+   * `FINANCE_CAJA_VER` ya tenían `FINANCE_BANK_VER`, así que hoy nadie gana ni pierde acceso; lo que
+   * cambia es que la pantalla y su API piden el mismo permiso.
+   */
   @Get('conciliacion-workbook')
-  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @RequireAnyPermission(Permission.FINANCE_BANK_VER, Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'Conciliación operativo↔manual: caja viva (.mdb/Doctos) vs copia manual del workbook (CAJA GENERAL), por día + Δ.' })
   conciliacionWorkbook(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
     return this.svc.conciliacionWorkbook(this.q(month, from, to));
@@ -68,14 +75,14 @@ export class CajaGeneralController {
   }
 
   @Get('conciliacion-dia')
-  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @RequireAnyPermission(Permission.FINANCE_BANK_VER, Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'Drill "¿dónde está el descuadre?" de un día: match greedy por importe .mdb↔Manual y .mdb↔Kepler → huérfanos de cada lado (espejo de Bancos).' })
   conciliacionDia(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
     return this.svc.conciliacionDia(this.q(month, from, to));
   }
 
   @Get('movement')
-  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @RequireAnyPermission(Permission.FINANCE_BANK_VER, Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'Detalle COMPLETO de un movimiento del Cuadre (click en el drill). source=control|workbook|kepler|ruta + key (PK codificada; en ruta, "<ruta>|<YYYY-MM-DD>").' })
   movement(@Query('source') source: string, @Query('key') key: string) {
     return this.svc.movementDetail(source, key);
@@ -124,7 +131,7 @@ export class CajaGeneralController {
   }
 
   @Get('facets')
-  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @RequireAnyPermission(Permission.FINANCE_BANK_VER, Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'Facetas para filtros: meses, bancos, empresas, cajas.' })
   facets() {
     return this.svc.facets();

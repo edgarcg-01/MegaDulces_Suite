@@ -76,6 +76,20 @@ export const CAJA_TABS: readonly PageTab[] = [
     permission: Permission.FINANCE_CAJA_VER,
   },
   {
+    /**
+     * ⭐ `[CGA-A.67]` **Cuadre** — el libro contra la Caja General de Kepler, día por día. Vivía en
+     * «Control (histórico)», fuera de esta barra: la revisión diaria del libro no estaba en el área
+     * de quien opera la caja. Va después de Arqueos: el arqueo dice si el cajón cuadra con el libro;
+     * el Cuadre, si el libro cuadra con el ERP.
+     *
+     * ⚠️ Mismo gate que su ruta: VER de caja O de bancos (los roles de bancos lo veían en Control).
+     */
+    label: 'Cuadre',
+    route: '/finanzas/caja-general/cuadre',
+    icon: 'pi pi-sync',
+    anyOf: [Permission.FINANCE_CAJA_VER, Permission.FINANCE_BANK_VER],
+  },
+  {
     // `[CS.2]` La bóveda física (dispositivo AST700). Permiso PROPIO, no el de Caja General:
     // es otro circuito de efectivo, y así está declarado en `permissions.ts`.
     label: 'Caja Fuerte',

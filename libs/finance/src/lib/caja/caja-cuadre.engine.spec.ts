@@ -11,7 +11,7 @@
  * intención).
  */
 import {
-  casarPorImporte, ordenCanonico, canonBank, escapaLike, redondea2, type MovCuadre,
+  casarPorImporte, ordenCanonico, canonBank, escapaLike, estadoDiaCuadre, redondea2, type MovCuadre,
 } from './caja-cuadre.engine';
 
 const m = (key: string, importe: number, fecha = '2026-09-01'): MovCuadre => ({ key, importe, fecha });
@@ -198,5 +198,51 @@ describe('escapaLike', () => {
 
   it('el texto normal no se toca', () => {
     expect(escapaLike('DEPOSITO BBVA')).toBe('DEPOSITO BBVA');
+  });
+});
+
+/**
+ * `[CGA-A.66]` El estado de un día. Los casos son días REALES de octubre de 2026 (prod, sólo
+ * lectura, 2026-10-30): Δ = caja − Kepler; la cola, la canónica de Captura de ese día.
+ */
+describe('estadoDiaCuadre — cuadra, falta capturar, no cuadra', () => {
+  const sinCola = { n: 0, ingreso: 0, gasto: 0 };
+
+  it('28-oct: Kepler tiene $34,948.48 más y la cola tiene exactamente eso → falta capturar', () => {
+    const r = estadoDiaCuadre({ delta_ingreso: -34948.48, delta_gasto: 0, tol: 5, kp_n: 4, cola: { n: 2, ingreso: 34948.48, gasto: 0 } });
+    expect(r).toEqual({ estado: 'por_capturar', resto_ingreso: 0, resto_gasto: 0 });
+  });
+
+  it('22-oct: lo que la cola no explica cabe en la tolerancia (19 centavos) → falta capturar', () => {
+    expect(estadoDiaCuadre({ delta_ingreso: -1739.86, delta_gasto: 0, tol: 5, kp_n: 29, cola: { n: 2, ingreso: 1739.67, gasto: 0 } }).estado)
+      .toBe('por_capturar');
+  });
+
+  it('27-oct: la cola explica los ingresos pero sobra un gasto de $1,080.31 → no cuadra', () => {
+    const r = estadoDiaCuadre({ delta_ingreso: -106558.26, delta_gasto: 1080.31, tol: 5, kp_n: 49, cola: { n: 5, ingreso: 106558.26, gasto: 0 } });
+    expect(r.estado).toBe('no_cuadra');
+    expect(r.resto_gasto).toBe(1080.31);
+  });
+
+  it('16-oct: la caja tiene $20,345 de más (depósito CAOS de la ruta 21) y no hay cola → no cuadra', () => {
+    expect(estadoDiaCuadre({ delta_ingreso: 20345, delta_gasto: 160, tol: 5.5, kp_n: 34, cola: sinCola }).estado).toBe('no_cuadra');
+  });
+
+  it('⛔ [negativa] con la caja DE MÁS, la cola no la explica: capturarla agranda el resto', () => {
+    // 13-oct: la caja tiene +$166,026.88 y la cola $89,539.12. Restar la cola sería un error de
+    // signo que pintaría ámbar un día con dinero sin explicación; sumar es lo correcto.
+    const r = estadoDiaCuadre({ delta_ingreso: 166026.88, delta_gasto: 0, tol: 5, kp_n: 35, cola: { n: 5, ingreso: 89539.12, gasto: 0 } });
+    expect(r.estado).toBe('no_cuadra');
+    expect(r.resto_ingreso).toBe(255566);
+  });
+
+  it('⛔ [negativa] una diferencia sin nada en la cola NO es «falta capturar», aunque cupiera', () => {
+    // El 19-oct faltan $30,338.93 y la cola de ese día está vacía: no hay trabajo que lo explique.
+    expect(estadoDiaCuadre({ delta_ingreso: -30338.93, delta_gasto: 0, tol: 5, kp_n: 22, cola: sinCola }).estado).toBe('no_cuadra');
+  });
+
+  it('cuadra manda sobre la cola, y sin Kepler no se compara', () => {
+    expect(estadoDiaCuadre({ delta_ingreso: 0.26, delta_gasto: 0, tol: 5, kp_n: 32, cola: { n: 1, ingreso: 100, gasto: 0 } }).estado).toBe('cuadra');
+    expect(estadoDiaCuadre({ delta_ingreso: 500, delta_gasto: 0, tol: 5, kp_n: 0, cola: sinCola }).estado).toBe('sin_kepler');
   });
 });

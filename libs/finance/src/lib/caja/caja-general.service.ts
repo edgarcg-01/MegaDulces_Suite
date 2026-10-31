@@ -1,15 +1,15 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, applySmartSearch, branchName } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch, branchName, cajaColaDelLibroSql } from '@megadulces/platform-core';
 import { evalInput, composeFreshness, FRESHNESS_UNKNOWN } from '@megadulces/platform-core';
 import { SUCURSAL_CAJA_GENERAL, diaDeFecha, diaMxDeInstante, type Freshness } from '@megadulces/contracts';
-import { casarPorImporte, canonBank, escapaLike, CUADRE_TOLERANCIA_PESOS, type MovCuadre, type ResultadoCuadre } from './caja-cuadre.engine';
+import { casarPorImporte, canonBank, escapaLike, estadoDiaCuadre, CUADRE_TOLERANCIA_PESOS, type MovCuadre, type ResultadoCuadre } from './caja-cuadre.engine';
 import { fechaDeVentaDeclarada, leerVentaDeRuta } from './caja-ruta.engine';
 import {
   casarLibroConKepler, cobroDeRutaComoKepler, indexaLibro, juntaCuadres, llaveKeplerDelLibro, marcaEnLibro, resumeEnLibro,
   type CobroDeRuta, type ParLibro, type RenglonLibro,
 } from './caja-kepler-libro.engine';
-import { primerCorteDelLibro } from './caja-relevo';
+import { frescuraCaja, primerCorteDelLibro } from './caja-relevo';
 
 /**
  * Fase CG.3 — Caja General (control venta diaria → depósito bancario + arqueo).
@@ -62,6 +62,12 @@ type DocKeplerCG = {
 
 const MATCH_EPS = CUADRE_TOLERANCIA_PESOS;
 const CUADRE_EPS = 1000;
+/**
+ * `[CGA-A.68]` Tope de la lista de «General» (el espejo del Control). Medido el 2026-10-30: TODOS los
+ * meses de 2026 lo rebasan (567 a 1,696 movimientos), así que la respuesta lleva `has_more` y la
+ * pantalla dice cuántos de cuántos.
+ */
+const GENERAL_TOPE = 500;
 const TENDERS = ['efectivo', 'morralla', 'cheques', 'tarjeta', 'caja_chica', 'sobregiro'];
 
 export interface CajaQuery {
@@ -135,6 +141,42 @@ export class CajaGeneralService {
       await trx.raw('ROLLBACK TO SAVEPOINT cga_a35_ruta').catch(() => undefined);
       this.logger.warn(`[CGA-A.35] cobros de camioneta no disponibles: ${(e as Error).message}`);
       return { rows: [] as ReturnType<typeof cobroDeRutaComoKepler>[], disponible: false };
+    }
+  }
+
+  /**
+   * ⭐ `[CGA-A.66]` **Lo que la cola de Captura todavía tiene, por día** — la cola CANÓNICA
+   * (`cajaColaDelLibroSql`, la misma de la bandeja, la campana y «Mi trabajo»), sobre la Caja
+   * General de Kepler (`0011`), que es la que el Cuadre compara.
+   *
+   * Sirve para partir el rojo del Cuadre en dos cosas que se pintaban igual. Medido el 2026-10-30
+   * (12 al 30-oct): de 13 días en rojo, en 7 la diferencia contra Kepler era **exactamente** lo que
+   * la cola tenía de ese día (21, 27, 28 y 29-oct al centavo) — trabajo por hacer, no dinero que
+   * no cuadra. Un rojo que significa dos cosas no le dice a nadie qué hacer.
+   *
+   * ⚠️ En SAVEPOINT: si la vista no se puede leer, el Cuadre no se cae y devuelve
+   * `disponible: false`; la pantalla lo declara y ningún día se da por «sólo falta capturar».
+   */
+  private async colaPorDia(trx: Knex.Transaction, tenantId: string, from: string, to: string) {
+    const porDia = new Map<string, { n: number; ingreso: number; gasto: number }>();
+    await trx.raw('SAVEPOINT cga_a66_cola');
+    try {
+      const rows: Array<{ fecha: unknown; n: number | string; ingreso: string | number; gasto: string | number }> =
+        await trx({ v: 'finance.v_caja_movimientos_pendientes' })
+          .where('v.tenant_id', tenantId).andWhere('v.clave_banco', '0011')
+          .andWhere('v.fecha_valor', '>=', from).andWhere('v.fecha_valor', '<=', to)
+          .whereRaw(cajaColaDelLibroSql('v'))
+          .groupBy('v.fecha_valor')
+          .select(trx.raw('v.fecha_valor AS fecha'), trx.raw('COUNT(*)::int AS n'),
+            trx.raw(`COALESCE(SUM(abs(v.monto)) FILTER (WHERE v.tipo = 'ingreso'), 0)::numeric AS ingreso`),
+            trx.raw(`COALESCE(SUM(abs(v.monto)) FILTER (WHERE v.tipo <> 'ingreso'), 0)::numeric AS gasto`));
+      await trx.raw('RELEASE SAVEPOINT cga_a66_cola');
+      for (const r of rows) porDia.set(ymd(r.fecha), { n: Number(r.n) || 0, ingreso: Number(r.ingreso) || 0, gasto: Number(r.gasto) || 0 });
+      return { porDia, disponible: true };
+    } catch (e) {
+      await trx.raw('ROLLBACK TO SAVEPOINT cga_a66_cola').catch(() => undefined);
+      this.logger.warn(`[CGA-A.66] cola por día no disponible: ${(e as Error).message}`);
+      return { porDia, disponible: false };
     }
   }
 
@@ -300,8 +342,28 @@ export class CajaGeneralService {
     return this.tk.run(async (trx) => {
       const T = 'analytics.caja_general_movimientos';
       const inRange = () => trx(T).where('tenant_id', tenantId).whereBetween('fecha', [from, to]);
+      /**
+       * ⛔ `[CGA-A.68]` **Los totales y «Por cuenta» no seguían al filtro.** El tipo y la búsqueda se
+       * aplicaban sólo a la lista: con «Gasto» elegido, el mosaico de Ingresos seguía publicando el
+       * mes entero. Un total que no corresponde a lo filtrado es otra forma de mentir. Ahora las
+       * tres lecturas parten del mismo universo; `por_mes` no, porque es la serie de todos los meses.
+       */
+      const filtrado = () => {
+        let b = inRange();
+        if (q.tipo) b = b.where('tipo', q.tipo);
+        if (q.search) {
+          // `%` y `_` del usuario se escapan: sin esto, buscar "100%" traía el libro COMPLETO y la
+          // persona creía que había filtrado. No es inyección (el valor va parametrizado) — es una
+          // mentira silenciosa en pantalla, que es peor porque nadie la reporta.
+          const s = `%${escapaLike(q.search)}%`;
+          b = b.whereRaw(
+            `(cuenta_nombre ILIKE ? ESCAPE '\\' OR nombre_cliente ILIKE ? ESCAPE '\\' OR concepto ILIKE ? ESCAPE '\\')`,
+            [s, s, s]);
+        }
+        return b;
+      };
 
-      const tot: any = await inRange()
+      const tot: any = await filtrado()
         .select(trx.raw('COALESCE(SUM(ingreso),0)::numeric AS ingreso'),
           trx.raw('COALESCE(SUM(gasto),0)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n')).first();
       /**
@@ -325,27 +387,16 @@ export class CajaGeneralService {
           trx.raw('SUM(gasto)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n'))
         .groupByRaw(`to_char(fecha,'YYYY-MM')`).orderByRaw(`to_char(fecha,'YYYY-MM')`);
 
-      const porCuenta = await inRange()
+      const porCuenta = await filtrado()
         .select('cuenta', 'cuenta_nombre', trx.raw('SUM(ingreso)::numeric AS ingreso'),
           trx.raw('SUM(gasto)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n'))
         .groupBy('cuenta', 'cuenta_nombre').orderByRaw('SUM(ingreso)+SUM(gasto) DESC').limit(40);
 
-      let movq = inRange()
+      const movs = await filtrado()
         .select('mov_id', 'tipo_dto', 'tipo', 'fecha', 'hora', 'usuario', 'cuenta', 'cuenta_nombre',
           'nombre_cliente', 'concepto', 'ingreso', 'gasto', 'saldo', 'denom')
         // Cronológico real por (fecha, hora); mov_id es texto → no sirve como orden temporal.
-        .orderByRaw(`fecha DESC, hora DESC NULLS LAST`).limit(500);
-      if (q.tipo) movq = movq.where('tipo', q.tipo);
-      if (q.search) {
-        // `%` y `_` del usuario se escapan: sin esto, buscar "100%" traía el libro COMPLETO y la
-        // persona creía que había filtrado. No es inyección (el valor va parametrizado) — es una
-        // mentira silenciosa en pantalla, que es peor porque nadie la reporta.
-        const s = `%${escapaLike(q.search)}%`;
-        movq = movq.whereRaw(
-          `(cuenta_nombre ILIKE ? ESCAPE '\\' OR nombre_cliente ILIKE ? ESCAPE '\\' OR concepto ILIKE ? ESCAPE '\\')`,
-          [s, s, s]);
-      }
-      const movs = await movq;
+        .orderByRaw(`fecha DESC, hora DESC NULLS LAST`).limit(GENERAL_TOPE);
 
       const freshness = await this.frescura();
 
@@ -354,6 +405,9 @@ export class CajaGeneralService {
         // [CG.8] De cuándo son estos números. Un `generated_at` diría cuándo respondió el
         // servidor, que es otra cosa: contesta en 200 ms sobre datos de hace seis días.
         freshness,
+        // `[CGA-A.68]` La lista se topa en `GENERAL_TOPE` y `totals.n` es el universo filtrado: con
+        // esto la pantalla dice «500 de 1,393» en vez de una nota fija que no dice si recortó.
+        has_more: n(tot?.n) > movs.length,
         totals: {
           ingreso: r2(n(tot?.ingreso)), gasto: r2(n(tot?.gasto)), neto: r2(n(tot?.ingreso) - n(tot?.gasto)),
           n: n(tot?.n),
@@ -581,32 +635,52 @@ export class CajaGeneralService {
        * movimientos. Ahora vive acá, en un solo lugar, y la pantalla la pinta en vez de recalcularla.
        */
       const tolDia = (d: { mdb_n: number; kp_n: number }) => Math.max(MATCH_EPS, 0.10 * Math.max(d.mdb_n, d.kp_n));
+      // `[CGA-A.66]` Lo que la cola tiene de cada día. Sólo existe desde el primer corte del libro.
+      const cola = await this.colaPorDia(trx, tenantId, from, to);
+      const sinCola = { n: 0, ingreso: 0, gasto: 0 };
       const por_dia = Array.from(byDay.values()).map((d) => {
         // Un día sin caja pero posterior al relevo es del libro: Kepler movió y el libro no tiene
         // nada — eso se ve, no se esconde.
         const fuente = d.caja_fuente === 'libro' || (desde && d.fecha >= desde) ? 'libro' as const : 'control' as const;
         const dki = r2(d.mdb_ingreso - d.kp_ingreso), dkg = r2(d.mdb_gasto - d.kp_gasto);
         const tol = r2(tolDia(d));
+        const sin_kepler = d.kp_n === 0;
+        const cuadra = !sin_kepler && Math.abs(dki) <= tol && Math.abs(dkg) <= tol;
+        // ⭐ `[CGA-A.66]` Cuadra · sólo falta capturar lo que está en la cola · no cuadra (motor puro).
+        const c = cola.porDia.get(d.fecha) ?? sinCola;
+        const { estado, resto_ingreso, resto_gasto } = estadoDiaCuadre({ delta_ingreso: dki, delta_gasto: dkg, tol, kp_n: d.kp_n, cola: c });
         return {
           fecha: d.fecha, caja_fuente: fuente, mdb_ingreso: r2(d.mdb_ingreso), mdb_gasto: r2(d.mdb_gasto), mdb_n: d.mdb_n,
           kp_ingreso: r2(d.kp_ingreso), kp_gasto: r2(d.kp_gasto), kp_n: d.kp_n,
           delta_kep_ingreso: dki, delta_kep_gasto: dkg, tol,
           // Sin Kepler ese día no hay contra qué medir: se DECLARA (`sin_kepler`), no se pinta rojo.
-          sin_kepler: d.kp_n === 0,
-          cuadra: d.kp_n > 0 && Math.abs(dki) <= tol && Math.abs(dkg) <= tol,
+          sin_kepler,
+          cuadra,
+          estado,
+          cola_n: c.n, cola_ingreso: r2(c.ingreso), cola_gasto: r2(c.gasto),
+          resto_ingreso, resto_gasto,
         };
       }).sort((a, b) => b.fecha.localeCompare(a.fecha));
 
-      const sum = (k: 'mdb_ingreso' | 'mdb_gasto' | 'kp_ingreso' | 'kp_gasto') => r2(por_dia.reduce((s, d) => s + d[k], 0));
+      const sum = (k: 'mdb_ingreso' | 'mdb_gasto' | 'kp_ingreso' | 'kp_gasto' | 'cola_ingreso' | 'cola_gasto' | 'cola_n') => r2(por_dia.reduce((s, d) => s + d[k], 0));
       const tot = { mdb_ingreso: sum('mdb_ingreso'), mdb_gasto: sum('mdb_gasto'), kp_ingreso: sum('kp_ingreso'), kp_gasto: sum('kp_gasto') };
+      const enEstado = (e: string) => por_dia.filter((d) => d.estado === e).length;
       return {
         period: { from, to },
+        // `[CGA-A.66]` La edad de Kepler y de la cola: el mismo carril que la bandeja de Captura.
+        datos_al: await frescuraCaja(trx, tenantId),
         totals: {
           ...tot,
           delta_kep_ingreso: r2(tot.mdb_ingreso - tot.kp_ingreso), delta_kep_gasto: r2(tot.mdb_gasto - tot.kp_gasto),
           dias: por_dia.length,
           dias_con_kepler: por_dia.filter((d) => !d.sin_kepler).length,
+          // ⚠️ Se queda como estaba (todo lo que no cuadra, falte capturar o no) para el frontend
+          // anterior al despliegue; el que parte el rojo lee los dos de abajo.
           dias_descuadre: por_dia.filter((d) => !d.sin_kepler && !d.cuadra).length,
+          dias_por_capturar: enEstado('por_capturar'),
+          dias_no_cuadra: enEstado('no_cuadra'),
+          // `[CGA-A.66]` La cola del rango, para decir cuánto trabajo explica el ámbar.
+          cola: { disponible: cola.disponible, n: sum('cola_n'), ingreso: sum('cola_ingreso'), gasto: sum('cola_gasto') },
           libro_desde: desde,
           dias_libro: por_dia.filter((d) => d.caja_fuente === 'libro').length,
           kep_disponible: kp.length > 0 || ruta.rows.length > 0,
@@ -1617,11 +1691,16 @@ export class CajaGeneralService {
       const primerCorte: { fecha: unknown; folio: string } | undefined = await trx('finance.cash_ledger_cuts')
         .where('tenant_id', tenantId).orderBy([{ column: 'fecha', order: 'asc' }, { column: 'folio', order: 'asc' }])
         .first('fecha', 'folio');
+      // `[CGA-A.69]` El aviso decía «los arqueos sí se siguen capturando en el Access» y el último
+      // es del 22-oct (Control se jubiló ese día). Se publica la fecha y la pantalla la dice.
+      const arqUlt = (await trx('analytics.caja_arqueos')
+        .where('tenant_id', tenantId).max('arqueo_date as at').first()) as { at: unknown } | undefined;
       const relevo = {
         control_ultimo_fecha: ult ? ymd(ult.fecha) : null,
         control_ultimo_hora: ult?.hora ?? null,
         libro_desde: primerCorte ? ymd(primerCorte.fecha) : null,
         libro_primer_corte: primerCorte?.folio ?? null,
+        arqueo_access_ultimo: arqUlt?.at ? ymd(arqUlt.at) : null,
       };
       return { meses, bancos, empresas, cajas, relevo };
     });

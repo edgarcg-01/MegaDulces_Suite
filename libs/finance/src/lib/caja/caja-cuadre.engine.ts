@@ -258,3 +258,39 @@ export function canonBank(s: string): string {
 export function escapaLike(s: string): string {
   return String(s ?? '').replace(/[\\%_]/g, (c) => `\\${c}`);
 }
+
+/** `[CGA-A.66]` De qué está hecho un día del Cuadre. */
+export type EstadoDiaCuadre = 'sin_kepler' | 'cuadra' | 'por_capturar' | 'no_cuadra';
+
+/**
+ * ⭐ `[CGA-A.66]` **El estado de un día del Cuadre: cuadra, sólo falta capturar, o no cuadra.**
+ *
+ * El semáforo de antes tenía dos colores para tres hechos: un día cuya diferencia contra Kepler es
+ * EXACTAMENTE lo que espera en la cola de Captura salía igual de rojo que un día con dinero sin
+ * explicación. Medido el 2026-10-30 (12 al 30-oct): de 13 días en rojo, en 6 la cola explicaba la
+ * diferencia al centavo.
+ *
+ * La cola es Kepler sin el libro, así que capturarla SUBE la caja: lo que queda después es
+ * `resto = Δ + cola` (Δ = caja − Kepler). Si el resto cabe en la tolerancia del día, el día es
+ * «por capturar»: trabajo pendiente, no un descuadre. ⚠️ Si la caja tiene DE MÁS, la cola no la
+ * explica — capturarla agranda el resto —, y el día sigue siendo «no cuadra», que es lo correcto.
+ *
+ * @param delta_ingreso caja − Kepler, ingresos del día.
+ * @param delta_gasto   caja − Kepler, gastos del día.
+ * @param tol           la tolerancia del día (10 c por movimiento, piso de ±$5).
+ * @param kp_n          movimientos de Kepler ese día (0 = no hay contra qué medir).
+ * @param cola          lo que la cola canónica tiene de ese día, en magnitudes positivas.
+ */
+export function estadoDiaCuadre(d: {
+  delta_ingreso: number; delta_gasto: number; tol: number; kp_n: number;
+  cola: { n: number; ingreso: number; gasto: number };
+}): { estado: EstadoDiaCuadre; resto_ingreso: number; resto_gasto: number } {
+  const resto_ingreso = redondea2(d.delta_ingreso + d.cola.ingreso);
+  const resto_gasto = redondea2(d.delta_gasto + d.cola.gasto);
+  const dentro = (v: number) => Math.abs(v) <= d.tol;
+  const estado: EstadoDiaCuadre = d.kp_n === 0 ? 'sin_kepler'
+    : dentro(d.delta_ingreso) && dentro(d.delta_gasto) ? 'cuadra'
+    : d.cola.n > 0 && dentro(resto_ingreso) && dentro(resto_gasto) ? 'por_capturar'
+    : 'no_cuadra';
+  return { estado, resto_ingreso, resto_gasto };
+}

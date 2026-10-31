@@ -30,7 +30,7 @@ import { CajaGateway } from './caja.gateway';
 import { codigosDeSucursalBuscada, rutaBuscada, rutaDelDocumento } from './caja-ruta';
 import { leerCandado } from './caja-candado.query';
 import { buildFolio } from './caja-autofill.engine';
-import { diaAnterior, inicioDelMes, primerCorteDelLibro, saldadosPorControl } from './caja-relevo';
+import { diaAnterior, frescuraCaja, inicioDelMes, primerCorteDelLibro, saldadosPorControl } from './caja-relevo';
 import {
   esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, evaluarArqueoDeEgreso, desgloseNeto, rankearFrecuentes,
   esFechaFutura, reglaQueAplica, cvDe, propuestaDe, rutaCodigo, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
@@ -1665,41 +1665,25 @@ export class CashLedgerService {
    * Pública desde `[CGA-A.61]`: la reposición por sucursal lee la MISMA frescura, no una parecida.
    */
   async frescuraCaja(trx: Knex.Transaction): Promise<string | null> {
-    try {
-      // [CG.22.4] La edad sale del LATIDO, no de una columna del matview.
-      //
-      // Antes se leía `max(refrescado_en)` de `analytics.mv_caja_movimientos`, y esa columna tuvo
-      // que retirarse: al cambiar en cada pasada hacía que `REFRESH ... CONCURRENTLY` viera el
-      // 100 % de las filas como distintas y reescribiera la tabla entera cada minuto — 12,294
-      // DELETE+INSERT para 0 cambios reales y 12.3 GB de WAL por día.
-      //
-      // `analytics.cron_run_log` es la fuente correcta y no un reemplazo de apuro: es append-only,
-      // la escribe el trigger `trg_cron_run_log`, y **sólo registra estados terminales** (su propio
-      // comentario: "'running' es un estado, no un hecho consumado"). Verificado en prod: 1,411
-      // filas para `mv_caja_refresh`, todas `ok`; sin RLS; `app_runtime` puede leerla; y el índice
-      // `ix_crl_job (tenant_id, job_key, finished_at DESC)` la resuelve en 4 páginas / 0.045 ms.
-      //
-      // ⭐ Y da una respuesta MEJOR que la columna: si el refresh falla una hora, devuelve el
-      // último cierre bueno — o sea "estos datos son de hace 1 h", que es información. La columna
-      // habría devuelto la hora del último refresh exitoso también, pero sólo mientras el matview
-      // existiera; acá ni siquiera hace falta que exista.
-      //
-      // ⛔ [OPS-AUD.11.4] Ya NO es `mv_caja_refresh`: la cola dejó de ser materializada y se
-      // mantiene por trigger al escribir `kdm1` (ADR-104). El dato tiene la edad del carril que
-      // escribe `kdm1` — `ods_live_caja`, que cierra un `ok` cada 10 s. Leer el latido del
-      // refresco retirado haría que la pantalla dijera «datos de hace N horas» sobre datos al día.
-      const r = await trx('analytics.cron_run_log')
-        .where({
-          tenant_id: this.tenantCtx.requireTenantId(),
-          job_key: 'ods_live_caja',
-          status: 'ok',
-        })
-        .max({ al: 'finished_at' })
-        .first();
-      return (r as { al?: string } | undefined)?.al ?? null;
-    } catch {
-      return null;
-    }
+    // [CG.22.4] La edad sale del LATIDO, no de una columna del matview.
+    //
+    // Antes se leía `max(refrescado_en)` de `analytics.mv_caja_movimientos`, y esa columna tuvo
+    // que retirarse: al cambiar en cada pasada hacía que `REFRESH ... CONCURRENTLY` viera el
+    // 100 % de las filas como distintas y reescribiera la tabla entera cada minuto — 12,294
+    // DELETE+INSERT para 0 cambios reales y 12.3 GB de WAL por día.
+    //
+    // `analytics.cron_run_log` es la fuente correcta y no un reemplazo de apuro: es append-only,
+    // la escribe el trigger `trg_cron_run_log`, y **sólo registra estados terminales** (su propio
+    // comentario: "'running' es un estado, no un hecho consumado"). Verificado en prod: 1,411
+    // filas para `mv_caja_refresh`, todas `ok`; sin RLS; `app_runtime` puede leerla; y el índice
+    // `ix_crl_job (tenant_id, job_key, finished_at DESC)` la resuelve en 4 páginas / 0.045 ms.
+    //
+    // ⛔ [OPS-AUD.11.4] Ya NO es `mv_caja_refresh`: la cola dejó de ser materializada y se
+    // mantiene por trigger al escribir `kdm1` (ADR-104). El dato tiene la edad del carril que
+    // escribe `kdm1` — `ods_live_caja`, que cierra un `ok` cada 10 s.
+    //
+    // `[CGA-A.66]` La consulta vive en `caja-relevo.ts`: el Cuadre publica la MISMA edad.
+    return frescuraCaja(trx, this.tenantCtx.requireTenantId());
   }
 
   async movimientosPendientes(q: {

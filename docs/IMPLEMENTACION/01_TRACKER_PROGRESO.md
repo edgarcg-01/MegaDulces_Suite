@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2070 KB, 12968 líneas, 72 secciones.
+> **Índice navegable** — 2074 KB, 13004 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -57,28 +57,28 @@
 | 8422 | 8584 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
 | 8585 | 8868 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
 | 8869 | 9036 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 9037 | 11334 | 176 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11335 | 11343 | 1 | Fase RR — Ventas por ruta |
-| 11344 | 11639 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11640 | 11650 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11651 | 11671 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11672 | 11682 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11683 | 11694 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11695 | 11754 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11755 | 12182 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 12183 | 12197 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 12198 | 12239 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 12240 | 12389 | 65 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12390 | 12420 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12421 | 12468 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12469 | 12498 | 28 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12499 | 12528 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12535 | 12544 | 1 | 📝 Convenciones |
-| 12545 | 12582 | 13 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12583 | 12601 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12602 | 12654 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12655 | 13022 | 44 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 13023 | 13052 | 6 | Fase CP.9 — Cobertura total de ContPAQi |
+| 9037 | 11370 | 179 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11371 | 11379 | 1 | Fase RR — Ventas por ruta |
+| 11380 | 11675 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11676 | 11686 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11687 | 11707 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11708 | 11718 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11719 | 11730 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11731 | 11790 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11791 | 12218 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 12219 | 12233 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 12234 | 12275 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12276 | 12425 | 65 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12426 | 12456 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12457 | 12504 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12505 | 12534 | 28 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12535 | 12564 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12571 | 12580 | 1 | 📝 Convenciones |
+| 12581 | 12618 | 13 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12619 | 12637 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12638 | 12690 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12691 | 13058 | 44 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 13059 | 13088 | 6 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -9511,6 +9511,42 @@ TP.6-TP.8+TP.10".
 >     `requisitoDeHoja` (medido con su código sobre los datos de prod: el pago queda en `en_hoja`). 5 pruebas,
 >     mutación en rojo, `ngc` 0. Pendiente declarado: en `main`, «Se repone por hoja de zona… elige el de su
 >     hoja» sale en pagos de Morelia que ya NO van en la hoja (los que sí, se apartaron).
+> - [x] **[CGA-A.66]** 🧪 2026-10-30 · **El rojo del Cuadre se parte: «falta capturar» contra «no cuadra».**
+>   Auditoría de `/finanzas/caja` y `/finanzas/caja-general` (nivel B+C, sin validación visual). El semáforo
+>   tenía dos colores para tres hechos. Medido en prod (sólo lectura) del 12 al 30-oct: 13 días en rojo, y en
+>   7 de ellos (21, 22, 23, 27, 28, 29 y 30) la diferencia contra Kepler era lo que la cola de Captura tenía de
+>   ese día — en 21, 27, 28 y 29 al centavo. Ahora cada día dice `estado` (`estadoDiaCuadre`, motor puro):
+>   cuadra · por capturar (resto = Δ + cola dentro de la tolerancia) · no cuadra · sin Kepler. La cola es la
+>   canónica (`cajaColaDelLibroSql`, 0011, 47 ms en prod), en SAVEPOINT (`cola.disponible: false` se declara).
+>   **Antes/después, octubre completo:** antes 21 días en rojo; después 6 cuadran, 6 falta capturar y 15 no
+>   cuadran (8 de la era Control, 7 del libro: 12, 13, 14, 15, 16, 19 y 27). `datos_al` = la frescura de
+>   `ods_live_caja`, ahora una sola función (`frescuraCaja` en `caja-relevo.ts`) para la bandeja y el Cuadre.
+>   7 pruebas con días reales; mutación del signo del resto → 3 en rojo.
+> - [x] **[CGA-A.67]** 🧪 2026-10-30 · **El Cuadre se muda a las pestañas de Caja** (`/finanzas/caja-general/cuadre`,
+>   Captura · Arqueos · **Cuadre** · Caja Fuerte). Vivía en «Control (histórico)», fuera de la barra de quien
+>   opera la caja, aunque desde el 12-oct compara el libro nuevo. Pantalla nueva que cumple las 10 reglas de
+>   `check:pantalla`: veredicto en una frase + tira por estado que filtra la tabla + LoadState + frescura +
+>   `p-table` con teclado + búsqueda canónica en el detalle + `caja-cuadre` en el diccionario. Ruta y API con
+>   VER de caja **o** de bancos: nadie pierde acceso (los 7 roles con sólo `FINANCE_BANK_VER` lo veían en
+>   Control; los 4 con `FINANCE_CAJA_VER` ya tenían bancos). Control pierde la vista y sus diálogos (1,327 → 687
+>   líneas), y con ellos su deuda D.8 de búsqueda.
+> - [x] **[CGA-A.68]** 🧪 2026-10-30 · **«General» de Control: los totales siguen al filtro y la lista dice
+>   cuántos de cuántos.** Los mosaicos y «Por cuenta» ignoraban Tipo y búsqueda (con «Gasto», Ingresos seguía
+>   publicando el mes). La lista se topa en 500 y todos los meses de 2026 lo rebasan (567 a 1,696): `has_more` +
+>   «Se muestran los 500 más recientes de N» en vez de una nota fija.
+> - [x] **[CGA-A.69]** 🧪 2026-10-30 · **Rótulos que decían otra cosa.** Bancos: «Ver en Caja General» llevaba a
+>   Control (histórico). Control: el enlace a Captura se ofrecía a 7 roles que no la pueden abrir; el aviso decía
+>   que los arqueos «sí se siguen capturando en el Access» (el último es del 22-oct) — ahora publica la fecha. El
+>   detalle del día decía «el Control hasta el 10-oct» escrito a mano (ahora sale de las facetas) y su Excel traía
+>   dos columnas «Ref Kepler».
+>   - ⚠️ **NO MEDIDO / pendiente:** sin validación visual (los navegadores de las MCP estaban ocupados);
+>     `/api/health` no lo sirve todavía (sin empujar). **Hallazgos de datos para tesorería, sin tocar:**
+>     (1) la venta de la ruta 23 del 13-oct ($21,101.00) está DOS veces en el libro: `CI-2026-00022` (depósito
+>     CAOS #1588, ref «r23 13 10 26») y `CI-2026-00068` (cobro `01-003|U-A-5|0000010`), en dos cortes distintos;
+>     (2) la cola todavía ofrece 19 documentos de Kepler del 12 al 15-oct, días con depósitos CAOS sin documento
+>     declarado — así se duplicó la ruta 23; (3) `CG-2026-00001` (25-sep, $130,000) y `CG-2026-00002` (fechado
+>     10-dic-2026) siguen «registrado» sin corte y fuera de todo cuadre; (4) el rol `marketing` tiene
+>     `FINANCE_BANK_VER`.
 > - **[CGA-A.57]** ⬜ **Ligar el historial con propuestas + confirmación** (decisión de Edgar). Octubre
 >   en adelante contra los gastos del libro; mayo–sep ($16.5 M, 326 retiros) contra los egresos de
 >   Kepler (cuenta `0011`), porque el libro empieza el 25-sep. Nada se liga solo (1 de cada 3 parejas

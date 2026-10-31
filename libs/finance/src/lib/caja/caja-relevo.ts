@@ -31,6 +31,25 @@ export async function primerCorteDelLibro(trx: Knex | Knex.Transaction, tenantId
   return r ? diaDeFecha(r.fecha) ?? null : null;
 }
 
+/**
+ * `[CGA-A.66]` **La edad del dato de la caja**: el último `ok` del carril `ods_live_caja`, que es el
+ * que escribe `kdm1` y, por trigger, la tesorería y la cola (ADR-104). Una sola definición: la usan
+ * la bandeja de Captura y el Cuadre, que tienen que decir la misma edad del mismo dato.
+ *
+ * `null` = no se pudo medir, y quien lo pinta lo declara «sin medir», nunca como fresco.
+ */
+export async function frescuraCaja(trx: Knex | Knex.Transaction, tenantId: string): Promise<string | null> {
+  try {
+    const r = await trx('analytics.cron_run_log')
+      .where({ tenant_id: tenantId, job_key: 'ods_live_caja', status: 'ok' })
+      .max({ al: 'finished_at' })
+      .first();
+    return (r as { al?: string } | undefined)?.al ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** `[CGA-A.44]` El primer día del mes de una fecha `YYYY-MM-DD`. */
 export function inicioDelMes(dia: string): string {
   return `${dia.slice(0, 7)}-01`;

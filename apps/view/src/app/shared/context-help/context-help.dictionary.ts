@@ -2036,6 +2036,41 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  // `[CGA-A.67]` El Cuadre de la caja. Las definiciones salen de `conciliacionWorkbook` (servidor) y
+  // del contrato de la cola (`cajaColaDelLibroSql`), que es la misma de la bandeja de Captura.
+  'caja-cuadre': {
+    title: 'Cuadre — la caja contra Kepler',
+    intro: 'Cada día se compara lo que la caja registró contra lo que la Caja General de Kepler registró. No es el arqueo: el arqueo compara el cajón contra el libro; esto compara el libro contra el ERP.',
+    groups: [
+      {
+        heading: 'Los dos lados',
+        entries: [
+          { term: 'Caja', def: 'Hasta el día anterior al primer corte del libro, lo que registró el Control (el Access). Desde ese día, el libro nuevo, por la fecha del documento.' },
+          { term: 'Kepler', def: 'La Caja General del ERP (cuenta 0011) más los cobros de camioneta que van a esa cuenta.' },
+          { term: 'Tolerancia', def: 'Diez centavos por movimiento del día, nunca menos de cinco pesos. Cubre el redondeo, no diferencias reales.' },
+        ],
+      },
+      {
+        heading: 'Los estados de un día',
+        entries: [
+          { term: 'Cuadra', def: 'Ingresos y gastos coinciden con Kepler dentro de la tolerancia.' },
+          { term: 'Falta capturar', def: 'La diferencia es exactamente lo que la cola de Captura tiene de ese día: al capturarlo, el día cuadra. Es trabajo pendiente, no dinero perdido. El enlace lleva a la cola.' },
+          { term: 'No cuadra', def: 'Aun capturando todo lo que la cola tiene, queda una diferencia. Ésa es la que hay que investigar: se abre el día y se ve, movimiento por movimiento, qué tiene un lado y no el otro.' },
+          { term: 'Sin Kepler', def: 'Kepler no tiene nada ese día. No se compara: un día sin contra qué medir no cuadra ni descuadra.' },
+        ],
+      },
+      {
+        heading: 'Dentro de un día',
+        entries: [
+          { term: 'Casado por documento', def: 'El movimiento del libro trae el folio de Kepler, así que se liga con certeza.' },
+          { term: 'Casado por importe', def: 'El Control no guarda el folio de Kepler: se liga por importe dentro de la tolerancia. La virgulilla (~) marca que había más de un candidato con el mismo importe.' },
+          { term: 'Por identidad', def: 'La venta de ruta declara la ruta y el día de los dos lados, así que se liga sin tolerancia.' },
+          { term: 'En Kepler, sin caja', def: 'Lo que el ERP registró y la caja no. Si dice «por capturar», está en la cola; si dice «en libro», ya se capturó en otra fecha.' },
+        ],
+      },
+    ],
+  },
+
   // `[AUD.1]` Las comisiones de Ruta Directa. Este topico nace de una auditoria que midio que
   // la pantalla publicaba SIETE explicaciones dentro de atributos `title` -- o sea, sólo
   // alcanzables con el mouse encima. En tactil no hay hover: para quien abre esto en una

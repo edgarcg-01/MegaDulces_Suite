@@ -11,112 +11,16 @@ import { InputIconModule } from 'primeng/inputicon';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
-import { DialogModule } from 'primeng/dialog';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { BancosSocketService } from '../bancos-socket.service';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
-import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from '../../../shared/util';
 import { money, dmy } from './finanzas-format';
-import { exportXlsx, XlsxSheet } from '../../../shared/export/xlsx-export';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
-type View = 'general' | 'cuadre' | 'workbook' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
-interface OrigenCell { n: number; monto: number }
-/**
- * ⚠️ **Tipo HUÉRFANO, medido (CG.19):** nada llama a `/finance/caja/cuadre`. La pestaña "Cuadre"
- * pide `conciliacion-workbook` (señal `wbc`), así que `cq` es siempre `null` y `cqKpis()` no se
- * ejecuta nunca. Se deja declarado —no borrado— porque el endpoint sigue expuesto y retirar
- * superficie de API es una decisión aparte; pero nadie debe agregarle campos creyendo que se ven.
- */
-interface CajaCuadre {
-  period: { from: string; to: string };
-  totals: { ingreso: number; gasto: number; deposito: number; remisiones_gastos: number; neto: number; cuadra: boolean; dias: number };
-  /** `sin_clasificar` reemplaza al viejo `ELSE 'ruta'`: lo no identificable se declara, no se bautiza. */
-  ingreso_origen: { sucursal: OrigenCell; ruta: OrigenCell; otros: OrigenCell; sin_clasificar: OrigenCell };
-  pos_efectivo: { efectivo: number; n: number };
-  por_dia: { fecha: string; ingreso: number; gasto: number; deposito: number; neto: number; n: number; arqueo_efectivo: number | null; arqueo_n: number }[];
-}
-interface CajaWb {
-  period: { from: string; to: string };
-  totals: { mdb_ingreso: number; mdb_gasto: number; kp_ingreso: number; kp_gasto: number; delta_kep_ingreso: number; delta_kep_gasto: number; dias: number; /** [CGA-A.40] Días con Kepler, y cuántos de ellos no cuadran. */ dias_con_kepler: number; dias_descuadre: number; kep_disponible: boolean; /** [CGA-A.39] Primer día del libro nuevo. */ libro_desde?: string | null; dias_libro?: number; /** `[CGA-A.35]` false = no se leyeron los cobros de camioneta. */ ruta_disponible?: boolean };
-  /** ±$ por DÍA (captura exacta) y ±$ de TOTALES (absorbe el redondeo de ~30 días). */
-  eps_total: number;
-  por_dia: { fecha: string; /** [CGA-A.39] De qué fuente es la caja ese día. */ caja_fuente?: 'control' | 'libro'; mdb_ingreso: number; mdb_gasto: number; mdb_n: number; kp_ingreso: number; kp_gasto: number; kp_n: number; delta_kep_ingreso: number; delta_kep_gasto: number; /** [CGA-A.40] Tolerancia del día (10 c por movimiento, piso ±$5). */ tol: number; sin_kepler: boolean; cuadra: boolean }[];
-  eps: number;
-}
-interface WbMov { id: string; fecha: string; concepto: string | null; sucursal: string | null; codigo: string | null; ingreso: number; gasto: number }
-type MovSource = 'control' | 'workbook' | 'kepler' | 'ruta' | 'libro';
-/**
- * `[CGA-A.35]` Dónde quedó capturado en el libro nuevo un documento «solo Kepler». Sólo viaja en
- * los huérfanos de Kepler: el Control dejó de capturarse el 10-oct y el libro tomó la caja, así
- * que «no está en el Control» dejó de querer decir «falta capturar».
- */
-interface EnLibro { folio: string; estado: string; via: 'vinculo' | 'declarado' }
-interface OrphanMov { id: string; source: MovSource; key: string; fecha: string; importe: number; concepto: string | null; extra: string | null; dir?: 'in' | 'out'; en_libro?: EnLibro | null }
-interface ReconSide {
-  caja_total: number; other_total: number; delta: number; matched_count: number; matched_amount: number;
-  caja_only: OrphanMov[]; other_only: OrphanMov[]; caja_only_amount: number; other_only_amount: number;
-  /** Casamientos que pudieron haber sido otros (más de un candidato al mismo importe). */
-  ambiguos_n: number;
-  /** Casamientos que existen sólo porque la tolerancia los permitió (delta ≠ 0). */
-  inexactos_n: number;
-  tolerancia: number;
-}
-/** Una fila del detalle del día: un movimiento del Control con lo que casó en cada fuente. */
-interface DiaRow {
-  id: string; key: string; fecha: string; dir: 'in' | 'out'; importe: number; concepto: string | null; extra: string | null;
-  /** [CGA-A.39] De qué fuente es este renglón de la caja: el Control o el libro nuevo. */
-  source?: 'control' | 'libro';
-  kepler: boolean; kepler_importe: number | null; kepler_ref: string | null; kepler_key: string | null;
-  /**
-   * [CG.20.1] De dónde salió el número de la celda de Kepler, y con qué método:
-   *   `identidad` el cobro del ERP que declara la misma ruta y el mismo día — certeza;
-   *   `importe`   el casamiento de siempre ±$5, que puede ser ambiguo;
-   *   `ruta`      no hay cobro en tesorería: es la venta del Kepler de la camioneta.
-   * `kepler_source` dice a qué fuente le pide el detalle el clic.
-   */
-  kepler_origen: 'identidad' | 'llave' | 'importe' | 'ruta' | null;
-  kepler_source: MovSource | null;
-  /** El texto declaraba una venta de ruta y esa ruta no reportó venta: hallazgo, no hueco. */
-  kepler_motivo: string | null;
-  /**
-   * CG.19 — Qué tan firme es ESTE casamiento. El cruce es por importe+fecha (atributo débil, no
-   * hay llave entre el Access y Kepler), así que un par que salió de entre 40 iguales no puede
-   * pintarse igual que uno forzado. `ambiguo` = había otro candidato tan bueno; `delta` ≠ 0 = casó
-   * gracias a la tolerancia de ±$5, no porque los importes coincidan.
-   */
-  kepler_ambiguo: boolean; kepler_delta: number | null;
-}
-/** Detalle completo de un movimiento (modal al clickear una vía). */
-interface MovDetail { source: MovSource; title: string; fields: { label: string; value: string | number | null }[] }
-interface DiaTotals {
-  control_n: number; control_monto: number; en_kepler: number;
-  kepler_only_n: number; kepler_only_monto: number;
-  /** `[CGA-A.35]` De los «solo Kepler»: ya capturados en el libro nuevo, y los que faltan. */
-  kepler_only_en_libro_n?: number; kepler_only_en_libro_monto?: number;
-  kepler_only_pendiente_n?: number; kepler_only_pendiente_monto?: number;
-  /** `[CGA-A.35]` false = no se pudieron leer los cobros de camioneta: el lado Kepler está incompleto. */
-  ruta_cobros_disponible?: boolean;
-  kepler_ambiguos_n: number; kepler_inexactos_n: number;
-  /** Un lado sin datos NO es "todo descuadrado": es una fuente apagada en el periodo. */
-  kepler_disponible: boolean;
-  tolerancia: number;
-  /** [CG.20] Universo propio: sólo los movimientos que DECLARAN una venta de ruta. */
-  ruta_declarados: number; ruta_casados: number; ruta_sin_venta: number;
-  ruta_no_reconocidas: string[];
-  /** Cuántos pares con Kepler salieron de una identidad y no de un parecido de importe. */
-  kepler_por_identidad: number;
-  /** [CGA-A.39] La caja del rango: Control, libro nuevo, o las dos si el rango cruza el relevo. */
-  caja_fuente?: 'control' | 'libro' | 'mixto'; libro_desde?: string | null; libro_n?: number;
-  /** [CGA-A.39] Movimientos del libro casados con Kepler por su propio documento (llave). */
-  kepler_por_llave?: number;
-}
-interface ConcDia {
-  period: { from: string; to: string };
-  vs_kepler: { ingresos: ReconSide; gastos: ReconSide };
-  rows: DiaRow[]; totals: DiaTotals;
-}
+type View = 'general' | 'resumen' | 'depositos' | 'arqueos' | 'conciliacion' | 'enlace';
 interface CajaGeneral {
   /** [CG.8] Frescura del espejo medida por el servidor. Puede faltar si la medición falló. */
   freshness?: { data_as_of: string | null; status: 'fresh'|'stale'|'unknown'; stale: boolean; age_human: string | null } | null;
@@ -129,6 +33,8 @@ interface CajaGeneral {
   totals: { ingreso: number; gasto: number; neto: number; n: number; saldo: number | null; saldo_fecha: string | null; saldo_motivo?: string };
   por_mes: { mes: string; ingreso: number; gasto: number; n: number }[];
   por_cuenta: { cuenta: string; cuenta_nombre: string | null; ingreso: number; gasto: number; n: number }[];
+  /** `[CGA-A.68]` La lista viene topada: `totals.n` es el universo filtrado. */
+  has_more?: boolean;
   movimientos: { uid: string; mov_id: string; tipo_dto: number; tipo: string | null; fecha: string; hora: string | null; usuario: string | null; cuenta: string; cuenta_nombre: string | null; nombre_cliente: string | null; concepto: string | null; ingreso: number; gasto: number; saldo: number; denom: Record<string, number> | null }[];
 }
 interface Overview {
@@ -154,7 +60,7 @@ interface CDet {
  * `[CGA-A.38]` El relevo Control → libro nuevo, derivado por el servidor: el último movimiento del
  * Access y el primer corte del libro. Opcional porque un servidor anterior no lo manda.
  */
-interface Relevo { control_ultimo_fecha: string | null; control_ultimo_hora: string | null; libro_desde: string | null; libro_primer_corte: string | null }
+interface Relevo { control_ultimo_fecha: string | null; control_ultimo_hora: string | null; libro_desde: string | null; libro_primer_corte: string | null; /** `[CGA-A.69]` Último arqueo del Access. */ arqueo_access_ultimo?: string | null }
 interface Facets { meses: string[]; bancos: string[]; empresas: string[]; cajas: string[]; relevo?: Relevo }
 interface XwRow { banco_code: string; banco_name: string; canon_bank: string; deposits: number; monto: number; current_label: string | null; confirmed_by: string | null; suggested_label: string | null; suggested_matches: number; suggested_reason: 'kepler' | 'unica_cuenta' | null; alternatives: { label: string; n: number }[]; cb_options: string[] }
 const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: 'Morralla', cheques: 'Cheques', tarjeta: 'Tarjeta', caja_chica: 'Caja chica', sobregiro: 'Sobregiro' };
@@ -168,7 +74,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
   selector: 'app-finanzas-caja',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, InputTextModule, IconFieldModule, InputIconModule, TableModule, SelectModule, TagModule, DialogModule, MetricStripComponent, FreshnessPillComponent],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, InputTextModule, IconFieldModule, InputIconModule, TableModule, SelectModule, TagModule, MetricStripComponent, FreshnessPillComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -176,7 +82,10 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
           <!-- [CGA-A.38] Se llamaba «Caja General», que es el nombre del motor NUEVO en el árbol de
                permisos. Ésta es el espejo del Access Control: la caja viva está en «Caja». -->
           <h1>Control (histórico)</h1>
-          <p class="surf-page-sub">Espejo de sólo lectura del Access <b>Control</b> de Finanzas: sus movimientos, su <b>arqueo</b> por denominación y su cuadre contra Kepler. La caja se opera en <a routerLink="/finanzas/caja-general">Caja</a>.</p>
+          <!-- [CGA-A.67] El cuadre contra Kepler se mudó a Caja: allá vive con la caja que revisa.
+               [CGA-A.69] El enlace a Captura sólo se ofrece a quien la puede abrir: 7 roles ven esta
+               pantalla con el permiso de bancos y no el de caja, y el enlace los mandaba a sin-acceso. -->
+          <p class="surf-page-sub">Espejo de sólo lectura del Access <b>Control</b> de Finanzas: sus movimientos y su <b>arqueo</b> por denominación. El cuadre contra Kepler está en <a routerLink="/finanzas/caja-general/cuadre">Caja → Cuadre</a>.@if (puedeCaja()) { La caja se opera en <a routerLink="/finanzas/caja-general">Caja</a>. }</p>
         </div>
         <div class="cg-head-actions">
           <!-- [CG.8] De cuándo son estos datos. measures="data" porque el since sale del
@@ -199,7 +108,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
       @if (relevo(); as r) {
         <div class="cg-legacy-note" role="note">
           <i class="pi pi-history" aria-hidden="true"></i>
-          <span>Control registró su último movimiento el <b>{{ dmy(r.control_ultimo_fecha!) }}</b>@if (r.control_ultimo_hora) { a las <b>{{ r.control_ultimo_hora.slice(0, 5) }}</b> }. Desde el <b>{{ dmy(r.libro_desde!) }}</b> (corte {{ r.libro_primer_corte }}) la caja vive en el libro nuevo: lo que falte capturar de Kepler está en <a routerLink="/finanzas/caja-general">Caja → Captura</a>. En el <b>Cuadre</b>, desde ese día la columna de la caja es el libro (por la fecha del documento) contra Kepler. Los <b>arqueos</b> de esta pantalla sí se siguen capturando en el Access.</span>
+          <span>Control registró su último movimiento el <b>{{ dmy(r.control_ultimo_fecha!) }}</b>@if (r.control_ultimo_hora) { a las <b>{{ r.control_ultimo_hora.slice(0, 5) }}</b> }. Desde el <b>{{ dmy(r.libro_desde!) }}</b> (corte {{ r.libro_primer_corte }}) la caja vive en el libro nuevo: lo que falte capturar de Kepler está en @if (puedeCaja()) { <a routerLink="/finanzas/caja-general">Caja → Captura</a> } @else { Caja → Captura }, y el cuadre del libro contra Kepler en <a routerLink="/finanzas/caja-general/cuadre">Caja → Cuadre</a>.@if (r.arqueo_access_ultimo) { El último <b>arqueo</b> capturado en el Access es del <b>{{ dmy(r.arqueo_access_ultimo) }}</b>. }</span>
         </div>
       }
 
@@ -281,115 +190,12 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             </ng-template>
             <ng-template #emptymessage><tr><td colspan="6"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
           </p-table>
-          <p class="cg-note">Caja general <b>viva</b> de Comisionistas (sistema operativo <code>Doctos</code>): la venta de ruta <b>entra</b> (ingreso) y sale a <b>pagar proveedores</b> (remisiones), comisiones y gastos por sucursal. Reemplaza el Base Movimientos (abandonado abr-2026). <b>No publica saldo de caja</b>: el origen no lo lleva &mdash; lo que se ve es el <b>flujo</b> del periodo. Para saber cuanto HAY hay que contarlo, y eso es el corte con su arqueo. Mostrando hasta 500 movimientos del periodo.</p>
-        }
-      }
-
-      <!-- ===== CUADRE (conciliación 3 fuentes: .mdb operativo vs Manual vs Kepler) ===== -->
-      @if (view()==='cuadre') {
-        @if (loading() && !wbc()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="fb-skel-row"></div> }</div> }
-        @else if (wbc(); as d) {
-
-          <!-- Veredicto answer-first (mismo organismo que el Cuadre de Bancos).
-               [CGA-A.40] Caja contra Kepler: el Workbook (la copia a mano del Control) se quito. -->
-          <div class="tw-verdict" [class.ok]="d.totals.dias_con_kepler > 0 && d.totals.dias_descuadre===0" [class.bad]="d.totals.dias_descuadre>0">
-            <i [class]="d.totals.dias_descuadre===0 ? 'pi pi-check-circle' : 'pi pi-exclamation-triangle'" aria-hidden="true"></i>
-            <div>
-              <h3>{{ verdict(d) }}</h3>
-              <p class="muted">La <b>caja</b> es el Control (Access) hasta el día anterior al primer corte del libro y, desde ese día, el <b>libro nuevo</b>; <b>Kepler</b> es la Caja General del ERP, con los cobros de camioneta. Cada día se compara con una tolerancia de 10 centavos por movimiento, nunca menos de ±{{ money(d.eps) }}.</p>
-            </div>
-          </div>
-
-          <!-- Nivel 1 — control-total del periodo. Las dos filas salen de ctRows(d). -->
-          <div class="card-premium card-flat tw-card">
-            <h3 class="tw-card-title">Control-total <span class="muted">— caja contra Kepler en {{ month() }} (tolerancia ±{{ money(roundTol(monthN(d))) }}: 10 centavos por movimiento)</span></h3>
-            <div class="tw-wrap">
-              <table class="tw-tbl">
-                <thead>
-                  <tr>
-                    <th scope="col"><span class="sr-only">Concepto</span></th>
-                    <th scope="col" class="ta-r"><i class="pi pi-wallet"></i> Caja</th>
-                    <th scope="col" class="ta-r"><i class="pi pi-database"></i> Kepler</th>
-                    <th scope="col" class="ta-r">Δ Caja − Kepler</th>
-                    <th scope="col" class="ta-c">Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (row of ctRows(d); track row.label) {
-                    <tr>
-                      <th scope="row"><i class="pi" [class.pi-arrow-down-left]="row.dir==='in'" [class.tw-in-ico]="row.dir==='in'" [class.pi-arrow-up-right]="row.dir==='out'" [class.tw-out-ico]="row.dir==='out'" aria-hidden="true"></i> {{ row.label }} <span class="muted">({{ row.dir==='in' ? 'entra' : 'sale' }})</span></th>
-                      <td class="ta-r num">{{ money(row.control) }}</td>
-                      <td class="ta-r num">{{ row.kep_ok ? money(row.kepler) : '—' }}</td>
-                      <td class="ta-r num" [class.warn]="row.kep_ok && deltaClass(row.d_ck, roundTol(monthN(d)))==='warn'" [class.bad]="row.kep_ok && deltaClass(row.d_ck, roundTol(monthN(d)))==='bad'">{{ row.kep_ok ? money(row.d_ck) : '—' }}</td>
-                      <td class="ta-c">
-                        @if (!row.kep_ok) { <span class="tw-tag muted-tag">sin Kepler</span> }
-                        @else if (row.cuadra) { <i class="pi pi-check-circle ok" title="La caja cuadra con Kepler en el total del periodo"></i> }
-                        @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra — revisa el detalle por día"></i> }
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-            <p class="tw-note muted"><i class="pi pi-info-circle"></i>
-              <b>Caja</b> = hasta el día anterior al primer corte del libro, el <b>Control</b> (Access); desde ese día, el <b>libro nuevo</b>, por la fecha del documento (los días marcados <i>libro</i>). <b>Kepler</b> = Caja General del ERP más los cobros de camioneta (U-A-5 de los almacenes 01-00x y 06-00x). El semáforo del total usa 10 centavos por movimiento del periodo.@if (!d.totals.kep_disponible) { <b> Sin feed Kepler en el periodo.</b> } @if (d.totals.ruta_disponible === false) { <b> No se pudieron leer los cobros de camioneta: la columna Kepler está incompleta.</b> }
-            </p>
-          </div>
-
-
-          <!-- Nivel 2 — por día: clic en una fila abre qué movimientos no casan -->
-          <div class="card-premium card-flat tw-tablewrap">
-            <h3 class="tw-card-title tw-pnl-title">Por día <span class="muted">— clic en un día para ver qué movimientos faltan de cada lado</span></h3>
-            <div class="tw-drill-filters">
-              <div class="tw-fg" role="group" aria-label="Dirección (se hereda al abrir el día)">
-                <button type="button" [class.on]="cuadreDir()===''" (click)="cuadreDir.set('')">Ambos</button>
-                <button type="button" [class.on]="cuadreDir()==='in'" (click)="cuadreDir.set('in')">Ingresos</button>
-                <button type="button" [class.on]="cuadreDir()==='out'" (click)="cuadreDir.set('out')">Gastos</button>
-              </div>
-              <span class="muted tw-fcount"><i class="pi pi-circle-fill warn"></i> redondeo · <i class="pi pi-circle-fill bad"></i> no concilia</span>
-            </div>
-            <div class="tw-wrap">
-            <p-table [value]="d.por_dia" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" [paginator]="d.por_dia.length>60" [rows]="60">
-              <ng-template #header>
-                <tr>
-                  <th class="cg-w-date" rowspan="2">Día</th>
-                  @if (cuadreDir() !== 'out') { <th class="ta-c tw-grp" colspan="3"><i class="pi pi-arrow-down-left tw-in-ico"></i> Ingreso</th> }
-                  @if (cuadreDir() !== 'in') { <th class="ta-c tw-grp" colspan="3"><i class="pi pi-arrow-up-right tw-out-ico"></i> Gasto</th> }
-                  <th class="cg-w-e ta-c" rowspan="2">Estado</th>
-                </tr>
-                <tr>
-                  @if (cuadreDir() !== 'out') {
-                    <th class="ta-r">Caja</th><th class="ta-r tw-kep">Kepler</th><th class="ta-r tw-kep" title="Caja − Kepler">Δ C–K</th>
-                  }
-                  @if (cuadreDir() !== 'in') {
-                    <th class="ta-r">Caja</th><th class="ta-r tw-kep">Kepler</th><th class="ta-r tw-kep" title="Caja − Kepler">Δ C–K</th>
-                  }
-                </tr>
-              </ng-template>
-              <ng-template #body let-r>
-                <tr class="tw-clickable" (click)="openDay(r)">
-                  <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span>@if (r.caja_fuente === 'libro') { <p-tag value="libro" severity="info" styleClass="cg-tag" /> }<i class="pi pi-search-plus tw-drill-ico"></i></td>
-                  @if (cuadreDir() !== 'out') {
-                    <td class="ta-r num">{{ money(r.mdb_ingreso) }}</td>
-                    <td class="ta-r num tw-kep">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
-                    <td class="ta-r num tw-kep" [class.warn]="clsCK(r.delta_kep_ingreso, r.tol, r.kp_n)==='warn'" [class.bad]="clsCK(r.delta_kep_ingreso, r.tol, r.kp_n)==='bad'" title="Caja − Kepler">{{ r.kp_n ? money(r.delta_kep_ingreso) : '—' }}</td>
-                  }
-                  @if (cuadreDir() !== 'in') {
-                    <td class="ta-r num">{{ money(r.mdb_gasto) }}</td>
-                    <td class="ta-r num tw-kep">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
-                    <td class="ta-r num tw-kep" [class.warn]="clsCK(r.delta_kep_gasto, r.tol, r.kp_n)==='warn'" [class.bad]="clsCK(r.delta_kep_gasto, r.tol, r.kp_n)==='bad'" title="Caja − Kepler">{{ r.kp_n ? money(r.delta_kep_gasto) : '—' }}</td>
-                  }
-                  <td class="cg-w-e ta-c">
-                    @if (r.sin_kepler) { <span class="tw-tag muted-tag">sin Kepler</span> }
-                    @else if (r.cuadra) { <i class="pi pi-check-circle ok" title="La caja cuadra con Kepler"></i> }
-                    @else { <i class="pi pi-exclamation-triangle bad" title="La caja no cuadra con Kepler — abre el día"></i> }
-                  </td>
-                </tr>
-              </ng-template>
-              <ng-template #emptymessage><tr><td colspan="8"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
-            </p-table>
-            </div>
-          </div>
+          <!-- [CGA-A.68] La lista se topa en 500 y TODOS los meses de 2026 lo rebasan (567 a 1,696):
+               se dice cuantos de cuantos, arriba de la nota y no como una frase fija. -->
+          @if (d.has_more) {
+            <p class="cg-tope" role="status">Se muestran los <b>{{ d.movimientos.length.toLocaleString('es-MX') }}</b> más recientes de <b>{{ d.totals.n.toLocaleString('es-MX') }}</b>. Acota por tipo o búsqueda para ver el resto; los totales de arriba sí son de los {{ d.totals.n.toLocaleString('es-MX') }}.</p>
+          }
+          <p class="cg-note">Caja general <b>viva</b> de Comisionistas (sistema operativo <code>Doctos</code>): la venta de ruta <b>entra</b> (ingreso) y sale a <b>pagar proveedores</b> (remisiones), comisiones y gastos por sucursal. Reemplaza el Base Movimientos (abandonado abr-2026). <b>No publica saldo de caja</b>: el origen no lo lleva &mdash; lo que se ve es el <b>flujo</b> del periodo. Para saber cuanto HAY hay que contarlo, y eso es el corte con su arqueo.</p>
         }
       }
 
@@ -595,160 +401,6 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
       }
     </div>
 
-    <!-- Detalle del día — misma ventana y mismo formato que el drill del Cuadre de Bancos:
-         lead → tira de conteos → filtros → una fila por movimiento del Control con una
-         columna por fuente → huérfanos abajo. -->
-    <p-dialog [visible]="dayOpen()" (visibleChange)="dayOpen.set($event)" [modal]="true" [dismissableMask]="true"
-              [style]="{ width: '64rem', maxWidth: '96vw' }" [draggable]="false" [header]="dayTitle()">
-      @if (wbDayLoad()[dayKey()]) { <div class="cg-empty"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Casando movimientos del día…</span></div> }
-      @else if (wbDayErr()[dayKey()]?.dia; as e) { <div class="cg-empty"><i class="pi pi-exclamation-triangle bad" aria-hidden="true"></i><span>{{ e }}</span></div> }
-      @else if (wbDayDia()[dayKey()]; as cd) {
-        <!-- La tolerancia sale del servidor (cd.totals.tolerancia). Estaba escrita a mano acá como
-             "±$1" y el servidor ya casaba con ±$5: una CUARTA copia del mismo número, divergida. -->
-        <p class="dlg-lead">Cada movimiento de la <b>caja</b> (el Control hasta el 10-oct; desde el primer corte, el
-          <b>libro nuevo</b>) marca si <b>Kepler</b> lo tiene. Abajo, lo que Kepler registra y la caja no tiene.</p>
-        <!-- ⚠️ No hay llave entre el Access y Kepler: se casa por importe+fecha, que es un atributo
-             débil. Decirlo acá es parte del número — sin esto la tabla se lee como una identidad. -->
-        <p class="dlg-lead muted">El <b>Control</b> no guarda el folio de Kepler: sus movimientos casan <b>por importe</b>
-          ±{{ money(cd.totals.tolerancia) }}, y los marcados con <b>~</b> tenían más de un candidato. El <b>libro</b> sí lo
-          guarda: casa por su documento <i class="pi pi-link tw-ident"></i>, y sólo lo capturado sin documento va por importe.</p>
-        <!-- [CG.20.1] La excepcion se explica aparte porque su metodo es OTRO, y mezclarla en el
-             parrafo de arriba haria creer que tambien casa por importe. -->
-        <p class="dlg-lead muted">La <b>venta de ruta</b> es la excepción: el texto la declara de
-          los dos lados (<i>Ventas 01/10 RD 23</i> en la caja, <i>VENTA RD 23 01-10-2026</i> en el
-          cobro de Kepler), así que casa por <b>identidad</b> — sin tolerancia y sin candidatos:
-          <i class="pi pi-link tw-ident"></i>. Si la tesorería no registró ese cobro, la celda trae
-          la venta del Kepler de la propia camioneta: <i class="pi pi-truck tw-ident"></i>. Y un
-          <i class="pi pi-exclamation-triangle warn"></i> es que entró efectivo de una venta que la
-          ruta no reportó. En los tres casos el clic abre el documento completo.</p>
-
-        <div class="tw-drill-kpis">
-          <span><b>{{ cd.totals.control_n }}</b> movs {{ cd.totals.caja_fuente === 'libro' ? 'del libro' : cd.totals.caja_fuente === 'mixto' ? 'de caja (Control y libro)' : 'Control' }}</span>
-          @if (cd.totals.kepler_por_llave) { <span class="ok"><b>{{ cd.totals.kepler_por_llave }}</b> casados por el documento del libro</span> }
-          @if (cd.totals.kepler_disponible) { <span class="ok"><b>{{ cd.totals.en_kepler }}</b> en Kepler</span> }
-          @else { <span class="muted">Kepler sin datos en el periodo</span> }
-          <!-- [CGA-A.35] «Solo Kepler» ya no quiere decir «falta capturar»: desde el 12-oct el
-               libro nuevo tomó la caja. Se parte en lo que el libro ya capturó y lo que falta. -->
-          @if (cd.totals.kepler_only_pendiente_n) { <span class="warn"><b>{{ cd.totals.kepler_only_pendiente_n }}</b> de Kepler por capturar ({{ money(cd.totals.kepler_only_pendiente_monto) }})</span> }
-          @if (cd.totals.kepler_only_en_libro_n) { <span class="ok"><b>{{ cd.totals.kepler_only_en_libro_n }}</b> de Kepler ya en el libro nuevo ({{ money(cd.totals.kepler_only_en_libro_monto) }})</span> }
-          @if (cd.totals.ruta_cobros_disponible === false) { <span class="warn">no se pudieron leer los cobros de camioneta: la columna Kepler está incompleta</span> }
-          <!-- [CG.20] Se publica sobre SU universo (los que declaran venta de ruta), no sobre los
-               movimientos del dia: "3 de 11" leeria como cobertura mala cuando 8 no son ventas. -->
-          @if (cd.totals.kepler_por_identidad) {
-            <span class="ok" title="Casaron porque los dos lados declaran la misma ruta y el mismo día, no porque los importes se parezcan.">
-              <b>{{ cd.totals.kepler_por_identidad }}</b> por identidad
-            </span>
-          }
-          @if (cd.totals.ruta_declarados) {
-            <span class="ok" title="Movimientos cuyo texto declara una venta de ruta y encontraron su documento en Kepler (cobro de tesorería o venta de la camioneta).">
-              <b>{{ cd.totals.ruta_casados }}</b> de {{ cd.totals.ruta_declarados }} ventas de ruta ligadas
-            </span>
-          }
-          @if (cd.totals.ruta_sin_venta) {
-            <span class="warn" title="El texto declara una venta de ruta y esa ruta no reportó venta ese día: entró efectivo que su Kepler no registra.">
-              <b>{{ cd.totals.ruta_sin_venta }}</b> sin venta en la ruta
-            </span>
-          }
-          @if (cd.totals.ruta_no_reconocidas?.length) {
-            <span class="warn" title="El texto nombra una ruta que no existe en el registro operativo: casi siempre es un número mal tecleado.">
-              ruta no reconocida: {{ cd.totals.ruta_no_reconocidas.join(', ') }}
-            </span>
-          }
-          @if (ambiguosTotal(cd)) {
-            <span class="warn" title="Casaron teniendo más de un candidato al mismo importe: el par pudo haber sido otro.">
-              <b>{{ ambiguosTotal(cd) }}</b> casamientos ambiguos
-            </span>
-          }
-        </div>
-
-        <div class="tw-drill-filters">
-          <div class="tw-fg" role="group" aria-label="Dirección">
-            <button type="button" [class.on]="dfDir()===''" (click)="dfDir.set('')">Todos</button>
-            <button type="button" [class.on]="dfDir()==='in'" (click)="dfDir.set('in')">Ingresos</button>
-            <button type="button" [class.on]="dfDir()==='out'" (click)="dfDir.set('out')">Gastos</button>
-          </div>
-          <div class="tw-fg" role="group" aria-label="Estado">
-            <button type="button" [class.on]="dfEstado()===''" (click)="dfEstado.set('')">Todos</button>
-            <button type="button" [class.on]="dfEstado()==='casado'" (click)="dfEstado.set('casado')">Con Kepler</button>
-            <button type="button" [class.on]="dfEstado()==='descuadre'" (click)="dfEstado.set('descuadre')">Sin Kepler</button>
-          </div>
-          <input type="text" class="tw-fsearch" [ngModel]="dfSearch()" (ngModelChange)="dfSearch.set($event)" placeholder="Buscar concepto / monto…" aria-label="Buscar" />
-          <span class="muted tw-fcount">{{ dayRows(cd).length }} de {{ cd.rows.length }}</span>
-          <button type="button" class="tw-xls" [disabled]="exporting()" (click)="exportDay(cd)"
-                  title="Descarga lo que estás viendo: con los filtros y el orden puestos">
-            <i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel
-          </button>
-        </div>
-
-        <div class="tw-wrap">
-          <table class="tw-tbl tw-drill-tbl">
-            <thead><tr>
-              @for (c of DAY_COLS; track c.field) {
-                <th [class]="c.cls" [attr.aria-sort]="ariaSort(daySort(), c.field)">
-                  <button type="button" class="surf-sort" (click)="sortDay(c.field)" [attr.aria-label]="'Ordenar por ' + c.label">
-                    {{ c.label }}<i [class]="sortIcon(daySort(), c.field)" aria-hidden="true"></i>
-                  </button>
-                </th>
-              }
-            </tr></thead>
-            <tbody>
-              @for (e of dayRows(cd); track e.key + e.dir) {
-                <tr>
-                  <td class="cg-mono muted">{{ dmy(e.fecha) }}</td>
-                  <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="e.dir === 'in' ? 'Ingreso' : 'Gasto'"></i></td>
-                  <td class="ta-r num"><button type="button" class="tw-mlink" (click)="openMovement(e.source ?? 'control', e.key)" [title]="e.source === 'libro' ? 'Ver detalle del movimiento (libro nuevo)' : 'Ver detalle del movimiento (Control)'">{{ money(e.importe) }}</button>@if (e.source === 'libro') { <p-tag value="libro" severity="info" styleClass="cg-tag" /> }</td>
-                  <!-- La virgulilla marca el par que casó teniendo MAS DE UN candidato al mismo
-                       importe. Un par forzado y uno elegido entre varios no pueden pintarse igual:
-                       el cruce es por importe, no por una llave. (Sin acentos graves aca: el
-                       template es un literal y un acento grave lo cierra — ya pasó cinco veces.) -->
-                  <!-- [CG.20.1] UNA sola celda de Kepler, con tres procedencias posibles. El clic
-                       abre el documento completo igual que antes; lo que cambia es de que fuente.
-                       El icono de identidad NO es decoracion: distingue un par cierto (ruta y dia
-                       declarados de los dos lados) de uno elegido por parecido de importe. -->
-                  <td class="ta-r num tw-kep">@if (e.kepler) { <button type="button" class="tw-mlink" [class.tw-cent]="e.kepler_importe !== e.importe" [title]="tituloKepler(e)" (click)="openMovement(e.kepler_source!, e.kepler_key)">{{ money(e.kepler_importe) }}</button>@if (e.kepler_origen === 'identidad') { <i class="pi pi-link tw-ident" aria-label="casado por identidad"></i> } @else if (e.kepler_origen === 'llave') { <i class="pi pi-link tw-ident" aria-label="casado por el documento del libro"></i> } @else if (e.kepler_origen === 'ruta') { <i class="pi pi-truck tw-ident" aria-label="venta registrada por la camioneta"></i> } @if (e.kepler_ambiguo) { <span class="tw-amb" aria-label="casamiento ambiguo">~</span> } } @else if (e.kepler_motivo) { <i class="pi pi-exclamation-triangle warn" [title]="e.kepler_motivo"></i> } @else { <i class="pi pi-minus tw-faint" title="No está en Kepler"></i> }</td>
-                  <td class="tw-concept" [title]="(e.extra || '') + ' ' + (e.concepto || '')">{{ e.concepto || e.extra || '—' }}</td>
-                </tr>
-              }
-              @if (!dayRows(cd).length) { <tr><td colspan="5" class="ta-c muted tw-empty">Sin movimientos con estos filtros.</td></tr> }
-            </tbody>
-          </table>
-        </div>
-
-        @if (dayOrphans(cd); as orp) {
-          @if (orp.kepler.length) {
-            <div class="tw-orphans">
-              @if (orp.kepler.length) {
-                <div class="tw-orphan">
-                  <h4><i class="pi pi-database"></i> En Kepler, sin caja ({{ orp.kepler.length }})</h4>
-                  <table class="tw-tbl"><tbody>
-                    @for (m of orp.kepler; track m.key) {
-                      <!-- [CGA-A.35] track por key: el folio se repite entre unidades (01-002 y 01-006 con el mismo U-A-5). -->
-                      <tr class="tw-clickable" (click)="openMovement(m.source, m.key)" title="Ver detalle del movimiento (Kepler)"><td class="ta-c"><i [class]="m.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="m.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r num">{{ money(m.importe) }}</td><td class="tw-concept" [title]="(m.extra || '') + ' ' + (m.concepto || '')">{{ m.concepto || m.extra || '—' }}<i class="pi pi-search-plus tw-drill-ico"></i></td><td class="ta-r">@if (m.en_libro; as l) { <p-tag [value]="(l.via === 'declarado' ? 'declarado en ' : 'en libro ') + l.folio" severity="success" styleClass="cg-tag" /> } @else { <p-tag value="por capturar" severity="warn" styleClass="cg-tag" /> }</td></tr>
-                    }
-                  </tbody></table>
-                </div>
-              }
-            </div>
-          }
-        }
-      }
-    </p-dialog>
-
-    <!-- CG.18 — Detalle completo de un movimiento (click en cualquier vía) -->
-    <p-dialog [visible]="movOpen()" (visibleChange)="movOpen.set($event)" [modal]="true" [dismissableMask]="true"
-              [style]="{ width: '34rem', maxWidth: '94vw' }" [draggable]="false" [header]="mov()?.title || 'Movimiento'">
-      @if (movLoad()) { <div class="cg-empty"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Cargando detalle…</span></div> }
-      @else if (movErr(); as e) { <div class="cg-empty"><i class="pi pi-exclamation-triangle bad" aria-hidden="true"></i><span>{{ e }}</span></div> }
-      @else if (mov(); as m) {
-        <dl class="cg-movd">
-          @for (f of m.fields; track f.label) {
-            @if (f.value !== null && f.value !== '') {
-              <div class="cg-movd-row"><dt>{{ f.label }}</dt><dd>{{ f.value }}</dd></div>
-            }
-          }
-        </dl>
-      }
-    </p-dialog>
 
   `,
   styles: [FINANZAS_SHARED_STYLES, `
@@ -821,6 +473,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .cg-alt { font-family:var(--font-mono); font-size:.68rem; color:var(--text-faint); margin-left:.4rem; }
     .cg-ok { color:var(--ok-fg); margin-left:.4rem; }
     :host ::ng-deep .cg-tag { font-size:.64rem; }
+    .cg-tope { margin:.5rem 0 0; font-size:var(--fs-sm); color:var(--warn-fg); }
     .cg-note { margin-top:.6rem; font-size:.74rem; color:var(--text-faint); line-height:1.5; }
     .cg-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
     .cg-errbox .pi { color:var(--bad-fg); } .cg-errbox-txt { flex:1; font-size:.84rem; }
@@ -853,10 +506,9 @@ export class FinanzasCajaComponent implements OnInit {
 
   // `legacy` = lee el Base Movimientos de Finanzas (caja_ventas_diarias / caja_depositos),
   // que dejó de alimentarse (ventas 08/abr-2026, depósitos ene-2026). Datos completos solo
-  // ≤ ene-2026 → banner honesto + badge. La caja VIVA es General/Cuadre (Doctos). Arqueos vivo.
+  // ≤ ene-2026 → banner honesto + badge. [CGA-A.67] El Cuadre se mudó a Caja → Cuadre.
   readonly VIEWS: { key: View; label: string; icon: string; legacy?: boolean }[] = [
     { key: 'general', label: 'General', icon: 'pi-wallet' },
-    { key: 'cuadre', label: 'Cuadre', icon: 'pi-check-square' },
     { key: 'arqueos', label: 'Arqueos', icon: 'pi-calculator' },
     { key: 'resumen', label: 'Resumen', icon: 'pi-chart-bar', legacy: true },
     { key: 'depositos', label: 'Depósitos', icon: 'pi-building-columns', legacy: true },
@@ -867,28 +519,14 @@ export class FinanzasCajaComponent implements OnInit {
   readonly isLegacy = computed(() => this.LEGACY.has(this.view()));
   readonly tipoOpts = ['Arqueo', 'Retiro', 'Corte', 'Deposito', 'Fondo Caja'];
   readonly skel = Array.from({ length: 8 });
+  private readonly perms = inject(PermissionsService);
+  /** `[CGA-A.69]` ¿Puede abrir Captura? Mismo gate que su ruta. Antes de cargar los permisos se ofrece. */
+  readonly puedeCaja = computed(() => !this.perms.cargado()
+    || this.perms.hasAny(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR));
 
   readonly view = signal<View>('general');
   readonly cgTipo = signal<string | null>(null);
   readonly cg = signal<CajaGeneral | null>(null);
-  readonly cq = signal<CajaCuadre | null>(null);
-  readonly wbc = signal<CajaWb | null>(null);
-  readonly wbDayDia = signal<Record<string, ConcDia>>({});
-  readonly wbDayLoad = signal<Record<string, boolean>>({});
-  /**
-   * Error del desglose de un día, por lado.
-   *
-   * Antes los dos `catch` guardaban `[]` y la pantalla decía "Sin movimientos":
-   * un 404, un 403 o un 500 se veían EXACTAMENTE igual que un día sin nada. Con
-   * `workbook-movimientos` recién agregado, un API atrasado respecto de HEAD
-   * devuelve 404 y el desglose quedaba mudo, sin forma de saber por qué.
-   */
-  readonly wbDayErr = signal<Record<string, { dia?: string }>>({});
-  readonly cqExp = signal<Record<string, boolean>>({});
-  readonly cqDayMovs = signal<Record<string, CajaGeneral['movimientos']>>({});
-  readonly cqDayLoad = signal<Record<string, boolean>>({});
-  /** Mismo caso que `wbDayErr`: el catch de Cuadre tampoco decía nada. */
-  readonly cqDayErr = signal<Record<string, string>>({});
   readonly expanded = signal<Record<string, boolean>>({});
   readonly DENOM_LABEL: Record<string, string> = { B1000: '$1000', B500: '$500', B200: '$200', B100: '$100', B50: '$50', B20: '$20', M20: '$20m', M10: '$10', M5: '$5', M2: '$2', M1: '$1', M05: '50¢', M02: '20¢', M01: '10¢', Mor: 'morralla' };
   readonly f = signal<Facets>({ meses: [], bancos: [], empresas: [], cajas: [] });
@@ -917,7 +555,7 @@ export class FinanzasCajaComponent implements OnInit {
   ngOnInit(): void {
     // Al actualizar el LIBRO en Bancos (sheet-sync o upload) se reescribe también el
     // Workbook de CAJA GENERAL (kind='cash'); nos enganchamos al mismo WS para refrescar
-    // el Cuadre en vivo sin recargar. El feed Control (.mdb/Doctos) va aparte (on-prem).
+    // la vista abierta sin recargar. El feed Control (.mdb/Doctos) va aparte (on-prem).
     this.bancosSock.connect();
     this.destroyRef.onDestroy(() => this.bancosSock.disconnect());
     this.bancosSock.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
@@ -930,7 +568,7 @@ export class FinanzasCajaComponent implements OnInit {
   }
 
   setView(v: View): void { if (v === this.view()) return; this.view.set(v); this.reload(); }
-  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.cq.set(null); this.wbc.set(null); this.wbDayDia.set({}); this.wbDayErr.set({}); this.cqExp.set({}); this.cqDayMovs.set({}); this.cqDayErr.set({}); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
+  onMonth(v: string | null): void { this.month.set(v); this.cg.set(null); this.ov.set(null); this.suc.set(null); this.dep.set(null); this.arq.set(null); this.conc.set(null); this.reload(); }
   onFilter(which: 'banco' | 'tipo' | 'caja', v: string | null): void { ({ banco: this.banco, tipo: this.tipo, caja: this.caja })[which].set(v); this.reload(); }
   onCgTipo(v: string | null): void { this.cgTipo.set(v); this.expanded.set({}); this.reload(); }
   toggleRow(r: { uid: string }): void { const e = { ...this.expanded() }; if (e[r.uid]) { delete e[r.uid]; } else { e[r.uid] = true; } this.expanded.set(e); }
@@ -957,9 +595,6 @@ export class FinanzasCajaComponent implements OnInit {
     const v = this.view();
     if (v === 'general') {
       this.http.get<CajaGeneral>(`${this.base}/general${this.qs({ tipo: this.cgTipo(), search: this.search().trim() || null })}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.cg.set(d); done(); }, error: fail });
-    } else if (v === 'cuadre') {
-      // Cuadre = conciliación 3 fuentes (.mdb operativo vs Manual vs Kepler), espejo de Bancos.
-      this.http.get<CajaWb>(`${this.base}/conciliacion-workbook${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.wbc.set(d); done(); }, error: fail });
     } else if (v === 'resumen') {
       this.http.get<Overview>(`${this.base}/overview${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => { this.ov.set(d); done(); }, error: fail });
       this.http.get<SucursalRow[]>(`${this.base}/por-sucursal${this.qs()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.suc.set(d), error: () => this.suc.set([]) });
@@ -984,283 +619,8 @@ export class FinanzasCajaComponent implements OnInit {
   }
   setPick(code: string, label: string): void { this.pick.set({ ...this.pick(), [code]: label }); }
 
-  cqKpis(d: CajaCuadre): MetricStripItem[] {
-    return [
-      { label: 'Ingresos', value: d.totals.ingreso, format: 'currency-short', tone: 'ok', sub: `${d.totals.dias} días` },
-      { label: 'Gastos', value: d.totals.gasto, format: 'currency-short', tone: 'default', sub: `${Math.round(d.totals.remisiones_gastos / 1000).toLocaleString('es-MX')}k remis/gastos` },
-      { label: 'Depósito banco', value: d.totals.deposito, format: 'currency-short', tone: 'default' },
-      { label: 'Neto (quedó/faltó)', value: d.totals.neto, format: 'currency-short', tone: d.totals.cuadra ? 'ok' : 'warn' },
-    ];
-  }
   readonly money = money;
   readonly dmy = dmy;
-  abs(n: number): number { return Math.abs(n || 0); }
-
-  /**
-   * Tolerancia del CONTROL-TOTAL: la manda el servidor (`eps_total`). Antes el título imprimía
-   * `eps` (la del día, ±$1) mientras las celdas comparaban contra un 1 hardcodeado: un mes
-   * entero salía "no cuadra" por el redondeo acumulado de 30 días aunque cada día cuadrara.
-   */
-  cuadT(delta: number, d: CajaWb): boolean { return Math.abs(delta || 0) < (d.eps_total ?? 1000); }
-
-  /**
-   * Semáforo de conciliación en 2 niveles: '' exacto (sin color) · 'warn' amarillo (diferencia
-   * por REDONDEO, tolerable) · 'bad' rojo (NO concilia). El redondeo adecuado se acumula por
-   * movimiento (~$0.02/mov medido Control↔Kepler) → presupuesto generoso de $0.10/mov, piso $2.
-   * Por mes/cuenta = $0.10 × total de movimientos del periodo (más movimientos ⇒ más redondeo).
-   */
-  roundTol(n: number): number { return Math.max(2, 0.10 * (n || 0)); }
-  deltaClass(delta: number, tol: number): '' | 'warn' | 'bad' {
-    const a = Math.abs(delta || 0);
-    if (a <= 0.005) return '';
-    return a <= tol ? 'warn' : 'bad';
-  }
-  /** Total de movimientos del periodo (Control) — base del redondeo del control-total. */
-  monthN(d: CajaWb): number { return (d.por_dia || []).reduce((s, r) => s + (r.mdb_n || 0), 0); }
-  /** Δ Control−Kepler del día: informativo, tol = redondeo por nº de movimientos del día. */
-  clsCK(delta: number, tol: number, nKep: number): '' | 'warn' | 'bad' {
-    // [CGA-A.40] La tolerancia del día la manda el servidor (r.tol): una sola definición.
-    return nKep ? this.deltaClass(delta, tol) : '';
-  }
-
-  /**
-   * Las dos filas del control-total, armadas acá y no duplicadas en el template.
-   *
-   * `cuadra` mira TODAS las fuentes disponibles, no sólo el Workbook: antes una fila con
-   * Kepler desviado salía con palomita verde porque el semáforo era de 2 vías en una tabla
-   * de 3 — el mismo defecto que ya se corrigió en el "Por cuenta" de Bancos.
-   */
-  ctRows(d: CajaWb) {
-    // [CGA-A.40] Caja contra Kepler; el Workbook se quitó. Tolerancia: 10 c por movimiento del periodo.
-    const t = d.totals, kep = t.kep_disponible, tol = this.roundTol(this.monthN(d));
-    const mk = (label: string, dir: 'in' | 'out', control: number, kepler: number, d_ck: number) => ({
-      label, dir, control, kepler, kep_ok: kep, d_ck,
-      cuadra: kep && this.deltaClass(d_ck, tol) !== 'bad',
-    });
-    return [
-      mk('Ingresos', 'in', t.mdb_ingreso, t.kp_ingreso, t.delta_kep_ingreso),
-      mk('Gastos', 'out', t.mdb_gasto, t.kp_gasto, t.delta_kep_gasto),
-    ];
-  }
-
-  /**
-   * Lectura del cuadre en una línea. Mismo rol que `verdict()` del Cuadre de Bancos: la
-   * conclusión va arriba y con nombre propio, no un semáforo que hay que interpretar.
-   */
-  verdict(d: { totals: { dias_descuadre: number; dias_con_kepler: number } }): string {
-    // [CGA-A.40] Caja contra Kepler (el Workbook se quitó). Sin Kepler no hay veredicto: se dice.
-    const { dias_descuadre: mal, dias_con_kepler: total } = d.totals;
-    if (!total) return 'Sin Kepler en el periodo: no hay contra qué cuadrar la caja.';
-    if (!mal) return `La caja cuadra con Kepler en los ${total} días con movimiento.`;
-    return `${mal} de ${total} días no cuadran entre la caja y Kepler.`;
-  }
-  key(r: { fecha: string }): string { return String(r.fecha).slice(0, 10); }
-  /**
-   * Traduce un fallo HTTP a algo accionable. El 404 se nombra aparte porque es el
-   * caso real más probable acá: el endpoint del desglose es nuevo y un API que
-   * quedó atrás de HEAD lo devuelve así.
-   */
-  private httpMsg(e: { status?: number }, ruta: string): string {
-    if (e?.status === 404) return `El API no tiene ${ruta} (404) — quedó atrás del código. Hace falta redesplegarlo.`;
-    if (e?.status === 403) return `Sin permiso para ${ruta} (403).`;
-    if (e?.status === 0) return `Sin conexión con el API al pedir ${ruta}.`;
-    return `Falló ${ruta}${e?.status ? ` (${e.status})` : ''}.`;
-  }
-  netoState(r: { ingreso: number; neto: number }): 'sobra' | 'falta' | 'cuadra' {
-    const tol = Math.max((r.ingreso || 0) * 0.05, 1000);
-    if (r.neto > tol) return 'sobra';
-    if (r.neto < -tol) return 'falta';
-    return 'cuadra';
-  }
-  cqIsExp(r: { fecha: string }): boolean { return !!this.cqExp()[r.fecha]; }
-  /** Desglose de un día: corre el match server-side (.mdb↔Manual y .mdb↔Kepler). */
-  // Filtro de dirección de la vista "Por día" (Ambos/Ingresos/Gastos). Se HEREDA al abrir el día.
-  readonly cuadreDir = signal<'' | 'in' | 'out'>('');
-  // ── Detalle del día: filtros, orden y export (mismo contrato que el drill de Bancos) ──
-  readonly dfDir = signal<'' | 'in' | 'out'>('');
-  readonly dfEstado = signal<'' | 'casado' | 'descuadre'>('');
-  readonly dfSearch = signal('');
-  readonly daySort = signal<SortState | null>(null);
-  readonly sortIcon = sortIcon;
-  readonly ariaSort = ariaSort;
-  sortDay(field: string): void { this.daySort.set(toggleSort(this.daySort(), field)); }
-
-  /** Columnas del detalle: etiqueta + campo por el que ordena. */
-  readonly DAY_COLS = [
-    { field: 'fecha',          label: 'Fecha',    cls: '' },
-    { field: 'dir',            label: 'Dir',      cls: 'ta-c' },
-    { field: 'importe',        label: 'Caja',     cls: 'ta-r' },
-    { field: 'kepler_importe', label: 'Kepler',   cls: 'ta-r' },
-    { field: 'concepto',       label: 'Concepto', cls: '' },
-  ];
-
-  /** Filas visibles: filtros + orden. Sin orden elegido manda el del backend (fecha, monto). */
-  dayRows(cd: ConcDia): DiaRow[] {
-    const dir = this.dfDir(), est = this.dfEstado(), q = this.dfSearch().trim().toLowerCase();
-    const filtered = cd.rows.filter((e) => {
-      if (dir && e.dir !== dir) return false;
-      if (est === 'casado' && !e.kepler) return false;
-      if (est === 'descuadre' && e.kepler) return false;
-      if (q && !`${e.concepto || ''} ${e.extra || ''} ${e.importe}`.toLowerCase().includes(q)) return false;
-      return true;
-    });
-    return sortRows(filtered, this.daySort(), (r, f) => (r as unknown as Record<string, unknown>)[f]);
-  }
-
-  /**
-   * Huérfanos de cada fuente, juntando ingresos y gastos. El backend los devuelve partidos por
-   * dirección porque el casado corre por dirección; para leerlos da igual de qué lado vinieron.
-   */
-  /**
-   * Cuántos casamientos del día pudieron haber sido otros. Es la medida de lo que el método NO
-   * sabe: el cruce es por importe (no hay folio común entre el Access y Kepler), así que un par
-   * elegido entre varios candidatos iguales es una decisión del algoritmo, no un hecho.
-   */
-  ambiguosTotal(cd: ConcDia): number {
-    return cd.totals.kepler_ambiguos_n || 0;
-  }
-
-  /**
-   * [CG.20.1] Título de la celda de Kepler. Lo primero que dice es **con qué método** casó, no el
-   * monto: un par por identidad y uno por parecido de importe no valen lo mismo, y la celda los
-   * pinta en la misma columna. Después, de qué documento salió, y la diferencia si la hay.
-   */
-  tituloKepler(e: DiaRow): string {
-    const p: string[] = [];
-    if (e.kepler_origen === 'identidad') p.push('Cobro del ERP · casado por IDENTIDAD (misma ruta y mismo día en los dos lados)');
-    else if (e.kepler_origen === 'ruta') p.push('Sin cobro en tesorería · esto es la venta que registró el Kepler de la camioneta');
-    else p.push('Kepler · casado por importe dentro de la tolerancia');
-    if (e.kepler_ref) p.push(e.kepler_ref);
-    if (e.kepler_ambiguo) p.push('⚠ había más de un candidato con este importe: pudo casar con otro');
-    if (e.kepler_delta) {
-      p.push(e.kepler_delta < 0
-        ? `entró ${this.money(Math.abs(e.kepler_delta))} MENOS`
-        : `entró ${this.money(e.kepler_delta)} MÁS`);
-    }
-    p.push('Clic para ver el detalle completo');
-    return p.join(' · ');
-  }
-
-  /** Título del par: de dónde salió, si pudo ser otro, y si casó al peso o por tolerancia. */
-  tituloPar(fuente: string, ref: string | null, ambiguo: boolean, delta: number | null): string {
-    const partes = [`Ver detalle (${fuente})`];
-    if (ref) partes.push(ref);
-    if (ambiguo) partes.push('⚠ había más de un candidato con este importe: pudo casar con otro');
-    if (delta) partes.push(`casó por tolerancia, difiere ${this.money(Math.abs(delta))}`);
-    return partes.join(' · ');
-  }
-
-  dayOrphans(cd: ConcDia): { kepler: OrphanMov[] } {
-    // Etiquetamos la dirección (ingreso/gasto) al juntar: el backend los parte por lado, y así el
-    // panel muestra si cada huérfano es ingreso o egreso (antes sólo se veía monto+concepto).
-    const join = (v: { ingresos: ReconSide; gastos: ReconSide }) =>
-      [...v.ingresos.other_only.map((o) => ({ ...o, dir: 'in' as const })),
-       ...v.gastos.other_only.map((o) => ({ ...o, dir: 'out' as const }))].sort((a, b) => b.importe - a.importe);
-    return { kepler: join(cd.vs_kepler) };
-  }
-
-  // Se exporta LO QUE SE VE: dayRows() ya trae filtros y orden. Los importes van como número
-  // con formato de moneda, no como texto: en Excel se suman.
-  readonly exporting = signal(false);
-
-  async exportDay(cd: ConcDia): Promise<void> {
-    this.exporting.set(true);
-    try {
-      const f: string[] = [];
-      if (this.dfDir()) f.push(this.dfDir() === 'in' ? 'solo ingresos' : 'solo gastos');
-      if (this.dfEstado()) f.push(this.dfEstado() === 'casado' ? 'solo los que estan en Kepler' : 'solo los que no estan en Kepler');
-      if (this.dfSearch().trim()) f.push('busqueda "' + this.dfSearch().trim() + '"');
-      const rows = this.dayRows(cd);
-      const base = `${this.dayKey()} - ${rows.length} de ${cd.rows.length} movimientos de la caja`;
-      const orp = this.dayOrphans(cd);
-      const sheets: XlsxSheet<any>[] = [{
-        name: 'Detalle del dia',
-        subtitle: f.length ? base + ' - filtros: ' + f.join(', ') : base,
-        rows,
-        cols: [
-          { header: 'Fecha', get: (r: any) => r.fecha, type: 'date', width: 12 },
-          { header: 'Direccion', get: (r: any) => (r.dir === 'in' ? 'Ingreso' : 'Gasto'), width: 11 },
-          { header: 'Caja', get: (r: any) => r.importe, type: 'money', total: true },
-          { header: 'Fuente', get: (r: any) => (r.source === 'libro' ? 'libro' : 'Control'), width: 9 },
-          { header: 'Kepler', get: (r: any) => r.kepler_importe, type: 'money', total: true },
-          // [CG.20.1] En el Excel va el MÉTODO y el MOTIVO: una celda vacía no distingue "no es
-          // venta de ruta" de "la ruta no reportó venta ese día", y la segunda es el hallazgo.
-          { header: 'Origen Kepler', get: (r: any) => r.kepler_origen, width: 12 },
-          { header: 'Ref Kepler', get: (r: any) => r.kepler_ref || r.kepler_motivo, width: 26 },
-          { header: 'Ref Kepler', get: (r: any) => r.kepler_ref, width: 20 },
-          { header: 'Concepto', get: (r: any) => r.concepto, width: 46 },
-        ],
-      }];
-      const orphanCols = [
-        { header: 'Importe', get: (r: any) => r.importe, type: 'money' as const, total: true },
-        { header: 'Concepto', get: (r: any) => r.concepto, width: 46 },
-        { header: 'Referencia', get: (r: any) => r.extra, width: 24 },
-      ];
-      // [CGA-A.35] La hoja de Kepler dice lo mismo que la pantalla: si el libro nuevo ya lo capturó.
-      if (orp.kepler.length) sheets.push({ name: 'En Kepler sin caja', rows: orp.kepler, cols: [
-        ...orphanCols,
-        { header: 'Documento', get: (r: OrphanMov) => r.key, width: 26 },
-        { header: 'Libro nuevo', get: (r: OrphanMov) => (r.en_libro ? (r.en_libro.via === 'declarado' ? 'declarado en ' : 'en libro ') + r.en_libro.folio : 'por capturar'), width: 22 },
-      ] });
-      await exportXlsx('Detalle del dia ' + this.dayKey(), sheets);
-    } finally { this.exporting.set(false); }
-  }
-
-  /** Día abierto en la ventana de detalle (clave YYYY-MM-DD). */
-  readonly dayOpen = signal(false);
-  readonly dayKey = signal('');
-  dayTitle(): string { return this.dayKey() ? `Detalle del día — ${this.dmy(this.dayKey())}` : 'Detalle del día'; }
-
-  /**
-   * Abre el detalle de un día. El resultado se cachea por fecha: reabrir un día ya visto no
-   * vuelve a pegarle al API, y cambiar de mes limpia el cache (ver `onMonth`).
-   */
-  openDay(r: { fecha: string }): void {
-    const dk = this.key(r);
-    this.dayKey.set(dk);
-    this.dfDir.set(this.cuadreDir()); this.dfEstado.set(''); this.dfSearch.set(''); this.daySort.set(null);
-    this.dayOpen.set(true);
-    if ((dk in this.wbDayDia()) || this.wbDayLoad()[dk]) return;
-    this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: true });
-    this.http.get<ConcDia>(`${this.base}/conciliacion-dia?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => { this.wbDayDia.set({ ...this.wbDayDia(), [dk]: d }); this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: false }); },
-      error: (err) => { this.wbDayErr.set({ ...this.wbDayErr(), [dk]: { dia: this.httpMsg(err, '/caja/conciliacion-dia') } }); this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: false }); },
-    });
-  }
-
-  // CG.18 — Detalle completo de UN movimiento (click en cualquier vía del drill). El backend
-  // devuelve todos los campos del registro crudo según la fuente (control/workbook/kepler).
-  readonly movOpen = signal(false);
-  readonly movLoad = signal(false);
-  readonly movErr = signal<string | null>(null);
-  readonly mov = signal<MovDetail | null>(null);
-  openMovement(source: MovSource, key: string | null): void {
-    if (!key) return;
-    this.mov.set(null); this.movErr.set(null); this.movOpen.set(true); this.movLoad.set(true);
-    this.http.get<MovDetail>(`${this.base}/movement?source=${source}&key=${encodeURIComponent(key)}`)
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (d) => { this.mov.set(d); this.movLoad.set(false); },
-        error: (e) => { this.movErr.set(this.httpMsg(e, '/caja/movement')); this.movLoad.set(false); },
-      });
-  }
-
-  toggleCqDay(r: { fecha: string }): void {
-    const rk = r.fecha; const e = { ...this.cqExp() };
-    if (e[rk]) { delete e[rk]; this.cqExp.set(e); return; }
-    e[rk] = true; this.cqExp.set(e);
-    const dk = this.key(r);
-    if (!this.cqDayMovs()[dk] && !this.cqDayLoad()[dk]) {
-      this.cqDayLoad.set({ ...this.cqDayLoad(), [dk]: true });
-      this.http.get<CajaGeneral>(`${this.base}/general?from=${dk}&to=${dk}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (d) => { this.cqDayMovs.set({ ...this.cqDayMovs(), [dk]: d.movimientos }); this.cqDayLoad.set({ ...this.cqDayLoad(), [dk]: false }); },
-        error: (e) => {
-          this.cqDayMovs.set({ ...this.cqDayMovs(), [dk]: [] });
-          this.cqDayErr.set({ ...this.cqDayErr(), [dk]: this.httpMsg(e, '/caja/general') });
-          this.cqDayLoad.set({ ...this.cqDayLoad(), [dk]: false });
-        },
-      });
-    }
-  }
   cgKpis(d: CajaGeneral): MetricStripItem[] {
     return [
       { label: 'Ingresos', value: d.totals.ingreso, format: 'currency-short', tone: 'ok', sub: `${d.totals.n} movs` },

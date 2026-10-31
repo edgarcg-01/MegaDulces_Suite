@@ -679,6 +679,16 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_CAJA_VER)]
       },
       {
+        // ⭐ `[CGA-A.67]` **Cuadre**: la caja contra la Caja General de Kepler, día por día, con el
+        // rojo partido en «falta capturar» (lo explica la cola) y «no cuadra». Vivía como vista de
+        // `/finanzas/caja` («Control (histórico)»), fuera de la barra de quien opera la caja.
+        // ⚠️ VER de caja O de bancos: los 7 roles que lo veían desde Control con BANK_VER lo siguen
+        // viendo (medido el 2026-10-30), y quien opera la caja lo ve con el suyo.
+        path: 'caja-general/cuadre',
+        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-cuadre.component').then(m => m.FinanzasCajaCuadreComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_BANK_VER)]
+      },
+      {
         // ⚠️ La ruta vieja NO se borra: se redirige. `[CG.105]` la publicó y quien la tenga
         // guardada caería en un 404 que se lee como «la pantalla desapareció».
         path: 'caja-general/expediente',

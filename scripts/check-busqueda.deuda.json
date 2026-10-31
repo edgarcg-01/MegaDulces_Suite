@@ -13,7 +13,6 @@
   "apps/view/src/app/modules/dashboard/stores/stores.component.ts",
   "apps/view/src/app/modules/dashboard/ventas-detalle/ventas-detalle.component.ts",
   "apps/view/src/app/modules/finanzas/pages/bancos/bancos-three-way.component.ts",
-  "apps/view/src/app/modules/finanzas/pages/finanzas-caja.component.ts",
   "apps/view/src/app/modules/logistica/pages/logistica-config.component.ts",
   "apps/view/src/app/modules/logistica/pages/logistica-costs.component.ts",
   "apps/view/src/app/modules/logistica/pages/logistica-guides.component.ts",
