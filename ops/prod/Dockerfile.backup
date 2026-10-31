@@ -17,18 +17,21 @@ FROM postgres:18
 # Lo que tiene que coincidir es la versión de ARRIBA (2.59.1, que define el formato del
 # repositorio); la revisión de Debian es de cada base. Copiar el pin de la otra hace fallar
 # el build con `apt` exit 100, que no menciona ni Debian ni la versión.
+# `[OPS.OFF.1]` + rclone (y ca-certificates, que `--no-install-recommends` deja afuera y sin el
+# cual el TLS contra R2 falla): la copia fuera de md, `offsite-sync.sh`.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends cron pgbackrest=2.59.1-1.pgdg13+1 \
+ && apt-get install -y --no-install-recommends cron pgbackrest=2.59.1-1.pgdg13+1 rclone ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 COPY ops/prod/backup-prod.sh    /usr/local/bin/backup-prod.sh
 COPY ops/prod/pgbackrest-run.sh /usr/local/bin/pgbackrest-run.sh
+COPY ops/prod/offsite-sync.sh   /usr/local/bin/offsite-sync.sh
 COPY ops/prod/pgbackrest.conf   /etc/pgbackrest/pgbackrest.conf
 COPY ops/prod/crontab.backup    /etc/cron.d/backup-prod
 
 # cron IGNORA un archivo de /etc/cron.d escribible por grupo u otros, y lo hace en
 # silencio. El chmod no es higiene: es la diferencia entre que corra y que no.
-RUN chmod 0755 /usr/local/bin/backup-prod.sh /usr/local/bin/pgbackrest-run.sh \
+RUN chmod 0755 /usr/local/bin/backup-prod.sh /usr/local/bin/pgbackrest-run.sh /usr/local/bin/offsite-sync.sh \
  && chmod 0644 /etc/cron.d/backup-prod /etc/pgbackrest/pgbackrest.conf \
  && chown root:root /etc/cron.d/backup-prod
 

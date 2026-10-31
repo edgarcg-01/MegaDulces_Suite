@@ -45,3 +45,8 @@ SHELL=/bin/sh
 # leerlo; el guion baja a `postgres` sólo para el comando de respaldo, que es lo que necesita
 # leer PGDATA y autenticarse por `peer` en el socket compartido con `pg-prod`.
 30 23 * * * root /usr/local/bin/pgbackrest-run.sh auto > /proc/1/fd/1 2>&1
+
+# [OPS.OFF.1] 01:30 — la copia FUERA de md (R2, cifrada): repositorio de pgBackRest + último
+# volcado + pgvector-md. Después del diferencial de las 23:30 y antes de la ingesta de las 02:10.
+# Sin credencial late en ROJO («NO MEDIDO»): que no exista la copia se ve, no se calla.
+30 1 * * * root /usr/local/bin/offsite-sync.sh >> /proc/1/fd/1 2>&1

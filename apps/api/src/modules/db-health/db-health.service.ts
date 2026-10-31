@@ -1072,6 +1072,11 @@ export const CRON_JOBS: CronCfg[] = [
   // respaldo nuevo, el WAL archivado se acumula sin tope (medido: 4 GB → 12 GB en 3 horas).
   // 26 h de warn porque es diario; 50 h antes de crítico da margen a una noche perdida.
   { key: 'pgbackrest_backup',   label: 'Respaldo pgBackRest (PITR)', cadence: 'diario 23:30 (md)', warnH: 26, critH: 50, maxRunH: 2 },
+  // [OPS.OFF.1] La copia FUERA de md (Cloudflare R2, cifrada): sin ella, prod y sus dos respaldos
+  // mueren juntos con el NVMe. Declarada antes de existir A PROPÓSITO: hasta que la credencial
+  // esté, el tablero dice «declarado y nunca reportó» / «NO MEDIDO» — que es la verdad. 6 h de
+  // corrida porque la primera subida es el repositorio entero (~50 GB).
+  { key: 'respaldo_fuera',      label: 'Copia fuera de md (R2, cifrada)', cadence: 'diario 01:30 (md)', warnH: 26, critH: 50, maxRunH: 6 },
   // ── [NORM.3] EL FACT DE VENTA, AHORA CON UN EMISOR POR LLAVE ────────────────────────────────
   // Hasta el 2026-09-23 esta llave la escribían DOS carriles con ventanas distintas (`livefast`
   // @60 s = 2 días · `nightly` @03:00 = 13 meses) y, por la regresión de env de [VL.4], también

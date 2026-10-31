@@ -57,6 +57,7 @@ const BASES = {
     'ops/prod/pgbackrest-run.sh',
     'ops/prod/pgbackrest.conf',
     'ops/prod/crontab.backup',
+    'ops/prod/offsite-sync.sh', // [OPS.OFF.1] la copia fuera de md (R2)
   ],
 };
 
