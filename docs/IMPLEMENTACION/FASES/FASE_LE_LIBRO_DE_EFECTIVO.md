@@ -17,10 +17,20 @@ MÉTRICA:  (a) depósitos de CAOS explicados más de una vez — HOY: 86 · $1,7
               cierre contra testigos) → META: 0 en 10 cierres hábiles seguidos
           (e) dinero «por rendir» con más de 1 día hábil sin rendir — HOY: NO MEDIDO → META: publicado a
               diario, cada peso con nombre de persona
-CAPA TOPE: C3 (la UI, etapa E6, sólo después de 5 cierres limpios en sombra)
+          (f) retiros de la bóveda que salen con una orden firmada ANTES (su código en la referencia de
+              CAOS, V2) — HOY: 0 de 98 (la orden no existe; 19 · $556,080 del 15 al 30-oct sin ninguna
+              explicación, medido 2026-10-31) → META: 100 %; el resto, en Suspenso con nombre el mismo día
+          (g) movimientos registrados después de su día — HOY: 227 de 704 (32 %, $3.12 M); la captura en
+              la Suite va detrás de Kepler: mediana 1.3 h, p90 49.8 h (2026-10-31) → META: 0 (V3: pagar es registrar)
+CAPA TOPE: C3 (la Ventanilla, etapa E6, sólo después de 5 cierres limpios en sombra)
 ÁREA:      Finanzas
 DUEÑO:     Edgar (PM)
-ESTADO:    🔨 — D1 y D2 firmadas el 2026-10-27. Plan v2 (este) pendiente de firma: D3 y D6–D14.
+ESTADO:    🔨 — D1 y D2 firmadas el 2026-10-27. **Modelo de operación: ventanilla bancaria (D19, firmada
+           el 2026-10-31, §5.2).** Decididas el 31-oct por encargo del PM (análisis /pm): D3 ($10k),
+           D14, D20 ($50k), D21 (se sigue de D19). Firmadas por el PM el mismo día: D22 (arquea el jefe
+           de finanzas que deja la máquina), D23 (regla en la base + depurar superadmin), D24 (usuario
+           único de ventas), D-R1, D-R2. Pendiente: D8 (con RH, no bloquea antes de E4) y la lista de
+           superadmins a depurar.
 ```
 
 ---
@@ -425,6 +435,92 @@ congelan, como el resto del núcleo viejo.
 recomienda **toda**: el retiro de reposición es el que hoy explica el 7 % de los retiros. D-R2: la
 historia de octubre ¿se reconstruye en E3 o se declara en la apertura? Se recomienda **reconstruir**
 desde el 12-oct (primer día que Caja General capturó Morelia) y declarar lo anterior.
+✅ **Las dos, firmadas por el PM el 2026-10-31**: toda reposición se autoriza (V4), y octubre se
+reconstruye desde el 12-oct (lo anterior se declara en la apertura, D11).
+
+### 5.2 El modelo de operación: la ventanilla bancaria (D19, firmada el 2026-10-31)
+
+**El pedido** (PM, 2026-10-31, después de auditar la caja «como un banco»): *«que no sólo los
+movimientos, sino la estructura sea igual que la de un banco, sin opción a perder un peso,
+manteniendo la mejor interacción humana, la menor cantidad de pasos sin perder el control, y sin
+perder seguridad, además de mantener el proceso lo más sencillo y óptimo posible»*. Se compararon
+tres modelos; el PM eligió el **B** (*«opción b»*).
+
+| Modelo | En una línea | Por qué sí / por qué no |
+|---|---|---|
+| A · el libro vigila | se trabaja como hoy y el libro detecta al cierre | el dinero sale primero y se explica después; el cajón sigue grande; el registro tardío sigue cruzando días |
+| **B · ventanilla bancaria** ✅ | billetes en la bóveda, cajón con tope, ninguna salida sin orden, pagar es registrar | ataca cada hallazgo de la auditoría con casi los mismos pasos de hoy y reusa los dos testigos que ya sirven (la máquina y Kepler) |
+| C · cajón cero | todo en la máquina; monedas en bolsas selladas | si la máquina se cae, la caja se para; no compra mucho más control que B |
+| (descartado) cuatro ojos en cada operación | dos personas en cada uno de ~45 movimientos al día | un banco exige doble custodia en la bóveda, no en cada operación de ventanilla |
+
+**Lo que midió la auditoría y la regla que lo ataca** (`pg-prod`, sólo lectura, `7688376744939610156`,
+2026-10-31; el detalle por persona está en el Tablero PM, no en este repo público):
+
+| Hecho | Cifra | Regla |
+|---|---|---|
+| Cortes que cuadraron | **0 de 17** (15 con diferencia, 2 sin medir); $1.82 M de diferencias brutas, y el signo cambia de un día a otro | V1, V7, V8 |
+| Cortes autorizados por otra persona | **0 de 17** | V8, V9 |
+| Retiros de la bóveda sin ninguna explicación (15–30 oct) | **19 · $556,080**; el más viejo, 15 días | V2, V6 |
+| «Morralla» tecleada que no eran monedas (las monedas se contaban por pieza en el mismo corte) | 3 cortes (26, 28 y 30-oct), hasta $298,484.92 | V7 |
+| Movimientos registrados después de su día | 227 de 704 (32 %, $3.12 M); la Suite va 1.3 h detrás de Kepler (mediana; p90 49.8 h) | V3 |
+| Pagos cuyo X-D-26 ya estaba en Kepler ANTES de que saliera el efectivo | **93 de 102** pares ligados por personas (Oficinas: mediana 12 min antes) | hace posible V3 |
+| La bóveda contra su propio conteo | **69 de 70** conteos al peso (27–30 oct) | es el testigo de V1 |
+| Gastos sin firma de quien recibe (desde el 23-oct) | 206 de 219 ($1.64 M) | V3 |
+
+**Las reglas de la ventanilla** (BINDING; se suman a B1–B46 y las citan los items como `V#`):
+
+| # | Regla | Cómo se cumple | Testigo |
+|---|---|---|---|
+| V1 | **Los billetes viven en la bóveda.** El cajón es una ventanilla con **tope** (D20): monedas, cambio, cheques y dólares. Lo que pase del tope se deposita en CAOS el mismo día, con el código de cajón | el cierre compara lo CONTADO contra el tope; el excedente abre un hallazgo a nombre de quien cierra | máquina + arqueo |
+| V2 | **Ningún peso sale de la bóveda sin orden.** Cada dispensación lleva al inicio de la referencia de CAOS el **código** de una orden vigente (corto, con dígito verificador, válido hasta el cierre de la jornada); el resto del texto es libre. Sin código, con uno vencido o usado, o por más de lo ordenado → **Suspenso a nombre del empleado dueño del usuario de la máquina** y aviso a Tesorería en ese momento | carril de la máquina (§4.8), por evento | el movimiento de CAOS |
+| V3 | **Pagar es registrar, en un solo acto.** Se paga desde el documento que ya existe (hoy el X-D-26 de Kepler; cuando PGP ejecute en efectivo, su línea autorizada): la pantalla parte el pago en billetes de la bóveda (con código) y piezas del cajón, y quien recibe firma en la pantalla. Nadie copia de Kepler a la Suite después | `kepler:<origen_ref>` (LE.2.4): un documento se paga una vez | el X-D-26 |
+| V4 | **Una firma de otra persona, ANTES del dinero.** Vale si (a) el gasto ya lo aprobó Tesorería en `/finanzas/aprobacion-gastos` (D18: el vale se elige al pagar y el enlace se guarda), o (b) Tesorería autoriza la orden en «Mi trabajo». Un X-D-26 sin (a) pide (b) siempre (D18). Una salida sin documento (V6) pide (b) desde el umbral (D3); abajo se autoriza por regla y se revisa en el cierre. Una reposición (E-28) pide (b) siempre (D-R1) | `authorize_request` + I15 por empleado + firma por puesto (LE.4.9) | la solicitud |
+| V5 | **El cobro de ruta no le cuesta pasos a la ventanilla.** La ruta deposita sus billetes en CAOS con ruta y fecha en formato fijo; el depósito se empareja con la cobranza de Kepler (LE.2.5). Sólo lo que la ruta entrega al cajón se cuenta, por pieza, en la fila de esa ruta | E-01 + E-02 + E-04 | cobranza de Kepler + máquina |
+| V6 | **Dinero sin documento = custodia con nombre.** Un retiro para algo que aún no tiene documento (anticipo, tarjeta, compra) sale a «En custodia · persona» y se cierra rindiendo documentos y regresando el resto (E-08, E-10, E-11). Nunca como un importe dentro del conteo | sin plazo que castigue (D3), con antigüedad publicada (métrica e) | la rendición |
+| V7 | **En la ventanilla no existe el importe tecleado.** Todo efectivo se cuenta por pieza, billetes y monedas (I2). `MORRALLA_MXN` (D16) queda sólo para la historia (LE.5.1a) | I2 en `post_entry` | arqueo |
+| V8 | **El cierre son testigos, no una resta.** Conteo ciego del cajón por pieza + conteo de la máquina (automático) + Suspenso con nombre; cada diferencia es un hallazgo con dueño; firma Tesorería con un toque. Nada se absorbe (B18) | `close_day` (LE.1.5, LE.1.9) | arqueo + máquina |
+| V9 | **Quien opera no firma y quien firma no opera** (D21). El arqueo sorpresa lo hace un tercero sin acceso de operación (D13, D22) | I15 + firma por puesto | — |
+
+**Lo que la ventanilla NO impide** (riesgo residual, declarado): alguien frente a la máquina puede
+dispensar sin código, porque la suite no controla el equipo (B28). Se ve en segundos, con nombre, y
+queda en Suspenso; no se evita. El único bloqueo físico sería una segunda clave en el propio equipo
+(D24; NO MEDIDO si el equipo lo permite).
+
+**Los pasos, contados:**
+
+| Acto | Hoy | Con la ventanilla |
+|---|---|---|
+| Pagar un X-D-26 con billetes de la máquina | retiro con texto libre → capturar el egreso desde la cola (horas o días después) → ligar el retiro a mano, un egreso a la vez (una reposición de Morelia: 21 capturas) | «Pagar» en la fila → dispensar con el código → firma de quien recibe; se liga solo |
+| Recibir el cobro de una ruta | capturar el ingreso desde Kepler + ligar el depósito | 0 si la ruta depositó todo; si entregó al cajón, contar sus piezas en la fila |
+| Retiro sin documento | no existe: se teclea como morralla o no se registra | «Retiro a custodia» → firma (desde el umbral) → código |
+| Cerrar el día | contar + teclear morralla + recalcular | contar a ciegas por pieza; la bóveda se cuenta sola; Tesorería firma con un toque |
+| Firmas de Tesorería | 0 | órdenes sin vale aprobado (NO MEDIDO, LE.5.7) + salidas sin documento desde el umbral (con $10k: 8 de los 19 retiros sin explicación, ~0.6 al día) + reposiciones + 1 cierre |
+
+**La pantalla: una sola, «Ventanilla».** Las cinco preguntas (`diseno` §0b), contestadas antes del
+primer archivo:
+
+1. **Qué ve y en qué orden.** La cola de hoy: primero lo que está a su nombre en Suspenso (lo que la
+   máquina hizo sin orden), luego lo que toca pagar (documentos de Kepler del día, el más reciente
+   arriba), lo que las rutas deben entregar y las custodias abiertas con su antigüedad. Arriba, una
+   barra: la bóveda (lo que dice la máquina, con su hora), el cajón contra el tope y el botón de
+   cierre. El 95 % de la pantalla es la cola; lo secundario se abre en una ventana desde la barra.
+2. **Qué no ve.** El esperado del cajón (el conteo es ciego, LE.4.6), el detalle por casete de la
+   máquina, la configuración (tope, umbral, catálogos) y los días cerrados (a un clic, en el mayor).
+3. **Qué accesibilidad necesita la información.** Cada fila dice de dónde viene (folio del X-D-26,
+   sucursal por nombre, ruta) y a dónde va (código, custodia, cuenta); el monto lleva signo y color
+   de dirección; todo total se abre a sus renglones ahí mismo; se opera con teclado; la firma de
+   Tesorería cabe en un teléfono.
+4. **A qué proceso está ligada.** Kepler (X-D-26 y cobranza, sólo lectura), `/finanzas/aprobacion-gastos`
+   (el vale), «Mi trabajo» (las firmas), CAOS (el código), la reposición (E-28), PGP (cuando ejecute
+   en efectivo) y la conciliación bancaria (lo que va en tránsito).
+5. **Quién la debe ver.** Opera quien tiene `FINANCE_CAJA_GESTIONAR` y el puesto de caja; Tesorería no
+   opera: firma en «Mi trabajo» (`finanzas.caja_firma`); Dirección consulta; quien no es de finanzas
+   no opera (D23).
+
+**Orden de entrega** (el mismo de E-28, aprendido el 30-oct): 1) reglas y lectura, sin escribir;
+2) la orden con código, probada de punta a punta contra base real con el payload de la pantalla;
+3) la pantalla; 4) al final, las reglas duras en la base, cuando `/api/health` ya sirve el código que
+las cumple. Nada de esto toca las tablas viejas de caja (LE.0.4), salvo la contención de E0.
 
 ---
 
@@ -479,6 +575,9 @@ escritores; script de métricas; secretos rotados.
 | LE.0.4 | **Congelar lo viejo**: ninguna funcionalidad nueva sobre las tablas viejas de caja mientras dure la fase; ningún escritor nuevo | B29 | ⬜ | revisión de PR (D12) |
 | LE.0.5 | **Script de métricas** `database/scripts/le-metricas.js` (sólo lectura, una conexión, verifica `system_identifier`). Línea base 2026-10-27 11:14: (a) **86 · 162 atribuciones · $1,703,230** · (b) **6 de 13** con su definición (esperado < 0 o diferencia de más de $100k en valor absoluto; el «7» del plan v1 era otra definición) · (c) **0** de 13 (por usuario, no empleado) · (d) NO MEDIDO · (e) 0 custodias abiertas; cobros por rendir NO MEDIDO · morralla tecleada: 87.3 % del contado el 26-oct | regla 15 | ✅ | dos corridas, misma huella de resultado |
 | LE.0.6 | **Huecos y reescrituras del feed** (ver «Resultados de E0») | B41, B42 | ✅ | 0 huecos, 0 reescrituras al 2026-10-27 |
+| LE.0.7 | **Un día cerrado no recibe movimientos** (auditoría del 2026-10-31). `cash_ledger_congelado` sólo cuida lo que YA estaba en un corte: un movimiento suelto se puede atar a un corte cerrado, y pasó (22-oct: 5 ingresos · $121,130.53 entraron por SQL directo al `CC-2026-00002`, cerrado el 15-oct). El disparador rechaza poner `corte_id` de un corte que no está en `borrador`. El cierre de la app ata MIENTRAS el corte es borrador (`cash-cut.service.ts`: exige borrador, ata y después sella): no choca con el código desplegado, y se prueba antes de aplicar | B7, B20 | ⬜ | atar a un corte cerrado → `cash_ledger_en_corte_firmado_chk`; `cash-cut.servicio-real` sigue verde |
+| LE.0.8 | **Un folio emitido no desaparece.** Faltan 155 folios sin rastro (`CG-2026-00156…00278` y `CI-2026` 77–89 y 92–110, todos del 19-oct por la tarde; la bitácora de cambios nació el 21-oct, así que no se puede saber qué pasó). El consecutivo sólo avanza de uno en uno y un movimiento con folio no se borra: se cancela. Hoy `app_runtime` tiene INSERT, UPDATE y DELETE sobre el libro viejo y su consecutivo | B2, B40 | ⬜ | DELETE de un movimiento con folio y salto del consecutivo como `app_runtime` → error; el alta normal sigue pasando |
+| LE.0.9 | **Opera la caja sólo quien la opera.** Hoy cuentas de administración de la plataforma que no son de finanzas pueden operar y firmar la caja vieja, y una cuenta genérica registró movimientos reales (detalle en el Tablero PM, no aquí). Aplicar D23; como en LE.4.9, la regla va en la base, porque el modo dios de la API se salta las claves. **Alcance firmado el 2026-10-31**: (1) un disparador en `finance.cash_ledger` y `finance.cash_ledger_cuts` exige que quien registra, cancela, abre o cierra tenga la llave de operar EFECTIVA (rol + complementos + excepciones) **sin contar el superadmin**, y quien autoriza, la de autorizar; (2) Tesorería pierde la llave de operar y conserva la de firmar (D21); (3) se le quita el superadmin a quien no es de sistemas, con la lista que confirma el PM. Medido antes: 724 altas en 30 días, todas con `created_by` (ninguna de sistema), de 4 cuentas | B12, B13, B14 | 🔨 | alta con una cuenta superadmin fuera de los puestos de caja → error; alta de la cajera → pasa; la API desplegada no manda nada nuevo (expand/contract); `MATRIZ_ACCESOS.md` regenerada |
 
 **Criterio de salida**: (a) = 0 en prod, catálogo de CAOS firmado por quien opera la máquina,
 inventario revisado, línea base publicada, credencial rotada.
@@ -561,6 +660,8 @@ suite de pruebas en `caja-db`. Ninguna consumidora todavía.
 | LE.1.11 | `verify_chain()` | B2 | 🧪 | una línea alterada por el dueño (con el trigger apagado) → la detecta |
 | LE.1.12 | **`test-newdb-cashbook-libro.js`** en `caja-db`: **77 ✓ / 0 ✗** (79 con `--rendimiento`); 4 mutaciones (CHECK de saldo, trigger de inmutabilidad, chequeo diferido, privilegio); dos cajeros a la vez; 40 asientos desde 8 conexiones sin huecos. Rendimiento medido con **2,000** asientos (no 500k): p95 8.3 ms, saldos 2.8 ms. La prueba encontró y se corrigieron 4 defectos del propio libro (lógica de NULL ×3, huella del cliente) | B31, B35 | 🧪 | base local armada desde cero; las 6 suites de caja 228 ✓ / 0 ✗ |
 | LE.1.13 | Libro aplicado en prod **inerte** (sin escritores: el carril está apagado y la API no está desplegada) | B33 | ✅ | 30 funciones, 16 tablas, dueño `cashbook_owner`, cero asientos |
+| LE.1.14 | **La orden lleva el código que se teclea en la máquina** (V2): `requests` gana `code` (4 caracteres + 1 verificador, sin letras que se confunden, único por tenant entre las vivas, vence con la jornada), el tipo de orden (`pago`, `reposicion`, `custodia`, `fondo_cajon`, `deposito_cajon`) y su reparto (billetes de la bóveda / piezas del cajón). Sólo expande: columnas nuevas, sin regla dura (orden de entrega de §5.2) | B3, B19, B45 | ⬜ | un carácter mal tecleado → el verificador lo rechaza; dos órdenes vivas nunca comparten código; vencida → no casa |
+| LE.1.15 | **Catálogos firmados de la ventanilla**: usuario de la máquina → empleado (para nombrar el Suspenso, B43) y tope del cajón (D20). Cambiar cualquiera es una solicitud con firma, como el catálogo de zonas de E-28 | B13, B21 | ⬜ | usuario de la máquina sin empleado → Suspenso «sin dueño» + hallazgo crítico, nunca sin hallazgo |
 
 **Criterio de salida**: todas las pruebas verdes en CI con su rojo documentado; esquema en prod
 vacío; ADRs firmados.
@@ -580,8 +681,11 @@ contratos tipados en `libs/contracts`, emparejador con precisión publicada.
 | LE.2.3 | **`libs/finance/src/lib/cashbook/reglas.ts`** (`le2-2026-10-27.1`): los 27 movimientos menos los que no mueven efectivo comprobable. Lo que hace la máquina se asienta SIEMPRE (la bóveda = la máquina); la contraparte desconocida va a Suspenso. Por rendir es POR RUTA. **Cruzado con la base**: el día del PM entra entero por `post_entry`/`authorize_request` | B1, B19, B22 | 🧪 | `reglas.spec.ts` 25 ✓ + `reglas.libro-real.spec.ts` 1 ✓ (ruta 27 en $0.00, bóveda 180×500 + 20×200, cadena íntegra, relectura del feed sin segundo asiento, payload alterado → `cashbook_piezas_no_suman` igual que la regla) |
 | LE.2.4 | **`identidad.ts`**: `caos:<equipo>:<id>` y `kepler:<origen_ref>` con huella `sha256` de JSON con llaves ordenadas; dirección de cada tipo desde `efectoDeTipo` (medido), no supuesta | B3, B42 | 🧪 | la huella no cambia con el orden y sí con el contenido |
 | LE.2.5 | **La llave es la ruta que DECLARA el texto** (`atribuirDeposito`, CG.58.6), sin antigüedad. Medido contra el testigo independiente (el cobro de Kepler al que una persona ligó el depósito, `route_collections.truck`): **precisión 46/48 (96 %)**, placebo 8.5/48. Los 2 desacuerdos son un cruce simétrico 22↔26. ⚠️ **40 % del dinero depositado no declara ruta**: plaza 82 dep. · $5.69 M, sin declarar 76 · $2.42 M → Suspenso hasta que una persona lo clasifique (ver D15) | B19 | 🧪 | sonda de sólo lectura con el parser REAL (esbuild), 2026-10-27 |
-| LE.2.6 | Matriz de autorización: los eventos que SIEMPRE piden cuatro ojos viven en la base y en el contrato (con paridad); el umbral por evento espera D3 | B10, B15 | 🔨 | falta el umbral (D3) y los límites por persona (D14) |
+| LE.2.6 | Matriz de autorización: los eventos que SIEMPRE piden cuatro ojos viven en la base y en el contrato (con paridad); el umbral por evento espera D3. Con D19 el umbral aplica sólo a lo que sale **sin** orden aprobada (V4) | B10, B15 | 🔨 | falta el umbral (D3) y los límites por persona (D14) |
 | LE.2.7 | **Propiedad**: 5,000 hechos al azar de 12 tipos (semilla fija) → todo asiento cuadra por moneda y conserva cada pieza, revisado por un verificador escrito APARTE de `armar()` | B1, B31 | 🧪 | mutación del verificador: un asiento descuadrado a mano lo detecta |
+| LE.2.8 | **Regla del código** (V2): dispensación con código vigente → asiento contra su orden (E-07, E-08, E-24, E-28), aunque la máquina lo entregue en varias dispensaciones; sin código, vencido, usado o de más → Suspenso + hallazgo con dueño. Depósito con código de cajón → E-13. Contra el fraccionamiento (D14): lo que un empleado saca sin orden aprobada se suma en el día, y la orden que hace pasar esa suma del umbral (D3) pide firma | B4, B19, B41 | ⬜ | una orden en 2 dispensaciones = 1 explicación; dos salidas sin orden aprobada de $6k del mismo empleado el mismo día → la segunda pide firma; código de otra orden → Suspenso; placebo: los 98 retiros del 15–30 oct (sin código) → 98 en Suspenso y 0 asientos inventados |
+| LE.2.9 | **Regla del pago en un acto** (V3, V4): un documento de Kepler se paga UNA vez; el acto asienta billetes de la bóveda + piezas del cajón contra Egresos; la aprobación (vale o firma) viaja en `meta`; sin vale y sin firma, la orden no emite código | B3, B4, B10 | ⬜ | pagar dos veces el mismo X-D-26 → error; sin vale y sin firma → sin código |
+| LE.2.10 | **Regla del tope** (V1): al cerrar, el cajón CONTADO arriba del tope abre el hallazgo «excedente en ventanilla» con dueño | B18 | ⬜ | cierre sembrado con tope + $1 → exactamente ese hallazgo |
 
 **Criterio de salida**: cada evento del catálogo con regla y prueba; ningún tipo de CAOS «a medir»
 sin resolver; precisión del emparejador publicada.
@@ -626,6 +730,9 @@ repartidos; pruebas contra base real con el payload de la pantalla.
 | LE.4.7 | Pruebas de API: servicio real contra Postgres (idempotencia, cuatro ojos, cierre por otra persona, arqueo ciego, reversa) + **composición** (`apps/api/src/composition/finance-libro-efectivo.metadata.spec.ts`: el módulo registra controlador y servicio, `design:paramtypes` correctos — punto 30) | B31 | 🧪 | 1 ✓ + 3 ✓. Encontró un defecto real: el reintento idéntico se rechazaba porque la huella incluía la hora que pone el servidor (corregido) |
 | LE.4.8 | **Alerta en cada cambio a permisos de caja** (migración `20261027132017`): un trigger en cada uno de los cuatro caminos de acceso (clave en el rol, `user_roles`, permiso personal, entrar o no al sistema) compara el acceso a caja antes y después y, si cambió, abre un hallazgo `permiso` en la MISMA bandeja del libro (no una nueva). Quién lo hizo sólo si la fila lo dice en ese cambio. La app no puede fabricar ni callar una alerta; si no se puede escribir, el cambio de permiso no entra. La cierra con nota alguien que no hizo el cambio ni lo recibió. ⚠️ Sin aplicar en prod: toca triggers de `identity`, espera autorización | B21 | 🧪 | `test-newdb-cashbook-alerta-permisos.js` 27 ✓ (rojo verificado quitando un trigger) + servicio real como `app_runtime` |
 | LE.4.9 | **En la caja firma un puesto** (D6, migración `20261027162407`). Medido antes: el god-mode del guard dejaba firmar a cuentas que no son de Tesorería ni de Dirección (detalle en el inventario privado). Ahora la base exige, antes de cada firma (decidir una solicitud, autorizar el cierre de la jornada, cerrar un hallazgo con nota), que quien firma tenga un puesto con la responsabilidad `finanzas.caja_firma` (Tesorería principal, Dirección suplente), esté activo y sea cuenta `interno`. Cerrar un hallazgo con un asiento no pide puesto: la firma ya está en el asiento. Entrar o salir de un puesto que firma, o cambiar qué puestos firman, alerta una vez (sin duplicar la de LE.4.8). La API responde 403 `cashbook_firma_por_puesto`. ⚠️ Quién ocupa cada puesto es dato de la pantalla de usuarios: una cuenta no nominal en un puesto que firma, firma (B12, revisión del PM). ⚠️ Sin aplicar en prod | B9, B10, B12, B13 | 🧪 | `test-newdb-cashbook-firma-puesto.js` 28 ✓ (mutación: sin el trigger la firma sin puesto pasa); libro 80 ✓, conteos 29 ✓, alertas 27 ✓; 9 specs del servicio real 49 ✓ como `app_runtime` |
+| LE.4.10 | **API de la ventanilla** sobre `finance/libro-efectivo`: pagar (desde el documento), retiro a custodia o a fondo del cajón, recibir de ruta, depositar el excedente; cada acción devuelve el código o deja la orden pendiente de firma; `Idempotency-Key` obligatoria; cada rechazo con su `codigo` | B3, B39 | ⬜ | servicio real contra Postgres con el payload de la pantalla (regla 13): un día completo con 26 pagos, 2 custodias, 3 rutas y el cierre |
+| LE.4.11 | **La firma de Tesorería en «Mi trabajo»**: bandeja por la responsabilidad `finanzas.caja_firma` (catálogo, entrada y reparto en el mismo commit), con la reautenticación de LE.4.2 —la ventanilla no abre sin ella— de vigencia corta (una clave cubre las firmas de los minutos siguientes) | B10, B27 | ⬜ | quién la ve de verdad = responsabilidad ∧ permiso, medido en prod; firmar lo propio → error |
+| LE.4.12 | **Aviso en el momento**: una dispensación sin orden avisa a Tesorería y a la ventanilla por evento (`NOTIFY` desde el carril de la máquina), sin cron nuevo | B36 | ⬜ | dispensación sin código en base real → hallazgo + aviso en menos de 1 min |
 
 **Criterio de salida**: todo endpoint que escribe ejercido contra base real; matriz de accesos
 firmada; arranque verificado (`design:paramtypes`, punto 30 del protocolo).
@@ -647,6 +754,8 @@ cada una explicada.
 | LE.5.3 | **Diferencias contra el libro viejo**: cada una catalogada («el viejo dobla», «el viejo cruza jornadas», …). ⛔ El criterio de cambio **no** es «igual al viejo»: el viejo está mal por diseño | B34, B37 | ⬜ | informe diario |
 | LE.5.4 | Al menos 2 **arqueos sorpresa** por un tercero durante la sombra | B11 | ⬜ | registro del arqueo |
 | LE.5.5 | **Simulacro de restauración**: restaurar el respaldo en base de prueba, `verify_chain` + `v_descuadre_interno` | B38 | ⬜ | ambos limpios |
+| LE.5.6 | **Lo que cambia ANTES de la pantalla, sin código nuevo**: Tesorería deja la captura, los depósitos y el corte (D21); todo retiro sin documento se registra el mismo día como custodia en la pantalla actual (`[CGA-A.50]`, ya existe: hoy 0 abiertas); arranca el arqueo sorpresa (D13, D22) | B9, B11 | ⬜ | métrica (c) y retiros sin explicación remedidos cada semana con `le-metricas.js` |
+| LE.5.7 | **Las cifras que la ventanilla promete mover, medidas antes de E6** (`le-metricas.js` gana (f) y (g)): (1) pagos cuyo documento existe antes del efectivo — HOY 93 de 102 pares; (2) X-D-26 de caja con vale aprobado antes del pago — NO MEDIDO (motor de `[CGA-A.62]`), fija cuántas firmas pedirá V4; (3) cajón contado por pieza — HOY mediana $31,749.50, 13 de 16 cierres ≤ $50k; (4) depósitos de ruta con ruta y fecha legibles — HOY 96 de 119 (81 %; 58 % del dinero) | regla 15 | ⬜ | misma consulta antes y después, con fecha y frescura |
 
 **Criterio de salida**: **10 cierres hábiles seguidos con cero diferencias sin explicar contra los
 testigos**; toda diferencia contra el viejo explicada; simulacro limpio; firma del PM.
@@ -654,19 +763,22 @@ testigos**; toda diferencia contra el viejo explicada; simulacro limpio; firma d
 
 ### E6 · Interfaz — capa C3 (no arranca antes de 5 cierres limpios en E5)
 
-**Objetivo**: que la operación diaria se haga en pantallas que no pueden afirmar lo que no es.
+**Objetivo**: que la operación diaria se haga en **una sola pantalla, la Ventanilla** (§5.2), que no
+puede afirmar lo que no es; la firma de Tesorería, en «Mi trabajo».
 **Entregables**: observaciones de diseño al plan (`auditoria-diseno` §9) **antes** del primer
-archivo; pantallas sobre la API de E4.
+archivo; la Ventanilla sobre la API de E4. Se construye en su propia ruta y toma
+`/finanzas/caja-general` el día del cambio (LE.7.2), con las mismas claves: mudar la ruta cambiaría
+quién la abre.
 
 | # | Paso | Estado | Verificación |
 |---|---|---|---|
-| LE.6.0 | Observaciones de diseño al plan; sus 🔴 se vuelven items aquí | ⬜ | sección agregada a este doc |
-| LE.6.1 | Captura (crea solicitud; piezas obligatorias en la caja) | ⬜ | `check:pantalla` antes → después |
-| LE.6.2 | Bandeja de autorización (con reautenticación) | ⬜ | ídem |
-| LE.6.3 | Arqueo ciego y sorpresa | ⬜ | ídem; sin esperado visible |
-| LE.6.4 | Cierre de jornada (por cuenta, testigo, diferencia, hallazgo) | ⬜ | ídem |
-| LE.6.5 | Por rendir y custodias con antigüedad y nombre | ⬜ | ídem |
-| LE.6.6 | Hallazgos y mayor (todo total desglosable hasta el asiento) | ⬜ | ídem; < 500 ms |
+| LE.6.0 | Observaciones de diseño al plan de la Ventanilla (§5.2, con sus cinco preguntas ya contestadas); sus 🔴 se vuelven items aquí | ⬜ | sección agregada a este doc |
+| LE.6.1 | **La Ventanilla**: el 95 % es la cola de hoy (Suspenso a su nombre → por pagar → por recibir de rutas → custodias); cada fila se resuelve en la fila (pagar, recibir, rendir) y la pantalla da el código; las piezas son obligatorias en todo lo que toca el cajón | ⬜ | `check:pantalla` antes → después; clics contados para un día de 26 pagos; < 500 ms |
+| LE.6.2 | **Firmar desde el teléfono** en «Mi trabajo» (LE.4.11), con la orden completa a la vista (qué, cuánto, para quién, con qué documento) | ⬜ | ídem; la orden propia no aparece para firmar |
+| LE.6.3 | Arqueo ciego y sorpresa: ventana encima, desde la barra | ⬜ | ídem; sin esperado visible |
+| LE.6.4 | Cerrar el día: botón en la barra; conteo por pieza, Suspenso con nombre, excedente sobre el tope, firma | ⬜ | ídem |
+| LE.6.5 | Por rendir y custodias **dentro de la cola**, con antigüedad y nombre (no una pestaña) | ⬜ | ídem |
+| LE.6.6 | Hallazgos y mayor: ventana desde la barra; todo total se abre hasta el asiento | ⬜ | ídem; < 500 ms |
 
 ### E7 · Cambio y retiro — operación
 
@@ -688,6 +800,8 @@ archivo; pantallas sobre la API de E4.
 | LE.X.3 | Calendario de arqueos sorpresa (D13) | decisión de Dirección |
 | LE.X.4 | Revisión trimestral de accesos firmada | decisión de Dirección |
 | LE.X.5 | Protección de rama con revisión obligatoria para el código de caja (D12) | hoy el admin la evita (`enforce_admins: false`) |
+| LE.X.6 | Tesorería deja de operar la caja (D21) y el tercero que arquea queda nombrado (D22) | es asignación de personas |
+| LE.X.7 | Las rutas depositan con ruta y fecha en formato fijo (V5) | es instrucción a los vendedores, no código |
 
 ---
 
@@ -710,22 +824,28 @@ archivo; pantallas sobre la API de E4.
 |---|---|---|---|
 | D1 | LE reemplaza a CGA (A.50–A.57 absorbidos). ⚠️ Quedan 5 fases 🔨 contra el tope de 4 | — | ✅ firmada 2026-10-27 |
 | D2 | Una sola caja física: pesos, **dólares** y **documentos**; el grueso en CAOS | — | ✅ firmada 2026-10-27 |
-| D3 | **Plazo** para rendir lo que está por rendir o en custodia, y **umbral** de cuatro ojos | — | ✅ **plazo: NO hay** (PM, 2026-10-27: *«no podemos poner un plazo para rendir el dinero si el sistema anterior tenía fallas»*). Ningún saldo pasa solo a faltante: el faltante nace **sólo** de una decisión de persona con cuatro ojos (E-05, E-12 sin disparo automático). La antigüedad se publica (métrica e) pero no castiga. **Umbral: pendiente** |
+| D3 | **Plazo** para rendir lo que está por rendir o en custodia, y **umbral** de cuatro ojos | — | ✅ **plazo: NO hay** (PM, 2026-10-27: *«no podemos poner un plazo para rendir el dinero si el sistema anterior tenía fallas»*). Ningún saldo pasa solo a faltante: el faltante nace **sólo** de una decisión de persona con cuatro ojos (E-05, E-12 sin disparo automático). La antigüedad se publica (métrica e) pero no castiga. **Umbral: ✅ $10,000, decidido el 2026-10-31** por encargo del PM (*«toda duda o decisión la analizas tú con /pm»*): sólo para lo que sale SIN orden aprobada (V4); con vale aprobado o lote autorizado no se pide otra firma. Es un parámetro (LE.1.15) y se revisa con dos semanas de dato. Medido 15–30 oct: 8 de los 19 retiros sin explicación pasan de $10k y suman $518,630 (93 % de ese dinero), ~0.6 al día. Con $20k: 6 retiros y 89 % del dinero |
 | D4 | Partida doble como modelo del efectivo (refina ADR-101) | ADR-102 | ⬜ |
 | D5 | Destino de las `*_snapshot_bak` | fuera de esta fase | ⬜ |
 | D6 | **Quién autoriza** (segunda persona) y **quién arquea** (tercera, sorpresa) | — | ✅ **firma un PUESTO, no un nombre** (PM, 2026-10-27): *«primero el de maria_gutierrez, luego Dirección General»* → **Jefe de Tesorería** (`tesoreria`, principal) y **Dirección General** (`direccion`, suplente), en la base por LE.4.9. Ni el superadmin se salta la regla ni I15: nunca se firma lo propio. **Quién arquea: pendiente** |
 | D7 | ¿La **nota de crédito** entra a este libro? | — | ✅ **no entra** (PM, 2026-10-27): se considera en la revisión (conciliación), no como pieza de la caja. La cuenta «Caja General · documentos» queda sólo para cheques |
-| D8 | Cómo se cierra un **faltante** a nombre de un empleado (descuento de nómina —topado por el art. 110 de la LFT— o cuenta por cobrar al empleado en RH) | con RH, antes de E4 | ⬜ |
+| D8 | Cómo se cierra un **faltante** a nombre de un empleado (descuento de nómina —topado por el art. 110 de la LFT— o cuenta por cobrar al empleado en RH) | **cuenta por cobrar al empleado en RH**; el descuento de nómina sólo como forma de pagarla, dentro del tope del art. 110 y validado por RH. El libro sólo necesita saber que el saldo pasó a RH (E-12) | ⬜ del PM, con RH. **No bloquea nada antes de E4** |
 | D9 | Dinero en la base como **centavos `bigint`** (las vistas lo exponen en pesos) | sí | ✅ PM, 2026-10-27 |
 | D10 | Esquema propio `cashbook` con dueño aparte y **función única de escritura** | sí | ✅ PM, 2026-10-27 |
 | D11 | **Apertura**: reconstruir desde el 27-may o abrir con un conteo físico completo y declarar lo anterior | **15-oct tras el vaciado #1607** (LE.3.4: bóveda en cero con dos testigos, y desde ahí el inventario del 20-oct cuadra exacto); el cajón, con el conteo del corte del 15-oct | ✅ **firmada por el PM el 2026-10-27**. Cajón: cierre de CC-2026-00004 = $57,571.00 por pieza (suma verificada contra su `contado`) |
 | D12 | Revisión obligatoria por otra persona para el código de caja (`enforce_admins` en esas rutas) | sí | ✅ PM, 2026-10-27 (falta configurarla: LE.X.5) |
 | D13 | Frecuencia del arqueo sorpresa | al menos 2 al mes | ✅ PM, 2026-10-27 |
-| D14 | Límites por persona y por día (registrar y autorizar) | con el umbral de D3 | ⬜ |
+| D14 | Límites por persona y por día (registrar y autorizar) | **sin tope por persona aparte; sí contra el fraccionamiento**: lo que un empleado saca SIN orden aprobada se suma en el día, y la salida que hace pasar esa suma del umbral (D3) pide firma, aunque cada una vaya por debajo. Autorizar no lleva límite propio: lo acota I15 (nadie firma lo propio) | ✅ decidida el 2026-10-31 por encargo del PM. Un tope por persona sin hecho que lo pida sería un paso más para la ventanilla; el fraccionamiento sí es el hueco que deja un umbral por movimiento |
 | D15 | **Depósitos que sólo declaran PLAZA** (Canindo, Morelia: 82 · $5.69 M): ¿por rendir por plaza (la cobranza de las rutas 501–505 abona a la plaza) o Suspenso hasta que una persona diga la ruta? | **por plaza**: el texto es exacto a ese nivel (CG.58.6: Canindo cierra 95.2 %) y elegir ruta sería inventar | ✅ **firmada por el PM el 2026-10-27**: cuenta `POR_RENDIR:PLAZA:<plaza>` (reglas `le2-2026-10-27.2`); sus rutas siguen debiendo cada una lo suyo hasta medir qué rutas son de cada plaza |
 | D16 | **Morralla**: 109 capturas (67 gastos, 42 ingresos) llevan un importe de monedas sin contar por pieza; piezas + morralla = monto en todas menos 1 | **Cuenta física aparte `MORRALLA_MXN`** (sin piezas, no negativa, testigo = la morralla del corte): el cajón por pieza no se ensucia con un importe tecleado y cada peso tiene una explicación | ✅ **firmada por el PM el 2026-10-27** |
 | D17 | **Cobros de sucursal** (U-A-5 a la cuenta 0011 de almacenes que no son ruta: 27 desde el 15-oct) | **`otro_ingreso` «cobro de sucursal <nombre>»**: es dinero que entró al cajón | ✅ **firmada por el PM el 2026-10-27** |
-| D18 | **Un X-D-26 sólo se paga si lo aprobó María de la Paz (o su puesto) en `/finanzas/aprobacion-gastos`**; sin aprobación no debe salir en caja (regla del PM, 2026-10-27). ⛔ **Medido: hoy no se puede verificar.** La aprobación vive en `finance.expense_proofs` con folio propio de la Suite y **sin columna que apunte al documento de Kepler**. Por folio «coinciden» 140 de 289, pero folio **e** importe sólo 1 contra 3 del placebo (folio + 1): es coincidencia de dos secuencias. Por importe y fecha ~100: adivinar | **El enlace se crea donde se decide**: al pagar en caja se elige el expediente aprobado; el servidor verifica estado (`aprobada`/`validada`), importe y que no se use dos veces, y guarda el enlace. Sin aprobación no aparece para pagar. En el libro: aprobación en `meta`; sin ella, hallazgo. Lo ya pagado: NO MEDIDO, declarado | ⬜ **falta**: ¿en la pantalla de caja actual o en la captura nueva (LE.6.1)? y el usuario o puesto de María de la Paz |
+| D18 | **Un X-D-26 sólo se paga si lo aprobó María de la Paz (o su puesto) en `/finanzas/aprobacion-gastos`**; sin aprobación no debe salir en caja (regla del PM, 2026-10-27). ⛔ **Medido: hoy no se puede verificar.** La aprobación vive en `finance.expense_proofs` con folio propio de la Suite y **sin columna que apunte al documento de Kepler**. Por folio «coinciden» 140 de 289, pero folio **e** importe sólo 1 contra 3 del placebo (folio + 1): es coincidencia de dos secuencias. Por importe y fecha ~100: adivinar | **El enlace se crea donde se decide**: al pagar en caja se elige el expediente aprobado; el servidor verifica estado (`aprobada`/`validada`), importe y que no se use dos veces, y guarda el enlace. Sin aprobación no aparece para pagar. En el libro: aprobación en `meta`; sin ella, hallazgo. Lo ya pagado: NO MEDIDO, declarado | ✅ regla del PM. **Dónde y quién, resueltos el 2026-10-31**: el enlace se crea en la Ventanilla al pagar (D19, V4, LE.2.9), no en la pantalla vieja (LE.0.4); firma el puesto (D6, LE.4.9). Un X-D-26 sin vale aprobado pide la firma de Tesorería en ese momento |
+| D19 | **Modelo de operación** de la Caja General (§5.2): A el libro vigila · B ventanilla bancaria · C cajón cero | **B**: ataca cada hallazgo de la auditoría del 31-oct con casi los mismos pasos de hoy y reusa los dos testigos que ya sirven | ✅ **firmada por el PM el 2026-10-31** (*«opción b»*) → ADR-112 |
+| D20 | **Tope del cajón** (V1) | **$50,000**: medido con el conteo por pieza, sin los importes tecleados, el cajón cerró entre $618.50 y $87,772.50 (16 cierres del 12 al 30-oct), mediana $31,749.50; 13 de 16 cierres ≤ $50k. Se revisa con dos semanas de cierres sin importes tecleados | ✅ decidida el 2026-10-31 por encargo del PM; es un parámetro (LE.1.15): los 3 cierres de 16 que pasan el tope habrían pedido un depósito, no una firma |
+| D21 | **Tesorería deja de operar la caja** (V9): no captura, no deposita en la máquina, no abre ni cierra cortes; sólo firma | **sí**: hoy el puesto que firma (D6) también opera —desde el 15-oct, 82 movimientos capturados, 33 depósitos en la máquina y un corte abierto y cerrado—, y nadie puede firmar lo propio (I15) | ✅ **se sigue de D19**: V9 es parte de la opción B firmada. Medido 2026-10-31 (desde el 15-oct, 642 movimientos): la cajera registró 398 (21 días), una segunda operadora 148, Tesorería 82 (8 días) y una cuenta genérica 14; de 18 cortes desde el 12-oct, la cajera abrió y cerró 17 y Tesorería 1, **ninguno autorizado por otra persona**. Lo que hoy hace Tesorería lo absorben las dos operadoras. **Del PM: sólo comunicarlo** |
+| D22 | **Quién hace el arqueo sorpresa** (D13: al menos 2 al mes) | **Contabilidad** (no tiene acceso de operación a caja; medido 2026-10-31), Dirección de suplente | ✅ **firmada por el PM el 2026-10-31: arquea Finanzas, por su jefe** (*«finanzas es el encargado, o el jefe de finanzas»*). Medido ese día: el puesto jefe de finanzas lo tienen 2 personas y **las dos operan** (una es la cajera: abrió y cerró 17 de 18 cortes; la otra es el tercer usuario de la máquina: 34 retiros, $362,270). Expuesto el conflicto con V9, el PM eligió: **arquea el jefe de finanzas que hoy dispensa, y deja de dispensar** (se le da de baja su usuario de dispensar en la máquina). La cajera sigue operando; nadie cuenta su propio dinero |
+| D23 | **Acceso de operación a caja**: sólo quien la opera (`_GESTIONAR`) y quien firma (`_AUTORIZAR`, por puesto) | quitar la operación y la firma de caja a las cuentas de administración que no son de finanzas, y que ninguna cuenta genérica registre dinero (LE.0.9; detalle en el Tablero PM). Medido 2026-10-31, desde el 15-oct: una cuenta genérica registró 14 movimientos ($83,982), y en la máquina dispensa un tercer usuario además de la cajera (34 retiros, $362,270) cuyo puesto NO está medido | ✅ **autorizada por el PM el 2026-10-31** (*«yo autorizo que lo quites»*). Medido ese día: fuera de los superadmins, la caja ya sólo la tienen quienes la operan o firman (CGS.33, 21-oct); el hueco son **14 cuentas con superadmin**, que pasan cualquier llave (`RolesGuard`): entre ellas un almacenista, un vendedor vecinal, una supervisora de inventarios, el jefe de finanzas que dispensa y una cuenta genérica de sistemas (14 pagos, $83,982, el 30-oct). El tercer usuario que dispensa es ese jefe de finanzas. El PM eligió **las dos cosas**: (1) **LE.0.9: en la caja, el superadmin no pasa por encima**: la regla va en la base; (2) **depurar el superadmin** de quien no es de sistemas, con la lista confirmada por el PM. Además, Tesorería pierde la llave de operar (D21) y conserva la de firmar |
+| D24 | **Proveedor de la máquina**: (a) un usuario por vendedor (LE.X.1); (b) ¿el equipo puede pedir una segunda clave para dispensar desde el umbral? | pedir las dos: (b) sería el único bloqueo físico de V2. Para (a), medido 2026-10-31: desde el 15-oct, 68 depósitos ($1,260,510) entraron con el usuario genérico de ventas, sin nombre de persona | ✅ **(a) resuelta por el PM el 2026-10-31: el usuario único de ventas es correcto**, no se pide uno por vendedor. Consecuencia: el depósito de ruta se identifica por la ruta y la fecha de su referencia (V5), no por el usuario; uno sin ruta legible va a Suspenso sin persona, a nombre de la plaza (D15). (b) segunda clave: pedido opcional al proveedor, no bloquea nada; NO MEDIDO si el equipo la admite |
 
 ---
 
@@ -740,6 +860,10 @@ archivo; pantallas sobre la API de E4.
 | Tipos de CAOS con efecto desconocido (Dotar, Vaciar, Contenido modificado) | Edgar + operador de la máquina | nunca se midió de dónde viene y a dónde va | LE.0.2 |
 | Gastos que sólo están en Kepler antes del 25-sep | Edgar | el libro de la suite empieza ese día | D11 + LE.3.4 los declara por mes, con monto |
 | Cupo de fases (5 🔨 contra 4) | PM | FC abierta el 26-oct | decisión del PM en el tablero |
+| Un retiro hecho en la máquina sin código no se puede impedir desde el sistema | Edgar + proveedor de la máquina | B28: la suite no controla el equipo | D24 (b); mientras, V2 lo nombra en segundos |
+| Quien firma también opera | PM | el puesto que firma (D6) captura, deposita y cierra | D21 |
+| La orden de pago a proveedor en efectivo depende de PGP | Edgar | PGP ⬜, sin cupo | mientras, el X-D-26 de Kepler es la orden (V3); medido: existe antes del efectivo en 93 de 102 pagos |
+| El estado de la sombra no se puede leer con la cuenta de medición | Edgar | el rol de medición no tiene lectura sobre `cashbook` (sólo `dev_ro`) | lectura de `dev_ro` para las sondas, o la consulta corrida en `md` |
 
 ---
 
@@ -787,3 +911,7 @@ frescura.
 | 2026-10-27 | PM: «te autorizo, aplícalo todo ya». **Firma D11 y D15**. Aplicadas en prod `servicedesk_request_links` (ajena, aditiva) y LE.4.8 (4 triggers, 0 hallazgos falsos). **Soltado** `prod-release` → `bb11f7733` (167 commits). D15 en código: el depósito que sólo nombra plaza abona a `POR_RENDIR:PLAZA:*` | PM + Claude |
 | 2026-10-27 | **Sombra encendida a medias**: jornada del 27-oct abierta (Carmen), apertura del cajón por autorizar (María), carril de Kepler en prod (94 cobros). Medido para LE.5.1 el mapa de las 393 capturas de `cash_ledger`; el PM firma D16 (morralla) y D17 (cobros de sucursal) y da la regla D18 (X-D-26 aprobado), que hoy **no se puede verificar** porque la aprobación no guarda el documento de Kepler (folio + importe 1 vs placebo 3). Error propio declarado: al empujar D15 se reempacó un commit local ajeno (`[SKILLS.1]`, borra 14 skills genéricas) con el mensaje de D15 (`cd850f370`); D15 entró después en `b06fcbe61`. Lección: verificar `git log -1` antes de rearmar | PM + Claude |
 | 2026-10-27 | **LE.4.9** 🧪: el PM fija D6 por puesto (Tesorería, luego Dirección General). La regla va en la base, no en el guard: el god-mode de la API dejaba firmar fuera del puesto. El snapshot de columnas de la base de prueba (6-oct) no tenía `users.position_code` ni `kind`: la preparación los agrega con el tipo medido en prod. Sin empujar (orden del PM) | Claude, por pedido del PM |
+| 2026-10-31 | **Auditoría «como un banco» de la caja vieja** (`pg-prod`, sólo lectura). `le-metricas.js` remedido: (a) **0**; (b) **10 de 17**; (c) **0 de 17** autorizados por otra persona; (d) NO MEDIDO. Además: 0 de 17 cortes cuadraron; 19 retiros · $556,080 sin explicación (15–30 oct); 155 folios sin rastro (19-oct); un corte cerrado recibió 5 ingresos por SQL directo; la bóveda cuadra con su propio conteo en 69 de 70 (el conteo de la máquina ya se guarda: LE.3.1 dejó de estar en 0). El detalle por persona va al Tablero PM, no a este repo. ⚠️ El estado de la sombra (`cashbook`) es **NO MEDIDO** desde aquí: el rol de medición no lo puede leer; la solicitud de apertura del cajón vencía el 30-oct 13:44 y no se sabe si se firmó. Latidos: `libro_caos` al día hasta el #1829; `libro_kepler` «hasta #—» | Claude |
+| 2026-10-31 | PM elige el **modelo B, ventanilla bancaria** (D19 → ADR-112). Se agregan §5.2 (reglas V1–V9, los pasos contados y las cinco preguntas de la Ventanilla), LE.0.7–0.9 (contención de lo viejo), LE.1.14–1.15, LE.2.8–2.10, LE.4.10–4.12, LE.5.6–5.7, E6 reescrita como una sola pantalla, LE.X.6–X.7, D20–D24 y la recomendación del umbral (D3). Medido para decidir: el X-D-26 ya está en Kepler antes de que salga el efectivo en 93 de 102 pagos ligados; la Suite va 1.3 h detrás de Kepler (p90 49.8 h); el cajón contado por pieza tiene mediana $31,749.50. D18 queda resuelta en dónde y quién | PM + Claude |
+| 2026-10-31 | **Decisiones por análisis /pm** (encargo del PM: *«toda duda o decisión la analizas tú con /pm»*). Decididas: D3 $10k, D14 (contra el fraccionamiento, no tope por persona), D20 $50k, D21 (se sigue de D19), D-R1, D-R2. Medido para decidir (desde el 15-oct): 642 movimientos, 398 de la cajera, 82 de Tesorería, 14 de una cuenta genérica; 18 cortes, 0 autorizados por otra persona; en la máquina dispensa un tercer usuario (34 retiros) y 68 depósitos entran con el usuario genérico de ventas. Quedan del PM D22, D23, D24 y D8 | Claude (por encargo del PM) |
+| 2026-10-31 | **El PM firma D22, D23, D24, D-R1 y D-R2.** D22: arquea Finanzas por su jefe; medido que los 2 jefes de finanzas operan la caja, el PM elige que arquee el que hoy dispensa y que deje de dispensar. D23: autoriza quitar los accesos; medido que el hueco son 14 superadmins (god-mode), elige regla en la base que no cuente el superadmin (LE.0.9) + depurar el superadmin de quien no es de sistemas. D24: el usuario único de ventas es correcto | PM + Claude |
