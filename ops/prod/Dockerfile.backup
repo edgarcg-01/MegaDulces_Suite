@@ -19,8 +19,13 @@ FROM postgres:18
 # el build con `apt` exit 100, que no menciona ni Debian ni la versión.
 # `[OPS.OFF.1]` + rclone (y ca-certificates, que `--no-install-recommends` deja afuera y sin el
 # cual el TLS contra R2 falla): la copia fuera de md, `offsite-sync.sh`.
+# ⛔ 2026-10-31: el pin `2.59.1-1.pgdg13+1` YA NO EXISTE en apt.postgresql.org (quedan 2.59.2,
+#    2.59.3 y 2.60.0): este Dockerfile no se podía reconstruir desde antes de este cambio, y nadie lo
+#    supo porque la imagen no se reconstruía. Se fija 2.59.3 — misma serie que el 2.59.1 con que
+#    `pg-prod` archiva el WAL (`Dockerfile.pg`, que tiene el mismo problema con pgdg12 y se declara).
+#    Verificado antes de cambiarlo: 2.59.3 lee el repositorio real (`info`, sólo lectura) igual.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends cron pgbackrest=2.59.1-1.pgdg13+1 rclone ca-certificates \
+ && apt-get install -y --no-install-recommends cron pgbackrest=2.59.3-1.pgdg13+1 rclone ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 COPY ops/prod/backup-prod.sh    /usr/local/bin/backup-prod.sh

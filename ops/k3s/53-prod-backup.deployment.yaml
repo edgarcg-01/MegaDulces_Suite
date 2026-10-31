@@ -29,7 +29,7 @@
 #    El despliegue construye y publica las imágenes `base-*` que falten en el registro, pero NO
 #    aplica este archivo (`migracion: preparado`): se aplica a mano.
 #
-# `[OPS.OFF.1]` 2026-10-31 — base-7fee9ed6c22a → base-b42f38098f58: la imagen suma `rclone` y
+# `[OPS.OFF.1]` 2026-10-31 — base-7fee9ed6c22a → base-5d81435ffbe0: la imagen suma `rclone` y
 #    `offsite-sync.sh` (la copia fuera de md, 01:30). La credencial va en `~/secrets/fuera/offsite.env`
 #    — se monta el DIRECTORIO, no el archivo (VL.13: el bind de un archivo se ata al inodo).
 #    ⚠️ Crear el directorio como `superoot` ANTES de aplicar (`mkdir -m 700 ~/secrets/fuera`): si
@@ -54,7 +54,7 @@ spec:
       terminationGracePeriodSeconds: 120
       containers:
         - name: backup
-          image: localhost:5000/trade-prod-backup:base-b42f38098f58
+          image: localhost:5000/trade-prod-backup:base-5d81435ffbe0
           imagePullPolicy: IfNotPresent
           env:
             - { name: TZ, value: America/Mexico_City }
