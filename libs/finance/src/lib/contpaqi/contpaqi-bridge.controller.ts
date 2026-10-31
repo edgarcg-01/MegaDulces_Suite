@@ -5,7 +5,7 @@ import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
-  ConfirmacionRechazada, ContpaqiArmadoService, EntregaRechazada, FirmaRechazada, type MovimientoVista, type PagoPorConfirmar,
+  ConfirmacionRechazada, ContpaqiArmadoService, EntregaRechazada, FirmaRechazada, type DictamenMes, type MovimientoVista, type PagoPorConfirmar,
   type PendienteProveedor, type PruebaPorProveedor, type ReglaVista, type ResumenLote, type ResumenMes,
 } from './contpaqi-armado.service';
 import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
@@ -142,7 +142,22 @@ export class ContpaqiBridgeController {
     // `[CP.8.53]` Lo ya entregado del mes no viaja en el archivo; se dice cuánto quedó fuera.
     res.setHeader('X-Ya-Entregadas', String(r.ya_entregadas));
     res.setHeader('X-Cambiados-Tras-Entrega', String(r.cambiados.length));
+    // `[CP.8.88]` Lo que el dictamen frenó (ya capturado, no cuadra…) no viaja; el detalle está en `GET dictamen`.
+    res.setHeader('X-Bloqueadas-Dictamen', String(r.bloqueadas.length));
     res.send(buf);
+  }
+
+  /**
+   * `[CP.8.95]` — **El dictamen del mes**: cada póliza que saldría en el archivo, con su veredicto (`lista` ·
+   * `revisar` · `bloqueada`) y sus hallazgos, y el resumen. Las bloqueadas no salen en el archivo (`[CP.8.88]`).
+   * Va con `_VER`: mirar antes de entregar no es entregar. No escribe.
+   */
+  @Get('dictamen')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_VER)
+  @ApiOperation({ summary: 'Dictamen del mes: lo que saldría en el archivo, póliza por póliza, con su veredicto (no escribe).' })
+  async dictamen(@Query('mes') mes?: string): Promise<DictamenMes> {
+    const anioMes = /^\d{4}-\d{2}$/.test(String(mes ?? '')) ? String(mes) : mesPorDefecto();
+    return this.armado.dictamenDelMes(anioMes);
   }
 
   /**

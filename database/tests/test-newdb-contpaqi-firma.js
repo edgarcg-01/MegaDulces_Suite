@@ -46,9 +46,10 @@ const { classify, assertSafeTarget } = require('./_lib/assert-safe-target');
 
 const SRC = path.join(ROOT, 'libs', 'finance', 'src', 'lib', 'contpaqi');
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
-const MES = '2031-02';
+const MES = '2001-02';
 const CAT = 'cp853_candado';
 const CUENTA = '5299990001';
+const BANCO = '1020990001';
 const POR = 'candado-cp853';
 const CAT_G = 'cp887_candado';
 
@@ -151,6 +152,8 @@ async function completo(urlAdmin, urlRuntime) {
     }
     // Siembra con postgres (salta el RLS: siembra, no prueba).
     await admin('analytics.contpaqi_accounts').insert({ tenant_id: MEGA, codigo: CUENTA, nombre: 'CANDADO CP853', tipo: 'G', es_baja: false, afectable: 1 });
+    // `[CP.8.88]` El banco también va al catálogo: una póliza con una cuenta que ContPAQi no tiene la frena el dictamen.
+    await admin('analytics.contpaqi_accounts').insert({ tenant_id: MEGA, codigo: BANCO, nombre: 'CANDADO BANCO CP853', tipo: 'A', es_baja: false, afectable: 1 });
     const [cta] = await admin('finance.bank_accounts').insert({ tenant_id: MEGA, bank: 'CANDADO', account_label: 'CP853', kind: 'bank', contpaqi_cuenta: '1020990001' }).returning('id');
     ids.cuenta = cta.id ?? cta;
     const [est] = await admin('finance.bank_statements').insert({ tenant_id: MEGA, bank_account_id: ids.cuenta, period: MES }).returning('id');
@@ -161,8 +164,8 @@ async function completo(urlAdmin, urlRuntime) {
       tenant_id: MEGA, statement_id: est.id ?? est, bank_account_id: ids.cuenta, movement_date: fecha,
       client_uuid: `cp853-candado-${i}`, concept: `CANDADO CP853 ${i}`, amount_out: imp, category_id: ids.categoria,
     });
-    await mov(0, '2031-02-03', 300.00);
-    await mov(1, '2031-02-04', 120.50);
+    await mov(0, '2001-02-03', 300.00);
+    await mov(1, '2001-02-04', 120.50);
     check(true, 'sembrado: cuenta 52* en el catálogo, una regla sin firmar, 2 egresos en 2 días');
 
     const { armado, FirmaRechazada } = servicios(runtime);
@@ -185,12 +188,12 @@ async function completo(urlAdmin, urlRuntime) {
     await armado.marcarEntregado(MES, b64, POR);
     const conDia3 = await admin('contpaqi.poliza_exports').where({ tenant_id: MEGA, periodo: MES }).count({ n: '*' }).first();
     check(Number(conDia3.n) === 2, 'las 2 quedan registradas como entregadas');
-    await admin('contpaqi.poliza_exports').where({ tenant_id: MEGA, periodo: MES }).where('evento_id', 'like', '%2031-02-04').del();
+    await admin('contpaqi.poliza_exports').where({ tenant_id: MEGA, periodo: MES }).where('evento_id', 'like', '%2001-02-04').del();
     const a2 = await armado.generarArchivoMes(MES);
     check(a2.polizas === 1 && a2.ya_entregadas === 1, `⛔ lo entregado NO se reenvía: ${a2.polizas} póliza nueva, ${a2.ya_entregadas} ya entregada fuera`);
 
     // Un egreso nuevo en el día ya entregado: ese lote cambió y no debe reenviarse.
-    await mov(2, '2031-02-03', 50.00);
+    await mov(2, '2001-02-03', 50.00);
     const a3 = await armado.generarArchivoMes(MES);
     check(a3.cambiados.length === 1 && a3.polizas === 1,
       `un lote entregado que cambió se DECLARA y no se reenvía: cambiados=${a3.cambiados.join(',')}`);
@@ -220,7 +223,7 @@ async function completo(urlAdmin, urlRuntime) {
 
     // Su egreso va al camino del gasto: el concepto no nombra a ningún proveedor del padrón, así que NO se arma y lo dice.
     const [movG] = await admin('finance.bank_movements').insert({
-      tenant_id: MEGA, statement_id: est.id ?? est, bank_account_id: ids.cuenta, movement_date: '2031-02-05',
+      tenant_id: MEGA, statement_id: est.id ?? est, bank_account_id: ids.cuenta, movement_date: '2001-02-05',
       client_uuid: 'cp887-candado-0', concept: 'CANDADO CP887 SIN PROVEEDOR', amount_out: 75.00, category_id: ids.categoriaG,
     }).returning('id');
     try {
@@ -245,7 +248,7 @@ async function completo(urlAdmin, urlRuntime) {
       if (ids.cuenta) await admin('finance.bank_accounts').where({ id: ids.cuenta }).del();
       if (ids.categoria) await admin('finance.movement_categories').where({ id: ids.categoria }).del();
       if (ids.categoriaG) await admin('finance.movement_categories').where({ id: ids.categoriaG }).del();
-      await admin('analytics.contpaqi_accounts').where({ tenant_id: MEGA, codigo: CUENTA }).del();
+      await admin('analytics.contpaqi_accounts').where({ tenant_id: MEGA }).whereIn('codigo', [CUENTA, BANCO]).del();
     } catch (e) {
       console.log(`  ⚠ limpieza incompleta: ${e.message}`);
     }

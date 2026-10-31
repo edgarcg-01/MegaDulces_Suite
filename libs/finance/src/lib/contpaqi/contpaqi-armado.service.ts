@@ -99,6 +99,8 @@ import { coincide, palabrasDeBusqueda } from './busqueda';
 import { armarPagoProveedorCompleto, esPagoDeTarjeta } from './pago-proveedor';
 import { armarGastoConFactura, esGastoPorProveedor, PREFIJO_GASTO_POR_PROVEEDOR } from './gasto-con-factura';
 import { cotejar, type PolizaReal, type ResultadoCotejo } from './cotejo';
+import { dictaminarArchivo, resumenDictamen, type Dictamen } from './dictamen';
+import { leerContextoDictamen } from './dictamen.contexto';
 import {
   FuentePagoProveedor, type FuenteFacturas, type MovimientoPago, type PropuestaPago, type ResolucionPago,
 } from './pago-proveedor.fuente';
@@ -269,6 +271,38 @@ export interface PruebaPorProveedor {
   no_arman: Record<string, number>;
   /** Hasta qué fecha hay pólizas de ContPAQi en la Suite: un mes sin pólizas todavía no se puede cotejar. */
   contpaqi_hasta: string | null;
+}
+
+/** `[CP.8.88]` Una póliza que el dictamen frena: no sale en el archivo, y se dice por qué. Sin override. */
+export interface PolizaBloqueada {
+  clave: string;
+  evento_tipo: EventoArchivo;
+  /** Las reglas del dictamen que la frenan (`ya_capturada`, `no_cuadra`…). */
+  reglas: string[];
+  /** Los mensajes de esas reglas, en llano. */
+  motivo: string;
+}
+
+/**
+ * `[CP.8.95]` El dictamen del mes, para la pantalla: lo que saldría en el archivo (lo armable sin entrega registrada),
+ * póliza por póliza, con su veredicto y sus hallazgos. Sale del mismo camino que el archivo.
+ */
+export interface DictamenMes {
+  mes: string;
+  /** El día con el que se juzgó (Ciudad de México): fechas futuras, réplica rancia. */
+  hoy: string;
+  resumen: ReturnType<typeof resumenDictamen>;
+  polizas: (Dictamen & {
+    evento_tipo: EventoArchivo;
+    tipo: NonNullable<ResumenLote['tipo']>;
+    fecha: string;
+    total: number;
+    banco_label: string | null;
+  })[];
+  /** Lo del mes que ya tiene entrega registrada: ni se dictamina ni sale. */
+  ya_entregadas: number;
+  /** Lotes entregados que cambiaron después: no se reenvían (`[CP.8.53]`). */
+  cambiados: string[];
 }
 
 /** `[CP.8.78]` Lo leído del mes, para reusarlo en vez de traerlo otra vez. */
@@ -923,21 +957,41 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
    */
   async generarArchivoMes(anioMes: string): Promise<{
     mes: string; contenido: string; polizas: number; movimientos: number; total: number;
-    nombre: string; entregado: false; ya_entregadas: number; cambiados: string[];
+    nombre: string; entregado: false; ya_entregadas: number; cambiados: string[]; bloqueadas: PolizaBloqueada[];
   }> {
     return this.conTenant(() => this.generarArchivoMesEnAlcance(anioMes));
   }
 
   private async generarArchivoMesEnAlcance(anioMes: string): Promise<{
     mes: string; contenido: string; polizas: number; movimientos: number; total: number;
-    nombre: string; entregado: false; ya_entregadas: number; cambiados: string[];
+    nombre: string; entregado: false; ya_entregadas: number; cambiados: string[]; bloqueadas: PolizaBloqueada[];
   }> {
     const a = await this.armarArchivo(anioMes);
     return {
       mes: a.mes, contenido: a.contenido, polizas: a.polizas, movimientos: a.movimientos,
       total: a.total, nombre: a.nombre, entregado: false,
-      ya_entregadas: a.ya_entregadas, cambiados: a.cambiados,
+      ya_entregadas: a.ya_entregadas, cambiados: a.cambiados, bloqueadas: a.bloqueadas,
     };
+  }
+
+  /**
+   * `[CP.8.95]` — **El dictamen del mes, para la pantalla**: lo que saldría en el archivo, póliza por póliza, con su
+   * veredicto (`lista` · `revisar` · `bloqueada`) y sus hallazgos, y el resumen arriba. No escribe.
+   *
+   * ⭐ Sale del mismo camino que el archivo (`pendientesDelMes` + `dictaminarPendientes`): lo que la pantalla dice
+   * bloqueado es exactamente lo que el archivo deja fuera.
+   */
+  async dictamenDelMes(anioMes: string): Promise<DictamenMes> {
+    return this.conTenant(async () => {
+      const { pendientes, ya_entregadas, cambiados } = await this.pendientesDelMes(anioMes);
+      const { hoy, dictamenes } = await this.dictaminarPendientes(anioMes, pendientes);
+      const polizas = pendientes.map((l) => ({
+        ...(dictamenes.get(`${l.evento_tipo}|${l.clave}`) as Dictamen),
+        clave: l.clave, evento_tipo: l.evento_tipo, tipo: l.resumen.tipo ?? 'lote',
+        fecha: l.asiento!.fecha, total: l.asiento!.total, banco_label: l.resumen.banco_label ?? null,
+      }));
+      return { mes: anioMes, hoy, resumen: resumenDictamen(polizas), polizas, ya_entregadas, cambiados };
+    });
   }
 
   /**
@@ -993,46 +1047,48 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
   private async armarArchivo(anioMes: string): Promise<{
     mes: string; contenido: string; polizas: number; movimientos: number; total: number;
     nombre: string; entregado: false; lotes: LoteArchivo[]; ya_entregadas: number; cambiados: string[];
+    bloqueadas: PolizaBloqueada[];
   }> {
     if (!this.sink) throw new Error('no hay sink de pólizas conectado');
-    const { lotes, fuera_de_lote } = await this.construirLotes(anioMes);
-    const conAsiento = lotes.filter((l) => l.asiento && l.resumen.incluidas > 0);
-    if (!conAsiento.length) {
+    const { conAsiento, pendientes: porEntregar, ya_entregadas, cambiados, fuera_de_lote } = await this.pendientesDelMes(anioMes);
+    if (!conAsiento) {
       throw new Error(
         `ningún lote de ${anioMes} produce asiento: no hay archivo que generar. `
         + `${fuera_de_lote.movimientos} movimientos quedan además fuera de todo lote.`,
       );
     }
-
-    /**
-     * ⛔⛔ `[CP.8.53]` **Lo ya entregado no se vuelve a mandar.** Firmar una regla cambia lo que
-     * arma un mes que quizá ya se cargó en ContPAQi: si el archivo trajera otra vez esos lotes,
-     * importarlo los DUPLICARÍA allá. El archivo lleva sólo los lotes sin entrega registrada; un
-     * lote entregado cuyo total cambió después no se reenvía y se declara en `cambiados`.
-     * (`rechazada` = el cuadre dijo que nunca apareció: ése sí puede volver a mandarse.)
-     */
-    // `[CP.8.72]` Lo entregado se reconoce por (tipo, clave): un pago a proveedor y un lote nunca comparten clave.
-    const entregados = new Map<string, number>(
-      ((await this.db('contpaqi.poliza_exports')
-        .where({ tenant_id: MEGA, periodo: anioMes })
-        .whereIn('evento_tipo', ['bank_lote', 'bank_pago_proveedor', 'bank_gasto'])
-        .whereIn('estado', ['armada', 'entregada', 'aplicada'])
-        .select('evento_tipo', 'evento_id', 'total')) as { evento_tipo: string; evento_id: string; total: string | number }[])
-        .map((r) => [`${r.evento_tipo}|${r.evento_id}`, Number(r.total)]),
-    );
-    const cambiados: string[] = [];
-    const pendientes = conAsiento.filter((l) => {
-      const llave = `${l.evento_tipo}|${l.clave}`;
-      if (!entregados.has(llave)) return true;
-      if (Math.round(entregados.get(llave)! * 100) !== Math.round(l.asiento!.total * 100)) cambiados.push(l.clave);
-      return false;
-    });
-    if (!pendientes.length) {
+    if (!porEntregar.length) {
       throw new Error(
-        `todo lo armable de ${anioMes} ya se entregó (${entregados.size} pólizas registradas): no hay archivo nuevo que generar.`
+        `todo lo armable de ${anioMes} ya se entregó (${ya_entregadas} pólizas registradas): no hay archivo nuevo que generar.`
         + (cambiados.length
           ? ` ⚠️ ${cambiados.length} lote(s) cambiaron después de entregarse y NO se reenvían: ${cambiados.join(', ')}.`
           : ''),
+      );
+    }
+
+    /**
+     * ⛔⛔ `[CP.8.88]` **Lo que el dictamen frena no sale**, sin override: lo que contabilidad ya capturó (entregarlo lo
+     * DUPLICARÍA en ContPAQi), lo que no cuadra, una cuenta que no existe o está de baja, un CFDI cancelado. Se
+     * declara en `bloqueadas` con su motivo. Lo que va a «revisar» sí sale (D12, de Edgar: ¿visto bueno antes?).
+     */
+    const { dictamenes } = await this.dictaminarPendientes(anioMes, porEntregar);
+    const bloqueadas: PolizaBloqueada[] = [];
+    const pendientes = porEntregar.filter((l) => {
+      const d = dictamenes.get(`${l.evento_tipo}|${l.clave}`);
+      if (d?.veredicto !== 'bloqueada') return true;
+      const frenan = d.hallazgos.filter((x) => x.severidad === 'bloquea');
+      bloqueadas.push({
+        clave: l.clave, evento_tipo: l.evento_tipo,
+        reglas: [...new Set(frenan.map((x) => x.regla))], motivo: frenan.map((x) => x.mensaje).join(' · '),
+      });
+      return false;
+    });
+    if (!pendientes.length) {
+      const porRegla = new Map<string, number>();
+      for (const b of bloqueadas) for (const r of b.reglas) porRegla.set(r, (porRegla.get(r) ?? 0) + 1);
+      throw new Error(
+        `lo que falta entregar de ${anioMes} lo frena el dictamen (${bloqueadas.length} pólizas: `
+        + `${[...porRegla].map(([r, n]) => `${r} ${n}`).join(', ')}): no hay archivo nuevo que generar.`,
       );
     }
 
@@ -1062,7 +1118,8 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.log.log(`archivo ${anioMes}: ${pendientes.length} pólizas · ${movimientos} movimientos `
-      + `· ${total} · NO marcado como entregado · ${entregados.size} ya entregadas fuera`
+      + `· ${total} · NO marcado como entregado · ${ya_entregadas} ya entregadas fuera`
+      + (bloqueadas.length ? ` · ${bloqueadas.length} frenadas por el dictamen` : '')
       + (cambiados.length ? ` · ⚠️ ${cambiados.length} cambiaron tras entregarse` : ''));
     return {
       mes: anioMes,
@@ -1073,9 +1130,63 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
       nombre: `egresos-banco-${anioMes}.txt`,
       entregado: false,
       lotes: lotesArchivo,
-      ya_entregadas: entregados.size,
+      ya_entregadas,
       cambiados,
+      bloqueadas,
     };
+  }
+
+  /**
+   * Lo armable del mes que todavía no tiene entrega registrada. ⭐ **Un solo camino** para el archivo y para el
+   * dictamen de la pantalla: si fueran dos, la pantalla podría juzgar pólizas que el archivo no lleva.
+   */
+  private async pendientesDelMes(anioMes: string): Promise<{
+    conAsiento: number; pendientes: PolizaArmada[]; ya_entregadas: number; cambiados: string[];
+    fuera_de_lote: ResumenMes['fuera_de_lote'];
+  }> {
+    const { lotes, fuera_de_lote } = await this.construirLotes(anioMes);
+    const conAsiento = lotes.filter((l) => l.asiento && l.resumen.incluidas > 0);
+
+    /**
+     * ⛔⛔ `[CP.8.53]` **Lo ya entregado no se vuelve a mandar.** Firmar una regla cambia lo que
+     * arma un mes que quizá ya se cargó en ContPAQi: si el archivo trajera otra vez esos lotes,
+     * importarlo los DUPLICARÍA allá. El archivo lleva sólo los lotes sin entrega registrada; un
+     * lote entregado cuyo total cambió después no se reenvía y se declara en `cambiados`.
+     * (`rechazada` = el cuadre dijo que nunca apareció: ése sí puede volver a mandarse.)
+     */
+    // `[CP.8.72]` Lo entregado se reconoce por (tipo, clave): un pago a proveedor y un lote nunca comparten clave.
+    const entregados = new Map<string, number>(
+      ((await this.db('contpaqi.poliza_exports')
+        .where({ tenant_id: MEGA, periodo: anioMes })
+        .whereIn('evento_tipo', ['bank_lote', 'bank_pago_proveedor', 'bank_gasto'])
+        .whereIn('estado', ['armada', 'entregada', 'aplicada'])
+        .select('evento_tipo', 'evento_id', 'total')) as { evento_tipo: string; evento_id: string; total: string | number }[])
+        .map((r) => [`${r.evento_tipo}|${r.evento_id}`, Number(r.total)]),
+    );
+    const cambiados: string[] = [];
+    const pendientes = conAsiento.filter((l) => {
+      const llave = `${l.evento_tipo}|${l.clave}`;
+      if (!entregados.has(llave)) return true;
+      if (Math.round(entregados.get(llave)! * 100) !== Math.round(l.asiento!.total * 100)) cambiados.push(l.clave);
+      return false;
+    });
+    return { conAsiento: conAsiento.length, pendientes, ya_entregadas: entregados.size, cambiados, fuera_de_lote };
+  }
+
+  /**
+   * `[CP.8.95]` El dictamen de lo que saldría: cada póliza contra el catálogo, sus CFDI, lo que contabilidad ya
+   * capturó y el resto del archivo (`dictamen.ts`). El contexto se lee en la transacción del alcance, con el tenant
+   * puesto. Llave `evento_tipo|clave`: la clave sola de un lote y la de un pago no chocan, pero no se apuesta a eso.
+   */
+  private async dictaminarPendientes(anioMes: string, pendientes: PolizaArmada[]): Promise<{
+    hoy: string; dictamenes: Map<string, Dictamen>;
+  }> {
+    const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' })
+      .format(new Date());
+    const ps = pendientes.map((l) => ({ clave: `${l.evento_tipo}|${l.clave}`, asiento: l.asiento!, uuids: l.uuids }));
+    if (!ps.length) return { hoy, dictamenes: new Map() };
+    const ctx = await leerContextoDictamen(this.db, MEGA, anioMes, hoy, ps);
+    return { hoy, dictamenes: new Map(dictaminarArchivo(ps, ctx).map((d) => [d.clave, d])) };
   }
 
   async simularLotes(anioMes: string): Promise<ResumenMes> {

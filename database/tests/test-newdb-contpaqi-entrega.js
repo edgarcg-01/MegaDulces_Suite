@@ -7,7 +7,7 @@
  * contra qué base corre, y lo dice:
  *
  *   destino LOCAL (el job `pruebas-db` del CI, `localhost`) → **completo**: siembra un mes de
- *     prueba (2031-01) con `DATABASE_URL_NEW` (postgres), ejerce el servicio con el pool de
+ *     prueba (2001-01) con `DATABASE_URL_NEW` (postgres), ejerce el servicio con el pool de
  *     `DATABASE_URL_NEW_RUNTIME` (`app_runtime`: RLS activo y sin tenant por default, igual que
  *     prod) usando el payload `{ mes, archivo_base64 }`, y limpia lo sembrado.
  *
@@ -51,7 +51,7 @@ const { classify, assertSafeTarget } = require('./_lib/assert-safe-target');
 
 const SRC = path.join(ROOT, 'libs', 'finance', 'src', 'lib', 'contpaqi');
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
-const MES = '2031-01';
+const MES = '2001-01';
 const CAT = 'cp852_candado';
 const POR = 'candado-cp852';
 
@@ -129,6 +129,12 @@ async function completo(urlAdmin, urlRuntime) {
     }
 
     console.log('\n[0] Sembrar un mes de prueba con postgres (salta el RLS: siembra, no prueba)');
+    // `[CP.8.88]` Las cuentas de la póliza van al catálogo: una cuenta que ContPAQi no tiene la frena el dictamen.
+    // Sólo se borra al final lo que este candado insertó (la de gasto puede existir de antes).
+    ids.catalogo = (await admin('analytics.contpaqi_accounts').insert(
+      [['1020990000', 'CANDADO BANCO CP852', 'A'], ['5200800000', 'CANDADO GASTO CP852', 'G']]
+        .map(([codigo, nombre, tipo]) => ({ tenant_id: MEGA, codigo, nombre, tipo, es_baja: false, afectable: 1 })),
+    ).onConflict(['tenant_id', 'codigo']).ignore().returning('codigo')).map((r) => r.codigo ?? r);
     const [cta] = await admin('finance.bank_accounts').insert({
       tenant_id: MEGA, bank: 'CANDADO', account_label: 'CP852', kind: 'bank', contpaqi_cuenta: '1020990000',
     }).returning('id');
@@ -145,7 +151,7 @@ async function completo(urlAdmin, urlRuntime) {
       tenant_id: MEGA, categoria_code: CAT, tipo_regla: 'por_categoria', estado: 'aprobada',
       cuenta_gasto: '5200800000',
     });
-    const movs = [['2031-01-10', 100.00], ['2031-01-10', 40.25], ['2031-01-11', 250.50]];
+    const movs = [['2001-01-10', 100.00], ['2001-01-10', 40.25], ['2001-01-11', 250.50]];
     for (const [i, [fecha, imp]] of movs.entries()) {
       await admin('finance.bank_movements').insert({
         tenant_id: MEGA, statement_id: ids.estado, bank_account_id: ids.cuenta, movement_date: fecha,
@@ -196,7 +202,7 @@ async function completo(urlAdmin, urlRuntime) {
     check(ap.estado === 'aplicada', `sigue \`aplicada\` tras volver a marcar (está en \`${ap.estado}\`)`);
 
     console.log('\n[5] El cuadre, como app_runtime, ve lo entregado');
-    const res = await cuadre.cuadrarPendientes('2031-01-12');
+    const res = await cuadre.cuadrarPendientes('2001-01-12');
     check(res.total >= 1, `el cuadre juzga ${res.total} entrega(s) pendiente(s) — sin [CP.8.58] vería 0`);
   } finally {
     // Limpieza con postgres: lo sembrado y lo que el candado registró. Nada más.
@@ -205,6 +211,7 @@ async function completo(urlAdmin, urlRuntime) {
       await admin('contpaqi.account_rules').where({ tenant_id: MEGA, categoria_code: CAT }).del();
       if (ids.cuenta) await admin('finance.bank_accounts').where({ id: ids.cuenta }).del(); // cascada: estado y movimientos
       if (ids.categoria) await admin('finance.movement_categories').where({ id: ids.categoria }).del();
+      if (ids.catalogo?.length) await admin('analytics.contpaqi_accounts').where({ tenant_id: MEGA }).whereIn('codigo', ids.catalogo).del();
     } catch (e) {
       console.log(`  ⚠ limpieza incompleta: ${e.message}`);
     }

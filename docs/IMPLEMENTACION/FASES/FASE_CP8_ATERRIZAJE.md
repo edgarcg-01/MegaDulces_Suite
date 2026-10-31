@@ -1139,6 +1139,8 @@ falta uno nuevo.
 - **2026-10-31** — `[CP.8.92]` 🧪 armador de traspasos (§11.10). `[CP.8.87]` 🧪 **adoptado** (§11.11): el gasto con
   factura «por proveedor» que otra sesión dejó sin commitear desde el 23-oct se revisó, se midió en prod y se
   commiteó; sin firmar nada no cambia ninguna póliza armada. Con eso se destraba conectar el dictamen y los traspasos.
+- **2026-10-31** — `[CP.8.88]` 🧪 y `[CP.8.95]` C2 (§11.9): el archivo del mes deja fuera lo que el dictamen frena, y
+  `GET /finance/contpaqi/dictamen` lo muestra por el mismo camino. Septiembre: 96 de 98 frenadas por «ya capturada».
 
 ---
 
@@ -1217,6 +1219,7 @@ Hace falta además un candado en el código:
   encuentra, el lote **no sale**: queda en `ya_capturada`, con el folio de ella. **No admite override.**
 - Para las familias que ella agrupa (comisiones por mes, combustible por semana, `[CP.8.85]`), el cruce usa la
   ventana del mes, no ±3 días.
+- ✅ **En código desde el 31-oct** (`[CP.8.88]`, §11.9): el archivo corre el dictamen y deja fuera lo `bloqueada`.
 - La métrica de adopción sale de aquí sola: `ya_capturada` tiene que bajar mes contra mes. Si no baja, D5 no se
   está cumpliendo.
 
@@ -1415,13 +1418,28 @@ pruebas se ponen rojas.
 - **El criterio de ella no se adivina entero:** 33 de las 98 diferencias no dan señal (impuesto, frontera 2120,
   tasa). Para eso sigue el cuadre después de entregar.
 
-**Lo que falta para que el motor FRENE de verdad (C2 y C3).** ⛔ Toca `contpaqi-armado.service.ts` y
-`contpaqi-bridge.controller.ts`, que otra sesión tiene **sin commitear** (su `[CP.8.87]`, 169 líneas). Se hace en
-cuanto commitee:
-1. **C2:** `dictamenDelMes(mes)` en el armado (arma, lee el contexto y dictamina) y `GET /finance/contpaqi/dictamen?mes=`
-   con el permiso de ver.
-2. **C2:** `generarArchivoMes` deja fuera las `bloqueadas`, con su motivo. Esto cierra la parte de exclusión de `[CP.8.88]`;
-   la detección ya está en el motor.
+**Para que el motor FRENE de verdad (C2 y C3).** Se pudo tocar el armado en cuanto se adoptó `[CP.8.87]` (§11.11):
+1. ✅ **C2 (2026-10-31):** `dictamenDelMes(mes)` en el armado y `GET /finance/contpaqi/dictamen?mes=` con el permiso de
+   ver: lo que saldría en el archivo, póliza por póliza, con su veredicto, sus hallazgos y el resumen.
+2. ✅ **C2 (2026-10-31), `[CP.8.88]`:** `generarArchivoMes` deja fuera las `bloqueadas`, con su motivo (`bloqueadas` en la
+   respuesta y el encabezado `X-Bloqueadas-Dictamen`), sin override. El archivo y la pantalla salen del mismo camino
+   (`pendientesDelMes`): lo que la pantalla dice bloqueado es lo que el archivo deja fuera.
+   - **Medido en prod, sólo lectura:** septiembre, que ella capturó entero, da 98 pólizas por entregar y **96 frenadas
+     por «ya capturada»**; el archivo deja fuera exactamente esas 96. Las 2 que quedan van «a revisar» porque su CFDI ya
+     está en otra póliza de egreso de ella (¿pago parcial o duplicado?): es justo el caso de D12. Octubre: 133 por
+     entregar, 118 ya capturadas, 8 a revisar, 7 listas.
+   - **Sin la réplica** (dev y CI, donde la migración de `[CP.9.3]` no crea sus vistas) el contexto pregunta antes y
+     declara `replica_no_medido` y `ejercicio_no_medido` (a revisar) en vez de abortar la transacción del armado.
+   - **Candado** `test-newdb-contpaqi-candado-duplicado.js`: 9 ✓ contra base local (sin su póliza salen las dos; con
+     su póliza del día, ése se frena y se declara; con otro importe ya no; lo frenado nunca se registra como entregado;
+     la pantalla ve lo mismo que el archivo, también después de entregar) y 6 ✓ contra prod. Tres mutantes la ponen en
+     rojo: el archivo que no excluye, el contexto que no ve sus pólizas y la pantalla que arma por su cuenta.
+   - Los candados de firma y entrega tenían pólizas sintéticas en 2031 y con una cuenta de banco que no está en el
+     catálogo: el dictamen las frenaba (fecha futura, cuenta inexistente), con razón. Ahora usan 2001 y siembran sus
+     cuentas en el catálogo. ⚠️ El paso «marcar dos veces» de `test-newdb-contpaqi-entrega.js` ya fallaba con HEAD
+     (desde `[CP.8.53]` lo entregado no se regenera, así que el segundo marcar no encuentra archivo): NO es de este cambio.
+   - ⚠️ El dictamen del mes tarda **3.2–4.0 s** en prod: arma el mes entero, como la pantalla de lotes. La pantalla no
+     puede pedirlo al abrir; necesita la misma carga compartida que la fuente de pagos (`[CP.8.75]`).
 3. **C3:** en el paso «Entregar» del puente, cada póliza con su veredicto y sus hallazgos, y arriba el resumen
    («121 armadas · 108 ya capturadas · 6 listas · 7 a revisar»).
 4. **D12, para Edgar:** las pólizas en «revisar», ¿salen en el archivo o esperan visto bueno? Recomiendo **visto
