@@ -230,7 +230,7 @@ import { LIBROS_CONTABLES_TABS } from '../../finanzas/libros-contables-tabs';
         <!-- TENDENCIA -->
         @if (view() === 'tendencia') {
           <div class="card-premium card-flat ex-chart">
-            <p-chart type="bar" [data]="chartData()" [options]="chartOpts()" height="360px"></p-chart>
+            <p-chart type="bar" [data]="chartData()" [options]="$any(chartOpts())" height="360px"></p-chart>
           </div>
         }
       }

@@ -108,7 +108,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
           <!-- Tendencia -->
           <div class="card-premium card-flat ed-card">
             <h3 class="ed-card-title">Tendencia mensual</h3>
-            <p-chart type="bar" [data]="chartData()" [options]="chartOpts()" height="240px"></p-chart>
+            <p-chart type="bar" [data]="chartData()" [options]="$any(chartOpts())" height="240px"></p-chart>
           </div>
 
           <!-- Desglose por dimensión (con selector) -->
