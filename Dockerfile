@@ -51,7 +51,7 @@
 # ═══ 1. deps — `npm ci` UNA vez para las cuatro imágenes ═════════════════════════════════════
 # slim ahorra ~700MB de pull en builds frescos vs `bookworm` completo. El binario nativo de
 # @swc/core (la api compila con swc) es glibc → funciona en bookworm, NO en alpine/musl.
-FROM node:24-bookworm-slim AS deps
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 
 # ENV (no ARG) porque npm los lee como variables de entorno del proceso. Con ARG, npm ignora
@@ -91,7 +91,7 @@ RUN --mount=type=cache,id=trade-npm,target=/root/.npm \
 # `eslint.config.js` entra porque está en `nx.json → namedInputs.sharedGlobals`: sin él, el hash
 # de Nx dentro del contenedor no es el mismo que el de afuera. (Lo traía el `COPY . .` de
 # portal/vendor; a `view`/`api` les faltaba.)
-FROM node:24-bookworm-slim AS src
+FROM node:22-bookworm-slim AS src
 WORKDIR /app
 
 # `[NX.11]` ⛔ ACÁ NO VA `CI=true`. Medido el 2026-09-21 con un 2×2 sobre un target trivial YA
@@ -215,7 +215,7 @@ RUN --mount=type=cache,id=trade-nx,target=/app/.nx/cache,sharing=locked \
 # ⚠️ El modo de falla que abre: un `require(variable)` no queda en el grafo de webpack → no entra
 # al manifiesto → no se instala → `MODULE_NOT_FOUND` recién en el arranque de prod. Por eso el
 # candado de abajo.
-FROM node:24-bookworm-slim AS prod-deps
+FROM node:22-bookworm-slim AS prod-deps
 WORKDIR /app
 
 ENV NPM_CONFIG_LOGLEVEL=warn \
@@ -226,14 +226,44 @@ ENV NPM_CONFIG_LOGLEVEL=warn \
 COPY .npmrc ./
 COPY --from=build-api /app/dist/apps/api/package.json      ./package.json
 COPY --from=build-api /app/dist/apps/api/package-lock.json ./package-lock.json
+# `[DEPS.8]` El package.json RAÍZ viaja sólo para leer de él los pines de abajo. No se instala.
+COPY package.json ./package.raiz.json
 
 # El `chown` va ACÁ y no en el `COPY --from=prod-deps` de los runners. Con `--chown`, BuildKit
 # tiene que crear un inodo nuevo por archivo al copiar entre etapas (no puede reusar los del
 # snapshot origen); sobre un node_modules eso son decenas de miles de archivos chicos y en el
 # build de prod del 2026-09-21 ese solo paso midió **1m 30s** — el 28% del build entero. Hecho
 # acá queda dentro de una capa que se cachea, y los runners copian preservando el owner.
+# ⛔ `[DEPS.8]` LA IMAGEN NO RESUELVE CON EL LOCK QUE PROBAMOS, Y ESO YA TIRÓ PRODUCCIÓN.
+#
+# `npm ci` acá corre contra el `package-lock.json` que GENERA webpack, no contra el del repo.
+# Ese lock sólo conoce lo que el grafo de imports alcanzó, así que un paquete que nadie importa
+# directo lo resuelve la restricción de cualquier transitivo — y puede quedar en otra versión
+# que la del árbol probado.
+#
+# Medido el 2026-10-30 en la imagen de `0bb5273c3`: `@redis/client` quedó en **5.12.1** (lo pide
+# `@keyv/redis@5.1.6`) mientras `redis`, `@redis/bloom`, `@redis/json`, `@redis/search` y
+# `@redis/time-series` quedaban en **6.3.1**. Los subpaquetes 6.x cargan internos de
+# `@redis/client` de SU MISMA versión, así que la API murió en el arranque con
+# `Cannot find module '@redis/client/dist/lib/commands/reply-utils'` → CrashLoopBackOff, DOS
+# despliegues seguidos. En el árbol del repo npm anida la 5.12.1 bajo `@keyv/redis` y hoistea
+# la 6.3.1; en el lock generado ganó la de abajo.
+#
+# ⚠️ Un `import` explícito NO lo arregla: mete el paquete en el grafo, pero la VERSIÓN la sigue
+#    eligiendo npm. Se probó en `0bb5273c3` y volvió a salir 5.12.1.
+#
+# ⭐ Por eso el pin se lee del `package.json` RAÍZ, que es el que declara lo que probamos
+#    (`@redis/client: ^6.3.1`). Hardcodear la versión acá envejecería en silencio el día que
+#    alguien suba redis.
 RUN --mount=type=cache,id=trade-npm,target=/root/.npm \
     npm ci --omit=dev --ignore-scripts --prefer-offline && \
+    PIN_REDIS_CLIENT="$(node -p "require('./package.raiz.json').dependencies['@redis/client'] || ''")" && \
+    if [ -n "$PIN_REDIS_CLIENT" ]; then \
+      echo "[DEPS.8] fijando @redis/client@$PIN_REDIS_CLIENT (el lock generado lo había dejado en $(node -p "try{require('@redis/client/package.json').version}catch(e){'ausente'}"))" && \
+      npm install --omit=dev --ignore-scripts --prefer-offline --no-save "@redis/client@$PIN_REDIS_CLIENT"; \
+    fi && \
+    node -e "const c=require('@redis/client/package.json').version, s=require('@redis/search/package.json').version; if (c.split('.')[0] !== s.split('.')[0]) { console.error('[DEPS.8] ⛔ @redis/client '+c+' y @redis/search '+s+' son de majors distintos: la API no arrancaría. Build detenido.'); process.exit(1) } console.log('[DEPS.8] ✓ @redis/client '+c+' alineado con @redis/search '+s)" && \
+    rm -f ./package.raiz.json && \
     chown -R node:node /app/node_modules
 
 # `[NX.10.1]` El candado corre ACÁ, no en los runners. `prod-deps` es sólo fuente de un
@@ -265,7 +295,7 @@ RUN node ./check-bundle-externals.js ./main.js /app/node_modules \
 # (Los tres Dockerfiles viejos de worker/portal/vendor NO tenían estos mounts: cada build
 # re-descargaba chromium, ~230 MB de closure, dos veces por release.)
 
-FROM node:24-bookworm-slim AS rt-base
+FROM node:22-bookworm-slim AS rt-base
 RUN --mount=type=cache,id=trade-apt-cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,id=trade-apt-lists,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
