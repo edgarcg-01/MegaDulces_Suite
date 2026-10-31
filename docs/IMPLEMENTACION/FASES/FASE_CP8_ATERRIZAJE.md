@@ -1151,6 +1151,8 @@ falta uno nuevo.
   por banco y mes; septiembre (firma simulada en memoria): 9 pólizas, las 9 frenadas porque ella ya las capturó.
 - **2026-10-31** — `[CP.8.96]` C0 de cobranza (§11.14): su forma está medida y el reparto por tasa de la tienda sale de
   los tickets de Kepler; todavía no se puede armar (de qué sucursal es cada depósito, TLMKT y rutas, huecos del ODS).
+- **2026-10-31** — `[CP.8.96]` bloqueos investigados (§11.14): el depósito → sucursal sale de Kepler para la tienda; los
+  huecos del ODS son fechas de arranque; faltan el reparto de TLMKT por equipo y la fuente exacta de la cifra diaria.
 
 ---
 
@@ -1760,3 +1762,57 @@ viejo de Caja General (casi sólo enero) y de importer: no son fuente.
 la cobertura de tickets por sucursal y mes; y la regla exacta del reparto por tasa hasta que casen casi todos los días.
 Con eso se decide si F-E se arma o se cambia el proceso. El duplicado de una póliza de ingreso también necesitará su
 regla en el dictamen.
+
+#### Los bloqueos, investigados (2026-10-31)
+
+Medido en prod, sólo lectura, julio a septiembre.
+
+**1. De qué sucursal es cada depósito — se deriva para la tienda.**
+- Cada depósito de cobranza de Bancos se buscó en las **entradas a banco de Kepler** (`analytics.kepler_bank_movements`):
+  la clave de banco de Kepler termina en la etiqueta de la cuenta de Bancos (4885, 2169…; 854 ↔ 5854), mismo importe y
+  día ±1, uno a uno. En septiembre casan **1,780 de 2,847 (62.5 %)**; el placebo (otra cuenta) casa 3.0 %. Son cobros
+  `U-A-5` (1,364) y `U-A-7` (412).
+- El 97.2 % de los renglones de banco de ella casa con su depósito, y el 72.6 % de ellos tiene entrada en Kepler.
+- La «sucursal» de Kepler es casi siempre la matriz (antes del 2-oct todo se capturaba ahí): **no dice quién vendió**.
+  Lo dice la **entidad del cobro `U-A-5`**, que es el cliente de mostrador de cada sucursal:
+
+| Su póliza | Entidad en Kepler | De sus renglones con liga |
+|---|---|---:|
+| Zamora Centro | `54-00` | 94 % |
+| Yurécuaro | `10-44` | 93 % |
+| 8 Esquinas | `40-00` | 90 % |
+| Morelia Madero | `32-00` | 85 % |
+| Padre Hidalgo | `10-00` | 82 % |
+| La Piedad Abastos | `42-00` | 74 % |
+| Morelia Abastos | `30-00` | 65 % |
+| Canindo | `50-00` | 58 % |
+
+- **Como predicción** (el mapa entidad → su póliza aprendido en un mes y probado en el siguiente; la póliza identificada
+  por su cuenta de clientes, porque ella le cambia el título): acierta **80.6 %** de julio a agosto y **70.4 %** de agosto a
+  septiembre. TLMKT Padre Hidalgo 76 %; **TLMKT Canindo y TLMKT Morelia 0–2 %**: sus cobros son `U-A-7` de clientes de
+  crédito capturados en la matriz para varios equipos, y ella los reparte **por equipo de telemarketing** (el concepto del
+  banco dice «VENTA TLMK CANINDO <telemarketista>»). Hace falta la liga cliente → telemarketista → equipo. NO MEDIDO.
+- Lo que no tiene entrada en Kepler: 369 depósitos de la Caja General (no es banco) y depósitos cuyo concepto del banco
+  ya nombra la sucursal («VTA SUC YURECUARO», «VENTAS PH», «VENTAS CANINDO»), que servirían de segunda fuente.
+
+**2. TLMKT y rutas.** Las cuentas de TLMKT son estables (clientes 12, 13 y 14 todos los meses); el origen de su cifra
+diaria no se midió todavía. NO MEDIDO.
+
+**3. La cobertura de tickets del ODS — no son huecos, son fechas de arranque.** Lo de ella entre tickets, por mes completo,
+da 0.93–1.04; los tickets empiezan en enero (La Piedad Abastos, 8 Esquinas), marzo (Yurécuaro), abril (Zamora), julio
+(Padre Hidalgo), septiembre (Canindo, Morelia Madero) y a mediados de septiembre (Morelia Abastos). **De octubre en
+adelante la fuente cubre las ocho.** Padre Hidalgo da 0.89–0.94 con el mes completo: sin explicar.
+
+**4. La cuenta de cada sucursal — resuelto.** Su cuenta de clientes es estable por sucursal y canal; el mapa sale de su
+historia: Padre Hidalgo 01→01, La Piedad Abastos 02→07, 8 Esquinas 03→03, Yurécuaro 04→18, Zamora 05→19, Canindo 06→06,
+Morelia Madero 07→08, Morelia Abastos 08→02 (código de Kepler → cuenta).
+
+**5. La regla exacta del reparto — su cifra no es la suma de tickets.** Ni el IVA ÷ 0.16 del encabezado ni la tasa de cada
+renglón la reproducen al centavo. En 8 Esquinas la mitad de los días queda a $1–2 de un importe suyo; la otra mitad se
+va decenas o cientos de pesos (mediana de la distancia en el 0 %: $47; p90: $602). No es redondeo: lo más probable es
+que tome la cifra del **corte de caja** de Kepler. NO MEDIDO.
+
+**Veredicto:** F-E sigue sin poder armarse, pero ya no por falta de liga: la tienda se puede ligar con Kepler. Lo que sigue,
+en orden: (a) el corte de caja de Kepler por tasa contra sus tríos diarios; (b) el reparto de TLMKT por equipo; (c) la
+segunda fuente para los depósitos sin entrada en Kepler. ⭐ Alternativa de proceso: que Bancos (CB) o Cortes/Sucursales
+capture la sucursal en cada depósito, en vez de derivarla.
