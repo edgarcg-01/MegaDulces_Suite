@@ -385,7 +385,8 @@ con quien opera la máquina antes de escribir su regla.
 
 ### 5.1 E-28 · La reposición, rehecha dentro del libro (2026-10-30)
 
-**Por qué está aquí.** El 29 y 30-oct la reposición de zona se construyó como módulo aparte
+**Por qué está aquí** (todo lo que salió mal, en
+[`POSTMORTEM_2026-10-30_HOJA_DE_ZONA.md`](POSTMORTEM_2026-10-30_HOJA_DE_ZONA.md)). El 29 y 30-oct la reposición de zona se construyó como módulo aparte
 (`[CGA-A.65]`: «hoja de gastos de zona») **sobre el núcleo viejo** (`finance.cash_ledger`), en
 paralelo a esta fase. El resultado, medido en prod el 30-oct:
 
