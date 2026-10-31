@@ -188,6 +188,17 @@ export class PaymentCalendarController {
     return this.svc.setPriorityRank(id, Number(body.priority_rank), req.user?.username || 'sistema');
   }
 
+  /**
+   * `[PGP.41]` **Qué hay que pagar**, sin que nadie lo pida día por día. Sólo lectura.
+   * Mismo permiso que ver el Calendario: decir qué conviene pagar no mueve dinero.
+   */
+  @Get('que-pagar')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'Qué hay que pagar: acreedores con ventana de pronto pago abierta, por dinero en riesgo.' })
+  quePagar() {
+    return this.svc.quePagar();
+  }
+
   @Post('days/:date/proponer-orden')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
   @ApiOperation({ summary: 'Propone el orden de pago del día (compromisos financieros → críticos → resto). Tesorería lo ajusta después.' })

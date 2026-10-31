@@ -68,6 +68,40 @@ export interface PaymentCalendarAllocationItem {
   pronto_estado: 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir' | null;
 }
 
+/**
+ * `[PGP.41]` **Qué hay que pagar, dicho por el sistema.** Un renglón por acreedor con ventana
+ * de pronto pago abierta que cierra dentro de 7 días y beneficio medido.
+ *
+ * Nace de un pedido de Edgar (2026-10-31): *«te pedí 100 % de automatización, ya el mismo
+ * sistema me debe decir qué pago»*. Hasta entonces el Calendario sabía todo esto y **no lo
+ * decía solo**: había que abrir el día y apretar «proponer», y la propuesta ordenaba por la
+ * factura más vieja, que nunca llega a lo que gana descuento.
+ *
+ * ⚠️ El descuento es la ventana **OBSERVADA** —lo que de hecho se cobró con ese proveedor—,
+ * no una condición pactada: ese dato no existe en ningún sistema. Guía medida, no promesa.
+ */
+export interface PagoSugerido {
+  proveedor_code: string;
+  proveedor_nombre: string;
+  facturas: number;
+  /** Lo que hay que pagarle para capturar el descuento. */
+  importe: number;
+  /** Lo que se gana si sale dentro de la ventana. */
+  gana: number;
+  /** Tasa observada (0–1); null si no se pudo medir. */
+  tasa: number | null;
+  /** Último día en que, históricamente, ese proveedor dio el descuento. */
+  cierra: string;
+  dias_restantes: number;
+  vence_la_mas_vieja: string | null;
+  /** Pesos de descuento por peso adelantado. Es lo que hace comparables dos acreedores. */
+  rendimiento: number | null;
+  /** De `v_supplier_account_proposal`: si su REP timbrado trae una CLABE verificable. */
+  cuenta_estado: string;
+  /** ⛔ `false` NO es «no se le puede pagar»: es «no se puede preparar una transferencia hoy». */
+  se_puede_preparar_hoy: boolean;
+}
+
 export interface PaymentCalendarAllocation {
   id: string;
   classification: string;

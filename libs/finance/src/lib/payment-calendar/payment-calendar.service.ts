@@ -906,6 +906,8 @@ export class PaymentCalendarService {
         beneficiary: string; concept: string; supplier_id?: string; branch_code?: string | null;
         // `[PGP.36]` Sólo el origen derivado los trae: los otros no tienen factura del ERP detrás.
         vence?: string | null;
+        /** `[PGP.40]` La etiqueta vino del universo completo: el ERP ya no debe esa factura. */
+        saldada?: boolean;
         pronto_fecha_limite?: string | null; pronto_tasa?: number | null;
         pronto_beneficio?: number | null; pronto_estado?: string | null;
       }>();
@@ -952,6 +954,48 @@ export class PaymentCalendarService {
               pronto_estado: r.pronto_estado ?? 'sin_medir',
             });
           }
+          /**
+           * `[PGP.40]` **Una factura que el ERP ya no debe TAMBIÉN tiene nombre.**
+           *
+           * ⛔ `analytics.v_supplier_payables` filtra `pendiente > 0.005`, así que la etiqueta de
+           * una factura saldada volvía vacía y el renglón pintaba «—» en el beneficiario y «Sin
+           * sucursal». `[PGP.35]` lo declaró en el contrato y **no lo resolvió en la pantalla**:
+           * el resultado es un pago que no dice **a quién se le paga**, que es lo primero que
+           * alguien necesita leer.
+           *
+           * ⭐ El nombre nunca se perdió: medido contra prod el 2026-10-31, las **33 de 33**
+           * líneas sin etiqueta lo tienen en `kepler_ods.kdxe` (la factura existe, con saldo 0),
+           * en `kepler_ods.kdxd` (el nombre del acreedor) y hasta en nuestro `catalog.suppliers`.
+           * Sólo hacía falta mirar el universo COMPLETO en vez de la deuda viva.
+           *
+           * Es una consulta más y **sólo cuando hay huérfanas**: el día sano no la paga.
+           */
+          const faltan = ids.filter((id) => !labels.has(`${source}:${id}`));
+          if (faltan.length) {
+            const rescate = await trx
+              .select(
+                trx.raw(`md5('kepler_payable|'||k.sucursal||'|'||k.c4||'|'||k.c5||'|'||btrim(k.c6))::uuid AS id`),
+                trx.raw(`coalesce(s.name, d.c3, btrim(k.c2)) AS beneficiary`),
+                trx.raw(`coalesce(nullif(btrim(k.c6), ''), 'Factura') AS concept`),
+                trx.raw(`s.id AS supplier_id`),
+                trx.raw(`k.sucursal AS branch_code`),
+              )
+              .from(trx.raw(`kepler_ods.kdxe k`))
+              .joinRaw(`LEFT JOIN LATERAL (SELECT c3 FROM kepler_ods.kdxd WHERE btrim(c2) = btrim(k.c2) LIMIT 1) d ON true`)
+              .joinRaw(`LEFT JOIN catalog.suppliers s ON btrim(s.code) = btrim(k.c2)`)
+              .whereRaw(`btrim(k.c1) = k.sucursal AND k.c3 = 'A'`)
+              .whereRaw(`md5('kepler_payable|'||k.sucursal||'|'||k.c4||'|'||k.c5||'|'||btrim(k.c6))::uuid = ANY(?::uuid[])`, [faltan]);
+            for (const r of rescate as { id: string; beneficiary: string; concept: string; supplier_id: string | null; branch_code: string | null }[]) {
+              // ⛔ Se rescatan SÓLO el nombre, el folio y la sucursal. La ventana de pronto pago
+              // NO: una factura saldada no tiene descuento que capturar, y publicarlo la pondría
+              // a competir por atención con el aviso de que no se puede pagar.
+              labels.set(`${source}:${r.id}`, {
+                beneficiary: r.beneficiary, concept: r.concept,
+                supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null,
+                saldada: true,
+              });
+            }
+          }
         } else {
           const rows = await trx(TABLE_BY_SOURCE[source] as string).whereIn('id', ids).select('id', 'beneficiary', 'concept');
           for (const r of rows as any[]) labels.set(`${source}:${r.id}`, { beneficiary: r.beneficiary, concept: r.concept ?? '—' });
@@ -975,7 +1019,10 @@ export class PaymentCalendarService {
         // saldo que no baja»—, con el dato ya en la mano y tirándose. No cuesta una consulta más.
         // `execute()` ya lo rechaza (:1346-1352), pero ahí llega una persona después de preparar,
         // autorizar y firmar: decirlo acá es decirlo ANTES de gastar el día.
-        const saldada = !label && it.obligation_source === 'kepler_payable';
+        // `[PGP.40]` Ya no se deduce de la ausencia de etiqueta: desde el rescate la etiqueta
+        // EXISTE y trae la marca. Se conserva el caso sin etiqueta por si una factura no
+        // estuviera ni en el universo completo — ahí sí no hay de dónde sacar nada.
+        const saldada = it.obligation_source === 'kepler_payable' && (!label || label.saldada === true);
         const arr = itemsByAllocation.get(it.allocation_id) ?? [];
         arr.push({
           ...it,
@@ -1087,6 +1134,29 @@ export class PaymentCalendarService {
    * Kepler los rotula `transferencia` porque su `kdm1.c31` sólo distingue tres valores y
    * `efectivo` no es uno. Por eso la caja se OFRECE y no se propone sola.
    */
+  /**
+   * `[PGP.41]` **Qué hay que pagar.** Lee `analytics.v_pago_sugerido` tal cual: la regla vive
+   * en la vista, no acá, para que cualquier superficie que la consulte diga lo mismo.
+   *
+   * ⛔ `analytics.*` no tiene RLS: el alcance lo da el filtro explícito de tenant, igual que
+   * el resto de este servicio.
+   */
+  async quePagar(): Promise<unknown[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
+      const { rows } = await trx.raw(
+        `SELECT proveedor_code, proveedor_nombre, facturas, importe::float8 AS importe,
+                gana::float8 AS gana, tasa::float8 AS tasa, cierra::text AS cierra,
+                dias_restantes, vence_la_mas_vieja::text AS vence_la_mas_vieja,
+                rendimiento::float8 AS rendimiento, cuenta_estado, se_puede_preparar_hoy
+           FROM analytics.v_pago_sugerido
+          ORDER BY dias_restantes ASC, gana DESC`,
+      );
+      return rows;
+    });
+  }
+
   async originAccounts(): Promise<PaymentOriginAccount[]> {
     this.tenantCtx.requireTenantId();
     return this.tk.run((trx) => trx('finance.bank_accounts')
