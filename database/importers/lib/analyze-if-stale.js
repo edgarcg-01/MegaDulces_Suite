@@ -98,7 +98,9 @@ async function analyzeIfStale(run, tabla, opt = {}) {
  * tardaba ~9 s, con seq scan.
  *
  * Qué hace: busca las tablas del schema con algún índice de expresión sin fila en `pg_stats`, las analiza y vuelve a
- * mirar. Una tabla vacía ya analizada (`reltuples = 0`) no cuenta: no tiene filas de las que sacar estadísticas.
+ * mirar. ⚠️ `pg_stats` sólo le muestra las estadísticas de un índice al DUEÑO de la tabla (o a un superusuario): corrida
+ * desde otro rol, todas parecen pendientes, el ANALYZE se las salta y la función las devuelve en `siguenSin`. Es lo
+ * correcto —ese rol no puede arreglarlas—, pero no dice que falten. El replicador corre como el dueño. Una tabla vacía ya analizada (`reltuples = 0`) no cuenta: no tiene filas de las que sacar estadísticas.
  * ⛔ Un ANALYZE sin permiso NO falla: avisa y se salta la tabla. Por eso devuelve las que SIGUEN sin estadísticas
  * después de analizar, y quien llama lo declara (ADR-056) en vez de darlo por hecho.
  *

@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 276 KB, 4870 líneas, 104 secciones.
+> **Índice navegable** — 277 KB, 4870 líneas, 104 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/GOTCHAS.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -110,7 +110,7 @@
 | 4861 | 4906 | 3 | 89. ⛔⛔ Un documento CANCELADO en Kepler deja su aplicación VIVA en `kdm5` — quien suma `kdm5.c13` cuenta diner |
 | 4907 | 4937 | 2 | 90. ⛔ `styleClass` en `p-inputicon` dibuja una lupa de 0 px, y `track i` sobre un esqueleto repite la llave (N |
 | 4938 | 4969 | 4 | 91. ⛔ Seis trampas de HERRAMIENTA que no avisan — y las seis cobraron en el ciclo de Caducidades (2026-10-16) |
-| 4970 | 4986 | 2 | 92. ⛔ Un índice de EXPRESIÓN sin `ANALYZE` no existe para el planificador — y la prueba que apaga `enable_seqs |
+| 4970 | 4986 | 3 | 92. ⛔ Un índice de EXPRESIÓN sin `ANALYZE` no existe para el planificador — y la prueba que apaga `enable_seqs |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4971,7 +4971,7 @@ Las pruebas `*-real.spec.ts` avisan con `console.warn` cuando falta la variable 
 
 ### Lo que pasó (2026-10-30)
 
-Las migraciones de CP.9.3 crearon nueve índices sobre `upper(btrim(uuid))` y parecidas en la réplica de ContPAQi, que ya estaba cargada. Las tablas tenían estadísticas de sus COLUMNAS (autovacuum las analizó después de la carga), pero no de la EXPRESIÓN: ésas sólo las junta un `ANALYZE` corrido **después** de crear el índice. Sin ellas, Postgres estima cualquier igualdad sobre la expresión con la selectividad por defecto, **el 0.5 % de la tabla**: para un UUID con 4 asociaciones estimaba **4,999** (el 0.5 % de 999,786), y la consulta del dictamen tardaba **~9 s** recorriendo `ct_asoccfdis` y `ct_movimientospoliza` enteras. Autovacuum no lo arregla: re-analiza cuando cambia el 10 % de las filas, y una réplica casi no cambia.
+Las migraciones de CP.9.3 crearon nueve índices sobre `upper(btrim(uuid))` y parecidas en la réplica de ContPAQi, que ya estaba cargada. Las tablas tenían estadísticas de sus COLUMNAS (autovacuum las analizó después de la carga), pero no de la EXPRESIÓN: ésas sólo las junta un `ANALYZE` corrido **después** de crear el índice. Sin ellas, Postgres estima cualquier igualdad sobre la expresión con la selectividad por defecto, **el 0.5 % de la tabla**: para un UUID con 4 asociaciones estimaba **4,999** (el 0.5 % de 999,786), y la consulta del dictamen tardaba **~9 s** recorriendo `ct_asoccfdis` y `ct_movimientospoliza` enteras. Autovacuum no lo arregla: re-analiza cuando cambia el 10 % de las filas, y una réplica casi no cambia. Con el `ANALYZE` (2026-10-31): estima 3 donde hay 4, y la consulta bajó a ~100–250 ms.
 
 ### Por qué la prueba no lo vio
 
@@ -4982,4 +4982,4 @@ La prueba de la migración hacía `SET LOCAL enable_seqscan = off` y comprobaba 
 - **Migración que crea un índice de expresión sobre una tabla con datos → `ANALYZE` de esa tabla en la misma migración.** Si ya se aplicó sin él, el `ANALYZE` va por `pgprod.sh`, no en una migración nueva: una migración que no crea objetos, `ops/prod/compuerta-migraciones.sh` la ve `NO_MEDIDO` y **frena el despliegue de todos**.
 - **La prueba de un índice mira el plan NATURAL**, con filas suficientes y las estadísticas como quedarían en prod, y empieza con un **control de respuesta conocida**: sin estadísticas de la expresión, el UUID se estima en el 0.5 % exacto de la tabla. Si el control no da, la prueba no reproduce el caso.
 - `analyzeIndicesSinEstadisticas` (`database/importers/lib/analyze-if-stale.js`) los encuentra y los analiza; la réplica de ContPAQi la corre en cada vuelta que escribe. ⛔ Un `ANALYZE` sin permiso **no falla**: avisa y se salta la tabla. Por eso la función devuelve lo que sigue pendiente.
-- Para ver si una expresión tiene estadísticas: `SELECT * FROM pg_stats WHERE tablename = '<nombre del ÍNDICE>'`. Aparecen con el nombre del índice, no con el de la tabla.
+- Para ver si una expresión tiene estadísticas: `SELECT * FROM pg_stats WHERE tablename = '<nombre del ÍNDICE>'`. Aparecen con el nombre del índice, no con el de la tabla. ⛔ **Sólo las ve el dueño de la tabla o un superusuario**: desde otro rol salen 0 filas aunque existan (desde `edgar`, 0 de 9 con las nueve ya puestas). Desde un rol de lectura, la prueba es la estimación de `EXPLAIN`.

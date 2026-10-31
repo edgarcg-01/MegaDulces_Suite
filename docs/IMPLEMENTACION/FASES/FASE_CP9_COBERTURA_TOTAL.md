@@ -574,6 +574,10 @@ cuántas pólizas entraron después. Testigo: los 8 cerrados tienen su póliza d
     que crear, `compuerta-migraciones.sh` la vería `NO_MEDIDO` y frenaría el despliegue de todos. Y para que no vuelva,
     el replicador corre `analyzeIndicesSinEstadisticas` en cada vuelta que escribe: analiza lo que tenga un índice de
     expresión sin estadísticas y declara en el latido lo que no pudo (GOTCHAS §92).
+  - ✅ **Corrido el 2026-10-31** (Edgar, por `pgprod.sh`, ~22 s las seis tablas). Medido después, sólo lectura: estima 3 filas para un UUID que tiene 4 (antes 4,999) y la consulta real del dictamen tarda 88–286 ms con 300 UUID, 104–157 ms con 500 y 249–633 ms con 2,050 (la primera en frío; antes ~9 s), con las mismas 360 filas de resultado.
+    El plan usa `ix_cp93_asoc_uuid`, `ix_cp93_mov_guid` e `ix_cp93_pol_guid`; con 2,050 UUID recorre `ct_polizas` (20 MB).
+    ⚠️ Desde un rol que no es dueño, `pg_stats` NO muestra las estadísticas de los índices: desde `edgar` salen 0 de 9
+    con las nueve ya puestas. La prueba es la estimación de `EXPLAIN`, no `pg_stats`.
   - ⚠️ **NO MEDIDO:** por qué los contadores de escritura de `contpaqi_ods` están en 0 si autovacuum sí analizó después
     de la carga (se reiniciaron más tarde). No cambia el arreglo.
 
