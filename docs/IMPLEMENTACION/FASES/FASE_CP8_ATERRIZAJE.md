@@ -1145,6 +1145,8 @@ falta uno nuevo.
   dictamen las frena traspaso por traspaso contra los diarios de ella. Septiembre: 15 de 15 frenadas.
 - **2026-10-31** — `[CP.8.93]` 🧪 en el armador de egresos (§11.12): 14 egresos con fecha basura dejan de desaparecer
   de su mes; se declaran en el mes de su estado de cuenta.
+- **2026-10-31** — `[CP.8.91]` C1 🧪 (§11.13): el armador de comisiones por banco y mes reproduce el 82.0 % de sus
+  renglones de banco con 95.6 % de precisión (placebo 5.2 %).
 
 ---
 
@@ -1632,3 +1634,61 @@ prod; tres mutantes la ponen en rojo. Con el agrupado roto, el lote basura sí s
 fecha fuera del periodo: la segunda defensa funciona, pero no es la que declara.
 
 **Para Finanzas, en CB:** corregir las 14 fechas (estados de febrero y agosto).
+
+### 11.13 🔨 `[CP.8.91]` Comisiones bancarias: la forma de ella, el armador y su A/B (2026-10-31)
+
+**Su forma, medida** en el staging de ContPAQi, enero a septiembre de 2026:
+- Una póliza de **egreso** (tipo 2) por **cuenta de banco y mes**: «PAGO COMISIONES <banco> <cuenta>». Son 117, de 10 a
+  16 al mes, con hasta 888 renglones; 79 de 113 van fechadas el último día del mes (el resto, del 23 al 30).
+- **Cargos agregados:** uno a 5200650000 «Comisiones y situaciones» por el total de las comisiones y uno a 1060000000
+  «IVA acreditable» por el total de su IVA. **Las mismas dos cuentas en las 117 pólizas, para todos los bancos.**
+- **Abonos uno por movimiento de banco:** cada comisión y cada IVA, aparte. El 90.6 % de sus renglones de banco casa
+  con un movimiento de Bancos (cuenta, importe, mes del estado); de los que casan, el 94 % es `comision_bancaria` o su
+  IVA.
+- La póliza de una cuenta de Banorte lleva además sus **pagos de crédito** (2140 y 5500): no son comisiones y este
+  armador no los arma.
+
+**Lo que eso decide:**
+- Como la cuenta es una sola para todos los bancos, **basta la firma por categoría que ya existe** (`[CP.8.53]`):
+  `comision_bancaria` → una cuenta de gasto. No hace falta otra forma de firma.
+- La forma es **mensual por banco**: es la opción (a) de **D6**, la recomendada, y es la que se mide aquí. Si Edgar
+  eligiera (b) diaria, cambia el agrupado, no el armador.
+
+**El armador (C1):** `libs/finance/src/lib/contpaqi/comisiones.ts`, puro como `poliza-egreso.ts`. Recibe las comisiones
+del mes de una cuenta, cada una con su IVA hermano (el 16 % el mismo día), y el **IVA suelto** del banco: el IVA sin
+un egreso del 16 % ese día, que ella asienta en la misma póliza. Arma los dos cargos agregados y un abono por
+movimiento, fechada a fin de mes. No arma con una cuenta que no sea de gasto (52), ni sin comisiones.
+`comisiones.spec.ts`: 9 casos con su control.
+
+**El A/B (C1)**, con el armador real alimentado por el mismo camino de lectura del puente (`leerEgresos`), enero a
+septiembre:
+
+| | |
+|---|---|
+| Sus renglones de banco reproducidos | **8,509 de 10,381 (82.0 %)** |
+| Precisión: de lo que arma, lo que ella también tiene | **95.6 %** |
+| Placebo: el armado de un mes contra sus pólizas del mes siguiente | 5.2 % de los renglones |
+| Pólizas (banco × mes) | ella 113 · el armado 72 · en las dos 71 |
+
+⚠️ La igualdad póliza por póliza **no sirve de medida**: las cuentas con cargos fijos repiten la misma póliza mes a mes,
+y el placebo da 12 de 60 «iguales». La medida es por renglón.
+
+**Lo que falta, por causa** (1,872 renglones):
+
+| Causa | Renglones | De quién es |
+|---|---:|---|
+| El estado de cuenta del mes no está cargado | 706 | Finanzas (CB) |
+| La comisión está en Bancos como «compra con tarjeta» (con su IVA) | 461 | Finanzas (CB) |
+| El movimiento no tiene categoría (con su IVA) | 316 | Finanzas (CB) |
+| No hay movimiento en Bancos con ese importe | 268 | — |
+| Pagos de crédito de la póliza de Banorte | 54 | no es de este armador |
+| Otros (cobranza, comisiones de venta, IVA sin pareja) | 67 | — |
+
+O sea: el 79 % de lo que falta es dato de Bancos. El IVA suelto, que era el único hueco del armador (242 renglones),
+ya entra: sin él la cobertura era 79.8 %.
+
+En octubre, con lo cargado hoy, armaría 8 pólizas con 1,362 renglones de banco.
+
+**Lo que sigue (C2):** registrarlo en el armado cuando `comision_bancaria` esté firmada, sacando sus comisiones del
+lote del día, y que el dictamen busque el duplicado de una póliza **agrupada** (muchos abonos al banco) renglón por
+renglón contra las pólizas de egreso de ella del mes, como con los traspasos.
