@@ -577,7 +577,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <!-- [PGP.15] La propuesta ya esta hecha al entrar: era un boton «Sugerir armado» que
                          habia que encontrar y apretar para ver algo que el sistema ya sabia calcular. -->
                     <div class="pg-prop" role="group" aria-label="Propuesta para este día">
-                      <p class="pg-prop-why">Propuesta: lo vencido o que vence este día, <b>un pago por proveedor y sucursal</b>, lo más viejo primero, hasta donde alcance el tope. Quita lo que no quieras pagar hoy.</p>
+                      <!-- [PGP.42] La propuesta se describe como es, y cuando NO hay tope lo dice:
+                           «cabe» no se puede afirmar sin presupuesto, y nada viene tildado porque
+                           marcar por omision seria elegir cuanto gastar en lugar de Presupuestos. -->
+                      @if (armadoSinTope()) {
+                        <p class="pg-prop-why">Propuesta: lo vencido o que vence este día, y lo que pierde descuento si se espera, <b>un pago por proveedor y sucursal</b>.
+                          <b class="pg-prop-not">Presupuestos no fijó el tope de este día</b>, así que no se puede decir qué cabe ni se marca nada solo: elegí vos qué entra.</p>
+                      } @else {
+                        <p class="pg-prop-why">Propuesta: lo vencido o que vence este día, y lo que pierde descuento si se espera, <b>un pago por proveedor y sucursal</b>, lo vencido primero, hasta donde alcance el tope. Quita lo que no quieras pagar hoy.</p>
+                      }
                       @for (g of armadoCaben(); track g.key) {
                         <label class="pg-prop-row">
                           <p-checkbox [binary]="true" [ngModel]="armadoOn().has(g.key)" (onChange)="toggleArmado(g.key)" [ariaLabel]="'Incluir ' + g.beneficiary + ' ' + branchLabel(g.branch)" />
@@ -1367,6 +1375,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-qp-i { grid-column:2; color:var(--fg-2); }
     .pg-qp-g { grid-column:3; min-width:6rem; text-align:right; }
     .pg-qp-m { margin:var(--sp-1) 0 0; font-size:var(--fs-xs); color:var(--fg-3); }
+    .pg-prop-not { color:var(--warn-fg); }
     .pg-qp-nm { margin:0 0 var(--sp-3); font-size:var(--fs-xs); color:var(--warn-fg);
                 border-left:2px solid var(--warn-fg); padding-left:var(--sp-2); }
     .pg-sec-pronto-k { color:var(--fg-3); }
@@ -2673,6 +2682,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   readonly armadoCaben = computed(() => (this.armado() ?? []).filter((g) => g.fits));
   readonly armadoFuera = computed(() => (this.armado() ?? []).filter((g) => !g.fits));
   readonly armadoFueraTotal = computed(() => this.armadoFuera().reduce((s, g) => s + g.total, 0));
+  /** `[PGP.42]` El día no tiene tope: se propone, pero «cabe» no se puede afirmar. */
+  readonly armadoSinTope = signal(false);
   readonly verFuera = signal(false);
   readonly armadoCargando = signal(false);
   readonly armadoError = signal<string | null>(null);
@@ -2700,7 +2711,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   async proponer(): Promise<void> {
     const day = this.selectedDay();
     this.armadoError.set(null);
-    if (!day || this.allocations().length || this.isReleased() || !day.summary.capacity_defined || day.date < this.todayIso) {
+    // `[PGP.42]` ⛔ Antes acá había `!day.summary.capacity_defined`, y era una CONTRADICCIÓN con
+    // lo que la propia pantalla dice: «Presupuestos no fijó el tope de este día. **Se pueden
+    // armar pagos**, pero el día no se autoriza». Se podían armar a mano; el sistema no
+    // proponía nada. Medido el 2026-10-31: **2 de los 7 días de la semana** estaban sin tope, y
+    // en esos el panel salía vacío aunque hubiera descuento venciendo ese mismo día.
+    if (!day || this.allocations().length || this.isReleased() || day.date < this.todayIso) {
       this.armado.set(null);
       return;
     }
@@ -2716,9 +2732,20 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       }
       if (this.selectedDate() !== fecha) return; // se cambió de día mientras se leía
       const programables = this.deudaCompleta.filter((o) => !this.enRevision(o));
-      const groups = sugerirArmado(programables, fecha, Number(day.summary.remaining_amount ?? 0));
+      /**
+       * `[PGP.42]` Sin tope no se puede decir qué CABE, así que no se dibuja un «cabe» que
+       * nadie midió (ADR-056). Se propone igual —que es lo que faltaba— y se declara.
+       *
+       * ⛔ Y no se auto-marca nada: marcar por omisión contra un presupuesto que Presupuestos
+       * todavía no fijó sería elegir cuánto gastar en su lugar. La propuesta se ve; tildarla
+       * es de quien paga.
+       */
+      const conTope = !!day.summary.capacity_defined;
+      const room = conTope ? Number(day.summary.remaining_amount ?? 0) : Number.POSITIVE_INFINITY;
+      const groups = sugerirArmado(programables, fecha, room);
       this.armado.set(groups);
-      this.armadoOn.set(new Set(groups.filter((g) => g.fits).map((g) => g.key)));
+      this.armadoSinTope.set(!conTope);
+      this.armadoOn.set(conTope ? new Set(groups.filter((g) => g.fits).map((g) => g.key)) : new Set());
     } catch (e) {
       this.armado.set(null);
       this.armadoError.set(this.errMsg(e, 'No se pudo leer la deuda para proponer el día.'));

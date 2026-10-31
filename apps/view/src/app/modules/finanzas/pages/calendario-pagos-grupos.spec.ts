@@ -28,6 +28,24 @@ describe('[TP.16.4] sugerirArmado — lo vencido, un pago por proveedor y sucurs
     const s = sugerirArmado(lista, '2026-10-16', 70000);
     expect(s.map((x) => x.fits)).toEqual([true, true, false, false]);
   });
+
+  /**
+   * `[PGP.42]` Un dia SIN tope de Presupuestos. Antes la pantalla no proponia nada en esos dias
+   * -- medido el 2026-10-31: 2 de los 7 de la semana -- aunque ella misma dijera «se pueden
+   * armar pagos». Ahora se propone con `room = Infinity` y la pantalla DECLARA que no puede
+   * decir que cabe.
+   */
+  it('sin tope (room = Infinity) propone TODO y nada queda fuera', () => {
+    const s = sugerirArmado(lista, '2026-10-16', Number.POSITIVE_INFINITY);
+    expect(s.length).toBeGreaterThan(0);
+    expect(s.every((x) => x.fits)).toBe(true);
+  });
+
+  it('CONTROL NEGATIVO · con tope 0 no cabe nada, y la lista NO queda vacia', () => {
+    const s = sugerirArmado(lista, '2026-10-16', 0);
+    expect(s.length).toBeGreaterThan(0);
+    expect(s.every((x) => x.fits)).toBe(false);
+  });
 });
 
 /**
